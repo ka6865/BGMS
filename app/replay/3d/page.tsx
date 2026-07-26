@@ -20,6 +20,7 @@ import {
   resolveReplay3DRequest,
   type Replay3DRequest,
 } from "@/lib/pubg-analysis/replay3dRequest";
+import { shouldUseSingleTileFallback } from "@/lib/replay/tile-load";
 
 // PUBG 맵 크기 상수 (cm)
 const THREE_MAP_SIZE = 100; // Three.js 공간 상의 가로세로 크기
@@ -140,7 +141,7 @@ async function buildHighResTileTexture(mapName: string): Promise<HTMLCanvasEleme
   canvas.height = CANVAS_SIZE;
   const ctx = canvas.getContext("2d")!;
 
-  const promises: Promise<void>[] = [];
+  const promises: Promise<boolean>[] = [];
   for (let row = 0; row < GRID; row++) {
     for (let col = 0; col < GRID; col++) {
       const fileX = col;              // x는 열과 동일 방향 (좌→우)
@@ -150,20 +151,25 @@ async function buildHighResTileTexture(mapName: string): Promise<HTMLCanvasEleme
       const destY = row * TILE_PX;
 
       promises.push(
-        new Promise<void>((resolve) => {
+        new Promise<boolean>((resolve) => {
           const img = new Image();
           img.onload = () => {
             ctx.drawImage(img, destX, destY, TILE_PX, TILE_PX);
-            resolve();
+            resolve(true);
           };
-          img.onerror = () => resolve(); // 실패 타일은 빈칸으로 처리
+          img.onerror = () => resolve(false);
           img.src = url;
         })
       );
     }
   }
 
-  await Promise.all(promises);
+  const tileResults = await Promise.all(promises);
+  const loadedTiles = tileResults.filter(Boolean).length;
+  if (shouldUseSingleTileFallback(loadedTiles, GRID * GRID)) {
+    throw new Error(`3D 지도 타일 로딩 실패: ${loadedTiles}/${GRID * GRID}`);
+  }
+
   return canvas;
 }
 
