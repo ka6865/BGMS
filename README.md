@@ -8,7 +8,7 @@
 ---
 
 ## 🚀 사이트 바로가기
-**공식 도메인:** [https://bgms.kr](https://bgms.kr)  
+**서비스 도메인:** [https://bgms.kr](https://bgms.kr)  
 *배틀그라운드의 모든 맵 정보와 AI 분석을 한곳에서 확인하세요.*
 
 ---
