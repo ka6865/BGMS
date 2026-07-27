@@ -20,6 +20,7 @@ export type PubgAnalysisStep =
   | "benchmark_lookup"
   | "analysis_engine"
   | "telemetry_payload"
+  | "telemetry_cache_persistence"
   | "telemetry_cache_finalize";
 
 export type PubgMatchErrorClassification = {
@@ -67,6 +68,12 @@ export function classifyPubgMatchError(input: {
   }
   if (input.stage === "participant_lookup") {
     return { errorCode: "PUBG_MATCH_PARTICIPANT_NOT_FOUND", responseStatus: 404 };
+  }
+  if (input.stage === "analysis" && input.analysisStep === "telemetry_cache_persistence") {
+    return {
+      errorCode: "PUBG_MATCH_ANALYSIS_TELEMETRY_CACHE_PERSISTENCE",
+      responseStatus: 503,
+    };
   }
   if (input.stage === "analysis") {
     const suffix = input.analysisStep

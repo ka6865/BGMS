@@ -2,15 +2,38 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TelemetryMapCacheRegistryRow } from "./telemetryMapCache";
 
+export class TelemetryRegistryError extends Error {
+  readonly operation: "reserve" | "finalize";
+  readonly code: string | null;
+  readonly status: number | null;
+  readonly retryCount: number;
+
+  constructor(
+    operation: "reserve" | "finalize",
+    error: {
+      code?: string | null;
+      status?: number | null;
+      retryCount?: number;
+    },
+  ) {
+    super(`telemetry-cache-${operation}-failed`);
+    this.name = "TelemetryRegistryError";
+    this.operation = operation;
+    this.code = error.code ?? null;
+    this.status = error.status ?? null;
+    this.retryCount = error.retryCount ?? 0;
+  }
+}
+
 export async function upsertTelemetryMapCacheReservation(
   supabase: SupabaseClient,
   row: TelemetryMapCacheRegistryRow,
 ): Promise<void> {
-  const { error } = await supabase
+  const { error, status } = await supabase
     .from("telemetry_map_cache_entries")
     .upsert(row, { onConflict: "match_id,platform,player_id,mode,telemetry_version" });
   if (error) {
-    throw new Error("텔레메트리 캐시 레지스트리 저장에 실패했습니다.");
+    throw new TelemetryRegistryError("reserve", { code: error.code, status });
   }
 }
 
@@ -31,7 +54,7 @@ export async function finalizeTelemetryMapCacheLifecycle(
   input: FinalizeTelemetryMapCacheInput,
 ): Promise<void> {
   const processed = input.processed;
-  const { error } = await supabase.rpc("finalize_telemetry_cache_write", {
+  const { error, status } = await supabase.rpc("finalize_telemetry_cache_write", {
     p_match_id: input.row.match_id,
     p_map_name: input.mapName,
     p_game_mode: input.gameMode,
@@ -48,6 +71,6 @@ export async function finalizeTelemetryMapCacheLifecycle(
     p_processed_updated_at: processed?.updatedAt ?? null,
   });
   if (error) {
-    throw new Error("텔레메트리 캐시 수명주기 완료에 실패했습니다.");
+    throw new TelemetryRegistryError("finalize", { code: error.code, status });
   }
 }

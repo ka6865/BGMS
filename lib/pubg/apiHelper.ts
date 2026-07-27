@@ -6,6 +6,7 @@ interface ApiErrorRecord {
   status: number;
   message: string;
   detail?: string;
+  errorCode?: string;
 }
 
 export interface PubgApiErrorContext {
@@ -52,7 +53,14 @@ export async function reportPubgApiError(
 ) {
   const now = Date.now();
   const { route, status, message, detail, context, notify = true } = input;
-  errorQueue.push({ timestamp: now, route, status, message, detail });
+  errorQueue.push({
+    timestamp: now,
+    route,
+    status,
+    message,
+    detail,
+    errorCode: context?.errorCode,
+  });
 
   // DB에 비동기 에러 로그 적립
   supabaseAdmin
@@ -87,7 +95,7 @@ export async function reportPubgApiError(
 
   // 5분 동안 발생한 에러 수가 임계치에 도달하고 쿨다운이 지난 경우 알림 전송
   if (notify && errorQueue.length >= ERROR_THRESHOLD && now - lastAlertSentAt > ALERT_COOLDOWN) {
-    const alertKey = `${route}:${status}`;
+    const alertKey = `${route}:${status}:${context?.errorCode ?? "unknown"}`;
     if (await reserveDiscordAlertWindow(alertKey, now)) {
       lastAlertSentAt = now;
       await sendAlertToDiscord(errorQueue.length, [...errorQueue]);
@@ -97,15 +105,15 @@ export async function reportPubgApiError(
 
 async function reserveDiscordAlertWindow(alertKey: string, timestamp: number): Promise<boolean> {
   const windowStartedAt = new Date(Math.floor(timestamp / ALERT_COOLDOWN) * ALERT_COOLDOWN).toISOString();
-  const { error } = await supabaseAdmin
-    .from("pubg_api_alert_deliveries")
-    .insert({ alert_key: alertKey, window_started_at: windowStartedAt });
+  const { data, error } = await supabaseAdmin.rpc(
+    "reserve_pubg_api_alert_delivery",
+    {
+      p_alert_key: alertKey,
+      p_window_started_at: windowStartedAt,
+    },
+  );
 
-  if (!error) return true;
-  if (error.code === "23505") return false;
-
-  console.error("[MONITORING ALERT RESERVATION FAIL]:", error.message);
-  return false;
+  return !error && data === true;
 }
 
 /**
@@ -161,7 +169,6 @@ async function sendAlertToDiscord(errorCount: number, recentErrors: ApiErrorReco
     if (!res.ok) {
       throw new Error(`Discord API responded with code: ${res.status}`);
     }
-    console.log("[MONITORING] Discord alert successfully sent.");
   } catch (err: any) {
     console.error("[MONITORING] Failed to dispatch Discord Alert:", err.message);
   }
