@@ -384,6 +384,9 @@ describe("telemetry cleanup registry", () => {
     expect(migration).toContain("set search_path = ''");
     expect(migration).not.toContain("lock table public.telemetry_map_cache_entries");
     expect(migration).toContain("for update skip locked");
+    expect(migration).toContain("pg_advisory_xact_lock");
+    expect(migration).toContain("pg_try_advisory_xact_lock");
+    expect(migration).toContain("create trigger telemetry_cache_match_lock");
     expect(migration).toContain("order by cache.match_id");
     expect(migration).toContain("cache.updated_at >= p_cutoff");
     expect(migration).toContain("cache.updated_at < p_cutoff");

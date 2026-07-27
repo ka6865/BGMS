@@ -124,6 +124,50 @@ grant execute on function public.finalize_telemetry_cache_write(
   timestamptz, text, text, jsonb, timestamptz
 ) to service_role;
 
+create or replace function public.lock_telemetry_cache_match()
+returns trigger
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+declare
+  first_match_id text;
+  second_match_id text;
+begin
+  if tg_op = 'DELETE' then
+    first_match_id := old.match_id;
+  elsif tg_op = 'UPDATE' and old.match_id is distinct from new.match_id then
+    first_match_id := least(old.match_id, new.match_id);
+    second_match_id := greatest(old.match_id, new.match_id);
+  else
+    first_match_id := new.match_id;
+  end if;
+
+  perform pg_advisory_xact_lock(hashtextextended(first_match_id, 1952805741));
+  if second_match_id is not null then
+    perform pg_advisory_xact_lock(hashtextextended(second_match_id, 1952805741));
+  end if;
+
+  if tg_op = 'DELETE' then
+    return old;
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.lock_telemetry_cache_match()
+  from public, anon, authenticated;
+grant execute on function public.lock_telemetry_cache_match()
+  to service_role;
+
+drop trigger if exists telemetry_cache_match_lock
+  on public.telemetry_map_cache_entries;
+create trigger telemetry_cache_match_lock
+before insert or update or delete
+on public.telemetry_map_cache_entries
+for each row
+execute function public.lock_telemetry_cache_match();
+
 create or replace function public.cleanup_expired_telemetry_matches(
   p_match_ids text[],
   p_cutoff timestamptz,
@@ -136,9 +180,12 @@ security invoker
 set search_path = ''
 as $$
 declare
+  requested_match_ids text[];
+  advisory_locked_match_ids text[] := array[]::text[];
   locked_cache_ids bigint[];
   locked_master_match_ids text[];
   eligible_match_ids text[];
+  candidate_match_id text;
 begin
   if p_match_ids is null
     or p_cutoff is null
@@ -149,9 +196,33 @@ begin
     raise exception 'telemetry-cleanup-invalid-rpc-input' using errcode = '22023';
   end if;
 
+  select coalesce(
+    array_agg(distinct input.match_id order by input.match_id),
+    array[]::text[]
+  )
+  into requested_match_ids
+  from unnest(p_match_ids) as input(match_id)
+  where input.match_id is not null;
+
+  foreach candidate_match_id in array requested_match_ids
+  loop
+    if pg_try_advisory_xact_lock(
+      hashtextextended(candidate_match_id, 1952805741)
+    ) then
+      advisory_locked_match_ids := array_append(
+        advisory_locked_match_ids,
+        candidate_match_id
+      );
+    end if;
+  end loop;
+
+  if cardinality(advisory_locked_match_ids) = 0 then
+    return;
+  end if;
+
   with requested as (
-    select distinct input.match_id
-    from unnest(p_match_ids) as input(match_id)
+    select input.match_id
+    from unnest(advisory_locked_match_ids) as input(match_id)
     order by input.match_id
   ), locked_cache as (
     select cache.id, cache.match_id
@@ -160,16 +231,11 @@ begin
     order by cache.match_id, cache.id
     for update of cache skip locked
   )
-  select
-    coalesce(
-      array_agg(locked_cache.id order by locked_cache.match_id, locked_cache.id),
-      array[]::bigint[]
-    ),
-    coalesce(
-      array_agg(locked_cache.match_id order by locked_cache.match_id),
-      array[]::text[]
-    )
-  into locked_cache_ids, eligible_match_ids
+  select coalesce(
+    array_agg(locked_cache.id order by locked_cache.match_id, locked_cache.id),
+    array[]::bigint[]
+  )
+  into locked_cache_ids
   from locked_cache;
 
   select coalesce(
@@ -178,8 +244,8 @@ begin
   )
   into eligible_match_ids
   from (
-    select distinct input.match_id
-    from unnest(eligible_match_ids) as input(match_id)
+    select input.match_id
+    from unnest(advisory_locked_match_ids) as input(match_id)
   ) as candidate
   where not exists (
     select 1

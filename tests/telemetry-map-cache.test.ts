@@ -247,6 +247,19 @@ describe("telemetry map cache", () => {
     expect(finalize).toHaveBeenCalledOnce();
   });
 
+  it("권한 오류 finalize는 재시도하지 않는다", async () => {
+    const finalize = vi.fn().mockRejectedValue(
+      new TelemetryRegistryError("finalize", { code: "42501", status: 403 }),
+    );
+
+    await expect(writeTelemetryMapCache(
+      identity,
+      payload,
+      createDeps({ finalize, sleep: vi.fn().mockResolvedValue(undefined), random: () => 0 }),
+    )).rejects.toMatchObject({ code: "42501", retryCount: 0 });
+    expect(finalize).toHaveBeenCalledOnce();
+  });
+
   it("registry finalize가 Supabase 최상위 5xx status를 보존해 재시도한다", async () => {
     const rpc = vi.fn()
       .mockResolvedValueOnce({

@@ -54,6 +54,7 @@ DB 혼잡 및 잠금 대기가 캐시 예약·완료 요청의 statement timeout
 
 `cleanup_expired_telemetry_matches`는 테이블 전체 `share row exclusive` 잠금을 사용하지 않는다.
 
+- registry DML trigger와 cleanup은 같은 match ID advisory transaction lock을 사용해 미커밋 writer와 master-only cleanup을 직렬화한다.
 - 정리 후보는 match_id 오름차순으로 제한한다.
 - `match_master_telemetry`와 `telemetry_map_cache_entries`의 해당 행만 `FOR UPDATE SKIP LOCKED`로 확보한다.
 - 잠긴 행은 이번 정리에서 건너뛰며, 이후 정리 실행에서 다시 후보가 된다.
@@ -67,6 +68,14 @@ DB 혼잡 및 잠금 대기가 캐시 예약·완료 요청의 statement timeout
 - `detail`: 외부 노출 없이 Supabase code, HTTP status, retry count, elapsed time을 JSON으로 기록한다.
 - Discord는 동일 route/status/error code별 10분 창 하나만 발송한다.
 - `pubg_api_alert_deliveries`의 중복 예약은 `ON CONFLICT DO NOTHING`으로 처리해 예상된 primary-key 충돌을 Postgres error log에 남기지 않는다.
+
+## 확정 운영 계약
+
+- `/api/pubg/match`의 telemetry cache persistence는 best-effort다. cache reserve 또는 finalize가 일시 오류 재시도를 소진해도 분석과 `persistMatchAnalysis`가 성공했다면 민감한 DB 오류를 노출하지 않는 200 분석 응답을 반환한다. 실패는 `pubg_api_errors`의 `analysis:telemetry_cache_persistence` 단계로 관측한다.
+- `/api/pubg/telemetry`는 리플레이 객체를 직접 제공하는 경계이므로 같은 best-effort 응답 계약을 적용하지 않는다. ready registry와 완료된 R2 객체가 있어야 signed URL을 반환한다.
+- registry INSERT/UPDATE/DELETE와 `cleanup_expired_telemetry_matches`는 같은 match ID 기반 transaction advisory lock을 공유한다. cleanup은 잠금을 기다리지 않고 획득하지 못한 match를 건너뛰므로, 아직 snapshot에 보이지 않는 미커밋 reservation과 cache row가 없는 만료 master 정리를 안전하게 구분한다.
+- cleanup은 advisory lock을 획득한 대상의 cache/master 행만 `FOR UPDATE SKIP LOCKED`로 확보한다. 잠긴 cache 행이 하나라도 있는 match는 해당 실행에서 전부 건너뛰고, 잠기지 않은 다른 match와 writer가 없는 master-only match는 계속 정리한다. 건너뛴 match는 잠금 해제 후 다음 cleanup 실행에서 같은 cutoff·lease 조건을 다시 검증한다.
+- `verify:telemetry-db`는 master-only 정리, 미커밋 writer 보호, 동일 match의 일부 cache 행 잠금, 다른 match의 비대기 정리, 다음 실행 복구를 검증한다. 과거 finalize의 테이블 잠금 순서를 전제로 한 검증은 사용하지 않는다.
 
 ## 변경 범위
 
