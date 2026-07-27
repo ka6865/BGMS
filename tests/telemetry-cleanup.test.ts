@@ -374,27 +374,25 @@ describe("telemetry cleanup registry", () => {
     }, dependencies)).rejects.toThrow("telemetry-cleanup-invalid-rpc-result");
   });
 
-  it("마이그레이션이 writer를 table lock·cutoff 재검증·순차 삭제로 보호한다", () => {
+  it("마이그레이션이 writer를 행 잠금·cutoff 재검증·순차 삭제로 보호한다", () => {
     const migration = fs.readFileSync(path.resolve(
-      "supabase/migrations/20260718152309_telemetry_map_cache_entries.sql",
+      "supabase/migrations/20260727000000_telemetry_cache_lock_resilience.sql",
     ), "utf8");
 
     expect(migration).toContain("cleanup_expired_telemetry_matches");
     expect(migration).toContain("security invoker");
     expect(migration).toContain("set search_path = ''");
-    expect(migration).toContain("lock table public.telemetry_map_cache_entries");
-    expect(migration).toContain("in share row exclusive mode");
+    expect(migration).not.toContain("lock table public.telemetry_map_cache_entries");
+    expect(migration).toContain("for update skip locked");
+    expect(migration).toContain("order by cache.match_id");
     expect(migration).toContain("cache.updated_at >= p_cutoff");
     expect(migration).toContain("cache.updated_at < p_cutoff");
     expect(migration).toContain("p_now timestamptz");
     expect(migration).toContain(
       "cleanup_expired_telemetry_matches(text[], timestamptz, numeric, timestamptz)",
     );
-    expect(migration).toContain(
-      "drop function if exists public.cleanup_expired_telemetry_matches",
-    );
     expect(migration).toContain("lease_expires_at >= p_now");
-    expect(migration).toContain("lease_expires_at < p_now");
+    expect(migration).toContain("cache.lease_expires_at < p_now");
     expect(migration).not.toContain("statement_timestamp()");
     expect(migration).toContain("telemetry-cleanup-postcondition-failed");
     expect(migration).toContain("master.match_id is null");
