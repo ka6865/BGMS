@@ -159,7 +159,9 @@ export default function TermsPage() {
           </li>
           <li>
             BGMS는 KRAFTON 및 PUBG Corporation의 공식 서비스가 아닌 팬 기반 비공식
-            서비스입니다. PUBG 관련 상표, 이미지, 데이터의 저작권은 KRAFTON에 있습니다.
+            서비스이며, KRAFTON 및 PUBG Corporation과 제휴, 후원, 보증 관계가 아닙니다.
+            PUBG, PLAYERUNKNOWN&apos;S BATTLEGROUNDS and all related logos are trademarks of
+            PUBG Corporation or its affiliates.
           </li>
         </ul>
       </Section>
