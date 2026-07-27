@@ -549,7 +549,7 @@ const MapShell = memo(({
                   onClick={() => setIsMenuOpen(false)}
                 />
               )}
-              <TelemetrySidebar currentStates={safeCurrentStates} teamNames={safeTeamNames} />
+              <TelemetrySidebar currentStates={safeCurrentStates} />
             </div>
           )}
         </div>

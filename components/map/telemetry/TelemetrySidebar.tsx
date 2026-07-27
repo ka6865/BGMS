@@ -3,16 +3,15 @@ import { PlayerState } from "../../../hooks/useTelemetry";
 
 interface TelemetrySidebarProps {
   currentStates: Record<string, PlayerState>;
-  teamNames: string[];
 }
 
-export const TelemetrySidebar: React.FC<TelemetrySidebarProps> = ({ currentStates, teamNames }) => {
+export const TelemetrySidebar: React.FC<TelemetrySidebarProps> = ({ currentStates }) => {
   const players = Object.values(currentStates);
   
   // 팀별 그룹화
   const teams: Record<number, PlayerState[]> = {};
   players.forEach((p) => {
-    const tid = p.teamId || 999;
+    const tid = p.teamId ?? 999;
     if (!teams[tid]) teams[tid] = [];
     teams[tid].push(p);
   });
@@ -51,13 +50,13 @@ export const TelemetrySidebar: React.FC<TelemetrySidebarProps> = ({ currentState
             >
               <div className="px-3 py-1.5 bg-black/20 flex justify-between items-center border-b border-white/5">
                 <span className={`text-[10px] font-black ${isUserTeam ? "text-[#F2A900]" : "text-gray-500"}`}>
-                  TEAM {tid}
+                  {tid === 0 ? "TEAM ?" : `TEAM ${tid}`}
                 </span>
                 {isUserTeam && <span className="text-[10px] bg-[#F2A900] text-black px-1 rounded font-bold">YOUR SQUAD</span>}
               </div>
               
               <div className="divide-y divide-white/5">
-                {teamPlayers.sort((a, b) => (a.isDead ? 1 : -1)).map((p) => (
+                {teamPlayers.sort((a, b) => Number(a.isDead) - Number(b.isDead)).map((p) => (
                   <div 
                     key={p.name} 
                     className={`px-3 py-2 flex justify-between items-center group hover:bg-white/5 transition-colors ${

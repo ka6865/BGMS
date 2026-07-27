@@ -7,6 +7,7 @@ export interface TelemetryEvent {
   type: "position" | "enemy_position" | "ride" | "leave" | "kill" | "groggy" | "took_damage" | "shot" | "revive" | "create" | "throw" | "throw_explode" | "grenade" | "smoke" | "damage";
   time: string;
   name?: string;
+  accountId?: string;
   x: number;
   y: number;
   z?: number;
@@ -21,6 +22,11 @@ export interface TelemetryEvent {
   distance?: number | null; 
   victimX?: number; 
   victimY?: number; 
+  teamId?: number;
+  health?: number;
+  character?: { accountId?: string };
+  attackerTeamId?: number;
+  victimTeamId?: number;
   isTeamAttacker?: boolean;
   isTeamVictim?: boolean;
   relativeTimeMs: number;  
@@ -53,6 +59,31 @@ const TEAM_COLORS = [
   "#F2A900", "#34A853", "#3b82f6", "#ef4444", "#a855f7", "#ec4899", "#06b6d4", "#8b5cf6",
   "#f97316", "#10b981", "#3b82f6", "#f43f5e", "#fbbf24", "#22c55e", "#6366f1", "#d946ef"
 ];
+
+const UNKNOWN_ENEMY_TEAM_ID = 0;
+
+function normalizePlayerName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+function resolveEventTeamId(ev: TelemetryEvent, rawName: string, isEnemy: boolean): number | undefined {
+  const normalizedRawName = normalizePlayerName(rawName);
+  const eventName = typeof ev.name === "string" ? normalizePlayerName(ev.name) : "";
+  const attackerName = typeof ev.attacker === "string" ? normalizePlayerName(ev.attacker) : "";
+  const victimName = typeof ev.victim === "string" ? normalizePlayerName(ev.victim) : "";
+
+  if (eventName === normalizedRawName) return ev.teamId;
+  if (attackerName === normalizedRawName) {
+    if (ev.attackerTeamId != null) return ev.attackerTeamId;
+    return ev.isTeamAttacker ? ev.teamId : undefined;
+  }
+  if (victimName === normalizedRawName) {
+    if (ev.victimTeamId != null) return ev.victimTeamId;
+    return ev.isTeamVictim ? ev.teamId : undefined;
+  }
+
+  return isEnemy ? undefined : ev.teamId;
+}
 
 export function useTelemetry(
   matchId: string | null,
@@ -201,7 +232,7 @@ export function useTelemetry(
     if (isJump) {
       statesRef.current = {};
       teamNames.forEach(name => {
-        const pname = name.trim().toLowerCase();
+        const pname = normalizePlayerName(name);
         statesRef.current[pname] = {
           name, x: -9999, y: -9999, isDead: false, isGroggy: false, isInVehicle: false, health: 100, kills: 0, assists: 0, isEnemy: false
         };
@@ -230,17 +261,18 @@ export function useTelemetry(
 
       involved.forEach(rawName => {
         if (typeof rawName !== "string") return;
-        const pname = rawName.trim().toLowerCase();
+        const pname = normalizePlayerName(rawName);
         if (!pname) return;
         
         if (!states[pname] && !ev.isSystem) {
-          const isEnemy = !teamNames.map(t => t.trim().toLowerCase()).includes(pname);
+          const isEnemy = !teamNames.map(t => normalizePlayerName(t)).includes(pname);
+          const teamId = resolveEventTeamId(ev, rawName, isEnemy);
           states[pname] = { 
             name: rawName, 
             accountId: ev.character?.accountId || ev.accountId,
             x: -9999, y: -9999, isDead: false, isGroggy: false, isInVehicle: false, 
-            health: 100, kills: 0, assists: 0, teamId: ev.teamId || 999,
-            color: isEnemy ? (teamColorMapRef.current[ev.teamId || 999] || "#ffffff") : "#F2A900",
+            health: 100, kills: 0, assists: 0, teamId: teamId ?? (isEnemy ? UNKNOWN_ENEMY_TEAM_ID : 999),
+            color: isEnemy ? (teamColorMapRef.current[teamId ?? UNKNOWN_ENEMY_TEAM_ID] || "#ffffff") : "#F2A900",
             isEnemy: isEnemy
           };
         }
