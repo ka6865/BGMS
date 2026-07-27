@@ -294,6 +294,7 @@ describe("PUBG match persistence behavior", () => {
     mockIsR2Configured.mockReturnValue(true);
     mockPersistMatchAnalysis.mockResolvedValue({ succeeded: [], failures: [] });
     mockProcessedTelemetryMaybeSingle.mockResolvedValue({ data: null, error: null });
+    mockRpc.mockResolvedValue({ data: null, error: null });
     mockPubgMatchResponse();
   });
 
@@ -412,6 +413,150 @@ describe("PUBG match persistence behavior", () => {
     );
   });
 
+  it("단일 match 분석은 telemetry registry reservation을 한 번만 upsert한다", async () => {
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    const registryCalls = mockFrom.mock.calls
+      .filter(([table]) => table === "telemetry_map_cache_entries");
+    expect(registryCalls).toHaveLength(1);
+  });
+
+  it("초기 캐시 예약 재시도 소진 후 최종 쓰기에서 다시 예약해 분석을 저장한다", async () => {
+    let registryAttempts = 0;
+    let response: Response | undefined;
+
+    await mockFrom.withImplementation((table: string) => {
+      if (table === "processed_match_telemetry") {
+        const query = {
+          select: vi.fn(),
+          eq: vi.fn(),
+          maybeSingle: mockProcessedTelemetryMaybeSingle,
+        };
+        query.select.mockReturnValue(query);
+        query.eq.mockReturnValue(query);
+        return query;
+      }
+
+      if (table === "telemetry_map_cache_entries") {
+        registryAttempts += 1;
+        return {
+          upsert: vi.fn().mockResolvedValue(registryAttempts <= 3
+            ? {
+                error: {
+                  code: "57014",
+                  status: 500,
+                  message: `statement timeout ${PLAYER_ID}`,
+                },
+                status: 500,
+              }
+            : { error: null, status: 200 }),
+        };
+      }
+
+      return { upsert: vi.fn().mockResolvedValue({ error: null, status: 200 }) };
+    }, async () => {
+      response = await GET(createMatchRequest());
+    });
+
+    expect(response?.status).toBe(200);
+    await expect(response?.json()).resolves.toEqual(expect.objectContaining({ matchId: MATCH_ID }));
+    expect(registryAttempts).toBe(4);
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(mockPersistMatchAnalysis).toHaveBeenCalledTimes(1);
+    expect(mockReportPubgApiError).toHaveBeenCalledWith(expect.objectContaining({
+      route: "/api/pubg/match",
+      status: 503,
+      message: "PUBG_MATCH_ANALYSIS_TELEMETRY_CACHE_PERSISTENCE",
+      notify: true,
+      context: expect.objectContaining({
+        failureStage: "analysis:telemetry_cache_persistence",
+        errorCode: "PUBG_MATCH_ANALYSIS_TELEMETRY_CACHE_PERSISTENCE",
+      }),
+    }));
+  });
+
+  it("캐시 최종화 재시도 소진에도 민감정보 없이 매치 분석 결과를 반환한다", async () => {
+    mockRpc.mockResolvedValue({
+      data: null,
+      error: {
+        code: "57014",
+        status: 500,
+        message: `statement timeout ${PLAYER_ID}`,
+      },
+      status: 500,
+    });
+
+    const response = await GET(createMatchRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toEqual(expect.objectContaining({ matchId: MATCH_ID }));
+    expect(mockRpc).toHaveBeenCalledTimes(3);
+    expect(mockPersistMatchAnalysis).toHaveBeenCalledTimes(1);
+    expect(mockReportPubgApiError).toHaveBeenCalledWith(expect.objectContaining({
+      route: "/api/pubg/match",
+      status: 503,
+      message: "PUBG_MATCH_ANALYSIS_TELEMETRY_CACHE_PERSISTENCE",
+      notify: true,
+      context: expect.objectContaining({
+        failureStage: "analysis:telemetry_cache_persistence",
+        errorCode: "PUBG_MATCH_ANALYSIS_TELEMETRY_CACHE_PERSISTENCE",
+      }),
+    }));
+    const serializedBody = JSON.stringify(body);
+    expect(serializedBody).not.toContain("statement timeout");
+    expect(serializedBody).not.toContain(PLAYER_ID);
+    const serializedReport = JSON.stringify(mockReportPubgApiError.mock.calls);
+    expect(serializedReport).not.toContain("statement timeout");
+    expect(serializedReport).not.toContain(PLAYER_ID);
+    const reportInput = mockReportPubgApiError.mock.calls.at(-1)?.[0];
+    expect(JSON.parse(String(reportInput?.detail))).toEqual({
+      operation: "finalize",
+      code: "57014",
+      status: 500,
+      retryCount: 2,
+      elapsedMs: expect.any(Number),
+    });
+  });
+
+  it("캐시 실패 관측이 reject되어도 중복 보고 없이 매치 분석 결과를 반환한다", async () => {
+    mockRpc.mockResolvedValue({
+      data: null,
+      error: { code: "22023", message: "invalid cache input" },
+      status: 400,
+    });
+    mockReportPubgApiError.mockRejectedValueOnce(new Error("monitoring unavailable"));
+
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(expect.objectContaining({ matchId: MATCH_ID }));
+    expect(mockPersistMatchAnalysis).toHaveBeenCalledTimes(1);
+    expect(mockReportPubgApiError).toHaveBeenCalledTimes(1);
+  });
+
+  it("비일시적 캐시 최종화 실패는 실제 retry 횟수 0으로 관측한다", async () => {
+    mockRpc.mockResolvedValue({
+      data: null,
+      error: { code: "22023", message: "invalid cache input" },
+      status: 400,
+    });
+
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    const reportInput = mockReportPubgApiError.mock.calls.at(-1)?.[0];
+    expect(JSON.parse(String(reportInput?.detail))).toEqual({
+      operation: "finalize",
+      code: "22023",
+      status: 400,
+      retryCount: 0,
+      elapsedMs: expect.any(Number),
+    });
+  });
+
   it("공개 user 요청은 내부 token 환경변수 없이 source=user로 저장한다", async () => {
     vi.stubEnv("PUBG_SCRAPER_INTERNAL_TOKEN", "");
     vi.stubEnv("ADMIN_REVALIDATE_TOKEN", "");
@@ -448,6 +593,7 @@ describe("PUBG match query boundary", () => {
     mockIsR2Configured.mockReturnValue(true);
     mockPersistMatchAnalysis.mockResolvedValue({ succeeded: [], failures: [] });
     mockProcessedTelemetryMaybeSingle.mockResolvedValue({ data: null, error: null });
+    mockRpc.mockResolvedValue({ data: null, error: null });
     mockPubgMatchResponse();
   });
 

@@ -10,6 +10,7 @@ function requireEnv(name: string): string {
 
 const connectionArgs = [
   "-X",
+  "-q",
   "-h", requireEnv("PGHOST"),
   "-p", requireEnv("PGPORT"),
   "-U", requireEnv("PGUSER"),
@@ -96,6 +97,39 @@ async function verifyRegistryOnlyCleanup(): Promise<void> {
     "select count(*) from public.telemetry_map_cache_entries where match_id = 'verify-registry-only'",
   );
   expectCounts(count, "0", "registry-only-row-reduction");
+}
+
+async function verifyMasterOnlyCleanup(): Promise<void> {
+  await executeSql(`
+    delete from public.match_stats_raw where match_id = 'verify-master-only';
+    delete from public.processed_match_telemetry where match_id = 'verify-master-only';
+    delete from public.telemetry_map_cache_entries where match_id = 'verify-master-only';
+    delete from public.match_master_telemetry where match_id = 'verify-master-only';
+    insert into public.match_master_telemetry (
+      match_id, map_name, game_mode, telemetry_version, storage_path, created_at
+    ) values (
+      'verify-master-only', 'Baltic_Main', 'squad', 58,
+      'old/verify-master-only.json', now() - interval '30 days'
+    );
+    insert into public.match_stats_raw (match_id) values ('verify-master-only');
+    insert into public.processed_match_telemetry (match_id, platform, player_id, data)
+      values ('verify-master-only', 'steam', 'player', '{}');
+    set role service_role;
+    select public.cleanup_expired_telemetry_matches(
+      array['verify-master-only'], now() - interval '1 day', 59, now()
+    );
+  `);
+
+  const counts = await executeSql(`
+    select
+      (select count(*) from public.match_master_telemetry
+        where match_id = 'verify-master-only'),
+      (select count(*) from public.match_stats_raw
+        where match_id = 'verify-master-only'),
+      (select count(*) from public.processed_match_telemetry
+        where match_id = 'verify-master-only');
+  `);
+  expectCounts(counts, "0|0|0", "master-only-atomic-cleanup");
 }
 
 async function verifyExpiredPendingCleanup(): Promise<void> {
@@ -314,86 +348,133 @@ async function verifyCleanupFirst(): Promise<void> {
   expectCounts(counts, "1|1|1|0", "cleanup-first-full-lifecycle");
 }
 
-async function verifyFinalizeLockOrder(): Promise<void> {
+async function verifyCleanupSkipsLockedMatch(): Promise<void> {
   await executeSql(`
-    delete from public.processed_match_telemetry where match_id = 'verify-finalize-lock-order';
-    delete from public.telemetry_map_cache_entries where match_id = 'verify-finalize-lock-order';
-    delete from public.match_master_telemetry where match_id = 'verify-finalize-lock-order';
+    delete from public.match_stats_raw
+      where match_id in ('verify-cleanup-skip-locked', 'verify-cleanup-skip-available');
+    delete from public.processed_match_telemetry
+      where match_id in ('verify-cleanup-skip-locked', 'verify-cleanup-skip-available');
+    delete from public.telemetry_map_cache_entries
+      where match_id in ('verify-cleanup-skip-locked', 'verify-cleanup-skip-available');
+    delete from public.match_master_telemetry
+      where match_id in ('verify-cleanup-skip-locked', 'verify-cleanup-skip-available');
     insert into public.match_master_telemetry (
       match_id, map_name, game_mode, telemetry_version, storage_path, created_at
-    ) values (
-      'verify-finalize-lock-order', 'Baltic_Main', 'squad', 58,
-      'old/verify-finalize-lock-order.json', now() - interval '30 days'
-    );
+    ) values
+      (
+        'verify-cleanup-skip-locked', 'Baltic_Main', 'squad', 58,
+        'old/verify-cleanup-skip-locked.json', now() - interval '30 days'
+      ),
+      (
+        'verify-cleanup-skip-available', 'Baltic_Main', 'squad', 58,
+        'old/verify-cleanup-skip-available.json', now() - interval '30 days'
+      );
+    insert into public.match_stats_raw (match_id) values
+      ('verify-cleanup-skip-locked'),
+      ('verify-cleanup-skip-available');
+    insert into public.processed_match_telemetry (match_id, platform, player_id, data) values
+      ('verify-cleanup-skip-locked', 'steam', 'player', '{}'),
+      ('verify-cleanup-skip-available', 'steam', 'player', '{}');
+    insert into public.telemetry_map_cache_entries (
+      match_id, platform, player_id, mode, telemetry_version,
+      storage_path, status, updated_at
+    ) values
+      (
+        'verify-cleanup-skip-locked', 'steam', 'locked-player', 'lite', 58,
+        'telemetry-map/verify-cleanup-skip-locked-player.json', 'ready',
+        now() - interval '30 days'
+      ),
+      (
+        'verify-cleanup-skip-locked', 'steam', 'available-player', 'lite', 58,
+        'telemetry-map/verify-cleanup-skip-available-player.json', 'ready',
+        now() - interval '30 days'
+      ),
+      (
+        'verify-cleanup-skip-available', 'steam', 'player', 'lite', 58,
+        'telemetry-map/verify-cleanup-skip-available.json', 'ready',
+        now() - interval '30 days'
+      );
   `);
 
   const blocker = executeSql(`
     begin;
-    set application_name = 'verify-finalize-registry-blocker';
-    lock table public.telemetry_map_cache_entries in share mode;
+    set application_name = 'verify-cleanup-row-blocker';
+    select id
+    from public.telemetry_map_cache_entries
+    where match_id = 'verify-cleanup-skip-locked'
+      and player_id = 'locked-player'
+    for update;
     select pg_sleep(3);
     commit;
   `);
   await waitForSqlValue(`
     select count(*)
-    from pg_locks as locks
-    join pg_stat_activity as activity on activity.pid = locks.pid
-    where activity.application_name = 'verify-finalize-registry-blocker'
-      and locks.relation = 'public.telemetry_map_cache_entries'::regclass
-      and locks.mode = 'ShareLock'
-      and locks.granted;
-  `, "1", "finalize-registry-blocker-lock");
+    from pg_stat_activity
+    where application_name = 'verify-cleanup-row-blocker'
+      and wait_event = 'PgSleep';
+  `, "1", "cleanup-row-blocker-lock");
 
-  const writer = executeSql(`
-    begin;
-    set application_name = 'verify-finalize-lock-writer';
-    set statement_timeout = '6s';
+  let firstCleanup = "";
+  try {
+    firstCleanup = await executeSql(`
+      set statement_timeout = '1s';
+      set role service_role;
+      select public.cleanup_expired_telemetry_matches(
+        array['verify-cleanup-skip-locked', 'verify-cleanup-skip-available'],
+        now() - interval '1 day',
+        59,
+        now()
+      );
+    `);
+
+    const counts = await executeSql(`
+      select
+        (select count(*) from public.match_master_telemetry
+          where match_id = 'verify-cleanup-skip-locked'),
+        (select count(*) from public.match_stats_raw
+          where match_id = 'verify-cleanup-skip-locked'),
+        (select count(*) from public.processed_match_telemetry
+          where match_id = 'verify-cleanup-skip-locked'),
+        (select count(*) from public.telemetry_map_cache_entries
+          where match_id = 'verify-cleanup-skip-locked'),
+        (select count(*) from public.match_master_telemetry
+          where match_id = 'verify-cleanup-skip-available'),
+        (select count(*) from public.match_stats_raw
+          where match_id = 'verify-cleanup-skip-available'),
+        (select count(*) from public.processed_match_telemetry
+          where match_id = 'verify-cleanup-skip-available'),
+        (select count(*) from public.telemetry_map_cache_entries
+          where match_id = 'verify-cleanup-skip-available');
+    `);
+    expectCounts(counts, "1|1|1|2|0|0|0|0", "cleanup-skip-locked-isolation");
+  } finally {
+    await blocker;
+  }
+  expectCounts(firstCleanup, "verify-cleanup-skip-available", "cleanup-skip-locked-result");
+
+  const deferredCleanup = await executeSql(`
     set role service_role;
-    select public.finalize_telemetry_cache_write(
-      'verify-finalize-lock-order',
-      'Baltic_Main',
-      'squad',
-      60,
-      'telemetry-map/verify-finalize-lock-order.json',
-      'steam',
-      'player',
-      'lite',
-      60,
-      now(),
-      'player',
-      'steam',
-      '{}',
+    select public.cleanup_expired_telemetry_matches(
+      array['verify-cleanup-skip-locked'],
+      now() - interval '1 day',
+      59,
       now()
     );
-    commit;
   `);
-  await waitForSqlValue(`
-    select count(*)
-    from pg_stat_activity
-    where application_name = 'verify-finalize-lock-writer'
-      and wait_event_type = 'Lock';
-  `, "1", "finalize-writer-registry-wait");
-
-  await executeSql(`
-    begin;
-    select 1
-    from public.match_master_telemetry
-    where match_id = 'verify-finalize-lock-order'
-    for update nowait;
-    rollback;
-  `);
-  await Promise.all([blocker, writer]);
+  expectCounts(deferredCleanup, "verify-cleanup-skip-locked", "cleanup-deferred-next-run");
 
   const counts = await executeSql(`
     select
       (select count(*) from public.match_master_telemetry
-        where match_id = 'verify-finalize-lock-order' and telemetry_version = 60),
+        where match_id = 'verify-cleanup-skip-locked'),
+      (select count(*) from public.match_stats_raw
+        where match_id = 'verify-cleanup-skip-locked'),
       (select count(*) from public.processed_match_telemetry
-        where match_id = 'verify-finalize-lock-order' and player_id = 'player'),
+        where match_id = 'verify-cleanup-skip-locked'),
       (select count(*) from public.telemetry_map_cache_entries
-        where match_id = 'verify-finalize-lock-order' and status = 'ready');
+        where match_id = 'verify-cleanup-skip-locked');
   `);
-  expectCounts(counts, "1|1|1", "finalize-registry-before-master-lock");
+  expectCounts(counts, "0|0|0|0", "cleanup-deferred-row-reduction");
 }
 
 async function verifyFinalizeFirst(): Promise<void> {
@@ -469,11 +550,12 @@ async function verifyFinalizeFirst(): Promise<void> {
 async function main(): Promise<void> {
   await verifyServiceRoleSequence();
   await verifyRegistryOnlyCleanup();
+  await verifyMasterOnlyCleanup();
   await verifyExpiredPendingCleanup();
   await verifyLeaseSnapshotBoundary();
   await verifyWriterFirst();
   await verifyCleanupFirst();
-  await verifyFinalizeLockOrder();
+  await verifyCleanupSkipsLockedMatch();
   await verifyFinalizeFirst();
   process.stdout.write("telemetry-registry-migration: ok\n");
 }

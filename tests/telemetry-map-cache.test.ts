@@ -9,9 +9,16 @@ import {
 import { createTelemetryPayload } from "../lib/pubg-analysis/telemetryPayload";
 import {
   readTelemetryMapCache,
+  reserveTelemetryMapCache,
   writeTelemetryMapCache,
   type TelemetryMapCacheDependencies,
+  type TelemetryMapCacheRegistryRow,
 } from "../lib/pubg-analysis/telemetryMapCache";
+import {
+  finalizeTelemetryMapCacheLifecycle,
+  TelemetryRegistryError,
+  upsertTelemetryMapCacheReservation,
+} from "../lib/pubg-analysis/telemetryRegistry.server";
 
 vi.mock("server-only", () => ({}));
 
@@ -39,6 +46,26 @@ const payload = createTelemetryPayload({
   mapName: "Baltic_Main",
 });
 
+function createRegistryRow(
+  targetIdentity: typeof identity,
+  status: TelemetryMapCacheRegistryRow["status"],
+  now: Date,
+): TelemetryMapCacheRegistryRow {
+  return {
+    match_id: targetIdentity.matchId,
+    platform: targetIdentity.platform,
+    player_id: targetIdentity.playerId,
+    mode: targetIdentity.mode,
+    telemetry_version: targetIdentity.telemetryVersion,
+    storage_path: "telemetry/match-1.json",
+    status,
+    lease_expires_at: status === "pending"
+      ? "2026-07-18T00:15:00.000Z"
+      : null,
+    updated_at: now.toISOString(),
+  };
+}
+
 function createDeps(
   overrides: Partial<TelemetryMapCacheDependencies> = {},
 ): TelemetryMapCacheDependencies {
@@ -50,11 +77,37 @@ function createDeps(
     reserve: vi.fn().mockResolvedValue(undefined),
     finalize: vi.fn().mockResolvedValue(undefined),
     now: () => new Date("2026-07-18T00:00:00.000Z"),
+    sleep: vi.fn().mockResolvedValue(undefined),
+    random: () => 0,
     ...overrides,
   };
 }
 
 describe("telemetry map cache", () => {
+  it("registry reserve가 Supabase 최상위 5xx status를 보존해 재시도한다", async () => {
+    const upsert = vi.fn()
+      .mockResolvedValueOnce({
+        error: {
+          code: "PGRST000",
+          message: "upstream unavailable",
+        },
+        status: 500,
+      })
+      .mockResolvedValueOnce({ error: null, status: 201 });
+    const supabase = {
+      from: vi.fn(() => ({ upsert })),
+    } as any;
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    await reserveTelemetryMapCache(identity, createDeps({
+      reserve: (reservedRow) => upsertTelemetryMapCacheReservation(supabase, reservedRow),
+      sleep,
+    }));
+
+    expect(upsert).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(250);
+  });
+
   it("identity가 일치하는 새 key 본문만 cache hit로 반환한다", async () => {
     const deps = createDeps({ download: vi.fn().mockResolvedValue(JSON.stringify(payload)) });
 
@@ -132,6 +185,107 @@ describe("telemetry map cache", () => {
     expect(uploadOrder).toBeLessThan(finalizeOrder);
   });
 
+  it("이미 예약한 row를 받으면 write는 reserve를 다시 호출하지 않는다", async () => {
+    const deps = createDeps();
+    const reservedRow = createRegistryRow(
+      identity,
+      "pending",
+      new Date("2026-07-18T00:00:00.000Z"),
+    );
+
+    await writeTelemetryMapCache(identity, payload, deps, { reservedRow });
+
+    expect(deps.reserve).not.toHaveBeenCalled();
+    expect(deps.finalize).toHaveBeenCalledWith(expect.objectContaining({
+      storage_path: reservedRow.storage_path,
+      status: "ready",
+    }));
+  });
+
+  it("statement timeout reserve는 두 번 재시도 후 성공한다", async () => {
+    const reserve = vi.fn()
+      .mockRejectedValueOnce(new TelemetryRegistryError("reserve", { code: "57014", status: 500 }))
+      .mockRejectedValueOnce(new TelemetryRegistryError("reserve", { code: "55P03", status: 500 }))
+      .mockResolvedValue(undefined);
+
+    await reserveTelemetryMapCache(identity, createDeps({
+      reserve,
+      sleep: vi.fn().mockResolvedValue(undefined),
+      random: () => 0,
+    }));
+
+    expect(reserve).toHaveBeenCalledTimes(3);
+  });
+
+  it("transient registry 오류가 재시도를 소진하면 실제 retry 횟수를 보존한다", async () => {
+    const finalize = vi.fn().mockRejectedValue(
+      new TelemetryRegistryError("finalize", { code: "57014", status: 500 }),
+    );
+
+    await expect(writeTelemetryMapCache(
+      identity,
+      payload,
+      createDeps({ finalize, sleep: vi.fn().mockResolvedValue(undefined), random: () => 0 }),
+    )).rejects.toMatchObject({
+      operation: "finalize",
+      code: "57014",
+      retryCount: 2,
+    });
+    expect(finalize).toHaveBeenCalledTimes(3);
+  });
+
+  it("입력 오류 finalize는 재시도하지 않는다", async () => {
+    const finalize = vi.fn().mockRejectedValue(
+      new TelemetryRegistryError("finalize", { code: "22023", status: 400 }),
+    );
+
+    await expect(writeTelemetryMapCache(
+      identity,
+      payload,
+      createDeps({ finalize, sleep: vi.fn().mockResolvedValue(undefined), random: () => 0 }),
+    )).rejects.toMatchObject({ code: "22023", retryCount: 0 });
+    expect(finalize).toHaveBeenCalledOnce();
+  });
+
+  it("권한 오류 finalize는 재시도하지 않는다", async () => {
+    const finalize = vi.fn().mockRejectedValue(
+      new TelemetryRegistryError("finalize", { code: "42501", status: 403 }),
+    );
+
+    await expect(writeTelemetryMapCache(
+      identity,
+      payload,
+      createDeps({ finalize, sleep: vi.fn().mockResolvedValue(undefined), random: () => 0 }),
+    )).rejects.toMatchObject({ code: "42501", retryCount: 0 });
+    expect(finalize).toHaveBeenCalledOnce();
+  });
+
+  it("registry finalize가 Supabase 최상위 5xx status를 보존해 재시도한다", async () => {
+    const rpc = vi.fn()
+      .mockResolvedValueOnce({
+        error: {
+          code: "PGRST000",
+          message: "upstream unavailable",
+        },
+        status: 503,
+      })
+      .mockResolvedValueOnce({ error: null, status: 200 });
+    const supabase = { rpc } as any;
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    await writeTelemetryMapCache(identity, payload, createDeps({
+      finalize: (readyRow) => finalizeTelemetryMapCacheLifecycle(supabase, {
+        row: readyRow,
+        mapName: payload.mapName,
+        gameMode: "squad-fpp",
+      }),
+      sleep,
+    }));
+
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(250);
+  });
+
   it("R2 필수 설정이 없으면 write를 시작하지 않는다", async () => {
     const deps = createDeps({ isConfigured: () => false });
 
@@ -201,9 +355,9 @@ describe("telemetry map cache", () => {
       "utf8",
     );
 
-    expect(telemetryRoute.indexOf("reserveTelemetryMapCache(identity"))
+    expect(telemetryRoute.indexOf("reserveTelemetryMapCacheRow(identity"))
       .toBeLessThan(telemetryRoute.indexOf("fetch(asset.attributes.URL"));
-    expect(matchRoute.indexOf("reserveTelemetryMapCache(telemetryIdentity"))
+    expect(matchRoute.indexOf("reserveTelemetryMapCacheRow(telemetryIdentity"))
       .toBeLessThan(matchRoute.indexOf("downloadFromR2(analyzePath)"));
     expect(matchRoute).toContain("finalizeTelemetryMapCacheLifecycle");
     expect(telemetryRoute).toContain("finalizeTelemetryMapCacheLifecycle");
