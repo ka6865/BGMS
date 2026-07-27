@@ -6,16 +6,22 @@ export class TelemetryRegistryError extends Error {
   readonly operation: "reserve" | "finalize";
   readonly code: string | null;
   readonly status: number | null;
+  readonly retryCount: number;
 
   constructor(
     operation: "reserve" | "finalize",
-    error: { code?: string | null; status?: number | null },
+    error: {
+      code?: string | null;
+      status?: number | null;
+      retryCount?: number;
+    },
   ) {
     super(`telemetry-cache-${operation}-failed`);
     this.name = "TelemetryRegistryError";
     this.operation = operation;
     this.code = error.code ?? null;
     this.status = error.status ?? null;
+    this.retryCount = error.retryCount ?? 0;
   }
 }
 

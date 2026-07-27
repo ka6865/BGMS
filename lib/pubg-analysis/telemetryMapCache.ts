@@ -57,6 +57,17 @@ function isTransientTelemetryRegistryError(error: unknown): boolean {
     );
 }
 
+function withTelemetryRegistryRetryCount(
+  error: TelemetryRegistryError,
+  retryCount: number,
+): TelemetryRegistryError {
+  return new TelemetryRegistryError(error.operation, {
+    code: error.code,
+    status: error.status,
+    retryCount,
+  });
+}
+
 async function retryTelemetryRegistryWrite<T>(
   operation: () => Promise<T>,
   deps: Pick<TelemetryMapCacheDependencies, "sleep" | "random">,
@@ -67,6 +78,9 @@ async function retryTelemetryRegistryWrite<T>(
     } catch (error) {
       const delay = RETRY_DELAYS_MS[attempt];
       if (!isTransientTelemetryRegistryError(error) || delay === undefined) {
+        if (error instanceof TelemetryRegistryError) {
+          throw withTelemetryRegistryRetryCount(error, attempt);
+        }
         throw error;
       }
       const jitter = Math.floor(deps.random() * 151);

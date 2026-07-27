@@ -111,8 +111,6 @@ const MAP_IDS: Record<string, string> = {
   "Kiki_Main": "deston", "Neon_Main": "rondo", "DihorOtok_Main": "vikendi"
 };
 
-const TELEMETRY_REGISTRY_RETRY_COUNT = 2;
-
 function getConfiguredToken(name: "PUBG_SCRAPER_INTERNAL_TOKEN" | "ADMIN_REVALIDATE_TOKEN") {
   const token = process.env[name];
   return token && token.trim().length > 0 ? token : null;
@@ -153,7 +151,6 @@ function createTacticalResponse(result: any) {
 
 function serializeTelemetryCacheFailure(
   error: unknown,
-  retryCount: number,
   startedAt: number,
 ): string {
   const registryError = error instanceof TelemetryRegistryError ? error : null;
@@ -161,7 +158,7 @@ function serializeTelemetryCacheFailure(
     operation: registryError?.operation ?? "unknown",
     code: registryError?.code ?? null,
     status: registryError?.status ?? null,
-    retryCount,
+    retryCount: registryError?.retryCount ?? 0,
     elapsedMs: Date.now() - startedAt,
   });
 }
@@ -173,23 +170,23 @@ async function reportTelemetryCachePersistenceFailure(
 ): Promise<void> {
   const analysisStep: PubgAnalysisStep = "telemetry_cache_persistence";
   const errorCode = "PUBG_MATCH_ANALYSIS_TELEMETRY_CACHE_PERSISTENCE";
-  await reportPubgApiError({
-    route: "/api/pubg/match",
-    status: 503,
-    message: errorCode,
-    detail: serializeTelemetryCacheFailure(
-      error,
-      TELEMETRY_REGISTRY_RETRY_COUNT,
-      startedAt,
-    ),
-    notify: true,
-    context: {
-      ...requestContext,
-      failureStage: `analysis:${analysisStep}`,
-      errorCode,
-      durationMs: Date.now() - startedAt,
-    },
-  });
+  try {
+    await reportPubgApiError({
+      route: "/api/pubg/match",
+      status: 503,
+      message: errorCode,
+      detail: serializeTelemetryCacheFailure(error, startedAt),
+      notify: true,
+      context: {
+        ...requestContext,
+        failureStage: `analysis:${analysisStep}`,
+        errorCode,
+        durationMs: Date.now() - startedAt,
+      },
+    });
+  } catch {
+    return;
+  }
 }
 
 export async function GET(request: NextRequest) {

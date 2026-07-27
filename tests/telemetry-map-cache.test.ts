@@ -217,6 +217,23 @@ describe("telemetry map cache", () => {
     expect(reserve).toHaveBeenCalledTimes(3);
   });
 
+  it("transient registry 오류가 재시도를 소진하면 실제 retry 횟수를 보존한다", async () => {
+    const finalize = vi.fn().mockRejectedValue(
+      new TelemetryRegistryError("finalize", { code: "57014", status: 500 }),
+    );
+
+    await expect(writeTelemetryMapCache(
+      identity,
+      payload,
+      createDeps({ finalize, sleep: vi.fn().mockResolvedValue(undefined), random: () => 0 }),
+    )).rejects.toMatchObject({
+      operation: "finalize",
+      code: "57014",
+      retryCount: 2,
+    });
+    expect(finalize).toHaveBeenCalledTimes(3);
+  });
+
   it("입력 오류 finalize는 재시도하지 않는다", async () => {
     const finalize = vi.fn().mockRejectedValue(
       new TelemetryRegistryError("finalize", { code: "22023", status: 400 }),
@@ -226,7 +243,7 @@ describe("telemetry map cache", () => {
       identity,
       payload,
       createDeps({ finalize, sleep: vi.fn().mockResolvedValue(undefined), random: () => 0 }),
-    )).rejects.toMatchObject({ code: "22023" });
+    )).rejects.toMatchObject({ code: "22023", retryCount: 0 });
     expect(finalize).toHaveBeenCalledOnce();
   });
 

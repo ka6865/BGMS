@@ -520,6 +520,43 @@ describe("PUBG match persistence behavior", () => {
     });
   });
 
+  it("캐시 실패 관측이 reject되어도 중복 보고 없이 매치 분석 결과를 반환한다", async () => {
+    mockRpc.mockResolvedValue({
+      data: null,
+      error: { code: "22023", message: "invalid cache input" },
+      status: 400,
+    });
+    mockReportPubgApiError.mockRejectedValueOnce(new Error("monitoring unavailable"));
+
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(expect.objectContaining({ matchId: MATCH_ID }));
+    expect(mockPersistMatchAnalysis).toHaveBeenCalledTimes(1);
+    expect(mockReportPubgApiError).toHaveBeenCalledTimes(1);
+  });
+
+  it("비일시적 캐시 최종화 실패는 실제 retry 횟수 0으로 관측한다", async () => {
+    mockRpc.mockResolvedValue({
+      data: null,
+      error: { code: "22023", message: "invalid cache input" },
+      status: 400,
+    });
+
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    const reportInput = mockReportPubgApiError.mock.calls.at(-1)?.[0];
+    expect(JSON.parse(String(reportInput?.detail))).toEqual({
+      operation: "finalize",
+      code: "22023",
+      status: 400,
+      retryCount: 0,
+      elapsedMs: expect.any(Number),
+    });
+  });
+
   it("공개 user 요청은 내부 token 환경변수 없이 source=user로 저장한다", async () => {
     vi.stubEnv("PUBG_SCRAPER_INTERNAL_TOKEN", "");
     vi.stubEnv("ADMIN_REVALIDATE_TOKEN", "");
