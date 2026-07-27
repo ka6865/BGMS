@@ -53,6 +53,20 @@ describe("PUBG API 오류 원인 컨텍스트", () => {
     });
   });
 
+  it("캐시 영속화 오류가 외부 catch에 도달하면 전용 503 코드로 분류한다", async () => {
+    const subject = await loadContextModule();
+
+    expect(subject).not.toBeNull();
+    expect(subject?.classifyPubgMatchError({
+      stage: "analysis",
+      analysisStep: "telemetry_cache_persistence",
+      error: new Error("telemetry-cache-finalize-failed"),
+    })).toEqual({
+      errorCode: "PUBG_MATCH_ANALYSIS_TELEMETRY_CACHE_PERSISTENCE",
+      responseStatus: 503,
+    });
+  });
+
   it("오류 관측 마이그레이션이 구조화 필드와 전역 알림 키를 제공한다", () => {
     expect(existsSync(MIGRATION_PATH)).toBe(true);
 

@@ -17,9 +17,11 @@ import {
 import {
   reserveTelemetryMapCacheRow,
   writeTelemetryMapCache,
+  type TelemetryMapCacheRegistryRow,
 } from "@/lib/pubg-analysis/telemetryMapCache";
 import {
   finalizeTelemetryMapCacheLifecycle,
+  TelemetryRegistryError,
   upsertTelemetryMapCacheReservation,
 } from "@/lib/pubg-analysis/telemetryRegistry.server";
 import { createTelemetryIdentity } from "@/lib/pubg-analysis/telemetryIdentity";
@@ -35,7 +37,10 @@ import {
   type AnalysisSource,
   type PubgPlatform,
 } from "@/lib/pubg-analysis/persistMatchAnalysis";
-import { reportPubgApiError } from "@/lib/pubg/apiHelper";
+import {
+  reportPubgApiError,
+  type PubgApiErrorContext,
+} from "@/lib/pubg/apiHelper";
 import {
   classifyClientKind,
   classifyPubgMatchError,
@@ -106,6 +111,8 @@ const MAP_IDS: Record<string, string> = {
   "Kiki_Main": "deston", "Neon_Main": "rondo", "DihorOtok_Main": "vikendi"
 };
 
+const TELEMETRY_REGISTRY_RETRY_COUNT = 2;
+
 function getConfiguredToken(name: "PUBG_SCRAPER_INTERNAL_TOKEN" | "ADMIN_REVALIDATE_TOKEN") {
   const token = process.env[name];
   return token && token.trim().length > 0 ? token : null;
@@ -144,6 +151,47 @@ function createTacticalResponse(result: any) {
   return pseudonymizeTelemetryAccountIds(tacticalResult);
 }
 
+function serializeTelemetryCacheFailure(
+  error: unknown,
+  retryCount: number,
+  startedAt: number,
+): string {
+  const registryError = error instanceof TelemetryRegistryError ? error : null;
+  return JSON.stringify({
+    operation: registryError?.operation ?? "unknown",
+    code: registryError?.code ?? null,
+    status: registryError?.status ?? null,
+    retryCount,
+    elapsedMs: Date.now() - startedAt,
+  });
+}
+
+async function reportTelemetryCachePersistenceFailure(
+  error: unknown,
+  startedAt: number,
+  requestContext: PubgApiErrorContext,
+): Promise<void> {
+  const analysisStep: PubgAnalysisStep = "telemetry_cache_persistence";
+  const errorCode = "PUBG_MATCH_ANALYSIS_TELEMETRY_CACHE_PERSISTENCE";
+  await reportPubgApiError({
+    route: "/api/pubg/match",
+    status: 503,
+    message: errorCode,
+    detail: serializeTelemetryCacheFailure(
+      error,
+      TELEMETRY_REGISTRY_RETRY_COUNT,
+      startedAt,
+    ),
+    notify: true,
+    context: {
+      ...requestContext,
+      failureStage: `analysis:${analysisStep}`,
+      errorCode,
+      durationMs: Date.now() - startedAt,
+    },
+  });
+}
+
 export async function GET(request: NextRequest) {
   const startedAt = Date.now();
   let failureStage: PubgErrorStage = "cache_lookup";
@@ -170,6 +218,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Invalid source" }, { status: 400 });
   }
   const source: AnalysisSource = sourceParam;
+  const requestContext: PubgApiErrorContext = {
+    platform,
+    source,
+    clientKind: classifyClientKind(request.headers.get("user-agent")),
+    requestId: request.headers.get("x-vercel-id"),
+    matchFingerprint: createPubgIdentifierFingerprint(matchId),
+    nicknameFingerprint: createPubgIdentifierFingerprint(nickname),
+  };
 
   if (source === "scraper") {
     const scraperToken = getConfiguredToken("PUBG_SCRAPER_INTERNAL_TOKEN");
@@ -298,7 +354,7 @@ export async function GET(request: NextRequest) {
             await reanalyzeAndSave(
               matchId, canonicalNickname, platform, lowerNickname, matchData, teamNames, teamAccountIds,
               myRosterId, myParticipant, myAccountId, teamStats, rankPct, matchAttr, rosters, participants,
-              true, source,
+              true, source, startedAt, requestContext,
             );
           } catch {
             await reportBackgroundReanalysisFailure();
@@ -326,7 +382,7 @@ export async function GET(request: NextRequest) {
     const finalResponse = await reanalyzeAndSave(
       matchId, canonicalNickname, platform, lowerNickname, matchData, teamNames, teamAccountIds,
       myRosterId, myParticipant, myAccountId, teamStats, rankPct, matchAttr, rosters, participants,
-      shouldForce, source, (step) => {
+      shouldForce, source, startedAt, requestContext, (step) => {
         analysisStep = step;
       }
     );
@@ -389,8 +445,10 @@ async function reanalyzeAndSave(
   matchAttr: any,
   rosters: any[],
   participants: any[],
-  force: boolean = false,
-  source: AnalysisSource = 'user',
+  force: boolean,
+  source: AnalysisSource,
+  startedAt: number,
+  requestContext: PubgApiErrorContext,
   onAnalysisStep?: (step: PubgAnalysisStep) => void,
 ) {
   const markAnalysisStep = (step: PubgAnalysisStep) => onAnalysisStep?.(step);
@@ -402,13 +460,19 @@ async function reanalyzeAndSave(
     mode: "lite",
     telemetryVersion: TELEMETRY_VERSION,
   });
-  const reservedRow = await reserveTelemetryMapCacheRow(telemetryIdentity, {
-    isConfigured: isR2Configured,
-    reserve: (row) => upsertTelemetryMapCacheReservation(supabase, row),
-    now: () => new Date(),
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-    random: Math.random,
-  });
+  let reservedRow: TelemetryMapCacheRegistryRow | undefined;
+  try {
+    reservedRow = await reserveTelemetryMapCacheRow(telemetryIdentity, {
+      isConfigured: isR2Configured,
+      reserve: (row) => upsertTelemetryMapCacheReservation(supabase, row),
+      now: () => new Date(),
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      random: Math.random,
+    });
+  } catch (error) {
+    markAnalysisStep("telemetry_cache_persistence");
+    await reportTelemetryCachePersistenceFailure(error, startedAt, requestContext);
+  }
 
   const telemetryAsset = matchData.included.find((it: any) => it.type === "asset");
   let telData: any[] = [];
@@ -590,27 +654,32 @@ async function reanalyzeAndSave(
     tacticalResult,
   );
   markAnalysisStep("telemetry_cache_finalize");
-  await writeTelemetryMapCache(telemetryIdentity, telemetryPayload, {
-    isConfigured: isR2Configured,
-    download: downloadFromR2,
-    upload: uploadToR2,
-    sign: getPresignedUrlFromR2,
-    reserve: (row) => upsertTelemetryMapCacheReservation(supabase, row),
-    finalize: (row) => finalizeTelemetryMapCacheLifecycle(supabase, {
-      row,
-      mapName: matchAttr.mapName || matchAttr.mapId || "unknown",
-      gameMode: matchAttr.gameMode || "unknown",
-      processed: {
-        playerId: processedTelemetryRecord.player_id,
-        platform: processedTelemetryRecord.platform,
-        data: processedTelemetryRecord.data,
-        updatedAt: processedTelemetryRecord.updated_at,
-      },
-    }),
-    now: () => new Date(),
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-    random: Math.random,
-  }, { reservedRow });
+  try {
+    await writeTelemetryMapCache(telemetryIdentity, telemetryPayload, {
+      isConfigured: isR2Configured,
+      download: downloadFromR2,
+      upload: uploadToR2,
+      sign: getPresignedUrlFromR2,
+      reserve: (row) => upsertTelemetryMapCacheReservation(supabase, row),
+      finalize: (row) => finalizeTelemetryMapCacheLifecycle(supabase, {
+        row,
+        mapName: matchAttr.mapName || matchAttr.mapId || "unknown",
+        gameMode: matchAttr.gameMode || "unknown",
+        processed: {
+          playerId: processedTelemetryRecord.player_id,
+          platform: processedTelemetryRecord.platform,
+          data: processedTelemetryRecord.data,
+          updatedAt: processedTelemetryRecord.updated_at,
+        },
+      }),
+      now: () => new Date(),
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      random: Math.random,
+    }, { reservedRow });
+  } catch (error) {
+    markAnalysisStep("telemetry_cache_persistence");
+    await reportTelemetryCachePersistenceFailure(error, startedAt, requestContext);
+  }
 
   try {
     const persistenceResult = await persistMatchAnalysis(supabase, {
