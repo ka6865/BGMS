@@ -23,11 +23,11 @@ export async function upsertTelemetryMapCacheReservation(
   supabase: SupabaseClient,
   row: TelemetryMapCacheRegistryRow,
 ): Promise<void> {
-  const { error } = await supabase
+  const { error, status } = await supabase
     .from("telemetry_map_cache_entries")
     .upsert(row, { onConflict: "match_id,platform,player_id,mode,telemetry_version" });
   if (error) {
-    throw new TelemetryRegistryError("reserve", error);
+    throw new TelemetryRegistryError("reserve", { code: error.code, status });
   }
 }
 
@@ -48,7 +48,7 @@ export async function finalizeTelemetryMapCacheLifecycle(
   input: FinalizeTelemetryMapCacheInput,
 ): Promise<void> {
   const processed = input.processed;
-  const { error } = await supabase.rpc("finalize_telemetry_cache_write", {
+  const { error, status } = await supabase.rpc("finalize_telemetry_cache_write", {
     p_match_id: input.row.match_id,
     p_map_name: input.mapName,
     p_game_mode: input.gameMode,
@@ -65,6 +65,6 @@ export async function finalizeTelemetryMapCacheLifecycle(
     p_processed_updated_at: processed?.updatedAt ?? null,
   });
   if (error) {
-    throw new TelemetryRegistryError("finalize", error);
+    throw new TelemetryRegistryError("finalize", { code: error.code, status });
   }
 }

@@ -15,6 +15,7 @@ import {
   type TelemetryMapCacheRegistryRow,
 } from "../lib/pubg-analysis/telemetryMapCache";
 import {
+  finalizeTelemetryMapCacheLifecycle,
   TelemetryRegistryError,
   upsertTelemetryMapCacheReservation,
 } from "../lib/pubg-analysis/telemetryRegistry.server";
@@ -65,8 +66,6 @@ function createRegistryRow(
   };
 }
 
-const row = createRegistryRow(identity, "pending", new Date("2026-07-18T00:00:00.000Z"));
-
 function createDeps(
   overrides: Partial<TelemetryMapCacheDependencies> = {},
 ): TelemetryMapCacheDependencies {
@@ -85,25 +84,28 @@ function createDeps(
 }
 
 describe("telemetry map cache", () => {
-  it("registry reserve가 Supabase timeout code를 보존한 오류를 던진다", async () => {
+  it("registry reserve가 Supabase 최상위 5xx status를 보존해 재시도한다", async () => {
+    const upsert = vi.fn()
+      .mockResolvedValueOnce({
+        error: {
+          code: "PGRST000",
+          message: "upstream unavailable",
+        },
+        status: 500,
+      })
+      .mockResolvedValueOnce({ error: null, status: 201 });
     const supabase = {
-      from: vi.fn(() => ({
-        upsert: vi.fn().mockResolvedValue({
-          error: {
-            code: "57014",
-            status: 500,
-            message: "canceling statement due to statement timeout",
-          },
-        }),
-      })),
+      from: vi.fn(() => ({ upsert })),
     } as any;
+    const sleep = vi.fn().mockResolvedValue(undefined);
 
-    await expect(upsertTelemetryMapCacheReservation(supabase, row)).rejects.toMatchObject({
-      name: "TelemetryRegistryError",
-      operation: "reserve",
-      code: "57014",
-      status: 500,
-    });
+    await reserveTelemetryMapCache(identity, createDeps({
+      reserve: (reservedRow) => upsertTelemetryMapCacheReservation(supabase, reservedRow),
+      sleep,
+    }));
+
+    expect(upsert).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(250);
   });
 
   it("identity가 일치하는 새 key 본문만 cache hit로 반환한다", async () => {
@@ -226,6 +228,32 @@ describe("telemetry map cache", () => {
       createDeps({ finalize, sleep: vi.fn().mockResolvedValue(undefined), random: () => 0 }),
     )).rejects.toMatchObject({ code: "22023" });
     expect(finalize).toHaveBeenCalledOnce();
+  });
+
+  it("registry finalize가 Supabase 최상위 5xx status를 보존해 재시도한다", async () => {
+    const rpc = vi.fn()
+      .mockResolvedValueOnce({
+        error: {
+          code: "PGRST000",
+          message: "upstream unavailable",
+        },
+        status: 503,
+      })
+      .mockResolvedValueOnce({ error: null, status: 200 });
+    const supabase = { rpc } as any;
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    await writeTelemetryMapCache(identity, payload, createDeps({
+      finalize: (readyRow) => finalizeTelemetryMapCacheLifecycle(supabase, {
+        row: readyRow,
+        mapName: payload.mapName,
+        gameMode: "squad-fpp",
+      }),
+      sleep,
+    }));
+
+    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(250);
   });
 
   it("R2 필수 설정이 없으면 write를 시작하지 않는다", async () => {
