@@ -170,7 +170,8 @@ const Footer = () => {
             margin: 0,
           }}
         >
-          BGMS는 배틀그라운드 팬들을 위한 비공식 서비스이며, KRAFTON 및 PUBG Corporation과 제휴 관계가 아닙니다.
+          BGMS는 배틀그라운드 팬들을 위한 비공식 서비스이며, KRAFTON 및 PUBG Corporation과 제휴, 후원, 보증 관계가 아닙니다.
+          PUBG, PLAYERUNKNOWN&apos;S BATTLEGROUNDS and all related logos are trademarks of PUBG Corporation or its affiliates.
         </p>
 
         {/* 카피라이트 */}

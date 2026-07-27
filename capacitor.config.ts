@@ -2,7 +2,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
   appId: 'kr.bgms.app',
-  appName: 'pubg-map-app',
+  appName: 'BGMS',
   webDir: 'out'
 };
 

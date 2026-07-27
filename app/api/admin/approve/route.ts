@@ -90,7 +90,7 @@ export async function POST(request: Request) {
         const nicknames = contributors.map(c => `**${c.nickname}**`).join(", ");
         const communityEmbed = {
           title: "🙌 지도가 더 정확해졌습니다! (제보 승인)",
-          description: `${nicknames} 님의 제보가 관리자의 검토를 거쳐 공식 지도에 등록되었습니다.\n기여해주셔서 감사합니다!`,
+          description: `${nicknames} 님의 제보가 관리자의 검토를 거쳐 BGMS 지도에 등록되었습니다.\n기여해주셔서 감사합니다!`,
           color: 0xffd700, // 골드색
           fields: [
             { name: "🗺️ 맵", value: pending.map_name, inline: true },
