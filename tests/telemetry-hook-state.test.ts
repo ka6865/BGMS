@@ -144,3 +144,47 @@ describe("useTelemetry identity 전환", () => {
     expect(fetchTelemetryPayloadMock.mock.calls[1][0]).toMatchObject({ mode: "full" });
   });
 });
+
+describe("useTelemetry 팀 식별", () => {
+  beforeEach(() => {
+    fetchTelemetryPayloadMock.mockReset();
+  });
+
+  it("적 공격자가 우리 팀원을 공격한 combat 이벤트의 teamId로 우리 스쿼드에 합류하지 않는다", async () => {
+    fetchTelemetryPayloadMock.mockResolvedValue({
+      identity: {
+        matchId: "match-1",
+        platform: "steam",
+        playerKey: "a".repeat(32),
+        mode: "lite",
+        telemetryVersion: 60,
+      },
+      startTime: "2026-07-18T00:00:00.000Z",
+      teammates: ["b".repeat(32), "c".repeat(32), "d".repeat(32)],
+      teamNames: ["Me", "MateOne", "MateTwo", "MateThree"],
+      events: [{
+        type: "groggy",
+        time: "2026-07-18T00:01:00.000Z",
+        attacker: "EnemyOne",
+        victim: "MateOne",
+        teamId: 999,
+        isTeamAttacker: false,
+        isTeamVictim: true,
+        x: 100,
+        y: 200,
+        relativeTimeMs: 1000,
+      }],
+      zoneEvents: [],
+      mapName: "Desert_Main",
+    });
+
+    const { result } = renderHook(() => useTelemetry("match-1", "Me", "steam", "lite", "miramar"));
+    await waitFor(() => expect(result.current.events).toHaveLength(1));
+
+    act(() => result.current.setCurrentTimeMs(1000));
+
+    await waitFor(() => expect(result.current.currentStates.enemyone).toBeDefined());
+    expect(result.current.currentStates.enemyone.teamId).not.toBe(999);
+    expect(result.current.currentStates.mateone.teamId).toBe(999);
+  });
+});

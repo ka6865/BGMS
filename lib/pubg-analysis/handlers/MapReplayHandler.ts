@@ -1,5 +1,4 @@
 import { BaseHandler } from './BaseHandler';
-import { normalizeName } from '../utils';
 
 /**
  * [V26.0] MapReplayHandler
@@ -42,7 +41,7 @@ export class MapReplayHandler extends BaseHandler {
 
     // 3. 교전 및 상태 변화 (기절, 사망, 부활)
     if (lowerType === "logplayermakegroggy") {
-      this.handleGroggy(e, elapsed);
+      this.handleGroggy(e);
       // Groggy는 Kill과 구조가 비슷하므로 아래 로직으로 이어서 처리
     }
 
@@ -162,7 +161,7 @@ export class MapReplayHandler extends BaseHandler {
     });
   }
 
-  private handleGroggy(e: any, elapsed: number) {
+  private handleGroggy(e: any) {
     const victimId = e.victim?.accountId;
     const attackerId = e.attacker?.accountId;
     if (victimId && attackerId) {
@@ -201,8 +200,10 @@ export class MapReplayHandler extends BaseHandler {
       relativeTimeMs: elapsed,
       attacker: attackerName,
       attackerAccountId: attackerObj?.accountId,
+      attackerTeamId: attackerObj?.teamId,
       victim: victimName,
       victimAccountId: victimObj?.accountId,
+      victimTeamId: victimObj?.teamId,
       teamId: isAttackerTeam ? (attackerObj?.teamId ?? 999) : (victimObj?.teamId ?? 999),
       x: this.scaleX(charLoc.x),
       y: this.scaleY(charLoc.y),
