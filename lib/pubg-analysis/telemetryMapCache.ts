@@ -8,6 +8,7 @@ import {
   type TelemetryPayload,
 } from "./telemetryPayload";
 import type { TelemetryIdentity } from "./telemetryIdentity";
+import { TelemetryRegistryError } from "./telemetryRegistry.server";
 
 export type TelemetryMapCacheDependencies = {
   isConfigured: () => boolean;
@@ -17,6 +18,8 @@ export type TelemetryMapCacheDependencies = {
   reserve: (row: TelemetryMapCacheRegistryRow) => Promise<void>;
   finalize: (row: TelemetryMapCacheRegistryRow) => Promise<void>;
   now: () => Date;
+  sleep: (ms: number) => Promise<void>;
+  random: () => number;
 };
 
 export type TelemetryMapCacheRegistryRow = {
@@ -31,6 +34,10 @@ export type TelemetryMapCacheRegistryRow = {
   updated_at: string;
 };
 
+export type TelemetryMapCacheWriteOptions = {
+  reservedRow?: TelemetryMapCacheRegistryRow;
+};
+
 export type TelemetryCacheHit = {
   payload: TelemetryPayload;
   downloadUrl: string;
@@ -38,6 +45,35 @@ export type TelemetryCacheHit = {
 };
 
 const WRITE_LEASE_DURATION_MS = 15 * 60 * 1_000;
+const RETRY_DELAYS_MS = [250, 750] as const;
+
+function isTransientTelemetryRegistryError(error: unknown): boolean {
+  return error instanceof TelemetryRegistryError
+    && (
+      error.code === "57014"
+      || error.code === "55P03"
+      || error.code === "40001"
+      || (error.status ?? 0) >= 500
+    );
+}
+
+async function retryTelemetryRegistryWrite<T>(
+  operation: () => Promise<T>,
+  deps: Pick<TelemetryMapCacheDependencies, "sleep" | "random">,
+): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      const delay = RETRY_DELAYS_MS[attempt];
+      if (!isTransientTelemetryRegistryError(error) || delay === undefined) {
+        throw error;
+      }
+      const jitter = Math.floor(deps.random() * 151);
+      await deps.sleep(delay + jitter);
+    }
+  }
+}
 
 function buildRegistryRow(
   identity: TelemetryIdentity,
@@ -60,16 +96,31 @@ function buildRegistryRow(
   };
 }
 
-export async function reserveTelemetryMapCache(
+export async function reserveTelemetryMapCacheRow(
   identity: TelemetryIdentity,
-  deps: Pick<TelemetryMapCacheDependencies, "isConfigured" | "reserve" | "now">,
-): Promise<string> {
+  deps: Pick<
+    TelemetryMapCacheDependencies,
+    "isConfigured" | "reserve" | "now" | "sleep" | "random"
+  >,
+): Promise<TelemetryMapCacheRegistryRow> {
   if (!deps.isConfigured()) {
     throw new Error("텔레메트리 캐시 저장소가 설정되지 않았습니다.");
   }
   const storagePath = buildTelemetryCacheKey(identity);
-  await deps.reserve(buildRegistryRow(identity, storagePath, "pending", deps.now()));
-  return storagePath;
+  const row = buildRegistryRow(identity, storagePath, "pending", deps.now());
+  await retryTelemetryRegistryWrite(() => deps.reserve(row), deps);
+  return row;
+}
+
+export async function reserveTelemetryMapCache(
+  identity: TelemetryIdentity,
+  deps: Pick<
+    TelemetryMapCacheDependencies,
+    "isConfigured" | "reserve" | "now" | "sleep" | "random"
+  >,
+): Promise<string> {
+  const row = await reserveTelemetryMapCacheRow(identity, deps);
+  return row.storage_path;
 }
 
 export async function readTelemetryMapCache(
@@ -87,7 +138,8 @@ export async function readTelemetryMapCache(
     return null;
   }
 
-  await deps.finalize(buildRegistryRow(identity, storagePath, "ready", deps.now()));
+  const readyRow = buildRegistryRow(identity, storagePath, "ready", deps.now());
+  await retryTelemetryRegistryWrite(() => deps.finalize(readyRow), deps);
 
   return {
     payload,
@@ -100,21 +152,24 @@ export async function writeTelemetryMapCache(
   identity: TelemetryIdentity,
   value: TelemetryPayload,
   deps: TelemetryMapCacheDependencies,
+  options: TelemetryMapCacheWriteOptions = {},
 ): Promise<TelemetryCacheHit> {
   if (!deps.isConfigured()) {
     throw new Error("텔레메트리 캐시 저장소가 설정되지 않았습니다.");
   }
 
   const payload = parseTelemetryPayload(value, buildTelemetryPublicIdentity(identity));
-  const storagePath = buildTelemetryCacheKey(identity);
-  const now = deps.now();
-  await reserveTelemetryMapCache(identity, {
-    isConfigured: deps.isConfigured,
-    reserve: deps.reserve,
-    now: () => now,
-  });
+  const reservedRow = options.reservedRow ?? await reserveTelemetryMapCacheRow(identity, deps);
+  const storagePath = reservedRow.storage_path;
   await deps.upload(storagePath, JSON.stringify(payload), "application/json");
-  await deps.finalize(buildRegistryRow(identity, storagePath, "ready", now));
+  await retryTelemetryRegistryWrite(
+    () => deps.finalize({
+      ...reservedRow,
+      status: "ready",
+      lease_expires_at: null,
+    }),
+    deps,
+  );
 
   return {
     payload,

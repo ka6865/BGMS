@@ -412,6 +412,15 @@ describe("PUBG match persistence behavior", () => {
     );
   });
 
+  it("단일 match 분석은 telemetry registry reservation을 한 번만 upsert한다", async () => {
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    const registryCalls = mockFrom.mock.calls
+      .filter(([table]) => table === "telemetry_map_cache_entries");
+    expect(registryCalls).toHaveLength(1);
+  });
+
   it("공개 user 요청은 내부 token 환경변수 없이 source=user로 저장한다", async () => {
     vi.stubEnv("PUBG_SCRAPER_INTERNAL_TOKEN", "");
     vi.stubEnv("ADMIN_REVALIDATE_TOKEN", "");

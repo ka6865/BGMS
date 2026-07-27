@@ -15,7 +15,7 @@ import {
 } from "@/lib/pubg-analysis/telemetryCacheKey.server";
 import {
   readTelemetryMapCache,
-  reserveTelemetryMapCache,
+  reserveTelemetryMapCacheRow,
   writeTelemetryMapCache,
   type TelemetryMapCacheDependencies,
 } from "@/lib/pubg-analysis/telemetryMapCache";
@@ -131,6 +131,8 @@ export async function GET(request: Request) {
         gameMode: matchData.data.attributes.gameMode || "unknown",
       }),
       now: () => new Date(),
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      random: Math.random,
     };
     const cached = await readTelemetryMapCache(identity, deps);
     if (cached) {
@@ -140,7 +142,7 @@ export async function GET(request: Request) {
       );
     }
 
-    await reserveTelemetryMapCache(identity, deps);
+    const reservedRow = await reserveTelemetryMapCacheRow(identity, deps);
 
     const telemetryRes = await fetch(asset.attributes.URL, { cache: "no-store" });
     if (!telemetryRes.ok) throw new Error("PUBG telemetry request failed");
@@ -175,7 +177,7 @@ export async function GET(request: Request) {
       zoneEvents: pseudonymizeTelemetryAccountIds(result.mapData?.zoneEvents || []),
       mapName: result.mapName || matchData.data.attributes.mapName || mapName,
     });
-    const cachedResult = await writeTelemetryMapCache(identity, payload, deps);
+    const cachedResult = await writeTelemetryMapCache(identity, payload, deps, { reservedRow });
 
     return NextResponse.json(
       { downloadUrl: cachedResult.downloadUrl, identity: cachedResult.payload.identity },

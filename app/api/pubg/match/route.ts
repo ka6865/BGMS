@@ -15,7 +15,7 @@ import {
   uploadToR2,
 } from "@/lib/pubg-analysis/r2Service";
 import {
-  reserveTelemetryMapCache,
+  reserveTelemetryMapCacheRow,
   writeTelemetryMapCache,
 } from "@/lib/pubg-analysis/telemetryMapCache";
 import {
@@ -402,10 +402,12 @@ async function reanalyzeAndSave(
     mode: "lite",
     telemetryVersion: TELEMETRY_VERSION,
   });
-  await reserveTelemetryMapCache(telemetryIdentity, {
+  const reservedRow = await reserveTelemetryMapCacheRow(telemetryIdentity, {
     isConfigured: isR2Configured,
     reserve: (row) => upsertTelemetryMapCacheReservation(supabase, row),
     now: () => new Date(),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    random: Math.random,
   });
 
   const telemetryAsset = matchData.included.find((it: any) => it.type === "asset");
@@ -606,7 +608,9 @@ async function reanalyzeAndSave(
       },
     }),
     now: () => new Date(),
-  });
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    random: Math.random,
+  }, { reservedRow });
 
   try {
     const persistenceResult = await persistMatchAnalysis(supabase, {

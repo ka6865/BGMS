@@ -9,10 +9,15 @@ import {
 import { createTelemetryPayload } from "../lib/pubg-analysis/telemetryPayload";
 import {
   readTelemetryMapCache,
+  reserveTelemetryMapCache,
   writeTelemetryMapCache,
   type TelemetryMapCacheDependencies,
+  type TelemetryMapCacheRegistryRow,
 } from "../lib/pubg-analysis/telemetryMapCache";
-import { upsertTelemetryMapCacheReservation } from "../lib/pubg-analysis/telemetryRegistry.server";
+import {
+  TelemetryRegistryError,
+  upsertTelemetryMapCacheReservation,
+} from "../lib/pubg-analysis/telemetryRegistry.server";
 
 vi.mock("server-only", () => ({}));
 
@@ -40,17 +45,27 @@ const payload = createTelemetryPayload({
   mapName: "Baltic_Main",
 });
 
-const row = {
-  match_id: identity.matchId,
-  platform: identity.platform,
-  player_id: identity.playerId,
-  mode: identity.mode,
-  telemetry_version: identity.telemetryVersion,
-  storage_path: "telemetry/match-1.json",
-  status: "pending" as const,
-  lease_expires_at: "2026-07-18T00:15:00.000Z",
-  updated_at: "2026-07-18T00:00:00.000Z",
-};
+function createRegistryRow(
+  targetIdentity: typeof identity,
+  status: TelemetryMapCacheRegistryRow["status"],
+  now: Date,
+): TelemetryMapCacheRegistryRow {
+  return {
+    match_id: targetIdentity.matchId,
+    platform: targetIdentity.platform,
+    player_id: targetIdentity.playerId,
+    mode: targetIdentity.mode,
+    telemetry_version: targetIdentity.telemetryVersion,
+    storage_path: "telemetry/match-1.json",
+    status,
+    lease_expires_at: status === "pending"
+      ? "2026-07-18T00:15:00.000Z"
+      : null,
+    updated_at: now.toISOString(),
+  };
+}
+
+const row = createRegistryRow(identity, "pending", new Date("2026-07-18T00:00:00.000Z"));
 
 function createDeps(
   overrides: Partial<TelemetryMapCacheDependencies> = {},
@@ -63,6 +78,8 @@ function createDeps(
     reserve: vi.fn().mockResolvedValue(undefined),
     finalize: vi.fn().mockResolvedValue(undefined),
     now: () => new Date("2026-07-18T00:00:00.000Z"),
+    sleep: vi.fn().mockResolvedValue(undefined),
+    random: () => 0,
     ...overrides,
   };
 }
@@ -166,6 +183,51 @@ describe("telemetry map cache", () => {
     expect(uploadOrder).toBeLessThan(finalizeOrder);
   });
 
+  it("이미 예약한 row를 받으면 write는 reserve를 다시 호출하지 않는다", async () => {
+    const deps = createDeps();
+    const reservedRow = createRegistryRow(
+      identity,
+      "pending",
+      new Date("2026-07-18T00:00:00.000Z"),
+    );
+
+    await writeTelemetryMapCache(identity, payload, deps, { reservedRow });
+
+    expect(deps.reserve).not.toHaveBeenCalled();
+    expect(deps.finalize).toHaveBeenCalledWith(expect.objectContaining({
+      storage_path: reservedRow.storage_path,
+      status: "ready",
+    }));
+  });
+
+  it("statement timeout reserve는 두 번 재시도 후 성공한다", async () => {
+    const reserve = vi.fn()
+      .mockRejectedValueOnce(new TelemetryRegistryError("reserve", { code: "57014", status: 500 }))
+      .mockRejectedValueOnce(new TelemetryRegistryError("reserve", { code: "55P03", status: 500 }))
+      .mockResolvedValue(undefined);
+
+    await reserveTelemetryMapCache(identity, createDeps({
+      reserve,
+      sleep: vi.fn().mockResolvedValue(undefined),
+      random: () => 0,
+    }));
+
+    expect(reserve).toHaveBeenCalledTimes(3);
+  });
+
+  it("입력 오류 finalize는 재시도하지 않는다", async () => {
+    const finalize = vi.fn().mockRejectedValue(
+      new TelemetryRegistryError("finalize", { code: "22023", status: 400 }),
+    );
+
+    await expect(writeTelemetryMapCache(
+      identity,
+      payload,
+      createDeps({ finalize, sleep: vi.fn().mockResolvedValue(undefined), random: () => 0 }),
+    )).rejects.toMatchObject({ code: "22023" });
+    expect(finalize).toHaveBeenCalledOnce();
+  });
+
   it("R2 필수 설정이 없으면 write를 시작하지 않는다", async () => {
     const deps = createDeps({ isConfigured: () => false });
 
@@ -235,9 +297,9 @@ describe("telemetry map cache", () => {
       "utf8",
     );
 
-    expect(telemetryRoute.indexOf("reserveTelemetryMapCache(identity"))
+    expect(telemetryRoute.indexOf("reserveTelemetryMapCacheRow(identity"))
       .toBeLessThan(telemetryRoute.indexOf("fetch(asset.attributes.URL"));
-    expect(matchRoute.indexOf("reserveTelemetryMapCache(telemetryIdentity"))
+    expect(matchRoute.indexOf("reserveTelemetryMapCacheRow(telemetryIdentity"))
       .toBeLessThan(matchRoute.indexOf("downloadFromR2(analyzePath)"));
     expect(matchRoute).toContain("finalizeTelemetryMapCacheLifecycle");
     expect(telemetryRoute).toContain("finalizeTelemetryMapCacheLifecycle");
