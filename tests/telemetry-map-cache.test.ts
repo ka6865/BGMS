@@ -12,6 +12,7 @@ import {
   writeTelemetryMapCache,
   type TelemetryMapCacheDependencies,
 } from "../lib/pubg-analysis/telemetryMapCache";
+import { upsertTelemetryMapCacheReservation } from "../lib/pubg-analysis/telemetryRegistry.server";
 
 vi.mock("server-only", () => ({}));
 
@@ -39,6 +40,18 @@ const payload = createTelemetryPayload({
   mapName: "Baltic_Main",
 });
 
+const row = {
+  match_id: identity.matchId,
+  platform: identity.platform,
+  player_id: identity.playerId,
+  mode: identity.mode,
+  telemetry_version: identity.telemetryVersion,
+  storage_path: "telemetry/match-1.json",
+  status: "pending" as const,
+  lease_expires_at: "2026-07-18T00:15:00.000Z",
+  updated_at: "2026-07-18T00:00:00.000Z",
+};
+
 function createDeps(
   overrides: Partial<TelemetryMapCacheDependencies> = {},
 ): TelemetryMapCacheDependencies {
@@ -55,6 +68,27 @@ function createDeps(
 }
 
 describe("telemetry map cache", () => {
+  it("registry reserve가 Supabase timeout code를 보존한 오류를 던진다", async () => {
+    const supabase = {
+      from: vi.fn(() => ({
+        upsert: vi.fn().mockResolvedValue({
+          error: {
+            code: "57014",
+            status: 500,
+            message: "canceling statement due to statement timeout",
+          },
+        }),
+      })),
+    } as any;
+
+    await expect(upsertTelemetryMapCacheReservation(supabase, row)).rejects.toMatchObject({
+      name: "TelemetryRegistryError",
+      operation: "reserve",
+      code: "57014",
+      status: 500,
+    });
+  });
+
   it("identity가 일치하는 새 key 본문만 cache hit로 반환한다", async () => {
     const deps = createDeps({ download: vi.fn().mockResolvedValue(JSON.stringify(payload)) });
 

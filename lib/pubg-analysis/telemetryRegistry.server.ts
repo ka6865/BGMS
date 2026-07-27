@@ -2,6 +2,23 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TelemetryMapCacheRegistryRow } from "./telemetryMapCache";
 
+export class TelemetryRegistryError extends Error {
+  readonly operation: "reserve" | "finalize";
+  readonly code: string | null;
+  readonly status: number | null;
+
+  constructor(
+    operation: "reserve" | "finalize",
+    error: { code?: string | null; status?: number | null },
+  ) {
+    super(`telemetry-cache-${operation}-failed`);
+    this.name = "TelemetryRegistryError";
+    this.operation = operation;
+    this.code = error.code ?? null;
+    this.status = error.status ?? null;
+  }
+}
+
 export async function upsertTelemetryMapCacheReservation(
   supabase: SupabaseClient,
   row: TelemetryMapCacheRegistryRow,
@@ -10,7 +27,7 @@ export async function upsertTelemetryMapCacheReservation(
     .from("telemetry_map_cache_entries")
     .upsert(row, { onConflict: "match_id,platform,player_id,mode,telemetry_version" });
   if (error) {
-    throw new Error("텔레메트리 캐시 레지스트리 저장에 실패했습니다.");
+    throw new TelemetryRegistryError("reserve", error);
   }
 }
 
@@ -48,6 +65,6 @@ export async function finalizeTelemetryMapCacheLifecycle(
     p_processed_updated_at: processed?.updatedAt ?? null,
   });
   if (error) {
-    throw new Error("텔레메트리 캐시 수명주기 완료에 실패했습니다.");
+    throw new TelemetryRegistryError("finalize", error);
   }
 }
