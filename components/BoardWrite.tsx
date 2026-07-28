@@ -6,8 +6,9 @@ import { supabase } from "../lib/supabase";
 import "react-quill-new/dist/quill.snow.css";
 import imageCompression from "browser-image-compression";
 import { toast } from "sonner";
-import { ClanInfo } from "@/types/board"; // 🌟 추가
+import { ClanInfo } from "@/types/board";
 import ConfirmModal from "@/components/common/ConfirmModal";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { classifyUploadedBoardImages, type UploadedBoardImage } from "@/lib/board-image-cleanup";
 
 const ReactQuill = dynamic(() => import("react-quill-new"), {
@@ -133,23 +134,23 @@ interface BoardWriteProps {
   setNewContent: (content: string) => void;
   newCategory: string;
   setNewCategory: (category: string) => void;
-  newDiscordUrl: string; // 🌟 추가
-  setNewDiscordUrl: (url: string) => void; // 🌟 추가
-  newDiscordChannelId: string; // 🌟 추가
-  setNewDiscordChannelId: (id: string) => void; // 🌟 추가
+  newDiscordUrl: string; //  추가
+  setNewDiscordUrl: (url: string) => void; //  추가
+  newDiscordChannelId: string; //  추가
+  setNewDiscordChannelId: (id: string) => void; //  추가
   newIsNotice: boolean;
   setNewIsNotice: (isNotice: boolean) => void;
-  newClanInfo: ClanInfo | null; // 🌟 추가
-  setNewClanInfo: (clanInfo: ClanInfo | null) => void; // 🌟 추가
-  thumbnailUrl: string; // 🌟 썸네일 수동 등록 추가
-  setThumbnailUrl: (url: string) => void; // 🌟 썸네일 수동 등록 추가
+  newClanInfo: ClanInfo | null; //  추가
+  setNewClanInfo: (clanInfo: ClanInfo | null) => void; //  추가
+  thumbnailUrl: string; //  썸네일 수동 등록 추가
+  setThumbnailUrl: (url: string) => void; //  썸네일 수동 등록 추가
   handleSavePost: (images: { contentImageIds: string[]; thumbnailImageId: string | null }) => Promise<boolean>;
   setIsWriting: (isWriting: boolean) => void;
   isAdmin: boolean;
   isLoading: boolean;
   isMobile: boolean;
   isEditing?: boolean;
-  // 🌟 비회원용 props 추가
+  //  비회원용 props 추가
   isGuest: boolean;
   guestNickname: string;
   setGuestNickname: (val: string) => void;
@@ -170,10 +171,10 @@ export default function BoardWrite({
   setNewDiscordChannelId,
   newIsNotice,
   setNewIsNotice,
-  newClanInfo, // 🌟 추가
-  setNewClanInfo, // 🌟 추가
-  thumbnailUrl, // 🌟 썸네일 수동 등록 추가
-  setThumbnailUrl, // 🌟 썸네일 수동 등록 추가
+  newClanInfo, //  추가
+  setNewClanInfo, //  추가
+  thumbnailUrl, //  썸네일 수동 등록 추가
+  setThumbnailUrl, //  썸네일 수동 등록 추가
   handleSavePost,
   setIsWriting,
   isAdmin,
@@ -189,14 +190,14 @@ export default function BoardWrite({
   const quillRef = useRef<any>(null);
   const uploadedImagesRef = useRef<UploadedBoardImage[]>([]);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
-  const [isCreatingRoom, setIsCreatingRoom] = useState(false); // 🌟 디스코드 방 생성 로딩 상태
-  const [searchNickname, setSearchNickname] = useState(""); // 🌟 클랜 검색용 닉네임
-  const [searchPlatform, setSearchPlatform] = useState("steam"); // 🌟 플랫폼
-  const [isSearchingClan, setIsSearchingClan] = useState(false); // 🌟 로딩 상태
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false); //  디스코드 방 생성 로딩 상태
+  const [searchNickname, setSearchNickname] = useState(""); //  클랜 검색용 닉네임
+  const [searchPlatform, setSearchPlatform] = useState("steam"); //  플랫폼
+  const [isSearchingClan, setIsSearchingClan] = useState(false); //  로딩 상태
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 🌟 실시간 본문 내 첫 번째 이미지 자동 추출
+  //  실시간 본문 내 첫 번째 이미지 자동 추출
   const autoExtractedImage = useMemo(() => {
     if (!newContent.includes("<img")) return "";
     const imgMatch = newContent.match(/<img[^>]+src=["']([^"']+)["']/i);
@@ -235,7 +236,7 @@ export default function BoardWrite({
   const [discordRoomType, setDiscordRoomType] = useState<"duo" | "squad" | null>(null);
   const [isResetStyleModalOpen, setIsResetStyleModalOpen] = useState(false);
 
-  // 🌟 클랜 검색 API 연동 함수
+  //  클랜 검색 API 연동 함수
   const handleSearchClan = async () => {
     if (!searchNickname.trim()) {
       toast.warning("배틀그라운드 닉네임을 입력해 주세요.");
@@ -270,7 +271,7 @@ export default function BoardWrite({
     }
   };
 
-  // 🌟 디스코드 음성 채널 자동 생성 함수 - 확인 모달 노출
+  //  디스코드 음성 채널 자동 생성 함수 - 확인 모달 노출
   const createDiscordRoom = (type: "duo" | "squad") => {
     setDiscordRoomType(type);
     setIsDiscordModalOpen(true);
@@ -347,8 +348,8 @@ export default function BoardWrite({
     const input = document.createElement("input");
     input.setAttribute("type", "file");
     input.setAttribute("accept", "image/*");
-    input.setAttribute("id", "quill-image-upload"); // 🌟 ID 추가
-    input.setAttribute("name", "quill-image");     // 🌟 Name 추가
+    input.setAttribute("id", "quill-image-upload"); //  ID 추가
+    input.setAttribute("name", "quill-image");     //  Name 추가
     input.classList.add("quill-image-input");
     input.style.display = "none";
     input.style.position = "absolute";
@@ -450,7 +451,7 @@ export default function BoardWrite({
     }
   }, []);
 
-  // 🌟 [추가] 드래그 앤 드롭 이미지 업로드 핸들러
+  //  [추가] 드래그 앤 드롭 이미지 업로드 핸들러
   useEffect(() => {
     if (!quillRef.current) return;
     const editor = quillRef.current.getEditor();
@@ -503,7 +504,7 @@ export default function BoardWrite({
   };
 
   const onSaveClick = async () => {
-    // 🌟 이미 업로드 중이거나 저장 중이면 차단 (안전장치)
+    //  이미 업로드 중이거나 저장 중이면 차단 (안전장치)
     if (isLoading || isUploadingImage) return;
 
     try {
@@ -528,7 +529,7 @@ export default function BoardWrite({
         }
       }
 
-      // 🌟 [검증] 디스코드 링크 형식만 간단히 체크 (상세 검증은 서버 API에서 수행)
+      //  [검증] 디스코드 링크 형식만 간단히 체크 (상세 검증은 서버 API에서 수행)
       if (newCategory === "듀오/스쿼드 모집" && newDiscordUrl) {
         const isDiscordUrl = /discord\.(gg|com)/.test(newDiscordUrl);
         if (!isDiscordUrl) {
@@ -550,7 +551,7 @@ export default function BoardWrite({
     }
   };
 
-  // 🌟 [추가] 텍스트 스타일 전체 초기화 함수 - 모달 트리거
+  //  [추가] 텍스트 스타일 전체 초기화 함수 - 모달 트리거
   const handleClearFormatting = () => {
     if (!quillRef.current) return;
     const editor = quillRef.current.getEditor();
@@ -597,7 +598,7 @@ export default function BoardWrite({
         link: linkHandler
       },
     },
-    // 🌟 [안전] 클립보드 붙여넣기 시 Base64 이미지 자동 필터링 및 스타일 클리닝
+    //  [안전] 클립보드 붙여넣기 시 Base64 이미지 자동 필터링 및 스타일 클리닝
     clipboard: {
       matchers: [
         ["IMG", (node: any, delta: any) => {
@@ -704,10 +705,11 @@ export default function BoardWrite({
         </button>
       </div>
 
-      {/* 🌟 대표 이미지 (썸네일) 설정 영역 */}
       <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "15px", padding: "12px", backgroundColor: "#252525", border: "1px solid #333", borderRadius: "4px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span style={{ color: "#F2A900", fontWeight: "bold", fontSize: "14px" }}>🖼️ 대표 이미지 (썸네일) 설정</span>
+          <span style={{ color: "#F2A900", fontWeight: "bold", fontSize: "14px" }}>
+            <InlineIconLabel icon="image">대표 이미지 (썸네일) 설정</InlineIconLabel>
+          </span>
         </div>
         
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
@@ -758,7 +760,11 @@ export default function BoardWrite({
             />
             <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
               <span style={{ fontSize: "12px", fontWeight: "bold", color: thumbnailUrl ? "#43b581" : "#F2A900" }}>
-                {thumbnailUrl ? "✅ 수동 지정된 대표 이미지 사용 중" : "✨ 본문 내 첫 번째 이미지 자동 추출 중"}
+                {thumbnailUrl ? (
+                  <InlineIconLabel icon="check">수동 지정된 대표 이미지 사용 중</InlineIconLabel>
+                ) : (
+                  <InlineIconLabel icon="sparkles">본문 내 첫 번째 이미지 자동 추출 중</InlineIconLabel>
+                )}
               </span>
               <span style={{ fontSize: "10px", color: "#888", wordBreak: "break-all" }}>
                 {thumbnailUrl || autoExtractedImage}
@@ -772,11 +778,12 @@ export default function BoardWrite({
         )}
       </div>
 
-      {/* 🌟 디스코드 링크 입력 섹션 (듀오/스쿼드 모집 카테고리 전용) */}
       {newCategory === "듀오/스쿼드 모집" && (
         <div style={{ marginBottom: "20px", display: "flex", flexDirection: "column", gap: "8px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ color: "#7289da", fontWeight: "bold", fontSize: "14px" }}>👾 디스코드 채널 링크</span>
+            <span style={{ color: "#7289da", fontWeight: "bold", fontSize: "14px" }}>
+              <InlineIconLabel icon="bot">디스코드 채널 링크</InlineIconLabel>
+            </span>
             <div 
               style={{ 
                 position: "relative", 
@@ -795,7 +802,9 @@ export default function BoardWrite({
             >
               ?
               <div className="invisible group-hover:visible absolute left-[25px] top-0 w-[300px] p-4 bg-[#333] text-white text-[12px] rounded-lg shadow-2xl border border-[#444] z-[3000] leading-relaxed">
-                <p style={{ fontWeight: "bold", color: "#F2A900", marginBottom: "8px", fontSize: "13px" }}>🔗 디스코드 채널 링크 넣는 법</p>
+                <p style={{ fontWeight: "bold", color: "#F2A900", marginBottom: "8px", fontSize: "13px" }}>
+                  <InlineIconLabel icon="link">디스코드 채널 링크 넣는 법</InlineIconLabel>
+                </p>
                 <div style={{ marginBottom: "10px" }}>
                   <strong style={{ color: "#7289da" }}>방식 A. 초대 링크 (추천)</strong><br/>
                   1. 보이스 채널 우클릭 - [초대하기]<br/>
@@ -822,7 +831,12 @@ export default function BoardWrite({
                 disabled={isCreatingRoom}
                 className="flex-1 py-[8px] bg-[#5865F2] hover:bg-[#4752C4] text-white rounded font-bold text-[12px] transition-colors flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isCreatingRoom ? "생성 중..." : "🎮 듀오 방 자동 생성 (2인)"}
+                <InlineIconLabel
+                  icon={isCreatingRoom ? "loader" : "battle"}
+                  iconClassName={isCreatingRoom ? "animate-spin" : ""}
+                >
+                  {isCreatingRoom ? "생성 중..." : "듀오 방 자동 생성 (2인)"}
+                </InlineIconLabel>
               </button>
               <button
                 type="button"
@@ -830,7 +844,12 @@ export default function BoardWrite({
                 disabled={isCreatingRoom}
                 className="flex-1 py-[8px] bg-[#5865F2] hover:bg-[#4752C4] text-white rounded font-bold text-[12px] transition-colors flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isCreatingRoom ? "생성 중..." : "🎮 스쿼드 방 자동 생성 (4인)"}
+                <InlineIconLabel
+                  icon={isCreatingRoom ? "loader" : "team"}
+                  iconClassName={isCreatingRoom ? "animate-spin" : ""}
+                >
+                  {isCreatingRoom ? "생성 중..." : "스쿼드 방 자동 생성 (4인)"}
+                </InlineIconLabel>
               </button>
             </div>
 
@@ -866,11 +885,12 @@ export default function BoardWrite({
         </div>
       )}
 
-      {/* 🌟 클랜 정보 첨부 섹션 (클랜홍보 카테고리 전용) */}
       {newCategory === "클랜홍보" && (
         <div style={{ marginBottom: "20px", display: "flex", flexDirection: "column", gap: "8px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ color: "#F2A900", fontWeight: "bold", fontSize: "14px" }}>🎖️ PUBG 클랜 정보 첨부</span>
+            <span style={{ color: "#F2A900", fontWeight: "bold", fontSize: "14px" }}>
+              <InlineIconLabel icon="award">PUBG 클랜 정보 첨부</InlineIconLabel>
+            </span>
             <div 
               style={{ 
                 position: "relative", 
@@ -889,7 +909,9 @@ export default function BoardWrite({
             >
               ?
               <div className="invisible group-hover:visible absolute left-[25px] top-0 w-[300px] p-4 bg-[#333] text-white text-[12px] rounded-lg shadow-2xl border border-[#444] z-[3000] leading-relaxed">
-                <p style={{ fontWeight: "bold", color: "#F2A900", marginBottom: "8px", fontSize: "13px" }}>🛡️ 클랜 정보 첨부하는 법</p>
+                <p style={{ fontWeight: "bold", color: "#F2A900", marginBottom: "8px", fontSize: "13px" }}>
+                  <InlineIconLabel icon="shield">클랜 정보 첨부하는 법</InlineIconLabel>
+                </p>
                 <div>
                   1. 클랜원 또는 클랜 마스터 본인의 배틀그라운드 인게임 닉네임을 입력합니다.<br/>
                   2. 계정이 존재하는 플랫폼(Steam/Kakao 등)을 선택한 뒤 [클랜 조회]를 클릭합니다.<br/>

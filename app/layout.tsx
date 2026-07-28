@@ -71,7 +71,7 @@ export const viewport = {
   appleMobileWebAppStatusBarStyle: "black-translucent",
 };
 
-// 🌟 사이트 전체 구조화 데이터 (브랜드 및 검색창 지원)
+//  사이트 전체 구조화 데이터 (브랜드 및 검색창 지원)
 const siteJsonLd = [
   {
     "@context": "https://schema.org",

@@ -140,7 +140,7 @@ export async function GET(request: NextRequest) {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-            <div style={{ display: "flex", fontSize: "28px", fontWeight: "900", color: "#f59e0b" }}>🏆 BGMS</div>
+            <div style={{ display: "flex", fontSize: "28px", fontWeight: "900", color: "#f59e0b" }}>BGMS</div>
             <div
               style={{
                 display: "flex",
@@ -185,7 +185,7 @@ export async function GET(request: NextRequest) {
               }}
             >
               <span style={{ fontSize: "13px", color: "#c084fc", fontWeight: "800", letterSpacing: "2.5px" }}>
-                🎮 {platform.toUpperCase()} · SQUAD
+                {platform.toUpperCase()} · SQUAD
               </span>
             </div>
 

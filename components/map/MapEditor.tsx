@@ -30,6 +30,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { useMapSettings } from "@/hooks/useMapSettings";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import ConfirmModal from "@/components/common/ConfirmModal";
 
 // SVG 경로와 색상을 조합해 커스텀 지도 마커 아이콘 객체 생성
@@ -458,7 +459,7 @@ const MapEditorComponent = () => {
         />
       )}
 
-      {/* 🌟 사이드바 개편 */}
+      {/*  사이드바 개편 */}
       <aside className={`
         ${isMobile 
           ? `fixed left-0 top-0 bottom-0 z-[6000] w-[300px] transition-transform duration-300 shadow-2xl ${isSidebarOpen ? 'translate-x-0' : 'translate-x-[-100%]'}` 
@@ -697,7 +698,7 @@ const MapEditorComponent = () => {
             onClick={() => setIsSidebarOpen(true)}
             className="absolute top-4 left-4 z-[4000] flex items-center gap-2 px-4 py-2.5 bg-[#F2A900] text-black font-black text-xs rounded-xl shadow-lg active:scale-[0.95] transition-all"
           >
-            <span>🛠️</span> 에디터 메뉴
+            에디터 메뉴
           </button>
         )}
 
@@ -770,7 +771,7 @@ const MapEditorComponent = () => {
                 interactive={false}
               >
                 <Tooltip direction="top" opacity={0.9} permanent>
-                  👀제보: {v.marker_type}
+                  <InlineIconLabel icon="eye" iconSize={12}>제보: {v.marker_type}</InlineIconLabel>
                 </Tooltip>
               </CircleMarker>
             );

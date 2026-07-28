@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Marker, Polyline, Circle, useMapEvents, useMap } from "react-leaflet";
 import L from "leaflet";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 const flightPointIcon = L.divIcon({
   className: "flight-point-sim",
@@ -44,7 +45,7 @@ export function SimulatorLayer({
   const [fetchError, setFetchError] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // ✅ 에러 메시지 자동 소멸 (3초)
+  //  에러 메시지 자동 소멸 (3초)
   React.useEffect(() => {
     if (!errorMsg) return;
     const t = setTimeout(() => setErrorMsg(null), 3000);
@@ -347,7 +348,7 @@ export function SimulatorLayer({
 
   return (
     <>
-      {/* ✅ 인라인 토스트: alert() 대신 비차단 방식으로 경고 표시 */}
+      {/*  인라인 토스트: alert() 대신 비차단 방식으로 경고 표시 */}
       {errorMsg && (
         <div style={{
           position: "fixed", bottom: "80px", left: "50%", transform: "translateX(-50%)",
@@ -356,7 +357,7 @@ export function SimulatorLayer({
           backdropFilter: "blur(8px)", boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
           pointerEvents: "none"
         }}>
-          ⚠️ {errorMsg}
+          <InlineIconLabel icon="alert">{errorMsg}</InlineIconLabel>
         </div>
       )}
       {bluezoneData.length === 0 && (

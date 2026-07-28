@@ -44,7 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // 🌟 [추가] 최근 활동 시각(last_active_at) 트래킹 (10분 쿨다운)
+  //  [추가] 최근 활동 시각(last_active_at) 트래킹 (10분 쿨다운)
   useEffect(() => {
     if (!user) return;
 
@@ -75,7 +75,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(timer);
   }, [user]);
 
-  // 🌟 [추가] GA4 user_id 연동 (Identity Stitching)
+  //  [추가] GA4 user_id 연동 (Identity Stitching)
   useEffect(() => {
     if (typeof window === 'undefined' || !process.env.NEXT_PUBLIC_GA_ID) return;
 
@@ -88,7 +88,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     if (user) {
-      // 🌟 [개선] SPA 환경에서 확실한 매핑을 위해 gtag('set')으로 글로벌 세션 및 사용자 속성에 주입
+      //  [개선] SPA 환경에서 확실한 매핑을 위해 gtag('set')으로 글로벌 세션 및 사용자 속성에 주입
       (window as any).gtag('set', { user_id: user.id });
       (window as any).gtag('set', 'user_properties', { user_id: user.id });
 

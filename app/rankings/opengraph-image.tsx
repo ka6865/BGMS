@@ -80,7 +80,7 @@ export default async function OgImage() {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-            <div style={{ fontSize: "32px", fontWeight: "900", color: "#f59e0b" }}>🏆 BGMS</div>
+            <div style={{ fontSize: "32px", fontWeight: "900", color: "#f59e0b" }}>BGMS</div>
             <div style={{ fontSize: "14px", color: "#6b7280", fontWeight: "800", paddingLeft: "16px", borderLeft: "1px solid #334155", letterSpacing: "2px" }}>
               주간 랭킹 리포트
             </div>
@@ -193,7 +193,7 @@ export default async function OgImage() {
               }}
             >
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                <span style={{ fontSize: "12px", color: "#f87171", fontWeight: "800", letterSpacing: "1px" }}>🔥 최고 딜량 1위</span>
+                <span style={{ fontSize: "12px", color: "#f87171", fontWeight: "800", letterSpacing: "1px" }}>최고 딜량 1위</span>
                 <span style={{ fontSize: "16px", color: "#ffffff", fontWeight: "700" }}>{topDamagePlayer}</span>
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
@@ -217,7 +217,7 @@ export default async function OgImage() {
               }}
             >
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                <span style={{ fontSize: "12px", color: "#facc15", fontWeight: "800", letterSpacing: "1px" }}>⚡ 최고 킬 1위</span>
+                <span style={{ fontSize: "12px", color: "#facc15", fontWeight: "800", letterSpacing: "1px" }}>최고 킬 1위</span>
                 <span style={{ fontSize: "16px", color: "#ffffff", fontWeight: "700" }}>{topKillsPlayer}</span>
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
@@ -241,7 +241,7 @@ export default async function OgImage() {
               }}
             >
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                <span style={{ fontSize: "12px", color: "#818cf8", fontWeight: "800", letterSpacing: "1px" }}>🏅 BGMS 티어 1위</span>
+                <span style={{ fontSize: "12px", color: "#818cf8", fontWeight: "800", letterSpacing: "1px" }}>BGMS 티어 1위</span>
                 <span style={{ fontSize: "16px", color: "#ffffff", fontWeight: "700" }}>{topTierPlayer}</span>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>

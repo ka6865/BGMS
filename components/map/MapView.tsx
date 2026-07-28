@@ -20,6 +20,7 @@ import HotDropLayer from "./HotDropLayer";
 import { supabase } from "../../lib/supabase";
 import { MAP_DIMENSIONS } from "../../lib/map_config";
 import { toast } from "sonner";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 // 리팩토링으로 분리된 텔레메트리 컴포넌트 임포트
 import { ZoneRenderer } from "./telemetry/ZoneRenderer";
@@ -488,7 +489,7 @@ const MapView = memo(
         style={{ height: "100%", width: "100%", background: "#0b0f19" }}
         zoomControl={false}
       >
-        {/* 🌟 기절 상태 맥박 효과 및 마커 이동 부드럽게 설정 */}
+        {/*  기절 상태 맥박 효과 및 마커 이동 부드럽게 설정 */}
         <style>{`
           @keyframes groggy-pulse {
             0% { transform: scale(1.0); opacity: 0.9; }
@@ -576,7 +577,7 @@ const MapView = memo(
           </Marker>
         ))}
 
-        {/* 🌟 진행 중인 제보 히트맵 표시! */}
+        {/*  진행 중인 제보 히트맵 표시! */}
         {filters["pending"] &&
           pendingVehicles.map((v) => {
             const weight = v.weight || 1;
@@ -595,7 +596,7 @@ const MapView = memo(
                 <Popup>
                   <div style={{ textAlign: "center", minWidth: "160px", padding: "4px" }}>
                     <b style={{ fontSize: "14px", color: "#333", display: "block", marginBottom: "4px" }}>
-                      👀 제보 확인 중
+                      <InlineIconLabel icon="eye" iconSize={14}>제보 확인 중</InlineIconLabel>
                     </b>
                     <span style={{ fontSize: "13px", color: "#666" }}>
                       종류: <b>{v.marker_type}</b>
@@ -611,7 +612,7 @@ const MapView = memo(
                           cursor: "pointer", fontWeight: "bold", fontSize: "12px"
                         }}
                       >
-                        ✅ 승인
+                        <InlineIconLabel icon="check" iconSize={12}>승인</InlineIconLabel>
                       </button>
                       {isAdmin && (
                         <>
@@ -623,7 +624,7 @@ const MapView = memo(
                               cursor: "pointer", fontWeight: "bold", fontSize: "11px"
                             }}
                           >
-                            ✅ 관리자 승인
+                            <InlineIconLabel icon="check" iconSize={11}>관리자 승인</InlineIconLabel>
                           </button>
                           <button
                             onClick={() => handleAdminAction(v.id, "reject")}
@@ -633,7 +634,7 @@ const MapView = memo(
                               cursor: "pointer", fontWeight: "bold", fontSize: "11px"
                             }}
                           >
-                            🗑️ 관리자 파기
+                            <InlineIconLabel icon="delete" iconSize={11}>관리자 파기</InlineIconLabel>
                           </button>
                         </>
                       )}
@@ -730,7 +731,7 @@ const MapView = memo(
           </>
         )}
 
-        {/* 🚀 텔레메트리 관련 렌더링 (기존 ZoneRenderer 복구 및 캔버스 레이어) 🚀 */}
+        {/*  텔레메트리 관련 렌더링 (기존 ZoneRenderer 복구 및 캔버스 레이어)  */}
         {telemetryData && (
           <>
             <ZoneRenderer 
@@ -745,10 +746,10 @@ const MapView = memo(
           </>
         )}
 
-        {/* 🔥 핫드랍 히트맵 레이어 */}
+        {/*  핫드랍 히트맵 레이어 */}
         <HotDropLayer mapName={activeMapId} visible={isHotDropOn} />
 
-        {/* 🎲 시뮬레이터 레이어 */}
+        {/*  시뮬레이터 레이어 */}
         <SimulatorLayer 
           activeMode={activeMode} 
           mapScale={mapScale} 

@@ -79,7 +79,7 @@ export default function TestMapClient() {
       {/* 어드민 캘리브레이션 튜닝 카드 패널 (Glassmorphism 적용) */}
       <div className="absolute top-6 left-6 z-[1000] p-6 w-80 rounded-2xl border border-white/10 bg-neutral-950/85 backdrop-blur-md text-neutral-200 shadow-2xl font-sans">
         <h2 className="font-bold text-white text-base flex items-center gap-2 mb-2">
-          <span>🎯</span> PUBG 좌표 정밀 캘리브레이션
+          PUBG 좌표 정밀 캘리브레이션
         </h2>
         <p className="text-xs text-neutral-400 mb-4 leading-relaxed">
           에란겔의 랜드마크인 <b>밀타 파워 냉각탑 정중앙</b>(펍지 좌표 6428m, 4861m)을 기준으로 오차를 실측합니다.

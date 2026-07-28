@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { Marker, CircleMarker, Tooltip } from "react-leaflet";
 import L from "leaflet";
+import { svgIcon } from "@/lib/ui/icon-svg";
 
 const COLORS = ["#F2A900", "#34A853", "#3b82f6", "#ef4444"];
 const VEHICLE_THRESHOLD = 400;
@@ -125,6 +126,7 @@ export const PlayerMarkerRenderer = ({ telemetryData }: { telemetryData: any }) 
         })
         .join("");
 
+      const vehicleSvg = svgIcon("vehicle", { color: "currentColor", size: passengerCount > 1 ? 16 : 14 });
       const iconHtml = `
         <div style="
           display:flex;flex-direction:column;align-items:center;
@@ -135,7 +137,7 @@ export const PlayerMarkerRenderer = ({ telemetryData }: { telemetryData: any }) 
           min-width:${passengerCount > 1 ? 44 : 30}px;
           gap:2px;pointer-events:auto;
         ">
-          <span style="font-size:${passengerCount > 1 ? 16 : 14}px;line-height:1;">🚗</span>
+          <span style="line-height:1;color:white;">${vehicleSvg}</span>
           <div style="display:flex;gap:3px;justify-content:center;">${dotHtml}</div>
         </div>`;
 
@@ -165,7 +167,7 @@ export const PlayerMarkerRenderer = ({ telemetryData }: { telemetryData: any }) 
             opacity={showNames ? 1 : 0}
             className={`bg-black/90 border border-white/20 text-[11px] p-1.5 font-bold ${!showNames ? 'hidden-tooltip' : ''}`}
           >
-            <div dangerouslySetInnerHTML={{ __html: `🚗 탑승 중: ${names}` }} />
+            <div dangerouslySetInnerHTML={{ __html: `${svgIcon("vehicle", { color: "currentColor", size: 12 })} 탑승 중: ${names}` }} />
           </Tooltip>
         </Marker>
       );

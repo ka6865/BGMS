@@ -1,9 +1,10 @@
 import React, { useState } from "react";
-import { Coins, Box, Award, Ticket, Sparkles, History, AlertTriangle, Layers } from "lucide-react";
+import { Coins, Box, Award, Ticket, Sparkles, History, AlertTriangle, Layers, X } from "lucide-react";
 import type { CrateTemplate } from "@/types/crates";
 import { HistoryItem } from "./types";
 import { VaultCard, HistoryCard, getKoreanRarityName } from "./CrateCards";
 import { AppModal } from "@/components/common/AppModal";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 function getOwnedCount(obtainedSkins: Record<string, number>, item: { name: string; asset_key?: string | null }) {
   return obtainedSkins[item.asset_key || item.name] || obtainedSkins[item.name] || 0;
@@ -30,7 +31,7 @@ export function ChargeModal({ isOpen, onClose, onCharge, exchangeRate = 1500 }: 
           aria-label="닫기"
           className="absolute top-4 right-4 text-slate-400 hover:text-white font-bold text-lg cursor-pointer px-2 py-1 rounded-lg hover:bg-slate-800 transition-all z-10"
         >
-          ✕
+          <X className="h-4 w-4" aria-hidden="true" />
         </button>
 
         <div className="text-center shrink-0">
@@ -124,7 +125,7 @@ export function QuantityModal({
           aria-label="닫기"
           className="absolute top-4 right-4 text-slate-400 hover:text-white font-bold text-lg cursor-pointer px-2 py-1 rounded-lg hover:bg-slate-800 transition-all"
         >
-          ✕
+          <X className="h-4 w-4" aria-hidden="true" />
         </button>
 
         <div className="text-center">
@@ -243,7 +244,7 @@ export function RefillModal({
           aria-label="닫기"
           className="absolute top-4 right-4 text-slate-400 hover:text-white font-bold text-lg cursor-pointer px-2 py-1 rounded-lg hover:bg-slate-800 transition-all"
         >
-          ✕
+          <X className="h-4 w-4" aria-hidden="true" />
         </button>
 
         <div className="text-center shrink-0">
@@ -334,7 +335,7 @@ export function RefillModal({
               onClick={onRefillInfinite}
               className="w-full py-3.5 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-600 hover:via-yellow-600 hover:to-amber-700 text-slate-950 font-black rounded-xl shadow-lg shadow-amber-500/10 transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer text-sm"
             >
-              ⚡ 모든 재화 무제한 충전 (999M)
+              <InlineIconLabel icon="zap">모든 재화 무제한 충전 (999M)</InlineIconLabel>
             </button>
           )}
         </div>
@@ -526,7 +527,8 @@ export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft,
               aria-label="닫기"
               className="text-slate-400 hover:text-white font-bold text-lg px-3 py-2 rounded-lg hover:bg-slate-800 transition-all cursor-pointer"
             >
-              ✕ 닫기
+              <X className="h-4 w-4" aria-hidden="true" />
+              닫기
             </button>
           </div>
         </header>
@@ -676,7 +678,8 @@ export function DetailModal({
             aria-label="닫기"
             className="text-slate-400 hover:text-white font-bold text-lg px-3 py-2 rounded-lg hover:bg-slate-800 transition-all cursor-pointer"
           >
-            ✕ 닫기
+            <X className="h-4 w-4" aria-hidden="true" />
+            닫기
           </button>
         </header>
 

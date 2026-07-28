@@ -1,5 +1,7 @@
 "use client";
 
+import { BgmsIcon } from "@/components/common/BgmsIcon";
+
 interface MapStat {
   mapName: string;
   displayName: string;
@@ -15,15 +17,15 @@ interface MapStatsData {
   worstMap: MapStat;
 }
 
-const MAP_EMOJIS: Record<string, string> = {
-  '에란겔': '🌿',
-  '미라마': '🏜️',
-  '사녹':   '🌴',
-  '태이고': '🏯',
-  '론도':   '🌆',
-  '데스턴': '🌾',
-  '칼린도': '🏖️',
-  '헤이븐': '🏙️',
+const MAP_ICON_TONES: Record<string, string> = {
+  '에란겔': 'text-emerald-400',
+  '미라마': 'text-amber-400',
+  '사녹': 'text-green-400',
+  '태이고': 'text-red-300',
+  '론도': 'text-sky-300',
+  '데스턴': 'text-yellow-300',
+  '칼린도': 'text-cyan-300',
+  '헤이븐': 'text-zinc-300',
 };
 
 export const MapKingCard = ({ mapStats }: { mapStats: MapStatsData }) => {
@@ -43,7 +45,7 @@ export const MapKingCard = ({ mapStats }: { mapStats: MapStatsData }) => {
       {/* 헤더 */}
       <div className="relative z-10 mb-6">
         <div className="text-[12px] text-yellow-400 font-black uppercase tracking-[0.3em] mb-1">
-          🗺️ Map Identity
+          Map Identity
         </div>
         <div className="text-xl font-black text-white">나는 어느 맵의 왕인가</div>
       </div>
@@ -51,7 +53,7 @@ export const MapKingCard = ({ mapStats }: { mapStats: MapStatsData }) => {
       {/* 최강 맵 하이라이트 */}
       <div className="relative z-10 p-5 bg-yellow-500/10 border border-yellow-500/20 rounded-2xl mb-5">
         <div className="flex items-center gap-4">
-          <div className="text-4xl">{MAP_EMOJIS[bestMap.displayName] ?? '🗺️'}</div>
+          <BgmsIcon name="map" size={38} className={MAP_ICON_TONES[bestMap.displayName] ?? 'text-[#F2A900]'} />
           <div className="flex-1">
             <div className="text-lg font-black text-yellow-400">
               {bestMap.displayName} 특화
@@ -81,7 +83,7 @@ export const MapKingCard = ({ mapStats }: { mapStats: MapStatsData }) => {
           return (
             <div key={m.mapName} className="flex items-center gap-3 group">
               <div className="w-6 text-lg shrink-0 text-center">
-                {MAP_EMOJIS[m.displayName] ?? '🗺️'}
+                <BgmsIcon name="map" size={18} className={`mx-auto ${MAP_ICON_TONES[m.displayName] ?? 'text-[#F2A900]'}`} />
               </div>
               <div className="w-14 text-xs font-black text-white/70 shrink-0 truncate">
                 {m.displayName}
@@ -112,7 +114,7 @@ export const MapKingCard = ({ mapStats }: { mapStats: MapStatsData }) => {
       {/* 최약 맵 경고 */}
       {!isSameMap && (
         <div className="relative z-10 mt-5 p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3">
-          <span className="text-lg">{MAP_EMOJIS[worstMap.displayName] ?? '🗺️'}</span>
+          <BgmsIcon name="map" size={18} className={MAP_ICON_TONES[worstMap.displayName] ?? 'text-red-300'} />
           <div className="text-sm text-red-400 font-bold">
             <strong>{worstMap.displayName}</strong>에서 평균 {worstMap.avgDamage}딜 —{' '}
             가장 취약한 맵 (기피 권장)

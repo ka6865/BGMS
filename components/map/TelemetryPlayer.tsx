@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { TelemetryEvent } from "../../hooks/useTelemetry";
 
 interface TelemetryPlayerProps {
@@ -75,7 +76,7 @@ export default function TelemetryPlayer({
     return (
       <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 bg-[#1a1a1a]/90 backdrop-blur-md text-[#ef4444] px-6 py-4 rounded-xl border border-[#ef4444]/50 shadow-2xl z-[5000] font-bold">
         <div className="flex items-center gap-3">
-          ❌ {error}
+          <InlineIconLabel icon="error">{error}</InlineIconLabel>
           <button onClick={onClose} className="ml-4 text-xs bg-[#ef4444] text-white px-2 py-1 rounded">닫기</button>
         </div>
       </div>
@@ -126,7 +127,7 @@ export default function TelemetryPlayer({
             onClick={() => setIsMinimized(false)}
             className="text-[11px] bg-[#333] hover:bg-[#444] px-3 py-1.5 rounded-full font-bold text-gray-300 transition-colors"
           >
-            🔼 펼치기
+            <InlineIconLabel icon="chevronUp" iconSize={11}>펼치기</InlineIconLabel>
           </button>
           <button 
             onClick={onClose}
@@ -175,7 +176,7 @@ export default function TelemetryPlayer({
           const isTeamDown = ev.type === "took_damage";
 
           if (isTeamDown) {
-            markerColor = "#a855f7"; // 🟣 아군 기절 전용 보라색 (사용자 요청)
+            markerColor = "#a855f7"; //  아군 기절 전용 보라색 (사용자 요청)
           } else if (ev.attacker) {
             const idx = teamNames.indexOf(ev.attacker);
             if (idx !== -1) {
@@ -248,19 +249,19 @@ export default function TelemetryPlayer({
             onClick={() => setShowKills(!showKills)}
             className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-all ${showKills ? 'bg-red-500 text-white' : 'bg-[#333] text-gray-500'}`}
           >
-            💀 Kills
+            <InlineIconLabel icon="skull" iconSize={10}>Kills</InlineIconLabel>
           </button>
           <button 
             onClick={() => setShowGroggy(!showGroggy)}
             className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-all ${showGroggy ? 'bg-orange-500 text-white' : 'bg-[#333] text-gray-500'}`}
           >
-            👊 Knock
+            <InlineIconLabel icon="battle" iconSize={10}>Knock</InlineIconLabel>
           </button>
           <button 
             onClick={() => setShowTeamDown(!showTeamDown)}
             className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-all ${showTeamDown ? 'bg-[#a855f7] text-white' : 'bg-[#333] text-gray-500'}`}
           >
-            🚑 Team Down
+            <InlineIconLabel icon="alert" iconSize={10}>Team Down</InlineIconLabel>
           </button>
         </div>
         <div className="h-3 w-px bg-white/10 mx-1" />
@@ -268,7 +269,9 @@ export default function TelemetryPlayer({
           onClick={() => setShowOnlyTeam(!showOnlyTeam)}
           className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-all border ${showOnlyTeam ? 'bg-blue-600 text-white border-blue-400' : 'bg-[#333] text-gray-500 border-transparent hover:border-gray-500'}`}
         >
-          {showOnlyTeam ? "👥 TEAM ONLY" : "🌐 ALL EVENTS"}
+          <InlineIconLabel icon={showOnlyTeam ? "team" : "activity"} iconSize={10}>
+            {showOnlyTeam ? "TEAM ONLY" : "ALL EVENTS"}
+          </InlineIconLabel>
         </button>
       </div>
 
@@ -304,7 +307,7 @@ export default function TelemetryPlayer({
               color: showZone ? "#60a5fa" : "#666",
             }}
           >
-            🔵 자기장
+            <InlineIconLabel icon="shield" iconSize={11}>자기장</InlineIconLabel>
           </button>
 
           {/* 교전 흔적 토글 */}
@@ -318,7 +321,7 @@ export default function TelemetryPlayer({
               color: showCombatDots ? "#ddd" : "#666",
             }}
           >
-            ⚫ 교전점
+            <InlineIconLabel icon="battle" iconSize={11}>교전점</InlineIconLabel>
           </button>
 
           {/* 발사 이펙트 토글 */}
@@ -332,7 +335,7 @@ export default function TelemetryPlayer({
               color: showShotDots ? "#F2A900" : "#666",
             }}
           >
-            🔫 발사점
+            <InlineIconLabel icon="weapon" iconSize={11}>발사점</InlineIconLabel>
           </button>
 
           {/* 이름 표시 토글 */}
@@ -346,7 +349,7 @@ export default function TelemetryPlayer({
               color: showPlayerNames ? "#fff" : "#666",
             }}
           >
-            🏷️ 이름 {showPlayerNames ? "ON" : "OFF"}
+            <InlineIconLabel icon="eye" iconSize={11}>이름 {showPlayerNames ? "ON" : "OFF"}</InlineIconLabel>
           </button>
 
           {/* 비행기 경로 토글 */}
@@ -360,7 +363,7 @@ export default function TelemetryPlayer({
               color: showFlightPath ? "#fff" : "#666",
             }}
           >
-            ✈️ 비행경로 {showFlightPath ? "ON" : "OFF"}
+            <InlineIconLabel icon="plane" iconSize={11}>비행경로 {showFlightPath ? "ON" : "OFF"}</InlineIconLabel>
           </button>
 
           {/* 이동 경로 토글 기능 제거됨 */}
@@ -384,7 +387,7 @@ export default function TelemetryPlayer({
             title="타임라인 리모컨 숨기기"
             className="flex items-center gap-1.5 px-2.5 h-8 rounded bg-[#333] hover:bg-[#444] transition-colors text-xs font-bold text-gray-300"
           >
-            🔽 숨기기
+            <InlineIconLabel icon="chevronDown" iconSize={12}>숨기기</InlineIconLabel>
           </button>
 
           <button 

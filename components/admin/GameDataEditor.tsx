@@ -120,7 +120,7 @@ export default function GameDataEditor() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || "시스템 설정 저장 실패");
-      toast.success("✅ 시스템 설정이 저장되었습니다.", { id: toastId });
+      toast.success("시스템 설정이 저장되었습니다.", { id: toastId });
       fetchSettings();
     } catch (err: any) {
       toast.error("설정 저장 오류: " + err.message, { id: toastId });
@@ -229,7 +229,7 @@ export default function GameDataEditor() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "동기화 실패");
       
-      toast.success(`✅ ${result.count}명의 누락된 회원 프로필이 성공적으로 복구되었습니다!`, { id: toastId });
+      toast.success(`${result.count}명의 누락된 회원 프로필이 성공적으로 복구되었습니다!`, { id: toastId });
       fetchItems();
     } catch (err: any) {
       toast.error("동기화 오류: " + err.message, { id: toastId });
@@ -504,7 +504,7 @@ export default function GameDataEditor() {
 
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "유저 정보 저장 실패");
-        toast.success("✅ 유저 프로필이 성공적으로 변경되었습니다.");
+        toast.success("유저 프로필이 성공적으로 변경되었습니다.");
         fetchItems();
         return;
       }
@@ -630,11 +630,11 @@ export default function GameDataEditor() {
       const result = await res.json();
       
       if (result.success) {
-        toast.success("✅ 동기화 완료! (" + (result.details?.join(", ") || "내역 없음") + ")");
+        toast.success("동기화 완료! (" + (result.details?.join(", ") || "내역 없음") + ")");
         if (urlInput) urlInput.value = ""; // 성공 시 비우기
         router.push("/board");
       } else {
-        toast.error("❌ 동기화 실패: " + (result.error || result.message || "알 수 없는 오류"));
+        toast.error("동기화 실패: " + (result.error || result.message || "알 수 없는 오류"));
       }
     } catch (err) {
       console.error("Sync error:", err);
@@ -824,9 +824,9 @@ export default function GameDataEditor() {
                 { id: "attachments", label: "파츠" },
                 { id: "ammo", label: "탄약" },
                 { id: "vehicles", label: "차량" },
-                { id: "crates", label: "📦 은신처 상점" },
-                { id: "users", label: "👥 유저 관리" },
-                { id: "system", label: "⚙️ 시스템/캐시" }
+                { id: "crates", label: "은신처 상점" },
+                { id: "users", label: "유저 관리" },
+                { id: "system", label: "시스템/캐시" }
               ].map(cat => (
                 <option key={cat.id} value={cat.id}>
                   {cat.label}
@@ -842,9 +842,9 @@ export default function GameDataEditor() {
                 { id: "attachments", label: "파츠" },
                 { id: "ammo", label: "탄약" },
                 { id: "vehicles", label: "차량" },
-                { id: "crates", label: "📦 은신처 상점" },
-                { id: "users", label: "👥 유저 관리" },
-                { id: "system", label: "⚙️ 시스템/캐시" }
+                { id: "crates", label: "은신처 상점" },
+                { id: "users", label: "유저 관리" },
+                { id: "system", label: "시스템/캐시" }
               ].map(cat => (
                 <button
                   key={cat.id}
@@ -936,7 +936,7 @@ export default function GameDataEditor() {
                   </span>
                   {activeCategory === "users" && (item as any).is_missing_profile && (
                     <span className="text-[9px] bg-red-950 text-red-400 border border-red-900/60 px-1.5 py-0.5 rounded font-bold shrink-0">
-                      ⚠️ 누락
+                      누락
                     </span>
                   )}
                   {activeCategory === "users" && (item as any).is_orphan_profile && (
@@ -970,7 +970,7 @@ export default function GameDataEditor() {
                 onClick={() => setShowUserListOnMobile(true)}
                 className="w-full py-3 bg-[#F2A900] text-black hover:bg-[#d99700] rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 shadow-lg shadow-amber-950/20"
               >
-                👥 전체 회원 목록 및 검색 보기
+                전체 회원 목록 및 검색 보기
               </button>
             </div>
           )}
@@ -979,7 +979,7 @@ export default function GameDataEditor() {
               {missingProfilesCount > 0 && (
                 <div className="max-w-[700px] mx-auto mb-6 bg-red-950/20 border border-red-900/40 p-4 rounded-xl flex items-center justify-between gap-4 animate-pulse animate-duration-1000">
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl">⚠️</span>
+                    <span className="text-2xl"></span>
                     <div>
                       <h4 className="text-sm font-bold text-red-400">데이터 불일치 (프로필 누락 가입자 감지)</h4>
                       <p className="text-xs text-gray-400 mt-1">
@@ -993,7 +993,7 @@ export default function GameDataEditor() {
                     disabled={isSaving}
                     className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-800 text-white text-xs font-bold rounded-lg shadow-lg shadow-red-950/40 transition-all shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {isSaving ? "⏳ 동기화 중..." : "🔄 일괄 복구 동기화"}
+                    {isSaving ? "동기화 중..." : "일괄 복구 동기화"}
                   </button>
                 </div>
               )}
@@ -1006,7 +1006,7 @@ export default function GameDataEditor() {
                         {(selectedItem as any).avatar_url ? (
                           <img src={(selectedItem as any).avatar_url} alt="Avatar" className="w-full h-full object-cover" />
                         ) : (
-                          <span className="text-[#F2A900] font-black text-lg">👤</span>
+                          <span className="text-[#F2A900] font-black text-lg"></span>
                         )}
                       </div>
                       <div>
@@ -1028,7 +1028,7 @@ export default function GameDataEditor() {
                               }}
                               className="text-[10px] bg-sky-950 hover:bg-sky-900 text-sky-400 border border-sky-850 px-2.5 py-1 rounded-lg font-bold transition-colors flex items-center gap-1"
                             >
-                              🎮 배그 전적 조회
+                              배그 전적 조회
                             </button>
                           ) : (
                             <span className="text-[10px] text-gray-600 border border-gray-800/40 px-2.5 py-1 rounded-lg">배그 연동 대기중</span>
@@ -1040,7 +1040,7 @@ export default function GameDataEditor() {
                             }}
                             className="text-[10px] bg-emerald-950 hover:bg-emerald-900 text-emerald-400 border border-emerald-850 px-2.5 py-1 rounded-lg font-bold transition-colors flex items-center gap-1"
                           >
-                            💬 작성한 글 검색
+                            작성한 글 검색
                           </button>
                         </div>
                       </div>
@@ -1142,18 +1142,18 @@ export default function GameDataEditor() {
 
                             {/* 이메일 인증 여부 뱃지 */}
                             {(selectedItem as any).email_confirmed ? (
-                              <span className="text-[10px] bg-emerald-950/40 text-emerald-400 border border-emerald-900/50 px-2.5 py-1 rounded-full font-bold font-sans">✉️ 이메일 인증완료</span>
+                              <span className="text-[10px] bg-emerald-950/40 text-emerald-400 border border-emerald-900/50 px-2.5 py-1 rounded-full font-bold font-sans">이메일 인증완료</span>
                             ) : (
-                              <span className="text-[10px] bg-amber-950/40 text-amber-500 border border-amber-900/50 px-2.5 py-1 rounded-full font-bold font-sans">⚠️ 이메일 미인증</span>
+                              <span className="text-[10px] bg-amber-950/40 text-amber-500 border border-amber-900/50 px-2.5 py-1 rounded-full font-bold font-sans">이메일 미인증</span>
                             )}
 
                             {/* 프로필 존재 여부 뱃지 */}
                             {(selectedItem as any).is_orphan_profile ? (
-                              <span className="text-[10px] bg-purple-950/50 text-purple-300 border border-purple-900/60 px-2.5 py-1 rounded-full font-bold font-sans">⚠️ Auth 계정 없음</span>
+                              <span className="text-[10px] bg-purple-950/50 text-purple-300 border border-purple-900/60 px-2.5 py-1 rounded-full font-bold font-sans">Auth 계정 없음</span>
                             ) : (selectedItem as any).is_missing_profile ? (
-                              <span className="text-[10px] bg-rose-950/50 text-rose-400 border border-rose-900/60 px-2.5 py-1 rounded-full font-bold font-sans">⚠️ DB 프로필 누락</span>
+                              <span className="text-[10px] bg-rose-950/50 text-rose-400 border border-rose-900/60 px-2.5 py-1 rounded-full font-bold font-sans">DB 프로필 누락</span>
                             ) : (
-                              <span className="text-[10px] bg-indigo-950/40 text-indigo-400 border border-indigo-900/50 px-2.5 py-1 rounded-full font-bold font-sans">✓ DB 프로필 정상</span>
+                              <span className="text-[10px] bg-indigo-950/40 text-indigo-400 border border-indigo-900/50 px-2.5 py-1 rounded-full font-bold font-sans">DB 프로필 정상</span>
                             )}
                           </div>
                         </div>
@@ -1222,7 +1222,7 @@ export default function GameDataEditor() {
                         disabled={isSaving}
                         className="flex-1 py-3 bg-[#F2A900] hover:bg-[#d99700] text-black font-extrabold rounded-lg shadow-lg active:scale-95 transition-all text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        {isSaving ? "⏳ 저장 중..." : "💾 유저 연동정보 저장"}
+                        {isSaving ? "저장 중..." : "유저 연동정보 저장"}
                       </button>
                       <button
                         type="button"
@@ -1238,7 +1238,7 @@ export default function GameDataEditor() {
                 <div className="max-w-[750px] mx-auto space-y-8">
                   <div className="flex justify-between items-center border-b border-[#333] pb-4">
                     <div>
-                      <h2 className="text-2xl font-black text-white">👥 종합 회원 인사이트 대시보드</h2>
+                      <h2 className="text-2xl font-black text-white">종합 회원 인사이트 대시보드</h2>
                       <p className="text-xs text-gray-500 mt-1">회원가입 현황, 프로필 누락 복구 상태 및 최근 가입 유저 요약</p>
                     </div>
                   </div>
@@ -1246,7 +1246,7 @@ export default function GameDataEditor() {
                   {/* 3종 메트릭 카드 */}
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="bg-[#1a1a1a] p-5 rounded-2xl border border-[#333] relative overflow-hidden">
-                      <div className="text-2xl absolute top-4 right-4 opacity-10">👥</div>
+                      <div className="text-2xl absolute top-4 right-4 opacity-10"></div>
                       <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">총 가입 회원</span>
                       <div className="text-3xl font-black text-white mt-2 font-mono">{userStats?.total || 0}명</div>
                     </div>
@@ -1255,7 +1255,7 @@ export default function GameDataEditor() {
                         ? "bg-red-950/10 border-red-500/20 shadow-lg shadow-red-950/10" 
                         : "bg-[#1a1a1a] border-[#333]"
                     }`}>
-                      <div className="text-2xl absolute top-4 right-4 opacity-10">⚠️</div>
+                      <div className="text-2xl absolute top-4 right-4 opacity-10"></div>
                       <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">프로필 누락 경고</span>
                       <div className={`text-3xl font-black mt-2 font-mono ${
                         (userStats?.missing || 0) > 0 ? "text-red-400" : "text-white"
@@ -1268,7 +1268,7 @@ export default function GameDataEditor() {
                       )}
                     </div>
                     <div className="bg-[#1a1a1a] p-5 rounded-2xl border border-[#333] relative overflow-hidden">
-                      <div className="text-2xl absolute top-4 right-4 opacity-10">✉️</div>
+                      <div className="text-2xl absolute top-4 right-4 opacity-10"></div>
                       <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">이메일 인증률</span>
                       <div className="text-3xl font-black text-white mt-2 font-mono">
                         {userStats?.total ? Math.round((userStats.emailConfirmed / userStats.total) * 100) : 0}%
@@ -1372,7 +1372,7 @@ export default function GameDataEditor() {
                                 {u.avatar_url ? (
                                   <img src={u.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
                                 ) : (
-                                  <span className="text-[#F2A900] font-black text-sm">👤</span>
+                                  <span className="text-[#F2A900] font-black text-sm"></span>
                                 )}
                               </div>
                               <div>
@@ -1390,7 +1390,7 @@ export default function GameDataEditor() {
                               <span className="text-xs text-gray-400 font-bold">{timeAgo(u.last_active_at || u.last_sign_in_at)}</span>
                               {u.pubg_nickname ? (
                                 <span className="text-[9px] bg-sky-950/40 text-sky-400 border border-sky-900/50 px-1.5 py-0.5 rounded font-mono">
-                                  🎮 {u.pubg_nickname} ({u.pubg_platform})
+                                  {u.pubg_nickname} ({u.pubg_platform})
                                 </span>
                               ) : (
                                 <span className="text-[9px] text-gray-600">배그 연동 정보 없음</span>
@@ -1408,7 +1408,7 @@ export default function GameDataEditor() {
             </>
           ) : activeCategory === "system" ? (
             <div className="max-w-[750px] mx-auto space-y-8">
-              <h2 className="text-2xl font-black text-white border-b border-[#333] pb-4">⚙️ 시스템 통합 관제탑 및 캐시 관리</h2>
+              <h2 className="text-2xl font-black text-white border-b border-[#333] pb-4">시스템 통합 관제탑 및 캐시 관리</h2>
               
               {/* 시스템 모니터링 대시보드 */}
               {isLoadingDashboard && !dashboardData ? (
@@ -1495,7 +1495,7 @@ export default function GameDataEditor() {
                   {/* 마커 제보 승인 대기 */}
                   <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] flex flex-col justify-between">
                     <div>
-                      <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">📍 마커 제보 승인 대기</h3>
+                      <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">마커 제보 승인 대기</h3>
                       <div className="text-3xl font-black font-mono text-white mt-4">
                         {dashboardData?.pendingMarkersCount || 0} <span className="text-xs text-gray-500 font-normal">건</span>
                       </div>
@@ -1508,14 +1508,14 @@ export default function GameDataEditor() {
                         onClick={() => router.push("/admin/review")}
                         className="w-full mt-4 py-2 bg-amber-600/20 text-[#F2A900] border border-[#F2A900]/30 hover:bg-amber-600/30 text-[11px] font-bold rounded transition-all text-center"
                       >
-                        📝 제보 검토하러 가기
+                        제보 검토하러 가기
                       </button>
                     )}
                   </div>
 
                   {/* PUBG API Rate Limit */}
                   <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
-                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">📊 PUBG API Rate Limit 상태</h3>
+                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">PUBG API Rate Limit 상태</h3>
                     <div className="pt-2">
                       {dashboardData?.pubgApi ? (
                         <div className="space-y-3">
@@ -1547,7 +1547,7 @@ export default function GameDataEditor() {
 
                   {/* AI 사용량 및 누적 비용 */}
                   <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
-                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">🤖 AI (Gemini) 토큰 분석 비용 (최근 7일)</h3>
+                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">AI (Gemini) 토큰 분석 비용 (최근 7일)</h3>
                     {dashboardData?.aiUsage && (
                       <div className="space-y-2 pt-2">
                         <div className="text-xs font-bold text-gray-400 flex justify-between">
@@ -1580,7 +1580,7 @@ export default function GameDataEditor() {
 
                   {/* 스쿼드 시너지 분석 통계 */}
                   <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
-                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">👥 스쿼드 시너지 분석 통계</h3>
+                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">스쿼드 시너지 분석 통계</h3>
                     <div className="space-y-3 pt-2">
                       <div className="flex justify-between text-xs">
                         <span className="text-gray-400">총 매치 / 스쿼드 매치</span>
@@ -1614,7 +1614,7 @@ export default function GameDataEditor() {
 
                   {/* API 최적화 세이브 */}
                   <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
-                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">⚡ PUBG API 효율성 및 트래픽 절약</h3>
+                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">PUBG API 효율성 및 트래픽 절약</h3>
                     <div className="space-y-3 pt-2">
                       <div className="flex justify-between text-xs">
                         <span className="text-gray-400">누적 절약 API 호출 횟수</span>
@@ -1640,7 +1640,7 @@ export default function GameDataEditor() {
               <div className="grid grid-cols-1 gap-6 pt-4">
                 {/* 패치노트 데이터 동기화 관리 */}
                 <div className="bg-[#1a1a1a] p-6 rounded-xl border border-[#333] space-y-4">
-                  <h3 className="text-lg font-bold text-[#F2A900]">🔄 패치노트 데이터 수동 동기화</h3>
+                  <h3 className="text-lg font-bold text-[#F2A900]">패치노트 데이터 수동 동기화</h3>
                   <p className="text-sm text-gray-400">
                     공식 PUBG 패치노트 뉴스를 크롤링하여 무기 및 아이템 스탯 데이터를 동기화합니다.<br/>
                     특정 뉴스 URL을 입력하거나 빈칸으로 제출하여 전체 자동 동기화를 진행할 수 있습니다.
@@ -1674,7 +1674,7 @@ export default function GameDataEditor() {
                           : "bg-blue-600/20 border-blue-600/30 text-blue-400 hover:bg-blue-600/30"
                       }`}
                     >
-                      {isSaving ? "⏳ 동기화 중..." : "🔄 데이터 동기화 실행"}
+                      {isSaving ? "동기화 중..." : "데이터 동기화 실행"}
                     </button>
                   </div>
                 </div>
@@ -1691,7 +1691,7 @@ export default function GameDataEditor() {
                     disabled={isSaving}
                     className="px-6 py-3 bg-red-600/20 text-red-500 border border-red-600/30 rounded-lg font-bold hover:bg-red-600/30 transition-all"
                   >
-                    🗑️ 전체 분석 데이터 삭제 (초기화)
+                    전체 분석 데이터 삭제 (초기화)
                   </button>
                 </div>
 
@@ -1708,7 +1708,7 @@ export default function GameDataEditor() {
                     disabled={isSaving}
                     className="px-6 py-3 bg-orange-600/20 text-orange-500 border border-orange-600/30 rounded-lg font-bold hover:bg-orange-600/30 transition-all"
                   >
-                    🔄 벤치마크 데이터 전체 초기화
+                    벤치마크 데이터 전체 초기화
                   </button>
                 </div>
 
@@ -1765,7 +1765,7 @@ export default function GameDataEditor() {
 
                 {/* 전역 공지 노출 설정 */}
                 <div className="bg-[#1a1a1a] p-6 rounded-xl border border-[#333] space-y-4">
-                  <h3 className="text-lg font-bold text-[#F2A900] mb-2">📢 전역 공지 노출 제어</h3>
+                  <h3 className="text-lg font-bold text-[#F2A900] mb-2">전역 공지 노출 제어</h3>
                   <p className="text-sm text-gray-400 mb-4">
                     지도의 상단 배너에 노출될 공지사항의 글 ID와 노출 기한을 설정합니다.<br />
                     노출 기한이 0일인 경우 영구 노출되며, <strong>공지글 ID에 -1 또는 none 입력 시 공지가 완전히 숨겨집니다.</strong>
@@ -1812,7 +1812,7 @@ export default function GameDataEditor() {
                               : "bg-[#F2A900] border-[#F2A900]/30 text-black hover:bg-[#d89700]"
                           }`}
                         >
-                          {isSavingSettings ? "⏳ 저장 중..." : "⚙️ 공지 설정 저장"}
+                          {isSavingSettings ? "저장 중..." : "공지 설정 저장"}
                         </button>
                       </div>
                     </form>
@@ -2043,7 +2043,7 @@ export default function GameDataEditor() {
                               type="button"
                               className="px-4 py-2 bg-[#252525] border border-[#333] hover:bg-[#333] rounded text-xs font-bold h-full whitespace-nowrap"
                             >
-                              📁 이미지 업로드
+                              이미지 업로드
                             </button>
                           </div>
                         </div>
@@ -2230,7 +2230,7 @@ export default function GameDataEditor() {
                                         type="button"
                                         className="px-3 py-1.5 bg-[#252525] border border-[#333] hover:bg-[#333] rounded text-[10px] font-bold"
                                       >
-                                        📁 업로드
+                                        업로드
                                       </button>
                                     </div>
                                   </div>
@@ -2324,7 +2324,7 @@ export default function GameDataEditor() {
                                         type="button"
                                         className="px-3 py-1.5 bg-[#252525] border border-[#333] hover:bg-[#333] rounded text-[10px] font-bold"
                                       >
-                                        📁 업로드
+                                        업로드
                                       </button>
                                     </div>
                                   </div>
@@ -2443,7 +2443,7 @@ export default function GameDataEditor() {
                                         type="button"
                                         className="px-3 py-1.5 bg-[#252525] border border-[#333] hover:bg-[#333] rounded text-[10px] font-bold"
                                       >
-                                        📁 업로드
+                                        업로드
                                       </button>
                                     </div>
                                   </div>
@@ -2466,14 +2466,14 @@ export default function GameDataEditor() {
                           : "bg-[#F2A900] text-slate-950 hover:bg-[#cc8b00] active:scale-95 cursor-pointer shadow-[#F2A900]/10"
                       }`}
                     >
-                      {isSaving ? "⏳ 저장 중..." : "💾 은신처 상점 모든 변경사항 저장하기"}
+                      {isSaving ? "저장 중..." : "은신처 상점 모든 변경사항 저장하기"}
                     </button>
                   </div>
                 </form>
               </div>
             ) : (
               <div className="h-full flex flex-col items-center justify-center text-gray-600 gap-4">
-                <div className="text-6xl text-gray-800">📦</div>
+                <div className="text-6xl text-gray-800"></div>
                 <div className="font-bold">편집할 은신처 상자를 왼쪽 목록에서 선택해 주세요.</div>
               </div>
             )
@@ -2663,7 +2663,7 @@ export default function GameDataEditor() {
             </div>
           ) : (
             <div className="h-full flex flex-col items-center justify-center text-gray-600 gap-4">
-              <div className="text-6xl text-gray-800">📋</div>
+              <div className="text-6xl text-gray-800"></div>
               <div className="font-bold">편집할 아이템을 왼쪽 목록에서 선택해 주세요.</div>
             </div>
           )}

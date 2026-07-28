@@ -10,6 +10,7 @@ import { RecentAISummary } from "./RecentAISummary";
 import SquadAnalysisPanel from "./SquadAnalysisPanel";
 import AdfitBanner from "@/components/ads/AdfitBanner";
 import { Shield, ChevronDown, Swords, Star, Clock, User, X, Zap, MapPin, LogIn, Crosshair } from "lucide-react";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 import { STORAGE_KEY_RECENT, STORAGE_KEY_FAVORITES } from "@/lib/pubg-analysis/constants";
 
@@ -458,7 +459,7 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
   return (
     <div className="w-full max-w-[1200px] mx-auto px-3.5 py-5 md:p-5 text-white">
       <h1 style={{ color: "#F2A900", fontSize: "24px", fontWeight: "bold", marginBottom: "20px", textAlign: "center" }}>
-        📊 AI 전적 검색
+        <InlineIconLabel icon="activity" iconSize={24} className="justify-center">AI 전적 검색</InlineIconLabel>
       </h1>
       
       {/* 하이드레이션 오류 방지를 위해 마운트 후에만 인터랙티브 요소 렌더링 활성화 */}
@@ -590,7 +591,7 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
             disabled={loading || cooldown}
             className={`flex-1 md:flex-none px-6 py-3 rounded-md font-bold text-base whitespace-nowrap transition-all active:scale-95 ${loading || cooldown ? "bg-[#555] text-[#aaa] cursor-not-allowed" : "bg-[#F2A900] text-black cursor-pointer hover:bg-[#ffb700]"}`}
           >
-            {loading ? "검색중..." : cooldown ? "쿨타임 ⏳" : "검색"}
+            {loading ? "검색중..." : cooldown ? "쿨타임" : "검색"}
           </button>
 
           <button
@@ -728,7 +729,7 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-full text-[11px] font-black transition-all cursor-pointer"
                 >
                   <Crosshair size={12} />
-                  <span>🎯 무기 마스터리 분석</span>
+                  <span>무기 마스터리 분석</span>
                 </button>
                 <button
                   onClick={() => router.push(`/stats/battle?nick1=${encodeURIComponent(result.nickname)}`)}
@@ -896,7 +897,9 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
               <div className="mt-8">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
                   <h3 className="text-lg font-black text-white flex items-center gap-2">
-                    ⚔️ 최근 매치 <span className="text-xs text-white/40 font-bold">(최대 20게임)</span>
+                    <InlineIconLabel icon="battle" iconSize={18}>
+                      최근 매치 <span className="text-xs text-white/40 font-bold">(최대 20게임)</span>
+                    </InlineIconLabel>
                   </h3>
                   
                   {/* [V56.0] 4단 탭 필터링 버튼 (모바일 터치 스크롤 지원) */}
@@ -1136,7 +1139,7 @@ function BanStatusButton({ banType, isMobile }: BanStatusButtonProps) {
   const isPermanent = lowerType.startsWith("permanent");
   const isInherited = lowerType.startsWith("inherited");
 
-  const label = "🛡️ 제재 상태 확인";
+  const label = "제재 상태 확인";
   let statusText = "정상 활동 계정";
   let statusDesc = "현재 특별한 플랫폼 제한 또는 영구 제재 조치가 없는 정상 상태입니다.";
   let badgeColor = "text-emerald-400 border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20";

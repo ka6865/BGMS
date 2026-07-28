@@ -14,7 +14,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ [
   }
   const queryString = query.toString() ? `?${query.toString()}` : '';
 
-  // 🌟 [레거시 대응] 쿼리 파라미터 주소를 새로운 경로 기반 주소로 리다이렉트
+  //  [레거시 대응] 쿼리 파라미터 주소를 새로운 경로 기반 주소로 리다이렉트
   if (tab) {
     if (tab === "Board") {
       if (postId) {
@@ -32,7 +32,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ [
     }
   }
 
-  // 🌟 [기본 동작] 루트 접속 시 에란겔 맵으로 리다이렉트 (Option 2 전략)
+  //  [기본 동작] 루트 접속 시 에란겔 맵으로 리다이렉트 (Option 2 전략)
   if (queryString) {
     redirect(`/maps/erangel${queryString}`);
   }

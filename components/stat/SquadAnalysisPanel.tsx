@@ -19,6 +19,7 @@ import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/components/AuthProvider";
 import { toast } from "sonner";
 import SquadCauseScenes, { SquadCauseSceneCardData } from "./SquadCauseScenes";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 const Squad2DMap = dynamic(() => import("./Squad2DMap"), { ssr: false });
 
@@ -287,7 +288,7 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
       url.searchParams.set("groupKey", selectedGroupKey);
     }
     
-    // 🌟 [추가] GA4 UTM 파라미터 강제 주입 (바이럴 유입 추적)
+    //  [추가] GA4 UTM 파라미터 강제 주입 (바이럴 유입 추적)
     url.searchParams.set("utm_source", "user_share");
     url.searchParams.set("utm_medium", "social");
     url.searchParams.set("utm_campaign", "squad_synergy_share");
@@ -602,7 +603,7 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
                   <>
                     <div className="flex justify-between border-b border-zinc-900 pb-2">
                       <span className="text-zinc-400 font-medium flex items-center gap-1.5">
-                        🏆 스쿼드 협동 등급
+                        <InlineIconLabel icon="rank">스쿼드 협동 등급</InlineIconLabel>
                       </span>
                       <span className="text-purple-400 font-black text-sm tracking-wide bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/15">
                         {analysisData.squadGrade} Grade
@@ -823,7 +824,9 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
                     </div>
      
                     <div className="rounded-lg bg-purple-950/10 p-4 border border-purple-500/10">
-                      <h5 className="text-xs font-bold text-purple-300 mb-1">💡 전술적 개선 코칭 제안</h5>
+                      <h5 className="text-xs font-bold text-purple-300 mb-1">
+                        <InlineIconLabel icon="info" iconSize={13}>전술적 개선 코칭 제안</InlineIconLabel>
+                      </h5>
                       <p className="text-xs text-zinc-100 leading-relaxed font-medium">{aiFeedback.coaching}</p>
                     </div>
                   </div>
@@ -833,7 +836,7 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
                     <div className="col-span-12 border-t border-purple-500/10 pt-6 space-y-4">
                       <h5 className="font-bold text-zinc-200 text-xs flex items-center gap-2">
                         <span className="h-1.5 w-1.5 rounded-full bg-purple-500" />
-                        👥 팀원 개별 AI 평가 및 피드백
+                        <InlineIconLabel icon="team" iconSize={13}>팀원 개별 AI 평가 및 피드백</InlineIconLabel>
                       </h5>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {aiFeedback.memberFeedbacks.map((member: any) => (
@@ -846,19 +849,25 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
                             <div className="space-y-2.5">
                               {/* 칭찬할 점 */}
                               <div className="text-[11px] leading-relaxed">
-                                <div className="font-bold text-green-400 flex items-center gap-1 mb-0.5">👍 칭찬할 점</div>
+                                <div className="font-bold text-green-400 flex items-center gap-1 mb-0.5">
+                                  <InlineIconLabel icon="check" iconSize={12}>칭찬할 점</InlineIconLabel>
+                                </div>
                                 <p className="text-zinc-300 pl-1 font-medium">{member.praise}</p>
                               </div>
                               
                               {/* 못한 점 */}
                               <div className="text-[11px] leading-relaxed">
-                                <div className="font-bold text-red-400 flex items-center gap-1 mb-0.5">👎 못한 점</div>
+                                <div className="font-bold text-red-400 flex items-center gap-1 mb-0.5">
+                                  <InlineIconLabel icon="alert" iconSize={12}>못한 점</InlineIconLabel>
+                                </div>
                                 <p className="text-zinc-300 pl-1 font-medium">{member.fault}</p>
                               </div>
                               
                               {/* 피드백 */}
                               <div className="text-[11px] leading-relaxed">
-                                <div className="font-bold text-purple-400 flex items-center gap-1 mb-0.5">💡 개인 피드백</div>
+                                <div className="font-bold text-purple-400 flex items-center gap-1 mb-0.5">
+                                  <InlineIconLabel icon="info" iconSize={12}>개인 피드백</InlineIconLabel>
+                                </div>
                                 <p className="text-zinc-300 pl-1 font-medium">{member.advice}</p>
                               </div>
                             </div>
@@ -874,7 +883,7 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
                       <div className="rounded-xl bg-gradient-to-r from-purple-950/20 to-zinc-950/60 p-5 border border-purple-500/15 shadow-md">
                         <h5 className="text-xs font-bold text-purple-300 mb-2 flex items-center gap-2">
                           <Flame className="h-4 w-4 text-purple-400 fill-purple-400/20" />
-                          📢 팀 전체 총평 (AI 코치의 한마디)
+                          팀 전체 총평 (AI 코치의 한마디)
                         </h5>
                         <p className="text-xs text-zinc-200 leading-relaxed font-semibold">{aiFeedback.overallOpinion}</p>
                       </div>
@@ -949,7 +958,7 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
           >
             <div>
               <h4 className="font-bold text-zinc-200 group-hover:text-purple-400 transition-colors flex items-center gap-2 text-sm sm:text-base">
-                🗺️ 교전 동선 2D 맵 피드백
+                <InlineIconLabel icon="map" iconSize={16}>교전 동선 2D 맵 피드백</InlineIconLabel>
               </h4>
               <p className="text-xs text-zinc-400 mt-0.5">아군 최초 기절 당시의 대열 배치를 2D 지도로 분석합니다.</p>
             </div>

@@ -22,6 +22,7 @@ import {
   Map as MapIcon
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { BgmsIcon, type BgmsIconName } from "@/components/common/BgmsIcon";
 import { MatchTimeline } from "./MatchTimeline";
 import dynamic from "next/dynamic";
 import type { MatchData, MatchTeamMember } from "../../types/stat";
@@ -880,7 +881,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, index = 0, in
   const handleAnalyze = async (e: React.MouseEvent) => {
     e.stopPropagation();
 
-    // 🔒 [보안] 비로그인 유저 AI 분석 차단 — 로그인 유도 토스트
+    //  [보안] 비로그인 유저 AI 분석 차단 — 로그인 유도 토스트
     if (!user) {
       toast.error("AI 전술 분석은 로그인 후 이용할 수 있습니다.", {
         action: {
@@ -1061,7 +1062,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, index = 0, in
               : 'bg-white/5 text-white/50 border border-white/10'}`}>
             {isWin && <div className="absolute inset-0 bg-gradient-to-b from-white/20 to-transparent" />}
             <span className="text-[8px] md:text-[9px] uppercase tracking-widest opacity-60 relative z-10">
-              {isTdmMatch ? 'RESULT' : isWin ? '👑' : 'RANK'}
+              {isTdmMatch ? 'RESULT' : isWin ? <Trophy className="mx-auto h-3 w-3" /> : 'RANK'}
             </span>
             <span className={`leading-none relative z-10 ${isTdmMatch ? 'text-xs md:text-sm font-black' : 'text-lg md:text-2xl'}`}>
               {isTdmMatch ? (isWin ? 'WIN' : 'LOSE') : `#${matchData.stats.winPlace}`}
@@ -1302,15 +1303,15 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, index = 0, in
         {matchData.badges && matchData.badges.length > 0 && (
           <div className="mt-2.5 flex flex-wrap gap-1.5">
             {matchData.badges.map((badge: any, i: number) => {
-              let badgeIcon = '🏅';
-              if (badge.id === 'smoke_master') badgeIcon = '💨';
-              else if (badge.id === 'sharpshooter') badgeIcon = '🎯';
-              else if (badge.id === 'zone_wizard') badgeIcon = '⚡️';
-              else if (badge.id === 'last_survivor') badgeIcon = '🛡️';
-              else if (badge.id === 'damage_carry') badgeIcon = '🔥';
+              let badgeIcon: BgmsIconName = 'award';
+              if (badge.id === 'smoke_master') badgeIcon = 'shield';
+              else if (badge.id === 'sharpshooter') badgeIcon = 'crosshair';
+              else if (badge.id === 'zone_wizard') badgeIcon = 'zap';
+              else if (badge.id === 'last_survivor') badgeIcon = 'shield';
+              else if (badge.id === 'damage_carry') badgeIcon = 'flame';
               return (
                 <div key={i} className="flex items-center gap-1.5 bg-white/5 border border-white/10 hover:border-white/20 px-2.5 py-1 rounded-full text-[11px] font-bold text-white/60 transition-colors">
-                  <span>{badgeIcon}</span>
+                  <BgmsIcon name={badgeIcon} size={13} />
                   <span>{badge.name}</span>
                 </div>
               );
@@ -1705,7 +1706,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, index = 0, in
                         : 'text-gray-500 hover:text-gray-300'
                     }`}
                   >
-                    <span>😊</span> 다정한 맛
+                    <BgmsIcon name="shield" size={14} /> 다정한 맛
                   </button>
                   <button 
                     onClick={(e) => { e.stopPropagation(); setCoachingStyle("spicy"); setAnalysis(null); }}
@@ -1715,7 +1716,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, index = 0, in
                         : 'text-gray-500 hover:text-gray-300'
                     }`}
                   >
-                    <span>🔥</span> 매운맛
+                    <BgmsIcon name="flame" size={14} /> 매운맛
                   </button>
                   </div>
                 </div>
@@ -1757,7 +1758,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, index = 0, in
                           {/* Style Header */}
                           <div className={`relative p-8 bg-gradient-to-br from-${accentColor}-500/10 to-transparent border border-${accentColor}-500/20 rounded-[2.5rem] overflow-hidden`}>
                             <div className="absolute top-0 right-0 p-6 opacity-10">
-                              <span className="text-8xl">{isMildTheme ? "😊" : "🔥"}</span>
+                              <BgmsIcon name={isMildTheme ? "shield" : "flame"} size={88} />
                             </div>
                             <div className="relative z-10">
                               <div className="flex items-center gap-2 mb-4">

@@ -11,6 +11,9 @@ import type { ClanInfo } from "@/types/board";
 import { trackEvent } from "@/lib/analytics";
 import TurnstileWidget from "./TurnstileWidget";
 import { TURNSTILE_ACTIONS } from "@/lib/board/turnstileContract";
+import { svgIcon, type SvgIconName } from "@/lib/ui/icon-svg";
+
+const LEGACY_AI_SECTION_ICON_PATTERN = /^(?:\u{1F539}|\u2699\uFE0F?|\u2696\uFE0F?|\u{1F6E0}\uFE0F?|\u{1F5FA}\uFE0F?|\u{1F52B})/u;
 
 export default function BoardWriteClient() {
   const router = useRouter();
@@ -24,10 +27,10 @@ export default function BoardWriteClient() {
   const [newDiscordUrl, setNewDiscordUrl] = useState("");
   const [newDiscordChannelId, setNewDiscordChannelId] = useState("");
   const [newIsNotice, setNewIsNotice] = useState(false);
-  const [newClanInfo, setNewClanInfo] = useState<ClanInfo | null>(null); // 🌟 추가
+  const [newClanInfo, setNewClanInfo] = useState<ClanInfo | null>(null); //  추가
   const [isLoading, setIsLoading] = useState(false);
   
-  // 🌟 비회원용 상태 추가
+  //  비회원용 상태 추가
   const [guestNickname, setGuestNickname] = useState("");
   const [guestPassword, setGuestPassword] = useState("");
   const [thumbnailUrl, setThumbnailUrl] = useState("");
@@ -68,8 +71,8 @@ export default function BoardWriteClient() {
           setNewDiscordUrl(data.discord_url || "");
           setNewDiscordChannelId(data.discord_channel_id || "");
           setNewIsNotice(data.is_notice);
-          setNewClanInfo(data.clan_info || null); // 🌟 추가
-          setThumbnailUrl(data.image_url || ""); // 🌟 추가
+          setNewClanInfo(data.clan_info || null); //  추가
+          setThumbnailUrl(data.image_url || ""); //  추가
           setExpectedRevision(typeof data.revision === "number" ? data.revision : null);
         }
       });
@@ -92,9 +95,9 @@ export default function BoardWriteClient() {
 
     try {
       const trimmedTitle = sanitizeTitle(newTitle);
-      // 🌟 AI 요약본 HTML 구조 복원 적용
+      //  AI 요약본 HTML 구조 복원 적용
       const finalContent = restoreAiSummaryHtml(newContent);
-      // 🌟 수동 지정 썸네일 우선 적용, 없으면 본문 첫 이미지 자동 추출
+      //  수동 지정 썸네일 우선 적용, 없으면 본문 첫 이미지 자동 추출
       const finalImageUrl = thumbnailUrl || extractImageUrl(finalContent);
 
       const payload = {
@@ -105,11 +108,11 @@ export default function BoardWriteClient() {
         is_notice: isAdmin ? newIsNotice : false,
         author: user ? displayName : guestNickname,
         user_id: user ? user.id : null,
-        password: user ? null : guestPassword, // 🌟 비회원 비밀번호 추가
+        password: user ? null : guestPassword, //  비회원 비밀번호 추가
         editingPostId: editPostId ? Number(editPostId) : null,
         discord_url: newDiscordUrl,
         discord_channel_id: newDiscordChannelId,
-        clan_info: newClanInfo, // 🌟 추가
+        clan_info: newClanInfo, //  추가
         turnstileToken: user || editPostId ? null : turnstileToken,
         expectedRevision: editPostId ? expectedRevision : null,
         contentImageIds: user ? images.contentImageIds : [],
@@ -138,7 +141,7 @@ export default function BoardWriteClient() {
 
       toast.success(editPostId ? "게시글이 수정되었습니다." : "새 게시글이 등록되었습니다.");
       
-      // 🌟 API 응답 구조({ data: { id } })에 맞게 수정
+      //  API 응답 구조({ data: { id } })에 맞게 수정
       const newPostId = result.data?.id || editPostId;
       
       if (newPostId) {
@@ -203,10 +206,10 @@ export default function BoardWriteClient() {
           setNewDiscordChannelId={setNewDiscordChannelId}
           newIsNotice={newIsNotice}
           setNewIsNotice={setNewIsNotice}
-          newClanInfo={newClanInfo} // 🌟 추가
-          setNewClanInfo={setNewClanInfo} // 🌟 추가
-          thumbnailUrl={thumbnailUrl} // 🌟 추가
-          setThumbnailUrl={setThumbnailUrl} // 🌟 추가
+          newClanInfo={newClanInfo} //  추가
+          setNewClanInfo={setNewClanInfo} //  추가
+          thumbnailUrl={thumbnailUrl} //  추가
+          setThumbnailUrl={setThumbnailUrl} //  추가
           handleSavePost={handleSavePost}
           setIsWriting={handleSetIsWriting}
           isAdmin={isAdmin}
@@ -238,7 +241,7 @@ function restoreAiSummaryHtml(content: string): string {
     const parser = new DOMParser();
     const doc = parser.parseFromString(content, 'text/html');
     
-    // AI 요약 타이틀 헤더 찾기 (h3, h2, h4, p 중 🤖 또는 BGMS AI 포함하는 태그)
+    // AI 요약 타이틀 헤더 찾기
     const allHeaders = Array.from(doc.querySelectorAll('h2, h3, h4, p, div'));
     const titleEl = allHeaders.find(el => {
       const text = el.textContent || "";
@@ -268,7 +271,7 @@ function restoreAiSummaryHtml(content: string): string {
       const isSectionTitle = 
         (tagName.startsWith('h') && text.includes('[') && text.includes(']')) ||
         (tagName === 'p' && (
-          /^[🔹⚙️⚖️🛠️🗺️🔫]/.test(text) || 
+          LEGACY_AI_SECTION_ICON_PATTERN.test(text) ||
           (text.startsWith('[') && text.endsWith(']'))
         ));
 
@@ -283,9 +286,9 @@ function restoreAiSummaryHtml(content: string): string {
         const lis = sibling.querySelectorAll('li');
         lis.forEach(li => {
           let liHtml = li.innerHTML || "";
-          // 앞부분의 불필요한 마커들(✓, -, *, • 및 공백 문자 등) 제거
+          // 앞부분의 불필요한 마커와 공백 문자 제거
           liHtml = liHtml
-            .replace(/^[✓\-\*•\s&nbsp;]+/g, "")
+            .replace(/^(?:\u2713|-|\*|\u2022|\s|&nbsp;)+/g, "")
             .trim();
           if (liHtml && !/^[#\s]+$/.test(liHtml)) {
             currentItems.push(liHtml);
@@ -295,7 +298,7 @@ function restoreAiSummaryHtml(content: string): string {
       } else if (tagName === 'p' && text.length > 0) {
         // 간혹 ul이 아니라 일반 p 문단으로 리스트가 들어오는 경우 대응
         let pText = sibling.innerHTML || "";
-        pText = pText.replace(/^[✓\-\*•\s&nbsp;]+/g, "").trim();
+        pText = pText.replace(/^(?:\u2713|-|\*|\u2022|\s|&nbsp;)+/g, "").trim();
         if (pText && !/^[#\s]+$/.test(pText)) {
           currentItems.push(pText);
         }
@@ -315,28 +318,39 @@ function restoreAiSummaryHtml(content: string): string {
     // 파싱에 사용된 기존 노드들 제거
     elementsToRemove.forEach(el => el.remove());
 
+    const getSectionIconName = (title: string): SvgIconName => {
+      if (title.includes("의도") || title.includes("배경") || title.includes("목표")) return "info";
+      if (title.includes("일반전") || title.includes("경쟁전") || title.includes("모드")) return "map";
+      if (title.includes("피해") || title.includes("시스템") || title.includes("데미지")) return "zap";
+      if (title.includes("무기") || title.includes("아이템")) return "weapon";
+      if (title.includes("맵") || title.includes("월드")) return "map";
+      return "info";
+    };
+
     // 2열 그리드로 정렬하여 HTML 조립
     const cardsHtml = sections.map(sec => {
-      // 괄호 및 이모지 다듬기
+      // 괄호 및 기존 섹션 마커 다듬기
       let rawTitle = sec.title.replace(/[\[\]]/g, "").trim();
-      let emoji = "🔹";
-      const matchedEmoji = rawTitle.match(/^[🔹⚙️⚖️🛠️🗺️🔫]\ufe0f?/u);
+      const matchedEmoji = rawTitle.match(LEGACY_AI_SECTION_ICON_PATTERN);
       if (matchedEmoji) {
-        emoji = matchedEmoji[0];
-        rawTitle = rawTitle.replace(/^[🔹⚙️⚖️🛠️🗺️🔫]\ufe0f?\s*/u, "").trim();
-      } else {
-        // 타이틀 키워드 매칭에 따른 이모지 추천
-        if (rawTitle.includes("의도") || rawTitle.includes("배경") || rawTitle.includes("목표")) emoji = "💡";
-        else if (rawTitle.includes("일반전") || rawTitle.includes("경쟁전") || rawTitle.includes("모드")) emoji = "⚙️";
-        else if (rawTitle.includes("피해") || rawTitle.includes("시스템") || rawTitle.includes("데미지")) emoji = "⚡";
+        rawTitle = rawTitle.replace(LEGACY_AI_SECTION_ICON_PATTERN, "").trim();
       }
+      const sectionIcon = svgIcon(getSectionIconName(rawTitle), {
+        color: "#F2A900",
+        size: 15,
+      });
+      const bulletIcon = svgIcon("check", {
+        color: "#F2A900",
+        className: "absolute left-0 top-0 h-3.5 w-3.5",
+        size: 14,
+      });
 
       const itemsHtml = sec.items.map(item => {
         // 볼드 마커(**텍스트**)가 깨져서 문단에 남아있을 경우 strong 태그로 치환
         const highlighted = item.replace(/\*\*(.*?)\*\*/g, '<strong class="text-[#F2A900] font-black">$1</strong>');
         return `
           <li class="relative pl-4 text-gray-300 text-xs md:text-sm leading-normal mb-1.5 list-none">
-            <span class="absolute left-0 top-0 text-[#F2A900] font-bold">✓</span>
+            ${bulletIcon}
             ${highlighted}
           </li>
         `;
@@ -345,7 +359,7 @@ function restoreAiSummaryHtml(content: string): string {
       return `
         <div class="bg-[#1a1a1a] border border-white/5 rounded-lg p-4 shadow-md transition-all hover:border-white/10 hover:shadow-lg">
           <div class="text-[#F2A900] text-sm md:text-base font-black mb-2 flex items-center gap-1.5 border-b border-white/5 pb-1.5">
-            <span>${emoji}</span> ${rawTitle}
+            ${sectionIcon} ${rawTitle}
           </div>
           <ul class="space-y-1 m-0 p-0">${itemsHtml}</ul>
         </div>
@@ -369,7 +383,7 @@ function restoreAiSummaryHtml(content: string): string {
       <div class="patch-note-container space-y-4">
         <div class="bg-[#F2A900]/10 border border-[#F2A900]/30 rounded-lg p-4 mb-1">
           <h3 class="flex items-center gap-1.5 text-[#F2A900] font-black text-base md:text-lg">
-            🤖 BGMS AI 배그 소식 핵심 요약
+            ${svgIcon("zap", { color: "#F2A900", size: 16 })} BGMS AI 배그 소식 핵심 요약
           </h3>
         </div>
         
@@ -379,7 +393,7 @@ function restoreAiSummaryHtml(content: string): string {
 
         <div class="flex flex-col items-center justify-center p-6 bg-[#1a1a1a] rounded-lg border border-white/5">
           <p class="text-gray-400 text-xs mb-3">더 자세한 내용은 공식 원문에서 확인하실 수 있습니다.</p>
-          <a href="${originUrl || 'https://pubg.com/ko/news'}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-6 py-2.5 bg-[#F2A900] text-black font-black text-sm rounded hover:bg-[#cc8b00] transition-all transform active:scale-95 shadow-md shadow-[#F2A900]/20">🔗 원문 보러가기</a>
+          <a href="${originUrl || 'https://pubg.com/ko/news'}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-6 py-2.5 bg-[#F2A900] text-black font-black text-sm rounded hover:bg-[#cc8b00] transition-all transform active:scale-95 shadow-md shadow-[#F2A900]/20">${svgIcon("info", { color: "currentColor", size: 14 })} 원문 보러가기</a>
         </div>
       </div>
     `;

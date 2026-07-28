@@ -163,7 +163,7 @@ export default async function OgImage({ params }: Props) {
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
-            <div style={{ fontSize: "28px", fontWeight: "900", color: "#f59e0b" }}>🏆 BGMS</div>
+            <div style={{ fontSize: "28px", fontWeight: "900", color: "#f59e0b" }}>BGMS</div>
             <div style={{ fontSize: "13px", color: "#6b7280", fontWeight: "700", paddingLeft: "14px", borderLeft: "1px solid #374151", letterSpacing: "1px" }}>
               AI 전적 분석
             </div>
@@ -196,7 +196,7 @@ export default async function OgImage({ params }: Props) {
               }}
             >
               <span style={{ fontSize: "13px", color: "#9ca3af", fontWeight: "800", letterSpacing: "2px" }}>
-                🎮 {platformLabel.toUpperCase()}
+                {platformLabel.toUpperCase()}
               </span>
             </div>
 
@@ -223,9 +223,9 @@ export default async function OgImage({ params }: Props) {
             {/* 기능 배지 3개 */}
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               {[
-                { icon: "🔍", label: "AI 전술 분석", bg: "#ffffff08", border: "#ffffff15", color: "#d1d5db" },
-                { icon: "⚡", label: "2D 리플레이", bg: "#f59e0b10", border: "#f59e0b30", color: "#f59e0b" },
-                { icon: "🏅", label: "티어 평가", bg: "#818cf810", border: "#818cf830", color: "#818cf8" },
+                { icon: "AI", label: "AI 전술 분석", bg: "#ffffff08", border: "#ffffff15", color: "#d1d5db" },
+                { icon: "", label: "2D 리플레이", bg: "#f59e0b10", border: "#f59e0b30", color: "#f59e0b" },
+                { icon: "", label: "티어 평가", bg: "#818cf810", border: "#818cf830", color: "#818cf8" },
               ].map((b) => (
                 <div
                   key={b.label}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { BgmsIcon } from '@/components/common/BgmsIcon';
 
 interface AdSenseBannerProps {
   client: string;
@@ -120,7 +121,7 @@ export default function AdSenseBanner({
               borderRadius: '4px',
               lineHeight: 1
             }}>Ad</span>
-            <span style={{ fontSize: '18px' }}>🖼️</span>
+            <BgmsIcon name="image" size={20} className="text-blue-300/80" />
           </div>
 
           {/* 중앙 텍스트 스켈레톤 영역 */}
