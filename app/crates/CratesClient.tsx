@@ -394,31 +394,31 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                 내 자산 현황
               </h2>
 
-              <div className="grid grid-cols-3 gap-2 text-xs">
+              <div className="grid grid-cols-2 gap-2 text-xs">
                 {/* BP */}
-                <div className="flex items-center gap-2 p-2 bg-slate-950/80 rounded-xl border border-slate-850">
+                <div className="flex min-w-0 items-center gap-2.5 p-2.5 bg-slate-950/80 rounded-xl border border-slate-850">
                   <span className="w-4 h-4 bg-indigo-900/50 text-indigo-400 font-black text-[9px] rounded flex items-center justify-center border border-indigo-850 shrink-0">BP</span>
                   <div className="min-w-0">
                     <div className="text-[9px] text-slate-500 leading-none">BP</div>
-                    <div className="font-extrabold text-indigo-400 truncate">{bp.toLocaleString()}</div>
+                    <div className="font-extrabold text-indigo-400 tabular-nums leading-tight">{bp.toLocaleString()}</div>
                   </div>
                 </div>
 
                 {/* G-Coin */}
-                <div className="flex items-center gap-2 p-2 bg-slate-950/80 rounded-xl border border-slate-850">
+                <div className="flex min-w-0 items-center gap-2.5 p-2.5 bg-slate-950/80 rounded-xl border border-slate-850">
                   <Coins className="w-4 h-4 text-amber-400 shrink-0" />
                   <div className="min-w-0">
                     <div className="text-[9px] text-slate-500 leading-none">G코인</div>
-                    <div className="font-extrabold text-amber-400 truncate">{gcoin.toLocaleString()}</div>
+                    <div className="font-extrabold text-amber-400 tabular-nums leading-tight">{gcoin.toLocaleString()}</div>
                   </div>
                 </div>
 
                 {/* 쿠폰 */}
-                <div className="flex items-center gap-2 p-2 bg-slate-950/80 rounded-xl border border-slate-850">
+                <div className="col-span-2 flex min-w-0 items-center gap-2.5 p-2.5 bg-slate-950/80 rounded-xl border border-slate-850">
                   <Ticket className="w-4 h-4 text-purple-400 shrink-0" />
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="text-[9px] text-slate-500 leading-none">밀수품 쿠폰</div>
-                    <div className="font-extrabold text-purple-400 truncate">{coupons}장</div>
+                    <div className="font-extrabold text-purple-400 tabular-nums leading-tight">{coupons}장</div>
                   </div>
                 </div>
               </div>
