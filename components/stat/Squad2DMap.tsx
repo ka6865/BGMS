@@ -811,7 +811,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
               </div>
             `;
             tooltipClass = "!bg-green-950/95 !border-green-800 !text-green-300";
-            text = `[아군 킬] ${ev.attacker} ➔ ${ev.victim} 사망 (${getTranslatedWeaponName(ev.weapon)})`;
+            text = `[아군 킬] ${ev.attacker} -> ${ev.victim} 사망 (${getTranslatedWeaponName(ev.weapon)})`;
           } else {
             // 적이 다른 적을 처치하거나, 아군이 사망함
             iconHtml = `

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Coins, Box, Award, Ticket, Sparkles, History, AlertTriangle, Layers } from "lucide-react";
+import { Coins, Box, Award, Ticket, Sparkles, History, AlertTriangle, Layers, X } from "lucide-react";
 import type { CrateTemplate } from "@/types/crates";
 import { HistoryItem } from "./types";
 import { VaultCard, HistoryCard, getKoreanRarityName } from "./CrateCards";
@@ -31,7 +31,7 @@ export function ChargeModal({ isOpen, onClose, onCharge, exchangeRate = 1500 }: 
           aria-label="닫기"
           className="absolute top-4 right-4 text-slate-400 hover:text-white font-bold text-lg cursor-pointer px-2 py-1 rounded-lg hover:bg-slate-800 transition-all z-10"
         >
-          ✕
+          <X className="h-4 w-4" aria-hidden="true" />
         </button>
 
         <div className="text-center shrink-0">
@@ -125,7 +125,7 @@ export function QuantityModal({
           aria-label="닫기"
           className="absolute top-4 right-4 text-slate-400 hover:text-white font-bold text-lg cursor-pointer px-2 py-1 rounded-lg hover:bg-slate-800 transition-all"
         >
-          ✕
+          <X className="h-4 w-4" aria-hidden="true" />
         </button>
 
         <div className="text-center">
@@ -244,7 +244,7 @@ export function RefillModal({
           aria-label="닫기"
           className="absolute top-4 right-4 text-slate-400 hover:text-white font-bold text-lg cursor-pointer px-2 py-1 rounded-lg hover:bg-slate-800 transition-all"
         >
-          ✕
+          <X className="h-4 w-4" aria-hidden="true" />
         </button>
 
         <div className="text-center shrink-0">
@@ -527,7 +527,8 @@ export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft,
               aria-label="닫기"
               className="text-slate-400 hover:text-white font-bold text-lg px-3 py-2 rounded-lg hover:bg-slate-800 transition-all cursor-pointer"
             >
-              ✕ 닫기
+              <X className="h-4 w-4" aria-hidden="true" />
+              닫기
             </button>
           </div>
         </header>
@@ -677,7 +678,8 @@ export function DetailModal({
             aria-label="닫기"
             className="text-slate-400 hover:text-white font-bold text-lg px-3 py-2 rounded-lg hover:bg-slate-800 transition-all cursor-pointer"
           >
-            ✕ 닫기
+            <X className="h-4 w-4" aria-hidden="true" />
+            닫기
           </button>
         </header>
 

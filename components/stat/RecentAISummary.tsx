@@ -56,7 +56,7 @@ interface DebateData {
   signature?: string;
   signatureSub?: string;
   visuals?: {
-    // ✅ API 응답 실제 구조에 맞게 정리: latency 객체는 미사용, counterLatency만 실제 사용됨
+    //  API 응답 실제 구조에 맞게 정리: latency 객체는 미사용, counterLatency만 실제 사용됨
     counterLatency: string;
     tierBreakdown?: {
       combat: number;
@@ -199,7 +199,7 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
   };
 
   const handleFetchSummary = async (force = false) => {
-    // 🔒 [보안] 비로그인 유저 AI 요약 차단 — 로그인 유도 토스트
+    //  [보안] 비로그인 유저 AI 요약 차단 — 로그인 유도 토스트
     if (!user) {
       toast.error("AI 전술 분석은 로그인 후 이용할 수 있습니다.", {
         action: {
@@ -210,7 +210,7 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
       return;
     }
 
-    // 🔄 [세션 동기화] API fetch 전 브라우저 쿠키를 최신 세션 토큰으로 강제 동기화 (401 방지)
+    //  [세션 동기화] API fetch 전 브라우저 쿠키를 최신 세션 토큰으로 강제 동기화 (401 방지)
     try {
       await supabase.auth.getSession();
     } catch (e) {
@@ -512,7 +512,7 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
   }
 
   if (!debateData && !loading) {
-    // 🔒 비로그인 유저에게는 로그인 유도 CTA 표시
+    //  비로그인 유저에게는 로그인 유도 CTA 표시
     if (!user) {
       return (
         <button

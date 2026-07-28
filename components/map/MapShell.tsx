@@ -113,7 +113,7 @@ const MapShell = memo(({
     const [hiddenPlayers, setHiddenPlayers] = useState<string[]>([]);
     const [showPlayerNames, setShowPlayerNames] = useState(true);
     const [showFlightPath, setShowFlightPath] = useState(true);
-    const [showSmokeNotice, setShowSmokeNotice] = useState(false); // 🎯 연막탄 공지 상태
+    const [showSmokeNotice, setShowSmokeNotice] = useState(false); //  연막탄 공지 상태
     const [isInstructionDismissed, setIsInstructionDismissed] = useState(false);
 
     // Reset instruction dismissal when activeMode changes
@@ -121,7 +121,7 @@ const MapShell = memo(({
       setIsInstructionDismissed(false);
     }, [activeMode]);
 
-    // 🎯 "오늘 하루 보지 않기" 체크 로직
+    //  "오늘 하루 보지 않기" 체크 로직
     useEffect(() => {
       let isMounted = true;
       if (playbackId && isFullMode) {
@@ -440,7 +440,7 @@ const MapShell = memo(({
               setSimulatorPhases={setSimulatorPhases}
             />
 
-            {/* 🏆 히트맵 범례 (핫드랍 또는 시뮬레이터 활성화 시) */}
+            {/*  히트맵 범례 (핫드랍 또는 시뮬레이터 활성화 시) */}
             <HeatmapLegend 
               visible={isHotDropOn} 
               type="hotdrop" 
@@ -448,7 +448,7 @@ const MapShell = memo(({
 
             {playbackId && (
               <>
-                {/* 🏆 고도화된 통합 상단 상태바 (모바일 최적화) */}
+                {/*  고도화된 통합 상단 상태바 (모바일 최적화) */}
                 <div className={`absolute ${isMobile ? 'top-2' : 'top-6'} left-1/2 -translate-x-1/2 z-[1000] flex flex-col items-center gap-2 w-full max-w-xl pointer-events-none`}>
                   {/* ℹ️ 연막탄 위치 추론 안내 공지 (모바일에서는 더 작게) */}
                   {showSmokeNotice && (
@@ -487,7 +487,7 @@ const MapShell = memo(({
                   </div>
                 </div>
 
-                {/* 🚀 데이터 로딩 오버레이 */}
+                {/*  데이터 로딩 오버레이 */}
                 {telemetryLoading && (
                   <div className="absolute inset-0 z-[5000] bg-black/80 backdrop-blur-md flex flex-col items-center justify-center">
                     <div className="relative">
@@ -562,7 +562,7 @@ const MapShell = memo(({
           )}
         </div>
 
-        {/* 🏆 박격포 고저차 면책 고지 안내 모달 (pubg.plus 스타일 방어책) */}
+        {/*  박격포 고저차 면책 고지 안내 모달 (pubg.plus 스타일 방어책) */}
         {isMortarDisclaimerOpen && (
           <div className="absolute inset-0 bg-black/60 backdrop-blur-md z-[5000] flex items-center justify-center p-4 pointer-events-auto">
             <div className="bg-[#0b0f19]/95 border border-white/10 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl relative overflow-hidden animate-fade-in">

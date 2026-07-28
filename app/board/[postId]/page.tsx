@@ -8,7 +8,7 @@ import { CircleAlert, ChevronLeft } from 'lucide-react';
 import { maskIp } from '@/lib/board/ipUtils';
 import { resolvePromoteExpectedParentRevision } from '@/lib/board/promotionRevision';
 
-// 🌟 캐시를 완전히 끄고 항상 실시간 데이터를 가져오도록 설정 (수정 사항 반영 확인용)
+//  캐시를 완전히 끄고 항상 실시간 데이터를 가져오도록 설정 (수정 사항 반영 확인용)
 export const revalidate = 0;
 
 export async function generateMetadata({ params }: { params: Promise<{ postId: string }> }): Promise<Metadata> {

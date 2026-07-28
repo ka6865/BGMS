@@ -24,7 +24,7 @@ export default async function BoardPage({
   const from = (page - 1) * POSTS_PER_PAGE;
   const to = from + POSTS_PER_PAGE - 1;
 
-  // 🌟 검증된 서버용 클라이언트를 사용하여 RLS 통과 보장
+  //  검증된 서버용 클라이언트를 사용하여 RLS 통과 보장
   const supabase = await createClient();
 
   let query = supabase

@@ -459,7 +459,7 @@ const MapEditorComponent = () => {
         />
       )}
 
-      {/* 🌟 사이드바 개편 */}
+      {/*  사이드바 개편 */}
       <aside className={`
         ${isMobile 
           ? `fixed left-0 top-0 bottom-0 z-[6000] w-[300px] transition-transform duration-300 shadow-2xl ${isSidebarOpen ? 'translate-x-0' : 'translate-x-[-100%]'}` 

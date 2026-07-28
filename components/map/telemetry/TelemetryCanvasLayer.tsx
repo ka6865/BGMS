@@ -157,7 +157,7 @@ export const TelemetryCanvasLayer = ({
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.save(); ctx.scale(dpr, dpr);
 
-      // 🎯 줌 레벨에 따른 스케일 계산
+      //  줌 레벨에 따른 스케일 계산
       const currentZoom = map.getZoom();
       const zoomScale = Math.pow(1.5, currentZoom - 1); 
 

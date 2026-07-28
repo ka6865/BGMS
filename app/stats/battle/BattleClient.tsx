@@ -158,7 +158,7 @@ function BattleContent() {
     }
     if (winner) url.searchParams.set("winner", winner);
 
-    // 🌟 [추가] GA4 UTM 파라미터 강제 주입 (바이럴 유입 추적)
+    //  [추가] GA4 UTM 파라미터 강제 주입 (바이럴 유입 추적)
     url.searchParams.set("utm_source", "user_share");
     url.searchParams.set("utm_medium", "social");
     url.searchParams.set("utm_campaign", "battle_share");
@@ -205,7 +205,7 @@ function BattleContent() {
     setResult(null);
     setShareMessage(null);
 
-    // 🌟 [추가] [Analytics] 대결 시작
+    //  [추가] [Analytics] 대결 시작
     trackEvent({
       name: "battle_started",
       params: {

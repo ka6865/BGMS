@@ -134,23 +134,23 @@ interface BoardWriteProps {
   setNewContent: (content: string) => void;
   newCategory: string;
   setNewCategory: (category: string) => void;
-  newDiscordUrl: string; // 🌟 추가
-  setNewDiscordUrl: (url: string) => void; // 🌟 추가
-  newDiscordChannelId: string; // 🌟 추가
-  setNewDiscordChannelId: (id: string) => void; // 🌟 추가
+  newDiscordUrl: string; //  추가
+  setNewDiscordUrl: (url: string) => void; //  추가
+  newDiscordChannelId: string; //  추가
+  setNewDiscordChannelId: (id: string) => void; //  추가
   newIsNotice: boolean;
   setNewIsNotice: (isNotice: boolean) => void;
-  newClanInfo: ClanInfo | null; // 🌟 추가
-  setNewClanInfo: (clanInfo: ClanInfo | null) => void; // 🌟 추가
-  thumbnailUrl: string; // 🌟 썸네일 수동 등록 추가
-  setThumbnailUrl: (url: string) => void; // 🌟 썸네일 수동 등록 추가
+  newClanInfo: ClanInfo | null; //  추가
+  setNewClanInfo: (clanInfo: ClanInfo | null) => void; //  추가
+  thumbnailUrl: string; //  썸네일 수동 등록 추가
+  setThumbnailUrl: (url: string) => void; //  썸네일 수동 등록 추가
   handleSavePost: (images: { contentImageIds: string[]; thumbnailImageId: string | null }) => Promise<boolean>;
   setIsWriting: (isWriting: boolean) => void;
   isAdmin: boolean;
   isLoading: boolean;
   isMobile: boolean;
   isEditing?: boolean;
-  // 🌟 비회원용 props 추가
+  //  비회원용 props 추가
   isGuest: boolean;
   guestNickname: string;
   setGuestNickname: (val: string) => void;
@@ -171,10 +171,10 @@ export default function BoardWrite({
   setNewDiscordChannelId,
   newIsNotice,
   setNewIsNotice,
-  newClanInfo, // 🌟 추가
-  setNewClanInfo, // 🌟 추가
-  thumbnailUrl, // 🌟 썸네일 수동 등록 추가
-  setThumbnailUrl, // 🌟 썸네일 수동 등록 추가
+  newClanInfo, //  추가
+  setNewClanInfo, //  추가
+  thumbnailUrl, //  썸네일 수동 등록 추가
+  setThumbnailUrl, //  썸네일 수동 등록 추가
   handleSavePost,
   setIsWriting,
   isAdmin,
@@ -190,14 +190,14 @@ export default function BoardWrite({
   const quillRef = useRef<any>(null);
   const uploadedImagesRef = useRef<UploadedBoardImage[]>([]);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
-  const [isCreatingRoom, setIsCreatingRoom] = useState(false); // 🌟 디스코드 방 생성 로딩 상태
-  const [searchNickname, setSearchNickname] = useState(""); // 🌟 클랜 검색용 닉네임
-  const [searchPlatform, setSearchPlatform] = useState("steam"); // 🌟 플랫폼
-  const [isSearchingClan, setIsSearchingClan] = useState(false); // 🌟 로딩 상태
+  const [isCreatingRoom, setIsCreatingRoom] = useState(false); //  디스코드 방 생성 로딩 상태
+  const [searchNickname, setSearchNickname] = useState(""); //  클랜 검색용 닉네임
+  const [searchPlatform, setSearchPlatform] = useState("steam"); //  플랫폼
+  const [isSearchingClan, setIsSearchingClan] = useState(false); //  로딩 상태
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // 🌟 실시간 본문 내 첫 번째 이미지 자동 추출
+  //  실시간 본문 내 첫 번째 이미지 자동 추출
   const autoExtractedImage = useMemo(() => {
     if (!newContent.includes("<img")) return "";
     const imgMatch = newContent.match(/<img[^>]+src=["']([^"']+)["']/i);
@@ -236,7 +236,7 @@ export default function BoardWrite({
   const [discordRoomType, setDiscordRoomType] = useState<"duo" | "squad" | null>(null);
   const [isResetStyleModalOpen, setIsResetStyleModalOpen] = useState(false);
 
-  // 🌟 클랜 검색 API 연동 함수
+  //  클랜 검색 API 연동 함수
   const handleSearchClan = async () => {
     if (!searchNickname.trim()) {
       toast.warning("배틀그라운드 닉네임을 입력해 주세요.");
@@ -271,7 +271,7 @@ export default function BoardWrite({
     }
   };
 
-  // 🌟 디스코드 음성 채널 자동 생성 함수 - 확인 모달 노출
+  //  디스코드 음성 채널 자동 생성 함수 - 확인 모달 노출
   const createDiscordRoom = (type: "duo" | "squad") => {
     setDiscordRoomType(type);
     setIsDiscordModalOpen(true);
@@ -348,8 +348,8 @@ export default function BoardWrite({
     const input = document.createElement("input");
     input.setAttribute("type", "file");
     input.setAttribute("accept", "image/*");
-    input.setAttribute("id", "quill-image-upload"); // 🌟 ID 추가
-    input.setAttribute("name", "quill-image");     // 🌟 Name 추가
+    input.setAttribute("id", "quill-image-upload"); //  ID 추가
+    input.setAttribute("name", "quill-image");     //  Name 추가
     input.classList.add("quill-image-input");
     input.style.display = "none";
     input.style.position = "absolute";
@@ -451,7 +451,7 @@ export default function BoardWrite({
     }
   }, []);
 
-  // 🌟 [추가] 드래그 앤 드롭 이미지 업로드 핸들러
+  //  [추가] 드래그 앤 드롭 이미지 업로드 핸들러
   useEffect(() => {
     if (!quillRef.current) return;
     const editor = quillRef.current.getEditor();
@@ -504,7 +504,7 @@ export default function BoardWrite({
   };
 
   const onSaveClick = async () => {
-    // 🌟 이미 업로드 중이거나 저장 중이면 차단 (안전장치)
+    //  이미 업로드 중이거나 저장 중이면 차단 (안전장치)
     if (isLoading || isUploadingImage) return;
 
     try {
@@ -529,7 +529,7 @@ export default function BoardWrite({
         }
       }
 
-      // 🌟 [검증] 디스코드 링크 형식만 간단히 체크 (상세 검증은 서버 API에서 수행)
+      //  [검증] 디스코드 링크 형식만 간단히 체크 (상세 검증은 서버 API에서 수행)
       if (newCategory === "듀오/스쿼드 모집" && newDiscordUrl) {
         const isDiscordUrl = /discord\.(gg|com)/.test(newDiscordUrl);
         if (!isDiscordUrl) {
@@ -551,7 +551,7 @@ export default function BoardWrite({
     }
   };
 
-  // 🌟 [추가] 텍스트 스타일 전체 초기화 함수 - 모달 트리거
+  //  [추가] 텍스트 스타일 전체 초기화 함수 - 모달 트리거
   const handleClearFormatting = () => {
     if (!quillRef.current) return;
     const editor = quillRef.current.getEditor();
@@ -598,7 +598,7 @@ export default function BoardWrite({
         link: linkHandler
       },
     },
-    // 🌟 [안전] 클립보드 붙여넣기 시 Base64 이미지 자동 필터링 및 스타일 클리닝
+    //  [안전] 클립보드 붙여넣기 시 Base64 이미지 자동 필터링 및 스타일 클리닝
     clipboard: {
       matchers: [
         ["IMG", (node: any, delta: any) => {

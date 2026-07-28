@@ -74,7 +74,7 @@ export default function BoardDetailClient({
 
   const [showCaptcha, setShowCaptcha] = useState(false);
 
-  // 🌟 초안 승격 및 AI 피드백 모달용 상태 추가
+  //  초안 승격 및 AI 피드백 모달용 상태 추가
   const [isPromoting, setIsPromoting] = useState(false);
   const [feedbackText, setFeedbackText] = useState("");
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
@@ -466,7 +466,7 @@ export default function BoardDetailClient({
       <div className="w-full max-w-[1280px] px-4 xl:grid xl:grid-cols-[160px_minmax(0,900px)_160px] xl:justify-center xl:gap-5">
         {/* 본문 영역 */}
         <div className="w-full min-w-0 xl:col-start-2">
-        {/* 🌟 어드민 승인 대기 초안 프리뷰 배너 렌더링 */}
+        {/*  어드민 승인 대기 초안 프리뷰 배너 렌더링 */}
         {post.status === 'draft' && isAdmin && (
           <div className="w-full bg-[#1e1e1e] border border-[#F2A900]/30 rounded-xl p-5 mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-[0_0_20px_rgba(242,169,0,0.1)]">
             <div className="flex-1">
@@ -698,7 +698,7 @@ export default function BoardDetailClient({
         </article>
       </div>
 
-      {/* 🌟 AI 피드백 전달 모달 창 */}
+      {/*  AI 피드백 전달 모달 창 */}
       <AppModal isOpen={showFeedbackModal} title="AI 재수정 피드백" onClose={() => { setShowFeedbackModal(false); setFeedbackText(""); }} panelClassName="max-w-lg">
           <div className="bg-[#1a1a1a] border border-[#333] rounded-2xl max-w-lg w-full p-6 shadow-2xl flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-200">
             <div>

@@ -176,7 +176,7 @@ export default function TelemetryPlayer({
           const isTeamDown = ev.type === "took_damage";
 
           if (isTeamDown) {
-            markerColor = "#a855f7"; // 🟣 아군 기절 전용 보라색 (사용자 요청)
+            markerColor = "#a855f7"; //  아군 기절 전용 보라색 (사용자 요청)
           } else if (ev.attacker) {
             const idx = teamNames.indexOf(ev.attacker);
             if (idx !== -1) {

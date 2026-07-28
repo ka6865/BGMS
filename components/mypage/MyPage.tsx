@@ -198,19 +198,19 @@ export default function MyPage({ initialCurrentUser, initialUserProfile, initial
       overflowX: 'hidden'
     }}>
       
-      {/* 🧭 브레드크럼 (3열 그리드 밖 최상단 배치) */}
+      {/*  브레드크럼 (3열 그리드 밖 최상단 배치) */}
       {!isMobile && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'rgba(255,255,255,0.2)', fontSize: '12px', marginBottom: '24px', paddingLeft: '4px' }}>
           <span>Home</span> <ChevronRight size={10} /> <span>Account</span> <ChevronRight size={10} /> <span style={{ color: '#F2A900' }}>My Dashboard</span>
         </div>
       )}
 
-      {/* 🏟️ 대시보드 구조 (데스크톱: 3열 / 모바일: 1열) */}
+      {/* ️ 대시보드 구조 (데스크톱: 3열 / 모바일: 1열) */}
       <div style={{ 
         display: "grid", 
         gridTemplateColumns: isMobile ? "1fr" : "340px 1fr 360px", 
         gap: isMobile ? "24px" : "32px",
-        alignItems: "stretch" // 📏 높이를 서로 맞춤
+        alignItems: "stretch" //  높이를 서로 맞춤
       }}>
         
         {/* 1️⃣ LEFT: Profile Summary */}

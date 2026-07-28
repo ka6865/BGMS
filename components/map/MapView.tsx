@@ -489,7 +489,7 @@ const MapView = memo(
         style={{ height: "100%", width: "100%", background: "#0b0f19" }}
         zoomControl={false}
       >
-        {/* 🌟 기절 상태 맥박 효과 및 마커 이동 부드럽게 설정 */}
+        {/*  기절 상태 맥박 효과 및 마커 이동 부드럽게 설정 */}
         <style>{`
           @keyframes groggy-pulse {
             0% { transform: scale(1.0); opacity: 0.9; }
@@ -577,7 +577,7 @@ const MapView = memo(
           </Marker>
         ))}
 
-        {/* 🌟 진행 중인 제보 히트맵 표시! */}
+        {/*  진행 중인 제보 히트맵 표시! */}
         {filters["pending"] &&
           pendingVehicles.map((v) => {
             const weight = v.weight || 1;
@@ -731,7 +731,7 @@ const MapView = memo(
           </>
         )}
 
-        {/* 🚀 텔레메트리 관련 렌더링 (기존 ZoneRenderer 복구 및 캔버스 레이어) 🚀 */}
+        {/*  텔레메트리 관련 렌더링 (기존 ZoneRenderer 복구 및 캔버스 레이어)  */}
         {telemetryData && (
           <>
             <ZoneRenderer 
@@ -746,10 +746,10 @@ const MapView = memo(
           </>
         )}
 
-        {/* 🔥 핫드랍 히트맵 레이어 */}
+        {/*  핫드랍 히트맵 레이어 */}
         <HotDropLayer mapName={activeMapId} visible={isHotDropOn} />
 
-        {/* 🎲 시뮬레이터 레이어 */}
+        {/*  시뮬레이터 레이어 */}
         <SimulatorLayer 
           activeMode={activeMode} 
           mapScale={mapScale} 

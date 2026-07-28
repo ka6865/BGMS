@@ -881,7 +881,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, index = 0, in
   const handleAnalyze = async (e: React.MouseEvent) => {
     e.stopPropagation();
 
-    // 🔒 [보안] 비로그인 유저 AI 분석 차단 — 로그인 유도 토스트
+    //  [보안] 비로그인 유저 AI 분석 차단 — 로그인 유도 토스트
     if (!user) {
       toast.error("AI 전술 분석은 로그인 후 이용할 수 있습니다.", {
         action: {

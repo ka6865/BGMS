@@ -288,7 +288,7 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
       url.searchParams.set("groupKey", selectedGroupKey);
     }
     
-    // 🌟 [추가] GA4 UTM 파라미터 강제 주입 (바이럴 유입 추적)
+    //  [추가] GA4 UTM 파라미터 강제 주입 (바이럴 유입 추적)
     url.searchParams.set("utm_source", "user_share");
     url.searchParams.set("utm_medium", "social");
     url.searchParams.set("utm_campaign", "squad_synergy_share");
