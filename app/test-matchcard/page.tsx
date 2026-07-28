@@ -16,7 +16,7 @@ export default function TestMatchCardPage() {
             <span className="text-xs font-black uppercase tracking-widest text-emerald-400">UI Validation Sandbox</span>
           </div>
           <h1 className="text-3xl font-black tracking-tight bg-gradient-to-r from-white via-neutral-200 to-neutral-500 bg-clip-text text-transparent">
-            🏆 무기 교전 분석 및 아군 기여도 실증 테스트
+            무기 교전 분석 및 아군 기여도 실증 테스트
           </h1>
           <p className="text-sm text-neutral-400 leading-relaxed max-w-2xl">
             로컬 DB 장애 상황을 우회하여, 실측 텔레메트리 기반 가공 데이터(<code className="text-emerald-400 font-mono text-xs">mock_gold_match_data.json</code>)를 매치카드 UI에 직접 주입하여 고정밀 무기 교전 통계(Weapon Mastery & Squad Armory)를 시연합니다.

@@ -1,6 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
-import { Image, MessageCircle } from 'lucide-react';
+import { Image } from 'lucide-react';
+import { InlineIconLabel } from '@/components/common/InlineIconLabel';
 import { Post } from '@/types/board';
 
 const ImageIcon = () => (
@@ -46,7 +47,9 @@ export default function PostItem({ post, isMobile, onClickDesktop, formatTimeAgo
                   ? 'text-white/70 bg-white/10 border border-white/20'
                   : 'text-white/40 bg-white/5 border border-white/10'
             }`}>
-              {post.is_notice ? "📢 공지" : post.category}
+              {post.is_notice ? (
+                <InlineIconLabel icon="message" iconSize={11}>공지</InlineIconLabel>
+              ) : post.category}
             </span>
             <span className="text-[11px] text-white/30 font-medium">{formatTimeAgo(post.created_at)}</span>
           </div>

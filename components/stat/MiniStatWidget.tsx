@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import getApiUrl from "../../lib/api-config";
 import { getTierIconPath } from "@/utils/tier";
+import { BgmsIcon } from "@/components/common/BgmsIcon";
 
 interface MiniStatWidgetProps {
   pubgNickname: string;
@@ -29,7 +30,6 @@ export default function MiniStatWidget({ pubgNickname, platform = "steam" }: Min
         const res = await fetch(apiUrl);
         if (!res.ok) throw new Error("전적 조회 실패");
         const json = await res.json();
-        // console.log("📊 PUBG API Response:", json);
         
         const rankedSquad = json.stats?.ranked?.squad;
         const normalSquad = json.stats?.normal?.squad;
@@ -69,7 +69,7 @@ export default function MiniStatWidget({ pubgNickname, platform = "steam" }: Min
     <div className="w-full bg-[#111] p-4 rounded-xl border border-[#333] shadow-md flex flex-col gap-3">
       <div className="flex items-center justify-between border-b border-[#333] pb-2">
         <h3 className="font-bold text-[#F2A900] flex items-center gap-2">
-          <span>🎮</span> 배틀그라운드 연동 전적
+          <BgmsIcon name="battle" size={16} /> 배틀그라운드 연동 전적
         </h3>
         <span className="text-xs px-2 py-1 bg-[#222] rounded-md text-gray-300">
           {pubgNickname}

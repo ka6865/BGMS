@@ -4,6 +4,7 @@ import React, { useState, useTransition, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Flame, Zap, Trophy, RefreshCw, ExternalLink, ChevronUp } from 'lucide-react';
 import AdfitBanner from '@/components/ads/AdfitBanner';
+import { BgmsIcon, type BgmsIconName } from '@/components/common/BgmsIcon';
 import type { RankingEntry, GameModeFilter, MatchTypeFilter, PerspectiveFilter } from '@/actions/rankings';
 
 type TabType = 'damage' | 'kills' | 'tier';
@@ -31,10 +32,10 @@ const TIER_BG: Record<string, string> = {
   D: 'bg-gray-500/10 border-gray-500/20',
 };
 
-const RANK_MEDAL: Record<number, { emoji: string; color: string; glow: string }> = {
-  1: { emoji: '🥇', color: 'text-yellow-400', glow: 'shadow-[0_0_20px_rgba(250,204,21,0.3)]' },
-  2: { emoji: '🥈', color: 'text-gray-300', glow: 'shadow-[0_0_16px_rgba(209,213,219,0.2)]' },
-  3: { emoji: '🥉', color: 'text-orange-400', glow: 'shadow-[0_0_16px_rgba(251,146,60,0.2)]' },
+const RANK_MEDAL: Record<number, { icon: BgmsIconName; color: string; glow: string }> = {
+  1: { icon: 'rank', color: 'text-yellow-400', glow: 'shadow-[0_0_20px_rgba(250,204,21,0.3)]' },
+  2: { icon: 'award', color: 'text-gray-300', glow: 'shadow-[0_0_16px_rgba(209,213,219,0.2)]' },
+  3: { icon: 'award', color: 'text-orange-400', glow: 'shadow-[0_0_16px_rgba(251,146,60,0.2)]' },
 };
 
 const MODE_FILTERS: { label: string; value: GameModeFilter }[] = [
@@ -89,7 +90,7 @@ function RankRow({ entry, tab, index }: { entry: RankingEntry; tab: TabType; ind
       {/* 순위 */}
       <div className="w-8 flex-shrink-0 text-center">
         {medal ? (
-          <span className="text-xl">{medal.emoji}</span>
+          <BgmsIcon name={medal.icon} size={22} className={`mx-auto ${medal.color}`} />
         ) : (
           <span className="text-sm font-bold text-gray-600">{entry.rank}</span>
         )}
@@ -343,7 +344,7 @@ export default function RankingsClient({ initialDamage, initialKills, initialTie
             ))
           ) : currentData.length === 0 ? (
             <div className="py-16 text-center">
-              <p className="text-3xl mb-3">📭</p>
+              <BgmsIcon name="message" size={30} className="mx-auto mb-3 text-gray-600" />
               <p className="text-gray-500 text-sm">이번 주 데이터가 없습니다</p>
               <p className="text-gray-700 text-xs mt-1">전적 검색 후 데이터가 쌓이면 표시됩니다</p>
             </div>

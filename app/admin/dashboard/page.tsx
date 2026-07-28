@@ -1387,7 +1387,9 @@ function ApprovalDetail({
         if (draftPostId && (approval.action_type === "create_board_post" || approval.action_type === "update_board_post")) {
           return (
             <div className="rounded-md border border-amber-500/25 bg-amber-500/5 p-3 text-xs text-amber-100">
-              <p className="mb-1.5 font-bold text-amber-300">🔍 게시글 임시 초안 검증</p>
+              <p className="mb-1.5 font-bold text-amber-300 inline-flex items-center gap-1.5">
+                <Search className="h-3.5 w-3.5" /> 게시글 임시 초안 검증
+              </p>
               <p className="mb-3 leading-relaxed opacity-85">
                 AI 비서가 1차 승인하여 임시 등록한 초안 글입니다. 실제 게시판 레이아웃 그대로 최종 확인을 마친 뒤 승격해 주십시오.
               </p>

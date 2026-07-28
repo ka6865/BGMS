@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../../../lib/supabase";
 import { PendingVehicle } from "../../../types/map";
 import { toast } from "sonner";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 // 쿼리스트링 파싱에 필요한 클라이언트 로직
 function AdminReviewInner() {
@@ -112,28 +113,28 @@ function AdminReviewInner() {
   return (
     <div className="bg-[#222] border border-[#444] rounded-[12px] shadow-2xl w-full max-w-[500px] p-8 mx-4">
       <h1 className="text-2xl font-black mb-6 border-b border-[#444] pb-4 text-[#F2A900] text-center">
-        🚨 관제탑 제보 심사 조종석
+        <InlineIconLabel icon="alert" iconSize={24} className="justify-center">관제탑 제보 심사 조종석</InlineIconLabel>
       </h1>
       
       <div className="flex flex-col gap-4 mb-8 text-[15px]">
         <div className="flex justify-between items-center border-b border-[#333] pb-3">
-          <span className="text-gray-400">🗺️ 맵 위치</span>
+          <span className="text-gray-400"><InlineIconLabel icon="map">맵 위치</InlineIconLabel></span>
           <span className="font-bold bg-[#111] px-3 py-1 rounded-md">{marker.map_name}</span>
         </div>
         <div className="flex justify-between items-center border-b border-[#333] pb-3">
-          <span className="text-gray-400">🚙 발견 물자</span>
+          <span className="text-gray-400"><InlineIconLabel icon="vehicle">발견 물자</InlineIconLabel></span>
           <span className="font-bold text-[#34A853] bg-[#34A853]/10 px-3 py-1 rounded-md">
             {marker.marker_type}
           </span>
         </div>
         <div className="flex justify-between items-center border-b border-[#333] pb-3">
-          <span className="text-gray-400">📍 좌표 (X, Y)</span>
+          <span className="text-gray-400"><InlineIconLabel icon="mapPin">좌표 (X, Y)</InlineIconLabel></span>
           <span className="font-mono text-gray-300">
             {marker.x.toFixed(2)}, {marker.y.toFixed(2)}
           </span>
         </div>
         <div className="flex justify-between items-center border-b border-[#333] pb-3">
-          <span className="text-gray-400">🔥 유저 신뢰도(교차검증)</span>
+          <span className="text-gray-400"><InlineIconLabel icon="flame">유저 신뢰도(교차검증)</InlineIconLabel></span>
           <span className="font-bold text-red-400">{marker.weight} 점 합산됨</span>
         </div>
       </div>
@@ -143,13 +144,13 @@ function AdminReviewInner() {
           onClick={() => handleAction("approve")}
           className="flex-1 bg-[#10b981] hover:bg-[#059669] text-white font-bold py-4 px-4 rounded-[8px] transition-all transform hover:scale-105 shadow-lg"
         >
-          ✅ 즉시 승인
+          <InlineIconLabel icon="check" className="justify-center">즉시 승인</InlineIconLabel>
         </button>
         <button 
           onClick={() => handleAction("reject")}
           className="flex-1 bg-[#ef4444] hover:bg-[#dc2626] text-white font-bold py-4 px-4 rounded-[8px] transition-all transform hover:scale-105 shadow-lg"
         >
-          ❌ 거짓말 (파기)
+          <InlineIconLabel icon="error" className="justify-center">거짓말 (파기)</InlineIconLabel>
         </button>
       </div>
       

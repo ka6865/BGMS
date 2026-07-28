@@ -21,11 +21,11 @@ export const SpiderChart = ({ data, nickname, baselineName = "상위권 평균" 
   const levels = 5;
   
   const categories = [
-    { key: "combat", label: "전투", icon: "⚔️" },
-    { key: "survival", label: "생존", icon: "🛡️" },
-    { key: "vision", label: "시야", icon: "👁️" },
-    { key: "teamwork", label: "협력", icon: "🤝" },
-    { key: "growth", label: "성장", icon: "📈" },
+    { key: "combat", label: "전투" },
+    { key: "survival", label: "생존" },
+    { key: "vision", label: "시야" },
+    { key: "teamwork", label: "협력" },
+    { key: "growth", label: "성장" },
   ];
 
   const getPoint = (index: number, value: number) => {

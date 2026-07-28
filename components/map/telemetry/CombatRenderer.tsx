@@ -1,6 +1,7 @@
 import React, { useMemo } from "react";
 import { Marker, CircleMarker } from "react-leaflet";
 import L from "leaflet";
+import { svgIcon } from "@/lib/ui/icon-svg";
 
 const COMBAT_WINDOW_MS = 6000;
 const COLORS = ["#F2A900", "#34A853", "#3b82f6", "#ef4444"];
@@ -35,7 +36,10 @@ export const CombatRenderer = ({ telemetryData }: { telemetryData: any }) => {
       const isKill = ev.type === "kill";
       const innerSize = isKill ? 16 : 12;
       const outerSize = innerSize + 20;
-      const emoji = isKill ? "💀" : "👊";
+      const eventIcon = svgIcon(isKill ? "skull" : "target", {
+        color: "currentColor",
+        size: innerSize,
+      });
 
       const icon = L.divIcon({
         html: `
@@ -49,7 +53,7 @@ export const CombatRenderer = ({ telemetryData }: { telemetryData: any }) => {
               transform:scale(${1 + lifeRatio * 1.5});
               transition:none;
             "></div>
-            <span style="font-size:${innerSize}px;line-height:1;opacity:${opacity};">${emoji}</span>
+            <span style="line-height:1;opacity:${opacity};color:white;">${eventIcon}</span>
           </div>`,
         className: "",
         iconSize: [outerSize, outerSize],

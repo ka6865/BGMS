@@ -1,9 +1,10 @@
 import React, { useState, useRef } from "react";
 import L from "leaflet";
 import { supabase } from "../../lib/supabase";
-import { CATEGORY_INFO } from "../../lib/map_config";
 import { toast } from "sonner";
 import { useMapSettings } from "@/hooks/useMapSettings";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
+import { X } from "lucide-react";
 
 
 interface ReportFormProps {
@@ -65,7 +66,7 @@ const ReportForm = ({
         .eq("marker_type", selectedType);
 
       if (fetchError) {
-        console.error("❌ 조회 에러 원본:", fetchError);
+        console.error("조회 에러 원본:", fetchError);
         throw new Error(
           fetchError.message || "기존 데이터를 불러오는 데 실패했습니다."
         );
@@ -93,9 +94,9 @@ const ReportForm = ({
         }, 1500);
         return;
       } else {
-        // 🆕 주변 데이터 없음! 신규 제보(Insert) 진행
+        // 주변 데이터 없음. 신규 제보(Insert) 진행
 
-        // 🌟 단일 객체 삽입 방식으로 변경하고 .select()를 붙입니다.
+        // 단일 객체 삽입 방식으로 변경하고 .select()를 붙입니다.
         const { error: insertError } = await supabase
           .from("pending_markers")
           .insert({
@@ -110,7 +111,7 @@ const ReportForm = ({
           .select();
 
         if (insertError) {
-          console.error("❌ 인서트 에러 원본:", insertError);
+          console.error("인서트 에러 원본:", insertError);
           throw new Error(
             insertError.message ||
               "새로운 제보를 DB에 저장하는 데 실패했습니다."
@@ -126,7 +127,7 @@ const ReportForm = ({
 
       onClose();
     } catch (error: any) {
-      console.error("💥 최종 에러 포착:", error);
+      console.error("최종 에러 포착:", error);
       toast.error("제보 내용을 보내지 못했습니다. 잠시 후 다시 시도해 주세요.");
       setIsSubmitting(false);
       isSubmittingRef.current = false;
@@ -171,7 +172,7 @@ const ReportForm = ({
             gap: "8px",
           }}
         >
-          <span style={{ fontSize: "18px" }}>📣</span> 차량 위치 제보
+          <InlineIconLabel icon="message" iconSize={18}>차량 위치 제보</InlineIconLabel>
         </h3>
         <button
           onClick={(e) => {
@@ -187,7 +188,7 @@ const ReportForm = ({
             padding: 0,
           }}
         >
-          ✖
+          <X size={16} aria-hidden="true" />
         </button>
       </div>
 
@@ -212,10 +213,10 @@ const ReportForm = ({
           }}
         >
           <span>
-            🗺️ <b>{activeMapId}</b>
+            <InlineIconLabel icon="map" iconSize={13}><b>{activeMapId}</b></InlineIconLabel>
           </span>
           <span>
-            📍 {location.lng.toFixed(1)}, {location.lat.toFixed(1)}
+            <InlineIconLabel icon="mapPin" iconSize={13}>{location.lng.toFixed(1)}, {location.lat.toFixed(1)}</InlineIconLabel>
           </span>
         </div>
 
@@ -318,7 +319,12 @@ const ReportForm = ({
             marginTop: "4px",
           }}
         >
-          {isSubmitting ? "⏳ 전송 중..." : "🚩 이 차량으로 제보하기"}
+          <InlineIconLabel
+            icon={isSubmitting ? "loader" : "mapPin"}
+            iconClassName={isSubmitting ? "animate-spin" : ""}
+          >
+            {isSubmitting ? "전송 중..." : "이 차량으로 제보하기"}
+          </InlineIconLabel>
         </button>
       </div>
     </div>

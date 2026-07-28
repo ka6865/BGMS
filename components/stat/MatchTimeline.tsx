@@ -2,21 +2,14 @@
 
 import React from "react";
 import {
-  Skull,
-  Target,
-  Heart,
   Zap,
-  ShieldAlert,
   Trophy,
-  Briefcase,
   Crosshair,
   ArrowRight,
   Clock,
-  Swords
 } from "lucide-react";
 import { TimelineEvent } from "../../lib/pubg-analysis/types";
 import { normalizeName } from "../../lib/pubg-analysis/utils";
-import { useState } from "react";
 
 interface MatchTimelineProps {
   events: TimelineEvent[];
@@ -353,7 +346,11 @@ const renderEventText = (event: TimelineEvent, lowerNickname: string) => {
         </div>
       );
     case 'VICTORY':
-      return <span className="text-yellow-400 font-black tracking-tighter shrink-0">치킨 달성! 🍗</span>;
+      return (
+        <span className="inline-flex items-center gap-1 text-yellow-400 font-black tracking-tighter shrink-0">
+          <Trophy className="h-3.5 w-3.5" /> 치킨 달성!
+        </span>
+      );
     case 'PHASE_START':
       return <span className="text-blue-400/80 shrink-0">페이즈 {event.phase ?? '?'} 시작</span>;
     default:

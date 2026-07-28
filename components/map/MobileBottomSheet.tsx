@@ -4,9 +4,10 @@ import React from 'react';
 import AdfitBanner from "../ads/AdfitBanner";
 
 
-import { X, ChevronUp, Map as MapIcon, SlidersHorizontal } from 'lucide-react';
+import { X, ChevronUp, Map as MapIcon } from 'lucide-react';
 import { Drawer } from 'vaul';
 import { useMapSettings } from '@/hooks/useMapSettings';
+import { BgmsIcon } from '@/components/common/BgmsIcon';
 
 
 interface MobileBottomSheetProps {
@@ -69,7 +70,7 @@ export default function MobileBottomSheet({
                     }`}
                   >
                     <div className="flex items-center gap-3">
-                      <span className="text-2xl">👀</span>
+                      <BgmsIcon name="eye" size={24} className={filters["pending"] ? "text-[#F2A900]" : "text-[#777]"} />
                       <div className="flex flex-col">
                         <span className={`text-[13px] ${filters["pending"] ? "text-[#F2A900] font-black" : "text-[#777]"}`}>
                           실시간 제보 진행 중

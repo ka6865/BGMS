@@ -10,6 +10,8 @@ import {
 import { trackEvent } from "../../lib/analytics";
 import { toast } from "sonner";
 import AdfitBanner from "../../components/ads/AdfitBanner";
+import { BgmsIcon } from "@/components/common/BgmsIcon";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 const BACKPACK_MOBILE_AD_UNIT = "DAN-tQGcqmddMC8tPpXA";
 const BACKPACK_LEADERBOARD_AD_UNIT = "DAN-dPiCxgIGtXKjLPP3";
@@ -377,7 +379,7 @@ export default function BackpackSimulator() {
         {/* 헤더 */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-6 mb-8">
           <div className="flex items-center gap-4">
-             <div className="text-4xl drop-shadow-[0_0_15px_rgba(242,169,0,0.5)]">🎒</div>
+             <BgmsIcon name="backpack" size={40} className="text-[#F2A900] drop-shadow-[0_0_15px_rgba(242,169,0,0.5)]" />
              <div>
                <h1 className="text-3xl font-black text-[#F2A900] tracking-tighter">배그 인벤토리 시뮬레이터 v2</h1>
                <p className="text-xs text-gray-400 mt-1.5 flex items-center gap-2">
@@ -464,7 +466,9 @@ export default function BackpackSimulator() {
                 className={`bg-[#1a1a1a]/80 backdrop-blur-md rounded-[2.5rem] border transition-all duration-300 flex flex-col overflow-hidden min-h-[600px] shadow-2xl ${dropTarget === 'backpack' ? 'border-[#F2A900] scale-[1.02] bg-[#F2A900]/10' : 'border-white/5'}`}
               >
                 <div className="p-6 bg-white/5 border-b border-white/5 flex justify-between items-center">
-                  <span className="font-black text-[14px] tracking-[0.05em] text-[#F2A900] uppercase">🎒 배낭 인벤토리</span>
+                  <span className="font-black text-[14px] tracking-[0.05em] text-[#F2A900] uppercase">
+                    <InlineIconLabel icon="backpack">배낭 인벤토리</InlineIconLabel>
+                  </span>
                   <button onClick={() => setBackpack([])} className="text-[10px] text-red-500 font-black hover:bg-red-500/10 px-3 py-1 rounded-lg transition-all">전체 비우기</button>
                 </div>
                 <div className="p-4 flex-1 overflow-y-auto flex flex-col gap-3">
@@ -491,7 +495,9 @@ export default function BackpackSimulator() {
                 className={`bg-[#1a1a1a]/80 backdrop-blur-md rounded-[2.5rem] border transition-all duration-300 flex flex-col overflow-hidden min-h-[600px] shadow-2xl ${dropTarget === 'trunk' ? 'border-blue-400 scale-[1.02] bg-blue-400/10' : 'border-white/5'}`}
               >
                 <div className="p-6 bg-white/5 border-b border-white/5 flex justify-between items-center">
-                  <span className="font-black text-[14px] tracking-[0.05em] text-blue-400 uppercase">🚗 트렁크 보관함</span>
+                  <span className="font-black text-[14px] tracking-[0.05em] text-blue-400 uppercase">
+                    <InlineIconLabel icon="vehicle">트렁크 보관함</InlineIconLabel>
+                  </span>
                   <button onClick={() => setTrunk([])} className="text-[10px] text-red-500 font-black hover:bg-red-500/10 px-3 py-1 rounded-lg transition-all">전체 비우기</button>
                 </div>
                 <div className="p-4 flex-1 overflow-y-auto flex flex-col gap-3">

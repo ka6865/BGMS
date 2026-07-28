@@ -31,7 +31,6 @@ export default function GlobalHeader() {
   const [showNotiDropdown, setShowNotiDropdown] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
-  // ✨ [1번] 전역 차량 제보 실시간 Toast 알림 (로그인 여부 무관)
   useRealtimeToast();
 
   // 반응형 감지
@@ -76,7 +75,6 @@ export default function GlobalHeader() {
     fetchUserData();
   }, [user]);
 
-  // ✨ [2번] 내 알림 실시간 구독 (notifications 테이블 INSERT)
   useEffect(() => {
     if (!user) return;
 
@@ -98,7 +96,7 @@ export default function GlobalHeader() {
 
           // 제보 Toast처럼 우측 상단 팝업 알림 표시
           const label = newNoti.type === 'reply' ? '답글' : '댓글';
-          toast.info(`💬 ${newNoti.sender_name}님이 내 글에 ${label}을 달았습니다!`, {
+          toast.info(`${newNoti.sender_name}님이 내 글에 ${label}을 달았습니다.`, {
             description: newNoti.preview_text || '',
             duration: 5000,
             position: 'top-right',

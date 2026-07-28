@@ -11,17 +11,24 @@ import {
 } from "react-leaflet";
 import L, { CRS } from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Loader2, ShieldAlert, Play, Pause, RotateCcw, Eye, EyeOff } from "lucide-react";
+import { Loader2, ShieldAlert, Play, Pause, RotateCcw, Eye, EyeOff, Zap } from "lucide-react";
 import { getTranslatedWeaponName } from "@/lib/pubg-analysis/constants";
 import { fetchTelemetryPayload } from "@/lib/pubg-analysis/fetchTelemetryPayload";
 import { parseTelemetryPlatform } from "@/lib/pubg-analysis/telemetryIdentity";
+import { svgIcon } from "@/lib/ui/icon-svg";
+
+const skullMarkerSvg = svgIcon("skull", { color: "currentColor", size: 13 });
+const targetMarkerSvg = svgIcon("target", { color: "currentColor", size: 12 });
+const alertMarkerSvg = svgIcon("alert", { color: "currentColor", size: 12 });
+const impactMarkerSvg = svgIcon("zap", { color: "currentColor", size: 12 });
+const vehicleMarkerSvg = svgIcon("vehicle", { color: "currentColor", size: 10 });
 
 // Marker Icons custom styling
 const groggyIcon = L.divIcon({
   html: `
     <div class="relative flex items-center justify-center">
       <div class="absolute w-8 h-8 bg-red-500 rounded-full opacity-40 animate-ping"></div>
-      <div class="relative w-7 h-7 bg-red-600 border-2 border-white rounded-full flex items-center justify-center font-bold text-white shadow-lg text-sm">💀</div>
+      <div class="relative w-7 h-7 bg-red-600 border-2 border-white rounded-full flex items-center justify-center font-bold text-white shadow-lg text-sm">${skullMarkerSvg}</div>
     </div>
   `,
   className: "custom-groggy-marker",
@@ -800,17 +807,17 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
             iconHtml = `
               <div class="relative flex items-center justify-center z-[2000]">
                 <div class="absolute w-8 h-8 bg-green-500 rounded-full opacity-40 animate-ping"></div>
-                <div class="relative w-6.5 h-6.5 bg-green-600 border border-white rounded-full flex items-center justify-center font-bold text-white shadow-lg text-[10px]">🎯</div>
+                <div class="relative w-6.5 h-6.5 bg-green-600 border border-white rounded-full flex items-center justify-center font-bold text-white shadow-lg text-[10px]">${targetMarkerSvg}</div>
               </div>
             `;
             tooltipClass = "!bg-green-950/95 !border-green-800 !text-green-300";
-            text = `[아군 킬] ${ev.attacker} ➔ ${ev.victim} 사망 (${getTranslatedWeaponName(ev.weapon)})`;
+            text = `[아군 킬] ${ev.attacker} -> ${ev.victim} 사망 (${getTranslatedWeaponName(ev.weapon)})`;
           } else {
             // 적이 다른 적을 처치하거나, 아군이 사망함
             iconHtml = `
               <div class="relative flex items-center justify-center z-[2000]">
                 <div class="absolute w-7 h-7 bg-zinc-500 rounded-full opacity-35 animate-pulse"></div>
-                <div class="relative w-5.5 h-5.5 bg-zinc-700 border border-zinc-500 rounded-full flex items-center justify-center font-bold text-zinc-300 shadow-md text-[9px]">💀</div>
+                <div class="relative w-5.5 h-5.5 bg-zinc-700 border border-zinc-500 rounded-full flex items-center justify-center font-bold text-zinc-300 shadow-md text-[9px]">${skullMarkerSvg}</div>
               </div>
             `;
             tooltipClass = "!bg-zinc-950/95 !border-zinc-800 !text-zinc-400";
@@ -822,7 +829,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
             iconHtml = `
               <div class="relative flex items-center justify-center z-[2000]">
                 <div class="absolute w-8 h-8 bg-red-500 rounded-full opacity-40 animate-ping"></div>
-                <div class="relative w-6 h-6 bg-red-600 border border-white rounded-full flex items-center justify-center font-bold text-white shadow-lg text-[10px]">⚠️</div>
+                <div class="relative w-6 h-6 bg-red-600 border border-white rounded-full flex items-center justify-center font-bold text-white shadow-lg text-[10px]">${alertMarkerSvg}</div>
               </div>
             `;
             tooltipClass = "!bg-red-950/95 !border-red-800 !text-red-300";
@@ -832,7 +839,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
             iconHtml = `
               <div class="relative flex items-center justify-center z-[2000]">
                 <div class="absolute w-7 h-7 bg-amber-500 rounded-full opacity-30 animate-pulse"></div>
-                <div class="relative w-5.5 h-5.5 bg-amber-600 border border-white rounded-full flex items-center justify-center font-bold text-white shadow-md text-[9px]">💥</div>
+                <div class="relative w-5.5 h-5.5 bg-amber-600 border border-white rounded-full flex items-center justify-center font-bold text-white shadow-md text-[9px]">${impactMarkerSvg}</div>
               </div>
             `;
             tooltipClass = "!bg-amber-950/95 !border-amber-800 !text-amber-300";
@@ -964,7 +971,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
 
       const isInVehicle = !!p.vehicleId;
       const badgeHtml = isInVehicle 
-        ? `<div class="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-zinc-950 border border-zinc-800 rounded-full flex items-center justify-center text-[8px] shadow-md z-[1001]">🚗</div>` 
+        ? `<div class="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-zinc-950 border border-zinc-800 rounded-full flex items-center justify-center text-[8px] shadow-md z-[1001]">${vehicleMarkerSvg}</div>`
         : "";
 
       const isGroggy = p.status === "groggy";
@@ -974,7 +981,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
             <div class="relative flex items-center justify-center">
               <div class="absolute w-6 h-6 bg-red-600 rounded-full opacity-40 animate-ping"></div>
               <div class="w-4.5 h-4.5 rounded-full border border-red-500 shadow-md flex items-center justify-center font-bold text-[9px] bg-red-950 text-red-200">
-                💀
+                ${skullMarkerSvg}
               </div>
               ${badgeHtml}
             </div>
@@ -1034,7 +1041,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
     const attackerVehicleId = getVehicleIdAtTime(attackerPosEvs, playbackTimeMs);
     const attackerIsInVehicle = !!attackerVehicleId;
     const attackerBadgeHtml = attackerIsInVehicle 
-      ? `<div class="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-zinc-950 border border-zinc-800 rounded-full flex items-center justify-center text-[8px] shadow-md z-[1001]">🚗</div>` 
+      ? `<div class="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-zinc-950 border border-zinc-800 rounded-full flex items-center justify-center text-[8px] shadow-md z-[1001]">${vehicleMarkerSvg}</div>`
       : "";
 
     if (playbackTimeMs >= T) {
@@ -1157,7 +1164,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
 
       const isInVehicle = !!e.vehicleId;
       const badgeHtml = isInVehicle 
-        ? `<div class="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-zinc-950 border border-zinc-800 rounded-full flex items-center justify-center text-[8px] shadow-md z-[1001]">🚗</div>` 
+        ? `<div class="absolute -bottom-1 -right-1 w-3.5 h-3.5 bg-zinc-950 border border-zinc-800 rounded-full flex items-center justify-center text-[8px] shadow-md z-[1001]">${vehicleMarkerSvg}</div>`
         : "";
 
       const isGroggy = e.status === "groggy";
@@ -1166,7 +1173,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
           ? `
             <div class="relative flex items-center justify-center">
               <div class="absolute w-6 h-6 bg-red-500 rounded-full opacity-40 animate-ping"></div>
-              <div class="relative w-5.5 h-5.5 bg-red-950 border-2 border-red-500 rounded-full flex items-center justify-center font-extrabold text-red-200 text-[9px] shadow-[0_0_8px_rgba(239,68,68,0.8)]">💀</div>
+              <div class="relative w-5.5 h-5.5 bg-red-950 border-2 border-red-500 rounded-full flex items-center justify-center font-extrabold text-red-200 text-[9px] shadow-[0_0_8px_rgba(239,68,68,0.8)]">${skullMarkerSvg}</div>
               ${badgeHtml}
             </div>
           `
@@ -1245,7 +1252,9 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
                 >
                   <span className="text-[9px] font-black opacity-75">{timeStr}</span>
                   {k.type === "focus_time" ? (
-                    <span className="font-extrabold text-purple-400">⚡ 원인 장면 분석 시점</span>
+                    <span className="font-extrabold text-purple-400 inline-flex items-center gap-1">
+                      <Zap className="h-3 w-3" /> 원인 장면 분석 시점
+                    </span>
                   ) : (
                     <>
                       <span className="font-extrabold">{k.victim} 기절</span>

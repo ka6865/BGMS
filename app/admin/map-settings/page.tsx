@@ -2,6 +2,8 @@
 
 import dynamic from 'next/dynamic';
 import { Suspense, useState } from 'react';
+import { InlineIconLabel } from '@/components/common/InlineIconLabel';
+import type { BgmsIconName } from '@/components/common/BgmsIcon';
 
 const MapSettingsEditor = dynamic(
   () => import('@/components/admin/MapSettingsEditor'),
@@ -13,9 +15,9 @@ const CategoryMasterEditor = dynamic(
 );
 
 const TABS = [
-  { id: 'map', label: '🗺️ 맵별 카테고리 설정' },
-  { id: 'category', label: '🏷️ 카테고리 마스터 관리' },
-];
+  { id: 'map', label: '맵별 카테고리 설정', icon: 'map' },
+  { id: 'category', label: '카테고리 마스터 관리', icon: 'file' },
+] satisfies Array<{ id: 'map' | 'category'; label: string; icon: BgmsIconName }>;
 
 export default function AdminMapSettingsPage() {
   const [activeTab, setActiveTab] = useState<'map' | 'category'>('map');
@@ -34,7 +36,7 @@ export default function AdminMapSettingsPage() {
                 : 'text-gray-500 hover:text-gray-300'
             }`}
           >
-            {tab.label}
+            <InlineIconLabel icon={tab.icon}>{tab.label}</InlineIconLabel>
           </button>
         ))}
       </div>
