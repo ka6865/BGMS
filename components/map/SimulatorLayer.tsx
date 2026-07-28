@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Marker, Polyline, Circle, useMapEvents, useMap } from "react-leaflet";
 import L from "leaflet";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 const flightPointIcon = L.divIcon({
   className: "flight-point-sim",
@@ -356,7 +357,7 @@ export function SimulatorLayer({
           backdropFilter: "blur(8px)", boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
           pointerEvents: "none"
         }}>
-          ⚠️ {errorMsg}
+          <InlineIconLabel icon="alert">{errorMsg}</InlineIconLabel>
         </div>
       )}
       {bluezoneData.length === 0 && (

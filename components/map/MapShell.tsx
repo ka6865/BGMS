@@ -12,6 +12,8 @@ import TelemetryPlayer from "./TelemetryPlayer";
 import KillFeed from "./KillFeed";
 import HomeNotice from "./HomeNotice";
 import { TelemetrySidebar } from "./telemetry/TelemetrySidebar";
+import { BgmsIcon } from "@/components/common/BgmsIcon";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { SimulatorPanel } from "./SimulatorPanel";
 import { HeatmapLegend } from "./HeatmapLegend";
 import type { TelemetryMode, TelemetryPlatform } from "../../lib/pubg-analysis/telemetryIdentity";
@@ -393,9 +395,15 @@ const MapShell = memo(({
               <div className={`absolute left-1/2 -translate-x-1/2 z-[1000] bg-black/80 backdrop-blur-md text-white px-4 py-2.5 rounded-2xl border border-white/10 shadow-2xl flex flex-col items-center justify-center gap-1.5 pointer-events-auto transition-all w-[calc(100%-2rem)] max-w-md ${isMobile ? 'top-[60px]' : 'top-4'}`}>
                 <div className="flex items-start justify-between gap-3 w-full">
                   <span className="text-xs sm:text-sm font-medium leading-tight">
-                    {activeMode === "mortar" && "🎯 [박격포] 지도 위에 내 위치와 타겟 지점을 순서대로 클릭하세요."}
-                    {activeMode === "simulate" && "🎲 [시뮬레이터] 지도를 클릭해 서클 및 가상 경로 지점을 추가하세요."}
-                    {activeMode === "report" && "🚨 [차량 제보] 지도 위에 차량을 제보할 위치를 클릭하세요!"}
+                    {activeMode === "mortar" && (
+                      <InlineIconLabel icon="crosshair">[박격포] 지도 위에 내 위치와 타겟 지점을 순서대로 클릭하세요.</InlineIconLabel>
+                    )}
+                    {activeMode === "simulate" && (
+                      <InlineIconLabel icon="activity">[시뮬레이터] 지도를 클릭해 서클 및 가상 경로 지점을 추가하세요.</InlineIconLabel>
+                    )}
+                    {activeMode === "report" && (
+                      <InlineIconLabel icon="alert">[차량 제보] 지도 위에 차량을 제보할 위치를 클릭하세요!</InlineIconLabel>
+                    )}
                     {!isMobile && <span className="text-[#F2A900] ml-1.5">(우클릭: 취소)</span>}
                   </span>
                   <button 
@@ -485,7 +493,7 @@ const MapShell = memo(({
                     <div className="relative">
                       <div className={`w-20 h-20 border-4 ${isFullMode ? 'border-yellow-500/20 border-t-yellow-500' : 'border-indigo-500/20 border-t-indigo-500'} rounded-full animate-spin`} />
                       <div className="absolute inset-0 flex items-center justify-center text-2xl animate-pulse">
-                        {isFullMode ? '💎' : '📊'}
+                        <BgmsIcon name={isFullMode ? "award" : "activity"} size={28} className={isFullMode ? "text-yellow-400" : "text-indigo-300"} />
                       </div>
                     </div>
                     <h3 className="mt-6 text-white font-black text-xl tracking-tighter uppercase px-4 text-center">
@@ -576,7 +584,7 @@ const MapShell = memo(({
                   
                   <div className="space-y-3 bg-white/5 border border-white/5 rounded-2xl p-4">
                     <p className="font-extrabold text-[#F2A900] text-[11px] uppercase tracking-wider">
-                      ⚠️ 다음 제한 사항을 확인하세요
+                      <InlineIconLabel icon="alert" iconSize={13}>다음 제한 사항을 확인하세요</InlineIconLabel>
                     </p>
                     <ul className="list-disc list-inside space-y-2 text-gray-300 text-xs font-semibold">
                       <li>

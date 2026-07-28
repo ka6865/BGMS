@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { BgmsIcon } from "@/components/common/BgmsIcon";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import type { TelemetryEvent } from "../../hooks/useTelemetry";
 
 interface KillFeedProps {
@@ -207,7 +209,7 @@ export default function KillFeed({ events, currentTimeMs, teamNames, playbackSpe
                 <span className={`font-black truncate max-w-[90px] ${isInvolved ? 'text-xs' : 'text-[11px]'}`} style={{ color: attackerColor }}>
                   {attacker}
                 </span>
-                <span className="text-xs flex-shrink-0">{isKill ? "💀" : "👊"}</span>
+                <BgmsIcon name={isKill ? "skull" : "battle"} size={12} className="flex-shrink-0 text-white/70" />
                 <span className={`font-black truncate max-w-[90px] ${isInvolved ? 'text-xs' : 'text-[11px]'}`} style={{ color: victimColor }}>
                   {victim}
                 </span>
@@ -224,18 +226,18 @@ export default function KillFeed({ events, currentTimeMs, teamNames, playbackSpe
               
               <div className="px-2.5 pb-1 flex items-center justify-between gap-2 overflow-hidden bg-black/20">
                 <span className={`text-[9px] truncate font-medium ${isInvolved ? 'text-white/50' : 'text-white/30'}`}>
-                  {ev.weapon ? `🔫 ${getWeaponName(ev.weapon)}` : ""}
+                  {ev.weapon ? <InlineIconLabel icon="weapon" iconSize={9}>{getWeaponName(ev.weapon)}</InlineIconLabel> : ""}
                 </span>
                 {ev.distance != null && (
                   <span className="text-[9px] text-white/20 font-mono">
-                    📏 {ev.distance}m
+                    <InlineIconLabel icon="mapPin" iconSize={9}>{ev.distance}m</InlineIconLabel>
                   </span>
                 )}
               </div>
 
               {isTeamVictim && (
                 <div className="px-2.5 py-0.5 text-[9px] text-red-100 font-bold bg-red-600/40 border-t border-red-500/20">
-                  🚑 팀원 피해!
+                  <InlineIconLabel icon="alert" iconSize={10}>팀원 피해!</InlineIconLabel>
                 </div>
               )}
             </div>
@@ -254,11 +256,11 @@ export default function KillFeed({ events, currentTimeMs, teamNames, playbackSpe
             color: "#F2A900",
           }}
         >
-          <span>📋 팀 교전 기록</span>
+          <InlineIconLabel icon="file" iconSize={13}>팀 교전 기록</InlineIconLabel>
           <span className="flex items-center gap-2">
-            <span className="text-red-400">💀 {totalKills}</span>
-            <span className="text-orange-400">👊 {totalGroggy}</span>
-            {teamDowned > 0 && <span className="text-red-500">🚑 {teamDowned}</span>}
+            <InlineIconLabel icon="skull" iconSize={12} className="text-red-400">{totalKills}</InlineIconLabel>
+            <InlineIconLabel icon="battle" iconSize={12} className="text-orange-400">{totalGroggy}</InlineIconLabel>
+            {teamDowned > 0 && <InlineIconLabel icon="alert" iconSize={12} className="text-red-500">{teamDowned}</InlineIconLabel>}
             <span className="text-white/50">{isLogOpen ? "▲" : "▼"}</span>
           </span>
         </button>
@@ -289,7 +291,7 @@ export default function KillFeed({ events, currentTimeMs, teamNames, playbackSpe
                   <span className="font-black truncate max-w-[80px] text-[10px]" style={{ color: attackerColor }}>
                     {attacker}
                   </span>
-                  <span className="text-[10px] flex-shrink-0">{isKill ? "💀" : "👊"}</span>
+                  <BgmsIcon name={isKill ? "skull" : "battle"} size={10} className="flex-shrink-0 text-white/70" />
                   <span className="font-black truncate max-w-[80px] text-[10px]" style={{ color: victimColor }}>
                     {victim}
                   </span>

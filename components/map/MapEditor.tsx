@@ -30,6 +30,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { useMapSettings } from "@/hooks/useMapSettings";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import ConfirmModal from "@/components/common/ConfirmModal";
 
 // SVG 경로와 색상을 조합해 커스텀 지도 마커 아이콘 객체 생성
@@ -770,7 +771,7 @@ const MapEditorComponent = () => {
                 interactive={false}
               >
                 <Tooltip direction="top" opacity={0.9} permanent>
-                  👀제보: {v.marker_type}
+                  <InlineIconLabel icon="eye" iconSize={12}>제보: {v.marker_type}</InlineIconLabel>
                 </Tooltip>
               </CircleMarker>
             );

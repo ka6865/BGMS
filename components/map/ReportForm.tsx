@@ -4,6 +4,7 @@ import { supabase } from "../../lib/supabase";
 import { CATEGORY_INFO } from "../../lib/map_config";
 import { toast } from "sonner";
 import { useMapSettings } from "@/hooks/useMapSettings";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 
 interface ReportFormProps {
@@ -171,7 +172,7 @@ const ReportForm = ({
             gap: "8px",
           }}
         >
-          <span style={{ fontSize: "18px" }}>📣</span> 차량 위치 제보
+          <InlineIconLabel icon="message" iconSize={18}>차량 위치 제보</InlineIconLabel>
         </h3>
         <button
           onClick={(e) => {
@@ -212,10 +213,10 @@ const ReportForm = ({
           }}
         >
           <span>
-            🗺️ <b>{activeMapId}</b>
+            <InlineIconLabel icon="map" iconSize={13}><b>{activeMapId}</b></InlineIconLabel>
           </span>
           <span>
-            📍 {location.lng.toFixed(1)}, {location.lat.toFixed(1)}
+            <InlineIconLabel icon="mapPin" iconSize={13}>{location.lng.toFixed(1)}, {location.lat.toFixed(1)}</InlineIconLabel>
           </span>
         </div>
 
@@ -318,7 +319,12 @@ const ReportForm = ({
             marginTop: "4px",
           }}
         >
-          {isSubmitting ? "⏳ 전송 중..." : "🚩 이 차량으로 제보하기"}
+          <InlineIconLabel
+            icon={isSubmitting ? "loader" : "mapPin"}
+            iconClassName={isSubmitting ? "animate-spin" : ""}
+          >
+            {isSubmitting ? "전송 중..." : "이 차량으로 제보하기"}
+          </InlineIconLabel>
         </button>
       </div>
     </div>

@@ -13,6 +13,26 @@ interface TelemetryCanvasLayerProps {
   showFlightPath?: boolean;
 }
 
+function drawPlaneGlyph(ctx: CanvasRenderingContext2D, scale: number) {
+  const s = Math.max(0.8, scale);
+  ctx.beginPath();
+  ctx.moveTo(0, -16 * s);
+  ctx.lineTo(7 * s, 10 * s);
+  ctx.lineTo(0, 5 * s);
+  ctx.lineTo(-7 * s, 10 * s);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawVehicleGlyph(ctx: CanvasRenderingContext2D) {
+  ctx.fillRect(-9, -4, 18, 8);
+  ctx.fillRect(-6, -8, 12, 5);
+  ctx.beginPath();
+  ctx.arc(-6, 6, 2.4, 0, Math.PI * 2);
+  ctx.arc(6, 6, 2.4, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 export const TelemetryCanvasLayer = ({ 
   telemetryData, 
   showZones = true, 
@@ -467,12 +487,8 @@ export const TelemetryCanvasLayer = ({
           if (pos.rotation) ctx.rotate((pos.rotation * Math.PI) / 180);
           
           if (isAirplane) {
-             ctx.font = `${Math.max(24, 36 * zoomScale)}px serif`; 
-             ctx.textAlign = "center"; 
-             ctx.textBaseline = "middle";
-             // 비행기는 방향을 위쪽으로 맞추기 위해 추가 회전
-             ctx.rotate(Math.PI / 4);
-             ctx.fillText("✈️", 0, 0);
+             ctx.fillStyle = "#e5e7eb";
+             drawPlaneGlyph(ctx, zoomScale);
           } else {
             ctx.fillStyle = "rgba(40,40,40,0.9)";
             ctx.strokeStyle = "#ffffff";
@@ -481,8 +497,8 @@ export const TelemetryCanvasLayer = ({
             if ((ctx as any).roundRect) (ctx as any).roundRect(-22, -14, 44, 28, 6);
             else ctx.rect(-22, -14, 44, 28);
             ctx.fill(); ctx.stroke();
-            ctx.font = "16px serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-            ctx.fillText("🚗", 0, -1);
+            ctx.fillStyle = "#ffffff";
+            drawVehicleGlyph(ctx);
           }
           ctx.restore();
 
