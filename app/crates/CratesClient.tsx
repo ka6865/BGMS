@@ -29,6 +29,7 @@ import { toast } from "sonner";
 import ConfirmModal from "@/components/common/ConfirmModal";
 import AdfitBanner from "@/components/ads/AdfitBanner";
 import AdSenseBanner from "@/components/ads/AdSenseBanner";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 interface CratesClientProps {
   initialCrates: CrateTemplate[];
@@ -362,7 +363,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
             <AlertTriangle className="w-6 h-6 text-amber-500 shrink-0 mt-0.5 animate-pulse" />
             <div className="flex-1 flex justify-between items-center z-10">
               <h4 className="font-black text-amber-500 tracking-wide flex items-center gap-1.5 text-sm uppercase">
-                ⚠️ 시뮬레이터 BETA 서비스 안내
+                시뮬레이터 BETA 서비스 안내
               </h4>
               <span className="text-[10px] bg-slate-800 text-slate-400 border border-slate-700/60 px-2 py-0.5 rounded font-black group-open:text-amber-400 group-open:border-amber-500/30 transition-all select-none">
                 클릭하여 안내 읽기
@@ -435,13 +436,13 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                   onClick={() => setIsRefillModalOpen(true)}
                   className="py-2 bg-slate-950 hover:bg-slate-850 text-indigo-400 border border-indigo-900/40 hover:border-indigo-800/80 font-black rounded-lg text-[10px] active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1"
                 >
-                  💎 무제한 보충기
+                  <InlineIconLabel icon="award">무제한 보충기</InlineIconLabel>
                 </button>
                 <button
                   onClick={() => setIsChargeModalOpen(true)}
                   className="py-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-slate-950 font-black rounded-lg text-[10px] active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1"
                 >
-                  ⚡ G코인 충전소
+                  <InlineIconLabel icon="zap">G코인 충전소</InlineIconLabel>
                 </button>
               </div>
 
@@ -517,7 +518,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                   className="w-full py-3.5 bg-gradient-to-r from-pink-500 via-rose-500 to-red-500 hover:from-pink-600 hover:to-red-600 text-white font-black rounded-2xl shadow-xl shadow-pink-500/10 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer border border-pink-400/20 text-sm"
                 >
                   <Sparkles className="w-4 h-4 animate-pulse" />
-                  🛠️ 특수 제작소 (Crafting)
+                  특수 제작소 (Crafting)
                 </button>
               )}
 
@@ -527,7 +528,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                 className="w-full py-3 bg-slate-900 hover:bg-slate-850 text-slate-300 font-extrabold rounded-2xl border border-slate-800/80 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer text-xs"
               >
                 <Layers className="w-4 h-4 text-slate-400" />
-                📋 상자 세부정보 및 확률표
+                상자 세부정보 및 확률표
               </button>
             </div>
 
@@ -572,7 +573,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
 
               {/* 누적 소비량 컴포넌트 */}
               <div className="flex items-center gap-3 px-4 py-2 bg-slate-950/50 rounded-xl border border-slate-850/80 text-[11px] font-black text-slate-300 shadow-sm shrink-0">
-                <span className="text-slate-500">💸 누적 소비 :</span>
+                <InlineIconLabel icon="package" className="text-slate-500">누적 소비 :</InlineIconLabel>
                 <span className="text-amber-500 font-extrabold">{spentGcoin.toLocaleString()} G-Coin</span>
                 <span className="text-slate-700">|</span>
                 <span className="text-indigo-400 font-extrabold">{spentBp.toLocaleString()} BP</span>
@@ -598,8 +599,8 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                       {drawMode === "prime" ? "최고급 꾸러미 해제 중..." : "상자 해제 중..."}
                     </h3>
                     {hasBonusEffect ? (
-                      <div className="mt-1 text-[10px] text-amber-400 font-black animate-pulse">
-                        ★ 보너스 전리품 당첨! 금색 광 방출 중 ★
+                      <div className="mt-1 text-[10px] text-amber-400 font-black animate-pulse inline-flex items-center justify-center gap-1">
+                        <Sparkles className="h-3 w-3" /> 보너스 전리품 당첨! 금색 광 방출 중
                       </div>
                     ) : (
                       <p className="text-[10px] text-slate-500 mt-1">상자가 흔들리며 구성품이 인벤토리에 지급되고 있습니다.</p>

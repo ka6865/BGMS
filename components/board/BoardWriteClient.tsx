@@ -11,6 +11,7 @@ import type { ClanInfo } from "@/types/board";
 import { trackEvent } from "@/lib/analytics";
 import TurnstileWidget from "./TurnstileWidget";
 import { TURNSTILE_ACTIONS } from "@/lib/board/turnstileContract";
+import { svgIcon, type SvgIconName } from "@/lib/ui/icon-svg";
 
 export default function BoardWriteClient() {
   const router = useRouter();
@@ -238,7 +239,7 @@ function restoreAiSummaryHtml(content: string): string {
     const parser = new DOMParser();
     const doc = parser.parseFromString(content, 'text/html');
     
-    // AI 요약 타이틀 헤더 찾기 (h3, h2, h4, p 중 🤖 또는 BGMS AI 포함하는 태그)
+    // AI 요약 타이틀 헤더 찾기
     const allHeaders = Array.from(doc.querySelectorAll('h2, h3, h4, p, div'));
     const titleEl = allHeaders.find(el => {
       const text = el.textContent || "";
@@ -268,7 +269,7 @@ function restoreAiSummaryHtml(content: string): string {
       const isSectionTitle = 
         (tagName.startsWith('h') && text.includes('[') && text.includes(']')) ||
         (tagName === 'p' && (
-          /^[🔹⚙️⚖️🛠️🗺️🔫]/.test(text) || 
+          /^[🔹⚙️⚖️🛠️🗺️🔫]/u.test(text) ||
           (text.startsWith('[') && text.endsWith(']'))
         ));
 
@@ -315,21 +316,27 @@ function restoreAiSummaryHtml(content: string): string {
     // 파싱에 사용된 기존 노드들 제거
     elementsToRemove.forEach(el => el.remove());
 
+    const getSectionIconName = (title: string): SvgIconName => {
+      if (title.includes("의도") || title.includes("배경") || title.includes("목표")) return "info";
+      if (title.includes("일반전") || title.includes("경쟁전") || title.includes("모드")) return "map";
+      if (title.includes("피해") || title.includes("시스템") || title.includes("데미지")) return "zap";
+      if (title.includes("무기") || title.includes("아이템")) return "weapon";
+      if (title.includes("맵") || title.includes("월드")) return "map";
+      return "info";
+    };
+
     // 2열 그리드로 정렬하여 HTML 조립
     const cardsHtml = sections.map(sec => {
-      // 괄호 및 이모지 다듬기
+      // 괄호 및 기존 이모지 다듬기
       let rawTitle = sec.title.replace(/[\[\]]/g, "").trim();
-      let emoji = "🔹";
       const matchedEmoji = rawTitle.match(/^[🔹⚙️⚖️🛠️🗺️🔫]\ufe0f?/u);
       if (matchedEmoji) {
-        emoji = matchedEmoji[0];
         rawTitle = rawTitle.replace(/^[🔹⚙️⚖️🛠️🗺️🔫]\ufe0f?\s*/u, "").trim();
-      } else {
-        // 타이틀 키워드 매칭에 따른 이모지 추천
-        if (rawTitle.includes("의도") || rawTitle.includes("배경") || rawTitle.includes("목표")) emoji = "💡";
-        else if (rawTitle.includes("일반전") || rawTitle.includes("경쟁전") || rawTitle.includes("모드")) emoji = "⚙️";
-        else if (rawTitle.includes("피해") || rawTitle.includes("시스템") || rawTitle.includes("데미지")) emoji = "⚡";
       }
+      const sectionIcon = svgIcon(getSectionIconName(rawTitle), {
+        color: "#F2A900",
+        size: 15,
+      });
 
       const itemsHtml = sec.items.map(item => {
         // 볼드 마커(**텍스트**)가 깨져서 문단에 남아있을 경우 strong 태그로 치환
@@ -345,7 +352,7 @@ function restoreAiSummaryHtml(content: string): string {
       return `
         <div class="bg-[#1a1a1a] border border-white/5 rounded-lg p-4 shadow-md transition-all hover:border-white/10 hover:shadow-lg">
           <div class="text-[#F2A900] text-sm md:text-base font-black mb-2 flex items-center gap-1.5 border-b border-white/5 pb-1.5">
-            <span>${emoji}</span> ${rawTitle}
+            ${sectionIcon} ${rawTitle}
           </div>
           <ul class="space-y-1 m-0 p-0">${itemsHtml}</ul>
         </div>
@@ -369,7 +376,7 @@ function restoreAiSummaryHtml(content: string): string {
       <div class="patch-note-container space-y-4">
         <div class="bg-[#F2A900]/10 border border-[#F2A900]/30 rounded-lg p-4 mb-1">
           <h3 class="flex items-center gap-1.5 text-[#F2A900] font-black text-base md:text-lg">
-            🤖 BGMS AI 배그 소식 핵심 요약
+            ${svgIcon("zap", { color: "#F2A900", size: 16 })} BGMS AI 배그 소식 핵심 요약
           </h3>
         </div>
         
@@ -379,7 +386,7 @@ function restoreAiSummaryHtml(content: string): string {
 
         <div class="flex flex-col items-center justify-center p-6 bg-[#1a1a1a] rounded-lg border border-white/5">
           <p class="text-gray-400 text-xs mb-3">더 자세한 내용은 공식 원문에서 확인하실 수 있습니다.</p>
-          <a href="${originUrl || 'https://pubg.com/ko/news'}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-6 py-2.5 bg-[#F2A900] text-black font-black text-sm rounded hover:bg-[#cc8b00] transition-all transform active:scale-95 shadow-md shadow-[#F2A900]/20">🔗 원문 보러가기</a>
+          <a href="${originUrl || 'https://pubg.com/ko/news'}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-6 py-2.5 bg-[#F2A900] text-black font-black text-sm rounded hover:bg-[#cc8b00] transition-all transform active:scale-95 shadow-md shadow-[#F2A900]/20">${svgIcon("info", { color: "currentColor", size: 14 })} 원문 보러가기</a>
         </div>
       </div>
     `;

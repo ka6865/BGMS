@@ -1,6 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
+import { BgmsIcon } from "@/components/common/BgmsIcon";
 import { useMapSettings } from "@/hooks/useMapSettings";
 
 
@@ -137,7 +138,11 @@ export default function Sidebar({
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <span style={{ fontSize: "16px", lineHeight: 1 }}>👀</span>
+            <BgmsIcon
+              name="eye"
+              size={16}
+              className={filters["pending"] ? "text-[#F2A900]" : "text-white/45"}
+            />
             <span
               style={{
                 fontSize: "13px",

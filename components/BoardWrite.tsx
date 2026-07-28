@@ -6,8 +6,9 @@ import { supabase } from "../lib/supabase";
 import "react-quill-new/dist/quill.snow.css";
 import imageCompression from "browser-image-compression";
 import { toast } from "sonner";
-import { ClanInfo } from "@/types/board"; // 🌟 추가
+import { ClanInfo } from "@/types/board";
 import ConfirmModal from "@/components/common/ConfirmModal";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { classifyUploadedBoardImages, type UploadedBoardImage } from "@/lib/board-image-cleanup";
 
 const ReactQuill = dynamic(() => import("react-quill-new"), {
@@ -704,10 +705,11 @@ export default function BoardWrite({
         </button>
       </div>
 
-      {/* 🌟 대표 이미지 (썸네일) 설정 영역 */}
       <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "15px", padding: "12px", backgroundColor: "#252525", border: "1px solid #333", borderRadius: "4px" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <span style={{ color: "#F2A900", fontWeight: "bold", fontSize: "14px" }}>🖼️ 대표 이미지 (썸네일) 설정</span>
+          <span style={{ color: "#F2A900", fontWeight: "bold", fontSize: "14px" }}>
+            <InlineIconLabel icon="image">대표 이미지 (썸네일) 설정</InlineIconLabel>
+          </span>
         </div>
         
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", alignItems: "center" }}>
@@ -758,7 +760,11 @@ export default function BoardWrite({
             />
             <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
               <span style={{ fontSize: "12px", fontWeight: "bold", color: thumbnailUrl ? "#43b581" : "#F2A900" }}>
-                {thumbnailUrl ? "✅ 수동 지정된 대표 이미지 사용 중" : "✨ 본문 내 첫 번째 이미지 자동 추출 중"}
+                {thumbnailUrl ? (
+                  <InlineIconLabel icon="check">수동 지정된 대표 이미지 사용 중</InlineIconLabel>
+                ) : (
+                  <InlineIconLabel icon="sparkles">본문 내 첫 번째 이미지 자동 추출 중</InlineIconLabel>
+                )}
               </span>
               <span style={{ fontSize: "10px", color: "#888", wordBreak: "break-all" }}>
                 {thumbnailUrl || autoExtractedImage}
@@ -772,11 +778,12 @@ export default function BoardWrite({
         )}
       </div>
 
-      {/* 🌟 디스코드 링크 입력 섹션 (듀오/스쿼드 모집 카테고리 전용) */}
       {newCategory === "듀오/스쿼드 모집" && (
         <div style={{ marginBottom: "20px", display: "flex", flexDirection: "column", gap: "8px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ color: "#7289da", fontWeight: "bold", fontSize: "14px" }}>👾 디스코드 채널 링크</span>
+            <span style={{ color: "#7289da", fontWeight: "bold", fontSize: "14px" }}>
+              <InlineIconLabel icon="bot">디스코드 채널 링크</InlineIconLabel>
+            </span>
             <div 
               style={{ 
                 position: "relative", 
@@ -795,7 +802,9 @@ export default function BoardWrite({
             >
               ?
               <div className="invisible group-hover:visible absolute left-[25px] top-0 w-[300px] p-4 bg-[#333] text-white text-[12px] rounded-lg shadow-2xl border border-[#444] z-[3000] leading-relaxed">
-                <p style={{ fontWeight: "bold", color: "#F2A900", marginBottom: "8px", fontSize: "13px" }}>🔗 디스코드 채널 링크 넣는 법</p>
+                <p style={{ fontWeight: "bold", color: "#F2A900", marginBottom: "8px", fontSize: "13px" }}>
+                  <InlineIconLabel icon="link">디스코드 채널 링크 넣는 법</InlineIconLabel>
+                </p>
                 <div style={{ marginBottom: "10px" }}>
                   <strong style={{ color: "#7289da" }}>방식 A. 초대 링크 (추천)</strong><br/>
                   1. 보이스 채널 우클릭 - [초대하기]<br/>
@@ -822,7 +831,12 @@ export default function BoardWrite({
                 disabled={isCreatingRoom}
                 className="flex-1 py-[8px] bg-[#5865F2] hover:bg-[#4752C4] text-white rounded font-bold text-[12px] transition-colors flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isCreatingRoom ? "생성 중..." : "🎮 듀오 방 자동 생성 (2인)"}
+                <InlineIconLabel
+                  icon={isCreatingRoom ? "loader" : "battle"}
+                  iconClassName={isCreatingRoom ? "animate-spin" : ""}
+                >
+                  {isCreatingRoom ? "생성 중..." : "듀오 방 자동 생성 (2인)"}
+                </InlineIconLabel>
               </button>
               <button
                 type="button"
@@ -830,7 +844,12 @@ export default function BoardWrite({
                 disabled={isCreatingRoom}
                 className="flex-1 py-[8px] bg-[#5865F2] hover:bg-[#4752C4] text-white rounded font-bold text-[12px] transition-colors flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isCreatingRoom ? "생성 중..." : "🎮 스쿼드 방 자동 생성 (4인)"}
+                <InlineIconLabel
+                  icon={isCreatingRoom ? "loader" : "team"}
+                  iconClassName={isCreatingRoom ? "animate-spin" : ""}
+                >
+                  {isCreatingRoom ? "생성 중..." : "스쿼드 방 자동 생성 (4인)"}
+                </InlineIconLabel>
               </button>
             </div>
 
@@ -866,11 +885,12 @@ export default function BoardWrite({
         </div>
       )}
 
-      {/* 🌟 클랜 정보 첨부 섹션 (클랜홍보 카테고리 전용) */}
       {newCategory === "클랜홍보" && (
         <div style={{ marginBottom: "20px", display: "flex", flexDirection: "column", gap: "8px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{ color: "#F2A900", fontWeight: "bold", fontSize: "14px" }}>🎖️ PUBG 클랜 정보 첨부</span>
+            <span style={{ color: "#F2A900", fontWeight: "bold", fontSize: "14px" }}>
+              <InlineIconLabel icon="award">PUBG 클랜 정보 첨부</InlineIconLabel>
+            </span>
             <div 
               style={{ 
                 position: "relative", 
@@ -889,7 +909,9 @@ export default function BoardWrite({
             >
               ?
               <div className="invisible group-hover:visible absolute left-[25px] top-0 w-[300px] p-4 bg-[#333] text-white text-[12px] rounded-lg shadow-2xl border border-[#444] z-[3000] leading-relaxed">
-                <p style={{ fontWeight: "bold", color: "#F2A900", marginBottom: "8px", fontSize: "13px" }}>🛡️ 클랜 정보 첨부하는 법</p>
+                <p style={{ fontWeight: "bold", color: "#F2A900", marginBottom: "8px", fontSize: "13px" }}>
+                  <InlineIconLabel icon="shield">클랜 정보 첨부하는 법</InlineIconLabel>
+                </p>
                 <div>
                   1. 클랜원 또는 클랜 마스터 본인의 배틀그라운드 인게임 닉네임을 입력합니다.<br/>
                   2. 계정이 존재하는 플랫폼(Steam/Kakao 등)을 선택한 뒤 [클랜 조회]를 클릭합니다.<br/>

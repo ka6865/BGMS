@@ -4,6 +4,7 @@ import type { CrateTemplate } from "@/types/crates";
 import { HistoryItem } from "./types";
 import { VaultCard, HistoryCard, getKoreanRarityName } from "./CrateCards";
 import { AppModal } from "@/components/common/AppModal";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 function getOwnedCount(obtainedSkins: Record<string, number>, item: { name: string; asset_key?: string | null }) {
   return obtainedSkins[item.asset_key || item.name] || obtainedSkins[item.name] || 0;
@@ -334,7 +335,7 @@ export function RefillModal({
               onClick={onRefillInfinite}
               className="w-full py-3.5 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-600 hover:via-yellow-600 hover:to-amber-700 text-slate-950 font-black rounded-xl shadow-lg shadow-amber-500/10 transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer text-sm"
             >
-              ⚡ 모든 재화 무제한 충전 (999M)
+              <InlineIconLabel icon="zap">모든 재화 무제한 충전 (999M)</InlineIconLabel>
             </button>
           )}
         </div>

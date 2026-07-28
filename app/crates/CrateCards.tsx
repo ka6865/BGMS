@@ -310,18 +310,18 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
                   </h4>
                 )}
                 {card.bonus.is_extra_crate && (
-                  <div className="text-[7px] font-extrabold text-amber-300/90 mt-0.5 animate-pulse">
-                    ★ 상자 1개 환급 완료!
+                  <div className="text-[7px] font-extrabold text-amber-300/90 mt-0.5 animate-pulse inline-flex items-center gap-0.5">
+                    <Sparkles className="h-2 w-2" /> 상자 1개 환급 완료!
                   </div>
                 )}
                 {card.bonus.token_count > 0 && (
-                  <div className="text-[7px] font-extrabold text-amber-300/90 mt-0.5 animate-pulse">
-                    ★ 토큰 +{card.bonus.token_count}개 자동지급!
+                  <div className="text-[7px] font-extrabold text-amber-300/90 mt-0.5 animate-pulse inline-flex items-center gap-0.5">
+                    <Sparkles className="h-2 w-2" /> 토큰 +{card.bonus.token_count}개 자동지급!
                   </div>
                 )}
                 {card.bonus.is_prime_parcel && (
-                  <div className="text-[7px] font-extrabold text-pink-400 mt-0.5 animate-pulse">
-                    ★ 최고급 꾸러미 획득!
+                  <div className="text-[7px] font-extrabold text-pink-400 mt-0.5 animate-pulse inline-flex items-center gap-0.5">
+                    <Sparkles className="h-2 w-2" /> 최고급 꾸러미 획득!
                   </div>
                 )}
               </div>
@@ -501,7 +501,7 @@ export function HistoryCard({ item, getRarityBadgeStyle }: HistoryCardProps) {
           )}
           {item.isBonus && (
             <span className="text-[8px] font-extrabold bg-amber-500 text-slate-950 px-1.5 py-0.5 rounded flex items-center gap-0.5">
-              ★ 보너스
+              <Sparkles className="h-2.5 w-2.5" /> 보너스
             </span>
           )}
         </div>

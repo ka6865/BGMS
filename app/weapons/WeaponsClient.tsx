@@ -16,6 +16,7 @@ import {
 import { supabase } from "../../lib/supabase";
 import { trackEvent } from "../../lib/analytics";
 import AdfitBanner from "../../components/ads/AdfitBanner";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 const WEAPONS_MOBILE_AD_UNIT = "DAN-tQGcqmddMC8tPpXA";
 const WEAPONS_LEADERBOARD_AD_UNIT = "DAN-dPiCxgIGtXKjLPP3";
@@ -456,7 +457,7 @@ export default function WeaponsPage() {
               
               {w.patch_notes && (
                 <div className="text-[9px] text-yellow-500/70 bg-slate-950/60 p-2 rounded-lg italic border border-yellow-950/30 line-clamp-2" title={w.patch_notes}>
-                  📝 {w.patch_notes}
+                  <InlineIconLabel icon="file" iconSize={11}>{w.patch_notes}</InlineIconLabel>
                 </div>
               )}
             </div>
@@ -474,7 +475,9 @@ export default function WeaponsPage() {
                   window.scrollTo({ top: 0, behavior: "smooth" });
                 }}
               >
-                {isSelected ? "🔧 개조 모드 활성화됨" : "🔧 파츠 시뮬레이션"}
+                <InlineIconLabel icon="tool">
+                  {isSelected ? "개조 모드 활성화됨" : "파츠 시뮬레이션"}
+                </InlineIconLabel>
               </button>
             </div>
           </div>
@@ -491,7 +494,7 @@ export default function WeaponsPage() {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800 pb-5">
           <div>
             <h1 className="text-2xl sm:text-3xl font-black text-[#F2A900] tracking-tight flex items-center gap-2">
-              🔫 배그 무기 정보 도감
+              <InlineIconLabel icon="weapon" iconSize={28}>배그 무기 정보 도감</InlineIconLabel>
             </h1>
             <p className="text-xs sm:text-sm text-slate-400 mt-1">41.2 공식 패치 밸런스가 완벽 보정 적용된 프리미엄 무기고입니다.</p>
           </div>
@@ -810,7 +813,7 @@ export default function WeaponsPage() {
                     {selectedWeapon.availability} ({selectedWeapon.spawn_maps})
                     {selectedWeapon.patch_notes && (
                       <p className="mt-1.5 text-yellow-500/80 italic border-t border-slate-850/50 pt-1.5">
-                        📝 {selectedWeapon.patch_notes}
+                        <InlineIconLabel icon="file" iconSize={12}>{selectedWeapon.patch_notes}</InlineIconLabel>
                       </p>
                     )}
                   </div>
