@@ -698,7 +698,7 @@ const MapEditorComponent = () => {
             onClick={() => setIsSidebarOpen(true)}
             className="absolute top-4 left-4 z-[4000] flex items-center gap-2 px-4 py-2.5 bg-[#F2A900] text-black font-black text-xs rounded-xl shadow-lg active:scale-[0.95] transition-all"
           >
-            <span>🛠️</span> 에디터 메뉴
+            에디터 메뉴
           </button>
         )}
 

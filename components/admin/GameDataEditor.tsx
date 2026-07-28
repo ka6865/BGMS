@@ -1153,7 +1153,7 @@ export default function GameDataEditor() {
                             ) : (selectedItem as any).is_missing_profile ? (
                               <span className="text-[10px] bg-rose-950/50 text-rose-400 border border-rose-900/60 px-2.5 py-1 rounded-full font-bold font-sans">DB 프로필 누락</span>
                             ) : (
-                              <span className="text-[10px] bg-indigo-950/40 text-indigo-400 border border-indigo-900/50 px-2.5 py-1 rounded-full font-bold font-sans">✓ DB 프로필 정상</span>
+                              <span className="text-[10px] bg-indigo-950/40 text-indigo-400 border border-indigo-900/50 px-2.5 py-1 rounded-full font-bold font-sans">DB 프로필 정상</span>
                             )}
                           </div>
                         </div>
