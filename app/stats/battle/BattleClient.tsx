@@ -7,6 +7,8 @@ import { Camera, Copy, Download, Share2, Star, Clock, User, X } from "lucide-rea
 import { STORAGE_KEY_RECENT, STORAGE_KEY_FAVORITES } from "../../../lib/pubg-analysis/constants";
 import { trackEvent } from "@/lib/analytics";
 import AdfitBanner from "@/components/ads/AdfitBanner";
+import { BgmsIcon } from "@/components/common/BgmsIcon";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 interface Comparison {
   key: string;
@@ -555,7 +557,7 @@ function BattleContent() {
           <Link href="/stats" className="text-xs text-gray-600 hover:text-gray-400 transition-colors mb-4 inline-block">
             ← 전적 검색으로 돌아가기
           </Link>
-          <div className="text-5xl mb-4">⚔️</div>
+          <BgmsIcon name="battle" size={52} className="mx-auto mb-4 text-indigo-300" />
           <h1 className="text-3xl font-black tracking-tight mb-2">전적 비교 배틀</h1>
           <p className="text-gray-500 text-sm">두 플레이어의 BGMS 분석 데이터를 항목별로 대결시킵니다</p>
           <div className="mt-2 flex flex-col gap-0.5">
@@ -660,7 +662,14 @@ function BattleContent() {
             disabled={loading || !nick1.trim() || !nick2.trim()}
             className="w-full py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 rounded-2xl font-black text-lg tracking-wide transition-all disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
           >
-            {loading ? "⏳ 분석 중..." : "⚔️ 대결 시작!"}
+            <InlineIconLabel
+              icon={loading ? "loader" : "battle"}
+              iconClassName={loading ? "animate-spin" : ""}
+              className="justify-center"
+              iconSize={20}
+            >
+              {loading ? "분석 중..." : "대결 시작!"}
+            </InlineIconLabel>
           </button>
         </div>
 
@@ -676,7 +685,7 @@ function BattleContent() {
         {/* 에러 */}
         {error && (
           <div className="p-5 bg-red-500/10 border border-red-500/30 rounded-2xl text-red-400 text-sm font-bold [overflow-wrap:anywhere] [word-break:break-word] whitespace-normal">
-            ❌ {error}
+            <InlineIconLabel icon="error">{error}</InlineIconLabel>
           </div>
         )}
 

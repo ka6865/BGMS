@@ -15,10 +15,20 @@ import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { LogIn } from "lucide-react";
 import { trackEvent } from "@/lib/analytics";
+import { BgmsIcon, type BgmsIconName } from "@/components/common/BgmsIcon";
+import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 interface DebateStat {
   label: string;
   value: string;
+}
+
+function getAiTierIconName(tier?: string | null): BgmsIconName {
+  if (tier === "S") return "award";
+  if (tier?.startsWith("A")) return "flame";
+  if (tier?.startsWith("B")) return "battle";
+  if (tier?.startsWith("C")) return "zap";
+  return "shield";
 }
 
 interface DebateIssue {
@@ -488,7 +498,7 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
   if (error) {
     return (
       <div className="p-6 bg-white/5 border border-white/10 rounded-2xl text-center">
-        <p className="text-2xl mb-3">😅</p>
+        <BgmsIcon name="info" size={28} className="mx-auto mb-3 text-indigo-300" />
         <p className="text-gray-300 text-sm mb-1">AI 분석이 잠깐 막혔어요.</p>
         <p className="text-gray-500 text-xs mb-4">서버가 바쁘거나 네트워크가 불안정할 때 가끔 생겨요.</p>
         <button
@@ -537,7 +547,7 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
           </>
         ) : (
           <>
-            <span className="text-4xl">🔥</span>
+            <BgmsIcon name="flame" size={40} className="text-indigo-300" />
             <div className="flex flex-col items-center gap-2">
               <span>최근 10경기 AI 끝장 토론 시작</span>
               <span className="text-xs font-normal opacity-60">(기본지표는 10판이지만 10판중 잘한5판 티어높은5판 기준으로 상위권과 비교합니다)</span>
@@ -758,17 +768,23 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
         <div className="flex justify-around items-center p-6 bg-black/40 rounded-3xl border border-white/10 backdrop-blur-md shadow-2xl">
           <div className="text-center group">
             <div className="text-3xl font-black text-green-400 mb-1">{score.kind}</div>
-            <div className="text-[10px] text-green-400/60 font-bold uppercase tracking-wider group-hover:scale-110 transition-transform">😊 착한맛 승</div>
+            <div className="text-[10px] text-green-400/60 font-bold uppercase tracking-wider group-hover:scale-110 transition-transform">
+              <InlineIconLabel icon="shield" iconSize={11}>착한맛 승</InlineIconLabel>
+            </div>
           </div>
           <div className="h-12 w-px bg-white/10" />
           <div className="text-center group">
             <div className="text-3xl font-black text-red-400 mb-1">{score.spicy}</div>
-            <div className="text-[10px] text-red-400/60 font-bold uppercase tracking-wider group-hover:scale-110 transition-transform">⚡ 매운맛 승</div>
+            <div className="text-[10px] text-red-400/60 font-bold uppercase tracking-wider group-hover:scale-110 transition-transform">
+              <InlineIconLabel icon="zap" iconSize={11}>매운맛 승</InlineIconLabel>
+            </div>
           </div>
           <div className="h-12 w-px bg-white/10" />
           <div className="text-center group">
             <div className="text-3xl font-black text-yellow-400 mb-1">{score.draw}</div>
-            <div className="text-[10px] text-yellow-400/60 font-bold uppercase tracking-wider group-hover:scale-110 transition-transform">🤝 무승부</div>
+            <div className="text-[10px] text-yellow-400/60 font-bold uppercase tracking-wider group-hover:scale-110 transition-transform">
+              <InlineIconLabel icon="team" iconSize={11}>무승부</InlineIconLabel>
+            </div>
           </div>
         </div>
 
@@ -790,10 +806,7 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
                         debateData.visuals.overallTier?.startsWith('D') ? 'bg-gradient-to-br from-slate-600 to-slate-400 shadow-slate-500/40' :
                           'bg-gradient-to-br from-gray-600 to-gray-400 shadow-gray-500/40'
                   }`}>
-                  {debateData.visuals.overallTier === 'S' ? '💎' :
-                    debateData.visuals.overallTier?.startsWith('A') ? '🔥' :
-                      debateData.visuals.overallTier?.startsWith('B') ? '⚔️' :
-                        debateData.visuals.overallTier?.startsWith('C') ? '⚡' : '🛡️'}
+                  <BgmsIcon name={getAiTierIconName(debateData.visuals.overallTier)} size={42} />
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="px-4 py-1.5 bg-white/10 rounded-full border border-white/10">
@@ -941,7 +954,7 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
             <div className="flex items-center justify-between mb-10 relative z-10">
               <div className="flex flex-col gap-2">
                 <div className="text-[12px] text-yellow-400 font-black uppercase tracking-[0.3em] flex items-center gap-2">
-                  <span className="text-lg">🔥</span> 골든타임 분석 (Golden Time)
+                  <InlineIconLabel icon="flame" iconSize={18}>골든타임 분석 (Golden Time)</InlineIconLabel>
                 </div>
                 <div className="text-xl font-black text-white">생존 구간별 화력 집중도</div>
               </div>
@@ -1291,7 +1304,7 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className={`p-5 rounded-2xl border transition-all ${(issue?.winner?.toLowerCase() || "").includes("kind") ? "bg-green-500/5 border-green-500/30 ring-1 ring-green-500/20" : "bg-black/30 border-white/10"}`}>
                       <div className="flex items-center gap-2 mb-3">
-                        <span className="text-lg">😊</span>
+                        <BgmsIcon name="shield" size={18} className="text-green-400" />
                         <span className="text-xs font-black text-green-400 uppercase">착한맛 코치</span>
                       </div>
                       <p className="text-sm text-gray-300 leading-relaxed font-medium">&quot;{issue?.kindOpinion || "의견을 가져오는 중..."}&quot;</p>
@@ -1299,7 +1312,7 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
 
                     <div className={`p-5 rounded-2xl border transition-all ${(issue?.winner?.toLowerCase() || "").includes("spicy") ? "bg-red-500/5 border-red-500/30 ring-1 ring-red-500/20" : "bg-black/30 border-white/10"}`}>
                       <div className="flex items-center gap-2 mb-3">
-                        <span className="text-lg">⚡</span>
+                        <BgmsIcon name="zap" size={18} className="text-red-400" />
                         <span className="text-xs font-black text-red-400 uppercase">매운맛 폭격기</span>
                       </div>
                       <p className="text-sm text-gray-300 leading-relaxed font-medium">&quot;{issue?.spicyOpinion || "의견을 가져오는 중..."}&quot;</p>
