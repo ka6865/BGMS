@@ -3,6 +3,7 @@ import { createClient } from '@/utils/supabase/server';
 import { getPostMetadata, getBreadcrumbJsonLd, getPostArticleJsonLd } from '@/lib/seo-config';
 import { JsonLdProps } from '@/types/seo';
 import BoardDetailClient from '@/components/board/BoardDetailClient';
+import { sanitizeBoardHtml } from '@/lib/board/sanitizeHtml';
 import Link from 'next/link';
 import { CircleAlert, ChevronLeft } from 'lucide-react';
 import { maskIp } from '@/lib/board/ipUtils';
@@ -14,7 +15,7 @@ export const revalidate = 0;
 export async function generateMetadata({ params }: { params: Promise<{ postId: string }> }): Promise<Metadata> {
   const { postId } = await params;
   const metadata = await getPostMetadata(postId);
-  
+
   if (!metadata) {
     return {
       title: "존재하지 않는 게시글입니다 | BGMS",
@@ -22,17 +23,17 @@ export async function generateMetadata({ params }: { params: Promise<{ postId: s
       robots: { index: false }
     };
   }
-  
+
   return metadata;
 }
 
 export default async function PostDetailPage({ params }: { params: Promise<{ postId: string }> }) {
   const { postId } = await params;
   const numericPostId = Number(postId);
-  
+
   const supabase = await createClient();
   const metadata = await getPostMetadata(postId);
-  
+
   const jsonLd: JsonLdProps[] = [
     getBreadcrumbJsonLd([
       { name: "커뮤니티", item: "/board" },
@@ -71,14 +72,14 @@ export default async function PostDetailPage({ params }: { params: Promise<{ pos
             입력하신 주소를 다시 한번 확인해 주세요.
           </p>
           <div className="flex flex-col gap-3 w-full">
-            <Link 
+            <Link
               href="/board"
               className="flex items-center justify-center gap-2 w-full py-4 bg-[#F2A900] text-black font-bold rounded-xl hover:bg-[#d49400] transition-all active:scale-95"
             >
               <ChevronLeft className="w-4 h-4" />
               게시판 목록으로 돌아가기
             </Link>
-            <Link 
+            <Link
               href="/"
               className="text-[#999] text-xs hover:text-[#F2A900] transition-colors"
             >
@@ -101,8 +102,11 @@ export default async function PostDetailPage({ params }: { params: Promise<{ pos
   }
 
   // 비회원(user_id가 null)은 profiles join이 없으므로 author를 그대로 유지하고 IP 마스킹
+  // content 는 서버에서 정화해서 넘긴다. 클라이언트 dompurify 는 브라우저 전용이라
+  // SSR 출력과 hydration 이전 DOM 을 보호하지 못한다.
   const post = {
     ...postResult,
+    content: sanitizeBoardHtml(postResult.content),
     author: postResult.user_id
       ? ((postResult as any).profiles?.nickname || postResult.author || '알 수 없음')
       : (postResult.author || '익명'),
@@ -111,6 +115,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ pos
 
   const comments = (commentResult || []).map((comment: any) => ({
     ...comment,
+    content: sanitizeBoardHtml(comment.content),
     author: comment.user_id
       ? (comment.profiles?.nickname || comment.author || '알 수 없음')
       : (comment.author || '익명'),
@@ -119,8 +124,8 @@ export default async function PostDetailPage({ params }: { params: Promise<{ pos
 
   return (
     <div className="w-full h-full overflow-y-auto bg-[#121212] flex flex-col pt-6">
-      <BoardDetailClient 
-        initialPost={post} 
+      <BoardDetailClient
+        initialPost={post}
         initialComments={comments}
         promoteExpectedParentRevision={promoteExpectedParentRevision}
       />

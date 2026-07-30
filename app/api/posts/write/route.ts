@@ -7,6 +7,7 @@ import { verifyTurnstileToken } from "@/lib/board/turnstile.server";
 import { TURNSTILE_ACTIONS } from "@/lib/board/turnstileContract";
 import { canonicalizeManagedBoardImageUrl, isUuid } from "@/lib/board/imageStorageContract";
 import { parseBoardImageSrcs } from "@/lib/board/imageHtml";
+import { sanitizeBoardHtml } from "@/lib/board/sanitizeHtml";
 import type { ClanInfo } from "@/types/board";
 import bcrypt from "bcryptjs";
 
@@ -159,7 +160,9 @@ export async function POST(request: Request) {
       );
     }
     const safeTitle = title.trim();
-    const safeContent = content.trim();
+    // 사용자 입력 HTML 은 저장 전에 서버에서 정화한다.
+    // 클라이언트 dompurify 는 브라우저 전용이라 SSR·API 경로를 보호하지 못한다.
+    const safeContent = sanitizeBoardHtml(content.trim());
     const safeCategory = category.trim();
     if (
       discord_url != null

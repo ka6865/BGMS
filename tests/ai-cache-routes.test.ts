@@ -580,7 +580,7 @@ describe("AI cache route stabilization", () => {
     expect(mockGenerateContentStream).toHaveBeenCalled();
   });
 
-  it("ai-squad는 Gemini 실패 시 최초 파싱한 body로 fallback 응답을 만든다", async () => {
+  it("ai-squad는 Gemini 실패 시 측정되지 않은 fallback 대신 503을 반환한다", async () => {
     mockGenerateContent.mockRejectedValue(new Error("Gemini unavailable"));
 
     const squadCache = createQueryChain({ data: null, error: null });
@@ -618,9 +618,8 @@ describe("AI cache route stabilization", () => {
     }));
     const json = await response.json();
 
-    expect(json.squadGrade).toBe("A");
-    expect(json.memberFeedbacks).toHaveLength(2);
-    expect(json.memberFeedbacks.map((item: any) => item.name)).toEqual(["Player_A", "Beta"]);
+    expect(response.status).toBe(503);
+    expect(json.error).toContain("스쿼드 AI 분석을 완료하지 못했습니다");
     expect(squadCache.eq).toHaveBeenCalledWith("player_id", "player_a");
     expect(squadCache.eq).toHaveBeenCalledWith("platform", "steam");
     expect(squadCache.eq).toHaveBeenCalledWith("prompt_version", AI_CACHE_VERSION);

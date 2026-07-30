@@ -254,42 +254,9 @@ export async function POST(request: Request) {
 
   } catch (error) {
     console.error("[AI-SQUAD-ERROR]", error);
-    
-    // Safety fallback data in case of API failure - bifurcated based on coachingStyle
-    const isMild = body.coachingStyle === "mild";
-    const roleProfilesFallback = Array.isArray(body.roleProfiles) ? body.roleProfiles : [];
-    const fallbackGrade = body.squadGrade || "B";
-
-    const fallbackData = isMild
-      ? {
-          squadGrade: fallbackGrade,
-          summary: "서로의 부족함을 든든하게 메워주는 따뜻한 연대의 스쿼드",
-          strength: "동료가 위기에 처했을 때 빠르게 연막탄을 던져 구출하고 소생시키는 끈끈한 케어 능력이 최고입니다.",
-          weakness: "동료를 돕기 위해 무리하게 진입하다가 함께 위기에 빠지는 착한 고립 지수가 약간 보입니다.",
-          coaching: "서로를 지키는 마음은 훌륭하니, 진입 전 시야 확보를 위해 먼저 백업 커버 포지션을 지정하고 천천히 진입해보세요.",
-          memberFeedbacks: roleProfilesFallback.map((p: any) => ({
-            name: p.name,
-            praise: "팀원들과 항상 동선을 맞추려 노력하고 교전 지원 의지가 돋보임",
-            fault: "팀원이 기절했을 때 엄폐 연막 없이 무리하게 소생하려다 함께 위험에 처할 수 있음",
-            advice: "소생 전 반드시 연막탄을 넓게 전개하고 안전 각도를 먼저 확보해 주길 바람"
-          })),
-          overallOpinion: "서로를 구하고 챙겨주려는 마음만큼은 훌륭합니다! 조금만 더 전술적인 침착함을 보완해 안전한 구출 루트를 설계한다면 훨씬 탄탄한 스쿼드가 될 것입니다."
-        }
-      : {
-          squadGrade: fallbackGrade,
-          summary: "정교한 오더와 백업 타이밍 보완이 필요한 스쿼드",
-          strength: "각자의 교전 능력은 보이지만, 팀 단위 시너지를 더 끌어올릴 여지가 있습니다.",
-          weakness: "아군이 물렸을 때 백업하는 속도가 너무 느리고, 엄폐 연막도 없이 무지성 소생을 시도해 더블 킬을 헌납합니다.",
-          coaching: "구경만 하지 말고 고립 지수를 낮추기 위해 미니맵을 보며 대열을 맞추고, 백업 타이밍에 연막탄 투척 후 확실한 사각을 확보하세요.",
-          memberFeedbacks: roleProfilesFallback.map((p: any) => ({
-            name: p.name,
-            praise: "일대일 교전 상황에서 자신의 공격력을 활용해 딜 기여를 해냄",
-            fault: "팀의 포지션을 고려하지 않은 채 개인파밍이나 솔로 플레이로 인한 빈번한 고립",
-            advice: "아군이 싸울 때 늦장 백업을 중단하고 교전 신호 즉시 시야 각을 같이 확인하고 지원할 것"
-          })),
-          overallOpinion: "개인 기량만으로는 스쿼드 전장 환경에서 살아남을 수 없습니다. 서로 대열 간격을 좁히고 백업 속도를 현재보다 최소 20% 이상 당겨주셔야 전멸을 막을 수 있습니다."
-        };
-
-    return NextResponse.json(fallbackData);
+    return NextResponse.json(
+      { error: "스쿼드 AI 분석을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요." },
+      { status: 503 },
+    );
   }
 }

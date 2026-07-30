@@ -2,23 +2,36 @@ import { NextResponse } from "next/server";
 import { parse } from "node-html-parser";
 import { createClient } from "@supabase/supabase-js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { identifyCategory } from "@/lib/patch-notes/categorize";
+import { sanitizeBoardHtml } from "@/lib/board/sanitizeHtml";
+import { authorizeBearerSecret } from "@/lib/server/secretAuth";
+
+/**
+ * 운영 관제 채널로 텍스트 알림을 보냅니다.
+ * 웹훅이 설정되지 않았거나 전송이 실패해도 본 작업을 중단시키지 않습니다.
+ *
+ * 주의: 이 메시지는 채널 구성원 전체가 볼 수 있습니다.
+ * ADMIN_SECRET_TOKEN, CRON_SECRET 등 비밀값을 절대 포함하지 마십시오.
+ */
+async function notifyDiscord(content: string): Promise<void> {
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) {
+    console.warn("[patch-notes] DISCORD_WEBHOOK_URL 미설정으로 알림을 건너뜁니다.");
+    return;
+  }
+  try {
+    await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+  } catch (err) {
+    console.error("[patch-notes] Discord 알림 실패:", err instanceof Error ? err.message : err);
+  }
+}
 
 // 기사 제목 및 URL 기반 카테고리 식별 헬퍼 함수
-function identifyCategory(title: string, url: string): 'PATCH_NOTE' | 'STORE_INFO' | 'DEV_LETTER' | 'GENERAL' {
-  const normalizedTitle = title.toLowerCase();
-  const normalizedUrl = url.toLowerCase();
-
-  if (normalizedTitle.includes("상점") || normalizedTitle.includes("shop") || normalizedTitle.includes("store") || normalizedTitle.includes("아이템") || normalizedTitle.includes("에디션") || normalizedTitle.includes("세일")) {
-    return 'STORE_INFO';
-  }
-  if (normalizedTitle.includes("개발자") || normalizedTitle.includes("개발일지") || normalizedTitle.includes("개발 일지") || normalizedTitle.includes("dev") || normalizedUrl.includes("dev")) {
-    return 'DEV_LETTER';
-  }
-  if (normalizedTitle.includes("패치노트") || normalizedTitle.includes("패치 노트") || normalizedUrl.includes("patch")) {
-    return 'PATCH_NOTE';
-  }
-  return 'GENERAL';
-}
+// identifyCategory 는 lib/patch-notes/categorize.ts 로 통합되었습니다.
 
 // AI 요약 생성 함수 (Gemini Pro -> Flash -> Groq 순차 시도)
 async function generateAISummary(rawText: string, categoryType: 'PATCH_NOTE' | 'STORE_INFO' | 'DEV_LETTER' | 'GENERAL'): Promise<string> {
@@ -115,18 +128,15 @@ ${hallucinationGuard}
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const secret = searchParams.get("secret");
     const force = searchParams.get("force") === "true";
     const manualUrl = searchParams.get("url"); // 수동 입력 URL
 
-    // 보안 인증 체크 (Query Param 및 Authorization Header 지원)
-    const authHeader = request.headers.get("Authorization");
-    const bearerToken = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null;
-
-    const isCronAuth = process.env.CRON_SECRET && (secret === process.env.CRON_SECRET || bearerToken === process.env.CRON_SECRET);
-    const isAdminAuth = process.env.ADMIN_SECRET_TOKEN && (secret === process.env.ADMIN_SECRET_TOKEN || bearerToken === process.env.ADMIN_SECRET_TOKEN);
-
-    if (!isCronAuth && !isAdminAuth && process.env.NODE_ENV === "production") {
+    // 보안 인증 체크
+    // - Authorization: Bearer <CRON_SECRET | ADMIN_SECRET_TOKEN> 만 허용한다.
+    //   쿼리 파라미터(?secret=) 지원을 제거했다. URL 에 담긴 비밀값은 접근 로그와
+    //   Referer 헤더에 남고, Discord 등 채팅으로 공유되면 그대로 유출된다.
+    // - NODE_ENV 조건을 두지 않는다. Preview/개발 배포에서도 검증을 강제한다.
+    if (!authorizeBearerSecret(request, ["CRON_SECRET", "ADMIN_SECRET_TOKEN"])) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
@@ -204,7 +214,32 @@ export async function GET(request: Request) {
       }
 
       if (matches.length === 0) {
-        return NextResponse.json({ success: true, message: "검색된 최신 패치노트가 없습니다." });
+        // 정규식 파싱 실패와 "새 글 없음"은 구분해야 한다.
+        // pubg.com 이 Nuxt 인라인 데이터 구조를 바꾸면 이 분기로 떨어지므로 조용히 성공 처리하면
+        // 패치 당일 동기화가 멈춘 사실을 아무도 알 수 없다.
+        const parseFailed = itemStarts.length === 0;
+        console.error(
+          `!!! [CRITICAL] 뉴스 목록 파싱 실패. createdAt 앵커 ${itemStarts.length}건, 추출 항목 0건`
+        );
+
+        await notifyDiscord(
+          `🚨 **[패치노트 크롤링 파싱 실패]**\n` +
+          `pubg.com 뉴스 목록에서 게시물을 하나도 추출하지 못했습니다. ` +
+          `공식 페이지 구조가 변경되었을 가능성이 큽니다.\n\n` +
+          `**createdAt 앵커:** ${itemStarts.length}건\n` +
+          `**추출 항목:** 0건\n` +
+          `**대상:** ${targetUrl}\n\n` +
+          `🔧 관리자 페이지 [시스템/캐시] → [패치노트 데이터 수동 동기화] 에 ` +
+          `기사 URL을 직접 입력하면 우회 동기화가 가능합니다.\n` +
+          `${process.env.NEXT_PUBLIC_SITE_URL || ""}/admin/game-data\n\n@everyone`
+        );
+
+        return NextResponse.json({
+          success: false,
+          reason: parseFailed ? "list_parse_failed" : "no_items_extracted",
+          anchors: itemStarts.length,
+          message: "뉴스 목록 파싱에 실패했습니다. 디스코드로 제보했습니다.",
+        }, { status: 502 });
       }
 
       const latest = matches[0];
@@ -281,20 +316,18 @@ export async function GET(request: Request) {
           console.error("!!! [CRITICAL] All AI models failed to summarize. Sending Discord Alert...");
 
           // 디스코드 제보 채널로 알람 발송
-          const failureWebhook = process.env.DISCORD_WEBHOOK_URL;
-          if (failureWebhook) {
-            const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || "";
-            const secret = process.env.ADMIN_SECRET_TOKEN || "";
-            const quickSyncLink = `${siteUrl}/api/cron/patch-notes?secret=${secret}&force=true&url=${encodeURIComponent(fullUrl)}`;
-
-            await fetch(failureWebhook, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                content: `⚠️ **[AI 요약 실패 제보]**\n새로운 패치노트를 요약하는 데 모든 AI 모델이 실패했습니다.\n\n**제목:** ${title}\n**원문 링크:** ${fullUrl}\n\n--- \n🚀 **[여기를 클릭하여 이 기사로 즉시 동기화 실행]**\n${quickSyncLink}\n\n관리자님, 위 링크를 클릭하시면 관리자 페이지 접속 없이 즉시 동기화가 진행됩니다! @everyone`
-              })
-            });
-          }
+          // ADMIN_SECRET_TOKEN 을 메시지에 넣지 않는다. 웹훅 메시지는 채널 구성원 전체가 볼 수 있다.
+          // 재동기화는 관리자 로그인이 필요한 게임 데이터 관리 페이지에서 수행한다.
+          const adminSyncPage = `${process.env.NEXT_PUBLIC_SITE_URL || ""}/admin/game-data`;
+          await notifyDiscord(
+            `⚠️ **[AI 요약 실패 제보]**\n` +
+            `새로운 패치노트를 요약하는 데 모든 AI 모델이 실패했습니다.\n\n` +
+            `**제목:** ${title}\n**원문 링크:** ${fullUrl}\n\n` +
+            `--- \n🔧 **재동기화 방법**\n` +
+            `1. 관리자 페이지 접속: ${adminSyncPage}\n` +
+            `2. [시스템/캐시] 탭 → [패치노트 데이터 수동 동기화]\n` +
+            `3. 위 원문 링크를 입력하고 실행\n\n@everyone`
+          );
 
           return NextResponse.json({
             success: false,
@@ -312,14 +345,15 @@ export async function GET(request: Request) {
     }
 
     // 6. 예쁘고 세련된 Tailwind 기반의 반응형 디자인 구성 (Tailwind v4 준수)
-    const formattedContent = minifyHtml(`
+    // AI 생성 HTML 도 DB 저장 전에 정화한다. 모델 응답에 태그가 섞여 들어올 수 있다.
+    const formattedContent = sanitizeBoardHtml(minifyHtml(`
       <div class="patch-note-container space-y-4">
         <div class="bg-[#F2A900]/10 border border-[#F2A900]/30 rounded-lg p-4 mb-1">
           <h3 class="flex items-center gap-1.5 text-[#F2A900] font-black text-base md:text-lg">
             🤖 BGMS AI 패치노트 핵심 요약
           </h3>
         </div>
-        
+
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           ${formatAiSummaryToHtml(aiSummary)}
         </div>
@@ -329,7 +363,7 @@ export async function GET(request: Request) {
           <a href="${fullUrl}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-6 py-2.5 bg-[#F2A900] text-black font-black text-sm rounded hover:bg-[#cc8b00] transition-all transform active:scale-95 shadow-md shadow-[#F2A900]/20">🔗 원문 보러가기</a>
         </div>
       </div>
-    `);
+    `));
 
     // 7. 디스코드 발송 (어드민 승인 대기 관제용 알림)
     const adminWebhookUrl = process.env.DISCORD_WEBHOOK_URL;
@@ -429,7 +463,7 @@ function minifyHtml(html: string): string {
  */
 function formatAiSummaryToHtml(summary: string): string {
   if (!summary) return "";
-  
+
   // 1. 만약 대괄호 [섹션] 형태가 없고, "* **제목**:" 또는 "- **제목**:" 형태의 목록이 존재한다면,
   // 이를 대괄호 [섹션] 형태로 전처리하여 쪼개기 쉽게 만듭니다.
   let processed = summary;
@@ -448,14 +482,14 @@ function formatAiSummaryToHtml(summary: string): string {
 
   // [카테고리] 단위로 정밀하게 split
   const sections = processed.split(/(?=\[.*?\])/g);
-  
+
   const cardsHtml = sections.map(section => {
     const titleMatch = section.match(/\[(.*?)\]/);
     if (!titleMatch) return "";
-    
+
     const title = titleMatch[1].trim();
     const content = section.replace(`[${titleMatch[1]}]`, "").trim();
-    
+
     // 카테고리 텍스트에 어울리는 최적의 매치 이모지 지정
     let emoji = "🔹";
     if (title.includes("신규") || title.includes("새로운")) emoji = "🆕";
@@ -474,7 +508,7 @@ function formatAiSummaryToHtml(summary: string): string {
         const text = line.replace(/^[-*•\s]+/, "").trim();
         // 볼드 처리(**텍스트**)를 Tailwind 스타일이 적용된 강조용 strong 태그로 치환
         const highlighted = text.replace(/\*\*(.*?)\*\*/g, '<strong class="text-[#F2A900] font-black">$1</strong>');
-        
+
         return `
           <li class="relative pl-4 text-gray-300 text-xs md:text-sm leading-normal mb-1.5 list-none">
             <span class="absolute left-0 top-0 text-[#F2A900] font-bold">✓</span>

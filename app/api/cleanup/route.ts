@@ -1,14 +1,21 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { authorizeBearerSecret } from "@/lib/server/secretAuth";
 
+/**
+ * 30일 이상 방치된 저신뢰 마커 제보를 정리합니다.
+ *
+ * 인증: Authorization: Bearer <ADMIN_SECRET_TOKEN>
+ * 쿼리 파라미터 토큰은 지원하지 않습니다. URL 에 담긴 비밀값은 접근 로그와
+ * Referer 헤더에 남기 때문입니다.
+ */
 export async function GET(request: Request) {
   try {
-    const { searchParams } = new URL(request.url);
-    const token = searchParams.get("token");
-
-    // 보안 검증
-    if (token !== process.env.ADMIN_SECRET_TOKEN) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!authorizeBearerSecret(request, ["ADMIN_SECRET_TOKEN", "CRON_SECRET"])) {
+      return NextResponse.json(
+        { error: "Unauthorized. Authorization: Bearer <ADMIN_SECRET_TOKEN> 헤더가 필요합니다." },
+        { status: 401 }
+      );
     }
 
     const supabaseAdmin = createClient(

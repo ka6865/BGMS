@@ -34,6 +34,7 @@ import { useAIStatus, aiManager } from "@/lib/ai-management";
 import { useAuth } from "@/components/AuthProvider";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
+import { resolve3DMapCapability } from "@/lib/replay/mapCapabilities";
 
 const TimelineMiniMap = dynamic(
   () => import("./TimelineMiniMap").then((mod) => mod.TimelineMiniMap),
@@ -998,6 +999,8 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, index = 0, in
   }
 
   if (!matchData) return null;
+
+  const is3DReplaySupported = resolve3DMapCapability(matchData.mapName || "") !== null;
 
   // TDM 판정 규칙
   const isTdmMatch = (matchData.gameMode || "").toLowerCase().includes("tdm") ||
@@ -1970,6 +1973,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, index = 0, in
               <button
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (!is3DReplaySupported) return;
                   setShowReplayModal(false);
                   trackEvent({
                     name: "feature_consumption",
@@ -1980,7 +1984,9 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, index = 0, in
                   });
                   router.push(`/replay/3d?matchId=${matchId}&nickname=${nickname}&platform=${platform}`);
                 }}
-                className="w-full text-left p-4 bg-gradient-to-r from-amber-500/10 via-amber-500/[0.03] to-transparent hover:from-amber-500/15 border border-amber-500/30 hover:border-amber-500/50 rounded-2xl transition-all flex gap-3.5 items-center cursor-pointer group hover:scale-[1.01]"
+                disabled={!is3DReplaySupported}
+                title={is3DReplaySupported ? undefined : "이 맵은 현재 3D 리플레이를 지원하지 않습니다."}
+                className="w-full text-left p-4 bg-gradient-to-r from-amber-500/10 via-amber-500/[0.03] to-transparent hover:from-amber-500/15 border border-amber-500/30 hover:border-amber-500/50 rounded-2xl transition-all flex gap-3.5 items-center cursor-pointer group hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:scale-100 disabled:hover:from-amber-500/10 disabled:hover:border-amber-500/30"
               >
                 <div className="w-10 h-10 bg-amber-500/20 rounded-xl flex items-center justify-center text-amber-500 shrink-0">
                   <Video size={20} className="group-hover:scale-110 transition-transform" />
@@ -1991,7 +1997,9 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, index = 0, in
                     <span className="text-[8px] font-black tracking-wider bg-amber-500 text-black px-1.5 py-0.5 rounded-md scale-90">BETA</span>
                   </div>
                   <p className="text-[10px] text-gray-400 mt-1 leading-normal font-medium font-sans">
-                    3D 홀로그램 전술 작전판에서 실시간 킬로그 피드, 총탄 궤적, 입체 고도 및 카메라 추적으로 정밀 분석합니다.
+                    {is3DReplaySupported
+                      ? "3D 홀로그램 전술 작전판에서 실시간 킬로그 피드, 총탄 궤적, 입체 고도 및 카메라 추적으로 정밀 분석합니다."
+                      : "이 맵은 3D 지형 자산 준비 전입니다. 2D 미니 리플레이를 이용해 주세요."}
                   </p>
                 </div>
               </button>

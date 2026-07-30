@@ -3,7 +3,7 @@
 - 작성일: 2026-07-18
 - 기준 브랜치: 로컬 `develop`
 - 기준 보고서: `docs/reviews/2026-07-15-feature-code-review.md`
-- 운영 제약: Vercel, Supabase, Cloudflare R2 무료 플랜
+- 운영 제약: Vercel·Cloudflare R2는 무료 플랜을 우선하고, Supabase는 할당 초과로 현재 유료 플랜이나 수익·사용량을 기준으로 다음 달 무료 플랜 복귀 여부를 결정한다.
 
 ## 1. 결정
 
@@ -48,13 +48,13 @@
 7. AI squad 장애 응답에서 측정되지 않은 fallback 제거
 8. 미지원 맵 3D 리플레이 차단과 capability registry 통합
 
-## 5. 무료 플랜 운영 원칙
+## 5. 비용 보수 운영 원칙
 
 - Vercel 요청 시간과 실행 횟수를 늘리는 별도 상시 작업을 추가하지 않는다.
 - GitHub Actions로 이전한 Hotdrop 작업을 Vercel Cron으로 되돌리지 않는다.
 - 요청 제한은 우선 기존 Supabase와 애플리케이션 캐시를 이용하고 외부 유료 서비스를 추가하지 않는다.
 - PUBG API 호출은 nickname·platform·기능 단위 TTL과 single-flight로 중복을 억제한다.
-- analytics와 guest write에는 batch·본문 크기·빈도 상한을 둬 Supabase 무료 용량을 보호한다.
+- analytics와 guest write에는 batch·본문 크기·빈도 상한을 둬 Supabase 사용량을 보호하고, 무료 플랜 복귀 가능성을 유지한다.
 - R2 자동 삭제는 안전한 조건부 삭제 계약이 입증될 때까지 비활성화하고 저장량을 모니터링한다.
 - 실제 Chrome 회귀 중 동일 실패 요청을 반복해 PUBG API 예산이나 Discord 알림을 소모하지 않는다.
 

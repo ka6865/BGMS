@@ -5,11 +5,13 @@ const {
   mockCreateSupabaseAdminClient,
   mockAuthGetUser,
   mockProfileMaybeSingle,
-  mockAnalyticsInsert
+  mockAnalyticsInsert,
+  mockConsumeQuota
 } = vi.hoisted(() => {
   const mockAuthGetUser = vi.fn();
   const mockProfileMaybeSingle = vi.fn();
   const mockAnalyticsInsert = vi.fn();
+  const mockConsumeQuota = vi.fn();
   const profileChain = {
     select: vi.fn().mockReturnThis(),
     eq: vi.fn().mockReturnThis(),
@@ -19,6 +21,7 @@ const {
     insert: mockAnalyticsInsert
   };
   const adminClient = {
+    rpc: mockConsumeQuota,
     auth: {
       getUser: mockAuthGetUser
     },
@@ -40,7 +43,8 @@ const {
     mockCreateSupabaseAdminClient,
     mockAuthGetUser,
     mockProfileMaybeSingle,
-    mockAnalyticsInsert
+    mockAnalyticsInsert,
+    mockConsumeQuota
   };
 });
 
@@ -66,9 +70,11 @@ describe("analytics event API", () => {
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
+    process.env.VERCEL_ENV = "production";
     mockAuthGetUser.mockResolvedValue({ data: { user: null }, error: null });
     mockProfileMaybeSingle.mockResolvedValue({ data: null, error: null });
     mockAnalyticsInsert.mockResolvedValue({ error: null });
+    mockConsumeQuota.mockResolvedValue({ data: true, error: null });
   });
 
   it("비회원 이벤트는 user_id 없이 저장한다", async () => {
@@ -130,6 +136,35 @@ describe("analytics event API", () => {
     expect(response.status).toBe(200);
     expect(body.skipped).toBe("admin_activity");
     expect(mockAnalyticsInsert).not.toHaveBeenCalled();
+  });
+
+  it("배치 개수 상한을 넘기면 저장하지 않는다", async () => {
+    const event = {
+      name: "page_view", sessionId: "session-1", pagePath: "/", pageTitle: "BGMS",
+    };
+    const response = await POST(new Request("https://bgms.test/api/analytics/event", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(Array.from({ length: 26 }, () => event)),
+    }));
+
+    expect(response.status).toBe(413);
+    expect(mockAnalyticsInsert).not.toHaveBeenCalled();
+  });
+
+  it("서버가 수집 출처를 결정하고 세션 쿼터를 소비한다", async () => {
+    const response = await POST(new Request("https://bgms.test/api/analytics/event", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: "page_view", sessionId: "session-1", pagePath: "/", pageTitle: "BGMS",
+        clientEnvironment: "development", sourceHost: "forged.example", isInternal: true,
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mockConsumeQuota).toHaveBeenCalled();
+    expect(mockAnalyticsInsert).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({
+      client_environment: "production", source_host: "bgms.test", is_internal: false,
+    })]));
   });
 });
 

@@ -21,6 +21,11 @@ import {
   type Replay3DRequest,
 } from "@/lib/pubg-analysis/replay3dRequest";
 import { shouldUseSingleTileFallback } from "@/lib/replay/tile-load";
+import {
+  get3DReplayUnsupportedMessage,
+  resolve3DMapCapability,
+  type Supported3DMapId,
+} from "@/lib/replay/mapCapabilities";
 
 // PUBG 맵 크기 상수 (cm)
 const THREE_MAP_SIZE = 100; // Three.js 공간 상의 가로세로 크기
@@ -173,31 +178,6 @@ async function buildHighResTileTexture(mapName: string): Promise<HTMLCanvasEleme
   return canvas;
 }
 
-// 맵 폴더 매핑 테이블
-const MAP_FOLDER_NAMES: Record<string, "Erangel" | "Miramar" | "Rondo" | "Taego" | "Deston" | "Vikendi"> = {
-  "에란겔": "Erangel",
-  "미라마": "Miramar",
-  "사녹": "Erangel", // 사녹 등 없는 지도는 에란겔 대체
-  "태이고": "Taego",
-  "데스턴": "Deston",
-  "론도": "Rondo",
-  "비켄디": "Vikendi",
-  "Baltic_Main": "Erangel",
-  "Erangel_Main": "Erangel",
-  "Desert_Main": "Miramar",
-  "Tiger_Main": "Taego",
-  "Kiki_Main": "Deston",
-  "Neon_Main": "Rondo",
-  "DihorOtok_Main": "Vikendi",
-  // 영문 정규화 명칭 1:1 패스스루
-  "Erangel": "Erangel",
-  "Miramar": "Miramar",
-  "Taego": "Taego",
-  "Deston": "Deston",
-  "Rondo": "Rondo",
-  "Vikendi": "Vikendi"
-};
-
 // 비상호출 수송 비행기 판정 헬퍼 함수
 const isAirplane = (vehicleId: string | null | undefined): boolean => {
   if (!vehicleId) return false;
@@ -266,7 +246,7 @@ function Replay3DContent() {
   const [players, setPlayers] = useState<PlayerTrajectory[]>([]);
   const [zones, setZones] = useState<ZoneState[]>([]);
   const [maxTimeMs, setMaxTimeMs] = useState(300000); // 5분 기본값
-  const [selectedMap, setSelectedMap] = useState<"Erangel" | "Miramar" | "Rondo" | "Taego" | "Deston" | "Vikendi">("Miramar");
+  const [selectedMap, setSelectedMap] = useState<Supported3DMapId | null>(null);
   
   // 프리미엄 기능 관련 상태
   const [damageEvents, setDamageEvents] = useState<any[]>([]);
@@ -328,6 +308,7 @@ function Replay3DContent() {
   } = useLatestTelemetryRequest();
 
   const resetReplayState = useCallback(() => {
+    setSelectedMap(null);
     setPlayers([]);
     setZones([]);
     setDamageEvents([]);
@@ -393,8 +374,11 @@ function Replay3DContent() {
       }
       
       // 맵 정보 정규화
-      const rawMapName = data.mapName || "Miramar";
-      const normalizedMap = MAP_FOLDER_NAMES[rawMapName] || "Miramar";
+      const rawMapName = data.mapName;
+      const mapCapability = resolve3DMapCapability(rawMapName);
+      if (!mapCapability) {
+        throw new Error(get3DReplayUnsupportedMessage(rawMapName));
+      }
 
       const events = data.events as any[];
       const teamNames = data.teamNames || [targetNickname];
@@ -539,7 +523,7 @@ function Replay3DContent() {
       }
 
       if (!isCurrent(request)) return;
-      setSelectedMap(normalizedMap);
+      setSelectedMap(mapCapability.id);
       setPlayers(parsedPlayers);
       setZones(parsedZones);
       setDamageEvents(parsedDamageEvs);
@@ -722,7 +706,7 @@ function Replay3DContent() {
 
   // 4. Three.js Engine 마운트 및 렌더 룹 설정
   useEffect(() => {
-    if (!canvasRef.current || !containerRef.current) return;
+    if (!selectedMap || !canvasRef.current || !containerRef.current) return;
 
     const renderProfile = getRenderProfile();
     const width = containerRef.current.clientWidth;

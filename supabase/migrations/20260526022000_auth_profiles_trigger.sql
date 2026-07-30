@@ -1,3 +1,29 @@
+-- 인증 트리거가 참조하는 profiles 기준선: 새 DB 재현 시 트리거보다 먼저 생성한다.
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  nickname text UNIQUE,
+  avatar_url text,
+  updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
+  role text DEFAULT 'user',
+  pubg_nickname text,
+  pubg_platform text DEFAULT 'steam'
+);
+
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can update own profile"
+  ON public.profiles
+  FOR UPDATE
+  TO public
+  USING ((SELECT auth.uid()) = id)
+  WITH CHECK ((SELECT auth.uid()) = id);
+
+CREATE POLICY "누구나 프로필 조회 가능"
+  ON public.profiles
+  FOR SELECT
+  TO public
+  USING (true);
+
 -- Create trigger function for handling new user signup
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger AS $$

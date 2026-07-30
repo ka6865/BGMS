@@ -1,17 +1,33 @@
 import { NextResponse } from "next/server";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
 import { trackPubgRateLimit } from "@/lib/pubg-analysis/pubgApiTracker";
 import { reportPubgApiError } from "@/lib/pubg/apiHelper";
+import {
+  buildPlayerCacheKey,
+  claimForceRefresh,
+  readPubgCache,
+  writePubgCache,
+} from "@/lib/pubg/responseCache";
+
+/**
+ * pubg_player_cache 쓰기 전용 service_role 클라이언트입니다.
+ * 이 라우트의 기본 클라이언트는 anon 키를 사용하므로 서버 전용 테이블에 쓸 수 없습니다.
+ */
+function createServiceRoleClient() {
+  return createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { autoRefreshToken: false, persistSession: false } }
+  );
+}
 
 // ─────────────────────────────────────────────────────────────
-// [CACHE] PUBG API 호출 절약을 위한 서버 측 인메모리 캐싱 레이어 (3분 TTL)
+// [CACHE] PUBG API 호출 절약을 위한 2단 캐시 (인메모리 L1 + DB L2, 3분 TTL)
+// 인메모리 단독 캐시는 Vercel 서버리스에서 인스턴스별로 분리되어 히트율이 낮았고,
+// 강제 갱신 쿨다운도 인스턴스마다 따로 계산되어 우회가 가능했다.
+// 상세 구현은 lib/pubg/responseCache.ts 참고.
 // ─────────────────────────────────────────────────────────────
-interface CacheEntry {
-  timestamp: number;
-  data: any;
-}
-const playerResponseCache = new Map<string, CacheEntry>();
-const CACHE_TTL_MS = 3 * 60 * 1000; // 3분 쿨다운
 
 function normalizeSeasonParam(value: string | null): string | null {
   const trimmed = (value || "").trim();
@@ -121,11 +137,21 @@ export async function GET(request: Request) {
       { status: 400 }
     );
 
-  // 1. 서버 인메모리 캐시 조회 (3분 TTL)
-  const cacheKey = `${platform}:${nickname.toLowerCase()}:${reqSeason || 'current'}`;
-  const cachedEntry = playerResponseCache.get(cacheKey);
-  if (!forceRefresh && cachedEntry && (Date.now() - cachedEntry.timestamp < CACHE_TTL_MS)) {
-    return NextResponse.json(cachedEntry.data);
+  // 1. 분산 캐시 조회 (인메모리 L1 → DB L2, 3분 TTL)
+  const cacheKey = buildPlayerCacheKey(platform, nickname, reqSeason);
+  if (forceRefresh) {
+    const claimed = await claimForceRefresh(cacheKey);
+    if (!claimed) {
+      return NextResponse.json(
+        { error: "강제 갱신은 같은 전적에 대해 1분에 한 번만 요청할 수 있습니다." },
+        { status: 429 },
+      );
+    }
+  } else {
+    const cachedPayload = await readPubgCache(cacheKey);
+    if (cachedPayload) {
+      return NextResponse.json(cachedPayload);
+    }
   }
 
   // 환경 변수에서 불필요한 공백 및 텍스트(예: "Rate Limit 10 RPM...")를 제거하고 진짜 토큰만 추출
@@ -155,17 +181,17 @@ export async function GET(request: Request) {
       const currentSeason = availableSeasons.find(
         (s: any) => s.attributes?.isCurrentSeason || s.isCurrentSeason
       ) || availableSeasons[0];
-      
+
       // 요청 시즌이 없거나 빈 문자열("")이면 마지막 저장 시즌 적용
       const validLastSeasonId = isValidSeasonId(cacheData.last_season_id) ? cacheData.last_season_id : null;
       const targetSeasonId = reqSeason
         ? reqSeason
         : (validLastSeasonId || (currentSeason ? currentSeason.id : null));
-      
+
       let selectedStatsSeasonId = targetSeasonId;
       let statsForSeason = cacheData.season_stats_data ? cacheData.season_stats_data[targetSeasonId] : null;
       const shouldFetchMissingRequestedSeason = !!reqSeason && !statsForSeason;
-      
+
       // 자동 시즌 선택일 때만 기록 있는 시즌으로 fallback합니다.
       // 사용자가 드롭다운으로 명시 선택한 시즌은 선택값을 유지하고 빈 기록을 보여줍니다.
       if (!statsForSeason && !reqSeason && cacheData.season_stats_data) {
@@ -206,11 +232,8 @@ export async function GET(request: Request) {
           updatedAt: cacheData.updated_at
         };
 
-        // 인메모리 캐시 업데이트
-        playerResponseCache.set(cacheKey, {
-          timestamp: Date.now(),
-          data: responseBody
-        });
+        // 분산 캐시 업데이트 (L1 + L2)
+        await writePubgCache(cacheKey, responseBody);
 
         return NextResponse.json(responseBody);
       }
@@ -270,13 +293,13 @@ export async function GET(request: Request) {
     const availableSeasons = seasonData.data
       .filter((s: any) => s.id.includes("pc-") || s.id.includes("console-"))
       .sort((a: any, b: any) => b.id.localeCompare(a.id));
-    
+
     if (availableSeasons.length === 0) throw new Error("사용 가능한 시즌 데이터가 없습니다.");
 
     const currentSeason = availableSeasons.find(
       (s: any) => s.attributes.isCurrentSeason
     ) || availableSeasons[0];
-    
+
     let targetSeasonId = reqSeason || currentSeason.id;
 
     // 현재 시즌 요청 시 데이터가 없으면 데이터가 있는 최근 시즌 탐색 (최대 3개 시즌)
@@ -290,7 +313,7 @@ export async function GET(request: Request) {
           const checkData = await safeJsonParse(checkRes);
           const stats = checkData.data.attributes.gameModeStats;
           const hasData = Object.values(stats).some((m: any) => m.roundsPlayed > 0);
-          
+
           if (!hasData) {
             for (let i = 1; i < Math.min(availableSeasons.length, 4); i++) {
               const prevId = availableSeasons[i].id;
@@ -425,16 +448,25 @@ export async function GET(request: Request) {
       recent_match_ids: recentMatches,
       seasons_list: availableSeasons,
     };
-    
+
     const isNewUser = !cacheData;
     if (clanResult.updated || isNewUser) {
       cacheUpdateData.clan_data = clanResult.data;
       cacheUpdateData.clan_updated_at = nowIso;
     }
 
-    supabase.from('pubg_player_cache')
+    // pubg_player_cache 쓰기는 service_role 로만 수행한다.
+    // 이 라우트의 supabase 는 utils/supabase/server 의 anon 키 클라이언트이며,
+    // 20260730203000 마이그레이션이 anon/authenticated 쓰기 권한을 회수했다.
+    // fire-and-forget 이라 실패해도 조용히 넘어가므로 오류를 명시적으로 로깅한다.
+    createServiceRoleClient()
+      .from('pubg_player_cache')
       .upsert(cacheUpdateData, { onConflict: 'id' })
-      .then(() => undefined);
+      .then(({ error: cacheWriteError }) => {
+        if (cacheWriteError) {
+          console.error("[pubg-player] pubg_player_cache 갱신 실패:", cacheWriteError.message);
+        }
+      });
 
     // 최근 매치들의 모드 정보를 match_master_telemetry에서 일괄 가져옴
     const { data: modeData } = await supabase
@@ -465,11 +497,8 @@ export async function GET(request: Request) {
       updatedAt: nowIso,
     };
 
-    // 인메모리 캐시 업데이트
-    playerResponseCache.set(cacheKey, {
-      timestamp: Date.now(),
-      data: responseBody
-    });
+    // 분산 캐시 업데이트 (L1 + L2)
+    await writePubgCache(cacheKey, responseBody);
 
     return NextResponse.json(responseBody);
   } catch (error: any) {
