@@ -235,7 +235,7 @@ export async function listWeaponPatchProposals(
 
 export type DecideChangesResult =
   | { ok: false; reason: string }
-  | { ok: true; updated: number };
+  | { ok: true; updated: number; proposalStatus: ProposalStatus };
 
 /**
  * 변경 항목의 승인/거부 결정을 기록합니다.
@@ -290,5 +290,62 @@ export async function decideProposalChanges(
 
   if (updateError) return { ok: false, reason: `결정 저장 실패: ${updateError.message}` };
 
-  return { ok: true, updated: changeIds.length };
+  // 결정 반영 후 제안 자체의 상태를 재계산한다.
+  // apply RPC 는 승인 경로에서만 상태를 갱신하므로, 이 처리가 없으면
+  // 모든 항목을 거부해도 제안이 계속 검토 대기 목록에 남는다.
+  const proposalStatus = await syncProposalStatus(supabaseAdmin, proposalId, actorId);
+
+  return { ok: true, updated: changeIds.length, proposalStatus };
+}
+
+/**
+ * 변경 항목의 결정 상태를 보고 제안 행의 status 를 재계산합니다.
+ *
+ * 판정 규칙
+ *   - 미결정 항목이 남아 있으면 pending 을 유지한다.
+ *   - 전부 거부되었으면 rejected 로 종료한다.
+ *   - 승인된 항목이 있으면 DB 반영 단계가 남아 있으므로 pending 을 유지한다.
+ *     실제 반영 후 상태는 apply_weapon_patch_proposal RPC 가 결정한다.
+ *
+ * 이미 applied / partially_applied 로 넘어간 제안은 건드리지 않습니다.
+ */
+async function syncProposalStatus(
+  supabaseAdmin: AdminClient,
+  proposalId: string,
+  actorId: string
+): Promise<ProposalStatus> {
+  const { data: proposalRow } = await supabaseAdmin
+    .from("weapon_patch_proposals")
+    .select("status")
+    .eq("id", proposalId)
+    .maybeSingle();
+
+  const currentStatus = (proposalRow?.status as string | undefined) ?? "pending";
+  if (currentStatus !== "pending") {
+    return isProposalStatus(currentStatus) ? currentStatus : "pending";
+  }
+
+  const { data: rows } = await supabaseAdmin
+    .from("weapon_patch_proposal_changes")
+    .select("decision")
+    .eq("proposal_id", proposalId);
+
+  const decisions = ((rows ?? []) as { decision: string }[]).map((row) => row.decision);
+  if (decisions.length === 0) return "pending";
+
+  const hasPending = decisions.some((decision) => decision === "pending");
+  const hasAccepted = decisions.some((decision) => decision === "accepted");
+  if (hasPending || hasAccepted) return "pending";
+
+  await supabaseAdmin
+    .from("weapon_patch_proposals")
+    .update({
+      status: "rejected",
+      reviewed_at: new Date().toISOString(),
+      reviewed_by: actorId,
+    })
+    .eq("id", proposalId)
+    .eq("status", "pending");
+
+  return "rejected";
 }

@@ -6,6 +6,7 @@ import {
   fetchPatchNoteSourceText,
 } from "@/lib/patch-notes/patchNoteSourceFetch";
 import { backfillWeaponPatchProposals } from "@/lib/patch-notes/weaponProposalBackfill";
+import { decideProposalChanges } from "@/lib/patch-notes/weaponProposalQuery";
 
 /** posts / weapon_patch_proposals 두 테이블만 흉내내는 최소 Supabase 스텁입니다. */
 function createSupabaseStub(options: {
@@ -243,5 +244,146 @@ describe("과거 패치노트 백필", () => {
     });
 
     expect(seen).toEqual(["https://pubg.com/ko/news/10", "https://pubg.com/ko/news/30"]);
+  });
+});
+/**
+ * decideProposalChanges 의 상태 재계산 경로를 검증하기 위한 스텁입니다.
+ * 변경 항목 조회, 결정 갱신, 제안 상태 갱신을 순서대로 기록합니다.
+ */
+function createDecideStub(options: {
+  changes: { id: string; validation_state: string }[];
+  decisionsAfterUpdate: string[];
+  proposalStatus?: string;
+}) {
+  const proposalUpdates: Record<string, unknown>[] = [];
+
+  const client = {
+    from(table: string) {
+      if (table === "weapon_patch_proposal_changes") {
+        return {
+          select: (columns: string) => {
+            // 결정 갱신 후의 상태 재계산 조회
+            if (columns === "decision") {
+              return {
+                eq: async () => ({
+                  data: options.decisionsAfterUpdate.map((decision) => ({ decision })),
+                  error: null,
+                }),
+              };
+            }
+            return {
+              eq: () => ({
+                in: async () => ({ data: options.changes, error: null }),
+              }),
+            };
+          },
+          update: () => ({
+            eq: () => ({
+              in: async () => ({ error: null }),
+            }),
+          }),
+        };
+      }
+      if (table === "weapon_patch_proposals") {
+        return {
+          select: () => ({
+            eq: () => ({
+              maybeSingle: async () => ({
+                data: { status: options.proposalStatus ?? "pending" },
+                error: null,
+              }),
+            }),
+          }),
+          update: (values: Record<string, unknown>) => {
+            proposalUpdates.push(values);
+            return {
+              eq: () => ({
+                eq: async () => ({ error: null }),
+              }),
+            };
+          },
+        };
+      }
+      throw new Error(`예상하지 않은 테이블 접근: ${table}`);
+    },
+  };
+
+  return { client: client as never, proposalUpdates };
+}
+
+describe("거부 후 제안 상태 재계산", () => {
+  it("모든 항목이 거부되면 제안을 rejected 로 종료한다", async () => {
+    const stub = createDecideStub({
+      changes: [{ id: "change-1", validation_state: "ok" }],
+      decisionsAfterUpdate: ["rejected"],
+    });
+
+    const result = await decideProposalChanges(
+      stub.client,
+      "proposal-1",
+      ["change-1"],
+      "rejected",
+      "admin-1"
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.proposalStatus).toBe("rejected");
+    expect(stub.proposalUpdates[0]?.status).toBe("rejected");
+  });
+
+  it("미결정 항목이 남아 있으면 pending 을 유지한다", async () => {
+    const stub = createDecideStub({
+      changes: [{ id: "change-1", validation_state: "ok" }],
+      decisionsAfterUpdate: ["rejected", "pending"],
+    });
+
+    const result = await decideProposalChanges(
+      stub.client,
+      "proposal-1",
+      ["change-1"],
+      "rejected",
+      "admin-1"
+    );
+
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.proposalStatus).toBe("pending");
+    expect(stub.proposalUpdates).toHaveLength(0);
+  });
+
+  it("승인된 항목이 있으면 DB 반영 전이므로 pending 을 유지한다", async () => {
+    const stub = createDecideStub({
+      changes: [{ id: "change-1", validation_state: "ok" }],
+      decisionsAfterUpdate: ["rejected", "accepted"],
+    });
+
+    const result = await decideProposalChanges(
+      stub.client,
+      "proposal-1",
+      ["change-1"],
+      "rejected",
+      "admin-1"
+    );
+
+    if (result.ok) expect(result.proposalStatus).toBe("pending");
+    expect(stub.proposalUpdates).toHaveLength(0);
+  });
+
+  it("이미 반영된 제안의 상태는 덮어쓰지 않는다", async () => {
+    const stub = createDecideStub({
+      changes: [{ id: "change-1", validation_state: "ok" }],
+      decisionsAfterUpdate: ["rejected"],
+      proposalStatus: "applied",
+    });
+
+    const result = await decideProposalChanges(
+      stub.client,
+      "proposal-1",
+      ["change-1"],
+      "rejected",
+      "admin-1"
+    );
+
+    if (result.ok) expect(result.proposalStatus).toBe("applied");
+    expect(stub.proposalUpdates).toHaveLength(0);
   });
 });
