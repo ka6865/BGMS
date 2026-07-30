@@ -3,6 +3,8 @@ import { parse } from "node-html-parser";
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@/utils/supabase/server";
+import { identifyCategory } from "@/lib/patch-notes/categorize";
+import { sanitizeBoardHtml } from "@/lib/board/sanitizeHtml";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -21,35 +23,21 @@ function cleanUrl(url: string) {
 }
 
 // 기사 제목 및 URL 기반 카테고리 식별 헬퍼 함수
-function identifyCategory(title: string, url: string): 'PATCH_NOTE' | 'STORE_INFO' | 'DEV_LETTER' | 'GENERAL' {
-  const normalizedTitle = title.toLowerCase();
-  const normalizedUrl = url.toLowerCase();
-
-  if (normalizedTitle.includes("상점") || normalizedTitle.includes("shop") || normalizedTitle.includes("store") || normalizedTitle.includes("아이템") || normalizedTitle.includes("에디션") || normalizedTitle.includes("세일")) {
-    return 'STORE_INFO';
-  }
-  if (normalizedTitle.includes("개발자") || normalizedTitle.includes("개발일지") || normalizedTitle.includes("개발 일지") || normalizedTitle.includes("dev") || normalizedUrl.includes("dev")) {
-    return 'DEV_LETTER';
-  }
-  if (normalizedTitle.includes("패치노트") || normalizedTitle.includes("패치 노트") || normalizedUrl.includes("patch")) {
-    return 'PATCH_NOTE';
-  }
-  return 'GENERAL';
-}
+// identifyCategory 는 lib/patch-notes/categorize.ts 로 통합되었습니다.
 
 // AI 요약 헬퍼 함수 (2026년 표준 모델 Gemini 2.5-Flash 적용)
 async function summarizeText(rawText: string, categoryType: 'PATCH_NOTE' | 'STORE_INFO' | 'DEV_LETTER' | 'GENERAL') {
   if (!process.env.GOOGLE_GEMINI_API_KEY) {
     return "❌ ERROR: API 키가 설정되지 않았습니다. (.env.local 확인)";
   }
-  
+
   const textToProcess = rawText.substring(0, 8000).trim();
   if (textToProcess.length < 50) {
     return `❌ ERROR: 수집된 텍스트가 너무 짧습니다 (${textToProcess.length}자). 본문을 읽지 못했을 가능성이 큽니다.`;
   }
 
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY);
-  
+
   // 2026년 기준 가장 안정적인 별칭 우선 순위 설정
   const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash"];
 
@@ -115,15 +103,15 @@ ${textToProcess}`;
       const model = genAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent(prompt);
       const text = result.response.text();
-      
+
       if (text && text.length > 5) return text;
     } catch (err: any) {
       const errorMsg = err.message || "";
-      if (errorMsg.includes("429") || errorMsg.includes("quota") || 
+      if (errorMsg.includes("429") || errorMsg.includes("quota") ||
           errorMsg.includes("503") || errorMsg.includes("Service Unavailable") ||
           errorMsg.includes("deadline exceeded")) {
         console.warn(`⚠️ [AI] ${modelName} 서버 혼잡으로 다음 가용 모델로 전환합니다.`);
-        continue; 
+        continue;
       }
       return `❌ AI 요약 중 오류가 발생했습니다: ${errorMsg}`;
     }
@@ -131,7 +119,7 @@ ${textToProcess}`;
   return "❌ 현재 AI 서비스 연결이 원활하지 않습니다. 잠시 후 다시 시도해 주세요.";
 }
 
-// 1. 글로벌 공식 패치노트 파싱 
+// 1. 글로벌 공식 패치노트 파싱
 async function fetchOfficialPatchNote(supabaseAdmin: any, manualUrl?: string) {
   const targetUrl = manualUrl ? cleanUrl(manualUrl) : "https://pubg.com/ko/news?category=patch_notes";
   const response = await fetch(targetUrl, { cache: 'no-store', headers: { "User-Agent": "Mozilla/5.0" }});
@@ -165,7 +153,7 @@ async function fetchOfficialPatchNote(supabaseAdmin: any, manualUrl?: string) {
       const detailHtmlText = await detailRes.text();
       const root = parse(detailHtmlText);
       const content = root.querySelector(".post-detail__content") || root.querySelector(".news-detail__content") || root.querySelector("article");
-      
+
       const categoryType = identifyCategory(title, fullUrl);
       summaryOrError = await summarizeText(content?.text || "", categoryType);
 
@@ -199,7 +187,7 @@ async function fetchKakaoPatchNote(supabaseAdmin: any, manualUrl: string) {
   const targetUrl = cleanUrl(manualUrl);
   const response = await fetch(targetUrl, { cache: 'no-store', headers: { "User-Agent": "Mozilla/5.0" }});
   if (!response.ok) throw new Error(`카카오 페이지 접속 실패 (${response.status})`);
-  
+
   const rawHtml = await response.text();
   const root = parse(rawHtml);
   let title = root.querySelector(".tit_view")?.text.trim() || root.querySelector(".subject")?.text.trim() || root.querySelector("title")?.text.trim() || "카카오 패치노트";
@@ -208,8 +196,8 @@ async function fetchKakaoPatchNote(supabaseAdmin: any, manualUrl: string) {
   let imageUrl = "";
   try {
     const ajaxUrl = targetUrl.replace("/notice/read?", "/notice/ajax/read?");
-    const detailRes = await fetch(ajaxUrl, { 
-      cache: 'no-store', 
+    const detailRes = await fetch(ajaxUrl, {
+      cache: 'no-store',
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "Referer": targetUrl }
     });
 
@@ -230,11 +218,11 @@ async function fetchKakaoPatchNote(supabaseAdmin: any, manualUrl: string) {
       const detailRoot = parse(detailHTML);
       const realTitle = detailRoot.querySelector(".tit_view")?.text.trim();
       if (realTitle) title = realTitle;
-      
+
       detailRoot.querySelectorAll('script, style, ins, .wrap_page, .view_btn').forEach(el => el.remove());
       const articleBody = detailRoot.querySelector(".board-view__area") || detailRoot.querySelector(".view_cont") || detailRoot;
       const contentText = articleBody.text.replace(/\s+/g, ' ').trim();
-      
+
       const categoryType = identifyCategory(title, targetUrl);
       summaryOrError = await summarizeText(contentText, categoryType);
     } else {
@@ -260,7 +248,7 @@ export async function POST(request: Request) {
     const manualUrl = url?.trim();
     const supabaseAdmin = createSupabaseAdminClient(supabaseUrl, supabaseServiceKey);
     const results: any[] = [];
-    
+
     if (manualUrl) {
       if (manualUrl.includes("pubg.com")) {
         const res = await fetchOfficialPatchNote(supabaseAdmin, manualUrl);
@@ -278,7 +266,8 @@ export async function POST(request: Request) {
 
     const postsToInsert = results.map(r => ({
       title: r.title,
-      content: buildHtml(r.summaryOrError, r.fullUrl),
+      // AI 생성 HTML 도 DB 저장 전에 정화한다.
+      content: sanitizeBoardHtml(buildHtml(r.summaryOrError, r.fullUrl)),
       author: 'BGMS 시스템',
       category: '배그 소식',
       is_notice: false,
@@ -339,7 +328,7 @@ function minifyHtml(html: string): string {
  */
 function formatAiSummaryToHtml(summary: string): string {
   if (!summary) return "";
-  
+
   // 1. 만약 대괄호 [섹션] 형태가 없고, "* **제목**:" 또는 "- **제목**:" 형태의 목록이 존재한다면,
   // 이를 대괄호 [섹션] 형태로 전처리하여 쪼개기 쉽게 만듭니다.
   let processed = summary;
@@ -358,14 +347,14 @@ function formatAiSummaryToHtml(summary: string): string {
 
   // [카테고리] 단위로 정밀하게 split
   const sections = processed.split(/(?=\[.*?\])/g);
-  
+
   const cardsHtml = sections.map(section => {
     const titleMatch = section.match(/\[(.*?)\]/);
     if (!titleMatch) return "";
-    
+
     const title = titleMatch[1].trim();
     const content = section.replace(`[${titleMatch[1]}]`, "").trim();
-    
+
     // 카테고리 텍스트에 어울리는 최적의 매치 이모지 지정
     let emoji = "🔹";
     if (title.includes("신규") || title.includes("새로운")) emoji = "🆕";
@@ -384,7 +373,7 @@ function formatAiSummaryToHtml(summary: string): string {
         const text = line.replace(/^[-*•\s]+/, "").trim();
         // 볼드 처리(**텍스트**)를 Tailwind 스타일이 적용된 강조용 strong 태그로 치환
         const highlighted = text.replace(/\*\*(.*?)\*\*/g, '<strong class="text-[#F2A900] font-black">$1</strong>');
-        
+
         return `
           <li class="relative pl-4 text-gray-300 text-xs md:text-sm leading-normal mb-1.5 list-none">
             <span class="absolute left-0 top-0 text-[#F2A900] font-bold">✓</span>
@@ -434,7 +423,7 @@ function buildHtml(summaryOrError: string, fullUrl: string) {
           🤖 BGMS AI 패치노트 핵심 요약
         </h3>
       </div>
-      
+
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
         ${formatAiSummaryToHtml(summaryOrError)}
       </div>

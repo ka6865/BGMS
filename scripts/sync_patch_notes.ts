@@ -3,6 +3,8 @@ import { parse } from 'node-html-parser';
 import { createClient } from '@supabase/supabase-js';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import * as dotenv from 'dotenv';
+import { identifyCategory } from '../lib/patch-notes/categorize';
+import { sanitizeBoardHtml } from '../lib/board/sanitizeHtml';
 
 // .env.local 파일 로드
 dotenv.config({ path: '.env.local' });
@@ -19,21 +21,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
  * 패치노트 상세 페이지 크롤링 및 요약
  */
 // 기사 제목 및 URL 기반 카테고리 식별 헬퍼 함수
-function identifyCategory(title: string, url: string): 'PATCH_NOTE' | 'STORE_INFO' | 'DEV_LETTER' | 'GENERAL' {
-  const normalizedTitle = title.toLowerCase();
-  const normalizedUrl = url.toLowerCase();
-
-  if (normalizedTitle.includes("상점") || normalizedTitle.includes("shop") || normalizedTitle.includes("store") || normalizedTitle.includes("아이템") || normalizedTitle.includes("에디션") || normalizedTitle.includes("세일")) {
-    return 'STORE_INFO';
-  }
-  if (normalizedTitle.includes("개발자") || normalizedTitle.includes("개발일지") || normalizedTitle.includes("개발 일지") || normalizedTitle.includes("dev") || normalizedUrl.includes("dev")) {
-    return 'DEV_LETTER';
-  }
-  if (normalizedTitle.includes("패치노트") || normalizedTitle.includes("패치 노트") || normalizedUrl.includes("patch")) {
-    return 'PATCH_NOTE';
-  }
-  return 'GENERAL';
-}
+// identifyCategory 는 lib/patch-notes/categorize.ts 로 통합되었습니다.
 
 /**
  * 패치노트 상세 페이지 크롤링 및 요약
@@ -155,14 +143,15 @@ ${cleanText}`;
     console.log('--- AI SUMMARY END ---');
 
     // 6. 예쁘고 세련된 Tailwind 기반의 반응형 디자인 구성 (Tailwind v4 준수)
-    const formattedContent = minifyHtml(`
+    // AI 생성 HTML 도 DB 저장 전에 정화한다.
+    const formattedContent = sanitizeBoardHtml(minifyHtml(`
       <div class="patch-note-container space-y-4">
         <div class="bg-[#F2A900]/10 border border-[#F2A900]/30 rounded-lg p-4 mb-1">
           <h3 class="flex items-center gap-1.5 text-[#F2A900] font-black text-base md:text-lg">
             🤖 BGMS AI 배그 소식 핵심 요약
           </h3>
         </div>
-        
+
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           ${formatAiSummaryToHtml(aiSummary)}
         </div>
@@ -172,7 +161,7 @@ ${cleanText}`;
           <a href="${url}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1.5 px-6 py-2.5 bg-[#F2A900] text-black font-black text-sm rounded hover:bg-[#cc8b00] transition-all transform active:scale-95 shadow-md shadow-[#F2A900]/20">🔗 원문 보러가기</a>
         </div>
       </div>
-    `);
+    `));
 
     return formattedContent;
   } catch (error) {
@@ -193,7 +182,7 @@ function minifyHtml(html: string): string {
 
 function formatAiSummaryToHtml(summary: string): string {
   if (!summary) return "";
-  
+
   // 1. 만약 대괄호 [섹션] 형태가 없고, "* **제목**:" 또는 "- **제목**:" 형태의 목록이 존재한다면,
   // 이를 대괄호 [섹션] 형태로 전처리하여 쪼개기 쉽게 만듭니다.
   let processed = summary;
@@ -212,14 +201,14 @@ function formatAiSummaryToHtml(summary: string): string {
 
   // [카테고리] 단위로 정밀하게 split
   const sections = processed.split(/(?=\[.*?\])/g);
-  
+
   const cardsHtml = sections.map(section => {
     const titleMatch = section.match(/\[(.*?)\]/);
     if (!titleMatch) return "";
-    
+
     const title = titleMatch[1].trim();
     const content = section.replace(`[${titleMatch[1]}]`, "").trim();
-    
+
     // 카테고리 텍스트에 어울리는 최적의 매치 이모지 지정
     let emoji = "🔹";
     if (title.includes("신규") || title.includes("새로운")) emoji = "🆕";
@@ -238,7 +227,7 @@ function formatAiSummaryToHtml(summary: string): string {
         const text = line.replace(/^[-*•\s]+/, "").trim();
         // 볼드 처리(**텍스트**)를 Tailwind 스타일이 적용된 강조용 strong 태그로 치환
         const highlighted = text.replace(/\*\*(.*?)\*\*/g, '<strong class="text-[#F2A900] font-black">$1</strong>');
-        
+
         return `
           <li class="relative pl-4 text-gray-300 text-xs md:text-sm leading-normal mb-1.5 list-none">
             <span class="absolute left-0 top-0 text-[#F2A900] font-bold">✓</span>

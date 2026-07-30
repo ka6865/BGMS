@@ -134,7 +134,6 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           GOOGLE_GEMINI_API_KEY: ${{ secrets.GOOGLE_GEMINI_API_KEY }}
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-          ADMIN_SECRET_TOKEN: ${{ secrets.ADMIN_SECRET_TOKEN }}
           NEXT_PUBLIC_SITE_URL: ${{ secrets.NEXT_PUBLIC_SITE_URL }}
         run: npx tsx scripts/sync_patch_notes.ts
 
@@ -178,9 +177,48 @@ jobs:
           curl -fsS "$APP_URL/api/admin/agent/rollout" \
             -H "Authorization: Bearer $SECRET"
 
+      - name: Cleanup PUBG Cache And Quota Tables
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npx tsx scripts/cleanup_pubg_cache.ts
+
       - name: Run Hotdrop Collection
         env:
           PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/run_hotdrop.ts
+
+  # 일일 작업 실패를 운영자가 알 수 있게 한다.
+  # 기존에는 GitHub 기본 메일 외 알림이 없어 텔레메트리 정리·패치노트 동기화가
+  # 며칠간 멈춰도 감지되지 않았다.
+  # maintenance 잡의 steps 배열을 건드리지 않기 위해 별도 잡으로 분리했다.
+  # (tests/hotdrop-boundary.test.ts 가 maintenance 의 마지막 step 을 검증한다.)
+  failure-notify:
+    runs-on: ubuntu-latest
+    needs: [board-write-quota-cleanup, maintenance]
+    if: ${{ failure() }}
+    steps:
+      - name: Notify Discord On Failure
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          QUOTA_RESULT: ${{ needs.board-write-quota-cleanup.result }}
+          MAINTENANCE_RESULT: ${{ needs.maintenance.result }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL is missing; skipping failure notification."
+            exit 0
+          fi
+          MESSAGE=$(printf '%s' \
+            "🚨 **[일일 유지보수 작업 실패]**\n" \
+            "BGMS 일일 자동 작업이 실패했습니다. 데이터 적체와 R2 비용 증가로 이어질 수 있습니다.\n\n" \
+            "**board-write-quota-cleanup:** ${QUOTA_RESULT}\n" \
+            "**maintenance:** ${MAINTENANCE_RESULT}\n\n" \
+            "**실행 로그:** ${RUN_URL}\n\n@everyone")
+          # jq 로 JSON 을 만들어 개행·특수문자 이스케이프를 보장한다.
+          jq -n --arg content "$MESSAGE" '{content: $content}' \
+            | curl -fsS -X POST "$DISCORD_WEBHOOK_URL" \
+                -H "Content-Type: application/json" \
+                --data @-
