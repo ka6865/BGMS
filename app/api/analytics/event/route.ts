@@ -5,7 +5,8 @@ import { cookies } from "next/headers";
 import { ANALYTICS_EVENT_NAMES } from "@/lib/analytics";
 
 const clean = (value: string | undefined) => (value || "").replace(/['";\s]+/g, "").trim();
-const MAX_PAYLOAD_BYTES = 128 * 1024; // 배치 발송을 위해 128KB로 확장
+const MAX_PAYLOAD_BYTES = 32 * 1024;
+const MAX_EVENTS_PER_BATCH = 25;
 const MAX_PARAM_BYTES = 2 * 1024;
 const ALLOWED_EVENT_NAMES = new Set<string>(ANALYTICS_EVENT_NAMES);
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
@@ -41,6 +42,9 @@ export async function POST(request: Request) {
   // 단일 이벤트 오브젝트와 이벤트 배열 페이로드 모두 호환되도록 정규화
   const isBatch = Array.isArray(body);
   const rawEvents = isBatch ? body : [body];
+  if (rawEvents.length > MAX_EVENTS_PER_BATCH) {
+    return NextResponse.json({ error: "한 번에 보낼 수 있는 이벤트 수를 초과했습니다." }, { status: 413 });
+  }
   const insertPayloads: any[] = [];
 
   for (const rawEvent of rawEvents) {
@@ -64,15 +68,26 @@ export async function POST(request: Request) {
       page_title: sanitizeText(rawEvent.pageTitle, 160),
       referrer_path: sanitizePath(rawEvent.referrerPath),
       params,
-      client_environment: sanitizeText(rawEvent.clientEnvironment, 40) || getServerAnalyticsEnvironment(),
-      source_host: sanitizeText(rawEvent.sourceHost, 160) || requestHost,
-      is_internal: Boolean(rawEvent.isInternal) || isLocalHost(requestHost) || sanitizeText(rawEvent.clientEnvironment, 40) === "development"
+      client_environment: getServerAnalyticsEnvironment(),
+      source_host: requestHost,
+      is_internal: isLocalHost(requestHost) || getServerAnalyticsEnvironment() !== "production"
     });
   }
 
   if (insertPayloads.length === 0) {
     return NextResponse.json({ success: true, skipped: "no_valid_events" });
   }
+
+  const sessionId = insertPayloads[0].session_id;
+  if (!insertPayloads.every((payload) => payload.session_id === sessionId)) {
+    return NextResponse.json({ error: "배치 이벤트의 세션이 일치하지 않습니다." }, { status: 400 });
+  }
+  const { data: quotaAccepted, error: quotaError } = await supabaseAdmin.rpc(
+    "consume_analytics_event_quota",
+    { p_session_id: sessionId, p_event_count: insertPayloads.length },
+  );
+  if (quotaError) return NextResponse.json({ error: "이벤트 수집 제한을 확인하지 못했습니다." }, { status: 503 });
+  if (!quotaAccepted) return NextResponse.json({ error: "이벤트 수집 빈도가 너무 높습니다." }, { status: 429 });
 
   const { error } = await insertAnalyticsEvents(supabaseAdmin, insertPayloads);
 

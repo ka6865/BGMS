@@ -12,6 +12,8 @@ interface CacheEntry {
 }
 const playerResponseCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 3 * 60 * 1000; // 3분 쿨다운
+const FORCE_REFRESH_COOLDOWN_MS = 60 * 1000;
+const forceRefreshLocks = new Map<string, number>();
 
 function normalizeSeasonParam(value: string | null): string | null {
   const trimmed = (value || "").trim();
@@ -123,6 +125,17 @@ export async function GET(request: Request) {
 
   // 1. 서버 인메모리 캐시 조회 (3분 TTL)
   const cacheKey = `${platform}:${nickname.toLowerCase()}:${reqSeason || 'current'}`;
+  if (forceRefresh) {
+    const now = Date.now();
+    const lastRefreshAt = forceRefreshLocks.get(cacheKey);
+    if (lastRefreshAt && now - lastRefreshAt < FORCE_REFRESH_COOLDOWN_MS) {
+      return NextResponse.json(
+        { error: "강제 갱신은 같은 전적에 대해 1분에 한 번만 요청할 수 있습니다." },
+        { status: 429 },
+      );
+    }
+    forceRefreshLocks.set(cacheKey, now);
+  }
   const cachedEntry = playerResponseCache.get(cacheKey);
   if (!forceRefresh && cachedEntry && (Date.now() - cachedEntry.timestamp < CACHE_TTL_MS)) {
     return NextResponse.json(cachedEntry.data);
