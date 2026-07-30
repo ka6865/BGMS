@@ -278,6 +278,16 @@ describe("동기화 경로와 UI 배선", () => {
     expect(review).toContain("패치노트 원문 근거");
   });
 
+  it("승인 화면이 반영 이력과 되돌리기를 제공한다", () => {
+    // 승인 후 잘못 반영한 값을 관리자가 직접 복구할 수 있어야 한다.
+    const review = readSource("components/admin/WeaponPatchReview.tsx");
+
+    expect(review).toContain("/api/admin/weapon-patch/revert");
+    expect(review).toContain("최근 반영 이력");
+    expect(review).toContain("되돌리기");
+    expect(review).toContain("renderApplyHistory");
+  });
+
   it("버전 추적 마이그레이션이 patch_version 기록과 복원을 정의한다", () => {
     const migration = readSource(
       "supabase/migrations/20260730220000_weapon_patch_version_tracking.sql"

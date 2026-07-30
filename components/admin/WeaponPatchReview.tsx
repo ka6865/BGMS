@@ -41,6 +41,18 @@ interface Proposal {
   changes: ProposalChange[];
 }
 
+interface ApplyLog {
+  id: string;
+  proposal_id: string;
+  target_table: string;
+  target_id: string;
+  column_name: string;
+  patch_version: string | null;
+  previous_patch_version: string | null;
+  applied_at: string;
+  reverted_at: string | null;
+}
+
 const STATUS_LABELS: Record<string, string> = {
   pending: "검토 대기",
   partially_applied: "일부 반영",
@@ -65,9 +77,21 @@ function formatValue(value: unknown): string {
 
 export default function WeaponPatchReview() {
   const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [logs, setLogs] = useState<ApplyLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const loadLogs = useCallback(async () => {
+    try {
+      const response = await fetch("/api/admin/weapon-patch/revert", { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "적용 이력을 불러오지 못했습니다.");
+      setLogs((data.logs ?? []) as ApplyLog[]);
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "적용 이력 조회 실패");
+    }
+  }, []);
 
   const loadProposals = useCallback(async () => {
     setLoading(true);
@@ -96,7 +120,8 @@ export default function WeaponPatchReview() {
 
   useEffect(() => {
     loadProposals();
-  }, [loadProposals]);
+    loadLogs();
+  }, [loadProposals, loadLogs]);
 
   const toggleChange = (changeId: string) => {
     setSelected((prev) => {
@@ -166,6 +191,7 @@ export default function WeaponPatchReview() {
       const skippedNote = data.skippedCount > 0 ? ` (건너뜀 ${data.skippedCount}건)` : "";
       toast.success(`${data.appliedCount}건을 무기도감에 반영했습니다.${skippedNote}`, { id: toastId });
       await loadProposals();
+      await loadLogs();
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "DB 반영 실패", { id: toastId });
     } finally {
@@ -197,6 +223,82 @@ export default function WeaponPatchReview() {
     }
   };
 
+  const handleRevert = async (log: ApplyLog) => {
+    setBusy(true);
+    const toastId = toast.loading("적용 내용을 되돌리는 중...");
+    try {
+      const response = await fetch("/api/admin/weapon-patch/revert", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ logId: log.id }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "되돌리기에 실패했습니다.");
+
+      toast.success("적용 전 값으로 되돌렸습니다.", { id: toastId });
+      await loadLogs();
+      await loadProposals();
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "되돌리기 실패", { id: toastId });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * 최근 적용 이력과 되돌리기 버튼입니다.
+   * 승인 후 잘못 반영한 값을 적용 전 상태로 복구할 수 있어야 하므로
+   * 제안이 없는 상태에서도 항상 노출합니다.
+   */
+  const renderApplyHistory = () => {
+    if (logs.length === 0) return null;
+
+    return (
+      <section className="rounded-xl border border-[#333] bg-[#1a1a1a] p-5">
+        <header className="flex flex-col gap-1 border-b border-[#2a2a2a] pb-3">
+          <h4 className="text-lg font-black text-white">최근 반영 이력</h4>
+          <p className="text-xs text-gray-400">
+            잘못 반영한 항목은 되돌리면 적용 전 값과 패치 버전으로 복구됩니다.
+          </p>
+        </header>
+
+        <ul className="mt-3 space-y-2">
+          {logs.map((log) => (
+            <li
+              key={log.id}
+              className="flex flex-col gap-2 rounded-lg border border-[#2a2a2a] bg-[#141414] p-3 md:flex-row md:items-center md:justify-between"
+            >
+              <div className="min-w-0 text-xs text-gray-300">
+                <span className="font-bold text-white">{log.target_id}</span>
+                <span className="ml-2 text-gray-500">{log.target_table}</span>
+                <span className="ml-2 text-[#F2A900]">{log.column_name}</span>
+                {log.patch_version && (
+                  <span className="ml-2 text-gray-400">({log.patch_version})</span>
+                )}
+                <span className="ml-2 text-[11px] text-gray-500">
+                  {new Date(log.applied_at).toLocaleString("ko-KR")}
+                </span>
+              </div>
+
+              {log.reverted_at ? (
+                <span className="shrink-0 text-[11px] font-bold text-gray-500">되돌림 완료</span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleRevert(log)}
+                  disabled={busy}
+                  className="shrink-0 rounded bg-[#252525] px-3 py-1.5 text-[11px] font-black text-gray-300 transition-colors hover:bg-[#333] disabled:opacity-40"
+                >
+                  되돌리기
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      </section>
+    );
+  };
+
   if (loading) {
     return (
       <div className="p-6 text-center text-sm text-gray-400">
@@ -207,18 +309,21 @@ export default function WeaponPatchReview() {
 
   if (proposals.length === 0) {
     return (
-      <div className="rounded-xl border border-[#333] bg-[#1a1a1a] p-6">
-        <h3 className="text-lg font-black text-white">무기도감 갱신 제안</h3>
-        <p className="mt-2 text-sm text-gray-400">
-          검토 대기 중인 제안이 없습니다. 패치노트를 동기화하면 게임 데이터 변경안이 자동으로 수집됩니다.
-        </p>
-        <button
-          type="button"
-          onClick={loadProposals}
-          className="mt-4 rounded bg-[#252525] px-4 py-2 text-xs font-bold text-gray-300 transition-colors hover:bg-[#333]"
-        >
-          새로 고침
-        </button>
+      <div className="space-y-6">
+        <div className="rounded-xl border border-[#333] bg-[#1a1a1a] p-6">
+          <h3 className="text-lg font-black text-white">무기도감 갱신 제안</h3>
+          <p className="mt-2 text-sm text-gray-400">
+            검토 대기 중인 제안이 없습니다. 패치노트를 동기화하면 게임 데이터 변경안이 자동으로 수집됩니다.
+          </p>
+          <button
+            type="button"
+            onClick={loadProposals}
+            className="mt-4 rounded bg-[#252525] px-4 py-2 text-xs font-bold text-gray-300 transition-colors hover:bg-[#333]"
+          >
+            새로 고침
+          </button>
+        </div>
+        {renderApplyHistory()}
       </div>
     );
   }
@@ -377,6 +482,8 @@ export default function WeaponPatchReview() {
           </section>
         );
       })}
+
+      {renderApplyHistory()}
     </div>
   );
 }
