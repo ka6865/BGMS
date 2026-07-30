@@ -5,6 +5,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { identifyCategory } from "@/lib/patch-notes/categorize";
 import { sanitizeBoardHtml } from "@/lib/board/sanitizeHtml";
 import { authorizeBearerSecret } from "@/lib/server/secretAuth";
+import { triggerWeaponPatchProposal } from "@/lib/patch-notes/weaponProposalTrigger";
 
 /**
  * 운영 관제 채널로 텍스트 알림을 보냅니다.
@@ -268,6 +269,8 @@ export async function GET(request: Request) {
 
     // 5. AI 요약 생성 (다중 모델 시도)
     let aiSummary = "";
+    // 무기도감 갱신 제안 생성에 사용할 원문. 요약과 달리 잘라내지 않고 보관한다.
+    let patchNoteSourceText = "";
     try {
       const detailRes = await fetch(fullUrl, { cache: 'no-store' });
       if (detailRes.ok) {
@@ -309,6 +312,9 @@ export async function GET(request: Request) {
         if (rawText.length > 50) {
           const categoryType = identifyCategory(title, fullUrl);
           aiSummary = await generateAISummary(rawText.substring(0, 5000), categoryType);
+          if (categoryType === "PATCH_NOTE") {
+            patchNoteSourceText = rawText;
+          }
         }
 
         // [최후의 보루] AI 요약이 완전히 실패했을 경우 (빈 내용이거나 너무 짧을 때)
@@ -431,6 +437,38 @@ export async function GET(request: Request) {
     }
     console.log(">>> [DB_SAVE_SUCCESS]");
 
+    // 8-1. 무기도감 갱신 제안 생성
+    // 부가 작업이므로 실패해도 패치노트 저장을 되돌리지 않는다.
+    // 실제 적용은 관리자가 승인해야 일어난다(제안 테이블에만 기록).
+    let weaponProposal: Awaited<ReturnType<typeof triggerWeaponPatchProposal>> | null = null;
+    if (patchNoteSourceText) {
+      const { data: savedPost } = await supabaseAdmin
+        .from("posts")
+        .select("id")
+        .eq("title", cleanTitle)
+        .maybeSingle();
+
+      weaponProposal = await triggerWeaponPatchProposal({
+        supabaseAdmin,
+        sourceText: patchNoteSourceText,
+        sourceUrl: fullUrl,
+        title: cleanTitle,
+        sourcePostId: (savedPost?.id as number | undefined) ?? null,
+      });
+
+      if (weaponProposal.status === "created" && weaponProposal.okCount > 0) {
+        const reviewPage = `${process.env.NEXT_PUBLIC_SITE_URL || ""}/admin/game-data`;
+        await notifyDiscord(
+          `🔫 **[무기도감 갱신 제안 도착]**\n` +
+          `패치노트에서 게임 데이터 변경안 ${weaponProposal.changeCount}건을 추출했습니다. ` +
+          `그중 ${weaponProposal.okCount}건이 검증을 통과해 승인 대기 중입니다.\n\n` +
+          `**패치노트:** ${cleanTitle}\n` +
+          `**검토 페이지:** ${reviewPage}\n\n` +
+          `승인하기 전까지 무기도감 데이터는 변경되지 않습니다.`
+        );
+      }
+    }
+
     // 9. 동기화 상태 업데이트
     console.log(">>> [SYNC_HISTORY_START]");
     if (lastSync) {
@@ -440,7 +478,11 @@ export async function GET(request: Request) {
     }
     console.log(">>> [SYNC_HISTORY_SUCCESS]");
 
-    return NextResponse.json({ success: true, post: { title: cleanTitle, fullUrl } });
+    return NextResponse.json({
+      success: true,
+      post: { title: cleanTitle, fullUrl },
+      weaponProposal,
+    });
 
   } catch (error: any) {
     console.error("Patch notes cron error:", error);
@@ -531,5 +573,3 @@ function formatAiSummaryToHtml(summary: string): string {
 
   return minifyHtml(cardsHtml);
 }
-
-

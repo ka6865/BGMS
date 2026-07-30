@@ -5,6 +5,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import * as dotenv from 'dotenv';
 import { identifyCategory } from '../lib/patch-notes/categorize';
 import { sanitizeBoardHtml } from '../lib/board/sanitizeHtml';
+import { triggerWeaponPatchProposal } from '../lib/patch-notes/weaponProposalTrigger';
 
 // .env.local 파일 로드
 dotenv.config({ path: '.env.local' });
@@ -163,7 +164,7 @@ ${cleanText}`;
       </div>
     `));
 
-    return formattedContent;
+    return { formattedContent, sourceText: cleanText, categoryType };
   } catch (error) {
     console.error('fetchPatchNoteDetail error:', error);
     return null;
@@ -291,11 +292,12 @@ async function syncPatchNotes() {
     console.log(`🔍 New Patch Note found: ${cleanTitle} (ID: ${latestPatch.id})`);
     console.log(`🖼️ Thumbnail URL: ${thumbnailUrl}`);
 
-    const formattedContent = await fetchPatchNoteDetail(fullUrl, cleanTitle);
-    if (!formattedContent) {
+    const detail = await fetchPatchNoteDetail(fullUrl, cleanTitle);
+    if (!detail) {
       console.error('❌ Failed to fetch patch note detail.');
       return;
     }
+    const { formattedContent, sourceText, categoryType } = detail;
 
     // 기존에 동일한 제목의 글이 있는지 확인
     const { data: existingPost } = await supabase
@@ -337,6 +339,34 @@ async function syncPatchNotes() {
 
     await supabase.from('sync_history').upsert({ type: 'patch_notes', last_url: fullUrl });
     console.log('✅ Sync successful.');
+
+    // 무기도감 갱신 제안 생성.
+    // 제안 테이블에만 기록되며 관리자가 승인해야 실제 게임 데이터가 바뀐다.
+    if (categoryType === 'PATCH_NOTE' && sourceText) {
+      const { data: savedPost } = await supabase
+        .from('posts')
+        .select('id')
+        .eq('title', cleanTitle)
+        .maybeSingle();
+
+      const outcome = await triggerWeaponPatchProposal({
+        supabaseAdmin: supabase,
+        sourceText,
+        sourceUrl: fullUrl,
+        title: cleanTitle,
+        sourcePostId: (savedPost?.id as number | undefined) ?? null,
+      });
+
+      if (outcome.status === 'created') {
+        console.log(
+          `🔫 무기도감 갱신 제안 생성: 변경안 ${outcome.changeCount}건 중 ${outcome.okCount}건 검증 통과`
+        );
+      } else if (outcome.status === 'failed') {
+        console.warn(`⚠️ 무기도감 갱신 제안 생성 실패: ${outcome.reason}`);
+      } else if (outcome.status === 'skipped') {
+        console.log(`ℹ️ 무기도감 갱신 제안 건너뜀: ${outcome.reason}`);
+      }
+    }
 
     if (DISCORD_WEBHOOK_URL) {
       console.log('🔔 Sending Discord Notification...');

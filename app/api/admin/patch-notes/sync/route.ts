@@ -5,6 +5,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createClient } from "@/utils/supabase/server";
 import { identifyCategory } from "@/lib/patch-notes/categorize";
 import { sanitizeBoardHtml } from "@/lib/board/sanitizeHtml";
+import { triggerWeaponPatchProposal } from "@/lib/patch-notes/weaponProposalTrigger";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -147,6 +148,8 @@ async function fetchOfficialPatchNote(supabaseAdmin: any, manualUrl?: string) {
 
   let summaryOrError = "";
   let imageUrl = "";
+  // 무기도감 갱신 제안에 사용할 원문. 요약과 달리 잘라내지 않는다.
+  let sourceText = "";
   try {
     const detailRes = await fetch(fullUrl, { cache: 'no-store' });
     if (detailRes.ok) {
@@ -156,6 +159,9 @@ async function fetchOfficialPatchNote(supabaseAdmin: any, manualUrl?: string) {
 
       const categoryType = identifyCategory(title, fullUrl);
       summaryOrError = await summarizeText(content?.text || "", categoryType);
+      if (categoryType === "PATCH_NOTE") {
+        sourceText = (content?.text || "").trim();
+      }
 
       // 썸네일 이미지 파싱 (og:image 또는 _thumb 이미지)
       let ogImage = "";
@@ -179,7 +185,7 @@ async function fetchOfficialPatchNote(supabaseAdmin: any, manualUrl?: string) {
     }
   } catch(e: any) { summaryOrError = `❌ 시스템 오류: ${e.message}`; }
 
-  return { type: "patch_notes", title, fullUrl, summaryOrError, imageUrl };
+  return { type: "patch_notes", title, fullUrl, summaryOrError, imageUrl, sourceText };
 }
 
 // 2. 카카오 무점검 패치 파싱
@@ -194,6 +200,7 @@ async function fetchKakaoPatchNote(supabaseAdmin: any, manualUrl: string) {
 
   let summaryOrError = "";
   let imageUrl = "";
+  let sourceText = "";
   try {
     const ajaxUrl = targetUrl.replace("/notice/read?", "/notice/ajax/read?");
     const detailRes = await fetch(ajaxUrl, {
@@ -225,6 +232,9 @@ async function fetchKakaoPatchNote(supabaseAdmin: any, manualUrl: string) {
 
       const categoryType = identifyCategory(title, targetUrl);
       summaryOrError = await summarizeText(contentText, categoryType);
+      if (categoryType === "PATCH_NOTE") {
+        sourceText = contentText;
+      }
     } else {
       summaryOrError = `❌ 본문 데이터 수집 실패 (${detailRes.status})`;
     }
@@ -232,7 +242,14 @@ async function fetchKakaoPatchNote(supabaseAdmin: any, manualUrl: string) {
     summaryOrError = `❌ 시스템 오류: ${e.message}`;
   }
 
-  return { type: "kakao_patch_notes", title: `[카카오] ${title}`, fullUrl: targetUrl, summaryOrError, imageUrl };
+  return {
+    type: "kakao_patch_notes",
+    title: `[카카오] ${title}`,
+    fullUrl: targetUrl,
+    summaryOrError,
+    imageUrl,
+    sourceText,
+  };
 }
 
 export async function POST(request: Request) {
@@ -307,7 +324,35 @@ export async function POST(request: Request) {
       await supabaseAdmin.from("sync_history").upsert({ type: r.type, last_url: r.fullUrl, updated_at: new Date().toISOString() }, { onConflict: 'type' });
     }
 
-    return NextResponse.json({ success: true, details: results.map(r => r.title) });
+    // 무기도감 갱신 제안 생성.
+    // 부가 작업이므로 실패해도 패치노트 저장 결과를 되돌리지 않는다.
+    // 제안 테이블에만 기록되며 관리자가 승인해야 실제 데이터가 바뀐다.
+    const weaponProposals: Record<string, unknown>[] = [];
+    for (const r of results) {
+      if (!r.sourceText) continue;
+
+      const { data: savedPost } = await supabaseAdmin
+        .from("posts")
+        .select("id")
+        .eq("title", r.title)
+        .maybeSingle();
+
+      const outcome = await triggerWeaponPatchProposal({
+        supabaseAdmin,
+        sourceText: r.sourceText,
+        sourceUrl: r.fullUrl,
+        title: r.title,
+        sourcePostId: (savedPost?.id as number | undefined) ?? null,
+      });
+
+      weaponProposals.push({ title: r.title, ...outcome });
+    }
+
+    return NextResponse.json({
+      success: true,
+      details: results.map(r => r.title),
+      weaponProposals,
+    });
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
@@ -435,5 +480,3 @@ function buildHtml(summaryOrError: string, fullUrl: string) {
     </div>
   `);
 }
-
-

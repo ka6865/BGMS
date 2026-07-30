@@ -460,6 +460,14 @@ export default function WeaponsPage() {
                   <InlineIconLabel icon="file" iconSize={11}>{w.patch_notes}</InlineIconLabel>
                 </div>
               )}
+              {w.patch_version && (
+                <span
+                  className="inline-flex w-fit items-center rounded-full border border-[#F2A900]/30 bg-[#F2A900]/10 px-2 py-0.5 text-[9px] font-black text-[#F2A900]"
+                  title={`패치 적용 버전: ${w.patch_version}`}
+                >
+                  {w.patch_version}
+                </span>
+              )}
             </div>
 
             <div className="p-3 bg-slate-950/40 border-t border-slate-850 flex justify-end">
@@ -815,6 +823,14 @@ export default function WeaponsPage() {
                       <p className="mt-1.5 text-yellow-500/80 italic border-t border-slate-850/50 pt-1.5">
                         <InlineIconLabel icon="file" iconSize={12}>{selectedWeapon.patch_notes}</InlineIconLabel>
                       </p>
+                    )}
+                    {selectedWeapon.patch_version && (
+                      <span
+                        className="mt-2 inline-flex items-center rounded-full border border-[#F2A900]/30 bg-[#F2A900]/10 px-2.5 py-1 text-[11px] font-black text-[#F2A900]"
+                        title={`패치 적용 버전: ${selectedWeapon.patch_version}`}
+                      >
+                        {selectedWeapon.patch_version}
+                      </span>
                     )}
                   </div>
                 </div>

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { ItemCategory, GameItem, Vehicle, Weapon } from "@/types/game-data";
 import ConfirmModal from "@/components/common/ConfirmModal";
 import { resolveCrateAssetFields } from "@/lib/crates/assetMapping";
+import WeaponPatchReview from "@/components/admin/WeaponPatchReview";
 
 export default function GameDataEditor() {
   const router = useRouter();
@@ -382,6 +383,12 @@ export default function GameDataEditor() {
   }, [router, fetchDashboardData]);
 
   const fetchItems = useCallback(async () => {
+    // 무기도감 갱신 제안 탭은 자체 컴포넌트가 데이터를 조회한다.
+    if (activeCategory === "weapon-patch") {
+      setItems([]);
+      return;
+    }
+
     if (activeCategory === "system") {
       setItems([]);
       fetchDashboardData();
@@ -461,6 +468,7 @@ export default function GameDataEditor() {
 
   // 모바일/데스크탑 레이아웃 노출 플래그 연산
   const shouldShowAside = useMemo(() => {
+    if (activeCategory === "weapon-patch") return false;
     if (activeCategory === "system") return false;
     if (!isMobile) return true;
     if (activeCategory === "users") {
@@ -470,6 +478,7 @@ export default function GameDataEditor() {
   }, [activeCategory, isMobile, showUserListOnMobile, selectedItem]);
 
   const shouldShowMain = useMemo(() => {
+    if (activeCategory === "weapon-patch") return true;
     if (activeCategory === "system") return true;
     if (!isMobile) return true;
     if (selectedItem) return true;
@@ -826,6 +835,7 @@ export default function GameDataEditor() {
                 { id: "vehicles", label: "차량" },
                 { id: "crates", label: "은신처 상점" },
                 { id: "users", label: "유저 관리" },
+                { id: "weapon-patch", label: "패치 제안" },
                 { id: "system", label: "시스템/캐시" }
               ].map(cat => (
                 <option key={cat.id} value={cat.id}>
@@ -844,6 +854,7 @@ export default function GameDataEditor() {
                 { id: "vehicles", label: "차량" },
                 { id: "crates", label: "은신처 상점" },
                 { id: "users", label: "유저 관리" },
+                { id: "weapon-patch", label: "패치 제안" },
                 { id: "system", label: "시스템/캐시" }
               ].map(cat => (
                 <button
@@ -1406,6 +1417,10 @@ export default function GameDataEditor() {
                 </div>
               )}
             </>
+          ) : activeCategory === "weapon-patch" ? (
+            <div className="max-w-[900px] mx-auto">
+              <WeaponPatchReview />
+            </div>
           ) : activeCategory === "system" ? (
             <div className="max-w-[750px] mx-auto space-y-8">
               <h2 className="text-2xl font-black text-white border-b border-[#333] pb-4">시스템 통합 관제탑 및 캐시 관리</h2>
