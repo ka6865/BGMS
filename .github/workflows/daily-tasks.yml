@@ -110,6 +110,13 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/cleanup_ai_cache.ts
 
+      - name: Run Analytics Events Cleanup
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npx tsx scripts/cleanup_analytics_events.ts
+
       - name: Audit PUBG Analysis Data Quality
         continue-on-error: true
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
