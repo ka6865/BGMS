@@ -1,7 +1,7 @@
 /**
- * @fileoverview PUBG 응답 캐시와 Discord 방 생성 쿼터 테이블을 정리합니다.
+ * @fileoverview PUBG 응답 캐시, Discord 방 생성 쿼터, Overwolf 세션 요약 테이블을 정리합니다.
  *
- * 두 테이블 모두 TTL 기반이라 만료 행이 계속 쌓입니다.
+ * 세 테이블 모두 TTL 또는 보존 기간 기반이라 만료 행이 계속 쌓입니다.
  * 일일 유지보수 작업(.github/workflows/daily-tasks.yml)에서 호출합니다.
  */
 
@@ -14,7 +14,11 @@ type RpcClient = Pick<SupabaseClient, "rpc">;
 export type PubgCacheCleanupResult = {
   deletedCacheRows: number;
   deletedDiscordQuotaRows: number;
+  deletedOverwolfSessionRows: number;
 };
+
+// Overwolf 세션 요약 보존 기간. 보조 신호이므로 장기 보관하지 않습니다.
+const OVERWOLF_SESSION_RETENTION_DAYS = 90;
 
 /** 정리 RPC 를 호출합니다. 개별 실패는 다른 정리를 막지 않습니다. */
 export async function cleanupPubgCacheTables(
@@ -23,6 +27,7 @@ export async function cleanupPubgCacheTables(
   const result: PubgCacheCleanupResult = {
     deletedCacheRows: 0,
     deletedDiscordQuotaRows: 0,
+    deletedOverwolfSessionRows: 0,
   };
 
   const { data: cacheDeleted, error: cacheError } = await supabaseAdmin.rpc(
@@ -43,6 +48,17 @@ export async function cleanupPubgCacheTables(
   }
   if (typeof quotaDeleted === "number" && Number.isInteger(quotaDeleted) && quotaDeleted >= 0) {
     result.deletedDiscordQuotaRows = quotaDeleted;
+  }
+
+  const { data: sessionDeleted, error: sessionError } = await supabaseAdmin.rpc(
+    "cleanup_overwolf_session_events",
+    { p_retention_days: OVERWOLF_SESSION_RETENTION_DAYS }
+  );
+  if (sessionError) {
+    throw new Error(`cleanup_overwolf_session_events 실패: ${sessionError.message}`);
+  }
+  if (typeof sessionDeleted === "number" && Number.isInteger(sessionDeleted) && sessionDeleted >= 0) {
+    result.deletedOverwolfSessionRows = sessionDeleted;
   }
 
   return result;
@@ -72,7 +88,7 @@ if (isDirectRun) {
   runPubgCacheCleanup()
     .then((result) => {
       console.info(
-        `PUBG cache cleanup: 캐시 ${result.deletedCacheRows}행, Discord 쿼터 ${result.deletedDiscordQuotaRows}행 삭제.`
+        `PUBG cache cleanup: 캐시 ${result.deletedCacheRows}행, Discord 쿼터 ${result.deletedDiscordQuotaRows}행, Overwolf 세션 ${result.deletedOverwolfSessionRows}행 삭제.`
       );
     })
     .catch((err) => {
