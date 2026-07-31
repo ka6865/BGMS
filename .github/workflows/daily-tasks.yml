@@ -79,6 +79,23 @@ jobs:
       # 정리·스크래핑·패치노트 동기화가 며칠간 멈췄다.
       # 순서는 그대로 유지하므로 동일 테이블 동시 접근 위험은 발생하지 않는다.
       # continue-on-error 는 지정하지 않아 실패는 여전히 workflow 실패로 남는다.
+      # Supabase 무료 플랜에는 자동 백업이 없다. 이 step 이 유일한 복구 수단이므로
+      # 정리·삭제 작업보다 반드시 먼저 실행한다. 순서를 바꾸면 삭제 후 상태만
+      # 백업되어 복구 가치가 사라진다.
+      #
+      # 대상은 재생성할 수 없는 사용자 데이터뿐이다(마커 제보, 회원, 게시글).
+      # 분석 캐시는 PUBG API 로 다시 만들 수 있어 제외한다.
+      - name: Backup Core Tables
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CLOUDFLARE_R2_ENDPOINT: ${{ secrets.CLOUDFLARE_R2_ENDPOINT }}
+          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+        run: npx tsx scripts/backup_core_tables.ts
+
       - name: Check Storage Before Maintenance
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:

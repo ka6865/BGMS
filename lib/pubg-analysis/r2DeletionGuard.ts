@@ -20,8 +20,14 @@ export const PROTECTED_EXTENSIONS = [
 /**
  * 정리 작업이 남기는 삭제 목록 아카이브 경로.
  * 삭제 이력 추적 수단이므로 정리 대상에서 제외합니다.
+ *
+ * backups/ 는 핵심 테이블 백업입니다. Supabase 무료 플랜에 자동 백업이 없어
+ * 이 파일이 유일한 복구 수단이므로 어떤 정리 작업도 지우지 못하게 합니다.
  */
-export const PROTECTED_KEY_PATTERNS = [/^telemetry-inventory\//] as const;
+export const PROTECTED_KEY_PATTERNS = [
+  /^telemetry-inventory\//,
+  /^backups\//,
+] as const;
 
 export type DeletionGuardReason =
   | "empty-key"
