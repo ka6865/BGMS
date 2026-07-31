@@ -143,16 +143,28 @@ async function persistRawStats(
   const participants = input.rawParticipants;
   if (!participants || participants.length === 0 || !input.matchAttr) return;
 
-  const rows = participants.map((participant) => ({
-    match_id: input.matchId,
-    platform: input.platform,
-    player_id: normalizeName(participant.attributes.stats.name),
-    damage: Math.floor(participant.attributes.stats.damageDealt),
-    kills: participant.attributes.stats.kills,
-    win_place: participant.attributes.stats.winPlace,
-    game_mode: input.matchAttr?.gameMode,
-    map_name: input.matchAttr?.mapName,
-  }));
+  const analysisPlayerId = normalizeName(input.playerNickname);
+  const rows = participants
+    .filter((participant) => !participant.attributes.stats.playerId?.startsWith("ai."))
+    .map((participant) => ({
+      participant,
+      playerId: normalizeName(participant.attributes.stats.name),
+    }))
+    .filter(({ participant, playerId }) => (
+      playerId === analysisPlayerId || participant.attributes.stats.winPlace === 1
+    ))
+    .map(({ participant, playerId }) => ({
+      match_id: input.matchId,
+      platform: input.platform,
+      player_id: playerId,
+      damage: Math.floor(participant.attributes.stats.damageDealt),
+      kills: participant.attributes.stats.kills,
+      win_place: participant.attributes.stats.winPlace,
+      game_mode: input.matchAttr?.gameMode,
+      map_name: input.matchAttr?.mapName,
+      is_analysis_sample: playerId === analysisPlayerId,
+    }));
+  if (rows.length === 0) return;
   const succeeded = await runPersistenceTask("match_stats_raw", result, () => (
     supabase.from("match_stats_raw").upsert(rows, {
       onConflict: "match_id,platform,player_id",
