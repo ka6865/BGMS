@@ -17,10 +17,16 @@ import { RECLAIM_TARGETS, type ReclaimTarget } from "@/lib/admin-agent/storage-h
  * 정리합니다.
  */
 
-// 한 번 요청에서 처리할 배치 수. 5,000 * 6 = 30,000행이다.
-// 관리자가 버튼 한 번으로 27만 행을 지우지 못하게 제한한다.
-const MAX_BATCHES_PER_REQUEST = 6;
-const BATCH_LIMIT = 5_000;
+// 한 번 요청에서 처리할 배치 수. 1,000 * 20 = 20,000행이다.
+// 관리자가 버튼 한 번으로 28만 행을 지우지 못하게 제한한다.
+//
+// 배치 크기가 5,000 이면 Supabase 무료 플랜의 statement timeout 을 넘긴다.
+// 2026-08-01 실측에서 5,000 은 8.7초에 취소되고 1,000 은 1.25초였다.
+//
+// Vercel 함수 실행 시간도 고려해 요청당 배치 수를 워크플로(30회)보다 낮춘다.
+// 배치당 약 1.3초이므로 20회는 26초 수준이다.
+const MAX_BATCHES_PER_REQUEST = 20;
+const BATCH_LIMIT = 1_000;
 
 // scripts/cleanup_telemetry.ts 와 같은 값을 쓴다.
 const PLAYER_CACHE_RETENTION_DAYS = 90;
