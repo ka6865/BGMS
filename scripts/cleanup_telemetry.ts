@@ -73,9 +73,14 @@ const PLAYER_CACHE_BATCH_LIMIT = 5_000;
 // 어느 상한에서도 제안이 0건이 되는 접두사는 없었다.
 const PLAYER_CACHE_KEEP_RECENT = 150_000;
 
-// 한 번 실행에서 최대 25만 행까지 정리한다. 초기 적재분(42만 행)은
-// 여러 날에 걸쳐 나누어 줄어든다.
-const PLAYER_CACHE_MAX_BATCHES = 50;
+// 한 번 실행에서 정리할 최대 배치 수. 5,000 * 6 = 30,000행이다.
+//
+// 초기 적재분이 27만 행(2026-08-01 실측)이라 한 번에 전부 지우면 되돌릴 수
+// 없는 대량 삭제가 배포 직후 자동으로 일어난다. 하루 3만 행씩 약 열흘에
+// 걸쳐 줄어들도록 제한해, 문제가 보이면 중간에 멈출 수 있게 한다.
+//
+// 정상 운영 시 하루 순증은 실측 1만 6천 행 수준이라 이 상한으로 충분히 따라잡는다.
+const PLAYER_CACHE_MAX_BATCHES = 6;
 
 export async function fetchAllRowsByRange<T>(
   fetchPage: (from: number, to: number) => Promise<RangePage<T>>,

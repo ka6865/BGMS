@@ -51,6 +51,18 @@ describe("pubg_player_cache 보존 정책", () => {
     expect(rpc).toHaveBeenCalledTimes(4);
   });
 
+  it("한 번 실행의 삭제 규모에 상한을 둔다", async () => {
+    // 잔여 대상이 계속 남아 있어도 배치 상한에서 멈춘다.
+    // 배포 직후 27만 행이 한 번에 삭제되지 않도록 하는 안전장치다.
+    const many = Array.from({ length: 100 }, () => compactionResult(5_000, 250_000));
+    const { client, rpc } = createClient(many);
+
+    await cleanupInactivePlayerCache(client);
+
+    expect(rpc.mock.calls.length).toBeLessThanOrEqual(10);
+    expect(rpc.mock.calls.length).toBeGreaterThan(1);
+  });
+
   it("삭제가 진행되지 않으면 무한 반복하지 않고 멈춘다", async () => {
     // 잔여 건수가 보고되지만 실제 삭제가 0이면 더 진행할 수 없는 상태다.
     const { client, rpc } = createClient([compactionResult(0, 9_999)]);
