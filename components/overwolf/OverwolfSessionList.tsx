@@ -16,6 +16,7 @@ import {
   Crosshair,
   HeartPulse,
   Map as MapIcon,
+  Play,
   Search,
   Skull,
   Swords,
@@ -23,7 +24,12 @@ import {
   Trophy,
   UserPlus,
 } from "lucide-react";
-import { buildAnalysisPath, type SessionSummaryView, type TimelineKind } from "@/lib/overwolf/session-view";
+import {
+  buildAnalysisPath,
+  buildReplayPath,
+  type SessionSummaryView,
+  type TimelineKind,
+} from "@/lib/overwolf/session-view";
 
 const PLATFORMS = [
   { value: "steam", label: "Steam" },
@@ -91,7 +97,11 @@ const StatCell = ({
   </div>
 );
 
-/** 사후 리뷰 타임라인. 좌표는 담기지 않으므로 시점과 종류만 보여준다. */
+/**
+ * 사후 리뷰 타임라인.
+ * 좌표는 세션 요약에 담기지 않으므로 시점과 종류만 보여주고,
+ * 그 시점의 맵 상황은 공식 API 텔레메트리 기반 리플레이로 넘긴다.
+ */
 const SessionTimeline = ({ session }: { session: SessionSummaryView }) => {
   if (session.timeline.length === 0) {
     return (
@@ -107,6 +117,7 @@ const SessionTimeline = ({ session }: { session: SessionSummaryView }) => {
       {session.timeline.map((entry, index) => {
         const meta = TIMELINE_META[entry.kind];
         const Icon = meta.icon;
+        const replayPath = buildReplayPath(session, entry.elapsedSeconds);
 
         return (
           <li
@@ -121,6 +132,16 @@ const SessionTimeline = ({ session }: { session: SessionSummaryView }) => {
             {entry.detail ? (
               <span className="truncate text-white/50">{entry.detail}</span>
             ) : null}
+            {replayPath ? (
+              <Link
+                href={replayPath}
+                title={`${entry.clock} 시점의 맵 상황 보기`}
+                className="ml-auto flex shrink-0 items-center gap-1 rounded border border-white/10 px-1.5 py-0.5 text-[10px] font-bold text-white/50 transition-colors hover:border-[#F2A900]/50 hover:text-[#F2A900]"
+              >
+                <Play className="h-2.5 w-2.5" aria-hidden="true" />
+                이 시점
+              </Link>
+            ) : null}
           </li>
         );
       })}
@@ -131,6 +152,7 @@ const SessionTimeline = ({ session }: { session: SessionSummaryView }) => {
 const SessionCard = ({ session }: { session: SessionSummaryView }) => {
   const [expanded, setExpanded] = useState(false);
   const analysisPath = buildAnalysisPath(session);
+  const replayPath = buildReplayPath(session);
   const hasRank = session.rankPlace !== null;
 
   return (
@@ -193,14 +215,25 @@ const SessionCard = ({ session }: { session: SessionSummaryView }) => {
           교전 시점 {session.timeline.length > 0 ? `${session.timeline.length}건` : "없음"}
         </button>
 
+        {/* 맵 리플레이가 이 화면의 주된 행동이다. BGMS 고유 자산으로 바로 넘긴다. */}
+        {replayPath ? (
+          <Link
+            href={replayPath}
+            className="flex items-center gap-1.5 rounded border border-[#F2A900]/50 bg-[#F2A900]/15 px-2.5 py-1.5 text-xs font-bold text-[#F2A900] transition-colors hover:bg-[#F2A900]/25"
+          >
+            <MapIcon className="h-3.5 w-3.5" aria-hidden="true" />
+            맵 리플레이 열기
+            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+          </Link>
+        ) : null}
+
         {analysisPath ? (
           <Link
             href={analysisPath}
-            className="flex items-center gap-1.5 rounded border border-[#F2A900]/40 bg-[#F2A900]/10 px-2.5 py-1.5 text-xs font-bold text-[#F2A900] transition-colors hover:bg-[#F2A900]/20"
+            className="flex items-center gap-1.5 rounded border border-white/10 px-2.5 py-1.5 text-xs font-bold text-white/70 transition-colors hover:border-white/25 hover:text-white"
           >
             <Crosshair className="h-3.5 w-3.5" aria-hidden="true" />
-            공식 전적 분석 열기
-            <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+            전적 분석
           </Link>
         ) : (
           <span
@@ -293,9 +326,9 @@ export default function OverwolfSessionList() {
         kills: acc.kills + session.kills,
         headshots: acc.headshots + session.headshots,
         deaths: acc.deaths + session.deaths,
-        linkable: acc.linkable + (session.canOpenAnalysis ? 1 : 0),
+        replayable: acc.replayable + (session.canOpenReplay ? 1 : 0),
       }),
-      { kills: 0, headshots: 0, deaths: 0, linkable: 0 }
+      { kills: 0, headshots: 0, deaths: 0, replayable: 0 }
     );
   }, [sessions]);
 
@@ -304,8 +337,9 @@ export default function OverwolfSessionList() {
       <header className="flex flex-col gap-1.5">
         <h1 className="text-xl font-black text-white sm:text-2xl">Companion 세션 기록</h1>
         <p className="max-w-2xl text-xs leading-relaxed text-white/50 sm:text-sm">
-          BGMS Companion(Overwolf 앱)이 매치 종료 후 보낸 요약입니다. 실시간 보조 신호이므로 참고용
-          이며, 확정 분석은 공식 API 기반 전적 분석 화면에서 확인합니다.
+          BGMS Companion(Overwolf 앱)이 매치 종료 후 보낸 요약입니다. 교전 시점을 눌러 그 순간의 맵
+          상황을 리플레이로 확인할 수 있습니다. 요약 수치는 실시간 보조 신호이므로 참고용이며, 확정
+          분석은 공식 API 텔레메트리를 근거로 합니다.
         </p>
       </header>
 
@@ -370,7 +404,7 @@ export default function OverwolfSessionList() {
           <StatCell label="세션" value={String(sessions?.length ?? 0)} />
           <StatCell label="누적 처치" value={String(totals.kills)} accent={totals.kills > 0} />
           <StatCell label="누적 헤드샷" value={String(totals.headshots)} />
-          <StatCell label="분석 연결 가능" value={`${totals.linkable}건`} />
+          <StatCell label="맵 리플레이 가능" value={`${totals.replayable}건`} accent={totals.replayable > 0} />
         </div>
       ) : null}
 

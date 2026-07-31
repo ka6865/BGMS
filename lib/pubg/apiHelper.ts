@@ -36,13 +36,46 @@ const supabaseAdmin = createSupabaseAdminClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// 전역 에러 리스트 (슬라이딩 윈도우 감시용)
+// 인스턴스 로컬 에러 리스트.
+// 알림 본문에 최근 오류 샘플을 담고, DB 집계가 실패할 때 폴백 카운트로 쓴다.
+// 임계값 판정 자체는 DB 집계를 우선한다(아래 resolveWindowErrorCount 참고).
 let errorQueue: ApiErrorRecord[] = [];
 let lastAlertSentAt = 0;
 
 const ALERT_COOLDOWN = 10 * 60 * 1000; // 10분 쿨다운
 const WINDOW_SIZE = 5 * 60 * 1000; // 5분 범위
 const ERROR_THRESHOLD = 10; // 임계값 10회
+const ALERT_MIN_STATUS = 500; // 알림 판정 대상 최소 상태 코드
+
+/**
+ * 윈도우 안에서 발생한 알림 대상 오류 건수를 구합니다.
+ *
+ * Vercel 서버리스는 요청을 여러 인스턴스에 분산하므로 모듈 스코프 큐는
+ * 전체 오류의 일부만 봅니다. 운영 실측에서 5xx 74건이 한 구간에 몰렸는데도
+ * 인스턴스별 카운트가 임계값에 도달하지 못해 알림이 대부분 누락됐습니다.
+ *
+ * 모든 오류는 이미 pubg_api_errors 에 적립되므로 그 테이블을 집계해
+ * 인스턴스 수와 무관하게 같은 판정 결과를 얻습니다.
+ * 집계 실패 시에는 기존 동작인 인스턴스 로컬 카운트로 되돌립니다.
+ */
+async function resolveWindowErrorCount(now: number, localCount: number): Promise<number> {
+  const windowStartedAt = new Date(now - WINDOW_SIZE).toISOString();
+  try {
+    const { data, error } = await supabaseAdmin.rpc("count_pubg_api_errors_in_window", {
+      p_window_started_at: windowStartedAt,
+      p_min_status: ALERT_MIN_STATUS,
+      p_route: null,
+    });
+    if (error || typeof data !== "number" || !Number.isFinite(data)) {
+      return localCount;
+    }
+    // DB 적립이 비동기라 방금 발생한 오류가 아직 안 보일 수 있다.
+    // 둘 중 큰 값을 쓰면 누락 방향으로 기울지 않는다.
+    return Math.max(data, localCount);
+  } catch {
+    return localCount;
+  }
+}
 
 /**
  * PUBG API 실패 건을 모니터링 큐에 기록하고,
@@ -94,11 +127,14 @@ export async function reportPubgApiError(
   console.warn(`[MONITORING] API Error Recorded - Route: ${route}, Status: ${status}, Message: ${message}`);
 
   // 5분 동안 발생한 에러 수가 임계치에 도달하고 쿨다운이 지난 경우 알림 전송
-  if (notify && errorQueue.length >= ERROR_THRESHOLD && now - lastAlertSentAt > ALERT_COOLDOWN) {
-    const alertKey = `${route}:${status}:${context?.errorCode ?? "unknown"}`;
-    if (await reserveDiscordAlertWindow(alertKey, now)) {
-      lastAlertSentAt = now;
-      await sendAlertToDiscord(errorQueue.length, [...errorQueue]);
+  if (notify && now - lastAlertSentAt > ALERT_COOLDOWN) {
+    const windowErrorCount = await resolveWindowErrorCount(now, errorQueue.length);
+    if (windowErrorCount >= ERROR_THRESHOLD) {
+      const alertKey = `${route}:${status}:${context?.errorCode ?? "unknown"}`;
+      if (await reserveDiscordAlertWindow(alertKey, now)) {
+        lastAlertSentAt = now;
+        await sendAlertToDiscord(windowErrorCount, [...errorQueue]);
+      }
     }
   }
 }

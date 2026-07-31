@@ -16,6 +16,8 @@ import { GET } from "@/app/api/overwolf/sessions/route";
 import { POST } from "@/app/api/overwolf/session/route";
 import {
   buildAnalysisPath,
+  buildReplayPath,
+  extractTelemetryMatchId,
   formatClock,
   toSessionSummaryView,
   toSessionSummaryViews
@@ -30,12 +32,14 @@ const TIMELINE_MIGRATION = readFileSync(
 function rawRow(overrides: Record<string, unknown> = {}) {
   return {
     session_id: "bgms-session-1",
-    match_id: "match.bro.official.pc-2018-01.steam.squad-fpp.as.2026.08.01.abc",
+    match_id:
+      "match.bro.official.pc-2018-01.steam.squad-fpp.as.2026.08.01.ce8d1a14-b2af-41c8-8bf4-d2a504326630",
     pseudo_match_id: "0c0ea3df-97ea-4d3a-b1f6-f8e34042251f",
     player_id: "testplayer",
     platform: "steam",
     gep_summary: {
-      official_match_id: "match.bro.official.pc-2018-01.steam.squad-fpp.as.2026.08.01.abc",
+      official_match_id:
+        "match.bro.official.pc-2018-01.steam.squad-fpp.as.2026.08.01.ce8d1a14-b2af-41c8-8bf4-d2a504326630",
       map_name: "Erangel_Main",
       match_mode: "squad-fpp",
       kills: 4,
@@ -133,6 +137,108 @@ describe("세션 요약 화면 변환", () => {
     expect(formatClock(3675)).toBe("1:01:15");
     expect(formatClock(null)).toBe("");
     expect(formatClock(-1)).toBe("");
+  });
+});
+
+describe("GEP match_id에서 BGMS 텔레메트리 id 추출", () => {
+  it("공식 문서 형식의 GEP match_id 끝 UUID를 뽑는다", () => {
+    // 공식 PUBG GEP 문서의 match_id 예시값
+    expect(
+      extractTelemetryMatchId(
+        "match.bro.official.pc-2018-03.steam.solo.eu.2019.05.07.08.ce8d1a14-b2af-41c8-8bf4-d2a504326630"
+      )
+    ).toBe("ce8d1a14-b2af-41c8-8bf4-d2a504326630");
+  });
+
+  it("이미 UUID만 들어오면 그대로 통과시킨다", () => {
+    expect(extractTelemetryMatchId("3462da2c-8f01-468d-96df-cb00cb5cd713")).toBe(
+      "3462da2c-8f01-468d-96df-cb00cb5cd713"
+    );
+  });
+
+  it("대문자 UUID는 소문자로 정규화한다", () => {
+    expect(extractTelemetryMatchId("match.bro.official.CE8D1A14-B2AF-41C8-8BF4-D2A504326630")).toBe(
+      "ce8d1a14-b2af-41c8-8bf4-d2a504326630"
+    );
+  });
+
+  it("UUID가 없으면 null을 반환해 잘못된 리플레이 진입을 막는다", () => {
+    expect(extractTelemetryMatchId(null)).toBeNull();
+    expect(extractTelemetryMatchId("")).toBeNull();
+    expect(extractTelemetryMatchId("match.bro.official.pc-2018-03.steam.solo.eu")).toBeNull();
+    expect(extractTelemetryMatchId("not-a-uuid-at-all")).toBeNull();
+    // 자릿수가 부족한 값은 UUID 로 인정하지 않는다.
+    expect(extractTelemetryMatchId("ce8d1a14-b2af-41c8-8bf4-d2a5043266")).toBeNull();
+  });
+});
+
+describe("맵 리플레이 진입 경로", () => {
+  it("텔레메트리 id와 닉네임이 있으면 기존 리플레이 경로를 재사용한다", () => {
+    const view = toSessionSummaryView(rawRow());
+
+    expect(view?.telemetryMatchId).toBe("ce8d1a14-b2af-41c8-8bf4-d2a504326630");
+    expect(view?.canOpenReplay).toBe(true);
+
+    const path = buildReplayPath(view!);
+
+    expect(path).toContain("/replay/3d?");
+    expect(path).toContain("matchId=ce8d1a14-b2af-41c8-8bf4-d2a504326630");
+    expect(path).toContain("nickname=testplayer");
+    expect(path).toContain("platform=steam");
+    // 시점을 주지 않으면 t 파라미터를 붙이지 않는다.
+    expect(path).not.toContain("t=");
+  });
+
+  it("교전 시점을 주면 t 파라미터로 진입 지점을 넘긴다", () => {
+    const view = toSessionSummaryView(rawRow());
+
+    expect(buildReplayPath(view!, 420)).toContain("t=420");
+    // 소수점은 정수 초로 반올림한다.
+    expect(buildReplayPath(view!, 89.6)).toContain("t=90");
+    // 시각을 모르는 항목(null)이나 음수는 t 를 붙이지 않는다.
+    expect(buildReplayPath(view!, null)).not.toContain("t=");
+    expect(buildReplayPath(view!, -5)).not.toContain("t=");
+  });
+
+  it("UUID를 못 찾은 세션은 리플레이를 열지 않는다", () => {
+    const view = toSessionSummaryView(
+      rawRow({
+        match_id: "match.bro.official.pc-2018-01.steam.squad-fpp.as.2026.08.01",
+        gep_summary: {
+          ...rawRow().gep_summary,
+          official_match_id: "match.bro.official.pc-2018-01.steam.squad-fpp.as.2026.08.01"
+        }
+      })
+    );
+
+    expect(view?.telemetryMatchId).toBeNull();
+    expect(view?.canOpenReplay).toBe(false);
+    expect(buildReplayPath(view!)).toBeNull();
+    // 공식 match id 자체는 있으므로 전적 분석 링크는 유지된다.
+    expect(view?.canOpenAnalysis).toBe(true);
+    expect(buildAnalysisPath(view!)).toBe("/stats/steam/testplayer");
+  });
+
+  it("pseudo_match_id만 있으면 리플레이도 분석도 열지 않는다", () => {
+    const view = toSessionSummaryView(
+      rawRow({
+        match_id: null,
+        gep_summary: { ...rawRow().gep_summary, official_match_id: null }
+      })
+    );
+
+    expect(view?.canOpenReplay).toBe(false);
+    expect(view?.canOpenAnalysis).toBe(false);
+    expect(buildReplayPath(view!)).toBeNull();
+    expect(buildAnalysisPath(view!)).toBeNull();
+  });
+
+  it("닉네임이 없으면 리플레이를 열지 않는다", () => {
+    const view = toSessionSummaryView(rawRow({ player_id: null }));
+
+    expect(view?.telemetryMatchId).toBe("ce8d1a14-b2af-41c8-8bf4-d2a504326630");
+    expect(view?.canOpenReplay).toBe(false);
+    expect(buildReplayPath(view!)).toBeNull();
   });
 });
 
