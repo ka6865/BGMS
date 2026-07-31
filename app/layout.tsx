@@ -125,13 +125,10 @@ export default function RootLayout({
           <Analytics />
           {isVercelSpeedInsightsEnabled() && <SpeedInsights />}
         </AuthProvider>
-        {/* 카카오 애드핏 전역 스크립트 — 페이지 로드 후 비동기 초기화 */}
+        {/* 구글 애드센스 전역 스크립트 — 소유권 확인 및 자동 광고 활성화.
+            AdSenseBanner가 같은 id를 확인해 중복 삽입을 건너뛴다. */}
         <Script
-          src="//t1.kakaocdn.net/kas/static/ba.min.js"
-          strategy="afterInteractive"
-        />
-        {/* 구글 애드센스 전역 스크립트 — 소유권 확인 및 자동 광고 활성화 */}
-        <Script
+          id="adsbygoogle-main-js"
           async
           src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3993032200487955"
           crossOrigin="anonymous"

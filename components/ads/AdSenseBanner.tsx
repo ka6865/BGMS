@@ -197,14 +197,19 @@ export default function AdSenseBanner({
   }
 
   // 프로덕션 환경: 실제 광고 컨테이너
+  // 고정 규격 배너는 높이를 예약해 로드 시점에 아래 콘텐츠가 밀리는 현상(CLS)을 방지한다.
+  // fluid 인피드 광고는 높이가 가변이라 최소 높이만 확보한다.
   return (
     <div
       ref={containerRef}
       className={className}
       style={{
         width: isFluid ? '100%' : '160px',
+        height: isFluid ? undefined : '600px',
+        minHeight: isFluid ? '130px' : undefined,
         maxWidth: '100%',
         margin: '0 auto',
+        boxSizing: 'border-box',
       }}
       aria-label="구글 애드센스 광고"
     />
