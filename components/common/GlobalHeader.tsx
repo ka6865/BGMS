@@ -25,8 +25,14 @@ export default function GlobalHeader() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
+  const mounted = React.useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
   
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [profileUserId, setProfileUserId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [showNotiDropdown, setShowNotiDropdown] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -47,6 +53,7 @@ export default function GlobalHeader() {
       //  React 19: 비긴급 업데이트로 분류하여 연쇄적 렌더링 방지 및 UI 응답성 유지
       startTransition(() => {
         setUserProfile(null);
+        setProfileUserId(null);
         setNotifications([]);
       });
       return;
@@ -60,7 +67,10 @@ export default function GlobalHeader() {
         .eq("id", user.id)
         .single();
       
-      if (profile) setUserProfile(profile as UserProfile);
+      startTransition(() => {
+        setUserProfile(profile ? profile as UserProfile : null);
+        setProfileUserId(user.id);
+      });
 
       // 2. 알림
       const { data: notis } = await supabase
@@ -121,8 +131,9 @@ export default function GlobalHeader() {
   const isRankingsActive = pathname.startsWith("/rankings");
   const isCratesActive = pathname.startsWith("/crates");
 
-  const displayName = userProfile?.nickname || "익명";
-  const isAdmin = userProfile?.role === "admin";
+  const hasCurrentUserProfile = profileUserId === user?.id;
+  const displayName = hasCurrentUserProfile ? userProfile?.nickname || "익명" : null;
+  const isAdmin = hasCurrentUserProfile && userProfile?.role === "admin";
 
   const markAllAsRead = async () => {
     if (!user) return;
@@ -279,7 +290,7 @@ export default function GlobalHeader() {
 
       {/* 우측 사용자 액션 */}
       <div className="flex items-center gap-4 flex-shrink-0">
-        {authLoading ? (
+        {!mounted || authLoading ? (
           <div className="flex items-center gap-2 px-3 py-1.5 bg-black/5 rounded-xl border border-black/5 animate-pulse">
             <div className="w-4 h-4 rounded-full bg-black/10" />
             <div className="w-12 h-3 bg-black/10 rounded" />
@@ -341,9 +352,16 @@ export default function GlobalHeader() {
                 <User size={18} strokeWidth={2.5} className="text-black/80" />
               </div>
               {!isMobile && (
-                <span className="font-black text-black text-sm tracking-tight">
-                  {displayName}
-                </span>
+                displayName ? (
+                  <span className="font-black text-black text-sm tracking-tight">
+                    {displayName}
+                  </span>
+                ) : (
+                  <span
+                    aria-label="프로필 로드 중"
+                    className="h-3 w-12 animate-pulse rounded bg-black/10"
+                  />
+                )
               )}
             </Link>
           </>

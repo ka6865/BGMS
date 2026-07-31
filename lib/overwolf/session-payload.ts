@@ -17,6 +17,18 @@ export const MAX_SESSION_PAYLOAD_BYTES = 16 * 1024;
 export const SESSION_QUOTA_MAX_EVENTS = 12;
 export const SESSION_QUOTA_WINDOW_SECONDS = 600;
 
+/** event_timeline 에 허용하는 최대 항목 수. 클라이언트 상한과 같아야 한다. */
+export const MAX_TIMELINE_ENTRIES = 40;
+
+/** 사후 리뷰 타임라인에 허용하는 이벤트 종류. 그 외는 버린다. */
+const ALLOWED_TIMELINE_KINDS = [
+  "kill",
+  "death",
+  "knockedout",
+  "revived",
+  "killer"
+] as const;
+
 /** 서버에서도 저장을 거부하는 정책 금지 키. 클라이언트 리듀서 차단 목록과 동일해야 한다. */
 export const BLOCKED_SUMMARY_KEYS = [
   "damage_dealt",
@@ -31,14 +43,20 @@ export const BLOCKED_SUMMARY_KEYS = [
 /** gep_summary 에 저장을 허용하는 키 목록. 그 외 키는 조용히 버린다. */
 const ALLOWED_SUMMARY_KEYS = [
   "effective_match_id",
+  "official_match_id",
   "match_mode",
+  "map_name",
   "phase",
   "phase_is_official",
   "kills",
+  "headshots",
+  "max_kill_distance",
   "deaths",
   "revives",
   "knockdowns",
   "alive_players",
+  "rank_place",
+  "rank_total",
   "last_killer_name",
   "match_started_at",
   "match_ended_at",
@@ -59,6 +77,13 @@ const ALLOWED_ENVIRONMENT_KEYS = [
   "language"
 ] as const;
 
+/** 사후 리뷰용 타임라인 항목. 좌표나 데미지는 담지 않는다. */
+export type TimelineEntry = {
+  t: number | null;
+  kind: string;
+  detail?: string;
+};
+
 export type NormalizedSessionEvent = {
   session_id: string;
   match_id: string | null;
@@ -66,6 +91,7 @@ export type NormalizedSessionEvent = {
   player_id: string | null;
   platform: string | null;
   gep_summary: Record<string, string | number | boolean | null>;
+  event_timeline: TimelineEntry[];
   client_environment: Record<string, string | number | boolean | null>;
 };
 
@@ -125,6 +151,40 @@ function pickAllowed(
 }
 
 /**
+ * 사후 리뷰용 이벤트 타임라인을 정규화합니다.
+ * 허용 kind 만 남기고, 경과 초는 음수와 비정상값을 제거하며, 항목 수를 제한합니다.
+ * 좌표나 데미지 계열 키는 애초에 담지 않으므로 여기서 스키마를 좁혀 방어합니다.
+ */
+function normalizeTimeline(source: unknown): TimelineEntry[] {
+  if (!Array.isArray(source)) return [];
+
+  const result: TimelineEntry[] = [];
+
+  source.slice(0, MAX_TIMELINE_ENTRIES).forEach((raw) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return;
+
+    const entry = raw as Record<string, unknown>;
+    const kind = sanitizeText(entry.kind, 20);
+    if (!kind || !(ALLOWED_TIMELINE_KINDS as readonly string[]).includes(kind)) return;
+
+    // 경과 초는 매치 시작을 모를 때 null 로 온다. 24시간을 넘는 값은 신뢰하지 않는다.
+    const rawSeconds = entry.t;
+    let seconds: number | null = null;
+    if (typeof rawSeconds === "number" && Number.isFinite(rawSeconds)) {
+      seconds = rawSeconds >= 0 && rawSeconds <= 86400 ? Math.round(rawSeconds) : null;
+    }
+
+    const normalized: TimelineEntry = { t: seconds, kind };
+    const detail = sanitizeText(entry.detail, 40);
+    if (detail) normalized.detail = detail;
+
+    result.push(normalized);
+  });
+
+  return result;
+}
+
+/**
  * 세션 요약 payload 를 검증하고 저장 가능한 형태로 정규화합니다.
  * player_id 는 GEP 닉네임 기반이므로 identity 정규화만 수행하고 인증된 계정으로 취급하지 않습니다.
  */
@@ -155,6 +215,7 @@ export function normalizeSessionPayload(body: unknown): SessionPayloadResult {
       player_id: playerId ? normalizeName(playerId) || null : null,
       platform: platform ? normalizePlatform(platform) : null,
       gep_summary: pickAllowed(raw.gep_summary, ALLOWED_SUMMARY_KEYS),
+      event_timeline: normalizeTimeline(raw.event_timeline),
       client_environment: pickAllowed(raw.client_environment, ALLOWED_ENVIRONMENT_KEYS)
     }
   };

@@ -16,6 +16,13 @@ interface GlobalMobileMenuProps {
 export default function GlobalMobileMenu({ isOpen, setIsOpen, activeMapId, isAdmin }: GlobalMobileMenuProps) {
   const router = useRouter();
   const { user } = useAuth();
+  const mounted = React.useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false
+  );
+  const visibleUser = mounted ? user : null;
+  const visibleIsAdmin = Boolean(visibleUser && isAdmin);
   
   const displayName = React.useSyncExternalStore(
     (callback) => {
@@ -83,18 +90,18 @@ export default function GlobalMobileMenu({ isOpen, setIsOpen, activeMapId, isAdm
                       <User size={30} className="text-[#F2A900]" />
                     </div>
                     <div className="flex flex-col">
-                      <span className="text-white font-black text-lg">{user ? (displayName || "게이머") : "익명 사용자"}</span>
+                      <span className="text-white font-black text-lg">{visibleUser ? (displayName || "게이머") : "익명 사용자"}</span>
                       <span className="text-[#666] text-xs">BGMS에 오신 것을 환영합니다</span>
                     </div>
                   </div>
                   <div className="flex gap-2">
                     <button 
-                      onClick={() => { router.push(user ? '/mypage' : '/login'); setIsOpen(false); }}
+                      onClick={() => { router.push(visibleUser ? '/mypage' : '/login'); setIsOpen(false); }}
                       className="flex-1 bg-[#F2A900] text-black py-3 rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-transform"
                     >
-                      {user ? "마이페이지" : "로그인하기"}
+                      {visibleUser ? "마이페이지" : "로그인하기"}
                     </button>
-                    {user && (
+                    {visibleUser && (
                       <button 
                         onClick={handleLogout}
                         className="px-4 bg-[#222] text-[#888] py-3 rounded-xl font-bold text-sm border border-[#333] flex items-center justify-center gap-2 active:bg-[#2a2a2a]"
@@ -191,7 +198,7 @@ export default function GlobalMobileMenu({ isOpen, setIsOpen, activeMapId, isAdm
                 </div>
 
                 {/* Admin Console Section (관리자 전용) */}
-                {isAdmin && (
+                {visibleIsAdmin && (
                   <div className="flex flex-col gap-4">
                     <h3 className="text-red-500 text-[11px] font-black uppercase tracking-widest ml-1">Admin Console</h3>
                     <div className="grid grid-cols-2 gap-2">
