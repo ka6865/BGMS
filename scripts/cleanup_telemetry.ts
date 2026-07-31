@@ -401,8 +401,12 @@ const isDirectRun = Boolean(process.argv[1])
   && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
 
 if (isDirectRun) {
-  void runTelemetryCleanupFromEnvironment().catch(() => {
-    console.error("텔레메트리 cleanup 작업이 실패했습니다.");
+  void runTelemetryCleanupFromEnvironment().catch((error: unknown) => {
+    // 원인 없이 메시지만 남기면 운영에서 실패 이유를 추적할 수 없다.
+    const detail = error instanceof Error
+      ? `${error.message}${error.stack ? `\n${error.stack}` : ""}`
+      : String(error);
+    console.error(`텔레메트리 cleanup 작업이 실패했습니다. 원인: ${detail}`);
     process.exitCode = 1;
   });
 }

@@ -113,8 +113,12 @@ if (isDirectRun) {
     .then((result) => {
       console.info(`Board write quota cleanup deleted ${result.deletedRows} rows in ${result.batches} batches; backlog=${result.hasRemaining}.`);
     })
-    .catch(() => {
-      console.error("Board write quota cleanup failed.");
+    .catch((error: unknown) => {
+      // 원인 없이 메시지만 남기면 운영에서 실패 이유를 추적할 수 없다.
+      const detail = error instanceof Error
+        ? `${error.message}${error.stack ? `\n${error.stack}` : ""}`
+        : String(error);
+      console.error(`Board write quota cleanup failed: ${detail}`);
       process.exitCode = 1;
     });
 }

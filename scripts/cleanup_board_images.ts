@@ -212,8 +212,12 @@ if (isDirectRun) {
   };
 
   runFromCli()
-    .catch(() => {
-      process.stderr.write("Board image cleanup failed.\n");
+    .catch((error: unknown) => {
+      // 원인 없이 메시지만 남기면 운영에서 실패 이유를 추적할 수 없다.
+      const detail = error instanceof Error
+        ? `${error.message}${error.stack ? `\n${error.stack}` : ""}`
+        : String(error);
+      process.stderr.write(`Board image cleanup failed: ${detail}\n`);
       process.exitCode = 1;
     });
 }
