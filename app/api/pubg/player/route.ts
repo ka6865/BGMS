@@ -443,6 +443,9 @@ export async function GET(request: Request) {
       lower_nickname: actualNickname.toLowerCase(),
       search_count: currentSearchCount + 1,
       updated_at: nowIso,
+      // 사용자가 실제로 조회한 시점. 매치 분석의 대량 upsert 는 이 값을 쓰지 않아
+      // 보존 정책(compact_pubg_player_cache)이 자동 수집 행과 실사용 행을 구분한다.
+      last_seen_at: nowIso,
       ban_type: banType,
       // 시즌/매치 데이터를 항상 갱신하여 DB와 응답이 동기화되도록 보장
       season_stats_data: updatedSeasonStats,
