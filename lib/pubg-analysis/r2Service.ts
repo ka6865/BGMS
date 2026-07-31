@@ -1,5 +1,6 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, HeadObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, HeadObjectCommand, DeleteObjectsCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { partitionDeletionKeys, type DeletionGuardReason } from './r2DeletionGuard';
 
 let r2ClientInstance: S3Client | null = null;
 
@@ -11,6 +12,22 @@ export type R2BucketUsage = {
   truncated: boolean;
   configured: boolean;
 };
+
+export type R2DeletionResult = {
+  /** 실제로 삭제된 키 수. dryRun 인 경우 항상 0 입니다. */
+  deletedCount: number;
+  /** 삭제 대상으로 판정된 키 수. */
+  plannedCount: number;
+  /** 보호 규칙에 걸려 제외된 키와 이유. */
+  blocked: Array<{ key: string; reason: DeletionGuardReason }>;
+  /** 삭제에 실패한 키와 이유. */
+  failed: Array<{ key: string; message: string }>;
+  /** 실제 삭제를 수행하지 않은 경우 true. */
+  dryRun: boolean;
+};
+
+// S3 DeleteObjects API 의 1회 요청 상한.
+const DELETE_REQUEST_CHUNK = 1000;
 
 const cleanEnv = (val: string | undefined) => (val || '').replace(/['";\s]+/g, '').trim();
 
@@ -43,6 +60,64 @@ export function isR2Configured(): boolean {
       && cleanEnv(process.env.CLOUDFLARE_R2_ACCESS_KEY_ID)
       && cleanEnv(process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY),
   );
+}
+
+/**
+ * R2 객체를 삭제합니다.
+ *
+ * 이미지 자산 삭제를 구조적으로 막기 위해 모든 키가 r2DeletionGuard 를 통과해야
+ * 합니다. 가드에 걸린 키는 요청에 포함되지 않으며 blocked 로 보고됩니다.
+ *
+ * dryRun 이 true 이면 삭제 요청을 보내지 않고 대상만 계산합니다.
+ * 운영 정리 작업은 반드시 dryRun 으로 대상을 확인한 뒤 실행해야 합니다.
+ */
+export async function deleteObjectsFromR2(
+  keys: readonly string[],
+  options: { dryRun?: boolean } = {},
+): Promise<R2DeletionResult> {
+  const dryRun = options.dryRun !== false;
+  const { deletable, blocked } = partitionDeletionKeys(keys);
+
+  const result: R2DeletionResult = {
+    deletedCount: 0,
+    plannedCount: deletable.length,
+    blocked,
+    failed: [],
+    dryRun,
+  };
+
+  if (dryRun || deletable.length === 0) {
+    return result;
+  }
+
+  if (!isR2Configured()) {
+    console.warn('[R2 Warning] Cloudflare R2 Credentials are not configured. Skipping deletion.');
+    return result;
+  }
+
+  const bucketName = getBucketName();
+
+  for (let index = 0; index < deletable.length; index += DELETE_REQUEST_CHUNK) {
+    const chunk = deletable.slice(index, index + DELETE_REQUEST_CHUNK);
+    const response = await getR2Client().send(new DeleteObjectsCommand({
+      Bucket: bucketName,
+      Delete: {
+        Objects: chunk.map((key) => ({ Key: key })),
+        Quiet: true,
+      },
+    }));
+
+    for (const error of response.Errors ?? []) {
+      result.failed.push({
+        key: error.Key || '(unknown)',
+        message: error.Message || error.Code || 'unknown error',
+      });
+    }
+
+    result.deletedCount += chunk.length - (response.Errors?.length ?? 0);
+  }
+
+  return result;
 }
 
 /**
