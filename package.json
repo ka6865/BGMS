@@ -28,6 +28,8 @@
     "db:cleanup": "tsx scripts/cleanup_telemetry.ts",
     "db:backup": "tsx scripts/backup_core_tables.ts",
     "db:backup:dry": "tsx scripts/backup_core_tables.ts --dry-run",
+    "db:baseline:refresh": "tsx scripts/refresh_baseline_schema.ts",
+    "verify:baseline": "bash scripts/verify_baseline_restore.sh",
     "cleanup:board-images": "tsx scripts/cleanup_board_images.ts",
     "db:audit:identity": "tsx scripts/audit_processed_telemetry_identity.ts",
     "db:scrape": "tsx scripts/scrape_elite.ts",
