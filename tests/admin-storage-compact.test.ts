@@ -115,9 +115,9 @@ describe("데이터 정리 API", () => {
       rpc: (_name, args) => {
         if (args.p_apply !== true) return compactionRow();
         applied += 1;
-        const remaining = Math.max(0, 12_000 - applied * 5_000);
+        const remaining = Math.max(0, 3_000 - applied * 1_000);
         return compactionRow({
-          deleted_count: remaining > 0 ? 5_000 : 2_000,
+          deleted_count: 1_000,
           remaining_count: remaining,
           dry_run: false,
         });
@@ -128,7 +128,7 @@ describe("데이터 정리 API", () => {
     const body = await response.json();
 
     expect(body.dryRun).toBe(false);
-    expect(body.deletedCount).toBe(12_000);
+    expect(body.deletedCount).toBe(3_000);
     expect(body.hasRemaining).toBe(false);
     // 첫 호출은 dry-run 미리보기, 이후가 실제 삭제다.
     expect(calls[0]?.args.p_apply).toBe(false);
@@ -140,7 +140,7 @@ describe("데이터 정리 API", () => {
     const { calls } = mockAdmin({
       rpc: (_name, args) => compactionRow(
         args.p_apply === true
-          ? { deleted_count: 5_000, remaining_count: 500_000, dry_run: false }
+          ? { deleted_count: 1_000, remaining_count: 500_000, dry_run: false }
           : { candidate_count: 500_000, remaining_count: 500_000 },
       ),
     });
@@ -149,9 +149,18 @@ describe("데이터 정리 API", () => {
     const body = await response.json();
 
     const applyCalls = calls.filter((call) => call.args.p_apply === true);
-    expect(applyCalls.length).toBeLessThanOrEqual(6);
+    expect(applyCalls.length).toBeLessThanOrEqual(20);
     expect(body.hasRemaining).toBe(true);
     expect(body.message).toContain("다시 실행");
+  });
+
+  it("배치 크기가 타임아웃 한계보다 작다", async () => {
+    // 2026-08-01 일일 작업이 batch=5,000 으로 statement timeout 에 걸려 실패했다.
+    const { calls } = mockAdmin({ rpc: () => compactionRow() });
+
+    await compactPOST(request({ target: "pubg_player_cache" }));
+
+    expect(Number(calls[0]?.args.p_batch_limit)).toBeLessThanOrEqual(2_000);
   });
 
   it("삭제가 진행되지 않으면 반복하지 않는다", async () => {

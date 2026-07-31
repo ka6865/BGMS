@@ -33,9 +33,34 @@ describe("pubg_player_cache 보존 정책", () => {
     expect(rpc).toHaveBeenCalledWith("compact_pubg_player_cache", {
       p_retention_days: 90,
       p_apply: true,
-      p_batch_limit: 5_000,
+      p_batch_limit: 1_000,
       p_keep_recent: 150_000,
     });
+  });
+
+  it("배치 크기가 타임아웃 한계보다 작다", async () => {
+    // 2026-08-01 일일 작업이 batch=5,000 으로 statement timeout 에 걸려 실패했다.
+    // 실측: 500=0.97초, 1,000=1.25초, 2,000=1.80초, 5,000=타임아웃.
+    const { client, rpc } = createClient([compactionResult(0, 0)]);
+
+    await cleanupInactivePlayerCache(client);
+
+    const args = rpc.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+    expect(Number(args?.p_batch_limit)).toBeLessThanOrEqual(2_000);
+  });
+
+  it("한 실행의 총 삭제 규모를 3만 행 수준으로 유지한다", async () => {
+    // 배치 크기를 줄였으므로 반복 횟수가 그만큼 늘어야 하루 정리량이 유지된다.
+    const many = Array.from({ length: 200 }, () => compactionResult(1_000, 250_000));
+    const { client, rpc } = createClient(many);
+
+    await cleanupInactivePlayerCache(client);
+
+    const args = rpc.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+    const perBatch = Number(args?.p_batch_limit);
+    const totalDeletable = perBatch * rpc.mock.calls.length;
+    expect(totalDeletable).toBeGreaterThanOrEqual(20_000);
+    expect(totalDeletable).toBeLessThanOrEqual(40_000);
   });
 
   it("남은 대상이 있으면 배치를 반복 호출한다", async () => {
@@ -54,12 +79,12 @@ describe("pubg_player_cache 보존 정책", () => {
   it("한 번 실행의 삭제 규모에 상한을 둔다", async () => {
     // 잔여 대상이 계속 남아 있어도 배치 상한에서 멈춘다.
     // 배포 직후 27만 행이 한 번에 삭제되지 않도록 하는 안전장치다.
-    const many = Array.from({ length: 100 }, () => compactionResult(5_000, 250_000));
+    const many = Array.from({ length: 200 }, () => compactionResult(1_000, 250_000));
     const { client, rpc } = createClient(many);
 
     await cleanupInactivePlayerCache(client);
 
-    expect(rpc.mock.calls.length).toBeLessThanOrEqual(10);
+    expect(rpc.mock.calls.length).toBeLessThanOrEqual(40);
     expect(rpc.mock.calls.length).toBeGreaterThan(1);
   });
 

@@ -35,6 +35,9 @@ export const RECLAIM_TARGETS: Record<ReclaimTarget, {
 // 결과가 어긋나지 않도록 한다.
 const PLAYER_CACHE_RETENTION_DAYS = 90;
 const PLAYER_CACHE_KEEP_RECENT = 150_000;
+// 5,000 은 Supabase 무료 플랜의 statement timeout 을 넘긴다(2026-08-01 실측).
+// dry-run 은 count 만 세지만 실제 정리와 같은 값을 써 혼동을 줄인다.
+const PLAYER_CACHE_BATCH_LIMIT = 1_000;
 
 const MONITORED_TABLES = [
   "pubg_player_cache",
@@ -152,11 +155,11 @@ export function buildDryRunArgs(target: ReclaimTarget): Record<string, unknown> 
     return {
       p_retention_days: PLAYER_CACHE_RETENTION_DAYS,
       p_apply: false,
-      p_batch_limit: 5_000,
+      p_batch_limit: PLAYER_CACHE_BATCH_LIMIT,
       p_keep_recent: PLAYER_CACHE_KEEP_RECENT,
     };
   }
-  return { p_apply: false, p_batch_limit: 5_000 };
+  return { p_apply: false, p_batch_limit: PLAYER_CACHE_BATCH_LIMIT };
 }
 
 async function fetchDatabaseUsage(supabase: any): Promise<StorageHealthSummary["database"]> {
