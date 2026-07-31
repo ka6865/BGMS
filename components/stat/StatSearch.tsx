@@ -19,6 +19,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
+import CompanionEntryCard from "@/components/overwolf/CompanionEntryCard";
 
 const STATS_MOBILE_AD_UNIT = "DAN-tQGcqmddMC8tPpXA";
 const STATS_LEADERBOARD_AD_UNIT = "DAN-dPiCxgIGtXKjLPP3";
@@ -666,6 +667,13 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
               handleSearch(selectedSeason, name, platform);
             }}
           />
+
+          {/*
+            Overwolf Companion 진입점.
+            앱을 쓰는 사용자는 데스크탑 창 버튼으로 세션 기록에 들어오지만,
+            웹에서 먼저 온 사용자는 그 화면의 존재를 알 수 없었다.
+          */}
+          <CompanionEntryCard />
         </>
       )}
 

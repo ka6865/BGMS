@@ -489,6 +489,10 @@ export default function OverwolfSessionList() {
             BGMS Companion 데스크탑 창에서 전송을 켜고 같은 닉네임을 입력했는지 확인해주세요. 전송은
             매치가 끝난 뒤 1회 발생합니다.
           </p>
+          <p className="mt-3 border-t border-white/5 pt-3 text-xs leading-relaxed text-white/40">
+            앱을 아직 설치하지 않았다면 Overwolf 앱스토어에서 BGMS Companion을 받은 뒤 데스크탑 창에서
+            전송을 켜주세요. 켜기 전에는 아무것도 전송되지 않습니다.
+          </p>
         </div>
       ) : null}
 
