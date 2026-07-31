@@ -982,7 +982,8 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
                             onModeDetected={handleModeDetected}
                           />
                           {(index === 4 || index === 14) && (
-                            <div className="my-2 w-full bg-[#1a1a1a] rounded-3xl p-0 border border-white/5 overflow-hidden max-h-[150px] flex items-center justify-center">
+                            /* 인피드 광고는 높이를 제한하지 않는다. 잘린 광고 렌더는 정책 위반이다. */
+                            <div className="my-2 w-full bg-[#1a1a1a] rounded-3xl p-0 border border-white/5 flex items-center justify-center">
                               <div className="w-full">
                                 <AdSenseBanner
                                   client="ca-pub-3993032200487955"
@@ -1008,18 +1009,24 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
             <SquadAnalysisPanel nickname={result.nickname} platform={result.platform} />
           )}
 
-          <aside className="hidden 2xl:block w-[160px] absolute left-[calc(100%+24px)] top-0 h-full" aria-label="광고">
-            <div className="sticky top-16">
-              <AdfitBanner
-                adUnit={STATS_DESKTOP_AD_UNIT}
-                adWidth={160}
-                adHeight={600}
-              />
-            </div>
+          {/* 우측 레일은 고정하지 않고 상단에 한 번만 노출한다. 좌우 동시 고정 광고는 정책 위반이다. */}
+          <aside
+            className="hidden [@media(min-width:1536px)_and_(min-height:680px)]:block w-[160px] absolute left-[calc(100%+24px)] top-0"
+            aria-label="광고"
+          >
+            <AdfitBanner
+              adUnit={STATS_DESKTOP_AD_UNIT}
+              adWidth={160}
+              adHeight={600}
+            />
           </aside>
 
-          <aside className="hidden 2xl:block w-[160px] absolute right-[calc(100%+24px)] top-0 h-full" aria-label="광고">
-            <div className="sticky top-16">
+          {/* 뷰포트 고정 광고는 좌측 한 곳만 유지한다. */}
+          <aside
+            className="hidden [@media(min-width:1536px)_and_(min-height:680px)]:block w-[160px] absolute right-[calc(100%+24px)] top-0 h-full"
+            aria-label="광고"
+          >
+            <div className="sticky top-16 h-[600px]">
               <AdSenseBanner
                 client="ca-pub-3993032200487955"
                 slot="7728921550"
