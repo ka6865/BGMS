@@ -14,14 +14,15 @@ import {
   pseudonymizeTelemetryTeammates,
 } from "@/lib/pubg-analysis/telemetryCacheKey.server";
 import {
-  readTelemetryMapCache,
-  reserveTelemetryMapCacheRow,
+  claimOrWaitForTelemetryMapCache,
+  releaseTelemetryMapCacheRow,
   writeTelemetryMapCache,
   type TelemetryMapCacheDependencies,
 } from "@/lib/pubg-analysis/telemetryMapCache";
 import {
+  claimTelemetryMapCacheReservation,
   finalizeTelemetryMapCacheLifecycle,
-  upsertTelemetryMapCacheReservation,
+  releaseTelemetryMapCacheReservation,
 } from "@/lib/pubg-analysis/telemetryRegistry.server";
 import {
   createTelemetryIdentity,
@@ -124,7 +125,8 @@ export async function GET(request: Request) {
       download: downloadFromR2,
       upload: uploadToR2,
       sign: getPresignedUrlFromR2,
-      reserve: (row) => upsertTelemetryMapCacheReservation(supabase, row),
+      claim: (row) => claimTelemetryMapCacheReservation(supabase, row),
+      release: (row) => releaseTelemetryMapCacheReservation(supabase, row),
       finalize: (row) => finalizeTelemetryMapCacheLifecycle(supabase, {
         row,
         mapName: matchData.data.attributes.mapId || mapName,
@@ -134,55 +136,70 @@ export async function GET(request: Request) {
       sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
       random: Math.random,
     };
-    const cached = await readTelemetryMapCache(identity, deps);
-    if (cached) {
+    const cacheAccess = await claimOrWaitForTelemetryMapCache(identity, deps);
+    if (cacheAccess.kind === "hit") {
       return NextResponse.json(
-        { downloadUrl: cached.downloadUrl, identity: cached.payload.identity },
+        {
+          downloadUrl: cacheAccess.cache.downloadUrl,
+          identity: cacheAccess.cache.payload.identity,
+        },
         { headers: { "Cache-Control": "no-store" } },
       );
     }
 
-    const reservedRow = await reserveTelemetryMapCacheRow(identity, deps);
+    if (cacheAccess.kind === "pending") {
+      return NextResponse.json(
+        { error: "텔레메트리 생성이 진행 중입니다. 잠시 후 다시 시도해 주세요." },
+        { status: 503, headers: { "Retry-After": "2" } },
+      );
+    }
 
-    const telemetryRes = await fetch(asset.attributes.URL, { cache: "no-store" });
-    if (!telemetryRes.ok) throw new Error("PUBG telemetry request failed");
-    const events = await telemetryRes.json();
+    const reservedRow = cacheAccess.row;
 
-    const { AnalysisEngine } = await import("@/lib/pubg-analysis/AnalysisEngine");
-    const engine = new AnalysisEngine(
-      canonicalNickname,
-      playerId,
-      new Set(),
-      new Set(),
-      new Set(),
-      new Set(),
-      "",
-      mode,
-    );
-    const result = engine.run(
-      events,
-      matchData.data.attributes,
-      rosters,
-      participants,
-      myInfo.attributes.stats,
-      [],
-      { avg_damage: 200 },
-    );
-    const payload = createTelemetryPayload({
-      identity: buildTelemetryPublicIdentity(identity),
-      startTime: matchData.data.attributes.createdAt,
-      teammates: pseudonymizeTelemetryTeammates(result.mapData?.teammates || []),
-      teamNames: result.mapData?.teamNames || [canonicalNickname],
-      events: pseudonymizeTelemetryAccountIds(result.mapData?.events || []),
-      zoneEvents: pseudonymizeTelemetryAccountIds(result.mapData?.zoneEvents || []),
-      mapName: result.mapName || matchData.data.attributes.mapName || mapName,
-    });
-    const cachedResult = await writeTelemetryMapCache(identity, payload, deps, { reservedRow });
+    try {
+      const telemetryRes = await fetch(asset.attributes.URL, { cache: "no-store" });
+      if (!telemetryRes.ok) throw new Error("PUBG telemetry request failed");
+      const events = await telemetryRes.json();
 
-    return NextResponse.json(
-      { downloadUrl: cachedResult.downloadUrl, identity: cachedResult.payload.identity },
-      { headers: { "Cache-Control": "no-store" } },
-    );
+      const { AnalysisEngine } = await import("@/lib/pubg-analysis/AnalysisEngine");
+      const engine = new AnalysisEngine(
+        canonicalNickname,
+        playerId,
+        new Set(),
+        new Set(),
+        new Set(),
+        new Set(),
+        "",
+        mode,
+      );
+      const result = engine.run(
+        events,
+        matchData.data.attributes,
+        rosters,
+        participants,
+        myInfo.attributes.stats,
+        [],
+        { avg_damage: 200 },
+      );
+      const payload = createTelemetryPayload({
+        identity: buildTelemetryPublicIdentity(identity),
+        startTime: matchData.data.attributes.createdAt,
+        teammates: pseudonymizeTelemetryTeammates(result.mapData?.teammates || []),
+        teamNames: result.mapData?.teamNames || [canonicalNickname],
+        events: pseudonymizeTelemetryAccountIds(result.mapData?.events || []),
+        zoneEvents: pseudonymizeTelemetryAccountIds(result.mapData?.zoneEvents || []),
+        mapName: result.mapName || matchData.data.attributes.mapName || mapName,
+      });
+      const cachedResult = await writeTelemetryMapCache(identity, payload, deps, { reservedRow });
+
+      return NextResponse.json(
+        { downloadUrl: cachedResult.downloadUrl, identity: cachedResult.payload.identity },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    } catch (error) {
+      await releaseTelemetryMapCacheRow(reservedRow, deps).catch(() => undefined);
+      throw error;
+    }
   } catch {
     await reportPubgApiError({
       route: "/api/pubg/telemetry",

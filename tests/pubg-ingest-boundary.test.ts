@@ -25,7 +25,10 @@ const {
     return { run: mockEngineRun };
   });
   const mockProcessedTelemetryMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
-  const mockRpc = vi.fn().mockResolvedValue({ data: null, error: null });
+  const mockRpc = vi.fn<(name: string) => Promise<any>>((name: string) => Promise.resolve({
+    data: name === "claim_telemetry_cache_write" ? true : null,
+    error: null,
+  }));
   const mockFrom = vi.fn((table: string) => {
     if (table === "processed_match_telemetry") {
       const query = {
@@ -281,7 +284,7 @@ describe("PUBG ingest architecture boundary", () => {
     const telemetrySource = readFileSync(resolve("app/api/pubg/telemetry/route.ts"), "utf8");
 
     expect(matchSource).toContain("buildTelemetryPublicIdentity(telemetryIdentity)");
-    expect(telemetrySource).toContain("identity: cached.payload.identity");
+    expect(telemetrySource).toContain("identity: cacheAccess.cache.payload.identity");
     expect(telemetrySource).toContain("identity: cachedResult.payload.identity");
     expect(telemetrySource).not.toMatch(/downloadUrl:\s*(?:cached|cachedResult)\.downloadUrl,\s*identity\s*[,}]/);
   });
@@ -294,7 +297,10 @@ describe("PUBG match persistence behavior", () => {
     mockIsR2Configured.mockReturnValue(true);
     mockPersistMatchAnalysis.mockResolvedValue({ succeeded: [], failures: [] });
     mockProcessedTelemetryMaybeSingle.mockResolvedValue({ data: null, error: null });
-    mockRpc.mockResolvedValue({ data: null, error: null });
+    mockRpc.mockImplementation((name: string) => Promise.resolve({
+      data: name === "claim_telemetry_cache_write" ? true : null,
+      error: null,
+    }));
     mockPubgMatchResponse();
   });
 
@@ -392,7 +398,7 @@ describe("PUBG match persistence behavior", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual(expect.objectContaining({ matchId: MATCH_ID }));
-    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(mockRpc).toHaveBeenCalledTimes(2);
     expect(mockRpc).toHaveBeenCalledWith(
       "finalize_telemetry_cache_write",
       expect.objectContaining({
@@ -413,86 +419,62 @@ describe("PUBG match persistence behavior", () => {
     );
   });
 
-  it("단일 match 분석은 telemetry registry reservation을 한 번만 upsert한다", async () => {
+  it("단일 match 분석은 telemetry registry write lease를 한 번 claim한다", async () => {
     const response = await GET(createMatchRequest());
 
     expect(response.status).toBe(200);
-    const registryCalls = mockFrom.mock.calls
-      .filter(([table]) => table === "telemetry_map_cache_entries");
-    expect(registryCalls).toHaveLength(1);
+    expect(mockRpc).toHaveBeenCalledWith(
+      "claim_telemetry_cache_write",
+      expect.objectContaining({
+        p_match_id: MATCH_ID,
+        p_platform: "steam",
+        p_player_id: PLAYER_ID,
+      }),
+    );
   });
 
-  it("초기 캐시 예약 재시도 소진 후 최종 쓰기에서 다시 예약해 분석을 저장한다", async () => {
-    let registryAttempts = 0;
-    let response: Response | undefined;
+  it("claim 오류가 발생하면 분석을 시작하지 않는다", async () => {
+    mockRpc.mockImplementation(() => Promise.resolve({
+      data: null,
+      error: { code: "57014", status: 500, message: `statement timeout ${PLAYER_ID}` },
+      status: 500,
+    }));
+    const response = await GET(createMatchRequest());
 
-    await mockFrom.withImplementation((table: string) => {
-      if (table === "processed_match_telemetry") {
-        const query = {
-          select: vi.fn(),
-          eq: vi.fn(),
-          maybeSingle: mockProcessedTelemetryMaybeSingle,
-        };
-        query.select.mockReturnValue(query);
-        query.eq.mockReturnValue(query);
-        return query;
-      }
-
-      if (table === "telemetry_map_cache_entries") {
-        registryAttempts += 1;
-        return {
-          upsert: vi.fn().mockResolvedValue(registryAttempts <= 3
-            ? {
-                error: {
-                  code: "57014",
-                  status: 500,
-                  message: `statement timeout ${PLAYER_ID}`,
-                },
-                status: 500,
-              }
-            : { error: null, status: 200 }),
-        };
-      }
-
-      return { upsert: vi.fn().mockResolvedValue({ error: null, status: 200 }) };
-    }, async () => {
-      response = await GET(createMatchRequest());
-    });
-
-    expect(response?.status).toBe(200);
-    await expect(response?.json()).resolves.toEqual(expect.objectContaining({ matchId: MATCH_ID }));
-    expect(registryAttempts).toBe(4);
-    expect(mockRpc).toHaveBeenCalledTimes(1);
-    expect(mockPersistMatchAnalysis).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(500);
+    expect(mockRpc).toHaveBeenCalledTimes(3);
+    expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
     expect(mockReportPubgApiError).toHaveBeenCalledWith(expect.objectContaining({
       route: "/api/pubg/match",
-      status: 503,
-      message: "PUBG_MATCH_ANALYSIS_TELEMETRY_CACHE_PERSISTENCE",
+      status: 500,
+      message: "PUBG_MATCH_ANALYSIS_TELEMETRY_CACHE_RESERVE",
       notify: true,
       context: expect.objectContaining({
-        failureStage: "analysis:telemetry_cache_persistence",
-        errorCode: "PUBG_MATCH_ANALYSIS_TELEMETRY_CACHE_PERSISTENCE",
+        failureStage: "analysis:telemetry_cache_reserve",
+        errorCode: "PUBG_MATCH_ANALYSIS_TELEMETRY_CACHE_RESERVE",
       }),
     }));
   });
 
   it("캐시 최종화 재시도 소진에도 민감정보 없이 매치 분석 결과를 반환한다", async () => {
-    mockRpc.mockResolvedValue({
-      data: null,
-      error: {
-        code: "57014",
-        status: 500,
-        message: `statement timeout ${PLAYER_ID}`,
-      },
-      status: 500,
-    });
+    mockRpc.mockImplementation((name: string) => Promise.resolve(name === "claim_telemetry_cache_write"
+      ? { data: true, error: null }
+      : {
+          data: null,
+          error: {
+            code: "57014",
+            status: 500,
+            message: `statement timeout ${PLAYER_ID}`,
+          },
+          status: 500,
+        }));
 
     const response = await GET(createMatchRequest());
     const body = await response.json();
 
     expect(response.status).toBe(200);
     expect(body).toEqual(expect.objectContaining({ matchId: MATCH_ID }));
-    expect(mockRpc).toHaveBeenCalledTimes(3);
+    expect(mockRpc).toHaveBeenCalledTimes(7);
     expect(mockPersistMatchAnalysis).toHaveBeenCalledTimes(1);
     expect(mockReportPubgApiError).toHaveBeenCalledWith(expect.objectContaining({
       route: "/api/pubg/match",
@@ -521,11 +503,9 @@ describe("PUBG match persistence behavior", () => {
   });
 
   it("캐시 실패 관측이 reject되어도 중복 보고 없이 매치 분석 결과를 반환한다", async () => {
-    mockRpc.mockResolvedValue({
-      data: null,
-      error: { code: "22023", message: "invalid cache input" },
-      status: 400,
-    });
+    mockRpc.mockImplementation((name: string) => Promise.resolve(name === "claim_telemetry_cache_write"
+      ? { data: true, error: null }
+      : { data: null, error: { code: "22023", message: "invalid cache input" }, status: 400 }));
     mockReportPubgApiError.mockRejectedValueOnce(new Error("monitoring unavailable"));
 
     const response = await GET(createMatchRequest());
@@ -537,16 +517,14 @@ describe("PUBG match persistence behavior", () => {
   });
 
   it("비일시적 캐시 최종화 실패는 실제 retry 횟수 0으로 관측한다", async () => {
-    mockRpc.mockResolvedValue({
-      data: null,
-      error: { code: "22023", message: "invalid cache input" },
-      status: 400,
-    });
+    mockRpc.mockImplementation((name: string) => Promise.resolve(name === "claim_telemetry_cache_write"
+      ? { data: true, error: null }
+      : { data: null, error: { code: "22023", message: "invalid cache input" }, status: 400 }));
 
     const response = await GET(createMatchRequest());
 
     expect(response.status).toBe(200);
-    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(mockRpc).toHaveBeenCalledTimes(3);
     const reportInput = mockReportPubgApiError.mock.calls.at(-1)?.[0];
     expect(JSON.parse(String(reportInput?.detail))).toEqual({
       operation: "finalize",
@@ -593,7 +571,10 @@ describe("PUBG match query boundary", () => {
     mockIsR2Configured.mockReturnValue(true);
     mockPersistMatchAnalysis.mockResolvedValue({ succeeded: [], failures: [] });
     mockProcessedTelemetryMaybeSingle.mockResolvedValue({ data: null, error: null });
-    mockRpc.mockResolvedValue({ data: null, error: null });
+    mockRpc.mockImplementation((name: string) => Promise.resolve({
+      data: name === "claim_telemetry_cache_write" ? true : null,
+      error: null,
+    }));
     mockPubgMatchResponse();
   });
 
@@ -662,6 +643,10 @@ describe("PUBG match query boundary", () => {
     expect(onlyScraper.status).toBe(403);
 
     vi.clearAllMocks();
+    mockRpc.mockImplementation((name: string) => Promise.resolve({
+      data: name === "claim_telemetry_cache_write" ? true : null,
+      error: null,
+    }));
     mockPubgMatchResponse();
     const onlyAdmin = await GET(createMatchRequest({
       source: "scraper",
@@ -716,6 +701,10 @@ describe("PUBG match query boundary", () => {
     expect(fetch).not.toHaveBeenCalled();
 
     vi.clearAllMocks();
+    mockRpc.mockImplementation((name: string) => Promise.resolve({
+      data: name === "claim_telemetry_cache_write" ? true : null,
+      error: null,
+    }));
     mockPubgMatchResponse();
     const headerResponse = await GET(createMatchRequest({ force: true, adminToken: "admin-token" }));
     expect(headerResponse.status).toBe(200);

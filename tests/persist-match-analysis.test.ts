@@ -116,6 +116,7 @@ describe("persistMatchAnalysis", () => {
         win_place: 10,
         game_mode: "squad-fpp",
         map_name: "Baltic_Main",
+        is_analysis_sample: true,
       }],
       { onConflict: "match_id,platform,player_id" },
     );
@@ -129,6 +130,76 @@ describe("persistMatchAnalysis", () => {
       { onConflict: "id" },
     );
     expect(result.failures).toEqual([]);
+  });
+
+  it("분석 대상자와 인간 승자만 raw stats에 저장하고 표본 역할을 구분한다", async () => {
+    await persistMatchAnalysis(supabase, {
+      ...input,
+      rawParticipants: [
+        {
+          id: "target",
+          attributes: {
+            stats: {
+              playerId: "account-target",
+              name: "PlayerOne",
+              damageDealt: 120.8,
+              kills: 2,
+              winPlace: 8,
+            },
+          },
+        },
+        {
+          id: "winner",
+          attributes: {
+            stats: {
+              playerId: "account-winner",
+              name: "HumanWinner",
+              damageDealt: 500.9,
+              kills: 6,
+              winPlace: 1,
+            },
+          },
+        },
+        {
+          id: "bystander",
+          attributes: {
+            stats: {
+              playerId: "account-bystander",
+              name: "Bystander",
+              damageDealt: 50,
+              kills: 0,
+              winPlace: 20,
+            },
+          },
+        },
+        {
+          id: "ai-winner",
+          attributes: {
+            stats: {
+              playerId: "ai.123",
+              name: "BotWinner",
+              damageDealt: 700,
+              kills: 8,
+              winPlace: 1,
+            },
+          },
+        },
+      ],
+    });
+
+    expect(upserts.get("match_stats_raw")).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          player_id: "playerone",
+          is_analysis_sample: true,
+        }),
+        expect.objectContaining({
+          player_id: "humanwinner",
+          is_analysis_sample: false,
+        }),
+      ],
+      { onConflict: "match_id,platform,player_id" },
+    );
   });
 
   it("benchmark의 전체 column mapping과 점수 의미를 현재 route와 동일하게 유지한다", async () => {

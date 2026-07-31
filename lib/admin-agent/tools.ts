@@ -684,6 +684,7 @@ export async function runDbStatQuery(statType: string, supabase: any): Promise<s
     const { data, error } = await supabase
       .from("match_stats_raw")
       .select("map_name")
+      .eq("is_analysis_sample", true)
       .order("created_at", { ascending: false })
       .limit(2000);
 
@@ -752,6 +753,7 @@ export async function runDbStatQuery(statType: string, supabase: any): Promise<s
     const { data, error } = await supabase
       .from("match_stats_raw")
       .select("kills, damage")
+      .eq("is_analysis_sample", true)
       .order("created_at", { ascending: false })
       .limit(2000);
 

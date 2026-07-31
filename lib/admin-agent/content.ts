@@ -76,6 +76,7 @@ async function fetchMapStats(supabase: any) {
   const { data, error } = await supabase
     .from("match_stats_raw")
     .select("map_name, kills, damage")
+    .eq("is_analysis_sample", true)
     .order("created_at", { ascending: false })
     .limit(1000);
   if (error) return { error: error.message, topMaps: [] };
