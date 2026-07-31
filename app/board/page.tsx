@@ -61,14 +61,15 @@ export default async function BoardPage({
     .range(from, to);
 
   let posts = [];
-  if (!error && data) {
+  const hasError = Boolean(error);
+  if (data && !error) {
     posts = data.map((post: any) => ({
       ...post,
       author: post.profiles?.nickname || post.author || '알 수 없음',
       ip_address: post.ip_address ? maskIp(post.ip_address) : null,
       comment_count: post.comments && post.comments[0] ? post.comments[0].count : 0,
     }));
-  } else {
+  } else if (error) {
     console.error("Board RSC Fetch Error:", error);
   }
 
@@ -91,6 +92,7 @@ export default async function BoardPage({
             currentFilter={filter}
             currentSearchOption={searchType}
             currentSearchQuery={q}
+            hasError={hasError}
          />
       </div>
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Loader2,
@@ -113,13 +113,16 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
   const [groups, setGroups] = useState<any[]>([]);
   const [selectedGroupKey, setSelectedGroupKey] = useState<string>("");
   const [loadingList, setLoadingList] = useState<boolean>(true);
+  const [listError, setListError] = useState<boolean>(false);
   const [loadingDetail, setLoadingDetail] = useState<boolean>(false);
+  const [detailError, setDetailError] = useState<boolean>(false);
   const [analysisData, setAnalysisData] = useState<SquadAnalysisData | null>(null);
   
   // AI Coaching States
   const [coachingStyle, setCoachingStyle] = useState<"spicy" | "mild">("spicy");
   const [loadingAi, setLoadingAi] = useState<boolean>(false);
   const [aiFeedback, setAiFeedback] = useState<AiFeedback | null>(null);
+  const [aiError, setAiError] = useState<boolean>(false);
 
   // 2D Map Selected Match State
   const [selectedMapMatchId, setSelectedMapMatchId] = useState<string>("");
@@ -134,60 +137,72 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
   const [shareMessage, setShareMessage] = useState<string | null>(null);
 
   // 1. Fetch detected squad list on mount
-  useEffect(() => {
-    async function fetchSquadGroups() {
-      try {
-        setLoadingList(true);
-        const res = await fetch(`/api/pubg/squad-analyze?nickname=${encodeURIComponent(nickname)}&platform=${platform}`);
-        const data = await res.json();
-        
-        if (data.groups && data.groups.length > 0) {
-          setGroups(data.groups);
-          const targetGroup = data.groups.find((g: any) => g.groupKey === urlGroupKey) || data.groups[0];
-          setSelectedGroupKey(targetGroup.groupKey);
-        }
-      } catch (err) {
-        console.error("Failed to load squad list:", err);
-      } finally {
-        setLoadingList(false);
+  const fetchSquadGroups = useCallback(async () => {
+    try {
+      setLoadingList(true);
+      setListError(false);
+      setGroups([]);
+      setSelectedGroupKey("");
+      const res = await fetch(`/api/pubg/squad-analyze?nickname=${encodeURIComponent(nickname)}&platform=${platform}`);
+      if (!res.ok) throw new Error("Squad list request failed");
+      const data = await res.json();
+      if (data?.error) throw new Error("Squad list response failed");
+
+      if (data.groups && data.groups.length > 0) {
+        setGroups(data.groups);
+        const targetGroup = data.groups.find((g: any) => g.groupKey === urlGroupKey) || data.groups[0];
+        setSelectedGroupKey(targetGroup.groupKey);
       }
+    } catch (err) {
+      console.error("Failed to load squad list:", err);
+      setListError(true);
+    } finally {
+      setLoadingList(false);
     }
-    fetchSquadGroups();
   }, [nickname, platform, urlGroupKey]);
 
-  // 2. Fetch detailed analysis when selected group changes
   useEffect(() => {
+    void fetchSquadGroups();
+  }, [fetchSquadGroups]);
+
+  // 2. Fetch detailed analysis when selected group changes
+  const fetchSquadDetails = useCallback(async () => {
     if (!selectedGroupKey) return;
 
-    async function fetchSquadDetails() {
-      try {
-        setLoadingDetail(true);
-        setAiFeedback(null); // Clear previous AI feedback
-        const res = await fetch(
-          `/api/pubg/squad-analyze?nickname=${encodeURIComponent(nickname)}&platform=${platform}&groupKey=${encodeURIComponent(selectedGroupKey)}`
-        );
-        const data = await res.json();
-        if (data && !data.error) {
-          setAnalysisData(data);
-          // [GA4 Analytics] 스쿼드 시너지 전술 데이터 로드 완료
-          trackEvent({
-            name: "squad_synergy_completed",
-            params: {
-              nickname,
-              platform,
-              match_count: data.matchCount || 0,
-              members_count: data.roleProfiles ? data.roleProfiles.length : 0,
-            },
-          });
-        }
-      } catch (err) {
-        console.error("Failed to load squad details:", err);
-      } finally {
-        setLoadingDetail(false);
-      }
+    try {
+      setLoadingDetail(true);
+      setDetailError(false);
+      setAnalysisData(null);
+      setAiFeedback(null);
+      const res = await fetch(
+        `/api/pubg/squad-analyze?nickname=${encodeURIComponent(nickname)}&platform=${platform}&groupKey=${encodeURIComponent(selectedGroupKey)}`
+      );
+      if (!res.ok) throw new Error("Squad detail request failed");
+      const data = await res.json();
+      if (!data || data.error) throw new Error("Squad detail response failed");
+
+      setAnalysisData(data);
+      // GA4 스쿼드 시너지 전술 데이터 로드 완료
+      trackEvent({
+        name: "squad_synergy_completed",
+        params: {
+          nickname,
+          platform,
+          match_count: data.matchCount || 0,
+          members_count: data.roleProfiles ? data.roleProfiles.length : 0,
+        },
+      });
+    } catch (err) {
+      console.error("Failed to load squad details:", err);
+      setDetailError(true);
+    } finally {
+      setLoadingDetail(false);
     }
-    fetchSquadDetails();
   }, [selectedGroupKey, nickname, platform]);
+
+  useEffect(() => {
+    void fetchSquadDetails();
+  }, [fetchSquadDetails]);
 
   // Sync selected map match ID when analysisData loads
   useEffect(() => {
@@ -222,6 +237,7 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
 
     try {
       setLoadingAi(true);
+      setAiError(false);
       const res = await fetch("/api/pubg/ai-squad", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -242,6 +258,7 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
       
       if (!res.ok) throw new Error("스쿼드 AI 분석 API 응답 에러");
       const data = await res.json();
+      if (!data || data.error) throw new Error("스쿼드 AI 분석 응답 오류");
       setAiFeedback(data);
       
       // [GA4 Analytics] AI 스쿼드 코칭 생성 완료
@@ -264,6 +281,7 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
       });
     } catch (err: any) {
       console.error("AI coaching request failed:", err);
+      setAiError(true);
       
       // GA4 이벤트 트래킹: 스쿼드 시너지 분석 실패
       trackEvent({
@@ -453,6 +471,21 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
   }
 
   if (groups.length === 0) {
+    if (listError) {
+      return (
+        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-8 text-center">
+          <ShieldAlert className="mx-auto mb-2 h-12 w-12 text-red-400" />
+          <p className="text-zinc-200">일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.</p>
+          <button
+            type="button"
+            onClick={() => void fetchSquadGroups()}
+            className="mt-4 rounded-lg border border-red-400/30 px-4 py-2 text-xs font-bold text-red-200 transition-colors hover:bg-red-400/10"
+          >
+            다시 시도
+          </button>
+        </div>
+      );
+    }
     return (
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-8 text-center">
         <ShieldAlert className="mx-auto h-12 w-12 text-zinc-600 mb-2" />
@@ -490,6 +523,19 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
         <div className="flex h-60 items-center justify-center">
           <Loader2 className="h-8 w-8 animate-spin text-purple-500" />
           <span className="ml-2 text-zinc-400">선택된 스쿼드 시너지를 집계 분석 중...</span>
+        </div>
+      )}
+
+      {detailError && !loadingDetail && (
+        <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-6 text-center">
+          <p className="text-sm text-red-200">일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.</p>
+          <button
+            type="button"
+            onClick={() => void fetchSquadDetails()}
+            className="mt-3 rounded-lg border border-red-400/30 px-4 py-2 text-xs font-bold text-red-200 transition-colors hover:bg-red-400/10"
+          >
+            다시 시도
+          </button>
         </div>
       )}
 
@@ -785,6 +831,19 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
             </div>
           </div>
  
+          {aiError && (
+            <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4 text-center">
+              <p className="text-sm text-red-200">일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.</p>
+              <button
+                type="button"
+                onClick={requestAiCoaching}
+                className="mt-3 rounded-lg border border-red-400/30 px-3 py-1.5 text-xs font-bold text-red-200 transition-colors hover:bg-red-400/10"
+              >
+                다시 시도
+              </button>
+            </div>
+          )}
+
           {/* AI Result View */}
           {aiFeedback && (
             <div className="space-y-4 pt-4 border-t border-purple-500/10">

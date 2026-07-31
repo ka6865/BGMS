@@ -24,6 +24,10 @@ export type RankingEntry = {
   match_count?: number;
 };
 
+export type RankingQueryResult = {
+  data: RankingEntry[];
+  hasError: boolean;
+};
 
 const MAP_NAME_KO: Record<string, string> = {
   Baltic_Main: '에란겔',
@@ -74,13 +78,20 @@ function getModes(filter: GameModeFilter, perspective: PerspectiveFilter): strin
 }
 
 /** player_id 배열로 닉네임 맵 조회 */
-async function fetchNicknameMap(playerIds: string[]): Promise<Map<string, string>> {
-  if (playerIds.length === 0) return new Map();
-  const { data } = await supabase
+async function fetchNicknameMap(playerIds: string[]): Promise<{ nicknameMap: Map<string, string>; hasError: boolean }> {
+  if (playerIds.length === 0) return { nicknameMap: new Map(), hasError: false };
+  const { data, error } = await supabase
     .from('pubg_player_cache')
     .select('lower_nickname, nickname')
     .in('lower_nickname', playerIds.slice(0, 100));
-  return new Map((data || []).map((c: any) => [c.lower_nickname, c.nickname]));
+  if (error || !data) {
+    logRankingError('nickname_map', error);
+    return { nicknameMap: new Map(), hasError: true };
+  }
+  return {
+    nicknameMap: new Map(data.map((c: any) => [c.lower_nickname, c.nickname])),
+    hasError: false,
+  };
 }
 
 /** 이번 주 최고 딜량 TOP 30 */
@@ -88,7 +99,7 @@ export async function getWeeklyTopDamage(
   modeFilter: GameModeFilter = 'all',
   perspectiveFilter: PerspectiveFilter = 'all',
   matchTypeFilter: MatchTypeFilter = 'all'
-): Promise<RankingEntry[]> {
+): Promise<RankingQueryResult> {
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   let query = supabase
@@ -108,7 +119,7 @@ export async function getWeeklyTopDamage(
   const { data, error } = await query;
   if (error || !data) {
     logRankingError('weekly_top_damage', error);
-    return [];
+    return { data: [], hasError: true };
   }
 
   // 플레이어당 최고 딜량만 유지
@@ -122,19 +133,23 @@ export async function getWeeklyTopDamage(
     if (deduped.length >= 30) break;
   }
 
-  const nicknameMap = await fetchNicknameMap(deduped.map(d => d.player_id));
+  const { nicknameMap, hasError: hasNicknameError } = await fetchNicknameMap(deduped.map(d => d.player_id));
+  if (hasNicknameError) return { data: [], hasError: true };
 
-  return deduped.map((row, i) => ({
-    rank: i + 1,
-    player_id: row.player_id,
-    nickname: nicknameMap.get(row.player_id) || row.player_id,
-    value: Math.round(row.damage),
-    secondary: row.kills,
-    game_mode: GAME_MODE_KO[row.game_mode] || row.game_mode,
-    map_name: MAP_NAME_KO[row.map_name] || row.map_name || '알 수 없음',
-    tier: row.tier || 'C',
-    created_at: row.created_at,
-  }));
+  return {
+    data: deduped.map((row, i) => ({
+      rank: i + 1,
+      player_id: row.player_id,
+      nickname: nicknameMap.get(row.player_id) || row.player_id,
+      value: Math.round(row.damage),
+      secondary: row.kills,
+      game_mode: GAME_MODE_KO[row.game_mode] || row.game_mode,
+      map_name: MAP_NAME_KO[row.map_name] || row.map_name || '알 수 없음',
+      tier: row.tier || 'C',
+      created_at: row.created_at,
+    })),
+    hasError: false,
+  };
 }
 
 /** 이번 주 최고 킬 TOP 30 */
@@ -142,7 +157,7 @@ export async function getWeeklyTopKills(
   modeFilter: GameModeFilter = 'all',
   perspectiveFilter: PerspectiveFilter = 'all',
   matchTypeFilter: MatchTypeFilter = 'all'
-): Promise<RankingEntry[]> {
+): Promise<RankingQueryResult> {
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   let query = supabase
@@ -162,7 +177,7 @@ export async function getWeeklyTopKills(
   const { data, error } = await query;
   if (error || !data) {
     logRankingError('weekly_top_kills', error);
-    return [];
+    return { data: [], hasError: true };
   }
 
   const seen = new Set<string>();
@@ -175,19 +190,23 @@ export async function getWeeklyTopKills(
     if (deduped.length >= 30) break;
   }
 
-  const nicknameMap = await fetchNicknameMap(deduped.map(d => d.player_id));
+  const { nicknameMap, hasError: hasNicknameError } = await fetchNicknameMap(deduped.map(d => d.player_id));
+  if (hasNicknameError) return { data: [], hasError: true };
 
-  return deduped.map((row, i) => ({
-    rank: i + 1,
-    player_id: row.player_id,
-    nickname: nicknameMap.get(row.player_id) || row.player_id,
-    value: row.kills,
-    secondary: Math.round(row.damage),
-    game_mode: GAME_MODE_KO[row.game_mode] || row.game_mode,
-    map_name: MAP_NAME_KO[row.map_name] || row.map_name || '알 수 없음',
-    tier: row.tier || 'C',
-    created_at: row.created_at,
-  }));
+  return {
+    data: deduped.map((row, i) => ({
+      rank: i + 1,
+      player_id: row.player_id,
+      nickname: nicknameMap.get(row.player_id) || row.player_id,
+      value: row.kills,
+      secondary: Math.round(row.damage),
+      game_mode: GAME_MODE_KO[row.game_mode] || row.game_mode,
+      map_name: MAP_NAME_KO[row.map_name] || row.map_name || '알 수 없음',
+      tier: row.tier || 'C',
+      created_at: row.created_at,
+    })),
+    hasError: false,
+  };
 }
 
 /** BGMS 티어 상위 30명 — 플레이어당 최고 스코어 기준 */
@@ -195,7 +214,7 @@ export async function getTopTierRanking(
   modeFilter: GameModeFilter = 'all',
   perspectiveFilter: PerspectiveFilter = 'all',
   matchTypeFilter: MatchTypeFilter = 'all'
-): Promise<RankingEntry[]> {
+): Promise<RankingQueryResult> {
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   let query = supabase
@@ -215,7 +234,7 @@ export async function getTopTierRanking(
   const { data, error } = await query;
   if (error || !data) {
     logRankingError('top_tier', error);
-    return [];
+    return { data: [], hasError: true };
   }
 
   // 플레이어당 최고 스코어만 유지 + match_count 집계
@@ -242,18 +261,22 @@ export async function getTopTierRanking(
     .sort((a, b) => b[1].score - a[1].score)
     .slice(0, 30);
 
-  const nicknameMap = await fetchNicknameMap(sorted.map(([id]) => id));
+  const { nicknameMap, hasError: hasNicknameError } = await fetchNicknameMap(sorted.map(([id]) => id));
+  if (hasNicknameError) return { data: [], hasError: true };
 
-  return sorted.map(([player_id, d], i) => ({
-    rank: i + 1,
-    player_id,
-    nickname: nicknameMap.get(player_id) || player_id,
-    value: Math.round(d.score),
-    secondary: Math.round(d.damage),
-    game_mode: GAME_MODE_KO[d.game_mode] || d.game_mode,
-    map_name: '',
-    tier: d.tier || 'C',
-    created_at: d.created_at,
-    match_count: d.count,
-  }));
+  return {
+    data: sorted.map(([player_id, d], i) => ({
+      rank: i + 1,
+      player_id,
+      nickname: nicknameMap.get(player_id) || player_id,
+      value: Math.round(d.score),
+      secondary: Math.round(d.damage),
+      game_mode: GAME_MODE_KO[d.game_mode] || d.game_mode,
+      map_name: '',
+      tier: d.tier || 'C',
+      created_at: d.created_at,
+      match_count: d.count,
+    })),
+    hasError: false,
+  };
 }

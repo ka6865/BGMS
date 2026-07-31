@@ -23,6 +23,7 @@ interface BoardDetailClientProps {
   initialPost: Post;
   initialComments: Comment[];
   promoteExpectedParentRevision: BoardPostPromotionState["expectedParentRevision"];
+  initialCommentsHasError?: boolean;
 }
 
 const sanitizeHTML = (html: string, isMounted: boolean) => {
@@ -48,6 +49,7 @@ export default function BoardDetailClient({
   initialPost,
   initialComments,
   promoteExpectedParentRevision,
+  initialCommentsHasError = false,
 }: BoardDetailClientProps) {
   const router = useRouter();
   const { user } = useAuth();
@@ -73,6 +75,9 @@ export default function BoardDetailClient({
   const [guestDeletePassword, setGuestDeletePassword] = useState("");
 
   const [showCaptcha, setShowCaptcha] = useState(false);
+  // 느린 네트워크에서 연속 클릭 시 중복 등록되는 것을 막는다.
+  const [isSubmittingComment, setIsSubmittingComment] = useState(false);
+  const [isLikingPost, setIsLikingPost] = useState(false);
 
   //  초안 승격 및 AI 피드백 모달용 상태 추가
   const [isPromoting, setIsPromoting] = useState(false);
@@ -240,16 +245,49 @@ export default function BoardDetailClient({
 
   const handleLikePost = async () => {
     if (!user) return toast.error("로그인 후 이용 가능합니다.");
-    const { data } = await supabase.from("post_likes").select("*").eq("post_id", post.id).eq("user_id", user.id).single();
-    if (data) return toast.info("이미 추천하신 게시글입니다.");
+    if (isLikingPost) return;
 
-    await supabase.from("post_likes").insert([{ post_id: post.id, user_id: user.id }]);
-    await supabase.rpc("increment_likes", { row_id: post.id });
-    setPost(prev => ({ ...prev, likes: prev.likes + 1 }));
-    toast.success("게시글을 추천했습니다!");
+    setIsLikingPost(true);
+    try {
+      const { data } = await supabase
+        .from("post_likes")
+        .select("post_id")
+        .eq("post_id", post.id)
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (data) {
+        toast.info("이미 추천하신 게시글입니다.");
+        return;
+      }
+
+      // 추천 기록 삽입이 실패하면 카운트를 올리지 않는다.
+      // 동시 클릭 시 unique 제약 위반이 발생하면 이 지점에서 중단된다.
+      const { error: insertError } = await supabase
+        .from("post_likes")
+        .insert([{ post_id: post.id, user_id: user.id }]);
+      if (insertError) {
+        toast.info("이미 추천하신 게시글입니다.");
+        return;
+      }
+
+      const { error: incrementError } = await supabase.rpc("increment_likes", { row_id: post.id });
+      if (incrementError) {
+        toast.error("추천 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+        return;
+      }
+
+      setPost(prev => ({ ...prev, likes: prev.likes + 1 }));
+      toast.success("게시글을 추천했습니다!");
+    } catch {
+      toast.error("추천 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+    } finally {
+      setIsLikingPost(false);
+    }
   };
 
   const handleSaveComment = async (verifiedToken?: string) => {
+    if (isSubmittingComment) return;
+
     if (!newComment.trim()) {
       toast.warning("댓글 내용을 입력해주세요.");
       return;
@@ -268,6 +306,7 @@ export default function BoardDetailClient({
       return;
     }
 
+    setIsSubmittingComment(true);
     try {
       const res = await fetch("/api/board/comments", {
         method: "POST",
@@ -296,6 +335,8 @@ export default function BoardDetailClient({
     } catch {
       trackEvent({ name: "post_action", params: { action: "create_comment", status: "fail" } });
       toast.error("댓글 저장 중 오류가 발생했습니다.");
+    } finally {
+      setIsSubmittingComment(false);
     }
   };
 
@@ -628,7 +669,11 @@ export default function BoardDetailClient({
           </div>
 
           <div className="flex justify-end mt-[20px]">
-            <button onClick={handleLikePost} className="px-[16px] py-[8px] bg-[#252525] border border-[#F2A900] text-[#F2A900] rounded-[20px] text-[13px] hover:bg-[#F2A900] hover:text-black transition-colors">
+            <button
+              onClick={handleLikePost}
+              disabled={isLikingPost}
+              className="px-[16px] py-[8px] bg-[#252525] border border-[#F2A900] text-[#F2A900] rounded-[20px] text-[13px] hover:bg-[#F2A900] hover:text-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
               추천 {post.likes}
             </button>
           </div>
@@ -642,6 +687,19 @@ export default function BoardDetailClient({
             />
           </div>
 
+          {initialCommentsHasError && (
+            <div className="mb-5 rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-center">
+              <p className="text-sm text-red-200">댓글을 불러오는 중 일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.</p>
+              <button
+                type="button"
+                onClick={() => router.refresh()}
+                className="mt-3 rounded-lg border border-red-400/30 px-3 py-1.5 text-xs font-bold text-red-200 transition-colors hover:bg-red-400/10"
+              >
+                다시 시도
+              </button>
+            </div>
+          )}
+
           <CommentSection
             comments={comments}
             currentUser={user}
@@ -653,6 +711,7 @@ export default function BoardDetailClient({
             handleReportComment={handleReportComment}
             isAdmin={isAdmin}
             handleSaveComment={() => void handleSaveComment()}
+            isSubmitting={isSubmittingComment}
             isMobile={isMobile}
             formatTimeAgo={formatTimeAgo}
             guestNickname={guestNickname}

@@ -24,25 +24,29 @@ export default async function OgImage() {
 
   try {
     // 3가지 부문의 랭킹 목록을 가져옴
-    const [damageList, killsList, tierList] = await Promise.all([
+    const [damageResult, killsResult, tierResult] = await Promise.all([
       getWeeklyTopDamage("all", "all", "all"),
       getWeeklyTopKills("all", "all", "all"),
       getTopTierRanking("all", "all", "all"),
     ]);
 
-    if (damageList && damageList.length > 0) {
+    const damageList = damageResult.data;
+    const killsList = killsResult.data;
+    const tierList = tierResult.data;
+
+    if (damageList.length > 0) {
       topDamagePlayer = damageList[0].nickname || damageList[0].player_id;
       topDamageValue = damageList[0].value;
       topDamageMode = damageList[0].game_mode;
     }
 
-    if (killsList && killsList.length > 0) {
+    if (killsList.length > 0) {
       topKillsPlayer = killsList[0].nickname || killsList[0].player_id;
       topKillsValue = killsList[0].value;
       topKillsMode = killsList[0].game_mode;
     }
 
-    if (tierList && tierList.length > 0) {
+    if (tierList.length > 0) {
       topTierPlayer = tierList[0].nickname || tierList[0].player_id;
       topTierValue = tierList[0].value;
       topTierGrade = tierList[0].tier || "C";

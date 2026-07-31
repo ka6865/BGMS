@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
   );
 
   try {
-    const entries =
+    const rankingResult =
       tab === "kills"
         ? await getWeeklyTopKills(
             mode as GameModeFilter,
@@ -51,9 +51,16 @@ export async function GET(request: NextRequest) {
               matchType as MatchTypeFilter
             );
 
+    if (rankingResult.hasError) {
+      return NextResponse.json(
+        { error: '랭킹 데이터를 불러오지 못했습니다.' },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json(
       {
-        entries: entries.map((entry) => ({
+        entries: rankingResult.data.map((entry) => ({
           rank: entry.rank,
           nickname: entry.nickname,
           playerId: entry.player_id,
@@ -76,8 +83,8 @@ export async function GET(request: NextRequest) {
       }
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error('랭킹 API 요청 오류:', error);
+    return NextResponse.json({ error: '랭킹 데이터를 불러오지 못했습니다.' }, { status: 500 });
   }
 }
 

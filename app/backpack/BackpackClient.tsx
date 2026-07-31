@@ -119,6 +119,7 @@ const InventoryItemRow = ({
 export default function BackpackSimulator() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   
   const [consumables, setConsumables] = useState<any[]>([]);
   const [throwables, setThrowables] = useState<any[]>([]);
@@ -140,25 +141,18 @@ export default function BackpackSimulator() {
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const hasTrackedBackpackSuccessRef = useRef(false);
 
-  useEffect(() => {
-    // GA4 가방 계산기 피처 소비 시작 트래킹
-    trackEvent({
-      name: "feature_consumption",
-      params: {
-        feature_name: "backpack-calculator",
-        status: "start"
-      }
-    });
-
-    async function fetchAllData() {
+  const fetchAllData = useCallback(async () => {
+      setLoading(true);
+      setLoadError(false);
       // 10초 후 강제 로딩 해제 (무한 로딩 방지)
       const timeoutId = setTimeout(() => {
+        setLoadError(true);
         setLoading(false);
       }, 10000);
 
       try {
         const [
-          { data: cons }, { data: throwa }, { data: atts }, { data: amms }, { data: vehs }, { data: weaps }
+          consResult, throwablesResult, attachmentsResult, ammoResult, vehiclesResult, weaponsResult,
         ] = await Promise.all([
           // 게임에서 제거된 항목은 인벤토리 계산 대상에서 제외한다.
           supabase.from("consumables").select("*").is("removed_at", null),
@@ -169,6 +163,18 @@ export default function BackpackSimulator() {
           supabase.from("weapons").select("*").is("removed_at", null)
         ]);
 
+        const loadFailure = [consResult, throwablesResult, attachmentsResult, ammoResult, vehiclesResult, weaponsResult]
+          .find((result) => result.error);
+        if (loadFailure?.error) throw loadFailure.error;
+
+        const cons = consResult.data;
+        const throwa = throwablesResult.data;
+        const atts = attachmentsResult.data;
+        const amms = ammoResult.data;
+        const vehs = vehiclesResult.data;
+        const weaps = weaponsResult.data;
+
+        setLoadError(false);
         setConsumables(cons || []);
         setThrowables(throwa || []);
         setAttachments(atts || []);
@@ -180,15 +186,27 @@ export default function BackpackSimulator() {
           const porter = vehs.find(v => v.id === 'porter');
           setSelectedVehicleId(porter ? porter.id : vehs[0].id);
         }
-      } catch {
+      } catch (error) {
+        console.error("가방 데이터 조회 오류:", error);
+        setLoadError(true);
         toast.error("가방 시뮬레이터 데이터를 불러오지 못했습니다.");
       } finally {
         clearTimeout(timeoutId);
         setLoading(false);
       }
-    }
-    fetchAllData();
   }, []);
+
+  useEffect(() => {
+    // GA4 가방 계산기 피처 소비 시작 트래킹
+    trackEvent({
+      name: "feature_consumption",
+      params: {
+        feature_name: "backpack-calculator",
+        status: "start"
+      }
+    });
+    void fetchAllData();
+  }, [fetchAllData]);
 
   const selectedVehicle = useMemo(() => vehicles.find(v => v.id === selectedVehicleId), [vehicles, selectedVehicleId]);
   const maxBackpackCapacity = calcBackpackCapacity(hasVest, backpackLevel);
@@ -369,6 +387,21 @@ export default function BackpackSimulator() {
       <div className="flex flex-col items-center justify-center h-screen bg-[#0b0f19] text-[#F2A900] gap-4">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#F2A900]"></div>
         <p className="font-bold">시스템 로드 중...</p>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#0b0f19] px-6 text-center text-white">
+        <p className="text-base font-bold">일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.</p>
+        <button
+          type="button"
+          onClick={() => void fetchAllData()}
+          className="rounded-xl bg-[#F2A900] px-5 py-3 text-sm font-black text-black transition-colors hover:bg-[#d49400]"
+        >
+          다시 시도
+        </button>
       </div>
     );
   }
