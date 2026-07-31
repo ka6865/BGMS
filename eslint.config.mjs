@@ -15,6 +15,9 @@ const eslintConfig = defineConfig([
   },
   globalIgnores([
     ".next/**",
+    // git worktree 디렉터리의 빌드 산출물이 검사 대상에 포함되어
+    // 로컬 verify:core 가 실패하는 문제를 막는다.
+    ".worktrees/**",
     "node_modules/**",
     "out/**",
     "build/**",
