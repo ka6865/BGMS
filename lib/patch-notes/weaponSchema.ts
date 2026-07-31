@@ -99,6 +99,49 @@ export function isPatchableTable(value: unknown): value is PatchableTable {
   return typeof value === "string" && (PATCHABLE_TABLES as readonly string[]).includes(value);
 }
 
+/** 제안이 표현할 수 있는 연산 종류입니다. */
+export const PATCH_OPERATIONS = ["update", "remove"] as const;
+
+export type PatchOperation = (typeof PATCH_OPERATIONS)[number];
+
+export function isPatchOperation(value: unknown): value is PatchOperation {
+  return typeof value === "string" && (PATCH_OPERATIONS as readonly string[]).includes(value);
+}
+
+/**
+ * 삭제 제안이 사용하는 고정 컬럼명입니다.
+ * 삭제는 특정 컬럼 편집이 아니라 소프트 삭제 표시이므로 removed_at 하나로 고정합니다.
+ * SQL 쪽 weapon_patch_proposal_changes_remove_column_check 제약과 일치해야 합니다.
+ */
+export const REMOVAL_COLUMN = "removed_at";
+
+/**
+ * 삭제 제안의 근거 문장에 반드시 포함되어야 하는 표현입니다.
+ *
+ * 삭제는 수치 변경보다 파괴적이므로 인용문 존재 확인만으로는 부족합니다.
+ * 패치노트가 실제로 "제거"를 말했는지 확인해, 단순 밸런스 조정 문장이
+ * 삭제 근거로 오인되는 것을 막습니다.
+ */
+export const REMOVAL_EVIDENCE_KEYWORDS = [
+  "제거",
+  "삭제",
+  "단종",
+  "빠집니다",
+  "빠졌습니다",
+  "제외됩니다",
+  "제외되었습니다",
+  "더 이상 등장하지",
+  "removed",
+  "retired",
+  "no longer",
+] as const;
+
+/** 근거 문장이 삭제를 명시하는지 확인합니다. */
+export function mentionsRemoval(quote: string): boolean {
+  const normalized = quote.normalize("NFC").toLowerCase();
+  return REMOVAL_EVIDENCE_KEYWORDS.some((keyword) => normalized.includes(keyword.toLowerCase()));
+}
+
 export function getColumnRule(table: string, column: string): ColumnRule | null {
   if (!isPatchableTable(table)) return null;
   return PATCHABLE_COLUMNS[table][column] ?? null;

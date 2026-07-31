@@ -8,7 +8,14 @@
  * 이 모듈은 순수 함수만 노출합니다. DB·네트워크 접근이 없어 단위 테스트가 가능합니다.
  */
 
-import { checkColumnValue, isPatchableTable, PATCHABLE_COLUMNS } from "./weaponSchema";
+import {
+  checkColumnValue,
+  isPatchableTable,
+  mentionsRemoval,
+  PATCHABLE_COLUMNS,
+  REMOVAL_COLUMN,
+  type PatchOperation,
+} from "./weaponSchema";
 
 /** AI 응답 1건. 신뢰할 수 없는 입력으로 취급합니다. */
 export interface RawWeaponChange {
@@ -18,6 +25,7 @@ export interface RawWeaponChange {
   new_value?: unknown;
   evidence_quote?: unknown;
   confidence?: unknown;
+  operation?: unknown;
 }
 
 /** 검증 대상 행의 현재 스냅샷. key 는 `${table}:${id}` 입니다. */
@@ -28,6 +36,7 @@ export type ValidationState = "ok" | "stale" | "invalid";
 export interface ValidatedWeaponChange {
   targetTable: string;
   targetId: string;
+  operation: PatchOperation;
   columnName: string;
   oldValue: unknown;
   newValue: number | string | null;
@@ -45,6 +54,8 @@ export interface ValidationSummary {
   invalid: number;
   evidenceMissing: number;
   duplicates: number;
+  /** 삭제 제안 건수. 관리자가 파괴적 변경 개수를 한눈에 보기 위한 값입니다. */
+  removals: number;
 }
 
 export interface ValidationResult {
@@ -116,13 +127,23 @@ export function validateWeaponChanges(
     const raw = (entry ?? {}) as RawWeaponChange;
     const targetTable = typeof raw.target_table === "string" ? raw.target_table.trim() : "";
     const targetId = typeof raw.target_id === "string" ? raw.target_id.trim() : "";
-    const columnName = typeof raw.column_name === "string" ? raw.column_name.trim() : "";
     const evidenceQuote = typeof raw.evidence_quote === "string" ? raw.evidence_quote.trim() : "";
     const confidence = readConfidence(raw.confidence);
+
+    // 삭제 제안은 column_name 을 removed_at 으로 고정한다.
+    // 모델이 다른 컬럼명을 보내도 무시해 SQL 제약과 어긋나지 않게 한다.
+    const isRemoval = raw.operation === "remove";
+    const operation: PatchOperation = isRemoval ? "remove" : "update";
+    const columnName = isRemoval
+      ? REMOVAL_COLUMN
+      : typeof raw.column_name === "string"
+        ? raw.column_name.trim()
+        : "";
 
     const base = {
       targetTable,
       targetId,
+      operation,
       columnName,
       oldValue: null as unknown,
       newValue: null as number | string | null,
@@ -137,8 +158,8 @@ export function validateWeaponChanges(
       continue;
     }
 
-    // 2. 컬럼 화이트리스트
-    if (!(columnName in PATCHABLE_COLUMNS[targetTable])) {
+    // 2. 컬럼 화이트리스트. 삭제는 컬럼 편집이 아니므로 이 검사를 건너뛴다.
+    if (!isRemoval && !(columnName in PATCHABLE_COLUMNS[targetTable])) {
       changes.push(invalid(base, `편집이 허용되지 않은 컬럼: ${targetTable}.${columnName || "(비어 있음)"}`));
       continue;
     }
@@ -148,13 +169,17 @@ export function validateWeaponChanges(
       continue;
     }
 
-    // 3. 값 타입·범위·enum
-    const valueCheck = checkColumnValue(targetTable, columnName, raw.new_value);
-    if (!valueCheck.ok) {
-      changes.push(invalid(base, valueCheck.reason));
-      continue;
+    // 3. 값 검사. 삭제는 새 값이 없으므로 건너뛴다.
+    let newValue: number | string | null = null;
+    if (!isRemoval) {
+      const valueCheck = checkColumnValue(targetTable, columnName, raw.new_value);
+      if (!valueCheck.ok) {
+        changes.push(invalid(base, valueCheck.reason));
+        continue;
+      }
+      newValue = valueCheck.value;
+      base.newValue = valueCheck.value;
     }
-    base.newValue = valueCheck.value;
 
     // 4. 대상 행 존재 확인
     const row = currentRows.get(rowKey(targetTable, targetId));
@@ -182,8 +207,32 @@ export function validateWeaponChanges(
     }
     seen.add(dedupeKey);
 
-    // 7. 현재값과 동일하면 적용 불필요
-    if (isSameValue(currentValue, valueCheck.value)) {
+    if (isRemoval) {
+      // 7-a. 삭제는 파괴적이므로 근거 문장이 실제로 제거를 명시해야 한다.
+      // 인용문이 원문에 존재하더라도 밸런스 조정 문장이면 삭제 근거로 인정하지 않는다.
+      if (!mentionsRemoval(evidenceQuote)) {
+        changes.push(
+          invalid(base, "근거 문장에 항목 제거를 명시하는 표현이 없음")
+        );
+        continue;
+      }
+
+      // 이미 삭제 처리된 항목은 다시 삭제할 필요가 없다.
+      if (currentValue !== null) {
+        changes.push({
+          ...base,
+          validationState: "stale",
+          validationReason: "이미 삭제 처리된 항목",
+        });
+        continue;
+      }
+
+      changes.push({ ...base, validationState: "ok", validationReason: null });
+      continue;
+    }
+
+    // 7-b. 현재값과 동일하면 적용 불필요
+    if (newValue !== null && isSameValue(currentValue, newValue)) {
       changes.push({
         ...base,
         validationState: "stale",
@@ -214,5 +263,6 @@ function summarize(changes: ValidatedWeaponChange[], duplicates: number): Valida
     invalid: changes.filter((c) => c.validationState === "invalid").length,
     evidenceMissing: changes.filter((c) => !c.evidenceFound).length,
     duplicates,
+    removals: changes.filter((c) => c.operation === "remove").length,
   };
 }

@@ -1180,12 +1180,20 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
           />
         </div>
 
-        <aside className="hidden xl:block xl:col-start-1 xl:row-start-1 self-start" aria-label="광고">
-          <div className="sticky top-20 h-[600px] w-[160px]">
+        {/* 좌측 레일은 고정하지 않고 문서 흐름에 배치한다. 좌우 동시 고정 광고는 정책 위반이다. */}
+        <aside
+          className="hidden [@media(min-width:1280px)_and_(min-height:680px)]:block xl:col-start-1 xl:row-start-1 self-start"
+          aria-label="광고"
+        >
+          <div className="h-[600px] w-[160px]">
             <AdfitBanner adUnit="DAN-RjyosR2uf8eSsVIC" adWidth={160} adHeight={600} />
           </div>
         </aside>
-        <aside className="hidden xl:block xl:col-start-3 xl:row-start-1 self-start" aria-label="광고">
+        {/* 뷰포트 고정 광고는 우측 한 곳만 유지한다. self-start를 제거해 컬럼 전체 높이를 확보한다. */}
+        <aside
+          className="hidden [@media(min-width:1280px)_and_(min-height:680px)]:block xl:col-start-3 xl:row-start-1"
+          aria-label="광고"
+        >
           <div className="sticky top-20 h-[600px] w-[160px]">
             <AdSenseBanner client="ca-pub-3993032200487955" slot="1650598365" />
           </div>
@@ -1259,7 +1267,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
 
       {/* 고등급 스킨 단독 쇼케이스 연출 모달 */}
       {currentShowcaseCard && (
-        <div className="fixed inset-0 z-[999] flex flex-col items-center justify-center bg-[#070b13]/95 backdrop-blur-md animate-[fadeIn_0.35s_cubic-bezier(0.16,1,0.3,1)] select-none">
+        <div className="fixed inset-0 z-[10000] flex flex-col items-center justify-center bg-[#070b13]/95 backdrop-blur-md animate-[fadeIn_0.35s_cubic-bezier(0.16,1,0.3,1)] select-none">
           {/* 뒷배경 황금색 원형 글로우 */}
           <div className="absolute w-[600px] h-[600px] rounded-full bg-amber-500/10 blur-[120px] pointer-events-none animate-pulse" />
           <div className="absolute w-[300px] h-[300px] rounded-full bg-yellow-500/15 blur-[60px] pointer-events-none animate-[ping_4s_infinite]" />

@@ -251,6 +251,7 @@ describe("validateWeaponChanges 게이트", () => {
       invalid: 1,
       evidenceMissing: 1,
       duplicates: 0,
+      removals: 0,
     });
   });
 });

@@ -13,7 +13,12 @@ import {
   type CatalogRow,
   type WeaponExtractDeps,
 } from "./weaponExtract";
-import { PATCHABLE_COLUMNS, PATCHABLE_TABLES, type PatchableTable } from "./weaponSchema";
+import {
+  PATCHABLE_COLUMNS,
+  PATCHABLE_TABLES,
+  REMOVAL_COLUMN,
+  type PatchableTable,
+} from "./weaponSchema";
 import {
   rowKey,
   validateWeaponChanges,
@@ -42,9 +47,11 @@ export async function loadCatalogSnapshot(
 
   for (const table of tables) {
     const columns = Object.keys(PATCHABLE_COLUMNS[table]);
+    // removed_at 은 편집 화이트리스트에 없지만 삭제 제안 검증에 현재 상태가 필요하다.
+    // 이미 삭제된 항목을 다시 삭제 제안하는 것을 막는 데 사용한다.
     const { data, error } = await supabaseAdmin
       .from(table)
-      .select(["id", "name", ...columns].join(","))
+      .select(["id", "name", REMOVAL_COLUMN, ...columns].join(","))
       .order("id", { ascending: true });
 
     if (error) {
@@ -54,6 +61,13 @@ export async function loadCatalogSnapshot(
     for (const row of ((data ?? []) as unknown) as Record<string, unknown>[]) {
       const id = typeof row.id === "string" ? row.id : String(row.id ?? "");
       if (!id) continue;
+
+      // 이미 삭제 처리된 항목은 프롬프트 카탈로그에서 제외한다.
+      // AI 가 사라진 무기를 다시 변경 대상으로 보지 않게 하고 토큰도 절약한다.
+      if (row[REMOVAL_COLUMN] !== null && row[REMOVAL_COLUMN] !== undefined) {
+        currentRows.set(rowKey(table, id), row);
+        continue;
+      }
 
       const values: Record<string, unknown> = {};
       for (const column of columns) values[column] = row[column] ?? null;
@@ -162,10 +176,11 @@ export async function createWeaponPatchProposal(
         proposal_id: proposalId,
         target_table: change.targetTable,
         target_id: change.targetId,
-        operation: "update",
+        operation: change.operation,
         column_name: change.columnName,
         old_value: change.oldValue ?? null,
-        new_value: change.newValue,
+        // 삭제 제안은 새 값이 없다. new_value 는 not null 이므로 null 리터럴 jsonb 를 저장한다.
+        new_value: change.operation === "remove" ? null : change.newValue,
         evidence_quote: change.evidenceQuote,
         evidence_found: change.evidenceFound,
         confidence: change.confidence,

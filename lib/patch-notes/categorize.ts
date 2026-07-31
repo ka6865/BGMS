@@ -34,6 +34,10 @@ export function identifyCategory(title: string, url: string): PatchNoteCategory 
   if (
     normalizedTitle.includes("패치노트") ||
     normalizedTitle.includes("패치 노트") ||
+    // 카카오 게시판의 무점검 패치 공지도 무기 수치 변경을 포함한다.
+    // 제목에 "패치노트" 표기가 없어 기존 조건으로는 GENERAL 로 분류되었다.
+    normalizedTitle.includes("무점검 패치") ||
+    normalizedTitle.includes("무점검패치") ||
     normalizedUrl.includes("patch")
   ) {
     return "PATCH_NOTE";

@@ -134,7 +134,8 @@ describe("loadCatalogSnapshot", () => {
 
     expect(selectSpy).toHaveBeenCalledWith(
       // 기대값을 화이트리스트에서 파생시켜 스키마 변경 시 함께 따라가게 한다.
-      ["id", "name", ...Object.keys(PATCHABLE_COLUMNS.weapons)].join(",")
+      // removed_at 은 편집 대상이 아니지만 삭제 제안 검증에 현재 상태가 필요하다.
+      ["id", "name", "removed_at", ...Object.keys(PATCHABLE_COLUMNS.weapons)].join(",")
     );
     // 편집 대상이 아닌 컬럼은 조회하지 않는다.
     expect(selectSpy.mock.calls[0][0]).not.toContain("can_be_in_backpack");

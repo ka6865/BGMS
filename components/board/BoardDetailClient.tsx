@@ -800,13 +800,21 @@ export default function BoardDetailClient({
             </button>
           </div>
       </AppModal>
-      <aside className="hidden xl:block xl:col-start-1 xl:row-start-1 self-start" aria-label="광고">
+      {/* 뷰포트 고정 광고는 좌측 한 곳만 유지한다. self-start를 제거해 컬럼 전체 높이를 확보한다. */}
+      <aside
+        className="hidden [@media(min-width:1280px)_and_(min-height:680px)]:block xl:col-start-1 xl:row-start-1"
+        aria-label="광고"
+      >
         <div className="sticky top-20 h-[600px] w-[160px]">
           <AdSenseBanner client="ca-pub-3993032200487955" slot="7728921550" />
         </div>
       </aside>
-      <aside className="hidden xl:block xl:col-start-3 xl:row-start-1 self-start" aria-label="광고">
-        <div className="sticky top-20 h-[600px] w-[160px]">
+      {/* 우측 레일은 고정하지 않고 문서 흐름에 배치한다. 좌우 동시 고정 광고는 정책 위반이다. */}
+      <aside
+        className="hidden [@media(min-width:1280px)_and_(min-height:680px)]:block xl:col-start-3 xl:row-start-1 self-start"
+        aria-label="광고"
+      >
+        <div className="h-[600px] w-[160px]">
           <AdfitBanner adUnit="DAN-RjyosR2uf8eSsVIC" adWidth={160} adHeight={600} />
         </div>
       </aside>

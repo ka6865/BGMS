@@ -171,9 +171,16 @@ export default function WeaponsPage() {
       try {
         // 무기 + 파츠를 병렬 fetch
         const [weaponRes, attachRes] = await Promise.all([
-          supabase.from("weapons").select("*").order("name", { ascending: true }),
+          // 게임에서 제거된 무기는 도감에 노출하지 않는다.
+          // 행은 소프트 삭제로 남아 있어 관리자가 되돌릴 수 있다.
+          supabase
+            .from("weapons")
+            .select("*")
+            .is("removed_at", null)
+            .order("name", { ascending: true }),
           supabase.from("attachments")
             .select("id, name, type, slot, vertical_recoil, horizontal_recoil, reload_speed, ads_speed, r2_key")
+            .is("removed_at", null)
             .not("slot", "is", null),
         ]);
 
@@ -459,6 +466,14 @@ export default function WeaponsPage() {
                 <div className="text-[9px] text-yellow-500/70 bg-slate-950/60 p-2 rounded-lg italic border border-yellow-950/30 line-clamp-2" title={w.patch_notes}>
                   <InlineIconLabel icon="file" iconSize={11}>{w.patch_notes}</InlineIconLabel>
                 </div>
+              )}
+              {w.patch_version && (
+                <span
+                  className="inline-flex w-fit items-center rounded-full border border-[#F2A900]/30 bg-[#F2A900]/10 px-2 py-0.5 text-[9px] font-black text-[#F2A900]"
+                  title={`패치 적용 버전: ${w.patch_version}`}
+                >
+                  {w.patch_version}
+                </span>
               )}
             </div>
 
@@ -815,6 +830,14 @@ export default function WeaponsPage() {
                       <p className="mt-1.5 text-yellow-500/80 italic border-t border-slate-850/50 pt-1.5">
                         <InlineIconLabel icon="file" iconSize={12}>{selectedWeapon.patch_notes}</InlineIconLabel>
                       </p>
+                    )}
+                    {selectedWeapon.patch_version && (
+                      <span
+                        className="mt-2 inline-flex items-center rounded-full border border-[#F2A900]/30 bg-[#F2A900]/10 px-2.5 py-1 text-[11px] font-black text-[#F2A900]"
+                        title={`패치 적용 버전: ${selectedWeapon.patch_version}`}
+                      >
+                        {selectedWeapon.patch_version}
+                      </span>
                     )}
                   </div>
                 </div>

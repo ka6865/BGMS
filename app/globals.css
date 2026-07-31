@@ -37,8 +37,15 @@
 }
 
 @layer base {
-  html, body {
+  html {
     @apply overflow-x-hidden;
+  }
+
+  /*
+    body에 overflow-x를 지정하면 body가 스크롤 컨테이너로 승격되어
+    하위 position:sticky 요소의 고정 기준이 깨진다. 가로 스크롤 차단은 html에만 적용한다.
+  */
+  html, body {
     background-color: var(--color-bg-base);
     color: var(--color-text-primary);
     font-family: var(--font-sans);

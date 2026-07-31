@@ -210,16 +210,6 @@ const MapShell = memo(({
         <div className="flex-1 flex overflow-hidden relative bg-[#0a0a0a]">
           {/* Left: Map Area */}
           <div className="flex-1 flex flex-col relative min-w-0">
-            {/* 데스크톱 전용 우측 하단 플로팅 카카오 애드핏 광고 — 사이드바 침범 방지 및 광고 설치 검증 보장 */}
-            {!isMobile && (
-              <div className="absolute right-4 bottom-4 z-[1000] shadow-[0_4px_12px_rgba(0,0,0,0.5)] border border-white/10 rounded-lg overflow-hidden bg-black/80 p-1">
-                <AdfitBanner
-                  adUnit="DAN-tQGcqmddMC8tPpXA"
-                  adWidth={320}
-                  adHeight={100}
-                />
-              </div>
-            )}
             <HomeNotice />
 
             {/* 구형 상태바 제거됨 */}
@@ -422,6 +412,8 @@ const MapShell = memo(({
               </div>
             )}
 
+            {/* 지도 캔버스는 남은 높이를 채우고, 하단 광고 영역과 높이를 나눠 갖는다. */}
+            <div className="flex-1 min-h-0 relative">
             <MapView
               activeMapId={activeMapId} currentMap={currentMap} bounds={bounds} icons={icons} imageHeight={imageHeight} imageWidth={imageWidth}
               activeMode={activeMode} mortarPoints={mortarPoints} flightPoints={flightPoints} flightPolygonCoords={flightPolygonCoords}
@@ -445,6 +437,22 @@ const MapShell = memo(({
               visible={isHotDropOn} 
               type="hotdrop" 
             />
+            </div>
+
+            {/*
+              데스크톱 전용 하단 카카오 애드핏 광고.
+              지도 캔버스 위 오버레이는 광고 정책 위반이며 히트맵 범례와 위치가 겹치므로
+              캔버스 바깥 하단 고정 높이 영역에 배치한다. 리플레이 재생 중에는 숨긴다.
+            */}
+            {!isMobile && !playbackId && (
+              <div className="shrink-0 h-[100px] w-full flex items-center justify-center border-t border-white/5 bg-[#0b0f19]" aria-label="광고">
+                <AdfitBanner
+                  adUnit="DAN-tQGcqmddMC8tPpXA"
+                  adWidth={320}
+                  adHeight={100}
+                />
+              </div>
+            )}
 
             {playbackId && (
               <>

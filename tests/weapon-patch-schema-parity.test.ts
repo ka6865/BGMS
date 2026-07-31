@@ -102,7 +102,85 @@ describe("마이그레이션 안전 장치", () => {
     expect(searchPathCount).toBeGreaterThanOrEqual(definerCount);
   });
 
-  it("v1 에서는 기존 항목 갱신만 허용한다", () => {
+  it("v1 마이그레이션은 기존 항목 갱신만 허용했다", () => {
+    // 삭제 지원은 20260731060000 에서 제약을 확장한다.
+    // 이 테스트는 v1 파일 자체의 원래 정의가 보존되는지 확인한다.
     expect(migration).toContain("check (operation = 'update')");
+  });
+});
+
+const REMOVAL_MIGRATION_PATH = "supabase/migrations/20260731060000_weapon_patch_removal.sql";
+const removalMigration = readFileSync(resolve(REMOVAL_MIGRATION_PATH), "utf8");
+
+describe("삭제 반영 마이그레이션 안전 장치", () => {
+  it("행을 물리 삭제하지 않고 removed_at 소프트 삭제로 처리한다", () => {
+    // delete from 이 서비스 테이블을 향하면 과거 전적 참조가 깨진다.
+    expect(removalMigration).not.toMatch(/delete\s+from\s+public\.(weapons|attachments|ammo|consumables|throwables|vehicles)/i);
+    // 동적 SQL 문자열 안이라 작은따옴표가 이스케이프되어 있다.
+    expect(removalMigration).toContain("set removed_at = timezone(''utc'', now())");
+  });
+
+  it("편집 대상 6개 테이블 모두에 삭제 컬럼을 추가한다", () => {
+    for (const table of [
+      "weapons",
+      "attachments",
+      "ammo",
+      "consumables",
+      "throwables",
+      "vehicles",
+    ]) {
+      expect(removalMigration).toContain(
+        `alter table public.${table} add column if not exists removed_at timestamptz`
+      );
+    }
+  });
+
+  it("operation 제약을 update 와 remove 로만 확장한다", () => {
+    expect(removalMigration).toContain("check (operation in ('update', 'remove'))");
+  });
+
+  it("삭제 제안은 column_name 을 removed_at 으로 고정한다", () => {
+    expect(removalMigration).toContain("operation <> 'remove' or column_name = 'removed_at'");
+  });
+
+  it("수치 변경은 new_value 를 계속 요구한다", () => {
+    expect(removalMigration).toContain("operation = 'update' and new_value is not null");
+  });
+
+  it("적용 RPC 는 삭제도 승인·검증 통과 항목만 대상으로 한다", () => {
+    const applyBody = removalMigration.split(
+      "create or replace function public.apply_weapon_patch_proposal("
+    )[1];
+    expect(applyBody).toBeTruthy();
+    expect(applyBody).toContain("c.decision = 'accepted'");
+    expect(applyBody).toContain("c.validation_state = 'ok'");
+    expect(applyBody).toContain("for update");
+  });
+
+  it("되돌리기가 삭제 상태를 적용 전 값으로 복원한다", () => {
+    const revertBody = removalMigration.split(
+      "create or replace function public.revert_weapon_patch_apply("
+    )[1];
+    expect(revertBody).toBeTruthy();
+    expect(revertBody).toContain("before_row ->> 'removed_at'");
+  });
+
+  it("SECURITY DEFINER 함수는 search_path 를 고정한다", () => {
+    const definerCount = removalMigration.match(/security definer/g)?.length ?? 0;
+    const searchPathCount = removalMigration.match(/set search_path = ''/g)?.length ?? 0;
+    expect(definerCount).toBeGreaterThan(0);
+    expect(searchPathCount).toBeGreaterThanOrEqual(definerCount);
+  });
+
+  it("RPC 실행 권한을 service_role 로만 제한한다", () => {
+    for (const fn of [
+      "public.apply_weapon_patch_proposal(uuid, uuid)",
+      "public.revert_weapon_patch_apply(uuid, uuid)",
+    ]) {
+      expect(removalMigration).toContain(
+        `revoke all on function ${fn} from public, anon, authenticated`
+      );
+      expect(removalMigration).toContain(`grant execute on function ${fn} to service_role`);
+    }
   });
 });

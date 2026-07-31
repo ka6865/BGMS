@@ -4,7 +4,7 @@
  */
 
 /** 게임 내 아이템의 대분류 카테고리 */
-export type ItemCategory = "weapons" | "consumables" | "throwables" | "attachments" | "ammo" | "vehicles" | "crates" | "system" | "users";
+export type ItemCategory = "weapons" | "consumables" | "throwables" | "attachments" | "ammo" | "vehicles" | "crates" | "system" | "users" | "weapon-patch";
 
 export interface UserProfile {
   id: string;
@@ -27,8 +27,14 @@ export interface BaseGameItem {
   id: string;
   name: string;
   patch_notes?: string;
+  patch_version?: string | null;
+  patch_applied_at?: string | null;
   weight?: number;
   can_be_in_backpack?: boolean;
+  /** 게임에서 제거된 항목의 삭제 시각. null 이면 현역입니다. */
+  removed_at?: string | null;
+  /** 어느 패치에서 제거되었는지. 도감에 단종 배지로 표시합니다. */
+  removed_patch_version?: string | null;
 }
 
 export interface Weapon extends BaseGameItem {
@@ -54,4 +60,3 @@ export interface Ammo extends BaseGameItem {
 }
 
 export type GameItem = BaseGameItem | Weapon | Vehicle | Consumable | Ammo | UserProfile;
-
