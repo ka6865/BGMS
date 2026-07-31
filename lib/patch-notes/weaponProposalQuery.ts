@@ -38,6 +38,8 @@ export interface ProposalChangeView {
   targetTable: PatchableTable;
   targetId: string;
   targetName: string;
+  /** update(수치 변경) 또는 remove(게임에서 제거) */
+  operation: string;
   columnName: string;
   columnLabel: string;
   oldValue: unknown;
@@ -95,6 +97,7 @@ interface ChangeRow {
   proposal_id: string;
   target_table: string;
   target_id: string;
+  operation: string;
   column_name: string;
   old_value: unknown;
   new_value: unknown;
@@ -184,7 +187,7 @@ export async function listWeaponPatchProposals(
   const { data: changeRows, error: changesError } = await supabaseAdmin
     .from("weapon_patch_proposal_changes")
     .select(
-      "id,proposal_id,target_table,target_id,column_name,old_value,new_value,evidence_quote,evidence_found,confidence,validation_state,validation_reason,decision"
+      "id,proposal_id,target_table,target_id,operation,column_name,old_value,new_value,evidence_quote,evidence_found,confidence,validation_state,validation_reason,decision"
     )
     .in("proposal_id", proposals.map((row) => row.id));
 
@@ -202,6 +205,7 @@ export async function listWeaponPatchProposals(
       targetTable: change.target_table,
       targetId: change.target_id,
       targetName: targetNames.get(`${change.target_table}:${change.target_id}`) ?? change.target_id,
+      operation: change.operation === "remove" ? "remove" : "update",
       columnName: change.column_name,
       columnLabel: describeColumn(change.target_table, change.column_name),
       oldValue: change.old_value ?? null,

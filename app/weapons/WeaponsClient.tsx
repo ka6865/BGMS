@@ -171,9 +171,16 @@ export default function WeaponsPage() {
       try {
         // 무기 + 파츠를 병렬 fetch
         const [weaponRes, attachRes] = await Promise.all([
-          supabase.from("weapons").select("*").order("name", { ascending: true }),
+          // 게임에서 제거된 무기는 도감에 노출하지 않는다.
+          // 행은 소프트 삭제로 남아 있어 관리자가 되돌릴 수 있다.
+          supabase
+            .from("weapons")
+            .select("*")
+            .is("removed_at", null)
+            .order("name", { ascending: true }),
           supabase.from("attachments")
             .select("id, name, type, slot, vertical_recoil, horizontal_recoil, reload_speed, ads_speed, r2_key")
+            .is("removed_at", null)
             .not("slot", "is", null),
         ]);
 

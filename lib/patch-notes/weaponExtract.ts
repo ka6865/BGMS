@@ -11,7 +11,12 @@
 import { createHash } from "node:crypto";
 import { jsonrepair } from "jsonrepair";
 import { GoogleGenerativeAI, SchemaType, type Schema } from "@google/generative-ai";
-import { PATCHABLE_COLUMNS, PATCHABLE_TABLES, type PatchableTable } from "./weaponSchema";
+import {
+  PATCHABLE_COLUMNS,
+  PATCHABLE_TABLES,
+  REMOVAL_EVIDENCE_KEYWORDS,
+  type PatchableTable,
+} from "./weaponSchema";
 
 /** 기존 패치노트 동기화 경로와 동일한 모델 폴백 순서입니다. */
 export const WEAPON_EXTRACT_MODELS = [
@@ -88,7 +93,9 @@ export function buildWeaponExtractionPrompt(sourceText: string, catalog: Catalog
 설명하지 말고 지정된 JSON만 출력하세요.
 
 [작업]
-아래 패치노트 원문을 읽고, 우리 DB에 이미 존재하는 항목의 수치가 변경된 경우만 변경안으로 제출하세요.
+아래 패치노트 원문을 읽고 다음 두 가지만 제출하세요.
+  A) 우리 DB에 이미 존재하는 항목의 수치가 변경된 경우 (operation = "update")
+  B) 우리 DB에 존재하는 항목이 게임에서 완전히 제거·단종된 경우 (operation = "remove")
 
 [편집 가능한 테이블과 컬럼 — 이 목록에 없는 컬럼은 절대 제출 금지]
 ${describeEditableColumns()}
@@ -101,10 +108,16 @@ ${catalogLines}
 1. target_id 는 위 목록에 있는 id 만 사용하세요. 목록에 없는 항목은 제출하지 마세요.
 2. evidence_quote 는 패치노트 원문에서 **글자 그대로 복사한 문장**이어야 합니다.
    요약·의역·재작성 금지. 원문에 없는 문장을 쓰면 해당 항목은 자동 폐기됩니다.
-3. 원문에 구체적인 변경 후 수치가 명시된 경우만 제출하세요.
+3. operation = "update" 는 원문에 구체적인 변경 후 수치가 명시된 경우만 제출하세요.
    "밸런스를 조정했습니다" 처럼 수치가 없는 서술은 제출하지 마세요.
-4. 신규 무기 추가, 이름 변경, 항목 삭제는 이 작업의 대상이 아닙니다.
-5. 변경 사항이 없으면 changes 를 빈 배열로 두세요. 억지로 채우지 마세요.
+4. operation = "remove" 는 해당 항목이 게임에서 완전히 사라진 경우만 제출하세요.
+   근거 문장에 다음과 같은 제거 표현이 반드시 포함되어야 합니다.
+   ${REMOVAL_EVIDENCE_KEYWORDS.join(", ")}
+   특정 맵에서만 빠지거나 스폰율이 낮아진 경우는 remove 가 아닙니다.
+   그런 경우는 spawn_maps 또는 availability 의 update 로 제출하세요.
+   remove 를 제출할 때 column_name 과 new_value 는 빈 문자열로 두세요.
+5. 신규 항목 추가와 이름 변경은 이 작업의 대상이 아닙니다.
+6. 변경 사항이 없으면 changes 를 빈 배열로 두세요. 억지로 채우지 마세요.
 
 [패치노트 원문]
 ${trimmedSource}`;
@@ -124,12 +137,16 @@ const RESPONSE_SCHEMA: Schema = {
             description: `대상 테이블. ${PATCHABLE_TABLES.join(" | ")} 중 하나`,
           },
           target_id: { type: SchemaType.STRING, description: "현재 항목 목록에 있는 id" },
+          operation: {
+            type: SchemaType.STRING,
+            description: "update(수치 변경) 또는 remove(게임에서 제거). 생략하면 update",
+          },
           column_name: { type: SchemaType.STRING, description: "편집 가능 컬럼명" },
           new_value: { type: SchemaType.STRING, description: "변경 후 값. 숫자도 문자열로 표기" },
           evidence_quote: { type: SchemaType.STRING, description: "원문에서 그대로 복사한 근거 문장" },
           confidence: { type: SchemaType.NUMBER, description: "0에서 1 사이 확신도" },
         },
-        required: ["target_table", "target_id", "column_name", "new_value", "evidence_quote"],
+        required: ["target_table", "target_id", "evidence_quote"],
       },
     },
   },

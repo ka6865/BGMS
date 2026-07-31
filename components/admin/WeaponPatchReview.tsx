@@ -16,6 +16,7 @@ interface ProposalChange {
   targetTable: string;
   targetId: string;
   targetName: string;
+  operation: string;
   columnName: string;
   columnLabel: string;
   oldValue: unknown;
@@ -561,19 +562,34 @@ export default function WeaponPatchReview() {
                           <span className="text-[11px] font-medium text-gray-500">
                             {change.targetTable}
                           </span>
-                          <span className="text-[#F2A900]">{change.columnLabel}</span>
+                          {change.operation === "remove" ? (
+                            <span className="rounded bg-red-500/20 px-2 py-0.5 text-[11px] font-black text-red-300">
+                              항목 제거
+                            </span>
+                          ) : (
+                            <span className="text-[#F2A900]">{change.columnLabel}</span>
+                          )}
                         </label>
 
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
-                          <span className="rounded bg-[#252525] px-2 py-1 font-mono text-xs text-gray-400 line-through">
-                            {formatValue(change.oldValue)}
-                          </span>
-                          <span aria-hidden="true" className="text-gray-500">
-                            →
-                          </span>
-                          <span className="rounded bg-[#F2A900]/15 px-2 py-1 font-mono text-xs font-black text-[#F2A900]">
-                            {formatValue(change.newValue)}
-                          </span>
+                          {change.operation === "remove" ? (
+                            // 삭제는 새 값이 없다. 파괴적 변경이므로 붉은 배경으로 구분한다.
+                            <span className="rounded bg-red-500/15 px-2 py-1 text-xs font-black text-red-300">
+                              도감에서 제거 (되돌리기 가능)
+                            </span>
+                          ) : (
+                            <>
+                              <span className="rounded bg-[#252525] px-2 py-1 font-mono text-xs text-gray-400 line-through">
+                                {formatValue(change.oldValue)}
+                              </span>
+                              <span aria-hidden="true" className="text-gray-500">
+                                →
+                              </span>
+                              <span className="rounded bg-[#F2A900]/15 px-2 py-1 font-mono text-xs font-black text-[#F2A900]">
+                                {formatValue(change.newValue)}
+                              </span>
+                            </>
+                          )}
                         </div>
 
                         <blockquote className="mt-3 border-l-2 border-[#F2A900]/40 bg-[#0f0f0f] py-2 pl-3 pr-2 text-xs italic leading-relaxed text-gray-300">

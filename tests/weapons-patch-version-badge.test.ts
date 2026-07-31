@@ -42,14 +42,19 @@ vi.mock("@/lib/supabase", () => ({
       if (table === "weapons") {
         return {
           select: () => ({
-            order: async () => ({ data: weapons, error: null }),
+            // 도감은 제거된 무기를 제외하므로 is("removed_at", null) 을 거친다.
+            is: () => ({
+              order: async () => ({ data: weapons, error: null }),
+            }),
           }),
         };
       }
 
       return {
         select: () => ({
-          not: async () => ({ data: [], error: null }),
+          is: () => ({
+            not: async () => ({ data: [], error: null }),
+          }),
         }),
       };
     },

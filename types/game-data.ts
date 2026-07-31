@@ -31,6 +31,10 @@ export interface BaseGameItem {
   patch_applied_at?: string | null;
   weight?: number;
   can_be_in_backpack?: boolean;
+  /** 게임에서 제거된 항목의 삭제 시각. null 이면 현역입니다. */
+  removed_at?: string | null;
+  /** 어느 패치에서 제거되었는지. 도감에 단종 배지로 표시합니다. */
+  removed_patch_version?: string | null;
 }
 
 export interface Weapon extends BaseGameItem {

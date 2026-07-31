@@ -160,12 +160,13 @@ export default function BackpackSimulator() {
         const [
           { data: cons }, { data: throwa }, { data: atts }, { data: amms }, { data: vehs }, { data: weaps }
         ] = await Promise.all([
-          supabase.from("consumables").select("*"),
-          supabase.from("throwables").select("*"),
-          supabase.from("attachments").select("*"),
-          supabase.from("ammo").select("*"),
-          supabase.from("vehicles").select("*"),
-          supabase.from("weapons").select("*")
+          // 게임에서 제거된 항목은 인벤토리 계산 대상에서 제외한다.
+          supabase.from("consumables").select("*").is("removed_at", null),
+          supabase.from("throwables").select("*").is("removed_at", null),
+          supabase.from("attachments").select("*").is("removed_at", null),
+          supabase.from("ammo").select("*").is("removed_at", null),
+          supabase.from("vehicles").select("*").is("removed_at", null),
+          supabase.from("weapons").select("*").is("removed_at", null)
         ]);
 
         setConsumables(cons || []);
