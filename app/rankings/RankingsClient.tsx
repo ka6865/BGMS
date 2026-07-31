@@ -63,6 +63,23 @@ const PERSPECTIVE_FILTERS: { label: string; value: PerspectiveFilter }[] = [
 const RANKINGS_MOBILE_AD_UNIT = 'DAN-tQGcqmddMC8tPpXA';
 const RANKINGS_DESKTOP_AD_UNIT = 'DAN-RjyosR2uf8eSsVIC';
 
+function formatUpdatedAt(iso: string): string {
+  const parts = new Intl.DateTimeFormat('en-US-u-nu-latn', {
+    timeZone: 'Asia/Seoul',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(iso));
+  const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+  const hour = Number(values.hour);
+  const displayHour = hour % 12 || 12;
+  const period = hour < 12 ? '오전' : '오후';
+
+  return `${values.month}월 ${values.day}일 ${period} ${displayHour}:${values.minute}`;
+}
+
 function timeAgo(iso: string): string {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
   if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
@@ -234,7 +251,7 @@ export default function RankingsClient({
             </button>
           </div>
           <p className="text-[10px] text-gray-700">
-            업데이트: {new Date(lastUpdated).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            업데이트: {formatUpdatedAt(lastUpdated)}
           </p>
         </div>
       </div>
