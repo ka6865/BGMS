@@ -26,6 +26,8 @@
     "verify:board-image-storage": "tsx scripts/verify_board_image_storage_migration.ts",
     "build:app": "bash scripts/build-app.sh",
     "db:cleanup": "tsx scripts/cleanup_telemetry.ts",
+    "db:backup": "tsx scripts/backup_core_tables.ts",
+    "db:backup:dry": "tsx scripts/backup_core_tables.ts --dry-run",
     "cleanup:board-images": "tsx scripts/cleanup_board_images.ts",
     "db:audit:identity": "tsx scripts/audit_processed_telemetry_identity.ts",
     "db:scrape": "tsx scripts/scrape_elite.ts",
