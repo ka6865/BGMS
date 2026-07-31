@@ -8,16 +8,18 @@ import {
 } from "../lib/pubg-analysis/telemetryCacheKey.server";
 import { createTelemetryPayload } from "../lib/pubg-analysis/telemetryPayload";
 import {
+  claimOrWaitForTelemetryMapCache,
+  claimTelemetryMapCacheRow,
   readTelemetryMapCache,
-  reserveTelemetryMapCache,
+  releaseTelemetryMapCacheRow,
   writeTelemetryMapCache,
   type TelemetryMapCacheDependencies,
   type TelemetryMapCacheRegistryRow,
 } from "../lib/pubg-analysis/telemetryMapCache";
 import {
+  claimTelemetryMapCacheReservation,
   finalizeTelemetryMapCacheLifecycle,
   TelemetryRegistryError,
-  upsertTelemetryMapCacheReservation,
 } from "../lib/pubg-analysis/telemetryRegistry.server";
 
 vi.mock("server-only", () => ({}));
@@ -62,6 +64,7 @@ function createRegistryRow(
     lease_expires_at: status === "pending"
       ? "2026-07-18T00:15:00.000Z"
       : null,
+    lease_token: status === "pending" ? "e7e4e481-5aec-4e9a-9c14-6a5066b7f002" : null,
     updated_at: now.toISOString(),
   };
 }
@@ -74,7 +77,8 @@ function createDeps(
     download: vi.fn().mockResolvedValue(null),
     upload: vi.fn().mockResolvedValue(undefined),
     sign: vi.fn().mockResolvedValue("https://r2.example/signed"),
-    reserve: vi.fn().mockResolvedValue(undefined),
+    claim: vi.fn().mockResolvedValue(true),
+    release: vi.fn().mockResolvedValue(undefined),
     finalize: vi.fn().mockResolvedValue(undefined),
     now: () => new Date("2026-07-18T00:00:00.000Z"),
     sleep: vi.fn().mockResolvedValue(undefined),
@@ -84,8 +88,8 @@ function createDeps(
 }
 
 describe("telemetry map cache", () => {
-  it("registry reserve가 Supabase 최상위 5xx status를 보존해 재시도한다", async () => {
-    const upsert = vi.fn()
+  it("registry claim이 Supabase 최상위 5xx status를 보존해 재시도한다", async () => {
+    const rpc = vi.fn()
       .mockResolvedValueOnce({
         error: {
           code: "PGRST000",
@@ -93,18 +97,18 @@ describe("telemetry map cache", () => {
         },
         status: 500,
       })
-      .mockResolvedValueOnce({ error: null, status: 201 });
+      .mockResolvedValueOnce({ data: true, error: null, status: 200 });
     const supabase = {
-      from: vi.fn(() => ({ upsert })),
+      rpc,
     } as any;
     const sleep = vi.fn().mockResolvedValue(undefined);
 
-    await reserveTelemetryMapCache(identity, createDeps({
-      reserve: (reservedRow) => upsertTelemetryMapCacheReservation(supabase, reservedRow),
+    await claimTelemetryMapCacheRow(identity, createDeps({
+      claim: (reservedRow) => claimTelemetryMapCacheReservation(supabase, reservedRow),
       sleep,
     }));
 
-    expect(upsert).toHaveBeenCalledTimes(2);
+    expect(rpc).toHaveBeenCalledTimes(2);
     expect(sleep).toHaveBeenCalledWith(250);
   });
 
@@ -120,6 +124,69 @@ describe("telemetry map cache", () => {
       lease_expires_at: null,
     }));
     expect(deps.sign).toHaveBeenCalledOnce();
+  });
+
+  it("동시 요청 두 건 중 하나만 writer claim을 받고 다른 요청은 ready cache를 반환한다", async () => {
+    let active = false;
+    let body: string | null = null;
+    const claim = vi.fn(async () => {
+      if (active) return false;
+      active = true;
+      return true;
+    });
+    const firstDeps = createDeps({
+      claim,
+      download: vi.fn(async () => body),
+    });
+    const secondDeps = createDeps({
+      claim,
+      download: vi.fn(async () => body),
+      sleep: vi.fn(async () => {
+        body = JSON.stringify(payload);
+        active = false;
+      }),
+    });
+
+    const first = await claimOrWaitForTelemetryMapCache(identity, firstDeps);
+    expect(first).toMatchObject({ kind: "claimed" });
+
+    const second = await claimOrWaitForTelemetryMapCache(identity, secondDeps);
+
+    expect(second).toMatchObject({ kind: "hit", cache: { payload } });
+    expect(claim).toHaveBeenCalledTimes(2);
+    expect(secondDeps.upload).not.toHaveBeenCalled();
+  });
+
+  it("첫 writer가 release하면 대기 요청이 다음 재확인에서 claim을 획득한다", async () => {
+    let active = false;
+    const claim = vi.fn(async () => {
+      if (active) return false;
+      active = true;
+      return true;
+    });
+    const firstDeps = createDeps({
+      claim,
+      release: vi.fn(async () => {
+        active = false;
+      }),
+    });
+    const first = await claimTelemetryMapCacheRow(identity, firstDeps);
+    expect(first).not.toBeNull();
+    let released = false;
+    const deps = createDeps({
+      claim,
+      sleep: vi.fn(async () => {
+        if (released) return;
+        released = true;
+        await releaseTelemetryMapCacheRow(first!, firstDeps);
+      }),
+    });
+
+    const result = await claimOrWaitForTelemetryMapCache(identity, deps);
+
+    expect(result).toMatchObject({ kind: "claimed" });
+    expect(claim).toHaveBeenCalledTimes(3);
+    expect(firstDeps.release).toHaveBeenCalledWith(first);
   });
 
   it("검증된 cache hit의 registry 복구가 실패하면 URL을 반환하지 않는다", async () => {
@@ -156,15 +223,15 @@ describe("telemetry map cache", () => {
     await expect(readTelemetryMapCache(identity, deps)).rejects.toThrow(signError);
   });
 
-  it("write는 registry를 reserve한 뒤 R2 업로드와 finalize를 순서대로 수행한다", async () => {
+  it("write는 registry claim 뒤 R2 업로드와 finalize를 순서대로 수행한다", async () => {
     const finalizeError = new Error("registry unavailable");
     const deps = createDeps({ finalize: vi.fn().mockRejectedValue(finalizeError) });
 
     await expect(writeTelemetryMapCache(identity, payload, deps)).rejects.toThrow(finalizeError);
-    expect(deps.reserve).toHaveBeenCalledOnce();
+    expect(deps.claim).toHaveBeenCalledOnce();
     expect(deps.upload).toHaveBeenCalledOnce();
     expect(deps.finalize).toHaveBeenCalledOnce();
-    expect(deps.reserve).toHaveBeenCalledWith(expect.objectContaining({
+    expect(deps.claim).toHaveBeenCalledWith(expect.objectContaining({
       match_id: identity.matchId,
       platform: identity.platform,
       player_id: identity.playerId,
@@ -178,14 +245,14 @@ describe("telemetry map cache", () => {
       lease_expires_at: null,
     }));
     expect(deps.sign).not.toHaveBeenCalled();
-    const reserveOrder = (deps.reserve as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    const reserveOrder = (deps.claim as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
     const uploadOrder = (deps.upload as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
     const finalizeOrder = (deps.finalize as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
     expect(reserveOrder).toBeLessThan(uploadOrder);
     expect(uploadOrder).toBeLessThan(finalizeOrder);
   });
 
-  it("이미 예약한 row를 받으면 write는 reserve를 다시 호출하지 않는다", async () => {
+  it("이미 claim한 row를 받으면 write는 claim을 다시 호출하지 않는다", async () => {
     const deps = createDeps();
     const reservedRow = createRegistryRow(
       identity,
@@ -195,26 +262,26 @@ describe("telemetry map cache", () => {
 
     await writeTelemetryMapCache(identity, payload, deps, { reservedRow });
 
-    expect(deps.reserve).not.toHaveBeenCalled();
+    expect(deps.claim).not.toHaveBeenCalled();
     expect(deps.finalize).toHaveBeenCalledWith(expect.objectContaining({
       storage_path: reservedRow.storage_path,
       status: "ready",
     }));
   });
 
-  it("statement timeout reserve는 두 번 재시도 후 성공한다", async () => {
-    const reserve = vi.fn()
-      .mockRejectedValueOnce(new TelemetryRegistryError("reserve", { code: "57014", status: 500 }))
-      .mockRejectedValueOnce(new TelemetryRegistryError("reserve", { code: "55P03", status: 500 }))
-      .mockResolvedValue(undefined);
+  it("statement timeout claim은 두 번 재시도 후 성공한다", async () => {
+    const claim = vi.fn()
+      .mockRejectedValueOnce(new TelemetryRegistryError("claim", { code: "57014", status: 500 }))
+      .mockRejectedValueOnce(new TelemetryRegistryError("claim", { code: "55P03", status: 500 }))
+      .mockResolvedValue(true);
 
-    await reserveTelemetryMapCache(identity, createDeps({
-      reserve,
+    await claimTelemetryMapCacheRow(identity, createDeps({
+      claim,
       sleep: vi.fn().mockResolvedValue(undefined),
       random: () => 0,
     }));
 
-    expect(reserve).toHaveBeenCalledTimes(3);
+    expect(claim).toHaveBeenCalledTimes(3);
   });
 
   it("transient registry 오류가 재시도를 소진하면 실제 retry 횟수를 보존한다", async () => {
@@ -292,7 +359,7 @@ describe("telemetry map cache", () => {
     await expect(writeTelemetryMapCache(identity, payload, deps))
       .rejects.toThrow("텔레메트리 캐시 저장소");
     expect(deps.upload).not.toHaveBeenCalled();
-    expect(deps.reserve).not.toHaveBeenCalled();
+    expect(deps.claim).not.toHaveBeenCalled();
     expect(deps.finalize).not.toHaveBeenCalled();
     expect(deps.sign).not.toHaveBeenCalled();
   });
@@ -345,7 +412,7 @@ describe("telemetry map cache", () => {
     }
   });
 
-  it("두 writer가 비싼 telemetry 처리 전에 registry lease를 reserve한다", () => {
+  it("두 writer가 비싼 telemetry 처리 전에 registry lease를 claim한다", () => {
     const telemetryRoute = fs.readFileSync(
       path.resolve("app/api/pubg/telemetry/route.ts"),
       "utf8",
@@ -355,9 +422,9 @@ describe("telemetry map cache", () => {
       "utf8",
     );
 
-    expect(telemetryRoute.indexOf("reserveTelemetryMapCacheRow(identity"))
+    expect(telemetryRoute.indexOf("claimOrWaitForTelemetryMapCache(identity"))
       .toBeLessThan(telemetryRoute.indexOf("fetch(asset.attributes.URL"));
-    expect(matchRoute.indexOf("reserveTelemetryMapCacheRow(telemetryIdentity"))
+    expect(matchRoute.indexOf("claimOrWaitForTelemetryMapCache(telemetryIdentity"))
       .toBeLessThan(matchRoute.indexOf("downloadFromR2(analyzePath)"));
     expect(matchRoute).toContain("finalizeTelemetryMapCacheLifecycle");
     expect(telemetryRoute).toContain("finalizeTelemetryMapCacheLifecycle");

@@ -15,14 +15,17 @@ import {
   uploadToR2,
 } from "@/lib/pubg-analysis/r2Service";
 import {
-  reserveTelemetryMapCacheRow,
+  claimOrWaitForTelemetryMapCache,
+  claimTelemetryMapCacheRow,
+  releaseTelemetryMapCacheRow,
   writeTelemetryMapCache,
   type TelemetryMapCacheRegistryRow,
 } from "@/lib/pubg-analysis/telemetryMapCache";
 import {
+  claimTelemetryMapCacheReservation,
   finalizeTelemetryMapCacheLifecycle,
+  releaseTelemetryMapCacheReservation,
   TelemetryRegistryError,
-  upsertTelemetryMapCacheReservation,
 } from "@/lib/pubg-analysis/telemetryRegistry.server";
 import { createTelemetryIdentity } from "@/lib/pubg-analysis/telemetryIdentity";
 import {
@@ -457,20 +460,56 @@ async function reanalyzeAndSave(
     mode: "lite",
     telemetryVersion: TELEMETRY_VERSION,
   });
+  const cacheDeps = {
+    isConfigured: isR2Configured,
+    download: downloadFromR2,
+    upload: uploadToR2,
+    sign: getPresignedUrlFromR2,
+    claim: (row: TelemetryMapCacheRegistryRow) => claimTelemetryMapCacheReservation(supabase, row),
+    release: (row: TelemetryMapCacheRegistryRow) => releaseTelemetryMapCacheReservation(supabase, row),
+    finalize: (row: TelemetryMapCacheRegistryRow) => finalizeTelemetryMapCacheLifecycle(supabase, {
+      row,
+      mapName: matchAttr.mapName || matchAttr.mapId || "unknown",
+      gameMode: matchAttr.gameMode || "unknown",
+    }),
+    now: () => new Date(),
+    sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+    random: Math.random,
+  };
+  const cacheAccess = await claimOrWaitForTelemetryMapCache(telemetryIdentity, cacheDeps);
   let reservedRow: TelemetryMapCacheRegistryRow | undefined;
-  try {
-    reservedRow = await reserveTelemetryMapCacheRow(telemetryIdentity, {
-      isConfigured: isR2Configured,
-      reserve: (row) => upsertTelemetryMapCacheReservation(supabase, row),
-      now: () => new Date(),
-      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-      random: Math.random,
-    });
-  } catch (error) {
-    markAnalysisStep("telemetry_cache_persistence");
-    await reportTelemetryCachePersistenceFailure(error, startedAt, requestContext);
+
+  if (cacheAccess.kind === "hit") {
+    const { data, error } = await supabase
+      .from("processed_match_telemetry")
+      .select("data")
+      .eq("match_id", matchId)
+      .eq("platform", normalizePlatform(platform))
+      .eq("player_id", lowerNickname)
+      .maybeSingle();
+    const cachedFullResult = error ? null : getValidFullResult(data, lowerNickname, platform);
+    if (cachedFullResult) {
+      const sampleParticipants = participants
+        .filter((p: any) => !p.attributes.stats.playerId?.startsWith("ai."))
+        .map((p: any) => p.attributes.stats.name)
+        .filter((name: string) => normalizeName(name) !== lowerNickname)
+        .sort(() => 0.5 - Math.random())
+        .slice(0, 5);
+      return {
+        ...createTacticalResponse(cachedFullResult),
+        sampleParticipants,
+      };
+    }
+    reservedRow = await claimTelemetryMapCacheRow(telemetryIdentity, cacheDeps) ?? undefined;
+  } else if (cacheAccess.kind === "claimed") {
+    reservedRow = cacheAccess.row;
   }
 
+  if (!reservedRow) {
+    throw new Error("telemetry-map-cache-write-in-progress");
+  }
+
+  try {
   const telemetryAsset = matchData.included.find((it: any) => it.type === "asset");
   let telData: any[] = [];
 
@@ -653,11 +692,7 @@ async function reanalyzeAndSave(
   markAnalysisStep("telemetry_cache_finalize");
   try {
     await writeTelemetryMapCache(telemetryIdentity, telemetryPayload, {
-      isConfigured: isR2Configured,
-      download: downloadFromR2,
-      upload: uploadToR2,
-      sign: getPresignedUrlFromR2,
-      reserve: (row) => upsertTelemetryMapCacheReservation(supabase, row),
+      ...cacheDeps,
       finalize: (row) => finalizeTelemetryMapCacheLifecycle(supabase, {
         row,
         mapName: matchAttr.mapName || matchAttr.mapId || "unknown",
@@ -669,13 +704,11 @@ async function reanalyzeAndSave(
           updatedAt: processedTelemetryRecord.updated_at,
         },
       }),
-      now: () => new Date(),
-      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-      random: Math.random,
     }, { reservedRow });
   } catch (error) {
     markAnalysisStep("telemetry_cache_persistence");
     await reportTelemetryCachePersistenceFailure(error, startedAt, requestContext);
+    await releaseTelemetryMapCacheRow(reservedRow, cacheDeps).catch(() => undefined);
   }
 
   try {
@@ -732,4 +765,8 @@ async function reanalyzeAndSave(
     ...createTacticalResponse(tacticalResult),
     sampleParticipants
   };
+  } catch (error) {
+    await releaseTelemetryMapCacheRow(reservedRow, cacheDeps).catch(() => undefined);
+    throw error;
+  }
 }

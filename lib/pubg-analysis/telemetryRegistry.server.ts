@@ -3,13 +3,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TelemetryMapCacheRegistryRow } from "./telemetryMapCache";
 
 export class TelemetryRegistryError extends Error {
-  readonly operation: "reserve" | "finalize";
+  readonly operation: "claim" | "release" | "finalize";
   readonly code: string | null;
   readonly status: number | null;
   readonly retryCount: number;
 
   constructor(
-    operation: "reserve" | "finalize",
+    operation: "claim" | "release" | "finalize",
     error: {
       code?: string | null;
       status?: number | null;
@@ -25,15 +25,41 @@ export class TelemetryRegistryError extends Error {
   }
 }
 
-export async function upsertTelemetryMapCacheReservation(
+export async function claimTelemetryMapCacheReservation(
+  supabase: SupabaseClient,
+  row: TelemetryMapCacheRegistryRow,
+): Promise<boolean> {
+  const { data, error, status } = await supabase.rpc("claim_telemetry_cache_write", {
+    p_match_id: row.match_id,
+    p_platform: row.platform,
+    p_player_id: row.player_id,
+    p_mode: row.mode,
+    p_telemetry_version: row.telemetry_version,
+    p_storage_path: row.storage_path,
+    p_lease_expires_at: row.lease_expires_at,
+    p_lease_token: row.lease_token,
+    p_updated_at: row.updated_at,
+  });
+  if (error) {
+    throw new TelemetryRegistryError("claim", { code: error.code, status });
+  }
+  return data === true;
+}
+
+export async function releaseTelemetryMapCacheReservation(
   supabase: SupabaseClient,
   row: TelemetryMapCacheRegistryRow,
 ): Promise<void> {
-  const { error, status } = await supabase
-    .from("telemetry_map_cache_entries")
-    .upsert(row, { onConflict: "match_id,platform,player_id,mode,telemetry_version" });
+  const { error, status } = await supabase.rpc("release_telemetry_cache_write", {
+    p_match_id: row.match_id,
+    p_platform: row.platform,
+    p_player_id: row.player_id,
+    p_mode: row.mode,
+    p_telemetry_version: row.telemetry_version,
+    p_lease_token: row.lease_token,
+  });
   if (error) {
-    throw new TelemetryRegistryError("reserve", { code: error.code, status });
+    throw new TelemetryRegistryError("release", { code: error.code, status });
   }
 }
 
@@ -65,6 +91,7 @@ export async function finalizeTelemetryMapCacheLifecycle(
     p_mode: input.row.mode,
     p_cache_version: input.row.telemetry_version,
     p_cache_updated_at: input.row.updated_at,
+    p_cache_lease_token: input.row.lease_token,
     p_processed_player_id: processed?.playerId ?? null,
     p_processed_platform: processed?.platform ?? null,
     p_processed_data: processed?.data ?? null,
