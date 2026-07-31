@@ -79,6 +79,25 @@ jobs:
       # 정리·스크래핑·패치노트 동기화가 며칠간 멈췄다.
       # 순서는 그대로 유지하므로 동일 테이블 동시 접근 위험은 발생하지 않는다.
       # continue-on-error 는 지정하지 않아 실패는 여전히 workflow 실패로 남는다.
+
+      # 알림 secret 이 비어 있으면 실패가 조용히 묻힌다.
+      # 2026-08-01 일일 작업이 실패했을 때 DISCORD_WEBHOOK_URL 이 등록되지 않아
+      # failure-notify 잡이 "skipping" 으로 성공 처리되고 알림이 가지 않았다.
+      # 잡 자체는 success 였으므로 알림 경로가 죽은 것을 감지할 수 없었다.
+      #
+      # 정리 작업을 막지 않도록 continue-on-error 로 두고 경고만 남긴다.
+      - name: Check Notification Secrets
+        continue-on-error: true
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "::warning title=알림 경로 없음::DISCORD_WEBHOOK_URL 이 등록되지 않아 실패 알림이 발송되지 않습니다. 저장소 secret 을 확인하세요."
+            exit 1
+          fi
+          echo "실패 알림 경로가 설정되어 있습니다."
+
       # Supabase 무료 플랜에는 자동 백업이 없다. 이 step 이 유일한 복구 수단이므로
       # 정리·삭제 작업보다 반드시 먼저 실행한다. 순서를 바꾸면 삭제 후 상태만
       # 백업되어 복구 가치가 사라진다.
