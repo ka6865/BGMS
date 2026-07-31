@@ -14,6 +14,8 @@ interface CommentSectionProps {
   handleSaveComment: () => void;
   handleDeleteComment: (commentId: number) => void;
   handleReportComment: (commentId: number) => void;
+  /** 등록 요청 진행 여부. 중복 제출을 막기 위해 버튼을 비활성화한다. */
+  isSubmitting?: boolean;
   // 비회원 입력 상태
   guestNickname: string;
   setGuestNickname: (v: string) => void;
@@ -52,6 +54,7 @@ export default function CommentSection({
   handleSaveComment,
   handleDeleteComment,
   handleReportComment,
+  isSubmitting = false,
   guestNickname,
   setGuestNickname,
   guestPassword,
@@ -239,10 +242,11 @@ export default function CommentSection({
 
           <button
             onClick={handleSaveComment}
-            className="bg-[#34A853] border-none rounded-[4px] w-[60px] font-bold text-[13px] hover:bg-[#2a9040] transition-colors cursor-pointer shrink-0"
+            disabled={isSubmitting}
+            className="bg-[#34A853] border-none rounded-[4px] w-[60px] font-bold text-[13px] hover:bg-[#2a9040] transition-colors cursor-pointer shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ color: "#ffffff", WebkitTextFillColor: "#ffffff" }}
           >
-            {replyingTo ? "답글" : "등록"}
+            {isSubmitting ? "전송" : replyingTo ? "답글" : "등록"}
           </button>
         </div>
 
