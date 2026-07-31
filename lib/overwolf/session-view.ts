@@ -249,6 +249,92 @@ export function buildAnalysisPath(view: SessionSummaryView): string | null {
  * `atSeconds` 를 주면 타임라인의 특정 시점으로 진입하도록 `t` 를 붙입니다.
  * 리플레이 화면이 아직 `t` 를 읽지 않아도 무해하며, 지원되면 그 시점으로 점프한다.
  */
+/** 연속 플레이로 묶는 기준 간격. 이보다 오래 쉬면 다른 플레이 세션으로 본다. */
+export const PLAY_SESSION_GAP_MINUTES = 90;
+
+export type PlaySessionGroup = {
+  /** 그룹 시작 시각(가장 오래된 매치) */
+  startedAt: string;
+  /** 그룹 종료 시각(가장 최근 매치) */
+  endedAt: string;
+  matchCount: number;
+  kills: number;
+  headshots: number;
+  deaths: number;
+  /** 최고 순위(숫자가 작을수록 좋음). 순위를 못 받은 매치만 있으면 null */
+  bestPlace: number | null;
+  /** 순위를 받은 매치들의 평균. 소수 첫째 자리까지 */
+  averagePlace: number | null;
+  sessions: SessionSummaryView[];
+};
+
+/**
+ * 매치를 연속 플레이 단위로 묶습니다.
+ *
+ * 매치 하나씩만 보면 "오늘 어땠는지" 를 알 수 없습니다. 경쟁 앱(Statsly)이 세션 단위
+ * 집계를 제공하는 것도 같은 이유입니다. 여기서는 매치 사이 간격이
+ * `PLAY_SESSION_GAP_MINUTES` 를 넘으면 다른 플레이 세션으로 끊습니다.
+ *
+ * 입력은 최신순 정렬을 가정합니다(조회 RPC 가 `created_at DESC` 로 반환).
+ */
+export function groupByPlaySession(views: SessionSummaryView[]): PlaySessionGroup[] {
+  const gapMs = PLAY_SESSION_GAP_MINUTES * 60 * 1000;
+  const groups: PlaySessionGroup[] = [];
+  let current: SessionSummaryView[] = [];
+
+  function timeOf(view: SessionSummaryView): number {
+    const parsed = Date.parse(view.createdAt);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+
+  function flush() {
+    if (current.length === 0) return;
+
+    const places = current
+      .map((view) => view.rankPlace)
+      .filter((place): place is number => place !== null && place > 0);
+
+    // current 는 최신순이므로 시작은 마지막 항목, 종료는 첫 항목이다.
+    groups.push({
+      startedAt: current[current.length - 1].createdAt,
+      endedAt: current[0].createdAt,
+      matchCount: current.length,
+      kills: current.reduce((sum, view) => sum + view.kills, 0),
+      headshots: current.reduce((sum, view) => sum + view.headshots, 0),
+      deaths: current.reduce((sum, view) => sum + view.deaths, 0),
+      bestPlace: places.length > 0 ? Math.min(...places) : null,
+      averagePlace:
+        places.length > 0
+          ? Math.round((places.reduce((a, b) => a + b, 0) / places.length) * 10) / 10
+          : null,
+      sessions: current
+    });
+
+    current = [];
+  }
+
+  views.forEach((view, index) => {
+    if (index === 0) {
+      current = [view];
+      return;
+    }
+
+    const previous = views[index - 1];
+    const gap = timeOf(previous) - timeOf(view);
+
+    // 최신순이라 이전 항목이 더 나중 시각이다. 간격이 기준을 넘으면 끊는다.
+    if (gap > gapMs) {
+      flush();
+    }
+
+    current.push(view);
+  });
+
+  flush();
+
+  return groups;
+}
+
 export function buildReplayPath(
   view: SessionSummaryView,
   atSeconds?: number | null
