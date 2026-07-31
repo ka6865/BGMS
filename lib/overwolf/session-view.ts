@@ -29,10 +29,17 @@ export type SessionSummaryView = {
   sessionId: string;
   /** 공식 PUBG API 로 조회 가능한 match id. 없으면 null */
   officialMatchId: string | null;
+  /**
+   * BGMS 내부 match_id(UUID). GEP match_id 문자열 끝의 UUID 구간을 추출한 값이다.
+   * BGMS 는 텔레메트리를 UUID 기준으로 저장하므로 리플레이 연결에 이 값을 쓴다.
+   */
+  telemetryMatchId: string | null;
   /** 화면 식별용 id. officialMatchId 가 없으면 pseudo 값이 들어온다 */
   displayMatchId: string | null;
   /** 공식 API 텔레메트리 분석으로 진입할 수 있는지 */
   canOpenAnalysis: boolean;
+  /** 해당 매치의 맵 리플레이로 바로 진입할 수 있는지 */
+  canOpenReplay: boolean;
   playerId: string | null;
   platform: string | null;
   mapName: string | null;
@@ -83,6 +90,31 @@ function readNumber(value: unknown): number | null {
 function readCount(value: unknown): number {
   const parsed = readNumber(value);
   return parsed !== null && parsed >= 0 ? Math.round(parsed) : 0;
+}
+
+/**
+ * GEP match_id 에서 BGMS 텔레메트리 match_id(UUID)를 추출합니다.
+ *
+ * GEP 는 `match.bro.official.pc-2018-03.steam.solo.eu.2019.05.07.08.<uuid>` 형태로 주고,
+ * BGMS 는 같은 매치를 뒤쪽 UUID 만으로 저장한다(match_master_telemetry.match_id).
+ * 따라서 문자열 끝의 UUID 구간을 뽑으면 기존 리플레이/분석 경로에 그대로 넘길 수 있다.
+ *
+ * 이미 UUID 만 들어온 경우(BGMS 형식)도 그대로 통과시킨다.
+ * 형식을 만족하지 못하면 null 을 반환해 잘못된 id 로 리플레이를 열지 않는다.
+ */
+const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+export function extractTelemetryMatchId(officialMatchId: string | null): string | null {
+  if (!officialMatchId) return null;
+
+  const matched = UUID_PATTERN.exec(officialMatchId);
+  if (!matched) return null;
+
+  // UUID 는 여러 번 등장할 수 없는 구조지만, 방어적으로 마지막 구간을 쓴다.
+  const all = officialMatchId.match(new RegExp(UUID_PATTERN, "gi"));
+  const candidate = all && all.length > 0 ? all[all.length - 1] : matched[0];
+
+  return candidate.toLowerCase();
 }
 
 /** 경과 초를 mm:ss 로 표기한다. 1시간을 넘으면 h:mm:ss 로 늘린다. */
@@ -158,13 +190,18 @@ export function toSessionSummaryView(row: RawSessionRow): SessionSummaryView | n
   const pseudoMatchId = readString(row.pseudo_match_id);
   const matchStartedAt = readString(summary.match_started_at);
   const matchEndedAt = readString(summary.match_ended_at);
+  const telemetryMatchId = extractTelemetryMatchId(officialMatchId);
+  const playerId = readString(row.player_id);
 
   return {
     sessionId,
     officialMatchId,
+    telemetryMatchId,
     displayMatchId: officialMatchId ?? pseudoMatchId,
     canOpenAnalysis: Boolean(officialMatchId),
-    playerId: readString(row.player_id),
+    // 리플레이는 텔레메트리 UUID 와 닉네임이 모두 있어야 열 수 있다.
+    canOpenReplay: Boolean(telemetryMatchId && playerId),
+    playerId,
     platform: readString(row.platform),
     mapName: readString(summary.map_name),
     matchMode: readString(summary.match_mode),
@@ -203,4 +240,30 @@ export function buildAnalysisPath(view: SessionSummaryView): string | null {
   const platform = view.platform || "steam";
 
   return `/stats/${encodeURIComponent(platform)}/${encodeURIComponent(view.playerId)}`;
+}
+
+/**
+ * 세션에서 그 매치의 BGMS 맵 리플레이로 바로 이동하는 경로를 만듭니다.
+ * 기존 `/replay/3d` 화면이 `matchId`, `nickname`, `platform` 쿼리를 받으므로 그대로 재사용합니다.
+ *
+ * `atSeconds` 를 주면 타임라인의 특정 시점으로 진입하도록 `t` 를 붙입니다.
+ * 리플레이 화면이 아직 `t` 를 읽지 않아도 무해하며, 지원되면 그 시점으로 점프한다.
+ */
+export function buildReplayPath(
+  view: SessionSummaryView,
+  atSeconds?: number | null
+): string | null {
+  if (!view.canOpenReplay || !view.telemetryMatchId || !view.playerId) return null;
+
+  const params = new URLSearchParams({
+    matchId: view.telemetryMatchId,
+    nickname: view.playerId,
+    platform: view.platform || "steam"
+  });
+
+  if (typeof atSeconds === "number" && Number.isFinite(atSeconds) && atSeconds >= 0) {
+    params.set("t", String(Math.round(atSeconds)));
+  }
+
+  return `/replay/3d?${params.toString()}`;
 }

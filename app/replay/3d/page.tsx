@@ -18,6 +18,8 @@ import {
 import { fetchTelemetryPayload } from "@/lib/pubg-analysis/fetchTelemetryPayload";
 import {
   resolveReplay3DRequest,
+  parseReplayStartMs,
+  resolveReplaySeekMs,
   type Replay3DRequest,
 } from "@/lib/pubg-analysis/replay3dRequest";
 import { shouldUseSingleTileFallback } from "@/lib/replay/tile-load";
@@ -230,6 +232,8 @@ function Replay3DContent() {
   const qNickname = searchParams.get("nickname");
   const qMatchId = searchParams.get("matchId");
   const qPlatform = searchParams.get("platform");
+  // Overwolf Companion 세션 타임라인에서 특정 교전 시점으로 진입할 때 넘어오는 초 단위 값.
+  const qStartSeconds = searchParams.get("t");
   const demoRequest = qNickname === null && qMatchId === null && qPlatform === null
     ? resolveReplay3DRequest({ matchId: null, nickname: null, platform: null })
     : null;
@@ -323,6 +327,7 @@ function Replay3DContent() {
     isPlayingRef.current = false;
   }, []);
 
+
   useEffect(() => {
     const applyViewportMode = () => {
       const isMobile = window.matchMedia(MOBILE_QUERY).matches;
@@ -345,6 +350,28 @@ function Replay3DContent() {
   useEffect(() => {
     maxTimeRef.current = maxTimeMs;
   }, [maxTimeMs]);
+
+  /*
+   * Overwolf Companion 세션 타임라인에서 `t`(초)를 붙여 들어온 경우,
+   * 텔레메트리 로드가 끝나 재생 구간이 정해진 뒤 그 시점으로 한 번 이동한다.
+   *
+   * `t` 는 매치 시작 기준 경과 초이고 텔레메트리 타임라인 기준과 완전히 같지 않다.
+   * 정확한 프레임이 아니라 "그 무렵" 으로 데려가는 용도이며, 매치 길이를 넘으면 끝으로 맞춘다.
+   * players 가 채워진 뒤에만 적용해 로딩 중 값이 덮이지 않게 한다.
+   */
+  useEffect(() => {
+    const startMs = parseReplayStartMs(qStartSeconds);
+    const target = resolveReplaySeekMs({
+      requestedStartMs: startMs,
+      maxTimeMs,
+      playerCount: players.length,
+    });
+
+    if (target === null) return;
+
+    setCurrentTimeMs(target);
+    currentTimeRef.current = target;
+  }, [qStartSeconds, maxTimeMs, players.length]);
 
   useEffect(() => {
     currentTimeRef.current = currentTimeMs;
