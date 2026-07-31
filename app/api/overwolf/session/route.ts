@@ -88,7 +88,8 @@ export async function POST(request: Request) {
       p_gep_summary: normalized.value.gep_summary,
       p_client_environment: normalized.value.client_environment,
       p_source_host: requestHost,
-      p_is_internal: isLocalHost(requestHost) || environment !== "production"
+      p_is_internal: isLocalHost(requestHost) || environment !== "production",
+      p_event_timeline: normalized.value.event_timeline
     }
   );
 
