@@ -30,6 +30,7 @@ export default function AdfitBanner({ adUnit, adWidth, adHeight, className }: Ad
 
     const ins = document.createElement('ins');
     ins.className = 'kakao_ad_area';
+    // 애드핏 스크립트가 로드 후 표시 상태를 제어하므로 display:none으로 시작한다.
     ins.style.display = 'none';
     ins.setAttribute('data-ad-unit', adUnit);
     ins.setAttribute('data-ad-width', String(adWidth));
@@ -79,13 +80,19 @@ export default function AdfitBanner({ adUnit, adWidth, adHeight, className }: Ad
   }
 
   // 프로덕션 환경: 실제 ins 태그 컨테이너
+  // 광고 로드 전에도 높이를 예약해 로드 시점에 아래 콘텐츠가 밀리는 현상(CLS)을 방지한다.
   return (
     <div
       ref={containerRef}
       className={className}
-      style={{ width: adWidth, maxWidth: '100%', margin: '0 auto' }}
+      style={{
+        width: adWidth,
+        height: adHeight,
+        maxWidth: '100%',
+        margin: '0 auto',
+        boxSizing: 'border-box',
+      }}
       aria-label="광고"
     />
   );
 }
-

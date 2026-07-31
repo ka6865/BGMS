@@ -1021,9 +1021,13 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
             />
           </aside>
 
-          {/* 뷰포트 고정 광고는 좌측 한 곳만 유지한다. */}
+          {/*
+            뷰포트 고정 광고는 좌측 한 곳만 유지한다.
+            부모 높이가 auto이므로 h-full은 해석되지 않는다. inset-y-0으로 부모 높이만큼 늘려
+            내부 sticky 요소가 이동할 여유를 확보한다.
+          */}
           <aside
-            className="hidden [@media(min-width:1536px)_and_(min-height:680px)]:block w-[160px] absolute right-[calc(100%+24px)] top-0 h-full"
+            className="hidden [@media(min-width:1536px)_and_(min-height:680px)]:block w-[160px] absolute right-[calc(100%+24px)] inset-y-0"
             aria-label="광고"
           >
             <div className="sticky top-16 h-[600px]">
