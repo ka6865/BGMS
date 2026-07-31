@@ -3,6 +3,7 @@ import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
 import { trackPubgRateLimit } from "@/lib/pubg-analysis/pubgApiTracker";
 import { reportPubgApiError } from "@/lib/pubg/apiHelper";
+import { mergeRecentMatchIds } from "@/lib/pubg/recentMatches";
 import {
   buildPlayerCacheKey,
   claimForceRefresh,
@@ -279,9 +280,10 @@ export async function GET(request: Request) {
 
     // (클랜/무기 데이터 갱신 여부를 포함하여 하단에서 통합 캐시 업데이트를 수행합니다.)
 
-    const recentMatches = (playerRecord.relationships?.matches?.data || []).map(
+    const apiRecentMatches = (playerRecord.relationships?.matches?.data || []).map(
       (m: any) => m.id
     );
+    const recentMatches = mergeRecentMatchIds(apiRecentMatches, cacheData?.recent_match_ids);
 
     const seasonRes = await withRetry(() => fetch(
       `https://api.pubg.com/shards/${platform}/seasons`,
