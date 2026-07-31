@@ -1,0 +1,52 @@
+name: PR Verify
+
+# PR 및 develop·main push 시 정적 검증과 단위 테스트만 실행한다.
+# 운영 DB, R2, 외부 API에는 접근하지 않는다.
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+  push:
+    branches:
+      - main
+      - develop
+
+# 같은 브랜치에 새 커밋이 오면 이전 실행을 취소해 Actions 사용량을 절약한다.
+concurrency:
+  group: pr-verify-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # 일부 테스트가 모듈 초기화 시점에 Supabase 클라이언트를 생성하므로
+      # 형식만 유효한 자리표시자 값을 넣는다. 실제 운영 자격 증명이 아니며
+      # 네트워크 요청은 테스트 내에서 모킹되어 발생하지 않는다.
+      NEXT_PUBLIC_SUPABASE_URL: https://ci-placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
+      PUBG_API_KEY: ci-placeholder-pubg-key
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Lint And Type Check
+        run: npm run verify:core
+
+      - name: Unit Tests
+        run: npm run test:unit
