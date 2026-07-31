@@ -24,6 +24,10 @@ import { inspectDeletionKey } from "../lib/pubg-analysis/r2DeletionGuard";
 // 한 번 실행에서 처리할 최대 객체 수. 중단·재실행이 가능하도록 제한합니다.
 export const RECOMPRESS_BATCH_LIMIT = 500;
 
+// 동시 처리 수. 객체 하나당 다운로드·업로드·검증 왕복이 3회 발생하므로
+// 순차 처리 시 대량 객체에 과도한 시간이 걸립니다.
+export const RECOMPRESS_CONCURRENCY = 12;
+
 export type RecompressCandidate = {
   key: string;
   sizeBytes: number;
@@ -168,72 +172,76 @@ export async function runR2Recompression(options: {
   }
 
   // 2단계: 재압축
-  let attempted = 0;
+  const targets = candidates.slice(0, limit);
 
-  for (const candidate of candidates) {
-    if (attempted >= limit) break;
+  /** 객체 하나를 재압축합니다. 검증 실패 시 원본을 복원합니다. */
+  const recompressOne = async (candidate: RecompressCandidate): Promise<void> => {
+    const { bytes, contentEncoding } = await readObject(s3, bucket, candidate.key);
 
-    try {
-      const { bytes, contentEncoding } = await readObject(s3, bucket, candidate.key);
+    // 이미 gzip 이면 건너뛴다. 매직 넘버와 헤더 둘 다 확인한다.
+    const isGzip = (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b)
+      || contentEncoding === "gzip";
+    if (isGzip) {
+      result.alreadyCompressed += 1;
+      return;
+    }
 
-      // 이미 gzip 이면 건너뛴다. 매직 넘버와 헤더 둘 다 확인한다.
-      const isGzip = (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b)
-        || contentEncoding === "gzip";
-      if (isGzip) {
-        result.alreadyCompressed += 1;
-        continue;
-      }
+    const text = bytes.toString("utf8");
 
-      attempted += 1;
+    // JSON 으로 해석되지 않으면 건드리지 않는다.
+    JSON.parse(text);
 
-      const text = bytes.toString("utf8");
+    const compressed = compressJsonText(text);
 
-      // JSON 으로 해석되지 않으면 건드리지 않는다.
-      JSON.parse(text);
+    await s3.send(new PutObjectCommand({
+      Bucket: bucket,
+      Key: candidate.key,
+      Body: compressed,
+      ContentType: "application/json",
+      ContentEncoding: "gzip",
+    }));
 
-      const compressed = compressJsonText(text);
-
+    // 3단계: 재업로드 결과를 다시 읽어 원본과 대조한다.
+    const verify = await readObject(s3, bucket, candidate.key);
+    if (decodeMaybeGzip(verify.bytes) !== text) {
+      // 검증 실패 시 원본을 복원한다.
       await s3.send(new PutObjectCommand({
         Bucket: bucket,
         Key: candidate.key,
-        Body: compressed,
+        Body: bytes,
         ContentType: "application/json",
-        ContentEncoding: "gzip",
       }));
+      throw new Error("재압축 검증 실패로 원본을 복원했습니다.");
+    }
 
-      // 3단계: 재업로드 결과를 다시 읽어 원본과 대조한다.
-      const verify = await readObject(s3, bucket, candidate.key);
-      const restored = decodeMaybeGzip(verify.bytes);
+    result.processed += 1;
+    result.savedBytes += bytes.length - compressed.length;
+  };
 
-      if (restored !== text) {
-        // 검증 실패 시 원본을 복원한다.
-        await s3.send(new PutObjectCommand({
-          Bucket: bucket,
-          Key: candidate.key,
-          Body: bytes,
-          ContentType: "application/json",
-        }));
-        throw new Error("재압축 검증 실패로 원본을 복원했습니다.");
+  // 객체당 왕복이 3회라 순차 처리는 대량에서 지나치게 느리다.
+  // 청크 단위 병렬 처리로 진행하되 실패는 개별 기록해 전체를 중단하지 않는다.
+  for (let index = 0; index < targets.length; index += RECOMPRESS_CONCURRENCY) {
+    const chunk = targets.slice(index, index + RECOMPRESS_CONCURRENCY);
+    const settled = await Promise.allSettled(chunk.map((candidate) => recompressOne(candidate)));
+
+    settled.forEach((outcome, offset) => {
+      if (outcome.status === "rejected") {
+        const reason = outcome.reason;
+        result.failed.push({
+          key: chunk[offset].key,
+          message: reason instanceof Error ? reason.message : String(reason),
+        });
       }
+    });
 
-      result.processed += 1;
-      result.savedBytes += bytes.length - compressed.length;
-
-      if (result.processed % 100 === 0) {
-        write(`  진행: ${result.processed.toLocaleString()}개 완료 / 절감 ${formatBytes(result.savedBytes)}`);
-      }
-    } catch (error) {
-      result.failed.push({
-        key: candidate.key,
-        message: error instanceof Error ? error.message : String(error),
-      });
+    const done = result.processed + result.alreadyCompressed + result.failed.length;
+    if (done % 500 < RECOMPRESS_CONCURRENCY) {
+      write(`  진행: ${result.processed.toLocaleString()}개 완료 / 절감 ${formatBytes(result.savedBytes)}`);
     }
   }
 
-  result.remaining = Math.max(
-    0,
-    candidates.length - result.alreadyCompressed - result.processed - result.failed.length,
-  );
+  // 이번 실행에서 확인하지 못한 후보 수. limit 로 잘린 뒤 남은 대상만 센다.
+  result.remaining = Math.max(0, candidates.length - targets.length);
 
   write(`이미 압축됨: ${result.alreadyCompressed.toLocaleString()}개`);
   write(`재압축 완료: ${result.processed.toLocaleString()}개 / 절감 ${formatBytes(result.savedBytes)}`);
