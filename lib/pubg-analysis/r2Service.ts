@@ -311,8 +311,13 @@ export async function getR2BucketUsage(options: { maxObjects?: number; pageSize?
 }
 
 /**
- * Downloads a binary file as a Buffer from Cloudflare R2 bucket
- * @param key The filename/key of the file to retrieve
+ * R2 에서 바이너리 파일을 Buffer 로 내려받습니다.
+ *
+ * 주의: 이 함수는 gzip 해제를 수행하지 않습니다. 이미지 등 이미 압축된
+ * 바이너리 전용입니다. JSON 텍스트는 uploadToR2 가 gzip 으로 저장하므로
+ * 반드시 downloadFromR2 를 사용해야 합니다.
+ *
+ * @param key 내려받을 객체 키
  */
 export async function downloadBufferFromR2(key: string): Promise<Buffer | null> {
   if (!cleanEnv(process.env.CLOUDFLARE_R2_ENDPOINT)) {
