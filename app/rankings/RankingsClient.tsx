@@ -80,14 +80,24 @@ function formatUpdatedAt(iso: string): string {
   return `${values.month}월 ${values.day}일 ${period} ${displayHour}:${values.minute}`;
 }
 
-function timeAgo(iso: string): string {
-  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+function timeAgo(iso: string, referenceIso: string): string {
+  const diff = (new Date(referenceIso).getTime() - new Date(iso).getTime()) / 1000;
   if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}시간 전`;
   return `${Math.floor(diff / 86400)}일 전`;
 }
 
-function RankRow({ entry, tab, index }: { entry: RankingEntry; tab: TabType; index: number }) {
+function RankRow({
+  entry,
+  tab,
+  index,
+  referenceTime,
+}: {
+  entry: RankingEntry;
+  tab: TabType;
+  index: number;
+  referenceTime: string;
+}) {
   const router = useRouter();
   const medal = RANK_MEDAL[entry.rank];
   const tierColor = TIER_COLOR[entry.tier || 'C'] || 'text-gray-400';
@@ -130,7 +140,11 @@ function RankRow({ entry, tab, index }: { entry: RankingEntry; tab: TabType; ind
           <span className="text-[10px] text-gray-600">{entry.game_mode}</span>
           {entry.map_name && <span className="text-[10px] text-gray-600">· {entry.map_name}</span>}
           {entry.match_count && <span className="text-[10px] text-gray-600">· {entry.match_count}경기</span>}
-          {entry.created_at && <span className="text-[10px] text-gray-700">{timeAgo(entry.created_at)}</span>}
+          {entry.created_at && (
+            <span className="text-[10px] text-gray-700">
+              {timeAgo(entry.created_at, referenceTime)}
+            </span>
+          )}
         </div>
       </div>
 
@@ -398,7 +412,13 @@ export default function RankingsClient({
             </div>
           ) : (
             currentData.map((entry, i) => (
-              <RankRow key={`${entry.player_id}-${i}`} entry={entry} tab={tab} index={i} />
+              <RankRow
+                key={`${entry.player_id}-${i}`}
+                entry={entry}
+                tab={tab}
+                index={i}
+                referenceTime={lastUpdated}
+              />
             ))
           )}
         </div>

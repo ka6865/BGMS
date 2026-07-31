@@ -91,11 +91,14 @@ export default function BoardListClient({
   const pageNumbers = Array.from({ length: endPage - startPage + 1 }, (_, i) => startPage + i);
 
   const formatTimeAgo = (dateString: string) => {
-    const date = new Date(dateString);
-    const y = date.getFullYear();
-    const m = date.getMonth() + 1;
-    const d = date.getDate();
-    return `${y}. ${m}. ${d}.`;
+    const parts = new Intl.DateTimeFormat("en-US-u-nu-latn", {
+      timeZone: "Asia/Seoul",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+    }).formatToParts(new Date(dateString));
+    const values = Object.fromEntries(parts.map(({ type, value }) => [type, value]));
+    return `${values.year}. ${values.month}. ${values.day}.`;
   };
 
   const handleSearch = (e: React.FormEvent) => {
