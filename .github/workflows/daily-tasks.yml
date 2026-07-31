@@ -71,9 +71,16 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
+        id: install
         run: npm ci
 
+      # 이하 데이터 작업 step 은 install 이 성공한 경우 앞 step 실패와 무관하게 실행한다.
+      # 기존에는 cleanup 한 건이 실패하면 뒤 9개 step 이 모두 skip 되어
+      # 정리·스크래핑·패치노트 동기화가 며칠간 멈췄다.
+      # 순서는 그대로 유지하므로 동일 테이블 동시 접근 위험은 발생하지 않는다.
+      # continue-on-error 는 지정하지 않아 실패는 여전히 workflow 실패로 남는다.
       - name: Check Storage Before Maintenance
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -84,6 +91,7 @@ jobs:
         run: npx tsx scripts/monitor_storage.ts --label "BEFORE"
 
       - name: Run Storage Cleanup
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -96,6 +104,7 @@ jobs:
         run: npx tsx scripts/cleanup_telemetry.ts
 
       - name: Run AI Cache Cleanup
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -103,12 +112,14 @@ jobs:
 
       - name: Audit PUBG Analysis Data Quality
         continue-on-error: true
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/audit_processed_telemetry_identity.ts --recent-days 2 --max-rows 1000 --target-limit 50
 
       - name: Run Smart Scraper
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -122,6 +133,7 @@ jobs:
         run: npx tsx scripts/scrape_elite.ts
 
       - name: Extract Bluezone Statistics
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -129,6 +141,7 @@ jobs:
         run: npx tsx scripts/extract_bluezone.ts
 
       - name: Sync Patch Notes
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -138,6 +151,7 @@ jobs:
         run: npx tsx scripts/sync_patch_notes.ts
 
       - name: Check Storage After Maintenance
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -178,12 +192,14 @@ jobs:
             -H "Authorization: Bearer $SECRET"
 
       - name: Cleanup PUBG Cache And Quota Tables
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/cleanup_pubg_cache.ts
 
       - name: Run Hotdrop Collection
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         env:
           PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
