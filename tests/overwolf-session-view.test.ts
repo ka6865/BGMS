@@ -19,6 +19,7 @@ import {
   buildReplayPath,
   extractTelemetryMatchId,
   formatClock,
+  groupByPlaySession,
   toSessionSummaryView,
   toSessionSummaryViews
 } from "@/lib/overwolf/session-view";
@@ -522,5 +523,92 @@ describe("타임라인 마이그레이션 안전성", () => {
         expect(statements).not.toContain(dml);
       });
     });
+  });
+});
+
+describe("연속 플레이 단위 묶음", () => {
+  function viewAt(iso: string, overrides: Record<string, unknown> = {}) {
+    return toSessionSummaryView(
+      rawRow({
+        session_id: "s-" + iso,
+        created_at: iso,
+        gep_summary: { ...rawRow().gep_summary, ...overrides }
+      })
+    )!;
+  }
+
+  it("간격이 기준 안이면 한 묶음으로 본다", () => {
+    // 최신순 입력 (조회 RPC 가 created_at DESC 로 반환한다)
+    const views = [
+      viewAt("2026-08-01T12:00:00Z"),
+      viewAt("2026-08-01T11:30:00Z"),
+      viewAt("2026-08-01T11:00:00Z")
+    ];
+
+    const groups = groupByPlaySession(views);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0].matchCount).toBe(3);
+    expect(groups[0].startedAt).toBe("2026-08-01T11:00:00Z");
+    expect(groups[0].endedAt).toBe("2026-08-01T12:00:00Z");
+  });
+
+  it("90분을 넘겨 쉬면 다른 묶음으로 끊는다", () => {
+    const views = [
+      viewAt("2026-08-01T20:00:00Z"),
+      viewAt("2026-08-01T19:40:00Z"),
+      // 여기서 4시간 공백
+      viewAt("2026-08-01T15:00:00Z"),
+      viewAt("2026-08-01T14:30:00Z")
+    ];
+
+    const groups = groupByPlaySession(views);
+
+    expect(groups).toHaveLength(2);
+    expect(groups[0].matchCount).toBe(2);
+    expect(groups[1].matchCount).toBe(2);
+    expect(groups[0].endedAt).toBe("2026-08-01T20:00:00Z");
+    expect(groups[1].startedAt).toBe("2026-08-01T14:30:00Z");
+  });
+
+  it("묶음 안의 수치를 합산하고 순위를 요약한다", () => {
+    const views = [
+      viewAt("2026-08-01T12:00:00Z", { kills: 5, headshots: 3, deaths: 1, rank_place: 3 }),
+      viewAt("2026-08-01T11:30:00Z", { kills: 2, headshots: 1, deaths: 1, rank_place: 17 })
+    ];
+
+    const groups = groupByPlaySession(views);
+
+    expect(groups[0].kills).toBe(7);
+    expect(groups[0].headshots).toBe(4);
+    expect(groups[0].deaths).toBe(2);
+    expect(groups[0].bestPlace).toBe(3);
+    expect(groups[0].averagePlace).toBe(10);
+  });
+
+  it("순위를 받지 못한 매치만 있으면 순위 요약을 비운다", () => {
+    const views = [viewAt("2026-08-01T12:00:00Z", { rank_place: null })];
+
+    const groups = groupByPlaySession(views);
+
+    expect(groups[0].bestPlace).toBeNull();
+    expect(groups[0].averagePlace).toBeNull();
+  });
+
+  it("순위가 일부만 있으면 있는 것만 평균에 넣는다", () => {
+    const views = [
+      viewAt("2026-08-01T12:00:00Z", { rank_place: 4 }),
+      viewAt("2026-08-01T11:30:00Z", { rank_place: null })
+    ];
+
+    const groups = groupByPlaySession(views);
+
+    expect(groups[0].matchCount).toBe(2);
+    expect(groups[0].bestPlace).toBe(4);
+    expect(groups[0].averagePlace).toBe(4);
+  });
+
+  it("빈 입력은 빈 배열을 반환한다", () => {
+    expect(groupByPlaySession([])).toEqual([]);
   });
 });

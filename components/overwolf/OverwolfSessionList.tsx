@@ -13,6 +13,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import {
   Activity,
   ArrowRight,
+  Clock,
   Crosshair,
   HeartPulse,
   Map as MapIcon,
@@ -27,6 +28,7 @@ import {
 import {
   buildAnalysisPath,
   buildReplayPath,
+  groupByPlaySession,
   type SessionSummaryView,
   type TimelineKind,
 } from "@/lib/overwolf/session-view";
@@ -74,6 +76,21 @@ function formatCreatedAt(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/** 플레이 세션 머리글용 시간 범위. 같은 날이면 날짜를 한 번만 쓴다. */
+function formatSessionRange(startedAt: string, endedAt: string): string {
+  const start = new Date(Date.parse(startedAt));
+  const end = new Date(Date.parse(endedAt));
+
+  if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) return "-";
+
+  const dateLabel = start.toLocaleDateString("ko-KR", { month: "2-digit", day: "2-digit" });
+  const timeOpts = { hour: "2-digit", minute: "2-digit" } as const;
+  const startTime = start.toLocaleTimeString("ko-KR", timeOpts);
+  const endTime = end.toLocaleTimeString("ko-KR", timeOpts);
+
+  return `${dateLabel} ${startTime} ~ ${endTime}`;
 }
 
 const StatCell = ({
@@ -259,6 +276,57 @@ const SessionCard = ({ session }: { session: SessionSummaryView }) => {
   );
 };
 
+/**
+ * 연속 플레이 묶음 머리글.
+ * 매치를 하나씩만 보면 "이번에 어땠는지" 를 알 수 없어 세션 단위 합계를 함께 보여준다.
+ */
+const PlaySessionHeader = ({
+  startedAt,
+  endedAt,
+  matchCount,
+  kills,
+  headshots,
+  bestPlace,
+  averagePlace,
+}: {
+  startedAt: string;
+  endedAt: string;
+  matchCount: number;
+  kills: number;
+  headshots: number;
+  bestPlace: number | null;
+  averagePlace: number | null;
+}) => (
+  <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1.5 border-b border-white/10 pb-2">
+    <div className="flex items-baseline gap-2">
+      <Clock className="h-3.5 w-3.5 shrink-0 text-white/30" aria-hidden="true" />
+      <h2 className="text-sm font-black text-white">
+        {formatSessionRange(startedAt, endedAt)}
+      </h2>
+      <span className="text-xs font-bold text-white/40">{matchCount}판</span>
+    </div>
+
+    <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs">
+      <span className="text-white/50">
+        처치 <strong className="font-black tabular-nums text-white">{kills}</strong>
+      </span>
+      <span className="text-white/50">
+        헤드샷 <strong className="font-black tabular-nums text-white">{headshots}</strong>
+      </span>
+      {bestPlace !== null ? (
+        <span className="text-white/50">
+          최고 <strong className="font-black tabular-nums text-[#F2A900]">#{bestPlace}</strong>
+        </span>
+      ) : null}
+      {averagePlace !== null ? (
+        <span className="text-white/50">
+          평균 <strong className="font-black tabular-nums text-white">#{averagePlace}</strong>
+        </span>
+      ) : null}
+    </div>
+  </div>
+);
+
 export default function OverwolfSessionList() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -331,6 +399,12 @@ export default function OverwolfSessionList() {
       { kills: 0, headshots: 0, deaths: 0, replayable: 0 }
     );
   }, [sessions]);
+
+  // 연속 플레이 단위로 묶는다. 매치 하나씩만 보면 그날의 흐름이 보이지 않는다.
+  const playSessions = useMemo(
+    () => (sessions ? groupByPlaySession(sessions) : []),
+    [sessions]
+  );
 
   return (
     <div className="flex w-full flex-col gap-5 px-4 py-6 sm:px-6">
@@ -418,10 +492,23 @@ export default function OverwolfSessionList() {
         </div>
       ) : null}
 
-      {sessions && sessions.length > 0 ? (
-        <div className="flex flex-col gap-3">
-          {sessions.map((session) => (
-            <SessionCard key={session.sessionId} session={session} />
+      {playSessions.length > 0 ? (
+        <div className="flex flex-col gap-6">
+          {playSessions.map((group) => (
+            <section key={group.startedAt + group.endedAt} className="flex flex-col gap-3">
+              <PlaySessionHeader
+                startedAt={group.startedAt}
+                endedAt={group.endedAt}
+                matchCount={group.matchCount}
+                kills={group.kills}
+                headshots={group.headshots}
+                bestPlace={group.bestPlace}
+                averagePlace={group.averagePlace}
+              />
+              {group.sessions.map((session) => (
+                <SessionCard key={session.sessionId} session={session} />
+              ))}
+            </section>
           ))}
         </div>
       ) : null}

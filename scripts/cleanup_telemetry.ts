@@ -53,6 +53,35 @@ export type TelemetryCleanupResult = {
 const QUERY_PAGE_SIZE = 500;
 const DELETE_BATCH_SIZE = 50;
 
+// pubg_player_cache 보존 기간. last_seen_at(사용자 조회 시점)이 이 기간을 넘긴
+// 행만 만료로 본다. 조회 이력이 아예 없는 행은 기간과 무관하게 대상이 된다.
+//
+// updated_at 은 기준으로 쓰지 않는다. 스크래퍼가 며칠 주기로 테이블 전체를
+// upsert 하므로 그 값은 "수집이 지나갔다"만 뜻한다. 실측에서 최근 14일 내
+// 갱신 행이 전체의 98.7%였다.
+const PLAYER_CACHE_RETENTION_DAYS = 90;
+const PLAYER_CACHE_BATCH_LIMIT = 5_000;
+
+// 자동완성 후보 풀 상한. 활동 신호가 없는 행은 최근 관측 순 상위 이 개수까지만
+// 남긴다. 활동 신호(검색 이력·전적 캐시)가 있는 행은 상한과 무관하게 보존된다.
+//
+// 실측으로 정한 값이다. 검색된 유저 닉네임 접두사 20종으로 자동완성을 시뮬레이션한
+// 결과다.
+//   상한 150,000 -> 제안 93% 유지, 테이블 약 58MB (108MB 회수)
+//   상한 100,000 -> 제안 89% 유지, 테이블 약 39MB
+//   상한  50,000 -> 제안 82% 유지, 테이블 약 19MB
+// 어느 상한에서도 제안이 0건이 되는 접두사는 없었다.
+const PLAYER_CACHE_KEEP_RECENT = 150_000;
+
+// 한 번 실행에서 정리할 최대 배치 수. 5,000 * 6 = 30,000행이다.
+//
+// 초기 적재분이 27만 행(2026-08-01 실측)이라 한 번에 전부 지우면 되돌릴 수
+// 없는 대량 삭제가 배포 직후 자동으로 일어난다. 하루 3만 행씩 약 열흘에
+// 걸쳐 줄어들도록 제한해, 문제가 보이면 중간에 멈출 수 있게 한다.
+//
+// 정상 운영 시 하루 순증은 실측 1만 6천 행 수준이라 이 상한으로 충분히 따라잡는다.
+const PLAYER_CACHE_MAX_BATCHES = 6;
+
 export async function fetchAllRowsByRange<T>(
   fetchPage: (from: number, to: number) => Promise<RangePage<T>>,
   pageSize = QUERY_PAGE_SIZE,
@@ -312,17 +341,45 @@ async function cleanupOrphanedAnalysisRows(supabase: SupabaseClient): Promise<vo
   }
 }
 
-async function cleanupInactivePlayerCache(
-  supabase: SupabaseClient,
-  now: Date,
+/**
+ * 자동완성 후보로만 쌓인 pubg_player_cache 행을 정리합니다.
+ *
+ * 이전 구현은 `search_count = 0 AND updated_at < cutoff` 를 직접 삭제했는데,
+ * persistMatchAnalysis 가 매 분석마다 참가자 전원의 updated_at 을 갱신해
+ * 대상 행이 계속 보존 기간 안으로 되살아났습니다. 실측에서 42만 행 중 삭제
+ * 대상이 5,300행(1.2%)뿐이었습니다.
+ *
+ * compact_pubg_player_cache 는 last_seen_at(사용자 조회 시점)을 기준으로 삼아
+ * 자동 수집 갱신이 보존 기간을 연장하지 못하게 합니다. 배치 삭제라 한 번에
+ * 전부 지우지 않으므로, 남은 대상이 있으면 반복 호출합니다.
+ */
+export async function cleanupInactivePlayerCache(
+  supabase: Pick<SupabaseClient, "rpc">,
 ): Promise<void> {
-  const cutoff = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1_000).toISOString();
-  const { error } = await supabase
-    .from("pubg_player_cache")
-    .delete()
-    .eq("search_count", 0)
-    .lt("updated_at", cutoff);
-  if (error) throw new Error("telemetry-cleanup-player-cache-failed");
+  for (let batch = 0; batch < PLAYER_CACHE_MAX_BATCHES; batch += 1) {
+    const { data, error } = await supabase.rpc("compact_pubg_player_cache", {
+      p_retention_days: PLAYER_CACHE_RETENTION_DAYS,
+      p_apply: true,
+      p_batch_limit: PLAYER_CACHE_BATCH_LIMIT,
+      p_keep_recent: PLAYER_CACHE_KEEP_RECENT,
+    });
+    if (error) throw new Error("telemetry-cleanup-player-cache-failed");
+
+    const result = data as {
+      deleted_count?: unknown;
+      remaining_count?: unknown;
+    } | null;
+    if (
+      !result
+      || !Number.isInteger(Number(result.deleted_count))
+      || !Number.isInteger(Number(result.remaining_count))
+    ) {
+      throw new Error("telemetry-cleanup-player-cache-invalid-result");
+    }
+
+    // 더 지울 것이 없거나 이번 배치가 아무것도 지우지 못하면 종료한다.
+    if (Number(result.deleted_count) === 0 || Number(result.remaining_count) === 0) return;
+  }
 }
 
 async function cleanupBenchmarks(supabase: SupabaseClient): Promise<void> {
@@ -392,7 +449,7 @@ export async function runTelemetryCleanupFromEnvironment(): Promise<void> {
   }, createTelemetryCleanupDependencies(supabase));
 
   await cleanupOrphanedAnalysisRows(supabase);
-  await cleanupInactivePlayerCache(supabase, now);
+  await cleanupInactivePlayerCache(supabase);
   await cleanupBenchmarks(supabase);
   console.info(JSON.stringify(result));
 }
