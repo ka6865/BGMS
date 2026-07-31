@@ -14,6 +14,9 @@ interface Props {
   initialKills: RankingEntry[];
   initialTier: RankingEntry[];
   updatedAt: string;
+  initialDamageHasError?: boolean;
+  initialKillsHasError?: boolean;
+  initialTierHasError?: boolean;
 }
 
 const TIER_COLOR: Record<string, string> = {
@@ -136,7 +139,15 @@ function RankRow({ entry, tab, index }: { entry: RankingEntry; tab: TabType; ind
   );
 }
 
-export default function RankingsClient({ initialDamage, initialKills, initialTier, updatedAt }: Props) {
+export default function RankingsClient({
+  initialDamage,
+  initialKills,
+  initialTier,
+  updatedAt,
+  initialDamageHasError = false,
+  initialKillsHasError = false,
+  initialTierHasError = false,
+}: Props) {
   const [tab, setTab] = useState<TabType>('damage');
   const [modeFilter, setModeFilter] = useState<GameModeFilter>('all');
   const [perspectiveFilter, setPerspectiveFilter] = useState<PerspectiveFilter>('all');
@@ -145,6 +156,9 @@ export default function RankingsClient({ initialDamage, initialKills, initialTie
   const [damageData, setDamageData] = useState(initialDamage);
   const [killsData, setKillsData] = useState(initialKills);
   const [tierData, setTierData] = useState(initialTier);
+  const [damageHasError, setDamageHasError] = useState(initialDamageHasError);
+  const [killsHasError, setKillsHasError] = useState(initialKillsHasError);
+  const [tierHasError, setTierHasError] = useState(initialTierHasError);
   const [lastUpdated, setLastUpdated] = useState(updatedAt);
   const [isPending, startTransition] = useTransition();
 
@@ -156,9 +170,12 @@ export default function RankingsClient({ initialDamage, initialKills, initialTie
         getWeeklyTopKills(mode, perspective, matchType),
         getTopTierRanking(mode, perspective, matchType),
       ]);
-      setDamageData(d);
-      setKillsData(k);
-      setTierData(t);
+      setDamageData(d.data);
+      setKillsData(k.data);
+      setTierData(t.data);
+      setDamageHasError(d.hasError);
+      setKillsHasError(k.hasError);
+      setTierHasError(t.hasError);
       setLastUpdated(new Date().toISOString());
     });
   }, []);
@@ -183,6 +200,7 @@ export default function RankingsClient({ initialDamage, initialKills, initialTie
   }, [fetchUpdatedData, modeFilter, perspectiveFilter]);
 
   const currentData = tab === 'damage' ? damageData : tab === 'kills' ? killsData : tierData;
+  const currentHasError = tab === 'damage' ? damageHasError : tab === 'kills' ? killsHasError : tierHasError;
 
   const tabs = [
     { id: 'damage' as TabType, label: '이번 주 딜량', icon: Flame, color: 'text-orange-400', activeBg: 'bg-orange-400/15 border-orange-400/30' },
@@ -342,6 +360,19 @@ export default function RankingsClient({ initialDamage, initialKills, initialTie
                 <div className="h-5 w-16 bg-white/5 rounded animate-pulse" />
               </div>
             ))
+          ) : currentHasError ? (
+            <div className="py-16 text-center">
+              <BgmsIcon name="message" size={30} className="mx-auto mb-3 text-red-400" />
+              <p className="text-gray-300 text-sm">일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.</p>
+              <button
+                type="button"
+                onClick={handleRefresh}
+                className="mt-4 inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs font-bold text-gray-200 transition-colors hover:bg-white/10"
+              >
+                <RefreshCw size={13} />
+                다시 시도
+              </button>
+            </div>
           ) : currentData.length === 0 ? (
             <div className="py-16 text-center">
               <BgmsIcon name="message" size={30} className="mx-auto mb-3 text-gray-600" />

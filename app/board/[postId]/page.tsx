@@ -47,17 +47,41 @@ export default async function PostDetailPage({ params }: { params: Promise<{ pos
   }
 
   // 데이터 조회 (작성자 최신 닉네임을 위해 profiles join)
-  const { data: postResult } = await supabase
+  const { data: postResult, error: postError } = await supabase
     .from("posts")
     .select("*, profiles(nickname)")
     .eq("id", numericPostId)
     .single();
 
-  const { data: commentResult } = await supabase
+  const { data: commentResult, error: commentError } = await supabase
     .from("comments")
     .select("*, profiles(nickname)")
     .eq("post_id", numericPostId)
     .order("created_at", { ascending: true });
+
+  if (postError) {
+    console.error("게시글 조회 오류:", postError);
+    return (
+      <div className="w-full h-[calc(100vh-100px)] bg-[#121212] flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-500">
+        <div className="bg-[#1a1a1a] border border-[#333] p-10 rounded-2xl shadow-2xl flex flex-col items-center max-w-md w-full">
+          <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mb-6">
+            <CircleAlert className="w-8 h-8 text-red-500" />
+          </div>
+          <h1 className="text-2xl font-black text-white mb-2">게시글을 불러오지 못했습니다</h1>
+          <p className="text-[#999] text-sm leading-relaxed mb-8">일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.</p>
+          <div className="flex flex-col gap-3 w-full">
+            <Link
+              href={`/board/${postId}`}
+              className="flex items-center justify-center gap-2 w-full py-4 bg-[#F2A900] text-black font-bold rounded-xl hover:bg-[#d49400] transition-all active:scale-95"
+            >
+              다시 시도
+            </Link>
+            <Link href="/board" className="text-[#999] text-xs hover:text-[#F2A900] transition-colors">게시판 목록으로 돌아가기</Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!postResult) {
     return (
@@ -113,6 +137,10 @@ export default async function PostDetailPage({ params }: { params: Promise<{ pos
     ip_address: postResult.ip_address ? maskIp(postResult.ip_address) : null,
   };
 
+  if (commentError) {
+    console.error("댓글 조회 오류:", commentError);
+  }
+
   const comments = (commentResult || []).map((comment: any) => ({
     ...comment,
     content: sanitizeBoardHtml(comment.content),
@@ -128,6 +156,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ pos
         initialPost={post}
         initialComments={comments}
         promoteExpectedParentRevision={promoteExpectedParentRevision}
+        initialCommentsHasError={Boolean(commentError)}
       />
     </div>
   );

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useId, useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Post } from "@/types/board";
@@ -26,6 +26,7 @@ interface BoardListClientProps {
   currentFilter: string;
   currentSearchOption?: string;
   currentSearchQuery?: string;
+  hasError?: boolean;
 }
 
 export default function BoardListClient({
@@ -35,6 +36,7 @@ export default function BoardListClient({
   currentFilter,
   currentSearchOption = "all",
   currentSearchQuery = "",
+  hasError = false,
 }: BoardListClientProps) {
   const router = useRouter();
   const { user } = useAuth();
@@ -155,7 +157,18 @@ export default function BoardListClient({
 
           {/* 게시글 목록 */}
           <div className="bg-[#1a1a1a] rounded-2xl border border-white/5 overflow-hidden shadow-2xl">
-            {posts.length === 0 ? (
+            {hasError ? (
+              <div className="py-24 px-4 text-center">
+                <p className="text-base font-medium text-white/70">일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.</p>
+                <button
+                  type="button"
+                  onClick={() => router.refresh()}
+                  className="mt-5 rounded-lg border border-[#F2A900]/30 bg-[#F2A900]/10 px-4 py-2 text-xs font-bold text-[#F2A900] transition-colors hover:bg-[#F2A900]/20"
+                >
+                  다시 시도
+                </button>
+              </div>
+            ) : posts.length === 0 ? (
               <div className="py-24 text-center text-white/20">
                 <p className="text-base font-medium">등록된 게시글이 없습니다</p>
                 <p className="text-xs mt-2 opacity-50">첫 번째 주인공이 되어보세요!</p>

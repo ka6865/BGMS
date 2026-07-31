@@ -31,10 +31,13 @@ export default async function RankingsPage() {
 
   return (
     <RankingsClient
-      initialDamage={damage}
-      initialKills={kills}
-      initialTier={tier}
+      initialDamage={damage.data}
+      initialKills={kills.data}
+      initialTier={tier.data}
       updatedAt={new Date().toISOString()}
+      initialDamageHasError={damage.hasError}
+      initialKillsHasError={kills.hasError}
+      initialTierHasError={tier.hasError}
     />
   );
 }

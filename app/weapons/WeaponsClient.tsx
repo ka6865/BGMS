@@ -137,6 +137,7 @@ const getSupportedSlots = (type: string, weaponId: string): string[] => {
 export default function WeaponsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [weapons, setWeapons] = useState<any[]>([]);
 
   // Filters & State
@@ -166,8 +167,9 @@ export default function WeaponsPage() {
   // DB에서 파츠 데이터 동적 로드
   const [attachmentList, setAttachmentList] = useState<AttachmentData[]>([]);
 
-  useEffect(() => {
-    async function fetchData() {
+  const fetchData = useCallback(async () => {
+      setLoading(true);
+      setLoadError(false);
       try {
         // 무기 + 파츠를 병렬 fetch
         const [weaponRes, attachRes] = await Promise.all([
@@ -185,6 +187,7 @@ export default function WeaponsPage() {
         ]);
 
         if (weaponRes.error) throw weaponRes.error;
+        if (attachRes.error) throw attachRes.error;
         const list = weaponRes.data || [];
         setWeapons(list);
         setAttachmentList(attachRes.data || []);
@@ -194,14 +197,17 @@ export default function WeaponsPage() {
           const first = list.find(w => w.id === "ar_m416") || list[0];
           setSelectedWeaponId(first.id);
         }
-      } catch {
-        // Suppress console.log per dead-code/cleanup rules but keep silent safety
+      } catch (error) {
+        console.error("무기 데이터 조회 오류:", error);
+        setLoadError(true);
       } finally {
         setLoading(false);
       }
-    }
-    fetchData();
   }, []);
+
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
 
   // DB 파츠를 id → AttachmentData 맵으로 변환 (O(1) 조회용)
   const attachmentMap = useMemo<Record<string, AttachmentData>>(() => {
@@ -319,6 +325,21 @@ export default function WeaponsPage() {
       <div className="flex flex-col items-center justify-center h-screen bg-[#070a13] text-[#F2A900] gap-4">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#F2A900]"></div>
         <p className="font-extrabold text-sm tracking-widest animate-pulse">무기고 개방 중...</p>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-[#070a13] px-6 text-center text-white">
+        <p className="text-base font-bold">일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.</p>
+        <button
+          type="button"
+          onClick={() => void fetchData()}
+          className="rounded-xl bg-[#F2A900] px-5 py-3 text-sm font-black text-black transition-colors hover:bg-[#d49400]"
+        >
+          다시 시도
+        </button>
       </div>
     );
   }
