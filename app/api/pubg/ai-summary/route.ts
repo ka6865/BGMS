@@ -425,7 +425,7 @@ export async function POST(request: Request) {
         const batch = missingMatchIds.slice(i, i + 2);
         await Promise.all(batch.map(async (id: string) => {
           try {
-            const res = await fetch(`${baseUrl}/api/pubg/match?matchId=${id}&nickname=${nickname}&platform=${platform}${force ? '&force=true' : ''}`, { cache: 'no-store' });
+            const res = await fetch(`${baseUrl}/api/pubg/match?matchId=${id}&nickname=${nickname}&platform=${platform}`, { cache: 'no-store' });
             if (res.ok) {
               const data = await res.json();
               const pureId = id.includes(':') ? id.split(':').pop()! : id;

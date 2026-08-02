@@ -4,27 +4,36 @@ import { NextRequest } from "next/server";
 import ts from "typescript";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PersistMatchAnalysisResult } from "@/lib/pubg-analysis/persistMatchAnalysis";
+import { noteDatabaseAvailable } from "@/lib/pubg/databaseCircuitBreaker";
+import { buildTelemetryPlayerKey } from "@/lib/pubg-analysis/telemetryCacheKey.server";
+import { TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
 
 const {
   mockCreateClient,
+  mockDownloadFromR2,
   mockAnalysisEngine,
   mockAfter,
   mockEngineRun,
   mockFrom,
   mockPersistMatchAnalysis,
+  mockProcessedTelemetryAbortSignal,
   mockProcessedTelemetryMaybeSingle,
+  mockProcessedTelemetryRetry,
   mockRpc,
   mockReportPubgApiError,
   mockIsR2Configured,
   mockSupabase,
 } = vi.hoisted(() => {
   const mockEngineRun = vi.fn();
+  const mockDownloadFromR2 = vi.fn().mockResolvedValue(null);
   const mockAfter = vi.fn();
   const mockIsR2Configured = vi.fn(() => true);
   const mockAnalysisEngine = vi.fn(function MockAnalysisEngine() {
     return { run: mockEngineRun };
   });
   const mockProcessedTelemetryMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+  const mockProcessedTelemetryAbortSignal = vi.fn();
+  const mockProcessedTelemetryRetry = vi.fn();
   const mockRpc = vi.fn<(name: string) => Promise<any>>((name: string) => Promise.resolve({
     data: name === "claim_telemetry_cache_write" ? true : null,
     error: null,
@@ -34,10 +43,14 @@ const {
       const query = {
         select: vi.fn(),
         eq: vi.fn(),
+        retry: mockProcessedTelemetryRetry,
+        abortSignal: mockProcessedTelemetryAbortSignal,
         maybeSingle: mockProcessedTelemetryMaybeSingle,
       };
       query.select.mockReturnValue(query);
       query.eq.mockReturnValue(query);
+      query.retry.mockReturnValue(query);
+      query.abortSignal.mockReturnValue(query);
       return query;
     }
 
@@ -47,12 +60,15 @@ const {
 
   return {
     mockCreateClient: vi.fn(() => mockSupabase),
+    mockDownloadFromR2,
     mockAnalysisEngine,
     mockAfter,
     mockEngineRun,
     mockFrom,
     mockPersistMatchAnalysis: vi.fn<(...args: unknown[]) => Promise<PersistMatchAnalysisResult>>(),
+    mockProcessedTelemetryAbortSignal,
     mockProcessedTelemetryMaybeSingle,
+    mockProcessedTelemetryRetry,
     mockRpc,
     mockReportPubgApiError: vi.fn().mockResolvedValue(undefined),
     mockIsR2Configured,
@@ -86,7 +102,7 @@ vi.mock("@/lib/pubg-analysis/benchmarkLookup", () => ({
 }));
 
 vi.mock("@/lib/pubg-analysis/r2Service", () => ({
-  downloadFromR2: vi.fn().mockResolvedValue(null),
+  downloadFromR2: mockDownloadFromR2,
   getPresignedUrlFromR2: vi.fn().mockResolvedValue("https://r2.example/signed"),
   isR2Configured: mockIsR2Configured,
   uploadToR2: vi.fn().mockResolvedValue(undefined),
@@ -106,8 +122,10 @@ vi.mock("@/lib/pubg/apiHelper", () => ({
   reportPubgApiError: mockReportPubgApiError,
 }));
 
-import { GET } from "../app/api/pubg/match/route";
+import * as matchRoute from "../app/api/pubg/match/route";
 import { GET as GET_TELEMETRY } from "../app/api/pubg/telemetry/route";
+
+const { GET } = matchRoute;
 
 const MATCH_ROUTE_PATH = resolve("app/api/pubg/match/route.ts");
 const PERSIST_MODULE_PATH = resolve("lib/pubg-analysis/persistMatchAnalysis.ts");
@@ -117,6 +135,10 @@ const SOURCE_ROOTS = ["actions", "app", "components", "hooks", "lib"];
 const MATCH_ID = "match-behavior-1";
 const NICKNAME = "PlayerOne";
 const PLAYER_ID = "account-player-one";
+
+afterEach(() => {
+  noteDatabaseAvailable();
+});
 
 const matchAttr = {
   mapName: "Baltic_Main",
@@ -242,6 +264,10 @@ function mockPubgMatchResponse() {
 }
 
 describe("PUBG ingest architecture boundary", () => {
+  it("match route는 Vercel 실행 시간을 45초로 제한한다", () => {
+    expect(matchRoute.maxDuration).toBe(45);
+  });
+
   it("공개 ingest route를 제공하지 않는다", () => {
     expect(existsSync(resolve("app/api/pubg/ingest/route.ts"))).toBe(false);
   });
@@ -294,6 +320,7 @@ describe("PUBG match persistence behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockEngineRun.mockReturnValue(analysisResult);
+    mockDownloadFromR2.mockResolvedValue(null);
     mockIsR2Configured.mockReturnValue(true);
     mockPersistMatchAnalysis.mockResolvedValue({ succeeded: [], failures: [] });
     mockProcessedTelemetryMaybeSingle.mockResolvedValue({ data: null, error: null });
@@ -334,6 +361,56 @@ describe("PUBG match persistence behavior", () => {
     );
   });
 
+  it("route가 분석 대상 player cache를 persist 경로 밖에서 중복 upsert하지 않는다", async () => {
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    expect(mockFrom).not.toHaveBeenCalledWith("pubg_player_cache");
+    expect(mockPersistMatchAnalysis).toHaveBeenCalledTimes(1);
+  });
+
+  it("processed telemetry 캐시 조회에 요청 중단 신호를 건다", async () => {
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    expect(mockProcessedTelemetryRetry).toHaveBeenCalledWith(false);
+    expect(mockProcessedTelemetryAbortSignal).toHaveBeenCalledTimes(1);
+    expect(mockProcessedTelemetryAbortSignal).toHaveBeenCalledWith(expect.any(AbortSignal));
+  });
+
+  it("R2 hit 뒤 processed telemetry 조회 장애도 재시도 없이 회로를 연다", async () => {
+    mockDownloadFromR2.mockResolvedValueOnce(JSON.stringify({
+      identity: {
+        matchId: MATCH_ID,
+        platform: "steam",
+        playerKey: buildTelemetryPlayerKey(PLAYER_ID),
+        mode: "lite",
+        telemetryVersion: TELEMETRY_VERSION,
+      },
+      startTime: matchAttr.createdAt,
+      teammates: [],
+      teamNames: [NICKNAME],
+      events: [],
+      zoneEvents: [],
+      mapName: matchAttr.mapName,
+    }));
+    mockProcessedTelemetryMaybeSingle
+      .mockResolvedValueOnce({ data: null, error: null })
+      .mockResolvedValueOnce({
+        data: null,
+        error: { code: "PGRST002", message: "schema cache unavailable" },
+        status: 503,
+      });
+
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(503);
+    expect(mockProcessedTelemetryRetry).toHaveBeenCalledTimes(2);
+    expect(mockProcessedTelemetryAbortSignal).toHaveBeenCalledTimes(2);
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
+  });
+
   it("신규 분석 응답은 raw mapData를 반환하지 않는다", async () => {
     const response = await GET(createMatchRequest());
     const body = await response.json();
@@ -341,6 +418,33 @@ describe("PUBG match persistence behavior", () => {
     expect(response.status).toBe(200);
     expect(body).not.toHaveProperty("mapData");
     expect(JSON.stringify(body)).not.toContain(PLAYER_ID);
+  });
+
+  it("PUBG telemetry asset 다운로드에 요청 중단 신호를 건다", async () => {
+    const telemetryUrl = "https://telemetry.example/match-demand.json";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: { attributes: matchAttr },
+        included: [
+          participant,
+          roster,
+          { id: "asset-1", type: "asset", attributes: { URL: telemetryUrl } },
+        ],
+      }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response("[]", {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(telemetryUrl);
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
+      signal: expect.any(AbortSignal),
+    }));
   });
 
   it("분석 엔진에 요청 nickname이 아닌 PUBG canonical nickname을 전달한다", async () => {
@@ -533,6 +637,26 @@ describe("PUBG match persistence behavior", () => {
       retryCount: 0,
       elapsedMs: expect.any(Number),
     });
+  });
+
+  it("schema cache 장애로 최종화가 실패하면 DB 보고·release·파생 저장을 연쇄 실행하지 않는다", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mockRpc.mockImplementation((name: string) => Promise.resolve(name === "claim_telemetry_cache_write"
+      ? { data: true, error: null }
+      : {
+          data: null,
+          error: { code: "PGRST002", message: "schema cache unavailable" },
+          status: 503,
+        }));
+
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    expect(mockRpc).toHaveBeenCalledTimes(2);
+    expect(mockReportPubgApiError).not.toHaveBeenCalled();
+    expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
+    expect(consoleError).toHaveBeenCalledWith("[MATCH] Supabase unavailable during cache persistence; database circuit opened");
+    consoleError.mockRestore();
   });
 
   it("공개 user 요청은 내부 token 환경변수 없이 source=user로 저장한다", async () => {
@@ -842,6 +966,28 @@ describe("PUBG match query boundary", () => {
     expect(source).toMatch(/import\s*\{[^}]*after[^}]*\}\s*from\s*["']next\/server["']/);
     expect(source).toContain("after(async () =>");
     expect(source).not.toContain("request.waitUntil");
+  });
+
+  it("Supabase schema cache 장애는 DB 로깅 없이 503으로 빠르게 차단하고 잠시 회로를 연다", async () => {
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: null,
+      error: { code: "PGRST002", message: "schema cache unavailable" },
+      status: 503,
+    });
+
+    const firstResponse = await GET(createMatchRequest());
+
+    expect(firstResponse.status).toBe(503);
+    expect(firstResponse.headers.get("retry-after")).toBe("30");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mockReportPubgApiError).not.toHaveBeenCalled();
+    expect(mockProcessedTelemetryMaybeSingle).toHaveBeenCalledTimes(1);
+
+    const secondResponse = await GET(createMatchRequest());
+
+    expect(secondResponse.status).toBe(503);
+    expect(mockProcessedTelemetryMaybeSingle).toHaveBeenCalledTimes(1);
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
 

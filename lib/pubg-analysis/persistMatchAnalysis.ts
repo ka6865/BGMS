@@ -99,8 +99,6 @@ export interface PersistMatchAnalysisResult {
   failures: PersistenceFailure[];
 }
 
-const PLAYER_CACHE_BATCH_SIZE = 25;
-
 function safeNumber(value: unknown, fallback = 0): number {
   const numberValue = Number(value);
   return Number.isFinite(numberValue) ? numberValue : fallback;
@@ -181,26 +179,27 @@ async function persistPlayerCache(
   const participants = input.rawParticipants;
   if (!participants || participants.length === 0 || !input.matchAttr) return;
 
+  const analysisPlayerId = normalizeName(input.playerNickname);
   const rows = participants
-    .filter((participant) => !participant.attributes.stats.playerId?.startsWith("ai."))
+    .filter((participant) => (
+      !participant.attributes.stats.playerId?.startsWith("ai.")
+      && normalizeName(participant.attributes.stats.name) === analysisPlayerId
+    ))
+    .slice(0, 1)
     .map((participant) => ({
       id: participant.attributes.stats.playerId || participant.id,
       platform: input.platform,
       nickname: participant.attributes.stats.name,
-      lower_nickname: participant.attributes.stats.name.toLowerCase(),
+      lower_nickname: normalizeName(participant.attributes.stats.name),
       updated_at: new Date().toISOString(),
     }))
     .filter((row): row is typeof row & { id: string } => Boolean(row.id));
 
   if (rows.length === 0) return;
-  for (let index = 0; index < rows.length; index += PLAYER_CACHE_BATCH_SIZE) {
-    const batch = rows.slice(index, index + PLAYER_CACHE_BATCH_SIZE);
-    const succeeded = await runPersistenceTask("pubg_player_cache", result, () => (
-      supabase.from("pubg_player_cache").upsert(batch, { onConflict: "id" })
-    ));
-    if (!succeeded) return;
-  }
-  result.succeeded.push("pubg_player_cache");
+  const succeeded = await runPersistenceTask("pubg_player_cache", result, () => (
+    supabase.from("pubg_player_cache").upsert(rows, { onConflict: "id" })
+  ));
+  if (succeeded) result.succeeded.push("pubg_player_cache");
 }
 
 async function persistBenchmark(

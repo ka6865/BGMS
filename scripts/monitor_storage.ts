@@ -2,6 +2,10 @@ import { createClient } from '@supabase/supabase-js';
 import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import dotenv from 'dotenv';
 import path from 'path';
+import {
+  getSupabaseDatabaseLimitBytes,
+  R2_FREE_STORAGE_LIMIT_BYTES,
+} from '../lib/admin-agent/storage-limits';
 
 // Load .env.local for local testing
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
@@ -14,8 +18,8 @@ const r2AccessKey = process.env.CLOUDFLARE_R2_ACCESS_KEY_ID;
 const r2SecretKey = process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY;
 const r2BucketName = process.env.CLOUDFLARE_R2_BUCKET_NAME || 'telemetry';
 
-const DB_LIMIT_BYTES = 500 * 1024 * 1024; // Supabase Free tier 500MB
-const R2_LIMIT_BYTES = 10 * 1024 * 1024 * 1024; // Cloudflare R2 Free tier 10GB
+const DB_LIMIT_BYTES = getSupabaseDatabaseLimitBytes();
+const R2_LIMIT_BYTES = R2_FREE_STORAGE_LIMIT_BYTES;
 
 // Parse command line arguments
 const args = process.argv.slice(2);

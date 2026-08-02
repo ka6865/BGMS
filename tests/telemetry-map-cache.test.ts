@@ -88,6 +88,40 @@ function createDeps(
 }
 
 describe("telemetry map cache", () => {
+  it("registry RPC에 요청 중단 신호를 전달한다", async () => {
+    const abortSignal = vi.fn().mockResolvedValue({ data: true, error: null, status: 200 });
+    const retry = vi.fn(() => ({ abortSignal }));
+    const rpc = vi.fn(() => ({ retry, abortSignal }));
+    const supabase = { rpc } as any;
+
+    await expect(claimTelemetryMapCacheReservation(
+      supabase,
+      createRegistryRow(identity, "pending", new Date("2026-07-18T00:00:00.000Z")),
+    )).resolves.toBe(true);
+
+    expect(abortSignal).toHaveBeenCalledTimes(1);
+    expect(retry).toHaveBeenCalledWith(false);
+    expect(abortSignal).toHaveBeenCalledWith(expect.any(AbortSignal));
+  });
+
+  it("PostgREST schema cache 장애는 registry RPC에서 자체 재시도하지 않는다", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: null,
+      error: { code: "PGRST002", message: "schema cache unavailable" },
+      status: 503,
+    });
+    const supabase = { rpc } as any;
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    await expect(claimTelemetryMapCacheRow(identity, createDeps({
+      claim: (reservedRow) => claimTelemetryMapCacheReservation(supabase, reservedRow),
+      sleep,
+    }))).rejects.toMatchObject({ code: "PGRST002", retryCount: 0 });
+
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
   it("registry claim이 Supabase 최상위 5xx status를 보존해 재시도한다", async () => {
     const rpc = vi.fn()
       .mockResolvedValueOnce({
@@ -112,17 +146,14 @@ describe("telemetry map cache", () => {
     expect(sleep).toHaveBeenCalledWith(250);
   });
 
-  it("identity가 일치하는 새 key 본문만 cache hit로 반환한다", async () => {
+  it("identity가 일치하는 cache hit은 DB finalize 없이 순수 읽기로 반환한다", async () => {
     const deps = createDeps({ download: vi.fn().mockResolvedValue(JSON.stringify(payload)) });
 
     await expect(readTelemetryMapCache(identity, deps)).resolves.toMatchObject({
       payload,
       downloadUrl: "https://r2.example/signed",
     });
-    expect(deps.finalize).toHaveBeenCalledWith(expect.objectContaining({
-      status: "ready",
-      lease_expires_at: null,
-    }));
+    expect(deps.finalize).not.toHaveBeenCalled();
     expect(deps.sign).toHaveBeenCalledOnce();
   });
 
@@ -189,14 +220,15 @@ describe("telemetry map cache", () => {
     expect(firstDeps.release).toHaveBeenCalledWith(first);
   });
 
-  it("검증된 cache hit의 registry 복구가 실패하면 URL을 반환하지 않는다", async () => {
+  it("검증된 cache hit은 registry write 상태와 무관하게 URL을 반환한다", async () => {
     const deps = createDeps({
       download: vi.fn().mockResolvedValue(JSON.stringify(payload)),
       finalize: vi.fn().mockRejectedValue(new Error("registry unavailable")),
     });
 
-    await expect(readTelemetryMapCache(identity, deps)).rejects.toThrow("registry unavailable");
-    expect(deps.sign).not.toHaveBeenCalled();
+    await expect(readTelemetryMapCache(identity, deps)).resolves.toMatchObject({ payload });
+    expect(deps.finalize).not.toHaveBeenCalled();
+    expect(deps.sign).toHaveBeenCalledOnce();
   });
 
   it("identity가 없거나 다른 본문은 cache miss로 처리하고 sign하지 않는다", async () => {

@@ -27,6 +27,14 @@ vi.mock('@/utils/supabase/server', () => {
   };
 });
 
+vi.mock('@/lib/pubg-analysis/pubgApiTracker', () => ({
+  trackPubgRateLimit: vi.fn(),
+}));
+
+vi.mock('@/lib/pubg/apiHelper', () => ({
+  reportPubgApiError: vi.fn().mockResolvedValue(undefined),
+}));
+
 // Global fetch Mocking을 위한 백업
 const globalFetch = global.fetch;
 

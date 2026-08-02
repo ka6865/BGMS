@@ -140,6 +140,9 @@ describe("board write quota cleanup job", () => {
     const maintenance = parsed.jobs.maintenance;
     expect(isRecord(maintenance)).toBe(true);
     if (!isRecord(maintenance) || !Array.isArray(maintenance.steps)) return;
+    expect(maintenance.needs).toBe("board-write-quota-cleanup");
+    expect(maintenance.if).toContain("always()");
+    expect(maintenance.if).toContain("!cancelled()");
     const steps = maintenance.steps;
     const installIndex = steps.findIndex((step) => (
       isRecord(step) && step.run === "npm ci"

@@ -51,15 +51,22 @@ import {
   type PubgAnalysisStep,
   type PubgErrorStage,
 } from "@/lib/pubg/apiErrorContext";
+import {
+  isDatabaseCircuitOpen,
+  isDatabaseUnavailableError,
+  noteDatabaseAvailable,
+  noteDatabaseUnavailable,
+} from "@/lib/pubg/databaseCircuitBreaker";
 
 // [ISR V1.0] force-dynamic 유지: PUBG API 호출, R2 업로드, DB Upsert 등 부수효과 보호
 // unstable_cache는 DB 읽기(캐시 조회) 전용 프록시로만 사용
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
+export const maxDuration = 45;
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
 async function safeJsonParse(res: Response): Promise<any> {
@@ -94,10 +101,12 @@ const getCachedMatchTelemetry = unstable_cache(
       .eq("match_id", matchId)
       .eq("platform", normalizePlatform(platform))
       .eq("player_id", lowerNickname)
+      .retry(false)
+      .abortSignal(AbortSignal.timeout(5_000))
       .maybeSingle();
 
     if (error) {
-      return null;
+      throw error;
     }
     return cachedResult || null;
   },
@@ -150,6 +159,26 @@ function createTacticalResponse(result: any) {
   const tacticalResult = { ...result };
   delete tacticalResult.mapData;
   return pseudonymizeTelemetryAccountIds(tacticalResult);
+}
+
+function databaseUnavailableResponse() {
+  return NextResponse.json(
+    { error: "데이터베이스가 일시적으로 불안정합니다. 잠시 후 다시 시도해 주세요." },
+    { status: 503, headers: { "Retry-After": "30" } },
+  );
+}
+
+function isDatabaseFailureContext(
+  stage: PubgErrorStage,
+  step: PubgAnalysisStep | null,
+): boolean {
+  return stage === "cache_lookup"
+    || (stage === "analysis" && (
+      step === "telemetry_cache_reserve"
+      || step === "telemetry_cache_finalize"
+      || step === "telemetry_cache_persistence"
+      || step === "benchmark_lookup"
+    ));
 }
 
 function serializeTelemetryCacheFailure(
@@ -265,12 +294,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Missing required parameters" }, { status: 400 });
   }
 
+  if (isDatabaseCircuitOpen()) {
+    return databaseUnavailableResponse();
+  }
+
   try {
     const shouldForce = force;
     let cachedFullResult: any = null;
 
     if (!shouldForce) {
       const cachedData = await getCachedMatchTelemetry(matchId, lowerNickname, platform) as any;
+      noteDatabaseAvailable();
       cachedFullResult = getValidFullResult(cachedData, lowerNickname, platform);
       if (cachedFullResult && (
         (cachedFullResult.v || 0) >= RESULT_VERSION
@@ -316,18 +350,6 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Player account identifier is unavailable" }, { status: 404 });
     }
     const canonicalNickname = myParticipant.attributes.stats.name;
-
-    // [V55.0] 닉네임 캐시 최적화: 분석 대상 플레이어 1명만 즉시 업데이트 (데드락 방지)
-    const myCacheEntry = {
-      id: myAccountId,
-      platform,
-      nickname: myParticipant.attributes.stats.name,
-      lower_nickname: myParticipant.attributes.stats.name.toLowerCase(),
-      updated_at: new Date().toISOString()
-    };
-
-    supabase.from('pubg_player_cache').upsert(myCacheEntry, { onConflict: 'id' })
-      .then(() => undefined);
 
     const myRoster = rosters.find((r: any) => r.relationships.participants.data.some((p: any) => p.id === myParticipant.id));
     const myRosterId = myRoster?.id || "";
@@ -390,6 +412,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(finalResponse);
 
   } catch (err: unknown) {
+    if (isDatabaseFailureContext(failureStage, analysisStep) && isDatabaseUnavailableError(err)) {
+      noteDatabaseUnavailable();
+      console.error("[MATCH] Supabase unavailable; database circuit opened");
+      return databaseUnavailableResponse();
+    }
+
     const classification = classifyPubgMatchError({
       stage: failureStage,
       analysisStep,
@@ -486,8 +514,12 @@ async function reanalyzeAndSave(
       .eq("match_id", matchId)
       .eq("platform", normalizePlatform(platform))
       .eq("player_id", lowerNickname)
+      .retry(false)
+      .abortSignal(AbortSignal.timeout(5_000))
       .maybeSingle();
-    const cachedFullResult = error ? null : getValidFullResult(data, lowerNickname, platform);
+    if (error) throw error;
+    noteDatabaseAvailable();
+    const cachedFullResult = getValidFullResult(data, lowerNickname, platform);
     if (cachedFullResult) {
       const sampleParticipants = participants
         .filter((p: any) => !p.attributes.stats.playerId?.startsWith("ai."))
@@ -531,7 +563,9 @@ async function reanalyzeAndSave(
 
     if (needsProcessing) {
       markAnalysisStep("telemetry_download");
-      const telRes = await fetch(telemetryAsset.attributes.URL);
+      const telRes = await fetch(telemetryAsset.attributes.URL, {
+        signal: AbortSignal.timeout(15_000),
+      });
       markAnalysisStep("telemetry_parse");
       const rawTel = await safeJsonParse(telRes);
 
@@ -689,6 +723,7 @@ async function reanalyzeAndSave(
     platform,
     tacticalResult,
   );
+  let mayPersistDerivedStats = true;
   markAnalysisStep("telemetry_cache_finalize");
   try {
     await writeTelemetryMapCache(telemetryIdentity, telemetryPayload, {
@@ -707,12 +742,19 @@ async function reanalyzeAndSave(
     }, { reservedRow });
   } catch (error) {
     markAnalysisStep("telemetry_cache_persistence");
-    await reportTelemetryCachePersistenceFailure(error, startedAt, requestContext);
-    await releaseTelemetryMapCacheRow(reservedRow, cacheDeps).catch(() => undefined);
+    if (isDatabaseUnavailableError(error)) {
+      mayPersistDerivedStats = false;
+      noteDatabaseUnavailable();
+      console.error("[MATCH] Supabase unavailable during cache persistence; database circuit opened");
+    } else {
+      await reportTelemetryCachePersistenceFailure(error, startedAt, requestContext);
+      await releaseTelemetryMapCacheRow(reservedRow, cacheDeps).catch(() => undefined);
+    }
   }
 
-  try {
-    const persistenceResult = await persistMatchAnalysis(supabase, {
+  if (mayPersistDerivedStats) {
+    try {
+      const persistenceResult = await persistMatchAnalysis(supabase, {
       matchId,
       playerNickname: lowerNickname,
       platform: platform === "kakao" ? "kakao" : "steam",
@@ -742,14 +784,15 @@ async function reanalyzeAndSave(
       forceBenchmark: false,
     });
 
-    if (persistenceResult.failures.length > 0) {
-      console.error(
-        "[MATCH] 파생 통계 저장 실패:",
-        persistenceResult.failures.map(({ taskName }) => taskName),
-      );
+      if (persistenceResult.failures.length > 0) {
+        console.error(
+          "[MATCH] 파생 통계 저장 실패:",
+          persistenceResult.failures.map(({ taskName }) => taskName),
+        );
+      }
+    } catch {
+      console.error("[MATCH] 파생 통계 저장 중 예외 발생");
     }
-  } catch {
-    console.error("[MATCH] 파생 통계 저장 중 예외 발생");
   }
 
   const allParticipantNames = participants

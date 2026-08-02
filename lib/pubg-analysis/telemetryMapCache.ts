@@ -65,6 +65,8 @@ export type TelemetryMapCacheClaimResult =
 
 function isTransientTelemetryRegistryError(error: unknown): boolean {
   return error instanceof TelemetryRegistryError
+    && error.code !== "PGRST002"
+    && error.code !== "PGRST003"
     && (
       error.code === "57014"
       || error.code === "55P03"
@@ -186,9 +188,6 @@ export async function readTelemetryMapCache(
   } catch {
     return null;
   }
-
-  const readyRow = buildRegistryRow(identity, storagePath, "ready", deps.now());
-  await retryTelemetryRegistryWrite(() => deps.finalize(readyRow), deps);
 
   return {
     payload,
