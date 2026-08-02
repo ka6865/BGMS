@@ -35,6 +35,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
 import { resolve3DMapCapability } from "@/lib/replay/mapCapabilities";
+import { isMatchTelemetryExpired } from "@/components/stat/matchExpiryHelper";
 
 const TimelineMiniMap = dynamic(
   () => import("./TimelineMiniMap").then((mod) => mod.TimelineMiniMap),
@@ -1014,6 +1015,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
   }
 
   const is3DReplaySupported = resolve3DMapCapability(matchData.mapName || "") !== null;
+  const isTelemetryExpired = isMatchTelemetryExpired(matchData.playedAt || matchData.createdAt || matchData.matchDate || "");
 
   // TDM 판정 규칙
   const isTdmMatch = (matchData.gameMode || "").toLowerCase().includes("tdm") ||
@@ -1998,7 +2000,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
                   router.push(`/replay/3d?matchId=${matchId}&nickname=${nickname}&platform=${platform}`);
                 }}
                 disabled={!is3DReplaySupported}
-                title={is3DReplaySupported ? undefined : "이 맵은 현재 3D 리플레이를 지원하지 않습니다."}
+                title={!is3DReplaySupported ? "이 맵은 현재 3D 리플레이를 지원하지 않습니다." : isTelemetryExpired ? "90일이 경과하여 3D 동선 데이터가 만료되었습니다." : undefined}
                 className="w-full text-left p-4 bg-gradient-to-r from-amber-500/10 via-amber-500/[0.03] to-transparent hover:from-amber-500/15 border border-amber-500/30 hover:border-amber-500/50 rounded-2xl transition-all flex gap-3.5 items-center cursor-pointer group hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:scale-100 disabled:hover:from-amber-500/10 disabled:hover:border-amber-500/30"
               >
                 <div className="w-10 h-10 bg-amber-500/20 rounded-xl flex items-center justify-center text-amber-500 shrink-0">
@@ -2012,7 +2014,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
                   <p className="text-[10px] text-gray-400 mt-1 leading-normal font-medium font-sans">
                     {is3DReplaySupported
                       ? "3D 홀로그램 전술 작전판에서 실시간 킬로그 피드, 총탄 궤적, 입체 고도 및 카메라 추적으로 정밀 분석합니다."
-                      : "이 맵은 3D 지형 자산 준비 전입니다. 2D 미니 리플레이를 이용해 주세요."}
+                      : isTelemetryExpired ? "90일이 경과하여 3D 동선 데이터가 만료되었습니다. 기본 전적 요약 통계는 정상 조회 가능합니다." : "이 맵은 3D 지형 자산 준비 전입니다. 2D 미니 리플레이를 이용해 주세요."}
                   </p>
                 </div>
               </button>
