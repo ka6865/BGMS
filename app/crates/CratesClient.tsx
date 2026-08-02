@@ -361,11 +361,11 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
           <summary className="list-none cursor-pointer flex items-center gap-4 focus:outline-none select-none">
             <div className="absolute inset-0 bg-gradient-to-r from-amber-500/5 to-transparent pointer-events-none" />
             <AlertTriangle className="w-6 h-6 text-amber-500 shrink-0 mt-0.5 animate-pulse" />
-            <div className="flex-1 flex justify-between items-center z-10">
-              <h4 className="font-black text-amber-500 tracking-wide flex items-center gap-1.5 text-sm uppercase">
+            <div className="flex-1 min-w-0 flex flex-wrap justify-between items-center gap-x-3 gap-y-1.5 z-10">
+              <h4 className="min-w-0 font-black text-amber-500 tracking-wide flex items-center gap-1.5 text-sm uppercase">
                 시뮬레이터 BETA 서비스 안내
               </h4>
-              <span className="text-[10px] bg-slate-800 text-slate-400 border border-slate-700/60 px-2 py-0.5 rounded font-black group-open:text-amber-400 group-open:border-amber-500/30 transition-all select-none">
+              <span className="shrink-0 text-[10px] bg-slate-800 text-slate-400 border border-slate-700/60 px-2 py-0.5 rounded font-black group-open:text-amber-400 group-open:border-amber-500/30 transition-all select-none">
                 클릭하여 안내 읽기
               </span>
             </div>

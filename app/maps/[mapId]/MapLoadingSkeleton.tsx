@@ -1,8 +1,11 @@
 /**
  * @fileoverview 맵 로딩 스켈레톤 UI
- * Next.js 16의 Streaming SSR을 활용하여 즉각적인 로딩 피드백을 제공합니다.
+ *
+ * 라우트 단위 `loading.tsx` 로 두면 응답이 즉시 스트리밍되어
+ * `notFound()` 가 만드는 404 상태 코드가 200 으로 바뀐다.
+ * 그래서 page.tsx 의 Suspense fallback 으로 직접 사용합니다.
  */
-export default function MapLoading() {
+export default function MapLoadingSkeleton() {
   return (
     <div style={{ 
       width: '100%', 
