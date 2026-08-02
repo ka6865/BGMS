@@ -59,7 +59,11 @@ export default async function PostDetailPage({ params }: { params: Promise<{ pos
     .eq("post_id", numericPostId)
     .order("created_at", { ascending: true });
 
-  if (postError) {
+  // PGRST116: `.single()`에서 행이 없을 때 반환되는 코드.
+  // 존재하지 않는 게시글은 서버 오류가 아니라 "찾을 수 없음"으로 안내한다.
+  const postMissing = postError?.code === 'PGRST116' || !postResult;
+
+  if (postError && !postMissing) {
     console.error("게시글 조회 오류:", postError);
     return (
       <div className="w-full h-[calc(100vh-100px)] bg-[#121212] flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-500">
@@ -83,7 +87,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ pos
     );
   }
 
-  if (!postResult) {
+  if (postMissing) {
     return (
       <div className="w-full h-[calc(100vh-100px)] bg-[#121212] flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-500">
         <div className="bg-[#1a1a1a] border border-[#333] p-10 rounded-2xl shadow-2xl flex flex-col items-center max-w-md w-full">
