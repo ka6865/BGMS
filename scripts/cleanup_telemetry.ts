@@ -442,6 +442,14 @@ function parseIntegerEnv(key: string, fallback: number): number {
   return value;
 }
 
+
+export function getTelemetryRetentionDays(env: Record<string, string | undefined> = process.env): number {
+  const raw = env.CLEANUP_RETENTION_DAYS?.trim();
+  if (!raw) return 90;
+  const val = Number(raw);
+  return Number.isInteger(val) && val > 0 ? val : 90;
+}
+
 export async function runTelemetryCleanupFromEnvironment(): Promise<void> {
   dotenv.config({ path: resolve(process.cwd(), ".env.local") });
   const supabaseUrl = requireEnv("NEXT_PUBLIC_SUPABASE_URL");
@@ -449,7 +457,7 @@ export async function runTelemetryCleanupFromEnvironment(): Promise<void> {
   const currentVersion = Math.floor(TELEMETRY_VERSION);
   const configuredTargetVersion = parseIntegerEnv("CLEANUP_TARGET_VERSION", 56);
   const targetVersion = Math.min(configuredTargetVersion, currentVersion - 1);
-  const retentionDays = parseIntegerEnv("CLEANUP_RETENTION_DAYS", 1);
+  const retentionDays = getTelemetryRetentionDays();
   if (retentionDays < 1) {
     throw new Error("telemetry-cleanup-invalid-environment-config");
   }

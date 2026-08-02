@@ -3,7 +3,7 @@ import { normalizeName } from "./utils";
 
 export type PubgPlatform = "steam" | "kakao";
 export type AnalysisSource = "user" | "scraper";
-export type PersistenceTaskName = "match_stats_raw" | "pubg_player_cache" | "global_benchmarks";
+export type PersistenceTaskName = "match_stats_raw" | "pubg_player_cache" | "global_benchmarks" | "pubg_player_matches";
 
 type JsonObject = Record<string, unknown>;
 
@@ -202,6 +202,43 @@ async function persistPlayerCache(
   if (succeeded) result.succeeded.push("pubg_player_cache");
 }
 
+
+async function persistPlayerMatches(
+  supabase: SupabaseClient,
+  input: PersistMatchAnalysisInput,
+  result: PersistMatchAnalysisResult,
+): Promise<void> {
+  const participants = input.rawParticipants;
+  if (!participants || participants.length === 0 || !input.matchAttr) return;
+
+  const analysisPlayerId = normalizeName(input.playerNickname);
+  const rows = participants
+    .filter((participant) => (
+      !participant.attributes.stats.playerId?.startsWith("ai.")
+      && normalizeName(participant.attributes.stats.name) === analysisPlayerId
+    ))
+    .slice(0, 1)
+    .map((participant) => ({
+      player_id: analysisPlayerId,
+      platform: input.platform,
+      match_id: input.matchId,
+      played_at: (input.finalResult as any).matchInfo?.date || new Date().toISOString(),
+      game_mode: input.matchAttr?.gameMode || "unknown",
+      map_name: input.matchAttr?.mapName || "unknown",
+      kills: participant.attributes.stats.kills || 0,
+      damage: Math.floor(participant.attributes.stats.damageDealt || 0),
+      win_place: participant.attributes.stats.winPlace || 99,
+    }));
+
+  if (rows.length === 0) return;
+  const succeeded = await runPersistenceTask("pubg_player_matches", result, () => (
+    supabase.from("pubg_player_matches").upsert(rows, {
+      onConflict: "player_id,platform,match_id",
+    })
+  ));
+  if (succeeded) result.succeeded.push("pubg_player_matches");
+}
+
 async function persistBenchmark(
   supabase: SupabaseClient,
   input: PersistMatchAnalysisInput,
@@ -284,6 +321,7 @@ export async function persistMatchAnalysis(
   await Promise.all([
     persistRawStats(supabase, input, result),
     persistPlayerCache(supabase, input, result),
+    persistPlayerMatches(supabase, input, result),
     persistBenchmark(supabase, input, result),
   ]);
   return result;
