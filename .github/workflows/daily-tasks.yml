@@ -167,6 +167,14 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/cleanup_analytics_events.ts
 
+      - name: Run User Matches Sync
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
+        run: npx tsx scripts/sync_user_matches.ts --limit 15
+
       # match_stats_raw 는 매치당 참가자 전원을 저장하던 이력 때문에 8일치가 180MB 까지 자랐다.
       # 저장 범위 축소(2026-08-01 배포) 이후 신규 유입은 줄었지만, 분석 표본도 승자도 아닌 행은
       # 계속 발생하므로 일일 정리로 편성한다. RPC 가 배치 삭제를 수행하고 멱등하다.
