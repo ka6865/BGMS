@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../lib/pubg-analysis/r2Service", () => ({
   getR2BucketUsage: vi.fn(async () => ({
@@ -11,7 +11,9 @@ vi.mock("../lib/pubg-analysis/r2Service", () => ({
   })),
 }));
 
-import { buildStorageHealth, formatBytes } from "../lib/admin-agent/storage-health";
+import * as storageHealth from "../lib/admin-agent/storage-health";
+
+const { buildStorageHealth, formatBytes } = storageHealth;
 
 function createSupabase(options: {
   tableSizes?: Array<Record<string, unknown>>;
@@ -45,6 +47,28 @@ function createSupabase(options: {
 describe("저장 용량 현황", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("현재 Pro gp3의 포함 디스크 8GB를 기본 관제 기준으로 사용한다", async () => {
+    vi.stubEnv("SUPABASE_DATABASE_LIMIT_BYTES", "");
+
+    const health = await buildStorageHealth(createSupabase());
+
+    expect(health.database.limitBytes).toBe(8 * 1024 * 1024 * 1024);
+    expect(health.database.status).toBe("ok");
+    expect(health.recommendations.join(" ")).not.toContain("Free 기준");
+  });
+
+  it("프로비저닝 디스크가 달라지면 환경변수 기준으로 관제한다", async () => {
+    vi.stubEnv("SUPABASE_DATABASE_LIMIT_BYTES", String(12 * 1024 * 1024 * 1024));
+
+    const health = await buildStorageHealth(createSupabase());
+
+    expect(health.database.limitBytes).toBe(12 * 1024 * 1024 * 1024);
   });
 
   it("테이블별 실제 크기를 함께 보고한다", async () => {
@@ -163,5 +187,74 @@ describe("저장 용량 현황", () => {
     expect(formatBytes(2 * 1024 * 1024 * 1024)).toBe("2.00GB");
     expect(formatBytes(5 * 1024 * 1024)).toBe("5.0MB");
     expect(formatBytes(2048)).toBe("2KB");
+  });
+});
+
+describe("일일 유지보수 DB health gate", () => {
+  const api = storageHealth as typeof storageHealth & {
+    evaluateDatabaseMaintenanceHealth?: (metrics: Record<string, number>) => {
+      healthy: boolean;
+      reasons: string[];
+    };
+    fetchDatabaseMaintenanceHealth?: (supabase: unknown) => Promise<{
+      healthy: boolean;
+      reasons: string[];
+    }>;
+  };
+
+  it("연결·active query·lock·장기 쿼리가 임계치 미만이면 유지보수를 허용한다", () => {
+    expect(api.evaluateDatabaseMaintenanceHealth).toBeTypeOf("function");
+
+    expect(api.evaluateDatabaseMaintenanceHealth!({
+      totalConnections: 20,
+      maxConnections: 60,
+      activeQueries: 2,
+      lockWaiters: 0,
+      longestActiveSeconds: 4,
+    })).toEqual({ healthy: true, reasons: [] });
+  });
+
+  it("연결 80%·lock 대기·30초 장기 쿼리 중 하나라도 있으면 중단 사유를 모두 반환한다", () => {
+    expect(api.evaluateDatabaseMaintenanceHealth).toBeTypeOf("function");
+
+    const assessment = api.evaluateDatabaseMaintenanceHealth!({
+      totalConnections: 48,
+      maxConnections: 60,
+      activeQueries: 8,
+      lockWaiters: 1,
+      longestActiveSeconds: 30,
+    });
+
+    expect(assessment.healthy).toBe(false);
+    expect(assessment.reasons).toEqual([
+      "database connections 48/60 (80.0%)",
+      "active queries 8",
+      "lock waiters 1",
+      "longest active query 30.0s",
+    ]);
+  });
+
+  it("service-role RPC 결과를 제한 시간 안에 평가한다", async () => {
+    expect(api.fetchDatabaseMaintenanceHealth).toBeTypeOf("function");
+    const abortSignal = vi.fn().mockResolvedValue({
+      data: [{
+        total_connections: 12,
+        max_connections: 60,
+        active_queries: 1,
+        lock_waiters: 0,
+        longest_active_seconds: 2.5,
+      }],
+      error: null,
+    });
+    const retry = vi.fn(() => ({ abortSignal }));
+    const rpc = vi.fn(() => ({ retry, abortSignal }));
+
+    await expect(api.fetchDatabaseMaintenanceHealth!({ rpc })).resolves.toEqual({
+      healthy: true,
+      reasons: [],
+    });
+    expect(rpc).toHaveBeenCalledWith("get_database_maintenance_health");
+    expect(retry).toHaveBeenCalledWith(false);
+    expect(abortSignal).toHaveBeenCalledWith(expect.any(AbortSignal));
   });
 });

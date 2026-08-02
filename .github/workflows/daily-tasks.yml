@@ -9,6 +9,10 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
+concurrency:
+  group: daily-bgms-maintenance
+  cancel-in-progress: false
+
 jobs:
   board-image-cleanup:
     # migration·Preview Storage QA·수동 dry-run 완료 전에는 운영 객체 삭제를 시작하지 않는다.
@@ -59,6 +63,8 @@ jobs:
         run: npx tsx scripts/cleanup_board_write_rate_limits.ts
 
   maintenance:
+    needs: board-write-quota-cleanup
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -73,6 +79,14 @@ jobs:
       - name: Install Dependencies
         id: install
         run: npm ci
+
+      - name: Check Database Health Before Maintenance
+        id: database_health
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npx tsx scripts/check_database_maintenance_health.ts
 
       # 이하 데이터 작업 step 은 install 이 성공한 경우 앞 step 실패와 무관하게 실행한다.
       # 기존에는 cleanup 한 건이 실패하면 뒤 9개 step 이 모두 skip 되어
@@ -105,7 +119,7 @@ jobs:
       # 대상은 재생성할 수 없는 사용자 데이터뿐이다(마커 제보, 회원, 게시글).
       # 분석 캐시는 PUBG API 로 다시 만들 수 있어 제외한다.
       - name: Backup Core Tables
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -116,7 +130,7 @@ jobs:
         run: npx tsx scripts/backup_core_tables.ts
 
       - name: Check Storage Before Maintenance
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -127,7 +141,7 @@ jobs:
         run: npx tsx scripts/monitor_storage.ts --label "BEFORE"
 
       - name: Run Storage Cleanup
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -140,14 +154,14 @@ jobs:
         run: npx tsx scripts/cleanup_telemetry.ts
 
       - name: Run AI Cache Cleanup
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/cleanup_ai_cache.ts
 
       - name: Run Analytics Events Cleanup
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -158,7 +172,7 @@ jobs:
       # 계속 발생하므로 일일 정리로 편성한다. RPC 가 배치 삭제를 수행하고 멱등하다.
       # 물리 파일 축소가 필요한 경우에만 유지보수 창에서 VACUUM (FULL) 을 수동 실행한다.
       - name: Run Match Stats Raw Compaction
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -166,14 +180,14 @@ jobs:
 
       - name: Audit PUBG Analysis Data Quality
         continue-on-error: true
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/audit_processed_telemetry_identity.ts --recent-days 2 --max-rows 1000 --target-limit 50
 
       - name: Run Smart Scraper
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
         env:
           PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -187,7 +201,7 @@ jobs:
         run: npx tsx scripts/scrape_elite.ts
 
       - name: Extract Bluezone Statistics
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
         env:
           PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -195,7 +209,7 @@ jobs:
         run: npx tsx scripts/extract_bluezone.ts
 
       - name: Sync Patch Notes
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -205,7 +219,7 @@ jobs:
         run: npx tsx scripts/sync_patch_notes.ts
 
       - name: Check Storage After Maintenance
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -216,7 +230,7 @@ jobs:
         run: npx tsx scripts/monitor_storage.ts --label "AFTER"
 
       - name: Record Agent Monitor Snapshot
-        if: always()
+        if: ${{ always() && steps.database_health.outcome == 'success' }}
         env:
           APP_URL: ${{ secrets.APP_URL }}
           ADMIN_AGENT_CRON_SECRET: ${{ secrets.ADMIN_AGENT_CRON_SECRET }}
@@ -231,7 +245,7 @@ jobs:
             -H "Authorization: Bearer $SECRET"
 
       - name: Record Agent Rollout Readiness Snapshot
-        if: always()
+        if: ${{ always() && steps.database_health.outcome == 'success' }}
         env:
           APP_URL: ${{ secrets.APP_URL }}
           ADMIN_AGENT_CRON_SECRET: ${{ secrets.ADMIN_AGENT_CRON_SECRET }}
@@ -246,14 +260,14 @@ jobs:
             -H "Authorization: Bearer $SECRET"
 
       - name: Cleanup PUBG Cache And Quota Tables
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/cleanup_pubg_cache.ts
 
       - name: Run Hotdrop Collection
-        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
         env:
           PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
