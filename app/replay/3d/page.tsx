@@ -245,6 +245,9 @@ function Replay3DContent() {
   
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // 쿼리 없이 진입한 데모 매치인지 여부.
+  // 데모 매치 텔레메트리는 PUBG 보존 기간이 지나면 조회할 수 없어 안내 문구를 구분한다.
+  const [isDemoTarget, setIsDemoTarget] = useState(demoRequest !== null);
   
   // 텔레메트리 파싱된 결과 상태
   const [players, setPlayers] = useState<PlayerTrajectory[]>([]);
@@ -597,6 +600,7 @@ function Replay3DContent() {
     setMatchId(target.matchId);
     setNickname(target.nickname);
     setPlatform(target.platform);
+    setIsDemoTarget(target.isDemo);
     const request = startTelemetryRequest(target);
     return () => cancelRequest(request);
   }, [cancelRequest, qMatchId, qNickname, qPlatform, resetReplayState, startTelemetryRequest]);
@@ -2307,18 +2311,32 @@ function Replay3DContent() {
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[#ff9f0a]" />
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-bold text-[#ff9f0a]">리플레이 데이터를 불러오지 못했습니다.</p>
-                <p className="mt-1 text-[11px] leading-relaxed text-[#8b949e]">{errorMsg}</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-[#8b949e]">
+                  {isDemoTarget
+                    ? "예시 매치의 텔레메트리 보관 기간이 지났습니다. AI 전적 검색에서 최근 매치를 선택해 3D 리플레이를 실행해 주세요."
+                    : errorMsg}
+                </p>
               </div>
             </div>
             <div className="mt-3 flex gap-2">
-              <button
-                type="button"
-                onClick={handleFetchTelemetry}
-                className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-md border border-[#ff9f0a]/45 bg-[#ff9f0a]/10 px-3 text-[11px] font-bold text-[#ff9f0a] transition-colors hover:bg-[#ff9f0a] hover:text-[#0d1117]"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                다시 시도
-              </button>
+              {isDemoTarget ? (
+                <button
+                  type="button"
+                  onClick={() => router.push("/stats")}
+                  className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-md border border-[#ff9f0a]/45 bg-[#ff9f0a]/10 px-3 text-[11px] font-bold text-[#ff9f0a] transition-colors hover:bg-[#ff9f0a] hover:text-[#0d1117]"
+                >
+                  AI 전적 검색으로 이동
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleFetchTelemetry}
+                  className="inline-flex min-h-9 flex-1 items-center justify-center gap-1.5 rounded-md border border-[#ff9f0a]/45 bg-[#ff9f0a]/10 px-3 text-[11px] font-bold text-[#ff9f0a] transition-colors hover:bg-[#ff9f0a] hover:text-[#0d1117]"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  다시 시도
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setIsSidebarOpen(true)}
