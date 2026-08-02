@@ -512,9 +512,9 @@ interface MatchCardProps {
   onModeDetected?: (matchId: string, gameMode: string) => void;
 }
 
-export const MatchCard = ({ matchId, nickname, platform, isMobile, index = 0, initialMatchData, onNicknameClick, onModeDetected }: MatchCardProps) => {
+export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchData, onNicknameClick, onModeDetected }: MatchCardProps) => {
   const [matchData, setMatchData] = useState<MatchData | null>(initialMatchData || null);
-  const [loading, setLoading] = useState(!initialMatchData);
+  const [loading, setLoading] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [openDetailSections, setOpenDetailSections] = useState({
     weapons: false,
@@ -824,6 +824,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, index = 0, in
   const fetchFullMatch = useCallback(async () => {
     if (fullMatchFetchRef.current) return;
     fullMatchFetchRef.current = true;
+    setLoading(true);
     try {
       const res = await fetch(`/api/pubg/match?matchId=${matchId}&nickname=${nickname}&platform=${platform}`, { cache: 'no-store' });
       const data = await res.json();
@@ -842,7 +843,11 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, index = 0, in
 
         if (!isExcluded) {
           setMatchData(data);
+        } else {
+          fullMatchFetchRef.current = false;
         }
+      } else {
+        fullMatchFetchRef.current = false;
       }
     } catch {
       fullMatchFetchRef.current = false;
@@ -862,16 +867,8 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, index = 0, in
     }
 
     setMatchData(null);
-    setLoading(true);
-
-    // 개발 서버 환경 등에서 동시 요청으로 인한 병목을 줄이기 위해 인덱스 기반으로 딜레이 분산
-    const delay = index * 150;
-    const timer = setTimeout(() => {
-      void fetchFullMatch();
-    }, delay);
-    
-    return () => clearTimeout(timer);
-  }, [matchId, nickname, platform, index, initialMatchData, fetchFullMatch, onModeDetected]);
+    setLoading(false);
+  }, [matchId, nickname, platform, initialMatchData, onModeDetected]);
 
   useEffect(() => {
     if (isExpanded && (matchData as MatchSummaryData | null)?.isSummary) {
@@ -998,7 +995,23 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, index = 0, in
     return <div className="h-24 bg-white/5 border border-white/10 rounded-2xl animate-pulse mb-3" />;
   }
 
-  if (!matchData) return null;
+  if (!matchData) {
+    return (
+      <div className="mb-3 flex min-h-24 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-white/80">매치 요약을 준비 중입니다.</p>
+          <p className="mt-1 break-keep text-xs text-white/40">상세 분석은 필요할 때만 불러옵니다.</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void fetchFullMatch()}
+          className="min-h-11 shrink-0 rounded-xl border border-indigo-400/30 bg-indigo-500/15 px-3 py-2 text-xs font-black text-indigo-200 transition-colors hover:bg-indigo-500/25"
+        >
+          매치 상세 불러오기
+        </button>
+      </div>
+    );
+  }
 
   const is3DReplaySupported = resolve3DMapCapability(matchData.mapName || "") !== null;
 
