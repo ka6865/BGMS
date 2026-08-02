@@ -1,77 +1,104 @@
-# 🗺️ BGMS (BattleGrounds Management System)
+# BGMS
 
-### 배틀그라운드 전술의 시작, BGMS.kr
+> PUBG 플레이어가 전술 정보를 탐색하고, 매치 데이터를 분석하며, AI 코칭까지 받을 수 있도록 만든 개인 풀스택 웹 서비스입니다.
 
-[![BGMS Website](https://img.shields.io/badge/Website-bgms.kr-F2A900?style=for-the-badge&logo=google-chrome&logoColor=white)](https://bgms.kr)
-[![Discord Support](https://img.shields.io/badge/Discord-Join%20Us-7289DA?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/your-link)
+[서비스 바로가기](https://bgms.kr)
 
----
+## 프로젝트 한눈에 보기
 
-## 🚀 사이트 바로가기
-**서비스 도메인:** [https://bgms.kr](https://bgms.kr)  
-*배틀그라운드의 모든 맵 정보와 AI 분석을 한곳에서 확인하세요.*
+| 구분 | 내용 |
+| --- | --- |
+| 프로젝트 유형 | 개인 프로젝트 |
+| 역할 | 기획, UX 설계, 프론트엔드·백엔드 개발, 데이터·AI 파이프라인 및 운영 자동화 |
+| 대상 사용자 | 전술 정보를 빠르게 확인하고 자신의 플레이를 분석하려는 PUBG 플레이어 |
+| 핵심 가치 | 지도 기반 전술 판단, 텔레메트리 기반 분석, AI 코칭을 하나의 서비스 흐름으로 제공 |
+| 서비스 | [bgms.kr](https://bgms.kr) |
 
----
+## 해결한 문제
 
-## ✨ 주요 기능 및 사용법
+PUBG 플레이어는 맵별 차량·아이템 정보, 전적, 매치 텔레메트리, 패치 정보를 여러 곳에서 확인해야 합니다. BGMS는 이 흐름을 한 서비스에 모으고, 원시 매치 데이터를 사용자가 이해할 수 있는 전술 지표와 AI 코칭으로 변환합니다.
 
-### 1. 필터링된 인터랙티브 전술 지도
-*   **차량 및 아이템 스폰 확인**: 사이드바의 체크박스를 통해 **차고지, 고정 차량, 보트, 글라이더, 비밀 열쇠** 등의 위치를 지도에 표시하거나 숨길 수 있습니다.
-*   **실시간 제보 시스템**: 지도에서 마우스 우클릭 또는 '차량 제보' 도구를 사용하여 새로운 차량 위치를 커뮤니티에 공유할 수 있습니다.
+### 사용자 경험
 
-### 2. 정밀 전술 도구 (Map Tools)
-*   **박격포 계산기**: 내 위치와 타겟 지점을 찍으면 정확한 거리와 발사각을 계산해 줍니다. 
-*   **비행기 경로 스캔**: 비행기 경로를 그리드에 투사하고, 경로 주변 1km 내의 주요 차량 스폰 지점을 한눈에 확인하여 낙하 지점을 결정하세요.
-*   **그리드망**: 1km/100m 단위의 그리드를 활성화하여 정밀한 위치 브리핑이 가능합니다.
+- **전술 지도**: 차량, 보트, 글라이더, 차고지, 비밀 열쇠 등 맵 오브젝트를 필터링하고 그리드·박격포 계산·비행기 경로 도구로 낙하 및 이동 전략을 설계합니다.
+- **전적·스쿼드 분석**: 플레이어의 시즌·최근 매치 기록과 텔레메트리를 바탕으로 교전, 고립, 대열 유지, 백업 시간을 시각화합니다.
+- **AI 코칭과 리플레이**: 분석 결과를 Gemini 기반 코칭 리포트로 제공하고, 전술 상황을 2D·3D 리플레이로 다시 살펴볼 수 있게 합니다.
+- **커뮤니티와 개인화**: 인증 기반 마이페이지, 게시판, 지도 제보 기능을 제공하며 모바일 환경에서도 주요 전술 흐름을 유지합니다.
 
-### 3. AI 기반 인텔리전스
-*   **AI 패치노트 요약**: 복잡한 공식 패치노트를 Google Gemini AI가 핵심만 요약해 드립니다. 바쁜 게이머를 위해 30초 내에 패치 내용을 파악할 수 있게 돕습니다.
-*   **전적 분석 및 AI 브리핑**: 플레이어의 매치 데이터를 분석하여 교전 성향과 개선점을 AI가 리포트 형식으로 제공합니다.
+## 엔지니어링 포인트
 
-### 4. 전적 검색 및 통계
-*   **플레이어 검색**: 닉네임 검색을 통해 시즌 스탯 및 최근 매치 결과, 상세 딜량 수치를 확인할 수 있습니다.
-*   **사용자 메뉴**: 로그인 후 나만의 즐겨찾기 맵 설정 및 활동 내역을 관리할 수 있습니다.
+### 1. 인터랙티브 지도와 반응형 전술 UX
 
----
+React-Leaflet 기반 지도를 중심으로 필터, 오버레이, 시뮬레이터를 구성했습니다. 데스크톱에서는 넓은 지도와 사이드바를, 모바일에서는 터치 친화적인 하단 시트를 사용해 동일한 정보를 맥락에 맞게 제공합니다. Capacitor 기반 하이브리드 앱 빌드도 지원합니다.
 
-## 📱 모바일 앱 이용 안내
-BGMS는 웹브라우저뿐만 아니라 모바일 환경에서도 최적의 경험을 제공합니다.
-*   **하이브리드 앱 지원**: iOS 및 Android 앱을 통해 언제 어디서나 전술 지도를 확인하세요.
-*   **모바일 최적화 UI**: 모바일에서는 하단 시트와 터치 친화적 필터 UI를 통해 한 손으로 조작이 가능합니다.
+### 2. 텔레메트리 분석 데이터를 서비스용 인사이트로 변환
 
----
+PUBG API와 텔레메트리 데이터를 수집·가공하여 전적, 스쿼드 협동 지표, 전투 장면, 리플레이 데이터로 연결합니다. 분석 캐시는 플랫폼·플레이어·모드·버전을 포함한 식별성을 갖도록 설계했고, R2 저장소와 Supabase 데이터의 정합성을 점검·정리하는 작업을 자동화했습니다.
 
-## 🤝 커뮤니티 및 게시판
-*   **자유 게시판**: 다른 유저들과 전술을 공유하고 매치에 대해 토론하세요.
-*   **공지사항**: 실시간으로 업데이트되는 패치 소식과 사이트 점검 안내를 확인하세요.
+### 3. AI 기능을 품질·비용 관점에서 운영
 
----
+Gemini를 이용해 패치 노트 요약과 매치 기반 코칭 리포트를 생성합니다. 중복 호출을 줄이기 위한 캐시와 요청 제어를 두고, AI 코칭 결과에는 필수 케이스·원본 응답·계산 지표를 검사하는 품질 게이트를 적용했습니다.
 
-## 🛠️ 기술 스택 (Tech Stack)
+### 4. 사용자 생성 콘텐츠의 안전한 쓰기 경로
 
-### Frontend
-- **Framework**: Next.js 16 (App Router)
-- **Library**: React 19, React-Leaflet, Lucide React
-- **Styling**: Tailwind CSS v4, CSS Modules
+Supabase Auth와 PostgreSQL을 기반으로 사용자 기능을 구현했습니다. 게시판 작성에는 Cloudflare Turnstile 검증, 작성 쿼터, 욕설 필터를 적용하고, 게시글 이미지는 전용 저장소 계약과 정리 작업을 통해 관리합니다.
 
-### Backend & Data
-- **Database / Auth**: Supabase (PostgreSQL)
-- **AI**: Google Generative AI (Gemini 2.5-Flash & v3.1)
-- **Infra**: Vercel (Deployment), GitHub Actions (Cron Jobs)
+### 5. 운영 작업의 자동화와 관측성
 
-### Mobile & Tools
-- **Mobile**: Capacitor v8 (Hybrid)
-- **State Management**: React 19 Hooks & Server Actions
+GitHub Actions의 일일 작업으로 텔레메트리·AI 캐시 정리, 스토리지 사용량 확인, 데이터 품질 감사, 데이터 수집, 패치 노트 동기화를 수행합니다. 관리 화면과 서버 측 도구는 데이터 품질, 운영 현황, 사용자 지표를 점검할 수 있도록 구성했습니다.
 
----
+## 기술 구성
 
-## 🧪 개발 및 테스트 기준
+| 영역 | 사용 기술 | 적용 역할 |
+| --- | --- | --- |
+| 웹 | Next.js 16, React 19, TypeScript | App Router 기반 화면·서버 기능 구현 |
+| UI | Tailwind CSS v4, React-Leaflet, Three.js, Lucide React | 반응형 UI, 지도·전술 시각화, 3D 리플레이 |
+| 데이터·인증 | Supabase PostgreSQL, Supabase Auth | 사용자 인증, 서비스 데이터, 접근 제어 |
+| AI | Vercel AI SDK, Google Gemini | 패치 요약과 매치·스쿼드 코칭 생성 |
+| 파일 저장 | Cloudflare R2, AWS SDK for JavaScript | 텔레메트리·이미지 자산 저장 및 수명 관리 |
+| 배포·운영 | Vercel, GitHub Actions, Cloudflare Turnstile | 배포, 정기 유지보수, 봇 방지 |
+| 모바일 | Capacitor 8 | iOS·Android 하이브리드 앱 빌드 |
+| 검증 | ESLint, TypeScript, Vitest, Jest | 정적 분석과 서버·도메인·UI 테스트 |
 
-- `tests/**/*.test.ts`: Vitest 기반 서버/API/순수 로직 테스트입니다.
-- `__tests__/**/*.test.tsx`: Jest/jsdom 기반 UI 테스트입니다.
-- 공통 검증은 `npx tsc --noEmit`, `npm run lint`, 관련 Vitest/Jest 테스트 순서로 수행합니다.
-- 공유 타입은 `types/`에 두고, `lib`가 `app/actions`나 API route 파일을 직접 참조하지 않는 방향을 기본값으로 둡니다.
+## 서비스 구조
 
----
+```text
+PUBG API / 사용자 입력
+        │
+        ├── Next.js 애플리케이션 ── Supabase (Auth · PostgreSQL)
+        │          │
+        │          ├── 분석 엔진 ── Gemini AI
+        │          └── 텔레메트리·이미지 ── Cloudflare R2
+        │
+        └── GitHub Actions ── 수집 · 정리 · 품질 감사 · 운영 점검
+```
 
-© 2026 BGMS Team. All rights reserved.
+## 로컬 실행 및 검증
+
+Node.js와 프로젝트에서 사용하는 외부 서비스의 환경 설정이 필요합니다. 비밀 값은 저장소에 포함하지 않으며, 로컬 환경 파일에만 설정합니다.
+
+```bash
+npm install
+npm run dev
+```
+
+주요 검증 명령은 다음과 같습니다.
+
+```bash
+# ESLint 및 TypeScript 정적 분석
+npm run verify:core
+
+# 도메인·API·텔레메트리 분석 검증
+npm run verify:analysis
+
+# 관리자·보안·게시판 쓰기 경로 검증
+npm run verify:admin
+
+# UI 테스트와 단위 테스트
+npm test
+npm run test:unit
+```
+
+## 프로젝트 범위
+
+BGMS는 개인 프로젝트입니다. PUBG는 KRAFTON, Inc.의 등록 상표이며, 본 프로젝트는 KRAFTON 또는 PUBG와 제휴·후원·승인 관계가 없습니다.
