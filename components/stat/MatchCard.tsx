@@ -1015,7 +1015,8 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
   }
 
   const is3DReplaySupported = resolve3DMapCapability(matchData.mapName || "") !== null;
-  const isTelemetryExpired = isMatchTelemetryExpired(matchData.playedAt || matchData.createdAt || matchData.matchDate || "");
+  const matchDate = (matchData as any).playedAt || matchData.createdAt || matchData.matchInfo?.date || "";
+  const isTelemetryExpired = isMatchTelemetryExpired(matchDate);
 
   // TDM 판정 규칙
   const isTdmMatch = (matchData.gameMode || "").toLowerCase().includes("tdm") ||
