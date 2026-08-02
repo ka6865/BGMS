@@ -2,6 +2,16 @@ import "server-only";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { TelemetryMapCacheRegistryRow } from "./telemetryMapCache";
 
+const TELEMETRY_REGISTRY_TIMEOUT_MS = 5_000;
+
+async function executeRegistryQuery<T>(query: any): Promise<T> {
+  const withoutRetry = typeof query?.retry === "function" ? query.retry(false) : query;
+  const request = typeof withoutRetry?.abortSignal === "function"
+    ? withoutRetry.abortSignal(AbortSignal.timeout(TELEMETRY_REGISTRY_TIMEOUT_MS))
+    : withoutRetry;
+  return await request as T;
+}
+
 export class TelemetryRegistryError extends Error {
   readonly operation: "claim" | "release" | "finalize";
   readonly code: string | null;
@@ -29,7 +39,7 @@ export async function claimTelemetryMapCacheReservation(
   supabase: SupabaseClient,
   row: TelemetryMapCacheRegistryRow,
 ): Promise<boolean> {
-  const { data, error, status } = await supabase.rpc("claim_telemetry_cache_write", {
+  const { data, error, status } = await executeRegistryQuery<any>(supabase.rpc("claim_telemetry_cache_write", {
     p_match_id: row.match_id,
     p_platform: row.platform,
     p_player_id: row.player_id,
@@ -39,7 +49,7 @@ export async function claimTelemetryMapCacheReservation(
     p_lease_expires_at: row.lease_expires_at,
     p_lease_token: row.lease_token,
     p_updated_at: row.updated_at,
-  });
+  }));
   if (error) {
     throw new TelemetryRegistryError("claim", { code: error.code, status });
   }
@@ -50,14 +60,14 @@ export async function releaseTelemetryMapCacheReservation(
   supabase: SupabaseClient,
   row: TelemetryMapCacheRegistryRow,
 ): Promise<void> {
-  const { error, status } = await supabase.rpc("release_telemetry_cache_write", {
+  const { error, status } = await executeRegistryQuery<any>(supabase.rpc("release_telemetry_cache_write", {
     p_match_id: row.match_id,
     p_platform: row.platform,
     p_player_id: row.player_id,
     p_mode: row.mode,
     p_telemetry_version: row.telemetry_version,
     p_lease_token: row.lease_token,
-  });
+  }));
   if (error) {
     throw new TelemetryRegistryError("release", { code: error.code, status });
   }
@@ -80,7 +90,7 @@ export async function finalizeTelemetryMapCacheLifecycle(
   input: FinalizeTelemetryMapCacheInput,
 ): Promise<void> {
   const processed = input.processed;
-  const { error, status } = await supabase.rpc("finalize_telemetry_cache_write", {
+  const { error, status } = await executeRegistryQuery<any>(supabase.rpc("finalize_telemetry_cache_write", {
     p_match_id: input.row.match_id,
     p_map_name: input.mapName,
     p_game_mode: input.gameMode,
@@ -96,7 +106,7 @@ export async function finalizeTelemetryMapCacheLifecycle(
     p_processed_platform: processed?.platform ?? null,
     p_processed_data: processed?.data ?? null,
     p_processed_updated_at: processed?.updatedAt ?? null,
-  });
+  }));
   if (error) {
     throw new TelemetryRegistryError("finalize", { code: error.code, status });
   }

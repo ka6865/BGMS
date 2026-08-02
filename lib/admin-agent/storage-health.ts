@@ -4,11 +4,76 @@ import type {
   StorageHealthSummary,
   StorageUsageStatus,
 } from "@/types/storage-health";
+import {
+  getSupabaseDatabaseLimitBytes,
+  R2_FREE_STORAGE_LIMIT_BYTES,
+} from "@/lib/admin-agent/storage-limits";
 
-export const SUPABASE_FREE_DATABASE_LIMIT_BYTES = 500 * 1024 * 1024;
-export const R2_FREE_STORAGE_LIMIT_BYTES = 10 * 1024 * 1024 * 1024;
+export { R2_FREE_STORAGE_LIMIT_BYTES } from "@/lib/admin-agent/storage-limits";
 
 export type { ReclaimTarget, StorageHealthSummary, StorageUsageStatus };
+
+export interface DatabaseMaintenanceMetrics {
+  totalConnections: number;
+  maxConnections: number;
+  activeQueries: number;
+  lockWaiters: number;
+  longestActiveSeconds: number;
+}
+
+export interface DatabaseMaintenanceAssessment {
+  healthy: boolean;
+  reasons: string[];
+}
+
+export function evaluateDatabaseMaintenanceHealth(
+  metrics: DatabaseMaintenanceMetrics,
+): DatabaseMaintenanceAssessment {
+  const reasons: string[] = [];
+  const connectionPercent = metrics.maxConnections > 0
+    ? (metrics.totalConnections / metrics.maxConnections) * 100
+    : 100;
+
+  if (connectionPercent >= 80) {
+    reasons.push(
+      `database connections ${metrics.totalConnections}/${metrics.maxConnections} (${connectionPercent.toFixed(1)}%)`,
+    );
+  }
+  if (metrics.activeQueries >= 8) {
+    reasons.push(`active queries ${metrics.activeQueries}`);
+  }
+  if (metrics.lockWaiters > 0) {
+    reasons.push(`lock waiters ${metrics.lockWaiters}`);
+  }
+  if (metrics.longestActiveSeconds >= 30) {
+    reasons.push(`longest active query ${metrics.longestActiveSeconds.toFixed(1)}s`);
+  }
+
+  return { healthy: reasons.length === 0, reasons };
+}
+
+export async function fetchDatabaseMaintenanceHealth(
+  supabase: any,
+): Promise<DatabaseMaintenanceAssessment> {
+  const query = supabase.rpc("get_database_maintenance_health");
+  const withoutRetry = typeof query?.retry === "function" ? query.retry(false) : query;
+  const request = typeof withoutRetry?.abortSignal === "function"
+    ? withoutRetry.abortSignal(AbortSignal.timeout(5_000))
+    : withoutRetry;
+  const { data, error } = await request;
+  if (error) throw new Error("database maintenance health check failed");
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) throw new Error("database maintenance health check returned no data");
+
+  return evaluateDatabaseMaintenanceHealth({
+    totalConnections: Number(row.total_connections),
+    maxConnections: Number(row.max_connections),
+    activeQueries: Number(row.active_queries),
+    lockWaiters: Number(row.lock_waiters),
+    longestActiveSeconds: Number(row.longest_active_seconds),
+  });
+}
 
 // 정리 대상별 설정. 화면과 API 가 같은 정의를 쓰도록 여기서 단일 관리한다.
 export const RECLAIM_TARGETS: Record<ReclaimTarget, {
@@ -163,21 +228,22 @@ export function buildDryRunArgs(target: ReclaimTarget): Record<string, unknown> 
 }
 
 async function fetchDatabaseUsage(supabase: any): Promise<StorageHealthSummary["database"]> {
+  const limitBytes = getSupabaseDatabaseLimitBytes();
   try {
     const { data, error } = await supabase.rpc("get_db_size");
     if (error) throw error;
     const usedBytes = Number(data || 0);
     return {
       usedBytes,
-      limitBytes: SUPABASE_FREE_DATABASE_LIMIT_BYTES,
-      usagePercent: percent(usedBytes, SUPABASE_FREE_DATABASE_LIMIT_BYTES),
-      status: statusForUsage(usedBytes, SUPABASE_FREE_DATABASE_LIMIT_BYTES),
+      limitBytes,
+      usagePercent: percent(usedBytes, limitBytes),
+      status: statusForUsage(usedBytes, limitBytes),
       error: null
     };
   } catch (error: any) {
     return {
       usedBytes: 0,
-      limitBytes: SUPABASE_FREE_DATABASE_LIMIT_BYTES,
+      limitBytes,
       usagePercent: 0,
       status: "unavailable",
       error: error.message || String(error)
@@ -250,9 +316,9 @@ function buildRecommendations(
 ) {
   const recommendations = [];
   if (database.status === "critical") {
-    recommendations.push("Supabase DB가 Free 기준 80%를 넘었습니다. 오래된 analytics/cache 정리 승인과 테이블별 증가량 점검이 필요합니다.");
+    recommendations.push("Supabase DB가 설정된 디스크 기준 80%를 넘었습니다. 오래된 analytics/cache 정리 승인과 테이블별 증가량 점검이 필요합니다.");
   } else if (database.status === "warn") {
-    recommendations.push("Supabase DB가 Free 기준 60%를 넘었습니다. pubg_player_cache, match_stats_raw 증가 추이를 주간으로 확인하세요.");
+    recommendations.push("Supabase DB가 설정된 디스크 기준 60%를 넘었습니다. pubg_player_cache, match_stats_raw 증가 추이를 주간으로 확인하세요.");
   }
 
   // 가장 큰 테이블을 실제 수치로 짚어준다. 행수만 보면 병목을 오판할 수 있다.

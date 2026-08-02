@@ -285,45 +285,24 @@ describe("persistMatchAnalysis", () => {
     expect(upserts.get("pubg_player_cache")).not.toHaveBeenCalled();
   });
 
-  it("player cache를 25개 단위로 나눠 저장한다", async () => {
-    await persistMatchAnalysis(supabase, { ...input, rawParticipants: createParticipants(26) });
-
-    expect(upserts.get("pubg_player_cache")).toHaveBeenCalledTimes(2);
-    expect(upserts.get("pubg_player_cache")?.mock.calls[0]?.[0]).toHaveLength(25);
-    expect(upserts.get("pubg_player_cache")?.mock.calls[1]?.[0]).toHaveLength(1);
-  });
-
-  it.each([
-    {
-      label: "error 반환",
-      failSecondBatch: (upsert: UpsertMock) => upsert
-        .mockResolvedValueOnce({ error: null })
-        .mockResolvedValueOnce({ error: { message: "second batch failed" } }),
-    },
-    {
-      label: "Promise reject",
-      failSecondBatch: (upsert: UpsertMock) => upsert
-        .mockResolvedValueOnce({ error: null })
-        .mockRejectedValueOnce(new Error("second batch failed")),
-    },
-  ])("player cache 2번째 batch $label 시 3번째를 중단하고 독립 저장은 완료한다", async ({ failSecondBatch }) => {
-    const cacheUpsert = upserts.get("pubg_player_cache");
-    expect(cacheUpsert).toBeDefined();
-    failSecondBatch(cacheUpsert!);
-
-    const result = await persistMatchAnalysis(supabase, {
+  it("player cache에는 실제 분석 대상자 한 명만 한 번 저장한다", async () => {
+    await persistMatchAnalysis(supabase, {
       ...input,
-      rawParticipants: createParticipants(51),
+      rawParticipants: [
+        input.rawParticipants[0],
+        ...createParticipants(50),
+      ],
     });
 
-    expect(cacheUpsert).toHaveBeenCalledTimes(2);
-    expect(result.failures.filter(({ taskName }) => taskName === "pubg_player_cache")).toEqual([
-      { taskName: "pubg_player_cache", message: "second batch failed" },
-    ]);
-    expect(result.succeeded).not.toContain("pubg_player_cache");
-    expect(result.succeeded).toEqual(expect.arrayContaining(["match_stats_raw", "global_benchmarks"]));
-    expect(upserts.get("match_stats_raw")).toHaveBeenCalledTimes(1);
-    expect(upserts.get("global_benchmarks")).toHaveBeenCalledTimes(1);
+    expect(upserts.get("pubg_player_cache")).toHaveBeenCalledTimes(1);
+    expect(upserts.get("pubg_player_cache")).toHaveBeenCalledWith(
+      [expect.objectContaining({
+        id: "account-1",
+        nickname: "PlayerOne",
+        lower_nickname: "playerone",
+      })],
+      { onConflict: "id" },
+    );
   });
 
   it("benchmark 선택 값이 없으면 현재 route와 같은 안전 기본값을 저장한다", async () => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { afterEach, describe, it, expect, vi, beforeEach } from "vitest";
 import { POST as aiAnalyzePOST } from "../app/api/pubg/ai-analyze/route";
 import { POST as aiSummaryPOST } from "../app/api/pubg/ai-summary/route";
 import { POST as aiSquadPOST } from "../app/api/pubg/ai-squad/route";
@@ -222,6 +222,10 @@ describe("AI cache route stabilization", () => {
     mockGetSquadAnalysisData.mockResolvedValue(null);
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("ai-analyze는 match_id뿐 아니라 player_id, platform, prompt_version으로 캐시를 조회한다", async () => {
     const matchCache = createQueryChain({
       data: { ai_result: { text: "cached-player-a-analysis" } },
@@ -371,6 +375,40 @@ describe("AI cache route stabilization", () => {
       }),
       { onConflict: "player_id,platform,match_ids_hash,prompt_version" }
     );
+  });
+
+  it("ai-summary의 force는 누락 매치 하위 요청에 재분석 권한으로 전파하지 않는다", async () => {
+    mockSummaryGeminiResponse();
+
+    const summaryCache = createQueryChain();
+    const telemetry = createQueryChain({ data: [], error: null });
+    const globalBenchmarks = createQueryChain({ data: [], error: null });
+    const tierBenchmarks = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: globalBenchmarks,
+      benchmark_stats_by_tier: tierBenchmarks,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify(createSummaryMatch("match-missing")),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["match-missing"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const nestedUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
+    expect(nestedUrl.pathname).toBe("/api/pubg/match");
+    expect(nestedUrl.searchParams.get("force")).toBeNull();
   });
 
   it("ai-summary는 캐시된 최종 리포트의 과한 팀 비난 표현을 순화해서 반환한다", async () => {
