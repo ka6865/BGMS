@@ -323,7 +323,7 @@ export default function MyPage({ initialCurrentUser, initialUserProfile, initial
                     ))}
                   </div>
                 </div>
-                <p style={{ margin: '8px 0 0 0', fontSize: '12px', color: 'rgba(255,255,255,0.2)' }}>전적 검색 시 자동으로 입력되는 기본 계정입니다.</p>
+                <p style={{ margin: '8px 0 0 0', fontSize: '12px', color: 'rgba(255,255,255,0.3)' }}>전적 검색 기본 계정으로 설정되며, 미접속 시에도 매일 과거 전적이 자동 기록 및 저장됩니다.</p>
               </div>
 
               <button 

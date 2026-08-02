@@ -1244,8 +1244,8 @@ function RegisterNicknamePrompt() {
         <User size={22} className="text-amber-500" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-black text-white">PUBG 닉네임을 등록하면 전적을 바로 볼 수 있어요!</p>
-        <p className="text-xs text-gray-500 mt-1 leading-relaxed">마이페이지에서 닉네임을 등록하면, 다음 방문 시 검색창에 자동으로 입력됩니다.</p>
+        <p className="text-sm font-black text-white">PUBG 닉네임을 연동하고 과거 전적을 자동 저장하세요</p>
+        <p className="text-xs text-gray-500 mt-1 leading-relaxed">마이페이지에 닉네임을 등록해 두면 기본 계정 자동 입력은 물론, 사이트에 접속하지 않더라도 과거 전적이 자동으로 기록 및 저장됩니다.</p>
       </div>
       <a
         href="/mypage"
