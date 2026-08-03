@@ -19,7 +19,8 @@ import {
   X,
   Car,
   Video,
-  Map as MapIcon
+  Map as MapIcon,
+  Info
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { BgmsIcon, type BgmsIconName } from "@/components/common/BgmsIcon";
@@ -35,7 +36,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
 import { resolve3DMapCapability } from "@/lib/replay/mapCapabilities";
-import { isMatchTelemetryExpired } from "@/components/stat/matchExpiryHelper";
+import { isMatchTelemetryExpired, isMatchOlderThan14Days } from "@/components/stat/matchExpiryHelper";
 
 const TimelineMiniMap = dynamic(
   () => import("./TimelineMiniMap").then((mod) => mod.TimelineMiniMap),
@@ -849,6 +850,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
         }
       } else {
         fullMatchFetchRef.current = false;
+        toast.error(data.error || "14일이 경과하여 3D 동선 로그는 만료되었습니다. 기본 전적 요약(순위, 킬, 딜량, 맵)은 영구 보존됩니다.");
       }
     } catch {
       fullMatchFetchRef.current = false;
@@ -1017,6 +1019,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
   const is3DReplaySupported = resolve3DMapCapability(matchData.mapName || "") !== null;
   const matchDate = (matchData as any).playedAt || matchData.createdAt || matchData.matchInfo?.date || "";
   const isTelemetryExpired = isMatchTelemetryExpired(matchDate);
+  const is14DaysExpired = isMatchOlderThan14Days(matchDate);
 
   // TDM 판정 규칙
   const isTdmMatch = (matchData.gameMode || "").toLowerCase().includes("tdm") ||
@@ -1061,6 +1064,14 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
         <div className="absolute inset-0 pointer-events-none">
           <div className="absolute -top-20 -right-20 w-64 h-64 bg-amber-500/10 rounded-full blur-[60px]" />
           <div className="absolute -bottom-10 -left-10 w-40 h-40 bg-amber-600/8 rounded-full blur-[40px]" />
+        </div>
+      )}
+
+      {/* 과거 전적 보존 안내 바 */}
+      {isExpanded && (is14DaysExpired || (matchData as any).summarySource === "pubg_player_matches") && (
+        <div className="mx-3 md:mx-5 mt-3.5 p-3 bg-sky-500/10 border border-sky-500/20 rounded-xl flex items-center gap-2 text-xs text-sky-300">
+          <Info size={14} className="shrink-0 text-sky-400" />
+          <span>14일이 경과된 과거 전적입니다. 순위, 킬, 딜량, 맵 정보가 영구 보존되어 있습니다.</span>
         </div>
       )}
 
@@ -1123,6 +1134,11 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
               {!isTdmMatch && matchData.myRank && (
                 <span className="px-2 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded-md text-[10px] text-amber-400 font-black flex items-center gap-1 hidden md:flex">
                   <Trophy size={9} />킬 순위 #{matchData.myRank.killRank || 1}
+                </span>
+              )}
+              {(is14DaysExpired || (matchData as any).summarySource === "pubg_player_matches") && (
+                <span className="px-2 py-0.5 bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-md text-[10px] font-bold flex items-center gap-1">
+                  <Info size={9} />과거 전적 보존
                 </span>
               )}
             </div>

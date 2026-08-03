@@ -9,3 +9,10 @@
    const cutoffMs = nowMs - retentionDays * 24 * 60 * 60 * 1000;
    return playedMs < cutoffMs;
  }
+
+export function isMatchOlderThan14Days(
+  playedAtIso: string,
+  nowMs = Date.now()
+): boolean {
+  return isMatchTelemetryExpired(playedAtIso, 14, nowMs);
+}
