@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 import { getValidFullResult, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
-import { buildMatchSummary } from "@/lib/pubg-analysis/matchSummary";
+import { buildMatchSummary, buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ summaries: {}, missingMatchIds: matchIds });
     }
 
-    const { data, error } = await supabase
+    const { data: telemetryData, error } = await supabase
       .from("processed_match_telemetry")
       .select("match_id, data")
       .eq("platform", platform)
@@ -38,12 +38,45 @@ export async function POST(request: NextRequest) {
     }
 
     const summaries: Record<string, any> = {};
-    for (const row of data || []) {
+    for (const row of telemetryData || []) {
       const fullResult = getValidFullResult(row, playerId, platform);
       if (!fullResult || (fullResult.v || 0) < RESULT_VERSION) continue;
 
       const summary = buildMatchSummary(fullResult);
       if (summary) summaries[row.match_id] = summary;
+    }
+
+    const missingIds = matchIds.filter((id: string) => !summaries[id]);
+
+    if (missingIds.length > 0) {
+      const { data: playerMatchesData } = await supabase
+        .from("pubg_player_matches")
+        .select("match_id, player_id, platform, played_at, game_mode, map_name, kills, damage, win_place")
+        .eq("platform", platform)
+        .eq("player_id", playerId)
+        .in("match_id", missingIds);
+
+      for (const row of playerMatchesData || []) {
+        if (!summaries[row.match_id]) {
+          summaries[row.match_id] = buildBasicMatchSummary(row);
+        }
+      }
+    }
+
+    const stillMissingIds = matchIds.filter((id: string) => !summaries[id]);
+    if (stillMissingIds.length > 0) {
+      const { data: rawStatsData } = await supabase
+        .from("match_stats_raw")
+        .select("match_id, player_id, platform, damage, kills, win_place, game_mode, map_name")
+        .eq("platform", platform)
+        .eq("player_id", playerId)
+        .in("match_id", stillMissingIds);
+
+      for (const row of rawStatsData || []) {
+        if (!summaries[row.match_id]) {
+          summaries[row.match_id] = buildBasicMatchSummary(row);
+        }
+      }
     }
 
     return NextResponse.json({

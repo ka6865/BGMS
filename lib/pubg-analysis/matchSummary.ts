@@ -22,8 +22,52 @@ const EMPTY_STATS = {
 
 export type MatchSummaryData = MatchData & {
   isSummary?: boolean;
-  summarySource?: "processed_match_telemetry";
+  summarySource?: "processed_match_telemetry" | "pubg_player_matches";
 };
+
+
+export function buildBasicMatchSummary(row: {
+  match_id: string;
+  player_id: string;
+  platform: string;
+  played_at?: string;
+  game_mode?: string;
+  map_name?: string;
+  kills?: number;
+  damage?: number;
+  win_place?: number;
+}): MatchSummaryData {
+  const kills = row.kills ?? 0;
+  const damage = Math.floor(row.damage ?? 0);
+  const winPlace = row.win_place ?? 99;
+
+  return {
+    matchId: row.match_id,
+    stats: {
+      ...EMPTY_STATS,
+      winPlace,
+      kills,
+      damageDealt: damage,
+      playerId: row.player_id,
+    },
+    mapName: row.map_name || "Baltic_Main",
+    mapId: row.map_name || "Baltic_Main",
+    createdAt: row.played_at || new Date().toISOString(),
+    gameMode: row.game_mode || "squad",
+    totalTeams: 0,
+    totalPlayers: 0,
+    team: [],
+    totalTeamKills: kills,
+    totalTeamDamage: damage,
+    killDetails: [],
+    dbnoDetails: [],
+    badges: [],
+    tacticalTimeline: [],
+    v: 1,
+    isSummary: true,
+    summarySource: "pubg_player_matches",
+  };
+}
 
 export function buildMatchSummary(fullResult: any): MatchSummaryData | null {
   if (!fullResult) return null;
