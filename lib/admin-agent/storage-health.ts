@@ -102,7 +102,7 @@ const PLAYER_CACHE_RETENTION_DAYS = 90;
 const PLAYER_CACHE_KEEP_RECENT = 150_000;
 // 5,000 은 Supabase 무료 플랜의 statement timeout 을 넘긴다(2026-08-01 실측).
 // dry-run 은 count 만 세지만 실제 정리와 같은 값을 써 혼동을 줄인다.
-const PLAYER_CACHE_BATCH_LIMIT = 1_000;
+const PLAYER_CACHE_BATCH_LIMIT = 500;
 
 const MONITORED_TABLES = [
   "pubg_player_cache",

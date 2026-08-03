@@ -74,7 +74,7 @@ const PLAYER_CACHE_RETENTION_DAYS = 90;
 //   batch=5,000  타임아웃
 //
 // 2,000 도 통과하지만 테이블이 커질수록 느려지므로 여유를 두고 1,000 을 쓴다.
-const PLAYER_CACHE_BATCH_LIMIT = 1_000;
+const PLAYER_CACHE_BATCH_LIMIT = 500;
 
 // 자동완성 후보 풀 상한. 활동 신호가 없는 행은 최근 관측 순 상위 이 개수까지만
 // 남긴다. 활동 신호(검색 이력·전적 캐시)가 있는 행은 상한과 무관하게 보존된다.
