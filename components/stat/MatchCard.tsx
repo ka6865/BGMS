@@ -527,6 +527,14 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
   const [showReplayModal, setShowReplayModal] = useState(false);
   const [mounted, setMounted] = useState(false);
 
+  const matchDate = (matchData as any)?.playedAt || matchData?.createdAt || matchData?.matchInfo?.date || (initialMatchData as any)?.playedAt || initialMatchData?.createdAt || "";
+  const isTelemetryExpired = isMatchTelemetryExpired(matchDate);
+  const is14DaysExpired = isMatchOlderThan14Days(matchDate);
+
+  // ref로 감싸서 useCallback 내부에서도 최신 값을 참조할 수 있게 한다
+  const is14DaysExpiredRef = useRef(is14DaysExpired);
+  is14DaysExpiredRef.current = is14DaysExpired;
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -823,8 +831,9 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
     router.push(`/maps/${mapId}?playback=${matchId}&nickname=${nickname}&platform=${encodeURIComponent(platform)}`);
   };
 
+
   const fetchFullMatch = useCallback(async () => {
-    if (fullMatchFetchRef.current) return;
+    if (fullMatchFetchRef.current || is14DaysExpiredRef.current) return;
     fullMatchFetchRef.current = true;
     setLoading(true);
     try {
@@ -850,7 +859,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
         }
       } else {
         fullMatchFetchRef.current = false;
-        toast.error(data.error || "14일이 경과하여 3D 동선 로그는 만료되었습니다. 기본 전적 요약(순위, 킬, 딜량, 맵)은 영구 보존됩니다.");
+        
       }
     } catch {
       fullMatchFetchRef.current = false;
@@ -874,7 +883,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
   }, [matchId, nickname, platform, initialMatchData, onModeDetected]);
 
   useEffect(() => {
-    if (isExpanded && (matchData as MatchSummaryData | null)?.isSummary) {
+    if (isExpanded && (matchData as MatchSummaryData | null)?.isSummary && !is14DaysExpiredRef.current) {
       void fetchFullMatch();
     }
   }, [isExpanded, matchData, fetchFullMatch]);
@@ -999,27 +1008,43 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
   }
 
   if (!matchData) {
+    // initialMatchData 없이 렌더된 카드: 자동으로 PUBG API에서 기본 스탯 로드
     return (
-      <div className="mb-3 flex min-h-24 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
-        <div className="min-w-0">
-          <p className="text-sm font-bold text-white/80">매치 요약을 준비 중입니다.</p>
-          <p className="mt-1 break-keep text-xs text-white/40">상세 분석은 필요할 때만 불러옵니다.</p>
+      <div
+        className="mb-3 flex min-h-24 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 cursor-pointer hover:bg-white/[0.07] transition-colors"
+        onClick={() => void fetchFullMatch()}
+      >
+        <div className="min-w-0 flex items-center gap-3">
+          <div className="h-12 w-12 shrink-0 rounded-2xl bg-white/5 animate-pulse" />
+          <div className="flex flex-col gap-1.5">
+            <div className="h-4 w-32 bg-white/10 rounded animate-pulse" />
+            <div className="h-3 w-20 bg-white/5 rounded animate-pulse" />
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={() => void fetchFullMatch()}
-          className="min-h-11 shrink-0 rounded-xl border border-indigo-400/30 bg-indigo-500/15 px-3 py-2 text-xs font-black text-indigo-200 transition-colors hover:bg-indigo-500/25"
-        >
-          매치 상세 불러오기
-        </button>
+        <div className="flex items-center gap-4 shrink-0">
+          <div className="hidden sm:flex flex-col items-center gap-1">
+            <div className="h-3 w-8 bg-white/5 rounded animate-pulse" />
+            <div className="h-5 w-6 bg-white/10 rounded animate-pulse" />
+          </div>
+          <div className="hidden sm:flex flex-col items-center gap-1">
+            <div className="h-3 w-8 bg-white/5 rounded animate-pulse" />
+            <div className="h-5 w-12 bg-white/10 rounded animate-pulse" />
+          </div>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); void fetchFullMatch(); }}
+            className="min-h-9 shrink-0 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white/40 transition-colors hover:bg-white/10"
+          >
+            불러오기
+          </button>
+        </div>
       </div>
     );
   }
 
   const is3DReplaySupported = resolve3DMapCapability(matchData.mapName || "") !== null;
-  const matchDate = (matchData as any).playedAt || matchData.createdAt || matchData.matchInfo?.date || "";
-  const isTelemetryExpired = isMatchTelemetryExpired(matchDate);
-  const is14DaysExpired = isMatchOlderThan14Days(matchDate);
+  
+
 
   // TDM 판정 규칙
   const isTdmMatch = (matchData.gameMode || "").toLowerCase().includes("tdm") ||
@@ -1068,7 +1093,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
       )}
 
       {/* 과거 전적 보존 안내 바 */}
-      {isExpanded && (is14DaysExpired || (matchData as any).summarySource === "pubg_player_matches") && (
+      {isExpanded && is14DaysExpired && (
         <div className="mx-3 md:mx-5 mt-3.5 p-3 bg-sky-500/10 border border-sky-500/20 rounded-xl flex items-center gap-2 text-xs text-sky-300">
           <Info size={14} className="shrink-0 text-sky-400" />
           <span>14일이 경과된 과거 전적입니다. 순위, 킬, 딜량, 맵 정보가 영구 보존되어 있습니다.</span>
@@ -1136,7 +1161,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
                   <Trophy size={9} />킬 순위 #{matchData.myRank.killRank || 1}
                 </span>
               )}
-              {(is14DaysExpired || (matchData as any).summarySource === "pubg_player_matches") && (
+              {is14DaysExpired && (
                 <span className="px-2 py-0.5 bg-sky-500/15 text-sky-300 border border-sky-500/30 rounded-md text-[10px] font-bold flex items-center gap-1">
                   <Info size={9} />과거 전적 보존
                 </span>

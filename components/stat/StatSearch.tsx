@@ -88,6 +88,7 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
   const [matchTab, setMatchTab] = useState<"all" | "normal" | "ranked" | "tdm">("all");
   const [dynamicMatchModes, setDynamicMatchModes] = useState<Record<string, string>>({});
   const [matchSummaries, setMatchSummaries] = useState<Record<string, MatchSummaryData>>({});
+  const [missingMatchIds, setMissingMatchIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (result?.matchModes) {
@@ -101,6 +102,7 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
     const matchIds = (result?.recentMatches || []).slice(0, 20);
     if (!result?.nickname || !result?.platform || matchIds.length === 0) {
       setMatchSummaries({});
+      setMissingMatchIds(new Set());
       return;
     }
 
@@ -123,6 +125,7 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
         const data = await response.json();
         const summaries = data.summaries || {};
         setMatchSummaries(summaries);
+        setMissingMatchIds(new Set(data.missingMatchIds || []));
 
         setDynamicMatchModes((prev) => {
           let changed = false;
@@ -939,6 +942,8 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
 
                 {(() => {
                   const filteredMatches = (result.recentMatches || []).filter((matchId: string) => {
+                    // matches-summary에서도 찾지 못한 매치는 표시 안 함
+                    if (missingMatchIds.has(matchId)) return false;
                     if (matchTab === "all") return true;
                     const rawMode = ((dynamicMatchModes && dynamicMatchModes[matchId]) || "").toLowerCase();
                     if (!rawMode) return true;
