@@ -96,6 +96,7 @@ describe("persistMatchAnalysis", () => {
     for (const table of [
       "match_stats_raw",
       "pubg_player_cache",
+      "pubg_player_matches",
       "global_benchmarks",
       "processed_match_telemetry",
     ]) {
@@ -379,6 +380,7 @@ describe("persistMatchAnalysis", () => {
   it.each([
     "match_stats_raw",
     "pubg_player_cache",
+    "pubg_player_matches",
     "global_benchmarks",
   ] as const)("%s 저장 오류를 taskName/message로 반환하고 다른 저장은 계속한다", async (failedTable) => {
     upserts.get(failedTable)?.mockResolvedValueOnce({ error: { message: `${failedTable} failed` } });
@@ -386,7 +388,7 @@ describe("persistMatchAnalysis", () => {
     const result = await persistMatchAnalysis(supabase, input);
 
     expect(result.failures).toContainEqual({ taskName: failedTable, message: `${failedTable} failed` });
-    for (const table of ["match_stats_raw", "pubg_player_cache", "global_benchmarks"] as const) {
+    for (const table of ["match_stats_raw", "pubg_player_cache", "pubg_player_matches", "global_benchmarks"] as const) {
       if (table !== failedTable) expect(upserts.get(table)).toHaveBeenCalled();
     }
   });
