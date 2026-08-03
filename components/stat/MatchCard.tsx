@@ -527,6 +527,10 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
   const [showReplayModal, setShowReplayModal] = useState(false);
   const [mounted, setMounted] = useState(false);
 
+  const matchDate = (matchData as any)?.playedAt || matchData?.createdAt || matchData?.matchInfo?.date || (initialMatchData as any)?.playedAt || initialMatchData?.createdAt || "";
+  const isTelemetryExpired = isMatchTelemetryExpired(matchDate);
+  const is14DaysExpired = isMatchOlderThan14Days(matchDate);
+
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -823,8 +827,9 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
     router.push(`/maps/${mapId}?playback=${matchId}&nickname=${nickname}&platform=${encodeURIComponent(platform)}`);
   };
 
+
   const fetchFullMatch = useCallback(async () => {
-    if (fullMatchFetchRef.current) return;
+    if (fullMatchFetchRef.current || is14DaysExpired) return;
     fullMatchFetchRef.current = true;
     setLoading(true);
     try {
@@ -850,7 +855,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
         }
       } else {
         fullMatchFetchRef.current = false;
-        toast.error(data.error || "14일이 경과하여 3D 동선 로그는 만료되었습니다. 기본 전적 요약(순위, 킬, 딜량, 맵)은 영구 보존됩니다.");
+        
       }
     } catch {
       fullMatchFetchRef.current = false;
@@ -874,10 +879,10 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
   }, [matchId, nickname, platform, initialMatchData, onModeDetected]);
 
   useEffect(() => {
-    if (isExpanded && (matchData as MatchSummaryData | null)?.isSummary) {
+    if (isExpanded && (matchData as MatchSummaryData | null)?.isSummary && !is14DaysExpired) {
       void fetchFullMatch();
     }
-  }, [isExpanded, matchData, fetchFullMatch]);
+  }, [isExpanded, matchData, fetchFullMatch, is14DaysExpired]);
 
   const handleAnalyze = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1017,9 +1022,8 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
   }
 
   const is3DReplaySupported = resolve3DMapCapability(matchData.mapName || "") !== null;
-  const matchDate = (matchData as any).playedAt || matchData.createdAt || matchData.matchInfo?.date || "";
-  const isTelemetryExpired = isMatchTelemetryExpired(matchDate);
-  const is14DaysExpired = isMatchOlderThan14Days(matchDate);
+  
+
 
   // TDM 판정 규칙
   const isTdmMatch = (matchData.gameMode || "").toLowerCase().includes("tdm") ||
