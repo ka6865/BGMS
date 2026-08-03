@@ -4,6 +4,7 @@ import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 import { getValidFullResult, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { buildMatchSummary, buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
+import { fetchAndIngestBasicMatchSummary } from "@/lib/pubg/playerMatchesIngest";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -26,6 +27,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ summaries: {}, missingMatchIds: matchIds });
     }
 
+    // 1순위: processed_match_telemetry (3D/AI 풀 분석 완료 매치)
     const { data: telemetryData, error } = await supabase
       .from("processed_match_telemetry")
       .select("match_id, data")
@@ -46,8 +48,8 @@ export async function POST(request: NextRequest) {
       if (summary) summaries[row.match_id] = summary;
     }
 
+    // 2순위: pubg_player_matches (기본 스탯 DB)
     const missingIds = matchIds.filter((id: string) => !summaries[id]);
-
     if (missingIds.length > 0) {
       const { data: playerMatchesData } = await supabase
         .from("pubg_player_matches")
@@ -63,6 +65,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // 3순위: match_stats_raw (전적 원본 스탯 DB)
     const stillMissingIds = matchIds.filter((id: string) => !summaries[id]);
     if (stillMissingIds.length > 0) {
       const { data: rawStatsData } = await supabase
@@ -75,6 +78,25 @@ export async function POST(request: NextRequest) {
       for (const row of rawStatsData || []) {
         if (!summaries[row.match_id]) {
           summaries[row.match_id] = buildBasicMatchSummary(row);
+        }
+      }
+    }
+
+    // 4순위: PUBG API 실시간 경량 스탯 조회 & pubg_player_matches DB 저장 (상한 5건)
+    const uningestedIds = matchIds.filter((id: string) => !summaries[id]).slice(0, 5);
+    if (uningestedIds.length > 0) {
+      const apiKey = (process.env.PUBG_API_KEY || "").split(" ")[0];
+      if (apiKey) {
+        const fetchedRecords = await Promise.all(
+          uningestedIds.map((id: string) =>
+            fetchAndIngestBasicMatchSummary(supabase, id, playerId, platform, apiKey)
+          )
+        );
+
+        for (const record of fetchedRecords) {
+          if (record && !summaries[record.match_id]) {
+            summaries[record.match_id] = buildBasicMatchSummary(record);
+          }
         }
       }
     }
