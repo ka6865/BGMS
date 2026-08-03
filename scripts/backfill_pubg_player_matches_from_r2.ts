@@ -72,13 +72,13 @@
          // Check if analyze.json format or full result format
          let matchId = parsed.matchId;
          let playerId = parsed.player_id || parsed.playerId;
-         let platform = parsed.platform || "steam";
-         let playedAt = parsed.matchInfo?.date || parsed.createdAt;
-         let gameMode = parsed.matchInfo?.mode || parsed.gameMode || "unknown";
-         let mapName = parsed.matchInfo?.map || parsed.mapName || "unknown";
-         let kills = parsed.stats?.kills ?? parsed.kills ?? 0;
-         let damage = Math.floor(parsed.stats?.damageDealt ?? parsed.damageDealt ?? 0);
-         let winPlace = parsed.stats?.winPlace ?? parsed.winPlace ?? 99;
+         const platform = parsed.platform || "steam";
+         const playedAt = parsed.matchInfo?.date || parsed.createdAt;
+         const gameMode = parsed.matchInfo?.mode || parsed.gameMode || "unknown";
+         const mapName = parsed.matchInfo?.map || parsed.mapName || "unknown";
+         const kills = parsed.stats?.kills ?? parsed.kills ?? 0;
+         const damage = Math.floor(parsed.stats?.damageDealt ?? parsed.damageDealt ?? 0);
+         const winPlace = parsed.stats?.winPlace ?? parsed.winPlace ?? 99;
  
          if (!matchId || !playerId) {
            // Fallback to key pattern: {matchId}_{playerId}_v{version}_analyze.json
