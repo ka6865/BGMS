@@ -533,7 +533,9 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
 
   // ref로 감싸서 useCallback 내부에서도 최신 값을 참조할 수 있게 한다
   const is14DaysExpiredRef = useRef(is14DaysExpired);
-  is14DaysExpiredRef.current = is14DaysExpired;
+  useEffect(() => {
+    is14DaysExpiredRef.current = is14DaysExpired;
+  }, [is14DaysExpired]);
 
   useEffect(() => {
     setMounted(true);
@@ -1035,7 +1037,7 @@ export const MatchCard = ({ matchId, nickname, platform, isMobile, initialMatchD
             onClick={(e) => { e.stopPropagation(); void fetchFullMatch(); }}
             className="min-h-9 shrink-0 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-bold text-white/40 transition-colors hover:bg-white/10"
           >
-            불러오기
+            매치 상세 불러오기
           </button>
         </div>
       </div>
