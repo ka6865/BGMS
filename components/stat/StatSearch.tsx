@@ -1,8 +1,7 @@
 // 파일 위치: components/stat/StatSearch.tsx
 "use client";
 
-import { Fragment, useState, useEffect, useCallback, useRef, type MouseEvent } from "react";
-import { MatchCard } from "./MatchCard";
+import { useState, useEffect, useCallback, useRef, type MouseEvent } from "react";
 import AdSenseBanner from "../ads/AdSenseBanner";
 import { StatSummaryPanel } from "./StatSummaryPanel";
 import { RecentAISummary, type AiSummarySnapshot } from "./RecentAISummary";
@@ -20,8 +19,10 @@ import { StatsSearchBar } from "./search/StatsSearchBar";
 import { StatsLandingState } from "./search/StatsLandingState";
 import { PlayerProfileHeader } from "./profile/PlayerProfileHeader";
 import { StatsSectionTabs } from "./overview/StatsSectionTabs";
+import { MatchFeed } from "./matches/MatchFeed";
 import { buildStatsCompareUrl, buildStatsWeaponsUrl } from "@/lib/stats/statsPageModel";
 import type { StatsSectionTab } from "@/types/stats-page";
+import { useAdViewportClass } from "@/hooks/useAdViewportClass";
 // import CompanionEntryCard from "@/components/overwolf/CompanionEntryCard";
 
 const STATS_MOBILE_AD_UNIT = "DAN-tQGcqmddMC8tPpXA";
@@ -69,6 +70,7 @@ export default function StatSearch({
     matchSummaries,
     missingMatchIds,
     matchModeMeta,
+    summaryStatus,
     refreshAvailableAt,
     isRefreshCoolingDown: isCoolingDown,
     statsMode,
@@ -80,15 +82,16 @@ export default function StatSearch({
     setPartySize,
     setMatchFilter: setMatchTab,
     search,
+    retrySummaries,
     onModeDetected: handleModeDetected,
+    reportPartial,
+    clearPartial,
   } = controller;
   const loading = status === "loading" || status === "refreshing";
   const refreshing = status === "refreshing";
   const error = controllerError?.message ?? "";
   const errorType = controllerError?.type ?? "";
-  const dynamicMatchModes = Object.fromEntries(
-    Object.entries(matchModeMeta).map(([matchId, meta]) => [matchId, meta.gameMode ?? ""]),
-  );
+  const viewportClass = useAdViewportClass();
 
   const { user } = useAuth();
   const [cooldown, setCooldown] = useState(false);
@@ -99,7 +102,7 @@ export default function StatSearch({
   const [navigationPending, setNavigationPending] = useState(false);
   const userEditedRef = useRef(false);
   const recordedResultRef = useRef<string | null>(null);
-  const [isMobile, setIsMobile] = useState(false);
+  const isMobile = viewportClass === "mobile";
   const {
     recentSearches,
     favorites,
@@ -109,13 +112,6 @@ export default function StatSearch({
   } = useStatsSearchHistory();
   const autocomplete = useStatsAutocomplete(nickname);
   const profilePrefill = useStatsProfilePrefill(user?.id);
-
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
 
   const handleControllerSearch = useCallback(async (
     targetSeason?: string,
@@ -245,7 +241,7 @@ export default function StatSearch({
   }, []);
 
   return (
-    <div className="w-full max-w-[1200px] mx-auto px-3.5 py-5 md:p-5 text-white">
+    <div className="stats-page w-full max-w-[1200px] mx-auto px-3.5 py-5 md:p-5 text-white">
       <h1 style={{ color: "#F2A900", fontSize: "24px", fontWeight: "bold", marginBottom: "20px", textAlign: "center" }}>
         <InlineIconLabel icon="activity" iconSize={24} className="justify-center">AI 전적 검색</InlineIconLabel>
       </h1>
@@ -477,115 +473,26 @@ export default function StatSearch({
               </div>
 
               <div className="mt-8">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-                  <h3 className="text-lg font-black text-white flex items-center gap-2">
-                    <InlineIconLabel icon="battle" iconSize={18}>
-                      최근 매치 <span className="text-xs text-white/40 font-bold">(최대 20게임)</span>
-                    </InlineIconLabel>
-                  </h3>
-                  
-                  {/* [V56.0] 4단 탭 필터링 버튼 (모바일 터치 스크롤 지원) */}
-                  <div className="flex bg-white/5 p-1 rounded-xl gap-1 shrink-0">
-                    {[
-                      { id: "all", label: "전체" },
-                      { id: "normal", label: "일반전" },
-                      { id: "ranked", label: "경쟁전" },
-                      { id: "tdm", label: "TDM" }
-                    ].map((tab) => {
-                      const isActive = matchTab === tab.id;
-                      return (
-                        <button
-                          key={tab.id}
-                          onClick={() => setMatchTab(tab.id as any)}
-                          className={`py-1.5 px-3 rounded-lg text-xs font-black transition-all cursor-pointer whitespace-nowrap
-                            ${isActive 
-                              ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/20' 
-                              : 'text-white/40 hover:text-white/70 hover:bg-white/5'
-                            }`}
-                        >
-                          {tab.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {(() => {
-                  const filteredMatches = (result.recentMatches || []).filter((matchId: string) => {
-                    // matches-summary에서도 찾지 못한 매치는 표시 안 함
-                    if (missingMatchIds.has(matchId)) return false;
-                    if (matchTab === "all") return true;
-                    const rawMode = ((dynamicMatchModes && dynamicMatchModes[matchId]) || "").toLowerCase();
-                    if (!rawMode) return true;
-                    
-                    // TDM 판정 (하드코딩 매치 ID 및 tdm 문자열 체크)
-                    const isTdm = rawMode.includes("tdm") || 
-                                  matchId === "0f436bf2-2cab-4cc6-9b47-828cc85942f9" || 
-                                  matchId === "6c5bddad-b7e8-4fca-b344-a1bb4b9582e6" ||
-                                  matchId === "041eddef-2681-4d0c-884c-b92ada5b831a" ||
-                                  matchId === "7424d661-6860-4eb7-b799-4326d059ab7b" ||
-                                  matchId === "cb7742e0-1e65-473b-a6df-57493a095fb9" ||
-                                  matchId === "9de66d2c-2ce5-4a3c-8686-200730969c4c" ||
-                                  matchId === "5886bda2-497a-47b6-b4c0-40f1ad1a501d" ||
-                                  matchId === "c7805862-5259-4ad5-9da7-c1b2f5af0d01";
-
-                    if (matchTab === "tdm") return isTdm;
-
-                    const isRanked = !isTdm && (rawMode.includes("competitive") || rawMode.includes("ranked"));
-                    if (matchTab === "ranked") return isRanked;
-
-                    if (matchTab === "normal") {
-                      return !isRanked && !isTdm;
-                    }
-                    return true;
-                  }).slice(0, 20);
-
-                  const getEmptyMessage = () => {
-                    if (matchTab === "ranked") return "최근 14일 이내에 플레이한 경쟁전(랭크전) 기록이 없습니다.";
-                    if (matchTab === "tdm") return "최근 14일 이내에 플레이한 팀 데스매치(TDM) 기록이 없습니다.";
-                    if (matchTab === "normal") return "최근 14일 이내에 플레이한 일반전 기록이 없습니다.";
-                    return "최근 14일 이내에 플레이한 매치 기록이 없습니다.";
-                  };
-
-                  return filteredMatches.length > 0 ? (
-                    <div className="flex flex-col gap-1.5">
-                      {filteredMatches.map((matchId: string, index: number) => (
-                        <Fragment key={matchId}>
-                          <MatchCard
-                            matchId={matchId}
-                            nickname={result.nickname}
-                            platform={result.platform}
-                            isMobile={isMobile}
-                            index={index}
-                            initialMatchData={matchSummaries[matchId]}
-                            onNicknameClick={(clickedName) => {
-                              navigateToPlayer(clickedName, result.platform, false);
-                              window.scrollTo({ top: 0, behavior: "smooth" });
-                            }}
-                            onModeDetected={handleModeDetected}
-                          />
-                          {(index === 4 || index === 14) && (
-                            /* 인피드 광고는 높이를 제한하지 않는다. 잘린 광고 렌더는 정책 위반이다. */
-                            <div className="my-2 w-full bg-[#1a1a1a] rounded-3xl p-0 border border-white/5 flex items-center justify-center">
-                              <div className="w-full">
-                                <AdSenseBanner
-                                  client="ca-pub-3993032200487955"
-                                  slot="4661728917"
-                                  format="fluid"
-                                  layoutKey="-fb+5w+4e-db+86"
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </Fragment>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="p-10 bg-white/3 border border-white/5 rounded-3xl text-center text-xs text-white/40 font-bold font-sans">
-                      {getEmptyMessage()}
-                    </div>
-                  );
-                })()}
+                <MatchFeed
+                  matchIds={result.recentMatches.slice(0, 20)}
+                  summaries={matchSummaries}
+                  missingMatchIds={missingMatchIds}
+                  matchModeMeta={matchModeMeta}
+                  summaryStatus={summaryStatus}
+                  filter={matchTab}
+                  viewportClass={viewportClass}
+                  nickname={result.nickname}
+                  platform={result.platform}
+                  onFilterChange={setMatchTab}
+                  onRetrySummaries={() => void retrySummaries()}
+                  onNicknameClick={(clickedName) => {
+                    navigateToPlayer(clickedName, result.platform, false);
+                    window.scrollTo({ top: 0, behavior: "smooth" });
+                  }}
+                  onModeDetected={handleModeDetected}
+                  onFailure={reportPartial}
+                  onRecovery={clearPartial}
+                />
               </div>
             </div>
           ) : (
