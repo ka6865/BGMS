@@ -12,7 +12,7 @@
 
 - 구현은 `develop` 기준 새 `codex/` 브랜치 Git 워크트리에서 시작하며 `superpowers:using-git-worktrees`를 사용한다.
 - 기능 구현과 버그 수정은 `superpowers:test-driven-development`, 실패 재현 후 원인 분석은 `superpowers:systematic-debugging`, 완료 주장은 `superpowers:verification-before-completion`을 사용한다.
-- 전적 UI 작업과 최종 브라우저 검증은 `bgms-frontend-qa`를 적용한다.
+- 전적 UI 작업과 최종 브라우저 검증은 현재 코드·명세·테스트를 기준으로 한다. 2026-08-10 감사에서 유효하다고 확인한 `bgms-frontend-qa`의 모바일 3종 viewport, 상태 UI, Browser 우선 원칙만 참고하고 로컬 Skill을 source of truth로 사용하지 않는다.
 - 기존 PUBG API, AI 분석, 텔레메트리, 2D·3D 리플레이 알고리즘과 응답 계약은 변경하지 않는다.
 - 최근 검색·즐겨찾기는 `pubg_recent_searches_v2`, `pubg_favorites_v2`의 기존 `string[]` 계약을 유지하고 `/stats/battle` 호환을 보존한다.
 - 새 상태 관리 라이브러리와 새 UI 의존성을 추가하지 않는다.
@@ -29,6 +29,13 @@
 - `NEXT_PUBLIC_ADFIT_STATS_FEED_UNIT`이 없는 상태는 코드 구현을 막지 않지만 승인된 광고 구성이 운영 완료된 상태는 아니다. Task 10은 별도 728×90 단위와 Preview 검증이 없으면 전체 완료로 표시하지 않고 `광고 운영 설정 대기`로 남긴다.
 - Vitest는 현재 `tests/**/*.test.ts`만 수집하므로 JSX 테스트도 파일 확장자를 `.test.ts`로 두고 `React.createElement`, `// @vitest-environment jsdom`, `import "@testing-library/jest-dom/vitest"`를 사용한다.
 - 확정 버그는 같은 fixture의 반복 재현 또는 반대 결과가 불가능한 코드 경로로 판정하고, 경로·입력·기대·실제·요청·코드 위치·원인·회귀 테스트·해결을 감사 보고서에 기록한다. 런타임 증거가 부족한 항목은 의심으로 남기고 임의 수정하지 않는다.
+
+### 2026-08-10 결함 판정 보정
+
+- 확정 결함은 `autocomplete 0건 안내 미노출`, `squad/groupKey 공유 링크 탭 미복원`, `matchType 경쟁전 오분류`, `매치 상세 실패 안내·명시적 재시도 부재`, `raw fallback의 조회 시각 생성`, `Kakao 비교 URL platform1 유실`, `stats 하위 경로 BottomNav 비활성`의 7건이다.
+- `빈 닉네임은 API를 요청하지 않음`, `로딩·쿨다운 중 추가 검색 차단`, `시즌 변경 성공 후 overview 이동`은 의도된 현행 정책으로 유지하고 결함으로 기록하지 않는다. 빈 입력은 요청 0건을 유지하면서 비활성 상태로만 명확히 표현할 수 있다.
+- 강제 갱신 성공 후 overview 이동은 현재 공유 `handleSearch` 성공 경로의 실제 동작이므로 이번 리팩터에서 그대로 보존하되, 제품 의도는 확정하지 않고 `suspected`로 기록한다. 이전 응답이 새 route를 덮는 시나리오는 런타임 증거가 부족하므로 `suspected` 또는 `not_reproduced`로만 판정한다.
+- `AbortController`/requestId는 사용자의 로딩 중 추가 submit을 허용하는 기능 변경이 아니라, browser back/forward·route identity 변경·unmount에서 늦은 응답을 격리하는 내부 안전 장치로만 적용한다.
 
 ---
 
@@ -69,7 +76,7 @@
 - Modify: `components/stat/MatchCard.tsx`
   - 요청·상태 어댑터로 축소하고 상세 실패·재시도·stale 응답 방지를 추가한다.
 - Modify: `components/stat/SquadAnalysisPanel.tsx`
-  - `initialGroupKey` 복원과 그룹 변경 최신 응답 우선만 추가하고 분석·AI 계약은 유지한다.
+  - controlled `groupKey` 복원과 변경 callback만 추가하고 목록·상세·AI 요청 계약은 유지한다.
 - Modify: `components/stat/StatSearch.tsx`
   - 호환 entry로 남겨 `StatsPageShell`을 호출하며 기존 1,400줄 JSX와 요청 소유권을 제거한다.
 - Modify: `app/stats/page.tsx`, `app/stats/[platform]/[nickname]/page.tsx`, `components/common/BottomNav.tsx`, `app/globals.css`
@@ -93,7 +100,7 @@
 
 **Interfaces:**
 - Produces: 공통 플레이어 fixture `player-ready.json`, 매치 요약 fixture `matches-summary-ready.json`.
-- Produces: 감사 표의 판정 `confirmed | suspected | fixed | not_reproduced`와 증거 필드.
+- Produces: 감사 표의 판정 `confirmed | suspected | fixed | not_reproduced | intentional`과 증거 필드.
 - Consumes: 기존 `STORAGE_KEY_RECENT`, `STORAGE_KEY_FAVORITES`와 `/api/pubg/player`, `/api/pubg/matches-summary` 계약.
 
 - [ ] **Step 1: baseline 테스트와 감사 문서의 기대 실패 조건을 작성한다**
@@ -103,11 +110,10 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 
-it.fails("빈 닉네임은 요청하지 않고 인라인 오류를 표시한다", async () => {
+it("빈 닉네임은 요청하지 않는다", async () => {
   render(createElement(StatSearch));
   fireEvent.click(screen.getByRole("button", { name: "검색" }));
   expect(fetchMock).not.toHaveBeenCalled();
-  expect(await screen.findByRole("alert")).toHaveTextContent("닉네임을 입력해 주세요");
 });
 
 it("검색 성공은 canonical URL과 string[] 최근검색을 한 번만 갱신한다", async () => {
@@ -126,33 +132,36 @@ it("검색 성공은 canonical URL과 string[] 최근검색을 한 번만 갱신
 ```md
 | ID | 상태 | 경로·입력 | 기대 | 실제 | 네트워크 | 코드 위치 | 원인 | 회귀 테스트 | 해결 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| STATS-001 | confirmed | /stats, nickname="" | 인라인 검증 | 무반응 | 0건 | StatSearch.tsx handleSearch | 빈 값 조기 return | stat-search-baseline | Task 4 |
+| STATS-001 | intentional | /stats, nickname="" | 요청 0건 | 요청 0건 | 0건 | StatSearch.tsx handleSearch | 빈 값 차단 정책 | stat-search-baseline | 현행 유지 |
 ```
 
 - [ ] **Step 2: 신규 baseline을 실행해 현재 결함을 재현한다**
 
 Run: `npx vitest run tests/stat-search-baseline.test.ts tests/battle-storage-compat.test.ts tests/stat-search-ui.test.ts`
 
-Expected: suite PASS. 빈 입력 결함은 `it.fails`가 현재 실패를 확인해 expected-failure로 기록하고, 기존 저장소 호환과 만료 helper는 일반 PASS한다. Task 4에서 구현 직전에 `it.fails`를 `it`으로 바꿔 red 상태를 만든다.
+Expected: suite PASS. 빈 입력은 현행 정책인 요청 0건을 characterization test로 고정하고, 기존 저장소 호환과 만료 helper도 일반 PASS한다.
 
 - [ ] **Step 3: 수정하지 않고 현재 기능·결함 증거를 문서에 기록한다**
 
 다음은 `confirmed`, 브라우저 증거가 필요한 네 항목은 `suspected`로 기록한다.
 
 ```md
-confirmed: 빈 검색 무반응, 자동완성 0건 UI 도달 불가, squad/groupKey 미복원,
-시즌·강제갱신 후 overview 초기화, 후속 검색 의도 폐기, matchType 경쟁전 오분류,
-상세 실패 재시도 부재, fallback 경기 시각 현재값 생성, 비교 URL platform1 유실
+confirmed: 자동완성 0건 UI 도달 불가, squad/groupKey 미복원,
+matchType 경쟁전 오분류, 상세 실패 안내·명시적 재시도 부재,
+fallback 경기 시각 현재값 생성, 비교 URL platform1 유실, stats 하위 경로 BottomNav 비활성
+
+intentional: 빈 입력 요청 0건, 로딩·쿨다운 중 추가 submit 차단, 시즌 변경 성공 후 overview 이동
 
 suspected: localStorage hydration 경고, history.pushState 뒤로가기·metadata 동기화,
-invalid platform direct URL의 generic 500, 시즌 실패 시 이전 결과 소실
+invalid platform direct URL의 generic 500, 시즌 실패 시 이전 결과 소실,
+강제 갱신 성공 후 overview 이동 의도, route 변경 시 stale 응답 가능성
 ```
 
 - [ ] **Step 4: 변경 전 통과 suite를 다시 실행한다**
 
-Run: `npx vitest run tests/stat-search-ui.test.ts tests/match-card-demand-loading.test.ts tests/player-suggest-route.test.ts tests/suggest-players.test.ts tests/pubg-recent-matches.test.ts tests/player-matches-api.test.ts`
+Run: `npx vitest run tests/stat-search-ui.test.ts tests/match-card-demand-loading.test.ts tests/player-suggest-route.test.ts tests/suggest-players.test.ts tests/pubg-recent-matches.test.ts tests/player-matches-api.test.ts && npm run verify:core`
 
-Expected: 6 files, 15 tests PASS. 이 숫자와 `npm run verify:core`의 error 0·기존 warning 45를 감사 문서 baseline에 기록한다.
+Expected: 6 files, 15 tests PASS. 실제 실행에서 관찰한 테스트 수와 `npm run verify:core`의 error/warning 수를 감사 문서 baseline에 기록하고 과거 숫자를 복사하지 않는다.
 
 - [ ] **Step 5: commit한다**
 
@@ -322,12 +331,12 @@ git commit -m "refactor(stats): 전적 화면 상태와 파생 모델 분리"
 - [ ] **Step 1: abort·stale·refresh·partial 실패 테스트를 작성한다**
 
 ```ts
-it("대상이 바뀌면 이전 요청을 abort하고 늦은 응답을 무시한다", async () => {
+it("route identity가 바뀌면 이전 요청을 abort하고 늦은 응답을 무시한다", async () => {
   const first = deferredResponse(playerA);
   const second = deferredResponse(playerB);
   fetchMock.mockImplementationOnce(first.fetch).mockImplementationOnce(second.fetch);
   const controller = renderStatsController({ initialNickname: "A" });
-  act(() => controller.current.search({ nickname: "B", platform: "steam" }));
+  act(() => controller.rerender({ initialNickname: "B", initialPlatform: "steam" }));
   second.resolve();
   first.resolve();
   await waitFor(() => expect(controller.current.result?.nickname).toBe("B"));
@@ -380,7 +389,7 @@ it("성공 후 60초 동안 같은 player의 강제갱신을 막는다", async (
 
 Run: `npx vitest run tests/stats-page-controller.test.ts tests/stat-search-season-refresh.test.ts`
 
-Expected: FAIL because `useStatsPageController` does not exist and current `isSearchingRef` is not latest-wins.
+Expected: FAIL because `useStatsPageController` does not exist. 현재 `isSearchingRef`의 중복 차단 자체는 정책으로 유지하고 route identity 변경 격리만 신규 controller로 검증한다.
 
 - [ ] **Step 3: controller 계약을 구현한다**
 
@@ -436,7 +445,7 @@ export interface StatsPageController {
 }
 ```
 
-각 player 검색은 현재 controller를 abort하고 증가한 `requestId`를 캡처한다. `if (requestId !== requestIdRef.current || signal.aborted) return null`을 JSON 파싱 뒤와 상태 반영 직전에 적용한다. `platform:nickname:seasonId:forceRefresh`가 같은 진행 중 요청은 `inFlightPromiseRef`의 동일 Promise를 반환하고, key가 다르면 이전 요청을 취소해 새 의도를 시작한다. 최초 검색만 `loading`에서 결과를 비우고, 시즌 변경·강제갱신은 `refreshing`에서 기존 결과를 유지한다. 요약 batch는 player identity별 별도 AbortController와 requestId를 사용한다.
+각 player 요청은 현재 controller를 abort하고 증가한 `requestId`를 캡처한다. `if (requestId !== requestIdRef.current || signal.aborted) return null`을 JSON 파싱 뒤와 상태 반영 직전에 적용한다. `platform:nickname:seasonId:forceRefresh`가 같은 진행 중 요청은 `inFlightPromiseRef`의 동일 Promise를 반환한다. key가 다른 취소·교체는 route identity 변경, browser back/forward, unmount 경계에서만 발생하며, 로딩 중 검색 UI는 계속 비활성으로 유지한다. 최초 검색만 `loading`에서 결과를 비우고, 시즌 변경·강제갱신은 `refreshing`에서 기존 결과를 유지한다. 요약 batch는 player identity별 별도 AbortController와 requestId를 사용한다.
 
 hook effect는 `initialPlatform/initialNickname`이 모두 유효할 때 identity key를 만들고, 마지막 완료 key와 다르거나 route identity가 실제로 바뀐 경우에만 `search({ platform, nickname })`를 호출한다. 초기 nickname이 없으면 `idle`을 유지한다. 검색창 자체는 이 함수를 직접 호출하지 않고 Task 4의 route-first navigation만 사용한다.
 
@@ -462,13 +471,13 @@ const {
 } = controller;
 ```
 
-기존 positional `handleSearch` 중 초기 route 자동검색, 시즌 변경, 강제갱신만 객체형 `controller.search({ nickname, platform, seasonId, forceRefresh })`로 바꾼다. 검색창·최근검색·추천·매치 닉네임 클릭은 Task 4에서 route-first `navigateToPlayer`로 전환한다. 성공 시 `setActiveTab("overview")`를 제거하고 route identity 변경은 cooldown과 이전 error에 막히지 않게 한다.
+기존 positional `handleSearch` 중 초기 route 자동검색, 시즌 변경, 강제갱신만 객체형 `controller.search({ nickname, platform, seasonId, forceRefresh })`로 바꾼다. 검색창·최근검색·추천·매치 닉네임 클릭은 Task 4에서 route-first `navigateToPlayer`로 전환한다. 성공한 시즌 변경과 강제갱신은 현행과 같이 `sectionTab="overview"`로 돌리되, 실패 시에는 기존 결과와 탭을 유지한다. `tab=squad` route 초기값은 이 초기화보다 우선한다. route identity 변경은 cooldown과 이전 error에 막히지 않게 한다.
 
 - [ ] **Step 5: controller와 기존 baseline을 통과시킨다**
 
 Run: `npx vitest run tests/stats-page-controller.test.ts tests/stat-search-season-refresh.test.ts tests/stat-search-baseline.test.ts`
 
-Expected: PASS. 감사 문서의 latest-wins, 시즌·갱신 상태 항목을 `fixed`로 갱신한다.
+Expected: PASS. 감사 문서에 route identity 변경 안전 장치를 architecture hardening으로 기록하고, 의도된 중복 차단·시즌 탭 초기화를 `fixed`로 잘못 표시하지 않는다.
 
 - [ ] **Step 6: commit한다**
 
@@ -502,10 +511,9 @@ git commit -m "fix(stats): 검색 요청 최신 응답 우선 처리"
 - Produces: `StatSearchProps`의 `initialTab?: StatsSectionTab`, `initialGroupKey?: string`.
 - Produces: `useStatsSearchHistory()`, `useStatsAutocomplete(query)`, `useStatsProfilePrefill(userId)`, `StatsSearchBarProps`, `StatsLandingStateProps`, `isStatsPath(pathname: string): boolean`.
 
-- [ ] **Step 1: 딥링크·빈 검색·autocomplete empty·BottomNav 실패 테스트를 작성한다**
+- [ ] **Step 1: 딥링크·빈 입력 요청 0건·autocomplete empty·BottomNav 테스트를 작성한다**
 
 ```ts
-// Task 1의 빈 검색 `it.fails`를 일반 `it`으로 바꿔 이 Task의 red test로 전환한다.
 expect(readPlayerPageProps({ tab: "squad", groupKey: "g2" })).toEqual({
   initialTab: "squad",
   initialGroupKey: "g2",
@@ -528,7 +536,7 @@ expect(router.push).toHaveBeenCalledWith("/stats/kakao/FixtureAlt");
 
 Run: `npx vitest run tests/stat-search-deep-link.test.ts tests/stat-search-autocomplete.test.ts tests/bottom-nav-stats-active.test.ts tests/stat-search-baseline.test.ts`
 
-Expected: FAIL on squad initial tab, empty suggestion UI, inline blank validation, and detail path nav active.
+Expected: FAIL on squad initial tab, empty suggestion UI, and detail path nav active. 빈 입력 요청 0건 characterization은 계속 PASS한다.
 
 - [ ] **Step 3: 서버 route에서 query를 파싱해 entry에 전달한다**
 
@@ -558,7 +566,7 @@ export interface StatsSearchBarProps {
   favorites: readonly string[];
   suggestions: readonly { nickname: string; platform: StatsPlatform }[];
   suggesting: boolean;
-  validationMessage?: string;
+  submitDisabled: boolean;
   onPlatformChange(value: StatsPlatform): void;
   onNicknameChange(value: string): void;
   onSubmit(): void;
@@ -569,7 +577,7 @@ export interface StatsSearchBarProps {
 }
 ```
 
-submit은 trim한 닉네임이 없으면 `닉네임을 입력해 주세요` alert를 표시한다. 최근검색·즐겨찾기 quick action은 저장된 이름과 현재 선택 `platform`을 controller에 넘긴다. dropdown 외부 조건을 `showDropdown && (nickname.length >= 2 || items.length > 0)`로 바꿔 0건 메시지가 도달하게 한다. 검색 초기 기능 카드는 `전적 요약`, `AI 분석`, `스쿼드 시너지` 세 개만 렌더한다.
+submit은 trim한 닉네임이 없거나 현재 로딩·쿨다운 중이면 `submitDisabled=true`로 두고 요청을 만들지 않는다. 최근검색·즐겨찾기 quick action은 저장된 이름과 현재 선택 `platform`을 controller에 넘긴다. dropdown 외부 조건을 `showDropdown && (nickname.length >= 2 || items.length > 0)`로 바꿔 0건 메시지가 도달하게 한다. 검색 초기 기능 카드는 `전적 요약`, `AI 분석`, `스쿼드 시너지` 세 개만 렌더한다.
 
 `useStatsSearchHistory`는 서버와 hydration 첫 렌더에서 빈 배열을 반환한 뒤 `useEffect`에서 두 storage key를 읽어 `normalizeStoredNames`로 정리한다. 검색 성공은 `addRecent(canonicalNickname)`, 즐겨찾기는 `toggleFavorite(name)`, 삭제는 `removeRecent(name)`을 사용해 중복 제거·최근 10개 제한·`string[]` 직렬화를 보장한다.
 
@@ -588,7 +596,7 @@ export function useStatsProfilePrefill(userId?: string): { nickname?: string; pl
 
 검색 입력 submit, 최근검색, 즐겨찾기, autocomplete, 404 추천, 매치 행 닉네임 클릭은 player API를 현재 `/stats` 인스턴스에서 먼저 호출하지 않는다. `router.push(`/stats/${platform}/${encodeURIComponent(nickname)}`)`로 route identity를 먼저 바꾸고, 동적 route에 전달된 `initialPlatform/initialNickname`을 본 `useStatsPageController` 한 곳만 player fetch를 시작한다. 시즌 변경·강제갱신만 현재 controller의 `search`를 직접 사용한다. 이 단일 소유권으로 landing fetch + route remount fetch 이중 호출을 막는다.
 
-Task 1의 navigation assertion은 Task 4에서 router mock과 player 요청 1회 assertion으로 바꾼다. `history.pushState`는 제거하되 감사 문서의 기존 suspected 항목을 증거 없이 `fixed`로 바꾸지 않고, browser smoke의 back/forward·metadata 결과로 `not_reproduced` 또는 `fixed`를 판정한다. `it.fails`인 빈 검색 케이스는 이 단계 첫 red action에서 일반 `it`으로 바꾼 뒤 검증 UI를 구현한다.
+Task 1의 navigation assertion은 Task 4에서 router mock과 player 요청 1회 assertion으로 바꾼다. `history.pushState`는 제거하되 감사 문서의 기존 suspected 항목을 증거 없이 `fixed`로 바꾸지 않고, browser smoke의 back/forward·metadata 결과로 `not_reproduced` 또는 `fixed`를 판정한다. 빈 검색은 의도된 요청 0건 정책으로 기록하고 비활성 UI만 명확히 한다.
 
 404 `suggestedPlayers`는 오류 블록 안에서 별도로 렌더하고, 선택 시 suggestion이 반환한 platform으로 route-first 이동한다.
 
@@ -612,7 +620,7 @@ export const isStatsPath = (pathname: string) => pathname === "/stats" || pathna
 
 Run: `npx vitest run tests/stat-search-deep-link.test.ts tests/stat-search-autocomplete.test.ts tests/stat-search-prefill.test.ts tests/bottom-nav-stats-active.test.ts tests/stat-search-baseline.test.ts tests/stat-search-navigation.test.ts tests/battle-storage-compat.test.ts`
 
-Expected: PASS. 감사 문서의 blank, autocomplete empty, deep-link, BottomNav 항목을 `fixed`로 갱신한다.
+Expected: PASS. 감사 문서의 autocomplete empty, deep-link, BottomNav 항목을 `fixed`로 갱신하고 blank는 `intentional`로 유지한다.
 
 - [ ] **Step 7: commit한다**
 
@@ -1033,7 +1041,7 @@ git commit -m "feat(stats): 매치 피드와 상세 오류 상태 분리"
 
 ---
 
-### Task 8: 스쿼드 최신 응답 우선과 fallback 경기 시각 버그
+### Task 8: 스쿼드 groupKey 제어와 fallback 경기 시각 버그
 
 **Files:**
 - Modify: `components/stat/SquadAnalysisPanel.tsx`
@@ -1044,6 +1052,7 @@ git commit -m "feat(stats): 매치 피드와 상세 오류 상태 분리"
 - Create: `tests/matches-summary-route.test.ts`
 - Modify: `tests/stat-search-deep-link.test.ts`
 - Modify: `tests/client-data-fetch-error-ui.test.ts`
+- Modify: `tests/stat-search-ui.test.ts`
 
 **Interfaces:**
 - Consumes: controlled `groupKey?: string` and `setGroupKey` from the page controller.
@@ -1059,32 +1068,34 @@ export interface SquadAnalysisPanelProps {
 }
 ```
 
-- [ ] **Step 1: group stale와 fallback createdAt 실패 테스트를 작성한다**
+- [ ] **Step 1: controlled groupKey와 fallback createdAt 실패 테스트를 작성한다**
 
 ```ts
-it("group 변경 시 이전 상세 응답을 무시한다", async () => {
-  const first = deferredJson(group1Detail);
-  const second = deferredJson(group2Detail);
-  renderSquad({ groupKey: "g1", onGroupKeyChange, detailResponses: [first, second] });
-  fireEvent.change(screen.getByLabelText("스쿼드 그룹"), { target: { value: "g2" } });
-  second.resolve();
-  first.resolve();
-  expect(await screen.findByText("group2 detail")).toBeVisible();
-  expect(screen.queryByText("group1 detail")).not.toBeInTheDocument();
+it("controlled groupKey를 초기 선택으로 복원하고 변경을 상위로 알린다", async () => {
+  renderSquad({ groupKey: "g2", onGroupKeyChange });
+  expect(await screen.findByRole("combobox", { name: "스쿼드 그룹" })).toHaveValue("g2");
+  fireEvent.change(screen.getByRole("combobox", { name: "스쿼드 그룹" }), { target: { value: "g1" } });
+  expect(onGroupKeyChange).toHaveBeenCalledWith("g1");
 });
 
 expect(fallbackSummary.createdAt).toBe("2026-07-01T10:00:00.000Z");
+
+const now = new Date("2026-08-10T00:00:00.000Z").getTime();
+expect(isMatchOlderThan14Days("2026-07-26T23:59:59.999Z", now)).toBe(true);
+expect(isMatchOlderThan14Days("2026-07-27T00:00:00.001Z", now)).toBe(false);
+expect(isMatchTelemetryExpired("2026-05-11T23:59:59.999Z", 90, now)).toBe(true);
+expect(isMatchTelemetryExpired("2026-05-12T00:00:00.001Z", 90, now)).toBe(false);
 ```
 
-- [ ] **Step 2: 현재 요청과 fallback select에서 실패하는지 확인한다**
+- [ ] **Step 2: 현재 props 계약과 fallback select에서 실패하는지 확인한다**
 
 Run: `npx vitest run tests/squad-analysis-panel-state.test.ts tests/matches-summary-route.test.ts tests/stat-search-deep-link.test.ts`
 
-Expected: FAIL on late group response and raw fallback timestamp.
+Expected: FAIL on controlled groupKey props and raw fallback timestamp.
 
-- [ ] **Step 3: 스쿼드 groupKey와 요청 경계를 구현한다**
+- [ ] **Step 3: 스쿼드 controlled groupKey 경계를 구현한다**
 
-controller의 `groupKey`를 controlled 값으로 사용하고 유효하지 않으면 첫 group을 `onGroupKeyChange`로 올린다. group 목록, 상세, AI 요청 각각 AbortController/requestId를 사용하며 현재 `groupKey`와 일치하는 응답만 반영한다. overview로 전환해 panel이 unmount돼도 controller의 groupKey가 남아 다시 squad로 돌아올 때 같은 group을 연다. 공유 URL의 `tab=squad&groupKey=...` 생성 계약은 유지한다.
+controller의 `groupKey`를 controlled 값으로 사용하고 유효하지 않으면 첫 group을 `onGroupKeyChange`로 올린다. overview로 전환해 panel이 unmount돼도 controller의 groupKey가 남아 다시 squad로 돌아올 때 같은 group을 연다. 공유 URL의 `tab=squad&groupKey=...` 생성 계약은 유지한다. 재현되지 않은 group 요청 stale 응답 가설을 수정하거나 `fixed`로 기록하지 않는다.
 
 같은 Task에서 기존 `StatSearch` 호출은 `groupKey={controller.groupKey}`와 `onGroupKeyChange={controller.setGroupKey}`를 넘기고, 기존 `client-data-fetch-error-ui` 렌더 helper는 `groupKey={undefined}`와 `onGroupKeyChange={() => {}}`를 넘겨 독립 compile을 유지한다.
 
@@ -1094,15 +1105,15 @@ controller의 `groupKey`를 controlled 값으로 사용하고 유효하지 않�
 
 - [ ] **Step 5: 테스트를 통과시킨다**
 
-Run: `npx vitest run tests/squad-analysis-panel-state.test.ts tests/matches-summary-route.test.ts tests/stat-search-deep-link.test.ts tests/stat-search-ui.test.ts`
+Run: `npx vitest run tests/squad-analysis-panel-state.test.ts tests/matches-summary-route.test.ts tests/stat-search-deep-link.test.ts tests/client-data-fetch-error-ui.test.ts tests/stat-search-ui.test.ts`
 
-Expected: PASS. 감사 문서의 group stale와 fallback createdAt을 `fixed`로 갱신한다.
+Expected: PASS. 감사 문서의 squad/groupKey 복원과 fallback createdAt을 `fixed`로 갱신하고 group stale는 추가 증거 없이 수정하지 않는다.
 
 - [ ] **Step 6: commit한다**
 
 ```bash
-git add components/stat/SquadAnalysisPanel.tsx components/stat/StatSearch.tsx app/api/pubg/matches-summary/route.ts lib/pubg-analysis/matchSummary.ts tests/squad-analysis-panel-state.test.ts tests/matches-summary-route.test.ts tests/stat-search-deep-link.test.ts tests/client-data-fetch-error-ui.test.ts docs/reviews/2026-08-10-stats-search-regression-audit.md
-git commit -m "fix(stats): 스쿼드 응답과 매치 시각 일관성 보장"
+git add components/stat/SquadAnalysisPanel.tsx components/stat/StatSearch.tsx app/api/pubg/matches-summary/route.ts lib/pubg-analysis/matchSummary.ts tests/squad-analysis-panel-state.test.ts tests/matches-summary-route.test.ts tests/stat-search-deep-link.test.ts tests/client-data-fetch-error-ui.test.ts tests/stat-search-ui.test.ts docs/reviews/2026-08-10-stats-search-regression-audit.md
+git commit -m "fix(stats): 스쿼드 groupKey와 매치 시각 일관성 보장"
 ```
 
 ---
