@@ -1,14 +1,14 @@
 // 파일 위치: components/stat/StatSearch.tsx
 "use client";
 
-import React, { useState, useEffect, useId, useCallback, useRef } from "react";
+import { Fragment, useState, useEffect, useCallback, useRef, type MouseEvent } from "react";
 import { MatchCard } from "./MatchCard";
 import AdSenseBanner from "../ads/AdSenseBanner";
 import { StatSummaryPanel } from "./StatSummaryPanel";
-import { RecentAISummary } from "./RecentAISummary";
+import { RecentAISummary, type AiSummarySnapshot } from "./RecentAISummary";
 import SquadAnalysisPanel from "./SquadAnalysisPanel";
 import AdfitBanner from "@/components/ads/AdfitBanner";
-import { Shield, ChevronDown, Swords, Star, User, Crosshair } from "lucide-react";
+import { Shield, ChevronDown, User } from "lucide-react";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { useAuth } from "@/components/AuthProvider";
 import { useRouter } from "next/navigation";
@@ -18,6 +18,9 @@ import { useStatsProfilePrefill } from "@/hooks/useStatsProfilePrefill";
 import { useStatsSearchHistory } from "@/hooks/useStatsSearchHistory";
 import { StatsSearchBar } from "./search/StatsSearchBar";
 import { StatsLandingState } from "./search/StatsLandingState";
+import { PlayerProfileHeader } from "./profile/PlayerProfileHeader";
+import { StatsSectionTabs } from "./overview/StatsSectionTabs";
+import { buildStatsCompareUrl, buildStatsWeaponsUrl } from "@/lib/stats/statsPageModel";
 import type { StatsSectionTab } from "@/types/stats-page";
 // import CompanionEntryCard from "@/components/overwolf/CompanionEntryCard";
 
@@ -60,15 +63,21 @@ export default function StatSearch({
     matchSummaries,
     missingMatchIds,
     matchModeMeta,
+    refreshAvailableAt,
     isRefreshCoolingDown: isCoolingDown,
+    statsMode,
+    partySize,
     setPlatform,
     setNickname,
     setSectionTab: setActiveTab,
+    setStatsMode,
+    setPartySize,
     setMatchFilter: setMatchTab,
     search,
     onModeDetected: handleModeDetected,
   } = controller;
   const loading = status === "loading" || status === "refreshing";
+  const refreshing = status === "refreshing";
   const error = controllerError?.message ?? "";
   const errorType = controllerError?.type ?? "";
   const dynamicMatchModes = Object.fromEntries(
@@ -76,7 +85,6 @@ export default function StatSearch({
   );
 
   const { user } = useAuth();
-  const seasonId = useId();
   const [cooldown, setCooldown] = useState(false);
   const isSearchingRef = useRef(false);
   const cooldownTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -198,12 +206,24 @@ export default function StatSearch({
     addRecent(result.nickname);
   }, [addRecent, result]);
 
-  const toggleFavorite = (name: string, event?: React.MouseEvent) => {
+  const toggleFavorite = (name: string, event?: MouseEvent) => {
     event?.stopPropagation();
     toggleStoredFavorite(name);
   };
 
   const [showGuideline, setShowGuideline] = useState(false);
+  const [aiSummary, setAiSummary] = useState<AiSummarySnapshot | null>(null);
+  const [aiExpanded, setAiExpanded] = useState(false);
+  const aiSectionRef = useRef<HTMLDivElement>(null);
+  const handleAiSummaryChange = useCallback((summary: AiSummarySnapshot | null) => {
+    setAiSummary(summary);
+    if (!summary) setAiExpanded(false);
+  }, []);
+  const handleAiOpen = useCallback(() => {
+    const section = aiSectionRef.current;
+    section?.scrollIntoView({ behavior: "smooth", block: "start" });
+    section?.querySelector<HTMLButtonElement>("button")?.focus();
+  }, []);
 
   return (
     <div className="w-full max-w-[1200px] mx-auto px-3.5 py-5 md:p-5 text-white">
@@ -287,127 +307,41 @@ export default function StatSearch({
 
       {result && (
         <div className="relative w-full" style={{ display: "flex", flexDirection: "column", gap: "30px" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", borderBottom: "2px solid #333", paddingBottom: "15px", flexWrap: "wrap", gap: "15px" }}>
-            <div className="flex flex-col gap-3">
-              {/* 1행: 플랫폼/닉네임 + 클랜 배지 + 제재 확인 배지 */}
-              <div className="flex items-center gap-3 flex-wrap">
-                <div style={{ fontSize: "28px", fontWeight: "bold" }}>
-                  <span style={{ color: "#888", fontSize: "16px", marginRight: "10px", verticalAlign: "middle" }}>
-                    {result.platform === "steam" ? "Steam" : "Kakao"}
-                  </span>
-                  {result.nickname}
-                </div>
-                {result.clan && (
-                  <ClanBadge clan={result.clan} isMobile={isMobile} />
-                )}
-                <BanStatusButton banType={result.banType ?? "None"} isMobile={isMobile} />
-              </div>
-
-              {/* 2행: 전적 갱신 영역 (버튼, 즐겨찾기, 업데이트 시간 수평 정렬) */}
-              {(() => {
-                const isFav = favorites.includes(result.nickname);
-                return (
-                  <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">
-                    {isCoolingDown ? (
-                      <button
-                        disabled
-                        className="px-3 py-1.5 bg-blue-600 text-white text-[11px] font-black rounded-lg border-none opacity-90 select-none cursor-not-allowed"
-                      >
-                        최신 전적
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => handleControllerSearch(selectedSeason, result.nickname, result.platform, true)}
-                        disabled={loading}
-                        className="px-3 py-1.5 bg-[#2dd4bf] hover:bg-[#14b8a6] text-white text-[11px] font-black rounded-lg border-none cursor-pointer transition-all active:scale-95 shadow-md shadow-teal-950/20"
-                      >
-                        {loading ? "갱신 중..." : "전적 갱신"}
-                      </button>
-                    )}
-                    
-                    <button
-                      onClick={(event) => toggleFavorite(result.nickname, event)}
-                      className={`p-1.5 rounded-lg border-none transition-all cursor-pointer ${isFav ? "text-yellow-400 bg-yellow-400/10 hover:bg-yellow-400/20" : "text-gray-500 bg-white/5 hover:text-yellow-400 hover:bg-yellow-400/10"}`}
-                    >
-                      <Star size={13} fill={isFav ? "currentColor" : "none"} />
-                    </button>
-                    <span className="font-bold text-[11px] text-gray-500">
-                      최근 업데이트: {timeAgo(result.updatedAt)}
-                    </span>
-                  </div>
-                );
-              })()}
-
-              {/* 3행: 액션 버튼들 */}
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  onClick={() => router.push(`/stats/${result.platform}/${result.nickname}/weapons`)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 rounded-full text-[11px] font-black transition-all cursor-pointer"
-                >
-                  <Crosshair size={12} />
-                  <span>무기 마스터리 분석</span>
-                </button>
-                <button
-                  onClick={() => router.push(`/stats/battle?nick1=${encodeURIComponent(result.nickname)}`)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 border border-purple-500/30 rounded-full text-[11px] font-black transition-all group"
-                >
-                  <Swords size={12} className="group-hover:rotate-12 transition-transform" />
-                  <span>이 플레이어와 비교하기</span>
-                </button>
-              </div>
-            </div>
-            <select
-              id={seasonId}
-              name="season"
-              autoComplete="off"
-              value={selectedSeason}
-              onChange={(e) => {
-                handleControllerSearch(e.target.value, result.nickname, result.platform, false, true);
-              }}
-              style={{ padding: "8px 12px", backgroundColor: "#252525", color: "white", border: "1px solid #444", borderRadius: "6px" }}
-            >
-              {result.seasons.map((s: any) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <PlayerProfileHeader
+            player={result}
+            seasonId={selectedSeason}
+            refreshing={refreshing}
+            isRefreshCoolingDown={isCoolingDown}
+            refreshAvailableAt={refreshAvailableAt}
+            favorite={favorites.includes(result.nickname)}
+            onSeasonChange={(value) => {
+              void handleControllerSearch(value, result.nickname, result.platform, false, true);
+            }}
+            onRefresh={() => {
+              void handleControllerSearch(selectedSeason, result.nickname, result.platform, true);
+            }}
+            onFavoriteToggle={() => toggleFavorite(result.nickname)}
+            onCompare={() => router.push(buildStatsCompareUrl(result.nickname, result.platform))}
+            onWeapons={() => router.push(buildStatsWeaponsUrl(result.nickname, result.platform))}
+          />
 
           {/* 탭 네비게이션 */}
-          <div className="flex border-b border-white/5 gap-2">
-            <button
-              onClick={() => setActiveTab("overview")}
-              className={`pb-3 px-4 text-xs font-black border-b-2 transition-all cursor-pointer ${
-                activeTab === "overview"
-                  ? "border-amber-500 text-amber-500"
-                  : "border-transparent text-gray-500 hover:text-gray-300"
-              }`}
-            >
-              개인 분석 개요
-            </button>
-            <button
-              onClick={() => setActiveTab("squad")}
-              className={`pb-3 px-4 text-xs font-black border-b-2 transition-all cursor-pointer ${
-                activeTab === "squad"
-                  ? "border-purple-500 text-purple-400"
-                  : "border-transparent text-gray-500 hover:text-gray-300"
-              }`}
-            >
-              스쿼드 시너지
-            </button>
-          </div>
+          <StatsSectionTabs value={activeTab} onChange={setActiveTab} />
 
           {activeTab === "overview" ? (
             <div style={{ display: "flex", flexDirection: "column", gap: "30px" }}>
 
               {/* 경쟁전 / 일반전 통합 탭 패널 */}
               <StatSummaryPanel
-                stats={{
-                  ranked: result.stats.ranked ?? undefined,
-                  normal: result.stats.normal ?? undefined,
-                }}
-                isMobile={isMobile}
+                stats={result.stats}
+                mode={statsMode}
+                partySize={partySize}
+                aiSummary={aiSummary}
+                aiExpanded={aiExpanded}
+                onModeChange={setStatsMode}
+                onPartySizeChange={setPartySize}
+                onAiOpen={handleAiOpen}
+                onAiToggle={() => setAiExpanded((expanded) => !expanded)}
               />
 
               {/* BGMS AI 전술 분석 시스템 설명 (토글형으로 최적화) */}
@@ -490,13 +424,15 @@ export default function StatSearch({
 
               {/* 최근 10경기 AI 종합 분석 섹션 추가 - 닉네임이 바뀔 때마다 리셋되도록 key 부여 */}
               {result.recentMatches && result.recentMatches.length > 0 && (
-                <RecentAISummary 
-                  key={result.nickname}
-                  matchIds={[...result.recentMatches]}
-                  nickname={result.nickname} 
-                  platform={result.platform} 
-                  isMobile={isMobile}
-                />
+                <div ref={aiSectionRef} tabIndex={-1}>
+                  <RecentAISummary
+                    matchIds={result.recentMatches}
+                    nickname={result.nickname}
+                    platform={result.platform}
+                    isMobile={isMobile}
+                    onSummaryChange={handleAiSummaryChange}
+                  />
+                </div>
               )}
 
               <div className="my-4 flex justify-center lg:hidden" aria-label="광고">
@@ -588,7 +524,7 @@ export default function StatSearch({
                   return filteredMatches.length > 0 ? (
                     <div className="flex flex-col gap-1.5">
                       {filteredMatches.map((matchId: string, index: number) => (
-                        <React.Fragment key={matchId}>
+                        <Fragment key={matchId}>
                           <MatchCard
                             matchId={matchId}
                             nickname={result.nickname}
@@ -615,7 +551,7 @@ export default function StatSearch({
                               </div>
                             </div>
                           )}
-                        </React.Fragment>
+                        </Fragment>
                       ))}
                     </div>
                   ) : (
@@ -665,202 +601,5 @@ export default function StatSearch({
 }
 
 // ─────────────────────────────────────────────────────────────
-// 클랜 배지 컴포넌트
-// ─────────────────────────────────────────────────────────────
-
-interface ClanData {
-  id: string;
-  name: string;
-  tag: string;
-  level: number;
-  memberCount: number;
-}
-
-function ClanBadge({ clan, isMobile }: { clan: ClanData; isMobile: boolean }) {
-  const [open, setOpen] = React.useState(false);
-  const ref = React.useRef<HTMLDivElement>(null);
-
-  React.useEffect(() => {
-    if (!isMobile || !open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [isMobile, open]);
-
-  return (
-    <div
-      ref={ref}
-      className="relative inline-block"
-      onMouseEnter={() => !isMobile && setOpen(true)}
-      onMouseLeave={() => !isMobile && setOpen(false)}
-      onClick={() => isMobile && setOpen((v) => !v)}
-    >
-      {/* 배지 */}
-      <div className="flex items-center gap-1.5 px-3 py-1 rounded-full border cursor-pointer select-none"
-        style={{
-          background: "linear-gradient(135deg, rgba(242,169,0,0.15) 0%, rgba(255,200,80,0.08) 100%)",
-          borderColor: "rgba(242,169,0,0.4)",
-        }}
-      >
-        <Shield size={11} className="text-amber-400" />
-        <span className="text-[12px] font-black text-amber-400 tracking-wide">[{clan.tag}]</span>
-      </div>
-
-      {/* 팝오버 */}
-      {open && (
-        <div
-          className="absolute top-full left-0 mt-2 z-50 min-w-[200px] p-4 rounded-2xl border shadow-2xl animate-in fade-in slide-in-from-top-1 duration-150"
-          style={{
-            background: "linear-gradient(145deg, #1a1400 0%, #0f0a00 100%)",
-            borderColor: "rgba(242,169,0,0.25)",
-            boxShadow: "0 20px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(242,169,0,0.1) inset",
-          }}
-        >
-          <div className="flex items-center gap-2 mb-3 pb-2 border-b" style={{ borderColor: "rgba(242,169,0,0.15)" }}>
-            <div className="p-1.5 rounded-lg" style={{ background: "rgba(242,169,0,0.15)" }}>
-              <Shield size={14} className="text-amber-400" />
-            </div>
-            <div>
-              <div className="text-xs font-black text-white">{clan.name}</div>
-              <div className="text-[10px] text-amber-400/70 font-bold">[{clan.tag}]</div>
-            </div>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <div className="flex justify-between items-center">
-              <span className="text-[10px] text-gray-500 font-bold">클랜 레벨</span>
-              <span className="text-[11px] font-black text-amber-400">Lv. {clan.level}</span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-[10px] text-gray-500 font-bold">멤버 수</span>
-              <span className="text-[11px] font-black text-white">{clan.memberCount}명</span>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
 // 제재 상태 확인 버튼 및 팝오버 컴포넌트
 // ─────────────────────────────────────────────────────────────
-
-interface BanStatusButtonProps {
-  banType: string;
-  isMobile: boolean;
-}
-
-function BanStatusButton({ banType, isMobile }: BanStatusButtonProps) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!isMobile || !open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [isMobile, open]);
-
-  const normalizedType = banType ? banType.trim() : "None";
-  const lowerType = normalizedType.toLowerCase();
-  const isNormal = lowerType === "none" || lowerType === "innocent";
-  const isPermanent = lowerType.startsWith("permanent");
-  const isInherited = lowerType.startsWith("inherited");
-
-  const label = "제재 상태 확인";
-  let statusText = "정상 활동 계정";
-  let statusDesc = "현재 특별한 플랫폼 제한 또는 영구 제재 조치가 없는 정상 상태입니다.";
-  let badgeColor = "text-emerald-400 border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20";
-  let popoverBg = "linear-gradient(145deg, #022013 0%, #000c07 100%)";
-  let popoverBorder = "rgba(16,185,129,0.3)";
-  let popoverShadow = "0 20px 40px rgba(0,0,0,0.6), 0 0 15px rgba(16,185,129,0.1) inset";
-
-  if (isPermanent) {
-    statusText = "영구 이용 정지 계정";
-    statusDesc = "PUBG 보안 및 게임 정책 위반으로 시스템에 의해 영구 이용 제한 조치된 상태입니다.";
-    badgeColor = "text-rose-400 border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20";
-    popoverBg = "linear-gradient(145deg, #25060d 0%, #0c0003 100%)";
-    popoverBorder = "rgba(244,63,94,0.3)";
-    popoverShadow = "0 20px 40px rgba(0,0,0,0.6), 0 0 15px rgba(244,63,94,0.1) inset";
-  } else if (isInherited) {
-    statusText = "상속된 제재 상태";
-    statusDesc = "연결된 Steam 또는 타 서비스의 외부 보안 정책 위반에 의해 연동 제재된 상태입니다.";
-    badgeColor = "text-amber-400 border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/20";
-    popoverBg = "linear-gradient(145deg, #201302 0%, #0c0700 100%)";
-    popoverBorder = "rgba(245,158,11,0.3)";
-    popoverShadow = "0 20px 40px rgba(0,0,0,0.6), 0 0 15px rgba(245,158,11,0.1) inset";
-  } else if (!isNormal) {
-    statusText = "임시 보호 조치";
-    statusDesc = "조사를 위해 일시적으로 계정이 동결되었거나 안전 상태 점검 중입니다.";
-    badgeColor = "text-sky-400 border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20";
-    popoverBg = "linear-gradient(145deg, #0c1a30 0%, #030810 100%)";
-    popoverBorder = "rgba(14,165,233,0.3)";
-    popoverShadow = "0 20px 40px rgba(0,0,0,0.6), 0 0 15px rgba(14,165,233,0.1) inset";
-  }
-
-  return (
-    <div
-      ref={ref}
-      className="relative inline-block"
-      onMouseEnter={() => !isMobile && setOpen(true)}
-      onMouseLeave={() => !isMobile && setOpen(false)}
-      onClick={() => isMobile && setOpen((v) => !v)}
-    >
-      <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border cursor-pointer select-none text-[11px] font-black tracking-wide transition-all duration-200 ${badgeColor}`}>
-        <Shield size={11} />
-        <span>{label}</span>
-      </div>
-
-      {open && (
-        <div
-          className="absolute top-full left-0 mt-2 z-[999] min-w-[280px] md:min-w-[320px] p-4 rounded-2xl border shadow-2xl animate-in fade-in slide-in-from-top-1 duration-150 backdrop-blur-md"
-          style={{
-            background: popoverBg,
-            borderColor: popoverBorder,
-            boxShadow: popoverShadow,
-          }}
-        >
-          <div className="flex items-center gap-2 mb-3 pb-2 border-b" style={{ borderColor: popoverBorder }}>
-            <div className="p-1.5 rounded-lg" style={{ background: "rgba(255,255,255,0.05)" }}>
-              <Shield size={14} className={isNormal ? "text-emerald-400" : isPermanent ? "text-rose-400" : isInherited ? "text-amber-400" : "text-sky-400"} />
-            </div>
-            <div>
-              <div className="text-xs font-black text-white">PUBG 계정 보안 상태</div>
-              <div className={`text-[10px] font-bold ${isNormal ? "text-emerald-400/80" : isPermanent ? "text-rose-400/80" : isInherited ? "text-amber-400/80" : "text-sky-400/80"}`}>
-                {statusText} ({normalizedType})
-              </div>
-            </div>
-          </div>
-          <p className="text-[11px] text-gray-300 leading-relaxed font-medium">
-            {statusDesc}
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// [V61.0] 최근 업데이트 경과 시간을 한글 텍스트로 변환해주는 헬퍼 함수
-function timeAgo(dateString?: string) {
-  if (!dateString) return "정보 없음";
-  const now = new Date();
-  const past = new Date(dateString);
-  const diffMs = now.getTime() - past.getTime();
-  const diffSec = Math.floor(diffMs / 1000);
-  
-  if (diffSec < 10) return "방금";
-  if (diffSec < 60) return `${diffSec}초 전`;
-  
-  const diffMin = Math.floor(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}분 전`;
-  
-  const diffHour = Math.floor(diffMin / 60);
-  if (diffHour < 24) return `${diffHour}시간 전`;
-  
-  const diffDay = Math.floor(diffHour / 24);
-  return `${diffDay}일 전`;
-}

@@ -1,13 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ShieldAlert, Clock, TrendingUp, TrendingDown, Minus, Flame, Skull, Target, HelpCircle, Zap, Brain, X, ChevronDown, ChevronUp } from "lucide-react";
 import { getNextTierInfo } from "@/lib/pubg-analysis/benchmarkScore";
 
 import { IsolationRadar } from "./IsolationRadar";
 import { SpiderChart } from "./SpiderChart";
 import { MapKingCard } from "./MapKingCard";
-import { useEffect, useRef } from "react";
 import { useAIStatus, aiManager } from "@/lib/ai-management";
 import { useAuth } from "@/components/AuthProvider";
 import { supabase } from "@/lib/supabase";
@@ -48,16 +47,16 @@ interface ActionItem {
 }
 
 interface DebateData {
-  debateIssues: DebateIssue[];
-  finalVerdict: string;
+  debateIssues?: DebateIssue[];
+  finalVerdict?: string;
   weaknessDiagnostic?: string;
-  actionItems: ActionItem[];
+  actionItems?: ActionItem[];
 
   signature?: string;
   signatureSub?: string;
   visuals?: {
     //  API 응답 실제 구조에 맞게 정리: latency 객체는 미사용, counterLatency만 실제 사용됨
-    counterLatency: string;
+    counterLatency?: string;
     tierBreakdown?: {
       combat: number;
       tactical: number;
@@ -65,7 +64,7 @@ interface DebateData {
       total: number;
     };
     latestMatchTime?: string;
-    reactionLatency: string;
+    reactionLatency?: string;
     reactionTier?: string;
     backupTier?: string;
     overallTier?: string;
@@ -81,10 +80,10 @@ interface DebateData {
       scores: Record<string, number>;
     };
 
-    initiativeSuccess: string;
+    initiativeSuccess?: string;
     duelStats?: { winRate: string; wins: number; losses: number; reversals: number; reversalAttempts: number };
-    reversalRate: string;
-    coverRate: string;
+    reversalRate?: string;
+    coverRate?: string;
     goldenTime?: { early: number; mid1: number; mid2: number; late: number };
     killContrib?: { solo: number; cleanup: number };
     deathPhase?: number;
@@ -158,7 +157,32 @@ const getRelativeTime = (dateStr: string) => {
   return "방금 전";
 };
 
-export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { matchIds: string[]; nickname: string; platform: string; isMobile?: boolean }) => {
+export interface AiSummarySnapshot {
+  verdict: string;
+  tier?: string;
+}
+
+export interface RecentAISummaryProps {
+  matchIds: readonly string[];
+  nickname: string;
+  platform: string;
+  isMobile?: boolean;
+  onSummaryChange?(summary: AiSummarySnapshot | null): void;
+}
+
+interface SummaryRequestOwner {
+  generation: number;
+  identity: string;
+  controller: AbortController;
+}
+
+export const RecentAISummary = ({
+  matchIds,
+  nickname,
+  platform,
+  isMobile,
+  onSummaryChange,
+}: RecentAISummaryProps) => {
   const [debateData, setDebateData] = useState<DebateData | null>(null);
   const [loading, setLoading] = useState(false);
   const [streamingText, setStreamingText] = useState("");
@@ -175,6 +199,15 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
   const abortControllerRef = useRef<AbortController | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const isLoadingRef = useRef(false);
+  const matchIdsIdentity = matchIds.join("\u001f");
+  const identity = `${platform}\u001e${nickname}\u001e${matchIdsIdentity}`;
+  const identityRef = useRef(identity);
+  const generationRef = useRef(0);
+  const requestOwnerRef = useRef<SummaryRequestOwner | null>(null);
+  const dataIdentityRef = useRef<string | null>(null);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onSummaryChangeRef = useRef(onSummaryChange);
+  const emittedSummaryRef = useRef<string | null>(null);
   // [AUTO-RETRY] 일시적 Gemini 스트림 오류 자동 재시도
   const retryCountRef = useRef(0);
   const MAX_AUTO_RETRIES = 1;
@@ -182,6 +215,10 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
   const { isAnalyzing: isGlobalAnalyzing } = useAIStatus();
   const { user } = useAuth();
   const router = useRouter();
+
+  useEffect(() => {
+    onSummaryChangeRef.current = onSummaryChange;
+  }, [onSummaryChange]);
 
   /** 일시적 오류 판별 (Failed to parse stream, 네트워크 순단, 서버 과부하 등) */
   const isTransientError = (msg: string) => {
@@ -199,6 +236,11 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
   };
 
   const handleFetchSummary = async (force = false) => {
+    const requestedIdentity = identity;
+    const requestedGeneration = generationRef.current;
+    const identityIsCurrent = () => (
+      generationRef.current === requestedGeneration && identityRef.current === requestedIdentity
+    );
     //  [보안] 비로그인 유저 AI 요약 차단 — 로그인 유도 토스트
     if (!user) {
       toast.error("AI 전술 분석은 로그인 후 이용할 수 있습니다.", {
@@ -216,11 +258,17 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
     } catch (e) {
       console.warn("[AI-SUMMARY] Session refresh failed (ignored):", e);
     }
+    if (!identityIsCurrent()) return;
 
     // [V46.1] 전역 락 체크 및 중복 실행 방지
     if (isGlobalAnalyzing || loading || isLoadingRef.current || (!force && debateData)) return;
 
     if (!aiManager.startAnalysis("summary")) return;
+
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
 
     // 수동 시작 시 재시도 카운트 초기화
     if (!retryCountRef.current) retryCountRef.current = 0;
@@ -232,36 +280,48 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
     setStreamingText("");
 
     if (force) {
+      dataIdentityRef.current = null;
       setDebateData(null);
       textBufferRef.current = "";
       lineBufferRef.current = "";
     }
 
     const abortController = new AbortController();
+    const owner: SummaryRequestOwner = {
+      generation: requestedGeneration,
+      identity: requestedIdentity,
+      controller: abortController,
+    };
+    requestOwnerRef.current = owner;
     abortControllerRef.current = abortController;
+    const ownsRequest = () => (
+      requestOwnerRef.current === owner
+      && identityIsCurrent()
+    );
+    const canWriteRequest = () => ownsRequest() && !abortController.signal.aborted;
+    const scheduleRetry = (message: string) => {
+      if (!canWriteRequest() || retryCountRef.current >= MAX_AUTO_RETRIES) return false;
+      retryCountRef.current += 1;
+      setRetryMessage(`${message} (${retryCountRef.current}/${MAX_AUTO_RETRIES})`);
+      retryTimerRef.current = setTimeout(() => {
+        retryTimerRef.current = null;
+        if (!identityIsCurrent()) return;
+        setRetryMessage(null);
+        void handleFetchSummary(true);
+      }, 2500);
+      return true;
+    };
 
     // 서버의 전체 AI 생성 제한(약 22초)보다 길게 두어 fallback 응답까지 수신한다.
     const safetyTimeout = setTimeout(() => {
-      if (isLoadingRef.current) {
-        console.warn("[AI-SUMMARY] Safety timeout triggered. Forcing cleanup.");
-        readerRef.current?.cancel().catch(() => {});
-        abortController.abort();
-        // 타임아웃도 자동 재시도 대상
-        if (retryCountRef.current < MAX_AUTO_RETRIES) {
-          retryCountRef.current++;
-          setRetryMessage(`AI 서버 응답이 느려요. 잠깐만요... (${retryCountRef.current}/${MAX_AUTO_RETRIES})`);
-          setLoading(false);
-          isLoadingRef.current = false;
-          aiManager.stopAnalysis("summary");
-          setTimeout(() => { setRetryMessage(null); handleFetchSummary(true); }, 2500);
-        } else {
-          retryCountRef.current = 0;
-          setError("분석 서버 응답이 너무 느립니다. 잠시 후 다시 시도해주세요.");
-          setLoading(false);
-          isLoadingRef.current = false;
-          aiManager.stopAnalysis("summary");
-        }
+      if (!canWriteRequest()) return;
+      console.warn("[AI-SUMMARY] Safety timeout triggered. Forcing cleanup.");
+      readerRef.current?.cancel().catch(() => {});
+      if (!scheduleRetry("AI 서버 응답이 느려요. 잠깐만요...")) {
+        retryCountRef.current = 0;
+        setError("분석 서버 응답이 너무 느립니다. 잠시 후 다시 시도해주세요.");
       }
+      abortController.abort();
     }, 35000);
 
     // GA4 이벤트 트래킹: 10경기 요약 시작
@@ -285,9 +345,11 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
           force
         })
       });
+      if (!canWriteRequest()) return;
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
+        const errorData = await response.json().catch(() => ({})) as { error?: string };
+        if (!canWriteRequest()) return;
         throw new Error(errorData.error || "분석 서버 응답 오류가 발생했습니다.");
       }
 
@@ -299,7 +361,7 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
 
       // [V45.3] UI 업데이트를 위한 인터벌 (스트리밍 시각화용)
       const updateInterval = setInterval(() => {
-        if (textBufferRef.current !== streamingText) {
+        if (canWriteRequest() && textBufferRef.current !== streamingText) {
           setStreamingText(textBufferRef.current);
         }
       }, 100);
@@ -308,7 +370,7 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
         try {
           while (true) {
             const { done, value } = await reader.read();
-            if (done) break;
+            if (!canWriteRequest() || done) break;
 
             const chunk = decoder.decode(value, { stream: true });
             lineBufferRef.current += chunk;
@@ -317,22 +379,32 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
             lineBufferRef.current = lines.pop() || "";
 
             for (const line of lines) {
+              if (!canWriteRequest()) break;
               const trimmedLine = line.trim();
               if (!trimmedLine) continue;
 
               try {
-                const parsed = JSON.parse(trimmedLine);
+                const parsed = JSON.parse(trimmedLine) as {
+                  type?: string;
+                  data?: unknown;
+                  valid?: boolean;
+                  error?: string;
+                };
 
-                if (parsed.type === "visuals") {
+                if (parsed.type === "visuals" && parsed.data && typeof parsed.data === "object") {
                   // 비주얼 데이터가 오면 로딩을 풀고 UI를 보여줌
-                  setDebateData(prev => ({ ...prev, visuals: parsed.data } as any));
+                  dataIdentityRef.current = requestedIdentity;
+                  setDebateData((previous) => ({
+                    ...(previous ?? {}),
+                    visuals: parsed.data as DebateData["visuals"],
+                  }));
                   setLoading(false);
-                } else if (parsed.type === "chunk") {
+                } else if (parsed.type === "chunk" && typeof parsed.data === "string") {
                   textBufferRef.current += parsed.data;
                   fullText += parsed.data;
                 } else if (parsed.type === "final") {
                   // [V54.3] 서버에서 보내준 최종 정제된 JSON으로 교체 (중복 방지)
-                  fullText = parsed.data;
+                  fullText = typeof parsed.data === "string" ? parsed.data : JSON.stringify(parsed.data ?? {});
                 } else if (parsed.type === "done") {
                   if (parsed.valid === false) {
                     const errMsg = parsed.error || "서버 분석 도중 오류가 발생했습니다.";
@@ -340,7 +412,12 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
                     if (isTransientError(errMsg) && retryCountRef.current < MAX_AUTO_RETRIES) {
                       retryCountRef.current++;
                       setRetryMessage(`AI 서버가 잠깐 바빴어요. 자동으로 재시도 중이에요. (${retryCountRef.current}/${MAX_AUTO_RETRIES})`);
-                      setTimeout(() => { setRetryMessage(null); handleFetchSummary(true); }, 2500);
+                      retryTimerRef.current = setTimeout(() => {
+                        retryTimerRef.current = null;
+                        if (!identityIsCurrent()) return;
+                        setRetryMessage(null);
+                        void handleFetchSummary(true);
+                      }, 2500);
                     } else {
                       retryCountRef.current = 0;
                       setError("AI 분석 중 오류가 발생했어요. 다시 시도해주세요.");
@@ -351,10 +428,22 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
                       const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
                       if (jsonMatch) cleanJson = jsonMatch[0];
 
-                      const finalJson = JSON.parse(cleanJson);
-                      setDebateData(prev => ({
-                        ...finalJson,
-                        visuals: prev?.visuals || finalJson.visuals
+                      const decoded = JSON.parse(cleanJson) as Record<string, unknown>;
+                      const finalData: DebateData = {
+                        debateIssues: Array.isArray(decoded.debateIssues) ? decoded.debateIssues as DebateIssue[] : undefined,
+                        finalVerdict: typeof decoded.finalVerdict === "string" ? decoded.finalVerdict : undefined,
+                        actionItems: Array.isArray(decoded.actionItems) ? decoded.actionItems as ActionItem[] : undefined,
+                        weaknessDiagnostic: typeof decoded.weaknessDiagnostic === "string" ? decoded.weaknessDiagnostic : undefined,
+                        signature: typeof decoded.signature === "string" ? decoded.signature : undefined,
+                        signatureSub: typeof decoded.signatureSub === "string" ? decoded.signatureSub : undefined,
+                        visuals: decoded.visuals && typeof decoded.visuals === "object"
+                          ? decoded.visuals as DebateData["visuals"]
+                          : undefined,
+                      };
+                      dataIdentityRef.current = requestedIdentity;
+                      setDebateData((previous) => ({
+                        ...finalData,
+                        visuals: previous?.visuals ?? finalData.visuals,
                       }));
                       retryCountRef.current = 0;
 
@@ -366,8 +455,8 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
                           status: "success"
                         }
                       });
-                    } catch (e: any) {
-                      console.error("[AI-SUMMARY] Final result parse failed:", e);
+                    } catch (parseError) {
+                      console.error("[AI-SUMMARY] Final result parse failed:", parseError);
                       setError("분석 결과 데이터 처리에 실패했습니다.");
 
                       // GA4 이벤트 트래킹: 10경기 요약 파싱 실패
@@ -388,25 +477,25 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
               }
             }
           }
-        } catch (readError: any) {
-          if (readError.name === 'AbortError') {
+        } catch (readError) {
+          if (readError instanceof Error && readError.name === 'AbortError') {
             // 사용자가 페이지를 이탈하거나 안전 타임아웃이 동작한 정상 중단입니다.
           } else {
             throw readError;
           }
         } finally {
           clearInterval(updateInterval);
-          setStreamingText(textBufferRef.current);
-          setLoading(false);
-          isLoadingRef.current = false;
-          readerRef.current = null; // ref 정리
+          if (canWriteRequest()) setStreamingText(textBufferRef.current);
+          if (readerRef.current === reader) readerRef.current = null;
         }
+      } else {
+        clearInterval(updateInterval);
       }
 
-    } catch (err: any) {
-      if (err.name !== 'AbortError') {
+    } catch (err) {
+      if (canWriteRequest() && (!(err instanceof Error) || err.name !== 'AbortError')) {
         console.error("[AI-SUMMARY] Critical Error:", err);
-        const errMsg = err.message || "알 수 없는 오류가 발생했습니다.";
+        const errMsg = err instanceof Error ? err.message : "알 수 없는 오류가 발생했습니다.";
         
         // GA4 이벤트 트래킹: 10경기 요약 실패
         trackEvent({
@@ -422,7 +511,12 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
         if (isTransientError(errMsg) && retryCountRef.current < MAX_AUTO_RETRIES) {
           retryCountRef.current++;
           setRetryMessage(`AI 서버가 잠깐 바빴어요. 자동으로 재시도 중이에요. (${retryCountRef.current}/${MAX_AUTO_RETRIES})`);
-          setTimeout(() => { setRetryMessage(null); handleFetchSummary(true); }, 2500);
+          retryTimerRef.current = setTimeout(() => {
+            retryTimerRef.current = null;
+            if (!identityIsCurrent()) return;
+            setRetryMessage(null);
+            void handleFetchSummary(true);
+          }, 2500);
         } else {
           retryCountRef.current = 0;
           setError("AI 분석 중 오류가 발생했어요. 다시 시도해주세요.");
@@ -430,11 +524,13 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
       }
     } finally {
       clearTimeout(safetyTimeout);
-      setLoading(false);
-      isLoadingRef.current = false;
-      readerRef.current = null; // ref 정리
-      aiManager.stopAnalysis("summary");
-      abortControllerRef.current = null;
+      if (ownsRequest()) {
+        requestOwnerRef.current = null;
+        setLoading(false);
+        isLoadingRef.current = false;
+        if (abortControllerRef.current === abortController) abortControllerRef.current = null;
+        aiManager.stopAnalysis("summary");
+      }
     }
   };
 
@@ -467,22 +563,57 @@ export const RecentAISummary = ({ matchIds, nickname, platform, isMobile }: { ma
   }, [showTierTooltip, activeStatTooltip, isMobile]);
 
   useEffect(() => {
-    // [V40.9] 닉네임이 바뀌면 기존 데이터를 초기화하여 데이터 전이 방지
+    identityRef.current = identity;
+    generationRef.current += 1;
+    dataIdentityRef.current = null;
     setDebateData(null);
     setStreamingText("");
+    setLoading(false);
+    setError(null);
+    setRetryMessage(null);
+    isLoadingRef.current = false;
     textBufferRef.current = "";
     lineBufferRef.current = "";
+    const resetSignature = `${identity}\u001enull`;
+    if (emittedSummaryRef.current !== resetSignature) {
+      emittedSummaryRef.current = resetSignature;
+      onSummaryChangeRef.current?.(null);
+    }
 
     return () => {
-      if (abortControllerRef.current) {
-        // [MOBILE-FIX] reader도 명시적으로 cancel
-        readerRef.current?.cancel().catch(() => {});
-        readerRef.current = null;
-        abortControllerRef.current.abort();
-        aiManager.stopAnalysis("summary");
+      generationRef.current += 1;
+      if (retryTimerRef.current) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
       }
+      const owner = requestOwnerRef.current;
+      requestOwnerRef.current = null;
+      readerRef.current?.cancel().catch(() => {});
+      readerRef.current = null;
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+      isLoadingRef.current = false;
+      if (owner) aiManager.stopAnalysis("summary");
     };
-  }, [nickname]);
+  }, [identity]);
+
+  const summaryVerdict = typeof debateData?.finalVerdict === "string"
+    ? debateData.finalVerdict.trim()
+    : "";
+  const summaryTier = typeof debateData?.visuals?.overallTier === "string"
+    ? debateData.visuals.overallTier.trim()
+    : "";
+
+  useEffect(() => {
+    if (!summaryVerdict || dataIdentityRef.current !== identity) return;
+    const signature = `${identity}\u001e${summaryVerdict}\u001e${summaryTier}`;
+    if (emittedSummaryRef.current === signature) return;
+    emittedSummaryRef.current = signature;
+    onSummaryChangeRef.current?.({
+      verdict: summaryVerdict,
+      ...(summaryTier ? { tier: summaryTier } : {}),
+    });
+  }, [identity, summaryTier, summaryVerdict]);
 
   // [AUTO-RETRY] 재시도 중 메시지 표시
   if (retryMessage) {
