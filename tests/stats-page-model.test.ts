@@ -77,4 +77,16 @@ describe("stats page primitives", () => {
 
     expect(getStatsOverviewMetrics(playerWithoutRounds)).toEqual({ kind: "empty", label: "기록 없음" });
   });
+
+  it("does not substitute normal stats when every ranked bucket has no played rounds", () => {
+    const rankedEmptyNormalReady: PlayerStatsResponse = {
+      ...readyPlayer,
+      stats: {
+        ranked: { squad: { ...readyPlayer.stats.ranked!.squad!, roundsPlayed: 0 } },
+        normal: readyPlayer.stats.normal,
+      },
+    };
+
+    expect(getStatsOverviewMetrics(rankedEmptyNormalReady)).toEqual({ kind: "empty", label: "기록 없음" });
+  });
 });

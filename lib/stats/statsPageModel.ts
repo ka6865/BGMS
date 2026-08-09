@@ -78,11 +78,9 @@ function selectOverviewBucket(stats: PlayerStatsResponse["stats"]): {
   bucket: StatsBucket;
   partySize: StatsPartySize;
 } | null {
-  for (const mode of ["ranked", "normal"] as const) {
-    for (const partySize of PARTY_SIZES) {
-      const bucket = stats[mode]?.[partySize];
-      if (bucket && bucket.roundsPlayed > 0) return { bucket, partySize };
-    }
+  for (const partySize of PARTY_SIZES) {
+    const bucket = stats.ranked?.[partySize];
+    if (bucket && bucket.roundsPlayed > 0) return { bucket, partySize };
   }
 
   return null;
