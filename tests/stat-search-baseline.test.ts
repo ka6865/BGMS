@@ -104,39 +104,49 @@ describe("StatSearch baseline", () => {
     requestUrl(call).startsWith("/api/pubg/player?"),
   );
 
-  async function searchFor(platform: string, nickname: string) {
+  function fillSearch(platform: string, nickname: string) {
     fireEvent.change(screen.getByRole("combobox", { name: "" }), {
       target: { value: platform },
     });
     fireEvent.change(screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요"), {
       target: { value: nickname },
     });
-    fireEvent.click(screen.getByRole("button", { name: "검색" }));
-    await screen.findByText(nickname);
   }
 
   it("빈 닉네임은 요청하지 않는다", () => {
     render(createElement(StatSearch));
+    const searchButton = screen.getByRole("button", { name: "검색" });
 
-    fireEvent.click(screen.getByRole("button", { name: "검색" }));
+    expect(searchButton).toBeDisabled();
+    fireEvent.click(searchButton);
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("검색 성공은 canonical URL과 string[] 최근검색을 한 번만 갱신한다", async () => {
+  it("landing은 route-first 이동만 하고 dynamic route가 player를 한 번 요청해 string[] recent를 갱신한다", async () => {
+    const landing = render(createElement(StatSearch));
+    fillSearch("steam", "FixturePlayer");
+    fireEvent.click(screen.getByRole("button", { name: "검색" }));
+
+    expect(routerPush).toHaveBeenCalledWith("/stats/steam/FixturePlayer");
+    expect(playerRequests()).toHaveLength(0);
+    expect(pushStateSpy).not.toHaveBeenCalled();
+    landing.unmount();
+
     fetchMock.mockResolvedValueOnce(jsonResponse(playerReady));
     fetchMock.mockResolvedValueOnce(jsonResponse(summaryReady));
-    render(createElement(StatSearch));
-
-    await searchFor("steam", "FixturePlayer");
+    render(createElement(StatSearch, {
+      initialPlatform: "steam",
+      initialNickname: "FixturePlayer",
+    }));
+    await screen.findByText("FixturePlayer");
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
 
-    expect(pushStateSpy).toHaveBeenCalledWith(null, "", "/stats/steam/FixturePlayer");
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY_RECENT)!)).toEqual(["FixturePlayer"]);
     expect(playerRequests()).toHaveLength(1);
   });
 
-  it("로딩과 쿨다운 중 추가 submit을 차단한다", async () => {
+  it("dynamic route 로딩 중 추가 submit을 차단한다", async () => {
     let resolvePlayer!: (response: Response) => void;
     const playerResponse = new Promise<Response>((resolve) => {
       resolvePlayer = resolve;
@@ -147,19 +157,20 @@ describe("StatSearch baseline", () => {
       }
       return playerResponse;
     });
-    render(createElement(StatSearch));
-    const input = screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요");
-    fireEvent.change(input, { target: { value: "FixturePlayer" } });
+    render(createElement(StatSearch, {
+      initialPlatform: "steam",
+      initialNickname: "FixturePlayer",
+    }));
+    await waitFor(() => expect(playerRequests()).toHaveLength(1));
 
-    const searchButton = screen.getByRole("button", { name: "검색" });
+    const searchButton = screen.getByRole("button", { name: "검색중..." });
+    expect(searchButton).toBeDisabled();
     fireEvent.click(searchButton);
     fireEvent(searchButton, createEvent.click(searchButton));
     expect(playerRequests()).toHaveLength(1);
 
     resolvePlayer(jsonResponse(playerReady));
     await screen.findByText("FixturePlayer");
-    const cooldownButton = screen.getByRole("button", { name: "쿨타임" });
-    fireEvent(cooldownButton, createEvent.click(cooldownButton));
 
     expect(playerRequests()).toHaveLength(1);
   });
@@ -171,8 +182,11 @@ describe("StatSearch baseline", () => {
       }
       return Promise.resolve(jsonResponse(playerReady));
     });
-    render(createElement(StatSearch));
-    await searchFor("steam", "FixturePlayer");
+    render(createElement(StatSearch, {
+      initialPlatform: "steam",
+      initialNickname: "FixturePlayer",
+    }));
+    await screen.findByText("FixturePlayer");
 
     fireEvent.click(screen.getByRole("button", { name: "스쿼드 시너지" }));
     expect(screen.getByRole("button", { name: "스쿼드 시너지" })).toHaveClass("border-purple-500");

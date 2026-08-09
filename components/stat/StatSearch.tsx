@@ -8,16 +8,16 @@ import { StatSummaryPanel } from "./StatSummaryPanel";
 import { RecentAISummary } from "./RecentAISummary";
 import SquadAnalysisPanel from "./SquadAnalysisPanel";
 import AdfitBanner from "@/components/ads/AdfitBanner";
-import { Shield, ChevronDown, Swords, Star, Clock, User, X, Zap, MapPin, LogIn, Crosshair } from "lucide-react";
+import { Shield, ChevronDown, Swords, Star, User, Crosshair } from "lucide-react";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
-
-import { STORAGE_KEY_RECENT, STORAGE_KEY_FAVORITES } from "@/lib/pubg-analysis/constants";
-
-import type { UserProfile } from "@/types/map";
 import { useAuth } from "@/components/AuthProvider";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
 import { useStatsPageController } from "@/hooks/useStatsPageController";
+import { useStatsAutocomplete } from "@/hooks/useStatsAutocomplete";
+import { useStatsProfilePrefill } from "@/hooks/useStatsProfilePrefill";
+import { useStatsSearchHistory } from "@/hooks/useStatsSearchHistory";
+import { StatsSearchBar } from "./search/StatsSearchBar";
+import { StatsLandingState } from "./search/StatsLandingState";
 import type { StatsSectionTab } from "@/types/stats-page";
 // import CompanionEntryCard from "@/components/overwolf/CompanionEntryCard";
 
@@ -75,81 +75,33 @@ export default function StatSearch({
   );
 
   const { user } = useAuth();
-  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const mounted = React.useSyncExternalStore(
-    () => () => {},
-    () => true,
-    () => false
-  );
-  
-  // React 표준 방식의 고유 ID 생성 (서버/클라이언트 일치 보장)
-  const platformId = useId();
-  const nicknameId = useId();
   const seasonId = useId();
-
   const [cooldown, setCooldown] = useState(false);
-
-  // 검색 진행 중 여부 ref - 이중 호출 방지 가드
   const isSearchingRef = useRef(false);
   const cooldownTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [hasPrefilled, setHasPrefilled] = useState(false);
-
-  const [recentSearches, setRecentSearches] = useState<string[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_RECENT);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      localStorage.removeItem(STORAGE_KEY_RECENT);
-      return [];
-    }
-  });
-  const [favorites, setFavorites] = useState<string[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_FAVORITES);
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      localStorage.removeItem(STORAGE_KEY_FAVORITES);
-      return [];
-    }
-  });
-  const [showDropdown, setShowDropdown] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const navigationPendingRef = useRef(false);
+  const [navigationPending, setNavigationPending] = useState(false);
+  const userEditedRef = useRef(false);
+  const recordedResultRef = useRef<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
-
-  // [V54.6] 자동완성 상태 추가
-  const [suggestions, setSuggestions] = useState<{ nickname: string; platform: string }[]>([]);
-  const [isSuggesting, setIsSuggesting] = useState(false);
+  const {
+    recentSearches,
+    favorites,
+    addRecent,
+    toggleFavorite: toggleStoredFavorite,
+    removeRecent,
+  } = useStatsSearchHistory();
+  const autocomplete = useStatsAutocomplete(nickname);
+  const profilePrefill = useStatsProfilePrefill(user?.id);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth < 768);
-    const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setShowDropdown(false);
-      }
-    };
     handleResize();
     window.addEventListener("resize", handleResize);
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      window.removeEventListener("resize", handleResize);
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
+    return () => window.removeEventListener("resize", handleResize);
   }, []);
 
-  useEffect(() => {
-    if (user) {
-      supabase.from("profiles").select("*").eq("id", user.id).single().then(({ data }) => {
-        if (data) setUserProfile(data as UserProfile);
-      });
-    } else {
-      setUserProfile(null);
-    }
-  }, [user]);
-
-  // Task 4의 route-first 전환 전까지 기존 JSX 호출부를 유지하는 positional adapter다.
-  const handleSearch = useCallback(async (
+  const handleControllerSearch = useCallback(async (
     targetSeason?: string,
     overrideNickname?: string,
     overridePlatform?: string,
@@ -163,47 +115,43 @@ export default function StatSearch({
     const searchName = overrideNickname || nickname;
     const searchPlatform = overridePlatform || platform;
     if (!searchName.trim() || (!bypassCooldown && cooldown)) return;
-
-    // 이중 호출 방지 가드
     if (isSearchingRef.current) return;
     isSearchingRef.current = true;
-
     setCooldown(true);
-    setShowDropdown(false);
 
     try {
-      const data = await search({
+      await search({
         nickname: searchName,
         platform: searchPlatform === "kakao" ? "kakao" : "steam",
         seasonId: resolvedSeason,
         forceRefresh: forceApiRefresh,
       });
-      if (!data) return;
-
-      const actualName = data.nickname;
-
-      setRecentSearches((prev) => {
-        const updated = [
-          actualName,
-          ...prev.filter((n) => n !== actualName),
-        ].slice(0, 10);
-        localStorage.setItem(STORAGE_KEY_RECENT, JSON.stringify(updated));
-        return updated;
-      });
-
-      // URL 동기화: history.pushState를 사용하여 App Router의 서버 재렌더/remount 없이 URL만 업데이트
-      // router.push를 사용하면 page.tsx 재실행 → StatSearch remount → 자동검색 이중 호출 루프 발생
-      const currentPath = window.location.pathname;
-      const targetPath = `/stats/${data.platform}/${actualName}`;
-      if (currentPath !== targetPath) {
-        window.history.pushState(null, '', targetPath);
-      }
     } finally {
       isSearchingRef.current = false;
       if (cooldownTimeoutRef.current) clearTimeout(cooldownTimeoutRef.current);
       cooldownTimeoutRef.current = setTimeout(() => setCooldown(false), 3000);
     }
   }, [cooldown, nickname, platform, search, selectedSeason]);
+
+  const navigateToPlayer = useCallback((
+    name: string,
+    targetPlatform = platform,
+    respectSubmitGuard = true,
+  ) => {
+    const normalized = name.trim();
+    if (
+      !normalized || navigationPendingRef.current ||
+      (respectSubmitGuard && (loading || cooldown || isCoolingDown))
+    ) return;
+    navigationPendingRef.current = true;
+    setNavigationPending(true);
+    router.push(`/stats/${targetPlatform}/${encodeURIComponent(normalized)}`);
+  }, [cooldown, isCoolingDown, loading, platform, router]);
+
+  useEffect(() => {
+    navigationPendingRef.current = false;
+    setNavigationPending(false);
+  }, [initialNickname, initialPlatform]);
 
   useEffect(() => {
     return () => {
@@ -212,77 +160,34 @@ export default function StatSearch({
   }, []);
 
   useEffect(() => {
-    if (!initialNickname && userProfile?.pubg_nickname && !hasPrefilled) {
-      const userPlatform = userProfile.pubg_platform || "steam";
-      setNickname(userProfile.pubg_nickname);
-      setPlatform(userPlatform === "kakao" ? "kakao" : "steam");
-      setHasPrefilled(true);
-    }
-  }, [hasPrefilled, initialNickname, setNickname, setPlatform, userProfile]);
+    if (
+      initialNickname || status !== "idle" || userEditedRef.current || nickname ||
+      !profilePrefill.loaded || !profilePrefill.nickname
+    ) return;
+    setNickname(profilePrefill.nickname);
+    setPlatform(profilePrefill.platform ?? "steam");
+  }, [
+    initialNickname,
+    nickname,
+    profilePrefill.loaded,
+    profilePrefill.nickname,
+    profilePrefill.platform,
+    setNickname,
+    setPlatform,
+    status,
+  ]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_FAVORITES, JSON.stringify(favorites));
-  }, [favorites]);
+    if (!result) return;
+    const identity = `${result.platform}:${result.nickname}`;
+    if (recordedResultRef.current === identity) return;
+    recordedResultRef.current = identity;
+    addRecent(result.nickname);
+  }, [addRecent, result]);
 
-  // [V54.6] 자동완성 Fetch 로직 (Debounced)
-  useEffect(() => {
-    if (!nickname || nickname.length < 2) {
-      setSuggestions([]);
-      return;
-    }
-
-    // 이미 결과가 있거나 로딩 중이면 추천을 띄우지 않음 (선택 사항)
-    // if (result || loading) return;
-
-    const controller = new AbortController();
-    const query = nickname;
-
-    const timer = setTimeout(async () => {
-      setIsSuggesting(true);
-      try {
-        const res = await fetch(`/api/pubg/suggest?q=${encodeURIComponent(query)}`, {
-          signal: controller.signal
-        });
-        const data = await res.json();
-        setSuggestions(data.suggestions || []);
-      } catch (error: any) {
-        if (error.name === "AbortError") return;
-        setSuggestions([]);
-      } finally {
-        if (controller.signal.aborted) return;
-        setIsSuggesting(false);
-      }
-    }, 300);
-
-    return () => {
-      clearTimeout(timer);
-      controller.abort();
-    };
-  }, [nickname]);
-
-  const toggleFavorite = (name: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setFavorites((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [name, ...prev]
-    );
-  };
-
-  const removeRecentSearch = (name: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    setRecentSearches((prev) => {
-      const updated = prev.filter((n) => n !== name);
-      localStorage.setItem(STORAGE_KEY_RECENT, JSON.stringify(updated));
-      return updated;
-    });
-  };
-
-  const getDropdownItems = () => {
-    const items: { name: string; type: "favorite" | "recent" }[] = [];
-    favorites.forEach(name => items.push({ name, type: "favorite" }));
-    recentSearches
-      .filter(name => !favorites.includes(name))
-      .forEach(name => items.push({ name, type: "recent" }));
-    return items;
+  const toggleFavorite = (name: string, event?: React.MouseEvent) => {
+    event?.stopPropagation();
+    toggleStoredFavorite(name);
   };
 
   const [showGuideline, setShowGuideline] = useState(false);
@@ -293,147 +198,26 @@ export default function StatSearch({
         <InlineIconLabel icon="activity" iconSize={24} className="justify-center">AI 전적 검색</InlineIconLabel>
       </h1>
       
-      {/* 하이드레이션 오류 방지를 위해 마운트 후에만 인터랙티브 요소 렌더링 활성화 */}
-      <div 
-        className={`flex flex-col md:flex-row gap-3 max-w-3xl mx-auto mb-8 relative ${showDropdown ? 'z-[1000]' : 'z-30'}`}
-        style={{ opacity: mounted ? 1 : 0.5 }}
-      >
-        <select
-          id={platformId}
-          name="platform"
-          autoComplete="off"
-          value={platform}
-          onChange={(e) => setPlatform(e.target.value === "kakao" ? "kakao" : "steam")}
-          className="w-full md:w-48 p-3 bg-[#252525] color-white border border-[#444] rounded-md text-base focus:outline-none focus:border-[#F2A900] transition-colors"
-        >
-          <option value="steam">스팀 (Steam)</option>
-          <option value="kakao">카카오 (Kakao)</option>
-        </select>
-        
-        <div className="relative flex-1" ref={dropdownRef}>
-          <input
-            id={nicknameId}
-            name="nickname"
-            type="text"
-            autoComplete="off"
-            placeholder="정확한 대소문자 닉네임을 입력하세요"
-            value={nickname}
-            onChange={(e) => setNickname(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-            onFocus={() => setShowDropdown(true)}
-            className="w-full p-3 bg-[#252525] text-white border border-[#444] rounded-md text-base focus:outline-none focus:border-[#F2A900] transition-colors"
-          />
-          {showDropdown && (recentSearches.length > 0 || favorites.length > 0 || suggestions.length > 0) && (
-            <div className="absolute top-full left-0 right-0 mt-2 bg-[#0a0a1a]/95 border border-white/10 rounded-xl overflow-hidden shadow-[0_10px_40px_rgba(0,0,0,0.5)] backdrop-blur-xl z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-              <div className="max-h-[350px] overflow-y-auto custom-scrollbar">
-                {/* [V54.6] 자동완성 추천 결과 우선 표시 */}
-                {nickname.length >= 2 && suggestions.length > 0 && (
-                  <div className="pb-2">
-                    <div className="px-4 py-2 text-[10px] font-black text-amber-500/50 uppercase tracking-widest border-b border-white/5 bg-white/2">추천 플레이어</div>
-                    {suggestions.map((s, i) => {
-                      const isRecent = recentSearches.includes(s.nickname);
-                      return (
-                        <div
-                          key={`suggest-${s.nickname}-${i}`}
-                          onClick={() => {
-                            setNickname(s.nickname);
-                            setPlatform(s.platform === "kakao" ? "kakao" : "steam");
-                            handleSearch(selectedSeason, s.nickname, s.platform);
-                            setShowDropdown(false);
-                          }}
-                          className="w-full px-4 py-3 flex items-center gap-3 hover:bg-amber-500/10 transition-colors cursor-pointer border-b border-white/5 last:border-0 group"
-                        >
-                          <div className="relative">
-                            <User size={14} className={`${isRecent ? 'text-blue-400' : 'text-amber-500'} shrink-0`} />
-                            {isRecent && <div className="absolute -top-1 -right-1 w-2 h-2 bg-blue-500 rounded-full border border-[#0a0a1a]" title="최근 검색함" />}
-                          </div>
-                          <div className="flex flex-col">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-bold text-gray-200 group-hover:text-white truncate">{s.nickname}</span>
-                              {isRecent && (
-                                <span className="px-1 py-0.5 bg-blue-500/20 text-blue-400 text-[8px] font-black rounded uppercase tracking-tighter border border-blue-500/30">최근</span>
-                              )}
-                            </div>
-                            <span className="text-[10px] text-gray-500 uppercase">{s.platform}</span>
-                          </div>
-                          <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Star size={12} className="text-amber-500/30" />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-
-                {/* 최근 검색 및 즐겨찾기 (검색어가 짧거나 결과가 없을 때 보완) */}
-                {(nickname.length < 2 || suggestions.length === 0) && (
-                  <>
-                    {nickname.length >= 2 && suggestions.length === 0 && !isSuggesting && (
-                      <div className="px-4 py-4 text-center text-xs text-gray-500 italic">검색 결과가 없습니다.</div>
-                    )}
-                    {getDropdownItems().map((item, i) => {
-                      const isFav = favorites.includes(item.name);
-                      return (
-                        <div
-                          key={`${item.name}-${i}`}
-                          onClick={() => {
-                            setNickname(item.name);
-                            handleSearch(selectedSeason, item.name);
-                            setShowDropdown(false);
-                          }}
-                          className="w-full px-4 py-3 flex items-center gap-3 hover:bg-white/5 transition-colors cursor-pointer border-b border-white/5 last:border-0 group"
-                        >
-                          {item.type === "favorite" ? (
-                            <Star size={14} className="text-yellow-400 fill-yellow-400 shrink-0" />
-                          ) : (
-                            <Clock size={14} className="text-gray-500 shrink-0" />
-                          )}
-                          <span className="text-sm font-bold text-gray-300 group-hover:text-white truncate">{item.name}</span>
-                          
-                          <div className="ml-auto flex items-center gap-2">
-                            <button
-                              onClick={(e) => toggleFavorite(item.name, e)}
-                              className={`p-1.5 rounded-lg transition-all ${isFav ? "text-yellow-400 bg-yellow-400/10" : "text-gray-600 hover:text-yellow-400 hover:bg-yellow-400/10"}`}
-                            >
-                              <Star size={14} fill={isFav ? "currentColor" : "none"} />
-                            </button>
-                            {item.type === "recent" && (
-                              <button
-                                onClick={(e) => removeRecentSearch(item.name, e)}
-                                className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all"
-                              >
-                                <X size={14} />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-        
-        <div className="flex gap-2">
-          <button
-            onClick={() => handleSearch()}
-            disabled={loading || cooldown}
-            className={`flex-1 md:flex-none px-6 py-3 rounded-md font-bold text-base whitespace-nowrap transition-all active:scale-95 ${loading || cooldown ? "bg-[#555] text-[#aaa] cursor-not-allowed" : "bg-[#F2A900] text-black cursor-pointer hover:bg-[#ffb700]"}`}
-          >
-            {loading ? "검색중..." : cooldown ? "쿨타임" : "검색"}
-          </button>
-
-          <button
-            onClick={() => router.push('/stats/battle')}
-            className="px-4 bg-purple-600 hover:bg-purple-500 text-white font-bold border-none rounded-md flex items-center justify-center gap-2 transition-all active:scale-95 whitespace-nowrap cursor-pointer"
-          >
-            <Swords size={20} />
-            <span className="hidden md:inline">비교 모드</span>
-          </button>
-        </div>
-      </div>
+      <StatsSearchBar
+        platform={platform}
+        nickname={nickname}
+        recentSearches={recentSearches}
+        favorites={favorites}
+        suggestions={autocomplete.suggestions}
+        suggesting={autocomplete.suggesting}
+        submitDisabled={!nickname.trim() || loading || cooldown || isCoolingDown || navigationPending}
+        submitLabel={loading ? "검색중..." : cooldown || isCoolingDown ? "쿨타임" : "검색"}
+        onPlatformChange={setPlatform}
+        onNicknameChange={(value) => {
+          userEditedRef.current = true;
+          setNickname(value);
+        }}
+        onSubmit={() => navigateToPlayer(nickname)}
+        onQuickSearch={(name) => navigateToPlayer(name)}
+        onSuggestionSelect={(suggestion) => navigateToPlayer(suggestion.nickname, suggestion.platform)}
+        onFavoriteToggle={toggleStoredFavorite}
+        onRecentRemove={removeRecent}
+      />
 
       {error && (
         <div
@@ -464,11 +248,8 @@ export default function StatSearch({
                 {suggestedUsers.map((user) => (
                   <button
                     key={`${user.nickname}-${user.platform}`}
-                    onClick={() => {
-                      setNickname(user.nickname);
-                      setPlatform(user.platform);
-                      handleSearch(selectedSeason, user.nickname, user.platform);
-                    }}
+                    aria-label={`${user.nickname} ${user.platform === "steam" ? "스팀" : "카카오"}로 검색`}
+                    onClick={() => navigateToPlayer(user.nickname, user.platform)}
                     className="px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-500 text-xs font-black rounded-full hover:bg-amber-500 hover:text-black transition-all cursor-pointer"
                   >
                     {user.nickname} ({user.platform === "steam" ? "스팀" : "카카오"})
@@ -482,30 +263,7 @@ export default function StatSearch({
 
       {/* [Empty State V1.0] 결과 없음 + 로딩/에러 아님 → 유저 상태별 분기 화면 */}
       {!result && !loading && !error && (
-        <>
-          {/* 로그인 + 닉네임 미등록 → 마이페이지 등록 유도 카드 */}
-          {user && !userProfile?.pubg_nickname && (
-            <RegisterNicknamePrompt />
-          )}
-          {/* 결과가 없는 모든 상태 → Hero 화면 (비로그인 / 닉네임 미등록 / 닉네임 등록 후 검색 전 모두 포함) */}
-          <HeroEmptyState
-            recentSearches={recentSearches}
-            favorites={favorites}
-            isLoggedIn={!!user}
-            onQuickSearch={(name: string) => {
-              setNickname(name);
-              handleSearch(selectedSeason, name, platform);
-            }}
-          />
-
-          {/*
-            Overwolf Companion 진입점.
-            앱을 쓰는 사용자는 데스크탑 창 버튼으로 세션 기록에 들어오지만,
-            웹에서 먼저 온 사용자는 그 화면의 존재를 알 수 없었다.
-            (오버울프 앱 정식 출시 전까지는 전적 검색 화면 노출 주석 처리)
-          */}
-          {/* <CompanionEntryCard /> */}
-        </>
+        <StatsLandingState onCompare={() => router.push("/stats/battle")} />
       )}
 
       {result && (
@@ -540,7 +298,7 @@ export default function StatSearch({
                       </button>
                     ) : (
                       <button
-                        onClick={() => handleSearch(selectedSeason, result.nickname, result.platform, true)}
+                        onClick={() => handleControllerSearch(selectedSeason, result.nickname, result.platform, true)}
                         disabled={loading}
                         className="px-3 py-1.5 bg-[#2dd4bf] hover:bg-[#14b8a6] text-white text-[11px] font-black rounded-lg border-none cursor-pointer transition-all active:scale-95 shadow-md shadow-teal-950/20"
                       >
@@ -549,7 +307,7 @@ export default function StatSearch({
                     )}
                     
                     <button
-                      onClick={(e) => toggleFavorite(result.nickname, e)}
+                      onClick={(event) => toggleFavorite(result.nickname, event)}
                       className={`p-1.5 rounded-lg border-none transition-all cursor-pointer ${isFav ? "text-yellow-400 bg-yellow-400/10 hover:bg-yellow-400/20" : "text-gray-500 bg-white/5 hover:text-yellow-400 hover:bg-yellow-400/10"}`}
                     >
                       <Star size={13} fill={isFav ? "currentColor" : "none"} />
@@ -585,7 +343,7 @@ export default function StatSearch({
               autoComplete="off"
               value={selectedSeason}
               onChange={(e) => {
-                handleSearch(e.target.value, result.nickname, result.platform, false, true);
+                handleControllerSearch(e.target.value, result.nickname, result.platform, false, true);
               }}
               style={{ padding: "8px 12px", backgroundColor: "#252525", color: "white", border: "1px solid #444", borderRadius: "6px" }}
             >
@@ -820,8 +578,7 @@ export default function StatSearch({
                             index={index}
                             initialMatchData={matchSummaries[matchId]}
                             onNicknameClick={(clickedName) => {
-                              setNickname(clickedName);
-                              handleSearch(selectedSeason, clickedName, platform);
+                              navigateToPlayer(clickedName, result.platform, false);
                               window.scrollTo({ top: 0, behavior: "smooth" });
                             }}
                             onModeDetected={handleModeDetected}
@@ -1062,158 +819,6 @@ function BanStatusButton({ banType, isMobile }: BanStatusButtonProps) {
           <p className="text-[11px] text-gray-300 leading-relaxed font-medium">
             {statusDesc}
           </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────
-// [Empty State V1.0] 보조 컴포넌트
-// ─────────────────────────────────────────────────────────────
-
-/** 닉네임 미등록 로그인 유저 — 마이페이지 등록 유도 카드 */
-function RegisterNicknamePrompt() {
-  return (
-    <div className="flex items-center gap-4 p-5 bg-amber-500/5 border border-amber-500/20 rounded-2xl mb-4 animate-in fade-in duration-300">
-      <div className="p-3 bg-amber-500/10 rounded-xl shrink-0">
-        <User size={22} className="text-amber-500" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-black text-white">PUBG 닉네임을 연동하고 과거 전적을 자동 저장하세요</p>
-        <p className="text-xs text-gray-500 mt-1 leading-relaxed">마이페이지에 닉네임을 등록해 두면 기본 계정 자동 입력은 물론, 사이트에 접속하지 않더라도 과거 전적이 자동으로 기록 및 저장됩니다.</p>
-      </div>
-      <a
-        href="/mypage"
-        className="shrink-0 px-4 py-2 bg-amber-500 text-black text-xs font-black rounded-xl hover:bg-amber-400 transition-colors whitespace-nowrap active:scale-95"
-      >
-        닉네임 등록 →
-      </a>
-    </div>
-  );
-}
-
-/** 비로그인 / 닉네임 미등록 유저 — Hero Empty State */
-function HeroEmptyState({
-  recentSearches,
-  favorites,
-  isLoggedIn,
-  onQuickSearch,
-}: {
-  recentSearches: string[];
-  favorites: string[];
-  isLoggedIn: boolean;
-  onQuickSearch: (name: string) => void;
-}) {
-  // [Hydration 수정] localStorage 의존 데이터는 마운트 후에만 사용
-  // 서버/클라이언트 초기 렌더링 결과를 동일하게 유지하여 Hydration 불일치 방지
-  const [mounted, setMounted] = React.useState(false);
-  React.useEffect(() => { setMounted(true); }, []);
-
-  const quickList = mounted ? [
-    ...favorites.slice(0, 3),
-    ...recentSearches.filter((n) => !favorites.includes(n)).slice(0, Math.max(0, 5 - Math.min(favorites.length, 3))),
-  ].slice(0, 5) : [];
-
-  const featureCards = [
-    {
-      icon: <Zap size={20} className="text-amber-500" />,
-      title: "AI 전술 분석",
-      desc: "반응속도, 팀 임팩트, 교전 주도권을 텔레메트리 데이터로 정밀 분석합니다.",
-      badge: "CORE",
-      badgeClass: "text-amber-500 bg-amber-500/10 border-amber-500/20",
-    },
-    {
-      icon: <MapPin size={20} className="text-blue-400" />,
-      title: "2D 리플레이",
-      desc: "실제 동선 재생과 피격 위치를 지도 위에 시각화하여 전황을 재현합니다.",
-      badge: "VISUAL",
-      badgeClass: "text-blue-400 bg-blue-400/10 border-blue-400/20",
-    },
-    {
-      icon: <Swords size={20} className="text-purple-400" />,
-      title: "비교 모드",
-      desc: "두 플레이어의 전술 지표를 1:1로 직관적으로 비교 분석합니다.",
-      badge: "PVP",
-      badgeClass: "text-purple-400 bg-purple-400/10 border-purple-400/20",
-    },
-  ];
-
-  return (
-    <div className="flex flex-col gap-8 pt-4 animate-in fade-in duration-500">
-      {/* 브랜드 슬로건 */}
-      <div className="text-center py-4">
-        <div className="inline-flex items-center gap-2 px-3 py-1 bg-amber-500/10 border border-amber-500/20 rounded-full mb-4">
-          <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />
-          <span className="text-[11px] font-black text-amber-500 uppercase tracking-widest">BGMS Tactical AI</span>
-        </div>
-        <h2 className="text-2xl md:text-3xl font-black text-white mb-3 leading-tight">
-          30초 만에 확인하는<br />
-          <span className="text-amber-500">나의 전술 등급</span>
-        </h2>
-        <p className="text-sm text-gray-500 leading-relaxed">
-          실시간 텔레메트리 기반 &middot; AI 교전 분석 &middot; 2D 리플레이
-        </p>
-      </div>
-
-      {/* 기능 소개 카드 3종 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {featureCards.map((card) => (
-          <div
-            key={card.title}
-            className="p-5 bg-white/[0.03] border border-white/[0.08] rounded-2xl hover:border-white/15 hover:bg-white/5 transition-all duration-300"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div className="p-2 bg-black/40 rounded-xl">{card.icon}</div>
-              <span className={`px-2 py-0.5 text-[9px] font-black rounded-md border uppercase tracking-widest ${card.badgeClass}`}>
-                {card.badge}
-              </span>
-            </div>
-            <h3 className="text-sm font-black text-white mb-1.5">{card.title}</h3>
-            <p className="text-[11px] text-gray-500 leading-relaxed">{card.desc}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* 최근/즐겨찾기 빠른 검색 (localStorage 기반, DB 비용 0) */}
-      {quickList.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <Clock size={13} className="text-gray-600" />
-            <span className="text-[11px] font-black text-gray-600 uppercase tracking-widest">최근 검색한 플레이어</span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {quickList.map((name) => {
-              const isFav = favorites.includes(name);
-              return (
-                <button
-                  key={name}
-                  onClick={() => onQuickSearch(name)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white/5 hover:bg-amber-500/10 border border-white/10 hover:border-amber-500/30 rounded-full text-xs font-bold text-gray-300 hover:text-white transition-all"
-                >
-                  {isFav
-                    ? <Star size={11} className="text-yellow-400 fill-yellow-400" />
-                    : <Clock size={11} className="text-gray-600" />
-                  }
-                  {name}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* 로그인 유도 링크 (비로그인 시) */}
-      {!isLoggedIn && (
-        <div className="flex items-center justify-center gap-3 py-4 border-t border-white/5">
-          <span className="text-xs text-gray-600">닉네임을 저장하고 빠르게 내 전적 보기</span>
-          <a
-            href="/login"
-            className="flex items-center gap-1.5 text-xs font-black text-amber-500 hover:text-amber-400 transition-colors"
-          >
-            <LogIn size={13} />
-            로그인하기
-          </a>
         </div>
       )}
     </div>
