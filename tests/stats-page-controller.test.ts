@@ -314,6 +314,13 @@ describe("useStatsPageController", () => {
     expect(controller.result.current.summaryStatus).toBe("idle");
     expect(controller.result.current.refreshAvailableAt).toBeUndefined();
     expect(controller.result.current.isRefreshCoolingDown).toBe(false);
+    expect(controller.result.current.seasonId).toBe("");
+
+    await act(async () => {
+      await controller.result.current.search({ nickname: "PlayerA", platform: "steam" });
+    });
+    expect(playerRequests(fetchMock)).toHaveLength(2);
+    expect(controller.result.current.error?.type).toBe("rate_limit");
   });
 
   it("한 행의 복구가 다른 행의 같은 partial reason을 지우지 않는다", () => {

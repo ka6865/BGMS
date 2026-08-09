@@ -567,6 +567,7 @@ export function useStatsPageController(
     activeRouteKeyRef.current = routeKey;
     setPlatform(routePlatform);
     setNickname(routeNickname);
+    setSeasonId("");
     setSectionTab(options.initialTab ?? "overview");
     void runSearch({ nickname: routeNickname, platform: routePlatform, seasonId: "" }, true);
   }, [
@@ -578,6 +579,7 @@ export function useStatsPageController(
     setNickname,
     setPlatform,
     setResult,
+    setSeasonId,
     setSectionTab,
   ]);
 
