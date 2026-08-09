@@ -36,6 +36,12 @@ interface StatSearchProps {
   initialGroupKey?: string;
 }
 
+interface IdentityOwnedAiState {
+  identity: string;
+  summary: AiSummarySnapshot | null;
+  expanded: boolean;
+}
+
 /** 전적 검색 메인 컴포넌트 */
 export default function StatSearch({
   initialPlatform,
@@ -212,17 +218,30 @@ export default function StatSearch({
   };
 
   const [showGuideline, setShowGuideline] = useState(false);
-  const [aiSummary, setAiSummary] = useState<AiSummarySnapshot | null>(null);
-  const [aiExpanded, setAiExpanded] = useState(false);
+  const aiIdentity = result
+    ? `${result.platform}\u001f${result.nickname}\u001f${result.recentMatches.join("\u001e")}`
+    : "";
+  const [aiState, setAiState] = useState<IdentityOwnedAiState | null>(null);
+  const aiSummary = aiState?.identity === aiIdentity ? aiState.summary : null;
+  const aiExpanded = aiState?.identity === aiIdentity ? aiState.expanded : false;
   const aiSectionRef = useRef<HTMLDivElement>(null);
   const handleAiSummaryChange = useCallback((summary: AiSummarySnapshot | null) => {
-    setAiSummary(summary);
-    if (!summary) setAiExpanded(false);
-  }, []);
+    setAiState((previous) => ({
+      identity: aiIdentity,
+      summary,
+      expanded: summary && previous?.identity === aiIdentity ? previous.expanded : false,
+    }));
+  }, [aiIdentity]);
+  const handleAiToggle = useCallback(() => {
+    setAiState((previous) => previous?.identity === aiIdentity
+      ? { ...previous, expanded: !previous.expanded }
+      : { identity: aiIdentity, summary: null, expanded: false });
+  }, [aiIdentity]);
   const handleAiOpen = useCallback(() => {
     const section = aiSectionRef.current;
     section?.scrollIntoView({ behavior: "smooth", block: "start" });
-    section?.querySelector<HTMLButtonElement>("button")?.focus();
+    const firstButton = section?.querySelector<HTMLButtonElement>("button");
+    (firstButton ?? section)?.focus();
   }, []);
 
   return (
@@ -341,7 +360,7 @@ export default function StatSearch({
                 onModeChange={setStatsMode}
                 onPartySizeChange={setPartySize}
                 onAiOpen={handleAiOpen}
-                onAiToggle={() => setAiExpanded((expanded) => !expanded)}
+                onAiToggle={handleAiToggle}
               />
 
               {/* BGMS AI 전술 분석 시스템 설명 (토글형으로 최적화) */}
@@ -422,9 +441,8 @@ export default function StatSearch({
                 )}
               </div>
 
-              {/* 최근 10경기 AI 종합 분석 섹션 추가 - 닉네임이 바뀔 때마다 리셋되도록 key 부여 */}
-              {result.recentMatches && result.recentMatches.length > 0 && (
-                <div ref={aiSectionRef} tabIndex={-1}>
+              <div ref={aiSectionRef} role="region" aria-label="AI 분석" tabIndex={-1}>
+                {result.recentMatches.length > 0 ? (
                   <RecentAISummary
                     matchIds={result.recentMatches}
                     nickname={result.nickname}
@@ -432,8 +450,16 @@ export default function StatSearch({
                     isMobile={isMobile}
                     onSummaryChange={handleAiSummaryChange}
                   />
-                </div>
-              )}
+                ) : (
+                  <p
+                    role="status"
+                    aria-label="AI 분석할 최근 매치 없음"
+                    className="rounded-2xl border border-white/10 bg-[#161616] p-5 text-center text-sm font-bold text-white/50"
+                  >
+                    최근 매치 기록이 없어 AI 분석을 시작할 수 없습니다.
+                  </p>
+                )}
+              </div>
 
               <div className="my-4 flex justify-center lg:hidden" aria-label="광고">
                 <AdfitBanner

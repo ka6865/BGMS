@@ -114,3 +114,71 @@ exit 0 (출력 없음)
 
 - `RecentAISummary` 전체 섹션은 기존 1,300줄 UI와 수동 요청 흐름을 유지했다. 이번 작업은 callback/generation ownership만 추가했으며 대규모 분해는 범위 밖이다.
 - Task 9가 `StatsPageShell`에서 프로필·요약·매치 2열 조립을 완성할 때 실제 mobile/desktop 레이아웃을 확정해야 한다.
+
+---
+
+## Fix Round 1 — 부모 AI snapshot identity 소유권
+
+- 기준 커밋: `01d64c80d6c8b2ca0c87986a1b66a9dc6564f9f5`
+- 범위: `StatSearch`가 보유한 compact AI snapshot/expanded state의 route identity 격리와 최근 매치가 없는 결과의 실제 AI focus target
+
+### 수정 결과
+
+- 부모 AI state를 `{ identity, summary, expanded }`로 묶고, 현재 결과의 primitive `platform + nickname + joined recentMatches` identity와 일치할 때만 compact snapshot/expanded 상태를 렌더한다. 별도 reset effect가 없어 B 결과가 렌더되는 frame에 A verdict가 보이지 않는다.
+- `onSummaryChange` callback은 현재 identity에 의존해 해당 identity로만 snapshot을 저장한다. 이전 자식의 늦은 callback도 이전 identity로 태그되므로 새 결과에 노출되지 않으며, `RecentAISummary`의 callback-ref/generation 소유권은 변경하지 않았다.
+- expanded도 snapshot과 같은 identity object에 소유시켜 A의 펼침 상태가 B로 전달되지 않는다.
+- overview의 AI section은 최근 매치 유무와 관계없이 focus 가능한 `region`으로 렌더한다. 빈 결과는 accessible `status`와 설명을 제공하고, compact CTA는 첫 button이 있으면 button을, 없으면 section 자체를 scroll/focus한다.
+- AI 분석 요청 시작 로직은 추가하지 않았다. 부모 통합 테스트에서 CTA 후 `/api/ai/*` 요청이 0개임을 확인했다.
+
+### TDD RED
+
+production 수정 전에 StatSearch 경계 통합 테스트를 추가하고 실제 실패를 확인했다.
+
+```text
+$ npx vitest run tests/stat-search-ai-parent-identity.test.ts
+Test Files  1 failed (1)
+Tests       1 failed (1)
+Assertion  PlayerB 렌더 후에도 PlayerA verdict가 document에 남음
+Duration   1.49s
+exit       1
+```
+
+### GREEN 및 회귀 검증
+
+```text
+$ npx vitest run tests/stat-search-ai-parent-identity.test.ts
+Test Files  1 passed (1)
+Tests       1 passed (1)
+Duration    1.52s
+
+$ npx vitest run tests/player-profile-header.test.ts tests/stat-summary-panel.test.ts tests/recent-ai-summary-bridge.test.ts tests/stat-search-ai-parent-identity.test.ts
+Test Files  4 passed (4)
+Tests       20 passed (20)
+Duration    1.88s
+
+$ npx vitest run tests/stats-page-model.test.ts tests/stat-search-baseline.test.ts tests/stat-search-season-refresh.test.ts tests/stat-search-deep-link.test.ts tests/stat-search-navigation.test.ts tests/match-card-demand-loading.test.ts tests/ai-cache-routes.test.ts
+Test Files  7 passed (7)
+Tests       41 passed (41)
+Duration    2.50s
+
+$ npx tsc --noEmit --pretty false
+exit 0 (출력 없음)
+
+$ npx eslint components/stat/StatSearch.tsx tests/stat-search-ai-parent-identity.test.ts
+exit 0 (출력 없음)
+
+$ npm run verify:core
+exit 0
+eslint: 0 errors, 기존 43 warnings
+tsc: 0 errors
+
+$ git diff --check
+exit 0 (출력 없음)
+```
+
+### 자체 검토 및 관심 사항
+
+- 통합 테스트는 A final snapshot 생성 → B route 전환 직후 → deferred B 응답 완료의 두 시점에서 A verdict 비노출을 확인한다. B의 `recentMatches=[]` 상태에서 accessible region/status, CTA scroll, section focus, AI fetch 0도 검증한다.
+- callback과 toggle 모두 functional state update를 사용하며 effect reset을 추가하지 않았다. identity dependency는 primitive string 하나이고, 자식은 callback을 ref에 저장하므로 effect loop를 만들지 않는다.
+- React condensed review에서 direct import, primitive dependency, render-derived visibility, module-level type, native accessibility/focus target을 확인했다. 신규 변경 대상 ESLint warning/error는 0개다.
+- 실제 브라우저의 smooth-scroll 시각 동작은 이번 회귀 범위에서 실행하지 않았다. DOM focus 소유권과 `scrollIntoView` 호출 계약은 jsdom 통합 테스트로 고정했다.
