@@ -2,14 +2,17 @@
 
 import { useEffect, useRef } from 'react';
 import { BgmsIcon } from '@/components/common/BgmsIcon';
+import { shouldLoadExternalAdScripts } from '@/lib/ads/statsAdPlacements';
 
 interface AdSenseBannerProps {
+  placementId?: string;
   client: string;
   slot: string;
   className?: string;
   format?: string;       // 기본값 'auto'
   layoutKey?: string;    // 인피드 광고 등에 필요한 layout-key
   responsive?: string;   // 'true' | 'false', 기본값 'true'
+  minHeight?: number;
 }
 
 /**
@@ -19,70 +22,71 @@ interface AdSenseBannerProps {
  * - SPA 전환 시에도 ins 태그를 재마운트하여 광고를 재초기화합니다.
  */
 export default function AdSenseBanner({
+  placementId,
   client,
   slot,
   className,
   format = 'auto',
   layoutKey,
   responsive = 'true',
+  minHeight = 130,
 }: AdSenseBannerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const isDev = process.env.NODE_ENV === 'development';
+  const loadExternalAds = shouldLoadExternalAdScripts(process.env.NODE_ENV);
   const isFluid = format === 'fluid';
+  const ownerKey = `${placementId ?? 'adsense'}:${client}:${slot}:${format}`;
 
   useEffect(() => {
-    if (isDev) return; // 개발 환경에서는 placeholder만 사용
+    if (!loadExternalAds) return;
 
     const container = containerRef.current;
     if (!container) return;
 
-    // 기존 태그 제거 후 ins와 script 쌍으로 재마운트 (SPA 동적 로드 완벽 보장)
-    container.innerHTML = '';
+    try {
+      container.innerHTML = '';
+      const ins = document.createElement('ins');
+      ins.className = 'adsbygoogle';
+      ins.style.display = 'block';
+      ins.setAttribute('data-ad-client', client);
+      ins.setAttribute('data-ad-slot', slot);
+      ins.setAttribute('data-ad-format', format);
+      ins.setAttribute('data-ad-owner-key', ownerKey);
+      if (layoutKey) ins.setAttribute('data-ad-layout-key', layoutKey);
+      if (!isFluid) ins.setAttribute('data-full-width-responsive', responsive);
 
-    // 1. 애드센스 메인 스크립트 로드 확인 및 추가 (없을 때만)
-    const scriptId = 'adsbygoogle-main-js';
-    let mainScript = document.getElementById(scriptId) as HTMLScriptElement;
-    if (!mainScript) {
-      mainScript = document.createElement('script');
-      mainScript.id = scriptId;
-      mainScript.async = true;
-      mainScript.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${client}`;
-      mainScript.crossOrigin = 'anonymous';
-      document.head.appendChild(mainScript);
+      container.appendChild(ins);
+      const adWindow = window as typeof window & {
+        adsbygoogle?: { push(value: Record<string, never>): unknown };
+      };
+      const queue = adWindow.adsbygoogle ?? ([] as Array<Record<string, never>>);
+      adWindow.adsbygoogle = queue;
+      queue.push({});
+    } catch {
+      try {
+        container.innerHTML = '';
+      } catch {
+        // provider 초기화 실패는 콘텐츠 상태로 전파하지 않는다.
+      }
     }
 
-    // 2. ins 태그 생성
-    const ins = document.createElement('ins');
-    ins.className = 'adsbygoogle';
-    ins.style.display = 'block';
-    ins.setAttribute('data-ad-client', client);
-    ins.setAttribute('data-ad-slot', slot);
-    ins.setAttribute('data-ad-format', format);
-    
-    if (layoutKey) {
-      ins.setAttribute('data-ad-layout-key', layoutKey);
-    }
-    if (!isFluid) {
-      ins.setAttribute('data-full-width-responsive', responsive);
-    }
-
-    // 3. 광고 실행용 스크립트 생성
-    const pushScript = document.createElement('script');
-    pushScript.innerHTML = '(window.adsbygoogle = window.adsbygoogle || []).push({});';
-
-    container.appendChild(ins);
-    container.appendChild(pushScript);
-  }, [client, slot, format, layoutKey, responsive, isDev, isFluid]);
+    return () => {
+      try {
+        container.innerHTML = '';
+      } catch {
+        // cleanup 실패도 provider 경계 내부에서 끝낸다.
+      }
+    };
+  }, [client, slot, format, layoutKey, responsive, loadExternalAds, isFluid, ownerKey]);
 
   // 개발 환경: 광고 위치 시각적 플레이스홀더 (네이티브/스켈레톤 테마 적용)
-  if (isDev) {
+  if (!loadExternalAds) {
     if (isFluid) {
       return (
         <div
           className={className}
           style={{
             width: '100%',
-            height: '130px',
+            height: `${minHeight}px`,
             backgroundColor: '#1a1a1a',
             borderRadius: '24px',
             border: '1px solid rgba(255, 255, 255, 0.05)',
@@ -94,6 +98,7 @@ export default function AdSenseBanner({
             position: 'relative',
             overflow: 'hidden',
           }}
+          data-ad-owner-key={ownerKey}
         >
           {/* 좌측 Ad 마크와 이미지 영역 */}
           <div style={{
@@ -165,6 +170,7 @@ export default function AdSenseBanner({
     return (
       <div
         className={className}
+        data-ad-owner-key={ownerKey}
         style={{
           width: '160px',
           height: '600px',
@@ -206,11 +212,12 @@ export default function AdSenseBanner({
       style={{
         width: isFluid ? '100%' : '160px',
         height: isFluid ? undefined : '600px',
-        minHeight: isFluid ? '130px' : undefined,
+        minHeight: isFluid ? `${minHeight}px` : undefined,
         maxWidth: '100%',
         margin: '0 auto',
         boxSizing: 'border-box',
       }}
+      data-ad-owner-key={ownerKey}
       aria-label="구글 애드센스 광고"
     />
   );
