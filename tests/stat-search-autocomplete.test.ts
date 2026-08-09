@@ -7,9 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useStatsAutocomplete } from "@/hooks/useStatsAutocomplete";
 import { StatsSearchBar } from "@/components/stat/search/StatsSearchBar";
 
-function jsonResponse(body: unknown) {
+function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
-    status: 200,
+    status,
     headers: { "Content-Type": "application/json" },
   });
 }
@@ -101,6 +101,7 @@ describe("stats autocomplete", () => {
         favorites: [],
         suggestions: autocomplete.suggestions,
         suggesting: autocomplete.suggesting,
+        empty: autocomplete.empty,
         submitDisabled: false,
         onPlatformChange: vi.fn(),
         onNicknameChange: vi.fn(),
@@ -121,5 +122,40 @@ describe("stats autocomplete", () => {
     });
 
     expect(screen.getByText("검색 결과가 없습니다")).toBeInTheDocument();
+  });
+
+  it("500/503 실패 응답은 성공한 0건 메시지로 표시하지 않는다", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ error: "unavailable" }, 503));
+
+    function Harness() {
+      const autocomplete = useStatsAutocomplete("Ka");
+      return createElement(StatsSearchBar, {
+        platform: "steam",
+        nickname: "Ka",
+        recentSearches: [],
+        favorites: [],
+        suggestions: autocomplete.suggestions,
+        suggesting: autocomplete.suggesting,
+        empty: autocomplete.empty,
+        submitDisabled: false,
+        onPlatformChange: vi.fn(),
+        onNicknameChange: vi.fn(),
+        onSubmit: vi.fn(),
+        onQuickSearch: vi.fn(),
+        onSuggestionSelect: vi.fn(),
+        onFavoriteToggle: vi.fn(),
+        onRecentRemove: vi.fn(),
+      });
+    }
+
+    render(createElement(Harness));
+    fireEvent.focus(screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요"));
+    await act(async () => {
+      vi.advanceTimersByTime(300);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText("검색 결과가 없습니다")).not.toBeInTheDocument();
   });
 });

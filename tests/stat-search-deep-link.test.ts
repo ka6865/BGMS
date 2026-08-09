@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import StatSearch from "@/components/stat/StatSearch";
@@ -67,11 +67,13 @@ describe("stats route-first/deep-link", () => {
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     vi.stubGlobal("localStorage", localStorageMock);
+    vi.spyOn(window, "scrollTo").mockImplementation(() => {});
     window.history.replaceState(null, "", "/stats");
   });
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -121,6 +123,46 @@ describe("stats route-first/deep-link", () => {
     expect(playerRequests()).toHaveLength(0);
   });
 
+  it("same-route push가 완료되지 않아도 bounded timeout 뒤 navigation guard를 복구한다", () => {
+    vi.useFakeTimers();
+    render(createElement(StatSearch));
+    const input = screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요");
+    fireEvent.change(input, { target: { value: "R" } });
+
+    fireEvent.click(screen.getByRole("button", { name: "검색" }));
+    fireEvent.click(screen.getByRole("button", { name: "검색" }));
+    expect(routerPush).toHaveBeenCalledTimes(1);
+
+    act(() => vi.advanceTimersByTime(1_000));
+    fireEvent.click(screen.getByRole("button", { name: "검색" }));
+
+    expect(routerPush).toHaveBeenCalledTimes(2);
+    expect(playerRequests()).toHaveLength(0);
+  });
+
+  it("fresh PlayerA refresh cooldown 중에도 PlayerB generic search는 route-first 이동한다", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({
+      ...playerReady,
+      nickname: "PlayerA",
+      recentMatches: [],
+      updatedAt: new Date().toISOString(),
+    }));
+    render(createElement(StatSearch, {
+      initialPlatform: "steam",
+      initialNickname: "PlayerA",
+    }));
+    await screen.findByText("PlayerA");
+    const input = screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요");
+
+    fireEvent.change(input, { target: { value: "PlayerB" } });
+    const searchButton = screen.getByRole("button", { name: "검색" });
+    expect(searchButton).toBeEnabled();
+    fireEvent.click(searchButton);
+
+    expect(routerPush).toHaveBeenCalledWith("/stats/steam/PlayerB");
+    expect(playerRequests()).toHaveLength(1);
+  });
+
   it("recent와 favorite quick action도 landing player fetch 없이 route-first 이동한다", async () => {
     localStorage.setItem(STORAGE_KEY_RECENT, JSON.stringify(["RecentPlayer"]));
     localStorage.setItem(STORAGE_KEY_FAVORITES, JSON.stringify(["FavoritePlayer"]));
@@ -165,6 +207,23 @@ describe("stats route-first/deep-link", () => {
     expect(screen.getByText("전적 요약")).toBeInTheDocument();
     expect(screen.getByText("AI 분석")).toBeInTheDocument();
     expect(screen.getByText("스쿼드 시너지")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "로그인" })).toHaveAttribute("href", "/login");
+  });
+
+  it("로그인 profile에 PUBG 닉네임이 없으면 중복 조회 없이 mypage 등록 prompt를 표시한다", async () => {
+    authState.user = { id: "missing-nickname-user" };
+    profileSingleMock.mockResolvedValue({
+      data: { pubg_nickname: null, pubg_platform: null },
+      error: null,
+    });
+
+    render(createElement(StatSearch));
+
+    expect(await screen.findByRole("link", { name: "PUBG 닉네임 등록" }))
+      .toHaveAttribute("href", "/mypage");
+    expect(screen.getAllByTestId("stats-landing-feature")).toHaveLength(3);
+    expect(profileSingleMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("link", { name: "로그인" })).not.toBeInTheDocument();
   });
 
   it("404 추천은 반환 platform으로 route-first 이동한다", async () => {
@@ -210,12 +269,16 @@ describe("stats route-first/deep-link", () => {
     const input = screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요");
     fireEvent.change(input, { target: { value: "ManualPlayer" } });
 
-    resolveProfile({
-      data: { pubg_nickname: "ProfilePlayer", pubg_platform: "kakao" },
-      error: null,
+    await act(async () => {
+      resolveProfile({
+        data: { pubg_nickname: "ProfilePlayer", pubg_platform: "kakao" },
+        error: null,
+      });
+      await Promise.resolve();
+      await Promise.resolve();
     });
-    await waitFor(() => expect(profileSingleMock).toHaveBeenCalledTimes(1));
 
     expect(input).toHaveValue("ManualPlayer");
+    expect(profileSingleMock).toHaveBeenCalledTimes(1);
   });
 });

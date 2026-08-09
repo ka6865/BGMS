@@ -24,6 +24,7 @@ import type { StatsSectionTab } from "@/types/stats-page";
 const STATS_MOBILE_AD_UNIT = "DAN-tQGcqmddMC8tPpXA";
 const STATS_LEADERBOARD_AD_UNIT = "DAN-dPiCxgIGtXKjLPP3";
 const STATS_DESKTOP_AD_UNIT = "DAN-RjyosR2uf8eSsVIC";
+const NAVIGATION_PENDING_TIMEOUT_MS = 1_000;
 
 interface StatSearchProps {
   initialPlatform?: string;
@@ -80,6 +81,7 @@ export default function StatSearch({
   const isSearchingRef = useRef(false);
   const cooldownTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigationPendingRef = useRef(false);
+  const navigationPendingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [navigationPending, setNavigationPending] = useState(false);
   const userEditedRef = useRef(false);
   const recordedResultRef = useRef<string | null>(null);
@@ -141,14 +143,24 @@ export default function StatSearch({
     const normalized = name.trim();
     if (
       !normalized || navigationPendingRef.current ||
-      (respectSubmitGuard && (loading || cooldown || isCoolingDown))
+      (respectSubmitGuard && (loading || cooldown))
     ) return;
     navigationPendingRef.current = true;
     setNavigationPending(true);
+    if (navigationPendingTimeoutRef.current) clearTimeout(navigationPendingTimeoutRef.current);
+    navigationPendingTimeoutRef.current = setTimeout(() => {
+      navigationPendingTimeoutRef.current = null;
+      navigationPendingRef.current = false;
+      setNavigationPending(false);
+    }, NAVIGATION_PENDING_TIMEOUT_MS);
     router.push(`/stats/${targetPlatform}/${encodeURIComponent(normalized)}`);
-  }, [cooldown, isCoolingDown, loading, platform, router]);
+  }, [cooldown, loading, platform, router]);
 
   useEffect(() => {
+    if (navigationPendingTimeoutRef.current) {
+      clearTimeout(navigationPendingTimeoutRef.current);
+      navigationPendingTimeoutRef.current = null;
+    }
     navigationPendingRef.current = false;
     setNavigationPending(false);
   }, [initialNickname, initialPlatform]);
@@ -156,6 +168,7 @@ export default function StatSearch({
   useEffect(() => {
     return () => {
       if (cooldownTimeoutRef.current) clearTimeout(cooldownTimeoutRef.current);
+      if (navigationPendingTimeoutRef.current) clearTimeout(navigationPendingTimeoutRef.current);
     };
   }, []);
 
@@ -205,8 +218,9 @@ export default function StatSearch({
         favorites={favorites}
         suggestions={autocomplete.suggestions}
         suggesting={autocomplete.suggesting}
-        submitDisabled={!nickname.trim() || loading || cooldown || isCoolingDown || navigationPending}
-        submitLabel={loading ? "검색중..." : cooldown || isCoolingDown ? "쿨타임" : "검색"}
+        empty={autocomplete.empty}
+        submitDisabled={!nickname.trim() || loading || cooldown || navigationPending}
+        submitLabel={loading ? "검색중..." : cooldown ? "쿨타임" : "검색"}
         onPlatformChange={setPlatform}
         onNicknameChange={(value) => {
           userEditedRef.current = true;
@@ -263,7 +277,12 @@ export default function StatSearch({
 
       {/* [Empty State V1.0] 결과 없음 + 로딩/에러 아님 → 유저 상태별 분기 화면 */}
       {!result && !loading && !error && (
-        <StatsLandingState onCompare={() => router.push("/stats/battle")} />
+        <StatsLandingState
+          onCompare={() => router.push("/stats/battle")}
+          authenticated={Boolean(user)}
+          profileLoaded={profilePrefill.loaded}
+          hasRegisteredNickname={Boolean(profilePrefill.nickname)}
+        />
       )}
 
       {result && (

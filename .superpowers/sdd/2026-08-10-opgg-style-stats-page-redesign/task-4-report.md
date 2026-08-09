@@ -120,3 +120,75 @@ exit 0 (출력 없음)
 - 브라우저 SSR hydration console과 App Router back/forward/metadata는 이번 jsdom/server element 테스트만으로 확정할 수 없다. 감사의 STATS-011/012는 의도적으로 `suspected`다.
 - jsdom은 MatchCard 클릭 후 기존 `window.scrollTo`를 구현하지 않아 안내를 출력한다. route assertion과 player 요청 수에는 영향이 없다.
 - 실제 browser에서 route 전환 시 navigation pending 시각 상태, 저장 history hydration, metadata 전환을 후속 smoke로 확인해야 한다.
+
+## Fix Round 1/5
+
+### 검토 findings와 원인
+
+1. generic `navigateToPlayer`와 검색 버튼이 controller의 `isRefreshCoolingDown`까지 submit guard/label에 포함했다. 이 값은 same-player header 강제 갱신에만 적용돼야 하므로 fresh PlayerA 결과에서 PlayerB route 검색까지 60초 막히는 범위 오류였다.
+2. `navigationPendingRef`는 route props가 바뀔 때만 해제됐다. same-route/no-op/cancelled push에서는 props가 유지되어 이후 검색이 무기한 차단됐다.
+3. Task 4에서 legacy landing markup을 제거하면서 anonymous `/login` CTA와 로그인했지만 profile nickname이 없는 사용자의 `/mypage` 등록 CTA까지 함께 제거됐다.
+4. autocomplete hook은 성공한 0건을 `empty`로 구분했지만 `StatsSearchBar`가 이 값을 받지 않아 500/503도 빈 결과로 표시했다.
+
+### RED
+
+```text
+$ npx vitest run tests/stat-search-deep-link.test.ts tests/stat-search-autocomplete.test.ts
+Test Files  2 failed (2)
+Tests       5 failed | 11 passed (16)
+```
+
+실패는 bounded navigation recovery 2번째 push 0회, fresh PlayerA 뒤 검색 버튼이 `쿨타임`으로 disabled, anonymous/login 및 missing-profile/mypage 링크 부재, 503 응답의 잘못된 `검색 결과가 없습니다` 노출이었다.
+
+timer 회귀의 입력을 1자로 좁혀 autocomplete timer 영향을 제거한 뒤에도 다음처럼 실제 결함으로 RED를 재확인했다.
+
+```text
+$ npx vitest run tests/stat-search-deep-link.test.ts -t "bounded timeout"
+Test Files  1 failed (1)
+Tests       1 failed | 11 skipped (12)
+expected routerPush 2 calls, received 1
+```
+
+### 최소 구현
+
+- generic route-first guard/disabled/label에서 `isRefreshCoolingDown`만 제거했다. blank, active loading/refreshing, local 3초 controller-search cooldown, navigation pending guard는 유지했다. header의 same-player `isCoolingDown` 갱신 분기는 변경하지 않았다.
+- navigation pending에 1초 recovery timer를 추가했다. immediate duplicate는 계속 차단하고, timer 이후에는 props 변화가 없어도 다시 push할 수 있다. route identity 변화는 timer를 취소하고 즉시 해제하며 unmount cleanup도 timer를 제거한다.
+- `StatsLandingState`에 keyed profile hook의 loaded/auth/nickname 상태를 전달해 anonymous `/login`, loaded missing-nickname `/mypage` CTA를 복원했다. profile query는 기존 hook 한 번뿐이다.
+- autocomplete `empty`를 검색창 계약에 전달해 성공한 0건만 empty 문구를 표시한다.
+- 지연 profile 통합 테스트는 응답 resolve와 React microtask 처리를 `act`로 기다린 다음 수동 입력 보존을 검사한다. focused test의 기존 `scrollTo`는 stub 처리했다.
+
+### GREEN과 회귀 검증
+
+```text
+$ npx vitest run tests/stat-search-deep-link.test.ts tests/stat-search-autocomplete.test.ts
+Test Files  2 passed (2)
+Tests       16 passed (16)
+
+$ npx vitest run tests/stat-search-deep-link.test.ts tests/stat-search-autocomplete.test.ts tests/stat-search-prefill.test.ts tests/bottom-nav-stats-active.test.ts tests/stat-search-baseline.test.ts tests/stat-search-navigation.test.ts tests/battle-storage-compat.test.ts
+Test Files  7 passed (7)
+Tests       31 passed (31)
+
+$ npx vitest run tests/stat-search-season-refresh.test.ts
+Test Files  1 passed (1)
+Tests       3 passed (3)
+
+$ npx vitest run tests/stats-page-controller.test.ts
+Test Files  1 passed (1)
+Tests       13 passed (13)
+
+$ npx tsc --noEmit --pretty false
+exit 0 (출력 없음)
+
+$ npm run verify:core
+exit 0
+eslint: 0 errors, 기존 43 warnings
+tsc: 0 errors
+```
+
+### 자체 검토
+
+- fresh result의 refresh cooldown은 header 강제 갱신만 막고 generic PlayerB search는 route-first push 한 번, 기존 PlayerA 인스턴스 player 요청 0건 추가로 고정했다.
+- 429 same-identity cooldown은 `useStatsPageController` 내부 계약을 수정하지 않았고 controller 13-test suite로 회귀 확인했다.
+- navigation recovery timer는 route prop change와 unmount 양쪽에서 clear하므로 stale callback/state update가 남지 않는다.
+- onboarding은 승인된 feature card 3개와 compare button 수를 바꾸지 않으며 profile 직접 조회를 재도입하지 않았다.
+- 감사 문서의 STATS-011/012 등 분류는 이번 jsdom 수정으로 변경하지 않았다.

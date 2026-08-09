@@ -1,9 +1,13 @@
 "use client";
 
 import { BarChart3, BrainCircuit, Swords } from "lucide-react";
+import Link from "next/link";
 
 export interface StatsLandingStateProps {
   onCompare(): void;
+  authenticated: boolean;
+  profileLoaded: boolean;
+  hasRegisteredNickname: boolean;
 }
 
 const FEATURES = [
@@ -12,7 +16,12 @@ const FEATURES = [
   { label: "스쿼드 시너지", description: "팀 조합과 협동 지표 분석", icon: Swords },
 ] as const;
 
-export function StatsLandingState({ onCompare }: StatsLandingStateProps) {
+export function StatsLandingState({
+  onCompare,
+  authenticated,
+  profileLoaded,
+  hasRegisteredNickname,
+}: StatsLandingStateProps) {
   return (
     <section className="mx-auto max-w-3xl rounded-2xl border border-white/5 bg-white/[0.02] p-5 md:p-7">
       <div className="mb-5 text-center">
@@ -36,6 +45,22 @@ export function StatsLandingState({ onCompare }: StatsLandingStateProps) {
         <Swords size={17} />
         1:1 전적 비교
       </button>
+      {!authenticated && (
+        <div className="mt-5 flex items-center justify-center gap-3 border-t border-white/5 pt-5 text-xs text-gray-500">
+          <span>닉네임을 저장하고 빠르게 내 전적 보기</span>
+          <Link href="/login" className="font-black text-amber-500 hover:text-amber-400">
+            로그인
+          </Link>
+        </div>
+      )}
+      {authenticated && profileLoaded && !hasRegisteredNickname && (
+        <div className="mt-5 flex items-center justify-center gap-3 border-t border-white/5 pt-5 text-xs text-gray-500">
+          <span>내 PUBG 계정을 검색창에 자동으로 불러오세요.</span>
+          <Link href="/mypage" className="font-black text-amber-500 hover:text-amber-400">
+            PUBG 닉네임 등록
+          </Link>
+        </div>
+      )}
     </section>
   );
 }

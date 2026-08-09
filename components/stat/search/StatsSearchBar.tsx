@@ -11,6 +11,7 @@ export interface StatsSearchBarProps {
   favorites: readonly string[];
   suggestions: readonly { nickname: string; platform: StatsPlatform }[];
   suggesting: boolean;
+  empty: boolean;
   submitDisabled: boolean;
   submitLabel?: string;
   onPlatformChange(value: StatsPlatform): void;
@@ -29,6 +30,7 @@ export function StatsSearchBar({
   favorites,
   suggestions,
   suggesting,
+  empty,
   submitDisabled,
   submitLabel = "검색",
   onPlatformChange,
@@ -121,7 +123,7 @@ export function StatsSearchBar({
                 </div>
               )}
 
-              {nickname.trim().length >= 2 && suggestions.length === 0 && !suggesting && (
+              {nickname.trim().length >= 2 && suggestions.length === 0 && !suggesting && empty && (
                 <div className="px-4 py-4 text-center text-xs text-gray-500 italic">검색 결과가 없습니다</div>
               )}
 
