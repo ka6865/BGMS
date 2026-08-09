@@ -248,8 +248,20 @@ export function useStatsPageController(
     }
 
     const identity = playerIdentity(resolved.platform, resolved.nickname, resolved.seasonId);
+    const currentResult = resultRef.current;
+    const samePlayer = Boolean(
+      currentResult
+      && currentResult.platform === resolved.platform
+      && currentResult.nickname.toLowerCase() === resolved.nickname.toLowerCase(),
+    );
     const retryAt = rateLimitUntilRef.current.get(identity);
     if (retryAt && Date.now() < retryAt) {
+      if (preserveRouteTab && currentResult && !samePlayer) {
+        setResult(null);
+        setRefreshAvailableAt(undefined);
+        resetSummaryState();
+        clearAllPartials();
+      }
       setError({
         type: "rate_limit",
         message: "PUBG API 호출 한도가 일시적으로 초과되었습니다. 약 1분 후 다시 시도해 주세요.",
@@ -275,12 +287,6 @@ export function useStatsPageController(
     const requestId = ++playerRequestIdRef.current;
     playerRequestRef.current = { id: requestId, controller };
 
-    const currentResult = resultRef.current;
-    const samePlayer = Boolean(
-      currentResult
-      && currentResult.platform === resolved.platform
-      && currentResult.nickname.toLowerCase() === resolved.nickname.toLowerCase(),
-    );
     const preserveResult = Boolean(
       samePlayer
       && (resolved.forceRefresh || resolved.seasonId !== currentResult?.seasonId),
@@ -562,7 +568,7 @@ export function useStatsPageController(
     setPlatform(routePlatform);
     setNickname(routeNickname);
     setSectionTab(options.initialTab ?? "overview");
-    void runSearch({ nickname: routeNickname, platform: routePlatform }, true);
+    void runSearch({ nickname: routeNickname, platform: routePlatform, seasonId: "" }, true);
   }, [
     options.initialNickname,
     options.initialPlatform,
@@ -585,7 +591,13 @@ export function useStatsPageController(
 
   useEffect(() => () => {
     playerRequestRef.current?.controller.abort();
+    playerRequestIdRef.current += 1;
+    playerRequestRef.current = null;
+    inFlightPromiseRef.current = null;
     summaryRequestRef.current?.controller.abort();
+    summaryRequestIdRef.current += 1;
+    summaryRequestRef.current = null;
+    activeRouteKeyRef.current = null;
   }, []);
 
   const partialReasons = useMemo(() => PARTIAL_REASONS.filter(

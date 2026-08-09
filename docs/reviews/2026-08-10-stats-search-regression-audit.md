@@ -79,6 +79,6 @@ Tests       8 passed (8)
 
 - `useStatsPageController`가 player와 summary batch의 AbortController/requestId를 분리해 route identity 변경, back/forward 성격의 prop 변경, unmount에서 이전 응답을 격리한다. 이는 STATS-016의 architecture hardening이며 검색 UI에 두 번째 submit/latest-wins 동작을 추가한 것이 아니다.
 - STATS-002의 로딩·쿨다운 중 중복 submit 차단은 `intentional` 그대로다. 같은 진행 중 request key는 같은 Promise를 반환하고, 다른 사용자 검색은 진행 중 요청을 교체하지 않는다.
-- STATS-003의 성공한 시즌 변경 후 overview 복귀와 STATS-015의 성공한 강제 갱신 후 overview 복귀는 제품 의도로 유지한다. 이를 결함 수정으로 재분류하지 않는다.
+- STATS-003의 성공한 시즌 변경 후 overview 복귀는 제품 의도(`intentional`)로 유지한다. STATS-015의 성공한 강제 갱신 후 overview 복귀는 현재 동작을 보존하되 제품 의도는 아직 `suspected`로 남기며, 이를 intentional 또는 fixed로 재분류하지 않는다.
 - STATS-014는 controller가 시즌 변경·강제 갱신을 `refreshing`으로 처리해 실패 시 기존 player result와 탭을 유지하도록 보강했다. player profile이 성공한 뒤 summary batch만 실패하면 profile을 유지한 `partial`과 `retrySummaries()`를 제공한다.
 - direct `initialTab="squad"`는 첫 route 자동검색 성공보다 우선한다. 실제 URL query를 `StatSearch` props에 연결하는 route-first 작업은 Task 4 범위로 남겨 STATS-005를 이 단계에서 fixed로 표시하지 않는다.

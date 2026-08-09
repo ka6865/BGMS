@@ -103,6 +103,30 @@ describe("useStatsPageController", () => {
     expect(trackEventMock).toHaveBeenCalledTimes(1);
   });
 
+  it("StrictMode effect replay는 중단된 초기 route 요청을 안전하게 교체해 완료한다", async () => {
+    const first = deferredResponse({ ...playerReady, recentMatches: [] });
+    const second = deferredResponse({ ...playerReady, recentMatches: [] });
+    fetchMock
+      .mockImplementationOnce(first.fetch)
+      .mockImplementationOnce(second.fetch);
+
+    const { result } = renderHook(() => useStatsPageController({
+      initialNickname: "FixturePlayer",
+      initialPlatform: "steam",
+    }), {
+      reactStrictMode: true,
+    });
+
+    await waitFor(() => expect(playerRequests(fetchMock)).toHaveLength(2));
+    expect(first.signal?.aborted).toBe(true);
+    expect(second.signal?.aborted).toBe(false);
+
+    await act(async () => second.resolve());
+    await waitFor(() => expect(result.current.result?.nickname).toBe("FixturePlayer"));
+    expect(result.current.status).toBe("ready");
+    expect(trackEventMock).toHaveBeenCalledTimes(1);
+  });
+
   it("갱신 실패는 기존 결과와 탭을 유지한다", async () => {
     const stalePlayer = { ...playerReady, updatedAt: "2026-08-08T00:00:00.000Z" };
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
@@ -246,6 +270,50 @@ describe("useStatsPageController", () => {
     });
     expect(playerRequests(fetchMock)).toHaveLength(2);
     expect(result.current.result?.nickname).toBe("Other");
+  });
+
+  it("A 429 뒤 B 성공 후 retryAt 전에 A route로 돌아가면 B 상태를 비우고 A 요청만 막는다", async () => {
+    const playerB = {
+      ...playerReady,
+      nickname: "PlayerB",
+      updatedAt: new Date().toISOString(),
+    };
+    let playerAttempt = 0;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).startsWith("/api/pubg/matches-summary")) {
+        return Promise.resolve(jsonResponse(summaryReady));
+      }
+      playerAttempt += 1;
+      return Promise.resolve(playerAttempt === 1
+        ? jsonResponse({ error: "slow down" }, 429, { "Retry-After": "60" })
+        : jsonResponse(playerB));
+    });
+
+    const controller = renderHook(
+      ({ initialNickname }) => useStatsPageController({
+        initialNickname,
+        initialPlatform: "steam",
+      }),
+      { initialProps: { initialNickname: "PlayerA" } },
+    );
+    await waitFor(() => expect(controller.result.current.error?.type).toBe("rate_limit"));
+
+    controller.rerender({ initialNickname: "PlayerB" });
+    await waitFor(() => expect(controller.result.current.summaryStatus).toBe("ready"));
+    expect(controller.result.current.result?.nickname).toBe("PlayerB");
+    expect(controller.result.current.matchSummaries["match-fixture-1"]).toBeDefined();
+    expect(controller.result.current.isRefreshCoolingDown).toBe(true);
+
+    controller.rerender({ initialNickname: "PlayerA" });
+    await waitFor(() => expect(controller.result.current.error?.type).toBe("rate_limit"));
+
+    expect(playerRequests(fetchMock)).toHaveLength(2);
+    expect(controller.result.current.result).toBeNull();
+    expect(controller.result.current.matchSummaries).toEqual({});
+    expect(controller.result.current.missingMatchIds).toEqual(new Set());
+    expect(controller.result.current.summaryStatus).toBe("idle");
+    expect(controller.result.current.refreshAvailableAt).toBeUndefined();
+    expect(controller.result.current.isRefreshCoolingDown).toBe(false);
   });
 
   it("한 행의 복구가 다른 행의 같은 partial reason을 지우지 않는다", () => {
