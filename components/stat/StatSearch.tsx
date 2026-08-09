@@ -1,6 +1,5 @@
 // 파일 위치: components/stat/StatSearch.tsx
 "use client";
-import { trackEvent } from "@/lib/analytics";
 
 import React, { useState, useEffect, useId, useCallback, useRef } from "react";
 import { MatchCard } from "./MatchCard";
@@ -18,7 +17,8 @@ import type { UserProfile } from "@/types/map";
 import { useAuth } from "@/components/AuthProvider";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
+import { useStatsPageController } from "@/hooks/useStatsPageController";
+import type { StatsSectionTab } from "@/types/stats-page";
 // import CompanionEntryCard from "@/components/overwolf/CompanionEntryCard";
 
 const STATS_MOBILE_AD_UNIT = "DAN-tQGcqmddMC8tPpXA";
@@ -28,11 +28,51 @@ const STATS_DESKTOP_AD_UNIT = "DAN-RjyosR2uf8eSsVIC";
 interface StatSearchProps {
   initialPlatform?: string;
   initialNickname?: string;
+  initialTab?: StatsSectionTab;
+  initialGroupKey?: string;
 }
 
 /** 전적 검색 메인 컴포넌트 */
-export default function StatSearch({ initialPlatform, initialNickname }: StatSearchProps) {
+export default function StatSearch({
+  initialPlatform,
+  initialNickname,
+  initialTab,
+  initialGroupKey,
+}: StatSearchProps) {
   const router = useRouter();
+  const controller = useStatsPageController({
+    initialPlatform,
+    initialNickname,
+    initialTab,
+    initialGroupKey,
+  });
+  const {
+    status,
+    result,
+    error: controllerError,
+    suggestedPlayers: suggestedUsers,
+    platform,
+    nickname,
+    seasonId: selectedSeason,
+    sectionTab: activeTab,
+    matchFilter: matchTab,
+    matchSummaries,
+    missingMatchIds,
+    matchModeMeta,
+    isRefreshCoolingDown: isCoolingDown,
+    setPlatform,
+    setNickname,
+    setSectionTab: setActiveTab,
+    setMatchFilter: setMatchTab,
+    search,
+    onModeDetected: handleModeDetected,
+  } = controller;
+  const loading = status === "loading" || status === "refreshing";
+  const error = controllerError?.message ?? "";
+  const errorType = controllerError?.type ?? "";
+  const dynamicMatchModes = Object.fromEntries(
+    Object.entries(matchModeMeta).map(([matchId, meta]) => [matchId, meta.gameMode ?? ""]),
+  );
 
   const { user } = useAuth();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
@@ -47,113 +87,12 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
   const nicknameId = useId();
   const seasonId = useId();
 
-  const [platform, setPlatform] = useState(initialPlatform || "steam");
-  const [nickname, setNickname] = useState(initialNickname || "");
-  const [loading, setLoading] = useState(false);
   const [cooldown, setCooldown] = useState(false);
-  const [result, setResult] = useState<any>(null);
-  const [isCoolingDown, setIsCoolingDown] = useState(false);
-
-  // [V62.0] 이중 호출 방지를 위해 selectedSeason을 ref로도 관리하여 handleSearch가 불필요하게 재생성되지 않도록 함
-  const [selectedSeason, setSelectedSeason] = useState("");
-  const selectedSeasonRef = useRef("");
-
-  // initialNickname 변경 감지용 ref - result를 의존성에 넣지 않아도 되도록 처리
-  const prevInitialNicknameRef = useRef<string | undefined>(initialNickname);
-  const prevInitialPlatformRef = useRef<string | undefined>(initialPlatform);
 
   // 검색 진행 중 여부 ref - 이중 호출 방지 가드
   const isSearchingRef = useRef(false);
   const cooldownTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // [V61.0] 1초마다 최근 업데이트 경과 시간을 실시간으로 갱신하고 쿨다운 상태를 판별하는 타이머
-  useEffect(() => {
-    if (!result?.updatedAt) {
-      setIsCoolingDown(false);
-      return;
-    }
-    const checkCooldown = () => {
-      const diffMs = Date.now() - new Date(result.updatedAt).getTime();
-      setIsCoolingDown(diffMs < 60 * 1000);
-    };
-    checkCooldown();
-    const interval = setInterval(checkCooldown, 1000);
-    return () => clearInterval(interval);
-  }, [result?.updatedAt]);
-  const [error, setError] = useState("");
-  const [errorType, setErrorType] = useState<"not_found" | "rate_limit" | "server" | "">("");
   const [hasPrefilled, setHasPrefilled] = useState(false);
-  const [suggestedUsers, setSuggestedUsers] = useState<{ nickname: string; platform: string }[]>([]);
-  const [activeTab, setActiveTab] = useState<"overview" | "squad">("overview");
-  const [matchTab, setMatchTab] = useState<"all" | "normal" | "ranked" | "tdm">("all");
-  const [dynamicMatchModes, setDynamicMatchModes] = useState<Record<string, string>>({});
-  const [matchSummaries, setMatchSummaries] = useState<Record<string, MatchSummaryData>>({});
-  const [missingMatchIds, setMissingMatchIds] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    if (result?.matchModes) {
-      setDynamicMatchModes(result.matchModes);
-    } else {
-      setDynamicMatchModes({});
-    }
-  }, [result]);
-
-  useEffect(() => {
-    const matchIds = (result?.recentMatches || []).slice(0, 20);
-    if (!result?.nickname || !result?.platform || matchIds.length === 0) {
-      setMatchSummaries({});
-      setMissingMatchIds(new Set());
-      return;
-    }
-
-    const controller = new AbortController();
-
-    const fetchSummaries = async () => {
-      try {
-        const response = await fetch("/api/pubg/matches-summary", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            matchIds,
-            nickname: result.nickname,
-            platform: result.platform
-          }),
-          signal: controller.signal
-        });
-
-        if (!response.ok) return;
-        const data = await response.json();
-        const summaries = data.summaries || {};
-        setMatchSummaries(summaries);
-        setMissingMatchIds(new Set(data.missingMatchIds || []));
-
-        setDynamicMatchModes((prev) => {
-          let changed = false;
-          const next = { ...prev };
-          Object.entries(summaries).forEach(([matchId, summary]: [string, any]) => {
-            const mode = summary?.gameMode || summary?.matchInfo?.mode || "";
-            if (mode && next[matchId] !== mode) {
-              next[matchId] = mode;
-              changed = true;
-            }
-          });
-          return changed ? next : prev;
-        });
-      } catch (error: any) {
-        if (error.name !== "AbortError") setMatchSummaries({});
-      }
-    };
-
-    void fetchSummaries();
-    return () => controller.abort();
-  }, [result?.nickname, result?.platform, result?.recentMatches]);
-
-  const handleModeDetected = useCallback((id: string, mode: string) => {
-    setDynamicMatchModes((prev) => {
-      if (prev[id] === mode) return prev;
-      return { ...prev, [id]: mode };
-    });
-  }, []);
 
   const [recentSearches, setRecentSearches] = useState<string[]>(() => {
     if (typeof window === "undefined") return [];
@@ -209,13 +148,7 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
     }
   }, [user]);
 
-  // [V62.0] selectedSeason ref 동기화 - handleSearch가 클로저로 최신 시즌 값을 참조하도록 함
-  useEffect(() => {
-    selectedSeasonRef.current = selectedSeason;
-  }, [selectedSeason]);
-
-  // [V62.0] handleSearch: useCallback deps에서 selectedSeason 제거하고 ref 참조로 대체
-  // cooldown/nickname/platform은 실제 값이 필요하므로 유지, selectedSeason은 ref 경유
+  // Task 4의 route-first 전환 전까지 기존 JSX 호출부를 유지하는 positional adapter다.
   const handleSearch = useCallback(async (
     targetSeason?: string,
     overrideNickname?: string,
@@ -223,7 +156,7 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
     forceApiRefresh = false,
     bypassCooldown = false
   ) => {
-    const rawResolvedSeason = targetSeason ?? selectedSeasonRef.current;
+    const rawResolvedSeason = targetSeason ?? selectedSeason;
     const resolvedSeason = rawResolvedSeason && rawResolvedSeason !== "null" && rawResolvedSeason !== "undefined"
       ? rawResolvedSeason
       : "";
@@ -235,76 +168,19 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
     if (isSearchingRef.current) return;
     isSearchingRef.current = true;
 
-    setLoading(true);
-    if (!forceApiRefresh) {
-      setResult(null);
-    }
-    setError("");
-    setErrorType("");
-    setSuggestedUsers([]);
     setCooldown(true);
     setShowDropdown(false);
 
     try {
-      const refreshQuery = forceApiRefresh ? "&refresh=true" : "";
-      const seasonQuery = resolvedSeason ? `&season=${encodeURIComponent(resolvedSeason)}` : "";
-      const res = await fetch(
-        `/api/pubg/player?nickname=${encodeURIComponent(searchName)}&platform=${encodeURIComponent(searchPlatform)}${seasonQuery}${refreshQuery}&_t=${Date.now()}`,
-        { cache: 'no-store' }
-      );
-      
-      let data: any;
-      const contentType = res.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
-        data = await res.json();
-      } else {
-        throw new Error(`서버 응답 지연이 발생했습니다. 잠시 후 다시 시도해 주세요. (HTTP ${res.status})`);
-      }
-
-      if (!res.ok) {
-        if (data?.suggestions) {
-          setSuggestedUsers(data.suggestions);
-        }
-        if (res.status === 404 || data?.code === "PLAYER_NOT_FOUND") {
-          setErrorType("not_found");
-          setError(data?.error || "닉네임을 찾을 수 없습니다. 대소문자와 플랫폼을 확인해 올바르게 검색해 주세요.");
-        } else if (res.status === 429) {
-          setErrorType("rate_limit");
-          setError(data?.error || "PUBG API 호출 한도가 일시적으로 초과되었습니다. 약 1분 후 다시 시도해 주세요.");
-        } else {
-          setErrorType("server");
-          setError(data?.error || `전적 서버 응답이 지연되거나 실패했습니다. 잠시 후 다시 시도해 주세요. (HTTP ${res.status})`);
-        }
-        trackEvent({
-          name: "stats_searched",
-          params: {
-            nickname: searchName,
-            platform: searchPlatform,
-            has_data: false,
-          },
-        });
-        return;
-      }
-
-      setResult(data);
-      if (data.seasonId && data.seasonId !== "null" && data.seasonId !== "undefined") {
-        setSelectedSeason(data.seasonId);
-        selectedSeasonRef.current = data.seasonId;
-      }
-      setActiveTab("overview");
+      const data = await search({
+        nickname: searchName,
+        platform: searchPlatform === "kakao" ? "kakao" : "steam",
+        seasonId: resolvedSeason,
+        forceRefresh: forceApiRefresh,
+      });
+      if (!data) return;
 
       const actualName = data.nickname;
-      setNickname("");
-
-      trackEvent({
-        name: "stats_searched",
-        params: {
-          nickname: actualName,
-          platform: searchPlatform,
-          has_data: true,
-          season_id: data.seasonId,
-        },
-      });
 
       setRecentSearches((prev) => {
         const updated = [
@@ -318,32 +194,16 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
       // URL 동기화: history.pushState를 사용하여 App Router의 서버 재렌더/remount 없이 URL만 업데이트
       // router.push를 사용하면 page.tsx 재실행 → StatSearch remount → 자동검색 이중 호출 루프 발생
       const currentPath = window.location.pathname;
-      const targetPath = `/stats/${searchPlatform}/${actualName}`;
+      const targetPath = `/stats/${data.platform}/${actualName}`;
       if (currentPath !== targetPath) {
         window.history.pushState(null, '', targetPath);
       }
-    } catch (err: any) {
-      const isRateLimit = err.message?.includes("429") || err.message?.toLowerCase().includes("too many requests");
-      setErrorType(isRateLimit ? "rate_limit" : "server");
-      setError(isRateLimit 
-        ? "PUBG API 호출 한도가 일시적으로 초과되었습니다. 약 1분 후 다시 시도해 주세요."
-        : err.message
-      );
-      trackEvent({
-        name: "stats_searched",
-        params: {
-          nickname: searchName,
-          platform: searchPlatform,
-          has_data: false,
-        },
-      });
     } finally {
-      setLoading(false);
       isSearchingRef.current = false;
       if (cooldownTimeoutRef.current) clearTimeout(cooldownTimeoutRef.current);
       cooldownTimeoutRef.current = setTimeout(() => setCooldown(false), 3000);
     }
-  }, [nickname, platform, cooldown]);
+  }, [cooldown, nickname, platform, search, selectedSeason]);
 
   useEffect(() => {
     return () => {
@@ -351,47 +211,14 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
     };
   }, []);
 
-  // [V62.0] initialNickname/Platform props 변경 감지 - result를 의존성에서 제거하여 루프 차단
-  // ref로 이전 값을 추적하고, 실제로 다른 닉네임으로 변경됐을 때만 결과를 초기화
   useEffect(() => {
-    const prevNick = prevInitialNicknameRef.current;
-    const prevPlat = prevInitialPlatformRef.current;
-
-    const nicknameChanged = initialNickname?.toLowerCase() !== prevNick?.toLowerCase();
-    const platformChanged = initialPlatform !== prevPlat;
-
-    prevInitialNicknameRef.current = initialNickname;
-    prevInitialPlatformRef.current = initialPlatform;
-
-    // 실제로 다른 닉네임/플랫폼으로 바뀐 경우에만 결과 초기화
-    if (nicknameChanged || platformChanged) {
-      setError("");
-      setErrorType("");
-      setResult(null);
-    }
-  }, [initialNickname, initialPlatform]);
-
-  // [V62.1] 자동 검색 대상 키를 저장하여 프로필 로딩 등 무관한 상태 변경 재검색 차단
-  const autoSearchedKeyRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (initialNickname) {
-      const autoSearchKey = `${initialPlatform || "steam"}:${initialNickname.toLowerCase()}`;
-      if (autoSearchedKeyRef.current === autoSearchKey || loading || error) return;
-      autoSearchedKeyRef.current = autoSearchKey;
-      handleSearch(undefined, initialNickname, initialPlatform);
-      return;
-    }
-
-    autoSearchedKeyRef.current = null;
-
-    if (userProfile?.pubg_nickname && !hasPrefilled) {
+    if (!initialNickname && userProfile?.pubg_nickname && !hasPrefilled) {
       const userPlatform = userProfile.pubg_platform || "steam";
       setNickname(userProfile.pubg_nickname);
-      setPlatform(userPlatform);
+      setPlatform(userPlatform === "kakao" ? "kakao" : "steam");
       setHasPrefilled(true);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialNickname, initialPlatform, userProfile, hasPrefilled]);
+  }, [hasPrefilled, initialNickname, setNickname, setPlatform, userProfile]);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY_FAVORITES, JSON.stringify(favorites));
@@ -476,7 +303,7 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
           name="platform"
           autoComplete="off"
           value={platform}
-          onChange={(e) => setPlatform(e.target.value)}
+          onChange={(e) => setPlatform(e.target.value === "kakao" ? "kakao" : "steam")}
           className="w-full md:w-48 p-3 bg-[#252525] color-white border border-[#444] rounded-md text-base focus:outline-none focus:border-[#F2A900] transition-colors"
         >
           <option value="steam">스팀 (Steam)</option>
@@ -510,7 +337,7 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
                           key={`suggest-${s.nickname}-${i}`}
                           onClick={() => {
                             setNickname(s.nickname);
-                            setPlatform(s.platform);
+                            setPlatform(s.platform === "kakao" ? "kakao" : "steam");
                             handleSearch(selectedSeason, s.nickname, s.platform);
                             setShowDropdown(false);
                           }}
@@ -696,7 +523,7 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
                 {result.clan && (
                   <ClanBadge clan={result.clan} isMobile={isMobile} />
                 )}
-                <BanStatusButton banType={result.banType} isMobile={isMobile} />
+                <BanStatusButton banType={result.banType ?? "None"} isMobile={isMobile} />
               </div>
 
               {/* 2행: 전적 갱신 영역 (버튼, 즐겨찾기, 업데이트 시간 수평 정렬) */}
@@ -758,8 +585,6 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
               autoComplete="off"
               value={selectedSeason}
               onChange={(e) => {
-                setSelectedSeason(e.target.value);
-                selectedSeasonRef.current = e.target.value;
                 handleSearch(e.target.value, result.nickname, result.platform, false, true);
               }}
               style={{ padding: "8px 12px", backgroundColor: "#252525", color: "white", border: "1px solid #444", borderRadius: "6px" }}
@@ -800,7 +625,13 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
             <div style={{ display: "flex", flexDirection: "column", gap: "30px" }}>
 
               {/* 경쟁전 / 일반전 통합 탭 패널 */}
-              <StatSummaryPanel stats={result.stats} isMobile={isMobile} />
+              <StatSummaryPanel
+                stats={{
+                  ranked: result.stats.ranked ?? undefined,
+                  normal: result.stats.normal ?? undefined,
+                }}
+                isMobile={isMobile}
+              />
 
               {/* BGMS AI 전술 분석 시스템 설명 (토글형으로 최적화) */}
               <div className="mt-4 mb-6">
@@ -884,7 +715,7 @@ export default function StatSearch({ initialPlatform, initialNickname }: StatSea
               {result.recentMatches && result.recentMatches.length > 0 && (
                 <RecentAISummary 
                   key={result.nickname}
-                  matchIds={result.recentMatches} 
+                  matchIds={[...result.recentMatches]}
                   nickname={result.nickname} 
                   platform={result.platform} 
                   isMobile={isMobile}
