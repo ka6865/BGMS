@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     if (stillMissingIds.length > 0) {
       const { data: rawStatsData } = await supabase
         .from("match_stats_raw")
-        .select("match_id, player_id, platform, damage, kills, win_place, game_mode, map_name")
+        .select("match_id, player_id, platform, created_at, damage, kills, win_place, game_mode, map_name")
         .eq("platform", platform)
         .eq("player_id", playerId)
         .in("match_id", stillMissingIds);

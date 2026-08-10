@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
   Loader2,
   Flame,
@@ -20,6 +20,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { toast } from "sonner";
 import SquadCauseScenes, { SquadCauseSceneCardData } from "./SquadCauseScenes";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
+import type { StatsPlatform } from "@/types/stats-page";
 
 const Squad2DMap = dynamic(() => import("./Squad2DMap"), { ssr: false });
 
@@ -99,19 +100,23 @@ interface AiFeedback {
   overallOpinion?: string;
 }
 
-interface SquadAnalysisPanelProps {
+export interface SquadAnalysisPanelProps {
   nickname: string;
-  platform: string;
+  platform: StatsPlatform;
+  groupKey?: string;
+  onGroupKeyChange(value: string): void;
 }
 
-export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysisPanelProps) {
-  const searchParams = useSearchParams();
+export default function SquadAnalysisPanel({
+  nickname,
+  platform,
+  groupKey,
+  onGroupKeyChange,
+}: SquadAnalysisPanelProps) {
   const router = useRouter();
   const { user } = useAuth();
-  const urlGroupKey = searchParams.get("groupKey");
 
   const [groups, setGroups] = useState<any[]>([]);
-  const [selectedGroupKey, setSelectedGroupKey] = useState<string>("");
   const [loadingList, setLoadingList] = useState<boolean>(true);
   const [listError, setListError] = useState<boolean>(false);
   const [loadingDetail, setLoadingDetail] = useState<boolean>(false);
@@ -142,32 +147,35 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
       setLoadingList(true);
       setListError(false);
       setGroups([]);
-      setSelectedGroupKey("");
       const res = await fetch(`/api/pubg/squad-analyze?nickname=${encodeURIComponent(nickname)}&platform=${platform}`);
       if (!res.ok) throw new Error("Squad list request failed");
       const data = await res.json();
       if (data?.error) throw new Error("Squad list response failed");
 
-      if (data.groups && data.groups.length > 0) {
-        setGroups(data.groups);
-        const targetGroup = data.groups.find((g: any) => g.groupKey === urlGroupKey) || data.groups[0];
-        setSelectedGroupKey(targetGroup.groupKey);
-      }
+      setGroups(Array.isArray(data.groups) ? data.groups : []);
     } catch (err) {
       console.error("Failed to load squad list:", err);
       setListError(true);
     } finally {
       setLoadingList(false);
     }
-  }, [nickname, platform, urlGroupKey]);
+  }, [nickname, platform]);
 
   useEffect(() => {
     void fetchSquadGroups();
   }, [fetchSquadGroups]);
 
+  const firstGroupKey = groups[0]?.groupKey as string | undefined;
+  const hasSelectedGroup = Boolean(groupKey && groups.some((group) => group.groupKey === groupKey));
+
+  useEffect(() => {
+    if (!firstGroupKey || hasSelectedGroup) return;
+    onGroupKeyChange(firstGroupKey);
+  }, [firstGroupKey, groupKey, hasSelectedGroup, onGroupKeyChange]);
+
   // 2. Fetch detailed analysis when selected group changes
   const fetchSquadDetails = useCallback(async () => {
-    if (!selectedGroupKey) return;
+    if (!groupKey || !hasSelectedGroup) return;
 
     try {
       setLoadingDetail(true);
@@ -175,7 +183,7 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
       setAnalysisData(null);
       setAiFeedback(null);
       const res = await fetch(
-        `/api/pubg/squad-analyze?nickname=${encodeURIComponent(nickname)}&platform=${platform}&groupKey=${encodeURIComponent(selectedGroupKey)}`
+        `/api/pubg/squad-analyze?nickname=${encodeURIComponent(nickname)}&platform=${platform}&groupKey=${encodeURIComponent(groupKey)}`
       );
       if (!res.ok) throw new Error("Squad detail request failed");
       const data = await res.json();
@@ -198,7 +206,7 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
     } finally {
       setLoadingDetail(false);
     }
-  }, [selectedGroupKey, nickname, platform]);
+  }, [groupKey, hasSelectedGroup, nickname, platform]);
 
   useEffect(() => {
     void fetchSquadDetails();
@@ -302,8 +310,8 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
     if (typeof window === "undefined") return "";
     const url = new URL(`/stats/${platform}/${encodeURIComponent(nickname)}`, window.location.origin);
     url.searchParams.set("tab", "squad");
-    if (selectedGroupKey) {
-      url.searchParams.set("groupKey", selectedGroupKey);
+    if (groupKey) {
+      url.searchParams.set("groupKey", groupKey);
     }
     
     //  [추가] GA4 UTM 파라미터 강제 주입 (바이럴 유입 추적)
@@ -505,8 +513,9 @@ export default function SquadAnalysisPanel({ nickname, platform }: SquadAnalysis
         </div>
         <div className="relative">
           <select
-            value={selectedGroupKey}
-            onChange={(e) => setSelectedGroupKey(e.target.value)}
+            aria-label="스쿼드 그룹"
+            value={groupKey ?? ""}
+            onChange={(e) => onGroupKeyChange(e.target.value)}
             className="w-full sm:w-72 appearance-none rounded-lg border border-zinc-800 bg-zinc-955 px-4 py-2 pr-10 text-sm text-zinc-300 focus:outline-none focus:ring-1 focus:ring-purple-500"
           >
             {groups.map((g) => (

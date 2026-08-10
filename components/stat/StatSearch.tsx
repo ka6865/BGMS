@@ -67,6 +67,7 @@ export default function StatSearch({
     seasonId: selectedSeason,
     sectionTab: activeTab,
     matchFilter: matchTab,
+    groupKey,
     matchSummaries,
     missingMatchIds,
     matchModeMeta,
@@ -81,6 +82,7 @@ export default function StatSearch({
     setStatsMode,
     setPartySize,
     setMatchFilter: setMatchTab,
+    setGroupKey,
     search,
     retrySummaries,
     onModeDetected: handleModeDetected,
@@ -496,7 +498,12 @@ export default function StatSearch({
               </div>
             </div>
           ) : (
-            <SquadAnalysisPanel nickname={result.nickname} platform={result.platform} />
+            <SquadAnalysisPanel
+              nickname={result.nickname}
+              platform={result.platform}
+              groupKey={groupKey}
+              onGroupKeyChange={setGroupKey}
+            />
           )}
 
           {/* 우측 레일은 고정하지 않고 상단에 한 번만 노출한다. 좌우 동시 고정 광고는 정책 위반이다. */}

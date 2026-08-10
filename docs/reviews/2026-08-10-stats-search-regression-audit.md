@@ -48,10 +48,10 @@ Tests       8 passed (8)
 | STATS-002 | intentional | `/stats`, 로딩·쿨다운 중 추가 submit | player 요청은 1건만 발생 | disabled button과 동기 navigation ref가 추가 submit/push를 차단 | player 1건 | `StatSearch.tsx` `navigateToPlayer`, `StatsSearchBar.tsx` | 이중 호출과 API 소진 방지 정책 | `stat-search-baseline`, `stat-search-deep-link` one-push | 현행 유지 |
 | STATS-003 | intentional | 검색 성공 후 스쿼드 탭, 시즌 변경 성공 | overview 탭으로 복귀 | 성공 분기에서 `setActiveTab("overview")` | player 시즌 요청 1건 추가 | `StatSearch.tsx` 289~295, 755~764 | 검색 성공 공통 후처리 | `stat-search-baseline` “시즌 변경…” | 현행 유지 |
 | STATS-004 | fixed | `/stats`, 2자 이상 입력, suggest `[]`, 저장 기록 0건 | `검색 결과가 없습니다` 노출 | 300ms 응답 후 빈 결과 문구 노출 | suggest 1건 | `useStatsAutocomplete.ts`, `StatsSearchBar.tsx` | 드롭다운 조건을 query 길이와 저장 항목으로 통합 | `stat-search-autocomplete` debounce·empty·stale 응답 | abort와 requestId로 최신 query만 반영 |
-| STATS-005 | fixed | `/stats/steam/FixturePlayer?tab=squad&groupKey=A` | 스쿼드 탭과 A 그룹 복원 | 서버 page가 query를 검증·파싱해 controller 초기 props로 전달 | player 자동검색 1건 | `app/stats/[platform]/[nickname]/page.tsx` | route query 전달 누락 | `stat-search-deep-link` 동적 page wiring | `initialTab`·`initialGroupKey` 연결 |
+| STATS-005 | fixed | `/stats/steam/FixturePlayer?tab=squad&groupKey=g2` → g1 선택 → overview → squad | 스쿼드 탭·g2 초기 선택과 g1 remount 복원 | route prop이 controller `groupKey`로 들어가 panel selector/detail/share에 전달되고 overview 왕복 후도 g1이 유지됨 | player 1건, squad list 1건, 유효 group detail 1건씩 | `app/stats/[platform]/[nickname]/page.tsx`, `useStatsPageController.ts`, `StatSearch.tsx`, `SquadAnalysisPanel.tsx` | route query 와 panel local/URL selection 소유권이 분리되어 controller value가 panel에 연결되지 않음 | `stat-search-deep-link` controller→panel·overview 왕복, `squad-analysis-panel-state` | `groupKey`를 유일 authority로 삼고 invalid/undefined만 첫 group으로 상위 reconcile |
 | STATS-006 | fixed | 요약 `gameMode="squad-fpp"`, `matchType="competitive"` | 경쟁전 필터에 노출 | full `matchModeMeta` overlay를 거쳐 경쟁전 행으로 유지 | summary 1건 | `MatchFeed.tsx`, `statsPageModel.ts` | 기존 `dynamicMatchModes` projection이 `matchType`을 소실 | `stat-match-filter`, `match-feed-ad-placement`, `stat-search-match-feed-integration` | missing-first renderable 배열과 Task 2 분류 모델로 통합 |
 | STATS-007 | fixed | 요약 카드 “매치 상세 펼치기”, 상세 API 실패 | 실패 안내와 명시적 재시도 버튼 | compact 요약을 유지하고 상세 영역만 오류·retry 표시 | 클릭당 detail 1건 | `MatchCard.tsx`, `ExpandedMatchDetails.tsx` | 기존 fetch 분기가 HTTP 상태를 검사하지 않고 ref만 해제해 오류 표현 state가 없었음 | `match-card-detail-state`, `match-card-demand-loading` | detail requestId/AbortController/error state와 source partial callback 추가 |
-| STATS-008 | confirmed | fallback `pubg_player_matches.played_at` 누락 | 날짜 미상 또는 원본 시각 유지 | `createdAt`을 호출 현재 시각으로 생성 | 요약 라우트 내부 | `lib/pubg-analysis/matchSummary.ts` 29~56 | fallback builder의 `new Date().toISOString()` | `stat-search-ui` 90일 경계가 손상 영향을 보여줌; 직접 테스트 필요 | 후속에서 미상 상태 명시 |
+| STATS-008 | fixed | raw `match_stats_raw` row에 `played_at` 없고 `created_at`만 존재 | 서로 다른 요청 시각에도 안정적 `createdAt` 반환 | raw select가 `created_at`을 읽고 helper가 `played_at ?? created_at ?? request-time`을 적용해 두 요청이 같은 DB 저장 시각을 반환 | summaries route 2건 | `matches-summary/route.ts`, `matchSummary.ts` | raw select이 `created_at`을 생략해 helper가 매 요청의 `new Date()`로 떨어짐 | `matches-summary-route` helper precedence·route 두 요청·select 컬럼, `stat-search-ui` 14/90일 strict cutoff | raw select에 `created_at` 추가; `created_at`은 실제 경기 시각이 아닌 안정 fallback으로만 사용 |
 | STATS-009 | confirmed | `/stats/kakao/FixturePlayer` → “이 플레이어와 비교하기” | `nick1`+​`platform1=kakao` | `/stats/battle?nick1=FixturePlayer`만 push | 0건 | `StatSearch.tsx` 746~748 | 비교 URL builder가 platform을 누락 | 후속 navigation 단위 테스트 필요 | 후속 URL builder로 교체 |
 | STATS-010 | fixed | 모바일 `/stats/steam/FixturePlayer`, `/stats/battle` | “AI 전적” nav active | `/stats`와 모든 하위 path에서 active | 0건 | `BottomNav.tsx` `isStatsPath` | exact-path 비교 | `bottom-nav-stats-active` | 경계가 있는 `/stats/` prefix helper 적용 |
 | STATS-011 | suspected | SSR `/stats`, localStorage에 기록 존재 | hydration warning 0건 | hook 첫 state는 빈 배열이고 effect에서 storage를 읽도록 변경했으나 실제 hydration 로그 미측정 | 0건 | `useStatsSearchHistory.ts`, `StatsSearchBar.tsx` | 브라우저 hydration 로그 필요 | storage 비배열·초기 write 회귀만 자동화 | 실제 SSR/hydration 재현 후 판정 |
@@ -75,13 +75,13 @@ Tests       8 passed (8)
 - 동기 double click/Enter는 navigation ref로 한 번만 push한다. 동적 route의 controller만 player 요청을 시작하며, 빈 닉네임·로딩·쿨다운 submit 차단은 유지한다.
 - 최근검색은 controller가 반환한 canonical nickname 성공을 identity별 한 번만 기록한다. 404, 시즌 변경, 강제 갱신은 기존 이름의 순서를 다시 올리지 않으며 저장 형식은 `string[]`이다.
 - profile prefill은 userId에 키를 두며, 조회 전에 사용자가 입력하면 늦은 profile 응답이 입력값을 덮어쓰지 않는다. 기존 `StatSearch`의 중복 profile query는 제거했다.
-- STATS-004, STATS-005, STATS-010은 jsdom·서버 page wiring 회귀로 `fixed` 판정했다. STATS-011과 STATS-012는 구현 보강과 별개로 실제 브라우저 SSR/hydration·back/forward 증거가 없으므로 `suspected`를 유지한다.
+- Task 4에서 STATS-004·STATS-010을 jsdom 회귀로 `fixed` 판정했고 STATS-005의 URL query→controller 초기 prop 경계를 열었다. Task 8에서 controller→panel selector/detail·overview 왕복을 추가 검증해 STATS-005의 최종 `fixed` 증거를 보완했다. STATS-011과 STATS-012는 실제 브라우저 SSR/hydration·back/forward 증거가 없으므로 `suspected`를 유지한다.
 
 ## 우려와 후속 확인
 
 - `verify:core`는 통과했지만 기존 lint warning 43개가 남아 있다.
 - STATS-011~016은 브라우저·App Router·실제 API 상태가 필요해 이 태스크에서 확정하지 않았다.
-- `buildBasicMatchSummary` date fallback은 90일 만료 표시와 직접 연결되므로 후속 모델 분리 시 명시적 unknown 시각을 다뤄야 한다.
+- `buildBasicMatchSummary`는 raw `played_at`이 없으면 DB `created_at`을 안정 fallback으로 쓴다. 이는 실제 경기 시각이 아니므로 후속 모델 분리 시 명시적 unknown 시각을 여전히 다뤄야 한다.
 
 ## Task 3 controller architecture hardening
 
@@ -89,7 +89,7 @@ Tests       8 passed (8)
 - STATS-002의 로딩·쿨다운 중 중복 submit 차단은 `intentional` 그대로다. 같은 진행 중 request key는 같은 Promise를 반환하고, 다른 사용자 검색은 진행 중 요청을 교체하지 않는다.
 - STATS-003의 성공한 시즌 변경 후 overview 복귀는 제품 의도(`intentional`)로 유지한다. STATS-015의 성공한 강제 갱신 후 overview 복귀는 현재 동작을 보존하되 제품 의도는 아직 `suspected`로 남기며, 이를 intentional 또는 fixed로 재분류하지 않는다.
 - STATS-014는 controller가 시즌 변경·강제 갱신을 `refreshing`으로 처리해 실패 시 기존 player result와 탭을 유지하도록 보강했다. player profile이 성공한 뒤 summary batch만 실패하면 profile을 유지한 `partial`과 `retrySummaries()`를 제공한다.
-- direct `initialTab="squad"`는 첫 route 자동검색 성공보다 우선한다. Task 4에서 실제 URL query를 `StatSearch` props에 연결하고 별도 회귀를 추가해 STATS-005를 `fixed`로 갱신했다.
+- direct `initialTab="squad"`는 첫 route 자동검색 성공보다 우선한다. Task 4의 URL query→`StatSearch` props 연결 후 Task 8에서 controller `groupKey`→controlled panel과 overview 왕복 회귀까지 연결해 STATS-005를 전체 경로에서 `fixed`로 갱신했다.
 
 ## Task 7 매치 피드·상세 오류 격리
 
@@ -98,3 +98,12 @@ Tests       8 passed (8)
 - `MatchCard`는 summary, `isExpanded`, `hasExpandedOnce`만 소유한다. 첫 expand 전 detail 요청은 0개이며, 첫 expand 후 상세를 `hidden`/`aria-hidden`으로 유지해 접기 중에도 full detail, 열린 하위 section, AI stream/result가 보존된다. 14일 초과 summary는 detail 요청이나 partial failure 없이 보존 안내만 제공한다.
 - 상세·AI owner key는 `platform:normalizedNickname:matchId`다. A identity abort 후 늦은 A response/finally가 B state나 AI lock을 덮거나 해제하지 않으며 abort는 partial failure로 보고하지 않는다. 실패·회복 source는 `match:${matchId}`여서 한 행 회복이 다른 행의 partial을 지우지 않는다.
 - 광고는 최종 renderable count로 `getStatsFeedSlots`를 호출한다. mobile after-6, tablet fixture 5·10·15, missing feed env 5·15, unknown viewport reservation을 원래 매치 사이에 놓고 trailing ad를 만들지 않는다. unknown은 provider child를 mount하지 않고 `.stats-page` 아래 mobile/tablet visibility class만 예약한다.
+
+## Task 8 controlled squad groupKey·raw fallback 시각
+
+- `SquadAnalysisPanel`은 `useSearchParams`와 local `selectedGroupKey`를 제거하고 controller가 주는 `groupKey`를 selector, detail GET, share URL의 유일 authority로 삼는다. list GET dependency는 primitive `nickname/platform`뿐이며 g2 초기에 list 1건+g2 detail 1건, g1 변경 후 list 재요청 없이 g1 detail 1건을 추가한다.
+- groups 준비 후 `groupKey`가 undefined 또는 invalid일 때만 첫 key를 `onGroupKeyChange`로 올린다. invalid key detail GET은 0건이며 selector에 `스쿼드 그룹` accessible name을 추가했다.
+- controller→panel integration 테스는 g2 deep link, g1 선택, overview unmount, squad remount 후 g1 복원을 실제 상위 state로 검증한다. 마운트 AI POST 0건, CTA payload, `tab=squad&groupKey=g2`·UTM share, image download, 2D map도 소비자 동작으로 보존했다.
+- raw `match_stats_raw` select에 `created_at`을 추가하고 helper는 nullable `played_at ?? created_at ?? request-time`을 사용한다. `created_at`은 경기 시각이 아니라 `played_at` 부재 시 요청별 현재 시각 생성을 막는 DB 저장 시각 fallback이다.
+- 2026-08-10T00:00:00.000Z 기준 14일/90일 exact equality는 모두 not expired, 1ms 이전은 expired로 고정했다.
+- squad list/detail stale-response overwrite는 재현되지 않은 가설이므로 AbortController/requestId를 추가하지 않았고 `fixed`로 판정하지 않는다.

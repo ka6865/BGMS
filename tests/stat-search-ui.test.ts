@@ -1,18 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { isMatchTelemetryExpired } from "@/components/stat/matchExpiryHelper";
+import {
+  isMatchOlderThan14Days,
+  isMatchTelemetryExpired,
+} from "@/components/stat/matchExpiryHelper";
 
 describe("Match Expiry Helper", () => {
-  it("returns true when playedAt is older than 90 days", () => {
-    const now = new Date("2026-08-03T00:00:00.000Z").getTime();
-    const oneMillisecondPastExpiry = "2026-05-04T23:59:59.999Z";
+  const now = new Date("2026-08-10T00:00:00.000Z").getTime();
 
-    expect(isMatchTelemetryExpired(oneMillisecondPastExpiry, 90, now)).toBe(true);
+  it("14일 exact cutoff은 보존하고 1ms 이전만 만료한다", () => {
+    expect(isMatchOlderThan14Days("2026-07-27T00:00:00.000Z", now)).toBe(false);
+    expect(isMatchOlderThan14Days("2026-07-26T23:59:59.999Z", now)).toBe(true);
   });
 
-  it("returns false when playedAt is exactly 90 days old", () => {
-    const now = new Date("2026-08-03T00:00:00.000Z").getTime();
-    const exactExpiryBoundary = "2026-05-05T00:00:00.000Z";
-
-    expect(isMatchTelemetryExpired(exactExpiryBoundary, 90, now)).toBe(false);
+  it("90일 exact cutoff은 보존하고 1ms 이전만 만료한다", () => {
+    expect(isMatchTelemetryExpired("2026-05-12T00:00:00.000Z", 90, now)).toBe(false);
+    expect(isMatchTelemetryExpired("2026-05-11T23:59:59.999Z", 90, now)).toBe(true);
   });
 });

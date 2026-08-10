@@ -44,7 +44,21 @@ vi.mock("@/components/stat/MatchCard", () => ({
 }));
 vi.mock("@/components/stat/StatSummaryPanel", () => ({ StatSummaryPanel: () => null }));
 vi.mock("@/components/stat/RecentAISummary", () => ({ RecentAISummary: () => null }));
-vi.mock("@/components/stat/SquadAnalysisPanel", () => ({ default: () => null }));
+vi.mock("@/components/stat/SquadAnalysisPanel", () => ({
+  default: ({
+    groupKey,
+    onGroupKeyChange,
+  }: {
+    groupKey?: string;
+    onGroupKeyChange?: (value: string) => void;
+  }) => createElement("div", { "data-testid": "controlled-squad-panel" },
+    createElement("span", null, `squad-group-${groupKey ?? "none"}`),
+    createElement("button", {
+      type: "button",
+      onClick: () => onGroupKeyChange?.("g1"),
+    }, "squad-select-g1"),
+  ),
+}));
 vi.mock("@/components/ads/AdSenseBanner", () => ({ default: () => null }));
 vi.mock("@/components/ads/AdfitBanner", () => ({ default: () => null }));
 
@@ -96,6 +110,30 @@ describe("stats route-first/deep-link", () => {
       initialTab: "squad",
       initialGroupKey: "g2",
     });
+  });
+
+  it("controller groupKey가 panel 선택과 overview 왕복 후 remount를 모두 소유한다", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player?")) return Promise.resolve(jsonResponse(playerReady));
+      if (url === "/api/pubg/matches-summary") return Promise.resolve(jsonResponse(summaryReady));
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    render(createElement(StatSearch, {
+      initialPlatform: "steam",
+      initialNickname: "FixturePlayer",
+      initialTab: "squad",
+      initialGroupKey: "g2",
+    }));
+
+    expect(await screen.findByText("squad-group-g2")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "squad-select-g1" }));
+    expect(await screen.findByText("squad-group-g1")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "개인 분석 개요" }));
+    expect(screen.queryByTestId("controlled-squad-panel")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "스쿼드 시너지" }));
+    expect(screen.getByText("squad-group-g1")).toBeInTheDocument();
   });
 
   it("landing submit은 player를 prefetch하지 않고 encoded player route로 이동한다", () => {

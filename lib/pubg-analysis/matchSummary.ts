@@ -30,7 +30,8 @@ export function buildBasicMatchSummary(row: {
   match_id: string;
   player_id: string;
   platform: string;
-  played_at?: string;
+  played_at?: string | null;
+  created_at?: string | null;
   game_mode?: string;
   map_name?: string;
   kills?: number;
@@ -52,7 +53,7 @@ export function buildBasicMatchSummary(row: {
     },
     mapName: row.map_name || "Baltic_Main",
     mapId: row.map_name || "Baltic_Main",
-    createdAt: row.played_at || new Date().toISOString(),
+    createdAt: row.played_at ?? row.created_at ?? new Date().toISOString(),
     gameMode: row.game_mode || "squad",
     totalTeams: 0,
     totalPlayers: 0,
