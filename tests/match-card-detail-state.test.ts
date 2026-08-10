@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
@@ -79,6 +79,7 @@ function renderCard(overrides: {
   matchId?: string;
   nickname?: string;
   platform?: "steam" | "kakao";
+  isMobile?: boolean;
   onFailure?: (reason: "detail_failed" | "analysis_failed") => void;
   onRecovery?: (reason: "detail_failed" | "analysis_failed") => void;
   onNicknameClick?: (nickname: string) => void;
@@ -90,7 +91,7 @@ function renderCard(overrides: {
     matchId,
     nickname,
     platform: overrides.platform ?? "steam",
-    isMobile: false,
+    isMobile: overrides.isMobile ?? false,
     initialMatchData: summary(matchId, nickname),
     onFailure: overrides.onFailure,
     onRecovery: overrides.onRecovery,
@@ -172,6 +173,18 @@ describe("MatchCard isolated detail state", () => {
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
     await screen.findByTestId("expanded-match-details");
     expect(screen.getByText("티어 산정 근거")).toBeInTheDocument();
+    expect(screen.getByText("팀 66.3%")).toBeInTheDocument();
+    expect(screen.getByText("화력 담당")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "전투 점수" })).toHaveAttribute("aria-valuenow", "34");
+    expect(screen.getByRole("progressbar", { name: "전술 점수" })).toHaveAttribute("aria-valuenow", "27");
+    expect(screen.getByRole("progressbar", { name: "생존 점수" })).toHaveAttribute("aria-valuenow", "21");
+    expect(screen.getByText("87 · 캐리 (CARRY)")).toBeInTheDocument();
+    expect(screen.getByText("화력 기여")).toBeInTheDocument();
+    expect(screen.getByText("다음 S+ 티어까지 8점")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "다음 S+ 티어 진행도" })).toHaveAttribute("aria-valuenow", "82");
+    const combatEvidence = screen.getByRole("region", { name: "전투 근거" });
+    expect(within(combatEvidence).getByText("딜량 순위")).toBeInTheDocument();
+    expect(within(combatEvidence).getByText("#2")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /무기 사용/ }));
     expect(screen.getByText("M416")).toBeInTheDocument();
@@ -203,6 +216,22 @@ describe("MatchCard isolated detail state", () => {
     expect(mockPush).toHaveBeenLastCalledWith(
       "/maps/Erangel?playback=match-detail-1&nickname=PlayerOne&platform=kakao",
     );
+  });
+
+  it("모바일 live 상세의 티어 세부 근거는 접힌 상태와 accessible toggle을 유지한다", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(detail()))));
+    renderCard({ isMobile: true });
+
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+    await screen.findByText("팀 66.3%");
+
+    const openButton = screen.getByRole("button", { name: "상세 근거 보기" });
+    expect(openButton).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("region", { name: "전투 근거" })).not.toBeInTheDocument();
+
+    fireEvent.click(openButton);
+    expect(screen.getByRole("button", { name: "상세 근거 접기" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("region", { name: "전투 근거" })).toBeInTheDocument();
   });
 
   it("collapse는 진행 중 AI를 abort하지 않고 mounted state/final verdict를 보존한다", async () => {

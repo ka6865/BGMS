@@ -138,3 +138,73 @@ exit 0 (출력 없음)
 - 실제 feed AdFit env는 여전히 없으므로 after-10 operational slot은 pending이며 top unit을 재사용하지 않았다.
 - 로컬/jsdom에서는 provider 네트워크를 실행하지 않았다. 실제 광고 채움, smooth collapse 위치, 375~1920px 시각 QA는 Task 9/10과 배포 미리보기 대상이다.
 - 저장소 전역 기존 ESLint warning 43개는 범위 밖이며 신규 대상에는 warning이 없다.
+
+## Fix Round 1 — live 상세의 성과·티어 근거 복구
+
+### 리뷰 검증과 root cause
+
+- 지적사항을 실제 facade 경로에서 확인했다. `ExpandedMatchDetails` 내부의 `detailsOnly=true`로 인해 기존 헤더는 항상 `!detailsOnly` 분기 뒤에 있었다.
+- 팀 피해 비중, 배지, 34/27/21 점수, impact grade/reason, next-tier 정보, 세부 근거 section이 모두 이 dead header에 있었고 live expanded 영역에는 `TierEvidenceSummary` 요약만 있었다.
+- fixture의 `teamDamageShare=66.3`, `화력 담당`, breakdown 34/27/21, `impactScore=87`, `impactGrade=CARRY`, `화력 기여`는 이미 실제 `MatchData` shape에 있어 변조하지 않고 literal 기댓값으로 사용했다.
+
+### RED
+
+production 수정 전 live `MatchCard` facade 테스트에 exact-value와 모바일 toggle 기댓값을 추가했다.
+
+```text
+$ npx vitest run tests/match-card-detail-state.test.ts
+Test Files  1 failed (1)
+Tests       2 failed | 7 passed (9)
+Assertion   `팀 66.3%`를 live expanded DOM에서 찾지 못함
+exit        1
+```
+
+데스크톱 exact-value 테스트와 모바일 accessible detail-toggle 테스트가 동일한 dead-render 원인으로 실패했다.
+
+### 구현
+
+- module-level `MatchPerformancePanel`을 추가해 live expanded 영역에 팀 피해 비중·배지·티어 점수·impact·next-tier·세부 근거를 함께 표시했다.
+- 34/27/21 점수와 next S+ 진행도는 이름·min/max/now가 있는 `progressbar`로 표현했다. impact는 `87 · 캐리 (CARRY)`와 `화력 기여`를 함께 노출한다.
+- 데스크톱은 전투·전술·생존 세부 section을 즉시 표시하고, 모바일은 기존과 같이 접힌 `상세 근거 보기` button에서 시작해 `aria-expanded`로 상태를 전달한다. target은 44px 이상이다.
+- `detailsOnly`, `isExpanded`, tooltip layout/ref/effect, 모바일 body-lock, 맵명 번역 등 dead header 전용 로직과 중복 JSX 280여 줄을 제거했다. compact facade/toggle은 상위 `MatchCard`에만 남아 중복되지 않는다.
+
+### GREEN 및 회귀
+
+```text
+$ npx vitest run tests/match-card-detail-state.test.ts
+Test Files  1 passed (1)
+Tests       9 passed (9)
+
+$ npx vitest run tests/match-feed-ad-placement.test.ts tests/match-card-demand-loading.test.ts tests/match-card-detail-state.test.ts tests/stat-search-ui.test.ts tests/stat-search-match-feed-integration.test.ts
+Test Files  5 passed (5)
+Tests       24 passed (24)
+
+$ npx vitest run tests/stat-match-filter.test.ts tests/stats-ad-placements.test.ts tests/responsive-ad-slot.test.ts tests/telemetry-consumers.test.ts tests/analysis-engine.test.ts tests/pubg-analysis-stability.test.ts tests/stats-page-controller.test.ts
+Test Files  7 passed (7)
+Tests       75 passed (75)
+
+$ npx vitest run tests/stats-page-model.test.ts tests/stat-search-baseline.test.ts tests/stat-search-season-refresh.test.ts tests/stat-search-deep-link.test.ts tests/stat-search-navigation.test.ts tests/match-card-demand-loading.test.ts tests/ai-cache-routes.test.ts
+Test Files  7 passed (7)
+Tests       44 passed (44)
+
+$ npx eslint components/stat/matches/ExpandedMatchDetails.tsx tests/match-card-detail-state.test.ts
+exit 0 (출력 없음)
+
+$ npx tsc --noEmit --pretty false
+exit 0 (출력 없음)
+
+$ npm run verify:core
+exit 0
+eslint: 0 errors, 기존 43 warnings
+tsc: 0 errors
+
+$ git diff --check
+exit 0 (출력 없음)
+```
+
+### Fix Round 1 자체 검토
+
+- 변경된 TSX는 direct import, module-level panel, functional toggle state, primitive 후속성을 유지한다. inline component 정의나 derived-state effect를 추가하지 않았다.
+- live facade 테스트가 exact fixture value와 실제 accessible role을 검증하므로 제목만 남는 회귀를 잡는다. 모바일은 접힘/펼침 DOM 상태를 별도로 검증한다.
+- replay, vehicle, weapon, team, AI/request ownership은 수정하지 않았고 Task 7 회귀 묶음으로 보존을 확인했다.
+- 기존 관심 사항인 feed AdFit env 부재와 실브라우저 시각 QA 미수행은 변화 없이 남아 있다.
