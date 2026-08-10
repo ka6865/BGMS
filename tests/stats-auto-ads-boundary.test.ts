@@ -65,4 +65,17 @@ describe("stats auto ads ownership boundary", () => {
     expect(css).toMatch(/@media\s*\(min-width:\s*768px\)[\s\S]*\.stats-page\s+\.stats-ad-slot--mobile-only\s*\{[^}]*display:\s*none/);
     expect(css).toMatch(/@media\s*\(min-width:\s*768px\)[\s\S]*\.stats-page\s+\.stats-ad-slot--tablet-up\s*\{[^}]*display:\s*flex/);
   });
+
+  it("wrapper처c shell은 legacy stats provider/rail/unit ownership을 가지지 않는다", () => {
+    const wrapper = readFileSync(join(process.cwd(), "components/stat/StatSearch.tsx"), "utf8");
+    const shell = readFileSync(join(process.cwd(), "components/stat/layout/StatsPageShell.tsx"), "utf8");
+    const combined = `${wrapper}\n${shell}`;
+
+    expect(wrapper).not.toMatch(/useStatsPageController|useStatsSearchHistory|useStatsProfilePrefill|useStatsAutocomplete/);
+    expect(wrapper).not.toMatch(/use(?:State|Effect|Callback|Ref)\s*\(/);
+    expect(combined).not.toMatch(/AdSenseBanner|AdfitBanner/);
+    expect(combined).not.toMatch(/DAN-tQGcqmddMC8tPpXA|DAN-dPiCxgIGtXKjLPP3|DAN-RjyosR2uf8eSsVIC/);
+    expect(combined).not.toMatch(/7728921550/);
+    expect(combined).not.toMatch(/w-\[160px\]|160\s*[x×]\s*600/i);
+  });
 });

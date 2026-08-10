@@ -105,7 +105,7 @@ describe("StatSearch baseline", () => {
   );
 
   function fillSearch(platform: string, nickname: string) {
-    fireEvent.change(screen.getByRole("combobox", { name: "" }), {
+    fireEvent.change(screen.getByRole("combobox", { name: "플랫폼" }), {
       target: { value: platform },
     });
     fireEvent.change(screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요"), {
@@ -115,8 +115,11 @@ describe("StatSearch baseline", () => {
 
   it("빈 닉네임은 요청하지 않는다", () => {
     render(createElement(StatSearch));
+    expect(screen.getByRole("combobox", { name: "플랫폼" })).toHaveClass("min-h-11");
+    expect(screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요")).toHaveClass("min-h-11");
     const searchButton = screen.getByRole("button", { name: "검색" });
 
+    expect(searchButton).toHaveClass("min-h-11", "min-w-11");
     expect(searchButton).toBeDisabled();
     fireEvent.click(searchButton);
 

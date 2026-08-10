@@ -64,13 +64,14 @@ export function StatsSearchBar({
 
   return (
     <div className={`flex flex-col md:flex-row gap-3 max-w-3xl mx-auto mb-8 relative ${showDropdown ? "z-[1000]" : "z-30"}`}>
+      <label className="sr-only" htmlFor={platformId}>플랫폼</label>
       <select
         id={platformId}
         name="platform"
         autoComplete="off"
         value={platform}
         onChange={(event) => onPlatformChange(event.target.value === "kakao" ? "kakao" : "steam")}
-        className="w-full md:w-48 p-3 bg-[#252525] color-white border border-[#444] rounded-md text-base focus:outline-none focus:border-[#F2A900] transition-colors"
+        className="min-h-11 w-full md:w-48 p-3 bg-[#252525] color-white border border-[#444] rounded-md text-base focus:outline-none focus:border-[#F2A900] transition-colors"
       >
         <option value="steam">스팀 (Steam)</option>
         <option value="kakao">카카오 (Kakao)</option>
@@ -92,7 +93,7 @@ export function StatsSearchBar({
             if (event.key === "Enter" && !submitDisabled) onSubmit();
           }}
           onFocus={() => setShowDropdown(true)}
-          className="w-full p-3 bg-[#252525] text-white border border-[#444] rounded-md text-base focus:outline-none focus:border-[#F2A900] transition-colors"
+          className="min-h-11 w-full p-3 bg-[#252525] text-white border border-[#444] rounded-md text-base focus:outline-none focus:border-[#F2A900] transition-colors"
         />
 
         {showDropdown && (nickname.trim().length >= 2 || items.length > 0) && (
@@ -112,7 +113,7 @@ export function StatsSearchBar({
                           onSuggestionSelect(suggestion);
                           setShowDropdown(false);
                         }}
-                        className="w-full px-4 py-3 flex items-center gap-3 hover:bg-amber-500/10 transition-colors cursor-pointer border-b border-white/5 last:border-0 text-left"
+                        className="flex min-h-11 w-full items-center gap-3 border-b border-white/5 px-4 py-3 text-left transition-colors last:border-0 hover:bg-amber-500/10 cursor-pointer"
                       >
                         <User size={14} className="text-amber-500 shrink-0" />
                         <span className="text-sm font-bold text-gray-200 truncate">{suggestion.nickname}</span>
@@ -137,7 +138,7 @@ export function StatsSearchBar({
                         onQuickSearch(item.name);
                         setShowDropdown(false);
                       }}
-                      className="min-w-0 flex flex-1 items-center gap-3 text-left"
+                      className="flex min-h-11 min-w-0 flex-1 items-center gap-3 text-left"
                     >
                       {item.type === "favorite"
                         ? <Star size={14} className="text-yellow-400 fill-yellow-400 shrink-0" />
@@ -151,7 +152,7 @@ export function StatsSearchBar({
                         event.stopPropagation();
                         onFavoriteToggle(item.name);
                       }}
-                      className={favorite ? "p-1.5 text-yellow-400" : "p-1.5 text-gray-600"}
+                      className={favorite ? "flex min-h-11 min-w-11 items-center justify-center text-yellow-400" : "flex min-h-11 min-w-11 items-center justify-center text-gray-600"}
                     >
                       <Star size={14} fill={favorite ? "currentColor" : "none"} />
                     </button>
@@ -163,7 +164,7 @@ export function StatsSearchBar({
                           event.stopPropagation();
                           onRecentRemove(item.name);
                         }}
-                        className="p-1.5 text-gray-600 hover:text-red-400"
+                        className="flex min-h-11 min-w-11 items-center justify-center text-gray-600 hover:text-red-400"
                       >
                         <X size={14} />
                       </button>
@@ -180,7 +181,7 @@ export function StatsSearchBar({
         type="button"
         onClick={onSubmit}
         disabled={submitDisabled}
-        className={`flex-1 md:flex-none px-6 py-3 rounded-md font-bold text-base whitespace-nowrap transition-all active:scale-95 ${submitDisabled ? "bg-[#555] text-[#aaa] cursor-not-allowed" : "bg-[#F2A900] text-black cursor-pointer hover:bg-[#ffb700]"}`}
+        className={`min-h-11 min-w-11 flex-1 md:flex-none px-6 py-3 rounded-md font-bold text-base whitespace-nowrap transition-all active:scale-95 ${submitDisabled ? "bg-[#555] text-[#aaa] cursor-not-allowed" : "bg-[#F2A900] text-black cursor-pointer hover:bg-[#ffb700]"}`}
       >
         {submitLabel}
       </button>

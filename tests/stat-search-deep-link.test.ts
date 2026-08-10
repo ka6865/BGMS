@@ -101,10 +101,8 @@ describe("stats route-first/deep-link", () => {
       params: Promise.resolve({ platform: "steam", nickname: "Fixture%20Player" }),
       searchParams: Promise.resolve({ tab: "squad", groupKey: "g2" }),
     });
-    const statSearch = page.props.children.props.children;
-
-    expect(statSearch.type).toBe(StatSearch);
-    expect(statSearch.props).toMatchObject({
+    expect(page.type).toBe(StatSearch);
+    expect(page.props).toMatchObject({
       initialPlatform: "steam",
       initialNickname: "Fixture Player",
       initialTab: "squad",

@@ -195,6 +195,40 @@ input, textarea, select {
 }
 
 /* 전적 페이지 수동 광고는 viewport 확정 전 공간만 예약하고 provider는 마운트하지 않는다. */
+.stats-page {
+  --stats-bg: #0d0d0d;
+  --stats-card: #161616;
+  --stats-emphasis: #1f1f1f;
+  --stats-accent: #F2A900;
+  --stats-border: rgba(255, 255, 255, 0.08);
+  --stats-text-primary: rgba(255, 255, 255, 1);
+  --stats-text-secondary: rgba(255, 255, 255, 0.6);
+  --stats-text-disabled: rgba(255, 255, 255, 0.3);
+  --stats-good: #2dd4bf;
+  --stats-error: #ef6b6b;
+  max-width: 1200px;
+  margin-inline: auto;
+  padding: 20px 14px;
+  background: var(--stats-bg);
+  color: var(--stats-text-primary);
+  box-sizing: border-box;
+}
+
+.stats-page.pb-safe-nav {
+  padding-bottom: calc(56px + env(safe-area-inset-bottom));
+}
+
+.stats-result-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+}
+
+.stats-overview-rail,
+.stats-match-column {
+  min-width: 0;
+}
+
 .stats-page .stats-ad-slot {
   width: 100%;
   max-width: 100%;
@@ -225,6 +259,14 @@ input, textarea, select {
 }
 
 @media (min-width: 768px) {
+  .stats-page {
+    padding: 20px;
+  }
+
+  .stats-result-grid {
+    gap: 16px;
+  }
+
   .stats-page .stats-ad-slot--responsive-horizontal {
     min-height: 90px;
   }
@@ -235,5 +277,11 @@ input, textarea, select {
 
   .stats-page .stats-ad-slot--tablet-up {
     display: flex;
+  }
+}
+
+@media (min-width: 1024px) {
+  .stats-result-grid {
+    grid-template-columns: 320px minmax(0, 1fr);
   }
 }
