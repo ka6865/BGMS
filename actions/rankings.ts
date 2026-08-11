@@ -106,17 +106,19 @@ export async function getWeeklyTopDamage(
     .from('global_benchmarks')
     .select('player_id, damage, kills, game_mode, map_name, created_at, tier')
     .gte('created_at', since)
-    .in('game_mode', getModes(modeFilter, perspectiveFilter))
-    .order('damage', { ascending: false })
-    .order('kills', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(500);
+    .in('game_mode', getModes(modeFilter, perspectiveFilter));
 
   if (matchTypeFilter !== 'all') {
     query = query.eq('match_type', matchTypeFilter);
   } else {
     query = query.in('match_type', ['official', 'competitive']);
   }
+
+  query = query
+    .order('damage', { ascending: false })
+    .order('kills', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(500);
 
   const { data, error } = await query;
   if (error || !data) {
@@ -166,17 +168,19 @@ export async function getWeeklyTopKills(
     .from('global_benchmarks')
     .select('player_id, damage, kills, game_mode, map_name, created_at, tier')
     .gte('created_at', since)
-    .in('game_mode', getModes(modeFilter, perspectiveFilter))
-    .order('kills', { ascending: false })
-    .order('damage', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(500);
+    .in('game_mode', getModes(modeFilter, perspectiveFilter));
 
   if (matchTypeFilter !== 'all') {
     query = query.eq('match_type', matchTypeFilter);
   } else {
     query = query.in('match_type', ['official', 'competitive']);
   }
+
+  query = query
+    .order('kills', { ascending: false })
+    .order('damage', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(500);
 
   const { data, error } = await query;
   if (error || !data) {
@@ -225,17 +229,19 @@ export async function getTopTierRanking(
     .from('global_benchmarks')
     .select('player_id, score, tier, damage, kills, game_mode, created_at')
     .gte('created_at', since)
-    .in('game_mode', getModes(modeFilter, perspectiveFilter))
-    .order('score', { ascending: false })
-    .order('damage', { ascending: false })
-    .order('created_at', { ascending: false })
-    .limit(500);
+    .in('game_mode', getModes(modeFilter, perspectiveFilter));
 
   if (matchTypeFilter !== 'all') {
     query = query.eq('match_type', matchTypeFilter);
   } else {
     query = query.in('match_type', ['official', 'competitive']);
   }
+
+  query = query
+    .order('score', { ascending: false })
+    .order('damage', { ascending: false })
+    .order('created_at', { ascending: false })
+    .limit(500);
 
   const { data, error } = await query;
   if (error || !data) {
