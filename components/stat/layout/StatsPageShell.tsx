@@ -366,6 +366,26 @@ export function StatsPageShell({
           {activeTab === "overview" ? (
             <div className="flex flex-col gap-2 md:gap-4">
 
+              <div ref={aiSectionRef} role="region" aria-label="AI 분석" tabIndex={-1}>
+                {result.recentMatches.length > 0 ? (
+                  <RecentAISummary
+                    matchIds={result.recentMatches}
+                    nickname={result.nickname}
+                    platform={result.platform}
+                    isMobile={isMobile}
+                    onSummaryChange={handleAiSummaryChange}
+                  />
+                ) : (
+                  <p
+                    role="status"
+                    aria-label="AI 분석할 최근 매치 없음"
+                    className="rounded-2xl border border-white/10 bg-[#161616] p-5 text-center text-sm font-bold text-white/50"
+                  >
+                    최근 매치 기록이 없어 AI 분석을 시작할 수 없습니다.
+                  </p>
+                )}
+              </div>
+
               <div className="stats-result-grid">
                 <aside className="stats-overview-rail">
                   <StatSummaryPanel
@@ -482,26 +502,6 @@ export function StatsPageShell({
                       </div>
                     </div>
                   </div>
-                )}
-              </div>
-
-              <div ref={aiSectionRef} role="region" aria-label="AI 분석" tabIndex={-1}>
-                {result.recentMatches.length > 0 ? (
-                  <RecentAISummary
-                    matchIds={result.recentMatches}
-                    nickname={result.nickname}
-                    platform={result.platform}
-                    isMobile={isMobile}
-                    onSummaryChange={handleAiSummaryChange}
-                  />
-                ) : (
-                  <p
-                    role="status"
-                    aria-label="AI 분석할 최근 매치 없음"
-                    className="rounded-2xl border border-white/10 bg-[#161616] p-5 text-center text-sm font-bold text-white/50"
-                  >
-                    최근 매치 기록이 없어 AI 분석을 시작할 수 없습니다.
-                  </p>
                 )}
               </div>
 

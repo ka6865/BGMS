@@ -68,6 +68,7 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
   const total = summary.totalTeams || summary.totalPlayers || 0;
   const tierRef = useRef<HTMLDivElement>(null);
   const [showTierPopover, setShowTierPopover] = useState(false);
+  const [tierPopoverPinned, setTierPopoverPinned] = useState(false);
   const [showTierDetails, setShowTierDetails] = useState(false);
   const [popoverLayout, setPopoverLayout] = useState<TierPopoverLayout>({
     placement: "top",
@@ -77,6 +78,7 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
 
   const closeTierPopover = useCallback(() => {
     setShowTierPopover(false);
+    setTierPopoverPinned(false);
     setShowTierDetails(false);
   }, []);
 
@@ -203,13 +205,13 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
                 if (!isMobile) openTierPopover();
               }}
               onMouseLeave={() => {
-                if (!isMobile) closeTierPopover();
+                if (!isMobile && !tierPopoverPinned) closeTierPopover();
               }}
               onFocus={() => {
                 if (!isMobile) openTierPopover();
               }}
               onBlur={(event) => {
-                if (!isMobile && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                if (!isMobile && !tierPopoverPinned && !event.currentTarget.contains(event.relatedTarget as Node | null)) {
                   closeTierPopover();
                 }
               }}
@@ -226,7 +228,12 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
                     if (showTierPopover) closeTierPopover();
                     else setShowTierPopover(true);
                   } else {
-                    openTierPopover();
+                    if (showTierPopover && tierPopoverPinned) {
+                      closeTierPopover();
+                    } else {
+                      setTierPopoverPinned(true);
+                      openTierPopover();
+                    }
                   }
                 }}
                 className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-indigo-500/15 px-2 text-[10px] font-black text-indigo-300 transition-colors hover:bg-indigo-500/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400 md:min-h-8 md:min-w-0"

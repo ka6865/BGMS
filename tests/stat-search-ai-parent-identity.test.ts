@@ -127,7 +127,7 @@ describe("StatSearch AI snapshot identity ownership", () => {
       "최근 매치 기록이 없어 AI 분석을 시작할 수 없습니다.",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "AI 분석 시작" }));
+    fireEvent.click(screen.getByRole("button", { name: "최근 10경기 AI 분석으로 이동" }));
     await waitFor(() => expect(document.activeElement).toBe(emptyAiSection));
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
     expect(fetchMock.mock.calls.filter(([input]) => String(input).startsWith("/api/ai/"))).toHaveLength(0);

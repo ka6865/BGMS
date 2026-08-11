@@ -191,6 +191,22 @@ describe("MatchCard isolated detail state", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("PC에서 AI 등급 배지를 클릭하면 포인터가 떠나도 팝오버를 유지하고 바깥 클릭으로 닫는다", () => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => undefined));
+    vi.stubGlobal("fetch", fetchMock);
+    renderCard({ initialMatchData: summaryWithTierEvidence() });
+
+    const badge = screen.getByRole("button", { name: /AI .* 티어 근거 보기/ });
+    fireEvent.click(badge);
+    expect(screen.getByTestId("match-tier-tooltip")).toBeVisible();
+
+    fireEvent.mouseLeave(badge.parentElement!);
+    expect(screen.getByTestId("match-tier-tooltip")).toBeVisible();
+
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByTestId("match-tier-tooltip")).not.toBeInTheDocument();
+  });
+
   it("상세 성공 뒤 팀·무기·지도·AI·2D/3D replay 계약을 보존하고 티어 근거는 배지로만 연다", async () => {
     const onNicknameClick = vi.fn();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
@@ -252,6 +268,7 @@ describe("MatchCard isolated detail state", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "리플레이 분석" }));
+    expect(screen.getByTestId("match-replay-action")).toHaveClass("pt-4", "md:pt-5");
     fireEvent.click(screen.getByRole("button", { name: /3D 전술 리플레이/ }));
     expect(mockPush).toHaveBeenLastCalledWith(
       "/replay/3d?matchId=match-detail-1&nickname=PlayerOne&platform=kakao",

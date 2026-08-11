@@ -103,7 +103,7 @@ describe("StatSummaryPanel", () => {
       onAiOpen,
       onAiToggle,
     }));
-    fireEvent.click(screen.getByRole("button", { name: "AI 분석 시작" }));
+    fireEvent.click(screen.getByRole("button", { name: "최근 10경기 AI 분석으로 이동" }));
     expect(onAiOpen).toHaveBeenCalledTimes(1);
 
     view.rerender(createElement(StatSummaryPanel, {

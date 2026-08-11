@@ -201,8 +201,8 @@ describe("StatsPageShell state and ownership matrix", () => {
     expect(precedes(profile, topAd)).toBe(true);
     expect(precedes(topAd, tabs)).toBe(true);
     expect(precedes(tabs, grid)).toBe(true);
+    expect(precedes(fullAi, grid)).toBe(true);
     expect(precedes(grid, guide)).toBe(true);
-    expect(precedes(guide, fullAi)).toBe(true);
   });
 
   it("stats mode/party 조작은 독립 match filter value/setter를 변경하지 않는다", () => {
@@ -275,14 +275,14 @@ describe("StatsPageShell state and ownership matrix", () => {
     expect(view.container.querySelector('[data-ad-placement="stats-top"]')).not.toBeInTheDocument();
   });
 
-  it("overview는 summary+feed grid → guide → full AI 순서이고 AI owner/snapshot은 하나다", () => {
+  it("overview는 최근 10경기 AI → summary+feed grid → guide 순서이고 AI owner/snapshot은 하나다", () => {
     mocks.controller = controller({ status: "ready", result: readyResult(), summaryStatus: "ready" });
     const view = render(createElement(StatsPageShell));
     const grid = view.container.querySelector(".stats-result-grid")!;
     const guide = screen.getByRole("button", { name: /BGMS AI 전술 분석 가이드/ });
     const fullAi = screen.getByTestId("full-ai");
+    expect(precedes(fullAi, grid)).toBe(true);
     expect(precedes(grid, guide)).toBe(true);
-    expect(precedes(guide, fullAi)).toBe(true);
     expect(screen.getAllByTestId("full-ai")).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("button", { name: "full-ai-action" }));

@@ -30,15 +30,24 @@ function updatedLabel(value?: string): string {
   return `${Math.floor(hours / 24)}일 전`;
 }
 
-function ClanTrigger({ clan }: { clan: NonNullable<PlayerStatsResponse["clan"]> }) {
-  const [open, setOpen] = useState(false);
+type ProfilePopover = "clan" | "ban" | null;
+
+function ClanTrigger({
+  clan,
+  open,
+  onToggle,
+}: {
+  clan: NonNullable<PlayerStatsResponse["clan"]>;
+  open: boolean;
+  onToggle(): void;
+}) {
   return (
     <div className="relative">
       <button
         type="button"
         aria-label={`클랜 ${clan.tag} 정보`}
         aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+        onClick={onToggle}
         className="min-h-11 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 text-xs font-black text-amber-300"
       >
         [{clan.tag}]
@@ -53,8 +62,25 @@ function ClanTrigger({ clan }: { clan: NonNullable<PlayerStatsResponse["clan"]> 
   );
 }
 
-function BanTrigger({ banType }: { banType?: string | null }) {
-  const [open, setOpen] = useState(false);
+function localizedBanStatus(value?: string | null): string {
+  const normalized = value?.trim() || "None";
+  const labels: Record<string, string> = {
+    innocent: "정상",
+    none: "없음",
+    banned: "제재됨",
+  };
+  return labels[normalized.toLowerCase()] ?? normalized;
+}
+
+function BanTrigger({
+  banType,
+  open,
+  onToggle,
+}: {
+  banType?: string | null;
+  open: boolean;
+  onToggle(): void;
+}) {
   const normalized = banType?.trim() || "None";
   const normal = normalized.toLowerCase() === "none" || normalized.toLowerCase() === "innocent";
   return (
@@ -63,7 +89,7 @@ function BanTrigger({ banType }: { banType?: string | null }) {
         type="button"
         aria-label="제재 상태 확인"
         aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
+        onClick={onToggle}
         className={`flex min-h-11 items-center gap-1.5 rounded-full border px-3 text-xs font-black ${
           normal
             ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
@@ -76,7 +102,7 @@ function BanTrigger({ banType }: { banType?: string | null }) {
       {open && (
         <div className="absolute right-0 top-full z-20 mt-2 min-w-56 rounded-xl border border-white/10 bg-[#161616] p-3 text-xs shadow-2xl">
           <div className="font-black text-white">{normal ? "정상 활동 계정" : "제재 상태 확인 필요"}</div>
-          <div className="mt-1 text-white/50">PUBG 상태: {normalized}</div>
+          <div className="mt-1 text-white/50">PUBG 상태: {localizedBanStatus(normalized)}</div>
         </div>
       )}
     </div>
@@ -96,6 +122,7 @@ export function PlayerProfileHeader({
   onCompare,
   onWeapons,
 }: PlayerProfileHeaderProps) {
+  const [openPopover, setOpenPopover] = useState<ProfilePopover>(null);
   const rank = selectCanonicalRankBucket(player.stats);
   const tier = rank?.currentTier?.tier?.trim();
   const subTier = rank?.currentTier?.subTier;
@@ -111,8 +138,18 @@ export function PlayerProfileHeader({
           <h2 title={player.nickname} className="min-w-0 flex-1 truncate text-xl font-black text-white md:text-2xl">
             {player.nickname}
           </h2>
-          {player.clan && <ClanTrigger clan={player.clan} />}
-          <BanTrigger banType={player.banType} />
+          {player.clan && (
+            <ClanTrigger
+              clan={player.clan}
+              open={openPopover === "clan"}
+              onToggle={() => setOpenPopover((current) => current === "clan" ? null : "clan")}
+            />
+          )}
+          <BanTrigger
+            banType={player.banType}
+            open={openPopover === "ban"}
+            onToggle={() => setOpenPopover((current) => current === "ban" ? null : "ban")}
+          />
         </div>
 
         <div className="flex flex-wrap items-end justify-between gap-4 border-y border-white/10 py-3">

@@ -169,6 +169,35 @@ describe("PlayerProfileHeader", () => {
     expect(screen.getByRole("button", { name: "제재 상태 확인" })).toHaveAttribute("aria-expanded", "false");
   });
 
+  it("Innocent 상태는 한글로 표시하고 클랜/제재 팝오버는 하나만 연다", () => {
+    render(createElement(PlayerProfileHeader, {
+      player: { ...player, banType: "Innocent" },
+      seasonId: player.seasonId,
+      refreshing: false,
+      isRefreshCoolingDown: false,
+      favorite: false,
+      onSeasonChange: vi.fn(),
+      onRefresh: vi.fn(),
+      onFavoriteToggle: vi.fn(),
+      onCompare: vi.fn(),
+      onWeapons: vi.fn(),
+    }));
+
+    const clan = screen.getByRole("button", { name: "클랜 FC 정보" });
+    const ban = screen.getByRole("button", { name: "제재 상태 확인" });
+    fireEvent.click(clan);
+    expect(screen.getByText("Fixture Clan")).toBeInTheDocument();
+    expect(screen.queryByText("PUBG 상태: 정상")).not.toBeInTheDocument();
+    expect(clan).toHaveAttribute("aria-expanded", "true");
+    expect(ban).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(ban);
+    expect(screen.queryByText("Fixture Clan")).not.toBeInTheDocument();
+    expect(screen.getByText("PUBG 상태: 정상")).toBeInTheDocument();
+    expect(clan).toHaveAttribute("aria-expanded", "false");
+    expect(ban).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("스쿼드 기록이 없으면 duo, solo 순으로 canonical 랭크를 fallback한다", () => {
     const fallbackPlayer: PlayerStatsResponse = {
       ...player,

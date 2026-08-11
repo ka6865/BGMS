@@ -42,12 +42,12 @@ function AiCompactSummary({
     return (
       <button
         type="button"
-        aria-label="AI 분석 시작"
+        aria-label="최근 10경기 AI 분석으로 이동"
         onClick={onOpen}
         className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 text-sm font-black text-indigo-300 hover:bg-indigo-500/15"
       >
         <Brain size={16} aria-hidden="true" />
-        AI 분석 시작
+        최근 10경기 AI 분석으로 이동
       </button>
     );
   }

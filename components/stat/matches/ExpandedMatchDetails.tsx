@@ -1173,7 +1173,10 @@ export const ExpandedMatchDetails = ({
 
       {/* Quick Action Bar (Floating) */}
       {!isTdmMatch && (
-        <div className="px-3.5 pb-3.5 md:px-5 md:pb-4 flex flex-wrap gap-2 md:gap-3">
+        <div
+          data-testid="match-replay-action"
+          className="px-3.5 pt-4 pb-3.5 md:px-5 md:pt-5 md:pb-4 flex flex-wrap gap-2 md:gap-3"
+        >
           <button
             type="button"
             aria-label="리플레이 분석"

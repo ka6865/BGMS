@@ -547,7 +547,7 @@ async function controlEvidence(page: Page, state: ControlState) {
       add("party-size", query('[role="group"][aria-label="파티 인원"] button'));
       add("match-filter", query('[role="group"][aria-label="매치 유형 필터"] button'));
       add("match-expand", query('button[aria-label="매치 상세 펼치기"], button[aria-label="매치 상세 접기"]'));
-      add("overview-ai-open", query('button[aria-label="AI 분석 시작"]'));
+      add("overview-ai-open", query('button[aria-label="최근 10경기 AI 분석으로 이동"]'));
       add("bottom-nav", query('nav[class*="fixed"][class*="bottom-0"] button'));
     };
 
@@ -935,7 +935,7 @@ describeBrowser("stats browser smoke", () => {
         if (viewport.width >= 768) {
           expect(controls.groups.find((group) => group.name === "bottom-nav")?.visibleCount).toBe(0);
         }
-        await page.click('button[aria-label="AI 분석 시작"]');
+        await page.click('button[aria-label="최근 10경기 AI 분석으로 이동"]');
         await dispatcher.withFatal(page.waitForFunction(() => {
           const region = document.querySelector<HTMLElement>('[role="region"][aria-label="AI 분석"]');
           const firstButton = region?.querySelector<HTMLButtonElement>("button");
