@@ -114,6 +114,8 @@ export async function getWeeklyTopDamage(
 
   if (matchTypeFilter !== 'all') {
     query = query.eq('match_type', matchTypeFilter);
+  } else {
+    query = query.in('match_type', ['official', 'competitive']);
   }
 
   const { data, error } = await query;
@@ -172,6 +174,8 @@ export async function getWeeklyTopKills(
 
   if (matchTypeFilter !== 'all') {
     query = query.eq('match_type', matchTypeFilter);
+  } else {
+    query = query.in('match_type', ['official', 'competitive']);
   }
 
   const { data, error } = await query;
@@ -229,6 +233,8 @@ export async function getTopTierRanking(
 
   if (matchTypeFilter !== 'all') {
     query = query.eq('match_type', matchTypeFilter);
+  } else {
+    query = query.in('match_type', ['official', 'competitive']);
   }
 
   const { data, error } = await query;

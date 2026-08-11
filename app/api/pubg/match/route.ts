@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { after, NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { unstable_cache } from "next/cache"; // [ISR V1.0] Next.js 16 캐싱 API
+import { revalidateTag, unstable_cache } from "next/cache"; // [ISR V1.0] Next.js 16 캐싱 API
 import { AnalysisEngine } from "@/lib/pubg-analysis/AnalysisEngine";
 import { RESULT_VERSION, TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
@@ -740,6 +740,11 @@ async function reanalyzeAndSave(
         },
       }),
     }, { reservedRow });
+    try {
+      revalidateTag("match-analysis");
+    } catch {
+      // Ignore in non-Next execution contexts
+    }
   } catch (error) {
     markAnalysisStep("telemetry_cache_persistence");
     if (isDatabaseUnavailableError(error)) {
@@ -809,6 +814,9 @@ async function reanalyzeAndSave(
     sampleParticipants
   };
   } catch (error) {
+    try {
+      revalidateTag("match-analysis");
+    } catch {}
     await releaseTelemetryMapCacheRow(reservedRow, cacheDeps).catch(() => undefined);
     throw error;
   }

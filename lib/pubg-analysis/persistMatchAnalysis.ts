@@ -247,7 +247,9 @@ async function persistBenchmark(
   const finalResult = input.finalResult;
   const matchType = finalResult.matchType.toLowerCase();
   const gameMode = finalResult.gameMode.toLowerCase();
+  const isCasual = matchType.includes("airoyale") || matchType.includes("ai-match") || matchType.includes("ai_match") || gameMode.includes("airoyale") || gameMode.includes("ai-match");
   const isStandardBattleRoyale = (matchType === "official" || matchType === "competitive")
+    && !isCasual
     && gameMode !== "tdm"
     && gameMode !== "trainingroom";
 
