@@ -169,7 +169,7 @@ describe("stats route layout boundary", () => {
     expect(css).toMatch(/@media\s*\(min-width:\s*768px\)[\s\S]*\.stats-result-grid\s*\{[^}]*gap:\s*16px/i);
     expect(css).toMatch(/@media\s*\(min-width:\s*1024px\)[\s\S]*\.stats-result-grid\s*\{[^}]*grid-template-columns:\s*320px\s+minmax\(0,\s*1fr\)/i);
     expect(css).toMatch(/\.stats-overview-rail\s*,\s*\.stats-match-column\s*\{[^}]*min-width:\s*0/i);
-    expect(css).toMatch(/\.stats-page\.pb-safe-nav\s*\{[^}]*padding-bottom:\s*calc\(56px\s*\+\s*env\(safe-area-inset-bottom\)\)/i);
+    expect(css).toMatch(/\.stats-page\.pb-safe-nav\s*\{[^}]*padding-bottom:\s*calc\(57px\s*\+\s*env\(safe-area-inset-bottom\)\)/i);
     expect(css).not.toMatch(/\.stats-page\s+button\s*\{/);
     expect(css).not.toMatch(/\.stats-overview-rail\s*\{[^}]*position:\s*sticky/i);
   });
