@@ -1,23 +1,20 @@
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@supabase/supabase-js', () => ({
-  createClient: () => ({
-    from: () => ({
-      select: () => ({
-        gte: () => ({
-          in: () => ({
-            order: () => ({
-              order: () => ({
-                order: () => ({
-                  limit: async () => ({ data: null, error: new Error('database unavailable') }),
-                }),
-              }),
-            }),
-          }),
-        }),
-      }),
-    }),
-  }),
+  createClient: () => {
+    const chain: any = {
+      select: () => chain,
+      gte: () => chain,
+      in: () => chain,
+      eq: () => chain,
+      not: () => chain,
+      order: () => chain,
+      limit: async () => ({ data: null, error: new Error('database unavailable') }),
+    };
+    return {
+      from: () => chain,
+    };
+  },
 }));
 
 describe('랭킹 조회 오류 상태', () => {
