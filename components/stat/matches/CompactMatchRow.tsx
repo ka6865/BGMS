@@ -55,6 +55,24 @@ function getStatus(summary: MatchSummaryData): { label: string; border: string }
   return { label: "일반", border: "border-l-white/20" };
 }
 
+
+function formatRelativeTime(dateString?: string): string {
+  if (!dateString) return "";
+  const time = Date.parse(dateString);
+  if (!Number.isFinite(time)) return "";
+  const diffSec = Math.max(0, Math.floor((Date.now() - time) / 1000));
+  if (diffSec < 60) return "방금 전";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}분 전`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour}시간 전`;
+  const diffDay = Math.floor(diffHour / 24);
+  if (diffDay < 30) return `${diffDay}일 전`;
+  const diffMonth = Math.floor(diffDay / 30);
+  if (diffMonth < 12) return `${diffMonth}달 전`;
+  return `${Math.floor(diffMonth / 12)}년 전`;
+}
+
 function formatMode(gameMode: string) {
   const mode = gameMode.toLowerCase();
   const perspective = mode.includes("fpp") ? "1인칭" : "3인칭";
@@ -67,6 +85,8 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
   const status = getStatus(summary);
   const tier = summary.benchmark ? estimateUserTier(summary.benchmark.score) : null;
   const total = summary.totalTeams || summary.totalPlayers || 0;
+  const matchDate = (summary as any).playedAt || summary.createdAt || summary.matchInfo?.date || "";
+  const playedAtAgo = formatRelativeTime(matchDate);
   const tierRef = useRef<HTMLDivElement>(null);
   const [showTierPopover, setShowTierPopover] = useState(false);
   const [tierPopoverPinned, setTierPopoverPinned] = useState(false);
@@ -172,9 +192,9 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
       />
 
       <div className="pointer-events-none relative z-10 flex min-h-11 w-full items-center gap-3 p-3 text-left md:gap-4 md:p-4">
-        <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-xl bg-white/5">
+        <div className="flex h-12 min-w-[3.5rem] shrink-0 flex-col items-center justify-center rounded-lg border border-white/5 bg-white/5 px-2.5">
           <span className="text-[9px] font-black text-white/40">{mode === "tdm" ? "결과" : "순위"}</span>
-          <strong className="text-lg text-white">
+          <strong className="my-0.5 text-base font-black leading-none text-white md:text-lg">
             {mode === "tdm" ? status.label : `#${summary.stats.winPlace}`}
           </strong>
           {mode !== "tdm" && total > 0 && <span className="text-[9px] text-white/30">/ {total}</span>}
@@ -195,6 +215,11 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
               {MODE_LABELS[mode]}
             </span>
             <span className="hidden text-[10px] font-bold text-white/35 sm:inline">{formatMode(summary.gameMode || "")}</span>
+            {playedAtAgo && (
+              <span className="text-[10px] font-bold text-white/40">
+                · {playedAtAgo}
+              </span>
+            )}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-white/55">
             <span><strong className="text-white">{summary.stats.kills}</strong> 킬</span>
