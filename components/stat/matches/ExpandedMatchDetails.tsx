@@ -630,6 +630,7 @@ export interface ExpandedMatchDetailsProps {
   summary?: MatchSummaryData;
   onNicknameClick?: (nickname: string) => void;
   onModeDetected?: (matchId: string, gameMode: string, matchType?: string, mapName?: string) => void;
+  onDetailReady?: (data: MatchData) => void;
   onFailure?: (reason: "detail_failed" | "analysis_failed") => void;
   onRecovery?: (reason: "detail_failed" | "analysis_failed") => void;
 }
@@ -676,6 +677,7 @@ export const ExpandedMatchDetails = ({
   summary: initialMatchData,
   onNicknameClick,
   onModeDetected,
+  onDetailReady,
   onFailure,
   onRecovery,
 }: ExpandedMatchDetailsProps) => {
@@ -714,10 +716,10 @@ export const ExpandedMatchDetails = ({
   const detailRequestRef = useRef<{ id: number; controller: AbortController } | null>(null);
   const detailRequestIdRef = useRef(0);
   const aiGenerationRef = useRef(0);
-  const callbacksRef = useRef({ onModeDetected, onFailure, onRecovery });
+  const callbacksRef = useRef({ onModeDetected, onDetailReady, onFailure, onRecovery });
   useEffect(() => {
-    callbacksRef.current = { onModeDetected, onFailure, onRecovery };
-  }, [onFailure, onModeDetected, onRecovery]);
+    callbacksRef.current = { onModeDetected, onDetailReady, onFailure, onRecovery };
+  }, [onDetailReady, onFailure, onModeDetected, onRecovery]);
   const { isAnalyzing: isGlobalAnalyzing } = useAIStatus();
   const { user } = useAuth();
   const router = useRouter();
@@ -919,6 +921,7 @@ export const ExpandedMatchDetails = ({
 
       if (stale()) return;
       setMatchData(data);
+      callbacksRef.current.onDetailReady?.(data);
       setDetailState({ status: "ready", data });
       callbacksRef.current.onRecovery?.("detail_failed");
     } catch (caught) {
@@ -1528,9 +1531,9 @@ export const ExpandedMatchDetails = ({
               onToggle={() => toggleDetailSection("tactical")}
               summary={`이벤트 ${matchData!.timeline?.filter((e: any) => e.type !== 'PHASE_START').length || 0}개`}
             >
-                <div className="p-4 md:p-6 pt-0 grid grid-cols-1 lg:grid-cols-12 gap-3 md:gap-6 animate-in slide-in-from-top-2 duration-300">
+                <div className="p-3 md:p-4 pt-0 grid grid-cols-1 lg:grid-cols-12 gap-3 md:gap-4 animate-in slide-in-from-top-2 duration-300">
                   {/* Left: Mini Map */}
-                  <div data-testid="match-tactical-map" className="lg:col-span-5 xl:col-span-4 bg-white/2 border border-white/5 rounded-[2rem] overflow-hidden min-h-[300px] lg:min-h-0 lg:h-[500px] relative group/map">
+                  <div data-testid="match-tactical-map" className="lg:col-span-5 xl:col-span-4 bg-white/2 border border-white/5 rounded-[1.5rem] overflow-hidden min-h-[240px] sm:min-h-[280px] lg:min-h-0 lg:h-[360px] relative group/map">
                     <div className="absolute top-4 left-4 z-10 px-3 py-1 bg-black/60 backdrop-blur-md border border-white/10 rounded-full text-[9px] text-gray-400 font-black uppercase tracking-widest opacity-0 group-hover/map:opacity-100 transition-opacity">
                       인터랙티브 전술 지도
                     </div>
@@ -1552,8 +1555,8 @@ export const ExpandedMatchDetails = ({
                   </div>
 
                   {/* Right: Timeline */}
-                  <div className="lg:col-span-7 xl:col-span-8 bg-white/2 border border-white/5 rounded-[2rem] p-4 md:p-6 lg:h-[500px] flex flex-col">
-                    <div className="flex items-center justify-between mb-6 shrink-0">
+                  <div className="lg:col-span-7 xl:col-span-8 bg-white/2 border border-white/5 rounded-[1.5rem] p-3 md:p-4 lg:h-[360px] flex flex-col">
+                    <div className="flex items-center justify-between mb-3 shrink-0">
                       <div className="text-[10px] text-gray-500 font-black uppercase tracking-widest">매치 타임라인</div>
                       <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-full border border-white/10 text-[10px] text-gray-400 font-bold">
                         <Clock size={10} />
