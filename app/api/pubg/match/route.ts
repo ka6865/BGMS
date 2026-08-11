@@ -741,7 +741,7 @@ async function reanalyzeAndSave(
       }),
     }, { reservedRow });
     try {
-      revalidateTag("match-analysis");
+      revalidateTag("match-analysis", "max");
     } catch {
       // Ignore in non-Next execution contexts
     }
@@ -815,7 +815,7 @@ async function reanalyzeAndSave(
   };
   } catch (error) {
     try {
-      revalidateTag("match-analysis");
+      revalidateTag("match-analysis", "max");
     } catch {}
     await releaseTelemetryMapCacheRow(reservedRow, cacheDeps).catch(() => undefined);
     throw error;
