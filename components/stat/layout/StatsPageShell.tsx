@@ -319,6 +319,7 @@ export function StatsPageShell({
         error={controllerError}
         suggestedPlayers={suggestedUsers}
         hasResult={Boolean(result)}
+        routeBooting={routeBooting}
         retryDisabled={retryDisabled}
         onRetry={handleRetry}
         onSuggestedPlayer={(player) => navigateToPlayer(player.nickname, player.platform)}

@@ -8,6 +8,7 @@ export interface StatsPageStatesProps {
   error: StatsPageController["error"];
   suggestedPlayers: StatsPageController["suggestedPlayers"];
   hasResult: boolean;
+  routeBooting?: boolean;
   retryDisabled: boolean;
   onRetry(): void;
   onSuggestedPlayer(value: { nickname: string; platform: StatsPlatform }): void;
@@ -18,15 +19,18 @@ export function StatsPageStates({
   error,
   suggestedPlayers,
   hasResult,
+  routeBooting = false,
   retryDisabled,
   onRetry,
   onSuggestedPlayer,
 }: StatsPageStatesProps) {
-  const loadingMessage = status === "loading"
-    ? "플레이어 전적을 불러오는 중"
-    : status === "refreshing"
-      ? "전적을 새로고침하는 중"
-      : null;
+  const loadingMessage = routeBooting
+    ? "전적을 불러오는 중"
+    : status === "loading"
+      ? "플레이어 전적을 불러오는 중"
+      : status === "refreshing"
+        ? "전적을 새로고침하는 중"
+        : null;
 
   return (
     <>

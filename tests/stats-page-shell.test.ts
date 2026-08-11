@@ -164,6 +164,7 @@ describe("StatsPageShell state and ownership matrix", () => {
     const boot = render(createElement(StatsPageShell, { initialNickname: "FixturePlayer" }));
     expect(screen.queryByText("내 PUBG 전적을 빠르게 확인하세요")).not.toBeInTheDocument();
     expect(boot.container.querySelector('[data-ad-placement="stats-top"]')).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("전적을 불러오는 중");
   });
 
   it("loading no-result는 status만, ready result는 profile → top ad → tabs → overview grid를 렌더한다", () => {
