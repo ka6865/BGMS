@@ -650,6 +650,25 @@ function isAbortError(error: unknown) {
     : Boolean(error && typeof error === "object" && "name" in error && error.name === "AbortError");
 }
 
+function getMatchStatusBorder(summary?: MatchSummaryData | MatchData | null): string {
+  if (!summary) return "border-l-white/20";
+  const mode = (summary.gameMode || "").toLowerCase();
+  const mapName = summary.mapName || "";
+  const isTdm = mode.includes("tdm") || mapName.toLowerCase().includes("tdm") || mapName === "PillarCompound_Main" || mapName === "Italy_TDM_Main";
+  const winPlace = summary.stats?.winPlace ?? 99;
+  const kills = summary.stats?.kills ?? 0;
+  const damageDealt = summary.stats?.damageDealt ?? 0;
+
+  if (isTdm) {
+    return winPlace === 1 ? "border-l-rose-400" : "border-l-red-400";
+  }
+  if (winPlace === 1) return "border-l-amber-400";
+  if (winPlace <= 10) return "border-l-teal-400";
+  if (kills === 0 && damageDealt < 100) return "border-l-red-400";
+  return "border-l-white/20";
+}
+
+
 export const ExpandedMatchDetails = ({
   matchId,
   nickname,
@@ -702,6 +721,8 @@ export const ExpandedMatchDetails = ({
   const { isAnalyzing: isGlobalAnalyzing } = useAIStatus();
   const { user } = useAuth();
   const router = useRouter();
+
+  const statusBorder = getMatchStatusBorder(matchData || initialMatchData);
 
   const leadKills = matchData ? (matchData.stats?.leadShotKills ?? matchData.leadShotKills ?? 0) : 0;
   const leadKnocks = matchData ? (matchData.stats?.leadShotKnocks ?? matchData.leadShotKnocks ?? 0) : 0;
@@ -1071,7 +1092,7 @@ export const ExpandedMatchDetails = ({
 
   if (detailState.status === "error") {
     return (
-      <div className="rounded-b-2xl border border-t-0 border-red-500/20 bg-red-500/10 p-4" role="alert">
+      <div className={`rounded-b-2xl border border-t-0 border-red-500/20 border-l-4 ${statusBorder} bg-red-500/10 p-4`} role="alert">
         <p className="text-sm font-black text-red-200">상세 정보를 불러오지 못했습니다</p>
         <p className="mt-1 text-xs text-red-100/60">접힌 매치 요약은 그대로 유지됩니다.</p>
         <button
@@ -1090,7 +1111,7 @@ export const ExpandedMatchDetails = ({
       <div
         role="status"
         aria-label="매치 상세 불러오는 중"
-        className="mb-3 flex min-h-24 items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 text-sm font-semibold text-white/60"
+        className={`flex min-h-24 items-center justify-center gap-3 rounded-b-2xl border border-t-0 border-white/10 border-l-4 ${statusBorder} bg-[#141414] px-4 text-sm font-semibold text-white/60`}
       >
         <span
           aria-hidden="true"
@@ -1105,7 +1126,7 @@ export const ExpandedMatchDetails = ({
     // initialMatchData 없이 렌더된 카드: 자동으로 PUBG API에서 기본 스탯 로드
     return (
       <div
-        className="mb-3 flex min-h-24 items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 cursor-pointer hover:bg-white/[0.07] transition-colors"
+        className={`flex min-h-24 items-center justify-between gap-3 rounded-b-2xl border border-t-0 border-white/10 border-l-4 ${statusBorder} bg-[#141414] px-4 py-3 cursor-pointer hover:bg-white/[0.07] transition-colors`}
         onClick={() => void fetchFullMatch()}
       >
         <div className="min-w-0 flex items-center gap-3">
@@ -1161,11 +1182,13 @@ export const ExpandedMatchDetails = ({
   const isWin = matchData.stats.winPlace === 1;
 
   return (
-    <div className={`mb-4 rounded-[2rem] border transition-all duration-300 shadow-2xl relative
-      overflow-hidden
-      ${isWin ? 'border-amber-500/50' : isRanked ? 'border-amber-500/20 hover:border-amber-500/40' : 'border-white/10 hover:border-white/20'}
-      ${isWin ? 'bg-gradient-to-br from-[#1a1200] via-black to-[#0d0d0d]' : isRanked ? 'bg-gradient-to-br from-black/80 via-black/60 to-[#1a1508]' : 'bg-black/40 hover:bg-black/50'}
-      ring-1 ring-white/20 z-[999] isolation-isolate hover:z-[70]`}>
+    <div className={`relative overflow-hidden rounded-b-2xl border border-t-0 border-l-4 ${statusBorder} transition-all duration-300 shadow-xl ${
+      isWin
+        ? "border-amber-500/40 bg-gradient-to-b from-[#181308] via-[#121212] to-[#0e0e0e]"
+        : isRanked
+        ? "border-amber-500/20 bg-gradient-to-b from-[#16140d] via-[#121212] to-[#0e0e0e]"
+        : "border-white/10 bg-[#121212]"
+    }`}>
 
       {/* 승리 shimmer 효과 */}
       {isWin && (
@@ -1205,7 +1228,7 @@ export const ExpandedMatchDetails = ({
       )}
 
       {/* Expanded Content */}
-      <div className="p-3 md:p-6 pt-0 border-t border-white/5 animate-in slide-in-from-top-4 duration-500 bg-[#0c0c0c] rounded-b-[2rem] isolation-isolate relative z-10">
+      <div className="p-3 md:p-6 pt-0 border-t border-white/10 animate-in slide-in-from-top-4 duration-500 bg-transparent rounded-b-2xl relative z-10">
           {/* Detailed Stats Grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
             <StatBox icon={<Crosshair size={16} />} label="헤드샷" value={Number(matchData!.stats.headshotKills) || 0} color="text-red-400" />

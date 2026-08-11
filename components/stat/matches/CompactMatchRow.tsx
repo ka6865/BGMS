@@ -36,6 +36,7 @@ const MAP_NAMES: Record<string, string> = {
 const MODE_LABELS = {
   ranked: "경쟁전",
   normal: "일반전",
+  casual: "캐주얼",
   tdm: "팀 데스매치",
 } as const;
 
@@ -157,7 +158,9 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
 
   return (
     <article
-      className={`relative rounded-2xl border border-white/10 border-l-4 bg-[#161616] ${status.border} ${showTierPopover ? "z-[1200] overflow-visible" : "overflow-hidden"}`}
+      className={`relative border border-white/10 border-l-4 bg-[#161616] ${status.border} ${
+        isExpanded ? "rounded-t-2xl rounded-b-none border-b-0" : "rounded-2xl"
+      } ${showTierPopover ? "z-[1200] overflow-visible" : "overflow-hidden"}`}
       data-compact-match-id={summary.matchId}
     >
       <button
@@ -182,7 +185,13 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
             <strong className="truncate text-sm text-white md:text-base">
               {MAP_NAMES[summary.mapName] ?? summary.mapName ?? "맵 정보 없음"}
             </strong>
-            <span className="shrink-0 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-black text-white/60">
+            <span className={`shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-black ${
+              mode === "casual"
+                ? "border-purple-500/30 bg-purple-500/15 text-purple-300"
+                : mode === "ranked"
+                ? "border-amber-500/30 bg-amber-500/15 text-amber-300"
+                : "border-white/10 bg-white/5 text-white/60"
+            }`}>
               {MODE_LABELS[mode]}
             </span>
             <span className="hidden text-[10px] font-bold text-white/35 sm:inline">{formatMode(summary.gameMode || "")}</span>

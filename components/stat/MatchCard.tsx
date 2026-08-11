@@ -107,7 +107,7 @@ export function MatchCard(props: MatchCardProps) {
   }
 
   return (
-    <div className="rounded-2xl bg-[#0d0d0d]" data-match-card-identity={identity}>
+    <div className="min-w-0" data-match-card-identity={identity}>
       <CompactMatchRow
         summary={initialMatchData}
         isExpanded={isExpanded}
