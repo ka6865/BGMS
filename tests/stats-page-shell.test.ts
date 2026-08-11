@@ -45,16 +45,28 @@ vi.mock("@/components/stat/profile/PlayerProfileHeader", () => ({
   ),
 }));
 vi.mock("@/components/stat/StatSummaryPanel", () => ({
-  StatSummaryPanel: ({ aiSummary, onAiOpen }: { aiSummary?: { verdict: string } | null; onAiOpen(): void }) =>
+  StatSummaryPanel: ({
+    aiSummary,
+    onAiOpen,
+    onModeChange,
+    onPartySizeChange,
+  }: {
+    aiSummary?: { verdict: string } | null;
+    onAiOpen(): void;
+    onModeChange(value: "ranked" | "normal"): void;
+    onPartySizeChange(value: "solo" | "duo" | "squad"): void;
+  }) =>
     createElement("aside", { "data-testid": "summary-panel" },
       aiSummary?.verdict ?? "summary-empty",
       createElement("button", { type: "button", onClick: onAiOpen }, "AI 시작"),
+      createElement("button", { type: "button", onClick: () => onModeChange("normal") }, "일반전 통계"),
+      createElement("button", { type: "button", onClick: () => onPartySizeChange("solo") }, "솔로 통계"),
     ),
 }));
 vi.mock("@/components/stat/matches/MatchFeed", () => ({
-  MatchFeed: ({ summaryStatus, onRetrySummaries }: { summaryStatus: string; onRetrySummaries(): void }) =>
+  MatchFeed: ({ summaryStatus, filter, onRetrySummaries }: { summaryStatus: string; filter: string; onRetrySummaries(): void }) =>
     createElement("div", { "data-testid": "match-feed" },
-      `feed-${summaryStatus}`,
+      `feed-${summaryStatus}-filter-${filter}`,
       summaryStatus === "error"
         ? createElement("button", { type: "button", onClick: onRetrySummaries }, "요약 다시 시도")
         : null,
@@ -170,6 +182,52 @@ describe("StatsPageShell state and ownership matrix", () => {
     expect(precedes(profile, topAd)).toBe(true);
     expect(precedes(topAd, tabs)).toBe(true);
     expect(precedes(tabs, grid)).toBe(true);
+  });
+
+  it("mobile result/overview outer stack은 8px, md 이상은 16px이고 guide에 중복 margin이 없다", () => {
+    mocks.controller = controller({ status: "ready", result: readyResult(), summaryStatus: "ready" });
+    const view = render(createElement(StatsPageShell));
+    const profile = screen.getByTestId("profile-header");
+    const topAd = view.container.querySelector('[data-ad-placement="stats-top"]')!;
+    const tabs = screen.getByRole("group", { name: "전적 분석 섹션" });
+    const grid = view.container.querySelector(".stats-result-grid")!;
+    const guide = screen.getByRole("button", { name: /BGMS AI 전술 분석 가이드/ });
+    const fullAi = screen.getByTestId("full-ai");
+
+    expect(profile.parentElement).toHaveClass("gap-2", "md:gap-4");
+    expect(grid.parentElement).toHaveClass("gap-2", "md:gap-4");
+    expect(guide.parentElement).not.toHaveClass("mt-4");
+    expect(guide.parentElement).not.toHaveClass("mb-6");
+    expect(precedes(profile, topAd)).toBe(true);
+    expect(precedes(topAd, tabs)).toBe(true);
+    expect(precedes(tabs, grid)).toBe(true);
+    expect(precedes(grid, guide)).toBe(true);
+    expect(precedes(guide, fullAi)).toBe(true);
+  });
+
+  it("stats mode/party 조작은 독립 match filter value/setter를 변경하지 않는다", () => {
+    const setStatsMode = vi.fn();
+    const setPartySize = vi.fn();
+    const setMatchFilter = vi.fn();
+    mocks.controller = controller({
+      status: "ready",
+      result: readyResult(),
+      summaryStatus: "ready",
+      matchFilter: "tdm",
+      setStatsMode,
+      setPartySize,
+      setMatchFilter,
+    });
+    render(createElement(StatsPageShell));
+
+    expect(screen.getByTestId("match-feed")).toHaveTextContent("filter-tdm");
+    fireEvent.click(screen.getByRole("button", { name: "일반전 통계" }));
+    fireEvent.click(screen.getByRole("button", { name: "솔로 통계" }));
+
+    expect(setStatsMode).toHaveBeenCalledWith("normal");
+    expect(setPartySize).toHaveBeenCalledWith("solo");
+    expect(setMatchFilter).not.toHaveBeenCalled();
+    expect(screen.getByTestId("match-feed")).toHaveTextContent("filter-tdm");
   });
 
   it("refreshing/partial/error + result는 현재 result와 top ad를 유지하고 partial summary retry를 feed에 남긴다", () => {

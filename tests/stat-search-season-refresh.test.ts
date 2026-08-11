@@ -172,6 +172,85 @@ describe("StatSearch season/refresh controller binding", () => {
     expect(screen.getByRole("button", { name: "스쿼드 시너지" })).toHaveClass("border-purple-500");
   });
 
+  it("A 실패 intent는 B route identity로 넘어가지 않고 B 최초 실패 retry는 B만 요청한다", async () => {
+    const playerA = {
+      ...playerReadyFixture,
+      nickname: "PlayerA",
+      platform: "steam",
+      recentMatches: [],
+      updatedAt: "2026-08-08T00:00:00.000Z",
+    };
+    const playerB = {
+      ...playerReadyFixture,
+      nickname: "PlayerB",
+      platform: "kakao",
+      seasonId: "",
+      recentMatches: [],
+    };
+    let bAttempt = 0;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = new URL(String(input), "https://bgms.kr");
+      if (!url.pathname.startsWith("/api/pubg/player")) {
+        throw new Error(`Unexpected request: ${url.pathname}`);
+      }
+      const requestNickname = url.searchParams.get("nickname");
+      if (requestNickname === "PlayerA" && !url.searchParams.has("season")) {
+        return Promise.resolve(jsonResponse(playerA));
+      }
+      if (requestNickname === "PlayerA") {
+        return Promise.resolve(jsonResponse({ error: "A season failed" }, 500));
+      }
+      if (requestNickname === "PlayerB") {
+        bAttempt += 1;
+        return Promise.resolve(bAttempt === 1
+          ? jsonResponse({ error: "B route failed" }, 500)
+          : jsonResponse(playerB));
+      }
+      throw new Error(`Unexpected player: ${requestNickname}`);
+    });
+
+    const view = render(createElement(StatSearch, {
+      initialPlatform: "steam",
+      initialNickname: "PlayerA",
+    }));
+    await screen.findByRole("heading", { name: "PlayerA" });
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-10T00:00:00.000Z"));
+
+    fireEvent.change(screen.getByRole("combobox", { name: "시즌 선택" }), {
+      target: { value: "division.bro.official.pc-2026-07" },
+    });
+    await flushAsyncSearch();
+    expect(screen.getByText("A season failed")).toBeInTheDocument();
+
+    view.rerender(createElement(StatSearch, {
+      initialPlatform: "kakao",
+      initialNickname: "PlayerB",
+    }));
+    await flushAsyncSearch();
+    expect(screen.getByText("B route failed")).toBeInTheDocument();
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    const retry = screen.getByRole("button", { name: "다시 시도" });
+    expect(retry).toBeEnabled();
+
+    fireEvent.click(retry);
+    await flushAsyncSearch();
+
+    const requests = playerRequests().map((call) => new URL(String(call[0]), "https://bgms.kr"));
+    const aRequests = requests.filter((url) => url.searchParams.get("nickname") === "PlayerA");
+    const bRequests = requests.filter((url) => url.searchParams.get("nickname") === "PlayerB");
+    expect(aRequests).toHaveLength(2);
+    expect(bRequests).toHaveLength(2);
+    expect(Object.fromEntries(bRequests[1].searchParams)).toMatchObject({
+      nickname: "PlayerB",
+      platform: "kakao",
+    });
+    expect(bRequests[1].searchParams.has("season")).toBe(false);
+    expect(bRequests[1].searchParams.has("refresh")).toBe(false);
+    expect(screen.queryByText("B route failed")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "PlayerB" })).toBeInTheDocument();
+  });
+
   it("실패한 새 시즌 retry는 3초 전 0건, 이후 정확한 season URL 1건을 추가한다", async () => {
     let playerAttempt = 0;
     fetchMock.mockImplementation((input: RequestInfo | URL) => {

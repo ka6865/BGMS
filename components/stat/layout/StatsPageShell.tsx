@@ -177,6 +177,7 @@ export function StatsPageShell({
   }, [cooldown, loading, platform, router]);
 
   useEffect(() => {
+    lastSearchIntentRef.current = null;
     if (navigationPendingTimeoutRef.current) {
       clearTimeout(navigationPendingTimeoutRef.current);
       navigationPendingTimeoutRef.current = null;
@@ -338,7 +339,7 @@ export function StatsPageShell({
       )}
 
       {result && (
-        <div className="relative flex w-full flex-col gap-4">
+        <div className="relative flex w-full flex-col gap-2 md:gap-4">
           <PlayerProfileHeader
             player={result}
             seasonId={selectedSeason}
@@ -363,7 +364,7 @@ export function StatsPageShell({
           <StatsSectionTabs value={activeTab} onChange={setActiveTab} />
 
           {activeTab === "overview" ? (
-            <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2 md:gap-4">
 
               <div className="stats-result-grid">
                 <aside className="stats-overview-rail">
@@ -404,7 +405,7 @@ export function StatsPageShell({
               </div>
 
               {/* BGMS AI 전술 분석 시스템 설명 (토글형으로 최적화) */}
-              <div className="mt-4 mb-6">
+              <div>
                 <button
                   type="button"
                   aria-expanded={showGuideline}

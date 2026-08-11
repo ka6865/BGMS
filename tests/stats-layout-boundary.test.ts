@@ -7,13 +7,13 @@ import { join } from "node:path";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import StatSearch from "@/components/stat/StatSearch";
-import StatsPage from "@/app/stats/page";
-import PlayerStatsPage from "@/app/stats/[platform]/[nickname]/page";
+import StatsPage, { generateMetadata as generateStatsMetadata } from "@/app/stats/page";
+import PlayerStatsPage, { generateMetadata as generatePlayerStatsMetadata } from "@/app/stats/[platform]/[nickname]/page";
 import SidebarFooterWrapper from "@/components/layout/SidebarFooterWrapper";
 import playerReady from "./fixtures/stats/player-ready.json";
 import summaryReady from "./fixtures/stats/matches-summary-ready.json";
 
-const { routerPush } = vi.hoisted(() => ({ routerPush: vi.fn() }));
+const { redirectMock, routerPush } = vi.hoisted(() => ({ redirectMock: vi.fn(), routerPush: vi.fn() }));
 const storage = new Map<string, string>();
 const localStorageMock: Storage = {
   get length() { return storage.size; },
@@ -34,7 +34,7 @@ function jsonResponse(body: unknown) {
 vi.mock("next/navigation", () => ({
   usePathname: () => "/stats",
   useRouter: () => ({ push: routerPush }),
-  redirect: vi.fn(),
+  redirect: redirectMock,
 }));
 vi.mock("@/components/common/Footer", () => ({ default: () => createElement("footer", null, "footer") }));
 vi.mock("@/components/AuthProvider", () => ({ useAuth: () => ({ user: null }) }));
@@ -52,6 +52,7 @@ describe("stats route layout boundary", () => {
   beforeEach(() => {
     storage.clear();
     routerPush.mockReset();
+    redirectMock.mockReset();
     vi.stubGlobal("localStorage", localStorageMock);
     vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   });
@@ -77,6 +78,34 @@ describe("stats route layout boundary", () => {
       initialTab: "squad",
       initialGroupKey: "g2",
     });
+  });
+
+  it("wrapper 제거 후에도 landing title과 dynamic canonical/OG metadata를 보존한다", async () => {
+    const landingMetadata = await generateStatsMetadata();
+    expect(landingMetadata.title).toBe("AI 전적 검색 | BGMS");
+
+    const dynamicMetadata = await generatePlayerStatsMetadata({
+      params: Promise.resolve({ platform: "steam", nickname: "Fixture%20Player" }),
+      searchParams: Promise.resolve({ tab: "squad", groupKey: "g2" }),
+    });
+    expect(dynamicMetadata.alternates?.canonical)
+      .toBe("https://bgms.kr/stats/steam/Fixture%20Player?tab=squad&groupKey=g2");
+    expect(dynamicMetadata.openGraph?.url)
+      .toBe("https://bgms.kr/stats/steam/Fixture%20Player?tab=squad&groupKey=g2");
+    expect(JSON.stringify(dynamicMetadata.openGraph?.images))
+      .toContain("/api/og/squad?nickname=Fixture%20Player&platform=steam&groupKey=g2");
+  });
+
+  it("invalid platform direct route는 wrapper 없이도 /stats로 redirect한다", async () => {
+    redirectMock.mockImplementation(() => {
+      throw new Error("NEXT_REDIRECT");
+    });
+
+    await expect(PlayerStatsPage({
+      params: Promise.resolve({ platform: "xbox", nickname: "FixturePlayer" }),
+      searchParams: Promise.resolve({}),
+    })).rejects.toThrow("NEXT_REDIRECT");
+    expect(redirectMock).toHaveBeenCalledWith("/stats");
   });
 
   it("real SidebarFooterWrapper가 유일한 main이고 shell root가 approved auto-ad boundary다", () => {

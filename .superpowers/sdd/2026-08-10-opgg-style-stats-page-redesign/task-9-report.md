@@ -116,3 +116,82 @@ npm run verify:core
 - Source scan은 legacy provider 재유입을 막는 보조 경계일 뿐이며, real `SidebarFooterWrapper` + controller + `RecentAISummary` landmark test로 player 1 request/main 1/top 1/full AI 1을 별도 검증했다.
 - Task 10 전이므로 실제 browser viewport screenshot, hydration/back-forward, 광고 fill, AdSense console Auto Ads anchor/side rail 상태는 완료로 주장하지 않는다.
 - `NEXT_PUBLIC_ADFIT_STATS_FEED_UNIT` 운영값이 없는 현재 환경에서 after-10은 Task 5 계약대로 omit되며 top unit fallback을 사용하지 않는다.
+
+## Fix Round 1
+
+### RED 근거
+
+```text
+npx vitest run tests/stat-search-season-refresh.test.ts tests/stats-layout-boundary.test.ts tests/stats-page-shell.test.ts
+```
+
+결과: exit 1, `3 files`, `22 tests`, `2 failed`, `20 passed`. `A 실패 intent...` 테스트에서 PlayerA 요청이 2건이 아닌 3건이었고, Shell layout 테스트에서 result 외부 stack이 `gap-4`로 관찰되어 `gap-2 md:gap-4` 계약을 위반했다.
+
+### Root cause
+
+- `StatsPageShell`의 기존 `initialNickname/initialPlatform` effect는 route 전환 시 navigation pending만 초기화하고 `lastSearchIntentRef`는 초기화하지 않았다. 따라서 A route의 season 실패 intent가 B route 최초 실패 뒤 retry에 재사용됐다.
+- result 외부 stack과 overview 외부 stack이 모두 `gap-4`였고, AI guide 외부 wrapper가 `mt-4 mb-6`을 소유하고 있었다.
+
+### 변경
+
+- route identity effect에서 `lastSearchIntentRef`를 clear하여 route 최초 실패 retry가 initial nickname/platform, current initial season, `forceRefresh=false` fallback을 사용하도록 수정했다.
+- result/overview 외부 stack을 각각 `gap-2 md:gap-4`로 변경했다.
+- AI guide outer wrapper의 `mt-4 mb-6`만 제거하고 내부 guide spacing은 유지했다.
+- `tests/stats-page-shell.test.ts`의 guide margin assertion을 `mt-4`, `mb-6` 각각의 `not.toHaveClass` assertion으로 강화했다.
+- metadata/redirect/filter production 동작은 변경하지 않았으며 STATS-012는 fixed로 올리지 않았다.
+
+### GREEN
+
+```text
+npx vitest run tests/stat-search-season-refresh.test.ts tests/stats-layout-boundary.test.ts tests/stats-page-shell.test.ts
+```
+
+결과: exit 0, `3 passed`, `22 passed`.
+
+### Fresh full validation
+
+Focused:
+
+```text
+npx vitest run tests/stats-page-shell.test.ts tests/stats-layout-boundary.test.ts tests/stats-auto-ads-boundary.test.ts tests/stat-search-baseline.test.ts tests/stat-search-deep-link.test.ts tests/stat-search-season-refresh.test.ts tests/stat-search-match-feed-integration.test.ts tests/stat-summary-panel.test.ts tests/stat-match-filter.test.ts tests/stat-search-ai-parent-identity.test.ts tests/squad-analysis-panel-state.test.ts tests/player-profile-header.test.ts
+```
+
+결과: exit 0, `12 passed`, `71 passed`. 기존 Task 9의 66 tests에 Fix Round 1 회귀·metadata/redirect·filter·layout 보강 5 tests가 추가된 실제 fresh count다.
+
+Related ownership/ads:
+
+```text
+npx vitest run tests/stats-page-controller.test.ts tests/stat-search-autocomplete.test.ts tests/stat-search-prefill.test.ts tests/battle-storage-compat.test.ts tests/match-feed-ad-placement.test.ts tests/responsive-ad-slot.test.ts tests/ad-provider-initialization.test.ts tests/recent-ai-summary-bridge.test.ts
+```
+
+결과: exit 0, `8 passed`, `47 passed`.
+
+Targeted lint/type/diff:
+
+```text
+npx eslint components/stat/layout/StatsPageShell.tsx components/stat/layout/StatsPageStates.tsx components/stat/StatSearch.tsx components/stat/search/StatsSearchBar.tsx app/stats/page.tsx 'app/stats/[platform]/[nickname]/page.tsx' tests/stats-page-shell.test.ts tests/stats-layout-boundary.test.ts tests/stat-search-season-refresh.test.ts
+npx tsc --noEmit --pretty false
+git diff --check
+```
+
+결과: 모두 exit 0, 대상 warning/error 0.
+
+```text
+npm run verify:core
+```
+
+결과: exit 0. 기존 범위 밖 warning 43개, error 0.
+
+### Fix Round 1 React condensed review
+
+- route identity effect는 primitive `initialNickname`/`initialPlatform` dependency를 유지하고 transient retry intent만 ref에서 clear하므로 추가 render나 effect loop를 만들지 않는다.
+- 새 inline component, import, bundle dependency, 전역 listener를 추가하지 않았다.
+- layout 변경은 기존 Shell의 route-scoped utility class에만 한정했고 접근성 이름·focus·button 계약은 변경하지 않았다.
+- metadata/redirect/filter production 경계는 그대로 두고 보존 테스트만 추가했다.
+
+### Fix Round 1 별도 read-only review
+
+- direct `gpt-5.6-luna`의 최고 지원 reasoning `max`로 `47bf7d9..b5e97f6` review package를 읽기 전용 검토했다.
+- Spec compliant, Task quality `Approved` 판정을 받았다.
+- Critical, Important, Minor finding은 모두 0건이다.
+- reviewer는 suite를 재실행하지 않았고, 위 fresh validation은 controller가 직접 실행한 exit code와 count를 근거로 한다.
