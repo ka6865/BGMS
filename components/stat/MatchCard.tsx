@@ -81,7 +81,6 @@ export function MatchCard(props: MatchCardProps) {
         nickname={nickname}
         platform={platform}
         summary={initialMatchData}
-        isMobile={props.isMobile}
         onNicknameClick={props.onNicknameClick}
         onModeDetected={onModeDetected}
         onFailure={props.onFailure}
@@ -109,7 +108,12 @@ export function MatchCard(props: MatchCardProps) {
 
   return (
     <div className="rounded-2xl bg-[#0d0d0d]" data-match-card-identity={identity}>
-      <CompactMatchRow summary={initialMatchData} isExpanded={isExpanded} onToggle={handleToggle} />
+      <CompactMatchRow
+        summary={initialMatchData}
+        isExpanded={isExpanded}
+        isMobile={props.isMobile}
+        onToggle={handleToggle}
+      />
       {hasExpandedOnce && isHistoricalSummary && (
         <div
           data-testid="expanded-match-details"

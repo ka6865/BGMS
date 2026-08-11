@@ -46,6 +46,25 @@ function summary(matchId = "match-detail-1", nickname = "PlayerOne"): MatchSumma
   };
 }
 
+function summaryWithTierEvidence(matchId = "match-detail-1", nickname = "PlayerOne"): MatchSummaryData {
+  return {
+    ...summary(matchId, nickname),
+    benchmark: baseDetail.benchmark,
+    teamImpact: baseDetail.teamImpact,
+    badges: baseDetail.badges,
+    myRank: baseDetail.myRank,
+    tradeStats: baseDetail.tradeStats,
+    isolationData: baseDetail.isolationData,
+    initiative_rate: baseDetail.initiative_rate,
+    initiativeSampleCount: baseDetail.initiativeSampleCount,
+    deathPhase: baseDetail.deathPhase,
+    duelStats: baseDetail.duelStats,
+    totalTeams: baseDetail.totalTeams,
+    totalPlayers: baseDetail.totalPlayers,
+    totalTeamDamage: baseDetail.totalTeamDamage,
+  };
+}
+
 function detail(matchId = "match-detail-1", nickname = "PlayerOne"): MatchData {
   return {
     ...baseDetail,
@@ -80,6 +99,7 @@ function renderCard(overrides: {
   nickname?: string;
   platform?: "steam" | "kakao";
   isMobile?: boolean;
+  initialMatchData?: MatchSummaryData;
   onFailure?: (reason: "detail_failed" | "analysis_failed") => void;
   onRecovery?: (reason: "detail_failed" | "analysis_failed") => void;
   onNicknameClick?: (nickname: string) => void;
@@ -92,7 +112,7 @@ function renderCard(overrides: {
     nickname,
     platform: overrides.platform ?? "steam",
     isMobile: overrides.isMobile ?? false,
-    initialMatchData: summary(matchId, nickname),
+    initialMatchData: overrides.initialMatchData ?? summary(matchId, nickname),
     onFailure: overrides.onFailure,
     onRecovery: overrides.onRecovery,
     onNicknameClick: overrides.onNicknameClick,
@@ -158,7 +178,20 @@ describe("MatchCard isolated detail state", () => {
     );
   });
 
-  it("상세 성공 뒤 팀·무기·티어 근거·지도·AI·2D/3D replay 계약을 보존한다", async () => {
+  it("AI 등급 배지는 매치 상세를 펼치거나 detail API를 호출하지 않고 근거만 연다", () => {
+    const fetchMock = vi.fn(() => new Promise<Response>(() => undefined));
+    vi.stubGlobal("fetch", fetchMock);
+    renderCard({ initialMatchData: summaryWithTierEvidence() });
+
+    const detailButton = screen.getByRole("button", { name: "매치 상세 펼치기" });
+    fireEvent.click(screen.getByRole("button", { name: /AI .* 티어 근거 보기/ }));
+
+    expect(screen.getByRole("region", { name: "매치 성과 및 티어 근거" })).toBeVisible();
+    expect(detailButton).toHaveAttribute("aria-expanded", "false");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("상세 성공 뒤 팀·무기·지도·AI·2D/3D replay 계약을 보존하고 티어 근거는 배지로만 연다", async () => {
     const onNicknameClick = vi.fn();
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       void init;
@@ -168,10 +201,22 @@ describe("MatchCard isolated detail state", () => {
       throw new Error(`Unexpected request: ${url}`);
     });
     vi.stubGlobal("fetch", fetchMock);
-    renderCard({ platform: "kakao", onNicknameClick });
+    renderCard({
+      platform: "kakao",
+      onNicknameClick,
+      initialMatchData: summaryWithTierEvidence(),
+    });
+
+    expect(screen.queryByRole("region", { name: "매치 성과 및 티어 근거" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
     await screen.findByTestId("expanded-match-details");
+    await screen.findByText("팀원 교전 성적");
+    expect(screen.queryByRole("region", { name: "매치 성과 및 티어 근거" })).not.toBeInTheDocument();
+    expect(screen.queryByText("티어 산정 근거")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /AI .* 티어 근거 보기/ }));
+    expect(screen.getByRole("region", { name: "매치 성과 및 티어 근거" })).toBeVisible();
     expect(screen.getByText("티어 산정 근거")).toBeInTheDocument();
     expect(screen.getByText("팀 66.3%")).toBeInTheDocument();
     expect(screen.getByText("화력 담당")).toBeInTheDocument();
@@ -218,12 +263,17 @@ describe("MatchCard isolated detail state", () => {
     );
   });
 
-  it("모바일 live 상세의 티어 세부 근거는 접힌 상태와 accessible toggle을 유지한다", async () => {
+  it("모바일 상세은 티어 근거를 자동 노출하지 않고 AI 배지 탭 뒤에만 연다", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(detail()))));
-    renderCard({ isMobile: true });
+    renderCard({ isMobile: true, initialMatchData: summaryWithTierEvidence() });
 
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
-    await screen.findByText("팀 66.3%");
+    await screen.findByText("팀원 교전 성적");
+    expect(screen.queryByRole("region", { name: "매치 성과 및 티어 근거" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /AI .* 티어 근거 보기/ }));
+    expect(screen.getByRole("region", { name: "매치 성과 및 티어 근거" })).toBeVisible();
+    expect(screen.getByText("팀 66.3%")).toBeInTheDocument();
 
     const openButton = screen.getByRole("button", { name: "상세 근거 보기" });
     expect(openButton).toHaveAttribute("aria-expanded", "false");

@@ -376,22 +376,28 @@ const TierEvidenceList = ({ section }: { section: TierEvidenceSection }) => (
   </section>
 );
 
-const MatchPerformancePanel = ({
+export const MatchPerformancePanel = ({
   matchData,
-  tierEvidence,
-  scoreMax,
   isMobile,
   showTierDetails,
   onToggleTierDetails,
 }: {
   matchData: MatchData;
-  tierEvidence: ReturnType<typeof buildTierEvidence> | null;
-  scoreMax: { combat: number; tactical: number; survival: number };
   isMobile: boolean;
   showTierDetails: boolean;
   onToggleTierDetails: () => void;
 }) => {
   const benchmark = matchData.benchmark;
+  const mode = (matchData.gameMode || "").toLowerCase();
+  const mapName = (matchData.mapName || "").toLowerCase();
+  const isTdmMatch = mode.includes("tdm")
+    || mapName.includes("tdm")
+    || matchData.mapName === "PillarCompound_Main"
+    || matchData.mapName === "Italy_TDM_Main";
+  const scoreMax = !isTdmMatch && mode.includes("solo")
+    ? { combat: 50, tactical: 15, survival: 35 }
+    : { combat: 40, tactical: 35, survival: 25 };
+  const tierEvidence = isTdmMatch ? null : buildTierEvidence(matchData);
   const teamDamageShare = Number(matchData.teamImpact?.teamDamageShare || 0);
   const badges = matchData.badges || [];
   const nextTier = benchmark ? getNextTierInfo(benchmark.score || 0) : null;
@@ -400,7 +406,7 @@ const MatchPerformancePanel = ({
   if (!benchmark && teamDamageShare <= 0 && badges.length === 0) return null;
 
   return (
-    <section aria-label="매치 성과 및 티어 근거" className="mt-6 rounded-2xl border border-indigo-500/20 bg-indigo-500/5 p-4">
+    <section aria-label="매치 성과 및 티어 근거" className="rounded-2xl border border-indigo-500/20 bg-indigo-500/5 p-4">
       {(teamDamageShare > 0 || badges.length > 0) && (
         <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-white/10 pb-4">
           {teamDamageShare > 0 && (
@@ -621,7 +627,6 @@ export interface ExpandedMatchDetailsProps {
   matchId: string;
   nickname: string;
   platform: StatsPlatform;
-  isMobile: boolean;
   summary?: MatchSummaryData;
   onNicknameClick?: (nickname: string) => void;
   onModeDetected?: (matchId: string, gameMode: string, matchType?: string, mapName?: string) => void;
@@ -649,7 +654,6 @@ export const ExpandedMatchDetails = ({
   matchId,
   nickname,
   platform,
-  isMobile,
   summary: initialMatchData,
   onNicknameClick,
   onModeDetected,
@@ -686,7 +690,6 @@ export const ExpandedMatchDetails = ({
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
-  const [showTierDetails, setShowTierDetails] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const isAnalyzingRef = useRef(false); // [V46.0] 클로저 세이프 로딩 추적
   const detailRequestRef = useRef<{ id: number; controller: AbortController } | null>(null);
@@ -1143,12 +1146,7 @@ export const ExpandedMatchDetails = ({
                      (matchData.gameMode || "").includes("squad") &&
                      !(matchData.gameMode || "").includes("ai-match")
                    ));
-  const isSoloScoring = !isTdmMatch && (matchData.gameMode || "").includes("solo");
-  const scoreMax = isSoloScoring
-    ? { combat: 50, tactical: 15, survival: 35 }
-    : { combat: 40, tactical: 35, survival: 25 };
   const isWin = matchData.stats.winPlace === 1;
-  const tierEvidence = isTdmMatch ? null : buildTierEvidence(matchData);
 
   return (
     <div className={`mb-4 rounded-[2rem] border transition-all duration-300 shadow-2xl relative
@@ -1193,15 +1191,6 @@ export const ExpandedMatchDetails = ({
 
       {/* Expanded Content */}
       <div className="p-3 md:p-6 pt-0 border-t border-white/5 animate-in slide-in-from-top-4 duration-500 bg-[#0c0c0c] rounded-b-[2rem] isolation-isolate relative z-10">
-          <MatchPerformancePanel
-            matchData={matchData}
-            tierEvidence={tierEvidence}
-            scoreMax={scoreMax}
-            isMobile={isMobile}
-            showTierDetails={showTierDetails}
-            onToggleTierDetails={() => setShowTierDetails((current) => !current)}
-          />
-
           {/* Detailed Stats Grid */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
             <StatBox icon={<Crosshair size={16} />} label="헤드샷" value={Number(matchData!.stats.headshotKills) || 0} color="text-red-400" />
