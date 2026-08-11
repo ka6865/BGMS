@@ -216,9 +216,12 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
             </span>
             <span className="hidden text-[10px] font-bold text-white/35 sm:inline">{formatMode(summary.gameMode || "")}</span>
             {playedAtAgo && (
-              <span className="text-[10px] font-bold text-white/40">
+              <time
+                dateTime={matchDate}
+                className="whitespace-nowrap text-[10px] font-bold text-white/50"
+              >
                 · {playedAtAgo}
-              </span>
+              </time>
             )}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-white/55">
@@ -231,7 +234,7 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
 
         <div className="flex shrink-0 flex-col items-end gap-1">
           <span className="text-[10px] font-black text-white/50">{status.label}</span>
-          {tier && (
+          {tier ? (
             <div
               ref={tierRef}
               className="pointer-events-auto relative"
@@ -255,7 +258,7 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
                 aria-expanded={showTierPopover}
                 aria-controls={tierPopoverId}
                 aria-haspopup="dialog"
-                aria-label={`AI ${tier} 티어 근거 ${showTierPopover ? "닫기" : "보기"}`}
+                aria-label={`${tier} 티어 근거 ${showTierPopover ? "닫기" : "보기"}`}
                 onClick={(event) => {
                   event.stopPropagation();
                   if (isMobile) {
@@ -272,14 +275,14 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
                 }}
                 className="flex min-h-11 min-w-11 items-center justify-center rounded-lg bg-indigo-500/15 px-2 text-[10px] font-black text-indigo-300 transition-colors hover:bg-indigo-500/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400 md:min-h-8 md:min-w-0"
               >
-                AI {tier}
+                {tier}
               </button>
 
               {showTierPopover && (
                 <div
                   id={tierPopoverId}
                   role="dialog"
-                  aria-label="AI 티어 근거"
+                  aria-label="티어 근거"
                   data-testid="match-tier-tooltip"
                   onClick={(event) => event.stopPropagation()}
                   style={!isMobile ? { maxHeight: `${popoverLayout.maxHeight}px` } : undefined}
@@ -290,7 +293,7 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
                 >
                   {isMobile && (
                     <div className="mb-2 flex items-center justify-between px-2 pt-1">
-                      <span className="text-xs font-black text-indigo-300">AI 티어 근거</span>
+                      <span className="text-xs font-black text-indigo-300">티어 근거</span>
                       <button
                         type="button"
                         aria-label="티어 근거 닫기"
@@ -310,6 +313,13 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
                 </div>
               )}
             </div>
+          ) : (
+            <span
+              aria-label="티어 미산정"
+              className="whitespace-nowrap text-[10px] font-bold text-white/30"
+            >
+              티어 미산정
+            </span>
           )}
         </div>
         <ChevronDown

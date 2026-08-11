@@ -201,11 +201,30 @@ describe("MatchCard isolated detail state", () => {
     renderCard({ initialMatchData: summaryWithTierEvidence() });
 
     const detailButton = screen.getByRole("button", { name: "매치 상세 펼치기" });
-    fireEvent.click(screen.getByRole("button", { name: /AI .* 티어 근거 보기/ }));
+    const tierButton = screen.getByRole("button", { name: /티어 근거 보기/ });
+    expect(tierButton).not.toHaveAccessibleName(/AI/);
+    expect(tierButton).toHaveTextContent(/^[A-Z][+-]?$/);
+    fireEvent.click(tierButton);
 
     expect(screen.getByRole("region", { name: "매치 성과 및 티어 근거" })).toBeVisible();
+    expect(screen.getByRole("dialog", { name: "티어 근거" })).toBeVisible();
     expect(detailButton).toHaveAttribute("aria-expanded", "false");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("기본 요약의 결과 상태와 티어 미산정을 구분하고 상세 티어를 헤더에 반영한다", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse(detail())));
+    vi.stubGlobal("fetch", fetchMock);
+    renderCard({ initialMatchData: summary() });
+
+    expect(screen.getByText("티어 미산정")).toBeVisible();
+    expect(screen.getByText("상위권")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+    await screen.findByText("팀원 교전 성적");
+
+    expect(screen.queryByText("티어 미산정")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "S 티어 근거 보기" })).toBeVisible();
   });
 
   it("PC에서 AI 등급 배지를 클릭하면 포인터가 떠나도 팝오버를 유지하고 바깥 클릭으로 닫는다", () => {
@@ -213,7 +232,8 @@ describe("MatchCard isolated detail state", () => {
     vi.stubGlobal("fetch", fetchMock);
     renderCard({ initialMatchData: summaryWithTierEvidence() });
 
-    const badge = screen.getByRole("button", { name: /AI .* 티어 근거 보기/ });
+    const badge = screen.getByRole("button", { name: /티어 근거 보기/ });
+    expect(badge).not.toHaveAccessibleName(/AI/);
     fireEvent.click(badge);
     expect(screen.getByTestId("match-tier-tooltip")).toBeVisible();
 
@@ -248,7 +268,7 @@ describe("MatchCard isolated detail state", () => {
     expect(screen.queryByRole("region", { name: "매치 성과 및 티어 근거" })).not.toBeInTheDocument();
     expect(screen.queryByText("티어 산정 근거")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /AI .* 티어 근거 보기/ }));
+    fireEvent.click(screen.getByRole("button", { name: /티어 근거 보기/ }));
     expect(screen.getByRole("region", { name: "매치 성과 및 티어 근거" })).toBeVisible();
     expect(screen.getByText("티어 산정 근거")).toBeInTheDocument();
     expect(screen.getByText("팀 66.3%")).toBeInTheDocument();
@@ -297,7 +317,7 @@ describe("MatchCard isolated detail state", () => {
     );
   });
 
-  it("모바일 상세은 티어 근거를 자동 노출하지 않고 AI 배지 탭 뒤에만 연다", async () => {
+  it("모바일 상세은 티어 근거를 자동 노출하지 않고 티어 배지 탭 뒤에만 연다", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(detail()))));
     renderCard({ isMobile: true, initialMatchData: summaryWithTierEvidence() });
 
@@ -305,7 +325,7 @@ describe("MatchCard isolated detail state", () => {
     await screen.findByText("팀원 교전 성적");
     expect(screen.queryByRole("region", { name: "매치 성과 및 티어 근거" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /AI .* 티어 근거 보기/ }));
+    fireEvent.click(screen.getByRole("button", { name: /티어 근거 보기/ }));
     expect(screen.getByRole("region", { name: "매치 성과 및 티어 근거" })).toBeVisible();
     expect(screen.getByText("팀 66.3%")).toBeInTheDocument();
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
+import type { MatchData } from "@/types/stat";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { isMatchOlderThan14Days } from "@/components/stat/matchExpiryHelper";
 import { CompactMatchRow } from "@/components/stat/matches/CompactMatchRow";
@@ -45,6 +46,7 @@ export function MatchCard(props: MatchCardProps) {
     isExpanded: false,
     hasExpandedOnce: false,
   });
+  const [detailData, setDetailData] = useState<MatchData | null>(null);
   const isCurrent = expansion.identity === identity;
   const isExpanded = isCurrent && expansion.isExpanded;
   const hasExpandedOnce = isCurrent && expansion.hasExpandedOnce;
@@ -57,6 +59,19 @@ export function MatchCard(props: MatchCardProps) {
   const summaryMatchType = initialMatchData?.matchType;
   const summaryMapName = initialMatchData?.mapName;
   const hasInitialSummary = Boolean(initialMatchData);
+
+  useEffect(() => {
+    setDetailData(null);
+  }, [identity]);
+
+  const displaySummary = initialMatchData && detailData
+    ? {
+        ...initialMatchData,
+        ...detailData,
+        stats: detailData.stats,
+        isSummary: false,
+      } as MatchSummaryData
+    : initialMatchData;
 
   useEffect(() => {
     if (!hasInitialSummary) return;
@@ -83,6 +98,7 @@ export function MatchCard(props: MatchCardProps) {
         summary={initialMatchData}
         onNicknameClick={props.onNicknameClick}
         onModeDetected={onModeDetected}
+        onDetailReady={setDetailData}
         onFailure={props.onFailure}
         onRecovery={props.onRecovery}
       />
@@ -109,7 +125,7 @@ export function MatchCard(props: MatchCardProps) {
   return (
     <div className="min-w-0" data-match-card-identity={identity}>
       <CompactMatchRow
-        summary={initialMatchData}
+        summary={displaySummary!}
         isExpanded={isExpanded}
         isMobile={props.isMobile}
         onToggle={handleToggle}
