@@ -41,6 +41,7 @@ const FILTERS: readonly { value: StatsMatchFilter; label: string }[] = [
   { value: "all", label: "전체" },
   { value: "normal", label: "일반전" },
   { value: "ranked", label: "경쟁전" },
+  { value: "casual", label: "캐주얼" },
   { value: "tdm", label: "TDM" },
 ];
 
@@ -48,6 +49,7 @@ const EMPTY_MESSAGES: Record<StatsMatchFilter, string> = {
   all: "최근 14일 이내에 플레이한 매치 기록이 없습니다.",
   normal: "최근 14일 이내에 플레이한 일반전 기록이 없습니다.",
   ranked: "최근 14일 이내에 플레이한 경쟁전(랭크전) 기록이 없습니다.",
+  casual: "최근 14일 이내에 플레이한 캐주얼 모드 기록이 없습니다.",
   tdm: "최근 14일 이내에 플레이한 팀 데스매치(TDM) 기록이 없습니다.",
 };
 

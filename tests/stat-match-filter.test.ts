@@ -10,6 +10,12 @@ const matches: MatchSummaryData[] = [
     mapName: "Baltic_Main",
   },
   {
+    matchId: "casual-1",
+    gameMode: "squad",
+    matchType: "airoyale",
+    mapName: "Baltic_Main",
+  },
+  {
     matchId: "tdm-1",
     gameMode: "squad-fpp",
     matchType: "official",
@@ -34,6 +40,11 @@ describe("recent match classification and filtering", () => {
     expect(classifyMatchMode({ gameMode: "squad-fpp", matchType: "competitive" })).toBe("ranked");
   });
 
+  it("classifies airoyale and ai-match matchType as casual", () => {
+    expect(classifyMatchMode({ gameMode: "squad", matchType: "airoyale" })).toBe("casual");
+    expect(classifyMatchMode({ gameMode: "squad-ai", matchType: "official" })).toBe("casual");
+  });
+
   it("uses known TDM map names when the game mode is recorded as a normal squad mode", () => {
     expect(classifyMatchMode({ gameMode: "tdm", matchType: "official" })).toBe("tdm");
     expect(classifyMatchMode({ gameMode: "squad-fpp", matchType: "official", mapName: "PillarCompound_Main" })).toBe("tdm");
@@ -42,6 +53,7 @@ describe("recent match classification and filtering", () => {
   it("filters by classified mode and never renders missing summaries", () => {
     expect(filterRenderableMatches(matches, ["missing-1"], "ranked").map((match) => match.matchId)).toEqual(["ranked-1"]);
     expect(filterRenderableMatches(matches, ["missing-1"], "tdm").map((match) => match.matchId)).toEqual(["tdm-1"]);
-    expect(filterRenderableMatches(matches, ["missing-1"], "normal").map((match) => match.matchId)).toEqual(["normal-1"]);
+    expect(filterRenderableMatches(matches, ["missing-1"], "casual").map((match) => match.matchId)).toEqual(["casual-1"]);
+    expect(filterRenderableMatches(matches, ["missing-1"], "normal").map((match) => match.matchId)).toEqual(["casual-1", "normal-1"]);
   });
 });

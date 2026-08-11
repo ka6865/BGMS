@@ -13,6 +13,20 @@ import type {
 const PARTY_SIZES: readonly StatsPartySize[] = ["squad", "duo", "solo"];
 const TDM_MAP_NAMES = new Set(["PillarCompound_Main", "Italy_TDM_Main"]);
 
+export function isCasualMatch(input: { matchType?: string; gameMode?: string }): boolean {
+  const matchType = (input.matchType || "").toLowerCase();
+  const gameMode = (input.gameMode || "").toLowerCase();
+  return (
+    matchType.includes("airoyale") ||
+    matchType.includes("ai-match") ||
+    matchType.includes("aimatch") ||
+    gameMode.includes("airoyale") ||
+    gameMode.includes("ai-match") ||
+    gameMode.includes("ai_match") ||
+    gameMode.includes("-ai")
+  );
+}
+
 export function parseStatsPlatform(value?: string): StatsPlatform | null {
   return value === "steam" || value === "kakao" ? value : null;
 }
@@ -45,6 +59,7 @@ export function classifyMatchMode(input: StatsMatchModeMeta): Exclude<StatsMatch
   ) {
     return "ranked";
   }
+  if (isCasualMatch(input)) return "casual";
 
   return "normal";
 }
@@ -58,7 +73,10 @@ export function filterRenderableMatches(
 
   return matches.filter((match) => {
     if (missing.has(match.matchId)) return false;
-    return filter === "all" || classifyMatchMode(match) === filter;
+    if (filter === "all") return true;
+    const mode = classifyMatchMode(match);
+    if (filter === "normal") return mode === "normal" || mode === "casual";
+    return mode === filter;
   });
 }
 
