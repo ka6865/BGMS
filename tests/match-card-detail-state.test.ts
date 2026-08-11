@@ -157,6 +157,23 @@ describe("MatchCard isolated detail state", () => {
     expect(onRecovery).toHaveBeenCalledWith("detail_failed");
   });
 
+  it("상세 매치 요청 중에는 빈 어두운 영역 대신 로딩 안내를 표시한다", async () => {
+    let resolveDetail!: (response: Response) => void;
+    const detailRequest = new Promise<Response>((resolve) => {
+      resolveDetail = resolve;
+    });
+    vi.stubGlobal("fetch", vi.fn(() => detailRequest));
+    renderCard();
+
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+
+    expect(await screen.findByRole("status", { name: "매치 상세 불러오는 중" })).toBeVisible();
+    expect(screen.getByText("매치 상세를 불러오는 중")).toBeVisible();
+
+    resolveDetail(jsonResponse(detail()));
+    await screen.findByText("팀원 교전 성적");
+  });
+
   it("summary와 full detail 모두 gameMode+matchType+mapName 전체 metadata를 전달한다", async () => {
     const onModeDetected = vi.fn();
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(jsonResponse(detail()))));

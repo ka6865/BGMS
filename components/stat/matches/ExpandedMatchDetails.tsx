@@ -1086,7 +1086,19 @@ export const ExpandedMatchDetails = ({
   }
 
   if (loading) {
-    return <div className="h-24 bg-white/5 border border-white/10 rounded-2xl animate-pulse mb-3" />;
+    return (
+      <div
+        role="status"
+        aria-label="매치 상세 불러오는 중"
+        className="mb-3 flex min-h-24 items-center justify-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 text-sm font-semibold text-white/60"
+      >
+        <span
+          aria-hidden="true"
+          className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-indigo-400"
+        />
+        <span>매치 상세를 불러오는 중</span>
+      </div>
+    );
   }
 
   if (!matchData) {
