@@ -1,6 +1,8 @@
 import { Metadata } from 'next';
 import { getTabSeo } from '@/lib/seo-config';
 import StatSearch from '@/components/stat/StatSearch';
+import { redirect } from 'next/navigation';
+import { parseStatsPlatform, parseStatsSectionTab } from '@/lib/stats/statsPageModel';
 
 interface Props {
   params: Promise<{
@@ -80,15 +82,20 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
 }
 
 
-export default async function PlayerStatsPage({ params }: Props) {
-  const { platform, nickname } = await params;
+export default async function PlayerStatsPage({ params, searchParams }: Props) {
+  const [{ platform, nickname }, query] = await Promise.all([params, searchParams]);
+  const validPlatform = parseStatsPlatform(platform);
+  if (!validPlatform) redirect('/stats');
   const decodedNickname = decodeURIComponent(nickname);
+  const tab = typeof query.tab === 'string' ? query.tab : undefined;
+  const groupKey = typeof query.groupKey === 'string' ? query.groupKey : undefined;
 
   return (
-    <div className="w-full min-h-full bg-[#0d0d0d] flex justify-center">
-      <div className="w-full max-w-[1200px]">
-        <StatSearch initialPlatform={platform} initialNickname={decodedNickname} />
-      </div>
-    </div>
+    <StatSearch
+      initialPlatform={validPlatform}
+      initialNickname={decodedNickname}
+      initialTab={parseStatsSectionTab(tab)}
+      initialGroupKey={groupKey}
+    />
   );
 }

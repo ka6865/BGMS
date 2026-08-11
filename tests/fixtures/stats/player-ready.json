@@ -1,0 +1,68 @@
+{
+  "nickname": "FixturePlayer",
+  "platform": "steam",
+  "seasonId": "division.bro.official.pc-2026-08",
+  "seasons": [
+    {
+      "id": "division.bro.official.pc-2026-08",
+      "name": "Season 8"
+    },
+    {
+      "id": "division.bro.official.pc-2026-07",
+      "name": "Season 7"
+    }
+  ],
+  "stats": {
+    "ranked": {
+      "solo": null,
+      "duo": null,
+      "squad": {
+        "roundsPlayed": 12,
+        "kills": 24,
+        "assists": 8,
+        "deaths": 10,
+        "losses": 10,
+        "wins": 2,
+        "top10Ratio": 0.5,
+        "damageDealt": 3600,
+        "dBNOs": 20,
+        "timeSurvived": 12000,
+        "headshotKills": 6,
+        "roundMostKills": 5,
+        "currentTier": {
+          "tier": "Gold",
+          "subTier": "3"
+        },
+        "currentRankPoint": 2450
+      }
+    },
+    "normal": {
+      "solo": null,
+      "duo": null,
+      "squad": {
+        "roundsPlayed": 8,
+        "kills": 12,
+        "assists": 5,
+        "deaths": 7,
+        "losses": 7,
+        "wins": 1,
+        "top10s": 4,
+        "damageDealt": 1800,
+        "dBNOs": 9,
+        "timeSurvived": 7200,
+        "headshotKills": 3,
+        "roundMostKills": 4
+      }
+    }
+  },
+  "recentMatches": [
+    "match-fixture-1"
+  ],
+  "matchModes": {
+    "match-fixture-1": "squad-fpp"
+  },
+  "clan": null,
+  "weaponMastery": [],
+  "banType": "None",
+  "updatedAt": "2026-08-10T00:00:00.000Z"
+}

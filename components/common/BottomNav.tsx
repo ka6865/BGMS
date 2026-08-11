@@ -7,6 +7,9 @@ import GlobalMobileMenu from './GlobalMobileMenu';
 import { useAuth } from '../AuthProvider';
 import { supabase } from '@/lib/supabase';
 
+export const isStatsPath = (pathname: string) =>
+  pathname === '/stats' || pathname.startsWith('/stats/');
+
 export default function BottomNav() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -60,7 +63,7 @@ export default function BottomNav() {
       label: 'AI 전적',
       icon: BarChart2,
       onClick: () => router.push('/stats'),
-      active: pathname === '/stats' && !isMenuOpen,
+      active: isStatsPath(pathname) && !isMenuOpen,
     },
     {
       id: 'Rankings',

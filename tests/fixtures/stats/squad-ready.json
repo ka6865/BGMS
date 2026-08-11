@@ -1,0 +1,114 @@
+{
+  "groups": [
+    {
+      "groupKey": "g1",
+      "members": ["Alpha", "Bravo"],
+      "matchCount": 3
+    },
+    {
+      "groupKey": "g2",
+      "members": ["Charlie", "Delta"],
+      "matchCount": 2
+    }
+  ],
+  "details": {
+    "g1": {
+      "groupKey": "g1",
+      "matchCount": 3,
+      "stats": {
+        "avgIsolation": 1.2,
+        "avgTradeLatency": 1000,
+        "totalSmokeRescues": 1,
+        "totalRevives": 1,
+        "avgCoverRate": 0.5,
+        "totalTeamWipes": 1
+      },
+      "scores": {
+        "formation": 80,
+        "backupSpeed": 81,
+        "survivalCare": 82,
+        "focusFire": 83,
+        "teamWipe": 84
+      },
+      "roleProfiles": [
+        {
+          "name": "FixturePlayer",
+          "role": "메인 딜러",
+          "roleDesc": "fixture role",
+          "avgDamage": 400,
+          "avgKills": 3,
+          "avgAssists": 1,
+          "avgDbnos": 2,
+          "shares": { "damage": 50, "kill": 50, "assist": 50, "dbno": 50 }
+        }
+      ],
+      "matchesSummary": [
+        {
+          "matchId": "match-g1",
+          "playedAt": "2026-08-10T12:00:00.000Z",
+          "mapName": "Baltic_Main",
+          "mapDisplayName": "미라마",
+          "winPlace": 2
+        }
+      ],
+      "squadGrade": "A",
+      "benchmarkStats": {
+        "tier": "A",
+        "avgIsolation": 1.5,
+        "avgTradeLatency": 1200,
+        "avgReviveRate": 0.4,
+        "avgSmokeRate": 0.6,
+        "avgTeamWipes": 0.8
+      }
+    },
+    "g2": {
+      "groupKey": "g2",
+      "matchCount": 2,
+      "stats": {
+        "avgIsolation": 2.1,
+        "avgTradeLatency": 1400,
+        "totalSmokeRescues": 2,
+        "totalRevives": 2,
+        "avgCoverRate": 0.65,
+        "totalTeamWipes": 2
+      },
+      "scores": {
+        "formation": 70,
+        "backupSpeed": 71,
+        "survivalCare": 72,
+        "focusFire": 73,
+        "teamWipe": 74
+      },
+      "roleProfiles": [
+        {
+          "name": "FixturePlayer",
+          "role": "지원형",
+          "roleDesc": "fixture support role",
+          "avgDamage": 320,
+          "avgKills": 2,
+          "avgAssists": 2,
+          "avgDbnos": 1,
+          "shares": { "damage": 40, "kill": 40, "assist": 60, "dbno": 40 }
+        }
+      ],
+      "matchesSummary": [
+        {
+          "matchId": "match-g2",
+          "playedAt": "2026-08-09T12:00:00.000Z",
+          "mapName": "Erangel_Main",
+          "mapDisplayName": "에란겔",
+          "winPlace": 4
+        }
+      ],
+      "squadGrade": "B",
+      "benchmarkStats": {
+        "tier": "B",
+        "avgIsolation": 2.4,
+        "avgTradeLatency": 1600,
+        "avgReviveRate": 0.3,
+        "avgSmokeRate": 0.4,
+        "avgTeamWipes": 0.5
+      }
+    }
+  }
+}

@@ -1,0 +1,139 @@
+{
+  "matchId": "match-detail-1",
+  "stats": {
+    "winPlace": 3,
+    "kills": 4,
+    "assists": 2,
+    "damageDealt": 512,
+    "timeSurvived": 1420,
+    "DBNOs": 3,
+    "headshotKills": 1,
+    "longestKill": 128.4,
+    "heals": 2,
+    "boosts": 4,
+    "deathType": "byplayer",
+    "walkDistance": 1820,
+    "rideDistance": 3400,
+    "swimDistance": 0,
+    "revives": 1,
+    "name": "PlayerOne",
+    "playerId": "account.player-one"
+  },
+  "mapName": "Baltic_Main",
+  "mapId": "Baltic_Main",
+  "createdAt": "2026-08-09T12:00:00.000Z",
+  "gameMode": "squad-fpp",
+  "matchType": "competitive",
+  "totalTeams": 16,
+  "totalPlayers": 64,
+  "team": [
+    {
+      "name": "PlayerOne",
+      "kills": 4,
+      "assists": 2,
+      "damageDealt": 512,
+      "DBNOs": 3,
+      "revives": 1
+    },
+    {
+      "name": "SquadMate",
+      "kills": 2,
+      "assists": 1,
+      "damageDealt": 260,
+      "DBNOs": 1,
+      "revives": 0
+    }
+  ],
+  "totalTeamKills": 6,
+  "totalTeamDamage": 772,
+  "killDetails": [],
+  "dbnoDetails": [],
+  "teamImpact": {
+    "damageImpact": 66.3,
+    "killImpact": 66.7,
+    "teamDamageShare": 66.3,
+    "teamKillShare": 66.7,
+    "totalTeamDamage": 772,
+    "totalTeamKills": 6
+  },
+  "badges": [
+    { "id": "damage_carry", "name": "화력 담당", "desc": "팀 화력 기여" }
+  ],
+  "myRank": {
+    "damageRank": 2,
+    "damagePercentile": 0.9,
+    "killRank": 3,
+    "totalTeams": 16,
+    "totalPlayers": 64
+  },
+  "tradeStats": {
+    "teammateKnocks": 2,
+    "suppCount": 1,
+    "tradeKills": 1,
+    "smokeCount": 2,
+    "smokeRescues": 1,
+    "revCount": 1,
+    "baitCount": 0,
+    "counterLatencyMs": 1800,
+    "reactionLatencyMs": 900,
+    "coverRate": 50
+  },
+  "isolationData": {
+    "isolationIndex": 1.2,
+    "minDist": 18,
+    "heightDiff": 2,
+    "isCrossfire": false,
+    "teammateCount": 3
+  },
+  "initiative_rate": 55,
+  "initiativeSampleCount": 4,
+  "deathPhase": 6,
+  "duelStats": {
+    "totalDuels": 3,
+    "wins": 2,
+    "losses": 1,
+    "reversals": 1,
+    "reversalAttempts": 1,
+    "reversalRate": 100,
+    "duelWinRate": 66.7
+  },
+  "benchmark": {
+    "tier": "A",
+    "score": 82,
+    "breakdown": { "combat": 34, "tactical": 27, "survival": 21 },
+    "impactScore": 87,
+    "impactGrade": "CARRY",
+    "impactBonus": 5,
+    "impactReasons": ["화력 기여"]
+  },
+  "weaponStats": {
+    "WeapHK416_C": {
+      "kills": 3,
+      "dbnos": 2,
+      "damage": 420,
+      "hits": 12,
+      "shots": 32,
+      "accuracy": 38,
+      "holdingTime": 600,
+      "hitDetails": []
+    }
+  },
+  "squadWeaponStats": {
+    "SquadMate": [
+      {
+        "weapon": "Item_Weapon_AK47_C",
+        "damage": 260,
+        "dBNODamage": 80,
+        "shots": 28,
+        "hits": 9,
+        "dBNOHits": 2,
+        "holdingTime": 540,
+        "accuracy": 32,
+        "hitDetails": []
+      }
+    ]
+  },
+  "timeline": [],
+  "tacticalTimeline": [],
+  "v": 1
+}

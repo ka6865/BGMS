@@ -10,7 +10,7 @@ describe("텔레메트리 소비자 계약", () => {
   const useTelemetrySource = source("hooks/useTelemetry.ts");
   const replay3dSource = source("app/replay/3d/page.tsx");
   const squad2dSource = source("components/stat/Squad2DMap.tsx");
-  const matchCardSource = source("components/stat/MatchCard.tsx");
+  const expandedMatchDetailsSource = source("components/stat/matches/ExpandedMatchDetails.tsx");
   const mapShellSource = source("components/map/MapShell.tsx");
   const latestRequestSource = source("hooks/useLatestTelemetryRequest.ts");
 
@@ -36,8 +36,8 @@ describe("텔레메트리 소비자 계약", () => {
     expect(replay3dSource).not.toMatch(/platform\s*\|\|\s*["']steam["']/);
   });
 
-  it("MatchCard의 두 2D URL이 platform을 인코딩해 전달한다", () => {
-    expect(matchCardSource.match(/platform=\$\{encodeURIComponent\(platform\)\}/g)).toHaveLength(2);
+  it("ExpandedMatchDetails의 두 2D URL이 platform을 인코딩해 전달한다", () => {
+    expect(expandedMatchDetailsSource.match(/platform=\$\{encodeURIComponent\(platform\)\}/g)).toHaveLength(2);
   });
 
   it("MapShell이 완전한 playback identity를 fail-closed 검증하고 hook에 전달한다", () => {

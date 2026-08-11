@@ -139,6 +139,7 @@ export async function GET(request: Request) {
       .eq("platform", player.platform)
       .not("game_mode", "ilike", "%training%")
       .not("game_mode", "ilike", "%tdm%")
+      .in("match_type", ["official", "competitive"])
       .order("created_at", { ascending: false })
       .limit(MAX_COMPARE_MATCHES);
 

@@ -1,0 +1,44 @@
+{
+  "summaries": {
+    "match-fixture-1": {
+      "matchId": "match-fixture-1",
+      "stats": {
+        "winPlace": 3,
+        "kills": 4,
+        "assists": 1,
+        "damageDealt": 420,
+        "timeSurvived": 1420,
+        "DBNOs": 3,
+        "headshotKills": 1,
+        "longestKill": 128.4,
+        "heals": 2,
+        "boosts": 4,
+        "deathType": "byplayer",
+        "walkDistance": 1820,
+        "rideDistance": 3400,
+        "swimDistance": 0,
+        "revives": 1,
+        "name": "FixturePlayer",
+        "playerId": "account.fixture-player"
+      },
+      "mapName": "Baltic_Main",
+      "mapId": "Baltic_Main",
+      "createdAt": "2026-08-09T12:00:00.000Z",
+      "gameMode": "squad-fpp",
+      "matchType": "official",
+      "totalTeams": 25,
+      "totalPlayers": 100,
+      "team": [],
+      "totalTeamKills": 7,
+      "totalTeamDamage": 860,
+      "killDetails": [],
+      "dbnoDetails": [],
+      "badges": [],
+      "tacticalTimeline": [],
+      "v": 1,
+      "isSummary": true,
+      "summarySource": "processed_match_telemetry"
+    }
+  },
+  "missingMatchIds": []
+}

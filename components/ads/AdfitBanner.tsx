@@ -1,12 +1,51 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { shouldLoadExternalAdScripts } from '@/lib/ads/statsAdPlacements';
 
 interface AdfitBannerProps {
+  placementId?: string;
   adUnit: string;
   adWidth: number;
   adHeight: number;
   className?: string;
+}
+
+interface AdfitClaim {
+  owner: HTMLDivElement | null;
+  claimants: Set<HTMLDivElement>;
+  adUnit: string;
+  adWidth: number;
+  adHeight: number;
+  placementId: string;
+}
+
+const adfitClaims = new Map<string, AdfitClaim>();
+
+function mountAdfitCreative(container: HTMLDivElement, claim: AdfitClaim): void {
+  try {
+    container.innerHTML = '';
+    const ins = document.createElement('ins');
+    ins.className = 'kakao_ad_area';
+    ins.style.display = 'none';
+    ins.setAttribute('data-ad-unit', claim.adUnit);
+    ins.setAttribute('data-ad-width', String(claim.adWidth));
+    ins.setAttribute('data-ad-height', String(claim.adHeight));
+    ins.setAttribute('data-ad-owner-key', `${claim.placementId}:${claim.adUnit}:${claim.adWidth}x${claim.adHeight}`);
+
+    const script = document.createElement('script');
+    script.async = true;
+    script.type = 'text/javascript';
+    script.src = '//t1.kakaocdn.net/kas/static/ba.min.js';
+    container.appendChild(ins);
+    container.appendChild(script);
+  } catch {
+    try {
+      container.innerHTML = '';
+    } catch {
+      // provider 초기화 실패는 콘텐츠 상태로 전파하지 않는다.
+    }
+  }
 }
 
 /**
@@ -15,41 +54,62 @@ interface AdfitBannerProps {
  * - 프로덕션 환경에서는 실제 ins 태그로 카카오 애드핏 광고를 노출합니다.
  * - SPA 전환 시에도 ins 태그를 재마운트하여 광고를 재초기화합니다.
  */
-export default function AdfitBanner({ adUnit, adWidth, adHeight, className }: AdfitBannerProps) {
+export default function AdfitBanner({ placementId, adUnit, adWidth, adHeight, className }: AdfitBannerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const isDev = process.env.NODE_ENV === 'development';
+  const loadExternalAds = shouldLoadExternalAdScripts(process.env.NODE_ENV);
+  const resolvedPlacementId = placementId ?? adUnit;
+  const creativeSignature = `${resolvedPlacementId}:${adUnit}:${adWidth}x${adHeight}`;
 
   useEffect(() => {
-    if (isDev) return; // 개발 환경에서는 placeholder만 사용
+    if (!loadExternalAds) return;
 
     const container = containerRef.current;
     if (!container) return;
+    let claim = adfitClaims.get(creativeSignature);
+    if (!claim) {
+      claim = {
+        owner: null,
+        claimants: new Set(),
+        adUnit,
+        adWidth,
+        adHeight,
+        placementId: resolvedPlacementId,
+      };
+      adfitClaims.set(creativeSignature, claim);
+    }
+    claim.claimants.add(container);
+    if (!claim.owner) {
+      claim.owner = container;
+      mountAdfitCreative(container, claim);
+    }
 
-    // 기존 태그 제거 후 ins와 script 쌍으로 재마운트 (SPA 동적 로드 완벽 보장)
-    container.innerHTML = '';
-
-    const ins = document.createElement('ins');
-    ins.className = 'kakao_ad_area';
-    // 애드핏 스크립트가 로드 후 표시 상태를 제어하므로 display:none으로 시작한다.
-    ins.style.display = 'none';
-    ins.setAttribute('data-ad-unit', adUnit);
-    ins.setAttribute('data-ad-width', String(adWidth));
-    ins.setAttribute('data-ad-height', String(adHeight));
-
-    const script = document.createElement('script');
-    script.async = true;
-    script.type = 'text/javascript';
-    script.src = '//t1.kakaocdn.net/kas/static/ba.min.js';
-
-    container.appendChild(ins);
-    container.appendChild(script);
-  }, [adUnit, adWidth, adHeight, isDev]);
+    return () => {
+      const currentClaim = adfitClaims.get(creativeSignature);
+      if (!currentClaim) return;
+      currentClaim.claimants.delete(container);
+      try {
+        container.innerHTML = '';
+      } catch {
+        // cleanup 실패도 provider 경계 내부에서 끝낸다.
+      }
+      if (currentClaim.owner === container) {
+        currentClaim.owner = null;
+        const nextOwner = currentClaim.claimants.values().next().value as HTMLDivElement | undefined;
+        if (nextOwner) {
+          currentClaim.owner = nextOwner;
+          mountAdfitCreative(nextOwner, currentClaim);
+        }
+      }
+      if (currentClaim.claimants.size === 0) adfitClaims.delete(creativeSignature);
+    };
+  }, [adHeight, adUnit, adWidth, creativeSignature, loadExternalAds, resolvedPlacementId]);
 
   // 개발 환경: 광고 위치 시각적 placeholder
-  if (isDev) {
+  if (!loadExternalAds) {
     return (
       <div
         className={className}
+        data-ad-owner-key={creativeSignature}
         style={{
           width: adWidth,
           height: adHeight,
@@ -85,6 +145,7 @@ export default function AdfitBanner({ adUnit, adWidth, adHeight, className }: Ad
     <div
       ref={containerRef}
       className={className}
+      data-ad-owner-key={creativeSignature}
       style={{
         width: adWidth,
         height: adHeight,
