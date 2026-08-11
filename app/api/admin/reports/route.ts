@@ -48,7 +48,41 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "신고 목록 조회 중 오류가 발생했습니다." }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true, data });
+    const reports = data ?? [];
+    const reporterIds = Array.from(
+      new Set(
+        reports
+          .map((report: any) => report.reporter_id)
+          .filter((reporterId: unknown): reporterId is string => typeof reporterId === "string"),
+      ),
+    );
+
+    let reporterNames = new Map<string, string>();
+    if (reporterIds.length > 0) {
+      const { data: profiles, error: profileError } = await supabaseAdmin
+        .from("profiles")
+        .select("id, nickname")
+        .in("id", reporterIds);
+
+      if (profileError) {
+        console.warn("[Admin Reports GET] reporter profile lookup failed:", profileError.message);
+      } else {
+        reporterNames = new Map(
+          (profiles ?? [])
+            .filter((profile: any) => profile.id)
+            .map((profile: any) => [profile.id, profile.nickname ?? ""]),
+        );
+      }
+    }
+
+    const enrichedReports = reports.map((report: any) => ({
+      ...report,
+      reporter_nickname: report.reporter_id
+        ? reporterNames.get(report.reporter_id) || null
+        : null,
+    }));
+
+    return NextResponse.json({ success: true, data: enrichedReports });
   } catch (err: any) {
     console.error("[Admin Reports GET] Unexpected error:", err);
     return NextResponse.json({ error: "서버 오류가 발생했습니다." }, { status: 500 });

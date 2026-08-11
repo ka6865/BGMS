@@ -1219,6 +1219,9 @@ export default function AdminDashboardPage() {
                           <span className="text-xs text-zinc-500">
                             {new Date(report.created_at).toLocaleDateString("ko-KR")}
                           </span>
+                          <span className="text-[10px] text-zinc-500">
+                            신고자: {report.reporter_nickname || (report.reporter_id ? "닉네임 없음" : "게스트")}
+                          </span>
                           {report.reporter_ip && (
                             <span className="text-[10px] font-mono text-zinc-600">{report.reporter_ip}</span>
                           )}
