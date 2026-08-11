@@ -149,6 +149,7 @@ describe("StatsPageShell state and ownership matrix", () => {
   });
 
   it("idle landing은 search → landing → top ad 순서이고 dynamic route boot은 landing/ad flash가 없다", () => {
+    mocks.controller = controller({ nickname: "FixturePlayer" });
     const landing = render(createElement(StatsPageShell));
     const search = screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요");
     const landingState = screen.getByText("내 PUBG 전적을 빠르게 확인하세요").closest("section")!;
@@ -156,6 +157,9 @@ describe("StatsPageShell state and ownership matrix", () => {
     expect(precedes(search, landingState)).toBe(true);
     expect(precedes(landingState, topAd)).toBe(true);
     expect(landing.container.querySelectorAll('[data-ad-placement="stats-top"]')).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "검색" }));
+    expect(mocks.routerPush).toHaveBeenCalledWith("/stats/steam/FixturePlayer");
+    expect(screen.getByRole("status")).toHaveTextContent("전적을 불러오는 중");
     landing.unmount();
 
     const boot = render(createElement(StatsPageShell, { initialNickname: "FixturePlayer" }));

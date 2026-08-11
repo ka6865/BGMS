@@ -270,7 +270,8 @@ export function StatsPageShell({
   }, [handleControllerSearch, initialNickname, initialPlatform, selectedSeason]);
 
   const routeBooting = !result && status === "idle" && Boolean(initialNickname?.trim());
-  const showTopAd = Boolean(result) || (!routeBooting && status === "idle");
+  const routeLoading = routeBooting || navigationPending;
+  const showTopAd = Boolean(result) || (!routeLoading && status === "idle");
   const retryRateLimited = Boolean(retryAt && releasedRetryAt !== retryAt);
   const retryDisabled = loading || cooldown || navigationPending || retryRateLimited;
 
@@ -311,14 +312,14 @@ export function StatsPageShell({
         error={controllerError}
         suggestedPlayers={suggestedUsers}
         hasResult={Boolean(result)}
-        routeBooting={routeBooting}
+        routeBooting={routeLoading}
         retryDisabled={retryDisabled}
         onRetry={handleRetry}
         onSuggestedPlayer={(player) => navigateToPlayer(player.nickname, player.platform)}
       />
 
       {/* [Empty State V1.0] 결과 없음 + 로딩/에러 아님 → 유저 상태별 분기 화면 */}
-      {!result && status === "idle" && !routeBooting && (
+      {!result && status === "idle" && !routeLoading && (
         <StatsLandingState
           onCompare={() => router.push("/stats/battle")}
           authenticated={Boolean(user)}
