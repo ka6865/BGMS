@@ -18,6 +18,16 @@ const nextConfig: NextConfig = {
         hostname: 'kolwueoejdasoqyopkao.supabase.co',
         pathname: '/storage/v1/object/public/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'wstatic-prod-boc.krafton.com',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.daumcdn.net',
+        pathname: '/**',
+      },
     ],
   },
 };
