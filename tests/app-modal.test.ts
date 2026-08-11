@@ -38,4 +38,28 @@ describe('AppModal', () => {
 
     expect(onClose).toHaveBeenCalledOnce();
   });
+
+  it('부모가 다시 렌더링되어도 입력 중 포커스를 빼앗지 않는다', () => {
+    const trigger = document.createElement('button');
+    document.body.appendChild(trigger);
+    trigger.focus();
+
+    const { rerender } = render(createElement(AppModal, {
+      isOpen: true,
+      title: '비밀번호 확인',
+      onClose: () => {},
+    }, createElement('input', { value: 'a', onChange: () => {} })));
+
+    const input = screen.getByRole('textbox');
+    input.focus();
+
+    rerender(createElement(AppModal, {
+      isOpen: true,
+      title: '비밀번호 확인',
+      onClose: () => {},
+    }, createElement('input', { value: 'ab', onChange: () => {} })));
+
+    expect(document.activeElement).toBe(input);
+    trigger.remove();
+  });
 });

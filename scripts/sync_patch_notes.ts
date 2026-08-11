@@ -255,15 +255,38 @@ function formatAiSummaryToHtml(summary: string): string {
 async function syncPatchNotes() {
   console.log('🚀 Starting Patch Notes Sync...');
   try {
-    const targetUrl = 'https://pubg.com/ko/news';
+    // 일일 GitHub Actions 실행은 공식 목록에서 최신 글을 선택한다.
+    // 운영자가 특정 원문을 재수집해야 할 때만 URL을 주입할 수 있도록 하며,
+    // 기본 실행 경로와 중복 방지 로직은 그대로 유지한다.
+    const requestedUrl = process.env.PATCH_NOTES_TARGET_URL?.trim();
+    const targetUrl = requestedUrl || 'https://pubg.com/ko/news';
     const { data: html } = await axios.get(targetUrl);
 
     // 썸네일 이미지 URL 추출 로직 개선 (배그 소식 전체 매칭)
     const nuxtRegex = /postId:(\d+),(?:(?!postId:).)*?title:"([^"]+?)".*?thumbUrl:"([^"]+)"/g;
     let match;
     const matches: any[] = [];
-    while ((match = nuxtRegex.exec(html)) !== null) {
-      matches.push({ id: match[1], title: match[2], thumbnail: match[3].replace(/\\u002F/g, '/') });
+    if (requestedUrl) {
+      const requestedId = requestedUrl.match(/\/news\/(\d+)/)?.[1];
+      if (!requestedId) {
+        throw new Error('PATCH_NOTES_TARGET_URL은 https://pubg.com/ko/news/{id} 형식이어야 합니다.');
+      }
+
+      const root = parse(html);
+      const rawTitle = root.querySelector('title')?.text.trim() || `PUBG 뉴스 ${requestedId}`;
+      const title = rawTitle.replace(/\s*-\s*뉴스\s*-\s*PUBG:\s*배틀그라운드\s*$/i, '').trim();
+      const thumbnail =
+        root.querySelector('meta[property="og:image"]')?.getAttribute('content') ||
+        root.querySelector('meta[property="og:image:url"]')?.getAttribute('content') ||
+        html.match(/https?:\/\/[^\s"'<>]*?_thumb\.(?:jpg|jpeg|gif|png)/i)?.[0] ||
+        '';
+
+      matches.push({ id: requestedId, title, thumbnail: thumbnail.replace(/\\u002F/g, '/') });
+      console.log(`🎯 Targeted patch note mode: ${requestedUrl}`);
+    } else {
+      while ((match = nuxtRegex.exec(html)) !== null) {
+        matches.push({ id: match[1], title: match[2], thumbnail: match[3].replace(/\\u002F/g, '/') });
+      }
     }
 
     if (matches.length === 0) {
@@ -337,7 +360,15 @@ async function syncPatchNotes() {
       return;
     }
 
-    await supabase.from('sync_history').upsert({ type: 'patch_notes', last_url: fullUrl });
+    const { error: historyError } = await supabase
+      .from('sync_history')
+      .upsert(
+        { type: 'patch_notes', last_url: fullUrl, updated_at: new Date().toISOString() },
+        { onConflict: 'type' }
+      );
+    if (historyError) {
+      throw new Error(`동기화 이력 저장 실패: ${historyError.message}`);
+    }
     console.log('✅ Sync successful.');
 
     // 무기도감 갱신 제안 생성.

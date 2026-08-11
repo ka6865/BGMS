@@ -35,6 +35,11 @@ export function AppModal({
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedElement = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useLockBodyScroll(isOpen);
 
@@ -53,7 +58,7 @@ export function AppModal({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (closeOnEscape && event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
 
@@ -87,7 +92,7 @@ export function AppModal({
       document.removeEventListener('keydown', handleKeyDown);
       previouslyFocusedElement.current?.focus();
     };
-  }, [closeOnEscape, isOpen, onClose]);
+  }, [closeOnEscape, isOpen]);
 
   if (!isOpen || typeof document === 'undefined') return null;
 
