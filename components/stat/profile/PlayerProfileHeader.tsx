@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Crosshair, RefreshCw, Shield, Star, Swords } from "lucide-react";
 import { selectCanonicalRankBucket } from "@/lib/stats/statsPageModel";
 import type { PlayerStatsResponse } from "@/types/stats-page";
+import { getTierIconPath } from "@/utils/tier";
 
 export interface PlayerProfileHeaderProps {
   player: PlayerStatsResponse;
@@ -153,9 +154,18 @@ export function PlayerProfileHeader({
         </div>
 
         <div className="flex flex-wrap items-end justify-between gap-4 border-y border-white/10 py-3">
-          <div>
-            <div className="text-[11px] font-black uppercase tracking-wider text-white/40">현재 랭크</div>
-            <div className="mt-1 text-xl font-black text-amber-300">{rankLabel}</div>
+          <div className="flex min-w-0 items-center gap-3">
+            {rank && tier && (
+              <img
+                src={getTierIconPath(tier, subTier)}
+                alt={`${rankLabel} 티어 아이콘`}
+                className="h-12 w-12 shrink-0 object-contain"
+              />
+            )}
+            <div>
+              <div className="text-[11px] font-black uppercase tracking-wider text-white/40">현재 랭크</div>
+              <div className="mt-1 text-xl font-black text-amber-300">{rankLabel}</div>
+            </div>
           </div>
           <div className="text-right">
             <div className="text-[11px] font-black uppercase tracking-wider text-white/40">랭크 포인트</div>

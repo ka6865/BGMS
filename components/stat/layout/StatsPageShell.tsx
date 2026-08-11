@@ -237,7 +237,6 @@ export function StatsPageShell({
   const [aiState, setAiState] = useState<IdentityOwnedAiState | null>(null);
   const aiSummary = aiState?.identity === aiIdentity ? aiState.summary : null;
   const aiExpanded = aiState?.identity === aiIdentity ? aiState.expanded : false;
-  const aiSectionRef = useRef<HTMLDivElement>(null);
   const handleAiSummaryChange = useCallback((summary: AiSummarySnapshot | null) => {
     setAiState((previous) => ({
       identity: aiIdentity,
@@ -250,13 +249,6 @@ export function StatsPageShell({
       ? { ...previous, expanded: !previous.expanded }
       : { identity: aiIdentity, summary: null, expanded: false });
   }, [aiIdentity]);
-  const handleAiOpen = useCallback(() => {
-    const section = aiSectionRef.current;
-    section?.scrollIntoView({ behavior: "smooth", block: "start" });
-    const firstButton = section?.querySelector<HTMLButtonElement>("button");
-    (firstButton ?? section)?.focus();
-  }, []);
-
   const handleRetry = useCallback(() => {
     const fallbackPlatform: StatsPlatform = initialPlatform === "kakao" ? "kakao" : "steam";
     const fallbackNickname = initialNickname?.trim() ?? "";
@@ -367,7 +359,7 @@ export function StatsPageShell({
           {activeTab === "overview" ? (
             <div className="flex flex-col gap-2 md:gap-4">
 
-              <div ref={aiSectionRef} role="region" aria-label="AI 분석" tabIndex={-1}>
+              <div role="region" aria-label="AI 분석" tabIndex={-1}>
                 {result.recentMatches.length > 0 ? (
                   <RecentAISummary
                     matchIds={result.recentMatches}
@@ -397,7 +389,6 @@ export function StatsPageShell({
                     aiExpanded={aiExpanded}
                     onModeChange={setStatsMode}
                     onPartySizeChange={setPartySize}
-                    onAiOpen={handleAiOpen}
                     onAiToggle={handleAiToggle}
                   />
                 </aside>

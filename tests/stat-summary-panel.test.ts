@@ -31,12 +31,12 @@ const stats: PlayerStatsResponse["stats"] = {
 };
 
 const expected = [
-  ["ranked", "solo", "11", "1.00", "100", "10.0%", "솔로"],
-  ["ranked", "duo", "12", "3.00", "200", "20.0%", "듀오"],
-  ["ranked", "squad", "13", "4.00", "300", "30.0%", "스쿼드"],
-  ["normal", "solo", "21", "2.00", "400", "38.1%", "솔로"],
-  ["normal", "duo", "22", "5.00", "500", "50.0%", "듀오"],
-  ["normal", "squad", "23", "6.00", "600", "87.0%", "스쿼드"],
+  ["ranked", "solo", "11", "1.00", "100", "10.0%"],
+  ["ranked", "duo", "12", "3.00", "200", "20.0%"],
+  ["ranked", "squad", "13", "4.00", "300", "30.0%"],
+  ["normal", "solo", "21", "2.00", "400", "38.1%"],
+  ["normal", "duo", "22", "5.00", "500", "50.0%"],
+  ["normal", "squad", "23", "6.00", "600", "87.0%"],
 ] as const;
 
 function props(mode: StatsMode, partySize: StatsPartySize) {
@@ -48,7 +48,6 @@ function props(mode: StatsMode, partySize: StatsPartySize) {
     aiExpanded: false,
     onModeChange: vi.fn(),
     onPartySizeChange: vi.fn(),
-    onAiOpen: vi.fn(),
     onAiToggle: vi.fn(),
   };
 }
@@ -56,14 +55,14 @@ function props(mode: StatsMode, partySize: StatsPartySize) {
 describe("StatSummaryPanel", () => {
   afterEach(() => cleanup());
 
-  it.each(expected)("%s/%s controlled bucket의 독립 지표를 렌더한다", (mode, partySize, rounds, kda, damage, top10, preferred) => {
+  it.each(expected)("%s/%s controlled bucket의 독립 지표를 렌더한다", (mode, partySize, rounds, kda, damage, top10) => {
     render(createElement(StatSummaryPanel, props(mode, partySize)));
 
     expect(screen.getByTestId("rounds-played")).toHaveTextContent(rounds);
     expect(screen.getByTestId("kda")).toHaveTextContent(kda);
     expect(screen.getByTestId("average-damage")).toHaveTextContent(damage);
     expect(screen.getByTestId("top10-rate")).toHaveTextContent(top10);
-    expect(screen.getByTestId("preferred-mode")).toHaveTextContent(preferred);
+    expect(screen.queryByTestId("preferred-mode")).not.toBeInTheDocument();
     expect(screen.queryByText("현재 랭크")).not.toBeInTheDocument();
   });
 
@@ -95,22 +94,18 @@ describe("StatSummaryPanel", () => {
     expect(screen.queryByTestId("rounds-played")).not.toBeInTheDocument();
   });
 
-  it("AI snapshot 전에는 전체 섹션을 열고 결과 후에는 controlled clamp를 토글한다", () => {
-    const onAiOpen = vi.fn();
+  it("AI snapshot이 있으면 한줄 요약과 controlled clamp만 제공한다", () => {
     const onAiToggle = vi.fn();
     const view = render(createElement(StatSummaryPanel, {
       ...props("ranked", "squad"),
-      onAiOpen,
       onAiToggle,
     }));
-    fireEvent.click(screen.getByRole("button", { name: "최근 10경기 AI 분석으로 이동" }));
-    expect(onAiOpen).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "최근 10경기 AI 분석으로 이동" })).not.toBeInTheDocument();
 
     view.rerender(createElement(StatSummaryPanel, {
       ...props("ranked", "squad"),
       aiSummary: { verdict: "fixture verdict", tier: "A" },
       aiExpanded: false,
-      onAiOpen,
       onAiToggle,
     }));
     expect(screen.getByText("fixture verdict")).toHaveClass("line-clamp-2", "md:line-clamp-3");
@@ -122,7 +117,6 @@ describe("StatSummaryPanel", () => {
       ...props("ranked", "squad"),
       aiSummary: { verdict: "fixture verdict", tier: "A" },
       aiExpanded: true,
-      onAiOpen,
       onAiToggle,
     }));
     expect(screen.getByText("fixture verdict")).not.toHaveClass("line-clamp-2");

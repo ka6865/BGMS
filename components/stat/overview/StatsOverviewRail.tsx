@@ -1,22 +1,14 @@
 "use client";
 
-import { Brain } from "lucide-react";
 import type { AiSummarySnapshot } from "@/components/stat/RecentAISummary";
-import type { StatsOverviewMetrics, StatsPartySize } from "@/types/stats-page";
+import type { StatsOverviewMetrics } from "@/types/stats-page";
 
 export interface StatsOverviewRailProps {
   metrics: StatsOverviewMetrics;
   aiSummary: AiSummarySnapshot | null;
   aiExpanded: boolean;
-  onAiOpen(): void;
   onAiToggle(): void;
 }
-
-const PARTY_LABELS: Record<StatsPartySize, string> = {
-  solo: "솔로",
-  duo: "듀오",
-  squad: "스쿼드",
-};
 
 function Metric({ testId, label, value }: { testId: string; label: string; value: string | number }) {
   return (
@@ -30,27 +22,13 @@ function Metric({ testId, label, value }: { testId: string; label: string; value
 function AiCompactSummary({
   summary,
   expanded,
-  onOpen,
   onToggle,
 }: {
   summary: AiSummarySnapshot | null;
   expanded: boolean;
-  onOpen(): void;
   onToggle(): void;
 }) {
-  if (!summary) {
-    return (
-      <button
-        type="button"
-        aria-label="최근 10경기 AI 분석으로 이동"
-        onClick={onOpen}
-        className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-4 text-sm font-black text-indigo-300 hover:bg-indigo-500/15"
-      >
-        <Brain size={16} aria-hidden="true" />
-        최근 10경기 AI 분석으로 이동
-      </button>
-    );
-  }
+  if (!summary) return null;
 
   return (
     <div className="border-t border-white/10 pt-4">
@@ -77,14 +55,13 @@ export function StatsOverviewRail({
   metrics,
   aiSummary,
   aiExpanded,
-  onAiOpen,
   onAiToggle,
 }: StatsOverviewRailProps) {
   if (metrics.kind === "empty") {
     return (
       <section className="rounded-2xl border border-white/10 bg-[#161616] p-5 lg:w-[320px] lg:shrink-0" aria-label="핵심 통계">
         <div className="flex min-h-32 items-center justify-center text-sm font-black text-white/40">{metrics.label}</div>
-        <AiCompactSummary summary={aiSummary} expanded={aiExpanded} onOpen={onAiOpen} onToggle={onAiToggle} />
+        <AiCompactSummary summary={aiSummary} expanded={aiExpanded} onToggle={onAiToggle} />
       </section>
     );
   }
@@ -97,10 +74,7 @@ export function StatsOverviewRail({
         <Metric testId="average-damage" label="평균 딜량" value={metrics.averageDamage} />
         <Metric testId="top10-rate" label="Top 10" value={metrics.top10Rate} />
       </div>
-      <div className="mb-4 mt-2 border-t border-white/10 pt-3 text-xs text-white/50">
-        선호 모드 <strong data-testid="preferred-mode" className="ml-2 text-white">{PARTY_LABELS[metrics.preferredMode]}</strong>
-      </div>
-      <AiCompactSummary summary={aiSummary} expanded={aiExpanded} onOpen={onAiOpen} onToggle={onAiToggle} />
+      <AiCompactSummary summary={aiSummary} expanded={aiExpanded} onToggle={onAiToggle} />
     </section>
   );
 }

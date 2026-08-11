@@ -18,7 +18,6 @@ export interface StatSummaryPanelProps {
   aiExpanded: boolean;
   onModeChange(value: StatsMode): void;
   onPartySizeChange(value: StatsPartySize): void;
-  onAiOpen(): void;
   onAiToggle(): void;
 }
 
@@ -52,7 +51,6 @@ export function StatSummaryPanel({
   aiExpanded,
   onModeChange,
   onPartySizeChange,
-  onAiOpen,
   onAiToggle,
 }: StatSummaryPanelProps) {
   const metrics = getSelectedOverviewMetrics(stats, mode, partySize);
@@ -68,7 +66,6 @@ export function StatSummaryPanel({
         metrics={metrics}
         aiSummary={aiSummary}
         aiExpanded={aiExpanded}
-        onAiOpen={onAiOpen}
         onAiToggle={onAiToggle}
       />
     </div>

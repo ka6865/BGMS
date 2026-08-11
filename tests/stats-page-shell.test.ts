@@ -47,18 +47,15 @@ vi.mock("@/components/stat/profile/PlayerProfileHeader", () => ({
 vi.mock("@/components/stat/StatSummaryPanel", () => ({
   StatSummaryPanel: ({
     aiSummary,
-    onAiOpen,
     onModeChange,
     onPartySizeChange,
   }: {
     aiSummary?: { verdict: string } | null;
-    onAiOpen(): void;
     onModeChange(value: "ranked" | "normal"): void;
     onPartySizeChange(value: "solo" | "duo" | "squad"): void;
   }) =>
     createElement("aside", { "data-testid": "summary-panel" },
       aiSummary?.verdict ?? "summary-empty",
-      createElement("button", { type: "button", onClick: onAiOpen }, "AI 시작"),
       createElement("button", { type: "button", onClick: () => onModeChange("normal") }, "일반전 통계"),
       createElement("button", { type: "button", onClick: () => onPartySizeChange("solo") }, "솔로 통계"),
     ),
@@ -288,19 +285,17 @@ describe("StatsPageShell state and ownership matrix", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "full-ai-action" }));
     expect(screen.getByTestId("summary-panel")).toHaveTextContent("fixture verdict");
-    fireEvent.click(screen.getByRole("button", { name: "AI 시작" }));
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "full-ai-action" }));
+    expect(screen.queryByRole("button", { name: "최근 10경기 AI 분석으로 이동" })).not.toBeInTheDocument();
   });
 
-  it("zero recent match에서 AI CTA는 focusable empty region을 가리키고 full AI를 mount하지 않는다", () => {
+  it("zero recent match에서는 full AI를 mount하지 않고 빈 상태만 표시한다", () => {
     mocks.controller = controller({ status: "ready", result: readyResult([]), summaryStatus: "ready" });
     render(createElement(StatsPageShell));
     const region = screen.getByRole("region", { name: "AI 분석" });
     expect(region).toHaveAttribute("tabindex", "-1");
     expect(screen.getByRole("status", { name: "AI 분석할 최근 매치 없음" })).toBeInTheDocument();
     expect(screen.queryByTestId("full-ai")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "AI 시작" }));
-    expect(document.activeElement).toBe(region);
+    expect(screen.queryByRole("button", { name: "최근 10경기 AI 분석으로 이동" })).not.toBeInTheDocument();
   });
 
   it("실패한 season/refresh exact intent는 3초 cooldown 전 0건, 후 1건 동일 request로 retry한다", async () => {

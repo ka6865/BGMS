@@ -82,7 +82,6 @@ function panelProps() {
     aiExpanded: false,
     onModeChange: vi.fn(),
     onPartySizeChange: vi.fn(),
-    onAiOpen: vi.fn(),
     onAiToggle: vi.fn(),
   };
 }
@@ -121,6 +120,7 @@ describe("PlayerProfileHeader", () => {
     expect(screen.getAllByText("현재 랭크")).toHaveLength(1);
     expect(screen.getByText("Gold 3")).toBeInTheDocument();
     expect(screen.getByText("2450 RP")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Gold 3 티어 아이콘" })).toBeInTheDocument();
     expect(screen.queryByText(/Master/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Diamond/)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "FixtureNickname" })).toHaveAttribute("title", "FixtureNickname");

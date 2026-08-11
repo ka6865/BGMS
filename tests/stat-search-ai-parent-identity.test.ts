@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import playerReady from "./fixtures/stats/player-ready.json";
@@ -57,27 +57,19 @@ function jsonResponse(body: unknown) {
 }
 
 describe("StatSearch AI snapshot identity ownership", () => {
-  const scrollIntoView = vi.fn();
-
   beforeEach(() => {
     storage.clear();
     routerPush.mockReset();
-    scrollIntoView.mockReset();
     vi.stubGlobal("localStorage", localStorageMock);
-    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
-      configurable: true,
-      value: scrollIntoView,
-    });
   });
 
   afterEach(() => {
     cleanup();
-    delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
-  it("A의 AI snapshot을 B 빈 매치 route에 노출하지 않고 CTA가 실제 빈 섹션을 focus한다", async () => {
+  it("A의 AI snapshot을 B 빈 매치 route에 노출하지 않고 불필요한 이동 CTA를 표시하지 않는다", async () => {
     const playerA = { ...playerReady, nickname: "PlayerA", recentMatches: ["match-fixture-1"] };
     const playerB = { ...playerReady, nickname: "PlayerB", recentMatches: [] };
     let resolvePlayerB!: (response: Response) => void;
@@ -122,14 +114,12 @@ describe("StatSearch AI snapshot identity ownership", () => {
     await screen.findByRole("heading", { name: "PlayerB" });
     expect(screen.queryByText("PlayerA verdict")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "AI 요약 접기" })).not.toBeInTheDocument();
-    const emptyAiSection = screen.getByRole("region", { name: "AI 분석" });
+    screen.getByRole("region", { name: "AI 분석" });
     expect(screen.getByRole("status", { name: "AI 분석할 최근 매치 없음" })).toHaveTextContent(
       "최근 매치 기록이 없어 AI 분석을 시작할 수 없습니다.",
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "최근 10경기 AI 분석으로 이동" }));
-    await waitFor(() => expect(document.activeElement).toBe(emptyAiSection));
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(screen.queryByRole("button", { name: "최근 10경기 AI 분석으로 이동" })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([input]) => String(input).startsWith("/api/ai/"))).toHaveLength(0);
   });
 });

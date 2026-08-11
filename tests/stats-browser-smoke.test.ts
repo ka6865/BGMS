@@ -547,7 +547,6 @@ async function controlEvidence(page: Page, state: ControlState) {
       add("party-size", query('[role="group"][aria-label="파티 인원"] button'));
       add("match-filter", query('[role="group"][aria-label="매치 유형 필터"] button'));
       add("match-expand", query('button[aria-label="매치 상세 펼치기"], button[aria-label="매치 상세 접기"]'));
-      add("overview-ai-open", query('button[aria-label="최근 10경기 AI 분석으로 이동"]'));
       add("bottom-nav", query('nav[class*="fixed"][class*="bottom-0"] button'));
     };
 
@@ -926,7 +925,6 @@ describeBrowser("stats browser smoke", () => {
             "party-size",
             "match-filter",
             "match-expand",
-            "overview-ai-open",
             ...(viewport.width < 768 ? ["bottom-nav"] : []),
           ],
           allowedLegacyViolationGroups: ["match-filter", "bottom-nav"],
@@ -935,38 +933,10 @@ describeBrowser("stats browser smoke", () => {
         if (viewport.width >= 768) {
           expect(controls.groups.find((group) => group.name === "bottom-nav")?.visibleCount).toBe(0);
         }
-        await page.click('button[aria-label="최근 10경기 AI 분석으로 이동"]');
-        await dispatcher.withFatal(page.waitForFunction(() => {
-          const region = document.querySelector<HTMLElement>('[role="region"][aria-label="AI 분석"]');
-          const firstButton = region?.querySelector<HTMLButtonElement>("button");
-          const rect = region?.getBoundingClientRect();
-          return Boolean(
-            region
-            && firstButton
-            && document.activeElement === firstButton
-            && rect
-            && rect.top < window.innerHeight
-            && rect.bottom > 0,
-          );
-        }));
-        const aiTarget = await page.$eval('[role="region"][aria-label="AI 분석"]', (region) => {
-          const rect = region.getBoundingClientRect();
-          const firstButton = region.querySelector<HTMLButtonElement>("button");
-          return {
-            top: rect.top,
-            bottom: rect.bottom,
-            viewportHeight: window.innerHeight,
-            focusedFirstButton: document.activeElement === firstButton,
-            firstButtonText: firstButton?.textContent?.replace(/\s+/g, " ").trim() ?? null,
-          };
-        });
-        expect(aiTarget.focusedFirstButton).toBe(true);
-        expect(aiTarget.top).toBeLessThan(aiTarget.viewportHeight);
-        expect(aiTarget.bottom).toBeGreaterThan(0);
         expect(dispatcher.ledger.count({ pathname: "/api/pubg/ai-summary" })).toBe(0);
         expect(dispatcher.ledger.count({ pathname: "/api/pubg/ai-analyze" })).toBe(0);
         expect(dispatcher.ledger.count({ pathname: "/api/pubg/ai-squad" })).toBe(0);
-        console.log(JSON.stringify({ kind: "stats-browser-ai-focus-scroll", viewport, aiTarget }));
+        console.log(JSON.stringify({ kind: "stats-browser-ai-request-guard", viewport }));
         await recordScenarioEvidence("ready", viewport, dispatcher, log);
       },
     });
