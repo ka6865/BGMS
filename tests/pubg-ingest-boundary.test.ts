@@ -1014,6 +1014,10 @@ describe("elite scraper caller contract", () => {
     expect(source.match(/source=scraper/g)).toHaveLength(2);
     expect(source).toMatch(/Authorization:\s*`Bearer \$\{PUBG_SCRAPER_INTERNAL_TOKEN\}`/);
     expect(source).toMatch(/X-BGMS-Admin-Token/);
+    expect(source).toContain("describeScraperRequestFailure");
+    expect(source).toContain("스크래퍼 요청 실패");
+    expect(source).toContain("스크래퍼 실행 요약");
+    expect(source).toContain("throw error;");
     expect(source).not.toMatch(/console\.(?:log|error)\([^\n]*(?:nickname|matchId|sampleName|apiErr\.response|error\.message)/);
   });
 
