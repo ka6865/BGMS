@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
-import { Layers, TrendingUp, Target, Zap, RefreshCw, ArrowRight, HelpCircle } from "lucide-react";
+import { Layers, TrendingUp, Target, Zap, RefreshCw, ArrowRight } from "lucide-react";
 
 interface WeaponComparisonItem {
   id?: number;
@@ -107,14 +107,6 @@ export default function WeaponMetaDashboard() {
         </div>
       </div>
 
-      {/* 한줄 결론 안내 뱅크 */}
-      <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-4">
-        <div className="flex items-center gap-2 font-black text-indigo-300 text-sm">
-          <span>팩트체크 결론:</span>
-          <span className="text-white">M249 · MG3 · RPD(신규) 지분율 {metrics.lmgPostShare} 달성! 이번 패치는 진짜 LMG 시대입니다.</span>
-        </div>
-      </div>
-
       {/* 요약 카드 */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="flex flex-col justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
@@ -185,7 +177,7 @@ export default function WeaponMetaDashboard() {
         ))}
       </div>
 
-      {/* 쉬운 설명 가이드 표 */}
+      {/* 1:1 비교 표 */}
       <div className="overflow-x-auto rounded-xl border border-white/10 bg-black/20">
         <table className="w-full text-left text-xs">
           <thead className="border-b border-white/10 bg-white/5 font-black uppercase text-zinc-400">
