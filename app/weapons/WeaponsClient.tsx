@@ -1,5 +1,6 @@
-import WeaponMetaDashboard from "@/components/meta/WeaponMetaDashboard";
 "use client";
+
+import WeaponMetaDashboard from "@/components/meta/WeaponMetaDashboard";
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
