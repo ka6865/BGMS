@@ -98,7 +98,7 @@ export async function runR2BurstBackfill(options: { limit?: number; write?: (mes
   const uniqueCandidates = [...groupedCandidates.values()];
   let updated = 0;
   let missing = 0;
-  let noBurst = 0;
+  const noBurst = 0;
 
   for (let index = 0; index < uniqueCandidates.length; index += R2_BURST_BACKFILL_CONCURRENCY) {
     const batch = uniqueCandidates.slice(index, index + R2_BURST_BACKFILL_CONCURRENCY);
