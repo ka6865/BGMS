@@ -23,13 +23,27 @@ export function categorizeWeapon(rawName: string): string {
 
 export function calculateWeaponBurstStats(events: any[], playerAccountId: string): Map<string, WeaponBurstStat> {
   const result = new Map<string, WeaponBurstStat>();
-  const pvpHits = (events || []).filter((e) => (
-    e._T === "LogPlayerTakeDamage" &&
-    e.attacker?.accountId === playerAccountId &&
-    e.victim?.accountId &&
-    e.victim.accountId !== playerAccountId &&
-    (e.damage || 0) > 0
-  ));
+  const groggyVictims = new Set<string>();
+  const pvpHits = (events || [])
+    .slice()
+    .sort((left, right) => new Date(left._D).getTime() - new Date(right._D).getTime())
+    .filter((event) => {
+      if (event._T === "LogPlayerMakeGroggy" || event._T === "LogPlayerMakeDBNO") {
+        if (event.victim?.accountId) groggyVictims.add(event.victim.accountId);
+        return false;
+      }
+
+      const weaponRaw = event.damageCauserName || event.damageCauser?.itemId || event.weaponId || "Unknown";
+      const sameTeam = event.attacker?.teamId != null && event.attacker.teamId === event.victim?.teamId;
+      return event._T === "LogPlayerTakeDamage"
+        && event.attacker?.accountId === playerAccountId
+        && event.victim?.accountId
+        && event.victim.accountId !== playerAccountId
+        && !sameTeam
+        && !groggyVictims.has(event.victim.accountId)
+        && categorizeWeapon(weaponRaw) !== "OTHERS"
+        && (event.damage || 0) > 0;
+    });
 
   const targetGroups = new Map<string, any[]>();
   for (const ev of pvpHits) {
@@ -62,6 +76,7 @@ export function calculateWeaponBurstStats(events: any[], playerAccountId: string
     hitEvents.sort((a, b) => new Date(a._D).getTime() - new Date(b._D).getTime());
     let burstStartTs = 0;
     let lastTs = 0;
+    let recordedSustainedBurst = false;
 
     for (const ev of hitEvents) {
       const ts = new Date(ev._D).getTime();
@@ -70,6 +85,7 @@ export function calculateWeaponBurstStats(events: any[], playerAccountId: string
 
       if (!burstStartTs || ts - lastTs > 1500) {
         burstStartTs = ts;
+        recordedSustainedBurst = false;
       }
 
       const elapsedMs = ts - burstStartTs;
@@ -77,8 +93,9 @@ export function calculateWeaponBurstStats(events: any[], playerAccountId: string
         stat.firstSecHits += 1;
       } else {
         stat.sustainedHits += 1;
-        if (elapsedMs > 1000 && elapsedMs <= 3000) {
+        if (elapsedMs > 1000 && elapsedMs <= 3000 && !recordedSustainedBurst) {
           stat.sustainedBurstCount += 1;
+          recordedSustainedBurst = true;
         }
       }
       lastTs = ts;

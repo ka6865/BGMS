@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useMemo } from "react";
 import { Layers, TrendingUp, Target, Zap, RefreshCw, ArrowRight } from "lucide-react";
+import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 interface WeaponComparisonItem {
   id?: number;
@@ -12,6 +13,7 @@ interface WeaponComparisonItem {
     pick_share: number;
     avg_damage: number;
     sustained_hits: number;
+    burst_available: boolean;
     kill_efficiency: number;
   };
   post_patch: {
@@ -19,47 +21,52 @@ interface WeaponComparisonItem {
     pick_share: number;
     avg_damage: number;
     sustained_hits: number;
+    burst_available: boolean;
     kill_efficiency: number;
   };
 }
 
+interface DailyWeaponTrendPoint {
+  date: string;
+  player_match_count: number;
+  weapon_pick_count: number;
+  weapon_name: string;
+}
+
 export default function WeaponMetaDashboard() {
-  const [data, setData] = useState<{ patchVersion?: string; weapons?: WeaponComparisonItem[] } | null>(null);
+  const [data, setData] = useState<{ patchVersion?: string; patchStartedAt?: string; weapons?: WeaponComparisonItem[]; dailyWeaponTrend?: DailyWeaponTrendPoint[]; burstCollection?: { pre: { total: number; completed: number }; post: { total: number; completed: number } } | null; status?: string; message?: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [filterCategory, setFilterCategory] = useState<string>("ALL");
+  const [selectedWeapon, setSelectedWeapon] = useState<string>("");
 
   useEffect(() => {
     fetch("/api/pubg/meta")
       .then((res) => res.json())
       .then((resData) => {
-        if (resData.success) setData(resData);
+        setData(resData);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
   const weapons = data?.weapons || [];
+  const activeWeapon = selectedWeapon || weapons[0]?.weapon_name || "";
+  const dailyWeaponTrend = useMemo(() => (data?.dailyWeaponTrend || [])
+    .filter((point) => point.weapon_name === activeWeapon)
+    .map((point) => ({
+    ...point,
+    label: point.date.slice(5).replace("-", "/"),
+    weapon_pick_share: point.player_match_count > 0 ? Number(((point.weapon_pick_count / point.player_match_count) * 100).toFixed(1)) : 0,
+  })), [activeWeapon, data?.dailyWeaponTrend]);
 
   const metrics = useMemo(() => {
-    if (weapons.length === 0) {
-      return {
-        lmgPreShare: "3.6%",
-        lmgPostShare: "32.1%",
-        lmgShareDiff: "+28.5%",
-        lmgPreHits: 790,
-        lmgPostHits: 4210,
-        lmgHitsDiff: "+3,420발 (+432%)",
-        efficiencyPre: 2.4,
-        efficiencyPost: 3.2,
-      };
-    }
-
     const lmgWeapons = weapons.filter((w) => w.weapon_category === "LMG");
     const lmgPreShare = lmgWeapons.reduce((acc, w) => acc + w.pre_patch.pick_share, 0);
     const lmgPostShare = lmgWeapons.reduce((acc, w) => acc + w.post_patch.pick_share, 0);
     const shareDiffNum = lmgPostShare - lmgPreShare;
     const shareDiffStr = shareDiffNum >= 0 ? `+${shareDiffNum.toFixed(1)}%` : `${shareDiffNum.toFixed(1)}%`;
 
+    const hasBurstComparison = lmgWeapons.some((w) => w.pre_patch.burst_available && w.post_patch.burst_available);
     const lmgPreHits = lmgWeapons.reduce((acc, w) => acc + w.pre_patch.sustained_hits, 0);
     const lmgPostHits = lmgWeapons.reduce((acc, w) => acc + w.post_patch.sustained_hits, 0);
     const hitsDiff = lmgPostHits - lmgPreHits;
@@ -76,6 +83,7 @@ export default function WeaponMetaDashboard() {
       lmgHitsDiff: `${hitsDiff >= 0 ? "+" : ""}${hitsDiff.toLocaleString()}발`,
       efficiencyPre: preEffAvg,
       efficiencyPost: postEffAvg,
+      hasBurstComparison,
     };
   }, [weapons]);
 
@@ -101,12 +109,58 @@ export default function WeaponMetaDashboard() {
             <Layers className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-lg font-black tracking-tight text-white">PUBG {data?.patchVersion || "42.3"} 패치 전후 총기 메타 검증 리포트</h2>
-            <p className="text-xs text-zinc-400">패치 전(14일 평균) vs 패치 후(42.3 LMG 메타) 1:1 비교 검증</p>
+            <h2 className="text-lg font-black tracking-tight text-white">PUBG {data?.patchVersion || "-"} 패치 전후 총기 메타 검증 리포트</h2>
+            <p className="text-xs text-zinc-400">패치 직전 14일과 적용 후 실제 분석 매치를 비교합니다.</p>
           </div>
         </div>
       </div>
 
+      {dailyWeaponTrend.length > 0 && <section className="rounded-xl border border-white/10 bg-black/20 p-4">
+        <div className="mb-3">
+          <h3 className="text-sm font-black text-white">총기별 일별 채용률 추세</h3>
+          <p className="mt-1 text-[11px] text-zinc-500">선택한 총기로 유효 대인 딜을 낸 경기 비율입니다. 툴팁에서 일별 표본 수를 확인하세요.</p>
+          <select value={activeWeapon} onChange={(event) => setSelectedWeapon(event.target.value)} className="mt-3 max-w-full rounded-md border border-white/10 bg-zinc-900 px-2 py-1.5 text-xs text-white">
+            {weapons.map((weapon) => <option key={weapon.weapon_name} value={weapon.weapon_name}>{weapon.weapon_name} · {weapon.weapon_category}</option>)}
+          </select>
+        </div>
+        <div className="h-56 w-full" aria-label="총기별 일별 채용률 차트">
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={dailyWeaponTrend} margin={{ top: 8, right: 12, left: 8, bottom: 4 }}>
+              <CartesianGrid stroke="#ffffff12" vertical={false} />
+              <XAxis dataKey="label" tick={{ fill: "#a1a1aa", fontSize: 11 }} tickLine={false} axisLine={false} />
+              <YAxis domain={[0, 100]} unit="%" tick={{ fill: "#a1a1aa", fontSize: 11 }} tickLine={false} axisLine={false} width={44} />
+              <Tooltip
+                contentStyle={{ background: "#18181b", border: "1px solid #3f3f46", borderRadius: 8, fontSize: 12 }}
+                labelFormatter={(_, payload) => payload?.[0]?.payload?.date || ""}
+                formatter={(value, _name, item) => [`${value ?? 0}% · 표본 ${item.payload.player_match_count}경기`, `${activeWeapon} 채용률`]}
+              />
+              {data?.patchStartedAt && <ReferenceLine x={new Date(data.patchStartedAt).toISOString().slice(5, 10).replace("-", "/")} stroke="#818cf8" strokeDasharray="4 4" />}
+              <Line type="monotone" dataKey="weapon_pick_share" stroke="#34d399" strokeWidth={2} dot={{ r: 3, fill: "#34d399" }} activeDot={{ r: 5 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </section>}
+
+      {data?.burstCollection && <section className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+        <h3 className="text-sm font-black text-amber-100">지속 연사 데이터 수집 현황</h3>
+        <p className="mt-1 text-[11px] text-zinc-400">전은 R2 백필 진행률, 후는 새 분석 매치의 실시간 측정 완료율입니다.</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          {[{ label: "패치 전", value: data.burstCollection.pre }, { label: "패치 후", value: data.burstCollection.post }].map(({ label, value }) => {
+            const rate = value.total > 0 ? Math.round((value.completed / value.total) * 100) : 0;
+            return <div key={label} className="rounded-lg bg-black/20 p-3">
+              <div className="flex justify-between text-xs"><span className="text-zinc-300">{label}</span><span className="font-bold text-white">{value.completed} / {value.total}경기 ({rate}%)</span></div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-amber-400" style={{ width: `${rate}%` }} /></div>
+            </div>;
+          })}
+        </div>
+      </section>}
+
+      {weapons.length === 0 ? (
+        <div className="rounded-xl border border-white/10 bg-black/20 p-6 text-sm text-zinc-400">
+          {data?.message || "집계된 무기 데이터가 아직 없습니다."}
+          <p className="mt-2 text-xs text-zinc-500">예시 수치나 추정치는 표시하지 않습니다.</p>
+        </div>
+      ) : <>
       {/* 요약 카드 */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="flex flex-col justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
@@ -133,14 +187,14 @@ export default function WeaponMetaDashboard() {
               <Zap className="h-4 w-4" />
             </div>
           </div>
-          <div className="mt-3 flex items-baseline gap-2">
+          {metrics.hasBurstComparison ? <div className="mt-3 flex items-baseline gap-2">
             <span className="text-xs text-zinc-400">{metrics.lmgPreHits.toLocaleString()}발</span>
             <ArrowRight className="h-3 w-3 text-zinc-500" />
             <span className="text-lg font-black text-amber-300">{metrics.lmgPostHits.toLocaleString()}발</span>
             <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-300">
               ({metrics.lmgHitsDiff})
             </span>
-          </div>
+          </div> : <p className="mt-3 text-sm font-bold text-amber-200">수집 시작 후 비교 가능</p>}
         </div>
 
         <div className="flex flex-col justify-between rounded-xl border border-indigo-500/20 bg-indigo-500/10 p-4">
@@ -155,7 +209,7 @@ export default function WeaponMetaDashboard() {
             <ArrowRight className="h-3 w-3 text-zinc-500" />
             <span className="text-lg font-black text-indigo-300">{metrics.efficiencyPost}명</span>
             <span className="rounded bg-indigo-500/20 px-1.5 py-0.5 text-[10px] font-bold text-indigo-300">
-              (결정력 상승)
+              ({Number(metrics.efficiencyPost) >= Number(metrics.efficiencyPre) ? "상승" : "하락"})
             </span>
           </div>
         </div>
@@ -235,6 +289,7 @@ export default function WeaponMetaDashboard() {
                           ({isShareUp ? "+" : ""}{shareDiff}%)
                         </span>
                       </div>
+                      <div className="mt-1 text-[10px] text-zinc-500">표본: {w.pre_patch.match_count}경기 → {w.post_patch.match_count}경기</div>
                     </td>
                     <td className="p-3">
                       <div className="flex items-center gap-1.5">
@@ -247,14 +302,14 @@ export default function WeaponMetaDashboard() {
                       </div>
                     </td>
                     <td className="p-3">
-                      <div className="flex items-center gap-1.5">
+                      {w.pre_patch.burst_available && w.post_patch.burst_available ? <div className="flex items-center gap-1.5">
                         <span className="text-zinc-400">{w.pre_patch.sustained_hits}</span>
                         <ArrowRight className="h-3 w-3 text-zinc-600" />
                         <span className="font-bold text-amber-300">{w.post_patch.sustained_hits}발</span>
                         <span className={`text-[10px] font-bold ${isHitsUp ? "text-emerald-400" : "text-rose-400"}`}>
                           ({isHitsUp ? "+" : ""}{hitsDiff})
                         </span>
-                      </div>
+                      </div> : <span className="text-zinc-500">수집 중</span>}
                     </td>
                     <td className="p-3 font-semibold text-indigo-300">
                       {w.pre_patch.kill_efficiency}명 → {w.post_patch.kill_efficiency}명
@@ -266,6 +321,7 @@ export default function WeaponMetaDashboard() {
           </tbody>
         </table>
       </div>
+      </>}
     </div>
   );
 }

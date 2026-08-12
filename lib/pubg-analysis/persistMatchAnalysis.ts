@@ -5,7 +5,7 @@ import { normalizeName } from "./utils";
 
 export type PubgPlatform = "steam" | "kakao";
 export type AnalysisSource = "user" | "scraper";
-export type PersistenceTaskName = "match_stats_raw" | "pubg_player_cache" | "global_benchmarks" | "pubg_player_matches";
+export type PersistenceTaskName = "match_stats_raw" | "pubg_player_cache" | "global_benchmarks" | "pubg_player_matches" | "weapon_meta_match_samples";
 
 type JsonObject = Record<string, unknown>;
 
@@ -78,6 +78,18 @@ export interface PersistedFinalResult extends JsonObject {
     };
   };
   deathPhase?: number;
+  createdAt?: string;
+  weaponStats?: Record<string, {
+    damage?: number;
+    damageDealt?: number;
+    kills?: number;
+    dbnos?: number;
+    dBNOs?: number;
+    hits?: number;
+    firstSecHits?: number;
+    sustainedHits?: number;
+    sustainedBurstCount?: number;
+  }>;
 }
 
 export interface PersistMatchAnalysisInput {
@@ -317,60 +329,80 @@ async function persistBenchmark(
   if (succeeded) result.succeeded.push("global_benchmarks");
 }
 
+function getPatchVersionForMatch(playedAt: string): string | null {
+  const version = process.env.PUBG_META_PATCH_VERSION?.trim();
+  const startedAt = process.env.PUBG_META_PATCH_STARTED_AT;
+  if (!version || !startedAt) return null;
+
+  const patchStart = Date.parse(startedAt);
+  const matchTime = Date.parse(playedAt);
+  if (!Number.isFinite(patchStart) || !Number.isFinite(matchTime)) return null;
+  return matchTime >= patchStart ? version : `pre_${version}`;
+}
+
+export function buildWeaponMetaMatchSamples(input: PersistMatchAnalysisInput): Array<Record<string, unknown>> {
+  const weaponStats = input.finalResult.weaponStats;
+  if (!weaponStats || Object.keys(weaponStats).length === 0) return [];
+
+  const playedAt = input.finalResult.createdAt || (input.matchAttr as any)?.createdAt;
+  if (!playedAt) return [];
+  const patchVersion = getPatchVersionForMatch(playedAt);
+  if (!patchVersion) return [];
+
+  const playerId = normalizeName(input.playerNickname);
+  return Object.entries(weaponStats)
+    .filter(([weaponId]) => categorizeWeapon(weaponId) !== "OTHERS")
+    .map(([weaponId, stat]) => {
+    const weaponName = WEAPON_NAMES[weaponId] || weaponId.replace(/Item_Weapon_|Weap|_C|_Projectile/gi, "");
+    const damage = Math.floor(safeNumber(stat.damage ?? stat.damageDealt));
+    return {
+      match_id: input.matchId,
+      platform: input.platform,
+      player_id: playerId,
+      played_at: playedAt,
+      patch_version: patchVersion,
+      weapon_category: categorizeWeapon(weaponId),
+      weapon_name: weaponName,
+      active_pick: damage > 0,
+      total_kills: safeInteger(stat.kills),
+      total_dbnos: safeInteger(stat.dbnos ?? stat.dBNOs),
+      total_damage: damage,
+      hit_count: safeInteger(stat.hits),
+      first_sec_hits: stat.firstSecHits == null ? null : safeInteger(stat.firstSecHits),
+      sustained_hits: stat.sustainedHits == null ? null : safeInteger(stat.sustainedHits),
+      sustained_burst_count: stat.sustainedBurstCount == null ? null : safeInteger(stat.sustainedBurstCount),
+    };
+    });
+}
+
+async function persistWeaponMetaMatchSamples(
+  supabase: SupabaseClient,
+  input: PersistMatchAnalysisInput,
+  result: PersistMatchAnalysisResult,
+): Promise<void> {
+  const rows = buildWeaponMetaMatchSamples(input);
+  if (rows.length === 0) return;
+
+  const succeeded = await runPersistenceTask("weapon_meta_match_samples", result, () => (
+    supabase.from("weapon_meta_match_samples").upsert(rows, {
+      onConflict: "match_id,platform,player_id,weapon_name",
+    })
+  ));
+  if (succeeded) result.succeeded.push("weapon_meta_match_samples");
+}
+
 export async function persistMatchAnalysis(
   supabase: SupabaseClient,
   input: PersistMatchAnalysisInput,
 ): Promise<PersistMatchAnalysisResult> {
   const result: PersistMatchAnalysisResult = { succeeded: [], failures: [] };
 
-async function persistWeaponMetaSnapshots(
-  supabase: SupabaseClient,
-  input: PersistMatchAnalysisInput,
-  result: PersistMatchAnalysisResult,
-): Promise<void> {
-  const weaponStats = (input.finalResult as any)?.weaponStats;
-  if (!weaponStats || typeof weaponStats !== "object" || Object.keys(weaponStats).length === 0) return;
-
-  const today = new Date().toISOString().split("T")[0];
-  const patchVersion = "31.2";
-
-  const rows = Object.entries(weaponStats).map(([wId, wData]: [string, any]) => {
-    const cleanName = WEAPON_NAMES[wId] || wId.replace(/Item_Weapon_|Weap|_C|_Projectile/gi, "");
-    const category = categorizeWeapon(wId);
-    const damage = Math.floor(safeNumber(wData.damage || wData.damageDealt));
-    const kills = safeInteger(wData.kills);
-    const dbnos = safeInteger(wData.dbnos);
-    return {
-      patch_version: patchVersion,
-      snapshot_date: today,
-      weapon_category: category,
-      weapon_name: cleanName,
-      match_count: 1,
-      active_pick_count: damage > 0 ? 1 : 0,
-      total_kills: kills,
-      total_dbnos: dbnos,
-      total_damage: damage,
-      first_sec_hits: safeInteger(wData.firstSecHits),
-      sustained_hits: safeInteger(wData.sustainedHits),
-      sustained_burst_count: safeInteger(wData.sustainedBurstCount),
-    };
-  });
-
-  if (rows.length === 0) return;
-
-  await runPersistenceTask("match_stats_raw", result, () => (
-    supabase.from("weapon_meta_snapshots").upsert(rows, {
-      onConflict: "patch_version,snapshot_date,weapon_name",
-    })
-  ));
-}
-
   await Promise.all([
     persistRawStats(supabase, input, result),
     persistPlayerCache(supabase, input, result),
     persistPlayerMatches(supabase, input, result),
     persistBenchmark(supabase, input, result),
-    persistWeaponMetaSnapshots(supabase, input, result),
+    persistWeaponMetaMatchSamples(supabase, input, result),
   ]);
   return result;
 }

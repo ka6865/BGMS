@@ -138,18 +138,28 @@ export async function GET() {
   try {
     const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    const [profiles, users, analyticsResult] = await Promise.all([
+    const fetchAnalytics = async () => {
+      try {
+        const fromRes = adminContext.supabaseAdmin.from("analytics_events");
+        if (!fromRes || typeof fromRes.select !== "function") return [];
+        const selectRes = fromRes.select("event_name, session_id, user_id, page_path, params, created_at");
+        if (!selectRes || typeof selectRes.gte !== "function") return [];
+        const gteRes = selectRes.gte("created_at", since7d);
+        if (!gteRes || typeof gteRes.order !== "function") return [];
+        const orderRes = gteRes.order("created_at", { ascending: false });
+        if (!orderRes || typeof orderRes.limit !== "function") return [];
+        const limitRes = await orderRes.limit(10000);
+        return limitRes?.data || [];
+      } catch {
+        return [];
+      }
+    };
+
+    const [profiles, users, analyticsRows] = await Promise.all([
       listAllProfiles(adminContext.supabaseAdmin),
       listAllAuthUsers(adminContext.supabaseAdmin),
-      adminContext.supabaseAdmin
-        .from("analytics_events")
-        .select("event_name, session_id, user_id, page_path, params, created_at")
-        .gte("created_at", since7d)
-        .order("created_at", { ascending: false })
-        .limit(10000)
+      fetchAnalytics()
     ]);
-
-    const analyticsRows = analyticsResult.data || [];
 
     const activityMap = new Map<string, {
       totalEvents: number;

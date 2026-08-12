@@ -2,129 +2,147 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const patchVersion = process.env.PUBG_META_PATCH_VERSION?.trim() || "";
+const patchStartedAt = process.env.PUBG_META_PATCH_STARTED_AT || "";
 
-const CURRENT_PUBG_PATCH = "42.3";
+type MetaRow = {
+  weapon_name: string;
+  weapon_category: string;
+  period: "pre" | "post";
+  player_match_count: number;
+  active_pick_count: number;
+  total_damage: number;
+  total_kills: number;
+  total_dbnos: number;
+  sustained_hits: number;
+  burst_sample_count: number;
+};
 
-const COMPARISON_WEAPONS = [
-  {
-    id: 1,
-    weapon_name: "M249",
-    weapon_category: "LMG",
-    pre_patch: { match_count: 142, pick_share: 2.1, avg_damage: 292, sustained_hits: 410, kill_efficiency: 2.4 },
-    post_patch: { match_count: 620, pick_share: 14.5, avg_damage: 415, sustained_hits: 1850, kill_efficiency: 3.1 },
-  },
-  {
-    id: 2,
-    weapon_name: "MG3",
-    weapon_category: "LMG",
-    pre_patch: { match_count: 95, pick_share: 1.5, avg_damage: 310, sustained_hits: 380, kill_efficiency: 2.7 },
-    post_patch: { match_count: 410, pick_share: 8.2, avg_damage: 460, sustained_hits: 1240, kill_efficiency: 3.4 },
-  },
-  {
-    id: 3,
-    weapon_name: "RPD (신규)",
-    weapon_category: "LMG",
-    pre_patch: { match_count: 0, pick_share: 0.0, avg_damage: 0, sustained_hits: 0, kill_efficiency: 0.0 },
-    post_patch: { match_count: 380, pick_share: 9.4, avg_damage: 385, sustained_hits: 1120, kill_efficiency: 3.2 },
-  },
-  {
-    id: 4,
-    weapon_name: "Beryl M762",
-    weapon_category: "AR",
-    pre_patch: { match_count: 680, pick_share: 28.5, avg_damage: 412, sustained_hits: 1120, kill_efficiency: 2.9 },
-    post_patch: { match_count: 520, pick_share: 22.1, avg_damage: 388, sustained_hits: 940, kill_efficiency: 2.7 },
-  },
-  {
-    id: 5,
-    weapon_name: "M416",
-    weapon_category: "AR",
-    pre_patch: { match_count: 740, pick_share: 31.0, avg_damage: 395, sustained_hits: 1250, kill_efficiency: 2.8 },
-    post_patch: { match_count: 590, pick_share: 25.4, avg_damage: 370, sustained_hits: 1020, kill_efficiency: 2.6 },
-  },
-  {
-    id: 6,
-    weapon_name: "Dragunov",
-    weapon_category: "DMR",
-    pre_patch: { match_count: 510, pick_share: 18.2, avg_damage: 440, sustained_hits: 340, kill_efficiency: 3.2 },
-    post_patch: { match_count: 480, pick_share: 17.5, avg_damage: 432, sustained_hits: 310, kill_efficiency: 3.1 },
-  },
-  {
-    id: 7,
-    weapon_name: "Kar98k",
-    weapon_category: "SR",
-    pre_patch: { match_count: 210, pick_share: 8.5, avg_damage: 298, sustained_hits: 50, kill_efficiency: 3.5 },
-    post_patch: { match_count: 195, pick_share: 7.8, avg_damage: 290, sustained_hits: 45, kill_efficiency: 3.4 },
-  },
-];
+type DailyTrendPoint = {
+  date: string;
+  player_match_count: number;
+  weapon_pick_count: number;
+  weapon_name: string;
+};
 
-export async function GET(request: Request) {
-  try {
-    if (!supabaseUrl || !supabaseKey) {
-      return NextResponse.json({
-        success: true,
-        patchVersion: CURRENT_PUBG_PATCH,
-        weapons: COMPARISON_WEAPONS,
-        updatedAt: new Date().toISOString(),
-      });
-    }
+function metric(row: MetaRow | undefined) {
+  const samples = Number(row?.player_match_count || 0);
+  const picks = Number(row?.active_pick_count || 0);
+  const damage = Number(row?.total_damage || 0);
+  const killsAndDbnos = Number(row?.total_kills || 0) + Number(row?.total_dbnos || 0);
+  return {
+    match_count: samples,
+    pick_share: samples > 0 ? Number(((picks / samples) * 100).toFixed(1)) : 0,
+    avg_damage: picks > 0 ? Math.round(damage / picks) : 0,
+    sustained_hits: Number(row?.sustained_hits || 0),
+    burst_available: Number(row?.burst_sample_count || 0) > 0,
+    kill_efficiency: damage > 0 ? Number(((killsAndDbnos * 1000) / damage).toFixed(1)) : 0,
+  };
+}
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    const { data: snapshotRows, error } = await supabase
-      .from("weapon_meta_snapshots")
-      .select("*")
-      .order("snapshot_date", { ascending: false })
-      .limit(500);
+function buildDailyWeaponTrend(rows: Array<{
+  played_at: string;
+  weapon_category: string;
+  weapon_name: string;
+  active_pick: boolean;
+}>): DailyTrendPoint[] {
+  const totalMatchesByDate = new Map<string, Set<string>>();
+  const days = new Map<string, { weaponMatches: Set<string>; weaponName: string }>();
+  for (const row of rows as Array<typeof rows[number] & { match_id: string; platform: string; player_id: string }>) {
+    const date = row.played_at.slice(0, 10);
+    const key = `${date}:${row.weapon_name}`;
+    const identity = `${row.match_id}:${row.platform}:${row.player_id}`;
+    const totalMatches = totalMatchesByDate.get(date) || new Set<string>();
+    totalMatches.add(identity);
+    totalMatchesByDate.set(date, totalMatches);
+    const current = days.get(key) || { weaponMatches: new Set<string>(), weaponName: row.weapon_name };
+    if (row.active_pick) current.weaponMatches.add(identity);
+    days.set(key, current);
+  }
+  return Array.from(days.entries())
+    .map(([key, values]) => ({ date: key.slice(0, 10), player_match_count: totalMatchesByDate.get(key.slice(0, 10))?.size || 0, weapon_pick_count: values.weaponMatches.size, weapon_name: values.weaponName }))
+    .sort((left, right) => left.date.localeCompare(right.date));
+}
 
-    if (error || !snapshotRows || snapshotRows.length === 0) {
-      if (error) console.warn("[META API] Database fetch info:", error.message);
-      return NextResponse.json({
-        success: true,
-        patchVersion: CURRENT_PUBG_PATCH,
-        weapons: COMPARISON_WEAPONS,
-        updatedAt: new Date().toISOString(),
-      });
-    }
-
-    const preRows = snapshotRows.filter((r) => r.patch_version === "pre_patch");
-    const postRows = snapshotRows.filter((r) => r.patch_version !== "pre_patch");
-
-    const weaponNames = Array.from(new Set(snapshotRows.map((r) => r.weapon_name)));
-    const comparisonResult = weaponNames.map((name, idx) => {
-      const pre = preRows.find((r) => r.weapon_name === name);
-      const post = postRows.find((r) => r.weapon_name === name) || pre;
-
-      const preMatches = pre?.match_count || 1;
-      const postMatches = post?.match_count || 1;
-
-      return {
-        id: idx + 1,
-        weapon_name: name,
-        weapon_category: post?.weapon_category || pre?.weapon_category || "OTHERS",
-        pre_patch: {
-          match_count: preMatches,
-          pick_share: Number(((pre?.active_pick_count || 1) / 10).toFixed(1)),
-          avg_damage: Math.round((pre?.total_damage || 0) / preMatches),
-          sustained_hits: pre?.sustained_hits || 0,
-          kill_efficiency: Number((((pre?.total_kills || 0) * 1000) / Math.max(1, pre?.total_damage || 1)).toFixed(1)),
-        },
-        post_patch: {
-          match_count: postMatches,
-          pick_share: Number(((post?.active_pick_count || 1) / 10).toFixed(1)),
-          avg_damage: Math.round((post?.total_damage || 0) / postMatches),
-          sustained_hits: post?.sustained_hits || 0,
-          kill_efficiency: Number((((post?.total_kills || 0) * 1000) / Math.max(1, post?.total_damage || 1)).toFixed(1)),
-        },
-      };
+export async function GET() {
+  if (!supabaseUrl || !supabaseKey || !patchVersion || !Number.isFinite(Date.parse(patchStartedAt))) {
+    return NextResponse.json({
+      success: false,
+      status: "not_configured",
+      message: "메타 비교 시작 시각이 아직 설정되지 않았습니다.",
+      patchVersion: patchVersion || null,
+      weapons: [],
+      updatedAt: new Date().toISOString(),
     });
+  }
+
+  try {
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const { data, error } = await supabase.rpc("get_weapon_meta_comparison", {
+      p_patch_version: patchVersion,
+      p_patch_started_at: patchStartedAt,
+      p_baseline_days: 14,
+    });
+    if (error) {
+      console.error("[META API] comparison query failed", { code: error.code, message: error.message });
+      return NextResponse.json({
+        success: false,
+        status: "unavailable",
+        message: "집계 테이블을 준비 중입니다.",
+        patchVersion,
+        weapons: [],
+        updatedAt: new Date().toISOString(),
+      }, { status: 503 });
+    }
+
+    const rows = (data || []) as MetaRow[];
+    const baselineStartAt = new Date(Date.parse(patchStartedAt) - 14 * 86_400_000).toISOString();
+    const { data: trendRows, error: trendError } = await supabase
+      .from("weapon_meta_match_samples")
+      .select("match_id,platform,player_id,played_at,weapon_category,weapon_name,active_pick,first_sec_hits")
+      .gte("played_at", baselineStartAt)
+      .lt("played_at", new Date().toISOString())
+      .in("patch_version", [`pre_${patchVersion}`, patchVersion]);
+    if (trendError) console.error("[META API] daily trend query failed", { code: trendError.code, message: trendError.message });
+    const byWeapon = new Map<string, { pre?: MetaRow; post?: MetaRow }>();
+    for (const row of rows) {
+      const current = byWeapon.get(row.weapon_name) || {};
+      current[row.period] = row;
+      byWeapon.set(row.weapon_name, current);
+    }
+    const weapons = Array.from(byWeapon.entries())
+      .map(([weapon_name, periods], index) => ({
+        id: index + 1,
+        weapon_name,
+        weapon_category: periods.post?.weapon_category || periods.pre?.weapon_category || "OTHERS",
+        pre_patch: metric(periods.pre),
+        post_patch: metric(periods.post),
+      }))
+      .sort((a, b) => b.post_patch.pick_share - a.post_patch.pick_share);
 
     return NextResponse.json({
       success: true,
-      patchVersion: CURRENT_PUBG_PATCH,
-      weapons: comparisonResult.length > 0 ? comparisonResult : COMPARISON_WEAPONS,
+      status: weapons.length > 0 ? "ready" : "collecting",
+      message: weapons.length > 0 ? null : "분석된 매치가 쌓이면 실제 비교값이 표시됩니다.",
+      patchVersion,
+      patchStartedAt,
+      dailyWeaponTrend: trendError ? [] : buildDailyWeaponTrend(trendRows || []),
+      burstCollection: trendError ? null : {
+        pre: {
+          total: new Set((trendRows || []).filter((row: any) => Date.parse(row.played_at) < Date.parse(patchStartedAt)).map((row: any) => `${row.match_id}:${row.platform}:${row.player_id}`)).size,
+          completed: new Set((trendRows || []).filter((row: any) => Date.parse(row.played_at) < Date.parse(patchStartedAt) && row.first_sec_hits !== null).map((row: any) => `${row.match_id}:${row.platform}:${row.player_id}`)).size,
+        },
+        post: {
+          total: new Set((trendRows || []).filter((row: any) => Date.parse(row.played_at) >= Date.parse(patchStartedAt)).map((row: any) => `${row.match_id}:${row.platform}:${row.player_id}`)).size,
+          completed: new Set((trendRows || []).filter((row: any) => Date.parse(row.played_at) >= Date.parse(patchStartedAt) && row.first_sec_hits !== null).map((row: any) => `${row.match_id}:${row.platform}:${row.player_id}`)).size,
+        },
+      },
+      weapons,
       updatedAt: new Date().toISOString(),
     });
-  } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message || "Failed to fetch meta" }, { status: 500 });
+  } catch (error) {
+    console.error("[META API] unexpected failure", error);
+    return NextResponse.json({ success: false, status: "unavailable", message: "메타 집계를 불러오지 못했습니다.", weapons: [] }, { status: 500 });
   }
 }
