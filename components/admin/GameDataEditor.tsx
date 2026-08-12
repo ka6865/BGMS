@@ -9,6 +9,7 @@ import { ItemCategory, GameItem, Vehicle, Weapon } from "@/types/game-data";
 import ConfirmModal from "@/components/common/ConfirmModal";
 import { resolveCrateAssetFields } from "@/lib/crates/assetMapping";
 import WeaponPatchReview from "@/components/admin/WeaponPatchReview";
+import { AdminUserCommandCenter } from "@/components/admin/AdminUserCommandCenter";
 
 export default function GameDataEditor() {
   const router = useRouter();
@@ -41,6 +42,8 @@ export default function GameDataEditor() {
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [showUserListOnMobile, setShowUserListOnMobile] = useState(false);
+  const [userAccounts, setUserAccounts] = useState<any>(null);
+  const [userMetrics, setUserMetrics] = useState<any>(null);
 
   // 전역 공지 설정 상태
   const [noticeActiveId, setNoticeActiveId] = useState("");
@@ -407,7 +410,10 @@ export default function GameDataEditor() {
         });
         if (!response.ok) throw new Error("유저 목록 로드 실패");
         const data = await response.json();
-        setItems(data || []);
+        const userList = Array.isArray(data) ? data : data.users || [];
+        setItems(userList);
+        setUserAccounts(data.accounts || null);
+        setUserMetrics(data.metrics || null);
         setSelectedCrateDetail(null);
         setSelectedItem(null);
       } catch (err: any) {
@@ -470,23 +476,18 @@ export default function GameDataEditor() {
   const shouldShowAside = useMemo(() => {
     if (activeCategory === "weapon-patch") return false;
     if (activeCategory === "system") return false;
+    if (activeCategory === "users") return false;
     if (!isMobile) return true;
-    if (activeCategory === "users") {
-      return showUserListOnMobile && !selectedItem;
-    }
     return !selectedItem;
-  }, [activeCategory, isMobile, showUserListOnMobile, selectedItem]);
+  }, [activeCategory, isMobile, selectedItem]);
 
   const shouldShowMain = useMemo(() => {
     if (activeCategory === "weapon-patch") return true;
     if (activeCategory === "system") return true;
+    if (activeCategory === "users") return true;
     if (!isMobile) return true;
-    if (selectedItem) return true;
-    if (activeCategory === "users") {
-      return !showUserListOnMobile;
-    }
-    return false;
-  }, [activeCategory, isMobile, selectedItem, showUserListOnMobile]);
+    return Boolean(selectedItem);
+  }, [activeCategory, isMobile, selectedItem]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -986,856 +987,62 @@ export default function GameDataEditor() {
             </div>
           )}
           {activeCategory === "users" ? (
-            <>
-              {missingProfilesCount > 0 && (
-                <div className="max-w-[700px] mx-auto mb-6 bg-red-950/20 border border-red-900/40 p-4 rounded-xl flex items-center justify-between gap-4 animate-pulse animate-duration-1000">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl"></span>
-                    <div>
-                      <h4 className="text-sm font-bold text-red-400">데이터 불일치 (프로필 누락 가입자 감지)</h4>
-                      <p className="text-xs text-gray-400 mt-1">
-                        가입 계정은 있으나 DB 프로필 테이블에 생성되지 않은 유저가 <strong>{missingProfilesCount}명</strong> 존재합니다.
-                      </p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleSyncMissingProfiles}
-                    disabled={isSaving}
-                    className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-800 text-white text-xs font-bold rounded-lg shadow-lg shadow-red-950/40 transition-all shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isSaving ? "동기화 중..." : "일괄 복구 동기화"}
-                  </button>
-                </div>
-              )}
-
-              {selectedItem ? (
-                <div className="max-w-[650px] mx-auto pb-10">
-                  <div className="flex justify-between items-center mb-8 border-b border-[#333] pb-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-full overflow-hidden border border-[#444] bg-[#222] flex items-center justify-center shrink-0">
-                        {(selectedItem as any).avatar_url ? (
-                          <img src={(selectedItem as any).avatar_url} alt="Avatar" className="w-full h-full object-cover" />
-                        ) : (
-                          <span className="text-[#F2A900] font-black text-lg"></span>
-                        )}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <span className="text-[9px] bg-amber-950 text-amber-400 border border-amber-900 px-2 py-0.5 rounded-full font-bold">회원 상세</span>
-                          {(selectedItem as any).role === "admin" && (
-                            <span className="text-[9px] bg-red-950 text-red-400 border border-red-900 px-2 py-0.5 rounded-full font-bold">ADMIN</span>
-                          )}
-                        </div>
-                        <h2 className="text-2xl font-black text-white inline-block">{(selectedItem as any).nickname || "닉네임 없음"}</h2>
-                        
-                        {/* 관리자 퀵 액션 */}
-                        <div className="flex flex-wrap gap-2 mt-2">
-                          {(selectedItem as any).pubg_nickname ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                router.push(`/stats/${(selectedItem as any).pubg_platform}/${(selectedItem as any).pubg_nickname}`);
-                              }}
-                              className="text-[10px] bg-sky-950 hover:bg-sky-900 text-sky-400 border border-sky-850 px-2.5 py-1 rounded-lg font-bold transition-colors flex items-center gap-1"
-                            >
-                              배그 전적 조회
-                            </button>
-                          ) : (
-                            <span className="text-[10px] text-gray-600 border border-gray-800/40 px-2.5 py-1 rounded-lg">배그 연동 대기중</span>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              router.push(`/board?q=${(selectedItem as any).nickname || ''}`);
-                            }}
-                            className="text-[10px] bg-emerald-950 hover:bg-emerald-900 text-emerald-400 border border-emerald-850 px-2.5 py-1 rounded-lg font-bold transition-colors flex items-center gap-1"
-                          >
-                            작성한 글 검색
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => handleDelete(selectedItem.id)}
-                      className="bg-red-500/10 hover:bg-red-500/20 text-red-500 text-xs font-bold px-4 py-2 rounded border border-red-500/30 transition-all"
-                    >
-                      강제 탈퇴
-                    </button>
-                  </div>
-
-                  <form onSubmit={handleSave} className="space-y-6">
-                    <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
-                      <h3 className="text-sm font-black text-[#F2A900] uppercase tracking-wider">프로필 및 로그인 연동</h3>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 mb-2">가입 계정 (ID)</label>
-                          <input
-                            type="text"
-                            className="w-full bg-[#111] border border-[#222] rounded px-3 py-2 text-sm text-gray-400 cursor-not-allowed font-mono text-[11px]"
-                            value={selectedItem.id}
-                            disabled
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 mb-2">이메일 주소</label>
-                          <input
-                            type="text"
-                            className="w-full bg-[#111] border border-[#222] rounded px-3 py-2 text-sm text-gray-400 cursor-not-allowed"
-                            value={(selectedItem as any).email || "소셜 간편 로그인"}
-                            disabled
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 mb-2">닉네임</label>
-                          <input
-                            type="text"
-                            className="w-full bg-[#111] border border-[#222] rounded px-3 py-2 text-sm text-gray-400 cursor-not-allowed"
-                            value={(selectedItem as any).nickname || "이름 없음"}
-                            disabled
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 mb-2">가입 일자</label>
-                          <input
-                            type="text"
-                            className="w-full bg-[#111] border border-[#222] rounded px-3 py-2 text-sm text-gray-400 cursor-not-allowed"
-                            value={
-                              (selectedItem as any).created_at 
-                                ? new Date((selectedItem as any).created_at).toLocaleString() 
-                                : "기록 없음"
-                            }
-                            disabled
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 mb-2">마지막 로그인</label>
-                          <input
-                            type="text"
-                            className="w-full bg-[#111] border border-[#222] rounded px-3 py-2 text-sm text-gray-400 cursor-not-allowed"
-                            value={
-                              (selectedItem as any).last_sign_in_at 
-                                ? new Date((selectedItem as any).last_sign_in_at).toLocaleString() 
-                                : "기록 없음"
-                            }
-                            disabled
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 mb-2">최근 활동 시각</label>
-                          <input
-                            type="text"
-                            className="w-full bg-[#111] border border-[#222] rounded px-3 py-2 text-sm text-gray-400 cursor-not-allowed"
-                            value={
-                              (selectedItem as any).last_active_at 
-                                ? new Date((selectedItem as any).last_active_at).toLocaleString() 
-                                : (selectedItem as any).last_sign_in_at
-                                  ? new Date((selectedItem as any).last_sign_in_at).toLocaleString() + " (로그인 시점)"
-                                  : "기록 없음"
-                            }
-                            disabled
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 mb-2">계정 상태 및 연동</label>
-                          <div className="flex flex-wrap gap-2 pt-1">
-                            {/* 로그인 제공처 뱃지 */}
-                            {(() => {
-                              const p = (selectedItem as any).provider;
-                              if (p === "google") {
-                                return <span className="text-[10px] bg-red-950/40 text-red-400 border border-red-900/50 px-2.5 py-1 rounded-full font-bold">Google 로그인</span>;
-                              } else if (p === "kakao") {
-                                return <span className="text-[10px] bg-amber-950/40 text-[#F2A900] border border-amber-900/60 px-2.5 py-1 rounded-full font-bold">Kakao 로그인</span>;
-                              } else {
-                                return <span className="text-[10px] bg-gray-900 text-gray-400 border border-gray-800 px-2.5 py-1 rounded-full font-bold">{p || "unknown"} 로그인</span>;
-                              }
-                            })()}
-
-                            {/* 이메일 인증 여부 뱃지 */}
-                            {(selectedItem as any).email_confirmed ? (
-                              <span className="text-[10px] bg-emerald-950/40 text-emerald-400 border border-emerald-900/50 px-2.5 py-1 rounded-full font-bold font-sans">이메일 인증완료</span>
-                            ) : (
-                              <span className="text-[10px] bg-amber-950/40 text-amber-500 border border-amber-900/50 px-2.5 py-1 rounded-full font-bold font-sans">이메일 미인증</span>
-                            )}
-
-                            {/* 프로필 존재 여부 뱃지 */}
-                            {(selectedItem as any).is_orphan_profile ? (
-                              <span className="text-[10px] bg-purple-950/50 text-purple-300 border border-purple-900/60 px-2.5 py-1 rounded-full font-bold font-sans">Auth 계정 없음</span>
-                            ) : (selectedItem as any).is_missing_profile ? (
-                              <span className="text-[10px] bg-rose-950/50 text-rose-400 border border-rose-900/60 px-2.5 py-1 rounded-full font-bold font-sans">DB 프로필 누락</span>
-                            ) : (
-                              <span className="text-[10px] bg-indigo-950/40 text-indigo-400 border border-indigo-900/50 px-2.5 py-1 rounded-full font-bold font-sans">DB 프로필 정상</span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
-                      <h3 className="text-sm font-black text-[#F2A900] uppercase tracking-wider">인프라 관리 및 게임 연동</h3>
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 mb-2">관리자 권한 (Role)</label>
-                          <select
-                            className="w-full bg-[#222] border border-[#333] rounded px-3 py-2 text-sm focus:border-[#F2A900] focus:outline-none"
-                            value={(selectedItem as any).role || "user"}
-                            onChange={(e) => {
-                              setSelectedItem({
-                                ...selectedItem,
-                                role: e.target.value
-                              });
-                            }}
-                          >
-                            <option value="user">일반 유저 (user)</option>
-                            <option value="admin">관제탑 관리자 (admin)</option>
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 mb-2">배그 연동 닉네임</label>
-                          <input
-                            type="text"
-                            className="w-full bg-[#222] border border-[#333] rounded px-3 py-2 text-sm focus:border-[#F2A900] focus:outline-none"
-                            placeholder="배틀그라운드 닉네임"
-                            value={(selectedItem as any).pubg_nickname || ""}
-                            onChange={(e) => {
-                              setSelectedItem({
-                                ...selectedItem,
-                                pubg_nickname: e.target.value
-                              });
-                            }}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 mb-2">배그 연동 플랫폼</label>
-                          <select
-                            className="w-full bg-[#222] border border-[#333] rounded px-3 py-2 text-sm focus:border-[#F2A900] focus:outline-none"
-                            value={(selectedItem as any).pubg_platform || ""}
-                            onChange={(e) => {
-                              setSelectedItem({
-                                ...selectedItem,
-                                pubg_platform: e.target.value
-                              });
-                            }}
-                          >
-                            <option value="">연동 안함</option>
-                            <option value="steam">Steam (PC)</option>
-                            <option value="kakao">Kakao (PC)</option>
-                            <option value="xbox">Xbox (Console)</option>
-                            <option value="psn">PlayStation (Console)</option>
-                          </select>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex gap-4">
-                      <button
-                        type="submit"
-                        disabled={isSaving}
-                        className="flex-1 py-3 bg-[#F2A900] hover:bg-[#d99700] text-black font-extrabold rounded-lg shadow-lg active:scale-95 transition-all text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {isSaving ? "저장 중..." : "유저 연동정보 저장"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSelectedItem(null)}
-                        className="py-3 px-6 bg-transparent border border-[#555] hover:bg-[#222] text-gray-400 hover:text-white font-bold rounded-lg transition-colors text-sm"
-                      >
-                        취소
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              ) : (
-                <div className="max-w-[750px] mx-auto space-y-8">
-                  <div className="flex justify-between items-center border-b border-[#333] pb-4">
-                    <div>
-                      <h2 className="text-2xl font-black text-white">종합 회원 인사이트 대시보드</h2>
-                      <p className="text-xs text-gray-500 mt-1">회원가입 현황, 프로필 누락 복구 상태 및 최근 가입 유저 요약</p>
-                    </div>
-                  </div>
-
-                  {/* 3종 메트릭 카드 */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="bg-[#1a1a1a] p-5 rounded-2xl border border-[#333] relative overflow-hidden">
-                      <div className="text-2xl absolute top-4 right-4 opacity-10"></div>
-                      <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">총 가입 회원</span>
-                      <div className="text-3xl font-black text-white mt-2 font-mono">{userStats?.total || 0}명</div>
-                    </div>
-                    <div className={`p-5 rounded-2xl border relative overflow-hidden ${
-                      (userStats?.missing || 0) > 0 
-                        ? "bg-red-950/10 border-red-500/20 shadow-lg shadow-red-950/10" 
-                        : "bg-[#1a1a1a] border-[#333]"
-                    }`}>
-                      <div className="text-2xl absolute top-4 right-4 opacity-10"></div>
-                      <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">프로필 누락 경고</span>
-                      <div className={`text-3xl font-black mt-2 font-mono ${
-                        (userStats?.missing || 0) > 0 ? "text-red-400" : "text-white"
-                      }`}>{userStats?.missing || 0}명</div>
-                      {(userStats?.missing || 0) > 0 && (
-                        <span className="absolute top-4 right-4 flex h-2 w-2">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
-                        </span>
-                      )}
-                    </div>
-                    <div className="bg-[#1a1a1a] p-5 rounded-2xl border border-[#333] relative overflow-hidden">
-                      <div className="text-2xl absolute top-4 right-4 opacity-10"></div>
-                      <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">이메일 인증률</span>
-                      <div className="text-3xl font-black text-white mt-2 font-mono">
-                        {userStats?.total ? Math.round((userStats.emailConfirmed / userStats.total) * 100) : 0}%
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 비율 가로형 HSL 바 차트 */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* 소셜 로그인 제공처 비율 */}
-                    <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
-                      <h3 className="text-sm font-black text-[#F2A900] uppercase tracking-wider">소셜 로그인 제공처 비율</h3>
-                      <div className="space-y-4 pt-2">
-                        {(() => {
-                          const google = userStats?.providers["google"] || 0;
-                          const kakao = userStats?.providers["kakao"] || 0;
-                          const total = google + kakao || 1;
-                          const googlePct = Math.round((google / total) * 100);
-                          const kakaoPct = Math.round((kakao / total) * 100);
-                          return (
-                            <div className="space-y-3">
-                              {/* 바 그래프 */}
-                              <div className="w-full h-4 rounded-full overflow-hidden flex border border-[#222]">
-                                <div className="bg-red-650 transition-all" style={{ width: `${googlePct}%` }} title={`Google: ${googlePct}%`} />
-                                <div className="bg-amber-400 transition-all" style={{ width: `${kakaoPct}%` }} title={`Kakao: ${kakaoPct}%`} />
-                              </div>
-                              {/* 라벨 */}
-                              <div className="flex justify-between text-xs">
-                                <div className="flex items-center gap-1.5">
-                                  <span className="w-2.5 h-2.5 bg-red-650 rounded-full inline-block" />
-                                  <span className="text-gray-400">Google:</span>
-                                  <span className="font-bold text-white">{googlePct}% ({google}명)</span>
-                                </div>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="w-2.5 h-2.5 bg-amber-400 rounded-full inline-block" />
-                                  <span className="text-gray-400">Kakao:</span>
-                                  <span className="font-bold text-white">{kakaoPct}% ({kakao}명)</span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    </div>
-
-                    {/* 배그 플랫폼 연동 비율 */}
-                    <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
-                      <h3 className="text-sm font-black text-[#F2A900] uppercase tracking-wider">배그 연동 플랫폼 비율</h3>
-                      <div className="space-y-4 pt-2">
-                        {(() => {
-                          const steam = userStats?.platforms["steam"] || 0;
-                          const kakao = userStats?.platforms["kakao"] || 0;
-                          const unlinked = userStats?.platforms["unlinked"] || 0;
-                          const total = steam + kakao + unlinked || 1;
-                          
-                          const steamPct = Math.round((steam / total) * 100);
-                          const kakaoPct = Math.round((kakao / total) * 100);
-                          const unlinkedPct = 100 - steamPct - kakaoPct;
-                          
-                          return (
-                            <div className="space-y-3">
-                              <div className="w-full h-4 rounded-full overflow-hidden flex border border-[#222]">
-                                <div className="bg-sky-500 transition-all" style={{ width: `${steamPct}%` }} />
-                                <div className="bg-amber-500 transition-all" style={{ width: `${kakaoPct}%` }} />
-                                <div className="bg-gray-700 transition-all" style={{ width: `${unlinkedPct}%` }} />
-                              </div>
-                              <div className="grid grid-cols-3 gap-1 text-[10px] text-gray-455">
-                                <div className="flex items-center gap-1">
-                                  <span className="w-2 h-2 bg-sky-500 rounded-full inline-block" />
-                                  <span>Steam: {steamPct}%</span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <span className="w-2 h-2 bg-amber-500 rounded-full inline-block" />
-                                  <span>Kakao: {kakaoPct}%</span>
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  <span className="w-2 h-2 bg-gray-700 rounded-full inline-block" />
-                                  <span>미연동: {unlinkedPct}%</span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 최근 활동 유저 Top 10 */}
-                  <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
-                    <h3 className="text-sm font-black text-[#F2A900] uppercase tracking-wider">실시간 최근 활동 유저 Top 10</h3>
-                    <div className="divide-y divide-[#222]">
-                      {userStats?.recent && userStats.recent.length > 0 ? (
-                        userStats.recent.map((u: any, idx: number) => (
-                          <div 
-                            key={idx} 
-                            onClick={() => setSelectedItem(u)}
-                            className="py-3 flex items-center justify-between first:pt-0 last:pb-0 cursor-pointer hover:bg-white/5 px-2 rounded-xl transition-all"
-                          >
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full overflow-hidden border border-[#333] bg-[#222] flex items-center justify-center shrink-0">
-                                {u.avatar_url ? (
-                                  <img src={u.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
-                                ) : (
-                                  <span className="text-[#F2A900] font-black text-sm"></span>
-                                )}
-                              </div>
-                              <div>
-                                <div className="text-sm font-bold text-white flex items-center gap-2">
-                                  {u.nickname || "닉네임 없음"}
-                                  {u.role === "admin" && (
-                                    <span className="text-[8px] bg-red-950 text-red-400 border border-red-900/60 px-1 py-0.2 rounded font-black">ADMIN</span>
-                                  )}
-                                </div>
-                                <div className="text-[10px] text-gray-500">{u.email}</div>
-                              </div>
-                            </div>
-                            
-                            <div className="text-right flex flex-col items-end gap-1">
-                              <span className="text-xs text-gray-400 font-bold">{timeAgo(u.last_active_at || u.last_sign_in_at)}</span>
-                              {u.pubg_nickname ? (
-                                <span className="text-[9px] bg-sky-950/40 text-sky-400 border border-sky-900/50 px-1.5 py-0.5 rounded font-mono">
-                                  {u.pubg_nickname} ({u.pubg_platform})
-                                </span>
-                              ) : (
-                                <span className="text-[9px] text-gray-600">배그 연동 정보 없음</span>
-                              )}
-                            </div>
-                          </div>
-                        ))
-                      ) : (
-                         <div className="text-xs text-gray-600 italic py-4 text-center">최근 활동 기록이 존재하지 않습니다.</div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              )}
-            </>
-          ) : activeCategory === "weapon-patch" ? (
-            <div className="max-w-[900px] mx-auto">
-              <WeaponPatchReview />
+            <div className="max-w-7xl mx-auto">
+              <AdminUserCommandCenter
+                users={items}
+                accounts={userAccounts}
+                metrics={userMetrics}
+                isRefreshing={isSaving}
+                isSaving={isSaving}
+                onRefresh={fetchItems}
+                onSyncMissingProfiles={handleSyncMissingProfiles}
+                onSaveUser={async (userData) => {
+                  setIsSaving(true);
+                  try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    const response = await fetch("/api/admin/users", {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": `Bearer ${session?.access_token}`
+                      },
+                      body: JSON.stringify(userData)
+                    });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.error || "유저 정보 저장 실패");
+                    toast.success("유저 프로필이 성공적으로 변경되었습니다.");
+                    fetchItems();
+                  } catch (err: any) {
+                    toast.error("저장 오류: " + err.message);
+                  } finally {
+                    setIsSaving(false);
+                  }
+                }}
+                onDeleteUser={async (id) => {
+                  setIsSaving(true);
+                  try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    const response = await fetch(`/api/admin/users?id=${id}`, {
+                      method: "DELETE",
+                      headers: {
+                        "Authorization": `Bearer ${session?.access_token}`
+                      }
+                    });
+                    const result = await response.json();
+                    if (!response.ok) throw new Error(result.error || "유저 삭제 실패");
+                    toast.success(result.deletedAuthUser
+                      ? "유저 계정과 프로필이 성공적으로 삭제되었습니다."
+                      : "유령 프로필이 성공적으로 정리되었습니다.");
+                    fetchItems();
+                  } catch (err: any) {
+                    toast.error("삭제 오류: " + err.message);
+                  } finally {
+                    setIsSaving(false);
+                  }
+                }}
+              />
             </div>
-          ) : activeCategory === "system" ? (
-            <div className="max-w-[750px] mx-auto space-y-8">
-              <h2 className="text-2xl font-black text-white border-b border-[#333] pb-4">시스템 통합 관제탑 및 캐시 관리</h2>
-              
-              {/* 시스템 모니터링 대시보드 */}
-              {isLoadingDashboard && !dashboardData ? (
-                <div className="bg-[#1a1a1a] p-8 rounded-2xl border border-[#333] flex flex-col items-center justify-center gap-3">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#F2A900]"></div>
-                  <span className="text-xs text-gray-400">실시간 시스템 메트릭 조회 중...</span>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* 저장소 용량 상태 */}
-                  <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">저장소 용량 및 캐시 상태</h3>
-                      <span className={`text-[10px] px-2 py-1 rounded border font-black ${usageStatusClass(dashboardData?.storageHealth?.database?.status)}`}>
-                        DB {usageStatusLabel(dashboardData?.storageHealth?.database?.status)}
-                      </span>
-                    </div>
-                    <div className="space-y-4 pt-1">
-                      <div className="space-y-1.5">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-gray-400">Supabase DB</span>
-                          <span className="font-bold font-mono text-white">
-                            {formatBytes(dashboardData?.storageHealth?.database?.usedBytes || 0)} / {formatBytes(dashboardData?.storageHealth?.database?.limitBytes || 0)}
-                          </span>
-                        </div>
-                        <div className="w-full bg-[#111] h-2 rounded-full overflow-hidden border border-[#222]">
-                          <div
-                            className={`h-full transition-all duration-500 ${
-                              dashboardData?.storageHealth?.database?.status === "critical"
-                                ? "bg-red-500"
-                                : dashboardData?.storageHealth?.database?.status === "warn"
-                                  ? "bg-amber-500"
-                                  : "bg-emerald-500"
-                            }`}
-                            style={{ width: `${Math.min(dashboardData?.storageHealth?.database?.usagePercent || 0, 100)}%` }}
-                          />
-                        </div>
-                        <div className="text-[10px] text-gray-500 text-right font-mono">
-                          {formatPercent(dashboardData?.storageHealth?.database?.usagePercent)}
-                        </div>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-gray-400">R2 텔레메트리 캐시</span>
-                          <span className="font-bold font-mono text-white">
-                            {formatBytes(dashboardData?.r2Cache?.totalSizeBytes || 0)} / {formatBytes(dashboardData?.storageHealth?.r2?.limitBytes || 0)}
-                          </span>
-                        </div>
-                        <div className="w-full bg-[#111] h-2 rounded-full overflow-hidden border border-[#222]">
-                          <div
-                            className={`h-full transition-all duration-500 ${
-                              dashboardData?.storageHealth?.r2?.status === "critical"
-                                ? "bg-red-500"
-                                : dashboardData?.storageHealth?.r2?.status === "warn"
-                                  ? "bg-amber-500"
-                                  : "bg-sky-500"
-                            }`}
-                            style={{ width: `${Math.min(dashboardData?.storageHealth?.r2?.usagePercent || 0, 100)}%` }}
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-[10px] text-gray-500 font-mono">
-                          <span>{dashboardData?.r2Cache?.fileCount || 0}개 파일</span>
-                          <span className="text-right">{formatPercent(dashboardData?.storageHealth?.r2?.usagePercent)}</span>
-                        </div>
-                      </div>
-
-                      <div className="border-t border-[#222] pt-3 space-y-1.5">
-                        {(dashboardData?.storageHealth?.tables || []).slice(0, 4).map((table: any) => (
-                          <div key={table.table} className="flex justify-between text-[10px]">
-                            <span className="text-gray-500">{table.table}</span>
-                            <span className="font-mono text-gray-300">{table.count?.toLocaleString?.() || 0} rows</span>
-                          </div>
-                        ))}
-                      </div>
-
-                      <div className="text-[10px] text-gray-500 leading-relaxed">
-                        * 로컬 analytics 이벤트는 기본 차단되며, R2는 페이지네이션으로 전수 집계합니다.
-                        {dashboardData?.r2Cache?.truncated ? " 집계 상한 초과로 일부 객체는 제외되었습니다." : ""}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* 마커 제보 승인 대기 */}
-                  <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] flex flex-col justify-between">
-                    <div>
-                      <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">마커 제보 승인 대기</h3>
-                      <div className="text-3xl font-black font-mono text-white mt-4">
-                        {dashboardData?.pendingMarkersCount || 0} <span className="text-xs text-gray-500 font-normal">건</span>
-                      </div>
-                      <p className="text-[10px] text-gray-550 mt-2">
-                        유저들이 지도 시뮬레이터에 등록한 전술 마커가 승인 대기 중입니다.
-                      </p>
-                    </div>
-                    {dashboardData?.pendingMarkersCount > 0 && (
-                      <button
-                        onClick={() => router.push("/admin/review")}
-                        className="w-full mt-4 py-2 bg-amber-600/20 text-[#F2A900] border border-[#F2A900]/30 hover:bg-amber-600/30 text-[11px] font-bold rounded transition-all text-center"
-                      >
-                        제보 검토하러 가기
-                      </button>
-                    )}
-                  </div>
-
-                  {/* PUBG API Rate Limit */}
-                  <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
-                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">PUBG API Rate Limit 상태</h3>
-                    <div className="pt-2">
-                      {dashboardData?.pubgApi ? (
-                        <div className="space-y-3">
-                          <div className="flex justify-between text-xs">
-                            <span className="text-gray-400">남은 호출 횟수</span>
-                            <span className="font-bold font-mono">
-                              {dashboardData.pubgApi.remaining} / {dashboardData.pubgApi.limit}
-                            </span>
-                          </div>
-                          {(() => {
-                            const pct = (dashboardData.pubgApi.remaining / dashboardData.pubgApi.limit) * 100;
-                            const color = pct > 50 ? "bg-emerald-500" : pct > 20 ? "bg-amber-500" : "bg-red-500";
-                            return (
-                              <div className="w-full bg-[#111] h-2 rounded-full overflow-hidden border border-[#222]">
-                                <div className={`h-full ${color} transition-all duration-500`} style={{ width: `${pct}%` }} />
-                              </div>
-                            );
-                          })()}
-                          <div className="grid grid-cols-2 gap-2 text-[9px] text-gray-500 font-mono mt-2">
-                            <div>리셋: {new Date(dashboardData.pubgApi.resetAt).toLocaleTimeString()}</div>
-                            <div className="text-right">갱신: {timeAgo(dashboardData.pubgApi.updatedAt)}</div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-xs text-gray-600 italic py-4 text-center">PUBG API 트래킹 정보가 아직 없습니다.</div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* AI 사용량 및 누적 비용 */}
-                  <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
-                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">AI (Gemini) 토큰 분석 비용 (최근 7일)</h3>
-                    {dashboardData?.aiUsage && (
-                      <div className="space-y-2 pt-2">
-                        <div className="text-xs font-bold text-gray-400 flex justify-between">
-                          <span>누적 소요 비용:</span>
-                          <span className="text-[#34A853] font-black">${dashboardData.aiUsage.reduce((sum: number, u: any) => sum + u.cost, 0).toFixed(4)} USD</span>
-                        </div>
-                        <div className="flex items-end gap-1.5 h-16 pt-2 px-1">
-                          {dashboardData.aiUsage.map((u: any, idx: number) => {
-                            const maxCost = Math.max(...dashboardData.aiUsage.map((x: any) => x.cost), 0.001);
-                            const percent = Math.min((u.cost / maxCost) * 100, 100);
-                            return (
-                              <div key={idx} className="flex-1 flex flex-col items-center group relative h-full justify-end">
-                                <div className="absolute bottom-full mb-1 bg-black text-[9px] text-white p-1.5 rounded border border-[#333] hidden group-hover:block whitespace-nowrap z-10">
-                                  {u.date}<br/>
-                                  비용: ${u.cost.toFixed(4)}<br/>
-                                  토큰: {u.promptTokens + u.completionTokens}T
-                                </div>
-                                <div 
-                                  className="w-full rounded-t bg-gradient-to-t from-emerald-600/30 to-emerald-500 transition-all hover:brightness-125" 
-                                  style={{ height: `${percent}%` }}
-                                />
-                                <span className="text-[7px] text-gray-600 mt-1 font-mono">{u.date.substring(5)}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 스쿼드 시너지 분석 통계 */}
-                  <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
-                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">스쿼드 시너지 분석 통계</h3>
-                    <div className="space-y-3 pt-2">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-gray-400">총 매치 / 스쿼드 매치</span>
-                        <span className="font-bold font-mono text-white">
-                          {dashboardData?.squadStats?.totalMatches || 0} / {dashboardData?.squadStats?.squadMatches || 0}
-                        </span>
-                      </div>
-                      {(() => {
-                        const total = dashboardData?.squadStats?.totalMatches || 0;
-                        const squad = dashboardData?.squadStats?.squadMatches || 0;
-                        const pct = total > 0 ? (squad / total) * 100 : 0;
-                        return (
-                          <div className="space-y-1">
-                            <div className="w-full bg-[#111] h-2 rounded-full overflow-hidden border border-[#222]">
-                              <div className="h-full bg-purple-500 transition-all duration-500" style={{ width: `${pct}%` }} />
-                            </div>
-                            <div className="text-[10px] text-gray-500 text-right font-mono">
-                              스쿼드 매치 비율: {pct.toFixed(1)}%
-                            </div>
-                          </div>
-                        );
-                      })()}
-                      <div className="flex justify-between text-xs pt-1 border-t border-[#222]">
-                        <span className="text-gray-400">고유 파티 수 (최근 100경기 기준)</span>
-                        <span className="font-bold font-mono text-white">
-                          {dashboardData?.squadStats?.estimatedSquadGroups || 0} 개 조합
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* API 최적화 세이브 */}
-                  <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
-                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">PUBG API 효율성 및 트래픽 절약</h3>
-                    <div className="space-y-3 pt-2">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-gray-400">누적 절약 API 호출 횟수</span>
-                        <span className="font-bold font-mono text-emerald-400">
-                          {dashboardData?.squadStats?.savedApiCalls || 0} 회 절약
-                        </span>
-                      </div>
-                      <div className="flex justify-between text-xs">
-                        <span className="text-gray-400">누적 절약 트래픽 대역폭</span>
-                        <span className="font-bold font-mono text-emerald-400">
-                          {formatBytes(dashboardData?.squadStats?.savedBandwidthBytes || 0)}
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-gray-500 mt-2 leading-relaxed">
-                        * Telemetry 2차 가공 적재 및 캐싱 처리를 통해 PUBG Rate Limit 제한을 예방하고 있으며, 프로덕션 키 심사 증빙 수치로 활용 가능합니다.
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 기존 데이터 조작 카드 목록 */}
-              <div className="grid grid-cols-1 gap-6 pt-4">
-                {/* 패치노트 데이터 동기화 관리 */}
-                <div className="bg-[#1a1a1a] p-6 rounded-xl border border-[#333] space-y-4">
-                  <h3 className="text-lg font-bold text-[#F2A900]">패치노트 데이터 수동 동기화</h3>
-                  <p className="text-sm text-gray-400">
-                    공식 PUBG 패치노트 뉴스를 크롤링하여 무기 및 아이템 스탯 데이터를 동기화합니다.<br/>
-                    특정 뉴스 URL을 입력하거나 빈칸으로 제출하여 전체 자동 동기화를 진행할 수 있습니다.
-                  </p>
-                  <div className="flex flex-col sm:flex-row gap-3 max-w-[600px]">
-                    <input
-                      id="manual-sync-url"
-                      name="manual_url"
-                      type="text"
-                      placeholder="수동 동기화 뉴스 URL (선택사항)"
-                      className="flex-1 bg-[#222] border border-[#333] rounded px-4 py-2.5 text-sm focus:outline-none focus:border-[#F2A900]"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
-                          const btn = document.getElementById("sync-btn");
-                          if (btn) btn.click();
-                        }
-                      }}
-                    />
-                    <button
-                      id="sync-btn"
-                      onClick={() => {
-                        const urlInput = document.getElementById("manual-sync-url") as HTMLInputElement;
-                        const manualUrl = urlInput?.value.trim() || "";
-                        setSyncTargetUrl(manualUrl);
-                        setIsSyncConfirmOpen(true);
-                      }}
-                      disabled={isSaving}
-                      className={`px-6 py-2.5 rounded-lg text-sm font-bold border transition-all whitespace-nowrap cursor-pointer ${
-                        isSaving 
-                          ? "bg-gray-800 border-gray-700 text-gray-500 cursor-not-allowed" 
-                          : "bg-blue-600/20 border-blue-600/30 text-blue-400 hover:bg-blue-600/30"
-                      }`}
-                    >
-                      {isSaving ? "동기화 중..." : "데이터 동기화 실행"}
-                    </button>
-                  </div>
-                </div>
-                <div className="bg-[#1a1a1a] p-6 rounded-xl border border-[#333]">
-                  <h3 className="text-lg font-bold text-[#F2A900] mb-2">전체 분석 캐시 초기화</h3>
-                  <p className="text-sm text-gray-400 mb-4">
-                    데이터베이스에 저장된 모든 분석 결과값(processed_match_telemetry)을 삭제합니다.<br/>
-                    원본 데이터는 보존되며, 사용자가 전적을 조회할 때 최신 엔진으로 다시 계산됩니다.
-                  </p>
-                  <button
-                    onClick={() => {
-                      setIsFlushCacheConfirmOpen(true);
-                    }}
-                    disabled={isSaving}
-                    className="px-6 py-3 bg-red-600/20 text-red-500 border border-red-600/30 rounded-lg font-bold hover:bg-red-600/30 transition-all"
-                  >
-                    전체 분석 데이터 삭제 (초기화)
-                  </button>
-                </div>
-
-                <div className="bg-[#1a1a1a] p-6 rounded-xl border border-[#333]">
-                  <h3 className="text-lg font-bold text-[#F2A900] mb-2">글로벌 벤치마크 초기화</h3>
-                  <p className="text-sm text-gray-400 mb-4">
-                    엘리트 선수들의 통계 데이터(global_benchmarks)를 모두 비웁니다.<br/>
-                    수행 후 &apos;벤치마커 스크립트&apos;를 다시 돌려야 최신 데이터로 채워집니다.
-                  </p>
-                  <button
-                    onClick={() => {
-                      setIsResetBenchmarkConfirmOpen(true);
-                    }}
-                    disabled={isSaving}
-                    className="px-6 py-3 bg-orange-600/20 text-orange-500 border border-orange-600/30 rounded-lg font-bold hover:bg-orange-600/30 transition-all"
-                  >
-                    벤치마크 데이터 전체 초기화
-                  </button>
-                </div>
-
-                <div className="bg-[#1a1a1a] p-6 rounded-xl border border-[#333]">
-                  <h3 className="text-lg font-bold text-[#F2A900] mb-2">플레이어/매치 정밀 초기화</h3>
-                  <p className="text-sm text-gray-400 mb-6">
-                    특정 플레이어나 매치의 데이터만 골라서 삭제합니다. 버그 수정 후 테스트 시 유용합니다.
-                  </p>
-                  
-                  <div className="space-y-4">
-                    <div className="flex gap-2">
-                      <input 
-                        type="text"
-                        placeholder="플레이어 닉네임 (예: KangHeeSung_)"
-                        className="flex-1 bg-[#222] border border-[#333] rounded px-3 py-2 text-sm focus:border-[#F2A900] focus:outline-none"
-                        value={flushNickname}
-                        onChange={(e) => setFlushNickname(e.target.value)}
-                      />
-                      <button
-                        onClick={() => {
-                          if (!flushNickname) return toast.error("닉네임을 입력하세요.");
-                          setFlushUserTarget(flushNickname);
-                          setIsFlushUserConfirmOpen(true);
-                        }}
-                        disabled={isSaving}
-                        className="px-4 py-2 bg-blue-600/20 text-blue-400 border border-blue-600/30 rounded font-bold hover:bg-blue-600/30 transition-all text-sm"
-                      >
-                        유저 데이터 삭제
-                      </button>
-                    </div>
-
-                    <div className="flex gap-2">
-                      <input 
-                        type="text"
-                        placeholder="매치 ID (Match ID)"
-                        className="flex-1 bg-[#222] border border-[#333] rounded px-3 py-2 text-sm focus:border-[#F2A900] focus:outline-none"
-                        value={flushMatchId}
-                        onChange={(e) => setFlushMatchId(e.target.value)}
-                      />
-                      <button
-                        onClick={() => {
-                          if (!flushMatchId) return toast.error("매치 ID를 입력하세요.");
-                          setFlushMatchTarget(flushMatchId);
-                          setIsFlushMatchConfirmOpen(true);
-                        }}
-                        disabled={isSaving}
-                        className="px-4 py-2 bg-purple-600/20 text-purple-400 border border-purple-600/30 rounded font-bold hover:bg-purple-600/30 transition-all text-sm"
-                      >
-                        매치 데이터 삭제
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* 전역 공지 노출 설정 */}
-                <div className="bg-[#1a1a1a] p-6 rounded-xl border border-[#333] space-y-4">
-                  <h3 className="text-lg font-bold text-[#F2A900] mb-2">전역 공지 노출 제어</h3>
-                  <p className="text-sm text-gray-400 mb-4">
-                    지도의 상단 배너에 노출될 공지사항의 글 ID와 노출 기한을 설정합니다.<br />
-                    노출 기한이 0일인 경우 영구 노출되며, <strong>공지글 ID에 -1 또는 none 입력 시 공지가 완전히 숨겨집니다.</strong>
-                  </p>
-                  
-                  {isFetchingSettings ? (
-                    <div className="flex items-center gap-2 text-xs text-gray-500 py-2">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#F2A900]"></div>
-                      <span>설정 불러오는 중...</span>
-                    </div>
-                  ) : (
-                    <form onSubmit={handleSaveSettings} className="space-y-4">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 mb-2">공지글 ID (notice_active_id)</label>
-                          <input 
-                            type="text"
-                            placeholder="예: 42 (최근 자동 노출 시 빈칸, 숨김 시 -1 또는 none)"
-                            className="w-full bg-[#222] border border-[#333] rounded px-3 py-2 text-sm focus:border-[#F2A900] focus:outline-none"
-                            value={noticeActiveId}
-                            onChange={(e) => setNoticeActiveId(e.target.value)}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold text-gray-500 mb-2">노출 기한 (일 기준, 0은 무제한)</label>
-                          <input 
-                            type="number"
-                            min="0"
-                            placeholder="예: 7"
-                            className="w-full bg-[#222] border border-[#333] rounded px-3 py-2 text-sm focus:border-[#F2A900] focus:outline-none"
-                            required
-                            value={noticeDisplayDays}
-                            onChange={(e) => setNoticeDisplayDays(e.target.value)}
-                          />
-                        </div>
-                      </div>
-                      <div className="flex justify-end pt-2">
-                        <button
-                          type="submit"
-                          disabled={isSavingSettings}
-                          className={`px-5 py-2 rounded-lg text-sm font-bold border transition-all whitespace-nowrap cursor-pointer ${
-                            isSavingSettings 
-                              ? "bg-gray-800 border-gray-700 text-gray-500 cursor-not-allowed" 
-                              : "bg-[#F2A900] border-[#F2A900]/30 text-black hover:bg-[#d89700]"
-                          }`}
-                        >
-                          {isSavingSettings ? "저장 중..." : "공지 설정 저장"}
-                        </button>
-                      </div>
-                    </form>
-                  )}
-                </div>
-              </div>
-            </div>
-          ) : activeCategory === "crates" ? (
+                    ) : activeCategory === "crates" ? (
             selectedCrateDetail ? (
               <div className="max-w-[850px] mx-auto pb-10">
                 <div className="flex justify-between items-center mb-8 border-b border-[#333] pb-4">
