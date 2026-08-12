@@ -2,23 +2,16 @@
 
 import React, { useState, useMemo } from "react";
 import {
-  Users,
   Activity,
   Search,
   RefreshCw,
   Shield,
-  User,
-  UserCheck,
   AlertTriangle,
   Clock,
-  ExternalLink,
   Trash2,
   Save,
   X,
   Compass,
-  BarChart2,
-  Sparkles,
-  CheckCircle2,
   Calendar
 } from "lucide-react";
 import { toast } from "sonner";
@@ -49,6 +42,7 @@ export interface CommandCenterUser {
   role: string | null;
   pubg_nickname: string | null;
   pubg_platform: string | null;
+  last_active_at?: string | null;
   updated_at: string | null;
   email?: string | null;
   created_at?: string | null;
@@ -283,12 +277,12 @@ export function AdminUserCommandCenter({
         {/* Metric 2: 최다 전적 검색 회원 */}
         <div className="rounded-2xl border border-white/10 bg-[#161616] p-4 shadow-lg">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-white/50">최다 전적 검색 회원</span>
+            <span className="text-xs font-bold text-white/50">최다 전적 검색 회원 Top 3</span>
             <Search size={18} className="text-indigo-400" />
           </div>
           <div className="mt-2 space-y-1">
             {metrics?.topSearchUsers && metrics.topSearchUsers.length > 0 ? (
-              metrics.topSearchUsers.slice(0, 2).map((item, i) => (
+              metrics.topSearchUsers.slice(0, 3).map((item, i) => (
                 <div key={i} className="flex justify-between text-xs font-bold">
                   <span className="truncate text-white/80">{item.nickname}</span>
                   <span className="text-indigo-300">{item.count}회</span>
@@ -308,7 +302,7 @@ export function AdminUserCommandCenter({
           </div>
           <div className="mt-2 space-y-1">
             {metrics?.topPages && metrics.topPages.length > 0 ? (
-              metrics.topPages.slice(0, 2).map((page, i) => (
+              metrics.topPages.slice(0, 3).map((page, i) => (
                 <div key={i} className="flex justify-between text-xs font-bold">
                   <span className="truncate text-white/80">{page.name}</span>
                   <span className="text-amber-300">{page.count}회</span>
@@ -656,7 +650,7 @@ export function AdminUserCommandCenter({
         <ConfirmModal
           isOpen={Boolean(deleteConfirmId)}
           title="회원 강제 탈퇴"
-          message="해당 유저를 완전히 삭제하시겠습니까? Auth 계정과 profiles 데이터가 모두 삭제되며 되돌릴 수 없습니다."
+          description="해당 유저를 완전히 삭제하시겠습니까? Auth 계정과 profiles 데이터가 모두 삭제되며 되돌릴 수 없습니다."
           confirmText="강제 탈퇴 실행"
           cancelText="취소"
           onConfirm={handleDeleteConfirmed}
