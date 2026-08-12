@@ -1,3 +1,5 @@
+import { WEAPON_NAMES } from "./constants";
+import { categorizeWeapon } from "./weaponMetaBurst";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeName } from "./utils";
 
@@ -320,11 +322,55 @@ export async function persistMatchAnalysis(
   input: PersistMatchAnalysisInput,
 ): Promise<PersistMatchAnalysisResult> {
   const result: PersistMatchAnalysisResult = { succeeded: [], failures: [] };
+
+async function persistWeaponMetaSnapshots(
+  supabase: SupabaseClient,
+  input: PersistMatchAnalysisInput,
+  result: PersistMatchAnalysisResult,
+): Promise<void> {
+  const weaponStats = (input.finalResult as any)?.weaponStats;
+  if (!weaponStats || typeof weaponStats !== "object" || Object.keys(weaponStats).length === 0) return;
+
+  const today = new Date().toISOString().split("T")[0];
+  const patchVersion = "31.2";
+
+  const rows = Object.entries(weaponStats).map(([wId, wData]: [string, any]) => {
+    const cleanName = WEAPON_NAMES[wId] || wId.replace(/Item_Weapon_|Weap|_C|_Projectile/gi, "");
+    const category = categorizeWeapon(wId);
+    const damage = Math.floor(safeNumber(wData.damage || wData.damageDealt));
+    const kills = safeInteger(wData.kills);
+    const dbnos = safeInteger(wData.dbnos);
+    return {
+      patch_version: patchVersion,
+      snapshot_date: today,
+      weapon_category: category,
+      weapon_name: cleanName,
+      match_count: 1,
+      active_pick_count: damage > 0 ? 1 : 0,
+      total_kills: kills,
+      total_dbnos: dbnos,
+      total_damage: damage,
+      first_sec_hits: safeInteger(wData.firstSecHits),
+      sustained_hits: safeInteger(wData.sustainedHits),
+      sustained_burst_count: safeInteger(wData.sustainedBurstCount),
+    };
+  });
+
+  if (rows.length === 0) return;
+
+  await runPersistenceTask("match_stats_raw", result, () => (
+    supabase.from("weapon_meta_snapshots").upsert(rows, {
+      onConflict: "patch_version,snapshot_date,weapon_name",
+    })
+  ));
+}
+
   await Promise.all([
     persistRawStats(supabase, input, result),
     persistPlayerCache(supabase, input, result),
     persistPlayerMatches(supabase, input, result),
     persistBenchmark(supabase, input, result),
+    persistWeaponMetaSnapshots(supabase, input, result),
   ]);
   return result;
 }
