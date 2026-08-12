@@ -5,7 +5,6 @@ import { createClient } from "@/utils/supabase/server";
 const USERS_PAGE_SIZE = 1000;
 const PROFILES_PAGE_SIZE = 1000;
 
-// 관리자 권한 검증 및 Supabase Admin 클라이언트 반환
 async function verifyAdmin() {
   const supabaseServer = await createClient();
   const { data: { user } } = await supabaseServer.auth.getUser();
@@ -70,7 +69,63 @@ async function listAllProfiles(supabaseAdmin: any) {
   return profiles;
 }
 
-// 1. GET: auth.users 기준으로 profiles 테이블 정보와 병합하여 전체 목록 반환 (누락 식별 플래그 포함)
+export interface ActivityEventItem {
+  id: string;
+  createdAt: string;
+  eventName: string;
+  label: string;
+  details: string;
+  pagePath: string | null;
+}
+
+export interface UserActivity7D {
+  totalEvents: number;
+  lastEventAt: string | null;
+  statsSearchCount: number;
+  topPages: Array<{ path: string; label: string; count: number }>;
+  summaryBadges: string[];
+  events: ActivityEventItem[];
+}
+
+function formatEventLabel(eventName: string, pagePath: string | null, params: any): { label: string; details: string } {
+  const path = pagePath || "";
+  const paramNickname = typeof params?.nickname === "string" ? params.nickname.trim() : "";
+  const paramPlatform = typeof params?.platform === "string" ? params.platform.trim() : "";
+
+  if (eventName === "stats_searched" || path.startsWith("/stats/")) {
+    const match = path.match(/^\/stats\/([^/]+)\/([^/?#]+)/);
+    const platform = paramPlatform || (match ? decodeURIComponent(match[1]) : "");
+    const nickname = paramNickname || (match ? decodeURIComponent(match[2]) : "");
+    if (nickname) {
+      return {
+        label: "전적 검색",
+        details: (platform ? platform.toUpperCase() + " / " : "") + nickname + " 전적 조회"
+      };
+    }
+    return { label: "전적 페이지 방문", details: path };
+  }
+
+  if (path.startsWith("/maps")) return { label: "3D 지도 이용", details: path };
+  if (path.startsWith("/crates")) return { label: "상자깡 시뮬레이터", details: "상자 개봉 시뮬레이션" };
+  if (path.startsWith("/weapons")) return { label: "무기도감 방문", details: "무기 정보 및 파츠 비교" };
+  if (path.startsWith("/rankings")) return { label: "랭킹 페이지 방문", details: "주간 딜량/킬/티어 랭킹" };
+  if (path.startsWith("/board")) return { label: "게시판 이용", details: path };
+  if (path.startsWith("/admin")) return { label: "관리자 페이지", details: path };
+
+  return { label: eventName || "페이지 방문", details: path || "서비스 이용" };
+}
+
+function getPageName(path: string): string {
+  if (path.startsWith("/stats")) return "전적 검색";
+  if (path.startsWith("/maps")) return "3D 지도";
+  if (path.startsWith("/crates")) return "상자깡";
+  if (path.startsWith("/weapons")) return "무기도감";
+  if (path.startsWith("/rankings")) return "랭킹";
+  if (path.startsWith("/board")) return "게시판";
+  if (path.startsWith("/admin")) return "관리자";
+  return path || "메인";
+}
+
 export async function GET() {
   const adminContext = await verifyAdmin();
   if (!adminContext) {
@@ -78,22 +133,113 @@ export async function GET() {
   }
 
   try {
-    // A. Profiles 전체 정보 조회
-    const profiles = await listAllProfiles(adminContext.supabaseAdmin);
+    const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-    // B. Auth Users 전체 정보 조회 (페이지네이션 제한 해결)
-    const users = await listAllAuthUsers(adminContext.supabaseAdmin);
+    const [profiles, users, analyticsResult] = await Promise.all([
+      listAllProfiles(adminContext.supabaseAdmin),
+      listAllAuthUsers(adminContext.supabaseAdmin),
+      adminContext.supabaseAdmin
+        .from("analytics_events")
+        .select("event_name, session_id, user_id, page_path, params, created_at")
+        .gte("created_at", since7d)
+        .order("created_at", { ascending: false })
+        .limit(10000)
+    ]);
 
-    // C. 두 정보 결합 (auth.users 기준으로 병합하여 프로필 누락 유저 식별)
-    const authUserIds = new Set(users.map(authUser => authUser.id));
-    const profileById = new Map(profiles.map(profile => [profile.id, profile]));
+    const analyticsRows = analyticsResult.data || [];
+
+    const activityMap = new Map<string, {
+      totalEvents: number;
+      lastEventAt: string | null;
+      statsSearchCount: number;
+      pageCounts: Map<string, number>;
+      events: ActivityEventItem[];
+    }>();
+
+    const globalPageCounts = new Map<string, number>();
+
+    for (let i = 0; i < analyticsRows.length; i++) {
+      const row = analyticsRows[i];
+      const userId = row.user_id;
+      const path = row.page_path || "";
+      if (path) {
+        const pageName = getPageName(path);
+        globalPageCounts.set(pageName, (globalPageCounts.get(pageName) || 0) + 1);
+      }
+
+      if (!userId) continue;
+
+      let userAct = activityMap.get(userId);
+      if (!userAct) {
+        userAct = {
+          totalEvents: 0,
+          lastEventAt: null,
+          statsSearchCount: 0,
+          pageCounts: new Map<string, number>(),
+          events: []
+        };
+        activityMap.set(userId, userAct);
+      }
+
+      userAct.totalEvents += 1;
+      if (!userAct.lastEventAt || new Date(row.created_at) > new Date(userAct.lastEventAt)) {
+        userAct.lastEventAt = row.created_at;
+      }
+
+      const isSearch = row.event_name === "stats_searched" || path.startsWith("/stats/");
+      if (isSearch) userAct.statsSearchCount += 1;
+
+      if (path) {
+        const pageName = getPageName(path);
+        userAct.pageCounts.set(pageName, (userAct.pageCounts.get(pageName) || 0) + 1);
+      }
+
+      if (userAct.events.length < 50) {
+        const { label, details } = formatEventLabel(row.event_name, row.page_path, row.params);
+        userAct.events.push({
+          id: "evt-" + i + "-" + Date.now(),
+          createdAt: row.created_at,
+          eventName: row.event_name,
+          label,
+          details,
+          pagePath: row.page_path
+        });
+      }
+    }
+
+    const authUserIds = new Set(users.map(u => u.id));
+    const profileById = new Map(profiles.map(p => [p.id, p]));
+    const providerCounts = new Map<string, number>();
+
     const mergedUsers = users.map(authUser => {
       const profile = profileById.get(authUser.id);
-      
       const provider = authUser.app_metadata?.provider || 
                        (authUser as any).raw_app_meta_data?.provider || 
                        (authUser as any).identities?.[0]?.provider || 
-                       "unknown";
+                       "email";
+      providerCounts.set(provider, (providerCounts.get(provider) || 0) + 1);
+
+      const userActRaw = activityMap.get(authUser.id);
+      const topPages = userActRaw?.pageCounts
+        ? Array.from(userActRaw.pageCounts.entries())
+            .map(([path, count]) => ({ path, label: path, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 3)
+        : [];
+
+      const summaryBadges: string[] = [];
+      if (userActRaw?.statsSearchCount) summaryBadges.push("전적 검색 " + userActRaw.statsSearchCount + "회");
+      if (topPages.length > 0) summaryBadges.push("주요 이용: " + topPages[0].label);
+      if (userActRaw && userActRaw.totalEvents > 0) summaryBadges.push("7일 활동 " + userActRaw.totalEvents + "건");
+
+      const activity7d: UserActivity7D = {
+        totalEvents: userActRaw?.totalEvents || 0,
+        lastEventAt: userActRaw?.lastEventAt || null,
+        statsSearchCount: userActRaw?.statsSearchCount || 0,
+        topPages,
+        summaryBadges,
+        events: userActRaw?.events || []
+      };
 
       if (profile) {
         return {
@@ -101,14 +247,14 @@ export async function GET() {
           email: authUser.email || "소셜 로그인 유저 (이메일 미공개)",
           created_at: authUser.created_at || profile.updated_at,
           last_sign_in_at: authUser.last_sign_in_at || null,
-          provider: provider,
+          provider,
           email_confirmed: !!authUser.email_confirmed_at,
           is_missing_profile: false,
-          is_orphan_profile: false
+          is_orphan_profile: false,
+          activity7d
         };
       }
 
-      // profiles 테이블에 프로필 레코드가 없는 유저 (가짜 프로필 데이터 생성)
       const meta = authUser.user_metadata || {};
       const fallbackNickname = meta.full_name || meta.user_name || meta.name || meta.nickname || authUser.email?.split("@")[0] || "User";
       const fallbackAvatar = meta.avatar_url || meta.avatar || null;
@@ -124,10 +270,11 @@ export async function GET() {
         email: authUser.email || "소셜 로그인 유저 (이메일 미공개)",
         created_at: authUser.created_at,
         last_sign_in_at: authUser.last_sign_in_at || null,
-        provider: provider,
+        provider,
         email_confirmed: !!authUser.email_confirmed_at,
         is_missing_profile: true,
-        is_orphan_profile: false
+        is_orphan_profile: false,
+        activity7d
       };
     });
 
@@ -141,28 +288,88 @@ export async function GET() {
         provider: "orphan",
         email_confirmed: false,
         is_missing_profile: false,
-        is_orphan_profile: true
+        is_orphan_profile: true,
+        activity7d: {
+          totalEvents: 0,
+          lastEventAt: null,
+          statsSearchCount: 0,
+          topPages: [],
+          summaryBadges: [],
+          events: []
+        }
       }));
 
     const usersWithConsistencyFlags = [...orphanProfiles, ...mergedUsers];
 
-    // 정렬: 유령 프로필과 프로필 누락 회원을 목록 상단에 먼저 노출
     usersWithConsistencyFlags.sort((a, b) => {
       if (a.is_orphan_profile && !b.is_orphan_profile) return -1;
       if (!a.is_orphan_profile && b.is_orphan_profile) return 1;
       if (a.is_missing_profile && !b.is_missing_profile) return -1;
       if (!a.is_missing_profile && b.is_missing_profile) return 1;
-      return (a.nickname || "").localeCompare(b.nickname || "");
+
+      const timeA = Math.max(
+        Date.parse(a.activity7d?.lastEventAt || "0") || 0,
+        Date.parse(a.last_active_at || "0") || 0,
+        Date.parse(a.last_sign_in_at || "0") || 0
+      );
+      const timeB = Math.max(
+        Date.parse(b.activity7d?.lastEventAt || "0") || 0,
+        Date.parse(b.last_active_at || "0") || 0,
+        Date.parse(b.last_sign_in_at || "0") || 0
+      );
+      return timeB - timeA;
     });
 
-    return NextResponse.json(usersWithConsistencyFlags);
+    const active7dCount = usersWithConsistencyFlags.filter(u => {
+      const last = Math.max(
+        Date.parse(u.activity7d?.lastEventAt || "0") || 0,
+        Date.parse(u.last_active_at || "0") || 0,
+        Date.parse(u.last_sign_in_at || "0") || 0
+      );
+      return last >= Date.parse(since7d);
+    }).length;
+
+    const topSearchUsers = [...usersWithConsistencyFlags]
+      .filter(u => u.activity7d?.statsSearchCount > 0)
+      .sort((a, b) => b.activity7d.statsSearchCount - a.activity7d.statsSearchCount)
+      .slice(0, 3)
+      .map(u => ({
+        nickname: u.nickname || u.email || u.id.slice(0, 8),
+        count: u.activity7d.statsSearchCount
+      }));
+
+    const topPagesGlobal = Array.from(globalPageCounts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3);
+
+    const accounts = {
+      totalUsers: usersWithConsistencyFlags.length,
+      authUsers: users.length,
+      profiles: profiles.length,
+      missingProfiles: mergedUsers.filter(u => u.is_missing_profile).length,
+      orphanProfiles: orphanProfiles.length,
+      admins: mergedUsers.filter(u => u.role === "admin").length
+    };
+
+    const metrics = {
+      active7dUsers: active7dCount,
+      topSearchUsers,
+      topPages: topPagesGlobal,
+      providers: Object.fromEntries(providerCounts)
+    };
+
+    return NextResponse.json({
+      accounts,
+      metrics,
+      users: usersWithConsistencyFlags
+    });
   } catch (error: any) {
     console.error("Fetch admin users error:", error);
     return NextResponse.json({ error: error.message || "유저 정보를 불러올 수 없습니다." }, { status: 500 });
   }
 }
 
-// 2. POST: 유저 권한(role) / PUBG 연동 스펙 수동 업데이트 및 누락 프로필 일괄 복구 동기화
 export async function POST(request: Request) {
   const adminContext = await verifyAdmin();
   if (!adminContext) {
@@ -173,12 +380,9 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { action, id, role, pubg_nickname, pubg_platform } = body;
 
-    // A. 일괄 복구 동기화(sync) 액션 처리
     if (action === "sync") {
-      // 1) Auth Users 리스트 조회
       const users = await listAllAuthUsers(adminContext.supabaseAdmin);
 
-      // 2) Profiles 테이블 조회
       const { data: profiles, error: pErr } = await adminContext.supabaseAdmin
         .from("profiles")
         .select("id");
@@ -191,7 +395,6 @@ export async function POST(request: Request) {
         return NextResponse.json({ success: true, message: "동기화할 누락된 회원이 없습니다." });
       }
 
-      // 3) 누락 회원 profiles 테이블에 일괄 INSERT
       const insertData = missingUsers.map(u => {
         const meta = u.user_metadata || {};
         return {
@@ -212,13 +415,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, count: insertData.length });
     }
 
-    // B. 단일 회원 정보 수정 처리
     if (!id) {
       return NextResponse.json({ error: "수정 대상 유저 ID가 필요합니다." }, { status: 400 });
     }
 
-    // profiles 테이블 정보 수정 (profiles 테이블에 없을 경우 insert, 있을 경우 update 하거나 error 처리)
-    // profiles 테이블에 해당 유저가 있는지 체크하여 없으면 새로 생성, 있으면 업데이트
     const { data: existingProfile } = await adminContext.supabaseAdmin
       .from("profiles")
       .select("id")
@@ -226,7 +426,6 @@ export async function POST(request: Request) {
       .single();
 
     if (!existingProfile) {
-      // 누락 상태에서 개별 저장 시 생성
       const { error: insertErr } = await adminContext.supabaseAdmin
         .from("profiles")
         .insert({
@@ -234,7 +433,7 @@ export async function POST(request: Request) {
           role: role || "user",
           pubg_nickname: pubg_nickname || null,
           pubg_platform: pubg_platform || null,
-          nickname: "User", // fallback
+          nickname: "User",
           updated_at: new Date().toISOString()
         });
       if (insertErr) throw insertErr;
@@ -258,8 +457,6 @@ export async function POST(request: Request) {
   }
 }
 
-// 3. DELETE: 유저 강제 회원탈퇴 처리
-// profiles.id에는 auth.users FK가 없으므로 Auth 삭제 후 profile도 명시적으로 정리합니다.
 export async function DELETE(request: Request) {
   const adminContext = await verifyAdmin();
   if (!adminContext) {
