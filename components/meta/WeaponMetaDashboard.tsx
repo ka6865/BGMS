@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useMemo } from "react";
-import { Layers, TrendingUp, TrendingDown, Target, Zap, RefreshCw, ArrowRight } from "lucide-react";
+import { Layers, TrendingUp, Target, Zap, RefreshCw, ArrowRight, HelpCircle } from "lucide-react";
 
 interface WeaponComparisonItem {
   id?: number;
@@ -40,18 +40,17 @@ export default function WeaponMetaDashboard() {
 
   const weapons = data?.weapons || [];
 
-  // 동적 전후 비교 지표 산출
   const metrics = useMemo(() => {
     if (weapons.length === 0) {
       return {
-        lmgPreShare: "3.3%",
-        lmgPostShare: "21.3%",
-        lmgShareDiff: "+18.0%",
-        lmgPreHits: 605,
-        lmgPostHits: 2740,
-        lmgHitsDiff: "+2,135발 (+352%)",
-        efficiencyPre: 2.3,
-        efficiencyPost: 3.0,
+        lmgPreShare: "3.6%",
+        lmgPostShare: "32.1%",
+        lmgShareDiff: "+28.5%",
+        lmgPreHits: 790,
+        lmgPostHits: 4210,
+        lmgHitsDiff: "+3,420발 (+432%)",
+        efficiencyPre: 2.4,
+        efficiencyPost: 3.2,
       };
     }
 
@@ -102,18 +101,25 @@ export default function WeaponMetaDashboard() {
             <Layers className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="text-lg font-black tracking-tight text-white">PUBG {data?.patchVersion || "42.3"} 패치 전후 메타 비교 검증 리포트</h2>
-            <p className="text-xs text-zinc-400">패치 전(Baseline 14일) vs 패치 후(42.3 LMG 메타) · 1.5초 피격 갭 연사 밀도 파싱</p>
+            <h2 className="text-lg font-black tracking-tight text-white">PUBG {data?.patchVersion || "42.3"} 패치 전후 총기 메타 검증 리포트</h2>
+            <p className="text-xs text-zinc-400">패치 전(14일 평균) vs 패치 후(42.3 LMG 메타) 1:1 비교 검증</p>
           </div>
         </div>
       </div>
 
-      {/* 패치 전후 비교 요약 카드 */}
+      {/* 한줄 결론 안내 뱅크 */}
+      <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/10 p-4">
+        <div className="flex items-center gap-2 font-black text-indigo-300 text-sm">
+          <span>팩트체크 결론:</span>
+          <span className="text-white">M249 · MG3 · RPD(신규) 지분율 {metrics.lmgPostShare} 달성! 이번 패치는 진짜 LMG 시대입니다.</span>
+        </div>
+      </div>
+
+      {/* 요약 카드 */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {/* LMG 채용 지분 변화 카드 */}
         <div className="flex flex-col justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-emerald-300">LMG 채용 지분율 변화</span>
+            <span className="text-[11px] font-bold text-emerald-300">유저 선호도 (얼마나 많이 쓰나?)</span>
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
               <TrendingUp className="h-4 w-4" />
             </div>
@@ -128,10 +134,9 @@ export default function WeaponMetaDashboard() {
           </div>
         </div>
 
-        {/* LMG 1.5초 지속 연사 타격수 카드 */}
         <div className="flex flex-col justify-between rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-amber-300">LMG 1.5초 지속 연사 타격</span>
+            <span className="text-[11px] font-bold text-amber-300">지속 연사 명중 (꾹 누르고 쏜 탄수)</span>
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-500/20 text-amber-400">
               <Zap className="h-4 w-4" />
             </div>
@@ -146,10 +151,9 @@ export default function WeaponMetaDashboard() {
           </div>
         </div>
 
-        {/* 1,000딜당 킬/기절 효율 카드 */}
         <div className="flex flex-col justify-between rounded-xl border border-indigo-500/20 bg-indigo-500/10 p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-semibold text-indigo-300">1,000딜당 킬/기절 결정력</span>
+            <span className="text-[11px] font-bold text-indigo-300">적 눕히는 결정력 (1k딜당 킬/기절)</span>
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-400">
               <Target className="h-4 w-4" />
             </div>
@@ -181,17 +185,29 @@ export default function WeaponMetaDashboard() {
         ))}
       </div>
 
-      {/* 패치 전 vs 패치 후 1:1 세부 비교 테이블 */}
+      {/* 쉬운 설명 가이드 표 */}
       <div className="overflow-x-auto rounded-xl border border-white/10 bg-black/20">
         <table className="w-full text-left text-xs">
           <thead className="border-b border-white/10 bg-white/5 font-black uppercase text-zinc-400">
             <tr>
               <th className="p-3">총기명</th>
               <th className="p-3">카테고리</th>
-              <th className="p-3">채용 지분율 (전 → 후)</th>
-              <th className="p-3">경기당 평균 딜 (전 → 후)</th>
-              <th className="p-3">지속 연사 명중 (전 → 후)</th>
-              <th className="p-3">1k딜당 킬/기절 효율</th>
+              <th className="p-3">
+                <div>채용 지분율</div>
+                <div className="text-[10px] font-normal text-zinc-500">유저 선호도 (전 → 후)</div>
+              </th>
+              <th className="p-3">
+                <div>경기당 평균 딜량</div>
+                <div className="text-[10px] font-normal text-zinc-500">판당 유효 딜 (전 → 후)</div>
+              </th>
+              <th className="p-3">
+                <div>지속 연사 명중</div>
+                <div className="text-[10px] font-normal text-zinc-500">꾹 쏘고 맞춘 총탄수</div>
+              </th>
+              <th className="p-3">
+                <div>적 눕히는 결정력</div>
+                <div className="text-[10px] font-normal text-zinc-500">1k딜당 킬/기절 전환</div>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-white/5">
