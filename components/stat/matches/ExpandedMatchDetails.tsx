@@ -32,6 +32,7 @@ import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import { getTranslatedWeaponName } from "@/lib/pubg-analysis/constants";
 import { getNextTierInfo } from "@/lib/pubg-analysis/benchmarkScore";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
+import { normalizeSquadWeaponStats } from "@/lib/pubg-analysis/squadWeaponStats";
 import { useAIStatus, aiManager } from "@/lib/ai-management";
 import { useAuth } from "@/components/AuthProvider";
 import { toast } from "sonner";
@@ -758,45 +759,10 @@ export const ExpandedMatchDetails = ({
     });
     return Array.from(memberMap.values());
   }, [matchData]);
-  const normalizedSquadWeaponStats = useMemo(() => {
-    type SquadWeaponStat = NonNullable<MatchData["squadWeaponStats"]>[string][number];
-    const playerMap = new Map<string, { displayName: string; weapons: Map<string, SquadWeaponStat> }>();
-
-    Object.entries(matchData?.squadWeaponStats || {}).forEach(([playerName, weapons]) => {
-      const playerKey = normalizeName(playerName);
-      if (!playerKey || !Array.isArray(weapons)) return;
-      const playerEntry = playerMap.get(playerKey) || { displayName: playerName, weapons: new Map<string, SquadWeaponStat>() };
-
-      weapons.forEach((weaponStat) => {
-        const weaponKey = weaponStat.weapon || "unknown";
-        const existing = playerEntry.weapons.get(weaponKey);
-        if (!existing) {
-          playerEntry.weapons.set(weaponKey, { ...weaponStat });
-          return;
-        }
-        const shots = (existing.shots || 0) + (weaponStat.shots || 0);
-        const hits = (existing.hits || 0) + (weaponStat.hits || 0);
-        playerEntry.weapons.set(weaponKey, {
-          ...existing,
-          damage: (existing.damage || 0) + (weaponStat.damage || 0),
-          dBNODamage: (existing.dBNODamage || 0) + (weaponStat.dBNODamage || 0),
-          shots,
-          hits,
-          dBNOHits: (existing.dBNOHits || 0) + (weaponStat.dBNOHits || 0),
-          holdingTime: (existing.holdingTime || 0) + (weaponStat.holdingTime || 0),
-          accuracy: shots > 0 ? Math.round((hits / shots) * 100) : 0,
-          hitDetails: [...(existing.hitDetails || []), ...(weaponStat.hitDetails || [])]
-        });
-      });
-
-      playerMap.set(playerKey, playerEntry);
-    });
-
-    return Array.from(playerMap.values()).reduce<Record<string, SquadWeaponStat[]>>((acc, entry) => {
-      acc[entry.displayName] = Array.from(entry.weapons.values());
-      return acc;
-    }, {});
-  }, [matchData]);
+  const normalizedSquadWeaponStats = useMemo(
+    () => normalizeSquadWeaponStats(matchData?.squadWeaponStats),
+    [matchData?.squadWeaponStats],
+  );
   const toggleDetailSection = (section: keyof typeof openDetailSections) => {
     setOpenDetailSections((current) => ({
       ...current,

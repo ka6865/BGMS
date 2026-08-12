@@ -968,10 +968,11 @@ export class CombatHandler extends BaseHandler {
       } else if (isTeammate) {
         // 아군 무기 통계 적재
         const tName = accountToNameMap.get(accId) || accId;
+        const realTimeSquadStatsKey = normalizeName(tName);
         const tWeaponList: any[] = [];
         
         // [V60.0 Fallback] 실시간 수집된 해당 아군의 무기 맵 가져오기
-        const realTimeSquadStatsMap = this.state.squadWeaponStats.get(tName);
+        const realTimeSquadStatsMap = this.state.squadWeaponStats.get(realTimeSquadStatsKey);
 
         if (playerStat.stats && Array.isArray(playerStat.stats)) {
           playerStat.stats.forEach((w: any) => {
@@ -1051,6 +1052,11 @@ export class CombatHandler extends BaseHandler {
         }
         
         if (tWeaponList.length > 0) {
+          // 실시간 수집은 normalizeName 키, 공식 종료 통계는 원래 닉네임 키를 사용한다.
+          // 둘을 함께 남기면 화면에서 같은 팀원의 딜이 이중 합산되므로 실시간 키를 교체한다.
+          if (realTimeSquadStatsKey !== tName) {
+            this.state.squadWeaponStats.delete(realTimeSquadStatsKey);
+          }
           this.state.squadWeaponStats.set(tName, tWeaponList);
         }
       }
