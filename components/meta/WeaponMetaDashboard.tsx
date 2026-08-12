@@ -86,7 +86,7 @@ export default function WeaponMetaDashboard() {
           </div>
           <div>
             <h2 className="text-lg font-black tracking-tight text-white">실시간 총기 메타 동향 리포트</h2>
-            <p className="text-xs text-zinc-400">PUBG {data?.patchVersion || "31.2"} 패치 기준 · 실시간 텔레메트리 1.5초 피격버스트 파싱</p>
+            <p className="text-xs text-zinc-400">PUBG {data?.patchVersion || "34.1"} 패치 기준 · 실시간 텔레메트리 1.5초 피격버스트 파싱</p>
           </div>
         </div>
       </div>

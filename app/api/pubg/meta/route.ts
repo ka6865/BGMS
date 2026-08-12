@@ -4,6 +4,8 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
+const CURRENT_PUBG_PATCH = "34.1";
+
 const FALLBACK_WEAPONS = [
   { id: 1, weapon_name: "M249", weapon_category: "LMG", match_count: 142, active_pick_count: 118, total_kills: 84, total_dbnos: 96, total_damage: 34500, first_sec_hits: 240, sustained_hits: 410, sustained_burst_count: 62 },
   { id: 2, weapon_name: "DP-28", weapon_category: "LMG", match_count: 85, active_pick_count: 62, total_kills: 38, total_dbnos: 45, total_damage: 18200, first_sec_hits: 110, sustained_hits: 195, sustained_burst_count: 28 },
@@ -18,7 +20,7 @@ export async function GET(request: Request) {
     if (!supabaseUrl || !supabaseKey) {
       return NextResponse.json({
         success: true,
-        patchVersion: "31.2",
+        patchVersion: CURRENT_PUBG_PATCH,
         weapons: FALLBACK_WEAPONS,
         updatedAt: new Date().toISOString(),
       });
@@ -35,7 +37,7 @@ export async function GET(request: Request) {
       if (error) console.warn("[META API] Database fetch info:", error.message);
       return NextResponse.json({
         success: true,
-        patchVersion: "31.2",
+        patchVersion: CURRENT_PUBG_PATCH,
         weapons: FALLBACK_WEAPONS,
         updatedAt: new Date().toISOString(),
       });
@@ -43,7 +45,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       success: true,
-      patchVersion: "31.2",
+      patchVersion: CURRENT_PUBG_PATCH,
       weapons: snapshotRows,
       updatedAt: new Date().toISOString(),
     });
