@@ -93,6 +93,27 @@ export class CombatHandler extends BaseHandler {
     }
   }
 
+  private recordWeaponBurst(wStat: any, victimName: string, ts: number) {
+    const lastBurst = wStat.lastMetaBurst;
+    if (!lastBurst || lastBurst.victimName !== victimName || ts - lastBurst.lastTs > 1500) {
+      wStat.lastMetaBurst = { victimName, startedAt: ts, lastTs: ts, hasSustainedHit: false };
+      wStat.firstSecHits = (wStat.firstSecHits || 0) + 1;
+      return;
+    }
+
+    const elapsedMs = ts - lastBurst.startedAt;
+    if (elapsedMs <= 1000) {
+      wStat.firstSecHits = (wStat.firstSecHits || 0) + 1;
+    } else if (elapsedMs <= 3000) {
+      wStat.sustainedHits = (wStat.sustainedHits || 0) + 1;
+      if (!lastBurst.hasSustainedHit) {
+        wStat.sustainedBurstCount = (wStat.sustainedBurstCount || 0) + 1;
+        lastBurst.hasSustainedHit = true;
+      }
+    }
+    lastBurst.lastTs = ts;
+  }
+
   public handleEvent(e: any, ts: number, _elapsed: number) {
     switch (e._T) {
       case "LogPlayerTakeDamage":
@@ -215,6 +236,7 @@ export class CombatHandler extends BaseHandler {
               const wStat = this.state.weaponStats.get(cleanWId) || { kills: 0, dbnos: 0, damage: 0, hits: 0 };
               wStat.damage += damage;
               wStat.hits++;
+              this.recordWeaponBurst(wStat, victimName, ts);
               this.updateHitDetails(wStat, e.damageReason, damage, true, false, false);
               this.state.weaponStats.set(cleanWId, wStat);
 

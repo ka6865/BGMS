@@ -198,55 +198,15 @@ export async function runTelemetryStorageCleanup(
   dependencies: TelemetryCleanupDependencies,
 ): Promise<TelemetryCleanupResult> {
   validateConfig(config);
-  const [masterRows, registryRows] = await Promise.all([
-    dependencies.listMasterRows(),
-    dependencies.listRegistryRows(),
-  ]);
-  const now = dependencies.now();
-  if (!Number.isFinite(now.getTime())) {
-    throw new Error("telemetry-cleanup-invalid-now");
-  }
-  const expiredRows = masterRows.filter((row) => isExpiredMasterRow(row, config));
-  const masterMatchIds = new Set(masterRows.map((row) => row.match_id));
-  const expiredRegistryRows = registryRows.filter((row) => (
-    isExpiredRegistryRow(row, config.cutoff, now)
-  ));
-  const registryOnlyMatchIds = expiredRegistryRows
-    .filter((row) => !masterMatchIds.has(row.match_id))
-    .map((row) => row.match_id);
-  const expiredMatchIds = uniqueValues([
-    ...expiredRows.map((row) => row.match_id),
-    ...registryOnlyMatchIds,
-  ]);
-  let deletedMatchCount = 0;
-  let archivedObjectCount = 0;
-  let inventoryManifestCount = 0;
-
-  for (const matchIds of chunkValues(expiredMatchIds, DELETE_BATCH_SIZE)) {
-    const matchIdSet = new Set(matchIds);
-    const inventoryRows = expiredRegistryRows.filter((row) => matchIdSet.has(row.match_id));
-    if (inventoryRows.length > 0) {
-      await dependencies.archiveObjectInventory(inventoryRows);
-      inventoryManifestCount += 1;
-    }
-    const cleanedMatchIds = await dependencies.cleanupExpiredMatches(
-      matchIds,
-      config.cutoff,
-      config.targetVersion,
-      now,
-    );
-    const validatedMatchIds = validateCleanedMatchIds(matchIds, cleanedMatchIds);
-    const cleanedMatchIdSet = new Set(validatedMatchIds);
-    deletedMatchCount += validatedMatchIds.length;
-    archivedObjectCount += inventoryRows.filter((row) => (
-      cleanedMatchIdSet.has(row.match_id)
-    )).length;
-  }
+  // 매치 분석·티어는 장기 보관한다. 과거 경기 상세가 사라지지 않게
+  // master/processed/registry DB 삭제와 R2 inventory archive를 수행하지 않는다.
+  // R2에서 DB 참조가 끊긴 파일은 별도 orphan cleanup dry-run으로만 점검한다.
+  void dependencies;
 
   return {
-    deletedMatchCount,
-    archivedObjectCount,
-    inventoryManifestCount,
+    deletedMatchCount: 0,
+    archivedObjectCount: 0,
+    inventoryManifestCount: 0,
     r2DeletionDeferred: true,
   };
 }

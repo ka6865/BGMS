@@ -1,5 +1,7 @@
 "use client";
 
+import WeaponMetaDashboard from "@/components/meta/WeaponMetaDashboard";
+
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { 
@@ -541,6 +543,8 @@ export default function WeaponsPage() {
             홈으로 돌아가기
           </button>
         </div>
+
+        <WeaponMetaDashboard />
 
         {/* ----------------------------------------------------
             상단: 웅장한 파츠 시뮬레이션 (Weapon Builder Dashboard)

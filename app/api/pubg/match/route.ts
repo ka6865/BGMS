@@ -562,12 +562,32 @@ async function reanalyzeAndSave(
     }
 
     if (needsProcessing) {
-      markAnalysisStep("telemetry_download");
-      const telRes = await fetch(telemetryAsset.attributes.URL, {
-        signal: AbortSignal.timeout(15_000),
-      });
-      markAnalysisStep("telemetry_parse");
-      const rawTel = await safeJsonParse(telRes);
+      let rawTel: any[] = [];
+      let parseSuccess = false;
+      let lastError: any = null;
+
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          markAnalysisStep("telemetry_download");
+          const telRes = await fetch(telemetryAsset.attributes.URL, {
+            signal: AbortSignal.timeout(15_000),
+          });
+          markAnalysisStep("telemetry_parse");
+          rawTel = await safeJsonParse(telRes);
+          parseSuccess = true;
+          break;
+        } catch (err: any) {
+          lastError = err;
+          if (attempt === 1) {
+            console.warn(`[MATCH] 텔레메트리 다운로드/파싱 1차 시도 실패 (${err?.message || err}). 500ms 후 재시도...`);
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+        }
+      }
+
+      if (!parseSuccess) {
+        throw lastError || new Error("텔레메트리 파싱 실패");
+      }
 
       let posCount = 0;
       markAnalysisStep("telemetry_filter");
@@ -817,7 +837,11 @@ async function reanalyzeAndSave(
     try {
       revalidateTag("match-analysis", "max");
     } catch {}
-    await releaseTelemetryMapCacheRow(reservedRow, cacheDeps).catch(() => undefined);
+    if (reservedRow) {
+      await releaseTelemetryMapCacheRow(reservedRow, cacheDeps).catch((releaseErr) => {
+        console.error("[MATCH] 텔레메트리 락 해제 실패:", releaseErr?.message || releaseErr);
+      });
+    }
     throw error;
   }
 }

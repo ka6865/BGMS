@@ -17,6 +17,7 @@ import {
 import dynamic from "next/dynamic";
 import { trackEvent } from "@/lib/analytics";
 import { useAuth } from "@/components/AuthProvider";
+import { useAIStatus, aiManager } from "@/lib/ai-management";
 import { toast } from "sonner";
 import SquadCauseScenes, { SquadCauseSceneCardData } from "./SquadCauseScenes";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
@@ -126,6 +127,7 @@ export default function SquadAnalysisPanel({
   // AI Coaching States
   const [coachingStyle, setCoachingStyle] = useState<"spicy" | "mild">("spicy");
   const [loadingAi, setLoadingAi] = useState<boolean>(false);
+  const { isAnalyzing: isGlobalAnalyzing } = useAIStatus();
   const [aiFeedback, setAiFeedback] = useState<AiFeedback | null>(null);
   const [aiError, setAiError] = useState<boolean>(false);
 
@@ -224,6 +226,7 @@ export default function SquadAnalysisPanel({
   // 3. Request AI squad coaching
   const requestAiCoaching = async () => {
     if (!analysisData) return;
+    if (loadingAi || isGlobalAnalyzing) return;
     if (!user) {
       toast.error("AI 스쿼드 분석은 로그인 후 이용할 수 있습니다.", {
         action: {
@@ -244,6 +247,7 @@ export default function SquadAnalysisPanel({
     });
 
     try {
+      if (!aiManager.startAnalysis("squad")) return;
       setLoadingAi(true);
       setAiError(false);
       const res = await fetch("/api/pubg/ai-squad", {
@@ -302,6 +306,7 @@ export default function SquadAnalysisPanel({
       });
     } finally {
       setLoadingAi(false);
+      aiManager.stopAnalysis("squad");
     }
   };
 
@@ -827,7 +832,7 @@ export default function SquadAnalysisPanel({
               
               <button
                 onClick={requestAiCoaching}
-                disabled={loadingAi}
+                disabled={loadingAi || isGlobalAnalyzing}
                 className="flex items-center justify-center rounded-lg bg-purple-600 hover:bg-purple-700 px-4 py-2 text-xs font-semibold text-white transition-all disabled:opacity-50"
               >
                 {loadingAi ? (

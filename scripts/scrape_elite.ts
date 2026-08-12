@@ -5,6 +5,8 @@ import { createClient } from '@supabase/supabase-js';
 import { RESULT_VERSION } from '../lib/pubg-analysis/constants';
 import { getValidFullResult } from '../lib/pubg-analysis/cacheIdentity';
 import { normalizeName } from '../lib/pubg-analysis/utils';
+import { describeScraperRequestFailure, type ScraperRequestStage } from '../lib/pubg-analysis/scraperDiagnostics';
+import { appendFileSync } from 'node:fs';
 
 // .env 및 .env.local 파일의 환경변수 로드
 dotenv.config({ path: '.env.local' });
@@ -55,14 +57,44 @@ async function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+type ScraperCounters = {
+  succeeded: number;
+  skipped: number;
+  failed: number;
+};
+
+function logRequestFailure(stage: ScraperRequestStage, error: unknown, counters: ScraperCounters) {
+  counters.failed += 1;
+  console.error("⚠️ 스크래퍼 요청 실패", JSON.stringify(describeScraperRequestFailure(stage, error)));
+}
+
+function writeGithubOutput(counters: ScraperCounters) {
+  const outputPath = process.env.GITHUB_OUTPUT;
+  if (!outputPath) return;
+  appendFileSync(outputPath, [
+    `succeeded=${counters.succeeded}`,
+    `skipped=${counters.skipped}`,
+    `failed=${counters.failed}`,
+  ].join("\n") + "\n");
+}
 
 async function scrapeEliteData() {
   console.log("🚀 [BGMS Smart Scraper] 작업을 시작합니다...");
+  const counters: ScraperCounters = { succeeded: 0, skipped: 0, failed: 0 };
 
   try {
-    const seasonRes = await axios.get(`${BASE_URL}/seasons`, { headers: HEADERS });
+    let seasonRes;
+    try {
+      seasonRes = await axios.get(`${BASE_URL}/seasons`, { headers: HEADERS });
+    } catch (error) {
+      logRequestFailure("season", error, counters);
+      throw error;
+    }
     const currentSeason = seasonRes.data.data.find((s: any) => s.attributes.isCurrentSeason);
-    if (!currentSeason) return;
+    if (!currentSeason) {
+      counters.failed += 1;
+      throw new Error("scraper-current-season-missing");
+    }
     
     const seasonId = currentSeason.id;
     console.log(`✅ 현재 시즌: ${seasonId}`);
@@ -84,7 +116,9 @@ async function scrapeEliteData() {
           // 경쟁전은 보통 동일 시즌 ID를 공유하거나 약간의 딜레이가 있을 수 있음
           // pc-as 샤드의 경우 리더보드에서 경쟁전 데이터가 별도로 존재함
         }
-      } catch {}
+      } catch (error) {
+        logRequestFailure("leaderboard", error, counters);
+      }
     }
 
     console.log(`🎯 총 ${playerPool.size}명의 타겟 플레이어 확보.`);
@@ -97,7 +131,11 @@ async function scrapeEliteData() {
       try {
         const pDetails = await axios.get(`${BASE_URL}/players/${accountId}`, { headers: HEADERS });
         matchIds = pDetails.data.data.relationships.matches.data.slice(0, MATCH_LIMIT).map((m: any) => m.id);
-      } catch { continue; }
+      } catch (error) {
+        logRequestFailure("player", error, counters);
+        counters.skipped += 1;
+        continue;
+      }
 
       for (const matchId of matchIds) {
         const playerId = normalizeName(nickname);
@@ -129,6 +167,7 @@ async function scrapeEliteData() {
           if (benchmark) {
             // 캐시도 있고 벤치마크도 있으면 완전히 Skip
             console.log("   - 최신 캐시 + 벤치마크 존재 (Skip)");
+            counters.skipped += 1;
             continue;
           } else {
             // 캐시는 있지만 벤치마크가 비어있음 → force 재분석 필요
@@ -157,6 +196,7 @@ async function scrapeEliteData() {
           if (res.status === 200) {
             const d = res.data;
             console.log(`     ✅ 성공: (딜량: ${Math.round(d.stats.damageDealt)}, 생존: ${d.deathPhase}Ph)`);
+            counters.succeeded += 1;
 
             // [Phase 4] 매치 참가자 샘플링 추가 (API에서 반환된 랜덤 샘플 활용)
             const samples = d.sampleParticipants || [];
@@ -171,13 +211,18 @@ async function scrapeEliteData() {
                     { headers: MATCH_API_HEADERS },
                   );
                   console.log(`         ✅ 샘플링 완료`);
-                } catch {
+                  counters.succeeded += 1;
+                } catch (error) {
+                  logRequestFailure("sample", error, counters);
+                  counters.skipped += 1;
                   console.log("         샘플링 처리 스킵");
                 }
               }
             }
           }
-        } catch {
+        } catch (error) {
+          logRequestFailure("match", error, counters);
+          counters.skipped += 1;
           console.log("     매치 처리 스킵");
         }
         
@@ -186,10 +231,13 @@ async function scrapeEliteData() {
       }
     }
   } catch {
-    console.error("스크래퍼 작업 중단");
+    console.error("스크래퍼 작업 실패: season 단계 또는 필수 초기화 단계");
+    process.exitCode = 1;
+  } finally {
+    console.log("📊 스크래퍼 실행 요약", JSON.stringify(counters));
+    writeGithubOutput(counters);
+    console.log("\n✨ 모든 작업이 완료되었습니다.");
   }
-
-  console.log("\n✨ 모든 작업이 완료되었습니다.");
 }
 
 scrapeEliteData();
