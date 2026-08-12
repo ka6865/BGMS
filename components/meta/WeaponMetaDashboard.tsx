@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { Layers, TrendingUp, TrendingDown, Target, Shield, Zap, RefreshCw } from "lucide-react";
+import React, { useEffect, useState, useMemo } from "react";
+import { Layers, TrendingUp, Target, Zap, RefreshCw } from "lucide-react";
 
 interface WeaponMetaItem {
   id?: number;
@@ -32,6 +32,37 @@ export default function WeaponMetaDashboard() {
       .finally(() => setLoading(false));
   }, []);
 
+  const weapons = data?.weapons || [];
+
+  // 동적 요약 지표 산출
+  const metrics = useMemo(() => {
+    if (weapons.length === 0) {
+      return {
+        lmgShareStr: "0%",
+        lmgSustainedHits: 0,
+        totalDamageStr: "0",
+        totalSustainedHitsStr: "0",
+        weaponCount: 0,
+      };
+    }
+
+    const totalActivePicks = weapons.reduce((acc, w) => acc + (w.active_pick_count || 0), 0);
+    const lmgPicks = weapons.filter((w) => w.weapon_category === "LMG").reduce((acc, w) => acc + (w.active_pick_count || 0), 0);
+    const lmgShare = totalActivePicks > 0 ? ((lmgPicks / totalActivePicks) * 100).toFixed(1) : "0";
+
+    const lmgSustained = weapons.filter((w) => w.weapon_category === "LMG").reduce((acc, w) => acc + (w.sustained_hits || 0), 0);
+    const totalDmg = weapons.reduce((acc, w) => acc + (w.total_damage || 0), 0);
+    const totalSustained = weapons.reduce((acc, w) => acc + (w.sustained_hits || 0), 0);
+
+    return {
+      lmgShareStr: `${lmgShare}%`,
+      lmgSustainedHits: lmgSustained,
+      totalDamageStr: Math.round(totalDmg).toLocaleString(),
+      totalSustainedHitsStr: totalSustained.toLocaleString(),
+      weaponCount: weapons.length,
+    };
+  }, [weapons]);
+
   if (loading) {
     return (
       <div className="flex h-48 w-full items-center justify-center rounded-2xl border border-white/10 bg-[#161616]">
@@ -41,8 +72,6 @@ export default function WeaponMetaDashboard() {
   }
 
   const categories = ["ALL", "AR", "LMG", "DMR", "SR", "SG", "SMG"];
-  const weapons = data?.weapons || [];
-
   const filteredWeapons = filterCategory === "ALL"
     ? weapons
     : weapons.filter((w) => w.weapon_category === filterCategory);
@@ -62,15 +91,15 @@ export default function WeaponMetaDashboard() {
         </div>
       </div>
 
-      {/* 요약 카드 */}
+      {/* 동적 요약 카드 */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="flex items-center gap-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
             <TrendingUp className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-[11px] font-semibold text-emerald-300">LMG 채용 상승률</p>
-            <p className="text-sm font-black text-white">지속 연사 타격 유지력 증가</p>
+            <p className="text-[11px] font-semibold text-emerald-300">LMG 활성 채용 지분: {metrics.lmgShareStr}</p>
+            <p className="text-sm font-black text-white">LMG 지속 연사 타격 {metrics.lmgSustainedHits.toLocaleString()}발 집계</p>
           </div>
         </div>
 
@@ -79,8 +108,8 @@ export default function WeaponMetaDashboard() {
             <Target className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-[11px] font-semibold text-indigo-300">PvP 유효 교전 정제</p>
-            <p className="text-sm font-black text-white">허공/차량 사격 데미지 분리</p>
+            <p className="text-[11px] font-semibold text-indigo-300">PvP 유효 딜량 정제 완료</p>
+            <p className="text-sm font-black text-white">총 유효 딜량 {metrics.totalDamageStr} HP ({metrics.weaponCount}종)</p>
           </div>
         </div>
 
@@ -89,8 +118,8 @@ export default function WeaponMetaDashboard() {
             <Zap className="h-5 w-5" />
           </div>
           <div>
-            <p className="text-[11px] font-semibold text-amber-300">피격 1.5초 시간창</p>
-            <p className="text-sm font-black text-white">연속 연사 밀도 집계</p>
+            <p className="text-[11px] font-semibold text-amber-300">피격 1.5초 버스트 윈도우</p>
+            <p className="text-sm font-black text-white">전체 지속 연사 명중 {metrics.totalSustainedHitsStr}발</p>
           </div>
         </div>
       </div>
@@ -140,8 +169,8 @@ export default function WeaponMetaDashboard() {
                   </td>
                   <td className="p-3">{w.match_count}</td>
                   <td className="p-3 font-semibold text-emerald-400">{w.total_kills}</td>
-                  <td className="p-3">{Math.round(w.total_damage)}</td>
-                  <td className="p-3 font-semibold text-amber-300">{w.sustained_hits}</td>
+                  <td className="p-3">{Math.round(w.total_damage).toLocaleString()}</td>
+                  <td className="p-3 font-semibold text-amber-300">{w.sustained_hits.toLocaleString()}</td>
                 </tr>
               ))
             )}
