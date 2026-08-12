@@ -105,7 +105,8 @@ function formatEventLabel(eventName: string, pagePath: string | null, params: an
     return { label: "전적 페이지 방문", details: path };
   }
 
-  if (path.startsWith("/maps")) return { label: "3D 지도 이용", details: path };
+  if (path.startsWith("/replay")) return { label: "3D 리플레이 분석", details: path };
+  if (path.startsWith("/maps")) return { label: "인게임 지도 방문", details: path };
   if (path.startsWith("/crates")) return { label: "상자깡 시뮬레이터", details: "상자 개봉 시뮬레이션" };
   if (path.startsWith("/weapons")) return { label: "무기도감 방문", details: "무기 정보 및 파츠 비교" };
   if (path.startsWith("/rankings")) return { label: "랭킹 페이지 방문", details: "주간 딜량/킬/티어 랭킹" };
@@ -117,7 +118,9 @@ function formatEventLabel(eventName: string, pagePath: string | null, params: an
 
 function getPageName(path: string): string {
   if (path.startsWith("/stats")) return "전적 검색";
-  if (path.startsWith("/maps")) return "3D 지도";
+  if (path.startsWith("/replay")) return "3D 리플레이";
+  if (path.startsWith("/maps")) return "인게임 지도";
+  if (path.startsWith("/backpack")) return "가방 계산기";
   if (path.startsWith("/crates")) return "상자깡";
   if (path.startsWith("/weapons")) return "무기도감";
   if (path.startsWith("/rankings")) return "랭킹";
