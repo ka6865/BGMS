@@ -16,10 +16,10 @@ const COMPARISON_WEAPONS = [
   },
   {
     id: 2,
-    weapon_name: "DP-28",
+    weapon_name: "MG3",
     weapon_category: "LMG",
-    pre_patch: { match_count: 85, pick_share: 1.2, avg_damage: 214, sustained_hits: 195, kill_efficiency: 2.1 },
-    post_patch: { match_count: 310, pick_share: 6.8, avg_damage: 340, sustained_hits: 890, kill_efficiency: 2.8 },
+    pre_patch: { match_count: 95, pick_share: 1.5, avg_damage: 310, sustained_hits: 380, kill_efficiency: 2.7 },
+    post_patch: { match_count: 410, pick_share: 8.2, avg_damage: 460, sustained_hits: 1240, kill_efficiency: 3.4 },
   },
   {
     id: 3,
@@ -79,7 +79,6 @@ export async function GET(request: Request) {
       });
     }
 
-    // 그룹화 및 전후 비교 데이터 구성
     const preRows = snapshotRows.filter((r) => r.patch_version === "pre_patch");
     const postRows = snapshotRows.filter((r) => r.patch_version !== "pre_patch");
 
