@@ -13,6 +13,7 @@ type WorkflowStep = {
   run?: string;
   id?: string;
   if?: string;
+  env?: Record<string, string>;
   "continue-on-error"?: boolean;
 };
 
@@ -90,6 +91,16 @@ describe("일일 유지보수: 앞 step 실패가 뒤 step 을 막지 않는다"
     expect(scraper).toBeTruthy();
     expect(scraper?.if).toContain("steps.install.outcome == 'success'");
     expect(scraper?.if).toContain("steps.database_health.outcome == 'success'");
+    expect(scraper?.id).toBe("smart_scraper");
+  });
+
+  it("마지막에 AI 없이 DB와 R2 고정 점검 보고를 Discord로 보낸다", () => {
+    const report = maintenanceSteps.find((step) => step.run === "npx tsx scripts/send_daily_storage_report.ts");
+    expect(report).toBeTruthy();
+    expect(report?.if).toContain("always()");
+    expect(report?.env?.DISCORD_WEBHOOK_URL).toBe("${{ secrets.DISCORD_WEBHOOK_URL }}");
+    expect(report?.env?.SCRAPER_SUCCEEDED).toBe("${{ steps.smart_scraper.outputs.succeeded }}");
+    expect(report?.env?.GOOGLE_GEMINI_API_KEY).toBeUndefined();
   });
 
   it("실패를 숨기지 않기 위해 데이터 작업 step 에 continue-on-error 를 쓰지 않는다", () => {

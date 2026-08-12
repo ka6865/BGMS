@@ -195,6 +195,7 @@ jobs:
         run: npx tsx scripts/audit_processed_telemetry_identity.ts --recent-days 2 --max-rows 1000 --target-limit 50
 
       - name: Run Smart Scraper
+        id: smart_scraper
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
         env:
           PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
@@ -281,6 +282,23 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/run_hotdrop.ts
+
+      - name: Send Daily DB and R2 Report
+        if: ${{ always() && steps.database_health.outcome == 'success' }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CLOUDFLARE_R2_ENDPOINT: ${{ secrets.CLOUDFLARE_R2_ENDPOINT }}
+          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SCRAPER_SUCCEEDED: ${{ steps.smart_scraper.outputs.succeeded }}
+          SCRAPER_SKIPPED: ${{ steps.smart_scraper.outputs.skipped }}
+          SCRAPER_FAILED: ${{ steps.smart_scraper.outputs.failed }}
+          MAINTENANCE_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: npx tsx scripts/send_daily_storage_report.ts
 
   # 일일 작업 실패를 운영자가 알 수 있게 한다.
   # 기존에는 GitHub 기본 메일 외 알림이 없어 텔레메트리 정리·패치노트 동기화가

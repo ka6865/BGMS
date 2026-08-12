@@ -6,6 +6,7 @@ import { RESULT_VERSION } from '../lib/pubg-analysis/constants';
 import { getValidFullResult } from '../lib/pubg-analysis/cacheIdentity';
 import { normalizeName } from '../lib/pubg-analysis/utils';
 import { describeScraperRequestFailure, type ScraperRequestStage } from '../lib/pubg-analysis/scraperDiagnostics';
+import { appendFileSync } from 'node:fs';
 
 // .env 및 .env.local 파일의 환경변수 로드
 dotenv.config({ path: '.env.local' });
@@ -65,6 +66,16 @@ type ScraperCounters = {
 function logRequestFailure(stage: ScraperRequestStage, error: unknown, counters: ScraperCounters) {
   counters.failed += 1;
   console.error("⚠️ 스크래퍼 요청 실패", JSON.stringify(describeScraperRequestFailure(stage, error)));
+}
+
+function writeGithubOutput(counters: ScraperCounters) {
+  const outputPath = process.env.GITHUB_OUTPUT;
+  if (!outputPath) return;
+  appendFileSync(outputPath, [
+    `succeeded=${counters.succeeded}`,
+    `skipped=${counters.skipped}`,
+    `failed=${counters.failed}`,
+  ].join("\n") + "\n");
 }
 
 async function scrapeEliteData() {
@@ -224,6 +235,7 @@ async function scrapeEliteData() {
     process.exitCode = 1;
   } finally {
     console.log("📊 스크래퍼 실행 요약", JSON.stringify(counters));
+    writeGithubOutput(counters);
     console.log("\n✨ 모든 작업이 완료되었습니다.");
   }
 }

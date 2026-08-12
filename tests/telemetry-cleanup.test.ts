@@ -47,22 +47,7 @@ describe("telemetry cleanup registry", () => {
     }))).rejects.toThrow("telemetry-cleanup-page-data-missing");
   });
 
-  it("master 전체 조회가 실패하면 RPC를 시작하지 않는다", async () => {
-    const cleanupExpiredMatches = vi.fn().mockResolvedValue([]);
-    const dependencies = createDependencies({
-      listMasterRows: vi.fn().mockRejectedValue(new Error("master-unavailable")),
-      cleanupExpiredMatches,
-    });
-
-    await expect(runTelemetryStorageCleanup({
-      cutoff: new Date("2026-07-17T00:00:00.000Z"),
-      targetVersion: 59,
-    }, dependencies)).rejects.toThrow("master-unavailable");
-
-    expect(cleanupExpiredMatches).not.toHaveBeenCalled();
-  });
-
-  it("만료 match DB는 원자적 RPC로 정리하고 R2 삭제는 보류한다", async () => {
+  it("오래된 매치 분석 DB는 장기 보관하고 R2 삭제도 보류한다", async () => {
     const cleanupExpiredMatches = vi.fn().mockResolvedValue(["m1"]);
     const cutoff = new Date("2026-07-17T00:00:00.000Z");
     const dependencies = createDependencies({
@@ -88,21 +73,16 @@ describe("telemetry cleanup registry", () => {
       targetVersion: 59,
     }, dependencies);
 
-    expect(cleanupExpiredMatches).toHaveBeenCalledWith(
-      ["m1"],
-      cutoff,
-      59,
-      new Date("2026-07-18T00:00:00.000Z"),
-    );
+    expect(cleanupExpiredMatches).not.toHaveBeenCalled();
     expect(result).toEqual({
-      deletedMatchCount: 1,
+      deletedMatchCount: 0,
       archivedObjectCount: 0,
       inventoryManifestCount: 0,
       r2DeletionDeferred: true,
     });
   });
 
-  it("master 없는 만료 registry를 R2 manifest에 먼저 보관한 뒤 DB cleanup에 전달한다", async () => {
+  it("master 없는 만료 registry도 장기 보관 정책에서는 cleanup하지 않는다", async () => {
     const registryRow: TelemetryCleanupRegistryRow = {
       match_id: "registry-only",
       storage_path: "telemetry-map/v60/steam/registry-only/player/lite.json",
@@ -122,19 +102,12 @@ describe("telemetry cleanup registry", () => {
       cleanupExpiredMatches,
     }));
 
-    expect(archiveObjectInventory).toHaveBeenCalledWith([registryRow]);
-    expect(cleanupExpiredMatches).toHaveBeenCalledWith(
-      ["registry-only"],
-      new Date("2026-07-17T00:00:00.000Z"),
-      59,
-      new Date("2026-07-18T00:00:00.000Z"),
-    );
-    expect(archiveObjectInventory.mock.invocationCallOrder[0])
-      .toBeLessThan(cleanupExpiredMatches.mock.invocationCallOrder[0]);
+    expect(archiveObjectInventory).not.toHaveBeenCalled();
+    expect(cleanupExpiredMatches).not.toHaveBeenCalled();
     expect(result).toEqual({
-      deletedMatchCount: 1,
-      archivedObjectCount: 1,
-      inventoryManifestCount: 1,
+      deletedMatchCount: 0,
+      archivedObjectCount: 0,
+      inventoryManifestCount: 0,
       r2DeletionDeferred: true,
     });
   });
@@ -164,25 +137,6 @@ describe("telemetry cleanup registry", () => {
     expect(forward.storagePath).toMatch(/^telemetry-inventory\/v1\/[a-f0-9]{64}\.json$/);
   });
 
-  it("inventory manifest 저장 실패 시 registry cleanup RPC를 호출하지 않는다", async () => {
-    const cleanupExpiredMatches = vi.fn().mockResolvedValue(["registry-only"]);
-    await expect(runTelemetryStorageCleanup({
-      cutoff: new Date("2026-07-17T00:00:00.000Z"),
-      targetVersion: 59,
-    }, createDependencies({
-      listRegistryRows: vi.fn().mockResolvedValue([{
-        match_id: "registry-only",
-        storage_path: "telemetry-map/registry-only.json",
-        status: "ready",
-        lease_expires_at: null,
-        updated_at: "2026-07-01T00:00:00.000Z",
-      }]),
-      archiveObjectInventory: vi.fn().mockRejectedValue(new Error("r2 unavailable")),
-      cleanupExpiredMatches,
-    }))).rejects.toThrow("r2 unavailable");
-    expect(cleanupExpiredMatches).not.toHaveBeenCalled();
-  });
-
   it("활성 pending lease는 registry-only cleanup 후보에서 제외한다", async () => {
     const cleanupExpiredMatches = vi.fn().mockResolvedValue([]);
     const archiveObjectInventory = vi.fn().mockResolvedValue(undefined);
@@ -204,174 +158,6 @@ describe("telemetry cleanup registry", () => {
 
     expect(archiveObjectInventory).not.toHaveBeenCalled();
     expect(cleanupExpiredMatches).not.toHaveBeenCalled();
-  });
-
-  it("lease가 만료된 pending row는 updated_at이 cutoff 이후여도 inventory와 cleanup 후보에 포함한다", async () => {
-    const registryRow: TelemetryCleanupRegistryRow = {
-      match_id: "expired-writer",
-      storage_path: "telemetry-map/expired-writer.json",
-      status: "pending",
-      lease_expires_at: "2026-07-17T23:59:00.000Z",
-      updated_at: "2026-07-17T12:00:00.000Z",
-    };
-    const archiveObjectInventory = vi.fn().mockResolvedValue(undefined);
-    const cleanupExpiredMatches = vi.fn().mockResolvedValue(["expired-writer"]);
-
-    const result = await runTelemetryStorageCleanup({
-      cutoff: new Date("2026-07-17T00:00:00.000Z"),
-      targetVersion: 59,
-    }, createDependencies({
-      listMasterRows: vi.fn().mockResolvedValue([{
-        match_id: "expired-writer",
-        storage_path: "old/master.json",
-        telemetry_version: 58,
-        created_at: "2026-07-01T00:00:00.000Z",
-      }]),
-      listRegistryRows: vi.fn().mockResolvedValue([registryRow]),
-      archiveObjectInventory,
-      cleanupExpiredMatches,
-    }));
-
-    expect(archiveObjectInventory).toHaveBeenCalledWith([registryRow]);
-    expect(cleanupExpiredMatches).toHaveBeenCalledOnce();
-    expect(result.archivedObjectCount).toBe(1);
-  });
-
-  it("스냅샷 시점에 active인 pending lease는 manifest 업로드 후에 만료해도 같은 기준시각으로 보호한다", async () => {
-    const snapshotNow = new Date("2026-07-18T00:00:00.000Z");
-    const registryRow: TelemetryCleanupRegistryRow = {
-      match_id: "lease-boundary",
-      storage_path: "telemetry-map/lease-boundary.json",
-      status: "pending",
-      lease_expires_at: "2026-07-18T00:00:00.500Z",
-      updated_at: "2026-07-18T00:00:00.000Z",
-    };
-    const archiveObjectInventory = vi.fn().mockResolvedValue(undefined);
-    const cleanupExpiredMatches = vi.fn().mockResolvedValue([]);
-
-    await runTelemetryStorageCleanup({
-      cutoff: new Date("2026-07-17T00:00:00.000Z"),
-      targetVersion: 59,
-    }, createDependencies({
-      now: () => snapshotNow,
-      listMasterRows: vi.fn().mockResolvedValue([{
-        match_id: "lease-boundary",
-        storage_path: "old/master.json",
-        telemetry_version: 58,
-        created_at: "2026-07-01T00:00:00.000Z",
-      }]),
-      listRegistryRows: vi.fn().mockResolvedValue([registryRow]),
-      archiveObjectInventory,
-      cleanupExpiredMatches,
-    }));
-
-    expect(archiveObjectInventory).not.toHaveBeenCalled();
-    expect(cleanupExpiredMatches).toHaveBeenCalledWith(
-      ["lease-boundary"],
-      new Date("2026-07-17T00:00:00.000Z"),
-      59,
-      snapshotNow,
-    );
-  });
-
-  it("archive 후보가 많아도 실제 cleanup 완료 match의 object만 완료 counter에 포함한다", async () => {
-    const rows: TelemetryCleanupRegistryRow[] = ["cleaned", "protected"].map((matchId) => ({
-      match_id: matchId,
-      storage_path: `telemetry-map/${matchId}.json`,
-      status: "ready" as const,
-      lease_expires_at: null,
-      updated_at: "2026-07-01T00:00:00.000Z",
-    }));
-
-    const result = await runTelemetryStorageCleanup({
-      cutoff: new Date("2026-07-17T00:00:00.000Z"),
-      targetVersion: 59,
-    }, createDependencies({
-      listRegistryRows: vi.fn().mockResolvedValue(rows),
-      cleanupExpiredMatches: vi.fn().mockResolvedValue(["cleaned"]),
-    }));
-
-    expect(result).toMatchObject({
-      deletedMatchCount: 1,
-      archivedObjectCount: 1,
-      inventoryManifestCount: 1,
-    });
-  });
-
-  it("50개를 넘는 만료 match를 RPC 입력 상한에 맞게 나눈다", async () => {
-    const rows = Array.from({ length: 51 }, (_, index) => ({
-      match_id: `m${index}`,
-      storage_path: `master/m${index}.json`,
-      telemetry_version: 58,
-      created_at: "2026-07-01T00:00:00.000Z",
-    }));
-    const cleanupExpiredMatches = vi.fn(async (matchIds: string[]) => matchIds);
-
-    const result = await runTelemetryStorageCleanup({
-      cutoff: new Date("2026-07-17T00:00:00.000Z"),
-      targetVersion: 59,
-    }, createDependencies({
-      listMasterRows: vi.fn().mockResolvedValue(rows),
-      cleanupExpiredMatches,
-    }));
-
-    expect(cleanupExpiredMatches).toHaveBeenCalledTimes(2);
-    expect(cleanupExpiredMatches.mock.calls[0]?.[0]).toHaveLength(50);
-    expect(cleanupExpiredMatches.mock.calls[1]?.[0]).toHaveLength(1);
-    expect(result.deletedMatchCount).toBe(51);
-  });
-
-  it("cleanup RPC가 실패하면 후속 batch를 중단한다", async () => {
-    const dependencies = createDependencies({
-      listMasterRows: vi.fn().mockResolvedValue([{
-        match_id: "m1",
-        storage_path: "master/m1.json",
-        telemetry_version: 58,
-        created_at: "2026-07-01T00:00:00.000Z",
-      }]),
-      cleanupExpiredMatches: vi.fn().mockRejectedValue(new Error("cleanup-rpc-failure")),
-    });
-
-    await expect(runTelemetryStorageCleanup({
-      cutoff: new Date("2026-07-17T00:00:00.000Z"),
-      targetVersion: 59,
-    }, dependencies)).rejects.toThrow("cleanup-rpc-failure");
-  });
-
-  it("RPC가 최근 registry writer를 확인해 제외한 match는 삭제 카운트에 포함하지 않는다", async () => {
-    const dependencies = createDependencies({
-      listMasterRows: vi.fn().mockResolvedValue([{
-        match_id: "m1",
-        storage_path: "master/m1.json",
-        telemetry_version: 58,
-        created_at: "2026-07-01T00:00:00.000Z",
-      }]),
-      cleanupExpiredMatches: vi.fn().mockResolvedValue([]),
-    });
-
-    const result = await runTelemetryStorageCleanup({
-      cutoff: new Date("2026-07-17T00:00:00.000Z"),
-      targetVersion: 59,
-    }, dependencies);
-
-    expect(result.deletedMatchCount).toBe(0);
-  });
-
-  it("cleanup RPC가 요청하지 않은 match를 반환하면 계약 오류로 중단한다", async () => {
-    const dependencies = createDependencies({
-      listMasterRows: vi.fn().mockResolvedValue([{
-        match_id: "m1",
-        storage_path: "master/m1.json",
-        telemetry_version: 58,
-        created_at: "2026-07-01T00:00:00.000Z",
-      }]),
-      cleanupExpiredMatches: vi.fn().mockResolvedValue(["m2"]),
-    });
-
-    await expect(runTelemetryStorageCleanup({
-      cutoff: new Date("2026-07-17T00:00:00.000Z"),
-      targetVersion: 59,
-    }, dependencies)).rejects.toThrow("telemetry-cleanup-invalid-rpc-result");
   });
 
   it("마이그레이션이 writer를 행 잠금·cutoff 재검증·순차 삭제로 보호한다", () => {
