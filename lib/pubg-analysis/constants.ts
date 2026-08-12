@@ -89,7 +89,7 @@ export const WEAPON_NAMES: Record<string, string> = {
   "WeapS686_C": "S686", "S686": "S686", "WeapDBS_C": "DBS", "DBS": "DBS", 
   
   // LMG / Others
-  "WeapM249_C": "M249", "M249": "M249", "WeapDP28_C": "DP-28", "DP28": "DP-28", "DP-28": "DP-28",
+  "WeapM249_C": "M249", "M249": "M249", "WeapRPD_C": "RPD", "RPD": "RPD", "Item_Weapon_RPD_C": "RPD", "WeapDP28_C": "DP-28", "DP28": "DP-28", "DP-28": "DP-28",
   "WeapMG3_C": "MG3", "MG3": "MG3", "WeapOriginS12_C": "O12", "OriginS12": "O12", "O12": "O12",
   "WeapPanzerFaust100M_C": "판처파우스트", "PanzerFaust100M_Projectile_C": "판처파우스트", "PanzerFaust100M_Projectile": "판처파우스트", "Panzerfaust": "판처파우스트", "PANZERFAUST100M": "판처파우스트", "PANZERFAUST100M_C": "판처파우스트", "PANZERFAUST": "판처파우스트", "WeapMortar_C": "박격포", "WeapCrossbow_C": "석궁",
 

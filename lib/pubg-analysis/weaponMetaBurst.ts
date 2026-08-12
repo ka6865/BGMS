@@ -12,7 +12,7 @@ export interface WeaponBurstStat {
 
 export function categorizeWeapon(rawName: string): string {
   const clean = (rawName || "").replace(/Item_Weapon_|Weap|_C|_Projectile/gi, "").toUpperCase();
-  if (clean.includes("M249") || clean.includes("DP28") || clean.includes("MG3")) return "LMG";
+  if (clean.includes("M249") || clean.includes("DP28") || clean.includes("MG3") || clean.includes("RPD")) return "LMG";
   if (clean.includes("BERYL") || clean.includes("HK416") || clean.includes("AK47") || clean.includes("AUG") || clean.includes("GROZA") || clean.includes("SCAR") || clean.includes("G36") || clean.includes("K2") || clean.includes("ACE32") || clean.includes("FAMAS")) return "AR";
   if (clean.includes("SKS") || clean.includes("MK12") || clean.includes("SLR") || clean.includes("MINI14") || clean.includes("DRAGUNOV") || clean.includes("QBU") || clean.includes("VSS") || clean.includes("MK14")) return "DMR";
   if (clean.includes("KAR98") || clean.includes("M24") || clean.includes("AWM") || clean.includes("MOSIN")) return "SR";
