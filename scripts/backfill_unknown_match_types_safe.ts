@@ -93,12 +93,12 @@ type RunDependencies = {
 };
 
 export function parseSafeBackfillArgs(args: string[]): SafeBackfillArgs {
-  const valueFor = (name: string, fallback: number): number => {
+  const valueFor = (name: string, fallback: number, allowZero = false): number => {
     const index = args.indexOf(name);
     if (index < 0) return fallback;
     const value = Number(args[index + 1]);
-    if (!Number.isFinite(value) || value <= 0) {
-      throw new Error(`${name} must be a positive number`);
+    if (!Number.isFinite(value) || (allowZero ? value < 0 : value <= 0)) {
+      throw new Error(`${name} must be ${allowZero ? "a non-negative number" : "a positive number"}`);
     }
     return value;
   };
@@ -108,7 +108,7 @@ export function parseSafeBackfillArgs(args: string[]): SafeBackfillArgs {
   };
 
   const limit = Math.min(Math.floor(valueFor("--limit", DEFAULT_LIMIT)), MAX_LIMIT);
-  const delayMs = Math.min(Math.floor(valueFor("--delay-ms", DEFAULT_DELAY_MS)), MAX_DELAY_MS);
+  const delayMs = Math.min(Math.floor(valueFor("--delay-ms", DEFAULT_DELAY_MS, true)), MAX_DELAY_MS);
   const maxRuntimeMinutes = Math.min(
     Math.floor(valueFor("--max-runtime-minutes", DEFAULT_MAX_RUNTIME_MINUTES)),
     MAX_RUNTIME_MINUTES,

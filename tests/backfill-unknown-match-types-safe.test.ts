@@ -60,6 +60,10 @@ describe("safe unknown match type backfill", () => {
     });
   });
 
+  it("allows zero delay for a one-record smoke run", () => {
+    expect(parseSafeBackfillArgs(["--delay-ms", "0"]).delayMs).toBe(0);
+  });
+
   it("keeps newest-first ordering and stops on quota/server failures", () => {
     expect(SAFE_UNKNOWN_MATCH_TYPE_BACKFILL_ORDER).toEqual({ column: "played_at", ascending: false });
     expect(classifySafeBackfillStatus(404)).toBe("unavailable");
