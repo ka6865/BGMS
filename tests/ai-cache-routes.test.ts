@@ -8,6 +8,7 @@ import { AI_CACHE_RETENTION_DAYS, AI_CACHE_TABLES, cleanupExpiredCache } from ".
 const {
   mockWithAuthGuard,
   mockTrackAiUsage,
+  mockTrackAiFailure,
   mockGetSquadAnalysisData,
   mockGenerateContentStream,
   mockGenerateContent,
@@ -15,6 +16,7 @@ const {
 } = vi.hoisted(() => {
   const mockWithAuthGuard = vi.fn();
   const mockTrackAiUsage = vi.fn();
+  const mockTrackAiFailure = vi.fn();
   const mockGetSquadAnalysisData = vi.fn();
   const mockGenerateContentStream = vi.fn();
   const mockGenerateContent = vi.fn();
@@ -36,6 +38,7 @@ const {
   return {
     mockWithAuthGuard,
     mockTrackAiUsage,
+    mockTrackAiFailure,
     mockGetSquadAnalysisData,
     mockGenerateContentStream,
     mockGenerateContent,
@@ -49,6 +52,7 @@ vi.mock("@/utils/supabase/guard", () => ({
 
 vi.mock("@/lib/pubg-analysis/aiUsageTracker", () => ({
   trackAiUsage: mockTrackAiUsage,
+  trackAiFailure: mockTrackAiFailure,
 }));
 
 vi.mock("@/lib/pubg-analysis/squadAnalysis", () => ({
