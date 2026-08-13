@@ -8,6 +8,7 @@
        nickname: "KangHeeSung",
        platform: "steam",
        createdAt: "2026-08-01T10:00:00Z",
+       matchType: "competitive",
        gameMode: "squad-fpp",
        mapName: "Erangel",
        kills: 5,
@@ -18,5 +19,6 @@
      expect(record.match_id).toBe("match-123");
      expect(record.kills).toBe(5);
      expect(record.win_place).toBe(1);
+     expect(record.match_type).toBe("competitive");
    });
  });

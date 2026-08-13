@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
@@ -27,6 +28,14 @@ type DailyTrendPoint = {
   weapon_name: string;
   weapon_category: string;
   scope: "weapon" | "category";
+};
+
+type ScopePickShare = {
+  scope: "category";
+  weapon_category: string;
+  period: "pre" | "post";
+  player_match_count: number;
+  weapon_pick_count: number;
 };
 
 function metric(row: MetaRow | undefined) {
@@ -81,7 +90,36 @@ function buildDailyWeaponTrend(rows: Array<{
     .sort((left, right) => left.date.localeCompare(right.date));
 }
 
-export async function GET() {
+export function buildScopePickShares(rows: Array<{
+  played_at: string; weapon_category: string; active_pick: boolean; match_id: string; platform: string; player_id: string;
+}> , patchStartedAt: string): ScopePickShare[] {
+  const allMatchesByPeriod = new Map<"pre" | "post", Set<string>>();
+  const scopes = new Map<string, { picks: Set<string>; weapon_category: string; period: "pre" | "post" }>();
+  for (const row of rows) {
+    const period = Date.parse(row.played_at) < Date.parse(patchStartedAt) ? "pre" : "post";
+    const identity = `${row.match_id}:${row.platform}:${row.player_id}`;
+    const allMatches = allMatchesByPeriod.get(period) || new Set<string>();
+    allMatches.add(identity);
+    allMatchesByPeriod.set(period, allMatches);
+    for (const category of [row.weapon_category, "ALL"]) {
+      const key = `${period}:${category}`;
+      const scope = scopes.get(key) || { picks: new Set<string>(), weapon_category: category, period };
+      if (row.active_pick) scope.picks.add(identity);
+      scopes.set(key, scope);
+    }
+  }
+  return Array.from(scopes.values()).map((scope) => ({
+    scope: "category",
+    weapon_category: scope.weapon_category,
+    period: scope.period,
+    player_match_count: allMatchesByPeriod.get(scope.period)?.size || 0,
+    weapon_pick_count: scope.picks.size,
+  }));
+}
+
+export async function GET(request: NextRequest) {
+  const requestedMatchType = request.nextUrl.searchParams.get("matchType");
+  const matchType = requestedMatchType === "official" || requestedMatchType === "competitive" ? requestedMatchType : "all";
   if (!supabaseUrl || !supabaseKey || !patchVersion || !Number.isFinite(Date.parse(patchStartedAt))) {
     return NextResponse.json({
       success: false,
@@ -99,6 +137,7 @@ export async function GET() {
       p_patch_version: patchVersion,
       p_patch_started_at: patchStartedAt,
       p_baseline_days: 14,
+      p_match_type: matchType,
     });
     if (error) {
       console.error("[META API] comparison query failed", { code: error.code, message: error.message });
@@ -114,12 +153,16 @@ export async function GET() {
 
     const rows = (data || []) as MetaRow[];
     const baselineStartAt = new Date(Date.parse(patchStartedAt) - 14 * 86_400_000).toISOString();
-    const { data: trendRows, error: trendError } = await supabase
+    let trendQuery = supabase
       .from("weapon_meta_match_samples")
-      .select("match_id,platform,player_id,played_at,weapon_category,weapon_name,active_pick,first_sec_hits")
+      .select("match_id,platform,player_id,played_at,weapon_category,weapon_name,active_pick,first_sec_hits,match_type")
       .gte("played_at", baselineStartAt)
       .lt("played_at", new Date().toISOString())
       .in("patch_version", [`pre_${patchVersion}`, patchVersion]);
+    trendQuery = matchType === "all"
+      ? trendQuery.in("match_type", ["official", "competitive"])
+      : trendQuery.eq("match_type", matchType);
+    const { data: trendRows, error: trendError } = await trendQuery;
     if (trendError) console.error("[META API] daily trend query failed", { code: trendError.code, message: trendError.message });
     const byWeapon = new Map<string, { pre?: MetaRow; post?: MetaRow }>();
     for (const row of rows) {
@@ -143,7 +186,9 @@ export async function GET() {
       message: weapons.length > 0 ? null : "분석된 매치가 쌓이면 실제 비교값이 표시됩니다.",
       patchVersion,
       patchStartedAt,
+      matchType,
       dailyWeaponTrend: trendError ? [] : buildDailyWeaponTrend(trendRows || []),
+      scopePickShares: trendError ? [] : buildScopePickShares(trendRows || [], patchStartedAt),
       burstCollection: trendError ? null : {
         pre: {
           total: new Set((trendRows || []).filter((row: any) => Date.parse(row.played_at) < Date.parse(patchStartedAt)).map((row: any) => `${row.match_id}:${row.platform}:${row.player_id}`)).size,

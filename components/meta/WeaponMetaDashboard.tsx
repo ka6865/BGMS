@@ -37,24 +37,32 @@ interface DailyWeaponTrendPoint {
   scope: "weapon" | "category";
 }
 
+interface ScopePickShare {
+  weapon_category: string;
+  period: "pre" | "post";
+  player_match_count: number;
+  weapon_pick_count: number;
+}
+
 export default function WeaponMetaDashboard() {
-  const [data, setData] = useState<{ patchVersion?: string; patchStartedAt?: string; weapons?: WeaponComparisonItem[]; dailyWeaponTrend?: DailyWeaponTrendPoint[]; burstCollection?: { pre: { total: number; completed: number }; post: { total: number; completed: number } } | null; status?: string; message?: string } | null>(null);
+  const [data, setData] = useState<{ patchVersion?: string; patchStartedAt?: string; weapons?: WeaponComparisonItem[]; dailyWeaponTrend?: DailyWeaponTrendPoint[]; scopePickShares?: ScopePickShare[]; burstCollection?: { pre: { total: number; completed: number }; post: { total: number; completed: number } } | null; status?: string; message?: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [filterCategory, setFilterCategory] = useState<string>("ALL");
-  const [selectedTrendCategory, setSelectedTrendCategory] = useState<string>("ALL");
+  const [selectedTrendCategory, setSelectedTrendCategory] = useState<string>("LMG");
   const [selectedTrendWeapon, setSelectedTrendWeapon] = useState<string>("ALL");
+  const [metaMatchType, setMetaMatchType] = useState<"all" | "official" | "competitive">("all");
 
   useEffect(() => {
-    fetch("/api/pubg/meta")
+    fetch(`/api/pubg/meta?matchType=${metaMatchType}`)
       .then((res) => res.json())
       .then((resData) => {
         setData(resData);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [metaMatchType]);
 
-  const weapons = data?.weapons || [];
+  const weapons = useMemo(() => data?.weapons || [], [data?.weapons]);
   const trendCategories = ["ALL", ...Array.from(new Set(weapons.map((weapon) => weapon.weapon_category)))];
   const trendWeapons = weapons.filter((weapon) => selectedTrendCategory === "ALL" || weapon.weapon_category === selectedTrendCategory);
   const activeWeapon = selectedTrendWeapon === "ALL" ? "" : selectedTrendWeapon;
@@ -68,25 +76,33 @@ export default function WeaponMetaDashboard() {
     weapon_pick_share: point.player_match_count > 0 ? Number(((point.weapon_pick_count / point.player_match_count) * 100).toFixed(1)) : 0,
   })), [activeWeapon, selectedTrendCategory, data?.dailyWeaponTrend]);
 
+  const selectedScopeWeapons = useMemo(() => weapons.filter((weapon) => (
+    activeWeapon ? weapon.weapon_name === activeWeapon : selectedTrendCategory === "ALL" || weapon.weapon_category === selectedTrendCategory
+  )), [activeWeapon, selectedTrendCategory, weapons]);
+
   const metrics = useMemo(() => {
-    const lmgWeapons = weapons.filter((w) => w.weapon_category === "LMG");
-    const lmgPreShare = lmgWeapons.reduce((acc, w) => acc + w.pre_patch.pick_share, 0);
-    const lmgPostShare = lmgWeapons.reduce((acc, w) => acc + w.post_patch.pick_share, 0);
-    const shareDiffNum = lmgPostShare - lmgPreShare;
+    const selectedScope = activeWeapon ? null : selectedTrendCategory;
+    const preScope = selectedScope ? data?.scopePickShares?.find((scope) => scope.weapon_category === selectedScope && scope.period === "pre") : null;
+    const postScope = selectedScope ? data?.scopePickShares?.find((scope) => scope.weapon_category === selectedScope && scope.period === "post") : null;
+    const preMatchCount = activeWeapon ? selectedScopeWeapons[0]?.pre_patch.match_count || 0 : preScope?.player_match_count || 0;
+    const postMatchCount = activeWeapon ? selectedScopeWeapons[0]?.post_patch.match_count || 0 : postScope?.player_match_count || 0;
+    const preShare = activeWeapon ? selectedScopeWeapons[0]?.pre_patch.pick_share || 0 : preMatchCount > 0 ? Number(((preScope?.weapon_pick_count || 0) / preMatchCount * 100).toFixed(1)) : 0;
+    const postShare = activeWeapon ? selectedScopeWeapons[0]?.post_patch.pick_share || 0 : postMatchCount > 0 ? Number(((postScope?.weapon_pick_count || 0) / postMatchCount * 100).toFixed(1)) : 0;
+    const shareDiffNum = postShare - preShare;
     const shareDiffStr = shareDiffNum >= 0 ? `+${shareDiffNum.toFixed(1)}%` : `${shareDiffNum.toFixed(1)}%`;
 
-    const comparableLmgWeapons = lmgWeapons.filter((w) => w.pre_patch.burst_available && w.post_patch.burst_available);
-    const hasBurstComparison = comparableLmgWeapons.length > 0;
-    const lmgPreHits = comparableLmgWeapons.length > 0 ? comparableLmgWeapons.reduce((acc, w) => acc + w.pre_patch.sustained_hits, 0) / comparableLmgWeapons.length : 0;
-    const lmgPostHits = comparableLmgWeapons.length > 0 ? comparableLmgWeapons.reduce((acc, w) => acc + w.post_patch.sustained_hits, 0) / comparableLmgWeapons.length : 0;
+    const comparableScopeWeapons = selectedScopeWeapons.filter((w) => w.pre_patch.burst_available && w.post_patch.burst_available);
+    const hasBurstComparison = comparableScopeWeapons.length > 0;
+    const lmgPreHits = comparableScopeWeapons.length > 0 ? comparableScopeWeapons.reduce((acc, w) => acc + w.pre_patch.sustained_hits, 0) / comparableScopeWeapons.length : 0;
+    const lmgPostHits = comparableScopeWeapons.length > 0 ? comparableScopeWeapons.reduce((acc, w) => acc + w.post_patch.sustained_hits, 0) / comparableScopeWeapons.length : 0;
     const hitsDiff = lmgPostHits - lmgPreHits;
 
-    const preEffAvg = lmgWeapons.length > 0 ? (lmgWeapons.reduce((acc, w) => acc + w.pre_patch.kill_efficiency, 0) / lmgWeapons.length).toFixed(1) : "0";
-    const postEffAvg = lmgWeapons.length > 0 ? (lmgWeapons.reduce((acc, w) => acc + w.post_patch.kill_efficiency, 0) / lmgWeapons.length).toFixed(1) : "0";
+    const preEffAvg = selectedScopeWeapons.length > 0 ? (selectedScopeWeapons.reduce((acc, w) => acc + w.pre_patch.kill_efficiency, 0) / selectedScopeWeapons.length).toFixed(1) : "0";
+    const postEffAvg = selectedScopeWeapons.length > 0 ? (selectedScopeWeapons.reduce((acc, w) => acc + w.post_patch.kill_efficiency, 0) / selectedScopeWeapons.length).toFixed(1) : "0";
 
     return {
-      lmgPreShare: `${lmgPreShare.toFixed(1)}%`,
-      lmgPostShare: `${lmgPostShare.toFixed(1)}%`,
+      lmgPreShare: `${preShare.toFixed(1)}%`,
+      lmgPostShare: `${postShare.toFixed(1)}%`,
       lmgShareDiff: shareDiffStr,
       lmgPreHits,
       lmgPostHits,
@@ -94,8 +110,10 @@ export default function WeaponMetaDashboard() {
       efficiencyPre: preEffAvg,
       efficiencyPost: postEffAvg,
       hasBurstComparison,
+      preMatchCount,
+      postMatchCount,
     };
-  }, [weapons]);
+  }, [activeWeapon, data?.scopePickShares, selectedScopeWeapons, selectedTrendCategory]);
 
   if (loading) {
     return (
@@ -123,6 +141,12 @@ export default function WeaponMetaDashboard() {
             <p className="text-xs text-zinc-400">전적 검색과 벤치마커 분석 경기 기준입니다. 전체 PUBG 유저 통계는 아닙니다.</p>
           </div>
         </div>
+      </div>
+
+      <div className="flex flex-wrap gap-2" aria-label="경기 종류 필터">
+        {([['all', '전체'], ['official', '일반전'], ['competitive', '경쟁전']] as const).map(([value, label]) => (
+          <button key={value} type="button" onClick={() => setMetaMatchType(value)} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${metaMatchType === value ? "bg-indigo-600 text-white" : "bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white"}`}>{label}</button>
+        ))}
       </div>
 
       {dailyWeaponTrend.length > 0 && <section className="rounded-xl border border-white/10 bg-black/20 p-4">
@@ -181,7 +205,7 @@ export default function WeaponMetaDashboard() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="flex flex-col justify-between rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-emerald-300">유저 선호도 (얼마나 많이 쓰나?)</span>
+            <span className="text-[11px] font-bold text-emerald-300">유저 선호도 · {activeWeapon || `${selectedTrendCategory} 전체`}</span>
             <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
               <TrendingUp className="h-4 w-4" />
             </div>
@@ -194,6 +218,7 @@ export default function WeaponMetaDashboard() {
               ({metrics.lmgShareDiff})
             </span>
           </div>
+          <p className="mt-1 text-[10px] text-emerald-200/60">표본: {metrics.preMatchCount}경기 → {metrics.postMatchCount}경기</p>
         </div>
 
         <div className="flex flex-col justify-between rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">

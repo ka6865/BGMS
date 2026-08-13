@@ -47,6 +47,15 @@ describe("WeaponMetaDashboard component code quality", () => {
     expect(code).toContain("selectedTrendWeapon");
     expect(code).toContain("카테고리 전체");
     expect(code).toContain("총기 전체");
+    expect(code).toContain("metaMatchType");
+    expect(code).toContain("경쟁전");
+  });
+
+  it("changes the preference card with the selected category or weapon", () => {
+    const code = readFileSync("components/meta/WeaponMetaDashboard.tsx", "utf8");
+
+    expect(code).toContain("selectedScopeWeapons");
+    expect(code).not.toContain("const lmgWeapons");
   });
 
   it("labels sustained hits as a comparable average and suppresses sparse samples", () => {
