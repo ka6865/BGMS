@@ -33,6 +33,7 @@
     "cleanup:board-images": "tsx scripts/cleanup_board_images.ts",
     "db:audit:identity": "tsx scripts/audit_processed_telemetry_identity.ts",
     "db:backfill:match-types": "tsx scripts/backfill_unknown_match_types.ts",
+    "db:backfill:match-types:safe": "tsx scripts/backfill_unknown_match_types_safe.ts",
     "db:scrape": "tsx scripts/scrape_elite.ts",
     "verify:migrations": "bash scripts/verify_migrations_local.sh",
     "verify:security": "vitest run tests/security.test.ts tests/security-hardening-boundary.test.ts tests/board-html-sanitize.test.ts tests/pubg-response-cache.test.ts tests/security-hardening-runtime.test.ts"
