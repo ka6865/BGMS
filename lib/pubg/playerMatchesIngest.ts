@@ -27,7 +27,7 @@ export function buildPlayerMatchRecordFromParticipant(input: IngestParticipantIn
     kills: input.kills,
     damage: Math.floor(input.damage),
     win_place: input.winPlace,
-    match_type: input.matchType || "official",
+    match_type: input.matchType || "unknown",
   };
 }
 
@@ -74,11 +74,11 @@ export async function fetchAndIngestBasicMatchSummary(
       kills: stats.kills || 0,
       damage: Math.floor(stats.damageDealt || 0),
       win_place: stats.winPlace || 99,
-      match_type: String(matchAttr.matchType || "official").toLowerCase(),
+      match_type: String(matchAttr.matchType || "unknown").toLowerCase(),
     };
 
-    await upsertPlayerMatches(supabase, [record]);
-    return record;
+    const persisted = await upsertPlayerMatches(supabase, [record]);
+    return persisted ? record : null;
   } catch {
     return null;
   }

@@ -23,17 +23,19 @@
    };
  }
  
- export async function upsertPlayerMatches(
-   supabase: SupabaseClient,
-   records: PlayerMatchRecord[]
- ): Promise<void> {
-   if (!records || records.length === 0) return;
+export async function upsertPlayerMatches(
+  supabase: SupabaseClient,
+  records: PlayerMatchRecord[]
+ ): Promise<boolean> {
+   if (!records || records.length === 0) return true;
    const { error } = await supabase
      .from("pubg_player_matches")
      .upsert(records, { onConflict: "player_id,platform,match_id" });
    if (error) {
      console.error("[playerMatches] upsert failed:", error.message);
+     return false;
    }
+   return true;
  }
  
  export async function fetchPlayerMatchesPaginated(
