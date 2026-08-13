@@ -125,9 +125,9 @@ export default function BoardListClient({
 
   return (
     <div className="w-full flex justify-center pb-20">
-      <div className="w-full max-w-[1280px] px-4 xl:grid xl:grid-cols-[160px_minmax(0,900px)_160px] xl:justify-center xl:gap-5">
+      <div className="w-full max-w-[1320px] px-4 min-[1600px]:grid min-[1600px]:grid-cols-[160px_minmax(0,900px)_160px] min-[1600px]:justify-center min-[1600px]:gap-5">
         {/* 본문 영역 */}
-        <div className="w-full min-w-0 xl:col-start-2">
+        <div className="w-full min-w-0 min-[1600px]:col-start-2">
           {/* 상단 필터 및 글쓰기 버튼 */}
           <div className="flex justify-between items-center mb-6 gap-4">
             <div className="flex gap-2 overflow-x-auto no-scrollbar flex-1 py-1 px-1">
@@ -244,21 +244,20 @@ export default function BoardListClient({
           </div>
         </div>
 
-        {/* 뷰포트 고정 광고는 좌측 한 곳만 유지한다. self-start를 제거해 컬럼 전체 높이를 확보한다. */}
+        {/* 좌우 레일은 같은 기준과 sticky 오프셋을 사용해 스크롤 위치를 맞춘다. */}
         <aside
-          className="hidden [@media(min-width:1280px)_and_(min-height:680px)]:block xl:col-start-1 xl:row-start-1"
+          className="hidden min-[1600px]:block min-[1600px]:col-start-1 min-[1600px]:row-start-1"
           aria-label="광고"
         >
           <div className="sticky top-20 h-[600px] w-[160px]">
             <AdSenseBanner client="ca-pub-3993032200487955" slot="7728921550" />
           </div>
         </aside>
-        {/* 우측 레일은 고정하지 않고 문서 흐름에 배치한다. 좌우 동시 고정 광고는 정책 위반이다. */}
         <aside
-          className="hidden [@media(min-width:1280px)_and_(min-height:680px)]:block xl:col-start-3 xl:row-start-1 self-start"
+          className="hidden min-[1600px]:block min-[1600px]:col-start-3 min-[1600px]:row-start-1"
           aria-label="광고"
         >
-          <div className="h-[600px] w-[160px]">
+          <div className="sticky top-20 h-[600px] w-[160px]">
             <AdfitBanner adUnit="DAN-RjyosR2uf8eSsVIC" adWidth={160} adHeight={600} />
           </div>
         </aside>
