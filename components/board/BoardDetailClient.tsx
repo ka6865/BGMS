@@ -504,9 +504,9 @@ export default function BoardDetailClient({
 
   return (
     <div className="w-full flex justify-center pb-20">
-      <div className="w-full max-w-[1320px] px-4 min-[1600px]:grid min-[1600px]:grid-cols-[160px_minmax(0,900px)_160px] min-[1600px]:justify-center min-[1600px]:gap-5">
+      <div className="w-full max-w-[1320px] px-4 min-[1880px]:grid min-[1880px]:grid-cols-[160px_minmax(0,900px)_160px] min-[1880px]:justify-center min-[1880px]:gap-5">
         {/* 본문 영역 */}
-        <div className="w-full min-w-0 min-[1600px]:col-start-2">
+        <div className="w-full min-w-0 min-[1880px]:col-start-2">
         {/*  어드민 승인 대기 초안 프리뷰 배너 렌더링 */}
         {post.status === 'draft' && isAdmin && (
           <div className="w-full bg-[#1e1e1e] border border-[#F2A900]/30 rounded-xl p-5 mb-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shadow-[0_0_20px_rgba(242,169,0,0.1)]">
@@ -731,7 +731,7 @@ export default function BoardDetailClient({
                 onClick={handleReportPost}
                 className="px-[20px] py-[12px] bg-[#252525] border border-[#dc3545]/50 text-[#dc3545] border-solid rounded-[4px] hover:bg-[#dc3545]/10 transition-colors text-[14px]"
               >
-                권함 남용
+                게시글 신고
               </button>
             )}
 
@@ -861,7 +861,7 @@ export default function BoardDetailClient({
       </AppModal>
       {/* 좌우 레일은 같은 기준과 sticky 오프셋을 사용해 스크롤 위치를 맞춘다. */}
       <aside
-        className="hidden min-[1600px]:block min-[1600px]:col-start-1 min-[1600px]:row-start-1"
+        className="hidden min-[1880px]:block min-[1880px]:col-start-1 min-[1880px]:row-start-1"
         aria-label="광고"
       >
         <div className="sticky top-20 h-[600px] w-[160px]">
@@ -869,7 +869,7 @@ export default function BoardDetailClient({
         </div>
       </aside>
       <aside
-        className="hidden min-[1600px]:block min-[1600px]:col-start-3 min-[1600px]:row-start-1"
+        className="hidden min-[1880px]:block min-[1880px]:col-start-3 min-[1880px]:row-start-1"
         aria-label="광고"
       >
         <div className="sticky top-20 h-[600px] w-[160px]">

@@ -431,7 +431,7 @@ export default function RankingsClient({
           <p className="text-[10px] text-gray-700">닉네임 클릭 시 해당 플레이어 전적 페이지로 이동</p>
         </div>
 
-        <aside className="hidden min-[1600px]:block w-[160px] absolute right-[calc(100%+24px)] top-0 h-full" aria-label="왼쪽 광고">
+        <aside className="hidden min-[1880px]:block w-[160px] absolute right-[calc(100%+24px)] top-0 bottom-0 h-auto" aria-label="왼쪽 광고">
           <div className="sticky top-20 h-[600px] w-[160px]">
             <AdSenseBanner
               placementId="rankings-rail-left"
@@ -440,7 +440,7 @@ export default function RankingsClient({
             />
           </div>
         </aside>
-        <aside className="hidden min-[1600px]:block w-[160px] absolute left-[calc(100%+24px)] top-0 h-full" aria-label="오른쪽 광고">
+        <aside className="hidden min-[1880px]:block w-[160px] absolute left-[calc(100%+24px)] top-0 bottom-0 h-auto" aria-label="오른쪽 광고">
           <div className="sticky top-20 h-[600px] w-[160px]">
             <AdfitBanner
               placementId="rankings-rail-right"

@@ -960,7 +960,7 @@ export default function WeaponsPage() {
           />
         </div>
 
-        <aside className="hidden min-[1600px]:block absolute right-[calc(100%+24px)] top-0 w-[160px] h-full" aria-label="왼쪽 광고">
+        <aside className="hidden min-[1880px]:block absolute right-[calc(100%+24px)] top-0 bottom-0 w-[160px] h-auto" aria-label="왼쪽 광고">
           <div className="sticky top-20 h-[600px] w-[160px]">
             <AdSenseBanner
               placementId="weapons-rail-left"
@@ -969,7 +969,7 @@ export default function WeaponsPage() {
             />
           </div>
         </aside>
-        <aside className="hidden min-[1600px]:block absolute left-[calc(100%+24px)] top-0 w-[160px] h-full" aria-label="오른쪽 광고">
+        <aside className="hidden min-[1880px]:block absolute left-[calc(100%+24px)] top-0 bottom-0 w-[160px] h-auto" aria-label="오른쪽 광고">
           <div className="sticky top-20 h-[600px] w-[160px]">
             <AdfitBanner
               placementId="weapons-rail-right"
