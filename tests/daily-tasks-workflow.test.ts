@@ -26,4 +26,19 @@
     expect(content).toContain("needs: [board-write-quota-cleanup, maintenance]");
     expect(content).toContain("backfill_unknown_match_types.ts --limit 300");
   });
+
+  it("runs the backfill when the database health gate passes even if another maintenance step fails", () => {
+    const yamlPath = join(process.cwd(), ".github/workflows/daily-tasks.yml");
+    const content = readFileSync(yamlPath, "utf-8");
+
+    expect(content).toContain("outputs:");
+    expect(content).toContain("database_health: ${{ steps.database_health.outcome }}");
+    expect(content).toContain(
+      "needs.maintenance.outputs.database_health == 'success'",
+    );
+    expect(content).not.toContain(
+      "needs.board-write-quota-cleanup.result == 'success' && needs.maintenance.outputs.database_health == 'success'",
+    );
+    expect(content).toContain("MATCH_TYPE_BACKFILL_RESULT");
+  });
 });

@@ -186,7 +186,7 @@ describe("중간: 일일 작업 실패가 알림으로 이어진다", () => {
     const job = workflow.jobs["failure-notify"];
     expect(job).toBeTruthy();
     expect(job.if).toContain("failure()");
-    expect(job.needs).toEqual(["board-write-quota-cleanup", "maintenance"]);
+    expect(job.needs).toEqual(["board-write-quota-cleanup", "maintenance", "match-type-backfill"]);
   });
 
   it("maintenance 마지막 step 순서를 바꾸지 않는다", () => {

@@ -65,6 +65,8 @@ jobs:
   maintenance:
     needs: board-write-quota-cleanup
     if: ${{ always() && !cancelled() }}
+    outputs:
+      database_health: ${{ steps.database_health.outcome }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -302,11 +304,12 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/run_hotdrop.ts
 
-  # 기존 수집을 모두 마친 뒤 별도 실행한다. 429는 정상적인 중단이므로 실패로
-  # 취급하지 않고, 다음 날 unknown 행만 이어서 처리한다.
+  # 기존 수집이 끝난 뒤 별도 실행한다. 유지보수의 Hotdrop/스크래퍼 등
+  # 독립적인 step 실패가 있어도 DB health gate가 통과했다면 백필은 반드시 시도한다.
+  # 429는 스크립트가 rateLimited 결과를 남기고 정상 종료하므로, 다음 날 unknown 행만 이어서 처리한다.
   match-type-backfill:
     needs: [board-write-quota-cleanup, maintenance]
-    if: ${{ always() && !cancelled() && needs.maintenance.result == 'success' }}
+    if: ${{ always() && !cancelled() && needs.maintenance.outputs.database_health == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -333,7 +336,7 @@ jobs:
   # (tests/hotdrop-boundary.test.ts 가 maintenance 의 마지막 step 을 검증한다.)
   failure-notify:
     runs-on: ubuntu-latest
-    needs: [board-write-quota-cleanup, maintenance]
+    needs: [board-write-quota-cleanup, maintenance, match-type-backfill]
     if: ${{ failure() }}
     permissions:
       contents: read
@@ -345,6 +348,7 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           QUOTA_RESULT: ${{ needs.board-write-quota-cleanup.result }}
           MAINTENANCE_RESULT: ${{ needs.maintenance.result }}
+          MATCH_TYPE_BACKFILL_RESULT: ${{ needs.match-type-backfill.result }}
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
@@ -387,6 +391,7 @@ jobs:
             "BGMS 일일 자동 작업이 실패했습니다. 데이터 적체와 R2 비용 증가로 이어질 수 있습니다.\n\n" \
             "**board-write-quota-cleanup:** ${QUOTA_RESULT}\n" \
             "**maintenance:** ${MAINTENANCE_RESULT}\n\n" \
+            "**match-type-backfill:** ${MATCH_TYPE_BACKFILL_RESULT}\n\n" \
             "**실패한 step**\n\`\`\`\n${FAILED_STEPS}\n\`\`\`\n" \
             "**원인 로그**\n\`\`\`\n${ERROR_LINES}\n\`\`\`\n" \
             "**실행 로그:** ${RUN_URL}\n\n@everyone")
