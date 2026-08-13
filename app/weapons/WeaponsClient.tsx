@@ -18,11 +18,13 @@ import {
 import { supabase } from "../../lib/supabase";
 import { trackEvent } from "../../lib/analytics";
 import AdfitBanner from "../../components/ads/AdfitBanner";
+import AdSenseBanner from "../../components/ads/AdSenseBanner";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 const WEAPONS_MOBILE_AD_UNIT = "DAN-tQGcqmddMC8tPpXA";
 const WEAPONS_LEADERBOARD_AD_UNIT = "DAN-dPiCxgIGtXKjLPP3";
 const WEAPONS_DESKTOP_AD_UNIT = "DAN-RjyosR2uf8eSsVIC";
+const WEAPONS_ADSENSE_SLOT = "7728921550";
 
 // ----------------------------------------------------
 // 1. 파츠 DB 인터페이스 (Supabase attachments 테이블 기반)
@@ -958,9 +960,19 @@ export default function WeaponsPage() {
           />
         </div>
 
-        <aside className="hidden 2xl:block absolute left-[calc(100%+24px)] top-0 w-[160px] h-full" aria-label="광고">
-          <div className="sticky top-24">
+        <aside className="hidden min-[1600px]:block absolute right-[calc(100%+24px)] top-0 w-[160px] h-full" aria-label="왼쪽 광고">
+          <div className="sticky top-20 h-[600px] w-[160px]">
+            <AdSenseBanner
+              placementId="weapons-rail-left"
+              client="ca-pub-3993032200487955"
+              slot={WEAPONS_ADSENSE_SLOT}
+            />
+          </div>
+        </aside>
+        <aside className="hidden min-[1600px]:block absolute left-[calc(100%+24px)] top-0 w-[160px] h-full" aria-label="오른쪽 광고">
+          <div className="sticky top-20 h-[600px] w-[160px]">
             <AdfitBanner
+              placementId="weapons-rail-right"
               adUnit={WEAPONS_DESKTOP_AD_UNIT}
               adWidth={160}
               adHeight={600}

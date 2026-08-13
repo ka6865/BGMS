@@ -4,6 +4,7 @@ import React, { useState, useTransition, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Flame, Zap, Trophy, RefreshCw, ExternalLink, ChevronUp } from 'lucide-react';
 import AdfitBanner from '@/components/ads/AdfitBanner';
+import AdSenseBanner from '@/components/ads/AdSenseBanner';
 import { BgmsIcon, type BgmsIconName } from '@/components/common/BgmsIcon';
 import type { RankingEntry, GameModeFilter, MatchTypeFilter, PerspectiveFilter } from '@/actions/rankings';
 
@@ -62,6 +63,7 @@ const PERSPECTIVE_FILTERS: { label: string; value: PerspectiveFilter }[] = [
 
 const RANKINGS_MOBILE_AD_UNIT = 'DAN-tQGcqmddMC8tPpXA';
 const RANKINGS_DESKTOP_AD_UNIT = 'DAN-RjyosR2uf8eSsVIC';
+const RANKINGS_ADSENSE_SLOT = '7728921550';
 
 function formatUpdatedAt(iso: string): string {
   const parts = new Intl.DateTimeFormat('en-US-u-nu-latn', {
@@ -429,9 +431,19 @@ export default function RankingsClient({
           <p className="text-[10px] text-gray-700">닉네임 클릭 시 해당 플레이어 전적 페이지로 이동</p>
         </div>
 
-        <aside className="hidden xl:block w-[160px] absolute left-[calc(100%+24px)] top-0 h-full" aria-label="광고">
-          <div className="sticky top-16">
+        <aside className="hidden min-[1600px]:block w-[160px] absolute right-[calc(100%+24px)] top-0 h-full" aria-label="왼쪽 광고">
+          <div className="sticky top-20 h-[600px] w-[160px]">
+            <AdSenseBanner
+              placementId="rankings-rail-left"
+              client="ca-pub-3993032200487955"
+              slot={RANKINGS_ADSENSE_SLOT}
+            />
+          </div>
+        </aside>
+        <aside className="hidden min-[1600px]:block w-[160px] absolute left-[calc(100%+24px)] top-0 h-full" aria-label="오른쪽 광고">
+          <div className="sticky top-20 h-[600px] w-[160px]">
             <AdfitBanner
+              placementId="rankings-rail-right"
               adUnit={RANKINGS_DESKTOP_AD_UNIT}
               adWidth={160}
               adHeight={600}

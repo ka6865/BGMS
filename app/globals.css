@@ -212,6 +212,39 @@ input, textarea, select {
   background: var(--stats-bg);
   color: var(--stats-text-primary);
   box-sizing: border-box;
+  position: relative;
+  overflow: visible;
+}
+
+/* 수동 좌우 레일: 넓은 데스크톱에서만 표시하고 양쪽 모두 같은 sticky 기준을 사용한다. */
+.stats-page .stats-manual-ad-rail {
+  display: none;
+  position: absolute;
+  top: 20px;
+  width: 160px;
+  height: 600px;
+  z-index: 5;
+}
+
+.stats-page .stats-manual-ad-rail--left {
+  left: -180px;
+}
+
+.stats-page .stats-manual-ad-rail--right {
+  right: -180px;
+}
+
+.stats-page .manual-ad-rail__inner {
+  position: sticky;
+  top: 80px;
+  width: 160px;
+  height: 600px;
+}
+
+@media (min-width: 1600px) {
+  .stats-page .stats-manual-ad-rail {
+    display: block;
+  }
 }
 
 .stats-page.pb-safe-nav {

@@ -23,6 +23,7 @@ import { StatsPageStates } from "./StatsPageStates";
 import { buildStatsCompareUrl, buildStatsWeaponsUrl } from "@/lib/stats/statsPageModel";
 import type { StatsPlatform, StatsSectionTab } from "@/types/stats-page";
 import { useAdViewportClass } from "@/hooks/useAdViewportClass";
+import { StatsManualAdRails } from "@/components/ads/StatsManualAdRails";
 // import CompanionEntryCard from "@/components/overwolf/CompanionEntryCard";
 
 const NAVIGATION_PENDING_TIMEOUT_MS = 1_000;
@@ -278,10 +279,13 @@ export function StatsPageShell({
   return (
     <section
       className="stats-page stats-auto-ads-excluded pb-safe-nav w-full text-white"
-      data-testid="stats-auto-ads-boundary"
-      {...({ "google-side-rail-overlap": "false" } as Record<string, string>)}
-    >
-      <h1 className="mb-5 text-center text-2xl/8 font-bold text-[#F2A900]">
+       data-testid="stats-auto-ads-boundary"
+       {...({ "google-side-rail-overlap": "false" } as Record<string, string>)}
+     >
+       {result && (
+         <StatsManualAdRails />
+       )}
+       <h1 className="mb-5 text-center text-2xl/8 font-bold text-[#F2A900]">
         <InlineIconLabel icon="activity" iconSize={24} className="justify-center">AI 전적 검색</InlineIconLabel>
       </h1>
 
