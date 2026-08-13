@@ -125,9 +125,9 @@ export default function BoardListClient({
 
   return (
     <div className="w-full flex justify-center pb-20">
-      <div className="w-full max-w-[1320px] px-4 min-[1600px]:grid min-[1600px]:grid-cols-[160px_minmax(0,900px)_160px] min-[1600px]:justify-center min-[1600px]:gap-5">
+      <div className="w-full max-w-[1320px] px-4 min-[1880px]:grid min-[1880px]:grid-cols-[160px_minmax(0,900px)_160px] min-[1880px]:justify-center min-[1880px]:gap-5">
         {/* 본문 영역 */}
-        <div className="w-full min-w-0 min-[1600px]:col-start-2">
+        <div className="w-full min-w-0 min-[1880px]:col-start-2">
           {/* 상단 필터 및 글쓰기 버튼 */}
           <div className="flex justify-between items-center mb-6 gap-4">
             <div className="flex gap-2 overflow-x-auto no-scrollbar flex-1 py-1 px-1">
@@ -246,7 +246,7 @@ export default function BoardListClient({
 
         {/* 좌우 레일은 같은 기준과 sticky 오프셋을 사용해 스크롤 위치를 맞춘다. */}
         <aside
-          className="hidden min-[1600px]:block min-[1600px]:col-start-1 min-[1600px]:row-start-1"
+          className="hidden min-[1880px]:block min-[1880px]:col-start-1 min-[1880px]:row-start-1"
           aria-label="광고"
         >
           <div className="sticky top-20 h-[600px] w-[160px]">
@@ -254,7 +254,7 @@ export default function BoardListClient({
           </div>
         </aside>
         <aside
-          className="hidden min-[1600px]:block min-[1600px]:col-start-3 min-[1600px]:row-start-1"
+          className="hidden min-[1880px]:block min-[1880px]:col-start-3 min-[1880px]:row-start-1"
           aria-label="광고"
         >
           <div className="sticky top-20 h-[600px] w-[160px]">
