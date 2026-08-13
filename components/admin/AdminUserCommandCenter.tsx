@@ -33,6 +33,13 @@ export interface UserActivity7D {
   topPages: Array<{ path: string; label: string; count: number }>;
   summaryBadges: string[];
   events: ActivityEventItem[];
+  aiRequests: number;
+  aiSuccessCount: number;
+  aiFailedCount: number;
+  aiSuccessRate: number;
+  aiCostUsd: number;
+  aiErrors: Array<{ code: string; label: string; count: number }>;
+  aiRecentErrors: Array<{ code: string; label: string; message: string; createdAt: string }>;
 }
 
 export interface CommandCenterUser {
@@ -59,6 +66,56 @@ export interface CommandCenterMetrics {
   topSearchUsers: Array<{ nickname: string; count: number }>;
   topPages: Array<{ name: string; count: number }>;
   providers: Record<string, number>;
+  topAiUsers?: Array<{ userId: string; nickname: string; count: number }>;
+  ai24h?: AiWindowSummary;
+  ai7d?: AiWindowSummary;
+  pubgApi24h?: PubgErrorSummary;
+  pubgApi7d?: PubgErrorSummary;
+}
+
+export interface AiWindowSummary {
+  windowHours: number;
+  totalRequests: number;
+  successRequests: number;
+  failedRequests: number;
+  successRate: number;
+  uniqueUsers: number;
+  memberUsageRate?: number;
+  guestRequests: number;
+  totalCostUsd: number;
+  promptTokens: number;
+  completionTokens: number;
+  averageDurationMs: number | null;
+  byType: Record<string, number>;
+  errorsByReason: Array<{ code: string; label: string; count: number; lastAt: string | null }>;
+  recentErrors: Array<{
+    id: string;
+    createdAt: string;
+    analysisType: string;
+    errorCode: string;
+    errorLabel: string;
+    message: string;
+    userId: string | null;
+    durationMs: number | null;
+    platform: string | null;
+    requestId: string | null;
+  }>;
+}
+
+export interface PubgErrorSummary {
+  total: number;
+  byStatus: Record<string, number>;
+  byReason: Array<{ reason: string; count: number; lastAt: string | null }>;
+  recent: Array<{
+    id: string;
+    createdAt: string;
+    route: string;
+    status: number | null;
+    reason: string;
+    failureStage: string | null;
+    platform: string | null;
+    durationMs: number | null;
+  }>;
 }
 
 export interface CommandCenterAccounts {
@@ -115,6 +172,72 @@ function formatDateGroupHeader(dateString: string): string {
 
 function formatTimeOnly(dateString: string): string {
   return new Date(dateString).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+}
+
+function AiObservabilityPanel({ metrics }: { metrics?: CommandCenterMetrics | null }) {
+  const [windowKey, setWindowKey] = useState<"ai24h" | "ai7d">("ai24h");
+  const [errorFilter, setErrorFilter] = useState<"all" | "ai" | "pubg">("all");
+  const ai = metrics?.[windowKey];
+  const pubg = windowKey === "ai24h" ? metrics?.pubgApi24h : metrics?.pubgApi7d;
+  const errors = errorFilter === "pubg" ? (pubg?.byReason || []).map((item) => ({ code: item.reason, label: item.reason, count: item.count })) : errorFilter === "ai" ? (ai?.errorsByReason || []) : [
+    ...(ai?.errorsByReason || []),
+    ...(pubg?.byReason || []).map((item) => ({ code: `pubg:${item.reason}`, label: `PUBG · ${item.reason}`, count: item.count, lastAt: item.lastAt })),
+  ].sort((a, b) => b.count - a.count);
+
+  return (
+    <section className="space-y-3 rounded-2xl border border-indigo-500/20 bg-[#131321] p-4 shadow-lg" aria-label="AI 및 API 오류 관제">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-sm font-black text-white">AI 사용률 · 오류 관제</h3>
+          <p className="mt-1 text-[10px] font-bold text-white/40">AI 비용 로그와 PUBG API 오류 로그를 분리 집계합니다.</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <select aria-label="AI 관제 기간" value={windowKey} onChange={(e) => setWindowKey(e.target.value as "ai24h" | "ai7d")} className="rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs font-bold text-white">
+            <option value="ai24h">최근 24시간</option>
+            <option value="ai7d">최근 7일</option>
+          </select>
+          <select aria-label="오류 종류" value={errorFilter} onChange={(e) => setErrorFilter(e.target.value as "all" | "ai" | "pubg")} className="rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs font-bold text-white">
+            <option value="all">AI + PUBG 오류</option>
+            <option value="ai">AI 오류만</option>
+            <option value="pubg">PUBG API 오류만</option>
+          </select>
+        </div>
+      </div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-6">
+        <ObsMetric label="AI 요청" value={ai?.totalRequests ?? 0} />
+        <ObsMetric label="성공률" value={`${ai?.successRate ?? 0}%`} tone="success" />
+        <ObsMetric label="AI 오류" value={ai?.failedRequests ?? 0} tone="danger" />
+        <ObsMetric label="AI 사용률" value={`${ai?.memberUsageRate ?? 0}% (${ai?.uniqueUsers ?? 0}명)`} />
+        <ObsMetric label="AI 비용" value={`$${(ai?.totalCostUsd ?? 0).toFixed(4)}`} />
+        <ObsMetric label="PUBG 오류" value={pubg?.total ?? 0} tone={pubg?.total ? "danger" : "success"} />
+      </div>
+      <div className="grid gap-3 lg:grid-cols-[1fr_1.4fr]">
+        <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+          <p className="mb-2 text-[11px] font-black text-white/65">오류 이유</p>
+          {errors.length ? <div className="space-y-1.5">{errors.slice(0, 8).map((error) => <div key={error.code} className="flex items-center justify-between gap-3 text-xs"><span className="truncate text-white/70">{error.label}</span><strong className="text-rose-300">{error.count}건</strong></div>)}</div> : <p className="text-xs text-white/35">선택 기간 오류 없음</p>}
+        </div>
+        <div className="rounded-xl border border-white/10 bg-black/20 p-3">
+          <p className="mb-2 text-[11px] font-black text-white/65">최근 오류 사례</p>
+          {ai?.recentErrors?.length || pubg?.recent?.length ? (
+            <div className="max-h-36 space-y-1.5 overflow-y-auto">{[
+              ...(errorFilter !== "pubg" ? (ai?.recentErrors || []).map((error) => ({ id: `ai-${error.id}`, at: error.createdAt, label: `AI · ${error.errorLabel}`, detail: error.message })) : []),
+              ...(errorFilter !== "ai" ? (pubg?.recent || []).map((error) => ({ id: `pubg-${error.id}`, at: error.createdAt, label: `PUBG · ${error.route}`, detail: `${error.status ?? "?"} · ${error.reason}` })) : []),
+            ].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 10).map((error) => <div key={error.id} className="rounded-lg border border-white/5 bg-white/[0.03] px-2.5 py-1.5 text-[10px]"><div className="flex justify-between gap-2"><strong className="truncate text-rose-200">{error.label}</strong><span className="shrink-0 text-white/30">{formatRelativeTime(error.at)}</span></div><p className="truncate text-white/55">{error.detail}</p></div>)}</div>
+          ) : <p className="text-xs text-white/35">선택 기간 오류 없음</p>}
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-bold text-white/40">
+        <span>분석: {Object.entries(ai?.byType || {}).map(([type, count]) => `${type} ${count}`).join(" · ") || "없음"}</span>
+        <span>평균 응답: {ai?.averageDurationMs ? `${ai.averageDurationMs}ms` : "기록 없음"}</span>
+        <span>상위 AI 사용자: {metrics?.topAiUsers?.slice(0, 3).map((user) => `${user.nickname} ${user.count}회`).join(" · ") || "없음"}</span>
+      </div>
+    </section>
+  );
+}
+
+function ObsMetric({ label, value, tone = "default" }: { label: string; value: string | number; tone?: "default" | "success" | "danger" }) {
+  const color = tone === "success" ? "text-emerald-300" : tone === "danger" ? "text-rose-300" : "text-white";
+  return <div className="rounded-xl border border-white/10 bg-black/20 p-2.5"><span className="block text-[10px] font-bold text-white/40">{label}</span><strong className={`mt-1 block text-sm font-black ${color}`}>{value}</strong></div>;
 }
 
 export function AdminUserCommandCenter({
@@ -335,6 +458,8 @@ export function AdminUserCommandCenter({
         </div>
       </div>
 
+      <AiObservabilityPanel metrics={metrics} />
+
       {/* 2. Control Bar (Search, Sort, Filter, Sync) */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border border-white/10 bg-[#161616] p-3 shadow-lg">
         {/* Search */}
@@ -491,6 +616,16 @@ export function AdminUserCommandCenter({
                           최근 7일 수집된 로그 없음
                         </span>
                       )}
+                      {u.activity7d && u.activity7d.aiRequests > 0 && (
+                        <span className="rounded-md border border-indigo-500/25 bg-indigo-500/10 px-2 py-0.5 text-[10px] font-bold text-indigo-200">
+                          AI {u.activity7d.aiRequests}회 · 성공률 {u.activity7d.aiSuccessRate}%
+                        </span>
+                      )}
+                      {u.activity7d && u.activity7d.aiFailedCount > 0 && (
+                        <span className="rounded-md border border-rose-500/25 bg-rose-500/10 px-2 py-0.5 text-[10px] font-bold text-rose-200">
+                          AI 오류 {u.activity7d.aiFailedCount}건
+                        </span>
+                      )}
                     </div>
                   </div>
                 );
@@ -594,6 +729,28 @@ export function AdminUserCommandCenter({
                 </button>
               </div>
             </form>
+
+            <div className="space-y-3 rounded-xl border border-indigo-500/20 bg-indigo-500/5 p-3.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-indigo-200">최근 7일 AI 사용</span>
+                <span className="text-[10px] font-bold text-white/40">비용 ${selectedUser.activity7d?.aiCostUsd.toFixed(4) || "0.0000"}</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-lg bg-black/20 p-2"><strong className="block text-sm text-white">{selectedUser.activity7d?.aiRequests || 0}</strong><span className="text-[10px] text-white/45">요청</span></div>
+                <div className="rounded-lg bg-black/20 p-2"><strong className="block text-sm text-emerald-300">{selectedUser.activity7d?.aiSuccessRate || 0}%</strong><span className="text-[10px] text-white/45">성공률</span></div>
+                <div className="rounded-lg bg-black/20 p-2"><strong className="block text-sm text-rose-300">{selectedUser.activity7d?.aiFailedCount || 0}</strong><span className="text-[10px] text-white/45">오류</span></div>
+              </div>
+              {selectedUser.activity7d?.aiErrors?.length ? (
+                <div className="space-y-1 text-[11px] text-white/65">
+                  {selectedUser.activity7d.aiErrors.map((error) => <div key={error.code} className="flex justify-between"><span>{error.label}</span><strong>{error.count}건</strong></div>)}
+                </div>
+              ) : <p className="text-[11px] text-white/35">최근 7일 AI 오류 없음</p>}
+              {selectedUser.activity7d?.aiRecentErrors?.length ? (
+                <div className="space-y-1 border-t border-white/10 pt-2">
+                  {selectedUser.activity7d.aiRecentErrors.slice(0, 3).map((error) => <div key={`${error.code}-${error.createdAt}`} className="text-[10px] text-rose-200"><strong>{error.label}</strong><p className="truncate text-white/50">{error.message}</p></div>)}
+                </div>
+              ) : null}
+            </div>
 
             {/* 7-Day Activity Timeline Section */}
             <div className="space-y-3 pt-1">
