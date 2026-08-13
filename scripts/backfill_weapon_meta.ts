@@ -42,8 +42,9 @@ export async function runBackfill() {
     const fullResult = row.data?.fullResult;
     const playedAt = fullResult?.createdAt;
     const weaponStats = fullResult?.weaponStats;
+    const matchType = String(fullResult?.matchType || fullResult?.matchInfo?.matchType || "official").toLowerCase();
     const patch = typeof playedAt === "string" ? patchForMatch(playedAt) : null;
-    if (!patch || !weaponStats || typeof weaponStats !== "object") continue;
+    if (!patch || !weaponStats || typeof weaponStats !== "object" || !["official", "competitive"].includes(matchType)) continue;
 
     for (const [weaponId, stat] of Object.entries(weaponStats) as Array<[string, any]>) {
       const weaponCategory = categorizeWeapon(weaponId);
@@ -55,6 +56,7 @@ export async function runBackfill() {
         player_id: row.player_id,
         played_at: playedAt,
         patch_version: patch,
+        match_type: matchType,
         weapon_category: weaponCategory,
         weapon_name: WEAPON_NAMES[weaponId] || weaponId.replace(/Item_Weapon_|Weap|_C|_Projectile/gi, ""),
         active_pick: damage > 0,

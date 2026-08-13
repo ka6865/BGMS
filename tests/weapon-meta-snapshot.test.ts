@@ -62,5 +62,6 @@ describe("persistMatchAnalysis weapon meta upsert", () => {
     } as any);
 
     expect(rows.map((row) => row.weapon_name)).toEqual(["M249"]);
+    expect(rows[0].match_type).toBe("official");
   });
 });

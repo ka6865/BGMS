@@ -12,6 +12,7 @@
    kills: number;
    damage: number;
    win_place: number;
+   match_type: string;
  }
  
  export function buildCursorQueryFilter(nickname: string, platform: string, cursor?: string | null) {
@@ -47,7 +48,7 @@
  
    let query = supabase
      .from("pubg_player_matches")
-     .select("player_id, platform, match_id, played_at, game_mode, map_name, kills, damage, win_place")
+    .select("player_id, platform, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type")
      .eq("player_id", playerId)
      .eq("platform", normPlatform)
      .order("played_at", { ascending: false })

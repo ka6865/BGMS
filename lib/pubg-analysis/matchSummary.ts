@@ -37,6 +37,7 @@ export function buildBasicMatchSummary(row: {
   kills?: number;
   damage?: number;
   win_place?: number;
+  match_type?: string;
 }): MatchSummaryData {
   const kills = row.kills ?? 0;
   const damage = Math.floor(row.damage ?? 0);
@@ -55,6 +56,7 @@ export function buildBasicMatchSummary(row: {
     mapId: row.map_name || "Baltic_Main",
     createdAt: row.played_at ?? row.created_at ?? new Date().toISOString(),
     gameMode: row.game_mode || "squad",
+    matchType: row.match_type || "unknown",
     totalTeams: 0,
     totalPlayers: 0,
     team: [],

@@ -242,6 +242,7 @@ async function persistPlayerMatches(
       kills: participant.attributes.stats.kills || 0,
       damage: Math.floor(participant.attributes.stats.damageDealt || 0),
       win_place: participant.attributes.stats.winPlace || 99,
+      match_type: input.finalResult.matchType?.toLowerCase() || "official",
     }));
 
   if (rows.length === 0) return;
@@ -348,6 +349,8 @@ export function buildWeaponMetaMatchSamples(input: PersistMatchAnalysisInput): A
   if (!playedAt) return [];
   const patchVersion = getPatchVersionForMatch(playedAt);
   if (!patchVersion) return [];
+  const matchType = input.finalResult.matchType?.toLowerCase() || "official";
+  if (matchType !== "official" && matchType !== "competitive") return [];
 
   const playerId = normalizeName(input.playerNickname);
   return Object.entries(weaponStats)
@@ -361,6 +364,7 @@ export function buildWeaponMetaMatchSamples(input: PersistMatchAnalysisInput): A
       player_id: playerId,
       played_at: playedAt,
       patch_version: patchVersion,
+      match_type: matchType,
       weapon_category: categorizeWeapon(weaponId),
       weapon_name: weaponName,
       active_pick: damage > 0,

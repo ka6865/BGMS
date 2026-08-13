@@ -22,9 +22,11 @@ describe("buildBasicMatchSummary helper", () => {
       kills: 3,
       damage: 250,
       win_place: 2,
+      match_type: "competitive",
     });
     expect(summary.matchId).toBe("match-999");
     expect(summary.stats.kills).toBe(3);
     expect(summary.stats.winPlace).toBe(2);
+    expect(summary.matchType).toBe("competitive");
   });
 });
