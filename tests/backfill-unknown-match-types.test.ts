@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getUnknownMatchTypeBackfillDisposition, parseUnknownMatchTypeBackfillArgs, shouldStopUnknownMatchTypeBackfill } from "../scripts/backfill_unknown_match_types";
+import { getUnknownMatchTypeBackfillDisposition, parseUnknownMatchTypeBackfillArgs, shouldStopUnknownMatchTypeBackfill, UNKNOWN_MATCH_TYPE_BACKFILL_ORDER } from "../scripts/backfill_unknown_match_types";
 
 describe("unknown match type backfill runner", () => {
   it("defaults to a five-minute, rate-safe daily batch", () => {
@@ -8,6 +8,10 @@ describe("unknown match type backfill runner", () => {
 
   it("accepts a smaller manual batch without reducing the request spacing", () => {
     expect(parseUnknownMatchTypeBackfillArgs(["--limit", "20"])).toEqual({ limit: 20, delayMs: 1_000 });
+  });
+
+  it("processes newest unknown matches first before the PUBG API retention window closes", () => {
+    expect(UNKNOWN_MATCH_TYPE_BACKFILL_ORDER).toEqual({ column: "played_at", ascending: false });
   });
 
   it("stops immediately when PUBG signals rate limiting", () => {
