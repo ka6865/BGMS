@@ -7,6 +7,7 @@ dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
 
 const DEFAULT_LIMIT = 300;
 const REQUEST_DELAY_MS = 1_000;
+export const UNKNOWN_MATCH_TYPE_BACKFILL_ORDER = { column: "played_at", ascending: false } as const;
 
 type UnknownMatchRow = {
   match_id: string;
@@ -50,7 +51,7 @@ export async function runUnknownMatchTypeBackfill() {
     .from("pubg_player_matches")
     .select("match_id, player_id, platform")
     .eq("match_type", "unknown")
-    .order("played_at", { ascending: true })
+    .order(UNKNOWN_MATCH_TYPE_BACKFILL_ORDER.column, { ascending: UNKNOWN_MATCH_TYPE_BACKFILL_ORDER.ascending })
     .limit(limit);
   if (error) throw new Error(`Failed to load unknown match types: ${error.message}`);
 
