@@ -302,6 +302,30 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/run_hotdrop.ts
 
+  # 기존 수집을 모두 마친 뒤 별도 실행한다. 429는 정상적인 중단이므로 실패로
+  # 취급하지 않고, 다음 날 unknown 행만 이어서 처리한다.
+  match-type-backfill:
+    needs: [board-write-quota-cleanup, maintenance]
+    if: ${{ always() && !cancelled() && needs.maintenance.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - name: Install Dependencies
+        run: npm ci
+      - name: Backfill Unknown Match Types
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
+        run: npx tsx scripts/backfill_unknown_match_types.ts --limit 300
+
   # 일일 작업 실패를 운영자가 알 수 있게 한다.
   # 기존에는 GitHub 기본 메일 외 알림이 없어 텔레메트리 정리·패치노트 동기화가
   # 며칠간 멈춰도 감지되지 않았다.
