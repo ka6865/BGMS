@@ -5,6 +5,7 @@ const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const patchVersion = process.env.PUBG_META_PATCH_VERSION?.trim() || "";
 const patchStartedAt = process.env.PUBG_META_PATCH_STARTED_AT || "";
+export const BURST_COMPARISON_MIN_MATCHES = 20;
 
 type MetaRow = {
   weapon_name: string;
@@ -24,6 +25,8 @@ type DailyTrendPoint = {
   player_match_count: number;
   weapon_pick_count: number;
   weapon_name: string;
+  weapon_category: string;
+  scope: "weapon" | "category";
 };
 
 function metric(row: MetaRow | undefined) {
@@ -35,8 +38,11 @@ function metric(row: MetaRow | undefined) {
     match_count: samples,
     pick_share: samples > 0 ? Number(((picks / samples) * 100).toFixed(1)) : 0,
     avg_damage: picks > 0 ? Math.round(damage / picks) : 0,
-    sustained_hits: Number(row?.sustained_hits || 0),
-    burst_available: Number(row?.burst_sample_count || 0) > 0,
+    sustained_hits: Number(row?.burst_sample_count || 0) > 0
+      ? Number((Number(row?.sustained_hits || 0) / Number(row?.burst_sample_count || 1)).toFixed(2))
+      : 0,
+    burst_sample_count: Number(row?.burst_sample_count || 0),
+    burst_available: Number(row?.burst_sample_count || 0) >= BURST_COMPARISON_MIN_MATCHES,
     kill_efficiency: damage > 0 ? Number(((killsAndDbnos * 1000) / damage).toFixed(1)) : 0,
   };
 }
@@ -48,7 +54,7 @@ function buildDailyWeaponTrend(rows: Array<{
   active_pick: boolean;
 }>): DailyTrendPoint[] {
   const totalMatchesByDate = new Map<string, Set<string>>();
-  const days = new Map<string, { weaponMatches: Set<string>; weaponName: string }>();
+  const days = new Map<string, { weaponMatches: Set<string>; weaponName: string; weaponCategory: string; scope: "weapon" | "category" }>();
   for (const row of rows as Array<typeof rows[number] & { match_id: string; platform: string; player_id: string }>) {
     const date = row.played_at.slice(0, 10);
     const key = `${date}:${row.weapon_name}`;
@@ -56,12 +62,22 @@ function buildDailyWeaponTrend(rows: Array<{
     const totalMatches = totalMatchesByDate.get(date) || new Set<string>();
     totalMatches.add(identity);
     totalMatchesByDate.set(date, totalMatches);
-    const current = days.get(key) || { weaponMatches: new Set<string>(), weaponName: row.weapon_name };
+    const current = days.get(key) || { weaponMatches: new Set<string>(), weaponName: row.weapon_name, weaponCategory: row.weapon_category, scope: "weapon" as const };
     if (row.active_pick) current.weaponMatches.add(identity);
     days.set(key, current);
+
+    const categoryKey = `${date}:category:${row.weapon_category}`;
+    const category = days.get(categoryKey) || { weaponMatches: new Set<string>(), weaponName: row.weapon_category, weaponCategory: row.weapon_category, scope: "category" as const };
+    if (row.active_pick) category.weaponMatches.add(identity);
+    days.set(categoryKey, category);
+
+    const allCategoryKey = `${date}:category:ALL`;
+    const allCategory = days.get(allCategoryKey) || { weaponMatches: new Set<string>(), weaponName: "ALL", weaponCategory: "ALL", scope: "category" as const };
+    if (row.active_pick) allCategory.weaponMatches.add(identity);
+    days.set(allCategoryKey, allCategory);
   }
   return Array.from(days.entries())
-    .map(([key, values]) => ({ date: key.slice(0, 10), player_match_count: totalMatchesByDate.get(key.slice(0, 10))?.size || 0, weapon_pick_count: values.weaponMatches.size, weapon_name: values.weaponName }))
+    .map(([key, values]) => ({ date: key.slice(0, 10), player_match_count: totalMatchesByDate.get(key.slice(0, 10))?.size || 0, weapon_pick_count: values.weaponMatches.size, weapon_name: values.weaponName, weapon_category: values.weaponCategory, scope: values.scope }))
     .sort((left, right) => left.date.localeCompare(right.date));
 }
 

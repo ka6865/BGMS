@@ -9,4 +9,9 @@ describe("GET /api/pubg/meta", () => {
     expect(json.weapons).toEqual([]);
     expect(json.status).toBe("not_configured");
   });
+
+  it("exports the minimum burst sample threshold used to withhold sparse comparisons", async () => {
+    const routeExports = await import("../app/api/pubg/meta/route");
+    expect(routeExports.BURST_COMPARISON_MIN_MATCHES).toBe(20);
+  });
 });
