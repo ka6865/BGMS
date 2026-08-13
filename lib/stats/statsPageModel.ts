@@ -62,6 +62,7 @@ export function classifyMatchMode(input: StatsMatchModeMeta): StatsMatchClassifi
   }
   if (isCasualMatch(input)) return "casual";
   if (!matchType || matchType === "unknown") return "unknown";
+  if (matchType === "unavailable") return "unavailable";
 
   return "normal";
 }

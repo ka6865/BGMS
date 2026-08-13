@@ -17,4 +17,13 @@
       content.indexOf("- name: Run User Matches Sync"),
     );
   });
+
+  it("runs match type backfill in a separate job after all normal maintenance", () => {
+    const yamlPath = join(process.cwd(), ".github/workflows/daily-tasks.yml");
+    const content = readFileSync(yamlPath, "utf-8");
+
+    expect(content).toContain("match-type-backfill:");
+    expect(content).toContain("needs: [board-write-quota-cleanup, maintenance]");
+    expect(content).toContain("backfill_unknown_match_types.ts --limit 300");
+  });
 });
