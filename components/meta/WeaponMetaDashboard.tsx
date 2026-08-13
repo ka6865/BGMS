@@ -129,16 +129,16 @@ export default function WeaponMetaDashboard() {
     : weapons.filter((w) => w.weapon_category === filterCategory);
 
   return (
-    <div className="space-y-6 rounded-2xl border border-white/10 bg-[#161616] p-6 text-white shadow-xl">
+    <div className="space-y-4 rounded-2xl border border-white/10 bg-[#161616] p-3 text-white shadow-xl sm:space-y-6 sm:p-6">
       {/* 헤더 */}
-      <div className="flex items-center justify-between border-b border-white/10 pb-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400">
+      <div className="flex min-w-0 items-start justify-between gap-3 border-b border-white/10 pb-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-500/20 text-indigo-400">
             <Layers className="h-5 w-5" />
           </div>
-          <div>
-            <h2 className="text-lg font-black tracking-tight text-white">PUBG {data?.patchVersion || "-"} 패치 전후 총기 메타 검증 리포트</h2>
-            <p className="text-xs text-zinc-400">전적 검색과 벤치마커 분석 경기 기준입니다. 전체 PUBG 유저 통계는 아닙니다.</p>
+          <div className="min-w-0">
+            <h2 className="break-words text-base font-black leading-snug tracking-tight text-white sm:text-lg">PUBG {data?.patchVersion || "-"} 패치 전후 총기 메타 검증 리포트</h2>
+            <p className="mt-1 break-words text-[11px] text-zinc-400 sm:text-xs">전적 검색과 벤치마커 분석 경기 기준입니다. 전체 PUBG 유저 통계는 아닙니다.</p>
           </div>
         </div>
       </div>
@@ -149,7 +149,7 @@ export default function WeaponMetaDashboard() {
         ))}
       </div>
 
-      {dailyWeaponTrend.length > 0 && <section className="rounded-xl border border-white/10 bg-black/20 p-4">
+      {dailyWeaponTrend.length > 0 && <section className="weapon-meta-chart rounded-xl border border-white/10 bg-black/20 p-3 sm:p-4" style={{ touchAction: "pan-y" }}>
         <div className="mb-3">
           <h3 className="text-sm font-black text-white">총기별 일별 채용률 추세</h3>
           <p className="mt-1 text-[11px] text-zinc-500">카테고리 전체 또는 선택한 총기로 유효 대인 딜을 낸 경기 비율입니다. 툴팁에서 일별 표본 수를 확인하세요.</p>
@@ -273,7 +273,7 @@ export default function WeaponMetaDashboard() {
       </div>
 
       {/* 1:1 비교 표 */}
-      <div className="overflow-x-auto rounded-xl border border-white/10 bg-black/20">
+      <div className="weapon-meta-scroll overflow-x-auto rounded-xl border border-white/10 bg-black/20" style={{ touchAction: "pan-x pan-y", WebkitOverflowScrolling: "touch" }}>
         <table className="w-full text-left text-xs">
           <thead className="border-b border-white/10 bg-white/5 font-black uppercase text-zinc-400">
             <tr>

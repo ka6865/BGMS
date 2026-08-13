@@ -73,4 +73,17 @@ describe("WeaponMetaDashboard component code quality", () => {
     expect(code).toContain('domain={[0, 100]}');
     expect(code).toContain('left: 8');
   });
+
+  it("does not create a nested page scroller and keeps mobile meta gestures scrollable", () => {
+    const weaponsPage = readFileSync("app/weapons/WeaponsClient.tsx", "utf8");
+    const code = readFileSync("components/meta/WeaponMetaDashboard.tsx", "utf8");
+    const globals = readFileSync("app/globals.css", "utf8");
+
+    expect(weaponsPage).not.toContain("overflow-y-auto w-full safe-top safe-bottom");
+    expect(code).toContain("weapon-meta-scroll");
+    expect(code).toContain('touchAction: "pan-y"');
+    expect(globals).toContain(".weapon-meta-scroll");
+    expect(globals).toContain(".weapon-meta-scroll *");
+    expect(globals).toContain(".weapon-meta-chart *");
+  });
 });
