@@ -34,7 +34,8 @@ export async function fetchAndIngestBasicMatchSummary(
   matchId: string,
   nickname: string,
   platform: string,
-  apiKey: string
+  apiKey: string,
+  onResponseStatus?: (status: number) => void,
 ): Promise<PlayerMatchRecord | null> {
   const normPlatform = normalizePlatform(platform);
   const playerId = normalizeName(nickname);
@@ -48,7 +49,10 @@ export async function fetchAndIngestBasicMatchSummary(
       }
     );
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      onResponseStatus?.(res.status);
+      return null;
+    }
 
     const data = await res.json();
     const matchAttr = data.data?.attributes || {};
