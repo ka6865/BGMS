@@ -16,6 +16,10 @@ dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
    }
    return { limit: 15 };
  }
+
+export function shouldStopSyncAfterStatus(status: number): boolean {
+  return status === 429;
+}
  
 export async function main() {
   const { limit } = parseSyncScriptArgs(process.argv.slice(2));
@@ -55,6 +59,10 @@ export async function main() {
 
       if (!playerRes.ok) {
         console.warn(`    PUBG API ${playerRes.status} for ${user.nickname}`);
+        if (shouldStopSyncAfterStatus(playerRes.status)) {
+          console.warn("    API rate limit reached. Stopping lower-priority user match sync.");
+          break;
+        }
         continue;
       }
 
@@ -86,21 +94,28 @@ export async function main() {
 
       console.log(`    ${newMatchIds.length} new match(es) to ingest (of ${apiMatchIds.length})`);
 
-      // 신규 매치만 수집 (병렬 처리, 최대 3개 동시)
+      // 일일 벤치마커 수집 뒤에 실행되는 저우선 작업이다. PUBG API 한도를 보호하기 위해 한 번에 한 매치만 요청한다.
       let ingested = 0;
-      for (let i = 0; i < newMatchIds.length; i += 3) {
-        const batch = newMatchIds.slice(i, i + 3);
-        const results = await Promise.all(
-          batch.map((matchId) =>
-            fetchAndIngestBasicMatchSummary(supabase, matchId, user.nickname, platform, apiKey)
-          )
+      let rateLimited = false;
+      for (const matchId of newMatchIds) {
+        const record = await fetchAndIngestBasicMatchSummary(
+          supabase,
+          matchId,
+          user.nickname,
+          platform,
+          apiKey,
+          (status) => { rateLimited = shouldStopSyncAfterStatus(status); },
         );
-        ingested += results.filter(Boolean).length;
-        // rate limit 여유
-        if (i + 3 < newMatchIds.length) await new Promise((r) => setTimeout(r, 500));
+        if (record) ingested += 1;
+        if (rateLimited) {
+          console.warn("    API rate limit reached while ingesting matches. Stopping lower-priority user match sync.");
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
       }
 
       console.log(`    ingested ${ingested}/${newMatchIds.length}`);
+      if (rateLimited) break;
     } catch (err: any) {
       console.warn(`    error: ${err.message}`);
     }

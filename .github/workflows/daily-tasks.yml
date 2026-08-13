@@ -167,14 +167,6 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/cleanup_analytics_events.ts
 
-      - name: Run User Matches Sync
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
-        env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
-        run: npx tsx scripts/sync_user_matches.ts --limit 15
-
       # match_stats_raw 는 매치당 참가자 전원을 저장하던 이력 때문에 8일치가 180MB 까지 자랐다.
       # 저장 범위 축소(2026-08-01 배포) 이후 신규 유입은 줄었지만, 분석 표본도 승자도 아닌 행은
       # 계속 발생하므로 일일 정리로 편성한다. RPC 가 배치 삭제를 수행하고 멱등하다.
@@ -291,6 +283,16 @@ jobs:
           MAINTENANCE_STATUS: ${{ job.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: npx tsx scripts/send_daily_storage_report.ts
+
+      # 벤치마커·블루존 수집이 먼저 PUBG API 예산을 사용한다.
+      # 사용자 전적 자동 갱신은 다음 날 재시도해도 되므로 핫드랍 직전의 저우선 작업으로 둔다.
+      - name: Run User Matches Sync
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
+        run: npx tsx scripts/sync_user_matches.ts --limit 15
 
       - name: Run Hotdrop Collection
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
