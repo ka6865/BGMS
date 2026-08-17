@@ -22,6 +22,9 @@ export interface StatsBucket {
   deaths?: number;
   losses?: number;
   wins: number;
+  avgRank?: number;
+  bestTier?: { tier?: string; subTier?: string | number };
+  bestRankPoint?: number;
   top10s?: number;
   top10Ratio?: number;
   damageDealt: number;
@@ -68,6 +71,10 @@ export type StatsOverviewMetrics =
       kda: string;
       averageDamage: string;
       top10Rate: string;
+      kills: number;
+      assists: number;
+      dbnos: number;
+      averageRank: string;
       preferredMode: StatsPartySize;
     };
 
@@ -89,6 +96,9 @@ export type StatsSeasonSummaryMetrics =
       tier?: string;
       subTier?: string | number;
       rankPoint?: number;
+      bestTier?: string;
+      bestSubTier?: string | number;
+      bestRankPoint?: number;
       roundsPlayed: number;
       wins: number;
       winRate: string;
@@ -98,4 +108,8 @@ export type StatsSeasonSummaryMetrics =
       averageDamage: string;
       averageSurvival: string;
       headshotRate: string;
+      kills: number;
+      assists: number;
+      dbnos: number;
+      averageRank: string;
     };

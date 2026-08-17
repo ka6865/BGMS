@@ -63,11 +63,29 @@ const player: PlayerStatsResponse = {
   ],
   stats: {
     ranked: {
-      squad: bucket({ currentTier: { tier: "Gold", subTier: 3 }, currentRankPoint: 2450 }),
+      squad: bucket({
+        currentTier: { tier: "Gold", subTier: 3 },
+        currentRankPoint: 2450,
+        bestTier: { tier: "Platinum", subTier: 4 },
+        bestRankPoint: 2780,
+        avgRank: 6.25,
+      }),
       duo: bucket({ currentTier: { tier: "Master", subTier: 1 }, currentRankPoint: 4000 }),
       solo: bucket({ currentTier: { tier: "Diamond", subTier: 2 }, currentRankPoint: 3200 }),
     },
-    normal: {},
+    normal: {
+      squad: bucket({
+        roundsPlayed: 8,
+        kills: 12,
+        assists: 5,
+        wins: 1,
+        top10Ratio: 0.5,
+        damageDealt: 1600,
+        dBNOs: 6,
+        timeSurvived: 7200,
+        headshotKills: 2,
+      }),
+    },
   },
   recentMatches: [],
   clan: { id: "clan-1", name: "Fixture Clan", tag: "FC", level: 7, memberCount: 42 },
@@ -123,6 +141,7 @@ describe("PlayerProfileHeader", () => {
     expect(screen.getAllByText("현재 랭크")).toHaveLength(1);
     expect(screen.getByText("Gold 3")).toBeInTheDocument();
     expect(screen.getByText("2450 RP")).toBeInTheDocument();
+    expect(screen.getByText(/최고 Platinum 4/)).toHaveTextContent("2780 RP");
     expect(screen.getByRole("img", { name: "Gold 3 티어 아이콘" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "현재 시즌 경쟁전 스쿼드 요약" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Season 2" })).toBeInTheDocument();
@@ -293,6 +312,31 @@ describe("PlayerProfileHeader", () => {
     expect(onPartySizeChange).toHaveBeenCalledWith("duo");
     expect(onStatsModeChange).toHaveBeenCalledWith("normal");
     expect(within(filter).getByRole("button", { name: "스쿼드" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("일반전에서는 랭크 블록 대신 일반전 성적을 표시한다", () => {
+    render(createElement(PlayerProfileHeader, {
+      player,
+      seasonId: player.seasonId,
+      statsMode: "normal",
+      partySize: "squad",
+      onStatsModeChange: vi.fn(),
+      onPartySizeChange: vi.fn(),
+      refreshing: false,
+      isRefreshCoolingDown: false,
+      favorite: false,
+      onSeasonChange: vi.fn(),
+      onRefresh: vi.fn(),
+      onFavoriteToggle: vi.fn(),
+      onCompare: vi.fn(),
+      onWeapons: vi.fn(),
+    }));
+
+    const summary = screen.getByRole("region", { name: "현재 시즌 일반전 스쿼드 요약" });
+    expect(within(summary).getByText("일반전 성적")).toBeInTheDocument();
+    expect(within(summary).getByText("랭크 티어 미적용")).toBeInTheDocument();
+    expect(within(summary).queryByText("현재 랭크")).not.toBeInTheDocument();
+    expect(within(summary).queryByText("Gold 3")).not.toBeInTheDocument();
   });
 
   it("갱신 쿨다운이면 header refresh만 차단한다", () => {

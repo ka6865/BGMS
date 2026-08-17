@@ -36,28 +36,26 @@ vi.mock("@/components/stat/profile/PlayerProfileHeader", () => ({
   PlayerProfileHeader: ({
     onSeasonChange,
     onRefresh,
+    onStatsModeChange,
+    onPartySizeChange,
   }: {
     onSeasonChange(value: string): void;
     onRefresh(): void;
+    onStatsModeChange(value: "ranked" | "normal"): void;
+    onPartySizeChange(value: "solo" | "duo" | "squad"): void;
   }) => createElement("div", { "data-testid": "profile-header" },
     createElement("button", { type: "button", onClick: () => onSeasonChange("season-next") }, "season-next"),
     createElement("button", { type: "button", onClick: onRefresh }, "refresh-player"),
+    createElement("button", { type: "button", onClick: () => onStatsModeChange("normal") }, "일반전 통계"),
+    createElement("button", { type: "button", onClick: () => onPartySizeChange("solo") }, "솔로 통계"),
   ),
 }));
 vi.mock("@/components/stat/StatSummaryPanel", () => ({
-  StatSummaryPanel: ({
-    aiSummary,
-    onModeChange,
-    onPartySizeChange,
-  }: {
+  StatSummaryPanel: ({ aiSummary }: {
     aiSummary?: { verdict: string } | null;
-    onModeChange(value: "ranked" | "normal"): void;
-    onPartySizeChange(value: "solo" | "duo" | "squad"): void;
   }) =>
     createElement("aside", { "data-testid": "summary-panel" },
       aiSummary?.verdict ?? "summary-empty",
-      createElement("button", { type: "button", onClick: () => onModeChange("normal") }, "일반전 통계"),
-      createElement("button", { type: "button", onClick: () => onPartySizeChange("solo") }, "솔로 통계"),
     ),
 }));
 vi.mock("@/components/stat/matches/MatchFeed", () => ({

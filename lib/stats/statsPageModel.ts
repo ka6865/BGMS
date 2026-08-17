@@ -125,6 +125,10 @@ export function getStatsOverviewMetrics(player: PlayerStatsResponse): StatsOverv
     kda: ((bucket.kills + bucket.assists) / (deaths || 1)).toFixed(2),
     averageDamage: (bucket.damageDealt / bucket.roundsPlayed).toFixed(0),
     top10Rate: `${top10Rate.toFixed(1)}%`,
+    kills: bucket.kills,
+    assists: bucket.assists,
+    dbnos: bucket.dBNOs,
+    averageRank: bucket.avgRank != null && bucket.avgRank > 0 ? bucket.avgRank.toFixed(1) : "—",
     preferredMode: partySize,
   };
 }
@@ -200,6 +204,9 @@ export function getCurrentSeasonSummary(
     tier: bucket.currentTier?.tier?.trim() || undefined,
     subTier: bucket.currentTier?.subTier,
     rankPoint: bucket.currentRankPoint,
+    bestTier: bucket.bestTier?.tier?.trim() || undefined,
+    bestSubTier: bucket.bestTier?.subTier,
+    bestRankPoint: bucket.bestRankPoint,
     roundsPlayed,
     wins: bucket.wins,
     winRate: `${((bucket.wins / roundsPlayed) * 100).toFixed(1)}%`,
@@ -216,5 +223,9 @@ export function getCurrentSeasonSummary(
       roundsPlayed,
     ),
     headshotRate: headshotRate == null ? "—" : `${headshotRate.toFixed(1)}%`,
+    kills: bucket.kills,
+    assists: bucket.assists,
+    dbnos: bucket.dBNOs,
+    averageRank: bucket.avgRank != null && bucket.avgRank > 0 ? bucket.avgRank.toFixed(1) : "—",
   };
 }

@@ -401,8 +401,6 @@ export function StatsPageShell({
                     partySize={partySize}
                     aiSummary={aiSummary}
                     aiExpanded={aiExpanded}
-                    onModeChange={setStatsMode}
-                    onPartySizeChange={setPartySize}
                     onAiToggle={handleAiToggle}
                   />
                 </aside>

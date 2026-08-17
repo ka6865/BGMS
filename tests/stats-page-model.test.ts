@@ -65,6 +65,10 @@ describe("stats page primitives", () => {
       kda: "3.20",
       averageDamage: "300",
       top10Rate: "50.0%",
+      kills: 24,
+      assists: 8,
+      dbnos: 20,
+      averageRank: "—",
       preferredMode: "squad",
     });
   });

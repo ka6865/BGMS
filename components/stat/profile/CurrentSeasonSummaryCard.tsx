@@ -159,26 +159,45 @@ export function CurrentSeasonSummaryCard({
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-[minmax(180px,0.78fr)_minmax(0,1.7fr)] md:p-5">
-            <div className="flex min-w-0 items-center gap-3 rounded-xl border border-amber-400/10 bg-amber-400/[0.04] p-3">
-              {summary.tier ? (
-                <img
-                  src={getTierIconPath(summary.tier, summary.subTier)}
-                  alt={`${rankLabel(summary)} 티어 아이콘`}
-                  className="h-16 w-16 shrink-0 object-contain md:h-20 md:w-20"
-                />
-              ) : (
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-white/5 text-white/25 md:h-20 md:w-20">
-                  <Trophy size={28} aria-hidden="true" />
-                </div>
-              )}
-              <div className="min-w-0">
-                <div className="text-[10px] font-black uppercase tracking-wider text-white/40">현재 랭크</div>
-                <div className="mt-1 truncate text-xl font-black text-amber-300">{rankLabel(summary)}</div>
-                <div className="mt-1 text-sm font-black tabular-nums text-white/80">
-                  {summary.rankPoint != null ? `${summary.rankPoint} RP` : "RP —"}
+            {summary.mode === "ranked" ? (
+              <div className="flex min-w-0 items-center gap-3 rounded-xl border border-amber-400/10 bg-amber-400/[0.04] p-3">
+                {summary.tier ? (
+                  <img
+                    src={getTierIconPath(summary.tier, summary.subTier)}
+                    alt={`${rankLabel(summary)} 티어 아이콘`}
+                    className="h-16 w-16 shrink-0 object-contain md:h-20 md:w-20"
+                  />
+                ) : (
+                  <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-white/5 text-white/25 md:h-20 md:w-20">
+                    <Trophy size={28} aria-hidden="true" />
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-white/40">현재 랭크</div>
+                  <div className="mt-1 truncate text-xl font-black text-amber-300">{rankLabel(summary)}</div>
+                  <div className="mt-1 text-sm font-black tabular-nums text-white/80">
+                    {summary.rankPoint != null ? `${summary.rankPoint} RP` : "RP —"}
+                  </div>
+                  {(summary.bestTier || summary.bestRankPoint != null) && (
+                    <div className="mt-1 truncate text-[10px] font-bold text-white/45">
+                      {summary.bestTier && `최고 ${summary.bestTier}${summary.bestSubTier != null ? ` ${summary.bestSubTier}` : ""}`}
+                      {summary.bestRankPoint != null && ` · ${summary.bestRankPoint} RP`}
+                    </div>
+                  )}
                 </div>
               </div>
-            </div>
+            ) : (
+              <div className="flex min-w-0 items-center gap-3 rounded-xl border border-sky-400/10 bg-sky-400/[0.04] p-3">
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-sky-400/10 text-sky-200 md:h-20 md:w-20">
+                  <BarChart3 size={28} aria-hidden="true" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-[10px] font-black uppercase tracking-wider text-white/40">일반전 성적</div>
+                  <div className="mt-1 text-xl font-black text-sky-200">{summary.roundsPlayed}경기</div>
+                  <div className="mt-1 text-[10px] font-bold text-white/45">랭크 티어 미적용</div>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
               <Metric icon={<BarChart3 size={12} aria-hidden="true" />} label="경기" value={summary.roundsPlayed} />

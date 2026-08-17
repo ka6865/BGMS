@@ -1,7 +1,6 @@
 "use client";
 
 import type { AiSummarySnapshot } from "@/components/stat/RecentAISummary";
-import { StatsOverviewControls } from "@/components/stat/overview/StatsOverviewControls";
 import { StatsOverviewRail } from "@/components/stat/overview/StatsOverviewRail";
 import type {
   PlayerStatsResponse,
@@ -16,8 +15,6 @@ export interface StatSummaryPanelProps {
   partySize: StatsPartySize;
   aiSummary: AiSummarySnapshot | null;
   aiExpanded: boolean;
-  onModeChange(value: StatsMode): void;
-  onPartySizeChange(value: StatsPartySize): void;
   onAiToggle(): void;
 }
 
@@ -39,6 +36,10 @@ function getSelectedOverviewMetrics(
     kda: ((bucket.kills + bucket.assists) / (deaths || 1)).toFixed(2),
     averageDamage: (bucket.damageDealt / bucket.roundsPlayed).toFixed(0),
     top10Rate: `${top10.toFixed(1)}%`,
+    kills: bucket.kills,
+    assists: bucket.assists,
+    dbnos: bucket.dBNOs,
+    averageRank: bucket.avgRank != null && bucket.avgRank > 0 ? bucket.avgRank.toFixed(1) : "—",
     preferredMode: partySize,
   };
 }
@@ -49,19 +50,11 @@ export function StatSummaryPanel({
   partySize,
   aiSummary,
   aiExpanded,
-  onModeChange,
-  onPartySizeChange,
   onAiToggle,
 }: StatSummaryPanelProps) {
   const metrics = getSelectedOverviewMetrics(stats, mode, partySize);
   return (
     <div className="flex w-full flex-col gap-3 lg:w-[320px] lg:shrink-0">
-      <StatsOverviewControls
-        mode={mode}
-        partySize={partySize}
-        onModeChange={onModeChange}
-        onPartySizeChange={onPartySizeChange}
-      />
       <StatsOverviewRail
         metrics={metrics}
         aiSummary={aiSummary}
