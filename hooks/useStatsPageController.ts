@@ -64,6 +64,7 @@ export interface StatsPageController {
   summaryStatus: "idle" | "loading" | "ready" | "error";
   matchIds: readonly string[];
   historyStatus: StatsHistoryStatus;
+  historyLoaded: boolean;
   hasMoreHistory: boolean;
   setPlatform(value: StatsPlatform): void;
   setNickname(value: string): void;
@@ -165,6 +166,7 @@ export function useStatsPageController(
   const [summaryStatus, setSummaryStatus] = useState<StatsPageController["summaryStatus"]>("idle");
   const [historyMatches, setHistoryMatches] = useState<PlayerMatchRecord[]>([]);
   const [historyStatus, setHistoryStatus] = useState<StatsHistoryStatus>("idle");
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [hasMoreHistory, setHasMoreHistory] = useState(false);
 
   const platformRef = useRef(platform);
@@ -253,6 +255,7 @@ export function useStatsPageController(
     historyCursorRef.current = null;
     setHistoryMatches([]);
     setHistoryStatus("idle");
+    setHistoryLoaded(false);
     setHasMoreHistory(false);
     setMatchSummaries({});
     setMissingMatchIds(new Set());
@@ -496,6 +499,7 @@ export function useStatsPageController(
       historyMatchesRef.current = merged;
       historyCursorRef.current = data.nextCursor ?? null;
       setHistoryMatches(merged);
+      setHistoryLoaded(true);
       setHasMoreHistory(Boolean(data.nextCursor));
       setHistoryStatus("ready");
       return incoming;
@@ -509,6 +513,7 @@ export function useStatsPageController(
   }, []);
 
   const loadSummaries = useCallback((player: PlayerStatsResponse): Promise<void> => {
+    const matchIds = player.recentMatches.slice(0, 20);
     summaryRequestRef.current?.controller.abort();
     const controller = new AbortController();
     const requestId = ++summaryRequestIdRef.current;
@@ -516,34 +521,23 @@ export function useStatsPageController(
     clearPartial("summary_batch_failed", "summary-batch");
     clearPartial("summary_missing", "summary-batch");
 
+    if (!matchIds.length) {
+      setMatchSummaries({});
+      setMissingMatchIds(new Set());
+      setMatchModeMeta({});
+      setSummaryStatus("idle");
+      return Promise.resolve();
+    }
+
     setSummaryStatus("loading");
+    const stale = () => requestId !== summaryRequestIdRef.current || controller.signal.aborted;
     return (async () => {
-      const initialHistory = await loadHistoryPage(player, null, true);
-      const basicSummaries = Object.fromEntries(
-        initialHistory.map((record) => [record.match_id, buildBasicMatchSummary(record)]),
-      );
-      const matchIds = [...new Set([
-        ...player.recentMatches.slice(0, 20),
-        ...initialHistory.map((record) => record.match_id),
-      ])];
-      const summaryMatchIds = player.recentMatches.slice(0, 20);
-
-      if (!matchIds.length) {
-        setMatchSummaries({});
-        setMissingMatchIds(new Set());
-        setMatchModeMeta({});
-        setSummaryStatus("idle");
-        return;
-      }
-
-      const stale = () => requestId !== summaryRequestIdRef.current || controller.signal.aborted;
-      if (stale()) return;
       try {
         const response = await fetch("/api/pubg/matches-summary", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            matchIds: summaryMatchIds,
+            matchIds,
             nickname: player.nickname,
             platform: player.platform,
           }),
@@ -557,15 +551,8 @@ export function useStatsPageController(
         if (!response.ok) throw new Error("최근 매치 요약을 불러오지 못했습니다.");
 
         const summaries = data.summaries ?? {};
-        const missingIds = new Set((data.missingMatchIds ?? []).filter((matchId) => !basicSummaries[matchId]));
+        const missingIds = new Set(data.missingMatchIds ?? []);
         const nextModeMeta: Record<string, StatsMatchModeMeta> = {};
-        for (const record of initialHistory) {
-          nextModeMeta[record.match_id] = {
-            gameMode: record.game_mode,
-            matchType: record.match_type,
-            mapName: record.map_name,
-          };
-        }
         for (const [matchId, gameMode] of Object.entries(player.matchModes ?? {})) {
           nextModeMeta[matchId] = { gameMode };
         }
@@ -577,7 +564,7 @@ export function useStatsPageController(
             mapName: summary.mapName || summary.mapId || matchInfo?.mapId,
           };
         }
-        setMatchSummaries({ ...basicSummaries, ...summaries });
+        setMatchSummaries(summaries);
         setMissingMatchIds(missingIds);
         setMatchModeMeta(nextModeMeta);
         setSummaryStatus("ready");
@@ -586,18 +573,16 @@ export function useStatsPageController(
         else clearPartial("summary_missing", "summary-batch");
       } catch (caught) {
         if (stale() || isAbortError(caught)) return;
-        setMatchSummaries(basicSummaries);
-        setMissingMatchIds(new Set());
         setSummaryStatus("error");
         reportPartial("summary_batch_failed", "summary-batch");
       }
     })();
-  }, [clearPartial, loadHistoryPage, reportPartial]);
+  }, [clearPartial, reportPartial]);
 
   const loadMoreHistory = useCallback(async () => {
     const player = resultRef.current;
-    if (!player || !hasMoreHistory || historyStatus === "loading") return;
-    const incoming = await loadHistoryPage(player, historyCursorRef.current, false);
+    if (!player || historyStatus === "loading" || (historyLoaded && !hasMoreHistory)) return;
+    const incoming = await loadHistoryPage(player, historyCursorRef.current, !historyLoaded);
     if (!incoming.length) return;
 
     const basicSummaries = Object.fromEntries(
@@ -615,7 +600,7 @@ export function useStatsPageController(
       }
       return next;
     });
-  }, [hasMoreHistory, historyStatus, loadHistoryPage]);
+  }, [hasMoreHistory, historyLoaded, historyStatus, loadHistoryPage]);
 
   const retrySummaries = useCallback(async () => {
     if (!resultRef.current) return;
@@ -752,6 +737,7 @@ export function useStatsPageController(
     summaryStatus,
     matchIds,
     historyStatus,
+    historyLoaded,
     hasMoreHistory,
     setPlatform,
     setNickname,

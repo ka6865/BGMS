@@ -37,6 +37,7 @@ export interface MatchFeedProps {
   onFailure?(reason: Extract<StatsPartialReason, "detail_failed" | "analysis_failed">, sourceId: string): void;
   onRecovery?(reason: Extract<StatsPartialReason, "detail_failed" | "analysis_failed">, sourceId: string): void;
   historyStatus?: StatsHistoryStatus;
+  historyLoaded?: boolean;
   hasMoreHistory?: boolean;
   onLoadMore?(): void;
 }
@@ -85,6 +86,7 @@ export function MatchFeed({
   onFailure,
   onRecovery,
   historyStatus = "idle",
+  historyLoaded = false,
   hasMoreHistory = false,
   onLoadMore,
 }: MatchFeedProps) {
@@ -180,7 +182,7 @@ export function MatchFeed({
         </div>
       )}
 
-      {onLoadMore && hasMoreHistory && (
+      {onLoadMore && (!historyLoaded || hasMoreHistory) && (
         <div className="mt-4 flex flex-col items-center gap-2">
           <button
             type="button"
@@ -188,7 +190,13 @@ export function MatchFeed({
             disabled={historyStatus === "loading"}
             className="min-h-11 rounded-xl border border-white/10 bg-white/5 px-5 text-xs font-black text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-50"
           >
-            {historyStatus === "loading" ? "이전 전적 불러오는 중..." : historyStatus === "error" ? "이전 전적 다시 시도" : "이전 전적 더 보기"}
+            {historyStatus === "loading"
+              ? "전적 불러오는 중..."
+              : historyStatus === "error"
+                ? "전적 다시 시도"
+                : historyLoaded
+                  ? "이전 전적 더 보기"
+                  : "전체 전적 불러오기"}
           </button>
           <span className="text-[10px] font-bold text-white/35">저장된 전적을 20개씩 불러옵니다. 상세 분석은 펼칠 때 필요한 경우에만 요청됩니다.</span>
         </div>

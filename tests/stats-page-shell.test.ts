@@ -105,6 +105,7 @@ function controller(overrides: Partial<StatsPageController> = {}): StatsPageCont
     summaryStatus: "idle",
     matchIds: [],
     historyStatus: "idle",
+    historyLoaded: false,
     hasMoreHistory: false,
     setPlatform: vi.fn(),
     setNickname: vi.fn(),

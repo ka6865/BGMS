@@ -261,6 +261,10 @@ describe("useStatsPageController", () => {
       initialPlatform: "steam",
     }));
 
+    await waitFor(() => expect(result.current.result?.nickname).toBe("FixturePlayer"));
+    await act(async () => {
+      await result.current.loadMoreHistory();
+    });
     await waitFor(() => expect(result.current.hasMoreHistory).toBe(true));
     expect(result.current.matchIds).toContain("history-1");
     expect(result.current.matchSummaries["history-1"]?.isSummary).toBe(true);

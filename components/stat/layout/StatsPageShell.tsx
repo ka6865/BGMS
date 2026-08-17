@@ -80,6 +80,7 @@ export function StatsPageShell({
     summaryStatus,
     matchIds,
     historyStatus,
+    historyLoaded,
     hasMoreHistory,
     refreshAvailableAt,
     isRefreshCoolingDown: isCoolingDown,
@@ -419,6 +420,7 @@ export function StatsPageShell({
                     onFilterChange={setMatchTab}
                     onRetrySummaries={() => void retrySummaries()}
                     historyStatus={historyStatus}
+                    historyLoaded={historyLoaded}
                     hasMoreHistory={hasMoreHistory}
                     onLoadMore={() => void loadMoreHistory()}
                     onNicknameClick={(clickedName) => {
