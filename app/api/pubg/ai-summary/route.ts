@@ -10,7 +10,7 @@ import { getValidFullResult, normalizePlatform } from "@/lib/pubg-analysis/cache
 import { buildBackupCoachingContext } from "@/lib/pubg-analysis/backupCoaching";
 import { jsonrepair } from "jsonrepair";
 import { withAuthGuard } from "@/utils/supabase/guard";
-import { trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
+import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
 import { sanitizeAiCoachingLanguageText } from "@/lib/pubg-analysis/aiCoachingQuality";
 import crypto from "crypto";
 
@@ -321,18 +321,30 @@ function aggregateMatches(matches: any[]) {
 }
 
 export async function POST(request: Request) {
+  const requestId = crypto.randomUUID();
+  const startedAt = Date.now();
+  let authenticatedUserId: string | undefined;
+  let requestedPlatform = "steam";
   try {
     // 🔒 [보안] JWT 인증 가드 — 로그인된 사용자만 AI 요약 실행 허용 (Gemini API 비용 방어)
     const auth = await withAuthGuard();
     if (auth.error) return auth.error;
     const { supabaseAdmin: supabase } = auth;
+    authenticatedUserId = auth.user?.id;
 
     const { matchIds, nickname, platform = "steam", force = false } = await request.json();
+    requestedPlatform = String(platform || "steam");
     const lowerNickname = normalizeName(nickname);
     const cachePlatform = normalizePlatform(platform);
 
-    if (!Array.isArray(matchIds) || matchIds.length === 0) return NextResponse.json({ error: "No matches" }, { status: 400 });
-    if (!nickname) return NextResponse.json({ error: "Missing nickname" }, { status: 400 });
+    if (!Array.isArray(matchIds) || matchIds.length === 0) {
+      trackAiFailure(authenticatedUserId, "summary", "No matches", { errorCode: "invalid_input", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
+      return NextResponse.json({ error: "No matches" }, { status: 400 });
+    }
+    if (!nickname) {
+      trackAiFailure(authenticatedUserId, "summary", "Missing nickname", { errorCode: "invalid_input", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
+      return NextResponse.json({ error: "Missing nickname" }, { status: 400 });
+    }
 
     // 1. Compute matchIdsHash
     const normalizedMatchIds = matchIds
@@ -356,6 +368,11 @@ export async function POST(request: Request) {
           .maybeSingle();
 
         if (!cacheErr && cached && cached.ai_result) {
+          trackAiUsage(authenticatedUserId, "gemini-cache", 0, 0, "summary", {
+            durationMs: Date.now() - startedAt,
+            requestId,
+            platform: requestedPlatform,
+          });
           const cachedData = cached.ai_result as any;
           const sanitizedFinal = sanitizeAiCoachingLanguageText(String(cachedData.final || ""));
           const encoder = new TextEncoder();
@@ -375,7 +392,10 @@ export async function POST(request: Request) {
     }
 
     const geminiApiKey = process.env.GOOGLE_GEMINI_API_KEY;
-    if (!geminiApiKey) return NextResponse.json({ error: "No API Key" }, { status: 500 });
+    if (!geminiApiKey) {
+      trackAiFailure(authenticatedUserId, "summary", "No API Key", { errorCode: "configuration", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
+      return NextResponse.json({ error: "No API Key" }, { status: 500 });
+    }
 
     const { data: userBenchmarks } = await supabase
       .from("global_benchmarks")
@@ -964,7 +984,8 @@ export async function POST(request: Request) {
                   selectedModelName,
                   res.usageMetadata.promptTokenCount,
                   res.usageMetadata.candidatesTokenCount,
-                  "summary"
+                  "summary",
+                  { durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform },
                 );
               }
             }).catch((err: any) => console.error("[AI-SUMMARY] Usage fetch error:", err));
@@ -1011,6 +1032,11 @@ export async function POST(request: Request) {
           }
         } catch (e: any) {
           console.error("[AI-SUMMARY-STREAM-ERROR] Critical failure during stream generation:", e?.message || e);
+          trackAiFailure(authenticatedUserId, "summary", e, {
+            durationMs: Date.now() - startedAt,
+            requestId,
+            platform: requestedPlatform,
+          });
           try {
             // 실패 시 Fallback 데이터를 전송하여 UI 무한 대기 방지
             const fallback = sanitizeAiCoachingLanguageText(generateFallbackContent());
@@ -1033,6 +1059,11 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     console.error("[AI-SUMMARY] CRITICAL ERROR:", error.message || error);
+    trackAiFailure(authenticatedUserId, "summary", error, {
+      durationMs: Date.now() - startedAt,
+      requestId,
+      platform: requestedPlatform,
+    });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

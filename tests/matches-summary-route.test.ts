@@ -99,4 +99,10 @@ describe("matches-summary raw timestamp fallback", () => {
     expect(rawSelects[0].columns.split(",").map((column) => column.trim())).toContain("created_at");
     expect(rawSelects[1].columns.split(",").map((column) => column.trim())).toContain("created_at");
   });
+
+  it("요약 DB 조회에는 저장된 경기 종류를 포함한다", async () => {
+    await POST(request());
+    const playerMatchSelect = database.selects.find(({ table }) => table === "pubg_player_matches");
+    expect(playerMatchSelect?.columns.split(",").map((column) => column.trim())).toContain("match_type");
+  });
 });

@@ -527,7 +527,7 @@ export default function WeaponsPage() {
   );
 
   return (
-    <div className="min-h-screen bg-[#070a13] text-white p-4 sm:p-6 pb-20 overflow-y-auto w-full safe-top safe-bottom">
+    <div className="min-h-screen w-full bg-[#070a13] p-4 pb-20 text-white safe-top safe-bottom sm:p-6">
       <div className="relative max-w-[1200px] mx-auto w-full flex flex-col gap-6">
         
         {/* 헤더 */}

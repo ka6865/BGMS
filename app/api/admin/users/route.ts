@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
+import { buildAiObservability, getAiErrorLabel, type AiUsageObservationRow, type PubgErrorObservationRow } from "@/lib/admin-agent/ai-observability";
 
 const USERS_PAGE_SIZE = 1000;
 const PROFILES_PAGE_SIZE = 1000;
@@ -85,6 +86,13 @@ export interface UserActivity7D {
   topPages: Array<{ path: string; label: string; count: number }>;
   summaryBadges: string[];
   events: ActivityEventItem[];
+  aiRequests: number;
+  aiSuccessCount: number;
+  aiFailedCount: number;
+  aiSuccessRate: number;
+  aiCostUsd: number;
+  aiErrors: Array<{ code: string; label: string; count: number }>;
+  aiRecentErrors: Array<{ code: string; label: string; message: string; createdAt: string }>;
 }
 
 function formatEventLabel(eventName: string, pagePath: string | null, params: any): { label: string; details: string } {
@@ -155,10 +163,42 @@ export async function GET() {
       }
     };
 
-    const [profiles, users, analyticsRows] = await Promise.all([
+    const fetchRows = async <T,>(table: string, columns: string[], fallbackColumns?: string[]) => {
+      const load = async (selectedColumns: string[]) => {
+        const fromRes = adminContext.supabaseAdmin.from(table);
+        if (!fromRes || typeof fromRes.select !== "function") return { data: [], error: null };
+        const selectRes = fromRes.select(selectedColumns.join(", "));
+        if (!selectRes || typeof selectRes.gte !== "function") return { data: [], error: null };
+        const gteRes = selectRes.gte("created_at", since7d);
+        if (!gteRes || typeof gteRes.order !== "function") return { data: [], error: null };
+        const orderRes = gteRes.order("created_at", { ascending: false });
+        if (!orderRes || typeof orderRes.limit !== "function") return { data: [], error: null };
+        return orderRes.limit(10000);
+      };
+      try {
+        const result = await load(columns);
+        if (result?.error && fallbackColumns) {
+          const fallback = await load(fallbackColumns);
+          return (fallback?.data || []) as T[];
+        }
+        return (result?.data || []) as T[];
+      } catch {
+        if (!fallbackColumns) return [] as T[];
+        try {
+          const fallback = await load(fallbackColumns);
+          return (fallback?.data || []) as T[];
+        } catch {
+          return [] as T[];
+        }
+      }
+    };
+
+    const [profiles, users, analyticsRows, aiRows, pubgRows] = await Promise.all([
       listAllProfiles(adminContext.supabaseAdmin),
       listAllAuthUsers(adminContext.supabaseAdmin),
-      fetchAnalytics()
+      fetchAnalytics(),
+      fetchRows<AiUsageObservationRow>("ai_usage_logs", ["id", "user_id", "model_name", "prompt_tokens", "completion_tokens", "cost_usd", "analysis_type", "status", "error_code", "error_message", "duration_ms", "request_id", "platform", "created_at"], ["id", "user_id", "model_name", "prompt_tokens", "completion_tokens", "cost_usd", "analysis_type", "created_at"]),
+      fetchRows<PubgErrorObservationRow>("pubg_api_errors", ["id", "route", "status", "message", "error_code", "failure_stage", "duration_ms", "platform", "request_id", "created_at"], ["id", "route", "status", "message", "created_at"]),
     ]);
 
     const activityMap = new Map<string, {
@@ -167,6 +207,7 @@ export async function GET() {
       statsSearchCount: number;
       pageCounts: Map<string, number>;
       events: ActivityEventItem[];
+      aiRows: AiUsageObservationRow[];
     }>();
 
     const globalPageCounts = new Map<string, number>();
@@ -189,7 +230,8 @@ export async function GET() {
           lastEventAt: null,
           statsSearchCount: 0,
           pageCounts: new Map<string, number>(),
-          events: []
+          events: [],
+          aiRows: [],
         };
         activityMap.set(userId, userAct);
       }
@@ -218,6 +260,17 @@ export async function GET() {
           pagePath: row.page_path
         });
       }
+    }
+
+    for (const row of aiRows) {
+      if (!row.user_id) continue;
+      let userAct = activityMap.get(row.user_id);
+      if (!userAct) {
+        userAct = { totalEvents: 0, lastEventAt: null, statsSearchCount: 0, pageCounts: new Map(), events: [], aiRows: [] };
+        activityMap.set(row.user_id, userAct);
+      }
+      userAct.aiRows.push(row);
+      if (!userAct.lastEventAt || Date.parse(row.created_at) > Date.parse(userAct.lastEventAt)) userAct.lastEventAt = row.created_at;
     }
 
     const authUserIds = new Set(users.map(u => u.id));
@@ -252,6 +305,30 @@ export async function GET() {
         topPages,
         summaryBadges,
         events: userActRaw?.events || []
+        ,
+        aiRequests: userActRaw?.aiRows.length || 0,
+        aiSuccessCount: userActRaw?.aiRows.filter((row) => (row.status || "success") === "success").length || 0,
+        aiFailedCount: userActRaw?.aiRows.filter((row) => (row.status || "success") !== "success").length || 0,
+        aiSuccessRate: userActRaw?.aiRows.length
+          ? Number(((userActRaw.aiRows.filter((row) => (row.status || "success") === "success").length / userActRaw.aiRows.length) * 100).toFixed(1))
+          : 0,
+        aiCostUsd: Number((userActRaw?.aiRows.reduce((sum, row) => sum + Number(row.cost_usd || 0), 0) || 0).toFixed(6)),
+        aiErrors: Array.from(userActRaw?.aiRows.reduce((map, row) => {
+          if ((row.status || "success") === "success") return map;
+          const code = row.error_code || "unknown";
+          map.set(code, (map.get(code) || 0) + 1);
+          return map;
+        }, new Map<string, number>()).entries() || []).map(([code, count]) => ({ code, label: getAiErrorLabel(code), count })),
+        aiRecentErrors: (userActRaw?.aiRows || [])
+          .filter((row) => (row.status || "success") !== "success")
+          .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
+          .slice(0, 10)
+          .map((row) => ({
+            code: row.error_code || "unknown",
+            label: getAiErrorLabel(row.error_code),
+            message: row.error_message || getAiErrorLabel(row.error_code),
+            createdAt: row.created_at,
+          })),
       };
 
       if (profile) {
@@ -308,7 +385,14 @@ export async function GET() {
           statsSearchCount: 0,
           topPages: [],
           summaryBadges: [],
-          events: []
+          events: [],
+          aiRequests: 0,
+          aiSuccessCount: 0,
+          aiFailedCount: 0,
+          aiSuccessRate: 0,
+          aiCostUsd: 0,
+          aiErrors: [],
+          aiRecentErrors: [],
         }
       }));
 
@@ -342,6 +426,16 @@ export async function GET() {
       return last >= Date.parse(since7d);
     }).length;
 
+    const active24hCutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const active24hCount = usersWithConsistencyFlags.filter(u => {
+      const last = Math.max(
+        Date.parse(u.activity7d?.lastEventAt || "0") || 0,
+        Date.parse(u.last_active_at || "0") || 0,
+        Date.parse(u.last_sign_in_at || "0") || 0
+      );
+      return last >= active24hCutoff;
+    }).length;
+
     const topSearchUsers = [...usersWithConsistencyFlags]
       .filter(u => u.activity7d?.statsSearchCount > 0)
       .sort((a, b) => b.activity7d.statsSearchCount - a.activity7d.statsSearchCount)
@@ -372,9 +466,36 @@ export async function GET() {
       providers: Object.fromEntries(providerCounts)
     };
 
+    const observability = buildAiObservability(aiRows, pubgRows);
+    observability.windows.hours24.memberUsageRate = active24hCount
+      ? Number(((observability.windows.hours24.uniqueUsers / active24hCount) * 100).toFixed(1))
+      : 0;
+    observability.windows.days7.memberUsageRate = active7dCount
+      ? Number(((observability.windows.days7.uniqueUsers / active7dCount) * 100).toFixed(1))
+      : 0;
+    const aiUserCounts = new Map<string, number>();
+    for (const row of aiRows) if (row.user_id) aiUserCounts.set(row.user_id, (aiUserCounts.get(row.user_id) || 0) + 1);
+    const topAiUsers = Array.from(aiUserCounts.entries())
+      .map(([userId, count]) => ({
+        userId,
+        nickname: profileById.get(userId)?.nickname || `회원 ${userId.slice(0, 8)}`,
+        count,
+      }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+    const metricsWithAi = {
+      ...metrics,
+      topAiUsers,
+      ai24h: observability.windows.hours24,
+      ai7d: observability.windows.days7,
+      pubgApi24h: observability.pubgApi.hours24,
+      pubgApi7d: observability.pubgApi.days7,
+    };
+
     return NextResponse.json({
       accounts,
-      metrics,
+      metrics: metricsWithAi,
+      observability,
       users: usersWithConsistencyFlags
     });
   } catch (error: any) {

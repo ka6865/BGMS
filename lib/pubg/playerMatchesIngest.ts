@@ -8,6 +8,7 @@ export interface IngestParticipantInput {
   nickname: string;
   platform: string;
   createdAt: string;
+  matchType?: string;
   gameMode: string;
   mapName: string;
   kills: number;
@@ -25,7 +26,8 @@ export function buildPlayerMatchRecordFromParticipant(input: IngestParticipantIn
     map_name: input.mapName,
     kills: input.kills,
     damage: Math.floor(input.damage),
-    win_place: input.winPlace
+    win_place: input.winPlace,
+    match_type: input.matchType || "unknown",
   };
 }
 
@@ -34,7 +36,8 @@ export async function fetchAndIngestBasicMatchSummary(
   matchId: string,
   nickname: string,
   platform: string,
-  apiKey: string
+  apiKey: string,
+  onResponseStatus?: (status: number) => void,
 ): Promise<PlayerMatchRecord | null> {
   const normPlatform = normalizePlatform(platform);
   const playerId = normalizeName(nickname);
@@ -48,7 +51,10 @@ export async function fetchAndIngestBasicMatchSummary(
       }
     );
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      onResponseStatus?.(res.status);
+      return null;
+    }
 
     const data = await res.json();
     const matchAttr = data.data?.attributes || {};
@@ -68,10 +74,11 @@ export async function fetchAndIngestBasicMatchSummary(
       kills: stats.kills || 0,
       damage: Math.floor(stats.damageDealt || 0),
       win_place: stats.winPlace || 99,
+      match_type: String(matchAttr.matchType || "unknown").toLowerCase(),
     };
 
-    await upsertPlayerMatches(supabase, [record]);
-    return record;
+    const persisted = await upsertPlayerMatches(supabase, [record]);
+    return persisted ? record : null;
   } catch {
     return null;
   }

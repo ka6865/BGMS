@@ -1,30 +1,46 @@
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import { withAuthGuard } from "@/utils/supabase/guard";
-import { trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
+import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
 import { AI_CACHE_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { sanitizeBackupCoachingText } from "@/lib/pubg-analysis/backupCoaching";
 import { buildMatchAiCoachingPrompt } from "@/lib/pubg-analysis/matchAiCoachingPrompt";
 import { sanitizeAiCoachingLanguageText } from "@/lib/pubg-analysis/aiCoachingQuality";
+import crypto from "crypto";
 
 export async function POST(request: Request) {
+  const requestId = crypto.randomUUID();
+  const startedAt = Date.now();
+  let authenticatedUserId: string | undefined;
+  let requestedPlatform = "steam";
   try {
     // 🔒 [보안] JWT 인증 가드 — 로그인된 사용자만 AI 분석 실행 허용 (Gemini API 비용 방어)
     const auth = await withAuthGuard();
     if (auth.error) return auth.error;
     const { supabaseAdmin: supabase } = auth;
+    authenticatedUserId = auth.user?.id;
 
     const body = await request.json();
     const { matchData, nickname, platform = "steam", coachingStyle = "spicy" } = body;
+    requestedPlatform = String(platform || "steam");
 
     const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
-    if (!apiKey) return NextResponse.json({ error: "No API Key" }, { status: 500 });
-    if (!matchData || !nickname) return NextResponse.json({ error: "Missing data" }, { status: 400 });
+    if (!apiKey) {
+      trackAiFailure(authenticatedUserId, "analyze", "No API Key", { errorCode: "configuration", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
+      return NextResponse.json({ error: "No API Key" }, { status: 500 });
+    }
+    if (!matchData || !nickname) {
+      trackAiFailure(authenticatedUserId, "analyze", "Missing data", { errorCode: "invalid_input", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
+      return NextResponse.json({ error: "Missing data" }, { status: 400 });
+    }
 
     const matchId = matchData.matchId || matchData.match_id || matchData.id;
-    if (!matchId) return NextResponse.json({ error: "Missing matchId" }, { status: 400 });
+    if (!matchId) {
+      trackAiFailure(authenticatedUserId, "analyze", "Missing matchId", { errorCode: "invalid_input", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
+      return NextResponse.json({ error: "Missing matchId" }, { status: 400 });
+    }
     const playerId = normalizeName(nickname);
     const cachePlatform = normalizePlatform(platform);
 
@@ -41,6 +57,11 @@ export async function POST(request: Request) {
         .maybeSingle();
 
       if (!cacheErr && cached && cached.ai_result) {
+        trackAiUsage(authenticatedUserId, "gemini-cache", 0, 0, "analyze", {
+          durationMs: Date.now() - startedAt,
+          requestId,
+          platform: requestedPlatform,
+        });
         const cachedData = cached.ai_result as any;
         const cachedText = sanitizeAiCoachingLanguageText(String(cachedData.text || ""));
         const encoder = new TextEncoder();
@@ -126,7 +147,8 @@ export async function POST(request: Request) {
                   selectedModelName,
                   res.usageMetadata.promptTokenCount,
                   res.usageMetadata.candidatesTokenCount,
-                  "analyze"
+                  "analyze",
+                  { durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform },
                 );
               }
             }).catch((err: any) => console.error("[AI-ANALYZE] Usage fetch error:", err));
@@ -141,7 +163,8 @@ export async function POST(request: Request) {
                 selectedModelName,
                 nonStreamRes.response.usageMetadata.promptTokenCount,
                 nonStreamRes.response.usageMetadata.candidatesTokenCount,
-                "analyze"
+                "analyze",
+                { durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform },
               );
             }
           }
@@ -167,12 +190,24 @@ export async function POST(request: Request) {
           }
 
           controller.enqueue(encoder.encode(JSON.stringify({ type: "done" }) + "\n"));
-        } catch (e) { controller.error(e); } finally { controller.close(); }
+        } catch (e) {
+          trackAiFailure(authenticatedUserId, "analyze", e, {
+            durationMs: Date.now() - startedAt,
+            requestId,
+            platform: requestedPlatform,
+          });
+          controller.error(e);
+        } finally { controller.close(); }
       }
     });
 
     return new Response(stream, { headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-cache" } });
   } catch (error: any) {
+    trackAiFailure(authenticatedUserId, "analyze", error, {
+      durationMs: Date.now() - startedAt,
+      requestId,
+      platform: requestedPlatform,
+    });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

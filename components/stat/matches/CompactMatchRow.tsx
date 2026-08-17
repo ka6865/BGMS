@@ -38,6 +38,8 @@ const MODE_LABELS = {
   normal: "일반전",
   casual: "캐주얼",
   tdm: "팀 데스매치",
+  unknown: "확인 중",
+  unavailable: "확인 불가",
 } as const;
 
 function getStatus(summary: MatchSummaryData): { label: string; border: string } {
@@ -206,7 +208,9 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
               {MAP_NAMES[summary.mapName] ?? summary.mapName ?? "맵 정보 없음"}
             </strong>
             <span className={`shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-black ${
-              mode === "casual"
+              mode === "unknown" || mode === "unavailable"
+                ? "border-sky-500/30 bg-sky-500/15 text-sky-200"
+                : mode === "casual"
                 ? "border-purple-500/30 bg-purple-500/15 text-purple-300"
                 : mode === "ranked"
                 ? "border-amber-500/30 bg-amber-500/15 text-amber-300"

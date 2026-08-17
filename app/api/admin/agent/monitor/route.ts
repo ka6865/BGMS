@@ -362,6 +362,65 @@ function buildRecommendations(alerts: MonitorAlert[], dailyCheckout?: { status: 
   ];
 }
 
+function monitorSeverityLabel(severity: MonitorSeverity): string {
+  if (severity === "critical") return "🚨 긴급";
+  if (severity === "warn") return "⚠️ 주의";
+  return "✅ 정상";
+}
+
+function cleanDiscordLine(value: unknown, fallback = "내용 없음"): string {
+  const line = String(value ?? "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return (line || fallback).slice(0, 280);
+}
+
+function buildMonitorDiscordContent(snapshot: any): string {
+  const severity = (snapshot.severity || "warn") as MonitorSeverity;
+  const alerts = Array.isArray(snapshot.alerts) ? snapshot.alerts.slice(0, 6) : [];
+  const checkout = snapshot.dailyCheckout;
+  const ownerBrief = snapshot.ownerBrief;
+  const topAction = snapshot.nextActions?.[0];
+  const gateBlockCount = snapshot.approvalGateSummary?.blockCount;
+  const lines = alerts.map((alert: MonitorAlert) => (
+    `- ${monitorSeverityLabel(alert.severity)}: ${cleanDiscordLine(alert.message)}`
+  ));
+
+  return [
+    `**BGMS 운영 점검 알림 · ${monitorSeverityLabel(severity)}**`,
+    "",
+    "**현재 문제**",
+    ...(lines.length ? lines : ["- 감지된 운영 경고가 없습니다."]),
+    ...(checkout ? [
+      "",
+      `**마감 상태**: ${cleanDiscordLine(checkout.label || checkout.status)} (${checkout.score ?? "-"}/100)`,
+      checkout.summary ? `- ${cleanDiscordLine(checkout.summary)}` : "",
+    ] : []),
+    ...(ownerBrief ? [
+      "",
+      `**운영 요약**: ${cleanDiscordLine(ownerBrief.headline)}`,
+      ownerBrief.doNow?.prompt ? `- 지금 할 일: ${cleanDiscordLine(ownerBrief.doNow.prompt)}` : "",
+    ] : []),
+    ...(typeof gateBlockCount === "number" ? [
+      "",
+      `**승인 차단**: ${gateBlockCount}건 (대상과 영향 확인 전에는 승인하지 마세요.)`,
+    ] : []),
+    ...(topAction ? [
+      "",
+      "**다음 조치**",
+      `- ${cleanDiscordLine(topAction.title)}`,
+      topAction.prompt ? `- ${cleanDiscordLine(topAction.prompt)}` : "",
+    ] : []),
+    ...(snapshot.playbooks?.length ? [
+      "",
+      `**참고 절차**: ${cleanDiscordLine(snapshot.playbooks[0].title)}`,
+    ] : []),
+    "",
+    "확인 위치: `/admin/bot` 승인 패널 및 최근 실행 기록",
+  ].filter(Boolean).join("\n").slice(0, 1900);
+}
+
 async function sendDiscordMonitorAlert(snapshot: any, supabase?: any) {
   if (!snapshot?.alerts?.length) return { provider: "discord", configured: Boolean(process.env.DISCORD_WEBHOOK_URL), sent: false, reason: "no_alerts" };
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
@@ -380,39 +439,11 @@ async function sendDiscordMonitorAlert(snapshot: any, supabase?: any) {
       };
     }
 
-    const severity = snapshot.severity || "warn";
-    const lines = snapshot.alerts.slice(0, 6).map((alert: MonitorAlert) => `- [${alert.severity}] ${alert.message}`);
-    const checkout = snapshot.dailyCheckout;
-    const ownerBrief = snapshot.ownerBrief;
-    const topAction = snapshot.nextActions?.[0];
-    const gateBlockCount = snapshot.approvalGateSummary?.blockCount;
     await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        content: [
-          `**BGMS Agent Monitor: ${severity.toUpperCase()}**`,
-          ...lines,
-          ...(checkout ? [
-            "",
-            `Checkout: ${checkout.label || checkout.status} (${checkout.score ?? "-"}점)`,
-            checkout.summary ? `- ${checkout.summary}` : ""
-          ] : []),
-          ...(ownerBrief ? [
-            "",
-            `Owner brief: ${ownerBrief.headline}`,
-            ownerBrief.doNow?.prompt ? `Owner do-now: ${ownerBrief.doNow.prompt}` : ""
-          ] : []),
-          ...(typeof gateBlockCount === "number" ? [`Execution Gate block: ${gateBlockCount}건`] : []),
-          ...(topAction ? [
-            "",
-            `Top action: ${topAction.title}`,
-            topAction.prompt ? `Prompt: ${topAction.prompt}` : ""
-          ] : []),
-          ...(snapshot.playbooks?.length ? ["", `Playbook: ${snapshot.playbooks[0].title}`] : []),
-          "",
-          "확인 위치: `/admin/bot` 승인 패널 및 최근 실행 기록"
-        ].filter(Boolean).join("\n")
+        content: buildMonitorDiscordContent(snapshot)
       })
     });
     return { provider: "discord", configured: true, sent: true, reason: "alert_sent" };

@@ -79,6 +79,7 @@
          const kills = parsed.stats?.kills ?? parsed.kills ?? 0;
          const damage = Math.floor(parsed.stats?.damageDealt ?? parsed.damageDealt ?? 0);
          const winPlace = parsed.stats?.winPlace ?? parsed.winPlace ?? 99;
+         const matchType = String(parsed.matchType || parsed.matchInfo?.matchType || "official").toLowerCase();
  
          if (!matchId || !playerId) {
            // Fallback to key pattern: {matchId}_{playerId}_v{version}_analyze.json
@@ -100,6 +101,7 @@
              kills: Number(kills) || 0,
              damage: Number(damage) || 0,
              win_place: Number(winPlace) || 99,
+             match_type: matchType,
            });
          }
        } catch {

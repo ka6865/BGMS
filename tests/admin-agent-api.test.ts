@@ -3613,12 +3613,12 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     }));
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const payload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    expect(payload.content).toContain("Checkout:");
-    expect(payload.content).toContain("Owner brief:");
-    expect(payload.content).toContain("Owner do-now:");
-    expect(payload.content).toContain("Execution Gate block: 1건");
-    expect(payload.content).toContain("Top action:");
-    expect(payload.content).toContain("Prompt:");
+    expect(payload.content).toContain("현재 문제");
+    expect(payload.content).toContain("**마감 상태**:");
+    expect(payload.content).toContain("**운영 요약**:");
+    expect(payload.content).toContain("지금 할 일:");
+    expect(payload.content).toContain("**승인 차단**: 1건");
+    expect(payload.content).toContain("다음 조치");
     expect(payload.content).toContain("확인 위치: `/admin/bot`");
   });
 

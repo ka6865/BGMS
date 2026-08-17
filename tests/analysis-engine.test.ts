@@ -102,6 +102,64 @@ if (hasRealDataFixture) describe('AnalysisEngine 실데이터(Gold Match) 정밀
 });
 
 describe('티어 산정 및 조기 탈락 폴백 엔진 검증', () => {
+  it('아군 공식 무기 통계가 실시간 소문자 키를 교체해 중복 저장되지 않아야 함', () => {
+    const engine = new AnalysisEngine(
+      'KangHeeSung_',
+      'account.main',
+      new Set(['kangheesung_', 'miaeq_q']),
+      new Set(['account.main', 'account.miaeq']),
+      new Set(),
+      new Set(),
+      'roster-main'
+    );
+
+    const result = engine.run(
+      [
+        {
+          _T: 'LogPlayerTakeDamage',
+          _D: '2026-08-13T00:00:01.000Z',
+          attacker: { name: 'MiaeQ_Q', accountId: 'account.miaeq' },
+          victim: { name: 'Enemy', accountId: 'account.enemy' },
+          damage: 100,
+          damageCauserName: 'Item_Weapon_Mk14_C',
+          damageReason: 'HeadShot',
+        },
+        {
+          _T: 'LogMatchEnd',
+          _D: '2026-08-13T00:20:00.000Z',
+          characters: [
+            { character: { accountId: 'account.miaeq', name: 'MiaeQ_Q' } },
+          ],
+          allWeaponStats: [
+            {
+              accountId: 'account.miaeq',
+              stats: [{
+                weapon: 'Item_Weapon_Mk14_C',
+                damage: 110,
+                dBNODamage: 0,
+                shots: 25,
+                hits: 4,
+                dBNOHits: 0,
+                holdingTime: 12,
+              }],
+            },
+          ],
+        },
+      ],
+      { id: 'squad-weapon-key-match', createdAt: '2026-08-13T00:00:00Z', gameMode: 'squad' },
+      [],
+      [],
+      { name: 'KangHeeSung_', damageDealt: 0, kills: 0 },
+      [],
+      {}
+    );
+
+    expect(Object.keys(result.squadWeaponStats || {})).toEqual(['MiaeQ_Q']);
+    expect(result.squadWeaponStats?.MiaeQ_Q?.[0]).toMatchObject({
+      weapon: 'Mk14', damage: 110, hits: 4, shots: 25,
+    });
+  });
+
   it('공식 딜량은 damageDealt에 유지하고 텔레메트리 유효 딜량은 processedDamageDealt에 분리해야 함', () => {
     const engine = new AnalysisEngine(
       'KangHeeSung_',

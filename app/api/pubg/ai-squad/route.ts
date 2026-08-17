@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, SchemaType, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import { jsonrepair } from "jsonrepair";
 import { withAuthGuard } from "@/utils/supabase/guard";
-import { trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
+import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
 import { AI_CACHE_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
@@ -52,23 +52,31 @@ const AI_SQUAD_MODEL_TIMEOUT_MS = 8000;
 
 export async function POST(request: Request) {
   let body: any = {};
+  const requestId = crypto.randomUUID();
+  const startedAt = Date.now();
+  let authenticatedUserId: string | undefined;
+  let requestedPlatform = "steam";
   try {
     // 🔒 [Security] JWT Authentication Guard - Only logged-in users can call AI coaching
     const auth = await withAuthGuard();
     if (auth.error) return auth.error;
     const { supabaseAdmin: supabase } = auth;
+    authenticatedUserId = auth.user?.id;
 
     body = await request.json();
     const { groupKey, stats, scores, roleProfiles, nickname, platform = "steam", coachingStyle = "spicy", squadGrade = "B", benchmarkStats } = body;
+    requestedPlatform = String(platform || "steam");
     const playerId = normalizeName(nickname);
     const cachePlatform = normalizePlatform(platform);
 
     const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
     if (!apiKey) {
+      trackAiFailure(authenticatedUserId, "squad", "Missing Gemini API Key Configuration", { errorCode: "configuration", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
       return NextResponse.json({ error: "Missing Gemini API Key Configuration" }, { status: 500 });
     }
 
     if (!groupKey || !stats || !scores || !Array.isArray(roleProfiles) || !nickname) {
+      trackAiFailure(authenticatedUserId, "squad", "Missing required squad parameters", { errorCode: "invalid_input", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
       return NextResponse.json({ error: "Missing required squad parameters" }, { status: 400 });
     }
 
@@ -106,6 +114,11 @@ export async function POST(request: Request) {
         .maybeSingle();
 
       if (!cacheErr && cached && cached.ai_result) {
+        trackAiUsage(authenticatedUserId, "gemini-cache", 0, 0, "squad", {
+          durationMs: Date.now() - startedAt,
+          requestId,
+          platform: requestedPlatform,
+        });
         return NextResponse.json(sanitizeAiCoachingLanguage(cached.ai_result));
       }
     } catch (dbErr) {
@@ -243,7 +256,8 @@ export async function POST(request: Request) {
           selectedModelName,
           promptTokens,
           completionTokens,
-          "squad"
+          "squad",
+          { durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform },
         );
       } catch (e) {
         console.warn("AI Usage tracking failed:", e);
@@ -254,6 +268,11 @@ export async function POST(request: Request) {
 
   } catch (error) {
     console.error("[AI-SQUAD-ERROR]", error);
+    trackAiFailure(authenticatedUserId, "squad", error, {
+      durationMs: Date.now() - startedAt,
+      requestId,
+      platform: requestedPlatform,
+    });
     return NextResponse.json(
       { error: "스쿼드 AI 분석을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요." },
       { status: 503 },

@@ -40,6 +40,11 @@ describe("recent match classification and filtering", () => {
     expect(classifyMatchMode({ gameMode: "squad-fpp", matchType: "competitive" })).toBe("ranked");
   });
 
+  it("does not label an unresolved historical match type as normal", () => {
+    expect(classifyMatchMode({ gameMode: "squad-fpp", matchType: "unknown" })).toBe("unknown");
+    expect(classifyMatchMode({ gameMode: "squad-fpp", matchType: "unavailable" })).toBe("unavailable");
+  });
+
   it("classifies airoyale and ai-match matchType as casual", () => {
     expect(classifyMatchMode({ gameMode: "squad", matchType: "airoyale" })).toBe("casual");
     expect(classifyMatchMode({ gameMode: "squad-ai", matchType: "official" })).toBe("casual");

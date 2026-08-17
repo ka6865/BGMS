@@ -37,7 +37,34 @@ describe("WeaponMetaDashboard component code quality", () => {
 
     expect(code).toContain("총기별 일별 채용률 추세");
     expect(code).toContain("지속 연사 데이터 수집 현황");
-    expect(code).toContain("selectedWeapon");
+    expect(code).toContain("selectedTrendWeapon");
+  });
+
+  it("uses category then weapon filters for the daily adoption trend", () => {
+    const code = readFileSync("components/meta/WeaponMetaDashboard.tsx", "utf8");
+
+    expect(code).toContain("selectedTrendCategory");
+    expect(code).toContain("selectedTrendWeapon");
+    expect(code).toContain("카테고리 전체");
+    expect(code).toContain("총기 전체");
+    expect(code).toContain("metaMatchType");
+    expect(code).toContain("경쟁전");
+  });
+
+  it("changes the preference card with the selected category or weapon", () => {
+    const code = readFileSync("components/meta/WeaponMetaDashboard.tsx", "utf8");
+
+    expect(code).toContain("selectedScopeWeapons");
+    expect(code).not.toContain("const lmgWeapons");
+  });
+
+  it("labels sustained hits as a comparable average and suppresses sparse samples", () => {
+    const code = readFileSync("components/meta/WeaponMetaDashboard.tsx", "utf8");
+
+    expect(code).toContain("지속 교전 명중");
+    expect(code).toContain("같은 적과 1~3초 이어진 교전에서 맞힌 탄 수");
+    expect(code).toContain("연사 표본");
+    expect(code).toContain("연사 표본 20경기부터 비교 가능");
   });
 
   it("keeps the adoption chart on a readable zero-to-100 percent scale", () => {
@@ -45,5 +72,18 @@ describe("WeaponMetaDashboard component code quality", () => {
 
     expect(code).toContain('domain={[0, 100]}');
     expect(code).toContain('left: 8');
+  });
+
+  it("does not create a nested page scroller and keeps mobile meta gestures scrollable", () => {
+    const weaponsPage = readFileSync("app/weapons/WeaponsClient.tsx", "utf8");
+    const code = readFileSync("components/meta/WeaponMetaDashboard.tsx", "utf8");
+    const globals = readFileSync("app/globals.css", "utf8");
+
+    expect(weaponsPage).not.toContain("overflow-y-auto w-full safe-top safe-bottom");
+    expect(code).toContain("weapon-meta-scroll");
+    expect(code).toContain('touchAction: "pan-y"');
+    expect(globals).toContain(".weapon-meta-scroll");
+    expect(globals).toContain(".weapon-meta-scroll *");
+    expect(globals).toContain(".weapon-meta-chart *");
   });
 });

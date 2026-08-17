@@ -37,6 +37,7 @@ describe("일일 유지보수 실패 알림이 원인을 함께 전달한다", (
     expect(env.GH_TOKEN).toBe("${{ github.token }}");
     expect(env.REPOSITORY).toBe("${{ github.repository }}");
     expect(env.RUN_ID).toBe("${{ github.run_id }}");
+    expect(env.RUN_STARTED_AT).toBe("${{ github.run_started_at }}");
     expect(env.DISCORD_WEBHOOK_URL).toBe("${{ secrets.DISCORD_WEBHOOK_URL }}");
   });
 
@@ -48,19 +49,28 @@ describe("일일 유지보수 실패 알림이 원인을 함께 전달한다", (
     const run = notifyStep?.run ?? "";
     expect(run).toContain("FAILED_STEPS");
     expect(run).toContain("ERROR_LINES");
-    expect(run).toContain("실패한 step");
-    expect(run).toContain("원인 로그");
+    expect(run).toContain("실패한 단계");
+    expect(run).toContain("가능한 원인");
+    expect(run).toContain("운영자가 지금 할 일");
   });
 
   it("알림 잡 자신의 로그를 원인 추출 대상에서 제외한다", () => {
     // 알림 잡 로그에는 메시지 템플릿 문자열이 남아 원인으로 오인된다.
-    expect(notifyStep?.run ?? "").toContain("! -name '*failure-notify*'");
+    expect(notifyStep?.run ?? "").toContain('.name != "failure-notify"');
+    expect(notifyStep?.run ?? "").toContain("actions/jobs/${JOB_ID}/logs");
   });
 
   it("조회 실패 시에도 알림 자체는 발송한다", () => {
     const run = notifyStep?.run ?? "";
-    expect(run).toContain("실패 step 조회 실패");
-    expect(run).toContain("원인 라인을 추출하지 못했습니다");
+    expect(run).toContain("실패 잡 목록 조회 실패");
+    expect(run).toContain("원인 미확인: 실패 잡 로그에서 분류 가능한 예외를 찾지 못했습니다.");
+  });
+
+  it("메시지는 실제 개행을 가진 운영 요약으로 전송한다", () => {
+    const run = notifyStep?.run ?? "";
+    expect(run).toContain("MESSAGE=$(cat <<EOF");
+    expect(run).toContain("allowed_mentions: {parse: [\"everyone\"]}");
+    expect(run).not.toContain('printf \'%s\' \\\n            "🚨');
   });
 
   it("webhook 이 없으면 조용히 종료한다", () => {

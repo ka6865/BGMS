@@ -3,6 +3,7 @@ import type {
   PlayerStatsResponse,
   StatsBucket,
   StatsMatchFilter,
+  StatsMatchClassification,
   StatsMatchModeMeta,
   StatsOverviewMetrics,
   StatsPartySize,
@@ -46,7 +47,7 @@ export function normalizeStoredNames(values: readonly unknown[]): string[] {
   return [...names];
 }
 
-export function classifyMatchMode(input: StatsMatchModeMeta): Exclude<StatsMatchFilter, "all"> {
+export function classifyMatchMode(input: StatsMatchModeMeta): StatsMatchClassification {
   const gameMode = input.gameMode?.toLowerCase() ?? "";
   const matchType = input.matchType?.toLowerCase() ?? "";
 
@@ -60,6 +61,8 @@ export function classifyMatchMode(input: StatsMatchModeMeta): Exclude<StatsMatch
     return "ranked";
   }
   if (isCasualMatch(input)) return "casual";
+  if (!matchType || matchType === "unknown") return "unknown";
+  if (matchType === "unavailable") return "unavailable";
 
   return "normal";
 }
