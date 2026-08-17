@@ -69,10 +69,10 @@ export function StatsOverviewRail({
   return (
     <section className="rounded-2xl border border-white/10 bg-[#161616] p-5 lg:w-[320px] lg:shrink-0" aria-label="핵심 통계">
       <div className="grid grid-cols-2 gap-x-5 gap-y-2 md:grid-cols-4 lg:grid-cols-2">
-        <Metric testId="rounds-played" label="게임 수" value={metrics.roundsPlayed} />
-        <Metric testId="kda" label="KDA" value={metrics.kda} />
-        <Metric testId="average-damage" label="평균 딜량" value={metrics.averageDamage} />
-        <Metric testId="top10-rate" label="Top 10" value={metrics.top10Rate} />
+        <Metric testId="kills" label="킬" value={metrics.kills} />
+        <Metric testId="assists" label="어시스트" value={metrics.assists} />
+        <Metric testId="dbnos" label="기절" value={metrics.dbnos} />
+        <Metric testId="average-rank" label="평균 순위" value={metrics.averageRank} />
       </div>
       <AiCompactSummary summary={aiSummary} expanded={aiExpanded} onToggle={onAiToggle} />
     </section>

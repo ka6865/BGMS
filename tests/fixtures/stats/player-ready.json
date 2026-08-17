@@ -62,6 +62,12 @@
     "match-fixture-1": "squad-fpp"
   },
   "clan": null,
+  "survivalMastery": {
+    "xp": 1317,
+    "tier": 3,
+    "level": 441,
+    "totalMatchesPlayed": 782
+  },
   "weaponMastery": [],
   "banType": "None",
   "updatedAt": "2026-08-10T00:00:00.000Z"

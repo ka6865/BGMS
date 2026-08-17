@@ -67,6 +67,7 @@ jobs:
     if: ${{ always() && !cancelled() }}
     outputs:
       database_health: ${{ steps.database_health.outcome }}
+      pubg_rate_limited: ${{ steps.sync_user_matches.outputs.rate_limited }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -289,6 +290,7 @@ jobs:
       # 벤치마커·블루존 수집이 먼저 PUBG API 예산을 사용한다.
       # 사용자 전적 자동 갱신은 다음 날 재시도해도 되므로 핫드랍 직전의 저우선 작업으로 둔다.
       - name: Run User Matches Sync
+        id: sync_user_matches
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -296,8 +298,12 @@ jobs:
           PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
         run: npx tsx scripts/sync_user_matches.ts --limit 15
 
+      - name: Skip Hotdrop After PUBG API Rate Limit
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.sync_user_matches.outputs.rate_limited == 'true' }}
+        run: echo "::warning title=PUBG API 한도 보호::User Matches Sync에서 429가 발생해 Hotdrop Collection을 건너뜁니다. 다음 실행에서 재시도합니다."
+
       - name: Run Hotdrop Collection
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.sync_user_matches.outcome == 'success' && steps.sync_user_matches.outputs.rate_limited != 'true' }}
         env:
           PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -397,14 +403,14 @@ jobs:
               LOOKUP_NOTES="${LOOKUP_NOTES}로그 조회 실패: ${JOB_NAME} (${JOB_RESULT})"
               continue
             fi
-            MATCHED_LINES=$(grep -iE "Hotdrop 수집 실패|PUBG API error|hotdrop-|Error:|error-|failed|failure|429|rate limit|timeout|timed out|supabase" "$JOB_LOG" 2>/dev/null \
+            MATCHED_LINES=$(grep -iE "Hotdrop 수집 실패|PUBG API error|HTTP [0-9]{3}|Error:|error-|failed|failure|429|rate limit|timeout|timed out" "$JOB_LOG" 2>/dev/null \
               | grep -vE "##\[error\]Process completed|DeprecationWarning|npm audit|npm warn|failure-notify" \
               | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' \
               | sed -E 's/\x1b\[[0-9;]*m//g' \
               | sed -E 's#https?://[^[:space:]]+#<URL 숨김>#g' \
               | sed -E 's/(Bearer[[:space:]]+)[^[:space:]]+/\1<토큰 숨김>/Ig' \
               | cut -c1-240 \
-              | head -4 || true)
+              | tail -n 8 || true)
             if [ -n "$MATCHED_LINES" ]; then
               if [ -n "$ERROR_LINES" ]; then ERROR_LINES="${ERROR_LINES}"$'\n'; fi
               ERROR_LINES="${ERROR_LINES}[${JOB_NAME}]"$'\n'"${MATCHED_LINES}"

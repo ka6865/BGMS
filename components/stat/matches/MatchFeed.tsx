@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment } from "react";
+import { useEffect, useRef } from "react";
 import { ResponsiveAdSlot } from "@/components/ads/ResponsiveAdSlot";
 import { MatchCard } from "@/components/stat/MatchCard";
 import {
@@ -14,6 +15,7 @@ import { filterRenderableMatches } from "@/lib/stats/statsPageModel";
 import type {
   StatsMatchFilter,
   StatsMatchModeMeta,
+  StatsHistoryStatus,
   StatsPartialReason,
   StatsPlatform,
 } from "@/types/stats-page";
@@ -35,6 +37,11 @@ export interface MatchFeedProps {
   onModeDetected(matchId: string, gameMode: string, matchType?: string, mapName?: string): void;
   onFailure?(reason: Extract<StatsPartialReason, "detail_failed" | "analysis_failed">, sourceId: string): void;
   onRecovery?(reason: Extract<StatsPartialReason, "detail_failed" | "analysis_failed">, sourceId: string): void;
+  historyStatus?: StatsHistoryStatus;
+  historyPage?: number;
+  historyTotalPages?: number;
+  onPageChange?(page: number): void;
+  onRetryHistory?(): void;
 }
 
 const FILTERS: readonly { value: StatsMatchFilter; label: string }[] = [
@@ -44,6 +51,10 @@ const FILTERS: readonly { value: StatsMatchFilter; label: string }[] = [
   { value: "casual", label: "캐주얼" },
   { value: "tdm", label: "TDM" },
 ];
+
+const FILTER_LABELS: Record<StatsMatchFilter, string> = Object.fromEntries(
+  FILTERS.map((item) => [item.value, item.label]),
+) as Record<StatsMatchFilter, string>;
 
 const EMPTY_MESSAGES: Record<StatsMatchFilter, string> = {
   all: "최근 14일 이내에 플레이한 매치 기록이 없습니다.",
@@ -63,6 +74,24 @@ function overlayModeMeta(summary: MatchSummaryData, meta?: StatsMatchModeMeta): 
   };
 }
 
+type PaginationItem = number | "ellipsis";
+
+export function getStatsHistoryPaginationItems(totalPages: number, currentPage: number): PaginationItem[] {
+  if (totalPages <= 0) return [];
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
+
+  const selected = new Set([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
+  const pages = [...selected]
+    .filter((page) => page >= 1 && page <= totalPages)
+    .sort((left, right) => left - right);
+  const items: PaginationItem[] = [];
+  for (const page of pages) {
+    if (items.length > 0 && page - Number(items[items.length - 1]) > 1) items.push("ellipsis");
+    items.push(page);
+  }
+  return items;
+}
+
 export function MatchFeed({
   matchIds,
   summaries,
@@ -80,7 +109,14 @@ export function MatchFeed({
   onModeDetected,
   onFailure,
   onRecovery,
+  historyStatus = "idle",
+  historyPage = 1,
+  historyTotalPages = 0,
+  onPageChange,
+  onRetryHistory,
 }: MatchFeedProps) {
+  const feedRef = useRef<HTMLElement>(null);
+  const previousHistoryPageRef = useRef(historyPage);
   const availableMatches = matchIds.flatMap((matchId) => {
     if (missingMatchIds.has(matchId)) return [];
     const value = summaries[matchId];
@@ -92,11 +128,20 @@ export function MatchFeed({
     viewportClass,
     renderableMatchCount: renderableMatches.length,
   });
+  const emptyMessage = historyTotalPages > 0
+    ? `현재 페이지에 ${FILTER_LABELS[filter]} 기록이 없습니다. 다른 페이지도 확인해 보세요.`
+    : EMPTY_MESSAGES[filter];
+
+  useEffect(() => {
+    if (previousHistoryPageRef.current === historyPage) return;
+    previousHistoryPageRef.current = historyPage;
+    feedRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }, [historyPage]);
 
   return (
-    <section aria-label="최근 매치" className="min-w-0">
+    <section ref={feedRef} aria-label="최근 매치" className="min-w-0">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h3 className="text-lg font-black text-white">최근 매치 <span className="text-xs text-white/40">(최대 20게임)</span></h3>
+        <h3 className="text-lg font-black text-white">매치 기록 <span className="text-xs text-white/40">(현재 {matchIds.length}게임{historyTotalPages > 1 ? ` · ${historyPage}/${historyTotalPages}페이지` : ""})</span></h3>
         <div role="group" aria-label="매치 유형 필터" className="flex gap-1 rounded-xl bg-white/5 p-1">
           {FILTERS.map((item) => (
             <button
@@ -169,8 +214,65 @@ export function MatchFeed({
         </div>
       ) : (
         <div className="rounded-2xl border border-white/5 bg-white/3 p-10 text-center text-xs font-bold text-white/40">
-          {EMPTY_MESSAGES[filter]}
+          {emptyMessage}
         </div>
+      )}
+
+      {historyStatus === "loading" && (
+        <div role="status" aria-label="전적 페이지 로딩" className="mt-4 text-center text-[10px] font-bold text-white/50">
+          {historyTotalPages > 0 ? "페이지 불러오는 중..." : "전적 페이지 정보 불러오는 중..."}
+        </div>
+      )}
+
+      {historyStatus === "error" && onRetryHistory && (
+        <div role="alert" className="mt-4 flex flex-wrap items-center justify-center gap-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3">
+          <span className="text-xs font-bold text-red-200">저장된 전적 페이지를 불러오지 못했습니다.</span>
+          <button type="button" onClick={onRetryHistory} className="min-h-11 rounded-lg px-3 text-xs font-black text-red-100">
+            다시 시도
+          </button>
+        </div>
+      )}
+
+      {onPageChange && historyTotalPages > 1 && (
+        <nav aria-label="전적 페이지 이동" className="mt-4 flex flex-wrap items-center justify-center gap-1.5">
+          <button
+            type="button"
+            aria-label="이전 전적 페이지"
+            onClick={() => onPageChange(historyPage - 1)}
+            disabled={historyStatus === "loading" || historyPage <= 1}
+            className="min-h-11 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-black text-white/65 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            ‹ 이전
+          </button>
+          <div className="flex items-center gap-1" role="group" aria-label="전적 페이지 목록">
+            {getStatsHistoryPaginationItems(historyTotalPages, historyPage).map((item, index) => item === "ellipsis" ? (
+              <span key={`ellipsis-${index}`} aria-hidden="true" className="px-1 text-xs font-black text-white/35">…</span>
+            ) : (
+              <button
+                key={item}
+                type="button"
+                aria-label={`전적 ${item}페이지`}
+                aria-current={item === historyPage ? "page" : undefined}
+                onClick={() => onPageChange(item)}
+                disabled={historyStatus === "loading"}
+                className={`min-h-11 min-w-11 rounded-lg px-3 text-xs font-black transition-colors disabled:cursor-wait disabled:opacity-50 ${
+                  item === historyPage ? "bg-indigo-600 text-white" : "border border-white/10 bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
+                }`}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            aria-label="다음 전적 페이지"
+            onClick={() => onPageChange(historyPage + 1)}
+            disabled={historyStatus === "loading" || historyPage >= historyTotalPages}
+            className="min-h-11 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-black text-white/65 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            다음 ›
+          </button>
+        </nav>
       )}
     </section>
   );

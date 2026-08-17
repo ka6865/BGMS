@@ -31,12 +31,12 @@ const stats: PlayerStatsResponse["stats"] = {
 };
 
 const expected = [
-  ["ranked", "solo", "11", "1.00", "100", "10.0%"],
-  ["ranked", "duo", "12", "3.00", "200", "20.0%"],
-  ["ranked", "squad", "13", "4.00", "300", "30.0%"],
-  ["normal", "solo", "21", "2.00", "400", "38.1%"],
-  ["normal", "duo", "22", "5.00", "500", "50.0%"],
-  ["normal", "squad", "23", "6.00", "600", "87.0%"],
+  ["ranked", "solo", "11", "0", "0", "—"],
+  ["ranked", "duo", "24", "0", "0", "—"],
+  ["ranked", "squad", "52", "0", "0", "—"],
+  ["normal", "solo", "42", "0", "0", "—"],
+  ["normal", "duo", "55", "0", "0", "—"],
+  ["normal", "squad", "138", "0", "0", "—"],
 ] as const;
 
 function props(mode: StatsMode, partySize: StatsPartySize) {
@@ -55,33 +55,21 @@ function props(mode: StatsMode, partySize: StatsPartySize) {
 describe("StatSummaryPanel", () => {
   afterEach(() => cleanup());
 
-  it.each(expected)("%s/%s controlled bucket의 독립 지표를 렌더한다", (mode, partySize, rounds, kda, damage, top10) => {
+  it.each(expected)("%s/%s controlled bucket의 중복 없는 전투 지표를 렌더한다", (mode, partySize, kills, assists, dbnos, averageRank) => {
     render(createElement(StatSummaryPanel, props(mode, partySize)));
 
-    expect(screen.getByTestId("rounds-played")).toHaveTextContent(rounds);
-    expect(screen.getByTestId("kda")).toHaveTextContent(kda);
-    expect(screen.getByTestId("average-damage")).toHaveTextContent(damage);
-    expect(screen.getByTestId("top10-rate")).toHaveTextContent(top10);
-    expect(screen.queryByTestId("preferred-mode")).not.toBeInTheDocument();
+    expect(screen.getByTestId("kills")).toHaveTextContent(kills);
+    expect(screen.getByTestId("assists")).toHaveTextContent(assists);
+    expect(screen.getByTestId("dbnos")).toHaveTextContent(dbnos);
+    expect(screen.getByTestId("average-rank")).toHaveTextContent(averageRank);
     expect(screen.queryByText("현재 랭크")).not.toBeInTheDocument();
   });
 
-  it("모드/파티 controls는 외부 callback만 호출하는 controlled 경계다", () => {
-    const onModeChange = vi.fn();
-    const onPartySizeChange = vi.fn();
-    render(createElement(StatSummaryPanel, {
-      ...props("ranked", "squad"),
-      onModeChange,
-      onPartySizeChange,
-    }));
+  it("모드/파티 controls는 상단 시즌 카드에만 노출해 중복을 제거한다", () => {
+    render(createElement(StatSummaryPanel, props("ranked", "squad")));
 
-    fireEvent.click(screen.getByRole("button", { name: "일반전" }));
-    fireEvent.click(screen.getByRole("button", { name: "듀오" }));
-
-    expect(onModeChange).toHaveBeenCalledWith("normal");
-    expect(onPartySizeChange).toHaveBeenCalledWith("duo");
-    expect(screen.getByRole("button", { name: "경쟁전" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "스쿼드" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("button", { name: "일반전" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "듀오" })).not.toBeInTheDocument();
   });
 
   it("선택 bucket의 플레이 기록이 없으면 0 대신 명시적 empty state를 보여준다", () => {

@@ -5,6 +5,11 @@ import { trackPubgRateLimit } from "@/lib/pubg-analysis/pubgApiTracker";
 import { reportPubgApiError } from "@/lib/pubg/apiHelper";
 import { mergeRecentMatchIds } from "@/lib/pubg/recentMatches";
 import {
+  normalizeSurvivalMasteryPayload,
+  shouldRefreshSurvivalMastery,
+} from "@/lib/pubg/survivalMastery";
+import type { StatsSurvivalMastery } from "@/types/stats-page";
+import {
   buildPlayerCacheKey,
   claimForceRefresh,
   readPubgCache,
@@ -93,6 +98,20 @@ async function safeJsonParse(res: Response): Promise<any> {
   }
 }
 
+async function fetchSurvivalMastery(
+  platform: string,
+  accountId: string,
+  headers: HeadersInit,
+): Promise<StatsSurvivalMastery | null> {
+  const response = await fetch(
+    `https://api.pubg.com/shards/${platform}/players/${accountId}/survival_mastery`,
+    pubgFetchInit(headers, 8000, 43200, true),
+  );
+  trackPubgRateLimit(response.headers);
+  if (!response.ok) return null;
+  return normalizeSurvivalMasteryPayload(await safeJsonParse(response));
+}
+
 async function getSimilarPlayerSuggestions(supabase: any, nickname: string, platform: string) {
   try {
     const { data } = await supabase.rpc("suggest_similar_players", {
@@ -172,6 +191,11 @@ export async function GET(request: Request) {
     .eq('lower_nickname', nickname.toLowerCase())
     .eq('platform', platform)
     .maybeSingle();
+  const cachedSurvivalMastery = normalizeSurvivalMasteryPayload({
+    data: { attributes: cacheData?.survival_mastery_data },
+  });
+  const shouldFetchSurvivalMastery = forceRefresh
+    || shouldRefreshSurvivalMastery(cacheData?.survival_mastery_updated_at);
 
   if (cacheData) {
     targetNickname = cacheData.nickname;
@@ -203,7 +227,7 @@ export async function GET(request: Request) {
         }
       }
 
-      if (!shouldFetchMissingRequestedSeason) {
+      if (!shouldFetchMissingRequestedSeason && !shouldFetchSurvivalMastery) {
         // 최근 매치들의 모드 정보를 match_master_telemetry에서 일괄 가져옴
         const recentMatches = cacheData.recent_match_ids || [];
         const { data: modeData } = await supabase
@@ -228,6 +252,7 @@ export async function GET(request: Request) {
           recentMatches,
           matchModes,
           clan: cacheData.clan_data,
+          survivalMastery: cachedSurvivalMastery,
           weaponMastery: cacheData.weapon_mastery_data || [],
           banType: cacheData.ban_type || "None",
           updatedAt: cacheData.updated_at
@@ -374,9 +399,18 @@ export async function GET(request: Request) {
     }
 
     const cachedWeaponMastery = cacheData?.weapon_mastery_data || [];
+    const survivalMasteryPromise = shouldFetchSurvivalMastery
+      ? fetchSurvivalMastery(platform, accountId, headers).catch((error) => {
+        console.warn(
+          "[pubg-player] Survival Mastery 조회 실패:",
+          error instanceof Error ? error.message : error,
+        );
+        return null;
+      })
+      : Promise.resolve(cachedSurvivalMastery);
 
-    // Parallel fetch: ranked, normal season stats + clan info
-    const [rankedRes, normalRes, clanResult] = await Promise.all([
+    // Parallel fetch: ranked, normal season stats + clan info + account mastery
+    const [rankedRes, normalRes, clanResult, fetchedSurvivalMastery] = await Promise.all([
       withRetry(() => fetch(
         `https://api.pubg.com/shards/${platform}/players/${accountId}/seasons/${targetSeasonId}/ranked`,
         pubgFetchInit(headers, 8000, 60, forceRefresh)
@@ -386,6 +420,7 @@ export async function GET(request: Request) {
         pubgFetchInit(headers, 8000, 60, forceRefresh)
       )),
       clanDataPromise,
+      survivalMasteryPromise,
     ]);
     trackPubgRateLimit(rankedRes.headers);
     trackPubgRateLimit(normalRes.headers);
@@ -423,6 +458,9 @@ export async function GET(request: Request) {
     }
 
     const clan = clanResult.data;
+    const survivalMastery = shouldFetchSurvivalMastery
+      ? (fetchedSurvivalMastery || cachedSurvivalMastery)
+      : cachedSurvivalMastery;
     const weaponMastery = cachedWeaponMastery;
 
     // 4. 캐시 업데이트 (클랜/무기 정보 통합 upsert 및 검색 횟수 누적)
@@ -453,6 +491,15 @@ export async function GET(request: Request) {
       recent_match_ids: recentMatches,
       seasons_list: availableSeasons,
     };
+
+    // 동시 조회 중 한 요청의 optional mastery 실패(null)가 다른 요청의
+    // 성공 데이터를 덮어쓰지 않도록 값이 있을 때만 data 컬럼을 upsert한다.
+    if (shouldFetchSurvivalMastery) {
+      cacheUpdateData.survival_mastery_updated_at = nowIso;
+      if (survivalMastery) cacheUpdateData.survival_mastery_data = survivalMastery;
+    } else if (cacheData?.survival_mastery_updated_at) {
+      cacheUpdateData.survival_mastery_updated_at = cacheData.survival_mastery_updated_at;
+    }
 
     const isNewUser = !cacheData;
     if (clanResult.updated || isNewUser) {
@@ -496,6 +543,7 @@ export async function GET(request: Request) {
       recentMatches,
       matchModes,
       clan,
+      survivalMastery,
       weaponMastery,
       banType,
       // PUBG API 직접 호출 경로에서도 updatedAt을 포함하여 클라이언트가 올바른 시각을 표시하도록 보장

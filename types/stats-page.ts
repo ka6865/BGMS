@@ -5,6 +5,7 @@ export type StatsPartySize = "solo" | "duo" | "squad";
 export type StatsMatchFilter = "all" | "normal" | "ranked" | "casual" | "tdm";
 export type StatsMatchClassification = Exclude<StatsMatchFilter, "all"> | "unknown" | "unavailable";
 export type StatsPageStatus = "idle" | "loading" | "ready" | "refreshing" | "partial" | "error";
+export type StatsHistoryStatus = "idle" | "loading" | "ready" | "error";
 export type StatsPartialReason = "summary_batch_failed" | "summary_missing" | "detail_failed" | "analysis_failed";
 export type StatsErrorType = "not_found" | "rate_limit" | "server";
 
@@ -21,15 +22,27 @@ export interface StatsBucket {
   deaths?: number;
   losses?: number;
   wins: number;
+  avgRank?: number;
+  bestTier?: { tier?: string; subTier?: string | number };
+  bestRankPoint?: number;
   top10s?: number;
   top10Ratio?: number;
   damageDealt: number;
   dBNOs: number;
   timeSurvived?: number;
+  avgSurvivalTime?: number;
   headshotKills?: number;
+  headshotKillRatio?: number;
   roundMostKills?: number;
   currentTier?: { tier?: string; subTier?: string | number };
   currentRankPoint?: number;
+}
+
+export interface StatsSurvivalMastery {
+  xp?: number;
+  tier?: number;
+  level: number;
+  totalMatchesPlayed?: number;
 }
 
 export interface PlayerStatsResponse {
@@ -44,6 +57,7 @@ export interface PlayerStatsResponse {
   recentMatches: readonly string[];
   matchModes?: Record<string, string>;
   clan?: { id: string; name: string; tag: string; level: number; memberCount: number } | null;
+  survivalMastery?: StatsSurvivalMastery | null;
   weaponMastery?: readonly unknown[];
   banType?: string | null;
   updatedAt?: string;
@@ -57,5 +71,45 @@ export type StatsOverviewMetrics =
       kda: string;
       averageDamage: string;
       top10Rate: string;
+      kills: number;
+      assists: number;
+      dbnos: number;
+      averageRank: string;
       preferredMode: StatsPartySize;
+    };
+
+export type StatsSeasonSummaryMetrics =
+  | {
+      kind: "empty";
+      seasonId: string;
+      seasonName: string;
+      mode: StatsMode;
+      partySize: StatsPartySize;
+      label: "기록 없음";
+    }
+  | {
+      kind: "ready";
+      seasonId: string;
+      seasonName: string;
+      mode: StatsMode;
+      partySize: StatsPartySize;
+      tier?: string;
+      subTier?: string | number;
+      rankPoint?: number;
+      bestTier?: string;
+      bestSubTier?: string | number;
+      bestRankPoint?: number;
+      roundsPlayed: number;
+      wins: number;
+      winRate: string;
+      top10s: number;
+      top10Rate: string;
+      kda: string;
+      averageDamage: string;
+      averageSurvival: string;
+      headshotRate: string;
+      kills: number;
+      assists: number;
+      dbnos: number;
+      averageRank: string;
     };

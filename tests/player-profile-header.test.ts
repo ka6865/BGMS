@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createElement, Fragment } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlayerStatsResponse, StatsBucket } from "@/types/stats-page";
@@ -47,6 +47,8 @@ function bucket(overrides: Partial<StatsBucket>): StatsBucket {
     top10Ratio: 0.4,
     damageDealt: 2000,
     dBNOs: 4,
+    timeSurvived: 10000,
+    headshotKills: 4,
     ...overrides,
   };
 }
@@ -61,14 +63,33 @@ const player: PlayerStatsResponse = {
   ],
   stats: {
     ranked: {
-      squad: bucket({ currentTier: { tier: "Gold", subTier: 3 }, currentRankPoint: 2450 }),
+      squad: bucket({
+        currentTier: { tier: "Gold", subTier: 3 },
+        currentRankPoint: 2450,
+        bestTier: { tier: "Platinum", subTier: 4 },
+        bestRankPoint: 2780,
+        avgRank: 6.25,
+      }),
       duo: bucket({ currentTier: { tier: "Master", subTier: 1 }, currentRankPoint: 4000 }),
       solo: bucket({ currentTier: { tier: "Diamond", subTier: 2 }, currentRankPoint: 3200 }),
     },
-    normal: {},
+    normal: {
+      squad: bucket({
+        roundsPlayed: 8,
+        kills: 12,
+        assists: 5,
+        wins: 1,
+        top10Ratio: 0.5,
+        damageDealt: 1600,
+        dBNOs: 6,
+        timeSurvived: 7200,
+        headshotKills: 2,
+      }),
+    },
   },
   recentMatches: [],
   clan: { id: "clan-1", name: "Fixture Clan", tag: "FC", level: 7, memberCount: 42 },
+  survivalMastery: { xp: 1317, tier: 3, level: 441, totalMatchesPlayed: 782 },
   banType: "None",
   updatedAt: "2026-08-10T00:00:00.000Z",
 };
@@ -120,7 +141,15 @@ describe("PlayerProfileHeader", () => {
     expect(screen.getAllByText("현재 랭크")).toHaveLength(1);
     expect(screen.getByText("Gold 3")).toBeInTheDocument();
     expect(screen.getByText("2450 RP")).toBeInTheDocument();
+    expect(screen.getByText(/최고 Platinum 4/)).toHaveTextContent("2780 RP");
     expect(screen.getByRole("img", { name: "Gold 3 티어 아이콘" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "현재 시즌 경쟁전 스쿼드 요약" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Season 2" })).toBeInTheDocument();
+    expect(screen.getByText("생존 티어 3").parentElement).toHaveTextContent("Lv.441");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("누적 XP 1,317");
+    expect(screen.getByText("승률").parentElement?.parentElement).toHaveTextContent("10.0%");
+    expect(screen.getByText("Top 10률").parentElement?.parentElement).toHaveTextContent("40.0%");
+    expect(screen.getByText("평균 생존").parentElement?.parentElement).toHaveTextContent("16:40");
     expect(screen.queryByText(/Master/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Diamond/)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "FixtureNickname" })).toHaveAttribute("title", "FixtureNickname");
@@ -224,6 +253,90 @@ describe("PlayerProfileHeader", () => {
 
     expect(screen.getByText("Master 1")).toBeInTheDocument();
     expect(screen.getByText("4000 RP")).toBeInTheDocument();
+  });
+
+  it("모든 경쟁전 기록이 없으면 시즌 카드 빈 상태를 보여준다", () => {
+    const emptyPlayer: PlayerStatsResponse = {
+      ...player,
+      stats: {
+        ranked: {
+          squad: bucket({ roundsPlayed: 0 }),
+          duo: bucket({ roundsPlayed: 0 }),
+          solo: bucket({ roundsPlayed: 0 }),
+        },
+        normal: {},
+      },
+    };
+    render(createElement(PlayerProfileHeader, {
+      player: emptyPlayer,
+      seasonId: emptyPlayer.seasonId,
+      refreshing: false,
+      isRefreshCoolingDown: false,
+      favorite: false,
+      onSeasonChange: vi.fn(),
+      onRefresh: vi.fn(),
+      onFavoriteToggle: vi.fn(),
+      onCompare: vi.fn(),
+      onWeapons: vi.fn(),
+    }));
+
+    expect(screen.getByRole("region", { name: "현재 시즌 경쟁전 스쿼드 요약" })).toBeInTheDocument();
+    expect(screen.getByText("기록 없음")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "시즌 선택" })).toBeInTheDocument();
+  });
+
+  it("상단 시즌 카드의 랭크 파티 필터를 외부 상세 통계 상태와 연결한다", () => {
+    const onPartySizeChange = vi.fn();
+    const onStatsModeChange = vi.fn();
+    render(createElement(PlayerProfileHeader, {
+      player,
+      seasonId: player.seasonId,
+      statsMode: "ranked",
+      onStatsModeChange,
+      partySize: "squad",
+      onPartySizeChange,
+      refreshing: false,
+      isRefreshCoolingDown: false,
+      favorite: false,
+      onSeasonChange: vi.fn(),
+      onRefresh: vi.fn(),
+      onFavoriteToggle: vi.fn(),
+      onCompare: vi.fn(),
+      onWeapons: vi.fn(),
+    }));
+
+    const filter = screen.getByRole("group", { name: "현재 시즌 파티 필터" });
+    fireEvent.click(within(filter).getByRole("button", { name: "듀오" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "현재 시즌 모드 필터" })).getByRole("button", { name: "일반전" }));
+
+    expect(onPartySizeChange).toHaveBeenCalledWith("duo");
+    expect(onStatsModeChange).toHaveBeenCalledWith("normal");
+    expect(within(filter).getByRole("button", { name: "스쿼드" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("일반전에서는 랭크 블록 대신 일반전 성적을 표시한다", () => {
+    render(createElement(PlayerProfileHeader, {
+      player,
+      seasonId: player.seasonId,
+      statsMode: "normal",
+      partySize: "squad",
+      onStatsModeChange: vi.fn(),
+      onPartySizeChange: vi.fn(),
+      refreshing: false,
+      isRefreshCoolingDown: false,
+      favorite: false,
+      onSeasonChange: vi.fn(),
+      onRefresh: vi.fn(),
+      onFavoriteToggle: vi.fn(),
+      onCompare: vi.fn(),
+      onWeapons: vi.fn(),
+    }));
+
+    const summary = screen.getByRole("region", { name: "현재 시즌 일반전 스쿼드 요약" });
+    expect(within(summary).getByText("일반전 성적")).toBeInTheDocument();
+    expect(within(summary).getByText("랭크 티어 미적용")).toBeInTheDocument();
+    expect(within(summary).queryByText("현재 랭크")).not.toBeInTheDocument();
+    expect(within(summary).queryByText("Gold 3")).not.toBeInTheDocument();
   });
 
   it("갱신 쿨다운이면 header refresh만 차단한다", () => {

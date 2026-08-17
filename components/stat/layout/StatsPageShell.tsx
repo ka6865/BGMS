@@ -78,6 +78,10 @@ export function StatsPageShell({
     missingMatchIds,
     matchModeMeta,
     summaryStatus,
+    matchIds,
+    historyStatus,
+    historyPage,
+    historyTotalPages,
     refreshAvailableAt,
     isRefreshCoolingDown: isCoolingDown,
     statsMode,
@@ -91,6 +95,8 @@ export function StatsPageShell({
     setGroupKey,
     search,
     retrySummaries,
+    setHistoryPage,
+    retryHistory,
     onModeDetected: handleModeDetected,
     reportPartial,
     clearPartial,
@@ -98,6 +104,11 @@ export function StatsPageShell({
   const loading = status === "loading" || status === "refreshing";
   const refreshing = status === "refreshing";
   const viewportClass = useAdViewportClass();
+
+  const handleMatchFilterChange = useCallback((value: typeof matchTab) => {
+    setMatchTab(value);
+    if (value !== matchTab) void setHistoryPage(1);
+  }, [matchTab, setHistoryPage, setMatchTab]);
 
   const { user } = useAuth();
   const [cooldown, setCooldown] = useState(false);
@@ -354,6 +365,10 @@ export function StatsPageShell({
             onFavoriteToggle={() => toggleFavorite(result.nickname)}
             onCompare={() => router.push(buildStatsCompareUrl(result.nickname, result.platform))}
             onWeapons={() => router.push(buildStatsWeaponsUrl(result.nickname, result.platform))}
+            statsMode={statsMode}
+            onStatsModeChange={setStatsMode}
+            partySize={partySize}
+            onPartySizeChange={setPartySize}
           />
 
           <ResponsiveAdSlot placement="stats-top" viewportClass={viewportClass} />
@@ -392,14 +407,12 @@ export function StatsPageShell({
                     partySize={partySize}
                     aiSummary={aiSummary}
                     aiExpanded={aiExpanded}
-                    onModeChange={setStatsMode}
-                    onPartySizeChange={setPartySize}
                     onAiToggle={handleAiToggle}
                   />
                 </aside>
                 <div className="stats-match-column">
                   <MatchFeed
-                    matchIds={result.recentMatches.slice(0, 20)}
+                    matchIds={matchIds}
                     summaries={matchSummaries}
                     missingMatchIds={missingMatchIds}
                     matchModeMeta={matchModeMeta}
@@ -408,8 +421,13 @@ export function StatsPageShell({
                     viewportClass={viewportClass}
                     nickname={result.nickname}
                     platform={result.platform}
-                    onFilterChange={setMatchTab}
+                    onFilterChange={handleMatchFilterChange}
                     onRetrySummaries={() => void retrySummaries()}
+                    historyStatus={historyStatus}
+                    historyPage={historyPage}
+                    historyTotalPages={historyTotalPages}
+                    onPageChange={(page) => void setHistoryPage(page)}
+                    onRetryHistory={() => void retryHistory()}
                     onNicknameClick={(clickedName) => {
                       navigateToPlayer(clickedName, result.platform, false);
                       window.scrollTo({ top: 0, behavior: "smooth" });

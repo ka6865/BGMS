@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { Crosshair, RefreshCw, Shield, Star, Swords } from "lucide-react";
-import { selectCanonicalRankBucket } from "@/lib/stats/statsPageModel";
-import type { PlayerStatsResponse } from "@/types/stats-page";
-import { getTierIconPath } from "@/utils/tier";
+import { getCurrentSeasonSummary } from "@/lib/stats/statsPageModel";
+import type { PlayerStatsResponse, StatsMode, StatsPartySize } from "@/types/stats-page";
+import { CurrentSeasonSummaryCard } from "./CurrentSeasonSummaryCard";
 
 export interface PlayerProfileHeaderProps {
   player: PlayerStatsResponse;
@@ -18,6 +18,10 @@ export interface PlayerProfileHeaderProps {
   onFavoriteToggle(): void;
   onCompare(): void;
   onWeapons(): void;
+  statsMode?: StatsMode;
+  onStatsModeChange?(value: StatsMode): void;
+  partySize?: StatsPartySize;
+  onPartySizeChange?(value: StatsPartySize): void;
 }
 
 function updatedLabel(value?: string): string {
@@ -122,12 +126,13 @@ export function PlayerProfileHeader({
   onFavoriteToggle,
   onCompare,
   onWeapons,
+  statsMode,
+  onStatsModeChange,
+  partySize,
+  onPartySizeChange,
 }: PlayerProfileHeaderProps) {
   const [openPopover, setOpenPopover] = useState<ProfilePopover>(null);
-  const rank = selectCanonicalRankBucket(player.stats);
-  const tier = rank?.currentTier?.tier?.trim();
-  const subTier = rank?.currentTier?.subTier;
-  const rankLabel = tier ? `${tier}${subTier != null && String(subTier).trim() ? ` ${subTier}` : ""}` : "언랭크";
+  const seasonSummary = getCurrentSeasonSummary(player, partySize, statsMode);
 
   return (
     <header className="rounded-2xl border border-white/10 bg-[#161616] p-4 md:p-5" aria-label="플레이어 프로필">
@@ -153,25 +158,14 @@ export function PlayerProfileHeader({
           />
         </div>
 
-        <div className="flex flex-wrap items-end justify-between gap-4 border-y border-white/10 py-3">
-          <div className="flex min-w-0 items-center gap-3">
-            {rank && tier && (
-              <img
-                src={getTierIconPath(tier, subTier)}
-                alt={`${rankLabel} 티어 아이콘`}
-                className="h-12 w-12 shrink-0 object-contain"
-              />
-            )}
-            <div>
-              <div className="text-[11px] font-black uppercase tracking-wider text-white/40">현재 랭크</div>
-              <div className="mt-1 text-xl font-black text-amber-300">{rankLabel}</div>
-            </div>
-          </div>
-          <div className="text-right">
-            <div className="text-[11px] font-black uppercase tracking-wider text-white/40">랭크 포인트</div>
-            <div className="mt-1 text-lg font-black text-white">{rank ? `${rank.currentRankPoint ?? 0} RP` : "-"}</div>
-          </div>
-        </div>
+        <CurrentSeasonSummaryCard
+          summary={seasonSummary}
+          survivalMastery={player.survivalMastery}
+          mode={statsMode}
+          onModeChange={onStatsModeChange}
+          partySize={partySize}
+          onPartySizeChange={onPartySizeChange}
+        />
 
         <div className="flex flex-wrap items-center gap-2">
           <button

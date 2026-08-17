@@ -6,7 +6,9 @@ import type {
   StatsMatchClassification,
   StatsMatchModeMeta,
   StatsOverviewMetrics,
+  StatsMode,
   StatsPartySize,
+  StatsSeasonSummaryMetrics,
   StatsPlatform,
   StatsSectionTab,
 } from "@/types/stats-page";
@@ -123,6 +125,107 @@ export function getStatsOverviewMetrics(player: PlayerStatsResponse): StatsOverv
     kda: ((bucket.kills + bucket.assists) / (deaths || 1)).toFixed(2),
     averageDamage: (bucket.damageDealt / bucket.roundsPlayed).toFixed(0),
     top10Rate: `${top10Rate.toFixed(1)}%`,
+    kills: bucket.kills,
+    assists: bucket.assists,
+    dbnos: bucket.dBNOs,
+    averageRank: bucket.avgRank != null && bucket.avgRank > 0 ? bucket.avgRank.toFixed(1) : "—",
     preferredMode: partySize,
+  };
+}
+
+function formatAverageSurvival(seconds: number | undefined, roundsPlayed: number): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0 || roundsPlayed <= 0) return "—";
+  const totalSeconds = Math.max(0, Math.round(seconds / roundsPlayed));
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainder = String(totalSeconds % 60).padStart(2, "0");
+  return `${minutes}:${remainder}`;
+}
+
+export function getCurrentSeasonSummary(
+  player: PlayerStatsResponse,
+  preferredPartySize?: StatsPartySize,
+  preferredMode: StatsMode = "ranked",
+): StatsSeasonSummaryMetrics {
+  const seasonId = player.seasonId || "";
+  const seasonName = player.seasons.find((season) => season.id === seasonId)?.name
+    || seasonId
+    || "현재 시즌";
+  const selected = preferredPartySize
+    ? (() => {
+      const bucket = player.stats[preferredMode]?.[preferredPartySize];
+      return bucket && bucket.roundsPlayed > 0
+        ? { bucket, partySize: preferredPartySize }
+        : null;
+    })()
+    : (() => {
+      const buckets = player.stats[preferredMode];
+      if (!buckets) return null;
+      for (const partySize of PARTY_SIZES) {
+        const bucket = buckets[partySize];
+        if (bucket && bucket.roundsPlayed > 0) return { bucket, partySize };
+      }
+      return null;
+    })();
+
+  if (!selected) {
+    return {
+      kind: "empty",
+      seasonId,
+      seasonName,
+      mode: preferredMode,
+      partySize: preferredPartySize ?? "squad",
+      label: "기록 없음",
+    };
+  }
+
+  const { bucket, partySize } = selected;
+  const roundsPlayed = bucket.roundsPlayed;
+  const deaths = bucket.deaths ?? bucket.losses ?? 0;
+  const top10s = bucket.top10s ?? Math.round((bucket.top10Ratio ?? 0) * roundsPlayed);
+  const top10Rate = bucket.top10Ratio != null
+    ? bucket.top10Ratio * 100
+    : (top10s / roundsPlayed) * 100;
+  const headshotRate = preferredMode === "ranked"
+    && bucket.headshotKills === 0
+    && (bucket.headshotKillRatio == null || bucket.headshotKillRatio === 0)
+    ? null
+    : bucket.kills > 0 && bucket.headshotKills != null
+      ? (Number(bucket.headshotKills) / bucket.kills) * 100
+      : bucket.headshotKillRatio != null && bucket.headshotKillRatio > 0
+        ? bucket.headshotKillRatio * 100
+        : null;
+
+  return {
+    kind: "ready",
+    seasonId,
+    seasonName,
+    mode: preferredMode,
+    partySize,
+    tier: bucket.currentTier?.tier?.trim() || undefined,
+    subTier: bucket.currentTier?.subTier,
+    rankPoint: bucket.currentRankPoint,
+    bestTier: bucket.bestTier?.tier?.trim() || undefined,
+    bestSubTier: bucket.bestTier?.subTier,
+    bestRankPoint: bucket.bestRankPoint,
+    roundsPlayed,
+    wins: bucket.wins,
+    winRate: `${((bucket.wins / roundsPlayed) * 100).toFixed(1)}%`,
+    top10s,
+    top10Rate: `${top10Rate.toFixed(1)}%`,
+    kda: ((bucket.kills + bucket.assists) / (deaths || 1)).toFixed(2),
+    averageDamage: (bucket.damageDealt / roundsPlayed).toFixed(0),
+    averageSurvival: formatAverageSurvival(
+      bucket.timeSurvived != null && bucket.timeSurvived > 0
+        ? bucket.timeSurvived
+        : bucket.avgSurvivalTime != null && bucket.avgSurvivalTime > 0
+          ? bucket.avgSurvivalTime * roundsPlayed
+          : undefined,
+      roundsPlayed,
+    ),
+    headshotRate: headshotRate == null ? "—" : `${headshotRate.toFixed(1)}%`,
+    kills: bucket.kills,
+    assists: bucket.assists,
+    dbnos: bucket.dBNOs,
+    averageRank: bucket.avgRank != null && bucket.avgRank > 0 ? bucket.avgRank.toFixed(1) : "—",
   };
 }

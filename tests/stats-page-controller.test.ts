@@ -227,6 +227,63 @@ describe("useStatsPageController", () => {
     });
   });
 
+  it("loads numbered cached match pages without another player API request", async () => {
+    let historyCalls = 0;
+    const historyRecord = (matchId: string, playedAt: string) => ({
+      player_id: "fixtureplayer",
+      platform: "steam",
+      match_id: matchId,
+      played_at: playedAt,
+      game_mode: "squad-fpp",
+      map_name: "Baltic_Main",
+      kills: 2,
+      damage: 240,
+      win_place: 4,
+      match_type: "competitive",
+    });
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player/matches")) {
+        const page = Number(new URL(url, "http://localhost").searchParams.get("page") || "1");
+        historyCalls += 1;
+        return Promise.resolve(jsonResponse({
+          matches: [historyRecord(`history-${page}`, `2026-08-1${8 - page}T00:00:00Z`)],
+          page,
+          pageSize: 20,
+          totalCount: 41,
+          totalPages: 3,
+        }));
+      }
+      if (url.startsWith("/api/pubg/matches-summary")) {
+        return Promise.resolve(jsonResponse(summaryReady));
+      }
+      return Promise.resolve(jsonResponse({ ...playerReady, recentMatches: [] }));
+    });
+
+    const { result } = renderHook(() => useStatsPageController({
+      initialNickname: "FixturePlayer",
+      initialPlatform: "steam",
+    }));
+
+    await waitFor(() => {
+      expect(result.current.result?.nickname).toBe("FixturePlayer");
+      expect(result.current.historyPage).toBe(1);
+      expect(result.current.historyTotalPages).toBe(3);
+    });
+    expect(result.current.matchIds).toContain("history-1");
+    expect(result.current.matchSummaries["history-1"]?.isSummary).toBe(true);
+
+    await act(async () => {
+      await result.current.setHistoryPage(2);
+    });
+    await waitFor(() => expect(result.current.historyPage).toBe(2));
+    expect(result.current.matchIds).not.toContain("history-1");
+    expect(result.current.matchIds).toContain("history-2");
+    expect(result.current.matchSummaries["history-2"]?.isSummary).toBe(true);
+    expect(historyCalls).toBe(2);
+    expect(playerRequests(fetchMock)).toHaveLength(1);
+  });
+
   it("404 추천과 반환 platform을 별도 상태로 보존한다", async () => {
     fetchMock.mockResolvedValue(jsonResponse({
       error: "not found",
