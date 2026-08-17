@@ -28,6 +28,7 @@ export interface StatsBucket {
   timeSurvived?: number;
   avgSurvivalTime?: number;
   headshotKills?: number;
+  headshotKillRatio?: number;
   roundMostKills?: number;
   currentTier?: { tier?: string; subTier?: string | number };
   currentRankPoint?: number;

@@ -196,4 +196,36 @@ describe("stats page primitives", () => {
       roundsPlayed: 8,
     });
   });
+
+  it("does not present unavailable ranked headshot fields as a real zero rate", () => {
+    const rankedUnavailable: PlayerStatsResponse = {
+      ...readyPlayer,
+      stats: {
+        ...readyPlayer.stats,
+        ranked: {
+          ...readyPlayer.stats.ranked,
+          squad: { ...readyPlayer.stats.ranked!.squad!, headshotKills: 0, headshotKillRatio: 0 },
+        },
+      },
+    };
+    expect(getCurrentSeasonSummary(rankedUnavailable)).toMatchObject({
+      mode: "ranked",
+      headshotRate: "—",
+    });
+
+    const normalZero: PlayerStatsResponse = {
+      ...readyPlayer,
+      stats: {
+        ...readyPlayer.stats,
+        normal: {
+          ...readyPlayer.stats.normal,
+          squad: { ...readyPlayer.stats.normal!.squad!, kills: 10, headshotKills: 0 },
+        },
+      },
+    };
+    expect(getCurrentSeasonSummary(normalZero, "squad", "normal")).toMatchObject({
+      mode: "normal",
+      headshotRate: "0.0%",
+    });
+  });
 });

@@ -181,9 +181,15 @@ export function getCurrentSeasonSummary(
   const top10Rate = bucket.top10Ratio != null
     ? bucket.top10Ratio * 100
     : (top10s / roundsPlayed) * 100;
-  const headshotRate = bucket.kills > 0
-    ? (Number(bucket.headshotKills ?? 0) / bucket.kills) * 100
-    : null;
+  const headshotRate = preferredMode === "ranked"
+    && bucket.headshotKills === 0
+    && (bucket.headshotKillRatio == null || bucket.headshotKillRatio === 0)
+    ? null
+    : bucket.kills > 0 && bucket.headshotKills != null
+      ? (Number(bucket.headshotKills) / bucket.kills) * 100
+      : bucket.headshotKillRatio != null && bucket.headshotKillRatio > 0
+        ? bucket.headshotKillRatio * 100
+        : null;
 
   return {
     kind: "ready",
