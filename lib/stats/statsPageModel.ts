@@ -7,6 +7,7 @@ import type {
   StatsMatchModeMeta,
   StatsOverviewMetrics,
   StatsPartySize,
+  StatsSeasonSummaryMetrics,
   StatsPlatform,
   StatsSectionTab,
 } from "@/types/stats-page";
@@ -124,5 +125,55 @@ export function getStatsOverviewMetrics(player: PlayerStatsResponse): StatsOverv
     averageDamage: (bucket.damageDealt / bucket.roundsPlayed).toFixed(0),
     top10Rate: `${top10Rate.toFixed(1)}%`,
     preferredMode: partySize,
+  };
+}
+
+function formatAverageSurvival(seconds: number | undefined, roundsPlayed: number): string {
+  if (seconds == null || !Number.isFinite(seconds) || roundsPlayed <= 0) return "—";
+  const totalSeconds = Math.max(0, Math.round(seconds / roundsPlayed));
+  const minutes = Math.floor(totalSeconds / 60);
+  const remainder = String(totalSeconds % 60).padStart(2, "0");
+  return `${minutes}:${remainder}`;
+}
+
+export function getCurrentSeasonSummary(player: PlayerStatsResponse): StatsSeasonSummaryMetrics {
+  const seasonId = player.seasonId || "";
+  const seasonName = player.seasons.find((season) => season.id === seasonId)?.name
+    || seasonId
+    || "현재 시즌";
+  const selected = selectOverviewBucket(player.stats);
+
+  if (!selected) {
+    return { kind: "empty", seasonId, seasonName, label: "기록 없음" };
+  }
+
+  const { bucket, partySize } = selected;
+  const roundsPlayed = bucket.roundsPlayed;
+  const deaths = bucket.deaths ?? bucket.losses ?? 0;
+  const top10s = bucket.top10s ?? Math.round((bucket.top10Ratio ?? 0) * roundsPlayed);
+  const top10Rate = bucket.top10Ratio != null
+    ? bucket.top10Ratio * 100
+    : (top10s / roundsPlayed) * 100;
+  const headshotRate = bucket.kills > 0
+    ? (Number(bucket.headshotKills ?? 0) / bucket.kills) * 100
+    : null;
+
+  return {
+    kind: "ready",
+    seasonId,
+    seasonName,
+    partySize,
+    tier: bucket.currentTier?.tier?.trim() || undefined,
+    subTier: bucket.currentTier?.subTier,
+    rankPoint: bucket.currentRankPoint,
+    roundsPlayed,
+    wins: bucket.wins,
+    winRate: `${((bucket.wins / roundsPlayed) * 100).toFixed(1)}%`,
+    top10s,
+    top10Rate: `${top10Rate.toFixed(1)}%`,
+    kda: ((bucket.kills + bucket.assists) / (deaths || 1)).toFixed(2),
+    averageDamage: (bucket.damageDealt / roundsPlayed).toFixed(0),
+    averageSurvival: formatAverageSurvival(bucket.timeSurvived, roundsPlayed),
+    headshotRate: headshotRate == null ? "—" : `${headshotRate.toFixed(1)}%`,
   };
 }

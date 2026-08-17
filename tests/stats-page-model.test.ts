@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  getCurrentSeasonSummary,
   getStatsOverviewMetrics,
   normalizeStoredNames,
   parseStatsPlatform,
@@ -25,6 +26,8 @@ const readyPlayer: PlayerStatsResponse = {
         top10Ratio: 0.5,
         damageDealt: 3600,
         dBNOs: 20,
+        timeSurvived: 12000,
+        headshotKills: 6,
       },
     },
     normal: {
@@ -88,5 +91,73 @@ describe("stats page primitives", () => {
     };
 
     expect(getStatsOverviewMetrics(rankedEmptyNormalReady)).toEqual({ kind: "empty", label: "기록 없음" });
+  });
+
+  it("derives the current ranked representative summary without another API request", () => {
+    expect(getCurrentSeasonSummary(readyPlayer)).toMatchObject({
+      kind: "ready",
+      seasonName: "Season 8",
+      partySize: "squad",
+      roundsPlayed: 12,
+      wins: 2,
+      winRate: "16.7%",
+      top10Rate: "50.0%",
+      kda: "3.20",
+      averageDamage: "300",
+      averageSurvival: "16:40",
+      headshotRate: "25.0%",
+    });
+  });
+
+  it("uses top10s when a ranked bucket has no top10Ratio and shows an empty zero-round state", () => {
+    const withoutRatio: PlayerStatsResponse = {
+      ...readyPlayer,
+      stats: {
+        ...readyPlayer.stats,
+        ranked: {
+          ...readyPlayer.stats.ranked,
+          squad: { ...readyPlayer.stats.ranked!.squad!, top10Ratio: undefined, top10s: 4 },
+        },
+      },
+    };
+    expect(getCurrentSeasonSummary(withoutRatio)).toMatchObject({
+      kind: "ready",
+      top10Rate: "33.3%",
+    });
+
+    const empty: PlayerStatsResponse = {
+      ...readyPlayer,
+      stats: {
+        ranked: {
+          squad: { ...readyPlayer.stats.ranked!.squad!, roundsPlayed: 0 },
+          duo: null,
+          solo: null,
+        },
+        normal: null,
+      },
+    };
+    expect(getCurrentSeasonSummary(empty)).toEqual({
+      kind: "empty",
+      seasonId: "season-8",
+      seasonName: "Season 8",
+      label: "기록 없음",
+    });
+  });
+
+  it("does not divide by zero when the player has no kills", () => {
+    const noKills: PlayerStatsResponse = {
+      ...readyPlayer,
+      stats: {
+        ...readyPlayer.stats,
+        ranked: {
+          ...readyPlayer.stats.ranked,
+          squad: { ...readyPlayer.stats.ranked!.squad!, kills: 0, headshotKills: 0 },
+        },
+      },
+    };
+    expect(getCurrentSeasonSummary(noKills)).toMatchObject({
+      kind: "ready",
+      headshotRate: "—",
+    });
   });
 });

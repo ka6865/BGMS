@@ -59,3 +59,24 @@ export type StatsOverviewMetrics =
       top10Rate: string;
       preferredMode: StatsPartySize;
     };
+
+export type StatsSeasonSummaryMetrics =
+  | { kind: "empty"; seasonId: string; seasonName: string; label: "기록 없음" }
+  | {
+      kind: "ready";
+      seasonId: string;
+      seasonName: string;
+      partySize: StatsPartySize;
+      tier?: string;
+      subTier?: string | number;
+      rankPoint?: number;
+      roundsPlayed: number;
+      wins: number;
+      winRate: string;
+      top10s: number;
+      top10Rate: string;
+      kda: string;
+      averageDamage: string;
+      averageSurvival: string;
+      headshotRate: string;
+    };
