@@ -1,3 +1,5 @@
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildSafeMatchRecord,
@@ -16,8 +18,8 @@ const baseArgs: SafeBackfillArgs = {
   maxRuntimeMinutes: 10,
   maxRequests: 10,
   timeoutMs: 1_000,
-  lockFile: "/tmp/bgms-safe-backfill-test.lock",
-  logFile: "/tmp/bgms-safe-backfill-test.log",
+  lockFile: path.join(os.tmpdir(), "bgms-safe-backfill-test.lock"),
+  logFile: path.join(os.tmpdir(), "bgms-safe-backfill-test.log"),
 };
 
 afterEach(() => {
@@ -33,8 +35,8 @@ describe("safe unknown match type backfill", () => {
       maxRuntimeMinutes: 720,
       maxRequests: 1_000,
       timeoutMs: 5_000,
-      lockFile: "/tmp/bgms-match-type-backfill-safe.lock",
-      logFile: "/tmp/bgms-match-type-backfill-safe.log",
+      lockFile: path.join(os.tmpdir(), "bgms-match-type-backfill-safe.lock"),
+      logFile: path.join(os.tmpdir(), "bgms-match-type-backfill-safe.log"),
     });
   });
 
@@ -111,7 +113,7 @@ describe("safe unknown match type backfill", () => {
     };
     const supabase = { from: vi.fn().mockReturnValue(query) } as never;
     const summary = await runSafeUnknownMatchTypeBackfill(
-      { ...baseArgs, apply: false, lockFile: "/tmp/bgms-safe-backfill-dry-run.lock" },
+      { ...baseArgs, apply: false, lockFile: path.join(os.tmpdir(), "bgms-safe-backfill-dry-run.lock") },
       { supabase, fetchImpl, pid: 999_999 },
     );
     expect(summary).toMatchObject({ dryRun: true, candidates: 1, requests: 0, stoppedReason: "dry_run" });
@@ -151,7 +153,7 @@ describe("safe unknown match type backfill", () => {
         .mockReturnValueOnce(updateQuery),
     } as never;
     const summary = await runSafeUnknownMatchTypeBackfill(
-      { ...baseArgs, lockFile: "/tmp/bgms-safe-backfill-apply.lock" },
+      { ...baseArgs, lockFile: path.join(os.tmpdir(), "bgms-safe-backfill-apply.lock") },
       { supabase, fetchImpl, pid: 999_999 },
     );
     expect(summary).toMatchObject({ dryRun: false, candidates: 1, requests: 1, updated: 1, stoppedReason: null });
@@ -163,7 +165,7 @@ describe("safe unknown match type backfill", () => {
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "service-key");
     vi.stubEnv("PUBG_API_KEY", "pubg-key");
     const fs = await import("node:fs");
-    const lockFile = "/tmp/bgms-safe-backfill-live.lock";
+    const lockFile = path.join(os.tmpdir(), "bgms-safe-backfill-live.lock");
     fs.writeFileSync(lockFile, JSON.stringify({ pid: process.pid }));
     await expect(runSafeUnknownMatchTypeBackfill(
       { ...baseArgs, apply: false, lockFile },

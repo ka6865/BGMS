@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { runHotdropScript } from "../scripts/run_hotdrop";
+import { formatHotdropError, runHotdropScript } from "../scripts/run_hotdrop";
 
 describe("runHotdropScript", () => {
   it.each([
@@ -27,7 +27,7 @@ describe("runHotdropScript", () => {
     expect(createSupabase).not.toHaveBeenCalled();
     expect(runJob).not.toHaveBeenCalled();
     expect(writeError).toHaveBeenCalledTimes(1);
-    expect(writeError).toHaveBeenCalledWith("Hotdrop 수집 작업이 실패했습니다.");
+    expect(writeError).toHaveBeenCalledWith(`Hotdrop 수집 실패: ${missingKey}-missing`);
     expect(writeInfo).not.toHaveBeenCalled();
   });
 
@@ -49,11 +49,11 @@ describe("runHotdropScript", () => {
     expect(exitCode).toBe(1);
     expect(createSupabase).not.toHaveBeenCalled();
     expect(writeError).toHaveBeenCalledTimes(1);
-    expect(writeError).toHaveBeenCalledWith("Hotdrop 수집 작업이 실패했습니다.");
+    expect(writeError).toHaveBeenCalledWith(expect.stringContaining("Hotdrop 수집 실패:"));
     expect(writeInfo).not.toHaveBeenCalled();
   });
 
-  it("runJob 예외의 secret과 URL과 match ID를 버리고 고정 오류만 한 번 출력한다", async () => {
+  it("runJob 예외의 원인은 보존하되 secret과 URL과 match ID는 제거한다", async () => {
     const writeInfo = vi.fn();
     const writeError = vi.fn();
     const sensitiveError = [
@@ -76,8 +76,17 @@ describe("runHotdropScript", () => {
 
     expect(exitCode).toBe(1);
     expect(writeError).toHaveBeenCalledTimes(1);
-    expect(writeError).toHaveBeenCalledWith("Hotdrop 수집 작업이 실패했습니다.");
+    expect(writeError).toHaveBeenCalledWith("Hotdrop 수집 실패: [redacted] [redacted] [url redacted] match-[redacted]");
+    expect(writeError.mock.calls[0]?.[0]).not.toContain("service-role-secret");
+    expect(writeError.mock.calls[0]?.[0]).not.toContain("https://telemetry.example");
+    expect(writeError.mock.calls[0]?.[0]).not.toContain("match-123");
     expect(writeInfo).not.toHaveBeenCalled();
+  });
+
+  it("오류가 없거나 문자열이 아니어도 짧은 운영용 원인을 만든다", () => {
+    expect(formatHotdropError(new Error("PUBG API error 429"))).toBe("PUBG API error 429");
+    expect(formatHotdropError("  timeout\nwhile fetching  ")).toBe("timeout while fetching");
+    expect(formatHotdropError({})).toBe("[object Object]");
   });
 
   it("성공 결과의 안전한 요약만 출력하고 0을 반환한다", async () => {
