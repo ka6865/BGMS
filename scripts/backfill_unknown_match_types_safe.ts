@@ -19,6 +19,7 @@ const MAX_LIMIT = 5_000;
 const MAX_DELAY_MS = 24 * 60 * 60 * 1_000;
 const MAX_RUNTIME_MINUTES = 24 * 60;
 const MAX_REQUESTS = 5_000;
+const isDirectSafeBackfillRun = process.argv[1]?.includes("backfill_unknown_match_types_safe") === true;
 
 export const SAFE_UNKNOWN_MATCH_TYPE_BACKFILL_ORDER = {
   column: "played_at",
@@ -308,9 +309,6 @@ export async function runSafeUnknownMatchTypeBackfill(
   args: SafeBackfillArgs,
   dependencies: RunDependencies = {},
 ): Promise<SafeBackfillSummary> {
-  if (process.env.GITHUB_ACTIONS === "true") {
-    throw new Error("This script is local-only and refuses to run inside GitHub Actions");
-  }
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const apiKey = (process.env.PUBG_API_KEY || "").split(" ")[0];
@@ -399,7 +397,10 @@ export async function runSafeUnknownMatchTypeBackfill(
   }
 }
 
-if (process.argv[1]?.includes("backfill_unknown_match_types_safe")) {
+if (isDirectSafeBackfillRun) {
+  if (process.env.GITHUB_ACTIONS === "true") {
+    throw new Error("This script is local-only and refuses to run inside GitHub Actions");
+  }
   runSafeUnknownMatchTypeBackfill(parseSafeBackfillArgs(process.argv.slice(2)))
     .then((summary) => {
       process.exitCode = summary.stoppedReason === "request_error" || summary.stoppedReason === "server_error" ? 1 : 0;
