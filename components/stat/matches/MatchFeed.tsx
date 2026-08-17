@@ -14,6 +14,7 @@ import { filterRenderableMatches } from "@/lib/stats/statsPageModel";
 import type {
   StatsMatchFilter,
   StatsMatchModeMeta,
+  StatsHistoryStatus,
   StatsPartialReason,
   StatsPlatform,
 } from "@/types/stats-page";
@@ -35,6 +36,9 @@ export interface MatchFeedProps {
   onModeDetected(matchId: string, gameMode: string, matchType?: string, mapName?: string): void;
   onFailure?(reason: Extract<StatsPartialReason, "detail_failed" | "analysis_failed">, sourceId: string): void;
   onRecovery?(reason: Extract<StatsPartialReason, "detail_failed" | "analysis_failed">, sourceId: string): void;
+  historyStatus?: StatsHistoryStatus;
+  hasMoreHistory?: boolean;
+  onLoadMore?(): void;
 }
 
 const FILTERS: readonly { value: StatsMatchFilter; label: string }[] = [
@@ -80,6 +84,9 @@ export function MatchFeed({
   onModeDetected,
   onFailure,
   onRecovery,
+  historyStatus = "idle",
+  hasMoreHistory = false,
+  onLoadMore,
 }: MatchFeedProps) {
   const availableMatches = matchIds.flatMap((matchId) => {
     if (missingMatchIds.has(matchId)) return [];
@@ -96,7 +103,7 @@ export function MatchFeed({
   return (
     <section aria-label="최근 매치" className="min-w-0">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h3 className="text-lg font-black text-white">최근 매치 <span className="text-xs text-white/40">(최대 20게임)</span></h3>
+        <h3 className="text-lg font-black text-white">매치 기록 <span className="text-xs text-white/40">(현재 {matchIds.length}게임)</span></h3>
         <div role="group" aria-label="매치 유형 필터" className="flex gap-1 rounded-xl bg-white/5 p-1">
           {FILTERS.map((item) => (
             <button
@@ -170,6 +177,20 @@ export function MatchFeed({
       ) : (
         <div className="rounded-2xl border border-white/5 bg-white/3 p-10 text-center text-xs font-bold text-white/40">
           {EMPTY_MESSAGES[filter]}
+        </div>
+      )}
+
+      {onLoadMore && hasMoreHistory && (
+        <div className="mt-4 flex flex-col items-center gap-2">
+          <button
+            type="button"
+            onClick={onLoadMore}
+            disabled={historyStatus === "loading"}
+            className="min-h-11 rounded-xl border border-white/10 bg-white/5 px-5 text-xs font-black text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-50"
+          >
+            {historyStatus === "loading" ? "이전 전적 불러오는 중..." : historyStatus === "error" ? "이전 전적 다시 시도" : "이전 전적 더 보기"}
+          </button>
+          <span className="text-[10px] font-bold text-white/35">저장된 전적을 20개씩 불러옵니다. 상세 분석은 펼칠 때 필요한 경우에만 요청됩니다.</span>
         </div>
       )}
     </section>

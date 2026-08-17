@@ -227,6 +227,53 @@ describe("useStatsPageController", () => {
     });
   });
 
+  it("loads all cached player matches page by page without another player API request", async () => {
+    let historyCalls = 0;
+    const historyRecord = (matchId: string, playedAt: string) => ({
+      player_id: "fixtureplayer",
+      platform: "steam",
+      match_id: matchId,
+      played_at: playedAt,
+      game_mode: "squad-fpp",
+      map_name: "Baltic_Main",
+      kills: 2,
+      damage: 240,
+      win_place: 4,
+      match_type: "competitive",
+    });
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player/matches")) {
+        historyCalls += 1;
+        return Promise.resolve(jsonResponse({
+          matches: [historyRecord(`history-${historyCalls}`, `2026-08-1${8 - historyCalls}T00:00:00Z`)],
+          nextCursor: historyCalls === 1 ? "cursor-1" : null,
+        }));
+      }
+      if (url.startsWith("/api/pubg/matches-summary")) {
+        return Promise.resolve(jsonResponse(summaryReady));
+      }
+      return Promise.resolve(jsonResponse({ ...playerReady, recentMatches: [] }));
+    });
+
+    const { result } = renderHook(() => useStatsPageController({
+      initialNickname: "FixturePlayer",
+      initialPlatform: "steam",
+    }));
+
+    await waitFor(() => expect(result.current.hasMoreHistory).toBe(true));
+    expect(result.current.matchIds).toContain("history-1");
+    expect(result.current.matchSummaries["history-1"]?.isSummary).toBe(true);
+
+    await act(async () => {
+      await result.current.loadMoreHistory();
+    });
+
+    await waitFor(() => expect(result.current.hasMoreHistory).toBe(false));
+    expect(result.current.matchIds).toContain("history-2");
+    expect(historyCalls).toBe(2);
+  });
+
   it("404 추천과 반환 platform을 별도 상태로 보존한다", async () => {
     fetchMock.mockResolvedValue(jsonResponse({
       error: "not found",

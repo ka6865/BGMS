@@ -5,6 +5,7 @@ export type StatsPartySize = "solo" | "duo" | "squad";
 export type StatsMatchFilter = "all" | "normal" | "ranked" | "casual" | "tdm";
 export type StatsMatchClassification = Exclude<StatsMatchFilter, "all"> | "unknown" | "unavailable";
 export type StatsPageStatus = "idle" | "loading" | "ready" | "refreshing" | "partial" | "error";
+export type StatsHistoryStatus = "idle" | "loading" | "ready" | "error";
 export type StatsPartialReason = "summary_batch_failed" | "summary_missing" | "detail_failed" | "analysis_failed";
 export type StatsErrorType = "not_found" | "rate_limit" | "server";
 

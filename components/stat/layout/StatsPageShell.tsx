@@ -78,6 +78,9 @@ export function StatsPageShell({
     missingMatchIds,
     matchModeMeta,
     summaryStatus,
+    matchIds,
+    historyStatus,
+    hasMoreHistory,
     refreshAvailableAt,
     isRefreshCoolingDown: isCoolingDown,
     statsMode,
@@ -91,6 +94,7 @@ export function StatsPageShell({
     setGroupKey,
     search,
     retrySummaries,
+    loadMoreHistory,
     onModeDetected: handleModeDetected,
     reportPartial,
     clearPartial,
@@ -403,7 +407,7 @@ export function StatsPageShell({
                 </aside>
                 <div className="stats-match-column">
                   <MatchFeed
-                    matchIds={result.recentMatches.slice(0, 20)}
+                    matchIds={matchIds}
                     summaries={matchSummaries}
                     missingMatchIds={missingMatchIds}
                     matchModeMeta={matchModeMeta}
@@ -414,6 +418,9 @@ export function StatsPageShell({
                     platform={result.platform}
                     onFilterChange={setMatchTab}
                     onRetrySummaries={() => void retrySummaries()}
+                    historyStatus={historyStatus}
+                    hasMoreHistory={hasMoreHistory}
+                    onLoadMore={() => void loadMoreHistory()}
                     onNicknameClick={(clickedName) => {
                       navigateToPlayer(clickedName, result.platform, false);
                       window.scrollTo({ top: 0, behavior: "smooth" });
