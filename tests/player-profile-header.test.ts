@@ -126,8 +126,8 @@ describe("PlayerProfileHeader", () => {
     expect(screen.getByRole("img", { name: "Gold 3 티어 아이콘" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "현재 시즌 경쟁전 스쿼드 요약" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Season 2" })).toBeInTheDocument();
-    expect(screen.getByText("생존 레벨").parentElement).toHaveTextContent("Lv.441");
-    expect(screen.getByText("XP 1317")).toBeInTheDocument();
+    expect(screen.getByText("생존 티어 3").parentElement).toHaveTextContent("Lv.441");
+    expect(screen.getByRole("tooltip")).toHaveTextContent("누적 XP 1,317");
     expect(screen.getByText("승률").parentElement?.parentElement).toHaveTextContent("10.0%");
     expect(screen.getByText("Top 10률").parentElement?.parentElement).toHaveTextContent("40.0%");
     expect(screen.getByText("평균 생존").parentElement?.parentElement).toHaveTextContent("16:40");

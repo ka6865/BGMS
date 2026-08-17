@@ -126,17 +126,28 @@ export function CurrentSeasonSummaryCard({
           </h3>
         </div>
         {survivalMastery ? (
-          <div className="flex shrink-0 items-center gap-2 rounded-xl border border-amber-400/20 bg-amber-400/10 px-2.5 py-2">
+          <div
+            className="group relative flex shrink-0 items-center gap-2 rounded-xl border border-amber-400/20 bg-amber-400/10 px-2.5 py-2 outline-none focus-visible:ring-2 focus-visible:ring-amber-300"
+            tabIndex={0}
+            role="group"
+            aria-label={`생존 티어 ${survivalMastery.tier ?? "확인 불가"}, 레벨 ${survivalMastery.level}${survivalMastery.xp != null ? `, 누적 XP ${survivalMastery.xp.toLocaleString("ko-KR")}` : ""}`}
+            title={survivalMastery.xp != null ? `누적 XP ${survivalMastery.xp.toLocaleString("ko-KR")}` : undefined}
+          >
             <Crown size={16} className="text-amber-300" aria-hidden="true" />
             <div className="text-right">
-              <div className="text-[9px] font-black uppercase tracking-wider text-amber-200/60">생존 레벨</div>
-              <div className="text-sm font-black tabular-nums text-amber-200">
-                Lv.{survivalMastery.level}
-                {survivalMastery.xp != null && (
-                  <span className="ml-1 text-[10px] font-bold text-amber-100/60">{`XP ${survivalMastery.xp}`}</span>
-                )}
+              <div className="text-[9px] font-black uppercase tracking-wider text-amber-200/60">
+                생존 티어 {survivalMastery.tier ?? "—"}
               </div>
+              <div className="text-sm font-black tabular-nums text-amber-200">Lv.{survivalMastery.level}</div>
             </div>
+            {survivalMastery.xp != null && (
+              <div
+                role="tooltip"
+                className="pointer-events-none absolute right-0 top-full z-30 mt-2 whitespace-nowrap rounded-lg border border-amber-300/20 bg-[#111] px-3 py-2 text-[11px] font-black text-amber-100 opacity-0 shadow-2xl transition-opacity group-hover:opacity-100 group-focus:opacity-100"
+              >
+                누적 XP {survivalMastery.xp.toLocaleString("ko-KR")}
+              </div>
+            )}
           </div>
         ) : (
           <Crown size={22} className="mt-1 shrink-0 text-amber-300" aria-hidden="true" />
