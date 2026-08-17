@@ -8,7 +8,7 @@ import {
 
 const ROUTE_SOURCE = readFileSync(resolve("app/api/pubg/player/route.ts"), "utf8");
 const MIGRATION_SOURCE = readFileSync(
-  resolve("supabase/migrations/20260817171124_add_survival_mastery_cache.sql"),
+  resolve("supabase/migrations/20260817172423_add_survival_mastery_cache.sql"),
   "utf8",
 );
 

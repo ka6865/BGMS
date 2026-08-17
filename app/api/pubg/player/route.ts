@@ -490,11 +490,16 @@ export async function GET(request: Request) {
       last_season_id: targetSeasonId,
       recent_match_ids: recentMatches,
       seasons_list: availableSeasons,
-      survival_mastery_data: survivalMastery,
-      survival_mastery_updated_at: shouldFetchSurvivalMastery
-        ? nowIso
-        : (cacheData?.survival_mastery_updated_at || nowIso),
     };
+
+    // 동시 조회 중 한 요청의 optional mastery 실패(null)가 다른 요청의
+    // 성공 데이터를 덮어쓰지 않도록 값이 있을 때만 data 컬럼을 upsert한다.
+    if (shouldFetchSurvivalMastery) {
+      cacheUpdateData.survival_mastery_updated_at = nowIso;
+      if (survivalMastery) cacheUpdateData.survival_mastery_data = survivalMastery;
+    } else if (cacheData?.survival_mastery_updated_at) {
+      cacheUpdateData.survival_mastery_updated_at = cacheData.survival_mastery_updated_at;
+    }
 
     const isNewUser = !cacheData;
     if (clanResult.updated || isNewUser) {
