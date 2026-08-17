@@ -60,6 +60,12 @@ describe("일일 유지보수 실패 알림이 원인을 함께 전달한다", (
     expect(notifyStep?.run ?? "").toContain("actions/jobs/${JOB_ID}/logs");
   });
 
+  it("실제 오류가 앞부분의 환경변수 로그에 묻히지 않게 마지막 오류 후보를 사용한다", () => {
+    const run = notifyStep?.run ?? "";
+    expect(run).toContain("tail -n 8");
+    expect(run).not.toContain("|429|rate limit|timeout|timed out|supabase");
+  });
+
   it("조회 실패 시에도 알림 자체는 발송한다", () => {
     const run = notifyStep?.run ?? "";
     expect(run).toContain("실패 잡 목록 조회 실패");

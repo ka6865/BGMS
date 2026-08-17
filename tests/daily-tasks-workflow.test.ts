@@ -41,4 +41,15 @@
     );
     expect(content).toContain("MATCH_TYPE_BACKFILL_RESULT");
   });
+
+  it("stops the lower-priority hotdrop step after sync detects a PUBG API rate limit", () => {
+    const yamlPath = join(process.cwd(), ".github/workflows/daily-tasks.yml");
+    const content = readFileSync(yamlPath, "utf-8");
+
+    expect(content).toContain("id: sync_user_matches");
+    expect(content).toContain("pubg_rate_limited: ${{ steps.sync_user_matches.outputs.rate_limited }}");
+    expect(content).toContain("Skip Hotdrop After PUBG API Rate Limit");
+    expect(content).toContain("steps.sync_user_matches.outputs.rate_limited == 'true'");
+    expect(content).toContain("steps.sync_user_matches.outputs.rate_limited != 'true'");
+  });
 });
