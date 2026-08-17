@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment } from "react";
+import { useEffect, useRef } from "react";
 import { ResponsiveAdSlot } from "@/components/ads/ResponsiveAdSlot";
 import { MatchCard } from "@/components/stat/MatchCard";
 import {
@@ -50,6 +51,10 @@ const FILTERS: readonly { value: StatsMatchFilter; label: string }[] = [
   { value: "casual", label: "캐주얼" },
   { value: "tdm", label: "TDM" },
 ];
+
+const FILTER_LABELS: Record<StatsMatchFilter, string> = Object.fromEntries(
+  FILTERS.map((item) => [item.value, item.label]),
+) as Record<StatsMatchFilter, string>;
 
 const EMPTY_MESSAGES: Record<StatsMatchFilter, string> = {
   all: "최근 14일 이내에 플레이한 매치 기록이 없습니다.",
@@ -110,6 +115,8 @@ export function MatchFeed({
   onPageChange,
   onRetryHistory,
 }: MatchFeedProps) {
+  const feedRef = useRef<HTMLElement>(null);
+  const previousHistoryPageRef = useRef(historyPage);
   const availableMatches = matchIds.flatMap((matchId) => {
     if (missingMatchIds.has(matchId)) return [];
     const value = summaries[matchId];
@@ -121,11 +128,20 @@ export function MatchFeed({
     viewportClass,
     renderableMatchCount: renderableMatches.length,
   });
+  const emptyMessage = historyTotalPages > 0
+    ? `현재 페이지에 ${FILTER_LABELS[filter]} 기록이 없습니다. 다른 페이지도 확인해 보세요.`
+    : EMPTY_MESSAGES[filter];
+
+  useEffect(() => {
+    if (previousHistoryPageRef.current === historyPage) return;
+    previousHistoryPageRef.current = historyPage;
+    feedRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }, [historyPage]);
 
   return (
-    <section aria-label="최근 매치" className="min-w-0">
+    <section ref={feedRef} aria-label="최근 매치" className="min-w-0">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h3 className="text-lg font-black text-white">매치 기록 <span className="text-xs text-white/40">(현재 {matchIds.length}게임)</span></h3>
+        <h3 className="text-lg font-black text-white">매치 기록 <span className="text-xs text-white/40">(현재 {matchIds.length}게임{historyTotalPages > 1 ? ` · ${historyPage}/${historyTotalPages}페이지` : ""})</span></h3>
         <div role="group" aria-label="매치 유형 필터" className="flex gap-1 rounded-xl bg-white/5 p-1">
           {FILTERS.map((item) => (
             <button
@@ -198,12 +214,14 @@ export function MatchFeed({
         </div>
       ) : (
         <div className="rounded-2xl border border-white/5 bg-white/3 p-10 text-center text-xs font-bold text-white/40">
-          {EMPTY_MESSAGES[filter]}
+          {emptyMessage}
         </div>
       )}
 
-      {historyStatus === "loading" && historyTotalPages === 0 && (
-        <div role="status" className="mt-4 text-center text-[10px] font-bold text-white/35">전적 페이지 정보 불러오는 중...</div>
+      {historyStatus === "loading" && (
+        <div role="status" aria-label="전적 페이지 로딩" className="mt-4 text-center text-[10px] font-bold text-white/50">
+          {historyTotalPages > 0 ? "페이지 불러오는 중..." : "전적 페이지 정보 불러오는 중..."}
+        </div>
       )}
 
       {historyStatus === "error" && onRetryHistory && (

@@ -218,6 +218,22 @@ describe("MatchFeed renderable order and ads", () => {
     expect(getStatsHistoryPaginationItems(10, 5)).toEqual([1, "ellipsis", 4, 5, 6, "ellipsis", 10]);
   });
 
+  it("페이지 이동 중 상태와 현재 페이지 기준 empty 안내를 함께 보여준다", async () => {
+    const feed = await renderFeed({
+      viewportClass: "mobile",
+      matchCount: 0,
+      filter: "normal",
+      historyStatus: "loading",
+      historyPage: 2,
+      historyTotalPages: 3,
+    });
+
+    expect(screen.getByRole("status", { name: "전적 페이지 로딩" })).toHaveTextContent("페이지 불러오는 중...");
+    expect(screen.getByRole("heading", { name: /2\/3페이지/ })).toBeInTheDocument();
+    expect(screen.getByText("현재 페이지에 일반전 기록이 없습니다. 다른 페이지도 확인해 보세요.")).toBeInTheDocument();
+    feed.unmount();
+  });
+
   it("행 failure/recovery를 서로 지우지 않는 match source ID로 전달한다", async () => {
     const onFailure = vi.fn();
     const onRecovery = vi.fn();

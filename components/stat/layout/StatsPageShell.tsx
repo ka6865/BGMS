@@ -105,6 +105,11 @@ export function StatsPageShell({
   const refreshing = status === "refreshing";
   const viewportClass = useAdViewportClass();
 
+  const handleMatchFilterChange = useCallback((value: typeof matchTab) => {
+    setMatchTab(value);
+    if (value !== matchTab) void setHistoryPage(1);
+  }, [matchTab, setHistoryPage, setMatchTab]);
+
   const { user } = useAuth();
   const [cooldown, setCooldown] = useState(false);
   const isSearchingRef = useRef(false);
@@ -416,7 +421,7 @@ export function StatsPageShell({
                     viewportClass={viewportClass}
                     nickname={result.nickname}
                     platform={result.platform}
-                    onFilterChange={setMatchTab}
+                    onFilterChange={handleMatchFilterChange}
                     onRetrySummaries={() => void retrySummaries()}
                     historyStatus={historyStatus}
                     historyPage={historyPage}

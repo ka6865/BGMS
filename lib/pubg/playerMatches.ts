@@ -83,7 +83,7 @@ export async function fetchPlayerMatchesPaginated(
   const { data, error, count } = await query;
   if (error) {
     console.error("[playerMatches] fetch failed:", error.message);
-    return { matches: [], page: safePage, pageSize, totalCount: 0, totalPages: 0 };
+    throw error;
   }
 
   const matches = (data || []) as PlayerMatchRecord[];
