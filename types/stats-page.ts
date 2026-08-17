@@ -32,6 +32,13 @@ export interface StatsBucket {
   currentRankPoint?: number;
 }
 
+export interface StatsSurvivalMastery {
+  xp?: number;
+  tier?: number;
+  level: number;
+  totalMatchesPlayed?: number;
+}
+
 export interface PlayerStatsResponse {
   nickname: string;
   platform: StatsPlatform;
@@ -44,6 +51,7 @@ export interface PlayerStatsResponse {
   recentMatches: readonly string[];
   matchModes?: Record<string, string>;
   clan?: { id: string; name: string; tag: string; level: number; memberCount: number } | null;
+  survivalMastery?: StatsSurvivalMastery | null;
   weaponMastery?: readonly unknown[];
   banType?: string | null;
   updatedAt?: string;

@@ -150,7 +150,10 @@ export function PlayerProfileHeader({
           />
         </div>
 
-        <CurrentSeasonSummaryCard summary={seasonSummary} />
+        <CurrentSeasonSummaryCard
+          summary={seasonSummary}
+          survivalMastery={player.survivalMastery}
+        />
 
         <div className="flex flex-wrap items-center gap-2">
           <button

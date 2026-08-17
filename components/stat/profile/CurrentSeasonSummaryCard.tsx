@@ -1,11 +1,16 @@
 "use client";
 
 import { BarChart3, Clock3, Crosshair, Crown, Target, Trophy } from "lucide-react";
-import type { StatsPartySize, StatsSeasonSummaryMetrics } from "@/types/stats-page";
+import type {
+  StatsPartySize,
+  StatsSeasonSummaryMetrics,
+  StatsSurvivalMastery,
+} from "@/types/stats-page";
 import { getTierIconPath } from "@/utils/tier";
 
 export interface CurrentSeasonSummaryCardProps {
   summary: StatsSeasonSummaryMetrics;
+  survivalMastery?: StatsSurvivalMastery | null;
 }
 
 const PARTY_LABELS: Record<StatsPartySize, string> = {
@@ -61,7 +66,7 @@ function EmptySummary({ seasonName }: { seasonName: string }) {
   );
 }
 
-export function CurrentSeasonSummaryCard({ summary }: CurrentSeasonSummaryCardProps) {
+export function CurrentSeasonSummaryCard({ summary, survivalMastery }: CurrentSeasonSummaryCardProps) {
   const party = partyLabel(summary);
   const ariaLabel = `현재 시즌 경쟁전 ${party} 요약`;
 
@@ -81,7 +86,22 @@ export function CurrentSeasonSummaryCard({ summary }: CurrentSeasonSummaryCardPr
             {summary.seasonName}
           </h3>
         </div>
-        <Crown size={22} className="mt-1 shrink-0 text-amber-300" aria-hidden="true" />
+        {survivalMastery ? (
+          <div className="flex shrink-0 items-center gap-2 rounded-xl border border-amber-400/20 bg-amber-400/10 px-2.5 py-2">
+            <Crown size={16} className="text-amber-300" aria-hidden="true" />
+            <div className="text-right">
+              <div className="text-[9px] font-black uppercase tracking-wider text-amber-200/60">생존 레벨</div>
+              <div className="text-sm font-black tabular-nums text-amber-200">
+                Lv.{survivalMastery.level}
+                {survivalMastery.xp != null && (
+                  <span className="ml-1 text-[10px] font-bold text-amber-100/60">{`XP ${survivalMastery.xp}`}</span>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <Crown size={22} className="mt-1 shrink-0 text-amber-300" aria-hidden="true" />
+        )}
       </div>
 
       {summary.kind === "empty" ? (
