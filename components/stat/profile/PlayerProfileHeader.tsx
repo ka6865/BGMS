@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Crosshair, RefreshCw, Shield, Star, Swords } from "lucide-react";
 import { getCurrentSeasonSummary } from "@/lib/stats/statsPageModel";
-import type { PlayerStatsResponse } from "@/types/stats-page";
+import type { PlayerStatsResponse, StatsPartySize } from "@/types/stats-page";
 import { CurrentSeasonSummaryCard } from "./CurrentSeasonSummaryCard";
 
 export interface PlayerProfileHeaderProps {
@@ -18,6 +18,8 @@ export interface PlayerProfileHeaderProps {
   onFavoriteToggle(): void;
   onCompare(): void;
   onWeapons(): void;
+  partySize?: StatsPartySize;
+  onPartySizeChange?(value: StatsPartySize): void;
 }
 
 function updatedLabel(value?: string): string {
@@ -122,9 +124,11 @@ export function PlayerProfileHeader({
   onFavoriteToggle,
   onCompare,
   onWeapons,
+  partySize,
+  onPartySizeChange,
 }: PlayerProfileHeaderProps) {
   const [openPopover, setOpenPopover] = useState<ProfilePopover>(null);
-  const seasonSummary = getCurrentSeasonSummary(player);
+  const seasonSummary = getCurrentSeasonSummary(player, partySize);
 
   return (
     <header className="rounded-2xl border border-white/10 bg-[#161616] p-4 md:p-5" aria-label="플레이어 프로필">
@@ -153,6 +157,8 @@ export function PlayerProfileHeader({
         <CurrentSeasonSummaryCard
           summary={seasonSummary}
           survivalMastery={player.survivalMastery}
+          partySize={partySize}
+          onPartySizeChange={onPartySizeChange}
         />
 
         <div className="flex flex-wrap items-center gap-2">

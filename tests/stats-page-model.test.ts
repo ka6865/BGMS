@@ -140,6 +140,7 @@ describe("stats page primitives", () => {
       kind: "empty",
       seasonId: "season-8",
       seasonName: "Season 8",
+      partySize: "squad",
       label: "기록 없음",
     });
   });
@@ -158,6 +159,33 @@ describe("stats page primitives", () => {
     expect(getCurrentSeasonSummary(noKills)).toMatchObject({
       kind: "ready",
       headshotRate: "—",
+    });
+  });
+
+  it("uses the selected ranked party and falls back to avgSurvivalTime when needed", () => {
+    const duoPlayer: PlayerStatsResponse = {
+      ...readyPlayer,
+      stats: {
+        ...readyPlayer.stats,
+        ranked: {
+          ...readyPlayer.stats.ranked,
+          squad: { ...readyPlayer.stats.ranked!.squad!, timeSurvived: undefined, avgSurvivalTime: 1000 },
+          duo: {
+            ...readyPlayer.stats.ranked!.squad!,
+            roundsPlayed: 4,
+            wins: 1,
+            timeSurvived: undefined,
+            avgSurvivalTime: 900,
+          },
+        },
+      },
+    };
+
+    expect(getCurrentSeasonSummary(duoPlayer, "duo")).toMatchObject({
+      kind: "ready",
+      partySize: "duo",
+      roundsPlayed: 4,
+      averageSurvival: "15:00",
     });
   });
 });

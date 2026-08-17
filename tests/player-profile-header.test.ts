@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createElement, Fragment } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlayerStatsResponse, StatsBucket } from "@/types/stats-page";
@@ -264,6 +264,30 @@ describe("PlayerProfileHeader", () => {
     expect(screen.getByRole("region", { name: "현재 시즌 경쟁전 스쿼드 요약" })).toBeInTheDocument();
     expect(screen.getByText("기록 없음")).toBeInTheDocument();
     expect(screen.getByRole("combobox", { name: "시즌 선택" })).toBeInTheDocument();
+  });
+
+  it("상단 시즌 카드의 랭크 파티 필터를 외부 상세 통계 상태와 연결한다", () => {
+    const onPartySizeChange = vi.fn();
+    render(createElement(PlayerProfileHeader, {
+      player,
+      seasonId: player.seasonId,
+      partySize: "squad",
+      onPartySizeChange,
+      refreshing: false,
+      isRefreshCoolingDown: false,
+      favorite: false,
+      onSeasonChange: vi.fn(),
+      onRefresh: vi.fn(),
+      onFavoriteToggle: vi.fn(),
+      onCompare: vi.fn(),
+      onWeapons: vi.fn(),
+    }));
+
+    const filter = screen.getByRole("group", { name: "현재 시즌 파티 필터" });
+    fireEvent.click(within(filter).getByRole("button", { name: "듀오" }));
+
+    expect(onPartySizeChange).toHaveBeenCalledWith("duo");
+    expect(within(filter).getByRole("button", { name: "스쿼드" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("갱신 쿨다운이면 header refresh만 차단한다", () => {

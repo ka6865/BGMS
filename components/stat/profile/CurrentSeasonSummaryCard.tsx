@@ -11,6 +11,8 @@ import { getTierIconPath } from "@/utils/tier";
 export interface CurrentSeasonSummaryCardProps {
   summary: StatsSeasonSummaryMetrics;
   survivalMastery?: StatsSurvivalMastery | null;
+  partySize?: StatsPartySize;
+  onPartySizeChange?(value: StatsPartySize): void;
 }
 
 const PARTY_LABELS: Record<StatsPartySize, string> = {
@@ -19,8 +21,14 @@ const PARTY_LABELS: Record<StatsPartySize, string> = {
   squad: "스쿼드",
 };
 
+const PARTY_OPTIONS: readonly { value: StatsPartySize; label: string }[] = [
+  { value: "solo", label: "솔로" },
+  { value: "duo", label: "듀오" },
+  { value: "squad", label: "스쿼드" },
+];
+
 function partyLabel(summary: StatsSeasonSummaryMetrics): string {
-  return summary.kind === "ready" ? PARTY_LABELS[summary.partySize] : PARTY_LABELS.squad;
+  return PARTY_LABELS[summary.partySize];
 }
 
 function rankLabel(summary: Extract<StatsSeasonSummaryMetrics, { kind: "ready" }>): string {
@@ -55,18 +63,24 @@ function Metric({
   );
 }
 
-function EmptySummary({ seasonName }: { seasonName: string }) {
+function EmptySummary({ seasonName, party }: { seasonName: string; party: string }) {
   return (
     <div className="flex min-h-28 items-center justify-center px-5 py-6 text-center">
       <div>
         <div className="text-sm font-black text-white/70">기록 없음</div>
-        <div className="mt-1 text-xs font-bold text-white/35">{seasonName} 경쟁전에 저장된 스쿼드 경기가 아직 없습니다.</div>
+        <div className="mt-1 text-xs font-bold text-white/35">{seasonName} 경쟁전에 저장된 {party} 경기가 아직 없습니다.</div>
       </div>
     </div>
   );
 }
 
-export function CurrentSeasonSummaryCard({ summary, survivalMastery }: CurrentSeasonSummaryCardProps) {
+export function CurrentSeasonSummaryCard({
+  summary,
+  survivalMastery,
+  partySize,
+  onPartySizeChange,
+}: CurrentSeasonSummaryCardProps) {
+  const selectedPartySize = partySize ?? summary.partySize;
   const party = partyLabel(summary);
   const ariaLabel = `현재 시즌 경쟁전 ${party} 요약`;
 
@@ -105,7 +119,7 @@ export function CurrentSeasonSummaryCard({ summary, survivalMastery }: CurrentSe
       </div>
 
       {summary.kind === "empty" ? (
-        <EmptySummary seasonName={summary.seasonName} />
+        <EmptySummary seasonName={summary.seasonName} party={party} />
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-[minmax(180px,0.78fr)_minmax(0,1.7fr)] md:p-5">
@@ -145,6 +159,30 @@ export function CurrentSeasonSummaryCard({ summary, survivalMastery }: CurrentSe
             <Metric label="헤드샷률" value={summary.headshotRate} />
           </div>
         </>
+      )}
+
+      {onPartySizeChange && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 px-4 py-2.5 md:px-5">
+          <span className="text-[10px] font-black uppercase tracking-wider text-white/40">랭크 파티</span>
+          <div className="flex min-w-0 gap-1 rounded-lg bg-white/5 p-1" role="group" aria-label="현재 시즌 파티 필터">
+            {PARTY_OPTIONS.map((option) => {
+              const selected = option.value === selectedPartySize;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => onPartySizeChange(option.value)}
+                  className={`min-h-8 rounded-md px-2.5 text-[10px] font-black transition-colors ${
+                    selected ? "bg-amber-500 text-black" : "text-white/50 hover:bg-white/5 hover:text-white"
+                  }`}
+                >
+                  {option.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
     </section>
   );

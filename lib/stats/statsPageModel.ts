@@ -129,22 +129,38 @@ export function getStatsOverviewMetrics(player: PlayerStatsResponse): StatsOverv
 }
 
 function formatAverageSurvival(seconds: number | undefined, roundsPlayed: number): string {
-  if (seconds == null || !Number.isFinite(seconds) || roundsPlayed <= 0) return "—";
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0 || roundsPlayed <= 0) return "—";
   const totalSeconds = Math.max(0, Math.round(seconds / roundsPlayed));
   const minutes = Math.floor(totalSeconds / 60);
   const remainder = String(totalSeconds % 60).padStart(2, "0");
   return `${minutes}:${remainder}`;
 }
 
-export function getCurrentSeasonSummary(player: PlayerStatsResponse): StatsSeasonSummaryMetrics {
+export function getCurrentSeasonSummary(
+  player: PlayerStatsResponse,
+  preferredPartySize?: StatsPartySize,
+): StatsSeasonSummaryMetrics {
   const seasonId = player.seasonId || "";
   const seasonName = player.seasons.find((season) => season.id === seasonId)?.name
     || seasonId
     || "현재 시즌";
-  const selected = selectOverviewBucket(player.stats);
+  const selected = preferredPartySize
+    ? (() => {
+      const bucket = player.stats.ranked?.[preferredPartySize];
+      return bucket && bucket.roundsPlayed > 0
+        ? { bucket, partySize: preferredPartySize }
+        : null;
+    })()
+    : selectOverviewBucket(player.stats);
 
   if (!selected) {
-    return { kind: "empty", seasonId, seasonName, label: "기록 없음" };
+    return {
+      kind: "empty",
+      seasonId,
+      seasonName,
+      partySize: preferredPartySize ?? "squad",
+      label: "기록 없음",
+    };
   }
 
   const { bucket, partySize } = selected;
@@ -173,7 +189,14 @@ export function getCurrentSeasonSummary(player: PlayerStatsResponse): StatsSeaso
     top10Rate: `${top10Rate.toFixed(1)}%`,
     kda: ((bucket.kills + bucket.assists) / (deaths || 1)).toFixed(2),
     averageDamage: (bucket.damageDealt / roundsPlayed).toFixed(0),
-    averageSurvival: formatAverageSurvival(bucket.timeSurvived, roundsPlayed),
+    averageSurvival: formatAverageSurvival(
+      bucket.timeSurvived != null && bucket.timeSurvived > 0
+        ? bucket.timeSurvived
+        : bucket.avgSurvivalTime != null && bucket.avgSurvivalTime > 0
+          ? bucket.avgSurvivalTime * roundsPlayed
+          : undefined,
+      roundsPlayed,
+    ),
     headshotRate: headshotRate == null ? "—" : `${headshotRate.toFixed(1)}%`,
   };
 }

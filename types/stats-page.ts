@@ -26,6 +26,7 @@ export interface StatsBucket {
   damageDealt: number;
   dBNOs: number;
   timeSurvived?: number;
+  avgSurvivalTime?: number;
   headshotKills?: number;
   roundMostKills?: number;
   currentTier?: { tier?: string; subTier?: string | number };
@@ -69,7 +70,7 @@ export type StatsOverviewMetrics =
     };
 
 export type StatsSeasonSummaryMetrics =
-  | { kind: "empty"; seasonId: string; seasonName: string; label: "기록 없음" }
+  | { kind: "empty"; seasonId: string; seasonName: string; partySize: StatsPartySize; label: "기록 없음" }
   | {
       kind: "ready";
       seasonId: string;

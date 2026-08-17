@@ -354,6 +354,8 @@ export function StatsPageShell({
             onFavoriteToggle={() => toggleFavorite(result.nickname)}
             onCompare={() => router.push(buildStatsCompareUrl(result.nickname, result.platform))}
             onWeapons={() => router.push(buildStatsWeaponsUrl(result.nickname, result.platform))}
+            partySize={partySize}
+            onPartySizeChange={setPartySize}
           />
 
           <ResponsiveAdSlot placement="stats-top" viewportClass={viewportClass} />
