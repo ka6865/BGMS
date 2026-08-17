@@ -47,6 +47,8 @@ function bucket(overrides: Partial<StatsBucket>): StatsBucket {
     top10Ratio: 0.4,
     damageDealt: 2000,
     dBNOs: 4,
+    timeSurvived: 10000,
+    headshotKills: 4,
     ...overrides,
   };
 }
@@ -121,6 +123,11 @@ describe("PlayerProfileHeader", () => {
     expect(screen.getByText("Gold 3")).toBeInTheDocument();
     expect(screen.getByText("2450 RP")).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "Gold 3 티어 아이콘" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "현재 시즌 경쟁전 스쿼드 요약" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Season 2" })).toBeInTheDocument();
+    expect(screen.getByText("승률").parentElement?.parentElement).toHaveTextContent("10.0%");
+    expect(screen.getByText("Top 10률").parentElement?.parentElement).toHaveTextContent("40.0%");
+    expect(screen.getByText("평균 생존").parentElement?.parentElement).toHaveTextContent("16:40");
     expect(screen.queryByText(/Master/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Diamond/)).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "FixtureNickname" })).toHaveAttribute("title", "FixtureNickname");
@@ -224,6 +231,36 @@ describe("PlayerProfileHeader", () => {
 
     expect(screen.getByText("Master 1")).toBeInTheDocument();
     expect(screen.getByText("4000 RP")).toBeInTheDocument();
+  });
+
+  it("모든 경쟁전 기록이 없으면 시즌 카드 빈 상태를 보여준다", () => {
+    const emptyPlayer: PlayerStatsResponse = {
+      ...player,
+      stats: {
+        ranked: {
+          squad: bucket({ roundsPlayed: 0 }),
+          duo: bucket({ roundsPlayed: 0 }),
+          solo: bucket({ roundsPlayed: 0 }),
+        },
+        normal: {},
+      },
+    };
+    render(createElement(PlayerProfileHeader, {
+      player: emptyPlayer,
+      seasonId: emptyPlayer.seasonId,
+      refreshing: false,
+      isRefreshCoolingDown: false,
+      favorite: false,
+      onSeasonChange: vi.fn(),
+      onRefresh: vi.fn(),
+      onFavoriteToggle: vi.fn(),
+      onCompare: vi.fn(),
+      onWeapons: vi.fn(),
+    }));
+
+    expect(screen.getByRole("region", { name: "현재 시즌 경쟁전 스쿼드 요약" })).toBeInTheDocument();
+    expect(screen.getByText("기록 없음")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "시즌 선택" })).toBeInTheDocument();
   });
 
   it("갱신 쿨다운이면 header refresh만 차단한다", () => {
