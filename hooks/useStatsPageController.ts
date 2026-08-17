@@ -64,8 +64,8 @@ export interface StatsPageController {
   summaryStatus: "idle" | "loading" | "ready" | "error";
   matchIds: readonly string[];
   historyStatus: StatsHistoryStatus;
-  historyLoaded: boolean;
-  hasMoreHistory: boolean;
+  historyPage: number;
+  historyTotalPages: number;
   setPlatform(value: StatsPlatform): void;
   setNickname(value: string): void;
   setSeasonId(value: string): void;
@@ -77,7 +77,8 @@ export interface StatsPageController {
   search(request?: StatsSearchRequest): Promise<PlayerStatsResponse | null>;
   refresh(): Promise<void>;
   retrySummaries(): Promise<void>;
-  loadMoreHistory(): Promise<void>;
+  setHistoryPage(page: number): Promise<void>;
+  retryHistory(): Promise<void>;
   onModeDetected(matchId: string, gameMode: string, matchType?: string, mapName?: string): void;
   reportPartial(reason: StatsPartialReason, sourceId: string): void;
   clearPartial(reason: StatsPartialReason, sourceId: string): void;
@@ -126,19 +127,6 @@ function normalizeSuggestions(value: unknown): { nickname: string; platform: Sta
   });
 }
 
-function mergePlayerHistoryRecords(
-  existing: readonly PlayerMatchRecord[],
-  incoming: readonly PlayerMatchRecord[],
-): PlayerMatchRecord[] {
-  const byMatchId = new Map<string, PlayerMatchRecord>();
-  for (const record of [...existing, ...incoming]) {
-    if (record.match_id) byMatchId.set(record.match_id, record);
-  }
-  return [...byMatchId.values()].sort((left, right) => (
-    Date.parse(right.played_at) - Date.parse(left.played_at)
-  ));
-}
-
 export function useStatsPageController(
   options: UseStatsPageControllerOptions,
 ): StatsPageController {
@@ -167,7 +155,8 @@ export function useStatsPageController(
   const [historyMatches, setHistoryMatches] = useState<PlayerMatchRecord[]>([]);
   const [historyStatus, setHistoryStatus] = useState<StatsHistoryStatus>("idle");
   const [historyLoaded, setHistoryLoaded] = useState(false);
-  const [hasMoreHistory, setHasMoreHistory] = useState(false);
+  const [historyPage, setHistoryPageState] = useState(1);
+  const [historyTotalPages, setHistoryTotalPages] = useState(0);
 
   const platformRef = useRef(platform);
   const nicknameRef = useRef(nickname);
@@ -183,8 +172,7 @@ export function useStatsPageController(
   const summaryRequestRef = useRef<{ id: number; controller: AbortController } | null>(null);
   const summaryRequestIdRef = useRef(0);
   const historyRequestRef = useRef<AbortController | null>(null);
-  const historyMatchesRef = useRef<PlayerMatchRecord[]>([]);
-  const historyCursorRef = useRef<string | null>(null);
+  const historyRequestIdRef = useRef(0);
   const rateLimitUntilRef = useRef(new Map<string, number>());
   const activeRouteKeyRef = useRef<string | null>(null);
 
@@ -251,12 +239,12 @@ export function useStatsPageController(
     summaryRequestRef.current = null;
     historyRequestRef.current?.abort();
     historyRequestRef.current = null;
-    historyMatchesRef.current = [];
-    historyCursorRef.current = null;
+    historyRequestIdRef.current += 1;
     setHistoryMatches([]);
     setHistoryStatus("idle");
     setHistoryLoaded(false);
-    setHasMoreHistory(false);
+    setHistoryPageState(1);
+    setHistoryTotalPages(0);
     setMatchSummaries({});
     setMissingMatchIds(new Set());
     setMatchModeMeta({});
@@ -472,35 +460,37 @@ export function useStatsPageController(
 
   const loadHistoryPage = useCallback(async (
     player: PlayerStatsResponse,
-    cursor: string | null,
-    reset: boolean,
+    page: number,
   ): Promise<PlayerMatchRecord[]> => {
     historyRequestRef.current?.abort();
     const controller = new AbortController();
+    const requestId = ++historyRequestIdRef.current;
     historyRequestRef.current = controller;
     setHistoryStatus("loading");
 
     try {
-      const params = new URLSearchParams({ nickname: player.nickname, platform: player.platform });
-      if (cursor) params.set("cursor", cursor);
+      const params = new URLSearchParams({
+        nickname: player.nickname,
+        platform: player.platform,
+        page: String(Math.max(1, Math.floor(page))),
+      });
       const response = await fetch(`/api/pubg/player/matches?${params.toString()}`, {
         cache: "no-store",
         signal: controller.signal,
       });
       const data = await response.json() as {
         matches?: PlayerMatchRecord[];
-        nextCursor?: string | null;
+        page?: number;
+        totalPages?: number;
       };
       if (!response.ok) throw new Error("전체 전적을 불러오지 못했습니다.");
-      if (controller.signal.aborted) return [];
+      if (controller.signal.aborted || requestId !== historyRequestIdRef.current) return [];
 
       const incoming = Array.isArray(data.matches) ? data.matches : [];
-      const merged = mergePlayerHistoryRecords(reset ? [] : historyMatchesRef.current, incoming);
-      historyMatchesRef.current = merged;
-      historyCursorRef.current = data.nextCursor ?? null;
-      setHistoryMatches(merged);
+      setHistoryMatches(incoming);
       setHistoryLoaded(true);
-      setHasMoreHistory(Boolean(data.nextCursor));
+      setHistoryPageState(data.page && data.page > 0 ? data.page : page);
+      setHistoryTotalPages(Math.max(0, data.totalPages ?? 0));
       setHistoryStatus("ready");
       return incoming;
     } catch (caught) {
@@ -564,9 +554,9 @@ export function useStatsPageController(
             mapName: summary.mapName || summary.mapId || matchInfo?.mapId,
           };
         }
-        setMatchSummaries(summaries);
+        setMatchSummaries((previous) => ({ ...previous, ...summaries }));
         setMissingMatchIds(missingIds);
-        setMatchModeMeta(nextModeMeta);
+        setMatchModeMeta((previous) => ({ ...previous, ...nextModeMeta }));
         setSummaryStatus("ready");
         clearPartial("summary_batch_failed", "summary-batch");
         if (missingIds.size) reportPartial("summary_missing", "summary-batch");
@@ -579,16 +569,18 @@ export function useStatsPageController(
     })();
   }, [clearPartial, reportPartial]);
 
-  const loadMoreHistory = useCallback(async () => {
-    const player = resultRef.current;
-    if (!player || historyStatus === "loading" || (historyLoaded && !hasMoreHistory)) return;
-    const incoming = await loadHistoryPage(player, historyCursorRef.current, !historyLoaded);
+  const applyHistoryRecords = useCallback((incoming: readonly PlayerMatchRecord[]) => {
     if (!incoming.length) return;
-
     const basicSummaries = Object.fromEntries(
       incoming.map((record) => [record.match_id, buildBasicMatchSummary(record)]),
     );
     setMatchSummaries((previous) => ({ ...basicSummaries, ...previous }));
+    setMissingMatchIds((previous) => {
+      if (!previous.size) return previous;
+      const next = new Set(previous);
+      for (const record of incoming) next.delete(record.match_id);
+      return next;
+    });
     setMatchModeMeta((previous) => {
       const next = { ...previous };
       for (const record of incoming) {
@@ -600,7 +592,23 @@ export function useStatsPageController(
       }
       return next;
     });
-  }, [hasMoreHistory, historyLoaded, historyStatus, loadHistoryPage]);
+  }, []);
+
+  const setHistoryPage = useCallback(async (page: number) => {
+    const player = resultRef.current;
+    if (!player || historyStatus === "loading") return;
+    if (page < 1 || (historyTotalPages > 0 && page > historyTotalPages)) return;
+    if (page === historyPage && historyLoaded) return;
+    const incoming = await loadHistoryPage(player, page);
+    applyHistoryRecords(incoming);
+  }, [applyHistoryRecords, historyLoaded, historyPage, historyStatus, historyTotalPages, loadHistoryPage]);
+
+  const retryHistory = useCallback(async () => {
+    const player = resultRef.current;
+    if (!player || historyStatus === "loading") return;
+    const incoming = await loadHistoryPage(player, historyPage);
+    applyHistoryRecords(incoming);
+  }, [applyHistoryRecords, historyPage, historyStatus, loadHistoryPage]);
 
   const retrySummaries = useCallback(async () => {
     if (!resultRef.current) return;
@@ -637,8 +645,10 @@ export function useStatsPageController(
   }, []);
 
   useEffect(() => {
-    if (result) void loadSummaries(result);
-  }, [loadSummaries, result]);
+    if (!result) return;
+    void loadSummaries(result);
+    void loadHistoryPage(result, 1).then(applyHistoryRecords);
+  }, [applyHistoryRecords, loadHistoryPage, loadSummaries, result]);
 
   useEffect(() => {
     setSectionTab(options.initialTab ?? "overview");
@@ -708,9 +718,10 @@ export function useStatsPageController(
     (reason) => (partialSources.get(reason)?.size ?? 0) > 0,
   ), [partialSources]);
   const matchIds = useMemo(() => [...new Set([
-    ...(result?.recentMatches ?? []),
-    ...historyMatches.map((record) => record.match_id),
-  ])], [historyMatches, result]);
+    ...(historyLoaded && historyMatches.length > 0
+      ? historyMatches.map((record) => record.match_id)
+      : (result?.recentMatches ?? []).slice(0, 20)),
+  ])], [historyLoaded, historyMatches, result]);
   const status = baseStatus === "ready" && partialReasons.length > 0
     ? "partial"
     : baseStatus;
@@ -737,8 +748,8 @@ export function useStatsPageController(
     summaryStatus,
     matchIds,
     historyStatus,
-    historyLoaded,
-    hasMoreHistory,
+    historyPage,
+    historyTotalPages,
     setPlatform,
     setNickname,
     setSeasonId,
@@ -750,7 +761,8 @@ export function useStatsPageController(
     search,
     refresh,
     retrySummaries,
-    loadMoreHistory,
+    setHistoryPage,
+    retryHistory,
     onModeDetected,
     reportPartial,
     clearPartial,

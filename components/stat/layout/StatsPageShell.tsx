@@ -80,8 +80,8 @@ export function StatsPageShell({
     summaryStatus,
     matchIds,
     historyStatus,
-    historyLoaded,
-    hasMoreHistory,
+    historyPage,
+    historyTotalPages,
     refreshAvailableAt,
     isRefreshCoolingDown: isCoolingDown,
     statsMode,
@@ -95,7 +95,8 @@ export function StatsPageShell({
     setGroupKey,
     search,
     retrySummaries,
-    loadMoreHistory,
+    setHistoryPage,
+    retryHistory,
     onModeDetected: handleModeDetected,
     reportPartial,
     clearPartial,
@@ -418,9 +419,10 @@ export function StatsPageShell({
                     onFilterChange={setMatchTab}
                     onRetrySummaries={() => void retrySummaries()}
                     historyStatus={historyStatus}
-                    historyLoaded={historyLoaded}
-                    hasMoreHistory={hasMoreHistory}
-                    onLoadMore={() => void loadMoreHistory()}
+                    historyPage={historyPage}
+                    historyTotalPages={historyTotalPages}
+                    onPageChange={(page) => void setHistoryPage(page)}
+                    onRetryHistory={() => void retryHistory()}
                     onNicknameClick={(clickedName) => {
                       navigateToPlayer(clickedName, result.platform, false);
                       window.scrollTo({ top: 0, behavior: "smooth" });

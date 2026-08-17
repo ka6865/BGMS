@@ -47,6 +47,11 @@ async function renderFeed({
   placements = fixturePlacements,
   summaryStatus = "ready",
   onRetrySummaries = vi.fn(),
+  historyStatus = "idle",
+  historyPage = 1,
+  historyTotalPages = 0,
+  onPageChange,
+  onRetryHistory,
 }: {
   viewportClass: AdViewportClass;
   matchCount: number;
@@ -56,6 +61,11 @@ async function renderFeed({
   placements?: typeof fixturePlacements;
   summaryStatus?: "idle" | "loading" | "ready" | "error";
   onRetrySummaries?: () => void;
+  historyStatus?: "idle" | "loading" | "ready" | "error";
+  historyPage?: number;
+  historyTotalPages?: number;
+  onPageChange?: (page: number) => void;
+  onRetryHistory?: () => void;
 }) {
   const { MatchFeed } = await import("@/components/stat/matches/MatchFeed");
   const matchIds = Array.from({ length: matchCount }, (_, index) => `match-${index + 1}`);
@@ -71,6 +81,11 @@ async function renderFeed({
     nickname: "PlayerOne",
     platform: "steam",
     placements,
+    historyStatus,
+    historyPage,
+    historyTotalPages,
+    onPageChange,
+    onRetryHistory,
     onFilterChange: vi.fn(),
     onRetrySummaries,
     onNicknameClick: vi.fn(),
@@ -174,6 +189,33 @@ describe("MatchFeed renderable order and ads", () => {
     });
     expect(screen.getByText("최근 14일 이내에 플레이한 팀 데스매치(TDM) 기록이 없습니다.")).toBeInTheDocument();
     empty.unmount();
+  });
+
+  it("저장 전적은 현재 페이지를 강조하고 이전·번호·다음 이동을 전달한다", async () => {
+    const onPageChange = vi.fn();
+    const feed = await renderFeed({
+      viewportClass: "mobile",
+      matchCount: 2,
+      historyStatus: "ready",
+      historyPage: 2,
+      historyTotalPages: 3,
+      onPageChange,
+    });
+
+    expect(screen.getByRole("navigation", { name: "전적 페이지 이동" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "전적 2페이지" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "이전 전적 페이지" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "다음 전적 페이지" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "전적 3페이지" }));
+    fireEvent.click(screen.getByRole("button", { name: "이전 전적 페이지" }));
+    expect(onPageChange.mock.calls).toEqual([[3], [1]]);
+    feed.unmount();
+  });
+
+  it("페이지 수가 많으면 첫·현재 주변·마지막 페이지만 표시하고 생략부호를 둔다", async () => {
+    const { getStatsHistoryPaginationItems } = await import("@/components/stat/matches/MatchFeed");
+    expect(getStatsHistoryPaginationItems(10, 5)).toEqual([1, "ellipsis", 4, 5, 6, "ellipsis", 10]);
   });
 
   it("행 failure/recovery를 서로 지우지 않는 match source ID로 전달한다", async () => {

@@ -61,6 +61,10 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+function historyPageResponse() {
+  return jsonResponse({ matches: [], page: 1, pageSize: 20, totalCount: 0, totalPages: 0 });
+}
+
 describe("StatSearch season/refresh controller binding", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
@@ -94,6 +98,9 @@ describe("StatSearch season/refresh controller binding", () => {
   function installReadyThen(nextPlayerResponse: Response) {
     let playerAttempt = 0;
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).startsWith("/api/pubg/player/matches")) {
+        return Promise.resolve(historyPageResponse());
+      }
       if (String(input).startsWith("/api/pubg/matches-summary")) {
         return Promise.resolve(jsonResponse(summaryReady));
       }
@@ -190,6 +197,9 @@ describe("StatSearch season/refresh controller binding", () => {
     let bAttempt = 0;
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = new URL(String(input), "https://bgms.kr");
+      if (url.pathname === "/api/pubg/player/matches") {
+        return Promise.resolve(historyPageResponse());
+      }
       if (!url.pathname.startsWith("/api/pubg/player")) {
         throw new Error(`Unexpected request: ${url.pathname}`);
       }
@@ -254,6 +264,9 @@ describe("StatSearch season/refresh controller binding", () => {
   it("실패한 새 시즌 retry는 3초 전 0건, 이후 정확한 season URL 1건을 추가한다", async () => {
     let playerAttempt = 0;
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).startsWith("/api/pubg/player/matches")) {
+        return Promise.resolve(historyPageResponse());
+      }
       if (String(input).startsWith("/api/pubg/matches-summary")) {
         return Promise.resolve(jsonResponse(summaryReady));
       }
@@ -308,6 +321,9 @@ describe("StatSearch season/refresh controller binding", () => {
   it("실패한 force refresh retry는 cooldown 이후 refresh=true URL을 정확히 재사용한다", async () => {
     let playerAttempt = 0;
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).startsWith("/api/pubg/player/matches")) {
+        return Promise.resolve(historyPageResponse());
+      }
       if (String(input).startsWith("/api/pubg/matches-summary")) {
         return Promise.resolve(jsonResponse(summaryReady));
       }

@@ -77,6 +77,10 @@ function jsonResponse(body: unknown) {
   });
 }
 
+function historyPageResponse() {
+  return jsonResponse({ matches: [], page: 1, pageSize: 20, totalCount: 0, totalPages: 0 });
+}
+
 function requestUrl(call: unknown[]) {
   return String(call[0]);
 }
@@ -138,12 +142,13 @@ describe("StatSearch baseline", () => {
 
     fetchMock.mockResolvedValueOnce(jsonResponse(playerReady));
     fetchMock.mockResolvedValueOnce(jsonResponse(summaryReady));
+    fetchMock.mockResolvedValueOnce(historyPageResponse());
     render(createElement(StatSearch, {
       initialPlatform: "steam",
       initialNickname: "FixturePlayer",
     }));
     await screen.findByText("FixturePlayer");
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
 
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY_RECENT)!)).toEqual(["FixturePlayer"]);
     expect(playerRequests()).toHaveLength(1);
@@ -155,6 +160,9 @@ describe("StatSearch baseline", () => {
       resolvePlayer = resolve;
     });
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).startsWith("/api/pubg/player/matches")) {
+        return Promise.resolve(historyPageResponse());
+      }
       if (String(input).startsWith("/api/pubg/matches-summary")) {
         return Promise.resolve(jsonResponse(summaryReady));
       }
@@ -180,6 +188,9 @@ describe("StatSearch baseline", () => {
 
   it("시즌 변경이 성공하면 overview 탭으로 돌아간다", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      if (String(input).startsWith("/api/pubg/player/matches")) {
+        return Promise.resolve(historyPageResponse());
+      }
       if (String(input).startsWith("/api/pubg/matches-summary")) {
         return Promise.resolve(jsonResponse(summaryReady));
       }

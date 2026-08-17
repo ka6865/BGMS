@@ -37,9 +37,10 @@ export interface MatchFeedProps {
   onFailure?(reason: Extract<StatsPartialReason, "detail_failed" | "analysis_failed">, sourceId: string): void;
   onRecovery?(reason: Extract<StatsPartialReason, "detail_failed" | "analysis_failed">, sourceId: string): void;
   historyStatus?: StatsHistoryStatus;
-  historyLoaded?: boolean;
-  hasMoreHistory?: boolean;
-  onLoadMore?(): void;
+  historyPage?: number;
+  historyTotalPages?: number;
+  onPageChange?(page: number): void;
+  onRetryHistory?(): void;
 }
 
 const FILTERS: readonly { value: StatsMatchFilter; label: string }[] = [
@@ -68,6 +69,24 @@ function overlayModeMeta(summary: MatchSummaryData, meta?: StatsMatchModeMeta): 
   };
 }
 
+type PaginationItem = number | "ellipsis";
+
+export function getStatsHistoryPaginationItems(totalPages: number, currentPage: number): PaginationItem[] {
+  if (totalPages <= 0) return [];
+  if (totalPages <= 7) return Array.from({ length: totalPages }, (_, index) => index + 1);
+
+  const selected = new Set([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
+  const pages = [...selected]
+    .filter((page) => page >= 1 && page <= totalPages)
+    .sort((left, right) => left - right);
+  const items: PaginationItem[] = [];
+  for (const page of pages) {
+    if (items.length > 0 && page - Number(items[items.length - 1]) > 1) items.push("ellipsis");
+    items.push(page);
+  }
+  return items;
+}
+
 export function MatchFeed({
   matchIds,
   summaries,
@@ -86,9 +105,10 @@ export function MatchFeed({
   onFailure,
   onRecovery,
   historyStatus = "idle",
-  historyLoaded = false,
-  hasMoreHistory = false,
-  onLoadMore,
+  historyPage = 1,
+  historyTotalPages = 0,
+  onPageChange,
+  onRetryHistory,
 }: MatchFeedProps) {
   const availableMatches = matchIds.flatMap((matchId) => {
     if (missingMatchIds.has(matchId)) return [];
@@ -182,24 +202,59 @@ export function MatchFeed({
         </div>
       )}
 
-      {onLoadMore && (!historyLoaded || hasMoreHistory) && (
-        <div className="mt-4 flex flex-col items-center gap-2">
+      {historyStatus === "loading" && historyTotalPages === 0 && (
+        <div role="status" className="mt-4 text-center text-[10px] font-bold text-white/35">전적 페이지 정보 불러오는 중...</div>
+      )}
+
+      {historyStatus === "error" && onRetryHistory && (
+        <div role="alert" className="mt-4 flex flex-wrap items-center justify-center gap-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3">
+          <span className="text-xs font-bold text-red-200">저장된 전적 페이지를 불러오지 못했습니다.</span>
+          <button type="button" onClick={onRetryHistory} className="min-h-11 rounded-lg px-3 text-xs font-black text-red-100">
+            다시 시도
+          </button>
+        </div>
+      )}
+
+      {onPageChange && historyTotalPages > 1 && (
+        <nav aria-label="전적 페이지 이동" className="mt-4 flex flex-wrap items-center justify-center gap-1.5">
           <button
             type="button"
-            onClick={onLoadMore}
-            disabled={historyStatus === "loading"}
-            className="min-h-11 rounded-xl border border-white/10 bg-white/5 px-5 text-xs font-black text-white/70 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-50"
+            aria-label="이전 전적 페이지"
+            onClick={() => onPageChange(historyPage - 1)}
+            disabled={historyStatus === "loading" || historyPage <= 1}
+            className="min-h-11 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-black text-white/65 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
           >
-            {historyStatus === "loading"
-              ? "전적 불러오는 중..."
-              : historyStatus === "error"
-                ? "전적 다시 시도"
-                : historyLoaded
-                  ? "이전 전적 더 보기"
-                  : "전체 전적 불러오기"}
+            ‹ 이전
           </button>
-          <span className="text-[10px] font-bold text-white/35">저장된 전적을 20개씩 불러옵니다. 상세 분석은 펼칠 때 필요한 경우에만 요청됩니다.</span>
-        </div>
+          <div className="flex items-center gap-1" role="group" aria-label="전적 페이지 목록">
+            {getStatsHistoryPaginationItems(historyTotalPages, historyPage).map((item, index) => item === "ellipsis" ? (
+              <span key={`ellipsis-${index}`} aria-hidden="true" className="px-1 text-xs font-black text-white/35">…</span>
+            ) : (
+              <button
+                key={item}
+                type="button"
+                aria-label={`전적 ${item}페이지`}
+                aria-current={item === historyPage ? "page" : undefined}
+                onClick={() => onPageChange(item)}
+                disabled={historyStatus === "loading"}
+                className={`min-h-11 min-w-11 rounded-lg px-3 text-xs font-black transition-colors disabled:cursor-wait disabled:opacity-50 ${
+                  item === historyPage ? "bg-indigo-600 text-white" : "border border-white/10 bg-white/5 text-white/60 hover:bg-white/10 hover:text-white"
+                }`}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            aria-label="다음 전적 페이지"
+            onClick={() => onPageChange(historyPage + 1)}
+            disabled={historyStatus === "loading" || historyPage >= historyTotalPages}
+            className="min-h-11 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-black text-white/65 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-30"
+          >
+            다음 ›
+          </button>
+        </nav>
       )}
     </section>
   );
