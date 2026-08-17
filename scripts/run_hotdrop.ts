@@ -18,6 +18,32 @@ export interface HotdropScriptDependencies {
   writeError(message: string): void;
 }
 
+/**
+ * 운영 알림에 넣을 수 있는 Hotdrop 오류 요약을 만든다.
+ *
+ * 원본 예외에는 API 키가 포함된 URL, 서비스 롤 키, 매치 ID가 섞일 수
+ * 있으므로 상세 원인을 보존하되 운영 채널로 그대로 내보내지 않는다.
+ */
+export function formatHotdropError(
+  error: unknown,
+  secrets: readonly string[] = [],
+): string {
+  let message = error instanceof Error ? error.message : String(error);
+  for (const secret of secrets) {
+    const value = secret.trim();
+    if (value.length >= 4) message = message.split(value).join("[redacted]");
+  }
+  message = message
+    .replace(/https?:\/\/\S+/gi, "[url redacted]")
+    .replace(/Bearer\s+\S+/gi, "Bearer [redacted]")
+    .replace(/\bmatch-[a-z0-9_-]+\b/gi, "match-[redacted]")
+    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, "[id redacted]")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return message ? message.slice(0, 240) : "알 수 없는 오류";
+}
+
 function requireEnv(
   env: Record<string, string | undefined>,
   key: string,
@@ -47,8 +73,12 @@ export async function runHotdropScript(
     });
     dependencies.writeInfo(JSON.stringify(result));
     return 0;
-  } catch {
-    dependencies.writeError("Hotdrop 수집 작업이 실패했습니다.");
+  } catch (error) {
+    dependencies.writeError(`Hotdrop 수집 실패: ${formatHotdropError(error, [
+      env.PUBG_API_KEY ?? "",
+      env.SUPABASE_SERVICE_ROLE_KEY ?? "",
+      env.NEXT_PUBLIC_SUPABASE_URL ?? "",
+    ])}`);
     return 1;
   }
 }
