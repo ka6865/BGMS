@@ -70,11 +70,19 @@ export type StatsOverviewMetrics =
     };
 
 export type StatsSeasonSummaryMetrics =
-  | { kind: "empty"; seasonId: string; seasonName: string; partySize: StatsPartySize; label: "기록 없음" }
+  | {
+      kind: "empty";
+      seasonId: string;
+      seasonName: string;
+      mode: StatsMode;
+      partySize: StatsPartySize;
+      label: "기록 없음";
+    }
   | {
       kind: "ready";
       seasonId: string;
       seasonName: string;
+      mode: StatsMode;
       partySize: StatsPartySize;
       tier?: string;
       subTier?: string | number;

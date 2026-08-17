@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Crosshair, RefreshCw, Shield, Star, Swords } from "lucide-react";
 import { getCurrentSeasonSummary } from "@/lib/stats/statsPageModel";
-import type { PlayerStatsResponse, StatsPartySize } from "@/types/stats-page";
+import type { PlayerStatsResponse, StatsMode, StatsPartySize } from "@/types/stats-page";
 import { CurrentSeasonSummaryCard } from "./CurrentSeasonSummaryCard";
 
 export interface PlayerProfileHeaderProps {
@@ -18,6 +18,8 @@ export interface PlayerProfileHeaderProps {
   onFavoriteToggle(): void;
   onCompare(): void;
   onWeapons(): void;
+  statsMode?: StatsMode;
+  onStatsModeChange?(value: StatsMode): void;
   partySize?: StatsPartySize;
   onPartySizeChange?(value: StatsPartySize): void;
 }
@@ -124,11 +126,13 @@ export function PlayerProfileHeader({
   onFavoriteToggle,
   onCompare,
   onWeapons,
+  statsMode,
+  onStatsModeChange,
   partySize,
   onPartySizeChange,
 }: PlayerProfileHeaderProps) {
   const [openPopover, setOpenPopover] = useState<ProfilePopover>(null);
-  const seasonSummary = getCurrentSeasonSummary(player, partySize);
+  const seasonSummary = getCurrentSeasonSummary(player, partySize, statsMode);
 
   return (
     <header className="rounded-2xl border border-white/10 bg-[#161616] p-4 md:p-5" aria-label="플레이어 프로필">
@@ -157,6 +161,8 @@ export function PlayerProfileHeader({
         <CurrentSeasonSummaryCard
           summary={seasonSummary}
           survivalMastery={player.survivalMastery}
+          mode={statsMode}
+          onModeChange={onStatsModeChange}
           partySize={partySize}
           onPartySizeChange={onPartySizeChange}
         />

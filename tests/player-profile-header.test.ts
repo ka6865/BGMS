@@ -268,9 +268,12 @@ describe("PlayerProfileHeader", () => {
 
   it("상단 시즌 카드의 랭크 파티 필터를 외부 상세 통계 상태와 연결한다", () => {
     const onPartySizeChange = vi.fn();
+    const onStatsModeChange = vi.fn();
     render(createElement(PlayerProfileHeader, {
       player,
       seasonId: player.seasonId,
+      statsMode: "ranked",
+      onStatsModeChange,
       partySize: "squad",
       onPartySizeChange,
       refreshing: false,
@@ -285,8 +288,10 @@ describe("PlayerProfileHeader", () => {
 
     const filter = screen.getByRole("group", { name: "현재 시즌 파티 필터" });
     fireEvent.click(within(filter).getByRole("button", { name: "듀오" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "현재 시즌 모드 필터" })).getByRole("button", { name: "일반전" }));
 
     expect(onPartySizeChange).toHaveBeenCalledWith("duo");
+    expect(onStatsModeChange).toHaveBeenCalledWith("normal");
     expect(within(filter).getByRole("button", { name: "스쿼드" })).toHaveAttribute("aria-pressed", "true");
   });
 

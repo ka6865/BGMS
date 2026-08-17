@@ -140,6 +140,7 @@ describe("stats page primitives", () => {
       kind: "empty",
       seasonId: "season-8",
       seasonName: "Season 8",
+      mode: "ranked",
       partySize: "squad",
       label: "기록 없음",
     });
@@ -186,6 +187,13 @@ describe("stats page primitives", () => {
       partySize: "duo",
       roundsPlayed: 4,
       averageSurvival: "15:00",
+    });
+
+    expect(getCurrentSeasonSummary(readyPlayer, "squad", "normal")).toMatchObject({
+      kind: "ready",
+      mode: "normal",
+      partySize: "squad",
+      roundsPlayed: 8,
     });
   });
 });

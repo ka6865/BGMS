@@ -2,6 +2,7 @@
 
 import { BarChart3, Clock3, Crosshair, Crown, Target, Trophy } from "lucide-react";
 import type {
+  StatsMode,
   StatsPartySize,
   StatsSeasonSummaryMetrics,
   StatsSurvivalMastery,
@@ -11,6 +12,8 @@ import { getTierIconPath } from "@/utils/tier";
 export interface CurrentSeasonSummaryCardProps {
   summary: StatsSeasonSummaryMetrics;
   survivalMastery?: StatsSurvivalMastery | null;
+  mode?: StatsMode;
+  onModeChange?(value: StatsMode): void;
   partySize?: StatsPartySize;
   onPartySizeChange?(value: StatsPartySize): void;
 }
@@ -25,6 +28,16 @@ const PARTY_OPTIONS: readonly { value: StatsPartySize; label: string }[] = [
   { value: "solo", label: "솔로" },
   { value: "duo", label: "듀오" },
   { value: "squad", label: "스쿼드" },
+];
+
+const MODE_LABELS: Record<StatsMode, string> = {
+  ranked: "경쟁전",
+  normal: "일반전",
+};
+
+const MODE_OPTIONS: readonly { value: StatsMode; label: string }[] = [
+  { value: "ranked", label: "경쟁전" },
+  { value: "normal", label: "일반전" },
 ];
 
 function partyLabel(summary: StatsSeasonSummaryMetrics): string {
@@ -63,12 +76,20 @@ function Metric({
   );
 }
 
-function EmptySummary({ seasonName, party }: { seasonName: string; party: string }) {
+function EmptySummary({
+  seasonName,
+  mode,
+  party,
+}: {
+  seasonName: string;
+  mode: string;
+  party: string;
+}) {
   return (
     <div className="flex min-h-28 items-center justify-center px-5 py-6 text-center">
       <div>
         <div className="text-sm font-black text-white/70">기록 없음</div>
-        <div className="mt-1 text-xs font-bold text-white/35">{seasonName} 경쟁전에 저장된 {party} 경기가 아직 없습니다.</div>
+        <div className="mt-1 text-xs font-bold text-white/35">{seasonName} {mode}에 저장된 {party} 경기가 아직 없습니다.</div>
       </div>
     </div>
   );
@@ -77,12 +98,16 @@ function EmptySummary({ seasonName, party }: { seasonName: string; party: string
 export function CurrentSeasonSummaryCard({
   summary,
   survivalMastery,
+  mode,
+  onModeChange,
   partySize,
   onPartySizeChange,
 }: CurrentSeasonSummaryCardProps) {
+  const selectedMode = mode ?? summary.mode;
   const selectedPartySize = partySize ?? summary.partySize;
+  const modeLabel = MODE_LABELS[summary.mode];
   const party = partyLabel(summary);
-  const ariaLabel = `현재 시즌 경쟁전 ${party} 요약`;
+  const ariaLabel = `현재 시즌 ${modeLabel} ${party} 요약`;
 
   return (
     <section
@@ -94,7 +119,7 @@ export function CurrentSeasonSummaryCard({
           <div className="flex flex-wrap items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-teal-200/70">
             <span>현재 시즌</span>
             <span className="text-white/20">|</span>
-            <span>경쟁전 · {party}</span>
+            <span>{modeLabel} · {party}</span>
           </div>
           <h3 className="mt-1 truncate text-xl font-black tracking-tight text-white md:text-2xl">
             {summary.seasonName}
@@ -119,7 +144,7 @@ export function CurrentSeasonSummaryCard({
       </div>
 
       {summary.kind === "empty" ? (
-        <EmptySummary seasonName={summary.seasonName} party={party} />
+        <EmptySummary seasonName={summary.seasonName} mode={modeLabel} party={party} />
       ) : (
         <>
           <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-[minmax(180px,0.78fr)_minmax(0,1.7fr)] md:p-5">
@@ -161,26 +186,49 @@ export function CurrentSeasonSummaryCard({
         </>
       )}
 
-      {onPartySizeChange && (
+      {(onModeChange || onPartySizeChange) && (
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/10 px-4 py-2.5 md:px-5">
-          <span className="text-[10px] font-black uppercase tracking-wider text-white/40">랭크 파티</span>
-          <div className="flex min-w-0 gap-1 rounded-lg bg-white/5 p-1" role="group" aria-label="현재 시즌 파티 필터">
-            {PARTY_OPTIONS.map((option) => {
-              const selected = option.value === selectedPartySize;
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() => onPartySizeChange(option.value)}
-                  className={`min-h-8 rounded-md px-2.5 text-[10px] font-black transition-colors ${
-                    selected ? "bg-amber-500 text-black" : "text-white/50 hover:bg-white/5 hover:text-white"
-                  }`}
-                >
-                  {option.label}
-                </button>
-              );
-            })}
+          <div className="flex flex-wrap items-center gap-2">
+            {onModeChange && (
+              <div className="flex min-w-0 gap-1 rounded-lg bg-white/5 p-1" role="group" aria-label="현재 시즌 모드 필터">
+                {MODE_OPTIONS.map((option) => {
+                  const selected = option.value === selectedMode;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => onModeChange(option.value)}
+                      className={`min-h-8 rounded-md px-2.5 text-[10px] font-black transition-colors ${
+                        selected ? "bg-amber-500 text-black" : "text-white/50 hover:bg-white/5 hover:text-white"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {onPartySizeChange && (
+              <div className="flex min-w-0 gap-1 rounded-lg bg-white/5 p-1" role="group" aria-label="현재 시즌 파티 필터">
+                {PARTY_OPTIONS.map((option) => {
+                  const selected = option.value === selectedPartySize;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => onPartySizeChange(option.value)}
+                      className={`min-h-8 rounded-md px-2.5 text-[10px] font-black transition-colors ${
+                        selected ? "bg-amber-500 text-black" : "text-white/50 hover:bg-white/5 hover:text-white"
+                      }`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}

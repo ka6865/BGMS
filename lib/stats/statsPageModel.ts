@@ -6,6 +6,7 @@ import type {
   StatsMatchClassification,
   StatsMatchModeMeta,
   StatsOverviewMetrics,
+  StatsMode,
   StatsPartySize,
   StatsSeasonSummaryMetrics,
   StatsPlatform,
@@ -139,6 +140,7 @@ function formatAverageSurvival(seconds: number | undefined, roundsPlayed: number
 export function getCurrentSeasonSummary(
   player: PlayerStatsResponse,
   preferredPartySize?: StatsPartySize,
+  preferredMode: StatsMode = "ranked",
 ): StatsSeasonSummaryMetrics {
   const seasonId = player.seasonId || "";
   const seasonName = player.seasons.find((season) => season.id === seasonId)?.name
@@ -146,18 +148,27 @@ export function getCurrentSeasonSummary(
     || "현재 시즌";
   const selected = preferredPartySize
     ? (() => {
-      const bucket = player.stats.ranked?.[preferredPartySize];
+      const bucket = player.stats[preferredMode]?.[preferredPartySize];
       return bucket && bucket.roundsPlayed > 0
         ? { bucket, partySize: preferredPartySize }
         : null;
     })()
-    : selectOverviewBucket(player.stats);
+    : (() => {
+      const buckets = player.stats[preferredMode];
+      if (!buckets) return null;
+      for (const partySize of PARTY_SIZES) {
+        const bucket = buckets[partySize];
+        if (bucket && bucket.roundsPlayed > 0) return { bucket, partySize };
+      }
+      return null;
+    })();
 
   if (!selected) {
     return {
       kind: "empty",
       seasonId,
       seasonName,
+      mode: preferredMode,
       partySize: preferredPartySize ?? "squad",
       label: "기록 없음",
     };
@@ -178,6 +189,7 @@ export function getCurrentSeasonSummary(
     kind: "ready",
     seasonId,
     seasonName,
+    mode: preferredMode,
     partySize,
     tier: bucket.currentTier?.tier?.trim() || undefined,
     subTier: bucket.currentTier?.subTier,

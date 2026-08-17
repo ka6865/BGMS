@@ -354,6 +354,8 @@ export function StatsPageShell({
             onFavoriteToggle={() => toggleFavorite(result.nickname)}
             onCompare={() => router.push(buildStatsCompareUrl(result.nickname, result.platform))}
             onWeapons={() => router.push(buildStatsWeaponsUrl(result.nickname, result.platform))}
+            statsMode={statsMode}
+            onStatsModeChange={setStatsMode}
             partySize={partySize}
             onPartySizeChange={setPartySize}
           />
