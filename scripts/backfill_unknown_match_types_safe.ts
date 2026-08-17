@@ -1,6 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
@@ -12,8 +13,8 @@ const DEFAULT_DELAY_MS = 10_000;
 const DEFAULT_MAX_RUNTIME_MINUTES = 720;
 const DEFAULT_MAX_REQUESTS = 1_000;
 const DEFAULT_TIMEOUT_MS = 5_000;
-const DEFAULT_LOCK_FILE = "/tmp/bgms-match-type-backfill-safe.lock";
-const DEFAULT_LOG_FILE = "/tmp/bgms-match-type-backfill-safe.log";
+const DEFAULT_LOCK_FILE = path.join(os.tmpdir(), "bgms-match-type-backfill-safe.lock");
+const DEFAULT_LOG_FILE = path.join(os.tmpdir(), "bgms-match-type-backfill-safe.log");
 const MAX_LIMIT = 5_000;
 const MAX_DELAY_MS = 24 * 60 * 60 * 1_000;
 const MAX_RUNTIME_MINUTES = 24 * 60;
