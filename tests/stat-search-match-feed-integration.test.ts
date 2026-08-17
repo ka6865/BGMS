@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import playerReady from "./fixtures/stats/player-ready.json";
@@ -95,7 +95,7 @@ describe("StatSearch MatchFeed live binding", () => {
     await screen.findByText("ranked-by-type");
     expect(screen.getByText("normal-match")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "경쟁전" }));
+    fireEvent.click(within(screen.getByRole("group", { name: "매치 유형 필터" })).getByRole("button", { name: "경쟁전" }));
 
     expect(screen.getByText("ranked-by-type")).toBeInTheDocument();
     expect(screen.queryByText("normal-match")).not.toBeInTheDocument();
