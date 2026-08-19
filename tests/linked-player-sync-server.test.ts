@@ -131,6 +131,8 @@ describe("linked player sync server wrappers", () => {
   });
 
   it("requires service-role credentials when no client is injected", async () => {
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
     await expect(fetchLinkedPlayerSyncCandidates()).rejects.toThrow(
       "linked-player-sync-service-role-credentials-missing",
     );
