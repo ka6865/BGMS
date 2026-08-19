@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
-import { AI_CACHE_VERSION } from "@/lib/pubg-analysis/constants";
+import { AI_CACHE_VERSION, GEMINI_MODELS_TO_TRY } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { sanitizeBackupCoachingText } from "@/lib/pubg-analysis/backupCoaching";
@@ -81,11 +81,7 @@ export async function POST(request: Request) {
     const { fullPrompt, backupContext } = buildMatchAiCoachingPrompt({ matchData, coachingStyle });
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const modelsToTry = [
-      "gemini-3.1-flash-lite", 
-      "gemini-3-flash-preview", 
-      "gemini-2.5-flash"
-    ];
+    const modelsToTry = GEMINI_MODELS_TO_TRY;
     const safetySettings = [
       { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
       { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE }

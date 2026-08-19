@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
-import { AI_CACHE_VERSION, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
+import { AI_CACHE_VERSION, GEMINI_MODELS_TO_TRY, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
 import { estimateUserTier } from "@/lib/pubg-analysis/benchmarkScore";
 import { classifyRole } from "@/lib/pubg-analysis/roleClassifier";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
@@ -852,11 +852,7 @@ export async function POST(request: Request) {
     };
 
     const genAI = new GoogleGenerativeAI(geminiApiKey);
-    const modelsToTry = [
-      "gemini-3.1-flash-lite",
-      "gemini-3-flash-preview",
-      "gemini-2.5-flash"
-    ];
+    const modelsToTry = GEMINI_MODELS_TO_TRY;
     let streamResult = null;
     let selectedModelName = "";
 

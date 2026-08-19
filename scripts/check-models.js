@@ -22,7 +22,7 @@ async function check() {
     console.log("Listing models...");
     // The listModels method might not be in all SDK versions, but let's try
     // Or we can just try a few known ones
-    const models = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro", "gemini-1.0-pro"];
+    const models = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3.6-flash"];
     
     for (const m of models) {
       try {

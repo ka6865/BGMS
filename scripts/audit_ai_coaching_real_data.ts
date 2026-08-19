@@ -97,9 +97,10 @@ async function callGeminiJson(prompt: string, systemInstruction?: string, respon
 
   const genAI = new GoogleGenerativeAI(apiKey);
   const models = [
-    process.env.GEMINI_COACHING_TEST_MODEL || "gemini-3.1-flash-lite",
-    "gemini-3-flash-preview",
-    "gemini-2.5-flash",
+    process.env.GEMINI_COACHING_TEST_MODEL || "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-3.6-flash",
   ];
   let lastError: unknown = null;
 

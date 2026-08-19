@@ -15,7 +15,7 @@ async function generate() {
 
   const genAI = new GoogleGenerativeAI(apiKey);
   
-  const models = ["gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash", "gemini-pro"];
+  const models = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite", "gemini-3.5-flash", "gemini-3.6-flash"];
   let model = null;
   
   for (const m of models) {
