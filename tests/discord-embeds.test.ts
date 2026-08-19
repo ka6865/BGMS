@@ -37,7 +37,7 @@ describe("discord embeds builder", () => {
     expect(payload.components[0].components[0].url).toBe("https://bgms.kr/stat?nickname=KangHeeSung_&platform=steam");
   });
 
-  it("builds recent match summary embed with match detail link button", () => {
+  it("builds recent match summary embed with coaching link button", () => {
     const matchData = {
       nickname: "KangHeeSung_",
       platform: "steam",
@@ -58,4 +58,3 @@ describe("discord embeds builder", () => {
     );
   });
 });
-
