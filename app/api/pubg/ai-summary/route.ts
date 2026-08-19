@@ -567,7 +567,8 @@ export async function POST(request: Request) {
       "- [STRICT KOREAN] 모든 응답에서 'DUO', 'SQUAD', 'SOLO', 'Benchmark'와 같은 영문 용어를 절대 사용하지 마십시오. 반드시 '듀오', '스쿼드', '솔로', '상위권 지표' 또는 '벤치마크'와 같은 한글 용어로 대체하여 출력하십시오.",
       "- [INTELLIGENT ANALYSIS] 유저의 승률이나 딜량이 상위권 지표를 압도한다면, SPICY BOMBER조차도 \"피지컬은 괴물이지만...\" 이라는 식으로 실력 자체는 인정하며 시작해야 합니다. 무조건적인 비난은 '멍청한 AI'처럼 보입니다.",
       "- [ZERO HALLUCINATION] 데이터에 명시된 숫자를 1%의 오차도 없이 그대로 인용하십시오. 상위권 지표를 인용할 때는 반드시 정확한 소수점까지 포함하십시오.",
-      "- [UTILITY LOGIC] 연막 지표는 '투척형 연막탄'과 '연막 권총(M79)' 사용량을 모두 포함합니다. 연막탄은 '전체 사용량(포지셔닝/엄폐)'과 '전술적 구출(아군 기절 시)'을 엄격히 구분하십시오. 구출 시도가 0회더라도 전체 사용량이 있다면 '연막 미사용자'가 아닌 '개인 생존 중심' 혹은 '구출 기회 부족'으로 분석하십시오.",
+      "- [UTILITY LOGIC] 투척물은 '연막/섬광 등 비피해형'과 '수류탄/화염병/C4 등 피해형'을 엄격히 구분하십시오. 총 투척 중 연막/비피해형 비중이 높다면 '피해형 투척 적중 0회'라고 뭉뚱그려 비난하지 말고, '투척물의 대부분(N회)을 연막 등 생존/엄폐용으로 적극 활용했으며 공격형 투척 시도는 적었다'고 분리해 설명하십시오.",
+      "- [BENCHMARK COMPARISON GUARD] debateIssues의 userStats/benchmarkStats에는 프롬프트에 명시된 상위권 벤치마크 수치가 존재하는 지표만 대조하십시오. 'Benchmark N/A'나 'N/A'를 출력하는 것을 엄격히 금지합니다. 연막 구출률, 1:1 승률, 대응 사격 속도, 백업 속도 등 상위권 평균이 존재하는 지표로만 1:1 대칭을 구성하십시오.",
       "- [BACKUP OUTCOME LOGIC] 백업 속도는 시간 단독으로 평가하지 말고, 적 제압/팀 전멸 기여/소생/연막 구출 결과를 함께 판단하십시오. 결과가 성공한 긴 백업은 '느린 백업'으로 단정하지 말고 '교전 정리 후 복구 성공'과 '복구 시간 단축 과제'를 분리해 말하십시오.",
       "- [MATCH IMPACT LOGIC] 매치 임팩트가 '하드캐리' 또는 '레전드'인 경기는 단일 경기 하이라이트 성과로 인정하십시오. 낮은 세부 지표를 지적하더라도 판 전체를 실패로 단정하지 말고, 강한 성과와 보완점을 분리하십시오.",
       "- [WIN CONTRIBUTION LOGIC] 1등 자체는 생존 결과입니다. '1등 보너스'라고 표현하지 말고, 화력 캐리/복구 기여/결정적 마무리/승리 기여 근거처럼 행동 기반 근거만 사용하십시오.",
@@ -812,6 +813,8 @@ export async function POST(request: Request) {
         benchmarkTradeLatency: bench.avgTradeLatency,
       });
       userPrompt += `- [반응 속도] 대응 사격 속도: ${reactionStr}, 반격 성공률: ${gStats.totalReversalAttempts > 0 ? Math.round((gStats.totalReversalWins / gStats.totalReversalAttempts) * 100) : 0}%\n- [백업 속도] 아군 백업 속도: ${backupStr}\n- [백업 결과 해석] ${backupContext.promptLine}\n- [생존 환경] 고립 지수(운영/교전/사망): ${gStats.avgIsolationStr}/${gStats.isolationCountFinal > 0 ? (gStats.totalCombatIso / gStats.isolationCountFinal).toFixed(2) : "0"}/${gStats.isolationCountFinal > 0 ? (gStats.totalDeathIso / gStats.isolationCountFinal).toFixed(2) : "0"}, 양각 노출 상황: ${gStats.totalCrossfireExposureCount}회\n- [거리 관리] 팀원과의 평균 거리: ${gStats.avgMinDistStr}, 평균 고도차: ${gStats.avgHeightDiffStr}, 경기당 평균 거리별 데미지(근/중/원): ${gStats.avgDistanceDamage.short}/${gStats.avgDistanceDamage.mid}/${gStats.avgDistanceDamage.long}\n- [킬 분류] 솔로 킬: ${gStats.killContribFinal.solo}회, 클린업 킬: ${gStats.killContribFinal.cleanup}회 (솔로 비중: ${gStats.soloKillRate}% vs Benchmark: ${bench.avgSoloKillRate}%)\n- [유틸리티] 총 투척 ${gStats.totalUtilityThrows}회, 피해형 투척 ${gStats.totalLethalThrows}회, 피해 적중 ${gStats.totalUtilityHits}회, 피해형 투척 딜량 ${Math.round(gStats.totalUtilityDamage / gStats.mLen)} (평균), 연막 ${gStats.totalSmokes}회\n- [운영 패턴] 평균 사망 페이즈: ${gStats.avgDeathPhase} (Benchmark: ${bench.avgDeathPhase}), 자기장 누적 피해: ${Math.round(gStats.totalBluezoneWaste / gStats.mLen)} HP, 엣지(Edge) 플레이: ${gStats.totalEdgePlay}회, 진입 지연: ${gStats.totalFatalDelay}회\n\n`;
+      const smokeOpportunityRate = gStats.totalTeammateKnocks > 0 ? Math.round((gStats.totalSmokeRescues / gStats.totalTeammateKnocks) * 100) : 0;
+      userPrompt = userPrompt.replace(`- [유틸리티] 총 투척 ${gStats.totalUtilityThrows}회, 피해형 투척 ${gStats.totalLethalThrows}회, 피해 적중 ${gStats.totalUtilityHits}회, 피해형 투척 딜량 ${Math.round(gStats.totalUtilityDamage / gStats.mLen)} (평균), 연막 ${gStats.totalSmokes}회`, `- [유틸리티] 총 투척 ${gStats.totalUtilityThrows}회 (연막 ${gStats.totalSmokes}회, 피해형 ${gStats.totalLethalThrows}회, 피해 적중 ${gStats.totalUtilityHits}회), 아군 기절 대비 연막 구출률: ${smokeOpportunityRate}% (Benchmark: ${bench.avgSmokeRate}%)`);
     }
 
     if (mainBench) {
