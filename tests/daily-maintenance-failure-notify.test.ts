@@ -54,6 +54,31 @@ describe("일일 유지보수 실패 알림이 원인을 함께 전달한다", (
     expect(run).toContain("운영자가 지금 할 일");
   });
 
+  it("연동 PUBG 동기화의 집계 결과만 실패 알림에 전달한다", () => {
+    const env = notifyStep?.env ?? {};
+    const run = notifyStep?.run ?? "";
+
+    expect(env.SYNC_CANDIDATE_COUNT).toBe("${{ needs.maintenance.outputs.candidate_count }}");
+    expect(env.SYNC_SYNCED_IDENTITIES).toBe("${{ needs.maintenance.outputs.synced_identities }}");
+    expect(env.SYNC_NEW_MATCHES).toBe("${{ needs.maintenance.outputs.new_matches }}");
+    expect(env.SYNC_LOCK_COLLISIONS).toBe("${{ needs.maintenance.outputs.lock_collisions }}");
+    expect(env.SYNC_STOPPED_REASON).toBe("${{ needs.maintenance.outputs.stopped_reason }}");
+    expect(env.SYNC_RATE_LIMIT_TRACKING_ERRORS).toBe(
+      "${{ needs.maintenance.outputs.rate_limit_tracking_errors }}",
+    );
+    expect(run).toContain("SYNC_RATE_LIMIT_TRACKING_ERRORS");
+    expect(run).toContain("연동 PUBG 전적 동기화");
+    expect(run).not.toMatch(/displayNickname|normalizedNickname|pubg_nickname|account_id/);
+  });
+
+  it("민감한 플레이어 식별자 로그는 실패 원인 추출에서 제외한다", () => {
+    const run = notifyStep?.run ?? "";
+
+    expect(run).toContain("nickname");
+    expect(run).toContain("identity");
+    expect(run).toContain("player_id");
+  });
+
   it("알림 잡 자신의 로그를 원인 추출 대상에서 제외한다", () => {
     // 알림 잡 로그에는 메시지 템플릿 문자열이 남아 원인으로 오인된다.
     expect(notifyStep?.run ?? "").toContain('.name != "failure-notify"');
