@@ -6,6 +6,7 @@ import {
 } from "../lib/pubg/playerMatchesIngest";
 import {
   runSyncUserMatches,
+  main,
   writeRateLimitOutput,
   type SyncRunnerDependencies,
 } from "../scripts/sync_user_matches";
@@ -136,7 +137,9 @@ import {
       completeSync: vi.fn().mockResolvedValue(true),
       readQuota: vi.fn().mockResolvedValue({ remaining: 100, resetAt: null }),
       fetchRecentMatchIds: vi.fn().mockResolvedValue({ status: 200, matchIds: [], rateLimitHeaders: null }),
+      readExistingMatchIds: vi.fn().mockResolvedValue([]),
       ingestMatch: vi.fn().mockResolvedValue({ status: "saved", record: { match_id: "match-1" } }),
+      trackRateLimit: vi.fn(),
       sleep: vi.fn().mockResolvedValue(undefined),
       now: () => now,
       createLeaseToken: () => "11111111-1111-4111-8111-111111111111",
@@ -218,6 +221,169 @@ import {
       status: "failed",
       consecutiveFailures: 2,
       nextEligibleAt: "2026-08-19T06:00:00.000Z",
+    }));
+  });
+
+  it("uses a fresh current clock for each lease and completion timestamp", async () => {
+    let clockMs = Date.parse("2026-08-19T00:00:00.000Z");
+    const first = candidate();
+    const second = candidate({
+      normalizedNickname: "second_player",
+      displayNickname: "Second_Player",
+    });
+    const { dependencies } = runnerDependencies({
+      fetchCandidates: vi.fn().mockResolvedValue([first, second]),
+      now: () => new Date(clockMs),
+      claimSyncLease: vi.fn().mockImplementation(async ({ normalizedNickname }) => {
+        expect(normalizedNickname).toBe(clockMs === Date.parse("2026-08-19T00:00:00.000Z")
+          ? "linked_player"
+          : "second_player");
+        return true;
+      }),
+      fetchRecentMatchIds: vi.fn().mockImplementation(async ({ normalizedNickname }) => {
+        clockMs += normalizedNickname === "linked_player" ? 5 * 60 * 1000 : 5 * 60 * 1000;
+        return { status: 200, matchIds: [], rateLimitHeaders: null };
+      }),
+    });
+
+    await runSyncUserMatches({ dependencies, leaseDurationMs: 15 * 60 * 1000 });
+
+    expect(dependencies.claimSyncLease).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      leaseExpiresAt: "2026-08-19T00:15:00.000Z",
+    }));
+    expect(dependencies.claimSyncLease).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      leaseExpiresAt: "2026-08-19T00:20:00.000Z",
+    }));
+    expect(dependencies.completeSync).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      nextEligibleAt: "2026-08-20T00:05:00.000Z",
+    }));
+  });
+
+  it("ignores an expired exhausted quota and settles an active exhausted quota until reset", async () => {
+    const expired = runnerDependencies({
+      readQuota: vi.fn().mockResolvedValue({ remaining: 0, resetAt: "2026-08-18T23:00:00.000Z" }),
+      fetchRecentMatchIds: vi.fn().mockResolvedValue({ status: 200, matchIds: [], rateLimitHeaders: null }),
+    });
+    const expiredSummary = await runSyncUserMatches({ dependencies: expired.dependencies });
+    expect(expiredSummary.stoppedReason).toBeNull();
+    expect(expired.dependencies.fetchRecentMatchIds).toHaveBeenCalledTimes(1);
+
+    const active = runnerDependencies({
+      readQuota: vi.fn().mockResolvedValue({ remaining: 0, resetAt: "2026-08-19T01:00:00.000Z" }),
+      fetchRecentMatchIds: vi.fn(),
+    });
+    const activeSummary = await runSyncUserMatches({ dependencies: active.dependencies });
+    expect(activeSummary.stoppedReason).toBe("quota_exhausted");
+    expect(active.dependencies.fetchRecentMatchIds).not.toHaveBeenCalled();
+    expect(active.dependencies.completeSync).toHaveBeenCalledWith(expect.objectContaining({
+      status: "idle",
+      nextEligibleAt: "2026-08-19T01:00:00.000Z",
+    }));
+  });
+
+  it("keeps 429 handling when rate-limit persistence fails and persists both response sources by default", async () => {
+    const trackRateLimit = vi.fn(() => {
+      throw new Error("tracker unavailable");
+    });
+    const { dependencies } = runnerDependencies({
+      fetchRecentMatchIds: vi.fn().mockResolvedValue({
+        status: 429,
+        matchIds: [],
+        rateLimitHeaders: { limit: 10, remaining: 0, reset: 1787100000, resetAt: "2026-08-19T01:00:00.000Z", retryAfter: null, retryAfterMs: null },
+      }),
+      trackRateLimit,
+    });
+
+    const summary = await runSyncUserMatches({ dependencies });
+
+    expect(summary.rateLimited).toBe(true);
+    expect(summary.stoppedReason).toBe("rate_limited");
+    expect(trackRateLimit).toHaveBeenCalledWith(expect.objectContaining({ remaining: 0 }), "player");
+  });
+
+  it("persists player and match rate-limit snapshots through the production Supabase boundary", async () => {
+    const insert = vi.fn().mockResolvedValue({ error: null });
+    const supabase = {
+      from: vi.fn((table: string) => {
+        expect(table).toBe("pubg_api_status");
+        return { insert };
+      }),
+    } as never;
+    const { dependencies } = runnerDependencies({
+      supabase,
+      fetchRecentMatchIds: vi.fn().mockResolvedValue({
+        status: 200,
+        matchIds: ["new-match"],
+        rateLimitHeaders: {
+          limit: 10,
+          remaining: 8,
+          reset: 1787100000,
+          resetAt: "2026-08-19T01:00:00.000Z",
+          retryAfter: null,
+          retryAfterMs: null,
+        },
+      }),
+      ingestMatch: vi.fn().mockResolvedValue({
+        status: "saved",
+        record: { match_id: "new-match" },
+        httpStatus: 200,
+        rateLimitHeaders: {
+          limit: 10,
+          remaining: 7,
+          reset: 1787100000,
+          resetAt: "2026-08-19T01:00:00.000Z",
+          retryAfter: null,
+          retryAfterMs: null,
+        },
+      }),
+    });
+
+    await runSyncUserMatches({ dependencies: { ...dependencies, trackRateLimit: undefined } });
+
+    expect(insert).toHaveBeenCalledTimes(2);
+    expect(insert).toHaveBeenNthCalledWith(1, expect.objectContaining({ api_limit: 10, remaining: 8 }));
+    expect(insert).toHaveBeenNthCalledWith(2, expect.objectContaining({ api_limit: 10, remaining: 7 }));
+  });
+
+  it("requires credentials or explicit substitutes for every default API/DB boundary", async () => {
+    const { dependencies } = runnerDependencies({
+      apiKey: undefined,
+      fetchRecentMatchIds: vi.fn().mockResolvedValue({ status: 200, matchIds: ["missing-match"], rateLimitHeaders: null }),
+      readExistingMatchIds: vi.fn().mockResolvedValue([]),
+      ingestMatch: undefined,
+    });
+
+    await expect(runSyncUserMatches({ dependencies })).rejects.toThrow("PUBG_API_KEY missing");
+
+    const output = vi.fn();
+    const complete = runnerDependencies({
+      apiKey: "api-key",
+      writeOutput: output,
+    });
+    await expect(main({ ...complete.dependencies, limit: 1 })).resolves.toEqual(expect.objectContaining({
+      candidateCount: 1,
+    }));
+    expect(output).toHaveBeenCalled();
+  });
+
+  it("surfaces lease-claim control-plane failures instead of reporting an empty success", async () => {
+    const { dependencies } = runnerDependencies({
+      claimSyncLease: vi.fn().mockRejectedValue(new Error("claim rpc down")),
+    });
+
+    await expect(runSyncUserMatches({ dependencies })).rejects.toThrow("linked-player-sync-claim-failed");
+  });
+
+  it.each([
+    ["false", vi.fn().mockResolvedValue(false)],
+    ["throw", vi.fn().mockRejectedValue(new Error("completion rpc down"))],
+  ])("surfaces completion %s and does not count success", async (_label, completeSync) => {
+    const output = vi.fn();
+    const { dependencies } = runnerDependencies({ completeSync, writeOutput: output });
+
+    await expect(runSyncUserMatches({ dependencies })).rejects.toThrow();
+    expect(output).toHaveBeenCalledWith(expect.objectContaining({
+      syncedIdentities: 0,
     }));
   });
 });

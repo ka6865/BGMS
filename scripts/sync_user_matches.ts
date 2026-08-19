@@ -18,12 +18,19 @@ import {
 } from "../lib/pubg/userSyncHelper";
 import {
   fetchAndIngestBasicMatchSummaryOutcome,
-  readPubgRateLimitHeaders,
   type BasicMatchIngestOutcome,
   type PubgFetchImpl,
   type PubgRateLimitHeaderSnapshot,
 } from "../lib/pubg/playerMatchesIngest";
 import { claimForceRefresh } from "../lib/pubg/responseCache";
+import {
+  defaultSleep,
+  fetchRecentMatchIds,
+  persistRateLimitSnapshot,
+  readExistingMatchIds,
+  readLatestQuota,
+  recordRateLimit,
+} from "../lib/pubg/syncRunnerBoundaries";
 
 dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
 
@@ -53,12 +60,9 @@ export type SyncRunSummary = {
   startedAt: string;
   finishedAt: string;
   durationMs: number;
-  candidates: number;
   candidateCount: number;
-  claimed: number;
   claimedCount: number;
   syncedIdentities: number;
-  successfulUsers: number;
   newMatches: number;
   lockCollisions: number;
   invalidNicknames: number;
@@ -70,13 +74,13 @@ export type SyncRunSummary = {
   nextEligibleAt: string[];
   playerRateLimitHeaders: PubgRateLimitHeaderSnapshot[];
   matchRateLimitHeaders: PubgRateLimitHeaderSnapshot[];
+  rateLimitTrackingErrors: number;
 };
 
 export type SyncRunnerDependencies = {
   supabase?: SupabaseClient;
   apiKey?: string;
   fetchCandidates?: (supabase: SupabaseClient, limit: number) => Promise<SyncCandidateUser[]>;
-  listCandidates?: (supabase: SupabaseClient, limit: number) => Promise<SyncCandidateUser[]>;
   claimSyncLease?: (input: {
     supabaseAdmin?: LinkedPlayerSyncRpcClient;
     platform: string;
@@ -85,9 +89,7 @@ export type SyncRunnerDependencies = {
     leaseToken: string;
     leaseExpiresAt: string;
   }) => Promise<boolean>;
-  claimLease?: SyncRunnerDependencies["claimSyncLease"];
   claimRefreshLock?: (lockKey: string) => Promise<boolean>;
-  claimPlayerLock?: (lockKey: string) => Promise<boolean>;
   completeSync?: (input: {
     supabaseAdmin?: LinkedPlayerSyncRpcClient;
     platform: string;
@@ -99,21 +101,17 @@ export type SyncRunnerDependencies = {
     consecutiveFailures: number;
     lastErrorCode: string | null;
   }) => Promise<boolean>;
-  completeState?: SyncRunnerDependencies["completeSync"];
   readQuota?: (supabase: SupabaseClient) => Promise<SyncQuotaStatus | null>;
-  getQuota?: (supabase: SupabaseClient) => Promise<SyncQuotaStatus | null>;
   fetchRecentMatchIds?: (
     candidate: SyncCandidateUser,
     apiKey: string,
     fetchImpl: PubgFetchImpl,
   ) => Promise<FetchRecentMatchIdsResult>;
-  fetchPlayerRecentMatchIds?: SyncRunnerDependencies["fetchRecentMatchIds"];
   readExistingMatchIds?: (
     supabase: SupabaseClient,
     candidate: SyncCandidateUser,
     matchIds: string[],
   ) => Promise<string[]>;
-  findExistingMatchIds?: SyncRunnerDependencies["readExistingMatchIds"];
   ingestMatch?: (
     supabase: SupabaseClient,
     matchId: string,
@@ -121,7 +119,6 @@ export type SyncRunnerDependencies = {
     apiKey: string,
     fetchImpl: PubgFetchImpl,
   ) => Promise<BasicMatchIngestOutcome>;
-  ingestBasicMatch?: SyncRunnerDependencies["ingestMatch"];
   fetchImpl?: PubgFetchImpl;
   sleep?: (milliseconds: number) => Promise<void>;
   now?: () => Date;
@@ -130,7 +127,7 @@ export type SyncRunnerDependencies = {
   trackRateLimit?: (
     headers: PubgRateLimitHeaderSnapshot,
     source: "player" | "match",
-  ) => void;
+  ) => void | Promise<void>;
   leaseDurationMs?: number;
   matchLimit?: number;
   matchDelayMs?: number;
@@ -183,6 +180,114 @@ export function writeSyncRunOutput(
   ].join("\n"));
 }
 
+type CompletionStatus = "idle" | "success" | "failed" | "invalid_nickname" | "rate_limited";
+
+type CompletionInput = {
+  status: CompletionStatus;
+  lastSuccessAt: string | null;
+  nextEligibleAt: string | null;
+  consecutiveFailures: number;
+  lastErrorCode: string | null;
+};
+
+class SyncSettlementError extends Error {
+  constructor(message: string, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = "SyncSettlementError";
+  }
+}
+
+class SyncControlPlaneError extends Error {
+  constructor(message: string, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = "SyncControlPlaneError";
+  }
+}
+
+function assertSyncDependencies(input: {
+  apiKey: string;
+  supabase?: SupabaseClient;
+  usesDefaultCandidateBoundary: boolean;
+  usesDefaultLeaseBoundary: boolean;
+  usesDefaultLockBoundary: boolean;
+  usesDefaultCompletionBoundary: boolean;
+  usesDefaultQuotaBoundary: boolean;
+  usesDefaultPlayerBoundary: boolean;
+  usesDefaultExistingBoundary: boolean;
+  usesDefaultIngestBoundary: boolean;
+  usesDefaultTrackerBoundary: boolean;
+}): void {
+  if ((input.usesDefaultPlayerBoundary || input.usesDefaultIngestBoundary) && !input.apiKey) {
+    throw new Error("PUBG_API_KEY missing");
+  }
+  if (
+    (input.usesDefaultCandidateBoundary
+      || input.usesDefaultLeaseBoundary
+      || input.usesDefaultCompletionBoundary
+      || input.usesDefaultQuotaBoundary
+      || input.usesDefaultExistingBoundary
+      || input.usesDefaultIngestBoundary)
+    && !input.supabase
+  ) {
+    throw new Error("sync-user-matches-supabase-missing");
+  }
+  if (input.usesDefaultLockBoundary && !hasServiceRoleCredentials()) {
+    throw new Error("sync-user-matches-refresh-lock-credentials-missing");
+  }
+  if (input.usesDefaultTrackerBoundary && !input.supabase) {
+    throw new Error("sync-user-matches-rate-limit-tracker-missing");
+  }
+}
+
+function hasServiceRoleCredentials(): boolean {
+  return Boolean(
+    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()
+      && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim(),
+  );
+}
+
+function isQuotaExhausted(
+  quota: SyncQuotaStatus,
+  safeRemaining: number,
+  nowMs: number,
+): boolean {
+  if (quota.remaining > safeRemaining) return false;
+  if (!quota.resetAt) return true;
+  const resetMs = Date.parse(quota.resetAt);
+  return !Number.isFinite(resetMs) || resetMs > nowMs;
+}
+
+function futureResetAt(resetAt: string | null, nowMs: number): string | null {
+  if (!resetAt) return null;
+  const resetMs = Date.parse(resetAt);
+  return Number.isFinite(resetMs) && resetMs > nowMs
+    ? new Date(resetMs).toISOString()
+    : null;
+}
+
+async function settleFailed(
+  candidate: SyncCandidateUser,
+  settle: (input: CompletionInput) => Promise<void>,
+  summary: SyncRunSummary,
+  now: () => Date,
+  previousFailures: number,
+  errorCode: "upstream_error" | "network_error" | "database_error",
+): Promise<void> {
+  const consecutiveFailures = Math.max(0, previousFailures) + 1;
+  const nextEligibleAt = getLinkedPlayerSyncNextEligibleAt({
+    status: "failed",
+    consecutiveFailures,
+  }, now().getTime());
+  summary.nextEligibleAt.push(nextEligibleAt);
+  await settle({
+    status: "failed",
+    lastSuccessAt: candidate.lastSuccessAt,
+    nextEligibleAt,
+    consecutiveFailures,
+    lastErrorCode: errorCode,
+  });
+}
+
 /**
  * Run one linked-player sync pass. Every external boundary is injectable so
  * tests can exercise the state machine without a remote database or PUBG API.
@@ -191,11 +296,11 @@ export async function runSyncUserMatches(
   options: RunSyncUserMatchesOptions = {},
 ): Promise<SyncRunSummary> {
   const dependencies: SyncRunnerDependencies = {
-    ...options,
     ...(options.dependencies || {}),
+    ...options,
   };
   const supabase = dependencies.supabase;
-  const apiKey = dependencies.apiKey || "";
+  const apiKey = dependencies.apiKey?.trim() || "";
   const limit = Math.min(Math.max(Math.floor(options.limit || DEFAULT_LIMIT), 1), MAX_LIMIT);
   const now = dependencies.now || (() => new Date());
   const started = now();
@@ -213,12 +318,9 @@ export async function runSyncUserMatches(
     startedAt,
     finishedAt: startedAt,
     durationMs: 0,
-    candidates: 0,
     candidateCount: 0,
-    claimed: 0,
     claimedCount: 0,
     syncedIdentities: 0,
-    successfulUsers: 0,
     newMatches: 0,
     lockCollisions: 0,
     invalidNicknames: 0,
@@ -230,24 +332,46 @@ export async function runSyncUserMatches(
     nextEligibleAt: [],
     playerRateLimitHeaders: [],
     matchRateLimitHeaders: [],
+    rateLimitTrackingErrors: 0,
   };
 
-  const fetchCandidates = dependencies.fetchCandidates || dependencies.listCandidates || ((client, candidateLimit) => (
+  const usesDefaultCandidateBoundary = !dependencies.fetchCandidates;
+  const usesDefaultLeaseBoundary = !dependencies.claimSyncLease;
+  const usesDefaultLockBoundary = !dependencies.claimRefreshLock;
+  const usesDefaultCompletionBoundary = !dependencies.completeSync;
+  const usesDefaultQuotaBoundary = !dependencies.readQuota;
+  const usesDefaultPlayerBoundary = !dependencies.fetchRecentMatchIds;
+  const usesDefaultExistingBoundary = !dependencies.readExistingMatchIds;
+  const usesDefaultIngestBoundary = !dependencies.ingestMatch;
+  const usesDefaultTrackerBoundary = !dependencies.trackRateLimit;
+  assertSyncDependencies({
+    apiKey,
+    supabase,
+    usesDefaultCandidateBoundary,
+    usesDefaultLeaseBoundary,
+    usesDefaultLockBoundary,
+    usesDefaultCompletionBoundary,
+    usesDefaultQuotaBoundary,
+    usesDefaultPlayerBoundary,
+    usesDefaultExistingBoundary,
+    usesDefaultIngestBoundary,
+    usesDefaultTrackerBoundary,
+  });
+
+  const fetchCandidates = dependencies.fetchCandidates || ((client, candidateLimit) => (
     fetchSyncCandidateUsers(client, candidateLimit)
   ));
-  const claimLease = dependencies.claimSyncLease || dependencies.claimLease || ((input) => claimLinkedPlayerSync(input));
-  const claimLock = dependencies.claimRefreshLock || dependencies.claimPlayerLock || ((lockKey) => claimForceRefresh(lockKey));
-  const complete = dependencies.completeSync || dependencies.completeState || ((input) => completeLinkedPlayerSync(input));
-  const readQuota = dependencies.readQuota || dependencies.getQuota || (
-    supabase ? readLatestQuota : async () => null
-  );
-  const fetchRecent = dependencies.fetchRecentMatchIds || dependencies.fetchPlayerRecentMatchIds || ((candidate, key, impl) => (
+  const claimLease = dependencies.claimSyncLease || ((input) => claimLinkedPlayerSync(input));
+  const claimLock = dependencies.claimRefreshLock || ((lockKey) => claimForceRefresh(lockKey));
+  const complete = dependencies.completeSync || ((input) => completeLinkedPlayerSync(input));
+  const readQuota = dependencies.readQuota || ((client) => readLatestQuota(client));
+  const fetchRecent = dependencies.fetchRecentMatchIds || ((candidate, key, impl) => (
     fetchRecentMatchIds(candidate, key, impl, playerTimeoutMs)
   ));
-  const readExisting = dependencies.readExistingMatchIds || dependencies.findExistingMatchIds || (
-    supabase ? readExistingMatchIds : async () => []
-  );
-  const ingest = dependencies.ingestMatch || dependencies.ingestBasicMatch || ((client, matchId, candidate, key, impl) => (
+  const readExisting = dependencies.readExistingMatchIds || ((client, candidate, matchIds) => (
+    readExistingMatchIds(client, candidate, matchIds)
+  ));
+  const ingest = dependencies.ingestMatch || ((client, matchId, candidate, key, impl) => (
     fetchAndIngestBasicMatchSummaryOutcome(
       client,
       matchId,
@@ -257,57 +381,68 @@ export async function runSyncUserMatches(
       { fetchImpl: impl },
     )
   ));
-
-  const hasInjectedCandidateBoundary = Boolean(dependencies.fetchCandidates || dependencies.listCandidates);
-  const hasInjectedLeaseBoundary = Boolean(dependencies.claimSyncLease || dependencies.claimLease);
-  const hasInjectedCompletionBoundary = Boolean(dependencies.completeSync || dependencies.completeState);
-  const hasInjectedFetchBoundary = Boolean(dependencies.fetchRecentMatchIds || dependencies.fetchPlayerRecentMatchIds);
-  const hasInjectedIngestBoundary = Boolean(dependencies.ingestMatch || dependencies.ingestBasicMatch);
-  if (!supabase && (!hasInjectedCandidateBoundary || !hasInjectedLeaseBoundary || !hasInjectedCompletionBoundary)) {
-    throw new Error("sync-user-matches-supabase-missing");
-  }
-  if (!apiKey && !hasInjectedFetchBoundary && !hasInjectedIngestBoundary) {
-    throw new Error("PUBG_API_KEY missing");
-  }
+  const trackRateLimit = dependencies.trackRateLimit || (
+    supabase ? (headers: PubgRateLimitHeaderSnapshot) => persistRateLimitSnapshot(supabase, headers) : undefined
+  );
 
   try {
     const candidates = await fetchCandidates(supabase as SupabaseClient, limit);
-    summary.candidates = candidates.length;
     summary.candidateCount = candidates.length;
 
     for (const candidate of candidates) {
       if (summary.stoppedReason) break;
 
       const leaseToken = createLeaseToken();
-      const leaseExpiresAt = new Date(startedMs + leaseDurationMs).toISOString();
+      const leaseStarted = now();
+      const leaseExpiresAt = new Date(leaseStarted.getTime() + leaseDurationMs).toISOString();
       let ownsLease = false;
       let leaseSettled = false;
-      let lockCollision = false;
+      let cleanupAttempted = false;
       let currentFailures = Math.max(0, candidate.consecutiveFailures || 0);
 
-      const completeState = async (input: {
-        status: "idle" | "success" | "failed" | "invalid_nickname" | "rate_limited";
-        lastSuccessAt: string | null;
-        nextEligibleAt: string | null;
-        consecutiveFailures: number;
-        lastErrorCode: string | null;
-      }): Promise<boolean> => {
-        const result = await complete({
-          supabaseAdmin: supabase as unknown as LinkedPlayerSyncRpcClient,
-          platform: candidate.platform,
-          normalizedNickname: candidate.normalizedNickname,
-          leaseToken,
-          ...input,
-        });
-        // A resolved completion call has handed the lease back to the state
-        // boundary, even when a test double omits its boolean return. Only an
-        // exception means we still need the defensive idle-expiry attempt.
-        leaseSettled = true;
-        return result === true;
+      const settle = async (input: CompletionInput): Promise<void> => {
+        try {
+          const result = await complete({
+            supabaseAdmin: supabase as unknown as LinkedPlayerSyncRpcClient,
+            platform: candidate.platform,
+            normalizedNickname: candidate.normalizedNickname,
+            leaseToken,
+            ...input,
+          });
+          if (result !== true) {
+            throw new SyncSettlementError("linked-player-sync-completion-rejected");
+          }
+          leaseSettled = true;
+        } catch (error) {
+          if (error instanceof SyncSettlementError) throw error;
+          throw new SyncSettlementError("linked-player-sync-completion-failed", error);
+        }
       };
 
+      const releaseLeaseBestEffort = async (lastErrorCode: string | null): Promise<void> => {
+        if (!ownsLease || leaseSettled || cleanupAttempted) return;
+        cleanupAttempted = true;
+        try {
+          const result = await complete({
+            supabaseAdmin: supabase as unknown as LinkedPlayerSyncRpcClient,
+            platform: candidate.platform,
+            normalizedNickname: candidate.normalizedNickname,
+            leaseToken,
+            status: "idle",
+            lastSuccessAt: candidate.lastSuccessAt,
+            nextEligibleAt: new Date(now().getTime()).toISOString(),
+            consecutiveFailures: currentFailures,
+            lastErrorCode,
+          });
+          if (result === true) leaseSettled = true;
+        } catch {
+          // Expired leases remain reclaimable by the next scheduled run.
+        }
+      };
+
+      let claimed: boolean;
       try {
-        const claimed = await claimLease({
+        claimed = await claimLease({
           supabaseAdmin: supabase as unknown as LinkedPlayerSyncRpcClient,
           platform: candidate.platform,
           normalizedNickname: candidate.normalizedNickname,
@@ -315,22 +450,23 @@ export async function runSyncUserMatches(
           leaseToken,
           leaseExpiresAt,
         });
-        if (!claimed) continue;
-        ownsLease = true;
-        summary.claimed += 1;
-        summary.claimedCount = summary.claimed;
+      } catch (error) {
+        throw new SyncControlPlaneError("linked-player-sync-claim-failed", error);
+      }
+      if (!claimed) continue;
 
+      ownsLease = true;
+      summary.claimedCount += 1;
+
+      try {
         const lockKey = buildPlayerRefreshLockKey(candidate.platform, candidate.normalizedNickname);
         const locked = await claimLock(lockKey);
         if (!locked) {
-          lockCollision = true;
           summary.lockCollisions += 1;
-          // We own the linked-sync lease, so clear it as idle. This is not a
-          // failed refresh and must not advance transient failure backoff.
-          await completeState({
+          await settle({
             status: "idle",
             lastSuccessAt: candidate.lastSuccessAt,
-            nextEligibleAt: new Date(startedMs).toISOString(),
+            nextEligibleAt: new Date(now().getTime()).toISOString(),
             consecutiveFailures: currentFailures,
             lastErrorCode: null,
           });
@@ -338,12 +474,15 @@ export async function runSyncUserMatches(
         }
 
         const quota = await readQuota(supabase as SupabaseClient);
-        if (quota && quota.remaining <= safeRemaining) {
+        const quotaNow = now().getTime();
+        if (quota && isQuotaExhausted(quota, safeRemaining, quotaNow)) {
           summary.stoppedReason = "quota_exhausted";
-          await completeState({
+          const nextEligibleAt = futureResetAt(quota.resetAt, quotaNow) || new Date(quotaNow).toISOString();
+          summary.nextEligibleAt.push(nextEligibleAt);
+          await settle({
             status: "idle",
             lastSuccessAt: candidate.lastSuccessAt,
-            nextEligibleAt: new Date(startedMs).toISOString(),
+            nextEligibleAt,
             consecutiveFailures: currentFailures,
             lastErrorCode: "quota_exhausted",
           });
@@ -351,21 +490,19 @@ export async function runSyncUserMatches(
         }
 
         const playerResult = await fetchRecent(candidate, apiKey, fetchImpl);
-        recordRateLimit(summary, playerResult.rateLimitHeaders, "player", dependencies.trackRateLimit);
+        await recordRateLimit(summary, playerResult.rateLimitHeaders, "player", trackRateLimit);
 
         if (playerResult.status === 429) {
           summary.rateLimited = true;
           summary.stoppedReason = "rate_limited";
           currentFailures += 1;
-          const outcome = {
-            status: "rate_limited" as const,
-            consecutiveFailures: currentFailures,
+          const nextEligibleAt = getLinkedPlayerSyncNextEligibleAt({
+            status: "rate_limited",
             rateLimitResetAt: playerResult.rateLimitHeaders?.resetAt,
             retryAfterMs: playerResult.rateLimitHeaders?.retryAfterMs,
-          };
-          const nextEligibleAt = getLinkedPlayerSyncNextEligibleAt(outcome, startedMs);
+          }, now().getTime());
           summary.nextEligibleAt.push(nextEligibleAt);
-          await completeState({
+          await settle({
             status: "rate_limited",
             lastSuccessAt: candidate.lastSuccessAt,
             nextEligibleAt,
@@ -378,9 +515,9 @@ export async function runSyncUserMatches(
         if (playerResult.status === 404) {
           summary.invalidNicknames += 1;
           currentFailures += 1;
-          const nextEligibleAt = getLinkedPlayerSyncNextEligibleAt({ status: "invalid_nickname" }, startedMs);
+          const nextEligibleAt = getLinkedPlayerSyncNextEligibleAt({ status: "invalid_nickname" }, now().getTime());
           summary.nextEligibleAt.push(nextEligibleAt);
-          await completeState({
+          await settle({
             status: "invalid_nickname",
             lastSuccessAt: candidate.lastSuccessAt,
             nextEligibleAt,
@@ -394,59 +531,16 @@ export async function runSyncUserMatches(
           const status = playerResult.status > 0 ? "upstream_error" : "network_error";
           if (status === "network_error") summary.networkErrors += 1;
           else summary.upstreamErrors += 1;
-          currentFailures += 1;
-          const nextEligibleAt = getLinkedPlayerSyncNextEligibleAt({
-            status: "failed",
-            consecutiveFailures: currentFailures,
-          }, startedMs);
-          summary.nextEligibleAt.push(nextEligibleAt);
-          await completeState({
-            status: "failed",
-            lastSuccessAt: candidate.lastSuccessAt,
-            nextEligibleAt,
-            consecutiveFailures: currentFailures,
-            lastErrorCode: status,
-          });
+          await settleFailed(candidate, settle, summary, now, currentFailures, status);
           continue;
         }
 
         const apiMatchIds = Array.from(new Set(playerResult.matchIds));
-        if (apiMatchIds.length === 0) {
-          const nextEligibleAt = getLinkedPlayerSyncNextEligibleAt({ status: "success" }, startedMs);
-          summary.syncedIdentities += 1;
-          summary.successfulUsers = summary.syncedIdentities;
-          summary.nextEligibleAt.push(nextEligibleAt);
-          await completeState({
-            status: "success",
-            lastSuccessAt: new Date(startedMs).toISOString(),
-            nextEligibleAt,
-            consecutiveFailures: 0,
-            lastErrorCode: null,
-          });
-          continue;
-        }
-
-        let existingIds: string[];
-        try {
-          existingIds = await readExisting(supabase as SupabaseClient, candidate, apiMatchIds);
-        } catch {
-          summary.upstreamErrors += 1;
-          currentFailures += 1;
-          const nextEligibleAt = getLinkedPlayerSyncNextEligibleAt({ status: "failed", consecutiveFailures: currentFailures }, startedMs);
-          summary.nextEligibleAt.push(nextEligibleAt);
-          await completeState({
-            status: "failed",
-            lastSuccessAt: candidate.lastSuccessAt,
-            nextEligibleAt,
-            consecutiveFailures: currentFailures,
-            lastErrorCode: "database_error",
-          });
-          continue;
-        }
-
+        const existingIds = await readExisting(supabase as SupabaseClient, candidate, apiMatchIds);
         const existing = new Set(existingIds);
         const missingIds = apiMatchIds.filter((matchId) => !existing.has(matchId)).slice(0, matchLimit);
         let failedOutcome: "upstream_error" | "network_error" | null = null;
+
         for (let index = 0; index < missingIds.length; index += 1) {
           const matchId = missingIds[index];
           let outcome: BasicMatchIngestOutcome;
@@ -461,7 +555,7 @@ export async function runSyncUserMatches(
               error: error instanceof Error ? error.message : String(error),
             };
           }
-          recordRateLimit(summary, outcome.rateLimitHeaders, "match", dependencies.trackRateLimit);
+          await recordRateLimit(summary, outcome.rateLimitHeaders, "match", trackRateLimit);
 
           if (outcome.status === "saved") summary.newMatches += 1;
           else if (outcome.status === "not_found") summary.notFoundMatches += 1;
@@ -473,9 +567,9 @@ export async function runSyncUserMatches(
               status: "rate_limited",
               rateLimitResetAt: outcome.rateLimitHeaders?.resetAt,
               retryAfterMs: outcome.rateLimitHeaders?.retryAfterMs,
-            }, startedMs);
+            }, now().getTime());
             summary.nextEligibleAt.push(nextEligibleAt);
-            await completeState({
+            await settle({
               status: "rate_limited",
               lastSuccessAt: candidate.lastSuccessAt,
               nextEligibleAt,
@@ -484,8 +578,8 @@ export async function runSyncUserMatches(
             });
             break;
           } else {
-            failedOutcome = outcome.status;
-            if (outcome.status === "network_error") summary.networkErrors += 1;
+            failedOutcome = outcome.status === "network_error" ? "network_error" : "upstream_error";
+            if (failedOutcome === "network_error") summary.networkErrors += 1;
             else summary.upstreamErrors += 1;
             break;
           }
@@ -495,80 +589,42 @@ export async function runSyncUserMatches(
 
         if (summary.stoppedReason === "rate_limited") continue;
         if (failedOutcome) {
-          currentFailures += 1;
-          const nextEligibleAt = getLinkedPlayerSyncNextEligibleAt({
-            status: "failed",
-            consecutiveFailures: currentFailures,
-          }, startedMs);
-          summary.nextEligibleAt.push(nextEligibleAt);
-          await completeState({
-            status: "failed",
-            lastSuccessAt: candidate.lastSuccessAt,
-            nextEligibleAt,
-            consecutiveFailures: currentFailures,
-            lastErrorCode: failedOutcome,
-          });
+          await settleFailed(candidate, settle, summary, now, currentFailures, failedOutcome);
           continue;
         }
 
-        const nextEligibleAt = getLinkedPlayerSyncNextEligibleAt({ status: "success" }, startedMs);
-        summary.syncedIdentities += 1;
-        summary.successfulUsers = summary.syncedIdentities;
-        summary.nextEligibleAt.push(nextEligibleAt);
-        await completeState({
+        const successNow = now().getTime();
+        const nextEligibleAt = getLinkedPlayerSyncNextEligibleAt({ status: "success" }, successNow);
+        await settle({
           status: "success",
-          lastSuccessAt: new Date(startedMs).toISOString(),
+          lastSuccessAt: new Date(successNow).toISOString(),
           nextEligibleAt,
           consecutiveFailures: 0,
           lastErrorCode: null,
         });
-      } catch {
-        if (!ownsLease) continue;
-        if (lockCollision || summary.stoppedReason === "rate_limited" || summary.stoppedReason === "quota_exhausted") {
-          if (!leaseSettled) {
-            try {
-              await completeState({
-                status: "idle",
-                lastSuccessAt: candidate.lastSuccessAt,
-                nextEligibleAt: new Date(startedMs).toISOString(),
-                consecutiveFailures: currentFailures,
-                lastErrorCode: null,
-              });
-            } catch {
-              // A lease with an expired timestamp is safe to reclaim later.
-            }
-          }
+        summary.syncedIdentities += 1;
+        summary.nextEligibleAt.push(nextEligibleAt);
+      } catch (error) {
+        if (error instanceof SyncSettlementError || error instanceof SyncControlPlaneError) {
+          await releaseLeaseBestEffort("completion_failed");
+          throw error;
+        }
+
+        if (summary.stoppedReason === "rate_limited" || summary.stoppedReason === "quota_exhausted") {
+          await releaseLeaseBestEffort(null);
           continue;
         }
+
         summary.networkErrors += 1;
         currentFailures += 1;
-        const nextEligibleAt = getLinkedPlayerSyncNextEligibleAt({ status: "failed", consecutiveFailures: currentFailures }, startedMs);
-        summary.nextEligibleAt.push(nextEligibleAt);
         try {
-          await completeState({
-            status: "failed",
-            lastSuccessAt: candidate.lastSuccessAt,
-            nextEligibleAt,
-            consecutiveFailures: currentFailures,
-            lastErrorCode: "network_error",
-          });
-        } catch {
-          // The finally block below still attempts an idle lease release.
+          await settleFailed(candidate, settle, summary, now, currentFailures - 1, "network_error");
+        } catch (settlementError) {
+          await releaseLeaseBestEffort("completion_failed");
+          throw settlementError;
         }
       } finally {
-        if (ownsLease && !leaseSettled) {
-          try {
-            await completeState({
-              status: "idle",
-              lastSuccessAt: candidate.lastSuccessAt,
-              nextEligibleAt: new Date(startedMs).toISOString(),
-              consecutiveFailures: currentFailures,
-              lastErrorCode: "lease_expired",
-            });
-          } catch {
-            // A subsequent scheduled run can reclaim the expired lease.
-          }
-        }
+        await releaseLeaseBestEffort("lease_expired");
       }
     }
   } finally {
@@ -581,13 +637,8 @@ export async function runSyncUserMatches(
   return summary;
 }
 
-// Short alias for callers that use the runner name from the workflow brief.
-export const runSync = runSyncUserMatches;
-
 export async function main(options?: RunSyncUserMatchesOptions): Promise<SyncRunSummary> {
-  if (options && (options.dependencies || options.supabase || options.fetchCandidates || options.listCandidates)) {
-    return runSyncUserMatches(options);
-  }
+  if (options !== undefined) return runSyncUserMatches(options);
   const { limit } = parseSyncScriptArgs(process.argv.slice(2));
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -603,102 +654,6 @@ export async function main(options?: RunSyncUserMatchesOptions): Promise<SyncRun
     limit,
     dependencies: { supabase, apiKey },
   });
-}
-
-async function fetchRecentMatchIds(
-  candidate: SyncCandidateUser,
-  apiKey: string,
-  fetchImpl: PubgFetchImpl,
-  timeoutMs: number,
-): Promise<FetchRecentMatchIdsResult> {
-  try {
-    const response = await fetchImpl(
-      `https://api.pubg.com/shards/${candidate.platform}/players?filter[playerNames]=${encodeURIComponent(candidate.displayNickname)}`,
-      {
-        headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/vnd.api+json" },
-        signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(timeoutMs) : undefined,
-      },
-    );
-    const rateLimitHeaders = readPubgRateLimitHeaders(response.headers);
-    if (!response.ok) {
-      return { status: response.status, matchIds: [], rateLimitHeaders };
-    }
-    let data: any;
-    try {
-      data = await response.json();
-    } catch (error) {
-      return {
-        status: 500,
-        matchIds: [],
-        rateLimitHeaders,
-        error: error instanceof Error ? error.message : String(error),
-      };
-    }
-    const player = data?.data?.[0];
-    if (!player) return { status: 404, matchIds: [], rateLimitHeaders };
-    const matchIds = (player.relationships?.matches?.data || [])
-      .map((match: any) => String(match.id || ""))
-      .filter(Boolean);
-    return { status: 200, matchIds, rateLimitHeaders };
-  } catch (error) {
-    return {
-      status: 0,
-      matchIds: [],
-      rateLimitHeaders: null,
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
-async function readExistingMatchIds(
-  supabase: SupabaseClient,
-  candidate: SyncCandidateUser,
-  matchIds: string[],
-): Promise<string[]> {
-  if (matchIds.length === 0) return [];
-  const { data, error } = await supabase
-    .from("pubg_player_matches")
-    .select("match_id")
-    .eq("player_id", candidate.normalizedNickname)
-    .eq("platform", candidate.platform)
-    .in("match_id", matchIds);
-  if (error) throw error;
-  return (data || [])
-    .map((row: { match_id?: unknown }) => String(row.match_id || ""))
-    .filter(Boolean);
-}
-
-async function readLatestQuota(supabase: SupabaseClient): Promise<SyncQuotaStatus | null> {
-  const { data, error } = await supabase
-    .from("pubg_api_status")
-    .select("remaining, reset_at")
-    .order("updated_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) return null;
-  const remaining = Number(data.remaining);
-  if (!Number.isFinite(remaining)) return null;
-  return {
-    remaining,
-    resetAt: typeof data.reset_at === "string" ? data.reset_at : null,
-  };
-}
-
-function recordRateLimit(
-  summary: SyncRunSummary,
-  headers: PubgRateLimitHeaderSnapshot | null,
-  source: "player" | "match",
-  tracker?: SyncRunnerDependencies["trackRateLimit"],
-): void {
-  if (!headers) return;
-  if (source === "player") summary.playerRateLimitHeaders.push(headers);
-  else summary.matchRateLimitHeaders.push(headers);
-  tracker?.(headers, source);
-}
-
-function defaultSleep(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 const isDirectRun = process.argv[1]?.includes("sync_user_matches") === true;

@@ -210,11 +210,6 @@ export async function fetchAndIngestBasicMatchSummaryOutcome(
   }
 }
 
-// Keep descriptive aliases available to workers that prefer either naming
-// convention while having one implementation and one result contract.
-export const fetchAndIngestBasicMatchSummaryStructured = fetchAndIngestBasicMatchSummaryOutcome;
-export const fetchAndIngestBasicMatchSummaryWithOutcome = fetchAndIngestBasicMatchSummaryOutcome;
-
 export async function fetchAndIngestBasicMatchSummary(
   supabase: SupabaseClient,
   matchId: string,
