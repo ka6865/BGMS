@@ -53,6 +53,21 @@ describe("PUBG API 오류 원인 컨텍스트", () => {
     });
   });
 
+  it("telemetry cache reservation contention은 재시도 가능한 상태로 분류한다", async () => {
+    const subject = await loadContextModule();
+
+    expect(subject).not.toBeNull();
+    expect(subject?.classifyPubgMatchError({
+      stage: "analysis",
+      analysisStep: "telemetry_cache_reserve",
+      upstreamStatus: 200,
+      error: new Error("telemetry-map-cache-write-in-progress"),
+    })).toEqual({
+      errorCode: "PUBG_MATCH_ANALYSIS_IN_PROGRESS",
+      responseStatus: 409,
+    });
+  });
+
   it("캐시 영속화 오류가 외부 catch에 도달하면 전용 503 코드로 분류한다", async () => {
     const subject = await loadContextModule();
 

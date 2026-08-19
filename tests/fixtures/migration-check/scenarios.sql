@@ -245,6 +245,164 @@ begin
   raise notice 'PASS: 쓰기 정책·권한 강화 확인';
 end $$;
 
+\echo '--- 시나리오 13: linked player sync 후보 dedupe·lease·completion ---'
+insert into public.profiles (id, pubg_nickname, pubg_platform, last_active_at, updated_at)
+values
+  ('66666666-6666-4666-8666-666666666661', 'Shared_Player', 'steam', now() - interval '1 day', now()),
+  ('66666666-6666-4666-8666-666666666662', 'shared_player', 'steam', now() - interval '2 days', now()),
+  ('66666666-6666-4666-8666-666666666663', 'Inactive_Player', 'kakao', now() - interval '31 days', now()),
+  ('66666666-6666-4666-8666-666666666664', null, 'steam', now() - interval '1 day', now())
+on conflict (id) do nothing;
+
+do $$
+declare candidate_count integer; claim_ok boolean; stale_ok boolean; complete_ok boolean;
+begin
+  select count(*) into candidate_count
+  from public.list_pubg_linked_sync_candidates(15, now() - interval '30 days');
+  if candidate_count <> 1 then
+    raise exception 'FAIL: linked 후보 dedupe/활동 필터 오류 (실제 %)', candidate_count;
+  end if;
+
+  claim_ok := public.claim_pubg_linked_sync(
+    'steam', 'shared_player', 'Shared_Player',
+    '77777777-7777-4777-8777-777777777777', now() + interval '10 minutes'
+  );
+  if not claim_ok then raise exception 'FAIL: linked claim 실패'; end if;
+
+  if exists (
+    select 1 from public.list_pubg_linked_sync_candidates(15, now() - interval '30 days')
+    where normalized_nickname = 'shared_player'
+  ) then raise exception 'FAIL: running lease 후보가 다시 노출됨'; end if;
+
+  if public.claim_pubg_linked_sync(
+    'steam', 'shared_player', 'Shared_Player',
+    '88888888-8888-4888-8888-888888888888', now() + interval '10 minutes'
+  ) then raise exception 'FAIL: 유효한 lease 중복 claim 허용'; end if;
+
+  stale_ok := public.complete_pubg_linked_sync(
+    'steam', 'shared_player', '00000000-0000-4000-8000-000000000000',
+    'success', now(), now() + interval '1 day', 0, null
+  );
+  if stale_ok then raise exception 'FAIL: stale lease completion 허용'; end if;
+
+  complete_ok := public.complete_pubg_linked_sync(
+    'steam', 'shared_player', '77777777-7777-4777-8777-777777777777',
+    'success', now(), now() + interval '1 day', 0, null
+  );
+  if not complete_ok then raise exception 'FAIL: current lease completion 실패'; end if;
+  raise notice 'PASS: linked 후보 dedupe·활동 필터·lease 비교·completion';
+end $$;
+
+\echo '--- 시나리오 14: linked sync ACL·canonical CHECK·실제 역할 경계 ---'
+do $$
+declare
+  state_rows integer;
+  bad_definers integer;
+  bad_indexes integer;
+  bad_checks integer;
+  service_grants integer;
+  public_grants integer;
+begin
+  select count(*) into bad_indexes
+  from pg_class c
+  join pg_namespace n on n.oid = c.relnamespace
+  where n.nspname = 'public'
+    and c.relname in ('pubg_linked_profiles_active_idx', 'pubg_linked_profiles_identity_idx');
+  if bad_indexes <> 2 then raise exception 'FAIL: linked profiles partial index % 건', bad_indexes; end if;
+
+  select count(*) into bad_checks
+  from pg_constraint
+  where conrelid = 'public.pubg_linked_player_sync_state'::regclass
+    and pg_get_constraintdef(oid) like '%normalized_nickname = lower(btrim(normalized_nickname))%';
+  if bad_checks <> 1 then raise exception 'FAIL: canonical normalized_nickname CHECK 누락'; end if;
+
+  select count(*) into bad_definers
+  from pg_proc p
+  join pg_namespace n on n.oid = p.pronamespace
+  where n.nspname = 'public'
+    and p.proname in ('list_pubg_linked_sync_candidates', 'claim_pubg_linked_sync', 'complete_pubg_linked_sync')
+    and p.prosecdef;
+  if bad_definers <> 0 then raise exception 'FAIL: linked RPC SECURITY DEFINER 잔존 % 건', bad_definers; end if;
+
+  if not has_table_privilege('service_role', 'public.pubg_linked_player_sync_state', 'SELECT') then
+    raise exception 'FAIL: service_role table SELECT 권한 없음';
+  end if;
+  if has_table_privilege('anon', 'public.pubg_linked_player_sync_state', 'SELECT')
+     or has_table_privilege('authenticated', 'public.pubg_linked_player_sync_state', 'SELECT') then
+    raise exception 'FAIL: anon/authenticated table SELECT 권한 잔존';
+  end if;
+
+  select count(*) into service_grants
+  from information_schema.role_table_grants
+  where table_schema = 'public'
+    and table_name = 'pubg_linked_player_sync_state'
+    and grantee = 'service_role';
+  if service_grants = 0 then raise exception 'FAIL: service_role table ACL 누락'; end if;
+
+  select count(*) into public_grants
+  from information_schema.role_table_grants
+  where table_schema = 'public'
+    and table_name = 'pubg_linked_player_sync_state'
+    and grantee in ('public', 'anon', 'authenticated');
+  if public_grants <> 0 then raise exception 'FAIL: 공개 table ACL % 건 잔존', public_grants; end if;
+
+  if not (
+    has_function_privilege('service_role', 'public.list_pubg_linked_sync_candidates(integer,timestamptz)', 'EXECUTE')
+    and has_function_privilege('service_role', 'public.claim_pubg_linked_sync(text,text,text,uuid,timestamptz)', 'EXECUTE')
+    and has_function_privilege('service_role', 'public.complete_pubg_linked_sync(text,text,uuid,text,timestamptz,timestamptz,integer,text)', 'EXECUTE')
+  ) then raise exception 'FAIL: service_role linked RPC ACL 누락'; end if;
+
+  if has_function_privilege('anon', 'public.list_pubg_linked_sync_candidates(integer,timestamptz)', 'EXECUTE')
+     or has_function_privilege('anon', 'public.claim_pubg_linked_sync(text,text,text,uuid,timestamptz)', 'EXECUTE')
+     or has_function_privilege('anon', 'public.complete_pubg_linked_sync(text,text,uuid,text,timestamptz,timestamptz,integer,text)', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.list_pubg_linked_sync_candidates(integer,timestamptz)', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.claim_pubg_linked_sync(text,text,text,uuid,timestamptz)', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.complete_pubg_linked_sync(text,text,uuid,text,timestamptz,timestamptz,integer,text)', 'EXECUTE') then
+    raise exception 'FAIL: anon/authenticated linked RPC ACL 잔존';
+  end if;
+
+  set local role service_role;
+  if current_user <> 'service_role' then raise exception 'FAIL: SET ROLE service_role 실패'; end if;
+  select count(*) into state_rows from public.pubg_linked_player_sync_state;
+  perform public.list_pubg_linked_sync_candidates(15, now() - interval '30 days');
+  if state_rows < 1 then raise exception 'FAIL: service_role state table 조회 실패'; end if;
+  raise notice 'PASS: service_role SET ROLE positive + ACL + SECURITY INVOKER + indexes + canonical CHECK';
+end $$;
+
+do $$
+begin
+  set local role anon;
+  begin
+    perform (select count(*) from public.pubg_linked_player_sync_state);
+    raise exception 'FAIL: anon table SELECT 권한이 남아 있음';
+  exception when insufficient_privilege then
+    raise notice 'PASS: anon linked state table 권한 회수';
+  end;
+  begin
+    perform public.list_pubg_linked_sync_candidates(15, now() - interval '30 days');
+    raise exception 'FAIL: anon RPC 실행 권한이 남아 있음';
+  exception when insufficient_privilege then
+    raise notice 'PASS: anon linked RPC 권한 회수';
+  end;
+end $$;
+
+do $$
+begin
+  set local role authenticated;
+  begin
+    perform (select count(*) from public.pubg_linked_player_sync_state);
+    raise exception 'FAIL: authenticated table SELECT 권한이 남아 있음';
+  exception when insufficient_privilege then
+    raise notice 'PASS: authenticated linked state table 권한 회수';
+  end;
+  begin
+    perform public.list_pubg_linked_sync_candidates(15, now() - interval '30 days');
+    raise exception 'FAIL: authenticated RPC 실행 권한이 남아 있음';
+  exception when insufficient_privilege then
+    raise notice 'PASS: authenticated linked RPC 권한 회수';
+  end;
+end $$;
+
 \echo '--- 시나리오 12: 제안 테이블 RLS 및 권한 ---'
 do $$
 declare unprotected integer; leaked integer;

@@ -69,6 +69,13 @@ export function classifyPubgMatchError(input: {
   if (input.stage === "participant_lookup") {
     return { errorCode: "PUBG_MATCH_PARTICIPANT_NOT_FOUND", responseStatus: 404 };
   }
+  if (
+    input.stage === "analysis"
+    && input.analysisStep === "telemetry_cache_reserve"
+    && message.includes("telemetry-map-cache-write-in-progress")
+  ) {
+    return { errorCode: "PUBG_MATCH_ANALYSIS_IN_PROGRESS", responseStatus: 409 };
+  }
   if (input.stage === "analysis" && input.analysisStep === "telemetry_cache_persistence") {
     return {
       errorCode: "PUBG_MATCH_ANALYSIS_TELEMETRY_CACHE_PERSISTENCE",

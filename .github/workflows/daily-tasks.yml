@@ -68,6 +68,12 @@ jobs:
     outputs:
       database_health: ${{ steps.database_health.outcome }}
       pubg_rate_limited: ${{ steps.sync_user_matches.outputs.rate_limited }}
+      candidate_count: ${{ steps.sync_user_matches.outputs.candidate_count }}
+      synced_identities: ${{ steps.sync_user_matches.outputs.synced_identities }}
+      new_matches: ${{ steps.sync_user_matches.outputs.new_matches }}
+      lock_collisions: ${{ steps.sync_user_matches.outputs.lock_collisions }}
+      stopped_reason: ${{ steps.sync_user_matches.outputs.stopped_reason }}
+      rate_limit_tracking_errors: ${{ steps.linked_sync_summary.outputs.rate_limit_tracking_errors }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -298,6 +304,61 @@ jobs:
           PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
         run: npx tsx scripts/sync_user_matches.ts --limit 15
 
+      # User Matches Sync emits only aggregate fields. Keep the operational
+      # summary useful while never copying a linked nickname or identity into
+      # the Actions summary or a downstream job output.
+      - name: Report Linked PUBG Sync Summary
+        id: linked_sync_summary
+        if: ${{ always() && !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.sync_user_matches.outcome != 'skipped' }}
+        env:
+          SYNC_RATE_LIMITED: ${{ steps.sync_user_matches.outputs.rate_limited }}
+          SYNC_CANDIDATE_COUNT: ${{ steps.sync_user_matches.outputs.candidate_count }}
+          SYNC_SYNCED_IDENTITIES: ${{ steps.sync_user_matches.outputs.synced_identities }}
+          SYNC_NEW_MATCHES: ${{ steps.sync_user_matches.outputs.new_matches }}
+          SYNC_LOCK_COLLISIONS: ${{ steps.sync_user_matches.outputs.lock_collisions }}
+          SYNC_STOPPED_REASON: ${{ steps.sync_user_matches.outputs.stopped_reason }}
+          SYNC_SUMMARY: ${{ steps.sync_user_matches.outputs.sync_summary }}
+        run: |
+          safe_count() {
+            case "${1:-}" in
+              ''|*[!0-9]*) printf '0' ;;
+              *) printf '%s' "$1" ;;
+            esac
+          }
+
+          candidate_count=$(safe_count "$SYNC_CANDIDATE_COUNT")
+          synced_identities=$(safe_count "$SYNC_SYNCED_IDENTITIES")
+          new_matches=$(safe_count "$SYNC_NEW_MATCHES")
+          lock_collisions=$(safe_count "$SYNC_LOCK_COLLISIONS")
+          rate_limit_tracking_errors=$(printf '%s' "${SYNC_SUMMARY:-}" \
+            | jq -r 'if type == "object" and (.rateLimitTrackingErrors | type) == "number" then (.rateLimitTrackingErrors | floor) else 0 end' \
+            2>/dev/null || printf '0')
+          rate_limit_tracking_errors=$(safe_count "$rate_limit_tracking_errors")
+
+          case "${SYNC_RATE_LIMITED:-false}" in
+            true) rate_limited=true ;;
+            *) rate_limited=false ;;
+          esac
+          case "${SYNC_STOPPED_REASON:-}" in
+            rate_limited|quota_exhausted) stopped_reason="$SYNC_STOPPED_REASON" ;;
+            *) stopped_reason="none" ;;
+          esac
+
+          {
+            echo "## Linked PUBG Auto Sync"
+            echo ""
+            echo "| Metric | Value |"
+            echo "| --- | ---: |"
+            echo "| Candidate count | ${candidate_count} |"
+            echo "| Synced identities | ${synced_identities} |"
+            echo "| New matches | ${new_matches} |"
+            echo "| Lock collisions | ${lock_collisions} |"
+            echo "| Rate limited | ${rate_limited} |"
+            echo "| Stopped reason | ${stopped_reason} |"
+            echo "| Rate-limit tracking errors | ${rate_limit_tracking_errors} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          printf 'rate_limit_tracking_errors=%s\n' "$rate_limit_tracking_errors" >> "$GITHUB_OUTPUT"
+
       - name: Skip Hotdrop After PUBG API Rate Limit
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.sync_user_matches.outputs.rate_limited == 'true' }}
         run: echo "::warning title=PUBG API 한도 보호::User Matches Sync에서 429가 발생해 Hotdrop Collection을 건너뜁니다. 다음 실행에서 재시도합니다."
@@ -359,11 +420,34 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ github.run_id }}
+          SYNC_CANDIDATE_COUNT: ${{ needs.maintenance.outputs.candidate_count }}
+          SYNC_SYNCED_IDENTITIES: ${{ needs.maintenance.outputs.synced_identities }}
+          SYNC_NEW_MATCHES: ${{ needs.maintenance.outputs.new_matches }}
+          SYNC_LOCK_COLLISIONS: ${{ needs.maintenance.outputs.lock_collisions }}
+          SYNC_STOPPED_REASON: ${{ needs.maintenance.outputs.stopped_reason }}
+          SYNC_RATE_LIMIT_TRACKING_ERRORS: ${{ needs.maintenance.outputs.rate_limit_tracking_errors }}
         run: |
           if [ -z "$DISCORD_WEBHOOK_URL" ]; then
             echo "DISCORD_WEBHOOK_URL is missing; skipping failure notification."
             exit 0
           fi
+
+          safe_count() {
+            case "${1:-}" in
+              ''|*[!0-9]*) printf '0' ;;
+              *) printf '%s' "$1" ;;
+            esac
+          }
+
+          sync_candidate_count=$(safe_count "$SYNC_CANDIDATE_COUNT")
+          sync_synced_identities=$(safe_count "$SYNC_SYNCED_IDENTITIES")
+          sync_new_matches=$(safe_count "$SYNC_NEW_MATCHES")
+          sync_lock_collisions=$(safe_count "$SYNC_LOCK_COLLISIONS")
+          sync_rate_limit_tracking_errors=$(safe_count "$SYNC_RATE_LIMIT_TRACKING_ERRORS")
+          case "${SYNC_STOPPED_REASON:-}" in
+            rate_limited|quota_exhausted) sync_stopped_reason="$SYNC_STOPPED_REASON" ;;
+            *) sync_stopped_reason="none" ;;
+          esac
 
           status_label() {
             case "$1" in
@@ -394,26 +478,56 @@ jobs:
           fi
 
           ERROR_LINES=""
+          add_failure_category() {
+            case "$1" in
+              "rate limit"|"timeout"|"Hotdrop failure"|"PUBG API failure"|"step failure (details hidden)"|HTTP\ [0-9][0-9][0-9])
+                case $'\n'"${ERROR_LINES}"$'\n' in
+                  *$'\n'"$1"$'\n'*) return ;;
+                esac
+                if [ -n "$ERROR_LINES" ]; then ERROR_LINES="${ERROR_LINES}"$'\n'; fi
+                ERROR_LINES="${ERROR_LINES}$1"
+                ;;
+            esac
+          }
+
           while IFS=$'\t' read -r JOB_ID JOB_NAME JOB_RESULT; do
             [ -z "$JOB_ID" ] && continue
             JOB_LOG="/tmp/bgms-job-${JOB_ID}.log"
             JOB_LOG_ERROR="/tmp/bgms-job-${JOB_ID}.error"
             if ! gh api "repos/${REPOSITORY}/actions/jobs/${JOB_ID}/logs" >"$JOB_LOG" 2>"$JOB_LOG_ERROR"; then
               if [ -n "$LOOKUP_NOTES" ]; then LOOKUP_NOTES="${LOOKUP_NOTES}"$'\n'; fi
-              LOOKUP_NOTES="${LOOKUP_NOTES}로그 조회 실패: ${JOB_NAME} (${JOB_RESULT})"
+              LOOKUP_NOTES="${LOOKUP_NOTES}실패 잡 로그 조회 실패: Actions 로그에서 직접 확인이 필요합니다."
               continue
             fi
-            MATCHED_LINES=$(grep -iE "Hotdrop 수집 실패|PUBG API error|HTTP [0-9]{3}|Error:|error-|failed|failure|429|rate limit|timeout|timed out" "$JOB_LOG" 2>/dev/null \
-              | grep -vE "##\[error\]Process completed|DeprecationWarning|npm audit|npm warn|failure-notify" \
-              | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' \
-              | sed -E 's/\x1b\[[0-9;]*m//g' \
-              | sed -E 's#https?://[^[:space:]]+#<URL 숨김>#g' \
-              | sed -E 's/(Bearer[[:space:]]+)[^[:space:]]+/\1<토큰 숨김>/Ig' \
-              | cut -c1-240 \
-              | tail -n 8 || true)
-            if [ -n "$MATCHED_LINES" ]; then
-              if [ -n "$ERROR_LINES" ]; then ERROR_LINES="${ERROR_LINES}"$'\n'; fi
-              ERROR_LINES="${ERROR_LINES}[${JOB_NAME}]"$'\n'"${MATCHED_LINES}"
+            ERROR_LINES_BEFORE_JOB="$ERROR_LINES"
+            if grep -qiE '(^|[^[:alnum:]])(429|rate[ -]?limit|rate_limited|too many requests)([^[:alnum:]]|$)' "$JOB_LOG" 2>/dev/null; then
+              add_failure_category "rate limit"
+            fi
+            if grep -qiE 'timeout|timed out|ETIMEDOUT|ESOCKETTIMEDOUT' "$JOB_LOG" 2>/dev/null; then
+              add_failure_category "timeout"
+            fi
+            while IFS= read -r HTTP_CODE; do
+              case "$HTTP_CODE" in
+                [0-9][0-9][0-9]) add_failure_category "HTTP ${HTTP_CODE}" ;;
+              esac
+            done < <(
+              grep -Eio 'HTTP[[:space:]]+[0-9]{3}' "$JOB_LOG" 2>/dev/null \
+                | sed -E 's/[^0-9]//g' \
+                | sort -u \
+                | tail -n 8 \
+                || true
+            )
+            if grep -qi 'Hotdrop 수집 실패' "$JOB_LOG" 2>/dev/null; then
+              add_failure_category "Hotdrop failure"
+            fi
+            if grep -qiE 'PUBG API[[:space:]]+(error|failure)|PUBG API.*(failed|failure)' "$JOB_LOG" 2>/dev/null; then
+              add_failure_category "PUBG API failure"
+            fi
+            if grep -qiE '(^|[^[:alnum:]])(Error:|error-|failed|failure|fatal)([^[:alnum:]]|$)' "$JOB_LOG" 2>/dev/null; then
+              add_failure_category "step failure (details hidden)"
+            fi
+            if [ "$ERROR_LINES" = "$ERROR_LINES_BEFORE_JOB" ]; then
+              add_failure_category "step failure (details hidden)"
             fi
           done <<< "$JOB_ROWS"
 
@@ -434,6 +548,14 @@ jobs:
           - 게시판 쓰기 제한 정리: $(status_label "$QUOTA_RESULT")
           - 데이터 유지보수: $(status_label "$MAINTENANCE_RESULT")
           - 전적 모드 백필: $(status_label "$MATCH_TYPE_BACKFILL_RESULT")
+
+          **연동 PUBG 전적 동기화 (식별자 제외)**
+          - 후보 수: ${sync_candidate_count}
+          - 동기화한 identity 수: ${sync_synced_identities}
+          - 신규 매치 수: ${sync_new_matches}
+          - refresh lock 충돌 수: ${sync_lock_collisions}
+          - 중단 사유: ${sync_stopped_reason}
+          - rate-limit 기록 오류 수: ${sync_rate_limit_tracking_errors}
 
           **실패한 단계**
           ---

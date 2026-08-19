@@ -18,6 +18,15 @@
     );
   });
 
+  it("keeps Bluezone statistics before the lower-priority user match sync", () => {
+    const yamlPath = join(process.cwd(), ".github/workflows/daily-tasks.yml");
+    const content = readFileSync(yamlPath, "utf-8");
+
+    expect(content.indexOf("- name: Extract Bluezone Statistics")).toBeLessThan(
+      content.indexOf("- name: Run User Matches Sync"),
+    );
+  });
+
   it("runs match type backfill in a separate job after all normal maintenance", () => {
     const yamlPath = join(process.cwd(), ".github/workflows/daily-tasks.yml");
     const content = readFileSync(yamlPath, "utf-8");
@@ -51,5 +60,37 @@
     expect(content).toContain("Skip Hotdrop After PUBG API Rate Limit");
     expect(content).toContain("steps.sync_user_matches.outputs.rate_limited == 'true'");
     expect(content).toContain("steps.sync_user_matches.outputs.rate_limited != 'true'");
+  });
+
+  it("publishes aggregate linked-sync outputs and a privacy-safe step summary", () => {
+    const yamlPath = join(process.cwd(), ".github/workflows/daily-tasks.yml");
+    const content = readFileSync(yamlPath, "utf-8");
+    const syncIndex = content.indexOf("- name: Run User Matches Sync");
+    const summaryIndex = content.indexOf("- name: Report Linked PUBG Sync Summary");
+    const hotdropSkipIndex = content.indexOf("- name: Skip Hotdrop After PUBG API Rate Limit");
+
+    for (const output of [
+      "candidate_count",
+      "synced_identities",
+      "new_matches",
+      "lock_collisions",
+      "stopped_reason",
+    ]) {
+      expect(content).toContain(`${output}: \${{ steps.sync_user_matches.outputs.${output} }}`);
+    }
+
+    expect(content).toContain("GITHUB_STEP_SUMMARY");
+    expect(content).toContain("rateLimitTrackingErrors");
+    expect(summaryIndex).toBeGreaterThan(syncIndex);
+    expect(summaryIndex).toBeLessThan(hotdropSkipIndex);
+    expect(content).not.toMatch(/displayNickname|normalizedNickname|pubg_nickname|account_id/);
+  });
+
+  it("keeps one sequential PUBG user-sync consumer", () => {
+    const yamlPath = join(process.cwd(), ".github/workflows/daily-tasks.yml");
+    const content = readFileSync(yamlPath, "utf-8");
+
+    expect(content.match(/scripts\/sync_user_matches\.ts/g)).toHaveLength(1);
+    expect(content).not.toContain("parallel-pubg");
   });
 });

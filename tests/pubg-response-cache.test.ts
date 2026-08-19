@@ -103,6 +103,13 @@ describe("PUBG 분산 캐시 모듈", () => {
     });
   });
 
+  it("플레이어 강제 갱신 락 키는 시즌 없는 canonical identity를 사용한다", async () => {
+    const { buildPlayerRefreshLockKey } = await loadModule();
+
+    expect(buildPlayerRefreshLockKey("STEAM", "Fixture_Player"))
+      .toBe("refresh:steam:fixture_player");
+  });
+
   it("DB 를 쓸 수 없으면 로컬 쿨다운으로 대체한다", async () => {
     const { claimForceRefresh } = await loadModule();
 
@@ -167,7 +174,13 @@ describe("player 라우트가 분산 캐시를 사용한다", () => {
   it("공유 캐시 모듈을 통해 읽고 쓴다", () => {
     expect(routeSource).toContain('from "@/lib/pubg/responseCache"');
     expect(routeSource).toContain("await readPubgCache(cacheKey)");
-    expect(routeSource).toContain("await claimForceRefresh(cacheKey)");
+    expect(routeSource).toContain("await claimForceRefresh(buildPlayerRefreshLockKey(platform, nickname))");
     expect(routeSource.match(/await writePubgCache\(cacheKey, responseBody\)/g)).toHaveLength(2);
+  });
+
+  it("강제 갱신은 시즌 의존 response-cache 키가 아닌 canonical player lock을 claim한다", () => {
+    expect(routeSource).toContain("buildPlayerRefreshLockKey(platform, nickname)");
+    expect(routeSource).toContain("claimForceRefresh(buildPlayerRefreshLockKey(platform, nickname))");
+    expect(routeSource).not.toMatch(/claimForceRefresh\(cacheKey\)/);
   });
 });
