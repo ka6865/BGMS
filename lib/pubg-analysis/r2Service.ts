@@ -76,7 +76,7 @@ function getR2Client(): S3Client {
     r2ClientInstance = new S3Client({
       region: 'auto',
       endpoint: endpoint || undefined,
-      maxAttempts: 1,
+      maxAttempts: 2,
       requestHandler: new NodeHttpHandler({
         connectionTimeout: 3_000,
         socketTimeout: 10_000,

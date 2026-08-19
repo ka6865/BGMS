@@ -138,6 +138,7 @@ const PLAYER_ID = "account-player-one";
 
 afterEach(() => {
   noteDatabaseAvailable();
+  matchRoute.clearMatchNotFoundCache();
 });
 
 const matchAttr = {
@@ -846,6 +847,8 @@ describe("PUBG match query boundary", () => {
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
       error: "매치 데이터를 처리할 수 없습니다.",
+      errorCode: "PUBG_MATCH_UNKNOWN",
+      retryable: true,
     });
     expect(mockReportPubgApiError).toHaveBeenCalledTimes(1);
     const serializedReport = JSON.stringify(mockReportPubgApiError.mock.calls);
@@ -861,7 +864,9 @@ describe("PUBG match query boundary", () => {
 
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toEqual({
-      error: "매치 데이터를 찾을 수 없습니다. 최근 14일 내 매치인지 확인해 주세요.",
+      error: "PUBG에서 해당 매치 데이터를 더 이상 제공하지 않습니다. 저장된 기본 전적은 계속 확인할 수 있습니다.",
+      errorCode: "PUBG_MATCH_NOT_FOUND",
+      retryable: false,
     });
     expect(mockReportPubgApiError).toHaveBeenCalledWith(expect.objectContaining({
       route: "/api/pubg/match",

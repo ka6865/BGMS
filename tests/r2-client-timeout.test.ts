@@ -51,7 +51,7 @@ describe("R2 client timeout", () => {
     vi.unstubAllEnvs();
   });
 
-  it("R2 요청은 연결 3초·소켓 10초로 제한하고 SDK 재시도를 끈다", async () => {
+  it("R2 요청은 연결 3초·소켓 10초로 제한하고 일시 오류를 1회 재시도한다", async () => {
     await uploadToR2("test.json", "{}", "application/json");
 
     expect(mockNodeHttpHandler).toHaveBeenCalledWith({
@@ -59,7 +59,7 @@ describe("R2 client timeout", () => {
       socketTimeout: 10_000,
     });
     expect(mockS3Client).toHaveBeenCalledWith(expect.objectContaining({
-      maxAttempts: 1,
+      maxAttempts: 2,
       requestHandler: expect.any(Object),
     }));
     expect(mockSend).toHaveBeenCalledTimes(1);

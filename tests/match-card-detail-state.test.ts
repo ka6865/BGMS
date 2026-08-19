@@ -145,7 +145,7 @@ describe("MatchCard isolated detail state", () => {
     renderCard({ onFailure, onRecovery });
 
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
-    expect(await screen.findByText("상세 정보를 불러오지 못했습니다")).toBeInTheDocument();
+    expect(await screen.findByText("상세 분석 저장소가 일시적으로 불안정합니다. 잠시 후 다시 시도해 주세요.")).toBeInTheDocument();
     expect(screen.getByText("에란겔")).toBeVisible();
     expect(onFailure).toHaveBeenCalledTimes(1);
     expect(onFailure).toHaveBeenCalledWith("detail_failed");
@@ -155,6 +155,27 @@ describe("MatchCard isolated detail state", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(onRecovery).toHaveBeenCalledTimes(1);
     expect(onRecovery).toHaveBeenCalledWith("detail_failed");
+  });
+
+  it("PUBG가 매치를 제공하지 않으면 기간 만료 안내를 보여주고 같은 매치를 재호출하지 않는다", async () => {
+    const onFailure = vi.fn();
+    const onRecovery = vi.fn();
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({
+      error: "PUBG에서 해당 매치 데이터를 더 이상 제공하지 않습니다.",
+      errorCode: "PUBG_MATCH_NOT_FOUND",
+    }, 404)));
+    vi.stubGlobal("fetch", fetchMock);
+    renderCard({ matchId: "match-expired-not-found", onFailure, onRecovery });
+
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+    expect(await screen.findByText("PUBG에서 해당 매치 데이터를 더 이상 제공하지 않습니다.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "상세 다시 시도" })).not.toBeInTheDocument();
+    expect(onFailure).not.toHaveBeenCalled();
+    expect(onRecovery).toHaveBeenCalledWith("detail_failed");
+
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 접기" }));
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("상세 매치 요청 중에는 빈 어두운 영역 대신 로딩 안내를 표시한다", async () => {

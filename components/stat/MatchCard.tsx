@@ -137,7 +137,7 @@ export function MatchCard(props: MatchCardProps) {
           aria-hidden={!isExpanded}
           className="rounded-b-2xl border border-t-0 border-sky-500/20 bg-sky-500/10 p-4 text-sm font-bold text-sky-200"
         >
-          14일이 경과된 과거 전적입니다. 보존된 순위, 킬, 피해량, 맵 요약을 확인할 수 있습니다.
+          14일이 경과된 과거 전적입니다. PUBG 매치 제공 기간이 지나 상세 분석은 제한되지만, 저장된 순위·킬·피해량·맵 요약은 확인할 수 있습니다.
         </div>
       )}
       {expanded}

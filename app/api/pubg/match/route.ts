@@ -123,6 +123,51 @@ const MAP_IDS: Record<string, string> = {
   "Kiki_Main": "deston", "Neon_Main": "rondo", "DihorOtok_Main": "vikendi"
 };
 
+const MATCH_NOT_FOUND_CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
+const MAX_MATCH_NOT_FOUND_CACHE_SIZE = 2_000;
+const matchNotFoundCache = new Map<string, number>();
+
+function matchNotFoundCacheKey(platform: string, matchId: string): string {
+  return `${platform}:${matchId}`;
+}
+
+function isRecentlyNotFound(platform: string, matchId: string): boolean {
+  const key = matchNotFoundCacheKey(platform, matchId);
+  const expiresAt = matchNotFoundCache.get(key);
+  if (!expiresAt) return false;
+  if (expiresAt <= Date.now()) {
+    matchNotFoundCache.delete(key);
+    return false;
+  }
+  return true;
+}
+
+function rememberNotFound(platform: string, matchId: string): void {
+  if (matchNotFoundCache.size >= MAX_MATCH_NOT_FOUND_CACHE_SIZE) {
+    const oldestKey = matchNotFoundCache.keys().next().value;
+    if (oldestKey) matchNotFoundCache.delete(oldestKey);
+  }
+  matchNotFoundCache.set(
+    matchNotFoundCacheKey(platform, matchId),
+    Date.now() + MATCH_NOT_FOUND_CACHE_TTL_MS,
+  );
+}
+
+export function clearMatchNotFoundCache(): void {
+  matchNotFoundCache.clear();
+}
+
+function matchNotFoundResponse() {
+  return NextResponse.json(
+    {
+      error: "PUBG에서 해당 매치 데이터를 더 이상 제공하지 않습니다. 저장된 기본 전적은 계속 확인할 수 있습니다.",
+      errorCode: "PUBG_MATCH_NOT_FOUND",
+      retryable: false,
+    },
+    { status: 404, headers: { "Cache-Control": "private, max-age=21600" } },
+  );
+}
+
 function getConfiguredToken(name: "PUBG_SCRAPER_INTERNAL_TOKEN" | "ADMIN_REVALIDATE_TOKEN") {
   const token = process.env[name];
   return token && token.trim().length > 0 ? token : null;
@@ -163,7 +208,11 @@ function createTacticalResponse(result: any) {
 
 function databaseUnavailableResponse() {
   return NextResponse.json(
-    { error: "데이터베이스가 일시적으로 불안정합니다. 잠시 후 다시 시도해 주세요." },
+    {
+      error: "상세 분석 저장소가 일시적으로 불안정합니다. 잠시 후 다시 시도해 주세요.",
+      errorCode: "PUBG_MATCH_ANALYSIS_DATABASE_UNAVAILABLE",
+      retryable: true,
+    },
     { status: 503, headers: { "Retry-After": "30" } },
   );
 }
@@ -294,6 +343,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Missing required parameters" }, { status: 400 });
   }
 
+  if (!force && isRecentlyNotFound(platform, matchId)) {
+    return matchNotFoundResponse();
+  }
+
   if (isDatabaseCircuitOpen()) {
     return databaseUnavailableResponse();
   }
@@ -334,6 +387,7 @@ export async function GET(request: NextRequest) {
     if (!res.ok) {
       throw new Error(`PUBG API Match Load Failed: ${res.status}`);
     }
+    matchNotFoundCache.delete(matchNotFoundCacheKey(platform, matchId));
     failureStage = "match_parse";
     const matchData = await safeJsonParse(res);
     const matchAttr = matchData.data.attributes;
@@ -425,10 +479,20 @@ export async function GET(request: NextRequest) {
       error: err,
     });
     const errorMsg = classification.responseStatus === 404
-      ? "매치 데이터를 찾을 수 없습니다. 최근 14일 내 매치인지 확인해 주세요."
+      ? classification.errorCode === "PUBG_MATCH_PARTICIPANT_NOT_FOUND"
+        ? "해당 매치에서 플레이어 정보를 찾을 수 없습니다. 저장된 기본 전적은 확인할 수 있습니다."
+        : "PUBG에서 해당 매치 데이터를 더 이상 제공하지 않습니다. 저장된 기본 전적은 계속 확인할 수 있습니다."
       : classification.responseStatus === 429
-        ? "PUBG API 호출 한도가 일시적으로 초과되었습니다. 약 1분 후 다시 시도해 주세요."
-        : "매치 데이터를 처리할 수 없습니다.";
+        ? "PUBG API 호출 한도가 일시적으로 초과되었습니다. 잠시 후 다시 시도해 주세요."
+        : classification.errorCode === "PUBG_MATCH_ANALYSIS_IN_PROGRESS"
+          ? "다른 요청에서 상세 분석을 진행 중입니다. 잠시 후 다시 시도해 주세요."
+          : classification.responseStatus === 503
+            ? "상세 분석 저장소가 일시적으로 불안정합니다. 잠시 후 다시 시도해 주세요."
+            : "매치 데이터를 처리할 수 없습니다.";
+
+    if (classification.errorCode === "PUBG_MATCH_NOT_FOUND") {
+      rememberNotFound(platform, matchId);
+    }
 
     await reportPubgApiError({
       route: "/api/pubg/match",
@@ -450,7 +514,13 @@ export async function GET(request: NextRequest) {
       },
     });
 
-    return NextResponse.json({ error: errorMsg }, { status: classification.responseStatus });
+    return NextResponse.json({
+      error: errorMsg,
+      errorCode: classification.errorCode,
+      retryable: classification.responseStatus === 409
+        || classification.responseStatus === 429
+        || classification.responseStatus >= 500,
+    }, { status: classification.responseStatus });
   }
 }
 

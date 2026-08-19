@@ -640,7 +640,75 @@ type MatchDetailState =
   | { status: "summary" }
   | { status: "loading" }
   | { status: "ready"; data: MatchData }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string; kind: "unavailable" | "retryable" | "generic" };
+
+type MatchDetailErrorKind = "unavailable" | "retryable" | "generic";
+
+class MatchDetailRequestError extends Error {
+  readonly kind: MatchDetailErrorKind;
+
+  constructor(message: string, kind: MatchDetailErrorKind) {
+    super(message);
+    this.name = "MatchDetailRequestError";
+    this.kind = kind;
+  }
+}
+
+const MATCH_NOT_FOUND_CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
+const unavailableMatchCache = new Map<string, number>();
+
+const MATCH_NOT_FOUND_MESSAGE = "PUBG에서 해당 매치 데이터를 더 이상 제공하지 않습니다. 저장된 기본 전적은 계속 확인할 수 있습니다.";
+const MATCH_PARTICIPANT_NOT_FOUND_MESSAGE = "해당 매치에서 플레이어 정보를 찾을 수 없습니다. 저장된 기본 전적은 확인할 수 있습니다.";
+const MATCH_CACHE_UNAVAILABLE_MESSAGE = "상세 분석 저장소가 일시적으로 불안정합니다. 잠시 후 다시 시도해 주세요.";
+const MATCH_RATE_LIMITED_MESSAGE = "PUBG API 호출 한도가 일시적으로 초과되었습니다. 잠시 후 다시 시도해 주세요.";
+const MATCH_TIMEOUT_MESSAGE = "상세 분석 요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.";
+
+function detailCacheKey(platform: StatsPlatform, nickname: string, matchId: string): string {
+  return `${platform}:${normalizeName(nickname)}:${matchId}`;
+}
+
+function hasRecentlyUnavailableMatch(key: string): boolean {
+  const expiresAt = unavailableMatchCache.get(key);
+  if (!expiresAt) return false;
+  if (expiresAt <= Date.now()) {
+    unavailableMatchCache.delete(key);
+    return false;
+  }
+  return true;
+}
+
+function rememberUnavailableMatch(key: string): void {
+  unavailableMatchCache.set(key, Date.now() + MATCH_NOT_FOUND_CACHE_TTL_MS);
+}
+
+function classifyMatchDetailError(
+  status: number,
+  errorCode?: string,
+  serverMessage?: string,
+): MatchDetailRequestError {
+  if (errorCode === "PUBG_MATCH_PARTICIPANT_NOT_FOUND") {
+    return new MatchDetailRequestError(serverMessage || MATCH_PARTICIPANT_NOT_FOUND_MESSAGE, "unavailable");
+  }
+  if (errorCode === "PUBG_MATCH_NOT_FOUND" || status === 404) {
+    return new MatchDetailRequestError(serverMessage || MATCH_NOT_FOUND_MESSAGE, "unavailable");
+  }
+  if (errorCode === "PUBG_RATE_LIMITED" || status === 429) {
+    return new MatchDetailRequestError(serverMessage || MATCH_RATE_LIMITED_MESSAGE, "retryable");
+  }
+  if (errorCode === "PUBG_MATCH_TIMEOUT" || status === 504) {
+    return new MatchDetailRequestError(serverMessage || MATCH_TIMEOUT_MESSAGE, "retryable");
+  }
+  if (errorCode === "PUBG_MATCH_ANALYSIS_IN_PROGRESS" || status === 409) {
+    return new MatchDetailRequestError(
+      serverMessage || "다른 요청에서 상세 분석을 진행 중입니다. 잠시 후 다시 시도해 주세요.",
+      "retryable",
+    );
+  }
+  if (status === 503 || errorCode?.startsWith("PUBG_MATCH_ANALYSIS_")) {
+    return new MatchDetailRequestError(MATCH_CACHE_UNAVAILABLE_MESSAGE, "retryable");
+  }
+  return new MatchDetailRequestError("상세 정보를 불러오지 못했습니다", "generic");
+}
 
 function matchOwnerIdentity(platform: StatsPlatform, nickname: string, matchId: string) {
   return `${platform}:${normalizeName(nickname)}:${matchId}`;
@@ -852,6 +920,12 @@ export const ExpandedMatchDetails = ({
 
   const fetchFullMatch = useCallback(async () => {
     if (detailRequestRef.current || is14DaysExpiredRef.current) return;
+    const unavailableKey = detailCacheKey(platform, nickname, matchId);
+    if (hasRecentlyUnavailableMatch(unavailableKey)) {
+      setDetailState({ status: "error", message: MATCH_NOT_FOUND_MESSAGE, kind: "unavailable" });
+      callbacksRef.current.onRecovery?.("detail_failed");
+      return;
+    }
     const controller = new AbortController();
     const requestId = ++detailRequestIdRef.current;
     detailRequestRef.current = { id: requestId, controller };
@@ -865,9 +939,15 @@ export const ExpandedMatchDetails = ({
         cache: "no-store",
         signal: controller.signal,
       });
-      const data = await res.json() as MatchData & { error?: string };
+      const data = await res.json() as MatchData & { error?: string; errorCode?: string };
       if (stale()) return;
-      if (!res.ok || data.error) throw new Error(data.error || "상세 정보를 불러오지 못했습니다");
+      if (!res.ok || data.error) {
+        const detailError = classifyMatchDetailError(res.status, data.errorCode, data.error);
+        if (detailError.kind === "unavailable" && data.errorCode === "PUBG_MATCH_NOT_FOUND") {
+          rememberUnavailableMatch(unavailableKey);
+        }
+        throw detailError;
+      }
 
       callbacksRef.current.onModeDetected?.(
         matchId,
@@ -892,8 +972,12 @@ export const ExpandedMatchDetails = ({
       callbacksRef.current.onRecovery?.("detail_failed");
     } catch (caught) {
       if (stale() || isAbortError(caught)) return;
-      setDetailState({ status: "error", message: "상세 정보를 불러오지 못했습니다" });
-      callbacksRef.current.onFailure?.("detail_failed");
+      const detailError = caught instanceof MatchDetailRequestError
+        ? caught
+        : new MatchDetailRequestError("상세 정보를 불러오지 못했습니다", "generic");
+      setDetailState({ status: "error", message: detailError.message, kind: detailError.kind });
+      if (detailError.kind === "unavailable") callbacksRef.current.onRecovery?.("detail_failed");
+      else callbacksRef.current.onFailure?.("detail_failed");
     } finally {
       if (!stale()) {
         detailRequestRef.current = null;
@@ -1060,17 +1144,20 @@ export const ExpandedMatchDetails = ({
   };
 
   if (detailState.status === "error") {
+    const isUnavailable = detailState.kind === "unavailable";
     return (
-      <div className={`rounded-b-2xl border border-t-0 border-red-500/20 border-l-4 ${statusBorder} bg-red-500/10 p-4`} role="alert">
-        <p className="text-sm font-black text-red-200">상세 정보를 불러오지 못했습니다</p>
-        <p className="mt-1 text-xs text-red-100/60">접힌 매치 요약은 그대로 유지됩니다.</p>
-        <button
-          type="button"
-          onClick={() => void fetchFullMatch()}
-          className="mt-3 min-h-11 rounded-lg border border-red-400/20 px-3 text-xs font-black text-red-100"
-        >
-          상세 다시 시도
-        </button>
+      <div className={`rounded-b-2xl border border-t-0 border-l-4 ${statusBorder} p-4 ${isUnavailable ? "border-sky-500/20 bg-sky-500/10" : "border-red-500/20 bg-red-500/10"}`} role="alert">
+        <p className={`text-sm font-black ${isUnavailable ? "text-sky-200" : "text-red-200"}`}>{detailState.message}</p>
+        <p className="mt-1 text-xs text-white/55">접힌 매치 요약은 그대로 유지됩니다.</p>
+        {!isUnavailable && (
+          <button
+            type="button"
+            onClick={() => void fetchFullMatch()}
+            className="mt-3 min-h-11 rounded-lg border border-red-400/20 px-3 text-xs font-black text-red-100"
+          >
+            상세 다시 시도
+          </button>
+        )}
       </div>
     );
   }
@@ -1171,7 +1258,7 @@ export const ExpandedMatchDetails = ({
       {is14DaysExpired && (
         <div className="mx-3 md:mx-5 mt-3.5 p-3 bg-sky-500/10 border border-sky-500/20 rounded-xl flex items-center gap-2 text-xs text-sky-300">
           <Info size={14} className="shrink-0 text-sky-400" />
-          <span>14일이 경과된 과거 전적입니다. 순위, 킬, 딜량, 맵 정보가 영구 보존되어 있습니다.</span>
+          <span>14일이 경과된 과거 전적입니다. PUBG 매치 제공 기간이 지나 상세 분석은 제한되지만, 순위·킬·딜량·맵 정보는 계속 확인할 수 있습니다.</span>
         </div>
       )}
 
