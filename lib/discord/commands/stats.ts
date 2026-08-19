@@ -37,7 +37,7 @@ export async function handleStatsCommand(interaction: any, appUrl: string) {
 
   const { nickname, platform } = resolved;
   const lowerNick = nickname.toLowerCase();
-  const cacheKey = buildPlayerCacheKey(platform, lowerNick);
+  const cacheKey = buildPlayerCacheKey(platform, lowerNick, null);
 
   // Read from DB player cache first
   let cachedPlayer: any = null;
@@ -84,4 +84,3 @@ export async function handleStatsCommand(interaction: any, appUrl: string) {
     data: embedPayload,
   };
 }
-

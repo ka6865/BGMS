@@ -37,7 +37,7 @@ export async function handleRecentMatchCommand(interaction: any, appUrl: string)
 
   const { nickname, platform } = resolved;
   const lowerNick = nickname.toLowerCase();
-  const cacheKey = buildPlayerCacheKey(platform, lowerNick);
+  const cacheKey = buildPlayerCacheKey(platform, lowerNick, null);
 
   let matchId = "";
   let recentMatchData: any = null;
@@ -97,4 +97,3 @@ export async function handleRecentMatchCommand(interaction: any, appUrl: string)
     data: embedPayload,
   };
 }
-
