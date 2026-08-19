@@ -11,7 +11,7 @@ Apply this file exactly, in the normal migration order after the migrations alre
 
 `supabase/migrations/20260819115023_profile_linked_pubg_auto_sync.sql`
 
-Local SHA-256: `bf4e4c1a6319362affbf30b0e61e49a1622cb7c999ee496ca4202b0f0fb396cb`
+Local SHA-256: `fc10f4b8c2e77948d1314a7f425008586758670fd697fe70002e5eac777f95cc`
 
 The migration creates `public.pubg_linked_player_sync_state`, keyed by `(platform, normalized_nickname)`, with the six-state lifecycle, lease/backoff timestamps, and service-role-only table access. It also adds the two supported-link functional partial indexes on `public.profiles`:
 
