@@ -112,10 +112,7 @@ async function registerCommands() {
   console.log(`총 ${Array.isArray(result) ? result.length : 0}개 슬래시 커맨드가 성공적으로 등록되었습니다.`);
 }
 
-if (require.main === module) {
-  registerCommands().catch((err) => {
-    console.error("예기치 않은 오류:", err);
-    process.exit(1);
-  });
-}
-
+registerCommands().catch((err) => {
+  console.error("예기치 않은 오류:", err);
+  process.exit(1);
+});
