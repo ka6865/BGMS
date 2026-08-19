@@ -875,6 +875,11 @@ describe("PUBG match query boundary", () => {
       notify: false,
       context: expect.objectContaining({ failureStage: "match_fetch", upstreamStatus: 404 }),
     }));
+
+    const secondResponse = await GET(createMatchRequest());
+    expect(secondResponse.status).toBe(404);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(mockReportPubgApiError).toHaveBeenCalledTimes(1);
   });
 
   it.each([72, 71])("R2 미설정에서도 v%s 유효 분석 캐시를 외부 호출 없이 반환한다", async (version) => {
