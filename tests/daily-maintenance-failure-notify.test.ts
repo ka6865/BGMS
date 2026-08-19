@@ -1,7 +1,16 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 
 // js-yaml 은 타입 선언이 없어 기존 워크플로 테스트와 동일한 방식으로 로드한다.
 const loadYaml = (createRequire(import.meta.url)("js-yaml") as {
@@ -71,12 +80,113 @@ describe("일일 유지보수 실패 알림이 원인을 함께 전달한다", (
     expect(run).not.toMatch(/displayNickname|normalizedNickname|pubg_nickname|account_id/);
   });
 
-  it("민감한 플레이어 식별자 로그는 실패 원인 추출에서 제외한다", () => {
+  it("원인 추출은 원본 로그 대신 고정된 분류만 사용한다", () => {
     const run = notifyStep?.run ?? "";
 
-    expect(run).toContain("nickname");
-    expect(run).toContain("identity");
-    expect(run).toContain("player_id");
+    expect(run).not.toContain("MATCHED_LINES");
+    expect(run).toContain("step failure (details hidden)");
+    expect(run).toContain("Hotdrop failure");
+    expect(run).toContain("PUBG API failure");
+    expect(run).toContain("rate limit");
+    expect(run).toContain("timeout");
+    expect(run).toContain("HTTP ");
+  });
+
+  it("실행된 실패 로그가 식별자·비밀·명령을 Discord payload로 넘기지 않는다", () => {
+    const run = notifyStep?.run ?? "";
+    const root = mkdtempSync(join(tmpdir(), "bgms-failure-notify-"));
+    const bin = join(root, "bin");
+    const logPath = join(root, "job.log");
+    const payloadPath = join(root, "payload.json");
+    const markerPath = join(root, "shell-metacharacter-ran");
+    const rawValues = [
+      "pubg-abc123",
+      "pubg-hyphen-456",
+      "pubg-space-789",
+      "secret-account-321",
+      "Linked_Player",
+      "https://user:password@example.com/private?token=super-secret",
+      "Bearer super-secret-token",
+      markerPath,
+    ];
+    const adversarialLog = [
+      "Error: playerId=pubg-abc123 failed",
+      "Error: player-id=pubg-hyphen-456 failed",
+      "Error: player id=pubg-space-789 failed",
+      "Error: accountId=secret-account-321 failed",
+      "Error: Linked_Player failed",
+      "Linked_Player",
+      "Error: https://user:password@example.com/private?token=super-secret",
+      "Error: Bearer super-secret-token",
+      `Error: $(touch ${markerPath}) ; touch ${markerPath} ; \`touch ${markerPath}\``,
+      "rate limit reached",
+      "request timeout while fetching data",
+      "HTTP 503 from upstream",
+      "Hotdrop 수집 실패: PUBG API error 429",
+      "PUBG API error 500",
+    ].join("\n");
+
+    try {
+      writeFileSync(logPath, adversarialLog);
+      mkdirSync(bin);
+      writeFileSync(
+        join(bin, "gh"),
+        `#!/bin/sh
+case "$*" in
+  *"/logs"*) cat "$FAKE_LOG" ;;
+  *) printf '123\\tmaintenance\\tfailure\\n' ;;
+esac
+`,
+        { mode: 0o755 },
+      );
+      writeFileSync(
+        join(bin, "curl"),
+        '#!/bin/sh\ncat > "$CAPTURE_PATH"\n',
+        { mode: 0o755 },
+      );
+
+      const result = spawnSync("bash", ["-e", "-o", "pipefail", "-c", run], {
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH ?? ""}`,
+          FAKE_LOG: logPath,
+          CAPTURE_PATH: payloadPath,
+          DISCORD_WEBHOOK_URL: "https://discord.invalid/webhook",
+          RUN_URL: "https://github.com/example/repo/actions/runs/123",
+          QUOTA_RESULT: "success",
+          MAINTENANCE_RESULT: "failure",
+          MATCH_TYPE_BACKFILL_RESULT: "success",
+          RUN_STARTED_AT: "2026-08-19T00:00:00Z",
+          GH_TOKEN: "gh-token",
+          REPOSITORY: "example/repo",
+          RUN_ID: "123",
+          SYNC_CANDIDATE_COUNT: "2",
+          SYNC_SYNCED_IDENTITIES: "1",
+          SYNC_NEW_MATCHES: "3",
+          SYNC_LOCK_COLLISIONS: "0",
+          SYNC_STOPPED_REASON: "none",
+          SYNC_RATE_LIMIT_TRACKING_ERRORS: "0",
+        },
+        encoding: "utf8",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stderr).toBe("");
+      expect(existsSync(markerPath)).toBe(false);
+      const payload = JSON.parse(readFileSync(payloadPath, "utf8")) as { content: string };
+      expect(payload.content).toContain("rate limit");
+      expect(payload.content).toContain("timeout");
+      expect(payload.content).toContain("HTTP 503");
+      expect(payload.content).toContain("Hotdrop failure");
+      expect(payload.content).toContain("PUBG API failure");
+      expect(payload.content).toContain("step failure (details hidden)");
+      for (const rawValue of rawValues) {
+        expect(readFileSync(payloadPath, "utf8")).not.toContain(rawValue);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("알림 잡 자신의 로그를 원인 추출 대상에서 제외한다", () => {

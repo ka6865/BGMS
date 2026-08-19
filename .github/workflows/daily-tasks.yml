@@ -478,27 +478,56 @@ jobs:
           fi
 
           ERROR_LINES=""
+          add_failure_category() {
+            case "$1" in
+              "rate limit"|"timeout"|"Hotdrop failure"|"PUBG API failure"|"step failure (details hidden)"|HTTP\ [0-9][0-9][0-9])
+                case $'\n'"${ERROR_LINES}"$'\n' in
+                  *$'\n'"$1"$'\n'*) return ;;
+                esac
+                if [ -n "$ERROR_LINES" ]; then ERROR_LINES="${ERROR_LINES}"$'\n'; fi
+                ERROR_LINES="${ERROR_LINES}$1"
+                ;;
+            esac
+          }
+
           while IFS=$'\t' read -r JOB_ID JOB_NAME JOB_RESULT; do
             [ -z "$JOB_ID" ] && continue
             JOB_LOG="/tmp/bgms-job-${JOB_ID}.log"
             JOB_LOG_ERROR="/tmp/bgms-job-${JOB_ID}.error"
             if ! gh api "repos/${REPOSITORY}/actions/jobs/${JOB_ID}/logs" >"$JOB_LOG" 2>"$JOB_LOG_ERROR"; then
               if [ -n "$LOOKUP_NOTES" ]; then LOOKUP_NOTES="${LOOKUP_NOTES}"$'\n'; fi
-              LOOKUP_NOTES="${LOOKUP_NOTES}로그 조회 실패: ${JOB_NAME} (${JOB_RESULT})"
+              LOOKUP_NOTES="${LOOKUP_NOTES}실패 잡 로그 조회 실패: Actions 로그에서 직접 확인이 필요합니다."
               continue
             fi
-            MATCHED_LINES=$(grep -iE "Hotdrop 수집 실패|PUBG API error|HTTP [0-9]{3}|Error:|error-|failed|failure|429|rate limit|timeout|timed out" "$JOB_LOG" 2>/dev/null \
-              | grep -vE "##\[error\]Process completed|DeprecationWarning|npm audit|npm warn|failure-notify|sync_summary=|candidate_count=|synced_identities=|new_matches=|lock_collisions=|stopped_reason=" \
-              | grep -vEi "nickname|identity|player_id|player-name|account[_ -]?id" \
-              | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //' \
-              | sed -E 's/\x1b\[[0-9;]*m//g' \
-              | sed -E 's#https?://[^[:space:]]+#<URL 숨김>#g' \
-              | sed -E 's/(Bearer[[:space:]]+)[^[:space:]]+/\1<토큰 숨김>/Ig' \
-              | cut -c1-240 \
-              | tail -n 8 || true)
-            if [ -n "$MATCHED_LINES" ]; then
-              if [ -n "$ERROR_LINES" ]; then ERROR_LINES="${ERROR_LINES}"$'\n'; fi
-              ERROR_LINES="${ERROR_LINES}[${JOB_NAME}]"$'\n'"${MATCHED_LINES}"
+            ERROR_LINES_BEFORE_JOB="$ERROR_LINES"
+            if grep -qiE '(^|[^[:alnum:]])(429|rate[ -]?limit|rate_limited|too many requests)([^[:alnum:]]|$)' "$JOB_LOG" 2>/dev/null; then
+              add_failure_category "rate limit"
+            fi
+            if grep -qiE 'timeout|timed out|ETIMEDOUT|ESOCKETTIMEDOUT' "$JOB_LOG" 2>/dev/null; then
+              add_failure_category "timeout"
+            fi
+            while IFS= read -r HTTP_CODE; do
+              case "$HTTP_CODE" in
+                [0-9][0-9][0-9]) add_failure_category "HTTP ${HTTP_CODE}" ;;
+              esac
+            done < <(
+              grep -Eio 'HTTP[[:space:]]+[0-9]{3}' "$JOB_LOG" 2>/dev/null \
+                | sed -E 's/[^0-9]//g' \
+                | sort -u \
+                | tail -n 8 \
+                || true
+            )
+            if grep -qi 'Hotdrop 수집 실패' "$JOB_LOG" 2>/dev/null; then
+              add_failure_category "Hotdrop failure"
+            fi
+            if grep -qiE 'PUBG API[[:space:]]+(error|failure)|PUBG API.*(failed|failure)' "$JOB_LOG" 2>/dev/null; then
+              add_failure_category "PUBG API failure"
+            fi
+            if grep -qiE '(^|[^[:alnum:]])(Error:|error-|failed|failure|fatal)([^[:alnum:]]|$)' "$JOB_LOG" 2>/dev/null; then
+              add_failure_category "step failure (details hidden)"
+            fi
+            if [ "$ERROR_LINES" = "$ERROR_LINES_BEFORE_JOB" ]; then
+              add_failure_category "step failure (details hidden)"
             fi
           done <<< "$JOB_ROWS"
 
