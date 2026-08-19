@@ -16,6 +16,20 @@ export const RESULT_VERSION = 72.0; // [V72.0] 공식 딜량과 유효 딜량 �
 export const TELEMETRY_VERSION = 60.0; // [V60.0] 아군 전멸 후 풀 매치 리플레이 데이터 기록 캐시 소각
 export const AI_CACHE_VERSION = "2026-06-24.impact-score-v1"; // AI 프롬프트/응답 구조 캐시 버전
 
+/**
+ * 무료 티어 및 고효율 운영을 위한 Gemini 모델 폴백 우선순위
+ * 1순위: gemini-3.5-flash-lite (초고속, 쿼터 절약)
+ * 2순위: gemini-3.1-flash-lite (Lite 계열 안정적 보조)
+ * 3순위: gemini-3.5-flash (표준 고성능)
+ * 4순위: gemini-3.6-flash (최고 성능 폴백)
+ */
+export const GEMINI_MODELS_TO_TRY = [
+  "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+  "gemini-3.5-flash",
+  "gemini-3.6-flash",
+] as const;
+
 export const MAP_NAMES: Record<string, string> = {
   "Baltic_Main": "에란겔", 
   "Erangel_Main": "에란겔", // 🎯 에란겔 메인 맵 한글명 보완

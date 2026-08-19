@@ -63,10 +63,11 @@ function parseArgs(argv: string[]): CliOptions {
     limit: 10,
     maxScenes: 5,
     withAi: false,
-    model: "gemini-2.5-flash",
+    model: "gemini-3.5-flash-lite",
     fallbackModels: [
       "gemini-3.1-flash-lite",
-      "gemini-3-flash-preview"
+      "gemini-3.5-flash",
+      "gemini-3.6-flash"
     ],
     aiRetries: 2
   };

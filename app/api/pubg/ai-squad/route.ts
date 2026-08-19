@@ -3,7 +3,7 @@ import { GoogleGenerativeAI, SchemaType, HarmCategory, HarmBlockThreshold } from
 import { jsonrepair } from "jsonrepair";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
-import { AI_CACHE_VERSION } from "@/lib/pubg-analysis/constants";
+import { AI_CACHE_VERSION, GEMINI_MODELS_TO_TRY } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import crypto from "crypto";
@@ -139,11 +139,7 @@ export async function POST(request: Request) {
 
     // 3. Try multiple Gemini models sequentially
     const genAI = new GoogleGenerativeAI(apiKey);
-    const modelsToTry = [
-      "gemini-3.1-flash-lite",
-      "gemini-3-flash-preview",
-      "gemini-2.5-flash"
-    ];
+    const modelsToTry = GEMINI_MODELS_TO_TRY;
 
     const safetySettings = [
       { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },

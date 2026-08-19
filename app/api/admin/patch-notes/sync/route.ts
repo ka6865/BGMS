@@ -6,6 +6,7 @@ import { createClient } from "@/utils/supabase/server";
 import { identifyCategory } from "@/lib/patch-notes/categorize";
 import { sanitizeBoardHtml } from "@/lib/board/sanitizeHtml";
 import { triggerWeaponPatchProposal } from "@/lib/patch-notes/weaponProposalTrigger";
+import { GEMINI_MODELS_TO_TRY } from "@/lib/pubg-analysis/constants";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -39,8 +40,7 @@ async function summarizeText(rawText: string, categoryType: 'PATCH_NOTE' | 'STOR
 
   const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY);
 
-  // 2026년 기준 가장 안정적인 별칭 우선 순위 설정
-  const modelsToTry = ["gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash"];
+  const modelsToTry = GEMINI_MODELS_TO_TRY;
 
   let systemContext = "";
   let structureGuide = "";

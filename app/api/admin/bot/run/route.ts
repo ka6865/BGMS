@@ -10,12 +10,9 @@ import {
   verifyAdminRole
 } from "@/lib/admin-agent/logging";
 import { withAuthGuard } from "@/utils/supabase/guard";
+import { GEMINI_MODELS_TO_TRY } from "@/lib/pubg-analysis/constants";
 
-const modelsToTry = [
-  "gemini-3.1-flash-lite",
-  "gemini-3-flash-preview",
-  "gemini-2.5-flash"
-];
+const modelsToTry = GEMINI_MODELS_TO_TRY;
 const AI_RESPONSE_TIMEOUT_MS = 40_000;
 
 const defaultAgentInstruction = [

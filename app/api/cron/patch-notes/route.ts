@@ -6,6 +6,7 @@ import { identifyCategory } from "@/lib/patch-notes/categorize";
 import { sanitizeBoardHtml } from "@/lib/board/sanitizeHtml";
 import { authorizeBearerSecret } from "@/lib/server/secretAuth";
 import { triggerWeaponPatchProposal } from "@/lib/patch-notes/weaponProposalTrigger";
+import { GEMINI_MODELS_TO_TRY } from "@/lib/pubg-analysis/constants";
 
 /**
  * 운영 관제 채널로 텍스트 알림을 보냅니다.
@@ -72,8 +73,7 @@ ${hallucinationGuard}
   // 1. Gemini 시도 (Pro -> Flash)
   if (geminiKey) {
     const genAI = new GoogleGenerativeAI(geminiKey);
-    // 2026년 현재 v1beta에서 활성화된 최신 모델 리스트
-    const geminiModels = ["gemini-3.1-flash-lite", "gemini-3-flash-preview", "gemini-2.5-flash"];
+    const geminiModels = GEMINI_MODELS_TO_TRY;
 
     for (const modelId of geminiModels) {
       try {

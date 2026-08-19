@@ -17,13 +17,10 @@ import {
   REMOVAL_EVIDENCE_KEYWORDS,
   type PatchableTable,
 } from "./weaponSchema";
+import { GEMINI_MODELS_TO_TRY } from "@/lib/pubg-analysis/constants";
 
 /** 기존 패치노트 동기화 경로와 동일한 모델 폴백 순서입니다. */
-export const WEAPON_EXTRACT_MODELS = [
-  "gemini-3.1-flash-lite",
-  "gemini-3-flash-preview",
-  "gemini-2.5-flash",
-] as const;
+export const WEAPON_EXTRACT_MODELS = GEMINI_MODELS_TO_TRY;
 
 /**
  * 추출에 사용할 원문 최대 길이.

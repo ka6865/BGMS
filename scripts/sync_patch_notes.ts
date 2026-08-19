@@ -54,9 +54,10 @@ async function fetchPatchNoteDetail(url: string, title: string) {
 
     // [규칙 준수] 모델 풀백 순서: 최신 안정 모델 우선
     const geminiModels = [
+      "gemini-3.5-flash-lite",
       "gemini-3.1-flash-lite",
-      "gemini-3-flash-preview",
-      "gemini-2.5-flash",
+      "gemini-3.5-flash",
+      "gemini-3.6-flash",
     ];
 
     const categoryType = identifyCategory(title, url);
