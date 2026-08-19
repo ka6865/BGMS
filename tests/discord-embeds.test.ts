@@ -34,7 +34,7 @@ describe("discord embeds builder", () => {
     expect(payload.embeds[0].title).toContain("KangHeeSung_");
     expect(payload.embeds[0].fields).toBeDefined();
     expect(payload.components[0].components[0].type).toBe(2); // Button
-    expect(payload.components[0].components[0].url).toBe("https://bgms.kr/stat?nickname=KangHeeSung_&platform=steam");
+    expect(payload.components[0].components[0].url).toBe("https://bgms.kr/stats/steam/KangHeeSung_");
   });
 
   it("builds recent match summary embed with coaching link button", () => {
@@ -54,7 +54,7 @@ describe("discord embeds builder", () => {
     const payload = buildRecentMatchEmbed(matchData, appUrl);
     expect(payload.embeds[0].title).toContain("#1위 · 에란겔");
     expect(payload.components[0].components[0].url).toBe(
-      "https://bgms.kr/stat?nickname=KangHeeSung_&platform=steam&matchId=match-uuid-1234",
+      "https://bgms.kr/stats/steam/KangHeeSung_?matchId=match-uuid-1234",
     );
   });
 });

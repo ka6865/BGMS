@@ -39,7 +39,7 @@ export function buildLinkSuccessEmbed(params: { nickname: string; platform: stri
 export function buildStatsEmbed(data: StatsEmbedInput, appUrl: string) {
   const encodedNick = encodeURIComponent(data.nickname);
   const platform = data.platform.toLowerCase();
-  const webUrl = `${appUrl.replace(/\/+$/, "")}/stat?nickname=${encodedNick}&platform=${platform}`;
+  const webUrl = `${appUrl.replace(/\/+$/, "")}/stats/${platform}/${encodedNick}`;
 
   const fields = [
     { name: "현재 랭크", value: data.tier ? `${data.tier} (${data.rp ?? 0} RP)` : "언랭크", inline: true },
@@ -80,7 +80,7 @@ export function buildStatsEmbed(data: StatsEmbedInput, appUrl: string) {
 export function buildRecentMatchEmbed(data: RecentMatchEmbedInput, appUrl: string) {
   const encodedNick = encodeURIComponent(data.nickname);
   const platform = data.platform.toLowerCase();
-  const webUrl = `${appUrl.replace(/\/+$/, "")}/stat?nickname=${encodedNick}&platform=${platform}&matchId=${encodeURIComponent(data.matchId)}`;
+  const webUrl = `${appUrl.replace(/\/+$/, "")}/stats/${platform}/${encodedNick}?matchId=${encodeURIComponent(data.matchId)}`;
 
   const rankText = `#${data.winPlace ?? "?"}위`;
   const mapText = data.mapName || "알 수 없음";
