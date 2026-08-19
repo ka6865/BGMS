@@ -12,6 +12,11 @@
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
+// The refresh lock is keyed by player identity, not by the season-specific
+// response-cache key. Re-export it here so callers using the cache boundary
+// cannot accidentally construct a season-dependent lock.
+export { buildPlayerRefreshLockKey } from "./linkedPlayerSync";
+
 export const PLAYER_CACHE_TTL_SECONDS = 180; // 3분
 export const FORCE_REFRESH_COOLDOWN_SECONDS = 60;
 
@@ -129,7 +134,7 @@ export async function writePubgCache(
 const localRefreshLocks = new Map<string, number>();
 
 export async function claimForceRefresh(
-  cacheKey: string,
+  lockKey: string,
   cooldownSeconds: number = FORCE_REFRESH_COOLDOWN_SECONDS
 ): Promise<boolean> {
   const supabase = getAdminClient();
@@ -137,7 +142,7 @@ export async function claimForceRefresh(
   if (supabase) {
     try {
       const { data, error } = await supabase.rpc("claim_pubg_force_refresh", {
-        p_lock_key: cacheKey,
+        p_lock_key: lockKey,
         p_cooldown_seconds: cooldownSeconds,
       });
       if (!error) return data === true;
@@ -151,11 +156,11 @@ export async function claimForceRefresh(
   }
 
   const now = Date.now();
-  const lastClaimedAt = localRefreshLocks.get(cacheKey);
+  const lastClaimedAt = localRefreshLocks.get(lockKey);
   if (lastClaimedAt && now - lastClaimedAt < cooldownSeconds * 1000) {
     return false;
   }
-  localRefreshLocks.set(cacheKey, now);
+  localRefreshLocks.set(lockKey, now);
   return true;
 }
 

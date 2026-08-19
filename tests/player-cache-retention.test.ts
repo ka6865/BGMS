@@ -150,4 +150,17 @@ describe("전적 조회 라우트의 last_seen_at 기록", () => {
     // 이 파일이 last_seen_at 을 쓰기 시작하면 보존 정책이 다시 무력화된다.
     expect(source).not.toContain("last_seen_at");
   });
+
+  it("기존 플레이어의 non-force 검색은 stale mastery나 missing season 때문에 API로 빠지지 않는다", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const source = fs.readFileSync(
+      path.resolve(process.cwd(), "app/api/pubg/player/route.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain("if (!forceRefresh)");
+    expect(source).not.toContain("shouldFetchMissingRequestedSeason");
+    expect(source).not.toContain("!shouldFetchMissingRequestedSeason && !shouldFetchSurvivalMastery");
+  });
 });

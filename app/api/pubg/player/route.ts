@@ -11,6 +11,7 @@ import {
 import type { StatsSurvivalMastery } from "@/types/stats-page";
 import {
   buildPlayerCacheKey,
+  buildPlayerRefreshLockKey,
   claimForceRefresh,
   readPubgCache,
   writePubgCache,
@@ -160,7 +161,7 @@ export async function GET(request: Request) {
   // 1. 분산 캐시 조회 (인메모리 L1 → DB L2, 3분 TTL)
   const cacheKey = buildPlayerCacheKey(platform, nickname, reqSeason);
   if (forceRefresh) {
-    const claimed = await claimForceRefresh(cacheKey);
+    const claimed = await claimForceRefresh(buildPlayerRefreshLockKey(platform, nickname));
     if (!claimed) {
       return NextResponse.json(
         { error: "강제 갱신은 같은 전적에 대해 1분에 한 번만 요청할 수 있습니다." },
@@ -215,7 +216,6 @@ export async function GET(request: Request) {
 
       let selectedStatsSeasonId = targetSeasonId;
       let statsForSeason = cacheData.season_stats_data ? cacheData.season_stats_data[targetSeasonId] : null;
-      const shouldFetchMissingRequestedSeason = !!reqSeason && !statsForSeason;
 
       // 자동 시즌 선택일 때만 기록 있는 시즌으로 fallback합니다.
       // 사용자가 드롭다운으로 명시 선택한 시즌은 선택값을 유지하고 빈 기록을 보여줍니다.
@@ -227,42 +227,44 @@ export async function GET(request: Request) {
         }
       }
 
-      if (!shouldFetchMissingRequestedSeason && !shouldFetchSurvivalMastery) {
-        // 최근 매치들의 모드 정보를 match_master_telemetry에서 일괄 가져옴
-        const recentMatches = cacheData.recent_match_ids || [];
-        const { data: modeData } = await supabase
-          .from("match_master_telemetry")
-          .select("match_id, game_mode")
-          .in("match_id", recentMatches);
+      // Existing players are always served from the database on a non-force
+      // search. An absent explicitly selected season intentionally remains an
+      // empty bucket; stale optional mastery never escalates this request to
+      // PUBG either.
+      // 최근 매치들의 모드 정보를 match_master_telemetry에서 일괄 가져옴
+      const recentMatches = cacheData.recent_match_ids || [];
+      const { data: modeData } = await supabase
+        .from("match_master_telemetry")
+        .select("match_id, game_mode")
+        .in("match_id", recentMatches);
 
-        const matchModes = (modeData || []).reduce((acc: Record<string, string>, item: any) => {
-          acc[item.match_id] = item.game_mode;
-          return acc;
-        }, {});
+      const matchModes = (modeData || []).reduce((acc: Record<string, string>, item: any) => {
+        acc[item.match_id] = item.game_mode;
+        return acc;
+      }, {});
 
-        const responseBody = {
-          nickname: targetNickname,
-          platform: cacheData.platform,
-          seasonId: selectedStatsSeasonId,
-          seasons: availableSeasons.map((s: any) => ({
-            id: s.id,
-            name: s.name || `Season ${s.id.split("-").pop()}`,
-          })),
-          stats: statsForSeason || { ranked: null, normal: null },
-          recentMatches,
-          matchModes,
-          clan: cacheData.clan_data,
-          survivalMastery: cachedSurvivalMastery,
-          weaponMastery: cacheData.weapon_mastery_data || [],
-          banType: cacheData.ban_type || "None",
-          updatedAt: cacheData.updated_at
-        };
+      const responseBody = {
+        nickname: targetNickname,
+        platform: cacheData.platform,
+        seasonId: selectedStatsSeasonId,
+        seasons: availableSeasons.map((s: any) => ({
+          id: s.id,
+          name: s.name || `Season ${s.id.split("-").pop()}`,
+        })),
+        stats: statsForSeason || { ranked: null, normal: null },
+        recentMatches,
+        matchModes,
+        clan: cacheData.clan_data,
+        survivalMastery: cachedSurvivalMastery,
+        weaponMastery: cacheData.weapon_mastery_data || [],
+        banType: cacheData.ban_type || "None",
+        updatedAt: cacheData.updated_at
+      };
 
-        // 분산 캐시 업데이트 (L1 + L2)
-        await writePubgCache(cacheKey, responseBody);
+      // 분산 캐시 업데이트 (L1 + L2)
+      await writePubgCache(cacheKey, responseBody);
 
-        return NextResponse.json(responseBody);
-      }
+      return NextResponse.json(responseBody);
     }
   }
 
