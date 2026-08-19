@@ -96,7 +96,7 @@ export function buildRecentMatchEmbed(data: RecentMatchEmbedInput, appUrl: strin
     embeds: [
       {
         title: `🔥 ${data.nickname}님의 최근 매치 (${rankText} · ${mapText})`,
-        description: "방금 판의 3D 타임라인 동선 리플레이와 AI 정밀 매운맛/다정한맛 코칭이 준비되어 있습니다.",
+        description: "방금 판의 상세 교전 분석과 AI 정밀 매운맛/다정한맛 코칭이 준비되어 있습니다.",
         color: data.winPlace === 1 ? 0xf59e0b : 0xef4444, // Gold or Red
         fields,
         footer: { text: "BGMS 매치 분석" },
@@ -110,7 +110,7 @@ export function buildRecentMatchEmbed(data: RecentMatchEmbedInput, appUrl: strin
           {
             type: 2, // Button
             style: 5, // Link
-            label: "🎯 이 판 AI 매운맛 코칭 & 3D 리플레이 보기",
+            label: "🎯 이 판 AI 정밀 코칭 & 전술 분석 보기",
             url: webUrl,
           },
         ],
