@@ -19,7 +19,6 @@ import {
 import {
   fetchAndIngestBasicMatchSummaryOutcome,
   type BasicMatchIngestOutcome,
-  type PubgFetchImpl,
   type PubgRateLimitHeaderSnapshot,
 } from "../lib/pubg/playerMatchesIngest";
 import { claimForceRefresh } from "../lib/pubg/responseCache";
@@ -31,6 +30,21 @@ import {
   readLatestQuota,
   recordRateLimit,
 } from "../lib/pubg/syncRunnerBoundaries";
+import type {
+  RunSyncUserMatchesOptions,
+  SyncQuotaStatus,
+  SyncRunSummary,
+  SyncRunnerDependencies,
+} from "../lib/pubg/syncRunnerTypes";
+
+export type {
+  FetchRecentMatchIdsResult,
+  RunSyncUserMatchesOptions,
+  SyncQuotaStatus,
+  SyncRunSummary,
+  SyncRunnerDependencies,
+  SyncStopReason,
+} from "../lib/pubg/syncRunnerTypes";
 
 dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
 
@@ -41,104 +55,6 @@ const DEFAULT_MATCH_LIMIT = 10;
 const DEFAULT_MATCH_DELAY_MS = 1_000;
 const DEFAULT_PLAYER_TIMEOUT_MS = 8_000;
 const DEFAULT_SAFE_REMAINING = 0;
-
-export type SyncStopReason = "rate_limited" | "quota_exhausted" | null;
-
-export type SyncQuotaStatus = {
-  remaining: number;
-  resetAt: string | null;
-};
-
-export type FetchRecentMatchIdsResult = {
-  status: number;
-  matchIds: string[];
-  rateLimitHeaders: PubgRateLimitHeaderSnapshot | null;
-  error?: string;
-};
-
-export type SyncRunSummary = {
-  startedAt: string;
-  finishedAt: string;
-  durationMs: number;
-  candidateCount: number;
-  claimedCount: number;
-  syncedIdentities: number;
-  newMatches: number;
-  lockCollisions: number;
-  invalidNicknames: number;
-  notFoundMatches: number;
-  upstreamErrors: number;
-  networkErrors: number;
-  rateLimited: boolean;
-  stoppedReason: SyncStopReason;
-  nextEligibleAt: string[];
-  playerRateLimitHeaders: PubgRateLimitHeaderSnapshot[];
-  matchRateLimitHeaders: PubgRateLimitHeaderSnapshot[];
-  rateLimitTrackingErrors: number;
-};
-
-export type SyncRunnerDependencies = {
-  supabase?: SupabaseClient;
-  apiKey?: string;
-  fetchCandidates?: (supabase: SupabaseClient, limit: number) => Promise<SyncCandidateUser[]>;
-  claimSyncLease?: (input: {
-    supabaseAdmin?: LinkedPlayerSyncRpcClient;
-    platform: string;
-    normalizedNickname: string;
-    displayNickname: string;
-    leaseToken: string;
-    leaseExpiresAt: string;
-  }) => Promise<boolean>;
-  claimRefreshLock?: (lockKey: string) => Promise<boolean>;
-  completeSync?: (input: {
-    supabaseAdmin?: LinkedPlayerSyncRpcClient;
-    platform: string;
-    normalizedNickname: string;
-    leaseToken: string;
-    status: "idle" | "success" | "failed" | "invalid_nickname" | "rate_limited";
-    lastSuccessAt: string | null;
-    nextEligibleAt: string | null;
-    consecutiveFailures: number;
-    lastErrorCode: string | null;
-  }) => Promise<boolean>;
-  readQuota?: (supabase: SupabaseClient) => Promise<SyncQuotaStatus | null>;
-  fetchRecentMatchIds?: (
-    candidate: SyncCandidateUser,
-    apiKey: string,
-    fetchImpl: PubgFetchImpl,
-  ) => Promise<FetchRecentMatchIdsResult>;
-  readExistingMatchIds?: (
-    supabase: SupabaseClient,
-    candidate: SyncCandidateUser,
-    matchIds: string[],
-  ) => Promise<string[]>;
-  ingestMatch?: (
-    supabase: SupabaseClient,
-    matchId: string,
-    candidate: SyncCandidateUser,
-    apiKey: string,
-    fetchImpl: PubgFetchImpl,
-  ) => Promise<BasicMatchIngestOutcome>;
-  fetchImpl?: PubgFetchImpl;
-  sleep?: (milliseconds: number) => Promise<void>;
-  now?: () => Date;
-  createLeaseToken?: () => string;
-  writeOutput?: (summary: SyncRunSummary) => void;
-  trackRateLimit?: (
-    headers: PubgRateLimitHeaderSnapshot,
-    source: "player" | "match",
-  ) => void | Promise<void>;
-  leaseDurationMs?: number;
-  matchLimit?: number;
-  matchDelayMs?: number;
-  playerTimeoutMs?: number;
-  safeRemaining?: number;
-};
-
-export type RunSyncUserMatchesOptions = Partial<SyncRunnerDependencies> & {
-  limit?: number;
-  dependencies?: SyncRunnerDependencies;
-};
 
 export function parseSyncScriptArgs(args: string[]): { limit: number } {
   const limitIdx = args.indexOf("--limit");
@@ -385,6 +301,7 @@ export async function runSyncUserMatches(
     supabase ? (headers: PubgRateLimitHeaderSnapshot) => persistRateLimitSnapshot(supabase, headers) : undefined
   );
 
+  let primaryRunFailed = false;
   try {
     const candidates = await fetchCandidates(supabase as SupabaseClient, limit);
     summary.candidateCount = candidates.length;
@@ -627,11 +544,20 @@ export async function runSyncUserMatches(
         await releaseLeaseBestEffort("lease_expired");
       }
     }
+  } catch (error) {
+    // Keep the state-machine/control-plane error as the caller-visible error;
+    // output is best-effort when the primary run has already failed.
+    primaryRunFailed = true;
+    throw error;
   } finally {
     const finished = now();
     summary.finishedAt = finished.toISOString();
     summary.durationMs = Math.max(0, finished.getTime() - startedMs);
-    (dependencies.writeOutput || writeSyncRunOutput)(summary);
+    try {
+      (dependencies.writeOutput || writeSyncRunOutput)(summary);
+    } catch (outputError) {
+      if (!primaryRunFailed) throw outputError;
+    }
   }
 
   return summary;

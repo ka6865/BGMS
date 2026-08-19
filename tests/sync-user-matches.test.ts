@@ -386,4 +386,26 @@ import {
       syncedIdentities: 0,
     }));
   });
+
+  it("preserves the primary runner error when the output writer also fails", async () => {
+    const { dependencies } = runnerDependencies({
+      fetchCandidates: vi.fn().mockRejectedValue(new Error("primary runner failure")),
+      writeOutput: vi.fn(() => {
+        throw new Error("output writer failure");
+      }),
+    });
+
+    await expect(runSyncUserMatches({ dependencies })).rejects.toThrow("primary runner failure");
+    expect(dependencies.writeOutput).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces an output-writer error when the primary run succeeds", async () => {
+    const { dependencies } = runnerDependencies({
+      writeOutput: vi.fn(() => {
+        throw new Error("output writer failure");
+      }),
+    });
+
+    await expect(runSyncUserMatches({ dependencies })).rejects.toThrow("output writer failure");
+  });
 });

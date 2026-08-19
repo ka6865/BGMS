@@ -4,7 +4,7 @@ import type {
   SyncQuotaStatus,
   SyncRunSummary,
   SyncRunnerDependencies,
-} from "../../scripts/sync_user_matches";
+} from "./syncRunnerTypes";
 import {
   readPubgRateLimitHeaders,
   type PubgFetchImpl,

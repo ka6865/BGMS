@@ -3,7 +3,10 @@
 
 create table public.pubg_linked_player_sync_state (
   platform text not null check (platform in ('steam', 'kakao')),
-  normalized_nickname text not null check (btrim(normalized_nickname) <> ''),
+  normalized_nickname text not null check (
+    btrim(normalized_nickname) <> ''
+    and normalized_nickname = lower(btrim(normalized_nickname))
+  ),
   display_nickname text not null check (btrim(display_nickname) <> ''),
   status text not null default 'idle' check (
     status in ('idle', 'running', 'success', 'failed', 'invalid_nickname', 'rate_limited')
@@ -18,6 +21,25 @@ create table public.pubg_linked_player_sync_state (
   updated_at timestamptz not null default now(),
   primary key (platform, normalized_nickname)
 );
+
+-- Candidate selection groups by these canonical expressions. Keep the
+-- partial indexes limited to supported, non-blank links so ordinary/unlinked
+-- profiles do not enlarge the index or the RPC's working set.
+create index pubg_linked_profiles_active_idx
+  on public.profiles (last_active_at desc)
+  where last_active_at is not null
+    and pubg_nickname is not null
+    and btrim(pubg_nickname) <> ''
+    and lower(btrim(coalesce(pubg_platform, ''))) in ('steam', 'kakao');
+
+create index pubg_linked_profiles_identity_idx
+  on public.profiles (
+    lower(btrim(coalesce(pubg_platform, ''))),
+    lower(btrim(pubg_nickname))
+  )
+  where pubg_nickname is not null
+    and btrim(pubg_nickname) <> ''
+    and lower(btrim(coalesce(pubg_platform, ''))) in ('steam', 'kakao');
 
 alter table public.pubg_linked_player_sync_state enable row level security;
 

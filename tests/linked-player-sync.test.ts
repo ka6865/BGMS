@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildPlayerRefreshLockKey,
+  canonicalizeLinkedPlayerIdentity,
   getLinkedPlayerSyncBackoffMs,
   getLinkedPlayerSyncNextEligibleAt,
 } from "@/lib/pubg/linkedPlayerSync";
@@ -35,5 +36,16 @@ describe("linked player sync policy", () => {
       .toBe("refresh:steam:fixture_player");
     expect(buildPlayerRefreshLockKey(" Kakao ", " Fixture_Player "))
       .toBe("refresh:kakao:fixture_player");
+  });
+
+  it("shares canonical platform/nickname validation with the server RPC wrapper", () => {
+    expect(canonicalizeLinkedPlayerIdentity(" STEAM ", "Fixture_Player")).toEqual({
+      platform: "steam",
+      normalizedNickname: "fixture_player",
+    });
+    expect(() => canonicalizeLinkedPlayerIdentity("xbox", "Fixture_Player"))
+      .toThrow("linked-player-sync-unsupported-platform");
+    expect(() => canonicalizeLinkedPlayerIdentity("steam", " Fixture_Player "))
+      .toThrow("linked-player-sync-invalid-nickname");
   });
 });

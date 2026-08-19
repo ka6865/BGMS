@@ -11,6 +11,8 @@ export type LinkedPlayerSyncStatus =
   | "invalid_nickname"
   | "rate_limited";
 
+export type LinkedPlayerSyncPlatform = "steam" | "kakao";
+
 export interface LinkedPlayerSyncCandidate {
   platform: string;
   normalizedNickname: string;
@@ -40,6 +42,7 @@ const HOUR_MS = 60 * 60 * 1000;
 const SIX_HOURS_MS = 6 * HOUR_MS;
 const DAY_MS = 24 * HOUR_MS;
 const WEEK_MS = 7 * DAY_MS;
+const SUPPORTED_PLATFORMS = new Set<LinkedPlayerSyncPlatform>(["steam", "kakao"]);
 
 /** Returns the transient-failure delay for the current consecutive count. */
 export function getLinkedPlayerSyncBackoffMs(consecutiveFailures: number): number {
@@ -98,6 +101,35 @@ export function getLinkedPlayerSyncNextEligibleAt(
 
 function normalizeIdentityPart(value: string): string {
   return value.trim().toLowerCase();
+}
+
+/** Canonical platform validation shared by the server RPC boundary. */
+export function canonicalizeLinkedPlayerPlatform(value: string): LinkedPlayerSyncPlatform {
+  const platform = normalizeIdentityPart(value);
+  if (!SUPPORTED_PLATFORMS.has(platform as LinkedPlayerSyncPlatform)) {
+    throw new Error("linked-player-sync-unsupported-platform");
+  }
+  return platform as LinkedPlayerSyncPlatform;
+}
+
+/** Canonical nickname validation shared by the server RPC boundary. */
+export function canonicalizeLinkedPlayerNickname(value: string): string {
+  const nickname = normalizeIdentityPart(value);
+  if (!nickname || value.trim() !== value) {
+    throw new Error("linked-player-sync-invalid-nickname");
+  }
+  return nickname;
+}
+
+/** Canonical identity helper shared by all linked-player state callers. */
+export function canonicalizeLinkedPlayerIdentity(
+  platform: string,
+  nickname: string,
+): { platform: LinkedPlayerSyncPlatform; normalizedNickname: string } {
+  return {
+    platform: canonicalizeLinkedPlayerPlatform(platform),
+    normalizedNickname: canonicalizeLinkedPlayerNickname(nickname),
+  };
 }
 
 /** Builds the season-independent lock shared by manual and automatic refreshes. */

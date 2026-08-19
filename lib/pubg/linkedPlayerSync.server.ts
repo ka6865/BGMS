@@ -1,4 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
+import {
+  canonicalizeLinkedPlayerNickname,
+  canonicalizeLinkedPlayerPlatform,
+  type LinkedPlayerSyncPlatform,
+  type LinkedPlayerSyncStatus,
+} from "./linkedPlayerSync";
+
+export type { LinkedPlayerSyncPlatform, LinkedPlayerSyncStatus } from "./linkedPlayerSync";
 
 /**
  * The linked-player sync RPCs are deliberately kept behind a server-only
@@ -6,16 +14,6 @@ import { createClient } from "@supabase/supabase-js";
  * workers easy to test); production callers without one get a client built
  * only from the service-role environment variables.
  */
-
-export type LinkedPlayerSyncPlatform = "steam" | "kakao";
-
-export type LinkedPlayerSyncStatus =
-  | "idle"
-  | "running"
-  | "success"
-  | "failed"
-  | "invalid_nickname"
-  | "rate_limited";
 
 export type LinkedPlayerSyncCandidateRow = {
   platform: LinkedPlayerSyncPlatform;
@@ -65,7 +63,6 @@ export type CompleteLinkedPlayerSyncInput = {
 const MAX_CANDIDATE_LIMIT = 15;
 const ACTIVE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const SUPPORTED_PLATFORMS = new Set<LinkedPlayerSyncPlatform>(["steam", "kakao"]);
 const SYNC_STATUSES = new Set<LinkedPlayerSyncStatus>([
   "idle",
   "running",
@@ -315,20 +312,20 @@ function parseCandidateRow(value: unknown, index: number): LinkedPlayerSyncCandi
 
 function parsePlatform(value: unknown, context: string): LinkedPlayerSyncPlatform {
   if (typeof value !== "string") throw new Error(`linked-player-sync-invalid-${context}-platform`);
-  const platform = value.trim().toLowerCase();
-  if (!SUPPORTED_PLATFORMS.has(platform as LinkedPlayerSyncPlatform)) {
+  try {
+    return canonicalizeLinkedPlayerPlatform(value);
+  } catch {
     throw new Error(`linked-player-sync-invalid-${context}-platform`);
   }
-  return platform as LinkedPlayerSyncPlatform;
 }
 
 function parseCanonicalNickname(value: unknown, context: string): string {
   if (typeof value !== "string") throw new Error(`linked-player-sync-invalid-${context}-nickname`);
-  const nickname = value.trim().toLowerCase();
-  if (!nickname || nickname !== value.trim()) {
+  try {
+    return canonicalizeLinkedPlayerNickname(value);
+  } catch {
     throw new Error(`linked-player-sync-invalid-${context}-nickname`);
   }
-  return nickname;
 }
 
 function parseDisplayNickname(value: unknown, context: string): string {

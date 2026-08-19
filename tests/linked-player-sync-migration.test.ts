@@ -22,6 +22,11 @@ describe("linked player sync migration contract", () => {
     expect(MIGRATION).toContain("list_pubg_linked_sync_candidates");
     expect(MIGRATION).toContain("claim_pubg_linked_sync");
     expect(MIGRATION).toContain("complete_pubg_linked_sync");
+    expect(MIGRATION).toContain("normalized_nickname = lower(btrim(normalized_nickname))");
+    expect(MIGRATION).toContain("create index pubg_linked_profiles_active_idx");
+    expect(MIGRATION).toContain("create index pubg_linked_profiles_identity_idx");
+    expect(MIGRATION).toContain("lower(btrim(coalesce(pubg_platform, '')))");
+    expect(MIGRATION).toContain("last_active_at desc");
   });
 
   it("keeps identity grouping, activity eligibility, ordering, and lease guards in SQL", () => {
