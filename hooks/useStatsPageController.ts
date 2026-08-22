@@ -611,9 +611,12 @@ export function useStatsPageController(
   }, [applyHistoryRecords, historyPage, historyStatus, loadHistoryPage]);
 
   const retrySummaries = useCallback(async () => {
-    if (!resultRef.current) return;
-    await loadSummaries(resultRef.current);
-  }, [loadSummaries]);
+    const player = resultRef.current;
+    if (!player) return;
+    await loadSummaries(player);
+    const incoming = await loadHistoryPage(player, 1);
+    applyHistoryRecords(incoming);
+  }, [applyHistoryRecords, loadHistoryPage, loadSummaries]);
 
   const refresh = useCallback(async () => {
     const player = resultRef.current;
@@ -646,8 +649,17 @@ export function useStatsPageController(
 
   useEffect(() => {
     if (!result) return;
-    void loadSummaries(result);
-    void loadHistoryPage(result, 1).then(applyHistoryRecords);
+    let isCancelled = false;
+    void (async () => {
+      await loadSummaries(result);
+      if (isCancelled) return;
+      const incoming = await loadHistoryPage(result, 1);
+      if (isCancelled) return;
+      applyHistoryRecords(incoming);
+    })();
+    return () => {
+      isCancelled = true;
+    };
   }, [applyHistoryRecords, loadHistoryPage, loadSummaries, result]);
 
   useEffect(() => {
@@ -717,11 +729,21 @@ export function useStatsPageController(
   const partialReasons = useMemo(() => PARTIAL_REASONS.filter(
     (reason) => (partialSources.get(reason)?.size ?? 0) > 0,
   ), [partialSources]);
-  const matchIds = useMemo(() => [...new Set([
-    ...(historyLoaded && historyMatches.length > 0
-      ? historyMatches.map((record) => record.match_id)
-      : (result?.recentMatches ?? []).slice(0, 20)),
-  ])], [historyLoaded, historyMatches, result]);
+  const matchIds = useMemo(() => {
+    const recent = (result?.recentMatches ?? []).slice(0, 20);
+    if (historyLoaded && historyMatches.length > 0) {
+      if (historyPage === 1) {
+        const historyIds = historyMatches.map((record) => record.match_id);
+        const combined = [...recent];
+        for (const id of historyIds) {
+          if (!combined.includes(id)) combined.push(id);
+        }
+        return combined.slice(0, 20);
+      }
+      return [...new Set(historyMatches.map((record) => record.match_id))];
+    }
+    return [...new Set(recent)];
+  }, [historyLoaded, historyMatches, historyPage, result]);
   const status = baseStatus === "ready" && partialReasons.length > 0
     ? "partial"
     : baseStatus;

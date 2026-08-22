@@ -453,4 +453,90 @@ describe("useStatsPageController", () => {
     await act(async () => pending.resolve());
     await expect(first).resolves.toMatchObject({ nickname: "FixturePlayer" });
   });
+
+  it("전적 갱신 시 DB 미반영 최신 매치가 1페이지 matchIds에 즉시 노출되고 요약/히스토리가 동기화된다", async () => {
+    const initialPlayer = {
+      ...playerReady,
+      recentMatches: ["match-fixture-1"],
+    };
+    const refreshedPlayer = {
+      ...playerReady,
+      recentMatches: ["match-new-live", "match-fixture-1"],
+      updatedAt: "2026-08-11T00:00:00.000Z",
+    };
+    let playerRequestCount = 0;
+    let summaryRequestedMatchIds: string[] = [];
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player?")) {
+        playerRequestCount += 1;
+        return Promise.resolve(jsonResponse(playerRequestCount === 1 ? initialPlayer : refreshedPlayer));
+      }
+      if (url.startsWith("/api/pubg/matches-summary")) {
+        if (init?.body) {
+          const body = JSON.parse(String(init.body));
+          summaryRequestedMatchIds = body.matchIds || [];
+        }
+        return Promise.resolve(jsonResponse({
+          summaries: {
+            ...summaryReady.summaries,
+            "match-new-live": {
+              matchId: "match-new-live",
+              isSummary: true,
+              gameMode: "squad-fpp",
+              matchType: "official",
+              mapName: "Baltic_Main",
+              kills: 5,
+              damage: 600,
+              winPlace: 1,
+            },
+          },
+          missingMatchIds: [],
+        }));
+      }
+      if (url.startsWith("/api/pubg/player/matches")) {
+        // DB에는 playerRequestCount가 2일 때 새 매치가 ingest되어 반환된다고 가정
+        const matches = playerRequestCount === 1
+          ? [{ match_id: "match-fixture-1", player_id: "fixtureplayer", platform: "steam", played_at: "2026-08-10T00:00:00Z", game_mode: "squad-fpp", map_name: "Baltic_Main", kills: 2, damage: 240, win_place: 4, match_type: "competitive" }]
+          : [
+              { match_id: "match-new-live", player_id: "fixtureplayer", platform: "steam", played_at: "2026-08-11T00:00:00Z", game_mode: "squad-fpp", map_name: "Baltic_Main", kills: 5, damage: 600, win_place: 1, match_type: "official" },
+              { match_id: "match-fixture-1", player_id: "fixtureplayer", platform: "steam", played_at: "2026-08-10T00:00:00Z", game_mode: "squad-fpp", map_name: "Baltic_Main", kills: 2, damage: 240, win_place: 4, match_type: "competitive" },
+            ];
+        return Promise.resolve(jsonResponse({
+          matches,
+          page: 1,
+          pageSize: 20,
+          totalCount: matches.length,
+          totalPages: 1,
+        }));
+      }
+      return Promise.resolve(jsonResponse({ error: "not found" }, 404));
+    });
+
+    const { result } = renderHook(() => useStatsPageController({
+      initialNickname: "FixturePlayer",
+      initialPlatform: "steam",
+    }));
+
+    await waitFor(() => {
+      expect(result.current.result?.nickname).toBe("FixturePlayer");
+      expect(result.current.matchIds).toEqual(["match-fixture-1"]);
+    });
+
+    // 전적 갱신(forceRefresh) 트리거
+    await act(async () => {
+      await result.current.search({
+        nickname: "FixturePlayer",
+        platform: "steam",
+        forceRefresh: true,
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.matchIds[0]).toBe("match-new-live");
+      expect(result.current.matchSummaries["match-new-live"]?.kills).toBe(5);
+    });
+    expect(summaryRequestedMatchIds).toContain("match-new-live");
+  });
 });
