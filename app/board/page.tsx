@@ -30,7 +30,7 @@ export default async function BoardPage({
   let query = supabase
     .from("posts")
     .select(
-      "id, title, author, user_id, category, image_url, discord_url, discord_channel_id, is_notice, created_at, views, likes, status, parent_id, ip_address, comments(count), profiles(nickname)",
+      "id, title, author, user_id, category, image_url, discord_url, discord_channel_id, is_notice, created_at, views, likes, status, parent_id, ip_address, comments(count), profiles(nickname, role)",
       { count: "exact" }
     );
 
@@ -66,6 +66,7 @@ export default async function BoardPage({
     posts = data.map((post: any) => ({
       ...post,
       author: post.profiles?.nickname || post.author || '알 수 없음',
+      profiles: post.profiles || null,
       ip_address: post.ip_address ? maskIp(post.ip_address) : null,
       comment_count: post.comments && post.comments[0] ? post.comments[0].count : 0,
     }));

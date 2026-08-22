@@ -1042,7 +1042,425 @@ export default function GameDataEditor() {
                 }}
               />
             </div>
-                    ) : activeCategory === "crates" ? (
+                              ) : activeCategory === "weapon-patch" ? (
+            <div className="max-w-[900px] mx-auto">
+              <WeaponPatchReview />
+            </div>
+          ) : activeCategory === "system" ? (
+            <div className="max-w-[750px] mx-auto space-y-8">
+              <h2 className="text-2xl font-black text-white border-b border-[#333] pb-4">시스템 통합 관제탑 및 캐시 관리</h2>
+              
+              {/* 시스템 모니터링 대시보드 */}
+              {isLoadingDashboard && !dashboardData ? (
+                <div className="bg-[#1a1a1a] p-8 rounded-2xl border border-[#333] flex flex-col items-center justify-center gap-3">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#F2A900]"></div>
+                  <span className="text-xs text-gray-400">실시간 시스템 메트릭 조회 중...</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* 저장소 용량 상태 */}
+                  <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">저장소 용량 및 캐시 상태</h3>
+                      <span className={`text-[10px] px-2 py-1 rounded border font-black ${usageStatusClass(dashboardData?.storageHealth?.database?.status)}`}>
+                        DB {usageStatusLabel(dashboardData?.storageHealth?.database?.status)}
+                      </span>
+                    </div>
+                    <div className="space-y-4 pt-1">
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-gray-400">Supabase DB</span>
+                          <span className="font-bold font-mono text-white">
+                            {formatBytes(dashboardData?.storageHealth?.database?.usedBytes || 0)} / {formatBytes(dashboardData?.storageHealth?.database?.limitBytes || 0)}
+                          </span>
+                        </div>
+                        <div className="w-full bg-[#111] h-2 rounded-full overflow-hidden border border-[#222]">
+                          <div
+                            className={`h-full transition-all duration-500 ${
+                              dashboardData?.storageHealth?.database?.status === "critical"
+                                ? "bg-red-500"
+                                : dashboardData?.storageHealth?.database?.status === "warn"
+                                  ? "bg-amber-500"
+                                  : "bg-emerald-500"
+                            }`}
+                            style={{ width: `${Math.min(dashboardData?.storageHealth?.database?.usagePercent || 0, 100)}%` }}
+                          />
+                        </div>
+                        <div className="text-[10px] text-gray-500 text-right font-mono">
+                          {formatPercent(dashboardData?.storageHealth?.database?.usagePercent)}
+                        </div>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-gray-400">R2 텔레메트리 캐시</span>
+                          <span className="font-bold font-mono text-white">
+                            {formatBytes(dashboardData?.r2Cache?.totalSizeBytes || 0)} / {formatBytes(dashboardData?.storageHealth?.r2?.limitBytes || 0)}
+                          </span>
+                        </div>
+                        <div className="w-full bg-[#111] h-2 rounded-full overflow-hidden border border-[#222]">
+                          <div
+                            className={`h-full transition-all duration-500 ${
+                              dashboardData?.storageHealth?.r2?.status === "critical"
+                                ? "bg-red-500"
+                                : dashboardData?.storageHealth?.r2?.status === "warn"
+                                  ? "bg-amber-500"
+                                  : "bg-sky-500"
+                            }`}
+                            style={{ width: `${Math.min(dashboardData?.storageHealth?.r2?.usagePercent || 0, 100)}%` }}
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-[10px] text-gray-500 font-mono">
+                          <span>{dashboardData?.r2Cache?.fileCount || 0}개 파일</span>
+                          <span className="text-right">{formatPercent(dashboardData?.storageHealth?.r2?.usagePercent)}</span>
+                        </div>
+                      </div>
+
+                      <div className="border-t border-[#222] pt-3 space-y-1.5">
+                        {(dashboardData?.storageHealth?.tables || []).slice(0, 4).map((table: any) => (
+                          <div key={table.table} className="flex justify-between text-[10px]">
+                            <span className="text-gray-500">{table.table}</span>
+                            <span className="font-mono text-gray-300">{table.count?.toLocaleString?.() || 0} rows</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="text-[10px] text-gray-500 leading-relaxed">
+                        * 로컬 analytics 이벤트는 기본 차단되며, R2는 페이지네이션으로 전수 집계합니다.
+                        {dashboardData?.r2Cache?.truncated ? " 집계 상한 초과로 일부 객체는 제외되었습니다." : ""}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 마커 제보 승인 대기 */}
+                  <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] flex flex-col justify-between">
+                    <div>
+                      <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">마커 제보 승인 대기</h3>
+                      <div className="text-3xl font-black font-mono text-white mt-4">
+                        {dashboardData?.pendingMarkersCount || 0} <span className="text-xs text-gray-500 font-normal">건</span>
+                      </div>
+                      <p className="text-[10px] text-gray-550 mt-2">
+                        유저들이 지도 시뮬레이터에 등록한 전술 마커가 승인 대기 중입니다.
+                      </p>
+                    </div>
+                    {dashboardData?.pendingMarkersCount > 0 && (
+                      <button
+                        onClick={() => router.push("/admin/review")}
+                        className="w-full mt-4 py-2 bg-amber-600/20 text-[#F2A900] border border-[#F2A900]/30 hover:bg-amber-600/30 text-[11px] font-bold rounded transition-all text-center"
+                      >
+                        제보 검토하러 가기
+                      </button>
+                    )}
+                  </div>
+
+                  {/* PUBG API Rate Limit */}
+                  <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
+                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">PUBG API Rate Limit 상태</h3>
+                    <div className="pt-2">
+                      {dashboardData?.pubgApi ? (
+                        <div className="space-y-3">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-gray-400">남은 호출 횟수</span>
+                            <span className="font-bold font-mono">
+                              {dashboardData.pubgApi.remaining} / {dashboardData.pubgApi.limit}
+                            </span>
+                          </div>
+                          {(() => {
+                            const pct = (dashboardData.pubgApi.remaining / dashboardData.pubgApi.limit) * 100;
+                            const color = pct > 50 ? "bg-emerald-500" : pct > 20 ? "bg-amber-500" : "bg-red-500";
+                            return (
+                              <div className="w-full bg-[#111] h-2 rounded-full overflow-hidden border border-[#222]">
+                                <div className={`h-full ${color} transition-all duration-500`} style={{ width: `${pct}%` }} />
+                              </div>
+                            );
+                          })()}
+                          <div className="grid grid-cols-2 gap-2 text-[9px] text-gray-500 font-mono mt-2">
+                            <div>리셋: {new Date(dashboardData.pubgApi.resetAt).toLocaleTimeString()}</div>
+                            <div className="text-right">갱신: {timeAgo(dashboardData.pubgApi.updatedAt)}</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-xs text-gray-600 italic py-4 text-center">PUBG API 트래킹 정보가 아직 없습니다.</div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* AI 사용량 및 누적 비용 */}
+                  <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
+                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">AI (Gemini) 토큰 분석 비용 (최근 7일)</h3>
+                    {dashboardData?.aiUsage && (
+                      <div className="space-y-2 pt-2">
+                        <div className="text-xs font-bold text-gray-400 flex justify-between">
+                          <span>누적 소요 비용:</span>
+                          <span className="text-[#34A853] font-black">${dashboardData.aiUsage.reduce((sum: number, u: any) => sum + u.cost, 0).toFixed(4)} USD</span>
+                        </div>
+                        <div className="flex items-end gap-1.5 h-16 pt-2 px-1">
+                          {dashboardData.aiUsage.map((u: any, idx: number) => {
+                            const maxCost = Math.max(...dashboardData.aiUsage.map((x: any) => x.cost), 0.001);
+                            const percent = Math.min((u.cost / maxCost) * 100, 100);
+                            return (
+                              <div key={idx} className="flex-1 flex flex-col items-center group relative h-full justify-end">
+                                <div className="absolute bottom-full mb-1 bg-black text-[9px] text-white p-1.5 rounded border border-[#333] hidden group-hover:block whitespace-nowrap z-10">
+                                  {u.date}<br/>
+                                  비용: ${u.cost.toFixed(4)}<br/>
+                                  토큰: {u.promptTokens + u.completionTokens}T
+                                </div>
+                                <div 
+                                  className="w-full rounded-t bg-gradient-to-t from-emerald-600/30 to-emerald-500 transition-all hover:brightness-125" 
+                                  style={{ height: `${percent}%` }}
+                                />
+                                <span className="text-[7px] text-gray-600 mt-1 font-mono">{u.date.substring(5)}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 스쿼드 시너지 분석 통계 */}
+                  <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
+                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">스쿼드 시너지 분석 통계</h3>
+                    <div className="space-y-3 pt-2">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-400">총 매치 / 스쿼드 매치</span>
+                        <span className="font-bold font-mono text-white">
+                          {dashboardData?.squadStats?.totalMatches || 0} / {dashboardData?.squadStats?.squadMatches || 0}
+                        </span>
+                      </div>
+                      {(() => {
+                        const total = dashboardData?.squadStats?.totalMatches || 0;
+                        const squad = dashboardData?.squadStats?.squadMatches || 0;
+                        const pct = total > 0 ? (squad / total) * 100 : 0;
+                        return (
+                          <div className="space-y-1">
+                            <div className="w-full bg-[#111] h-2 rounded-full overflow-hidden border border-[#222]">
+                              <div className="h-full bg-purple-500 transition-all duration-500" style={{ width: `${pct}%` }} />
+                            </div>
+                            <div className="text-[10px] text-gray-500 text-right font-mono">
+                              스쿼드 매치 비율: {pct.toFixed(1)}%
+                            </div>
+                          </div>
+                        );
+                      })()}
+                      <div className="flex justify-between text-xs pt-1 border-t border-[#222]">
+                        <span className="text-gray-400">고유 파티 수 (최근 100경기 기준)</span>
+                        <span className="font-bold font-mono text-white">
+                          {dashboardData?.squadStats?.estimatedSquadGroups || 0} 개 조합
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* API 최적화 세이브 */}
+                  <div className="bg-[#1a1a1a] p-6 rounded-2xl border border-[#333] space-y-4">
+                    <h3 className="text-xs font-black text-gray-500 uppercase tracking-wider">PUBG API 효율성 및 트래픽 절약</h3>
+                    <div className="space-y-3 pt-2">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-400">누적 절약 API 호출 횟수</span>
+                        <span className="font-bold font-mono text-emerald-400">
+                          {dashboardData?.squadStats?.savedApiCalls || 0} 회 절약
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-xs">
+                        <span className="text-gray-400">누적 절약 트래픽 대역폭</span>
+                        <span className="font-bold font-mono text-emerald-400">
+                          {formatBytes(dashboardData?.squadStats?.savedBandwidthBytes || 0)}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-gray-500 mt-2 leading-relaxed">
+                        * Telemetry 2차 가공 적재 및 캐싱 처리를 통해 PUBG Rate Limit 제한을 예방하고 있으며, 프로덕션 키 심사 증빙 수치로 활용 가능합니다.
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 기존 데이터 조작 카드 목록 */}
+              <div className="grid grid-cols-1 gap-6 pt-4">
+                {/* 패치노트 데이터 동기화 관리 */}
+                <div className="bg-[#1a1a1a] p-6 rounded-xl border border-[#333] space-y-4">
+                  <h3 className="text-lg font-bold text-[#F2A900]">패치노트 데이터 수동 동기화</h3>
+                  <p className="text-sm text-gray-400">
+                    공식 PUBG 패치노트 뉴스를 크롤링하여 무기 및 아이템 스탯 데이터를 동기화합니다.<br/>
+                    특정 뉴스 URL을 입력하거나 빈칸으로 제출하여 전체 자동 동기화를 진행할 수 있습니다.
+                  </p>
+                  <div className="flex flex-col sm:flex-row gap-3 max-w-[600px]">
+                    <input
+                      id="manual-sync-url"
+                      name="manual_url"
+                      type="text"
+                      placeholder="수동 동기화 뉴스 URL (선택사항)"
+                      className="flex-1 bg-[#222] border border-[#333] rounded px-4 py-2.5 text-sm focus:outline-none focus:border-[#F2A900]"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const btn = document.getElementById("sync-btn");
+                          if (btn) btn.click();
+                        }
+                      }}
+                    />
+                    <button
+                      id="sync-btn"
+                      onClick={() => {
+                        const urlInput = document.getElementById("manual-sync-url") as HTMLInputElement;
+                        const manualUrl = urlInput?.value.trim() || "";
+                        setSyncTargetUrl(manualUrl);
+                        setIsSyncConfirmOpen(true);
+                      }}
+                      disabled={isSaving}
+                      className={`px-6 py-2.5 rounded-lg text-sm font-bold border transition-all whitespace-nowrap cursor-pointer ${
+                        isSaving 
+                          ? "bg-gray-800 border-gray-700 text-gray-500 cursor-not-allowed" 
+                          : "bg-blue-600/20 border-blue-600/30 text-blue-400 hover:bg-blue-600/30"
+                      }`}
+                    >
+                      {isSaving ? "동기화 중..." : "데이터 동기화 실행"}
+                    </button>
+                  </div>
+                </div>
+                <div className="bg-[#1a1a1a] p-6 rounded-xl border border-[#333]">
+                  <h3 className="text-lg font-bold text-[#F2A900] mb-2">전체 분석 캐시 초기화</h3>
+                  <p className="text-sm text-gray-400 mb-4">
+                    데이터베이스에 저장된 모든 분석 결과값(processed_match_telemetry)을 삭제합니다.<br/>
+                    원본 데이터는 보존되며, 사용자가 전적을 조회할 때 최신 엔진으로 다시 계산됩니다.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setIsFlushCacheConfirmOpen(true);
+                    }}
+                    disabled={isSaving}
+                    className="px-6 py-3 bg-red-600/20 text-red-500 border border-red-600/30 rounded-lg font-bold hover:bg-red-600/30 transition-all"
+                  >
+                    전체 분석 데이터 삭제 (초기화)
+                  </button>
+                </div>
+
+                <div className="bg-[#1a1a1a] p-6 rounded-xl border border-[#333]">
+                  <h3 className="text-lg font-bold text-[#F2A900] mb-2">글로벌 벤치마크 초기화</h3>
+                  <p className="text-sm text-gray-400 mb-4">
+                    엘리트 선수들의 통계 데이터(global_benchmarks)를 모두 비웁니다.<br/>
+                    수행 후 &apos;벤치마커 스크립트&apos;를 다시 돌려야 최신 데이터로 채워집니다.
+                  </p>
+                  <button
+                    onClick={() => {
+                      setIsResetBenchmarkConfirmOpen(true);
+                    }}
+                    disabled={isSaving}
+                    className="px-6 py-3 bg-orange-600/20 text-orange-500 border border-orange-600/30 rounded-lg font-bold hover:bg-orange-600/30 transition-all"
+                  >
+                    벤치마크 데이터 전체 초기화
+                  </button>
+                </div>
+
+                <div className="bg-[#1a1a1a] p-6 rounded-xl border border-[#333]">
+                  <h3 className="text-lg font-bold text-[#F2A900] mb-2">플레이어/매치 정밀 초기화</h3>
+                  <p className="text-sm text-gray-400 mb-6">
+                    특정 플레이어나 매치의 데이터만 골라서 삭제합니다. 버그 수정 후 테스트 시 유용합니다.
+                  </p>
+                  
+                  <div className="space-y-4">
+                    <div className="flex gap-2">
+                      <input 
+                        type="text"
+                        placeholder="플레이어 닉네임 (예: KangHeeSung_)"
+                        className="flex-1 bg-[#222] border border-[#333] rounded px-3 py-2 text-sm focus:border-[#F2A900] focus:outline-none"
+                        value={flushNickname}
+                        onChange={(e) => setFlushNickname(e.target.value)}
+                      />
+                      <button
+                        onClick={() => {
+                          if (!flushNickname) return toast.error("닉네임을 입력하세요.");
+                          setFlushUserTarget(flushNickname);
+                          setIsFlushUserConfirmOpen(true);
+                        }}
+                        disabled={isSaving}
+                        className="px-4 py-2 bg-blue-600/20 text-blue-400 border border-blue-600/30 rounded font-bold hover:bg-blue-600/30 transition-all text-sm"
+                      >
+                        유저 데이터 삭제
+                      </button>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <input 
+                        type="text"
+                        placeholder="매치 ID (Match ID)"
+                        className="flex-1 bg-[#222] border border-[#333] rounded px-3 py-2 text-sm focus:border-[#F2A900] focus:outline-none"
+                        value={flushMatchId}
+                        onChange={(e) => setFlushMatchId(e.target.value)}
+                      />
+                      <button
+                        onClick={() => {
+                          if (!flushMatchId) return toast.error("매치 ID를 입력하세요.");
+                          setFlushMatchTarget(flushMatchId);
+                          setIsFlushMatchConfirmOpen(true);
+                        }}
+                        disabled={isSaving}
+                        className="px-4 py-2 bg-purple-600/20 text-purple-400 border border-purple-600/30 rounded font-bold hover:bg-purple-600/30 transition-all text-sm"
+                      >
+                        매치 데이터 삭제
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 전역 공지 노출 설정 */}
+                <div className="bg-[#1a1a1a] p-6 rounded-xl border border-[#333] space-y-4">
+                  <h3 className="text-lg font-bold text-[#F2A900] mb-2">전역 공지 노출 제어</h3>
+                  <p className="text-sm text-gray-400 mb-4">
+                    지도의 상단 배너에 노출될 공지사항의 글 ID와 노출 기한을 설정합니다.<br />
+                    노출 기한이 0일인 경우 영구 노출되며, <strong>공지글 ID에 -1 또는 none 입력 시 공지가 완전히 숨겨집니다.</strong>
+                  </p>
+                  
+                  {isFetchingSettings ? (
+                    <div className="flex items-center gap-2 text-xs text-gray-500 py-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#F2A900]"></div>
+                      <span>설정 불러오는 중...</span>
+                    </div>
+                  ) : (
+                    <form onSubmit={handleSaveSettings} className="space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold text-gray-500 mb-2">공지글 ID (notice_active_id)</label>
+                          <input 
+                            type="text"
+                            placeholder="예: 42 (최근 자동 노출 시 빈칸, 숨김 시 -1 또는 none)"
+                            className="w-full bg-[#222] border border-[#333] rounded px-3 py-2 text-sm focus:border-[#F2A900] focus:outline-none"
+                            value={noticeActiveId}
+                            onChange={(e) => setNoticeActiveId(e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold text-gray-500 mb-2">노출 기한 (일 기준, 0은 무제한)</label>
+                          <input 
+                            type="number"
+                            min="0"
+                            placeholder="예: 7"
+                            className="w-full bg-[#222] border border-[#333] rounded px-3 py-2 text-sm focus:border-[#F2A900] focus:outline-none"
+                            required
+                            value={noticeDisplayDays}
+                            onChange={(e) => setNoticeDisplayDays(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex justify-end pt-2">
+                        <button
+                          type="submit"
+                          disabled={isSavingSettings}
+                          className={`px-5 py-2 rounded-lg text-sm font-bold border transition-all whitespace-nowrap cursor-pointer ${
+                            isSavingSettings 
+                              ? "bg-gray-800 border-gray-700 text-gray-500 cursor-not-allowed" 
+                              : "bg-[#F2A900] border-[#F2A900]/30 text-black hover:bg-[#d89700]"
+                          }`}
+                        >
+                          {isSavingSettings ? "저장 중..." : "공지 설정 저장"}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : activeCategory === "crates" ? (
             selectedCrateDetail ? (
               <div className="max-w-[850px] mx-auto pb-10">
                 <div className="flex justify-between items-center mb-8 border-b border-[#333] pb-4">

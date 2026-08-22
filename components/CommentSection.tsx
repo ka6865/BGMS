@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { Comment } from "../types/board";
 import type { CurrentUser } from "../types/map";
+import { AdminBadge } from "./board/AdminBadge";
 
 interface CommentSectionProps {
   comments: Comment[];
@@ -43,6 +44,31 @@ const maskIp = (ip: string | null | undefined): string => {
   return ip;
 };
 
+const renderCommentContent = (content: string) => {
+  const mentionRegex = /(@[^\s\u00a0@]+)/g;
+  const parts = content.split(mentionRegex);
+
+  return parts.map((part, i) => {
+    if (part.startsWith("@") && part.length > 1) {
+      const mentionName = part.slice(1);
+      const isAdminMention = mentionName === "관리자" || mentionName.toLowerCase() === "admin";
+      return (
+        <span
+          key={i}
+          className={`inline-flex items-center text-[12px] px-1.5 py-0.5 rounded mr-1.5 font-bold select-none align-baseline ${
+            isAdminMention
+              ? "text-[#F2A900] bg-[#F2A900]/12 border border-[#F2A900]/30"
+              : "text-white/90 bg-white/10 border border-white/15"
+          }`}
+        >
+          {part}
+        </span>
+      );
+    }
+    return part;
+  });
+};
+
 // 게시물 상세 화면 내 하위 댓글 및 대댓글 UI 출력 컴포넌트
 export default function CommentSection({
   comments,
@@ -74,37 +100,48 @@ export default function CommentSection({
     return map;
   }, [comments]);
 
-  // 대댓글 출력용 재귀 함수
-  const renderComments = (parentId: number | null, depth = 0) => {
-    const list = commentsByParent.get(parentId);
-    if (!list || list.length === 0) return null;
+  // 원댓글에 속한 모든 하위 답글(N차 답글 포함)을 순서대로 수집하는 헬퍼
+  const getAllDescendants = (parentId: number): Comment[] => {
+    const children = commentsByParent.get(parentId) || [];
+    const result: Comment[] = [];
+    for (const child of children) {
+      result.push(child);
+      result.push(...getAllDescendants(child.id));
+    }
+    return result;
+  };
 
-    return list.map((c) => (
+  const renderCommentCard = (c: Comment, isReply = false) => {
+    const isCommentAdmin = c.profiles?.role === "admin";
+    return (
       <div
         key={c.id}
-        className={`mt-[10px] ${
-          depth > 0 ? (isMobile ? "ml-[10px]" : "ml-[20px]") : "ml-0"
-        }`}
+        className={`mt-[8px] ${isReply ? (isMobile ? "ml-[14px]" : "ml-[24px]") : "ml-0"}`}
       >
         <div
-          className={`p-[15px] rounded-[8px] ${
-            depth > 0
-              ? "bg-[#2a2a2a] border-l-[3px] border-[#F2A900]"
-              : "bg-[#222] border-l-[3px] border-[#34A853]"
+          className={`p-[14px] rounded-[8px] ${
+            isCommentAdmin
+              ? "bg-[#222] border-l-[3px] border-[#F2A900]"
+              : isReply
+                ? "bg-[#1c1c1c] border-l-[3px] border-white/10"
+                : "bg-[#222] border-l-[3px] border-white/20"
           }`}
         >
           <div className="flex justify-between mb-[6px]">
             <div className="flex items-center gap-[8px] flex-wrap">
-              {depth > 0 && (
-                <span className="text-[#F2A900] text-[12px]">ㄴ</span>
+              {isReply && (
+                <span className={`text-[11px] font-bold select-none ${isCommentAdmin ? "text-[#F2A900]" : "text-white/35"}`}>
+                  ㄴ
+                </span>
               )}
               <span
                 className={`text-[13px] font-bold ${
-                  depth > 0 ? "text-[#F2A900]" : "text-[#34A853]"
+                  isCommentAdmin ? "text-[#F2A900]" : "text-white/90"
                 }`}
               >
                 {c.author}
               </span>
+              {isCommentAdmin && <AdminBadge />}
               {/* 비회원 IP 배지 */}
               {!c.user_id && c.ip_address && (
                 <span className="text-[11px] text-white/30 font-mono">
@@ -159,12 +196,11 @@ export default function CommentSection({
           </div>
 
           <div className="text-[14px] text-[#ddd] leading-[1.5] break-all">
-            {c.content}
+            {renderCommentContent(c.content)}
           </div>
         </div>
-        {renderComments(c.id, depth + 1)}
       </div>
-    ));
+    );
   };
 
   const isGuest = !currentUser;
@@ -175,7 +211,17 @@ export default function CommentSection({
         댓글 ({comments.length})
       </h3>
 
-      <div className="flex flex-col gap-[5px]">{renderComments(null, 0)}</div>
+      <div className="flex flex-col gap-[6px]">
+        {(commentsByParent.get(null) || []).map((rootComment) => {
+          const replies = getAllDescendants(rootComment.id);
+          return (
+            <div key={rootComment.id} className="flex flex-col">
+              {renderCommentCard(rootComment, false)}
+              {replies.map((reply) => renderCommentCard(reply, true))}
+            </div>
+          );
+        })}
+      </div>
 
       {/* 댓글 작성 폼 - 회원/비회원 모두 가능 */}
       <div className="mt-[25px] flex flex-col gap-[10px]">

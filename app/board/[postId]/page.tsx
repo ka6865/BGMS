@@ -49,13 +49,13 @@ export default async function PostDetailPage({ params }: { params: Promise<{ pos
   // 데이터 조회 (작성자 최신 닉네임을 위해 profiles join)
   const { data: postResult, error: postError } = await supabase
     .from("posts")
-    .select("*, profiles(nickname)")
+    .select("*, profiles(nickname, role)")
     .eq("id", numericPostId)
     .single();
 
   const { data: commentResult, error: commentError } = await supabase
     .from("comments")
-    .select("*, profiles(nickname)")
+    .select("*, profiles(nickname, role)")
     .eq("post_id", numericPostId)
     .order("created_at", { ascending: true });
 
@@ -138,6 +138,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ pos
     author: postResult.user_id
       ? ((postResult as any).profiles?.nickname || postResult.author || '알 수 없음')
       : (postResult.author || '익명'),
+    profiles: (postResult as any).profiles || null,
     ip_address: postResult.ip_address ? maskIp(postResult.ip_address) : null,
   };
 
@@ -151,6 +152,7 @@ export default async function PostDetailPage({ params }: { params: Promise<{ pos
     author: comment.user_id
       ? (comment.profiles?.nickname || comment.author || '알 수 없음')
       : (comment.author || '익명'),
+    profiles: comment.profiles || null,
     ip_address: comment.ip_address ? maskIp(comment.ip_address) : null,
   }));
 
