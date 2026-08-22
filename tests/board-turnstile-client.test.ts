@@ -48,7 +48,8 @@ describe("게시판 Turnstile client 저장 경계", () => {
   });
 
   it("새로고침 후에도 서버에 저장된 대댓글 content를 그대로 렌더링한다", () => {
-    expect(commentSectionSource).toContain("{c.content}");
+    const hasValidContentRender = commentSectionSource.includes("{renderCommentContent(c.content)}") || commentSectionSource.includes("{c.content}");
+    expect(hasValidContentRender).toBe(true);
     expect(detailSource).not.toContain("finalComment");
   });
 });

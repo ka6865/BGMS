@@ -6,6 +6,7 @@ import DOMPurify from "dompurify";
 import "react-quill-new/dist/quill.snow.css";
 import Image from "next/image";
 import CommentSection from "../CommentSection";
+import { AdminBadge } from "./AdminBadge";
 import { BoardPostPromotionState, Post, Comment } from "@/types/board";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/components/AuthProvider";
@@ -209,7 +210,7 @@ export default function BoardDetailClient({
   const fetchComments = async () => {
     const { data } = await supabase
       .from("comments")
-      .select("*, profiles(nickname)")
+      .select("*, profiles(nickname, role)")
       .eq("post_id", post.id)
       .order("created_at", { ascending: true });
     if (data) {
@@ -219,6 +220,7 @@ export default function BoardDetailClient({
           author: c.user_id
             ? (c.profiles?.nickname || c.author || "알 수 없음")
             : (c.author || "익명"),
+          profiles: c.profiles || null,
           ip_address: c.ip_address ? c.ip_address.split(".").slice(0, 2).join(".") : null,
         }))
       );
@@ -551,8 +553,11 @@ export default function BoardDetailClient({
           <div className="mb-[20px]">
             <span className="text-[#F2A900] text-[13px] font-bold">[{post.category}]</span>
             <h1 className={`mt-[10px] text-white break-all font-bold ${isMobile ? "text-[24px]" : "text-[32px]"}`}>{post.title}</h1>
-            <div className="text-[12px] text-[#888] mt-[12px] flex gap-[10px] flex-wrap">
-              <span>글쓴이: {post.author}</span>
+            <div className="text-[12px] text-[#888] mt-[12px] flex items-center gap-[10px] flex-wrap">
+              <span className="inline-flex items-center gap-1.5">
+                글쓴이: <span className={post.profiles?.role === "admin" ? "text-[#F2A900] font-bold" : "text-white/80"}>{post.author}</span>
+                {post.profiles?.role === "admin" && <AdminBadge />}
+              </span>
               <span>작성: {formatTimeAgo(post.created_at)}</span>
               <span>조회: {post.views}</span>
             </div>

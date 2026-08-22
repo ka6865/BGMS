@@ -2,6 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 import { Image } from 'lucide-react';
 import { InlineIconLabel } from '@/components/common/InlineIconLabel';
+import { AdminBadge } from '@/components/board/AdminBadge';
 import { Post } from '@/types/board';
 
 const ImageIcon = () => (
@@ -34,6 +35,7 @@ interface PostItemProps {
 
 export default function PostItem({ post, isMobile, onClickDesktop, formatTimeAgo }: PostItemProps) {
   const isPubgNews = post.category === "배그 소식";
+  const isAuthorAdmin = post.profiles?.role === "admin";
 
   if (isMobile) {
     return (
@@ -66,7 +68,10 @@ export default function PostItem({ post, isMobile, onClickDesktop, formatTimeAgo
           </div>
           <div className="flex justify-between items-center text-[11.5px] mt-1">
             <div className="flex items-center gap-1.5">
-              <span className="text-white/50 font-medium">{post.author}</span>
+              <span className={isAuthorAdmin ? "text-[#F2A900] font-bold" : "text-white/50 font-medium"}>
+                {post.author}
+              </span>
+              {isAuthorAdmin && <AdminBadge />}
               {/* 비회원 게시글 IP 배지 */}
               {!post.user_id && post.ip_address && (
                 <span className="text-[10px] text-white/25 font-mono">({maskIp(post.ip_address)})</span>
@@ -116,9 +121,12 @@ export default function PostItem({ post, isMobile, onClickDesktop, formatTimeAgo
           )}
         </div>
       </td>
-      <td className="p-4 text-white/50 font-medium whitespace-nowrap text-[13px]">
+      <td className="p-4 whitespace-nowrap text-[13px]">
         <div className="flex items-center gap-1.5">
-          <span>{post.author}</span>
+          <span className={isAuthorAdmin ? "text-[#F2A900] font-bold" : "text-white/50 font-medium"}>
+            {post.author}
+          </span>
+          {isAuthorAdmin && <AdminBadge />}
           {/* 비회원 게시글 IP 배지 */}
           {!post.user_id && post.ip_address && (
             <span className="text-[11px] text-white/25 font-mono">({maskIp(post.ip_address)})</span>

@@ -9,7 +9,7 @@ export interface Comment {
   created_at: string;
   parent_id: number | null;
   ip_address?: string | null;
-  profiles?: { nickname: string } | null;
+  profiles?: { nickname: string; role?: string } | null;
 }
 
 export interface ClanInfo {
@@ -41,7 +41,7 @@ export interface Post {
   status?: "published" | "draft" | "hidden";
   revision: number;
   parent_id: number | null;
-  profiles?: { nickname: string } | null;
+  profiles?: { nickname: string; role?: string } | null;
 }
 
 export interface BoardPostPromotionState {
