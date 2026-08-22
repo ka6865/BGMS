@@ -480,21 +480,23 @@ describe("useStatsPageController", () => {
         }
         return Promise.resolve(jsonResponse({
           summaries: {
-            ...summaryReady.summaries,
-            "match-new-live": {
-              matchId: "match-new-live",
-              isSummary: true,
-              gameMode: "squad-fpp",
-              matchType: "official",
-              mapName: "Baltic_Main",
-              kills: 5,
-              damage: 600,
-              winPlace: 1,
-            },
-          },
-          missingMatchIds: [],
-        }));
-      }
+           ...summaryReady.summaries,
+           "match-new-live": {
+             matchId: "match-new-live",
+             isSummary: true,
+             gameMode: "squad-fpp",
+             matchType: "official",
+             mapName: "Baltic_Main",
+             stats: {
+               kills: 5,
+               damageDealt: 600,
+               winPlace: 1,
+             },
+           },
+         },
+         missingMatchIds: [],
+       }));
+     }
       if (url.startsWith("/api/pubg/player/matches")) {
         // DB에는 playerRequestCount가 2일 때 새 매치가 ingest되어 반환된다고 가정
         const matches = playerRequestCount === 1
@@ -533,10 +535,10 @@ describe("useStatsPageController", () => {
       });
     });
 
-    await waitFor(() => {
-      expect(result.current.matchIds[0]).toBe("match-new-live");
-      expect(result.current.matchSummaries["match-new-live"]?.kills).toBe(5);
-    });
-    expect(summaryRequestedMatchIds).toContain("match-new-live");
-  });
+   await waitFor(() => {
+     expect(result.current.matchIds[0]).toBe("match-new-live");
+     expect(result.current.matchSummaries["match-new-live"]?.stats?.kills).toBe(5);
+   });
+   expect(summaryRequestedMatchIds).toContain("match-new-live");
+ });
 });
