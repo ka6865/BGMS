@@ -7,7 +7,7 @@ export type StatsMatchClassification = Exclude<StatsMatchFilter, "all"> | "unkno
 export type StatsPageStatus = "idle" | "loading" | "ready" | "refreshing" | "partial" | "error";
 export type StatsHistoryStatus = "idle" | "loading" | "ready" | "error";
 export type StatsPartialReason = "summary_batch_failed" | "summary_missing" | "detail_failed" | "analysis_failed";
-export type StatsErrorType = "not_found" | "rate_limit" | "server";
+export type StatsErrorType = "not_found" | "rate_limit" | "server" | "private";
 
 export interface StatsMatchModeMeta {
   gameMode?: string;

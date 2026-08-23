@@ -360,7 +360,9 @@ export function useStatsPageController(
             ? data.error
             : `전적 서버 응답이 지연되거나 실패했습니다. 잠시 후 다시 시도해 주세요. (HTTP ${response.status})`;
           let nextError: Exclude<ControllerError, null>;
-          if (response.status === 404 || data.code === "PLAYER_NOT_FOUND") {
+          if (response.status === 403 || data.code === "PLAYER_PRIVATE") {
+            nextError = { type: "private", message: message || `${resolved.nickname}의 프로필은 비공개입니다.` };
+          } else if (response.status === 404 || data.code === "PLAYER_NOT_FOUND") {
             nextError = { type: "not_found", message };
             setSuggestedPlayers(normalizeSuggestions(data.suggestions));
           } else if (response.status === 429) {
