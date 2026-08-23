@@ -1,3 +1,4 @@
+import { AdminPrivatePlayersSection } from "@/components/admin/AdminPrivatePlayersSection";
 "use client";
 
 import React, { useState, useMemo } from "react";
@@ -801,6 +802,8 @@ export function AdminUserCommandCenter({
           </div>
         )}
       </div>
+
+      <AdminPrivatePlayersSection />
 
       {/* Delete User Confirmation Modal */}
       {deleteConfirmId && (

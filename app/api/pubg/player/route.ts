@@ -1,3 +1,4 @@
+import { isPlayerPrivate } from "@/lib/pubg/privatePlayers";
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
@@ -157,6 +158,24 @@ export async function GET(request: Request) {
       { error: "닉네임을 입력해주세요." },
       { status: 400 }
     );
+
+  // [비공개 유저 검사] 비공개 등록된 플레이어는 PUBG 호출을 차단하고 403 반환
+  if (await isPlayerPrivate(platform, nickname)) {
+    return NextResponse.json(
+      {
+        error: `${nickname}의 프로필은 비공개입니다.`,
+        code: "PLAYER_PRIVATE",
+        nickname,
+        platform,
+      },
+      {
+        status: 403,
+        headers: {
+          "Cache-Control": "private, max-age=300",
+        },
+      }
+    );
+  }
 
   // 1. 분산 캐시 조회 (인메모리 L1 → DB L2, 3분 TTL)
   const cacheKey = buildPlayerCacheKey(platform, nickname, reqSeason);

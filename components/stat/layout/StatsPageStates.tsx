@@ -32,6 +32,42 @@ export function StatsPageStates({
         ? "전적을 새로고침하는 중"
         : null;
 
+  // 비공개 프로필 상태
+  if (error && error.type === "private") {
+    return (
+      <div
+        role="alert"
+        className="my-12 flex flex-col items-center justify-center rounded-3xl border border-white/10 bg-[#161616]/80 p-10 text-center shadow-2xl backdrop-blur-md"
+      >
+        {/* OP.GG 스타일 비공개 아이콘 플레이스홀더 */}
+        <div className="mb-6 flex h-32 w-32 items-center justify-center rounded-2xl border-2 border-dashed border-white/15 bg-white/[0.02]">
+          <div className="relative h-16 w-16 text-white/30">
+            <svg
+              className="h-full w-full"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={1.5}
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"
+              />
+            </svg>
+          </div>
+        </div>
+
+        <h2 className="text-xl font-bold text-white/90 sm:text-2xl">
+          {error.message}
+        </h2>
+        <p className="mt-2 text-xs text-white/40">
+          플레이어의 설정 또는 요청에 따라 전적 데이터가 제공되지 않습니다.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <>
       {loadingMessage && (
