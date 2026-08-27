@@ -78,7 +78,7 @@ const ACTOR_FIELDS = [
   "heldItems",
 ] as const;
 
-const ITEM_KEYS = ["item", "weapon", "damageCauser"] as const;
+const ITEM_KEYS = ["item", "weapon", "damageCauser", "explosiveItem"] as const;
 const ITEM_FIELDS = [
   "itemId",
   "name",
@@ -124,6 +124,7 @@ const SCALAR_FIELDS = [
   "dBNODamageInfo",
   // Existing consumers still read this top-level field on the projected event.
   "isGame",
+  "explosiveId",
 ] as const;
 
 function isRecord(value: unknown): value is PlainRecord {

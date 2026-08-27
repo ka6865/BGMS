@@ -473,11 +473,6 @@ export class CombatHandler extends BaseHandler {
 
     const wId = getWeaponId(e);
     const attackerObj = e.killer || e.attacker || e.finisher;
-    const teamKillerAccountIds = e.teamKillers_AccountId ?? e.teamKillerAccountIds;
-    const isOfficialTeamKiller = Array.isArray(teamKillerAccountIds)
-      && typeof attackerObj?.accountId === "string"
-      && teamKillerAccountIds.includes(attackerObj.accountId);
-    const isEffectiveTeamKiller = isTeammateKiller || isOfficialTeamKiller;
 
     // [V55.2] 트레이드 킬: '내가' 팀원의 복수를 해준 경우 (isMeKiller)
     if (isMeKiller && victimName && !isTeammateVictim) {
@@ -489,18 +484,18 @@ export class CombatHandler extends BaseHandler {
     }
 
     // [V55.2] 지원 사격(Support): '내가' 데미지를 50 이상 입혔는데, '팀원'이 킬을 한 경우
-    if (isEffectiveTeamKiller && !isMeKiller && victimName && !isTeammateVictim) {
+    if (isTeammateKiller && !isMeKiller && victimName && !isTeammateVictim) {
       const myDmgOnVictim = this.state.myVictimDamage.get(victimName) || 0;
       if (myDmgOnVictim >= 50) {
         this.state.totalSuppCount++;
       }
     }
 
-    if (isEffectiveTeamKiller && !isMeKiller && victimName) {
+    if (isTeammateKiller && !isMeKiller && victimName) {
       this.checkAndResolveInitiativeAssist(victimName);
     }
 
-    if (isMeKiller || isEffectiveTeamKiller) {
+    if (isMeKiller || isTeammateKiller) {
       if (wId && wId !== "Unknown" && !isTeammateVictim) {
         const cleanWId = wId.replace(/Item_Weapon_|Weap|_Projectile|_C/g, "");
         if (!this.isIgnoredWeapon(wId, cleanWId, e.damageTypeCategory)) {
@@ -587,7 +582,7 @@ export class CombatHandler extends BaseHandler {
         y: scaleCoordinate(actorLocation(attackerObj)?.y ?? (this.state.playerLocations.get(this.state.lowerNickname)?.y || 0), this.state.mapSize),
         playerName: this.state.canonicalNickname
       });
-    } else if (isEffectiveTeamKiller) {
+    } else if (isTeammateKiller) {
       this.state.timeline.push({
         ts: ts - this.state.matchStartTime,
         type: 'TEAM_KILL',

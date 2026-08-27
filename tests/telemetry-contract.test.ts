@@ -105,6 +105,21 @@ describe("telemetry contract", () => {
     expect(projectTelemetryEvent({ _T: "LogExplosiveExplode" })).not.toBeNull();
   });
 
+  it("LogExplosiveExplode의 explosiveItem과 explosiveId를 보존한다", () => {
+    const projected = projectTelemetryEvent({
+      _T: "LogExplosiveExplode",
+      explosiveItem: { itemId: "Item_SmokeGrenade", name: "Smoke" },
+      explosiveId: "SmokeGrenade",
+      location: { x: 12, y: 34 },
+    });
+
+    expect(projected).toMatchObject({
+      explosiveItem: { itemId: "Item_SmokeGrenade", name: "Smoke" },
+      explosiveId: "SmokeGrenade",
+      location: { x: 12, y: 34, z: 0 },
+    });
+  });
+
   it("redeploy/match-end characters와 recalledPlayers의 wrapper/direct actor를 정규화한다", () => {
     const redeploy = projectTelemetryEvent({
       _T: "LogPlayerRedeployBRStart",

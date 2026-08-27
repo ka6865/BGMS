@@ -184,9 +184,10 @@ export class MapReplayHandler extends BaseHandler {
     const victimName = victimObj?.name || "알 수 없음";
 
     const teamKillerAccountIds = e.teamKillers_AccountId ?? e.teamKillerAccountIds;
-    const isAttackerTeam = this.isTeammate(attackerObj) ||
-      (Array.isArray(teamKillerAccountIds) && typeof attackerObj?.accountId === "string" &&
-        teamKillerAccountIds.includes(attackerObj.accountId));
+    const isTeamKill = isKill && Array.isArray(teamKillerAccountIds) &&
+      [e.killer, e.attacker, e.finisher].some((actor: any) =>
+        typeof actor?.accountId === "string" && teamKillerAccountIds.includes(actor.accountId));
+    const isAttackerTeam = this.isTeammate(attackerObj);
     const isVictimTeam = this.isTeammate(victimObj);
 
     // 어시스트 처리
@@ -227,6 +228,7 @@ export class MapReplayHandler extends BaseHandler {
       weapon: e.damageCauserName || e.damageReason || "",
       isTeamAttacker: !!isAttackerTeam,
       isTeamVictim: !!isVictimTeam,
+      isTeamKill: !!isTeamKill,
       isSystem: isSystemName,
       assistants: assistants,
     });

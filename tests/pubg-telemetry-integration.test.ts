@@ -151,4 +151,59 @@ describe("route and handler telemetry boundary", () => {
       expect.objectContaining({ type: "create", name: "Player", x: 0.03, y: 0.04 }),
     ]));
   });
+
+  it("enemy team-kill은 우리 팀 판정이나 squad 통계로 승격하지 않고 map 사실만 표시한다", () => {
+    const result = runFixture([
+      {
+        _T: "LogPlayerKillV2",
+        _D: "2026-08-27T00:00:01.000Z",
+        killer: {
+          name: "EnemyA",
+          accountId: "account.enemy-a",
+          location: { x: 20, y: 30 },
+        },
+        victim: {
+          name: "EnemyB",
+          accountId: "account.enemy-b",
+          location: { x: 40, y: 50 },
+        },
+        weaponId: "Item_Weapon_AK47_C",
+        teamKillers_AccountId: ["account.enemy-a"],
+      },
+    ], "full");
+
+    const mapKill = result.mapData?.events.find((event: any) => event.type === "kill");
+    expect(mapKill).toEqual(expect.objectContaining({
+      isTeamAttacker: false,
+      isTeamKill: true,
+    }));
+    expect(result.timeline).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "TEAM_KILL" }),
+    ]));
+    expect(result.squadWeaponStats).toEqual({});
+  });
+
+  it("LogExplosiveExplode의 projected item/id로 smoke와 flash map event를 보존한다", () => {
+    const result = runFixture([
+      {
+        _T: "LogExplosiveExplode",
+        _D: "2026-08-27T00:00:01.000Z",
+        explosiveItem: { itemId: "Item_SmokeGrenade" },
+        explosiveId: "SmokeGrenade",
+        location: { x: 100, y: 200 },
+      },
+      {
+        _T: "LogExplosiveExplode",
+        _D: "2026-08-27T00:00:02.000Z",
+        explosiveItem: { itemId: "Item_FlashBang" },
+        explosiveId: "FlashBang",
+        location: { x: 300, y: 400 },
+      },
+    ], "full");
+
+    expect(result.mapData?.events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "smoke", weapon: "item_smokegrenade", isRealExplosion: true }),
+      expect.objectContaining({ type: "flash", weapon: "item_flashbang", isRealExplosion: true }),
+    ]));
+  });
 });
