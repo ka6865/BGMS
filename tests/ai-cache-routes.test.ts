@@ -453,6 +453,107 @@ describe("AI cache route stabilization", () => {
     expect(summaryCache.upsert).not.toHaveBeenCalled();
   });
 
+  it("ai-summary는 processed row ID와 embedded fullResult ID가 다르면 row를 무시한다", async () => {
+    mockSummaryGeminiResponse();
+
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({
+      data: [{
+        match_id: "match-requested",
+        data: { fullResult: createSummaryMatch("match-embedded") },
+      }],
+      error: null,
+    });
+    const globalBenchmarks = createQueryChain({ data: [], error: null });
+    const tierBenchmarks = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: globalBenchmarks,
+      benchmark_stats_by_tier: tierBenchmarks,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("missing", { status: 404 })));
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["match-requested"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+
+    expect(response.status).toBe(400);
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    expect(summaryCache.upsert).not.toHaveBeenCalled();
+  });
+
+  it("ai-summary는 fallback의 returned ID가 requested canonical ID와 다르면 fallback을 무시한다", async () => {
+    mockSummaryGeminiResponse();
+
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: [], error: null });
+    const globalBenchmarks = createQueryChain({ data: [], error: null });
+    const tierBenchmarks = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: globalBenchmarks,
+      benchmark_stats_by_tier: tierBenchmarks,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
+      JSON.stringify(createSummaryMatch("match-other")),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )));
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["shard:match-requested"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+
+    expect(response.status).toBe(400);
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    expect(summaryCache.upsert).not.toHaveBeenCalled();
+  });
+
+  it("ai-summary는 stats가 비어 있는 fallback을 full result로 간주하지 않는다", async () => {
+    mockSummaryGeminiResponse();
+
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: [], error: null });
+    const globalBenchmarks = createQueryChain({ data: [], error: null });
+    const tierBenchmarks = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: globalBenchmarks,
+      benchmark_stats_by_tier: tierBenchmarks,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
+      JSON.stringify({
+        matchId: "match-empty-stats",
+        player_id: "player_a",
+        platform: "kakao",
+        stats: {},
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    )));
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["match-empty-stats"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+
+    expect(response.status).toBe(400);
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    expect(summaryCache.upsert).not.toHaveBeenCalled();
+  });
+
   it("ai-summary의 force는 누락 매치 하위 요청에 재분석 권한으로 전파하지 않는다", async () => {
     mockSummaryGeminiResponse();
 

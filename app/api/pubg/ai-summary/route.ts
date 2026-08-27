@@ -6,7 +6,7 @@ import { classifyRole } from "@/lib/pubg-analysis/roleClassifier";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { adaptBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
 import { fetchTierBenchmarkStats } from "@/lib/pubg-analysis/benchmarkLookup";
-import { getValidFullResult, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
+import { getValidFullResult, isFullResultForPlayerPlatform, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { buildBackupCoachingContext } from "@/lib/pubg-analysis/backupCoaching";
 import { jsonrepair } from "jsonrepair";
 import { withAuthGuard } from "@/utils/supabase/guard";
@@ -393,7 +393,13 @@ export async function POST(request: Request) {
         // [ISR V1.0] RESULT_VERSION 비교 로직 소각 — 캐시 무효화는 revalidateTag가 전담
         // 완료된 매치는 결과가 고정이므로 새로고침(force) 시에도 DB 캐시를 100% 재사용
         if (fullResult) {
-          const pureId = normalizeMatchId(fullResult.matchId ?? fullResult.match_id ?? fullResult.id ?? m.match_id);
+          const storageId = normalizeMatchId(m?.match_id);
+          const embeddedId = normalizeMatchId(fullResult.matchId ?? fullResult.match_id ?? fullResult.id);
+          if (storageId && embeddedId && storageId !== embeddedId) {
+            console.warn(`[AI-SUMMARY] Ignored processed row with mismatched IDs: ${m?.match_id}/${embeddedId}`);
+            return;
+          }
+          const pureId = storageId || embeddedId;
           if (!pureId) return;
           const normalizedData = {
             ...fullResult,
@@ -405,9 +411,8 @@ export async function POST(request: Request) {
           };
           cachedResults.push(normalizedData);
           cachedMap.set(pureId, normalizedData);
-          if (m.match_id) cachedMap.set(m.match_id, normalizedData);
         } else {
-          console.warn(`[AI-SUMMARY] Ignored mismatched processed cache row: ${m.match_id}/${cachePlatform}/${lowerNickname}`);
+          console.warn(`[AI-SUMMARY] Ignored mismatched processed cache row: ${m?.match_id}/${cachePlatform}/${lowerNickname}`);
         }
       });
     }
@@ -430,11 +435,27 @@ export async function POST(request: Request) {
             if (res.ok) {
               const data = await res.json();
               const fallbackValue = data?.data?.fullResult || data?.fullResult || data;
-              const pureId = normalizeMatchId(fallbackValue?.matchId ?? fallbackValue?.match_id ?? fallbackValue?.id ?? data?.matchId ?? data?.match_id ?? data?.id ?? id);
-              const normalizedData = pureId && fallbackValue && typeof fallbackValue === "object"
-                ? { ...fallbackValue, matchId: pureId }
+              const requestedCanonicalId = normalizeMatchId(id);
+              const returnedCanonicalId = normalizeMatchId(
+                fallbackValue?.matchId
+                  ?? fallbackValue?.match_id
+                  ?? fallbackValue?.id
+                  ?? data?.matchId
+                  ?? data?.match_id
+                  ?? data?.id,
+              );
+              if (!requestedCanonicalId || (returnedCanonicalId && returnedCanonicalId !== requestedCanonicalId)) {
+                console.warn(`[AI-SUMMARY] Ignored fallback with mismatched ID: requested=${requestedCanonicalId}, returned=${returnedCanonicalId}`);
+                return;
+              }
+              const normalizedData = fallbackValue && typeof fallbackValue === "object"
+                ? { ...fallbackValue, matchId: requestedCanonicalId }
                 : null;
-              if (normalizedData) newResultsMap.set(pureId, normalizedData);
+              if (!normalizedData || !isFullResultForPlayerPlatform(normalizedData, lowerNickname, cachePlatform)) {
+                console.warn(`[AI-SUMMARY] Ignored invalid fallback full result for ${requestedCanonicalId}`);
+                return;
+              }
+              newResultsMap.set(requestedCanonicalId, normalizedData);
             }
           } catch (e) { console.error(`[AI-SUMMARY] Match fetch failed for ${id}:`, e); }
         }));
@@ -489,7 +510,7 @@ export async function POST(request: Request) {
     });
     const selectedMatches = selection.selected.map(({ value }) => value);
     const selectedFullResults = selectedMatches.filter((match: any) => (
-      Boolean(match && typeof match === "object" && match.stats && typeof match.stats === "object")
+      isFullResultForPlayerPlatform(match, lowerNickname, cachePlatform)
     ));
     const selectionKey = buildMatchSelectionKey(
       selection.selected.map(({ id }) => id),

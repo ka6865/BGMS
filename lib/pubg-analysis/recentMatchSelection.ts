@@ -87,6 +87,11 @@ function hasToken(value: unknown, tokens: readonly string[]): boolean {
   });
 }
 
+function hasExactToken(value: unknown, tokens: readonly string[]): boolean {
+  const text = normalizedText(value);
+  return text.length > 0 && tokens.includes(text);
+}
+
 function dateTimestamp(value: unknown): number | null {
   if (typeof value !== "string" || value.trim().length === 0) return null;
   const timestamp = Date.parse(value);
@@ -118,33 +123,22 @@ function compareCandidateDateThenSourceThenId(
 }
 
 function stableCandidateTieBreak(
-  a: RecentMatchCandidate<unknown> & { canonicalId: string; originalId: string | null },
-  b: RecentMatchCandidate<unknown> & { canonicalId: string; originalId: string | null },
+  a: RecentMatchCandidate<unknown> & { canonicalId: string },
+  b: RecentMatchCandidate<unknown> & { canonicalId: string },
 ): number {
-  const base = compareCandidateDateThenSourceThenId(a, b);
-  if (base !== 0) return base;
-
-  // The canonical IDs are equal for duplicate candidates. Use the raw
-  // representation as a final deterministic tie-break so that winner choice
-  // does not depend on input array order (e.g. `shard:x` vs `x`).
-  const rawA = a.originalId || "";
-  const rawB = b.originalId || "";
-  if (rawA !== rawB) return compareLexical(rawA, rawB);
-
-  // A caller normally supplies distinct source indexes. This final value is
-  // only a safety net for malformed rows that omit that guarantee.
-  return compareLexical(JSON.stringify(a.value), JSON.stringify(b.value));
+  // Exact duplicate ties intentionally return equality. In particular, do
+  // not inspect `value`: score, placement, and impact fields must never decide
+  // which duplicate payload wins. Modern runtimes provide a stable sort, so
+  // the caller's input order is the final tie behavior when metadata matches.
+  return compareCandidateDateThenSourceThenId(a, b);
 }
 
 function normalizedCandidate<T>(candidate: RecentMatchCandidate<T>, canonicalId: string) {
   return {
     ...candidate,
     id: canonicalId,
-    originalId: normalizeMatchId(candidate.id) === canonicalId
-      ? (typeof candidate.id === "string" ? candidate.id.trim() : String(candidate.id ?? ""))
-      : null,
     canonicalId,
-  } as RecentMatchCandidate<T> & { canonicalId: string; originalId: string | null };
+  } as RecentMatchCandidate<T> & { canonicalId: string };
 }
 
 /**
@@ -165,7 +159,6 @@ export function selectRecentMatches<T>(
   const rejected: Array<RecentMatchRejection<T> & { order: number }> = [];
   const eligibleById = new Map<string, Array<RecentMatchCandidate<T> & {
     canonicalId: string;
-    originalId: string | null;
   }>>();
 
   candidates.forEach((inputCandidate, arrayIndex) => {
@@ -185,7 +178,7 @@ export function selectRecentMatches<T>(
       reject("missing_id");
       return;
     }
-    if (hasToken(candidate.matchType, EXCLUDED_MATCH_TYPE_TOKENS)) {
+    if (hasExactToken(candidate.matchType, EXCLUDED_MATCH_TYPE_TOKENS)) {
       reject("match_type_excluded");
       return;
     }
@@ -206,7 +199,6 @@ export function selectRecentMatches<T>(
 
   const winners: Array<RecentMatchCandidate<T> & {
     canonicalId: string;
-    originalId: string | null;
   }> = [];
   for (const group of eligibleById.values()) {
     group.sort(stableCandidateTieBreak);
@@ -235,10 +227,9 @@ export function selectRecentMatches<T>(
   });
 
   // Keep implementation-only tie-break properties out of the public shape.
-  const stripInternal = <V>(candidate: V & { canonicalId?: string; originalId?: string | null }): V => {
-    const result = { ...candidate } as V & { canonicalId?: string; originalId?: string | null };
+  const stripInternal = <V>(candidate: V & { canonicalId?: string }): V => {
+    const result = { ...candidate } as V & { canonicalId?: string };
     delete result.canonicalId;
-    delete result.originalId;
     return result as V;
   };
 

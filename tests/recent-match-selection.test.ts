@@ -77,6 +77,21 @@ describe("recent match selection", () => {
     ]);
   });
 
+  it("matchType은 정확히 airoyale·seasonal일 때만 제외한다", () => {
+    const result = selectRecentMatches([
+      candidate("seasonal-variant", "2026-08-01T00:00:00.000Z", "seasonal-variant", "squad", "Erangel_Main", 0, 0),
+      candidate("not-airoyale", "2026-08-02T00:00:00.000Z", "notairoyale", "squad", "Erangel_Main", 1, 0),
+      candidate("seasonal", "2026-08-03T00:00:00.000Z", "seasonal", "squad", "Erangel_Main", 2, 0),
+      candidate("airoyale", "2026-08-04T00:00:00.000Z", "AIROYALE", "squad", "Erangel_Main", 3, 0),
+    ]);
+
+    expect(result.selected.map(({ id }) => id)).toEqual(["not-airoyale", "seasonal-variant"]);
+    expect(result.rejected.map(({ id, reason }) => ({ id, reason }))).toEqual([
+      { id: "seasonal", reason: "match_type_excluded" },
+      { id: "airoyale", reason: "match_type_excluded" },
+    ]);
+  });
+
   it("제외 mode/map token은 대소문자를 무시하며 score와 winPlace를 보지 않는다", () => {
     const result = selectRecentMatches([
       candidate("event", "2026-08-01T00:00:00.000Z", "official", "EVENT-squad", "Erangel_Main", 0, 0),
@@ -106,6 +121,18 @@ describe("recent match selection", () => {
     expect(result.selected[0]).toMatchObject({ id: "same", sourceIndex: 1 });
     expect(result.rejected).toHaveLength(3);
     expect(result.rejected.every(({ reason }) => reason === "duplicate_id")).toBe(true);
+  });
+
+  it("중복 후보의 score가 바뀌어도 metadata tie가 같으면 같은 payload를 선택한다", () => {
+    const first = candidate("same", "2026-08-02T00:00:00.000Z", "official", "squad", "Erangel_Main", 0, 10);
+    const lowerScoreDuplicate = candidate("same", "2026-08-02T00:00:00.000Z", "official", "squad", "Erangel_Main", 0, 2);
+    const higherScoreDuplicate = candidate("same", "2026-08-02T00:00:00.000Z", "official", "squad", "Erangel_Main", 0, 999);
+
+    const lowerResult = selectRecentMatches([first, lowerScoreDuplicate]);
+    const higherResult = selectRecentMatches([first, higherScoreDuplicate]);
+
+    expect(lowerResult.selected[0]?.value).toEqual(first.value);
+    expect(higherResult.selected[0]?.value).toEqual(first.value);
   });
 
   it("invalid date는 valid date 뒤에 정렬되고 stable tie는 sourceIndex/ID를 따른다", () => {
