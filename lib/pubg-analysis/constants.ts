@@ -12,9 +12,9 @@
  *   파일 수준의 캐시 무효화를 수행합니다. (R2 파일명 기반, ISR 무관)
  */
 
-export const RESULT_VERSION = 72.0; // [V72.0] 공식 딜량과 유효 딜량 필드 분리로 랭킹 딜량 정합성 복구
-export const TELEMETRY_VERSION = 60.0; // [V60.0] 아군 전멸 후 풀 매치 리플레이 데이터 기록 캐시 소각
-export const AI_CACHE_VERSION = "2026-06-24.impact-score-v1"; // AI 프롬프트/응답 구조 캐시 버전
+export const RESULT_VERSION = 73.0; // [V73.0] PUBG AI 분석 정확도 감사 기준 결과 버전
+export const TELEMETRY_VERSION = 61.0; // [V61.0] PUBG AI 분석 정확도 감사 기준 telemetry 버전
+export const AI_CACHE_VERSION = "2026-08-27.pubg-ai-accuracy-v1"; // AI 프롬프트/응답 구조 캐시 버전
 
 /**
  * 무료 티어 및 고효율 운영을 위한 Gemini 모델 폴백 우선순위
