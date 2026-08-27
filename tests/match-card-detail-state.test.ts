@@ -37,6 +37,7 @@ import { MatchCard } from "@/components/stat/MatchCard";
 
 const baseSummary = summaryReady.summaries["match-fixture-1"] as MatchSummaryData;
 const baseDetail = detailReadyFixture as MatchData;
+const TEST_NOW = Date.parse("2026-08-10T12:00:00.000Z");
 
 function summary(matchId = "match-detail-1", nickname = "PlayerOne"): MatchSummaryData {
   return {
@@ -122,6 +123,7 @@ function renderCard(overrides: {
 
 describe("MatchCard isolated detail state", () => {
   beforeEach(() => {
+    vi.spyOn(Date, "now").mockReturnValue(TEST_NOW);
     mockPush.mockReset();
     trackEvent.mockReset();
     aiStart.mockReset();
@@ -131,6 +133,7 @@ describe("MatchCard isolated detail state", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
