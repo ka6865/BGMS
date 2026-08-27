@@ -35,7 +35,7 @@
 - Produces TelemetryFilterMode, TelemetryFilterContext, TelemetryEventRecord, readonly ordered TELEMETRY_EVENT_ALLOWLIST, normalizeTelemetryLocation(value: unknown): { x: number; y: number; z: number } | undefined, projectTelemetryEvent(event: unknown): TelemetryEventRecord | null, filterTelemetryEvents(events: readonly unknown[], context: TelemetryFilterContext): TelemetryEventRecord[].
 - teamNames에는 기존 normalizeName 결과를, teamAccountIds에는 canonical account/player ID를 전달한다. 모듈은 route/client/server storage에 의존하지 않는다.
 
-- [ ] **Step 1: 공식 shape와 샘플링을 고정하는 실패 테스트를 작성한다.** _T가 allowlist에 없는 event와 LogWeaponFireCount를 거절하고, 입력 배열 순서를 유지하며, official arrays, nested itemPackage.location, top-level throwable weapon, scalar를 보존하는지 확인한다. location이 있으면 loc보다 우선하고, x/y가 없을 때 synthetic {0,0}을 만들지 않는지도 확인한다.
+- [ ] **Step 1: 공식 shape와 샘플링을 고정하는 실패 테스트를 작성한다.** _T가 allowlist에 없는 event와 LogWeaponFireCount를 거절하되 기존 full consumer의 LogWeaponFire와 LogExplosiveExplode는 허용하는지 확인한다. 입력 배열 순서를 유지하며, official arrays, nested itemPackage.location, top-level throwable weapon, scalar를 보존하는지 확인한다. location이 있으면 loc보다 우선하고, x/y가 없을 때 synthetic {0,0}을 만들지 않는지도 확인한다.
 
 ~~~ts
 import { describe, expect, it } from "vitest";
@@ -104,6 +104,8 @@ describe("telemetry contract", () => {
   it("unknown event와 unconsumed LogWeaponFireCount를 보존하지 않는다", () => {
     expect(projectTelemetryEvent({ _T: "LogWeaponFireCount" })).toBeNull();
     expect(projectTelemetryEvent({ _T: "LogFutureEvent" })).toBeNull();
+    expect(projectTelemetryEvent({ _T: "LogWeaponFire" })).not.toBeNull();
+    expect(projectTelemetryEvent({ _T: "LogExplosiveExplode" })).not.toBeNull();
   });
 });
 ~~~
