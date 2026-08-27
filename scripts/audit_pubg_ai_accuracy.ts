@@ -10,6 +10,7 @@ import {
   RESULT_VERSION,
   TELEMETRY_VERSION,
 } from "../lib/pubg-analysis/constants";
+import { isFullResultForPlayerPlatform } from "../lib/pubg-analysis/cacheIdentity";
 import {
   filterTelemetryEvents,
 } from "../lib/pubg-analysis/telemetryContract";
@@ -139,6 +140,7 @@ const FALLBACK_REASONS = [
   "missing_credentials",
   "database_read_failed",
   "no_valid_processed_rows",
+  "match_identity_mismatch",
   "match_read_failed",
   "player_not_in_match",
   "asset_missing",
@@ -268,9 +270,79 @@ function fullResultFrom(value: unknown): PlainRecord {
   return value;
 }
 
-function toAuditMatch(value: unknown, sourceIndex: number): AuditMatch | null {
+type AuditMatchIdentityOptions = {
+  requireStorageIdentity?: boolean;
+};
+
+function canonicalPlayerId(value: unknown): string | null {
+  const text = asString(value);
+  if (!text) return null;
+  const normalized = normalizeName(text);
+  return normalized || null;
+}
+
+function canonicalIdentityMatches(
+  value: PlainRecord,
+  fullResult: PlainRecord,
+  options: AuditMatchIdentityOptions = {},
+): boolean {
+  const storageMatchIds = [value.matchId, value.match_id, value.id]
+    .filter((candidate) => candidate !== undefined && candidate !== null && candidate !== "")
+    .map((candidate) => normalizeMatchId(candidate));
+  if (storageMatchIds.some((id) => id === null)) return false;
+  const validStorageMatchIds = storageMatchIds.filter((id): id is string => id !== null);
+  if (new Set(validStorageMatchIds).size > 1) return false;
+  const storageMatchId = validStorageMatchIds[0] || null;
+  const embeddedMatchIds = [
+    fullResult.matchId,
+    fullResult.match_id,
+    fullResult.id,
+  ]
+    .filter((candidate) => candidate !== undefined && candidate !== null && candidate !== "")
+    .map((candidate) => normalizeMatchId(candidate));
+  const validEmbeddedMatchIds = embeddedMatchIds.filter((id): id is string => id !== null);
+  if (embeddedMatchIds.some((id) => id === null)) return false;
+  if (new Set(validEmbeddedMatchIds).size > 1) return false;
+  if (options.requireStorageIdentity && (!storageMatchId || validEmbeddedMatchIds.length === 0)) return false;
+  if (storageMatchId && validEmbeddedMatchIds.length > 0 && storageMatchId !== validEmbeddedMatchIds[0]) {
+    return false;
+  }
+
+  const storagePlayerIds = [value.player_id]
+    .filter((candidate) => candidate !== undefined && candidate !== null && candidate !== "")
+    .map(canonicalPlayerId);
+  const embeddedPlayerIds = [
+    fullResult.player_id,
+    valueAt(fullResult, "stats", "name"),
+  ]
+    .filter((candidate) => candidate !== undefined && candidate !== null && candidate !== "")
+    .map(canonicalPlayerId);
+  if (storagePlayerIds.some((id) => id === null) || embeddedPlayerIds.some((id) => id === null)) return false;
+  const validStoragePlayerIds = storagePlayerIds.filter((id): id is string => id !== null);
+  const validEmbeddedPlayerIds = embeddedPlayerIds.filter((id): id is string => id !== null);
+  if (new Set(validStoragePlayerIds).size > 1 || new Set(validEmbeddedPlayerIds).size > 1) return false;
+  if (options.requireStorageIdentity && (!validStoragePlayerIds[0] || !validEmbeddedPlayerIds[0])) return false;
+  if (validStoragePlayerIds[0] && validEmbeddedPlayerIds[0] && validStoragePlayerIds[0] !== validEmbeddedPlayerIds[0]) {
+    return false;
+  }
+
+  const storagePlatform = normalizePlatform(value.platform);
+  const embeddedPlatform = normalizePlatform(fullResult.platform);
+  if (value.platform !== undefined && value.platform !== null && !storagePlatform) return false;
+  if (fullResult.platform !== undefined && fullResult.platform !== null && !embeddedPlatform) return false;
+  if (options.requireStorageIdentity && (!storagePlatform || !embeddedPlatform)) return false;
+  if (storagePlatform && embeddedPlatform && storagePlatform !== embeddedPlatform) return false;
+  return true;
+}
+
+function toAuditMatch(
+  value: unknown,
+  sourceIndex: number,
+  options: AuditMatchIdentityOptions = {},
+): AuditMatch | null {
   if (!isRecord(value)) return null;
   const fullResult = fullResultFrom(value);
+  if (!canonicalIdentityMatches(value, fullResult, options)) return null;
   const rawId = firstDefined(
     value.matchId,
     value.match_id,
@@ -768,6 +840,17 @@ async function fetchOfficialMatch(
     throw new Error("match_read_failed");
   }
 
+  const requestedCanonicalId = normalizeMatchId(matchId);
+  const returnedCanonicalId = normalizeMatchId(valueAt(
+    isRecord(body) && isRecord(body.data) ? body.data : {},
+    "id",
+  ));
+  // Do not combine telemetry or participant stats from a response for a
+  // different match, even when the upstream request itself succeeded.
+  if (!requestedCanonicalId || !returnedCanonicalId || requestedCanonicalId !== returnedCanonicalId) {
+    throw new Error("match_identity_mismatch");
+  }
+
   let context: AuditContext;
   let metadata: MatchMetadata;
   try {
@@ -822,13 +905,29 @@ function parseRows(
   if (!Array.isArray(rows)) return [];
   return rows
     .filter((row): row is PlainRecord => isRecord(row))
-    .filter((row) => {
-      const rowPlayer = asString(row.player_id);
-      const rowPlatform = asString(row.platform);
-      return (!rowPlayer || normalizeName(rowPlayer) === normalizeName(nickname)) &&
-        (!rowPlatform || normalizePlatform(rowPlatform) === platform);
+    .map((row, index) => ({
+      row,
+      match: toAuditMatch(row, index, { requireStorageIdentity: true }),
+    }))
+    .filter(({ row, match }) => {
+      if (!match?.id || !isRecord(row.data)) return false;
+      const rowPlayer = canonicalPlayerId(row.player_id);
+      const rowPlatform = normalizePlatform(row.platform);
+      const fullResult = row.data.fullResult;
+      if (!isRecord(fullResult)) return false;
+      const embeddedPlayer = canonicalPlayerId(firstDefined(
+        fullResult.player_id,
+        valueAt(fullResult, "stats", "name"),
+      ));
+      const embeddedPlatform = normalizePlatform(fullResult.platform);
+      return Boolean(
+        rowPlayer && embeddedPlayer && rowPlayer === normalizeName(nickname) &&
+        embeddedPlayer === normalizeName(nickname) && rowPlatform === platform &&
+        embeddedPlatform === platform &&
+        isFullResultForPlayerPlatform(fullResult, nickname, platform),
+      );
     })
-    .map((row, index) => toAuditMatch(row, index))
+    .map(({ match }) => match)
     .filter((match): match is AuditMatch => match !== null && match.id !== null);
 }
 
@@ -1013,9 +1112,11 @@ function legacyFilter(events: readonly unknown[], context: AuditContext): PlainR
     if (!isRecord(event) || typeof event._T !== "string") return [];
     if (event._T === "LogPlayerPosition") {
       const character = isRecord(event.character) ? event.character : {};
-      const name = normalizeName(asString(firstDefined(character.name, character.characterName)) || "");
-      const accountId = asString(firstDefined(character.accountId, character.playerId));
-      if (context.teamNames.has(name) || (accountId !== null && context.teamAccountIds.has(accountId))) {
+      const name = normalizeName(asString(character.name) || "");
+      // The pre-contract route only recognized team positions by normalized
+      // display name. Keep this reference intentionally independent from the
+      // account-aware next contract so the audit exposes that exact delta.
+      if (context.teamNames.has(name)) {
         const projected = legacyProjectEvent(event);
         return projected ? [projected] : [];
       }
@@ -1027,6 +1128,12 @@ function legacyFilter(events: readonly unknown[], context: AuditContext): PlainR
     const projected = legacyProjectEvent(event);
     return projected ? [projected] : [];
   });
+}
+
+function isLegacyTeamActor(actor: unknown, context: AuditContext): boolean {
+  if (!isRecord(actor)) return false;
+  const name = normalizeName(asString(actor.name) || "");
+  return context.teamNames.has(name);
 }
 
 function isTeamActor(actor: unknown, context: AuditContext): boolean {
@@ -1197,6 +1304,7 @@ function telemetryMap(
   events: readonly PlainRecord[],
   rawCount: number,
   context: AuditContext,
+  positionIdentity: "legacy_name" | "next_name_or_account" = "next_name_or_account",
 ): Record<string, number> {
   const map: Record<string, number> = {
     rawEvents: rawCount,
@@ -1238,7 +1346,10 @@ function telemetryMap(
     if (type === "LogPlayerPosition") {
       map.positionEvents += 1;
       const actor = isRecord(event.character) ? event.character : {};
-      if (isTeamActor(actor, context)) map.teamPositionEvents += 1;
+      const isTeam = positionIdentity === "legacy_name"
+        ? isLegacyTeamActor(actor, context)
+        : isTeamActor(actor, context);
+      if (isTeam) map.teamPositionEvents += 1;
       else map.enemyPositionEvents += 1;
     }
     if (type === "LogPlayerAttack") map.attackEvents += 1;
@@ -1347,7 +1458,7 @@ function buildReport(
     teamNames: input.context.teamNames,
     teamAccountIds: input.context.teamAccountIds,
   });
-  const legacyTelemetryMap = telemetryMap(legacyTelemetry, rawEvents.length, input.context);
+  const legacyTelemetryMap = telemetryMap(legacyTelemetry, rawEvents.length, input.context, "legacy_name");
   const nextTelemetryMap = telemetryMap(nextTelemetry, rawEvents.length, input.context);
   const targetMetrics = metricMap(targetMatch);
   const legacyEngineMetrics = engineMetricMap(input, nickname, legacyTelemetry);

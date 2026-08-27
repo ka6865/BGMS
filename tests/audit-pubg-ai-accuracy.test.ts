@@ -111,7 +111,7 @@ describe("anonymous PUBG AI accuracy audit", () => {
       order: () => query,
       limit: async () => ({
         data: [{
-          match_id: "fixture-match",
+          match_id: firstMatch?.matchId,
           player_id: "fixtureplayer",
           platform: "steam",
           updated_at: "2026-08-27T00:12:00.000Z",
@@ -122,7 +122,7 @@ describe("anonymous PUBG AI accuracy audit", () => {
     };
     const officialBody = {
       data: {
-        id: "fixture-match",
+        id: firstMatch?.matchId,
         attributes: {
           createdAt: "2026-08-27T00:12:00.000Z",
           gameMode: "squad",
@@ -195,6 +195,145 @@ describe("anonymous PUBG AI accuracy audit", () => {
     expect(calls[1]?.init?.headers).not.toHaveProperty("Authorization");
     expect(report.remoteWritesAttempted).toBe(0);
     expect(report.externalAiCalls).toBe(0);
+  });
+
+  it("DB row와 embedded fullResult identity가 다르면 해당 row를 버리고 fallback한다", async () => {
+    const fixture = JSON.parse(await fs.readFile(fixturePath, "utf8")) as {
+      matches: Array<Record<string, unknown>>;
+    };
+    const firstMatch = fixture.matches[0];
+    const firstFullResult = firstMatch?.fullResult as Record<string, unknown>;
+    const matchIdMismatch = {
+      ...firstFullResult,
+      matchId: "embedded-different-match",
+    };
+    const playerIdMismatch = {
+      ...firstFullResult,
+      player_id: "embedded-different-player",
+      stats: {
+        ...(firstFullResult.stats as Record<string, unknown>),
+        name: "EmbeddedDifferentPlayer",
+      },
+    };
+    const platformMismatch = {
+      ...firstFullResult,
+      platform: "kakao",
+    };
+    let mismatchedFullResult: Record<string, unknown> = matchIdMismatch;
+    const query = {
+      select: () => query,
+      eq: () => query,
+      order: () => query,
+      limit: async () => ({
+        data: [{
+          match_id: firstMatch?.matchId,
+          player_id: "fixtureplayer",
+          platform: "steam",
+          updated_at: "2026-08-27T00:12:00.000Z",
+          data: { fullResult: mismatchedFullResult },
+        }],
+        error: null,
+      }),
+    };
+    const calls: string[] = [];
+    for (const candidate of [matchIdMismatch, playerIdMismatch, platformMismatch]) {
+      mismatchedFullResult = candidate;
+      const report = await runAccuracyAudit({
+        source: "real_read_only",
+        nickname: "FixturePlayer",
+        platform: "steam",
+        limit: 25,
+        env: {
+          PUBG_API_KEY: "test-api-key",
+          NEXT_PUBLIC_SUPABASE_URL: "https://supabase.example",
+          SUPABASE_SERVICE_ROLE_KEY: "test-service-role",
+        },
+        supabase: { from: () => query },
+        fetchFn: async (input) => {
+          calls.push(String(input));
+          throw new Error("unexpected_fetch");
+        },
+      });
+
+      expect(report.source).toBe("synthetic_fixture");
+      expect(report.fallbackReason).toBe("no_valid_processed_rows");
+    }
+    expect(calls).toHaveLength(0);
+  });
+
+  it("official match response ID가 요청 ID와 다르면 telemetry를 읽지 않고 fallback한다", async () => {
+    const fixture = JSON.parse(await fs.readFile(fixturePath, "utf8")) as {
+      matches: Array<Record<string, unknown>>;
+    };
+    const firstMatch = fixture.matches[0];
+    const query = {
+      select: () => query,
+      eq: () => query,
+      order: () => query,
+      limit: async () => ({
+        data: [{
+          match_id: firstMatch?.matchId,
+          player_id: "fixtureplayer",
+          platform: "steam",
+          updated_at: "2026-08-27T00:12:00.000Z",
+          data: { fullResult: firstMatch?.fullResult },
+        }],
+        error: null,
+      }),
+    };
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    const report = await runAccuracyAudit({
+      source: "real_read_only",
+      nickname: "FixturePlayer",
+      platform: "steam",
+      limit: 25,
+      env: {
+        PUBG_API_KEY: "test-api-key",
+        NEXT_PUBLIC_SUPABASE_URL: "https://supabase.example",
+        SUPABASE_SERVICE_ROLE_KEY: "test-service-role",
+      },
+      supabase: { from: () => query },
+      fetchFn: async (input, init) => {
+        calls.push({ url: String(input), init });
+        return new Response(JSON.stringify({ data: { id: "official-different-match" } }), { status: 200 });
+      },
+    });
+
+    expect(report.source).toBe("synthetic_fixture");
+    expect(report.fallbackReason).toBe("match_identity_mismatch");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.init?.method).toBe("GET");
+  });
+
+  it("legacy position sampling/classification은 이름만 보고 next는 account ID도 본다", async () => {
+    const fixture = JSON.parse(await fs.readFile(fixturePath, "utf8")) as {
+      telemetry: Array<Record<string, unknown>>;
+    };
+    const telemetry = fixture.telemetry.map((event) => {
+      if (event._T !== "LogPlayerPosition" || typeof event.character !== "object" || event.character === null) {
+        return event;
+      }
+      const character = event.character as Record<string, unknown>;
+      if (character.accountId !== "account.fixture") return event;
+      return {
+        ...event,
+        character: { ...character, name: "RenamedFixturePlayer" },
+      };
+    });
+    const report = await runAccuracyAudit({
+      source: "synthetic_fixture",
+      fixture: { ...fixture, telemetry },
+      nickname: "FixturePlayer",
+      platform: "steam",
+      limit: 25,
+    });
+
+    expect(report.telemetry.legacy.positionEvents).toBe(2);
+    expect(report.telemetry.legacy.teamPositionEvents).toBe(0);
+    expect(report.telemetry.legacy.enemyPositionEvents).toBe(2);
+    expect(report.telemetry.next.positionEvents).toBe(3);
+    expect(report.telemetry.next.teamPositionEvents).toBe(1);
+    expect(report.telemetry.next.enemyPositionEvents).toBe(2);
   });
 
   it("legacy recent pool은 입력 순서가 아니라 createdAt 내림차순을 따른다", async () => {
