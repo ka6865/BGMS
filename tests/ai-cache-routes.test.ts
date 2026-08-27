@@ -466,6 +466,36 @@ describe("AI cache route stabilization", () => {
     expect(response.status).toBe(200);
     expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
     expect(telemetry.select).toHaveBeenCalledWith("match_id,player_id,platform,data");
+    expect(telemetry.eq).toHaveBeenCalledWith("match_id", "match-canonical");
+  });
+
+  it.each([
+    ["slash", "bad/id"],
+    ["space", "bad id"],
+    ["too long", "a".repeat(161)],
+    ["numeric", 42],
+    ["non-string", { value: "match-1" }],
+  ])("ai-analyze는 %s match ID를 cache lookup 전에 400으로 거부한다", async (_label, rawMatchId) => {
+    const matchCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      match_ai_coaching_cache: matchCache,
+      processed_match_telemetry: telemetry,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiAnalyzePOST(createRequest({
+      matchData: { matchId: rawMatchId },
+      nickname: "Player_A",
+      platform: "kakao",
+      coachingStyle: "spicy",
+    }));
+
+    expect(response.status).toBe(400);
+    expect(matchCache.select).not.toHaveBeenCalled();
+    expect(telemetry.select).not.toHaveBeenCalled();
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    expect(matchCache.upsert).not.toHaveBeenCalled();
   });
 
   it.each([

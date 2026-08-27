@@ -11,6 +11,8 @@ import { buildMatchAiCoachingPrompt } from "@/lib/pubg-analysis/matchAiCoachingP
 import { sanitizeAiCoachingLanguageText } from "@/lib/pubg-analysis/aiCoachingQuality";
 import crypto from "crypto";
 
+const CANONICAL_MATCH_ID = /^[A-Za-z0-9._-]{1,160}$/;
+
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
   const startedAt = Date.now();
@@ -52,9 +54,9 @@ export async function POST(request: Request) {
     const rawMatchIds = matchDataRecord
       ? (["matchId", "match_id", "id"] as const)
         .filter((key) => key in matchDataRecord && matchDataRecord[key] !== undefined && matchDataRecord[key] !== null)
-        .map((key) => normalizeMatchId(matchDataRecord[key]))
+        .map((key) => typeof matchDataRecord[key] === "string" ? normalizeMatchId(matchDataRecord[key]) : null)
       : [];
-    const matchId = rawMatchIds.length > 0 && rawMatchIds.every((id) => id && id === rawMatchIds[0])
+    const matchId = rawMatchIds.length > 0 && rawMatchIds.every((id) => id && id === rawMatchIds[0] && CANONICAL_MATCH_ID.test(id))
       ? rawMatchIds[0]
       : null;
     if (!matchId) {
