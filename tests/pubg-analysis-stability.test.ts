@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildProcessedTelemetryUpsert,
   getValidFullResult,
+  getValidFullResultForMatch,
   isFullResultForPlayerPlatform
 } from "../lib/pubg-analysis/cacheIdentity";
+import { RESULT_VERSION } from "../lib/pubg-analysis/constants";
 import { aggregateTierBenchmarkRows } from "../lib/pubg-analysis/benchmarkLookup";
 import { estimateAverageTierFromRows } from "../lib/pubg-analysis/tierAveraging";
 import { classifyRole } from "../lib/pubg-analysis/roleClassifier";
@@ -56,6 +58,69 @@ describe("PUBG analysis identity stabilization", () => {
 
     expect(isFullResultForPlayerPlatform(fullResult, "Player_A", "steam")).toBe(true);
     expect(isFullResultForPlayerPlatform(fullResult, "Player_A", "kakao")).toBe(false);
+  });
+
+  it("validator는 matching identity와 current result version만 통과시킨다", () => {
+    const validRow = {
+      match_id: "match-1",
+      player_id: "player",
+      platform: "steam",
+      data: {
+        fullResult: {
+          matchId: "match-1",
+          player_id: "player",
+          platform: "steam",
+          v: RESULT_VERSION,
+          stats: { name: "Player", kills: 2 },
+        },
+      },
+    };
+    const expected = {
+      matchId: "match-1",
+      playerId: "player",
+      platform: "steam",
+      minResultVersion: RESULT_VERSION,
+    };
+
+    expect(getValidFullResultForMatch(validRow, expected)).toMatchObject({ matchId: "match-1" });
+    expect(getValidFullResultForMatch({ ...validRow, match_id: "other" }, expected)).toBeNull();
+    expect(getValidFullResultForMatch({
+      ...validRow,
+      data: { fullResult: { ...validRow.data.fullResult, v: RESULT_VERSION - 1 } },
+    }, expected)).toBeNull();
+  });
+
+  it("validator는 canonical fullResult ID, row/data shape, player/platform을 모두 확인한다", () => {
+    const expected = {
+      matchId: "match-1",
+      playerId: "player",
+      platform: "steam",
+      minResultVersion: RESULT_VERSION,
+    };
+    const validRow = {
+      match_id: "shard:match-1",
+      player_id: "PLAYER",
+      platform: "STEAM",
+      data: {
+        fullResult: {
+          match_id: "match-1",
+          player_id: "player",
+          platform: "steam",
+          v: RESULT_VERSION + 1,
+          stats: { name: "Player", kills: 2 },
+        },
+      },
+    };
+
+    expect(getValidFullResultForMatch(validRow, expected)).toBe(validRow.data.fullResult);
+    expect(getValidFullResultForMatch({ ...validRow, data: null }, expected)).toBeNull();
+    expect(getValidFullResultForMatch({ ...validRow, data: { fullResult: [] } }, expected)).toBeNull();
+    expect(getValidFullResultForMatch({
+      ...validRow,
+      data: { fullResult: { ...validRow.data.fullResult, match_id: "other" } },
+    }, expected)).toBeNull();
+    expect(getValidFullResultForMatch({ ...validRow, player_id: "other" }, expected)).toBeNull();
+    expect(getValidFullResultForMatch({ ...validRow, platform: "kakao" }, expected)).toBeNull();
   });
 });
 

@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
-import { AI_CACHE_VERSION, GEMINI_MODELS_TO_TRY } from "@/lib/pubg-analysis/constants";
+import { AI_CACHE_VERSION, GEMINI_MODELS_TO_TRY, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
-import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
+import { getValidFullResultForMatch, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
+import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
 import { sanitizeBackupCoachingText } from "@/lib/pubg-analysis/backupCoaching";
 import { buildMatchAiCoachingPrompt } from "@/lib/pubg-analysis/matchAiCoachingPrompt";
 import { sanitizeAiCoachingLanguageText } from "@/lib/pubg-analysis/aiCoachingQuality";
@@ -23,20 +24,39 @@ export async function POST(request: Request) {
     authenticatedUserId = auth.user?.id;
 
     const body = await request.json();
-    const { matchData, nickname, platform = "steam", coachingStyle = "spicy" } = body;
+    const { matchData, nickname, platform = "steam" } = body ?? {};
+    const requestedCoachingStyle: unknown = body?.coachingStyle;
+    const coachingStyle = requestedCoachingStyle === undefined ? "spicy" : requestedCoachingStyle;
     requestedPlatform = String(platform || "steam");
+
+    if (coachingStyle !== "mild" && coachingStyle !== "spicy") {
+      return NextResponse.json({
+        error: "invalid coaching style",
+        errorCode: "PUBG_AI_INVALID_COACHING_STYLE",
+      }, { status: 400 });
+    }
 
     const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
     if (!apiKey) {
       trackAiFailure(authenticatedUserId, "analyze", "No API Key", { errorCode: "configuration", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
       return NextResponse.json({ error: "No API Key" }, { status: 500 });
     }
-    if (!matchData || !nickname) {
+    if (!matchData || typeof nickname !== "string" || !nickname.trim()) {
       trackAiFailure(authenticatedUserId, "analyze", "Missing data", { errorCode: "invalid_input", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
       return NextResponse.json({ error: "Missing data" }, { status: 400 });
     }
 
-    const matchId = matchData.matchId || matchData.match_id || matchData.id;
+    const matchDataRecord = typeof matchData === "object" && matchData !== null && !Array.isArray(matchData)
+      ? matchData as Record<string, unknown>
+      : null;
+    const rawMatchIds = matchDataRecord
+      ? (["matchId", "match_id", "id"] as const)
+        .filter((key) => key in matchDataRecord && matchDataRecord[key] !== undefined && matchDataRecord[key] !== null)
+        .map((key) => normalizeMatchId(matchDataRecord[key]))
+      : [];
+    const matchId = rawMatchIds.length > 0 && rawMatchIds.every((id) => id && id === rawMatchIds[0])
+      ? rawMatchIds[0]
+      : null;
     if (!matchId) {
       trackAiFailure(authenticatedUserId, "analyze", "Missing matchId", { errorCode: "invalid_input", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
       return NextResponse.json({ error: "Missing matchId" }, { status: 400 });
@@ -78,7 +98,39 @@ export async function POST(request: Request) {
       console.warn("[AI-ANALYZE] Cache lookup failed:", dbErr);
     }
 
-    const { fullPrompt, backupContext } = buildMatchAiCoachingPrompt({ matchData, coachingStyle });
+    let canonicalRow: unknown = null;
+    try {
+      const { data, error } = await supabase
+        .from("processed_match_telemetry")
+        .select("match_id,player_id,platform,data")
+        .eq("match_id", matchId)
+        .eq("player_id", playerId)
+        .eq("platform", cachePlatform)
+        .maybeSingle();
+      if (!error) canonicalRow = data;
+      else console.warn("[AI-ANALYZE] Canonical telemetry lookup failed:", error);
+    } catch (canonicalLookupError) {
+      console.warn("[AI-ANALYZE] Canonical telemetry lookup failed:", canonicalLookupError);
+    }
+
+    const canonicalFullResult = getValidFullResultForMatch(canonicalRow, {
+      matchId,
+      playerId,
+      platform: cachePlatform,
+      minResultVersion: RESULT_VERSION,
+    });
+    if (!canonicalFullResult) {
+      return NextResponse.json({
+        error: "canonical match analysis is not ready",
+        errorCode: "PUBG_AI_CANONICAL_NOT_READY",
+        retryable: true,
+      }, { status: 409 });
+    }
+
+    const { fullPrompt, backupContext } = buildMatchAiCoachingPrompt({
+      matchData: canonicalFullResult,
+      coachingStyle,
+    });
 
     const genAI = new GoogleGenerativeAI(apiKey);
     const modelsToTry = GEMINI_MODELS_TO_TRY;

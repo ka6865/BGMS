@@ -2,7 +2,7 @@ import { afterEach, describe, it, expect, vi, beforeEach } from "vitest";
 import { POST as aiAnalyzePOST } from "../app/api/pubg/ai-analyze/route";
 import { POST as aiSummaryPOST } from "../app/api/pubg/ai-summary/route";
 import { POST as aiSquadPOST } from "../app/api/pubg/ai-squad/route";
-import { AI_CACHE_VERSION } from "../lib/pubg-analysis/constants";
+import { AI_CACHE_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
 import { buildMatchSelectionKey, RECENT_MATCH_SELECTION_VERSION } from "../lib/pubg-analysis/recentMatchSelection";
 import { AI_CACHE_RETENTION_DAYS, AI_CACHE_TABLES, cleanupExpiredCache } from "../scripts/cleanup_ai_cache";
 import crypto from "node:crypto";
@@ -160,6 +160,26 @@ function createSummaryMatch(matchId = "match-1", overrides: Record<string, any> 
   };
 }
 
+function createCanonicalAnalyzeRow(
+  matchId = "match-1",
+  overrides: Record<string, any> = {},
+) {
+  const fullResult = {
+    ...createSummaryMatch(matchId),
+    matchId,
+    player_id: "player_a",
+    platform: "kakao",
+    v: RESULT_VERSION,
+    ...overrides,
+  };
+  return {
+    match_id: matchId,
+    player_id: "player_a",
+    platform: "kakao",
+    data: { fullResult },
+  };
+}
+
 function mockSummaryGeminiResponse(assertPrompt?: (prompt: string) => void) {
   const json = JSON.stringify({
     signature: "테스트 전술가",
@@ -237,8 +257,10 @@ describe("AI cache route stabilization", () => {
       data: { ai_result: { text: "cached-player-a-analysis" } },
       error: null,
     });
+    const telemetry = createQueryChain({ data: null, error: null });
     const supabase = createSupabaseMock({
       match_ai_coaching_cache: matchCache,
+      processed_match_telemetry: telemetry,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -259,6 +281,8 @@ describe("AI cache route stabilization", () => {
     expect(matchCache.eq).toHaveBeenCalledWith("player_id", "player_a");
     expect(matchCache.eq).toHaveBeenCalledWith("coaching_style", "spicy");
     expect(matchCache.eq).toHaveBeenCalledWith("prompt_version", AI_CACHE_VERSION);
+    expect(telemetry.select).not.toHaveBeenCalled();
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
   });
 
   it("ai-analyze는 캐시된 단일 경기 코칭의 과한 표현을 순화해서 반환한다", async () => {
@@ -292,8 +316,37 @@ describe("AI cache route stabilization", () => {
     mockSummaryGeminiRawText("혼자 다 해먹는 화력이고 팀 지원 지표가 바닥이며 22.4초는 느린 백업입니다.");
 
     const matchCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({
+      data: createCanonicalAnalyzeRow("match-sanitize-new", {
+        mapName: "Baltic_Main",
+        gameMode: "squad",
+        stats: {
+          name: "Player_A",
+          kills: 1,
+          assists: 0,
+          DBNOs: 1,
+          damageDealt: 100,
+          processedDamageDealt: 100,
+          winPlace: 10,
+          timeSurvived: 600,
+        },
+        tradeStats: {
+          teammateKnocks: 1,
+          tradeKills: 0,
+          revCount: 0,
+          smokeRescues: 0,
+          tradeLatencyMs: 22400,
+        },
+        combatPressure: {
+          utilityStats: { throwCount: 0, lethalThrowCount: 0, hitCount: 0, totalDamage: 0 },
+        },
+        teamImpact: {},
+      }),
+      error: null,
+    });
     const supabase = createSupabaseMock({
       match_ai_coaching_cache: matchCache,
+      processed_match_telemetry: telemetry,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -340,6 +393,158 @@ describe("AI cache route stabilization", () => {
     expect(upsertPayload.ai_result.text).toContain("강한 화력을 보여주는");
     expect(upsertPayload.ai_result.text).toContain("백업 지연 위험");
     expect(upsertPayload.ai_result.text).not.toContain("혼자 다 해먹");
+  });
+
+  it("ai-analyze는 canonical row가 없으면 forged browser matchData를 사용하지 않고 409를 반환한다", async () => {
+    const matchCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      match_ai_coaching_cache: matchCache,
+      processed_match_telemetry: telemetry,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiAnalyzePOST(createRequest({
+      matchData: { matchId: "match-1", stats: { kills: 9999 }, timeline: ["forged"] },
+      nickname: "Player",
+      platform: "steam",
+      coachingStyle: "spicy",
+    }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "canonical match analysis is not ready",
+      errorCode: "PUBG_AI_CANONICAL_NOT_READY",
+      retryable: true,
+    });
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    expect(matchCache.upsert).not.toHaveBeenCalled();
+  });
+
+  it("ai-analyze는 validated canonical fullResult만 prompt에 전달한다", async () => {
+    mockSummaryGeminiRawText("canonical response", (prompt) => {
+      expect(prompt).toContain("전투: 2킬");
+      expect(prompt).not.toContain("9999킬");
+      expect(prompt).not.toContain("forged-map");
+    });
+
+    const matchCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({
+      data: createCanonicalAnalyzeRow("match-canonical", {
+        mapName: "canonical-map",
+        stats: {
+          name: "Player_A",
+          kills: 2,
+          assists: 1,
+          DBNOs: 1,
+          damageDealt: 240,
+          processedDamageDealt: 240,
+          winPlace: 3,
+          timeSurvived: 900,
+        },
+      }),
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      match_ai_coaching_cache: matchCache,
+      processed_match_telemetry: telemetry,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiAnalyzePOST(createRequest({
+      matchData: {
+        matchId: "shard:match-canonical",
+        mapName: "forged-map",
+        stats: { name: "Player_A", kills: 9999 },
+        timeline: ["forged"],
+      },
+      nickname: "Player_A",
+      platform: "kakao",
+      coachingStyle: "mild",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
+    expect(telemetry.select).toHaveBeenCalledWith("match_id,player_id,platform,data");
+  });
+
+  it.each([
+    ["missing", null],
+    ["mismatched", { ...createCanonicalAnalyzeRow("other-match") }],
+    ["stale", { ...createCanonicalAnalyzeRow("match-stale", { v: RESULT_VERSION - 1 }) }],
+  ])("ai-analyze는 %s canonical row를 409로 fail-closed한다", async (_label, canonicalRow) => {
+    const matchCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: canonicalRow, error: null });
+    const supabase = createSupabaseMock({
+      match_ai_coaching_cache: matchCache,
+      processed_match_telemetry: telemetry,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiAnalyzePOST(createRequest({
+      matchData: { matchId: "match-stale", stats: { kills: 9999 } },
+      nickname: "Player_A",
+      platform: "kakao",
+      coachingStyle: "spicy",
+    }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({
+      error: "canonical match analysis is not ready",
+      errorCode: "PUBG_AI_CANONICAL_NOT_READY",
+      retryable: true,
+    });
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    expect(matchCache.upsert).not.toHaveBeenCalled();
+  });
+
+  it("ai-analyze는 지원하지 않는 coachingStyle을 lookup 전에 fail-closed한다", async () => {
+    const matchCache = createQueryChain({ data: { ai_result: { text: "cached" } }, error: null });
+    const telemetry = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      match_ai_coaching_cache: matchCache,
+      processed_match_telemetry: telemetry,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiAnalyzePOST(createRequest({
+      matchData: { matchId: "match-1" },
+      nickname: "Player",
+      platform: "steam",
+      coachingStyle: "wild",
+    }));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ errorCode: "PUBG_AI_INVALID_COACHING_STYLE" });
+    expect(matchCache.select).not.toHaveBeenCalled();
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["mild", "mild"],
+    ["spicy", "spicy"],
+    ["default", undefined],
+  ])("ai-analyze는 %s coachingStyle을 캐시 identity에 반영한다", async (_label, coachingStyle) => {
+    const matchCache = createQueryChain({ data: { ai_result: { text: "cached-style" } }, error: null });
+    const telemetry = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      match_ai_coaching_cache: matchCache,
+      processed_match_telemetry: telemetry,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiAnalyzePOST(createRequest({
+      matchData: { matchId: `match-${_label}` },
+      nickname: "Player_A",
+      platform: "kakao",
+      ...(coachingStyle === undefined ? {} : { coachingStyle }),
+    }));
+    await response.text();
+
+    expect(response.status).toBe(200);
+    expect(matchCache.eq).toHaveBeenCalledWith("coaching_style", coachingStyle ?? "spicy");
+    expect(telemetry.select).not.toHaveBeenCalled();
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
   });
 
   it("ai-summary는 force=true일 때 기존 AI 캐시 조회를 건너뛰고 새 결과를 upsert한다", async () => {
