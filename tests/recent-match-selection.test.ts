@@ -135,6 +135,17 @@ describe("recent match selection", () => {
     expect(higherResult.selected[0]?.value).toEqual(first.value);
   });
 
+  it("canonical/date/source가 같은 duplicate는 raw ID lexical tie로 입력 순서와 무관하게 선택한다", () => {
+    const shardId = candidate("shard:same", "2026-08-02T00:00:00.000Z", "official", "squad", "Erangel_Main", 0, 999);
+    const bareId = candidate("same", "2026-08-02T00:00:00.000Z", "official", "squad", "Erangel_Main", 0, 2);
+
+    const forward = selectRecentMatches([shardId, bareId]);
+    const reverse = selectRecentMatches([bareId, shardId]);
+
+    expect(forward.selected[0]?.value).toEqual(bareId.value);
+    expect(reverse.selected[0]?.value).toEqual(bareId.value);
+  });
+
   it("invalid date는 valid date 뒤에 정렬되고 stable tie는 sourceIndex/ID를 따른다", () => {
     const result = selectRecentMatches([
       candidate("z", "not-a-date", "official", "squad", "Erangel_Main", 0, 0),

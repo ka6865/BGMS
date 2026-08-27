@@ -404,6 +404,7 @@ export async function POST(request: Request) {
           const normalizedData = {
             ...fullResult,
             matchId: pureId,
+            __selectionRawId: m?.match_id || fullResult.matchId || pureId,
             createdAt: fullResult.createdAt || fullResult.matchInfo?.date || m.created_at || m.updated_at || m.data?.createdAt || m.data?.created_at,
             matchType: fullResult.matchType || fullResult.matchInfo?.matchType || m.match_type || m.data?.matchType || m.data?.match_type,
             gameMode: fullResult.gameMode || fullResult.matchInfo?.mode || m.game_mode || m.data?.gameMode || m.data?.game_mode,
@@ -449,7 +450,7 @@ export async function POST(request: Request) {
                 return;
               }
               const normalizedData = fallbackValue && typeof fallbackValue === "object"
-                ? { ...fallbackValue, matchId: requestedCanonicalId }
+                ? { ...fallbackValue, matchId: requestedCanonicalId, __selectionRawId: id }
                 : null;
               if (!normalizedData || !isFullResultForPlayerPlatform(normalizedData, lowerNickname, cachePlatform)) {
                 console.warn(`[AI-SUMMARY] Ignored invalid fallback full result for ${requestedCanonicalId}`);
@@ -467,9 +468,10 @@ export async function POST(request: Request) {
 
     const firstValue = (...values: unknown[]): unknown => values.find((value) => value !== undefined && value !== null && value !== "");
     const selectionCandidates: RecentMatchCandidate<any>[] = rawMatches.map((match: any, rawSourceIndex: number) => {
-      const rawId = firstValue(match.matchId, match.match_id, match.id);
+      const rawId = firstValue(match.__selectionRawId, match.matchId, match.match_id, match.id);
       const canonicalId = normalizeMatchId(rawId);
       const requestedIndex = canonicalId ? requestedIndexByCanonicalId.get(canonicalId) : undefined;
+      const { __selectionRawId: _selectionRawId, ...matchValue } = match;
       return {
         id: typeof rawId === "string" ? rawId : canonicalId,
         createdAt: firstValue(match.createdAt, match.created_at, match.date, match.matchInfo?.date)?.toString() || null,
@@ -477,7 +479,7 @@ export async function POST(request: Request) {
         gameMode: firstValue(match.gameMode, match.game_mode, match.mode, match.matchInfo?.mode)?.toString() || null,
         mapName: firstValue(match.mapName, match.map_name, match.map, match.matchInfo?.mapId, match.matchInfo?.map)?.toString() || null,
         sourceIndex: requestedIndex === undefined ? rawSourceIndex : requestedIndex,
-        value: canonicalId ? { ...match, matchId: canonicalId } : match,
+        value: canonicalId ? { ...matchValue, matchId: canonicalId } : matchValue,
       };
     }).filter((candidate): candidate is RecentMatchCandidate<any> => Boolean(candidate.id));
 
