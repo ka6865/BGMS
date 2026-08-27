@@ -1,5 +1,7 @@
 import { BaseHandler } from './BaseHandler';
 
+const actorLocation = (actor: any) => actor?.location ?? actor?.loc;
+
 /**
  * [V26.0] MapReplayHandler
  * 지도 시각화를 위한 경로 데이터 및 특수 효과(폭발, 연막 등) 이벤트를 처리합니다.
@@ -115,17 +117,26 @@ export class MapReplayHandler extends BaseHandler {
   }
 
   private handlePlayerCreate(e: any, elapsed: number) {
-    const char = e.character;
-    if (char && this.isTeammate(char)) {
+    const characters = Array.isArray(e.characters) && e.characters.length > 0
+      ? e.characters.map((entry: any) => entry?.character ?? entry)
+      : Array.isArray(e.recalledPlayers)
+        ? e.recalledPlayers.map((entry: any) => entry?.character ?? entry)
+        : e.character
+          ? [e.character]
+          : [];
+
+    characters.forEach((char: any) => {
+      if (!char || !this.isTeammate(char)) return;
+      const loc = actorLocation(char);
       this.state.mapEvents.push({
         type: "create",
         time: e._D,
         relativeTimeMs: elapsed,
         name: char.name,
-        x: this.scaleX(char.location?.x ?? 0),
-        y: this.scaleY(char.location?.y ?? 0),
+        x: this.scaleX(loc?.x ?? 0),
+        y: this.scaleY(loc?.y ?? 0),
       });
-    }
+    });
   }
 
   private handlePosition(e: any, elapsed: number) {
@@ -134,13 +145,9 @@ export class MapReplayHandler extends BaseHandler {
 
     const isTeam = this.isTeammate(char);
     
-    // Lite 모드 유사 최적화: 적군은 10번에 한 번만 기록 (full 모드가 아닐 때만)
-    if (!isTeam && this.state.mode !== "full") {
-      this.state.positionEventCount++;
-      if (this.state.positionEventCount % 10 !== 0) return;
-    }
+    const loc = actorLocation(char);
 
-    this.state.lastPosByPlayer.set(char.name, { x: char.location?.x ?? 0, y: char.location?.y ?? 0 });
+    this.state.lastPosByPlayer.set(char.name, { x: loc?.x ?? 0, y: loc?.y ?? 0 });
     this.state.lastRotByPlayer.set(char.name, char.rotation || 0);
 
     // 🎯 차량 동승 유령 버그 해결: LogPlayerPosition 시점에 최상위 vehicle 정보 또는 캐릭터 내의 vehicle 정보를 매치
@@ -153,9 +160,9 @@ export class MapReplayHandler extends BaseHandler {
       name: char.name,
       teamId: char.teamId,
       isTeam: isTeam,
-      x: this.scaleX(char.location?.x ?? 0),
-      y: this.scaleY(char.location?.y ?? 0),
-      z: (char.location?.z ?? 0) / 100,
+      x: this.scaleX(loc?.x ?? 0),
+      y: this.scaleY(loc?.y ?? 0),
+      z: (loc?.z ?? 0) / 100,
       health: char.health || 100,
       vehicleId: vehicleId,
     });
@@ -176,11 +183,15 @@ export class MapReplayHandler extends BaseHandler {
     const attackerName = isEnvKill ? (isRevive ? "자가부활" : "환경/자연사") : (attackerObj?.name || "알 수 없음");
     const victimName = victimObj?.name || "알 수 없음";
 
-    const isAttackerTeam = this.isTeammate(attackerObj);
+    const teamKillerAccountIds = e.teamKillers_AccountId ?? e.teamKillerAccountIds;
+    const isAttackerTeam = this.isTeammate(attackerObj) ||
+      (Array.isArray(teamKillerAccountIds) && typeof attackerObj?.accountId === "string" &&
+        teamKillerAccountIds.includes(attackerObj.accountId));
     const isVictimTeam = this.isTeammate(victimObj);
 
     // 어시스트 처리
-    const assistants = e.assistantAccountIds ? e.assistantAccountIds.map((aid: string) => ({
+    const assistantAccountIds = e.assists_AccountId ?? e.assistantAccountIds;
+    const assistants = Array.isArray(assistantAccountIds) ? assistantAccountIds.map((aid: string) => ({
       accountId: aid,
       name: "Unknown" // 실제 이름은 나중에 매핑 가능
     })) : [];
@@ -191,7 +202,9 @@ export class MapReplayHandler extends BaseHandler {
       vY = e.attacker?.viewDir?.y ?? e.finisher?.viewDir?.y ?? e.killer?.viewDir?.y;
     }
 
-    const charLoc = victimObj?.location || attackerObj?.location || { x: 0, y: 0 };
+    const victimLoc = actorLocation(victimObj);
+    const attackerLoc = actorLocation(attackerObj);
+    const charLoc = victimLoc ?? attackerLoc ?? { x: 0, y: 0 };
     const isSystemName = ["환경/자연사", "알 수 없음", "자가부활", "자연사"].includes(attackerName);
     
     this.state.mapEvents.push({
@@ -207,8 +220,8 @@ export class MapReplayHandler extends BaseHandler {
       teamId: isAttackerTeam ? (attackerObj?.teamId ?? 999) : (victimObj?.teamId ?? 999),
       x: this.scaleX(charLoc.x),
       y: this.scaleY(charLoc.y),
-      victimX: this.scaleX(victimObj?.location?.x || 0),
-      victimY: this.scaleY(victimObj?.location?.y || 0),
+      victimX: this.scaleX(victimLoc?.x ?? 0),
+      victimY: this.scaleY(victimLoc?.y ?? 0),
       vX: vX, 
       vY: vY,
       weapon: e.damageCauserName || e.damageReason || "",
@@ -234,8 +247,8 @@ export class MapReplayHandler extends BaseHandler {
       accountId: attacker.accountId,
       teamId: attacker.teamId,
       isTeam: this.isTeammate(attacker),
-      x: this.scaleX(attacker.location?.x ?? 0),
-      y: this.scaleY(attacker.location?.y ?? 0),
+      x: this.scaleX(actorLocation(attacker)?.x ?? 0),
+      y: this.scaleY(actorLocation(attacker)?.y ?? 0),
       rotation: attacker.rotation || this.state.lastRotByPlayer.get(attacker.name) || 0,
       vX: isThrowable ? null : attacker?.viewDir?.x,
       vY: isThrowable ? null : attacker?.viewDir?.y,
@@ -254,12 +267,12 @@ export class MapReplayHandler extends BaseHandler {
         victimName: e.victim.name,
         victimAccountId: e.victim.accountId,
         damage: e.damage,
-        x: this.scaleX(e.victim.location?.x ?? 0),
-        y: this.scaleY(e.victim.location?.y ?? 0),
-        z: (e.victim.location?.z ?? 0) / 100,
-        attackerX: this.scaleX(e.attacker.location?.x ?? 0),
-        attackerY: this.scaleY(e.attacker.location?.y ?? 0),
-        attackerZ: (e.attacker.location?.z ?? 0) / 100,
+        x: this.scaleX(actorLocation(e.victim)?.x ?? 0),
+        y: this.scaleY(actorLocation(e.victim)?.y ?? 0),
+        z: (actorLocation(e.victim)?.z ?? 0) / 100,
+        attackerX: this.scaleX(actorLocation(e.attacker)?.x ?? 0),
+        attackerY: this.scaleY(actorLocation(e.attacker)?.y ?? 0),
+        attackerZ: (actorLocation(e.attacker)?.z ?? 0) / 100,
       });
     }
   }
@@ -276,8 +289,8 @@ export class MapReplayHandler extends BaseHandler {
         teamId: char.teamId,
         isTeam: this.isTeammate(char),
         vehicle: e.vehicle?.vehicleId,
-        x: this.scaleX(char.location?.x ?? 0),
-        y: this.scaleY(char.location?.y ?? 0),
+        x: this.scaleX(actorLocation(char)?.x ?? 0),
+        y: this.scaleY(actorLocation(char)?.y ?? 0),
       });
     }
   }
@@ -294,8 +307,9 @@ export class MapReplayHandler extends BaseHandler {
       if (!this.state.hasRealExplosions) {
         const rotDegree = char.rotation || this.state.lastRotByPlayer.get(char.name) || 0;
         const rot = rotDegree * (Math.PI / 180);
-        const estX = (char.location?.x ?? 0) + Math.sin(rot) * 2000;
-        const estY = (char.location?.y ?? 0) - Math.cos(rot) * 2000;
+        const charLoc = actorLocation(char);
+        const estX = (charLoc?.x ?? 0) + Math.sin(rot) * 2000;
+        const estY = (charLoc?.y ?? 0) - Math.cos(rot) * 2000;
 
         let vfxType = "grenade";
         if (itemId.includes("smokebomb") || itemId.includes("smoke") || itemId.includes("m79")) vfxType = "smoke";
@@ -319,14 +333,14 @@ export class MapReplayHandler extends BaseHandler {
         relativeTimeMs: elapsed,
         name: char.name,
         weapon: itemId,
-        x: this.scaleX(char.location?.x ?? 0),
-        y: this.scaleY(char.location?.y ?? 0),
+        x: this.scaleX(actorLocation(char)?.x ?? 0),
+        y: this.scaleY(actorLocation(char)?.y ?? 0),
       });
     }
   }
 
   private handleExplosion(e: any, elapsed: number) {
-    const loc = e.location || e.character?.location || e.attacker?.location;
+    const loc = e.location ?? e.loc ?? actorLocation(e.character) ?? actorLocation(e.attacker);
     if (loc) {
       this.state.hasRealExplosions = true;
       const explosiveId = (e.explosiveItem?.itemId || e.explosiveId || "").toLowerCase();
@@ -349,7 +363,7 @@ export class MapReplayHandler extends BaseHandler {
   }
 
   private handleCarePackageSpawn(e: any, elapsed: number) {
-    const loc = e.location;
+    const loc = e.itemPackage?.location ?? e.location ?? e.loc;
     if (loc) {
       this.state.mapEvents.push({
         type: "carepackage_spawn",
@@ -363,7 +377,7 @@ export class MapReplayHandler extends BaseHandler {
   }
 
   private handleCarePackageLand(e: any, elapsed: number) {
-    const loc = e.location;
+    const loc = e.itemPackage?.location ?? e.location ?? e.loc;
     if (loc) {
       this.state.mapEvents.push({
         type: "carepackage_land",

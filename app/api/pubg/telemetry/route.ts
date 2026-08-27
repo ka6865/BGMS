@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
+import { filterTelemetryEvents } from "@/lib/pubg-analysis/telemetryContract";
 import {
   downloadFromR2,
   getPresignedUrlFromR2,
@@ -113,6 +114,26 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "플레이어 식별자를 찾을 수 없습니다." }, { status: 404 });
     }
 
+    const myRoster = rosters.find((roster: any) =>
+      roster.relationships?.participants?.data?.some((participantRef: any) => participantRef.id === myInfo.id),
+    );
+    const teamParticipants = myRoster
+      ? myRoster.relationships.participants.data
+        .map((participantRef: any) => participants.find((participant: any) => participant.id === participantRef.id))
+        .filter(Boolean)
+      : [myInfo];
+    const teamStats = teamParticipants
+      .map((participant: any) => participant.attributes?.stats)
+      .filter(Boolean);
+    const teamNames = new Set<string>(teamStats
+      .map((stats: any) => normalizeName(stats.name))
+      .filter((name: string) => name.length > 0));
+    const teamAccountIds = new Set<string>(teamParticipants
+      .map((participant: any) => participant.attributes?.stats?.playerId
+        || participant.attributes?.stats?.accountId
+        || participant.attributes?.accountId)
+      .filter((id: unknown): id is string => typeof id === "string" && id.length > 0));
+
     const identity = createTelemetryIdentity({
       matchId,
       platform,
@@ -159,17 +180,22 @@ export async function GET(request: Request) {
     try {
       const telemetryRes = await fetch(asset.attributes.URL, { cache: "no-store" });
       if (!telemetryRes.ok) throw new Error("PUBG telemetry request failed");
-      const events = await telemetryRes.json();
+      const rawTelemetry = await telemetryRes.json();
+      const events = filterTelemetryEvents(rawTelemetry, {
+        mode,
+        teamNames,
+        teamAccountIds,
+      });
 
       const { AnalysisEngine } = await import("@/lib/pubg-analysis/AnalysisEngine");
       const engine = new AnalysisEngine(
         canonicalNickname,
         playerId,
+        teamNames,
+        teamAccountIds,
         new Set(),
         new Set(),
-        new Set(),
-        new Set(),
-        "",
+        myRoster?.id || "",
         mode,
       );
       const result = engine.run(

@@ -5,6 +5,7 @@ import { revalidateTag, unstable_cache } from "next/cache"; // [ISR V1.0] Next.j
 import { AnalysisEngine } from "@/lib/pubg-analysis/AnalysisEngine";
 import { RESULT_VERSION, TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
+import { filterTelemetryEvents } from "@/lib/pubg-analysis/telemetryContract";
 import { adaptBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
 import { fetchTierBenchmarkStats } from "@/lib/pubg-analysis/benchmarkLookup";
 import { buildProcessedTelemetryUpsert, getValidFullResult, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
@@ -408,12 +409,23 @@ export async function GET(request: NextRequest) {
     const myRoster = rosters.find((r: any) => r.relationships.participants.data.some((p: any) => p.id === myParticipant.id));
     const myRosterId = myRoster?.id || "";
 
-    const teamStats = myRoster 
-      ? myRoster.relationships.participants.data.map((pRef: any) => participants.find((p: any) => p.id === pRef.id)?.attributes.stats).filter(Boolean)
-      : [myParticipant.attributes.stats];
+    const teamParticipants = myRoster
+      ? myRoster.relationships.participants.data
+        .map((pRef: any) => participants.find((p: any) => p.id === pRef.id))
+        .filter(Boolean)
+      : [myParticipant];
+    const teamStats = teamParticipants
+      .map((participant: any) => participant.attributes?.stats)
+      .filter(Boolean);
 
-    const teamNames = new Set<string>(teamStats.map((m: any) => normalizeName(m.name)));
-    const teamAccountIds = new Set<string>(teamStats.map((m: any) => (m.playerId || m.accountId) as string).filter(Boolean));
+    const teamNames = new Set<string>(teamStats
+      .map((m: any) => normalizeName(m.name))
+      .filter((name: string) => name.length > 0));
+    const teamAccountIds = new Set<string>(teamParticipants
+      .map((participant: any) => participant.attributes?.stats?.playerId
+        || participant.attributes?.stats?.accountId
+        || participant.attributes?.accountId)
+      .filter((id: unknown): id is string => typeof id === "string" && id.length > 0));
 
     const humanParticipants = participants.filter((p: any) => !p.attributes.accountId?.startsWith("ai."));
     const sortedByDamage = [...humanParticipants].map(p => p.attributes.stats).sort((a, b) => b.damageDealt - a.damageDealt);
@@ -659,75 +671,11 @@ async function reanalyzeAndSave(
         throw lastError || new Error("텔레메트리 파싱 실패");
       }
 
-      let posCount = 0;
       markAnalysisStep("telemetry_filter");
-      telData = rawTel.filter((e: any) => {
-        if (e._T === "LogPlayerPosition") {
-          const pName = normalizeName(e.character?.name || "");
-          if (teamNames.has(pName)) return true;
-          return (++posCount) % 10 === 0;
-        }
-        return [
-          "LogMatchStart", "LogPlayerCreate", "LogPlayerKill", "LogPlayerKillV2",
-          "LogPlayerMakeGroggy", "LogPlayerRevive", "LogPlayerRecall",
-          "LogPlayerRecallShip", "LogPlayerRedeploy", "LogPlayerRedeployBRStart",
-          "LogPlayerTakeDamage", "LogItemUse", "LogPlayerUseThrowable",
-          "LogThrowableUse", "LogProjectileHit", "LogGameStatePeriodic",
-          "LogPhaseChange", "LogParachuteLanding", "LogMatchEnd"
-        ].includes(e._T);
-      }).map((e: any) => {
-        const slim: any = { _T: e._T, _D: e._D };
-        const normLoc = (loc: any) => {
-          if (!loc) return null;
-          return { x: Math.round(loc.x), y: Math.round(loc.y), z: Math.round(loc.z || 0) };
-        };
-
-        if (e._T === "LogGameStatePeriodic") {
-          const gs = e.gameState;
-          slim.gameState = {
-            safetyZonePosition: normLoc(gs.safetyZonePosition),
-            safetyZoneRadius: Math.round(gs.safetyZoneRadius),
-            poisonGasWarningPosition: normLoc(gs.poisonGasWarningPosition),
-            poisonGasWarningRadius: gs.poisonGasWarningRadius != null ? Math.round(gs.poisonGasWarningRadius) : null
-          };
-          return slim;
-        }
-
-        const actors = ["attacker", "victim", "killer", "maker", "dBNOMaker", "finisher", "character", "recaller", "reviver", "item", "recallingPlayer", "recalledPlayer"];
-        actors.forEach(key => {
-          if (e[key]) {
-            const char = e[key];
-            slim[key] = {
-              name: (typeof char === 'string' ? char : (char.name || char.characterName || char.itemId)),
-              accountId: char.accountId || char.playerId,
-              teamId: char.teamId,
-              location: normLoc(char.location),
-              vehicle: char.vehicle
-            };
-          }
-        });
-
-        if (e.recalledPlayers && Array.isArray(e.recalledPlayers)) {
-          slim.recalledPlayers = e.recalledPlayers.map((p: any) => ({
-            name: p.name || p.characterName,
-            accountId: p.accountId || p.playerId,
-            teamId: p.teamId,
-            location: normLoc(p.location)
-          }));
-        }
-
-        const keepFields = ["damage", "damageReason", "damageTypeCategory", "damageCauserName", "damageCauser", "distance", "weapon", "weaponId", "dBNOId", "phase", "isGame", "attackId", "killerDamageInfo", "finishDamageInfo", "dBNODamageInfo", "reviveType", "vehicle"];
-        keepFields.forEach(f => { if (e[f] !== undefined) slim[f] = e[f]; });
-
-        if (e.common?.isGame !== undefined) slim.common = { isGame: e.common.isGame };
-        else if (e.Common?.IsGame !== undefined) slim.Common = { IsGame: e.Common.IsGame };
-
-        if (e._T === "LogMatchEnd") {
-          if (e.allWeaponStats !== undefined) slim.allWeaponStats = e.allWeaponStats;
-          if (e.characters !== undefined) slim.characters = e.characters;
-        }
-
-        return slim;
+      telData = filterTelemetryEvents(rawTel, {
+        mode: "lite",
+        teamNames,
+        teamAccountIds,
       });
 
       markAnalysisStep("telemetry_r2_upload");
