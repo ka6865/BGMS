@@ -12,6 +12,13 @@ import { jsonrepair } from "jsonrepair";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
 import { sanitizeAiCoachingLanguageText } from "@/lib/pubg-analysis/aiCoachingQuality";
+import {
+  buildMatchSelectionKey,
+  normalizeMatchId,
+  RECENT_MATCH_SELECTION_VERSION,
+  selectRecentMatches,
+  type RecentMatchCandidate,
+} from "@/lib/pubg-analysis/recentMatchSelection";
 import crypto from "crypto";
 
 export const maxDuration = 60;
@@ -346,16 +353,159 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing nickname" }, { status: 400 });
     }
 
-    // 1. Compute matchIdsHash
-    const normalizedMatchIds = matchIds
-      .map((id: string) => (id.includes(":") ? id.split(":").pop()! : id))
+    // [V45.3] 10개의 유효한 분석 데이터를 확보하기 위해 조회 범위를 25개로 확장 (이벤트/아케이드 필터링 대비)
+    const targetMatchIds = matchIds
+      .slice(0, 25)
+      .map((id: unknown) => id === null || id === undefined ? "" : String(id).trim())
       .filter(Boolean);
+    const normalizedTargetMatchIds = targetMatchIds
+      .map((id: string) => normalizeMatchId(id))
+      .filter((id): id is string => Boolean(id));
+    const searchMatchIds = Array.from(new Set([...targetMatchIds, ...normalizedTargetMatchIds])).filter(Boolean);
+    const requestedIndexByCanonicalId = new Map<string, number>();
+    targetMatchIds.forEach((rawId: string, index: number) => {
+      const canonicalId = normalizeMatchId(rawId);
+      if (canonicalId && !requestedIndexByCanonicalId.has(canonicalId)) requestedIndexByCanonicalId.set(canonicalId, index);
+    });
+
+    let cachedMatches: any[] = [];
+    try {
+      const processedResult = await supabase.from("processed_match_telemetry")
+        .select("match_id, data")
+        .in("match_id", searchMatchIds)
+        .eq("platform", cachePlatform)
+        .eq("player_id", lowerNickname)
+        .limit(searchMatchIds.length || 1);
+      cachedMatches = processedResult.data || [];
+      if (processedResult.error) {
+        console.warn("[AI-SUMMARY] Processed match lookup returned an error:", processedResult.error);
+      }
+    } catch (dbErr) {
+      console.warn("[AI-SUMMARY] Processed match lookup failed:", dbErr);
+    }
+
+    const cachedMap = new Map();
+    const cachedResults: any[] = [];
+    if (cachedMatches) {
+      cachedMatches.forEach(m => {
+        const fullResult = getValidFullResult(m, lowerNickname, cachePlatform)
+          || getValidFullResult({ data: { fullResult: m?.data } }, lowerNickname, cachePlatform);
+        // [ISR V1.0] RESULT_VERSION 비교 로직 소각 — 캐시 무효화는 revalidateTag가 전담
+        // 완료된 매치는 결과가 고정이므로 새로고침(force) 시에도 DB 캐시를 100% 재사용
+        if (fullResult) {
+          const pureId = normalizeMatchId(fullResult.matchId ?? fullResult.match_id ?? fullResult.id ?? m.match_id);
+          if (!pureId) return;
+          const normalizedData = {
+            ...fullResult,
+            matchId: pureId,
+            createdAt: fullResult.createdAt || fullResult.matchInfo?.date || m.created_at || m.updated_at || m.data?.createdAt || m.data?.created_at,
+            matchType: fullResult.matchType || fullResult.matchInfo?.matchType || m.match_type || m.data?.matchType || m.data?.match_type,
+            gameMode: fullResult.gameMode || fullResult.matchInfo?.mode || m.game_mode || m.data?.gameMode || m.data?.game_mode,
+            mapName: fullResult.mapName || fullResult.matchInfo?.mapId || fullResult.matchInfo?.map || m.map_name || m.data?.mapName || m.data?.map_name,
+          };
+          cachedResults.push(normalizedData);
+          cachedMap.set(pureId, normalizedData);
+          if (m.match_id) cachedMap.set(m.match_id, normalizedData);
+        } else {
+          console.warn(`[AI-SUMMARY] Ignored mismatched processed cache row: ${m.match_id}/${cachePlatform}/${lowerNickname}`);
+        }
+      });
+    }
+
+    const missingMatchIds = targetMatchIds.filter((id: string) => {
+      const canonicalId = normalizeMatchId(id);
+      return !canonicalId || !cachedMap.has(canonicalId);
+    });
+    const newResultsMap = new Map();
+
+    if (missingMatchIds.length > 0) {
+      const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
+      const host = request.headers.get('host') || 'localhost:3000';
+      const baseUrl = `${protocol}://${host}`;
+      for (let i = 0; i < missingMatchIds.length; i += 2) {
+        const batch = missingMatchIds.slice(i, i + 2);
+        await Promise.all(batch.map(async (id: string) => {
+          try {
+            const res = await fetch(`${baseUrl}/api/pubg/match?matchId=${encodeURIComponent(id)}&nickname=${encodeURIComponent(String(nickname))}&platform=${encodeURIComponent(String(platform))}`, { cache: 'no-store' });
+            if (res.ok) {
+              const data = await res.json();
+              const fallbackValue = data?.data?.fullResult || data?.fullResult || data;
+              const pureId = normalizeMatchId(fallbackValue?.matchId ?? fallbackValue?.match_id ?? fallbackValue?.id ?? data?.matchId ?? data?.match_id ?? data?.id ?? id);
+              const normalizedData = pureId && fallbackValue && typeof fallbackValue === "object"
+                ? { ...fallbackValue, matchId: pureId }
+                : null;
+              if (normalizedData) newResultsMap.set(pureId, normalizedData);
+            }
+          } catch (e) { console.error(`[AI-SUMMARY] Match fetch failed for ${id}:`, e); }
+        }));
+      }
+    }
+
+    const allMatches = [...cachedResults, ...newResultsMap.values()];
+    const rawMatches = allMatches;
+
+    const firstValue = (...values: unknown[]): unknown => values.find((value) => value !== undefined && value !== null && value !== "");
+    const selectionCandidates: RecentMatchCandidate<any>[] = rawMatches.map((match: any, rawSourceIndex: number) => {
+      const rawId = firstValue(match.matchId, match.match_id, match.id);
+      const canonicalId = normalizeMatchId(rawId);
+      const requestedIndex = canonicalId ? requestedIndexByCanonicalId.get(canonicalId) : undefined;
+      return {
+        id: typeof rawId === "string" ? rawId : canonicalId,
+        createdAt: firstValue(match.createdAt, match.created_at, match.date, match.matchInfo?.date)?.toString() || null,
+        matchType: firstValue(match.matchType, match.match_type, match.matchInfo?.matchType)?.toString() || null,
+        gameMode: firstValue(match.gameMode, match.game_mode, match.mode, match.matchInfo?.mode)?.toString() || null,
+        mapName: firstValue(match.mapName, match.map_name, match.map, match.matchInfo?.mapId, match.matchInfo?.map)?.toString() || null,
+        sourceIndex: requestedIndex === undefined ? rawSourceIndex : requestedIndex,
+        value: canonicalId ? { ...match, matchId: canonicalId } : match,
+      };
+    }).filter((candidate): candidate is RecentMatchCandidate<any> => Boolean(candidate.id));
+
+    // A request can still have a reusable summary-cache entry even when the
+    // processed table is empty/unavailable and every fallback fetch misses.
+    // Keep request IDs as metadata-only candidates for that lookup, but never
+    // let those placeholders reach Gemini (the full-result gate below blocks
+    // generation/upsert on a cache miss).
+    const metadataOnlySelection = selectionCandidates.length === 0
+      && cachedResults.length === 0
+      && newResultsMap.size === 0;
+    if (metadataOnlySelection) {
+      targetMatchIds.forEach((id: string, sourceIndex: number) => {
+        if (!normalizeMatchId(id)) return;
+        selectionCandidates.push({
+          id,
+          createdAt: null,
+          matchType: null,
+          gameMode: null,
+          mapName: null,
+          sourceIndex,
+          value: { matchId: normalizeMatchId(id) },
+        });
+      });
+    }
+
+    const selection = selectRecentMatches(selectionCandidates, {
+      limit: 10,
+      selectionVersion: RECENT_MATCH_SELECTION_VERSION,
+    });
+    const selectedMatches = selection.selected.map(({ value }) => value);
+    const selectedFullResults = selectedMatches.filter((match: any) => (
+      Boolean(match && typeof match === "object" && match.stats && typeof match.stats === "object")
+    ));
+    const selectionKey = buildMatchSelectionKey(
+      selection.selected.map(({ id }) => id),
+      selection.selectionVersion,
+    );
     const matchIdsHash = crypto
       .createHash("sha256")
-      .update(normalizedMatchIds.sort().join(","))
+      .update(AI_CACHE_VERSION + "\n" + selectionKey)
       .digest("hex");
 
-    // 2. DB Cache Lookup
+    if (selectedMatches.length === 0) {
+      return NextResponse.json({ error: "유효한 전술 분석 데이터가 없습니다. (이벤트/아케이드 모드 제외)" }, { status: 400 });
+    }
+
+    // Hash/cache lookup is deliberately after selection. `force` skips this
+    // read only; it does not alter fallback fetching or selection semantics.
     if (!force) {
       try {
         const { data: cached, error: cacheErr } = await supabase
@@ -391,6 +541,16 @@ export async function POST(request: Request) {
       }
     }
 
+    // Do not invoke Gemini when no match payload was available. The
+    // metadata-only branch above exists solely to preserve cache-only reads.
+    if (metadataOnlySelection) {
+      return NextResponse.json({ error: "유효한 전술 분석 데이터가 없습니다. (매치 데이터를 불러오지 못했습니다.)" }, { status: 400 });
+    }
+
+    if (selectedFullResults.length === 0) {
+      return NextResponse.json({ error: "유효한 전술 분석 데이터가 없습니다. (매치 결과가 없습니다.)" }, { status: 400 });
+    }
+
     const geminiApiKey = process.env.GOOGLE_GEMINI_API_KEY;
     if (!geminiApiKey) {
       trackAiFailure(authenticatedUserId, "summary", "No API Key", { errorCode: "configuration", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
@@ -402,97 +562,11 @@ export async function POST(request: Request) {
       .select("*")
       .eq("platform", cachePlatform)
       .ilike("player_id", lowerNickname)
-      .order('created_at', { ascending: false })
+      .order("created_at", { ascending: false })
       .limit(50);
 
-    // [V45.3] 10개의 유효한 분석 데이터를 확보하기 위해 조회 범위를 25개로 확장 (이벤트/아케이드 필터링 대비)
-    const targetMatchIds = matchIds.slice(0, 25);
-    const normalizedTargetMatchIds = targetMatchIds.map((id: string) => id.includes(':') ? id.split(':').pop() : id);
-    const searchMatchIds = Array.from(new Set([...targetMatchIds, ...normalizedTargetMatchIds])).filter(Boolean);
-
-    const { data: cachedMatches } = await supabase.from("processed_match_telemetry")
-      .select("match_id, data")
-      .in("match_id", searchMatchIds)
-      .eq("platform", cachePlatform)
-      .eq("player_id", lowerNickname)
-      .limit(searchMatchIds.length || 1);
-
-    const cachedMap = new Map();
-    if (cachedMatches) {
-      cachedMatches.forEach(m => {
-        const fullResult = getValidFullResult(m, lowerNickname, cachePlatform);
-        // [ISR V1.0] RESULT_VERSION 비교 로직 소각 — 캐시 무효화는 revalidateTag가 전담
-        // 완료된 매치는 결과가 고정이므로 새로고침(force) 시에도 DB 캐시를 100% 재사용
-        if (fullResult) {
-          const pureId = m.match_id.includes(':') ? m.match_id.split(':').pop()! : m.match_id;
-          const normalizedData = { ...fullResult, matchId: pureId };
-          cachedMap.set(pureId, normalizedData);
-          cachedMap.set(m.match_id, normalizedData);
-        } else {
-          console.warn(`[AI-SUMMARY] Ignored mismatched processed cache row: ${m.match_id}/${cachePlatform}/${lowerNickname}`);
-        }
-      });
-    }
-
-    const missingMatchIds = targetMatchIds.filter((id: string) => !cachedMap.has(id));
-    const newResultsMap = new Map();
-
-    if (missingMatchIds.length > 0) {
-      const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
-      const host = request.headers.get('host') || 'localhost:3000';
-      const baseUrl = `${protocol}://${host}`;
-      for (let i = 0; i < missingMatchIds.length; i += 2) {
-        const batch = missingMatchIds.slice(i, i + 2);
-        await Promise.all(batch.map(async (id: string) => {
-          try {
-            const res = await fetch(`${baseUrl}/api/pubg/match?matchId=${id}&nickname=${nickname}&platform=${platform}`, { cache: 'no-store' });
-            if (res.ok) {
-              const data = await res.json();
-              const pureId = id.includes(':') ? id.split(':').pop()! : id;
-              const normalizedData = { ...data, matchId: pureId };
-              if (data) newResultsMap.set(pureId, normalizedData);
-            }
-          } catch (e) { console.error(`[AI-SUMMARY] Match fetch failed for ${id}:`, e); }
-        }));
-      }
-    }
-
-    const allMatches = [...cachedMap.values(), ...newResultsMap.values()];
-    const rawMatches = Array.from(new Map(allMatches.map(m => [m.matchId, m])).values());
-
-    // [V45.2] 전술 분석 부적합 매치 필터링 (이벤트, 아케이드, 훈련장 등)
-    const detailedMatches = rawMatches.filter((m: any) => {
-      const mode = m.gameMode || "";
-      const map = m.mapName || "";
-
-      // 1. 제외 모드: 이벤트, 아케이드, 커스텀, 훈련장, AI 매치
-      if (mode.includes("event") || mode.includes("arcade") || mode.includes("custom") || mode.includes("training")) return false;
-
-      // 2. 제외 맵: 세이프하우스, 훈련장 등 (SafeHouse_Main, Range_Main)
-      if (map.includes("SafeHouse") || map.includes("Range_Main") || map.includes("Training")) return false;
-
-      return true;
-    });
-
-    // [V26.0] 생성 시간 기준 명시적 내림차순 정렬 (최근 경기가 0번 인덱스)
-    detailedMatches.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-    if (detailedMatches.length === 0) return NextResponse.json({ error: "유효한 전술 분석 데이터가 없습니다. (이벤트/아케이드 모드 제외)" }, { status: 400 });
-
-    // [V45.0] 잘한 판 5개 우선 분석 로직 (Best 5 Matches Selection)
-    // 1. 최근 10판 중 벤치마크 점수가 높은 순으로 정렬하여 상위 5판 선정 (데이터가 5판 미만이면 전체 분석)
-    const poolForBest = [...detailedMatches].slice(0, 10);
-    const bestMatches = poolForBest.sort((a: any, b: any) => {
-      const scoreA = a.benchmark?.score || 0;
-      const scoreB = b.benchmark?.score || 0;
-      if (scoreB !== scoreA) return scoreB - scoreA;
-      // 점수가 같거나 없으면 최신순
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    }).slice(0, 5);
-
-    // [V45.1] 데이터 집계 이원화: AI용(Best 5) vs 마스터리용(Total 10)
-    const summaryStats = aggregateMatches(bestMatches);
-    const masteryStats = aggregateMatches(poolForBest);
+    const summaryStats = aggregateMatches(selectedMatches);
+    const masteryStats = aggregateMatches(selectedMatches);
 
     const {
       latestMatchTime, avgBackupLatency, avgReactionLatency, userInitiativeRate, avgPressureIndex,
@@ -504,11 +578,10 @@ export async function POST(request: Request) {
       rankedCount, normalCount,
       totalInitiativeAttempts, totalInitiativeSuccess, totalSmokeRescues,
       totalSmokes
-    } = masteryStats; // UI(마스터리 카드)에는 10경기 전체 데이터를 사용
+    } = masteryStats;
 
-    // [V45.0] 모든 분석(통계, 그룹화, 역할 분류)은 '잘한 5판'을 기준으로 수행하여 유저의 잠재력을 극대화하여 분석
     const groups: Record<string, any[]> = { solo: [], duo: [], squad: [], 'solo-duo': [], 'solo-squad': [] };
-    bestMatches.forEach((m: any) => {
+    selectedMatches.forEach((m: any) => {
       if (!m.matchId && m.id) m.matchId = m.id;
       if (!m.matchId && m.match_id) m.matchId = m.match_id;
 
@@ -531,7 +604,7 @@ export async function POST(request: Request) {
       Summerland_Main: '칼린도', Heaven_Main: '헤이븐'
     };
     const mapGroups: Record<string, any[]> = {};
-    detailedMatches.forEach((m: any) => {
+    selectedMatches.forEach((m: any) => {
       const mapKey = m.mapName || 'Unknown';
       if (!mapGroups[mapKey]) mapGroups[mapKey] = [];
       mapGroups[mapKey].push(m);
@@ -640,10 +713,10 @@ export async function POST(request: Request) {
       return issues.sort((a, b) => b.gap - a.gap).slice(0, 3).map(i => i.topic);
     }
 
-    let userPrompt = `- 분석 대상: 최근 10경기 중 성적이 우수한 상위 ${summaryStats.mLen}경기 (랭크 매치: ${summaryStats.rankedCount}판 포함)\n`;
-    userPrompt += `- 분석 기준: 유저의 최고 기량(Peak Performance)을 바탕으로 잠재력 및 보완점 분석\n`;
+    let userPrompt = `- 분석 대상: 최근 유효 ${summaryStats.mLen}경기 (랭크 매치: ${summaryStats.rankedCount}판 포함)\n`;
+    userPrompt += `- 분석 기준: 선택된 유효 경기 전체를 바탕으로 잠재력 및 보완점 분석\n`;
     userPrompt += `- 주력 모드: ${mainModeName.toUpperCase()} (신뢰도: ${tierConfidence}, 기반: ${summaryStats.mLen}판)\n`;
-    const impactHighlights = bestMatches
+    const impactHighlights = selectedMatches
       .filter((match: any) => match.benchmark?.impactScore)
       .slice(0, 3);
     if (impactHighlights.length > 0) {
@@ -687,7 +760,7 @@ export async function POST(request: Request) {
     }
 
     let trendsData = null;
-    const matchesForTrend = detailedMatches.slice(0, 10);
+    const matchesForTrend = selectedMatches;
     if (matchesForTrend.length >= 6) {
       const recentMatches = matchesForTrend.slice(0, 5);
       const olderMatches = matchesForTrend.slice(5);
@@ -734,7 +807,7 @@ export async function POST(request: Request) {
         );
 
         // 2. 실시간 분석 데이터 매칭 (Fallback 포함)
-        const matchData = detailedMatches.find((m: any) => {
+        const matchData = selectedMatches.find((m: any) => {
           // [V40.0] 매치 객체 내부 ID 또는 Map에 저장할 때 썼던 ID 모두 체크
           const mId = (m.matchId || m.match_id || m.id);
           const normalizedMId = mId?.includes(':') ? mId.split(':').pop() : mId;
@@ -749,14 +822,12 @@ export async function POST(request: Request) {
         };
       }).filter(Boolean) as any[];
 
-      const sortedScores = combinedScores.sort((a, b) => b.score - a.score);
-      const topCount = Math.max(1, Math.ceil(sortedScores.length * 0.5));
-      const topScores = sortedScores.slice(0, topCount);
+      const groupScores = combinedScores;
 
-      const validCombat = topScores.map(s => s.combat).filter(s => s > 0);
-      const validTactical = topScores.map(s => s.tactical).filter(s => s > 0);
-      const validSurvival = topScores.map(s => s.survival).filter(s => s > 0);
-      const validScores = topScores.map(s => s.score);
+      const validCombat = groupScores.map(s => s.combat).filter(s => s > 0);
+      const validTactical = groupScores.map(s => s.tactical).filter(s => s > 0);
+      const validSurvival = groupScores.map(s => s.survival).filter(s => s > 0);
+      const validScores = groupScores.map(s => s.score);
 
       const avgScore = validScores.length > 0 ? validScores.reduce((a, b) => a + b, 0) / validScores.length : 55;
 
@@ -787,8 +858,8 @@ export async function POST(request: Request) {
         finalTierBreakdown = avgBreakdown;
       }
 
-      const gStats = summaryStats; // AI 프롬프트 분석에는 '잘한 5판' 데이터 사용
-      userPrompt += `### [${mode.toUpperCase()} 모드 분석] (선별된 상위 ${bestMatches.length}판 분석)\n`;
+      const gStats = summaryStats;
+      userPrompt += `### [${mode.toUpperCase()} 모드 분석] (선택된 최근 ${selectedMatches.length}판 분석)\n`;
       userPrompt += `- 유저 티어: ${userTier}\n- 평균 화력: ${gStats.avgDamage} (동일 티어 Benchmark: ${bench.avgDamage}), 평균 ${gStats.avgKills}킬\n- [선제 공격] 주도권 성공률: ${gStats.userInitiativeRate}% (Benchmark: ${bench.avgInitiativeRate}%)\n`;
       const benchDuelWinRate = bench.avgDuelWinRate;
       userPrompt += `- [교전 결정력] 1:1 교전 승률: ${gStats.avgDuelWinRate}% (Benchmark: ${benchDuelWinRate}%, 승리: ${gStats.totalDuelWins}회, 패배: ${gStats.totalDuelLosses}회, 역전승: ${gStats.totalReversalWins}회)\n- [교전 압박] 평균 압박 지수: ${gStats.avgPressureIndex} (Benchmark: ${bench.avgPressureIndex}), 최대 교전 거리: ${gStats.totalMaxHitDist}m\n`;

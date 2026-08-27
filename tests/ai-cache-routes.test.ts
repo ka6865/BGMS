@@ -3,7 +3,9 @@ import { POST as aiAnalyzePOST } from "../app/api/pubg/ai-analyze/route";
 import { POST as aiSummaryPOST } from "../app/api/pubg/ai-summary/route";
 import { POST as aiSquadPOST } from "../app/api/pubg/ai-squad/route";
 import { AI_CACHE_VERSION } from "../lib/pubg-analysis/constants";
+import { buildMatchSelectionKey, RECENT_MATCH_SELECTION_VERSION } from "../lib/pubg-analysis/recentMatchSelection";
 import { AI_CACHE_RETENTION_DAYS, AI_CACHE_TABLES, cleanupExpiredCache } from "../scripts/cleanup_ai_cache";
+import crypto from "node:crypto";
 
 const {
   mockWithAuthGuard,
@@ -379,6 +381,76 @@ describe("AI cache route stabilization", () => {
       }),
       { onConflict: "player_id,platform,match_ids_hash,prompt_version" }
     );
+  });
+
+  it("ai-summary는 최신 유효 10개만 집계하고 그 effective ID set으로 hash를 만든다", async () => {
+    mockSummaryGeminiResponse((prompt) => {
+      expect(prompt).toContain("최근 유효 10경기");
+      expect(prompt).toContain("평균 화력: 100");
+    });
+
+    const summaryCache = createQueryChain();
+    const telemetry = createQueryChain({
+      data: Array.from({ length: 11 }, (_, index) => ({
+        match_id: `match-${index}`,
+        data: {
+          fullResult: createSummaryMatch(`match-${index}`, {
+            createdAt: new Date(Date.UTC(2026, 7, 27, 0, index)).toISOString(),
+            stats: {
+              ...createSummaryMatch().stats,
+              damageDealt: index === 0 ? 9999 : 100,
+              processedDamageDealt: index === 0 ? 9999 : 100,
+            },
+            benchmark: {
+              score: index === 0 ? 100 : 1,
+              breakdown: { combat: 50, tactical: 50, survival: 50 },
+            },
+          }),
+        },
+      })),
+      error: null,
+    });
+    const globalBenchmarks = createQueryChain({ data: [], error: null });
+    const tierBenchmarks = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: globalBenchmarks,
+      benchmark_stats_by_tier: tierBenchmarks,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: Array.from({ length: 11 }, (_, index) => `match-${index}`),
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    await response.text();
+    expect(response.status).toBe(200);
+    const upsertPayload = summaryCache.upsert.mock.calls[0]?.[0];
+    const effectiveIds = Array.from({ length: 10 }, (_, index) => `match-${10 - index}`);
+    const selectionKey = buildMatchSelectionKey(effectiveIds, RECENT_MATCH_SELECTION_VERSION);
+    const expectedHash = crypto.createHash("sha256").update(`${AI_CACHE_VERSION}\n${selectionKey}`).digest("hex");
+    expect(upsertPayload.match_ids_hash).toBe(expectedHash);
+  });
+
+  it("ai-summary는 매치 결과가 전혀 없으면 metadata-only cache miss 뒤 Gemini/upsert를 호출하지 않는다", async () => {
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({ player_ai_summary_cache: summaryCache });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("missing", { status: 404 })));
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["match-without-data"],
+      nickname: "Player_A",
+      platform: "kakao",
+    }));
+
+    expect(response.status).toBe(400);
+    expect(summaryCache.select).toHaveBeenCalled();
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    expect(summaryCache.upsert).not.toHaveBeenCalled();
   });
 
   it("ai-summary의 force는 누락 매치 하위 요청에 재분석 권한으로 전파하지 않는다", async () => {
