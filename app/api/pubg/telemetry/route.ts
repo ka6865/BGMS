@@ -27,6 +27,8 @@ import {
 } from "@/lib/pubg-analysis/telemetryRegistry.server";
 import {
   createTelemetryIdentity,
+  hasMatchingUpstreamMatchId,
+  isCanonicalMatchId,
   parseTelemetryMode,
   parseTelemetryPlatform,
   type TelemetryMode,
@@ -40,11 +42,18 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
-const MATCH_ID = /^[A-Za-z0-9._-]{1,160}$/;
 const MAX_NICKNAME_LENGTH = 64;
 
-function invalidRequest(message: string) {
-  return NextResponse.json({ error: message }, { status: 400 });
+function invalidRequest(message: string, errorCode = "PUBG_TELEMETRY_INVALID_REQUEST") {
+  return NextResponse.json({ error: message, errorCode, retryable: false }, { status: 400 });
+}
+
+function upstreamIdentityMismatch() {
+  return NextResponse.json({
+    error: "PUBG 응답 매치 식별자가 요청과 일치하지 않습니다.",
+    errorCode: "PUBG_MATCH_UPSTREAM_IDENTITY_MISMATCH",
+    retryable: false,
+  }, { status: 400 });
 }
 
 export async function GET(request: Request) {
@@ -53,8 +62,8 @@ export async function GET(request: Request) {
   const nickname = searchParams.get("nickname");
   const mapName = searchParams.get("mapName") || "Erangel";
 
-  if (!matchId || !MATCH_ID.test(matchId)) {
-    return invalidRequest("유효한 matchId 파라미터가 필요합니다.");
+  if (!isCanonicalMatchId(matchId)) {
+    return invalidRequest("유효한 matchId 파라미터가 필요합니다.", "PUBG_MATCH_INVALID_ID");
   }
   if (!nickname || nickname.trim().length === 0 || nickname.length > MAX_NICKNAME_LENGTH) {
     return invalidRequest("유효한 nickname 파라미터가 필요합니다.");
@@ -93,6 +102,9 @@ export async function GET(request: Request) {
     }
     if (!matchRes.ok) throw new Error("PUBG match request failed");
     const matchData = await matchRes.json();
+    if (!hasMatchingUpstreamMatchId(matchData, matchId)) {
+      return upstreamIdentityMismatch();
+    }
 
     const participants = matchData.included.filter((item: any) => item.type === "participant");
     const rosters = matchData.included.filter((item: any) => item.type === "roster");

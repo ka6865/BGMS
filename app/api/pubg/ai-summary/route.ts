@@ -1,21 +1,26 @@
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
-import { AI_CACHE_VERSION, GEMINI_MODELS_TO_TRY, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
+import { AI_CACHE_VERSION, GEMINI_MODELS_TO_TRY, RESULT_VERSION, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
 import { estimateUserTier } from "@/lib/pubg-analysis/benchmarkScore";
 import { classifyRole } from "@/lib/pubg-analysis/roleClassifier";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { adaptBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
 import { fetchTierBenchmarkStats } from "@/lib/pubg-analysis/benchmarkLookup";
-import { getValidFullResult, isFullResultForPlayerPlatform, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
+import { getValidFullResultForMatch, isFullResultForPlayerPlatform, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { buildBackupCoachingContext } from "@/lib/pubg-analysis/backupCoaching";
 import { jsonrepair } from "jsonrepair";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
 import { sanitizeAiCoachingLanguageText } from "@/lib/pubg-analysis/aiCoachingQuality";
+import { isAiOrBotMatch } from "@/lib/pubg-analysis/matchEligibility";
 import {
+  buildBestMatchSelectionKey,
+  buildMatchScoreSelectionKey,
   buildMatchSelectionKey,
   normalizeMatchId,
+  normalizeBenchmarkScore,
   RECENT_MATCH_SELECTION_VERSION,
+  selectBestMatches,
   selectRecentMatches,
   type RecentMatchCandidate,
 } from "@/lib/pubg-analysis/recentMatchSelection";
@@ -23,8 +28,126 @@ import crypto from "crypto";
 
 export const maxDuration = 60;
 
-const AI_SUMMARY_TOTAL_TIMEOUT_MS = 22000;
+// Keep one route-wide deadline below the 60-second platform limit and the
+// browser's 55-second safety timer. This clock starts at the beginning of
+// POST, so auth, canonical hydration, prompt construction, Gemini, streaming,
+// and cache persistence all share the same headroom.
+const AI_SUMMARY_ROUTE_TIMEOUT_MS = 50000;
+const AI_SUMMARY_TOTAL_TIMEOUT_MS = 18000;
 const AI_SUMMARY_MODEL_TIMEOUT_MS = 8000;
+// Keep canonical fallback bounded so the route-wide deadline still has room
+// for the Gemini stage after missing matches are resolved (or abandoned).
+const AI_SUMMARY_FALLBACK_TOTAL_TIMEOUT_MS = 24000;
+const AI_SUMMARY_FALLBACK_FETCH_TIMEOUT_MS = 8000;
+const AI_SUMMARY_FALLBACK_CONCURRENCY = 2;
+
+type ComposedAbortSignal = {
+  signal: AbortSignal;
+  cleanup: () => void;
+};
+
+function composeAbortSignals(signals: readonly AbortSignal[]): ComposedAbortSignal {
+  const activeSignals = signals.filter(Boolean);
+  if (activeSignals.length === 0) {
+    return { signal: new AbortController().signal, cleanup: () => undefined };
+  }
+  if (activeSignals.length === 1) {
+    return { signal: activeSignals[0], cleanup: () => undefined };
+  }
+  if (typeof AbortSignal.any === "function") {
+    return { signal: AbortSignal.any(activeSignals), cleanup: () => undefined };
+  }
+
+  const controller = new AbortController();
+  const abort = () => controller.abort();
+  activeSignals.forEach((signal) => {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener("abort", abort, { once: true });
+  });
+  return {
+    signal: controller.signal,
+    cleanup: () => activeSignals.forEach((signal) => signal.removeEventListener("abort", abort)),
+  };
+}
+
+function createAbortPromise(signal: AbortSignal): { promise: Promise<never>; cleanup: () => void } {
+  let onAbort: (() => void) | null = null;
+  const promise = new Promise<never>((_, reject) => {
+    onAbort = () => {
+      const abortError = new Error("The operation was aborted.");
+      abortError.name = "AbortError";
+      reject(abortError);
+    };
+    if (signal.aborted) onAbort();
+    else signal.addEventListener("abort", onAbort, { once: true });
+  });
+  return {
+    promise,
+    cleanup: () => {
+      if (onAbort) signal.removeEventListener("abort", onAbort);
+    },
+  };
+}
+
+async function awaitWithAbort<T>(promise: PromiseLike<T>, signal: AbortSignal): Promise<T> {
+  const abortPromise = createAbortPromise(signal);
+  try {
+    return await Promise.race([Promise.resolve(promise), abortPromise.promise]);
+  } finally {
+    abortPromise.cleanup();
+  }
+}
+
+function hasCurrentResultVersion(fullResult: any): boolean {
+  return typeof fullResult?.v === "number"
+    && Number.isFinite(fullResult.v)
+    && fullResult.v >= RESULT_VERSION;
+}
+
+type SummaryDependencyFailure = "unavailable" | "timeout";
+
+function classifySummaryDependencyFailure(error: unknown): SummaryDependencyFailure | null {
+  if (!error || typeof error !== "object") return null;
+  const candidate = error as Record<string, unknown>;
+  const status = Number(candidate.status ?? candidate.statusCode ?? candidate.httpStatus);
+  const code = String(candidate.code ?? "").toUpperCase();
+  const name = String(candidate.name ?? "");
+  const message = String(candidate.message ?? candidate.details ?? "");
+
+  if (name === "TimeoutError" || /timeout|timed out/i.test(message) || status === 504) {
+    return "timeout";
+  }
+  if (status >= 500 || /^PGRST\d{3}$/.test(code) || /database|datastore|schema cache|connection|supabase|unavailable/i.test(message)) {
+    return "unavailable";
+  }
+  return null;
+}
+
+function summaryDependencyResponse(kind: SummaryDependencyFailure) {
+  return NextResponse.json({
+    error: kind === "timeout"
+      ? "AI summary data store request timed out."
+      : "AI summary data store is temporarily unavailable.",
+    errorCode: kind === "timeout" ? "PUBG_AI_DATABASE_TIMEOUT" : "PUBG_AI_DATABASE_UNAVAILABLE",
+    retryable: true,
+  }, { status: kind === "timeout" ? 504 : 503 });
+}
+
+function internalMatchApiOrigin(): string {
+  const isDevelopment = process.env.NODE_ENV === "development";
+  const fallbackOrigin = isDevelopment ? "http://localhost:3000" : "https://bgms.kr";
+  const configuredOrigin = process.env.APP_URL?.trim()
+    || (!isDevelopment ? process.env.NEXT_PUBLIC_SITE_URL?.trim() : "")
+    || fallbackOrigin;
+
+  try {
+    const parsed = new URL(configuredOrigin);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return fallbackOrigin;
+    return parsed.origin;
+  } catch {
+    return fallbackOrigin;
+  }
+}
 
 function normalizeWeaponName(weaponId: string): string {
   if (!weaponId) return "Unknown";
@@ -33,6 +156,98 @@ function normalizeWeaponName(weaponId: string): string {
   const upperName = name.toUpperCase();
   const names = WEAPON_NAMES as any;
   return names[upperName] || names[weaponId] || name;
+}
+
+function isCompetitiveMatch(match: any): boolean {
+  const values = [
+    match?.matchType,
+    match?.match_type,
+    match?.matchInfo?.matchType,
+    match?.gameMode,
+    match?.game_mode,
+    match?.matchInfo?.mode,
+  ];
+  return values.some((value) => /(?:^|[-_\s])(competitive|ranked)(?:$|[-_\s])/i.test(String(value ?? "").trim()));
+}
+
+function normalizedMatchMode(match: any): string {
+  const rawMode = match?.gameMode
+    ?? match?.game_mode
+    ?? match?.mode
+    ?? match?.matchInfo?.mode;
+  return String(rawMode ?? "").trim().toLowerCase();
+}
+
+function dominantRawMatchMode(matches: readonly any[], fallback: string): string {
+  const counts = new Map<string, number>();
+  matches.forEach((match) => {
+    const mode = normalizedMatchMode(match);
+    if (mode) counts.set(mode, (counts.get(mode) || 0) + 1);
+  });
+  const dominant = Array.from(counts.entries())
+    .sort(([aMode, aCount], [bMode, bCount]) =>
+      bCount - aCount || (aMode < bMode ? -1 : aMode > bMode ? 1 : 0))
+    .at(0)?.[0];
+  return dominant || fallback;
+}
+
+/**
+ * Serialize the values that actually affect an AI summary without exposing
+ * the underlying match payload. Object keys are sorted so equivalent
+ * effective inputs produce the same cache identity regardless of insertion
+ * order.
+ */
+function stableCacheSerialize(value: unknown, ancestors: WeakSet<object> = new WeakSet<object>()): string {
+  if (value === null) return "null";
+
+  switch (typeof value) {
+    case "undefined": return "undefined";
+    case "string": return JSON.stringify(value);
+    case "boolean": return value ? "true" : "false";
+    case "number": return Number.isFinite(value) ? String(value) : `number:${String(value)}`;
+    case "bigint": return `bigint:${value.toString()}`;
+    case "symbol": return `symbol:${String(value)}`;
+    case "function": return "function";
+    default: break;
+  }
+
+  const objectValue = value as object;
+  if (ancestors.has(objectValue)) return "[Circular]";
+  ancestors.add(objectValue);
+
+  try {
+    if (objectValue instanceof Date) {
+      const timestamp = objectValue.getTime();
+      return Number.isFinite(timestamp) ? JSON.stringify(objectValue.toISOString()) : "date:Invalid";
+    }
+    if (Array.isArray(objectValue)) {
+      return `[${objectValue.map((entry) => stableCacheSerialize(entry, ancestors)).join(",")}]`;
+    }
+
+    const entries = Object.keys(objectValue)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableCacheSerialize((objectValue as Record<string, unknown>)[key], ancestors)}`);
+    return `{${entries.join(",")}}`;
+  } finally {
+    ancestors.delete(objectValue);
+  }
+}
+
+function buildSummaryCacheHash(input: {
+  selectionKey: string;
+  bestSelectionKey: string;
+  latestScoreSelectionKey: string;
+  systemPrompt: string;
+  userPrompt: string;
+  precomputedVisuals: unknown;
+}): string {
+  const serializedInput = stableCacheSerialize(input);
+  return crypto
+    .createHash("sha256")
+    .update(AI_CACHE_VERSION)
+    .update("\n")
+    .update(serializedInput)
+    .digest("hex");
 }
 
 // [V42.0] jsonrepair 라이브러리를 활용한 강력한 JSON 복구 로직
@@ -129,7 +344,7 @@ function aggregateMatches(matches: any[]) {
         }
       });
     }
-    const isRanked = m.matchType === 'competitive' || (m.gameMode || "").includes("competitive");
+    const isRanked = isCompetitiveMatch(m);
     if (isRanked) rankedCount++; else normalCount++;
 
     if (m.tradeStats) {
@@ -289,11 +504,18 @@ function aggregateMatches(matches: any[]) {
   const totalKillContrib = killContribFinal.solo + killContribFinal.cleanup + killContribFinal.assist;
   const soloKillRate = totalKillContrib > 0 ? Math.round((killContribFinal.solo / totalKillContrib) * 100) : 0;
 
-  const matchTimes = matches.map((m: any) => {
-    const d = new Date(m.createdAt || Date.now());
-    return isNaN(d.getTime()) ? Date.now() : d.getTime();
-  });
-  const latestMatchTime = matchTimes.length > 0 ? new Date(Math.max(...matchTimes)).toISOString() : new Date().toISOString();
+  const validMatchTimes = matches
+    .map((m: any) => m?.createdAt ?? m?.created_at ?? m?.matchInfo?.date ?? m?.date)
+    .map((rawTime: unknown) => {
+      if (rawTime instanceof Date) return rawTime.getTime();
+      if (typeof rawTime !== "string" && typeof rawTime !== "number") return Number.NaN;
+      const timestamp = new Date(rawTime).getTime();
+      return Number.isFinite(timestamp) ? timestamp : Number.NaN;
+    })
+    .filter((timestamp: number) => Number.isFinite(timestamp));
+  const latestMatchTime = validMatchTimes.length > 0
+    ? new Date(Math.max(...validMatchTimes)).toISOString()
+    : new Date(0).toISOString();
 
   return {
     mLen, avgDamage, avgKills, avgDamageImpact, avgTeamDamageShare, avgTeamKillShare, topBadges,
@@ -330,16 +552,65 @@ function aggregateMatches(matches: any[]) {
 export async function POST(request: Request) {
   const requestId = crypto.randomUUID();
   const startedAt = Date.now();
+  const routeDeadlineAt = startedAt + AI_SUMMARY_ROUTE_TIMEOUT_MS;
+  // A Response body can be cancelled independently from request.signal.
+  // Bridge that consumer lifecycle into the same route-wide abort graph so
+  // Gemini iteration and cache persistence stop when nobody is reading.
+  const streamAbortController = new AbortController();
+  const routeDeadlineController = new AbortController();
+  const routeDeadlineTimer = setTimeout(
+    () => routeDeadlineController.abort(),
+    AI_SUMMARY_ROUTE_TIMEOUT_MS,
+  );
+  const routeSignal = composeAbortSignals([
+    request.signal,
+    routeDeadlineController.signal,
+    streamAbortController.signal,
+  ]);
+  let routeDeadlineCleaned = false;
+  let streamOwnsRouteDeadline = false;
+  const cleanupRouteDeadline = () => {
+    if (routeDeadlineCleaned) return;
+    routeDeadlineCleaned = true;
+    clearTimeout(routeDeadlineTimer);
+    routeSignal.cleanup();
+  };
+  const isRouteAborted = () => routeSignal.signal.aborted;
+  const isStreamCancelled = () => streamAbortController.signal.aborted;
+  const retryableAbortResponse = (input: {
+    error: string;
+    errorCode: string;
+    status: number;
+  }) => NextResponse.json({
+    error: input.error,
+    errorCode: input.errorCode,
+    retryable: true,
+  }, { status: input.status });
+  const abortResponse = () => request.signal.aborted
+    ? retryableAbortResponse({
+      error: "canonical match analysis is not ready",
+      errorCode: "PUBG_AI_CANONICAL_NOT_READY",
+      status: 409,
+    })
+    : retryableAbortResponse({
+      error: "AI summary request timed out",
+      errorCode: "PUBG_AI_ROUTE_TIMEOUT",
+      status: 504,
+    });
   let authenticatedUserId: string | undefined;
   let requestedPlatform = "steam";
   try {
+    if (isRouteAborted()) return abortResponse();
+
     // 🔒 [보안] JWT 인증 가드 — 로그인된 사용자만 AI 요약 실행 허용 (Gemini API 비용 방어)
-    const auth = await withAuthGuard();
+    const auth = await awaitWithAbort(withAuthGuard(), routeSignal.signal);
     if (auth.error) return auth.error;
+    if (isRouteAborted()) return abortResponse();
     const { supabaseAdmin: supabase } = auth;
     authenticatedUserId = auth.user?.id;
 
-    const { matchIds, nickname, platform = "steam", force = false } = await request.json();
+    const { matchIds, nickname, platform = "steam", force = false } = await awaitWithAbort(request.json(), routeSignal.signal);
+    if (isRouteAborted()) return abortResponse();
     requestedPlatform = String(platform || "steam");
     const lowerNickname = normalizeName(nickname);
     const cachePlatform = normalizePlatform(platform);
@@ -369,29 +640,57 @@ export async function POST(request: Request) {
     });
 
     let cachedMatches: any[] = [];
+    let processedDependencyFailure: SummaryDependencyFailure | null = null;
     try {
-      const processedResult = await supabase.from("processed_match_telemetry")
-        .select("match_id, data")
+      const processedResult = await awaitWithAbort(supabase.from("processed_match_telemetry")
+        .select("match_id, player_id, platform, data")
         .in("match_id", searchMatchIds)
         .eq("platform", cachePlatform)
         .eq("player_id", lowerNickname)
-        .limit(searchMatchIds.length || 1);
+        .abortSignal(routeSignal.signal)
+        .limit(searchMatchIds.length || 1), routeSignal.signal);
       cachedMatches = processedResult.data || [];
       if (processedResult.error) {
+        processedDependencyFailure = classifySummaryDependencyFailure(processedResult.error);
         console.warn("[AI-SUMMARY] Processed match lookup returned an error:", processedResult.error);
       }
     } catch (dbErr) {
+      processedDependencyFailure = classifySummaryDependencyFailure(dbErr);
       console.warn("[AI-SUMMARY] Processed match lookup failed:", dbErr);
+    }
+
+    if (isRouteAborted()) {
+      return request.signal.aborted
+        ? retryableAbortResponse({
+          error: "canonical match analysis is not ready",
+          errorCode: "PUBG_AI_CANONICAL_NOT_READY",
+          status: 409,
+        })
+        : retryableAbortResponse({
+          error: "AI summary request timed out",
+          errorCode: "PUBG_AI_ROUTE_TIMEOUT",
+          status: 504,
+        });
+    }
+
+    if (processedDependencyFailure) {
+      return summaryDependencyResponse(processedDependencyFailure);
     }
 
     const cachedMap = new Map();
     const cachedResults: any[] = [];
+    let staleMatchDetected = false;
     if (cachedMatches) {
       cachedMatches.forEach(m => {
-        const fullResult = getValidFullResult(m, lowerNickname, cachePlatform)
-          || getValidFullResult({ data: { fullResult: m?.data } }, lowerNickname, cachePlatform);
-        // [ISR V1.0] RESULT_VERSION 비교 로직 소각 — 캐시 무효화는 revalidateTag가 전담
-        // 완료된 매치는 결과가 고정이므로 새로고침(force) 시에도 DB 캐시를 100% 재사용
+        // Storage identity is authoritative. A row missing player/platform is
+        // a cache miss even when the query predicates were expected to match;
+        // never synthesize identity from request values at this boundary.
+        const fullResult = getValidFullResultForMatch(m, {
+          matchId: m?.match_id,
+          playerId: lowerNickname,
+          platform: cachePlatform,
+          minResultVersion: 0,
+        });
         if (fullResult) {
           const storageId = normalizeMatchId(m?.match_id);
           const embeddedId = normalizeMatchId(fullResult.matchId ?? fullResult.match_id ?? fullResult.id);
@@ -401,14 +700,25 @@ export async function POST(request: Request) {
           }
           const pureId = storageId || embeddedId;
           if (!pureId) return;
+          if (!hasCurrentResultVersion(fullResult)) {
+            staleMatchDetected = true;
+            console.warn(`[AI-SUMMARY] Ignored stale processed full result for ${pureId}`);
+            return;
+          }
+          const resultInfo = fullResult.matchInfo && typeof fullResult.matchInfo === "object"
+            ? fullResult.matchInfo as Record<string, unknown>
+            : {};
+          const rowData = m?.data && typeof m.data === "object"
+            ? m.data as Record<string, unknown>
+            : {};
           const normalizedData = {
             ...fullResult,
             matchId: pureId,
             __selectionRawId: m?.match_id || fullResult.matchId || pureId,
-            createdAt: fullResult.createdAt || fullResult.matchInfo?.date || m.created_at || m.updated_at || m.data?.createdAt || m.data?.created_at,
-            matchType: fullResult.matchType || fullResult.matchInfo?.matchType || m.match_type || m.data?.matchType || m.data?.match_type,
-            gameMode: fullResult.gameMode || fullResult.matchInfo?.mode || m.game_mode || m.data?.gameMode || m.data?.game_mode,
-            mapName: fullResult.mapName || fullResult.matchInfo?.mapId || fullResult.matchInfo?.map || m.map_name || m.data?.mapName || m.data?.map_name,
+            createdAt: fullResult.createdAt || resultInfo.date || m.created_at || m.updated_at || rowData.createdAt || rowData.created_at,
+            matchType: fullResult.matchType || resultInfo.matchType || m.match_type || rowData.matchType || rowData.match_type,
+            gameMode: fullResult.gameMode || resultInfo.mode || m.game_mode || rowData.gameMode || rowData.game_mode,
+            mapName: fullResult.mapName || resultInfo.mapId || resultInfo.map || m.map_name || rowData.mapName || rowData.map_name,
           };
           cachedResults.push(normalizedData);
           cachedMap.set(pureId, normalizedData);
@@ -418,60 +728,218 @@ export async function POST(request: Request) {
       });
     }
 
-    const missingMatchIds = targetMatchIds.filter((id: string) => {
+    const firstRequestedIdByCanonicalId = new Map<string, string>();
+    targetMatchIds.forEach((id: string) => {
       const canonicalId = normalizeMatchId(id);
-      return !canonicalId || !cachedMap.has(canonicalId);
+      if (canonicalId && !firstRequestedIdByCanonicalId.has(canonicalId)) {
+        firstRequestedIdByCanonicalId.set(canonicalId, id);
+      }
     });
+    const missingMatchIds = Array.from(firstRequestedIdByCanonicalId.entries())
+      .filter(([canonicalId]) => !cachedMap.has(canonicalId))
+      .map(([canonicalId]) => canonicalId);
     const newResultsMap = new Map();
+    let fallbackTimedOut = false;
+    let fallbackFetchTimedOut = false;
+    const firstValue = (...values: unknown[]): unknown => values.find((value) => value !== undefined && value !== null && value !== "");
+    const countEligibleCanonicalMatches = () => {
+      const candidates: RecentMatchCandidate<any>[] = [...cachedResults, ...newResultsMap.values()]
+        .map((match: any, sourceIndex: number) => {
+          const rawId = firstValue(match.__selectionRawId, match.matchId, match.match_id, match.id);
+          const canonicalId = normalizeMatchId(rawId);
+          return {
+            id: typeof rawId === "string" ? rawId : canonicalId,
+            createdAt: firstValue(match.createdAt, match.created_at, match.date, match.matchInfo?.date)?.toString() || null,
+            matchType: firstValue(match.matchType, match.match_type, match.matchInfo?.matchType)?.toString() || null,
+            gameMode: firstValue(match.gameMode, match.game_mode, match.mode, match.matchInfo?.mode)?.toString() || null,
+            mapName: firstValue(match.mapName, match.map_name, match.map, match.matchInfo?.mapId, match.matchInfo?.map)?.toString() || null,
+            sourceIndex,
+            value: match,
+          };
+        })
+        .filter((candidate): candidate is RecentMatchCandidate<any> => Boolean(candidate.id));
+      return selectRecentMatches(
+        candidates.filter((candidate) => !isAiOrBotMatch(candidate.value)),
+        { limit: 10 },
+      ).selected.length;
+    };
 
-    if (missingMatchIds.length > 0) {
-      const protocol = process.env.NODE_ENV === 'development' ? 'http' : 'https';
-      const host = request.headers.get('host') || 'localhost:3000';
-      const baseUrl = `${protocol}://${host}`;
-      for (let i = 0; i < missingMatchIds.length; i += 2) {
-        const batch = missingMatchIds.slice(i, i + 2);
-        await Promise.all(batch.map(async (id: string) => {
-          try {
-            const res = await fetch(`${baseUrl}/api/pubg/match?matchId=${encodeURIComponent(id)}&nickname=${encodeURIComponent(String(nickname))}&platform=${encodeURIComponent(String(platform))}`, { cache: 'no-store' });
-            if (res.ok) {
-              const data = await res.json();
-              const fallbackValue = data?.data?.fullResult || data?.fullResult || data;
-              const requestedCanonicalId = normalizeMatchId(id);
-              const returnedCanonicalId = normalizeMatchId(
-                fallbackValue?.matchId
-                  ?? fallbackValue?.match_id
-                  ?? fallbackValue?.id
-                  ?? data?.matchId
-                  ?? data?.match_id
-                  ?? data?.id,
-              );
-              if (!requestedCanonicalId || (returnedCanonicalId && returnedCanonicalId !== requestedCanonicalId)) {
-                console.warn(`[AI-SUMMARY] Ignored fallback with mismatched ID: requested=${requestedCanonicalId}, returned=${returnedCanonicalId}`);
-                return;
-              }
-              const normalizedData = fallbackValue && typeof fallbackValue === "object"
-                ? { ...fallbackValue, matchId: requestedCanonicalId, __selectionRawId: id }
-                : null;
-              if (!normalizedData || !isFullResultForPlayerPlatform(normalizedData, lowerNickname, cachePlatform)) {
-                console.warn(`[AI-SUMMARY] Ignored invalid fallback full result for ${requestedCanonicalId}`);
-                return;
-              }
-              newResultsMap.set(requestedCanonicalId, normalizedData);
-            }
-          } catch (e) { console.error(`[AI-SUMMARY] Match fetch failed for ${id}:`, e); }
-        }));
+    // The request order is the caller's latest-candidate window.  A complete
+    // set of older cached rows must not suppress hydration of a missing ID in
+    // that window: without the canonical payload we cannot know whether the
+    // requested match belongs in the latest ten or carries a newer timestamp.
+    const requestedLatestWindowIds = new Set(
+      targetMatchIds
+        .slice(0, 10)
+        .map((id: string) => normalizeMatchId(id))
+        .filter((id): id is string => Boolean(id)),
+    );
+    const missingRequestedWindow = missingMatchIds.some((id) => requestedLatestWindowIds.has(id));
+
+    if (missingMatchIds.length > 0 && (countEligibleCanonicalMatches() < 10 || missingRequestedWindow)) {
+      const baseUrl = internalMatchApiOrigin();
+      const fallbackDeadlineController = new AbortController();
+      const fallbackStopController = new AbortController();
+      const fallbackStartedAt = Date.now();
+      const fallbackBudgetMs = Math.min(
+        AI_SUMMARY_FALLBACK_TOTAL_TIMEOUT_MS,
+        Math.max(0, routeDeadlineAt - fallbackStartedAt),
+      );
+      const fallbackDeadlineTimer = setTimeout(
+        () => fallbackDeadlineController.abort(),
+        fallbackBudgetMs,
+      );
+      const fallbackSignal = composeAbortSignals([
+        routeSignal.signal,
+        fallbackDeadlineController.signal,
+        fallbackStopController.signal,
+      ]);
+      const fallbackDeadlineAt = fallbackStartedAt + fallbackBudgetMs;
+      let fallbackAttempted = false;
+
+      const runFallbackFetch = async (id: string): Promise<void> => {
+        const remainingMs = fallbackDeadlineAt - Date.now();
+        if (remainingMs <= 0 || fallbackSignal.signal.aborted) return;
+
+        const fetchTimeoutController = new AbortController();
+        const fetchTimeout = setTimeout(
+          () => fetchTimeoutController.abort(),
+          Math.min(AI_SUMMARY_FALLBACK_FETCH_TIMEOUT_MS, remainingMs),
+        );
+        const requestSignal = composeAbortSignals([
+          fallbackSignal.signal,
+          fetchTimeoutController.signal,
+        ]);
+        const abortPromise = createAbortPromise(requestSignal.signal);
+        try {
+          const fetchPromise = (async () => {
+            const res = await fetch(
+              `${baseUrl}/api/pubg/match?matchId=${encodeURIComponent(id)}&nickname=${encodeURIComponent(String(nickname))}&platform=${encodeURIComponent(String(platform))}`,
+              { cache: 'no-store', signal: requestSignal.signal },
+            );
+            if (!res.ok) return null;
+            return await res.json();
+          })();
+          const data = await Promise.race([fetchPromise, abortPromise.promise]);
+          if (requestSignal.signal.aborted || !data) return;
+
+          const fallbackValue = data?.data?.fullResult || data?.fullResult || data;
+          const requestedCanonicalId = normalizeMatchId(id);
+          const returnedCanonicalId = normalizeMatchId(
+            fallbackValue?.matchId
+              ?? fallbackValue?.match_id
+              ?? fallbackValue?.id
+              ?? data?.matchId
+              ?? data?.match_id
+              ?? data?.id,
+          );
+          if (!requestedCanonicalId || !returnedCanonicalId || returnedCanonicalId !== requestedCanonicalId) {
+            console.warn(`[AI-SUMMARY] Ignored fallback with mismatched ID: requested=${requestedCanonicalId}, returned=${returnedCanonicalId}`);
+            return;
+          }
+          const validatedFallback = getValidFullResultForMatch({
+            match_id: requestedCanonicalId,
+            player_id: lowerNickname,
+            platform: cachePlatform,
+            data: { fullResult: fallbackValue },
+          }, {
+            matchId: requestedCanonicalId,
+            playerId: lowerNickname,
+            platform: cachePlatform,
+            minResultVersion: 0,
+          });
+          const normalizedData = validatedFallback
+            ? { ...validatedFallback, __selectionRawId: id }
+            : null;
+          if (!normalizedData || !isFullResultForPlayerPlatform(normalizedData, lowerNickname, cachePlatform)) {
+            console.warn(`[AI-SUMMARY] Ignored invalid fallback full result for ${requestedCanonicalId}`);
+            return;
+          }
+          if (!hasCurrentResultVersion(normalizedData)) {
+            staleMatchDetected = true;
+            console.warn(`[AI-SUMMARY] Ignored stale fallback full result for ${requestedCanonicalId}`);
+            return;
+          }
+          if (requestSignal.signal.aborted) return;
+          newResultsMap.set(requestedCanonicalId, normalizedData);
+        } catch (e) {
+          if (fetchTimeoutController.signal.aborted) fallbackFetchTimedOut = true;
+          if (!(e instanceof Error && e.name === "AbortError")) {
+            console.error(`[AI-SUMMARY] Match fetch failed for ${id}:`, e);
+          }
+        } finally {
+          clearTimeout(fetchTimeout);
+          abortPromise.cleanup();
+          requestSignal.cleanup();
+        }
+      };
+
+      try {
+        const requiredMissingIds = new Set(
+          missingMatchIds.filter((id) => requestedLatestWindowIds.has(id)),
+        );
+        for (
+          let i = 0;
+          i < missingMatchIds.length && !fallbackSignal.signal.aborted;
+          i += AI_SUMMARY_FALLBACK_CONCURRENCY
+        ) {
+          // A complete older cache must not suppress hydration of any missing
+          // requested-window ID. Probe every required ID before allowing the
+          // normal ten-match stop condition to bound optional older work.
+          const pendingRequiredIds = missingMatchIds
+            .slice(i)
+            .some((id) => requiredMissingIds.has(id));
+          if (countEligibleCanonicalMatches() >= 10 && !pendingRequiredIds) break;
+          if (fallbackDeadlineAt - Date.now() <= 0) {
+            fallbackDeadlineController.abort();
+            break;
+          }
+          const batch = missingMatchIds.slice(i, i + AI_SUMMARY_FALLBACK_CONCURRENCY);
+          fallbackAttempted = true;
+          await Promise.all(batch.map((id: string) => runFallbackFetch(id)));
+        }
+      } finally {
+        fallbackTimedOut = fallbackDeadlineController.signal.aborted
+          || routeDeadlineController.signal.aborted
+          || request.signal.aborted;
+        clearTimeout(fallbackDeadlineTimer);
+        fallbackSignal.cleanup();
       }
     }
 
+    // Parent cancellation and the route deadline are terminal even when a
+    // partial canonical population is already usable. Never proceed into
+    // benchmark reads, Gemini, or cache persistence after either signal.
+    if (request.signal.aborted) {
+      return retryableAbortResponse({
+        error: "canonical match analysis is not ready",
+        errorCode: "PUBG_AI_CANONICAL_NOT_READY",
+        status: 409,
+      });
+    }
+    if (routeDeadlineController.signal.aborted) {
+      return retryableAbortResponse({
+        error: "AI summary request timed out",
+        errorCode: "PUBG_AI_ROUTE_TIMEOUT",
+        status: 504,
+      });
+    }
+
+    if (isRouteAborted()) return abortResponse();
     const allMatches = [...cachedResults, ...newResultsMap.values()];
     const rawMatches = allMatches;
 
-    const firstValue = (...values: unknown[]): unknown => values.find((value) => value !== undefined && value !== null && value !== "");
-    const selectionCandidates: RecentMatchCandidate<any>[] = rawMatches.map((match: any, rawSourceIndex: number) => {
+    // AI/bot rows remain available to detail/replay and are never rejected at
+    // ingest. This narrower summary boundary keeps latest10/best5 and their
+    // benchmark prompt population human battle-royale only.
+    const selectionCandidates: RecentMatchCandidate<any>[] = rawMatches
+      .filter((match: any) => !isAiOrBotMatch(match))
+      .map((match: any, rawSourceIndex: number) => {
       const rawId = firstValue(match.__selectionRawId, match.matchId, match.match_id, match.id);
       const canonicalId = normalizeMatchId(rawId);
       const requestedIndex = canonicalId ? requestedIndexByCanonicalId.get(canonicalId) : undefined;
-      const { __selectionRawId: _selectionRawId, ...matchValue } = match;
+      const matchValue = { ...match };
+      delete matchValue.__selectionRawId;
       return {
         id: typeof rawId === "string" ? rawId : canonicalId,
         createdAt: firstValue(match.createdAt, match.created_at, match.date, match.matchInfo?.date)?.toString() || null,
@@ -481,114 +949,82 @@ export async function POST(request: Request) {
         sourceIndex: requestedIndex === undefined ? rawSourceIndex : requestedIndex,
         value: canonicalId ? { ...matchValue, matchId: canonicalId } : matchValue,
       };
-    }).filter((candidate): candidate is RecentMatchCandidate<any> => Boolean(candidate.id));
-
-    // A request can still have a reusable summary-cache entry even when the
-    // processed table is empty/unavailable and every fallback fetch misses.
-    // Keep request IDs as metadata-only candidates for that lookup, but never
-    // let those placeholders reach Gemini (the full-result gate below blocks
-    // generation/upsert on a cache miss).
-    const metadataOnlySelection = selectionCandidates.length === 0
-      && cachedResults.length === 0
-      && newResultsMap.size === 0;
-    if (metadataOnlySelection) {
-      targetMatchIds.forEach((id: string, sourceIndex: number) => {
-        if (!normalizeMatchId(id)) return;
-        selectionCandidates.push({
-          id,
-          createdAt: null,
-          matchType: null,
-          gameMode: null,
-          mapName: null,
-          sourceIndex,
-          value: { matchId: normalizeMatchId(id) },
-        });
-      });
-    }
+      }).filter((candidate): candidate is RecentMatchCandidate<any> => Boolean(candidate.id));
 
     const selection = selectRecentMatches(selectionCandidates, {
       limit: 10,
       selectionVersion: RECENT_MATCH_SELECTION_VERSION,
     });
+
+    // A stale canonical row is different from a genuine metadata-only miss:
+    // callers must retry after the canonical match analysis reaches the
+    // current result version, and no stale payload may reach Gemini. Perform
+    // this check after filtering so a stale row plus only excluded current
+    // rows cannot silently fall through to a metadata-only response.
+    const hasUsableCanonicalSelection = selection.selected.some(({ value }) => (
+      isFullResultForPlayerPlatform(value, lowerNickname, cachePlatform)
+      && hasCurrentResultVersion(value)
+    ));
+    if (isRouteAborted()) return abortResponse();
+    if ((staleMatchDetected || fallbackTimedOut || fallbackFetchTimedOut || request.signal.aborted) && !hasUsableCanonicalSelection) {
+      return NextResponse.json({
+        error: "canonical match analysis is not ready",
+        errorCode: "PUBG_AI_CANONICAL_NOT_READY",
+        retryable: true,
+      }, { status: 409 });
+    }
+
+    // A score-aware cache identity cannot be reconstructed from request IDs
+    // when the processed table and match endpoint are both unavailable. Do
+    // not turn these IDs into score=0 placeholders: that would either miss a
+    // valid cache or, if a legacy/partial hash happened to match, return a
+    // summary for an unverified best-five population. The existing cache row
+    // stores only its hash/result, so there is no safe alias lookup here.
+    const metadataOnlySelection = selectionCandidates.length === 0
+      && cachedResults.length === 0
+      && newResultsMap.size === 0;
+    if (metadataOnlySelection) {
+      console.warn("[AI-SUMMARY] Match data unavailable; refusing metadata-only cache lookup because best-five score identity cannot be verified");
+      if (missingMatchIds.length > 0) {
+        return NextResponse.json({
+          error: "canonical match analysis is not ready",
+          errorCode: "PUBG_AI_CANONICAL_NOT_READY",
+          retryable: true,
+        }, { status: 409 });
+      }
+      return NextResponse.json({ error: "유효한 전술 분석 데이터가 없습니다. (매치 데이터를 불러오지 못했습니다.)" }, { status: 400 });
+    }
+
+    // `selection.selected` is the canonical latest-valid population. Keep it
+    // intact for latest-match/mastery/trend/map/basic metrics, then derive the
+    // AI/benchmark population from that set only through the shared pure
+    // selector so score ties remain deterministic across all callers.
+    const bestMatchCandidates = selectBestMatches(selection.selected);
     const selectedMatches = selection.selected.map(({ value }) => value);
+    const bestMatches = bestMatchCandidates.map(({ value }) => value);
     const selectedFullResults = selectedMatches.filter((match: any) => (
       isFullResultForPlayerPlatform(match, lowerNickname, cachePlatform)
+      && hasCurrentResultVersion(match)
     ));
     const selectionKey = buildMatchSelectionKey(
       selection.selected.map(({ id }) => id),
       selection.selectionVersion,
     );
-    const matchIdsHash = crypto
-      .createHash("sha256")
-      .update(AI_CACHE_VERSION + "\n" + selectionKey)
-      .digest("hex");
+    const bestSelectionKey = buildBestMatchSelectionKey(bestMatchCandidates);
+    const latestScoreSelectionKey = buildMatchScoreSelectionKey(selection.selected);
 
     if (selectedMatches.length === 0) {
       return NextResponse.json({ error: "유효한 전술 분석 데이터가 없습니다. (이벤트/아케이드 모드 제외)" }, { status: 400 });
-    }
-
-    // Hash/cache lookup is deliberately after selection. `force` skips this
-    // read only; it does not alter fallback fetching or selection semantics.
-    if (!force) {
-      try {
-        const { data: cached, error: cacheErr } = await supabase
-          .from("player_ai_summary_cache")
-          .select("ai_result")
-          .eq("player_id", lowerNickname)
-          .eq("platform", cachePlatform)
-          .eq("match_ids_hash", matchIdsHash)
-          .eq("prompt_version", AI_CACHE_VERSION)
-          .maybeSingle();
-
-        if (!cacheErr && cached && cached.ai_result) {
-          trackAiUsage(authenticatedUserId, "gemini-cache", 0, 0, "summary", {
-            durationMs: Date.now() - startedAt,
-            requestId,
-            platform: requestedPlatform,
-          });
-          const cachedData = cached.ai_result as any;
-          const sanitizedFinal = sanitizeAiCoachingLanguageText(String(cachedData.final || ""));
-          const encoder = new TextEncoder();
-          const stream = new ReadableStream({
-            start(controller) {
-              controller.enqueue(encoder.encode(JSON.stringify({ type: "visuals", data: cachedData.visuals }) + "\n"));
-              controller.enqueue(encoder.encode(JSON.stringify({ type: "final", data: sanitizedFinal }) + "\n"));
-              controller.enqueue(encoder.encode(JSON.stringify({ type: "done", valid: true }) + "\n"));
-              controller.close();
-            }
-          });
-          return new Response(stream, { headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-cache" } });
-        }
-      } catch (dbErr) {
-        console.warn("[AI-SUMMARY] Cache lookup failed:", dbErr);
-      }
-    }
-
-    // Do not invoke Gemini when no match payload was available. The
-    // metadata-only branch above exists solely to preserve cache-only reads.
-    if (metadataOnlySelection) {
-      return NextResponse.json({ error: "유효한 전술 분석 데이터가 없습니다. (매치 데이터를 불러오지 못했습니다.)" }, { status: 400 });
     }
 
     if (selectedFullResults.length === 0) {
       return NextResponse.json({ error: "유효한 전술 분석 데이터가 없습니다. (매치 결과가 없습니다.)" }, { status: 400 });
     }
 
-    const geminiApiKey = process.env.GOOGLE_GEMINI_API_KEY;
-    if (!geminiApiKey) {
-      trackAiFailure(authenticatedUserId, "summary", "No API Key", { errorCode: "configuration", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
-      return NextResponse.json({ error: "No API Key" }, { status: 500 });
-    }
-
-    const { data: userBenchmarks } = await supabase
-      .from("global_benchmarks")
-      .select("*")
-      .eq("platform", cachePlatform)
-      .ilike("player_id", lowerNickname)
-      .order("created_at", { ascending: false })
-      .limit(50);
-
-    const summaryStats = aggregateMatches(selectedMatches);
+    // Keep the two populations explicit: AI/upper-tier comparisons consume
+    // only the deterministic best five, while mastery and latest-match/basic
+    // visual context continue to aggregate the complete latest-valid ten.
+    const summaryStats = aggregateMatches(bestMatches);
     const masteryStats = aggregateMatches(selectedMatches);
 
     const {
@@ -604,11 +1040,11 @@ export async function POST(request: Request) {
     } = masteryStats;
 
     const groups: Record<string, any[]> = { solo: [], duo: [], squad: [], 'solo-duo': [], 'solo-squad': [] };
-    selectedMatches.forEach((m: any) => {
+    bestMatches.forEach((m: any) => {
       if (!m.matchId && m.id) m.matchId = m.id;
       if (!m.matchId && m.match_id) m.matchId = m.match_id;
 
-      const gm = m.gameMode || "squad";
+      const gm = normalizedMatchMode(m) || "squad";
       if (gm === 'solo-squad') groups['solo-squad'].push(m);
       else if (gm === 'solo-duo') groups['solo-duo'].push(m);
       else if (gm.includes('solo')) groups.solo.push(m);
@@ -617,8 +1053,14 @@ export async function POST(request: Request) {
     });
     const mainModeName = Object.keys(groups).sort((a, b) => groups[b].length - groups[a].length)[0];
     const mainModeCount = groups[mainModeName].length;
-    const tierConfidence = mainModeCount >= 7 ? '높음' : mainModeCount >= 3 ? '보통' : '낮음 (데이터 부족)';
-    const isCompetitiveFocus = rankedCount >= normalCount;
+    // Best-match analysis has a hard ceiling of five games. Keep confidence
+    // thresholds meaningful for that population instead of retaining the old
+    // latest-ten `>= 7` threshold that could never be reached.
+    const tierConfidence = mainModeCount >= 5 ? '높음' : mainModeCount >= 3 ? '보통' : '낮음 (데이터 부족)';
+    // The AI persona follows the same best-match population as the benchmark
+    // and role analysis; mastery/basic visual metrics and mode counts remain
+    // all latest-valid ten.
+    const isCompetitiveFocus = summaryStats.rankedCount >= summaryStats.normalCount;
     const isSoloSquadFocus = mainModeName.includes('solo-squad') || mainModeName.includes('solo-duo');
 
     const MAP_DISPLAY_NAMES: Record<string, string> = {
@@ -736,10 +1178,11 @@ export async function POST(request: Request) {
       return issues.sort((a, b) => b.gap - a.gap).slice(0, 3).map(i => i.topic);
     }
 
-    let userPrompt = `- 분석 대상: 최근 유효 ${summaryStats.mLen}경기 (랭크 매치: ${summaryStats.rankedCount}판 포함)\n`;
-    userPrompt += `- 분석 기준: 선택된 유효 경기 전체를 바탕으로 잠재력 및 보완점 분석\n`;
-    userPrompt += `- 주력 모드: ${mainModeName.toUpperCase()} (신뢰도: ${tierConfidence}, 기반: ${summaryStats.mLen}판)\n`;
-    const impactHighlights = selectedMatches
+    let userPrompt = `- 분석 대상: 최근 유효 ${masteryStats.mLen}경기 (랭크 매치: ${masteryStats.rankedCount}판 포함)\n`;
+    userPrompt += `- 상위권 비교/AI 토론 기준: 최근 유효 ${masteryStats.mLen}경기 중 benchmark.score 내림차순 상위 ${summaryStats.mLen}경기 (동점은 최신 날짜·원본 순서·ID 순)\n`;
+    userPrompt += `- 분석 기준: 유저의 최고 기량(Peak Performance)을 바탕으로 잠재력 및 보완점 분석\n`;
+    userPrompt += `- 주력 모드: ${mainModeName.toUpperCase()} (신뢰도: ${tierConfidence}, 기반: 상위 ${summaryStats.mLen}판)\n`;
+    const impactHighlights = bestMatches
       .filter((match: any) => match.benchmark?.impactScore)
       .slice(0, 3);
     if (impactHighlights.length > 0) {
@@ -784,7 +1227,10 @@ export async function POST(request: Request) {
 
     let trendsData = null;
     const matchesForTrend = selectedMatches;
-    if (matchesForTrend.length >= 6) {
+    // Keep the fixed "recent 5 vs previous 5" label truthful. With fewer
+    // than ten latest-valid matches there is no full previous-five sample, so
+    // omit the trend card rather than implying data that was not collected.
+    if (matchesForTrend.length >= 10) {
       const recentMatches = matchesForTrend.slice(0, 5);
       const olderMatches = matchesForTrend.slice(5);
       const recentStats = aggregateMatches(recentMatches);
@@ -811,78 +1257,62 @@ export async function POST(request: Request) {
 
 
     let maxMatches = 0;
-    let mainUserTier = "C";
+    let mainUserTier = "C"; // dashboard potential tier from the best-match population
     let mainBench: any = null;
-    let finalTierBreakdown: any = null;
+    let finalTierBreakdown: any = null; // overall best-match breakdown for the tier card
+    const overallGroupScores: any[] = [];
 
     for (const [mode, gMatches] of Object.entries(groups)) {
       if (gMatches.length === 0) continue;
+      if (isRouteAborted()) return abortResponse();
 
-      const gMatchIds = gMatches.map((m: any) => m.matchId || m.match_id || m.id).filter(Boolean);
-
-      const combinedScores = gMatchIds.map((id) => {
-        if (!id || typeof id !== 'string') return null;
-        const normalizedId = id.includes(':') ? id.split(':').pop() : id;
-
-        // 1. DB 벤치마크 매칭
-        const dbBench = userBenchmarks?.find(b =>
-          b.match_id === id || b.match_id === normalizedId
-        );
-
-        // 2. 실시간 분석 데이터 매칭 (Fallback 포함)
-        const matchData = selectedMatches.find((m: any) => {
-          // [V40.0] 매치 객체 내부 ID 또는 Map에 저장할 때 썼던 ID 모두 체크
-          const mId = (m.matchId || m.match_id || m.id);
-          const normalizedMId = mId?.includes(':') ? mId.split(':').pop() : mId;
-          return mId === id || normalizedMId === normalizedId || normalizedMId === id || mId === normalizedId;
-        });
-
+      // `bestMatches` already contains the canonical telemetry payloads used
+      // by selectBestMatches. Keep score and breakdowns on that same source so
+      // the score-aware cache key and potential tier cannot diverge from the
+      // values shown here. Numeric strings are accepted; zero is meaningful;
+      // nullish/non-finite values normalize to the selector's explicit zero.
+      const combinedScores = gMatches.map((matchData: any) => {
+        const breakdown = matchData?.benchmark?.breakdown;
         return {
-          combat: (dbBench?.combat_score || matchData?.benchmark?.breakdown?.combat || 0),
-          tactical: (dbBench?.tactical_score || matchData?.benchmark?.breakdown?.tactical || 0),
-          survival: (dbBench?.survival_score || matchData?.benchmark?.breakdown?.survival || 0),
-          score: (dbBench?.score || matchData?.benchmark?.score || 55)
+          combat: normalizeBenchmarkScore(breakdown?.combat),
+          tactical: normalizeBenchmarkScore(breakdown?.tactical),
+          survival: normalizeBenchmarkScore(breakdown?.survival),
+          score: normalizeBenchmarkScore(matchData?.benchmark?.score),
         };
-      }).filter(Boolean) as any[];
+      });
 
       const groupScores = combinedScores;
+      overallGroupScores.push(...groupScores);
 
-      const validCombat = groupScores.map(s => s.combat).filter(s => s > 0);
-      const validTactical = groupScores.map(s => s.tactical).filter(s => s > 0);
-      const validSurvival = groupScores.map(s => s.survival).filter(s => s > 0);
-      const validScores = groupScores.map(s => s.score);
+      const validScores = groupScores.map((s) => normalizeBenchmarkScore(s.score));
 
-      const avgScore = validScores.length > 0 ? validScores.reduce((a, b) => a + b, 0) / validScores.length : 55;
+      const avgScore = validScores.length > 0 ? validScores.reduce((a, b) => a + b, 0) / validScores.length : 0;
 
-      const avgBreakdown = {
-        combat: validCombat.length > 0 ? Number((validCombat.reduce((a: any, b: any) => a + b, 0) / validCombat.length).toFixed(1)) : 0,
-        tactical: validTactical.length > 0 ? Number((validTactical.reduce((a: any, b: any) => a + b, 0) / validTactical.length).toFixed(1)) : 0,
-        survival: validSurvival.length > 0 ? Number((validSurvival.reduce((a: any, b: any) => a + b, 0) / validSurvival.length).toFixed(1)) : 0,
-        total: Number(avgScore.toFixed(1))
-      };
-
-      const groupMatchTypes = gMatches.map(m => (m.matchType || m.match_type || "official").toLowerCase());
-      const compCount = groupMatchTypes.filter(t => t.includes("competitive")).length;
+      const compCount = gMatches.filter(isCompetitiveMatch).length;
       const dominantMatchType = compCount >= gMatches.length / 2 ? "competitive" : "official";
+      const benchmarkGameMode = dominantRawMatchMode(gMatches, mode);
 
       const userTier = estimateUserTier(avgScore);
-      const rawTierStats = await fetchTierBenchmarkStats(supabase, {
-        gameMode: mode,
+      const rawTierStats = await awaitWithAbort(fetchTierBenchmarkStats(supabase, {
+        gameMode: benchmarkGameMode,
         matchType: dominantMatchType,
-        tier: userTier
-      });
+        tier: userTier,
+        signal: routeSignal.signal,
+      }), routeSignal.signal);
+      if (isRouteAborted()) return abortResponse();
 
       const bench = adaptBenchmark(rawTierStats);
 
       if (gMatches.length > maxMatches) {
         maxMatches = gMatches.length;
-        mainUserTier = userTier;
         mainBench = bench;
-        finalTierBreakdown = avgBreakdown;
       }
 
-      const gStats = summaryStats;
-      userPrompt += `### [${mode.toUpperCase()} 모드 분석] (선택된 최근 ${selectedMatches.length}판 분석)\n`;
+      // Keep every mode section scoped to that mode's best-match sample. The
+      // overall best-five aggregate is used for the shared potential summary,
+      // not for per-mode user metrics or coaching topics.
+      const gStats = aggregateMatches(gMatches);
+      userPrompt += `### [${mode.toUpperCase()} 모드 분석] (최근 유효 ${selectedMatches.length}판 중 상위 ${bestMatches.length}판 분석; 상위 ${bestMatches.length}판 중 ${gMatches.length}판)\n`;
       userPrompt += `- 유저 티어: ${userTier}\n- 평균 화력: ${gStats.avgDamage} (동일 티어 Benchmark: ${bench.avgDamage}), 평균 ${gStats.avgKills}킬\n- [선제 공격] 주도권 성공률: ${gStats.userInitiativeRate}% (Benchmark: ${bench.avgInitiativeRate}%)\n`;
       const benchDuelWinRate = bench.avgDuelWinRate;
       userPrompt += `- [교전 결정력] 1:1 교전 승률: ${gStats.avgDuelWinRate}% (Benchmark: ${benchDuelWinRate}%, 승리: ${gStats.totalDuelWins}회, 패배: ${gStats.totalDuelLosses}회, 역전승: ${gStats.totalReversalWins}회)\n- [교전 압박] 평균 압박 지수: ${gStats.avgPressureIndex} (Benchmark: ${bench.avgPressureIndex}), 최대 교전 거리: ${gStats.totalMaxHitDist}m\n`;
@@ -911,6 +1341,28 @@ export async function POST(request: Request) {
       userPrompt = userPrompt.replace(`- [유틸리티] 총 투척 ${gStats.totalUtilityThrows}회, 피해형 투척 ${gStats.totalLethalThrows}회, 피해 적중 ${gStats.totalUtilityHits}회, 피해형 투척 딜량 ${Math.round(gStats.totalUtilityDamage / gStats.mLen)} (평균), 연막 ${gStats.totalSmokes}회`, `- [유틸리티] 총 투척 ${gStats.totalUtilityThrows}회 (연막 ${gStats.totalSmokes}회, 피해형 ${gStats.totalLethalThrows}회, 피해 적중 ${gStats.totalUtilityHits}회), 아군 기절 대비 연막 구출률: ${smokeOpportunityRate}% (Benchmark: ${bench.avgSmokeRate}%)`);
     }
 
+    // The UI labels this card as the potential tier of the top five matches.
+    // Average all effective best-five benchmark scores/breakdowns here so a
+    // minority mode cannot disappear from that single potential number. The
+    // dominant mode still supplies `mainBench` for benchmark/role context.
+    if (overallGroupScores.length > 0) {
+      const validOverallCombat = overallGroupScores.map((s) => normalizeBenchmarkScore(s.combat));
+      const validOverallTactical = overallGroupScores.map((s) => normalizeBenchmarkScore(s.tactical));
+      const validOverallSurvival = overallGroupScores.map((s) => normalizeBenchmarkScore(s.survival));
+      const validOverallScores = overallGroupScores.map((s) => normalizeBenchmarkScore(s.score));
+      const overallAvgScore = validOverallScores.length > 0
+        ? validOverallScores.reduce((a, b) => a + b, 0) / validOverallScores.length
+        : 0;
+
+      finalTierBreakdown = {
+        combat: Number((validOverallCombat.reduce((a, b) => a + b, 0) / validOverallCombat.length).toFixed(1)),
+        tactical: Number((validOverallTactical.reduce((a, b) => a + b, 0) / validOverallTactical.length).toFixed(1)),
+        survival: Number((validOverallSurvival.reduce((a, b) => a + b, 0) / validOverallSurvival.length).toFixed(1)),
+        total: Number(overallAvgScore.toFixed(1)),
+      };
+      mainUserTier = estimateUserTier(overallAvgScore);
+    }
+
     if (mainBench) {
       const mainModeStats = aggregateMatches(groups[mainModeName] || []);
       const autoTopics = selectDebateTopics(mainModeStats, mainBench);
@@ -921,75 +1373,6 @@ export async function POST(request: Request) {
     const roleInfo = classifyRole(mainModeStats, mainBench, mainUserTier);
     userPrompt += `\n### [유저 전술적 정체성]\n- 부여된 칭호: ${roleInfo.title}\n- 전술 직업군: ${roleInfo.roleLabel}\n- 특징 요약: ${roleInfo.description}\n- 주요 취약점: ${roleInfo.weakness || "식별된 약점 없음 (완성형)"}\n- 시그니처 무기: ${roleInfo.signatureWeapon} (${roleInfo.signatureWeaponStats?.kills}킬, ${roleInfo.signatureWeaponStats?.dbnos}기절, 사용 일관성: ${roleInfo.signatureWeaponStats?.consistency}%)\n`;
     userPrompt += `\n[INSTRUCTION] 'finalVerdict' 필드에 위 '주요 취약점'에 대한 분석과 전체 토론 내용을 결합하여, 유저에게 깊은 인상을 남길 수 있는 최종 판결문을 작성하십시오.`;
-
-    // [V43.0] AI 실패 시 사용할 시스템 템플릿 요약 (UX 보험)
-    const generateFallbackContent = () => {
-      const { duelStats } = precomputedVisuals;
-      return JSON.stringify({
-        signature: roleInfo.title || "미확인 전술가",
-        signatureSub: roleInfo.roleLabel || "분석 대기 중",
-        debateIssues: [
-          {
-            topic: "전투력",
-            question: "교전 승률과 결정력이 충분한가?",
-            spicyOpinion: `승률 ${duelStats.winRate}은 나쁘지 않지만, 반응 속도 ${avgReactionLatency}는 개선이 필요합니다.`,
-            kindOpinion: `상위권 평균을 상회하는 ${duelStats.winRate}의 승률은 매우 안정적인 전투력을 증명합니다.`,
-            winner: parseInt(duelStats.winRate) > 50 ? "kind" : "spicy",
-            reason: "데이터 기반 자동 판정 결과입니다.",
-            evaluation: parseInt(duelStats.winRate) > 50 ? "전투력은 합격점입니다." : "교전 정교함이 더 필요합니다.",
-            userStats: [{ label: "교전 승률", value: duelStats.winRate }],
-            benchmarkStats: [{ label: "상위권 평균", value: (mainBench?.avgDuelWinRate || 50) + "%" }]
-          },
-        ],
-        finalVerdict: "구글 AI 서버 지연으로 인해 시스템 엔진이 지표를 바탕으로 자동 분석한 결과입니다. 교전 반응 속도 개선에 집중하신다면 더 높은 티어로 올라갈 수 있습니다.",
-        actionItems: [
-          { icon: "⚡", title: "반응성 개선", desc: "피격 시 즉각적인 대응 사격과 엄폐물 확보 훈련이 필요합니다." }
-        ]
-      });
-    };
-
-    const genAI = new GoogleGenerativeAI(geminiApiKey);
-    const modelsToTry = GEMINI_MODELS_TO_TRY;
-    let streamResult = null;
-    let selectedModelName = "";
-
-    const safetySettings = [
-      { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-      { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-      { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-      { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }
-    ];
-
-    const generationStartedAt = Date.now();
-    for (const modelName of modelsToTry) {
-      try {
-        const remainingMs = AI_SUMMARY_TOTAL_TIMEOUT_MS - (Date.now() - generationStartedAt);
-        if (remainingMs <= 0) break;
-
-        const model = genAI.getGenerativeModel({
-          model: modelName,
-          systemInstruction: promptLines.join("\n"),
-          generationConfig: { responseMimeType: "application/json", temperature: 0.75, maxOutputTokens: 2500 },
-          safetySettings
-        });
-
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Timeout")), Math.min(AI_SUMMARY_MODEL_TIMEOUT_MS, remainingMs))
-        );
-
-        streamResult = await Promise.race([
-          model.generateContentStream(userPrompt),
-          timeoutPromise
-        ]) as any;
-
-        if (streamResult) {
-          selectedModelName = modelName;
-          break;
-        }
-      } catch (err: any) {
-        console.warn(`[AI-SUMMARY] Model ${modelName} failed (${err.message}), trying next...`);
-      }
-    }
 
     const reactionTier = (lat: string) => { const v = parseFloat(lat); return isNaN(v) ? "C" : v < 0.4 ? "S" : v < 0.6 ? "A" : v < 0.8 ? "B" : "C"; };
     const backupContextForVisuals = buildBackupCoachingContext({
@@ -1003,7 +1386,8 @@ export async function POST(request: Request) {
     });
 
     const precomputedVisuals = {
-      latestMatchTime, counterLatency: avgBackupLatency, reactionLatency: avgReactionLatency,
+      latestMatchTime, latestMatchCount: selectedMatches.length, bestMatchCount: bestMatches.length,
+      counterLatency: avgBackupLatency, reactionLatency: avgReactionLatency,
       reactionTier: reactionTier(avgReactionLatency), backupTier: backupContextForVisuals.tier, overallTier: mainUserTier, roleInfo,
       tierBreakdown: finalTierBreakdown,
       initiativeSuccess: `${userInitiativeRate}%`, pressureIndex: avgPressureIndex,
@@ -1039,12 +1423,239 @@ export async function POST(request: Request) {
       trends: trendsData
     };
 
+    // Remove legacy fields before hashing so the identity matches exactly the
+    // visuals that are emitted and persisted below.
+    if (precomputedVisuals.roleInfo) {
+      const ri = precomputedVisuals.roleInfo as any;
+      delete ri.specialMetrics;
+      delete ri.luckTrend;
+      delete ri.circleLuck;
+      delete ri.vehicleMastery;
+    }
+
+    const matchIdsHash = buildSummaryCacheHash({
+      selectionKey,
+      bestSelectionKey,
+      latestScoreSelectionKey,
+      systemPrompt: promptLines.join("\n"),
+      userPrompt,
+      precomputedVisuals,
+    });
+
+    // Cache lookup must happen after every effective prompt/visual/benchmark
+    // input is computed, but before requiring a Gemini key or constructing a
+    // model. This keeps cache hits usable during key outages.
+    if (!force) {
+      if (isRouteAborted()) return abortResponse();
+      try {
+        const { data: cached, error: cacheErr } = await awaitWithAbort(supabase
+          .from("player_ai_summary_cache")
+          .select("ai_result")
+          .eq("player_id", lowerNickname)
+          .eq("platform", cachePlatform)
+          .eq("match_ids_hash", matchIdsHash)
+          .eq("prompt_version", AI_CACHE_VERSION)
+          .abortSignal(routeSignal.signal)
+          .maybeSingle(), routeSignal.signal);
+
+        if (isRouteAborted()) return abortResponse();
+        if (!cacheErr && cached && cached.ai_result) {
+          trackAiUsage(authenticatedUserId, "gemini-cache", 0, 0, "summary", {
+            durationMs: Date.now() - startedAt,
+            requestId,
+            platform: requestedPlatform,
+          });
+          const cachedData = cached.ai_result as any;
+          const sanitizedFinal = sanitizeAiCoachingLanguageText(String(cachedData.final || ""));
+          const encoder = new TextEncoder();
+          const stream = new ReadableStream({
+            start(controller) {
+              controller.enqueue(encoder.encode(JSON.stringify({ type: "visuals", data: cachedData.visuals }) + "\n"));
+              controller.enqueue(encoder.encode(JSON.stringify({ type: "final", data: sanitizedFinal }) + "\n"));
+              controller.enqueue(encoder.encode(JSON.stringify({ type: "done", valid: true }) + "\n"));
+              controller.close();
+            }
+          });
+          return new Response(stream, { headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-cache" } });
+        }
+      } catch (dbErr) {
+        console.warn("[AI-SUMMARY] Cache lookup failed:", dbErr);
+      }
+    }
+
+    if (isRouteAborted()) return abortResponse();
+    const geminiApiKey = process.env.GOOGLE_GEMINI_API_KEY;
+    if (!geminiApiKey) {
+      trackAiFailure(authenticatedUserId, "summary", "No API Key", { errorCode: "configuration", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
+      return NextResponse.json({ error: "No API Key" }, { status: 500 });
+    }
+
+    // [V43.0] AI 실패 시 사용할 시스템 템플릿 요약 (UX 보험)
+    const generateFallbackContent = () => {
+      // AI/benchmark analysis is scoped to the deterministic best-five
+      // population. Keep fallback text on that same aggregate instead of
+      // leaking latest-ten mastery metrics into the AI report.
+      const fallbackWinRate = `${summaryStats.avgDuelWinRate}%`;
+      const fallbackReactionLatency = summaryStats.avgReactionLatency;
+      return JSON.stringify({
+        signature: roleInfo.title || "미확인 전술가",
+        signatureSub: roleInfo.roleLabel || "분석 대기 중",
+        debateIssues: [
+          {
+            topic: "전투력",
+            question: "교전 승률과 결정력이 충분한가?",
+            spicyOpinion: `승률 ${fallbackWinRate}은 나쁘지 않지만, 반응 속도 ${fallbackReactionLatency}는 개선이 필요합니다.`,
+            kindOpinion: `상위권 평균을 상회하는 ${fallbackWinRate}의 승률은 매우 안정적인 전투력을 증명합니다.`,
+            winner: parseInt(fallbackWinRate) > 50 ? "kind" : "spicy",
+            reason: "데이터 기반 자동 판정 결과입니다.",
+            evaluation: parseInt(fallbackWinRate) > 50 ? "전투력은 합격점입니다." : "교전 정교함이 더 필요합니다.",
+            userStats: [{ label: "교전 승률", value: fallbackWinRate }],
+            benchmarkStats: [{ label: "상위권 평균", value: (mainBench?.avgDuelWinRate || 50) + "%" }]
+          },
+        ],
+        finalVerdict: "구글 AI 서버 지연으로 인해 시스템 엔진이 지표를 바탕으로 자동 분석한 결과입니다. 교전 반응 속도 개선에 집중하신다면 더 높은 티어로 올라갈 수 있습니다.",
+        actionItems: [
+          { icon: "⚡", title: "반응성 개선", desc: "피격 시 즉각적인 대응 사격과 엄폐물 확보 훈련이 필요합니다." }
+        ]
+      });
+    };
+
+    const genAI = new GoogleGenerativeAI(geminiApiKey);
+    const modelsToTry = GEMINI_MODELS_TO_TRY;
+    let streamResult: any = null;
+    let selectedModelName = "";
+    let selectedModelAttemptSignalCleanup: (() => void) | null = null;
+
+    const safetySettings = [
+      { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+      { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+      { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
+      { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }
+    ];
+
+    const generationStartedAt = Date.now();
+    const generationBudgetMs = Math.min(
+      AI_SUMMARY_TOTAL_TIMEOUT_MS,
+      Math.max(0, routeDeadlineAt - generationStartedAt),
+    );
+    if (generationBudgetMs <= 0 || isRouteAborted()) return abortResponse();
+
+    const generationDeadlineAt = generationStartedAt + generationBudgetMs;
+    const generationDeadlineController = new AbortController();
+    const generationDeadlineTimer = setTimeout(
+      () => generationDeadlineController.abort(),
+      generationBudgetMs,
+    );
+    const generationSignal = composeAbortSignals([
+      routeSignal.signal,
+      generationDeadlineController.signal,
+    ]);
+    let generationSignalCleaned = false;
+    const cleanupGeneration = () => {
+      if (generationSignalCleaned) return;
+      generationSignalCleaned = true;
+      clearTimeout(generationDeadlineTimer);
+      generationSignal.cleanup();
+      selectedModelAttemptSignalCleanup?.();
+      selectedModelAttemptSignalCleanup = null;
+    };
+    let generationTimedOut = false;
+    for (const modelName of modelsToTry) {
+      const remainingGenerationMs = generationDeadlineAt - Date.now();
+      if (remainingGenerationMs <= 0 || generationSignal.signal.aborted) {
+        generationTimedOut = true;
+        break;
+      }
+
+      const modelAttemptController = new AbortController();
+      const modelAttemptBudgetMs = Math.min(AI_SUMMARY_MODEL_TIMEOUT_MS, remainingGenerationMs);
+      const modelAttemptTimer = setTimeout(
+        () => modelAttemptController.abort(),
+        modelAttemptBudgetMs,
+      );
+      const modelAttemptSignal = composeAbortSignals([
+        generationSignal.signal,
+        modelAttemptController.signal,
+      ]);
+      let modelAttemptTimedOut = false;
+      const markModelAttemptTimeout = () => {
+        modelAttemptTimedOut = true;
+      };
+      let preserveModelAttemptSignal = false;
+      try {
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          systemInstruction: promptLines.join("\n"),
+          generationConfig: { responseMimeType: "application/json", temperature: 0.75, maxOutputTokens: 2500 },
+          safetySettings
+        });
+
+        modelAttemptController.signal.addEventListener("abort", markModelAttemptTimeout, { once: true });
+        streamResult = await awaitWithAbort(model.generateContentStream(userPrompt, {
+          signal: modelAttemptSignal.signal,
+        }), modelAttemptSignal.signal);
+
+        if (modelAttemptSignal.signal.aborted) {
+          generationTimedOut = true;
+          streamResult = null;
+          break;
+        }
+
+        if (streamResult) {
+          selectedModelName = modelName;
+          preserveModelAttemptSignal = true;
+          selectedModelAttemptSignalCleanup = modelAttemptSignal.cleanup;
+          if (streamResult.response && typeof streamResult.response.then === "function") {
+            streamResult.response.then((res: any) => {
+              if (res?.usageMetadata && !isRouteAborted()) {
+                trackAiUsage(
+                  auth.user?.id,
+                  selectedModelName,
+                  res.usageMetadata.promptTokenCount,
+                  res.usageMetadata.candidatesTokenCount,
+                  "summary",
+                  { durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform },
+                );
+              }
+            }).catch((err: any) => console.error("[AI-SUMMARY] Usage fetch error:", err));
+          }
+          break;
+        }
+      } catch (err: any) {
+        const errorMessage = String(err?.message || "");
+        const providerTimedOut = err?.name === "TimeoutError"
+          || /timeout|timed out/i.test(errorMessage);
+        const providerAborted = err?.name === "AbortError"
+          || /request aborted/i.test(errorMessage);
+        if (modelAttemptTimedOut || providerTimedOut || providerAborted || modelAttemptSignal.signal.aborted || generationSignal.signal.aborted) {
+          generationTimedOut = true;
+          streamResult = null;
+          break;
+        }
+        console.warn(`[AI-SUMMARY] Model ${modelName} failed (${errorMessage}), trying next...`);
+      } finally {
+        clearTimeout(modelAttemptTimer);
+        modelAttemptController.signal.removeEventListener("abort", markModelAttemptTimeout);
+        if (!preserveModelAttemptSignal) modelAttemptSignal.cleanup();
+      }
+    }
+
+    if (generationTimedOut || isRouteAborted()) {
+      cleanupGeneration();
+      return abortResponse();
+    }
+    if (!streamResult) cleanupGeneration();
 
     const encoder = new TextEncoder();
-    return new Response(new ReadableStream({
+    const response = new Response(new ReadableStream({
+      cancel(reason) {
+        if (!streamAbortController.signal.aborted) streamAbortController.abort(reason);
+      },
       async start(controller) {
         let aiResponseText = "";
         try {
+          if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
+
           // [V45.0] 구형 필드 잔재 강제 제거 (Sanitization)
           if (precomputedVisuals.roleInfo) {
             const ri = precomputedVisuals.roleInfo as any;
@@ -1059,39 +1670,52 @@ export async function POST(request: Request) {
 
           // 4. Gemini 스트리밍 결과 처리
           if (streamResult) {
-            for await (const chunk of streamResult.stream) {
-              // [V54.2] 클라이언트가 연결을 끊었는지 체크 (토큰 낭비 방지 핵심)
-              if (request.signal.aborted) {
-                break;
+            const iterator = streamResult.stream[Symbol.asyncIterator]();
+            try {
+              while (true) {
+                if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
+                const nextPromise = iterator.next();
+                // If the route signal wins the race, retain a rejection handler
+                // on the SDK iterator so a later provider rejection is observed.
+                nextPromise.catch(() => undefined);
+                const abortPromise = createAbortPromise(generationSignal.signal);
+                let nextResult: IteratorResult<any>;
+                try {
+                  nextResult = await Promise.race([nextPromise, abortPromise.promise]) as IteratorResult<any>;
+                } finally {
+                  abortPromise.cleanup();
+                }
+                if (generationSignal.signal.aborted || isRouteAborted()) {
+                  throw new Error("AI summary request was aborted");
+                }
+                if (nextResult.done) break;
+                const chunkText = nextResult.value?.text?.();
+                if (typeof chunkText === "string") aiResponseText += chunkText;
               }
-
-              const chunkText = chunk.text();
-              aiResponseText += chunkText;
+            } finally {
+              if (generationSignal.signal.aborted || isRouteAborted()) {
+                try {
+                  const returnPromise = iterator.return?.();
+                  returnPromise?.catch(() => undefined);
+                } catch {
+                  // Iterator cleanup is best effort after cancellation.
+                }
+              }
             }
 
-            // 비동기로 사용량 메타데이터 획득 후 로깅
-            streamResult.response.then((res: any) => {
-              if (res.usageMetadata) {
-                trackAiUsage(
-                  auth.user?.id,
-                  selectedModelName,
-                  res.usageMetadata.promptTokenCount,
-                  res.usageMetadata.candidatesTokenCount,
-                  "summary",
-                  { durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform },
-                );
-              }
-            }).catch((err: any) => console.error("[AI-SUMMARY] Usage fetch error:", err));
-
           } else {
+            if (isRouteAborted()) throw new Error("AI summary request was aborted");
             aiResponseText = generateFallbackContent();
           }
+
+          if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
 
           // [V54.4] 최종 데이터 정제 및 단일 chunk 전송
           const finalResult = aiResponseText || generateFallbackContent();
           const validJsonString = sanitizeAiCoachingLanguageText(extractValidJson(finalResult));
 
           if (validJsonString) {
+            if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
             // [V54.3] 'chunk' 대신 'final' 타입을 사용하여 데이터 중복 방지
             controller.enqueue(encoder.encode(JSON.stringify({
               type: "final",
@@ -1099,47 +1723,97 @@ export async function POST(request: Request) {
             }) + "\n"));
 
             // 3. Write to DB Cache
+            if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
+            const persistenceSignal = streamResult ? generationSignal.signal : routeSignal.signal;
             try {
-              const { error: saveErr } = await supabase
+              const savePromise = supabase
                 .from("player_ai_summary_cache")
                 .upsert({
-                  player_id: lowerNickname,
-                  platform: cachePlatform,
-                  match_ids_hash: matchIdsHash,
-                  prompt_version: AI_CACHE_VERSION,
-                  ai_result: {
-                    visuals: precomputedVisuals,
-                    final: validJsonString
-                  },
-                  updated_at: new Date().toISOString()
-                }, { onConflict: "player_id,platform,match_ids_hash,prompt_version" });
+                    player_id: lowerNickname,
+                    platform: cachePlatform,
+                    match_ids_hash: matchIdsHash,
+                    prompt_version: AI_CACHE_VERSION,
+                    ai_result: {
+                      visuals: precomputedVisuals,
+                      final: validJsonString
+                    },
+                    updated_at: new Date().toISOString()
+                  }, { onConflict: "player_id,platform,match_ids_hash,prompt_version" })
+                .abortSignal(persistenceSignal);
+              const saveAbort = createAbortPromise(persistenceSignal);
+              let saveResult: { error?: any };
+              try {
+                saveResult = await Promise.race([savePromise, saveAbort.promise]) as { error?: any };
+              } finally {
+                saveAbort.cleanup();
+              }
+              if (isRouteAborted() || persistenceSignal.aborted) throw new Error("AI summary request was aborted");
+              const saveErr = saveResult?.error;
               if (saveErr) throw saveErr;
             } catch (saveErr: any) {
+              if (isRouteAborted() || persistenceSignal.aborted) throw new Error("AI summary request was aborted");
               console.warn("[AI-SUMMARY] Failed to write cache to DB:", saveErr.message || saveErr);
             }
 
             // 3. 완료 신호
+            if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
             controller.enqueue(encoder.encode(JSON.stringify({ type: "done", valid: true }) + "\n"));
           } else {
             throw new Error("No valid JSON extracted from AI response");
           }
         } catch (e: any) {
+          // Consumer cancellation already closes the Web Stream. It is normal
+          // lifecycle cleanup, not an AI failure and not a place to emit a
+          // fallback into the now-closed controller.
+          if (isStreamCancelled()) return;
           console.error("[AI-SUMMARY-STREAM-ERROR] Critical failure during stream generation:", e?.message || e);
           trackAiFailure(authenticatedUserId, "summary", e, {
-            durationMs: Date.now() - startedAt,
-            requestId,
-            platform: requestedPlatform,
-          });
+          durationMs: Date.now() - startedAt,
+          requestId,
+          platform: requestedPlatform,
+        });
           try {
-            // 실패 시 Fallback 데이터를 전송하여 UI 무한 대기 방지
-            const fallback = sanitizeAiCoachingLanguageText(generateFallbackContent());
-            controller.enqueue(encoder.encode(JSON.stringify({ type: "final", data: fallback }) + "\n"));
-            controller.enqueue(encoder.encode(JSON.stringify({ type: "done", valid: false, error: e?.message }) + "\n"));
+            if (isRouteAborted() || generationSignal.signal.aborted || e?.name === "AbortError") {
+              const errorCode = request.signal.aborted
+                ? "PUBG_AI_CANONICAL_NOT_READY"
+                : "PUBG_AI_ROUTE_TIMEOUT";
+              controller.enqueue(encoder.encode(JSON.stringify({
+                type: "error",
+                error: request.signal.aborted
+                  ? "canonical match analysis is not ready"
+                  : "AI summary request timed out",
+                errorCode,
+                retryable: true,
+              }) + "\n"));
+              controller.enqueue(encoder.encode(JSON.stringify({
+                type: "done",
+                valid: false,
+                error: request.signal.aborted
+                  ? "canonical match analysis is not ready"
+                  : "AI summary request timed out",
+                errorCode,
+                retryable: true,
+              }) + "\n"));
+            } else {
+              // 실패 시 Fallback 데이터를 전송하여 UI 무한 대기 방지
+              const fallback = sanitizeAiCoachingLanguageText(generateFallbackContent());
+              controller.enqueue(encoder.encode(JSON.stringify({ type: "final", data: fallback }) + "\n"));
+              controller.enqueue(encoder.encode(JSON.stringify({ type: "done", valid: false, error: e?.message }) + "\n"));
+            }
           } catch (innerError) {
             console.error("[AI-SUMMARY-STREAM-ERROR] Critical failure even in fallback:", innerError);
           }
         } finally {
-          controller.close();
+          cleanupGeneration();
+          cleanupRouteDeadline();
+          if (!isStreamCancelled()) {
+            try {
+              controller.close();
+            } catch {
+              // The consumer may close the body between the final guard and
+              // close(). All producer work is already cleaned up above.
+            }
+          }
         }
       }
     }), {
@@ -1150,7 +1824,12 @@ export async function POST(request: Request) {
         "X-Content-Type-Options": "nosniff"
       }
     });
+    streamOwnsRouteDeadline = true;
+    return response;
   } catch (error: any) {
+    if (isRouteAborted()) return abortResponse();
+    const dependencyFailure = classifySummaryDependencyFailure(error);
+    if (dependencyFailure) return summaryDependencyResponse(dependencyFailure);
     console.error("[AI-SUMMARY] CRITICAL ERROR:", error.message || error);
     trackAiFailure(authenticatedUserId, "summary", error, {
       durationMs: Date.now() - startedAt,
@@ -1158,5 +1837,7 @@ export async function POST(request: Request) {
       platform: requestedPlatform,
     });
     return NextResponse.json({ error: error.message }, { status: 500 });
+  } finally {
+    if (!streamOwnsRouteDeadline) cleanupRouteDeadline();
   }
 }

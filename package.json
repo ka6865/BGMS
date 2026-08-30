@@ -14,6 +14,7 @@
     "test:ai:report": "tsx scripts/check_ai_coaching_report.ts --require-default-suite --require-raw-quality",
     "test:ai:report:real": "tsx scripts/check_ai_coaching_report.ts --file tmp/ai-coaching-real-data-report.json --require-real-suite --require-raw-quality",
     "test:ai:real-data": "tsx scripts/audit_ai_coaching_real_data.ts",
+    "test:ai:strict-v73-smoke": "tsx scripts/real_gemini_strict_v73_smoke.ts",
     "test:ai:audit": "tsx scripts/write_ai_coaching_report_summary.ts --require-default-suite --require-raw-quality",
     "test:ai:audit:real": "tsx scripts/write_ai_coaching_report_summary.ts --file tmp/ai-coaching-real-data-report.json --output tmp/ai-coaching-real-data-audit.md --require-real-suite --require-raw-quality",
     "audit:pubg-ai-accuracy": "tsx scripts/audit_pubg_ai_accuracy.ts",

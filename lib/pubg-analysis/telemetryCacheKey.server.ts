@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import {
   createTelemetryIdentity,
   createTelemetryPublicIdentity,
+  telemetryPublicIdentityEquals,
   type TelemetryIdentity,
   type TelemetryPublicIdentity,
 } from "./telemetryIdentity";
@@ -66,4 +67,46 @@ export function buildTelemetryCacheKey(input: TelemetryIdentity): string {
     playerHash,
     `${identity.mode}.json`,
   ].join("/");
+}
+
+/**
+ * Private analyzed-event cache key. It keeps the existing `_analyze.json`
+ * suffix for cleanup tooling while deriving every identity segment from the
+ * canonical telemetry identity (including a hashed account ID).
+ */
+export function buildTelemetryAnalyzeCacheKey(input: TelemetryIdentity): string {
+  return buildTelemetryCacheKey(input).replace(/\.json$/, "_analyze.json");
+}
+
+export type TelemetryAnalyzeCacheEnvelope = {
+  identity: TelemetryPublicIdentity;
+  events: unknown[];
+};
+
+export function createTelemetryAnalyzeCacheEnvelope(
+  identity: TelemetryIdentity,
+  events: unknown[],
+): TelemetryAnalyzeCacheEnvelope {
+  return {
+    identity: buildTelemetryPublicIdentity(identity),
+    events,
+  };
+}
+
+/** Parse only new envelope objects that match the exact requested identity. */
+export function parseTelemetryAnalyzeCacheEnvelope(
+  value: unknown,
+  expected: TelemetryIdentity,
+): unknown[] | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  if (!Array.isArray(candidate.events)) return null;
+
+  try {
+    const actual = createTelemetryPublicIdentity(candidate.identity as TelemetryPublicIdentity);
+    const expectedPublic = buildTelemetryPublicIdentity(expected);
+    return telemetryPublicIdentityEquals(actual, expectedPublic) ? candidate.events : null;
+  } catch {
+    return null;
+  }
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildProcessedTelemetryUpsert,
   getValidFullResult,
@@ -6,7 +6,7 @@ import {
   isFullResultForPlayerPlatform
 } from "../lib/pubg-analysis/cacheIdentity";
 import { RESULT_VERSION } from "../lib/pubg-analysis/constants";
-import { aggregateTierBenchmarkRows } from "../lib/pubg-analysis/benchmarkLookup";
+import { aggregateTierBenchmarkRows, fetchTierBenchmarkStats } from "../lib/pubg-analysis/benchmarkLookup";
 import { estimateAverageTierFromRows } from "../lib/pubg-analysis/tierAveraging";
 import { classifyRole } from "../lib/pubg-analysis/roleClassifier";
 
@@ -125,6 +125,46 @@ describe("PUBG analysis identity stabilization", () => {
 });
 
 describe("PUBG benchmark and tier stabilization", () => {
+  it.each([
+    { code: "PGRST002", status: 503, message: "schema cache unavailable" },
+    { code: "PGRST116", status: 406, message: "JSON object requested, multiple (or no) rows returned" },
+    { code: "PGRST205", status: 404, message: "Could not find the table or view" },
+  ])("benchmark 조회는 non-null DB 오류($code)를 null 기본값으로 삼지 않고 전파한다", async (databaseError) => {
+    const query: any = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: databaseError }),
+      limit: vi.fn().mockResolvedValue({ data: null, error: databaseError }),
+    };
+    const supabase = { from: vi.fn().mockReturnValue(query) };
+
+    await expect(fetchTierBenchmarkStats(supabase, {
+      gameMode: "squad",
+      matchType: "official",
+      tier: "A",
+    })).rejects.toMatchObject(databaseError);
+    expect(query.limit).not.toHaveBeenCalled();
+  });
+
+  it("benchmark 조회는 error:null인 실제 no-row 결과만 null로 반환한다", async () => {
+    const query: any = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+    };
+    const supabase = { from: vi.fn().mockReturnValue(query) };
+
+    await expect(fetchTierBenchmarkStats(supabase, {
+      gameMode: "squad",
+      matchType: "official",
+      tier: "A",
+    })).resolves.toBeNull();
+    expect(query.limit).toHaveBeenCalledTimes(1);
+  });
+
   it("같은 티어군 fallback 벤치마크는 match_count로 가중 평균한다", () => {
     const aggregated = aggregateTierBenchmarkRows([
       { tier: "A+", match_count: 1, avg_damage: 600, avg_trade_latency_ms: 6000 },

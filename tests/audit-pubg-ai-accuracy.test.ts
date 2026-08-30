@@ -371,6 +371,6 @@ describe("anonymous PUBG AI accuracy audit", () => {
   it("의미 버전은 지정 값으로 한 번만 bump된다", () => {
     expect(RESULT_VERSION).toBe(73.0);
     expect(TELEMETRY_VERSION).toBe(61.0);
-    expect(AI_CACHE_VERSION).toBe("2026-08-27.pubg-ai-accuracy-v1");
+    expect(AI_CACHE_VERSION).toBe("2026-08-28.pubg-ai-accuracy-v2");
   });
 });

@@ -14,7 +14,7 @@
 
 export const RESULT_VERSION = 73.0; // [V73.0] PUBG AI 분석 정확도 감사 기준 결과 버전
 export const TELEMETRY_VERSION = 61.0; // [V61.0] PUBG AI 분석 정확도 감사 기준 telemetry 버전
-export const AI_CACHE_VERSION = "2026-08-27.pubg-ai-accuracy-v1"; // AI 프롬프트/응답 구조 캐시 버전
+export const AI_CACHE_VERSION = "2026-08-28.pubg-ai-accuracy-v2"; // latest10 basic metrics + best5 AI/benchmark population split cache version
 
 /**
  * 무료 티어 및 고효율 운영을 위한 Gemini 모델 폴백 우선순위

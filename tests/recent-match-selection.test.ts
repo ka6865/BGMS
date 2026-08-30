@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildBestMatchSelectionKey,
   buildMatchSelectionKey,
   normalizeMatchId,
+  normalizeBenchmarkScore,
+  selectBestMatches,
   selectRecentMatches,
   type RecentMatchCandidate,
 } from "@/lib/pubg-analysis/recentMatchSelection";
@@ -16,6 +19,23 @@ function candidate(
   score: number,
 ): RecentMatchCandidate<{ score: number }> {
   return { id, createdAt, matchType, gameMode, mapName, sourceIndex, value: { score } };
+}
+
+function bestCandidate(
+  id: string,
+  createdAt: string | null,
+  sourceIndex: number,
+  score?: unknown,
+): RecentMatchCandidate<{ benchmark?: { score?: unknown } }> {
+  return {
+    id,
+    createdAt,
+    matchType: "official",
+    gameMode: "squad",
+    mapName: "Erangel_Main",
+    sourceIndex,
+    value: { benchmark: score === undefined ? undefined : { score } },
+  };
 }
 
 describe("recent match selection", () => {
@@ -146,6 +166,45 @@ describe("recent match selection", () => {
     expect(reverse.selected[0]?.value).toEqual(bareId.value);
   });
 
+  it("canonical/date/source/raw ID가 모두 같은 payload도 canonical tie로 입력 순서와 무관하게 선택한다", () => {
+    const payloadA = candidate("same", "2026-08-02T00:00:00.000Z", "official", "squad", "Erangel_Main", 0, 0) as RecentMatchCandidate<any>;
+    payloadA.value = { payload: "alpha", nested: { z: 1, a: true } };
+    const payloadB = candidate("same", "2026-08-02T00:00:00.000Z", "official", "squad", "Erangel_Main", 0, 0) as RecentMatchCandidate<any>;
+    payloadB.value = { nested: { a: true, z: 1 }, payload: "beta" };
+
+    const forward = selectRecentMatches([payloadB, payloadA]);
+    const reverse = selectRecentMatches([payloadA, payloadB]);
+
+    expect(forward.selected[0]?.value).toEqual(payloadA.value);
+    expect(reverse.selected[0]?.value).toEqual(payloadA.value);
+  });
+
+  it("circular·비정상 duplicate payload도 tie-break에서 예외를 일으키지 않는다", () => {
+    const circularA = candidate("same", "2026-08-02T00:00:00.000Z", "official", "squad", "Erangel_Main", 0, 0) as RecentMatchCandidate<any>;
+    circularA.value = { payload: "alpha" };
+    circularA.value.self = circularA.value;
+    const circularB = candidate("same", "2026-08-02T00:00:00.000Z", "official", "squad", "Erangel_Main", 0, 0) as RecentMatchCandidate<any>;
+    circularB.value = { payload: "beta" };
+    circularB.value.self = circularB.value;
+
+    expect(() => selectRecentMatches([circularB, circularA])).not.toThrow();
+    expect(selectRecentMatches([circularB, circularA]).selected[0]?.value.payload).toBe("alpha");
+  });
+
+  it("동일 공유 참조와 ownKeys 예외 Proxy가 있어도 canonical tie가 종료된다", () => {
+    const shared = { marker: "shared" };
+    const throwingProxy = new Proxy({}, {
+      ownKeys: () => { throw new Error("ownKeys failed"); },
+    });
+    const payloadA = candidate("same", "2026-08-02T00:00:00.000Z", "official", "squad", "Erangel_Main", 0, 0) as RecentMatchCandidate<any>;
+    payloadA.value = { payload: "alpha", left: shared, right: shared, malformed: throwingProxy };
+    const payloadB = candidate("same", "2026-08-02T00:00:00.000Z", "official", "squad", "Erangel_Main", 0, 0) as RecentMatchCandidate<any>;
+    payloadB.value = { payload: "beta", left: shared, right: shared, malformed: throwingProxy };
+
+    expect(() => selectRecentMatches([payloadB, payloadA])).not.toThrow();
+    expect(selectRecentMatches([payloadB, payloadA]).selected[0]?.value.payload).toBe("alpha");
+  });
+
   it("invalid date는 valid date 뒤에 정렬되고 stable tie는 sourceIndex/ID를 따른다", () => {
     const result = selectRecentMatches([
       candidate("z", "not-a-date", "official", "squad", "Erangel_Main", 0, 0),
@@ -185,5 +244,44 @@ describe("recent match selection", () => {
     expect(normalizeMatchId(42)).toBe("42");
     expect(normalizeMatchId(" ")).toBeNull();
     expect(normalizeMatchId(null)).toBeNull();
+  });
+
+  it("best5는 latest pool 안에서 finite score 내림차순, 동점은 date/source/ID 순으로 선택한다", () => {
+    const sameDate = "2026-08-02T00:00:00.000Z";
+    const selected = selectBestMatches([
+      bestCandidate("score-high", "2026-08-01T00:00:00.000Z", 99, "4"),
+      bestCandidate("tie-z", sameDate, 2, 2),
+      bestCandidate("tie-b", sameDate, 1, 2),
+      bestCandidate("tie-a", sameDate, 1, 2),
+      bestCandidate("zero-newest", "2026-08-03T00:00:00.000Z", 8, "not-a-number"),
+      bestCandidate("zero-missing", "2026-08-04T00:00:00.000Z", 7),
+      bestCandidate("zero-infinity", "2026-08-05T00:00:00.000Z", 6, Infinity),
+    ]);
+
+    expect(selected.map(({ id }) => id)).toEqual([
+      "score-high", "tie-a", "tie-b", "tie-z", "zero-infinity",
+    ]);
+    expect(normalizeBenchmarkScore("not-a-number")).toBe(0);
+    expect(normalizeBenchmarkScore(Infinity)).toBe(0);
+    expect(normalizeBenchmarkScore("2.5")).toBe(2.5);
+  });
+
+  it("best5 cache key는 순서와 normalized score를 identity에 포함한다", () => {
+    const first = selectBestMatches([
+      bestCandidate("a", "2026-08-02T00:00:00.000Z", 0, "3"),
+      bestCandidate("b", "2026-08-01T00:00:00.000Z", 1, 2),
+    ]);
+    const sameNormalizedScore = selectBestMatches([
+      bestCandidate("a", "2026-08-02T00:00:00.000Z", 0, 3),
+      bestCandidate("b", "2026-08-01T00:00:00.000Z", 1, 2),
+    ]);
+    const changedScore = selectBestMatches([
+      bestCandidate("a", "2026-08-02T00:00:00.000Z", 0, 3.1),
+      bestCandidate("b", "2026-08-01T00:00:00.000Z", 1, 2),
+    ]);
+
+    expect(buildBestMatchSelectionKey(first)).toBe(buildBestMatchSelectionKey(sameNormalizedScore));
+    expect(buildBestMatchSelectionKey(first)).not.toBe(buildBestMatchSelectionKey(changedScore));
+    expect(buildBestMatchSelectionKey(first)).not.toBe(buildBestMatchSelectionKey([...first].reverse()));
   });
 });

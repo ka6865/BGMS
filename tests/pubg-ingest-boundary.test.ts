@@ -5,12 +5,13 @@ import ts from "typescript";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PersistMatchAnalysisResult } from "@/lib/pubg-analysis/persistMatchAnalysis";
 import { noteDatabaseAvailable } from "@/lib/pubg/databaseCircuitBreaker";
-import { buildTelemetryPlayerKey } from "@/lib/pubg-analysis/telemetryCacheKey.server";
-import { TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
+import { buildTelemetryCacheKey, buildTelemetryPlayerKey } from "@/lib/pubg-analysis/telemetryCacheKey.server";
+import { RESULT_VERSION, TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
 
 const {
   mockCreateClient,
   mockDownloadFromR2,
+  mockUploadToR2,
   mockAnalysisEngine,
   mockAfter,
   mockEngineRun,
@@ -26,6 +27,7 @@ const {
 } = vi.hoisted(() => {
   const mockEngineRun = vi.fn();
   const mockDownloadFromR2 = vi.fn().mockResolvedValue(null);
+  const mockUploadToR2 = vi.fn().mockResolvedValue(undefined);
   const mockAfter = vi.fn();
   const mockIsR2Configured = vi.fn(() => true);
   const mockAnalysisEngine = vi.fn(function MockAnalysisEngine() {
@@ -61,6 +63,7 @@ const {
   return {
     mockCreateClient: vi.fn(() => mockSupabase),
     mockDownloadFromR2,
+    mockUploadToR2,
     mockAnalysisEngine,
     mockAfter,
     mockEngineRun,
@@ -105,7 +108,7 @@ vi.mock("@/lib/pubg-analysis/r2Service", () => ({
   downloadFromR2: mockDownloadFromR2,
   getPresignedUrlFromR2: vi.fn().mockResolvedValue("https://r2.example/signed"),
   isR2Configured: mockIsR2Configured,
-  uploadToR2: vi.fn().mockResolvedValue(undefined),
+  uploadToR2: mockUploadToR2,
 }));
 
 vi.mock("server-only", () => ({}));
@@ -224,6 +227,7 @@ function importsPersistModule(file: string): boolean {
 }
 
 function createMatchRequest({
+  matchId = MATCH_ID,
   nickname = NICKNAME,
   source = "user",
   force = false,
@@ -231,6 +235,7 @@ function createMatchRequest({
   adminToken,
   secret,
 }: {
+  matchId?: string;
   nickname?: string;
   source?: "user" | "scraper";
   force?: boolean;
@@ -239,7 +244,7 @@ function createMatchRequest({
   secret?: string;
 } = {}) {
   const searchParams = new URLSearchParams({
-    matchId: MATCH_ID,
+    matchId,
     nickname,
     platform: "steam",
     source,
@@ -257,10 +262,24 @@ function createMatchRequest({
   );
 }
 
-function mockPubgMatchResponse() {
+function mockPubgMatchResponse({
+  upstreamId = MATCH_ID,
+  includeAsset = false,
+  telemetryUrl = "https://telemetry.example/match-demand.json",
+}: {
+  upstreamId?: string | null;
+  includeAsset?: boolean;
+  telemetryUrl?: string;
+} = {}) {
+  const data: Record<string, unknown> = { attributes: matchAttr };
+  if (upstreamId !== null) data.id = upstreamId;
+  const included: any[] = [participant, roster];
+  if (includeAsset) {
+    included.push({ id: "asset-1", type: "asset", attributes: { URL: telemetryUrl } });
+  }
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
-    data: { attributes: matchAttr },
-    included: [participant, roster],
+    data,
+    included,
   }), { status: 200, headers: { "content-type": "application/json" } })));
 }
 
@@ -412,6 +431,174 @@ describe("PUBG match persistence behavior", () => {
     expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["mismatch", "match-upstream-other"],
+    ["missing", null],
+  ])("upstream match data.id %s는 참가자·telemetry·R2·DB 처리 전에 sanitized 400으로 닫힌다", async (_label, upstreamId) => {
+    mockPubgMatchResponse({ upstreamId });
+
+    const response = await GET(createMatchRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toEqual({
+      error: "PUBG 응답 매치 식별자가 요청과 일치하지 않습니다.",
+      errorCode: "PUBG_MATCH_UPSTREAM_IDENTITY_MISMATCH",
+      retryable: false,
+    });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(mockDownloadFromR2).not.toHaveBeenCalled();
+    expect(mockUploadToR2).not.toHaveBeenCalled();
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+    expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
+    expect(JSON.stringify(body)).not.toContain("match-upstream-other");
+  });
+
+  it.each([
+    ["storage mismatch", { match_id: "match-other" }],
+    ["storage missing", {}],
+    ["embedded missing", { match_id: MATCH_ID, data: { fullResult: { ...analysisResult, player_id: NICKNAME.toLowerCase(), platform: "steam", v: RESULT_VERSION } } }],
+  ])("processed row %s는 strict match identity miss로 처리하고 새 분석을 실행한다", async (_label, row) => {
+    mockProcessedTelemetryMaybeSingle.mockResolvedValueOnce({
+      data: row,
+      error: null,
+    });
+
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    expect(mockAnalysisEngine).toHaveBeenCalledTimes(1);
+    expect(mockPersistMatchAnalysis).toHaveBeenCalledTimes(1);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("legacy analyze R2 cache key는 raw nickname 대신 match/platform/account hash identity를 사용한다", async () => {
+    const telemetryUrl = "https://telemetry.example/analyze-identity.json";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: { id: MATCH_ID, attributes: matchAttr },
+        included: [participant, roster, { id: "asset-1", type: "asset", attributes: { URL: telemetryUrl } }],
+      }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response("[]", { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    const analyzeKey = mockDownloadFromR2.mock.calls
+      .map(([key]) => String(key))
+      .find((key) => key.endsWith("_analyze.json"));
+    expect(analyzeKey).toBe(
+      `${buildTelemetryCacheKey({
+        matchId: MATCH_ID,
+        platform: "steam",
+        playerId: PLAYER_ID,
+        mode: "lite",
+        telemetryVersion: TELEMETRY_VERSION,
+      }).replace(/\.json$/, "_analyze.json")}`,
+    );
+    expect(analyzeKey).not.toContain("PlayerOne");
+  });
+
+  it("mismatched analyze R2 envelope is a miss and never reaches AnalysisEngine", async () => {
+    const telemetryUrl = "https://telemetry.example/analyze-envelope.json";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: { id: MATCH_ID, attributes: matchAttr },
+        included: [participant, roster, { id: "asset-1", type: "asset", attributes: { URL: telemetryUrl } }],
+      }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response("[]", { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    mockDownloadFromR2.mockImplementation(async (key: string) => key.endsWith("_analyze.json")
+      ? JSON.stringify({
+        identity: {
+          matchId: "match-other",
+          platform: "kakao",
+          playerKey: buildTelemetryPlayerKey("other-account"),
+          mode: "lite",
+          telemetryVersion: TELEMETRY_VERSION,
+        },
+        events: [{ attacker: { accountId: "other-account" } }],
+      })
+      : null);
+
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mockEngineRun).toHaveBeenCalledTimes(1);
+    expect(mockEngineRun.mock.calls[0]?.[0]).toEqual([]);
+  });
+
+  it("malformed analyze R2 JSON is a cache miss and refetches raw telemetry", async () => {
+    const telemetryUrl = "https://telemetry.example/analyze-malformed.json";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: { id: MATCH_ID, attributes: matchAttr },
+        included: [participant, roster, { id: "asset-1", type: "asset", attributes: { URL: telemetryUrl } }],
+      }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response("[]", { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    mockDownloadFromR2.mockImplementation(async (key: string) => key.endsWith("_analyze.json")
+      ? "{ definitely-not-json"
+      : null);
+
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(telemetryUrl);
+    expect(mockEngineRun).toHaveBeenCalledTimes(1);
+  });
+
+  it("현재 R2 map cache hit과 stale processed row가 함께 있어도 forced reanalysis가 engine·persistence를 실행한다", async () => {
+    vi.stubEnv("ADMIN_REVALIDATE_TOKEN", "admin-token");
+    mockDownloadFromR2.mockResolvedValueOnce(JSON.stringify({
+      identity: {
+        matchId: MATCH_ID,
+        platform: "steam",
+        playerKey: buildTelemetryPlayerKey(PLAYER_ID),
+        mode: "lite",
+        telemetryVersion: TELEMETRY_VERSION,
+      },
+      startTime: matchAttr.createdAt,
+      teammates: [],
+      teamNames: [NICKNAME],
+      events: [],
+      zoneEvents: [],
+      mapName: matchAttr.mapName,
+    }));
+    mockProcessedTelemetryMaybeSingle.mockResolvedValueOnce({
+      data: {
+        data: {
+          fullResult: {
+            ...analysisResult,
+            v: RESULT_VERSION - 1,
+            matchId: MATCH_ID,
+            player_id: NICKNAME.toLowerCase(),
+            platform: "steam",
+            mapData: undefined,
+          },
+        },
+      },
+      error: null,
+    });
+
+    const response = await GET(createMatchRequest({ force: true, adminToken: "admin-token" }));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.v).toBe(RESULT_VERSION);
+    expect(mockAnalysisEngine).toHaveBeenCalledTimes(1);
+    expect(mockPersistMatchAnalysis).toHaveBeenCalledWith(
+      mockSupabase,
+      expect.objectContaining({
+        finalResult: expect.objectContaining({ v: RESULT_VERSION }),
+      }),
+    );
+  });
+
   it("신규 분석 응답은 raw mapData를 반환하지 않는다", async () => {
     const response = await GET(createMatchRequest());
     const body = await response.json();
@@ -425,7 +612,7 @@ describe("PUBG match persistence behavior", () => {
     const telemetryUrl = "https://telemetry.example/match-demand.json";
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
-        data: { attributes: matchAttr },
+        data: { id: MATCH_ID, attributes: matchAttr },
         included: [
           participant,
           roster,
@@ -653,7 +840,8 @@ describe("PUBG match persistence behavior", () => {
     const response = await GET(createMatchRequest());
 
     expect(response.status).toBe(200);
-    expect(mockRpc).toHaveBeenCalledTimes(2);
+    expect(mockRpc).toHaveBeenCalledTimes(3);
+    expect(mockRpc.mock.calls.filter(([name]) => name === "release_telemetry_cache_write")).toHaveLength(1);
     expect(mockReportPubgApiError).not.toHaveBeenCalled();
     expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
     expect(consoleError).toHaveBeenCalledWith("[MATCH] Supabase unavailable during cache persistence; database circuit opened");
@@ -705,6 +893,63 @@ describe("PUBG match query boundary", () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it.each([
+    ["shard-prefixed", "shard:match-1"],
+    ["slash", "bad/id"],
+    ["space", "bad id"],
+    ["empty", ""],
+    ["too long", "a".repeat(161)],
+  ])("non-canonical matchId (%s)는 DB·PUBG·R2·mock 경계 전에 400으로 거부한다", async (_label, matchId) => {
+    const response = await GET(createMatchRequest({ matchId }));
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: "유효한 matchId 파라미터가 필요합니다.",
+      errorCode: "PUBG_MATCH_INVALID_ID",
+      retryable: false,
+    });
+    expect(mockFrom).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mockDownloadFromR2).not.toHaveBeenCalled();
+    expect(mockUploadToR2).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["mismatch", "match-other-upstream"],
+    ["missing", null],
+  ])("telemetry upstream data.id %s는 asset fetch/R2/DB persistence 전에 sanitized 400으로 닫힌다", async (_label, upstreamId) => {
+    const telemetryUrl = "https://telemetry.example/upstream-identity.json";
+    const included: any[] = [participant, roster, {
+      id: "asset-1",
+      type: "asset",
+      attributes: { URL: telemetryUrl },
+    }];
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: upstreamId === null
+        ? { attributes: matchAttr }
+        : { id: upstreamId, attributes: matchAttr },
+      included,
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await GET_TELEMETRY(new Request(
+      `http://localhost/api/pubg/telemetry?matchId=${MATCH_ID}&nickname=${NICKNAME}&platform=steam&mode=lite`,
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toEqual({
+      error: "PUBG 응답 매치 식별자가 요청과 일치하지 않습니다.",
+      errorCode: "PUBG_MATCH_UPSTREAM_IDENTITY_MISMATCH",
+      retryable: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockDownloadFromR2).not.toHaveBeenCalled();
+    expect(mockUploadToR2).not.toHaveBeenCalled();
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(JSON.stringify(body)).not.toContain("match-other-upstream");
   });
 
   it.each([
@@ -882,10 +1127,13 @@ describe("PUBG match query boundary", () => {
     expect(mockReportPubgApiError).toHaveBeenCalledTimes(1);
   });
 
-  it.each([72, 71])("R2 미설정에서도 v%s 유효 분석 캐시를 외부 호출 없이 반환한다", async (version) => {
+  it.each([72, 71])("R2 미설정에서 v%s stale 분석 캐시는 성공 응답으로 제공하지 않는다", async (version) => {
     mockIsR2Configured.mockReturnValue(false);
     mockProcessedTelemetryMaybeSingle.mockResolvedValue({
       data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
         data: {
           fullResult: {
             ...analysisResult,
@@ -902,7 +1150,10 @@ describe("PUBG match query boundary", () => {
 
     const response = await GET(createMatchRequest());
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error: "텔레메트리 캐시 저장소를 사용할 수 없습니다.",
+    });
     expect(fetch).not.toHaveBeenCalled();
     expect(mockAnalysisEngine).not.toHaveBeenCalled();
     expect(mockAfter).not.toHaveBeenCalled();
@@ -936,6 +1187,9 @@ describe("PUBG match query boundary", () => {
   it("백그라운드 재분석 실패를 고정된 운영 보고로 연결한다", async () => {
     mockProcessedTelemetryMaybeSingle.mockResolvedValue({
       data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
         data: {
           fullResult: {
             ...analysisResult,
@@ -953,7 +1207,12 @@ describe("PUBG match query boundary", () => {
     });
     const response = await GET(createMatchRequest());
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: "canonical match analysis is not ready",
+      errorCode: "PUBG_AI_CANONICAL_NOT_READY",
+      retryable: true,
+    });
     expect(mockAfter).toHaveBeenCalledTimes(1);
     const backgroundWork = mockAfter.mock.calls[0]?.[0];
     expect(backgroundWork).toEqual(expect.any(Function));

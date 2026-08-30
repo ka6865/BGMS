@@ -6,6 +6,7 @@
  */
 
 export const RECENT_MATCH_SELECTION_VERSION = "recent-valid-10-v1";
+export const BEST_MATCH_SELECTION_LIMIT = 5;
 
 export type RecentMatchCandidate<T> = {
   /** A raw match identifier. The selected/rejected result exposes its canonical form. */
@@ -42,6 +43,11 @@ export type RecentMatchSelection<T> = {
 export type RecentMatchSelectionOptions = {
   limit?: number;
   selectionVersion?: string;
+};
+
+export type BestMatchSelectionOptions = {
+  /** Optional lower ceiling for callers that need fewer than five matches. */
+  limit?: number;
 };
 
 const EXCLUDED_MATCH_TYPE_TOKENS = ["airoyale", "seasonal"] as const;
@@ -102,6 +108,48 @@ function sourceIndex(candidate: RecentMatchCandidate<unknown>): number {
   return Number.isFinite(candidate.sourceIndex) ? candidate.sourceIndex : Number.MAX_SAFE_INTEGER;
 }
 
+/**
+ * Normalize a benchmark score for both sorting and cache identity. The
+ * benchmark payload is persisted JSON, but older rows can contain strings,
+ * nullish values, or non-finite numeric values. Treat every value whose
+ * numeric representation is not finite as zero, without allowing an unusual
+ * value (for example a Symbol) to throw during selection.
+ */
+export function normalizeBenchmarkScore(value: unknown): number {
+  let score: number;
+  try {
+    score = Number(value);
+  } catch {
+    return 0;
+  }
+  return Number.isFinite(score) ? score : 0;
+}
+
+function benchmarkScoreForCandidate(candidate: RecentMatchCandidate<unknown>): number {
+  if (!candidate.value || typeof candidate.value !== "object") return 0;
+  const benchmark = (candidate.value as { benchmark?: unknown }).benchmark;
+  if (!benchmark || typeof benchmark !== "object") return 0;
+  return normalizeBenchmarkScore((benchmark as { score?: unknown }).score);
+}
+
+function canonicalCandidateId(candidate: RecentMatchCandidate<unknown>): string {
+  return normalizeMatchId(candidate.id) ?? String(candidate.id ?? "").trim();
+}
+
+function compareBestCandidates(
+  a: RecentMatchCandidate<unknown>,
+  b: RecentMatchCandidate<unknown>,
+): number {
+  const aScore = benchmarkScoreForCandidate(a);
+  const bScore = benchmarkScoreForCandidate(b);
+  if (aScore !== bScore) return bScore > aScore ? 1 : -1;
+
+  return compareCandidateDateThenSourceThenId(
+    { ...a, canonicalId: canonicalCandidateId(a) },
+    { ...b, canonicalId: canonicalCandidateId(b) },
+  );
+}
+
 function compareCandidateDateThenSourceThenId(
   a: RecentMatchCandidate<unknown> & { canonicalId: string },
   b: RecentMatchCandidate<unknown> & { canonicalId: string },
@@ -122,6 +170,102 @@ function compareCandidateDateThenSourceThenId(
   return compareLexical(a.canonicalId, b.canonicalId);
 }
 
+/**
+ * Build a deterministic, JSON-like representation for a duplicate payload.
+ * Match rows are normally plain JSON, but callers can hand this selector
+ * cyclic objects, BigInts, symbols, or throwing accessors. Never call the
+ * payload's `toJSON`/`toString` while walking objects and keep each operation
+ * guarded so a malformed payload cannot abort selection.
+ */
+function stablePayloadKey(value: unknown, ancestors: WeakSet<object> = new WeakSet<object>()): string {
+  if (value === null) return "null";
+
+  switch (typeof value) {
+    case "undefined":
+      return "undefined";
+    case "string":
+      try { return `string:${JSON.stringify(value)}`; } catch { return "string:[unserializable]"; }
+    case "boolean":
+      return `boolean:${value ? "true" : "false"}`;
+    case "number":
+      return Number.isFinite(value) ? `number:${String(value)}` : `number:${String(value)}`;
+    case "bigint":
+      try { return `bigint:${value.toString()}`; } catch { return "bigint:[unserializable]"; }
+    case "symbol":
+      try { return `symbol:${String(value)}`; } catch { return "symbol:[unserializable]"; }
+    case "function":
+      try { return `function:${String(value)}`; } catch { return "function:[unserializable]"; }
+    default:
+      break;
+  }
+
+  const objectValue = value as object;
+  try {
+    if (ancestors.has(objectValue)) return "[Circular]";
+    ancestors.add(objectValue);
+  } catch {
+    return "object:[unserializable]";
+  }
+
+  try {
+    if (objectValue instanceof Date) {
+      const timestamp = objectValue.getTime();
+      return Number.isFinite(timestamp) ? `date:${new Date(timestamp).toISOString()}` : "date:Invalid";
+    }
+
+    if (objectValue instanceof RegExp) {
+      return `regexp:${objectValue.source}/${objectValue.flags}`;
+    }
+
+    if (Array.isArray(objectValue)) {
+      return `array:[${objectValue.map((item) => stablePayloadKey(item, ancestors)).join(",")}]`;
+    }
+
+    if (objectValue instanceof Map) {
+      const entries = Array.from(objectValue.entries())
+        .map(([key, entryValue]) => [stablePayloadKey(key, ancestors), stablePayloadKey(entryValue, ancestors)] as const)
+        .sort(([aKey, aValue], [bKey, bValue]) => compareLexical(`${aKey}:${aValue}`, `${bKey}:${bValue}`));
+      return `map:{${entries.map(([key, entryValue]) => `${key}:${entryValue}`).join(",")}}`;
+    }
+
+    if (objectValue instanceof Set) {
+      const entries = Array.from(objectValue.values())
+        .map((entryValue) => stablePayloadKey(entryValue, ancestors))
+        .sort(compareLexical);
+      return `set:{${entries.join(",")}}`;
+    }
+
+    let keys: string[];
+    try {
+      keys = Object.keys(objectValue).sort(compareLexical);
+    } catch {
+      return "object:[unserializable]";
+    }
+
+    const entries: string[] = [];
+    for (const key of keys) {
+      let child: unknown;
+      try {
+        child = (objectValue as Record<string, unknown>)[key];
+      } catch {
+        child = "[getter threw]";
+      }
+      let serializedKey: string;
+      try {
+        serializedKey = JSON.stringify(key);
+      } catch {
+        serializedKey = `"${key}"`;
+      }
+      entries.push(`${serializedKey}:${stablePayloadKey(child, ancestors)}`);
+    }
+    return `object:{${entries.join(",")}}`;
+  } catch {
+    return "object:[unserializable]";
+  } finally {
+    try { ancestors.delete(objectValue); } catch { /* ignore malformed proxies */ }
+  }
+}
+
 function stableCandidateTieBreak(
   a: RecentMatchCandidate<unknown> & { canonicalId: string; originalId: string },
   b: RecentMatchCandidate<unknown> & { canonicalId: string; originalId: string },
@@ -131,9 +275,15 @@ function stableCandidateTieBreak(
 
   // Canonical IDs are equal within this duplicate group. Preserve the trimmed
   // raw ID as a final lexical key so `shard:x` and `x` resolve identically no
-  // matter which row arrived first. Never inspect `value`: score, placement,
-  // and impact fields must not decide the duplicate winner.
-  return compareLexical(a.originalId, b.originalId);
+  // matter which row arrived first. If those metadata keys are also equal,
+  // compare a canonical payload representation. This is only an exact-tie
+  // stabilizer: benchmark score/placement are never parsed or preferred, so
+  // duplicate winner policy remains metadata-first while differing payloads
+  // no longer depend on the arrival order. The serializer is cycle/odd-value
+  // safe and cannot throw on malformed data.
+  const rawIdDelta = compareLexical(a.originalId, b.originalId);
+  if (rawIdDelta !== 0) return rawIdDelta;
+  return compareLexical(stablePayloadKey(a.value), stablePayloadKey(b.value));
 }
 
 function normalizedCandidate<T>(candidate: RecentMatchCandidate<T>, canonicalId: string) {
@@ -250,6 +400,65 @@ export function selectRecentMatches<T>(
       })),
     selectionVersion,
   };
+}
+
+/**
+ * Select the best five matches from an already-selected latest-match pool.
+ * This helper deliberately does not perform validity filtering or de-duping:
+ * callers must pass the output of `selectRecentMatches`, so an older or
+ * otherwise invalid high-scoring match cannot enter the AI population.
+ *
+ * Scores are finite `Number(value.benchmark.score)` values in descending
+ * order. Equal (including normalized zero) scores use the same deterministic
+ * metadata ordering as the latest-match selector: parseable dates newest
+ * first, then source index ascending, then canonical ID lexical ascending.
+ */
+export function selectBestMatches<T>(
+  candidates: readonly RecentMatchCandidate<T>[],
+  options: BestMatchSelectionOptions = {},
+): Array<RecentMatchCandidate<T>> {
+  const requestedLimit = options.limit === undefined ? BEST_MATCH_SELECTION_LIMIT : Number(options.limit);
+  const limit = Number.isFinite(requestedLimit) && requestedLimit >= 0
+    ? Math.min(BEST_MATCH_SELECTION_LIMIT, Math.floor(requestedLimit))
+    : BEST_MATCH_SELECTION_LIMIT;
+
+  return [...candidates]
+    .sort((a, b) => compareBestCandidates(a, b))
+    .slice(0, limit);
+}
+
+/**
+ * Build an ordered identity for the effective best-match population. Unlike
+ * `buildMatchSelectionKey`, this key intentionally preserves order and stores
+ * each candidate's normalized benchmark score so changing a score invalidates
+ * an AI summary even when the latest-ten ID set is unchanged.
+ */
+export function buildBestMatchSelectionKey<T>(
+  candidates: readonly RecentMatchCandidate<T>[],
+): string {
+  return JSON.stringify({
+    matches: candidates.map((candidate) => ({
+      id: canonicalCandidateId(candidate),
+      score: benchmarkScoreForCandidate(candidate),
+    })),
+  });
+}
+
+/**
+ * Build the ordered identity for the complete latest-match population. The
+ * latest-ten set drives basic metrics, maps, and trends, so every canonical ID
+ * and normalized benchmark score must participate in the cache identity even
+ * when a score belongs to a match outside the best-five AI population.
+ */
+export function buildMatchScoreSelectionKey<T>(
+  candidates: readonly RecentMatchCandidate<T>[],
+): string {
+  return JSON.stringify({
+    matches: candidates.map((candidate) => ({
+      id: canonicalCandidateId(candidate),
+      score: benchmarkScoreForCandidate(candidate),
+    })),
+  });
 }
 
 /**

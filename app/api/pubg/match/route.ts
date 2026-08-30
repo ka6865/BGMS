@@ -8,7 +8,11 @@ import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { filterTelemetryEvents } from "@/lib/pubg-analysis/telemetryContract";
 import { adaptBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
 import { fetchTierBenchmarkStats } from "@/lib/pubg-analysis/benchmarkLookup";
-import { buildProcessedTelemetryUpsert, getValidFullResult, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
+import {
+  buildProcessedTelemetryUpsert,
+  getValidFullResultForMatch,
+  normalizePlatform,
+} from "@/lib/pubg-analysis/cacheIdentity";
 import {
   downloadFromR2,
   getPresignedUrlFromR2,
@@ -28,9 +32,16 @@ import {
   releaseTelemetryMapCacheReservation,
   TelemetryRegistryError,
 } from "@/lib/pubg-analysis/telemetryRegistry.server";
-import { createTelemetryIdentity } from "@/lib/pubg-analysis/telemetryIdentity";
 import {
+  createTelemetryIdentity,
+  hasMatchingUpstreamMatchId,
+  isCanonicalMatchId,
+} from "@/lib/pubg-analysis/telemetryIdentity";
+import {
+  buildTelemetryAnalyzeCacheKey,
   buildTelemetryPublicIdentity,
+  createTelemetryAnalyzeCacheEnvelope,
+  parseTelemetryAnalyzeCacheEnvelope,
   pseudonymizeTelemetryAccountIds,
   pseudonymizeTelemetryTeammates,
 } from "@/lib/pubg-analysis/telemetryCacheKey.server";
@@ -98,7 +109,7 @@ const getCachedMatchTelemetry = unstable_cache(
   async (matchId: string, lowerNickname: string, platform: string) => {
     const { data: cachedResult, error } = await supabase
       .from("processed_match_telemetry")
-      .select("data")
+      .select("match_id, player_id, platform, data")
       .eq("match_id", matchId)
       .eq("platform", normalizePlatform(platform))
       .eq("player_id", lowerNickname)
@@ -218,6 +229,22 @@ function databaseUnavailableResponse() {
   );
 }
 
+function invalidMatchIdResponse() {
+  return NextResponse.json({
+    error: "유효한 matchId 파라미터가 필요합니다.",
+    errorCode: "PUBG_MATCH_INVALID_ID",
+    retryable: false,
+  }, { status: 400 });
+}
+
+function upstreamIdentityMismatchResponse() {
+  return NextResponse.json({
+    error: "PUBG 응답 매치 식별자가 요청과 일치하지 않습니다.",
+    errorCode: "PUBG_MATCH_UPSTREAM_IDENTITY_MISMATCH",
+    retryable: false,
+  }, { status: 400 });
+}
+
 function isDatabaseFailureContext(
   stage: PubgErrorStage,
   step: PubgAnalysisStep | null,
@@ -280,6 +307,9 @@ export async function GET(request: NextRequest) {
   const matchId = searchParams.get("matchId");
   const nickname = searchParams.get("nickname");
   const platformValue = searchParams.get("platform");
+  if (!isCanonicalMatchId(matchId)) {
+    return invalidMatchIdResponse();
+  }
   if (!platformValue) {
     return NextResponse.json({ error: "Invalid platform" }, { status: 400 });
   }
@@ -340,7 +370,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  if (!matchId || !nickname) {
+  if (!nickname) {
     return NextResponse.json({ error: "Missing required parameters" }, { status: 400 });
   }
 
@@ -359,11 +389,16 @@ export async function GET(request: NextRequest) {
     if (!shouldForce) {
       const cachedData = await getCachedMatchTelemetry(matchId, lowerNickname, platform) as any;
       noteDatabaseAvailable();
-      cachedFullResult = getValidFullResult(cachedData, lowerNickname, platform);
-      if (cachedFullResult && (
-        (cachedFullResult.v || 0) >= RESULT_VERSION
-        || !isR2Configured()
-      )) {
+      cachedFullResult = getValidFullResultForMatch(cachedData, {
+        matchId,
+        playerId: lowerNickname,
+        platform,
+        minResultVersion: 0,
+      });
+      if (cachedFullResult
+        && typeof cachedFullResult.v === "number"
+        && Number.isFinite(cachedFullResult.v)
+        && cachedFullResult.v >= RESULT_VERSION) {
         return NextResponse.json(createTacticalResponse(cachedFullResult));
       }
     }
@@ -391,6 +426,9 @@ export async function GET(request: NextRequest) {
     matchNotFoundCache.delete(matchNotFoundCacheKey(platform, matchId));
     failureStage = "match_parse";
     const matchData = await safeJsonParse(res);
+    if (!hasMatchingUpstreamMatchId(matchData, matchId)) {
+      return upstreamIdentityMismatchResponse();
+    }
     const matchAttr = matchData.data.attributes;
 
     const participants = matchData.included.filter((it: any) => it.type === "participant");
@@ -448,6 +486,15 @@ export async function GET(request: NextRequest) {
             await reportBackgroundReanalysisFailure();
           }
         });
+
+        // A stale row is identity-bound and may be reanalyzed in the
+        // background, but it must never be presented as a successful current
+        // analysis. Ask the caller to retry after canonical refresh instead.
+        return NextResponse.json({
+          error: "canonical match analysis is not ready",
+          errorCode: "PUBG_AI_CANONICAL_NOT_READY",
+          retryable: true,
+        }, { status: 409 });
       }
 
       // 샘플 참가자 추출 (기존 response 형식 호환)
@@ -588,11 +635,17 @@ async function reanalyzeAndSave(
   };
   const cacheAccess = await claimOrWaitForTelemetryMapCache(telemetryIdentity, cacheDeps);
   let reservedRow: TelemetryMapCacheRegistryRow | undefined;
+  let reservationReleased = false;
+  const releaseReservationOnce = async (): Promise<void> => {
+    if (!reservedRow || reservationReleased) return;
+    reservationReleased = true;
+    await releaseTelemetryMapCacheRow(reservedRow, cacheDeps).catch(() => undefined);
+  };
 
   if (cacheAccess.kind === "hit") {
     const { data, error } = await supabase
       .from("processed_match_telemetry")
-      .select("data")
+      .select("match_id, player_id, platform, data")
       .eq("match_id", matchId)
       .eq("platform", normalizePlatform(platform))
       .eq("player_id", lowerNickname)
@@ -601,8 +654,16 @@ async function reanalyzeAndSave(
       .maybeSingle();
     if (error) throw error;
     noteDatabaseAvailable();
-    const cachedFullResult = getValidFullResult(data, lowerNickname, platform);
-    if (cachedFullResult) {
+    const cachedFullResult = getValidFullResultForMatch(data, {
+      matchId,
+      playerId: lowerNickname,
+      platform,
+      minResultVersion: RESULT_VERSION,
+    });
+    if (cachedFullResult
+      && typeof cachedFullResult.v === "number"
+      && Number.isFinite(cachedFullResult.v)
+      && cachedFullResult.v >= RESULT_VERSION) {
       const sampleParticipants = participants
         .filter((p: any) => !p.attributes.stats.playerId?.startsWith("ai."))
         .map((p: any) => p.attributes.stats.name)
@@ -628,17 +689,27 @@ async function reanalyzeAndSave(
   let telData: any[] = [];
 
   if (telemetryAsset) {
-    const analyzePath = `${matchId}_${lowerNickname}_v${TELEMETRY_VERSION}_analyze.json`;
+    // The shared identity builder retains the private `*_analyze.json` suffix
+    // while binding match/platform/account/mode/version into the path.
+    const analyzePath = buildTelemetryAnalyzeCacheKey(telemetryIdentity);
     markAnalysisStep("telemetry_r2_read");
     const fileText = force ? null : await downloadFromR2(analyzePath);
 
     let needsProcessing = !fileText;
     if (fileText) {
-      const parsed = JSON.parse(fileText);
-      const isHealthy = parsed.length > 0 && parsed.some((ev: any) => ev.attacker?.accountId || ev.victim?.accountId);
-      if (isHealthy) {
-        telData = parsed;
-      } else {
+      try {
+        const parsed = parseTelemetryAnalyzeCacheEnvelope(JSON.parse(fileText), telemetryIdentity);
+        const isHealthy = parsed && parsed.length > 0
+          && parsed.some((ev: any) => ev.attacker?.accountId || ev.victim?.accountId);
+        if (isHealthy && parsed) {
+          telData = parsed;
+        } else {
+          needsProcessing = true;
+        }
+      } catch {
+        // Malformed or legacy R2 content is an untrusted cache miss. Refetch
+        // the canonical raw telemetry instead of allowing parse errors to
+        // abort the match request.
         needsProcessing = true;
       }
     }
@@ -679,7 +750,10 @@ async function reanalyzeAndSave(
       });
 
       markAnalysisStep("telemetry_r2_upload");
-      await uploadToR2(analyzePath, JSON.stringify(telData), 'application/json');
+      await uploadToR2(analyzePath,
+        JSON.stringify(createTelemetryAnalyzeCacheEnvelope(telemetryIdentity, telData)),
+        'application/json',
+      );
     }
   }
 
@@ -789,9 +863,10 @@ async function reanalyzeAndSave(
       mayPersistDerivedStats = false;
       noteDatabaseUnavailable();
       console.error("[MATCH] Supabase unavailable during cache persistence; database circuit opened");
+      await releaseReservationOnce();
     } else {
       await reportTelemetryCachePersistenceFailure(error, startedAt, requestContext);
-      await releaseTelemetryMapCacheRow(reservedRow, cacheDeps).catch(() => undefined);
+      await releaseReservationOnce();
     }
   }
 
@@ -856,7 +931,7 @@ async function reanalyzeAndSave(
       revalidateTag("match-analysis", "max");
     } catch {}
     if (reservedRow) {
-      await releaseTelemetryMapCacheRow(reservedRow, cacheDeps).catch((releaseErr) => {
+      await releaseReservationOnce().catch((releaseErr) => {
         console.error("[MATCH] 텔레메트리 락 해제 실패:", releaseErr?.message || releaseErr);
       });
     }
