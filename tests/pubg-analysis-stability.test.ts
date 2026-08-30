@@ -1,10 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildProcessedTelemetryUpsert,
   getValidFullResult,
+  getValidFullResultForMatch,
   isFullResultForPlayerPlatform
 } from "../lib/pubg-analysis/cacheIdentity";
-import { aggregateTierBenchmarkRows } from "../lib/pubg-analysis/benchmarkLookup";
+import { RESULT_VERSION } from "../lib/pubg-analysis/constants";
+import { aggregateTierBenchmarkRows, fetchTierBenchmarkStats } from "../lib/pubg-analysis/benchmarkLookup";
 import { estimateAverageTierFromRows } from "../lib/pubg-analysis/tierAveraging";
 import { classifyRole } from "../lib/pubg-analysis/roleClassifier";
 
@@ -57,9 +59,112 @@ describe("PUBG analysis identity stabilization", () => {
     expect(isFullResultForPlayerPlatform(fullResult, "Player_A", "steam")).toBe(true);
     expect(isFullResultForPlayerPlatform(fullResult, "Player_A", "kakao")).toBe(false);
   });
+
+  it("validator는 matching identity와 current result version만 통과시킨다", () => {
+    const validRow = {
+      match_id: "match-1",
+      player_id: "player",
+      platform: "steam",
+      data: {
+        fullResult: {
+          matchId: "match-1",
+          player_id: "player",
+          platform: "steam",
+          v: RESULT_VERSION,
+          stats: { name: "Player", kills: 2 },
+        },
+      },
+    };
+    const expected = {
+      matchId: "match-1",
+      playerId: "player",
+      platform: "steam",
+      minResultVersion: RESULT_VERSION,
+    };
+
+    expect(getValidFullResultForMatch(validRow, expected)).toMatchObject({ matchId: "match-1" });
+    expect(getValidFullResultForMatch({ ...validRow, match_id: "other" }, expected)).toBeNull();
+    expect(getValidFullResultForMatch({
+      ...validRow,
+      data: { fullResult: { ...validRow.data.fullResult, v: RESULT_VERSION - 1 } },
+    }, expected)).toBeNull();
+  });
+
+  it("validator는 canonical fullResult ID, row/data shape, player/platform을 모두 확인한다", () => {
+    const expected = {
+      matchId: "match-1",
+      playerId: "player",
+      platform: "steam",
+      minResultVersion: RESULT_VERSION,
+    };
+    const validRow = {
+      match_id: "shard:match-1",
+      player_id: "PLAYER",
+      platform: "STEAM",
+      data: {
+        fullResult: {
+          match_id: "match-1",
+          player_id: "player",
+          platform: "steam",
+          v: RESULT_VERSION + 1,
+          stats: { name: "Player", kills: 2 },
+        },
+      },
+    };
+
+    expect(getValidFullResultForMatch(validRow, expected)).toBe(validRow.data.fullResult);
+    expect(getValidFullResultForMatch({ ...validRow, data: null }, expected)).toBeNull();
+    expect(getValidFullResultForMatch({ ...validRow, data: { fullResult: [] } }, expected)).toBeNull();
+    expect(getValidFullResultForMatch({
+      ...validRow,
+      data: { fullResult: { ...validRow.data.fullResult, match_id: "other" } },
+    }, expected)).toBeNull();
+    expect(getValidFullResultForMatch({ ...validRow, player_id: "other" }, expected)).toBeNull();
+    expect(getValidFullResultForMatch({ ...validRow, platform: "kakao" }, expected)).toBeNull();
+  });
 });
 
 describe("PUBG benchmark and tier stabilization", () => {
+  it.each([
+    { code: "PGRST002", status: 503, message: "schema cache unavailable" },
+    { code: "PGRST116", status: 406, message: "JSON object requested, multiple (or no) rows returned" },
+    { code: "PGRST205", status: 404, message: "Could not find the table or view" },
+  ])("benchmark 조회는 non-null DB 오류($code)를 null 기본값으로 삼지 않고 전파한다", async (databaseError) => {
+    const query: any = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: databaseError }),
+      limit: vi.fn().mockResolvedValue({ data: null, error: databaseError }),
+    };
+    const supabase = { from: vi.fn().mockReturnValue(query) };
+
+    await expect(fetchTierBenchmarkStats(supabase, {
+      gameMode: "squad",
+      matchType: "official",
+      tier: "A",
+    })).rejects.toMatchObject(databaseError);
+    expect(query.limit).not.toHaveBeenCalled();
+  });
+
+  it("benchmark 조회는 error:null인 실제 no-row 결과만 null로 반환한다", async () => {
+    const query: any = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+    };
+    const supabase = { from: vi.fn().mockReturnValue(query) };
+
+    await expect(fetchTierBenchmarkStats(supabase, {
+      gameMode: "squad",
+      matchType: "official",
+      tier: "A",
+    })).resolves.toBeNull();
+    expect(query.limit).toHaveBeenCalledTimes(1);
+  });
+
   it("같은 티어군 fallback 벤치마크는 match_count로 가중 평균한다", () => {
     const aggregated = aggregateTierBenchmarkRows([
       { tier: "A+", match_count: 1, avg_damage: 600, avg_trade_latency_ms: 6000 },

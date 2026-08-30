@@ -37,6 +37,7 @@ import { MatchCard } from "@/components/stat/MatchCard";
 
 const baseSummary = summaryReady.summaries["match-fixture-1"] as MatchSummaryData;
 const baseDetail = detailReadyFixture as MatchData;
+const TEST_NOW = Date.parse("2026-08-10T12:00:00.000Z");
 
 function summary(matchId = "match-detail-1", nickname = "PlayerOne"): MatchSummaryData {
   return {
@@ -81,7 +82,7 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function aiResponse(finalVerdict: string) {
+function aiResponse(finalVerdict: string, trailingNewline = true) {
   const payload = JSON.stringify({
     coach: "SPICY BOMBER",
     signature: "전술 fixture",
@@ -90,8 +91,27 @@ function aiResponse(finalVerdict: string) {
     finalVerdict,
     actionItems: [],
   });
-  const body = `${JSON.stringify({ type: "chunk", data: payload })}\n${JSON.stringify({ type: "done" })}\n`;
+  const body = `${JSON.stringify({ type: "chunk", data: payload })}\n${JSON.stringify({ type: "done" })}${trailingNewline ? "\n" : ""}`;
   return new Response(body, { status: 200, headers: { "Content-Type": "application/x-ndjson" } });
+}
+
+function aiErrorResponse(input: {
+  status: number;
+  error: string;
+  errorCode?: string;
+  retryable?: boolean;
+}) {
+  return new Response(JSON.stringify(input), {
+    status: input.status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function aiStreamResponse(lines: readonly unknown[]) {
+  return new Response(`${lines.map((line) => JSON.stringify(line)).join("\n")}\n`, {
+    status: 200,
+    headers: { "Content-Type": "application/x-ndjson" },
+  });
 }
 
 function renderCard(overrides: {
@@ -120,8 +140,29 @@ function renderCard(overrides: {
   }));
 }
 
+async function flushMicrotasks(iterations = 10) {
+  for (let index = 0; index < iterations; index += 1) {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+}
+
+async function openAiPanel() {
+  fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+  await screen.findByText("AI 전술 코칭");
+  fireEvent.click(screen.getByRole("button", { name: /AI 전술 코칭/ }));
+}
+
+function aiSuccessEvents() {
+  return trackEvent.mock.calls.filter(([event]) => (
+    event?.name === "feature_consumption" && event.params?.feature_name === "ai-coaching" && event.params?.status === "success"
+  ));
+}
+
 describe("MatchCard isolated detail state", () => {
   beforeEach(() => {
+    vi.spyOn(Date, "now").mockReturnValue(TEST_NOW);
     mockPush.mockReset();
     trackEvent.mockReset();
     aiStart.mockReset();
@@ -131,6 +172,7 @@ describe("MatchCard isolated detail state", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -193,6 +235,36 @@ describe("MatchCard isolated detail state", () => {
 
     resolveDetail(jsonResponse(detail()));
     await screen.findByText("팀원 교전 성적");
+  });
+
+  it("detail URL은 특수문자·공백·유니코드 nickname을 하나의 query parameter로 보존한다", async () => {
+    const specialNickname = "A&B ?# 한글";
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/match?")) return Promise.resolve(jsonResponse(detail("match-detail-1", specialNickname)));
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderCard({ nickname: specialNickname });
+
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+    await screen.findByText("팀원 교전 성적");
+
+    const detailCall = fetchMock.mock.calls.find(([input]) => String(input).startsWith("/api/pubg/match?"));
+    const detailUrl = new URL(String(detailCall?.[0]), "http://localhost");
+    expect(detailUrl.searchParams.get("nickname")).toBe(specialNickname);
+    expect(detailUrl.searchParams.get("matchId")).toBe("match-detail-1");
+    expect(detailUrl.searchParams.get("platform")).toBe("steam");
+  });
+
+  it("non-canonical detail match ID는 fetch 전에 거부한다", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    renderCard({ matchId: "shard:match-detail-1" });
+
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+    expect(await screen.findByText("상세 정보를 불러오지 못했습니다")).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("summary와 full detail 모두 gameMode+matchType+mapName 전체 metadata를 전달한다", async () => {
@@ -419,6 +491,244 @@ describe("MatchCard isolated detail state", () => {
     fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
     expect(await screen.findByText(/recovered AI verdict/)).toBeInTheDocument();
     expect(onRecovery.mock.calls.filter(([reason]) => reason === "analysis_failed")).toHaveLength(1);
+  });
+
+  it("retryable AI 504는 정확히 한 번 자동 재시도하고 성공 전까지 failure/recovery를 기록하지 않는다", async () => {
+    const onFailure = vi.fn();
+    const onRecovery = vi.fn();
+    let aiAttempt = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/match?")) return Promise.resolve(jsonResponse(detail()));
+      if (url === "/api/pubg/ai-analyze") {
+        aiAttempt += 1;
+        return Promise.resolve(aiAttempt === 1
+          ? aiErrorResponse({
+              status: 504,
+              error: "AI analysis request timed out",
+              errorCode: "PUBG_AI_ROUTE_TIMEOUT",
+              retryable: true,
+            })
+          : aiResponse("recovered 504 verdict"));
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderCard({ onFailure, onRecovery });
+
+    await openAiPanel();
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
+    await flushMicrotasks();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
+    expect(onFailure).not.toHaveBeenCalled();
+    expect(onRecovery).not.toHaveBeenCalledWith("analysis_failed");
+    expect(aiSuccessEvents()).toHaveLength(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_500);
+    });
+    await flushMicrotasks();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(2);
+    expect(screen.getByText(/recovered 504 verdict/)).toBeInTheDocument();
+    expect(onFailure).not.toHaveBeenCalled();
+    expect(onRecovery.mock.calls.filter(([reason]) => reason === "analysis_failed")).toHaveLength(1);
+    expect(aiSuccessEvents()).toHaveLength(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(2);
+  });
+
+  it("retryable AI 409 canonical-not-ready도 정확히 한 번 자동 재시도한다", async () => {
+    let aiAttempt = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/match?")) return Promise.resolve(jsonResponse(detail()));
+      if (url === "/api/pubg/ai-analyze") {
+        aiAttempt += 1;
+        return Promise.resolve(aiAttempt === 1
+          ? aiErrorResponse({
+              status: 409,
+              error: "canonical match analysis is not ready",
+              errorCode: "PUBG_AI_CANONICAL_NOT_READY",
+              retryable: true,
+            })
+          : aiResponse("recovered 409 verdict"));
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderCard();
+
+    await openAiPanel();
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
+    await flushMicrotasks();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
+    expect(aiSuccessEvents()).toHaveLength(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_500);
+    });
+    await flushMicrotasks();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(2);
+    expect(screen.getByText(/recovered 409 verdict/)).toBeInTheDocument();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(2);
+  });
+
+  it("비재시도 AI 오류는 응답 error/errorCode를 보존한 최종 실패로 끝나고 재호출하지 않는다", async () => {
+    const onFailure = vi.fn();
+    const onRecovery = vi.fn();
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/match?")) return Promise.resolve(jsonResponse(detail()));
+      if (url === "/api/pubg/ai-analyze") {
+        return Promise.resolve(aiErrorResponse({
+          status: 400,
+          error: "invalid coaching style",
+          errorCode: "PUBG_AI_INVALID_COACHING_STYLE",
+          retryable: false,
+        }));
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderCard({ onFailure, onRecovery });
+
+    await openAiPanel();
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
+    await flushMicrotasks();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
+    expect(screen.getByRole("alert", { name: "AI 분석 실패" })).toHaveTextContent("invalid coaching style");
+    expect(onFailure).toHaveBeenCalledTimes(1);
+    expect(onRecovery).not.toHaveBeenCalledWith("analysis_failed");
+    expect(aiSuccessEvents()).toHaveLength(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
+  });
+
+  it("스트림 error+done(valid:false)는 retryable failure로 한 번 재시도하고 성공만 기록한다", async () => {
+    let aiAttempt = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/match?")) return Promise.resolve(jsonResponse(detail()));
+      if (url === "/api/pubg/ai-analyze") {
+        aiAttempt += 1;
+        return Promise.resolve(aiAttempt === 1
+          ? aiStreamResponse([
+              {
+                type: "error",
+                error: "AI analysis request timed out",
+                errorCode: "PUBG_AI_ROUTE_TIMEOUT",
+                retryable: true,
+              },
+              {
+                type: "done",
+                valid: false,
+                error: "AI analysis request timed out",
+                errorCode: "PUBG_AI_ROUTE_TIMEOUT",
+                retryable: true,
+              },
+            ])
+          : aiResponse("recovered streamed verdict"));
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onFailure = vi.fn();
+    const onRecovery = vi.fn();
+    renderCard({ onFailure, onRecovery });
+
+    await openAiPanel();
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
+    await flushMicrotasks();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
+    expect(onFailure).not.toHaveBeenCalled();
+    expect(onRecovery).not.toHaveBeenCalledWith("analysis_failed");
+    expect(aiSuccessEvents()).toHaveLength(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_500);
+    });
+    await flushMicrotasks();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(2);
+    expect(screen.getByText(/recovered streamed verdict/)).toBeInTheDocument();
+    expect(onFailure).not.toHaveBeenCalled();
+    expect(onRecovery.mock.calls.filter(([reason]) => reason === "analysis_failed")).toHaveLength(1);
+    expect(aiSuccessEvents()).toHaveLength(1);
+  });
+
+  it.each([
+    ["empty", new Response(null, { status: 200, headers: { "Content-Type": "application/x-ndjson" } })],
+    ["chunk-no-done", aiStreamResponse([{ type: "chunk", data: "truncated analysis" }])],
+    ["malformed-only", new Response("{not-json}\n", { status: 200, headers: { "Content-Type": "application/x-ndjson" } })],
+  ])("%s stream은 성공으로 처리하지 않고 최대 한 번 재시도한다", async (label, firstResponse) => {
+    let aiAttempt = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/match?")) return Promise.resolve(jsonResponse(detail()));
+      if (url === "/api/pubg/ai-analyze") {
+        aiAttempt += 1;
+        return Promise.resolve(aiAttempt === 1 ? firstResponse : aiResponse(`recovered ${label} verdict`));
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const onFailure = vi.fn();
+    const onRecovery = vi.fn();
+    renderCard({ onFailure, onRecovery });
+
+    await openAiPanel();
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
+    await flushMicrotasks();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
+    expect(onFailure).not.toHaveBeenCalled();
+    expect(onRecovery).not.toHaveBeenCalledWith("analysis_failed");
+    expect(aiSuccessEvents()).toHaveLength(0);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_500);
+    });
+    await flushMicrotasks();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(2);
+    expect(screen.getByText(new RegExp(`recovered ${label} verdict`))).toBeInTheDocument();
+    expect(onFailure).not.toHaveBeenCalled();
+    expect(onRecovery.mock.calls.filter(([reason]) => reason === "analysis_failed")).toHaveLength(1);
+    expect(aiSuccessEvents()).toHaveLength(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_000);
+    });
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(2);
+  });
+
+  it("NDJSON trailing buffer의 chunk+done은 정상 성공으로 처리한다", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/match?")) return Promise.resolve(jsonResponse(detail()));
+      if (url === "/api/pubg/ai-analyze") return Promise.resolve(aiResponse("trailing buffer verdict", false));
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderCard();
+
+    await openAiPanel();
+    fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
+    await waitFor(() => expect(screen.getByText(/trailing buffer verdict/)).toBeInTheDocument());
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
+    expect(aiSuccessEvents()).toHaveLength(1);
   });
 
   it("same match A→B AI owner는 composite identity이며 late A finally가 B lock을 해제하지 않는다", async () => {

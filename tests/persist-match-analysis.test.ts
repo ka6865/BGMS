@@ -263,6 +263,20 @@ describe("persistMatchAnalysis", () => {
     expect(upserts.get("global_benchmarks")).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["official", "squad-ai"],
+    ["official", "ai_match"],
+    ["official", "solo-bot"],
+  ])("AI/bot metadata matchType=%s gameMode=%s는 forceBenchmark에도 global benchmark를 오염시키지 않는다", async (matchType, gameMode) => {
+    await persistMatchAnalysis(supabase, {
+      ...input,
+      forceBenchmark: true,
+      finalResult: { ...input.finalResult, matchType, gameMode },
+    });
+
+    expect(upserts.get("global_benchmarks")).not.toHaveBeenCalled();
+  });
+
   it("유효하지 않은 benchmark는 강제 옵션이 없으면 저장하지 않는다", async () => {
     await persistMatchAnalysis(supabase, {
       ...input,

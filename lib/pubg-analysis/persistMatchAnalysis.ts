@@ -2,6 +2,7 @@ import { WEAPON_NAMES } from "./constants";
 import { categorizeWeapon } from "./weaponMetaBurst";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeName } from "./utils";
+import { isStandardBenchmarkMatch } from "./matchEligibility";
 
 export type PubgPlatform = "steam" | "kakao";
 export type AnalysisSource = "user" | "scraper";
@@ -260,15 +261,9 @@ async function persistBenchmark(
   result: PersistMatchAnalysisResult,
 ): Promise<void> {
   const finalResult = input.finalResult;
-  const matchType = finalResult.matchType.toLowerCase();
-  const gameMode = finalResult.gameMode.toLowerCase();
-  const isCasual = matchType.includes("airoyale") || matchType.includes("ai-match") || matchType.includes("ai_match") || gameMode.includes("airoyale") || gameMode.includes("ai-match");
-  const isStandardBattleRoyale = (matchType === "official" || matchType === "competitive")
-    && !isCasual
-    && gameMode !== "tdm"
-    && gameMode !== "trainingroom";
+  const matchType = typeof finalResult.matchType === "string" ? finalResult.matchType.trim().toLowerCase() : "";
 
-  if (!(finalResult.isValidBenchmark || input.forceBenchmark) || !isStandardBattleRoyale) return;
+  if (!(finalResult.isValidBenchmark || input.forceBenchmark) || !isStandardBenchmarkMatch(finalResult)) return;
 
   const teammateKnocks = Math.max(1, finalResult.tradeStats?.teammateKnocks || 0);
   const totalKillContribution = Math.max(

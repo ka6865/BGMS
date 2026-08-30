@@ -77,30 +77,45 @@ export async function fetchTierBenchmarkStats(
     gameMode: string;
     matchType?: string | null;
     tier: string | null;
+    signal?: AbortSignal;
   }
 ): Promise<any | null> {
   const gameMode = options.gameMode || "squad";
   const matchType = String(options.matchType || "official").toLowerCase();
   const exactTier = options.tier || "C";
+  const signal = options.signal;
 
-  const { data: exact, error: exactError } = await supabase
+  if (signal?.aborted) return null;
+
+  let exactQuery = supabase
     .from("benchmark_stats_by_tier")
     .select("*")
     .eq("game_mode", gameMode)
     .eq("match_type", matchType)
-    .eq("tier", exactTier)
-    .maybeSingle();
+    .eq("tier", exactTier);
+  if (signal) exactQuery = exactQuery.abortSignal(signal);
+  const { data: exact, error: exactError } = await exactQuery.maybeSingle();
 
-  if (!exactError && exact) return exact;
+  if (exactError) {
+    if (signal?.aborted) return null;
+    throw exactError;
+  }
+  if (exact) return exact;
+  if (signal?.aborted) return null;
 
-  const { data: grouped, error: groupError } = await supabase
+  let groupedQuery = supabase
     .from("benchmark_stats_by_tier")
     .select("*")
     .eq("game_mode", gameMode)
     .eq("match_type", matchType)
-    .in("tier", getTierGroup(exactTier))
-    .limit(10);
+    .in("tier", getTierGroup(exactTier));
+  if (signal) groupedQuery = groupedQuery.abortSignal(signal);
+  const { data: grouped, error: groupError } = await groupedQuery.limit(10);
 
-  if (groupError || !grouped || grouped.length === 0) return null;
+  if (groupError) {
+    if (signal?.aborted) return null;
+    throw groupError;
+  }
+  if (!grouped || grouped.length === 0) return null;
   return aggregateTierBenchmarkRows(grouped, exactTier);
 }

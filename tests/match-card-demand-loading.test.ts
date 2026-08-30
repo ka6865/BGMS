@@ -3,12 +3,13 @@
 import "@testing-library/jest-dom/vitest";
 import React from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import matchDetailReady from "./fixtures/stats/match-detail-ready.json";
 import summaryReady from "./fixtures/stats/matches-summary-ready.json";
 
 const matchSummaryFixture = summaryReady.summaries["match-fixture-1"] as MatchSummaryData;
+const TEST_NOW = Date.parse("2026-08-10T12:00:00.000Z");
 
 const { mockPush } = vi.hoisted(() => ({
   mockPush: vi.fn(),
@@ -69,15 +70,20 @@ function renderCard(
 }
 
 describe("MatchCard demand loading", () => {
+  beforeEach(() => {
+    vi.spyOn(Date, "now").mockReturnValue(TEST_NOW);
+  });
+
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
   it("요약 compact 카드는 마운트만으로 전체 분석 API를 호출하거나 상세 selector를 만들지 않는다", async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ now: TEST_NOW });
     const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       void input;
       void init;
