@@ -1,9 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  buildWeaponMetaMatchSamples,
   persistMatchAnalysis,
   type PersistMatchAnalysisInput,
 } from "../lib/pubg-analysis/persistMatchAnalysis";
+import { POPULATION_EVIDENCE_VERSION } from "../lib/pubg-analysis/constants";
 
 type UpsertResult = { error: { message: string } | null };
 type UpsertMock = ReturnType<
@@ -99,9 +101,14 @@ describe("persistMatchAnalysis", () => {
       "pubg_player_matches",
       "global_benchmarks",
       "processed_match_telemetry",
+      "weapon_meta_match_samples",
     ]) {
       setSuccessfulUpsert(table);
     }
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("raw stats와 player cache를 현재 conflict key와 변환 규칙으로 저장한다", async () => {
@@ -245,9 +252,42 @@ describe("persistMatchAnalysis", () => {
       match_type: "official",
       death_phase: 4,
       filter_version: 8,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION,
       source: "user",
     }, { onConflict: "match_id,platform,player_id" });
     expect(upserts.get("processed_match_telemetry")).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["score", -5, 0],
+    ["score", 101, 100],
+    ["combat_score", -5, 0],
+    ["combat_score", 101, 100],
+    ["tactical_score", -5, 0],
+    ["tactical_score", 101, 100],
+    ["survival_score", -5, 0],
+    ["survival_score", 101, 100],
+    ["score", Number.NaN, 0],
+    ["score", Number.POSITIVE_INFINITY, 0],
+  ] as const)("persisted %s clamps malformed score %s to %s at the DB boundary", async (field, value, expected) => {
+    const benchmark = {
+      ...input.finalResult.benchmark,
+      score: field === "score" ? value : input.finalResult.benchmark?.score,
+      breakdown: {
+        ...input.finalResult.benchmark?.breakdown,
+        combat: field === "combat_score" ? value : input.finalResult.benchmark?.breakdown?.combat,
+        tactical: field === "tactical_score" ? value : input.finalResult.benchmark?.breakdown?.tactical,
+        survival: field === "survival_score" ? value : input.finalResult.benchmark?.breakdown?.survival,
+      },
+    };
+
+    await persistMatchAnalysis(supabase, {
+      ...input,
+      finalResult: { ...input.finalResult, benchmark },
+    });
+
+    const row = upserts.get("global_benchmarks")?.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(row[field]).toBe(expected);
   });
 
   it.each([
@@ -345,9 +385,9 @@ describe("persistMatchAnalysis", () => {
       pressure_index: 0,
       enemy_death_distance: 0,
       survival_time: 0,
-      isolation_index: 0,
-      min_dist: 0,
-      height_diff: 0,
+      isolation_index: -1,
+      min_dist: -1,
+      height_diff: -1,
       smoke_rate: 0,
       trade_rate: 0,
       solo_kill_rate: 0,
@@ -364,6 +404,7 @@ describe("persistMatchAnalysis", () => {
       team_wipes: 0,
       death_phase: 0,
       filter_version: 8,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION,
     }), { onConflict: "match_id,platform,player_id" });
   });
 
@@ -389,6 +430,248 @@ describe("persistMatchAnalysis", () => {
     });
 
     expect(upserts.get("global_benchmarks")).not.toHaveBeenCalled();
+  });
+
+  it("known BR + canonical matchType만 global·weapon 모집단에 함께 들어간다", async () => {
+    vi.stubEnv("PUBG_META_PATCH_VERSION", "42.3");
+    vi.stubEnv("PUBG_META_PATCH_STARTED_AT", "2026-08-12T00:00:00.000Z");
+    const eligibleInput = {
+      ...input,
+      finalResult: {
+        ...input.finalResult,
+        createdAt: "2026-08-12T01:00:00.000Z",
+        weaponStats: { M249: { damage: 100, kills: 1 } },
+      },
+    };
+
+    expect(buildWeaponMetaMatchSamples(eligibleInput)).toHaveLength(1);
+    await persistMatchAnalysis(supabase, eligibleInput);
+
+    expect(upserts.get("global_benchmarks")).toHaveBeenCalledTimes(1);
+    expect(upserts.get("weapon_meta_match_samples")).toHaveBeenCalledTimes(1);
+    expect(upserts.get("weapon_meta_match_samples")).toHaveBeenCalledWith(
+      [expect.objectContaining({ match_type: "official", weapon_name: expect.any(String) })],
+      { onConflict: "match_id,platform,player_id,weapon_name" },
+    );
+  });
+
+  it("secondary ranked evidence는 benchmark match_type을 competitive로 정규화한다", async () => {
+    await persistMatchAnalysis(supabase, {
+      ...input,
+      finalResult: {
+        ...input.finalResult,
+        matchType: "official",
+        matchInfo: { mode: "ranked" },
+      },
+    });
+
+    expect(upserts.get("global_benchmarks")).toHaveBeenCalledWith(
+      expect.objectContaining({ match_type: "competitive", game_mode: "squad-fpp" }),
+      { onConflict: "match_id,platform,player_id" },
+    );
+  });
+
+  it.each([
+    ["custom flag", {
+      finalResult: { attributes: { isCustomMatch: true } },
+      matchAttr: {},
+    }],
+    ["event flag", {
+      finalResult: { telemetryFlags: { isEventMode: true } },
+      matchAttr: {},
+    }],
+    ["TDM map", {
+      finalResult: { mapName: " Italy_TDM_Main " },
+      matchAttr: { mapName: " Italy_TDM_Main " },
+    }],
+    ["unknown mode", {
+      finalResult: { gameMode: undefined },
+      matchAttr: { gameMode: undefined },
+    }],
+    ["custom mode family", {
+      finalResult: { gameMode: "normal-squad-fpp" },
+      matchAttr: {},
+    }],
+    ["unknown matchType", {
+      finalResult: { matchType: "unknown" },
+      matchAttr: {},
+    }],
+  ] as const)("%s는 global·weapon 모집단에는 들어가지 않지만 raw/history는 보존한다", async (_label, override) => {
+    vi.stubEnv("PUBG_META_PATCH_VERSION", "42.3");
+    vi.stubEnv("PUBG_META_PATCH_STARTED_AT", "2026-08-12T00:00:00.000Z");
+    const ineligibleInput = {
+      ...input,
+      matchAttr: { ...input.matchAttr, ...override.matchAttr },
+      finalResult: {
+        ...input.finalResult,
+        createdAt: "2026-08-12T01:00:00.000Z",
+        weaponStats: { M249: { damage: 100, kills: 1 } },
+        ...override.finalResult,
+      },
+    } as PersistMatchAnalysisInput;
+
+    expect(buildWeaponMetaMatchSamples(ineligibleInput)).toEqual([]);
+    await persistMatchAnalysis(supabase, ineligibleInput);
+
+    expect(upserts.get("global_benchmarks")).not.toHaveBeenCalled();
+    expect(upserts.get("weapon_meta_match_samples")).not.toHaveBeenCalled();
+    expect(upserts.get("match_stats_raw")).toHaveBeenCalled();
+    expect(upserts.get("pubg_player_matches")).toHaveBeenCalled();
+  });
+
+  it.each([
+    ["canonical true, legacy false", true, false],
+    ["canonical false, legacy true", false, true],
+  ] as const)("boolean exclusion evidence is monotonic (%s) for global and weapon populations", async (_label, finalFlag, inputFlag) => {
+    vi.stubEnv("PUBG_META_PATCH_VERSION", "42.3");
+    vi.stubEnv("PUBG_META_PATCH_STARTED_AT", "2026-08-12T00:00:00.000Z");
+    const conflictingInput = {
+      ...input,
+      matchAttr: {
+        ...input.matchAttr,
+        isCustomMatch: inputFlag,
+      },
+      finalResult: {
+        ...input.finalResult,
+        createdAt: "2026-08-12T01:00:00.000Z",
+        attributes: { isCustomMatch: finalFlag },
+        weaponStats: { M249: { damage: 100, kills: 1 } },
+      },
+    } as PersistMatchAnalysisInput;
+
+    expect(buildWeaponMetaMatchSamples(conflictingInput)).toEqual([]);
+    await persistMatchAnalysis(supabase, conflictingInput);
+
+    expect(upserts.get("global_benchmarks")).not.toHaveBeenCalled();
+    expect(upserts.get("weapon_meta_match_samples")).not.toHaveBeenCalled();
+    expect(upserts.get("match_stats_raw")).toHaveBeenCalled();
+    expect(upserts.get("pubg_player_matches")).toHaveBeenCalled();
+  });
+
+  it.each([
+    ["nested custom flag in input", {
+      matchInfo: { mode: "squad-fpp", attributes: { isCustomMatch: true } },
+    }, {
+      matchInfo: { mode: "squad-fpp", attributes: { isCustomMatch: false } },
+    }],
+    ["nested event flag in final result", {
+      matchInfo: { mode: "squad-fpp", telemetryFlags: { isEventMode: false } },
+    }, {
+      matchInfo: { mode: "squad-fpp", telemetryFlags: { isEventMode: true } },
+    }],
+  ] as const)("nested exclusion evidence remains monotonic (%s)", async (_label, inputEvidence, finalEvidence) => {
+    vi.stubEnv("PUBG_META_PATCH_VERSION", "42.3");
+    vi.stubEnv("PUBG_META_PATCH_STARTED_AT", "2026-08-12T00:00:00.000Z");
+    const conflictingInput = {
+      ...input,
+      matchAttr: {
+        ...input.matchAttr,
+        ...inputEvidence,
+      },
+      finalResult: {
+        ...input.finalResult,
+        createdAt: "2026-08-12T01:00:00.000Z",
+        attributes: finalEvidence,
+        weaponStats: { M249: { damage: 100, kills: 1 } },
+      },
+    } as PersistMatchAnalysisInput;
+
+    expect(buildWeaponMetaMatchSamples(conflictingInput)).toEqual([]);
+    await persistMatchAnalysis(supabase, conflictingInput);
+
+    expect(upserts.get("global_benchmarks")).not.toHaveBeenCalled();
+    expect(upserts.get("weapon_meta_match_samples")).not.toHaveBeenCalled();
+    expect(upserts.get("match_stats_raw")).toHaveBeenCalled();
+    expect(upserts.get("pubg_player_matches")).toHaveBeenCalled();
+  });
+
+  it("conflicting nested mode evidence is retained instead of being overwritten by a canonical-looking alias", async () => {
+    vi.stubEnv("PUBG_META_PATCH_VERSION", "42.3");
+    vi.stubEnv("PUBG_META_PATCH_STARTED_AT", "2026-08-12T00:00:00.000Z");
+    const conflictingInput = {
+      ...input,
+      matchAttr: {
+        ...input.matchAttr,
+        matchInfo: { mode: "tdm" },
+      },
+      finalResult: {
+        ...input.finalResult,
+        createdAt: "2026-08-12T01:00:00.000Z",
+        attributes: { matchInfo: { mode: "squad-fpp" } },
+        weaponStats: { M249: { damage: 100, kills: 1 } },
+      },
+    } as PersistMatchAnalysisInput;
+
+    expect(buildWeaponMetaMatchSamples(conflictingInput)).toEqual([]);
+    await persistMatchAnalysis(supabase, conflictingInput);
+
+    expect(upserts.get("global_benchmarks")).not.toHaveBeenCalled();
+    expect(upserts.get("weapon_meta_match_samples")).not.toHaveBeenCalled();
+    expect(upserts.get("match_stats_raw")).toHaveBeenCalled();
+    expect(upserts.get("pubg_player_matches")).toHaveBeenCalled();
+  });
+
+  it("mixed telemetry object and array evidence both reach the benchmark gate", async () => {
+    vi.stubEnv("PUBG_META_PATCH_VERSION", "42.3");
+    vi.stubEnv("PUBG_META_PATCH_STARTED_AT", "2026-08-12T00:00:00.000Z");
+    const conflictingInput = {
+      ...input,
+      finalResult: {
+        ...input.finalResult,
+        createdAt: "2026-08-12T01:00:00.000Z",
+        telemetry: { LogMatchStart: { isCustomGame: true } },
+        telemetryEvents: [{ _T: "LogMatchEnd" }],
+        weaponStats: { M249: { damage: 100, kills: 1 } },
+      },
+    } as PersistMatchAnalysisInput;
+
+    expect(buildWeaponMetaMatchSamples(conflictingInput)).toEqual([]);
+    await persistMatchAnalysis(supabase, conflictingInput);
+
+    expect(upserts.get("global_benchmarks")).not.toHaveBeenCalled();
+    expect(upserts.get("weapon_meta_match_samples")).not.toHaveBeenCalled();
+    expect(upserts.get("match_stats_raw")).toHaveBeenCalled();
+    expect(upserts.get("pubg_player_matches")).toHaveBeenCalled();
+  });
+
+  it("new benchmark and weapon rows carry explicit population provenance and preserve missing-vs-zero isolation", async () => {
+    vi.stubEnv("PUBG_META_PATCH_VERSION", "42.3");
+    vi.stubEnv("PUBG_META_PATCH_STARTED_AT", "2026-08-12T00:00:00.000Z");
+    const missingInput = {
+      ...input,
+      finalResult: {
+        ...input.finalResult,
+        createdAt: "2026-08-12T01:00:00.000Z",
+        isolationData: { isCrossfire: false },
+        weaponStats: { M249: { damage: 100, kills: 1 } },
+      },
+    } as PersistMatchAnalysisInput;
+
+    await persistMatchAnalysis(supabase, missingInput);
+
+    const benchmarkRow = upserts.get("global_benchmarks")?.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(benchmarkRow).toMatchObject({
+      filter_version: 8,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION,
+      isolation_index: -1,
+      min_dist: -1,
+      height_diff: -1,
+    });
+    const weaponRows = upserts.get("weapon_meta_match_samples")?.mock.calls.at(-1)?.[0] as Array<Record<string, unknown>>;
+    expect(weaponRows[0]).toMatchObject({
+      filter_version: 8,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION,
+    });
+
+    await persistMatchAnalysis(supabase, {
+      ...missingInput,
+      finalResult: {
+        ...missingInput.finalResult,
+        isolationData: { isCrossfire: false, isolationIndex: 0, minDist: 0, heightDiff: 0 },
+      },
+    });
+    const measuredZeroRow = upserts.get("global_benchmarks")?.mock.calls.at(-1)?.[0] as Record<string, unknown>;
+    expect(measuredZeroRow).toMatchObject({ isolation_index: 0, min_dist: 0, height_diff: 0 });
   });
 
   it.each([

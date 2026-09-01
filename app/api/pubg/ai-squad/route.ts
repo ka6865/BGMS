@@ -50,6 +50,61 @@ function hashParts(parts: unknown[]): string {
 const AI_SQUAD_TOTAL_TIMEOUT_MS = 22000;
 const AI_SQUAD_MODEL_TIMEOUT_MS = 8000;
 
+class SquadModelTimeoutError extends Error {
+  constructor() {
+    super("Squad Gemini model timed out");
+    this.name = "SquadModelTimeoutError";
+  }
+}
+
+class SquadRequestAbortedError extends Error {
+  constructor() {
+    super("Squad AI request was aborted");
+    this.name = "SquadRequestAbortedError";
+  }
+}
+
+function createAbortError(): Error {
+  const error = new Error("The operation was aborted.");
+  error.name = "AbortError";
+  return error;
+}
+
+function awaitWithSignal<T>(promise: PromiseLike<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(createAbortError());
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      callback();
+    };
+    const onAbort = () => finish(() => reject(createAbortError()));
+    signal.addEventListener("abort", onAbort, { once: true });
+    Promise.resolve(promise).then(
+      (value) => finish(() => resolve(value)),
+      (error) => finish(() => reject(error)),
+    );
+  });
+}
+
+function canonicalSquadIdentity(data: any): unknown {
+  return {
+    groupKey: data.groupKey,
+    matchCount: data.matchCount,
+    latestMatchCount: data.latestMatchCount,
+    bestMatchCount: data.bestMatchCount,
+    matchesSummary: Array.isArray(data.matchesSummary) ? data.matchesSummary : [],
+    selectedMatchIds: Array.isArray(data.selectedMatchIds) ? data.selectedMatchIds : [],
+    stats: data.stats,
+    scores: data.scores,
+    roleProfiles: data.roleProfiles,
+    squadGrade: data.squadGrade,
+    benchmarkStats: data.benchmarkStats,
+  };
+}
+
 export async function POST(request: Request) {
   let body: any = {};
   const requestId = crypto.randomUUID();
@@ -57,14 +112,22 @@ export async function POST(request: Request) {
   let authenticatedUserId: string | undefined;
   let requestedPlatform = "steam";
   try {
+    if (request.signal.aborted) throw new SquadRequestAbortedError();
+
     // 🔒 [Security] JWT Authentication Guard - Only logged-in users can call AI coaching
     const auth = await withAuthGuard();
     if (auth.error) return auth.error;
     const { supabaseAdmin: supabase } = auth;
     authenticatedUserId = auth.user?.id;
 
+    if (request.signal.aborted) throw new SquadRequestAbortedError();
     body = await request.json();
-    const { groupKey, stats, scores, roleProfiles, nickname, platform = "steam", coachingStyle = "spicy", squadGrade = "B", benchmarkStats } = body;
+    const {
+      groupKey,
+      nickname,
+      platform = "steam",
+      coachingStyle = "spicy",
+    } = body;
     requestedPlatform = String(platform || "steam");
     const playerId = normalizeName(nickname);
     const cachePlatform = normalizePlatform(platform);
@@ -75,32 +138,37 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Missing Gemini API Key Configuration" }, { status: 500 });
     }
 
-    if (!groupKey || !stats || !scores || !Array.isArray(roleProfiles) || !nickname) {
+    if (typeof groupKey !== "string" || !groupKey.trim() || !nickname || !playerId) {
       trackAiFailure(authenticatedUserId, "squad", "Missing required squad parameters", { errorCode: "invalid_input", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
       return NextResponse.json({ error: "Missing required squad parameters" }, { status: 400 });
     }
+    if (request.signal.aborted) throw new SquadRequestAbortedError();
 
-    // 1. Calculate matchIdsHash based on the current squad matches in DB
-    const requestMatchIds = Array.isArray(body.matchIds) ? body.matchIds.filter(Boolean) : [];
-    const roleProfileNames = Array.isArray(roleProfiles)
-      ? roleProfiles.map((p: any) => p?.name).filter(Boolean).sort()
-      : [];
-    let matchIdsHash = requestMatchIds.length > 0
-      ? hashParts(["matches", requestMatchIds.map(String).sort()])
-      : hashParts(["body", playerId, cachePlatform, groupKey, body.matchCount || 1, stats, scores, roleProfileNames]);
-    try {
-      const squadData = await getSquadAnalysisData(nickname, cachePlatform, groupKey);
-      if (squadData && "matchesSummary" in squadData && Array.isArray(squadData.matchesSummary)) {
-        const matchIds = squadData.matchesSummary.map((m: any) => m.matchId || m.match_id).filter(Boolean);
-        if (matchIds.length > 0) {
-          matchIdsHash = hashParts(["matches", matchIds.map(String).sort()]);
-        }
-      }
-    } catch (hashErr) {
-      console.warn("[AI-SQUAD] Failed to compute DB matchIdsHash, using request hash:", hashErr);
+    // All numeric evidence is recomputed server-side.  The request contributes
+    // only identity/control fields; forged stats/scores/roles/benchmarks are
+    // intentionally ignored rather than compared or merged.
+    const squadData = await getSquadAnalysisData(nickname, cachePlatform, groupKey);
+    if (request.signal.aborted) throw new SquadRequestAbortedError();
+    if (!squadData || !("matchesSummary" in squadData) || !Array.isArray(squadData.matchesSummary)
+      || !squadData.stats || !squadData.scores || !Array.isArray(squadData.roleProfiles)
+      || !squadData.benchmarkStats || !squadData.matchCount) {
+      return NextResponse.json({
+        error: "canonical squad analysis is not ready",
+        errorCode: "PUBG_AI_SQUAD_CANONICAL_NOT_READY",
+        retryable: true,
+      }, { status: 409 });
     }
+    const canonical = canonicalSquadIdentity(squadData);
+    const matchIdsHash = hashParts(["canonical-squad", playerId, cachePlatform, canonical]);
+    const canonicalStats = squadData.stats;
+    const canonicalScores = squadData.scores;
+    const canonicalRoleProfiles = squadData.roleProfiles;
+    const canonicalGrade = squadData.squadGrade;
+    const canonicalBenchmarkStats = squadData.benchmarkStats;
+    const canonicalMatchCount = squadData.matchCount;
 
     // 2. Perform DB Cache Lookup
+    if (request.signal.aborted) throw new SquadRequestAbortedError();
     try {
       const { data: cached, error: cacheErr } = await supabase
         .from("squad_ai_coaching_cache")
@@ -111,7 +179,10 @@ export async function POST(request: Request) {
         .eq("match_ids_hash", matchIdsHash)
         .eq("coaching_style", coachingStyle)
         .eq("prompt_version", AI_CACHE_VERSION)
+        .abortSignal(request.signal)
         .maybeSingle();
+
+      if (request.signal.aborted) throw new SquadRequestAbortedError();
 
       if (!cacheErr && cached && cached.ai_result) {
         trackAiUsage(authenticatedUserId, "gemini-cache", 0, 0, "squad", {
@@ -122,22 +193,26 @@ export async function POST(request: Request) {
         return NextResponse.json(sanitizeAiCoachingLanguage(cached.ai_result));
       }
     } catch (dbErr) {
+      if (request.signal.aborted) throw new SquadRequestAbortedError();
       console.warn("[AI-SQUAD] Cache lookup failed:", dbErr);
     }
 
+    if (request.signal.aborted) throw new SquadRequestAbortedError();
+
     const { prompt, systemInstruction } = buildSquadAiCoachingPrompt({
       groupKey,
-      stats,
-      scores,
-      roleProfiles,
+      stats: canonicalStats,
+      scores: canonicalScores,
+      roleProfiles: canonicalRoleProfiles,
       nickname,
       coachingStyle,
-      squadGrade,
-      benchmarkStats,
-      matchCount: body.matchCount || 1,
+      squadGrade: canonicalGrade,
+      benchmarkStats: canonicalBenchmarkStats,
+      matchCount: canonicalMatchCount,
     });
 
     // 3. Try multiple Gemini models sequentially
+    if (request.signal.aborted) throw new SquadRequestAbortedError();
     const genAI = new GoogleGenerativeAI(apiKey);
     const modelsToTry = GEMINI_MODELS_TO_TRY;
 
@@ -153,12 +228,33 @@ export async function POST(request: Request) {
     let usageMetadata: any = null;
 
     const generationStartedAt = Date.now();
-    for (const modelName of modelsToTry) {
-      try {
-        const remainingMs = AI_SQUAD_TOTAL_TIMEOUT_MS - (Date.now() - generationStartedAt);
-        if (remainingMs <= 0) break;
+    const routeGenerationController = new AbortController();
+    const routeGenerationTimer = setTimeout(() => routeGenerationController.abort(), AI_SQUAD_TOTAL_TIMEOUT_MS);
+    const routeGenerationSignal = routeGenerationController.signal;
+    let requestAborted = false;
+    const onRequestAbort = () => {
+      requestAborted = true;
+      routeGenerationController.abort();
+    };
+    if (request.signal.aborted) {
+      onRequestAbort();
+    } else {
+      request.signal.addEventListener("abort", onRequestAbort, { once: true });
+      // Abort can race listener registration; re-check immediately so an
+      // already-aborted request cannot enter model selection.
+      if (request.signal.aborted) onRequestAbort();
+    }
+    let timedOut = false;
+    const timeoutTimers = new Set<ReturnType<typeof setTimeout>>();
+    try {
+      for (const modelName of modelsToTry) {
+        if (requestAborted) break;
+        try {
+          const remainingMs = AI_SQUAD_TOTAL_TIMEOUT_MS - (Date.now() - generationStartedAt);
+          if (remainingMs <= 0) break;
 
-        const model = genAI.getGenerativeModel({
+          if (requestAborted) break;
+          const model = genAI.getGenerativeModel({
           model: modelName,
           systemInstruction: systemInstruction,
           generationConfig: {
@@ -166,7 +262,7 @@ export async function POST(request: Request) {
             responseSchema: {
               type: SchemaType.OBJECT,
               properties: {
-                squadGrade: { type: SchemaType.STRING, description: `Must be exactly "${squadGrade}" (GIVEN overall grade)` },
+                squadGrade: { type: SchemaType.STRING, description: `Must be exactly "${canonicalGrade}" (GIVEN overall grade)` },
                 summary: { type: SchemaType.STRING, description: "One-line tactical summary of this squad" },
                 strength: { type: SchemaType.STRING, description: "Key strength of squad collaboration" },
                 weakness: { type: SchemaType.STRING, description: "Major vulnerability/weakness of the squad" },
@@ -193,28 +289,49 @@ export async function POST(request: Request) {
           safetySettings
         });
 
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Timeout")), Math.min(AI_SQUAD_MODEL_TIMEOUT_MS, remainingMs))
-        );
+          const attemptController = new AbortController();
+          const abortAttempt = () => attemptController.abort();
+          routeGenerationSignal.addEventListener("abort", abortAttempt, { once: true });
+          const attemptSignal = attemptController.signal;
+          const timer = setTimeout(() => {
+            timedOut = true;
+            attemptController.abort();
+          }, Math.min(AI_SQUAD_MODEL_TIMEOUT_MS, remainingMs));
+          timeoutTimers.add(timer);
+          let response: any;
+          try {
+            response = await awaitWithSignal(model.generateContent({
+              contents: [{ role: "user", parts: [{ text: prompt }] }]
+            }, { signal: attemptSignal, timeout: Math.min(AI_SQUAD_MODEL_TIMEOUT_MS, remainingMs) }), attemptSignal);
+          } finally {
+            clearTimeout(timer);
+            timeoutTimers.delete(timer);
+            routeGenerationSignal.removeEventListener("abort", abortAttempt);
+          }
 
-        const response = await Promise.race([
-          model.generateContent({
-            contents: [{ role: "user", parts: [{ text: prompt }] }]
-          }),
-          timeoutPromise
-        ]) as any;
-
-        if (response && response.response) {
-          responseText = response.response.text();
-          selectedModelName = modelName;
-          usageMetadata = response.response.usageMetadata;
-          break;
+          if (response && response.response) {
+            responseText = response.response.text();
+            selectedModelName = modelName;
+            usageMetadata = response.response.usageMetadata;
+            break;
+          }
+        } catch (err: any) {
+          if (requestAborted) break;
+          if (timedOut || routeGenerationSignal.aborted) {
+            timedOut = true;
+            break;
+          }
+          console.warn(`[AI-SQUAD] Model ${modelName} failed (${err.message || err}), trying next...`);
         }
-      } catch (err: any) {
-        console.warn(`[AI-SQUAD] Model ${modelName} failed (${err.message || err}), trying next...`);
       }
+    } finally {
+      clearTimeout(routeGenerationTimer);
+      request.signal.removeEventListener("abort", onRequestAbort);
+      timeoutTimers.forEach(clearTimeout);
     }
 
+    if (requestAborted) throw new SquadRequestAbortedError();
+    if (timedOut) throw new SquadModelTimeoutError();
     if (!responseText) {
       throw new Error("All Gemini models failed to respond or timed out.");
     }
@@ -223,6 +340,7 @@ export async function POST(request: Request) {
     const resultJson = sanitizeAiCoachingLanguage(JSON.parse(validJsonString));
 
     // 3. Write to DB Cache
+    if (request.signal.aborted) throw new SquadRequestAbortedError();
     try {
       const { error: saveErr } = await supabase
         .from("squad_ai_coaching_cache")
@@ -269,9 +387,20 @@ export async function POST(request: Request) {
       requestId,
       platform: requestedPlatform,
     });
+    const requestAborted = request.signal.aborted || error instanceof SquadRequestAbortedError;
+    const status = error instanceof SquadModelTimeoutError && !requestAborted ? 504 : 503;
+    const errorCode = error instanceof SquadModelTimeoutError && !requestAborted
+      ? "PUBG_AI_SQUAD_TIMEOUT"
+      : requestAborted
+        ? "PUBG_AI_SQUAD_ABORTED"
+        : "PUBG_AI_SQUAD_PROVIDER_ERROR";
     return NextResponse.json(
-      { error: "스쿼드 AI 분석을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요." },
-      { status: 503 },
+      {
+        error: "스쿼드 AI 분석을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        errorCode,
+        retryable: true,
+      },
+      { status },
     );
   }
 }

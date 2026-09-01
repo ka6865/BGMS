@@ -28,19 +28,19 @@ export async function GET(request: NextRequest) {
   let matchCount = 0;
   let membersCount = 4;
   let stats = {
-    avgIsolation: 1.5,
-    avgTradeLatency: 12000,
+    avgIsolation: null as number | null,
+    avgTradeLatency: null as number | null,
     totalSmokeRescues: 0,
     totalRevives: 0,
-    avgCoverRate: 0.3,
+    avgCoverRate: null as number | null,
     totalTeamWipes: 0,
   };
   let scores = {
-    formation: 50,
-    backupSpeed: 50,
+    formation: null as number | null,
+    backupSpeed: null as number | null,
     survivalCare: 50,
-    focusFire: 50,
-    teamWipe: 50,
+    focusFire: null as number | null,
+    teamWipe: null as number | null,
   };
   let hasData = false;
 
@@ -287,13 +287,13 @@ export async function GET(request: NextRequest) {
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ fontSize: "13px", color: "#d1d5db", fontWeight: "700" }}>{metric.label}</span>
-                  <span style={{ fontSize: "15px", color: metric.color, fontWeight: "900" }}>{metric.score}점</span>
+                  <span style={{ fontSize: "15px", color: metric.color, fontWeight: "900" }}>{metric.score === null ? "측정 불가" : `${metric.score}점`}</span>
                 </div>
                 <div style={{ display: "flex", width: "100%", height: "8px", background: "rgba(255, 255, 255, 0.06)", borderRadius: "4px", overflow: "hidden" }}>
                   <div
                     style={{
                       display: "flex",
-                      width: `${metric.score}%`,
+                      width: `${metric.score === null ? 0 : Math.max(0, Math.min(100, metric.score))}%`,
                       height: "100%",
                       background: metric.color,
                       borderRadius: "4px",
@@ -308,13 +308,13 @@ export async function GET(request: NextRequest) {
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                 <span style={{ fontSize: "10px", color: "#6b7280", fontWeight: "800" }}>AVG TRADE LATENCY</span>
                 <span style={{ display: "flex", fontSize: "14px", color: "#e4e4e7", fontWeight: "800" }}>
-                  {stats.avgTradeLatency > 0 ? `${(stats.avgTradeLatency / 1000).toFixed(2)}초` : "측정 불가"}
+                  {stats.avgTradeLatency !== null && stats.avgTradeLatency > 0 ? `${(stats.avgTradeLatency / 1000).toFixed(2)}초` : "측정 불가"}
                 </span>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "2px", alignItems: "flex-end" }}>
                 <span style={{ fontSize: "10px", color: "#6b7280", fontWeight: "800" }}>AVG ISOLATION RATE</span>
                 <span style={{ display: "flex", fontSize: "14px", color: "#e4e4e7", fontWeight: "800" }}>
-                  {stats.avgIsolation} (평균)
+                  {stats.avgIsolation === null ? "측정 불가" : `${stats.avgIsolation} (평균)`}
                 </span>
               </div>
             </div>

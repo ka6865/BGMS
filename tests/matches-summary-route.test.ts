@@ -105,4 +105,33 @@ describe("matches-summary raw timestamp fallback", () => {
     const playerMatchSelect = database.selects.find(({ table }) => table === "pubg_player_matches");
     expect(playerMatchSelect?.columns.split(",").map((column) => column.trim())).toContain("match_type");
   });
+
+  it("ordinary history keeps a legacy processed row without embedded AI identity fields", async () => {
+    database.rows.processed_match_telemetry = [{
+      match_id: "legacy-match",
+      data: {
+        fullResult: {
+          matchId: "legacy-match",
+          v: 73,
+          stats: {
+            name: "FixturePlayer",
+            kills: 2,
+            damageDealt: 321,
+            winPlace: 4,
+          },
+          gameMode: "squad-fpp",
+          mapName: "Baltic_Main",
+        },
+      },
+    }];
+
+    const body = await (await POST(request(["legacy-match"]))).json();
+
+    expect(body.summaries["legacy-match"]).toMatchObject({
+      matchId: "legacy-match",
+      summarySource: "processed_match_telemetry",
+      stats: { name: "FixturePlayer", kills: 2 },
+    });
+    expect(body.missingMatchIds).toEqual([]);
+  });
 });

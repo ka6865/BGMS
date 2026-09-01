@@ -2,7 +2,7 @@ import { afterEach, describe, it, expect, vi, beforeEach } from "vitest";
 import { POST as aiAnalyzePOST } from "../app/api/pubg/ai-analyze/route";
 import { POST as aiSummaryPOST } from "../app/api/pubg/ai-summary/route";
 import { POST as aiSquadPOST } from "../app/api/pubg/ai-squad/route";
-import { AI_CACHE_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
+import { AI_CACHE_VERSION, AI_SUMMARY_CACHE_VERSION, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
 import { fetchTierBenchmarkStats } from "../lib/pubg-analysis/benchmarkLookup";
 import {
   buildBestMatchSelectionKey,
@@ -141,6 +141,7 @@ function createSummaryMatch(matchId = "match-1", overrides: Record<string, any> 
     player_id: "player_a",
     platform: "kakao",
     v: RESULT_VERSION,
+    populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
     createdAt: "2026-06-01T00:00:00.000Z",
     mapName: "Baltic_Main",
     gameMode: "squad",
@@ -185,6 +186,42 @@ function createSummaryMatch(matchId = "match-1", overrides: Record<string, any> 
   };
 }
 
+function createValidSummaryFinal(overrides: Record<string, any> = {}): any {
+  const issue = (topic: string, extra: Record<string, any> = {}) => ({
+    topic,
+    question: `${topic}이 충분한가?`,
+    spicyOpinion: "수치 기준으로 보완할 지점이 있습니다.",
+    kindOpinion: "수치 기준으로 강점을 확인할 수 있습니다.",
+    winner: "kind",
+    reason: "검증 데이터",
+    evaluation: "정상",
+    userStats: [],
+    benchmarkStats: [],
+    ...extra,
+  });
+  return {
+    signature: "테스트 전술가",
+    signatureSub: "캐시 안정화 테스트 응답",
+    finalVerdict: "검증용 최종 판정입니다.",
+    debateIssues: [
+      issue("전투력", {
+        userStats: [{ label: "평균 화력", value: "320" }],
+        benchmarkStats: [{ label: "상위권 평균 화력", value: "300" }],
+      }),
+      issue("교전 주도권", {
+        userStats: [{ label: "주도권 성공률", value: "70%" }],
+        benchmarkStats: [{ label: "상위권 선제 공격 성공률", value: "61%" }],
+      }),
+      issue("1:1 결정력", {
+        userStats: [{ label: "1:1 교전 승률", value: "79%" }],
+        benchmarkStats: [{ label: "상위권 1:1 승률", value: "61%" }],
+      }),
+    ],
+    actionItems: [{ icon: "target", title: "검증", desc: "테스트 유지" }],
+    ...overrides,
+  };
+}
+
 function createCanonicalAnalyzeRow(
   matchId = "match-1",
   overrides: Record<string, any> = {},
@@ -205,26 +242,36 @@ function createCanonicalAnalyzeRow(
   };
 }
 
+const canonicalSquadAnalysis = {
+  groupKey: "alpha,beta",
+  matchCount: 2,
+  latestMatchCount: 2,
+  bestMatchCount: 2,
+  selectedMatchIds: ["match-2", "match-1"],
+  matchesSummary: [
+    { matchId: "match-2", mapName: "Baltic_Main", winPlace: 2, createdAt: "2026-09-01T00:00:00.000Z" },
+    { matchId: "match-1", mapName: "Baltic_Main", winPlace: 4, createdAt: "2026-08-31T00:00:00.000Z" },
+  ],
+  stats: {
+    avgIsolation: 1.5,
+    avgTradeLatency: 8000,
+    totalSmokeRescues: 2,
+    totalRevives: 3,
+    avgCoverRate: 0.45,
+    totalTeamWipes: 1,
+    totalTeammateKnocks: 2,
+  },
+  scores: { formation: 70, backupSpeed: 75, survivalCare: 80, focusFire: 76, teamWipe: 65 },
+  squadGrade: "A",
+  roleProfiles: [
+    { name: "Player_A", role: "Entry", roleDesc: "진입", avgDamage: 300, avgKills: 2, avgAssists: 1, avgDbnos: 1, shares: { damage: 55, kill: 50, assist: 30, dbno: 50 } },
+    { name: "Beta", role: "Support", roleDesc: "지원", avgDamage: 180, avgKills: 1, avgAssists: 2, avgDbnos: 1, shares: { damage: 45, kill: 50, assist: 70, dbno: 50 } },
+  ],
+  benchmarkStats: { tier: "A", avgIsolation: 1.36, avgTradeLatency: 12143, avgReviveRate: 17, avgSmokeRate: 3.58, avgTeamWipes: 5.33 },
+};
+
 function mockSummaryGeminiResponse(assertPrompt?: (prompt: string) => void) {
-  const json = JSON.stringify({
-    signature: "테스트 전술가",
-    signatureSub: "캐시 안정화 테스트 응답",
-    finalVerdict: "검증용 최종 판정입니다.",
-    debateIssues: [
-      {
-        topic: "전투력",
-        question: "교전력이 충분한가?",
-        spicyOpinion: "수치 확인 필요",
-        kindOpinion: "개선 여지 있음",
-        winner: "kind",
-        reason: "검증 데이터",
-        evaluation: "정상",
-        userStats: [{ label: "딜량", value: "320" }],
-        benchmarkStats: [{ label: "상위권", value: "300" }],
-      },
-    ],
-    actionItems: [{ icon: "target", title: "검증", desc: "테스트 유지" }],
-  });
+  const json = JSON.stringify(createValidSummaryFinal());
 
   mockGenerateContentStream.mockImplementation(async (prompt: string) => {
     assertPrompt?.(prompt);
@@ -258,7 +305,7 @@ function configureSummaryCacheHitForHash(
   expectedHash: string,
   aiResult: any = {
     visuals: { overallTier: "C" },
-    final: JSON.stringify({ finalVerdict: "cached" }),
+    final: JSON.stringify(createValidSummaryFinal({ finalVerdict: "cached" })),
   },
 ) {
   summaryCache.maybeSingle.mockImplementation(async () => {
@@ -305,7 +352,10 @@ describe("AI cache route stabilization", () => {
       data: { ai_result: { text: "cached-player-a-analysis" } },
       error: null,
     });
-    const telemetry = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({
+      data: createCanonicalAnalyzeRow("match-a"),
+      error: null,
+    });
     const supabase = createSupabaseMock({
       match_ai_coaching_cache: matchCache,
       processed_match_telemetry: telemetry,
@@ -329,7 +379,7 @@ describe("AI cache route stabilization", () => {
     expect(matchCache.eq).toHaveBeenCalledWith("player_id", "player_a");
     expect(matchCache.eq).toHaveBeenCalledWith("coaching_style", "spicy");
     expect(matchCache.eq).toHaveBeenCalledWith("prompt_version", AI_CACHE_VERSION);
-    expect(telemetry.select).not.toHaveBeenCalled();
+    expect(telemetry.select).toHaveBeenCalledWith("match_id,player_id,platform,data");
     expect(mockGenerateContentStream).not.toHaveBeenCalled();
   });
 
@@ -338,8 +388,13 @@ describe("AI cache route stabilization", () => {
       data: { ai_result: { text: "혼자 다 해먹는 화력이고 팀 지원 지표가 바닥입니다." } },
       error: null,
     });
+    const telemetry = createQueryChain({
+      data: createCanonicalAnalyzeRow("match-sanitize-cache"),
+      error: null,
+    });
     const supabase = createSupabaseMock({
       match_ai_coaching_cache: matchCache,
+      processed_match_telemetry: telemetry,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -719,7 +774,10 @@ describe("AI cache route stabilization", () => {
     ["default", undefined],
   ])("ai-analyze는 %s coachingStyle을 캐시 identity에 반영한다", async (_label, coachingStyle) => {
     const matchCache = createQueryChain({ data: { ai_result: { text: "cached-style" } }, error: null });
-    const telemetry = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({
+      data: createCanonicalAnalyzeRow(`match-${_label}`),
+      error: null,
+    });
     const supabase = createSupabaseMock({
       match_ai_coaching_cache: matchCache,
       processed_match_telemetry: telemetry,
@@ -736,7 +794,7 @@ describe("AI cache route stabilization", () => {
 
     expect(response.status).toBe(200);
     expect(matchCache.eq).toHaveBeenCalledWith("coaching_style", coachingStyle ?? "spicy");
-    expect(telemetry.select).not.toHaveBeenCalled();
+    expect(telemetry.select).toHaveBeenCalledWith("match_id,player_id,platform,data");
     expect(mockGenerateContentStream).not.toHaveBeenCalled();
   });
 
@@ -777,7 +835,7 @@ describe("AI cache route stabilization", () => {
       expect.objectContaining({
         player_id: "player_a",
         platform: "kakao",
-        prompt_version: AI_CACHE_VERSION,
+        prompt_version: AI_SUMMARY_CACHE_VERSION,
       }),
       { onConflict: "player_id,platform,match_ids_hash,prompt_version" }
     );
@@ -844,7 +902,7 @@ describe("AI cache route stabilization", () => {
       sourceIndex: 0,
       value: { benchmark: { score: 1 } },
     })));
-    const legacyHash = crypto.createHash("sha256").update(`${AI_CACHE_VERSION}\n${selectionKey}\n${bestSelectionKey}`).digest("hex");
+    const legacyHash = crypto.createHash("sha256").update(`${AI_SUMMARY_CACHE_VERSION}\n${selectionKey}\n${bestSelectionKey}`).digest("hex");
     expect(upsertPayload.match_ids_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(upsertPayload.match_ids_hash).not.toBe(legacyHash);
   });
@@ -1056,7 +1114,7 @@ describe("AI cache route stabilization", () => {
     }
   });
 
-  it("Gemini 전체 실패 fallback은 best5 duel population을 사용한다", async () => {
+  it("Gemini 전체 실패는 fallback final 없이 중립 provider error와 terminal done을 보낸다", async () => {
     mockGenerateContentStream.mockRejectedValue(new Error("Gemini unavailable"));
 
     const telemetry = createQueryChain({
@@ -1095,11 +1153,23 @@ describe("AI cache route stabilization", () => {
       force: true,
     }));
     const records = parseSummaryNdjson(await response.text());
-    const finalData = JSON.parse(records.find((record) => record.type === "final")?.data || "{}");
 
     expect(response.status).toBe(200);
-    expect(finalData.debateIssues[0].userStats[0]).toEqual({ label: "교전 승률", value: "100%" });
-    expect(finalData.debateIssues[0].spicyOpinion).toContain("100%");
+    expect(records.map((record) => record.type)).toEqual(["visuals", "error", "done"]);
+    expect(records.find((record) => record.type === "final")).toBeUndefined();
+    expect(records[1]).toMatchObject({
+      error: expect.any(String),
+      errorCode: "PUBG_AI_PROVIDER_ERROR",
+      retryable: true,
+    });
+    expect(records[2]).toMatchObject({
+      valid: false,
+      errorCode: "PUBG_AI_PROVIDER_ERROR",
+      retryable: true,
+    });
+    expect(records[1].error).not.toContain("Gemini unavailable");
+    expect(records[2].error).not.toContain("Gemini unavailable");
+    expect(summaryCache.upsert).not.toHaveBeenCalled();
   });
 
   it("ai-summary cache identity는 같은 latest10/best5 ID·점수라도 유효 payload 변경을 놓치지 않는다", async () => {
@@ -1171,7 +1241,9 @@ describe("AI cache route stabilization", () => {
       game_mode: "squad",
       match_type: "competitive",
       tier: "B",
+      match_count: 5,
       avg_damage: 250,
+      avg_damage_count: 5,
       avg_kills: 2.5,
       avg_survival_time: 900,
       avg_duel_win_rate: 50,
@@ -1188,6 +1260,8 @@ describe("AI cache route stabilization", () => {
       avg_trade_latency_ms: 12000,
       avg_solo_kill_rate: 50,
       avg_death_phase: 6,
+      filter_version: 8,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION,
     };
     const telemetry = createQueryChain({
       data: [{
@@ -1288,6 +1362,312 @@ describe("AI cache route stabilization", () => {
     }
   });
 
+  it("ai-summary는 fresh Gemini의 비대칭 debate stats를 정규화한 JSON만 final/cache에 저장한다", async () => {
+    const validFinal = createValidSummaryFinal({ finalVerdict: "텍스트 코칭은 유지합니다." });
+    validFinal.debateIssues = validFinal.debateIssues.map((issue: any, index: number) => index === 0
+      ? {
+        ...issue,
+        topic: "1:1 결정력",
+        question: "질문",
+        kindOpinion: "착한맛",
+        spicyOpinion: "매운맛",
+        userStats: [{ label: "총 투척 횟수", value: "22회" }],
+        benchmarkStats: [{ label: "아군 기절 대비 연막 구출률", value: "11%" }],
+      }
+      : issue);
+    mockSummaryGeminiRawText(JSON.stringify(validFinal));
+
+    const summaryCache = createQueryChain();
+    const telemetry = createQueryChain({
+      data: [{
+        match_id: "match-debate-normalize-fresh",
+        player_id: "player_a",
+        platform: "kakao",
+        data: { fullResult: createSummaryMatch("match-debate-normalize-fresh") },
+      }],
+      error: null,
+    });
+    const globalBenchmarks = createQueryChain({ data: [], error: null });
+    const tierBenchmarks = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: globalBenchmarks,
+      benchmark_stats_by_tier: tierBenchmarks,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["match-debate-normalize-fresh"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const finalData = JSON.parse(records.find((record) => record.type === "final")?.data || "{}");
+    const visuals = records.find((record) => record.type === "visuals")?.data;
+    const cachedFinal = JSON.parse(summaryCache.upsert.mock.calls[0]?.[0]?.ai_result?.final || "{}");
+
+    expect(response.status).toBe(200);
+    expect(finalData.debateIssues[0].userStats).toEqual([]);
+    expect(finalData.debateIssues[0].benchmarkStats).toEqual([]);
+    expect(cachedFinal.debateIssues[0].userStats).toEqual([]);
+    expect(cachedFinal.debateIssues[0].benchmarkStats).toEqual([]);
+  });
+
+  it("ai-summary는 invalid fresh final을 성공/캐시하지 않고 기존 stream error path로 보낸다", async () => {
+    mockSummaryGeminiRawText("not-json");
+
+    const summaryCache = createQueryChain();
+    const telemetry = createQueryChain({
+      data: [{
+        match_id: "match-debate-invalid-final",
+        player_id: "player_a",
+        platform: "kakao",
+        data: { fullResult: createSummaryMatch("match-debate-invalid-final") },
+      }],
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["match-debate-invalid-final"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+
+    expect(response.status).toBe(200);
+    expect(records.find((record) => record.type === "done")).toMatchObject({ valid: false });
+    expect(summaryCache.upsert).not.toHaveBeenCalled();
+  });
+
+  it("ai-summary는 jsonrepair로 고칠 수 있는 malformed fresh final도 성공/캐시하지 않는다", async () => {
+    mockSummaryGeminiRawText('{"finalVerdict":"repairable",}');
+
+    const summaryCache = createQueryChain();
+    const telemetry = createQueryChain({
+      data: [{
+        match_id: "match-debate-repairable-final",
+        player_id: "player_a",
+        platform: "kakao",
+        data: { fullResult: createSummaryMatch("match-debate-repairable-final") },
+      }],
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["match-debate-repairable-final"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+
+    expect(response.status).toBe(200);
+    expect(records.find((record) => record.type === "done")).toMatchObject({ valid: false });
+    expect(summaryCache.upsert).not.toHaveBeenCalled();
+  });
+
+  it("ai-summary는 Gemini가 빈 final을 반환하면 fallback 성공/캐시가 아닌 invalid stream으로 종료한다", async () => {
+    mockGenerateContentStream.mockImplementation(async () => ({
+      stream: (async function* () {
+        yield { text: () => "" };
+      })(),
+      response: Promise.resolve({ usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 20 } }),
+    }));
+
+    const summaryCache = createQueryChain();
+    const telemetry = createQueryChain({
+      data: [{
+        match_id: "match-debate-empty-final",
+        player_id: "player_a",
+        platform: "kakao",
+        data: { fullResult: createSummaryMatch("match-debate-empty-final") },
+      }],
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["match-debate-empty-final"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+
+    expect(response.status).toBe(200);
+    expect(records.find((record) => record.type === "done")).toMatchObject({ valid: false });
+    expect(summaryCache.upsert).not.toHaveBeenCalled();
+  });
+
+  it("ai-summary는 repairable cache final을 hit으로 반환하지 않고 새 Gemini 결과만 저장한다", async () => {
+    mockSummaryGeminiResponse();
+
+    const summaryCache = createQueryChain({
+      data: {
+        ai_result: {
+          visuals: { latestMatchCount: 1, bestMatchCount: 1 },
+          final: '{"finalVerdict":"repairable cache",}',
+        },
+      },
+      error: null,
+    });
+    const telemetry = createQueryChain({
+      data: [{
+        match_id: "match-debate-repairable-cache",
+        player_id: "player_a",
+        platform: "kakao",
+        data: { fullResult: createSummaryMatch("match-debate-repairable-cache") },
+      }],
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["match-debate-repairable-cache"],
+      nickname: "Player_A",
+      platform: "kakao",
+    }));
+    const records = parseSummaryNdjson(await response.text());
+
+    expect(response.status).toBe(200);
+    expect(records.find((record) => record.type === "done")).toMatchObject({ valid: true });
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
+    expect(summaryCache.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["", "   ", JSON.stringify({ finalVerdict: "" })])(
+    "ai-summary는 empty cache final(%j)을 cache hit으로 취급하지 않는다",
+    async (invalidFinal) => {
+      mockSummaryGeminiResponse();
+
+      const summaryCache = createQueryChain({
+        data: { ai_result: { visuals: {}, final: invalidFinal } },
+        error: null,
+      });
+      const telemetry = createQueryChain({
+        data: [{
+          match_id: "match-debate-empty-cache",
+          player_id: "player_a",
+          platform: "kakao",
+          data: { fullResult: createSummaryMatch("match-debate-empty-cache") },
+        }],
+        error: null,
+      });
+      const supabase = createSupabaseMock({
+        player_ai_summary_cache: summaryCache,
+        processed_match_telemetry: telemetry,
+        global_benchmarks: createQueryChain({ data: [], error: null }),
+        benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      });
+      mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+      const response = await aiSummaryPOST(createRequest({
+        matchIds: ["match-debate-empty-cache"],
+        nickname: "Player_A",
+        platform: "kakao",
+      }));
+      const records = parseSummaryNdjson(await response.text());
+
+      expect(response.status).toBe(200);
+      expect(records.find((record) => record.type === "done")).toMatchObject({ valid: true });
+      expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
+      expect(summaryCache.upsert).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("ai-summary는 malformed cache final도 정규화한 뒤에만 cache hit으로 반환한다", async () => {
+    mockSummaryGeminiResponse();
+
+    const summaryCache = createQueryChain();
+    const telemetry = createQueryChain({
+      data: [{
+        match_id: "match-debate-normalize-cache",
+        player_id: "player_a",
+        platform: "kakao",
+        data: { fullResult: createSummaryMatch("match-debate-normalize-cache") },
+      }],
+      error: null,
+    });
+    const globalBenchmarks = createQueryChain({ data: [], error: null });
+    const tierBenchmarks = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: globalBenchmarks,
+      benchmark_stats_by_tier: tierBenchmarks,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const firstResponse = await aiSummaryPOST(createRequest({
+      matchIds: ["match-debate-normalize-cache"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    await firstResponse.text();
+    const firstHash = summaryCache.upsert.mock.calls[0]?.[0]?.match_ids_hash;
+    const malformedStatFinal = createValidSummaryFinal({ finalVerdict: "cached malformed stats" });
+    malformedStatFinal.debateIssues[0] = {
+      ...malformedStatFinal.debateIssues[0],
+      topic: "1:1 결정력",
+      userStats: [{ label: "총 투척 횟수", value: "22회" }],
+      benchmarkStats: [{ label: "아군 기절 대비 연막 구출률", value: "11%" }],
+    };
+    configureSummaryCacheHitForHash(summaryCache, firstHash, {
+      // Deliberately stale: the route must replay only the cached final, while
+      // recomputing visuals from the current canonical match payload.
+      visuals: { latestMatchCount: 999, bestMatchCount: 999, marker: "stale" },
+      final: JSON.stringify(malformedStatFinal),
+    });
+    mockGenerateContentStream.mockClear();
+
+    const secondResponse = await aiSummaryPOST(createRequest({
+      matchIds: ["match-debate-normalize-cache"],
+      nickname: "Player_A",
+      platform: "kakao",
+    }));
+    const records = parseSummaryNdjson(await secondResponse.text());
+    const finalData = JSON.parse(records.find((record) => record.type === "final")?.data || "{}");
+    const visuals = records.find((record) => record.type === "visuals")?.data;
+
+    expect(secondResponse.status).toBe(200);
+    expect(records.map((record) => record.type)).toEqual(["visuals", "final", "done"]);
+    expect(visuals).toMatchObject({ latestMatchCount: 1, bestMatchCount: 1 });
+    expect(visuals).not.toHaveProperty("marker");
+    expect(finalData.debateIssues[0].userStats).toEqual([]);
+    expect(finalData.debateIssues[0].benchmarkStats).toEqual([]);
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+  });
+
   it("ai-summary는 latest10을 전체 UI에 보존하고 그 안의 best5만 AI/벤치마크에 사용한다", async () => {
     let capturedPrompt = "";
     mockSummaryGeminiResponse((prompt) => {
@@ -1327,6 +1707,10 @@ describe("AI cache route stabilization", () => {
                 score: spec.score,
                 impactScore: spec.impact,
                 breakdown: { combat: spec.score, tactical: spec.score, survival: spec.score },
+              },
+              tradeStats: {
+                ...createSummaryMatch().tradeStats,
+                enemyTeamWipes: index,
               },
             }),
           },
@@ -1368,6 +1752,8 @@ describe("AI cache route stabilization", () => {
     // Mastery/basic visuals remain the full latest10, not best5.
     expect(capturedPrompt).toContain("랭크 매치: 10판");
     expect(visuals.tactical.counts.knocks).toBe(10);
+    // index 0 is the excluded 11th-oldest match, so latest10 sums 1..10.
+    expect(visuals.tactical.counts.enemyTeamWipes).toBe(55);
     expect(visuals.latestMatchCount).toBe(10);
     expect(visuals.bestMatchCount).toBe(5);
     // The dashboard's potential tier/breakdown stays best5-scoped:
@@ -1396,9 +1782,343 @@ describe("AI cache route stabilization", () => {
       sourceIndex: index,
       value: { benchmark: { score: 100 - index * 10 } },
     })));
-    const legacyHash = crypto.createHash("sha256").update(`${AI_CACHE_VERSION}\n${selectionKey}\n${bestSelectionKey}`).digest("hex");
+    const legacyHash = crypto.createHash("sha256").update(`${AI_SUMMARY_CACHE_VERSION}\n${selectionKey}\n${bestSelectionKey}`).digest("hex");
     expect(upsertPayload.match_ids_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(upsertPayload.match_ids_hash).not.toBe(legacyHash);
+  });
+
+  it("ai-summary prompt는 persisted benchmark score를 0..100으로 정규화한다", async () => {
+    let capturedPrompt = "";
+    mockSummaryGeminiResponse((prompt) => {
+      capturedPrompt = prompt;
+    });
+    const telemetry = createQueryChain({
+      data: [{
+        match_id: "prompt-score-boundary",
+        player_id: "player_a",
+        platform: "kakao",
+        data: {
+          fullResult: createSummaryMatch("prompt-score-boundary", {
+            benchmark: {
+              score: 101,
+              impactScore: 5,
+              breakdown: { combat: 101, tactical: 101, survival: 101 },
+            },
+          }),
+        },
+      }],
+      error: null,
+    });
+    const summaryCache = createQueryChain();
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["prompt-score-boundary"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    await response.text();
+
+    expect(response.status).toBe(200);
+    expect(capturedPrompt).toContain("전술 안정도 100/100");
+    expect(capturedPrompt).not.toContain("전술 안정도 101/100");
+  });
+
+  it("ai-summary는 opportunity denominator가 없을 때 trade/smoke zero evidence를 만들지 않는다", async () => {
+    mockSummaryGeminiResponse();
+    const telemetry = createQueryChain({
+      data: [{
+        match_id: "missing-opportunity-denominator",
+        player_id: "player_a",
+        platform: "kakao",
+        data: {
+          fullResult: createSummaryMatch("missing-opportunity-denominator", {
+            tradeStats: {
+              ...createSummaryMatch().tradeStats,
+              teammateKnocks: undefined,
+              tradeKills: 0,
+              smokeRescues: 0,
+            },
+          }),
+        },
+      }],
+      error: null,
+    });
+    const tierBenchmarks = createQueryChain({
+      data: {
+        game_mode: "squad",
+        match_type: "competitive",
+        tier: "B",
+        match_count: 5,
+        avg_trade_rate: 55,
+        avg_trade_rate_count: 5,
+        avg_smoke_rate: 45,
+        avg_smoke_rate_count: 5,
+      },
+      error: null,
+    });
+    const summaryCache = createQueryChain();
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier: tierBenchmarks,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["missing-opportunity-denominator"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const finalData = JSON.parse(records.find((record) => record.type === "final")?.data || "{}");
+    const visuals = records.find((record) => record.type === "visuals")?.data;
+    const evidence = finalData.debateIssues.flatMap((issue: any) => [
+      ...(issue.userStats || []),
+      ...(issue.benchmarkStats || []),
+    ]);
+
+    expect(response.status).toBe(200);
+    expect(visuals.tactical.tradeRate).toBe("측정 불가");
+    expect(visuals.tactical.suppRate).toBe("측정 불가");
+    expect(visuals.tactical.reviveRate).toBe("측정 불가");
+    expect(evidence.map((stat: any) => stat.label)).not.toContain("복수 성공률");
+    expect(evidence.map((stat: any) => stat.label)).not.toContain("아군 기절 대비 연막 구출률");
+  });
+
+  it("ai-summary는 enemyTeamWipes 숫자 문자열을 합산해 숫자형 visual로 반환한다", async () => {
+    let capturedPrompt = "";
+    mockSummaryGeminiResponse((prompt) => {
+      capturedPrompt = prompt;
+    });
+
+    const telemetry = createQueryChain({
+      data: ["2", "3"].map((enemyTeamWipes, index) => ({
+        match_id: `string-team-wipe-${index}`,
+        player_id: "player_a",
+        platform: "kakao",
+        data: {
+          fullResult: createSummaryMatch(`string-team-wipe-${index}`, {
+            createdAt: new Date(Date.UTC(2026, 7, 27, 0, index)).toISOString(),
+            tradeStats: {
+              ...createSummaryMatch().tradeStats,
+              enemyTeamWipes,
+            },
+          }),
+        },
+      })),
+      error: null,
+    });
+    const summaryCache = createQueryChain();
+    const tierBenchmarks = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier: tierBenchmarks,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["string-team-wipe-0", "string-team-wipe-1"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const visuals = records.find((record) => record.type === "visuals")?.data;
+
+    expect(response.status).toBe(200);
+    expect(visuals.tactical.counts.enemyTeamWipes).toBe(5);
+    expect(typeof visuals.tactical.counts.enemyTeamWipes).toBe("number");
+    expect(capturedPrompt).toContain("적 팀 전멸 기여: 5회");
+  });
+
+  it("ai-summary는 비유한 telemetry를 finite한 NDJSON/cache visuals로 정규화한다", async () => {
+    mockSummaryGeminiResponse();
+
+    const malformed = createSummaryMatch("malformed-visual-numbers", {
+      stats: {
+        ...createSummaryMatch().stats,
+        kills: Number.NaN,
+        processedDamageDealt: Number.POSITIVE_INFINITY,
+        damageDealt: Number.NaN,
+      },
+      tradeStats: {
+        ...createSummaryMatch().tradeStats,
+        teammateKnocks: Number.NaN,
+        coverRateSampleCount: Number.POSITIVE_INFINITY,
+        tradeLatencyMs: Number.NaN,
+        reactionLatencyMs: Number.POSITIVE_INFINITY,
+        enemyTeamWipes: "malformed",
+      },
+      combatPressure: {
+        ...createSummaryMatch().combatPressure,
+        pressureIndex: Number.POSITIVE_INFINITY,
+        maxHitDistance: Number.NaN,
+        utilityStats: {
+          ...createSummaryMatch().combatPressure.utilityStats,
+          throwCount: Number.NaN,
+          hitCount: Number.POSITIVE_INFINITY,
+          totalDamage: Number.NaN,
+        },
+      },
+      isolationData: {
+        ...createSummaryMatch().isolationData,
+        isolationIndex: Number.NaN,
+        minDist: Number.POSITIVE_INFINITY,
+        heightDiff: "malformed",
+        teammateCount: undefined,
+      },
+    });
+    const telemetry = createQueryChain({
+      data: [{
+        match_id: "malformed-visual-numbers",
+        player_id: "player_a",
+        platform: "kakao",
+        data: { fullResult: malformed },
+      }],
+      error: null,
+    });
+    const summaryCache = createQueryChain();
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["malformed-visual-numbers"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const visuals = records.find((record) => record.type === "visuals")?.data;
+    const cachedVisuals = summaryCache.upsert.mock.calls[0]?.[0]?.ai_result?.visuals;
+    const assertFiniteNumbers = (value: unknown): void => {
+      if (typeof value === "number") {
+        expect(Number.isFinite(value)).toBe(true);
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach(assertFiniteNumbers);
+        return;
+      }
+      if (value && typeof value === "object") {
+        Object.values(value).forEach(assertFiniteNumbers);
+      }
+    };
+
+    expect(response.status).toBe(200);
+    assertFiniteNumbers(visuals);
+    assertFiniteNumbers(cachedVisuals);
+    expect(JSON.stringify(records)).not.toMatch(/NaN|Infinity|undefined/);
+  });
+
+  it("ai-summary debate evidence는 main mode의 canonical 값만 유지하고 provider 숫자를 덮어쓴다", async () => {
+    const providerFinal = createValidSummaryFinal({
+      debateIssues: [
+        {
+          ...createValidSummaryFinal().debateIssues[0],
+          userStats: [{ label: "평균 화력", value: "999" }],
+          benchmarkStats: [{ label: "상위권 평균 화력", value: "999" }],
+        },
+        {
+          ...createValidSummaryFinal().debateIssues[1],
+          question: "듀오 상위권 평균 화력 999 대비 평균 화력 888이 높습니다.",
+          kindOpinion: "상위권 평균 화력 999 대비 평균 화력 888이 높습니다.",
+          userStats: [{ label: "주도권 성공률", value: "999%" }],
+          benchmarkStats: [{ label: "상위권 선제 공격 성공률", value: "999%" }],
+        },
+        createValidSummaryFinal().debateIssues[2],
+      ],
+    });
+    mockSummaryGeminiRawText(JSON.stringify(providerFinal));
+
+    const mainModeBenchmark = {
+      game_mode: "squad",
+      match_type: "competitive",
+      tier: "B",
+      match_count: 5,
+      filter_version: 8,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION,
+      avg_damage: 300,
+      avg_damage_count: 5,
+      avg_initiative_rate: null,
+    };
+    const minorityModeBenchmark = {
+      game_mode: "duo",
+      match_type: "competitive",
+      tier: "B",
+      match_count: 5,
+      filter_version: 8,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION,
+      avg_damage: null,
+      avg_initiative_rate: 77,
+    };
+    const telemetry = createQueryChain({
+      data: [
+        { id: "duo-evidence-0", mode: "DUO", index: 0 },
+        { id: "duo-evidence-1", mode: "DUO", index: 1 },
+        { id: "squad-evidence-0", mode: "SQUAD", index: 2 },
+        { id: "squad-evidence-1", mode: "SQUAD", index: 3 },
+        { id: "squad-evidence-2", mode: "SQUAD", index: 4 },
+      ].map(({ id, mode, index }) => ({
+        match_id: id,
+        player_id: "player_a",
+        platform: "kakao",
+        data: {
+          fullResult: createSummaryMatch(id, {
+            gameMode: mode,
+            createdAt: new Date(Date.UTC(2026, 7, 27, 0, index)).toISOString(),
+          }),
+        },
+      })),
+      error: null,
+    });
+    const summaryCache = createQueryChain();
+    const tierBenchmarks = createQueryChain({ data: null, error: null });
+    tierBenchmarks.maybeSingle.mockImplementation(async () => {
+      const modeCalls = tierBenchmarks.eq.mock.calls.filter(([column]: [string]) => column === "game_mode");
+      const mode = modeCalls.at(-1)?.[1];
+      return { data: mode === "duo" ? minorityModeBenchmark : mainModeBenchmark, error: null };
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier: tierBenchmarks,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["duo-evidence-0", "duo-evidence-1", "squad-evidence-0", "squad-evidence-1", "squad-evidence-2"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const finalData = JSON.parse(records.find((record) => record.type === "final")?.data || "{}");
+
+    expect(response.status).toBe(200);
+    expect(finalData.debateIssues[0]).toMatchObject({
+      userStats: [{ label: "평균 화력", value: "320" }],
+      benchmarkStats: [{ label: "동일 티어 평균 화력", value: "300" }],
+    });
+    expect(finalData.debateIssues[1].question).toBe("검증된 경기 지표를 바탕으로 분석합니다.");
+    expect(finalData.debateIssues[1].kindOpinion).toBe("검증된 경기 지표를 바탕으로 분석합니다.");
+    // Initiative is observed only in the minority DUO benchmark row, so it
+    // cannot become evidence for the SQUAD main-mode debate.
+    expect(finalData.debateIssues[1].userStats).toEqual([]);
+    expect(finalData.debateIssues[1].benchmarkStats).toEqual([]);
   });
 
   it("ai-summary mixed-mode 분석은 모드별 상위 표본과 전체 best5 잠재 티어를 분리한다", async () => {
@@ -1408,11 +2128,11 @@ describe("AI cache route stabilization", () => {
     });
 
     const specs = [
-      { id: "squad-1", mode: "SQUAD", damage: 100, score: 30 },
-      { id: "squad-2", mode: "SQUAD", damage: 200, score: 30 },
-      { id: "squad-3", mode: "SQUAD", damage: 300, score: 30 },
-      { id: "duo-1", mode: "DUO", damage: 900, score: 80 },
-      { id: "duo-2", mode: "DUO", damage: 1_100, score: 90 },
+      { id: "squad-1", mode: "SQUAD", damage: 100, score: 30, timeline: [] },
+      { id: "squad-2", mode: "SQUAD", damage: 200, score: 30, timeline: [] },
+      { id: "squad-3", mode: "SQUAD", damage: 300, score: 30, timeline: [] },
+      { id: "duo-1", mode: "DUO", damage: 900, score: 80, timeline: [{ type: "KILL", weapon: "WeapM416_C" }] },
+      { id: "duo-2", mode: "DUO", damage: 1_100, score: 90, timeline: [{ type: "KILL", weapon: "WeapM416_C" }] },
       { id: "squad-low-score", mode: "SQUAD", damage: 9_999, score: 10 },
     ];
     const telemetry = createQueryChain({
@@ -1433,6 +2153,7 @@ describe("AI cache route stabilization", () => {
               score: spec.score,
               breakdown: { combat: spec.score, tactical: spec.score, survival: spec.score },
             },
+            timeline: spec.timeline,
           }),
         },
       })),
@@ -1481,6 +2202,8 @@ describe("AI cache route stabilization", () => {
     expect(visuals.tierBreakdown).toEqual({ combat: 52, tactical: 52, survival: 52, total: 52 });
     expect(visuals.overallTier).toBe("B+");
     expect(visuals.roleInfo.overallTier).toBe(visuals.overallTier);
+    expect(visuals.roleInfo.signatureWeapon).toBe("M416");
+    expect(visuals.roleInfo.signatureWeaponStats.kills).toBe(2);
   });
 
   it("ai-summary는 공백·대소문자와 ranked alias를 경쟁전으로 판정한다", async () => {
@@ -1491,7 +2214,9 @@ describe("AI cache route stabilization", () => {
 
     const specs = [
       { id: "trimmed-competitive", gameMode: " squad-fpp ", matchType: "  COMPETITIVE  " },
-      { id: "ranked-alias", gameMode: " Ranked-FPP ", matchType: " official " },
+      // Ranked is a match-type alias; the gameMode must still be one of the
+      // six explicit battle-royale modes (never inferred from `ranked-fpp`).
+      { id: "ranked-alias", gameMode: " squad-fpp ", matchType: " ranked-fpp " },
       { id: "normal-official", gameMode: " squad-fpp ", matchType: " official " },
     ];
     const telemetry = createQueryChain({
@@ -2149,6 +2874,124 @@ describe("AI cache route stabilization", () => {
     expect(summaryCache.upsert).not.toHaveBeenCalled();
   });
 
+  it("ai-summary는 preservation marker가 없는 pre-v73/R2 row를 공식 squad로 재해석하지 않는다", async () => {
+    mockSummaryGeminiResponse();
+    const legacyRow = {
+      match_id: "match-legacy-unmarked",
+      player_id: "player_a",
+      platform: "kakao",
+      data: {
+        fullResult: createSummaryMatch("match-legacy-unmarked", {
+          populationEvidenceVersion: undefined,
+          benchmark: {
+            score: 999,
+            impactScore: 999,
+            impactReasons: ["LEGACY_V73_CONTAMINATION_MARKER"],
+            breakdown: { combat: 99, tactical: 99, survival: 99 },
+          },
+        }),
+      },
+    };
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: [legacyRow], error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("missing", { status: 404 })));
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["match-legacy-unmarked"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ errorCode: "PUBG_AI_CANONICAL_NOT_READY" });
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    expect(summaryCache.upsert).not.toHaveBeenCalled();
+  });
+
+  it("ai-summary는 wrapper의 preservation marker로 unmarked canonical fullResult를 축복하지 않는다", async () => {
+    mockSummaryGeminiResponse();
+    const legacyFullResult = createSummaryMatch("match-wrapper-only-marker", {
+      populationEvidenceVersion: undefined,
+    });
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({
+      data: [{
+        match_id: "match-wrapper-only-marker",
+        player_id: "player_a",
+        platform: "kakao",
+        data: {
+          populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
+          fullResult: legacyFullResult,
+        },
+      }],
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("missing", { status: 404 })));
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["match-wrapper-only-marker"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ errorCode: "PUBG_AI_CANONICAL_NOT_READY" });
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    expect(summaryCache.upsert).not.toHaveBeenCalled();
+  });
+
+  it("ai-summary fallback requires the preservation marker on canonical fullResult itself", async () => {
+    mockSummaryGeminiResponse();
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: [], error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+    const legacyFullResult = createSummaryMatch("match-fallback-wrapper-only-marker", {
+      populationEvidenceVersion: undefined,
+    });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: {
+        populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
+        fullResult: legacyFullResult,
+      },
+    }), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["match-fallback-wrapper-only-marker"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ errorCode: "PUBG_AI_CANONICAL_NOT_READY" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    expect(summaryCache.upsert).not.toHaveBeenCalled();
+  });
+
   it("ai-summary는 current V73과 stale V72 혼합 시 current만 10→best5 집계에 포함한다", async () => {
     let capturedPrompt = "";
     mockSummaryGeminiResponse((prompt) => {
@@ -2281,6 +3124,335 @@ describe("AI cache route stabilization", () => {
     expect(visuals.bestMatchCount).toBe(1);
     expect(capturedPrompt).toContain("HUMAN_SUMMARY_MARKER");
     expect(capturedPrompt).not.toContain("AI_SUMMARY_CONTAMINATION_MARKER");
+  });
+
+  it("ai-summary는 cached row와 fullResult의 custom/event/secondary evidence를 합집합으로 판정한다", async () => {
+    let capturedPrompt = "";
+    mockSummaryGeminiResponse((prompt) => {
+      capturedPrompt = prompt;
+    });
+
+    const humanMatch = createSummaryMatch("match-evidence-human", {
+      createdAt: "2026-08-28T00:01:00.000Z",
+      matchType: "official",
+      gameMode: "squad-fpp",
+      benchmark: {
+        score: 70,
+        impactScore: 70,
+        impactReasons: ["EVIDENCE_HUMAN_MARKER"],
+        breakdown: { combat: 70, tactical: 70, survival: 70 },
+      },
+    });
+    const contaminatedFullResult = createSummaryMatch("match-evidence-contaminated", {
+      createdAt: "2026-08-28T00:02:00.000Z",
+      matchType: "official",
+      gameMode: "squad-fpp",
+      matchInfo: { mode: "ranked" },
+      attributes: { isCustomMatch: false, isEventMode: false },
+      telemetryFlags: { isCustomGame: false, isEventMode: false },
+      telemetry: [],
+      benchmark: {
+        score: 999,
+        impactScore: 999,
+        impactReasons: ["EVIDENCE_CONTAMINATION_MARKER"],
+        breakdown: { combat: 99, tactical: 99, survival: 99 },
+      },
+    });
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({
+      data: [
+        { match_id: "match-evidence-human", player_id: "player_a", platform: "kakao", data: { fullResult: humanMatch } },
+        {
+          match_id: "match-evidence-contaminated",
+          player_id: "player_a",
+          platform: "kakao",
+          data: {
+            fullResult: contaminatedFullResult,
+            attributes: { isCustomMatch: true, isEventMode: true },
+            matchInfo: { mode: "normal" },
+            telemetry: [{ _T: "LogMatchStart", isCustomGame: true, isEventMode: true }],
+            telemetryFlags: { isCustomGame: true, isEventMode: true },
+          },
+        },
+      ],
+      error: null,
+    });
+    const globalBenchmarks = createQueryChain({ data: [], error: null });
+    const tierBenchmarks = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: globalBenchmarks,
+      benchmark_stats_by_tier: tierBenchmarks,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["match-evidence-human", "match-evidence-contaminated"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const visuals = records.find((record) => record.type === "visuals")?.data;
+
+    expect(response.status).toBe(200);
+    expect(visuals.latestMatchCount).toBe(1);
+    expect(visuals.bestMatchCount).toBe(1);
+    expect(capturedPrompt).toContain("EVIDENCE_HUMAN_MARKER");
+    expect(capturedPrompt).not.toContain("EVIDENCE_CONTAMINATION_MARKER");
+  });
+
+  it("ai-summary preserves custom evidence when telemetry is split across an object and an array", async () => {
+    let capturedPrompt = "";
+    mockSummaryGeminiResponse((prompt) => {
+      capturedPrompt = prompt;
+    });
+
+    const human = createSummaryMatch("match-mixed-telemetry-human", {
+      createdAt: "2026-08-28T00:01:00.000Z",
+      matchType: "official",
+      gameMode: "squad-fpp",
+      benchmark: {
+        score: 70,
+        impactReasons: ["MIXED_TELEMETRY_HUMAN_MARKER"],
+        breakdown: { combat: 70, tactical: 70, survival: 70 },
+      },
+    });
+    const contaminated = createSummaryMatch("match-mixed-telemetry-contaminated", {
+      createdAt: "2026-08-28T00:02:00.000Z",
+      matchType: "official",
+      gameMode: "squad-fpp",
+      benchmark: {
+        score: 999,
+        impactReasons: ["MIXED_TELEMETRY_CONTAMINATION_MARKER"],
+        breakdown: { combat: 99, tactical: 99, survival: 99 },
+      },
+      telemetry: { LogMatchStart: { isCustomGame: true } },
+    });
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({
+      data: [
+        {
+          match_id: human.matchId,
+          player_id: "player_a",
+          platform: "kakao",
+          data: { fullResult: human },
+        },
+        {
+          match_id: contaminated.matchId,
+          player_id: "player_a",
+          platform: "kakao",
+          data: {
+            fullResult: contaminated,
+            telemetry: [{ _T: "LogMatchEnd" }],
+          },
+        },
+      ],
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: [human.matchId, contaminated.matchId],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const visuals = records.find((record) => record.type === "visuals")?.data;
+
+    expect(response.status).toBe(200);
+    expect(visuals.latestMatchCount).toBe(1);
+    expect(capturedPrompt).not.toContain("MIXED_TELEMETRY_CONTAMINATION_MARKER");
+  });
+
+  it("ai-summary mixed high-score population excludes TDM/custom/event/unknown rows from latest10, best5, prompt, and benchmark mode", async () => {
+    let capturedPrompt = "";
+    mockSummaryGeminiResponse((prompt) => {
+      capturedPrompt = prompt;
+    });
+
+    const row = (matchId: string, overrides: Record<string, any>) => ({
+      match_id: matchId,
+      player_id: "player_a",
+      platform: "kakao",
+      data: { fullResult: createSummaryMatch(matchId, overrides) },
+    });
+    const validOfficial = row("mixed-official", {
+      createdAt: "2026-08-28T00:01:00.000Z",
+      gameMode: "squad-fpp",
+      matchType: "official",
+      benchmark: { score: 90, impactReasons: ["MIXED_VALID_OFFICIAL"], breakdown: { combat: 90, tactical: 90, survival: 90 } },
+    });
+    const validCompetitive = row("mixed-competitive", {
+      createdAt: "2026-08-28T00:02:00.000Z",
+      gameMode: "duo-fpp",
+      matchType: "competitive",
+      benchmark: { score: 80, impactReasons: ["MIXED_VALID_COMPETITIVE"], breakdown: { combat: 80, tactical: 80, survival: 80 } },
+    });
+    const tdm = row("mixed-tdm", {
+      createdAt: "2026-08-28T00:03:00.000Z",
+      gameMode: "tdm",
+      matchType: "official",
+      mapName: " Italy_TDM_Main ",
+      benchmark: { score: 999, impactReasons: ["MIXED_TDM_CONTAMINATION"], breakdown: { combat: 99, tactical: 99, survival: 99 } },
+    });
+    const custom = row("mixed-custom", {
+      createdAt: "2026-08-28T00:04:00.000Z",
+      gameMode: "squad-fpp",
+      matchType: "official",
+      attributes: { isCustomMatch: true },
+      benchmark: { score: 998, impactReasons: ["MIXED_CUSTOM_CONTAMINATION"], breakdown: { combat: 99, tactical: 99, survival: 99 } },
+    });
+    const event = row("mixed-event", {
+      createdAt: "2026-08-28T00:05:00.000Z",
+      gameMode: "squad-fpp",
+      matchType: "official",
+      telemetryFlags: { isEventMode: true },
+      benchmark: { score: 997, impactReasons: ["MIXED_EVENT_CONTAMINATION"], breakdown: { combat: 99, tactical: 99, survival: 99 } },
+    });
+    const unknown = row("mixed-unknown", {
+      createdAt: "2026-08-28T00:06:00.000Z",
+      gameMode: undefined,
+      matchType: "official",
+      benchmark: { score: 996, impactReasons: ["MIXED_UNKNOWN_CONTAMINATION"], breakdown: { combat: 99, tactical: 99, survival: 99 } },
+    });
+
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({
+      data: [validOfficial, validCompetitive, tdm, custom, event, unknown],
+      error: null,
+    });
+    const tierBenchmarks = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier: tierBenchmarks,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: [validOfficial.match_id, validCompetitive.match_id, tdm.match_id, custom.match_id, event.match_id, unknown.match_id],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const visuals = records.find((record) => record.type === "visuals")?.data;
+
+    expect(response.status).toBe(200);
+    expect(visuals.latestMatchCount).toBe(2);
+    expect(visuals.bestMatchCount).toBe(2);
+    expect(capturedPrompt).not.toMatch(/MIXED_(TDM|CUSTOM|EVENT|UNKNOWN)_CONTAMINATION/);
+    expect(tierBenchmarks.eq).toHaveBeenCalledWith("game_mode", expect.stringMatching(/^(squad-fpp|duo-fpp)$/));
+    expect(tierBenchmarks.eq).toHaveBeenCalledWith("match_type", expect.stringMatching(/^(official|competitive)$/));
+    const benchmarkModes = tierBenchmarks.eq.mock.calls
+      .filter(([column]: [string]) => column === "game_mode")
+      .map(([, value]: [string, string]) => value);
+    const benchmarkTypes = tierBenchmarks.eq.mock.calls
+      .filter(([column]: [string]) => column === "match_type")
+      .map(([, value]: [string, string]) => value);
+    expect(benchmarkModes.length).toBeGreaterThan(0);
+    expect(benchmarkModes.every((value: string) => ["squad-fpp", "duo-fpp"].includes(value))).toBe(true);
+    expect(benchmarkTypes.length).toBeGreaterThan(0);
+    expect(benchmarkTypes.every((value: string) => ["official", "competitive"].includes(value))).toBe(true);
+  });
+
+  it("ai-summary isolation aggregation keeps no-position rows unavailable and preserves measured zero", async () => {
+    mockSummaryGeminiResponse();
+    const missing = {
+      match_id: "isolation-missing",
+      player_id: "player_a",
+      platform: "kakao",
+      data: {
+        fullResult: createSummaryMatch("isolation-missing", {
+          createdAt: "2026-08-28T00:01:00.000Z",
+          isolationData: { isCrossfire: false },
+        }),
+      },
+    };
+    const measured = {
+      match_id: "isolation-measured",
+      player_id: "player_a",
+      platform: "kakao",
+      data: {
+        fullResult: createSummaryMatch("isolation-measured", {
+          createdAt: "2026-08-28T00:02:00.000Z",
+          isolationData: {
+            isolationIndex: 2,
+            combatIsolation: 0,
+            deathIsolation: 0,
+            minDist: 20,
+            heightDiff: 4,
+            teammateCount: 2,
+            isCrossfire: false,
+          },
+        }),
+      },
+    };
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: [missing, measured], error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: [missing.match_id, measured.match_id],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const visuals = records.find((record) => record.type === "visuals")?.data;
+
+    expect(response.status).toBe(200);
+    expect(visuals.tactical.isolation).toMatchObject({
+      isolationIndex: 2,
+      minDist: 20,
+      heightDiff: 4,
+      teammateCount: 2,
+    });
+    expect(visuals.tactical.isolation.combatIsolation).toBe(0);
+    expect(visuals.tactical.isolation.deathIsolation).toBe(0);
+  });
+
+  it("ai-summary isolation visuals remain unavailable when every selected row lacks position samples", async () => {
+    mockSummaryGeminiResponse();
+    const match = {
+      match_id: "isolation-all-missing",
+      player_id: "player_a",
+      platform: "kakao",
+      data: { fullResult: createSummaryMatch("isolation-all-missing", { isolationData: { isCrossfire: false } }) },
+    };
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: [match], error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: [match.match_id],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const visuals = records.find((record) => record.type === "visuals")?.data;
+
+    expect(response.status).toBe(200);
+    expect(visuals.tactical.isolation).toBeNull();
   });
 
   it("ai-summary는 stale row와 selection에서 제외된 current row만 있으면 409로 fail-closed한다", async () => {
@@ -2890,13 +4062,11 @@ describe("AI cache route stabilization", () => {
   });
 
   it("ai-summary는 캐시된 최종 리포트의 과한 팀 비난 표현을 순화해서 반환한다", async () => {
-    const cachedFinal = JSON.stringify({
+    const cachedFinal = JSON.stringify(createValidSummaryFinal({
       signature: "테스트",
       signatureSub: "검증",
       finalVerdict: "혼자 다 해먹는 화력이고 팀 지원 지표가 바닥입니다.",
-      debateIssues: [],
-      actionItems: [],
-    });
+    }));
     const summaryCache = createQueryChain({
       data: {
         ai_result: {
@@ -2937,13 +4107,11 @@ describe("AI cache route stabilization", () => {
   });
 
   it("ai-summary는 신규 Gemini 최종 리포트도 순화한 뒤 캐시에 저장한다", async () => {
-    mockSummaryGeminiRawText(JSON.stringify({
+    mockSummaryGeminiRawText(JSON.stringify(createValidSummaryFinal({
       signature: "테스트",
       signatureSub: "검증",
       finalVerdict: "혼자 다 해먹는 화력이고 팀 지원 지표가 바닥입니다.",
-      debateIssues: [],
-      actionItems: [],
-    }));
+    })));
 
     const summaryCache = createQueryChain();
     const telemetry = createQueryChain({
@@ -3115,8 +4283,258 @@ describe("AI cache route stabilization", () => {
     expect(mockGenerateContentStream).toHaveBeenCalled();
   });
 
+  it("ai-summary는 충분한 표본에서도 NULL benchmark metric을 기본값으로 바꾸지 않고 비교 증거를 숨긴다", async () => {
+    let capturedPrompt = "";
+    const forbiddenComparisonFinal = createValidSummaryFinal({
+      signature: "상위권 평균 화력 250 전술가",
+      signatureSub: "엘리트 벤치마크 평균 화력 250 대비 강점",
+      finalVerdict: "상위권 평균 화력 250보다 낮아 벤치마크 보완이 필요합니다.",
+      debateIssues: createValidSummaryFinal().debateIssues.map((issue: any) => ({
+        ...issue,
+        question: "상위권 평균 화력 250과 비교해 충분한가?",
+        spicyOpinion: "엘리트 벤치마크 평균 화력 250보다 낮습니다.",
+        kindOpinion: "벤치마크 평균 화력 250 대비 가능성이 있습니다.",
+        reason: "상위권 평균 화력 250 대비 차이",
+        evaluation: "엘리트 벤치마크 평균 화력 250 평가",
+      })),
+      actionItems: [{ icon: "target", title: "벤치마크 평균 화력 250 개선", desc: "상위권 평균 화력 250을 따라가세요." }],
+    });
+    mockSummaryGeminiRawText(JSON.stringify(forbiddenComparisonFinal), (prompt) => {
+      capturedPrompt = prompt;
+    });
+
+    const tierBenchmarks = createQueryChain({
+      data: {
+        game_mode: "squad",
+        match_type: "competitive",
+        tier: "B",
+        match_count: 5,
+        avg_damage: null,
+        avg_duel_win_rate: null,
+        avg_initiative_rate: null,
+        avg_counter_latency_ms: null,
+        avg_trade_latency_ms: null,
+      },
+      error: null,
+    });
+    const telemetry = createQueryChain({
+      data: [{
+        match_id: "match-null-benchmark-metric",
+        player_id: "player_a",
+        platform: "kakao",
+        data: { fullResult: createSummaryMatch("match-null-benchmark-metric") },
+      }],
+      error: null,
+    });
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier: tierBenchmarks,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["match-null-benchmark-metric"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const finalData = JSON.parse(records.find((record) => record.type === "final")?.data || "{}");
+    const focusStart = capturedPrompt.indexOf("### [분석 집중 영역 (Debate Issues)]");
+    const focusSection = focusStart >= 0 ? capturedPrompt.slice(focusStart, focusStart + 240) : "";
+
+    expect(response.status).toBe(200);
+    expect(capturedPrompt).not.toContain("엘리트");
+    expect(capturedPrompt).not.toContain("상위권");
+    expect(capturedPrompt).not.toContain("동일 조건·동일 티어 BGMS 분석 표본 평균: 250");
+    expect(capturedPrompt).not.toContain("Benchmark: 50");
+    expect(focusSection).toContain("유틸리티 활용");
+    expect(focusSection).toContain("포지셔닝");
+    expect(focusSection).toContain("생존 운영");
+    expect(focusSection).not.toContain("화력");
+    expect(focusSection).not.toContain("교전 주도권");
+    expect(focusSection).not.toContain("12");
+    const proseFields = [
+      finalData.signature,
+      finalData.signatureSub,
+      finalData.finalVerdict,
+      ...finalData.debateIssues.flatMap((issue: any) => [
+        issue.topic,
+        issue.question,
+        issue.spicyOpinion,
+        issue.kindOpinion,
+        issue.reason,
+        issue.evaluation,
+      ]),
+      ...finalData.actionItems.flatMap((item: any) => [item.title, item.desc]),
+    ].join(" ");
+    expect(proseFields).not.toMatch(/상위권|엘리트|벤치마크|benchmark/i);
+    expect(proseFields).not.toContain("250");
+    expect(finalData.debateIssues.every((issue: any) => issue.benchmarkStats.length === 0)).toBe(true);
+  });
+
+  it("ai-summary partial NULL benchmark rows preserve observed damage while stripping unsupported duel prose and evidence", async () => {
+    const providerFinal = createValidSummaryFinal({
+      signature: "상위권 평균 화력 999 전술가",
+      signatureSub: "상위권 평균 화력 999 대비 강점",
+      finalVerdict: "상위권 평균 50%의 1:1 승률은 참고할 수 없고, 상위권 평균 화력 999 대비 화력은 좋습니다.",
+      debateIssues: [
+        {
+          ...createValidSummaryFinal().debateIssues[0],
+          topic: "화력",
+          userStats: [{ label: "평균 화력", value: "999" }],
+          benchmarkStats: [{ label: "상위권 평균 화력", value: "999" }],
+        },
+        {
+          ...createValidSummaryFinal().debateIssues[1],
+          topic: "1:1 결정력",
+          question: "1:1 승률이 상위권 평균 50%보다 높은가?",
+          spicyOpinion: "상위권 평균 50%의 1:1 승률과 비교하면 부족합니다.",
+          kindOpinion: "상위권 평균 50%의 1:1 승률보다 안정적입니다.",
+          reason: "상위권 평균 50%의 1:1 승률 대비 차이",
+          evaluation: "상위권 평균 50%의 1:1 승률 평가",
+          userStats: [{ label: "1:1 교전 승률", value: "79%" }],
+          benchmarkStats: [{ label: "상위권 1:1 승률", value: "50%" }],
+        },
+        createValidSummaryFinal().debateIssues[2],
+      ],
+      actionItems: [{ icon: "target", title: "1:1 승률 50% 개선", desc: "상위권 평균 50%를 기준으로 보완하세요." }],
+    });
+    mockSummaryGeminiRawText(JSON.stringify(providerFinal));
+
+    const tierBenchmarks = createQueryChain({
+      data: {
+        game_mode: "squad",
+        match_type: "competitive",
+        tier: "B",
+        match_count: 5,
+        filter_version: 8,
+        population_evidence_version: POPULATION_EVIDENCE_VERSION,
+        avg_damage: 300,
+        avg_damage_count: 5,
+        avg_duel_win_rate: null,
+        avg_initiative_rate: null,
+        avg_counter_latency_ms: null,
+        avg_trade_latency_ms: null,
+      },
+      error: null,
+    });
+    const telemetry = createQueryChain({
+      data: [{
+        match_id: "match-partial-null-benchmark",
+        player_id: "player_a",
+        platform: "kakao",
+        data: { fullResult: createSummaryMatch("match-partial-null-benchmark") },
+      }],
+      error: null,
+    });
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier: tierBenchmarks,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["match-partial-null-benchmark"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const finalData = JSON.parse(records.find((record) => record.type === "final")?.data || "{}");
+    const cachedFinal = JSON.parse(summaryCache.upsert.mock.calls[0]?.[0]?.ai_result?.final || "{}");
+    const proseFields = [
+      finalData.signature,
+      finalData.signatureSub,
+      finalData.finalVerdict,
+      ...finalData.debateIssues.flatMap((issue: any) => [
+        issue.topic,
+        issue.question,
+        issue.spicyOpinion,
+        issue.kindOpinion,
+        issue.reason,
+        issue.evaluation,
+      ]),
+      ...finalData.actionItems.flatMap((item: any) => [item.title, item.desc]),
+    ].join(" ");
+    const cachedProseFields = [
+      cachedFinal.signature,
+      cachedFinal.signatureSub,
+      cachedFinal.finalVerdict,
+      ...cachedFinal.debateIssues.flatMap((issue: any) => [
+        issue.topic,
+        issue.question,
+        issue.spicyOpinion,
+        issue.kindOpinion,
+        issue.reason,
+        issue.evaluation,
+      ]),
+      ...cachedFinal.actionItems.flatMap((item: any) => [item.title, item.desc]),
+    ].join(" ");
+
+    expect(response.status).toBe(200);
+    expect(finalData.debateIssues[0]).toMatchObject({
+      userStats: [{ label: "평균 화력", value: "320" }],
+      benchmarkStats: [{ label: "동일 티어 평균 화력", value: "300" }],
+    });
+    expect(cachedFinal.debateIssues[0]).toMatchObject({
+      userStats: [{ label: "평균 화력", value: "320" }],
+      benchmarkStats: [{ label: "동일 티어 평균 화력", value: "300" }],
+    });
+    expect(proseFields).not.toContain("50%");
+    expect(cachedProseFields).not.toContain("50%");
+    expect(proseFields).not.toContain("999");
+    expect(cachedProseFields).not.toContain("999");
+    expect(proseFields).not.toMatch(/(?:상위권|동일\s*티어|엘리트|벤치마크|benchmark).{0,20}(?:1:1|승률)|(?:1:1|승률).{0,20}(?:상위권|동일\s*티어|엘리트|벤치마크|benchmark)/i);
+    expect(cachedProseFields).not.toMatch(/(?:상위권|동일\s*티어|엘리트|벤치마크|benchmark).{0,20}(?:1:1|승률)|(?:1:1|승률).{0,20}(?:상위권|동일\s*티어|엘리트|벤치마크|benchmark)/i);
+    expect(finalData.debateIssues[1].userStats).toEqual([]);
+    expect(finalData.debateIssues[1].benchmarkStats).toEqual([]);
+    expect(cachedFinal.debateIssues[1].userStats).toEqual([]);
+    expect(cachedFinal.debateIssues[1].benchmarkStats).toEqual([]);
+
+    // Replay the same provider payload through the cache path as well: cache
+    // normalization must apply the exact same metric-scoped prose guard.
+    const firstHash = summaryCache.upsert.mock.calls[0]?.[0]?.match_ids_hash;
+    configureSummaryCacheHitForHash(summaryCache, firstHash, {
+      visuals: { latestMatchCount: 999, bestMatchCount: 999 },
+      final: JSON.stringify(providerFinal),
+    });
+    mockGenerateContentStream.mockClear();
+    const cacheResponse = await aiSummaryPOST(createRequest({
+      matchIds: ["match-partial-null-benchmark"],
+      nickname: "Player_A",
+      platform: "kakao",
+    }));
+    const cacheRecords = parseSummaryNdjson(await cacheResponse.text());
+    const cacheFinal = JSON.parse(cacheRecords.find((record) => record.type === "final")?.data || "{}");
+    const cacheProseFields = [
+      cacheFinal.signature,
+      cacheFinal.signatureSub,
+      cacheFinal.finalVerdict,
+      ...cacheFinal.debateIssues.flatMap((issue: any) => [
+        issue.topic,
+        issue.question,
+        issue.spicyOpinion,
+        issue.kindOpinion,
+        issue.reason,
+        issue.evaluation,
+      ]),
+      ...cacheFinal.actionItems.flatMap((item: any) => [item.title, item.desc]),
+    ].join(" ");
+    expect(cacheResponse.status).toBe(200);
+    expect(cacheRecords.map((record) => record.type)).toEqual(["visuals", "final", "done"]);
+    expect(cacheProseFields).not.toContain("999");
+    expect(cacheProseFields).not.toContain("50%");
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+  });
+
   it("ai-squad는 Gemini 실패 시 측정되지 않은 fallback 대신 503을 반환한다", async () => {
     mockGenerateContent.mockRejectedValue(new Error("Gemini unavailable"));
+    mockGetSquadAnalysisData.mockResolvedValue(canonicalSquadAnalysis);
 
     const squadCache = createQueryChain({ data: null, error: null });
     const supabase = createSupabaseMock({
@@ -3155,12 +4573,14 @@ describe("AI cache route stabilization", () => {
 
     expect(response.status).toBe(503);
     expect(json.error).toContain("스쿼드 AI 분석을 완료하지 못했습니다");
+    expect(json).toMatchObject({ errorCode: "PUBG_AI_SQUAD_PROVIDER_ERROR", retryable: true });
     expect(squadCache.eq).toHaveBeenCalledWith("player_id", "player_a");
     expect(squadCache.eq).toHaveBeenCalledWith("platform", "steam");
     expect(squadCache.eq).toHaveBeenCalledWith("prompt_version", AI_CACHE_VERSION);
   });
 
   it("ai-squad는 캐시된 스쿼드 코칭 결과를 순화해서 반환한다", async () => {
+    mockGetSquadAnalysisData.mockResolvedValue(canonicalSquadAnalysis);
     const squadCache = createQueryChain({
       data: {
         ai_result: {
@@ -3222,6 +4642,7 @@ describe("AI cache route stabilization", () => {
   });
 
   it("ai-squad는 신규 Gemini 스쿼드 코칭 결과도 순화해서 캐시에 저장한다", async () => {
+    mockGetSquadAnalysisData.mockResolvedValue(canonicalSquadAnalysis);
     mockSquadGeminiJson({
       squadGrade: "A",
       summary: "나머지 팀원들의 화력 지원이 전무합니다.",

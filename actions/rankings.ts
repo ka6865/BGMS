@@ -1,6 +1,10 @@
 'use server';
 
 import { createClient } from '@supabase/supabase-js';
+import {
+  BENCHMARK_FILTER_VERSION,
+  BENCHMARK_POPULATION_EVIDENCE_VERSION,
+} from '@/lib/pubg-analysis/benchmarkLookup';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -105,13 +109,14 @@ export async function getWeeklyTopDamage(
   let query = supabase
     .from('global_benchmarks')
     .select('player_id, damage, kills, game_mode, map_name, created_at, tier')
+    .eq('filter_version', BENCHMARK_FILTER_VERSION)
+    .eq('population_evidence_version', BENCHMARK_POPULATION_EVIDENCE_VERSION)
     .gte('created_at', since)
-    .in('game_mode', getModes(modeFilter, perspectiveFilter));
+    .in('game_mode', getModes(modeFilter, perspectiveFilter))
+    .in('match_type', ['official', 'competitive']);
 
   if (matchTypeFilter !== 'all') {
     query = query.eq('match_type', matchTypeFilter);
-  } else {
-    query = query.in('match_type', ['official', 'competitive']);
   }
 
   query = query
@@ -167,13 +172,14 @@ export async function getWeeklyTopKills(
   let query = supabase
     .from('global_benchmarks')
     .select('player_id, damage, kills, game_mode, map_name, created_at, tier')
+    .eq('filter_version', BENCHMARK_FILTER_VERSION)
+    .eq('population_evidence_version', BENCHMARK_POPULATION_EVIDENCE_VERSION)
     .gte('created_at', since)
-    .in('game_mode', getModes(modeFilter, perspectiveFilter));
+    .in('game_mode', getModes(modeFilter, perspectiveFilter))
+    .in('match_type', ['official', 'competitive']);
 
   if (matchTypeFilter !== 'all') {
     query = query.eq('match_type', matchTypeFilter);
-  } else {
-    query = query.in('match_type', ['official', 'competitive']);
   }
 
   query = query
@@ -228,13 +234,14 @@ export async function getTopTierRanking(
   let query = supabase
     .from('global_benchmarks')
     .select('player_id, score, tier, damage, kills, game_mode, created_at')
+    .eq('filter_version', BENCHMARK_FILTER_VERSION)
+    .eq('population_evidence_version', BENCHMARK_POPULATION_EVIDENCE_VERSION)
     .gte('created_at', since)
-    .in('game_mode', getModes(modeFilter, perspectiveFilter));
+    .in('game_mode', getModes(modeFilter, perspectiveFilter))
+    .in('match_type', ['official', 'competitive']);
 
   if (matchTypeFilter !== 'all') {
     query = query.eq('match_type', matchTypeFilter);
-  } else {
-    query = query.in('match_type', ['official', 'competitive']);
   }
 
   query = query

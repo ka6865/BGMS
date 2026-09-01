@@ -76,6 +76,7 @@ describe("recent match classification and filtering", () => {
   it("uses known TDM map names when the game mode is recorded as a normal squad mode", () => {
     expect(classifyMatchMode({ gameMode: "tdm", matchType: "official" })).toBe("tdm");
     expect(classifyMatchMode({ gameMode: "squad-fpp", matchType: "official", mapName: "PillarCompound_Main" })).toBe("tdm");
+    expect(classifyMatchMode({ gameMode: " squad-fpp ", matchType: "official", mapName: "  italy_tdm_main " })).toBe("tdm");
   });
 
   it("filters by classified mode and never renders missing summaries", () => {

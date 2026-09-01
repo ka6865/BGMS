@@ -1,8 +1,9 @@
-import { WEAPON_NAMES } from "./constants";
+import { POPULATION_EVIDENCE_VERSION, WEAPON_NAMES } from "./constants";
+import { BENCHMARK_FILTER_VERSION } from "./benchmarkLookup";
 import { categorizeWeapon } from "./weaponMetaBurst";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeName } from "./utils";
-import { isStandardBenchmarkMatch } from "./matchEligibility";
+import { evaluateMatchEligibility, type MatchMetadata } from "./matchEligibility";
 
 export type PubgPlatform = "steam" | "kakao";
 export type AnalysisSource = "user" | "scraper";
@@ -24,13 +25,25 @@ export interface PersistedRawParticipant extends JsonObject {
 }
 
 export interface PersistedMatchAttributes extends JsonObject {
-  gameMode?: string;
-  mapName?: string;
+  gameMode?: unknown;
+  game_mode?: unknown;
+  matchType?: unknown;
+  match_type?: unknown;
+  mapName?: unknown;
+  map_name?: unknown;
+  isCustomMatch?: unknown;
+  is_custom_match?: unknown;
+  isEventMode?: unknown;
+  is_event_mode?: unknown;
+  isCustomGame?: unknown;
+  is_custom_game?: unknown;
+  telemetry?: unknown;
+  createdAt?: unknown;
 }
 
 export interface PersistedFinalResult extends JsonObject {
-  matchType: string;
-  gameMode: string;
+  matchType?: string;
+  gameMode?: string;
   isValidBenchmark: boolean;
   stats: JsonObject & {
     damageDealt?: number;
@@ -91,6 +104,11 @@ export interface PersistedFinalResult extends JsonObject {
     sustainedHits?: number;
     sustainedBurstCount?: number;
   }>;
+  attributes?: JsonObject;
+  matchAttributes?: JsonObject;
+  telemetry?: unknown;
+  telemetryEvents?: unknown;
+  telemetryFlags?: JsonObject;
 }
 
 export interface PersistMatchAnalysisInput {
@@ -115,12 +133,33 @@ export interface PersistMatchAnalysisResult {
 }
 
 function safeNumber(value: unknown, fallback = 0): number {
-  const numberValue = Number(value);
-  return Number.isFinite(numberValue) ? numberValue : fallback;
+  try {
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function safeScore(value: unknown): number {
+  return Math.max(0, Math.min(100, safeNumber(value)));
 }
 
 function safeInteger(value: unknown, fallback = 0): number {
   return Math.round(safeNumber(value, fallback));
+}
+
+/**
+ * SQL benchmark views map -1 to NULL for metrics that had no position sample.
+ * Keep an observed numeric zero distinct from an unmeasured value at this
+ * persistence boundary; otherwise an absent isolation sample becomes a false
+ * perfect/zero-distance benchmark observation.
+ */
+function safeIsolationInteger(value: unknown): number {
+  if (value === null || value === undefined) return -1;
+  if (typeof value === "string" && value.trim() === "") return -1;
+  const numeric = safeNumber(value, Number.NaN);
+  return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric) : -1;
 }
 
 function errorMessage(error: unknown): string {
@@ -128,6 +167,123 @@ function errorMessage(error: unknown): string {
     return String(error.message);
   }
   return String(error);
+}
+
+const EXCLUSION_EVIDENCE_KEYS = [
+  "isCustomMatch",
+  "is_custom_match",
+  "customMatch",
+  "custom_match",
+  "isEventMode",
+  "is_event_mode",
+  "eventMode",
+  "event_mode",
+  "isCustomGame",
+  "is_custom_game",
+] as const;
+
+function evidenceFlagIsTrue(value: unknown): boolean {
+  if (value === true || value === 1) return true;
+  return typeof value === "string" && ["true", "1", "yes", "y"].includes(value.trim().toLowerCase());
+}
+
+function evidenceFlagIsPresent(value: unknown): boolean {
+  return value !== undefined && value !== null;
+}
+
+/** Merge persisted evidence without allowing a false secondary layer to hide a true flag. */
+function mergeEvidenceRecords(...records: Array<JsonObject | undefined>): JsonObject | undefined {
+  const present = records.filter((record): record is JsonObject => Boolean(record));
+  if (present.length === 0) return undefined;
+
+  const mergeRecord = (left: JsonObject, right: JsonObject): JsonObject => {
+    const merged: JsonObject = { ...left };
+    for (const [key, rightValue] of Object.entries(right)) {
+      const leftValue = merged[key];
+      if (EXCLUSION_EVIDENCE_KEYS.includes(key as (typeof EXCLUSION_EVIDENCE_KEYS)[number])) {
+        const values = [leftValue, rightValue].filter(evidenceFlagIsPresent);
+        if (values.some(evidenceFlagIsTrue)) merged[key] = true;
+        else if (values.length > 0) merged[key] = values[values.length - 1];
+        continue;
+      }
+      const leftObject = leftValue && typeof leftValue === "object" && !Array.isArray(leftValue)
+        ? leftValue as JsonObject
+        : undefined;
+      const rightObject = rightValue && typeof rightValue === "object" && !Array.isArray(rightValue)
+        ? rightValue as JsonObject
+        : undefined;
+      if (leftObject && rightObject) {
+        merged[key] = mergeRecord(leftObject, rightObject);
+      } else if (Array.isArray(leftValue) && Array.isArray(rightValue)) {
+        // Keep all nested telemetry/evidence records. Replacing an array here
+        // can silently discard the only true custom/event marker.
+        merged[key] = [...leftValue, ...rightValue];
+      } else {
+        merged[key] = rightValue;
+      }
+    }
+    return merged;
+  };
+
+  return present.slice(1).reduce((merged, record) => mergeRecord(merged, record), { ...present[0] });
+}
+
+function mergeEvidenceCollections(...values: unknown[]): unknown {
+  const present = values.filter((value) => value !== undefined && value !== null);
+  if (present.length === 0) return undefined;
+  const merged = present.flatMap((value) => Array.isArray(value) ? value : [value]);
+  // Preserve the historical object shape for a lone layer, but never drop an
+  // object merely because another evidence layer is represented as an array.
+  return present.length === 1 && !Array.isArray(present[0]) ? present[0] : merged;
+}
+
+function benchmarkEligibilityInput(input: PersistMatchAnalysisInput): MatchMetadata {
+  const finalResult = input.finalResult as unknown as MatchMetadata;
+  const finalAttributes = finalResult.attributes && typeof finalResult.attributes === "object"
+    && !Array.isArray(finalResult.attributes)
+    ? finalResult.attributes as MatchMetadata
+    : undefined;
+  const inputAttributes = input.matchAttr as unknown as MatchMetadata | undefined;
+  // Keep both canonical match attributes and evidence copied onto the final
+  // result.  Route hydration stores custom/event flags in the latter, while
+  // legacy callers provide the former; replacing one with the other would
+  // make the shared population gate blind to persisted evidence.
+  const attributes = mergeEvidenceRecords(inputAttributes, finalAttributes);
+  const finalMatchAttributes = finalResult.matchAttributes && typeof finalResult.matchAttributes === "object"
+    && !Array.isArray(finalResult.matchAttributes)
+    ? finalResult.matchAttributes as MatchMetadata
+    : undefined;
+  const matchAttributes = mergeEvidenceRecords(attributes, finalMatchAttributes);
+  const matchInfoEvidence = [
+    inputAttributes?.matchInfo,
+    finalResult.matchInfo,
+    finalAttributes?.matchInfo,
+    finalMatchAttributes?.matchInfo,
+  ].flatMap((value) => Array.isArray(value) ? value : [value])
+    .filter((value): value is JsonObject => Boolean(value && typeof value === "object" && !Array.isArray(value)));
+  const finalTelemetryFlags = finalResult.telemetryFlags && typeof finalResult.telemetryFlags === "object"
+    && !Array.isArray(finalResult.telemetryFlags)
+    ? finalResult.telemetryFlags as JsonObject
+    : undefined;
+  const inputTelemetryFlags = inputAttributes?.telemetryFlags && typeof inputAttributes.telemetryFlags === "object"
+    && !Array.isArray(inputAttributes.telemetryFlags)
+    ? inputAttributes.telemetryFlags as JsonObject
+    : undefined;
+  const telemetryFlags = mergeEvidenceRecords(inputTelemetryFlags, finalTelemetryFlags);
+  const telemetry = mergeEvidenceCollections(
+    finalResult.telemetry,
+    finalResult.telemetryEvents,
+    attributes?.telemetry,
+    inputAttributes?.telemetry,
+  );
+  return {
+    ...finalResult,
+    attributes,
+    matchAttributes,
+    ...(matchInfoEvidence.length > 0 ? { matchInfoEvidence } : {}),
+    ...(telemetry !== undefined ? { telemetry } : {}),
+    ...(telemetryFlags ? { telemetryFlags } : {}),
+  };
 }
 
 async function runPersistenceTask(
@@ -243,7 +399,9 @@ async function persistPlayerMatches(
       kills: participant.attributes.stats.kills || 0,
       damage: Math.floor(participant.attributes.stats.damageDealt || 0),
       win_place: participant.attributes.stats.winPlace || 99,
-      match_type: input.finalResult.matchType?.toLowerCase() || "official",
+      match_type: typeof input.finalResult.matchType === "string" && input.finalResult.matchType.trim()
+        ? input.finalResult.matchType.trim().toLowerCase()
+        : "unknown",
     }));
 
   if (rows.length === 0) return;
@@ -261,9 +419,9 @@ async function persistBenchmark(
   result: PersistMatchAnalysisResult,
 ): Promise<void> {
   const finalResult = input.finalResult;
-  const matchType = typeof finalResult.matchType === "string" ? finalResult.matchType.trim().toLowerCase() : "";
+  const eligibility = evaluateMatchEligibility(benchmarkEligibilityInput(input), "benchmark");
 
-  if (!(finalResult.isValidBenchmark || input.forceBenchmark) || !isStandardBenchmarkMatch(finalResult)) return;
+  if (!(finalResult.isValidBenchmark || input.forceBenchmark) || !eligibility.eligible) return;
 
   const teammateKnocks = Math.max(1, finalResult.tradeStats?.teammateKnocks || 0);
   const totalKillContribution = Math.max(
@@ -280,7 +438,7 @@ async function persistBenchmark(
     damage: Math.floor(safeNumber(stats.damageDealt)),
     kills: safeInteger(stats.kills),
     win_place: safeInteger(stats.winPlace, 100),
-    game_mode: finalResult.gameMode,
+    game_mode: eligibility.mode,
     map_name: finalResult.mapName,
     counter_latency_ms: safeInteger(finalResult.tradeStats?.counterLatencyMs),
     initiative_rate: safeInteger(finalResult.initiative_rate),
@@ -292,9 +450,9 @@ async function persistBenchmark(
     pressure_index: safeInteger(finalResult.combatPressure?.pressureIndex),
     enemy_death_distance: safeInteger(finalResult.deathDistance),
     survival_time: safeInteger(stats.timeSurvived),
-    isolation_index: safeInteger(finalResult.isolationData?.isolationIndex),
-    min_dist: safeInteger(finalResult.isolationData?.minDist),
-    height_diff: safeInteger(finalResult.isolationData?.heightDiff),
+    isolation_index: safeIsolationInteger(finalResult.isolationData?.isolationIndex),
+    min_dist: safeIsolationInteger(finalResult.isolationData?.minDist),
+    height_diff: safeIsolationInteger(finalResult.isolationData?.heightDiff),
     smoke_rate: Math.round(((finalResult.tradeStats?.smokeRescues || 0) / teammateKnocks) * 100),
     trade_rate: Math.round((Math.min(
       finalResult.tradeStats?.teammateKnocks || 0,
@@ -306,15 +464,16 @@ async function persistBenchmark(
     trade_latency_ms: safeInteger(finalResult.tradeStats?.tradeLatencyMs),
     lethal_throw_count: safeInteger(finalResult.itemUseStats?.lethalThrowCount),
     tier: finalResult.benchmark?.tier || "C",
-    score: safeNumber(finalResult.benchmark?.score),
-    combat_score: safeNumber(finalResult.benchmark?.breakdown?.combat),
-    tactical_score: safeNumber(finalResult.benchmark?.breakdown?.tactical),
-    survival_score: safeNumber(finalResult.benchmark?.breakdown?.survival),
+    score: safeScore(finalResult.benchmark?.score),
+    combat_score: safeScore(finalResult.benchmark?.breakdown?.combat),
+    tactical_score: safeScore(finalResult.benchmark?.breakdown?.tactical),
+    survival_score: safeScore(finalResult.benchmark?.breakdown?.survival),
     supp_count: safeInteger(finalResult.tradeStats?.suppCount),
     team_wipes: safeInteger(finalResult.tradeStats?.enemyTeamWipes),
-    match_type: matchType,
+    match_type: eligibility.matchType,
     death_phase: safeInteger(finalResult.deathPhase),
-    filter_version: 8,
+    filter_version: BENCHMARK_FILTER_VERSION,
+    population_evidence_version: POPULATION_EVIDENCE_VERSION,
     source: input.source,
   };
   const succeeded = await runPersistenceTask("global_benchmarks", result, () => (
@@ -344,8 +503,9 @@ export function buildWeaponMetaMatchSamples(input: PersistMatchAnalysisInput): A
   if (!playedAt) return [];
   const patchVersion = getPatchVersionForMatch(playedAt);
   if (!patchVersion) return [];
-  const matchType = input.finalResult.matchType?.toLowerCase() || "official";
-  if (matchType !== "official" && matchType !== "competitive") return [];
+  const eligibility = evaluateMatchEligibility(benchmarkEligibilityInput(input), "benchmark");
+  if (!eligibility.eligible || !eligibility.matchType) return [];
+  const matchType = eligibility.matchType;
 
   const playerId = normalizeName(input.playerNickname);
   return Object.entries(weaponStats)
@@ -359,6 +519,8 @@ export function buildWeaponMetaMatchSamples(input: PersistMatchAnalysisInput): A
       player_id: playerId,
       played_at: playedAt,
       patch_version: patchVersion,
+      filter_version: BENCHMARK_FILTER_VERSION,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION,
       match_type: matchType,
       weapon_category: categorizeWeapon(weaponId),
       weapon_name: weaponName,

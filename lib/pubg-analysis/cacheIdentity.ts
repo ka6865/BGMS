@@ -1,11 +1,16 @@
 import { normalizeName } from "./utils";
-import { normalizeMatchId } from "./recentMatchSelection";
+import { normalizeBenchmarkScore, normalizeMatchId } from "./recentMatchSelection";
+import { POPULATION_EVIDENCE_VERSION } from "./constants";
 
 export type CanonicalMatchLookup = {
   matchId: string;
   playerId: string;
   platform: string;
   minResultVersion: number;
+  /** AI/benchmark callers must opt into the marked human-BR population. */
+  requirePopulationEvidence?: boolean;
+  /** The current AI contract is exact v73, not merely a future-compatible minimum. */
+  requireExactResultVersion?: boolean;
 };
 
 type PlainRecord = Record<string, unknown>;
@@ -63,20 +68,18 @@ export function getValidFullResultForMatch(
   if (!isRecord(fullResult.stats) || typeof fullResult.stats.name !== "string" || !fullResult.stats.name.trim()) {
     return null;
   }
-  if ("player_id" in fullResult &&
-      (typeof fullResult.player_id !== "string" || !fullResult.player_id.trim())) {
-    return null;
-  }
-
   // Preserve the established player/name/platform validator semantics while
-  // enforcing a non-default platform field for canonical rows above.
+  // requiring explicit embedded identity fields for every canonical reader.
   if (!isFullResultForPlayerPlatform(fullResult, expectedPlayerId, expectedPlatform)) return null;
-  if (normalizedPlatform(fullResult.platform) !== expectedPlatform) {
-    return null;
-  }
 
   const version = fullResult.v;
   if (typeof version !== "number" || !Number.isFinite(version) || version < minResultVersion) return null;
+  if (expected.requireExactResultVersion === true && version !== minResultVersion) return null;
+
+  if (expected.requirePopulationEvidence === true
+    && fullResult.populationEvidenceVersion !== POPULATION_EVIDENCE_VERSION) {
+    return null;
+  }
 
   return fullResult;
 }
@@ -88,30 +91,73 @@ export function normalizePlatform(platform?: string | null): string {
 export function isFullResultForPlayerPlatform(
   fullResult: any,
   expectedPlayerId: string,
-  expectedPlatform: string = "steam"
+  expectedPlatform: string
 ): boolean {
   if (!fullResult) return false;
 
   const playerId = normalizeName(expectedPlayerId);
+  const platform = normalizedPlatform(expectedPlatform);
+  if (!playerId || !platform) return false;
   const statsName = normalizeName(fullResult.stats?.name || "");
   if (!playerId || !statsName || statsName !== playerId) return false;
 
-  const embeddedPlayerId = normalizeName(fullResult.player_id || statsName);
-  if (embeddedPlayerId && embeddedPlayerId !== playerId) return false;
+  // Never infer storage identity from the display name. A copied/legacy
+  // fullResult without an explicit account binding is not safe for canonical
+  // AI or benchmark consumers.
+  if (typeof fullResult.player_id !== "string" || !fullResult.player_id.trim()) return false;
+  const embeddedPlayerId = normalizeName(fullResult.player_id);
+  if (!embeddedPlayerId || embeddedPlayerId !== playerId) return false;
 
+  if (typeof fullResult.platform !== "string" || !fullResult.platform.trim()) return false;
   const resultPlatform = normalizePlatform(fullResult.platform);
-  return resultPlatform === normalizePlatform(expectedPlatform);
+  return resultPlatform === platform;
 }
 
 export function getValidFullResult(
   row: any,
   expectedPlayerId: string,
-  expectedPlatform: string = "steam"
+  expectedPlatform: string
 ): any | null {
   const fullResult = row?.data?.fullResult;
   return isFullResultForPlayerPlatform(fullResult, expectedPlayerId, expectedPlatform)
     ? fullResult
     : null;
+}
+
+/**
+ * Legacy validator for ordinary history/detail summaries.
+ *
+ * Older processed rows may omit the embedded account/platform fields even
+ * though the query itself is already scoped by storage identity. Keep this
+ * compatibility behavior explicitly named and out of AI/benchmark readers,
+ * which must use getValidFullResultForMatch instead.
+ */
+export function getLegacyFullResultForHistory(
+  row: any,
+  expectedPlayerId: string,
+  expectedPlatform: string,
+): any | null {
+  const fullResult = row?.data?.fullResult;
+  if (!fullResult || typeof fullResult !== "object" || Array.isArray(fullResult)) return null;
+
+  const playerId = normalizeName(expectedPlayerId);
+  const platform = normalizedPlatform(expectedPlatform);
+  const statsName = normalizeName(fullResult.stats?.name || "");
+  if (!playerId || !platform || !statsName || statsName !== playerId) return null;
+
+  // Preserve the pre-strict ordinary-summary behavior: if an embedded field
+  // exists it must agree, but absent legacy fields are tolerated because the
+  // storage query is already bound to player_id/platform.
+  if (fullResult.player_id !== undefined && fullResult.player_id !== null) {
+    if (typeof fullResult.player_id !== "string" || !fullResult.player_id.trim()) return null;
+    if (normalizeName(fullResult.player_id) !== playerId) return null;
+  }
+  if (fullResult.platform !== undefined && fullResult.platform !== null) {
+    if (typeof fullResult.platform !== "string" || !fullResult.platform.trim()) return null;
+    if (normalizePlatform(fullResult.platform) !== platform) return null;
+  }
+
+  return fullResult;
 }
 
 export function buildProcessedTelemetryUpsert(
@@ -122,17 +168,39 @@ export function buildProcessedTelemetryUpsert(
 ) {
   const normalizedPlayerId = normalizeName(playerId);
   const normalizedPlatform = normalizePlatform(platform);
+  const normalizedFullResult: PlainRecord = {
+    ...(isRecord(fullResult) ? fullResult : {}),
+    player_id: normalizedPlayerId,
+    platform: normalizedPlatform,
+  };
+
+  const benchmark = normalizedFullResult.benchmark;
+  if (isRecord(benchmark)) {
+    const normalizedBenchmark: PlainRecord = { ...benchmark };
+    if ("score" in normalizedBenchmark) {
+      normalizedBenchmark.score = normalizeBenchmarkScore(normalizedBenchmark.score);
+    }
+
+    const breakdown = normalizedBenchmark.breakdown;
+    if (isRecord(breakdown)) {
+      const normalizedBreakdown: PlainRecord = { ...breakdown };
+      for (const key of ["combat", "tactical", "survival"] as const) {
+        if (key in normalizedBreakdown) {
+          normalizedBreakdown[key] = normalizeBenchmarkScore(normalizedBreakdown[key]);
+        }
+      }
+      normalizedBenchmark.breakdown = normalizedBreakdown;
+    }
+
+    normalizedFullResult.benchmark = normalizedBenchmark;
+  }
 
   return {
     match_id: matchId,
     platform: normalizedPlatform,
     player_id: normalizedPlayerId,
     data: {
-      fullResult: {
-        ...fullResult,
-        player_id: normalizedPlayerId,
-        platform: normalizedPlatform
-      }
+      fullResult: normalizedFullResult
     },
     updated_at: new Date().toISOString()
   };

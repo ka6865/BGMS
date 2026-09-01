@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AI_CACHE_VERSION,
+  AI_SUMMARY_CACHE_VERSION,
   RESULT_VERSION,
   TELEMETRY_VERSION,
 } from "@/lib/pubg-analysis/constants";
@@ -371,6 +372,7 @@ describe("anonymous PUBG AI accuracy audit", () => {
   it("의미 버전은 지정 값으로 한 번만 bump된다", () => {
     expect(RESULT_VERSION).toBe(73.0);
     expect(TELEMETRY_VERSION).toBe(61.0);
-    expect(AI_CACHE_VERSION).toBe("2026-08-28.pubg-ai-accuracy-v2");
+    expect(AI_CACHE_VERSION).toBe("2026-09-02.pubg-ai-accuracy-v3");
+    expect(AI_SUMMARY_CACHE_VERSION).toBe("2026-09-01.pubg-ai-accuracy-v5");
   });
 });

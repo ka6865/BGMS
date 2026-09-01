@@ -122,7 +122,8 @@ export function normalizeBenchmarkScore(value: unknown): number {
   } catch {
     return 0;
   }
-  return Number.isFinite(score) ? score : 0;
+  if (!Number.isFinite(score)) return 0;
+  return Math.max(0, Math.min(100, score));
 }
 
 function benchmarkScoreForCandidate(candidate: RecentMatchCandidate<unknown>): number {
@@ -394,10 +395,13 @@ export function selectRecentMatches<T>(
     selected: selectedInternal.map(stripInternal),
     rejected: rejected
       .sort((a, b) => a.order - b.order || compareLexical(a.reason, b.reason))
-      .map(({ order: _order, ...rejection }) => ({
-        ...rejection,
-        candidate: stripInternal(rejection.candidate),
-      })),
+      .map(({ order: _order, ...rejection }) => {
+        void _order;
+        return {
+          ...rejection,
+          candidate: stripInternal(rejection.candidate),
+        };
+      }),
     selectionVersion,
   };
 }

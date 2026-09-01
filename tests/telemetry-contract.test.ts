@@ -403,4 +403,20 @@ describe("telemetry contract", () => {
     mutable.killerDamageInfo.damage = 999;
     expect(input).toEqual(snapshot);
   });
+
+  it("LogMatchStart custom/event evidence를 projection에서 보존한다", () => {
+    expect(projectTelemetryEvent({
+      _T: "LogMatchStart",
+      isCustomGame: true,
+      isEventMode: false,
+      is_custom_game: "false",
+      is_event_mode: "true",
+    })).toMatchObject({
+      _T: "LogMatchStart",
+      isCustomGame: true,
+      isEventMode: false,
+      is_custom_game: "false",
+      is_event_mode: "true",
+    });
+  });
 });

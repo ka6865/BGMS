@@ -14,7 +14,12 @@
 
 export const RESULT_VERSION = 73.0; // [V73.0] PUBG AI 분석 정확도 감사 기준 결과 버전
 export const TELEMETRY_VERSION = 61.0; // [V61.0] PUBG AI 분석 정확도 감사 기준 telemetry 버전
-export const AI_CACHE_VERSION = "2026-08-28.pubg-ai-accuracy-v2"; // latest10 basic metrics + best5 AI/benchmark population split cache version
+export const AI_CACHE_VERSION = "2026-09-02.pubg-ai-accuracy-v3"; // ai-analyze/ai-squad cache contract; v3 requires marked canonical population evidence
+export const AI_SUMMARY_CACHE_VERSION = "2026-09-01.pubg-ai-accuracy-v5"; // human standard BR population boundary + observed benchmark sample gate
+// Evidence marker for canonical rows written after the human BR population
+// boundary. This is deliberately independent of RESULT/telemetry/cache
+// versions so old v73/R2 rows can fail closed without a broad cache bump.
+export const POPULATION_EVIDENCE_VERSION = 1;
 
 /**
  * 무료 티어 및 고효율 운영을 위한 Gemini 모델 폴백 우선순위

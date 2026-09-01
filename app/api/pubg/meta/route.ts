@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { BENCHMARK_FILTER_VERSION, BENCHMARK_POPULATION_EVIDENCE_VERSION } from "@/lib/pubg-analysis/benchmarkLookup";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
@@ -19,6 +20,8 @@ type MetaRow = {
   total_dbnos: number;
   sustained_hits: number;
   burst_sample_count: number;
+  filter_version?: number;
+  population_evidence_version?: number;
 };
 
 type DailyTrendPoint = {
@@ -37,6 +40,20 @@ type ScopePickShare = {
   player_match_count: number;
   weapon_pick_count: number;
 };
+
+/**
+ * Weapon-meta RPC/sample rows are displayable only when both the benchmark
+ * filter contract and population provenance marker are explicit.  A missing
+ * marker (including legacy v8 rows) is indistinguishable from contaminated
+ * pre-boundary data and therefore fails closed.
+ */
+export function isSafeWeaponMetaPopulationRow(row: unknown): boolean {
+  if (!row || typeof row !== "object" || Array.isArray(row)) return false;
+  const candidate = row as Record<string, unknown>;
+  if (Number(candidate.filter_version) !== BENCHMARK_FILTER_VERSION) return false;
+  const evidence = candidate.population_evidence_version ?? candidate.populationEvidenceVersion;
+  return Number(evidence) === BENCHMARK_POPULATION_EVIDENCE_VERSION;
+}
 
 function metric(row: MetaRow | undefined) {
   const samples = Number(row?.player_match_count || 0);
@@ -151,19 +168,22 @@ export async function GET(request: NextRequest) {
       }, { status: 503 });
     }
 
-    const rows = (data || []) as MetaRow[];
+    const rows = ((data || []) as MetaRow[]).filter(isSafeWeaponMetaPopulationRow);
     const baselineStartAt = new Date(Date.parse(patchStartedAt) - 14 * 86_400_000).toISOString();
     let trendQuery = supabase
       .from("weapon_meta_match_samples")
-      .select("match_id,platform,player_id,played_at,weapon_category,weapon_name,active_pick,first_sec_hits,match_type")
+      .select("match_id,platform,player_id,played_at,weapon_category,weapon_name,active_pick,first_sec_hits,match_type,filter_version,population_evidence_version")
       .gte("played_at", baselineStartAt)
       .lt("played_at", new Date().toISOString())
+      .eq("filter_version", BENCHMARK_FILTER_VERSION)
+      .eq("population_evidence_version", BENCHMARK_POPULATION_EVIDENCE_VERSION)
       .in("patch_version", [`pre_${patchVersion}`, patchVersion]);
     trendQuery = matchType === "all"
       ? trendQuery.in("match_type", ["official", "competitive"])
       : trendQuery.eq("match_type", matchType);
-    const { data: trendRows, error: trendError } = await trendQuery;
+    const { data: rawTrendRows, error: trendError } = await trendQuery;
     if (trendError) console.error("[META API] daily trend query failed", { code: trendError.code, message: trendError.message });
+    const trendRows = (rawTrendRows || []).filter(isSafeWeaponMetaPopulationRow);
     const byWeapon = new Map<string, { pre?: MetaRow; post?: MetaRow }>();
     for (const row of rows) {
       const current = byWeapon.get(row.weapon_name) || {};

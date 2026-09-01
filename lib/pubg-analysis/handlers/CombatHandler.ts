@@ -193,8 +193,14 @@ export class CombatHandler extends BaseHandler {
 
       if (isMeAttacker) {
         this.state.myActionTimestamps.push(ts);
-        this.state.totalCombatIsolationSum += (this.state.isolationData?.isolationIndex || 0);
-        this.state.combatIsolationCount++;
+        // A combat event without a valid position sample has no isolation
+        // measurement. Do not turn that missing observation into a synthetic
+        // zero; an explicit measured zero still contributes normally.
+        const isolationIndex = this.state.isolationData?.isolationIndex;
+        if (this.state.isolationSampleCount > 0 && typeof isolationIndex === "number" && Number.isFinite(isolationIndex)) {
+          this.state.totalCombatIsolationSum += isolationIndex;
+          this.state.combatIsolationCount++;
+        }
       }
 
       const currentVictimDamage = this.state.victimDamage.get(victimName) || 0;

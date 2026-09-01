@@ -18,7 +18,11 @@ import {
   type AiCoachingQualitySignals,
 } from "../lib/pubg-analysis/aiCoachingQuality";
 import { getAiCoachingBlockingSignalNames } from "../lib/pubg-analysis/aiCoachingReportCheck";
-import { RESULT_VERSION, GEMINI_MODELS_TO_TRY } from "../lib/pubg-analysis/constants";
+import {
+  GEMINI_MODELS_TO_TRY,
+  POPULATION_EVIDENCE_VERSION,
+  RESULT_VERSION,
+} from "../lib/pubg-analysis/constants";
 import {
   normalizeMatchId,
   RECENT_MATCH_SELECTION_VERSION,
@@ -26,7 +30,7 @@ import {
   selectRecentMatches,
   type RecentMatchCandidate,
 } from "../lib/pubg-analysis/recentMatchSelection";
-import { isAiOrBotMatch } from "../lib/pubg-analysis/matchEligibility";
+import { isAiSummaryEligibleMatch } from "../lib/pubg-analysis/matchEligibility";
 import { normalizeName } from "../lib/pubg-analysis/utils";
 
 export const STRICT_SMOKE_TARGET_NICKNAME = "kangheesung_";
@@ -410,9 +414,22 @@ export function buildStrictSmokeCandidates(
 
   return {
     accepted,
-    // Keep the same human battle-royale boundary as the summary route while
-    // leaving AI/bot rows available for other product surfaces.
-    eligible: accepted.filter((candidate) => !isAiOrBotMatch(candidate.value)),
+    // Mirror the summary route's current canonical population contract. The
+    // marker must live on fullResult itself, while row.data remains separate
+    // evidence so wrapper-level custom/event telemetry cannot be discarded.
+    eligible: accepted.filter((candidate) => {
+      if (Number(candidate.value.populationEvidenceVersion) !== POPULATION_EVIDENCE_VERSION) {
+        return false;
+      }
+      const row = rows[candidate.rowIndex] || {};
+      const rowData = isRecord(row.data) ? row.data : {};
+      return isAiSummaryEligibleMatch({
+        ...row,
+        ...candidate.value,
+        data: rowData,
+        fullResult: candidate.value,
+      });
+    }),
   };
 }
 

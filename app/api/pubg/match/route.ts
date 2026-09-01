@@ -3,7 +3,7 @@ import { after, NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { revalidateTag, unstable_cache } from "next/cache"; // [ISR V1.0] Next.js 16 캐싱 API
 import { AnalysisEngine } from "@/lib/pubg-analysis/AnalysisEngine";
-import { RESULT_VERSION, TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
+import { POPULATION_EVIDENCE_VERSION, RESULT_VERSION, TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { filterTelemetryEvents } from "@/lib/pubg-analysis/telemetryContract";
 import { adaptBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
@@ -218,6 +218,20 @@ function createTacticalResponse(result: any) {
   return pseudonymizeTelemetryAccountIds(tacticalResult);
 }
 
+/**
+ * Population provenance belongs to the canonical fullResult, not its storage
+ * wrapper.  Keep this boundary separate from RESULT_VERSION so a current v73
+ * row written before the marker is treated as a one-time cache miss.
+ */
+function hasPopulationEvidence(fullResult: unknown): boolean {
+  return Boolean(
+    fullResult
+      && typeof fullResult === "object"
+      && !Array.isArray(fullResult)
+      && Number((fullResult as Record<string, unknown>).populationEvidenceVersion) === POPULATION_EVIDENCE_VERSION,
+  );
+}
+
 function databaseUnavailableResponse() {
   return NextResponse.json(
     {
@@ -384,6 +398,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const shouldForce = force;
+    let populationReanalysisRequired = false;
     let cachedFullResult: any = null;
 
     if (!shouldForce) {
@@ -399,7 +414,15 @@ export async function GET(request: NextRequest) {
         && typeof cachedFullResult.v === "number"
         && Number.isFinite(cachedFullResult.v)
         && cachedFullResult.v >= RESULT_VERSION) {
-        return NextResponse.json(createTacticalResponse(cachedFullResult));
+        if (hasPopulationEvidence(cachedFullResult)) {
+          return NextResponse.json(createTacticalResponse(cachedFullResult));
+        }
+        // Current result versions written before population evidence was
+        // preserved are ambiguous. Treat them as a cache miss and force the
+        // analyzed-event R2 path to refresh once, without requiring the
+        // caller's admin `force=true` authorization.
+        populationReanalysisRequired = true;
+        cachedFullResult = null;
       }
     }
 
@@ -517,7 +540,7 @@ export async function GET(request: NextRequest) {
     const finalResponse = await reanalyzeAndSave(
       matchId, canonicalNickname, platform, lowerNickname, matchData, teamNames, teamAccountIds,
       myRosterId, myParticipant, myAccountId, teamStats, rankPct, matchAttr, rosters, participants,
-      shouldForce, source, startedAt, requestContext, (step) => {
+      shouldForce || populationReanalysisRequired, source, startedAt, requestContext, (step) => {
         analysisStep = step;
       }
     );
@@ -660,10 +683,11 @@ async function reanalyzeAndSave(
       platform,
       minResultVersion: RESULT_VERSION,
     });
-    if (cachedFullResult
+    if (!force && cachedFullResult
       && typeof cachedFullResult.v === "number"
       && Number.isFinite(cachedFullResult.v)
-      && cachedFullResult.v >= RESULT_VERSION) {
+      && cachedFullResult.v >= RESULT_VERSION
+      && hasPopulationEvidence(cachedFullResult)) {
       const sampleParticipants = participants
         .filter((p: any) => !p.attributes.stats.playerId?.startsWith("ai."))
         .map((p: any) => p.attributes.stats.name)
@@ -796,17 +820,42 @@ async function reanalyzeAndSave(
     breakdown: { combat: 20, tactical: 20, survival: 20 }
   };
 
+  const metadataEvidence: Record<string, unknown> = {};
+  for (const key of [
+    "isCustomMatch",
+    "is_custom_match",
+    "isEventMode",
+    "is_event_mode",
+    "isCustomGame",
+    "is_custom_game",
+  ]) {
+    if (Object.prototype.hasOwnProperty.call(matchAttr, key) && matchAttr[key] !== undefined) {
+      metadataEvidence[key] = matchAttr[key];
+    }
+  }
+  const matchStartEvent = telData.find((event: any) => event?._T === "LogMatchStart");
+  const telemetryFlags: Record<string, unknown> = {};
+  for (const key of ["isCustomGame", "is_custom_game", "isEventMode", "is_event_mode"]) {
+    if (matchStartEvent && Object.prototype.hasOwnProperty.call(matchStartEvent, key) && matchStartEvent[key] !== undefined) {
+      telemetryFlags[key] = matchStartEvent[key];
+    }
+  }
+
   const fullResult = {
     ...result,
     v: RESULT_VERSION,
+    populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
     matchId,
     player_id: lowerNickname,
     platform,
+    ...(Object.keys(metadataEvidence).length > 0 ? { attributes: metadataEvidence } : {}),
+    ...(Object.keys(telemetryFlags).length > 0 ? { telemetryFlags } : {}),
     matchInfo: {
       map: MAP_NAMES[matchAttr.mapId] || matchAttr.mapId,
       mapId: MAP_IDS[matchAttr.mapId] || 'erangel',
       date: matchAttr.createdAt,
       mode: matchAttr.gameMode,
+      matchType: matchAttr.matchType,
       duration: matchAttr.duration,
       rankPct,
       tier: matchTier

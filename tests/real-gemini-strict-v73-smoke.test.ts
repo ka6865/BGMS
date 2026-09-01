@@ -10,7 +10,10 @@ import {
   type StrictSmokeGeminiResult,
   type StrictSmokeRow,
 } from "../scripts/real_gemini_strict_v73_smoke";
-import { RESULT_VERSION } from "../lib/pubg-analysis/constants";
+import {
+  POPULATION_EVIDENCE_VERSION,
+  RESULT_VERSION,
+} from "../lib/pubg-analysis/constants";
 
 function fullResult(
   matchId: string,
@@ -21,6 +24,7 @@ function fullResult(
     player_id: "kangheesung_",
     platform: "steam",
     v: RESULT_VERSION,
+    populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
     createdAt: "2026-08-30T00:00:00.000Z",
     matchType: "official",
     gameMode: "squad",
@@ -105,6 +109,42 @@ describe("strict v73 real-user Gemini smoke", () => {
     expect(result.report.pass).toBe(true);
     expect(generate).toHaveBeenCalledTimes(1);
     expect(generate).toHaveBeenCalledWith(expect.objectContaining({ model: "gemini-3.5-flash-lite" }));
+  });
+
+  it("requires current population provenance and the shared human BR gate before provider selection", async () => {
+    const rows: StrictSmokeRow[] = [
+      row("human-current"),
+      row("unmarked-current", {
+        data: {
+          fullResult: fullResult("unmarked-current", {
+            populationEvidenceVersion: undefined,
+          }),
+        },
+      }),
+      row("custom-current", {
+        data: {
+          fullResult: fullResult("custom-current", {
+            telemetry: { LogMatchStart: { isCustomGame: true } },
+          }),
+        },
+      }),
+      row("wrapper-custom-current", {
+        data: {
+          fullResult: fullResult("wrapper-custom-current"),
+          telemetry: { LogMatchStart: { isCustomGame: true } },
+          telemetryEvents: [{ _T: "LogMatchEnd" }],
+        },
+      }),
+    ];
+    const generate = vi.fn().mockResolvedValue(providerResult);
+
+    const result = await runStrictGeminiV73Smoke({ rows, generate });
+
+    expect(result.acceptedCurrentRowCount).toBe(4);
+    expect(result.eligibleCurrentRowCount).toBe(1);
+    expect(result.latestCount).toBe(1);
+    expect(result.bestCount).toBe(1);
+    expect(generate).toHaveBeenCalledTimes(1);
   });
 
   it("selects latest ten first, then deterministic best five only from that population", async () => {

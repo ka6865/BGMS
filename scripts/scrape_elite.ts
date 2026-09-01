@@ -2,7 +2,8 @@
 import axios from 'axios';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
-import { RESULT_VERSION } from '../lib/pubg-analysis/constants';
+import { POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from '../lib/pubg-analysis/constants';
+import { BENCHMARK_FILTER_VERSION, BENCHMARK_POPULATION_EVIDENCE_VERSION } from '../lib/pubg-analysis/benchmarkLookup';
 import { getValidFullResult } from '../lib/pubg-analysis/cacheIdentity';
 import { normalizeName } from '../lib/pubg-analysis/utils';
 import { describeScraperRequestFailure, type ScraperRequestStage } from '../lib/pubg-analysis/scraperDiagnostics';
@@ -23,19 +24,6 @@ const PLATFORM = "steam";
 const APP_URL = process.env.APP_URL || "http://localhost:3000";
 const MATCH_API_URL = `${APP_URL}/api/pubg/match`;
 
-if (
-  !PUBG_API_KEY?.trim()
-  || !SUPABASE_URL?.trim()
-  || !SUPABASE_KEY?.trim()
-  || !PUBG_SCRAPER_INTERNAL_TOKEN?.trim()
-  || !ADMIN_REVALIDATE_TOKEN?.trim()
-) {
-  console.error("필수 환경변수가 설정되어 있지 않습니다.");
-  process.exit(1);
-}
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
-
 const HEADERS = {
   Authorization: `Bearer ${PUBG_API_KEY}`,
   Accept: "application/vnd.api+json",
@@ -45,13 +33,36 @@ const MATCH_API_HEADERS = {
   Authorization: `Bearer ${PUBG_SCRAPER_INTERNAL_TOKEN}`,
 };
 
-// [설정] 실행 모드에 따른 제한값 (기본값은 데이터 정밀도를 위해 샘플링 활성화)
-const PLAYER_LIMIT = parseInt(process.env.ELITE_PLAYER_LIMIT || '5');
-const MATCH_LIMIT = parseInt(process.env.ELITE_MATCH_LIMIT || '3');
-const ENABLE_SAMPLING = process.env.ENABLE_SAMPLING !== 'false'; // 명시적으로 false가 아니면 true
+const supabase = SUPABASE_URL?.trim() && SUPABASE_KEY?.trim()
+  ? createClient(SUPABASE_URL, SUPABASE_KEY)
+  : null;
 
-console.log(`📊 실행 모드: ${process.env.ELITE_PLAYER_LIMIT ? 'DAILY (Light)' : 'MANUAL (Full)'}`);
-console.log(`👥 인원: ${PLAYER_LIMIT}, 🎮 매치: ${MATCH_LIMIT}, 🧪 샘플링: ${ENABLE_SAMPLING}`);
+export function hasTrustedScraperCache(fullResult: unknown): boolean {
+  if (!fullResult || typeof fullResult !== "object" || Array.isArray(fullResult)) return false;
+  const candidate = fullResult as Record<string, unknown>;
+  return typeof candidate.v === "number"
+    && Number.isFinite(candidate.v)
+    && candidate.v >= RESULT_VERSION
+    && candidate.populationEvidenceVersion === POPULATION_EVIDENCE_VERSION;
+}
+
+export function hasTrustedScraperBenchmark(benchmark: unknown): boolean {
+  if (!benchmark || typeof benchmark !== "object" || Array.isArray(benchmark)) return false;
+  const candidate = benchmark as Record<string, unknown>;
+  const matchType = typeof candidate.match_type === "string"
+    ? candidate.match_type.trim().toLowerCase()
+    : "";
+  return Number(candidate.filter_version) === BENCHMARK_FILTER_VERSION
+    && Number(candidate.population_evidence_version) === BENCHMARK_POPULATION_EVIDENCE_VERSION
+    && (matchType === "official" || matchType === "competitive");
+}
+
+export function shouldSkipScraperMatch(input: {
+  fullResult: unknown;
+  benchmark: unknown;
+}): boolean {
+  return hasTrustedScraperCache(input.fullResult) && hasTrustedScraperBenchmark(input.benchmark);
+}
 
 async function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -78,9 +89,32 @@ function writeGithubOutput(counters: ScraperCounters) {
   ].join("\n") + "\n");
 }
 
-async function scrapeEliteData() {
+export async function scrapeEliteData() {
   console.log("🚀 [BGMS Smart Scraper] 작업을 시작합니다...");
   const counters: ScraperCounters = { succeeded: 0, skipped: 0, failed: 0 };
+
+  if (
+    !PUBG_API_KEY?.trim()
+    || !SUPABASE_URL?.trim()
+    || !SUPABASE_KEY?.trim()
+    || !PUBG_SCRAPER_INTERNAL_TOKEN?.trim()
+    || !ADMIN_REVALIDATE_TOKEN?.trim()
+    || !supabase
+  ) {
+    console.error("필수 환경변수가 설정되어 있지 않습니다.");
+    counters.failed += 1;
+    process.exitCode = 1;
+    writeGithubOutput(counters);
+    return;
+  }
+
+  // [설정] 실행 모드에 따른 제한값 (기본값은 데이터 정밀도를 위해 샘플링 활성화)
+  const PLAYER_LIMIT = parseInt(process.env.ELITE_PLAYER_LIMIT || '5');
+  const MATCH_LIMIT = parseInt(process.env.ELITE_MATCH_LIMIT || '3');
+  const ENABLE_SAMPLING = process.env.ENABLE_SAMPLING !== 'false'; // 명시적으로 false가 아니면 true
+
+  console.log(`📊 실행 모드: ${process.env.ELITE_PLAYER_LIMIT ? 'DAILY (Light)' : 'MANUAL (Full)'}`);
+  console.log(`👥 인원: ${PLAYER_LIMIT}, 🎮 매치: ${MATCH_LIMIT}, 🧪 샘플링: ${ENABLE_SAMPLING}`);
 
   try {
     let seasonRes;
@@ -150,21 +184,25 @@ async function scrapeEliteData() {
 
         const existingFullResult = getValidFullResult(existing, playerId, PLATFORM);
 
-        // 구버전 캐시 → 무조건 재분석
-        if (existingFullResult && (existingFullResult.v || 0) < RESULT_VERSION) {
+        let benchmark: unknown = null;
+        const cacheIsTrusted = hasTrustedScraperCache(existingFullResult);
+
+        // 구버전/무표시 캐시 → 무조건 재분석
+        if (existingFullResult && !cacheIsTrusted) {
           console.log(`   - 구버전 캐시 발견 -> V${RESULT_VERSION} 재분석 시작...`);
         } else if (existingFullResult) {
           // [Step 2] 최신 캐시가 있는 경우 → global_benchmarks 교차 검증
           // (벤치마크 초기화 이후 스킵 방지)
-          const { data: benchmark } = await supabase
+          const { data } = await supabase
             .from("global_benchmarks")
-            .select("id")
+            .select("id, filter_version, population_evidence_version, match_type")
             .eq("match_id", matchId)
             .eq("platform", PLATFORM)
             .eq("player_id", playerId)
             .maybeSingle();
+          benchmark = data;
 
-          if (benchmark) {
+          if (shouldSkipScraperMatch({ fullResult: existingFullResult, benchmark })) {
             // 캐시도 있고 벤치마크도 있으면 완전히 Skip
             console.log("   - 최신 캐시 + 벤치마크 존재 (Skip)");
             counters.skipped += 1;
@@ -178,11 +216,14 @@ async function scrapeEliteData() {
         }
 
         // 벤치마크 누락 여부에 따라 force 파라미터 결정
-        const hasCacheButNoBenchmark = existingFullResult && (existingFullResult.v || 0) >= RESULT_VERSION;
-        const forceParam = hasCacheButNoBenchmark
+        const forceReanalysis = Boolean(existingFullResult && !shouldSkipScraperMatch({
+          fullResult: existingFullResult,
+          benchmark,
+        }));
+        const forceParam = forceReanalysis
           ? '&force=true'
           : '';
-        const matchApiHeaders = hasCacheButNoBenchmark
+        const matchApiHeaders = forceReanalysis
           ? { ...MATCH_API_HEADERS, 'X-BGMS-Admin-Token': ADMIN_REVALIDATE_TOKEN }
           : MATCH_API_HEADERS;
 
@@ -240,4 +281,6 @@ async function scrapeEliteData() {
   }
 }
 
-scrapeEliteData();
+if (process.argv[1]?.endsWith("scrape_elite.ts")) {
+  scrapeEliteData();
+}

@@ -101,7 +101,84 @@ if (hasRealDataFixture) describe('AnalysisEngine 실데이터(Gold Match) 정밀
   });
 });
 
+describe('AnalysisEngine isolation measurement contract', () => {
+  it('does not synthesize zero isolation metrics when no position telemetry was observed', () => {
+    const engine = new AnalysisEngine(
+      'Player',
+      'account.player',
+      new Set(['player']),
+      new Set(['account.player']),
+      new Set(),
+      new Set(),
+      'roster-player',
+    );
+
+    const result = engine.run(
+      [],
+      {
+        id: 'no-position-telemetry',
+        createdAt: '2026-08-27T00:00:00.000Z',
+        gameMode: 'squad-fpp',
+        matchType: 'official',
+      },
+      [],
+      [],
+      { name: 'Player', damageDealt: 0, kills: 0, winPlace: 10, timeSurvived: 600 },
+      [],
+      {},
+    );
+
+    expect(result.isolationData.isolationIndex).toBeUndefined();
+    expect(result.isolationData.minDist).toBeUndefined();
+    expect(result.isolationData.heightDiff).toBeUndefined();
+    expect(result.isolationData.teammateCount).toBeUndefined();
+  });
+});
+
 describe('티어 산정 및 조기 탈락 폴백 엔진 검증', () => {
+  it('benchmark component and total scores stay finite and within 0..100 for malformed inputs', () => {
+    const baseInput = {
+      rankPct: 0.2,
+      survivalTime: 1200,
+      initiativeRate: 50,
+      counterLatencyMs: 500,
+      pressureIndex: 2,
+      smokeRate: 50,
+      suppCount: 2,
+      reviveRate: 50,
+      tradeRate: 50,
+      teamWipes: 1,
+      reversalRate: 50,
+      deathPhase: 5,
+      suppRate: 50,
+      survivalRankPct: 0.3,
+      myKnockCount: 1,
+      myDeathCount: 0,
+      winPlace: 10,
+    };
+
+    const negativePressure = getBenchmarkTier({
+      ...baseInput,
+      pressureIndex: -100,
+    }, true);
+    const malformedRate = getBenchmarkTier({
+      ...baseInput,
+      initiativeRate: Number.NaN,
+      pressureIndex: Number.POSITIVE_INFINITY,
+    }, false);
+
+    for (const result of [negativePressure, malformedRate]) {
+      expect(Number.isFinite(result.score)).toBe(true);
+      expect(result.score).toBeGreaterThanOrEqual(0);
+      expect(result.score).toBeLessThanOrEqual(100);
+      for (const value of Object.values(result.breakdown)) {
+        expect(Number.isFinite(value)).toBe(true);
+        expect(value).toBeGreaterThanOrEqual(0);
+        expect(value).toBeLessThanOrEqual(100);
+      }
+    }
+  });
+
   it('아군 공식 무기 통계가 실시간 소문자 키를 교체해 중복 저장되지 않아야 함', () => {
     const engine = new AnalysisEngine(
       'KangHeeSung_',

@@ -8,7 +8,7 @@
 
 import { normalizeName } from './utils';
 import { AnalysisResult, AnalysisState } from './types';
-import { MAP_NAMES, RESULT_VERSION } from './constants';
+import { MAP_NAMES, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from './constants';
 import { CombatHandler } from './handlers/CombatHandler';
 import { ZoneHandler } from './handlers/ZoneHandler';
 import { UtilityHandler } from './handlers/UtilityHandler';
@@ -63,7 +63,7 @@ export class AnalysisEngine {
       totalNearbyTeammatesSum: 0,
       lastIsolationSampleTime: 0,
       dbnoIsolationSamples: [],
-      deathIsolation: 0,
+      deathIsolation: undefined,
       totalCombatIsolationSum: 0,
       combatIsolationCount: 0,
       hasLanded: false,
@@ -116,7 +116,9 @@ export class AnalysisEngine {
       myDeathTime: null,
       deathDistance: 0,
       recentTeammateDamageTaken: new Map(),
-      isolationData: { isolationIndex: 0, combatIsolation: 0, deathIsolation: 0, minDist: 0, heightDiff: 0, isCrossfire: false, teammateCount: 0 },
+      // Keep an explicit empty object for handler access, but do not invent
+      // zero-valued position measurements before the first valid sample.
+      isolationData: { isCrossfire: false },
       timeline: [],
 
       // [V16.0] 신규 지표 초기화
@@ -238,7 +240,7 @@ export class AnalysisEngine {
     });
 
     // 3. 결과 조립
-    return this.assembleResult(matchAttr, rosters, participants, myStats, teamStats, eliteBenchmark);
+    return this.assembleResult(matchAttr, rosters, participants, myStats, teamStats, eliteBenchmark, matchStartEv);
   }
 
   private buildMappings(rosters: any[], participants: any[]) {
@@ -277,7 +279,15 @@ export class AnalysisEngine {
     });
   }
 
-  private assembleResult(matchAttr: any, rosters: any[], participants: any[], myStats: any, teamStats: any[], eliteBenchmark: any): AnalysisResult {
+  private assembleResult(
+    matchAttr: any,
+    rosters: any[],
+    participants: any[],
+    myStats: any,
+    teamStats: any[],
+    eliteBenchmark: any,
+    matchStartEvent?: any,
+  ): AnalysisResult {
     // [V12.5] 승리 이벤트 추가
     if (myStats.winPlace === 1) {
       // 타임라인의 마지막 이벤트 시간 확인
@@ -311,10 +321,11 @@ export class AnalysisEngine {
     const badges = this.calculateBadges(myStats, teamStats, damageImpact / 100);
 
     // 지표 집계
-    const avgIsolation = this.state.isolationSampleCount > 0 ? this.state.totalIsolationSum / this.state.isolationSampleCount : 0;
-    const avgMinDist = this.state.isolationSampleCount > 0 ? this.state.totalMinDistSum / this.state.isolationSampleCount : 0;
-    const avgHeightDiff = this.state.isolationSampleCount > 0 ? this.state.totalHeightDiffSum / this.state.isolationSampleCount : 0;
-    const avgTeammateCount = this.state.isolationSampleCount > 0 ? this.state.totalNearbyTeammatesSum / this.state.isolationSampleCount : 0;
+    const hasIsolationSamples = this.state.isolationSampleCount > 0;
+    const avgIsolation = hasIsolationSamples ? this.state.totalIsolationSum / this.state.isolationSampleCount : undefined;
+    const avgMinDist = hasIsolationSamples ? this.state.totalMinDistSum / this.state.isolationSampleCount : undefined;
+    const avgHeightDiff = hasIsolationSamples ? this.state.totalHeightDiffSum / this.state.isolationSampleCount : undefined;
+    const avgTeammateCount = hasIsolationSamples ? this.state.totalNearbyTeammatesSum / this.state.isolationSampleCount : undefined;
 
     // 교전 및 선제 타격 지표 집계
     const pData = (this.state.playerCombatData.get(this.state.myAccountId) || this.state.playerCombatData.get(this.state.lowerNickname)) || { total: 0, success: 0, duelWins: 0, duelLosses: 0, reversalWins: 0, reversalAttempts: 0 };
@@ -342,9 +353,33 @@ export class AnalysisEngine {
     }
     processedDamageDealt = Math.round(processedDamageDealt);
 
+    const metadataEvidence: Record<string, unknown> = {};
+    const metadataSource = matchAttr && typeof matchAttr === "object" ? matchAttr : {};
+    for (const key of [
+      "isCustomMatch",
+      "is_custom_match",
+      "isEventMode",
+      "is_event_mode",
+      "isCustomGame",
+      "is_custom_game",
+    ]) {
+      if (Object.prototype.hasOwnProperty.call(metadataSource, key) && metadataSource[key] !== undefined) {
+        metadataEvidence[key] = metadataSource[key];
+      }
+    }
+    const telemetryFlags: Record<string, unknown> = {};
+    if (matchStartEvent && typeof matchStartEvent === "object") {
+      for (const key of ["isCustomGame", "is_custom_game", "isEventMode", "is_event_mode"]) {
+        if (Object.prototype.hasOwnProperty.call(matchStartEvent, key) && matchStartEvent[key] !== undefined) {
+          telemetryFlags[key] = matchStartEvent[key];
+        }
+      }
+    }
+
     return {
       matchId: matchAttr.id,
       v: RESULT_VERSION,
+      populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
       processedAt: new Date().toISOString(),
       createdAt: matchAttr.createdAt,
       stats: {
@@ -358,8 +393,10 @@ export class AnalysisEngine {
       team: teamStats,
       deathPhase: this.state.deathPhaseSnapshot || this.state.currentPhase,
       mapName: MAP_NAMES[matchAttr.mapName] || matchAttr.mapName,
-      gameMode: matchAttr.gameMode,
-      matchType: matchAttr.matchType || "Official",
+      gameMode: typeof matchAttr?.gameMode === "string" ? matchAttr.gameMode : "",
+      matchType: typeof matchAttr?.matchType === "string" ? matchAttr.matchType : "",
+      ...(Object.keys(metadataEvidence).length > 0 ? { attributes: metadataEvidence } : {}),
+      ...(Object.keys(telemetryFlags).length > 0 ? { telemetryFlags } : {}),
       totalTeams: rosters.filter(r => r.relationships?.participants?.data?.length > 0).length,
       totalPlayers: participants.length,
       teamImpact: { damageImpact, killImpact, teamDamageShare, teamKillShare, totalTeamDamage, totalTeamKills },
@@ -384,13 +421,18 @@ export class AnalysisEngine {
       itemUseStats: this.state.itemUseStats,
       wasZoneMovingAtDeath: this.state.wasZoneMovingAtDeath,
       isolationData: {
-        isolationIndex: avgIsolation,
-        combatIsolation: this.state.combatIsolationCount > 0 ? this.state.totalCombatIsolationSum / this.state.combatIsolationCount : avgIsolation,
-        deathIsolation: this.state.deathIsolation || avgIsolation,
-        minDist: avgMinDist,
-        heightDiff: avgHeightDiff,
+        ...(hasIsolationSamples ? {
+          isolationIndex: avgIsolation,
+          combatIsolation: this.state.combatIsolationCount > 0
+            ? this.state.totalCombatIsolationSum / this.state.combatIsolationCount
+            : avgIsolation,
+          // Nullish coalescing preserves an explicitly measured zero.
+          deathIsolation: this.state.deathIsolation ?? avgIsolation,
+          minDist: avgMinDist,
+          heightDiff: avgHeightDiff,
+          teammateCount: avgTeammateCount,
+        } : {}),
         isCrossfire: this.state.totalCrossfireCount > 0,
-        teammateCount: avgTeammateCount
       },
       tradeStats: {
         teammateKnocks: this.state.totalTeammateKnocks,

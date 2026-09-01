@@ -1,5 +1,47 @@
 {
-  "debateIssues": [],
+  "signature": "Fixture 전술가",
+  "signatureSub": "검증용 시그니처 이유",
+  "debateIssues": [
+    {
+      "topic": "전투력",
+      "question": "전투력이 충분한가?",
+      "kindOpinion": "강점을 확인할 수 있습니다.",
+      "spicyOpinion": "보완할 지점이 있습니다.",
+      "winner": "kind",
+      "reason": "검증 데이터",
+      "evaluation": "정상",
+      "userStats": [],
+      "benchmarkStats": []
+    },
+    {
+      "topic": "교전 주도권",
+      "question": "교전 주도권이 충분한가?",
+      "kindOpinion": "강점을 확인할 수 있습니다.",
+      "spicyOpinion": "보완할 지점이 있습니다.",
+      "winner": "kind",
+      "reason": "검증 데이터",
+      "evaluation": "정상",
+      "userStats": [],
+      "benchmarkStats": []
+    },
+    {
+      "topic": "포지셔닝",
+      "question": "포지셔닝이 충분한가?",
+      "kindOpinion": "강점을 확인할 수 있습니다.",
+      "spicyOpinion": "보완할 지점이 있습니다.",
+      "winner": "kind",
+      "reason": "검증 데이터",
+      "evaluation": "정상",
+      "userStats": [],
+      "benchmarkStats": []
+    }
+  ],
   "finalVerdict": "  fixture verdict  ",
-  "actionItems": []
+  "actionItems": [
+    {
+      "icon": "target",
+      "title": "검증 목표",
+      "desc": "검증 데이터를 바탕으로 다음 경기를 준비하세요."
+    }
+  ]
 }

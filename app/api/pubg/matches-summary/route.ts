@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
-import { getValidFullResult, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
+import { getLegacyFullResultForHistory, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { buildMatchSummary, buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
 import { fetchAndIngestBasicMatchSummary } from "@/lib/pubg/playerMatchesIngest";
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
 
     const summaries: Record<string, any> = {};
     for (const row of telemetryData || []) {
-      const fullResult = getValidFullResult(row, playerId, platform);
+      const fullResult = getLegacyFullResultForHistory(row, playerId, platform);
       if (!fullResult || (fullResult.v || 0) < RESULT_VERSION) continue;
 
       const summary = buildMatchSummary(fullResult);

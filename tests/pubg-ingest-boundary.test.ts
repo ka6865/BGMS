@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PersistMatchAnalysisResult } from "@/lib/pubg-analysis/persistMatchAnalysis";
 import { noteDatabaseAvailable } from "@/lib/pubg/databaseCircuitBreaker";
 import { buildTelemetryCacheKey, buildTelemetryPlayerKey } from "@/lib/pubg-analysis/telemetryCacheKey.server";
-import { RESULT_VERSION, TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
+import { POPULATION_EVIDENCE_VERSION, RESULT_VERSION, TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
+import { evaluateMatchEligibility } from "@/lib/pubg-analysis/matchEligibility";
 
 const {
   mockCreateClient,
@@ -381,6 +382,54 @@ describe("PUBG match persistence behavior", () => {
     );
   });
 
+  it("canonical finalResult가 match custom/event evidence를 보존하고 공통 판정기가 소비한다", async () => {
+    const telemetryUrl = "https://telemetry.example/custom-event.json";
+    const customMatchAttr = {
+      ...matchAttr,
+      isCustomMatch: true,
+    };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: { id: MATCH_ID, attributes: customMatchAttr },
+        included: [
+          participant,
+          roster,
+          { id: "asset-1", type: "asset", attributes: { URL: telemetryUrl } },
+        ],
+      }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify([{
+        _T: "LogMatchStart",
+        isCustomGame: true,
+        isEventMode: true,
+      }]), { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    const persistInput = mockPersistMatchAnalysis.mock.calls[0]?.[1] as {
+      finalResult?: Record<string, unknown>;
+      matchAttr?: Record<string, unknown>;
+    };
+    expect(persistInput.matchAttr).toMatchObject({ isCustomMatch: true });
+    expect(persistInput.finalResult).toMatchObject({
+      attributes: { isCustomMatch: true },
+      telemetryFlags: { isCustomGame: true, isEventMode: true },
+    });
+    expect(evaluateMatchEligibility(persistInput.finalResult, "ai-summary")).toMatchObject({
+      eligible: false,
+      reason: "custom_match",
+    });
+    const telemetryOnly = {
+      ...persistInput.finalResult,
+      attributes: undefined,
+    };
+    expect(evaluateMatchEligibility(telemetryOnly, "ai-summary")).toMatchObject({
+      eligible: false,
+      reason: "custom_match",
+    });
+  });
+
   it("route가 분석 대상 player cache를 persist 경로 밖에서 중복 upsert하지 않는다", async () => {
     const response = await GET(createMatchRequest());
 
@@ -471,6 +520,110 @@ describe("PUBG match persistence behavior", () => {
     expect(mockAnalysisEngine).toHaveBeenCalledTimes(1);
     expect(mockPersistMatchAnalysis).toHaveBeenCalledTimes(1);
     expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("unmarked current v73 processed row is a cache miss and reanalyzes once", async () => {
+    mockProcessedTelemetryMaybeSingle.mockResolvedValueOnce({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: {
+          fullResult: {
+            ...analysisResult,
+            v: RESULT_VERSION,
+            matchId: MATCH_ID,
+            player_id: NICKNAME.toLowerCase(),
+            platform: "steam",
+          },
+        },
+      },
+      error: null,
+    });
+    mockPubgMatchResponse();
+
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(mockAnalysisEngine).toHaveBeenCalledTimes(1);
+    expect(mockPersistMatchAnalysis).toHaveBeenCalledTimes(1);
+  });
+
+  it("marked current v73 processed row is reused without needless reanalysis", async () => {
+    mockProcessedTelemetryMaybeSingle.mockResolvedValueOnce({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: {
+          fullResult: {
+            ...analysisResult,
+            v: RESULT_VERSION,
+            populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
+            matchId: MATCH_ID,
+            player_id: NICKNAME.toLowerCase(),
+            platform: "steam",
+          },
+        },
+      },
+      error: null,
+    });
+
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+    expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("unmarked current v73 row bypasses the old analyzed R2 envelope before reanalysis", async () => {
+    const telemetryUrl = "https://telemetry.example/r2-reanalysis.json";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        data: { id: MATCH_ID, attributes: matchAttr },
+        included: [participant, roster, { id: "asset-1", type: "asset", attributes: { URL: telemetryUrl } }],
+      }), { status: 200, headers: { "content-type": "application/json" } }))
+      .mockResolvedValueOnce(new Response("[]", { status: 200, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: {
+          fullResult: {
+            ...analysisResult,
+            v: RESULT_VERSION,
+            matchId: MATCH_ID,
+            player_id: NICKNAME.toLowerCase(),
+            platform: "steam",
+          },
+        },
+      },
+      error: null,
+    });
+    mockDownloadFromR2.mockImplementation(async (key: string) => key.endsWith("_analyze.json")
+      ? JSON.stringify({
+        identity: {
+          matchId: MATCH_ID,
+          platform: "steam",
+          playerKey: buildTelemetryPlayerKey(PLAYER_ID),
+          mode: "lite",
+          telemetryVersion: TELEMETRY_VERSION,
+        },
+        events: [{ attacker: { accountId: PLAYER_ID }, victim: { accountId: "account-enemy" } }],
+      })
+      : null);
+
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(200);
+    expect(mockAnalysisEngine).toHaveBeenCalledTimes(1);
+    expect(mockPersistMatchAnalysis).toHaveBeenCalledTimes(1);
+    expect(mockDownloadFromR2.mock.calls.some(([key]) => String(key).endsWith("_analyze.json"))).toBe(false);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe(telemetryUrl);
   });
 
   it("legacy analyze R2 cache key는 raw nickname 대신 match/platform/account hash identity를 사용한다", async () => {

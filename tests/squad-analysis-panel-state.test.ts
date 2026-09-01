@@ -192,11 +192,10 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
     fireEvent.click(screen.getByRole("button", { name: "AI 코칭 보고서 생성" }));
     await waitFor(() => expect(aiRequests()).toHaveLength(1));
     const aiInit = aiRequests()[0][1] as RequestInit;
-    expect(JSON.parse(String(aiInit.body))).toMatchObject({
+    expect(JSON.parse(String(aiInit.body))).toEqual({
       groupKey: "g2",
       nickname: "FixturePlayer",
       platform: "steam",
-      matchIds: ["match-g2"],
       coachingStyle: "spicy",
     });
 

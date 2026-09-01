@@ -29,10 +29,10 @@ interface Teammate {
   name: string;
   role: string;
   roleDesc: string;
-  avgDamage: number;
-  avgKills: number;
-  avgAssists: number;
-  avgDbnos: number;
+  avgDamage: number | null;
+  avgKills: number | null;
+  avgAssists: number | null;
+  avgDbnos: number | null;
   totalDamage?: number;
   totalKills?: number;
   shares: {
@@ -56,29 +56,29 @@ interface SquadAnalysisData {
   matchCount: number;
   matchesSummary: MatchSummaryItem[];
   stats: {
-    avgIsolation: number;
-    avgTradeLatency: number;
+    avgIsolation: number | null;
+    avgTradeLatency: number | null;
     totalSmokeRescues: number;
     totalRevives: number;
-    avgCoverRate: number;
+    avgCoverRate: number | null;
     totalTeamWipes: number;
     totalTeammateKnocks?: number;
   };
   scores: {
-    formation: number;
-    backupSpeed: number;
+    formation: number | null;
+    backupSpeed: number | null;
     survivalCare: number;
-    focusFire: number;
-    teamWipe: number;
+    focusFire: number | null;
+    teamWipe: number | null;
   };
   squadGrade: string;
   benchmarkStats?: {
     tier: string;
-    avgIsolation: number;
-    avgTradeLatency: number;
-    avgReviveRate: number;
-    avgSmokeRate: number;
-    avgTeamWipes: number;
+    avgIsolation: number | null;
+    avgTradeLatency: number | null;
+    avgReviveRate: number | null;
+    avgSmokeRate: number | null;
+    avgTeamWipes: number | null;
   };
   roleProfiles: Teammate[];
   causeScenes?: SquadCauseSceneCardData[];
@@ -255,16 +255,9 @@ export default function SquadAnalysisPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           groupKey: analysisData.groupKey,
-          matchCount: analysisData.matchCount,
-          stats: analysisData.stats,
-          scores: analysisData.scores,
-          roleProfiles: analysisData.roleProfiles,
-          matchIds: analysisData.matchesSummary.map((match) => match.matchId),
           nickname,
           platform,
           coachingStyle,
-          squadGrade: analysisData.squadGrade,
-          benchmarkStats: analysisData.benchmarkStats
         })
       });
       
@@ -467,12 +460,13 @@ export default function SquadAnalysisPanel({
     
     return metrics.map((score, i) => {
       const angle = (i * 72 - 90) * (Math.PI / 180);
-      const radius = 80 * (score / 100);
+      const radius = 80 * ((score ?? 0) / 100);
       const x = 100 + radius * Math.cos(angle);
       const y = 100 + radius * Math.sin(angle);
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     }).join(" ");
   };
+  const scoreLabel = (score: number | null) => score === null ? "측정 불가" : score;
 
   if (loadingList) {
     return (
@@ -620,7 +614,7 @@ export default function SquadAnalysisPanel({
                     analysisData.scores.teamWipe
                   ];
                   const angle = (i * 72 - 90) * (Math.PI / 180);
-                  const radius = 80 * (metrics[i] / 100);
+                  const radius = 80 * ((metrics[i] ?? 0) / 100);
                   const x = 100 + radius * Math.cos(angle);
                   const y = 100 + radius * Math.sin(angle);
                   return (
@@ -638,11 +632,11 @@ export default function SquadAnalysisPanel({
               </svg>
  
               {/* Dynamic Axis Labels */}
-              <div className="absolute top-0 text-[10px] text-zinc-300 font-semibold">대열 유지 ({analysisData.scores.formation})</div>
-              <div className="absolute right-0 top-1/3 text-[10px] text-zinc-300 font-semibold text-right">백업 속도 ({analysisData.scores.backupSpeed})</div>
-              <div className="absolute right-8 bottom-4 text-[10px] text-zinc-300 font-semibold">생존 케어 ({analysisData.scores.survivalCare})</div>
-              <div className="absolute left-8 bottom-4 text-[10px] text-zinc-300 font-semibold">화력 집중 ({analysisData.scores.focusFire})</div>
-              <div className="absolute left-0 top-1/3 text-[10px] text-zinc-300 font-semibold text-left">전멸 기여 ({analysisData.scores.teamWipe})</div>
+              <div className="absolute top-0 text-[10px] text-zinc-300 font-semibold">대열 유지 ({scoreLabel(analysisData.scores.formation)})</div>
+              <div className="absolute right-0 top-1/3 text-[10px] text-zinc-300 font-semibold text-right">백업 속도 ({scoreLabel(analysisData.scores.backupSpeed)})</div>
+              <div className="absolute right-8 bottom-4 text-[10px] text-zinc-300 font-semibold">생존 케어 ({scoreLabel(analysisData.scores.survivalCare)})</div>
+              <div className="absolute left-8 bottom-4 text-[10px] text-zinc-300 font-semibold">화력 집중 ({scoreLabel(analysisData.scores.focusFire)})</div>
+              <div className="absolute left-0 top-1/3 text-[10px] text-zinc-300 font-semibold text-left">전멸 기여 ({scoreLabel(analysisData.scores.teamWipe)})</div>
             </div>
  
             {/* Synergy metrics key-value list */}
@@ -653,10 +647,10 @@ export default function SquadAnalysisPanel({
                   p => p.name.toLowerCase().replace(/[^a-zA-Z0-9_]/g, "") === normalizedSearchName
                 );
                 const squadAvgDamage = Math.round(
-                  analysisData.roleProfiles.reduce((sum, p) => sum + p.avgDamage, 0) / Math.max(1, analysisData.roleProfiles.length)
+                  analysisData.roleProfiles.reduce((sum, p) => sum + (p.avgDamage ?? 0), 0) / Math.max(1, analysisData.roleProfiles.length)
                 );
                 const squadAvgKills = (
-                  analysisData.roleProfiles.reduce((sum, p) => sum + p.avgKills, 0) / Math.max(1, analysisData.roleProfiles.length)
+                  analysisData.roleProfiles.reduce((sum, p) => sum + (p.avgKills ?? 0), 0) / Math.max(1, analysisData.roleProfiles.length)
                 ).toFixed(1);
 
                 return (
@@ -672,7 +666,9 @@ export default function SquadAnalysisPanel({
                     <div className="flex justify-between border-b border-zinc-900 pb-2">
                       <span className="text-zinc-400 font-medium">내 평균 딜량 / 킬</span>
                       <span className="text-purple-300 font-bold">
-                        {myProfile ? `${Math.round(myProfile.avgDamage)}딜 / ${myProfile.avgKills}킬` : "N/A"}
+                        {myProfile
+                          ? `${myProfile.avgDamage === null ? "측정 불가" : `${Math.round(myProfile.avgDamage)}딜`} / ${myProfile.avgKills === null ? "측정 불가" : `${myProfile.avgKills}킬`}`
+                          : "N/A"}
                       </span>
                     </div>
                     <div className="flex justify-between border-b border-zinc-900 pb-2">
@@ -686,13 +682,13 @@ export default function SquadAnalysisPanel({
               <div className="flex flex-col gap-1 border-b border-zinc-900 pb-2">
                 <div className="flex justify-between">
                   <span className="text-zinc-400 font-medium">평균 대열 이탈율 (고립)</span>
-                  <span className={`font-bold ${analysisData.stats.avgIsolation > 3.5 ? "text-red-400" : "text-zinc-100"}`}>
-                    {analysisData.stats.avgIsolation} (평균)
+                  <span className={`font-bold ${analysisData.stats.avgIsolation !== null && analysisData.stats.avgIsolation > 3.5 ? "text-red-400" : "text-zinc-100"}`}>
+                    {analysisData.stats.avgIsolation === null ? "측정 불가" : `${analysisData.stats.avgIsolation} (평균)`}
                   </span>
                 </div>
                 {analysisData.benchmarkStats && (
                   <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
-                    {analysisData.benchmarkStats.tier}티어 기준치: {analysisData.benchmarkStats.avgIsolation} (낮을수록 우수)
+                    {analysisData.benchmarkStats.tier}티어 기준치: {analysisData.benchmarkStats.avgIsolation === null ? "측정 불가" : analysisData.benchmarkStats.avgIsolation} (낮을수록 우수)
                   </div>
                 )}
               </div>
@@ -701,14 +697,14 @@ export default function SquadAnalysisPanel({
                 <div className="flex justify-between">
                   <span className="text-zinc-400 font-medium">평균 백업 반응 속도 (트레이드)</span>
                   <span className="text-zinc-100 font-bold">
-                    {analysisData.stats.avgTradeLatency > 0
+                    {analysisData.stats.avgTradeLatency !== null && analysisData.stats.avgTradeLatency > 0
                       ? `${(analysisData.stats.avgTradeLatency / 1000).toFixed(2)}초`
                       : "측정 불가"}
                   </span>
                 </div>
                 {analysisData.benchmarkStats && (
                   <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
-                    {analysisData.benchmarkStats.tier}티어 기준치: {(analysisData.benchmarkStats.avgTradeLatency / 1000).toFixed(2)}초 (빠를수록 우수)
+                    {analysisData.benchmarkStats.tier}티어 기준치: {analysisData.benchmarkStats.avgTradeLatency === null ? "측정 불가" : `${(analysisData.benchmarkStats.avgTradeLatency / 1000).toFixed(2)}초`} (빠를수록 우수)
                   </div>
                 )}
               </div>
@@ -720,7 +716,7 @@ export default function SquadAnalysisPanel({
                 </div>
                 {analysisData.benchmarkStats && (
                   <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
-                    {analysisData.benchmarkStats.tier}티어 기준치 (경기당 평균): 부활 {analysisData.benchmarkStats.avgReviveRate}% / 연막 {analysisData.benchmarkStats.avgSmokeRate}%
+                    {analysisData.benchmarkStats.tier}티어 기준치 (경기당 평균): 부활 {analysisData.benchmarkStats.avgReviveRate === null ? "측정 불가" : `${analysisData.benchmarkStats.avgReviveRate}%`} / 연막 {analysisData.benchmarkStats.avgSmokeRate === null ? "측정 불가" : `${analysisData.benchmarkStats.avgSmokeRate}%`}
                   </div>
                 )}
               </div>
@@ -728,7 +724,9 @@ export default function SquadAnalysisPanel({
               <div className="flex flex-col gap-1 border-b border-zinc-900 pb-2">
                 <div className="flex justify-between">
                   <span className="text-zinc-400 font-medium">평균 아군 집중사격 커버율</span>
-                  <span className="text-zinc-100 font-bold">{Math.round(analysisData.stats.avgCoverRate * 100)}%</span>
+                  <span className="text-zinc-100 font-bold">
+                    {analysisData.stats.avgCoverRate === null ? "측정 불가" : `${Math.round(analysisData.stats.avgCoverRate * 100)}%`}
+                  </span>
                 </div>
                 <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
                   글로벌 권장 기준치: 30% 이상
@@ -742,7 +740,7 @@ export default function SquadAnalysisPanel({
                 </div>
                 {analysisData.benchmarkStats && (
                   <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
-                    {analysisData.benchmarkStats.tier}티어 기준치: 경기당 평균 {analysisData.benchmarkStats.avgTeamWipes}회
+                    {analysisData.benchmarkStats.tier}티어 기준치: 경기당 평균 {analysisData.benchmarkStats.avgTeamWipes === null ? "측정 불가" : `${analysisData.benchmarkStats.avgTeamWipes}회`}
                   </div>
                 )}
               </div>
@@ -759,7 +757,9 @@ export default function SquadAnalysisPanel({
                     <div>
                       <span className="font-bold text-zinc-100 text-sm block truncate w-32">{p.name}</span>
                       <div className="flex flex-col text-[10px] text-zinc-400 mt-0.5">
-                        <span>평균 {Math.round(p.avgDamage)}딜 / {p.avgKills}킬</span>
+                        <span>
+                          평균 {p.avgDamage === null ? "측정 불가" : `${Math.round(p.avgDamage)}딜`} / {p.avgKills === null ? "측정 불가" : `${p.avgKills}킬`}
+                        </span>
                         {p.totalDamage !== undefined && p.totalKills !== undefined && (
                           <span className="text-zinc-500 font-medium">총 {Math.round(p.totalDamage)}딜 / {p.totalKills}킬 ({analysisData.matchCount}판 누적)</span>
                         )}

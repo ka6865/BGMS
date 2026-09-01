@@ -173,7 +173,7 @@ echo "  ✅ 응답 계약 확인"
 
 echo "▶ 최신 migration 재적용 (baseline 위)"
 RECENT_FAILED=0
-for migration in supabase/migrations/202608*.sql; do
+for migration in supabase/migrations/202608*.sql supabase/migrations/202609*.sql; do
   [ -e "$migration" ] || continue
   if ! OUT=$(psql -h 127.0.0.1 -p "$PG_PORT" -U postgres -d baseline_check -q -v ON_ERROR_STOP=1 -f "$migration" 2>&1); then
     echo "  ❌ $(basename "$migration")"

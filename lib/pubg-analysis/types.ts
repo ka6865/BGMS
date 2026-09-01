@@ -69,13 +69,14 @@ export interface CombatPressure {
 }
 
 export interface IsolationData {
-  isolationIndex: number;
-  combatIsolation: number;
-  deathIsolation: number;
-  minDist: number;
-  heightDiff: number;
+  /** Undefined means no valid position sample was observed; numeric zero is measured. */
+  isolationIndex?: number;
+  combatIsolation?: number;
+  deathIsolation?: number;
+  minDist?: number;
+  heightDiff?: number;
   isCrossfire: boolean;
-  teammateCount: number;
+  teammateCount?: number;
 }
 
 export interface TradeStats {
@@ -109,6 +110,7 @@ export interface DuelStats {
 export interface AnalysisResult {
   matchId: string;
   v: number;
+  populationEvidenceVersion?: number;
   processedAt: string;
   createdAt: string;
   stats: PlayerStats;
@@ -117,6 +119,9 @@ export interface AnalysisResult {
   mapName: string;
   gameMode: string;
   matchType: string;
+  /** Preserved PUBG metadata evidence used by population eligibility gates. */
+  attributes?: Record<string, unknown>;
+  telemetryFlags?: Record<string, unknown>;
   totalTeams: number;
   totalPlayers: number;
   teamImpact: {
@@ -242,7 +247,7 @@ export interface AnalysisState {
   totalNearbyTeammatesSum: number;
   lastIsolationSampleTime: number;
   dbnoIsolationSamples: number[];
-  deathIsolation: number;
+  deathIsolation?: number;
   totalCombatIsolationSum: number;
   combatIsolationCount: number;
   hasLanded: boolean;

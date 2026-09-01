@@ -28,6 +28,25 @@ export interface MatchTierInput {
   smokeRescues?: number;
 }
 
+function finiteOr(value: unknown, fallback: number): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function nonNegativeOr(value: unknown, fallback = 0): number {
+  return Math.max(0, finiteOr(value, fallback));
+}
+
+function normalizeRate(value: unknown, fallback: number): number {
+  const numeric = finiteOr(value, -1);
+  return numeric < 0 ? fallback : Math.min(100, numeric);
+}
+
+function normalizeScore(value: unknown): number {
+  const numeric = finiteOr(value, 0);
+  return Number(Math.max(0, Math.min(100, numeric)).toFixed(1));
+}
+
 /**
  * 전술 분석 총점 계산 (0~100점)
  */
@@ -234,76 +253,93 @@ function getImpactAnalysis(input: MatchTierInput, isSolo: boolean, score: number
 }
 
 export function calcBenchmarkScoreDetails(input: MatchTierInput, isSolo: boolean): BenchmarkResult["breakdown"] {
-  if (input.survivalTime < 300) return { combat: 0, tactical: 0, survival: 0 };
+  const survivalTime = finiteOr(input.survivalTime, 0);
+  const myDeathCount = nonNegativeOr(input.myDeathCount);
+  const deathPhase = nonNegativeOr(input.deathPhase);
+  const rankPct = finiteOr(input.rankPct, 1);
+  const pressureIndex = finiteOr(input.pressureIndex, 0);
+  const teamWipes = nonNegativeOr(input.teamWipes);
+  const isolationIndex = nonNegativeOr(input.isolationIndex);
+  const winPlace = finiteOr(input.winPlace, Number.MAX_SAFE_INTEGER);
+
+  if (survivalTime < 300) return { combat: 0, tactical: 0, survival: 0 };
 
   // 조기 탈락 조건 판단 (10분 미만 생존 혹은 3페이즈 이하 사망)
-  const isEarlyDeath = input.survivalTime < 600 || (input.myDeathCount > 0 && input.deathPhase <= 3);
+  const isEarlyDeath = survivalTime < 600 || (myDeathCount > 0 && deathPhase <= 3);
 
   // 상황별 폴백 값 분기 대입
-  const safeInitiative = input.initiativeRate < 0 ? 45 : input.initiativeRate;
+  const safeInitiative = normalizeRate(input.initiativeRate, 45);
   // [V68.0] 기회 없음(-1)인 경우, 조기 광탈은 30%만 인정하되 정상 탈락은 무결점 우대로 100% 만점 처리.
-  const safeRevive = input.reviveRate < 0 ? (isEarlyDeath ? 30 : 100) : input.reviveRate;
-  const safeTrade = input.tradeRate < 0 ? (isEarlyDeath ? 30 : 100) : input.tradeRate;
-  const safeSmoke = input.smokeRate < 0 ? (isEarlyDeath ? 30 : 100) : input.smokeRate;
-  const safeSuppRate = input.suppRate < 0 ? (isEarlyDeath ? 30 : 100) : input.suppRate;
-  const safeReversal = input.reversalRate < 0
-    ? (isEarlyDeath ? 10 : input.myDeathCount === 0 && input.survivalTime >= 1200 ? 100 : 50)
-    : input.reversalRate;
+  const safeRevive = normalizeRate(input.reviveRate, isEarlyDeath ? 30 : 100);
+  const safeTrade = normalizeRate(input.tradeRate, isEarlyDeath ? 30 : 100);
+  const safeSmoke = normalizeRate(input.smokeRate, isEarlyDeath ? 30 : 100);
+  const safeSuppRate = normalizeRate(input.suppRate, isEarlyDeath ? 30 : 100);
+  const safeReversal = normalizeRate(
+    input.reversalRate,
+    isEarlyDeath ? 10 : myDeathCount === 0 && survivalTime >= 1200 ? 100 : 50,
+  );
 
-  const latencyScoreBase = input.counterLatencyMs < 0 ? 5 :
-    (input.counterLatencyMs === 0 ? 0 : Math.max(0, Math.min(10, ((3000 - input.counterLatencyMs) / 2000) * 10)));
+  const counterLatencyMs = finiteOr(input.counterLatencyMs, -1);
+  const latencyScoreBase = counterLatencyMs < 0 ? 5 :
+    (counterLatencyMs === 0 ? 0 : Math.max(0, Math.min(10, ((3000 - counterLatencyMs) / 2000) * 10)));
 
   let combatScore = 0;
   let tacticalScore = 0;
   let survivalScore = 0;
 
   if (isSolo) {
-    const damageScore = input.rankPct <= 0.10 ? 25 : input.rankPct <= 0.25 ? 18 : input.rankPct <= 0.50 ? 12 : 5;
-    const initiativeScore = Math.min(15, (safeInitiative / 60) * 15); // 70% -> 60% 완화
+    const damageScore = rankPct <= 0.10 ? 25 : rankPct <= 0.25 ? 18 : rankPct <= 0.50 ? 12 : 5;
+    const initiativeScore = Math.max(0, Math.min(15, (safeInitiative / 60) * 15)); // 70% -> 60% 완화
     combatScore = Number((damageScore + initiativeScore + latencyScoreBase).toFixed(1));
 
-    const pressureScore = Math.min(10, (input.pressureIndex / 5) * 10);
-    const reversalScore = Math.min(5, (safeReversal / 100) * 5);
+    const pressureScore = Math.max(0, Math.min(10, (pressureIndex / 5) * 10));
+    const reversalScore = Math.max(0, Math.min(5, (safeReversal / 100) * 5));
     tacticalScore = Number((pressureScore + reversalScore).toFixed(1));
 
     // [V69.0] 솔로 생존 점수 개편 (사망페이즈/생존시간 중복 해소 및 맵 크기 왜곡 방지)
-    const safeSurvivalRankPct = Math.max(0, Math.min(1, input.survivalRankPct));
-    const rankScore = Math.min(30, (1 - safeSurvivalRankPct) * 30);
-    const top10Score = input.winPlace <= 10 ? 5 : 0;
+    const safeSurvivalRankPct = Math.max(0, Math.min(1, finiteOr(input.survivalRankPct, 1)));
+    const rankScore = Math.max(0, Math.min(30, (1 - safeSurvivalRankPct) * 30));
+    const top10Score = winPlace <= 10 ? 5 : 0;
     survivalScore = Number((rankScore + top10Score).toFixed(1));
 
   } else {
-    const damageScore = input.rankPct <= 0.10 ? 20 : input.rankPct <= 0.25 ? 15 : input.rankPct <= 0.50 ? 10 : 5;
-    const initiativeScore = Math.min(10, (safeInitiative / 60) * 10); // 70% -> 60% 완화
+    const damageScore = rankPct <= 0.10 ? 20 : rankPct <= 0.25 ? 15 : rankPct <= 0.50 ? 10 : 5;
+    const initiativeScore = Math.max(0, Math.min(10, (safeInitiative / 60) * 10)); // 70% -> 60% 완화
     combatScore = Number((damageScore + initiativeScore + latencyScoreBase).toFixed(1));
 
-    const pressureScore = Math.min(10, (input.pressureIndex / 5) * 10);
-    const utilityScore = Math.min(10, (safeSmoke / 100) * 5 + Math.min(5, input.suppCount / 1.2)); // 10회 -> 6회 완화
-    const teamScore = Math.min(10, (safeRevive / 100) * 3 + (safeTrade / 100) * 2 + (safeSuppRate / 100) * 2 + Math.min(3, input.teamWipes * 1.5));
-    const reversalScore = Math.min(5, (safeReversal / 100) * 5);
+    const pressureScore = Math.max(0, Math.min(10, (pressureIndex / 5) * 10));
+    const suppCount = nonNegativeOr(input.suppCount);
+    const utilityScore = Math.max(0, Math.min(10, (safeSmoke / 100) * 5 + Math.min(5, suppCount / 1.2))); // 10회 -> 6회 완화
+    const teamScore = Math.max(0, Math.min(10, (safeRevive / 100) * 3 + (safeTrade / 100) * 2 + (safeSuppRate / 100) * 2 + Math.min(3, teamWipes * 1.5)));
+    const reversalScore = Math.max(0, Math.min(5, (safeReversal / 100) * 5));
     
     const rawTactical = pressureScore + utilityScore + teamScore + reversalScore;
 
     // [V68.0] 스쿼드 모드 고립 지수 페널티 차감 (솔로 제외)
-    const isolationPenalty = (input.isolationIndex && input.isolationIndex >= 3.5)
-      ? Math.min(3, (input.isolationIndex - 3.5) * 2) : 0;
+    const isolationPenalty = isolationIndex >= 3.5
+      ? Math.min(3, (isolationIndex - 3.5) * 2) : 0;
     
     tacticalScore = Number(Math.max(0, rawTactical - isolationPenalty).toFixed(1));
 
     // [V69.0] 스쿼드 생존 점수 개편 (생존 순위 비율 20점 + 기절 후 생존 관리력 5점)
-    const safeSurvivalRankPct = Math.max(0, Math.min(1, input.survivalRankPct));
-    const rankScore = Math.min(20, (1 - safeSurvivalRankPct) * 20);
+    const safeSurvivalRankPct = Math.max(0, Math.min(1, finiteOr(input.survivalRankPct, 1)));
+    const rankScore = Math.max(0, Math.min(20, (1 - safeSurvivalRankPct) * 20));
     let groggyScore = 5;
-    if (input.myKnockCount > 0) {
-      const knockSurvivalRate = 1 - (input.myDeathCount / input.myKnockCount);
-      groggyScore = Math.min(5, knockSurvivalRate * 5);
-    } else if (input.myDeathCount === 1) {
+    const myKnockCount = nonNegativeOr(input.myKnockCount);
+    if (myKnockCount > 0) {
+      const knockSurvivalRate = 1 - (myDeathCount / myKnockCount);
+      groggyScore = Math.max(0, Math.min(5, knockSurvivalRate * 5));
+    } else if (myDeathCount === 1) {
       groggyScore = 0; // 한 번도 기절 없이 바로 즉사한 경우
     }
     survivalScore = Number((rankScore + groggyScore).toFixed(1));
   }
 
-  return { combat: combatScore, tactical: tacticalScore, survival: survivalScore };
+  return {
+    combat: normalizeScore(combatScore),
+    tactical: normalizeScore(tacticalScore),
+    survival: normalizeScore(survivalScore),
+  };
 }
 
 /**
@@ -324,7 +360,7 @@ export function getBenchmarkTier(input: MatchTierInput, isSolo: boolean): Benchm
   }
 
   const breakdown = calcBenchmarkScoreDetails(input, isSolo);
-  const totalScore = Math.min(100, Number((breakdown.combat + breakdown.tactical + breakdown.survival).toFixed(1)));
+  const totalScore = normalizeScore(breakdown.combat + breakdown.tactical + breakdown.survival);
   const impact = getImpactAnalysis(input, isSolo, totalScore);
 
   let tier = 'D-';

@@ -8,8 +8,35 @@ import {
   deriveSquadRecoveryStatsFromTimeline,
   hasSquadRecoveryTimelineSignals
 } from "@/lib/pubg-analysis/squadRecoveryStats";
-import { getValidFullResult, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
+import { getValidFullResultForMatch, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
+import { evaluateMatchEligibility } from "@/lib/pubg-analysis/matchEligibility";
+import {
+  selectBestMatches,
+  selectRecentMatches,
+  type RecentMatchCandidate,
+} from "@/lib/pubg-analysis/recentMatchSelection";
+import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
+import {
+  BENCHMARK_FILTER_VERSION,
+  BENCHMARK_POPULATION_EVIDENCE_VERSION,
+} from "@/lib/pubg-analysis/benchmarkLookup";
+
+// Invalid/legacy rows are filtered after hydration. Fetch a bounded window
+// larger than the ten rows we ultimately expose so stale, custom, or
+// unmarked entries cannot crowd newer valid matches out of the population.
+const SQUAD_ANALYSIS_SOURCE_LIMIT = 100;
+
+function finiteNonNegative(value: unknown): number | null {
+  if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return null;
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) && numberValue >= 0 ? numberValue : null;
+}
+
+function finiteRate(value: unknown): number | null {
+  const numberValue = finiteNonNegative(value);
+  return numberValue !== null && numberValue <= 1 ? numberValue : null;
+}
 
 export async function getSquadAnalysisData(nickname: string, platform: string = "steam", groupKey?: string | null) {
   // normalizeName: 소문자 + trim만 수행, 특수문자(-. 등) 제거 없음 → DB player_id와 정합성 보장
@@ -19,11 +46,11 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
 
   const { data: matchData, error: dbError } = await supabase
     .from("processed_match_telemetry")
-    .select("match_id, data, updated_at")
+    .select("match_id, player_id, platform, data, updated_at")
     .eq("platform", cachePlatform)
     .eq("player_id", lowerNickname)
     .order("updated_at", { ascending: false })
-    .limit(20);
+    .limit(SQUAD_ANALYSIS_SOURCE_LIMIT);
 
   if (dbError) {
     console.error("[SQUAD-DB-ERROR]", dbError);
@@ -31,18 +58,36 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   }
 
   const validMatchData = (matchData || [])
-    .map((m: any) => {
-      const fullResult = getValidFullResult(m, lowerNickname, cachePlatform);
-      if (!fullResult) return null;
-      return {
+    .flatMap((m: any, sourceIndex: number) => {
+      const fullResult = getValidFullResultForMatch(m, {
+        matchId: m?.match_id,
+        playerId: lowerNickname,
+        platform: cachePlatform,
+        minResultVersion: RESULT_VERSION,
+        requirePopulationEvidence: true,
+        requireExactResultVersion: true,
+      });
+      if (!fullResult) return [];
+      const eligibility = evaluateMatchEligibility({
+        ...fullResult,
         ...m,
+        // Preserve storage-side metadata as separate evidence.  A canonical
+        // looking nested result must not hide a TDM/custom/AI marker on the
+        // row itself.
+        ...(m?.data && typeof m.data === "object" ? m.data : {}),
+        metadataEvidence: [m, m?.data, fullResult].filter(Boolean),
+      }, "ai");
+      if (!eligibility.eligible) return [];
+      return [{
+        ...m,
+        __sourceIndex: sourceIndex,
+        __eligibility: eligibility,
         data: {
           ...(m.data || {}),
-          fullResult
-        }
-      };
-    })
-    .filter(Boolean) as any[];
+          fullResult,
+        },
+      }];
+    }) as any[];
 
   if (validMatchData.length === 0) {
     return {
@@ -51,14 +96,14 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     };
   }
 
-  const squadMatches = validMatchData.filter(m => {
-    const fullResult = m.data?.fullResult;
-    if (!fullResult) return false;
-    const mode = fullResult.gameMode || "";
-    return mode.includes("squad");
-  });
+  const squadMatches = validMatchData.filter((m) => (
+    m.__eligibility?.mode === "squad" || m.__eligibility?.mode === "squad-fpp"
+  ));
 
-  const groupMap = new Map<string, { matchIds: string[]; memberNamesByKey: Map<string, string> }>();
+  const groupMap = new Map<string, {
+    matches: any[];
+    memberNamesByKey: Map<string, string>;
+  }>();
 
   squadMatches.forEach(m => {
     const fullResult = m.data?.fullResult;
@@ -79,7 +124,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     const normalizedKey = Array.from(teammateNameMap.keys()).sort().join(",");
     const existing = groupMap.get(normalizedKey);
     if (existing) {
-      existing.matchIds.push(m.match_id);
+      existing.matches.push(m);
       teammateNameMap.forEach((displayName, normalizedName) => {
         if (!existing.memberNamesByKey.has(normalizedName)) {
           existing.memberNamesByKey.set(normalizedName, displayName);
@@ -87,23 +132,59 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       });
     } else {
       groupMap.set(normalizedKey, {
-        matchIds: [m.match_id],
+        matches: [m],
         memberNamesByKey: teammateNameMap
       });
     }
   });
 
-  const groups = Array.from(groupMap.values()).map((value) => ({
+  const selectCandidates = (matches: any[]): RecentMatchCandidate<any>[] => matches.map((match, sourceIndex) => {
+    const fullResult = match.data?.fullResult || {};
+    const matchInfo = fullResult.matchInfo && typeof fullResult.matchInfo === "object"
+      ? fullResult.matchInfo
+      : {};
+    const first = (...values: unknown[]) => values.find((value) => value !== undefined && value !== null && value !== "");
+    const rawId = first(match.match_id, fullResult.matchId, fullResult.match_id, fullResult.id);
+    // The shared best-match selector reads `candidate.value.benchmark.score`.
+    // Storage rows keep the canonical benchmark nested under
+    // `data.fullResult`; expose a shallow selector-only view so score ranking
+    // sees that canonical value without mutating the DB row or dropping its
+    // data for downstream aggregation.
+    const selectorValue = {
+      ...match,
+      benchmark: fullResult.benchmark,
+    };
+    return {
+      id: typeof rawId === "string" ? rawId : String(rawId ?? ""),
+      createdAt: String(first(fullResult.createdAt, matchInfo.date, match.updated_at) || "") || null,
+      matchType: String(first(fullResult.matchType, fullResult.match_type, matchInfo.matchType, match.match_type) || "") || null,
+      gameMode: String(first(fullResult.gameMode, fullResult.game_mode, matchInfo.gameMode, matchInfo.mode, match.game_mode) || "") || null,
+      mapName: String(first(fullResult.mapName, fullResult.map_name, matchInfo.mapName, matchInfo.mapId, match.map_name) || "") || null,
+      sourceIndex: Number.isFinite(match.__sourceIndex) ? match.__sourceIndex : sourceIndex,
+      value: selectorValue,
+    };
+  });
+
+  const selectedGroupMatches = new Map<string, any[]>();
+  const bestGroupMatches = new Map<string, any[]>();
+  const groups = Array.from(groupMap.entries()).map(([normalizedKey, value]) => {
+    const latestSelection = selectRecentMatches(selectCandidates(value.matches), { limit: 10 });
+    const latestMatches = latestSelection.selected.map((candidate) => candidate.value);
+    const bestMatches = selectBestMatches(latestSelection.selected, { limit: 5 }).map((candidate) => candidate.value);
+    selectedGroupMatches.set(normalizedKey, latestMatches);
+    bestGroupMatches.set(normalizedKey, bestMatches);
+    return {
     groupKey: Array.from(value.memberNamesByKey.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([, displayName]) => displayName)
       .join(", "),
-    matchCount: value.matchIds.length,
-    matchIds: value.matchIds,
+    matchCount: latestMatches.length,
+    matchIds: latestMatches.map((match) => match.match_id),
     members: Array.from(value.memberNamesByKey.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([, displayName]) => displayName)
-  })).sort((a, b) => b.matchCount - a.matchCount);
+    };
+  }).sort((a, b) => b.matchCount - a.matchCount);
 
   if (!groupKey) {
     return { groups };
@@ -114,9 +195,15 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     throw new Error("Selected squad group not found.");
   }
 
-  const targetMatchIds = new Set(selectedGroup.matchIds);
-  const targetMatches = squadMatches.filter(m => targetMatchIds.has(m.match_id));
-  const matchCount = targetMatches.length;
+  const normalizedGroupKey = Array.from(groupMap.entries())
+    .find(([, value]) => Array.from(value.memberNamesByKey.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, displayName]) => displayName)
+      .join(", ") === groupKey)?.[0];
+  if (!normalizedGroupKey) throw new Error("Selected squad group not found.");
+  const targetMatches = selectedGroupMatches.get(normalizedGroupKey) || [];
+  const analysisMatches = bestGroupMatches.get(normalizedGroupKey) || [];
+  const matchCount = analysisMatches.length;
 
   let accumIsolation = 0;
   let accumTradeLatency = 0;
@@ -148,7 +235,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
 
   const tierCounts: Record<string, number> = {};
 
-  targetMatches.forEach(m => {
+  analysisMatches.forEach(m => {
     const data = m.data || {};
     const fullResult = data.fullResult || {};
     const isolationData = fullResult.isolationData || {};
@@ -157,17 +244,19 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     const squadRecoveryStats = deriveSquadRecoveryStatsFromTimeline(timeline);
     const hasRecoveryTimeline = hasSquadRecoveryTimelineSignals(timeline);
 
-    accumIsolation += isolationData.isolationIndex !== undefined ? isolationData.isolationIndex : 2.0;
+    const isolation = finiteNonNegative(isolationData.isolationIndex);
+    if (isolation !== null) accumIsolation += isolation;
 
-    const tradeLatency = tradeStats.tradeLatencyMs;
-    if (tradeLatency !== undefined && tradeLatency > 0) {
+    const tradeLatency = finiteNonNegative(tradeStats.tradeLatencyMs);
+    if (tradeLatency !== null && tradeLatency > 0) {
       accumTradeLatency += tradeLatency;
       validTradeLatencyCount++;
     }
 
     totalSmokeRescues += hasRecoveryTimeline ? squadRecoveryStats.squadSmokeRescues : (tradeStats.smokeRescues || 0);
     totalRevives += hasRecoveryTimeline ? squadRecoveryStats.squadRevives : (tradeStats.revCount || 0);
-    accumCoverRate += tradeStats.coverRate !== undefined ? tradeStats.coverRate : 0.3;
+    const coverRate = finiteRate(tradeStats.coverRate);
+    if (coverRate !== null) accumCoverRate += coverRate;
     totalTeamWipes += tradeStats.enemyTeamWipes || 0;
     accumTeammateKnocks += tradeStats.teammateKnocks || 0;
 
@@ -188,9 +277,15 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     });
   });
 
-  const avgIsolation = matchCount > 0 ? (accumIsolation / matchCount) : 2.0;
-  const avgTradeLatency = validTradeLatencyCount > 0 ? (accumTradeLatency / validTradeLatencyCount) : 12000;
-  const avgCoverRate = matchCount > 0 ? (accumCoverRate / matchCount) : 0.3;
+  const measuredIsolationCount = analysisMatches.reduce((count, m) => (
+    finiteNonNegative(m.data?.fullResult?.isolationData?.isolationIndex) === null ? count : count + 1
+  ), 0);
+  const measuredCoverCount = analysisMatches.reduce((count, m) => (
+    finiteRate(m.data?.fullResult?.tradeStats?.coverRate) === null ? count : count + 1
+  ), 0);
+  const avgIsolation = measuredIsolationCount > 0 ? (accumIsolation / measuredIsolationCount) : null;
+  const avgTradeLatency = validTradeLatencyCount > 0 ? (accumTradeLatency / validTradeLatencyCount) : null;
+  const avgCoverRate = measuredCoverCount > 0 ? (accumCoverRate / measuredCoverCount) : null;
 
   let detectedTier = "B";
   let maxCount = 0;
@@ -228,9 +323,13 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       .select("isolation_index, trade_latency_ms, revive_rate, smoke_rate, team_wipes")
       .eq("platform", cachePlatform)
       .eq("tier", detectedTier)
-      .in("game_mode", ["squad", "squad-fpp"]);
+      .eq("filter_version", BENCHMARK_FILTER_VERSION)
+      .eq("population_evidence_version", BENCHMARK_POPULATION_EVIDENCE_VERSION)
+      .in("game_mode", ["squad", "squad-fpp"])
+      .in("match_type", ["official", "competitive"]);
 
-    if (!benchError && dbBench && dbBench.length > 5) {
+    if (benchError) throw benchError;
+    if (dbBench && dbBench.length > 5) {
       let isoSum = 0;
       let latSum = 0;
       let latCount = 0;
@@ -263,9 +362,13 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
         .select("isolation_index, trade_latency_ms, revive_rate, smoke_rate, team_wipes")
         .eq("platform", cachePlatform)
         .like("tier", `${targetTier}%`)
-        .in("game_mode", ["squad", "squad-fpp"]);
+        .eq("filter_version", BENCHMARK_FILTER_VERSION)
+        .eq("population_evidence_version", BENCHMARK_POPULATION_EVIDENCE_VERSION)
+        .in("game_mode", ["squad", "squad-fpp"])
+        .in("match_type", ["official", "competitive"]);
 
-      if (!benchBaseError && dbBenchBase && dbBenchBase.length > 5) {
+      if (benchBaseError) throw benchBaseError;
+      if (dbBenchBase && dbBenchBase.length > 5) {
         let isoSum = 0;
         let latSum = 0;
         let latCount = 0;
@@ -295,18 +398,19 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       }
     }
   } catch (err) {
-    console.warn("[SQUAD-ANALYZE] Live benchmark query failed, fallback used:", err);
+    console.error("[SQUAD-ANALYZE] Live benchmark query failed; refusing synthetic benchmark evidence:", err);
+    throw new Error("Squad benchmark data unavailable.");
   }
 
   const userReviveRate = (totalRevives / Math.max(1, accumTeammateKnocks)) * 100;
   const userSmokeRate = (totalSmokeRescues / Math.max(1, accumTeammateKnocks)) * 100;
-  const userWipes = totalTeamWipes / matchCount;
+  const userWipes = matchCount > 0 ? totalTeamWipes / matchCount : null;
 
-  const formationScore = Math.max(10, Math.min(100, Math.round(70 + (benchmark.avgIsolation - avgIsolation) * 40)));
-  const backupSpeedScore = Math.max(10, Math.min(100, Math.round(70 + (benchmark.avgTradeLatency - avgTradeLatency) / 150)));
+  const formationScore = avgIsolation === null ? null : Math.max(10, Math.min(100, Math.round(70 + (benchmark.avgIsolation - avgIsolation) * 40)));
+  const backupSpeedScore = avgTradeLatency === null ? null : Math.max(10, Math.min(100, Math.round(70 + (benchmark.avgTradeLatency - avgTradeLatency) / 150)));
   const survivalCareScore = Math.max(10, Math.min(100, Math.round(70 + (userReviveRate - benchmark.avgReviveRate) * 1.5 + (userSmokeRate - benchmark.avgSmokeRate) * 5)));
-  const focusFireScore = Math.max(10, Math.min(100, Math.round(70 + (avgCoverRate - 0.30) * 100)));
-  const teamWipeScore = Math.max(10, Math.min(100, Math.round(70 + (userWipes - benchmark.avgTeamWipes) * 6)));
+  const focusFireScore = avgCoverRate === null ? null : Math.max(10, Math.min(100, Math.round(70 + (avgCoverRate - 0.30) * 100)));
+  const teamWipeScore = userWipes === null ? null : Math.max(10, Math.min(100, Math.round(70 + (userWipes - benchmark.avgTeamWipes) * 6)));
 
   const scores = {
     formation: formationScore,
@@ -316,28 +420,34 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     teamWipe: teamWipeScore
   };
 
-  const overallScore = Math.round(
-    formationScore * 0.20 +
-    backupSpeedScore * 0.25 +
-    survivalCareScore * 0.15 +
-    focusFireScore * 0.25 +
-    teamWipeScore * 0.15
-  );
+  const scoreParts = [
+    [formationScore, 0.20],
+    [backupSpeedScore, 0.25],
+    [survivalCareScore, 0.15],
+    [focusFireScore, 0.25],
+    [teamWipeScore, 0.15],
+  ] as const;
+  const scoreWeight = scoreParts.reduce((sum, [value, weight]) => value === null ? sum : sum + weight, 0);
+  const overallScore = scoreWeight > 0
+    ? Math.round(scoreParts.reduce((sum, [value, weight]) => value === null ? sum : sum + value * weight, 0) / scoreWeight)
+    : null;
 
   let squadGrade = "B";
-  if (overallScore >= 95) squadGrade = "S+";
-  else if (overallScore >= 90) squadGrade = "S";
-  else if (overallScore >= 87) squadGrade = "A+";
-  else if (overallScore >= 83) squadGrade = "A";
-  else if (overallScore >= 80) squadGrade = "A-";
-  else if (overallScore >= 77) squadGrade = "B+";
-  else if (overallScore >= 73) squadGrade = "B";
-  else if (overallScore >= 70) squadGrade = "B-";
-  else if (overallScore >= 65) squadGrade = "C+";
-  else if (overallScore >= 60) squadGrade = "C";
-  else if (overallScore >= 55) squadGrade = "C-";
-  else if (overallScore >= 50) squadGrade = "D+";
-  else squadGrade = "D";
+  if (overallScore !== null) {
+    if (overallScore >= 95) squadGrade = "S+";
+    else if (overallScore >= 90) squadGrade = "S";
+    else if (overallScore >= 87) squadGrade = "A+";
+    else if (overallScore >= 83) squadGrade = "A";
+    else if (overallScore >= 80) squadGrade = "A-";
+    else if (overallScore >= 77) squadGrade = "B+";
+    else if (overallScore >= 73) squadGrade = "B";
+    else if (overallScore >= 70) squadGrade = "B-";
+    else if (overallScore >= 65) squadGrade = "C+";
+    else if (overallScore >= 60) squadGrade = "C";
+    else if (overallScore >= 55) squadGrade = "C-";
+    else if (overallScore >= 50) squadGrade = "D+";
+    else squadGrade = "D";
+  }
 
   const totalStats = { damage: 0, kills: 0, assists: 0, dbnos: 0 };
   squadMemberKeys.forEach(key => {
@@ -410,10 +520,10 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       name,
       role,
       roleDesc,
-      avgDamage: Math.round(stats.damage / matchCount),
-      avgKills: Number((stats.kills / matchCount).toFixed(1)),
-      avgAssists: Number((stats.assists / matchCount).toFixed(1)),
-      avgDbnos: Number((stats.dbnos / matchCount).toFixed(1)),
+      avgDamage: matchCount > 0 ? Math.round(stats.damage / matchCount) : null,
+      avgKills: matchCount > 0 ? Number((stats.kills / matchCount).toFixed(1)) : null,
+      avgAssists: matchCount > 0 ? Number((stats.assists / matchCount).toFixed(1)) : null,
+      avgDbnos: matchCount > 0 ? Number((stats.dbnos / matchCount).toFixed(1)) : null,
       totalDamage: stats.damage,
       totalKills: stats.kills,
       shares
@@ -445,7 +555,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     };
   }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-  const causeSceneInputs: SquadCauseSceneMatchInput[] = targetMatches.map(m => {
+  const causeSceneInputs: SquadCauseSceneMatchInput[] = analysisMatches.map(m => {
     const fullResult = (m.data as any)?.fullResult || {};
     const mapName = fullResult.mapName || "Unknown";
     return {
@@ -465,14 +575,20 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
 
   return {
     groupKey,
+    // `matchCount` is the population used by the AI/role/potential metrics
+    // (best five within the latest ten). Keep both counts explicit so UI
+    // callers can still label the complete latest-ten window accurately.
     matchCount,
+    latestMatchCount: targetMatches.length,
+    bestMatchCount: analysisMatches.length,
     matchesSummary,
+    selectedMatchIds: analysisMatches.map((match) => match.match_id),
     stats: {
-      avgIsolation: Number(avgIsolation.toFixed(2)),
-      avgTradeLatency: Math.round(avgTradeLatency),
+      avgIsolation: avgIsolation === null ? null : Number(avgIsolation.toFixed(2)),
+      avgTradeLatency: avgTradeLatency === null ? null : Math.round(avgTradeLatency),
       totalSmokeRescues,
       totalRevives,
-      avgCoverRate: Number(avgCoverRate.toFixed(2)),
+      avgCoverRate: avgCoverRate === null ? null : Number(avgCoverRate.toFixed(2)),
       totalTeamWipes,
       totalTeammateKnocks: accumTeammateKnocks
     },

@@ -125,6 +125,14 @@ const SCALAR_FIELDS = [
   // Existing consumers still read this top-level field on the projected event.
   "isGame",
   "explosiveId",
+  // Match-level custom/event evidence is consumed by the population
+  // eligibility boundary; keep both official camelCase and stored aliases.
+  "isCustomGame",
+  "is_custom_game",
+  "isEventMode",
+  "is_event_mode",
+  "isCustomMatch",
+  "is_custom_match",
 ] as const;
 
 function isRecord(value: unknown): value is PlainRecord {

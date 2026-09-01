@@ -266,6 +266,15 @@ describe("recent match selection", () => {
     expect(normalizeBenchmarkScore("2.5")).toBe(2.5);
   });
 
+  it.each([
+    [-5, 0],
+    [101, 100],
+    [0, 0],
+    [100, 100],
+  ])("clamps persisted benchmark score %s to the 0..100 contract", (input, expected) => {
+    expect(normalizeBenchmarkScore(input)).toBe(expected);
+  });
+
   it("best5 cache key는 순서와 normalized score를 identity에 포함한다", () => {
     const first = selectBestMatches([
       bestCandidate("a", "2026-08-02T00:00:00.000Z", 0, "3"),

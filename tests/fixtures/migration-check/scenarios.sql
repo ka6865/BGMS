@@ -425,4 +425,111 @@ begin
   raise notice 'PASS: 신규 테이블 RLS + 권한 격리';
 end $$;
 
+-- 202609 population provenance boundary. Every row below uses a distinct
+-- weapon name/match id so the RPC assertions can identify exactly what was
+-- admitted or rejected by the current markers and match-type allowlist.
+delete from public.global_benchmarks where id between 9001 and 9004;
+insert into public.global_benchmarks (
+  id, match_id, player_id, platform, tier, game_mode, match_type,
+  filter_version, population_evidence_version, damage, kills, survival_time
+)
+values
+  (9001, 'prov-legacy', 'prov-player', 'steam', 'A', 'squad-fpp', 'official', 8, null, 900, 1, 100),
+  (9002, 'prov-trusted-minus-one', 'prov-player', 'steam', 'A', 'squad-fpp', 'official', 8, 1, -1, 2, 100),
+  (9003, 'prov-trusted', 'prov-player', 'steam', 'A', 'squad-fpp', 'official', 8, 1, 100, 3, 100),
+  (9004, 'prov-invalid-mode', 'prov-player', 'steam', 'A', 'arcade', 'official', 8, 1, 900, 4, 100);
+
+\echo '--- legacy/unmarked benchmark rows are excluded ---'
+do $$
+declare
+  v_match_count bigint;
+  v_avg_damage double precision;
+  v_avg_damage_count bigint;
+begin
+  select match_count, avg_damage, avg_damage_count
+    into v_match_count, v_avg_damage, v_avg_damage_count
+  from public.benchmark_stats_by_tier
+  where tier = 'A' and game_mode = 'squad-fpp' and match_type = 'official';
+
+  if v_match_count <> 2 then
+    raise exception 'FAIL: legacy/unmarked benchmark rows were included (match_count=%)', v_match_count;
+  end if;
+  raise notice 'PASS: legacy/unmarked benchmark rows are excluded';
+
+  if v_avg_damage <> 100 then
+    raise exception 'FAIL: trusted canonical rows were not included (avg_damage=%)', v_avg_damage;
+  end if;
+  raise notice 'PASS: trusted canonical benchmark rows are included';
+
+  if v_avg_damage <> 100 or v_avg_damage_count <> 1 then
+    raise exception 'FAIL: metric -1 was not omitted (avg_damage=% count=%)', v_avg_damage, v_avg_damage_count;
+  end if;
+  raise notice 'PASS: metric -1 is omitted';
+
+  if exists (
+    select 1
+    from public.benchmark_stats_by_tier
+    where game_mode = 'arcade'
+  ) then
+    raise exception 'FAIL: invalid game mode was included';
+  end if;
+  raise notice 'PASS: invalid game mode is excluded';
+end $$;
+
+delete from public.weapon_meta_match_samples where match_id like 'prov-%';
+insert into public.weapon_meta_match_samples (
+  match_id, platform, player_id, played_at, patch_version,
+  weapon_category, weapon_name, active_pick, total_kills, total_dbnos,
+  total_damage, first_sec_hits, sustained_hits, sustained_burst_count,
+  match_type, filter_version, population_evidence_version
+)
+values
+  ('prov-weapon-legacy-pre', 'steam', 'prov-player', now() - interval '2 days', 'pre_42.1',
+   'AR', 'LegacyPre', true, 1, 0, 10, 1, 2, 1, 'official', 8, null),
+  ('prov-weapon-trusted-pre', 'steam', 'prov-player', now() - interval '2 days', 'pre_42.1',
+   'AR', 'TrustedPre', true, 2, 1, 20, 2, 3, 1, 'official', 8, 1),
+  ('prov-weapon-legacy-filter-pre', 'steam', 'prov-player', now() - interval '2 days', 'pre_42.1',
+   'AR', 'LegacyFilter', true, 3, 1, 30, 3, 4, 1, 'official', null, null),
+  ('prov-weapon-trusted-post', 'steam', 'prov-player', now() - interval '30 minutes', '42.1',
+   'AR', 'TrustedPost', true, 4, 1, 40, 4, 5, 1, 'competitive', 8, 1),
+  ('prov-weapon-legacy-post', 'steam', 'prov-player', now() - interval '20 minutes', '42.1',
+   'AR', 'LegacyPost', true, 5, 1, 50, 5, 6, 1, 'competitive', 8, null),
+  ('prov-weapon-invalid-type-post', 'steam', 'prov-player', now() - interval '10 minutes', '42.1',
+   'AR', 'InvalidType', true, 6, 1, 60, 6, 7, 1, 'scrim', 8, 1);
+
+create temporary table migration_provenance_weapon_results as
+select *
+from public.get_weapon_meta_comparison('42.1', now() - interval '1 hour', 14, 'all');
+
+\echo '--- weapon RPC returns only current markers ---'
+do $$
+begin
+  if not exists (
+    select 1 from migration_provenance_weapon_results
+    where weapon_name = 'TrustedPre' and period = 'pre'
+  ) then
+    raise exception 'FAIL: trusted pre weapon row was excluded';
+  end if;
+  if not exists (
+    select 1 from migration_provenance_weapon_results
+    where weapon_name = 'TrustedPost' and period = 'post'
+  ) then
+    raise exception 'FAIL: trusted post weapon row was excluded';
+  end if;
+
+  if exists (
+    select 1 from migration_provenance_weapon_results
+    where weapon_name in ('LegacyPre', 'LegacyFilter', 'LegacyPost', 'InvalidType')
+  ) then
+    raise exception 'FAIL: weapon RPC returned an untrusted or invalid row';
+  end if;
+  if exists (
+    select 1 from migration_provenance_weapon_results
+    where filter_version <> 8 or population_evidence_version <> 1
+  ) then
+    raise exception 'FAIL: weapon RPC returned non-current markers';
+  end if;
+  raise notice 'PASS: weapon RPC returns only current markers';
+end $$;
+
 \echo '=== 전체 시나리오 통과 ==='

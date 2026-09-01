@@ -15,7 +15,11 @@ import type {
 import { isAiOrBotMatch } from "@/lib/pubg-analysis/matchEligibility";
 
 const PARTY_SIZES: readonly StatsPartySize[] = ["squad", "duo", "solo"];
-const TDM_MAP_NAMES = new Set(["PillarCompound_Main", "Italy_TDM_Main"]);
+const TDM_MAP_NAMES = new Set(["pillarcompound_main", "italy_tdm_main"]);
+
+function normalizeMatchToken(value: unknown): string {
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
 
 export function isCasualMatch(input: { matchType?: string; gameMode?: string }): boolean {
   return isAiOrBotMatch(input);
@@ -41,14 +45,15 @@ export function normalizeStoredNames(values: readonly unknown[]): string[] {
 }
 
 export function classifyMatchMode(input: StatsMatchModeMeta): StatsMatchClassification {
-  const gameMode = input.gameMode?.toLowerCase() ?? "";
-  const matchType = input.matchType?.toLowerCase() ?? "";
+  const gameMode = normalizeMatchToken(input.gameMode);
+  const matchType = normalizeMatchToken(input.matchType);
+  const mapName = normalizeMatchToken(input.mapName);
 
   // AI/bot aliases take precedence over ranked/TDM markers (e.g. ranked-ai,
   // tdm-ai). Keep these rows available to ordinary detail/history views while
   // preventing them from being mislabeled as competitive or TDM.
   if (isCasualMatch(input)) return "casual";
-  if (gameMode.includes("tdm") || TDM_MAP_NAMES.has(input.mapName ?? "")) return "tdm";
+  if (gameMode.includes("tdm") || TDM_MAP_NAMES.has(mapName)) return "tdm";
   if (
     gameMode.includes("competitive") ||
     gameMode.includes("ranked") ||

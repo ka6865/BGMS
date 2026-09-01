@@ -145,7 +145,43 @@ export async function POST(request: Request) {
     const playerId = normalizeName(nickname);
     const cachePlatform = normalizePlatform(platform);
 
-    // 1. DB Cache Lookup
+    let canonicalRow: unknown = null;
+    try {
+      const { data, error } = await awaitWithAbort(supabase
+        .from("processed_match_telemetry")
+        .select("match_id,player_id,platform,data")
+        .eq("match_id", matchId)
+        .eq("player_id", playerId)
+        .eq("platform", cachePlatform)
+        .abortSignal(routeSignal.signal)
+        .maybeSingle(), routeSignal.signal);
+      if (!error) canonicalRow = data;
+      else console.warn("[AI-ANALYZE] Canonical telemetry lookup failed:", error);
+    } catch (canonicalLookupError) {
+      if (isRouteAborted()) throw canonicalLookupError;
+      console.warn("[AI-ANALYZE] Canonical telemetry lookup failed:", canonicalLookupError);
+    }
+    if (isRouteAborted()) throw new DOMException("The operation was aborted.", "AbortError");
+
+    const canonicalFullResult = getValidFullResultForMatch(canonicalRow, {
+      matchId,
+      playerId,
+      platform: cachePlatform,
+      minResultVersion: RESULT_VERSION,
+      requirePopulationEvidence: true,
+      requireExactResultVersion: true,
+    });
+    if (!canonicalFullResult) {
+      return NextResponse.json({
+        error: "canonical match analysis is not ready",
+        errorCode: "PUBG_AI_CANONICAL_NOT_READY",
+        retryable: true,
+      }, { status: 409 });
+    }
+
+    // Cache compatibility is checked only after the current marked canonical
+    // telemetry row has been proven.  This prevents a pre-marker cache entry
+    // from bypassing the v73/population-evidence contract.
     try {
       const { data: cached, error: cacheErr } = await awaitWithAbort(supabase
         .from("match_ai_coaching_cache")
@@ -181,38 +217,6 @@ export async function POST(request: Request) {
       console.warn("[AI-ANALYZE] Cache lookup failed:", dbErr);
     }
     if (isRouteAborted()) throw new DOMException("The operation was aborted.", "AbortError");
-
-    let canonicalRow: unknown = null;
-    try {
-      const { data, error } = await awaitWithAbort(supabase
-        .from("processed_match_telemetry")
-        .select("match_id,player_id,platform,data")
-        .eq("match_id", matchId)
-        .eq("player_id", playerId)
-        .eq("platform", cachePlatform)
-        .abortSignal(routeSignal.signal)
-        .maybeSingle(), routeSignal.signal);
-      if (!error) canonicalRow = data;
-      else console.warn("[AI-ANALYZE] Canonical telemetry lookup failed:", error);
-    } catch (canonicalLookupError) {
-      if (isRouteAborted()) throw canonicalLookupError;
-      console.warn("[AI-ANALYZE] Canonical telemetry lookup failed:", canonicalLookupError);
-    }
-    if (isRouteAborted()) throw new DOMException("The operation was aborted.", "AbortError");
-
-    const canonicalFullResult = getValidFullResultForMatch(canonicalRow, {
-      matchId,
-      playerId,
-      platform: cachePlatform,
-      minResultVersion: RESULT_VERSION,
-    });
-    if (!canonicalFullResult) {
-      return NextResponse.json({
-        error: "canonical match analysis is not ready",
-        errorCode: "PUBG_AI_CANONICAL_NOT_READY",
-        retryable: true,
-      }, { status: 409 });
-    }
 
     const { fullPrompt, backupContext } = buildMatchAiCoachingPrompt({
       matchData: canonicalFullResult,

@@ -5,16 +5,23 @@ import React from "react";
 interface SpiderChartProps {
   data: {
     combat: number;    // 0-100
+    tactical: number;  // 0-100
     survival: number;  // 0-100
-    growth: number;    // 0-100
-    vision: number;    // 0-100
-    teamwork: number;  // 0-100
   };
   nickname: string;
-  baselineName?: string;
+  bestMatchCount?: number;
 }
 
-export const SpiderChart = ({ data, nickname, baselineName = "상위권 평균" }: SpiderChartProps) => {
+function normalizeScore(value: unknown): number {
+  try {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? Math.max(0, Math.min(100, parsed)) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+export const SpiderChart = ({ data, nickname, bestMatchCount }: SpiderChartProps) => {
   const size = 340; // 300 -> 340으로 확장
   const center = size / 2;
   const radius = size * 0.3; // 0.35 -> 0.3으로 비중 조절하여 여백 확보
@@ -22,11 +29,19 @@ export const SpiderChart = ({ data, nickname, baselineName = "상위권 평균" 
   
   const categories = [
     { key: "combat", label: "전투" },
+    { key: "tactical", label: "전술" },
     { key: "survival", label: "생존" },
-    { key: "vision", label: "시야" },
-    { key: "teamwork", label: "협력" },
-    { key: "growth", label: "성장" },
-  ];
+  ] as const;
+  const normalizedScores = {
+    combat: normalizeScore(data?.combat),
+    tactical: normalizeScore(data?.tactical),
+    survival: normalizeScore(data?.survival),
+  };
+  const selectionLabel = typeof bestMatchCount === "number"
+    && Number.isFinite(bestMatchCount)
+    && bestMatchCount > 0
+    ? `점수 상위 ${Math.floor(bestMatchCount)}판`
+    : "선정 경기";
 
   const getPoint = (index: number, value: number) => {
     const angle = (Math.PI * 2 * index) / categories.length - Math.PI / 2;
@@ -37,12 +52,8 @@ export const SpiderChart = ({ data, nickname, baselineName = "상위권 평균" 
     };
   };
 
-  const points = categories.map((cat, i) => getPoint(i, (data as any)[cat.key]));
+  const points = categories.map((cat, i) => getPoint(i, normalizedScores[cat.key]));
   const pathData = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ") + " Z";
-
-  // 더미 벤치마크 데이터 (상위권 평균)
-  const baselinePoints = categories.map((_, i) => getPoint(i, 65));
-  const baselinePath = baselinePoints.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ") + " Z";
 
   return (
     <div className="relative flex flex-col items-center bg-black/40 p-8 rounded-[40px] border border-white/10 backdrop-blur-xl shadow-2xl overflow-hidden group">
@@ -54,10 +65,6 @@ export const SpiderChart = ({ data, nickname, baselineName = "상위권 평균" 
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 bg-indigo-500 rounded-sm" />
           <span className="text-[11px] text-white/80 font-black tracking-tight">{nickname}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 bg-white/20 rounded-sm" />
-          <span className="text-[11px] text-white/40 font-black tracking-tight">{baselineName}</span>
         </div>
       </div>
 
@@ -98,17 +105,6 @@ export const SpiderChart = ({ data, nickname, baselineName = "상위권 평균" 
           );
         })}
 
-        {/* Baseline Area */}
-        <path
-          d={baselinePath}
-          fill="white"
-          fillOpacity={0.03}
-          stroke="white"
-          strokeOpacity={0.1}
-          strokeWidth="1"
-          strokeDasharray="4,4"
-        />
-
         {/* User Area */}
         <path
           d={pathData}
@@ -140,7 +136,7 @@ export const SpiderChart = ({ data, nickname, baselineName = "상위권 평균" 
                 textAnchor="middle"
                 className="fill-indigo-400 font-black text-[11px]"
               >
-                {Math.round((data as any)[cat.key])}
+                {Math.round(normalizedScores[cat.key])}
               </text>
             </g>
           );
@@ -155,9 +151,12 @@ export const SpiderChart = ({ data, nickname, baselineName = "상위권 평균" 
       </svg>
 
       <div className="mt-8 text-center">
-        <div className="text-[10px] text-indigo-400/60 font-black uppercase tracking-[0.3em] mb-2">전술 플레이스타일</div>
+        <div className="text-[10px] text-indigo-400/60 font-black uppercase tracking-[0.3em] mb-2">{selectionLabel} 전술 플레이스타일</div>
         <div className="text-2xl font-black text-white tracking-tight">
-          {data.combat > 80 ? "공격적 돌격병" : data.survival > 80 ? "지능형 생존가" : "균형잡힌 전술가"}
+          {normalizedScores.combat > 80 ? "공격적 돌격병" : normalizedScores.survival > 80 ? "지능형 생존가" : "균형잡힌 전술가"}
+        </div>
+        <div className="mt-2 text-[9px] text-white/35 font-bold tracking-tight">
+          {selectionLabel} · BGMS 자체 산정 · PUBG 공식 평점 아님
         </div>
       </div>
     </div>

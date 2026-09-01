@@ -16,11 +16,8 @@ import { LogIn } from "lucide-react";
 import { trackEvent } from "@/lib/analytics";
 import { BgmsIcon, type BgmsIconName } from "@/components/common/BgmsIcon";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
-
-interface DebateStat {
-  label: string;
-  value: string;
-}
+import { matchDebateStatPairs, normalizeAiSummaryFinalJson, type DebateStat } from "@/lib/pubg-analysis/aiSummaryDebate";
+import { BENCHMARK_PROVENANCE_LABEL, formatBenchmarkProvenance } from "@/lib/pubg-analysis/benchmarkAdapter";
 
 function getAiTierIconName(tier?: string | null): BgmsIconName {
   if (tier === "S") return "award";
@@ -44,6 +41,14 @@ interface ActionItem {
   icon: string;
   title: string;
   desc: string;
+}
+
+interface BenchmarkScope {
+  gameMode?: string;
+  matchType?: string;
+  tier?: string;
+  sampleCount?: number;
+  metricSampleCounts?: Record<string, number>;
 }
 
 interface DebateData {
@@ -70,6 +75,7 @@ interface DebateData {
     reactionTier?: string;
     backupTier?: string;
     overallTier?: string;
+    benchmarkScope?: BenchmarkScope;
     roleInfo?: {
       primaryRole: string;
       secondaryRole: string | null;
@@ -133,15 +139,295 @@ interface DebateData {
         enemyTeamWipes: number;
         initiative: { attempts: number; success: number };
       };
-      isolation?: {
-        isolationIndex: number;
-        minDist: number;
-        heightDiff: number;
-        isCrossfire: boolean;
-        teammateCount: number;
-      };
+    isolation?: {
+      isolationIndex: number;
+      minDist: number;
+      heightDiff: number;
+      isCrossfire: boolean;
+      teammateCount: number;
+      benchmarkIsolationIndex?: number;
+      benchmarkMinDist?: number;
+      benchmarkScope?: BenchmarkScope;
+    };
     };
   };
+}
+
+type RouteOwnedVisuals = NonNullable<DebateData["visuals"]>;
+
+export function finiteVisualNumber(value: unknown, min = 0, max = Number.MAX_SAFE_INTEGER): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  try {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return null;
+    return Math.max(min, Math.min(max, number));
+  } catch {
+    return null;
+  }
+}
+
+function safeVisualText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  return text && !/(?:NaN|Infinity|undefined)/iu.test(text) ? text : null;
+}
+
+export function safeVisualRate(value: unknown): string | null {
+  const text = safeVisualText(value);
+  if (!text) return null;
+  if (text === "측정 불가") return text;
+  const match = text.match(/^([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s*%$/u);
+  if (!match) return null;
+  const number = finiteVisualNumber(match[1], -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+  return number === null || number < 0 || number > 100
+    ? "측정 불가"
+    : `${Math.round(number)}%`;
+}
+
+export function safeVisualDuration(value: unknown): string | null {
+  const text = safeVisualText(value);
+  if (!text || text === "측정 불가") return text;
+  const match = text.match(/^([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s*s$/iu);
+  if (!match) return null;
+  const number = finiteVisualNumber(match[1], -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+  return number === null || number < 0 ? "측정 불가" : `${number.toFixed(2)}s`;
+}
+
+export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  const normalized: Record<string, unknown> = {};
+  const copyText = (key: string) => {
+    const text = safeVisualText(source[key]);
+    if (text !== null) normalized[key] = text;
+  };
+  const copyNumber = (key: string, min = 0, max = Number.MAX_SAFE_INTEGER) => {
+    const number = finiteVisualNumber(source[key], min, max);
+    if (number !== null) normalized[key] = number;
+  };
+
+  ["latestMatchTime", "reactionTier", "backupTier", "overallTier", "weaknessDiagnostic"].forEach(copyText);
+  const counterLatency = safeVisualDuration(source.counterLatency);
+  if (counterLatency !== null) normalized.counterLatency = counterLatency;
+  const reactionLatency = safeVisualDuration(source.reactionLatency);
+  if (reactionLatency !== null) normalized.reactionLatency = reactionLatency;
+  ["latestMatchCount", "bestMatchCount"].forEach((key) => {
+    const count = finiteVisualNumber(source[key], 0, 100);
+    if (count !== null) normalized[key] = Math.floor(count);
+  });
+  ["initiativeSuccess", "reversalRate", "coverRate"].forEach((key) => {
+    const rate = safeVisualRate(source[key]);
+    if (rate !== null) normalized[key] = rate;
+  });
+  copyNumber("deathPhase", 0, 100);
+  copyNumber("bluezoneWaste", 0);
+
+  const tierBreakdown = source.tierBreakdown;
+  if (tierBreakdown && typeof tierBreakdown === "object" && !Array.isArray(tierBreakdown)) {
+    const tierSource = tierBreakdown as Record<string, unknown>;
+    const combat = finiteVisualNumber(tierSource.combat, 0, 100);
+    const tactical = finiteVisualNumber(tierSource.tactical, 0, 100);
+    const survival = finiteVisualNumber(tierSource.survival, 0, 100);
+    const total = finiteVisualNumber(tierSource.total, 0, 100);
+    if (combat !== null && tactical !== null && survival !== null && total !== null) {
+      normalized.tierBreakdown = { combat, tactical, survival, total };
+    }
+  }
+
+  const benchmarkScope = source.benchmarkScope;
+  if (benchmarkScope && typeof benchmarkScope === "object" && !Array.isArray(benchmarkScope)) {
+    const scopeSource = benchmarkScope as Record<string, unknown>;
+    const scope: Record<string, unknown> = {};
+    ["gameMode", "matchType", "tier"].forEach((key) => {
+      const text = safeVisualText(scopeSource[key]);
+      if (text !== null) scope[key] = text;
+    });
+    const sampleCount = finiteVisualNumber(scopeSource.sampleCount, 0);
+    if (sampleCount !== null) scope.sampleCount = Math.floor(sampleCount);
+    const metricCounts = scopeSource.metricSampleCounts;
+    if (metricCounts && typeof metricCounts === "object" && !Array.isArray(metricCounts)) {
+      const normalizedCounts: Record<string, number> = {};
+      Object.entries(metricCounts as Record<string, unknown>).forEach(([key, count]) => {
+        const normalizedCount = finiteVisualNumber(count, 0, sampleCount ?? Number.MAX_SAFE_INTEGER);
+        if (normalizedCount !== null && Number.isInteger(normalizedCount)) normalizedCounts[key] = normalizedCount;
+      });
+      if (Object.keys(normalizedCounts).length > 0) scope.metricSampleCounts = normalizedCounts;
+    }
+    if (Object.keys(scope).length > 0) normalized.benchmarkScope = scope;
+  }
+
+  const roleInfo = source.roleInfo;
+  if (roleInfo && typeof roleInfo === "object" && !Array.isArray(roleInfo)) {
+    const roleSource = roleInfo as Record<string, unknown>;
+    const role: Record<string, unknown> = {};
+    ["primaryRole", "title", "roleLabel", "description", "signatureWeapon", "weakness"].forEach((key) => {
+      const text = safeVisualText(roleSource[key]);
+      if (text !== null) role[key] = text;
+    });
+    if (roleSource.secondaryRole === null) role.secondaryRole = null;
+    else {
+      const secondaryRole = safeVisualText(roleSource.secondaryRole);
+      if (secondaryRole !== null) role.secondaryRole = secondaryRole;
+    }
+    const roleStats = roleSource.signatureWeaponStats;
+    if (roleStats && typeof roleStats === "object" && !Array.isArray(roleStats)) {
+      const statsSource = roleStats as Record<string, unknown>;
+      const stats: Record<string, unknown> = {};
+      ["kills", "dbnos"].forEach((key) => {
+        const number = finiteVisualNumber(statsSource[key], 0);
+        if (number !== null) stats[key] = Math.floor(number);
+      });
+      const consistency = finiteVisualNumber(statsSource.consistency, 0, 100);
+      if (consistency !== null) stats.consistency = consistency;
+      if (typeof statsSource.isReliable === "boolean") stats.isReliable = statsSource.isReliable;
+      if (Object.keys(stats).length > 0) role.signatureWeaponStats = stats;
+    }
+    const scores = roleSource.scores;
+    if (scores && typeof scores === "object" && !Array.isArray(scores)) {
+      const normalizedScores: Record<string, number> = {};
+      Object.entries(scores as Record<string, unknown>).forEach(([key, score]) => {
+        const number = finiteVisualNumber(score, 0, 100);
+        if (number !== null) normalizedScores[key] = number;
+      });
+      role.scores = normalizedScores;
+    }
+    if (Object.keys(role).length > 0) normalized.roleInfo = role;
+  }
+
+  const duelStats = source.duelStats;
+  if (duelStats && typeof duelStats === "object" && !Array.isArray(duelStats)) {
+    const duelSource = duelStats as Record<string, unknown>;
+    const duel: Record<string, unknown> = {};
+    const winRate = safeVisualRate(duelSource.winRate);
+    if (winRate !== null) duel.winRate = winRate;
+    ["wins", "losses", "reversals", "reversalAttempts"].forEach((key) => {
+      const number = finiteVisualNumber(duelSource[key], 0);
+      if (number !== null) duel[key] = Math.floor(number);
+    });
+    if (Object.keys(duel).length > 0) normalized.duelStats = duel;
+  }
+
+  [
+    ["goldenTime", ["early", "mid1", "mid2", "late"]],
+    ["killContrib", ["solo", "cleanup", "assist"]],
+  ].forEach(([containerKey, keys]) => {
+    const container = source[containerKey as string];
+    if (!container || typeof container !== "object" || Array.isArray(container)) return;
+    const target: Record<string, number> = {};
+    (keys as string[]).forEach((key) => {
+      const number = finiteVisualNumber((container as Record<string, unknown>)[key], 0);
+      if (number !== null) target[key] = number;
+    });
+    if (Object.keys(target).length > 0) normalized[containerKey as string] = target;
+  });
+
+  const modeDistribution = source.modeDistribution;
+  if (modeDistribution && typeof modeDistribution === "object" && !Array.isArray(modeDistribution)) {
+    const modeSource = modeDistribution as Record<string, unknown>;
+    const ranked = finiteVisualNumber(modeSource.ranked, 0);
+    const normal = finiteVisualNumber(modeSource.normal, 0);
+    const main = safeVisualText(modeSource.main);
+    if (ranked !== null && normal !== null && main !== null) {
+      normalized.modeDistribution = { ranked: Math.floor(ranked), normal: Math.floor(normal), main };
+    }
+  }
+
+  const mapStats = source.mapStats;
+  if (mapStats && typeof mapStats === "object" && !Array.isArray(mapStats)) {
+    const mapSource = mapStats as Record<string, unknown>;
+    const normalizeMap = (map: unknown) => {
+      if (!map || typeof map !== "object" || Array.isArray(map)) return null;
+      const mapRecord = map as Record<string, unknown>;
+      const mapName = safeVisualText(mapRecord.mapName);
+      const displayName = safeVisualText(mapRecord.displayName);
+      const matchCount = finiteVisualNumber(mapRecord.matchCount, 0);
+      const avgDamage = finiteVisualNumber(mapRecord.avgDamage, 0);
+      const avgKills = finiteVisualNumber(mapRecord.avgKills, 0);
+      const avgDeathPhase = finiteVisualNumber(mapRecord.avgDeathPhase, 0);
+      if (!mapName || !displayName || matchCount === null || avgDamage === null || avgKills === null || avgDeathPhase === null) return null;
+      return {
+        mapName,
+        displayName,
+        matchCount: Math.floor(matchCount),
+        avgDamage,
+        avgKills,
+        avgDeathPhase,
+      };
+    };
+    const list = Array.isArray(mapSource.list)
+      ? mapSource.list.map(normalizeMap).filter((entry): entry is NonNullable<ReturnType<typeof normalizeMap>> => entry !== null)
+      : [];
+    const bestMap = normalizeMap(mapSource.bestMap);
+    const worstMap = normalizeMap(mapSource.worstMap);
+    if (list.length > 0 && bestMap && worstMap) normalized.mapStats = { list, bestMap, worstMap };
+  }
+
+  const trends = source.trends;
+  if (trends && typeof trends === "object" && !Array.isArray(trends)) {
+    const trendSource = trends as Record<string, unknown>;
+    const dmgTrend = finiteVisualNumber(trendSource.dmgTrend, -Number.MAX_SAFE_INTEGER);
+    const winTrend = finiteVisualNumber(trendSource.winTrend, -Number.MAX_SAFE_INTEGER);
+    const status = safeVisualText(trendSource.status);
+    const recent = trendSource.recent;
+    const older = trendSource.older;
+    const normalizeTrendPoint = (point: unknown) => {
+      if (!point || typeof point !== "object" || Array.isArray(point)) return null;
+      const record = point as Record<string, unknown>;
+      const damage = finiteVisualNumber(record.damage, 0);
+      const winRate = finiteVisualNumber(record.winRate, 0, 100);
+      return damage === null || winRate === null ? null : { damage, winRate };
+    };
+    const normalizedRecent = normalizeTrendPoint(recent);
+    const normalizedOlder = normalizeTrendPoint(older);
+    if (dmgTrend !== null && winTrend !== null && status !== null && normalizedRecent && normalizedOlder) {
+      normalized.trends = { dmgTrend, winTrend, status, recent: normalizedRecent, older: normalizedOlder };
+    }
+  }
+
+  const tactical = source.tactical;
+  if (tactical && typeof tactical === "object" && !Array.isArray(tactical)) {
+    const tacticalSource = tactical as Record<string, unknown>;
+    const tacticalTarget: Record<string, unknown> = {};
+    ["suppRate", "smokeRate", "reviveRate", "tradeRate"].forEach((key) => {
+      const rate = safeVisualRate(tacticalSource[key]);
+      if (rate !== null) tacticalTarget[key] = rate;
+    });
+    const baitCount = finiteVisualNumber(tacticalSource.baitCount, 0);
+    if (baitCount !== null) tacticalTarget.baitCount = Math.floor(baitCount);
+    const counts = tacticalSource.counts;
+    if (counts && typeof counts === "object" && !Array.isArray(counts)) {
+      const countsSource = counts as Record<string, unknown>;
+      const countsTarget: Record<string, unknown> = {};
+      ["knocks", "smokes", "rescueSmokes", "smokeRescues", "revives", "trades", "supps", "enemyTeamWipes"].forEach((key) => {
+        const number = finiteVisualNumber(countsSource[key], 0);
+        if (number !== null) countsTarget[key] = Math.floor(number);
+      });
+      const initiative = countsSource.initiative;
+      if (initiative && typeof initiative === "object" && !Array.isArray(initiative)) {
+        const attempts = finiteVisualNumber((initiative as Record<string, unknown>).attempts, 0);
+        const success = finiteVisualNumber((initiative as Record<string, unknown>).success, 0);
+        if (attempts !== null && success !== null) countsTarget.initiative = { attempts: Math.floor(attempts), success: Math.floor(success) };
+      }
+      if (Object.keys(countsTarget).length > 0) tacticalTarget.counts = countsTarget;
+    }
+    const isolation = tacticalSource.isolation;
+    if (isolation && typeof isolation === "object" && !Array.isArray(isolation)) {
+      const isolationSource = isolation as Record<string, unknown>;
+      const isolationTarget: Record<string, unknown> = {};
+      ["isolationIndex", "minDist", "heightDiff", "teammateCount", "benchmarkIsolationIndex", "benchmarkMinDist"].forEach((key) => {
+        const number = finiteVisualNumber(isolationSource[key], 0);
+        if (number !== null) isolationTarget[key] = number;
+      });
+      if (typeof isolationSource.isCrossfire === "boolean") isolationTarget.isCrossfire = isolationSource.isCrossfire;
+      const nestedScope = normalizeRouteOwnedVisuals({ benchmarkScope: isolationSource.benchmarkScope })?.benchmarkScope;
+      if (nestedScope) isolationTarget.benchmarkScope = nestedScope;
+      if (Object.keys(isolationTarget).length > 0) tacticalTarget.isolation = isolationTarget;
+    }
+    if (Object.keys(tacticalTarget).length > 0) normalized.tactical = tacticalTarget;
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized as RouteOwnedVisuals : null;
 }
 
 const getRelativeTime = (dateStr: string) => {
@@ -161,6 +447,37 @@ const getRelativeTime = (dateStr: string) => {
 
 const TIER_TOOLTIP_ID = "recent-ai-summary-tier-tooltip";
 
+function benchmarkMetricKey(label: string): string | null {
+  if (/(?:화력|딜량|데미지|대미지)/iu.test(label)) return "avgDamage";
+  if (/(?:주도권|선제 공격)/iu.test(label)) return "avgInitiativeRate";
+  if (/(?:1:1|교전 승률)/iu.test(label)) return "avgDuelWinRate";
+  if (/(?:압박 지수)/iu.test(label)) return "avgPressureIndex";
+  if (/(?:복수|트레이드)/iu.test(label)) return "avgTradeRate";
+  if (/(?:연막 구출|구출률)/iu.test(label)) return "avgSmokeRate";
+  if (/(?:대응 사격|반응 속도)/iu.test(label)) return "avgCounterLatency";
+  if (/(?:백업 속도)/iu.test(label)) return "avgTradeLatency";
+  if (/(?:솔로(?: 킬)? 비중)/iu.test(label)) return "avgSoloKillRate";
+  if (/(?:사망 페이즈)/iu.test(label)) return "avgDeathPhase";
+  return null;
+}
+
+function neutralBenchmarkLabel(
+  label: string,
+  scope?: BenchmarkScope,
+): string {
+  const metric = benchmarkMetricKey(label);
+  const benchmarkLabel = formatBenchmarkProvenance(scope?.sampleCount, {
+    gameMode: scope?.gameMode,
+    matchType: scope?.matchType,
+    tier: scope?.tier,
+    metricSampleCount: metric ? scope?.metricSampleCounts?.[metric] : undefined,
+  });
+  const normalized = label.replace(/상위권|엘리트|benchmark|벤치마크|동일\s*조건\s*[·ㆍ・.]?\s*동일\s*티어|동일\s*티어/gi, benchmarkLabel);
+  return normalized.includes(BENCHMARK_PROVENANCE_LABEL)
+    ? normalized
+    : `${benchmarkLabel}: ${normalized}`;
+}
+
 export interface AiSummarySnapshot {
   verdict: string;
   tier?: string;
@@ -178,6 +495,7 @@ interface SummaryRequestOwner {
   generation: number;
   identity: string;
   controller: AbortController;
+  routeOwnedVisuals: DebateData["visuals"] | null;
 }
 
 class AiSummaryRequestError extends Error {
@@ -325,6 +643,7 @@ export const RecentAISummary = ({
       generation: requestedGeneration,
       identity: requestedIdentity,
       controller: abortController,
+      routeOwnedVisuals: null,
     };
     requestOwnerRef.current = owner;
     abortControllerRef.current = abortController;
@@ -408,7 +727,6 @@ export const RecentAISummary = ({
         errorCode?: string;
         retryable?: boolean;
       } | null = null;
-
       // [V45.3] UI 업데이트를 위한 인터벌 (스트리밍 시각화용)
       const updateInterval = setInterval(() => {
         if (canWriteRequest() && textBufferRef.current !== streamingText) {
@@ -466,10 +784,13 @@ export const RecentAISummary = ({
 
                 if (parsed.type === "visuals" && parsed.data && typeof parsed.data === "object") {
                   // 비주얼 데이터가 오면 로딩을 풀고 UI를 보여줌
+                  const routeOwnedVisuals = normalizeRouteOwnedVisuals(parsed.data);
+                  if (!routeOwnedVisuals) continue;
+                  owner.routeOwnedVisuals = routeOwnedVisuals;
                   dataIdentityRef.current = requestedIdentity;
                   setDebateData((previous) => ({
                     ...(previous ?? {}),
-                    visuals: parsed.data as DebateData["visuals"],
+                    visuals: routeOwnedVisuals,
                   }));
                   setLoading(false);
                 } else if (parsed.type === "chunk" && typeof parsed.data === "string") {
@@ -516,16 +837,18 @@ export const RecentAISummary = ({
                     }
                   } else {
                     try {
-                      let cleanJson = fullText.trim();
-                      const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
-                      if (jsonMatch) cleanJson = jsonMatch[0];
-
-                      const decoded = JSON.parse(cleanJson) as Record<string, unknown>;
-                      const hasFinalPayload = typeof decoded.finalVerdict === "string"
-                        && decoded.finalVerdict.trim().length > 0;
-                      if (!hasFinalPayload) {
-                        throw new Error("Final AI summary payload is empty.");
+                      // The server emits route-owned visuals separately. A
+                      // provider final must be a complete strict JSON
+                      // contract; brace extraction would accept partial
+                      // payloads or trailing prose and is intentionally not
+                      // used here.
+                      const routeOwnedVisuals = owner.routeOwnedVisuals;
+                      if (!routeOwnedVisuals || Object.keys(routeOwnedVisuals).length === 0) {
+                        throw new Error("Route-owned AI summary visuals are missing.");
                       }
+                      const normalizedJson = normalizeAiSummaryFinalJson(fullText.trim());
+                      if (!normalizedJson) throw new Error("Final AI summary payload is invalid.");
+                      const decoded = JSON.parse(normalizedJson) as Record<string, unknown>;
                       const finalData: DebateData = {
                         debateIssues: Array.isArray(decoded.debateIssues) ? decoded.debateIssues as DebateIssue[] : undefined,
                         finalVerdict: typeof decoded.finalVerdict === "string" ? decoded.finalVerdict : undefined,
@@ -533,14 +856,15 @@ export const RecentAISummary = ({
                         weaknessDiagnostic: typeof decoded.weaknessDiagnostic === "string" ? decoded.weaknessDiagnostic : undefined,
                         signature: typeof decoded.signature === "string" ? decoded.signature : undefined,
                         signatureSub: typeof decoded.signatureSub === "string" ? decoded.signatureSub : undefined,
-                        visuals: decoded.visuals && typeof decoded.visuals === "object"
-                          ? decoded.visuals as DebateData["visuals"]
-                          : undefined,
+                        // Final JSON never owns visuals. Keep the server
+                        // snapshot captured from the dedicated visuals
+                        // record, even if a provider attempted to inject one.
+                        visuals: routeOwnedVisuals,
                       };
                       dataIdentityRef.current = requestedIdentity;
                       setDebateData((previous) => ({
                         ...finalData,
-                        visuals: previous?.visuals ?? finalData.visuals,
+                        visuals: routeOwnedVisuals ?? previous?.visuals,
                       }));
                       retryCountRef.current = 0;
 
@@ -827,7 +1151,7 @@ export const RecentAISummary = ({
             <BgmsIcon name="flame" size={40} className="text-indigo-300" />
             <div className="flex flex-col items-center gap-2">
               <span>최근 최대 10경기 AI 끝장 토론 시작</span>
-              <span className="text-xs font-normal opacity-60">최근 유효 {latestMatchRangeLabel}은 전체 지표·지도·추세에, 점수 상위 {bestMatchRangeLabel}은 잠재 티어·상위권 비교에 사용합니다. BGMS 자체 산정 · PUBG 공식 티어/평점 아님</span>
+              <span className="text-xs font-normal opacity-60">최근 유효 {latestMatchRangeLabel}은 전체 지표·지도·추세에, 점수 상위 {bestMatchRangeLabel}은 잠재 티어·{formatBenchmarkProvenance()} 비교에 사용합니다. BGMS 자체 산정 · PUBG 공식 티어/평점 아님</span>
             </div>
           </>
         )}
@@ -992,20 +1316,15 @@ export const RecentAISummary = ({
           </div>
         )}
 
-        {/* [V2.1] LOL PS 스타일 레이더 차트 */}
-        {debateData && (
+        {/* [V2.1] 서버가 산정한 잠재 티어 3축 레이더 차트 */}
+        {debateData?.visuals?.tierBreakdown && (
           <SpiderChart
             nickname={nickname}
+            bestMatchCount={debateData.visuals.bestMatchCount}
             data={{
-              combat: Math.min(100, (parseRate(debateData?.visuals?.initiativeSuccess || "0%") * 0.8) + (debateData?.visuals?.killContrib?.solo || 0) * 5),
-              survival: Math.min(100, (parseRate(String(debateData?.visuals?.goldenTime?.late || "0")) / 10) + 50),
-              growth: 75,
-              vision: 60,
-              teamwork: Math.min(100,
-                debateData?.visuals?.tactical
-                  ? (parseRate(debateData.visuals.tactical.suppRate) + parseRate(debateData.visuals.tactical.smokeRate) + parseRate(debateData.visuals.tactical.reviveRate)) / 3 + 40
-                  : (debateData?.visuals?.counterLatency !== "N/A" ? 85 : 40)
-              ),
+              combat: debateData.visuals.tierBreakdown.combat,
+              tactical: debateData.visuals.tierBreakdown.tactical,
+              survival: debateData.visuals.tierBreakdown.survival,
             }}
           />
         )}
@@ -1647,8 +1966,7 @@ export const RecentAISummary = ({
                     </div>
 
                     <div className="space-y-4">
-                      {issue.userStats?.map((uStat: { label: string; value: string }, sIdx: number) => {
-                        const bStat = issue.benchmarkStats?.[sIdx];
+                      {matchDebateStatPairs(issue.userStats, issue.benchmarkStats).map(({ user: uStat, benchmark: bStat }, sIdx) => {
                         return (
                           <div key={sIdx} className="grid grid-cols-11 items-center gap-2 p-4 bg-white/5 rounded-xl border border-white/5 group hover:bg-white/10 transition-colors">
                             <div className="col-span-4 text-right">
@@ -1662,7 +1980,7 @@ export const RecentAISummary = ({
 
                             <div className="col-span-4 text-left">
                               <div className="text-lg md:text-xl font-black text-gray-400">{bStat?.value || "N/A"}</div>
-                              <div className="text-[9px] text-gray-500 font-bold uppercase">{bStat?.label || uStat.label}</div>
+                              <div className="text-[9px] text-gray-500 font-bold uppercase">{neutralBenchmarkLabel(bStat?.label || uStat.label, debateData?.visuals?.benchmarkScope)}</div>
                             </div>
                           </div>
                         );

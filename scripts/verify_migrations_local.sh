@@ -21,6 +21,7 @@ MIGRATIONS=(
   "20260730204500_discord_room_rate_limit"
   "20260730210000_pubg_response_cache"
   "20260819115023_profile_linked_pubg_auto_sync"
+  "20260901141209_pubg_analysis_population_provenance"
 )
 
 cleanup() {

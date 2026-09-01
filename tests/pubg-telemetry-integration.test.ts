@@ -34,6 +34,10 @@ function runFixture(rawEvents: readonly unknown[], mode: "lite" | "full") {
 }
 
 describe("route and handler telemetry boundary", () => {
+  it("AnalysisEngine은 matchType 누락을 Official로 합성하지 않는다", () => {
+    expect(runFixture([], "full").matchType).toBe("");
+  });
+
   it("두 route가 공용 filter를 사용한다", () => {
     const matchRoute = fs.readFileSync("app/api/pubg/match/route.ts", "utf8");
     const telemetryRoute = fs.readFileSync("app/api/pubg/telemetry/route.ts", "utf8");
