@@ -3931,6 +3931,7 @@ describe("AI cache route stabilization", () => {
   it("ai-summary fallback은 Host 헤더가 아니라 서버가 설정한 origin만 사용한다", async () => {
     mockSummaryGeminiResponse();
 
+    vi.stubEnv("VERCEL_URL", "");
     vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://trusted.bgms.test/base/path/");
     const summaryCache = createQueryChain({ data: null, error: null });
     const telemetry = createQueryChain({ data: [], error: null });
@@ -3958,6 +3959,82 @@ describe("AI cache route stabilization", () => {
     const nestedUrl = new URL(String(fetchMock.mock.calls[0]?.[0]));
     expect(nestedUrl.origin).toBe("https://trusted.bgms.test");
     expect(nestedUrl.pathname).toBe("/api/pubg/match");
+  });
+
+  it("ai-summary fallback은 Vercel preview에서 현재 배포 주소와 automation bypass를 사용한다", async () => {
+    mockSummaryGeminiResponse();
+
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL_URL", "pubg-map-preview-123.vercel.app");
+    vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "test-bypass-secret");
+    vi.stubEnv("APP_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://bgms.kr");
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: [], error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify(createSummaryMatch("preview-origin-match")),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["preview-origin-match"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }, { host: "evil.example:8443" }));
+
+    expect(response.status).toBe(200);
+    const [nestedRequest, nestedOptions] = fetchMock.mock.calls[0] ?? [];
+    const nestedUrl = new URL(String(nestedRequest));
+    expect(nestedUrl.origin).toBe("https://pubg-map-preview-123.vercel.app");
+    expect(nestedUrl.pathname).toBe("/api/pubg/match");
+    expect(new Headers(nestedOptions?.headers).get("x-vercel-protection-bypass"))
+      .toBe("test-bypass-secret");
+  });
+
+  it("ai-summary fallback은 신뢰할 수 없는 VERCEL_URL을 무시하고 bypass 비밀값을 보내지 않는다", async () => {
+    mockSummaryGeminiResponse();
+
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("VERCEL_URL", "evil.example");
+    vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "test-bypass-secret");
+    vi.stubEnv("APP_URL", "https://trusted.bgms.test/base/path/");
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "https://bgms.kr");
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: [], error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(
+      JSON.stringify(createSummaryMatch("untrusted-origin-match")),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["untrusted-origin-match"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+
+    expect(response.status).toBe(200);
+    const [nestedRequest, nestedOptions] = fetchMock.mock.calls[0] ?? [];
+    const nestedUrl = new URL(String(nestedRequest));
+    expect(nestedUrl.origin).toBe("https://trusted.bgms.test");
+    expect(new Headers(nestedOptions?.headers).has("x-vercel-protection-bypass")).toBe(false);
   });
 
   it("ai-summary는 fallback 응답에 canonical match ID가 없으면 무시한다", async () => {
