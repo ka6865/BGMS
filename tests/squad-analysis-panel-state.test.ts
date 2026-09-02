@@ -66,6 +66,16 @@ function detail(groupKey: string) {
   };
 }
 
+function detailWithZeroTradeLatency(groupKey: string) {
+  return {
+    ...detail(groupKey),
+    stats: {
+      ...detail(groupKey).stats,
+      avgTradeLatency: 0,
+    },
+  };
+}
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -218,5 +228,30 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /\uc9c0\ub3c4 \ud3bc\uce58\uae30/ }));
     expect(screen.getByTestId("squad-map")).toHaveTextContent("match-g2");
+  });
+
+  it("finite zero trade latency is rendered as measured 0.00초", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/pubg/ai-squad") {
+        return Promise.resolve(jsonResponse({
+          squadGrade: "A",
+          summary: "fixture summary",
+          strength: "fixture strength",
+          weakness: "fixture weakness",
+          coaching: "fixture coaching",
+        }));
+      }
+      const parsed = new URL(url, "http://localhost");
+      const selectedGroupKey = parsed.searchParams.get("groupKey");
+      return Promise.resolve(selectedGroupKey
+        ? jsonResponse(detailWithZeroTradeLatency(selectedGroupKey))
+        : jsonResponse({ groups }));
+    });
+
+    renderPanel("g1");
+
+    await waitFor(() => expect(screen.getByText("0.00초")).toBeInTheDocument());
+    expect(screen.queryByText("측정 불가")).not.toBeInTheDocument();
   });
 });

@@ -5,6 +5,7 @@ import { revalidateTag, unstable_cache } from "next/cache"; // [ISR V1.0] Next.j
 import { AnalysisEngine } from "@/lib/pubg-analysis/AnalysisEngine";
 import { POPULATION_EVIDENCE_VERSION, RESULT_VERSION, TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
+import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
 import { filterTelemetryEvents } from "@/lib/pubg-analysis/telemetryContract";
 import { adaptBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
 import { fetchTierBenchmarkStats } from "@/lib/pubg-analysis/benchmarkLookup";
@@ -129,6 +130,31 @@ const getCachedMatchTelemetry = unstable_cache(
   }
 );
 
+/**
+ * Recovery is a privileged race-sensitive protocol.  Its initial
+ * unstable_cache read is only a cheap gate; immediately before recovery
+ * telemetry/R2 work we must re-read the canonical processed row from Supabase
+ * so a cached v72 claim cannot survive a concurrent v73 update.
+ */
+async function readFreshRecoveryTelemetry(
+  matchId: string,
+  lowerNickname: string,
+  platform: PubgPlatform,
+): Promise<any | null> {
+  const { data, error } = await supabase
+    .from("processed_match_telemetry")
+    .select("match_id, player_id, platform, data")
+    .eq("match_id", matchId)
+    .eq("platform", normalizePlatform(platform))
+    .eq("player_id", lowerNickname)
+    .retry(false)
+    .abortSignal(AbortSignal.timeout(5_000))
+    .maybeSingle();
+  if (error) throw error;
+  noteDatabaseAvailable();
+  return data || null;
+}
+
 const MAP_IDS: Record<string, string> = {
   "Baltic_Main": "erangel", "Savage_Main": "sanhok", "Desert_Main": "miramar",
   "Summerland_Main": "karakin", "Chimera_Main": "paramo", "Tiger_Main": "taego",
@@ -191,6 +217,300 @@ function matchesToken(providedToken: string | null, expectedToken: string): bool
   const providedDigest = createHash("sha256").update(providedToken).digest();
   const expectedDigest = createHash("sha256").update(expectedToken).digest();
   return timingSafeEqual(providedDigest, expectedDigest);
+}
+
+const BENCHMARK_RECOVERY_SYNC_STALE_ENV = "BENCHMARK_RECOVERY_SYNC_STALE";
+const BENCHMARK_RECOVERY_TOKEN_ENV = "BENCHMARK_RECOVERY_TOKEN";
+const BENCHMARK_RECOVERY_TOKEN_HEADER = "x-benchmark-recovery-token";
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
+}
+
+/**
+ * The stale synchronous recovery path is a deliberately narrow local-only
+ * escape hatch.  It is disabled unless both the feature flag and the exact
+ * server-side token/header contract are present, so ordinary and deployed
+ * requests retain the existing background/409 behavior.
+ */
+function allowsSynchronousStaleRecovery(request: NextRequest): boolean {
+  if (process.env[BENCHMARK_RECOVERY_SYNC_STALE_ENV] !== "true") return false;
+  if (!isLoopbackHostname(request.nextUrl.hostname)) return false;
+  const expectedToken = process.env[BENCHMARK_RECOVERY_TOKEN_ENV]?.trim();
+  if (!expectedToken) return false;
+  return matchesToken(request.headers.get(BENCHMARK_RECOVERY_TOKEN_HEADER), expectedToken);
+}
+
+function unauthorizedBenchmarkRecoveryResponse() {
+  return NextResponse.json({
+    error: "Forbidden",
+    errorCode: "BENCHMARK_RECOVERY_UNAUTHORIZED",
+    retryable: false,
+  }, { status: 403 });
+}
+
+function benchmarkRecoveryContractResponse() {
+  return NextResponse.json({
+    error: "benchmark recovery requires an immediately previous v72 result",
+    errorCode: "BENCHMARK_RECOVERY_PREVIOUS_V72_REQUIRED",
+    retryable: false,
+  }, { status: 409 });
+}
+
+class BenchmarkRecoveryError extends Error {
+  constructor(
+    readonly errorCode: string,
+    readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = "BenchmarkRecoveryError";
+  }
+}
+
+const BENCHMARK_RECOVERY_TELEMETRY_HOST = "telemetry-cdn.pubg.com";
+
+function recoveryTelemetryError(message = "benchmark recovery telemetry URL is invalid"): BenchmarkRecoveryError {
+  return new BenchmarkRecoveryError("BENCHMARK_RECOVERY_TELEMETRY_INVALID", 412, message);
+}
+
+function parseRecoveryTelemetryUrl(value: unknown, expectedAssetId: string, expectedPlatform: PubgPlatform): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new BenchmarkRecoveryError(
+      "BENCHMARK_RECOVERY_TELEMETRY_REQUIRED",
+      412,
+      "benchmark recovery requires a telemetry asset",
+    );
+  }
+
+  const raw = value.trim();
+  // Inspect the original authority/path before WHATWG URL normalization so an
+  // explicitly supplied default port or encoded path cannot be laundered into
+  // an apparently safe URL.
+  if (!/^https:\/\//i.test(raw) || raw.includes("\\")) throw recoveryTelemetryError();
+  const authorityAndPath = raw.slice("https://".length);
+  const authority = authorityAndPath.split(/[/?#]/, 1)[0] || "";
+  const rawPath = authorityAndPath.slice(authority.length).split(/[?#]/, 1)[0] || "";
+  if (!authority || authority.includes("@") || authority.includes(":")) throw recoveryTelemetryError();
+  if (authorityAndPath.includes("?") || authorityAndPath.includes("#")) throw recoveryTelemetryError();
+  if (!rawPath.startsWith("/") || rawPath.endsWith("/") || rawPath.includes("//")) {
+    throw recoveryTelemetryError();
+  }
+  if (rawPath.includes("%")) throw recoveryTelemetryError();
+  const rawPathSegments = rawPath.slice(1).split("/");
+  if (rawPathSegments.some((segment) => segment === "." || segment === ".." || !segment)) {
+    throw recoveryTelemetryError();
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw recoveryTelemetryError();
+  }
+
+  const pathSegments = parsed.pathname.split("/").filter(Boolean);
+  const hasCanonicalFilename = (filename: string | undefined): boolean => (
+    filename === `${expectedAssetId}-telemetry.json`
+  );
+  const isHour = (segment: string | undefined): boolean => /^(?:[01]\d|2[0-3])$/.test(segment || "");
+  const isMinute = (segment: string | undefined): boolean => /^(?:[0-5]\d)$/.test(segment || "");
+  const hasCurrentTelemetryShape = pathSegments.length === 8
+    && pathSegments[0] === "bluehole-pubg"
+    && pathSegments[1] === expectedPlatform
+    && /^\d{4}$/.test(pathSegments[2] || "")
+    && /^\d{2}$/.test(pathSegments[3] || "")
+    && /^\d{2}$/.test(pathSegments[4] || "")
+    && isHour(pathSegments[5])
+    && isMinute(pathSegments[6])
+    && hasCanonicalFilename(pathSegments[7]);
+  const hasLegacyTelemetryShape = pathSegments.length === 7
+    && pathSegments[0] === expectedPlatform
+    && /^\d{4}$/.test(pathSegments[1] || "")
+    && /^\d{2}$/.test(pathSegments[2] || "")
+    && /^\d{2}$/.test(pathSegments[3] || "")
+    && isHour(pathSegments[4])
+    && isMinute(pathSegments[5])
+    && hasCanonicalFilename(pathSegments[6]);
+  const hasTelemetryShape = hasCurrentTelemetryShape || hasLegacyTelemetryShape;
+  if (parsed.protocol !== "https:"
+    || parsed.hostname.toLowerCase() !== BENCHMARK_RECOVERY_TELEMETRY_HOST
+    || parsed.username
+    || parsed.password
+    || parsed.port
+    || parsed.search
+    || parsed.hash
+    || !hasTelemetryShape) {
+    throw recoveryTelemetryError();
+  }
+
+  return parsed.href;
+}
+
+function assertRecoveryTelemetryResponseUrl(response: Response, requestedUrl: string): void {
+  let finalUrl: string;
+  try {
+    finalUrl = response.url;
+  } catch {
+    throw recoveryTelemetryError();
+  }
+  // Compare the transport's raw final URL, not only WHATWG-normalized href:
+  // normalization would erase an explicit :443, dot-segment, or other
+  // authority/path ambiguity that must remain fail-closed at this boundary.
+  if (!finalUrl || finalUrl !== requestedUrl) {
+    throw recoveryTelemetryError();
+  }
+}
+
+function recoveryTelemetryAsset(matchData: unknown): { asset: Record<string, unknown>; id: string } | null {
+  if (!isRecord(matchData) || !isRecord(matchData.data)) return null;
+  const relationships = isRecord(matchData.data.relationships) ? matchData.data.relationships : null;
+  const assets = relationships && isRecord(relationships.assets) ? relationships.assets : null;
+  const refs = assets && Array.isArray(assets.data) ? assets.data : [];
+  if (refs.length !== 1 || !isRecord(refs[0]) || typeof refs[0].id !== "string" || refs[0].type !== "asset") return null;
+  const assetId = refs[0].id.trim();
+  if (!assetId) return null;
+  const included = Array.isArray(matchData.included) ? matchData.included : [];
+  const assetsById = included.filter((item): item is Record<string, unknown> => (
+    isRecord(item) && item.type === "asset" && item.id === assetId
+  ));
+  return assetsById.length === 1 ? { asset: assetsById[0], id: assetId } : null;
+}
+
+function recoveryMatchDefinitionIds(
+  rawTelemetry: unknown,
+  expectedMatchId: string,
+  expectedPlatform: PubgPlatform,
+): Array<string | null> {
+  if (!Array.isArray(rawTelemetry)) return [];
+  const normalizedExpectedMatchId = normalizeMatchId(expectedMatchId);
+  if (!normalizedExpectedMatchId) return [];
+  const expectedSuffix = `.${normalizedExpectedMatchId}`;
+  return rawTelemetry.flatMap((event) => {
+    if (!isRecord(event) || event._T !== "LogMatchDefinition") return [];
+    const value = event.MatchId ?? event.matchId ?? event.match_id;
+    if (typeof value !== "string" || !value.trim()) return [null];
+    const trimmed = value.trim();
+    if (!trimmed.endsWith(expectedSuffix)) return [null];
+    const prefix = trimmed.slice(0, -expectedSuffix.length);
+    const match = /^match\.bro\.(?:official|competitive)\.pc-2018-\d{2}\.(steam|kakao)\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.\d{4}\.\d{2}\.\d{2}\.\d{2}$/i.exec(prefix);
+    if (!match || match[1].toLowerCase() !== expectedPlatform) return [null];
+    return [normalizedExpectedMatchId];
+  });
+}
+
+function benchmarkRecoveryFailureResponse(error: BenchmarkRecoveryError): NextResponse {
+  return NextResponse.json({
+    error: error.message,
+    errorCode: error.errorCode,
+    retryable: false,
+  }, { status: error.status });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function containsRecoveryIdentityEvidence(
+  value: unknown,
+  accountId: string,
+  nickname: string,
+): boolean {
+  if (Array.isArray(value)) return value.some((item) => containsRecoveryIdentityEvidence(item, accountId, nickname));
+  if (!isRecord(value)) return false;
+
+  for (const [key, nested] of Object.entries(value)) {
+    if (key === "accountId" || key === "playerId") {
+      if (typeof nested === "string" && nested === accountId) return true;
+    }
+    if (key === "name" || key === "characterName") {
+      if (typeof nested === "string" && normalizeName(nested) === normalizeName(nickname)) return true;
+    }
+    if (containsRecoveryIdentityEvidence(nested, accountId, nickname)) return true;
+  }
+  return false;
+}
+
+async function loadAndValidateRecoveryTelemetry(
+  telemetryAsset: unknown,
+  accountId: string,
+  nickname: string,
+  matchId: string,
+  platform: PubgPlatform,
+  assetId: string,
+): Promise<any[]> {
+  if (!isRecord(telemetryAsset)
+    || !isRecord(telemetryAsset.attributes)) {
+    throw new BenchmarkRecoveryError(
+      "BENCHMARK_RECOVERY_TELEMETRY_REQUIRED",
+      412,
+      "benchmark recovery requires a telemetry asset",
+    );
+  }
+  const telemetryUrl = parseRecoveryTelemetryUrl(telemetryAsset.attributes.URL, assetId, platform);
+
+  let response: Response;
+  try {
+    response = await fetch(telemetryUrl, {
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    throw new BenchmarkRecoveryError(
+      "BENCHMARK_RECOVERY_TELEMETRY_UNAVAILABLE",
+      412,
+      "benchmark recovery telemetry is unavailable",
+    );
+  }
+  assertRecoveryTelemetryResponseUrl(response, telemetryUrl);
+  if (!response.ok) {
+    throw new BenchmarkRecoveryError(
+      "BENCHMARK_RECOVERY_TELEMETRY_UNAVAILABLE",
+      412,
+      "benchmark recovery telemetry is unavailable",
+    );
+  }
+
+  let rawTelemetry: unknown;
+  try {
+    rawTelemetry = await safeJsonParse(response);
+  } catch {
+    throw new BenchmarkRecoveryError(
+      "BENCHMARK_RECOVERY_TELEMETRY_INVALID",
+      412,
+      "benchmark recovery telemetry is invalid",
+    );
+  }
+  if (!Array.isArray(rawTelemetry) || rawTelemetry.length === 0) {
+    throw new BenchmarkRecoveryError(
+      "BENCHMARK_RECOVERY_TELEMETRY_INVALID",
+      412,
+      "benchmark recovery telemetry is invalid",
+    );
+  }
+  const definitionIds = recoveryMatchDefinitionIds(rawTelemetry, matchId, platform);
+  if (definitionIds.length !== 1 || definitionIds[0] !== normalizeMatchId(matchId)) {
+    throw recoveryTelemetryError("benchmark recovery telemetry match identity is invalid");
+  }
+
+  const filtered = filterTelemetryEvents(rawTelemetry, {
+    mode: "lite",
+    teamNames: new Set([normalizeName(nickname)]),
+    teamAccountIds: new Set([accountId]),
+  });
+  const hasOfficialEvent = filtered.some((event) => typeof event?._T === "string");
+  const hasIdentityEvidence = filtered.some((event) => (
+    containsRecoveryIdentityEvidence(event, accountId, nickname)
+  ));
+  if (!hasOfficialEvent || filtered.length === 0 || !hasIdentityEvidence) {
+    throw new BenchmarkRecoveryError(
+      "BENCHMARK_RECOVERY_TELEMETRY_INVALID",
+      412,
+      "benchmark recovery telemetry lacks canonical identity evidence",
+    );
+  }
+  return filtered;
 }
 
 function getBearerToken(request: NextRequest): string | null {
@@ -337,6 +657,16 @@ export async function GET(request: NextRequest) {
   }
   const platform: PubgPlatform = platformParam;
 
+  // A recovery header is a privileged protocol signal. Reject it before any
+  // cache/read or PUBG request unless the complete local-only authorization
+  // contract is satisfied. Header-free requests keep the ordinary stale
+  // 409/background behavior below.
+  const recoveryHeaderPresent = request.headers.get(BENCHMARK_RECOVERY_TOKEN_HEADER) !== null;
+  const recoveryAuthorized = recoveryHeaderPresent && allowsSynchronousStaleRecovery(request);
+  if (recoveryHeaderPresent && !recoveryAuthorized) {
+    return unauthorizedBenchmarkRecoveryResponse();
+  }
+
   if (sourceParam !== "user" && sourceParam !== "scraper") {
     return NextResponse.json({ error: "Invalid source" }, { status: 400 });
   }
@@ -401,6 +731,14 @@ export async function GET(request: NextRequest) {
     let populationReanalysisRequired = false;
     let cachedFullResult: any = null;
 
+    // A correctly authorized recovery request is deliberately narrower than
+    // an ordinary match request: it may only upgrade the exact previous v72
+    // cache row. Force/cache-miss/current/unmarked rows fail closed before
+    // any PUBG fetch or background scheduling.
+    if (recoveryAuthorized && shouldForce) {
+      return benchmarkRecoveryContractResponse();
+    }
+
     if (!shouldForce) {
       const cachedData = await getCachedMatchTelemetry(matchId, lowerNickname, platform) as any;
       noteDatabaseAvailable();
@@ -410,6 +748,26 @@ export async function GET(request: NextRequest) {
         platform,
         minResultVersion: 0,
       });
+      if (recoveryAuthorized
+        && (!cachedFullResult || cachedFullResult.v !== Math.max(1, RESULT_VERSION - 1))) {
+        return benchmarkRecoveryContractResponse();
+      }
+      if (recoveryAuthorized) {
+        // Rebind the stale-cache claim to a fresh database row.  The cached
+        // v72 value above may have been produced before another worker
+        // finalized v73, so it is never sufficient evidence on its own.
+        const freshRecoveryData = await readFreshRecoveryTelemetry(matchId, lowerNickname, platform);
+        const freshRecoveryResult = getValidFullResultForMatch(freshRecoveryData, {
+          matchId,
+          playerId: lowerNickname,
+          platform,
+          minResultVersion: 0,
+        });
+        if (!freshRecoveryResult || freshRecoveryResult.v !== Math.max(1, RESULT_VERSION - 1)) {
+          return benchmarkRecoveryContractResponse();
+        }
+        cachedFullResult = freshRecoveryResult;
+      }
       if (cachedFullResult
         && typeof cachedFullResult.v === "number"
         && Number.isFinite(cachedFullResult.v)
@@ -495,44 +853,55 @@ export async function GET(request: NextRequest) {
 
     if (!shouldForce && cachedFullResult) {
       const cachedVersion = cachedFullResult.v || 0;
-        
+
       // [Stale-While-Revalidate] 캐시 데이터 버전이 낮으면 백그라운드 재분석 기동
       if (cachedVersion < RESULT_VERSION) {
-        after(async () => {
-          try {
-            await reanalyzeAndSave(
-              matchId, canonicalNickname, platform, lowerNickname, matchData, teamNames, teamAccountIds,
-              myRosterId, myParticipant, myAccountId, teamStats, rankPct, matchAttr, rosters, participants,
-              true, source, startedAt, requestContext,
-            );
-          } catch {
-            await reportBackgroundReanalysisFailure();
-          }
-        });
+        if (cachedVersion === Math.max(1, RESULT_VERSION - 1)
+          && recoveryAuthorized) {
+          // The guarded local canary needs the canonical v73 response before
+          // it advances to the next identity. Keep the normal 409/background
+          // behavior for every other caller or stale version.
+          populationReanalysisRequired = true;
+          cachedFullResult = null;
+        } else {
+          after(async () => {
+            try {
+              await reanalyzeAndSave(
+                matchId, canonicalNickname, platform, lowerNickname, matchData, teamNames, teamAccountIds,
+                myRosterId, myParticipant, myAccountId, teamStats, rankPct, matchAttr, rosters, participants,
+                true, source, startedAt, requestContext,
+              );
+            } catch {
+              await reportBackgroundReanalysisFailure();
+            }
+          });
 
-        // A stale row is identity-bound and may be reanalyzed in the
-        // background, but it must never be presented as a successful current
-        // analysis. Ask the caller to retry after canonical refresh instead.
-        return NextResponse.json({
-          error: "canonical match analysis is not ready",
-          errorCode: "PUBG_AI_CANONICAL_NOT_READY",
-          retryable: true,
-        }, { status: 409 });
+          // A stale row is identity-bound and may be reanalyzed in the
+          // background, but it must never be presented as a successful current
+          // analysis. Ask the caller to retry after canonical refresh instead.
+          return NextResponse.json({
+            error: "canonical match analysis is not ready",
+            errorCode: "PUBG_AI_CANONICAL_NOT_READY",
+            retryable: true,
+          }, { status: 409 });
+        }
       }
 
-      // 샘플 참가자 추출 (기존 response 형식 호환)
-      const allParticipantNames = participants
-        .filter((p: any) => !p.attributes.stats.playerId?.startsWith("ai."))
-        .map((p: any) => p.attributes.stats.name)
-        .filter((name: string) => normalizeName(name) !== lowerNickname);
-      const sampleParticipants = allParticipantNames
-        .sort(() => 0.5 - Math.random())
-        .slice(0, 5);
+      if (cachedFullResult) {
+        // 샘플 참가자 추출 (기존 response 형식 호환)
+        const allParticipantNames = participants
+          .filter((p: any) => !p.attributes.stats.playerId?.startsWith("ai."))
+          .map((p: any) => p.attributes.stats.name)
+          .filter((name: string) => normalizeName(name) !== lowerNickname);
+        const sampleParticipants = allParticipantNames
+          .sort(() => 0.5 - Math.random())
+          .slice(0, 5);
 
-      return NextResponse.json({
-        ...createTacticalResponse(cachedFullResult),
-        sampleParticipants
-      });
+        return NextResponse.json({
+          ...createTacticalResponse(cachedFullResult),
+          sampleParticipants
+        });
+      }
     }
 
     // 캐시가 없거나 강제 업데이트가 필요한 경우 동기식 분석 실행
@@ -542,12 +911,15 @@ export async function GET(request: NextRequest) {
       myRosterId, myParticipant, myAccountId, teamStats, rankPct, matchAttr, rosters, participants,
       shouldForce || populationReanalysisRequired, source, startedAt, requestContext, (step) => {
         analysisStep = step;
-      }
+      }, recoveryAuthorized,
     );
 
     return NextResponse.json(finalResponse);
 
   } catch (err: unknown) {
+    if (err instanceof BenchmarkRecoveryError) {
+      return benchmarkRecoveryFailureResponse(err);
+    }
     if (isDatabaseFailureContext(failureStage, analysisStep) && isDatabaseUnavailableError(err)) {
       noteDatabaseUnavailable();
       console.error("[MATCH] Supabase unavailable; database circuit opened");
@@ -630,8 +1002,61 @@ async function reanalyzeAndSave(
   startedAt: number,
   requestContext: PubgApiErrorContext,
   onAnalysisStep?: (step: PubgAnalysisStep) => void,
+  recoveryAuthorized = false,
 ) {
   const markAnalysisStep = (step: PubgAnalysisStep) => onAnalysisStep?.(step);
+  const telemetryAsset = Array.isArray(matchData?.included)
+    ? matchData.included.find((item: unknown) => isRecord(item) && item.type === "asset")
+    : undefined;
+  const recoveryAsset = recoveryAuthorized ? recoveryTelemetryAsset(matchData) : null;
+  if (recoveryAuthorized && !recoveryAsset) {
+    throw new BenchmarkRecoveryError(
+      "BENCHMARK_RECOVERY_TELEMETRY_REQUIRED",
+      412,
+      "benchmark recovery requires a canonical telemetry asset relationship",
+    );
+  }
+  const recoveryResultVersion = Math.max(1, RESULT_VERSION - 1);
+  let recoveryTelemetry: any[] | null = null;
+
+  const assertFreshRecoveryPreviousV72 = async (): Promise<void> => {
+    const freshData = await readFreshRecoveryTelemetry(matchId, lowerNickname, platform);
+    const freshResult = getValidFullResultForMatch(freshData, {
+      matchId,
+      playerId: lowerNickname,
+      platform,
+      minResultVersion: recoveryResultVersion,
+      requireExactResultVersion: true,
+    });
+    if (!freshResult || freshResult.v !== recoveryResultVersion) {
+      throw new BenchmarkRecoveryError(
+        "BENCHMARK_RECOVERY_PREVIOUS_V72_REQUIRED",
+        409,
+        "benchmark recovery requires an immediately previous v72 result",
+      );
+    }
+  };
+
+  // Re-read before loading the external telemetry asset.  The unstable cache
+  // is only a stale gate; it must never authorize telemetry/R2 work on a row
+  // that has already advanced to v73 in the canonical database.
+  if (recoveryAuthorized) await assertFreshRecoveryPreviousV72();
+
+  // Validate and fetch the canonical recovery asset before reserving the
+  // telemetry-map row.  Invalid/missing assets therefore keep the historical
+  // no-reservation failure boundary; the post-claim freshness check below
+  // still runs immediately before engine/R2/database side effects.
+  if (recoveryAuthorized && recoveryAsset) {
+    recoveryTelemetry = await loadAndValidateRecoveryTelemetry(
+      recoveryAsset.asset,
+      myAccountId,
+      canonicalNickname,
+      matchId,
+      platform,
+      recoveryAsset.id,
+    );
+  }
+
   markAnalysisStep("telemetry_cache_reserve");
   const telemetryIdentity = createTelemetryIdentity({
     matchId,
@@ -666,24 +1091,37 @@ async function reanalyzeAndSave(
   };
 
   if (cacheAccess.kind === "hit") {
-    const { data, error } = await supabase
-      .from("processed_match_telemetry")
-      .select("match_id, player_id, platform, data")
-      .eq("match_id", matchId)
-      .eq("platform", normalizePlatform(platform))
-      .eq("player_id", lowerNickname)
-      .retry(false)
-      .abortSignal(AbortSignal.timeout(5_000))
-      .maybeSingle();
-    if (error) throw error;
-    noteDatabaseAvailable();
-    const cachedFullResult = getValidFullResultForMatch(data, {
+    const freshData = recoveryAuthorized
+      ? await readFreshRecoveryTelemetry(matchId, lowerNickname, platform)
+      : await (async () => {
+        const { data, error } = await supabase
+          .from("processed_match_telemetry")
+          .select("match_id, player_id, platform, data")
+          .eq("match_id", matchId)
+          .eq("platform", normalizePlatform(platform))
+          .eq("player_id", lowerNickname)
+          .retry(false)
+          .abortSignal(AbortSignal.timeout(5_000))
+          .maybeSingle();
+        if (error) throw error;
+        noteDatabaseAvailable();
+        return data || null;
+      })();
+    const cachedFullResult = getValidFullResultForMatch(freshData, {
       matchId,
       playerId: lowerNickname,
       platform,
-      minResultVersion: RESULT_VERSION,
+      minResultVersion: recoveryAuthorized ? recoveryResultVersion : RESULT_VERSION,
     });
-    if (!force && cachedFullResult
+    if (recoveryAuthorized
+      && (!cachedFullResult || cachedFullResult.v !== recoveryResultVersion)) {
+      throw new BenchmarkRecoveryError(
+        "BENCHMARK_RECOVERY_PREVIOUS_V72_REQUIRED",
+        409,
+        "benchmark recovery requires an immediately previous v72 result",
+      );
+    }
+    if (!recoveryAuthorized && !force && cachedFullResult
       && typeof cachedFullResult.v === "number"
       && Number.isFinite(cachedFullResult.v)
       && cachedFullResult.v >= RESULT_VERSION
@@ -708,11 +1146,23 @@ async function reanalyzeAndSave(
     throw new Error("telemetry-map-cache-write-in-progress");
   }
 
-  try {
-  const telemetryAsset = matchData.included.find((it: any) => it.type === "asset");
-  let telData: any[] = [];
+  if (recoveryAuthorized) {
+    // Re-check after the registry claim as well.  A concurrent worker can
+    // advance the processed row between the route's initial fresh read and a
+    // claimed reservation; never run the analysis engine or write R2/processed
+    // data for that stale claim.
+    try {
+      await assertFreshRecoveryPreviousV72();
+    } catch (error) {
+      await releaseReservationOnce();
+      throw error;
+    }
+  }
 
-  if (telemetryAsset) {
+  try {
+  let telData: any[] = recoveryTelemetry || [];
+
+  if (telemetryAsset && !recoveryTelemetry) {
     // The shared identity builder retains the private `*_analyze.json` suffix
     // while binding match/platform/account/mode/version into the path.
     const analyzePath = buildTelemetryAnalyzeCacheKey(telemetryIdentity);
@@ -795,6 +1245,14 @@ async function reanalyzeAndSave(
     matchType: matchAttr.matchType,
     tier: matchTier
   });
+
+  // Benchmark lookup is the last awaited operation before the analysis
+  // engine and the persistence/R2 side-effect boundary.  Recovery is a
+  // race-sensitive v72 -> v73 upgrade: rebind the authorization one final
+  // time after that await so a concurrent v73 finalization cannot cause the
+  // stale route to run the engine or write any derived state.  Ordinary
+  // requests retain their existing behavior and do not perform this read.
+  if (recoveryAuthorized) await assertFreshRecoveryPreviousV72();
 
   const bench = adaptBenchmark(tierStats);
 
@@ -913,9 +1371,23 @@ async function reanalyzeAndSave(
       noteDatabaseUnavailable();
       console.error("[MATCH] Supabase unavailable during cache persistence; database circuit opened");
       await releaseReservationOnce();
+      if (recoveryAuthorized) {
+        throw new BenchmarkRecoveryError(
+          "BENCHMARK_RECOVERY_PERSISTENCE_FAILED",
+          503,
+          "benchmark recovery persistence failed",
+        );
+      }
     } else {
       await reportTelemetryCachePersistenceFailure(error, startedAt, requestContext);
       await releaseReservationOnce();
+      if (recoveryAuthorized) {
+        throw new BenchmarkRecoveryError(
+          "BENCHMARK_RECOVERY_PERSISTENCE_FAILED",
+          503,
+          "benchmark recovery persistence failed",
+        );
+      }
     }
   }
 
@@ -956,9 +1428,23 @@ async function reanalyzeAndSave(
           "[MATCH] 파생 통계 저장 실패:",
           persistenceResult.failures.map(({ taskName }) => taskName),
         );
+        if (recoveryAuthorized) {
+          throw new BenchmarkRecoveryError(
+            "BENCHMARK_RECOVERY_PERSISTENCE_FAILED",
+            503,
+            "benchmark recovery persistence failed",
+          );
+        }
       }
     } catch {
       console.error("[MATCH] 파생 통계 저장 중 예외 발생");
+      if (recoveryAuthorized) {
+        throw new BenchmarkRecoveryError(
+          "BENCHMARK_RECOVERY_PERSISTENCE_FAILED",
+          503,
+          "benchmark recovery persistence failed",
+        );
+      }
     }
   }
 

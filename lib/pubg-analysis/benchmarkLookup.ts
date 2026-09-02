@@ -33,6 +33,23 @@ const TIER_GROUPS: Record<string, string[]> = {
   D: ["D+", "D", "D-"]
 };
 
+/** Only these exact labels are valid benchmark tiers at the evidence boundary. */
+export const CANONICAL_BENCHMARK_TIERS = [
+  "S+", "S",
+  "A+", "A", "A-",
+  "B+", "B", "B-",
+  "C+", "C", "C-",
+  "D+", "D", "D-",
+] as const;
+
+export type CanonicalBenchmarkTier = (typeof CANONICAL_BENCHMARK_TIERS)[number];
+
+const CANONICAL_BENCHMARK_TIER_SET: ReadonlySet<string> = new Set(CANONICAL_BENCHMARK_TIERS);
+
+export function isCanonicalBenchmarkTier(tier: unknown): tier is CanonicalBenchmarkTier {
+  return typeof tier === "string" && CANONICAL_BENCHMARK_TIER_SET.has(tier);
+}
+
 const AVERAGE_FIELDS = [
   "avg_damage",
   "avg_kills",
@@ -83,8 +100,15 @@ const NORMALIZED_METRIC_KEYS: Record<(typeof AVERAGE_FIELDS)[number], string> = 
   avg_death_phase: "avgDeathPhase",
 };
 
-function getTierGroup(tier: string | null): string[] {
-  return TIER_GROUPS[getBaseTier(tier)] || TIER_GROUPS.C;
+/**
+ * Return the canonical benchmark tier family for an observed tier. The
+ * family deliberately contains only known labels; callers must not broaden
+ * this to a prefix match (for example, `BLAH` is not a B-tier row).
+ */
+export function getBenchmarkTierFamily(tier: string | null): string[] {
+  if (!isCanonicalBenchmarkTier(tier)) return [];
+  const family = TIER_GROUPS[getBaseTier(tier)];
+  return family ? [...family] : [];
 }
 
 function getRowWeight(row: any): number {
@@ -173,11 +197,16 @@ function removeMetricCountFields(target: any, field: (typeof AVERAGE_FIELDS)[num
 export function aggregateTierBenchmarkRows(rows: any[], targetTier: string | null): any | null {
   if (!Array.isArray(rows) || rows.length === 0) return null;
 
-  const totalWeight = rows.reduce((sum, row) => sum + getRowWeight(row), 0);
+  if (!isCanonicalBenchmarkTier(targetTier)) return null;
+  const family = new Set(getBenchmarkTierFamily(targetTier));
+  const canonicalRows = rows.filter((row) => isCanonicalBenchmarkTier(row?.tier) && family.has(row.tier));
+  if (canonicalRows.length === 0) return null;
+
+  const totalWeight = canonicalRows.reduce((sum, row) => sum + getRowWeight(row), 0);
   if (totalWeight <= 0) return null;
 
   const aggregated: any = {
-    ...rows[0],
+    ...canonicalRows[0],
     tier: getBaseTier(targetTier),
     match_count: totalWeight,
     sample_count: totalWeight
@@ -196,7 +225,7 @@ export function aggregateTierBenchmarkRows(rows: any[], targetTier: string | nul
     let fieldWeight = 0;
     let completeMetricCount = true;
 
-    rows.forEach(row => {
+    canonicalRows.forEach(row => {
       const value = getFiniteMetricValue(row?.[field], field);
       if (value === null) return;
 
@@ -249,6 +278,7 @@ export async function fetchTierBenchmarkStats(
   const signal = options.signal;
 
   if (signal?.aborted) return null;
+  if (!isCanonicalBenchmarkTier(exactTier)) return null;
 
   let exactQuery = supabase
     .from("benchmark_stats_by_tier")
@@ -265,7 +295,13 @@ export async function fetchTierBenchmarkStats(
   }
   // A fine-tier row with too few samples is not an observed benchmark. Keep
   // looking for the existing same-base-tier aggregate before giving up.
-  if (exact && isTrustedBenchmarkAggregate(exact) && getMatchCount(exact) >= MIN_BENCHMARK_SAMPLE_COUNT) return exact;
+  if (
+    exact
+    && isCanonicalBenchmarkTier(exact.tier)
+    && exact.tier === exactTier
+    && isTrustedBenchmarkAggregate(exact)
+    && getMatchCount(exact) >= MIN_BENCHMARK_SAMPLE_COUNT
+  ) return exact;
   if (signal?.aborted) return null;
 
   let groupedQuery = supabase
@@ -273,7 +309,7 @@ export async function fetchTierBenchmarkStats(
     .select("*")
     .eq("game_mode", gameMode)
     .eq("match_type", matchType)
-    .in("tier", getTierGroup(exactTier));
+    .in("tier", getBenchmarkTierFamily(exactTier));
   if (signal) groupedQuery = groupedQuery.abortSignal(signal);
   const { data: grouped, error: groupError } = await groupedQuery.limit(10);
 
@@ -282,8 +318,13 @@ export async function fetchTierBenchmarkStats(
     throw groupError;
   }
   if (!Array.isArray(grouped) || grouped.length === 0) return null;
-  const trustedGrouped = grouped.filter(isTrustedBenchmarkAggregate);
-  if (trustedGrouped.length !== grouped.length) return null;
+  const family = new Set(getBenchmarkTierFamily(exactTier));
+  const trustedGrouped = grouped.filter((row) => (
+    isCanonicalBenchmarkTier(row?.tier)
+    && family.has(row.tier)
+    && isTrustedBenchmarkAggregate(row)
+  ));
+  if (trustedGrouped.length === 0) return null;
   const aggregated = aggregateTierBenchmarkRows(trustedGrouped, exactTier);
   return aggregated && getMatchCount(aggregated) >= MIN_BENCHMARK_SAMPLE_COUNT
     ? aggregated

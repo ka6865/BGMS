@@ -216,11 +216,35 @@ const EXCLUSION_EVIDENCE_KEYS = [
   "event_mode",
   "isCustomGame",
   "is_custom_game",
+  "isBotMatch",
+  "is_bot_match",
+  "isBot",
+  "is_bot",
+  "isAiMatch",
+  "is_ai_match",
+  "isAI",
+  "is_ai",
+  "isAiroyale",
+  "is_airoyale",
+  "bot",
+  "ai",
+] as const;
+
+const HUMANITY_EVIDENCE_KEYS = ["isHuman", "is_human", "human"] as const;
+
+const DIRECT_EXCLUSION_EVIDENCE_KEYS = [
+  ...EXCLUSION_EVIDENCE_KEYS,
+  ...HUMANITY_EVIDENCE_KEYS,
 ] as const;
 
 function evidenceFlagIsTrue(value: unknown): boolean {
   if (value === true || value === 1) return true;
   return typeof value === "string" && ["true", "1", "yes", "y"].includes(value.trim().toLowerCase());
+}
+
+function evidenceFlagIsFalse(value: unknown): boolean {
+  if (value === false || value === 0) return true;
+  return typeof value === "string" && ["false", "0", "no", "n"].includes(value.trim().toLowerCase());
 }
 
 function mergeExclusionEvidence(...records: Array<Record<string, unknown> | null>): Record<string, unknown> | null {
@@ -232,7 +256,22 @@ function mergeExclusionEvidence(...records: Array<Record<string, unknown> | null
     if (values.some(evidenceFlagIsTrue)) merged[key] = true;
     else if (values.length > 0) merged[key] = values[values.length - 1];
   }
+  for (const key of HUMANITY_EVIDENCE_KEYS) {
+    const values = present.map((record) => record[key]).filter((value) => value !== undefined && value !== null);
+    if (values.some(evidenceFlagIsFalse)) merged[key] = false;
+    else if (values.length > 0) merged[key] = values[values.length - 1];
+  }
   return merged;
+}
+
+function pickDirectExclusionEvidence(record: unknown): Record<string, unknown> | null {
+  const source = asRecord(record);
+  if (!source) return null;
+  const selected: Record<string, unknown> = {};
+  for (const key of DIRECT_EXCLUSION_EVIDENCE_KEYS) {
+    if (source[key] !== undefined && source[key] !== null) selected[key] = source[key];
+  }
+  return Object.keys(selected).length > 0 ? selected : null;
 }
 
 function mergeEvidenceCollection(...values: unknown[]): unknown {
@@ -381,6 +420,18 @@ function readIsolationMeasurement(value: unknown): number | null {
   }
 }
 
+function readObservedNonNegative(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  try {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0) return null;
+    return Math.min(Number.MAX_SAFE_INTEGER, parsed);
+  } catch {
+    return null;
+  }
+}
+
 function coerceNonNegativeNumber(value: unknown): number {
   return Math.max(0, coerceFiniteNumber(value));
 }
@@ -477,10 +528,10 @@ function aggregateMatches(matches: any[]) {
       totalBaitCount += baitCount;
       totalCoverAttempts += coverRateSampleCount;
       totalCoverSuccess += (coverRate > 0 ? Math.round((coverRate / 100) * (coverRateSampleCount || 1)) : 0);
-      const tradeLatencyMs = coerceFiniteNumber(m.tradeStats.tradeLatencyMs);
-      const reactionLatencyMs = coerceFiniteNumber(m.tradeStats.reactionLatencyMs);
-      if (tradeLatencyMs > 0) backupLatencies.push(tradeLatencyMs);
-      if (reactionLatencyMs > 0) reactionLatencies.push(reactionLatencyMs);
+      const tradeLatencyMs = readObservedNonNegative(m.tradeStats.tradeLatencyMs);
+      const reactionLatencyMs = readObservedNonNegative(m.tradeStats.reactionLatencyMs);
+      if (tradeLatencyMs !== null) backupLatencies.push(tradeLatencyMs);
+      if (reactionLatencyMs !== null && reactionLatencyMs > 0) reactionLatencies.push(reactionLatencyMs);
     }
 
     totalRescueSmokes += coerceNonNegativeNumber(m.tradeStats?.smokeCount);
@@ -867,6 +918,16 @@ export async function POST(request: Request) {
           const rowData = m?.data && typeof m.data === "object"
             ? m.data as Record<string, unknown>
             : {};
+          const directExclusionEvidence = mergeExclusionEvidence(
+            pickDirectExclusionEvidence(m),
+            pickDirectExclusionEvidence(rowData),
+            pickDirectExclusionEvidence(fullResult),
+          );
+          const metadataEvidence = mergeEvidenceCollection(
+            fullResult.metadataEvidence,
+            rowData.metadataEvidence,
+            directExclusionEvidence,
+          );
           if (!hasCompatiblePopulationEvidence(fullResult)) {
             staleMatchDetected = true;
             console.warn(`[AI-SUMMARY] Ignored unmarked population evidence for ${pureId}`);
@@ -912,6 +973,10 @@ export async function POST(request: Request) {
             gameMode: fullResult.gameMode || resultInfo.mode || m.game_mode || rowData.gameMode || rowData.game_mode,
             mapName: fullResult.mapName || resultInfo.mapId || resultInfo.map || m.map_name || rowData.mapName || rowData.map_name,
             ...(mergedAttributes && Object.keys(mergedAttributes).length > 0 ? { attributes: mergedAttributes } : {}),
+            // Keep direct row/data exclusion flags as separate eligibility evidence. Do
+            // not spread rowData here: fullResult is the validated authority
+            // for identity, stats, and canonical payload fields.
+            ...(metadataEvidence !== undefined ? { metadataEvidence } : {}),
           };
           // Processed rows from older ingestion versions can keep metadata
           // beside `fullResult`. Merge only the evidence fields required by

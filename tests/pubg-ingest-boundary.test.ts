@@ -16,6 +16,7 @@ const {
   mockAnalysisEngine,
   mockAfter,
   mockEngineRun,
+  mockFetchTierBenchmarkStats,
   mockFrom,
   mockPersistMatchAnalysis,
   mockProcessedTelemetryAbortSignal,
@@ -34,6 +35,7 @@ const {
   const mockAnalysisEngine = vi.fn(function MockAnalysisEngine() {
     return { run: mockEngineRun };
   });
+  const mockFetchTierBenchmarkStats = vi.fn().mockResolvedValue({});
   const mockProcessedTelemetryMaybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
   const mockProcessedTelemetryAbortSignal = vi.fn();
   const mockProcessedTelemetryRetry = vi.fn();
@@ -68,6 +70,7 @@ const {
     mockAnalysisEngine,
     mockAfter,
     mockEngineRun,
+    mockFetchTierBenchmarkStats,
     mockFrom,
     mockPersistMatchAnalysis: vi.fn<(...args: unknown[]) => Promise<PersistMatchAnalysisResult>>(),
     mockProcessedTelemetryAbortSignal,
@@ -102,7 +105,7 @@ vi.mock("@/lib/pubg-analysis/benchmarkAdapter", () => ({
 }));
 
 vi.mock("@/lib/pubg-analysis/benchmarkLookup", () => ({
-  fetchTierBenchmarkStats: vi.fn().mockResolvedValue({}),
+  fetchTierBenchmarkStats: mockFetchTierBenchmarkStats,
 }));
 
 vi.mock("@/lib/pubg-analysis/r2Service", () => ({
@@ -230,24 +233,30 @@ function importsPersistModule(file: string): boolean {
 function createMatchRequest({
   matchId = MATCH_ID,
   nickname = NICKNAME,
+  platform = "steam",
   source = "user",
   force = false,
+  host = "localhost",
   scraperToken,
   adminToken,
+  recoveryToken,
   secret,
 }: {
   matchId?: string;
   nickname?: string;
+  platform?: "steam" | "kakao";
   source?: "user" | "scraper";
   force?: boolean;
+  host?: string;
   scraperToken?: string;
   adminToken?: string;
+  recoveryToken?: string;
   secret?: string;
 } = {}) {
   const searchParams = new URLSearchParams({
     matchId,
     nickname,
-    platform: "steam",
+    platform,
     source,
   });
   if (force) searchParams.set("force", "true");
@@ -256,9 +265,10 @@ function createMatchRequest({
   const headers = new Headers();
   if (scraperToken !== undefined) headers.set("Authorization", `Bearer ${scraperToken}`);
   if (adminToken !== undefined) headers.set("X-BGMS-Admin-Token", adminToken);
+  if (recoveryToken !== undefined) headers.set("x-benchmark-recovery-token", recoveryToken);
 
   return new NextRequest(
-    `http://localhost/api/pubg/match?${searchParams.toString()}`,
+    `http://${host}/api/pubg/match?${searchParams.toString()}`,
     { headers },
   );
 }
@@ -282,6 +292,70 @@ function mockPubgMatchResponse({
     data,
     included,
   }), { status: 200, headers: { "content-type": "application/json" } })));
+}
+
+function mockRecoveryMatchResponse(
+  telemetryBody: unknown,
+  options: {
+    telemetryStatus?: number;
+    telemetryUrl?: string;
+    telemetryResponseUrl?: string;
+    telemetryBody?: unknown;
+    assetRelationshipId?: string | null;
+    includedAssetId?: string;
+  } = {},
+) {
+  const telemetryUrl = options.telemetryUrl
+    ?? "https://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/12/45/asset-1-telemetry.json";
+  const responseBody = options.telemetryBody === undefined ? telemetryBody : options.telemetryBody;
+  const telemetryResponse = new Response(
+    typeof responseBody === "string" ? responseBody : JSON.stringify(responseBody),
+    { status: options.telemetryStatus || 200, headers: { "content-type": "application/json" } },
+  );
+  Object.defineProperty(telemetryResponse, "url", {
+    value: options.telemetryResponseUrl ?? telemetryUrl,
+  });
+  const includedAssetId = options.includedAssetId ?? "asset-1";
+  const assetRelationshipId = options.assetRelationshipId === undefined
+    ? includedAssetId
+    : options.assetRelationshipId;
+  const matchData: Record<string, unknown> = { id: MATCH_ID, attributes: matchAttr };
+  const included = [
+    participant,
+    roster,
+    { id: includedAssetId, type: "asset", attributes: { URL: telemetryUrl } },
+  ];
+  if (assetRelationshipId !== null) {
+    matchData.relationships = { assets: { data: [{ type: "asset", id: assetRelationshipId }] } };
+  }
+  const fetchMock = vi.fn()
+    .mockResolvedValueOnce(new Response(JSON.stringify({
+      data: matchData,
+      included,
+    }), { status: 200, headers: { "content-type": "application/json" } }))
+    .mockResolvedValueOnce(telemetryResponse);
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+function validRecoveryTelemetry(platform: "steam" | "kakao" = "steam") {
+  const matchDefinition = platform === "kakao"
+    ? `match.bro.official.pc-2018-42.kakao.squad.kakao.2026.07.15.00.${MATCH_ID}`
+    : `match.bro.competitive.pc-2018-42.steam.duo.as.2026.07.15.12.${MATCH_ID}`;
+  return [
+    {
+      _T: "LogMatchDefinition",
+      MatchId: matchDefinition,
+      _D: matchAttr.createdAt,
+    },
+    { _T: "LogMatchStart", _D: matchAttr.createdAt },
+    {
+      _T: "LogPlayerAttack",
+      _D: "2026-07-15T00:01:00.000Z",
+      attacker: { accountId: PLAYER_ID, name: NICKNAME },
+      victim: { accountId: "account-enemy", name: "Enemy" },
+    },
+  ];
 }
 
 describe("PUBG ingest architecture boundary", () => {
@@ -341,6 +415,7 @@ describe("PUBG match persistence behavior", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockEngineRun.mockReturnValue(analysisResult);
+    mockFetchTierBenchmarkStats.mockResolvedValue({});
     mockDownloadFromR2.mockResolvedValue(null);
     mockIsR2Configured.mockReturnValue(true);
     mockPersistMatchAnalysis.mockResolvedValue({ succeeded: [], failures: [] });
@@ -1034,6 +1109,7 @@ describe("PUBG match query boundary", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockEngineRun.mockReturnValue(analysisResult);
+    mockFetchTierBenchmarkStats.mockResolvedValue({});
     mockIsR2Configured.mockReturnValue(true);
     mockPersistMatchAnalysis.mockResolvedValue({ succeeded: [], failures: [] });
     mockProcessedTelemetryMaybeSingle.mockResolvedValue({ data: null, error: null });
@@ -1380,6 +1456,604 @@ describe("PUBG match query boundary", () => {
     for (const sensitiveValue of ["background private", NICKNAME, PLAYER_ID, MATCH_ID]) {
       expect(serializedReport).not.toContain(sensitiveValue);
     }
+  });
+
+  it("stale v72은 gate가 꺼져 있으면 기존 409/background 경계를 유지한다", async () => {
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+        } },
+      },
+      error: null,
+    });
+    mockPubgMatchResponse();
+
+    const response = await GET(createMatchRequest());
+
+    expect(response.status).toBe(409);
+    expect(mockAfter).toHaveBeenCalledTimes(1);
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+  });
+
+  it("loopback recovery gate enables synchronous v72 reanalysis only with exact token", async () => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+        } },
+      },
+      error: null,
+    });
+    mockRecoveryMatchResponse(validRecoveryTelemetry());
+
+    const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
+
+    expect(response.status).toBe(200);
+    expect(mockAfter).not.toHaveBeenCalled();
+    expect(mockAnalysisEngine).toHaveBeenCalledTimes(1);
+    expect((await response.json()).v).toBe(RESULT_VERSION);
+  });
+
+  it("claimed recovery rechecks the canonical row before engine, R2, or persistence side effects", async () => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    const v72 = {
+      match_id: MATCH_ID,
+      player_id: NICKNAME.toLowerCase(),
+      platform: "steam",
+      data: { fullResult: {
+        ...analysisResult,
+        v: RESULT_VERSION - 1,
+        matchId: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+      } },
+    };
+    const v73 = {
+      ...v72,
+      data: { fullResult: {
+        ...v72.data.fullResult,
+        v: RESULT_VERSION,
+        populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
+      } },
+    };
+    // Cached gate, GET freshness, pre-claim freshness all observe v72. The
+    // post-claim read observes v73 and must release without running the
+    // analysis engine or writing R2.
+    mockProcessedTelemetryMaybeSingle
+      .mockResolvedValueOnce({ data: v72, error: null })
+      .mockResolvedValueOnce({ data: v72, error: null })
+      .mockResolvedValueOnce({ data: v72, error: null })
+      .mockResolvedValueOnce({ data: v73, error: null });
+    const fetchMock = mockRecoveryMatchResponse(validRecoveryTelemetry());
+
+    const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      errorCode: "BENCHMARK_RECOVERY_PREVIOUS_V72_REQUIRED",
+      retryable: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+    expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
+    expect(mockUploadToR2).not.toHaveBeenCalled();
+    expect(mockRpc).toHaveBeenCalledWith("claim_telemetry_cache_write", expect.anything());
+    expect(mockRpc).toHaveBeenCalledWith("release_telemetry_cache_write", expect.anything());
+  });
+
+  it("recovery rechecks v72 after benchmark lookup before engine, R2, or persistence side effects", async () => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    const sharedFullResult: Record<string, unknown> = {
+      ...analysisResult,
+      v: RESULT_VERSION - 1,
+      matchId: MATCH_ID,
+      player_id: NICKNAME.toLowerCase(),
+      platform: "steam",
+    };
+    const sharedProcessedRow = {
+      match_id: MATCH_ID,
+      player_id: NICKNAME.toLowerCase(),
+      platform: "steam",
+      data: { fullResult: sharedFullResult },
+    };
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({ data: sharedProcessedRow, error: null });
+    // Model another worker finalizing v73 while the route awaits the
+    // benchmark lookup. The final recovery read must reject before any
+    // AnalysisEngine, R2, or persistence work begins.
+    mockFetchTierBenchmarkStats.mockImplementation(async () => {
+      const fullResult = sharedProcessedRow.data.fullResult;
+      fullResult.v = RESULT_VERSION;
+      fullResult.populationEvidenceVersion = POPULATION_EVIDENCE_VERSION;
+      return {};
+    });
+    mockRecoveryMatchResponse(validRecoveryTelemetry());
+
+    const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      errorCode: "BENCHMARK_RECOVERY_PREVIOUS_V72_REQUIRED",
+      retryable: false,
+    });
+    expect(mockFetchTierBenchmarkStats).toHaveBeenCalledTimes(1);
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+    expect(mockEngineRun).not.toHaveBeenCalled();
+    expect(mockUploadToR2).not.toHaveBeenCalled();
+    expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
+    expect(mockRpc).toHaveBeenCalledWith("release_telemetry_cache_write", expect.anything());
+  });
+
+  it("recovery accepts the current Kakao telemetry asset shape and binds its MatchId", async () => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "kakao",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "kakao",
+        } },
+      },
+      error: null,
+    });
+    const telemetryUrl = "https://telemetry-cdn.pubg.com/bluehole-pubg/kakao/2026/07/15/12/45/asset-1-telemetry.json";
+    mockRecoveryMatchResponse(validRecoveryTelemetry("kakao"), { telemetryUrl });
+
+    const response = await GET(createMatchRequest({
+      platform: "kakao",
+      recoveryToken: "canary-token",
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mockAnalysisEngine).toHaveBeenCalledTimes(1);
+    expect(mockPersistMatchAnalysis).toHaveBeenCalledWith(
+      mockSupabase,
+      expect.objectContaining({ platform: "kakao" }),
+    );
+  });
+
+  it("recovery gate ignores non-loopback origins even with flag and token", async () => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+        } },
+      },
+      error: null,
+    });
+    mockPubgMatchResponse();
+
+    const response = await GET(createMatchRequest({ host: "preview.example.com", recoveryToken: "canary-token" }));
+
+    expect(response.status).toBe(403);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mockAfter).not.toHaveBeenCalled();
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+  });
+
+  it("recovery gate rejects an inexact token and keeps the background boundary", async () => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+        } },
+      },
+      error: null,
+    });
+    mockPubgMatchResponse();
+
+    const response = await GET(createMatchRequest({ recoveryToken: "wrong-token" }));
+
+    expect(response.status).toBe(403);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mockAfter).not.toHaveBeenCalled();
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["disabled flag", "false", "canary-token"],
+    ["missing server token", "true", "canary-token"],
+  ])("recovery header with %s fails closed before PUBG, after, or engine work", async (_label, flag, headerToken) => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", flag);
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", _label === "missing server token" ? "" : "canary-token");
+    mockPubgMatchResponse();
+
+    const response = await GET(createMatchRequest({ recoveryToken: headerToken }));
+
+    expect(response.status).toBe(403);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mockAfter).not.toHaveBeenCalled();
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+  });
+
+  it("an authorized recovery header only enables synchronous reanalysis for immediately previous v72", async () => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 2,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+        } },
+      },
+      error: null,
+    });
+    mockPubgMatchResponse();
+
+    const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
+
+    expect(response.status).toBe(409);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mockAfter).not.toHaveBeenCalled();
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["no asset", undefined, {}],
+    ["404 telemetry", [], { telemetryStatus: 404 }],
+    ["empty array", [], {}],
+    ["irrelevant events", [{ _T: "LogUnknown", attacker: { accountId: PLAYER_ID } }], {}],
+  ])("recovery rejects %s telemetry before engine, DB, or R2 marker", async (_label, payload, options) => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+        } },
+      },
+      error: null,
+    });
+    if (_label === "no asset") {
+      mockPubgMatchResponse();
+    } else {
+      mockRecoveryMatchResponse(payload, options);
+    }
+
+    const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
+
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    await expect(response.json()).resolves.toMatchObject({
+      errorCode: expect.stringMatching(/^BENCHMARK_RECOVERY_/),
+      retryable: false,
+    });
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+    expect(mockEngineRun).not.toHaveBeenCalled();
+    expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
+    expect(mockUploadToR2).not.toHaveBeenCalled();
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["non-https", "http://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/12/45/asset-1-telemetry.json"],
+    ["untrusted host", "https://evil.example/bluehole-pubg/steam/2026/07/15/12/45/asset-1-telemetry.json"],
+    ["private address", "https://127.0.0.1/bluehole-pubg/steam/2026/07/15/12/45/asset-1-telemetry.json"],
+    ["explicit default port", "https://telemetry-cdn.pubg.com:443/bluehole-pubg/steam/2026/07/15/12/45/asset-1-telemetry.json"],
+    ["encoded path", "https://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/12/45/asset%2D1-telemetry.json"],
+    ["extra path segment", "https://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/12/45/asset-1/asset-1-telemetry.json"],
+    ["repeated path separator", "https://telemetry-cdn.pubg.com/bluehole-pubg//steam/2026/07/15/12/45/asset-1-telemetry.json"],
+    ["dot path segment", "https://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/12/45/./asset-1-telemetry.json"],
+    ["trailing path separator", "https://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/12/45/asset-1-telemetry.json/"],
+    ["one-digit hour", "https://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/1/45/asset-1-telemetry.json"],
+    ["three-digit hour", "https://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/123/45/asset-1-telemetry.json"],
+    ["hour out of range", "https://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/24/00/asset-1-telemetry.json"],
+    ["one-digit minute", "https://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/12/5/asset-1-telemetry.json"],
+    ["minute out of range", "https://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/12/60/asset-1-telemetry.json"],
+    ["unrelated telemetry filename", "https://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/12/45/other-telemetry.json"],
+    ["query marker", "https://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/12/45/asset-1-telemetry.json?"],
+    ["hash marker", "https://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/12/45/asset-1-telemetry.json#"],
+    ["invalid path", "https://telemetry-cdn.pubg.com/not-telemetry.json"],
+    ["empty asset URL", ""],
+  ] as const)("recovery rejects %s telemetry asset URL before the telemetry fetch", async (_label, telemetryUrl) => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+        } },
+      },
+    });
+    const fetchMock = mockRecoveryMatchResponse(validRecoveryTelemetry(), { telemetryUrl });
+
+    const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
+
+    expect(response.status).toBe(412);
+    await expect(response.json()).resolves.toMatchObject({
+      errorCode: expect.stringMatching(/^BENCHMARK_RECOVERY_TELEMETRY_(?:INVALID|REQUIRED)$/),
+      retryable: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+    expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
+    expect(mockUploadToR2).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["empty", ""],
+    ["redirected host", "https://evil.example/bluehole-pubg/steam/2026/07/15/12/45/asset-1-telemetry.json"],
+    ["same-host wrong path", "https://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/12/45/other-telemetry.json"],
+    ["same-host query", "https://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/12/45/asset-1-telemetry.json?cache=1"],
+    ["explicit default port", "https://telemetry-cdn.pubg.com:443/bluehole-pubg/steam/2026/07/15/12/45/asset-1-telemetry.json"],
+  ] as const)("recovery rejects telemetry response with %s final URL", async (_label, telemetryResponseUrl) => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+        } },
+      },
+    });
+    const telemetryUrl = "https://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/12/45/asset-1-telemetry.json";
+    const fetchMock = mockRecoveryMatchResponse(validRecoveryTelemetry(), { telemetryUrl, telemetryResponseUrl });
+
+    const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
+
+    expect(response.status).toBe(412);
+    await expect(response.json()).resolves.toMatchObject({
+      errorCode: "BENCHMARK_RECOVERY_TELEMETRY_INVALID",
+      retryable: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ redirect: "error" });
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+    expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
+    expect(mockUploadToR2).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing asset relationship", { assetRelationshipId: null }],
+    ["mismatched asset relationship", { assetRelationshipId: "asset-other" }],
+    ["malformed asset filename", { telemetryUrl: "https://telemetry-cdn.pubg.com/bluehole-pubg/steam/2026/07/15/12/45/not-telemetry.json" }],
+    ["wrong MatchId prefix/platform", { telemetryBody: validRecoveryTelemetry("kakao") }],
+    ["wrong telemetry match", { telemetryBody: [
+      { _T: "LogMatchDefinition", MatchId: "match-other" },
+      { _T: "LogMatchStart", _D: matchAttr.createdAt },
+      { _T: "LogPlayerAttack", attacker: { accountId: PLAYER_ID, name: NICKNAME } },
+    ] }],
+  ] as const)("recovery binds %s to the requested match and canonical asset", async (_label, options) => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+        } },
+      },
+    });
+    const telemetryBody = "telemetryBody" in options ? options.telemetryBody : validRecoveryTelemetry();
+    const fetchMock = mockRecoveryMatchResponse(telemetryBody, options);
+
+    const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
+
+    expect(response.status).toBe(412);
+    await expect(response.json()).resolves.toMatchObject({
+      errorCode: expect.stringMatching(/^BENCHMARK_RECOVERY_TELEMETRY_(?:INVALID|REQUIRED)$/),
+      retryable: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(
+      "telemetryBody" in options ? 2 : 1,
+    );
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+    expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("recovery rejects an extra canonical MatchDefinition instead of accepting a valid target among mixed identities", async () => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+        } },
+      },
+      error: null,
+    });
+    const telemetryBody = [
+      ...validRecoveryTelemetry(),
+      {
+        _T: "LogMatchDefinition",
+        MatchId: "match.bro.competitive.pc-2018-42.steam.duo.as.2026.07.15.12.other-match",
+      },
+    ];
+    const fetchMock = mockRecoveryMatchResponse(telemetryBody);
+
+    const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
+
+    expect(response.status).toBe(412);
+    await expect(response.json()).resolves.toMatchObject({
+      errorCode: "BENCHMARK_RECOVERY_TELEMETRY_INVALID",
+      retryable: false,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+    expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("recovery rejects a canonical telemetry event with no target identity evidence", async () => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+        } },
+      },
+      error: null,
+    });
+    mockRecoveryMatchResponse([
+      { _T: "LogMatchStart", _D: matchAttr.createdAt },
+      { _T: "LogPlayerAttack", attacker: { accountId: "account-other" }, victim: { accountId: "account-enemy" } },
+    ]);
+
+    const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
+
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+    expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
+    expect(mockUploadToR2).not.toHaveBeenCalled();
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["returned failures", () => mockPersistMatchAnalysis.mockResolvedValue({
+      succeeded: [],
+      failures: [{ taskName: "global_benchmarks", message: "benchmark write failed" }],
+    })],
+    ["Promise reject", () => mockPersistMatchAnalysis.mockRejectedValue(new Error("persist rejected"))],
+  ])("authorized recovery turns persist %s into a non-2xx response", async (_label, arrange) => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+        } },
+      },
+      error: null,
+    });
+    mockRecoveryMatchResponse(validRecoveryTelemetry());
+    arrange();
+
+    const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
+
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    await expect(response.json()).resolves.toMatchObject({
+      errorCode: "BENCHMARK_RECOVERY_PERSISTENCE_FAILED",
+      retryable: false,
+    });
+    expect(mockAfter).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing", null],
+    ["current marked", { v: RESULT_VERSION, populationEvidenceVersion: POPULATION_EVIDENCE_VERSION }],
+    ["current unmarked", { v: RESULT_VERSION }],
+  ])("authorized recovery header rejects %s cached evidence before PUBG/background/engine work", async (_label, versionFields) => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    const cachedData = versionFields === null ? null : {
+      match_id: MATCH_ID,
+      player_id: NICKNAME.toLowerCase(),
+      platform: "steam",
+      data: { fullResult: {
+        ...analysisResult,
+        ...versionFields,
+        matchId: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+      } },
+    };
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({ data: cachedData, error: null });
+    mockPubgMatchResponse();
+
+    const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      errorCode: "BENCHMARK_RECOVERY_PREVIOUS_V72_REQUIRED",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mockAfter).not.toHaveBeenCalled();
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
   });
 
   it("production background 분기는 Next.js after만 사용한다", () => {

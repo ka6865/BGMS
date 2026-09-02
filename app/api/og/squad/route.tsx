@@ -3,6 +3,7 @@
 
 import { ImageResponse } from "next/og";
 import { NextRequest } from "next/server";
+import { isCanonicalBenchmarkTier } from "@/lib/pubg-analysis/benchmarkLookup";
 import { getSquadAnalysisData } from "@/lib/pubg-analysis/squadAnalysis";
 
 export const runtime = "nodejs";
@@ -18,13 +19,74 @@ async function loadOgFont(url: string) {
   return response.arrayBuffer();
 }
 
+const REQUIRED_BENCHMARK_STATS = [
+  "avgIsolation",
+  "avgTradeLatency",
+  "avgReviveRate",
+  "avgSmokeRate",
+  "avgTeamWipes",
+] as const;
+
+const REQUIRED_USER_STATS = [
+  "avgIsolation",
+  "avgTradeLatency",
+  "totalSmokeRescues",
+  "totalRevives",
+  "avgCoverRate",
+  "totalTeamWipes",
+  "totalTeammateKnocks",
+] as const;
+
+const REQUIRED_SCORES = [
+  "formation",
+  "backupSpeed",
+  "survivalCare",
+  "focusFire",
+  "teamWipe",
+] as const;
+
+function hasCompleteBenchmarkStats(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  if (!isCanonicalBenchmarkTier(candidate.tier)) return false;
+  return REQUIRED_BENCHMARK_STATS.every((field) => {
+    const metric = candidate[field];
+    return typeof metric === "number" && Number.isFinite(metric) && metric >= 0;
+  });
+}
+
+function hasFiniteNonNegative(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function hasCompleteUserEvidence(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  const matchCount = candidate.matchCount;
+  if (typeof matchCount !== "number" || !Number.isInteger(matchCount) || matchCount <= 0) return false;
+
+  const stats = candidate.stats;
+  if (!stats || typeof stats !== "object" || Array.isArray(stats)) return false;
+  const statValues = stats as Record<string, unknown>;
+  if (!REQUIRED_USER_STATS.every((field) => hasFiniteNonNegative(statValues[field]))) return false;
+  if ((statValues.avgCoverRate as number) > 1) return false;
+
+  const scores = candidate.scores;
+  if (!scores || typeof scores !== "object" || Array.isArray(scores)) return false;
+  const scoreValues = scores as Record<string, unknown>;
+  return REQUIRED_SCORES.every((field) => {
+    const score = scoreValues[field];
+    return hasFiniteNonNegative(score) && score <= 100;
+  });
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl;
   const nickname = searchParams.get("nickname") || "Player";
   const platform = searchParams.get("platform") || "steam";
   const groupKey = searchParams.get("groupKey") || "";
 
-  let squadGrade = "B";
+  let squadGrade: string | null = null;
   let matchCount = 0;
   let membersCount = 4;
   let stats = {
@@ -34,11 +96,12 @@ export async function GET(request: NextRequest) {
     totalRevives: 0,
     avgCoverRate: null as number | null,
     totalTeamWipes: 0,
+    totalTeammateKnocks: 0,
   };
   let scores = {
     formation: null as number | null,
     backupSpeed: null as number | null,
-    survivalCare: 50,
+    survivalCare: null as number | null,
     focusFire: null as number | null,
     teamWipe: null as number | null,
   };
@@ -49,14 +112,19 @@ export async function GET(request: NextRequest) {
     try {
       const data = await getSquadAnalysisData(nickname, platform, groupKey);
       if (data && !("error" in data) && !("message" in data)) {
-        squadGrade = data.squadGrade || "B";
-        matchCount = data.matchCount || 0;
-        stats = data.stats || stats;
-        scores = data.scores || scores;
-        if (data.roleProfiles) {
-          membersCount = data.roleProfiles.length;
+        const candidateGrade = typeof data.squadGrade === "string" ? data.squadGrade.trim() : "";
+        if (isCanonicalBenchmarkTier(candidateGrade)
+          && hasCompleteBenchmarkStats(data.benchmarkStats)
+          && hasCompleteUserEvidence(data)) {
+          squadGrade = candidateGrade;
+          matchCount = data.matchCount || 0;
+          stats = data.stats || stats;
+          scores = data.scores || scores;
+          if (data.roleProfiles) {
+            membersCount = data.roleProfiles.length;
+          }
+          hasData = true;
         }
-        hasData = true;
       }
     } catch (err) {
       console.error("[OG-SQUAD-FETCH-ERROR]", err);
@@ -64,8 +132,8 @@ export async function GET(request: NextRequest) {
   }
 
   // 등급 메달의 색상 테마 설정
-  const getGradeStyle = (grade: string) => {
-    const g = grade.toUpperCase().trim();
+  const getGradeStyle = (grade: string | null) => {
+    const g = grade?.toUpperCase().trim() || "";
     if (g.startsWith("S")) return { border: "#f59e0b", color: "#fbbf24", bg: "rgba(245, 158, 11, 0.15)" };
     if (g.startsWith("A")) return { border: "#a855f7", color: "#c084fc", bg: "rgba(168, 85, 247, 0.15)" };
     if (g.startsWith("B")) return { border: "#10b981", color: "#34d399", bg: "rgba(16, 185, 129, 0.15)" };
@@ -214,39 +282,47 @@ export async function GET(request: NextRequest) {
               </div>
             </div>
 
-            {/* 등급 메달 배지 */}
-            <div style={{ display: "flex", alignItems: "center", gap: "20px", marginTop: "10px" }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: "140px",
-                  height: "140px",
-                  borderRadius: "50%",
-                  border: `6px solid ${gradeStyle.border}`,
-                  background: gradeStyle.bg,
-                }}
-              >
-                <span
+            {/* 등급 메달 배지. Benchmark-unavailable responses never render a
+                synthetic grade; they keep an explicit preparing state instead. */}
+            {hasData ? (
+              <div style={{ display: "flex", alignItems: "center", gap: "20px", marginTop: "10px" }}>
+                <div
                   style={{
-                    fontSize: "72px",
-                    fontWeight: "900",
-                    color: gradeStyle.color,
-                    lineHeight: "1",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "140px",
+                    height: "140px",
+                    borderRadius: "50%",
+                    border: `6px solid ${gradeStyle.border}`,
+                    background: gradeStyle.bg,
                   }}
                 >
-                  {squadGrade}
-                </span>
+                  <span
+                    style={{
+                      fontSize: "72px",
+                      fontWeight: "900",
+                      color: gradeStyle.color,
+                      lineHeight: "1",
+                    }}
+                  >
+                    {squadGrade}
+                  </span>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <span style={{ fontSize: "12px", color: "#6b7280", fontWeight: "800", letterSpacing: "2px" }}>COOPERATIVE GRADE</span>
+                  <span style={{ fontSize: "20px", color: "#e4e4e7", fontWeight: "800" }}>협동 시너지 분석 등급</span>
+                  <span style={{ fontSize: "13px", color: "#a1a1aa", fontWeight: "500", maxWidth: "280px", lineHeight: "1.4" }}>
+                    대열 안정성, 백업 속도, 소생 지원 등을 종합 평가한 스쿼드 전술 티어입니다.
+                  </span>
+                </div>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                <span style={{ fontSize: "12px", color: "#6b7280", fontWeight: "800", letterSpacing: "2px" }}>COOPERATIVE GRADE</span>
-                <span style={{ fontSize: "20px", color: "#e4e4e7", fontWeight: "800" }}>협동 시너지 분석 등급</span>
-                <span style={{ fontSize: "13px", color: "#a1a1aa", fontWeight: "500", maxWidth: "280px", lineHeight: "1.4" }}>
-                  대열 안정성, 백업 속도, 소생 지원 등을 종합 평가한 스쿼드 전술 티어입니다.
-                </span>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "10px" }}>
+                <span style={{ fontSize: "24px", color: "#e4e4e7", fontWeight: "800" }}>분석 데이터 준비 중</span>
+                <span style={{ fontSize: "14px", color: "#a1a1aa", fontWeight: "500" }}>신뢰할 수 있는 스쿼드 벤치마크 표본이 아직 충분하지 않습니다.</span>
               </div>
-            </div>
+            )}
           </div>
 
           {/* 세로 구분선 */}
@@ -308,7 +384,7 @@ export async function GET(request: NextRequest) {
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                 <span style={{ fontSize: "10px", color: "#6b7280", fontWeight: "800" }}>AVG TRADE LATENCY</span>
                 <span style={{ display: "flex", fontSize: "14px", color: "#e4e4e7", fontWeight: "800" }}>
-                  {stats.avgTradeLatency !== null && stats.avgTradeLatency > 0 ? `${(stats.avgTradeLatency / 1000).toFixed(2)}초` : "측정 불가"}
+                  {stats.avgTradeLatency !== null && Number.isFinite(stats.avgTradeLatency) && stats.avgTradeLatency >= 0 ? `${(stats.avgTradeLatency / 1000).toFixed(2)}초` : "측정 불가"}
                 </span>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "2px", alignItems: "flex-end" }}>

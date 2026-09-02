@@ -20,6 +20,11 @@ import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 import {
   BENCHMARK_FILTER_VERSION,
   BENCHMARK_POPULATION_EVIDENCE_VERSION,
+  getBenchmarkTierFamily,
+  isCanonicalBenchmarkTier,
+  isTrustedBenchmarkAggregate,
+  MIN_BENCHMARK_SAMPLE_COUNT,
+  type CanonicalBenchmarkTier,
 } from "@/lib/pubg-analysis/benchmarkLookup";
 
 // Invalid/legacy rows are filtered after hydration. Fetch a bounded window
@@ -234,6 +239,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   });
 
   const tierCounts: Record<string, number> = {};
+  let invalidTierSeen = false;
 
   analysisMatches.forEach(m => {
     const data = m.data || {};
@@ -248,7 +254,10 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     if (isolation !== null) accumIsolation += isolation;
 
     const tradeLatency = finiteNonNegative(tradeStats.tradeLatencyMs);
-    if (tradeLatency !== null && tradeLatency > 0) {
+    // Zero milliseconds is a valid finite observation.  Keep it in the
+    // denominator so a measured instant trade is not silently converted to
+    // "unavailable" downstream.
+    if (tradeLatency !== null) {
       accumTradeLatency += tradeLatency;
       validTradeLatencyCount++;
     }
@@ -261,7 +270,12 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     accumTeammateKnocks += tradeStats.teammateKnocks || 0;
 
     const matchTier = fullResult.benchmark?.tier || fullResult.matchInfo?.tier;
-    if (matchTier) {
+    // Every selected best-five row must carry its own canonical tier proof.
+    // A majority vote must never launder one missing/invalid row into a
+    // measured squad tier.
+    if (!isCanonicalBenchmarkTier(matchTier)) {
+      invalidTierSeen = true;
+    } else {
       tierCounts[matchTier] = (tierCounts[matchTier] || 0) + 1;
     }
 
@@ -287,17 +301,23 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   const avgTradeLatency = validTradeLatencyCount > 0 ? (accumTradeLatency / validTradeLatencyCount) : null;
   const avgCoverRate = measuredCoverCount > 0 ? (accumCoverRate / measuredCoverCount) : null;
 
-  let detectedTier = "B";
+  let detectedTier: CanonicalBenchmarkTier | null = null;
   let maxCount = 0;
-  Object.entries(tierCounts).forEach(([tier, count]) => {
+  for (const [tier, count] of Object.entries(tierCounts)) {
     if (count > maxCount) {
       maxCount = count;
-      detectedTier = tier;
+      detectedTier = tier as CanonicalBenchmarkTier;
     }
-  });
+  }
 
-  const baseTierChar = detectedTier.trim().charAt(0).toUpperCase();
-  const targetTier = ["S", "A", "B", "C", "D"].includes(baseTierChar) ? baseTierChar : "B";
+  if (invalidTierSeen || !isCanonicalBenchmarkTier(detectedTier)) {
+    throw new Error("Squad benchmark data unavailable.");
+  }
+
+  const baseTierChar = detectedTier.charAt(0).toUpperCase();
+  const targetTier: CanonicalBenchmarkTier = (
+    ["S", "A", "B", "C", "D"].includes(baseTierChar) ? baseTierChar : "B"
+  ) as CanonicalBenchmarkTier;
 
   interface BenchmarkStats {
     avgIsolation: number;
@@ -307,20 +327,48 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     avgTeamWipes: number;
   }
 
-  const DEFAULT_BENCHMARKS: Record<string, BenchmarkStats> = {
-    "S": { avgIsolation: 1.02, avgTradeLatency: 10810, avgReviveRate: 22.6, avgSmokeRate: 3.72, avgTeamWipes: 7.18 },
-    "A": { avgIsolation: 1.36, avgTradeLatency: 12143, avgReviveRate: 17.0, avgSmokeRate: 3.58, avgTeamWipes: 5.33 },
-    "B": { avgIsolation: 1.53, avgTradeLatency: 11642, avgReviveRate: 9.53, avgSmokeRate: 3.62, avgTeamWipes: 2.80 },
-    "C": { avgIsolation: 1.40, avgTradeLatency: 12940, avgReviveRate: 4.29, avgSmokeRate: 1.18, avgTeamWipes: 0.81 },
-    "D": { avgIsolation: 2.53, avgTradeLatency: 20000, avgReviveRate: 0.00, avgSmokeRate: 0.00, avgTeamWipes: 0.19 }
+  const aggregateBenchmarkRows = (rows: unknown[], allowedTiers: ReadonlySet<string>): BenchmarkStats | null => {
+    const trustedRows = rows.filter((row) => {
+      if (!row || typeof row !== "object" || Array.isArray(row)) return false;
+      const candidate = row as Record<string, unknown>;
+      return isCanonicalBenchmarkTier(candidate.tier)
+        && allowedTiers.has(candidate.tier)
+        && isTrustedBenchmarkAggregate(candidate);
+    }) as Array<Record<string, unknown>>;
+    if (trustedRows.length === 0) return null;
+
+    const averageMetric = (field: string): number | null => {
+      const values = trustedRows
+        .map((row) => finiteNonNegative(row[field]))
+        .filter((value): value is number => value !== null);
+      if (values.length < MIN_BENCHMARK_SAMPLE_COUNT) return null;
+      const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+      return Number.isFinite(average) ? average : null;
+    };
+
+    const avgIsolation = averageMetric("isolation_index");
+    const avgTradeLatency = averageMetric("trade_latency_ms");
+    const avgReviveRate = averageMetric("revive_rate");
+    const avgSmokeRate = averageMetric("smoke_rate");
+    const avgTeamWipes = averageMetric("team_wipes");
+    if (
+      avgIsolation === null
+      || avgTradeLatency === null
+      || avgReviveRate === null
+      || avgSmokeRate === null
+      || avgTeamWipes === null
+    ) return null;
+
+    return { avgIsolation, avgTradeLatency, avgReviveRate, avgSmokeRate, avgTeamWipes };
   };
 
-  let benchmark = { ...DEFAULT_BENCHMARKS[targetTier] };
+  let benchmark: BenchmarkStats | null = null;
+  let benchmarkTier = detectedTier;
 
   try {
     const { data: dbBench, error: benchError } = await supabase
       .from("global_benchmarks")
-      .select("isolation_index, trade_latency_ms, revive_rate, smoke_rate, team_wipes")
+      .select("tier, isolation_index, trade_latency_ms, revive_rate, smoke_rate, team_wipes, filter_version, population_evidence_version")
       .eq("platform", cachePlatform)
       .eq("tier", detectedTier)
       .eq("filter_version", BENCHMARK_FILTER_VERSION)
@@ -329,74 +377,29 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       .in("match_type", ["official", "competitive"]);
 
     if (benchError) throw benchError;
-    if (dbBench && dbBench.length > 5) {
-      let isoSum = 0;
-      let latSum = 0;
-      let latCount = 0;
-      let revSum = 0;
-      let smkSum = 0;
-      let wipeSum = 0;
-
-      dbBench.forEach(row => {
-        isoSum += row.isolation_index || 0;
-        const lat = row.trade_latency_ms;
-        if (lat && lat > 0) {
-          latSum += lat;
-          latCount++;
-        }
-        revSum += row.revive_rate || 0;
-        smkSum += row.smoke_rate || 0;
-        wipeSum += Number(row.team_wipes) || 0;
-      });
-
-      benchmark = {
-        avgIsolation: isoSum / dbBench.length,
-        avgTradeLatency: latCount > 0 ? (latSum / latCount) : benchmark.avgTradeLatency,
-        avgReviveRate: revSum / dbBench.length,
-        avgSmokeRate: smkSum / dbBench.length,
-        avgTeamWipes: wipeSum / dbBench.length
-      };
-    } else {
+    benchmark = aggregateBenchmarkRows(
+      Array.isArray(dbBench) ? dbBench : [],
+      new Set([detectedTier]),
+    );
+    if (benchmark === null) {
       const { data: dbBenchBase, error: benchBaseError } = await supabase
         .from("global_benchmarks")
-        .select("isolation_index, trade_latency_ms, revive_rate, smoke_rate, team_wipes")
+        .select("tier, isolation_index, trade_latency_ms, revive_rate, smoke_rate, team_wipes, filter_version, population_evidence_version")
         .eq("platform", cachePlatform)
-        .like("tier", `${targetTier}%`)
+        .in("tier", getBenchmarkTierFamily(targetTier))
         .eq("filter_version", BENCHMARK_FILTER_VERSION)
         .eq("population_evidence_version", BENCHMARK_POPULATION_EVIDENCE_VERSION)
         .in("game_mode", ["squad", "squad-fpp"])
         .in("match_type", ["official", "competitive"]);
 
       if (benchBaseError) throw benchBaseError;
-      if (dbBenchBase && dbBenchBase.length > 5) {
-        let isoSum = 0;
-        let latSum = 0;
-        let latCount = 0;
-        let revSum = 0;
-        let smkSum = 0;
-        let wipeSum = 0;
-
-        dbBenchBase.forEach(row => {
-          isoSum += row.isolation_index || 0;
-          const lat = row.trade_latency_ms;
-          if (lat && lat > 0) {
-            latSum += lat;
-            latCount++;
-          }
-          revSum += row.revive_rate || 0;
-          smkSum += row.smoke_rate || 0;
-          wipeSum += Number(row.team_wipes) || 0;
-        });
-
-        benchmark = {
-          avgIsolation: isoSum / dbBenchBase.length,
-          avgTradeLatency: latCount > 0 ? (latSum / latCount) : benchmark.avgTradeLatency,
-          avgReviveRate: revSum / dbBenchBase.length,
-          avgSmokeRate: smkSum / dbBenchBase.length,
-          avgTeamWipes: wipeSum / dbBenchBase.length
-        };
-      }
+      benchmark = aggregateBenchmarkRows(
+        Array.isArray(dbBenchBase) ? dbBenchBase : [],
+        new Set(getBenchmarkTierFamily(targetTier)),
+      );
+      if (benchmark !== null) benchmarkTier = targetTier;
     }
+    if (benchmark === null) throw new Error("Squad benchmark data unavailable.");
   } catch (err) {
     console.error("[SQUAD-ANALYZE] Live benchmark query failed; refusing synthetic benchmark evidence:", err);
     throw new Error("Squad benchmark data unavailable.");
@@ -428,11 +431,16 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     [teamWipeScore, 0.15],
   ] as const;
   const scoreWeight = scoreParts.reduce((sum, [value, weight]) => value === null ? sum : sum + weight, 0);
-  const overallScore = scoreWeight > 0
+  // An overall grade is measured only when every constituent score is
+  // measured.  A partial weighted average can otherwise look like a genuine
+  // B (or another grade) even though isolation/latency/cover evidence is
+  // missing.
+  const allScoresMeasured = scoreParts.every(([value]) => value !== null);
+  const overallScore = allScoresMeasured
     ? Math.round(scoreParts.reduce((sum, [value, weight]) => value === null ? sum : sum + value * weight, 0) / scoreWeight)
     : null;
 
-  let squadGrade = "B";
+  let squadGrade: string | null = null;
   if (overallScore !== null) {
     if (overallScore >= 95) squadGrade = "S+";
     else if (overallScore >= 90) squadGrade = "S";
@@ -597,7 +605,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     roleProfiles,
     causeScenes,
     benchmarkStats: {
-      tier: detectedTier,
+      tier: benchmarkTier,
       avgIsolation: Number(benchmark.avgIsolation.toFixed(2)),
       avgTradeLatency: Math.round(benchmark.avgTradeLatency),
       avgReviveRate: Number(benchmark.avgReviveRate.toFixed(2)),

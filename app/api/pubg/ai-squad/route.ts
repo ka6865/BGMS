@@ -151,7 +151,8 @@ export async function POST(request: Request) {
     if (request.signal.aborted) throw new SquadRequestAbortedError();
     if (!squadData || !("matchesSummary" in squadData) || !Array.isArray(squadData.matchesSummary)
       || !squadData.stats || !squadData.scores || !Array.isArray(squadData.roleProfiles)
-      || !squadData.benchmarkStats || !squadData.matchCount) {
+      || !squadData.benchmarkStats || !squadData.matchCount
+      || typeof squadData.squadGrade !== "string" || !squadData.squadGrade.trim()) {
       return NextResponse.json({
         error: "canonical squad analysis is not ready",
         errorCode: "PUBG_AI_SQUAD_CANONICAL_NOT_READY",

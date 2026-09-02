@@ -6,7 +6,12 @@ import {
   isFullResultForPlayerPlatform
 } from "../lib/pubg-analysis/cacheIdentity";
 import { POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
-import { aggregateTierBenchmarkRows, fetchTierBenchmarkStats, isTrustedBenchmarkAggregate } from "../lib/pubg-analysis/benchmarkLookup";
+import {
+  aggregateTierBenchmarkRows,
+  fetchTierBenchmarkStats,
+  getBenchmarkTierFamily,
+  isTrustedBenchmarkAggregate,
+} from "../lib/pubg-analysis/benchmarkLookup";
 import { adaptBenchmark, adaptObservedBenchmark } from "../lib/pubg-analysis/benchmarkAdapter";
 import { estimateAverageTierFromRows } from "../lib/pubg-analysis/tierAveraging";
 import { classifyRole } from "../lib/pubg-analysis/roleClassifier";
@@ -207,6 +212,96 @@ describe("PUBG benchmark and tier stabilization", () => {
       tier: "A",
     })).resolves.toBeNull();
     expect(query.limit).toHaveBeenCalledTimes(1);
+  });
+
+  it("canonical tier family rejects malformed prefixes instead of coercing them to a base tier", () => {
+    expect(getBenchmarkTierFamily("B+")).toEqual(["B+", "B", "B-"]);
+    expect(getBenchmarkTierFamily("BLAH")).toEqual([]);
+  });
+
+  it("benchmark 조회는 exact 응답의 tier membership를 다시 검증한다", async () => {
+    const malformedExact = {
+      tier: "BLAH",
+      match_count: 5,
+      avg_damage: 999,
+      avg_damage_count: 5,
+      filter_version: 8,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION,
+    };
+    const validFallback = {
+      tier: "B",
+      match_count: 5,
+      avg_damage: 300,
+      avg_damage_count: 5,
+      filter_version: 8,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION,
+    };
+    const query: any = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: malformedExact, error: null }),
+      limit: vi.fn().mockResolvedValue({ data: [validFallback], error: null }),
+    };
+    const supabase = { from: vi.fn().mockReturnValue(query) };
+
+    await expect(fetchTierBenchmarkStats(supabase, {
+      gameMode: "squad",
+      matchType: "official",
+      tier: "B",
+    })).resolves.toMatchObject({ tier: "B", avg_damage: 300 });
+  });
+
+  it("benchmark 조회는 adapter가 family filter를 무시해도 malformed/cross-family rows를 제외한다", async () => {
+    const valid = {
+      tier: "B",
+      match_count: 5,
+      avg_damage: 300,
+      avg_damage_count: 5,
+      filter_version: 8,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION,
+    };
+    const malformed = { ...valid, tier: "BLAH", avg_damage: 900 };
+    const otherFamily = { ...valid, tier: "A", avg_damage: 800 };
+    const query: any = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+      limit: vi.fn().mockResolvedValue({ data: [valid, malformed, otherFamily], error: null }),
+    };
+    const supabase = { from: vi.fn().mockReturnValue(query) };
+
+    await expect(fetchTierBenchmarkStats(supabase, {
+      gameMode: "squad",
+      matchType: "official",
+      tier: "B",
+    })).resolves.toMatchObject({ tier: "B", avg_damage: 300 });
+  });
+
+  it("benchmark 조회는 family 밖의 rows만 있으면 observed aggregate를 반환하지 않는다", async () => {
+    const wrongFamily = {
+      tier: "A",
+      match_count: 5,
+      avg_damage: 900,
+      avg_damage_count: 5,
+      filter_version: 8,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION,
+    };
+    const query: any = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      in: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+      limit: vi.fn().mockResolvedValue({ data: [wrongFamily], error: null }),
+    };
+    const supabase = { from: vi.fn().mockReturnValue(query) };
+
+    await expect(fetchTierBenchmarkStats(supabase, {
+      gameMode: "squad",
+      matchType: "official",
+      tier: "B",
+    })).resolves.toBeNull();
   });
 
   it.each([

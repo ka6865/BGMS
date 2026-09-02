@@ -1240,7 +1240,7 @@ describe("AI cache route stabilization", () => {
     const tierRow: Record<string, any> = {
       game_mode: "squad",
       match_type: "competitive",
-      tier: "B",
+      tier: "A+",
       match_count: 5,
       avg_damage: 250,
       avg_damage_count: 5,
@@ -2047,7 +2047,7 @@ describe("AI cache route stabilization", () => {
     const mainModeBenchmark = {
       game_mode: "squad",
       match_type: "competitive",
-      tier: "B",
+      tier: "A+",
       match_count: 5,
       filter_version: 8,
       population_evidence_version: POPULATION_EVIDENCE_VERSION,
@@ -2058,7 +2058,7 @@ describe("AI cache route stabilization", () => {
     const minorityModeBenchmark = {
       game_mode: "duo",
       match_type: "competitive",
-      tier: "B",
+      tier: "A+",
       match_count: 5,
       filter_version: 8,
       population_evidence_version: POPULATION_EVIDENCE_VERSION,
@@ -3124,6 +3124,96 @@ describe("AI cache route stabilization", () => {
     expect(visuals.bestMatchCount).toBe(1);
     expect(capturedPrompt).toContain("HUMAN_SUMMARY_MARKER");
     expect(capturedPrompt).not.toContain("AI_SUMMARY_CONTAMINATION_MARKER");
+  });
+
+  it("ai-summary는 row-level bot/human evidence를 보존해 latest10·best5·Gemini·cache identity에서 제외한다", async () => {
+    const capturedPrompts: string[] = [];
+    mockSummaryGeminiResponse((prompt) => {
+      capturedPrompts.push(prompt);
+    });
+
+    const humanMatch = createSummaryMatch("match-row-evidence-human", {
+      createdAt: "2026-08-28T00:01:00.000Z",
+      matchType: "official",
+      gameMode: "squad-fpp",
+      benchmark: {
+        score: 70,
+        impactScore: 70,
+        impactReasons: ["ROW_EVIDENCE_HUMAN_MARKER"],
+        breakdown: { combat: 70, tactical: 70, survival: 70 },
+      },
+    });
+    const botMatch = createSummaryMatch("match-row-evidence-bot", {
+      createdAt: "2026-08-28T00:02:00.000Z",
+      matchType: "official",
+      gameMode: "squad-fpp",
+      benchmark: {
+        score: 999,
+        impactScore: 999,
+        impactReasons: ["ROW_EVIDENCE_BOT_MARKER"],
+        breakdown: { combat: 99, tactical: 99, survival: 99 },
+      },
+    });
+    const row = (fullResult: any, evidence: Record<string, unknown> = {}) => ({
+      match_id: fullResult.matchId,
+      player_id: "player_a",
+      platform: "kakao",
+      data: { fullResult, ...evidence },
+    });
+
+    const createSummarySupabase = (rows: any[]) => {
+      const summaryCache = createQueryChain({ data: null, error: null });
+      const telemetry = createQueryChain({ data: rows, error: null });
+      const globalBenchmarks = createQueryChain({ data: [], error: null });
+      const tierBenchmarks = createQueryChain({ data: null, error: null });
+      return {
+        supabase: createSupabaseMock({
+          player_ai_summary_cache: summaryCache,
+          processed_match_telemetry: telemetry,
+          global_benchmarks: globalBenchmarks,
+          benchmark_stats_by_tier: tierBenchmarks,
+        }),
+        summaryCache,
+      };
+    };
+
+    const mixed = createSummarySupabase([
+      row(humanMatch),
+      row(botMatch, { isBotMatch: true, isHuman: false }),
+    ]);
+    mockWithAuthGuard.mockResolvedValueOnce({ user: { id: "user-1" }, supabaseAdmin: mixed.supabase });
+
+    const mixedResponse = await aiSummaryPOST(createRequest({
+      matchIds: [humanMatch.matchId, botMatch.matchId],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const mixedRecords = parseSummaryNdjson(await mixedResponse.text());
+    const mixedVisuals = mixedRecords.find((record) => record.type === "visuals")?.data;
+    const mixedHash = mixed.summaryCache.upsert.mock.calls[0]?.[0]?.match_ids_hash;
+
+    const humanOnly = createSummarySupabase([row(humanMatch)]);
+    mockWithAuthGuard.mockResolvedValueOnce({ user: { id: "user-1" }, supabaseAdmin: humanOnly.supabase });
+
+    const humanResponse = await aiSummaryPOST(createRequest({
+      matchIds: [humanMatch.matchId],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    await humanResponse.text();
+    const humanHash = humanOnly.summaryCache.upsert.mock.calls[0]?.[0]?.match_ids_hash;
+
+    expect(mixedResponse.status).toBe(200);
+    expect(humanResponse.status).toBe(200);
+    expect(mixedVisuals).toMatchObject({ latestMatchCount: 1, bestMatchCount: 1 });
+    expect(capturedPrompts).toHaveLength(2);
+    expect(capturedPrompts[0]).toContain("ROW_EVIDENCE_HUMAN_MARKER");
+    expect(capturedPrompts[0]).not.toContain("ROW_EVIDENCE_BOT_MARKER");
+    expect(mixedHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(humanHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(mixedHash).toBe(humanHash);
   });
 
   it("ai-summary는 cached row와 fullResult의 custom/event/secondary evidence를 합집합으로 판정한다", async () => {
@@ -4485,7 +4575,7 @@ describe("AI cache route stabilization", () => {
       data: {
         game_mode: "squad",
         match_type: "competitive",
-        tier: "B",
+        tier: "A+",
         match_count: 5,
         filter_version: 8,
         population_evidence_version: POPULATION_EVIDENCE_VERSION,

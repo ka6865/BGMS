@@ -24,22 +24,25 @@ export function buildSquadAiCoachingPrompt(input: SquadAiPromptInput): SquadAiPr
     roleProfiles,
     nickname,
     coachingStyle = "spicy",
-    squadGrade = "B",
+    // Missing analysis evidence must stay visibly unavailable.  A synthetic
+    // B grade would look measured to the model and downstream consumers.
+    squadGrade = "측정 불가",
     benchmarkStats,
     matchCount = 1,
   } = input;
   const isMild = coachingStyle === "mild";
   const finiteNumber = (value: unknown): number | null => {
+    if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return null;
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
   };
   const isolationValue = finiteNumber(stats?.avgIsolation);
   const tradeLatencyValue = finiteNumber(stats?.avgTradeLatency);
   const benchmarkTradeLatencyValue = finiteNumber(benchmarkStats?.avgTradeLatency);
-  const myTradeLatencySec = tradeLatencyValue !== null && tradeLatencyValue > 0
+  const myTradeLatencySec = tradeLatencyValue !== null && tradeLatencyValue >= 0
     ? `${(tradeLatencyValue / 1000).toFixed(2)}초`
     : "측정 불가";
-  const benchmarkTradeLatencySec = benchmarkTradeLatencyValue !== null && benchmarkTradeLatencyValue > 0
+  const benchmarkTradeLatencySec = benchmarkTradeLatencyValue !== null && benchmarkTradeLatencyValue >= 0
     ? `${(benchmarkTradeLatencyValue / 1000).toFixed(2)}초`
     : "측정 불가";
   const coverRateValue = finiteNumber(stats?.avgCoverRate);

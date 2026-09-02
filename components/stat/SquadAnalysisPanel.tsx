@@ -71,7 +71,7 @@ interface SquadAnalysisData {
     focusFire: number | null;
     teamWipe: number | null;
   };
-  squadGrade: string;
+  squadGrade: string | null;
   benchmarkStats?: {
     tier: string;
     avgIsolation: number | null;
@@ -660,7 +660,7 @@ export default function SquadAnalysisPanel({
                         <InlineIconLabel icon="rank">스쿼드 협동 등급</InlineIconLabel>
                       </span>
                       <span className="text-purple-400 font-black text-sm tracking-wide bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/15">
-                        {analysisData.squadGrade} Grade
+                        {analysisData.squadGrade || "측정 불가"} Grade
                       </span>
                     </div>
                     <div className="flex justify-between border-b border-zinc-900 pb-2">
@@ -697,7 +697,9 @@ export default function SquadAnalysisPanel({
                 <div className="flex justify-between">
                   <span className="text-zinc-400 font-medium">평균 백업 반응 속도 (트레이드)</span>
                   <span className="text-zinc-100 font-bold">
-                    {analysisData.stats.avgTradeLatency !== null && analysisData.stats.avgTradeLatency > 0
+                    {typeof analysisData.stats.avgTradeLatency === "number"
+                      && Number.isFinite(analysisData.stats.avgTradeLatency)
+                      && analysisData.stats.avgTradeLatency >= 0
                       ? `${(analysisData.stats.avgTradeLatency / 1000).toFixed(2)}초`
                       : "측정 불가"}
                   </span>

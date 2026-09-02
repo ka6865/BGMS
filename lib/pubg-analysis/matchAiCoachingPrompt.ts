@@ -44,7 +44,17 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
   const utilityInterpretation = lethalThrows > 0
     ? `피해형 투척 ${lethalThrows}회 중 피해 적중 ${utilityHits}회로 평가할 것`
     : `피해형 투척 0회이므로 적중률/폭파 칭호를 만들지 말고, 총 투척 ${totalThrows}회는 연막 또는 비피해 투척 활용으로만 해석할 것`;
-  const backupLatencyText = tradeStats.tradeLatencyMs > 0 ? `${(tradeStats.tradeLatencyMs / 1000).toFixed(1)}s` : "데이터 부족";
+  const rawBackupLatency = tradeStats.tradeLatencyMs;
+  const backupLatencyMs = rawBackupLatency === null
+    || rawBackupLatency === undefined
+    || (typeof rawBackupLatency === "string" && rawBackupLatency.trim() === "")
+    ? null
+    : Number(rawBackupLatency);
+  const backupLatencyText = backupLatencyMs !== null
+    && Number.isFinite(backupLatencyMs)
+    && backupLatencyMs >= 0
+    ? `${(backupLatencyMs / 1000).toFixed(1)}s`
+    : "데이터 부족";
   const backupContext = buildBackupCoachingContext({
     avgBackupLatency: backupLatencyText,
     totalTradeKills: tradeStats.tradeKills || 0,
