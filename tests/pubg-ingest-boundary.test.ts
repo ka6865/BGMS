@@ -162,6 +162,7 @@ vi.mock("@/lib/pubg-analysis/AnalysisEngine", () => ({
 
 vi.mock("@/lib/pubg-analysis/benchmarkAdapter", () => ({
   adaptBenchmark: vi.fn(() => ({})),
+  adaptObservedBenchmark: vi.fn(() => null),
 }));
 
 vi.mock("@/lib/pubg-analysis/benchmarkLookup", () => ({

@@ -7,7 +7,7 @@ import { POPULATION_EVIDENCE_VERSION, RESULT_VERSION, TELEMETRY_VERSION } from "
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
 import { filterTelemetryEvents } from "@/lib/pubg-analysis/telemetryContract";
-import { adaptBenchmark, adaptObservedBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
+import { adaptObservedBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
 import {
   BENCHMARK_FILTER_VERSION,
   fetchTierBenchmarkStats,
@@ -1575,12 +1575,7 @@ async function reanalyzeAndSave(
   // requests retain their existing behavior and do not perform this read.
   if (recoveryAuthorized) await assertFreshRecoveryAuthorization();
 
-  // The observed adapter is the production evidence boundary.  Keep the
-  // legacy fallback only for isolated callers that still provide the older
-  // adapter mock; the real module always exposes adaptObservedBenchmark.
-  const bench = typeof adaptObservedBenchmark === "function"
-    ? adaptObservedBenchmark(tierStats)
-    : adaptBenchmark(tierStats);
+  const bench = adaptObservedBenchmark(tierStats);
 
   const engine = new AnalysisEngine(
     canonicalNickname, myAccountId, teamNames, teamAccountIds,
