@@ -7,7 +7,7 @@ import { POPULATION_EVIDENCE_VERSION, RESULT_VERSION, TELEMETRY_VERSION } from "
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
 import { filterTelemetryEvents } from "@/lib/pubg-analysis/telemetryContract";
-import { adaptBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
+import { adaptBenchmark, adaptObservedBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
 import {
   BENCHMARK_FILTER_VERSION,
   fetchTierBenchmarkStats,
@@ -999,7 +999,7 @@ export async function GET(request: NextRequest) {
       if (cachedFullResult
         && typeof cachedFullResult.v === "number"
         && Number.isFinite(cachedFullResult.v)
-        && cachedFullResult.v >= RESULT_VERSION) {
+        && cachedFullResult.v === RESULT_VERSION) {
         if (hasPopulationEvidence(cachedFullResult)) {
           return NextResponse.json(createTacticalResponse(cachedFullResult));
         }
@@ -1430,7 +1430,7 @@ async function reanalyzeAndSave(
     if (!recoveryAuthorized && !force && cachedFullResult
       && typeof cachedFullResult.v === "number"
       && Number.isFinite(cachedFullResult.v)
-      && cachedFullResult.v >= RESULT_VERSION
+      && cachedFullResult.v === RESULT_VERSION
       && hasPopulationEvidence(cachedFullResult)) {
       const sampleParticipants = participants
         .filter((p: any) => !p.attributes.stats.playerId?.startsWith("ai."))
@@ -1575,7 +1575,12 @@ async function reanalyzeAndSave(
   // requests retain their existing behavior and do not perform this read.
   if (recoveryAuthorized) await assertFreshRecoveryAuthorization();
 
-  const bench = adaptBenchmark(tierStats);
+  // The observed adapter is the production evidence boundary.  Keep the
+  // legacy fallback only for isolated callers that still provide the older
+  // adapter mock; the real module always exposes adaptObservedBenchmark.
+  const bench = typeof adaptObservedBenchmark === "function"
+    ? adaptObservedBenchmark(tierStats)
+    : adaptBenchmark(tierStats);
 
   const engine = new AnalysisEngine(
     canonicalNickname, myAccountId, teamNames, teamAccountIds,
@@ -1593,11 +1598,6 @@ async function reanalyzeAndSave(
     teamStats,
     bench
   );
-
-  const defaultBenchmark = {
-    avg_damage: 200,
-    breakdown: { combat: 20, tactical: 20, survival: 20 }
-  };
 
   const metadataEvidence: Record<string, unknown> = {};
   for (const key of [
@@ -1639,11 +1639,7 @@ async function reanalyzeAndSave(
       rankPct,
       tier: matchTier
     },
-    benchmark: {
-      ...defaultBenchmark,
-      ...bench,
-      ...(result.benchmark || {})
-    }
+    benchmark: result.benchmark
   };
 
   const { mapData, ...tacticalResult } = fullResult;

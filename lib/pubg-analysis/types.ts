@@ -2,6 +2,8 @@
  * PUBG 전술 분석 엔진 공용 타입 정의
  */
 
+import type { ObservedBenchmark } from "./benchmarkAdapter";
+
 export interface Location {
   x: number;
   y: number;
@@ -90,7 +92,8 @@ export interface TradeStats {
   tradeLatencyMs: number;
   counterLatencyMs: number;
   reactionLatencyMs: number;
-  coverRate: number;
+  /** Percent (0–100); null means no observed cover attempts. */
+  coverRate: number | null;
   coverRateSampleCount: number;
   enemyTeamWipes: number;
   tradeRate?: number;
@@ -125,8 +128,8 @@ export interface AnalysisResult {
   totalTeams: number;
   totalPlayers: number;
   teamImpact: {
-    damageImpact: number;
-    killImpact: number;
+    damageImpact: number | null;
+    killImpact: number | null;
     teamDamageShare: number;
     teamKillShare: number;
     totalTeamDamage: number;
@@ -165,7 +168,7 @@ export interface AnalysisResult {
   initiativeSampleCount: number;
   duelStats: DuelStats;
   combatPressure: CombatPressure;
-  eliteBenchmark: any;
+  eliteBenchmark: ObservedBenchmark | null;
   itemUseSummary: any;
   deathDistance: number;
   edgePlay?: number;

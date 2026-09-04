@@ -94,6 +94,27 @@ export type ObservedBenchmark = Partial<NormalizedBenchmark> & {
 };
 
 /**
+ * A normalized benchmark metric is comparable only when both its value and
+ * its own valid-sample count are present.  The aggregate sample count alone
+ * must never launder a NULL or under-sampled metric into a comparison.
+ */
+export function hasObservedBenchmarkMetric(
+  benchmark: unknown,
+  key: keyof NormalizedBenchmark,
+): boolean {
+  if (!benchmark || typeof benchmark !== "object" || Array.isArray(benchmark)) return false;
+  const value = finiteNumber((benchmark as Record<string, unknown>)[key]);
+  const metricCounts = (benchmark as Record<string, unknown>).metricSampleCounts;
+  const count = metricCounts && typeof metricCounts === "object" && !Array.isArray(metricCounts)
+    ? finiteNumber((metricCounts as Record<string, unknown>)[key])
+    : undefined;
+  return value !== undefined
+    && value >= 0
+    && Number.isInteger(count)
+    && (count as number) >= MIN_BENCHMARK_SAMPLE_COUNT;
+}
+
+/**
  * 비율 지표(0~100)를 안전하게 클램핑하고 정규화합니다.
  */
 function normalizeRate(value: number | undefined | null, defaultValue: number = 0): number {

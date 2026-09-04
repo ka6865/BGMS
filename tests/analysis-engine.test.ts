@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { AnalysisEngine } from '../lib/pubg-analysis/AnalysisEngine';
 import { calcBenchmarkScore, getBenchmarkTier, getBaseTier, getNextTierInfo } from '../lib/pubg-analysis/benchmarkScore';
+import { adaptObservedBenchmark } from '../lib/pubg-analysis/benchmarkAdapter';
+import { buildMatchAiCoachingPrompt } from '../lib/pubg-analysis/matchAiCoachingPrompt';
 import fs from 'fs';
 import path from 'path';
 
@@ -132,6 +134,87 @@ describe('AnalysisEngine isolation measurement contract', () => {
     expect(result.isolationData.minDist).toBeUndefined();
     expect(result.isolationData.heightDiff).toBeUndefined();
     expect(result.isolationData.teammateCount).toBeUndefined();
+  });
+});
+
+describe('AnalysisEngine observed benchmark contract', () => {
+  it('does not invent elite comparison values or a relative badge without benchmark evidence', () => {
+    const engine = new AnalysisEngine(
+      'Player',
+      'account.player',
+      new Set(['player']),
+      new Set(['account.player']),
+      new Set(),
+      new Set(),
+      'roster-player',
+    );
+
+    const result = engine.run(
+      [],
+      {
+        id: 'no-benchmark-evidence',
+        createdAt: '2026-08-27T00:00:00.000Z',
+        gameMode: 'squad-fpp',
+        matchType: 'official',
+      },
+      [],
+      [],
+      { name: 'Player', damageDealt: 1_000, kills: 0, winPlace: 10, timeSurvived: 600 },
+      [],
+      adaptObservedBenchmark({ match_count: 4, avg_damage: 900, avg_damage_count: 4 }),
+    );
+
+    expect(result.eliteBenchmark).toBeNull();
+    expect(result.teamImpact.damageImpact).toBeNull();
+    expect(result.teamImpact.killImpact).toBeNull();
+    expect(result.badges.map((badge: any) => badge.id)).not.toContain('ace');
+
+    const { playerReportSummary } = buildMatchAiCoachingPrompt({ matchData: result });
+    expect(playerReportSummary).toContain('측정 불가');
+    expect(playerReportSummary).not.toContain('Elite Avg: 55%');
+    expect(playerReportSummary).not.toContain('Elite Avg: 400');
+  });
+
+  it('compares only a benchmark metric with at least five valid samples', () => {
+    const benchmark = adaptObservedBenchmark({
+      match_count: 10,
+      avg_damage: 500,
+      avg_damage_count: 5,
+      avg_kills: 4,
+      avg_kills_count: 4,
+    });
+    const engine = new AnalysisEngine(
+      'Player',
+      'account.player',
+      new Set(['player']),
+      new Set(['account.player']),
+      new Set(),
+      new Set(),
+      'roster-player',
+    );
+
+    const result = engine.run(
+      [],
+      {
+        id: 'partial-benchmark-evidence',
+        createdAt: '2026-08-27T00:00:00.000Z',
+        gameMode: 'squad-fpp',
+        matchType: 'official',
+      },
+      [],
+      [],
+      { name: 'Player', damageDealt: 1_000, kills: 10, winPlace: 10, timeSurvived: 600 },
+      [],
+      benchmark,
+    );
+
+    expect(result.teamImpact.damageImpact).toBe(200);
+    expect(result.teamImpact.killImpact).toBeNull();
+    expect(result.badges.map((badge: any) => badge.id)).toContain('ace');
+
+    const { playerReportSummary } = buildMatchAiCoachingPrompt({ matchData: result });
+    expect(playerReportSummary).toContain('Elite Avg: 측정 불가');
+    expect(playerReportSummary).not.toContain('Elite Avg: 3%');
   });
 });
 

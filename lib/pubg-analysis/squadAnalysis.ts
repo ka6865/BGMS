@@ -38,11 +38,6 @@ function finiteNonNegative(value: unknown): number | null {
   return Number.isFinite(numberValue) && numberValue >= 0 ? numberValue : null;
 }
 
-function finiteRate(value: unknown): number | null {
-  const numberValue = finiteNonNegative(value);
-  return numberValue !== null && numberValue <= 1 ? numberValue : null;
-}
-
 export async function getSquadAnalysisData(nickname: string, platform: string = "steam", groupKey?: string | null) {
   // normalizeName: 소문자 + trim만 수행, 특수문자(-. 등) 제거 없음 → DB player_id와 정합성 보장
   const lowerNickname = normalizeName(nickname);
@@ -215,7 +210,8 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   let validTradeLatencyCount = 0;
   let totalSmokeRescues = 0;
   let totalRevives = 0;
-  let accumCoverRate = 0;
+  let coverAttempts = 0;
+  let coverSuccesses = 0;
   let totalTeamWipes = 0;
   let accumTeammateKnocks = 0;
 
@@ -264,8 +260,12 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
 
     totalSmokeRescues += hasRecoveryTimeline ? squadRecoveryStats.squadSmokeRescues : (tradeStats.smokeRescues || 0);
     totalRevives += hasRecoveryTimeline ? squadRecoveryStats.squadRevives : (tradeStats.revCount || 0);
-    const coverRate = finiteRate(tradeStats.coverRate);
-    if (coverRate !== null) accumCoverRate += coverRate;
+    const coverRate = finiteNonNegative(tradeStats.coverRate);
+    const coverSampleCount = finiteNonNegative(tradeStats.coverRateSampleCount);
+    if (coverSampleCount !== null && coverSampleCount > 0 && coverRate !== null && coverRate <= 100) {
+      coverAttempts += coverSampleCount;
+      coverSuccesses += (coverRate / 100) * coverSampleCount;
+    }
     totalTeamWipes += tradeStats.enemyTeamWipes || 0;
     accumTeammateKnocks += tradeStats.teammateKnocks || 0;
 
@@ -294,12 +294,9 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   const measuredIsolationCount = analysisMatches.reduce((count, m) => (
     finiteNonNegative(m.data?.fullResult?.isolationData?.isolationIndex) === null ? count : count + 1
   ), 0);
-  const measuredCoverCount = analysisMatches.reduce((count, m) => (
-    finiteRate(m.data?.fullResult?.tradeStats?.coverRate) === null ? count : count + 1
-  ), 0);
   const avgIsolation = measuredIsolationCount > 0 ? (accumIsolation / measuredIsolationCount) : null;
   const avgTradeLatency = validTradeLatencyCount > 0 ? (accumTradeLatency / validTradeLatencyCount) : null;
-  const avgCoverRate = measuredCoverCount > 0 ? (accumCoverRate / measuredCoverCount) : null;
+  const avgCoverRate = coverAttempts > 0 ? coverSuccesses / coverAttempts : null;
 
   let detectedTier: CanonicalBenchmarkTier | null = null;
   let maxCount = 0;

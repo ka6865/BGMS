@@ -16,6 +16,7 @@ import { PositionHandler } from './handlers/PositionHandler';
 import { MapReplayHandler } from './handlers/MapReplayHandler';
 import { getBenchmarkTier } from './benchmarkScore';
 import { MAP_SIZES } from './constants';
+import { hasObservedBenchmarkMetric, type ObservedBenchmark } from './benchmarkAdapter';
 
 export class AnalysisEngine {
   private state: AnalysisState;
@@ -313,12 +314,29 @@ export class AnalysisEngine {
     const sortedByDamage = [...humanParticipants].map(p => p.attributes?.stats).filter(Boolean).sort((a, b) => b.damageDealt - a.damageDealt);
     const damageRank = sortedByDamage.findIndex((s: any) => normalizeName(s.name) === this.state.lowerNickname) + 1 || 1;
 
-    const damageImpact = Math.round((myStats.damageDealt / (eliteBenchmark?.avgDamage || 400)) * 100);
-    const killImpact = Math.round((myStats.kills / (eliteBenchmark?.avgKills || 3)) * 100);
+    const observedEliteBenchmark: ObservedBenchmark | null = eliteBenchmark
+      && typeof eliteBenchmark === "object"
+      && !Array.isArray(eliteBenchmark)
+      && Number.isFinite(Number(eliteBenchmark.sampleCount))
+      && Number(eliteBenchmark.sampleCount) >= 5
+      ? eliteBenchmark
+      : null;
+    const observedDamage = hasObservedBenchmarkMetric(observedEliteBenchmark, "avgDamage")
+      ? Number(observedEliteBenchmark?.avgDamage)
+      : null;
+    const observedKills = hasObservedBenchmarkMetric(observedEliteBenchmark, "avgKills")
+      ? Number(observedEliteBenchmark?.avgKills)
+      : null;
+    const damageImpact = observedDamage !== null
+      ? Math.round((myStats.damageDealt / Math.max(1, observedDamage)) * 100)
+      : null;
+    const killImpact = observedKills !== null
+      ? Math.round((myStats.kills / Math.max(1, observedKills)) * 100)
+      : null;
     const teamDamageShare = Math.round((myStats.damageDealt / totalTeamDamage) * 100);
     const teamKillShare = Math.round((myStats.kills / totalTeamKills) * 100);
 
-    const badges = this.calculateBadges(myStats, teamStats, damageImpact / 100);
+    const badges = this.calculateBadges(myStats, teamStats, damageImpact === null ? null : damageImpact / 100);
 
     // 지표 집계
     const hasIsolationSamples = this.state.isolationSampleCount > 0;
@@ -445,7 +463,7 @@ export class AnalysisEngine {
         tradeLatencyMs: avgTradeLat,
         counterLatencyMs: avgReactLat,
         reactionLatencyMs: avgReactLat,
-        coverRate: this.state.totalCoverAttempts > 0 ? (this.state.totalCoverSuccess / this.state.totalCoverAttempts) * 100 : 0,
+        coverRate: this.state.totalCoverAttempts > 0 ? (this.state.totalCoverSuccess / this.state.totalCoverAttempts) * 100 : null,
         coverRateSampleCount: this.state.totalCoverAttempts,
         enemyTeamWipes: this.state.wipedTeamsByUserParticipation.size,
         tradeRate: this.state.totalTeammateKnocks > 0 ? (Math.min(this.state.totalTeammateKnocks, this.state.totalTradeKills) / this.state.totalTeammateKnocks) * 100 : 0,
@@ -483,7 +501,7 @@ export class AnalysisEngine {
         maxHitDist: this.state.combatPressure.maxHitDistance,
         uniqueVictims: Array.from(this.state.combatPressure.uniqueVictims)
       },
-      eliteBenchmark,
+      eliteBenchmark: observedEliteBenchmark,
       itemUseSummary: this.state.itemUseSummary,
       deathDistance: this.state.deathDistance,
       edgePlay: this.state.zoneStrategy.edgePlayCount,
@@ -557,10 +575,10 @@ export class AnalysisEngine {
     return 2;
   }
 
-  private calculateBadges(myStats: any, teamStats: any[], impact: number) {
+  private calculateBadges(myStats: any, teamStats: any[], impact: number | null) {
     const badges = [];
     if (myStats.kills >= 5) badges.push({ id: 'slayer', name: '슬레이어', desc: '한 매치에서 5킬 이상 달성' });
-    if (impact >= 1.5) badges.push({ id: 'ace', name: '에이스', desc: '벤치마크 대비 150% 이상의 영향력' });
+    if (impact !== null && impact >= 1.5) badges.push({ id: 'ace', name: '에이스', desc: '벤치마크 대비 150% 이상의 영향력' });
     if (this.state.bluezoneWaste > 100) badges.push({ id: 'survivor', name: '생존왕', desc: '자기장에서 100 HP 이상의 피해를 버티며 생존' });
     return badges;
   }

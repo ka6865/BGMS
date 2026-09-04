@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
+import { buildSquadAiCoachingPrompt } from "@/lib/pubg-analysis/squadAiCoachingPrompt";
 
 const { mockCreateClient } = vi.hoisted(() => ({
   mockCreateClient: vi.fn(),
@@ -231,6 +232,58 @@ describe("strict squad analysis population", () => {
     expect(JSON.stringify(analysis)).not.toContain("12000");
     expect(JSON.stringify(analysis)).not.toContain("2.0");
     expect(JSON.stringify(analysis)).not.toContain("0.3");
+  });
+
+  it("weights observed cover-rate percentages by their sample counts and exposes the percent in the prompt", async () => {
+    const rows = [
+      canonicalRow(1, {
+        tradeStats: { teammateKnocks: 1, coverRate: 50, coverRateSampleCount: 2 },
+      }),
+      canonicalRow(2, {
+        tradeStats: { teammateKnocks: 1, coverRate: 100, coverRateSampleCount: 1 },
+      }),
+    ];
+    const processed = queryChain({ data: rows, error: null });
+    configureSquadClient(processed, trustedBenchmarkRows(5));
+    const { getSquadAnalysisData } = await import("@/lib/pubg-analysis/squadAnalysis");
+    const analysis = await getSquadAnalysisData("Player_A", "steam", "Teammate_B") as any;
+
+    expect(analysis.stats.avgCoverRate).toBe(0.67);
+    const prompt = buildSquadAiCoachingPrompt({
+      groupKey: analysis.groupKey,
+      nickname: "Player_A",
+      stats: analysis.stats,
+      scores: analysis.scores,
+      roleProfiles: analysis.roleProfiles,
+      squadGrade: analysis.squadGrade,
+      benchmarkStats: analysis.benchmarkStats,
+      matchCount: analysis.matchCount,
+    });
+    expect(prompt.squadReportSummary).toContain("Average Cover Rate (평균 아군 집중사격 커버율): 67%");
+  });
+
+  it("treats a zero cover-rate sample count as unavailable rather than a measured 0%", async () => {
+    const row = canonicalRow(1, {
+      tradeStats: { teammateKnocks: 0, coverRate: 0, coverRateSampleCount: 0 },
+    });
+    const processed = queryChain({ data: [row], error: null });
+    configureSquadClient(processed, trustedBenchmarkRows(5));
+    const { getSquadAnalysisData } = await import("@/lib/pubg-analysis/squadAnalysis");
+    const analysis = await getSquadAnalysisData("Player_A", "steam", "Teammate_B") as any;
+
+    expect(analysis.stats.avgCoverRate).toBeNull();
+    const prompt = buildSquadAiCoachingPrompt({
+      groupKey: analysis.groupKey,
+      nickname: "Player_A",
+      stats: analysis.stats,
+      scores: analysis.scores,
+      roleProfiles: analysis.roleProfiles,
+      squadGrade: analysis.squadGrade,
+      benchmarkStats: analysis.benchmarkStats,
+      matchCount: analysis.matchCount,
+    });
+    expect(prompt.squadReportSummary).toContain("Average Cover Rate (평균 아군 집중사격 커버율): 측정 불가");
+    expect(prompt.squadReportSummary).not.toContain("Average Cover Rate (평균 아군 집중사격 커버율): 0%");
   });
 
   it("fails closed when the benchmark database query errors", async () => {

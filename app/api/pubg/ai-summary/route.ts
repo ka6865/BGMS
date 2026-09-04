@@ -111,7 +111,7 @@ async function awaitWithAbort<T>(promise: PromiseLike<T>, signal: AbortSignal): 
 function hasCurrentResultVersion(fullResult: any): boolean {
   return typeof fullResult?.v === "number"
     && Number.isFinite(fullResult.v)
-    && fullResult.v >= RESULT_VERSION;
+    && fullResult.v === RESULT_VERSION;
 }
 
 type SummaryDependencyFailure = "unavailable" | "timeout";
@@ -520,14 +520,16 @@ function aggregateMatches(matches: any[]) {
       const revCount = coerceNonNegativeNumber(m.tradeStats.revCount);
       const baitCount = coerceNonNegativeNumber(m.tradeStats.baitCount);
       const coverRateSampleCount = coerceNonNegativeNumber(m.tradeStats.coverRateSampleCount);
-      const coverRate = Math.min(100, coerceNonNegativeNumber(m.tradeStats.coverRate));
+      const coverRate = coerceFiniteNumber(m.tradeStats.coverRate);
       totalTeammateKnocks += teammateKnocks;
       totalSuppCount += suppCount;
       totalTradeKills += tradeKills;
       totalRevCount += revCount;
       totalBaitCount += baitCount;
-      totalCoverAttempts += coverRateSampleCount;
-      totalCoverSuccess += (coverRate > 0 ? Math.round((coverRate / 100) * (coverRateSampleCount || 1)) : 0);
+      if (coverRateSampleCount > 0 && coverRate >= 0 && coverRate <= 100) {
+        totalCoverAttempts += coverRateSampleCount;
+        totalCoverSuccess += (coverRate / 100) * coverRateSampleCount;
+      }
       const tradeLatencyMs = readObservedNonNegative(m.tradeStats.tradeLatencyMs);
       const reactionLatencyMs = readObservedNonNegative(m.tradeStats.reactionLatencyMs);
       if (tradeLatencyMs !== null) backupLatencies.push(tradeLatencyMs);
@@ -679,7 +681,9 @@ function aggregateMatches(matches: any[]) {
   const userReversalRate = totalReversalAttempts > 0 ? Math.max(0, Math.min(100, Math.round((totalReversalWins / totalReversalAttempts) * 100))) : -1;
   const avgBackupLatency = backupLatencies.length > 0 ? (backupLatencies.reduce((a, b) => a + b, 0) / backupLatencies.length / 1000).toFixed(2) + "s" : "측정 불가";
   const avgReactionLatency = reactionLatencies.length > 0 ? (reactionLatencies.reduce((a, b) => a + b, 0) / reactionLatencies.length / 1000).toFixed(2) + "s" : "측정 불가";
-  const avgCoverRate = totalCoverAttempts > 0 ? Math.max(0, Math.min(100, Math.round((totalCoverSuccess / totalCoverAttempts) * 100))) : 0;
+  const avgCoverRate = totalCoverAttempts > 0
+    ? Math.max(0, Math.min(100, Math.round((totalCoverSuccess / totalCoverAttempts) * 100)))
+    : null;
   const totalDuels = totalDuelWins + totalDuelLosses;
   const avgDuelWinRate = totalDuels > 0 ? Math.max(0, Math.min(100, Math.round((totalDuelWins / totalDuels) * 100))) : 0;
   const avgDeathPhase = mLen > 0 ? Math.max(0, Number((totalDeathPhase / mLen).toFixed(1))) : 0;

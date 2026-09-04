@@ -2826,6 +2826,7 @@ describe("AI cache route stabilization", () => {
 
   it.each([
     ["old numeric", RESULT_VERSION - 1],
+    ["future numeric", RESULT_VERSION + 1],
     ["missing", undefined],
     ["string", String(RESULT_VERSION)],
     ["NaN", Number.NaN],

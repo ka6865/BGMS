@@ -1,4 +1,5 @@
 import { buildBackupCoachingContext, type BackupCoachingContext } from "@/lib/pubg-analysis/backupCoaching";
+import { hasObservedBenchmarkMetric, type NormalizedBenchmark, type ObservedBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
 
 interface MatchAiPromptInput {
   matchData: any;
@@ -17,7 +18,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     stats,
     mapName,
     gameMode,
-    eliteBenchmark = {},
+    eliteBenchmark = null,
     killContribution = { solo: 0, cleanup: 0, other: 0 },
     tradeStats = {},
     combatPressure = {},
@@ -25,6 +26,30 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     teamImpact = { damageImpact: 0, killImpact: 0, teamDamageShare: 0, teamKillShare: 0 } as any,
     badges = [],
   } = matchData;
+  const observedEliteBenchmark: ObservedBenchmark | null = eliteBenchmark
+    && typeof eliteBenchmark === "object"
+    && !Array.isArray(eliteBenchmark)
+    && Number.isFinite(Number(eliteBenchmark.sampleCount))
+    && Number(eliteBenchmark.sampleCount) >= 5
+    ? eliteBenchmark
+    : null;
+  const benchmarkMetric = (key: keyof NormalizedBenchmark): number | null => (
+    hasObservedBenchmarkMetric(observedEliteBenchmark, key)
+      ? Number((observedEliteBenchmark as Record<string, unknown>)[key])
+      : null
+  );
+  const formatPercent = (value: unknown): string => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? `${numeric}%` : "측정 불가";
+  };
+  const formatBenchmarkPercent = (key: keyof NormalizedBenchmark): string => {
+    const value = benchmarkMetric(key);
+    return value === null ? "측정 불가" : `${value}%`;
+  };
+  const formatBenchmarkNumber = (key: keyof NormalizedBenchmark, suffix = ""): string => {
+    const value = benchmarkMetric(key);
+    return value === null ? "측정 불가" : `${value}${suffix}`;
+  };
   const leadKills = stats?.leadShotKills ?? matchData.leadShotKills ?? 0;
   const leadKnocks = stats?.leadShotKnocks ?? matchData.leadShotKnocks ?? 0;
   const ridingKills = stats?.ridingShotKills ?? matchData.ridingShotKills ?? 0;
@@ -62,7 +87,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     totalSmokeRescues: tradeStats.smokeRescues || 0,
     totalTeamWipes: tradeStats.enemyTeamWipes || 0,
     totalTeammateKnocks: tradeStats.teammateKnocks || 0,
-    benchmarkTradeLatency: eliteBenchmark.avgTradeLatency,
+    benchmarkTradeLatency: benchmarkMetric("avgTradeLatency") ?? undefined,
   });
   const benchmark = matchData.benchmark || {};
   const impactGradeLabel = benchmark.impactGrade === "LEGEND"
@@ -79,7 +104,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
 - 매치: ${mapName} (${gameMode}), 순위: #${stats.winPlace}
 - 전투: ${stats.kills}킬 / ${stats.assists}어시 / ${stats.DBNOs}기절 / 유효 딜량 ${Math.floor(stats.processedDamageDealt ?? stats.damageDealt)}${hasVehicleCombat ? `\n- 특수 전투(차량): 리드샷 기절/킬 ${leadKnocks}/${leadKills}, 라이딩샷 기절/킬 ${ridingKnocks}/${ridingKills}` : ""}
 - 킬 기여도: 직접 사살(Solo Kill) ${killContribution.solo}회 / 마무리 사살(Cleanup) ${killContribution.cleanup}회
-- 실력 등급: 엘리트 대비 딜량 ${teamImpact.damageImpact}% / 킬 ${teamImpact.killImpact}% 
+- 실력 등급: 엘리트 대비 딜량 ${formatPercent(teamImpact.damageImpact)} / 킬 ${formatPercent(teamImpact.killImpact)}
 - 팀 기여도: 팀 내 딜량 비중 ${teamImpact.teamDamageShare}% / 팀 내 킬 비중 ${teamImpact.teamKillShare}%
 - 획득 배지: ${badges.length > 0 ? badges.map((b: any) => `[${b.name}: ${b.desc}]`).join(", ") : "없음"}
 - 생존: ${Math.floor(stats.timeSurvived / 60)}분 ${stats.timeSurvived % 60}초
@@ -88,19 +113,19 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
 - 임팩트 근거: ${impactReasons}
 
 [전술 지표 (유저 vs DB 티어 평균)]
-- 1:1 교전 승률: ${matchData.duelStats?.duelWinRate || 0}% (Elite Avg: ${eliteBenchmark.avgDuelWinRate || 55}%)
-- 복수(Trade) 성공률: ${tradeStats.tradeRate || 0}% (Elite Avg: ${eliteBenchmark.avgTradeRate || 50}%)
-- 선제 공격 성공률: ${matchData.initiative_rate || 0}% (Elite Avg: ${eliteBenchmark.avgInitiativeRate || 55}%)
-- 대응 사격 속도(반응): ${tradeStats.reactionLatencyMs > 0 ? (tradeStats.reactionLatencyMs / 1000).toFixed(2) : "데이터 부족"}s (Elite Avg: ${eliteBenchmark.avgCounterLatency !== undefined ? eliteBenchmark.avgCounterLatency : 0.5}s)
-- 백업(Trade) 속도: ${backupLatencyText} (Elite Avg: ${eliteBenchmark.avgTradeLatency !== undefined ? eliteBenchmark.avgTradeLatency : 12.0}s)
+- 1:1 교전 승률: ${formatPercent(matchData.duelStats?.duelWinRate)} (Elite Avg: ${formatBenchmarkPercent("avgDuelWinRate")})
+- 복수(Trade) 성공률: ${formatPercent(tradeStats.tradeRate)} (Elite Avg: ${formatBenchmarkPercent("avgTradeRate")})
+- 선제 공격 성공률: ${formatPercent(matchData.initiative_rate)} (Elite Avg: ${formatBenchmarkPercent("avgInitiativeRate")})
+- 대응 사격 속도(반응): ${tradeStats.reactionLatencyMs > 0 ? `${(tradeStats.reactionLatencyMs / 1000).toFixed(2)}s` : "데이터 부족"} (Elite Avg: ${formatBenchmarkNumber("avgCounterLatency", "s")})
+- 백업(Trade) 속도: ${backupLatencyText} (Elite Avg: ${formatBenchmarkNumber("avgTradeLatency", "s")})
 - 백업 결과 해석: ${backupContext.promptLine}
-- 전술 지원: 견제사격 ${tradeStats.suppCount || 0}회 (Elite Avg: ${eliteBenchmark.avgSuppCount || 3.0}회)
-- 위기 관리: 내가 한 소생률 ${personalReviveRate}% (아군 기절 ${tradeStats.teammateKnocks || 0}회 중 내 소생 ${tradeStats.revCount || 0}회, Elite Avg: ${eliteBenchmark.avgReviveRate || 80}%) / 내 연막 구출률 ${smokeOpportunityRate}% (아군 기절 대비 성공, Elite Avg: ${eliteBenchmark.avgSmokeRate || 60}%) / 구출 연막 시도 성공률 ${smokeAttemptSuccessRate}% (시도 ${tradeStats.smokeCount || 0}회, 성공 ${tradeStats.smokeRescues || 0}회)
-- 공간 전술: 고립 지수 ${isolationData?.isolationIndex || "데이터 부족"} (Elite Avg: ${eliteBenchmark.avgIsolationIndex || 1.0}) / 아군 평균 거리: ${isolationData?.minDist || 0}m / 고도차 ${isolationData?.heightDiff || 0}m / 십자포화 노출: ${isolationData?.isCrossfire ? "있음" : "없음"}
+- 전술 지원: 견제사격 ${tradeStats.suppCount || 0}회 (Elite Avg: 측정 불가)
+- 위기 관리: 내가 한 소생률 ${personalReviveRate}% (아군 기절 ${tradeStats.teammateKnocks || 0}회 중 내 소생 ${tradeStats.revCount || 0}회, Elite Avg: ${formatBenchmarkPercent("avgReviveRate")}) / 내 연막 구출률 ${smokeOpportunityRate}% (아군 기절 대비 성공, Elite Avg: ${formatBenchmarkPercent("avgSmokeRate")}) / 구출 연막 시도 성공률 ${smokeAttemptSuccessRate}% (시도 ${tradeStats.smokeCount || 0}회, 성공 ${tradeStats.smokeRescues || 0}회)
+- 공간 전술: 고립 지수 ${isolationData?.isolationIndex ?? "데이터 부족"} (Elite Avg: ${formatBenchmarkNumber("avgIsolationIndex")}) / 아군 평균 거리: ${isolationData?.minDist ?? "측정 불가"}m / 고도차 ${isolationData?.heightDiff ?? "측정 불가"}m / 십자포화 노출: ${isolationData?.isCrossfire ? "있음" : "없음"}
 - 유틸리티 정밀: 총 투척 ${totalThrows}회 / 피해형 투척 ${lethalThrows}회 / 피해 적중 ${utilityHits}회 / 피해형 투척 적중률 ${utilityAccuracy}% / 피해형 투척당 평균 딜 ${avgDamagePerLethalThrow}
 - 유틸리티 해석: ${utilityInterpretation}
-- 교전 압박: 압박 지수 ${combatPressure.pressureIndex || 0} (Elite Avg: ${eliteBenchmark.avgPressureIndex || 3.0}) / 투척물 딜량 ${combatPressure.utilityDamage || 0}
-- 운영 패턴: 사망 페이즈 ${matchData.deathPhase || 0} (Elite Avg: ${eliteBenchmark.avgDeathPhase || 6} 페이즈)
+- 교전 압박: 압박 지수 ${combatPressure.pressureIndex ?? 0} (Elite Avg: ${formatBenchmarkNumber("avgPressureIndex")}) / 투척물 딜량 ${combatPressure.utilityDamage || 0}
+- 운영 패턴: 사망 페이즈 ${matchData.deathPhase ?? 0} (Elite Avg: ${formatBenchmarkNumber("avgDeathPhase", " 페이즈")})
 - 팀 전멸 기여: ${tradeStats.enemyTeamWipes || 0}회
 `.trim();
 
