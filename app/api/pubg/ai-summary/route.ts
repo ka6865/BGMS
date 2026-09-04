@@ -489,6 +489,7 @@ function addObservedTotal(total: number | null, value: unknown): number | null {
 function aggregateMatches(matches: any[]) {
   const inputMatches = Array.isArray(matches) ? matches : [];
   let totalKills = 0, totalDamage = 0, totalDamageImpact = 0, totalTeamDamageShare = 0, totalTeamKillShare = 0;
+  let damageImpactCount = 0, teamDamageShareCount = 0, teamKillShareCount = 0;
   let totalTeammateKnocks = 0, totalSuppCount = 0, totalTradeKills = 0, totalRescueSmokes = 0;
   let totalRevCount = 0, totalBaitCount = 0;
   let totalSmokes = 0;
@@ -694,9 +695,21 @@ function aggregateMatches(matches: any[]) {
 
     totalKills += coerceFiniteNumber(m.stats?.kills);
     totalDamage += coerceFiniteNumber(m.stats?.processedDamageDealt ?? m.stats?.damageDealt);
-    totalDamageImpact += coerceFiniteNumber(m.teamImpact?.damageImpact);
-    totalTeamDamageShare += coerceFiniteNumber(m.teamImpact?.teamDamageShare);
-    totalTeamKillShare += coerceFiniteNumber(m.teamImpact?.teamKillShare);
+    const damageImpact = readObservedNonNegative(m.teamImpact?.damageImpact);
+    if (damageImpact !== null) {
+      totalDamageImpact += damageImpact;
+      damageImpactCount++;
+    }
+    const teamDamageShare = readObservedNonNegative(m.teamImpact?.teamDamageShare);
+    if (teamDamageShare !== null) {
+      totalTeamDamageShare += teamDamageShare;
+      teamDamageShareCount++;
+    }
+    const teamKillShare = readObservedNonNegative(m.teamImpact?.teamKillShare);
+    if (teamKillShare !== null) {
+      totalTeamKillShare += teamKillShare;
+      teamKillShareCount++;
+    }
     if (m.badges) allBadges.push(...m.badges);
 
     const observedDeathPhase = readObservedNonNegative(m.deathPhase);
@@ -761,9 +774,15 @@ function aggregateMatches(matches: any[]) {
   const mLen = Math.max(1, inputMatches.length);
   const avgDamage = Math.floor(Math.max(0, totalDamage / mLen));
   const avgKills = Number(Math.max(0, totalKills / mLen).toFixed(1));
-  const avgDamageImpact = Number(Math.max(0, totalDamageImpact / mLen).toFixed(1));
-  const avgTeamDamageShare = Number(Math.max(0, Math.min(100, totalTeamDamageShare / mLen)).toFixed(1));
-  const avgTeamKillShare = Number(Math.max(0, Math.min(100, totalTeamKillShare / mLen)).toFixed(1));
+  const avgDamageImpact = damageImpactCount > 0
+    ? Number(Math.max(0, totalDamageImpact / damageImpactCount).toFixed(1))
+    : null;
+  const avgTeamDamageShare = teamDamageShareCount > 0
+    ? Number(Math.max(0, Math.min(100, totalTeamDamageShare / teamDamageShareCount)).toFixed(1))
+    : null;
+  const avgTeamKillShare = teamKillShareCount > 0
+    ? Number(Math.max(0, Math.min(100, totalTeamKillShare / teamKillShareCount)).toFixed(1))
+    : null;
 
   const badgeCounts: Record<string, number> = {};
   allBadges.forEach((b: any) => { if (b?.name) badgeCounts[b.name] = (badgeCounts[b.name] || 0) + 1; });
@@ -1427,7 +1446,7 @@ export async function POST(request: Request) {
     const {
       latestMatchTime, avgBackupLatency, avgReactionLatency, userInitiativeRate, avgPressureIndex,
       totalReversalAttempts, totalReversalWins, avgDuelWinRate, totalDuelWins, totalDuelLosses,
-      avgDamageImpact, topBadges, goldenTimeAvg, killContribFinal, avgDeathPhase,
+      avgDamageImpact, avgTeamDamageShare, avgTeamKillShare, topBadges, goldenTimeAvg, killContribFinal, avgDeathPhase,
       totalTeammateKnocks, totalSuppCount, totalTradeKills, totalRevCount,
       totalBaitCount,
       isolationCountFinal, combatIsolationCountFinal, deathIsolationCountFinal,
@@ -1978,7 +1997,12 @@ export async function POST(request: Request) {
       initiativeSuccess: formatObservedPercent(userInitiativeRate), pressureIndex: avgPressureIndex,
       reversalRate: formatBoundedRate(totalReversalWins, totalReversalAttempts),
       duelStats: { winRate: formatObservedPercent(avgDuelWinRate), wins: totalDuelWins, losses: totalDuelLosses, reversals: totalReversalWins, reversalAttempts: totalReversalAttempts },
-      teamImpact: { damageImpact: avgDamageImpact, topBadges },
+      teamImpact: {
+        damageImpact: observedVisualValue(avgDamageImpact),
+        teamDamageShare: observedVisualValue(avgTeamDamageShare),
+        teamKillShare: observedVisualValue(avgTeamKillShare),
+        topBadges,
+      },
       goldenTime: goldenTimeAvg, killContrib: killContribFinal, deathPhase: avgDeathPhase,
       bluezoneWaste: observedVisualValue(masteryStats.avgBluezoneWaste, true),
       maxHitDistance: observedVisualValue(masteryStats.totalMaxHitDist),

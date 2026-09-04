@@ -4008,6 +4008,152 @@ describe("AI cache route stabilization", () => {
     expect(visuals.tactical.isolation).toBeNull();
   });
 
+  it("ai-summary impact visuals keep missing/null samples unavailable instead of manufacturing zeroes", async () => {
+    mockSummaryGeminiResponse();
+    const rows = [
+      {
+        match_id: "impact-all-missing-1",
+        player_id: "player_a",
+        platform: "kakao",
+        data: {
+          fullResult: createSummaryMatch("impact-all-missing-1", { teamImpact: {} }),
+        },
+      },
+      {
+        match_id: "impact-all-missing-2",
+        player_id: "player_a",
+        platform: "kakao",
+        data: {
+          fullResult: createSummaryMatch("impact-all-missing-2", {
+            teamImpact: { damageImpact: null, teamDamageShare: null, teamKillShare: null },
+          }),
+        },
+      },
+    ];
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: rows, error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: rows.map((row) => row.match_id),
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const visuals = records.find((record) => record.type === "visuals")?.data;
+
+    expect(response.status).toBe(200);
+    expect(visuals.teamImpact).toMatchObject({
+      damageImpact: "측정 불가",
+      teamDamageShare: "측정 불가",
+      teamKillShare: "측정 불가",
+    });
+  });
+
+  it("ai-summary impact visuals preserve an explicit numeric zero as observed", async () => {
+    mockSummaryGeminiResponse();
+    const row = {
+      match_id: "impact-explicit-zero",
+      player_id: "player_a",
+      platform: "kakao",
+      data: {
+        fullResult: createSummaryMatch("impact-explicit-zero", {
+          teamImpact: { damageImpact: 0, teamDamageShare: 0, teamKillShare: 0 },
+        }),
+      },
+    };
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: [row], error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: [row.match_id],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const visuals = records.find((record) => record.type === "visuals")?.data;
+
+    expect(response.status).toBe(200);
+    expect(visuals.teamImpact).toMatchObject({
+      damageImpact: 0,
+      teamDamageShare: 0,
+      teamKillShare: 0,
+    });
+  });
+
+  it("ai-summary impact visuals average each field over its own observed samples", async () => {
+    mockSummaryGeminiResponse();
+    const rows = [
+      {
+        match_id: "impact-mixed-1",
+        player_id: "player_a",
+        platform: "kakao",
+        data: {
+          fullResult: createSummaryMatch("impact-mixed-1", {
+            teamImpact: { damageImpact: 120, teamDamageShare: null, teamKillShare: 20 },
+          }),
+        },
+      },
+      {
+        match_id: "impact-mixed-2",
+        player_id: "player_a",
+        platform: "kakao",
+        data: {
+          fullResult: createSummaryMatch("impact-mixed-2", {
+            teamImpact: { damageImpact: null, teamDamageShare: 40, teamKillShare: undefined },
+          }),
+        },
+      },
+      {
+        match_id: "impact-mixed-3",
+        player_id: "player_a",
+        platform: "kakao",
+        data: {
+          fullResult: createSummaryMatch("impact-mixed-3", {
+            teamImpact: { damageImpact: 60, teamDamageShare: 80, teamKillShare: null },
+          }),
+        },
+      },
+    ];
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({ data: rows, error: null });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: rows.map((row) => row.match_id),
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const visuals = records.find((record) => record.type === "visuals")?.data;
+
+    expect(response.status).toBe(200);
+    expect(visuals.teamImpact).toMatchObject({
+      damageImpact: 90,
+      teamDamageShare: 60,
+      teamKillShare: 20,
+    });
+  });
+
   it("ai-summary는 결측 전투·운영·유틸리티 telemetry를 0으로 제조하지 않고 prompt와 visual을 측정 불가로 유지한다", async () => {
     let capturedPrompt = "";
     mockSummaryGeminiResponse((prompt) => {
