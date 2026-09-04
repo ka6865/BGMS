@@ -27,7 +27,13 @@ import {
   isCanonicalBenchmarkTier,
   isTrustedBenchmarkAggregate,
 } from "../lib/pubg-analysis/benchmarkLookup";
-import { isR2Configured, readObjectForVerification } from "../lib/pubg-analysis/r2Service";
+import {
+  decodeMaybeGzip,
+  isR2Configured,
+  readObjectForVerification,
+} from "../lib/pubg-analysis/r2Service";
+import { buildTelemetryPlayerKey } from "../lib/pubg-analysis/telemetryCacheKey";
+import { parseTelemetryPayload } from "../lib/pubg-analysis/telemetryPayload";
 import { getValidFullResultForMatch, normalizePlatform } from "../lib/pubg-analysis/cacheIdentity";
 import {
   POPULATION_EVIDENCE_VERSION,
@@ -252,6 +258,18 @@ export function createBenchmarkRecoveryR2PostconditionVerifier(
     const object = await readObject(storagePath);
     if (!object) throw new Error("r2_object_missing");
     const playerId = String(row.player_id).trim();
+    try {
+      const payload = JSON.parse(decodeMaybeGzip(object.body));
+      parseTelemetryPayload(payload, {
+        matchId: identity.matchId,
+        platform: identity.platform,
+        playerKey: buildTelemetryPlayerKey(playerId),
+        mode: "lite",
+        telemetryVersion: TELEMETRY_VERSION,
+      });
+    } catch {
+      throw new Error("r2_payload_invalid");
+    }
     return {
       object: {
         key: object.key,

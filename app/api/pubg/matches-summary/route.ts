@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     const summaries: Record<string, any> = {};
     for (const row of telemetryData || []) {
       const fullResult = getLegacyFullResultForHistory(row, playerId, platform);
-      if (!fullResult || (fullResult.v || 0) < RESULT_VERSION) continue;
+      if (!fullResult || fullResult.v !== RESULT_VERSION) continue;
 
       const summary = buildMatchSummary(fullResult);
       if (summary) {

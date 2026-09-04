@@ -1,15 +1,18 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BENCHMARK_RECOVERY_APPLY_WARNING,
   BENCHMARK_RECOVERY_DEFAULT_BASE_URL,
   benchmarkRecoveryConfirmationToken,
+  createBenchmarkRecoveryR2PostconditionVerifier,
   parseBenchmarkRecoveryCanaryArgs,
   runBenchmarkRecoveryCanary,
   validateBenchmarkRecoveryManifest,
   type BenchmarkRecoveryCanaryArgs,
   type BenchmarkRecoveryR2PostconditionEvidence,
+  type BenchmarkRecoveryR2PostconditionVerifier,
   type ReadOnlySupabaseClient,
 } from "../scripts/run_benchmark_recovery_canary";
 import type { BenchmarkRecoveryManifest } from "../scripts/plan_benchmark_recovery";
@@ -281,6 +284,95 @@ describe("benchmark recovery operator warning", () => {
   it("states that apply mutates remote state and does not automatically roll back completed rows", () => {
     expect(BENCHMARK_RECOVERY_APPLY_WARNING).toContain("mutates the database and R2");
     expect(BENCHMARK_RECOVERY_APPLY_WARNING).toContain("not automatically rolled back");
+  });
+});
+
+function verifierStateFixture(
+  identity: { matchId: string; playerId: string; platform: "steam" | "kakao" },
+): Parameters<BenchmarkRecoveryR2PostconditionVerifier>[2] {
+  const state = databaseFixture();
+  const playerHash = createHash("sha256").update(identity.playerId).digest("hex").slice(0, 32);
+  state.telemetry_map_cache_entries = [{
+    match_id: identity.matchId,
+    platform: identity.platform,
+    player_id: identity.playerId,
+    mode: "lite",
+    telemetry_version: TELEMETRY_VERSION,
+    storage_path: `telemetry-map/v${TELEMETRY_VERSION}/${identity.platform}/${identity.matchId}/${playerHash}/lite.json`,
+    status: "ready",
+    lease_expires_at: null,
+    lease_token: null,
+  }];
+  return state as unknown as Parameters<BenchmarkRecoveryR2PostconditionVerifier>[2];
+}
+
+function telemetryPayloadFixture(identity: {
+  matchId: string;
+  playerId: string;
+  platform: "steam" | "kakao";
+}) {
+  return {
+    identity: {
+      matchId: identity.matchId,
+      platform: identity.platform,
+      playerKey: createHash("sha256").update(identity.playerId).digest("hex").slice(0, 32),
+      mode: "lite" as const,
+      telemetryVersion: TELEMETRY_VERSION,
+    },
+    startTime: "2026-09-01T00:00:00.000Z",
+    teammates: [],
+    teamNames: [identity.playerId],
+    events: [],
+    zoneEvents: [],
+    mapName: "erangel",
+  };
+}
+
+describe("benchmark recovery R2 payload postcondition verifier", () => {
+  it.each([false, true])("accepts a canonical %s payload", async (compressed) => {
+    const identity = validateBenchmarkRecoveryManifest(manifestFixture(), { now: FIXED_NOW }).canary[0];
+    const state = verifierStateFixture(identity);
+    const payload = Buffer.from(JSON.stringify(telemetryPayloadFixture(identity)), "utf8");
+    const body = compressed ? gzipSync(payload) : payload;
+    const readObject = vi.fn(async (key: string) => ({ key, etag: '"etag-valid"', body }));
+    const verifier = createBenchmarkRecoveryR2PostconditionVerifier(readObject);
+
+    await expect(verifier(identity, state, state)).resolves.toMatchObject({
+      object: {
+        key: state.telemetry_map_cache_entries[0].storage_path,
+        exists: true,
+        readBack: true,
+      },
+      registry: {
+        matchId: identity.matchId,
+        playerId: identity.playerId,
+        platform: identity.platform,
+        telemetryVersion: TELEMETRY_VERSION,
+      },
+    });
+  });
+
+  it.each([
+    ["wrong match identity", "wrong-match"],
+    ["corrupt gzip content", "corrupt-gzip"],
+    ["invalid JSON content", "invalid-json"],
+    ["invalid payload shape", "invalid-shape"],
+  ] as const)("rejects %s before returning evidence", async (label, variant) => {
+    const identity = validateBenchmarkRecoveryManifest(manifestFixture(), { now: FIXED_NOW }).canary[0];
+    const state = verifierStateFixture(identity);
+    const payload = telemetryPayloadFixture(identity);
+    if (variant === "wrong-match") payload.identity.matchId = "different-match";
+    if (variant === "invalid-shape") payload.mapName = "";
+    const canonicalBody = Buffer.from(JSON.stringify(payload), "utf8");
+    const body = variant === "corrupt-gzip"
+      ? Buffer.from([0x1f, 0x8b, 0x00, 0x00])
+      : variant === "invalid-json"
+        ? Buffer.from("not-json", "utf8")
+        : canonicalBody;
+    const readObject = vi.fn(async (key: string) => ({ key, etag: '"etag-invalid"', body }));
+    const verifier = createBenchmarkRecoveryR2PostconditionVerifier(readObject);
+
+    await expect(verifier(identity, state, state)).rejects.toThrow();
   });
 });
 
