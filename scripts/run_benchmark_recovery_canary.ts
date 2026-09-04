@@ -378,6 +378,19 @@ function assertBucketMatches(value: PlainRecord, expected: BenchmarkRecoveryBuck
   if (!actual || bucketKey(actual) !== bucketKey(expected)) throw new Error(`${label}_bucket_mismatch`);
 }
 
+function assertPlayerMatchBucketMatches(
+  value: PlainRecord,
+  expected: BenchmarkRecoveryBucket,
+  label: string,
+): void {
+  const canonicalParts = canonicalEligibleBucketParts(value.game_mode, value.match_type);
+  if (!canonicalParts
+    || canonicalParts.gameMode !== expected.gameMode
+    || canonicalParts.matchType !== expected.matchType) {
+    throw new Error(`${label}_bucket_mismatch`);
+  }
+}
+
 function identityKey(identity: Pick<CanaryIdentity, "matchId" | "platform" | "playerId">): string {
   return `${identity.matchId}|${identity.platform}|${identity.playerId}`;
 }
@@ -827,7 +840,7 @@ function assertBoundReadEvidence(
     assertBucketMatches(fullResult, evidence.bucket, "bound_processed");
 
     const playerMatch = exactRowOrFail(state.pubg_player_matches, identity, "pubg_player_matches");
-    assertBucketMatches(playerMatch, evidence.bucket, "bound_player_match");
+    assertPlayerMatchBucketMatches(playerMatch, evidence.bucket, "bound_player_match");
     if (canonicalDate(playerMatch.played_at) !== evidence.playedAt) {
       throw new ReadEvidenceMismatchError();
     }
@@ -889,7 +902,7 @@ function assertPostconditions(state: DatabaseState, canary: readonly CanaryIdent
     assertBucketMatches(fullResult, identity.bucket, "postcondition_processed");
 
     const playerMatch = exactRowOrFail(state.pubg_player_matches, identity, "pubg_player_matches");
-    assertBucketMatches(playerMatch, identity.bucket, "postcondition_player_match");
+    assertPlayerMatchBucketMatches(playerMatch, identity.bucket, "postcondition_player_match");
     assertPostconditionPlayedAt(
       playerMatch.played_at,
       identity.playedAt,
