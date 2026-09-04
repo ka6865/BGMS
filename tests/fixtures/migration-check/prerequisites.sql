@@ -111,10 +111,12 @@ create policy "Service Role Write" on public.pubg_player_cache for all using (tr
 create policy "Public Read" on public.pubg_player_cache for select using (true);
 
 create table if not exists public.processed_match_telemetry (
-  match_id text,
-  platform text,
-  player_id text,
-  data jsonb
+  match_id text not null,
+  platform text not null,
+  player_id text not null,
+  data jsonb not null,
+  updated_at timestamptz not null default now(),
+  primary key (match_id, platform, player_id)
 );
 alter table public.processed_match_telemetry enable row level security;
 create policy "Allow authenticated insert" on public.processed_match_telemetry
@@ -133,7 +135,15 @@ create policy "Allow authenticated insert only" on public.match_stats_raw
   for insert with check (auth.role() = 'authenticated');
 create policy "Allow public read" on public.match_stats_raw for select using (true);
 
-create table if not exists public.match_master_telemetry (match_id text, data jsonb);
+create table if not exists public.match_master_telemetry (
+  match_id text primary key,
+  map_name text,
+  game_mode text,
+  telemetry_version numeric,
+  storage_path text,
+  data jsonb,
+  created_at timestamptz not null default now()
+);
 
 -- Recovery-claim migration prerequisite. Keep the identity key and lease
 -- columns faithful to the telemetry cache registry so the claim RPC can be
@@ -169,24 +179,40 @@ create table if not exists public.global_benchmarks (
   initiative_rate double precision,
   damage double precision,
   kills integer,
+  win_place integer,
   survival_time integer,
   game_mode text,
+  map_name text,
   created_at timestamptz default now(),
   duel_win_rate double precision,
   trade_rate double precision,
   revive_rate double precision,
   smoke_rate double precision,
+  is_crossfire boolean,
+  utility_count integer,
+  smoke_count integer,
+  frag_count integer,
+  lethal_throw_count integer,
   pressure_index double precision,
+  enemy_death_distance double precision,
   team_wipes integer default 0,
   reversal_rate double precision,
   isolation_index double precision,
   min_dist double precision,
+  height_diff double precision,
   trade_latency_ms double precision,
   solo_kill_rate integer default 0,
   death_phase integer,
   tier text default 'A',
+  score double precision,
+  combat_score double precision,
+  tactical_score double precision,
+  survival_score double precision,
+  supp_count double precision,
   match_type text default 'official',
-  filter_version integer default 1
+  filter_version integer default 1,
+  population_evidence_version integer,
+  source text
 );
 
 -- Existing weapon sample population and its two pre-provenance RPC overloads.

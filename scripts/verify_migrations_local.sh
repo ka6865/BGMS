@@ -23,6 +23,7 @@ MIGRATIONS=(
   "20260819115023_profile_linked_pubg_auto_sync"
   "20260901141209_pubg_analysis_population_provenance"
   "20260902171741_telemetry_cache_recovery_claim"
+  "20260904005531_telemetry_cache_recovery_finalize"
 )
 
 cleanup() {

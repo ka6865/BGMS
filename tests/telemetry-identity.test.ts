@@ -133,4 +133,28 @@ describe("telemetry identity", () => {
     expect(sql).toMatch(/grant execute on function public\.claim_telemetry_cache_recovery_write[\s\S]*to service_role/i);
     expect(sql).toContain("p_mode <> 'lite'");
   });
+
+  it("recovery finalizer는 lease·v72 identity·legacy benchmark를 한 트랜잭션에서 검증한다", () => {
+    const sql = fs.readFileSync(
+      path.resolve("supabase/migrations/20260904005531_telemetry_cache_recovery_finalize.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/create or replace function public\.finalize_telemetry_cache_recovery\(/i);
+    expect(sql).toMatch(/returns jsonb/i);
+    expect(sql).toMatch(/security invoker/i);
+    expect(sql).toContain("set search_path = ''");
+    expect(sql).toMatch(/telemetry_map_cache_entries[\s\S]*for update/i);
+    expect(sql).toMatch(/processed_match_telemetry[\s\S]*for update/i);
+    expect(sql).toMatch(/global_benchmarks[\s\S]*for update/i);
+    expect(sql).toContain("resultVersion");
+    expect(sql).toContain("accountId");
+    expect(sql).toContain("population_evidence_version");
+    expect(sql).toContain("jsonb");
+    // The function must not build SQL dynamically.  The required GRANT
+    // below necessarily contains the ordinary `execute` privilege keyword,
+    // so scope this assertion to the dynamic EXECUTE FORMAT construct.
+    expect(sql).not.toMatch(/execute\s+format/i);
+    expect(sql).toMatch(/revoke all on function public\.finalize_telemetry_cache_recovery\([\s\S]*from public, anon, authenticated/i);
+    expect(sql).toMatch(/grant execute on function public\.finalize_telemetry_cache_recovery\([\s\S]*to service_role/i);
+  });
 });

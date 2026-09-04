@@ -560,4 +560,286 @@ begin
   raise notice 'PASS: recovery claim duplicate 보존';
 end $$;
 
+\echo '--- 시나리오 16: atomic recovery finalization success/idempotency ---'
+delete from public.telemetry_map_cache_entries where match_id like 'atomic-recovery-%';
+delete from public.processed_match_telemetry where match_id like 'atomic-recovery-%';
+delete from public.global_benchmarks where match_id like 'atomic-recovery-%';
+delete from public.match_master_telemetry where match_id like 'atomic-recovery-%';
+
+do $$
+declare
+  lease_token uuid := '11111111-1111-4111-8111-111111111111';
+  first_result jsonb;
+  retry_result jsonb;
+  first_claim boolean;
+  processed_data jsonb := jsonb_build_object(
+    'fullResult', jsonb_build_object(
+      'v', 72,
+      'matchId', 'atomic-recovery-success',
+      'player_id', 'atomic-player',
+      'platform', 'steam',
+      'stats', jsonb_build_object('name', 'AtomicPlayer', 'playerId', 'atomic-account')
+    )
+  );
+  final_processed_data jsonb := jsonb_build_object(
+    'fullResult', jsonb_build_object(
+      'v', 73,
+      'matchId', 'atomic-recovery-success',
+      'player_id', 'atomic-player',
+      'platform', 'steam',
+      'populationEvidenceVersion', 1,
+      'stats', jsonb_build_object('name', 'AtomicPlayer', 'playerId', 'atomic-account')
+    )
+  );
+  rows_payload jsonb;
+begin
+  set local role service_role;
+  insert into public.processed_match_telemetry (match_id, platform, player_id, data)
+  values ('atomic-recovery-success', 'steam', 'atomic-player', processed_data);
+  insert into public.global_benchmarks (
+    id, match_id, platform, player_id, game_mode, match_type, tier,
+    filter_version, population_evidence_version, damage, kills
+  ) values (
+    9201, 'atomic-recovery-success', 'steam', 'atomic-player',
+    'squad-fpp', 'official', 'B', null, null, 321, 3
+  );
+  first_claim := public.claim_telemetry_cache_recovery_write(
+    'atomic-recovery-success', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-success/atomic-account.json',
+    now() + interval '10 minutes', lease_token, now()
+  );
+  if not first_claim then raise exception 'FAIL: atomic recovery claim 실패'; end if;
+
+  rows_payload := jsonb_build_object(
+    'master', jsonb_build_object(
+      'match_id', 'atomic-recovery-success', 'map_name', 'Baltic_Main',
+      'game_mode', 'squad-fpp', 'telemetry_version', 61,
+      'storage_path', 'telemetry-map/v61/steam/atomic-recovery-success/atomic-account.json'
+    ),
+    'processed', jsonb_build_object(
+      'match_id', 'atomic-recovery-success', 'platform', 'steam',
+      'player_id', 'atomic-player', 'data', jsonb_set(final_processed_data, '{fullResult,stats,playerId}', '"atomic-account"'::jsonb),
+      'updated_at', now()
+    ),
+    'benchmark', jsonb_build_object(
+      'match_id', 'atomic-recovery-success', 'platform', 'steam', 'player_id', 'atomic-player',
+      'game_mode', 'squad-fpp', 'match_type', 'official', 'tier', 'B',
+      'filter_version', 8, 'population_evidence_version', 1, 'source', 'user',
+      'damage', 321, 'kills', 3, 'win_place', 4, 'map_name', 'Baltic_Main'
+    )
+  );
+
+  first_result := public.finalize_telemetry_cache_recovery(
+    'atomic-recovery-success', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-success/atomic-account.json', lease_token,
+    jsonb_build_object(
+      'matchId', 'atomic-recovery-success', 'playerId', 'atomic-player',
+      'platform', 'steam', 'resultVersion', 72, 'accountId', 'atomic-account'
+    ),
+    jsonb_build_object(
+      'id', 9201, 'matchId', 'atomic-recovery-success', 'playerId', 'atomic-player',
+      'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official',
+      'tier', 'B', 'filterVersion', null, 'populationEvidenceVersion', null
+    ),
+    rows_payload
+  );
+  if first_result->>'code' <> 'finalized' then
+    raise exception 'FAIL: atomic recovery finalization 실패 (%)', first_result;
+  end if;
+  if (select data #>> '{fullResult,v}' from public.processed_match_telemetry
+      where match_id = 'atomic-recovery-success' and platform = 'steam' and player_id = 'atomic-player') <> '73'
+     or not exists (select 1 from public.match_master_telemetry where match_id = 'atomic-recovery-success')
+     or (select population_evidence_version from public.global_benchmarks where id = 9201) <> 1
+     or (select status from public.telemetry_map_cache_entries where match_id = 'atomic-recovery-success') <> 'ready'
+     or (select cache.lease_token
+           from public.telemetry_map_cache_entries as cache
+          where cache.match_id = 'atomic-recovery-success') is not null then
+    raise exception 'FAIL: atomic finalization 중 일부 row가 갱신되지 않음';
+  end if;
+
+  retry_result := public.finalize_telemetry_cache_recovery(
+    'atomic-recovery-success', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-success/atomic-account.json', lease_token,
+    jsonb_build_object(
+      'matchId', 'atomic-recovery-success', 'playerId', 'atomic-player',
+      'platform', 'steam', 'resultVersion', 72, 'accountId', 'atomic-account'
+    ),
+    jsonb_build_object(
+      'id', 9201, 'matchId', 'atomic-recovery-success', 'playerId', 'atomic-player',
+      'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official',
+      'tier', 'B', 'filterVersion', null, 'populationEvidenceVersion', null
+    ),
+    rows_payload
+  );
+  if retry_result->>'code' <> 'already_finalized' then
+    raise exception 'FAIL: 동일 finalization 재시도가 already_finalized가 아님 (%)', retry_result;
+  end if;
+  raise notice 'PASS: atomic recovery success + all-row transition + idempotent retry';
+end $$;
+
+\echo '--- 시나리오 17: stale benchmark/processed guards mutate no rows ---'
+delete from public.telemetry_map_cache_entries where match_id like 'atomic-recovery-stale-%';
+delete from public.processed_match_telemetry where match_id like 'atomic-recovery-stale-%';
+delete from public.global_benchmarks where match_id like 'atomic-recovery-stale-%';
+delete from public.match_master_telemetry where match_id like 'atomic-recovery-stale-%';
+
+do $$
+declare
+  benchmark_result jsonb;
+  processed_result jsonb;
+  processed_data jsonb := jsonb_build_object(
+    'fullResult', jsonb_build_object(
+      'v', 72, 'matchId', 'atomic-recovery-stale-benchmark',
+      'player_id', 'atomic-player', 'platform', 'steam',
+      'stats', jsonb_build_object('name', 'AtomicPlayer', 'playerId', 'atomic-account')
+    )
+  );
+  rows_payload jsonb;
+  base_guard jsonb := jsonb_build_object(
+    'matchId', 'atomic-recovery-stale-benchmark', 'playerId', 'atomic-player',
+    'platform', 'steam', 'resultVersion', 72, 'accountId', 'atomic-account'
+  );
+begin
+  set local role service_role;
+  insert into public.processed_match_telemetry (match_id, platform, player_id, data)
+  values ('atomic-recovery-stale-benchmark', 'steam', 'atomic-player', processed_data);
+  insert into public.global_benchmarks (
+    id, match_id, platform, player_id, game_mode, match_type, tier,
+    filter_version, population_evidence_version
+  ) values (
+    9202, 'atomic-recovery-stale-benchmark', 'steam', 'atomic-player',
+    'squad-fpp', 'official', 'B', null, null
+  );
+  perform public.claim_telemetry_cache_recovery_write(
+    'atomic-recovery-stale-benchmark', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-stale-benchmark/atomic-account.json',
+    now() + interval '10 minutes', '22222222-2222-4222-8222-222222222222', now()
+  );
+  -- A concurrent writer advances only the legacy marker after the claim.
+  update public.global_benchmarks set filter_version = 8 where id = 9202;
+  rows_payload := jsonb_build_object(
+    'master', jsonb_build_object(
+      'match_id', 'atomic-recovery-stale-benchmark', 'map_name', 'Baltic_Main',
+      'game_mode', 'squad-fpp', 'telemetry_version', 61,
+      'storage_path', 'telemetry-map/v61/steam/atomic-recovery-stale-benchmark/atomic-account.json'
+    ),
+    'processed', jsonb_build_object(
+      'match_id', 'atomic-recovery-stale-benchmark', 'platform', 'steam',
+      'player_id', 'atomic-player', 'data', jsonb_set(jsonb_set(processed_data, '{fullResult,populationEvidenceVersion}', '1'::jsonb), '{fullResult,v}', '73'::jsonb), 'updated_at', now()
+    ),
+    'benchmark', jsonb_build_object(
+      'match_id', 'atomic-recovery-stale-benchmark', 'platform', 'steam', 'player_id', 'atomic-player',
+      'game_mode', 'squad-fpp', 'match_type', 'official', 'tier', 'B',
+      'filter_version', 8, 'population_evidence_version', 1, 'source', 'user'
+    )
+  );
+  benchmark_result := public.finalize_telemetry_cache_recovery(
+    'atomic-recovery-stale-benchmark', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-stale-benchmark/atomic-account.json',
+    '22222222-2222-4222-8222-222222222222', base_guard,
+    jsonb_build_object(
+      'id', 9202, 'matchId', 'atomic-recovery-stale-benchmark', 'playerId', 'atomic-player',
+      'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official',
+      'tier', 'B', 'filterVersion', null, 'populationEvidenceVersion', null
+    ), rows_payload
+  );
+  if benchmark_result->>'code' <> 'benchmark_guard_mismatch'
+     or (select data #>> '{fullResult,v}' from public.processed_match_telemetry where match_id = 'atomic-recovery-stale-benchmark') <> '72'
+     or exists (select 1 from public.match_master_telemetry where match_id = 'atomic-recovery-stale-benchmark')
+     or (select status from public.telemetry_map_cache_entries where match_id = 'atomic-recovery-stale-benchmark') <> 'pending' then
+    raise exception 'FAIL: stale benchmark worker가 row를 변경함 (%)', benchmark_result;
+  end if;
+
+  insert into public.processed_match_telemetry (match_id, platform, player_id, data)
+  values ('atomic-recovery-stale-processed', 'steam', 'atomic-player', jsonb_set(processed_data, '{fullResult,matchId}', '"atomic-recovery-stale-processed"'::jsonb));
+  insert into public.global_benchmarks (
+    id, match_id, platform, player_id, game_mode, match_type, tier,
+    filter_version, population_evidence_version
+  ) values (
+    9203, 'atomic-recovery-stale-processed', 'steam', 'atomic-player',
+    'squad-fpp', 'official', 'B', null, null
+  );
+  perform public.claim_telemetry_cache_recovery_write(
+    'atomic-recovery-stale-processed', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-stale-processed/atomic-account.json',
+    now() + interval '10 minutes', '33333333-3333-4333-8333-333333333333', now()
+  );
+  update public.processed_match_telemetry
+    set data = jsonb_set(data, '{fullResult,v}', '73'::jsonb)
+    where match_id = 'atomic-recovery-stale-processed';
+  processed_result := public.finalize_telemetry_cache_recovery(
+    'atomic-recovery-stale-processed', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-stale-processed/atomic-account.json',
+    '33333333-3333-4333-8333-333333333333',
+    jsonb_build_object(
+      'matchId', 'atomic-recovery-stale-processed', 'playerId', 'atomic-player',
+      'platform', 'steam', 'resultVersion', 72, 'accountId', 'atomic-account'
+    ),
+    jsonb_build_object(
+      'id', 9203, 'matchId', 'atomic-recovery-stale-processed', 'playerId', 'atomic-player',
+      'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official',
+      'tier', 'B', 'filterVersion', null, 'populationEvidenceVersion', null
+    ),
+    jsonb_build_object(
+      'master', jsonb_build_object(
+        'match_id', 'atomic-recovery-stale-processed', 'map_name', 'Baltic_Main',
+        'game_mode', 'squad-fpp', 'telemetry_version', 61,
+        'storage_path', 'telemetry-map/v61/steam/atomic-recovery-stale-processed/atomic-account.json'
+      ),
+      'processed', jsonb_build_object(
+        'match_id', 'atomic-recovery-stale-processed', 'platform', 'steam',
+        'player_id', 'atomic-player', 'data', jsonb_set(jsonb_set(jsonb_set(processed_data, '{fullResult,matchId}', '"atomic-recovery-stale-processed"'::jsonb), '{fullResult,populationEvidenceVersion}', '1'::jsonb), '{fullResult,v}', '73'::jsonb), 'updated_at', now()
+      ),
+      'benchmark', jsonb_build_object(
+        'match_id', 'atomic-recovery-stale-processed', 'platform', 'steam', 'player_id', 'atomic-player',
+        'game_mode', 'squad-fpp', 'match_type', 'official', 'tier', 'B',
+        'filter_version', 8, 'population_evidence_version', 1, 'source', 'user'
+      )
+    )
+  );
+  if processed_result->>'code' <> 'processed_guard_mismatch'
+     or (select population_evidence_version from public.global_benchmarks where id = 9203) is not null
+     or exists (select 1 from public.match_master_telemetry where match_id = 'atomic-recovery-stale-processed')
+     or (select status from public.telemetry_map_cache_entries where match_id = 'atomic-recovery-stale-processed') <> 'pending' then
+    raise exception 'FAIL: stale processed worker가 row를 변경함 (%)', processed_result;
+  end if;
+  raise notice 'PASS: stale benchmark/processed guard zero-mutation';
+end $$;
+
+\echo '--- 시나리오 18: recovery finalizer ACL·SECURITY INVOKER ---'
+do $$
+declare
+  signature constant text := 'public.finalize_telemetry_cache_recovery(text,text,text,text,numeric,text,uuid,jsonb,jsonb,jsonb)';
+  public_exec boolean;
+begin
+  if not has_function_privilege('service_role', signature, 'EXECUTE') then
+    raise exception 'FAIL: service_role finalizer EXECUTE 권한 누락';
+  end if;
+  if has_function_privilege('anon', signature, 'EXECUTE') then
+    raise exception 'FAIL: anon finalizer EXECUTE 권한 잔존';
+  end if;
+  if has_function_privilege('authenticated', signature, 'EXECUTE') then
+    raise exception 'FAIL: authenticated finalizer EXECUTE 권한 잔존';
+  end if;
+  select exists (
+    select 1
+    from aclexplode(p.proacl) acl
+    where p.oid = signature::regprocedure
+      and acl.grantee = 0
+      and acl.privilege_type = 'EXECUTE'
+  ) into public_exec
+  from pg_proc p
+  where p.oid = signature::regprocedure;
+  if coalesce(public_exec, false) then
+    raise exception 'FAIL: PUBLIC finalizer EXECUTE 권한 잔존';
+  end if;
+  if exists (
+    select 1 from pg_proc p
+    where p.oid = signature::regprocedure and p.prosecdef
+  ) then
+    raise exception 'FAIL: finalizer가 SECURITY DEFINER임';
+  end if;
+  raise notice 'PASS: finalizer ACL 4-way + SECURITY INVOKER';
+end $$;
+
 \echo '=== 전체 시나리오 통과 ==='

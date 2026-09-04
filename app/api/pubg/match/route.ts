@@ -8,7 +8,11 @@ import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
 import { filterTelemetryEvents } from "@/lib/pubg-analysis/telemetryContract";
 import { adaptBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
-import { fetchTierBenchmarkStats } from "@/lib/pubg-analysis/benchmarkLookup";
+import {
+  BENCHMARK_FILTER_VERSION,
+  fetchTierBenchmarkStats,
+  isCanonicalBenchmarkTier,
+} from "@/lib/pubg-analysis/benchmarkLookup";
 import {
   buildProcessedTelemetryUpsert,
   getValidFullResultForMatch,
@@ -16,6 +20,7 @@ import {
 } from "@/lib/pubg-analysis/cacheIdentity";
 import {
   downloadFromR2,
+  deleteObjectsFromR2,
   getPresignedUrlFromR2,
   isR2Configured,
   uploadToR2,
@@ -29,7 +34,9 @@ import {
 } from "@/lib/pubg-analysis/telemetryMapCache";
 import {
   claimTelemetryMapCacheReservation,
+  claimTelemetryMapCacheRecoveryReservation,
   finalizeTelemetryMapCacheLifecycle,
+  finalizeRecoveryAtomically,
   releaseTelemetryMapCacheReservation,
   TelemetryRegistryError,
 } from "@/lib/pubg-analysis/telemetryRegistry.server";
@@ -39,6 +46,7 @@ import {
   isCanonicalMatchId,
 } from "@/lib/pubg-analysis/telemetryIdentity";
 import {
+  buildTelemetryCacheKey,
   buildTelemetryAnalyzeCacheKey,
   buildTelemetryPublicIdentity,
   createTelemetryAnalyzeCacheEnvelope,
@@ -49,10 +57,17 @@ import {
 import { createTelemetryPayload } from "@/lib/pubg-analysis/telemetryPayload";
 import { trackPubgRateLimit } from "@/lib/pubg-analysis/pubgApiTracker";
 import {
+  buildBenchmarkRow,
   persistMatchAnalysis,
   type AnalysisSource,
   type PubgPlatform,
+  type RecoveryBenchmarkGuard,
 } from "@/lib/pubg-analysis/persistMatchAnalysis";
+import type {
+  RecoveryFinalizeRows,
+  RecoveryBenchmarkGuard as RegistryRecoveryBenchmarkGuard,
+  RecoveryProcessedGuard,
+} from "@/lib/pubg-analysis/telemetryRegistry.server";
 import {
   reportPubgApiError,
   type PubgApiErrorContext,
@@ -70,6 +85,7 @@ import {
   noteDatabaseAvailable,
   noteDatabaseUnavailable,
 } from "@/lib/pubg/databaseCircuitBreaker";
+import { evaluateMatchEligibility } from "@/lib/pubg-analysis/matchEligibility";
 
 // [ISR V1.0] force-dynamic 유지: PUBG API 호출, R2 업로드, DB Upsert 등 부수효과 보호
 // unstable_cache는 DB 읽기(캐시 조회) 전용 프록시로만 사용
@@ -153,6 +169,154 @@ async function readFreshRecoveryTelemetry(
   if (error) throw error;
   noteDatabaseAvailable();
   return data || null;
+}
+
+const RECOVERY_GLOBAL_BENCHMARK_COLUMNS = [
+  "id",
+  "match_id",
+  "player_id",
+  "platform",
+  "game_mode",
+  "match_type",
+  "tier",
+  "filter_version",
+  "population_evidence_version",
+].join(",");
+
+type RecoveryBenchmarkBucket = Pick<RecoveryBenchmarkGuard, "gameMode" | "matchType" | "tier">;
+
+function recoveryGlobalMarkerError(): BenchmarkRecoveryError {
+  return new BenchmarkRecoveryError(
+    "BENCHMARK_RECOVERY_GLOBAL_BENCHMARK_CHANGED",
+    409,
+    "benchmark recovery global benchmark marker changed",
+  );
+}
+
+function recoveryGlobalReadError(): BenchmarkRecoveryError {
+  return new BenchmarkRecoveryError(
+    "BENCHMARK_RECOVERY_GLOBAL_BENCHMARK_UNAVAILABLE",
+    503,
+    "benchmark recovery global benchmark read failed",
+  );
+}
+
+function recoveryGlobalBenchmarkBucket(
+  matchAttr: unknown,
+  fullResult: Record<string, unknown>,
+): RecoveryBenchmarkBucket | null {
+  const eligibilityInput = {
+    ...(isRecord(matchAttr) ? matchAttr : {}),
+    ...fullResult,
+  };
+  const eligibility = evaluateMatchEligibility(eligibilityInput, "benchmark");
+  const benchmark = isRecord(fullResult.benchmark) ? fullResult.benchmark : null;
+  const matchInfo = isRecord(fullResult.matchInfo) ? fullResult.matchInfo : null;
+  const rawTier = benchmark?.tier ?? matchInfo?.tier;
+  const tier = typeof rawTier === "string" ? rawTier.trim().toUpperCase() : null;
+  if (!eligibility.eligible
+    || !eligibility.mode
+    || !eligibility.matchType
+    || !tier
+    || !isCanonicalBenchmarkTier(tier)) {
+    return null;
+  }
+  return {
+    gameMode: eligibility.mode,
+    matchType: eligibility.matchType,
+    tier,
+  };
+}
+
+function recoveryGlobalMarker(value: unknown): number | null | undefined {
+  if (value === null) return null;
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) return undefined;
+  return value;
+}
+
+function sameRecoveryBenchmarkGuard(
+  left: RecoveryBenchmarkGuard,
+  right: RecoveryBenchmarkGuard,
+): boolean {
+  return left.id === right.id
+    && left.matchId === right.matchId
+    && left.playerId === right.playerId
+    && left.platform === right.platform
+    && left.gameMode === right.gameMode
+    && left.matchType === right.matchType
+    && left.tier === right.tier
+    && left.filterVersion === right.filterVersion
+    && left.populationEvidenceVersion === right.populationEvidenceVersion;
+}
+
+/**
+ * Bind recovery to the exact legacy benchmark row before reserving the
+ * telemetry cache.  The marker values are returned for persistence's atomic
+ * compare-and-swap; a read alone is intentionally not authorization.
+ */
+async function readFreshRecoveryBenchmarkGuard(
+  matchId: string,
+  lowerNickname: string,
+  platform: PubgPlatform,
+  matchAttr: unknown,
+  fullResult: Record<string, unknown>,
+): Promise<RecoveryBenchmarkGuard> {
+  const { data, error } = await supabase
+    .from("global_benchmarks")
+    .select(RECOVERY_GLOBAL_BENCHMARK_COLUMNS)
+    .eq("match_id", matchId)
+    .eq("platform", normalizePlatform(platform))
+    .eq("player_id", lowerNickname)
+    .retry(false)
+    .abortSignal(AbortSignal.timeout(5_000))
+    .maybeSingle();
+  if (error) throw recoveryGlobalReadError();
+  noteDatabaseAvailable();
+
+  const row = isRecord(data) ? data : null;
+  const hasValidRowId = row !== null && (typeof row.id === "number"
+    ? Number.isSafeInteger(row.id)
+    : typeof row.id === "string" && /^\d+$/.test(row.id));
+  if (!row
+    || !hasValidRowId
+    || normalizeMatchId(row.match_id) !== matchId
+    || typeof row.player_id !== "string"
+    || normalizeName(row.player_id) !== lowerNickname
+    || typeof row.platform !== "string"
+    || normalizePlatform(row.platform) !== platform) {
+    throw recoveryGlobalMarkerError();
+  }
+
+  const bucket = recoveryGlobalBenchmarkBucket(matchAttr, fullResult);
+  if (!bucket
+    || row.game_mode !== bucket.gameMode
+    || row.match_type !== bucket.matchType
+    || row.tier !== bucket.tier) {
+    throw recoveryGlobalMarkerError();
+  }
+
+  const filterVersion = recoveryGlobalMarker(row.filter_version);
+  const populationEvidenceVersion = recoveryGlobalMarker(row.population_evidence_version);
+  // Recovery may only upgrade the known legacy population.  A current marker
+  // or any unknown/future non-null marker is never overwritten.
+  if (filterVersion === undefined
+    || populationEvidenceVersion === undefined
+    || populationEvidenceVersion !== null
+    || (filterVersion !== null && filterVersion > BENCHMARK_FILTER_VERSION)) {
+    throw recoveryGlobalMarkerError();
+  }
+
+  return {
+    id: row.id as number | string,
+    matchId,
+    playerId: lowerNickname,
+    platform,
+    gameMode: bucket.gameMode,
+    matchType: bucket.matchType,
+    tier: bucket.tier,
+    filterVersion,
+    populationEvidenceVersion,
+  };
 }
 
 const MAP_IDS: Record<string, string> = {
@@ -408,6 +572,47 @@ function benchmarkRecoveryFailureResponse(error: BenchmarkRecoveryError): NextRe
   }, { status: error.status });
 }
 
+/**
+ * An exact-key recovery delete is successful only when the guarded R2 helper
+ * confirms that it planned and deleted precisely the one key we uploaded.
+ * Treat a dry-run, blocked key, partial result, or malformed helper response
+ * as compensation failure so the caller never reports a false rollback.
+ */
+function isSuccessfulRecoveryDeletion(result: unknown): boolean {
+  if (!isRecord(result)) return false;
+  return result.dryRun === false
+    && result.plannedCount === 1
+    && result.deletedCount === 1
+    && Array.isArray(result.blocked)
+    && result.blocked.length === 0
+    && Array.isArray(result.failed)
+    && result.failed.length === 0;
+}
+
+function recoveryCompensationError(
+  error: unknown,
+  objectDeleted: boolean,
+): BenchmarkRecoveryError {
+  if (error instanceof TelemetryRegistryError
+    && error.code === "RECOVERY_FINALIZE_RECONCILIATION_FAILED") {
+    return new BenchmarkRecoveryError(
+      "BENCHMARK_RECOVERY_RECONCILIATION_FAILED",
+      503,
+      "benchmark recovery finalization state could not be confirmed",
+    );
+  }
+  if (objectDeleted && error instanceof BenchmarkRecoveryError) return error;
+  return new BenchmarkRecoveryError(
+    objectDeleted
+      ? "BENCHMARK_RECOVERY_PERSISTENCE_FAILED"
+      : "BENCHMARK_RECOVERY_COMPENSATION_FAILED",
+    503,
+    objectDeleted
+      ? "benchmark recovery persistence failed"
+      : "benchmark recovery compensation failed",
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -428,6 +633,25 @@ function containsRecoveryIdentityEvidence(
       if (typeof nested === "string" && normalizeName(nested) === normalizeName(nickname)) return true;
     }
     if (containsRecoveryIdentityEvidence(nested, accountId, nickname)) return true;
+  }
+  return false;
+}
+
+/** Recovery telemetry may mention a display name without proving which
+ * account produced the event. Keep the existing nickname predicate for the
+ * broader telemetry filter, but require this account-only predicate before a
+ * recovery payload is authorized. */
+function containsRecoveryAccountIdentityEvidence(value: unknown, accountId: string): boolean {
+  if (Array.isArray(value)) return value.some((item) => containsRecoveryAccountIdentityEvidence(item, accountId));
+  if (!isRecord(value)) return false;
+
+  for (const [key, nested] of Object.entries(value)) {
+    if ((key === "accountId" || key === "playerId")
+      && typeof nested === "string"
+      && nested === accountId) {
+      return true;
+    }
+    if (containsRecoveryAccountIdentityEvidence(nested, accountId)) return true;
   }
   return false;
 }
@@ -503,7 +727,10 @@ async function loadAndValidateRecoveryTelemetry(
   const hasIdentityEvidence = filtered.some((event) => (
     containsRecoveryIdentityEvidence(event, accountId, nickname)
   ));
-  if (!hasOfficialEvent || filtered.length === 0 || !hasIdentityEvidence) {
+  const hasAccountIdentityEvidence = filtered.some((event) => (
+    containsRecoveryAccountIdentityEvidence(event, accountId)
+  ));
+  if (!hasOfficialEvent || filtered.length === 0 || !hasIdentityEvidence || !hasAccountIdentityEvidence) {
     throw new BenchmarkRecoveryError(
       "BENCHMARK_RECOVERY_TELEMETRY_INVALID",
       412,
@@ -1018,8 +1245,9 @@ async function reanalyzeAndSave(
   }
   const recoveryResultVersion = Math.max(1, RESULT_VERSION - 1);
   let recoveryTelemetry: any[] | null = null;
+  let recoveryBenchmarkGuard: RecoveryBenchmarkGuard | undefined;
 
-  const assertFreshRecoveryPreviousV72 = async (): Promise<void> => {
+  const assertFreshRecoveryPreviousV72 = async (): Promise<Record<string, unknown>> => {
     const freshData = await readFreshRecoveryTelemetry(matchId, lowerNickname, platform);
     const freshResult = getValidFullResultForMatch(freshData, {
       matchId,
@@ -1035,12 +1263,41 @@ async function reanalyzeAndSave(
         "benchmark recovery requires an immediately previous v72 result",
       );
     }
+    const stats = isRecord(freshResult.stats) ? freshResult.stats : null;
+    const embeddedAccountId = stats?.playerId || stats?.accountId;
+    if (typeof myAccountId !== "string"
+      || !myAccountId
+      || typeof embeddedAccountId !== "string"
+      || !embeddedAccountId
+      || embeddedAccountId !== myAccountId) {
+      throw new BenchmarkRecoveryError(
+        "BENCHMARK_RECOVERY_PREVIOUS_V72_REQUIRED",
+        409,
+        "benchmark recovery requires an immediately previous v72 result",
+      );
+    }
+    return freshResult;
+  };
+
+  const assertFreshRecoveryAuthorization = async (): Promise<void> => {
+    const freshPreviousV72 = await assertFreshRecoveryPreviousV72();
+    const freshBenchmarkGuard = await readFreshRecoveryBenchmarkGuard(
+      matchId,
+      lowerNickname,
+      platform,
+      matchAttr,
+      freshPreviousV72,
+    );
+    if (recoveryBenchmarkGuard && !sameRecoveryBenchmarkGuard(recoveryBenchmarkGuard, freshBenchmarkGuard)) {
+      throw recoveryGlobalMarkerError();
+    }
+    recoveryBenchmarkGuard = freshBenchmarkGuard;
   };
 
   // Re-read before loading the external telemetry asset.  The unstable cache
   // is only a stale gate; it must never authorize telemetry/R2 work on a row
   // that has already advanced to v73 in the canonical database.
-  if (recoveryAuthorized) await assertFreshRecoveryPreviousV72();
+  if (recoveryAuthorized) await assertFreshRecoveryAuthorization();
 
   // Validate and fetch the canonical recovery asset before reserving the
   // telemetry-map row.  Invalid/missing assets therefore keep the historical
@@ -1065,12 +1322,31 @@ async function reanalyzeAndSave(
     mode: "lite",
     telemetryVersion: TELEMETRY_VERSION,
   });
+  if (recoveryAuthorized) {
+    // A previous attempt may have written the deterministic target before its
+    // registry finalization. Never let recovery claim the same key and
+    // overwrite that unknown side effect; reconciliation must inspect it.
+    const recoveryTargetKey = buildTelemetryCacheKey(telemetryIdentity);
+    const existingRecoveryTarget = await downloadFromR2(recoveryTargetKey);
+    if (existingRecoveryTarget !== null) {
+      throw new BenchmarkRecoveryError(
+        "BENCHMARK_RECOVERY_TARGET_EXISTS",
+        409,
+        "benchmark recovery target already exists",
+      );
+    }
+  }
   const cacheDeps = {
     isConfigured: isR2Configured,
     download: downloadFromR2,
     upload: uploadToR2,
     sign: getPresignedUrlFromR2,
-    claim: (row: TelemetryMapCacheRegistryRow) => claimTelemetryMapCacheReservation(supabase, row),
+    // Ordinary requests may reclaim an expired lease. Recovery is stricter:
+    // the dedicated DB RPC uses ON CONFLICT DO NOTHING, so a ready/pending
+    // v61 target can never be overwritten between preflight and claim.
+    claim: (row: TelemetryMapCacheRegistryRow) => recoveryAuthorized
+      ? claimTelemetryMapCacheRecoveryReservation(supabase, row)
+      : claimTelemetryMapCacheReservation(supabase, row),
     release: (row: TelemetryMapCacheRegistryRow) => releaseTelemetryMapCacheReservation(supabase, row),
     finalize: (row: TelemetryMapCacheRegistryRow) => finalizeTelemetryMapCacheLifecycle(supabase, {
       row,
@@ -1081,13 +1357,42 @@ async function reanalyzeAndSave(
     sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
     random: Math.random,
   };
-  const cacheAccess = await claimOrWaitForTelemetryMapCache(telemetryIdentity, cacheDeps);
+  const cacheAccess = recoveryAuthorized
+    ? await (async () => {
+      const claimedRow = await claimTelemetryMapCacheRow(telemetryIdentity, cacheDeps);
+      return claimedRow
+        ? { kind: "claimed" as const, row: claimedRow }
+        : { kind: "pending" as const };
+    })()
+    : await claimOrWaitForTelemetryMapCache(telemetryIdentity, cacheDeps);
   let reservedRow: TelemetryMapCacheRegistryRow | undefined;
   let reservationReleased = false;
+  let reservationReleaseSucceeded = false;
+  let recoveryUploadedKey: string | null = null;
+  let recoveryFinalized = false;
   const releaseReservationOnce = async (): Promise<void> => {
     if (!reservedRow || reservationReleased) return;
     reservationReleased = true;
-    await releaseTelemetryMapCacheRow(reservedRow, cacheDeps).catch(() => undefined);
+    try {
+      await releaseTelemetryMapCacheRow(reservedRow, cacheDeps);
+      reservationReleaseSucceeded = true;
+    } catch {
+      // Ordinary ingestion retains its historical best-effort release
+      // behavior. Strict recovery uses releaseRecoveryReservationStrict below
+      // so compensation can report an unresolved lease explicitly.
+    }
+  };
+  const releaseRecoveryReservationStrict = async (): Promise<boolean> => {
+    if (!reservedRow) return false;
+    if (reservationReleased) return reservationReleaseSucceeded;
+    reservationReleased = true;
+    try {
+      await releaseTelemetryMapCacheRow(reservedRow, cacheDeps);
+      reservationReleaseSucceeded = true;
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   if (cacheAccess.kind === "hit") {
@@ -1147,12 +1452,27 @@ async function reanalyzeAndSave(
   }
 
   if (recoveryAuthorized) {
+    // The pre-claim read is a cheap guard. Recheck after owning the lease so a
+    // prior attempt that left the deterministic target behind cannot be
+    // overwritten by this request.
+    const existingRecoveryTarget = await downloadFromR2(reservedRow.storage_path);
+    if (existingRecoveryTarget !== null) {
+      await releaseReservationOnce();
+      throw new BenchmarkRecoveryError(
+        "BENCHMARK_RECOVERY_TARGET_EXISTS",
+        409,
+        "benchmark recovery target already exists",
+      );
+    }
+  }
+
+  if (recoveryAuthorized) {
     // Re-check after the registry claim as well.  A concurrent worker can
     // advance the processed row between the route's initial fresh read and a
     // claimed reservation; never run the analysis engine or write R2/processed
     // data for that stale claim.
     try {
-      await assertFreshRecoveryPreviousV72();
+      await assertFreshRecoveryAuthorization();
     } catch (error) {
       await releaseReservationOnce();
       throw error;
@@ -1252,7 +1572,7 @@ async function reanalyzeAndSave(
   // time after that await so a concurrent v73 finalization cannot cause the
   // stale route to run the engine or write any derived state.  Ordinary
   // requests retain their existing behavior and do not perform this read.
-  if (recoveryAuthorized) await assertFreshRecoveryPreviousV72();
+  if (recoveryAuthorized) await assertFreshRecoveryAuthorization();
 
   const bench = adaptBenchmark(tierStats);
 
@@ -1342,108 +1662,152 @@ async function reanalyzeAndSave(
     platform,
     tacticalResult,
   );
-  let mayPersistDerivedStats = true;
-  markAnalysisStep("telemetry_cache_finalize");
-  try {
-    await writeTelemetryMapCache(telemetryIdentity, telemetryPayload, {
-      ...cacheDeps,
-      finalize: (row) => finalizeTelemetryMapCacheLifecycle(supabase, {
-        row,
-        mapName: matchAttr.mapName || matchAttr.mapId || "unknown",
-        gameMode: matchAttr.gameMode || "unknown",
-        processed: {
-          playerId: processedTelemetryRecord.player_id,
-          platform: processedTelemetryRecord.platform,
-          data: processedTelemetryRecord.data,
-          updatedAt: processedTelemetryRecord.updated_at,
+  const persistenceInput = {
+    matchId,
+    playerNickname: lowerNickname,
+    platform: platform === "kakao" ? "kakao" : "steam",
+    finalResult: {
+      ...tacticalResult,
+      stats: { ...tacticalResult.stats },
+      tradeStats: { ...tacticalResult.tradeStats },
+      killContribution: { ...tacticalResult.killContribution },
+      isolationData: { ...tacticalResult.isolationData },
+      combatPressure: {
+        ...tacticalResult.combatPressure,
+        utilityStats: { ...tacticalResult.combatPressure.utilityStats },
+      },
+      itemUseSummary: { ...tacticalResult.itemUseSummary },
+      duelStats: { ...tacticalResult.duelStats },
+      itemUseStats: { ...tacticalResult.itemUseStats },
+      benchmark: tacticalResult.benchmark
+        ? {
+            ...tacticalResult.benchmark,
+            breakdown: { ...tacticalResult.benchmark.breakdown },
+          }
+        : undefined,
+    },
+    matchAttr,
+    rawParticipants: participants,
+    source: source === "scraper" ? "scraper" : "user",
+    forceBenchmark: false,
+  } as const;
+
+  if (recoveryAuthorized) {
+    // Strict recovery has one side-effect boundary: upload the deterministic
+    // exact key first, then commit master + processed + benchmark + registry
+    // together in the guarded RPC.  No signed URL is needed for this response.
+    markAnalysisStep("telemetry_cache_finalize");
+    await uploadToR2(
+      reservedRow.storage_path,
+      JSON.stringify(telemetryPayload),
+      "application/json",
+    );
+    recoveryUploadedKey = reservedRow.storage_path;
+
+    if (!recoveryBenchmarkGuard) {
+      throw new BenchmarkRecoveryError(
+        "BENCHMARK_RECOVERY_GLOBAL_BENCHMARK_CHANGED",
+        409,
+        "benchmark recovery benchmark guard is unavailable",
+      );
+    }
+    const benchmarkRow = buildBenchmarkRow(persistenceInput);
+    if (!benchmarkRow) {
+      throw new BenchmarkRecoveryError(
+        "BENCHMARK_RECOVERY_GLOBAL_BENCHMARK_CHANGED",
+        409,
+        "benchmark recovery benchmark row is not eligible",
+      );
+    }
+    const finalizeResult = await finalizeRecoveryAtomically(supabase, {
+      lease: reservedRow,
+      processedGuard: {
+        matchId,
+        playerId: lowerNickname,
+        platform,
+        resultVersion: recoveryResultVersion,
+        accountId: myAccountId,
+      },
+      benchmarkGuard: recoveryBenchmarkGuard as RegistryRecoveryBenchmarkGuard,
+      rows: {
+        master: {
+          match_id: matchId,
+          map_name: result.mapName || matchAttr.mapName || matchAttr.mapId || "unknown",
+          game_mode: matchAttr.gameMode || "unknown",
+          telemetry_version: TELEMETRY_VERSION,
+          storage_path: reservedRow.storage_path,
         },
-      }),
-    }, { reservedRow });
+        processed: {
+          match_id: processedTelemetryRecord.match_id,
+          platform: processedTelemetryRecord.platform,
+          player_id: processedTelemetryRecord.player_id,
+          data: processedTelemetryRecord.data,
+          updated_at: processedTelemetryRecord.updated_at,
+        },
+        benchmark: benchmarkRow,
+      },
+    });
+    if (!finalizeResult.ok) {
+      throw new BenchmarkRecoveryError(
+        "BENCHMARK_RECOVERY_PERSISTENCE_FAILED",
+        503,
+        finalizeResult.message || "benchmark recovery finalization was rejected",
+      );
+    }
+    recoveryFinalized = true;
     try {
       revalidateTag("match-analysis", "max");
     } catch {
-      // Ignore in non-Next execution contexts
+      // Ignore in non-Next execution contexts.
     }
-  } catch (error) {
-    markAnalysisStep("telemetry_cache_persistence");
-    if (isDatabaseUnavailableError(error)) {
-      mayPersistDerivedStats = false;
-      noteDatabaseUnavailable();
-      console.error("[MATCH] Supabase unavailable during cache persistence; database circuit opened");
-      await releaseReservationOnce();
-      if (recoveryAuthorized) {
-        throw new BenchmarkRecoveryError(
-          "BENCHMARK_RECOVERY_PERSISTENCE_FAILED",
-          503,
-          "benchmark recovery persistence failed",
-        );
-      }
-    } else {
-      await reportTelemetryCachePersistenceFailure(error, startedAt, requestContext);
-      await releaseReservationOnce();
-      if (recoveryAuthorized) {
-        throw new BenchmarkRecoveryError(
-          "BENCHMARK_RECOVERY_PERSISTENCE_FAILED",
-          503,
-          "benchmark recovery persistence failed",
-        );
-      }
-    }
-  }
-
-  if (mayPersistDerivedStats) {
+  } else {
+    let mayPersistDerivedStats = true;
+    markAnalysisStep("telemetry_cache_finalize");
     try {
-      const persistenceResult = await persistMatchAnalysis(supabase, {
-      matchId,
-      playerNickname: lowerNickname,
-      platform: platform === "kakao" ? "kakao" : "steam",
-      finalResult: {
-        ...tacticalResult,
-        stats: { ...tacticalResult.stats },
-        tradeStats: { ...tacticalResult.tradeStats },
-        killContribution: { ...tacticalResult.killContribution },
-        isolationData: { ...tacticalResult.isolationData },
-        combatPressure: {
-          ...tacticalResult.combatPressure,
-          utilityStats: { ...tacticalResult.combatPressure.utilityStats },
-        },
-        itemUseSummary: { ...tacticalResult.itemUseSummary },
-        duelStats: { ...tacticalResult.duelStats },
-        itemUseStats: { ...tacticalResult.itemUseStats },
-        benchmark: tacticalResult.benchmark
-          ? {
-              ...tacticalResult.benchmark,
-              breakdown: { ...tacticalResult.benchmark.breakdown },
-            }
-          : undefined,
-      },
-      matchAttr,
-      rawParticipants: participants,
-      source: source === "scraper" ? "scraper" : "user",
-      forceBenchmark: false,
-    });
+      await writeTelemetryMapCache(telemetryIdentity, telemetryPayload, {
+        ...cacheDeps,
+        finalize: (row) => finalizeTelemetryMapCacheLifecycle(supabase, {
+          row,
+          mapName: matchAttr.mapName || matchAttr.mapId || "unknown",
+          gameMode: matchAttr.gameMode || "unknown",
+          processed: {
+            playerId: processedTelemetryRecord.player_id,
+            platform: processedTelemetryRecord.platform,
+            data: processedTelemetryRecord.data,
+            updatedAt: processedTelemetryRecord.updated_at,
+          },
+        }),
+      }, { reservedRow });
+      try {
+        revalidateTag("match-analysis", "max");
+      } catch {
+        // Ignore in non-Next execution contexts
+      }
+    } catch (error) {
+      markAnalysisStep("telemetry_cache_persistence");
+      if (isDatabaseUnavailableError(error)) {
+        mayPersistDerivedStats = false;
+        noteDatabaseUnavailable();
+        console.error("[MATCH] Supabase unavailable during cache persistence; database circuit opened");
+        await releaseReservationOnce();
+      } else {
+        await reportTelemetryCachePersistenceFailure(error, startedAt, requestContext);
+        await releaseReservationOnce();
+      }
+    }
 
-      if (persistenceResult.failures.length > 0) {
-        console.error(
-          "[MATCH] 파생 통계 저장 실패:",
-          persistenceResult.failures.map(({ taskName }) => taskName),
-        );
-        if (recoveryAuthorized) {
-          throw new BenchmarkRecoveryError(
-            "BENCHMARK_RECOVERY_PERSISTENCE_FAILED",
-            503,
-            "benchmark recovery persistence failed",
+    if (mayPersistDerivedStats) {
+      try {
+        const persistenceResult = await persistMatchAnalysis(supabase, persistenceInput);
+
+        if (persistenceResult.failures.length > 0) {
+          console.error(
+            "[MATCH] 파생 통계 저장 실패:",
+            persistenceResult.failures.map(({ taskName }) => taskName),
           );
         }
-      }
-    } catch {
-      console.error("[MATCH] 파생 통계 저장 중 예외 발생");
-      if (recoveryAuthorized) {
-        throw new BenchmarkRecoveryError(
-          "BENCHMARK_RECOVERY_PERSISTENCE_FAILED",
-          503,
-          "benchmark recovery persistence failed",
-        );
+      } catch {
+        console.error("[MATCH] 파생 통계 저장 중 예외 발생");
       }
     }
   }
@@ -1465,6 +1829,28 @@ async function reanalyzeAndSave(
     try {
       revalidateTag("match-analysis", "max");
     } catch {}
+    if (recoveryAuthorized && !recoveryFinalized) {
+      const reconciliationUnknown = error instanceof TelemetryRegistryError
+        && error.code === "RECOVERY_FINALIZE_RECONCILIATION_FAILED";
+      if (reconciliationUnknown) {
+        // The first RPC may have committed before its response was lost.  Do
+        // not delete the object or release a lease while that state remains
+        // ambiguous; a later reconciliation can safely observe the exact
+        // committed rows and clear the registry lease if necessary.
+        throw recoveryCompensationError(error, false);
+      }
+      let objectDeleted = recoveryUploadedKey === null;
+      if (recoveryUploadedKey) {
+        try {
+          const deletion = await deleteObjectsFromR2([recoveryUploadedKey], { dryRun: false });
+          objectDeleted = isSuccessfulRecoveryDeletion(deletion);
+        } catch {
+          objectDeleted = false;
+        }
+      }
+      const leaseReleased = await releaseRecoveryReservationStrict();
+      throw recoveryCompensationError(error, objectDeleted && leaseReleased);
+    }
     if (reservedRow) {
       await releaseReservationOnce().catch((releaseErr) => {
         console.error("[MATCH] 텔레메트리 락 해제 실패:", releaseErr?.message || releaseErr);

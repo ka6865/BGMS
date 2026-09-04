@@ -120,6 +120,26 @@ export interface PersistMatchAnalysisInput {
   rawParticipants?: PersistedRawParticipant[];
   source: AnalysisSource;
   forceBenchmark: boolean;
+  /**
+   * Recovery-only compare-and-swap binding for the legacy benchmark row.  A
+   * normal request leaves this unset and retains the historical upsert path.
+   * The marker values intentionally preserve null versus a concrete integer so
+   * a concurrent writer cannot advance the row between the route preflight and
+   * this persistence boundary.
+   */
+  recoveryBenchmarkGuard?: RecoveryBenchmarkGuard;
+}
+
+export interface RecoveryBenchmarkGuard {
+  id?: number | string;
+  matchId: string;
+  playerId: string;
+  platform: PubgPlatform;
+  gameMode: string;
+  matchType: "official" | "competitive";
+  tier: string;
+  filterVersion: number | null;
+  populationEvidenceVersion: number | null;
 }
 
 export interface PersistenceFailure {
@@ -413,15 +433,21 @@ async function persistPlayerMatches(
   if (succeeded) result.succeeded.push("pubg_player_matches");
 }
 
-async function persistBenchmark(
-  supabase: SupabaseClient,
+/**
+ * Build the canonical global benchmark row without performing I/O.
+ *
+ * Recovery uses this exact builder for the atomic finalize RPC; ordinary
+ * persistence uses it for its historical upsert path. Keeping the mapping in
+ * one pure function prevents the two paths from drifting in either metric or
+ * provenance evidence.
+ */
+export function buildBenchmarkRow(
   input: PersistMatchAnalysisInput,
-  result: PersistMatchAnalysisResult,
-): Promise<void> {
+): Record<string, unknown> | null {
   const finalResult = input.finalResult;
   const eligibility = evaluateMatchEligibility(benchmarkEligibilityInput(input), "benchmark");
 
-  if (!(finalResult.isValidBenchmark || input.forceBenchmark) || !eligibility.eligible) return;
+  if (!(finalResult.isValidBenchmark || input.forceBenchmark) || !eligibility.eligible) return null;
 
   const teammateKnocks = Math.max(1, finalResult.tradeStats?.teammateKnocks || 0);
   const totalKillContribution = Math.max(
@@ -476,11 +502,70 @@ async function persistBenchmark(
     population_evidence_version: POPULATION_EVIDENCE_VERSION,
     source: input.source,
   };
-  const succeeded = await runPersistenceTask("global_benchmarks", result, () => (
-    supabase.from("global_benchmarks").upsert(row, {
-      onConflict: "match_id,platform,player_id",
-    })
-  ));
+  return row;
+}
+
+async function persistBenchmark(
+  supabase: SupabaseClient,
+  input: PersistMatchAnalysisInput,
+  result: PersistMatchAnalysisResult,
+): Promise<void> {
+  const row = buildBenchmarkRow(input);
+  if (!row) return;
+
+  const recoveryGuard = input.recoveryBenchmarkGuard;
+  const succeeded = await runPersistenceTask("global_benchmarks", result, async () => {
+    if (!recoveryGuard) {
+      return supabase.from("global_benchmarks").upsert(row, {
+        onConflict: "match_id,platform,player_id",
+      });
+    }
+
+    // Recovery is an upgrade of one known legacy row, never an insert or an
+    // unconditional replacement.  Keep the expected identity/bucket in the
+    // WHERE clause and compare the exact legacy markers so a concurrent
+    // writer's current/future row produces zero affected rows instead of
+    // being overwritten by this v73 result.
+    const hasValidGuardId = recoveryGuard.id === undefined
+      || (typeof recoveryGuard.id === "number" && Number.isSafeInteger(recoveryGuard.id))
+      || (typeof recoveryGuard.id === "string" && /^\d+$/.test(recoveryGuard.id));
+    if (!hasValidGuardId
+      || (recoveryGuard.filterVersion !== null
+      && (!Number.isInteger(recoveryGuard.filterVersion)
+        || recoveryGuard.filterVersion < 0
+        || recoveryGuard.filterVersion > BENCHMARK_FILTER_VERSION))
+      || recoveryGuard.populationEvidenceVersion !== null
+      || row.match_id !== recoveryGuard.matchId
+      || row.platform !== recoveryGuard.platform
+      || row.player_id !== recoveryGuard.playerId
+      || row.game_mode !== recoveryGuard.gameMode
+      || row.match_type !== recoveryGuard.matchType) {
+      return { error: { message: "recovery benchmark marker changed" } };
+    }
+
+    let mutation = supabase.from("global_benchmarks").update(row);
+    if (recoveryGuard.id !== undefined) mutation = mutation.eq("id", recoveryGuard.id);
+    mutation = mutation
+      .eq("match_id", recoveryGuard.matchId)
+      .eq("platform", recoveryGuard.platform)
+      .eq("player_id", recoveryGuard.playerId)
+      .eq("game_mode", recoveryGuard.gameMode)
+      .eq("match_type", recoveryGuard.matchType)
+      .eq("tier", recoveryGuard.tier);
+    mutation = recoveryGuard.filterVersion === null
+      ? mutation.is("filter_version", null)
+      : mutation.eq("filter_version", recoveryGuard.filterVersion);
+    mutation = recoveryGuard.populationEvidenceVersion === null
+      ? mutation.is("population_evidence_version", null)
+      : mutation.eq("population_evidence_version", recoveryGuard.populationEvidenceVersion);
+
+    const { data, error } = await mutation.select("id");
+    if (error) return { error };
+    if (!Array.isArray(data) || data.length !== 1) {
+      return { error: { message: "recovery benchmark marker changed" } };
+    }
+    return { error: null };
+  });
   if (succeeded) result.succeeded.push("global_benchmarks");
 }
 

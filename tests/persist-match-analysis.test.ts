@@ -2,7 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildWeaponMetaMatchSamples,
+  buildBenchmarkRow,
   persistMatchAnalysis,
+  type RecoveryBenchmarkGuard,
   type PersistMatchAnalysisInput,
 } from "../lib/pubg-analysis/persistMatchAnalysis";
 import { POPULATION_EVIDENCE_VERSION } from "../lib/pubg-analysis/constants";
@@ -11,11 +13,24 @@ type UpsertResult = { error: { message: string } | null };
 type UpsertMock = ReturnType<
   typeof vi.fn<(values: unknown, options?: unknown) => Promise<UpsertResult>>
 >;
+type UpdateResult = { data: unknown[] | null; error: { message: string } | null };
+type UpdateMock = ReturnType<typeof vi.fn<(values: unknown) => {
+  eq: ReturnType<typeof vi.fn>;
+  is: ReturnType<typeof vi.fn>;
+  select: ReturnType<typeof vi.fn<() => Promise<UpdateResult>>>;
+}> >;
 
 const upserts = new Map<string, UpsertMock>();
+const updates = new Map<string, UpdateMock>();
+const updateQueries = new Map<string, {
+  eq: ReturnType<typeof vi.fn>;
+  is: ReturnType<typeof vi.fn>;
+  select: ReturnType<typeof vi.fn<() => Promise<UpdateResult>>>;
+}>();
 const supabase = {
   from: vi.fn((table: string) => ({
     upsert: upserts.get(table),
+    update: updates.get(table),
   })),
 } as unknown as SupabaseClient;
 
@@ -76,6 +91,20 @@ function setSuccessfulUpsert(table: string): UpsertMock {
   return upsert;
 }
 
+function setSuccessfulUpdate(table: string): UpdateMock {
+  const query = {
+    eq: vi.fn(),
+    is: vi.fn(),
+    select: vi.fn<() => Promise<UpdateResult>>().mockResolvedValue({ data: [{ id: 1 }], error: null }),
+  };
+  query.eq.mockReturnValue(query);
+  query.is.mockReturnValue(query);
+  const update = vi.fn<(values: unknown) => typeof query>().mockReturnValue(query);
+  updates.set(table, update);
+  updateQueries.set(table, query);
+  return update;
+}
+
 function createParticipants(count: number) {
   return Array.from({ length: count }, (_, index) => ({
     id: `participant-${index}`,
@@ -95,6 +124,8 @@ describe("persistMatchAnalysis", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     upserts.clear();
+    updates.clear();
+    updateQueries.clear();
     for (const table of [
       "match_stats_raw",
       "pubg_player_cache",
@@ -105,6 +136,7 @@ describe("persistMatchAnalysis", () => {
     ]) {
       setSuccessfulUpsert(table);
     }
+    setSuccessfulUpdate("global_benchmarks");
   });
 
   afterEach(() => {
@@ -256,6 +288,130 @@ describe("persistMatchAnalysis", () => {
       source: "user",
     }, { onConflict: "match_id,platform,player_id" });
     expect(upserts.get("processed_match_telemetry")).not.toHaveBeenCalled();
+  });
+
+  it("pure benchmark-row builder는 ordinary upsert와 recovery payload에 같은 row를 제공한다", async () => {
+    const built = buildBenchmarkRow(input);
+
+    expect(built).toEqual(expect.objectContaining({
+      match_id: "match-1",
+      player_id: "playerone",
+      platform: "steam",
+      game_mode: "squad-fpp",
+      match_type: "official",
+      filter_version: 8,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION,
+    }));
+
+    await persistMatchAnalysis(supabase, input);
+    expect(upserts.get("global_benchmarks")).toHaveBeenCalledWith(
+      built,
+      { onConflict: "match_id,platform,player_id" },
+    );
+  });
+
+  it("recovery benchmark uses an atomic legacy-marker guard instead of an unconditional upsert", async () => {
+    const recoveryBenchmarkGuard: RecoveryBenchmarkGuard = {
+      id: 17,
+      matchId: "match-1",
+      playerId: "playerone",
+      platform: "steam",
+      gameMode: "squad-fpp",
+      matchType: "official",
+      tier: "B",
+      filterVersion: null,
+      populationEvidenceVersion: null,
+    };
+    const update = updates.get("global_benchmarks");
+
+    const result = await persistMatchAnalysis(supabase, {
+      ...input,
+      recoveryBenchmarkGuard,
+    });
+
+    expect(result.failures).toEqual([]);
+    expect(upserts.get("global_benchmarks")).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      match_id: "match-1",
+      platform: "steam",
+      player_id: "playerone",
+      filter_version: 8,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION,
+    }));
+    const query = update?.mock.results[0]?.value as {
+      eq: ReturnType<typeof vi.fn>;
+      is: ReturnType<typeof vi.fn>;
+    };
+    expect(query.eq).toHaveBeenCalledWith("id", 17);
+    expect(query.eq).toHaveBeenCalledWith("match_id", "match-1");
+    expect(query.eq).toHaveBeenCalledWith("platform", "steam");
+    expect(query.eq).toHaveBeenCalledWith("player_id", "playerone");
+    expect(query.eq).toHaveBeenCalledWith("game_mode", "squad-fpp");
+    expect(query.eq).toHaveBeenCalledWith("match_type", "official");
+    expect(query.eq).toHaveBeenCalledWith("tier", "B");
+    expect(query.is).toHaveBeenCalledWith("filter_version", null);
+    expect(query.is).toHaveBeenCalledWith("population_evidence_version", null);
+  });
+
+  it("recovery benchmark reports a marker race when the conditional update affects no row", async () => {
+    const query = updateQueries.get("global_benchmarks");
+    // Replace the default affected-row proof with an empty result, modeling a
+    // concurrent worker advancing this identity to the current marker.
+    query?.select.mockResolvedValue({ data: [], error: null });
+    const recoveryBenchmarkGuard: RecoveryBenchmarkGuard = {
+      id: 17,
+      matchId: "match-1",
+      playerId: "playerone",
+      platform: "steam",
+      gameMode: "squad-fpp",
+      matchType: "official",
+      tier: "B",
+      filterVersion: null,
+      populationEvidenceVersion: null,
+    };
+
+    const result = await persistMatchAnalysis(supabase, {
+      ...input,
+      recoveryBenchmarkGuard,
+    });
+
+    expect(upserts.get("global_benchmarks")).not.toHaveBeenCalled();
+    expect(result.failures).toContainEqual(expect.objectContaining({
+      taskName: "global_benchmarks",
+      message: expect.stringContaining("recovery benchmark marker changed"),
+    }));
+  });
+
+  it("recovery benchmark permits a legacy A+ row to be CAS-updated with the recomputed A tier", async () => {
+    const recoveryBenchmarkGuard: RecoveryBenchmarkGuard = {
+      id: 17,
+      matchId: "match-1",
+      playerId: "playerone",
+      platform: "steam",
+      gameMode: "squad-fpp",
+      matchType: "official",
+      tier: "A+",
+      filterVersion: null,
+      populationEvidenceVersion: null,
+    };
+    const update = updates.get("global_benchmarks");
+
+    const result = await persistMatchAnalysis(supabase, {
+      ...input,
+      finalResult: {
+        ...input.finalResult,
+        benchmark: { ...input.finalResult.benchmark, tier: "A" },
+      },
+      recoveryBenchmarkGuard,
+    });
+
+    expect(result.failures).toEqual([]);
+    expect(upserts.get("global_benchmarks")).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ tier: "A" }));
+    const query = update?.mock.results[0]?.value as {
+      eq: ReturnType<typeof vi.fn>;
+    };
+    expect(query.eq).toHaveBeenCalledWith("tier", "A+");
   });
 
   it.each([
