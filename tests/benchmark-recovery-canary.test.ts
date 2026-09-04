@@ -275,7 +275,7 @@ describe("benchmark recovery canary executor", () => {
     const manifest = manifestFixture();
     const token = benchmarkRecoveryConfirmationToken(manifest, { now: FIXED_NOW });
 
-    expect(token).toMatch(/^RECOVER-/);
+    expect(token).toMatch(/^[a-f0-9]{64}$/);
     expect(token).toBe(benchmarkRecoveryConfirmationToken(manifest, { now: FIXED_NOW }));
   });
 

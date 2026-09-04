@@ -25,6 +25,10 @@ describe("local migration verification prerequisites", () => {
 
     expect(prerequisites).toContain("public.telemetry_map_cache_entries");
     expect(prerequisites).toContain("lease_token uuid");
+    expect(prerequisites).toContain(
+      "grant usage on sequence public.telemetry_map_cache_entries_id_seq to service_role;",
+    );
+    expect(prerequisites).not.toMatch(/grant all on sequence public\.telemetry_map_cache_entries_id_seq/i);
     expect(scenarios).toContain("claim_telemetry_cache_recovery_write");
     expect(existsSync(resolve(ROOT, "app/api/pubg/recovery-health/route.ts"))).toBe(false);
     expect(existsSync(resolve(ROOT, "tests/pubg-recovery-health.test.ts"))).toBe(false);

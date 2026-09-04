@@ -479,7 +479,7 @@ export function benchmarkRecoveryConfirmationToken(
     identities,
     readEvidence,
   });
-  return `RECOVER-${createHash("sha256").update(material).digest("hex")}`;
+  return createHash("sha256").update(material).digest("hex");
 }
 
 function valueAfter(args: string[], name: string): string | undefined {

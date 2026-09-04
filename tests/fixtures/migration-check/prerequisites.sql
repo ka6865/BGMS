@@ -153,6 +153,10 @@ create table if not exists public.telemetry_map_cache_entries (
   unique (match_id, platform, player_id, mode, telemetry_version)
 );
 
+-- The recovery claim is SECURITY INVOKER and inserts without an explicit id;
+-- grant only the sequence privilege needed by service_role for nextval().
+grant usage on sequence public.telemetry_map_cache_entries_id_seq to service_role;
+
 -- Existing benchmark population (the 202609 migration adds provenance to this
 -- table and replaces the view below). Keep the production column order/types
 -- needed by the view, partial index, and executable scenario.
