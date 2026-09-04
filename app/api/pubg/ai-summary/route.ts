@@ -1446,7 +1446,7 @@ export async function POST(request: Request) {
     const {
       latestMatchTime, avgBackupLatency, avgReactionLatency, userInitiativeRate, avgPressureIndex,
       totalReversalAttempts, totalReversalWins, avgDuelWinRate, totalDuelWins, totalDuelLosses,
-      avgDamageImpact, avgTeamDamageShare, avgTeamKillShare, topBadges, goldenTimeAvg, killContribFinal, avgDeathPhase,
+      avgDamageImpact, topBadges, goldenTimeAvg, killContribFinal, avgDeathPhase,
       totalTeammateKnocks, totalSuppCount, totalTradeKills, totalRevCount,
       totalBaitCount,
       isolationCountFinal, combatIsolationCountFinal, deathIsolationCountFinal,
@@ -1997,12 +1997,7 @@ export async function POST(request: Request) {
       initiativeSuccess: formatObservedPercent(userInitiativeRate), pressureIndex: avgPressureIndex,
       reversalRate: formatBoundedRate(totalReversalWins, totalReversalAttempts),
       duelStats: { winRate: formatObservedPercent(avgDuelWinRate), wins: totalDuelWins, losses: totalDuelLosses, reversals: totalReversalWins, reversalAttempts: totalReversalAttempts },
-      teamImpact: {
-        damageImpact: observedVisualValue(avgDamageImpact),
-        teamDamageShare: observedVisualValue(avgTeamDamageShare),
-        teamKillShare: observedVisualValue(avgTeamKillShare),
-        topBadges,
-      },
+      teamImpact: { damageImpact: observedVisualValue(avgDamageImpact), topBadges },
       goldenTime: goldenTimeAvg, killContrib: killContribFinal, deathPhase: avgDeathPhase,
       bluezoneWaste: observedVisualValue(masteryStats.avgBluezoneWaste, true),
       maxHitDistance: observedVisualValue(masteryStats.totalMaxHitDist),

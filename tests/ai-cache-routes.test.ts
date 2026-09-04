@@ -4049,11 +4049,9 @@ describe("AI cache route stabilization", () => {
     const visuals = records.find((record) => record.type === "visuals")?.data;
 
     expect(response.status).toBe(200);
-    expect(visuals.teamImpact).toMatchObject({
-      damageImpact: "측정 불가",
-      teamDamageShare: "측정 불가",
-      teamKillShare: "측정 불가",
-    });
+    expect(visuals.teamImpact.damageImpact).toBe("측정 불가");
+    expect(visuals.teamImpact).not.toHaveProperty("teamDamageShare");
+    expect(visuals.teamImpact).not.toHaveProperty("teamKillShare");
   });
 
   it("ai-summary impact visuals preserve an explicit numeric zero as observed", async () => {
@@ -4087,11 +4085,9 @@ describe("AI cache route stabilization", () => {
     const visuals = records.find((record) => record.type === "visuals")?.data;
 
     expect(response.status).toBe(200);
-    expect(visuals.teamImpact).toMatchObject({
-      damageImpact: 0,
-      teamDamageShare: 0,
-      teamKillShare: 0,
-    });
+    expect(visuals.teamImpact.damageImpact).toBe(0);
+    expect(visuals.teamImpact).not.toHaveProperty("teamDamageShare");
+    expect(visuals.teamImpact).not.toHaveProperty("teamKillShare");
   });
 
   it("ai-summary impact visuals average each field over its own observed samples", async () => {
@@ -4147,11 +4143,9 @@ describe("AI cache route stabilization", () => {
     const visuals = records.find((record) => record.type === "visuals")?.data;
 
     expect(response.status).toBe(200);
-    expect(visuals.teamImpact).toMatchObject({
-      damageImpact: 90,
-      teamDamageShare: 60,
-      teamKillShare: 20,
-    });
+    expect(visuals.teamImpact.damageImpact).toBe(90);
+    expect(visuals.teamImpact).not.toHaveProperty("teamDamageShare");
+    expect(visuals.teamImpact).not.toHaveProperty("teamKillShare");
   });
 
   it("ai-summary는 결측 전투·운영·유틸리티 telemetry를 0으로 제조하지 않고 prompt와 visual을 측정 불가로 유지한다", async () => {
