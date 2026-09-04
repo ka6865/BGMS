@@ -119,9 +119,11 @@ export function hasObservedBenchmarkMetric(
  */
 function normalizeRate(value: number | undefined | null, defaultValue: number = 0): number {
   if (value === undefined || value === null || isNaN(value)) return defaultValue;
-  // 만약 DB 값이 0~1 범위라면 100을 곱함
-  const normalized = value <= 1 && value > 0 ? value * 100 : value;
-  return Math.max(0, Math.min(100, Math.round(normalized)));
+  // Canonical benchmark rows store rates as percentages (0..100).  A value
+  // such as `1` therefore means 1%, not a legacy 0..1 fraction.  Any legacy
+  // fraction migration must opt into an explicit versioned adapter instead
+  // of guessing from the magnitude of an observed value.
+  return Math.max(0, Math.min(100, value));
 }
 
 /**

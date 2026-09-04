@@ -167,6 +167,40 @@ create table if not exists public.telemetry_map_cache_entries (
 -- grant only the sequence privilege needed by service_role for nextval().
 grant usage on sequence public.telemetry_map_cache_entries_id_seq to service_role;
 
+-- Historical ordinary release RPC. The recovery safety migration must not
+-- replace or drop this void-returning contract during a mixed-version rollout.
+create or replace function public.release_telemetry_cache_write(
+  p_match_id text,
+  p_platform text,
+  p_player_id text,
+  p_mode text,
+  p_telemetry_version numeric,
+  p_lease_token uuid
+)
+returns void
+language plpgsql
+security invoker
+set search_path = ''
+as $$
+begin
+  delete from public.telemetry_map_cache_entries as cache
+  where cache.match_id = p_match_id
+    and cache.platform = p_platform
+    and cache.player_id = p_player_id
+    and cache.mode = p_mode
+    and cache.telemetry_version = p_telemetry_version
+    and cache.status = 'pending'
+    and cache.lease_token = p_lease_token;
+end;
+$$;
+
+revoke all on function public.release_telemetry_cache_write(
+  text, text, text, text, numeric, uuid
+) from public, anon, authenticated;
+grant execute on function public.release_telemetry_cache_write(
+  text, text, text, text, numeric, uuid
+) to service_role;
+
 -- Existing benchmark population (the 202609 migration adds provenance to this
 -- table and replaces the view below). Keep the production column order/types
 -- needed by the view, partial index, and executable scenario.

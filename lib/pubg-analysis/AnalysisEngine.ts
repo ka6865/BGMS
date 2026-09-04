@@ -126,6 +126,7 @@ export class AnalysisEngine {
       circleLuckSum: 0,
       circleLuckCount: 0,
       vehicleDistance: 0,
+      vehicleSampleCount: 0,
       weaponMatchCount: new Set(),
 
       // [V26.0] 리플레이 데이터 초기화
@@ -307,8 +308,8 @@ export class AnalysisEngine {
     }
 
     const stats = Array.isArray(teamStats) ? teamStats : [];
-    const totalTeamDamage = Math.max(1, stats.reduce((sum, s) => sum + (s?.damageDealt || 0), 0));
-    const totalTeamKills = Math.max(1, stats.reduce((sum, s) => sum + (s?.kills || 0), 0));
+    const totalTeamDamage = stats.reduce((sum, s) => sum + (s?.damageDealt || 0), 0);
+    const totalTeamKills = stats.reduce((sum, s) => sum + (s?.kills || 0), 0);
 
     const humanParticipants = participants.filter((p: any) => !p.attributes?.accountId?.startsWith("ai."));
     const sortedByDamage = [...humanParticipants].map(p => p.attributes?.stats).filter(Boolean).sort((a, b) => b.damageDealt - a.damageDealt);
@@ -327,14 +328,18 @@ export class AnalysisEngine {
     const observedKills = hasObservedBenchmarkMetric(observedEliteBenchmark, "avgKills")
       ? Number(observedEliteBenchmark?.avgKills)
       : null;
-    const damageImpact = observedDamage !== null
-      ? Math.round((myStats.damageDealt / Math.max(1, observedDamage)) * 100)
+    const damageImpact = observedDamage !== null && observedDamage > 0
+      ? Math.round((myStats.damageDealt / observedDamage) * 100)
       : null;
-    const killImpact = observedKills !== null
-      ? Math.round((myStats.kills / Math.max(1, observedKills)) * 100)
+    const killImpact = observedKills !== null && observedKills > 0
+      ? Math.round((myStats.kills / observedKills) * 100)
       : null;
-    const teamDamageShare = Math.round((myStats.damageDealt / totalTeamDamage) * 100);
-    const teamKillShare = Math.round((myStats.kills / totalTeamKills) * 100);
+    const teamDamageShare = totalTeamDamage > 0
+      ? Math.round((myStats.damageDealt / totalTeamDamage) * 100)
+      : null;
+    const teamKillShare = totalTeamKills > 0
+      ? Math.round((myStats.kills / totalTeamKills) * 100)
+      : null;
 
     const badges = this.calculateBadges(myStats, teamStats, damageImpact === null ? null : damageImpact / 100);
 
@@ -352,17 +357,27 @@ export class AnalysisEngine {
     // 1) 3초 내 대응 사격 성공 이력이 있는 경우 -> 실제 평균 값 사용
     // 2) 3초 내 성공은 없지만 기습당한 이력이 있는 경우 -> 기습 대응 실패로 보아 최대 패널티 3000ms 부여
     // 3) 기습을 아예 안 당한 경우 -> -1 (기본 5점 폴백 유도)
-    let avgReactLat = -1;
+    let avgReactLat: number | null = null;
     if (this.state.reactCount > 0) {
       avgReactLat = this.state.reactLatSum / this.state.reactCount;
     } else if (pData.reversalAttempts > 0) {
       avgReactLat = 3000;
     }
 
-    const avgTradeLat = this.state.tradeLatencies.length > 0 ? this.state.tradeLatencies.reduce((a, b) => a + b, 0) / this.state.tradeLatencies.length : -1;
-    const duelWinRate = (pData.duelWins + pData.duelLosses) > 0 ? (pData.duelWins / (pData.duelWins + pData.duelLosses)) * 100 : 0;
-    const reversalRate = pData.reversalAttempts > 0 ? (pData.reversalWins / pData.reversalAttempts) * 100 : 0;
-    const initiativeRate = pData.total > 0 ? (pData.success / pData.total) * 100 : -1;
+    const avgTradeLat = this.state.tradeLatencies.length > 0 ? this.state.tradeLatencies.reduce((a, b) => a + b, 0) / this.state.tradeLatencies.length : null;
+    const duelWinRate = (pData.duelWins + pData.duelLosses) > 0 ? (pData.duelWins / (pData.duelWins + pData.duelLosses)) * 100 : null;
+    const reversalRate = pData.reversalAttempts > 0 ? (pData.reversalWins / pData.reversalAttempts) * 100 : null;
+    const initiativeRate = pData.total > 0 ? (pData.success / pData.total) * 100 : null;
+
+    const pressureIndex = this.state.myActionTimestamps.length > 0
+      ? Number((this.state.combatPressure.totalHits / Math.max(5, (this.state.myActionTimestamps.length / 10))).toFixed(2))
+      : null;
+    const hasLethalThrowSamples = this.state.itemUseStats.lethalThrowCount > 0;
+    const utilityHitCount = Math.min(this.state.combatPressure.utilityHits, this.state.itemUseStats.lethalThrowCount);
+    const hasUtilityDamageObservation = this.state.itemUseStats.throwCount > 0 || this.state.combatPressure.utilityHits > 0;
+    const deathPhase = this.state.deathPhaseSnapshot > 0
+      ? this.state.deathPhaseSnapshot
+      : this.state.currentPhase > 0 ? this.state.currentPhase : null;
 
     // weaponStats 맵에 최종 저장된 순수 유효 대인 딜량의 총합을 계산하여 총 딜량 정합성을 일치화함
     let processedDamageDealt = 0;
@@ -409,7 +424,7 @@ export class AnalysisEngine {
         timeSurvived: myStats.timeSurvived ?? 0
       },
       team: teamStats,
-      deathPhase: this.state.deathPhaseSnapshot || this.state.currentPhase,
+      deathPhase,
       mapName: MAP_NAMES[matchAttr.mapName] || matchAttr.mapName,
       gameMode: typeof matchAttr?.gameMode === "string" ? matchAttr.gameMode : "",
       matchType: typeof matchAttr?.matchType === "string" ? matchAttr.matchType : "",
@@ -450,7 +465,9 @@ export class AnalysisEngine {
           heightDiff: avgHeightDiff,
           teammateCount: avgTeammateCount,
         } : {}),
-        isCrossfire: this.state.totalCrossfireCount > 0,
+        // The empty isolation object is kept for handler access, but an
+        // unobserved position sample is not evidence of "no crossfire".
+        isCrossfire: hasIsolationSamples ? this.state.totalCrossfireCount > 0 : null,
       },
       tradeStats: {
         teammateKnocks: this.state.totalTeammateKnocks,
@@ -466,8 +483,8 @@ export class AnalysisEngine {
         coverRate: this.state.totalCoverAttempts > 0 ? (this.state.totalCoverSuccess / this.state.totalCoverAttempts) * 100 : null,
         coverRateSampleCount: this.state.totalCoverAttempts,
         enemyTeamWipes: this.state.wipedTeamsByUserParticipation.size,
-        tradeRate: this.state.totalTeammateKnocks > 0 ? (Math.min(this.state.totalTeammateKnocks, this.state.totalTradeKills) / this.state.totalTeammateKnocks) * 100 : 0,
-        suppRate: this.state.totalTeammateKnocks > 0 ? (this.state.totalSuppCount / this.state.totalTeammateKnocks) * 100 : 0
+        tradeRate: this.state.totalTeammateKnocks > 0 ? (Math.min(this.state.totalTeammateKnocks, this.state.totalTradeKills) / this.state.totalTeammateKnocks) * 100 : null,
+        suppRate: this.state.totalTeammateKnocks > 0 ? (this.state.totalSuppCount / this.state.totalTeammateKnocks) * 100 : null
       },
       initiative_rate: initiativeRate,
       initiativeSampleCount: pData.total,
@@ -481,21 +498,23 @@ export class AnalysisEngine {
         duelWinRate
       },
       combatPressure: {
-        pressureScore: this.state.combatPressure.totalHits + (this.state.combatPressure.utilityHits * 2),
-        pressureIndex: Number((this.state.combatPressure.totalHits / Math.max(5, (this.state.myActionTimestamps.length / 10))).toFixed(2)),
+        pressureScore: this.state.myActionTimestamps.length > 0
+          ? this.state.combatPressure.totalHits + (this.state.combatPressure.utilityHits * 2)
+          : null,
+        pressureIndex,
         utilityStats: {
           throwCount: this.state.itemUseStats.throwCount,
           lethalThrowCount: this.state.itemUseStats.lethalThrowCount,
-          hitCount: Math.min(this.state.combatPressure.utilityHits, this.state.itemUseStats.lethalThrowCount),
+          hitCount: utilityHitCount,
           damageEventCount: this.state.combatPressure.utilityHits,
-          totalDamage: this.state.combatPressure.utilityDamage,
+          totalDamage: hasUtilityDamageObservation ? this.state.combatPressure.utilityDamage : null,
           killCount: 0, // [V11.9.4] 유틸리티 킬 추적은 향후 고도화 예정
-          accuracy: this.state.itemUseStats.lethalThrowCount > 0 ? Number(((Math.min(this.state.combatPressure.utilityHits, this.state.itemUseStats.lethalThrowCount) / this.state.itemUseStats.lethalThrowCount) * 100).toFixed(1)) : 0,
-          accuracyRaw: this.state.itemUseStats.lethalThrowCount > 0 ? (Math.min(this.state.combatPressure.utilityHits, this.state.itemUseStats.lethalThrowCount) / this.state.itemUseStats.lethalThrowCount) : 0,
-          avgDamagePerThrow: this.state.itemUseStats.lethalThrowCount > 0 ? Number((this.state.combatPressure.utilityDamage / this.state.itemUseStats.lethalThrowCount).toFixed(1)) : 0
+          accuracy: hasLethalThrowSamples ? Number(((utilityHitCount / this.state.itemUseStats.lethalThrowCount) * 100).toFixed(1)) : null,
+          accuracyRaw: hasLethalThrowSamples ? (utilityHitCount / this.state.itemUseStats.lethalThrowCount) : null,
+          avgDamagePerThrow: hasLethalThrowSamples ? Number((this.state.combatPressure.utilityDamage / this.state.itemUseStats.lethalThrowCount).toFixed(1)) : null
         },
         isClutched: false,
-        utilityDamage: this.state.combatPressure.utilityDamage,
+        utilityDamage: hasUtilityDamageObservation ? this.state.combatPressure.utilityDamage : null,
         utilityHits: this.state.combatPressure.utilityHits,
         totalHits: this.state.combatPressure.totalHits,
         maxHitDist: this.state.combatPressure.maxHitDistance,
@@ -508,8 +527,10 @@ export class AnalysisEngine {
       bluezoneWaste: this.state.bluezoneWaste,
 
       // [V16.0] 신규 지표 반영
-      avgCircleLuck: this.state.circleLuckCount > 0 ? Math.round((this.state.circleLuckSum / this.state.circleLuckCount) * 100) : 50,
-      avgVehicleMastery: Math.min(100, Math.round((this.state.vehicleDistance / 5000) * 100)), // 5km 이동 시 만점
+      avgCircleLuck: this.state.circleLuckCount > 0 ? Math.round((this.state.circleLuckSum / this.state.circleLuckCount) * 100) : null,
+      avgVehicleMastery: this.state.vehicleSampleCount > 0
+        ? Math.min(100, Math.round((this.state.vehicleDistance / 5000) * 100))
+        : null, // 5km 이동 시 만점
       weaponMatchCount: Array.from(this.state.weaponMatchCount),
       leadShotKills: this.state.leadShotKills,
       leadShotKnocks: this.state.leadShotKnocks,
@@ -521,17 +542,17 @@ export class AnalysisEngine {
       benchmark: getBenchmarkTier({
         rankPct: damageRank / Math.max(1, humanParticipants.length),
         survivalTime: myStats.timeSurvived || 0,
-        initiativeRate: initiativeRate,
-        counterLatencyMs: avgReactLat,
-        pressureIndex: Number((this.state.combatPressure.totalHits / Math.max(5, (this.state.myActionTimestamps.length / 10))).toFixed(2)),
+        initiativeRate: initiativeRate ?? -1,
+        counterLatencyMs: avgReactLat ?? -1,
+        pressureIndex: pressureIndex ?? -1,
         // [V68.0] 기회가 발생하지 않은 항목은 -1을 넘겨서 100% 만점 처리하도록 함.
         smokeRate: this.state.totalTeammateKnocks > 0 ? (this.state.totalSmokeRescues / this.state.totalTeammateKnocks) * 100 : -1,
         suppCount: this.state.totalSuppCount,
         reviveRate: this.state.totalTeammateKnocks > 0 ? (this.state.myReviveCount / this.state.totalTeammateKnocks) * 100 : -1,
         tradeRate: this.state.totalTeammateKnocks > 0 ? (Math.min(this.state.totalTeammateKnocks, this.state.totalTradeKills) / this.state.totalTeammateKnocks) * 100 : -1,
         teamWipes: this.state.wipedTeamsByUserParticipation.size,
-        reversalRate: pData.reversalAttempts > 0 ? reversalRate : -1,
-        deathPhase: this.state.deathPhaseSnapshot || this.state.currentPhase,
+        reversalRate: reversalRate ?? -1,
+        deathPhase: deathPhase ?? -1,
         suppRate: this.state.totalTeammateKnocks > 0 ? (this.state.totalSuppCount / this.state.totalTeammateKnocks) * 100 : -1,
         // [V68.0] 스쿼드 모드용 고립 지수 추가
         isolationIndex: avgIsolation,
@@ -546,7 +567,7 @@ export class AnalysisEngine {
         winPlace: myStats.winPlace || 100,
         kills: myStats.kills ?? 0,
         damageDealt: processedDamageDealt,
-        teamDamageShare,
+        teamDamageShare: teamDamageShare ?? -1,
         safeRevivesWithoutSmoke: Math.max(0, this.state.myReviveCount - this.state.totalSmokeRescues),
         teamMode: (this.state.gameMode || "").includes("solo")
           ? "solo"

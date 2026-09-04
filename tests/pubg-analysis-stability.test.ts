@@ -485,6 +485,25 @@ describe("PUBG benchmark and tier stabilization", () => {
     });
   });
 
+  it("canonical percent rate 1은 fraction으로 재해석하지 않는다", () => {
+    const raw = {
+      match_count: 5,
+      avg_duel_win_rate: 1,
+      avg_duel_win_rate_count: 5,
+      avg_initiative_rate: 0.5,
+      avg_initiative_rate_count: 5,
+    };
+
+    expect(adaptBenchmark(raw).avgDuelWinRate).toBe(1);
+    expect(adaptBenchmark(raw).avgInitiativeRate).toBe(0.5);
+    expect(adaptObservedBenchmark(raw)).toMatchObject({
+      sampleCount: 5,
+      avgDuelWinRate: 1,
+      avgInitiativeRate: 0.5,
+      metricSampleCounts: { avgDuelWinRate: 5, avgInitiativeRate: 5 },
+    });
+  });
+
   it("observed adapter는 음수·비유한 metric을 생략하고 명시적 0은 관측값으로 보존한다", () => {
     const raw = {
       match_count: 5,

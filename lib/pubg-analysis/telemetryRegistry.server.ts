@@ -101,6 +101,36 @@ export async function releaseTelemetryMapCacheReservation(
   }
 }
 
+/**
+ * Recovery-only lease release. The dedicated RPC returns a boolean from
+ * DELETE ... RETURNING so a stale or already-released token cannot be
+ * mistaken for a successful compensation. Keep this wrapper separate from
+ * the historical void-returning ordinary release contract.
+ */
+export async function releaseTelemetryMapCacheRecoveryReservation(
+  supabase: SupabaseClient,
+  row: TelemetryMapCacheRegistryRow,
+): Promise<boolean> {
+  const { data, error, status } = await executeRegistryQuery<any>(supabase.rpc("release_telemetry_cache_recovery_write", {
+    p_match_id: row.match_id,
+    p_platform: row.platform,
+    p_player_id: row.player_id,
+    p_mode: row.mode,
+    p_telemetry_version: row.telemetry_version,
+    p_lease_token: row.lease_token,
+  }));
+  if (error) {
+    throw new TelemetryRegistryError("release", { code: error.code, status });
+  }
+  if (data !== true) {
+    throw new TelemetryRegistryError("release", {
+      code: "RECOVERY_RELEASE_NOT_CONFIRMED",
+      status,
+    });
+  }
+  return true;
+}
+
 type FinalizeTelemetryMapCacheInput = {
   row: TelemetryMapCacheRegistryRow;
   mapName: string;
@@ -164,6 +194,8 @@ export type RecoveryBenchmarkGuard = {
   tier: string;
   filterVersion: number | null;
   populationEvidenceVersion: number | null;
+  /** Exact legacy benchmark payload captured before the recovery claim. */
+  snapshot?: Record<string, unknown>;
 };
 
 export type RecoveryFinalizeRows = {

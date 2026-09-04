@@ -23,7 +23,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     tradeStats = {},
     combatPressure = {},
     isolationData = null,
-    teamImpact = { damageImpact: 0, killImpact: 0, teamDamageShare: 0, teamKillShare: 0 } as any,
+    teamImpact = { damageImpact: null, killImpact: null, teamDamageShare: null, teamKillShare: null } as any,
     badges = [],
   } = matchData;
   const observedEliteBenchmark: ObservedBenchmark | null = eliteBenchmark
@@ -43,6 +43,26 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
       ? `${value}%`
       : "측정 불가";
   };
+  const finiteNonNegative = (value: unknown): number | null => {
+    if (value === null || value === undefined) return null;
+    if (typeof value === "string" && value.trim() === "") return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) && numeric >= 0 ? numeric : null;
+  };
+  const formatNumber = (value: unknown, suffix = ""): string => {
+    const numeric = finiteNonNegative(value);
+    return numeric === null ? "측정 불가" : `${numeric}${suffix}`;
+  };
+  const boundedRate = (numerator: unknown, denominator: unknown): number | null => {
+    const safeNumerator = finiteNonNegative(numerator);
+    const safeDenominator = finiteNonNegative(denominator);
+    if (safeNumerator === null || safeDenominator === null || safeDenominator <= 0) return null;
+    return Math.round(Math.max(0, Math.min(100, (safeNumerator / safeDenominator) * 100)));
+  };
+  const formatCount = (value: unknown): string => {
+    const numeric = finiteNonNegative(value);
+    return numeric === null ? "측정 불가" : String(numeric);
+  };
   const formatBenchmarkPercent = (key: keyof NormalizedBenchmark): string => {
     const value = benchmarkMetric(key);
     return value === null ? "측정 불가" : `${value}%`;
@@ -56,20 +76,31 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
   const ridingKills = stats?.ridingShotKills ?? matchData.ridingShotKills ?? 0;
   const ridingKnocks = stats?.ridingShotKnocks ?? matchData.ridingShotKnocks ?? 0;
   const hasVehicleCombat = leadKills > 0 || leadKnocks > 0 || ridingKills > 0 || ridingKnocks > 0;
-  const personalReviveRate = tradeStats.teammateKnocks > 0 ? Math.round((tradeStats.revCount / tradeStats.teammateKnocks) * 100) : 0;
-  const smokeOpportunityRate = tradeStats.teammateKnocks > 0 ? Math.round((tradeStats.smokeRescues / tradeStats.teammateKnocks) * 100) : 0;
-  const smokeAttemptSuccessRate = tradeStats.smokeCount > 0 ? Math.round((tradeStats.smokeRescues / tradeStats.smokeCount) * 100) : 0;
-  const totalThrows = combatPressure.utilityStats?.throwCount || 0;
-  const lethalThrows = combatPressure.utilityStats?.lethalThrowCount
-    ?? ((matchData.itemUseSummary?.frags || 0) + (matchData.itemUseSummary?.molotovs || 0));
-  const rawUtilityHits = combatPressure.utilityStats?.hitCount || 0;
-  const utilityHits = lethalThrows > 0 ? Math.min(rawUtilityHits, lethalThrows) : 0;
-  const utilityDamage = combatPressure.utilityStats?.totalDamage ?? combatPressure.utilityDamage ?? 0;
-  const utilityAccuracy = lethalThrows > 0 ? Number(((utilityHits / lethalThrows) * 100).toFixed(1)) : 0;
-  const avgDamagePerLethalThrow = lethalThrows > 0 ? Number((utilityDamage / lethalThrows).toFixed(1)) : 0;
-  const utilityInterpretation = lethalThrows > 0
-    ? `피해형 투척 ${lethalThrows}회 중 피해 적중 ${utilityHits}회로 평가할 것`
-    : `피해형 투척 0회이므로 적중률/폭파 칭호를 만들지 말고, 총 투척 ${totalThrows}회는 연막 또는 비피해 투척 활용으로만 해석할 것`;
+  const personalReviveRate = boundedRate(tradeStats.revCount, tradeStats.teammateKnocks);
+  const smokeOpportunityRate = boundedRate(tradeStats.smokeRescues, tradeStats.teammateKnocks);
+  const smokeAttemptSuccessRate = boundedRate(tradeStats.smokeRescues, tradeStats.smokeCount);
+  const totalThrows = finiteNonNegative(combatPressure.utilityStats?.throwCount);
+  const lethalThrowValue = finiteNonNegative(combatPressure.utilityStats?.lethalThrowCount);
+  const fallbackFragCount = finiteNonNegative(matchData.itemUseSummary?.frags);
+  const fallbackMolotovCount = finiteNonNegative(matchData.itemUseSummary?.molotovs);
+  const fallbackLethalThrows = fallbackFragCount === null && fallbackMolotovCount === null
+    ? null
+    : (fallbackFragCount ?? 0) + (fallbackMolotovCount ?? 0);
+  const lethalThrows = lethalThrowValue ?? fallbackLethalThrows;
+  const rawUtilityHits = finiteNonNegative(combatPressure.utilityStats?.hitCount);
+  const utilityHits = lethalThrows !== null && rawUtilityHits !== null
+    ? Math.min(rawUtilityHits, lethalThrows)
+    : null;
+  const utilityDamage = finiteNonNegative(combatPressure.utilityStats?.totalDamage ?? combatPressure.utilityDamage);
+  const utilityAccuracy = lethalThrows !== null && lethalThrows > 0 && utilityHits !== null
+    ? Number(((utilityHits / lethalThrows) * 100).toFixed(1))
+    : null;
+  const avgDamagePerLethalThrow = lethalThrows !== null && lethalThrows > 0 && utilityDamage !== null
+    ? Number((utilityDamage / lethalThrows).toFixed(1))
+    : null;
+  const utilityInterpretation = lethalThrows !== null && lethalThrows > 0
+    ? `피해형 투척 ${lethalThrows}회 중 피해 적중 ${utilityHits === null ? "측정 불가" : `${utilityHits}회`}로 평가할 것`
+    : `피해형 투척 ${formatCount(lethalThrows)}회이므로 적중률/폭파 칭호를 만들지 말고, 총 투척 ${formatCount(totalThrows)}회는 연막 또는 비피해 투척 활용으로만 해석할 것`;
   const rawBackupLatency = tradeStats.tradeLatencyMs;
   const backupLatencyMs = rawBackupLatency === null
     || rawBackupLatency === undefined
@@ -83,11 +114,11 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     : "데이터 부족";
   const backupContext = buildBackupCoachingContext({
     avgBackupLatency: backupLatencyText,
-    totalTradeKills: tradeStats.tradeKills || 0,
-    totalRevCount: tradeStats.revCount || 0,
-    totalSmokeRescues: tradeStats.smokeRescues || 0,
-    totalTeamWipes: tradeStats.enemyTeamWipes || 0,
-    totalTeammateKnocks: tradeStats.teammateKnocks || 0,
+    totalTradeKills: finiteNonNegative(tradeStats.tradeKills) ?? 0,
+    totalRevCount: finiteNonNegative(tradeStats.revCount) ?? 0,
+    totalSmokeRescues: finiteNonNegative(tradeStats.smokeRescues) ?? 0,
+    totalTeamWipes: finiteNonNegative(tradeStats.enemyTeamWipes) ?? 0,
+    totalTeammateKnocks: finiteNonNegative(tradeStats.teammateKnocks) ?? 0,
     benchmarkTradeLatency: benchmarkMetric("avgTradeLatency") ?? undefined,
   });
   const benchmark = matchData.benchmark || {};
@@ -99,6 +130,10 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
   const impactReasons = Array.isArray(benchmark.impactReasons) && benchmark.impactReasons.length > 0
     ? benchmark.impactReasons.join(", ")
     : "없음";
+  const impactBonus = formatNumber(benchmark.impactBonus);
+  const isCrossfireText = isolationData === null || typeof isolationData?.isCrossfire !== "boolean"
+    ? "측정 불가"
+    : isolationData.isCrossfire ? "있음" : "없음";
 
   const playerReportSummary = `
 [기본 성적]
@@ -106,28 +141,28 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
 - 전투: ${stats.kills}킬 / ${stats.assists}어시 / ${stats.DBNOs}기절 / 유효 딜량 ${Math.floor(stats.processedDamageDealt ?? stats.damageDealt)}${hasVehicleCombat ? `\n- 특수 전투(차량): 리드샷 기절/킬 ${leadKnocks}/${leadKills}, 라이딩샷 기절/킬 ${ridingKnocks}/${ridingKills}` : ""}
 - 킬 기여도: 직접 사살(Solo Kill) ${killContribution.solo}회 / 마무리 사살(Cleanup) ${killContribution.cleanup}회
 - 실력 등급: 엘리트 대비 딜량 ${formatPercent(teamImpact.damageImpact)} / 킬 ${formatPercent(teamImpact.killImpact)}
-- 팀 기여도: 팀 내 딜량 비중 ${teamImpact.teamDamageShare}% / 팀 내 킬 비중 ${teamImpact.teamKillShare}%
+- 팀 기여도: 팀 내 딜량 비중 ${formatPercent(teamImpact.teamDamageShare)} / 팀 내 킬 비중 ${formatPercent(teamImpact.teamKillShare)}
 - 획득 배지: ${badges.length > 0 ? badges.map((b: any) => `[${b.name}: ${b.desc}]`).join(", ") : "없음"}
 - 생존: ${Math.floor(stats.timeSurvived / 60)}분 ${stats.timeSurvived % 60}초
 - 전술 안정도: ${benchmark.score ?? "측정 불가"} / 100
-- 매치 임팩트: ${benchmark.impactScore ?? "측정 불가"} (${impactGradeLabel}, 안정도 대비 +${benchmark.impactBonus ?? 0})
+- 매치 임팩트: ${benchmark.impactScore ?? "측정 불가"} (${impactGradeLabel}, 안정도 대비 +${impactBonus})
 - 임팩트 근거: ${impactReasons}
 
 [전술 지표 (유저 vs DB 티어 평균)]
 - 1:1 교전 승률: ${formatPercent(matchData.duelStats?.duelWinRate)} (Elite Avg: ${formatBenchmarkPercent("avgDuelWinRate")})
 - 복수(Trade) 성공률: ${formatPercent(tradeStats.tradeRate)} (Elite Avg: ${formatBenchmarkPercent("avgTradeRate")})
 - 선제 공격 성공률: ${formatPercent(matchData.initiative_rate)} (Elite Avg: ${formatBenchmarkPercent("avgInitiativeRate")})
-- 대응 사격 속도(반응): ${tradeStats.reactionLatencyMs > 0 ? `${(tradeStats.reactionLatencyMs / 1000).toFixed(2)}s` : "데이터 부족"} (Elite Avg: ${formatBenchmarkNumber("avgCounterLatency", "s")})
+- 대응 사격 속도(반응): ${(() => { const latency = finiteNonNegative(tradeStats.reactionLatencyMs); return latency === null ? "데이터 부족" : `${(latency / 1000).toFixed(2)}s`; })()} (Elite Avg: ${formatBenchmarkNumber("avgCounterLatency", "s")})
 - 백업(Trade) 속도: ${backupLatencyText} (Elite Avg: ${formatBenchmarkNumber("avgTradeLatency", "s")})
 - 백업 결과 해석: ${backupContext.promptLine}
-- 전술 지원: 견제사격 ${tradeStats.suppCount || 0}회 (Elite Avg: 측정 불가)
-- 위기 관리: 내가 한 소생률 ${personalReviveRate}% (아군 기절 ${tradeStats.teammateKnocks || 0}회 중 내 소생 ${tradeStats.revCount || 0}회, Elite Avg: ${formatBenchmarkPercent("avgReviveRate")}) / 내 연막 구출률 ${smokeOpportunityRate}% (아군 기절 대비 성공, Elite Avg: ${formatBenchmarkPercent("avgSmokeRate")}) / 구출 연막 시도 성공률 ${smokeAttemptSuccessRate}% (시도 ${tradeStats.smokeCount || 0}회, 성공 ${tradeStats.smokeRescues || 0}회)
-- 공간 전술: 고립 지수 ${isolationData?.isolationIndex ?? "데이터 부족"} (Elite Avg: ${formatBenchmarkNumber("avgIsolationIndex")}) / 아군 평균 거리: ${isolationData?.minDist ?? "측정 불가"}m / 고도차 ${isolationData?.heightDiff ?? "측정 불가"}m / 십자포화 노출: ${isolationData?.isCrossfire ? "있음" : "없음"}
-- 유틸리티 정밀: 총 투척 ${totalThrows}회 / 피해형 투척 ${lethalThrows}회 / 피해 적중 ${utilityHits}회 / 피해형 투척 적중률 ${utilityAccuracy}% / 피해형 투척당 평균 딜 ${avgDamagePerLethalThrow}
+- 전술 지원: 견제사격 ${formatCount(tradeStats.suppCount)}회 (Elite Avg: 측정 불가)
+- 위기 관리: 내가 한 소생률 ${formatPercent(personalReviveRate)} (아군 기절 ${formatCount(tradeStats.teammateKnocks)}회 중 내 소생 ${formatCount(tradeStats.revCount)}회, Elite Avg: ${formatBenchmarkPercent("avgReviveRate")}) / 내 연막 구출률 ${formatPercent(smokeOpportunityRate)} (아군 기절 대비 성공, Elite Avg: ${formatBenchmarkPercent("avgSmokeRate")}) / 구출 연막 시도 성공률 ${formatPercent(smokeAttemptSuccessRate)} (시도 ${formatCount(tradeStats.smokeCount)}회, 성공 ${formatCount(tradeStats.smokeRescues)}회)
+- 공간 전술: 고립 지수 ${isolationData?.isolationIndex ?? "데이터 부족"} (Elite Avg: ${formatBenchmarkNumber("avgIsolationIndex")}) / 아군 평균 거리: ${formatNumber(isolationData?.minDist, "m")} / 고도차 ${formatNumber(isolationData?.heightDiff, "m")} / 십자포화 노출: ${isCrossfireText}
+- 유틸리티 정밀: 총 투척 ${formatCount(totalThrows)}회 / 피해형 투척 ${formatCount(lethalThrows)}회 / 피해 적중 ${formatCount(utilityHits)}회 / 피해형 투척 적중률 ${formatPercent(utilityAccuracy)} / 피해형 투척당 평균 딜 ${formatNumber(avgDamagePerLethalThrow)}
 - 유틸리티 해석: ${utilityInterpretation}
-- 교전 압박: 압박 지수 ${combatPressure.pressureIndex ?? 0} (Elite Avg: ${formatBenchmarkNumber("avgPressureIndex")}) / 투척물 딜량 ${combatPressure.utilityDamage || 0}
-- 운영 패턴: 사망 페이즈 ${matchData.deathPhase ?? 0} (Elite Avg: ${formatBenchmarkNumber("avgDeathPhase", " 페이즈")})
-- 팀 전멸 기여: ${tradeStats.enemyTeamWipes || 0}회
+- 교전 압박: 압박 지수 ${formatNumber(combatPressure.pressureIndex)} (Elite Avg: ${formatBenchmarkNumber("avgPressureIndex")}) / 투척물 딜량 ${formatNumber(combatPressure.utilityDamage ?? combatPressure.utilityStats?.totalDamage)}
+- 운영 패턴: 사망 페이즈 ${formatNumber(matchData.deathPhase)} (Elite Avg: ${formatBenchmarkNumber("avgDeathPhase", " 페이즈")})
+- 팀 전멸 기여: ${formatCount(tradeStats.enemyTeamWipes)}회
 `.trim();
 
   const personaPrompt = isMild

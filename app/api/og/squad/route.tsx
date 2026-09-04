@@ -92,11 +92,11 @@ export async function GET(request: NextRequest) {
   let stats = {
     avgIsolation: null as number | null,
     avgTradeLatency: null as number | null,
-    totalSmokeRescues: 0,
-    totalRevives: 0,
+    totalSmokeRescues: null as number | null,
+    totalRevives: null as number | null,
     avgCoverRate: null as number | null,
-    totalTeamWipes: 0,
-    totalTeammateKnocks: 0,
+    totalTeamWipes: null as number | null,
+    totalTeammateKnocks: null as number | null,
   };
   let scores = {
     formation: null as number | null,

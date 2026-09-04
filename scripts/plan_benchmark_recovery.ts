@@ -14,6 +14,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   BENCHMARK_RECOVERY_CANARY_SIZE,
+  BENCHMARK_RECOVERY_SNAPSHOT_COLUMNS,
   BENCHMARK_RECOVERY_DEFAULT_RECENT_DAYS,
   DEFAULT_BENCHMARK_RECOVERY_BUCKET,
   DEFAULT_BENCHMARK_RECOVERY_PLATFORM,
@@ -27,6 +28,7 @@ import {
   type BenchmarkRecoveryPlan,
   type BenchmarkRecoveryPlayerMatchRow,
   type BenchmarkRecoveryProcessedRow,
+  type BenchmarkRecoverySnapshot,
   type BenchmarkRecoveryPlatform,
 } from "../lib/pubg-analysis/benchmarkRecoveryPlanner";
 import { isCanonicalBenchmarkTier, isTrustedBenchmarkAggregate } from "../lib/pubg-analysis/benchmarkLookup";
@@ -51,12 +53,8 @@ const GLOBAL_BENCHMARK_COLUMNS = [
   "match_id",
   "player_id",
   "platform",
-  "game_mode",
-  "match_type",
-  "tier",
   "created_at",
-  "filter_version",
-  "population_evidence_version",
+  ...BENCHMARK_RECOVERY_SNAPSHOT_COLUMNS,
 ].join(", ");
 
 const PLAYER_MATCH_COLUMNS = [
@@ -133,6 +131,7 @@ export type BenchmarkRecoveryManifest = {
    * the database again immediately before each route call.
    */
   readEvidence: Array<{
+    benchmarkId: string | number;
     matchId: string;
     playerId: string;
     platform: BenchmarkRecoveryPlatform;
@@ -141,6 +140,7 @@ export type BenchmarkRecoveryManifest = {
     tier: string;
     playedAt: string;
     isValidBenchmark: true;
+    snapshot: BenchmarkRecoverySnapshot;
   }>;
   databaseWritesAttempted: 0;
   storageWritesAttempted: 0;
@@ -415,10 +415,15 @@ export function buildBenchmarkRecoveryManifest(
     const platform = decision.identity.platform;
     const bucket = decision.bucket;
     const playedAt = decision.playedAt;
-    if (!matchId || !playerId || !platform || !bucket || !playedAt) {
+    const benchmarkId = decision.benchmarkId;
+    const snapshot = decision.benchmarkSnapshot;
+    if (!matchId || !playerId || !platform || !bucket || !playedAt
+      || (typeof benchmarkId !== "number" && typeof benchmarkId !== "string")
+      || !snapshot) {
       throw new Error("selected_decision_read_evidence_incomplete");
     }
     return {
+      benchmarkId,
       matchId,
       playerId,
       platform,
@@ -427,6 +432,7 @@ export function buildBenchmarkRecoveryManifest(
       tier: bucket.tier,
       playedAt,
       isValidBenchmark: true as const,
+      snapshot,
     };
   });
   return {

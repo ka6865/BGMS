@@ -2,9 +2,11 @@
  * Guarded benchmark-recovery canary executor.
  *
  * The default mode only validates a frozen planner manifest and prints a
- * deterministic confirmation token. Applying is deliberately opt-in, bound
- * to a loopback app, and uses the existing match route without manual flags.
- * This script has no database or storage mutator path.
+ * deterministic confirmation token without remote writes. Applying is
+ * deliberately opt-in, bound to a loopback app, and uses the existing match
+ * route to mutate the database and R2 configured for that app.
+ * Successful rows are not automatically rolled back if a later canary row
+ * fails; the generated snapshot/report is the recovery record.
  */
 
 import { createHash } from "node:crypto";
@@ -13,7 +15,10 @@ import path from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
 import {
+  BENCHMARK_RECOVERY_SNAPSHOT_COLUMNS,
+  readBenchmarkRecoverySnapshot,
   type BenchmarkRecoveryBucket,
+  type BenchmarkRecoverySnapshot,
   type BenchmarkRecoveryPlatform,
 } from "../lib/pubg-analysis/benchmarkRecoveryPlanner";
 import type { BenchmarkRecoveryManifest } from "./plan_benchmark_recovery";
@@ -22,6 +27,7 @@ import {
   isCanonicalBenchmarkTier,
   isTrustedBenchmarkAggregate,
 } from "../lib/pubg-analysis/benchmarkLookup";
+import { isR2Configured, readObjectForVerification } from "../lib/pubg-analysis/r2Service";
 import { getValidFullResultForMatch, normalizePlatform } from "../lib/pubg-analysis/cacheIdentity";
 import {
   POPULATION_EVIDENCE_VERSION,
@@ -48,6 +54,8 @@ export const BENCHMARK_RECOVERY_MANIFEST_MAX_AGE_MS = 24 * 60 * 60 * 1_000;
 export const BENCHMARK_RECOVERY_TOKEN_ENV = "BENCHMARK_RECOVERY_TOKEN";
 export const BENCHMARK_RECOVERY_TOKEN_HEADER = "x-benchmark-recovery-token";
 export const BENCHMARK_RECOVERY_SYNC_STALE_ENV = "BENCHMARK_RECOVERY_SYNC_STALE";
+export const BENCHMARK_RECOVERY_APPLY_WARNING =
+  "WARNING: --apply mutates the database and R2 configured for the loopback app; completed rows are not automatically rolled back.";
 
 const SNAPSHOT_MATCH_TABLES = [
   "global_benchmarks",
@@ -129,6 +137,7 @@ type RunDependencies = {
 };
 
 type CanaryIdentity = {
+  benchmarkId: string | number;
   matchId: string;
   playerId: string;
   platform: BenchmarkRecoveryPlatform;
@@ -153,18 +162,21 @@ type DatabaseState = {
 };
 
 type BenchmarkRecoveryReadEvidence = {
+  benchmarkId: string | number;
   matchId: string;
   playerId: string;
   platform: BenchmarkRecoveryPlatform;
   bucket: BenchmarkRecoveryBucket;
   playedAt: string;
   isValidBenchmark: true;
+  snapshot: BenchmarkRecoverySnapshot;
 };
 
 /**
  * Read-only proof of the storage side effects produced by one route call.
- * Apply runs require this boundary; the real CLI intentionally does not
- * synthesize a verifier and therefore fails closed without one.
+ * Apply runs require this boundary. The default implementation below performs
+ * a read-only HEAD/GET plus registry-row readback; tests may inject an
+ * equivalent verifier at this boundary.
  */
 export type BenchmarkRecoveryR2PostconditionEvidence = {
   /** A concrete object read-back, including immutable content identity. */
@@ -178,6 +190,7 @@ export type BenchmarkRecoveryR2PostconditionEvidence = {
   /** The registry row read-back that binds the object to this identity. */
   registry: {
     matchId: string;
+    /** Opaque PUBG account id stored by the registry (not the public nickname). */
     playerId: string;
     platform: BenchmarkRecoveryPlatform;
     storagePath: string;
@@ -193,6 +206,75 @@ export type BenchmarkRecoveryR2PostconditionVerifier = (
   before: DatabaseState,
   after: DatabaseState,
 ) => Promise<BenchmarkRecoveryR2PostconditionEvidence> | BenchmarkRecoveryR2PostconditionEvidence;
+
+function recoveryRegistryRow(
+  state: DatabaseState,
+  identity: CanaryIdentity,
+): PlainRecord {
+  const rows = state.telemetry_map_cache_entries.filter((row) => (
+    normalizeMatchId(row.match_id) === identity.matchId
+      && typeof row.platform === "string"
+      && normalizePlatform(row.platform) === identity.platform
+      && row.mode === "lite"
+      && Number(row.telemetry_version) === TELEMETRY_VERSION
+  ));
+  if (rows.length !== 1) throw new Error(`r2_registry_identity_count_${rows.length}`);
+  const row = rows[0];
+  if (row.status !== "ready" || row.lease_expires_at != null || row.lease_token != null) {
+    throw new Error("r2_registry_not_ready");
+  }
+  const playerId = typeof row.player_id === "string" ? row.player_id.trim() : "";
+  const storagePath = typeof row.storage_path === "string" ? row.storage_path.trim() : "";
+  if (!playerId || !storagePath) throw new Error("r2_registry_identity_missing");
+  const canonicalPath = new RegExp(
+    `^telemetry-map/v${TELEMETRY_VERSION}/${identity.platform}/${identity.matchId}/[a-f0-9]{32}/lite[.]json$`,
+  );
+  if (!canonicalPath.test(storagePath)) throw new Error("r2_registry_storage_path_invalid");
+  const playerHash = createHash("sha256").update(playerId).digest("hex").slice(0, 32);
+  if (!storagePath.endsWith(`/${playerHash}/lite.json`)) {
+    throw new Error("r2_registry_storage_identity_mismatch");
+  }
+  return row;
+}
+
+/**
+ * Build the production-safe, read-only R2 proof used by the standalone canary.
+ * The database state is fetched immediately after the route call, then the
+ * exact registry key is HEADed and GETed; the returned bytes and ETag are
+ * bound to that row before the next canary identity is attempted.
+ */
+export function createBenchmarkRecoveryR2PostconditionVerifier(
+  readObject: typeof readObjectForVerification = readObjectForVerification,
+): BenchmarkRecoveryR2PostconditionVerifier {
+  return async (identity, _before, after) => {
+    const row = recoveryRegistryRow(after, identity);
+    const storagePath = String(row.storage_path).trim();
+    const object = await readObject(storagePath);
+    if (!object) throw new Error("r2_object_missing");
+    const playerId = String(row.player_id).trim();
+    return {
+      object: {
+        key: object.key,
+        exists: true,
+        etag: object.etag,
+        sha256: createHash("sha256").update(object.body).digest("hex"),
+        readBack: true,
+      },
+      registry: {
+        matchId: identity.matchId,
+        // The registry stores the PUBG account id, not the public nickname in
+        // the manifest. The key hash above binds this opaque value safely.
+        playerId,
+        platform: identity.platform,
+        storagePath,
+        status: "ready",
+        telemetryVersion: Number(row.telemetry_version),
+        etag: object.etag,
+        readBack: true,
+      },
+    };
+  };
+}
 
 function isRecord(value: unknown): value is PlainRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -285,6 +367,10 @@ function identityKey(identity: Pick<CanaryIdentity, "matchId" | "platform" | "pl
 function canaryEntry(entry: unknown): CanaryIdentity {
   if (!isRecord(entry)) throw new Error("invalid_canary_entry");
   const matchId = normalizeMatchId(entry.matchId);
+  const benchmarkId = typeof entry.benchmarkId === "number"
+    ? (Number.isSafeInteger(entry.benchmarkId) ? entry.benchmarkId : null)
+    : typeof entry.benchmarkId === "string" && /^\d+$/.test(entry.benchmarkId) ? entry.benchmarkId : null;
+  if (benchmarkId === null) throw new Error("invalid_canary_benchmark_id");
   const playerId = typeof entry.playerId === "string" ? normalizeName(entry.playerId) : "";
   if (!matchId || !isCanonicalMatchId(matchId)) throw new Error("invalid_canary_match_id");
   if (!playerId) throw new Error("invalid_canary_player_id");
@@ -297,7 +383,7 @@ function canaryEntry(entry: unknown): CanaryIdentity {
   const playedAtMs = dateTimestamp(entry.playedAt, "canary_played_at");
   if (entry.eligible !== true || entry.reason !== "eligible") throw new Error("canary_not_eligible");
   if (!Array.isArray(entry.reasons) || entry.reasons.length !== 0) throw new Error("canary_has_reasons");
-  return { matchId, playerId, platform, bucket, playedAt: new Date(playedAtMs).toISOString() };
+  return { benchmarkId, matchId, playerId, platform, bucket, playedAt: new Date(playedAtMs).toISOString() };
 }
 
 function readEvidenceEntry(entry: unknown): BenchmarkRecoveryReadEvidence {
@@ -307,20 +393,33 @@ function readEvidenceEntry(entry: unknown): BenchmarkRecoveryReadEvidence {
   if (!matchId || !isCanonicalMatchId(matchId)) throw new Error("invalid_read_evidence_match_id");
   if (!playerId) throw new Error("invalid_read_evidence_player_id");
   const platform = strictPlatform(entry.platform);
+  const benchmarkId = typeof entry.benchmarkId === "number"
+    ? (Number.isSafeInteger(entry.benchmarkId) ? entry.benchmarkId : null)
+    : typeof entry.benchmarkId === "string" && /^\d+$/.test(entry.benchmarkId) ? entry.benchmarkId : null;
+  if (benchmarkId === null) throw new Error("invalid_read_evidence_benchmark_id");
   const bucket = exactBucket({
     gameMode: entry.gameMode,
     matchType: entry.matchType,
     tier: entry.tier,
   }, "read_evidence_bucket");
   if (entry.isValidBenchmark !== true) throw new Error("invalid_read_evidence_benchmark_validity");
+  const snapshot = isRecord(entry.snapshot)
+    ? readBenchmarkRecoverySnapshot(entry.snapshot)
+    : null;
+  if (!snapshot
+    || Object.keys(entry.snapshot as PlainRecord).length !== BENCHMARK_RECOVERY_SNAPSHOT_COLUMNS.length) {
+    throw new Error("invalid_read_evidence_benchmark_snapshot");
+  }
   const playedAtMs = dateTimestamp(entry.playedAt, "read_evidence_played_at");
   return {
+    benchmarkId,
     matchId,
     playerId,
     platform,
     bucket,
     playedAt: new Date(playedAtMs).toISOString(),
     isValidBenchmark: true,
+    snapshot,
   };
 }
 
@@ -425,6 +524,7 @@ export function validateBenchmarkRecoveryManifest(value: unknown, options: Manif
   const orderedReadEvidence = canary.map((entry) => {
     const evidence = evidenceByIdentity.get(identityKey(entry));
     if (!evidence
+      || String(evidence.benchmarkId) !== String(entry.benchmarkId)
       || evidence.platform !== entry.platform
       || bucketKey(evidence.bucket) !== bucketKey(entry.bucket)
       || evidence.playedAt !== entry.playedAt) {
@@ -448,7 +548,8 @@ export function benchmarkRecoveryConfirmationToken(
   const validated = validateBenchmarkRecoveryManifest(manifest, options);
   const identities = [...validated.canary]
     .sort((left, right) => identityKey(left).localeCompare(identityKey(right)))
-    .map(({ matchId, playerId, platform, bucket, playedAt }) => ({
+    .map(({ benchmarkId, matchId, playerId, platform, bucket, playedAt }) => ({
+      benchmarkId,
       matchId,
       playerId,
       platform,
@@ -457,7 +558,8 @@ export function benchmarkRecoveryConfirmationToken(
     }));
   const readEvidence = [...validated.readEvidence]
     .sort((left, right) => identityKey(left).localeCompare(identityKey(right)))
-    .map(({ matchId, playerId, platform, bucket, playedAt }) => ({
+    .map(({ benchmarkId, matchId, playerId, platform, bucket, playedAt, snapshot }) => ({
+      benchmarkId,
       matchId,
       playerId,
       platform,
@@ -465,6 +567,7 @@ export function benchmarkRecoveryConfirmationToken(
       matchType: bucket.matchType,
       tier: bucket.tier,
       playedAt,
+      snapshot,
     }));
   const material = JSON.stringify({
     schemaVersion: manifest.schemaVersion,
@@ -597,6 +700,19 @@ function exactRowOrFail(rows: readonly PlainRecord[], identity: CanaryIdentity, 
   return matches[0];
 }
 
+function benchmarkIdKey(value: unknown): string | null {
+  if (typeof value === "number") return Number.isSafeInteger(value) ? String(value) : null;
+  if (typeof value === "string" && /^\d+$/.test(value)) return value;
+  return null;
+}
+
+function benchmarkSnapshotsEqual(
+  left: BenchmarkRecoverySnapshot,
+  right: BenchmarkRecoverySnapshot,
+): boolean {
+  return BENCHMARK_RECOVERY_SNAPSHOT_COLUMNS.every((column) => Object.is(left[column], right[column]));
+}
+
 function assertRaceGuard(state: DatabaseState, canary: readonly CanaryIdentity[]): void {
   for (const identity of canary) {
     const benchmark = exactRowOrFail(state.global_benchmarks, identity, "global_benchmarks");
@@ -661,7 +777,8 @@ function assertBoundReadEvidence(
   evidence: BenchmarkRecoveryReadEvidence,
 ): void {
   try {
-    if (identityKey(identity) !== identityKey(evidence)
+    if (benchmarkIdKey(identity.benchmarkId) !== benchmarkIdKey(evidence.benchmarkId)
+      || identityKey(identity) !== identityKey(evidence)
       || bucketKey(identity.bucket) !== bucketKey(evidence.bucket)
       || identity.playedAt !== evidence.playedAt
       || evidence.isValidBenchmark !== true) {
@@ -670,6 +787,13 @@ function assertBoundReadEvidence(
 
     const benchmark = exactRowOrFail(state.global_benchmarks, identity, "global_benchmarks");
     if (isTrustedBenchmarkAggregate(benchmark)) throw new ReadEvidenceMismatchError();
+    if (benchmarkIdKey(benchmark.id) !== benchmarkIdKey(evidence.benchmarkId)) {
+      throw new ReadEvidenceMismatchError();
+    }
+    const benchmarkSnapshot = readBenchmarkRecoverySnapshot(benchmark);
+    if (!benchmarkSnapshot || !benchmarkSnapshotsEqual(benchmarkSnapshot, evidence.snapshot)) {
+      throw new ReadEvidenceMismatchError();
+    }
     assertBucketMatches(benchmark, evidence.bucket, "bound_benchmark");
 
     const processed = exactRowOrFail(state.processed_match_telemetry, identity, "processed_match_telemetry");
@@ -720,6 +844,9 @@ function assertBoundReadEvidence(
 function assertPostconditions(state: DatabaseState, canary: readonly CanaryIdentity[]): void {
   for (const identity of canary) {
     const benchmark = exactRowOrFail(state.global_benchmarks, identity, "global_benchmarks");
+    if (benchmarkIdKey(benchmark.id) !== benchmarkIdKey(identity.benchmarkId)) {
+      throw new Error("postcondition_benchmark_id_mismatch");
+    }
     if (!isTrustedBenchmarkAggregate(benchmark)
       || Number(benchmark.filter_version) !== BENCHMARK_FILTER_VERSION
       || Number(benchmark.population_evidence_version) !== POPULATION_EVIDENCE_VERSION) {
@@ -820,7 +947,6 @@ function assertR2PostconditionEvidence(
   if (registry.readBack !== true
     || registry.status !== "ready"
     || registry.matchId !== identity.matchId
-    || registry.playerId !== identity.playerId
     || registry.platform !== identity.platform
     || !nonEmptyEvidenceString(registry.storagePath)
     || registry.storagePath !== object.key
@@ -830,6 +956,14 @@ function assertR2PostconditionEvidence(
     || !nonEmptyEvidenceString(registry.etag)
     || registry.etag !== object.etag) {
     throw new Error("r2_registry_readback_invalid");
+  }
+  const canonicalPath = new RegExp(
+    `^telemetry-map/v${TELEMETRY_VERSION}/${identity.platform}/${identity.matchId}/[a-f0-9]{32}/lite[.]json$`,
+  );
+  if (!canonicalPath.test(registry.storagePath)
+    || !nonEmptyEvidenceString(registry.playerId)
+    || !registry.storagePath.endsWith(`/${createHash("sha256").update(registry.playerId).digest("hex").slice(0, 32)}/lite.json`)) {
+    throw new Error("r2_registry_storage_identity_mismatch");
   }
 }
 
@@ -963,16 +1097,15 @@ export async function runBenchmarkRecoveryCanary(
   const baseUrl = loopbackBaseUrl(args.baseUrl);
   const recoveryToken = process.env[BENCHMARK_RECOVERY_TOKEN_ENV]?.trim();
   if (!recoveryToken) throw new Error("missing_benchmark_recovery_token");
-  const verifyR2Postconditions = dependencies.verifyR2Postconditions;
-  if (process.env.NODE_ENV !== "test" || typeof verifyR2Postconditions !== "function") {
-    // The standalone CLI has no safe way to prove the R2 object/registry
-    // postconditions.  Refuse before constructing a client, reading a
-    // snapshot, or making route 1 rather than inventing a successful proof.
-    // Dependency injection is reserved for the explicit test boundary; a
-    // production/CLI caller cannot establish R2 proof with an arbitrary bool.
+  const supabase = dependencies.supabase || await createSupabaseServiceClient();
+  if (dependencies.verifyR2Postconditions && process.env.NODE_ENV === "production") {
     throw new Error("r2_postcondition_verifier_required");
   }
-  const supabase = dependencies.supabase || await createSupabaseServiceClient();
+  const verifyR2Postconditions = dependencies.verifyR2Postconditions
+    || (() => {
+      if (!isR2Configured()) throw new Error("r2_postcondition_storage_required");
+      return createBenchmarkRecoveryR2PostconditionVerifier();
+    })();
   const before = await readDatabaseState(supabase, canary);
   assertRaceGuard(before, canary);
 
@@ -985,10 +1118,11 @@ export async function runBenchmarkRecoveryCanary(
     generatedAt,
     confirmationToken: token,
     selectedPlatform: platform,
-    selected: canary.map(({ matchId, playerId, platform, bucket: selectedBucket, playedAt }) => ({
-      matchId, playerId, platform, bucket: selectedBucket, playedAt,
+    selected: canary.map(({ benchmarkId, matchId, playerId, platform, bucket: selectedBucket, playedAt }) => ({
+      benchmarkId, matchId, playerId, platform, bucket: selectedBucket, playedAt,
     })),
-    readEvidence: readEvidence.map(({ matchId, playerId, platform, bucket: selectedBucket, playedAt }) => ({
+    readEvidence: readEvidence.map(({ benchmarkId, matchId, playerId, platform, bucket: selectedBucket, playedAt, snapshot: benchmarkSnapshot }) => ({
+      benchmarkId,
       matchId,
       playerId,
       platform,
@@ -997,6 +1131,7 @@ export async function runBenchmarkRecoveryCanary(
       tier: selectedBucket.tier,
       playedAt,
       isValidBenchmark: true,
+      snapshot: benchmarkSnapshot,
     })),
     rows: before,
   };
@@ -1147,7 +1282,8 @@ const isDirectRun = process.argv[1]?.includes("run_benchmark_recovery_canary") =
 if (isDirectRun) {
   const args = parseBenchmarkRecoveryCanaryArgs(process.argv.slice(2));
   if (args.help) {
-    console.info("Guarded benchmark canary. Default is preflight; apply requires --apply --confirm TOKEN and a loopback --base-url.");
+    console.info("Guarded benchmark canary. Default preflight performs no remote writes. Apply requires --apply --confirm TOKEN and a loopback --base-url.");
+    console.info(BENCHMARK_RECOVERY_APPLY_WARNING);
   } else {
     runBenchmarkRecoveryCanary(args)
       .then((report) => {

@@ -6,6 +6,10 @@ const MIGRATION_PATH = resolve(
   process.cwd(),
   "supabase/migrations/20260901141209_pubg_analysis_population_provenance.sql",
 );
+const SAFETY_MIGRATION_PATH = resolve(
+  process.cwd(),
+  "supabase/migrations/20260904130000_telemetry_cache_recovery_safety.sql",
+);
 const VERIFY_SCRIPT_PATH = resolve(process.cwd(), "scripts/verify_migrations_local.sh");
 const PREREQUISITES_PATH = resolve(
   process.cwd(),
@@ -15,6 +19,10 @@ const SCENARIOS_PATH = resolve(process.cwd(), "tests/fixtures/migration-check/sc
 
 function migrationSql(): string {
   return readFileSync(MIGRATION_PATH, "utf8");
+}
+
+function safetyMigrationSql(): string {
+  return readFileSync(SAFETY_MIGRATION_PATH, "utf8");
 }
 
 function verifyScript(): string {
@@ -138,7 +146,6 @@ describe("PUBG analysis population provenance migration", () => {
     expect(sql).toContain("8::integer AS filter_version");
     expect(sql).toContain("1::integer AS population_evidence_version");
     expect((sql.match(/SECURITY INVOKER/g) ?? []).length).toBeGreaterThanOrEqual(2);
-    expect((sql.match(/SET search_path = public/g) ?? []).length).toBeGreaterThanOrEqual(2);
     expect(sql).toContain(
       "REVOKE ALL ON FUNCTION public.get_weapon_meta_comparison(text, timestamptz, integer) FROM PUBLIC, anon, authenticated",
     );
@@ -150,6 +157,24 @@ describe("PUBG analysis population provenance migration", () => {
     );
     expect(sql).toContain(
       "GRANT EXECUTE ON FUNCTION public.get_weapon_meta_comparison(text, timestamptz, integer, text) TO service_role",
+    );
+  });
+
+  it("tightens both historical weapon RPC overloads forward without recreating or re-ACLing them", () => {
+    const sql = safetyMigrationSql();
+
+    expect(sql).toMatch(
+      /alter function public\.get_weapon_meta_comparison\(\s*text, timestamptz, integer\s*\)\s*set search_path = ''/i,
+    );
+    expect(sql).toMatch(
+      /alter function public\.get_weapon_meta_comparison\(\s*text, timestamptz, integer, text\s*\)\s*set search_path = ''/i,
+    );
+    expect((sql.match(/alter function public\.get_weapon_meta_comparison\(/gi) ?? []).length).toBe(2);
+    expect(sql).not.toMatch(
+      /(?:create|drop)\s+(?:or replace\s+)?function\s+public\.get_weapon_meta_comparison\(/i,
+    );
+    expect(sql).not.toMatch(
+      /(?:alter\s+function|grant\s+execute\s+on\s+function|revoke\s+all\s+on\s+function)[\s\S]*get_weapon_meta_comparison[\s\S]*(?:owner\s+to|grant\s+execute|revoke\s+all)/i,
     );
   });
 
@@ -199,5 +224,30 @@ describe("PUBG analysis population provenance migration", () => {
     expect(sql).toContain("population_evidence_version");
     expect(sql).toContain("filter_version");
     expect(sql).toContain("squad-fpp");
+  });
+
+  it("checks forward weapon RPC catalog state, four-way ACL, and both service-role calls", () => {
+    const migration = safetyMigrationSql();
+    const scenarios = scenariosSql();
+
+    expect(migration).toMatch(
+      /alter function public\.get_weapon_meta_comparison\(\s*text, timestamptz, integer\s*\)\s*set search_path = ''/i,
+    );
+    expect(migration).toMatch(
+      /alter function public\.get_weapon_meta_comparison\(\s*text, timestamptz, integer, text\s*\)\s*set search_path = ''/i,
+    );
+    expect(scenarios).toContain("weapon RPC empty search_path + ACL + role boundaries");
+    expect(scenarios).toContain("prosecdef");
+    expect(scenarios).toContain('search_path=""');
+    expect(scenarios).toContain("has_function_privilege('public'");
+    expect(scenarios).toContain("has_function_privilege('anon'");
+    expect(scenarios).toContain("has_function_privilege('authenticated'");
+    expect(scenarios).toContain("has_function_privilege('service_role'");
+    expect(scenarios).toContain(
+      "public.get_weapon_meta_comparison('42.1', now() - interval '1 hour', 14)",
+    );
+    expect(scenarios).toContain(
+      "public.get_weapon_meta_comparison('42.1', now() - interval '1 hour', 14, 'all')",
+    );
   });
 });

@@ -214,6 +214,10 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   let coverSuccesses = 0;
   let totalTeamWipes = 0;
   let accumTeammateKnocks = 0;
+  let teammateKnockEvidenceComplete = true;
+  let reviveEvidenceComplete = true;
+  let smokeRescueEvidenceComplete = true;
+  let teamWipeEvidenceComplete = true;
 
   const memberNameByKey = new Map<string, string>();
   const addSquadMember = (name: string) => {
@@ -258,16 +262,28 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       validTradeLatencyCount++;
     }
 
-    totalSmokeRescues += hasRecoveryTimeline ? squadRecoveryStats.squadSmokeRescues : (tradeStats.smokeRescues || 0);
-    totalRevives += hasRecoveryTimeline ? squadRecoveryStats.squadRevives : (tradeStats.revCount || 0);
+    const observedSmokeRescues = hasRecoveryTimeline
+      ? finiteNonNegative(squadRecoveryStats.squadSmokeRescues)
+      : finiteNonNegative(tradeStats.smokeRescues);
+    const observedRevives = hasRecoveryTimeline
+      ? finiteNonNegative(squadRecoveryStats.squadRevives)
+      : finiteNonNegative(tradeStats.revCount);
+    if (observedSmokeRescues === null) smokeRescueEvidenceComplete = false;
+    else totalSmokeRescues += observedSmokeRescues;
+    if (observedRevives === null) reviveEvidenceComplete = false;
+    else totalRevives += observedRevives;
     const coverRate = finiteNonNegative(tradeStats.coverRate);
     const coverSampleCount = finiteNonNegative(tradeStats.coverRateSampleCount);
     if (coverSampleCount !== null && coverSampleCount > 0 && coverRate !== null && coverRate <= 100) {
       coverAttempts += coverSampleCount;
       coverSuccesses += (coverRate / 100) * coverSampleCount;
     }
-    totalTeamWipes += tradeStats.enemyTeamWipes || 0;
-    accumTeammateKnocks += tradeStats.teammateKnocks || 0;
+    const observedTeamWipes = finiteNonNegative(tradeStats.enemyTeamWipes);
+    if (observedTeamWipes === null) teamWipeEvidenceComplete = false;
+    else totalTeamWipes += observedTeamWipes;
+    const observedTeammateKnocks = finiteNonNegative(tradeStats.teammateKnocks);
+    if (observedTeammateKnocks === null) teammateKnockEvidenceComplete = false;
+    else accumTeammateKnocks += observedTeammateKnocks;
 
     const matchTier = fullResult.benchmark?.tier || fullResult.matchInfo?.tier;
     // Every selected best-five row must carry its own canonical tier proof.
@@ -402,13 +418,22 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     throw new Error("Squad benchmark data unavailable.");
   }
 
-  const userReviveRate = (totalRevives / Math.max(1, accumTeammateKnocks)) * 100;
-  const userSmokeRate = (totalSmokeRescues / Math.max(1, accumTeammateKnocks)) * 100;
-  const userWipes = matchCount > 0 ? totalTeamWipes / matchCount : null;
+  const hasRecoveryDenominator = matchCount > 0
+    && teammateKnockEvidenceComplete
+    && reviveEvidenceComplete
+    && smokeRescueEvidenceComplete
+    && accumTeammateKnocks > 0;
+  const userReviveRate = hasRecoveryDenominator ? (totalRevives / accumTeammateKnocks) * 100 : null;
+  const userSmokeRate = hasRecoveryDenominator ? (totalSmokeRescues / accumTeammateKnocks) * 100 : null;
+  const userWipes = matchCount > 0 && teamWipeEvidenceComplete
+    ? totalTeamWipes / matchCount
+    : null;
 
   const formationScore = avgIsolation === null ? null : Math.max(10, Math.min(100, Math.round(70 + (benchmark.avgIsolation - avgIsolation) * 40)));
   const backupSpeedScore = avgTradeLatency === null ? null : Math.max(10, Math.min(100, Math.round(70 + (benchmark.avgTradeLatency - avgTradeLatency) / 150)));
-  const survivalCareScore = Math.max(10, Math.min(100, Math.round(70 + (userReviveRate - benchmark.avgReviveRate) * 1.5 + (userSmokeRate - benchmark.avgSmokeRate) * 5)));
+  const survivalCareScore = userReviveRate === null || userSmokeRate === null
+    ? null
+    : Math.max(10, Math.min(100, Math.round(70 + (userReviveRate - benchmark.avgReviveRate) * 1.5 + (userSmokeRate - benchmark.avgSmokeRate) * 5)));
   const focusFireScore = avgCoverRate === null ? null : Math.max(10, Math.min(100, Math.round(70 + (avgCoverRate - 0.30) * 100)));
   const teamWipeScore = userWipes === null ? null : Math.max(10, Math.min(100, Math.round(70 + (userWipes - benchmark.avgTeamWipes) * 6)));
 
@@ -497,10 +522,10 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     const name = memberNameByKey.get(key) || key;
     const stats = playerAccumStats[key];
     const shares = {
-      damage: totalStats.damage > 0 ? Math.round((stats.damage / totalStats.damage) * 100) : 25,
-      kill: totalStats.kills > 0 ? Math.round((stats.kills / totalStats.kills) * 100) : 25,
-      assist: totalStats.assists > 0 ? Math.round((stats.assists / totalStats.assists) * 100) : 25,
-      dbno: totalStats.dbnos > 0 ? Math.round((stats.dbnos / totalStats.dbnos) * 100) : 25
+      damage: totalStats.damage > 0 ? Math.round((stats.damage / totalStats.damage) * 100) : null,
+      kill: totalStats.kills > 0 ? Math.round((stats.kills / totalStats.kills) * 100) : null,
+      assist: totalStats.assists > 0 ? Math.round((stats.assists / totalStats.assists) * 100) : null,
+      dbno: totalStats.dbnos > 0 ? Math.round((stats.dbnos / totalStats.dbnos) * 100) : null
     };
 
     let role = "전술가";
@@ -513,10 +538,10 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       { key: "지원가", val: shares.assist, desc: "아군의 전투를 보조하고 뛰어난 어시스트 기여도를 보여주는 서포터입니다.", isLeader: maxAssistName === name }
     ];
 
-    const leaderCategories = deviations.filter(d => d.isLeader);
+    const leaderCategories = deviations.filter(d => d.isLeader && d.val !== null);
 
     if (leaderCategories.length > 0) {
-      const bestCategory = leaderCategories.sort((a, b) => b.val - a.val)[0];
+      const bestCategory = leaderCategories.sort((a, b) => (b.val ?? -Infinity) - (a.val ?? -Infinity))[0];
       role = bestCategory.key;
       roleDesc = bestCategory.desc;
     }
@@ -591,11 +616,14 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     stats: {
       avgIsolation: avgIsolation === null ? null : Number(avgIsolation.toFixed(2)),
       avgTradeLatency: avgTradeLatency === null ? null : Math.round(avgTradeLatency),
-      totalSmokeRescues,
-      totalRevives,
+      // A partial aggregate is not an observed total.  Keep an explicitly
+      // measured zero as zero, but withhold the sum whenever any selected
+      // match lacks evidence for that metric.
+      totalSmokeRescues: smokeRescueEvidenceComplete ? totalSmokeRescues : null,
+      totalRevives: reviveEvidenceComplete ? totalRevives : null,
       avgCoverRate: avgCoverRate === null ? null : Number(avgCoverRate.toFixed(2)),
-      totalTeamWipes,
-      totalTeammateKnocks: accumTeammateKnocks
+      totalTeamWipes: teamWipeEvidenceComplete ? totalTeamWipes : null,
+      totalTeammateKnocks: teammateKnockEvidenceComplete ? accumTeammateKnocks : null
     },
     scores,
     squadGrade,

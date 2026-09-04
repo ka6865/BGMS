@@ -37,7 +37,8 @@ if (hasRealDataFixture) describe('AnalysisEngine 실데이터(Gold Match) 정밀
     const engine = new AnalysisEngine(nickname, myAccountId, teamNames, teamAccountIds, eliteNames, eliteAccountIds, myRosterId);
     const result = engine.run(telemetry, { id: "gold-match", createdAt: "2026-05-02T16:00:00Z", gameMode: "squad" }, [], [], { damageDealt: 500, kills: 3, timeSurvived: 1200 }, [], {});
     
-    expect(Math.round(result.initiative_rate)).toBe(17);
+    expect(result.initiative_rate).not.toBeNull();
+    expect(Math.round(result.initiative_rate!)).toBe(17);
     expect(result.initiativeSampleCount).toBe(6); // 6회 시도 중 1회 성공 (150m 초과 견제샷 필터링)
   });
 
@@ -135,6 +136,46 @@ describe('AnalysisEngine isolation measurement contract', () => {
     expect(result.isolationData.heightDiff).toBeUndefined();
     expect(result.isolationData.teammateCount).toBeUndefined();
   });
+
+  it('keeps denominator-free single-match rates and scores unavailable', () => {
+    const engine = new AnalysisEngine(
+      'Player',
+      'account.player',
+      new Set(['player']),
+      new Set(['account.player']),
+      new Set(),
+      new Set(),
+      'roster-player',
+    );
+
+    const result = engine.run(
+      [],
+      {
+        id: 'no-denominators',
+        createdAt: '2026-08-27T00:00:00.000Z',
+        gameMode: 'squad-fpp',
+        matchType: 'official',
+      },
+      [],
+      [],
+      { name: 'Player', damageDealt: 0, kills: 0, winPlace: 10, timeSurvived: 600 },
+      [],
+      {},
+    );
+
+    expect(result.teamImpact.teamDamageShare).toBeNull();
+    expect(result.teamImpact.teamKillShare).toBeNull();
+    expect(result.tradeStats.tradeRate).toBeNull();
+    expect(result.tradeStats.suppRate).toBeNull();
+    expect(result.initiative_rate).toBeNull();
+    expect(result.duelStats.duelWinRate).toBeNull();
+    expect(result.duelStats.reversalRate).toBeNull();
+    expect(result.combatPressure.pressureIndex).toBeNull();
+    expect(result.combatPressure.utilityStats.accuracy).toBeNull();
+    expect(result.combatPressure.utilityStats.avgDamagePerThrow).toBeNull();
+    expect(result.avgCircleLuck).toBeNull();
+    expect(result.avgVehicleMastery).toBeNull();
+  });
 });
 
 describe('AnalysisEngine observed benchmark contract', () => {
@@ -166,6 +207,60 @@ describe('AnalysisEngine observed benchmark contract', () => {
     expect(playerReportSummary).not.toContain('실력 등급: 엘리트 대비 딜량 0% / 킬 0%');
     expect(playerReportSummary).toContain('1:1 교전 승률: 측정 불가');
     expect(playerReportSummary).not.toContain('1:1 교전 승률: 0%');
+  });
+
+  it('does not turn missing single-match denominators into prompt percentages or scores', () => {
+    const { playerReportSummary } = buildMatchAiCoachingPrompt({
+      matchData: {
+        mapName: 'Erangel',
+        gameMode: 'squad-fpp',
+        stats: {
+          winPlace: 10,
+          kills: 0,
+          assists: 0,
+          DBNOs: 0,
+          damageDealt: 0,
+          timeSurvived: 0,
+        },
+        teamImpact: {
+          damageImpact: null,
+          killImpact: null,
+          teamDamageShare: null,
+          teamKillShare: null,
+        },
+        tradeStats: {
+          teammateKnocks: 0,
+          revCount: 0,
+          smokeRescues: 0,
+          tradeRate: null,
+          suppRate: null,
+          reactionLatencyMs: 0,
+        },
+        duelStats: {
+          duelWinRate: null,
+          reversalRate: null,
+          reversalAttempts: 0,
+        },
+        combatPressure: {
+          pressureIndex: null,
+          utilityStats: {
+            lethalThrowCount: 0,
+            hitCount: 0,
+            totalDamage: 0,
+            avgDamagePerThrow: null,
+          },
+        },
+        initiative_rate: null,
+        deathPhase: null,
+      },
+    });
+
+    expect(playerReportSummary).toContain('팀 내 딜량 비중 측정 불가');
+    expect(playerReportSummary).toContain('위기 관리: 내가 한 소생률 측정 불가');
+    expect(playerReportSummary).toContain('교전 압박: 압박 지수 측정 불가');
+    expect(playerReportSummary).not.toContain('팀 내 딜량 비중 0%');
+    expect(playerReportSummary).not.toContain('소생률 0%');
+    expect(playerReportSummary).not.toContain('압박 지수 0');
   });
 
   it('does not invent elite comparison values or a relative badge without benchmark evidence', () => {

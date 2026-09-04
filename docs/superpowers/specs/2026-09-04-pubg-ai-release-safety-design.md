@@ -43,7 +43,7 @@ R2 and Postgres cannot share a transaction, so recovery uses the standard order 
 
 Recovery does not run the generic post-finalization persistence fan-out. The normal ingestion path remains unchanged.
 
-If database finalization fails after R2 upload, the route best-effort deletes only the object it just uploaded and releases only its own lease. It returns an explicit retryable/reconciliation error when compensation cannot be confirmed. A competing worker that changed either guarded row wins; the stale worker must not overwrite it.
+If an R2 upload was attempted, the request never deletes that deterministic key or releases its lease. Cloudflare R2 does not document `DeleteObject If-Match` as an atomic ownership check, so an in-request read-then-delete could remove a concurrent replacement. The object and lease remain for an explicit reconciler to inspect. Only a failure proven to occur before any upload may release the exact recovery lease, and that recovery-only RPC must return `true` only when its pending row and lease token were actually deleted. A competing worker that changed either guarded row wins; the stale worker must not overwrite or delete its state.
 
 ### 3. Store only observed analysis evidence
 

@@ -93,7 +93,8 @@ Cover these transitions:
 valid v72 + guarded legacy benchmark + owned lease -> one success, v73 + benchmark evidence + ready
 benchmark changed after claim -> no processed/master/benchmark/registry DB mutation by stale worker
 processed identity changed after claim -> no DB mutation by stale worker
-DB finalization fails after R2 upload -> delete only uploaded exact key and release only owned lease
+DB finalization fails after R2 upload -> leave the object and lease for reconciliation; issue no request-time R2 delete
+failure proven before any upload -> release succeeds only when the recovery-only RPC deletes the exact pending lease token
 same finalization retried -> no duplicate or cross-match mutation
 normal non-recovery ingestion -> existing persistence fan-out unchanged
 ```
@@ -116,13 +117,13 @@ await uploadTelemetryObject(exactKey, body);
 try {
   await finalizeRecoveryAtomically({ lease, processedGuard, benchmarkGuard, rows });
 } catch (error) {
-  const objectDeleted = await deleteExactUploadedTelemetryObject(exactKey);
-  await releaseOwnedRecoveryLease(lease);
-  throw recoveryCompensationError(error, objectDeleted);
+  // R2 does not document conditional DeleteObject ownership semantics.
+  // Preserve both object and lease for an explicit reconciliation pass.
+  throw recoveryCompensationError(error, false);
 }
 ```
 
-Skip the generic `persistMatchAnalysis` call after successful atomic recovery. Keep its use on the normal path. Never delete an R2 object that was not uploaded by this request.
+Skip the generic `persistMatchAnalysis` call after successful atomic recovery. Keep its use on the normal path. Never delete a recovery R2 object from the request path. Add a service-role-only recovery release RPC that returns an affected-row boolean, and use it only before any upload was attempted; keep the ordinary release RPC and ingestion behavior unchanged.
 
 **Step 4: Verify and commit**
 

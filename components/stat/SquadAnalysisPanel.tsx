@@ -33,13 +33,13 @@ interface Teammate {
   avgKills: number | null;
   avgAssists: number | null;
   avgDbnos: number | null;
-  totalDamage?: number;
-  totalKills?: number;
+  totalDamage?: number | null;
+  totalKills?: number | null;
   shares: {
-    damage: number;
-    kill: number;
-    assist: number;
-    dbno: number;
+    damage: number | null;
+    kill: number | null;
+    assist: number | null;
+    dbno: number | null;
   };
 }
 
@@ -58,16 +58,16 @@ interface SquadAnalysisData {
   stats: {
     avgIsolation: number | null;
     avgTradeLatency: number | null;
-    totalSmokeRescues: number;
-    totalRevives: number;
+    totalSmokeRescues: number | null;
+    totalRevives: number | null;
     avgCoverRate: number | null;
-    totalTeamWipes: number;
-    totalTeammateKnocks?: number;
+    totalTeamWipes: number | null;
+    totalTeammateKnocks?: number | null;
   };
   scores: {
     formation: number | null;
     backupSpeed: number | null;
-    survivalCare: number;
+    survivalCare: number | null;
     focusFire: number | null;
     teamWipe: number | null;
   };
@@ -106,6 +106,36 @@ export interface SquadAnalysisPanelProps {
   platform: StatsPlatform;
   groupKey?: string;
   onGroupKeyChange(value: string): void;
+}
+
+function isFiniteNonNegativeMetric(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function isFinitePercentMetric(value: unknown): value is number {
+  return isFiniteNonNegativeMetric(value) && value <= 100;
+}
+
+function formatObservedMetric(value: unknown, suffix = ""): string {
+  return isFiniteNonNegativeMetric(value) ? `${value}${suffix}` : "측정 불가";
+}
+
+function formatObservedPercent(value: unknown): string {
+  return isFinitePercentMetric(value) ? `${value}%` : "측정 불가";
+}
+
+function formatFractionPercent(value: unknown): string {
+  if (!isFiniteNonNegativeMetric(value) || value > 1) return "측정 불가";
+  return `${Math.round(value * 100)}%`;
+}
+
+function formatLatencyMs(value: unknown): string {
+  return isFiniteNonNegativeMetric(value) ? `${(value / 1000).toFixed(2)}초` : "측정 불가";
+}
+
+function averageObservedMetrics(values: unknown[]): number | null {
+  if (values.length === 0 || !values.every(isFiniteNonNegativeMetric)) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
 export default function SquadAnalysisPanel({
@@ -457,16 +487,22 @@ export default function SquadAnalysisPanel({
       scores.focusFire,    // Left-Bottom
       scores.teamWipe      // Left-Top
     ];
-    
+
+    // A missing score is not a zero score.  Suppress the measured-data
+    // polygon until every axis has an observed value so the chart cannot
+    // imply a collapse to the origin.
+    if (!metrics.every(isFinitePercentMetric)) return null;
+
     return metrics.map((score, i) => {
       const angle = (i * 72 - 90) * (Math.PI / 180);
-      const radius = 80 * ((score ?? 0) / 100);
+      const radius = 80 * (score / 100);
       const x = 100 + radius * Math.cos(angle);
       const y = 100 + radius * Math.sin(angle);
       return `${x.toFixed(1)},${y.toFixed(1)}`;
     }).join(" ");
   };
-  const scoreLabel = (score: number | null) => score === null ? "측정 불가" : score;
+  const scoreLabel = (score: number | null) => formatObservedMetric(score);
+  const radarPoints = analysisData ? getRadarPoints(analysisData.scores) : null;
 
   if (loadingList) {
     return (
@@ -597,15 +633,21 @@ export default function SquadAnalysisPanel({
                 })}
 
                 {/* Plot Data Polygon */}
-                <polygon
-                  points={getRadarPoints(analysisData.scores)}
-                  fill="rgba(168, 85, 247, 0.2)"
-                  stroke="rgba(168, 85, 247, 0.85)"
-                  strokeWidth="2"
-                />
+                {radarPoints === null ? (
+                  <text x="100" y="104" textAnchor="middle" fill="#a1a1aa" fontSize="9">
+                    측정 불가
+                  </text>
+                ) : (
+                  <polygon
+                    points={radarPoints}
+                    fill="rgba(168, 85, 247, 0.2)"
+                    stroke="rgba(168, 85, 247, 0.85)"
+                    strokeWidth="2"
+                  />
+                )}
 
                 {/* Data Points */}
-                {Array.from({ length: 5 }).map((_, i) => {
+                {radarPoints !== null && Array.from({ length: 5 }).map((_, i) => {
                   const metrics = [
                     analysisData.scores.formation,
                     analysisData.scores.backupSpeed,
@@ -613,8 +655,10 @@ export default function SquadAnalysisPanel({
                     analysisData.scores.focusFire,
                     analysisData.scores.teamWipe
                   ];
+                  const score = metrics[i];
+                  if (!isFinitePercentMetric(score)) return null;
                   const angle = (i * 72 - 90) * (Math.PI / 180);
-                  const radius = 80 * ((metrics[i] ?? 0) / 100);
+                  const radius = 80 * (score / 100);
                   const x = 100 + radius * Math.cos(angle);
                   const y = 100 + radius * Math.sin(angle);
                   return (
@@ -646,12 +690,9 @@ export default function SquadAnalysisPanel({
                 const myProfile = analysisData.roleProfiles.find(
                   p => p.name.toLowerCase().replace(/[^a-zA-Z0-9_]/g, "") === normalizedSearchName
                 );
-                const squadAvgDamage = Math.round(
-                  analysisData.roleProfiles.reduce((sum, p) => sum + (p.avgDamage ?? 0), 0) / Math.max(1, analysisData.roleProfiles.length)
-                );
-                const squadAvgKills = (
-                  analysisData.roleProfiles.reduce((sum, p) => sum + (p.avgKills ?? 0), 0) / Math.max(1, analysisData.roleProfiles.length)
-                ).toFixed(1);
+                const squadAvgDamage = averageObservedMetrics(analysisData.roleProfiles.map((p) => p.avgDamage));
+                const squadAvgKills = averageObservedMetrics(analysisData.roleProfiles.map((p) => p.avgKills));
+                const squadAvgKillsText = squadAvgKills === null ? "측정 불가" : `${squadAvgKills.toFixed(1)}킬`;
 
                 return (
                   <>
@@ -667,13 +708,13 @@ export default function SquadAnalysisPanel({
                       <span className="text-zinc-400 font-medium">내 평균 딜량 / 킬</span>
                       <span className="text-purple-300 font-bold">
                         {myProfile
-                          ? `${myProfile.avgDamage === null ? "측정 불가" : `${Math.round(myProfile.avgDamage)}딜`} / ${myProfile.avgKills === null ? "측정 불가" : `${myProfile.avgKills}킬`}`
+                          ? `${formatObservedMetric(myProfile.avgDamage, "딜")} / ${formatObservedMetric(myProfile.avgKills, "킬")}`
                           : "N/A"}
                       </span>
                     </div>
                     <div className="flex justify-between border-b border-zinc-900 pb-2">
                       <span className="text-zinc-400 font-medium">스쿼드 평균 딜량 / 킬</span>
-                      <span className="text-zinc-100 font-bold">{squadAvgDamage}딜 / {squadAvgKills}킬</span>
+                      <span className="text-zinc-100 font-bold">{formatObservedMetric(squadAvgDamage === null ? null : Math.round(squadAvgDamage), "딜")} / {squadAvgKillsText}</span>
                     </div>
                   </>
                 );
@@ -683,12 +724,12 @@ export default function SquadAnalysisPanel({
                 <div className="flex justify-between">
                   <span className="text-zinc-400 font-medium">평균 대열 이탈율 (고립)</span>
                   <span className={`font-bold ${analysisData.stats.avgIsolation !== null && analysisData.stats.avgIsolation > 3.5 ? "text-red-400" : "text-zinc-100"}`}>
-                    {analysisData.stats.avgIsolation === null ? "측정 불가" : `${analysisData.stats.avgIsolation} (평균)`}
+                    {isFiniteNonNegativeMetric(analysisData.stats.avgIsolation) ? `${analysisData.stats.avgIsolation} (평균)` : "측정 불가"}
                   </span>
                 </div>
                 {analysisData.benchmarkStats && (
                   <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
-                    {analysisData.benchmarkStats.tier}티어 기준치: {analysisData.benchmarkStats.avgIsolation === null ? "측정 불가" : analysisData.benchmarkStats.avgIsolation} (낮을수록 우수)
+                    {analysisData.benchmarkStats.tier}티어 기준치: {formatObservedMetric(analysisData.benchmarkStats.avgIsolation)} (낮을수록 우수)
                   </div>
                 )}
               </div>
@@ -697,16 +738,12 @@ export default function SquadAnalysisPanel({
                 <div className="flex justify-between">
                   <span className="text-zinc-400 font-medium">평균 백업 반응 속도 (트레이드)</span>
                   <span className="text-zinc-100 font-bold">
-                    {typeof analysisData.stats.avgTradeLatency === "number"
-                      && Number.isFinite(analysisData.stats.avgTradeLatency)
-                      && analysisData.stats.avgTradeLatency >= 0
-                      ? `${(analysisData.stats.avgTradeLatency / 1000).toFixed(2)}초`
-                      : "측정 불가"}
+                    {formatLatencyMs(analysisData.stats.avgTradeLatency)}
                   </span>
                 </div>
                 {analysisData.benchmarkStats && (
                   <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
-                    {analysisData.benchmarkStats.tier}티어 기준치: {analysisData.benchmarkStats.avgTradeLatency === null ? "측정 불가" : `${(analysisData.benchmarkStats.avgTradeLatency / 1000).toFixed(2)}초`} (빠를수록 우수)
+                    {analysisData.benchmarkStats.tier}티어 기준치: {formatLatencyMs(analysisData.benchmarkStats.avgTradeLatency)} (빠를수록 우수)
                   </div>
                 )}
               </div>
@@ -714,11 +751,11 @@ export default function SquadAnalysisPanel({
               <div className="flex flex-col gap-1 border-b border-zinc-900 pb-2">
                 <div className="flex justify-between">
                   <span className="text-zinc-400 font-medium">누적 세이브 (연막/소생)</span>
-                  <span className="text-zinc-100 font-bold">{analysisData.stats.totalSmokeRescues}회 / {analysisData.stats.totalRevives}회</span>
+                    <span className="text-zinc-100 font-bold">{formatObservedMetric(analysisData.stats.totalSmokeRescues, "회")} / {formatObservedMetric(analysisData.stats.totalRevives, "회")}</span>
                 </div>
                 {analysisData.benchmarkStats && (
                   <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
-                    {analysisData.benchmarkStats.tier}티어 기준치 (경기당 평균): 부활 {analysisData.benchmarkStats.avgReviveRate === null ? "측정 불가" : `${analysisData.benchmarkStats.avgReviveRate}%`} / 연막 {analysisData.benchmarkStats.avgSmokeRate === null ? "측정 불가" : `${analysisData.benchmarkStats.avgSmokeRate}%`}
+                    {analysisData.benchmarkStats.tier}티어 기준치 (경기당 평균): 부활 {formatObservedPercent(analysisData.benchmarkStats.avgReviveRate)} / 연막 {formatObservedPercent(analysisData.benchmarkStats.avgSmokeRate)}
                   </div>
                 )}
               </div>
@@ -727,7 +764,7 @@ export default function SquadAnalysisPanel({
                 <div className="flex justify-between">
                   <span className="text-zinc-400 font-medium">평균 아군 집중사격 커버율</span>
                   <span className="text-zinc-100 font-bold">
-                    {analysisData.stats.avgCoverRate === null ? "측정 불가" : `${Math.round(analysisData.stats.avgCoverRate * 100)}%`}
+                    {formatFractionPercent(analysisData.stats.avgCoverRate)}
                   </span>
                 </div>
                 <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
@@ -738,11 +775,11 @@ export default function SquadAnalysisPanel({
               <div className="flex flex-col gap-1">
                 <div className="flex justify-between">
                   <span className="text-zinc-400 font-medium">적 스쿼드 전멸 유발 수</span>
-                  <span className="text-purple-300 font-bold">{analysisData.stats.totalTeamWipes}회 전멸</span>
+                  <span className="text-purple-300 font-bold">{formatObservedMetric(analysisData.stats.totalTeamWipes, "회 전멸")}</span>
                 </div>
                 {analysisData.benchmarkStats && (
                   <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
-                    {analysisData.benchmarkStats.tier}티어 기준치: 경기당 평균 {analysisData.benchmarkStats.avgTeamWipes === null ? "측정 불가" : `${analysisData.benchmarkStats.avgTeamWipes}회`}
+                    {analysisData.benchmarkStats.tier}티어 기준치: 경기당 평균 {formatObservedMetric(analysisData.benchmarkStats.avgTeamWipes, "회")}
                   </div>
                 )}
               </div>
@@ -763,7 +800,7 @@ export default function SquadAnalysisPanel({
                           평균 {p.avgDamage === null ? "측정 불가" : `${Math.round(p.avgDamage)}딜`} / {p.avgKills === null ? "측정 불가" : `${p.avgKills}킬`}
                         </span>
                         {p.totalDamage !== undefined && p.totalKills !== undefined && (
-                          <span className="text-zinc-500 font-medium">총 {Math.round(p.totalDamage)}딜 / {p.totalKills}킬 ({analysisData.matchCount}판 누적)</span>
+                          <span className="text-zinc-500 font-medium">총 {formatObservedMetric(p.totalDamage, "딜")} / {formatObservedMetric(p.totalKills, "킬")} ({formatObservedMetric(analysisData.matchCount, "판 누적")})</span>
                         )}
                       </div>
                     </div>
@@ -779,10 +816,12 @@ export default function SquadAnalysisPanel({
                   <div className="space-y-1 text-[10px]">
                     <div className="flex justify-between text-zinc-400">
                       <span>딜량 기여</span>
-                      <span className="text-zinc-200 font-semibold">{p.shares.damage}%</span>
+                      <span className="text-zinc-200 font-semibold">{formatObservedPercent(p.shares.damage)}</span>
                     </div>
                     <div className="h-1.5 rounded-full bg-zinc-800 overflow-hidden">
-                      <div className="h-full bg-purple-500" style={{ width: `${p.shares.damage}%` }} />
+                      {isFinitePercentMetric(p.shares.damage) && (
+                        <div className="h-full bg-purple-500" style={{ width: `${p.shares.damage}%` }} />
+                      )}
                     </div>
                   </div>
                 </div>

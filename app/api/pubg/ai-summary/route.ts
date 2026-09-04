@@ -442,15 +442,29 @@ function clampFiniteNumber(value: unknown, min = 0, max = Number.MAX_SAFE_INTEGE
 }
 
 function calculateBoundedRate(numerator: unknown, denominator: unknown): number | null {
-  const safeNumerator = coerceNonNegativeNumber(numerator);
-  const safeDenominator = coerceNonNegativeNumber(denominator);
-  if (safeDenominator <= 0) return null;
+  // Missing numerator/denominator values are not an observed zero.  Keep an
+  // explicit numeric 0, but do not manufacture a 0% rate from absent
+  // telemetry (for example, a match with no duel opportunities).
+  const safeNumerator = readObservedNonNegative(numerator);
+  const safeDenominator = readObservedNonNegative(denominator);
+  if (safeNumerator === null || safeDenominator === null || safeDenominator <= 0) return null;
   return Math.max(0, Math.min(100, Math.round((safeNumerator / safeDenominator) * 100)));
 }
 
 function formatBoundedRate(numerator: unknown, denominator: unknown): string {
   const rate = calculateBoundedRate(numerator, denominator);
   return rate === null ? "측정 불가" : `${rate}%`;
+}
+
+function formatObservedPercent(value: unknown): string {
+  const observed = readObservedNonNegative(value);
+  if (observed === null) return "측정 불가";
+  return `${Math.max(0, Math.min(100, observed))}%`;
+}
+
+function formatObservedMetric(value: unknown, suffix = ""): string {
+  const observed = readObservedNonNegative(value);
+  return observed === null ? "측정 불가" : `${observed}${suffix}`;
 }
 
 function aggregateMatches(matches: any[]) {
@@ -466,6 +480,8 @@ function aggregateMatches(matches: any[]) {
   let totalDuelWins = 0, totalDuelLosses = 0, totalReversalWins = 0, totalReversalAttempts = 0;
   let totalUtilityThrows = 0, totalUtilityHits = 0, totalUtilityDamage = 0, totalUtilityKills = 0;
   let totalDeathPhase = 0, totalBluezoneWaste = 0;
+  let deathPhaseCount = 0;
+  let totalPressureIndex = 0, pressureIndexCount = 0;
   let totalEdgePlay = 0, totalFatalDelay = 0;
   let totalFocusFireCount = 0, totalCrossfireExposureCount = 0;
   const totalDistanceDamage = { short: 0, mid: 0, long: 0 };
@@ -582,14 +598,16 @@ function aggregateMatches(matches: any[]) {
     }
 
     if (m.duelStats) {
-      const duelWins = coerceNonNegativeNumber(m.duelStats.wins);
-      const duelLosses = coerceNonNegativeNumber(m.duelStats.losses);
-      const reversals = coerceNonNegativeNumber(m.duelStats.reversals);
-      const reversalAttempts = coerceNonNegativeNumber(m.duelStats.reversalAttempts);
-      totalDuelWins += duelWins;
-      totalDuelLosses += duelLosses;
-      totalReversalWins += reversals;
-      totalReversalAttempts += Math.max(reversalAttempts, reversals);
+      const duelWins = readObservedNonNegative(m.duelStats.wins);
+      const duelLosses = readObservedNonNegative(m.duelStats.losses);
+      const reversals = readObservedNonNegative(m.duelStats.reversals);
+      const reversalAttempts = readObservedNonNegative(m.duelStats.reversalAttempts);
+      if (duelWins !== null) totalDuelWins += duelWins;
+      if (duelLosses !== null) totalDuelLosses += duelLosses;
+      if (reversals !== null) totalReversalWins += reversals;
+      if (reversalAttempts !== null || reversals !== null) {
+        totalReversalAttempts += Math.max(reversalAttempts ?? 0, reversals ?? 0);
+      }
     }
     if (m.combatPressure?.utilityStats) {
       const u = m.combatPressure.utilityStats;
@@ -624,8 +642,18 @@ function aggregateMatches(matches: any[]) {
     totalTeamKillShare += coerceFiniteNumber(m.teamImpact?.teamKillShare);
     if (m.badges) allBadges.push(...m.badges);
 
-    totalDeathPhase += coerceFiniteNumber(m.deathPhase);
+    const observedDeathPhase = readObservedNonNegative(m.deathPhase);
+    if (observedDeathPhase !== null) {
+      totalDeathPhase += observedDeathPhase;
+      deathPhaseCount++;
+    }
     totalBluezoneWaste += coerceFiniteNumber(m.bluezoneWaste);
+
+    const observedPressureIndex = readObservedNonNegative(m.combatPressure?.pressureIndex);
+    if (observedPressureIndex !== null) {
+      totalPressureIndex += observedPressureIndex;
+      pressureIndexCount++;
+    }
 
     totalFocusFireCount += coerceFiniteNumber(m.itemUseStats?.focusFireCount);
     totalCrossfireExposureCount += coerceFiniteNumber(m.itemUseStats?.crossfireExposureCount);
@@ -677,24 +705,26 @@ function aggregateMatches(matches: any[]) {
   allBadges.forEach((b: any) => { if (b?.name) badgeCounts[b.name] = (badgeCounts[b.name] || 0) + 1; });
   const topBadges = Object.entries(badgeCounts).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([name, count]) => `${name}(${count}회)`).join(", ");
 
-  const userInitiativeRate = totalInitiativeAttempts > 0 ? Math.max(0, Math.min(100, Math.round((totalInitiativeSuccess / totalInitiativeAttempts) * 100))) : -1;
-  const userReversalRate = totalReversalAttempts > 0 ? Math.max(0, Math.min(100, Math.round((totalReversalWins / totalReversalAttempts) * 100))) : -1;
+  const userInitiativeRate = totalInitiativeAttempts > 0 ? Math.max(0, Math.min(100, Math.round((totalInitiativeSuccess / totalInitiativeAttempts) * 100))) : null;
+  const userReversalRate = totalReversalAttempts > 0 ? Math.max(0, Math.min(100, Math.round((totalReversalWins / totalReversalAttempts) * 100))) : null;
   const avgBackupLatency = backupLatencies.length > 0 ? (backupLatencies.reduce((a, b) => a + b, 0) / backupLatencies.length / 1000).toFixed(2) + "s" : "측정 불가";
   const avgReactionLatency = reactionLatencies.length > 0 ? (reactionLatencies.reduce((a, b) => a + b, 0) / reactionLatencies.length / 1000).toFixed(2) + "s" : "측정 불가";
   const avgCoverRate = totalCoverAttempts > 0
     ? Math.max(0, Math.min(100, Math.round((totalCoverSuccess / totalCoverAttempts) * 100)))
     : null;
   const totalDuels = totalDuelWins + totalDuelLosses;
-  const avgDuelWinRate = totalDuels > 0 ? Math.max(0, Math.min(100, Math.round((totalDuelWins / totalDuels) * 100))) : 0;
-  const avgDeathPhase = mLen > 0 ? Math.max(0, Number((totalDeathPhase / mLen).toFixed(1))) : 0;
-  const avgPressureIndex = Math.max(0, Number((inputMatches.reduce((acc: number, m: any) => acc + coerceFiniteNumber(m?.combatPressure?.pressureIndex), 0) / mLen).toFixed(2)));
+  const avgDuelWinRate = totalDuels > 0 ? Math.max(0, Math.min(100, Math.round((totalDuelWins / totalDuels) * 100))) : null;
+  const avgDeathPhase = deathPhaseCount > 0 ? Math.max(0, Number((totalDeathPhase / deathPhaseCount).toFixed(1))) : null;
+  const avgPressureIndex = pressureIndexCount > 0
+    ? Math.max(0, Number((totalPressureIndex / pressureIndexCount).toFixed(2)))
+    : null;
   const totalLethalThrows = inputMatches.reduce((acc: number, m: any) => {
     const lethalThrowCount = m.combatPressure?.utilityStats?.lethalThrowCount
       ?? m.itemUseStats?.lethalThrowCount
       ?? (coerceFiniteNumber(m.itemUseSummary?.frags) + coerceFiniteNumber(m.itemUseSummary?.molotovs));
     return acc + clampFiniteNumber(lethalThrowCount);
   }, 0);
-  const avgUtilityEfficiency = totalLethalThrows > 0 ? Math.max(0, Math.round(totalUtilityDamage / totalLethalThrows)) : 0;
+  const avgUtilityEfficiency = totalLethalThrows > 0 ? Math.max(0, Math.round(totalUtilityDamage / totalLethalThrows)) : null;
 
   const avgMinDistStr = minDistCountFinal > 0 ? Math.max(0, totalMinDist / minDistCountFinal).toFixed(1) + "m" : "측정 불가";
   const avgHeightDiffStr = heightDiffCountFinal > 0 ? Math.max(0, totalHeightDiff / heightDiffCountFinal).toFixed(1) + "m" : "측정 불가";
@@ -715,7 +745,7 @@ function aggregateMatches(matches: any[]) {
 
   // [V66.0] 분모에 assist(팀원 개입 킬) 포함 — ingest/route.ts의 solo_kill_rate 산출 방식과 동일하게 보정
   const totalKillContrib = killContribFinal.solo + killContribFinal.cleanup + killContribFinal.assist;
-  const soloKillRate = totalKillContrib > 0 ? Math.max(0, Math.min(100, Math.round((killContribFinal.solo / totalKillContrib) * 100))) : 0;
+  const soloKillRate = totalKillContrib > 0 ? Math.max(0, Math.min(100, Math.round((killContribFinal.solo / totalKillContrib) * 100))) : null;
 
   const validMatchTimes = inputMatches
     .map((m: any) => m?.createdAt ?? m?.created_at ?? m?.matchInfo?.date ?? m?.date)
@@ -1389,7 +1419,9 @@ export async function POST(request: Request) {
           matchCount: matches.length,
           avgDamage: Number.isFinite(s.avgDamage) ? Math.round(s.avgDamage) : 0,
           avgKills: Number.isFinite(s.avgKills) ? Number(s.avgKills.toFixed(1)) : 0,
-          avgDeathPhase: Number.isFinite(s.avgDeathPhase) ? Number(s.avgDeathPhase.toFixed(1)) : 0,
+          avgDeathPhase: s.avgDeathPhase === null
+            ? null
+            : Number.isFinite(s.avgDeathPhase) ? Number(s.avgDeathPhase.toFixed(1)) : null,
         };
       })
       .sort((a, b) => b.avgDamage - a.avgDamage);
@@ -1464,7 +1496,7 @@ export async function POST(request: Request) {
       const userOnlyIssues = [
         { topic: "유틸리티 활용", gap: stats.totalUtilityThrows < 5 ? 0.4 : 0.1 },
         { topic: "포지셔닝", gap: parseFloat(stats.avgIsolationStr) > 3.5 ? 0.35 : 0.05 },
-        { topic: "생존 운영", gap: Number(stats.avgDeathPhase) > 7 ? 0.2 : 0.05 },
+        { topic: "생존 운영", gap: typeof stats.avgDeathPhase === "number" && stats.avgDeathPhase > 7 ? 0.2 : 0.05 },
       ];
 
       if (!bench) {
@@ -1500,16 +1532,20 @@ export async function POST(request: Request) {
         });
       }
       if (isObservedMetric(bench.avgInitiativeRate)) {
-        comparisonIssues.push({
-          topic: "교전 주도권",
-          gap: Math.abs(stats.userInitiativeRate - bench.avgInitiativeRate) / 100,
-        });
+        if (isObservedMetric(stats.userInitiativeRate)) {
+          comparisonIssues.push({
+            topic: "교전 주도권",
+            gap: Math.abs(stats.userInitiativeRate - bench.avgInitiativeRate) / 100,
+          });
+        }
       }
       if (isObservedMetric(bench.avgDuelWinRate)) {
-        comparisonIssues.push({
-          topic: "1:1 결정력",
-          gap: Math.abs(stats.avgDuelWinRate - bench.avgDuelWinRate) / 100,
-        });
+        if (isObservedMetric(stats.avgDuelWinRate)) {
+          comparisonIssues.push({
+            topic: "1:1 결정력",
+            gap: Math.abs(stats.avgDuelWinRate - bench.avgDuelWinRate) / 100,
+          });
+        }
       }
       const tradeAndBackupGaps = [tradeRateGap, backupLatencyGap]
         .filter((gap): gap is number => gap !== null);
@@ -1584,7 +1620,9 @@ export async function POST(request: Request) {
       const olderStats = aggregateMatches(olderMatches);
       if (recentStats && olderStats) {
         const dmgTrend = Math.round(recentStats.avgDamage - olderStats.avgDamage);
-        const winTrend = Number((recentStats.avgDuelWinRate - olderStats.avgDuelWinRate).toFixed(1));
+        const winTrend = recentStats.avgDuelWinRate !== null && olderStats.avgDuelWinRate !== null
+          ? Number((recentStats.avgDuelWinRate - olderStats.avgDuelWinRate).toFixed(1))
+          : null;
         const status = dmgTrend > 50 ? '📈 실력 상승세' : dmgTrend < -50 ? '📉 컨디션 하락세' : '➡️ 안정권 유지';
 
         trendsData = {
@@ -1597,7 +1635,12 @@ export async function POST(request: Request) {
 
         userPrompt += `\n### [최근 트렌드 (최근 5판 vs 이전 5판)]\n`;
         userPrompt += `- 딜량 변화: ${Math.floor(olderStats.avgDamage)} → ${Math.floor(recentStats.avgDamage)} (${dmgTrend >= 0 ? '+' : ''}${dmgTrend})\n`;
-        userPrompt += `- 교전 승률: ${olderStats.avgDuelWinRate}% → ${recentStats.avgDuelWinRate}% (${winTrend >= 0 ? '+' : ''}${winTrend}%)\n`;
+        const recentWinRateText = formatObservedPercent(recentStats.avgDuelWinRate);
+        const olderWinRateText = formatObservedPercent(olderStats.avgDuelWinRate);
+        const winTrendText = winTrend === null
+          ? "변화 측정 불가"
+          : `${winTrend >= 0 ? '+' : ''}${winTrend}%`;
+        userPrompt += `- 교전 승률: ${olderWinRateText} → ${recentWinRateText} (${winTrendText})\n`;
         userPrompt += `- 종합 추세: ${status}\n`;
       }
     }
@@ -1679,9 +1722,9 @@ export async function POST(request: Request) {
       userPrompt += `- 유저 티어: ${userTier}\n`;
       userPrompt += `- 비교 표본 출처: ${benchmarkProvenance}\n`;
       userPrompt += `- 평균 화력: ${gStats.avgDamage}${bench?.avgDamage !== undefined ? ` (${metricBenchmarkProvenance("avgDamage")}: 평균 화력 ${bench.avgDamage})` : ""}, 평균 ${gStats.avgKills}킬\n`;
-      userPrompt += `- [선제 공격] 주도권 성공률: ${gStats.userInitiativeRate}%${bench?.avgInitiativeRate !== undefined ? ` (${metricBenchmarkProvenance("avgInitiativeRate")}: 주도권 성공률 ${bench.avgInitiativeRate}%)` : ""}\n`;
-      userPrompt += `- [교전 결정력] 1:1 교전 승률: ${gStats.avgDuelWinRate}%${bench?.avgDuelWinRate !== undefined ? ` (${metricBenchmarkProvenance("avgDuelWinRate")}: 1:1 교전 승률 ${bench.avgDuelWinRate}%)` : ""}, 승리: ${gStats.totalDuelWins}회, 패배: ${gStats.totalDuelLosses}회, 역전승: ${gStats.totalReversalWins}회\n`;
-      userPrompt += `- [교전 압박] 평균 압박 지수: ${gStats.avgPressureIndex}${bench?.avgPressureIndex !== undefined ? ` (${metricBenchmarkProvenance("avgPressureIndex")}: 압박 지수 ${bench.avgPressureIndex})` : ""}, 최대 교전 거리: ${gStats.totalMaxHitDist}m\n`;
+      userPrompt += `- [선제 공격] 주도권 성공률: ${formatObservedPercent(gStats.userInitiativeRate)}${bench?.avgInitiativeRate !== undefined ? ` (${metricBenchmarkProvenance("avgInitiativeRate")}: 주도권 성공률 ${bench.avgInitiativeRate}%)` : ""}\n`;
+      userPrompt += `- [교전 결정력] 1:1 교전 승률: ${formatObservedPercent(gStats.avgDuelWinRate)}${bench?.avgDuelWinRate !== undefined ? ` (${metricBenchmarkProvenance("avgDuelWinRate")}: 1:1 교전 승률 ${bench.avgDuelWinRate}%)` : ""}, 승리: ${gStats.totalDuelWins}회, 패배: ${gStats.totalDuelLosses}회, 역전승: ${gStats.totalReversalWins}회\n`;
+      userPrompt += `- [교전 압박] 평균 압박 지수: ${formatObservedMetric(gStats.avgPressureIndex)}${bench?.avgPressureIndex !== undefined ? ` (${metricBenchmarkProvenance("avgPressureIndex")}: 압박 지수 ${bench.avgPressureIndex})` : ""}, 최대 교전 거리: ${formatObservedMetric(gStats.totalMaxHitDist, "m")}\n`;
       if (mode !== 'solo') {
         const smokeRescueSuccessRate = formatBoundedRate(gStats.totalSmokeRescues, gStats.totalSmokeCount);
         const smokeRescueOpportunityRate = formatBoundedRate(gStats.totalSmokeRescues, gStats.totalTeammateKnocks);
@@ -1706,9 +1749,13 @@ export async function POST(request: Request) {
         totalTeammateKnocks: gStats.totalTeammateKnocks,
         benchmarkTradeLatency: bench?.avgTradeLatency,
       });
-      userPrompt += `- [반응 속도] 대응 사격 속도: ${reactionStr}, 반격 성공률: ${gStats.totalReversalAttempts > 0 ? Math.round((gStats.totalReversalWins / gStats.totalReversalAttempts) * 100) : 0}%\n- [백업 속도] 아군 백업 속도: ${backupStr}\n- [백업 결과 해석] ${backupContext.promptLine}\n- [생존 환경] 고립 지수(운영/교전/사망): ${gStats.avgIsolationStr}/${gStats.avgCombatIsolationStr}/${gStats.avgDeathIsolationStr}, 양각 노출 상황: ${gStats.totalCrossfireExposureCount}회\n- [거리 관리] 팀원과의 평균 거리: ${gStats.avgMinDistStr}, 평균 고도차: ${gStats.avgHeightDiffStr}, 경기당 평균 거리별 데미지(근/중/원): ${gStats.avgDistanceDamage.short}/${gStats.avgDistanceDamage.mid}/${gStats.avgDistanceDamage.long}\n- [킬 분류] 솔로 킬: ${gStats.killContribFinal.solo}회, 클린업 킬: ${gStats.killContribFinal.cleanup}회 (솔로 비중: ${gStats.soloKillRate}%${bench?.avgSoloKillRate !== undefined ? ` vs ${metricBenchmarkProvenance("avgSoloKillRate")}: 솔로 킬 비중 ${bench.avgSoloKillRate}%` : ""})\n- [유틸리티] 총 투척 ${gStats.totalUtilityThrows}회, 피해형 투척 ${gStats.totalLethalThrows}회, 피해 적중 ${gStats.totalUtilityHits}회, 피해형 투척 딜량 ${Math.round(gStats.totalUtilityDamage / gStats.mLen)} (평균), 연막 ${gStats.totalSmokes}회\n- [운영 패턴] 평균 사망 페이즈: ${gStats.avgDeathPhase}${bench?.avgDeathPhase !== undefined ? ` (${metricBenchmarkProvenance("avgDeathPhase")}: 사망 페이즈 ${bench.avgDeathPhase})` : ""}, 자기장 누적 피해: ${Math.round(gStats.totalBluezoneWaste / gStats.mLen)} HP, 엣지(Edge) 플레이: ${gStats.totalEdgePlay}회, 진입 지연: ${gStats.totalFatalDelay}회\n\n`;
       const smokeOpportunityRate = formatBoundedRate(gStats.totalSmokeRescues, gStats.totalTeammateKnocks);
-      userPrompt = userPrompt.replace(`- [유틸리티] 총 투척 ${gStats.totalUtilityThrows}회, 피해형 투척 ${gStats.totalLethalThrows}회, 피해 적중 ${gStats.totalUtilityHits}회, 피해형 투척 딜량 ${Math.round(gStats.totalUtilityDamage / gStats.mLen)} (평균), 연막 ${gStats.totalSmokes}회`, `- [유틸리티] 총 투척 ${gStats.totalUtilityThrows}회 (연막 ${gStats.totalSmokes}회, 피해형 ${gStats.totalLethalThrows}회, 피해 적중 ${gStats.totalUtilityHits}회), 아군 기절 대비 연막 구출률: ${smokeOpportunityRate}${bench?.avgSmokeRate !== undefined ? ` (${metricBenchmarkProvenance("avgSmokeRate")}: 기회 대비 평균 연막 구출률 ${bench.avgSmokeRate}%)` : ""}`);
+      const utilityDamageAverage = gStats.avgUtilityEfficiency === null
+        ? "측정 불가"
+        : String(gStats.avgUtilityEfficiency);
+      const utilityLine = `- [유틸리티] 총 투척 ${gStats.totalUtilityThrows}회, 피해형 투척 ${gStats.totalLethalThrows}회, 피해 적중 ${gStats.totalUtilityHits}회, 피해형 투척 딜량 ${utilityDamageAverage} (평균), 연막 ${gStats.totalSmokes}회`;
+      userPrompt += `- [반응 속도] 대응 사격 속도: ${reactionStr}, 반격 성공률: ${formatBoundedRate(gStats.totalReversalWins, gStats.totalReversalAttempts)}\n- [백업 속도] 아군 백업 속도: ${backupStr}\n- [백업 결과 해석] ${backupContext.promptLine}\n- [생존 환경] 고립 지수(운영/교전/사망): ${gStats.avgIsolationStr}/${gStats.avgCombatIsolationStr}/${gStats.avgDeathIsolationStr}, 양각 노출 상황: ${gStats.totalCrossfireExposureCount}회\n- [거리 관리] 팀원과의 평균 거리: ${gStats.avgMinDistStr}, 평균 고도차: ${gStats.avgHeightDiffStr}, 경기당 평균 거리별 데미지(근/중/원): ${gStats.avgDistanceDamage.short}/${gStats.avgDistanceDamage.mid}/${gStats.avgDistanceDamage.long}\n- [킬 분류] 솔로 킬: ${gStats.killContribFinal.solo}회, 클린업 킬: ${gStats.killContribFinal.cleanup}회 (솔로 비중: ${formatObservedPercent(gStats.soloKillRate)}${bench?.avgSoloKillRate !== undefined ? ` vs ${metricBenchmarkProvenance("avgSoloKillRate")}: 솔로 킬 비중 ${bench.avgSoloKillRate}%` : ""})\n${utilityLine}\n- [운영 패턴] 평균 사망 페이즈: ${formatObservedMetric(gStats.avgDeathPhase)}${bench?.avgDeathPhase !== undefined ? ` (${metricBenchmarkProvenance("avgDeathPhase")}: 사망 페이즈 ${bench.avgDeathPhase})` : ""}, 자기장 누적 피해: ${Math.round(gStats.totalBluezoneWaste / gStats.mLen)} HP, 엣지(Edge) 플레이: ${gStats.totalEdgePlay}회, 진입 지연: ${gStats.totalFatalDelay}회\n\n`;
+      userPrompt = userPrompt.replace(utilityLine, `- [유틸리티] 총 투척 ${gStats.totalUtilityThrows}회 (연막 ${gStats.totalSmokes}회, 피해형 ${gStats.totalLethalThrows}회, 피해 적중 ${gStats.totalUtilityHits}회), 아군 기절 대비 연막 구출률: ${smokeOpportunityRate}${bench?.avgSmokeRate !== undefined ? ` (${metricBenchmarkProvenance("avgSmokeRate")}: 기회 대비 평균 연막 구출률 ${bench.avgSmokeRate}%)` : ""}`);
     }
 
     // The UI labels this card as the potential tier of the top five matches.
@@ -1759,11 +1806,15 @@ export async function POST(request: Request) {
     const mainTradeRate = calculateBoundedRate(mainModeStats.totalTradeKills, mainModeStats.totalTeammateKnocks);
     const mainSmokeOpportunityRate = calculateBoundedRate(mainModeStats.totalSmokeRescues, mainModeStats.totalTeammateKnocks);
     addCanonicalEvidence("damage_average", "평균 화력", mainModeStats.avgDamage, "동일 티어 평균 화력", mainBench?.avgDamage);
-    if (mainModeStats.userInitiativeRate >= 0) {
+    if (typeof mainModeStats.userInitiativeRate === "number" && Number.isFinite(mainModeStats.userInitiativeRate)) {
       addCanonicalEvidence("initiative_rate", "주도권 성공률", `${mainModeStats.userInitiativeRate}%`, "동일 티어 평균 주도권 성공률", mainBench?.avgInitiativeRate === undefined ? undefined : `${mainBench.avgInitiativeRate}%`);
     }
-    addCanonicalEvidence("duel_win_rate", "1:1 교전 승률", `${mainModeStats.avgDuelWinRate}%`, "동일 티어 평균 1:1 교전 승률", mainBench?.avgDuelWinRate === undefined ? undefined : `${mainBench.avgDuelWinRate}%`);
-    addCanonicalEvidence("pressure_index", "평균 압박 지수", mainModeStats.avgPressureIndex, "동일 티어 평균 압박 지수", mainBench?.avgPressureIndex);
+    if (typeof mainModeStats.avgDuelWinRate === "number" && Number.isFinite(mainModeStats.avgDuelWinRate)) {
+      addCanonicalEvidence("duel_win_rate", "1:1 교전 승률", `${mainModeStats.avgDuelWinRate}%`, "동일 티어 평균 1:1 교전 승률", mainBench?.avgDuelWinRate === undefined ? undefined : `${mainBench.avgDuelWinRate}%`);
+    }
+    if (typeof mainModeStats.avgPressureIndex === "number" && Number.isFinite(mainModeStats.avgPressureIndex)) {
+      addCanonicalEvidence("pressure_index", "평균 압박 지수", mainModeStats.avgPressureIndex, "동일 티어 평균 압박 지수", mainBench?.avgPressureIndex);
+    }
     if (mainTradeRate !== null) {
       addCanonicalEvidence("trade_success_rate", "복수 성공률", `${mainTradeRate}%`, "동일 티어 평균 복수 성공률", mainBench?.avgTradeRate === undefined ? undefined : `${mainBench.avgTradeRate}%`);
     }
@@ -1776,8 +1827,12 @@ export async function POST(request: Request) {
     if (mainModeStats.avgBackupLatency !== "측정 불가") {
       addCanonicalEvidence("backup_latency", "백업 속도", mainModeStats.avgBackupLatency, "동일 티어 평균 백업 속도", mainBench?.avgTradeLatency === undefined ? undefined : `${mainBench.avgTradeLatency}s`);
     }
-    addCanonicalEvidence("solo_kill_share", "솔로 킬 비중", `${mainModeStats.soloKillRate}%`, "동일 티어 평균 솔로 킬 비중", mainBench?.avgSoloKillRate === undefined ? undefined : `${mainBench.avgSoloKillRate}%`);
-    addCanonicalEvidence("death_phase", "평균 사망 페이즈", mainModeStats.avgDeathPhase, "동일 티어 평균 사망 페이즈", mainBench?.avgDeathPhase);
+    if (typeof mainModeStats.soloKillRate === "number" && Number.isFinite(mainModeStats.soloKillRate)) {
+      addCanonicalEvidence("solo_kill_share", "솔로 킬 비중", `${mainModeStats.soloKillRate}%`, "동일 티어 평균 솔로 킬 비중", mainBench?.avgSoloKillRate === undefined ? undefined : `${mainBench.avgSoloKillRate}%`);
+    }
+    if (typeof mainModeStats.avgDeathPhase === "number" && Number.isFinite(mainModeStats.avgDeathPhase)) {
+      addCanonicalEvidence("death_phase", "평균 사망 페이즈", mainModeStats.avgDeathPhase, "동일 티어 평균 사망 페이즈", mainBench?.avgDeathPhase);
+    }
     const canonicalEvidence: CanonicalDebateEvidenceMap = canonicalDebateEvidence;
     // Role identity follows the same deterministic score-best-five aggregate
     // as the potential tier. Keep the dominant mode only as context for
@@ -1855,9 +1910,9 @@ export async function POST(request: Request) {
         },
       } : {}),
       tierBreakdown: finalTierBreakdown,
-      initiativeSuccess: `${userInitiativeRate}%`, pressureIndex: avgPressureIndex,
+      initiativeSuccess: formatObservedPercent(userInitiativeRate), pressureIndex: avgPressureIndex,
       reversalRate: formatBoundedRate(totalReversalWins, totalReversalAttempts),
-      duelStats: { winRate: `${avgDuelWinRate}%`, wins: totalDuelWins, losses: totalDuelLosses, reversals: totalReversalWins, reversalAttempts: totalReversalAttempts },
+      duelStats: { winRate: formatObservedPercent(avgDuelWinRate), wins: totalDuelWins, losses: totalDuelLosses, reversals: totalReversalWins, reversalAttempts: totalReversalAttempts },
       teamImpact: { damageImpact: avgDamageImpact, topBadges },
       goldenTime: goldenTimeAvg, killContrib: killContribFinal, deathPhase: avgDeathPhase,
       bluezoneWaste: Math.round(totalBluezoneWaste / mLen),
@@ -2161,9 +2216,10 @@ export async function POST(request: Request) {
           continue;
         }
         if (providerTimedOut || providerAborted) {
-          generationTimedOut = true;
+          modelTimeoutObserved = true;
           streamResult = null;
-          break;
+          console.warn(`[AI-SUMMARY] Model ${modelName} provider timeout/abort; trying next...`);
+          continue;
         }
         console.warn(`[AI-SUMMARY] Model ${modelName} failed (${errorMessage}), trying next...`);
       } finally {

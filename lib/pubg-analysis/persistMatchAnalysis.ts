@@ -1,9 +1,12 @@
 import { POPULATION_EVIDENCE_VERSION, WEAPON_NAMES } from "./constants";
-import { BENCHMARK_FILTER_VERSION } from "./benchmarkLookup";
+import { BENCHMARK_FILTER_VERSION, isCanonicalBenchmarkTier } from "./benchmarkLookup";
 import { categorizeWeapon } from "./weaponMetaBurst";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeName } from "./utils";
 import { evaluateMatchEligibility, type MatchMetadata } from "./matchEligibility";
+import type { RecoveryBenchmarkSnapshot } from "./benchmarkRecoverySnapshot";
+
+export type { RecoveryBenchmarkSnapshot } from "./benchmarkRecoverySnapshot";
 
 export type PubgPlatform = "steam" | "kakao";
 export type AnalysisSource = "user" | "scraper";
@@ -54,33 +57,48 @@ export interface PersistedFinalResult extends JsonObject {
   mapName?: string;
   tradeStats?: JsonObject & {
     teammateKnocks?: number;
-    counterLatencyMs?: number;
+    counterLatencyMs?: number | null;
     revCount?: number;
     smokeRescues?: number;
     tradeKills?: number;
-    tradeLatencyMs?: number;
+    tradeLatencyMs?: number | null;
+    reactionLatencyMs?: number | null;
     suppCount?: number;
     enemyTeamWipes?: number;
+    tradeRate?: number | null;
+    suppRate?: number | null;
+    coverRate?: number | null;
+    coverRateSampleCount?: number;
   };
   killContribution?: JsonObject & {
     solo?: number;
     assist?: number;
     cleanup?: number;
   };
-  initiative_rate?: number;
+  initiative_rate?: number | null;
   isolationData?: JsonObject & {
-    isCrossfire?: boolean;
-    isolationIndex?: number;
-    minDist?: number;
-    heightDiff?: number;
+    isCrossfire?: boolean | null;
+    isolationIndex?: number | null;
+    minDist?: number | null;
+    heightDiff?: number | null;
   };
   combatPressure?: JsonObject & {
-    pressureIndex?: number;
-    utilityStats?: JsonObject & { throwCount?: number };
+    pressureScore?: number | null;
+    pressureIndex?: number | null;
+    utilityStats?: JsonObject & {
+      throwCount?: number;
+      lethalThrowCount?: number | null;
+      hitCount?: number | null;
+      damageEventCount?: number | null;
+      totalDamage?: number | null;
+      accuracy?: number | null;
+      accuracyRaw?: number | null;
+      avgDamagePerThrow?: number | null;
+    };
   };
   itemUseSummary?: JsonObject & { smokes?: number; frags?: number };
-  deathDistance?: number;
-  duelStats?: JsonObject & { reversalRate?: number; duelWinRate?: number };
+  deathDistance?: number | null;
+  duelStats?: JsonObject & { reversalRate?: number | null; duelWinRate?: number | null };
   itemUseStats?: JsonObject & { lethalThrowCount?: number };
   benchmark?: JsonObject & {
     tier?: string | null;
@@ -91,7 +109,7 @@ export interface PersistedFinalResult extends JsonObject {
       survival?: number;
     };
   };
-  deathPhase?: number;
+  deathPhase?: number | null;
   createdAt?: string;
   weaponStats?: Record<string, {
     damage?: number;
@@ -140,6 +158,8 @@ export interface RecoveryBenchmarkGuard {
   tier: string;
   filterVersion: number | null;
   populationEvidenceVersion: number | null;
+  /** Exact legacy payload observed before the recovery lease was claimed. */
+  snapshot?: RecoveryBenchmarkSnapshot;
 }
 
 export interface PersistenceFailure {
@@ -170,16 +190,86 @@ function safeInteger(value: unknown, fallback = 0): number {
 }
 
 /**
- * SQL benchmark views map -1 to NULL for metrics that had no position sample.
- * Keep an observed numeric zero distinct from an unmeasured value at this
- * persistence boundary; otherwise an absent isolation sample becomes a false
- * perfect/zero-distance benchmark observation.
+ * Benchmark columns are nullable observations.  Do not coerce an absent or
+ * malformed value to a plausible-looking zero: an explicit numeric zero is a
+ * real observation and must remain distinct from `null` (unmeasured).
  */
-function safeIsolationInteger(value: unknown): number {
-  if (value === null || value === undefined) return -1;
-  if (typeof value === "string" && value.trim() === "") return -1;
-  const numeric = safeNumber(value, Number.NaN);
-  return Number.isFinite(numeric) && numeric >= 0 ? Math.round(numeric) : -1;
+function nullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  try {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  } catch {
+    return null;
+  }
+}
+
+function nullableInteger(value: unknown): number | null {
+  const numeric = nullableNumber(value);
+  return numeric === null ? null : Math.round(numeric);
+}
+
+function nullableNonNegativeNumber(value: unknown): number | null {
+  const numeric = nullableNumber(value);
+  return numeric === null || numeric < 0 ? null : numeric;
+}
+
+function nullableNonNegativeInteger(value: unknown): number | null {
+  const numeric = nullableNonNegativeNumber(value);
+  return numeric === null ? null : Math.round(numeric);
+}
+
+function nullableNonNegativeFloor(value: unknown): number | null {
+  const numeric = nullableNonNegativeNumber(value);
+  return numeric === null ? null : Math.floor(numeric);
+}
+
+function nullableFloor(value: unknown): number | null {
+  const numeric = nullableNumber(value);
+  return numeric === null ? null : Math.floor(numeric);
+}
+
+function nullableNonNegativePercent(value: unknown): number | null {
+  const numeric = nullableNumber(value);
+  if (numeric === null || numeric < 0 || numeric > 100) return null;
+  return Math.round(numeric);
+}
+
+function nullableRatioPercent(numerator: unknown, denominator: unknown): number | null {
+  const numeratorValue = nullableNonNegativeNumber(numerator);
+  const denominatorValue = nullableNonNegativeNumber(denominator);
+  if (numeratorValue === null || denominatorValue === null || denominatorValue <= 0 || numeratorValue < 0) {
+    return null;
+  }
+  return Math.round(Math.max(0, Math.min(100, (numeratorValue / denominatorValue) * 100)));
+}
+
+function nullableScore(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  const numeric = nullableNumber(value);
+  return numeric === null ? null : Math.max(0, Math.min(100, numeric));
+}
+
+function nullableText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function observedCrossfire(isolationData: PersistedFinalResult["isolationData"]): boolean | null {
+  if (!isolationData || typeof isolationData !== "object") return null;
+  // AnalysisEngine keeps an empty isolation object for handler access.  A
+  // false flag without any position evidence is therefore not an observed
+  // "no crossfire" result; leave it unavailable until a sample exists.
+  const hasPositionEvidence = [
+    isolationData.isolationIndex,
+    isolationData.minDist,
+    isolationData.heightDiff,
+  ].some((value) => nullableNumber(value) !== null);
+  if (!hasPositionEvidence && isolationData.isCrossfire !== true) return null;
+  return typeof isolationData.isCrossfire === "boolean" ? isolationData.isCrossfire : null;
 }
 
 function errorMessage(error: unknown): string {
@@ -449,55 +539,66 @@ export function buildBenchmarkRow(
 
   if (!(finalResult.isValidBenchmark || input.forceBenchmark) || !eligibility.eligible) return null;
 
-  const teammateKnocks = Math.max(1, finalResult.tradeStats?.teammateKnocks || 0);
-  const totalKillContribution = Math.max(
-    1,
-    (finalResult.killContribution?.solo || 0)
-      + (finalResult.killContribution?.assist || 0)
-      + (finalResult.killContribution?.cleanup || 0),
-  );
+  const matchId = typeof input.matchId === "string" ? input.matchId.trim() : "";
+  const playerId = normalizeName(input.playerNickname);
+  const tier = finalResult.benchmark?.tier;
+  // Identity and tier are the minimum evidence needed for a benchmark row.
+  // Never invent a tier (or an empty identity) just to satisfy the DB shape.
+  if (!matchId || !playerId || !isCanonicalBenchmarkTier(tier)) return null;
+
+  const teammateKnocks = finalResult.tradeStats?.teammateKnocks;
+  const soloKills = finalResult.killContribution?.solo;
+  const assistKills = finalResult.killContribution?.assist;
+  const cleanupKills = finalResult.killContribution?.cleanup;
+  const totalKillContribution = [soloKills, assistKills, cleanupKills].every((value) => nullableNonNegativeNumber(value) !== null)
+    ? (Number(soloKills) + Number(assistKills) + Number(cleanupKills))
+    : null;
   const stats = finalResult.stats;
   const row = {
-    match_id: input.matchId,
+    match_id: matchId,
     platform: input.platform,
-    player_id: normalizeName(input.playerNickname),
-    damage: Math.floor(safeNumber(stats.damageDealt)),
-    kills: safeInteger(stats.kills),
-    win_place: safeInteger(stats.winPlace, 100),
+    player_id: playerId,
+    damage: nullableNonNegativeFloor(stats.damageDealt),
+    kills: nullableNonNegativeInteger(stats.kills),
+    win_place: nullableNonNegativeInteger(stats.winPlace),
     game_mode: eligibility.mode,
-    map_name: finalResult.mapName,
-    counter_latency_ms: safeInteger(finalResult.tradeStats?.counterLatencyMs),
-    initiative_rate: safeInteger(finalResult.initiative_rate),
-    revive_rate: Math.round(((finalResult.tradeStats?.revCount || 0) / teammateKnocks) * 100),
-    is_crossfire: finalResult.isolationData?.isCrossfire || false,
-    utility_count: safeInteger(finalResult.combatPressure?.utilityStats?.throwCount),
-    smoke_count: safeInteger(finalResult.itemUseSummary?.smokes),
-    frag_count: safeInteger(finalResult.itemUseSummary?.frags),
-    pressure_index: safeInteger(finalResult.combatPressure?.pressureIndex),
-    enemy_death_distance: safeInteger(finalResult.deathDistance),
-    survival_time: safeInteger(stats.timeSurvived),
-    isolation_index: safeIsolationInteger(finalResult.isolationData?.isolationIndex),
-    min_dist: safeIsolationInteger(finalResult.isolationData?.minDist),
-    height_diff: safeIsolationInteger(finalResult.isolationData?.heightDiff),
-    smoke_rate: Math.round(((finalResult.tradeStats?.smokeRescues || 0) / teammateKnocks) * 100),
-    trade_rate: Math.round((Math.min(
-      finalResult.tradeStats?.teammateKnocks || 0,
-      finalResult.tradeStats?.tradeKills || 0,
-    ) / teammateKnocks) * 100),
-    solo_kill_rate: Math.round(((finalResult.killContribution?.solo || 0) / totalKillContribution) * 100),
-    reversal_rate: Math.round(finalResult.duelStats?.reversalRate || 0),
-    duel_win_rate: Math.round(finalResult.duelStats?.duelWinRate || 0),
-    trade_latency_ms: safeInteger(finalResult.tradeStats?.tradeLatencyMs),
-    lethal_throw_count: safeInteger(finalResult.itemUseStats?.lethalThrowCount),
-    tier: finalResult.benchmark?.tier || "C",
-    score: safeScore(finalResult.benchmark?.score),
-    combat_score: safeScore(finalResult.benchmark?.breakdown?.combat),
-    tactical_score: safeScore(finalResult.benchmark?.breakdown?.tactical),
-    survival_score: safeScore(finalResult.benchmark?.breakdown?.survival),
-    supp_count: safeInteger(finalResult.tradeStats?.suppCount),
-    team_wipes: safeInteger(finalResult.tradeStats?.enemyTeamWipes),
+    map_name: nullableText(finalResult.mapName),
+    counter_latency_ms: nullableNonNegativeInteger(finalResult.tradeStats?.counterLatencyMs),
+    initiative_rate: nullableNonNegativePercent(finalResult.initiative_rate),
+    revive_rate: nullableRatioPercent(finalResult.tradeStats?.revCount, teammateKnocks),
+    is_crossfire: observedCrossfire(finalResult.isolationData),
+    utility_count: nullableNonNegativeInteger(finalResult.combatPressure?.utilityStats?.throwCount),
+    smoke_count: nullableNonNegativeInteger(finalResult.itemUseSummary?.smokes),
+    frag_count: nullableNonNegativeInteger(finalResult.itemUseSummary?.frags),
+    pressure_index: nullableNonNegativeInteger(finalResult.combatPressure?.pressureIndex),
+    enemy_death_distance: nullableNonNegativeInteger(finalResult.deathDistance),
+    survival_time: nullableNonNegativeInteger(stats.timeSurvived),
+    isolation_index: nullableNonNegativeInteger(finalResult.isolationData?.isolationIndex),
+    min_dist: nullableNonNegativeInteger(finalResult.isolationData?.minDist),
+    height_diff: nullableNonNegativeInteger(finalResult.isolationData?.heightDiff),
+    smoke_rate: nullableRatioPercent(finalResult.tradeStats?.smokeRescues, teammateKnocks),
+    trade_rate: nullableRatioPercent(
+      (() => {
+        const knocks = nullableNonNegativeNumber(teammateKnocks);
+        const trades = nullableNonNegativeNumber(finalResult.tradeStats?.tradeKills);
+        return knocks === null || trades === null ? null : Math.min(knocks, trades);
+      })(),
+      teammateKnocks,
+    ),
+    solo_kill_rate: nullableRatioPercent(soloKills, totalKillContribution),
+    reversal_rate: nullableNonNegativePercent(finalResult.duelStats?.reversalRate),
+    duel_win_rate: nullableNonNegativePercent(finalResult.duelStats?.duelWinRate),
+    trade_latency_ms: nullableNonNegativeInteger(finalResult.tradeStats?.tradeLatencyMs),
+    lethal_throw_count: nullableNonNegativeInteger(finalResult.itemUseStats?.lethalThrowCount),
+    tier,
+    score: nullableScore(finalResult.benchmark?.score),
+    combat_score: nullableScore(finalResult.benchmark?.breakdown?.combat),
+    tactical_score: nullableScore(finalResult.benchmark?.breakdown?.tactical),
+    survival_score: nullableScore(finalResult.benchmark?.breakdown?.survival),
+    supp_count: nullableNonNegativeInteger(finalResult.tradeStats?.suppCount),
+    team_wipes: nullableNonNegativeInteger(finalResult.tradeStats?.enemyTeamWipes),
     match_type: eligibility.matchType,
-    death_phase: safeInteger(finalResult.deathPhase),
+    death_phase: nullableNonNegativeInteger(finalResult.deathPhase),
     filter_version: BENCHMARK_FILTER_VERSION,
     population_evidence_version: POPULATION_EVIDENCE_VERSION,
     source: input.source,

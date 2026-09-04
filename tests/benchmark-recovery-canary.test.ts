@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  BENCHMARK_RECOVERY_APPLY_WARNING,
   BENCHMARK_RECOVERY_DEFAULT_BASE_URL,
   benchmarkRecoveryConfirmationToken,
   parseBenchmarkRecoveryCanaryArgs,
@@ -12,10 +13,53 @@ import {
   type ReadOnlySupabaseClient,
 } from "../scripts/run_benchmark_recovery_canary";
 import type { BenchmarkRecoveryManifest } from "../scripts/plan_benchmark_recovery";
+import type { BenchmarkRecoverySnapshot } from "../lib/pubg-analysis/benchmarkRecoveryPlanner";
 import { TELEMETRY_VERSION } from "../lib/pubg-analysis/constants";
 
 const GENERATED_AT = "2026-09-02T00:00:00.000Z";
 const FIXED_NOW = new Date(GENERATED_AT);
+
+function benchmarkSnapshot(index = 0): BenchmarkRecoverySnapshot {
+  return {
+    damage: index,
+    kills: index,
+    win_place: 10 + index,
+    game_mode: "duo",
+    map_name: "erangel",
+    counter_latency_ms: null,
+    initiative_rate: null,
+    revive_rate: null,
+    is_crossfire: null,
+    utility_count: null,
+    smoke_count: null,
+    frag_count: null,
+    pressure_index: null,
+    enemy_death_distance: null,
+    survival_time: null,
+    isolation_index: null,
+    min_dist: null,
+    height_diff: null,
+    smoke_rate: null,
+    trade_rate: null,
+    solo_kill_rate: null,
+    reversal_rate: null,
+    duel_win_rate: null,
+    trade_latency_ms: null,
+    lethal_throw_count: null,
+    tier: "C",
+    score: null,
+    combat_score: null,
+    tactical_score: null,
+    survival_score: null,
+    supp_count: null,
+    team_wipes: null,
+    match_type: "competitive",
+    death_phase: null,
+    filter_version: 8,
+    population_evidence_version: null,
+    source: "user",
+  };
+}
 
 beforeEach(() => {
   vi.useFakeTimers({ now: FIXED_NOW });
@@ -63,6 +107,7 @@ function manifestFixture(): BenchmarkRecoveryManifest {
     viableBuckets: [{ gameMode: "duo", matchType: "competitive", tier: "C", platform: "steam", eligibleCount: 5 }],
     canary,
     readEvidence: canary.map((entry) => ({
+      benchmarkId: entry.benchmarkId,
       matchId: entry.matchId,
       playerId: entry.playerId,
       platform: entry.platform,
@@ -71,6 +116,7 @@ function manifestFixture(): BenchmarkRecoveryManifest {
       tier: entry.tier,
       playedAt: entry.playedAt,
       isValidBenchmark: true,
+      snapshot: benchmarkSnapshot(Number(entry.benchmarkId) - 1),
     })),
     databaseWritesAttempted: 0,
     storageWritesAttempted: 0,
@@ -80,6 +126,8 @@ function manifestFixture(): BenchmarkRecoveryManifest {
 
 function databaseFixture() {
   const global = Array.from({ length: 5 }, (_, index) => ({
+    ...benchmarkSnapshot(index),
+    id: index + 1,
     match_id: `match-${index + 1}`,
     player_id: `player-${index + 1}`,
     platform: "steam",
@@ -159,7 +207,8 @@ function markFixtureR2Ready(identity: {
   playerId: string;
   platform: "steam" | "kakao";
 }): void {
-  const key = `telemetry-map/v${TELEMETRY_VERSION}/${identity.platform}/${identity.matchId}/${identity.playerId}.json`;
+  const playerHash = createHash("sha256").update(identity.playerId).digest("hex").slice(0, 32);
+  const key = `telemetry-map/v${TELEMETRY_VERSION}/${identity.platform}/${identity.matchId}/${playerHash}/lite.json`;
   const body = `canonical-r2-${identity.matchId}`;
   const etag = `etag-${identity.matchId}`;
   fixtureR2Objects.set(identity.matchId, { key, body, etag });
@@ -226,6 +275,13 @@ afterEach(() => {
   fixtureR2Reads = 0;
   fixtureR2ObjectReads = 0;
   fixtureR2RegistryReads = 0;
+});
+
+describe("benchmark recovery operator warning", () => {
+  it("states that apply mutates remote state and does not automatically roll back completed rows", () => {
+    expect(BENCHMARK_RECOVERY_APPLY_WARNING).toContain("mutates the database and R2");
+    expect(BENCHMARK_RECOVERY_APPLY_WARNING).toContain("not automatically rolled back");
+  });
 });
 
 function readOnlySupabase(rows: Record<string, Array<Record<string, unknown>>>, readEvents: string[] = []): ReadOnlySupabaseClient {
@@ -326,7 +382,7 @@ describe("benchmark recovery canary executor", () => {
     expect(writeLocal).not.toHaveBeenCalled();
   });
 
-  it("refuses apply before any route when no concrete R2 postcondition verifier is supplied", async () => {
+  it("refuses apply before any route when no verifier is supplied and R2 is unavailable", async () => {
     const manifest = manifestFixture();
     const rows = databaseFixture();
     const fetchRoute = vi.fn();
@@ -336,7 +392,7 @@ describe("benchmark recovery canary executor", () => {
       supabase: readOnlySupabase(rows),
       fetchRoute,
       writeLocal: async () => undefined,
-    })).rejects.toThrow("r2_postcondition_verifier_required");
+    })).rejects.toThrow("r2_postcondition_storage_required");
     expect(fetchRoute).not.toHaveBeenCalled();
   });
 
@@ -515,6 +571,84 @@ describe("benchmark recovery canary executor", () => {
     expect(report.routeCalls).toBe(1);
     expect(fetchRoute).toHaveBeenCalledTimes(1);
     expect(fixtureR2Reads).toBe(1);
+  });
+
+  it("rejects a benchmark row id replacement before any route call", async () => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    rows.global_benchmarks[0].id = 999;
+    const fetchRoute = vi.fn(async (input: RequestInfo | URL) => routeResponse("unexpected", 503, String(input)));
+
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      writeLocal: async () => undefined,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+    });
+
+    expect(report.status).toBe("failed");
+    expect(report.failure).toMatchObject({ code: "race_read_evidence_changed", index: 0 });
+    expect(report.routeCalls).toBe(0);
+    expect(fetchRoute).not.toHaveBeenCalled();
+    expect(fixtureR2Reads).toBe(0);
+  });
+
+  it.each([
+    ["metric", "damage", 999],
+    ["marker", "filter_version", 7],
+  ] as const)("rejects a changed full benchmark snapshot %s before any route call", async (_label, field, value) => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    rows.global_benchmarks[0][field] = value;
+    const fetchRoute = vi.fn(async (input: RequestInfo | URL) => routeResponse("unexpected", 503, String(input)));
+
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      writeLocal: async () => undefined,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+    });
+
+    expect(report.status).toBe("failed");
+    expect(report.failure).toMatchObject({ code: "race_read_evidence_changed", index: 0 });
+    expect(report.routeCalls).toBe(0);
+    expect(fetchRoute).not.toHaveBeenCalled();
+    expect(fixtureR2Reads).toBe(0);
+  });
+
+  it("accepts an unchanged benchmark row id and full snapshot", async () => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    const fetchRoute = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const matchId = url.searchParams.get("matchId") || "";
+      const playerId = url.searchParams.get("nickname") || "";
+      const benchmark = rows.global_benchmarks.find((row) => row.match_id === matchId);
+      if (benchmark) benchmark.population_evidence_version = 1;
+      const processed = rows.processed_match_telemetry.find((row) => row.match_id === matchId);
+      if (processed) {
+        const fullResult = (processed.data as { fullResult: Record<string, unknown> }).fullResult;
+        fullResult.v = 73;
+        fullResult.populationEvidenceVersion = 1;
+      }
+      markFixtureR2Ready({ matchId, playerId, platform: "steam" });
+      return routeResponse({ matchId, player_id: playerId, platform: "steam", v: 73, populationEvidenceVersion: 1 }, 200, String(input));
+    });
+
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      writeLocal: async () => undefined,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+    });
+
+    expect(report.status).toBe("applied");
+    expect(report.routeCalls).toBe(5);
+    expect(fetchRoute).toHaveBeenCalledTimes(5);
+    expect(fixtureR2Reads).toBe(5);
   });
 
   it.each([

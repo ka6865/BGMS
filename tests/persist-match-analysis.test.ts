@@ -423,8 +423,8 @@ describe("persistMatchAnalysis", () => {
     ["tactical_score", 101, 100],
     ["survival_score", -5, 0],
     ["survival_score", 101, 100],
-    ["score", Number.NaN, 0],
-    ["score", Number.POSITIVE_INFINITY, 0],
+    ["score", Number.NaN, null],
+    ["score", Number.POSITIVE_INFINITY, null],
   ] as const)("persisted %s clamps malformed score %s to %s at the DB boundary", async (field, value, expected) => {
     const benchmark = {
       ...input.finalResult.benchmark,
@@ -516,7 +516,7 @@ describe("persistMatchAnalysis", () => {
     );
   });
 
-  it("benchmark 선택 값이 없으면 현재 route와 같은 안전 기본값을 저장한다", async () => {
+  it("benchmark tier가 관측되지 않으면 필수 identity/tier를 추정하지 않고 저장을 건너뛴다", async () => {
     await persistMatchAnalysis(supabase, {
       ...input,
       finalResult: {
@@ -527,41 +527,81 @@ describe("persistMatchAnalysis", () => {
       },
     });
 
-    expect(upserts.get("global_benchmarks")).toHaveBeenCalledWith(expect.objectContaining({
+    expect(upserts.get("global_benchmarks")).not.toHaveBeenCalled();
+  });
+
+  it("benchmark row는 관측된 0을 보존하고 누락된 nullable metric을 null로 유지한다", () => {
+    const row = buildBenchmarkRow({
+      ...input,
+      finalResult: {
+        matchType: "official",
+        gameMode: "squad-fpp",
+        isValidBenchmark: true,
+        stats: { damageDealt: 0, kills: 0, winPlace: 0, timeSurvived: 0 },
+        benchmark: {
+          tier: "C",
+          score: 0,
+          breakdown: { combat: 0, tactical: 0, survival: 0 },
+        },
+      },
+    });
+
+    expect(row).toMatchObject({
+      match_id: "match-1",
+      player_id: "playerone",
       damage: 0,
       kills: 0,
-      win_place: 100,
-      counter_latency_ms: 0,
-      initiative_rate: 0,
-      revive_rate: 0,
-      is_crossfire: false,
-      utility_count: 0,
-      smoke_count: 0,
-      frag_count: 0,
-      pressure_index: 0,
-      enemy_death_distance: 0,
+      win_place: 0,
       survival_time: 0,
-      isolation_index: -1,
-      min_dist: -1,
-      height_diff: -1,
-      smoke_rate: 0,
-      trade_rate: 0,
-      solo_kill_rate: 0,
-      reversal_rate: 0,
-      duel_win_rate: 0,
-      trade_latency_ms: 0,
-      lethal_throw_count: 0,
       tier: "C",
       score: 0,
       combat_score: 0,
       tactical_score: 0,
       survival_score: 0,
-      supp_count: 0,
-      team_wipes: 0,
-      death_phase: 0,
       filter_version: 8,
       population_evidence_version: POPULATION_EVIDENCE_VERSION,
-    }), { onConflict: "match_id,platform,player_id" });
+    });
+    expect(row).toMatchObject({
+      map_name: null,
+      counter_latency_ms: null,
+      initiative_rate: null,
+      revive_rate: null,
+      is_crossfire: null,
+      utility_count: null,
+      smoke_count: null,
+      frag_count: null,
+      pressure_index: null,
+      enemy_death_distance: null,
+      isolation_index: null,
+      min_dist: null,
+      height_diff: null,
+      smoke_rate: null,
+      trade_rate: null,
+      solo_kill_rate: null,
+      reversal_rate: null,
+      duel_win_rate: null,
+      trade_latency_ms: null,
+      lethal_throw_count: null,
+      supp_count: null,
+      team_wipes: null,
+      death_phase: null,
+    });
+  });
+
+  it.each([
+    ["empty match id", { matchId: "" }],
+    ["empty player identity", { playerNickname: "   " }],
+  ])("benchmark row fails closed for %s", (_label, override) => {
+    const row = buildBenchmarkRow({
+      ...input,
+      ...override,
+      finalResult: {
+        ...input.finalResult,
+        benchmark: { ...input.finalResult.benchmark, tier: "B" },
+      },
+    });
+
+    expect(row).toBeNull();
   });
 
   it("trusted internal forceBenchmark는 유효하지 않은 표준 BR benchmark를 허용한다", async () => {
@@ -809,9 +849,9 @@ describe("persistMatchAnalysis", () => {
     expect(benchmarkRow).toMatchObject({
       filter_version: 8,
       population_evidence_version: POPULATION_EVIDENCE_VERSION,
-      isolation_index: -1,
-      min_dist: -1,
-      height_diff: -1,
+      isolation_index: null,
+      min_dist: null,
+      height_diff: null,
     });
     const weaponRows = upserts.get("weapon_meta_match_samples")?.mock.calls.at(-1)?.[0] as Array<Record<string, unknown>>;
     expect(weaponRows[0]).toMatchObject({

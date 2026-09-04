@@ -27,6 +27,7 @@ import {
 } from "./matchEligibility";
 import { normalizeMatchId } from "./recentMatchSelection";
 import { normalizeName } from "./utils";
+import type { RecoveryBenchmarkSnapshot } from "./benchmarkRecoverySnapshot";
 
 export const BENCHMARK_RECOVERY_CANARY_SIZE = 5;
 export const BENCHMARK_RECOVERY_DEFAULT_RECENT_DAYS = 14;
@@ -60,6 +61,53 @@ export type BenchmarkRecoveryBenchmarkRow = {
   population_evidence_version?: unknown;
   [key: string]: unknown;
 };
+
+/**
+ * The exact legacy benchmark columns that the recovery finalizer compares
+ * under its row lock. Keep this list in the read-only planner so a manifest
+ * cannot authorize a route from a partial benchmark row.
+ */
+export const BENCHMARK_RECOVERY_SNAPSHOT_COLUMNS = [
+  "damage",
+  "kills",
+  "win_place",
+  "game_mode",
+  "map_name",
+  "counter_latency_ms",
+  "initiative_rate",
+  "revive_rate",
+  "is_crossfire",
+  "utility_count",
+  "smoke_count",
+  "frag_count",
+  "pressure_index",
+  "enemy_death_distance",
+  "survival_time",
+  "isolation_index",
+  "min_dist",
+  "height_diff",
+  "smoke_rate",
+  "trade_rate",
+  "solo_kill_rate",
+  "reversal_rate",
+  "duel_win_rate",
+  "trade_latency_ms",
+  "lethal_throw_count",
+  "tier",
+  "score",
+  "combat_score",
+  "tactical_score",
+  "survival_score",
+  "supp_count",
+  "team_wipes",
+  "match_type",
+  "death_phase",
+  "filter_version",
+  "population_evidence_version",
+  "source",
+] as const satisfies readonly (keyof RecoveryBenchmarkSnapshot)[];
+
+export type BenchmarkRecoverySnapshot = RecoveryBenchmarkSnapshot;
 
 export type BenchmarkRecoveryPlayerMatchRow = {
   match_id?: unknown;
@@ -117,6 +165,7 @@ export type BenchmarkRecoveryReason =
 
 export type BenchmarkRecoveryCandidateDecision = {
   benchmarkId: string | number | null;
+  benchmarkSnapshot: BenchmarkRecoverySnapshot | null;
   identity: {
     matchId: string | null;
     playerId: string | null;
@@ -159,6 +208,40 @@ type PlainRecord = Record<string, unknown>;
 
 function isRecord(value: unknown): value is PlainRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const BENCHMARK_SNAPSHOT_STRING_COLUMNS = new Set([
+  "game_mode",
+  "map_name",
+  "tier",
+  "match_type",
+  "source",
+]);
+
+const BENCHMARK_SNAPSHOT_BOOLEAN_COLUMNS = new Set(["is_crossfire"]);
+
+function isBenchmarkSnapshotValue(column: string, value: unknown): boolean {
+  if (value === null) return true;
+  if (BENCHMARK_SNAPSHOT_STRING_COLUMNS.has(column)) return typeof value === "string";
+  if (BENCHMARK_SNAPSHOT_BOOLEAN_COLUMNS.has(column)) return typeof value === "boolean";
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+/**
+ * Preserve the exact nullable values returned by Supabase. Missing or
+ * malformed fields are not converted to null, because doing so would weaken
+ * the compare-and-swap guard at the database finalizer.
+ */
+export function readBenchmarkRecoverySnapshot(
+  row: BenchmarkRecoveryBenchmarkRow,
+): BenchmarkRecoverySnapshot | null {
+  if (BENCHMARK_RECOVERY_SNAPSHOT_COLUMNS.some((column) => (
+    !Object.prototype.hasOwnProperty.call(row, column)
+      || !isBenchmarkSnapshotValue(column, row[column])
+  ))) return null;
+  return Object.fromEntries(
+    BENCHMARK_RECOVERY_SNAPSHOT_COLUMNS.map((column) => [column, row[column]]),
+  ) as unknown as BenchmarkRecoverySnapshot;
 }
 
 function nonEmptyString(value: unknown): string | null {
@@ -366,6 +449,7 @@ function assessCandidate(
   const identity = exactIdentityFromRow(benchmark);
   const reasons: BenchmarkRecoveryReason[] = [];
   const benchmarkId = asBenchmarkId(benchmark.id);
+  const benchmarkSnapshot = readBenchmarkRecoverySnapshot(benchmark);
   const bucket = bucketFromBenchmark(benchmark);
 
   if (isTrustedBenchmarkAggregate(benchmark)) addReason(reasons, "already_trusted");
@@ -489,6 +573,7 @@ function assessCandidate(
   const eligible = reasons.length === 0;
   return {
     benchmarkId,
+    benchmarkSnapshot,
     identity,
     bucket,
     playedAt,

@@ -1,4 +1,12 @@
-import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, HeadObjectCommand, DeleteObjectsCommand } from '@aws-sdk/client-s3';
+import { createHash } from 'node:crypto';
+import {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  HeadObjectCommand,
+  DeleteObjectsCommand,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
 import { gzipSync, gunzipSync } from 'node:zlib';
@@ -26,6 +34,24 @@ export type R2DeletionResult = {
   failed: Array<{ key: string; message: string }>;
   /** 실제 삭제를 수행하지 않은 경우 true. */
   dryRun: boolean;
+};
+
+/**
+ * Immutable read-back facts used by the benchmark recovery canary.  The
+ * helper deliberately performs a HEAD and a GET for the exact key so callers
+ * can bind the registry row to both object metadata and bytes without any
+ * storage mutation.
+ */
+export type R2ObjectVerificationRead = {
+  key: string;
+  etag: string;
+  body: Buffer;
+};
+
+export type R2RecoveryUploadResult = {
+  key: string;
+  etag: string;
+  bodySha256: string;
 };
 
 // S3 DeleteObjects API 의 1회 요청 상한.
@@ -201,6 +227,39 @@ export async function uploadToR2(
 }
 
 /**
+ * Strict recovery upload. `IfNoneMatch: "*"` makes the deterministic target
+ * an atomic create: an existing object is reported as a conflict and can
+ * never be overwritten by this worker. The returned ETag and body hash are
+ * retained as immutable evidence for postcondition verification; callers must
+ * not delete on an ambiguous transport failure.
+ */
+export async function uploadRecoveryObjectToR2(
+  key: string,
+  body: string | Buffer,
+  contentType: string = "application/json",
+): Promise<R2RecoveryUploadResult> {
+  if (!isR2Configured()) throw new Error("r2-credentials-missing");
+  const payload = typeof body === "string" && contentType === "application/json"
+    ? compressJsonText(body)
+    : body;
+  const response = await getR2Client().send(new PutObjectCommand({
+    Bucket: getBucketName(),
+    Key: key,
+    Body: payload,
+    ContentType: contentType,
+    IfNoneMatch: "*",
+    ...(typeof body === "string" && contentType === "application/json" ? { ContentEncoding: "gzip" } : {}),
+  }));
+  const etag = typeof response?.ETag === "string" ? response.ETag.trim() : "";
+  if (!etag) throw new Error("r2-recovery-upload-etag-missing");
+  return {
+    key,
+    etag,
+    bodySha256: createHash("sha256").update(payload).digest("hex"),
+  };
+}
+
+/**
  * Generates a Secure Presigned URL for Direct Client Download with expiration time
  * @param key The filename/key of the file stored in the R2 bucket
  * @param expiresInSeconds Duration in seconds for the link to remain active (default: 3600s / 1 Hour)
@@ -348,6 +407,61 @@ export async function downloadBufferFromR2(key: string): Promise<Buffer | null> 
     console.error(`[R2 Error] Failed to download buffer from R2: ${key}`, error);
     throw error;
   }
+}
+
+/**
+ * Reads one exact R2 key for a postcondition proof.
+ *
+ * A missing key is represented as null. Other HEAD/GET errors are propagated
+ * so a canary cannot turn an unavailable or ambiguous storage read into a
+ * successful verification. The HEAD ETag must be present and, when returned
+ * by GET, must match the same immutable object.
+ */
+export async function readObjectForVerification(key: string): Promise<R2ObjectVerificationRead | null> {
+  if (!isR2Configured()) {
+    throw new Error("r2-credentials-missing");
+  }
+
+  const bucket = getBucketName();
+  let head: { ETag?: string };
+  try {
+    head = await getR2Client().send(new HeadObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    })) as { ETag?: string };
+  } catch (error: any) {
+    if (error?.name === "NotFound"
+      || error?.name === "NoSuchKey"
+      || error?.$metadata?.httpStatusCode === 404) {
+      return null;
+    }
+    console.error(`[R2 Error] Failed to HEAD verification key: ${key}`, error);
+    throw error;
+  }
+
+  const etag = typeof head.ETag === "string" ? head.ETag.trim() : "";
+  if (!etag) throw new Error("r2-verification-etag-missing");
+
+  let response: { ETag?: string; Body?: { transformToByteArray(): Promise<Uint8Array> } };
+  try {
+    response = await getR2Client().send(new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    })) as typeof response;
+  } catch (error: any) {
+    if (error?.name === "NotFound"
+      || error?.name === "NoSuchKey"
+      || error?.$metadata?.httpStatusCode === 404) {
+      return null;
+    }
+    console.error(`[R2 Error] Failed to GET verification key: ${key}`, error);
+    throw error;
+  }
+  if (!response.Body) throw new Error("r2-verification-body-missing");
+  const getEtag = typeof response.ETag === "string" ? response.ETag.trim() : "";
+  if (getEtag && getEtag !== etag) throw new Error("r2-verification-etag-changed");
+  const bytes = await response.Body.transformToByteArray();
+  return { key, etag, body: Buffer.from(bytes) };
 }
 
 /**

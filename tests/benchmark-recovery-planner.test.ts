@@ -11,6 +11,48 @@ import {
 
 const NOW = "2026-09-02T00:00:00.000Z";
 
+function benchmarkSnapshot(index = 0): Record<string, unknown> {
+  return {
+    damage: index,
+    kills: index,
+    win_place: 10 + index,
+    game_mode: "duo",
+    map_name: "erangel",
+    counter_latency_ms: null,
+    initiative_rate: null,
+    revive_rate: null,
+    is_crossfire: null,
+    utility_count: null,
+    smoke_count: null,
+    frag_count: null,
+    pressure_index: null,
+    enemy_death_distance: null,
+    survival_time: null,
+    isolation_index: null,
+    min_dist: null,
+    height_diff: null,
+    smoke_rate: null,
+    trade_rate: null,
+    solo_kill_rate: null,
+    reversal_rate: null,
+    duel_win_rate: null,
+    trade_latency_ms: null,
+    lethal_throw_count: null,
+    tier: "C",
+    score: null,
+    combat_score: null,
+    tactical_score: null,
+    survival_score: null,
+    supp_count: null,
+    team_wipes: null,
+    match_type: "competitive",
+    death_phase: null,
+    filter_version: 8,
+    population_evidence_version: null,
+    source: "user",
+  };
+}
+
 function fixture(index: number, overrides: Record<string, unknown> = {}): BenchmarkRecoveryCandidateInput {
   const matchId = `match-${index}`;
   const playerId = `player-${index}`;
@@ -38,6 +80,7 @@ function fixture(index: number, overrides: Record<string, unknown> = {}): Benchm
       tier: "C",
       filter_version: 8,
       population_evidence_version: null,
+      ...benchmarkSnapshot(index),
       ...overrides,
     },
     playerMatchRows: [{
@@ -95,6 +138,7 @@ describe("benchmark recovery canary planner", () => {
       "match-4",
       "match-5",
     ]);
+    expect(plan.selected.every((row) => row.benchmarkSnapshot?.damage !== undefined)).toBe(true);
   });
 
   it("fails closed when the preferred bucket has fewer than five rows", () => {
@@ -160,6 +204,7 @@ describe("benchmark recovery canary planner", () => {
     expect(manifest.criteria.preferredPlatform).toBe("kakao");
     expect(manifest.selectedPlatform).toBe("kakao");
     expect(manifest.canary.every((row) => row.platform === "kakao")).toBe(true);
+    expect(manifest.readEvidence.every((row) => row.benchmarkId !== undefined && row.snapshot)).toBe(true);
   });
 
   it("uses the processed fullResult date before the history fallback", () => {

@@ -157,4 +157,21 @@ describe("telemetry identity", () => {
     expect(sql).toMatch(/revoke all on function public\.finalize_telemetry_cache_recovery\([\s\S]*from public, anon, authenticated/i);
     expect(sql).toMatch(/grant execute on function public\.finalize_telemetry_cache_recovery\([\s\S]*to service_role/i);
   });
+
+  it("recovery release migration은 exact pending lease만 boolean으로 해제한다", () => {
+    const sql = fs.readFileSync(
+      path.resolve("supabase/migrations/20260904130000_telemetry_cache_recovery_safety.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/create or replace function public\.release_telemetry_cache_recovery_write\(/i);
+    expect(sql).toMatch(/returns boolean/i);
+    expect(sql).toMatch(/security invoker/i);
+    expect(sql).toContain("set search_path = ''");
+    expect(sql).toContain("p_mode is distinct from 'lite'");
+    expect(sql).toContain("p_telemetry_version is distinct from 61");
+    expect(sql).toMatch(/status = 'pending'[\s\S]*lease_token = p_lease_token[\s\S]*returning true into released/i);
+    expect(sql).toMatch(/revoke all on function public\.release_telemetry_cache_recovery_write[\s\S]*from public, anon, authenticated/i);
+    expect(sql).toMatch(/grant execute on function public\.release_telemetry_cache_recovery_write[\s\S]*to service_role/i);
+    expect(sql).not.toMatch(/drop function public\.release_telemetry_cache_write/i);
+  });
 });

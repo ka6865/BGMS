@@ -19,6 +19,7 @@ import {
 import {
   claimTelemetryMapCacheReservation,
   finalizeTelemetryMapCacheLifecycle,
+  releaseTelemetryMapCacheRecoveryReservation,
   TelemetryRegistryError,
 } from "../lib/pubg-analysis/telemetryRegistry.server";
 
@@ -102,6 +103,29 @@ describe("telemetry map cache", () => {
     expect(abortSignal).toHaveBeenCalledTimes(1);
     expect(retry).toHaveBeenCalledWith(false);
     expect(abortSignal).toHaveBeenCalledWith(expect.any(AbortSignal));
+  });
+
+  it("recovery registry release uses its boolean RPC and rejects an unconfirmed delete", async () => {
+    const rpc = vi.fn()
+      .mockResolvedValueOnce({ data: true, error: null, status: 200 })
+      .mockResolvedValueOnce({ data: false, error: null, status: 200 });
+    const supabase = { rpc } as any;
+    const row = createRegistryRow(identity, "pending", new Date("2026-07-18T00:00:00.000Z"));
+
+    await expect(releaseTelemetryMapCacheRecoveryReservation(supabase, row)).resolves.toBe(true);
+    await expect(releaseTelemetryMapCacheRecoveryReservation(supabase, row))
+      .rejects.toMatchObject({
+        operation: "release",
+        code: "RECOVERY_RELEASE_NOT_CONFIRMED",
+      });
+    expect(rpc).toHaveBeenNthCalledWith(1, "release_telemetry_cache_recovery_write", expect.objectContaining({
+      p_match_id: row.match_id,
+      p_platform: row.platform,
+      p_player_id: row.player_id,
+      p_mode: row.mode,
+      p_telemetry_version: row.telemetry_version,
+      p_lease_token: row.lease_token,
+    }));
   });
 
   it("PostgREST schema cache 장애는 registry RPC에서 자체 재시도하지 않는다", async () => {
@@ -444,7 +468,7 @@ describe("telemetry map cache", () => {
     }
   });
 
-  it("두 writer가 비싼 telemetry 처리 전에 registry lease를 claim한다", () => {
+  it("두 route가 검증 뒤 쓰기 전에 registry lease를 claim한다", () => {
     const telemetryRoute = fs.readFileSync(
       path.resolve("app/api/pubg/telemetry/route.ts"),
       "utf8",
@@ -456,18 +480,26 @@ describe("telemetry map cache", () => {
 
     expect(telemetryRoute.indexOf("claimOrWaitForTelemetryMapCache(identity"))
       .toBeLessThan(telemetryRoute.indexOf("fetch(asset.attributes.URL"));
-    expect(matchRoute.indexOf("claimOrWaitForTelemetryMapCache(telemetryIdentity"))
-      .toBeLessThan(matchRoute.indexOf("downloadFromR2(analyzePath)"));
+    const matchFlow = matchRoute.slice(matchRoute.indexOf("async function reanalyzeAndSave"));
+    expect(matchFlow.indexOf("downloadFromR2(analyzePath)"))
+      .toBeLessThan(matchFlow.indexOf("claimOrWaitForTelemetryMapCache(telemetryIdentity"));
+    expect(matchFlow.indexOf("claimOrWaitForTelemetryMapCache(telemetryIdentity"))
+      .toBeLessThan(matchFlow.indexOf("new AnalysisEngine("));
     expect(matchRoute).toContain("finalizeTelemetryMapCacheLifecycle");
     expect(telemetryRoute).toContain("finalizeTelemetryMapCacheLifecycle");
   });
 
   it("private analyze 캐시를 signed URL이나 API 응답으로 연결하지 않는다", () => {
     const source = fs.readFileSync(path.resolve("app/api/pubg/match/route.ts"), "utf8");
+    const cacheKeySource = fs.readFileSync(
+      path.resolve("lib/pubg-analysis/telemetryCacheKey.ts"),
+      "utf8",
+    );
 
-    expect(source).toContain("_analyze.json");
+    expect(source).toContain("buildTelemetryAnalyzeCacheKey(telemetryIdentity)");
+    expect(cacheKeySource).toContain('replace(/\\.json$/, "_analyze.json")');
     expect(source).toContain("downloadFromR2(analyzePath)");
-    expect(source).toContain("uploadToR2(analyzePath");
+    expect(source).toMatch(/uploadToR2\(\s*analyzePath/);
     expect(source).not.toMatch(/getPresignedUrlFromR2\s*\(\s*analyzePath/);
     expect(source).not.toMatch(/NextResponse[^\n]*analyzePath/);
   });

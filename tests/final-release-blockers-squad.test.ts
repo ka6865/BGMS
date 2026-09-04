@@ -354,6 +354,157 @@ describe("strict squad analysis population", () => {
     expect(analysis.stats.avgTradeLatency).toBe(0);
   });
 
+  it("marks partial squad recovery totals unavailable instead of summing only observed rows", async () => {
+    const rows = [
+      canonicalRow(1, {
+        tradeStats: {
+          smokeRescues: 2,
+          revCount: 3,
+          enemyTeamWipes: 4,
+          teammateKnocks: 1,
+        },
+      }),
+      canonicalRow(2, {
+        tradeStats: {
+          // No teammate-knock or recovery fields: every aggregate must
+          // remain unavailable rather than exposing a partial sum.
+        },
+      }),
+    ];
+    const processed = queryChain({ data: rows, error: null });
+    configureSquadClient(processed, trustedBenchmarkRows(5));
+    const { getSquadAnalysisData } = await import("@/lib/pubg-analysis/squadAnalysis");
+    const analysis = await getSquadAnalysisData("Player_A", "steam", "Teammate_B") as any;
+
+    expect(analysis.stats.totalSmokeRescues).toBeNull();
+    expect(analysis.stats.totalRevives).toBeNull();
+    expect(analysis.stats.totalTeamWipes).toBeNull();
+    expect(analysis.stats.totalTeammateKnocks).toBeNull();
+  });
+
+  it("marks all-missing squad recovery totals unavailable while preserving observed zero totals", async () => {
+    const missingRow = canonicalRow(1, {
+      tradeStats: {},
+    });
+    const missingProcessed = queryChain({ data: [missingRow], error: null });
+    configureSquadClient(missingProcessed, trustedBenchmarkRows(5));
+    const { getSquadAnalysisData } = await import("@/lib/pubg-analysis/squadAnalysis");
+    const missingAnalysis = await getSquadAnalysisData("Player_A", "steam", "Teammate_B") as any;
+
+    expect(missingAnalysis.stats.totalSmokeRescues).toBeNull();
+    expect(missingAnalysis.stats.totalRevives).toBeNull();
+    expect(missingAnalysis.stats.totalTeamWipes).toBeNull();
+    expect(missingAnalysis.stats.totalTeammateKnocks).toBeNull();
+
+    const zeroRow = canonicalRow(1, {
+      tradeStats: {
+        smokeRescues: 0,
+        revCount: 0,
+        enemyTeamWipes: 0,
+        teammateKnocks: 1,
+      },
+    });
+    const zeroProcessed = queryChain({ data: [zeroRow], error: null });
+    configureSquadClient(zeroProcessed, trustedBenchmarkRows(5));
+    const zeroAnalysis = await getSquadAnalysisData("Player_A", "steam", "Teammate_B") as any;
+
+    expect(zeroAnalysis.stats.totalSmokeRescues).toBe(0);
+    expect(zeroAnalysis.stats.totalRevives).toBe(0);
+    expect(zeroAnalysis.stats.totalTeamWipes).toBe(0);
+    expect(zeroAnalysis.stats.totalTeammateKnocks).toBe(1);
+
+    const zeroOnlyRow = canonicalRow(1, {
+      tradeStats: {
+        smokeRescues: 0,
+        revCount: 0,
+        enemyTeamWipes: 0,
+        teammateKnocks: 0,
+      },
+    });
+    const zeroOnlyProcessed = queryChain({ data: [zeroOnlyRow], error: null });
+    configureSquadClient(zeroOnlyProcessed, trustedBenchmarkRows(5));
+    const zeroOnlyAnalysis = await getSquadAnalysisData("Player_A", "steam", "Teammate_B") as any;
+
+    expect(zeroOnlyAnalysis.stats.totalSmokeRescues).toBe(0);
+    expect(zeroOnlyAnalysis.stats.totalRevives).toBe(0);
+    expect(zeroOnlyAnalysis.stats.totalTeamWipes).toBe(0);
+    expect(zeroOnlyAnalysis.stats.totalTeammateKnocks).toBe(0);
+  });
+
+  it("keeps survival care and squad grade unavailable when no teammate-knock denominator exists", async () => {
+    const row = canonicalRow(1, {
+      tradeStats: {
+        teammateKnocks: 0,
+        revCount: 0,
+        smokeRescues: 0,
+        coverRate: null,
+        coverRateSampleCount: 0,
+      },
+    });
+    const processed = queryChain({ data: [row], error: null });
+    configureSquadClient(processed, trustedBenchmarkRows(5));
+    const { getSquadAnalysisData } = await import("@/lib/pubg-analysis/squadAnalysis");
+    const analysis = await getSquadAnalysisData("Player_A", "steam", "Teammate_B") as any;
+
+    expect(analysis.scores.survivalCare).toBeNull();
+    expect(analysis.squadGrade).toBeNull();
+    expect(analysis.roleProfiles[0].shares).toEqual({
+      damage: 50,
+      kill: 50,
+      assist: 0,
+      dbno: 100,
+    });
+  });
+
+  it("does not turn nullable squad prompt metrics into zero, null%, or an inferred one-man warning", () => {
+    const prompt = buildSquadAiCoachingPrompt({
+      groupKey: "Player_A, Teammate_B",
+      nickname: "Player_A",
+      stats: {
+        avgIsolation: null,
+        avgTradeLatency: null,
+        totalSmokeRescues: null,
+        totalRevives: null,
+        avgCoverRate: null,
+        totalTeamWipes: null,
+      },
+      scores: {
+        formation: null,
+        backupSpeed: null,
+        survivalCare: null,
+        focusFire: null,
+        teamWipe: null,
+      },
+      roleProfiles: [{
+        name: "Player_A",
+        role: "전술가",
+        roleDesc: "측정 불가",
+        avgDamage: null,
+        avgKills: null,
+        avgAssists: null,
+        avgDbnos: null,
+        shares: { damage: null, kill: null, assist: null, dbno: null },
+      }],
+      squadGrade: null,
+      benchmarkStats: {
+        tier: "B",
+        avgIsolation: null,
+        avgTradeLatency: null,
+        avgReviveRate: null,
+        avgSmokeRate: null,
+        avgTeamWipes: null,
+      },
+      matchCount: 0,
+    });
+
+    expect(prompt.squadReportSummary).toContain("Damage 측정 불가");
+    expect(prompt.squadReportSummary).toContain("Formation & Cohesion (대열 유지): 측정 불가");
+    expect(prompt.squadReportSummary).not.toMatch(/null%|undefined|NaN|측정 불가%/);
+    expect(prompt.systemInstruction).toContain("Current top damage share is 측정 불가");
+    expect(prompt.systemInstruction).not.toContain("Current top damage share is 0%");
+    expect(prompt.systemInstruction).not.toContain("one-man show");
+  });
+
   it("accepts exactly five trusted rows and exposes only their observed metrics", async () => {
     const processed = queryChain({ data: [canonicalRow(1)], error: null });
     const validRows = trustedBenchmarkRows(5, "B", {

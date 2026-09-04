@@ -195,7 +195,7 @@ describe("AI coaching prompt utility metrics", () => {
       },
     });
 
-    expect(playerReportSummary).toContain("피해형 투척 0회 / 피해 적중 0회 / 피해형 투척 적중률 0%");
+    expect(playerReportSummary).toContain("피해형 투척 0회 / 피해 적중 0회 / 피해형 투척 적중률 측정 불가");
     expect(playerReportSummary).toContain("피해형 투척 0회이므로 적중률/폭파 칭호를 만들지 말고");
     expect(playerReportSummary).toContain("총 투척 5회는 연막 또는 비피해 투척 활용으로만 해석");
   });

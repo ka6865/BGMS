@@ -44,6 +44,9 @@ export class PositionHandler extends BaseHandler {
 
       // [V16.0] 탈것 이동 거리 누적
       if (isInVehicle) {
+        // A valid in-vehicle position is an observation even when the player
+        // did not move between two samples (distance 0 remains measured 0).
+        this.state.vehicleSampleCount++;
         const lastLoc = this.state.lastMyLoc;
         if (lastLoc) {
           const d = calcDist3D(charLoc, lastLoc) / 100; // [V47.0] cm -> m 변환
