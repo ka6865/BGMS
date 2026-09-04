@@ -138,6 +138,36 @@ describe('AnalysisEngine isolation measurement contract', () => {
 });
 
 describe('AnalysisEngine observed benchmark contract', () => {
+  it('renders null user evidence as unavailable instead of inventing 0%', () => {
+    const { playerReportSummary } = buildMatchAiCoachingPrompt({
+      matchData: {
+        mapName: 'Erangel',
+        gameMode: 'squad-fpp',
+        stats: {
+          winPlace: 10,
+          kills: 0,
+          assists: 0,
+          DBNOs: 0,
+          damageDealt: 0,
+          timeSurvived: 0,
+        },
+        teamImpact: {
+          damageImpact: null,
+          killImpact: null,
+          teamDamageShare: 0,
+          teamKillShare: 0,
+        },
+        duelStats: { duelWinRate: null },
+        tradeStats: { tradeRate: null },
+      },
+    });
+
+    expect(playerReportSummary).toContain('실력 등급: 엘리트 대비 딜량 측정 불가 / 킬 측정 불가');
+    expect(playerReportSummary).not.toContain('실력 등급: 엘리트 대비 딜량 0% / 킬 0%');
+    expect(playerReportSummary).toContain('1:1 교전 승률: 측정 불가');
+    expect(playerReportSummary).not.toContain('1:1 교전 승률: 0%');
+  });
+
   it('does not invent elite comparison values or a relative badge without benchmark evidence', () => {
     const engine = new AnalysisEngine(
       'Player',

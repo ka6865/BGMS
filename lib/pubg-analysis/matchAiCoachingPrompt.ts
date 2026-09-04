@@ -39,8 +39,9 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
       : null
   );
   const formatPercent = (value: unknown): string => {
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? `${numeric}%` : "측정 불가";
+    return typeof value === "number" && Number.isFinite(value)
+      ? `${value}%`
+      : "측정 불가";
   };
   const formatBenchmarkPercent = (key: keyof NormalizedBenchmark): string => {
     const value = benchmarkMetric(key);
