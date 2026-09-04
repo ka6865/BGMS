@@ -27,7 +27,7 @@ const AI_COACHING_QUALITY_RULES: Array<{ signalName: AiCoachingQualitySignalName
   { signalName: "hasUnsupportedTeamIntent", pattern: /팀원을 방패|팀원을 들러리|팀원을 방치|미끼|혼자 다 해먹|혼자서 모든 것을 해결|팀원들의 지원이 부족하다는 방증|팀 민폐|오만/ },
   { signalName: "hasUnsupportedTeamDismissal", pattern: /팀 지원 지표가 바닥|나머지 팀원.{0,20}(전무|급격히 떨어질|무너)|팀 전체가 휘청|존재감이 희미/ },
   { signalName: "hasNicknameTransliteration", pattern: /강희성/ },
-  { signalName: "hasLowIsolationMisread", pattern: /오합지졸|1인 솔로 4개|혼자 정글북|너무 멀리|독단적인 플레이|독단 플레이|고립될 위험/ },
+  { signalName: "hasLowIsolationMisread", pattern: /오합지졸|1인 솔로 4개|혼자 정글북|너무 멀리|독단적인 플레이(?!가 아닌)|독단 플레이(?!가 아닌)|고립될 위험/ },
   { signalName: "hasMissingDataLeak", pattern: /측정 불가.*비난|데이터 부족.*단정/ },
   { signalName: "hasRecoveryLanguage", pattern: /복구|소생|백업/ },
   { signalName: "hasUtilitySeparationLanguage", pattern: /피해형 투척|연막/ },
@@ -102,6 +102,8 @@ export function hasBlockingAiCoachingQualityIssue(signals: AiCoachingQualitySign
 
 export function sanitizeAiCoachingLanguageText(text: string): string {
   return text
+    .replace(/독단적인 플레이가 아닌/g, "대열을 유지하며 만든")
+    .replace(/독단 플레이가 아닌/g, "대열을 유지하며 만든")
     .replace(/느린 백업/g, "백업 지연 위험")
     .replace(/느린 방관/g, "후속 복구 지연")
     .replace(/방관/g, "후속 복구 부족")

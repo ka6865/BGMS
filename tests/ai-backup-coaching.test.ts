@@ -279,6 +279,26 @@ describe("AI coaching prompt utility metrics", () => {
     expect(isolationSignals.hasLowIsolationMisread).toBe(true);
   });
 
+  it("독단 플레이 안전 부정문은 고립 오판으로 잡지 않고 자연스럽게 순화하며, 긍정 단정은 잡는다", () => {
+    const safeNegationTexts = [
+      "팀 내 딜량 비중 58% 및 1:1 교전 승률 68%는 독단적인 플레이가 아닌 확실한 교전 우위를 보여줍니다.",
+      "팀 내 딜량 비중 58% 및 1:1 교전 승률 68%는 독단 플레이가 아닌 확실한 교전 우위를 보여줍니다.",
+    ];
+
+    for (const text of safeNegationTexts) {
+      const signals = collectAiCoachingQualitySignals(text);
+      const sanitized = sanitizeAiCoachingLanguageText(text);
+
+      expect(signals.hasLowIsolationMisread).toBe(false);
+      expect(sanitized).toContain("대열을 유지하며 만든 확실한 교전 우위");
+      expect(sanitized).not.toMatch(/독단적인 플레이|독단 플레이/);
+      expect(collectAiCoachingQualitySignals(sanitized).hasLowIsolationMisread).toBe(false);
+    }
+
+    const affirmativeSignals = collectAiCoachingQualitySignals("고립 지수 1.6의 독단적인 플레이입니다.");
+    expect(affirmativeSignals.hasLowIsolationMisread).toBe(true);
+  });
+
   it("일반 AI 코칭 순화기는 과한 팀 비난 표현을 안전한 피드백으로 바꾼다", () => {
     const sanitized = sanitizeAiCoachingLanguageText("혼자 다 해먹는 화력이고 팀 지원 지표가 바닥이며 고립 지수 1.2의 위험한 독단 플레이입니다.");
 
