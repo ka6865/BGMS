@@ -436,11 +436,6 @@ function coerceNonNegativeNumber(value: unknown): number {
   return Math.max(0, coerceFiniteNumber(value));
 }
 
-function clampFiniteNumber(value: unknown, min = 0, max = Number.MAX_SAFE_INTEGER): number {
-  const numeric = coerceFiniteNumber(value);
-  return Math.max(min, Math.min(max, numeric));
-}
-
 function calculateBoundedRate(numerator: unknown, denominator: unknown): number | null {
   // Missing numerator/denominator values are not an observed zero.  Keep an
   // explicit numeric 0, but do not manufacture a 0% rate from absent
@@ -467,6 +462,30 @@ function formatObservedMetric(value: unknown, suffix = ""): string {
   return observed === null ? "측정 불가" : `${observed}${suffix}`;
 }
 
+function formatObservedCount(value: unknown): string {
+  const observed = readObservedNonNegative(value);
+  return observed === null ? "측정 불가" : `${observed}회`;
+}
+
+function observedVisualValue(value: unknown, round = false): number | string {
+  const observed = readObservedNonNegative(value);
+  if (observed === null) return "측정 불가";
+  return round ? Math.round(observed) : observed;
+}
+
+function firstObservedNonNegative(...values: unknown[]): number | null {
+  for (const value of values) {
+    const observed = readObservedNonNegative(value);
+    if (observed !== null) return observed;
+  }
+  return null;
+}
+
+function addObservedTotal(total: number | null, value: unknown): number | null {
+  const observed = readObservedNonNegative(value);
+  return observed === null ? total : (total ?? 0) + observed;
+}
+
 function aggregateMatches(matches: any[]) {
   const inputMatches = Array.isArray(matches) ? matches : [];
   let totalKills = 0, totalDamage = 0, totalDamageImpact = 0, totalTeamDamageShare = 0, totalTeamKillShare = 0;
@@ -476,14 +495,19 @@ function aggregateMatches(matches: any[]) {
   let totalSmokeRescues = 0;
   let totalCoverSuccess = 0, totalCoverAttempts = 0;
   let totalInitiativeSuccess = 0, totalInitiativeAttempts = 0;
-  let totalCrossfireCount = 0, totalTeamWipes = 0, totalMaxHitDist = 0;
+  let totalCrossfireCount = 0, totalTeamWipes = 0, totalMaxHitDist: number | null = null;
   let totalDuelWins = 0, totalDuelLosses = 0, totalReversalWins = 0, totalReversalAttempts = 0;
-  let totalUtilityThrows = 0, totalUtilityHits = 0, totalUtilityDamage = 0, totalUtilityKills = 0;
-  let totalDeathPhase = 0, totalBluezoneWaste = 0;
+  let totalUtilityThrows: number | null = null;
+  let totalLethalThrows: number | null = null;
+  let totalUtilityHits: number | null = null;
+  let totalUtilityDamage: number | null = null;
+  let totalUtilityKills: number | null = null;
+  let totalDeathPhase = 0, totalBluezoneWaste: number | null = null;
   let deathPhaseCount = 0;
+  let bluezoneWasteCount = 0;
   let totalPressureIndex = 0, pressureIndexCount = 0;
-  let totalEdgePlay = 0, totalFatalDelay = 0;
-  let totalFocusFireCount = 0, totalCrossfireExposureCount = 0;
+  let totalEdgePlay: number | null = null, totalFatalDelay: number | null = null;
+  let totalFocusFireCount: number | null = null, totalCrossfireExposureCount: number | null = null;
   const totalDistanceDamage = { short: 0, mid: 0, long: 0 };
   let totalIsolationIndexFinal = 0, totalCombatIso = 0, totalDeathIso = 0;
   let totalMinDist = 0, totalHeightDiff = 0, totalTeammateCountFinal = 0;
@@ -609,17 +633,50 @@ function aggregateMatches(matches: any[]) {
         totalReversalAttempts += Math.max(reversalAttempts ?? 0, reversals ?? 0);
       }
     }
-    if (m.combatPressure?.utilityStats) {
-      const u = m.combatPressure.utilityStats;
-      const lethalThrowCount = u.lethalThrowCount
-        ?? m.itemUseStats?.lethalThrowCount
-        ?? ((m.itemUseSummary?.frags || 0) + (m.itemUseSummary?.molotovs || 0));
-      totalUtilityThrows += coerceNonNegativeNumber(u.throwCount);
-      totalUtilityHits += Math.min(coerceNonNegativeNumber(u.hitCount), coerceNonNegativeNumber(lethalThrowCount));
-      totalUtilityDamage += coerceNonNegativeNumber(u.totalDamage);
-      totalUtilityKills += coerceNonNegativeNumber(u.killCount);
+    const utilityStats = m.combatPressure?.utilityStats;
+    const fragCount = readObservedNonNegative(m.itemUseSummary?.frags);
+    const molotovCount = readObservedNonNegative(m.itemUseSummary?.molotovs);
+    const derivedLethalThrowCount = fragCount !== null || molotovCount !== null
+      ? (fragCount ?? 0) + (molotovCount ?? 0)
+      : null;
+    const lethalThrowCount = firstObservedNonNegative(
+      utilityStats?.lethalThrowCount,
+      m.itemUseStats?.lethalThrowCount,
+      derivedLethalThrowCount,
+    );
+    totalLethalThrows = addObservedTotal(totalLethalThrows, lethalThrowCount);
+
+    const utilityThrowCount = firstObservedNonNegative(
+      utilityStats?.throwCount,
+      m.itemUseStats?.throwCount,
+    );
+    totalUtilityThrows = addObservedTotal(totalUtilityThrows, utilityThrowCount);
+
+    const utilityHitCount = firstObservedNonNegative(
+      utilityStats?.hitCount,
+      m.combatPressure?.utilityHits,
+    );
+    if (utilityHitCount !== null) {
+      totalUtilityHits = addObservedTotal(
+        totalUtilityHits,
+        lethalThrowCount === null ? utilityHitCount : Math.min(utilityHitCount, lethalThrowCount),
+      );
     }
-    totalMaxHitDist = Math.max(totalMaxHitDist, coerceFiniteNumber(m.combatPressure?.maxHitDistance));
+    totalUtilityDamage = addObservedTotal(
+      totalUtilityDamage,
+      firstObservedNonNegative(utilityStats?.totalDamage, m.combatPressure?.utilityDamage),
+    );
+    totalUtilityKills = addObservedTotal(totalUtilityKills, utilityStats?.killCount);
+
+    const maxHitDistance = firstObservedNonNegative(
+      m.combatPressure?.maxHitDistance,
+      m.combatPressure?.maxHitDist,
+    );
+    if (maxHitDistance !== null) {
+      totalMaxHitDist = totalMaxHitDist === null
+        ? maxHitDistance
+        : Math.max(totalMaxHitDist, maxHitDistance);
+    }
     totalTeamWipes += coerceNonNegativeNumber(m.tradeStats?.enemyTeamWipes);
 
     if (m.goldenTimeDamage) {
@@ -647,7 +704,11 @@ function aggregateMatches(matches: any[]) {
       totalDeathPhase += observedDeathPhase;
       deathPhaseCount++;
     }
-    totalBluezoneWaste += coerceFiniteNumber(m.bluezoneWaste);
+    const bluezoneWaste = readObservedNonNegative(m.bluezoneWaste);
+    if (bluezoneWaste !== null) {
+      totalBluezoneWaste = addObservedTotal(totalBluezoneWaste, bluezoneWaste);
+      bluezoneWasteCount++;
+    }
 
     const observedPressureIndex = readObservedNonNegative(m.combatPressure?.pressureIndex);
     if (observedPressureIndex !== null) {
@@ -655,8 +716,8 @@ function aggregateMatches(matches: any[]) {
       pressureIndexCount++;
     }
 
-    totalFocusFireCount += coerceFiniteNumber(m.itemUseStats?.focusFireCount);
-    totalCrossfireExposureCount += coerceFiniteNumber(m.itemUseStats?.crossfireExposureCount);
+    totalFocusFireCount = addObservedTotal(totalFocusFireCount, m.itemUseStats?.focusFireCount);
+    totalCrossfireExposureCount = addObservedTotal(totalCrossfireExposureCount, m.itemUseStats?.crossfireExposureCount);
     if (m.itemUseStats?.distanceDamage) {
       totalDistanceDamage.short += coerceFiniteNumber(m.itemUseStats.distanceDamage.short);
       totalDistanceDamage.mid += coerceFiniteNumber(m.itemUseStats.distanceDamage.mid);
@@ -664,8 +725,11 @@ function aggregateMatches(matches: any[]) {
     }
 
     // [V42.1] 자기장 지표 합산 로직 복구 (전장 통제자 칭호 정확도 향상)
-    totalEdgePlay += coerceFiniteNumber(m.edgePlay ?? m.zoneStrategy?.edgePlayCount);
-    totalFatalDelay += coerceFiniteNumber(m.zoneStrategy?.fatalDelayCount);
+    totalEdgePlay = addObservedTotal(
+      totalEdgePlay,
+      firstObservedNonNegative(m.edgePlay, m.zoneStrategy?.edgePlayCount),
+    );
+    totalFatalDelay = addObservedTotal(totalFatalDelay, m.zoneStrategy?.fatalDelayCount);
 
     // [V30.1] 신규 지표 합산 (탈것/자기장운 제외)
     if (Array.isArray(m.weaponMatchCount)) {
@@ -718,13 +782,14 @@ function aggregateMatches(matches: any[]) {
   const avgPressureIndex = pressureIndexCount > 0
     ? Math.max(0, Number((totalPressureIndex / pressureIndexCount).toFixed(2)))
     : null;
-  const totalLethalThrows = inputMatches.reduce((acc: number, m: any) => {
-    const lethalThrowCount = m.combatPressure?.utilityStats?.lethalThrowCount
-      ?? m.itemUseStats?.lethalThrowCount
-      ?? (coerceFiniteNumber(m.itemUseSummary?.frags) + coerceFiniteNumber(m.itemUseSummary?.molotovs));
-    return acc + clampFiniteNumber(lethalThrowCount);
-  }, 0);
-  const avgUtilityEfficiency = totalLethalThrows > 0 ? Math.max(0, Math.round(totalUtilityDamage / totalLethalThrows)) : null;
+  const avgUtilityEfficiency = totalLethalThrows !== null
+    && totalLethalThrows > 0
+    && totalUtilityDamage !== null
+    ? Math.max(0, Math.round(totalUtilityDamage / totalLethalThrows))
+    : null;
+  const avgBluezoneWaste = bluezoneWasteCount > 0 && totalBluezoneWaste !== null
+    ? Math.round(totalBluezoneWaste / bluezoneWasteCount)
+    : null;
 
   const avgMinDistStr = minDistCountFinal > 0 ? Math.max(0, totalMinDist / minDistCountFinal).toFixed(1) + "m" : "측정 불가";
   const avgHeightDiffStr = heightDiffCountFinal > 0 ? Math.max(0, totalHeightDiff / heightDiffCountFinal).toFixed(1) + "m" : "측정 불가";
@@ -771,7 +836,7 @@ function aggregateMatches(matches: any[]) {
     totalMaxHitDist, totalTeamWipes, isolationCountFinal, combatIsolationCountFinal, deathIsolationCountFinal,
     minDistCountFinal, heightDiffCountFinal, teammateCountFinal, totalIsolationIndexFinal, totalCombatIso,
     totalDeathIso, totalMinDist, totalHeightDiff, totalCrossfireCount, totalTeammateCountFinal,
-    totalUtilityHits, totalUtilityDamage, totalUtilityKills, totalBluezoneWaste,
+    totalUtilityHits, totalUtilityDamage, totalUtilityKills, totalBluezoneWaste, avgBluezoneWaste,
     weaponStatsFinal, totalInitiativeAttempts, totalInitiativeSuccess, totalSmokeRescues,
     totalFocusFireCount, totalCrossfireExposureCount, totalDistanceDamage,
     avgDistanceDamage: {
@@ -1362,7 +1427,7 @@ export async function POST(request: Request) {
     const {
       latestMatchTime, avgBackupLatency, avgReactionLatency, userInitiativeRate, avgPressureIndex,
       totalReversalAttempts, totalReversalWins, avgDuelWinRate, totalDuelWins, totalDuelLosses,
-      avgDamageImpact, topBadges, goldenTimeAvg, killContribFinal, avgDeathPhase, totalBluezoneWaste, mLen,
+      avgDamageImpact, topBadges, goldenTimeAvg, killContribFinal, avgDeathPhase,
       totalTeammateKnocks, totalSuppCount, totalTradeKills, totalRevCount,
       totalBaitCount,
       isolationCountFinal, combatIsolationCountFinal, deathIsolationCountFinal,
@@ -1494,7 +1559,7 @@ export async function POST(request: Request) {
       // user's own telemetry. They also ensure the prompt still has exactly
       // three focus areas when no comparison metric is observed.
       const userOnlyIssues = [
-        { topic: "유틸리티 활용", gap: stats.totalUtilityThrows < 5 ? 0.4 : 0.1 },
+        { topic: "유틸리티 활용", gap: stats.totalUtilityThrows === null ? 0.05 : stats.totalUtilityThrows < 5 ? 0.4 : 0.1 },
         { topic: "포지셔닝", gap: parseFloat(stats.avgIsolationStr) > 3.5 ? 0.35 : 0.05 },
         { topic: "생존 운영", gap: typeof stats.avgDeathPhase === "number" && stats.avgDeathPhase > 7 ? 0.2 : 0.05 },
       ];
@@ -1604,7 +1669,7 @@ export async function POST(request: Request) {
         totalTeammateKnocks: summaryStats.totalTeammateKnocks,
       }).promptLine}\n`;
       userPrompt += `- 대응 사격 속도(Reaction): ${summaryStats.avgReactionLatency} (피격 시 반격 시간)\n`;
-      userPrompt += `- 유틸리티 활용: 총 투척 ${summaryStats.totalUtilityThrows}회 (내 연막 ${summaryStats.totalSmokes}회 사용)\n`;
+      userPrompt += `- 유틸리티 활용: 총 투척 ${formatObservedCount(summaryStats.totalUtilityThrows)} (내 연막 ${summaryStats.totalSmokes}회 사용)\n`;
       userPrompt += `- 개인 전술 구출: 내 구출 연막 성공률 ${smokeRescueRate} (구출 연막 시도 ${summaryStats.totalSmokeCount}회, 성공 ${summaryStats.totalSmokeRescues}회), 아군 기절 대비 연막 구출률 ${smokeOpportunityRate}\n`;
     }
 
@@ -1730,7 +1795,7 @@ export async function POST(request: Request) {
         const smokeRescueOpportunityRate = formatBoundedRate(gStats.totalSmokeRescues, gStats.totalTeammateKnocks);
         const tradeRate = formatBoundedRate(gStats.totalTradeKills, gStats.totalTeammateKnocks);
         const suppRate = formatBoundedRate(gStats.totalSuppCount, gStats.totalTeammateKnocks);
-        userPrompt += `- [팀 내 영향력(딜량/킬 비중)] 적 팀 전멸 기여: ${gStats.totalTeamWipes}회, 화력 집중(점사): ${gStats.totalFocusFireCount}회\n`;
+        userPrompt += `- [팀 내 영향력(딜량/킬 비중)] 적 팀 전멸 기여: ${gStats.totalTeamWipes}회, 화력 집중(점사): ${formatObservedCount(gStats.totalFocusFireCount)}\n`;
         userPrompt += `- [개인 팀플레이 기여] 아군 기절 ${gStats.totalTeammateKnocks}회 → 내가 한 소생: ${gStats.totalRevCount}회, 내가 만든 복수(Trade): ${gStats.totalTradeKills}회 (복수 성공률: ${tradeRate}${bench?.avgTradeRate !== undefined ? ` vs ${metricBenchmarkProvenance("avgTradeRate")}: 복수 성공률 ${bench.avgTradeRate}%` : ""})\n`;
         userPrompt += `- [개인 전술 기여] 견제 지원율: ${suppRate}, 미끼: ${gStats.totalBaitCount}회, 내 연막 구출 시도/성공: ${gStats.totalSmokeCount}/${gStats.totalSmokeRescues}회, 내 연막 구출 성공률: ${smokeRescueSuccessRate}, 아군 기절 대비 연막 구출률: ${smokeRescueOpportunityRate}${bench?.avgSmokeRate !== undefined ? ` (${metricBenchmarkProvenance("avgSmokeRate")}: 기회 대비 평균 연막 구출률 ${bench.avgSmokeRate}%)` : ""}, 내 총 연막 사용: ${gStats.totalSmokes}회\n`;
       }
@@ -1753,9 +1818,9 @@ export async function POST(request: Request) {
       const utilityDamageAverage = gStats.avgUtilityEfficiency === null
         ? "측정 불가"
         : String(gStats.avgUtilityEfficiency);
-      const utilityLine = `- [유틸리티] 총 투척 ${gStats.totalUtilityThrows}회, 피해형 투척 ${gStats.totalLethalThrows}회, 피해 적중 ${gStats.totalUtilityHits}회, 피해형 투척 딜량 ${utilityDamageAverage} (평균), 연막 ${gStats.totalSmokes}회`;
-      userPrompt += `- [반응 속도] 대응 사격 속도: ${reactionStr}, 반격 성공률: ${formatBoundedRate(gStats.totalReversalWins, gStats.totalReversalAttempts)}\n- [백업 속도] 아군 백업 속도: ${backupStr}\n- [백업 결과 해석] ${backupContext.promptLine}\n- [생존 환경] 고립 지수(운영/교전/사망): ${gStats.avgIsolationStr}/${gStats.avgCombatIsolationStr}/${gStats.avgDeathIsolationStr}, 양각 노출 상황: ${gStats.totalCrossfireExposureCount}회\n- [거리 관리] 팀원과의 평균 거리: ${gStats.avgMinDistStr}, 평균 고도차: ${gStats.avgHeightDiffStr}, 경기당 평균 거리별 데미지(근/중/원): ${gStats.avgDistanceDamage.short}/${gStats.avgDistanceDamage.mid}/${gStats.avgDistanceDamage.long}\n- [킬 분류] 솔로 킬: ${gStats.killContribFinal.solo}회, 클린업 킬: ${gStats.killContribFinal.cleanup}회 (솔로 비중: ${formatObservedPercent(gStats.soloKillRate)}${bench?.avgSoloKillRate !== undefined ? ` vs ${metricBenchmarkProvenance("avgSoloKillRate")}: 솔로 킬 비중 ${bench.avgSoloKillRate}%` : ""})\n${utilityLine}\n- [운영 패턴] 평균 사망 페이즈: ${formatObservedMetric(gStats.avgDeathPhase)}${bench?.avgDeathPhase !== undefined ? ` (${metricBenchmarkProvenance("avgDeathPhase")}: 사망 페이즈 ${bench.avgDeathPhase})` : ""}, 자기장 누적 피해: ${Math.round(gStats.totalBluezoneWaste / gStats.mLen)} HP, 엣지(Edge) 플레이: ${gStats.totalEdgePlay}회, 진입 지연: ${gStats.totalFatalDelay}회\n\n`;
-      userPrompt = userPrompt.replace(utilityLine, `- [유틸리티] 총 투척 ${gStats.totalUtilityThrows}회 (연막 ${gStats.totalSmokes}회, 피해형 ${gStats.totalLethalThrows}회, 피해 적중 ${gStats.totalUtilityHits}회), 아군 기절 대비 연막 구출률: ${smokeOpportunityRate}${bench?.avgSmokeRate !== undefined ? ` (${metricBenchmarkProvenance("avgSmokeRate")}: 기회 대비 평균 연막 구출률 ${bench.avgSmokeRate}%)` : ""}`);
+      const utilityLine = `- [유틸리티] 총 투척 ${formatObservedCount(gStats.totalUtilityThrows)}, 피해형 투척 ${formatObservedCount(gStats.totalLethalThrows)}, 피해 적중 ${formatObservedCount(gStats.totalUtilityHits)}, 피해형 투척 딜량 ${utilityDamageAverage} (평균), 연막 ${gStats.totalSmokes}회`;
+      userPrompt += `- [반응 속도] 대응 사격 속도: ${reactionStr}, 반격 성공률: ${formatBoundedRate(gStats.totalReversalWins, gStats.totalReversalAttempts)}\n- [백업 속도] 아군 백업 속도: ${backupStr}\n- [백업 결과 해석] ${backupContext.promptLine}\n- [생존 환경] 고립 지수(운영/교전/사망): ${gStats.avgIsolationStr}/${gStats.avgCombatIsolationStr}/${gStats.avgDeathIsolationStr}, 양각 노출 상황: ${formatObservedCount(gStats.totalCrossfireExposureCount)}\n- [거리 관리] 팀원과의 평균 거리: ${gStats.avgMinDistStr}, 평균 고도차: ${gStats.avgHeightDiffStr}, 경기당 평균 거리별 데미지(근/중/원): ${gStats.avgDistanceDamage.short}/${gStats.avgDistanceDamage.mid}/${gStats.avgDistanceDamage.long}\n- [킬 분류] 솔로 킬: ${gStats.killContribFinal.solo}회, 클린업 킬: ${gStats.killContribFinal.cleanup}회 (솔로 비중: ${formatObservedPercent(gStats.soloKillRate)}${bench?.avgSoloKillRate !== undefined ? ` vs ${metricBenchmarkProvenance("avgSoloKillRate")}: 솔로 킬 비중 ${bench.avgSoloKillRate}%` : ""})\n${utilityLine}\n- [운영 패턴] 평균 사망 페이즈: ${formatObservedMetric(gStats.avgDeathPhase)}${bench?.avgDeathPhase !== undefined ? ` (${metricBenchmarkProvenance("avgDeathPhase")}: 사망 페이즈 ${bench.avgDeathPhase})` : ""}, 자기장 누적 피해: ${formatObservedMetric(gStats.avgBluezoneWaste, " HP")}, 엣지(Edge) 플레이: ${formatObservedCount(gStats.totalEdgePlay)}, 진입 지연: ${formatObservedCount(gStats.totalFatalDelay)}\n\n`;
+      userPrompt = userPrompt.replace(utilityLine, `- [유틸리티] 총 투척 ${formatObservedCount(gStats.totalUtilityThrows)} (연막 ${gStats.totalSmokes}회, 피해형 ${formatObservedCount(gStats.totalLethalThrows)}, 피해 적중 ${formatObservedCount(gStats.totalUtilityHits)}), 아군 기절 대비 연막 구출률: ${smokeOpportunityRate}${bench?.avgSmokeRate !== undefined ? ` (${metricBenchmarkProvenance("avgSmokeRate")}: 기회 대비 평균 연막 구출률 ${bench.avgSmokeRate}%)` : ""}`);
     }
 
     // The UI labels this card as the potential tier of the top five matches.
@@ -1915,7 +1980,19 @@ export async function POST(request: Request) {
       duelStats: { winRate: formatObservedPercent(avgDuelWinRate), wins: totalDuelWins, losses: totalDuelLosses, reversals: totalReversalWins, reversalAttempts: totalReversalAttempts },
       teamImpact: { damageImpact: avgDamageImpact, topBadges },
       goldenTime: goldenTimeAvg, killContrib: killContribFinal, deathPhase: avgDeathPhase,
-      bluezoneWaste: Math.round(totalBluezoneWaste / mLen),
+      bluezoneWaste: observedVisualValue(masteryStats.avgBluezoneWaste, true),
+      maxHitDistance: observedVisualValue(masteryStats.totalMaxHitDist),
+      focusFireCount: observedVisualValue(masteryStats.totalFocusFireCount),
+      crossfireExposureCount: observedVisualValue(masteryStats.totalCrossfireExposureCount),
+      edgePlay: observedVisualValue(masteryStats.totalEdgePlay),
+      fatalDelay: observedVisualValue(masteryStats.totalFatalDelay),
+      utility: {
+        totalThrows: observedVisualValue(masteryStats.totalUtilityThrows),
+        lethalThrows: observedVisualValue(masteryStats.totalLethalThrows),
+        hits: observedVisualValue(masteryStats.totalUtilityHits),
+        damage: observedVisualValue(masteryStats.totalUtilityDamage),
+        kills: observedVisualValue(masteryStats.totalUtilityKills),
+      },
       modeDistribution: { ranked: rankedCount, normal: normalCount, main: rankedCount >= normalCount ? "경쟁전" : "일반전" },
       tactical: {
         suppRate: formatBoundedRate(totalSuppCount, totalTeammateKnocks),

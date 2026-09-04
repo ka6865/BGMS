@@ -134,4 +134,31 @@ describe("matches-summary raw timestamp fallback", () => {
     });
     expect(body.missingMatchIds).toEqual([]);
   });
+
+  it("ordinary history falls back to the storage row match_id when legacy fullResult omits it", async () => {
+    database.rows.processed_match_telemetry = [{
+      match_id: "row-canonical-match",
+      data: {
+        fullResult: {
+          v: 73,
+          stats: {
+            name: "FixturePlayer",
+            kills: 2,
+            damageDealt: 321,
+            winPlace: 4,
+          },
+          gameMode: "squad-fpp",
+          mapName: "Baltic_Main",
+        },
+      },
+    }];
+
+    const body = await (await POST(request(["row-canonical-match"]))).json();
+
+    expect(body.summaries["row-canonical-match"]).toMatchObject({
+      matchId: "row-canonical-match",
+      summarySource: "processed_match_telemetry",
+    });
+    expect(body.missingMatchIds).toEqual([]);
+  });
 });

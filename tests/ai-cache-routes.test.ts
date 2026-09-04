@@ -3962,6 +3962,141 @@ describe("AI cache route stabilization", () => {
     expect(visuals.tactical.isolation).toBeNull();
   });
 
+  it("ai-summary는 결측 전투·운영·유틸리티 telemetry를 0으로 제조하지 않고 prompt와 visual을 측정 불가로 유지한다", async () => {
+    let capturedPrompt = "";
+    mockSummaryGeminiResponse((prompt) => {
+      capturedPrompt = prompt;
+    });
+
+    const match = createSummaryMatch("summary-missing-observations", {
+      combatPressure: { pressureIndex: null, utilityStats: {} },
+      itemUseStats: {},
+      itemUseSummary: {},
+      bluezoneWaste: undefined,
+      edgePlay: undefined,
+      zoneStrategy: {},
+    });
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({
+      data: [{
+        match_id: "summary-missing-observations",
+        player_id: "player_a",
+        platform: "kakao",
+        data: { fullResult: match },
+      }],
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["summary-missing-observations"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const visuals = records.find((record) => record.type === "visuals")?.data;
+
+    expect(response.status).toBe(200);
+    expect(capturedPrompt).toContain("최대 교전 거리: 측정 불가");
+    expect(capturedPrompt).toContain("화력 집중(점사): 측정 불가");
+    expect(capturedPrompt).toContain("양각 노출 상황: 측정 불가");
+    expect(capturedPrompt).toContain("자기장 누적 피해: 측정 불가");
+    expect(capturedPrompt).toContain("엣지(Edge) 플레이: 측정 불가");
+    expect(capturedPrompt).toContain("진입 지연: 측정 불가");
+    expect(capturedPrompt).toContain("총 투척 측정 불가");
+    expect(capturedPrompt).not.toContain("최대 교전 거리: 0m");
+    expect(capturedPrompt).not.toContain("자기장 누적 피해: 0 HP");
+    expect(capturedPrompt).not.toContain("총 투척 0회");
+    expect(visuals.bluezoneWaste).toBe("측정 불가");
+    expect(visuals.maxHitDistance).toBe("측정 불가");
+    expect(visuals.focusFireCount).toBe("측정 불가");
+    expect(visuals.crossfireExposureCount).toBe("측정 불가");
+    expect(visuals.edgePlay).toBe("측정 불가");
+    expect(visuals.fatalDelay).toBe("측정 불가");
+    expect(visuals.utility).toMatchObject({
+      totalThrows: "측정 불가",
+      lethalThrows: "측정 불가",
+      hits: "측정 불가",
+      damage: "측정 불가",
+      kills: "측정 불가",
+    });
+  });
+
+  it("ai-summary는 전투·운영·유틸리티 telemetry의 명시적 0을 관측값으로 보존한다", async () => {
+    let capturedPrompt = "";
+    mockSummaryGeminiResponse((prompt) => {
+      capturedPrompt = prompt;
+    });
+
+    const match = createSummaryMatch("summary-explicit-zero-observations", {
+      combatPressure: { pressureIndex: 0, maxHitDistance: 0, utilityStats: {
+        throwCount: 0,
+        lethalThrowCount: 0,
+        hitCount: 0,
+        totalDamage: 0,
+        killCount: 0,
+      } },
+      itemUseStats: { focusFireCount: 0, crossfireExposureCount: 0 },
+      itemUseSummary: { smokes: 0, frags: 0, molotovs: 0 },
+      bluezoneWaste: 0,
+      edgePlay: 0,
+      zoneStrategy: { edgePlayCount: 0, fatalDelayCount: 0 },
+    });
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({
+      data: [{
+        match_id: "summary-explicit-zero-observations",
+        player_id: "player_a",
+        platform: "kakao",
+        data: { fullResult: match },
+      }],
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["summary-explicit-zero-observations"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const visuals = records.find((record) => record.type === "visuals")?.data;
+
+    expect(response.status).toBe(200);
+    expect(capturedPrompt).toContain("최대 교전 거리: 0m");
+    expect(capturedPrompt).toContain("화력 집중(점사): 0회");
+    expect(capturedPrompt).toContain("양각 노출 상황: 0회");
+    expect(capturedPrompt).toContain("자기장 누적 피해: 0 HP");
+    expect(capturedPrompt).toContain("엣지(Edge) 플레이: 0회");
+    expect(capturedPrompt).toContain("진입 지연: 0회");
+    expect(capturedPrompt).toContain("총 투척 0회");
+    expect(visuals.bluezoneWaste).toBe(0);
+    expect(visuals.maxHitDistance).toBe(0);
+    expect(visuals.focusFireCount).toBe(0);
+    expect(visuals.crossfireExposureCount).toBe(0);
+    expect(visuals.edgePlay).toBe(0);
+    expect(visuals.fatalDelay).toBe(0);
+    expect(visuals.utility).toMatchObject({
+      totalThrows: 0,
+      lethalThrows: 0,
+      hits: 0,
+      damage: 0,
+      kills: 0,
+    });
+  });
+
   it("ai-summary는 stale row와 selection에서 제외된 current row만 있으면 409로 fail-closed한다", async () => {
     const staleFullResult = createSummaryMatch("match-stale-filtered", {
       v: RESULT_VERSION - 1,

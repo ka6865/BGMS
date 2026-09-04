@@ -45,7 +45,13 @@ export async function POST(request: NextRequest) {
       if (!fullResult || (fullResult.v || 0) < RESULT_VERSION) continue;
 
       const summary = buildMatchSummary(fullResult);
-      if (summary) summaries[row.match_id] = summary;
+      if (summary) {
+        // Legacy fullResult payloads may omit their embedded match ID. The
+        // storage row was queried by the canonical ID, so retain it as the
+        // authoritative navigation identity for history/detail consumers.
+        if (!summary.matchId) summary.matchId = row.match_id;
+        summaries[row.match_id] = summary;
+      }
     }
 
     // 2순위: pubg_player_matches (기본 스탯 DB)
