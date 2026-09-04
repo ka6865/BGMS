@@ -580,9 +580,10 @@ function benchmarkRecoveryFailureResponse(error: BenchmarkRecoveryError): NextRe
  */
 function isSuccessfulRecoveryDeletion(result: unknown): boolean {
   if (!isRecord(result)) return false;
+  const confirmedDelete = result.plannedCount === 1 && result.deletedCount === 1;
+  const confirmedNoop = result.plannedCount === 0 && result.deletedCount === 0;
   return result.dryRun === false
-    && result.plannedCount === 1
-    && result.deletedCount === 1
+    && (confirmedDelete || confirmedNoop)
     && Array.isArray(result.blocked)
     && result.blocked.length === 0
     && Array.isArray(result.failed)
@@ -1697,12 +1698,15 @@ async function reanalyzeAndSave(
     // exact key first, then commit master + processed + benchmark + registry
     // together in the guarded RPC.  No signed URL is needed for this response.
     markAnalysisStep("telemetry_cache_finalize");
+    // PutObject can commit remotely before its promise rejects.  Mark the
+    // exact key before awaiting it so an ambiguous upload is compensated by
+    // the same guarded delete/release path as a database failure.
+    recoveryUploadedKey = reservedRow.storage_path;
     await uploadToR2(
       reservedRow.storage_path,
       JSON.stringify(telemetryPayload),
       "application/json",
     );
-    recoveryUploadedKey = reservedRow.storage_path;
 
     if (!recoveryBenchmarkGuard) {
       throw new BenchmarkRecoveryError(

@@ -53,18 +53,19 @@ begin
   -- only used for the two compare guards and the three final row payloads.
   if p_match_id is null
     or p_match_id !~ '^[A-Za-z0-9._-]{1,160}$'
+    or p_platform is null
     or p_platform not in ('steam', 'kakao')
     or p_player_id is null
     or p_player_id = ''
-    or p_mode <> 'lite'
+    or p_mode is distinct from 'lite'
     or p_telemetry_version is null
-    or p_telemetry_version <> 61
+    or p_telemetry_version is distinct from 61
     or p_storage_path is null
     or p_storage_path = ''
     or p_lease_token is null
-    or jsonb_typeof(p_processed_guard) <> 'object'
-    or jsonb_typeof(p_benchmark_guard) <> 'object'
-    or jsonb_typeof(p_rows) <> 'object'
+    or jsonb_typeof(p_processed_guard) is distinct from 'object'
+    or jsonb_typeof(p_benchmark_guard) is distinct from 'object'
+    or jsonb_typeof(p_rows) is distinct from 'object'
   then
     raise exception 'telemetry-recovery-finalize-invalid-input' using errcode = '22023';
   end if;
@@ -77,16 +78,49 @@ begin
     where payload.key not in ('master', 'processed', 'benchmark')
   )
   or not (p_rows ?& array['master', 'processed', 'benchmark'])
-  or jsonb_typeof(p_rows->'master') <> 'object'
-  or jsonb_typeof(p_rows->'processed') <> 'object'
-  or jsonb_typeof(p_rows->'benchmark') <> 'object'
+  or jsonb_typeof(p_rows->'master') is distinct from 'object'
+  or jsonb_typeof(p_rows->'processed') is distinct from 'object'
+  or jsonb_typeof(p_rows->'benchmark') is distinct from 'object'
+  or not (p_rows->'master' ?& array['match_id', 'map_name', 'game_mode', 'telemetry_version', 'storage_path'])
+  or not (p_rows->'processed' ?& array['match_id', 'platform', 'player_id', 'data', 'updated_at'])
+  or not (p_rows->'benchmark' ?& array[
+    'match_id', 'platform', 'player_id', 'game_mode', 'map_name', 'match_type',
+    'tier', 'filter_version', 'population_evidence_version', 'source'
+  ])
   then
     raise exception 'telemetry-recovery-finalize-payload-not-allowlisted' using errcode = '22023';
   end if;
 
-  -- Extract the exact fixed row shapes. jsonb_to_record is intentionally
+  -- Reject unknown keys in each nested object before extracting the exact
+  -- fixed row shapes. jsonb_to_record is intentionally
   -- given a literal column list; it is not dynamic SQL and ignores no hidden
   -- table/column identifier supplied by the caller.
+  if exists (
+    select 1 from jsonb_object_keys(p_rows->'master') as payload(key)
+    where payload.key not in ('match_id', 'map_name', 'game_mode', 'telemetry_version', 'storage_path')
+  )
+  or exists (
+    select 1 from jsonb_object_keys(p_rows->'processed') as payload(key)
+    where payload.key not in ('match_id', 'platform', 'player_id', 'data', 'updated_at')
+  )
+  or exists (
+    select 1 from jsonb_object_keys(p_rows->'benchmark') as payload(key)
+    where payload.key not in (
+      'match_id', 'platform', 'player_id', 'damage', 'kills', 'win_place',
+      'game_mode', 'map_name', 'counter_latency_ms', 'initiative_rate',
+      'revive_rate', 'is_crossfire', 'utility_count', 'smoke_count',
+      'frag_count', 'pressure_index', 'enemy_death_distance', 'survival_time',
+      'isolation_index', 'min_dist', 'height_diff', 'smoke_rate', 'trade_rate',
+      'solo_kill_rate', 'reversal_rate', 'duel_win_rate', 'trade_latency_ms',
+      'lethal_throw_count', 'tier', 'score', 'combat_score', 'tactical_score',
+      'survival_score', 'supp_count', 'team_wipes', 'match_type', 'death_phase',
+      'filter_version', 'population_evidence_version', 'source'
+    )
+  )
+  then
+    raise exception 'telemetry-recovery-finalize-payload-not-allowlisted' using errcode = '22023';
+  end if;
+
   select * into v_master
   from jsonb_to_record(p_rows->'master') as master(
     match_id text,
@@ -169,18 +203,20 @@ begin
   if v_guard_match_id is null
     or v_guard_player_id is null
     or v_guard_player_id = ''
+    or v_guard_platform is null
     or v_guard_platform not in ('steam', 'kakao')
     or v_guard_account_id is null
     or v_guard_account_id = ''
-    or jsonb_typeof(p_processed_guard->'resultVersion') <> 'number'
+    or jsonb_typeof(p_processed_guard->'resultVersion') is distinct from 'number'
+    or p_processed_guard->>'resultVersion' is null
     or p_processed_guard->>'resultVersion' !~ '^[0-9]+$'
   then
     raise exception 'telemetry-recovery-finalize-processed-guard-invalid' using errcode = '22023';
   end if;
   v_guard_result_version := (p_processed_guard->>'resultVersion')::integer;
-  if v_guard_result_version <> 72
-    or v_guard_match_id <> p_match_id
-    or v_guard_platform <> p_platform
+  if v_guard_result_version is distinct from 72
+    or v_guard_match_id is distinct from p_match_id
+    or v_guard_platform is distinct from p_platform
   then
     raise exception 'telemetry-recovery-finalize-processed-guard-invalid' using errcode = '22023';
   end if;
@@ -199,6 +235,7 @@ begin
         'filterVersion', 'populationEvidenceVersion'
       )
     )
+    or p_benchmark_guard->>'id' is null
     or p_benchmark_guard->>'id' !~ '^[0-9]+$'
   then
     raise exception 'telemetry-recovery-finalize-benchmark-guard-invalid' using errcode = '22023';
@@ -212,19 +249,23 @@ begin
   v_benchmark_match_type := p_benchmark_guard->>'matchType';
   v_benchmark_tier := p_benchmark_guard->>'tier';
   if v_benchmark_match_id is null
-    or v_benchmark_match_id <> p_match_id
+    or v_benchmark_match_id is distinct from p_match_id
     or v_benchmark_player_id is null
     or v_benchmark_player_id = ''
-    or v_benchmark_platform <> p_platform
+    or v_benchmark_platform is null
+    or v_benchmark_platform is distinct from p_platform
     or v_benchmark_game_mode is null
+    or v_benchmark_match_type is null
     or v_benchmark_match_type not in ('official', 'competitive')
     or v_benchmark_tier is null
     or v_benchmark_tier not in (
       'S+', 'S', 'A+', 'A', 'A-', 'B+', 'B', 'B-',
       'C+', 'C', 'C-', 'D+', 'D', 'D-'
     )
-    or jsonb_typeof(p_benchmark_guard->'filterVersion') not in ('number', 'null')
-    or jsonb_typeof(p_benchmark_guard->'populationEvidenceVersion') not in ('number', 'null')
+    or jsonb_typeof(p_benchmark_guard->'filterVersion') is distinct from 'number'
+      and jsonb_typeof(p_benchmark_guard->'filterVersion') is distinct from 'null'
+    or jsonb_typeof(p_benchmark_guard->'populationEvidenceVersion') is distinct from 'number'
+      and jsonb_typeof(p_benchmark_guard->'populationEvidenceVersion') is distinct from 'null'
   then
     raise exception 'telemetry-recovery-finalize-benchmark-guard-invalid' using errcode = '22023';
   end if;
@@ -244,27 +285,34 @@ begin
 
   -- Validate final rows before taking any mutation path. The processed payload
   -- is required to be the canonical v73 shape and retain account evidence.
-  if v_master.match_id <> p_match_id
+  if v_master.match_id is null
+    or v_master.match_id is distinct from p_match_id
+    or v_master.map_name is null
     or v_master.game_mode is null
-    or v_master.telemetry_version <> p_telemetry_version
-    or v_master.storage_path <> p_storage_path
-    or v_processed.match_id <> p_match_id
-    or v_processed.platform <> p_platform
-    or v_processed.player_id <> v_guard_player_id
+    or v_master.telemetry_version is null
+    or v_master.telemetry_version is distinct from p_telemetry_version
+    or v_master.storage_path is null
+    or v_master.storage_path is distinct from p_storage_path
+    or v_processed.match_id is null
+    or v_processed.match_id is distinct from p_match_id
+    or v_processed.platform is null
+    or v_processed.platform is distinct from p_platform
+    or v_processed.player_id is null
+    or v_processed.player_id is distinct from v_guard_player_id
     or v_processed.data is null
     or v_processed.updated_at is null
-    or jsonb_typeof(v_processed.data) <> 'object'
-    or jsonb_typeof(v_processed.data->'fullResult') <> 'object'
-    or v_processed.data #>> '{fullResult,v}' <> '73'
-    or v_processed.data #>> '{fullResult,matchId}' <> p_match_id
-    or v_processed.data #>> '{fullResult,player_id}' <> v_guard_player_id
-    or v_processed.data #>> '{fullResult,platform}' <> p_platform
-    or v_processed.data #>> '{fullResult,populationEvidenceVersion}' <> '1'
+    or jsonb_typeof(v_processed.data) is distinct from 'object'
+    or jsonb_typeof(v_processed.data->'fullResult') is distinct from 'object'
+    or v_processed.data #>> '{fullResult,v}' is distinct from '73'
+    or v_processed.data #>> '{fullResult,matchId}' is distinct from p_match_id
+    or v_processed.data #>> '{fullResult,player_id}' is distinct from v_guard_player_id
+    or v_processed.data #>> '{fullResult,platform}' is distinct from p_platform
+    or v_processed.data #>> '{fullResult,populationEvidenceVersion}' is distinct from '1'
     or (
       (v_processed.data #>> '{fullResult,stats,playerId}' is not null
-        and v_processed.data #>> '{fullResult,stats,playerId}' <> v_guard_account_id)
+        and v_processed.data #>> '{fullResult,stats,playerId}' is distinct from v_guard_account_id)
       or (v_processed.data #>> '{fullResult,stats,accountId}' is not null
-        and v_processed.data #>> '{fullResult,stats,accountId}' <> v_guard_account_id)
+        and v_processed.data #>> '{fullResult,stats,accountId}' is distinct from v_guard_account_id)
       or (
         v_processed.data #>> '{fullResult,stats,playerId}' is null
         and v_processed.data #>> '{fullResult,stats,accountId}' is null
@@ -274,18 +322,24 @@ begin
     raise exception 'telemetry-recovery-finalize-final-row-invalid' using errcode = '22023';
   end if;
 
-  if v_benchmark.match_id <> v_benchmark_match_id
-    or v_benchmark.player_id <> v_benchmark_player_id
-    or v_benchmark.platform <> p_platform
-    or v_benchmark.game_mode <> v_benchmark_game_mode
-    or v_benchmark.match_type <> v_benchmark_match_type
+  if v_benchmark.match_id is null
+    or v_benchmark.match_id is distinct from v_benchmark_match_id
+    or v_benchmark.player_id is null
+    or v_benchmark.player_id is distinct from v_benchmark_player_id
+    or v_benchmark.platform is null
+    or v_benchmark.platform is distinct from p_platform
+    or v_benchmark.game_mode is null
+    or v_benchmark.game_mode is distinct from v_benchmark_game_mode
+    or v_benchmark.match_type is null
+    or v_benchmark.match_type is distinct from v_benchmark_match_type
     or v_benchmark.tier is null
     or v_benchmark.tier not in (
       'S+', 'S', 'A+', 'A', 'A-', 'B+', 'B', 'B-',
       'C+', 'C', 'C-', 'D+', 'D', 'D-'
     )
-    or v_benchmark.filter_version <> 8
-    or v_benchmark.population_evidence_version <> 1
+    or v_benchmark.filter_version is distinct from 8
+    or v_benchmark.population_evidence_version is distinct from 1
+    or v_benchmark.source is null
     or v_benchmark.source not in ('user', 'scraper')
   then
     raise exception 'telemetry-recovery-finalize-final-row-invalid' using errcode = '22023';
@@ -318,37 +372,80 @@ begin
         and cache.telemetry_version = p_telemetry_version
         and cache.storage_path = p_storage_path
         and cache.status = 'ready'
+        and cache.lease_expires_at is null
         and cache.lease_token is null
+        and cache.updated_at is not distinct from v_processed.updated_at
     )
     and exists (
       select 1 from public.processed_match_telemetry as processed
       where processed.match_id = p_match_id
         and processed.platform = p_platform
         and processed.player_id = v_guard_player_id
-        and processed.data #>> '{fullResult,v}' = '73'
-        and processed.data #>> '{fullResult,matchId}' = p_match_id
-        and processed.data #>> '{fullResult,player_id}' = v_guard_player_id
-        and processed.data #>> '{fullResult,platform}' = p_platform
-        and processed.data #>> '{fullResult,populationEvidenceVersion}' = '1'
-        and (
-          processed.data #>> '{fullResult,stats,playerId}' = v_guard_account_id
-          or processed.data #>> '{fullResult,stats,accountId}' = v_guard_account_id
+        and processed.data is not distinct from v_processed.data
+        and processed.updated_at is not distinct from v_processed.updated_at
+        and jsonb_typeof(processed.data) is not distinct from 'object'
+        and jsonb_typeof(processed.data->'fullResult') is not distinct from 'object'
+        and processed.data #>> '{fullResult,v}' is not distinct from '73'
+        and processed.data #>> '{fullResult,matchId}' is not distinct from p_match_id
+        and processed.data #>> '{fullResult,player_id}' is not distinct from v_guard_player_id
+        and processed.data #>> '{fullResult,platform}' is not distinct from p_platform
+        and processed.data #>> '{fullResult,populationEvidenceVersion}' is not distinct from '1'
+        and not (
+          (processed.data #>> '{fullResult,stats,playerId}' is null
+            and processed.data #>> '{fullResult,stats,accountId}' is null)
+          or (processed.data #>> '{fullResult,stats,playerId}' is not null
+            and processed.data #>> '{fullResult,stats,playerId}' is distinct from v_guard_account_id)
+          or (processed.data #>> '{fullResult,stats,accountId}' is not null
+            and processed.data #>> '{fullResult,stats,accountId}' is distinct from v_guard_account_id)
         )
     )
     and exists (
       select 1 from public.match_master_telemetry as master
       where master.match_id = p_match_id
-        and master.telemetry_version = p_telemetry_version
-        and master.storage_path = p_storage_path
+        and master.map_name is not null
+        and master.game_mode is not null
+        and row(master.map_name, master.game_mode, master.telemetry_version, master.storage_path)
+          is not distinct from row(v_master.map_name, v_master.game_mode, v_master.telemetry_version, v_master.storage_path)
     )
     and exists (
       select 1 from public.global_benchmarks as benchmark
       where benchmark.id = v_benchmark_id
-        and benchmark.match_id = v_benchmark_match_id
-        and benchmark.platform = v_benchmark_platform
-        and benchmark.player_id = v_benchmark_player_id
-        and benchmark.filter_version = 8
-        and benchmark.population_evidence_version = 1
+        and benchmark.match_id is not distinct from v_benchmark_match_id
+        and benchmark.platform is not distinct from v_benchmark_platform
+        and benchmark.player_id is not distinct from v_benchmark_player_id
+        and benchmark.game_mode is not null
+        and benchmark.match_type is not null
+        and benchmark.tier is not null
+        and row(
+          benchmark.damage, benchmark.kills, benchmark.win_place,
+          benchmark.game_mode, benchmark.map_name, benchmark.counter_latency_ms,
+          benchmark.initiative_rate, benchmark.revive_rate, benchmark.is_crossfire,
+          benchmark.utility_count, benchmark.smoke_count, benchmark.frag_count,
+          benchmark.pressure_index, benchmark.enemy_death_distance,
+          benchmark.survival_time, benchmark.isolation_index, benchmark.min_dist,
+          benchmark.height_diff, benchmark.smoke_rate, benchmark.trade_rate,
+          benchmark.solo_kill_rate, benchmark.reversal_rate, benchmark.duel_win_rate,
+          benchmark.trade_latency_ms, benchmark.lethal_throw_count, benchmark.tier,
+          benchmark.score, benchmark.combat_score, benchmark.tactical_score,
+          benchmark.survival_score, benchmark.supp_count, benchmark.team_wipes,
+          benchmark.match_type, benchmark.death_phase, benchmark.filter_version,
+          benchmark.population_evidence_version, benchmark.source
+        ) is not distinct from row(
+          v_benchmark.damage, v_benchmark.kills, v_benchmark.win_place,
+          v_benchmark.game_mode, v_benchmark.map_name, v_benchmark.counter_latency_ms,
+          v_benchmark.initiative_rate, v_benchmark.revive_rate, v_benchmark.is_crossfire,
+          v_benchmark.utility_count, v_benchmark.smoke_count, v_benchmark.frag_count,
+          v_benchmark.pressure_index, v_benchmark.enemy_death_distance,
+          v_benchmark.survival_time, v_benchmark.isolation_index, v_benchmark.min_dist,
+          v_benchmark.height_diff, v_benchmark.smoke_rate, v_benchmark.trade_rate,
+          v_benchmark.solo_kill_rate, v_benchmark.reversal_rate, v_benchmark.duel_win_rate,
+          v_benchmark.trade_latency_ms, v_benchmark.lethal_throw_count, v_benchmark.tier,
+          v_benchmark.score, v_benchmark.combat_score, v_benchmark.tactical_score,
+          v_benchmark.survival_score, v_benchmark.supp_count, v_benchmark.team_wipes,
+          v_benchmark.match_type, v_benchmark.death_phase, v_benchmark.filter_version,
+          v_benchmark.population_evidence_version, v_benchmark.source
+        )
+        and benchmark.source is not null
     ) then
       return jsonb_build_object('ok', true, 'code', 'already_finalized');
     end if;
@@ -362,15 +459,18 @@ begin
     and processed.player_id = v_guard_player_id
   for update;
   if not found
-    or v_previous_processed.data #>> '{fullResult,v}' <> '72'
-    or v_previous_processed.data #>> '{fullResult,matchId}' <> v_guard_match_id
-    or v_previous_processed.data #>> '{fullResult,player_id}' <> v_guard_player_id
-    or v_previous_processed.data #>> '{fullResult,platform}' <> v_guard_platform
+    or v_previous_processed.data is null
+    or jsonb_typeof(v_previous_processed.data) is distinct from 'object'
+    or jsonb_typeof(v_previous_processed.data->'fullResult') is distinct from 'object'
+    or v_previous_processed.data #>> '{fullResult,v}' is distinct from '72'
+    or v_previous_processed.data #>> '{fullResult,matchId}' is distinct from v_guard_match_id
+    or v_previous_processed.data #>> '{fullResult,player_id}' is distinct from v_guard_player_id
+    or v_previous_processed.data #>> '{fullResult,platform}' is distinct from v_guard_platform
     or (
       (v_previous_processed.data #>> '{fullResult,stats,playerId}' is not null
-        and v_previous_processed.data #>> '{fullResult,stats,playerId}' <> v_guard_account_id)
+        and v_previous_processed.data #>> '{fullResult,stats,playerId}' is distinct from v_guard_account_id)
       or (v_previous_processed.data #>> '{fullResult,stats,accountId}' is not null
-        and v_previous_processed.data #>> '{fullResult,stats,accountId}' <> v_guard_account_id)
+        and v_previous_processed.data #>> '{fullResult,stats,accountId}' is distinct from v_guard_account_id)
       or (
         v_previous_processed.data #>> '{fullResult,stats,playerId}' is null
         and v_previous_processed.data #>> '{fullResult,stats,accountId}' is null
@@ -385,12 +485,18 @@ begin
   where benchmark.id = v_benchmark_id
   for update;
   if not found
-    or v_previous_benchmark.match_id <> v_benchmark_match_id
-    or v_previous_benchmark.player_id <> v_benchmark_player_id
-    or v_previous_benchmark.platform <> v_benchmark_platform
-    or v_previous_benchmark.game_mode <> v_benchmark_game_mode
-    or v_previous_benchmark.match_type <> v_benchmark_match_type
-    or v_previous_benchmark.tier <> v_benchmark_tier
+    or v_previous_benchmark.match_id is null
+    or v_previous_benchmark.match_id is distinct from v_benchmark_match_id
+    or v_previous_benchmark.player_id is null
+    or v_previous_benchmark.player_id is distinct from v_benchmark_player_id
+    or v_previous_benchmark.platform is null
+    or v_previous_benchmark.platform is distinct from v_benchmark_platform
+    or v_previous_benchmark.game_mode is null
+    or v_previous_benchmark.game_mode is distinct from v_benchmark_game_mode
+    or v_previous_benchmark.match_type is null
+    or v_previous_benchmark.match_type is distinct from v_benchmark_match_type
+    or v_previous_benchmark.tier is null
+    or v_previous_benchmark.tier is distinct from v_benchmark_tier
     or v_previous_benchmark.filter_version is distinct from v_benchmark_filter_version
     or v_previous_benchmark.population_evidence_version is distinct from v_benchmark_population_evidence_version
   then

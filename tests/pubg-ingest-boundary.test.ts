@@ -1695,6 +1695,69 @@ describe("PUBG match query boundary", () => {
     expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["confirmed deletion and release", "PERSISTENCE_FAILED", false, false],
+    ["unconfirmed deletion", "COMPENSATION_FAILED", true, false],
+    ["unconfirmed lease release", "COMPENSATION_FAILED", false, true],
+  ])("recovery upload rejection runs exact-key compensation (%s)", async (
+    _label,
+    expectedSuffix,
+    failDeletion,
+    failRelease,
+  ) => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+          stats: { ...analysisResult.stats, playerId: PLAYER_ID },
+        } },
+      },
+      error: null,
+    });
+    mockRecoveryMatchResponse(validRecoveryTelemetry());
+    mockUploadToR2.mockRejectedValueOnce(new Error("upload response lost"));
+    if (failDeletion) {
+      mockDeleteObjectsFromR2.mockResolvedValueOnce({
+        dryRun: false,
+        plannedCount: 1,
+        deletedCount: 0,
+        blocked: [],
+        failed: [{ key: "unknown", message: "delete failed" }],
+      });
+    }
+    mockRpc.mockImplementation((name: string) => {
+      if (name === "claim_telemetry_cache_recovery_write") {
+        return Promise.resolve({ data: true, error: null });
+      }
+      if (name === "release_telemetry_cache_write" && failRelease) {
+        return Promise.resolve({ data: null, error: { code: "release_failed" }, status: 503 });
+      }
+      return Promise.resolve({ data: null, error: null });
+    });
+
+    const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      errorCode: `BENCHMARK_RECOVERY_${expectedSuffix}`,
+      retryable: false,
+    });
+    const uploadedKey = mockUploadToR2.mock.calls[0]?.[0];
+    expect(uploadedKey).toEqual(expect.stringContaining("telemetry-map/"));
+    expect(mockDeleteObjectsFromR2).toHaveBeenCalledWith([uploadedKey], { dryRun: false });
+    expect(mockRpc).toHaveBeenCalledWith("release_telemetry_cache_write", expect.anything());
+    expect(mockRpc).not.toHaveBeenCalledWith("finalize_telemetry_cache_recovery", expect.anything());
+  });
+
   it("recovery compensates a known SQLSTATE rollback without retrying the RPC", async () => {
     vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
     vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");

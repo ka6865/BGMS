@@ -677,6 +677,71 @@ begin
   raise notice 'PASS: atomic recovery success + all-row transition + idempotent retry';
 end $$;
 
+\echo '--- 시나리오 16b: already_finalized requires the exact requested payload ---'
+do $$
+declare
+  result jsonb;
+  variant jsonb;
+  variants jsonb[];
+  rows_payload jsonb;
+  final_updated_at timestamptz;
+  final_data jsonb;
+  base_guard jsonb := jsonb_build_object(
+    'matchId', 'atomic-recovery-success', 'playerId', 'atomic-player',
+    'platform', 'steam', 'resultVersion', 72, 'accountId', 'atomic-account'
+  );
+begin
+  set local role service_role;
+  select data, updated_at into final_data, final_updated_at
+    from public.processed_match_telemetry
+   where match_id = 'atomic-recovery-success' and platform = 'steam' and player_id = 'atomic-player';
+  rows_payload := jsonb_build_object(
+    'master', jsonb_build_object(
+      'match_id', 'atomic-recovery-success', 'map_name', 'Baltic_Main', 'game_mode', 'squad-fpp',
+      'telemetry_version', 61, 'storage_path', 'telemetry-map/v61/steam/atomic-recovery-success/atomic-account.json'
+    ),
+    'processed', jsonb_build_object(
+      'match_id', 'atomic-recovery-success', 'platform', 'steam', 'player_id', 'atomic-player',
+      'data', final_data, 'updated_at', final_updated_at
+    ),
+    'benchmark', jsonb_build_object(
+      'match_id', 'atomic-recovery-success', 'platform', 'steam', 'player_id', 'atomic-player',
+      'damage', 321, 'kills', 3, 'win_place', 4, 'game_mode', 'squad-fpp', 'map_name', 'Baltic_Main',
+      'match_type', 'official', 'tier', 'B', 'filter_version', 8,
+      'population_evidence_version', 1, 'source', 'user'
+    )
+  );
+  variants := array[
+    jsonb_set(rows_payload, '{benchmark,damage}', '322'::jsonb),
+    jsonb_set(rows_payload, '{benchmark,tier}', '"A"'::jsonb),
+    jsonb_set(rows_payload, '{benchmark,game_mode}', '"solo-fpp"'::jsonb),
+    jsonb_set(rows_payload, '{benchmark,match_type}', '"competitive"'::jsonb),
+    jsonb_set(rows_payload, '{master,map_name}', '"Erangel_Main"'::jsonb),
+    jsonb_set(rows_payload, '{processed,data,fullResult,reconciliationProbe}', 'true'::jsonb),
+    jsonb_set(rows_payload, '{processed,updated_at}', to_jsonb(final_updated_at + interval '1 second'))
+  ];
+  for variant in select unnest(variants) loop
+    begin
+      result := public.finalize_telemetry_cache_recovery(
+        'atomic-recovery-success', 'steam', 'atomic-account', 'lite', 61,
+        'telemetry-map/v61/steam/atomic-recovery-success/atomic-account.json',
+        '11111111-1111-4111-8111-111111111111', base_guard,
+        jsonb_build_object(
+          'id', 9201, 'matchId', 'atomic-recovery-success', 'playerId', 'atomic-player',
+          'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official', 'tier', 'B',
+          'filterVersion', null, 'populationEvidenceVersion', null
+        ), variant
+      );
+      if result->>'code' = 'already_finalized' then
+        raise exception 'FAIL: payload mismatch returned already_finalized (%)', variant;
+      end if;
+    exception when sqlstate '22023' then
+      null;
+    end;
+  end loop;
+  raise notice 'PASS: already_finalized exact master/processed/benchmark/timestamp reconciliation';
+end $$;
+
 \echo '--- 시나리오 17: stale benchmark/processed guards mutate no rows ---'
 delete from public.telemetry_map_cache_entries where match_id like 'atomic-recovery-stale-%';
 delete from public.processed_match_telemetry where match_id like 'atomic-recovery-stale-%';
@@ -729,7 +794,7 @@ begin
     ),
     'benchmark', jsonb_build_object(
       'match_id', 'atomic-recovery-stale-benchmark', 'platform', 'steam', 'player_id', 'atomic-player',
-      'game_mode', 'squad-fpp', 'match_type', 'official', 'tier', 'B',
+      'game_mode', 'squad-fpp', 'map_name', 'Baltic_Main', 'match_type', 'official', 'tier', 'B',
       'filter_version', 8, 'population_evidence_version', 1, 'source', 'user'
     )
   );
@@ -792,7 +857,7 @@ begin
       ),
       'benchmark', jsonb_build_object(
         'match_id', 'atomic-recovery-stale-processed', 'platform', 'steam', 'player_id', 'atomic-player',
-        'game_mode', 'squad-fpp', 'match_type', 'official', 'tier', 'B',
+        'game_mode', 'squad-fpp', 'map_name', 'Baltic_Main', 'match_type', 'official', 'tier', 'B',
         'filter_version', 8, 'population_evidence_version', 1, 'source', 'user'
       )
     )
@@ -804,6 +869,98 @@ begin
     raise exception 'FAIL: stale processed worker가 row를 변경함 (%)', processed_result;
   end if;
   raise notice 'PASS: stale benchmark/processed guard zero-mutation';
+end $$;
+
+\echo '--- 시나리오 17b: NULL/unknown payloads are rejected without mutation ---'
+do $$
+declare
+  result jsonb;
+  base_rows jsonb := jsonb_build_object(
+    'master', jsonb_build_object(
+      'match_id', 'atomic-recovery-null', 'map_name', 'Baltic_Main', 'game_mode', 'squad-fpp',
+      'telemetry_version', 61, 'storage_path', 'telemetry-map/v61/steam/atomic-recovery-null/account.json'
+    ),
+    'processed', jsonb_build_object(
+      'match_id', 'atomic-recovery-null', 'platform', 'steam', 'player_id', 'atomic-player',
+      'data', jsonb_build_object('fullResult', jsonb_build_object(
+        'v', 73, 'matchId', 'atomic-recovery-null', 'player_id', 'atomic-player', 'platform', 'steam',
+        'populationEvidenceVersion', 1, 'stats', jsonb_build_object('playerId', 'atomic-account')
+      )), 'updated_at', now()
+    ),
+    'benchmark', jsonb_build_object(
+      'match_id', 'atomic-recovery-null', 'platform', 'steam', 'player_id', 'atomic-player',
+      'game_mode', 'squad-fpp', 'match_type', 'official', 'tier', 'B', 'filter_version', 8,
+      'population_evidence_version', 1, 'source', 'user'
+    )
+  );
+  base_guard jsonb := jsonb_build_object(
+    'matchId', 'atomic-recovery-null', 'playerId', 'atomic-player', 'platform', 'steam',
+    'resultVersion', 72, 'accountId', 'atomic-account'
+  );
+begin
+  set local role service_role;
+  insert into public.processed_match_telemetry(match_id, platform, player_id, data)
+  values ('atomic-recovery-null', 'steam', 'atomic-player', jsonb_build_object('fullResult', jsonb_build_object(
+    'v', 72, 'matchId', 'atomic-recovery-null', 'player_id', 'atomic-player', 'platform', 'steam',
+    'stats', jsonb_build_object('playerId', 'atomic-account')
+  )));
+  insert into public.global_benchmarks(id, match_id, platform, player_id, game_mode, match_type, tier, filter_version, population_evidence_version)
+  values (9291, 'atomic-recovery-null', 'steam', 'atomic-player', 'squad-fpp', 'official', 'B', null, null);
+  perform public.claim_telemetry_cache_recovery_write(
+    'atomic-recovery-null', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-null/account.json', now() + interval '10 minutes',
+    '99999999-9999-4999-8999-999999999991', now()
+  );
+  begin
+    result := public.finalize_telemetry_cache_recovery(
+      'atomic-recovery-null', 'steam', 'atomic-account', 'lite', 61,
+      'telemetry-map/v61/steam/atomic-recovery-null/account.json', '99999999-9999-4999-8999-999999999991',
+      jsonb_set(base_guard, '{accountId}', 'null'::jsonb),
+      jsonb_build_object('id', 9291, 'matchId', 'atomic-recovery-null', 'playerId', 'atomic-player', 'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official', 'tier', 'B', 'filterVersion', null, 'populationEvidenceVersion', null),
+      base_rows
+    );
+    raise exception 'FAIL: NULL processed guard accepted (%)', result;
+  exception when sqlstate '22023' then null;
+  end;
+  if (select data #>> '{fullResult,v}' from public.processed_match_telemetry where match_id = 'atomic-recovery-null') <> '72'
+     or (select status from public.telemetry_map_cache_entries where match_id = 'atomic-recovery-null') <> 'pending'
+     or exists(select 1 from public.match_master_telemetry where match_id = 'atomic-recovery-null') then
+    raise exception 'FAIL: NULL guard mutated rows';
+  end if;
+  begin
+    result := public.finalize_telemetry_cache_recovery(
+      'atomic-recovery-null', 'steam', 'atomic-account', 'lite', 61,
+      'telemetry-map/v61/steam/atomic-recovery-null/account.json', '99999999-9999-4999-8999-999999999991',
+      base_guard,
+      jsonb_build_object('id', 9291, 'matchId', 'atomic-recovery-null', 'playerId', 'atomic-player', 'platform', 'steam', 'gameMode', null, 'matchType', 'official', 'tier', 'B', 'filterVersion', null, 'populationEvidenceVersion', null),
+      base_rows
+    );
+    raise exception 'FAIL: NULL benchmark bucket accepted (%)', result;
+  exception when sqlstate '22023' then null;
+  end;
+  begin
+    result := public.finalize_telemetry_cache_recovery(
+      'atomic-recovery-null', 'steam', 'atomic-account', 'lite', 61,
+      'telemetry-map/v61/steam/atomic-recovery-null/account.json', '99999999-9999-4999-8999-999999999991',
+      base_guard,
+      jsonb_build_object('id', 9291, 'matchId', 'atomic-recovery-null', 'playerId', 'atomic-player', 'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official', 'tier', 'B', 'filterVersion', null, 'populationEvidenceVersion', null),
+      jsonb_set(base_rows, '{master,map_name}', 'null'::jsonb)
+    );
+    raise exception 'FAIL: NULL master field accepted (%)', result;
+  exception when sqlstate '22023' then null;
+  end;
+  begin
+    result := public.finalize_telemetry_cache_recovery(
+      'atomic-recovery-null', 'steam', 'atomic-account', 'lite', 61,
+      'telemetry-map/v61/steam/atomic-recovery-null/account.json', '99999999-9999-4999-8999-999999999991',
+      base_guard,
+      jsonb_build_object('id', 9291, 'matchId', 'atomic-recovery-null', 'playerId', 'atomic-player', 'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official', 'tier', 'B', 'filterVersion', null, 'populationEvidenceVersion', null),
+      jsonb_set(base_rows, '{benchmark,unexpected}', 'true'::jsonb)
+    );
+    raise exception 'FAIL: unknown nested key accepted (%)', result;
+  exception when sqlstate '22023' then null;
+  end;
+  raise notice 'PASS: NULL and unknown nested payloads rejected without mutation';
 end $$;
 
 \echo '--- 시나리오 18: recovery finalizer ACL·SECURITY INVOKER ---'
