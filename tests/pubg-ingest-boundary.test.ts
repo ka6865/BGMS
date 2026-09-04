@@ -1873,6 +1873,83 @@ describe("PUBG match query boundary", () => {
     });
   });
 
+  it("stale comparisons ignore fabricated direct benchmark count aliases", async () => {
+    const staleFullResult = {
+      ...analysisResult,
+      v: RESULT_VERSION - 1,
+      matchId: MATCH_ID,
+      player_id: NICKNAME.toLowerCase(),
+      platform: "steam",
+      teamImpact: { damageImpact: 180, killImpact: 240, teamDamageShare: 66, teamKillShare: 75 },
+      badges: [{ id: "ace", name: "에이스" }, { id: "survivor", name: "생존왕" }],
+      eliteBenchmark: {
+        sampleCount: 10,
+        avgDamage: 250,
+        avgKills: 2,
+        avgDamageCount: 10,
+        avgKillsCount: 10,
+      },
+    };
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: staleFullResult },
+      },
+      error: null,
+    });
+    mockPubgMatchResponse();
+
+    const response = await GET(createMatchRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.teamImpact).toMatchObject({ damageImpact: null, killImpact: null });
+    expect(body.badges).toEqual([{ id: "survivor", name: "생존왕" }]);
+    expect(body).not.toHaveProperty("eliteBenchmark");
+    expect(body.sampleParticipants).toEqual([]);
+    expect(body.stats.playerId).toBe(buildTelemetryPlayerKey(PLAYER_ID));
+    expect(staleFullResult.teamImpact.damageImpact).toBe(180);
+    expect(staleFullResult.badges).toHaveLength(2);
+    expect(staleFullResult.eliteBenchmark).toHaveProperty("avgDamageCount", 10);
+  });
+
+  it("stale comparisons treat zero benchmark denominators as unavailable", async () => {
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+          teamImpact: { damageImpact: 180, killImpact: 240, teamDamageShare: 66, teamKillShare: 75 },
+          badges: [{ id: "ace", name: "에이스" }, { id: "survivor", name: "생존왕" }],
+          eliteBenchmark: {
+            sampleCount: 10,
+            avgDamage: 0,
+            avgKills: 0,
+            metricSampleCounts: { avgDamage: 10, avgKills: 10 },
+          },
+        } },
+      },
+      error: null,
+    });
+    mockPubgMatchResponse();
+
+    const response = await GET(createMatchRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.teamImpact).toMatchObject({ damageImpact: null, killImpact: null });
+    expect(body.badges).toEqual([{ id: "survivor", name: "생존왕" }]);
+    expect(body).not.toHaveProperty("eliteBenchmark");
+  });
+
   it("loopback recovery gate enables synchronous v72 reanalysis only with exact token", async () => {
     vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
     vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");

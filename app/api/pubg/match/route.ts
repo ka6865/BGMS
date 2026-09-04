@@ -1088,53 +1088,28 @@ const STALE_BENCHMARK_METRICS = [
 
 type StaleBenchmarkMetric = typeof STALE_BENCHMARK_METRICS[number];
 
-function staleBenchmarkAliases(metric: StaleBenchmarkMetric): string[] {
-  const snake = metric.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
-  return [metric, snake, `${metric}Count`, `${metric}SampleCount`, `${snake}_count`, `${snake}_sample_count`];
-}
-
-function staleBenchmarkMetricValue(
-  benchmark: Record<string, unknown>,
-  metric: StaleBenchmarkMetric,
-): number | null {
-  for (const key of staleBenchmarkAliases(metric).slice(0, 2)) {
-    const value = benchmark[key];
-    if (typeof value === "number" && Number.isFinite(value) && value >= 0) return value;
-  }
-  return null;
-}
-
-function staleBenchmarkMetricCount(
-  benchmark: Record<string, unknown>,
-  metric: StaleBenchmarkMetric,
-  sampleCount: number,
-): number | null {
-  const nestedCandidates = [benchmark.metricSampleCounts, benchmark.metric_sample_counts]
-    .filter(isRecord)
-    .flatMap((counts) => staleBenchmarkAliases(metric).map((key) => counts[key]));
-  const directCandidates = staleBenchmarkAliases(metric).slice(2).map((key) => benchmark[key]);
-  for (const value of [...nestedCandidates, ...directCandidates]) {
-    if (typeof value === "number"
-      && Number.isInteger(value)
-      && value >= 5
-      && value <= sampleCount) {
-      return value;
-    }
-  }
-  return null;
-}
-
 function hasStaleBenchmarkMetricEvidence(
   benchmark: Record<string, unknown> | null,
   metric: StaleBenchmarkMetric,
 ): boolean {
   if (!benchmark) return false;
-  const sampleCount = benchmark.sampleCount ?? benchmark.sample_count ?? benchmark.match_count;
+  const sampleCount = benchmark.sampleCount;
+  const metricSampleCounts = benchmark.metricSampleCounts;
+  const value = benchmark[metric];
+  const count = isRecord(metricSampleCounts) ? metricSampleCounts[metric] : undefined;
   if (typeof sampleCount !== "number"
     || !Number.isInteger(sampleCount)
-    || sampleCount < 5) return false;
-  return staleBenchmarkMetricValue(benchmark, metric) !== null
-    && staleBenchmarkMetricCount(benchmark, metric, sampleCount) !== null;
+    || sampleCount < 5
+    || typeof value !== "number"
+    || !Number.isFinite(value)
+    || typeof count !== "number"
+    || !Number.isInteger(count)
+    || count < 5
+    || count > sampleCount) return false;
+
+  // Damage and kill comparisons divide by these averages.  A zero
+  // denominator is therefore unavailable even when its row count is valid.
+  return (metric === "avgDamage" || metric === "avgKills") ? value > 0 : value >= 0;
 }
 
 /**
@@ -1165,30 +1140,14 @@ function sanitizeStaleCachedResult(result: Record<string, unknown>): Record<stri
     return sanitized;
   }
 
-  const benchmarkCopy = { ...benchmark };
-  for (const metric of STALE_BENCHMARK_METRICS) {
-    if (observedMetrics.has(metric)) continue;
-    for (const key of staleBenchmarkAliases(metric).slice(0, 2)) delete benchmarkCopy[key];
-  }
-  const nestedCounts = isRecord(benchmarkCopy.metricSampleCounts)
-    ? benchmarkCopy.metricSampleCounts
-    : isRecord(benchmarkCopy.metric_sample_counts)
-      ? benchmarkCopy.metric_sample_counts
-      : null;
-  if (nestedCounts) {
-    const countsCopy = { ...nestedCounts };
-    for (const metric of STALE_BENCHMARK_METRICS) {
-      if (observedMetrics.has(metric)) continue;
-      for (const key of staleBenchmarkAliases(metric).slice(0, 2)) delete countsCopy[key];
-    }
-    if (Object.keys(countsCopy).length > 0) {
-      if (isRecord(benchmarkCopy.metricSampleCounts)) benchmarkCopy.metricSampleCounts = countsCopy;
-      else benchmarkCopy.metric_sample_counts = countsCopy;
-    } else {
-      delete benchmarkCopy.metricSampleCounts;
-      delete benchmarkCopy.metric_sample_counts;
-    }
-  }
+  const metricSampleCounts = benchmark.metricSampleCounts as Record<string, unknown>;
+  const benchmarkCopy: Record<string, unknown> = {
+    sampleCount: benchmark.sampleCount,
+    metricSampleCounts: Object.fromEntries(
+      Array.from(observedMetrics, (metric) => [metric, metricSampleCounts[metric]]),
+    ),
+  };
+  for (const metric of observedMetrics) benchmarkCopy[metric] = benchmark[metric];
   sanitized.eliteBenchmark = benchmarkCopy;
   return sanitized;
 }
