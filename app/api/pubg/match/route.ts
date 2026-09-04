@@ -1066,6 +1066,133 @@ function createTacticalResponse(result: any) {
   return pseudonymizeTelemetryAccountIds(tacticalResult);
 }
 
+const STALE_BENCHMARK_METRICS = [
+  "avgDamage",
+  "avgKills",
+  "avgSurvivalTime",
+  "avgDuelWinRate",
+  "avgInitiativeRate",
+  "avgTradeRate",
+  "avgReviveRate",
+  "avgSmokeRate",
+  "avgPressureIndex",
+  "avgTeamWipes",
+  "avgReversalRate",
+  "avgIsolationIndex",
+  "avgMinDist",
+  "avgCounterLatency",
+  "avgTradeLatency",
+  "avgSoloKillRate",
+  "avgDeathPhase",
+] as const;
+
+type StaleBenchmarkMetric = typeof STALE_BENCHMARK_METRICS[number];
+
+function staleBenchmarkAliases(metric: StaleBenchmarkMetric): string[] {
+  const snake = metric.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+  return [metric, snake, `${metric}Count`, `${metric}SampleCount`, `${snake}_count`, `${snake}_sample_count`];
+}
+
+function staleBenchmarkMetricValue(
+  benchmark: Record<string, unknown>,
+  metric: StaleBenchmarkMetric,
+): number | null {
+  for (const key of staleBenchmarkAliases(metric).slice(0, 2)) {
+    const value = benchmark[key];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) return value;
+  }
+  return null;
+}
+
+function staleBenchmarkMetricCount(
+  benchmark: Record<string, unknown>,
+  metric: StaleBenchmarkMetric,
+  sampleCount: number,
+): number | null {
+  const nestedCandidates = [benchmark.metricSampleCounts, benchmark.metric_sample_counts]
+    .filter(isRecord)
+    .flatMap((counts) => staleBenchmarkAliases(metric).map((key) => counts[key]));
+  const directCandidates = staleBenchmarkAliases(metric).slice(2).map((key) => benchmark[key]);
+  for (const value of [...nestedCandidates, ...directCandidates]) {
+    if (typeof value === "number"
+      && Number.isInteger(value)
+      && value >= 5
+      && value <= sampleCount) {
+      return value;
+    }
+  }
+  return null;
+}
+
+function hasStaleBenchmarkMetricEvidence(
+  benchmark: Record<string, unknown> | null,
+  metric: StaleBenchmarkMetric,
+): boolean {
+  if (!benchmark) return false;
+  const sampleCount = benchmark.sampleCount ?? benchmark.sample_count ?? benchmark.match_count;
+  if (typeof sampleCount !== "number"
+    || !Number.isInteger(sampleCount)
+    || sampleCount < 5) return false;
+  return staleBenchmarkMetricValue(benchmark, metric) !== null
+    && staleBenchmarkMetricCount(benchmark, metric, sampleCount) !== null;
+}
+
+/**
+ * Older cached rows can contain comparison values produced before evidence
+ * counts were persisted.  Keep the tactical result readable, but only expose
+ * benchmark-derived fields when their own metric count proves observation.
+ */
+function sanitizeStaleCachedResult(result: Record<string, unknown>): Record<string, unknown> {
+  const sanitized = { ...result };
+  const benchmark = isRecord(result.eliteBenchmark) ? result.eliteBenchmark : null;
+  const observedMetrics = new Set<StaleBenchmarkMetric>(
+    STALE_BENCHMARK_METRICS.filter((metric) => hasStaleBenchmarkMetricEvidence(benchmark, metric)),
+  );
+  const teamImpact = isRecord(result.teamImpact) ? { ...result.teamImpact } : null;
+
+  if (teamImpact) {
+    if (!observedMetrics.has("avgDamage")) teamImpact.damageImpact = null;
+    if (!observedMetrics.has("avgKills")) teamImpact.killImpact = null;
+    sanitized.teamImpact = teamImpact;
+  }
+
+  if (Array.isArray(result.badges) && !observedMetrics.has("avgDamage")) {
+    sanitized.badges = result.badges.filter((badge) => !(isRecord(badge) && badge.id === "ace"));
+  }
+
+  if (!benchmark || observedMetrics.size === 0) {
+    delete sanitized.eliteBenchmark;
+    return sanitized;
+  }
+
+  const benchmarkCopy = { ...benchmark };
+  for (const metric of STALE_BENCHMARK_METRICS) {
+    if (observedMetrics.has(metric)) continue;
+    for (const key of staleBenchmarkAliases(metric).slice(0, 2)) delete benchmarkCopy[key];
+  }
+  const nestedCounts = isRecord(benchmarkCopy.metricSampleCounts)
+    ? benchmarkCopy.metricSampleCounts
+    : isRecord(benchmarkCopy.metric_sample_counts)
+      ? benchmarkCopy.metric_sample_counts
+      : null;
+  if (nestedCounts) {
+    const countsCopy = { ...nestedCounts };
+    for (const metric of STALE_BENCHMARK_METRICS) {
+      if (observedMetrics.has(metric)) continue;
+      for (const key of staleBenchmarkAliases(metric).slice(0, 2)) delete countsCopy[key];
+    }
+    if (Object.keys(countsCopy).length > 0) {
+      if (isRecord(benchmarkCopy.metricSampleCounts)) benchmarkCopy.metricSampleCounts = countsCopy;
+      else benchmarkCopy.metric_sample_counts = countsCopy;
+    } else {
+      delete benchmarkCopy.metricSampleCounts;
+      delete benchmarkCopy.metric_sample_counts;
+    }
+  }
+  sanitized.eliteBenchmark = benchmarkCopy;
+  return sanitized;
+}
+
 /**
  * Population provenance belongs to the canonical fullResult, not its storage
  * wrapper.  Keep this boundary separate from RESULT_VERSION so a current v73
@@ -1188,7 +1315,7 @@ export async function GET(request: NextRequest) {
   // A recovery header is a privileged protocol signal. Reject it before any
   // cache/read or PUBG request unless the complete local-only authorization
   // contract is satisfied. Header-free requests keep the ordinary stale
-  // 409/background behavior below.
+  // 200/background behavior below.
   const recoveryHeaderPresent = request.headers.get(BENCHMARK_RECOVERY_TOKEN_HEADER) !== null;
   const recoveryAuthorized = recoveryHeaderPresent && allowsSynchronousStaleRecovery(request);
   if (recoveryHeaderPresent && !recoveryAuthorized) {
@@ -1397,14 +1524,22 @@ export async function GET(request: NextRequest) {
             }
           });
 
-          // A stale row is identity-bound and may be reanalyzed in the
-          // background, but it must never be presented as a successful current
-          // analysis. Ask the caller to retry after canonical refresh instead.
+          const allParticipantNames = participants
+            .filter((p: any) => !p.attributes.stats.playerId?.startsWith("ai."))
+            .map((p: any) => p.attributes.stats.name)
+            .filter((name: string) => normalizeName(name) !== lowerNickname);
+          const sampleParticipants = allParticipantNames
+            .sort(() => 0.5 - Math.random())
+            .slice(0, 5);
+
+          // A stale identity-bound row remains readable while the same
+          // reanalysis work runs after the response.  Sanitize legacy
+          // comparison fields before exposing it so absent evidence cannot be
+          // mistaken for an observed benchmark.
           return NextResponse.json({
-            error: "canonical match analysis is not ready",
-            errorCode: "PUBG_AI_CANONICAL_NOT_READY",
-            retryable: true,
-          }, { status: 409 });
+            ...createTacticalResponse(sanitizeStaleCachedResult(cachedFullResult)),
+            sampleParticipants,
+          });
         }
       }
 

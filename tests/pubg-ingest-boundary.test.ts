@@ -1702,7 +1702,7 @@ describe("PUBG match query boundary", () => {
     expect(mockAnalysisEngine).not.toHaveBeenCalled();
   });
 
-  it("백그라운드 재분석 실패를 고정된 운영 보고로 연결한다", async () => {
+  it("stale response remains readable while background failure uses fixed operational reporting", async () => {
     mockProcessedTelemetryMaybeSingle.mockResolvedValue({
       data: {
         match_id: MATCH_ID,
@@ -1725,11 +1725,10 @@ describe("PUBG match query boundary", () => {
     });
     const response = await GET(createMatchRequest());
 
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({
-      error: "canonical match analysis is not ready",
-      errorCode: "PUBG_AI_CANONICAL_NOT_READY",
-      retryable: true,
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      v: RESULT_VERSION - 2,
+      matchId: MATCH_ID,
     });
     expect(mockAfter).toHaveBeenCalledTimes(1);
     const backgroundWork = mockAfter.mock.calls[0]?.[0];
@@ -1747,7 +1746,7 @@ describe("PUBG match query boundary", () => {
     }
   });
 
-  it("stale v72은 gate가 꺼져 있으면 기존 409/background 경계를 유지한다", async () => {
+  it("stale v72 returns its cached tactical response while scheduling background reanalysis", async () => {
     mockProcessedTelemetryMaybeSingle.mockResolvedValue({
       data: {
         match_id: MATCH_ID,
@@ -1767,9 +1766,111 @@ describe("PUBG match query boundary", () => {
 
     const response = await GET(createMatchRequest());
 
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      v: RESULT_VERSION - 1,
+      matchId: MATCH_ID,
+    });
     expect(mockAfter).toHaveBeenCalledTimes(1);
     expect(mockAnalysisEngine).not.toHaveBeenCalled();
+  });
+
+  it("stale comparisons without evidence are sanitized without discarding team shares or relative-independent badges", async () => {
+    const staleFullResult = {
+      ...analysisResult,
+      v: RESULT_VERSION - 1,
+      matchId: MATCH_ID,
+      player_id: NICKNAME.toLowerCase(),
+      platform: "steam",
+      teamImpact: {
+        damageImpact: 180,
+        killImpact: 240,
+        teamDamageShare: 66,
+        teamKillShare: 75,
+        totalTeamDamage: 900,
+        totalTeamKills: 4,
+      },
+      badges: [
+        { id: "ace", name: "에이스", desc: "벤치마크 대비 150% 이상의 영향력" },
+        { id: "survivor", name: "생존왕", desc: "자기장에서 100 HP 이상의 피해를 버티며 생존" },
+      ],
+      eliteBenchmark: {
+        avgDamage: 250,
+        avgKills: 2,
+        sampleCount: 10,
+      },
+    };
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: staleFullResult },
+      },
+      error: null,
+    });
+    mockPubgMatchResponse();
+
+    const response = await GET(createMatchRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      v: RESULT_VERSION - 1,
+      matchId: MATCH_ID,
+      stats: expect.objectContaining({ name: NICKNAME, kills: 3 }),
+      teamImpact: expect.objectContaining({
+        damageImpact: null,
+        killImpact: null,
+        teamDamageShare: 66,
+        teamKillShare: 75,
+      }),
+      badges: [{ id: "survivor", name: "생존왕", desc: "자기장에서 100 HP 이상의 피해를 버티며 생존" }],
+    });
+    expect(body).not.toHaveProperty("eliteBenchmark");
+    expect(body).not.toHaveProperty("mapData");
+    expect(mockAfter).toHaveBeenCalledTimes(1);
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+  });
+
+  it("stale comparisons with valid per-metric evidence keep the observed comparison fields", async () => {
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+          teamImpact: { damageImpact: 180, killImpact: 240, teamDamageShare: 66, teamKillShare: 75 },
+          badges: [{ id: "ace", name: "에이스" }, { id: "survivor", name: "생존왕" }],
+          eliteBenchmark: {
+            sampleCount: 10,
+            avgDamage: 250,
+            avgKills: 2,
+            metricSampleCounts: { avgDamage: 10, avgKills: 10 },
+          },
+        } },
+      },
+      error: null,
+    });
+    mockPubgMatchResponse();
+
+    const response = await GET(createMatchRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.teamImpact).toMatchObject({ damageImpact: 180, killImpact: 240 });
+    expect(body.badges).toEqual([{ id: "ace", name: "에이스" }, { id: "survivor", name: "생존왕" }]);
+    expect(body.eliteBenchmark).toMatchObject({
+      sampleCount: 10,
+      avgDamage: 250,
+      avgKills: 2,
+      metricSampleCounts: { avgDamage: 10, avgKills: 10 },
+    });
   });
 
   it("loopback recovery gate enables synchronous v72 reanalysis only with exact token", async () => {
