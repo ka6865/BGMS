@@ -964,6 +964,28 @@ begin
 
   perform pg_advisory_xact_lock(hashtextextended(p_match_id, 1952805741));
 
+  -- A non-null lease token is an ownership assertion, not an optional hint.
+  -- Revalidate the exact pending lease immediately after taking the match
+  -- lock, before any master/processed/cache write.  This preserves the
+  -- ordinary finalizer's compare-and-swap boundary during mixed-version
+  -- deploys; a stale worker must not create a ready row or mutate analysis
+  -- data after its lease was replaced or released.
+  if p_cache_lease_token is not null and not exists (
+    select 1
+    from public.telemetry_map_cache_entries as cache
+    where cache.match_id = p_match_id
+      and cache.platform = p_platform
+      and cache.player_id = p_player_id
+      and cache.mode = p_mode
+      and cache.telemetry_version = p_cache_version
+      and cache.storage_path = p_storage_path
+      and cache.status = 'pending'
+      and cache.lease_token = p_cache_lease_token
+    for update
+  ) then
+    raise exception 'telemetry-finalize-lease-lost' using errcode = '40001';
+  end if;
+
   select * into v_existing_master
   from public.match_master_telemetry as master
   where master.match_id = p_match_id

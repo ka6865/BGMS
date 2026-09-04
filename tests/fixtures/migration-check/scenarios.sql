@@ -1376,6 +1376,58 @@ begin
   raise notice 'PASS: NULL and unknown nested payloads rejected without mutation';
 end $$;
 
+\echo '--- 시나리오 17c: ordinary finalizer rejects a missing non-null lease before any write ---'
+delete from public.telemetry_map_cache_entries where match_id = 'ordinary-finalize-missing-lease';
+delete from public.processed_match_telemetry where match_id = 'ordinary-finalize-missing-lease';
+delete from public.match_master_telemetry where match_id = 'ordinary-finalize-missing-lease';
+
+do $$
+declare
+  error_code text;
+begin
+  set local role service_role;
+  begin
+    perform public.finalize_telemetry_cache_write(
+      'ordinary-finalize-missing-lease',
+      'Baltic_Main',
+      'squad-fpp',
+      60,
+      'telemetry-map/v60/steam/ordinary-finalize-missing-lease.json',
+      'steam',
+      'ordinary-player',
+      'lite',
+      60,
+      now(),
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      'ordinary-player',
+      'steam',
+      jsonb_build_object(
+        'fullResult', jsonb_build_object(
+          'v', 73,
+          'matchId', 'ordinary-finalize-missing-lease',
+          'player_id', 'ordinary-player',
+          'platform', 'steam',
+          'stats', jsonb_build_object('name', 'OrdinaryPlayer')
+        )
+      ),
+      now()
+    );
+    raise exception 'FAIL: ordinary finalizer accepted a missing non-null lease';
+  exception when sqlstate '40001' then
+    error_code := SQLSTATE;
+  end;
+
+  if error_code <> '40001' then
+    raise exception 'FAIL: ordinary finalizer did not return telemetry-finalize-lease-lost';
+  end if;
+  if exists (select 1 from public.match_master_telemetry where match_id = 'ordinary-finalize-missing-lease')
+     or exists (select 1 from public.processed_match_telemetry where match_id = 'ordinary-finalize-missing-lease')
+     or exists (select 1 from public.telemetry_map_cache_entries where match_id = 'ordinary-finalize-missing-lease') then
+    raise exception 'FAIL: missing lease finalizer mutated master/processed/cache rows';
+  end if;
+  raise notice 'PASS: ordinary finalizer missing lease rejected with zero mutation';
+end $$;
+
 \echo '--- 시나리오 18: recovery finalizer ACL·SECURITY INVOKER ---'
 do $$
 declare

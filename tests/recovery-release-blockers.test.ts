@@ -41,6 +41,14 @@ describe("release blocker contracts", () => {
     expect(source).toContain("p_master_version >= v_existing_master.telemetry_version");
     expect(source).toContain("v_incoming_result_version >= v_existing_result_version");
     expect(source).toContain("cache.status = 'ready'");
+
+    const ordinary = source.slice(source.indexOf("create or replace function public.finalize_telemetry_cache_write("));
+    const advisoryLock = ordinary.indexOf("perform pg_advisory_xact_lock");
+    const leasePrecheck = ordinary.indexOf("if p_cache_lease_token is not null and not exists");
+    const firstMasterWrite = ordinary.indexOf("insert into public.match_master_telemetry");
+    expect(leasePrecheck).toBeGreaterThan(advisoryLock);
+    expect(leasePrecheck).toBeLessThan(firstMasterWrite);
+    expect(ordinary).toContain("raise exception 'telemetry-finalize-lease-lost' using errcode = '40001'");
   });
 
   it("recovery benchmark CAS carries and validates an exact legacy payload snapshot", () => {
