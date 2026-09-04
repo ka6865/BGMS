@@ -365,10 +365,11 @@ begin
   then
     raise exception 'telemetry-recovery-finalize-processed-guard-invalid' using errcode = '22023';
   end if;
-  -- The processed row key is a PUBG account id, while player_id in the
-  -- processed payload/guard is the normalized nickname.  Bind the scalar
-  -- account argument to the guard's account evidence before taking locks or
-  -- entering any mutation path; never compare it with the nickname.
+  -- The scalar recovery/cache player identity is a PUBG account id, while
+  -- player_id in the processed payload/guard is the normalized nickname.
+  -- Bind the scalar account argument to the guard's account evidence before
+  -- taking locks or entering any mutation path; never compare it with the
+  -- nickname.
   if not (v_guard_account_id is not distinct from p_player_id) then
     return jsonb_build_object('ok', false, 'code', 'processed_guard_mismatch');
   end if;

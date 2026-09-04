@@ -1281,20 +1281,26 @@ declare
   benchmark_result jsonb;
   account_snapshot jsonb;
   benchmark_snapshot jsonb;
+  account_processed_before jsonb;
+  account_benchmark_before jsonb;
+  account_lease_before jsonb;
+  benchmark_processed_before jsonb;
+  benchmark_benchmark_before jsonb;
+  benchmark_lease_before jsonb;
   account_token uuid := 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
   benchmark_token uuid := 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2';
   account_processed_data jsonb := jsonb_build_object(
     'fullResult', jsonb_build_object(
       'v', 72, 'matchId', 'crossed-processed-account',
-      'player_id', 'crossed-account-player', 'platform', 'steam',
-      'stats', jsonb_build_object('name', 'CrossedAccountPlayer', 'playerId', 'crossed-account-real')
+      'player_id', 'crossed-account-shared', 'platform', 'steam',
+      'stats', jsonb_build_object('name', 'CrossedAccountShared', 'playerId', 'crossed-account-real')
     )
   );
   benchmark_processed_data jsonb := jsonb_build_object(
     'fullResult', jsonb_build_object(
       'v', 72, 'matchId', 'crossed-benchmark-player',
-      'player_id', 'crossed-benchmark-player', 'platform', 'steam',
-      'stats', jsonb_build_object('name', 'CrossedBenchmarkPlayer', 'playerId', 'crossed-benchmark-account')
+      'player_id', 'crossed-benchmark-processed', 'platform', 'steam',
+      'stats', jsonb_build_object('name', 'CrossedBenchmarkProcessed', 'playerId', 'crossed-benchmark-shared')
     )
   );
   account_rows jsonb;
@@ -1303,20 +1309,35 @@ begin
   set local role service_role;
 
   insert into public.processed_match_telemetry (match_id, platform, player_id, data)
-  values ('crossed-processed-account', 'steam', 'crossed-account-player', account_processed_data);
+  values ('crossed-processed-account', 'steam', 'crossed-account-shared', account_processed_data);
   insert into public.global_benchmarks (
     id, match_id, platform, player_id, game_mode, match_type, tier,
     filter_version, population_evidence_version
   ) values (
-    9301, 'crossed-processed-account', 'steam', 'crossed-account-player',
+    9301, 'crossed-processed-account', 'steam', 'crossed-account-shared',
     'squad-fpp', 'official', 'B', null, null
   );
   account_snapshot := pg_temp.recovery_benchmark_snapshot(9301);
   perform public.claim_telemetry_cache_recovery_write(
-    'crossed-processed-account', 'steam', 'crossed-account-lease', 'lite', 61,
+    'crossed-processed-account', 'steam', 'crossed-account-shared', 'lite', 61,
     'telemetry-map/v61/steam/crossed-processed-account/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/lite.json',
     now() + interval '10 minutes', account_token, now()
   );
+  select to_jsonb(processed) into account_processed_before
+    from public.processed_match_telemetry as processed
+   where processed.match_id = 'crossed-processed-account'
+     and processed.platform = 'steam'
+     and processed.player_id = 'crossed-account-shared';
+  select to_jsonb(benchmark) into account_benchmark_before
+    from public.global_benchmarks as benchmark
+   where benchmark.id = 9301;
+  select to_jsonb(cache) into account_lease_before
+    from public.telemetry_map_cache_entries as cache
+   where cache.match_id = 'crossed-processed-account'
+     and cache.platform = 'steam'
+     and cache.player_id = 'crossed-account-shared'
+     and cache.mode = 'lite'
+     and cache.telemetry_version = 61;
   account_rows := jsonb_build_object(
     'master', jsonb_build_object(
       'match_id', 'crossed-processed-account', 'map_name', 'Baltic_Main',
@@ -1325,54 +1346,76 @@ begin
     ),
     'processed', jsonb_build_object(
       'match_id', 'crossed-processed-account', 'platform', 'steam',
-      'player_id', 'crossed-account-player',
+      'player_id', 'crossed-account-shared',
       'data', jsonb_set(account_processed_data, '{fullResult,v}', '73'::jsonb), 'updated_at', now()
     ),
     'benchmark', jsonb_build_object(
-      'match_id', 'crossed-processed-account', 'platform', 'steam', 'player_id', 'crossed-account-player',
+      'match_id', 'crossed-processed-account', 'platform', 'steam', 'player_id', 'crossed-account-shared',
       'game_mode', 'squad-fpp', 'map_name', 'Baltic_Main', 'match_type', 'official', 'tier', 'B',
       'filter_version', 8, 'population_evidence_version', 1, 'source', 'user'
     )
   );
   account_result := public.finalize_telemetry_cache_recovery(
-    'crossed-processed-account', 'steam', 'crossed-account-lease', 'lite', 61,
+    'crossed-processed-account', 'steam', 'crossed-account-shared', 'lite', 61,
     'telemetry-map/v61/steam/crossed-processed-account/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/lite.json', account_token,
     jsonb_build_object(
-      'matchId', 'crossed-processed-account', 'playerId', 'crossed-account-player',
+      'matchId', 'crossed-processed-account', 'playerId', 'crossed-account-shared',
       'platform', 'steam', 'resultVersion', 72, 'accountId', 'crossed-account-real'
     ),
     jsonb_build_object(
-      'id', 9301, 'matchId', 'crossed-processed-account', 'playerId', 'crossed-account-player',
+      'id', 9301, 'matchId', 'crossed-processed-account', 'playerId', 'crossed-account-shared',
       'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official', 'tier', 'B',
       'filterVersion', null, 'populationEvidenceVersion', null, 'snapshot', account_snapshot
     ), account_rows
   );
-  if account_result->>'code' <> 'processed_guard_mismatch'
-     or (select data #>> '{fullResult,v}' from public.processed_match_telemetry
-          where match_id = 'crossed-processed-account') <> '72'
+  if account_result->>'ok' is distinct from 'false'
+     or account_result->>'code' is distinct from 'processed_guard_mismatch'
+     or (select to_jsonb(processed) from public.processed_match_telemetry as processed
+          where processed.match_id = 'crossed-processed-account'
+            and processed.platform = 'steam'
+            and processed.player_id = 'crossed-account-shared') is distinct from account_processed_before
+     or (select to_jsonb(benchmark) from public.global_benchmarks as benchmark where benchmark.id = 9301) is distinct from account_benchmark_before
      or exists (select 1 from public.match_master_telemetry where match_id = 'crossed-processed-account')
-     or (select population_evidence_version from public.global_benchmarks where id = 9301) is not null
-     or (select status from public.telemetry_map_cache_entries where match_id = 'crossed-processed-account') <> 'pending'
-     or (select lease_token from public.telemetry_map_cache_entries where match_id = 'crossed-processed-account') is distinct from account_token
+     or (select to_jsonb(cache) from public.telemetry_map_cache_entries as cache
+          where cache.match_id = 'crossed-processed-account'
+            and cache.platform = 'steam'
+            and cache.player_id = 'crossed-account-shared'
+            and cache.mode = 'lite'
+            and cache.telemetry_version = 61) is distinct from account_lease_before
   then
     raise exception 'FAIL: crossed processed account guard mutated rows (%)', account_result;
   end if;
 
   insert into public.processed_match_telemetry (match_id, platform, player_id, data)
-  values ('crossed-benchmark-player', 'steam', 'crossed-benchmark-player', benchmark_processed_data);
+  values ('crossed-benchmark-player', 'steam', 'crossed-benchmark-processed', benchmark_processed_data);
   insert into public.global_benchmarks (
     id, match_id, platform, player_id, game_mode, match_type, tier,
     filter_version, population_evidence_version
   ) values (
-    9302, 'crossed-benchmark-player', 'steam', 'crossed-benchmark-other',
+    9302, 'crossed-benchmark-player', 'steam', 'crossed-benchmark-shared',
     'squad-fpp', 'official', 'B', null, null
   );
   benchmark_snapshot := pg_temp.recovery_benchmark_snapshot(9302);
   perform public.claim_telemetry_cache_recovery_write(
-    'crossed-benchmark-player', 'steam', 'crossed-benchmark-account', 'lite', 61,
+    'crossed-benchmark-player', 'steam', 'crossed-benchmark-shared', 'lite', 61,
     'telemetry-map/v61/steam/crossed-benchmark-player/cccccccccccccccccccccccccccccccc/lite.json',
     now() + interval '10 minutes', benchmark_token, now()
   );
+  select to_jsonb(processed) into benchmark_processed_before
+    from public.processed_match_telemetry as processed
+   where processed.match_id = 'crossed-benchmark-player'
+     and processed.platform = 'steam'
+     and processed.player_id = 'crossed-benchmark-processed';
+  select to_jsonb(benchmark) into benchmark_benchmark_before
+    from public.global_benchmarks as benchmark
+   where benchmark.id = 9302;
+  select to_jsonb(cache) into benchmark_lease_before
+    from public.telemetry_map_cache_entries as cache
+   where cache.match_id = 'crossed-benchmark-player'
+     and cache.platform = 'steam'
+     and cache.player_id = 'crossed-benchmark-shared'
+     and cache.mode = 'lite'
+     and cache.telemetry_version = 61;
   benchmark_rows := jsonb_build_object(
     'master', jsonb_build_object(
       'match_id', 'crossed-benchmark-player', 'map_name', 'Baltic_Main',
@@ -1381,35 +1424,42 @@ begin
     ),
     'processed', jsonb_build_object(
       'match_id', 'crossed-benchmark-player', 'platform', 'steam',
-      'player_id', 'crossed-benchmark-player',
+      'player_id', 'crossed-benchmark-processed',
       'data', jsonb_set(benchmark_processed_data, '{fullResult,v}', '73'::jsonb), 'updated_at', now()
     ),
     'benchmark', jsonb_build_object(
-      'match_id', 'crossed-benchmark-player', 'platform', 'steam', 'player_id', 'crossed-benchmark-other',
+      'match_id', 'crossed-benchmark-player', 'platform', 'steam', 'player_id', 'crossed-benchmark-shared',
       'game_mode', 'squad-fpp', 'map_name', 'Baltic_Main', 'match_type', 'official', 'tier', 'B',
       'filter_version', 8, 'population_evidence_version', 1, 'source', 'user'
     )
   );
   benchmark_result := public.finalize_telemetry_cache_recovery(
-    'crossed-benchmark-player', 'steam', 'crossed-benchmark-account', 'lite', 61,
+    'crossed-benchmark-player', 'steam', 'crossed-benchmark-shared', 'lite', 61,
     'telemetry-map/v61/steam/crossed-benchmark-player/cccccccccccccccccccccccccccccccc/lite.json', benchmark_token,
     jsonb_build_object(
-      'matchId', 'crossed-benchmark-player', 'playerId', 'crossed-benchmark-player',
-      'platform', 'steam', 'resultVersion', 72, 'accountId', 'crossed-benchmark-account'
+      'matchId', 'crossed-benchmark-player', 'playerId', 'crossed-benchmark-processed',
+      'platform', 'steam', 'resultVersion', 72, 'accountId', 'crossed-benchmark-shared'
     ),
     jsonb_build_object(
-      'id', 9302, 'matchId', 'crossed-benchmark-player', 'playerId', 'crossed-benchmark-other',
+      'id', 9302, 'matchId', 'crossed-benchmark-player', 'playerId', 'crossed-benchmark-shared',
       'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official', 'tier', 'B',
       'filterVersion', null, 'populationEvidenceVersion', null, 'snapshot', benchmark_snapshot
     ), benchmark_rows
   );
-  if benchmark_result->>'code' <> 'benchmark_guard_mismatch'
-     or (select data #>> '{fullResult,v}' from public.processed_match_telemetry
-          where match_id = 'crossed-benchmark-player') <> '72'
+  if benchmark_result->>'ok' is distinct from 'false'
+     or benchmark_result->>'code' is distinct from 'benchmark_guard_mismatch'
+     or (select to_jsonb(processed) from public.processed_match_telemetry as processed
+          where processed.match_id = 'crossed-benchmark-player'
+            and processed.platform = 'steam'
+            and processed.player_id = 'crossed-benchmark-processed') is distinct from benchmark_processed_before
+     or (select to_jsonb(benchmark) from public.global_benchmarks as benchmark where benchmark.id = 9302) is distinct from benchmark_benchmark_before
      or exists (select 1 from public.match_master_telemetry where match_id = 'crossed-benchmark-player')
-     or (select population_evidence_version from public.global_benchmarks where id = 9302) is not null
-     or (select status from public.telemetry_map_cache_entries where match_id = 'crossed-benchmark-player') <> 'pending'
-     or (select lease_token from public.telemetry_map_cache_entries where match_id = 'crossed-benchmark-player') is distinct from benchmark_token
+     or (select to_jsonb(cache) from public.telemetry_map_cache_entries as cache
+          where cache.match_id = 'crossed-benchmark-player'
+            and cache.platform = 'steam'
+            and cache.player_id = 'crossed-benchmark-shared'
+            and cache.mode = 'lite'
+            and cache.telemetry_version = 61) is distinct from benchmark_lease_before
   then
     raise exception 'FAIL: crossed benchmark nickname guard mutated rows (%)', benchmark_result;
   end if;
