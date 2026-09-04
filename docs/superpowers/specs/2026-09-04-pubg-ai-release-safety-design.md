@@ -79,4 +79,3 @@ Before recommending a merge:
 - `verify:analysis`, `verify:core`, `verify:admin`, `verify:security`, the full unit suite, dependency audit, and a clean production build pass;
 - the built recovery route trace is absent and no environment-like workspace file appears in `.next` traces;
 - a real authenticated preview flow and Gemini call are checked only after local gates are green and without promoting production.
-
