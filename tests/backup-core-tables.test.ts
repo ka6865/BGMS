@@ -29,6 +29,7 @@ describe("핵심 테이블 백업", () => {
     // 여기에 추가되면 백업 용량이 수백 MB 로 늘어난다.
     expect(BACKUP_TABLES).toContain("map_markers");
     expect(BACKUP_TABLES).toContain("profiles");
+    expect(BACKUP_TABLES).toContain("global_benchmarks");
     expect(BACKUP_TABLES).not.toContain("match_stats_raw");
     expect(BACKUP_TABLES).not.toContain("processed_match_telemetry");
     expect(BACKUP_TABLES).not.toContain("pubg_player_cache");

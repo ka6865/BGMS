@@ -6,7 +6,11 @@ import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory, SchemaType } from
 import { buildMatchAiCoachingPrompt } from "../lib/pubg-analysis/matchAiCoachingPrompt";
 import { sanitizeBackupCoachingText } from "../lib/pubg-analysis/backupCoaching";
 import { buildSquadAiCoachingPrompt } from "../lib/pubg-analysis/squadAiCoachingPrompt";
-import { collectAiCoachingQualitySignals, hasBlockingAiCoachingQualityIssue } from "../lib/pubg-analysis/aiCoachingQuality";
+import {
+  collectAiCoachingQualitySignals,
+  hasBlockingAiCoachingQualityIssue,
+  sanitizeAiCoachingLanguageText,
+} from "../lib/pubg-analysis/aiCoachingQuality";
 import { getAiCoachingBlockingSignalNames } from "../lib/pubg-analysis/aiCoachingReportCheck";
 
 config({ path: ".env.local" });
@@ -493,9 +497,10 @@ describeRealGemini("실제 Gemini 10경기 요약 코칭 품질", () => {
   it("성공한 긴 백업을 요약 분석에서 오판하지 않고 토론형 JSON을 만든다", async () => {
     const { prompt, systemInstruction } = buildTenMatchSummaryQualityPrompt();
     const rawText = await callGeminiJson(prompt, systemInstruction);
-    const parsed = extractJson(rawText);
+    const finalText = sanitizeAiCoachingLanguageText(rawText);
+    const parsed = extractJson(finalText);
     const joinedFinal = JSON.stringify(parsed);
-    const qualitySignals = recordCase("summary-ten-match-successful-long-backup", rawText, rawText, parsed, {
+    const qualitySignals = recordCase("summary-ten-match-successful-long-backup", rawText, finalText, parsed, {
       expectedDebateIssueCount: 3,
       expectedBackupDirection: "교전 정리 후 복구 성공 + 복구 시간 단축",
       metricContext: {

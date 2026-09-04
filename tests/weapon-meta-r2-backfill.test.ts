@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildR2BurstUpdate } from "../scripts/backfill_weapon_meta_bursts";
+import {
+  buildR2BurstUpdate,
+  buildBurstTelemetryIdentity,
+  parseCanonicalBurstEvents,
+} from "../scripts/backfill_weapon_meta_bursts";
+import {
+  createTelemetryAnalyzeCacheEnvelope,
+  buildTelemetryAnalyzeCacheKey,
+} from "../lib/pubg-analysis/telemetryCacheKey";
 
 describe("R2 weapon-meta burst backfill", () => {
   it("updates only burst columns for an existing match-level weapon sample", () => {
@@ -32,5 +40,41 @@ describe("R2 weapon-meta burst backfill", () => {
       sustained_hits: 0,
       sustained_burst_count: 0,
     }]);
+  });
+
+  it("accepts only the canonical v61 analyzed-event envelope for the exact identity", () => {
+    const identity = buildBurstTelemetryIdentity({ match_id: "match-1", platform: "steam" }, "account.me");
+    expect(identity).not.toBeNull();
+    const envelope = createTelemetryAnalyzeCacheEnvelope(identity!, [{ _T: "LogPlayerTakeDamage" }]);
+
+    expect(parseCanonicalBurstEvents(envelope, identity!)).toEqual(envelope.events);
+    expect(parseCanonicalBurstEvents(envelope, {
+      ...identity!,
+      playerId: "account.other",
+    })).toBeNull();
+    expect(parseCanonicalBurstEvents(envelope, {
+      ...identity!,
+      platform: "kakao",
+    })).toBeNull();
+    expect(parseCanonicalBurstEvents(envelope, {
+      ...identity!,
+      telemetryVersion: 60,
+    })).toBeNull();
+    expect(parseCanonicalBurstEvents(envelope.events, identity!)).toBeNull();
+    expect(buildTelemetryAnalyzeCacheKey(identity!)).toContain("v61/steam/match-1");
+  });
+
+  it("rejects empty, malformed, unknown, or mixed-invalid analyzed event arrays", () => {
+    const identity = buildBurstTelemetryIdentity({ match_id: "match-1", platform: "steam" }, "account.me");
+    expect(identity).not.toBeNull();
+
+    const envelope = (events: unknown[]) => createTelemetryAnalyzeCacheEnvelope(identity!, events);
+    expect(parseCanonicalBurstEvents(envelope([{}]), identity!)).toBeNull();
+    expect(parseCanonicalBurstEvents(envelope([]), identity!)).toBeNull();
+    expect(parseCanonicalBurstEvents(envelope([{ _T: "LogUnknownEvent" }]), identity!)).toBeNull();
+    expect(parseCanonicalBurstEvents(envelope([
+      { _T: "LogPlayerKill" },
+      {},
+    ]), identity!)).toBeNull();
   });
 });

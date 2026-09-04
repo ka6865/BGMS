@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
+import { filterTelemetryEvents } from "@/lib/pubg-analysis/telemetryContract";
 import {
   downloadFromR2,
   getPresignedUrlFromR2,
@@ -26,6 +27,8 @@ import {
 } from "@/lib/pubg-analysis/telemetryRegistry.server";
 import {
   createTelemetryIdentity,
+  hasMatchingUpstreamMatchId,
+  isCanonicalMatchId,
   parseTelemetryMode,
   parseTelemetryPlatform,
   type TelemetryMode,
@@ -39,11 +42,18 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
-const MATCH_ID = /^[A-Za-z0-9._-]{1,160}$/;
 const MAX_NICKNAME_LENGTH = 64;
 
-function invalidRequest(message: string) {
-  return NextResponse.json({ error: message }, { status: 400 });
+function invalidRequest(message: string, errorCode = "PUBG_TELEMETRY_INVALID_REQUEST") {
+  return NextResponse.json({ error: message, errorCode, retryable: false }, { status: 400 });
+}
+
+function upstreamIdentityMismatch() {
+  return NextResponse.json({
+    error: "PUBG 응답 매치 식별자가 요청과 일치하지 않습니다.",
+    errorCode: "PUBG_MATCH_UPSTREAM_IDENTITY_MISMATCH",
+    retryable: false,
+  }, { status: 400 });
 }
 
 export async function GET(request: Request) {
@@ -52,8 +62,8 @@ export async function GET(request: Request) {
   const nickname = searchParams.get("nickname");
   const mapName = searchParams.get("mapName") || "Erangel";
 
-  if (!matchId || !MATCH_ID.test(matchId)) {
-    return invalidRequest("유효한 matchId 파라미터가 필요합니다.");
+  if (!isCanonicalMatchId(matchId)) {
+    return invalidRequest("유효한 matchId 파라미터가 필요합니다.", "PUBG_MATCH_INVALID_ID");
   }
   if (!nickname || nickname.trim().length === 0 || nickname.length > MAX_NICKNAME_LENGTH) {
     return invalidRequest("유효한 nickname 파라미터가 필요합니다.");
@@ -92,6 +102,9 @@ export async function GET(request: Request) {
     }
     if (!matchRes.ok) throw new Error("PUBG match request failed");
     const matchData = await matchRes.json();
+    if (!hasMatchingUpstreamMatchId(matchData, matchId)) {
+      return upstreamIdentityMismatch();
+    }
 
     const participants = matchData.included.filter((item: any) => item.type === "participant");
     const rosters = matchData.included.filter((item: any) => item.type === "roster");
@@ -112,6 +125,26 @@ export async function GET(request: Request) {
     if (!playerId) {
       return NextResponse.json({ error: "플레이어 식별자를 찾을 수 없습니다." }, { status: 404 });
     }
+
+    const myRoster = rosters.find((roster: any) =>
+      roster.relationships?.participants?.data?.some((participantRef: any) => participantRef.id === myInfo.id),
+    );
+    const teamParticipants = myRoster
+      ? myRoster.relationships.participants.data
+        .map((participantRef: any) => participants.find((participant: any) => participant.id === participantRef.id))
+        .filter(Boolean)
+      : [myInfo];
+    const teamStats = teamParticipants
+      .map((participant: any) => participant.attributes?.stats)
+      .filter(Boolean);
+    const teamNames = new Set<string>(teamStats
+      .map((stats: any) => normalizeName(stats.name))
+      .filter((name: string) => name.length > 0));
+    const teamAccountIds = new Set<string>(teamParticipants
+      .map((participant: any) => participant.attributes?.stats?.playerId
+        || participant.attributes?.stats?.accountId
+        || participant.attributes?.accountId)
+      .filter((id: unknown): id is string => typeof id === "string" && id.length > 0));
 
     const identity = createTelemetryIdentity({
       matchId,
@@ -159,17 +192,22 @@ export async function GET(request: Request) {
     try {
       const telemetryRes = await fetch(asset.attributes.URL, { cache: "no-store" });
       if (!telemetryRes.ok) throw new Error("PUBG telemetry request failed");
-      const events = await telemetryRes.json();
+      const rawTelemetry = await telemetryRes.json();
+      const events = filterTelemetryEvents(rawTelemetry, {
+        mode,
+        teamNames,
+        teamAccountIds,
+      });
 
       const { AnalysisEngine } = await import("@/lib/pubg-analysis/AnalysisEngine");
       const engine = new AnalysisEngine(
         canonicalNickname,
         playerId,
+        teamNames,
+        teamAccountIds,
         new Set(),
         new Set(),
-        new Set(),
-        new Set(),
-        "",
+        myRoster?.id || "",
         mode,
       );
       const result = engine.run(

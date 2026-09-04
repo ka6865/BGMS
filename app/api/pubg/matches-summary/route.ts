@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
-import { getValidFullResult, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
+import { getLegacyFullResultForHistory, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { buildMatchSummary, buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
 import { fetchAndIngestBasicMatchSummary } from "@/lib/pubg/playerMatchesIngest";
@@ -41,11 +41,17 @@ export async function POST(request: NextRequest) {
 
     const summaries: Record<string, any> = {};
     for (const row of telemetryData || []) {
-      const fullResult = getValidFullResult(row, playerId, platform);
-      if (!fullResult || (fullResult.v || 0) < RESULT_VERSION) continue;
+      const fullResult = getLegacyFullResultForHistory(row, playerId, platform);
+      if (!fullResult || fullResult.v !== RESULT_VERSION) continue;
 
       const summary = buildMatchSummary(fullResult);
-      if (summary) summaries[row.match_id] = summary;
+      if (summary) {
+        // Legacy fullResult payloads may omit their embedded match ID. The
+        // storage row was queried by the canonical ID, so retain it as the
+        // authoritative navigation identity for history/detail consumers.
+        if (!summary.matchId) summary.matchId = row.match_id;
+        summaries[row.match_id] = summary;
+      }
     }
 
     // 2순위: pubg_player_matches (기본 스탯 DB)

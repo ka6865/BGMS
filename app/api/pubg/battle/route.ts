@@ -3,6 +3,10 @@ import { createClient } from "@supabase/supabase-js";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { estimateAverageTierFromRows } from "@/lib/pubg-analysis/tierAveraging";
 import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
+import {
+  BENCHMARK_FILTER_VERSION,
+  BENCHMARK_POPULATION_EVIDENCE_VERSION,
+} from "@/lib/pubg-analysis/benchmarkLookup";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -137,8 +141,9 @@ export async function GET(request: Request) {
       .select(SELECT_COLS)
       .eq("player_id", player.playerId)
       .eq("platform", player.platform)
-      .not("game_mode", "ilike", "%training%")
-      .not("game_mode", "ilike", "%tdm%")
+      .eq("filter_version", BENCHMARK_FILTER_VERSION)
+      .eq("population_evidence_version", BENCHMARK_POPULATION_EVIDENCE_VERSION)
+      .in("game_mode", ["solo", "solo-fpp", "duo", "duo-fpp", "squad", "squad-fpp"])
       .in("match_type", ["official", "competitive"])
       .order("created_at", { ascending: false })
       .limit(MAX_COMPARE_MATCHES);

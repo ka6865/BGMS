@@ -1,8 +1,8 @@
 /**
  * @fileoverview 관리자 전용 API 라우트에서 공통으로 사용하는 권한 검증 헬퍼입니다.
  *
- * withAuthGuard 가 Bearer 헤더와 쿠키 세션을 모두 처리하므로
- * 웹 브라우저와 Capacitor 앱이 같은 라우트를 사용할 수 있습니다.
+ * withAuthGuard 가 웹 요청의 Bearer 헤더와 쿠키 세션을 모두 처리하므로
+ * 브라우저와 서버 API 호출이 같은 라우트를 사용할 수 있습니다.
  */
 
 import { NextResponse } from "next/server";

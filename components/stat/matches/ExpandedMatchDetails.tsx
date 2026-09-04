@@ -39,6 +39,7 @@ import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
 import { resolve3DMapCapability } from "@/lib/replay/mapCapabilities";
 import { isMatchTelemetryExpired, isMatchOlderThan14Days } from "@/components/stat/matchExpiryHelper";
+import { isCanonicalMatchId } from "@/lib/pubg-analysis/telemetryIdentity";
 import type { StatsPlatform } from "@/types/stats-page";
 
 const TimelineMiniMap = dynamic(
@@ -644,6 +645,26 @@ type MatchDetailState =
 
 type MatchDetailErrorKind = "unavailable" | "retryable" | "generic";
 
+type AiAnalysisErrorDetails = {
+  status?: number;
+  errorCode?: string;
+  retryable?: boolean;
+};
+
+class AiAnalysisRequestError extends Error {
+  readonly status: number;
+  readonly errorCode: string | null;
+  readonly retryable: boolean;
+
+  constructor(message: string, details: AiAnalysisErrorDetails = {}) {
+    super(message);
+    this.name = "AiAnalysisRequestError";
+    this.status = details.status ?? 0;
+    this.errorCode = details.errorCode ?? null;
+    this.retryable = details.retryable === true;
+  }
+}
+
 class MatchDetailRequestError extends Error {
   readonly kind: MatchDetailErrorKind;
 
@@ -662,6 +683,28 @@ const MATCH_PARTICIPANT_NOT_FOUND_MESSAGE = "해당 매치에서 플레이어 �
 const MATCH_CACHE_UNAVAILABLE_MESSAGE = "상세 분석 저장소가 일시적으로 불안정합니다. 잠시 후 다시 시도해 주세요.";
 const MATCH_RATE_LIMITED_MESSAGE = "PUBG API 호출 한도가 일시적으로 초과되었습니다. 잠시 후 다시 시도해 주세요.";
 const MATCH_TIMEOUT_MESSAGE = "상세 분석 요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.";
+const AI_ANALYSIS_RETRY_DELAY_MS = 2_500;
+const AI_ANALYSIS_MAX_AUTO_RETRIES = 1;
+const AI_ANALYSIS_CLIENT_SAFETY_TIMEOUT_MS = 45_000;
+
+function classifyAiAnalysisError(
+  status: number,
+  errorCode?: string,
+  retryable?: boolean,
+  message?: string,
+): AiAnalysisRequestError {
+  const isCanonicalNotReady = status === 409 && errorCode === "PUBG_AI_CANONICAL_NOT_READY";
+  const isRouteTimeout = status === 504 && errorCode === "PUBG_AI_ROUTE_TIMEOUT";
+  const isRetryable = retryable === true || isCanonicalNotReady || isRouteTimeout;
+  return new AiAnalysisRequestError(
+    message || (isCanonicalNotReady
+      ? "매치 분석 데이터가 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요."
+      : isRouteTimeout
+        ? "AI 분석 요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."
+        : "AI 분석 요청에 실패했습니다."),
+    { status, errorCode, retryable: isRetryable },
+  );
+}
 
 function detailCacheKey(platform: StatsPlatform, nickname: string, matchId: string): string {
   return `${platform}:${normalizeName(nickname)}:${matchId}`;
@@ -718,6 +761,13 @@ function isAbortError(error: unknown) {
   return error instanceof DOMException
     ? error.name === "AbortError"
     : Boolean(error && typeof error === "object" && "name" in error && error.name === "AbortError");
+}
+
+function isRetryableAiAnalysisError(error: unknown): error is AiAnalysisRequestError {
+  if (!(error instanceof AiAnalysisRequestError)) return false;
+  return error.retryable
+    || (error.status === 409 && error.errorCode === "PUBG_AI_CANONICAL_NOT_READY")
+    || (error.status === 504 && error.errorCode === "PUBG_AI_ROUTE_TIMEOUT");
 }
 
 function getMatchStatusBorder(summary?: MatchSummaryData | MatchData | null): string {
@@ -778,6 +828,8 @@ export const ExpandedMatchDetails = ({
   }, []);
   const [coachingStyle, setCoachingStyle] = useState<"mild" | "spicy">("spicy");
   const [analysis, setAnalysis] = useState<string | null>(null);
+  const [analysisError, setAnalysisError] = useState<AiAnalysisRequestError | null>(null);
+  const [analysisRetryMessage, setAnalysisRetryMessage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -920,6 +972,11 @@ export const ExpandedMatchDetails = ({
 
   const fetchFullMatch = useCallback(async () => {
     if (detailRequestRef.current || is14DaysExpiredRef.current) return;
+    if (!isCanonicalMatchId(matchId)) {
+      setDetailState({ status: "error", message: "상세 정보를 불러오지 못했습니다", kind: "generic" });
+      callbacksRef.current.onFailure?.("detail_failed");
+      return;
+    }
     const unavailableKey = detailCacheKey(platform, nickname, matchId);
     if (hasRecentlyUnavailableMatch(unavailableKey)) {
       setDetailState({ status: "error", message: MATCH_NOT_FOUND_MESSAGE, kind: "unavailable" });
@@ -935,7 +992,8 @@ export const ExpandedMatchDetails = ({
       || detailRequestRef.current?.controller !== controller
       || controller.signal.aborted;
     try {
-      const res = await fetch(`/api/pubg/match?matchId=${matchId}&nickname=${nickname}&platform=${platform}`, {
+      const query = new URLSearchParams({ matchId, nickname, platform });
+      const res = await fetch(`/api/pubg/match?${query.toString()}`, {
         cache: "no-store",
         signal: controller.signal,
       });
@@ -1040,25 +1098,12 @@ export const ExpandedMatchDetails = ({
     setIsAnalyzing(true);
     isAnalyzingRef.current = true;
     setAnalysis("");
+    setAnalysisError(null);
+    setAnalysisRetryMessage(null);
 
-    const abortController = new AbortController();
-    abortControllerRef.current = abortController;
     const generation = ++aiGenerationRef.current;
-    const isCurrentAiRequest = () => generation === aiGenerationRef.current
-      && abortControllerRef.current === abortController
-      && !abortController.signal.aborted;
-
-    // [V46.1] 클라이언트 측 세이프티 타임아웃 (45초)
-    const safetyTimeout = setTimeout(() => {
-      if (isCurrentAiRequest() && isAnalyzingRef.current) {
-        abortController.abort();
-        setIsAnalyzing(false);
-        isAnalyzingRef.current = false;
-        aiManager.stopAnalysis(ownerIdentity);
-      }
-    }, 45000);
-
-    let lineBuffer = "";
+    let activeAbortController: AbortController | null = null;
+    let retryCount = 0;
 
     // GA4 이벤트 트래킹: AI 코칭 시작
     trackEvent({
@@ -1069,76 +1114,271 @@ export const ExpandedMatchDetails = ({
       }
     });
 
-    try {
-      const res = await fetch("/api/pubg/ai-analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: abortController.signal,
-        body: JSON.stringify({ matchData, nickname, platform, coachingStyle })
-      });
-
-      if (!res.ok) throw new Error("분석 요청 실패");
-
+    const isCurrentOwner = () => generation === aiGenerationRef.current;
+    const waitForRetry = () => new Promise<void>((resolve) => {
+      setTimeout(resolve, AI_ANALYSIS_RETRY_DELAY_MS);
+    });
+    const parseStreamResponse = async (res: Response, attemptSignal: AbortSignal): Promise<string> => {
       const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-      let accumulatedAnalysis = "";
-
-      if (reader) {
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-
-            lineBuffer += decoder.decode(value, { stream: true });
-            const lines = lineBuffer.split("\n");
-            lineBuffer = lines.pop() || "";
-
-            for (const line of lines) {
-              if (!line.trim()) continue;
-              try {
-                const parsed = JSON.parse(line);
-                if (parsed.type === "chunk" && isCurrentAiRequest()) {
-                  accumulatedAnalysis += parsed.data;
-                  setAnalysis(accumulatedAnalysis);
-                }
-              } catch {
-              }
-            }
-          }
-        } finally {
-          reader.releaseLock();
-        }
+      if (!reader) {
+        throw new AiAnalysisRequestError("AI 분석 응답이 비어 있습니다.", {
+          status: res.status,
+          errorCode: "PUBG_AI_STREAM_EMPTY",
+          retryable: true,
+        });
       }
 
-      // GA4 이벤트 트래킹: AI 코칭 성공
-      trackEvent({
-        name: "feature_consumption",
-        params: {
-          feature_name: "ai-coaching",
-          status: "success"
+      const decoder = new TextDecoder();
+      let lineBuffer = "";
+      let accumulatedAnalysis = "";
+      let sawChunk = false;
+      let sawDone = false;
+      let malformedLine = false;
+      let trailingEventAfterDone = false;
+      let terminalDone = false;
+      let streamedFailure: {
+        error?: string;
+        errorCode?: string;
+        retryable?: boolean;
+        valid?: boolean;
+      } | null = null;
+
+      const processLine = (line: string) => {
+        const trimmedLine = line.trim();
+        if (!trimmedLine) return;
+
+        let parsed: {
+          type?: string;
+          data?: unknown;
+          valid?: boolean;
+          error?: string;
+          errorCode?: string;
+          retryable?: boolean;
+        };
+        try {
+          parsed = JSON.parse(trimmedLine);
+        } catch {
+          malformedLine = true;
+          return;
         }
-      });
-      if (isCurrentAiRequest()) callbacksRef.current.onRecovery?.("analysis_failed");
-    } catch (err: any) {
-      // GA4 이벤트 트래킹: AI 코칭 실패
-      trackEvent({
-        name: "feature_consumption",
-        params: {
-          feature_name: "ai-coaching",
-          status: "fail",
-          error_type: err.name === 'AbortError' ? 'user_abort' : (err.message || 'unknown')
+
+        if (terminalDone) {
+          trailingEventAfterDone = true;
+          if (parsed.type === "error" || (parsed.type === "done" && (parsed.valid === false || parsed.error || parsed.errorCode))) {
+            streamedFailure = {
+              ...(streamedFailure ?? {}),
+              ...parsed,
+            };
+          }
+          return;
         }
-      });
-      if (isCurrentAiRequest() && !isAbortError(err)) {
-        callbacksRef.current.onFailure?.("analysis_failed");
+
+        if (parsed.type === "chunk") {
+          if (typeof parsed.data !== "string") {
+            malformedLine = true;
+            return;
+          }
+          accumulatedAnalysis += parsed.data;
+          if (parsed.data.trim()) sawChunk = true;
+          if (isCurrentOwner() && !attemptSignal.aborted) setAnalysis(accumulatedAnalysis);
+          return;
+        }
+
+        if (parsed.type === "error") {
+          streamedFailure = parsed;
+          return;
+        }
+
+        if (parsed.type === "done") {
+          sawDone = true;
+          terminalDone = true;
+          if (parsed.valid === false || parsed.error || parsed.errorCode) {
+            streamedFailure = {
+              ...(streamedFailure ?? {}),
+              ...parsed,
+            };
+          }
+        }
+      };
+
+      try {
+        while (true) {
+          if (!isCurrentOwner() || attemptSignal.aborted) throw new DOMException("The operation was aborted.", "AbortError");
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          lineBuffer += decoder.decode(value, { stream: true });
+          const lines = lineBuffer.split("\n");
+          lineBuffer = lines.pop() || "";
+          lines.forEach(processLine);
+        }
+
+        lineBuffer += decoder.decode();
+        if (lineBuffer.trim()) processLine(lineBuffer);
+      } catch (streamError) {
+        if (isAbortError(streamError)) throw streamError;
+        throw new AiAnalysisRequestError("AI 분석 스트림이 중단되었습니다.", {
+          status: res.status || 200,
+          errorCode: "PUBG_AI_STREAM_READ_FAILED",
+          retryable: true,
+        });
+      } finally {
+        reader.releaseLock();
+      }
+
+      const parsedStreamFailure = streamedFailure as {
+        error?: string;
+        errorCode?: string;
+        retryable?: boolean;
+        valid?: boolean;
+      } | null;
+      if (parsedStreamFailure) {
+        const status = parsedStreamFailure.errorCode === "PUBG_AI_CANONICAL_NOT_READY"
+          ? 409
+          : parsedStreamFailure.errorCode === "PUBG_AI_ROUTE_TIMEOUT" ? 504 : res.status || 200;
+        throw classifyAiAnalysisError(
+          status,
+          parsedStreamFailure.errorCode,
+          parsedStreamFailure.retryable === true,
+          parsedStreamFailure.error,
+        );
+      }
+
+      if (!sawDone || trailingEventAfterDone || !sawChunk || !accumulatedAnalysis.trim()) {
+        throw new AiAnalysisRequestError(
+          malformedLine
+            ? "AI 분석 응답을 완전히 읽지 못했습니다."
+            : "AI 분석 응답이 완전하지 않습니다.",
+          {
+            status: res.status || 200,
+            errorCode: "PUBG_AI_STREAM_INCOMPLETE",
+            retryable: true,
+          },
+        );
+      }
+
+      return accumulatedAnalysis;
+    };
+
+    try {
+      while (true) {
+        if (!isCurrentOwner()) return;
+
+        const abortController = new AbortController();
+        activeAbortController = abortController;
+        abortControllerRef.current = abortController;
+        let safetyTimedOut = false;
+        const safetyTimeout = setTimeout(() => {
+          if (isCurrentOwner() && abortControllerRef.current === abortController && isAnalyzingRef.current) {
+            safetyTimedOut = true;
+            abortController.abort();
+          }
+        }, AI_ANALYSIS_CLIENT_SAFETY_TIMEOUT_MS);
+
+        try {
+          const res = await fetch("/api/pubg/ai-analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: abortController.signal,
+            body: JSON.stringify({ matchData, nickname, platform, coachingStyle })
+          });
+
+          if (!isCurrentOwner()) return;
+          if (abortController.signal.aborted) {
+            if (safetyTimedOut) {
+              throw classifyAiAnalysisError(504, "PUBG_AI_ROUTE_TIMEOUT", true, "AI 분석 요청 시간이 초과되었습니다.");
+            }
+            return;
+          }
+          if (!res.ok) {
+            let errorData: {
+              error?: unknown;
+              errorCode?: unknown;
+              retryable?: unknown;
+            } = {};
+            try {
+              const parsed = await res.json();
+              if (parsed && typeof parsed === "object") errorData = parsed;
+            } catch {
+              // The status itself is still preserved when the body is not JSON.
+            }
+            throw classifyAiAnalysisError(
+              res.status,
+              typeof errorData.errorCode === "string" ? errorData.errorCode : undefined,
+              errorData.retryable === true,
+              typeof errorData.error === "string" ? errorData.error : undefined,
+            );
+          }
+
+          const responseText = await parseStreamResponse(res, abortController.signal);
+          if (!isCurrentOwner()) return;
+          if (abortController.signal.aborted) {
+            if (safetyTimedOut) {
+              throw classifyAiAnalysisError(504, "PUBG_AI_ROUTE_TIMEOUT", true, "AI 분석 요청 시간이 초과되었습니다.");
+            }
+            return;
+          }
+
+          setAnalysis(responseText);
+          setAnalysisError(null);
+          setAnalysisRetryMessage(null);
+          trackEvent({
+            name: "feature_consumption",
+            params: {
+              feature_name: "ai-coaching",
+              status: "success"
+            }
+          });
+          callbacksRef.current.onRecovery?.("analysis_failed");
+          return;
+        } catch (caught) {
+          if (!isCurrentOwner()) return;
+          if (abortController.signal.aborted && !safetyTimedOut) return;
+
+          const error = caught instanceof AiAnalysisRequestError
+            ? caught
+            : safetyTimedOut
+              ? classifyAiAnalysisError(504, "PUBG_AI_ROUTE_TIMEOUT", true, "AI 분석 요청 시간이 초과되었습니다.")
+              : new AiAnalysisRequestError("AI 분석 요청 중 네트워크 오류가 발생했습니다.", {
+                errorCode: "PUBG_AI_NETWORK_ERROR",
+                retryable: true,
+              });
+
+          if (isRetryableAiAnalysisError(error) && retryCount < AI_ANALYSIS_MAX_AUTO_RETRIES) {
+            retryCount += 1;
+            setAnalysis("");
+            setAnalysisError(null);
+            setAnalysisRetryMessage(`AI 분석 서버가 잠깐 불안정해 자동 재시도 중입니다. (${retryCount}/${AI_ANALYSIS_MAX_AUTO_RETRIES})`);
+            abortController.abort();
+            await waitForRetry();
+            if (!isCurrentOwner()) return;
+            setAnalysisRetryMessage(null);
+            continue;
+          }
+
+          setAnalysis("");
+          setAnalysisRetryMessage(null);
+          setAnalysisError(error);
+          trackEvent({
+            name: "feature_consumption",
+            params: {
+              feature_name: "ai-coaching",
+              status: "fail",
+              error_type: error.errorCode || error.message || "unknown"
+            }
+          });
+          callbacksRef.current.onFailure?.("analysis_failed");
+          return;
+        } finally {
+          clearTimeout(safetyTimeout);
+        }
       }
     } finally {
-      clearTimeout(safetyTimeout);
-      if (generation === aiGenerationRef.current && abortControllerRef.current === abortController) {
+      if (generation === aiGenerationRef.current) {
         setIsAnalyzing(false);
         isAnalyzingRef.current = false;
         aiManager.stopAnalysis(ownerIdentity);
-        abortControllerRef.current = null;
+        if (abortControllerRef.current === activeAbortController) abortControllerRef.current = null;
       }
     }
   };
@@ -1645,7 +1885,13 @@ export const ExpandedMatchDetails = ({
                 <div className="flex items-center gap-2">
                   <div className="flex gap-2 bg-black/40 p-1 rounded-2xl border border-white/10">
                   <button
-                    onClick={(e) => { e.stopPropagation(); setCoachingStyle("mild"); setAnalysis(null); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCoachingStyle("mild");
+                      setAnalysis(null);
+                      setAnalysisError(null);
+                      setAnalysisRetryMessage(null);
+                    }}
                     className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
                       coachingStyle === 'mild'
                         ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
@@ -1655,7 +1901,13 @@ export const ExpandedMatchDetails = ({
                     <BgmsIcon name="shield" size={14} /> 다정한 맛
                   </button>
                   <button
-                    onClick={(e) => { e.stopPropagation(); setCoachingStyle("spicy"); setAnalysis(null); }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setCoachingStyle("spicy");
+                      setAnalysis(null);
+                      setAnalysisError(null);
+                      setAnalysisRetryMessage(null);
+                    }}
                     className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
                       coachingStyle === 'spicy'
                         ? 'bg-red-500 text-white shadow-lg shadow-red-500/20'
@@ -1667,6 +1919,26 @@ export const ExpandedMatchDetails = ({
                   </div>
                 </div>
               </div>
+
+              {analysisRetryMessage && (
+                <div
+                  role="status"
+                  aria-label="AI 분석 자동 재시도"
+                  className="mb-4 rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-4 text-center text-sm font-bold text-indigo-200"
+                >
+                  {analysisRetryMessage}
+                </div>
+              )}
+              {analysisError && (
+                <div
+                  role="alert"
+                  aria-label="AI 분석 실패"
+                  className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-center"
+                >
+                  <p className="text-sm font-black text-red-100">{analysisError.message}</p>
+                  <p className="mt-1 text-xs font-medium text-red-200/70">잠시 후 같은 매치에서 다시 시도할 수 있습니다.</p>
+                </div>
+              )}
 
               {analysis ? (
                 <div className="flex flex-col gap-6 animate-in fade-in zoom-in duration-500">

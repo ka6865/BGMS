@@ -1,0 +1,504 @@
+{
+  "nickname": "FixturePlayer",
+  "platform": "steam",
+  "teamNames": ["fixtureplayer", "teammate"],
+  "teamAccountIds": ["account.fixture", "account.teammate"],
+  "matches": [
+    {
+      "matchId": "match-latest-01",
+      "createdAt": "2026-08-27T00:12:00.000Z",
+      "matchType": "official",
+      "gameMode": "squad",
+      "mapName": "Erangel_Main",
+      "score": 41,
+      "fullResult": {
+        "matchId": "match-latest-01",
+        "player_id": "fixtureplayer",
+        "platform": "steam",
+        "v": 72,
+        "stats": {
+          "name": "FixturePlayer",
+          "playerId": "account.fixture",
+          "kills": 2,
+          "assists": 1,
+          "damageDealt": 280,
+          "processedDamageDealt": 250,
+          "DBNOs": 2,
+          "winPlace": 4,
+          "timeSurvived": 960
+        },
+        "benchmark": { "score": 41 },
+        "teamImpact": { "teamDamageShare": 42 },
+        "isolationData": { "isolationIndex": 1.2 },
+        "tradeStats": { "tradeKills": 1, "revCount": 1 },
+        "combatPressure": { "utilityStats": { "throwCount": 2, "hitCount": 1 } }
+      }
+    },
+    {
+      "matchId": "match-latest-02",
+      "createdAt": "2026-08-27T00:11:00.000Z",
+      "matchType": "competitive",
+      "gameMode": "squad",
+      "mapName": "Erangel_Main",
+      "score": 52,
+      "fullResult": {
+        "matchId": "match-latest-02",
+        "player_id": "fixtureplayer",
+        "platform": "steam",
+        "v": 72,
+        "stats": { "name": "FixturePlayer", "playerId": "account.fixture", "kills": 1, "assists": 0, "damageDealt": 190, "processedDamageDealt": 180, "DBNOs": 1, "winPlace": 7, "timeSurvived": 800 },
+        "benchmark": { "score": 52 },
+        "teamImpact": { "teamDamageShare": 38 },
+        "isolationData": { "isolationIndex": 1.4 },
+        "tradeStats": { "tradeKills": 0, "revCount": 0 },
+        "combatPressure": { "utilityStats": { "throwCount": 1, "hitCount": 1 } }
+      }
+    },
+    {
+      "matchId": "shard:match-duplicate",
+      "createdAt": "2026-08-27T00:10:00.000Z",
+      "matchType": "official",
+      "gameMode": "squad",
+      "mapName": "Erangel_Main",
+      "score": 63,
+      "fullResult": {
+        "matchId": "shard:match-duplicate",
+        "player_id": "fixtureplayer",
+        "platform": "steam",
+        "v": 72,
+        "stats": { "name": "FixturePlayer", "playerId": "account.fixture", "kills": 3, "assists": 0, "damageDealt": 310, "processedDamageDealt": 305, "DBNOs": 2, "winPlace": 3, "timeSurvived": 930 },
+        "benchmark": { "score": 63 },
+        "teamImpact": { "teamDamageShare": 45 },
+        "isolationData": { "isolationIndex": 1.6 },
+        "tradeStats": { "tradeKills": 1, "revCount": 0 },
+        "combatPressure": { "utilityStats": { "throwCount": 1, "hitCount": 0 } }
+      }
+    },
+    {
+      "matchId": "match-duplicate",
+      "createdAt": "2026-08-27T00:09:00.000Z",
+      "matchType": "official",
+      "gameMode": "squad",
+      "mapName": "Erangel_Main",
+      "score": 999,
+      "fullResult": {
+        "matchId": "match-duplicate",
+        "player_id": "fixtureplayer",
+        "platform": "steam",
+        "v": 72,
+        "stats": { "name": "FixturePlayer", "playerId": "account.fixture", "kills": 9, "assists": 0, "damageDealt": 900, "processedDamageDealt": 900, "DBNOs": 4, "winPlace": 1, "timeSurvived": 1200 },
+        "benchmark": { "score": 999 },
+        "teamImpact": { "teamDamageShare": 90 },
+        "isolationData": { "isolationIndex": 2.1 },
+        "tradeStats": { "tradeKills": 4, "revCount": 0 },
+        "combatPressure": { "utilityStats": { "throwCount": 0, "hitCount": 0 } }
+      }
+    },
+    {
+      "matchId": "match-latest-03",
+      "createdAt": "2026-08-27T00:08:00.000Z",
+      "matchType": "unknown",
+      "gameMode": "squad",
+      "mapName": "Erangel_Main",
+      "score": 35,
+      "fullResult": {
+        "matchId": "match-latest-03",
+        "player_id": "fixtureplayer",
+        "platform": "steam",
+        "v": 72,
+        "stats": { "name": "FixturePlayer", "playerId": "account.fixture", "kills": 0, "assists": 2, "damageDealt": 120, "processedDamageDealt": 115, "DBNOs": 0, "winPlace": 12, "timeSurvived": 620 },
+        "benchmark": { "score": 35 },
+        "teamImpact": { "teamDamageShare": 25 },
+        "isolationData": { "isolationIndex": 1.1 },
+        "tradeStats": { "tradeKills": 0, "revCount": 1 },
+        "combatPressure": { "utilityStats": { "throwCount": 2, "hitCount": 1 } }
+      }
+    },
+    {
+      "matchId": "match-latest-04",
+      "createdAt": "2026-08-27T00:07:00.000Z",
+      "matchType": "official",
+      "gameMode": "squad",
+      "mapName": "Erangel_Main",
+      "score": 26,
+      "fullResult": {
+        "matchId": "match-latest-04",
+        "player_id": "fixtureplayer",
+        "platform": "steam",
+        "v": 72,
+        "stats": { "name": "FixturePlayer", "playerId": "account.fixture", "kills": 1, "assists": 1, "damageDealt": 160, "processedDamageDealt": 155, "DBNOs": 1, "winPlace": 18, "timeSurvived": 500 },
+        "benchmark": { "score": 26 },
+        "teamImpact": { "teamDamageShare": 31 },
+        "isolationData": { "isolationIndex": 1.8 },
+        "tradeStats": { "tradeKills": 0, "revCount": 0 },
+        "combatPressure": { "utilityStats": { "throwCount": 1, "hitCount": 0 } }
+      }
+    },
+    {
+      "matchId": "match-latest-05",
+      "createdAt": "2026-08-27T00:06:00.000Z",
+      "matchType": "official",
+      "gameMode": "squad",
+      "mapName": "Erangel_Main",
+      "score": 20,
+      "fullResult": {
+        "matchId": "match-latest-05",
+        "player_id": "fixtureplayer",
+        "platform": "steam",
+        "v": 72,
+        "stats": { "name": "FixturePlayer", "playerId": "account.fixture", "kills": 1, "assists": 0, "damageDealt": 140, "processedDamageDealt": 130, "DBNOs": 1, "winPlace": 22, "timeSurvived": 440 },
+        "benchmark": { "score": 20 },
+        "teamImpact": { "teamDamageShare": 29 },
+        "isolationData": { "isolationIndex": 1.5 },
+        "tradeStats": { "tradeKills": 0, "revCount": 0 },
+        "combatPressure": { "utilityStats": { "throwCount": 1, "hitCount": 0 } }
+      }
+    },
+    {
+      "matchId": "match-latest-06",
+      "createdAt": "2026-08-27T00:05:00.000Z",
+      "matchType": "official",
+      "gameMode": "squad",
+      "mapName": "Erangel_Main",
+      "score": 18,
+      "fullResult": {
+        "matchId": "match-latest-06",
+        "player_id": "fixtureplayer",
+        "platform": "steam",
+        "v": 72,
+        "stats": { "name": "FixturePlayer", "playerId": "account.fixture", "kills": 0, "assists": 1, "damageDealt": 90, "processedDamageDealt": 88, "DBNOs": 0, "winPlace": 27, "timeSurvived": 390 },
+        "benchmark": { "score": 18 },
+        "teamImpact": { "teamDamageShare": 18 },
+        "isolationData": { "isolationIndex": 1.3 },
+        "tradeStats": { "tradeKills": 0, "revCount": 1 },
+        "combatPressure": { "utilityStats": { "throwCount": 0, "hitCount": 0 } }
+      }
+    },
+    {
+      "matchId": "match-latest-07",
+      "createdAt": "2026-08-27T00:04:00.000Z",
+      "matchType": "official",
+      "gameMode": "squad",
+      "mapName": "Erangel_Main",
+      "score": 16,
+      "fullResult": {
+        "matchId": "match-latest-07",
+        "player_id": "fixtureplayer",
+        "platform": "steam",
+        "v": 72,
+        "stats": { "name": "FixturePlayer", "playerId": "account.fixture", "kills": 0, "assists": 0, "damageDealt": 80, "processedDamageDealt": 75, "DBNOs": 0, "winPlace": 31, "timeSurvived": 330 },
+        "benchmark": { "score": 16 },
+        "teamImpact": { "teamDamageShare": 16 },
+        "isolationData": { "isolationIndex": 1.7 },
+        "tradeStats": { "tradeKills": 0, "revCount": 0 },
+        "combatPressure": { "utilityStats": { "throwCount": 0, "hitCount": 0 } }
+      }
+    },
+    {
+      "matchId": "match-latest-08",
+      "createdAt": "2026-08-27T00:03:00.000Z",
+      "matchType": "official",
+      "gameMode": "squad",
+      "mapName": "Erangel_Main",
+      "score": 14,
+      "fullResult": {
+        "matchId": "match-latest-08",
+        "player_id": "fixtureplayer",
+        "platform": "steam",
+        "v": 72,
+        "stats": { "name": "FixturePlayer", "playerId": "account.fixture", "kills": 0, "assists": 0, "damageDealt": 70, "processedDamageDealt": 65, "DBNOs": 0, "winPlace": 39, "timeSurvived": 290 },
+        "benchmark": { "score": 14 },
+        "teamImpact": { "teamDamageShare": 14 },
+        "isolationData": { "isolationIndex": 1.9 },
+        "tradeStats": { "tradeKills": 0, "revCount": 0 },
+        "combatPressure": { "utilityStats": { "throwCount": 0, "hitCount": 0 } }
+      }
+    },
+    {
+      "matchId": "match-latest-09",
+      "createdAt": "2026-08-27T00:02:00.000Z",
+      "matchType": "official",
+      "gameMode": "squad",
+      "mapName": "Erangel_Main",
+      "score": 12,
+      "fullResult": {
+        "matchId": "match-latest-09",
+        "player_id": "fixtureplayer",
+        "platform": "steam",
+        "v": 72,
+        "stats": { "name": "FixturePlayer", "playerId": "account.fixture", "kills": 0, "assists": 0, "damageDealt": 50, "processedDamageDealt": 48, "DBNOs": 0, "winPlace": 45, "timeSurvived": 250 },
+        "benchmark": { "score": 12 },
+        "teamImpact": { "teamDamageShare": 10 },
+        "isolationData": { "isolationIndex": 1.4 },
+        "tradeStats": { "tradeKills": 0, "revCount": 0 },
+        "combatPressure": { "utilityStats": { "throwCount": 0, "hitCount": 0 } }
+      }
+    },
+    {
+      "matchId": "match-latest-10",
+      "createdAt": "2026-08-27T00:01:00.000Z",
+      "matchType": "official",
+      "gameMode": "squad",
+      "mapName": "Erangel_Main",
+      "score": 10,
+      "fullResult": {
+        "matchId": "match-latest-10",
+        "player_id": "fixtureplayer",
+        "platform": "steam",
+        "v": 72,
+        "stats": { "name": "FixturePlayer", "playerId": "account.fixture", "kills": 0, "assists": 0, "damageDealt": 40, "processedDamageDealt": 38, "DBNOs": 0, "winPlace": 52, "timeSurvived": 210 },
+        "benchmark": { "score": 10 },
+        "teamImpact": { "teamDamageShare": 8 },
+        "isolationData": { "isolationIndex": 1.6 },
+        "tradeStats": { "tradeKills": 0, "revCount": 0 },
+        "combatPressure": { "utilityStats": { "throwCount": 0, "hitCount": 0 } }
+      }
+    },
+    {
+      "matchId": "match-old-high-score",
+      "createdAt": "2026-07-01T00:00:00.000Z",
+      "matchType": "official",
+      "gameMode": "squad",
+      "mapName": "Erangel_Main",
+      "score": 1000,
+      "fullResult": {
+        "matchId": "match-old-high-score",
+        "player_id": "fixtureplayer",
+        "platform": "steam",
+        "v": 72,
+        "stats": { "name": "FixturePlayer", "playerId": "account.fixture", "kills": 20, "assists": 0, "damageDealt": 2000, "processedDamageDealt": 2000, "DBNOs": 10, "winPlace": 1, "timeSurvived": 1800 },
+        "benchmark": { "score": 1000 },
+        "teamImpact": { "teamDamageShare": 100 },
+        "isolationData": { "isolationIndex": 4.5 },
+        "tradeStats": { "tradeKills": 10, "revCount": 0 },
+        "combatPressure": { "utilityStats": { "throwCount": 0, "hitCount": 0 } }
+      }
+    },
+    {
+      "matchId": "match-excluded-ai",
+      "createdAt": "2026-08-27T00:13:00.000Z",
+      "matchType": "airoyale",
+      "gameMode": "squad",
+      "mapName": "Erangel_Main",
+      "score": 1001,
+      "fullResult": {
+        "matchId": "match-excluded-ai",
+        "player_id": "fixtureplayer",
+        "platform": "steam",
+        "v": 72,
+        "stats": { "name": "FixturePlayer", "playerId": "account.fixture", "kills": 30, "assists": 0, "damageDealt": 3000, "processedDamageDealt": 3000, "DBNOs": 12, "winPlace": 1, "timeSurvived": 1800 },
+        "benchmark": { "score": 1001 }
+      }
+    },
+    {
+      "matchId": "match-excluded-event",
+      "createdAt": "2026-08-27T00:14:00.000Z",
+      "matchType": "official",
+      "gameMode": "event-squad",
+      "mapName": "Erangel_Main",
+      "score": 1002,
+      "fullResult": {
+        "matchId": "match-excluded-event",
+        "player_id": "fixtureplayer",
+        "platform": "steam",
+        "v": 72,
+        "stats": { "name": "FixturePlayer", "playerId": "account.fixture", "kills": 31, "assists": 0, "damageDealt": 3100, "processedDamageDealt": 3100, "DBNOs": 13, "winPlace": 1, "timeSurvived": 1800 },
+        "benchmark": { "score": 1002 }
+      }
+    }
+  ],
+  "telemetry": [
+    {
+      "_T": "LogMatchStart",
+      "_D": "2026-08-27T00:00:00.000Z"
+    },
+    {
+      "_T": "LogPlayerRedeployBRStart",
+      "_D": "2026-08-27T00:00:01.000Z",
+      "characters": [
+        {
+          "character": {
+            "name": "FixturePlayer",
+            "accountId": "account.fixture",
+            "loc": { "x": 100, "y": 200 }
+          },
+          "reason": "redeploy"
+        },
+        {
+          "name": "Teammate",
+          "playerId": "account.teammate",
+          "loc": { "x": 110, "y": 210 }
+        }
+      ]
+    },
+    {
+      "_T": "LogPlayerAttack",
+      "_D": "2026-08-27T00:00:02.000Z",
+      "attacker": { "name": "FixturePlayer", "accountId": "account.fixture", "loc": { "x": 120, "y": 220 } },
+      "victim": { "name": "EnemyAlpha", "accountId": "account.enemy.alpha", "location": { "x": 130, "y": 230 } },
+      "weapon": { "itemId": "Item_Weapon_Grenade_C" },
+      "weaponId": "Item_Weapon_Grenade_C",
+      "damage": 42,
+      "distance": 35
+    },
+    {
+      "_T": "LogPlayerUseThrowable",
+      "_D": "2026-08-27T00:00:02.500Z",
+      "attacker": { "name": "FixturePlayer", "accountId": "account.fixture", "loc": { "x": 125, "y": 225 } },
+      "weapon": { "itemId": "Item_Weapon_Grenade_C", "name": "FragGrenade" },
+      "weaponId": "Item_Weapon_Grenade_C",
+      "attackId": "throw-1"
+    },
+    {
+      "_T": "LogPlayerTakeDamage",
+      "_D": "2026-08-27T00:00:02.750Z",
+      "attacker": { "name": "FixturePlayer", "accountId": "account.fixture", "loc": { "x": 120, "y": 220 } },
+      "victim": { "name": "EnemyAlpha", "accountId": "account.enemy.alpha", "location": { "x": 130, "y": 230 } },
+      "damageCauserName": "WeapM416_C",
+      "damageReason": "TorsoShot",
+      "damage": 42,
+      "distance": 35
+    },
+    {
+      "_T": "LogVehicleRide",
+      "_D": "2026-08-27T00:00:03.000Z",
+      "character": { "name": "FixturePlayer", "accountId": "account.fixture", "loc": { "x": 140, "y": 240 } },
+      "vehicle": { "vehicleId": "Vehicle_Dacia_C", "vehicleType": "Car" }
+    },
+    {
+      "_T": "LogCarePackageLand",
+      "_D": "2026-08-27T00:00:04.000Z",
+      "itemPackage": {
+        "itemPackageId": "package-1",
+        "location": { "x": 300, "y": 400, "z": 12 },
+        "items": [{ "itemId": "Item_Secret", "stackCount": 99 }]
+      }
+    },
+    {
+      "_T": "LogPlayerKillV2",
+      "_D": "2026-08-27T00:00:05.000Z",
+      "killer": { "name": "FixturePlayer", "accountId": "account.fixture", "loc": { "x": 150, "y": 250 } },
+      "victim": { "name": "EnemyAlpha", "accountId": "account.enemy.alpha", "location": { "x": 155, "y": 255 } },
+      "assists_AccountId": ["account.teammate", "account.teammate", "account.enemy.assist"],
+      "teamKillers_AccountId": ["account.fixture"],
+      "weapon": { "itemId": "Item_Weapon_Grenade_C" },
+      "damage": 100
+    },
+    {
+      "_T": "LogExplosiveExplode",
+      "_D": "2026-08-27T00:00:06.000Z",
+      "explosiveItem": { "itemId": "Item_SmokeGrenade" },
+      "explosiveId": "SmokeGrenade",
+      "location": { "x": 320, "y": 420 }
+    },
+    {
+      "_T": "LogFutureEvent",
+      "_D": "2026-08-27T00:00:07.000Z"
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:07.500Z",
+      "character": { "name": "FixturePlayer", "accountId": "account.fixture", "loc": { "x": 100, "y": 200 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:08.000Z",
+      "character": { "name": "Enemy0", "accountId": "account.enemy.0", "loc": { "x": 0, "y": 0 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:09.000Z",
+      "character": { "name": "Enemy1", "accountId": "account.enemy.1", "loc": { "x": 1, "y": 1 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:10.000Z",
+      "character": { "name": "Enemy2", "accountId": "account.enemy.2", "loc": { "x": 2, "y": 2 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:11.000Z",
+      "character": { "name": "Enemy3", "accountId": "account.enemy.3", "loc": { "x": 3, "y": 3 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:12.000Z",
+      "character": { "name": "Enemy4", "accountId": "account.enemy.4", "loc": { "x": 4, "y": 4 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:13.000Z",
+      "character": { "name": "Enemy5", "accountId": "account.enemy.5", "loc": { "x": 5, "y": 5 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:14.000Z",
+      "character": { "name": "Enemy6", "accountId": "account.enemy.6", "loc": { "x": 6, "y": 6 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:15.000Z",
+      "character": { "name": "Enemy7", "accountId": "account.enemy.7", "loc": { "x": 7, "y": 7 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:16.000Z",
+      "character": { "name": "Enemy8", "accountId": "account.enemy.8", "loc": { "x": 8, "y": 8 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:17.000Z",
+      "character": { "name": "Enemy9", "accountId": "account.enemy.9", "loc": { "x": 9, "y": 9 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:18.000Z",
+      "character": { "name": "Enemy10", "accountId": "account.enemy.10", "loc": { "x": 10, "y": 10 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:19.000Z",
+      "character": { "name": "Enemy11", "accountId": "account.enemy.11", "loc": { "x": 11, "y": 11 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:20.000Z",
+      "character": { "name": "Enemy12", "accountId": "account.enemy.12", "loc": { "x": 12, "y": 12 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:21.000Z",
+      "character": { "name": "Enemy13", "accountId": "account.enemy.13", "loc": { "x": 13, "y": 13 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:22.000Z",
+      "character": { "name": "Enemy14", "accountId": "account.enemy.14", "loc": { "x": 14, "y": 14 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:23.000Z",
+      "character": { "name": "Enemy15", "accountId": "account.enemy.15", "loc": { "x": 15, "y": 15 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:24.000Z",
+      "character": { "name": "Enemy16", "accountId": "account.enemy.16", "loc": { "x": 16, "y": 16 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:25.000Z",
+      "character": { "name": "Enemy17", "accountId": "account.enemy.17", "loc": { "x": 17, "y": 17 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:26.000Z",
+      "character": { "name": "Enemy18", "accountId": "account.enemy.18", "loc": { "x": 18, "y": 18 } }
+    },
+    {
+      "_T": "LogPlayerPosition",
+      "_D": "2026-08-27T00:00:27.000Z",
+      "character": { "name": "Enemy19", "accountId": "account.enemy.19", "loc": { "x": 19, "y": 19 } }
+    }
+  ]
+}

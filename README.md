@@ -29,7 +29,7 @@ PUBG 플레이어는 맵별 차량·아이템 정보, 전적, 매치 텔레메�
 
 ### 1. 인터랙티브 지도와 반응형 전술 UX
 
-React-Leaflet 기반 지도를 중심으로 필터, 오버레이, 시뮬레이터를 구성했습니다. 데스크톱에서는 넓은 지도와 사이드바를, 모바일에서는 터치 친화적인 하단 시트를 사용해 동일한 정보를 맥락에 맞게 제공합니다. Capacitor 기반 하이브리드 앱 빌드도 지원합니다.
+React-Leaflet 기반 지도를 중심으로 필터, 오버레이, 시뮬레이터를 구성했습니다. 데스크톱에서는 넓은 지도와 사이드바를, 모바일에서는 터치 친화적인 하단 시트를 사용해 동일한 정보를 맥락에 맞게 제공합니다.
 
 ### 2. 텔레메트리 분석 데이터를 서비스용 인사이트로 변환
 
@@ -57,7 +57,6 @@ GitHub Actions의 일일 작업으로 텔레메트리·AI 캐시 정리, 스토�
 | AI | Vercel AI SDK, Google Gemini | 패치 요약과 매치·스쿼드 코칭 생성 |
 | 파일 저장 | Cloudflare R2, AWS SDK for JavaScript | 텔레메트리·이미지 자산 저장 및 수명 관리 |
 | 배포·운영 | Vercel, GitHub Actions, Cloudflare Turnstile | 배포, 정기 유지보수, 봇 방지 |
-| 모바일 | Capacitor 8 | iOS·Android 하이브리드 앱 빌드 |
 | 검증 | ESLint, TypeScript, Vitest, Jest | 정적 분석과 서버·도메인·UI 테스트 |
 
 ## 서비스 구조

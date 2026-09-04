@@ -16,11 +16,8 @@ import { LogIn } from "lucide-react";
 import { trackEvent } from "@/lib/analytics";
 import { BgmsIcon, type BgmsIconName } from "@/components/common/BgmsIcon";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
-
-interface DebateStat {
-  label: string;
-  value: string;
-}
+import { matchDebateStatPairs, normalizeAiSummaryFinalJson, type DebateStat } from "@/lib/pubg-analysis/aiSummaryDebate";
+import { BENCHMARK_PROVENANCE_LABEL, formatBenchmarkProvenance } from "@/lib/pubg-analysis/benchmarkAdapter";
 
 function getAiTierIconName(tier?: string | null): BgmsIconName {
   if (tier === "S") return "award";
@@ -46,6 +43,14 @@ interface ActionItem {
   desc: string;
 }
 
+interface BenchmarkScope {
+  gameMode?: string;
+  matchType?: string;
+  tier?: string;
+  sampleCount?: number;
+  metricSampleCounts?: Record<string, number>;
+}
+
 interface DebateData {
   debateIssues?: DebateIssue[];
   finalVerdict?: string;
@@ -64,10 +69,13 @@ interface DebateData {
       total: number;
     };
     latestMatchTime?: string;
+    latestMatchCount?: number;
+    bestMatchCount?: number;
     reactionLatency?: string;
     reactionTier?: string;
     backupTier?: string;
     overallTier?: string;
+    benchmarkScope?: BenchmarkScope;
     roleInfo?: {
       primaryRole: string;
       secondaryRole: string | null;
@@ -87,7 +95,7 @@ interface DebateData {
     goldenTime?: { early: number; mid1: number; mid2: number; late: number };
     killContrib?: { solo: number; cleanup: number };
     deathPhase?: number;
-    bluezoneWaste?: number;
+    bluezoneWaste?: number | "측정 불가";
     modeDistribution?: {
       ranked: number;
       normal: number;
@@ -131,15 +139,305 @@ interface DebateData {
         enemyTeamWipes: number;
         initiative: { attempts: number; success: number };
       };
-      isolation?: {
-        isolationIndex: number;
-        minDist: number;
-        heightDiff: number;
-        isCrossfire: boolean;
-        teammateCount: number;
-      };
+    isolation?: {
+      isolationIndex: number;
+      minDist: number;
+      heightDiff: number;
+      isCrossfire: boolean;
+      teammateCount: number;
+      benchmarkIsolationIndex?: number;
+      benchmarkMinDist?: number;
+      benchmarkScope?: BenchmarkScope;
+    };
     };
   };
+}
+
+type RouteOwnedVisuals = NonNullable<DebateData["visuals"]>;
+
+export function finiteVisualNumber(value: unknown, min = 0, max = Number.MAX_SAFE_INTEGER): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  try {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return null;
+    return Math.max(min, Math.min(max, number));
+  } catch {
+    return null;
+  }
+}
+
+function safeVisualText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  return text && !/(?:NaN|Infinity|undefined)/iu.test(text) ? text : null;
+}
+
+export function safeVisualRate(value: unknown): string | null {
+  const text = safeVisualText(value);
+  if (!text) return null;
+  if (text === "측정 불가") return text;
+  const match = text.match(/^([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s*%$/u);
+  if (!match) return null;
+  const number = finiteVisualNumber(match[1], -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+  return number === null || number < 0 || number > 100
+    ? "측정 불가"
+    : `${Math.round(number)}%`;
+}
+
+export function safeVisualDuration(value: unknown): string | null {
+  const text = safeVisualText(value);
+  if (!text || text === "측정 불가") return text;
+  const match = text.match(/^([+-]?(?:\d+(?:\.\d+)?|\.\d+))\s*s$/iu);
+  if (!match) return null;
+  const number = finiteVisualNumber(match[1], -Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+  return number === null || number < 0 ? "측정 불가" : `${number.toFixed(2)}s`;
+}
+
+function safeVisualMetric(value: unknown, min = 0, max = Number.MAX_SAFE_INTEGER): number | "측정 불가" | null {
+  if (value === "측정 불가") return value;
+  return finiteVisualNumber(value, min, max);
+}
+
+export function formatBluezoneWaste(value: number | "측정 불가" | null | undefined): string {
+  return value === "측정 불가" ? value : `${Math.floor(value ?? 0)} HP`;
+}
+
+export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  const normalized: Record<string, unknown> = {};
+  const copyText = (key: string) => {
+    const text = safeVisualText(source[key]);
+    if (text !== null) normalized[key] = text;
+  };
+  const copyNumber = (key: string, min = 0, max = Number.MAX_SAFE_INTEGER) => {
+    const number = finiteVisualNumber(source[key], min, max);
+    if (number !== null) normalized[key] = number;
+  };
+
+  ["latestMatchTime", "reactionTier", "backupTier", "overallTier", "weaknessDiagnostic"].forEach(copyText);
+  const counterLatency = safeVisualDuration(source.counterLatency);
+  if (counterLatency !== null) normalized.counterLatency = counterLatency;
+  const reactionLatency = safeVisualDuration(source.reactionLatency);
+  if (reactionLatency !== null) normalized.reactionLatency = reactionLatency;
+  ["latestMatchCount", "bestMatchCount"].forEach((key) => {
+    const count = finiteVisualNumber(source[key], 0, 100);
+    if (count !== null) normalized[key] = Math.floor(count);
+  });
+  ["initiativeSuccess", "reversalRate", "coverRate"].forEach((key) => {
+    const rate = safeVisualRate(source[key]);
+    if (rate !== null) normalized[key] = rate;
+  });
+  copyNumber("deathPhase", 0, 100);
+  const bluezoneWaste = safeVisualMetric(source.bluezoneWaste, 0);
+  if (bluezoneWaste !== null) normalized.bluezoneWaste = bluezoneWaste;
+
+  const tierBreakdown = source.tierBreakdown;
+  if (tierBreakdown && typeof tierBreakdown === "object" && !Array.isArray(tierBreakdown)) {
+    const tierSource = tierBreakdown as Record<string, unknown>;
+    const combat = finiteVisualNumber(tierSource.combat, 0, 100);
+    const tactical = finiteVisualNumber(tierSource.tactical, 0, 100);
+    const survival = finiteVisualNumber(tierSource.survival, 0, 100);
+    const total = finiteVisualNumber(tierSource.total, 0, 100);
+    if (combat !== null && tactical !== null && survival !== null && total !== null) {
+      normalized.tierBreakdown = { combat, tactical, survival, total };
+    }
+  }
+
+  const benchmarkScope = source.benchmarkScope;
+  if (benchmarkScope && typeof benchmarkScope === "object" && !Array.isArray(benchmarkScope)) {
+    const scopeSource = benchmarkScope as Record<string, unknown>;
+    const scope: Record<string, unknown> = {};
+    ["gameMode", "matchType", "tier"].forEach((key) => {
+      const text = safeVisualText(scopeSource[key]);
+      if (text !== null) scope[key] = text;
+    });
+    const sampleCount = finiteVisualNumber(scopeSource.sampleCount, 0);
+    if (sampleCount !== null) scope.sampleCount = Math.floor(sampleCount);
+    const metricCounts = scopeSource.metricSampleCounts;
+    if (metricCounts && typeof metricCounts === "object" && !Array.isArray(metricCounts)) {
+      const normalizedCounts: Record<string, number> = {};
+      Object.entries(metricCounts as Record<string, unknown>).forEach(([key, count]) => {
+        const normalizedCount = finiteVisualNumber(count, 0, sampleCount ?? Number.MAX_SAFE_INTEGER);
+        if (normalizedCount !== null && Number.isInteger(normalizedCount)) normalizedCounts[key] = normalizedCount;
+      });
+      if (Object.keys(normalizedCounts).length > 0) scope.metricSampleCounts = normalizedCounts;
+    }
+    if (Object.keys(scope).length > 0) normalized.benchmarkScope = scope;
+  }
+
+  const roleInfo = source.roleInfo;
+  if (roleInfo && typeof roleInfo === "object" && !Array.isArray(roleInfo)) {
+    const roleSource = roleInfo as Record<string, unknown>;
+    const role: Record<string, unknown> = {};
+    ["primaryRole", "title", "roleLabel", "description", "signatureWeapon", "weakness"].forEach((key) => {
+      const text = safeVisualText(roleSource[key]);
+      if (text !== null) role[key] = text;
+    });
+    if (roleSource.secondaryRole === null) role.secondaryRole = null;
+    else {
+      const secondaryRole = safeVisualText(roleSource.secondaryRole);
+      if (secondaryRole !== null) role.secondaryRole = secondaryRole;
+    }
+    const roleStats = roleSource.signatureWeaponStats;
+    if (roleStats && typeof roleStats === "object" && !Array.isArray(roleStats)) {
+      const statsSource = roleStats as Record<string, unknown>;
+      const stats: Record<string, unknown> = {};
+      ["kills", "dbnos"].forEach((key) => {
+        const number = finiteVisualNumber(statsSource[key], 0);
+        if (number !== null) stats[key] = Math.floor(number);
+      });
+      const consistency = finiteVisualNumber(statsSource.consistency, 0, 100);
+      if (consistency !== null) stats.consistency = consistency;
+      if (typeof statsSource.isReliable === "boolean") stats.isReliable = statsSource.isReliable;
+      if (Object.keys(stats).length > 0) role.signatureWeaponStats = stats;
+    }
+    const scores = roleSource.scores;
+    if (scores && typeof scores === "object" && !Array.isArray(scores)) {
+      const normalizedScores: Record<string, number> = {};
+      Object.entries(scores as Record<string, unknown>).forEach(([key, score]) => {
+        const number = finiteVisualNumber(score, 0, 100);
+        if (number !== null) normalizedScores[key] = number;
+      });
+      role.scores = normalizedScores;
+    }
+    if (Object.keys(role).length > 0) normalized.roleInfo = role;
+  }
+
+  const duelStats = source.duelStats;
+  if (duelStats && typeof duelStats === "object" && !Array.isArray(duelStats)) {
+    const duelSource = duelStats as Record<string, unknown>;
+    const duel: Record<string, unknown> = {};
+    const winRate = safeVisualRate(duelSource.winRate);
+    if (winRate !== null) duel.winRate = winRate;
+    ["wins", "losses", "reversals", "reversalAttempts"].forEach((key) => {
+      const number = finiteVisualNumber(duelSource[key], 0);
+      if (number !== null) duel[key] = Math.floor(number);
+    });
+    if (Object.keys(duel).length > 0) normalized.duelStats = duel;
+  }
+
+  [
+    ["goldenTime", ["early", "mid1", "mid2", "late"]],
+    ["killContrib", ["solo", "cleanup", "assist"]],
+  ].forEach(([containerKey, keys]) => {
+    const container = source[containerKey as string];
+    if (!container || typeof container !== "object" || Array.isArray(container)) return;
+    const target: Record<string, number> = {};
+    (keys as string[]).forEach((key) => {
+      const number = finiteVisualNumber((container as Record<string, unknown>)[key], 0);
+      if (number !== null) target[key] = number;
+    });
+    if (Object.keys(target).length > 0) normalized[containerKey as string] = target;
+  });
+
+  const modeDistribution = source.modeDistribution;
+  if (modeDistribution && typeof modeDistribution === "object" && !Array.isArray(modeDistribution)) {
+    const modeSource = modeDistribution as Record<string, unknown>;
+    const ranked = finiteVisualNumber(modeSource.ranked, 0);
+    const normal = finiteVisualNumber(modeSource.normal, 0);
+    const main = safeVisualText(modeSource.main);
+    if (ranked !== null && normal !== null && main !== null) {
+      normalized.modeDistribution = { ranked: Math.floor(ranked), normal: Math.floor(normal), main };
+    }
+  }
+
+  const mapStats = source.mapStats;
+  if (mapStats && typeof mapStats === "object" && !Array.isArray(mapStats)) {
+    const mapSource = mapStats as Record<string, unknown>;
+    const normalizeMap = (map: unknown) => {
+      if (!map || typeof map !== "object" || Array.isArray(map)) return null;
+      const mapRecord = map as Record<string, unknown>;
+      const mapName = safeVisualText(mapRecord.mapName);
+      const displayName = safeVisualText(mapRecord.displayName);
+      const matchCount = finiteVisualNumber(mapRecord.matchCount, 0);
+      const avgDamage = finiteVisualNumber(mapRecord.avgDamage, 0);
+      const avgKills = finiteVisualNumber(mapRecord.avgKills, 0);
+      const avgDeathPhase = finiteVisualNumber(mapRecord.avgDeathPhase, 0);
+      if (!mapName || !displayName || matchCount === null || avgDamage === null || avgKills === null || avgDeathPhase === null) return null;
+      return {
+        mapName,
+        displayName,
+        matchCount: Math.floor(matchCount),
+        avgDamage,
+        avgKills,
+        avgDeathPhase,
+      };
+    };
+    const list = Array.isArray(mapSource.list)
+      ? mapSource.list.map(normalizeMap).filter((entry): entry is NonNullable<ReturnType<typeof normalizeMap>> => entry !== null)
+      : [];
+    const bestMap = normalizeMap(mapSource.bestMap);
+    const worstMap = normalizeMap(mapSource.worstMap);
+    if (list.length > 0 && bestMap && worstMap) normalized.mapStats = { list, bestMap, worstMap };
+  }
+
+  const trends = source.trends;
+  if (trends && typeof trends === "object" && !Array.isArray(trends)) {
+    const trendSource = trends as Record<string, unknown>;
+    const dmgTrend = finiteVisualNumber(trendSource.dmgTrend, -Number.MAX_SAFE_INTEGER);
+    const winTrend = finiteVisualNumber(trendSource.winTrend, -Number.MAX_SAFE_INTEGER);
+    const status = safeVisualText(trendSource.status);
+    const recent = trendSource.recent;
+    const older = trendSource.older;
+    const normalizeTrendPoint = (point: unknown) => {
+      if (!point || typeof point !== "object" || Array.isArray(point)) return null;
+      const record = point as Record<string, unknown>;
+      const damage = finiteVisualNumber(record.damage, 0);
+      const winRate = finiteVisualNumber(record.winRate, 0, 100);
+      return damage === null || winRate === null ? null : { damage, winRate };
+    };
+    const normalizedRecent = normalizeTrendPoint(recent);
+    const normalizedOlder = normalizeTrendPoint(older);
+    if (dmgTrend !== null && winTrend !== null && status !== null && normalizedRecent && normalizedOlder) {
+      normalized.trends = { dmgTrend, winTrend, status, recent: normalizedRecent, older: normalizedOlder };
+    }
+  }
+
+  const tactical = source.tactical;
+  if (tactical && typeof tactical === "object" && !Array.isArray(tactical)) {
+    const tacticalSource = tactical as Record<string, unknown>;
+    const tacticalTarget: Record<string, unknown> = {};
+    ["suppRate", "smokeRate", "reviveRate", "tradeRate"].forEach((key) => {
+      const rate = safeVisualRate(tacticalSource[key]);
+      if (rate !== null) tacticalTarget[key] = rate;
+    });
+    const baitCount = finiteVisualNumber(tacticalSource.baitCount, 0);
+    if (baitCount !== null) tacticalTarget.baitCount = Math.floor(baitCount);
+    const counts = tacticalSource.counts;
+    if (counts && typeof counts === "object" && !Array.isArray(counts)) {
+      const countsSource = counts as Record<string, unknown>;
+      const countsTarget: Record<string, unknown> = {};
+      ["knocks", "smokes", "rescueSmokes", "smokeRescues", "revives", "trades", "supps", "enemyTeamWipes"].forEach((key) => {
+        const number = finiteVisualNumber(countsSource[key], 0);
+        if (number !== null) countsTarget[key] = Math.floor(number);
+      });
+      const initiative = countsSource.initiative;
+      if (initiative && typeof initiative === "object" && !Array.isArray(initiative)) {
+        const attempts = finiteVisualNumber((initiative as Record<string, unknown>).attempts, 0);
+        const success = finiteVisualNumber((initiative as Record<string, unknown>).success, 0);
+        if (attempts !== null && success !== null) countsTarget.initiative = { attempts: Math.floor(attempts), success: Math.floor(success) };
+      }
+      if (Object.keys(countsTarget).length > 0) tacticalTarget.counts = countsTarget;
+    }
+    const isolation = tacticalSource.isolation;
+    if (isolation && typeof isolation === "object" && !Array.isArray(isolation)) {
+      const isolationSource = isolation as Record<string, unknown>;
+      const isolationTarget: Record<string, unknown> = {};
+      ["isolationIndex", "minDist", "heightDiff", "teammateCount", "benchmarkIsolationIndex", "benchmarkMinDist"].forEach((key) => {
+        const number = finiteVisualNumber(isolationSource[key], 0);
+        if (number !== null) isolationTarget[key] = number;
+      });
+      if (typeof isolationSource.isCrossfire === "boolean") isolationTarget.isCrossfire = isolationSource.isCrossfire;
+      const nestedScope = normalizeRouteOwnedVisuals({ benchmarkScope: isolationSource.benchmarkScope })?.benchmarkScope;
+      if (nestedScope) isolationTarget.benchmarkScope = nestedScope;
+      if (Object.keys(isolationTarget).length > 0) tacticalTarget.isolation = isolationTarget;
+    }
+    if (Object.keys(tacticalTarget).length > 0) normalized.tactical = tacticalTarget;
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized as RouteOwnedVisuals : null;
 }
 
 const getRelativeTime = (dateStr: string) => {
@@ -156,6 +454,39 @@ const getRelativeTime = (dateStr: string) => {
   if (diffInMins > 0) return `${diffInMins}분 전`;
   return "방금 전";
 };
+
+const TIER_TOOLTIP_ID = "recent-ai-summary-tier-tooltip";
+
+function benchmarkMetricKey(label: string): string | null {
+  if (/(?:화력|딜량|데미지|대미지)/iu.test(label)) return "avgDamage";
+  if (/(?:주도권|선제 공격)/iu.test(label)) return "avgInitiativeRate";
+  if (/(?:1:1|교전 승률)/iu.test(label)) return "avgDuelWinRate";
+  if (/(?:압박 지수)/iu.test(label)) return "avgPressureIndex";
+  if (/(?:복수|트레이드)/iu.test(label)) return "avgTradeRate";
+  if (/(?:연막 구출|구출률)/iu.test(label)) return "avgSmokeRate";
+  if (/(?:대응 사격|반응 속도)/iu.test(label)) return "avgCounterLatency";
+  if (/(?:백업 속도)/iu.test(label)) return "avgTradeLatency";
+  if (/(?:솔로(?: 킬)? 비중)/iu.test(label)) return "avgSoloKillRate";
+  if (/(?:사망 페이즈)/iu.test(label)) return "avgDeathPhase";
+  return null;
+}
+
+function neutralBenchmarkLabel(
+  label: string,
+  scope?: BenchmarkScope,
+): string {
+  const metric = benchmarkMetricKey(label);
+  const benchmarkLabel = formatBenchmarkProvenance(scope?.sampleCount, {
+    gameMode: scope?.gameMode,
+    matchType: scope?.matchType,
+    tier: scope?.tier,
+    metricSampleCount: metric ? scope?.metricSampleCounts?.[metric] : undefined,
+  });
+  const normalized = label.replace(/상위권|엘리트|benchmark|벤치마크|동일\s*조건\s*[·ㆍ・.]?\s*동일\s*티어|동일\s*티어/gi, benchmarkLabel);
+  return normalized.includes(BENCHMARK_PROVENANCE_LABEL)
+    ? normalized
+    : `${benchmarkLabel}: ${normalized}`;
+}
 
 export interface AiSummarySnapshot {
   verdict: string;
@@ -174,6 +505,24 @@ interface SummaryRequestOwner {
   generation: number;
   identity: string;
   controller: AbortController;
+  routeOwnedVisuals: DebateData["visuals"] | null;
+}
+
+class AiSummaryRequestError extends Error {
+  readonly status: number;
+  readonly errorCode: string | null;
+  readonly retryable: boolean;
+
+  constructor(
+    message: string,
+    details: { status?: number; errorCode?: string | null; retryable?: boolean } = {},
+  ) {
+    super(message);
+    this.name = "AiSummaryRequestError";
+    this.status = details.status ?? 0;
+    this.errorCode = details.errorCode ?? null;
+    this.retryable = details.retryable ?? false;
+  }
 }
 
 export const RecentAISummary = ({
@@ -186,13 +535,16 @@ export const RecentAISummary = ({
   const [debateData, setDebateData] = useState<DebateData | null>(null);
   const [loading, setLoading] = useState(false);
   const [streamingText, setStreamingText] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<AiSummaryRequestError | null>(null);
   const [openIssueIdx, setOpenIssueIdx] = useState<number | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
   const [showTierTooltip, setShowTierTooltip] = useState(false);
   const [activeStatTooltip, setActiveStatTooltip] = useState<string | null>(null);
   const tooltipRef = useRef<HTMLDivElement>(null);
   const statTooltipRef = useRef<HTMLDivElement>(null);
+  const tierTriggerRef = useRef<HTMLButtonElement>(null);
+  const restoreTierFocusRef = useRef(false);
+  const tierTriggerPointerRef = useRef(false);
 
   const textBufferRef = useRef("");
   const lineBufferRef = useRef("");
@@ -211,10 +563,20 @@ export const RecentAISummary = ({
   // [AUTO-RETRY] 일시적 Gemini 스트림 오류 자동 재시도
   const retryCountRef = useRef(0);
   const MAX_AUTO_RETRIES = 1;
+  const AI_SUMMARY_CLIENT_SAFETY_TIMEOUT_MS = 55_000;
   const [retryMessage, setRetryMessage] = useState<string | null>(null);
   const { isAnalyzing: isGlobalAnalyzing } = useAIStatus();
   const { user } = useAuth();
   const router = useRouter();
+
+  const latestMatchCount = debateData?.visuals?.latestMatchCount ?? 10;
+  const bestMatchCount = debateData?.visuals?.bestMatchCount ?? 5;
+  const latestMatchRangeLabel = debateData?.visuals?.latestMatchCount === undefined
+    ? "최대 10판"
+    : `${latestMatchCount}판`;
+  const bestMatchRangeLabel = debateData?.visuals?.bestMatchCount === undefined
+    ? "최대 5판"
+    : `${bestMatchCount}판`;
 
   useEffect(() => {
     onSummaryChangeRef.current = onSummaryChange;
@@ -291,6 +653,7 @@ export const RecentAISummary = ({
       generation: requestedGeneration,
       identity: requestedIdentity,
       controller: abortController,
+      routeOwnedVisuals: null,
     };
     requestOwnerRef.current = owner;
     abortControllerRef.current = abortController;
@@ -300,7 +663,7 @@ export const RecentAISummary = ({
     );
     const canWriteRequest = () => ownsRequest() && !abortController.signal.aborted;
     const scheduleRetry = (message: string) => {
-      if (!canWriteRequest() || retryCountRef.current >= MAX_AUTO_RETRIES) return false;
+      if (!canWriteRequest() || retryTimerRef.current || retryCountRef.current >= MAX_AUTO_RETRIES) return false;
       retryCountRef.current += 1;
       setRetryMessage(`${message} (${retryCountRef.current}/${MAX_AUTO_RETRIES})`);
       retryTimerRef.current = setTimeout(() => {
@@ -312,17 +675,17 @@ export const RecentAISummary = ({
       return true;
     };
 
-    // 서버의 전체 AI 생성 제한(약 22초)보다 길게 두어 fallback 응답까지 수신한다.
+    // Route maxDuration(60초)보다 여유를 둬 cold path의 정상 응답을 재시도로 오인하지 않는다.
     const safetyTimeout = setTimeout(() => {
       if (!canWriteRequest()) return;
       console.warn("[AI-SUMMARY] Safety timeout triggered. Forcing cleanup.");
       readerRef.current?.cancel().catch(() => {});
       if (!scheduleRetry("AI 서버 응답이 느려요. 잠깐만요...")) {
         retryCountRef.current = 0;
-        setError("분석 서버 응답이 너무 느립니다. 잠시 후 다시 시도해주세요.");
+        setError(new AiSummaryRequestError("분석 서버 응답이 너무 느립니다. 잠시 후 다시 시도해주세요."));
       }
       abortController.abort();
-    }, 35000);
+    }, AI_SUMMARY_CLIENT_SAFETY_TIMEOUT_MS);
 
     // GA4 이벤트 트래킹: 10경기 요약 시작
     trackEvent({
@@ -348,9 +711,20 @@ export const RecentAISummary = ({
       if (!canWriteRequest()) return;
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({})) as { error?: string };
+        const errorData = await response.json().catch(() => ({})) as {
+          error?: string;
+          errorCode?: string;
+          retryable?: boolean;
+        };
         if (!canWriteRequest()) return;
-        throw new Error(errorData.error || "분석 서버 응답 오류가 발생했습니다.");
+        throw new AiSummaryRequestError(
+          errorData.error || "분석 서버 응답 오류가 발생했습니다.",
+          {
+            status: response.status,
+            errorCode: errorData.errorCode,
+            retryable: errorData.retryable === true,
+          },
+        );
       }
 
       const reader = response.body?.getReader();
@@ -358,7 +732,11 @@ export const RecentAISummary = ({
       readerRef.current = reader ?? null;
       const decoder = new TextDecoder();
       let fullText = "";
-
+      let streamedError: {
+        error?: string;
+        errorCode?: string;
+        retryable?: boolean;
+      } | null = null;
       // [V45.3] UI 업데이트를 위한 인터벌 (스트리밍 시각화용)
       const updateInterval = setInterval(() => {
         if (canWriteRequest() && textBufferRef.current !== streamingText) {
@@ -366,14 +744,33 @@ export const RecentAISummary = ({
         }
       }, 100);
 
+      let sawTerminalRecord = false;
+      const clearPartialStreamState = () => {
+        dataIdentityRef.current = null;
+        setDebateData(null);
+        textBufferRef.current = "";
+        lineBufferRef.current = "";
+        setStreamingText("");
+      };
+
       if (reader) {
         try {
           while (true) {
             const { done, value } = await reader.read();
-            if (!canWriteRequest() || done) break;
+            if (!canWriteRequest()) break;
 
-            const chunk = decoder.decode(value, { stream: true });
-            lineBufferRef.current += chunk;
+            if (value && value.length > 0) {
+              lineBufferRef.current += decoder.decode(value, { stream: true });
+            }
+            if (done) {
+              // A final read can contain a complete NDJSON record without its
+              // usual trailing newline. Appending one lets the same parser path
+              // process that record before EOF handling below.
+              lineBufferRef.current += decoder.decode();
+              if (lineBufferRef.current && !lineBufferRef.current.endsWith("\n")) {
+                lineBufferRef.current += "\n";
+              }
+            }
 
             const lines = lineBufferRef.current.split("\n");
             lineBufferRef.current = lines.pop() || "";
@@ -389,14 +786,21 @@ export const RecentAISummary = ({
                   data?: unknown;
                   valid?: boolean;
                   error?: string;
+                  errorCode?: string;
+                  retryable?: boolean;
                 };
+
+                if (sawTerminalRecord) continue;
 
                 if (parsed.type === "visuals" && parsed.data && typeof parsed.data === "object") {
                   // 비주얼 데이터가 오면 로딩을 풀고 UI를 보여줌
+                  const routeOwnedVisuals = normalizeRouteOwnedVisuals(parsed.data);
+                  if (!routeOwnedVisuals) continue;
+                  owner.routeOwnedVisuals = routeOwnedVisuals;
                   dataIdentityRef.current = requestedIdentity;
                   setDebateData((previous) => ({
                     ...(previous ?? {}),
-                    visuals: parsed.data as DebateData["visuals"],
+                    visuals: routeOwnedVisuals,
                   }));
                   setLoading(false);
                 } else if (parsed.type === "chunk" && typeof parsed.data === "string") {
@@ -405,30 +809,56 @@ export const RecentAISummary = ({
                 } else if (parsed.type === "final") {
                   // [V54.3] 서버에서 보내준 최종 정제된 JSON으로 교체 (중복 방지)
                   fullText = typeof parsed.data === "string" ? parsed.data : JSON.stringify(parsed.data ?? {});
+                } else if (parsed.type === "error") {
+                  streamedError = {
+                    error: parsed.error,
+                    errorCode: parsed.errorCode,
+                    retryable: parsed.retryable === true,
+                  };
+                  console.error("[AI-SUMMARY] Server reported failure:", parsed.error || parsed.errorCode || "unknown");
                 } else if (parsed.type === "done") {
-                  if (parsed.valid === false) {
-                    const errMsg = parsed.error || "서버 분석 도중 오류가 발생했습니다.";
+                  sawTerminalRecord = true;
+                  if (parsed.valid !== true) {
+                    const failure = {
+                      ...(streamedError ?? {}),
+                      ...parsed,
+                    };
+                    const errMsg = failure.error || "서버 분석 도중 오류가 발생했습니다.";
+                    const errorCode = failure.errorCode;
+                    const retryable = failure.retryable === true;
+                    const requestError = new AiSummaryRequestError(errMsg, {
+                      status: errorCode === "PUBG_AI_CANONICAL_NOT_READY"
+                        ? 409
+                        : errorCode === "PUBG_AI_ROUTE_TIMEOUT" ? 504 : 200,
+                      errorCode,
+                      retryable,
+                    });
+                    // Do not leave a failed stream's visual/text prefix in the
+                    // successful analysis surface while a retry/CTA is shown.
+                    clearPartialStreamState();
                     console.error("[AI-SUMMARY] Server reported failure:", errMsg);
-                    if (isTransientError(errMsg) && retryCountRef.current < MAX_AUTO_RETRIES) {
-                      retryCountRef.current++;
-                      setRetryMessage(`AI 서버가 잠깐 바빴어요. 자동으로 재시도 중이에요. (${retryCountRef.current}/${MAX_AUTO_RETRIES})`);
-                      retryTimerRef.current = setTimeout(() => {
-                        retryTimerRef.current = null;
-                        if (!identityIsCurrent()) return;
-                        setRetryMessage(null);
-                        void handleFetchSummary(true);
-                      }, 2500);
-                    } else {
+                    if (!(retryable || isTransientError(errMsg)) || !scheduleRetry(
+                      errorCode === "PUBG_AI_CANONICAL_NOT_READY"
+                        ? "매치 분석 데이터가 아직 준비되지 않았어요. 자동으로 재시도 중이에요."
+                        : "AI 서버가 잠깐 바빴어요. 자동으로 재시도 중이에요.",
+                    )) {
                       retryCountRef.current = 0;
-                      setError("AI 분석 중 오류가 발생했어요. 다시 시도해주세요.");
+                      setError(requestError);
                     }
                   } else {
                     try {
-                      let cleanJson = fullText.trim();
-                      const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
-                      if (jsonMatch) cleanJson = jsonMatch[0];
-
-                      const decoded = JSON.parse(cleanJson) as Record<string, unknown>;
+                      // The server emits route-owned visuals separately. A
+                      // provider final must be a complete strict JSON
+                      // contract; brace extraction would accept partial
+                      // payloads or trailing prose and is intentionally not
+                      // used here.
+                      const routeOwnedVisuals = owner.routeOwnedVisuals;
+                      if (!routeOwnedVisuals || Object.keys(routeOwnedVisuals).length === 0) {
+                        throw new Error("Route-owned AI summary visuals are missing.");
+                      }
+                      const normalizedJson = normalizeAiSummaryFinalJson(fullText.trim());
+                      if (!normalizedJson) throw new Error("Final AI summary payload is invalid.");
+                      const decoded = JSON.parse(normalizedJson) as Record<string, unknown>;
                       const finalData: DebateData = {
                         debateIssues: Array.isArray(decoded.debateIssues) ? decoded.debateIssues as DebateIssue[] : undefined,
                         finalVerdict: typeof decoded.finalVerdict === "string" ? decoded.finalVerdict : undefined,
@@ -436,14 +866,15 @@ export const RecentAISummary = ({
                         weaknessDiagnostic: typeof decoded.weaknessDiagnostic === "string" ? decoded.weaknessDiagnostic : undefined,
                         signature: typeof decoded.signature === "string" ? decoded.signature : undefined,
                         signatureSub: typeof decoded.signatureSub === "string" ? decoded.signatureSub : undefined,
-                        visuals: decoded.visuals && typeof decoded.visuals === "object"
-                          ? decoded.visuals as DebateData["visuals"]
-                          : undefined,
+                        // Final JSON never owns visuals. Keep the server
+                        // snapshot captured from the dedicated visuals
+                        // record, even if a provider attempted to inject one.
+                        visuals: routeOwnedVisuals,
                       };
                       dataIdentityRef.current = requestedIdentity;
                       setDebateData((previous) => ({
                         ...finalData,
-                        visuals: previous?.visuals ?? finalData.visuals,
+                        visuals: routeOwnedVisuals ?? previous?.visuals,
                       }));
                       retryCountRef.current = 0;
 
@@ -457,7 +888,15 @@ export const RecentAISummary = ({
                       });
                     } catch (parseError) {
                       console.error("[AI-SUMMARY] Final result parse failed:", parseError);
-                      setError("분석 결과 데이터 처리에 실패했습니다.");
+                      clearPartialStreamState();
+                      const parseRequestError = new AiSummaryRequestError("분석 결과 데이터 처리에 실패했습니다.", {
+                        errorCode: "PUBG_AI_INVALID_FINAL",
+                        retryable: true,
+                      });
+                      if (!scheduleRetry("분석 결과가 불완전해요. 자동으로 재시도 중이에요.")) {
+                        retryCountRef.current = 0;
+                        setError(parseRequestError);
+                      }
 
                       // GA4 이벤트 트래킹: 10경기 요약 파싱 실패
                       trackEvent({
@@ -476,6 +915,17 @@ export const RecentAISummary = ({
                 console.warn("[AI-SUMMARY] Line parse error (ignored):", e);
               }
             }
+
+            if (done) {
+              if (canWriteRequest() && !sawTerminalRecord) {
+                clearPartialStreamState();
+                throw new AiSummaryRequestError("분석 스트림이 완료 신호 없이 종료되었습니다.", {
+                  errorCode: "PUBG_AI_STREAM_EOF",
+                  retryable: true,
+                });
+              }
+              break;
+            }
           }
         } catch (readError) {
           if (readError instanceof Error && readError.name === 'AbortError') {
@@ -490,6 +940,12 @@ export const RecentAISummary = ({
         }
       } else {
         clearInterval(updateInterval);
+        if (canWriteRequest()) {
+          throw new AiSummaryRequestError("분석 스트림을 시작하지 못했습니다.", {
+            errorCode: "PUBG_AI_STREAM_EOF",
+            retryable: true,
+          });
+        }
       }
 
     } catch (err) {
@@ -507,19 +963,18 @@ export const RecentAISummary = ({
           }
         });
 
-        // Failed to parse stream 등 일시적 에러 → 자동 재시도
-        if (isTransientError(errMsg) && retryCountRef.current < MAX_AUTO_RETRIES) {
-          retryCountRef.current++;
-          setRetryMessage(`AI 서버가 잠깐 바빴어요. 자동으로 재시도 중이에요. (${retryCountRef.current}/${MAX_AUTO_RETRIES})`);
-          retryTimerRef.current = setTimeout(() => {
-            retryTimerRef.current = null;
-            if (!identityIsCurrent()) return;
-            setRetryMessage(null);
-            void handleFetchSummary(true);
-          }, 2500);
-        } else {
+        const requestError = err instanceof AiSummaryRequestError ? err : null;
+        const canonicalNotReady = requestError?.status === 409
+          && requestError.errorCode === "PUBG_AI_CANONICAL_NOT_READY"
+          && requestError.retryable;
+        const shouldRetry = requestError?.retryable === true || isTransientError(errMsg);
+        if (!shouldRetry || !scheduleRetry(
+          canonicalNotReady
+            ? "매치 분석 데이터가 아직 준비되지 않았어요. 자동으로 재시도 중이에요."
+            : "AI 서버가 잠깐 바빴어요. 자동으로 재시도 중이에요.",
+        )) {
           retryCountRef.current = 0;
-          setError("AI 분석 중 오류가 발생했어요. 다시 시도해주세요.");
+          setError(requestError ?? new AiSummaryRequestError("AI 분석 중 오류가 발생했어요. 다시 시도해주세요."));
         }
       }
     } finally {
@@ -558,8 +1013,21 @@ export const RecentAISummary = ({
         setActiveStatTooltip(null);
       }
     };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (showTierTooltip) {
+        restoreTierFocusRef.current = true;
+        setShowTierTooltip(false);
+        tierTriggerRef.current?.focus();
+      }
+      if (activeStatTooltip) setActiveStatTooltip(null);
+    };
     document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
   }, [showTierTooltip, activeStatTooltip, isMobile]);
 
   useEffect(() => {
@@ -633,7 +1101,19 @@ export const RecentAISummary = ({
         <p className="text-gray-300 text-sm mb-1">AI 분석이 잠깐 막혔어요.</p>
         <p className="text-gray-500 text-xs mb-4">서버가 바쁘거나 네트워크가 불안정할 때 가끔 생겨요.</p>
         <button
-          onClick={() => { retryCountRef.current = 0; setError(null); setDebateData(null); }}
+          onClick={() => {
+            if (retryTimerRef.current) {
+              clearTimeout(retryTimerRef.current);
+              retryTimerRef.current = null;
+            }
+            retryCountRef.current = 0;
+            dataIdentityRef.current = null;
+            setError(null);
+            setDebateData(null);
+            textBufferRef.current = "";
+            lineBufferRef.current = "";
+            void handleFetchSummary(true);
+          }}
           className="px-5 py-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-sm hover:bg-indigo-500/30 transition-colors"
         >
           다시 시도하기
@@ -680,8 +1160,8 @@ export const RecentAISummary = ({
           <>
             <BgmsIcon name="flame" size={40} className="text-indigo-300" />
             <div className="flex flex-col items-center gap-2">
-              <span>최근 10경기 AI 끝장 토론 시작</span>
-              <span className="text-xs font-normal opacity-60">(기본지표는 10판이지만 10판중 잘한5판 티어높은5판 기준으로 상위권과 비교합니다)</span>
+              <span>최근 최대 10경기 AI 끝장 토론 시작</span>
+              <span className="text-xs font-normal opacity-60">최근 유효 {latestMatchRangeLabel}은 전체 지표·지도·추세에, 점수 상위 {bestMatchRangeLabel}은 잠재 티어·{formatBenchmarkProvenance()} 비교에 사용합니다. BGMS 자체 산정 · PUBG 공식 티어/평점 아님</span>
             </div>
           </>
         )}
@@ -694,7 +1174,7 @@ export const RecentAISummary = ({
     return (
       <div className="p-12 bg-white/5 rounded-3xl border border-white/10 text-center">
         <div className="w-12 h-12 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mx-auto mb-6" />
-        <p className="text-gray-400 animate-pulse text-sm">AI 분석 엔진이 데이터 정합성을 체크 중입니다...</p>
+        <p className="text-gray-400 animate-pulse text-sm">AI 분석 엔진이 최근 유효 {latestMatchRangeLabel} 전체와 점수 상위 {bestMatchRangeLabel}를 확인 중입니다...</p>
       </div>
     );
   }
@@ -720,7 +1200,7 @@ export const RecentAISummary = ({
               <div className="flex flex-col gap-1.5">
                 <div className="flex items-center gap-2">
                   <span className="px-2 py-0.5 bg-indigo-500/20 border border-indigo-500/30 rounded text-[10px] text-indigo-300 font-black tracking-widest uppercase">
-                    최근 10경기 핵심 전술
+                    최근 유효 {latestMatchRangeLabel} 중 점수 상위 {bestMatchRangeLabel} 잠재력
                   </span>
                   {debateData?.visuals?.latestMatchTime && (
                     <span className="text-[10px] text-white/40 font-bold">{getRelativeTime(debateData.visuals.latestMatchTime)}</span>
@@ -738,10 +1218,13 @@ export const RecentAISummary = ({
             {/* Right: Tier Badge */}
             <div className="flex items-center justify-center bg-white/5 border border-white/10 rounded-2xl p-4 md:px-8 md:py-6 shadow-xl backdrop-blur-sm self-center md:self-auto min-w-[140px]">
               <div className="flex flex-col items-center">
-                <span className="text-[10px] text-white/30 font-black uppercase tracking-[0.2em] mb-1">종합 티어</span>
+                <span className="text-[10px] text-white/30 font-black uppercase tracking-[0.2em] mb-1">점수 상위 {bestMatchRangeLabel} 잠재 티어</span>
                 <div className="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-white/40 drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
                   {debateData?.visuals?.overallTier || "N/A"}
                 </div>
+                <span className="mt-2 text-[9px] text-white/40 text-center leading-tight whitespace-nowrap">
+                  BGMS 자체 산정 · PUBG 공식 티어/평점 아님
+                </span>
               </div>
             </div>
           </div>
@@ -819,7 +1302,7 @@ export const RecentAISummary = ({
                 <h3 className="text-2xl font-black text-white tracking-tight">
                   {(() => {
                     const len = streamingText.length;
-                    if (len < 500) return "최근 10경기의 전투 로그를 복기하는 중...";
+                    if (len < 500) return `최근 ${latestMatchCount}경기의 전투 로그를 복기하는 중...`;
                     if (len < 1500) return "플레이어님의 교전 시그니처를 파악하고 있습니다...";
                     if (len < 3000) return "코치진의 끝장 토론이 격렬하게 진행 중입니다...";
                     return "마지막 전술 처방전을 작성하고 있습니다...";
@@ -843,20 +1326,15 @@ export const RecentAISummary = ({
           </div>
         )}
 
-        {/* [V2.1] LOL PS 스타일 레이더 차트 */}
-        {debateData && (
+        {/* [V2.1] 서버가 산정한 잠재 티어 3축 레이더 차트 */}
+        {debateData?.visuals?.tierBreakdown && (
           <SpiderChart
             nickname={nickname}
+            bestMatchCount={debateData.visuals.bestMatchCount}
             data={{
-              combat: Math.min(100, (parseRate(debateData?.visuals?.initiativeSuccess || "0%") * 0.8) + (debateData?.visuals?.killContrib?.solo || 0) * 5),
-              survival: Math.min(100, (parseRate(String(debateData?.visuals?.goldenTime?.late || "0")) / 10) + 50),
-              growth: 75,
-              vision: 60,
-              teamwork: Math.min(100,
-                debateData?.visuals?.tactical
-                  ? (parseRate(debateData.visuals.tactical.suppRate) + parseRate(debateData.visuals.tactical.smokeRate) + parseRate(debateData.visuals.tactical.reviveRate)) / 3 + 40
-                  : (debateData?.visuals?.counterLatency !== "N/A" ? 85 : 40)
-              ),
+              combat: debateData.visuals.tierBreakdown.combat,
+              tactical: debateData.visuals.tierBreakdown.tactical,
+              survival: debateData.visuals.tierBreakdown.survival,
             }}
           />
         )}
@@ -941,16 +1419,46 @@ export const RecentAISummary = ({
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="px-4 py-1.5 bg-white/10 rounded-full border border-white/10">
-                    <span className="text-[12px] font-black text-white tracking-widest uppercase">{(debateData.visuals.overallTier || 'B')} 티어</span>
+                    <span className="text-[12px] font-black text-white tracking-widest uppercase">점수 상위 {bestMatchRangeLabel} {(debateData.visuals.overallTier || 'B')} 잠재 티어</span>
                   </div>
 
                   {/* [V38.2] 티어 세부 점수 툴팁 */}
                   {debateData.visuals.tierBreakdown && (
-                    <div className="relative" ref={tooltipRef}>
+                    <div
+                      className="relative"
+                      ref={tooltipRef}
+                      onMouseEnter={() => !isMobile && setShowTierTooltip(true)}
+                      onMouseLeave={() => !isMobile && setShowTierTooltip(false)}
+                    >
                       <button
-                        onClick={() => isMobile && setShowTierTooltip(!showTierTooltip)}
-                        onMouseEnter={() => !isMobile && setShowTierTooltip(true)}
-                        onMouseLeave={() => !isMobile && setShowTierTooltip(false)}
+                        type="button"
+                        ref={tierTriggerRef}
+                        aria-label={`점수 상위 ${bestMatchRangeLabel} 잠재 티어 산정 방법 보기`}
+                        aria-expanded={showTierTooltip}
+                        aria-controls={TIER_TOOLTIP_ID}
+                        aria-describedby={showTierTooltip ? TIER_TOOLTIP_ID : undefined}
+                        onPointerDown={() => { tierTriggerPointerRef.current = true; }}
+                        onClick={() => {
+                          tierTriggerPointerRef.current = false;
+                          if (isMobile) setShowTierTooltip((visible) => !visible);
+                        }}
+                        onFocus={() => {
+                          if (restoreTierFocusRef.current) {
+                            restoreTierFocusRef.current = false;
+                            return;
+                          }
+                          if (tierTriggerPointerRef.current) {
+                            tierTriggerPointerRef.current = false;
+                            return;
+                          }
+                          setShowTierTooltip(true);
+                        }}
+                        onBlur={(event) => {
+                          const nextTarget = event.relatedTarget;
+                          if (!(nextTarget instanceof Node) || !tooltipRef.current?.contains(nextTarget)) {
+                            setShowTierTooltip(false);
+                          }
+                        }}
                         className="flex items-center justify-center p-1 focus:outline-none"
                       >
                         <HelpCircle size={16} className={`${showTierTooltip ? 'text-white' : 'text-white/30'} hover:text-white/60 cursor-help transition-colors`} />
@@ -958,19 +1466,30 @@ export const RecentAISummary = ({
 
                       {showTierTooltip && (
                         <div
-                          ref={tooltipRef}
+                          id={TIER_TOOLTIP_ID}
+                          role={isMobile ? "dialog" : "tooltip"}
+                          aria-modal={isMobile ? "true" : undefined}
+                          aria-label={isMobile ? "잠재 티어 산정 방법" : undefined}
                           className={`${isMobile
                             ? 'fixed inset-x-4 bottom-20 animate-in slide-in-from-bottom-5'
                             : 'absolute left-full ml-3 top-1/2 -translate-y-1/2 w-48 animate-in fade-in zoom-in-95'
                             } p-4 bg-black/95 border border-white/20 rounded-2xl backdrop-blur-xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] z-[100] duration-200`}
                         >
                           <div className="flex justify-between items-center mb-3 pb-2 border-b border-white/10">
-                            <div className="text-[11px] text-white/50 font-black uppercase tracking-wider">티어 분석 결과</div>
+                            <div className="text-[11px] text-white/50 font-black uppercase tracking-wider">점수 상위 {bestMatchRangeLabel} 잠재 티어 분석</div>
                             {isMobile && (
-                              <button onClick={() => setShowTierTooltip(false)} className="text-white/40">
+                              <button
+                                type="button"
+                                aria-label="잠재 티어 산정 방법 닫기"
+                                onClick={() => setShowTierTooltip(false)}
+                                className="text-white/40"
+                              >
                                 <X size={14} />
                               </button>
                             )}
+                          </div>
+                          <div className="mb-3 text-[10px] text-white/50 leading-relaxed">
+                            최근 유효 {latestMatchRangeLabel}에서 BGMS가 공식 PUBG 매치·텔레메트리 데이터로 계산한 점수 상위 {bestMatchRangeLabel}을 선별한 잠재력 기준입니다. BGMS 자체 산정 · PUBG 공식 티어/평점 아님 (PUBG 공식 티어·평점이 아닙니다.)
                           </div>
                           <div className="space-y-2.5">
                             <div className="flex justify-between items-center">
@@ -986,7 +1505,7 @@ export const RecentAISummary = ({
                               <span className="text-[12px] text-yellow-400 font-black">{debateData.visuals.tierBreakdown.survival}</span>
                             </div>
                             <div className="pt-2 mt-2 border-t border-white/10 flex justify-between items-center">
-                              <span className="text-[11px] text-white font-black uppercase">종합 점수</span>
+                              <span className="text-[11px] text-white font-black uppercase">잠재 점수</span>
                               <span className="text-[14px] text-white font-black">{debateData.visuals.tierBreakdown.total}</span>
                             </div>
                           </div>
@@ -1091,7 +1610,7 @@ export const RecentAISummary = ({
               </div>
               <div className="group relative px-4 py-2 bg-red-500/20 border border-red-500/30 rounded-2xl text-[12px] text-red-400 font-black flex items-center gap-3 shadow-lg shadow-red-500/10 cursor-help">
                 <div className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
-                자기장 누적 피해: {Math.floor(debateData?.visuals?.bluezoneWaste || 0)} HP
+                자기장 누적 피해: {formatBluezoneWaste(debateData?.visuals?.bluezoneWaste)}
                 <div className="w-3 h-3 rounded-full bg-red-500/30 flex items-center justify-center text-[8px] text-red-400 border border-red-500/40">?</div>
 
                 {/* Tooltip Content */}
@@ -1303,7 +1822,7 @@ export const RecentAISummary = ({
           <div className="relative group p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-[28px] text-center transition-all hover:bg-emerald-500/15">
             <div className="text-[10px] text-emerald-400 font-black uppercase mb-1 tracking-widest">평균 생존 페이즈</div>
             <div className="text-3xl font-black text-white mb-1">{debateData?.visuals?.deathPhase || 0} Ph</div>
-            <div className="text-[9px] text-gray-500 font-medium">최근 10경기 평균 생존 구간</div>
+            <div className="text-[9px] text-gray-500 font-medium">최근 {latestMatchCount}경기 평균 생존 구간</div>
           </div>
         </div>
 
@@ -1318,7 +1837,7 @@ export const RecentAISummary = ({
                 <div className="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center">
                   <ShieldAlert size={16} className="text-emerald-400" />
                 </div>
-                <span className="text-white font-black">10경기 전술 마스터리</span>
+                <span className="text-white font-black">{latestMatchCount}경기 전술 마스터리</span>
                 {debateData?.visuals?.latestMatchTime && (
                   <div className="flex items-center gap-1.5 ml-2">
                     <div className="w-1 h-1 bg-white/20 rounded-full" />
@@ -1388,7 +1907,7 @@ export const RecentAISummary = ({
                 <div className="flex flex-col gap-1">
                   <span className="text-[10px] text-purple-400 font-black uppercase">전술 대응력 (복수)</span>
                   <span className="text-2xl font-black text-white">{debateData?.visuals?.tactical?.baitCount || 0}회</span>
-                  <div className="text-[9px] text-gray-500 font-bold mt-1">10경기 합계</div>
+                  <div className="text-[9px] text-gray-500 font-bold mt-1">{latestMatchCount}경기 합계</div>
                 </div>
               </div>
             </div>
@@ -1457,8 +1976,7 @@ export const RecentAISummary = ({
                     </div>
 
                     <div className="space-y-4">
-                      {issue.userStats?.map((uStat: { label: string; value: string }, sIdx: number) => {
-                        const bStat = issue.benchmarkStats?.[sIdx];
+                      {matchDebateStatPairs(issue.userStats, issue.benchmarkStats).map(({ user: uStat, benchmark: bStat }, sIdx) => {
                         return (
                           <div key={sIdx} className="grid grid-cols-11 items-center gap-2 p-4 bg-white/5 rounded-xl border border-white/5 group hover:bg-white/10 transition-colors">
                             <div className="col-span-4 text-right">
@@ -1472,7 +1990,7 @@ export const RecentAISummary = ({
 
                             <div className="col-span-4 text-left">
                               <div className="text-lg md:text-xl font-black text-gray-400">{bStat?.value || "N/A"}</div>
-                              <div className="text-[9px] text-gray-500 font-bold uppercase">{bStat?.label || uStat.label}</div>
+                              <div className="text-[9px] text-gray-500 font-bold uppercase">{neutralBenchmarkLabel(bStat?.label || uStat.label, debateData?.visuals?.benchmarkScope)}</div>
                             </div>
                           </div>
                         );

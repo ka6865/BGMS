@@ -2,6 +2,8 @@
  * PUBG 전술 분석 엔진 공용 타입 정의
  */
 
+import type { ObservedBenchmark } from "./benchmarkAdapter";
+
 export interface Location {
   x: number;
   y: number;
@@ -46,22 +48,24 @@ export interface UtilityStats {
   damageEventCount?: number;
   throwCount: number;
   lethalThrowCount?: number;
-  totalDamage: number;
+  totalDamage: number | null;
   killCount: number;
-  accuracy: number;
-  accuracyRaw?: number;
-  avgDamagePerThrow: number;
+  /** Null means no lethal-throw denominator was observed. */
+  accuracy: number | null;
+  accuracyRaw?: number | null;
+  avgDamagePerThrow: number | null;
 
   fragHits?: number;
   molotovHits?: number;
 }
 
 export interface CombatPressure {
-  pressureScore: number;
-  pressureIndex: number;
+  pressureScore: number | null;
+  /** Null means no player-action denominator was observed. */
+  pressureIndex: number | null;
   utilityStats: UtilityStats;
   isClutched: boolean;
-  utilityDamage?: number;
+  utilityDamage?: number | null;
   utilityHits?: number;
   totalHits?: number;
   maxHitDist?: number;
@@ -69,13 +73,14 @@ export interface CombatPressure {
 }
 
 export interface IsolationData {
-  isolationIndex: number;
-  combatIsolation: number;
-  deathIsolation: number;
-  minDist: number;
-  heightDiff: number;
-  isCrossfire: boolean;
-  teammateCount: number;
+  /** Undefined means no valid position sample was observed; numeric zero is measured. */
+  isolationIndex?: number;
+  combatIsolation?: number;
+  deathIsolation?: number;
+  minDist?: number;
+  heightDiff?: number;
+  isCrossfire: boolean | null;
+  teammateCount?: number;
 }
 
 export interface TradeStats {
@@ -86,14 +91,17 @@ export interface TradeStats {
   smokeRescues: number;
   revCount: number;
   baitCount: number;
-  tradeLatencyMs: number;
-  counterLatencyMs: number;
-  reactionLatencyMs: number;
-  coverRate: number;
+  /** Null means no observed trade-latency sample was available. */
+  tradeLatencyMs: number | null;
+  /** Null means no observed counter/reaction-latency sample was available. */
+  counterLatencyMs: number | null;
+  reactionLatencyMs: number | null;
+  /** Percent (0–100); null means no observed cover attempts. */
+  coverRate: number | null;
   coverRateSampleCount: number;
   enemyTeamWipes: number;
-  tradeRate?: number;
-  suppRate?: number;
+  tradeRate?: number | null;
+  suppRate?: number | null;
 }
 
 export interface DuelStats {
@@ -102,28 +110,32 @@ export interface DuelStats {
   losses: number;
   reversals: number;
   reversalAttempts: number;
-  reversalRate: number;
-  duelWinRate: number;
+  reversalRate: number | null;
+  duelWinRate: number | null;
 }
 
 export interface AnalysisResult {
   matchId: string;
   v: number;
+  populationEvidenceVersion?: number;
   processedAt: string;
   createdAt: string;
   stats: PlayerStats;
   team: PlayerStats[];
-  deathPhase: number;
+  deathPhase: number | null;
   mapName: string;
   gameMode: string;
   matchType: string;
+  /** Preserved PUBG metadata evidence used by population eligibility gates. */
+  attributes?: Record<string, unknown>;
+  telemetryFlags?: Record<string, unknown>;
   totalTeams: number;
   totalPlayers: number;
   teamImpact: {
-    damageImpact: number;
-    killImpact: number;
-    teamDamageShare: number;
-    teamKillShare: number;
+    damageImpact: number | null;
+    killImpact: number | null;
+    teamDamageShare: number | null;
+    teamKillShare: number | null;
     totalTeamDamage: number;
     totalTeamKills: number;
   };
@@ -156,11 +168,11 @@ export interface AnalysisResult {
   wasZoneMovingAtDeath: boolean; // [V11.8] 사망 시점 자기장 상태
   isolationData: IsolationData;
   tradeStats: TradeStats;
-  initiative_rate: number;
+  initiative_rate: number | null;
   initiativeSampleCount: number;
   duelStats: DuelStats;
   combatPressure: CombatPressure;
-  eliteBenchmark: any;
+  eliteBenchmark: ObservedBenchmark | null;
   itemUseSummary: any;
   deathDistance: number;
   edgePlay?: number;
@@ -189,8 +201,8 @@ export interface AnalysisResult {
     mapName?: string;
   };
   // [V16.0] 신규 엔터테인먼트 지표
-  avgCircleLuck?: number;
-  avgVehicleMastery?: number;
+  avgCircleLuck?: number | null;
+  avgVehicleMastery?: number | null;
   weaponMatchCount?: string[];
   leadShotKills: number;
   leadShotKnocks: number;
@@ -242,7 +254,7 @@ export interface AnalysisState {
   totalNearbyTeammatesSum: number;
   lastIsolationSampleTime: number;
   dbnoIsolationSamples: number[];
-  deathIsolation: number;
+  deathIsolation?: number;
   totalCombatIsolationSum: number;
   combatIsolationCount: number;
   hasLanded: boolean;
@@ -321,6 +333,7 @@ export interface AnalysisState {
   circleLuckSum: number;
   circleLuckCount: number;
   vehicleDistance: number;
+  vehicleSampleCount: number;
   weaponMatchCount: Set<string>; // 이 매치에서 사용된 무기 목록
   lastMyLoc?: Location; // [V16.0] 이동 거리 계산용
 

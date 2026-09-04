@@ -1,0 +1,1127 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { gzipSync } from "node:zlib";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  BENCHMARK_RECOVERY_APPLY_WARNING,
+  BENCHMARK_RECOVERY_DEFAULT_BASE_URL,
+  benchmarkRecoveryConfirmationToken,
+  createBenchmarkRecoveryR2PostconditionVerifier,
+  parseBenchmarkRecoveryCanaryArgs,
+  runBenchmarkRecoveryCanary,
+  validateBenchmarkRecoveryManifest,
+  type BenchmarkRecoveryCanaryArgs,
+  type BenchmarkRecoveryR2PostconditionEvidence,
+  type BenchmarkRecoveryR2PostconditionVerifier,
+  type ReadOnlySupabaseClient,
+} from "../scripts/run_benchmark_recovery_canary";
+import type { BenchmarkRecoveryManifest } from "../scripts/plan_benchmark_recovery";
+import type { BenchmarkRecoverySnapshot } from "../lib/pubg-analysis/benchmarkRecoveryPlanner";
+import { TELEMETRY_VERSION } from "../lib/pubg-analysis/constants";
+
+const GENERATED_AT = "2026-09-02T00:00:00.000Z";
+const FIXED_NOW = new Date(GENERATED_AT);
+
+function benchmarkSnapshot(index = 0): BenchmarkRecoverySnapshot {
+  return {
+    damage: index,
+    kills: index,
+    win_place: 10 + index,
+    game_mode: "duo",
+    map_name: "erangel",
+    counter_latency_ms: null,
+    initiative_rate: null,
+    revive_rate: null,
+    is_crossfire: null,
+    utility_count: null,
+    smoke_count: null,
+    frag_count: null,
+    pressure_index: null,
+    enemy_death_distance: null,
+    survival_time: null,
+    isolation_index: null,
+    min_dist: null,
+    height_diff: null,
+    smoke_rate: null,
+    trade_rate: null,
+    solo_kill_rate: null,
+    reversal_rate: null,
+    duel_win_rate: null,
+    trade_latency_ms: null,
+    lethal_throw_count: null,
+    tier: "C",
+    score: null,
+    combat_score: null,
+    tactical_score: null,
+    survival_score: null,
+    supp_count: null,
+    team_wipes: null,
+    match_type: "competitive",
+    death_phase: null,
+    filter_version: 8,
+    population_evidence_version: null,
+    source: "user",
+  };
+}
+
+beforeEach(() => {
+  vi.useFakeTimers({ now: FIXED_NOW });
+});
+
+function manifestFixture(): BenchmarkRecoveryManifest {
+  const canary = Array.from({ length: 5 }, (_, index) => ({
+    benchmarkId: index + 1,
+    matchId: `match-${index + 1}`,
+    playerId: `player-${index + 1}`,
+    platform: "steam" as const,
+    gameMode: "duo",
+    matchType: "competitive",
+    tier: "C",
+    playedAt: "2026-09-01T00:00:00.000Z",
+    eligible: true,
+    reason: "eligible",
+    reasons: [],
+  }));
+  return {
+    schemaVersion: "benchmark-recovery-canary-v1",
+    mode: "read-only-dry-run",
+    generatedAt: GENERATED_AT,
+    criteria: {
+      recentDays: 14,
+      recentSince: "2026-08-19T00:00:00.000Z",
+      cohortSize: 5,
+      preferredBucket: { gameMode: "duo", matchType: "competitive", tier: "C" },
+      preferredPlatform: "steam",
+      trustedMarkers: { filterVersion: 8, populationEvidenceVersion: 1, resultVersion: 73 },
+    },
+    sources: {
+      globalBenchmarkRows: 5,
+      playerMatchRows: 5,
+      processedTelemetryRows: 5,
+      truncated: false,
+    },
+    selectionStatus: "selected",
+    selectedBucket: { gameMode: "duo", matchType: "competitive", tier: "C" },
+    selectedPlatform: "steam",
+    canaryCount: 5,
+    eligibleCount: 5,
+    ineligibleCount: 0,
+    reasonCounts: {},
+    viableBuckets: [{ gameMode: "duo", matchType: "competitive", tier: "C", platform: "steam", eligibleCount: 5 }],
+    canary,
+    readEvidence: canary.map((entry) => ({
+      benchmarkId: entry.benchmarkId,
+      matchId: entry.matchId,
+      playerId: entry.playerId,
+      platform: entry.platform,
+      gameMode: entry.gameMode,
+      matchType: entry.matchType,
+      tier: entry.tier,
+      playedAt: entry.playedAt,
+      isValidBenchmark: true,
+      snapshot: benchmarkSnapshot(Number(entry.benchmarkId) - 1),
+    })),
+    databaseWritesAttempted: 0,
+    storageWritesAttempted: 0,
+    externalApiCalls: 0,
+  };
+}
+
+function databaseFixture() {
+  const global = Array.from({ length: 5 }, (_, index) => ({
+    ...benchmarkSnapshot(index),
+    id: index + 1,
+    match_id: `match-${index + 1}`,
+    player_id: `player-${index + 1}`,
+    platform: "steam",
+    game_mode: "duo",
+    match_type: "competitive",
+    tier: "C",
+    filter_version: 8,
+    population_evidence_version: null,
+  }));
+  const processed = global.map((row) => ({
+    ...row,
+    data: {
+      fullResult: {
+        v: 72,
+        isValidBenchmark: true,
+        matchId: row.match_id,
+        player_id: row.player_id,
+        platform: row.platform,
+        createdAt: "2026-09-01T00:00:00.000Z",
+        gameMode: "duo",
+        matchType: "competitive",
+        benchmark: { tier: "C" },
+        stats: { name: row.player_id },
+      },
+    },
+  }));
+  const playerMatches = global.map((row) => ({
+    ...row,
+    played_at: "2026-09-01T00:00:00.000Z",
+  }));
+  return {
+    global_benchmarks: global,
+    processed_match_telemetry: processed,
+    pubg_player_matches: playerMatches,
+    match_stats_raw: [],
+    weapon_meta_match_samples: [],
+    telemetry_map_cache_entries: [],
+    match_master_telemetry: [],
+    pubg_player_cache: global.map((row) => ({
+      lower_nickname: row.player_id,
+      platform: row.platform,
+      nickname: row.player_id,
+    })),
+  } as Record<string, Array<Record<string, unknown>>>;
+}
+
+const ROUTE_RESPONSE_URL = `${BENCHMARK_RECOVERY_DEFAULT_BASE_URL}/api/pubg/match`;
+
+function routeResponse(payload: unknown, status = 200, finalUrl = ROUTE_RESPONSE_URL): Response {
+  const response = new Response(
+    typeof payload === "string" ? payload : JSON.stringify(payload),
+    { status, headers: { "content-type": "application/json" } },
+  );
+  Object.defineProperty(response, "url", { value: finalUrl });
+  return response;
+}
+
+type FixtureR2Object = { key: string; body: string; etag: string };
+type FixtureR2Registry = {
+  matchId: string;
+  playerId: string;
+  platform: "steam" | "kakao";
+  storagePath: string;
+  status: "ready";
+  telemetryVersion: number;
+  etag: string;
+};
+
+const fixtureR2Objects = new Map<string, FixtureR2Object>();
+const fixtureR2Registry = new Map<string, FixtureR2Registry>();
+let fixtureR2Reads = 0;
+let fixtureR2ObjectReads = 0;
+let fixtureR2RegistryReads = 0;
+
+function markFixtureR2Ready(identity: {
+  matchId: string;
+  playerId: string;
+  platform: "steam" | "kakao";
+}): void {
+  const playerHash = createHash("sha256").update(identity.playerId).digest("hex").slice(0, 32);
+  const key = `telemetry-map/v${TELEMETRY_VERSION}/${identity.platform}/${identity.matchId}/${playerHash}/lite.json`;
+  const body = `canonical-r2-${identity.matchId}`;
+  const etag = `etag-${identity.matchId}`;
+  fixtureR2Objects.set(identity.matchId, { key, body, etag });
+  fixtureR2Registry.set(identity.matchId, {
+    matchId: identity.matchId,
+    playerId: identity.playerId,
+    platform: identity.platform,
+    storagePath: key,
+    status: "ready",
+    telemetryVersion: TELEMETRY_VERSION,
+    etag,
+  });
+}
+
+async function fixtureR2PostconditionVerifier(
+  identity: { matchId: string; playerId: string; platform: "steam" | "kakao"; bucket: { gameMode: string; matchType: string; tier: string }; playedAt: string },
+  before: ReturnType<typeof databaseFixture>,
+  after: ReturnType<typeof databaseFixture>,
+): Promise<BenchmarkRecoveryR2PostconditionEvidence> {
+  void before;
+  void after;
+  // These reads intentionally exercise both sides of the storage contract;
+  // the verifier does not infer R2 readiness from the database fixture.
+  fixtureR2Reads += 1;
+  fixtureR2ObjectReads += 1;
+  const object = fixtureR2Objects.get(identity.matchId);
+  fixtureR2RegistryReads += 1;
+  const registry = fixtureR2Registry.get(identity.matchId);
+  if (!object || !registry) {
+    return {
+      object: { key: "", exists: false, etag: "", sha256: "", readBack: false },
+      registry: {
+        matchId: identity.matchId,
+        playerId: identity.playerId,
+        platform: identity.platform,
+        storagePath: "",
+        status: "ready",
+        telemetryVersion: TELEMETRY_VERSION,
+        etag: "",
+        readBack: false,
+      },
+    } as unknown as BenchmarkRecoveryR2PostconditionEvidence;
+  }
+  return {
+    object: {
+      key: object.key,
+      exists: true,
+      etag: object.etag,
+      sha256: createHash("sha256").update(object.body).digest("hex"),
+      readBack: true,
+    },
+    registry: {
+      ...registry,
+      readBack: true,
+    },
+  };
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+  fixtureR2Objects.clear();
+  fixtureR2Registry.clear();
+  fixtureR2Reads = 0;
+  fixtureR2ObjectReads = 0;
+  fixtureR2RegistryReads = 0;
+});
+
+describe("benchmark recovery operator warning", () => {
+  it("states that apply mutates remote state and does not automatically roll back completed rows", () => {
+    expect(BENCHMARK_RECOVERY_APPLY_WARNING).toContain("mutates the database and R2");
+    expect(BENCHMARK_RECOVERY_APPLY_WARNING).toContain("not automatically rolled back");
+  });
+});
+
+function verifierStateFixture(
+  identity: { matchId: string; playerId: string; platform: "steam" | "kakao" },
+): Parameters<BenchmarkRecoveryR2PostconditionVerifier>[2] {
+  const state = databaseFixture();
+  const playerHash = createHash("sha256").update(identity.playerId).digest("hex").slice(0, 32);
+  state.telemetry_map_cache_entries = [{
+    match_id: identity.matchId,
+    platform: identity.platform,
+    player_id: identity.playerId,
+    mode: "lite",
+    telemetry_version: TELEMETRY_VERSION,
+    storage_path: `telemetry-map/v${TELEMETRY_VERSION}/${identity.platform}/${identity.matchId}/${playerHash}/lite.json`,
+    status: "ready",
+    lease_expires_at: null,
+    lease_token: null,
+  }];
+  return state as unknown as Parameters<BenchmarkRecoveryR2PostconditionVerifier>[2];
+}
+
+function telemetryPayloadFixture(identity: {
+  matchId: string;
+  playerId: string;
+  platform: "steam" | "kakao";
+}) {
+  return {
+    identity: {
+      matchId: identity.matchId,
+      platform: identity.platform,
+      playerKey: createHash("sha256").update(identity.playerId).digest("hex").slice(0, 32),
+      mode: "lite" as const,
+      telemetryVersion: TELEMETRY_VERSION,
+    },
+    startTime: "2026-09-01T00:00:00.000Z",
+    teammates: [],
+    teamNames: [identity.playerId],
+    events: [],
+    zoneEvents: [],
+    mapName: "erangel",
+  };
+}
+
+describe("benchmark recovery R2 payload postcondition verifier", () => {
+  it.each([false, true])("accepts a canonical %s payload", async (compressed) => {
+    const identity = validateBenchmarkRecoveryManifest(manifestFixture(), { now: FIXED_NOW }).canary[0];
+    const state = verifierStateFixture(identity);
+    const payload = Buffer.from(JSON.stringify(telemetryPayloadFixture(identity)), "utf8");
+    const body = compressed ? gzipSync(payload) : payload;
+    const readObject = vi.fn(async (key: string) => ({ key, etag: '"etag-valid"', body }));
+    const verifier = createBenchmarkRecoveryR2PostconditionVerifier(readObject);
+
+    await expect(verifier(identity, state, state)).resolves.toMatchObject({
+      object: {
+        key: state.telemetry_map_cache_entries[0].storage_path,
+        exists: true,
+        readBack: true,
+      },
+      registry: {
+        matchId: identity.matchId,
+        playerId: identity.playerId,
+        platform: identity.platform,
+        telemetryVersion: TELEMETRY_VERSION,
+      },
+    });
+  });
+
+  it.each([
+    ["wrong match identity", "wrong-match"],
+    ["corrupt gzip content", "corrupt-gzip"],
+    ["invalid JSON content", "invalid-json"],
+    ["invalid payload shape", "invalid-shape"],
+  ] as const)("rejects %s before returning evidence", async (label, variant) => {
+    const identity = validateBenchmarkRecoveryManifest(manifestFixture(), { now: FIXED_NOW }).canary[0];
+    const state = verifierStateFixture(identity);
+    const payload = telemetryPayloadFixture(identity);
+    if (variant === "wrong-match") payload.identity.matchId = "different-match";
+    if (variant === "invalid-shape") payload.mapName = "";
+    const canonicalBody = Buffer.from(JSON.stringify(payload), "utf8");
+    const body = variant === "corrupt-gzip"
+      ? Buffer.from([0x1f, 0x8b, 0x00, 0x00])
+      : variant === "invalid-json"
+        ? Buffer.from("not-json", "utf8")
+        : canonicalBody;
+    const readObject = vi.fn(async (key: string) => ({ key, etag: '"etag-invalid"', body }));
+    const verifier = createBenchmarkRecoveryR2PostconditionVerifier(readObject);
+
+    await expect(verifier(identity, state, state)).rejects.toThrow();
+  });
+});
+
+function readOnlySupabase(rows: Record<string, Array<Record<string, unknown>>>, readEvents: string[] = []): ReadOnlySupabaseClient {
+  return {
+    from(table: string) {
+      const filters: Array<{ column: string; values: string[] }> = [];
+      const query = {
+        select: () => query,
+        in: (column: string, values: readonly string[]) => {
+          filters.push({ column, values: [...values] });
+          return query;
+        },
+        eq: (column: string, value: string) => {
+          filters.push({ column, values: [value] });
+          return query;
+        },
+        then: (resolve: (value: { data: unknown; error: null }) => unknown) => {
+          readEvents.push(table);
+          const data = (rows[table] || []).filter((row) => filters.every(({ column, values }) => (
+            values.includes(String(row[column] ?? ""))
+          )));
+          return Promise.resolve(resolve({ data, error: null }));
+        },
+      };
+      return query;
+    },
+  } as unknown as ReadOnlySupabaseClient;
+}
+
+function applyArgs(manifest: BenchmarkRecoveryManifest, overrides: Partial<BenchmarkRecoveryCanaryArgs> = {}): BenchmarkRecoveryCanaryArgs {
+  vi.stubEnv("NODE_ENV", "test");
+  vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+  vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+  return {
+    manifest: "tmp/benchmark-recovery-canary-plan.json",
+    apply: true,
+    confirm: benchmarkRecoveryConfirmationToken(manifest),
+    baseUrl: BENCHMARK_RECOVERY_DEFAULT_BASE_URL,
+    report: "tmp/test-canary-report.json",
+    json: false,
+    ...overrides,
+  };
+}
+
+describe("benchmark recovery canary executor", () => {
+  it("uses an explicit clock and a recognizable deterministic recovery token", () => {
+    const manifest = manifestFixture();
+    const token = benchmarkRecoveryConfirmationToken(manifest, { now: FIXED_NOW });
+
+    expect(token).toMatch(/^[a-f0-9]{64}$/);
+    expect(token).toBe(benchmarkRecoveryConfirmationToken(manifest, { now: FIXED_NOW }));
+  });
+
+  it("defaults to preflight and makes zero route calls", async () => {
+    const manifest = manifestFixture();
+    const fetchRoute = vi.fn();
+    const writeLocal = vi.fn(async () => undefined);
+    const report = await runBenchmarkRecoveryCanary(
+      parseBenchmarkRecoveryCanaryArgs([]),
+      { manifest, fetchRoute, writeLocal, now: () => Date.parse(GENERATED_AT) },
+    );
+
+    expect(report.status).toBe("preflight");
+    expect(report.routeCalls).toBe(0);
+    expect(report.selectedPlatform).toBe("steam");
+    expect(report.confirmationToken).toBe(benchmarkRecoveryConfirmationToken(manifest));
+    expect(fetchRoute).not.toHaveBeenCalled();
+    expect(writeLocal).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires an exact confirmation token and rejects non-loopback apply targets", async () => {
+    const manifest = manifestFixture();
+    await expect(runBenchmarkRecoveryCanary(
+      applyArgs(manifest, { confirm: "wrong" }),
+      { manifest },
+    )).rejects.toThrow("confirmation_mismatch");
+
+    await expect(runBenchmarkRecoveryCanary(
+      applyArgs(manifest, { baseUrl: "https://preview.example.com" }),
+      { manifest },
+    )).rejects.toThrow("loopback");
+  });
+
+  it("rejects apply when synchronous stale recovery is disabled before snapshot or route execution", async () => {
+    const manifest = manifestFixture();
+    const fetchRoute = vi.fn();
+    const writeLocal = vi.fn(async () => undefined);
+    const args = applyArgs(manifest);
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "false");
+
+    await expect(runBenchmarkRecoveryCanary(args, {
+      manifest,
+      fetchRoute,
+      writeLocal,
+    })).rejects.toThrow(/sync.*stale|stale.*sync/i);
+
+    expect(fetchRoute).not.toHaveBeenCalled();
+    expect(writeLocal).not.toHaveBeenCalled();
+  });
+
+  it("refuses apply before any route when no verifier is supplied and R2 is unavailable", async () => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    const fetchRoute = vi.fn();
+
+    await expect(runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      writeLocal: async () => undefined,
+    })).rejects.toThrow("r2_postcondition_storage_required");
+    expect(fetchRoute).not.toHaveBeenCalled();
+  });
+
+  it("freezes the selected platform in manifest validation and confirmation material", () => {
+    const steamManifest = manifestFixture();
+    const kakaoManifest = structuredClone(steamManifest);
+    kakaoManifest.criteria.preferredPlatform = "kakao";
+    kakaoManifest.selectedPlatform = "kakao";
+    kakaoManifest.canary = kakaoManifest.canary.map((entry) => ({ ...entry, platform: "kakao" }));
+    kakaoManifest.readEvidence = kakaoManifest.readEvidence.map((entry) => ({ ...entry, platform: "kakao" }));
+
+    expect(benchmarkRecoveryConfirmationToken(steamManifest)).not.toBe(
+      benchmarkRecoveryConfirmationToken(kakaoManifest),
+    );
+
+    const mixedManifest = structuredClone(steamManifest);
+    mixedManifest.canary[0] = { ...mixedManifest.canary[0], platform: "kakao" };
+    expect(() => benchmarkRecoveryConfirmationToken(mixedManifest)).toThrow(/mixed.*platform/i);
+  });
+
+  it("binds full safety criteria and selected-entry freshness into the manifest token", () => {
+    const manifest = manifestFixture();
+    const token = benchmarkRecoveryConfirmationToken(manifest);
+
+    const changedCriteria = structuredClone(manifest);
+    changedCriteria.criteria.recentDays = 7;
+    expect(benchmarkRecoveryConfirmationToken(changedCriteria)).not.toBe(token);
+
+    const changedEntry = structuredClone(manifest);
+    changedEntry.canary[0] = {
+      ...changedEntry.canary[0],
+      playedAt: "2026-08-31T00:00:00.000Z",
+    };
+    changedEntry.readEvidence[0] = {
+      ...changedEntry.readEvidence[0],
+      playedAt: "2026-08-31T00:00:00.000Z",
+    };
+    expect(benchmarkRecoveryConfirmationToken(changedEntry)).not.toBe(token);
+  });
+
+  it("rejects truncated, stale, or marker-mismatched manifests before apply", () => {
+    const manifest = manifestFixture();
+    const cases = [
+      ["truncated", (value: BenchmarkRecoveryManifest) => { value.sources.truncated = true; }],
+      ["cohort", (value: BenchmarkRecoveryManifest) => { value.criteria.cohortSize = 4; }],
+      ["marker", (value: BenchmarkRecoveryManifest) => { value.criteria.trustedMarkers.filterVersion = 7; }],
+      ["stale", (value: BenchmarkRecoveryManifest) => { value.generatedAt = "2026-08-01T00:00:00.000Z"; }],
+    ] as const;
+
+    for (const [label, mutate] of cases) {
+      const candidate = structuredClone(manifest);
+      mutate(candidate);
+      expect(() => validateBenchmarkRecoveryManifest(candidate, { now: Date.parse(GENERATED_AT) }), label)
+        .toThrow(/manifest|truncated|fresh|stale|criteria|marker/i);
+    }
+  });
+
+  it.each([
+    ["event mode", { gameMode: "event", matchType: "official" }],
+    ["custom match type", { gameMode: "duo", matchType: "custom" }],
+    ["unknown mode", { gameMode: "unknown", matchType: "official" }],
+    ["ranked alias", { gameMode: "duo", matchType: "ranked" }],
+  ] as const)("rejects a complete manifest with noncanonical %s population", (_label, population) => {
+    const manifest = manifestFixture();
+    manifest.selectedBucket = { ...manifest.selectedBucket!, ...population };
+    manifest.criteria.preferredBucket = { ...manifest.criteria.preferredBucket, ...population };
+    manifest.canary = manifest.canary.map((entry) => ({ ...entry, ...population }));
+    manifest.readEvidence = manifest.readEvidence.map((entry) => ({ ...entry, ...population }));
+    expect(() => validateBenchmarkRecoveryManifest(manifest, { now: Date.parse(GENERATED_AT) }))
+      .toThrow(/population|bucket|mode|match_type/i);
+  });
+
+  it("uses five deterministic sequential route calls and snapshots before the first call", async () => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    const events: string[] = [];
+    const readEvents: string[] = [];
+    let readsBeforeFirstRoute = 0;
+    const writeLocal = vi.fn(async (filePath: string) => {
+      events.push(filePath.includes("snapshot") ? "snapshot" : "report");
+    });
+    const fetchRoute = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      void init;
+      if (fetchRoute.mock.calls.length === 1) readsBeforeFirstRoute = readEvents.length;
+      if (fetchRoute.mock.calls.length === 2) expect(readEvents.length).toBeGreaterThan(readsBeforeFirstRoute);
+      events.push("route");
+      const url = new URL(String(input));
+      const matchId = url.searchParams.get("matchId") || "";
+      const playerId = url.searchParams.get("nickname") || "";
+      const platform = url.searchParams.get("platform") || "";
+      const row = rows.global_benchmarks.find((candidate) => candidate.match_id === matchId);
+      if (row) {
+        row.population_evidence_version = 1;
+        const processed = rows.processed_match_telemetry.find((candidate) => candidate.match_id === matchId);
+        if (processed) {
+          const fullResult = (processed.data as { fullResult: Record<string, unknown> }).fullResult;
+          fullResult.v = 73;
+          fullResult.populationEvidenceVersion = 1;
+        }
+      }
+      markFixtureR2Ready({ matchId, playerId, platform: platform === "kakao" ? "kakao" : "steam" });
+      return routeResponse({ matchId, player_id: playerId, platform, v: 73, populationEvidenceVersion: 1 }, 200, String(input));
+    });
+
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows, readEvents),
+      fetchRoute,
+      writeLocal,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+      now: () => Date.parse(GENERATED_AT),
+    });
+
+    expect(report.status).toBe("applied");
+    expect(report.routeCalls).toBe(5);
+    expect(report.postconditionsVerified).toBe(true);
+    expect(fetchRoute).toHaveBeenCalledTimes(5);
+    expect(events[0]).toBe("snapshot");
+    expect(events.filter((event) => event === "route")).toHaveLength(5);
+    expect(events.indexOf("snapshot")).toBeLessThan(events.indexOf("route"));
+    expect(fetchRoute.mock.calls.map(([input]) => new URL(String(input)).searchParams.get("matchId"))).toEqual([
+      "match-1", "match-2", "match-3", "match-4", "match-5",
+    ]);
+    expect(fetchRoute.mock.calls.every(([input]) => {
+      const url = new URL(String(input));
+      return !url.searchParams.has("force") && !url.searchParams.has("source");
+    })).toBe(true);
+    expect(fetchRoute.mock.calls.every(([, init]) => {
+      const headers = new Headers(init?.headers);
+      return headers.get("x-benchmark-recovery-token") === "canary-token";
+    })).toBe(true);
+    expect(fetchRoute.mock.calls.every(([, init]) => init?.redirect === "error")).toBe(true);
+    expect(fixtureR2Reads).toBe(5);
+    expect(fixtureR2ObjectReads).toBe(5);
+    expect(fixtureR2RegistryReads).toBe(5);
+  });
+
+  it("reaches the route when player-match rows follow the schema without tier", async () => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    rows.pubg_player_matches = rows.pubg_player_matches.map((row) => ({
+      player_id: row.player_id,
+      platform: row.platform,
+      match_id: row.match_id,
+      played_at: row.played_at,
+      game_mode: row.game_mode,
+      match_type: row.match_type,
+      map_name: row.map_name,
+      kills: row.kills,
+      damage: row.damage,
+      win_place: row.win_place,
+      created_at: row.created_at,
+    }));
+    const fetchRoute = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const matchId = url.searchParams.get("matchId") || "";
+      const playerId = url.searchParams.get("nickname") || "";
+      const row = rows.global_benchmarks.find((candidate) => candidate.match_id === matchId);
+      if (row) row.population_evidence_version = 1;
+      const processed = rows.processed_match_telemetry.find((candidate) => candidate.match_id === matchId);
+      if (processed) {
+        const fullResult = (processed.data as { fullResult: Record<string, unknown> }).fullResult;
+        fullResult.v = 73;
+        fullResult.populationEvidenceVersion = 1;
+      }
+      markFixtureR2Ready({ matchId, playerId, platform: "steam" });
+      return routeResponse({
+        matchId,
+        player_id: playerId,
+        platform: "steam",
+        v: 73,
+        populationEvidenceVersion: 1,
+      }, 200, String(input));
+    });
+
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      writeLocal: async () => undefined,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+    });
+
+    expect(report.status).toBe("applied");
+    expect(report.postconditionsVerified).toBe(true);
+    expect(report.r2PostconditionsVerified).toBe(true);
+    expect(report.routeCalls).toBe(5);
+    expect(fetchRoute).toHaveBeenCalledTimes(5);
+  });
+
+  it.each([
+    ["game mode", "game_mode", "squad"],
+    ["match type", "match_type", "official"],
+  ] as const)("rejects a player-match %s mismatch before any route call", async (_label, field, value) => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    rows.pubg_player_matches[0][field] = value;
+    const fetchRoute = vi.fn(async (input: RequestInfo | URL) => routeResponse("unexpected", 503, String(input)));
+
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      writeLocal: async () => undefined,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+    });
+
+    expect(report.status).toBe("failed");
+    expect(report.failure).toMatchObject({ code: "race_read_evidence_changed", index: 0 });
+    expect(report.routeCalls).toBe(0);
+    expect(fetchRoute).not.toHaveBeenCalled();
+  });
+
+  it("rechecks isValidBenchmark immediately before every route call", async () => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    const fetchRoute = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const matchId = url.searchParams.get("matchId") || "";
+      const playerId = url.searchParams.get("nickname") || "";
+      const row = rows.global_benchmarks.find((candidate) => candidate.match_id === matchId);
+      if (row) row.population_evidence_version = 1;
+      const processed = rows.processed_match_telemetry.find((candidate) => candidate.match_id === matchId);
+      if (processed) {
+        const fullResult = (processed.data as { fullResult: Record<string, unknown> }).fullResult;
+        fullResult.v = 73;
+        fullResult.populationEvidenceVersion = 1;
+      }
+      // Simulate a benchmark-validity revocation after route 1 completed but
+      // before the executor is allowed to call route 2.
+      if (matchId === "match-1") {
+        const next = rows.processed_match_telemetry.find((candidate) => candidate.match_id === "match-2");
+        if (next) {
+          const nextResult = (next.data as { fullResult: Record<string, unknown> }).fullResult;
+          nextResult.isValidBenchmark = false;
+        }
+      }
+      markFixtureR2Ready({ matchId, playerId, platform: "steam" });
+      return routeResponse({ matchId, player_id: playerId, platform: "steam", v: 73, populationEvidenceVersion: 1 }, 200, String(input));
+    });
+
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      writeLocal: async () => undefined,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+    });
+
+    expect(report.status).toBe("failed");
+    expect(report.failure).toMatchObject({ code: "race_read_evidence_changed", index: 1 });
+    expect(report.routeCalls).toBe(1);
+    expect(fetchRoute).toHaveBeenCalledTimes(1);
+    expect(fixtureR2Reads).toBe(1);
+  });
+
+  it("rejects a benchmark row id replacement before any route call", async () => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    rows.global_benchmarks[0].id = 999;
+    const fetchRoute = vi.fn(async (input: RequestInfo | URL) => routeResponse("unexpected", 503, String(input)));
+
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      writeLocal: async () => undefined,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+    });
+
+    expect(report.status).toBe("failed");
+    expect(report.failure).toMatchObject({ code: "race_read_evidence_changed", index: 0 });
+    expect(report.routeCalls).toBe(0);
+    expect(fetchRoute).not.toHaveBeenCalled();
+    expect(fixtureR2Reads).toBe(0);
+  });
+
+  it.each([
+    ["metric", "damage", 999],
+    ["marker", "filter_version", 7],
+  ] as const)("rejects a changed full benchmark snapshot %s before any route call", async (_label, field, value) => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    rows.global_benchmarks[0][field] = value;
+    const fetchRoute = vi.fn(async (input: RequestInfo | URL) => routeResponse("unexpected", 503, String(input)));
+
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      writeLocal: async () => undefined,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+    });
+
+    expect(report.status).toBe("failed");
+    expect(report.failure).toMatchObject({ code: "race_read_evidence_changed", index: 0 });
+    expect(report.routeCalls).toBe(0);
+    expect(fetchRoute).not.toHaveBeenCalled();
+    expect(fixtureR2Reads).toBe(0);
+  });
+
+  it("accepts an unchanged benchmark row id and full snapshot", async () => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    const fetchRoute = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const matchId = url.searchParams.get("matchId") || "";
+      const playerId = url.searchParams.get("nickname") || "";
+      const benchmark = rows.global_benchmarks.find((row) => row.match_id === matchId);
+      if (benchmark) benchmark.population_evidence_version = 1;
+      const processed = rows.processed_match_telemetry.find((row) => row.match_id === matchId);
+      if (processed) {
+        const fullResult = (processed.data as { fullResult: Record<string, unknown> }).fullResult;
+        fullResult.v = 73;
+        fullResult.populationEvidenceVersion = 1;
+      }
+      markFixtureR2Ready({ matchId, playerId, platform: "steam" });
+      return routeResponse({ matchId, player_id: playerId, platform: "steam", v: 73, populationEvidenceVersion: 1 }, 200, String(input));
+    });
+
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      writeLocal: async () => undefined,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+    });
+
+    expect(report.status).toBe("applied");
+    expect(report.routeCalls).toBe(5);
+    expect(fetchRoute).toHaveBeenCalledTimes(5);
+    expect(fixtureR2Reads).toBe(5);
+  });
+
+  it.each([
+    ["player match played_at", (rows: ReturnType<typeof databaseFixture>) => {
+      rows.pubg_player_matches[0].played_at = "2026-08-31T00:00:00.000Z";
+    }],
+    ["processed fullResult createdAt", (rows: ReturnType<typeof databaseFixture>) => {
+      const processed = rows.processed_match_telemetry[0];
+      const fullResult = (processed.data as { fullResult: Record<string, unknown> }).fullResult;
+      fullResult.createdAt = "2026-08-31T00:00:00.000Z";
+    }],
+  ] as const)("fails closed when route writes a mismatched %s", async (_label, mutate) => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    const fetchRoute = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const matchId = url.searchParams.get("matchId") || "";
+      const playerId = url.searchParams.get("nickname") || "";
+      const row = rows.global_benchmarks.find((candidate) => candidate.match_id === matchId);
+      if (row) row.population_evidence_version = 1;
+      const processed = rows.processed_match_telemetry.find((candidate) => candidate.match_id === matchId);
+      if (processed) {
+        const fullResult = (processed.data as { fullResult: Record<string, unknown> }).fullResult;
+        fullResult.v = 73;
+        fullResult.populationEvidenceVersion = 1;
+      }
+      if (matchId === "match-1") mutate(rows);
+      return routeResponse({ matchId, player_id: playerId, platform: "steam", v: 73, populationEvidenceVersion: 1 }, 200, String(input));
+    });
+
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      writeLocal: async () => undefined,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+    });
+
+    expect(report.status).toBe("failed");
+    expect(report.failure).toMatchObject({ code: "postcondition_failed", index: 0 });
+    expect(report.routeCalls).toBe(1);
+    expect(report.completed).toHaveLength(0);
+  });
+
+  it("stops before the next route when read evidence changes after a completed prefix", async () => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    const fetchRoute = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const matchId = url.searchParams.get("matchId") || "";
+      const playerId = url.searchParams.get("nickname") || "";
+      const row = rows.global_benchmarks.find((candidate) => candidate.match_id === matchId);
+      if (row) row.population_evidence_version = 1;
+      const processed = rows.processed_match_telemetry.find((candidate) => candidate.match_id === matchId);
+      if (processed) {
+        const fullResult = (processed.data as { fullResult: Record<string, unknown> }).fullResult;
+        fullResult.v = 73;
+        fullResult.populationEvidenceVersion = 1;
+      }
+      if (matchId === "match-1") {
+        rows.pubg_player_matches[1].played_at = "2026-08-01T00:00:00.000Z";
+      }
+      markFixtureR2Ready({ matchId, playerId, platform: "steam" });
+      return routeResponse({ matchId, player_id: playerId, platform: "steam", v: 73, populationEvidenceVersion: 1 }, 200, String(input));
+    });
+
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+      writeLocal: async () => undefined,
+    });
+
+    expect(report.status).toBe("failed");
+    expect(report.failure).toMatchObject({ code: "race_read_evidence_changed", index: 1 });
+    expect(report.routeCalls).toBe(1);
+    expect(report.completed.map((entry) => entry.identity.matchId)).toEqual(["match-1"]);
+  });
+
+  it("rejects a route response whose final URL leaves the exact loopback match endpoint", async () => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    const fetchRoute = vi.fn(async () => {
+      const response = new Response(JSON.stringify({
+        matchId: "match-1",
+        player_id: "player-1",
+        platform: "steam",
+        v: 73,
+        populationEvidenceVersion: 1,
+      }), { status: 200, headers: { "content-type": "application/json" } });
+      Object.defineProperty(response, "url", { value: "https://evil.example/api/pubg/match" });
+      return response;
+    });
+
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+      writeLocal: async () => undefined,
+    });
+
+    expect(report.status).toBe("failed");
+    expect(report.failure).toMatchObject({ code: "route_response_url_invalid", index: 0 });
+    expect(report.routeCalls).toBe(1);
+  });
+
+  it("rejects a successful route response with an empty final URL", async () => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    const fetchRoute = vi.fn(async () => routeResponse({
+      matchId: "match-1",
+      player_id: "player-1",
+      platform: "steam",
+      v: 73,
+      populationEvidenceVersion: 1,
+    }, 200, ""));
+
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      writeLocal: async () => undefined,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+    });
+
+    expect(report.status).toBe("failed");
+    expect(report.failure).toMatchObject({ code: "route_response_url_invalid", index: 0 });
+    expect(report.routeCalls).toBe(1);
+    expect(report.completed).toHaveLength(0);
+  });
+
+  it("stops sequential execution on the first failed route response", async () => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    const fetchRoute = vi.fn(async (input: RequestInfo | URL) => routeResponse("failed", 503, String(input)));
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      writeLocal: async () => undefined,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+    });
+
+    expect(report.status).toBe("failed");
+    expect(report.failure).toMatchObject({ code: "route_non_200", index: 0, httpStatus: 503 });
+    expect(report.routeCalls).toBe(1);
+    expect(fetchRoute).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects missing post-run markers or wrong persisted identity", async () => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    let calls = 0;
+    const fetchRoute = vi.fn(async (input: RequestInfo | URL) => {
+      calls += 1;
+      const url = new URL(String(input));
+      if (calls === 1) {
+        rows.processed_match_telemetry[0].data = {
+          fullResult: {
+            v: 73,
+            matchId: "wrong-match",
+            player_id: "player-1",
+            platform: "steam",
+            populationEvidenceVersion: 1,
+            stats: { name: "player-1" },
+          },
+        };
+      }
+      return routeResponse({
+        matchId: url.searchParams.get("matchId"),
+        player_id: url.searchParams.get("nickname"),
+        platform: url.searchParams.get("platform"),
+        v: 73,
+        populationEvidenceVersion: 1,
+      }, 200, String(input));
+    });
+
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      writeLocal: async () => undefined,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+    });
+
+    expect(report.status).toBe("failed");
+    expect(report.failure?.code).toBe("postcondition_failed");
+    expect(report.failure?.index).toBe(0);
+    expect(report.routeCalls).toBe(1);
+    expect(fetchRoute).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejects a successful route when player match or player cache postconditions are missing", async () => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    rows.pubg_player_matches.shift();
+    rows.pubg_player_cache.shift();
+    const fetchRoute = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const matchId = url.searchParams.get("matchId") || "";
+      const playerId = url.searchParams.get("nickname") || "";
+      const row = rows.global_benchmarks.find((candidate) => candidate.match_id === matchId);
+      if (row) row.population_evidence_version = 1;
+      const processed = rows.processed_match_telemetry.find((candidate) => candidate.match_id === matchId);
+      if (processed) {
+        const fullResult = (processed.data as { fullResult: Record<string, unknown> }).fullResult;
+        fullResult.v = 73;
+        fullResult.populationEvidenceVersion = 1;
+      }
+      return routeResponse({
+        matchId,
+        player_id: playerId,
+        platform: "steam",
+        v: 73,
+        populationEvidenceVersion: 1,
+      }, 200, String(input));
+    });
+
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      writeLocal: async () => undefined,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+    });
+
+    expect(report.status).toBe("failed");
+    expect(report.failure?.code).toBe("race_read_evidence_changed");
+    expect(report.failure?.index).toBe(0);
+    expect(report.routeCalls).toBe(0);
+    expect(fetchRoute).not.toHaveBeenCalled();
+  });
+
+  it("trims the executor recovery token before sending the route header", async () => {
+    const manifest = manifestFixture();
+    const rows = databaseFixture();
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "  canary-token  ");
+    const fetchRoute = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const headers = new Headers(init?.headers);
+      expect(headers.get("x-benchmark-recovery-token")).toBe("canary-token");
+      const url = new URL(String(input));
+      const matchId = url.searchParams.get("matchId") || "";
+      const playerId = url.searchParams.get("nickname") || "";
+      const row = rows.global_benchmarks.find((candidate) => candidate.match_id === matchId);
+      if (row) row.population_evidence_version = 1;
+      const processed = rows.processed_match_telemetry.find((candidate) => candidate.match_id === matchId);
+      if (processed) {
+        const fullResult = (processed.data as { fullResult: Record<string, unknown> }).fullResult;
+        fullResult.v = 73;
+        fullResult.populationEvidenceVersion = 1;
+      }
+      markFixtureR2Ready({ matchId, playerId, platform: "steam" });
+      return routeResponse({ matchId, player_id: playerId, platform: "steam", v: 73, populationEvidenceVersion: 1 }, 200, String(input));
+    });
+
+    const report = await runBenchmarkRecoveryCanary(applyArgs(manifest), {
+      manifest,
+      supabase: readOnlySupabase(rows),
+      fetchRoute,
+      writeLocal: async () => undefined,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+    });
+
+    expect(report.status).toBe("applied");
+    expect(fetchRoute).toHaveBeenCalledTimes(5);
+    expect(fixtureR2Reads).toBe(5);
+    expect(fixtureR2ObjectReads).toBe(5);
+    expect(fixtureR2RegistryReads).toBe(5);
+  });
+
+  it("fails apply closed when the recovery token is not configured", async () => {
+    const manifest = manifestFixture();
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "");
+    await expect(runBenchmarkRecoveryCanary(applyArgs(manifest, { confirm: "wrong" }), {
+      manifest,
+    })).rejects.toThrow("confirmation_mismatch");
+
+    const args = {
+      ...applyArgs(manifest),
+      confirm: benchmarkRecoveryConfirmationToken(manifest),
+    };
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "");
+    await expect(runBenchmarkRecoveryCanary(args, { manifest })).rejects.toThrow("missing_benchmark_recovery_token");
+  });
+
+  it("rejects injected R2 verifiers outside the explicit test-only boundary", async () => {
+    const manifest = manifestFixture();
+    const fetchRoute = vi.fn();
+    const args = applyArgs(manifest);
+    vi.stubEnv("NODE_ENV", "production");
+
+    await expect(runBenchmarkRecoveryCanary(args, {
+      manifest,
+      supabase: readOnlySupabase(databaseFixture()),
+      fetchRoute,
+      verifyR2Postconditions: fixtureR2PostconditionVerifier,
+    })).rejects.toThrow("r2_postcondition_verifier_required");
+    expect(fetchRoute).not.toHaveBeenCalled();
+  });
+
+  it("contains no direct database or R2 mutator calls", () => {
+    const source = readFileSync(new URL("../scripts/run_benchmark_recovery_canary.ts", import.meta.url), "utf8");
+    expect(source).not.toMatch(/\.from\([^)]*\)\.(?:upsert|insert|update|delete)\s*\(/);
+    expect(source).not.toContain("uploadToR2");
+  });
+});

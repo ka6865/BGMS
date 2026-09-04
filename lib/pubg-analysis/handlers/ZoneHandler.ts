@@ -76,7 +76,7 @@ export class ZoneHandler extends BaseHandler {
   private handleEdgePlay(e: any, ts: number, elapsed: number) {
     if (!this.isMe(e.character)) return;
 
-    const charLoc = e.character.loc || e.character.location;
+    const charLoc = e.character.location ?? e.character.loc;
     if (!charLoc) return;
 
     const isLanded = this.state.hasLanded;

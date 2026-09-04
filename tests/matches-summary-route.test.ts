@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 import { buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
 
 const database = vi.hoisted(() => ({
@@ -104,5 +105,103 @@ describe("matches-summary raw timestamp fallback", () => {
     await POST(request());
     const playerMatchSelect = database.selects.find(({ table }) => table === "pubg_player_matches");
     expect(playerMatchSelect?.columns.split(",").map((column) => column.trim())).toContain("match_type");
+  });
+
+  it("ordinary history keeps a legacy processed row without embedded AI identity fields", async () => {
+    database.rows.processed_match_telemetry = [{
+      match_id: "legacy-match",
+      data: {
+        fullResult: {
+          matchId: "legacy-match",
+          v: 73,
+          stats: {
+            name: "FixturePlayer",
+            kills: 2,
+            damageDealt: 321,
+            winPlace: 4,
+          },
+          gameMode: "squad-fpp",
+          mapName: "Baltic_Main",
+        },
+      },
+    }];
+
+    const body = await (await POST(request(["legacy-match"]))).json();
+
+    expect(body.summaries["legacy-match"]).toMatchObject({
+      matchId: "legacy-match",
+      summarySource: "processed_match_telemetry",
+      stats: { name: "FixturePlayer", kills: 2 },
+    });
+    expect(body.missingMatchIds).toEqual([]);
+  });
+
+  it("ordinary history falls back to the storage row match_id when legacy fullResult omits it", async () => {
+    database.rows.processed_match_telemetry = [{
+      match_id: "row-canonical-match",
+      data: {
+        fullResult: {
+          v: 73,
+          stats: {
+            name: "FixturePlayer",
+            kills: 2,
+            damageDealt: 321,
+            winPlace: 4,
+          },
+          gameMode: "squad-fpp",
+          mapName: "Baltic_Main",
+        },
+      },
+    }];
+
+    const body = await (await POST(request(["row-canonical-match"]))).json();
+
+    expect(body.summaries["row-canonical-match"]).toMatchObject({
+      matchId: "row-canonical-match",
+      summarySource: "processed_match_telemetry",
+    });
+    expect(body.missingMatchIds).toEqual([]);
+  });
+
+  it("future processed versions fall back to the current basic match summary contract", async () => {
+    database.rows.processed_match_telemetry = [{
+      match_id: "future-match",
+      data: {
+        fullResult: {
+          matchId: "future-match",
+          v: RESULT_VERSION + 1,
+          stats: {
+            name: "FixturePlayer",
+            kills: 99,
+            damageDealt: 9999,
+            winPlace: 1,
+          },
+          gameMode: "squad-fpp",
+          mapName: "Baltic_Main",
+        },
+      },
+    }];
+    database.rows.pubg_player_matches = [{
+      match_id: "future-match",
+      player_id: "fixtureplayer",
+      platform: "steam",
+      played_at: "2026-08-10T00:00:00.000Z",
+      game_mode: "squad-fpp",
+      map_name: "Baltic_Main",
+      kills: 2,
+      damage: 321,
+      win_place: 4,
+      match_type: "official",
+    }];
+
+    const body = await (await POST(request(["future-match"]))).json();
+
+    expect(body.summaries["future-match"]).toMatchObject({
+      matchId: "future-match",
+      v: 1,
+      summarySource: "pubg_player_matches",
+      stats: { kills: 2, damageDealt: 321, winPlace: 4 },
+    });
+    expect(body.missingMatchIds).toEqual([]);
   });
 });

@@ -182,6 +182,14 @@ const parseLatency = (val: string | null | undefined) => {
   return isNaN(n) ? null : n;
 };
 
+// Route-owned aggregate fields may intentionally use the unavailable marker
+// (for example, when no position samples were observed).  Role scores must
+// stay finite without turning that missing measurement into an observed value.
+const parseFiniteMetric = (value: unknown, fallback = 0): number => {
+  const parsed = typeof value === "number" ? value : Number.parseFloat(String(value ?? ""));
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 /**
  * 8종 직업군 판정 로직
  */
@@ -212,10 +220,11 @@ export function classifyRole(stats: any, bench: any, overallTier: string): RoleI
     + (stats.totalRidingShotKnocks || 0) * 8; // [V58.4] 라이딩샷 기절 가중치
 
   // 2. 저격 유령 (Phantom Overwatch)
+  const isolationIndex = parseFiniteMetric(stats.avgIsolationStr);
   scores.phantomOverwatch = Math.max(0, 
     Math.min(40, (stats.totalMaxHitDist / 10)) + 
     (stats.userInitiativeRate || 0) * 0.3 + 
-    Math.min(30, parseFloat(stats.avgIsolationStr) * 10) +
+    Math.min(30, isolationIndex * 10) +
     (isCloseRange ? -10 : 10) +
     (stats.totalLeadShotKnocks || 0) * 8 // [V58.4] 리드샷 기절 가중치
   );

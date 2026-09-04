@@ -4,12 +4,31 @@ import { createClient } from "@supabase/supabase-js";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { decodeMaybeGzip } from "../lib/pubg-analysis/r2Service";
 import { calculateWeaponBurstStats } from "../lib/pubg-analysis/weaponMetaBurst";
+import { TELEMETRY_VERSION } from "../lib/pubg-analysis/constants";
+import {
+  buildTelemetryAnalyzeCacheKey,
+  parseTelemetryAnalyzeCacheEnvelope,
+} from "../lib/pubg-analysis/telemetryCacheKey";
+import {
+  createTelemetryIdentity,
+  parseTelemetryPlatform,
+  type TelemetryIdentity,
+} from "../lib/pubg-analysis/telemetryIdentity";
+import {
+  BENCHMARK_FILTER_VERSION,
+  BENCHMARK_POPULATION_EVIDENCE_VERSION,
+} from "../lib/pubg-analysis/benchmarkLookup";
+import { projectTelemetryEvent } from "../lib/pubg-analysis/telemetryContract";
 
 dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
 dotenv.config();
 
 export const R2_BURST_BACKFILL_BATCH_SIZE = 20;
 export const R2_BURST_BACKFILL_CONCURRENCY = 2;
+export const R2_BURST_POPULATION_MARKERS = {
+  filter_version: BENCHMARK_FILTER_VERSION,
+  population_evidence_version: BENCHMARK_POPULATION_EVIDENCE_VERSION,
+} as const;
 
 type Candidate = {
   match_id: string;
@@ -48,7 +67,7 @@ function parseLimit(args: readonly string[]): number {
   return Number.isFinite(parsed) ? Math.max(1, Math.min(Math.floor(parsed), 100)) : R2_BURST_BACKFILL_BATCH_SIZE;
 }
 
-async function loadJson(client: S3Client, bucket: string, key: string): Promise<any[] | null> {
+async function loadJson(client: S3Client, bucket: string, key: string): Promise<unknown | null> {
   try {
     const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
     if (!response.Body) return null;
@@ -56,6 +75,54 @@ async function loadJson(client: S3Client, bucket: string, key: string): Promise<
   } catch {
     return null;
   }
+}
+
+/**
+ * The burst backfill may consume only the canonical analyzed-event envelope.
+ * Legacy flat arrays and envelopes for another account/platform/version are
+ * deliberately treated as cache misses.
+ */
+export function parseCanonicalBurstEvents(
+  value: unknown,
+  identity: TelemetryIdentity,
+): any[] | null {
+  const events = parseTelemetryAnalyzeCacheEnvelope(value, identity);
+  if (!events || events.length === 0) return null;
+
+  // A matching envelope is still untrusted until every element satisfies the
+  // shared projected-event contract. Reject the whole payload on one malformed
+  // or unknown event so backfill never turns an invalid cache into zero-valued
+  // trusted updates.
+  const projected = events.map((event) => projectTelemetryEvent(event));
+  if (projected.some((event) => event === null)) return null;
+  return projected as any[];
+}
+
+export function buildBurstTelemetryIdentity(candidate: Pick<Candidate, "match_id" | "platform">, playerAccountId: string): TelemetryIdentity | null {
+  try {
+    return createTelemetryIdentity({
+      matchId: candidate.match_id,
+      platform: parseTelemetryPlatform(candidate.platform),
+      playerId: playerAccountId,
+      mode: "lite",
+      telemetryVersion: TELEMETRY_VERSION,
+    });
+  } catch {
+    return null;
+  }
+}
+
+async function resolvePlayerAccountId(supabase: any, candidate: Candidate): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("pubg_player_cache")
+    .select("id,platform,lower_nickname")
+    .eq("lower_nickname", candidate.player_id)
+    .eq("platform", candidate.platform)
+    .maybeSingle();
+  if (error || !data || typeof data.id !== "string" || !data.id.trim()) return null;
+  if (typeof data.platform !== "string" || data.platform.trim().toLowerCase() !== candidate.platform.trim().toLowerCase()) return null;
+  if (typeof data.lower_nickname !== "string" || data.lower_nickname.trim().toLowerCase() !== candidate.player_id.trim().toLowerCase()) return null;
+  return data.id.trim();
 }
 
 export async function runR2BurstBackfill(options: { limit?: number; write?: (message: string) => void } = {}) {
@@ -81,6 +148,8 @@ export async function runR2BurstBackfill(options: { limit?: number; write?: (mes
     .from("weapon_meta_match_samples")
     .select("match_id,platform,player_id,played_at,weapon_name")
     .is("sustained_hits", null)
+    .eq("filter_version", R2_BURST_POPULATION_MARKERS.filter_version)
+    .eq("population_evidence_version", R2_BURST_POPULATION_MARKERS.population_evidence_version)
     .gte("played_at", baselineStartAt)
     .lt("played_at", patchStartedAt)
     .order("played_at", { ascending: true })
@@ -103,12 +172,14 @@ export async function runR2BurstBackfill(options: { limit?: number; write?: (mes
   for (let index = 0; index < uniqueCandidates.length; index += R2_BURST_BACKFILL_CONCURRENCY) {
     const batch = uniqueCandidates.slice(index, index + R2_BURST_BACKFILL_CONCURRENCY);
     await Promise.all(batch.map(async (candidate) => {
-      const r2Key = `${candidate.match_id}_${candidate.player_id}_v60_analyze.json`;
-      const events = await loadJson(r2, bucket, r2Key);
-      if (!events) { missing += 1; return; }
-      const playerAccountId = events.find((event: any) => event.attacker?.name?.toLowerCase() === candidate.player_id)?.attacker?.accountId
-        || events.find((event: any) => event.victim?.name?.toLowerCase() === candidate.player_id)?.victim?.accountId;
+      const playerAccountId = await resolvePlayerAccountId(supabase, candidate);
       if (!playerAccountId) { missing += 1; return; }
+      const telemetryIdentity = buildBurstTelemetryIdentity(candidate, playerAccountId);
+      if (!telemetryIdentity) { missing += 1; return; }
+      const r2Key = buildTelemetryAnalyzeCacheKey(telemetryIdentity);
+      const envelope = await loadJson(r2, bucket, r2Key);
+      const events = parseCanonicalBurstEvents(envelope, telemetryIdentity);
+      if (!events) { missing += 1; return; }
       const updates = buildR2BurstUpdate({
         matchId: candidate.match_id,
         platform: candidate.platform,
@@ -124,7 +195,9 @@ export async function runR2BurstBackfill(options: { limit?: number; write?: (mes
           .eq("match_id", update.match_id)
           .eq("platform", update.platform)
           .eq("player_id", update.player_id)
-          .eq("weapon_name", update.weapon_name);
+          .eq("weapon_name", update.weapon_name)
+          .eq("filter_version", R2_BURST_POPULATION_MARKERS.filter_version)
+          .eq("population_evidence_version", R2_BURST_POPULATION_MARKERS.population_evidence_version);
         if (updateError) throw updateError;
         updated += 1;
       }

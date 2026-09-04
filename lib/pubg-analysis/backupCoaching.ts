@@ -49,10 +49,16 @@ export function buildBackupCoachingContext(input: BackupCoachingInput): BackupCo
   const smokeRescues = input.totalSmokeRescues || 0;
   const teamWipes = input.totalTeamWipes || 0;
   const teammateKnocks = input.totalTeammateKnocks || 0;
-  const benchmark = input.benchmarkTradeLatency || 12;
+  // A missing benchmark must not turn into an invented comparison value in
+  // the coaching prompt.  Keep the historical 12s threshold only for the
+  // internal tiering decision; the emitted text explicitly says when the
+  // comparison sample is unavailable.
+  const benchmark = Number.isFinite(input.benchmarkTradeLatency)
+    ? Number(input.benchmarkTradeLatency)
+    : null;
   const hasSuccessfulRecovery = revives > 0 || smokeRescues > 0;
   const hasFightResolution = tradeKills > 0 || teamWipes > 0;
-  const slowByTime = seconds > Math.max(18, benchmark + 4);
+  const slowByTime = seconds > Math.max(18, (benchmark ?? 12) + 4);
   const outcomeSucceeded = slowByTime && hasSuccessfulRecovery && hasFightResolution;
 
   if (outcomeSucceeded) {
@@ -73,7 +79,9 @@ export function buildBackupCoachingContext(input: BackupCoachingInput): BackupCo
       label: "백업 지연 위험",
       tier: "C",
       shouldAvoidSlowBackupBlame: false,
-      promptLine: `${input.avgBackupLatency}로 상위권 기준 ${benchmark}s보다 늦고, 적 제압/소생 성공 맥락이 부족하므로 백업 지연 위험으로 평가할 것`,
+      promptLine: benchmark === null
+        ? `${input.avgBackupLatency} 백업 속도는 측정됐지만 비교 표본이 없어 기준 대비 우열을 판단하지 말 것. 적 제압/소생 성공 맥락이 부족하므로 백업 지연 위험으로 평가할 것`
+        : `${input.avgBackupLatency}로 비교 표본 평균 ${benchmark}s보다 늦고, 적 제압/소생 성공 맥락이 부족하므로 백업 지연 위험으로 평가할 것`,
     };
   }
 

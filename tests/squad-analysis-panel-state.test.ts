@@ -66,6 +66,16 @@ function detail(groupKey: string) {
   };
 }
 
+function detailWithZeroTradeLatency(groupKey: string) {
+  return {
+    ...detail(groupKey),
+    stats: {
+      ...detail(groupKey).stats,
+      avgTradeLatency: 0,
+    },
+  };
+}
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -192,11 +202,10 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
     fireEvent.click(screen.getByRole("button", { name: "AI 코칭 보고서 생성" }));
     await waitFor(() => expect(aiRequests()).toHaveLength(1));
     const aiInit = aiRequests()[0][1] as RequestInit;
-    expect(JSON.parse(String(aiInit.body))).toMatchObject({
+    expect(JSON.parse(String(aiInit.body))).toEqual({
       groupKey: "g2",
       nickname: "FixturePlayer",
       platform: "steam",
-      matchIds: ["match-g2"],
       coachingStyle: "spicy",
     });
 
@@ -219,5 +228,96 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /\uc9c0\ub3c4 \ud3bc\uce58\uae30/ }));
     expect(screen.getByTestId("squad-map")).toHaveTextContent("match-g2");
+  });
+
+  it("finite zero trade latency is rendered as measured 0.00초", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/pubg/ai-squad") {
+        return Promise.resolve(jsonResponse({
+          squadGrade: "A",
+          summary: "fixture summary",
+          strength: "fixture strength",
+          weakness: "fixture weakness",
+          coaching: "fixture coaching",
+        }));
+      }
+      const parsed = new URL(url, "http://localhost");
+      const selectedGroupKey = parsed.searchParams.get("groupKey");
+      return Promise.resolve(selectedGroupKey
+        ? jsonResponse(detailWithZeroTradeLatency(selectedGroupKey))
+        : jsonResponse({ groups }));
+    });
+
+    renderPanel("g1");
+
+    await waitFor(() => expect(screen.getByText("0.00초")).toBeInTheDocument());
+    expect(screen.queryByText("측정 불가")).not.toBeInTheDocument();
+  });
+
+  it("does not render an all-zero radar polygon when any synergy score is unavailable", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/pubg/ai-squad") {
+        return Promise.resolve(jsonResponse({
+          squadGrade: "A",
+          summary: "fixture summary",
+          strength: "fixture strength",
+          weakness: "fixture weakness",
+          coaching: "fixture coaching",
+        }));
+      }
+      const parsed = new URL(url, "http://localhost");
+      const selectedGroupKey = parsed.searchParams.get("groupKey");
+      return Promise.resolve(selectedGroupKey
+        ? jsonResponse({
+            ...detail(selectedGroupKey),
+            scores: { formation: 80, backupSpeed: 81, survivalCare: null, focusFire: 83, teamWipe: 84 },
+          })
+        : jsonResponse({ groups }));
+    });
+
+    const view = renderPanel("g1");
+
+    await waitFor(() => expect(screen.getByText(/생존 케어 \(측정 불가\)/)).toBeInTheDocument());
+    expect(view.container.querySelector('polygon[stroke="rgba(168, 85, 247, 0.85)"]')).toBeNull();
+    expect(view.container.querySelectorAll('circle[fill="#a855f7"]')).toHaveLength(0);
+  });
+
+  it("renders unavailable role shares without a null percent label or bar width", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/pubg/ai-squad") {
+        return Promise.resolve(jsonResponse({
+          squadGrade: "A",
+          summary: "fixture summary",
+          strength: "fixture strength",
+          weakness: "fixture weakness",
+          coaching: "fixture coaching",
+        }));
+      }
+      const parsed = new URL(url, "http://localhost");
+      const selectedGroupKey = parsed.searchParams.get("groupKey");
+      return Promise.resolve(selectedGroupKey
+        ? jsonResponse({
+            ...detail(selectedGroupKey),
+            roleProfiles: [{
+              ...detail(selectedGroupKey).roleProfiles[0],
+              shares: { damage: null, kill: 0, assist: null, dbno: 0 },
+            }],
+          })
+        : jsonResponse({ groups }));
+    });
+
+    const view = renderPanel("g1");
+
+    await waitFor(() => expect(screen.getByText("딜량 기여")).toBeInTheDocument());
+    expect(view.container.textContent).not.toContain("null%");
+    expect(view.container.textContent).not.toContain("undefined");
+    expect(view.container.textContent).toContain("측정 불가");
+    const shareLabel = screen.getByText("딜량 기여").parentElement?.querySelector("span:last-child");
+    expect(shareLabel).toHaveTextContent("측정 불가");
+    const shareBar = shareLabel?.parentElement?.nextElementSibling?.firstElementChild as HTMLElement | null;
+    expect(shareBar?.getAttribute("style") || "").not.toContain("null");
   });
 });

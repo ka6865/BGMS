@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { NextRequest } from "next/server";
-import { buildScopePickShares, GET } from "../app/api/pubg/meta/route";
+import { buildScopePickShares, GET, isSafeWeaponMetaPopulationRow } from "../app/api/pubg/meta/route";
 
 describe("GET /api/pubg/meta", () => {
   it("does not present example numbers as real data when collection is unavailable", async () => {
@@ -14,6 +14,16 @@ describe("GET /api/pubg/meta", () => {
   it("exports the minimum burst sample threshold used to withhold sparse comparisons", async () => {
     const routeExports = await import("../app/api/pubg/meta/route");
     expect(routeExports.BURST_COMPARISON_MIN_MATCHES).toBe(20);
+  });
+
+  it.each([
+    ["missing", { filter_version: undefined, population_evidence_version: undefined }, false],
+    ["legacy", { filter_version: 7, population_evidence_version: 1 }, false],
+    ["current without marker", { filter_version: 8 }, false],
+    ["current wrong marker", { filter_version: 8, population_evidence_version: 0 }, false],
+    ["trusted current", { filter_version: 8, population_evidence_version: 1 }, true],
+  ] as const)("weapon meta population gate rejects %s provenance", (_label, row, expected) => {
+    expect(isSafeWeaponMetaPopulationRow(row)).toBe(expected);
   });
 
   it("uses every analyzed match as the category adoption denominator", () => {

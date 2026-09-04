@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { classifyMatchMode, filterRenderableMatches } from "@/lib/stats/statsPageModel";
+import { isAiOrBotMatch } from "@/lib/pubg-analysis/matchEligibility";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 
 const matches: MatchSummaryData[] = [
@@ -50,9 +51,32 @@ describe("recent match classification and filtering", () => {
     expect(classifyMatchMode({ gameMode: "squad-ai", matchType: "official" })).toBe("casual");
   });
 
+  it.each([
+    ["ranked-ai", "official"],
+    ["tdm-ai", "official"],
+    ["squad-bot", "official"],
+  ])("classifies %s as casual before ranked/TDM precedence", (gameMode, matchType) => {
+    expect(classifyMatchMode({ gameMode, matchType })).toBe("casual");
+  });
+
+  it.each([
+    ["AI", true],
+    ["ai-match", true],
+    ["aimatch", true],
+    ["AIROYale", true],
+    ["bot", true],
+    ["bot-match", true],
+    ["BotMatch", true],
+    ["notairoyale", false],
+    ["robotic", false],
+  ])("recognizes concrete AI/bot label variant %s without substring false positives", (label, expected) => {
+    expect(isAiOrBotMatch({ gameMode: label })).toBe(expected);
+  });
+
   it("uses known TDM map names when the game mode is recorded as a normal squad mode", () => {
     expect(classifyMatchMode({ gameMode: "tdm", matchType: "official" })).toBe("tdm");
     expect(classifyMatchMode({ gameMode: "squad-fpp", matchType: "official", mapName: "PillarCompound_Main" })).toBe("tdm");
+    expect(classifyMatchMode({ gameMode: " squad-fpp ", matchType: "official", mapName: "  italy_tdm_main " })).toBe("tdm");
   });
 
   it("filters by classified mode and never renders missing summaries", () => {

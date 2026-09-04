@@ -25,7 +25,7 @@ export class PositionHandler extends BaseHandler {
     const pName = normalizeName(e.character?.name || "");
     if (!pName) return;
 
-    const charLoc = e.character.loc || e.character.location;
+    const charLoc = e.character.location ?? e.character.loc;
     if (!charLoc) return;
 
     this.state.playerLocations.set(pName, { x: charLoc.x, y: charLoc.y, z: charLoc.z || 0 });
@@ -44,6 +44,9 @@ export class PositionHandler extends BaseHandler {
 
       // [V16.0] 탈것 이동 거리 누적
       if (isInVehicle) {
+        // A valid in-vehicle position is an observation even when the player
+        // did not move between two samples (distance 0 remains measured 0).
+        this.state.vehicleSampleCount++;
         const lastLoc = this.state.lastMyLoc;
         if (lastLoc) {
           const d = calcDist3D(charLoc, lastLoc) / 100; // [V47.0] cm -> m 변환
@@ -94,18 +97,19 @@ export class PositionHandler extends BaseHandler {
     if (pName) {
       this.state.playerAliveStatus.set(pName, true);
       if (e.character?.accountId) this.state.playerAliveStatus.set(e.character.accountId, true);
-      const loc = e.character.loc || e.character.location;
+      const loc = e.character.location ?? e.character.loc;
       if (loc) this.state.playerLocations.set(pName, { x: loc.x, y: loc.y, z: loc.z || 0 });
     }
   }
 
   private updateParticipantLocations(e: any) {
     const update = (char: any) => {
-      if (char?.name && char?.loc) {
+      const loc = char?.location ?? char?.loc;
+      if (char?.name && loc) {
         const name = normalizeName(char.name);
-        this.state.playerLocations.set(name, { x: char.loc.x, y: char.loc.y, z: char.loc.z || 0 });
+        this.state.playerLocations.set(name, { x: loc.x, y: loc.y, z: loc.z || 0 });
         if (char.accountId) {
-          this.state.playerLocations.set(char.accountId, { x: char.loc.x, y: char.loc.y, z: char.loc.z || 0 });
+          this.state.playerLocations.set(char.accountId, { x: loc.x, y: loc.y, z: loc.z || 0 });
         }
       }
     };

@@ -120,4 +120,58 @@ describe("telemetry identity", () => {
     expect(sql.indexOf("insert into public.match_master_telemetry"))
       .toBeLessThan(sql.indexOf("insert into public.processed_match_telemetry"));
   });
+
+  it("recovery claim migration은 기존 ready/pending row를 원자적으로 보존한다", () => {
+    const sql = fs.readFileSync(
+      path.resolve("supabase/migrations/20260902171741_telemetry_cache_recovery_claim.sql"),
+      "utf8",
+    );
+    expect(sql).toContain("claim_telemetry_cache_recovery_write");
+    expect(sql).toMatch(/on conflict\s*\(match_id, platform, player_id, mode, telemetry_version\)\s*do nothing/i);
+    expect(sql).toMatch(/security invoker/i);
+    expect(sql).toMatch(/revoke all on function public\.claim_telemetry_cache_recovery_write[\s\S]*from public, anon, authenticated/i);
+    expect(sql).toMatch(/grant execute on function public\.claim_telemetry_cache_recovery_write[\s\S]*to service_role/i);
+    expect(sql).toContain("p_mode <> 'lite'");
+  });
+
+  it("recovery finalizer는 lease·v72 identity·legacy benchmark를 한 트랜잭션에서 검증한다", () => {
+    const sql = fs.readFileSync(
+      path.resolve("supabase/migrations/20260904005531_telemetry_cache_recovery_finalize.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/create or replace function public\.finalize_telemetry_cache_recovery\(/i);
+    expect(sql).toMatch(/returns jsonb/i);
+    expect(sql).toMatch(/security invoker/i);
+    expect(sql).toContain("set search_path = ''");
+    expect(sql).toMatch(/telemetry_map_cache_entries[\s\S]*for update/i);
+    expect(sql).toMatch(/processed_match_telemetry[\s\S]*for update/i);
+    expect(sql).toMatch(/global_benchmarks[\s\S]*for update/i);
+    expect(sql).toContain("resultVersion");
+    expect(sql).toContain("accountId");
+    expect(sql).toContain("population_evidence_version");
+    expect(sql).toContain("jsonb");
+    // The function must not build SQL dynamically.  The required GRANT
+    // below necessarily contains the ordinary `execute` privilege keyword,
+    // so scope this assertion to the dynamic EXECUTE FORMAT construct.
+    expect(sql).not.toMatch(/execute\s+format/i);
+    expect(sql).toMatch(/revoke all on function public\.finalize_telemetry_cache_recovery\([\s\S]*from public, anon, authenticated/i);
+    expect(sql).toMatch(/grant execute on function public\.finalize_telemetry_cache_recovery\([\s\S]*to service_role/i);
+  });
+
+  it("recovery release migration은 exact pending lease만 boolean으로 해제한다", () => {
+    const sql = fs.readFileSync(
+      path.resolve("supabase/migrations/20260904130000_telemetry_cache_recovery_safety.sql"),
+      "utf8",
+    );
+    expect(sql).toMatch(/create or replace function public\.release_telemetry_cache_recovery_write\(/i);
+    expect(sql).toMatch(/returns boolean/i);
+    expect(sql).toMatch(/security invoker/i);
+    expect(sql).toContain("set search_path = ''");
+    expect(sql).toContain("p_mode is distinct from 'lite'");
+    expect(sql).toContain("p_telemetry_version is distinct from 61");
+    expect(sql).toMatch(/status = 'pending'[\s\S]*lease_token = p_lease_token[\s\S]*returning true into released/i);
+    expect(sql).toMatch(/revoke all on function public\.release_telemetry_cache_recovery_write[\s\S]*from public, anon, authenticated/i);
+    expect(sql).toMatch(/grant execute on function public\.release_telemetry_cache_recovery_write[\s\S]*to service_role/i);
+    expect(sql).not.toMatch(/drop function public\.release_telemetry_cache_write/i);
+  });
 });

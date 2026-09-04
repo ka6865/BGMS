@@ -357,37 +357,6 @@ export async function cleanupInactivePlayerCache(
   }
 }
 
-async function cleanupBenchmarks(supabase: SupabaseClient): Promise<void> {
-  const { error: versionError } = await supabase
-    .from("global_benchmarks")
-    .delete()
-    .lt("filter_version", 8);
-  if (versionError) throw new Error("telemetry-cleanup-benchmark-version-failed");
-
-  const tiers = [
-    "S", "A+", "A", "A-", "B+", "B", "B-",
-    "C+", "C", "C-", "D+", "D", "D-",
-  ];
-  const maximumSamplesPerTier = 500;
-  for (const tier of tiers) {
-    const { data, error } = await supabase
-      .from("global_benchmarks")
-      .select("id")
-      .eq("tier", tier)
-      .order("created_at", { ascending: false });
-    if (error) throw new Error("telemetry-cleanup-benchmark-query-failed");
-    const toDelete = (data ?? [])
-      .slice(maximumSamplesPerTier)
-      .map((row) => row.id);
-    if (toDelete.length === 0) continue;
-    const { error: deleteError } = await supabase
-      .from("global_benchmarks")
-      .delete()
-      .in("id", toDelete);
-    if (deleteError) throw new Error("telemetry-cleanup-benchmark-cap-failed");
-  }
-}
-
 function requireEnv(key: string): string {
   const value = process.env[key]?.trim();
   if (!value) throw new Error(`${key}-missing`);
@@ -433,7 +402,6 @@ export async function runTelemetryCleanupFromEnvironment(): Promise<void> {
 
   await cleanupOrphanedAnalysisRows(supabase);
   await cleanupInactivePlayerCache(supabase);
-  await cleanupBenchmarks(supabase);
   console.info(JSON.stringify(result));
 }
 

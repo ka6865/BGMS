@@ -425,4 +425,1240 @@ begin
   raise notice 'PASS: 신규 테이블 RLS + 권한 격리';
 end $$;
 
+-- 202609 population provenance boundary. Every row below uses a distinct
+-- weapon name/match id so the RPC assertions can identify exactly what was
+-- admitted or rejected by the current markers and match-type allowlist.
+delete from public.global_benchmarks where id between 9001 and 9004;
+insert into public.global_benchmarks (
+  id, match_id, player_id, platform, tier, game_mode, match_type,
+  filter_version, population_evidence_version, damage, kills, survival_time
+)
+values
+  (9001, 'prov-legacy', 'prov-player', 'steam', 'A', 'squad-fpp', 'official', 8, null, 900, 1, 100),
+  (9002, 'prov-trusted-minus-one', 'prov-player', 'steam', 'A', 'squad-fpp', 'official', 8, 1, -1, 2, 100),
+  (9003, 'prov-trusted', 'prov-player', 'steam', 'A', 'squad-fpp', 'official', 8, 1, 100, 3, 100),
+  (9004, 'prov-invalid-mode', 'prov-player', 'steam', 'A', 'arcade', 'official', 8, 1, 900, 4, 100);
+
+\echo '--- legacy/unmarked benchmark rows are excluded ---'
+do $$
+declare
+  v_match_count bigint;
+  v_avg_damage double precision;
+  v_avg_damage_count bigint;
+begin
+  select match_count, avg_damage, avg_damage_count
+    into v_match_count, v_avg_damage, v_avg_damage_count
+  from public.benchmark_stats_by_tier
+  where tier = 'A' and game_mode = 'squad-fpp' and match_type = 'official';
+
+  if v_match_count <> 2 then
+    raise exception 'FAIL: legacy/unmarked benchmark rows were included (match_count=%)', v_match_count;
+  end if;
+  raise notice 'PASS: legacy/unmarked benchmark rows are excluded';
+
+  if v_avg_damage <> 100 then
+    raise exception 'FAIL: trusted canonical rows were not included (avg_damage=%)', v_avg_damage;
+  end if;
+  raise notice 'PASS: trusted canonical benchmark rows are included';
+
+  if v_avg_damage <> 100 or v_avg_damage_count <> 1 then
+    raise exception 'FAIL: metric -1 was not omitted (avg_damage=% count=%)', v_avg_damage, v_avg_damage_count;
+  end if;
+  raise notice 'PASS: metric -1 is omitted';
+
+  if exists (
+    select 1
+    from public.benchmark_stats_by_tier
+    where game_mode = 'arcade'
+  ) then
+    raise exception 'FAIL: invalid game mode was included';
+  end if;
+  raise notice 'PASS: invalid game mode is excluded';
+end $$;
+
+delete from public.weapon_meta_match_samples where match_id like 'prov-%';
+insert into public.weapon_meta_match_samples (
+  match_id, platform, player_id, played_at, patch_version,
+  weapon_category, weapon_name, active_pick, total_kills, total_dbnos,
+  total_damage, first_sec_hits, sustained_hits, sustained_burst_count,
+  match_type, filter_version, population_evidence_version
+)
+values
+  ('prov-weapon-legacy-pre', 'steam', 'prov-player', now() - interval '2 days', 'pre_42.1',
+   'AR', 'LegacyPre', true, 1, 0, 10, 1, 2, 1, 'official', 8, null),
+  ('prov-weapon-trusted-pre', 'steam', 'prov-player', now() - interval '2 days', 'pre_42.1',
+   'AR', 'TrustedPre', true, 2, 1, 20, 2, 3, 1, 'official', 8, 1),
+  ('prov-weapon-legacy-filter-pre', 'steam', 'prov-player', now() - interval '2 days', 'pre_42.1',
+   'AR', 'LegacyFilter', true, 3, 1, 30, 3, 4, 1, 'official', null, null),
+  ('prov-weapon-trusted-post', 'steam', 'prov-player', now() - interval '30 minutes', '42.1',
+   'AR', 'TrustedPost', true, 4, 1, 40, 4, 5, 1, 'competitive', 8, 1),
+  ('prov-weapon-legacy-post', 'steam', 'prov-player', now() - interval '20 minutes', '42.1',
+   'AR', 'LegacyPost', true, 5, 1, 50, 5, 6, 1, 'competitive', 8, null),
+  ('prov-weapon-invalid-type-post', 'steam', 'prov-player', now() - interval '10 minutes', '42.1',
+   'AR', 'InvalidType', true, 6, 1, 60, 6, 7, 1, 'scrim', 8, 1);
+
+create temporary table migration_provenance_weapon_results as
+select *
+from public.get_weapon_meta_comparison('42.1', now() - interval '1 hour', 14, 'all');
+
+\echo '--- weapon RPC returns only current markers ---'
+do $$
+begin
+  if not exists (
+    select 1 from migration_provenance_weapon_results
+    where weapon_name = 'TrustedPre' and period = 'pre'
+  ) then
+    raise exception 'FAIL: trusted pre weapon row was excluded';
+  end if;
+  if not exists (
+    select 1 from migration_provenance_weapon_results
+    where weapon_name = 'TrustedPost' and period = 'post'
+  ) then
+    raise exception 'FAIL: trusted post weapon row was excluded';
+  end if;
+
+  if exists (
+    select 1 from migration_provenance_weapon_results
+    where weapon_name in ('LegacyPre', 'LegacyFilter', 'LegacyPost', 'InvalidType')
+  ) then
+    raise exception 'FAIL: weapon RPC returned an untrusted or invalid row';
+  end if;
+  if exists (
+    select 1 from migration_provenance_weapon_results
+    where filter_version <> 8 or population_evidence_version <> 1
+  ) then
+    raise exception 'FAIL: weapon RPC returned non-current markers';
+  end if;
+  raise notice 'PASS: weapon RPC returns only current markers';
+end $$;
+
+\echo '--- weapon RPC empty search_path + ACL + role boundaries ---'
+do $$
+declare
+  three_arg constant text := 'public.get_weapon_meta_comparison(text,timestamptz,integer)';
+  four_arg constant text := 'public.get_weapon_meta_comparison(text,timestamptz,integer,text)';
+  signature text;
+  config text[];
+  is_invoker boolean;
+begin
+  foreach signature in array array[three_arg, four_arg] loop
+    select p.proconfig, not p.prosecdef
+      into config, is_invoker
+    from pg_proc as p
+    where p.oid = signature::regprocedure;
+
+    if not is_invoker then
+      raise exception 'FAIL: % is SECURITY DEFINER', signature;
+    end if;
+    if config is distinct from array['search_path=""']::text[] then
+      raise exception 'FAIL: % proconfig is not exactly search_path="" (%).', signature, config;
+    end if;
+    if config @> array['search_path=public']::text[] then
+      raise exception 'FAIL: % still carries search_path=public (%).', signature, config;
+    end if;
+    if not has_function_privilege('service_role', signature, 'EXECUTE') then
+      raise exception 'FAIL: service_role cannot execute %', signature;
+    end if;
+    if has_function_privilege('public', signature, 'EXECUTE')
+       or has_function_privilege('anon', signature, 'EXECUTE')
+       or has_function_privilege('authenticated', signature, 'EXECUTE') then
+      raise exception 'FAIL: PUBLIC/anon/authenticated can execute %', signature;
+    end if;
+  end loop;
+  raise notice 'PASS: weapon RPC catalog proconfig/prosecdef + 4-way ACL';
+end $$;
+
+do $$
+declare
+  three_arg_count bigint;
+  four_arg_count bigint;
+begin
+  set local role service_role;
+  select count(*) into three_arg_count
+  from public.get_weapon_meta_comparison('42.1', now() - interval '1 hour', 14);
+  select count(*) into four_arg_count
+  from public.get_weapon_meta_comparison('42.1', now() - interval '1 hour', 14, 'all');
+  if three_arg_count <> 2 or four_arg_count <> 2 then
+    raise exception 'FAIL: service_role weapon RPC calls returned unexpected counts (% / %)',
+      three_arg_count, four_arg_count;
+  end if;
+  raise notice 'PASS: service_role 3-arg and 4-arg weapon RPC calls (% / % rows)',
+    three_arg_count, four_arg_count;
+end $$;
+
+do $$
+begin
+  set local role anon;
+  begin
+    perform public.get_weapon_meta_comparison('42.1', now() - interval '1 hour', 14);
+    raise exception 'FAIL: anon 3-arg weapon RPC execution was allowed';
+  exception when insufficient_privilege then
+    raise notice 'PASS: anon 3-arg weapon RPC execution denied';
+  end;
+  begin
+    perform public.get_weapon_meta_comparison('42.1', now() - interval '1 hour', 14, 'all');
+    raise exception 'FAIL: anon 4-arg weapon RPC execution was allowed';
+  exception when insufficient_privilege then
+    raise notice 'PASS: anon 4-arg weapon RPC execution denied';
+  end;
+end $$;
+
+do $$
+begin
+  set local role authenticated;
+  begin
+    perform public.get_weapon_meta_comparison('42.1', now() - interval '1 hour', 14);
+    raise exception 'FAIL: authenticated 3-arg weapon RPC execution was allowed';
+  exception when insufficient_privilege then
+    raise notice 'PASS: authenticated 3-arg weapon RPC execution denied';
+  end;
+  begin
+    perform public.get_weapon_meta_comparison('42.1', now() - interval '1 hour', 14, 'all');
+    raise exception 'FAIL: authenticated 4-arg weapon RPC execution was allowed';
+  exception when insufficient_privilege then
+    raise notice 'PASS: authenticated 4-arg weapon RPC execution denied';
+  end;
+end $$;
+
+-- Recovery finalization now requires a complete compare-and-swap snapshot of
+-- every mutable global_benchmarks field. Keep snapshots in pg_temp so retry
+-- and stale scenarios can reuse the exact legacy row observed before any
+-- concurrent mutation or first finalization. The helper deliberately emits
+-- only the allow-listed fields consumed by the recovery RPC.
+create temporary table if not exists migration_recovery_benchmark_snapshots (
+  benchmark_id bigint primary key,
+  snapshot jsonb not null
+) on commit preserve rows;
+grant all on table migration_recovery_benchmark_snapshots to service_role;
+
+create or replace function pg_temp.recovery_benchmark_snapshot(p_benchmark_id bigint)
+returns jsonb
+language sql
+security invoker
+set search_path = ''
+as $function$
+  select jsonb_build_object(
+    'damage', b.damage,
+    'kills', b.kills,
+    'win_place', b.win_place,
+    'game_mode', b.game_mode,
+    'map_name', b.map_name,
+    'counter_latency_ms', b.counter_latency_ms,
+    'initiative_rate', b.initiative_rate,
+    'revive_rate', b.revive_rate,
+    'is_crossfire', b.is_crossfire,
+    'utility_count', b.utility_count,
+    'smoke_count', b.smoke_count,
+    'frag_count', b.frag_count,
+    'pressure_index', b.pressure_index,
+    'enemy_death_distance', b.enemy_death_distance,
+    'survival_time', b.survival_time,
+    'isolation_index', b.isolation_index,
+    'min_dist', b.min_dist,
+    'height_diff', b.height_diff,
+    'smoke_rate', b.smoke_rate,
+    'trade_rate', b.trade_rate,
+    'solo_kill_rate', b.solo_kill_rate,
+    'reversal_rate', b.reversal_rate,
+    'duel_win_rate', b.duel_win_rate,
+    'trade_latency_ms', b.trade_latency_ms,
+    'lethal_throw_count', b.lethal_throw_count,
+    'tier', b.tier,
+    'score', b.score,
+    'combat_score', b.combat_score,
+    'tactical_score', b.tactical_score,
+    'survival_score', b.survival_score,
+    'supp_count', b.supp_count,
+    'team_wipes', b.team_wipes,
+    'match_type', b.match_type,
+    'death_phase', b.death_phase,
+    'filter_version', b.filter_version,
+    'population_evidence_version', b.population_evidence_version,
+    'source', b.source
+  )
+  from public.global_benchmarks as b
+  where b.id = p_benchmark_id;
+$function$;
+
+\echo '--- 시나리오 15: recovery claim은 기존 lease를 보존한다 ---'
+do $$
+declare first_claim boolean; duplicate_claim boolean;
+begin
+  set local role service_role;
+  first_claim := public.claim_telemetry_cache_recovery_write(
+    'recovery-match', 'steam', 'recovery-player', 'lite', 61,
+    'telemetry-map/v61/steam/recovery-match/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/lite.json',
+    now() + interval '10 minutes',
+    '99999999-9999-4999-8999-999999999999', now()
+  );
+  duplicate_claim := public.claim_telemetry_cache_recovery_write(
+    'recovery-match', 'steam', 'recovery-player', 'lite', 61,
+    'telemetry-map/v61/steam/recovery-match/bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/lite.json',
+    now() + interval '10 minutes',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', now()
+  );
+  if not first_claim then raise exception 'FAIL: 최초 recovery claim 실패'; end if;
+  if duplicate_claim then raise exception 'FAIL: 기존 recovery lease가 덮어써짐'; end if;
+  if (select storage_path from public.telemetry_map_cache_entries
+      where match_id = 'recovery-match' and platform = 'steam'
+        and player_id = 'recovery-player' and mode = 'lite' and telemetry_version = 61)
+      <> 'telemetry-map/v61/steam/recovery-match/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/lite.json' then
+    raise exception 'FAIL: 기존 recovery lease 본문이 변경됨';
+  end if;
+  raise notice 'PASS: recovery claim duplicate 보존';
+end $$;
+
+\echo '--- 시나리오 15b: recovery claim rejects invalid version/key/expired lease ---'
+do $$
+declare rejected boolean := false;
+begin
+  set local role service_role;
+  begin
+    perform public.claim_telemetry_cache_recovery_write(
+      'recovery-invalid-version', 'steam', 'recovery-player', 'lite', 60,
+      'telemetry-map/v60/steam/recovery-invalid-version/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/lite.json',
+      now() + interval '10 minutes', '99999999-9999-4999-8999-999999999998', now()
+    );
+  exception when sqlstate '22023' then rejected := true;
+  end;
+  if not rejected then raise exception 'FAIL: recovery claim invalid version accepted'; end if;
+  rejected := false;
+  begin
+    perform public.claim_telemetry_cache_recovery_write(
+      'recovery-invalid-key', 'steam', 'recovery-player', 'lite', 61,
+      'telemetry-map/v61/steam/recovery-invalid-key/recovery-player.json',
+      now() + interval '10 minutes', '99999999-9999-4999-8999-999999999997', now()
+    );
+  exception when sqlstate '22023' then rejected := true;
+  end;
+  if not rejected then raise exception 'FAIL: recovery claim noncanonical key accepted'; end if;
+  rejected := false;
+  begin
+    perform public.claim_telemetry_cache_recovery_write(
+      'recovery-expired', 'steam', 'recovery-player', 'lite', 61,
+      'telemetry-map/v61/steam/recovery-expired/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/lite.json',
+      now() - interval '1 second', '99999999-9999-4999-8999-999999999996', now()
+    );
+  exception when sqlstate '22023' then rejected := true;
+  end;
+  if not rejected then raise exception 'FAIL: recovery claim expired lease accepted'; end if;
+  raise notice 'PASS: recovery claim invalid version/key/expired lease rejected';
+end $$;
+
+\echo '--- 시나리오 15c: recovery release는 exact lease token만 삭제하고 boolean을 반환한다 ---'
+do $$
+declare
+  released boolean;
+  stale_release boolean;
+  wrong_token boolean;
+begin
+  set local role service_role;
+  insert into public.telemetry_map_cache_entries (
+    match_id, platform, player_id, mode, telemetry_version, storage_path,
+    status, lease_expires_at, lease_token, updated_at
+  ) values (
+    'recovery-release-match', 'steam', 'recovery-release-player', 'lite', 61,
+    'telemetry-map/v61/steam/recovery-release-match/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/lite.json',
+    'pending', now() + interval '10 minutes',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', now()
+  ) on conflict (match_id, platform, player_id, mode, telemetry_version) do update set
+    status = excluded.status,
+    lease_expires_at = excluded.lease_expires_at,
+    lease_token = excluded.lease_token,
+    storage_path = excluded.storage_path,
+    updated_at = excluded.updated_at;
+
+  wrong_token := public.release_telemetry_cache_recovery_write(
+    'recovery-release-match', 'steam', 'recovery-release-player', 'lite', 61,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  );
+  if wrong_token then raise exception 'FAIL: wrong recovery lease token returned true'; end if;
+  if not exists (
+    select 1 from public.telemetry_map_cache_entries
+    where match_id = 'recovery-release-match'
+      and lease_token = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  ) then raise exception 'FAIL: wrong token deleted recovery lease'; end if;
+
+  update public.telemetry_map_cache_entries
+     set lease_token = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+   where match_id = 'recovery-release-match';
+  stale_release := public.release_telemetry_cache_recovery_write(
+    'recovery-release-match', 'steam', 'recovery-release-player', 'lite', 61,
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  );
+  if stale_release then raise exception 'FAIL: stale recovery lease token returned true'; end if;
+  if not exists (
+    select 1 from public.telemetry_map_cache_entries
+    where match_id = 'recovery-release-match'
+      and lease_token = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+  ) then raise exception 'FAIL: stale token deleted replacement recovery lease'; end if;
+
+  released := public.release_telemetry_cache_recovery_write(
+    'recovery-release-match', 'steam', 'recovery-release-player', 'lite', 61,
+    'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+  );
+  if not released then raise exception 'FAIL: matching recovery lease token returned false'; end if;
+  if exists (
+    select 1 from public.telemetry_map_cache_entries
+    where match_id = 'recovery-release-match'
+  ) then raise exception 'FAIL: matching recovery lease was not deleted'; end if;
+  raise notice 'PASS: recovery release exact token boolean semantics';
+end $$;
+
+\echo '--- 시나리오 15d: recovery release ACL·SECURITY INVOKER ---'
+do $$
+declare
+  signature constant text := 'public.release_telemetry_cache_recovery_write(text,text,text,text,numeric,uuid)';
+  public_exec boolean;
+begin
+  if not has_function_privilege('service_role', signature, 'EXECUTE') then
+    raise exception 'FAIL: service_role recovery release EXECUTE 권한 누락';
+  end if;
+  if has_function_privilege('anon', signature, 'EXECUTE')
+     or has_function_privilege('authenticated', signature, 'EXECUTE') then
+    raise exception 'FAIL: anon/authenticated recovery release EXECUTE 권한 잔존';
+  end if;
+  select exists (
+    select 1
+    from aclexplode(p.proacl) acl
+    where p.oid = signature::regprocedure
+      and acl.grantee = 0
+      and acl.privilege_type = 'EXECUTE'
+  ) into public_exec
+  from pg_proc p
+  where p.oid = signature::regprocedure;
+  if coalesce(public_exec, false) then
+    raise exception 'FAIL: PUBLIC recovery release EXECUTE 권한 잔존';
+  end if;
+  if exists (
+    select 1 from pg_proc p
+    where p.oid = signature::regprocedure and p.prosecdef
+  ) then
+    raise exception 'FAIL: recovery release가 SECURITY DEFINER임';
+  end if;
+  if pg_get_function_result('public.release_telemetry_cache_write(text,text,text,text,numeric,uuid)'::regprocedure)
+      <> 'void' then
+    raise exception 'FAIL: ordinary release RPC 반환형이 변경됨';
+  end if;
+  raise notice 'PASS: recovery release ACL 4-way + SECURITY INVOKER + ordinary release 보존';
+end $$;
+
+\echo '--- 시나리오 16: atomic recovery finalization success/idempotency ---'
+delete from public.telemetry_map_cache_entries where match_id like 'atomic-recovery-%';
+delete from public.processed_match_telemetry where match_id like 'atomic-recovery-%';
+delete from public.global_benchmarks where match_id like 'atomic-recovery-%';
+delete from public.match_master_telemetry where match_id like 'atomic-recovery-%';
+
+do $$
+declare
+  lease_token uuid := '11111111-1111-4111-8111-111111111111';
+  first_result jsonb;
+  retry_result jsonb;
+  first_claim boolean;
+  processed_data jsonb := jsonb_build_object(
+    'fullResult', jsonb_build_object(
+      'v', 72,
+      'matchId', 'atomic-recovery-success',
+      'player_id', 'atomic-player',
+      'platform', 'steam',
+      'stats', jsonb_build_object('name', 'AtomicPlayer', 'playerId', 'atomic-account')
+    )
+  );
+  final_processed_data jsonb := jsonb_build_object(
+    'fullResult', jsonb_build_object(
+      'v', 73,
+      'matchId', 'atomic-recovery-success',
+      'player_id', 'atomic-player',
+      'platform', 'steam',
+      'populationEvidenceVersion', 1,
+      'stats', jsonb_build_object('name', 'AtomicPlayer', 'playerId', 'atomic-account')
+    )
+  );
+  rows_payload jsonb;
+  legacy_benchmark_snapshot jsonb;
+begin
+  insert into public.processed_match_telemetry (match_id, platform, player_id, data)
+  values ('atomic-recovery-success', 'steam', 'atomic-player', processed_data);
+  insert into public.global_benchmarks (
+    id, match_id, platform, player_id, game_mode, match_type, tier,
+    filter_version, population_evidence_version, damage, kills
+  ) values (
+    9201, 'atomic-recovery-success', 'steam', 'atomic-player',
+    'squad-fpp', 'official', 'B', null, null, 321, 3
+  );
+  legacy_benchmark_snapshot := pg_temp.recovery_benchmark_snapshot(9201);
+  if legacy_benchmark_snapshot is null then
+    raise exception 'FAIL: legacy benchmark snapshot capture 실패';
+  end if;
+  insert into pg_temp.migration_recovery_benchmark_snapshots (benchmark_id, snapshot)
+  values (9201, legacy_benchmark_snapshot)
+  on conflict (benchmark_id) do update set snapshot = excluded.snapshot;
+  set local role service_role;
+  first_claim := public.claim_telemetry_cache_recovery_write(
+    'atomic-recovery-success', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-success/1643741889301ca91a3652d48c3b201d/lite.json',
+    now() + interval '10 minutes', lease_token, now()
+  );
+  if not first_claim then raise exception 'FAIL: atomic recovery claim 실패'; end if;
+
+  rows_payload := jsonb_build_object(
+    'master', jsonb_build_object(
+      'match_id', 'atomic-recovery-success', 'map_name', 'Baltic_Main',
+      'game_mode', 'squad-fpp', 'telemetry_version', 61,
+      'storage_path', 'telemetry-map/v61/steam/atomic-recovery-success/1643741889301ca91a3652d48c3b201d/lite.json'
+    ),
+    'processed', jsonb_build_object(
+      'match_id', 'atomic-recovery-success', 'platform', 'steam',
+      'player_id', 'atomic-player', 'data', jsonb_set(final_processed_data, '{fullResult,stats,playerId}', '"atomic-account"'::jsonb),
+      'updated_at', now()
+    ),
+    'benchmark', jsonb_build_object(
+      'match_id', 'atomic-recovery-success', 'platform', 'steam', 'player_id', 'atomic-player',
+      'game_mode', 'squad-fpp', 'match_type', 'official', 'tier', 'B',
+      'filter_version', 8, 'population_evidence_version', 1, 'source', 'user',
+      'damage', 321, 'kills', 3, 'win_place', 4, 'map_name', 'Baltic_Main'
+    )
+  );
+
+  first_result := public.finalize_telemetry_cache_recovery(
+    'atomic-recovery-success', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-success/1643741889301ca91a3652d48c3b201d/lite.json', lease_token,
+    jsonb_build_object(
+      'matchId', 'atomic-recovery-success', 'playerId', 'atomic-player',
+      'platform', 'steam', 'resultVersion', 72, 'accountId', 'atomic-account'
+    ),
+    jsonb_build_object(
+      'id', 9201, 'matchId', 'atomic-recovery-success', 'playerId', 'atomic-player',
+      'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official',
+      'tier', 'B', 'filterVersion', null, 'populationEvidenceVersion', null,
+      'snapshot', legacy_benchmark_snapshot
+    ),
+    rows_payload
+  );
+  if first_result->>'code' <> 'finalized' then
+    raise exception 'FAIL: atomic recovery finalization 실패 (%)', first_result;
+  end if;
+  if (select data #>> '{fullResult,v}' from public.processed_match_telemetry
+      where match_id = 'atomic-recovery-success' and platform = 'steam' and player_id = 'atomic-player') <> '73'
+     or not exists (select 1 from public.match_master_telemetry where match_id = 'atomic-recovery-success')
+     or (select population_evidence_version from public.global_benchmarks where id = 9201) <> 1
+     or (select status from public.telemetry_map_cache_entries where match_id = 'atomic-recovery-success') <> 'ready'
+     or (select cache.lease_token
+           from public.telemetry_map_cache_entries as cache
+          where cache.match_id = 'atomic-recovery-success') is not null then
+    raise exception 'FAIL: atomic finalization 중 일부 row가 갱신되지 않음';
+  end if;
+
+  retry_result := public.finalize_telemetry_cache_recovery(
+    'atomic-recovery-success', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-success/1643741889301ca91a3652d48c3b201d/lite.json', lease_token,
+    jsonb_build_object(
+      'matchId', 'atomic-recovery-success', 'playerId', 'atomic-player',
+      'platform', 'steam', 'resultVersion', 72, 'accountId', 'atomic-account'
+    ),
+    jsonb_build_object(
+      'id', 9201, 'matchId', 'atomic-recovery-success', 'playerId', 'atomic-player',
+      'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official',
+      'tier', 'B', 'filterVersion', null, 'populationEvidenceVersion', null,
+      'snapshot', legacy_benchmark_snapshot
+    ),
+    rows_payload
+  );
+  if retry_result->>'code' <> 'already_finalized' then
+    raise exception 'FAIL: 동일 finalization 재시도가 already_finalized가 아님 (%)', retry_result;
+  end if;
+  raise notice 'PASS: atomic recovery success + all-row transition + idempotent retry';
+end $$;
+
+\echo '--- 시나리오 16b: already_finalized requires the exact requested payload ---'
+do $$
+declare
+  result jsonb;
+  variant jsonb;
+  variants jsonb[];
+  rows_payload jsonb;
+  final_updated_at timestamptz;
+  final_data jsonb;
+  legacy_benchmark_snapshot jsonb;
+  base_benchmark_guard jsonb;
+  base_guard jsonb := jsonb_build_object(
+    'matchId', 'atomic-recovery-success', 'playerId', 'atomic-player',
+    'platform', 'steam', 'resultVersion', 72, 'accountId', 'atomic-account'
+  );
+begin
+  select snapshot into legacy_benchmark_snapshot
+    from pg_temp.migration_recovery_benchmark_snapshots
+   where benchmark_id = 9201;
+  if legacy_benchmark_snapshot is null then
+    raise exception 'FAIL: original legacy benchmark snapshot is missing';
+  end if;
+  base_benchmark_guard := jsonb_build_object(
+    'id', 9201, 'matchId', 'atomic-recovery-success', 'playerId', 'atomic-player',
+    'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official',
+    'tier', 'B', 'filterVersion', null, 'populationEvidenceVersion', null,
+    'snapshot', legacy_benchmark_snapshot
+  );
+  set local role service_role;
+  select data, updated_at into final_data, final_updated_at
+    from public.processed_match_telemetry
+   where match_id = 'atomic-recovery-success' and platform = 'steam' and player_id = 'atomic-player';
+  rows_payload := jsonb_build_object(
+    'master', jsonb_build_object(
+      'match_id', 'atomic-recovery-success', 'map_name', 'Baltic_Main', 'game_mode', 'squad-fpp',
+      'telemetry_version', 61, 'storage_path', 'telemetry-map/v61/steam/atomic-recovery-success/1643741889301ca91a3652d48c3b201d/lite.json'
+    ),
+    'processed', jsonb_build_object(
+      'match_id', 'atomic-recovery-success', 'platform', 'steam', 'player_id', 'atomic-player',
+      'data', final_data, 'updated_at', final_updated_at
+    ),
+    'benchmark', jsonb_build_object(
+      'match_id', 'atomic-recovery-success', 'platform', 'steam', 'player_id', 'atomic-player',
+      'damage', 321, 'kills', 3, 'win_place', 4, 'game_mode', 'squad-fpp', 'map_name', 'Baltic_Main',
+      'match_type', 'official', 'tier', 'B', 'filter_version', 8,
+      'population_evidence_version', 1, 'source', 'user'
+    )
+  );
+  variants := array[
+    jsonb_set(rows_payload, '{benchmark,damage}', '322'::jsonb),
+    jsonb_set(rows_payload, '{benchmark,tier}', '"A"'::jsonb),
+    jsonb_set(rows_payload, '{benchmark,game_mode}', '"solo-fpp"'::jsonb),
+    jsonb_set(rows_payload, '{benchmark,match_type}', '"competitive"'::jsonb),
+    jsonb_set(rows_payload, '{master,map_name}', '"Erangel_Main"'::jsonb),
+    jsonb_set(rows_payload, '{processed,data,fullResult,reconciliationProbe}', 'true'::jsonb),
+    jsonb_set(rows_payload, '{processed,updated_at}', to_jsonb(final_updated_at + interval '1 second'))
+  ];
+  for variant in select unnest(variants) loop
+    begin
+      result := public.finalize_telemetry_cache_recovery(
+        'atomic-recovery-success', 'steam', 'atomic-account', 'lite', 61,
+        'telemetry-map/v61/steam/atomic-recovery-success/1643741889301ca91a3652d48c3b201d/lite.json',
+        '11111111-1111-4111-8111-111111111111', base_guard,
+        base_benchmark_guard, variant
+      );
+      if result->>'code' = 'already_finalized' then
+        raise exception 'FAIL: payload mismatch returned already_finalized (%)', variant;
+      end if;
+    exception when sqlstate '22023' then
+      null;
+    end;
+  end loop;
+  raise notice 'PASS: already_finalized exact master/processed/benchmark/timestamp reconciliation';
+end $$;
+
+\echo '--- 시나리오 17: stale benchmark/processed guards mutate no rows ---'
+delete from public.telemetry_map_cache_entries where match_id like 'atomic-recovery-stale-%';
+delete from public.processed_match_telemetry where match_id like 'atomic-recovery-stale-%';
+delete from public.global_benchmarks where match_id like 'atomic-recovery-stale-%';
+delete from public.match_master_telemetry where match_id like 'atomic-recovery-stale-%';
+
+do $$
+declare
+  benchmark_result jsonb;
+  processed_result jsonb;
+  processed_data jsonb := jsonb_build_object(
+    'fullResult', jsonb_build_object(
+      'v', 72, 'matchId', 'atomic-recovery-stale-benchmark',
+      'player_id', 'atomic-player', 'platform', 'steam',
+      'stats', jsonb_build_object('name', 'AtomicPlayer', 'playerId', 'atomic-account')
+    )
+  );
+  rows_payload jsonb;
+  benchmark_snapshot jsonb;
+  processed_benchmark_snapshot jsonb;
+  metric_result jsonb;
+  metric_processed_data jsonb;
+  metric_snapshot jsonb;
+  metric_rows_payload jsonb;
+  metric_guard jsonb;
+  base_guard jsonb := jsonb_build_object(
+    'matchId', 'atomic-recovery-stale-benchmark', 'playerId', 'atomic-player',
+    'platform', 'steam', 'resultVersion', 72, 'accountId', 'atomic-account'
+  );
+begin
+  insert into public.processed_match_telemetry (match_id, platform, player_id, data)
+  values ('atomic-recovery-stale-benchmark', 'steam', 'atomic-player', processed_data);
+  insert into public.global_benchmarks (
+    id, match_id, platform, player_id, game_mode, match_type, tier,
+    filter_version, population_evidence_version
+  ) values (
+    9202, 'atomic-recovery-stale-benchmark', 'steam', 'atomic-player',
+    'squad-fpp', 'official', 'B', null, null
+  );
+  benchmark_snapshot := pg_temp.recovery_benchmark_snapshot(9202);
+  if benchmark_snapshot is null then
+    raise exception 'FAIL: stale benchmark snapshot capture 실패';
+  end if;
+  insert into pg_temp.migration_recovery_benchmark_snapshots (benchmark_id, snapshot)
+  values (9202, benchmark_snapshot)
+  on conflict (benchmark_id) do update set snapshot = excluded.snapshot;
+  set local role service_role;
+  perform public.claim_telemetry_cache_recovery_write(
+    'atomic-recovery-stale-benchmark', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-stale-benchmark/1643741889301ca91a3652d48c3b201d/lite.json',
+    now() + interval '10 minutes', '22222222-2222-4222-8222-222222222222', now()
+  );
+  -- A concurrent writer advances only the legacy marker after the claim.
+  update public.global_benchmarks set filter_version = 8 where id = 9202;
+  rows_payload := jsonb_build_object(
+    'master', jsonb_build_object(
+      'match_id', 'atomic-recovery-stale-benchmark', 'map_name', 'Baltic_Main',
+      'game_mode', 'squad-fpp', 'telemetry_version', 61,
+      'storage_path', 'telemetry-map/v61/steam/atomic-recovery-stale-benchmark/1643741889301ca91a3652d48c3b201d/lite.json'
+    ),
+    'processed', jsonb_build_object(
+      'match_id', 'atomic-recovery-stale-benchmark', 'platform', 'steam',
+      'player_id', 'atomic-player', 'data', jsonb_set(jsonb_set(processed_data, '{fullResult,populationEvidenceVersion}', '1'::jsonb), '{fullResult,v}', '73'::jsonb), 'updated_at', now()
+    ),
+    'benchmark', jsonb_build_object(
+      'match_id', 'atomic-recovery-stale-benchmark', 'platform', 'steam', 'player_id', 'atomic-player',
+      'game_mode', 'squad-fpp', 'map_name', 'Baltic_Main', 'match_type', 'official', 'tier', 'B',
+      'filter_version', 8, 'population_evidence_version', 1, 'source', 'user'
+    )
+  );
+  benchmark_result := public.finalize_telemetry_cache_recovery(
+    'atomic-recovery-stale-benchmark', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-stale-benchmark/1643741889301ca91a3652d48c3b201d/lite.json',
+    '22222222-2222-4222-8222-222222222222', base_guard,
+    jsonb_build_object(
+      'id', 9202, 'matchId', 'atomic-recovery-stale-benchmark', 'playerId', 'atomic-player',
+      'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official',
+      'tier', 'B', 'filterVersion', null, 'populationEvidenceVersion', null,
+      'snapshot', benchmark_snapshot
+    ), rows_payload
+  );
+  if benchmark_result->>'code' <> 'benchmark_guard_mismatch'
+     or (select data #>> '{fullResult,v}' from public.processed_match_telemetry where match_id = 'atomic-recovery-stale-benchmark') <> '72'
+     or exists (select 1 from public.match_master_telemetry where match_id = 'atomic-recovery-stale-benchmark')
+     or (select status from public.telemetry_map_cache_entries where match_id = 'atomic-recovery-stale-benchmark') <> 'pending' then
+    raise exception 'FAIL: stale benchmark worker가 row를 변경함 (%)', benchmark_result;
+  end if;
+
+  metric_processed_data := jsonb_set(
+    processed_data,
+    '{fullResult,matchId}',
+    '"atomic-recovery-stale-metric"'::jsonb
+  );
+  insert into public.processed_match_telemetry (match_id, platform, player_id, data)
+  values ('atomic-recovery-stale-metric', 'steam', 'atomic-player', metric_processed_data);
+  insert into public.global_benchmarks (
+    id, match_id, platform, player_id, game_mode, match_type, tier,
+    filter_version, population_evidence_version, damage, kills
+  ) values (
+    9204, 'atomic-recovery-stale-metric', 'steam', 'atomic-player',
+    'squad-fpp', 'official', 'B', null, null, 321, 3
+  );
+  metric_snapshot := pg_temp.recovery_benchmark_snapshot(9204);
+  if metric_snapshot is null then
+    raise exception 'FAIL: metric-only benchmark snapshot capture 실패';
+  end if;
+  insert into pg_temp.migration_recovery_benchmark_snapshots (benchmark_id, snapshot)
+  values (9204, metric_snapshot)
+  on conflict (benchmark_id) do update set snapshot = excluded.snapshot;
+  perform public.claim_telemetry_cache_recovery_write(
+    'atomic-recovery-stale-metric', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-stale-metric/1643741889301ca91a3652d48c3b201d/lite.json',
+    now() + interval '10 minutes', '44444444-4444-4444-8444-444444444444', now()
+  );
+  -- Mutate one metric only; marker columns remain at their captured NULLs.
+  update public.global_benchmarks set damage = 999 where id = 9204;
+  metric_guard := jsonb_build_object(
+    'id', 9204, 'matchId', 'atomic-recovery-stale-metric', 'playerId', 'atomic-player',
+    'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official',
+    'tier', 'B', 'filterVersion', null, 'populationEvidenceVersion', null,
+    'snapshot', metric_snapshot
+  );
+  metric_rows_payload := jsonb_build_object(
+    'master', jsonb_build_object(
+      'match_id', 'atomic-recovery-stale-metric', 'map_name', 'Baltic_Main',
+      'game_mode', 'squad-fpp', 'telemetry_version', 61,
+      'storage_path', 'telemetry-map/v61/steam/atomic-recovery-stale-metric/1643741889301ca91a3652d48c3b201d/lite.json'
+    ),
+    'processed', jsonb_build_object(
+      'match_id', 'atomic-recovery-stale-metric', 'platform', 'steam',
+      'player_id', 'atomic-player',
+      'data', jsonb_set(jsonb_set(metric_processed_data, '{fullResult,populationEvidenceVersion}', '1'::jsonb), '{fullResult,v}', '73'::jsonb),
+      'updated_at', now()
+    ),
+    'benchmark', jsonb_build_object(
+      'match_id', 'atomic-recovery-stale-metric', 'platform', 'steam', 'player_id', 'atomic-player',
+      'game_mode', 'squad-fpp', 'map_name', 'Baltic_Main', 'match_type', 'official', 'tier', 'B',
+      'filter_version', 8, 'population_evidence_version', 1, 'source', 'user',
+      'damage', 321, 'kills', 3, 'win_place', 4
+    )
+  );
+  metric_result := public.finalize_telemetry_cache_recovery(
+    'atomic-recovery-stale-metric', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-stale-metric/1643741889301ca91a3652d48c3b201d/lite.json',
+    '44444444-4444-4444-8444-444444444444',
+    jsonb_build_object(
+      'matchId', 'atomic-recovery-stale-metric', 'playerId', 'atomic-player',
+      'platform', 'steam', 'resultVersion', 72, 'accountId', 'atomic-account'
+    ),
+    metric_guard,
+    metric_rows_payload
+  );
+  if metric_result->>'code' <> 'benchmark_guard_mismatch'
+     or (select data #>> '{fullResult,v}' from public.processed_match_telemetry where match_id = 'atomic-recovery-stale-metric') <> '72'
+     or (select damage from public.global_benchmarks where id = 9204) <> 999
+     or exists (select 1 from public.match_master_telemetry where match_id = 'atomic-recovery-stale-metric')
+     or (select status from public.telemetry_map_cache_entries where match_id = 'atomic-recovery-stale-metric') <> 'pending' then
+    raise exception 'FAIL: metric-only stale worker가 row를 변경함 (%)', metric_result;
+  end if;
+
+  insert into public.processed_match_telemetry (match_id, platform, player_id, data)
+  values ('atomic-recovery-stale-processed', 'steam', 'atomic-player', jsonb_set(processed_data, '{fullResult,matchId}', '"atomic-recovery-stale-processed"'::jsonb));
+  insert into public.global_benchmarks (
+    id, match_id, platform, player_id, game_mode, match_type, tier,
+    filter_version, population_evidence_version
+  ) values (
+    9203, 'atomic-recovery-stale-processed', 'steam', 'atomic-player',
+    'squad-fpp', 'official', 'B', null, null
+  );
+  processed_benchmark_snapshot := pg_temp.recovery_benchmark_snapshot(9203);
+  if processed_benchmark_snapshot is null then
+    raise exception 'FAIL: stale processed benchmark snapshot capture 실패';
+  end if;
+  insert into pg_temp.migration_recovery_benchmark_snapshots (benchmark_id, snapshot)
+  values (9203, processed_benchmark_snapshot)
+  on conflict (benchmark_id) do update set snapshot = excluded.snapshot;
+  perform public.claim_telemetry_cache_recovery_write(
+    'atomic-recovery-stale-processed', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-stale-processed/1643741889301ca91a3652d48c3b201d/lite.json',
+    now() + interval '10 minutes', '33333333-3333-4333-8333-333333333333', now()
+  );
+  update public.processed_match_telemetry
+    set data = jsonb_set(data, '{fullResult,v}', '73'::jsonb)
+    where match_id = 'atomic-recovery-stale-processed';
+  processed_result := public.finalize_telemetry_cache_recovery(
+    'atomic-recovery-stale-processed', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-stale-processed/1643741889301ca91a3652d48c3b201d/lite.json',
+    '33333333-3333-4333-8333-333333333333',
+    jsonb_build_object(
+      'matchId', 'atomic-recovery-stale-processed', 'playerId', 'atomic-player',
+      'platform', 'steam', 'resultVersion', 72, 'accountId', 'atomic-account'
+    ),
+    jsonb_build_object(
+      'id', 9203, 'matchId', 'atomic-recovery-stale-processed', 'playerId', 'atomic-player',
+      'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official',
+      'tier', 'B', 'filterVersion', null, 'populationEvidenceVersion', null,
+      'snapshot', processed_benchmark_snapshot
+    ),
+    jsonb_build_object(
+      'master', jsonb_build_object(
+        'match_id', 'atomic-recovery-stale-processed', 'map_name', 'Baltic_Main',
+        'game_mode', 'squad-fpp', 'telemetry_version', 61,
+        'storage_path', 'telemetry-map/v61/steam/atomic-recovery-stale-processed/1643741889301ca91a3652d48c3b201d/lite.json'
+      ),
+      'processed', jsonb_build_object(
+        'match_id', 'atomic-recovery-stale-processed', 'platform', 'steam',
+        'player_id', 'atomic-player', 'data', jsonb_set(jsonb_set(jsonb_set(processed_data, '{fullResult,matchId}', '"atomic-recovery-stale-processed"'::jsonb), '{fullResult,populationEvidenceVersion}', '1'::jsonb), '{fullResult,v}', '73'::jsonb), 'updated_at', now()
+      ),
+      'benchmark', jsonb_build_object(
+        'match_id', 'atomic-recovery-stale-processed', 'platform', 'steam', 'player_id', 'atomic-player',
+        'game_mode', 'squad-fpp', 'map_name', 'Baltic_Main', 'match_type', 'official', 'tier', 'B',
+        'filter_version', 8, 'population_evidence_version', 1, 'source', 'user'
+      )
+    )
+  );
+  if processed_result->>'code' <> 'processed_guard_mismatch'
+     or (select population_evidence_version from public.global_benchmarks where id = 9203) is not null
+     or exists (select 1 from public.match_master_telemetry where match_id = 'atomic-recovery-stale-processed')
+     or (select status from public.telemetry_map_cache_entries where match_id = 'atomic-recovery-stale-processed') <> 'pending' then
+    raise exception 'FAIL: stale processed worker가 row를 변경함 (%)', processed_result;
+  end if;
+  raise notice 'PASS: stale benchmark/processed guard zero-mutation';
+end $$;
+
+\echo '--- 시나리오 17d: crossed processed account/benchmark nickname guards mutate no rows ---'
+delete from public.telemetry_map_cache_entries where match_id in ('crossed-processed-account', 'crossed-benchmark-player');
+delete from public.processed_match_telemetry where match_id in ('crossed-processed-account', 'crossed-benchmark-player');
+delete from public.global_benchmarks where id in (9301, 9302);
+delete from public.match_master_telemetry where match_id in ('crossed-processed-account', 'crossed-benchmark-player');
+
+do $$
+declare
+  account_result jsonb;
+  benchmark_result jsonb;
+  account_snapshot jsonb;
+  benchmark_snapshot jsonb;
+  account_processed_before jsonb;
+  account_benchmark_before jsonb;
+  account_lease_before jsonb;
+  benchmark_processed_before jsonb;
+  benchmark_benchmark_before jsonb;
+  benchmark_lease_before jsonb;
+  account_token uuid := 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
+  benchmark_token uuid := 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbb2';
+  account_processed_data jsonb := jsonb_build_object(
+    'fullResult', jsonb_build_object(
+      'v', 72, 'matchId', 'crossed-processed-account',
+      'player_id', 'crossed-account-shared', 'platform', 'steam',
+      'stats', jsonb_build_object('name', 'CrossedAccountShared', 'playerId', 'crossed-account-real')
+    )
+  );
+  benchmark_processed_data jsonb := jsonb_build_object(
+    'fullResult', jsonb_build_object(
+      'v', 72, 'matchId', 'crossed-benchmark-player',
+      'player_id', 'crossed-benchmark-processed', 'platform', 'steam',
+      'stats', jsonb_build_object('name', 'CrossedBenchmarkProcessed', 'playerId', 'crossed-benchmark-shared')
+    )
+  );
+  account_rows jsonb;
+  benchmark_rows jsonb;
+begin
+  set local role service_role;
+
+  insert into public.processed_match_telemetry (match_id, platform, player_id, data)
+  values ('crossed-processed-account', 'steam', 'crossed-account-shared', account_processed_data);
+  insert into public.global_benchmarks (
+    id, match_id, platform, player_id, game_mode, match_type, tier,
+    filter_version, population_evidence_version
+  ) values (
+    9301, 'crossed-processed-account', 'steam', 'crossed-account-shared',
+    'squad-fpp', 'official', 'B', null, null
+  );
+  account_snapshot := pg_temp.recovery_benchmark_snapshot(9301);
+  perform public.claim_telemetry_cache_recovery_write(
+    'crossed-processed-account', 'steam', 'crossed-account-shared', 'lite', 61,
+    'telemetry-map/v61/steam/crossed-processed-account/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/lite.json',
+    now() + interval '10 minutes', account_token, now()
+  );
+  select to_jsonb(processed) into account_processed_before
+    from public.processed_match_telemetry as processed
+   where processed.match_id = 'crossed-processed-account'
+     and processed.platform = 'steam'
+     and processed.player_id = 'crossed-account-shared';
+  select to_jsonb(benchmark) into account_benchmark_before
+    from public.global_benchmarks as benchmark
+   where benchmark.id = 9301;
+  select to_jsonb(cache) into account_lease_before
+    from public.telemetry_map_cache_entries as cache
+   where cache.match_id = 'crossed-processed-account'
+     and cache.platform = 'steam'
+     and cache.player_id = 'crossed-account-shared'
+     and cache.mode = 'lite'
+     and cache.telemetry_version = 61;
+  account_rows := jsonb_build_object(
+    'master', jsonb_build_object(
+      'match_id', 'crossed-processed-account', 'map_name', 'Baltic_Main',
+      'game_mode', 'squad-fpp', 'telemetry_version', 61,
+      'storage_path', 'telemetry-map/v61/steam/crossed-processed-account/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/lite.json'
+    ),
+    'processed', jsonb_build_object(
+      'match_id', 'crossed-processed-account', 'platform', 'steam',
+      'player_id', 'crossed-account-shared',
+      'data', jsonb_set(account_processed_data, '{fullResult,v}', '73'::jsonb), 'updated_at', now()
+    ),
+    'benchmark', jsonb_build_object(
+      'match_id', 'crossed-processed-account', 'platform', 'steam', 'player_id', 'crossed-account-shared',
+      'game_mode', 'squad-fpp', 'map_name', 'Baltic_Main', 'match_type', 'official', 'tier', 'B',
+      'filter_version', 8, 'population_evidence_version', 1, 'source', 'user'
+    )
+  );
+  account_result := public.finalize_telemetry_cache_recovery(
+    'crossed-processed-account', 'steam', 'crossed-account-shared', 'lite', 61,
+    'telemetry-map/v61/steam/crossed-processed-account/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/lite.json', account_token,
+    jsonb_build_object(
+      'matchId', 'crossed-processed-account', 'playerId', 'crossed-account-shared',
+      'platform', 'steam', 'resultVersion', 72, 'accountId', 'crossed-account-real'
+    ),
+    jsonb_build_object(
+      'id', 9301, 'matchId', 'crossed-processed-account', 'playerId', 'crossed-account-shared',
+      'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official', 'tier', 'B',
+      'filterVersion', null, 'populationEvidenceVersion', null, 'snapshot', account_snapshot
+    ), account_rows
+  );
+  if account_result->>'ok' is distinct from 'false'
+     or account_result->>'code' is distinct from 'processed_guard_mismatch'
+     or (select to_jsonb(processed) from public.processed_match_telemetry as processed
+          where processed.match_id = 'crossed-processed-account'
+            and processed.platform = 'steam'
+            and processed.player_id = 'crossed-account-shared') is distinct from account_processed_before
+     or (select to_jsonb(benchmark) from public.global_benchmarks as benchmark where benchmark.id = 9301) is distinct from account_benchmark_before
+     or exists (select 1 from public.match_master_telemetry where match_id = 'crossed-processed-account')
+     or (select to_jsonb(cache) from public.telemetry_map_cache_entries as cache
+          where cache.match_id = 'crossed-processed-account'
+            and cache.platform = 'steam'
+            and cache.player_id = 'crossed-account-shared'
+            and cache.mode = 'lite'
+            and cache.telemetry_version = 61) is distinct from account_lease_before
+  then
+    raise exception 'FAIL: crossed processed account guard mutated rows (%)', account_result;
+  end if;
+
+  insert into public.processed_match_telemetry (match_id, platform, player_id, data)
+  values ('crossed-benchmark-player', 'steam', 'crossed-benchmark-processed', benchmark_processed_data);
+  insert into public.global_benchmarks (
+    id, match_id, platform, player_id, game_mode, match_type, tier,
+    filter_version, population_evidence_version
+  ) values (
+    9302, 'crossed-benchmark-player', 'steam', 'crossed-benchmark-shared',
+    'squad-fpp', 'official', 'B', null, null
+  );
+  benchmark_snapshot := pg_temp.recovery_benchmark_snapshot(9302);
+  perform public.claim_telemetry_cache_recovery_write(
+    'crossed-benchmark-player', 'steam', 'crossed-benchmark-shared', 'lite', 61,
+    'telemetry-map/v61/steam/crossed-benchmark-player/cccccccccccccccccccccccccccccccc/lite.json',
+    now() + interval '10 minutes', benchmark_token, now()
+  );
+  select to_jsonb(processed) into benchmark_processed_before
+    from public.processed_match_telemetry as processed
+   where processed.match_id = 'crossed-benchmark-player'
+     and processed.platform = 'steam'
+     and processed.player_id = 'crossed-benchmark-processed';
+  select to_jsonb(benchmark) into benchmark_benchmark_before
+    from public.global_benchmarks as benchmark
+   where benchmark.id = 9302;
+  select to_jsonb(cache) into benchmark_lease_before
+    from public.telemetry_map_cache_entries as cache
+   where cache.match_id = 'crossed-benchmark-player'
+     and cache.platform = 'steam'
+     and cache.player_id = 'crossed-benchmark-shared'
+     and cache.mode = 'lite'
+     and cache.telemetry_version = 61;
+  benchmark_rows := jsonb_build_object(
+    'master', jsonb_build_object(
+      'match_id', 'crossed-benchmark-player', 'map_name', 'Baltic_Main',
+      'game_mode', 'squad-fpp', 'telemetry_version', 61,
+      'storage_path', 'telemetry-map/v61/steam/crossed-benchmark-player/cccccccccccccccccccccccccccccccc/lite.json'
+    ),
+    'processed', jsonb_build_object(
+      'match_id', 'crossed-benchmark-player', 'platform', 'steam',
+      'player_id', 'crossed-benchmark-processed',
+      'data', jsonb_set(benchmark_processed_data, '{fullResult,v}', '73'::jsonb), 'updated_at', now()
+    ),
+    'benchmark', jsonb_build_object(
+      'match_id', 'crossed-benchmark-player', 'platform', 'steam', 'player_id', 'crossed-benchmark-shared',
+      'game_mode', 'squad-fpp', 'map_name', 'Baltic_Main', 'match_type', 'official', 'tier', 'B',
+      'filter_version', 8, 'population_evidence_version', 1, 'source', 'user'
+    )
+  );
+  benchmark_result := public.finalize_telemetry_cache_recovery(
+    'crossed-benchmark-player', 'steam', 'crossed-benchmark-shared', 'lite', 61,
+    'telemetry-map/v61/steam/crossed-benchmark-player/cccccccccccccccccccccccccccccccc/lite.json', benchmark_token,
+    jsonb_build_object(
+      'matchId', 'crossed-benchmark-player', 'playerId', 'crossed-benchmark-processed',
+      'platform', 'steam', 'resultVersion', 72, 'accountId', 'crossed-benchmark-shared'
+    ),
+    jsonb_build_object(
+      'id', 9302, 'matchId', 'crossed-benchmark-player', 'playerId', 'crossed-benchmark-shared',
+      'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official', 'tier', 'B',
+      'filterVersion', null, 'populationEvidenceVersion', null, 'snapshot', benchmark_snapshot
+    ), benchmark_rows
+  );
+  if benchmark_result->>'ok' is distinct from 'false'
+     or benchmark_result->>'code' is distinct from 'benchmark_guard_mismatch'
+     or (select to_jsonb(processed) from public.processed_match_telemetry as processed
+          where processed.match_id = 'crossed-benchmark-player'
+            and processed.platform = 'steam'
+            and processed.player_id = 'crossed-benchmark-processed') is distinct from benchmark_processed_before
+     or (select to_jsonb(benchmark) from public.global_benchmarks as benchmark where benchmark.id = 9302) is distinct from benchmark_benchmark_before
+     or exists (select 1 from public.match_master_telemetry where match_id = 'crossed-benchmark-player')
+     or (select to_jsonb(cache) from public.telemetry_map_cache_entries as cache
+          where cache.match_id = 'crossed-benchmark-player'
+            and cache.platform = 'steam'
+            and cache.player_id = 'crossed-benchmark-shared'
+            and cache.mode = 'lite'
+            and cache.telemetry_version = 61) is distinct from benchmark_lease_before
+  then
+    raise exception 'FAIL: crossed benchmark nickname guard mutated rows (%)', benchmark_result;
+  end if;
+  raise notice 'PASS: crossed processed account/benchmark nickname guards zero-mutation';
+end $$;
+
+\echo '--- 시나리오 17b: NULL/unknown payloads are rejected without mutation ---'
+do $$
+declare
+  result jsonb;
+  base_rows jsonb := jsonb_build_object(
+    'master', jsonb_build_object(
+      'match_id', 'atomic-recovery-null', 'map_name', 'Baltic_Main', 'game_mode', 'squad-fpp',
+      'telemetry_version', 61, 'storage_path', 'telemetry-map/v61/steam/atomic-recovery-null/1643741889301ca91a3652d48c3b201d/lite.json'
+    ),
+    'processed', jsonb_build_object(
+      'match_id', 'atomic-recovery-null', 'platform', 'steam', 'player_id', 'atomic-player',
+      'data', jsonb_build_object('fullResult', jsonb_build_object(
+        'v', 73, 'matchId', 'atomic-recovery-null', 'player_id', 'atomic-player', 'platform', 'steam',
+        'populationEvidenceVersion', 1, 'stats', jsonb_build_object('playerId', 'atomic-account')
+      )), 'updated_at', now()
+    ),
+    'benchmark', jsonb_build_object(
+      'match_id', 'atomic-recovery-null', 'platform', 'steam', 'player_id', 'atomic-player',
+      'game_mode', 'squad-fpp', 'match_type', 'official', 'tier', 'B', 'filter_version', 8,
+      'population_evidence_version', 1, 'source', 'user'
+    )
+  );
+  base_guard jsonb := jsonb_build_object(
+    'matchId', 'atomic-recovery-null', 'playerId', 'atomic-player', 'platform', 'steam',
+    'resultVersion', 72, 'accountId', 'atomic-account'
+  );
+  legacy_benchmark_snapshot jsonb;
+  base_benchmark_guard jsonb;
+begin
+  set local role service_role;
+  insert into public.processed_match_telemetry(match_id, platform, player_id, data)
+  values ('atomic-recovery-null', 'steam', 'atomic-player', jsonb_build_object('fullResult', jsonb_build_object(
+    'v', 72, 'matchId', 'atomic-recovery-null', 'player_id', 'atomic-player', 'platform', 'steam',
+    'stats', jsonb_build_object('playerId', 'atomic-account')
+  )));
+  insert into public.global_benchmarks(id, match_id, platform, player_id, game_mode, match_type, tier, filter_version, population_evidence_version)
+  values (9291, 'atomic-recovery-null', 'steam', 'atomic-player', 'squad-fpp', 'official', 'B', null, null);
+  legacy_benchmark_snapshot := pg_temp.recovery_benchmark_snapshot(9291);
+  if legacy_benchmark_snapshot is null then
+    raise exception 'FAIL: NULL benchmark snapshot capture 실패';
+  end if;
+  insert into pg_temp.migration_recovery_benchmark_snapshots (benchmark_id, snapshot)
+  values (9291, legacy_benchmark_snapshot)
+  on conflict (benchmark_id) do update set snapshot = excluded.snapshot;
+  base_benchmark_guard := jsonb_build_object(
+    'id', 9291, 'matchId', 'atomic-recovery-null', 'playerId', 'atomic-player',
+    'platform', 'steam', 'gameMode', 'squad-fpp', 'matchType', 'official', 'tier', 'B',
+    'filterVersion', null, 'populationEvidenceVersion', null,
+    'snapshot', legacy_benchmark_snapshot
+  );
+  perform public.claim_telemetry_cache_recovery_write(
+    'atomic-recovery-null', 'steam', 'atomic-account', 'lite', 61,
+    'telemetry-map/v61/steam/atomic-recovery-null/1643741889301ca91a3652d48c3b201d/lite.json', now() + interval '10 minutes',
+    '99999999-9999-4999-8999-999999999991', now()
+  );
+  begin
+    result := public.finalize_telemetry_cache_recovery(
+      'atomic-recovery-null', 'steam', 'atomic-account', 'lite', 61,
+      'telemetry-map/v61/steam/atomic-recovery-null/1643741889301ca91a3652d48c3b201d/lite.json', '99999999-9999-4999-8999-999999999991',
+      jsonb_set(base_guard, '{accountId}', 'null'::jsonb),
+      base_benchmark_guard,
+      base_rows
+    );
+    raise exception 'FAIL: NULL processed guard accepted (%)', result;
+  exception when sqlstate '22023' then null;
+  end;
+  if (select data #>> '{fullResult,v}' from public.processed_match_telemetry where match_id = 'atomic-recovery-null') <> '72'
+     or (select status from public.telemetry_map_cache_entries where match_id = 'atomic-recovery-null') <> 'pending'
+     or exists(select 1 from public.match_master_telemetry where match_id = 'atomic-recovery-null') then
+    raise exception 'FAIL: NULL guard mutated rows';
+  end if;
+  begin
+    result := public.finalize_telemetry_cache_recovery(
+      'atomic-recovery-null', 'steam', 'atomic-account', 'lite', 61,
+      'telemetry-map/v61/steam/atomic-recovery-null/1643741889301ca91a3652d48c3b201d/lite.json', '99999999-9999-4999-8999-999999999991',
+      base_guard,
+      jsonb_set(base_benchmark_guard, '{gameMode}', 'null'::jsonb),
+      base_rows
+    );
+    raise exception 'FAIL: NULL benchmark bucket accepted (%)', result;
+  exception when sqlstate '22023' then null;
+  end;
+  begin
+    result := public.finalize_telemetry_cache_recovery(
+      'atomic-recovery-null', 'steam', 'atomic-account', 'lite', 61,
+      'telemetry-map/v61/steam/atomic-recovery-null/1643741889301ca91a3652d48c3b201d/lite.json', '99999999-9999-4999-8999-999999999991',
+      base_guard,
+      base_benchmark_guard,
+      jsonb_set(base_rows, '{master,map_name}', 'null'::jsonb)
+    );
+    raise exception 'FAIL: NULL master field accepted (%)', result;
+  exception when sqlstate '22023' then null;
+  end;
+  begin
+    result := public.finalize_telemetry_cache_recovery(
+      'atomic-recovery-null', 'steam', 'atomic-account', 'lite', 61,
+      'telemetry-map/v61/steam/atomic-recovery-null/1643741889301ca91a3652d48c3b201d/lite.json', '99999999-9999-4999-8999-999999999991',
+      base_guard,
+      base_benchmark_guard,
+      jsonb_set(base_rows, '{benchmark,unexpected}', 'true'::jsonb)
+    );
+    raise exception 'FAIL: unknown nested key accepted (%)', result;
+  exception when sqlstate '22023' then null;
+  end;
+  raise notice 'PASS: NULL and unknown nested payloads rejected without mutation';
+end $$;
+
+\echo '--- 시나리오 17c: ordinary finalizer rejects a missing non-null lease before any write ---'
+delete from public.telemetry_map_cache_entries where match_id = 'ordinary-finalize-missing-lease';
+delete from public.processed_match_telemetry where match_id = 'ordinary-finalize-missing-lease';
+delete from public.match_master_telemetry where match_id = 'ordinary-finalize-missing-lease';
+
+do $$
+declare
+  error_code text;
+begin
+  set local role service_role;
+  begin
+    perform public.finalize_telemetry_cache_write(
+      'ordinary-finalize-missing-lease',
+      'Baltic_Main',
+      'squad-fpp',
+      60,
+      'telemetry-map/v60/steam/ordinary-finalize-missing-lease.json',
+      'steam',
+      'ordinary-player',
+      'lite',
+      60,
+      now(),
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      'ordinary-player',
+      'steam',
+      jsonb_build_object(
+        'fullResult', jsonb_build_object(
+          'v', 73,
+          'matchId', 'ordinary-finalize-missing-lease',
+          'player_id', 'ordinary-player',
+          'platform', 'steam',
+          'stats', jsonb_build_object('name', 'OrdinaryPlayer')
+        )
+      ),
+      now()
+    );
+    raise exception 'FAIL: ordinary finalizer accepted a missing non-null lease';
+  exception when sqlstate '40001' then
+    error_code := SQLSTATE;
+  end;
+
+  if error_code <> '40001' then
+    raise exception 'FAIL: ordinary finalizer did not return telemetry-finalize-lease-lost';
+  end if;
+  if exists (select 1 from public.match_master_telemetry where match_id = 'ordinary-finalize-missing-lease')
+     or exists (select 1 from public.processed_match_telemetry where match_id = 'ordinary-finalize-missing-lease')
+     or exists (select 1 from public.telemetry_map_cache_entries where match_id = 'ordinary-finalize-missing-lease') then
+    raise exception 'FAIL: missing lease finalizer mutated master/processed/cache rows';
+  end if;
+  raise notice 'PASS: ordinary finalizer missing lease rejected with zero mutation';
+end $$;
+
+\echo '--- 시나리오 18: recovery finalizer ACL·SECURITY INVOKER ---'
+do $$
+declare
+  signature constant text := 'public.finalize_telemetry_cache_recovery(text,text,text,text,numeric,text,uuid,jsonb,jsonb,jsonb)';
+  public_exec boolean;
+begin
+  if not has_function_privilege('service_role', signature, 'EXECUTE') then
+    raise exception 'FAIL: service_role finalizer EXECUTE 권한 누락';
+  end if;
+  if has_function_privilege('anon', signature, 'EXECUTE') then
+    raise exception 'FAIL: anon finalizer EXECUTE 권한 잔존';
+  end if;
+  if has_function_privilege('authenticated', signature, 'EXECUTE') then
+    raise exception 'FAIL: authenticated finalizer EXECUTE 권한 잔존';
+  end if;
+  select exists (
+    select 1
+    from aclexplode(p.proacl) acl
+    where p.oid = signature::regprocedure
+      and acl.grantee = 0
+      and acl.privilege_type = 'EXECUTE'
+  ) into public_exec
+  from pg_proc p
+  where p.oid = signature::regprocedure;
+  if coalesce(public_exec, false) then
+    raise exception 'FAIL: PUBLIC finalizer EXECUTE 권한 잔존';
+  end if;
+  if exists (
+    select 1 from pg_proc p
+    where p.oid = signature::regprocedure and p.prosecdef
+  ) then
+    raise exception 'FAIL: finalizer가 SECURITY DEFINER임';
+  end if;
+  raise notice 'PASS: finalizer ACL 4-way + SECURITY INVOKER';
+end $$;
+
 \echo '=== 전체 시나리오 통과 ==='
