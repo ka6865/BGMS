@@ -95,7 +95,7 @@ interface DebateData {
     goldenTime?: { early: number; mid1: number; mid2: number; late: number };
     killContrib?: { solo: number; cleanup: number };
     deathPhase?: number;
-    bluezoneWaste?: number;
+    bluezoneWaste?: number | "측정 불가";
     modeDistribution?: {
       ranked: number;
       normal: number;
@@ -194,6 +194,15 @@ export function safeVisualDuration(value: unknown): string | null {
   return number === null || number < 0 ? "측정 불가" : `${number.toFixed(2)}s`;
 }
 
+function safeVisualMetric(value: unknown, min = 0, max = Number.MAX_SAFE_INTEGER): number | "측정 불가" | null {
+  if (value === "측정 불가") return value;
+  return finiteVisualNumber(value, min, max);
+}
+
+export function formatBluezoneWaste(value: number | "측정 불가" | null | undefined): string {
+  return value === "측정 불가" ? value : `${Math.floor(value ?? 0)} HP`;
+}
+
 export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const source = value as Record<string, unknown>;
@@ -221,7 +230,8 @@ export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | 
     if (rate !== null) normalized[key] = rate;
   });
   copyNumber("deathPhase", 0, 100);
-  copyNumber("bluezoneWaste", 0);
+  const bluezoneWaste = safeVisualMetric(source.bluezoneWaste, 0);
+  if (bluezoneWaste !== null) normalized.bluezoneWaste = bluezoneWaste;
 
   const tierBreakdown = source.tierBreakdown;
   if (tierBreakdown && typeof tierBreakdown === "object" && !Array.isArray(tierBreakdown)) {
@@ -1600,7 +1610,7 @@ export const RecentAISummary = ({
               </div>
               <div className="group relative px-4 py-2 bg-red-500/20 border border-red-500/30 rounded-2xl text-[12px] text-red-400 font-black flex items-center gap-3 shadow-lg shadow-red-500/10 cursor-help">
                 <div className="w-2 h-2 bg-red-500 rounded-full animate-ping" />
-                자기장 누적 피해: {Math.floor(debateData?.visuals?.bluezoneWaste || 0)} HP
+                자기장 누적 피해: {formatBluezoneWaste(debateData?.visuals?.bluezoneWaste)}
                 <div className="w-3 h-3 rounded-full bg-red-500/30 flex items-center justify-center text-[8px] text-red-400 border border-red-500/40">?</div>
 
                 {/* Tooltip Content */}

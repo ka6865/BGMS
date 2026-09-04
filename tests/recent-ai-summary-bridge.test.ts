@@ -40,6 +40,7 @@ vi.mock("@/components/common/InlineIconLabel", () => ({ InlineIconLabel: ({ chil
 import {
   RecentAISummary,
   finiteVisualNumber,
+  formatBluezoneWaste,
   normalizeRouteOwnedVisuals,
   safeVisualDuration,
   safeVisualRate,
@@ -115,6 +116,39 @@ describe("RecentAISummary callback bridge", () => {
     })).toMatchObject({
       trends: { dmgTrend: -5, winTrend: -12.5 },
     });
+  });
+
+  it("bluezone unavailable marker survives normalization and display without turning into 0 HP", async () => {
+    expect(normalizeRouteOwnedVisuals({ bluezoneWaste: "측정 불가" })).toMatchObject({
+      bluezoneWaste: "측정 불가",
+    });
+    expect(normalizeRouteOwnedVisuals({ bluezoneWaste: 0 })).toMatchObject({ bluezoneWaste: 0 });
+    expect(normalizeRouteOwnedVisuals({ bluezoneWaste: "not-a-number" })?.bluezoneWaste).toBeUndefined();
+    expect(normalizeRouteOwnedVisuals({ bluezoneWaste: Number.NaN })?.bluezoneWaste).toBeUndefined();
+    expect(formatBluezoneWaste(0)).toBe("0 HP");
+    expect(formatBluezoneWaste("측정 불가")).toBe("측정 불가");
+
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      {
+        type: "visuals",
+        data: {
+          overallTier: "A",
+          bluezoneWaste: "측정 불가",
+          goldenTime: { early: 0, mid1: 0, mid2: 0, late: 0 },
+        },
+      },
+      { type: "final", data: JSON.stringify(aiReady) },
+      { type: "done", valid: true },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, { ...baseProps, onSummaryChange: vi.fn() }));
+
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await waitFor(() => expect(screen.getByText(/fixture verdict/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+
+    expect(screen.getByText(/자기장 누적 피해: 측정 불가/)).toBeInTheDocument();
+    expect(screen.queryByText(/자기장 누적 피해: 0 HP/)).not.toBeInTheDocument();
   });
 
   it("mount/rerender만으로 AI를 요청하지 않고 platform+nickname+IDs identity 변경에 null을 배출한다", async () => {
