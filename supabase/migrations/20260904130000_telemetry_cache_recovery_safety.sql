@@ -365,6 +365,13 @@ begin
   then
     raise exception 'telemetry-recovery-finalize-processed-guard-invalid' using errcode = '22023';
   end if;
+  -- The processed row key is a PUBG account id, while player_id in the
+  -- processed payload/guard is the normalized nickname.  Bind the scalar
+  -- account argument to the guard's account evidence before taking locks or
+  -- entering any mutation path; never compare it with the nickname.
+  if not (v_guard_account_id is not distinct from p_player_id) then
+    return jsonb_build_object('ok', false, 'code', 'processed_guard_mismatch');
+  end if;
 
   -- Benchmark guard also has an explicit fixed allow-list. A null marker is a
   -- meaningful legacy value, hence comparisons below use IS NOT DISTINCT FROM.
@@ -428,6 +435,11 @@ begin
       and (v_benchmark_filter_version < 0 or v_benchmark_filter_version > 8))
   then
     raise exception 'telemetry-recovery-finalize-benchmark-guard-invalid' using errcode = '22023';
+  end if;
+  -- Benchmark player_id is the normalized nickname.  Keep this invariant
+  -- separate from the processed account-id check above.
+  if not (v_benchmark_player_id is not distinct from v_guard_player_id) then
+    return jsonb_build_object('ok', false, 'code', 'benchmark_guard_mismatch');
   end if;
 
   -- The identity/marker fields above are not enough for a compare-and-swap:
