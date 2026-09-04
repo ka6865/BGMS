@@ -2126,7 +2126,7 @@ async function reanalyzeAndSave(
       rows: {
         master: {
           match_id: matchId,
-          map_name: result.mapName || matchAttr.mapName || matchAttr.mapId || "unknown",
+          map_name: matchAttr.mapName || matchAttr.mapId || "unknown",
           game_mode: matchAttr.gameMode || "unknown",
           telemetry_version: TELEMETRY_VERSION,
           storage_path: reservedRow.storage_path,

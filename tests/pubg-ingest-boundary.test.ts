@@ -399,6 +399,7 @@ function mockRecoveryMatchResponse(
     telemetryBody?: unknown;
     assetRelationshipId?: string | null;
     includedAssetId?: string;
+    matchAttributes?: Record<string, unknown>;
   } = {},
 ) {
   const telemetryUrl = options.telemetryUrl
@@ -415,7 +416,10 @@ function mockRecoveryMatchResponse(
   const assetRelationshipId = options.assetRelationshipId === undefined
     ? includedAssetId
     : options.assetRelationshipId;
-  const matchData: Record<string, unknown> = { id: MATCH_ID, attributes: matchAttr };
+  const matchData: Record<string, unknown> = {
+    id: MATCH_ID,
+    attributes: options.matchAttributes ?? matchAttr,
+  };
   const included = [
     participant,
     roster,
@@ -2019,6 +2023,42 @@ describe("PUBG match query boundary", () => {
     ];
     expect(uploadCall).toBeLessThan(finalizeCall);
     expect((await response.json()).v).toBe(RESULT_VERSION);
+  });
+
+  it("recovery master row keeps the canonical upstream map id when the result uses a localized name", async () => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+          stats: { ...analysisResult.stats, playerId: PLAYER_ID },
+        } },
+      },
+      error: null,
+    });
+    mockEngineRun.mockReturnValueOnce({ ...analysisResult, mapName: "태이고" });
+    mockRecoveryMatchResponse(validRecoveryTelemetry(), {
+      matchAttributes: { ...matchAttr, mapName: "Tiger_Main", mapId: "taego" },
+    });
+
+    const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
+    const finalizeCall = (mockRpc.mock.calls as unknown as Array<[string, any]>).find(
+      ([name]) => name === "finalize_telemetry_cache_recovery",
+    );
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).mapName).toBe("태이고");
+    expect(finalizeCall?.[1]?.p_rows?.master).toMatchObject({
+      map_name: "Tiger_Main",
+    });
   });
 
   it("recovery finalization failure leaves the uploaded object and lease for reconciliation", async () => {
