@@ -12,7 +12,8 @@
  *   pending_markers 2건
  *
  * 분석 캐시(match_stats_raw, processed_match_telemetry 등)는 PUBG API 로
- * 재생성 가능하므로 대상이 아닙니다. 용량이 크고 백업 가치가 낮습니다.
+ * 재생성 가능하므로 대상이 아닙니다. 다만 global_benchmarks 는 복구 기준
+ * 데이터이므로 별도로 보호합니다.
  *
  * 저장 위치는 R2 의 backups/ 경로이고 gzip 압축됩니다. R2 정리 작업이
  * 이 경로를 지우지 못하도록 r2DeletionGuard 가 보호합니다.
@@ -37,6 +38,7 @@ export const BACKUP_TABLES = [
   "post_likes",
   "map_settings",
   "reports",
+  "global_benchmarks",
 ] as const;
 
 /** Supabase 는 한 번에 1000행까지 반환하므로 범위로 나눠 읽습니다. */

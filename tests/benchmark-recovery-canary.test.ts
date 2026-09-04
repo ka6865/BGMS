@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   BENCHMARK_RECOVERY_DEFAULT_BASE_URL,
   benchmarkRecoveryConfirmationToken,
@@ -15,6 +15,11 @@ import type { BenchmarkRecoveryManifest } from "../scripts/plan_benchmark_recove
 import { TELEMETRY_VERSION } from "../lib/pubg-analysis/constants";
 
 const GENERATED_AT = "2026-09-02T00:00:00.000Z";
+const FIXED_NOW = new Date(GENERATED_AT);
+
+beforeEach(() => {
+  vi.useFakeTimers({ now: FIXED_NOW });
+});
 
 function manifestFixture(): BenchmarkRecoveryManifest {
   const canary = Array.from({ length: 5 }, (_, index) => ({
@@ -214,6 +219,7 @@ async function fixtureR2PostconditionVerifier(
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllEnvs();
   fixtureR2Objects.clear();
   fixtureR2Registry.clear();
@@ -265,6 +271,14 @@ function applyArgs(manifest: BenchmarkRecoveryManifest, overrides: Partial<Bench
 }
 
 describe("benchmark recovery canary executor", () => {
+  it("uses an explicit clock and a recognizable deterministic recovery token", () => {
+    const manifest = manifestFixture();
+    const token = benchmarkRecoveryConfirmationToken(manifest, { now: FIXED_NOW });
+
+    expect(token).toMatch(/^RECOVER-/);
+    expect(token).toBe(benchmarkRecoveryConfirmationToken(manifest, { now: FIXED_NOW }));
+  });
+
   it("defaults to preflight and makes zero route calls", async () => {
     const manifest = manifestFixture();
     const fetchRoute = vi.fn();

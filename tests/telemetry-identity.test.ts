@@ -120,4 +120,17 @@ describe("telemetry identity", () => {
     expect(sql.indexOf("insert into public.match_master_telemetry"))
       .toBeLessThan(sql.indexOf("insert into public.processed_match_telemetry"));
   });
+
+  it("recovery claim migration은 기존 ready/pending row를 원자적으로 보존한다", () => {
+    const sql = fs.readFileSync(
+      path.resolve("supabase/migrations/20260902171741_telemetry_cache_recovery_claim.sql"),
+      "utf8",
+    );
+    expect(sql).toContain("claim_telemetry_cache_recovery_write");
+    expect(sql).toMatch(/on conflict\s*\(match_id, platform, player_id, mode, telemetry_version\)\s*do nothing/i);
+    expect(sql).toMatch(/security invoker/i);
+    expect(sql).toMatch(/revoke all on function public\.claim_telemetry_cache_recovery_write[\s\S]*from public, anon, authenticated/i);
+    expect(sql).toMatch(/grant execute on function public\.claim_telemetry_cache_recovery_write[\s\S]*to service_role/i);
+    expect(sql).toContain("p_mode <> 'lite'");
+  });
 });

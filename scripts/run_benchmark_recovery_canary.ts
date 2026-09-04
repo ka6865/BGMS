@@ -441,8 +441,11 @@ export function validateBenchmarkRecoveryManifest(value: unknown, options: Manif
   };
 }
 
-export function benchmarkRecoveryConfirmationToken(manifest: BenchmarkRecoveryManifest): string {
-  const validated = validateBenchmarkRecoveryManifest(manifest);
+export function benchmarkRecoveryConfirmationToken(
+  manifest: BenchmarkRecoveryManifest,
+  options: { now?: Date } = {},
+): string {
+  const validated = validateBenchmarkRecoveryManifest(manifest, options);
   const identities = [...validated.canary]
     .sort((left, right) => identityKey(left).localeCompare(identityKey(right)))
     .map(({ matchId, playerId, platform, bucket, playedAt }) => ({
@@ -476,7 +479,7 @@ export function benchmarkRecoveryConfirmationToken(manifest: BenchmarkRecoveryMa
     identities,
     readEvidence,
   });
-  return createHash("sha256").update(material).digest("hex");
+  return `RECOVER-${createHash("sha256").update(material).digest("hex")}`;
 }
 
 function valueAfter(args: string[], name: string): string | undefined {
@@ -925,7 +928,7 @@ export async function runBenchmarkRecoveryCanary(
   const rawManifest = dependencies.manifest ?? JSON.parse(await readFile(path.resolve(process.cwd(), args.manifest), "utf8"));
   const runNow = dependencies.now ? dependencies.now() : Date.now();
   const { manifest, canary, readEvidence, bucket, platform } = validateBenchmarkRecoveryManifest(rawManifest, { now: runNow });
-  const token = benchmarkRecoveryConfirmationToken(manifest);
+  const token = benchmarkRecoveryConfirmationToken(manifest, { now: new Date(runNow) });
   const generatedAt = new Date(runNow).toISOString();
   const reportPath = tmpPath(args.report, "report");
   const writeLocal = dependencies.writeLocal || defaultWriteLocal;

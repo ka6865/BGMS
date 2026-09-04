@@ -532,4 +532,32 @@ begin
   raise notice 'PASS: weapon RPC returns only current markers';
 end $$;
 
+\echo '--- 시나리오 15: recovery claim은 기존 lease를 보존한다 ---'
+do $$
+declare first_claim boolean; duplicate_claim boolean;
+begin
+  set local role service_role;
+  first_claim := public.claim_telemetry_cache_recovery_write(
+    'recovery-match', 'steam', 'recovery-player', 'lite', 61,
+    'telemetry-map/v61/steam/recovery-match/recovery-player.json',
+    now() + interval '10 minutes',
+    '99999999-9999-4999-8999-999999999999', now()
+  );
+  duplicate_claim := public.claim_telemetry_cache_recovery_write(
+    'recovery-match', 'steam', 'recovery-player', 'lite', 61,
+    'telemetry-map/v61/steam/recovery-match/recovery-player-new.json',
+    now() + interval '10 minutes',
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', now()
+  );
+  if not first_claim then raise exception 'FAIL: 최초 recovery claim 실패'; end if;
+  if duplicate_claim then raise exception 'FAIL: 기존 recovery lease가 덮어써짐'; end if;
+  if (select storage_path from public.telemetry_map_cache_entries
+      where match_id = 'recovery-match' and platform = 'steam'
+        and player_id = 'recovery-player' and mode = 'lite' and telemetry_version = 61)
+      <> 'telemetry-map/v61/steam/recovery-match/recovery-player.json' then
+    raise exception 'FAIL: 기존 recovery lease 본문이 변경됨';
+  end if;
+  raise notice 'PASS: recovery claim duplicate 보존';
+end $$;
+
 \echo '=== 전체 시나리오 통과 ==='

@@ -202,6 +202,7 @@ describe("telemetry cleanup registry", () => {
     expect(source).not.toMatch(/process\.exit\(/);
     expect(source).not.toContain("deleteMultipleFromR2");
     expect(source).not.toContain("listR2Files");
+    expect(source).not.toMatch(/\.from\(["']global_benchmarks["']\).*\.(delete|upsert)\(/s);
     expect(source).toContain("p_now: now.toISOString()");
   });
 });
