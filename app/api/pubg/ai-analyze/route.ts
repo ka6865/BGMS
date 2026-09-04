@@ -170,6 +170,7 @@ export async function POST(request: Request) {
       minResultVersion: RESULT_VERSION,
       requirePopulationEvidence: true,
       requireExactResultVersion: true,
+      requirePromptSafeStats: true,
     });
     if (!canonicalFullResult) {
       return NextResponse.json({

@@ -801,6 +801,52 @@ describe("AI cache route stabilization", () => {
   });
 
   it.each([
+    ["NaN kills", { kills: Number.NaN }],
+    ["undefined damage", { damageDealt: undefined, processedDamageDealt: undefined }],
+  ])("ai-analyze는 %s canonical base stats를 Gemini prompt에 전달하지 않는다", async (_label, malformedStats) => {
+    const matchCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({
+      data: createCanonicalAnalyzeRow("match-malformed-base-stats", {
+        stats: {
+          name: "Player_A",
+          kills: 2,
+          assists: 1,
+          DBNOs: 1,
+          damageDealt: 240,
+          processedDamageDealt: 240,
+          winPlace: 3,
+          timeSurvived: 900,
+          ...malformedStats,
+        },
+      }),
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      match_ai_coaching_cache: matchCache,
+      processed_match_telemetry: telemetry,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+    mockSummaryGeminiRawText("should not receive malformed base stats", (prompt) => {
+      expect(prompt).not.toMatch(/NaN|undefined/);
+    });
+
+    const response = await aiAnalyzePOST(createRequest({
+      matchData: { matchId: "match-malformed-base-stats" },
+      nickname: "Player_A",
+      platform: "kakao",
+      coachingStyle: "spicy",
+    }));
+
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      errorCode: "PUBG_AI_CANONICAL_NOT_READY",
+      retryable: true,
+    });
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    expect(matchCache.upsert).not.toHaveBeenCalled();
+  });
+
+  it.each([
     ["slash", "bad/id"],
     ["space", "bad id"],
     ["too long", "a".repeat(161)],

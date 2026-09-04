@@ -11,6 +11,8 @@ export type CanonicalMatchLookup = {
   requirePopulationEvidence?: boolean;
   /** The current AI contract is exact v73, not merely a future-compatible minimum. */
   requireExactResultVersion?: boolean;
+  /** AI prompt callers require finite, non-negative canonical base stats. */
+  requirePromptSafeStats?: boolean;
 };
 
 type PlainRecord = Record<string, unknown>;
@@ -25,6 +27,23 @@ function normalizedName(value: unknown): string | null {
 
 function normalizedPlatform(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? normalizePlatform(value) : null;
+}
+
+function isFiniteNonNegativeNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function hasPromptSafeStats(stats: PlainRecord): boolean {
+  const winPlace = stats.winPlace;
+  if (!isFiniteNonNegativeNumber(winPlace) || !Number.isInteger(winPlace) || winPlace < 1) return false;
+
+  for (const key of ["kills", "assists", "DBNOs", "timeSurvived"] as const) {
+    if (!isFiniteNonNegativeNumber(stats[key])) return false;
+  }
+
+  // The prompt prefers processedDamageDealt, falling back to the official
+  // damageDealt value only when the processed value is absent/null.
+  return isFiniteNonNegativeNumber(stats.processedDamageDealt ?? stats.damageDealt);
 }
 
 /**
@@ -68,6 +87,7 @@ export function getValidFullResultForMatch(
   if (!isRecord(fullResult.stats) || typeof fullResult.stats.name !== "string" || !fullResult.stats.name.trim()) {
     return null;
   }
+  if (expected.requirePromptSafeStats === true && !hasPromptSafeStats(fullResult.stats)) return null;
   // Preserve the established player/name/platform validator semantics while
   // requiring explicit embedded identity fields for every canonical reader.
   if (!isFullResultForPlayerPlatform(fullResult, expectedPlayerId, expectedPlatform)) return null;
