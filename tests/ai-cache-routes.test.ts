@@ -561,7 +561,7 @@ describe("AI cache route stabilization", () => {
     expect(mockTrackAiFailure).not.toHaveBeenCalled();
   });
 
-  it("ai-analyze는 모델 시도가 timeout되면 504를 반환하고 실패 telemetry/cache를 남기지 않는다", async () => {
+  it("ai-analyze는 전체 route deadline에 도달하면 다음 시도를 중단하고 504를 반환한다", async () => {
     vi.useFakeTimers();
 
     try {
@@ -594,7 +594,7 @@ describe("AI cache route stabilization", () => {
       }
       expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
 
-      await vi.advanceTimersByTimeAsync(25_100);
+      await vi.advanceTimersByTimeAsync(40_100);
       const response = await responsePromise;
 
       expect(requestOptions?.signal).toBeInstanceOf(AbortSignal);
@@ -605,12 +605,125 @@ describe("AI cache route stabilization", () => {
         errorCode: "PUBG_AI_ROUTE_TIMEOUT",
         retryable: true,
       });
+      expect(mockGenerateContentStream).toHaveBeenCalledTimes(2);
       expect(mockGenerateContent).not.toHaveBeenCalled();
       expect(matchCache.upsert).not.toHaveBeenCalled();
       expect(mockTrackAiFailure).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("ai-analyze는 모델 A의 attempt-local AbortError 뒤 모델 B로 계속해 성공한다", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const matchCache = createQueryChain({ data: null, error: null });
+      const telemetry = createQueryChain({
+        data: createCanonicalAnalyzeRow("match-analyze-model-fallback"),
+        error: null,
+      });
+      const supabase = createSupabaseMock({
+        match_ai_coaching_cache: matchCache,
+        processed_match_telemetry: telemetry,
+      });
+      mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+      let modelCall = 0;
+      let firstAttemptSignal: AbortSignal | undefined;
+      let secondAttemptSignal: AbortSignal | undefined;
+      mockGenerateContentStream.mockImplementation((_prompt: string, options?: { signal?: AbortSignal; timeout?: number }) => {
+        modelCall += 1;
+        if (modelCall === 1) {
+          firstAttemptSignal = options?.signal;
+          return new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener("abort", () => {
+              const abortError = new DOMException("The operation was aborted.", "AbortError");
+              reject(abortError);
+            }, { once: true });
+          });
+        }
+
+        secondAttemptSignal = options?.signal;
+        return Promise.resolve({
+          stream: (async function* () {
+            yield { text: () => "model B coaching" };
+          })(),
+          response: Promise.resolve({ usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 20 } }),
+        });
+      });
+
+      const responsePromise = aiAnalyzePOST(createRequest({
+        nickname: "Player_A",
+        platform: "kakao",
+        coachingStyle: "spicy",
+        matchData: { matchId: "match-analyze-model-fallback" },
+      }));
+
+      for (let index = 0; index < 100 && mockGenerateContentStream.mock.calls.length < 1; index += 1) {
+        await Promise.resolve();
+      }
+      expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(25_100);
+      const response = await responsePromise;
+      const body = await response.text();
+
+      expect(firstAttemptSignal?.aborted).toBe(true);
+      expect(secondAttemptSignal?.aborted).toBe(false);
+      expect(mockGenerateContentStream).toHaveBeenCalledTimes(2);
+      expect(response.status).toBe(200);
+      expect(body).toContain("model B coaching");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ai-analyze는 caller abort 뒤 다음 모델을 시작하지 않고 기존 409를 반환한다", async () => {
+    const matchCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({
+      data: createCanonicalAnalyzeRow("match-analyze-caller-abort"),
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      match_ai_coaching_cache: matchCache,
+      processed_match_telemetry: telemetry,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    let providerSignal: AbortSignal | undefined;
+    mockGenerateContentStream.mockImplementation((_prompt: string, options?: { signal?: AbortSignal; timeout?: number }) => {
+      providerSignal = options?.signal;
+      return new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")), { once: true });
+      });
+    });
+
+    const caller = new AbortController();
+    const responsePromise = aiAnalyzePOST(createAbortableRequest({
+      nickname: "Player_A",
+      platform: "kakao",
+      coachingStyle: "spicy",
+      matchData: { matchId: "match-analyze-caller-abort" },
+    }, caller.signal));
+
+    for (let index = 0; index < 100 && mockGenerateContentStream.mock.calls.length < 1; index += 1) {
+      await Promise.resolve();
+    }
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
+
+    caller.abort();
+    const response = await responsePromise;
+
+    expect(providerSignal?.aborted).toBe(true);
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      errorCode: "PUBG_AI_CANONICAL_NOT_READY",
+      retryable: true,
+    });
+    expect(matchCache.upsert).not.toHaveBeenCalled();
   });
 
   it("ai-analyze는 canonical row가 없으면 forged browser matchData를 사용하지 않고 409를 반환한다", async () => {
@@ -841,6 +954,134 @@ describe("AI cache route stabilization", () => {
     );
     const persistenceBuilder = summaryCache.upsert.mock.results[0]?.value;
     expect(persistenceBuilder?.abortSignal).toHaveBeenCalledWith(expect.any(AbortSignal));
+  });
+
+  it("ai-summary는 모델 A의 attempt-local AbortError 뒤 모델 B로 계속해 성공한다", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const summaryCache = createQueryChain({ data: null, error: null });
+      const telemetry = createQueryChain({
+        data: [{
+          match_id: "summary-model-fallback",
+          player_id: "player_a",
+          platform: "kakao",
+          data: { fullResult: createSummaryMatch("summary-model-fallback") },
+        }],
+        error: null,
+      });
+      const supabase = createSupabaseMock({
+        player_ai_summary_cache: summaryCache,
+        processed_match_telemetry: telemetry,
+        global_benchmarks: createQueryChain({ data: [], error: null }),
+        benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      });
+      mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+      const validFinal = createValidSummaryFinal({ finalVerdict: "model B summary" });
+      let modelCall = 0;
+      let firstAttemptSignal: AbortSignal | undefined;
+      let secondAttemptSignal: AbortSignal | undefined;
+      mockGenerateContentStream.mockImplementation((_prompt: string, options?: { signal?: AbortSignal; timeout?: number }) => {
+        modelCall += 1;
+        if (modelCall === 1) {
+          firstAttemptSignal = options?.signal;
+          return new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener("abort", () => {
+              reject(new DOMException("The operation was aborted.", "AbortError"));
+            }, { once: true });
+          });
+        }
+
+        secondAttemptSignal = options?.signal;
+        return Promise.resolve({
+          stream: (async function* () {
+            yield { text: () => JSON.stringify(validFinal) };
+          })(),
+          response: Promise.resolve({ usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 20 } }),
+        });
+      });
+
+      const responsePromise = aiSummaryPOST(createRequest({
+        matchIds: ["summary-model-fallback"],
+        nickname: "Player_A",
+        platform: "kakao",
+        force: true,
+      }));
+
+      for (let index = 0; index < 100 && mockGenerateContentStream.mock.calls.length < 1; index += 1) {
+        await Promise.resolve();
+      }
+      expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(8_100);
+      const response = await responsePromise;
+      const records = parseSummaryNdjson(await response.text());
+
+      expect(firstAttemptSignal?.aborted).toBe(true);
+      expect(secondAttemptSignal?.aborted).toBe(false);
+      expect(mockGenerateContentStream).toHaveBeenCalledTimes(2);
+      expect(response.status).toBe(200);
+      expect(records.map((record) => record.type)).toEqual(["visuals", "final", "done"]);
+      expect(records.find((record) => record.type === "final")?.data).toContain("model B summary");
+      expect(summaryCache.upsert).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ai-summary는 caller abort 뒤 다음 모델을 시작하지 않고 기존 409를 반환한다", async () => {
+    const summaryCache = createQueryChain({ data: null, error: null });
+    const telemetry = createQueryChain({
+      data: [{
+        match_id: "summary-caller-abort",
+        player_id: "player_a",
+        platform: "kakao",
+        data: { fullResult: createSummaryMatch("summary-caller-abort") },
+      }],
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    let providerSignal: AbortSignal | undefined;
+    mockGenerateContentStream.mockImplementation((_prompt: string, options?: { signal?: AbortSignal; timeout?: number }) => {
+      providerSignal = options?.signal;
+      return new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")), { once: true });
+      });
+    });
+
+    const caller = new AbortController();
+    const responsePromise = aiSummaryPOST(createAbortableRequest({
+      matchIds: ["summary-caller-abort"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }, caller.signal));
+
+    for (let index = 0; index < 100 && mockGenerateContentStream.mock.calls.length < 1; index += 1) {
+      await Promise.resolve();
+    }
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
+
+    caller.abort();
+    const response = await responsePromise;
+
+    expect(providerSignal?.aborted).toBe(true);
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      errorCode: "PUBG_AI_CANONICAL_NOT_READY",
+      retryable: true,
+    });
+    expect(summaryCache.upsert).not.toHaveBeenCalled();
   });
 
   it("ai-summary는 최신 유효 10개만 집계하고 그 effective ID set으로 hash를 만든다", async () => {
@@ -2408,7 +2649,7 @@ describe("AI cache route stabilization", () => {
     expect(summaryCache.upsert).not.toHaveBeenCalled();
   });
 
-  it("ai-summary Gemini 시작이 매달리면 SDK signal을 abort하고 다음 모델과 성공 캐시를 만들지 않는다", async () => {
+  it("ai-summary는 전체 generation deadline에 도달하면 진행 중인 모델 시도를 중단하고 504를 반환한다", async () => {
     vi.useFakeTimers();
 
     try {
@@ -2458,7 +2699,7 @@ describe("AI cache route stabilization", () => {
       const responseText = await response.text();
 
       expect(requestOptions?.signal?.aborted).toBe(true);
-      expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
+      expect(mockGenerateContentStream).toHaveBeenCalledTimes(3);
       expect(summaryCache.upsert).not.toHaveBeenCalled();
       expect(response.status).toBe(504);
       expect(responseText).toContain("PUBG_AI_ROUTE_TIMEOUT");
@@ -4745,6 +4986,115 @@ describe("AI cache route stabilization", () => {
     expect(squadCache.eq).toHaveBeenCalledWith("player_id", "player_a");
     expect(squadCache.eq).toHaveBeenCalledWith("platform", "steam");
     expect(squadCache.eq).toHaveBeenCalledWith("prompt_version", AI_CACHE_VERSION);
+  });
+
+  it("ai-squad는 모델 A의 attempt-local AbortError 뒤 모델 B로 계속해 성공한다", async () => {
+    vi.useFakeTimers();
+
+    try {
+      mockGetSquadAnalysisData.mockResolvedValue(canonicalSquadAnalysis);
+      const squadCache = createQueryChain({ data: null, error: null });
+      const supabase = createSupabaseMock({ squad_ai_coaching_cache: squadCache });
+      mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+      const resultJson = {
+        squadGrade: "A",
+        summary: "model B squad summary",
+        strength: "model B strength",
+        weakness: "model B weakness",
+        coaching: "model B coaching",
+        memberFeedbacks: [{ name: "Player_A", praise: "좋은 진입", fault: "보완 필요", advice: "팀과 함께 움직이세요" }],
+        overallOpinion: "model B overall",
+      };
+      let modelCall = 0;
+      let firstAttemptSignal: AbortSignal | undefined;
+      let secondAttemptSignal: AbortSignal | undefined;
+      mockGenerateContent.mockImplementation((_payload: unknown, options?: { signal?: AbortSignal; timeout?: number }) => {
+        modelCall += 1;
+        if (modelCall === 1) {
+          firstAttemptSignal = options?.signal;
+          return new Promise((_resolve, reject) => {
+            options?.signal?.addEventListener("abort", () => {
+              reject(new DOMException("The operation was aborted.", "AbortError"));
+            }, { once: true });
+          });
+        }
+
+        secondAttemptSignal = options?.signal;
+        return Promise.resolve({
+          response: {
+            text: () => JSON.stringify(resultJson),
+            usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 20 },
+          },
+        });
+      });
+
+      const responsePromise = aiSquadPOST(createRequest({
+        groupKey: "alpha,beta",
+        nickname: "Player_A",
+        platform: "steam",
+        coachingStyle: "mild",
+      }));
+
+      for (let index = 0; index < 100 && mockGenerateContent.mock.calls.length < 1; index += 1) {
+        await Promise.resolve();
+      }
+      expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(8_100);
+      const response = await responsePromise;
+      const json = await response.json();
+
+      expect(firstAttemptSignal?.aborted).toBe(true);
+      expect(secondAttemptSignal?.aborted).toBe(false);
+      expect(mockGenerateContent).toHaveBeenCalledTimes(2);
+      expect(response.status).toBe(200);
+      expect(json).toMatchObject({ squadGrade: "A", summary: "model B squad summary" });
+      expect(squadCache.upsert).toHaveBeenCalledTimes(1);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ai-squad는 caller abort 뒤 다음 모델을 시작하지 않고 기존 503를 반환한다", async () => {
+    mockGetSquadAnalysisData.mockResolvedValue(canonicalSquadAnalysis);
+    const squadCache = createQueryChain({ data: null, error: null });
+    const supabase = createSupabaseMock({ squad_ai_coaching_cache: squadCache });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    let providerSignal: AbortSignal | undefined;
+    mockGenerateContent.mockImplementation((_payload: unknown, options?: { signal?: AbortSignal; timeout?: number }) => {
+      providerSignal = options?.signal;
+      return new Promise((_resolve, reject) => {
+        options?.signal?.addEventListener("abort", () => reject(new DOMException("The operation was aborted.", "AbortError")), { once: true });
+      });
+    });
+
+    const caller = new AbortController();
+    const responsePromise = aiSquadPOST(createAbortableRequest({
+      groupKey: "alpha,beta",
+      nickname: "Player_A",
+      platform: "steam",
+      coachingStyle: "mild",
+    }, caller.signal));
+
+    for (let index = 0; index < 100 && mockGenerateContent.mock.calls.length < 1; index += 1) {
+      await Promise.resolve();
+    }
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+
+    caller.abort();
+    const response = await responsePromise;
+
+    expect(providerSignal?.aborted).toBe(true);
+    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({
+      errorCode: "PUBG_AI_SQUAD_ABORTED",
+      retryable: true,
+    });
+    expect(squadCache.upsert).not.toHaveBeenCalled();
   });
 
   it("ai-squad는 캐시된 스쿼드 코칭 결과를 순화해서 반환한다", async () => {

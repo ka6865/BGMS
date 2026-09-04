@@ -234,21 +234,22 @@ export async function POST(request: Request) {
     let fallbackText = null;
     let selectedModelName = "";
     let nonStreamRes: any = null;
-    let modelTimedOut = false;
+    let modelTimeoutObserved = false;
+    const overallSignal = routeSignal.signal;
 
     for (const modelName of modelsToTry) {
-      if (isRouteAborted()) break;
+      if (overallSignal.aborted || request.signal.aborted) break;
       const modelTimeoutController = new AbortController();
       let modelAttemptTimedOut = false;
       const modelTimeoutTimer = setTimeout(
         () => {
           modelAttemptTimedOut = true;
-          modelTimedOut = true;
+          modelTimeoutObserved = true;
           modelTimeoutController.abort();
         },
         AI_ANALYZE_MODEL_TIMEOUT_MS,
       );
-      const modelSignal = composeAbortSignals([routeSignal.signal, modelTimeoutController.signal]);
+      const modelSignal = composeAbortSignals([overallSignal, modelTimeoutController.signal]);
       let preserveModelSignal = false;
       try {
         const model = genAI.getGenerativeModel({ model: modelName, safetySettings });
@@ -257,6 +258,8 @@ export async function POST(request: Request) {
             signal: modelSignal.signal,
             timeout: AI_ANALYZE_MODEL_TIMEOUT_MS,
           }), modelSignal.signal);
+          if (overallSignal.aborted || request.signal.aborted) break;
+          if (modelAttemptTimedOut) continue;
           if (streamResult) {
             selectedModelName = modelName;
             preserveModelSignal = true;
@@ -264,7 +267,8 @@ export async function POST(request: Request) {
             break;
           }
         } catch (streamErr: any) {
-          if (modelAttemptTimedOut || modelSignal.signal.aborted || isRouteAborted()) break;
+          if (overallSignal.aborted || request.signal.aborted) break;
+          if (modelAttemptTimedOut) throw streamErr;
           console.error(`[AI-ANALYZE] Stream failed for ${modelName}, trying non-stream fallback:`, streamErr.message || streamErr);
           nonStreamRes = await awaitWithAbort(model.generateContent(fullPrompt, {
             signal: modelSignal.signal,
@@ -277,7 +281,11 @@ export async function POST(request: Request) {
           }
         }
       } catch (err: any) { 
-        if (modelAttemptTimedOut || modelSignal.signal.aborted || isRouteAborted()) break;
+        if (overallSignal.aborted || request.signal.aborted) break;
+        if (modelAttemptTimedOut) {
+          console.warn(`[AI-ANALYZE] Model ${modelName} timed out; trying next...`);
+          continue;
+        }
         console.error(`[AI-ANALYZE] Model ${modelName} initialization failed:`, err.message || err);
         continue; 
       } finally {
@@ -286,7 +294,7 @@ export async function POST(request: Request) {
       }
     }
 
-    if (modelTimedOut && !request.signal.aborted) {
+    if (modelTimeoutObserved && !streamResult && !fallbackText && !request.signal.aborted && !overallSignal.aborted) {
       return NextResponse.json({
         error: "AI analysis request timed out",
         errorCode: "PUBG_AI_ROUTE_TIMEOUT",

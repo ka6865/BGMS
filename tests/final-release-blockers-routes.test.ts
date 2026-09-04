@@ -217,7 +217,7 @@ describe("AI squad release blockers", () => {
     expect(mockGenerateContent).not.toHaveBeenCalled();
   });
 
-  it("aborts a hanging provider and never starts a fallback model or writes cache", async () => {
+  it("stops fallback attempts at the overall deadline and writes no cache", async () => {
     vi.useFakeTimers();
     const { supabase, cache } = configuredSupabase();
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
@@ -232,13 +232,13 @@ describe("AI squad release blockers", () => {
     const responsePromise = aiSquadPOST(request({ groupKey: "Beta", nickname: "Player_A", platform: "steam" }));
     for (let index = 0; index < 50 && mockGenerateContent.mock.calls.length < 1; index += 1) await Promise.resolve();
     expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(8_100);
+    await vi.advanceTimersByTimeAsync(22_100);
     const response = await responsePromise;
 
     expect(providerSignal?.aborted).toBe(true);
     expect(response.status).toBe(504);
-    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-    expect(mockGetGenerativeModel).toHaveBeenCalledTimes(1);
+    expect(mockGenerateContent).toHaveBeenCalledTimes(3);
+    expect(mockGetGenerativeModel).toHaveBeenCalledTimes(3);
     expect(cache.upsert).not.toHaveBeenCalled();
   });
 

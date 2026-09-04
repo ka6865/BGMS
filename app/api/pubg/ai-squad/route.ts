@@ -246,15 +246,19 @@ export async function POST(request: Request) {
       if (request.signal.aborted) onRequestAbort();
     }
     let timedOut = false;
+    let modelTimeoutObserved = false;
+    const overallSignal = routeGenerationSignal;
     const timeoutTimers = new Set<ReturnType<typeof setTimeout>>();
     try {
       for (const modelName of modelsToTry) {
-        if (requestAborted) break;
+        if (requestAborted || overallSignal.aborted) break;
+        const attemptController = new AbortController();
+        let attemptTimedOut = false;
         try {
           const remainingMs = AI_SQUAD_TOTAL_TIMEOUT_MS - (Date.now() - generationStartedAt);
           if (remainingMs <= 0) break;
 
-          if (requestAborted) break;
+          if (requestAborted || overallSignal.aborted) break;
           const model = genAI.getGenerativeModel({
           model: modelName,
           systemInstruction: systemInstruction,
@@ -290,12 +294,12 @@ export async function POST(request: Request) {
           safetySettings
         });
 
-          const attemptController = new AbortController();
           const abortAttempt = () => attemptController.abort();
           routeGenerationSignal.addEventListener("abort", abortAttempt, { once: true });
           const attemptSignal = attemptController.signal;
           const timer = setTimeout(() => {
-            timedOut = true;
+            attemptTimedOut = true;
+            modelTimeoutObserved = true;
             attemptController.abort();
           }, Math.min(AI_SQUAD_MODEL_TIMEOUT_MS, remainingMs));
           timeoutTimers.add(timer);
@@ -304,6 +308,8 @@ export async function POST(request: Request) {
             response = await awaitWithSignal(model.generateContent({
               contents: [{ role: "user", parts: [{ text: prompt }] }]
             }, { signal: attemptSignal, timeout: Math.min(AI_SQUAD_MODEL_TIMEOUT_MS, remainingMs) }), attemptSignal);
+            if (overallSignal.aborted || request.signal.aborted) break;
+            if (attemptTimedOut) continue;
           } finally {
             clearTimeout(timer);
             timeoutTimers.delete(timer);
@@ -317,10 +323,13 @@ export async function POST(request: Request) {
             break;
           }
         } catch (err: any) {
-          if (requestAborted) break;
-          if (timedOut || routeGenerationSignal.aborted) {
-            timedOut = true;
+          if (requestAborted || overallSignal.aborted || request.signal.aborted) {
+            if (!requestAborted && !request.signal.aborted) timedOut = true;
             break;
+          }
+          if (attemptTimedOut) {
+            console.warn(`[AI-SQUAD] Model ${modelName} timed out; trying next...`);
+            continue;
           }
           console.warn(`[AI-SQUAD] Model ${modelName} failed (${err.message || err}), trying next...`);
         }
@@ -332,7 +341,7 @@ export async function POST(request: Request) {
     }
 
     if (requestAborted) throw new SquadRequestAbortedError();
-    if (timedOut) throw new SquadModelTimeoutError();
+    if (timedOut || (modelTimeoutObserved && !responseText)) throw new SquadModelTimeoutError();
     if (!responseText) {
       throw new Error("All Gemini models failed to respond or timed out.");
     }

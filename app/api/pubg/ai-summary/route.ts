@@ -2061,6 +2061,7 @@ export async function POST(request: Request) {
       routeSignal.signal,
       generationDeadlineController.signal,
     ]);
+    const overallSignal = generationSignal.signal;
     let generationSignalCleaned = false;
     const cleanupGeneration = () => {
       if (generationSignalCleaned) return;
@@ -2071,24 +2072,29 @@ export async function POST(request: Request) {
       selectedModelAttemptSignalCleanup = null;
     };
     let generationTimedOut = false;
+    let modelTimeoutObserved = false;
     for (const modelName of modelsToTry) {
       const remainingGenerationMs = generationDeadlineAt - Date.now();
-      if (remainingGenerationMs <= 0 || generationSignal.signal.aborted) {
+      if (remainingGenerationMs <= 0 || overallSignal.aborted || request.signal.aborted) {
         generationTimedOut = true;
         break;
       }
 
       const modelAttemptController = new AbortController();
       const modelAttemptBudgetMs = Math.min(AI_SUMMARY_MODEL_TIMEOUT_MS, remainingGenerationMs);
+      let modelAttemptTimedOut = false;
       const modelAttemptTimer = setTimeout(
-        () => modelAttemptController.abort(),
+        () => {
+          modelAttemptTimedOut = true;
+          modelTimeoutObserved = true;
+          modelAttemptController.abort();
+        },
         modelAttemptBudgetMs,
       );
       const modelAttemptSignal = composeAbortSignals([
         generationSignal.signal,
         modelAttemptController.signal,
       ]);
-      let modelAttemptTimedOut = false;
       const markModelAttemptTimeout = () => {
         modelAttemptTimedOut = true;
       };
@@ -2106,10 +2112,15 @@ export async function POST(request: Request) {
           signal: modelAttemptSignal.signal,
         }), modelAttemptSignal.signal);
 
-        if (modelAttemptSignal.signal.aborted) {
+        if (overallSignal.aborted || request.signal.aborted) {
           generationTimedOut = true;
           streamResult = null;
           break;
+        }
+        if (modelAttemptTimedOut) {
+          streamResult = null;
+          console.warn(`[AI-SUMMARY] Model ${modelName} timed out; trying next...`);
+          continue;
         }
 
         if (streamResult) {
@@ -2138,7 +2149,18 @@ export async function POST(request: Request) {
           || /timeout|timed out/i.test(errorMessage);
         const providerAborted = err?.name === "AbortError"
           || /request aborted/i.test(errorMessage);
-        if (modelAttemptTimedOut || providerTimedOut || providerAborted || modelAttemptSignal.signal.aborted || generationSignal.signal.aborted) {
+        if (overallSignal.aborted || request.signal.aborted) {
+          generationTimedOut = true;
+          streamResult = null;
+          break;
+        }
+        if (modelAttemptTimedOut) {
+          modelTimeoutObserved = true;
+          streamResult = null;
+          console.warn(`[AI-SUMMARY] Model ${modelName} timed out; trying next...`);
+          continue;
+        }
+        if (providerTimedOut || providerAborted) {
           generationTimedOut = true;
           streamResult = null;
           break;
@@ -2151,7 +2173,7 @@ export async function POST(request: Request) {
       }
     }
 
-    if (generationTimedOut || isRouteAborted()) {
+    if (generationTimedOut || isRouteAborted() || (modelTimeoutObserved && !streamResult)) {
       cleanupGeneration();
       return abortResponse();
     }
