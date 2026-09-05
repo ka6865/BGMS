@@ -145,6 +145,11 @@ describe("AI summary debate stat pairing", () => {
     expect(hasUnsupportedAiSummaryMode("솔로 경기에서는 1:1 승률이 높습니다.", "duo")).toBe(true);
     expect(hasUnsupportedAiSummaryMode("솔로 킬 모드 기준 1:1 승률", "duo")).toBe(true);
     expect(hasUnsupportedAiSummaryMode("솔로 교전력 경기 기준", "duo")).toBe(true);
+    expect(hasUnsupportedAiSummaryMode("솔로 교전력 게임 기준", "duo")).toBe(true);
+    expect(hasUnsupportedAiSummaryMode("솔로 킬 큐 기준", "duo")).toBe(true);
+    expect(hasUnsupportedAiSummaryMode("솔로 킬 매치 기준", "duo")).toBe(true);
+    expect(hasUnsupportedAiSummaryMode("경기당 솔로 킬 2회", "duo")).toBe(false);
+    expect(hasUnsupportedAiSummaryMode("솔로 킬 경기당 2회", "duo")).toBe(false);
   });
 
   it("pairs the debate topic wording for 1:1 decision power with duel evidence", () => {

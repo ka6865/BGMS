@@ -152,9 +152,9 @@ function summaryModeMarkers(value: string): Set<string> {
   // metric phrases before scanning prose for foreign-mode markers so a DUO
   // debate about solo kills is not discarded as mixed-mode evidence.
   const soloMetricPatterns = [
-    /(?:순수\s*무력\s*)?솔로\s*킬(?!\s*(?:비중\s*)?(?:모드|경기))(?:\s*비중)?/giu,
-    /솔로\s*비중(?!\s*(?:모드|경기))/giu,
-    /솔로\s*교전력(?!\s*(?:모드|경기))/giu,
+    /(?:순수\s*무력\s*)?솔로\s*킬(?!\s*(?:비중\s*)?(?:모드|경기(?!당)|게임|매치|큐(?:우)?|queue|룰셋))(?:\s*비중)?/giu,
+    /솔로\s*비중(?!\s*(?:모드|경기(?!당)|게임|매치|큐(?:우)?|queue|룰셋))/giu,
+    /솔로\s*교전력(?!\s*(?:모드|경기(?!당)|게임|매치|큐(?:우)?|queue|룰셋))/giu,
   ];
   soloMetricPatterns.forEach((pattern) => {
     remaining = remaining.replace(pattern, " ");
