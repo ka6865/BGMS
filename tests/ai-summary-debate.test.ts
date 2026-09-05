@@ -3,6 +3,7 @@ import {
   matchDebateStatPairs,
   normalizeAiSummaryDebatePayload,
   normalizeAiSummaryFinalJson,
+  sanitizeAiSummaryDebateQuestion,
   sanitizeUnsupportedAiSummaryBenchmarkLanguage,
 } from "../lib/pubg-analysis/aiSummaryDebate";
 
@@ -33,6 +34,62 @@ function createValidPayload(overrides: Record<string, unknown> = {}) {
 }
 
 describe("AI summary debate stat pairing", () => {
+  it("preserves a natural debate question instead of replacing it with a generic notice", () => {
+    const question = "상위권과 비교했을 때 화력은 충분한가?";
+    const duelQuestion = "상위권과 비교했을 때 1:1 결정력은 충분한가?";
+    const canonicalEvidence = {
+      damage_average: {
+        user: { label: "평균 화력", value: "320" },
+        benchmark: { label: "동일 티어 평균 화력", value: "300" },
+      },
+    };
+
+    expect(sanitizeAiSummaryDebateQuestion(
+      question,
+      "화력",
+      canonicalEvidence,
+      { hasBenchmarkEvidence: true },
+    )).toBe(question);
+    expect(sanitizeAiSummaryDebateQuestion(
+      duelQuestion,
+      "1:1 결정력",
+      canonicalEvidence,
+      { hasBenchmarkEvidence: true },
+    )).toBe(duelQuestion);
+  });
+
+  it.each(["화력", "1:1 결정력", "유틸리티 활용"])(
+    "turns a previously cached generic notice into a topic-specific %s debate question",
+    (topic) => {
+      expect(sanitizeAiSummaryDebateQuestion(
+        "검증된 경기 지표를 바탕으로 분석합니다.",
+        topic,
+      )).toBe(`${topic}에 대한 두 코치의 평가는?`);
+    },
+  );
+
+  it("does not restore unsafe numbers or unsupported benchmark questions", () => {
+    const canonicalEvidence = {
+      damage_average: {
+        user: { label: "평균 화력", value: "320" },
+        benchmark: { label: "동일 티어 평균 화력", value: "300" },
+      },
+    };
+
+    expect(sanitizeAiSummaryDebateQuestion(
+      "상위권 비밀 지표 999가 충분한가?",
+      "화력",
+      canonicalEvidence,
+      { hasBenchmarkEvidence: true },
+    )).toBe("화력에 대한 두 코치의 평가는?");
+    expect(sanitizeAiSummaryDebateQuestion(
+      "상위권과 비교했을 때 유틸리티 활용은 충분한가?",
+      "유틸리티 활용",
+      canonicalEvidence,
+      { hasBenchmarkEvidence: false },
+    )).toBe("유틸리티 활용에 대한 두 코치의 평가는?");
+  });
+
   it("does not preserve provider-fabricated numbers in supported benchmark prose", () => {
     const sanitized = sanitizeUnsupportedAiSummaryBenchmarkLanguage(
       "상위권 평균 화력 999 대비 내 평균 화력 999가 좋습니다.",

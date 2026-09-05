@@ -18,6 +18,7 @@ import { sanitizeAiCoachingLanguageText } from "@/lib/pubg-analysis/aiCoachingQu
 import {
   hasUnsupportedAiSummaryMode,
   normalizeAiSummaryDebatePayload,
+  sanitizeAiSummaryDebateQuestion,
   sanitizeUnsupportedAiSummaryBenchmarkLanguage,
   type CanonicalDebateEvidenceMap,
 } from "@/lib/pubg-analysis/aiSummaryDebate";
@@ -2094,7 +2095,28 @@ export async function POST(request: Request) {
                   benchmarkStats: [],
                 };
               }
-              return sanitizeSummaryPayload(issue);
+              const sanitizedIssue = sanitizeSummaryPayload(issue) as Record<string, unknown>;
+              const topic = typeof sanitizedIssue.topic === "string"
+                ? sanitizedIssue.topic
+                : "분석 항목";
+              const question = typeof (issue as Record<string, unknown>).question === "string"
+                ? sanitizeAiCoachingLanguageText((issue as Record<string, unknown>).question as string)
+                : "";
+              const userStats = (issue as Record<string, unknown>).userStats;
+              const benchmarkStats = (issue as Record<string, unknown>).benchmarkStats;
+              sanitizedIssue.question = sanitizeAiSummaryDebateQuestion(
+                question,
+                topic,
+                canonicalEvidence,
+                {
+                  allowedMode: mainModeName,
+                  hasBenchmarkEvidence: Array.isArray(userStats)
+                    && userStats.length > 0
+                    && Array.isArray(benchmarkStats)
+                    && benchmarkStats.length > 0,
+                },
+              );
+              return sanitizedIssue;
             });
         }
         return sanitizedRecord;

@@ -388,6 +388,8 @@ describe("RecentAISummary callback bridge", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /1:1 결정력/ })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: /1:1 결정력/ }));
 
+    expect(screen.getByText(/같은 지표만 비교합니다/)).toBeInTheDocument();
+    expect(screen.getByText(/서로 다른 지표를 섞지 않습니다/)).toBeInTheDocument();
     expect(screen.getByText("79%")).toBeInTheDocument();
     expect(screen.getByText("61%")).toBeInTheDocument();
     expect(screen.queryByText("22회")).not.toBeInTheDocument();

@@ -2044,6 +2044,7 @@ describe("AI cache route stabilization", () => {
     malformedStatFinal.debateIssues[0] = {
       ...malformedStatFinal.debateIssues[0],
       topic: "1:1 결정력",
+      question: "검증된 경기 지표를 바탕으로 분석합니다.",
       userStats: [{ label: "총 투척 횟수", value: "22회" }],
       benchmarkStats: [{ label: "아군 기절 대비 연막 구출률", value: "11%" }],
     };
@@ -2068,6 +2069,7 @@ describe("AI cache route stabilization", () => {
     expect(records.map((record) => record.type)).toEqual(["visuals", "final", "done"]);
     expect(visuals).toMatchObject({ latestMatchCount: 1, bestMatchCount: 1 });
     expect(visuals).not.toHaveProperty("marker");
+    expect(finalData.debateIssues[0].question).toBe("1:1 결정력에 대한 두 코치의 평가는?");
     expect(finalData.debateIssues[0].userStats).toEqual([]);
     expect(finalData.debateIssues[0].benchmarkStats).toEqual([]);
     expect(mockGenerateContentStream).not.toHaveBeenCalled();
@@ -2491,6 +2493,7 @@ describe("AI cache route stabilization", () => {
       debateIssues: [
         {
           ...createValidSummaryFinal().debateIssues[0],
+          question: "상위권과 비교했을 때 화력은 충분한가?",
           userStats: [{ label: "평균 화력", value: "999" }],
           benchmarkStats: [{ label: "상위권 평균 화력", value: "999" }],
         },
@@ -2572,9 +2575,14 @@ describe("AI cache route stabilization", () => {
 
     expect(response.status).toBe(200);
     expect(finalData.debateIssues[0]).toMatchObject({
+      question: "상위권과 비교했을 때 화력은 충분한가?",
       userStats: [{ label: "평균 화력", value: "320" }],
       benchmarkStats: [{ label: "동일 티어 평균 화력", value: "300" }],
     });
+    expect(finalData.debateIssues.every((issue: any) => (
+      ["kindOpinion", "spicyOpinion", "reason", "evaluation"]
+        .every((field) => typeof issue[field] === "string" && issue[field].trim().length > 0)
+    ))).toBe(true);
     expect(finalData.debateIssues[1].question).toBe("검증된 경기 지표를 바탕으로 분석합니다.");
     expect(finalData.debateIssues[1].kindOpinion).toBe("검증된 경기 지표를 바탕으로 분석합니다.");
     // Initiative is observed only in the minority DUO benchmark row, so it

@@ -257,6 +257,8 @@ const COMPARISON_BOUNDARY_PATTERN = /(?:대비|비교하면|비교해|vs|보다|
 const USER_COMPARISON_MARKER_PATTERN = /(?:내|나의|유저|사용자|현재(?:\s*기록)?)/iu;
 const BENCHMARK_DIRECTIONAL_PATTERN = /(?:벤치마크|benchmark|동일\s*조건\s*[·ㆍ・.]?\s*동일\s*티어|동일\s*티어|상위권|엘리트)(?:\s*(?:을|를|에|과|와|보다|대비|기준(?:으로)?))?\s*(?:크게|완전히|상당히|훨씬)?\s*(?:압도(?:합니다|했다|한다|해요)?|미달(?:합니다|했다|한다|해요)?|우위(?:입니다|다|에\s*있습니다?|에\s*있다)?|열위(?:입니다|다|에\s*있습니다?|에\s*있다)?|능가(?:합니다|했다|한다|해요)?|앞서(?:갑니다|갑니다|고|며|있습니다?|있다)?|뒤처져?(?:\s*있습니다?|\s*있다)?)/iu;
 const NEUTRAL_BENCHMARK_COMPARISON = "검증된 경기 지표를 바탕으로 분석합니다";
+const NEUTRAL_BENCHMARK_SENTENCE = `${NEUTRAL_BENCHMARK_COMPARISON}.`;
+const DEBATE_QUESTION_END_PATTERN = /(?:[?？]|(?:인가|일까|할까|했나|있는가|어떤가|충분한가)(?:요)?[.!]?)\s*$/u;
 
 function findNumericToken(value: string, offset: number, leading: boolean): { start: number; end: number } | null {
   const pattern = new RegExp(
@@ -366,6 +368,15 @@ function hasUnsafeUnattachedNumber(clause: string): boolean {
     // checking a broad context would let `최근 3판에서 999킬` launder 999.
     const isSafeSampleCount = safeSampleRanges.some((range) => start === range.start && end === range.end);
     return !isSafeSampleCount;
+  });
+}
+
+function hasUnsafeQuestionNumber(question: string): boolean {
+  const safeSampleRanges = safeSampleCountRanges(question);
+  return numericTokenRanges(question).some(({ start, end }) => {
+    // `1:1` is a metric name, not a provider-authored measurement.
+    if (question[start - 1] === ":" || question[end] === ":") return false;
+    return !safeSampleRanges.some((range) => start === range.start && end === range.end);
   });
 }
 
@@ -616,7 +627,52 @@ export function sanitizeUnsupportedAiSummaryBenchmarkLanguage(
   const sanitized = retained.join(" ").replace(/\s{2,}/g, " ").trim();
   // normalizeAiSummaryDebatePayload validates non-empty fields before this
   // guard runs. Keep that shape valid even if every clause was unsafe.
-  return sanitized || "검증된 경기 지표를 바탕으로 분석합니다.";
+  return sanitized || NEUTRAL_BENCHMARK_SENTENCE;
+}
+
+/**
+ * Debate questions are prompts for the two coaches, not factual conclusions.
+ * Preserve a natural, non-numeric question when the issue actually owns a
+ * benchmark pair; the general prose sanitizer is deliberately stricter and
+ * would otherwise replace useful questions such as "상위권과 비교하면
+ * 화력은 충분한가?" with the same generic notice on every card.
+ *
+ * Questions containing unsafe numbers, another game mode, or a benchmark
+ * comparison without issue-level evidence fall back to a topic-specific
+ * question. This also repairs already-cached generic notices without trusting
+ * any provider-authored measurement.
+ */
+export function sanitizeAiSummaryDebateQuestion(
+  value: string,
+  topic: string,
+  canonicalEvidence: CanonicalDebateEvidenceMap = {},
+  options: { allowedMode?: string; hasBenchmarkEvidence?: boolean } = {},
+): string {
+  const normalizedTopic = topic.trim() || "분석 항목";
+  const fallback = `${normalizedTopic}에 대한 두 코치의 평가는?`;
+  const question = value.trim();
+  if (!question) return fallback;
+
+  const sanitized = sanitizeUnsupportedAiSummaryBenchmarkLanguage(
+    question,
+    canonicalEvidence,
+    { allowedMode: options.allowedMode },
+  );
+  if (sanitized !== NEUTRAL_BENCHMARK_SENTENCE) return sanitized;
+
+  if (!DEBATE_QUESTION_END_PATTERN.test(question)) return fallback;
+  if (hasUnsafeQuestionNumber(question)) return fallback;
+  if (options.allowedMode && hasUnsupportedAiSummaryMode(question, options.allowedMode)) return fallback;
+
+  const hasBenchmarkLanguage = BENCHMARK_LANGUAGE_PATTERN.test(question);
+  if (hasBenchmarkLanguage && options.hasBenchmarkEvidence !== true) return fallback;
+
+  const supportedMetricKeys = new Set(Object.keys(canonicalEvidence));
+  const hasUnsupportedMetric = metricKeysInText(question)
+    .some((key) => !supportedMetricKeys.has(key));
+  if (hasUnsupportedMetric) return fallback;
+
+  return question;
 }
 
 function parseMeasurement(value: string): Measurement | null {
