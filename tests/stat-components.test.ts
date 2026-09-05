@@ -26,8 +26,8 @@ describe("server-owned stat components", () => {
     expect(screen.queryByText("협력")).not.toBeInTheDocument();
     expect(screen.queryByText("성장")).not.toBeInTheDocument();
     expect(screen.queryByText("75")).not.toBeInTheDocument();
-    expect(screen.getByText(/점수 상위 4판 전술 플레이스타일/)).toBeInTheDocument();
-    expect(screen.getByText(/점수 상위 4판.*BGMS 자체 산정 · PUBG 공식 평점 아님/)).toBeInTheDocument();
+    expect(screen.getByText("점수 상위 4판 전술 플레이스타일")).toBeInTheDocument();
+    expect(screen.queryByText(/PUBG 공식 평점|BGMS 자체 산정/)).not.toBeInTheDocument();
   });
 
   it("SpiderChart finite-normalizes malformed server-owned axes", () => {
@@ -51,6 +51,16 @@ describe("server-owned stat components", () => {
         teammateCount: 2,
         benchmarkIsolationIndex: 0,
         benchmarkMinDist: 0,
+        benchmarkScope: {
+          gameMode: "duo",
+          matchType: "competitive",
+          tier: "B+",
+          sampleCount: 24,
+          metricSampleCounts: {
+            avgIsolationIndex: 24,
+            avgMinDist: 22,
+          },
+        },
       },
     }));
 
@@ -60,8 +70,9 @@ describe("server-owned stat components", () => {
     fireEvent.mouseEnter(screen.getAllByRole("button")[1]);
     expect(screen.getByText("100 - (평균 최근접 아군 거리 / 2.0)")).toBeInTheDocument();
     expect(screen.getByText(/200m/)).toBeInTheDocument();
-    expect(screen.getByText(/평균 고립지수: 0/)).toBeInTheDocument();
-    expect(screen.getByText(/평균 최근접 아군 거리: 0m/)).toBeInTheDocument();
+    expect(screen.getByText("B+ · 듀오 · 경쟁전 평균: 고립지수 0")).toBeInTheDocument();
+    expect(screen.getByText("B+ · 듀오 · 경쟁전 평균: 아군 거리 0m")).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/player-match|해당 지표 n=|competitive/);
     expect(document.body.textContent).not.toContain("undefined");
     expect(screen.queryByText("최근접 아군 거리")).not.toBeInTheDocument();
   });
@@ -82,7 +93,7 @@ describe("server-owned stat components", () => {
     expect(document.body.textContent).not.toMatch(/NaN|Infinity|undefined/);
     expect(screen.getAllByText("측정 불가").length).toBeGreaterThanOrEqual(4);
     expect(screen.queryByText(/평균 고립지수/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/평균 최근접 아군 거리: .*m/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/평균: 아군 거리 .*m/)).not.toBeInTheDocument();
   });
 
   it("IsolationRadar renders missing isolation measurements as unavailable instead of perfect zero fallbacks", () => {

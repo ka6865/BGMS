@@ -17,7 +17,7 @@ import { trackEvent } from "@/lib/analytics";
 import { BgmsIcon, type BgmsIconName } from "@/components/common/BgmsIcon";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { matchDebateStatPairs, normalizeAiSummaryFinalJson, type DebateStat } from "@/lib/pubg-analysis/aiSummaryDebate";
-import { BENCHMARK_PROVENANCE_LABEL, formatBenchmarkProvenance } from "@/lib/pubg-analysis/benchmarkAdapter";
+import { formatBenchmarkDisplayLabel } from "@/lib/pubg-analysis/benchmarkAdapter";
 
 function getAiTierIconName(tier?: string | null): BgmsIconName {
   if (tier === "S") return "award";
@@ -457,35 +457,20 @@ const getRelativeTime = (dateStr: string) => {
 
 const TIER_TOOLTIP_ID = "recent-ai-summary-tier-tooltip";
 
-function benchmarkMetricKey(label: string): string | null {
-  if (/(?:화력|딜량|데미지|대미지)/iu.test(label)) return "avgDamage";
-  if (/(?:주도권|선제 공격)/iu.test(label)) return "avgInitiativeRate";
-  if (/(?:1:1|교전 승률)/iu.test(label)) return "avgDuelWinRate";
-  if (/(?:압박 지수)/iu.test(label)) return "avgPressureIndex";
-  if (/(?:복수|트레이드)/iu.test(label)) return "avgTradeRate";
-  if (/(?:연막 구출|구출률)/iu.test(label)) return "avgSmokeRate";
-  if (/(?:대응 사격|반응 속도)/iu.test(label)) return "avgCounterLatency";
-  if (/(?:백업 속도)/iu.test(label)) return "avgTradeLatency";
-  if (/(?:솔로(?: 킬)? 비중)/iu.test(label)) return "avgSoloKillRate";
-  if (/(?:사망 페이즈)/iu.test(label)) return "avgDeathPhase";
-  return null;
-}
-
 function neutralBenchmarkLabel(
   label: string,
   scope?: BenchmarkScope,
 ): string {
-  const metric = benchmarkMetricKey(label);
-  const benchmarkLabel = formatBenchmarkProvenance(scope?.sampleCount, {
+  const benchmarkLabel = formatBenchmarkDisplayLabel({
     gameMode: scope?.gameMode,
     matchType: scope?.matchType,
     tier: scope?.tier,
-    metricSampleCount: metric ? scope?.metricSampleCounts?.[metric] : undefined,
   });
-  const normalized = label.replace(/상위권|엘리트|benchmark|벤치마크|동일\s*조건\s*[·ㆍ・.]?\s*동일\s*티어|동일\s*티어/gi, benchmarkLabel);
-  return normalized.includes(BENCHMARK_PROVENANCE_LABEL)
-    ? normalized
-    : `${benchmarkLabel}: ${normalized}`;
+  const normalized = label.replace(
+    /(?:상위권|엘리트|benchmark|벤치마크|동일\s*조건\s*[·ㆍ・.]?\s*동일\s*티어|동일\s*티어)(?:\s*평균)?/gi,
+    benchmarkLabel,
+  );
+  return normalized !== label ? normalized : `${benchmarkLabel}: ${normalized}`;
 }
 
 export interface AiSummarySnapshot {
@@ -1161,7 +1146,7 @@ export const RecentAISummary = ({
             <BgmsIcon name="flame" size={40} className="text-indigo-300" />
             <div className="flex flex-col items-center gap-2">
               <span>최근 최대 10경기 AI 끝장 토론 시작</span>
-              <span className="text-xs font-normal opacity-60">최근 유효 {latestMatchRangeLabel}은 전체 지표·지도·추세에, 점수 상위 {bestMatchRangeLabel}은 잠재 티어·{formatBenchmarkProvenance()} 비교에 사용합니다. BGMS 자체 산정 · PUBG 공식 티어/평점 아님</span>
+              <span className="text-xs font-normal opacity-60">최근 유효 {latestMatchRangeLabel}은 전체 흐름에, 잘한 {bestMatchRangeLabel}은 잠재 티어와 비슷한 조건의 평균 비교에 사용합니다.</span>
             </div>
           </>
         )}
@@ -1222,9 +1207,6 @@ export const RecentAISummary = ({
                 <div className="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-white/40 drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
                   {debateData?.visuals?.overallTier || "N/A"}
                 </div>
-                <span className="mt-2 text-[9px] text-white/40 text-center leading-tight whitespace-nowrap">
-                  BGMS 자체 산정 · PUBG 공식 티어/평점 아님
-                </span>
               </div>
             </div>
           </div>
@@ -1489,7 +1471,7 @@ export const RecentAISummary = ({
                             )}
                           </div>
                           <div className="mb-3 text-[10px] text-white/50 leading-relaxed">
-                            최근 유효 {latestMatchRangeLabel}에서 BGMS가 공식 PUBG 매치·텔레메트리 데이터로 계산한 점수 상위 {bestMatchRangeLabel}을 선별한 잠재력 기준입니다. BGMS 자체 산정 · PUBG 공식 티어/평점 아님 (PUBG 공식 티어·평점이 아닙니다.)
+                            최근 유효 {latestMatchRangeLabel} 중 점수가 높은 {bestMatchRangeLabel}을 골라 교전·전술·생존 점수로 계산합니다.
                           </div>
                           <div className="space-y-2.5">
                             <div className="flex justify-between items-center">

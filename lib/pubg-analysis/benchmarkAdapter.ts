@@ -27,6 +27,44 @@ export function formatBenchmarkProvenance(
   return `${BENCHMARK_PROVENANCE_LABEL}${scope ? ` [${scope}]` : ""}; ${sample}${metricSample}`;
 }
 
+const DISPLAY_GAME_MODE_LABELS: Readonly<Record<string, string>> = {
+  solo: "솔로",
+  "solo-fpp": "솔로 FPP",
+  duo: "듀오",
+  "duo-fpp": "듀오 FPP",
+  squad: "스쿼드",
+  "squad-fpp": "스쿼드 FPP",
+};
+
+const DISPLAY_MATCH_TYPE_LABELS: Readonly<Record<string, string>> = {
+  official: "일반전",
+  normal: "일반전",
+  competitive: "경쟁전",
+  ranked: "경쟁전",
+};
+
+/**
+ * 사용자 화면용 비교 기준입니다. 표본 수와 수집 경로 같은 감사 정보는
+ * AI 프롬프트의 `formatBenchmarkProvenance`에만 남기고, 화면에는 읽기 쉬운
+ * 한글 조건만 노출합니다.
+ */
+export function formatBenchmarkDisplayLabel(context?: {
+  gameMode?: unknown;
+  matchType?: unknown;
+  tier?: unknown;
+}): string {
+  const gameMode = String(context?.gameMode ?? "").trim().toLowerCase();
+  const matchType = String(context?.matchType ?? "").trim().toLowerCase();
+  const tier = String(context?.tier ?? "").trim().toUpperCase();
+  const parts = [
+    tier,
+    DISPLAY_GAME_MODE_LABELS[gameMode] || "",
+    DISPLAY_MATCH_TYPE_LABELS[matchType] || "",
+  ].filter(Boolean);
+
+  return parts.length > 0 ? `${parts.join(" · ")} 평균` : "비슷한 조건 평균";
+}
+
 /**
  * benchmark_stats_by_tier 뷰의 snake_case 데이터를
  * AI 프롬프트 및 앱 내 표준인 camelCase로 변환하고 정규화하는 어댑터
