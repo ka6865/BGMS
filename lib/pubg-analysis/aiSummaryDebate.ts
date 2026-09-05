@@ -111,6 +111,20 @@ const METRIC_DEFINITIONS: Array<{
 
 const METRIC_BY_KEY = new Map(METRIC_DEFINITIONS.map((metric) => [metric.key, metric]));
 
+// The UI/prompt names this debate topic `1:1 결정력`, and Gemini can reuse
+// that exact wording in the structured stat arrays. Accept it only while
+// pairing those arrays: treating the short topic label as measured prose
+// would make the benchmark sanitizer erase a safe card title whenever the
+// benchmark itself is unavailable.
+const PAIR_ONLY_METRIC_ALIASES = new Map<string, string>([
+  ["1:1 결정력", "duel_win_rate"],
+  ["평균 1:1 결정력", "duel_win_rate"],
+  ["상위권 1:1 결정력", "duel_win_rate"],
+  ["동일 티어 1:1 결정력", "duel_win_rate"],
+  ["상위권 평균 1:1 결정력", "duel_win_rate"],
+  ["동일 티어 평균 1:1 결정력", "duel_win_rate"],
+]);
+
 const BENCHMARK_LANGUAGE_PATTERN = /(?:동일\s*조건\s*[·ㆍ・.]?\s*동일\s*티어|동일\s*티어|상위권|엘리트|벤치마크|benchmark)/iu;
 const NUMERIC_VALUE_PATTERN = /[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)\s*(?:%|ms|밀리초|s|secs?|초|m|미터|회|횟수)?/iu;
 const NUMERIC_VALUE_SOURCE = "[+-]?(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+)\\s*(?:%|ms|밀리초|s|secs?|초|m|미터|회|횟수)?";
@@ -133,6 +147,18 @@ function summaryModeMarkers(value: string): Set<string> {
   ];
   const markers = new Set<string>();
   let remaining = value;
+  // `solo` is also a telemetry concept (a kill earned without meaningful
+  // teammate damage), not only a PUBG queue mode. Protect the explicit
+  // metric phrases before scanning prose for foreign-mode markers so a DUO
+  // debate about solo kills is not discarded as mixed-mode evidence.
+  const soloMetricPatterns = [
+    /(?:순수\s*무력\s*)?솔로\s*킬(?!\s*(?:비중\s*)?(?:모드|경기(?!당)|게임|매치|큐(?:우)?|queue|룰셋))(?:\s*비중)?/giu,
+    /솔로\s*비중(?!\s*(?:모드|경기(?!당)|게임|매치|큐(?:우)?|queue|룰셋))/giu,
+    /솔로\s*교전력(?!\s*(?:모드|경기(?!당)|게임|매치|큐(?:우)?|queue|룰셋))/giu,
+  ];
+  soloMetricPatterns.forEach((pattern) => {
+    remaining = remaining.replace(pattern, " ");
+  });
   protectedCompoundModes.forEach(({ mode, pattern }) => {
     if (pattern.test(remaining)) markers.add(mode);
     remaining = remaining.replace(pattern, " ");
@@ -219,6 +245,8 @@ function compactLabel(label: string): string {
 
 function metricKey(label: string): string | null {
   const compact = compactLabel(label);
+  const pairOnlyKey = PAIR_ONLY_METRIC_ALIASES.get(compact);
+  if (pairOnlyKey) return pairOnlyKey;
   for (const metric of METRIC_DEFINITIONS) {
     if (metric.aliases.some((alias) => compactLabel(alias) === compact)) return metric.key;
   }

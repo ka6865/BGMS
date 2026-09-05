@@ -15,7 +15,7 @@
 export const RESULT_VERSION = 73.0; // [V73.0] PUBG AI 분석 정확도 감사 기준 결과 버전
 export const TELEMETRY_VERSION = 61.0; // [V61.0] PUBG AI 분석 정확도 감사 기준 telemetry 버전
 export const AI_CACHE_VERSION = "2026-09-02.pubg-ai-accuracy-v3"; // ai-analyze/ai-squad cache contract; v3 requires marked canonical population evidence
-export const AI_SUMMARY_CACHE_VERSION = "2026-09-01.pubg-ai-accuracy-v5"; // human standard BR population boundary + observed benchmark sample gate
+export const AI_SUMMARY_CACHE_VERSION = "2026-09-05.debate-solo-metric-v6"; // distinguish solo-kill telemetry wording from SOLO queue markers
 // Evidence marker for canonical rows written after the human BR population
 // boundary. This is deliberately independent of RESULT/telemetry/cache
 // versions so old v73/R2 rows can fail closed without a broad cache bump.
