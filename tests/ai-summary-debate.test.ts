@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  hasUnsupportedAiSummaryMode,
   matchDebateStatPairs,
   normalizeAiSummaryDebatePayload,
   normalizeAiSummaryFinalJson,
@@ -48,13 +49,19 @@ describe("AI summary debate stat pairing", () => {
       question,
       "화력",
       canonicalEvidence,
-      { hasBenchmarkEvidence: true },
+      {
+        userStats: [canonicalEvidence.damage_average.user],
+        benchmarkStats: [canonicalEvidence.damage_average.benchmark],
+      },
     )).toBe(question);
     expect(sanitizeAiSummaryDebateQuestion(
       duelQuestion,
       "1:1 결정력",
       canonicalEvidence,
-      { hasBenchmarkEvidence: true },
+      {
+        userStats: [canonicalEvidence.damage_average.user],
+        benchmarkStats: [canonicalEvidence.damage_average.benchmark],
+      },
     )).toBe(duelQuestion);
   });
 
@@ -80,14 +87,60 @@ describe("AI summary debate stat pairing", () => {
       "상위권 비밀 지표 999가 충분한가?",
       "화력",
       canonicalEvidence,
-      { hasBenchmarkEvidence: true },
+      {
+        userStats: [canonicalEvidence.damage_average.user],
+        benchmarkStats: [canonicalEvidence.damage_average.benchmark],
+      },
     )).toBe("화력에 대한 두 코치의 평가는?");
     expect(sanitizeAiSummaryDebateQuestion(
       "상위권과 비교했을 때 유틸리티 활용은 충분한가?",
       "유틸리티 활용",
       canonicalEvidence,
-      { hasBenchmarkEvidence: false },
+      { userStats: [], benchmarkStats: [] },
     )).toBe("유틸리티 활용에 대한 두 코치의 평가는?");
+    expect(sanitizeAiSummaryDebateQuestion(
+      "상위권 평균 화력 250과 비교해 충분한가?",
+      "화력",
+      canonicalEvidence,
+      {
+        userStats: [canonicalEvidence.damage_average.user],
+        benchmarkStats: [canonicalEvidence.damage_average.benchmark],
+      },
+    )).toBe("화력에 대한 두 코치의 평가는?");
+  });
+
+  it("rejects every foreign mode marker even when the allowed mode appears first", () => {
+    expect(hasUnsupportedAiSummaryMode("스쿼드와 듀오 비교", "squad")).toBe(true);
+    expect(hasUnsupportedAiSummaryMode("솔로 스쿼드 운영", "solo-squad")).toBe(false);
+    expect(sanitizeAiSummaryDebateQuestion(
+      "스쿼드와 듀오 상위권 비교는 충분한가?",
+      "화력",
+      {},
+      { allowedMode: "squad", userStats: [], benchmarkStats: [] },
+    )).toBe("화력에 대한 두 코치의 평가는?");
+  });
+
+  it("requires benchmark evidence for the same metric as the debate question", () => {
+    const canonicalEvidence = {
+      damage_average: {
+        user: { label: "평균 화력", value: "320" },
+        benchmark: { label: "동일 티어 평균 화력", value: "300" },
+      },
+      duel_win_rate: {
+        user: { label: "1:1 교전 승률", value: "67%" },
+        benchmark: { label: "동일 티어 평균 1:1 교전 승률", value: "61%" },
+      },
+    };
+
+    expect(sanitizeAiSummaryDebateQuestion(
+      "상위권 평균 1:1 교전 승률과 비교하면 충분한가?",
+      "화력",
+      canonicalEvidence,
+      {
+        userStats: [canonicalEvidence.damage_average.user],
+        benchmarkStats: [canonicalEvidence.damage_average.benchmark],
+      },
+    )).toBe("화력에 대한 두 코치의 평가는?");
   });
 
   it("does not preserve provider-fabricated numbers in supported benchmark prose", () => {

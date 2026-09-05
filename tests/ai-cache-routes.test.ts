@@ -2583,7 +2583,8 @@ describe("AI cache route stabilization", () => {
       ["kindOpinion", "spicyOpinion", "reason", "evaluation"]
         .every((field) => typeof issue[field] === "string" && issue[field].trim().length > 0)
     ))).toBe(true);
-    expect(finalData.debateIssues[1].question).toBe("검증된 경기 지표를 바탕으로 분석합니다.");
+    expect(finalData.debateIssues[1].topic).toBe("교전 주도권");
+    expect(finalData.debateIssues[1].question).toBe("교전 주도권에 대한 두 코치의 평가는?");
     expect(finalData.debateIssues[1].kindOpinion).toBe("검증된 경기 지표를 바탕으로 분석합니다.");
     // Initiative is observed only in the minority DUO benchmark row, so it
     // cannot become evidence for the SQUAD main-mode debate.

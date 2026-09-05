@@ -126,13 +126,21 @@ function normalizeSummaryMode(mode: string): string {
   return normalized;
 }
 
-function summaryModeMarker(value: string): string | null {
-  if (/(?:솔로\s*스쿼드|solo[\s_-]*squad)/iu.test(value)) return "solo-squad";
-  if (/(?:솔로\s*듀오|solo[\s_-]*duo)/iu.test(value)) return "solo-duo";
-  if (/(?:스쿼드|squad)/iu.test(value)) return "squad";
-  if (/(?:듀오|duo)/iu.test(value)) return "duo";
-  if (/(?:솔로|solo)/iu.test(value)) return "solo";
-  return null;
+function summaryModeMarkers(value: string): Set<string> {
+  const protectedCompoundModes: Array<{ mode: string; pattern: RegExp }> = [
+    { mode: "solo-squad", pattern: /(?:솔로\s*스쿼드|solo[\s_-]*squad)/giu },
+    { mode: "solo-duo", pattern: /(?:솔로\s*듀오|solo[\s_-]*duo)/giu },
+  ];
+  const markers = new Set<string>();
+  let remaining = value;
+  protectedCompoundModes.forEach(({ mode, pattern }) => {
+    if (pattern.test(remaining)) markers.add(mode);
+    remaining = remaining.replace(pattern, " ");
+  });
+  if (/(?:스쿼드|squad)/iu.test(remaining)) markers.add("squad");
+  if (/(?:듀오|duo)/iu.test(remaining)) markers.add("duo");
+  if (/(?:솔로|solo)/iu.test(remaining)) markers.add("solo");
+  return markers;
 }
 
 /** Return true when any prose field in a payload explicitly names another mode. */
@@ -140,8 +148,8 @@ export function hasUnsupportedAiSummaryMode(value: unknown, allowedMode: string)
   const normalizedAllowedMode = normalizeSummaryMode(allowedMode);
   const visit = (candidate: unknown): boolean => {
     if (typeof candidate === "string") {
-      const marker = summaryModeMarker(candidate);
-      return marker !== null && marker !== normalizedAllowedMode;
+      const markers = summaryModeMarkers(candidate);
+      return Array.from(markers).some((marker) => marker !== normalizedAllowedMode);
     }
     if (Array.isArray(candidate)) return candidate.some(visit);
     if (candidate && typeof candidate === "object") {
@@ -540,8 +548,9 @@ export function sanitizeUnsupportedAiSummaryBenchmarkLanguage(
     // mode marker next to a metric/benchmark claim must not be rewritten with
     // that primary-mode value. Keep standalone mode labels untouched, but
     // drop any measured/comparative minority-mode clause.
-    const explicitMode = summaryModeMarker(clause);
-    if (allowedMode && explicitMode && explicitMode !== allowedMode
+    const hasForeignMode = allowedMode !== null
+      && hasUnsupportedAiSummaryMode(clause, allowedMode);
+    if (hasForeignMode
       && (hasBenchmarkLanguage || hasNumericValue || keys.length > 0)) return;
 
     // Unknown metrics and benchmark claims cannot be grounded by the
@@ -646,12 +655,25 @@ export function sanitizeAiSummaryDebateQuestion(
   value: string,
   topic: string,
   canonicalEvidence: CanonicalDebateEvidenceMap = {},
-  options: { allowedMode?: string; hasBenchmarkEvidence?: boolean } = {},
+  options: { allowedMode?: string; userStats?: unknown; benchmarkStats?: unknown } = {},
 ): string {
   const normalizedTopic = topic.trim() || "분석 항목";
   const fallback = `${normalizedTopic}에 대한 두 코치의 평가는?`;
   const question = value.trim();
   if (!question) return fallback;
+  if (!DEBATE_QUESTION_END_PATTERN.test(question)) return fallback;
+  if (hasUnsafeQuestionNumber(question)) return fallback;
+  if (options.allowedMode && hasUnsupportedAiSummaryMode(question, options.allowedMode)) return fallback;
+
+  const issueMetricKeys = new Set(
+    matchDebateStatPairs(options.userStats, options.benchmarkStats)
+      .map((pair) => metricKey(pair.user.label))
+      .filter((key): key is string => key !== null && canonicalEvidence[key] !== undefined),
+  );
+  const questionMetricKeys = metricKeysInText(question);
+  const hasBenchmarkLanguage = BENCHMARK_LANGUAGE_PATTERN.test(question);
+  if (hasBenchmarkLanguage && issueMetricKeys.size === 0) return fallback;
+  if (questionMetricKeys.some((key) => !issueMetricKeys.has(key))) return fallback;
 
   const sanitized = sanitizeUnsupportedAiSummaryBenchmarkLanguage(
     question,
@@ -659,18 +681,6 @@ export function sanitizeAiSummaryDebateQuestion(
     { allowedMode: options.allowedMode },
   );
   if (sanitized !== NEUTRAL_BENCHMARK_SENTENCE) return sanitized;
-
-  if (!DEBATE_QUESTION_END_PATTERN.test(question)) return fallback;
-  if (hasUnsafeQuestionNumber(question)) return fallback;
-  if (options.allowedMode && hasUnsupportedAiSummaryMode(question, options.allowedMode)) return fallback;
-
-  const hasBenchmarkLanguage = BENCHMARK_LANGUAGE_PATTERN.test(question);
-  if (hasBenchmarkLanguage && options.hasBenchmarkEvidence !== true) return fallback;
-
-  const supportedMetricKeys = new Set(Object.keys(canonicalEvidence));
-  const hasUnsupportedMetric = metricKeysInText(question)
-    .some((key) => !supportedMetricKeys.has(key));
-  if (hasUnsupportedMetric) return fallback;
 
   return question;
 }
