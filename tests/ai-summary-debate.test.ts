@@ -43,6 +43,10 @@ describe("AI summary debate stat pairing", () => {
         user: { label: "평균 화력", value: "320" },
         benchmark: { label: "동일 티어 평균 화력", value: "300" },
       },
+      duel_win_rate: {
+        user: { label: "1:1 교전 승률", value: "67%" },
+        benchmark: { label: "동일 티어 평균 1:1 교전 승률", value: "61%" },
+      },
     };
 
     expect(sanitizeAiSummaryDebateQuestion(
@@ -59,8 +63,8 @@ describe("AI summary debate stat pairing", () => {
       "1:1 결정력",
       canonicalEvidence,
       {
-        userStats: [canonicalEvidence.damage_average.user],
-        benchmarkStats: [canonicalEvidence.damage_average.benchmark],
+        userStats: [canonicalEvidence.duel_win_rate.user],
+        benchmarkStats: [canonicalEvidence.duel_win_rate.benchmark],
       },
     )).toBe(duelQuestion);
   });
