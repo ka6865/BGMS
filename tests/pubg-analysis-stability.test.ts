@@ -12,7 +12,11 @@ import {
   getBenchmarkTierFamily,
   isTrustedBenchmarkAggregate,
 } from "../lib/pubg-analysis/benchmarkLookup";
-import { adaptBenchmark, adaptObservedBenchmark } from "../lib/pubg-analysis/benchmarkAdapter";
+import {
+  adaptBenchmark,
+  adaptObservedBenchmark,
+  formatBenchmarkProvenance,
+} from "../lib/pubg-analysis/benchmarkAdapter";
 import { estimateAverageTierFromRows } from "../lib/pubg-analysis/tierAveraging";
 import { classifyRole } from "../lib/pubg-analysis/roleClassifier";
 
@@ -174,6 +178,18 @@ describe("PUBG analysis identity stabilization", () => {
 });
 
 describe("PUBG benchmark and tier stabilization", () => {
+  it("benchmark provenance에서 플랫폼·맵·수집원 혼합 문구를 노출하지 않는다", () => {
+    const provenance = formatBenchmarkProvenance(24, {
+      gameMode: "duo",
+      matchType: "competitive",
+      tier: "B+",
+      metricSampleCount: 22,
+    });
+
+    expect(provenance).toBe("모드·매치 유형·티어 기준 BGMS 표본 평균 [모드 duo · 매치 유형 competitive · 티어 B+]; 24 player-match 표본; 해당 지표 n=22");
+    expect(provenance).not.toContain("플랫폼·맵·수집원 혼합");
+  });
+
   it.each([
     { code: "PGRST002", status: 503, message: "schema cache unavailable" },
     { code: "PGRST116", status: 406, message: "JSON object requested, multiple (or no) rows returned" },
