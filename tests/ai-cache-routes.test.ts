@@ -2592,6 +2592,81 @@ describe("AI cache route stabilization", () => {
     expect(finalData.debateIssues[1].benchmarkStats).toEqual([]);
   });
 
+  it("ai-summary는 듀오의 솔로 킬 지표를 SOLO 모드로 오인해 1:1 토론을 비우지 않는다", async () => {
+    const providerFinal = createValidSummaryFinal({
+      debateIssues: [
+        createValidSummaryFinal().debateIssues[0],
+        createValidSummaryFinal().debateIssues[1],
+        {
+          ...createValidSummaryFinal().debateIssues[2],
+          topic: "1:1 결정력",
+          question: "1:1 결정력에 대한 두 코치의 평가는?",
+          kindOpinion: "순수 무력 솔로 킬로 교전을 끝내는 강점이 있습니다.",
+          spicyOpinion: "솔로 교전력은 강하지만 팀 연계도 함께 다듬어야 합니다.",
+          reason: "듀오에서 관측한 교전 결과입니다.",
+          evaluation: "1:1 교전 강점을 유지하며 합류 타이밍을 보완하세요.",
+          userStats: [{ label: "1:1 결정력", value: "81%" }],
+          benchmarkStats: [{ label: "동일 티어 평균 1:1 결정력", value: "62%" }],
+        },
+      ],
+    });
+    mockSummaryGeminiRawText(JSON.stringify(providerFinal));
+
+    const tierBenchmarks = createQueryChain({
+      data: {
+        game_mode: "duo",
+        match_type: "competitive",
+        tier: "A+",
+        match_count: 5,
+        filter_version: 8,
+        population_evidence_version: POPULATION_EVIDENCE_VERSION,
+        avg_duel_win_rate: 61,
+        avg_duel_win_rate_count: 5,
+      },
+      error: null,
+    });
+    const telemetry = createQueryChain({
+      data: [{
+        match_id: "duo-solo-kill-wording",
+        player_id: "player_a",
+        platform: "kakao",
+        data: {
+          fullResult: createSummaryMatch("duo-solo-kill-wording", { gameMode: "duo" }),
+        },
+      }],
+      error: null,
+    });
+    const summaryCache = createQueryChain();
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier: tierBenchmarks,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["duo-solo-kill-wording"],
+      nickname: "Player_A",
+      platform: "kakao",
+      force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    const finalData = JSON.parse(records.find((record) => record.type === "final")?.data || "{}");
+    const duelIssue = finalData.debateIssues[2];
+
+    expect(response.status).toBe(200);
+    expect(duelIssue).toMatchObject({
+      topic: "1:1 결정력",
+      question: "1:1 결정력에 대한 두 코치의 평가는?",
+      kindOpinion: "순수 무력 솔로 킬로 교전을 끝내는 강점이 있습니다.",
+      spicyOpinion: "솔로 교전력은 강하지만 팀 연계도 함께 다듬어야 합니다.",
+      userStats: [{ label: "1:1 교전 승률", value: "67%" }],
+      benchmarkStats: [{ label: "동일 티어 평균 1:1 교전 승률", value: "61%" }],
+    });
+    expect(duelIssue.kindOpinion).not.toBe("검증된 경기 지표를 바탕으로 분석합니다.");
+    expect(duelIssue.spicyOpinion).not.toBe("검증된 경기 지표를 바탕으로 분석합니다.");
+  });
+
   it("ai-summary mixed-mode 분석은 모드별 상위 표본과 전체 best5 잠재 티어를 분리한다", async () => {
     let capturedPrompt = "";
     mockSummaryGeminiResponse((prompt) => {

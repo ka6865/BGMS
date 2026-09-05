@@ -124,6 +124,43 @@ describe("AI summary debate stat pairing", () => {
     )).toBe("화력에 대한 두 코치의 평가는?");
   });
 
+  it("does not mistake solo-combat metric wording for a foreign solo mode", () => {
+    const duoIssue = {
+      topic: "1:1 결정력",
+      question: "1:1 결정력에 대한 두 코치의 평가는?",
+      kindOpinion: "순수 무력 솔로 킬로 교전을 끝내는 강점이 있습니다.",
+      spicyOpinion: "솔로 교전력은 강하지만 팀 연계도 함께 다듬어야 합니다.",
+      userStats: [
+        { label: "1:1 교전 승률", value: "81%" },
+        { label: "솔로 킬 비중", value: "70%" },
+      ],
+      benchmarkStats: [
+        { label: "동일 티어 평균 1:1 교전 승률", value: "67%" },
+        { label: "동일 티어 평균 솔로 킬 비중", value: "70%" },
+      ],
+    };
+
+    expect(hasUnsupportedAiSummaryMode(duoIssue, "duo")).toBe(false);
+    expect(hasUnsupportedAiSummaryMode("솔로 모드 기준 1:1 승률", "duo")).toBe(true);
+    expect(hasUnsupportedAiSummaryMode("솔로 경기에서는 1:1 승률이 높습니다.", "duo")).toBe(true);
+    expect(hasUnsupportedAiSummaryMode("솔로 킬 모드 기준 1:1 승률", "duo")).toBe(true);
+    expect(hasUnsupportedAiSummaryMode("솔로 교전력 경기 기준", "duo")).toBe(true);
+  });
+
+  it("pairs the debate topic wording for 1:1 decision power with duel evidence", () => {
+    expect(matchDebateStatPairs(
+      [{ label: "1:1 결정력", value: "81%" }],
+      [{ label: "동일 티어 평균 1:1 결정력", value: "67%" }],
+    )).toEqual([{
+      user: { label: "1:1 결정력", value: "81%" },
+      benchmark: { label: "동일 티어 평균 1:1 결정력", value: "67%" },
+    }]);
+    expect(matchDebateStatPairs(
+      [{ label: "결정력", value: "81%" }],
+      [{ label: "동일 티어 평균 결정력", value: "67%" }],
+    )).toEqual([]);
+  });
+
   it("requires benchmark evidence for the same metric as the debate question", () => {
     const canonicalEvidence = {
       damage_average: {
