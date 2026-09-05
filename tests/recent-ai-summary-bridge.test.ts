@@ -218,7 +218,7 @@ describe("RecentAISummary callback bridge", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(createElement(RecentAISummary, { ...baseProps, isMobile: true, onSummaryChange }));
     await waitFor(() => expect(onSummaryChange).toHaveBeenLastCalledWith(null));
-    expect(screen.getByText(/최근 유효 최대 10판은 전체 지표·지도·추세에, 점수 상위 최대 5판은 잠재 티어·모드·매치 유형·티어 기준 BGMS 표본 평균\(플랫폼·맵·수집원 혼합\); player-match 표본 비교에 사용합니다/)).toBeInTheDocument();
+    expect(screen.getByText("최근 유효 최대 10판은 전체 흐름에, 잘한 최대 5판은 잠재 티어와 비슷한 조건의 평균 비교에 사용합니다.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
 
@@ -231,7 +231,7 @@ describe("RecentAISummary callback bridge", () => {
     expect(screen.getByText("최근 3경기 평균 생존 구간")).toBeInTheDocument();
     expect(screen.getByText("3경기 전술 마스터리")).toBeInTheDocument();
     expect(screen.getByText("3경기 합계")).toBeInTheDocument();
-    expect(screen.getByText("BGMS 자체 산정 · PUBG 공식 티어/평점 아님")).toBeInTheDocument();
+    expect(screen.queryByText(/PUBG 공식 티어|PUBG 공식 평점|player-match|해당 지표 n=/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
     const tierTrigger = screen.getByRole("button", { name: "점수 상위 3판 잠재 티어 산정 방법 보기" });
     expect(tierTrigger).toHaveAttribute("type", "button");
@@ -243,8 +243,8 @@ describe("RecentAISummary callback bridge", () => {
     const tierTooltip = screen.getByRole("dialog");
     expect(tierTooltip).toHaveAttribute("aria-modal", "true");
     expect(tierTooltip).toHaveAccessibleName("잠재 티어 산정 방법");
-    expect(tierTooltip).toHaveTextContent("BGMS가 공식 PUBG 매치·텔레메트리 데이터로 계산한 점수");
-    expect(tierTooltip).toHaveTextContent("PUBG 공식 티어·평점이 아닙니다.");
+    expect(tierTooltip).toHaveTextContent("최근 유효 3판 중 점수가 높은 3판을 골라 교전·전술·생존 점수로 계산합니다.");
+    expect(tierTooltip).not.toHaveTextContent(/PUBG 공식 티어|PUBG 공식 평점/);
     const closeTooltip = screen.getByRole("button", { name: "잠재 티어 산정 방법 닫기" });
     expect(closeTooltip).toHaveAttribute("type", "button");
     fireEvent.click(closeTooltip);

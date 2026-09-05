@@ -155,9 +155,6 @@ export const SpiderChart = ({ data, nickname, bestMatchCount }: SpiderChartProps
         <div className="text-2xl font-black text-white tracking-tight">
           {normalizedScores.combat > 80 ? "공격적 돌격병" : normalizedScores.survival > 80 ? "지능형 생존가" : "균형잡힌 전술가"}
         </div>
-        <div className="mt-2 text-[9px] text-white/35 font-bold tracking-tight">
-          {selectionLabel} · BGMS 자체 산정 · PUBG 공식 평점 아님
-        </div>
       </div>
     </div>
   );

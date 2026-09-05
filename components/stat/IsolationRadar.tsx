@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { ShieldAlert, Zap, ArrowUpCircle, Users, HelpCircle, X } from "lucide-react";
-import { formatBenchmarkProvenance } from "@/lib/pubg-analysis/benchmarkAdapter";
+import { formatBenchmarkDisplayLabel } from "@/lib/pubg-analysis/benchmarkAdapter";
 
 interface IsolationData {
   isolationIndex?: unknown;
@@ -82,9 +82,8 @@ export const IsolationRadar = ({ data, loading, isMobile }: IsolationRadarProps)
     matchType: benchmarkScope?.matchType,
     tier: benchmarkScope?.tier ?? data.userTier,
   };
-  const benchmarkLabelFor = (metric: string) => formatBenchmarkProvenance(benchmarkScope?.sampleCount, {
+  const benchmarkLabel = formatBenchmarkDisplayLabel({
     ...benchmarkContext,
-    metricSampleCount: benchmarkScope?.metricSampleCounts?.[metric],
   });
 
   const normIsolation = isolationIndex === null
@@ -107,7 +106,7 @@ export const IsolationRadar = ({ data, loading, isMobile }: IsolationRadarProps)
       desc: isolationIndex === null
         ? "측정 불가 (위치 텔레메트리 샘플 없음)"
         : benchmarkIsolationIndex !== null
-        ? `${benchmarkLabelFor("avgIsolationIndex")} 평균 고립지수: ${benchmarkIsolationIndex}`
+        ? `${benchmarkLabel}: 고립지수 ${benchmarkIsolationIndex}`
         : "점유 중인 위치의 전술적 안전도",
       formula: "100 - (고립 지수 * 20)",
       detail: "고립 지수 = (아군 거리 / 적군 거리). 1.0 이하면 매우 안전한 포지셔닝입니다."
@@ -120,7 +119,7 @@ export const IsolationRadar = ({ data, loading, isMobile }: IsolationRadarProps)
       desc: distInMeters === null
         ? "측정 불가 (팀원 위치 텔레메트리 샘플 없음)"
         : benchmarkMinDist !== null
-        ? `${benchmarkLabelFor("avgMinDist")} 평균 최근접 아군 거리: ${benchmarkMinDist}m`
+        ? `${benchmarkLabel}: 아군 거리 ${benchmarkMinDist}m`
         : "가장 가까운 아군까지의 평균 거리 기반의 즉각적인 교전 지원 거리 유지",
       formula: "100 - (평균 최근접 아군 거리 / 2.0)",
       detail: "아군과 200m 이상 떨어지면 0점 처리됩니다. 백업 가능한 거리를 유지하세요."
