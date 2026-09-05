@@ -187,7 +187,10 @@ function finiteNumber(value: unknown): number | undefined {
 function observedRate(value: unknown): number | undefined {
   const number = finiteNumber(value);
   if (number === undefined || number < 0 || number > 100) return undefined;
-  return normalizeRate(number);
+  // Benchmark averages can be fractional ratios such as
+  // `61.2647058823529`. Keep one decimal for prompts, evidence cards, and
+  // cached summaries instead of leaking database precision to users.
+  return Number(normalizeRate(number).toFixed(1));
 }
 
 function observedNonNegative(value: unknown, decimals: number | null = null): number | undefined {

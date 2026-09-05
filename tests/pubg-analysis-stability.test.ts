@@ -520,6 +520,20 @@ describe("PUBG benchmark and tier stabilization", () => {
     });
   });
 
+  it("observed benchmark percent는 과도한 DB 소수 자릿수를 한 자리로 반올림한다", () => {
+    const observed = adaptObservedBenchmark({
+      match_count: 24,
+      avg_duel_win_rate: 61.2647058823529,
+      avg_duel_win_rate_count: 22,
+    });
+
+    expect(observed).toMatchObject({
+      sampleCount: 24,
+      avgDuelWinRate: 61.3,
+      metricSampleCounts: { avgDuelWinRate: 22 },
+    });
+  });
+
   it("observed adapter는 음수·비유한 metric을 생략하고 명시적 0은 관측값으로 보존한다", () => {
     const raw = {
       match_count: 5,
