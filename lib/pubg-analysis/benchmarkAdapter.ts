@@ -1,6 +1,6 @@
 import { MIN_BENCHMARK_SAMPLE_COUNT } from "./benchmarkLookup";
 
-export const BENCHMARK_PROVENANCE_LABEL = "모드·매치 유형·티어 기준 BGMS 표본 평균(플랫폼·맵·수집원 혼합)";
+export const BENCHMARK_PROVENANCE_LABEL = "모드·매치 유형·티어 기준 BGMS 표본 평균";
 
 export function formatBenchmarkProvenance(
   sampleCount?: unknown,
@@ -44,7 +44,7 @@ const DISPLAY_MATCH_TYPE_LABELS: Readonly<Record<string, string>> = {
 };
 
 /**
- * 사용자 화면용 비교 기준입니다. 표본 수와 수집 경로 같은 감사 정보는
+ * 사용자 화면용 비교 기준입니다. 표본 수 같은 감사 정보는
  * AI 프롬프트의 `formatBenchmarkProvenance`에만 남기고, 화면에는 읽기 쉬운
  * 한글 조건만 노출합니다.
  */
