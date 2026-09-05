@@ -18,6 +18,7 @@ import { sanitizeAiCoachingLanguageText } from "@/lib/pubg-analysis/aiCoachingQu
 import {
   hasUnsupportedAiSummaryMode,
   normalizeAiSummaryDebatePayload,
+  sanitizeAiSummaryDebateQuestion,
   sanitizeUnsupportedAiSummaryBenchmarkLanguage,
   type CanonicalDebateEvidenceMap,
 } from "@/lib/pubg-analysis/aiSummaryDebate";
@@ -2079,13 +2080,30 @@ export async function POST(request: Request) {
         );
         if (Array.isArray(record.debateIssues)) {
           const neutralIssue = "검증된 경기 지표를 바탕으로 분석합니다.";
-          sanitizedRecord.debateIssues = record.debateIssues.map((issue) => {
-              if (issue && typeof issue === "object" && hasUnsupportedAiSummaryMode(issue, mainModeName)) {
-                const issueRecord = issue as Record<string, unknown>;
+          sanitizedRecord.debateIssues = record.debateIssues.map((issue, issueIndex) => {
+              if (!issue || typeof issue !== "object") return sanitizeSummaryPayload(issue);
+
+              const issueRecord = issue as Record<string, unknown>;
+              const sanitizedIssue = sanitizeSummaryPayload(issue) as Record<string, unknown>;
+              const sanitizedTopic = typeof sanitizedIssue.topic === "string"
+                ? sanitizedIssue.topic.trim()
+                : "";
+              const rawTopicHasForeignMode = typeof issueRecord.topic === "string"
+                && hasUnsupportedAiSummaryMode(issueRecord.topic, mainModeName);
+              const topic = sanitizedTopic
+                && sanitizedTopic !== neutralIssue
+                && !rawTopicHasForeignMode
+                ? sanitizedTopic
+                : autoTopics[issueIndex] || "분석 항목";
+              const question = typeof issueRecord.question === "string"
+                ? sanitizeAiCoachingLanguageText(issueRecord.question)
+                : "";
+
+              if (hasUnsupportedAiSummaryMode(issue, mainModeName)) {
                 return {
-                  ...issueRecord,
-                  topic: neutralIssue,
-                  question: neutralIssue,
+                  ...sanitizedIssue,
+                  topic,
+                  question: sanitizeAiSummaryDebateQuestion("", topic),
                   kindOpinion: neutralIssue,
                   spicyOpinion: neutralIssue,
                   reason: neutralIssue,
@@ -2094,7 +2112,20 @@ export async function POST(request: Request) {
                   benchmarkStats: [],
                 };
               }
-              return sanitizeSummaryPayload(issue);
+              const userStats = sanitizedIssue.userStats;
+              const benchmarkStats = sanitizedIssue.benchmarkStats;
+              sanitizedIssue.topic = topic;
+              sanitizedIssue.question = sanitizeAiSummaryDebateQuestion(
+                question,
+                topic,
+                canonicalEvidence,
+                {
+                  allowedMode: mainModeName,
+                  userStats,
+                  benchmarkStats,
+                },
+              );
+              return sanitizedIssue;
             });
         }
         return sanitizedRecord;
