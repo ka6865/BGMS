@@ -2,7 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { createElement } from "react";
+import { createElement, useLayoutEffect, useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import aiReady from "./fixtures/stats/ai-ready.json";
 
@@ -45,6 +45,7 @@ import {
   safeVisualDuration,
   safeVisualRate,
 } from "@/components/stat/RecentAISummary";
+import { buildSummaryCards, type SummaryCard } from "@/lib/pubg-analysis/aiSummaryCards";
 
 function ndjsonResponse(lines: readonly unknown[]): Response {
   return new Response(`${lines.map((line) => JSON.stringify(line)).join("\n")}\n`, {
@@ -71,11 +72,111 @@ function deferredReaderResponse() {
   };
 }
 
+function controlledStreamResponse() {
+  let resolveRead: ((result: ReadableStreamReadResult<Uint8Array>) => void) | null = null;
+  const queued: Uint8Array[] = [];
+  let closed = false;
+  const reader = {
+    read: vi.fn(() => {
+      if (queued.length > 0) return Promise.resolve({ done: false, value: queued.shift() });
+      if (closed) return Promise.resolve({ done: true, value: undefined });
+      return new Promise<ReadableStreamReadResult<Uint8Array>>((resolve) => { resolveRead = resolve; });
+    }),
+    cancel: vi.fn().mockResolvedValue(undefined),
+  };
+  const encoder = new TextEncoder();
+  return {
+    response: { ok: true, body: { getReader: () => reader } } as unknown as Response,
+    push: (line: unknown) => {
+      const value = encoder.encode(`${JSON.stringify(line)}\n`);
+      if (resolveRead) {
+        const resolve = resolveRead;
+        resolveRead = null;
+        resolve({ done: false, value });
+      } else {
+        queued.push(value);
+      }
+    },
+    close: () => {
+      closed = true;
+      if (resolveRead) {
+        const resolve = resolveRead;
+        resolveRead = null;
+        resolve({ done: true, value: undefined });
+      }
+    },
+  };
+}
+
 const baseProps = {
   matchIds: ["match-1", "match-2"] as readonly string[],
   nickname: "FixturePlayer",
   platform: "steam",
 };
+
+const v2Context = {
+  contextId: "fixture-context",
+  gameMode: "squad",
+  matchType: "competitive",
+  tier: "A",
+  userMatchCount: 5,
+  benchmarkSampleCount: 12,
+  filterVersion: 1,
+  populationVersion: 1,
+};
+
+function buildV2Cards(): SummaryCard[] {
+  const cards = buildSummaryCards({
+    topics: ["화력", "교전 주도권", "포지셔닝"],
+    context: v2Context,
+    evidence: [
+      {
+        metricId: "damage_average",
+        label: "평균 피해량",
+        userValue: "300",
+        benchmarkValue: "250",
+        benchmarkLabel: "상위권 평균",
+        unit: "",
+        sampleCount: 5,
+      },
+      {
+        metricId: "initiative_rate",
+        label: "교전 주도권 비율",
+        userValue: "60%",
+        benchmarkValue: null,
+        benchmarkLabel: "비교 자료 없음",
+        unit: "%",
+        sampleCount: 5,
+      },
+      {
+        metricId: "isolation_average",
+        label: "평균 고립 거리",
+        userValue: null,
+        benchmarkValue: null,
+        benchmarkLabel: "상위권 평균",
+        unit: "",
+        sampleCount: null,
+        unavailableReason: "고립 교전 표본 부족",
+      },
+    ],
+  });
+  if (cards.length !== 3) throw new Error("v2 fixture card plan was not built");
+  return cards;
+}
+
+function readyV2Cards(): SummaryCard[] {
+  return buildV2Cards().map((card, index) => index === 0
+    ? {
+      ...card,
+      analysisStatus: "ready",
+      kindOpinion: "화력 근거를 확인했습니다.",
+      spicyOpinion: "교전 선택을 더 다듬을 수 있습니다.",
+      reason: "서버 근거 기반 평가",
+      evaluation: "정상",
+      winner: "kind",
+    }
+    : { ...card, analysisStatus: "unavailable", analysisReason: card.analysisReason ?? "AI 해석을 확인하지 못했습니다." });
+}
 
 describe("RecentAISummary callback bridge", () => {
   beforeEach(() => {
@@ -386,6 +487,8 @@ describe("RecentAISummary callback bridge", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
     await waitFor(() => expect(screen.getByRole("button", { name: /1:1 결정력/ })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+    expect(screen.getAllByText("판정 보류")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: /1:1 결정력/ }));
 
     expect(screen.getByText(/같은 지표만 비교합니다/)).toBeInTheDocument();
@@ -396,6 +499,84 @@ describe("RecentAISummary callback bridge", () => {
     expect(screen.queryByText("11%")).not.toBeInTheDocument();
     expect(screen.queryByText("총 투척 횟수")).not.toBeInTheDocument();
     expect(screen.queryByText("아군 기절 대비 연막 구출률")).not.toBeInTheDocument();
+    expect(screen.getByText("근거 확인이 필요한 2개 항목은 판정을 보류했습니다.")).toBeInTheDocument();
+    const kindScoreLabel = screen.getAllByText("착한맛 승").find((element) => element.className.includes("text-green-400/60"));
+    const spicyScoreLabel = screen.getAllByText("매운맛 승").find((element) => element.className.includes("text-red-400/60"));
+    const drawScoreLabel = screen.getAllByText("무승부").find((element) => element.className.includes("text-yellow-400/60"));
+    expect(kindScoreLabel?.parentElement).toHaveTextContent("1");
+    expect(spicyScoreLabel?.parentElement).toHaveTextContent("0");
+    expect(drawScoreLabel?.parentElement).toHaveTextContent("0");
+    const validKindIssue = screen.getByRole("button", { name: /1:1 결정력/ }).parentElement;
+    expect(validKindIssue?.querySelector('[class*="ring-green-"]')).not.toBeNull();
+    expect(validKindIssue?.querySelector('[class*="ring-red-"]')).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /1:1 결정력/ }));
+    fireEvent.click(screen.getByRole("button", { name: /두 번째 질문/ }));
+    expect(screen.getByText("이 항목의 비교 근거를 표시할 수 없습니다.")).toBeInTheDocument();
+    expect(screen.queryByText("VS")).not.toBeInTheDocument();
+    const pendingIssue = screen.getByRole("button", { name: /두 번째 질문/ }).parentElement;
+    expect(pendingIssue?.querySelector('[class*="ring-"]')).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /세 번째 질문/ }));
+    expect(screen.getByText("이 항목의 비교 근거를 표시할 수 없습니다.")).toBeInTheDocument();
+    expect(screen.queryByText("VS")).not.toBeInTheDocument();
+  });
+
+  it("전부 빈 증거인 세 카드의 저장된 winner를 집계하지 않고 판정 보류로 표시한다", async () => {
+    const onSummaryChange = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "A" } },
+      { type: "final", data: JSON.stringify(aiReady) },
+      { type: "done", valid: true },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, { ...baseProps, onSummaryChange }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+
+    await waitFor(() => expect(onSummaryChange).toHaveBeenLastCalledWith({ verdict: "fixture verdict", tier: "A" }));
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+
+    expect(screen.getAllByText("판정 보류")).toHaveLength(3);
+    expect(screen.getByText("근거 확인이 필요한 3개 항목은 판정을 보류했습니다.")).toBeInTheDocument();
+    const kindScoreLabel = screen.getAllByText("착한맛 승").find((element) => element.className.includes("text-green-400/60"));
+    const spicyScoreLabel = screen.getAllByText("매운맛 승").find((element) => element.className.includes("text-red-400/60"));
+    const drawScoreLabel = screen.getAllByText("무승부").find((element) => element.className.includes("text-yellow-400/60"));
+    expect(kindScoreLabel?.parentElement).toHaveTextContent("0");
+    expect(spicyScoreLabel?.parentElement).toHaveTextContent("0");
+    expect(drawScoreLabel?.parentElement).toHaveTextContent("0");
+  });
+
+  it("유효한 매운맛 승리 카드는 매운맛 코치만 강조한다", async () => {
+    const onSummaryChange = vi.fn();
+    const spicyFixture = {
+      ...aiReady,
+      debateIssues: aiReady.debateIssues.map((issue, index) => index === 0
+        ? {
+          ...issue,
+          topic: "1:1 결정력",
+          question: "정확한 지표만 비교하는가?",
+          winner: "spicy",
+          userStats: [{ label: "1:1 교전 승률", value: "79%" }],
+          benchmarkStats: [{ label: "상위권 1:1 승률", value: "61%" }],
+        }
+        : issue),
+    };
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "A" } },
+      { type: "final", data: JSON.stringify(spicyFixture) },
+      { type: "done", valid: true },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, { ...baseProps, onSummaryChange }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+
+    await waitFor(() => expect(onSummaryChange).toHaveBeenLastCalledWith({ verdict: "fixture verdict", tier: "A" }));
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+    fireEvent.click(screen.getByRole("button", { name: /1:1 결정력/ }));
+
+    const validSpicyIssue = screen.getByRole("button", { name: /1:1 결정력/ }).parentElement;
+    expect(validSpicyIssue?.querySelector('[class*="ring-red-"]')).not.toBeNull();
+    expect(validSpicyIssue?.querySelector('[class*="ring-green-"]')).toBeNull();
   });
 
   it("trailing newline이 없는 complete final+done NDJSON도 성공으로 처리한다", async () => {
@@ -776,5 +957,191 @@ describe("RecentAISummary callback bridge", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(screen.getByText(/fixture verdict/)).toBeInTheDocument();
+  });
+
+  it("v2 cards가 final보다 먼저 도착하면 스트림 중에는 AI 해석 준비 중을 표시한다", async () => {
+    const stream = controlledStreamResponse();
+    const fetchMock = vi.fn().mockResolvedValue(stream.response);
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, { ...baseProps, onSummaryChange: vi.fn() }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    stream.push({ type: "visuals", data: { overallTier: "A" } });
+    stream.push({ type: "cards", data: buildV2Cards() });
+    await waitFor(() => expect(screen.getByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+    fireEvent.click(screen.getByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ }));
+    expect(screen.getAllByText("AI 해석 준비 중").length).toBeGreaterThan(0);
+
+    stream.push({ type: "final", data: JSON.stringify({
+      schemaVersion: 2,
+      cards: readyV2Cards(),
+      finalVerdict: "v2 pending done",
+    }) });
+    stream.push({ type: "done", valid: true });
+    stream.close();
+    await waitFor(() => expect(screen.getByText(/v2 pending done/)).toBeInTheDocument());
+  });
+
+  it("v2 final은 카드 evidence ID를 직접 렌더링하고 user-only/unavailable 행에 VS를 만들지 않는다", async () => {
+    const onSummaryChange = vi.fn();
+    const cards = readyV2Cards();
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "A" } },
+      { type: "cards", data: buildV2Cards() },
+      {
+        type: "final",
+        data: JSON.stringify({
+          schemaVersion: 2,
+          cards,
+          signature: "v2 fixture",
+          signatureSub: "v2 fixture reason",
+          finalVerdict: "v2 fixture verdict",
+          actionItems: [{ icon: "target", title: "v2 목표", desc: "근거를 확인하세요." }],
+        }),
+      },
+      { type: "done", valid: true },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, { ...baseProps, onSummaryChange }));
+
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await waitFor(() => expect(onSummaryChange).toHaveBeenLastCalledWith({ verdict: "v2 fixture verdict", tier: "A" }));
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+      body: JSON.stringify({
+        matchIds: baseProps.matchIds,
+        nickname: baseProps.nickname,
+        platform: baseProps.platform,
+        force: true,
+        summaryContractVersion: 2,
+      }),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+    const kindScoreLabel = screen.getAllByText("착한맛 승").find((element) => element.className.includes("text-green-400/60"));
+    expect(kindScoreLabel?.parentElement).toHaveTextContent("1");
+    expect(screen.getByText("근거 확인이 필요한 2개 항목은 판정을 보류했습니다.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ }));
+    expect(screen.getByText(/화력 근거를 확인했습니다/)).toBeInTheDocument();
+    expect(screen.getByText("300")).toBeInTheDocument();
+    expect(screen.getByText("250")).toBeInTheDocument();
+    expect(screen.getByText("VS")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /교전 주도권에 대한 두 코치의 평가는/ }));
+    expect(screen.getByText("60%")).toBeInTheDocument();
+    expect(screen.getAllByText("비교 자료 없음").length).toBeGreaterThan(0);
+    expect(screen.queryByText("VS")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /포지셔닝에 대한 두 코치의 평가는/ }));
+    expect(screen.getAllByText("고립 교전 표본 부족").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /포지셔닝에 대한 두 코치의 평가/ }).parentElement).not.toHaveTextContent(/0(?:%|회| HP)/);
+  });
+
+  it("v2 cards facts는 done 실패에도 남고 AI 해석 불가 및 재시도 CTA를 함께 표시한다", async () => {
+    const onSummaryChange = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "A" } },
+      { type: "cards", data: buildV2Cards() },
+      { type: "error", error: "provider unavailable", retryable: false },
+      { type: "done", valid: false, error: "provider unavailable", retryable: false },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, { ...baseProps, onSummaryChange }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByText("AI 해석을 표시할 수 없습니다.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "다시 시도하기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ })).toBeInTheDocument();
+    expect(onSummaryChange.mock.calls.every(([summary]) => summary === null)).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+    fireEvent.click(screen.getByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ }));
+    expect(screen.getByText("300")).toBeInTheDocument();
+    expect(screen.getByText("250")).toBeInTheDocument();
+  });
+
+  it("v2 terminal partial final은 유효한 카드 해석을 보존하고 invalid 카드는 unavailable로 남긴다", async () => {
+    const onSummaryChange = vi.fn();
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "A" } },
+      { type: "cards", data: buildV2Cards() },
+      {
+        type: "final",
+        data: JSON.stringify({ schemaVersion: 2, cards: readyV2Cards() }),
+      },
+      { type: "done", valid: false, error: "one card rejected", retryable: false },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, { ...baseProps, onSummaryChange }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+    fireEvent.click(screen.getByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ }));
+    expect(screen.getByText(/화력 근거를 확인했습니다/)).toBeInTheDocument();
+    expect(screen.getByText("근거 확인이 필요한 2개 항목은 판정을 보류했습니다.")).toBeInTheDocument();
+    expect(onSummaryChange.mock.calls.every(([summary]) => summary === null)).toBe(true);
+  });
+
+  it("v2 done 성공에도 최종 카드가 pending이면 AI 성공으로 처리하지 않고 사실을 보존한다", async () => {
+    vi.useFakeTimers();
+    const onSummaryChange = vi.fn();
+    const cards = readyV2Cards();
+    cards[1] = buildV2Cards()[1];
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "A" } },
+      { type: "cards", data: buildV2Cards() },
+      { type: "final", data: JSON.stringify({ schemaVersion: 2, cards, finalVerdict: "미완성 판결" }) },
+      { type: "done", valid: true },
+    ])));
+    render(createElement(RecentAISummary, { ...baseProps, onSummaryChange }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    for (let index = 0; index < 10; index += 1) await act(async () => { await Promise.resolve(); });
+
+    expect(screen.queryByText("미완성 판결")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ })).toBeInTheDocument();
+    expect(onSummaryChange.mock.calls.every(([summary]) => summary === null)).toBe(true);
+    expect(screen.getByText(/분석 결과가 불완전해요/)).toBeInTheDocument();
+  });
+
+  it("v2 facts-only 응답에 visuals가 없으면 누락된 통계 수치를 0으로 만들지 않는다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "cards", data: buildV2Cards() },
+      { type: "done", valid: false, error: "해석 실패", retryable: false },
+    ])));
+    render(createElement(RecentAISummary, { ...baseProps }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+    fireEvent.click(screen.getByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ }));
+
+    expect(screen.getByText("300")).toBeInTheDocument();
+    expect(screen.queryByText("선제 타격 효율")).not.toBeInTheDocument();
+    expect(screen.queryByText("0.00s")).not.toBeInTheDocument();
+    expect(screen.queryByText("0 Ph")).not.toBeInTheDocument();
+  });
+
+  it("플레이어 변경 직후 reset effect 전에도 이전 플레이어의 v2 카드가 보이지 않는다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "cards", data: buildV2Cards() },
+      { type: "done", valid: false, error: "해석 실패", retryable: false },
+    ])));
+    let beforePassiveReset = "";
+    function ObservePaint({ nickname }: { nickname: string }) {
+      const root = useRef<HTMLDivElement>(null);
+      useLayoutEffect(() => { beforePassiveReset = root.current?.textContent ?? ""; }, [nickname]);
+      return createElement("div", { ref: root }, createElement(RecentAISummary, { ...baseProps, nickname }));
+    }
+    const view = render(createElement(ObservePaint, { nickname: "Player_A" }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ })).toBeInTheDocument();
+
+    view.rerender(createElement(ObservePaint, { nickname: "Player_B" }));
+    expect(beforePassiveReset).not.toContain("화력은 비슷한 조건 평균과 비교해 어떤가?");
+    expect(screen.queryByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ })).not.toBeInTheDocument();
   });
 });

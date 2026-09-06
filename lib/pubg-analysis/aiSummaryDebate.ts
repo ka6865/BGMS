@@ -49,10 +49,10 @@ const METRIC_DEFINITIONS: Array<{
     "상위권 평균 백업 속도", "동일 티어 평균 백업 속도",
   ] },
   { key: "damage_average", dimension: "scalar", aliases: [
-    "평균 화력", "평균 딜량", "평균 데미지", "평균 대미지",
-    "상위권 평균 화력", "상위권 평균 딜량", "상위권 평균 데미지", "상위권 평균 대미지",
-    "동일 티어 평균 화력", "동일 티어 평균 딜량", "동일 티어 평균 데미지", "동일 티어 평균 대미지",
-    "상위권 화력", "상위권 딜량", "동일 티어 화력", "동일 티어 딜량",
+    "평균 화력", "평균 딜량", "평균 피해량", "평균 딜", "평균 데미지", "평균 대미지",
+    "상위권 평균 화력", "상위권 평균 딜량", "상위권 평균 피해량", "상위권 평균 딜", "상위권 평균 데미지", "상위권 평균 대미지",
+    "동일 티어 평균 화력", "동일 티어 평균 딜량", "동일 티어 평균 피해량", "동일 티어 평균 딜", "동일 티어 평균 데미지", "동일 티어 평균 대미지",
+    "상위권 화력", "상위권 딜량", "상위권 피해량", "상위권 딜", "동일 티어 화력", "동일 티어 딜량", "동일 티어 피해량", "동일 티어 딜",
   ] },
   { key: "initiative_rate", dimension: "percentage", aliases: [
     "주도권 성공률", "선제 공격 성공률", "평균 주도권 성공률", "평균 선제 공격 성공률",
@@ -72,6 +72,8 @@ const METRIC_DEFINITIONS: Array<{
     // "결정력" wording is not guessed as a duel metric.
     "1:1 교전 결정력", "1:1 교전에서의 결정력", "1:1 교전에서의 괴물 같은 결정력",
     "1:1 교전에서의 괴물같은 결정력",
+    "상위권 1:1 교전 결정력", "동일 티어 1:1 교전 결정력",
+    "상위권 평균 1:1 교전 결정력", "동일 티어 평균 1:1 교전 결정력",
   ] },
   { key: "pressure_index", dimension: "scalar", aliases: [
     "압박 지수", "평균 압박 지수", "상위권 압박 지수", "동일 티어 압박 지수",
@@ -98,10 +100,10 @@ const METRIC_DEFINITIONS: Array<{
     "상위권 평균 트레이드 성공률", "동일 티어 평균 트레이드 성공률",
   ] },
   { key: "solo_kill_share", dimension: "percentage", aliases: [
-    "솔로 비중", "솔로 킬 비중", "평균 솔로 비중", "평균 솔로 킬 비중",
-    "상위권 솔로 비중", "상위권 솔로 킬 비중", "동일 티어 솔로 비중", "동일 티어 솔로 킬 비중",
-    "상위권 평균 솔로 비중", "상위권 평균 솔로 킬 비중",
-    "동일 티어 평균 솔로 비중", "동일 티어 평균 솔로 킬 비중",
+    "솔로 비중", "솔로 킬 비중", "솔로킬 비중", "평균 솔로 비중", "평균 솔로 킬 비중", "평균 솔로킬 비중",
+    "상위권 솔로 비중", "상위권 솔로 킬 비중", "상위권 솔로킬 비중", "동일 티어 솔로 비중", "동일 티어 솔로 킬 비중", "동일 티어 솔로킬 비중",
+    "상위권 평균 솔로 비중", "상위권 평균 솔로 킬 비중", "상위권 평균 솔로킬 비중",
+    "동일 티어 평균 솔로 비중", "동일 티어 평균 솔로 킬 비중", "동일 티어 평균 솔로킬 비중",
   ] },
   { key: "death_phase", dimension: "scalar", aliases: [
     "사망 페이즈", "평균 사망 페이즈", "상위권 사망 페이즈", "동일 티어 사망 페이즈",
@@ -125,7 +127,7 @@ const PAIR_ONLY_METRIC_ALIASES = new Map<string, string>([
   ["동일 티어 평균 1:1 결정력", "duel_win_rate"],
 ]);
 
-const BENCHMARK_LANGUAGE_PATTERN = /(?:동일\s*조건\s*[·ㆍ・.]?\s*동일\s*티어|동일\s*티어|상위권|엘리트|벤치마크|benchmark)/iu;
+const BENCHMARK_LANGUAGE_PATTERN = /(?:비교\s*평균|비슷한\s*조건\s*평균|동일\s*조건\s*[·ㆍ・.]?\s*동일\s*티어|동일\s*티어|상위권|엘리트|벤치마크|benchmark)/iu;
 const NUMERIC_VALUE_PATTERN = /[+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+)\s*(?:%|ms|밀리초|s|secs?|초|m|미터|회|횟수)?/iu;
 const NUMERIC_VALUE_SOURCE = "[+-]?(?:(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?|\\.\\d+)\\s*(?:%|ms|밀리초|s|secs?|초|m|미터|회|횟수)?";
 const SAFE_UNRELATED_COUNT_PATTERN = /(?:최근|지난)\s*([+-]?(?:\d{1,3}(?:,\d{3})+|\d+))\s*(?:판|경기)/giu;
@@ -142,8 +144,8 @@ function normalizeSummaryMode(mode: string): string {
 
 function summaryModeMarkers(value: string): Set<string> {
   const protectedCompoundModes: Array<{ mode: string; pattern: RegExp }> = [
-    { mode: "solo-squad", pattern: /(?:솔로\s*스쿼드|solo[\s_-]*squad)/giu },
-    { mode: "solo-duo", pattern: /(?:솔로\s*듀오|solo[\s_-]*duo)/giu },
+    { mode: "solo-squad", pattern: /(?:솔로[\s_·ㆍ・/\-]*스쿼드|solo[\s_·ㆍ・/\-]*squad)/giu },
+    { mode: "solo-duo", pattern: /(?:솔로[\s_·ㆍ・/\-]*듀오|solo[\s_·ㆍ・/\-]*duo)/giu },
   ];
   const markers = new Set<string>();
   let remaining = value;
@@ -152,9 +154,10 @@ function summaryModeMarkers(value: string): Set<string> {
   // metric phrases before scanning prose for foreign-mode markers so a DUO
   // debate about solo kills is not discarded as mixed-mode evidence.
   const soloMetricPatterns = [
-    /(?:순수\s*무력\s*)?솔로\s*킬(?!\s*(?:비중\s*)?(?:모드|경기(?!당)|게임|매치|큐(?:우)?|queue|룰셋))(?:\s*비중)?/giu,
-    /솔로\s*비중(?!\s*(?:모드|경기(?!당)|게임|매치|큐(?:우)?|queue|룰셋))/giu,
-    /솔로\s*교전력(?!\s*(?:모드|경기(?!당)|게임|매치|큐(?:우)?|queue|룰셋))/giu,
+    /(?:순수\s*무력\s*)?솔로\s*킬(?!(?:\s*비중)?\s*(?:모드|경기(?!\s*당)|게임(?!\s*당)|매치(?!\s*당)|큐(?:우)?|queue|룰셋))(?:\s*비중)?/giu,
+    /솔로\s*비중(?!\s*(?:모드|경기(?!\s*당)|게임(?!\s*당)|매치(?!\s*당)|큐(?:우)?|queue|룰셋))/giu,
+    /솔로\s*교전력(?!\s*(?:모드|경기(?!\s*당)|게임(?!\s*당)|매치(?!\s*당)|큐(?:우)?|queue|룰셋))/giu,
+    /\bsolo\s+kills?\b(?!(?:\s+share)?\s*(?:mode|queue|game|match|ruleset|모드|큐|게임(?!\s*당)|매치(?!\s*당)|경기(?!\s*당)))(?:\s+share)?/giu,
   ];
   soloMetricPatterns.forEach((pattern) => {
     remaining = remaining.replace(pattern, " ");
@@ -239,7 +242,7 @@ function compactLabel(label: string): string {
   return label
     .toLocaleLowerCase()
     .trim()
-    .replace(/\s*:\s*/g, ":")
+    .replace(/\s*[:：]\s*/g, ":")
     .replace(/\s+/g, " ");
 }
 
@@ -269,9 +272,15 @@ function splitBenchmarkLanguageClauses(value: string): string[] {
   // supported comparison in the same paragraph. Comparison words such as
   // `대비`/`vs` deliberately stay inside one clause: they join the benchmark
   // and user values that must be canonicalized as a pair.
+  // Protect decimal points first. Without this guard `5.36s` becomes two
+  // clauses (`5.` and `36s`), which drops the benchmark side of a cached
+  // comparison before the metric/value validator can canonicalize it.
+  const decimalPlaceholder = "\uE000";
   return value
+    .replace(/(?<=\d)\.(?=\d)/gu, decimalPlaceholder)
     .split(/(?<=[.!?。！？,，;；])\s*|\s+(?:(?:그리고|및|하지만|다만|반면에)\s+)/iu)
     .map((clause) => clause.trim())
+    .map((clause) => clause.replaceAll(decimalPlaceholder, "."))
     .filter(Boolean);
 }
 
@@ -295,6 +304,217 @@ const BENCHMARK_DIRECTIONAL_PATTERN = /(?:벤치마크|benchmark|동일\s*조건
 const NEUTRAL_BENCHMARK_COMPARISON = "검증된 경기 지표를 바탕으로 분석합니다";
 const NEUTRAL_BENCHMARK_SENTENCE = `${NEUTRAL_BENCHMARK_COMPARISON}.`;
 const DEBATE_QUESTION_END_PATTERN = /(?:[?？]|(?:인가|일까|할까|했나|있는가|어떤가|충분한가)(?:요)?[.!]?)\s*$/u;
+
+// The route keeps the full benchmark provenance in its prompt for auditability,
+// but that audit string is not useful inside a coach sentence.  These patterns
+// are deliberately limited to the exact provenance vocabulary emitted by the
+// prompt (`BGMS 표본 평균`, its legacy spelling, `player-match 표본`, and the
+// per-metric `n=` marker). The mode guard runs before this preparation and
+// canonical metric/value validation runs before the final sentence formatting.
+const TECHNICAL_PROVENANCE_SOURCE = String.raw`(?:모드\s*[·ㆍ・.]\s*매치\s*유형\s*[·ㆍ・.]\s*티어\s*기준\s*BGMS\s*표본\s*평균|동일\s*조건\s*[·ㆍ・.]\s*동일\s*티어\s*BGMS\s*분석\s*표본\s*평균)`;
+const TECHNICAL_PROVENANCE_SCOPE_SOURCE = String.raw`\s*\[\s*모드\s+[^\]\n]{1,160}\]`;
+const TECHNICAL_PROVENANCE_METRIC_PREFIX_PATTERN = new RegExp(
+  `${TECHNICAL_PROVENANCE_SOURCE}(?:${TECHNICAL_PROVENANCE_SCOPE_SOURCE})?\\s*;?\\s*(?:(?:${NUMERIC_VALUE_SOURCE})\\s*)?player-match\\s*표본(?:\\s*(?:평균|인))?\\s*;?\\s*해당\\s*지표\\s*n\\s*=\\s*\\d+\\s*:\\s*`,
+  "giu",
+);
+const TECHNICAL_PROVENANCE_COUNT_PATTERN = /(?:;\s*)?해당\s*지표\s*n\s*=\s*\d+\s*:\s*/giu;
+const TECHNICAL_PROVENANCE_PATTERN = new RegExp(
+  `${TECHNICAL_PROVENANCE_SOURCE}(?:${TECHNICAL_PROVENANCE_SCOPE_SOURCE})?\\s*;?`,
+  "giu",
+);
+const TECHNICAL_SAMPLE_PATTERN = new RegExp(
+  `(?:${NUMERIC_VALUE_SOURCE}\\s*)?player-match\\s*표본(?:\\s*(?:평균|인))?\\s*(?:${NUMERIC_VALUE_SOURCE})?`,
+  "giu",
+);
+const TECHNICAL_SCOPE_PATTERN = /\[\s*모드\s+[^\]\n]{0,160}매치\s*유형[^\]\n]{0,160}티어[^\]\n]{0,160}\]/giu;
+const TECHNICAL_FRIENDLY_MARKER_PATTERN = /(?:\s*동일\s*티어\s*평균)+\s*(?=[,.;:!?)]|$)/giu;
+const TECHNICAL_AUDIT_PATTERN = new RegExp(
+  `${TECHNICAL_PROVENANCE_SOURCE}|player-match\\s*표본|해당\\s*지표\\s*n\\s*=`,
+  "iu",
+);
+
+const METRIC_ALIAS_SOURCE = METRIC_DEFINITIONS
+  .flatMap((metric) => metric.aliases)
+  .sort((a, b) => b.length - a.length)
+  .map(escapeRegExp)
+  .join("|");
+
+function friendlyBenchmarkMetricLabel(label: string): string {
+  const base = label.replace(/^(?:(?:상위권|동일\s*티어)\s+)?평균\s+/iu, "");
+  return `동일 티어 평균 ${base || label}`;
+}
+
+function metricSubjectParticle(label: string): "은" | "는" {
+  const last = Array.from(label.trim()).at(-1);
+  if (!last) return "은";
+  const code = last.charCodeAt(0) - 0xac00;
+  // Korean syllables with a final consonant take `은`; particles for labels
+  // ending in punctuation/Latin text fall back to the stable `은` form.
+  if (code < 0 || code > 0x2ba3) return "은";
+  return code % 28 !== 0 ? "은" : "는";
+}
+
+const FRIENDLY_COMPARISON_PATTERN = new RegExp(
+  `(?:(?:내|나의|유저|사용자)\\s+)?(${METRIC_ALIAS_SOURCE})\\s+(${NUMERIC_VALUE_SOURCE})\\s*(?:로|으로)?\\s*(?:vs\\s*)?동일\\s*티어\\s*(?:평균\\s+)?(${METRIC_ALIAS_SOURCE})\\s+(${NUMERIC_VALUE_SOURCE})(\\s*(?:에서|대비|에|비교\\s*(?:하면|해|시)?))?`,
+  "giu",
+);
+// The formatter below emits this short sentence for a canonical pair.  Keep a
+// reversible representation before clause splitting so a cached, already
+// sanitized response does not lose the benchmark half at the comma after
+// `이며,` on its next pass.
+const FRIENDLY_COMPARISON_SENTENCE_PATTERN = new RegExp(
+  `(${METRIC_ALIAS_SOURCE})\\s*(?:은|는|이|가)\\s*(${NUMERIC_VALUE_SOURCE})\\s*이며\\s*,?\\s*비교\\s*평균\\s*(?:은|는|이|가)?\\s*(${NUMERIC_VALUE_SOURCE})\\s*입니다`,
+  "giu",
+);
+const DUPLICATE_FRIENDLY_BENCHMARK_PATTERN = new RegExp(
+  `(${METRIC_ALIAS_SOURCE})\\s+(${NUMERIC_VALUE_SOURCE})\\s*[.!?。！？]\\s*동일\\s*티어\\s*평균\\s+\\1\\s+\\2\\s*[.!?。！？]`,
+  "giu",
+);
+
+const TECHNICAL_PROVENANCE_SAMPLE_METRIC_PATTERN = new RegExp(
+  `(${METRIC_ALIAS_SOURCE})([^.!?。！？]{0,120}?)${TECHNICAL_PROVENANCE_SOURCE}(?:${TECHNICAL_PROVENANCE_SCOPE_SOURCE})?\\s*;?\\s*(?:(?:${NUMERIC_VALUE_SOURCE})\\s*)?player-match\\s*표본(?:\\s*(?:평균|인))?\\s*(${NUMERIC_VALUE_SOURCE})`,
+  "giu",
+);
+
+function stripUnbalancedParentheses(value: string): string {
+  const characters = Array.from(value);
+  const opens: number[] = [];
+  const removed = new Set<number>();
+  characters.forEach((character, index) => {
+    if (character === "(") {
+      opens.push(index);
+    } else if (character === ")") {
+      const openIndex = opens.pop();
+      if (openIndex === undefined) removed.add(index);
+    }
+  });
+  opens.forEach((index) => removed.add(index));
+  return characters.filter((_character, index) => !removed.has(index)).join("");
+}
+
+/**
+ * Normalize the shape of a technical comparison before clause splitting. A
+ * common legacy response puts the user side in `metric(내 수치 0% vs ... )`;
+ * turning that into `내 metric 0% vs ...` lets the existing canonical metric
+ * matcher verify both sides instead of dropping the whole comparison at the
+ * semicolon inside the audit phrase. This helper only runs when the exact audit
+ * vocabulary is present; ordinary parenthesized coaching prose is untouched.
+ */
+function prepareAiSummaryBenchmarkProvenance(value: string): string {
+  const hasTechnicalAudit = TECHNICAL_AUDIT_PATTERN.test(value);
+  const hasFriendlySentence = FRIENDLY_COMPARISON_SENTENCE_PATTERN.test(value);
+  FRIENDLY_COMPARISON_SENTENCE_PATTERN.lastIndex = 0;
+  if (!hasTechnicalAudit && !hasFriendlySentence) return value;
+
+  let prepared = value;
+  // Use the same explicit metric label on both sides while the generic
+  // canonicalizer verifies the pair. This representation deliberately avoids
+  // a comma, which is one of the clause-splitting boundaries.
+  prepared = prepared.replace(
+    FRIENDLY_COMPARISON_SENTENCE_PATTERN,
+    (_match, metric, userValue, benchmarkValue) => `내 ${metric} ${userValue} vs ${friendlyBenchmarkMetricLabel(metric)} ${benchmarkValue}`,
+  );
+  if (!hasTechnicalAudit) return prepared;
+
+  if (METRIC_ALIAS_SOURCE) {
+    const ownerMetricPattern = new RegExp(
+      `(${METRIC_ALIAS_SOURCE})\\s*\\(\\s*(내|나의|유저|사용자)\\s*(?:수치|기록)?\\s*`,
+      "giu",
+    );
+    prepared = prepared.replace(ownerMetricPattern, (_match, metric, owner) => `${owner} ${metric} `);
+    const bareMetricPattern = new RegExp(
+      `(${METRIC_ALIAS_SOURCE})\\s*\\(\\s*(?=${NUMERIC_VALUE_SOURCE})`,
+      "giu",
+    );
+    prepared = prepared.replace(bareMetricPattern, "$1 ");
+  }
+  // Older responses put the benchmark number after `player-match 표본인`
+  // without repeating its metric label. Copy the already-recognized label into
+  // that slot before the generic sample remover runs; the normal canonicalizer
+  // then verifies and replaces both values from the server evidence map.
+  prepared = prepared.replace(
+    TECHNICAL_PROVENANCE_SAMPLE_METRIC_PATTERN,
+    (_match, metric, middle, benchmarkValue) => `${metric}${middle}${friendlyBenchmarkMetricLabel(metric)} ${benchmarkValue}`,
+  );
+  prepared = prepared.replace(TECHNICAL_PROVENANCE_METRIC_PREFIX_PATTERN, "동일 티어 평균 ");
+  prepared = prepared.replace(TECHNICAL_PROVENANCE_COUNT_PATTERN, "동일 티어 평균 ");
+  prepared = prepared.replace(TECHNICAL_PROVENANCE_PATTERN, "");
+  prepared = prepared.replace(TECHNICAL_SAMPLE_PATTERN, "");
+  prepared = prepared.replace(TECHNICAL_SCOPE_PATTERN, "");
+  prepared = prepared.replace(/\(\s*(?=동일\s*티어\s*평균)/giu, "");
+  // The close parenthesis belonged to the removed audit block. Restrict this
+  // repair to a sentence/comparison boundary so unrelated grouping remains
+  // intact.
+  prepared = prepared.replace(/\)\s*(?=(?:비교|대비|보다|[은는이가을를의에와과]|[.!?。！？]|$))/giu, "");
+  return prepared;
+}
+
+/**
+ * Turn audit-only benchmark provenance into a short, readable comparison
+ * marker.  This is intentionally a post-validation pass: callers first run
+ * the mode, metric identity, canonical-value, and direction checks against the
+ * original provider wording.  A foreign marker therefore remains rejected even
+ * when it appears inside the provenance bracket.
+ */
+function sanitizeAiSummaryBenchmarkProvenance(value: string): string {
+  let sanitized = value;
+  sanitized = sanitized.replace(TECHNICAL_PROVENANCE_METRIC_PREFIX_PATTERN, "동일 티어 평균 ");
+  // A cache may contain the per-metric marker without the surrounding prefix,
+  // especially when an older clause splitter cut at `;`. Keep the metric and
+  // value while removing only the sample-count wording.
+  sanitized = sanitized.replace(TECHNICAL_PROVENANCE_COUNT_PATTERN, "동일 티어 평균 ");
+  sanitized = sanitized.replace(TECHNICAL_PROVENANCE_PATTERN, "");
+  // Detached sample prose carries a provider-owned number with no metric label;
+  // validation has already discarded that clause, so remove the audit fragment
+  // rather than exposing a bare count in the final sentence.
+  sanitized = sanitized.replace(TECHNICAL_SAMPLE_PATTERN, "");
+  sanitized = sanitized.replace(TECHNICAL_SCOPE_PATTERN, "");
+
+  const hadAuditWording = sanitized !== value;
+  const hasFriendlyComparison = FRIENDLY_COMPARISON_PATTERN.test(sanitized);
+  FRIENDLY_COMPARISON_PATTERN.lastIndex = 0;
+  if (!hadAuditWording && !hasFriendlyComparison) return value;
+
+  sanitized = sanitized
+    .replace(TECHNICAL_FRIENDLY_MARKER_PATTERN, "")
+    .replace(/\s*;\s*(?=[,.;:!?)]|$)/gu, "")
+    .replace(/\(\s*(?=[,.;:!?]|$)/gu, "")
+    .replace(/([.!?])\s*\)/gu, ")$1")
+    .replace(/\s+([,.;!?])/gu, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  sanitized = stripUnbalancedParentheses(sanitized)
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  // Make a canonical user↔benchmark pair read as a sentence rather than a
+  // metric-label fragment. The values have already been replaced from the
+  // server evidence map; this pass only changes particles and connective words.
+  sanitized = sanitized.replace(
+    FRIENDLY_COMPARISON_PATTERN,
+    (_match, metric, userValue, _benchmarkMetric, benchmarkValue, tail = "") => {
+      const metricLabel = String(metric).replace(/^(?:(?:내|나의|유저|사용자)\s+)?/iu, "");
+      const connective = String(tail).trim();
+      // `에서`/`대비`/`비교 시` in a legacy fragment does not add a claim after
+      // the two values; discard it so the following advice starts a new sentence.
+      return `${metricLabel}${metricSubjectParticle(metricLabel)} ${userValue}이며, 비교 평균은 ${benchmarkValue}입니다${connective ? "." : ""}`;
+    },
+  );
+  // When the provider repeated the same value in a second audit-only clause,
+  // retain the first (already canonical) statement and remove the duplicate.
+  sanitized = sanitized.replace(DUPLICATE_FRIENDLY_BENCHMARK_PATTERN, "$1 $2.");
+  sanitized = sanitized.replace(/입니다\s*(?:에서|대비|에|비교\s*(?:하면|해|시)?)/giu, "입니다");
+
+  // Clause splitting can leave a connective at the end after an audit-only
+  // clause is removed. Repair the two common metric forms; fail closed for any
+  // other dangling conjunction instead of showing an incomplete sentence.
+  sanitized = sanitized.replace(/(\d+(?:[.,]\d+)?\s*(?:%|ms|밀리초|s|secs?|초|m|미터|회|횟수)?)\s*(?:로|으로)\s*$/iu, "$1입니다.");
+  sanitized = sanitized.replace(/기록하며\s*$/iu, "기록했습니다.");
+  if (/(?:지만|며|고|및|그리고|와|과|대비|보다|vs)\s*$/iu.test(sanitized)) return NEUTRAL_BENCHMARK_SENTENCE;
+  if (/(?:로|으로)\s*$/iu.test(sanitized)) return NEUTRAL_BENCHMARK_SENTENCE;
+  if (sanitized && !/[.!?。！？]$/u.test(sanitized)) sanitized += ".";
+  return sanitized || NEUTRAL_BENCHMARK_SENTENCE;
+}
 
 function findNumericToken(value: string, offset: number, leading: boolean): { start: number; end: number } | null {
   const pattern = new RegExp(
@@ -547,6 +767,59 @@ function validateBenchmarkDirection(
 }
 
 /**
+ * Validate a qualitative comparison that intentionally omits the numeric
+ * labels (the v2 prompt keeps those in the server-owned evidence rows).  Only
+ * explicit, measurable predicates are accepted; generic praise/criticism is
+ * still rejected.  The relation is checked against the canonical values, so a
+ * provider cannot launder an invented direction through the phrase
+ * `비교 평균`.
+ */
+function validateUnquantifiedBenchmarkDirection(
+  clause: string,
+  metricKeyValue: string,
+  canonicalUser: DebateStat,
+  canonicalBenchmark: DebateStat,
+): boolean {
+  const metric = METRIC_BY_KEY.get(metricKeyValue);
+  if (!metric) return false;
+  const userMeasurement = parseMeasurement(canonicalUser.value);
+  const benchmarkMeasurement = parseMeasurement(canonicalBenchmark.value);
+  if (!userMeasurement || !benchmarkMeasurement || userMeasurement.dimension !== benchmarkMeasurement.dimension) return false;
+
+  // Match only a complete, subject-first sentence. Substring direction checks
+  // are unsafe here: they accept negation (`높지 않습니다`), reversed subjects
+  // (`평균보다 비교 평균이 높습니다`), and incidental words such as
+  // `적극적`. Keep benchmark-qualified aliases out of the subject position.
+  const aliases = metric.aliases
+    .filter((alias) => !/(?:상위권|동일\s*티어|엘리트)/iu.test(alias))
+    .sort((a, b) => b.length - a.length)
+    .map(escapeRegExp)
+    .join("|");
+  if (!aliases) return false;
+  const subjectPattern = `(?:${aliases})\\s*(?:은|는|이|가)\\s*`;
+  const comparison = clause.trim().match(new RegExp(
+    `^${subjectPattern}비교\\s*평균\\s*보다\\s*(높습니다|낮습니다|빠릅니다|느립니다)\\s*[.!?。！？]?$`,
+    "iu",
+  ));
+  const equal = new RegExp(
+    `^${subjectPattern}비교\\s*평균\\s*(?:과|와)\\s*같습니다\\s*[.!?。！？]?$`,
+    "iu",
+  ).test(clause.trim());
+
+  const epsilon = 1e-9;
+  const difference = userMeasurement.baseValue - benchmarkMeasurement.baseValue;
+  if (equal) return Math.abs(difference) <= epsilon;
+  if (!comparison || Math.abs(difference) <= epsilon) return false;
+
+  const predicate = comparison[1].toLocaleLowerCase();
+  if (predicate === "높습니다") return difference > epsilon;
+  if (predicate === "낮습니다") return difference < -epsilon;
+  if (predicate === "빠릅니다") return metric.dimension === "duration" && difference < -epsilon;
+  if (predicate === "느립니다") return metric.dimension === "duration" && difference > epsilon;
+  return false;
+}
+
+/**
  * Remove benchmark comparison prose for metrics that have no server-owned
  * evidence. Provider stat arrays are canonicalized separately, but prose
  * fields can still repeat a NULL benchmark number (for example, "상위권
@@ -560,10 +833,18 @@ export function sanitizeUnsupportedAiSummaryBenchmarkLanguage(
   options: { allowedMode?: string } = {},
 ): string {
   const supportedMetricKeys = new Set(Object.keys(canonicalEvidence));
-  const clauses = splitBenchmarkLanguageClauses(value);
-  const retained: string[] = [];
-
   const allowedMode = typeof options.allowedMode === "string" ? normalizeSummaryMode(options.allowedMode) : null;
+  // Never pre-clean a value that already names another mode. The original
+  // wording must remain visible to the guard below so a foreign marker cannot
+  // be hidden inside a provenance bracket before it is rejected.
+  const sourceHasForeignMode = allowedMode !== null && hasUnsupportedAiSummaryMode(value, allowedMode);
+  // Semicolons in an audit block can separate its mode from its numbers.
+  // Reject that block before splitting so orphaned sample clauses cannot be
+  // rewritten using evidence from the allowed mode.
+  if (sourceHasForeignMode && TECHNICAL_AUDIT_PATTERN.test(value)) return NEUTRAL_BENCHMARK_SENTENCE;
+  const preparedValue = sourceHasForeignMode ? value : prepareAiSummaryBenchmarkProvenance(value);
+  const clauses = splitBenchmarkLanguageClauses(preparedValue);
+  const retained: string[] = [];
 
   clauses.forEach((rawClause) => {
     let clause = rawClause;
@@ -627,12 +908,26 @@ export function sanitizeUnsupportedAiSummaryBenchmarkLanguage(
     // Benchmark language without an attached, route-owned metric value is a
     // qualitative claim rather than evidence (for example, "평균 화력은
     // 상위권 수준입니다"). Do not let it reach the UI.
+    let unquantifiedComparisonAccepted = false;
     if (hasBenchmarkLanguage && keys.length > 0) {
       const hasAttachedSupportedMetric = keys.some((key) => {
         const metric = METRIC_BY_KEY.get(key);
         return Boolean(metric && metricNumberOccurrences(clause, metric).length > 0);
       });
-      if (!hasAttachedSupportedMetric) return;
+      if (!hasAttachedSupportedMetric) {
+        // V2 keeps numeric values in server-owned evidence rows, so a coach may
+        // say `복수 성공률은 비교 평균보다 낮습니다` without repeating
+        // them. Permit exactly one recognized metric and a direction that agrees
+        // with its canonical pair; generic benchmark praise remains rejected.
+        const supportedKeys = keys.filter((key) => supportedMetricKeys.has(key));
+        const key = supportedKeys.length === 1 ? supportedKeys[0] : null;
+        const canonical = key ? canonicalEvidence[key] : null;
+        const canonicalUser = canonical ? toStat(canonical.user) : null;
+        const canonicalBenchmark = canonical ? toStat(canonical.benchmark) : null;
+        if (!key || !canonicalUser || !canonicalBenchmark
+          || !validateUnquantifiedBenchmarkDirection(clause, key, canonicalUser, canonicalBenchmark)) return;
+        unquantifiedComparisonAccepted = true;
+      }
     }
 
     // Canonical values do not automatically prove the provider's conclusion
@@ -640,7 +935,8 @@ export function sanitizeUnsupportedAiSummaryBenchmarkLanguage(
     // directional predicate whose relation agrees with those values. Generic
     // words such as `좋습니다` are intentionally unprovable and drop the
     // entire clause.
-    if (hasBenchmarkLanguage && keys.some((key) => supportedMetricKeys.has(key))) {
+    if (!unquantifiedComparisonAccepted
+      && hasBenchmarkLanguage && keys.some((key) => supportedMetricKeys.has(key))) {
       // Strong benchmark predicates such as `벤치마크를 압도합니다` do not
       // carry a measurable threshold. Remove the predicate and retain only
       // the already-canonicalized evidence; a bare neutral sentence is safe.
@@ -664,7 +960,19 @@ export function sanitizeUnsupportedAiSummaryBenchmarkLanguage(
   const sanitized = retained.join(" ").replace(/\s{2,}/g, " ").trim();
   // normalizeAiSummaryDebatePayload validates non-empty fields before this
   // guard runs. Keep that shape valid even if every clause was unsafe.
-  return sanitized || NEUTRAL_BENCHMARK_SENTENCE;
+  if (!sanitized) return NEUTRAL_BENCHMARK_SENTENCE;
+  // Dropping an unsafe clause can leave a comma/semicolon fragment from the
+  // preceding provider sentence (for example, `피지컬은 괴물이지만,`). Do
+  // not expose that incomplete prose as a coach opinion.
+  if (/[,;:]\s*$/u.test(sanitized)) return NEUTRAL_BENCHMARK_SENTENCE;
+
+  // Preserve a foreign-mode marker that survived the per-clause guard (for
+  // example, an otherwise standalone mode label).  Cleaning it away would
+  // turn an invalid cached/provider phrase into apparently safe prose. Any
+  // accepted clause has already passed the checks above, so it is safe to
+  // shorten only the audit wording now.
+  if (allowedMode !== null && hasUnsupportedAiSummaryMode(sanitized, allowedMode)) return sanitized;
+  return sanitizeAiSummaryBenchmarkProvenance(sanitized);
 }
 
 /**
@@ -689,6 +997,22 @@ export function sanitizeAiSummaryDebateQuestion(
   const fallback = `${normalizedTopic}에 대한 두 코치의 평가는?`;
   const question = value.trim();
   if (!question) return fallback;
+
+  // The route selects debate topics from this finite list. A provider can
+  // still put a different selected topic into the question while leaving the
+  // issue topic untouched; recover to the issue-specific question rather than
+  // displaying a cross-topic prompt. Keep this guard narrow so free-form,
+  // non-topic questions remain valid.
+  const knownTopics = ["화력", "교전 주도권", "1:1 결정력", "복수 성공률 및 백업", "유틸리티 활용", "포지셔닝", "생존 운영"];
+  const compactQuestion = compactLabel(question);
+  const compactTopic = compactLabel(normalizedTopic);
+  const isKnownTopic = knownTopics.some((candidate) => compactLabel(candidate) === compactTopic);
+  const otherTopicNamed = knownTopics.some((candidate) => (
+    compactLabel(candidate) !== compactTopic
+      && compactQuestion.includes(compactLabel(candidate))
+  ));
+  if (isKnownTopic && otherTopicNamed) return fallback;
+
   if (!DEBATE_QUESTION_END_PATTERN.test(question)) return fallback;
   if (hasUnsafeQuestionNumber(question)) return fallback;
   if (options.allowedMode && hasUnsupportedAiSummaryMode(question, options.allowedMode)) return fallback;

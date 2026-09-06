@@ -17,6 +17,7 @@ import { trackEvent } from "@/lib/analytics";
 import { BgmsIcon, type BgmsIconName } from "@/components/common/BgmsIcon";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { matchDebateStatPairs, normalizeAiSummaryFinalJson, type DebateStat } from "@/lib/pubg-analysis/aiSummaryDebate";
+import { parseSummaryCards, type SummaryCard, type SummaryEvidence } from "@/lib/pubg-analysis/aiSummaryCards";
 import { formatBenchmarkDisplayLabel } from "@/lib/pubg-analysis/benchmarkAdapter";
 
 function getAiTierIconName(tier?: string | null): BgmsIconName {
@@ -518,6 +519,8 @@ export const RecentAISummary = ({
   onSummaryChange,
 }: RecentAISummaryProps) => {
   const [debateData, setDebateData] = useState<DebateData | null>(null);
+  const [summaryCards, setSummaryCards] = useState<SummaryCard[] | null>(null);
+  const [summaryContractVersion, setSummaryContractVersion] = useState<2 | null>(null);
   const [loading, setLoading] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [error, setError] = useState<AiSummaryRequestError | null>(null);
@@ -538,10 +541,13 @@ export const RecentAISummary = ({
   const isLoadingRef = useRef(false);
   const matchIdsIdentity = matchIds.join("\u001f");
   const identity = `${platform}\u001e${nickname}\u001e${matchIdsIdentity}`;
+  const [renderIdentity, setRenderIdentity] = useState(identity);
   const identityRef = useRef(identity);
   const generationRef = useRef(0);
   const requestOwnerRef = useRef<SummaryRequestOwner | null>(null);
   const dataIdentityRef = useRef<string | null>(null);
+  const summaryCardsRef = useRef<SummaryCard[] | null>(null);
+  const summaryContractVersionRef = useRef<2 | null>(null);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onSummaryChangeRef = useRef(onSummaryChange);
   const emittedSummaryRef = useRef<string | null>(null);
@@ -553,6 +559,16 @@ export const RecentAISummary = ({
   const { isAnalyzing: isGlobalAnalyzing } = useAIStatus();
   const { user } = useAuth();
   const router = useRouter();
+
+  const writeSummaryCards = (cards: SummaryCard[] | null) => {
+    summaryCardsRef.current = cards;
+    setSummaryCards(cards);
+  };
+
+  const markSummaryContractV2 = () => {
+    summaryContractVersionRef.current = 2;
+    setSummaryContractVersion(2);
+  };
 
   const latestMatchCount = debateData?.visuals?.latestMatchCount ?? 10;
   const bestMatchCount = debateData?.visuals?.bestMatchCount ?? 5;
@@ -628,7 +644,10 @@ export const RecentAISummary = ({
 
     if (force) {
       dataIdentityRef.current = null;
-      setDebateData(null);
+      // A v2 retry may still have server-assembled facts available. Keep the
+      // facts visible until the replacement cards arrive (or the request is
+      // reset by an identity change), while preserving the v1 reset behavior.
+      if (summaryContractVersionRef.current !== 2) setDebateData(null);
       textBufferRef.current = "";
       lineBufferRef.current = "";
     }
@@ -690,7 +709,8 @@ export const RecentAISummary = ({
           matchIds,
           nickname,
           platform,
-          force
+          force,
+          summaryContractVersion: 2,
         })
       });
       if (!canWriteRequest()) return;
@@ -717,6 +737,16 @@ export const RecentAISummary = ({
       readerRef.current = reader ?? null;
       const decoder = new TextDecoder();
       let fullText = "";
+      const decodeFinalRecord = (text: string): Record<string, unknown> | null => {
+        try {
+          const decoded = JSON.parse(text) as unknown;
+          return decoded && typeof decoded === "object" && !Array.isArray(decoded)
+            ? decoded as Record<string, unknown>
+            : null;
+        } catch {
+          return null;
+        }
+      };
       let streamedError: {
         error?: string;
         errorCode?: string;
@@ -732,7 +762,9 @@ export const RecentAISummary = ({
       let sawTerminalRecord = false;
       const clearPartialStreamState = () => {
         dataIdentityRef.current = null;
-        setDebateData(null);
+        // v2 cards are facts owned by the route, so a rejected/partial AI
+        // final must not remove them. Legacy streams keep the old clear path.
+        if (summaryContractVersionRef.current !== 2) setDebateData(null);
         textBufferRef.current = "";
         lineBufferRef.current = "";
         setStreamingText("");
@@ -770,6 +802,7 @@ export const RecentAISummary = ({
                   type?: string;
                   data?: unknown;
                   valid?: boolean;
+                  cards?: unknown;
                   error?: string;
                   errorCode?: string;
                   retryable?: boolean;
@@ -787,13 +820,26 @@ export const RecentAISummary = ({
                     ...(previous ?? {}),
                     visuals: routeOwnedVisuals,
                   }));
-                  setLoading(false);
+                  // v2 cards can arrive after route-owned visuals while the
+                  // provider is still streaming. Keep their pending state
+                  // distinguishable from a terminal unavailable result.
+                  if (summaryContractVersionRef.current !== 2) setLoading(false);
                 } else if (parsed.type === "chunk" && typeof parsed.data === "string") {
                   textBufferRef.current += parsed.data;
                   fullText += parsed.data;
+                } else if (parsed.type === "cards") {
+                  // The cards record is deliberately independent of provider
+                  // prose. Even if the terminal record reports failure, these
+                  // validated facts remain renderable.
+                  markSummaryContractV2();
+                  setLoading(true);
+                  const cards = parseSummaryCards(parsed.data);
+                  if (cards) writeSummaryCards(cards);
                 } else if (parsed.type === "final") {
                   // [V54.3] 서버에서 보내준 최종 정제된 JSON으로 교체 (중복 방지)
                   fullText = typeof parsed.data === "string" ? parsed.data : JSON.stringify(parsed.data ?? {});
+                  const finalRecord = decodeFinalRecord(fullText);
+                  if (finalRecord?.schemaVersion === 2) markSummaryContractV2();
                 } else if (parsed.type === "error") {
                   streamedError = {
                     error: parsed.error,
@@ -804,6 +850,16 @@ export const RecentAISummary = ({
                 } else if (parsed.type === "done") {
                   sawTerminalRecord = true;
                   if (parsed.valid !== true) {
+                    // v2 may send a partially accepted final before done:false.
+                    // Merge that assembled card snapshot before exposing the
+                    // terminal error so valid interpretations survive beside
+                    // unavailable cards.
+                    const terminalFinal = decodeFinalRecord(fullText.trim());
+                    if (terminalFinal?.schemaVersion === 2) {
+                      markSummaryContractV2();
+                      const terminalCards = parseSummaryCards(terminalFinal.cards);
+                      if (terminalCards) writeSummaryCards(terminalCards);
+                    }
                     const failure = {
                       ...(streamedError ?? {}),
                       ...parsed,
@@ -841,9 +897,27 @@ export const RecentAISummary = ({
                       if (!routeOwnedVisuals || Object.keys(routeOwnedVisuals).length === 0) {
                         throw new Error("Route-owned AI summary visuals are missing.");
                       }
-                      const normalizedJson = normalizeAiSummaryFinalJson(fullText.trim());
-                      if (!normalizedJson) throw new Error("Final AI summary payload is invalid.");
-                      const decoded = JSON.parse(normalizedJson) as Record<string, unknown>;
+                      const finalRecord = decodeFinalRecord(fullText.trim());
+                      const isV2Final = summaryContractVersionRef.current === 2 || finalRecord?.schemaVersion === 2;
+                      let decoded: Record<string, unknown>;
+                      if (isV2Final) {
+                        if (!finalRecord || finalRecord.schemaVersion !== 2) {
+                          throw new Error("Final AI summary payload is invalid.");
+                        }
+                        const finalCards = parseSummaryCards(finalRecord.cards);
+                        if (!finalCards) throw new Error("Final AI summary cards are invalid.");
+                        if (finalCards.some((card) => card.analysisStatus === "pending")
+                          || finalCards.every((card) => card.analysisStatus !== "ready")) {
+                          throw new Error("Final AI summary cards contain no usable interpretation.");
+                        }
+                        markSummaryContractV2();
+                        writeSummaryCards(finalCards);
+                        decoded = finalRecord;
+                      } else {
+                        const normalizedJson = normalizeAiSummaryFinalJson(fullText.trim());
+                        if (!normalizedJson) throw new Error("Final AI summary payload is invalid.");
+                        decoded = JSON.parse(normalizedJson) as Record<string, unknown>;
+                      }
                       const finalData: DebateData = {
                         debateIssues: Array.isArray(decoded.debateIssues) ? decoded.debateIssues as DebateIssue[] : undefined,
                         finalVerdict: typeof decoded.finalVerdict === "string" ? decoded.finalVerdict : undefined,
@@ -974,19 +1048,42 @@ export const RecentAISummary = ({
     }
   };
 
-  const getScore = () => {
-    if (!debateData?.debateIssues) return { kind: 0, spicy: 0, draw: 0 };
-    const scoreMap = { kind: 0, spicy: 0, draw: 0 };
-    debateData.debateIssues.forEach(issue => {
-      const w = issue.winner?.toLowerCase() || "";
-      if (w.includes("spicy")) scoreMap.spicy++;
-      else if (w.includes("kind")) scoreMap.kind++;
-      else scoreMap.draw++;
+  const issueViews = (summaryContractVersion === 2 ? [] : debateData?.debateIssues ?? []).map((issue) => {
+    const pairs = matchDebateStatPairs(issue.userStats, issue.benchmarkStats);
+    const winner = pairs.length > 0 ? issue.winner : null;
+    return { issue, pairs, winner };
+  });
+  const summaryCardViews = (summaryCards ?? []).map((card) => {
+    const winner = card.dataStatus === "comparable"
+      && card.analysisStatus === "ready"
+      && (card.winner === "kind" || card.winner === "spicy")
+      ? card.winner
+      : null;
+    const evidenceById = new Map(card.evidence.map((evidence) => [evidence.id, evidence]));
+    const referencedIds = new Set<string>();
+    const referencedEvidence = card.evidenceIds.flatMap((evidenceId) => {
+      const evidence = evidenceById.get(evidenceId);
+      if (!evidence) return [];
+      referencedIds.add(evidence.id);
+      return [evidence];
     });
-    return scoreMap;
-  };
-
-  const score = getScore();
+    // Unavailable records have no valid evidence ID by contract, but they are
+    // still factual rows and must remain visible after observed references.
+    const remainingEvidence = card.evidence.filter((evidence) => !referencedIds.has(evidence.id));
+    return { card, winner, evidence: [...referencedEvidence, ...remainingEvidence] };
+  });
+  const score = (summaryContractVersion === 2
+    ? summaryCardViews
+    : issueViews).reduce(
+    (scoreMap, { winner }) => {
+      if (winner === "kind") scoreMap.kind++;
+      else if (winner === "spicy") scoreMap.spicy++;
+      else if (winner === "draw") scoreMap.draw++;
+      else scoreMap.pending++;
+      return scoreMap;
+    },
+    { kind: 0, spicy: 0, draw: 0, pending: 0 },
+  );
 
   useEffect(() => {
     if (!showTierTooltip && !activeStatTooltip) return;
@@ -1017,9 +1114,13 @@ export const RecentAISummary = ({
 
   useEffect(() => {
     identityRef.current = identity;
+    setRenderIdentity(identity);
     generationRef.current += 1;
     dataIdentityRef.current = null;
     setDebateData(null);
+    summaryContractVersionRef.current = null;
+    writeSummaryCards(null);
+    setSummaryContractVersion(null);
     setStreamingText("");
     setLoading(false);
     setError(null);
@@ -1068,8 +1169,11 @@ export const RecentAISummary = ({
     });
   }, [identity, summaryTier, summaryVerdict]);
 
+  // Hide the previous selection during the render before its reset effect.
+  if (renderIdentity !== identity) return null;
+
   // [AUTO-RETRY] 재시도 중 메시지 표시
-  if (retryMessage) {
+  if (retryMessage && !summaryCards) {
     return (
       <div className="p-8 bg-white/5 rounded-3xl border border-white/10 text-center">
         <div className="w-10 h-10 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin mx-auto mb-4" />
@@ -1079,26 +1183,28 @@ export const RecentAISummary = ({
     );
   }
 
-  if (error) {
+  const retrySummary = () => {
+    if (retryTimerRef.current) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    retryCountRef.current = 0;
+    dataIdentityRef.current = null;
+    setError(null);
+    if (summaryContractVersionRef.current !== 2) setDebateData(null);
+    textBufferRef.current = "";
+    lineBufferRef.current = "";
+    void handleFetchSummary(true);
+  };
+
+  if (error && !summaryCards) {
     return (
       <div className="p-6 bg-white/5 border border-white/10 rounded-2xl text-center">
         <BgmsIcon name="info" size={28} className="mx-auto mb-3 text-indigo-300" />
         <p className="text-gray-300 text-sm mb-1">AI 분석이 잠깐 막혔어요.</p>
         <p className="text-gray-500 text-xs mb-4">서버가 바쁘거나 네트워크가 불안정할 때 가끔 생겨요.</p>
         <button
-          onClick={() => {
-            if (retryTimerRef.current) {
-              clearTimeout(retryTimerRef.current);
-              retryTimerRef.current = null;
-            }
-            retryCountRef.current = 0;
-            dataIdentityRef.current = null;
-            setError(null);
-            setDebateData(null);
-            textBufferRef.current = "";
-            lineBufferRef.current = "";
-            void handleFetchSummary(true);
-          }}
+          onClick={retrySummary}
           className="px-5 py-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-sm hover:bg-indigo-500/30 transition-colors"
         >
           다시 시도하기
@@ -1107,7 +1213,7 @@ export const RecentAISummary = ({
     );
   }
 
-  if (!debateData && !loading) {
+  if (!debateData && !summaryCards && !loading) {
     //  비로그인 유저에게는 로그인 유도 CTA 표시
     if (!user) {
       return (
@@ -1155,7 +1261,7 @@ export const RecentAISummary = ({
   }
 
   // [V46.5] 로딩 중이지만 이미 데이터가 있는 경우(갱신 중)에는 전체 화면 스피너를 보여주지 않음 (Partial Loading)
-  if (loading && !debateData) {
+  if (loading && !debateData && !summaryCards) {
     return (
       <div className="p-12 bg-white/5 rounded-3xl border border-white/10 text-center">
         <div className="w-12 h-12 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mx-auto mb-6" />
@@ -1170,8 +1276,163 @@ export const RecentAISummary = ({
     return isNaN(n) ? 0 : n;
   };
 
+  const renderSummaryCard = ({
+    card,
+    winner,
+    evidence,
+  }: {
+    card: SummaryCard;
+    winner: "kind" | "spicy" | null;
+    evidence: SummaryEvidence[];
+  }, idx: number) => {
+    const interpretationPending = card.analysisStatus === "pending" && loading && !error && !retryMessage;
+    const interpretationReady = card.analysisStatus === "ready";
+    const interpretationStatus = interpretationReady
+      ? "ready"
+      : interpretationPending ? "pending" : "unavailable";
+    const interpretationText = interpretationStatus === "pending"
+      ? "AI 해석 준비 중"
+      : interpretationStatus === "unavailable"
+        ? "AI 해석을 표시할 수 없습니다."
+        : null;
+    const renderEvidenceRow = (row: SummaryEvidence, rowIdx: number) => {
+      if (row.status === "comparable" && row.userValue !== null && row.benchmarkValue !== null) {
+        return (
+          <div key={row.id || rowIdx} className="grid grid-cols-11 items-center gap-2 p-4 bg-white/5 rounded-xl border border-white/5 group hover:bg-white/10 transition-colors">
+            <div className="col-span-4 text-right">
+              <div className="text-lg md:text-xl font-black text-indigo-400">{row.userValue}</div>
+              <div className="text-[9px] text-gray-500 font-bold uppercase">{row.label}</div>
+            </div>
+            <div className="col-span-3 flex flex-col items-center justify-center gap-1">
+              <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-[10px] font-black text-white/20 group-hover:text-white/40 border border-white/10">VS</div>
+            </div>
+            <div className="col-span-4 text-left">
+              <div className="text-lg md:text-xl font-black text-gray-400">{row.benchmarkValue}</div>
+              <div className="text-[9px] text-gray-500 font-bold uppercase">{neutralBenchmarkLabel(row.benchmarkLabel, {
+                gameMode: card.context.gameMode, matchType: card.context.matchType, tier: card.context.tier ?? undefined,
+              })}</div>
+              <div className="text-[9px] text-gray-500">내 {card.context.userMatchCount}경기 · 비교 표본 {row.sampleCount}건</div>
+            </div>
+          </div>
+        );
+      }
+
+      if (row.status === "user_only" && row.userValue !== null) {
+        return (
+          <div key={row.id || rowIdx} className="grid grid-cols-11 items-center gap-2 p-4 bg-white/5 rounded-xl border border-white/5 group hover:bg-white/10 transition-colors">
+            <div className="col-span-5 text-right">
+              <div className="text-lg md:text-xl font-black text-indigo-400">{row.userValue}</div>
+              <div className="text-[9px] text-gray-500 font-bold uppercase">{row.label} · 내 기록</div>
+            </div>
+            <div className="col-span-2 flex items-center justify-center">
+              <span className="text-[10px] font-black text-gray-500 text-center">비교 자료 없음</span>
+            </div>
+            <div className="col-span-4 text-left">
+              <div className="text-sm font-bold text-gray-500">비교 자료 없음</div>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div key={row.id || rowIdx} className="flex flex-col gap-2 p-4 bg-white/5 rounded-xl border border-white/5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <div className="shrink-0 text-sm font-bold text-gray-400">{row.label}</div>
+          <div className="min-w-0 break-keep text-sm font-black text-gray-500">{row.unavailableReason || "측정 불가"}</div>
+        </div>
+      );
+    };
+
+    return (
+      <div key={card.topicId || idx} className="bg-white/5 border border-white/10 rounded-3xl overflow-hidden transition-all hover:border-white/20">
+        <button
+          onClick={() => setOpenIssueIdx(openIssueIdx === idx ? null : idx)}
+          className="w-full p-6 flex justify-between items-center text-left group"
+        >
+          <div className="flex flex-col gap-1 min-w-0">
+            <span className="text-[10px] text-indigo-400 font-black uppercase tracking-widest">{card.topic || "분석 항목"}</span>
+            <h4 className="text-lg font-black text-white group-hover:text-indigo-300 transition-colors break-words">{card.question || "분석 내용 로드 중..."}</h4>
+          </div>
+          <div className="flex items-center gap-4 shrink-0 ml-4">
+            <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ${winner === "spicy" ? "bg-red-500/20 text-red-400 border border-red-500/30" :
+              winner === "kind" ? "bg-green-500/20 text-green-400 border border-green-500/30" :
+                "bg-gray-500/20 text-gray-300 border border-gray-500/30"
+              }`}>
+              {winner === "spicy" ? "매운맛 승" : winner === "kind" ? "착한맛 승" : "판정 보류"}
+            </div>
+            <svg className={`w-6 h-6 text-white/50 transition-transform ${openIssueIdx === idx ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
+          </div>
+        </button>
+
+        {openIssueIdx === idx && (
+          <div className="px-6 pb-6 animate-in slide-in-from-top-4 duration-300">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className={`p-5 rounded-2xl border transition-all ${winner === "kind" ? "bg-green-500/5 border-green-500/30 ring-1 ring-green-500/20" : "bg-black/30 border-white/10"}`}>
+                <div className="flex items-center gap-2 mb-3">
+                  <BgmsIcon name="shield" size={18} className="text-green-400" />
+                  <span className="text-xs font-black text-green-400 uppercase">착한맛 코치</span>
+                </div>
+                {interpretationReady ? (
+                  <p className="text-sm text-gray-300 leading-relaxed font-medium">&quot;{card.kindOpinion || "의견을 표시할 수 없습니다."}&quot;</p>
+                ) : (
+                  <p className="text-sm text-gray-400 leading-relaxed font-medium">{interpretationText}</p>
+                )}
+              </div>
+
+              <div className={`p-5 rounded-2xl border transition-all ${winner === "spicy" ? "bg-red-500/5 border-red-500/30 ring-1 ring-red-500/20" : "bg-black/30 border-white/10"}`}>
+                <div className="flex items-center gap-2 mb-3">
+                  <BgmsIcon name="zap" size={18} className="text-red-400" />
+                  <span className="text-xs font-black text-red-400 uppercase">매운맛 폭격기</span>
+                </div>
+                {interpretationReady ? (
+                  <p className="text-sm text-gray-300 leading-relaxed font-medium">&quot;{card.spicyOpinion || "의견을 표시할 수 없습니다."}&quot;</p>
+                ) : (
+                  <p className="text-sm text-gray-400 leading-relaxed font-medium">{interpretationText}</p>
+                )}
+              </div>
+            </div>
+
+            {(interpretationStatus === "unavailable" && card.analysisReason) && (
+              <p className="mt-3 text-xs text-gray-500 text-center md:text-left">{card.analysisReason}</p>
+            )}
+
+            <div className="mt-8 p-6 bg-black/40 rounded-2xl border border-white/5">
+              <div className="flex flex-col gap-1 text-center md:text-left mb-8">
+                <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">데이터 증거 (전술적 증거)</span>
+                <span className="text-lg font-black text-white">{card.topic || "데이터"} 상세 비교</span>
+              </div>
+              <div className="space-y-4">
+                {evidence.length > 0
+                  ? evidence.map(renderEvidenceRow)
+                  : <p className="px-4 py-6 text-center text-sm font-medium leading-relaxed text-gray-400">이 항목의 비교 근거를 표시할 수 없습니다.</p>}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="w-full flex flex-col gap-6">
+      {summaryCards && retryMessage && (
+        <div className="p-5 bg-indigo-500/5 border border-indigo-500/20 rounded-2xl text-center">
+          <div className="w-8 h-8 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin mx-auto mb-3" />
+          <p className="text-indigo-300 text-sm font-medium">{retryMessage}</p>
+          <p className="text-gray-600 text-xs mt-2">확인된 데이터는 계속 표시됩니다.</p>
+        </div>
+      )}
+      {summaryCards && error && !retryMessage && (
+        <div role="alert" className="p-5 bg-white/5 border border-white/10 rounded-2xl text-center">
+          <p className="text-gray-300 text-sm mb-1">AI 해석을 표시할 수 없습니다.</p>
+          <p className="text-gray-500 text-xs mb-4">확인된 데이터는 아래에 표시됩니다. 잠시 후 다시 시도해주세요.</p>
+          <button
+            onClick={retrySummary}
+            className="px-5 py-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-sm hover:bg-indigo-500/30 transition-colors"
+          >
+            다시 시도하기
+          </button>
+        </div>
+      )}
       {/* [MOBILE-FIX] @container + animate-in 조합이 모바일 Chrome에서 전체 회전 유발 → 제거 */}
       {/* [V55.0] Premium Summary Dashboard & Toggle */}
       <div className="relative overflow-hidden bg-gradient-to-br from-indigo-500/10 via-purple-500/5 to-transparent border border-white/10 rounded-[32px] p-1 shadow-2xl">
@@ -1215,7 +1476,9 @@ export const RecentAISummary = ({
           <div className="pt-6 border-t border-white/5 flex flex-col md:flex-row items-center gap-6">
             <div className="flex-1 text-center md:text-left min-w-0">
               <p className="text-sm md:text-base text-gray-300/90 font-medium leading-relaxed italic whitespace-pre-wrap break-words">
-                &quot;{debateData?.finalVerdict || "분석 결과를 생성 중입니다..."}&quot;
+                &quot;{debateData?.finalVerdict || (summaryCards
+                  ? loading ? "AI 해석 준비 중" : "AI 해석을 표시할 수 없습니다."
+                  : "분석 결과를 생성 중입니다...")}&quot;
               </p>
             </div>
 
@@ -1246,7 +1509,7 @@ export const RecentAISummary = ({
       {/* Detailed Stats Content (Collapsible) */}
       <div className={`flex flex-col gap-8 transition-all duration-500 origin-top ${isExpanded ? "opacity-100 max-h-[10000px] visible" : "opacity-0 max-h-0 invisible overflow-hidden"}`}>
         {/* [V6.2] 공간 분석 레이더 및 CLS 방지 Skeleton */}
-        {(debateData?.visuals?.tactical?.isolation || (loading && !debateData)) && (
+        {(debateData?.visuals?.tactical?.isolation || (loading && !debateData && !summaryCards)) && (
           <div className="min-h-[380px] w-full">
             {debateData?.visuals?.tactical?.isolation ? (
               <IsolationRadar
@@ -1265,7 +1528,7 @@ export const RecentAISummary = ({
 
 
         {/* [V8.2 FIX] JSON 노출 방지 및 세련된 상태 메시지 제공 */}
-        {!debateData?.debateIssues && (loading || streamingText) && (
+        {!summaryCards && !debateData?.debateIssues && (loading || streamingText) && (
           <div className="p-10 bg-indigo-500/5 border border-indigo-500/20 rounded-[40px] animate-in fade-in zoom-in duration-700 relative overflow-hidden">
             <div className="absolute top-0 right-0 p-8 opacity-10">
               <TrendingUp size={80} className="text-indigo-400 animate-pulse" />
@@ -1378,6 +1641,11 @@ export const RecentAISummary = ({
             </div>
           </div>
         </div>
+        {score.pending > 0 && (
+          <p className="-mt-4 px-4 text-center text-xs font-bold leading-relaxed text-gray-400">
+            근거 확인이 필요한 {score.pending}개 항목은 판정을 보류했습니다.
+          </p>
+        )}
 
         {debateData?.visuals?.roleInfo && (
           <div className="relative z-20 group rounded-[32px] border border-white/10 bg-black/60 backdrop-blur-xl shadow-2xl animate-in fade-in slide-in-from-bottom-8 duration-1000">
@@ -1706,7 +1974,7 @@ export const RecentAISummary = ({
 
 
 
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        {debateData?.visuals && <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
 
           <div className="relative group p-6 bg-indigo-500/10 border border-indigo-500/20 rounded-[28px] text-center transition-all hover:bg-indigo-500/15">
             <div className="text-[10px] text-indigo-400 font-black uppercase mb-1 tracking-widest">선제 타격 효율</div>
@@ -1808,6 +2076,7 @@ export const RecentAISummary = ({
           </div>
         </div>
 
+        }
         {/* [V3.0] Tactical Mastery Summary */}
         {debateData?.visuals?.tactical && (
           <div className="p-8 bg-black/60 rounded-[32px] border border-white/10 shadow-xl overflow-hidden relative">
@@ -1902,7 +2171,9 @@ export const RecentAISummary = ({
         )}
 
         <div className="flex flex-col gap-4">
-          {debateData?.debateIssues?.map((issue: any, idx: number) => (
+          {summaryContractVersion === 2
+            ? summaryCardViews.map((cardView, idx) => renderSummaryCard(cardView, idx))
+            : issueViews.map(({ issue, pairs, winner }, idx) => (
             <div key={idx} className="bg-white/5 border border-white/10 rounded-3xl overflow-hidden transition-all hover:border-white/20">
               <button
                 onClick={() => setOpenIssueIdx(openIssueIdx === idx ? null : idx)}
@@ -1913,20 +2184,13 @@ export const RecentAISummary = ({
                   <h4 className="text-lg font-black text-white group-hover:text-indigo-300 transition-colors">{issue?.question || "분석 내용 로드 중..."}</h4>
                 </div>
                 <div className="flex items-center gap-4">
-                  {(() => {
-                    const w = issue?.winner?.toLowerCase() || "";
-                    const isSpicy = w.includes("spicy");
-                    const isKind = w.includes("kind");
-
-                    return (
-                      <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ${isSpicy ? "bg-red-500/20 text-red-400 border border-red-500/30" :
-                        isKind ? "bg-green-500/20 text-green-400 border border-green-500/30" :
-                          "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30"
-                        }`}>
-                        {isSpicy ? "매운맛 승" : isKind ? "착한맛 승" : "무승부"}
-                      </div>
-                    );
-                  })()}
+                  <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ${winner === "spicy" ? "bg-red-500/20 text-red-400 border border-red-500/30" :
+                    winner === "kind" ? "bg-green-500/20 text-green-400 border border-green-500/30" :
+                      winner === "draw" ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30" :
+                        "bg-gray-500/20 text-gray-300 border border-gray-500/30"
+                    }`}>
+                    {winner === "spicy" ? "매운맛 승" : winner === "kind" ? "착한맛 승" : winner === "draw" ? "무승부" : "판정 보류"}
+                  </div>
                   <svg className={`w-6 h-6 text-white/50 transition-transform ${openIssueIdx === idx ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
                 </div>
               </button>
@@ -1934,7 +2198,7 @@ export const RecentAISummary = ({
               {openIssueIdx === idx && (
                 <div className="px-6 pb-6 animate-in slide-in-from-top-4 duration-300">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className={`p-5 rounded-2xl border transition-all ${(issue?.winner?.toLowerCase() || "").includes("kind") ? "bg-green-500/5 border-green-500/30 ring-1 ring-green-500/20" : "bg-black/30 border-white/10"}`}>
+                    <div className={`p-5 rounded-2xl border transition-all ${winner === "kind" ? "bg-green-500/5 border-green-500/30 ring-1 ring-green-500/20" : "bg-black/30 border-white/10"}`}>
                       <div className="flex items-center gap-2 mb-3">
                         <BgmsIcon name="shield" size={18} className="text-green-400" />
                         <span className="text-xs font-black text-green-400 uppercase">착한맛 코치</span>
@@ -1942,7 +2206,7 @@ export const RecentAISummary = ({
                       <p className="text-sm text-gray-300 leading-relaxed font-medium">&quot;{issue?.kindOpinion || "의견을 가져오는 중..."}&quot;</p>
                     </div>
 
-                    <div className={`p-5 rounded-2xl border transition-all ${(issue?.winner?.toLowerCase() || "").includes("spicy") ? "bg-red-500/5 border-red-500/30 ring-1 ring-red-500/20" : "bg-black/30 border-white/10"}`}>
+                    <div className={`p-5 rounded-2xl border transition-all ${winner === "spicy" ? "bg-red-500/5 border-red-500/30 ring-1 ring-red-500/20" : "bg-black/30 border-white/10"}`}>
                       <div className="flex items-center gap-2 mb-3">
                         <BgmsIcon name="zap" size={18} className="text-red-400" />
                         <span className="text-xs font-black text-red-400 uppercase">매운맛 폭격기</span>
@@ -1958,7 +2222,7 @@ export const RecentAISummary = ({
                     </div>
 
                     <div className="space-y-4">
-                      {matchDebateStatPairs(issue.userStats, issue.benchmarkStats).map(({ user: uStat, benchmark: bStat }, sIdx) => {
+                      {pairs.length > 0 ? pairs.map(({ user: uStat, benchmark: bStat }, sIdx) => {
                         return (
                           <div key={sIdx} className="grid grid-cols-11 items-center gap-2 p-4 bg-white/5 rounded-xl border border-white/5 group hover:bg-white/10 transition-colors">
                             <div className="col-span-4 text-right">
@@ -1976,13 +2240,17 @@ export const RecentAISummary = ({
                             </div>
                           </div>
                         );
-                      })}
+                      }) : (
+                        <p className="px-4 py-6 text-center text-sm font-medium leading-relaxed text-gray-400">
+                          이 항목의 비교 근거를 표시할 수 없습니다.
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
               )}
             </div>
-          ))}
+            ))}
         </div>
 
       </div>
