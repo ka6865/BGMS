@@ -3,6 +3,7 @@
 import { BarChart3, Clock3, Crosshair, Crown, Target, Trophy } from "lucide-react";
 import type {
   StatsMode,
+  StatsModeAvailability,
   StatsPartySize,
   StatsSeasonSummaryMetrics,
   StatsSurvivalMastery,
@@ -80,17 +81,67 @@ function EmptySummary({
   seasonName,
   mode,
   party,
+  availability,
 }: {
   seasonName: string;
   mode: string;
   party: string;
+  availability?: StatsModeAvailability;
 }) {
+  if (availability?.status === "stale") {
+    const parsed = availability.updatedAt ? Date.parse(availability.updatedAt) : Number.NaN;
+    const updated = Number.isFinite(parsed)
+      ? new Date(parsed).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" })
+      : "갱신 시각 확인 불가";
+    return (
+      <div className="flex min-h-28 items-center justify-center px-5 py-6 text-center">
+        <div>
+          <div className="text-sm font-black text-sky-200">이전 자료를 확인할 수 없습니다</div>
+          <div className="mt-1 text-xs font-bold text-white/40">마지막 갱신: {updated} · {seasonName} {mode} {party} 자료</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex min-h-28 items-center justify-center px-5 py-6 text-center">
       <div>
         <div className="text-sm font-black text-white/70">기록 없음</div>
         <div className="mt-1 text-xs font-bold text-white/35">{seasonName} {mode}에 저장된 {party} 경기가 아직 없습니다.</div>
       </div>
+    </div>
+  );
+}
+
+function UnavailableSummary({ message }: { message: string }) {
+  return (
+    <div
+      data-testid="stats-availability-notice"
+      role="status"
+      className="flex min-h-28 items-center justify-center px-5 py-6 text-center"
+    >
+      <div>
+        <div className="text-sm font-black text-amber-200">조회 불가</div>
+        <div className="mt-1 text-xs font-bold leading-5 text-white/45">{message}</div>
+      </div>
+    </div>
+  );
+}
+
+function AvailabilityNotice({ availability }: { availability?: StatsModeAvailability }) {
+  if (!availability || availability.status !== "stale") return null;
+  const parsed = availability.updatedAt ? Date.parse(availability.updatedAt) : Number.NaN;
+  const updated = Number.isFinite(parsed)
+    ? new Date(parsed).toLocaleString("ko-KR", { dateStyle: "medium", timeStyle: "short" })
+    : "갱신 시각 확인 불가";
+  return (
+    <div
+      data-testid="stats-availability-notice"
+      role="status"
+      className="mb-4 rounded-xl border border-sky-400/20 bg-sky-400/[0.06] px-3 py-2 text-xs font-bold leading-5 text-sky-100/80"
+    >
+      <div className="font-black text-sky-200">이전 자료로 표시 중</div>
+      <div>마지막 갱신: {updated}</div>
     </div>
   );
 }
@@ -154,10 +205,18 @@ export function CurrentSeasonSummaryCard({
         )}
       </div>
 
-      {summary.kind === "empty" ? (
-        <EmptySummary seasonName={summary.seasonName} mode={modeLabel} party={party} />
+      {summary.kind === "unavailable" ? (
+        <UnavailableSummary message={summary.message} />
+      ) : summary.kind === "empty" ? (
+        <EmptySummary
+          seasonName={summary.seasonName}
+          mode={modeLabel}
+          party={party}
+          availability={summary.availability}
+        />
       ) : (
         <>
+          <AvailabilityNotice availability={summary.availability} />
           <div className="grid grid-cols-1 gap-4 p-4 md:grid-cols-[minmax(180px,0.78fr)_minmax(0,1.7fr)] md:p-5">
             {summary.mode === "ranked" ? (
               <div className="flex min-w-0 items-center gap-3 rounded-xl border border-amber-400/10 bg-amber-400/[0.04] p-3">

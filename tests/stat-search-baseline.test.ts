@@ -194,7 +194,13 @@ describe("StatSearch baseline", () => {
       if (String(input).startsWith("/api/pubg/matches-summary")) {
         return Promise.resolve(jsonResponse(summaryReady));
       }
-      return Promise.resolve(jsonResponse(playerReady));
+      // The controller now rejects a successful response whose season does
+      // not match an explicit season request. Return a season-7 payload for
+      // the season switch instead of replaying the initial season-8 fixture.
+      const requestedSeason7 = String(input).includes("season=division.bro.official.pc-2026-07");
+      return Promise.resolve(jsonResponse(requestedSeason7
+        ? { ...playerReady, seasonId: "division.bro.official.pc-2026-07" }
+        : playerReady));
     });
     render(createElement(StatSearch, {
       initialPlatform: "steam",

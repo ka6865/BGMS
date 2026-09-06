@@ -97,6 +97,43 @@ describe("stats page primitives", () => {
     expect(getStatsOverviewMetrics(rankedEmptyNormalReady)).toEqual({ kind: "empty", label: "기록 없음" });
   });
 
+  it("keeps stale mode values visible with availability metadata", () => {
+    const stalePlayer: PlayerStatsResponse = {
+      ...readyPlayer,
+      statsAvailability: {
+        ranked: { status: "stale", updatedAt: "2026-08-10T00:00:00.000Z" },
+      },
+    };
+
+    expect(getStatsOverviewMetrics(stalePlayer)).toMatchObject({
+      kind: "ready",
+      roundsPlayed: 12,
+      availability: { status: "stale", updatedAt: "2026-08-10T00:00:00.000Z" },
+    });
+    expect(getCurrentSeasonSummary(stalePlayer)).toMatchObject({
+      kind: "ready",
+      availability: { status: "stale", updatedAt: "2026-08-10T00:00:00.000Z" },
+    });
+  });
+
+  it("keeps unavailable mode distinct from an empty record", () => {
+    const unavailablePlayer: PlayerStatsResponse = {
+      ...readyPlayer,
+      statsAvailability: { ranked: { status: "unavailable" } },
+    };
+
+    expect(getStatsOverviewMetrics(unavailablePlayer)).toMatchObject({
+      kind: "unavailable",
+      label: "조회 불가",
+      availability: { status: "unavailable" },
+    });
+    expect(getCurrentSeasonSummary(unavailablePlayer)).toMatchObject({
+      kind: "unavailable",
+      label: "조회 불가",
+      availability: { status: "unavailable" },
+    });
+  });
+
   it("derives the current ranked representative summary without another API request", () => {
     expect(getCurrentSeasonSummary(readyPlayer)).toMatchObject({
       kind: "ready",

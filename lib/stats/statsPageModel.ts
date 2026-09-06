@@ -16,6 +16,7 @@ import { isAiOrBotMatch } from "@/lib/pubg-analysis/matchEligibility";
 
 const PARTY_SIZES: readonly StatsPartySize[] = ["squad", "duo", "solo"];
 const TDM_MAP_NAMES = new Set(["pillarcompound_main", "italy_tdm_main"]);
+const UNAVAILABLE_STATS_MESSAGE = "이 모드 전적을 조회하지 못해 현재 수치를 표시할 수 없습니다.";
 
 function normalizeMatchToken(value: unknown): string {
   return typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -109,8 +110,20 @@ function selectOverviewBucket(stats: PlayerStatsResponse["stats"]): {
 }
 
 export function getStatsOverviewMetrics(player: PlayerStatsResponse): StatsOverviewMetrics {
+  const availability = player.statsAvailability?.ranked;
+  if (availability?.status === "unavailable") {
+    return {
+      kind: "unavailable",
+      label: "조회 불가",
+      message: UNAVAILABLE_STATS_MESSAGE,
+      availability,
+    };
+  }
+
   const selected = selectOverviewBucket(player.stats);
-  if (!selected) return { kind: "empty", label: "기록 없음" };
+  if (!selected) {
+    return availability ? { kind: "empty", label: "기록 없음", availability } : { kind: "empty", label: "기록 없음" };
+  }
 
   const { bucket, partySize } = selected;
   const deaths = bucket.deaths ?? bucket.losses ?? 0;
@@ -118,7 +131,7 @@ export function getStatsOverviewMetrics(player: PlayerStatsResponse): StatsOverv
     ? bucket.top10Ratio * 100
     : ((bucket.top10s ?? 0) / bucket.roundsPlayed) * 100;
 
-  return {
+  const metrics: Extract<StatsOverviewMetrics, { kind: "ready" }> = {
     kind: "ready",
     roundsPlayed: bucket.roundsPlayed,
     kda: ((bucket.kills + bucket.assists) / (deaths || 1)).toFixed(2),
@@ -130,6 +143,7 @@ export function getStatsOverviewMetrics(player: PlayerStatsResponse): StatsOverv
     averageRank: bucket.avgRank != null && bucket.avgRank > 0 ? bucket.avgRank.toFixed(1) : "—",
     preferredMode: partySize,
   };
+  return availability ? { ...metrics, availability } : metrics;
 }
 
 function formatAverageSurvival(seconds: number | undefined, roundsPlayed: number): string {
@@ -149,6 +163,7 @@ export function getCurrentSeasonSummary(
   const seasonName = player.seasons.find((season) => season.id === seasonId)?.name
     || seasonId
     || "현재 시즌";
+  const availability = player.statsAvailability?.[preferredMode];
   const selected = preferredPartySize
     ? (() => {
       const bucket = player.stats[preferredMode]?.[preferredPartySize];
@@ -166,8 +181,21 @@ export function getCurrentSeasonSummary(
       return null;
     })();
 
-  if (!selected) {
+  if (availability?.status === "unavailable") {
     return {
+      kind: "unavailable",
+      seasonId,
+      seasonName,
+      mode: preferredMode,
+      partySize: preferredPartySize ?? "squad",
+      label: "조회 불가",
+      message: UNAVAILABLE_STATS_MESSAGE,
+      availability,
+    };
+  }
+
+  if (!selected) {
+    const empty: Extract<StatsSeasonSummaryMetrics, { kind: "empty" }> = {
       kind: "empty",
       seasonId,
       seasonName,
@@ -175,6 +203,7 @@ export function getCurrentSeasonSummary(
       partySize: preferredPartySize ?? "squad",
       label: "기록 없음",
     };
+    return availability ? { ...empty, availability } : empty;
   }
 
   const { bucket, partySize } = selected;
@@ -194,7 +223,7 @@ export function getCurrentSeasonSummary(
         ? bucket.headshotKillRatio * 100
         : null;
 
-  return {
+  const summary: Extract<StatsSeasonSummaryMetrics, { kind: "ready" }> = {
     kind: "ready",
     seasonId,
     seasonName,
@@ -227,4 +256,5 @@ export function getCurrentSeasonSummary(
     dbnos: bucket.dBNOs,
     averageRank: bucket.avgRank != null && bucket.avgRank > 0 ? bucket.avgRank.toFixed(1) : "—",
   };
+  return availability ? { ...summary, availability } : summary;
 }

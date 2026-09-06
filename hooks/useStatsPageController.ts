@@ -5,6 +5,7 @@ import { trackEvent } from "@/lib/analytics";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import { buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
 import type { PlayerMatchRecord } from "@/lib/pubg/playerMatches";
+import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { parseStatsPlatform } from "@/lib/stats/statsPageModel";
 import type {
   PlayerStatsResponse,
@@ -13,6 +14,7 @@ import type {
   StatsMatchFilter,
   StatsMatchModeMeta,
   StatsMode,
+  StatsModeAvailability,
   StatsPageStatus,
   StatsPartialReason,
   StatsPartySize,
@@ -26,7 +28,10 @@ const PARTIAL_REASONS: readonly StatsPartialReason[] = [
   "summary_missing",
   "detail_failed",
   "analysis_failed",
+  "stats_stale",
+  "stats_unavailable",
 ];
+const STATS_MODES: readonly StatsMode[] = ["ranked", "normal"];
 
 export interface UseStatsPageControllerOptions {
   initialPlatform?: string;
@@ -109,6 +114,44 @@ function parseRetryAt(value: string | null, now: number): number {
   if (Number.isFinite(seconds) && seconds >= 0) return now + seconds * 1000;
   const absolute = Date.parse(value);
   return Number.isFinite(absolute) ? Math.max(now, absolute) : now + REFRESH_COOLDOWN_MS;
+}
+
+function parseRetryAfterSeconds(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function parseStatsAvailability(value: unknown): Partial<Record<StatsMode, StatsModeAvailability>> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const parsed: Partial<Record<StatsMode, StatsModeAvailability>> = {};
+  for (const mode of STATS_MODES) {
+    const candidate = (value as Record<string, unknown>)[mode];
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) continue;
+    const status = (candidate as Record<string, unknown>).status;
+    if (status !== "ready" && status !== "stale" && status !== "unavailable") continue;
+    const updatedAt = (candidate as Record<string, unknown>).updatedAt;
+    parsed[mode] = typeof updatedAt === "string" && updatedAt.trim()
+      ? { status, updatedAt: updatedAt.trim() }
+      : { status };
+  }
+  return Object.keys(parsed).length > 0 ? parsed : undefined;
+}
+
+function isPlayerResponseForRequest(value: unknown, request: Required<StatsSearchRequest>): value is PlayerStatsResponse {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  const responseNickname = typeof candidate.nickname === "string" ? normalizeName(candidate.nickname) : "";
+  const responsePlatform = parseStatsPlatform(typeof candidate.platform === "string" ? candidate.platform : undefined);
+  const responseSeason = typeof candidate.seasonId === "string" ? normalizeSeason(candidate.seasonId) : "";
+  return Boolean(
+    responseNickname
+    && responseNickname === normalizeName(request.nickname)
+    && responsePlatform === request.platform
+    && candidate.stats
+    && typeof candidate.stats === "object"
+    && !Array.isArray(candidate.stats)
+    && Array.isArray(candidate.recentMatches)
+    && (!request.seasonId || responseSeason === request.seasonId),
+  );
 }
 
 function isAbortError(error: unknown): boolean {
@@ -234,6 +277,23 @@ export function useStatsPageController(
     setPartialSources(emptyPartialSources());
   }, []);
 
+  const applyStatsAvailability = useCallback((availability?: PlayerStatsResponse["statsAvailability"]) => {
+    for (const mode of STATS_MODES) {
+      const sourceId = `player-stats:${mode}`;
+      const status = availability?.[mode]?.status;
+      if (status === "stale") {
+        reportPartial("stats_stale", sourceId);
+        clearPartial("stats_unavailable", sourceId);
+      } else if (status === "unavailable") {
+        reportPartial("stats_unavailable", sourceId);
+        clearPartial("stats_stale", sourceId);
+      } else {
+        clearPartial("stats_stale", sourceId);
+        clearPartial("stats_unavailable", sourceId);
+      }
+    }
+  }, [clearPartial, reportPartial]);
+
   const resetSummaryState = useCallback(() => {
     summaryRequestRef.current?.controller.abort();
     summaryRequestRef.current = null;
@@ -354,6 +414,11 @@ export function useStatsPageController(
         const data = await response.json() as Record<string, unknown>;
         if (stale()) return null;
 
+        const retryAfterSeconds = parseRetryAfterSeconds(data.retryAfterSeconds);
+        if (retryAfterSeconds !== null) {
+          setRefreshAvailableAt(Date.now() + retryAfterSeconds * 1000);
+        }
+
         if (!response.ok) {
           if (stale()) return null;
           const message = typeof data.error === "string"
@@ -386,7 +451,15 @@ export function useStatsPageController(
         }
 
         if (stale()) return null;
-        const player = data as unknown as PlayerStatsResponse;
+        if (!isPlayerResponseForRequest(data, resolved)) {
+          throw new Error("전적 서버 응답의 플레이어 또는 시즌 정보가 일치하지 않습니다.");
+        }
+        const availability = parseStatsAvailability(data.statsAvailability);
+        const player = {
+          ...data,
+          statsAvailability: availability,
+          ...(retryAfterSeconds === null ? {} : { retryAfterSeconds }),
+        } as unknown as PlayerStatsResponse;
         const responsePlatform = parseStatsPlatform(player.platform) ?? resolved.platform;
         const responseSeason = normalizeSeason(player.seasonId);
         setResult(player);
@@ -394,9 +467,12 @@ export function useStatsPageController(
         setNickname("");
         setSeasonId(responseSeason);
         setSuggestedPlayers([]);
+        applyStatsAvailability(availability);
         rateLimitUntilRef.current.delete(identity);
         const updatedAt = player.updatedAt ? Date.parse(player.updatedAt) : Number.NaN;
-        setRefreshAvailableAt(Number.isFinite(updatedAt) ? updatedAt + REFRESH_COOLDOWN_MS : undefined);
+        if (retryAfterSeconds === null) {
+          setRefreshAvailableAt(Number.isFinite(updatedAt) ? updatedAt + REFRESH_COOLDOWN_MS : undefined);
+        }
         if (!preserveRouteTab) setSectionTab("overview");
         setBaseStatus("ready");
         trackEvent({
@@ -454,6 +530,7 @@ export function useStatsPageController(
     setResult,
     setSeasonId,
     setSectionTab,
+    applyStatsAvailability,
   ]);
 
   const search = useCallback((request?: StatsSearchRequest) => (

@@ -2,14 +2,20 @@ import { isPlayerPrivate } from "@/lib/pubg/privatePlayers";
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
-import { trackPubgRateLimit } from "@/lib/pubg-analysis/pubgApiTracker";
 import { reportPubgApiError } from "@/lib/pubg/apiHelper";
 import { mergeRecentMatchIds } from "@/lib/pubg/recentMatches";
 import {
   normalizeSurvivalMasteryPayload,
   shouldRefreshSurvivalMastery,
 } from "@/lib/pubg/survivalMastery";
-import type { StatsSurvivalMastery } from "@/types/stats-page";
+import type { PlayerStatsResponse, StatsMode } from "@/types/stats-page";
+import { createPlayerApiClient, PlayerApiError } from "@/lib/pubg/playerApiClient";
+import {
+  isRecord, isPlayerPayload, isSeasonList, isSeasonsPayload,
+  isNormalPayload, isRankedPayload, selectPlayerModeBuckets, validatedCachedBuckets,
+  type PlayerModeBuckets, type PubgNormalPayload, type PubgSeason,
+} from "@/lib/pubg/playerPayload";
+
 import {
   buildPlayerCacheKey,
   buildPlayerRefreshLockKey,
@@ -17,6 +23,8 @@ import {
   readPubgCache,
   writePubgCache,
 } from "@/lib/pubg/responseCache";
+
+export const maxDuration = 30;
 
 /**
  * pubg_player_cache 쓰기 전용 service_role 클라이언트입니다.
@@ -45,73 +53,6 @@ function normalizeSeasonParam(value: string | null): string | null {
 
 function isValidSeasonId(value: unknown): value is string {
   return typeof value === "string" && value.trim() !== "" && value !== "null" && value !== "undefined";
-}
-
-function pubgFetchInit(
-  headers: HeadersInit,
-  timeoutMs: number,
-  revalidateSeconds: number,
-  forceRefresh: boolean
-): RequestInit & { next?: { revalidate: number } } {
-  const base = {
-    headers,
-    signal: AbortSignal.timeout(timeoutMs)
-  };
-
-  if (forceRefresh) {
-    return {
-      ...base,
-      cache: "no-store"
-    };
-  }
-
-  return {
-    ...base,
-    next: { revalidate: revalidateSeconds }
-  };
-}
-
-// [V12.1] 네트워크 불안정 대응을 위한 재시도 헬퍼 함수 (전체 대기 시간 누적 방지)
-async function withRetry<T>(fn: () => Promise<T>, retries = 2, delay = 1000): Promise<T> {
-  let lastError;
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await fn();
-    } catch (err: any) {
-      lastError = err;
-      const isNetworkError = err.message?.includes('fetch') || err.code === 'ECONNRESET' || err.code === 'EPIPE' || err.message?.includes('timeout');
-      if (!isNetworkError) throw err;
-      await new Promise(res => setTimeout(res, delay));
-      delay *= 2;
-    }
-  }
-  throw lastError;
-}
-
-async function safeJsonParse(res: Response): Promise<any> {
-  const contentType = res.headers.get("content-type") || "";
-  if (!contentType.includes("json")) {
-    throw new Error(`PUBG API 응답이 JSON 형식이 아닙니다 (Content-Type: ${contentType}, Status: ${res.status}). API 호출 한도 초과 또는 일시적인 장애일 수 있습니다.`);
-  }
-  try {
-    return await res.json();
-  } catch (err: any) {
-    throw new Error(`JSON 파싱 실패: ${err.message}`);
-  }
-}
-
-async function fetchSurvivalMastery(
-  platform: string,
-  accountId: string,
-  headers: HeadersInit,
-): Promise<StatsSurvivalMastery | null> {
-  const response = await fetch(
-    `https://api.pubg.com/shards/${platform}/players/${accountId}/survival_mastery`,
-    pubgFetchInit(headers, 8000, 43200, true),
-  );
-  trackPubgRateLimit(response.headers);
-  if (!response.ok) return null;
-  return normalizeSurvivalMasteryPayload(await safeJsonParse(response));
 }
 
 async function getSimilarPlayerSuggestions(supabase: any, nickname: string, platform: string) {
@@ -147,8 +88,8 @@ async function playerNotFoundResponse(supabase: any, nickname: string, platform:
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const nickname = searchParams.get("nickname");
-  const platform = searchParams.get("platform") || "steam";
+  const nickname = searchParams.get("nickname")?.trim();
+  const platform = (searchParams.get("platform") || "steam").trim().toLowerCase();
   const reqSeason = normalizeSeasonParam(searchParams.get("season"));
   // _t 타임스탬프 파라미터는 강제 갱신 조건에서 제외하여 단순 검색/로딩 시 캐시를 사용하도록 개편
   const forceRefresh = searchParams.get("refresh") === "true";
@@ -158,6 +99,10 @@ export async function GET(request: Request) {
       { error: "닉네임을 입력해주세요." },
       { status: 400 }
     );
+
+  if (platform !== "steam" && platform !== "kakao") {
+    return NextResponse.json({ error: "지원하지 않는 플랫폼입니다." }, { status: 400 });
+  }
 
   // [비공개 유저 검사] 비공개 등록된 플레이어는 PUBG 호출을 차단하고 403 반환
   if (await isPlayerPrivate(platform, nickname)) {
@@ -184,7 +129,7 @@ export async function GET(request: Request) {
     if (!claimed) {
       return NextResponse.json(
         { error: "강제 갱신은 같은 전적에 대해 1분에 한 번만 요청할 수 있습니다." },
-        { status: 429 },
+        { status: 429, headers: { "Retry-After": "60", "Cache-Control": "no-store" } },
       );
     }
   } else {
@@ -214,8 +159,6 @@ export async function GET(request: Request) {
   const cachedSurvivalMastery = normalizeSurvivalMasteryPayload({
     data: { attributes: cacheData?.survival_mastery_data },
   });
-  const shouldFetchSurvivalMastery = forceRefresh
-    || shouldRefreshSurvivalMastery(cacheData?.survival_mastery_updated_at);
 
   if (cacheData) {
     targetNickname = cacheData.nickname;
@@ -287,312 +230,236 @@ export async function GET(request: Request) {
     }
   }
 
+  const requestId = crypto.randomUUID();
+  const api = createPlayerApiClient({ headers, signal: request.signal });
+  const failures: unknown[] = [];
+  const recordFailure = (error: unknown) => { failures.push(error); };
+  const safeLogFailure = async (error: unknown, terminal = false) => {
+    if (request.signal.aborted) return;
+    const failure = error instanceof PlayerApiError ? error : null;
+    try {
+      await reportPubgApiError({
+        route: "/api/pubg/player",
+        status: failure?.upstreamStatus === 429 ? 429 : 503,
+        message: failure?.message || "플레이어 전적 조회를 완료하지 못했습니다.",
+        detail: JSON.stringify({ contentType: failure?.contentType ?? null, responseBytes: failure?.responseBytes ?? null }),
+        context: {
+          failureStage: failure?.stage ?? "player_route",
+          errorCode: failure?.errorCode ?? "PLAYER_LOOKUP_FAILED",
+          upstreamStatus: failure?.upstreamStatus ?? null,
+          durationMs: failure?.durationMs ?? null,
+          platform, source: forceRefresh ? "player_refresh" : "player_search", requestId,
+        },
+        // Partial recovery is diagnostic only; keep alerts for complete failures.
+        notify: terminal,
+      });
+    } catch {
+      console.warn("[pubg-player] 전적 오류 진단 기록 실패", { requestId });
+    }
+  };
+
   try {
-    // 2. PUBG API 호출 (캐시된 닉네임 우선 사용, 개별 타임아웃 8초로 조정)
-    let playerRes = await withRetry(() => fetch(
-      `https://api.pubg.com/shards/${platform}/players?filter[playerNames]=${targetNickname}`,
-      pubgFetchInit(headers, 8000, 60, forceRefresh)
-    ));
-    trackPubgRateLimit(playerRes.headers);
-
-    // 3. 캐시된 이름으로 실패 시 원본 입력으로 재시도 (Fallback)
-    if (!playerRes.ok && playerRes.status === 404 && targetNickname !== nickname) {
-      playerRes = await withRetry(() => fetch(
-        `https://api.pubg.com/shards/${platform}/players?filter[playerNames]=${nickname}`,
-        pubgFetchInit(headers, 8000, 60, forceRefresh)
-      ));
+    const playerUrl = (name: string) => {
+      const url = new URL(`https://api.pubg.com/shards/${platform}/players`);
+      url.searchParams.set("filter[playerNames]", name);
+      return url.toString();
+    };
+    let playerData;
+    try {
+      playerData = await api.read(playerUrl(targetNickname), { stage: "player", validate: isPlayerPayload });
+    } catch (error) {
+      if (error instanceof PlayerApiError && error.upstreamStatus === 404 && targetNickname !== nickname) {
+        playerData = await api.read(playerUrl(nickname), { stage: "player", validate: isPlayerPayload });
+      } else throw error;
     }
-
-    if (!playerRes.ok) {
-      if (playerRes.status === 429) {
-        return NextResponse.json(
-          { error: "PUBG API 호출 한도가 일시적으로 초과되었습니다. 약 1분 후 다시 시도해 주세요." },
-          { status: 429 }
-        );
-      }
-      if (playerRes.status === 404) {
-        return playerNotFoundResponse(supabase, nickname, platform);
-      }
-      throw new Error(`PUBG API 에러: ${playerRes.status}`);
-    }
-    const playerData = await safeJsonParse(playerRes);
-    const playerRecord = playerData?.data?.[0];
-    if (!playerRecord?.id) {
-      return playerNotFoundResponse(supabase, nickname, platform);
+    const playerRecord = playerData.data.find((player) => player.attributes.name.toLowerCase() === nickname.toLowerCase());
+    if (!playerRecord) {
+      if (playerData.data.length === 0) return playerNotFoundResponse(supabase, nickname, platform);
+      // A valid JSON response for a different player must never seed this cache.
+      throw new Error("player identity mismatch");
     }
     const accountId = playerRecord.id;
     const actualNickname = playerRecord.attributes.name;
-    const banType = playerRecord.attributes?.banType ?? "None";
-
-    // (클랜/무기 데이터 갱신 여부를 포함하여 하단에서 통합 캐시 업데이트를 수행합니다.)
-
-    const apiRecentMatches = (playerRecord.relationships?.matches?.data || []).map(
-      (m: any) => m.id
-    );
-    const recentMatches = mergeRecentMatchIds(apiRecentMatches, cacheData?.recent_match_ids);
-
-    const seasonRes = await withRetry(() => fetch(
-      `https://api.pubg.com/shards/${platform}/seasons`,
-      pubgFetchInit(headers, 8000, 43200, forceRefresh)
-    ));
-    trackPubgRateLimit(seasonRes.headers);
-    const seasonData = await safeJsonParse(seasonRes);
-    // [FIX] pc- 필터링을 완화하여 콘솔(Xbox, PSN) 시즌 데이터도 처리 가능하도록 수정
-    const availableSeasons = seasonData.data
-      .filter((s: any) => s.id.includes("pc-") || s.id.includes("console-"))
-      .sort((a: any, b: any) => b.id.localeCompare(a.id));
-
-    if (availableSeasons.length === 0) throw new Error("사용 가능한 시즌 데이터가 없습니다.");
-
-    const currentSeason = availableSeasons.find(
-      (s: any) => s.attributes.isCurrentSeason
-    ) || availableSeasons[0];
-
-    let targetSeasonId = reqSeason || currentSeason.id;
-
-    // 현재 시즌 요청 시 데이터가 없으면 데이터가 있는 최근 시즌 탐색 (최대 3개 시즌)
-    if (!reqSeason) {
+    const sameCachedPlayer = cacheData?.id === accountId
+      && cacheData?.platform === platform
+      && typeof cacheData?.nickname === "string"
+      && cacheData.nickname.toLowerCase() === actualNickname.toLowerCase();
+    const previous = sameCachedPlayer ? cacheData : null;
+    const apiRecentMatches = playerRecord.relationships.matches.data.map((match) => match.id);
+    const recentMatches = mergeRecentMatchIds(apiRecentMatches, previous?.recent_match_ids);
+    const banType = playerRecord.attributes.banType ?? "None";
+    const cachedSeasons: PubgSeason[] = isSeasonList(previous?.seasons_list) ? previous.seasons_list : [];
+    let availableSeasons = cachedSeasons;
+    let seasonsReady = false;
+    try {
+      const seasonData = await api.read(`https://api.pubg.com/shards/${platform}/seasons`, {
+        stage: "seasons", validate: isSeasonsPayload,
+      });
+      availableSeasons = seasonData.data
+        .filter((season) => season.id.includes("pc-") || season.id.includes("console-"))
+        .sort((left, right) => right.id.localeCompare(left.id));
+      seasonsReady = availableSeasons.length > 0;
+      if (!seasonsReady) recordFailure(new Error("No supported season"));
+    } catch (error) {
+      recordFailure(error);
+    }
+    if (request.signal.aborted) throw request.signal.reason;
+    const currentSeason = availableSeasons.find((season) => season.attributes?.isCurrentSeason || season.isCurrentSeason)
+      || availableSeasons[0];
+    let targetSeasonId = reqSeason || currentSeason?.id
+      || (isValidSeasonId(previous?.last_season_id) ? previous.last_season_id : "");
+    const seasonUrl = (season: string) => `https://api.pubg.com/shards/${platform}/players/${encodeURIComponent(accountId)}/seasons/${encodeURIComponent(season)}`;
+    type NormalOutcome = { data: PubgNormalPayload; error?: never } | { data?: never; error: unknown };
+    const readNormal = async (season: string): Promise<NormalOutcome> => {
       try {
-        const checkRes = await withRetry(() => fetch(
-          `https://api.pubg.com/shards/${platform}/players/${accountId}/seasons/${targetSeasonId}`,
-          pubgFetchInit(headers, 8000, 60, forceRefresh)
-        ));
-        if (checkRes.ok) {
-          const checkData = await safeJsonParse(checkRes);
-          const stats = checkData.data.attributes.gameModeStats;
-          const hasData = Object.values(stats).some((m: any) => m.roundsPlayed > 0);
-
-          if (!hasData) {
-            for (let i = 1; i < Math.min(availableSeasons.length, 4); i++) {
-              const prevId = availableSeasons[i].id;
-              const prevRes = await fetch(
-                `https://api.pubg.com/shards/${platform}/players/${accountId}/seasons/${prevId}`,
-                pubgFetchInit(headers, 8000, 60, forceRefresh)
-              );
-              if (prevRes.ok) {
-                const prevData = await safeJsonParse(prevRes);
-                if (Object.values(prevData.data.attributes.gameModeStats).some((m: any) => m.roundsPlayed > 0)) {
-                  targetSeasonId = prevId;
-                  break;
-                }
-              }
-            }
+        return { data: await api.read(seasonUrl(season), { stage: "normal", validate: isNormalPayload }) };
+      } catch (error) { return { error }; }
+    };
+    let normalOutcome: NormalOutcome | undefined;
+    if (!reqSeason && targetSeasonId) {
+      normalOutcome = await readNormal(targetSeasonId);
+      // Automatic season discovery only follows successful, genuinely empty
+      // records. A failed lookup must not switch the user's comparison season.
+      if (normalOutcome.data && !Object.values(normalOutcome.data.data.attributes.gameModeStats).some((mode) => mode && mode.roundsPlayed > 0)) {
+        for (const season of availableSeasons.slice(1, 4)) {
+          const candidate = await readNormal(season.id);
+          if (!candidate.data) { recordFailure(candidate.error); break; }
+          if (Object.values(candidate.data.data.attributes.gameModeStats).some((mode) => mode && mode.roundsPlayed > 0)) {
+            targetSeasonId = season.id;
+            normalOutcome = candidate;
+            break;
           }
         }
-      } catch {
       }
     }
 
-    // Retrieve clanId from player attributes (NOT relationships — PUBG API spec)
-    const clanId: string | null = playerRecord.attributes?.clanId ?? null;
-
-    // 캐시 유효성 판단 (클랜 24시간)
-    const CLAN_CACHE_TTL = 24 * 60 * 60 * 1000;
-    const now = Date.now();
-
-    const isClanCacheValid = cacheData?.clan_updated_at && (now - new Date(cacheData.clan_updated_at).getTime() < CLAN_CACHE_TTL);
-
-    let clanDataPromise: Promise<{ source: string; data: any; updated: boolean }>;
-    if (isClanCacheValid && cacheData?.clan_data) {
-      clanDataPromise = Promise.resolve({ source: 'cache', data: cacheData.clan_data, updated: false });
-    } else {
-      clanDataPromise = clanId
-        ? fetch(`https://api.pubg.com/shards/${platform}/clans/${clanId}`, pubgFetchInit(headers, 6000, 86400, forceRefresh))
-            .then(async (res) => {
-              if (res.ok) {
-                const clanJson = await res.json();
-                const attr = clanJson.data?.attributes ?? {};
-                const parsedClan = {
-                  id: clanId,
-                  name: attr.clanName ?? "",
-                  tag: attr.clanTag ?? "",
-                  level: attr.clanLevel ?? 0,
-                  memberCount: attr.clanMemberCount ?? 0,
-                };
-                return { source: 'api', data: parsedClan, updated: true };
-              }
-              throw new Error(`Clan API Error: ${res.status}`);
-            })
-            .catch(() => {
-              return { source: 'fallback', data: cacheData?.clan_data || null, updated: false };
-            })
-        : Promise.resolve({ source: 'api', data: null, updated: false });
-    }
-
-    const cachedWeaponMastery = cacheData?.weapon_mastery_data || [];
-    const survivalMasteryPromise = shouldFetchSurvivalMastery
-      ? fetchSurvivalMastery(platform, accountId, headers).catch((error) => {
-        console.warn(
-          "[pubg-player] Survival Mastery 조회 실패:",
-          error instanceof Error ? error.message : error,
-        );
-        return null;
-      })
-      : Promise.resolve(cachedSurvivalMastery);
-
-    // Parallel fetch: ranked, normal season stats + clan info + account mastery
-    const [rankedRes, normalRes, clanResult, fetchedSurvivalMastery] = await Promise.all([
-      withRetry(() => fetch(
-        `https://api.pubg.com/shards/${platform}/players/${accountId}/seasons/${targetSeasonId}/ranked`,
-        pubgFetchInit(headers, 8000, 60, forceRefresh)
-      )),
-      withRetry(() => fetch(
-        `https://api.pubg.com/shards/${platform}/players/${accountId}/seasons/${targetSeasonId}`,
-        pubgFetchInit(headers, 8000, 60, forceRefresh)
-      )),
-      clanDataPromise,
-      survivalMasteryPromise,
-    ]);
-    trackPubgRateLimit(rankedRes.headers);
-    trackPubgRateLimit(normalRes.headers);
-
-    const rankedStats = { solo: null as any, duo: null as any, squad: null as any };
-    if (rankedRes.ok) {
-      const rankedData = await safeJsonParse(rankedRes);
-      const allStats = rankedData.data.attributes.rankedGameModeStats;
-      // ✅ roundsPlayed 기준으로 더 많이 플레이한 모드 선택 (FPP/TPP 혼용 유저 대응)
-      const pickMode = (fpp: any, tpp: any) => {
-        if (!fpp && !tpp) return null;
-        if (!fpp) return tpp;
-        if (!tpp) return fpp;
-        return (fpp.roundsPlayed ?? 0) >= (tpp.roundsPlayed ?? 0) ? fpp : tpp;
-      };
-      rankedStats.solo = pickMode(allStats["solo-fpp"], allStats["solo"]);
-      rankedStats.duo  = pickMode(allStats["duo-fpp"],  allStats["duo"]);
-      rankedStats.squad = pickMode(allStats["squad-fpp"], allStats["squad"]);
-    }
-
-    const normalStats = { solo: null as any, duo: null as any, squad: null as any };
-    if (normalRes.ok) {
-      const normalData = await safeJsonParse(normalRes);
-      const allStats = normalData.data.attributes.gameModeStats;
-      // ✅ roundsPlayed 기준으로 더 많이 플레이한 모드 선택 (일반전도 동일 기준 적용)
-      const pickMode = (fpp: any, tpp: any) => {
-        if (!fpp && !tpp) return null;
-        if (!fpp) return tpp;
-        if (!tpp) return fpp;
-        return (fpp.roundsPlayed ?? 0) >= (tpp.roundsPlayed ?? 0) ? fpp : tpp;
-      };
-      normalStats.solo  = pickMode(allStats["solo-fpp"],  allStats["solo"]);
-      normalStats.duo   = pickMode(allStats["duo-fpp"],   allStats["duo"]);
-      normalStats.squad = pickMode(allStats["squad-fpp"], allStats["squad"]);
-    }
-
-    const clan = clanResult.data;
-    const survivalMastery = shouldFetchSurvivalMastery
-      ? (fetchedSurvivalMastery || cachedSurvivalMastery)
-      : cachedSurvivalMastery;
-    const weaponMastery = cachedWeaponMastery;
-
-    // 4. 캐시 업데이트 (클랜/무기 정보 통합 upsert 및 검색 횟수 누적)
-    const currentSearchCount = cacheData?.search_count ?? 0;
     const nowIso = new Date().toISOString();
-
-    // 기존 season_stats_data에 현재 시즌 통계를 병합하여 저장
-    const existingSeasonStats = cacheData?.season_stats_data || {};
-    const updatedSeasonStats = {
-      ...existingSeasonStats,
-      [targetSeasonId]: { ranked: rankedStats, normal: normalStats },
+    const statsAvailability: NonNullable<PlayerStatsResponse["statsAvailability"]> = {};
+    const previousSeason = previous?.season_stats_data?.[targetSeasonId];
+    const fallbackMode = (mode: StatsMode): PlayerModeBuckets | null => {
+      const buckets = validatedCachedBuckets(previousSeason?.[mode]);
+      statsAvailability[mode] = buckets
+        ? { status: "stale", ...(previous?.updated_at ? { updatedAt: previous.updated_at } : {}) }
+        : { status: "unavailable" };
+      return buckets;
     };
-
-    const cacheUpdateData: any = {
-      id: accountId,
-      platform,
-      nickname: actualNickname,
-      lower_nickname: actualNickname.toLowerCase(),
-      search_count: currentSearchCount + 1,
-      updated_at: nowIso,
-      // 사용자가 실제로 조회한 시점. 매치 분석의 대량 upsert 는 이 값을 쓰지 않아
-      // 보존 정책(compact_pubg_player_cache)이 자동 수집 행과 실사용 행을 구분한다.
-      last_seen_at: nowIso,
-      ban_type: banType,
-      // 시즌/매치 데이터를 항상 갱신하여 DB와 응답이 동기화되도록 보장
-      season_stats_data: updatedSeasonStats,
-      last_season_id: targetSeasonId,
-      recent_match_ids: recentMatches,
-      seasons_list: availableSeasons,
-    };
-
-    // 동시 조회 중 한 요청의 optional mastery 실패(null)가 다른 요청의
-    // 성공 데이터를 덮어쓰지 않도록 값이 있을 때만 data 컬럼을 upsert한다.
-    if (shouldFetchSurvivalMastery) {
-      cacheUpdateData.survival_mastery_updated_at = nowIso;
-      if (survivalMastery) cacheUpdateData.survival_mastery_data = survivalMastery;
-    } else if (cacheData?.survival_mastery_updated_at) {
-      cacheUpdateData.survival_mastery_updated_at = cacheData.survival_mastery_updated_at;
-    }
-
-    const isNewUser = !cacheData;
-    if (clanResult.updated || isNewUser) {
-      cacheUpdateData.clan_data = clanResult.data;
-      cacheUpdateData.clan_updated_at = nowIso;
-    }
-
-    // pubg_player_cache 쓰기는 service_role 로만 수행한다.
-    // 이 라우트의 supabase 는 utils/supabase/server 의 anon 키 클라이언트이며,
-    // 20260730203000 마이그레이션이 anon/authenticated 쓰기 권한을 회수했다.
-    // fire-and-forget 이라 실패해도 조용히 넘어가므로 오류를 명시적으로 로깅한다.
-    createServiceRoleClient()
-      .from('pubg_player_cache')
-      .upsert(cacheUpdateData, { onConflict: 'id' })
-      .then(({ error: cacheWriteError }) => {
-        if (cacheWriteError) {
-          console.error("[pubg-player] pubg_player_cache 갱신 실패:", cacheWriteError.message);
+    const modeResult = async (mode: StatsMode): Promise<PlayerModeBuckets | null> => {
+      if (!targetSeasonId) return fallbackMode(mode);
+      try {
+        let buckets: PlayerModeBuckets;
+        if (mode === "normal") {
+          const result = normalOutcome ?? await readNormal(targetSeasonId);
+          if (!result.data) throw result.error;
+          buckets = selectPlayerModeBuckets(result.data.data.attributes.gameModeStats);
+        } else {
+          const result = await api.read(`${seasonUrl(targetSeasonId)}/ranked`, { stage: "ranked", validate: isRankedPayload });
+          buckets = selectPlayerModeBuckets(result.data.attributes.rankedGameModeStats);
         }
-      });
-
-    // 최근 매치들의 모드 정보를 match_master_telemetry에서 일괄 가져옴
+        statsAvailability[mode] = { status: "ready", updatedAt: nowIso };
+        return buckets;
+      } catch (error) {
+        recordFailure(error);
+        return fallbackMode(mode);
+      }
+    };
+    const previousMastery = normalizeSurvivalMasteryPayload({ data: { attributes: previous?.survival_mastery_data } });
+    const shouldLoadMastery = forceRefresh || shouldRefreshSurvivalMastery(previous?.survival_mastery_updated_at);
+    const masteryPromise = shouldLoadMastery
+      ? api.read(`https://api.pubg.com/shards/${platform}/players/${encodeURIComponent(accountId)}/survival_mastery`, {
+          stage: "survival_mastery", validate: isRecord,
+        }).then((value) => ({ data: normalizeSurvivalMasteryPayload(value), updated: true }))
+          .catch(() => ({ data: previousMastery, updated: false }))
+      : Promise.resolve({ data: previousMastery, updated: false });
+    const clanId = playerRecord.attributes.clanId;
+    const clanCacheValid = previous?.clan_updated_at && Date.now() - Date.parse(previous.clan_updated_at) < 86_400_000;
+    const clanPromise = !clanId || clanCacheValid
+      ? Promise.resolve({ data: clanId ? previous?.clan_data ?? null : null, updated: !clanId })
+      : api.read(`https://api.pubg.com/shards/${platform}/clans/${encodeURIComponent(clanId)}`, {
+          stage: "clan", timeoutMs: 6_000, validate: (value): value is Record<string, unknown> => (
+            isRecord(value) && isRecord(value.data) && isRecord(value.data.attributes)
+          ),
+        }).then((value) => {
+          const attr = (value.data as { attributes: Record<string, unknown> }).attributes;
+          return { data: { id: clanId, name: attr.clanName ?? "", tag: attr.clanTag ?? "", level: attr.clanLevel ?? 0, memberCount: attr.clanMemberCount ?? 0 }, updated: true };
+        }).catch(() => ({ data: previous?.clan_data ?? null, updated: false }));
+    const [rankedStats, normalStats, mastery, clanResult] = await Promise.all([
+      modeResult("ranked"), modeResult("normal"), masteryPromise, clanPromise,
+    ]);
+    if (request.signal.aborted) throw request.signal.reason;
+    const complete = seasonsReady && failures.length === 0
+      && statsAvailability.ranked?.status === "ready" && statsAvailability.normal?.status === "ready";
+    const retryAfterSeconds = Math.max(60, ...failures.map((error) => error instanceof PlayerApiError ? error.retryAfterSeconds ?? 0 : 0));
     const { data: modeData } = await supabase
       .from("match_master_telemetry")
       .select("match_id, game_mode")
       .in("match_id", recentMatches);
-
+    if (request.signal.aborted) throw request.signal.reason;
     const matchModes = (modeData || []).reduce((acc: Record<string, string>, item: any) => {
       acc[item.match_id] = item.game_mode;
       return acc;
     }, {});
-
     const responseBody = {
-      nickname: actualNickname,
-      platform,
-      seasonId: targetSeasonId,
-      seasons: availableSeasons.map((s: any) => ({
-        id: s.id,
-        name: `Season ${s.id.split("-").pop()}`,
-      })),
-      stats: { ranked: rankedStats, normal: normalStats },
-      recentMatches,
-      matchModes,
-      clan,
-      survivalMastery,
-      weaponMastery,
-      banType,
-      // PUBG API 직접 호출 경로에서도 updatedAt을 포함하여 클라이언트가 올바른 시각을 표시하도록 보장
-      updatedAt: nowIso,
+      nickname: actualNickname, platform, seasonId: targetSeasonId,
+      seasons: availableSeasons.map((season) => ({ id: season.id, name: season.name || `Season ${season.id.split("-").pop()}` })),
+      stats: { ranked: rankedStats, normal: normalStats }, statsAvailability,
+      recentMatches, matchModes, clan: clanResult.data,
+      survivalMastery: mastery.data || previousMastery,
+      weaponMastery: previous?.weapon_mastery_data || [], banType,
+      ...(complete ? { updatedAt: nowIso } : previous?.updated_at ? { updatedAt: previous.updated_at } : {}),
+      ...(!complete ? { retryAfterSeconds } : {}),
     };
 
-    // 분산 캐시 업데이트 (L1 + L2)
-    await writePubgCache(cacheKey, responseBody);
-
-    return NextResponse.json(responseBody);
-  } catch (error: any) {
-    const isRateLimit = error.message?.includes("429") || error.status === 429;
-    const status = isRateLimit ? 429 : 500;
-    const errorMsg = isRateLimit
-      ? "PUBG API 호출 한도가 일시적으로 초과되었습니다. 약 1분 후 다시 시도해 주세요."
-      : (error.message || "오류가 발생했습니다.");
-
-    // [MONITORING] PUBG API 에러 감지 및 기록
-    await reportPubgApiError({
-      route: "/api/pubg/player",
-      status,
-      message: errorMsg,
-      detail: error.stack || error.message,
+    // A partial refresh must never replace a complete JSON season cache, even
+    // when another request completes successfully while this one is in flight.
+    if (complete && !api.signal.aborted) {
+      const updatedSeasonStats = {
+        ...(previous?.season_stats_data || {}),
+        [targetSeasonId]: { ranked: rankedStats, normal: normalStats },
+      };
+      const cacheUpdateData: any = {
+        id: accountId, platform, nickname: actualNickname, lower_nickname: actualNickname.toLowerCase(),
+        search_count: (previous?.search_count ?? 0) + 1,
+        updated_at: nowIso,
+        last_seen_at: nowIso,
+        ban_type: banType, season_stats_data: updatedSeasonStats, last_season_id: targetSeasonId,
+        recent_match_ids: recentMatches, seasons_list: availableSeasons,
+      };
+      if (mastery.updated && mastery.data) {
+        cacheUpdateData.survival_mastery_updated_at = nowIso;
+        cacheUpdateData.survival_mastery_data = mastery.data;
+      }
+      if (clanResult.updated) {
+        cacheUpdateData.clan_data = clanResult.data;
+        cacheUpdateData.clan_updated_at = nowIso;
+      }
+      void Promise.resolve(createServiceRoleClient()
+        .from('pubg_player_cache')
+        .upsert(cacheUpdateData, { onConflict: 'id' }))
+        .then(({ error: cacheWriteError }) => {
+          if (cacheWriteError) console.error("[pubg-player] pubg_player_cache 갱신 실패:", cacheWriteError.message);
+        }).catch(() => console.warn("[pubg-player] pubg_player_cache 갱신 실패", { requestId }));
+      await writePubgCache(cacheKey, responseBody);
+    }
+    await Promise.all(failures.map((error) => safeLogFailure(error)));
+    return NextResponse.json(responseBody, {
+      headers: { "Cache-Control": "no-store", ...(!complete ? { "Retry-After": String(retryAfterSeconds) } : {}) },
     });
-
-    return NextResponse.json(
-      { error: errorMsg },
-      { status }
-    );
+  } catch (error) {
+    if (error instanceof PlayerApiError && error.stage === "player" && error.upstreamStatus === 404) {
+      return playerNotFoundResponse(supabase, nickname, platform);
+    }
+    await safeLogFailure(error, true);
+    const failure = error instanceof PlayerApiError ? error : null;
+    const rateLimited = failure?.upstreamStatus === 429;
+    const retryAfter = rateLimited ? failure.retryAfterSeconds ?? 60 : 30;
+    return NextResponse.json({
+      error: rateLimited
+        ? "PUBG API 호출 한도가 일시적으로 초과되었습니다. 잠시 후 다시 시도해 주세요."
+        : "전적 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.",
+      code: request.signal.aborted ? "PLAYER_REQUEST_ABORTED" : rateLimited ? "PLAYER_RATE_LIMITED" : "PLAYER_UPSTREAM_UNAVAILABLE",
+      retryable: !request.signal.aborted, requestId,
+    }, { status: rateLimited ? 429 : 503, headers: { "Cache-Control": "no-store", "Retry-After": String(retryAfter) } });
+  } finally {
+    api.dispose();
   }
 }

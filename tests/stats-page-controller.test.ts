@@ -155,6 +155,111 @@ describe("useStatsPageController", () => {
     expect(result.current.error?.type).toBe("server");
   });
 
+  it("부분 stale 응답은 기존 전적을 유지하고 partial과 서버 재시도 쿨다운을 표시한다", async () => {
+    let playerAttempt = 0;
+    const stalePlayer: PlayerStatsResponse = {
+      ...playerReady,
+      statsAvailability: {
+        ranked: { status: "stale", updatedAt: "2026-08-09T00:00:00.000Z" },
+        normal: { status: "ready", updatedAt: "2026-08-10T00:00:00.000Z" },
+      },
+      retryAfterSeconds: 45,
+    };
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/matches-summary")) return Promise.resolve(jsonResponse(summaryReady));
+      if (url.startsWith("/api/pubg/player/matches")) {
+        return Promise.resolve(jsonResponse({ matches: [], page: 1, totalPages: 0 }));
+      }
+      playerAttempt += 1;
+      return Promise.resolve(jsonResponse(playerAttempt === 1 ? playerReady : stalePlayer));
+    });
+
+    const { result } = renderHook(() => useStatsPageController({
+      initialNickname: "FixturePlayer",
+      initialPlatform: "steam",
+    }));
+    await waitFor(() => expect(result.current.result?.nickname).toBe("FixturePlayer"));
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    expect(result.current.result?.nickname).toBe("FixturePlayer");
+    expect(result.current.result?.statsAvailability?.ranked?.status).toBe("stale");
+    expect(result.current.status).toBe("partial");
+    expect(result.current.partialReasons).toContain("stats_stale");
+    expect(result.current.refreshAvailableAt).toBeGreaterThan(Date.now() + 40_000);
+    expect(result.current.refreshAvailableAt).toBeLessThan(Date.now() + 46_000);
+    expect(result.current.isRefreshCoolingDown).toBe(true);
+  });
+
+  it("force refresh가 다른 시즌 응답을 반환하면 기존 시즌 전적과 metadata를 섞지 않는다", async () => {
+    let playerAttempt = 0;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/matches-summary")) return Promise.resolve(jsonResponse(summaryReady));
+      if (url.startsWith("/api/pubg/player/matches")) {
+        return Promise.resolve(jsonResponse({ matches: [], page: 1, totalPages: 0 }));
+      }
+      playerAttempt += 1;
+      return Promise.resolve(jsonResponse(playerAttempt === 1
+        ? playerReady
+        : {
+          ...playerReady,
+          seasonId: "season-other",
+          statsAvailability: { ranked: { status: "stale", updatedAt: "2026-08-09T00:00:00.000Z" } },
+        }));
+    });
+
+    const { result } = renderHook(() => useStatsPageController({
+      initialNickname: "FixturePlayer",
+      initialPlatform: "steam",
+    }));
+    await waitFor(() => expect(result.current.result?.seasonId).toBe(playerReady.seasonId));
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    expect(result.current.result?.seasonId).toBe(playerReady.seasonId);
+    expect(result.current.result?.statsAvailability).toBeUndefined();
+    expect(result.current.status).toBe("error");
+    expect(result.current.error?.type).toBe("server");
+    expect(result.current.partialReasons).not.toContain("stats_stale");
+  });
+
+  it("명시 시즌 갱신 응답에 seasonId가 없으면 기존 시즌 전적을 유지한다", async () => {
+    let playerAttempt = 0;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/matches-summary")) return Promise.resolve(jsonResponse(summaryReady));
+      if (url.startsWith("/api/pubg/player/matches")) {
+        return Promise.resolve(jsonResponse({ matches: [], page: 1, totalPages: 0 }));
+      }
+      playerAttempt += 1;
+      return Promise.resolve(jsonResponse(playerAttempt === 1
+        ? playerReady
+        : { ...playerReady, seasonId: "", statsAvailability: { ranked: { status: "stale" } } }));
+    });
+
+    const { result } = renderHook(() => useStatsPageController({
+      initialNickname: "FixturePlayer",
+      initialPlatform: "steam",
+    }));
+    await waitFor(() => expect(result.current.result?.seasonId).toBe(playerReady.seasonId));
+
+    await act(async () => {
+      await result.current.refresh();
+    });
+
+    expect(result.current.result?.seasonId).toBe(playerReady.seasonId);
+    expect(result.current.result?.statsAvailability).toBeUndefined();
+    expect(result.current.status).toBe("error");
+    expect(result.current.error?.type).toBe("server");
+    expect(result.current.partialReasons).not.toContain("stats_stale");
+  });
+
   it("summary batch 실패는 프로필을 유지하고 재시도 가능한 partial로 둔다", async () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       if (String(input).startsWith("/api/pubg/matches-summary")) {
