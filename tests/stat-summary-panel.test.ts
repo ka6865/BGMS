@@ -82,6 +82,29 @@ describe("StatSummaryPanel", () => {
     expect(screen.queryByTestId("rounds-played")).not.toBeInTheDocument();
   });
 
+  it("선택 모드 조회 불가는 기록 없음이나 0 대신 명시적 안내를 보여준다", () => {
+    render(createElement(StatSummaryPanel, {
+      ...props("ranked", "squad"),
+      statsAvailability: { ranked: { status: "unavailable" } },
+    }));
+
+    expect(screen.getByText("조회 불가")).toBeInTheDocument();
+    expect(screen.getByText(/현재 수치를 표시할 수 없습니다/)).toBeInTheDocument();
+    expect(screen.queryByText("기록 없음")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("kills")).not.toBeInTheDocument();
+  });
+
+  it("stale 모드는 기존 지표와 마지막 갱신 안내를 함께 보존한다", () => {
+    render(createElement(StatSummaryPanel, {
+      ...props("normal", "squad"),
+      statsAvailability: { normal: { status: "stale", updatedAt: "2026-08-10T00:00:00.000Z" } },
+    }));
+
+    expect(screen.getByTestId("kills")).toHaveTextContent("138");
+    expect(screen.getByText("이전 자료로 표시 중")).toBeInTheDocument();
+    expect(screen.getByText(/마지막 갱신/)).toBeInTheDocument();
+  });
+
   it("AI snapshot이 있으면 한줄 요약과 controlled clamp만 제공한다", () => {
     const onAiToggle = vi.fn();
     const view = render(createElement(StatSummaryPanel, {

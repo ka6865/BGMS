@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { config } from 'dotenv';
-config({ path: '.env.local' });
+vi.mock('@/lib/pubg/privatePlayers', () => ({ isPlayerPrivate: vi.fn().mockResolvedValue(false) }));
+vi.mock('@/lib/pubg/responseCache', () => ({
+  buildPlayerCacheKey: (platform: string, nickname: string, season: string | null) => `${platform}:${nickname}:${season}`,
+  buildPlayerRefreshLockKey: (platform: string, nickname: string) => `${platform}:${nickname}`,
+  claimForceRefresh: vi.fn().mockResolvedValue(true),
+  readPubgCache: vi.fn().mockResolvedValue(null),
+  writePubgCache: vi.fn().mockResolvedValue(undefined),
+}));
 
 // Supabase Server Client Mock
 vi.mock('@/utils/supabase/server', () => {
@@ -49,12 +55,10 @@ describe('유사 닉네임 추천 404 Fallback API 테스트', () => {
     const { GET } = await import('../app/api/pubg/player/route');
 
     // PUBG API가 404를 반환하도록 Mocking
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: false,
-      status: 404,
-      headers: new Headers(),
-      json: () => Promise.resolve({ errors: [{ detail: "Not Found" }] })
-    } as any);
+    global.fetch = vi.fn().mockImplementation(async () => new Response(
+      JSON.stringify({ errors: [{ detail: "Not Found" }] }),
+      { status: 404, headers: { "content-type": "application/json" } },
+    ));
 
     const req = new Request('http://localhost/api/pubg/player?nickname=imissii&platform=steam');
     const response = await GET(req);
@@ -71,12 +75,10 @@ describe('유사 닉네임 추천 404 Fallback API 테스트', () => {
   it('PUBG API가 빈 플레이어 목록을 반환하면 500이 아니라 닉네임 오류 404를 반환해야 함', async () => {
     const { GET } = await import('../app/api/pubg/player/route');
 
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      headers: new Headers({ "content-type": "application/json" }),
-      json: () => Promise.resolve({ data: [] })
-    } as any);
+    global.fetch = vi.fn().mockImplementation(async () => new Response(
+      JSON.stringify({ data: [] }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    ));
 
     const req = new Request('http://localhost/api/pubg/player?nickname=notfounduser&platform=steam');
     const response = await GET(req);

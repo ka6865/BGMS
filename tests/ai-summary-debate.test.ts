@@ -113,6 +113,32 @@ describe("AI summary debate stat pairing", () => {
     )).toBe("화력에 대한 두 코치의 평가는?");
   });
 
+  it("recovers a question that names another selected topic while preserving a safe general question", () => {
+    const canonicalEvidence = {
+      damage_average: {
+        user: { label: "평균 화력", value: "320" },
+        benchmark: { label: "동일 티어 평균 화력", value: "300" },
+      },
+    };
+    const evidenceOptions = {
+      userStats: [canonicalEvidence.damage_average.user],
+      benchmarkStats: [canonicalEvidence.damage_average.benchmark],
+    };
+
+    expect(sanitizeAiSummaryDebateQuestion(
+      "교전 주도권에 대한 두 코치의 평가는?",
+      "화력",
+      canonicalEvidence,
+      evidenceOptions,
+    )).toBe("화력에 대한 두 코치의 평가는?");
+    expect(sanitizeAiSummaryDebateQuestion(
+      "최근 플레이 스타일은 어떤가?",
+      "화력",
+      canonicalEvidence,
+      evidenceOptions,
+    )).toBe("최근 플레이 스타일은 어떤가?");
+  });
+
   it("rejects every foreign mode marker even when the allowed mode appears first", () => {
     expect(hasUnsupportedAiSummaryMode("스쿼드와 듀오 비교", "squad")).toBe(true);
     expect(hasUnsupportedAiSummaryMode("솔로 스쿼드 운영", "solo-squad")).toBe(false);
@@ -122,6 +148,47 @@ describe("AI summary debate stat pairing", () => {
       {},
       { allowedMode: "squad", userStats: [], benchmarkStats: [] },
     )).toBe("화력에 대한 두 코치의 평가는?");
+  });
+
+  it.each([
+    "solo kill share is high.",
+    "솔로 킬 게임당 2회",
+    "솔로 킬 매치당 2회",
+    "솔로 킬 경기당 2회",
+    "솔로 킬 게임 당 2회",
+    "솔로 킬 매치 당 2회",
+  ])("does not treat duo metric wording as a foreign mode: %s", (text) => {
+    expect(hasUnsupportedAiSummaryMode(text, "duo")).toBe(false);
+  });
+
+  it.each([
+    "솔로·스쿼드 운영",
+    "solo/squad 운영",
+    "솔로_스쿼드 운영",
+    "솔로 스쿼드 운영",
+    "solo-squad 운영",
+  ])("accepts equivalent compound mode spelling: %s", (text) => {
+    expect(hasUnsupportedAiSummaryMode(text, "solo-squad")).toBe(false);
+  });
+
+  it.each([
+    "솔로 모드 경기",
+    "솔로 킬 게임 기준",
+    "솔로 킬 매치 기준",
+    "solo kill mode",
+    "solo kills mode",
+    "solo kill share mode",
+    "solo killer mode",
+    "듀오와 스쿼드 비교",
+  ])("continues to reject an explicit foreign mode: %s", (text) => {
+    expect(hasUnsupportedAiSummaryMode(text, "duo")).toBe(true);
+  });
+
+  it.each([
+    "solo kill share is high. solo mode applies.",
+    "솔로 킬 게임당 2회. 솔로 모드 경기 기준.",
+  ])("does not hide a later explicit mode marker after a metric phrase: %s", (text) => {
+    expect(hasUnsupportedAiSummaryMode(text, "duo")).toBe(true);
   });
 
   it("does not mistake solo-combat metric wording for a foreign solo mode", () => {
@@ -434,6 +501,23 @@ describe("AI summary debate stat pairing", () => {
     ["복수 성공률", "상위권 평균 복수 성공률", "25%", "18%"],
     ["1:1 교전 승률", "동일 티어 1:1 승률", "79%", "61%"],
   ])("accepts the explicitly equivalent %s/%s alias pair", (userLabel, benchmarkLabel, userValue, benchmarkValue) => {
+    expect(matchDebateStatPairs(
+      [{ label: userLabel, value: userValue }],
+      [{ label: benchmarkLabel, value: benchmarkValue }],
+    )).toHaveLength(1);
+  });
+
+  it.each([
+    ["평균 피해량", "동일 티어 평균 피해량", "320", "300"],
+    ["평균 딜", "동일 티어 평균 딜", "320", "300"],
+    ["1：1 결정력", "동일 티어 평균 1：1 결정력", "67%", "61%"],
+    ["1:1 교전 결정력", "동일 티어 평균 1:1 교전 결정력", "67%", "61%"],
+    ["솔로킬 비중", "동일 티어 솔로킬 비중", "50%", "40%"],
+    ["평균 피해량", "상위권 평균 피해량", "320", "300"],
+    ["평균 딜", "상위권 평균 딜", "320", "300"],
+    ["1：1 결정력", "상위권 평균 1：1 결정력", "67%", "61%"],
+    ["솔로킬 비중", "상위권 평균 솔로킬 비중", "50%", "40%"],
+  ])("pairs equivalent metric aliases: %s/%s", (userLabel, benchmarkLabel, userValue, benchmarkValue) => {
     expect(matchDebateStatPairs(
       [{ label: userLabel, value: userValue }],
       [{ label: benchmarkLabel, value: benchmarkValue }],

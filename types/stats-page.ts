@@ -6,8 +6,20 @@ export type StatsMatchFilter = "all" | "normal" | "ranked" | "casual" | "tdm";
 export type StatsMatchClassification = Exclude<StatsMatchFilter, "all"> | "unknown" | "unavailable";
 export type StatsPageStatus = "idle" | "loading" | "ready" | "refreshing" | "partial" | "error";
 export type StatsHistoryStatus = "idle" | "loading" | "ready" | "error";
-export type StatsPartialReason = "summary_batch_failed" | "summary_missing" | "detail_failed" | "analysis_failed";
+export type StatsPartialReason =
+  | "summary_batch_failed"
+  | "summary_missing"
+  | "detail_failed"
+  | "analysis_failed"
+  | "stats_stale"
+  | "stats_unavailable";
 export type StatsErrorType = "not_found" | "rate_limit" | "server" | "private";
+export type StatsAvailabilityStatus = "ready" | "stale" | "unavailable";
+
+export interface StatsModeAvailability {
+  status: StatsAvailabilityStatus;
+  updatedAt?: string;
+}
 
 export interface StatsMatchModeMeta {
   gameMode?: string;
@@ -61,10 +73,18 @@ export interface PlayerStatsResponse {
   weaponMastery?: readonly unknown[];
   banType?: string | null;
   updatedAt?: string;
+  statsAvailability?: Partial<Record<StatsMode, StatsModeAvailability>>;
+  retryAfterSeconds?: number;
 }
 
 export type StatsOverviewMetrics =
-  | { kind: "empty"; label: "기록 없음" }
+  | { kind: "empty"; label: "기록 없음"; availability?: StatsModeAvailability }
+  | {
+      kind: "unavailable";
+      label: "조회 불가";
+      message: string;
+      availability: StatsModeAvailability;
+    }
   | {
       kind: "ready";
       roundsPlayed: number;
@@ -76,6 +96,7 @@ export type StatsOverviewMetrics =
       dbnos: number;
       averageRank: string;
       preferredMode: StatsPartySize;
+      availability?: StatsModeAvailability;
     };
 
 export type StatsSeasonSummaryMetrics =
@@ -86,6 +107,17 @@ export type StatsSeasonSummaryMetrics =
       mode: StatsMode;
       partySize: StatsPartySize;
       label: "기록 없음";
+      availability?: StatsModeAvailability;
+    }
+  | {
+      kind: "unavailable";
+      seasonId: string;
+      seasonName: string;
+      mode: StatsMode;
+      partySize: StatsPartySize;
+      label: "조회 불가";
+      message: string;
+      availability: StatsModeAvailability;
     }
   | {
       kind: "ready";
@@ -112,4 +144,5 @@ export type StatsSeasonSummaryMetrics =
       assists: number;
       dbnos: number;
       averageRank: string;
+      availability?: StatsModeAvailability;
     };

@@ -285,6 +285,58 @@ describe("PlayerProfileHeader", () => {
     expect(screen.getByRole("combobox", { name: "시즌 선택" })).toBeInTheDocument();
   });
 
+  it("모드 조회 불가는 시즌 카드에서 기록 없음이나 0 대신 명시적 안내를 보여준다", () => {
+    const unavailablePlayer: PlayerStatsResponse = {
+      ...player,
+      statsAvailability: { ranked: { status: "unavailable" } },
+    };
+    render(createElement(PlayerProfileHeader, {
+      player: unavailablePlayer,
+      seasonId: unavailablePlayer.seasonId,
+      statsMode: "ranked",
+      partySize: "squad",
+      refreshing: false,
+      isRefreshCoolingDown: false,
+      favorite: false,
+      onSeasonChange: vi.fn(),
+      onRefresh: vi.fn(),
+      onFavoriteToggle: vi.fn(),
+      onCompare: vi.fn(),
+      onWeapons: vi.fn(),
+    }));
+
+    const summary = screen.getByRole("region", { name: "현재 시즌 경쟁전 스쿼드 요약" });
+    expect(within(summary).getByText("조회 불가")).toBeInTheDocument();
+    expect(within(summary).getByText(/현재 수치를 표시할 수 없습니다/)).toBeInTheDocument();
+    expect(within(summary).queryByText("기록 없음")).not.toBeInTheDocument();
+  });
+
+  it("stale 모드 시즌 카드는 기존 값을 유지하고 마지막 갱신을 알린다", () => {
+    const stalePlayer: PlayerStatsResponse = {
+      ...player,
+      statsAvailability: { ranked: { status: "stale", updatedAt: "2026-08-10T00:00:00.000Z" } },
+    };
+    render(createElement(PlayerProfileHeader, {
+      player: stalePlayer,
+      seasonId: stalePlayer.seasonId,
+      statsMode: "ranked",
+      partySize: "squad",
+      refreshing: false,
+      isRefreshCoolingDown: false,
+      favorite: false,
+      onSeasonChange: vi.fn(),
+      onRefresh: vi.fn(),
+      onFavoriteToggle: vi.fn(),
+      onCompare: vi.fn(),
+      onWeapons: vi.fn(),
+    }));
+
+    const summary = screen.getByRole("region", { name: "현재 시즌 경쟁전 스쿼드 요약" });
+    expect(within(summary).getByText("Gold 3")).toBeInTheDocument();
+    expect(within(summary).getByText("이전 자료로 표시 중")).toBeInTheDocument();
+    expect(within(summary).getByText(/마지막 갱신/)).toBeInTheDocument();
+  });
+
   it("상단 시즌 카드의 랭크 파티 필터를 외부 상세 통계 상태와 연결한다", () => {
     const onPartySizeChange = vi.fn();
     const onStatsModeChange = vi.fn();

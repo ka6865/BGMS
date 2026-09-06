@@ -9,7 +9,7 @@ import {
   formatBenchmarkProvenance,
   type ObservedBenchmark,
 } from "@/lib/pubg-analysis/benchmarkAdapter";
-import { fetchTierBenchmarkStats } from "@/lib/pubg-analysis/benchmarkLookup";
+import { BENCHMARK_FILTER_VERSION, fetchTierBenchmarkStats } from "@/lib/pubg-analysis/benchmarkLookup";
 import { getValidFullResultForMatch, isFullResultForPlayerPlatform, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { buildBackupCoachingContext } from "@/lib/pubg-analysis/backupCoaching";
 import { withAuthGuard } from "@/utils/supabase/guard";
@@ -35,6 +35,8 @@ import {
   type RecentMatchCandidate,
 } from "@/lib/pubg-analysis/recentMatchSelection";
 import crypto from "crypto";
+import { buildSummaryCards, normalizeSummaryCardFinal, type SummaryCard } from "@/lib/pubg-analysis/aiSummaryCards";
+import { buildSummaryCardEvidence } from "@/lib/pubg-analysis/aiSummaryCardEvidence";
 
 export const maxDuration = 60;
 
@@ -938,7 +940,7 @@ export async function POST(request: Request) {
     const { supabaseAdmin: supabase } = auth;
     authenticatedUserId = auth.user?.id;
 
-    const { matchIds, nickname, platform = "steam", force = false } = await awaitWithAbort(request.json(), routeSignal.signal);
+    const { matchIds, nickname, platform = "steam", force = false, summaryContractVersion } = await awaitWithAbort(request.json(), routeSignal.signal);
     if (isRouteAborted()) return abortResponse();
     requestedPlatform = String(platform || "steam");
     const lowerNickname = normalizeName(nickname);
@@ -1518,16 +1520,17 @@ export async function POST(request: Request) {
 
     const benchmarkPromptProvenance = formatBenchmarkProvenance();
     const promptLines = [
-      `당신들은 PUBG [${isSoloSquadFocus ? '극한의 솔로 챌린저' : (isCompetitiveFocus ? '프로급 경쟁전' : '일반전 전술')}] 분석 데스크의 전문 코치입니다. 전달받은 경기 데이터와 '${benchmarkPromptProvenance}'을 바탕으로 끝장 토론을 진행하십시오.`,
+      `당신들은 PUBG [${isSoloSquadFocus ? '극한의 솔로 챌린저' : (isCompetitiveFocus ? '프로급 경쟁전' : '일반전 전술')}] 분석 데스크의 전문 코치입니다. 전달받은 경기 데이터와 '${benchmarkPromptProvenance}'을 바탕으로 두 관점의 코칭을 제공하십시오.`,
       isSoloSquadFocus
-        ? "1. KIND COACH: 혼자서 다수를 상대하는 유저의 용기와 교전 능력을 극찬하십시오. 팀플레이 지표가 낮은 것은 당연한 것이니 무시하고, '고독한 사냥꾼'으로서의 면모를 부각하십시오."
-        : "1. KIND COACH: 유저의 강력한 화력 공헌(1선 격수로서의 교전 지표, 딜량 비중 등)을 적극 옹호하고, 팀플레이 지표나 백업 속도가 부족하더라도 '팀의 화력을 책임지는 1선 에이스로서 당연히 짊어져야 할 역할'이라며 강하게 쉴드치고 동기부여를 제공하십시오.",
+        ? "1. KIND COACH: 혼자 다수를 상대하는 모드의 특성을 고려해, 기록에서 확인되는 강점과 유지할 행동을 따뜻하게 설명하십시오. 측정되지 않은 의도나 역할을 만들어 옹호하지 마십시오."
+        : "1. KIND COACH: 기록에서 확인되는 강점과 유지할 행동을 따뜻하게 설명하십시오. 부족한 지표를 임의의 팀 역할로 정당화하지 말고, 근거가 부족하면 판단 범위를 밝혀 주십시오.",
       isSoloSquadFocus
-        ? "2. SPICY BOMBER: 솔로 스쿼드라는 핑계 뒤에 숨은 피지컬의 한계를 지적하십시오. '혼자 들어갔으면 전멸을 시켰어야지', '기절만 시키고 확킬을 못 내는 것은 실력 부족'이라며 더 높은 화력을 요구하십시오."
-        : `2. SPICY BOMBER: 유저의 지표가 ${benchmarkPromptProvenance}보다 미달하는 부분을 냉혹하게 찌르십시오. ${isCompetitiveFocus ? '[경쟁전 룰셋]을 고려해 보완 우선순위를 분명히 제시하십시오.' : '[일반전] 데이터임을 감안해도 개선해야 할 지표를 분명히 제시하십시오.'} 수치 격차를 강하게 말하되 팀원 의도, 팀원 수준, 유저의 심리나 오만은 단정하지 마십시오.`,
-      `- [STRICT KOREAN] 모든 응답에서 'DUO', 'SQUAD', 'SOLO', 'Benchmark'와 같은 영문 용어를 절대 사용하지 마십시오. 반드시 '듀오', '스쿼드', '솔로', '${benchmarkPromptProvenance}'와 같은 한글 용어로 대체하여 출력하십시오.`,
-      `- [INTELLIGENT ANALYSIS] 유저의 승률이나 딜량이 ${benchmarkPromptProvenance}을 압도한다면, SPICY BOMBER조차도 \"피지컬은 괴물이지만...\" 이라는 식으로 실력 자체는 인정하며 시작해야 합니다. 무조건적인 비난은 '멍청한 AI'처럼 보입니다.`,
-      `- [ZERO HALLUCINATION] 데이터에 명시된 숫자를 1%의 오차도 없이 그대로 인용하십시오. ${benchmarkPromptProvenance}을 인용할 때는 반드시 정확한 소수점까지 포함하십시오.`,
+        ? "2. SPICY BOMBER: 혼자 다수를 상대하는 모드에서 기록으로 확인되는 보완점과 다음 경기의 행동 한 가지를 직설적으로 제안하십시오. 확인되지 않은 진입 상황이나 실력 부족을 단정하지 마십시오."
+        : `2. SPICY BOMBER: 유저의 지표가 ${benchmarkPromptProvenance}보다 부족한 지표가 확인되면 보완할 행동을 직설적으로 제안하십시오. ${isCompetitiveFocus ? '[경쟁전 룰셋]을 고려해 보완 우선순위를 분명히 제시하십시오.' : '[일반전] 데이터임을 감안해도 개선해야 할 지표를 분명히 제시하십시오.'} 수치 격차를 강하게 말하되 팀원 의도, 팀원 수준, 유저의 심리나 오만은 단정하지 마십시오.`,
+      `- [STRICT KOREAN] 모든 응답에서 'DUO', 'SQUAD', 'SOLO', 'Benchmark'와 같은 영문 용어를 절대 사용하지 마십시오. 코치 의견에는 '듀오', '스쿼드', '솔로', '비교 평균'처럼 짧은 한글 표현을 사용하십시오. 입력의 상세 비교 조건은 본문에 복사하지 마십시오.`,
+      "- [INTELLIGENT ANALYSIS] 비교 평균보다 높은 성과는 두 코치 모두 인정하십시오. 매운맛 의견도 억지로 단점을 만들지 말고, 확인되는 보완점이 있으면 다음 행동을 제안하십시오.",
+      "- [ZERO HALLUCINATION] 숫자를 인용할 때는 제공된 지표·수치·분모를 그대로 사용하고 추정하지 마십시오. 코치 의견은 숫자 나열보다 그 의미를 설명하고, 상세 수치는 근거 행에서 보여주십시오.",
+      "- [READABLE COACHING] kindOpinion/spicyOpinion/reason/evaluation은 각각 짧고 완결된 한국어 1~2문장으로 작성하세요. 코치는 관측된 특징과 다음 행동을 말하며, 근거 표를 읽어 주듯 반복하지 마세요. '모드·매치 유형·티어 기준 BGMS 표본 평균', '[모드 duo · 매치 유형 competitive · 티어 B]', '해당 지표 n=36', 'player-match', ID 및 내부 메타데이터를 의견에 출력하지 마세요. 상세 조건·표본 수는 서버 근거 영역에서 제공합니다. 평균과 값이 같으면 부족하다고 단정하지 마세요.",
       "- [UTILITY LOGIC] 투척물은 '연막/섬광 등 비피해형'과 '수류탄/화염병/C4 등 피해형'을 엄격히 구분하십시오. 총 투척 중 연막/비피해형 비중이 높다면 '피해형 투척 적중 0회'라고 뭉뚱그려 비난하지 말고, '투척물의 대부분(N회)을 연막 등 생존/엄폐용으로 적극 활용했으며 공격형 투척 시도는 적었다'고 분리해 설명하십시오.",
       `- [BENCHMARK COMPARISON GUARD] debateIssues의 userStats/benchmarkStats에는 실제로 제공된 ${benchmarkPromptProvenance}가 존재하는 지표만 대조하십시오. 비교 표본이 없거나 개별 지표가 NULL이면 해당 benchmarkStats 행과 비교 문장을 생략하고 값을 추정하지 마십시오. 'Benchmark N/A'나 'N/A'를 출력하는 것을 엄격히 금지합니다. 연막 지표는 분모가 같은 '아군 기절 대비 연막 구출률'과 '${benchmarkPromptProvenance} 기회 대비 평균 연막 구출률'만 1:1 대칭으로 구성하고, '연막 구출률'·'내 연막 구출 성공률'·'내 구출 연막 성공률'처럼 시도 횟수 분모인 라벨은 벤치마크와 비교하지 마십시오. 그 밖에는 1:1 승률, 대응 사격 속도, 백업 속도 등 실제 평균이 명시된 지표만 대조하십시오.`,
       "- [BACKUP OUTCOME LOGIC] 백업 속도는 시간 단독으로 평가하지 말고, 적 제압/팀 전멸 기여/소생/연막 구출 결과를 함께 판단하십시오. 결과가 성공한 긴 백업은 '느린 백업'으로 단정하지 말고 '교전 정리 후 복구 성공'과 '복구 시간 단축 과제'를 분리해 말하십시오.",
@@ -1537,7 +1540,7 @@ export async function POST(request: Request) {
       "- [TEAM INTENT GUARD] 높은 딜량 비중은 '강한 교전 주도' 또는 '화력 분담 보완 필요'로 해석하십시오. 데이터에 명시된 미끼/방치/소생 실패 근거가 없으면 '팀원을 방패', '팀원을 들러리', '팀원을 방치', '혼자 다 해먹', '미끼' 같은 의도 단정 표현을 쓰지 마십시오.",
       "- [TEAM DISMISSAL GUARD] 팀원을 낮춰 부르는 표현은 금지입니다. '팀 지원 지표가 바닥', '나머지 팀원들의 화력 지원이 전무', '팀 전체가 휘청', '존재감이 희미' 대신 '팀 지원 지표 보완', '화력 분담 보완', '교전 기여를 더 선명하게 만들 필요'라고 표현하십시오.",
       "- [OUTPUT SELF CHECK] JSON을 작성한 뒤 signatureSub/finalVerdict/debateIssues/actionItems에 '혼자서 모든 것을 해결', '팀원들의 지원이 부족하다는 방증', '혼자 다 해먹', '팀 민폐', '오만' 같은 표현이 있으면 응답하기 전에 반드시 '강한 교전 주도와 화력 분담 보완 필요'로 고치십시오.",
-      `- [DATA COMPARISON] 실제 비교 표본과 개별 평균이 제공된 피드백 항목에서만 (내 수치 vs ${benchmarkPromptProvenance}) 형식을 사용하여 유저가 객관적인 차이를 체감하게 하십시오. 비교 표본이 없으면 유저 수치와 코칭만 제시하십시오.`,
+      "- [DATA COMPARISON] 수치 대조는 서버 근거 표에서 보여줍니다. 의견에는 숫자 쌍이나 슬래시 비교를 쓰지 마십시오. 비교를 해석할 때는 실제로 제공된 단일 지표 이름과 관계를 명시하십시오. 실제 값이 그 관계를 뒷받침할 때만 '평균 화력은 비교 평균보다 높습니다.', '복수 성공률은 비교 평균보다 낮습니다.', '백업 속도는 비교 평균보다 빠릅니다.', '복수 성공률은 비교 평균과 같습니다.'처럼 한 문장으로 쓰십시오. 나머지 문장은 유지하거나 바꿀 행동을 설명하고 같은 비교를 반복하지 마십시오. 비교 표본이 없으면 유저 기록을 바탕으로 코칭만 제시하십시오.",
       "- debateIssues는 반드시 3개를 작성하고, 각 issue의 userStats/benchmarkStats는 항목명(label)과 값의 단위(%, 회, m 등)가 완벽히 대칭되어야 합니다.",
       "반드시 아래 구조의 JSON 객체로만 응답하세요.",
       "{",
@@ -1866,7 +1869,17 @@ export async function POST(request: Request) {
     }
 
     const mainModeStats = aggregateMatches(groups[mainModeName] || []);
-    const autoTopics = selectDebateTopics(mainModeStats, mainBench);
+    const useIdCards = summaryContractVersion === 2;
+    // The legacy main-mode group may contain both FPP/TPP or match types.
+    // Keep its user population, but never present a narrower benchmark as a
+    // comparison for that mixed population in the ID-based contract.
+    const cardMatches = groups[mainModeName] || [];
+    const sameComparisonContext = Boolean(mainBenchContext) && cardMatches.every((match) => (
+      normalizedMatchMode(match) === mainBenchContext?.gameMode
+      && (isCompetitiveMatch(match) ? "competitive" : "official") === mainBenchContext?.matchType
+    ));
+    const cardBenchmark = sameComparisonContext ? mainBench : null;
+    const autoTopics = selectDebateTopics(mainModeStats, useIdCards ? cardBenchmark : mainBench);
     userPrompt += `\n### [분석 집중 영역 (Debate Issues)]\n반드시 아래 3개 주제를 순서대로 다루어 주십시오:\n${autoTopics.map((t, i) => `${i + 1}. ${t}`).join(', ')}\n`;
 
     const canonicalDebateEvidence: Record<string, { user: { label: string; value: string }; benchmark: { label: string; value: string } }> = {};
@@ -1919,6 +1932,79 @@ export async function POST(request: Request) {
       addCanonicalEvidence("death_phase", "평균 사망 페이즈", mainModeStats.avgDeathPhase, "동일 티어 평균 사망 페이즈", mainBench?.avgDeathPhase);
     }
     const canonicalEvidence: CanonicalDebateEvidenceMap = canonicalDebateEvidence;
+    let serverCards: SummaryCard[] = [];
+    const idCanonicalEvidence: Record<string, { user: { label: string; value: string }; benchmark: { label: string; value: string } }> = {};
+    if (useIdCards) {
+      // Legacy aggregates default missing damage to zero. Evidence must use
+      // observed matches only, including a real recorded zero-damage match.
+      const observedDamage = cardMatches
+        .map((match) => firstObservedNonNegative(match.stats?.processedDamageDealt, match.stats?.damageDealt))
+        .filter((damage): damage is number => damage !== null);
+      const evidence = buildSummaryCardEvidence({
+        ...mainModeStats,
+        avgDamage: observedDamage.length > 0
+          ? Math.floor(observedDamage.reduce((sum, damage) => sum + damage, 0) / observedDamage.length)
+          : null,
+      }, cardBenchmark);
+      const rawModes = Array.from(new Set(cardMatches.map(normalizedMatchMode))).sort();
+      const matchTypes = Array.from(new Set(cardMatches.map((match) => isCompetitiveMatch(match) ? "competitive" : "official"))).sort();
+      const contextInput = {
+        schemaVersion: 2,
+        selectionKey, bestSelectionKey,
+        gameMode: rawModes.length === 1 ? rawModes[0] : rawModes.join("/"),
+        matchType: matchTypes.length === 1 ? matchTypes[0] : "mixed",
+        tier: cardBenchmark ? mainBenchContext?.tier ?? null : null,
+        userMatchCount: cardMatches.length,
+        benchmarkSampleCount: cardBenchmark?.sampleCount ?? null,
+        filterVersion: BENCHMARK_FILTER_VERSION,
+        populationVersion: POPULATION_EVIDENCE_VERSION,
+        evidence,
+      };
+      const contextId = crypto.createHash("sha256").update(stableCacheSerialize(contextInput)).digest("hex").slice(0, 20);
+      serverCards = buildSummaryCards({ topics: autoTopics, evidence, context: {
+        contextId, gameMode: contextInput.gameMode, matchType: contextInput.matchType,
+        tier: contextInput.tier, userMatchCount: contextInput.userMatchCount,
+        benchmarkSampleCount: contextInput.benchmarkSampleCount,
+        filterVersion: contextInput.filterVersion, populationVersion: contextInput.populationVersion,
+      } });
+      evidence.forEach((row) => {
+        if (row.userValue !== null && row.benchmarkValue !== null) {
+          idCanonicalEvidence[row.metricId] = { user: { label: row.label, value: row.userValue }, benchmark: { label: row.benchmarkLabel, value: row.benchmarkValue } };
+        }
+      });
+      // Replace only the provider output contract; keep the existing coaching
+      // safety instructions and score/telemetry calculations.
+      const legacySchemaStart = promptLines.indexOf("반드시 아래 구조의 JSON 객체로만 응답하세요.");
+      if (legacySchemaStart >= 0) promptLines.splice(legacySchemaStart);
+      for (let i = promptLines.length - 1; i >= 0; i--) {
+        if (/userStats|benchmarkStats/.test(promptLines[i])) promptLines.splice(i, 1);
+      }
+      promptLines.push(
+        "[ID CARD CONTRACT V2] SERVER_CARD_PLAN_V2가 카드의 유일한 근거입니다. 지정된 topicId 3개를 정확히 한 번씩 반환하고 해당 카드의 evidenceIds만 참조하세요. 제목, 질문, 지표 라벨과 수치는 서버가 표시하므로 생성하지 마세요.",
+        "근거를 해석해 두 코치 의견, 근거 설명, 평가, 실천 행동을 작성하세요. 의견에는 숫자나 근거 ID를 반복하지 말고 관측 가능한 행동을 설명하세요. 비교값이 없으면 상위권·동일 티어 비교를 주장하지 마세요. 관측값이 없는 카드에는 근거 부족을 명시하고 evidenceIds는 빈 배열로 반환하세요.",
+        "다른 카드의 근거, 다른 모드, AI가 추측한 수치를 사용하지 마세요. reason은 설명문이며 ID가 아닙니다. winner는 kind 또는 spicy만 사용하며 실제 표시 가능 여부는 서버가 검증합니다.",
+        '반드시 JSON 객체만 반환하세요: {"signature":"칭호","signatureSub":"이유","finalVerdict":"종합 평가","debateIssues":[{"topicId":"지정된 ID","evidenceIds":["지정된 근거 ID"],"kindOpinion":"의견","spicyOpinion":"의견","winner":"kind","reason":"근거 설명","evaluation":"평가"}],"actionItems":[{"icon":"target","title":"목표","desc":"실천 방법"}]}',
+      );
+      userPrompt += `\n### [SERVER_CARD_PLAN_V2]\n${JSON.stringify(serverCards.map(({ topicId, topic, question, evidenceIds, evidence: rows, context }) => ({ topicId, topic, question, evidenceIds, evidence: rows, context })))}\n### [END_SERVER_CARD_PLAN_V2]\n`;
+    }
+    const unavailableCards = () => serverCards.map((card) => ({ ...card, analysisStatus: "unavailable" as const, analysisReason: "AI 해석을 표시할 수 없습니다.", winner: null }));
+    const factsOnlyResponse = () => {
+      const records = [
+        { type: "visuals", data: precomputedVisuals },
+        { type: "cards", data: unavailableCards() },
+        { type: "error", error: AI_SUMMARY_PROVIDER_ERROR_MESSAGE, errorCode: "PUBG_AI_PROVIDER_ERROR", retryable: true },
+        { type: "done", valid: false, error: AI_SUMMARY_PROVIDER_ERROR_MESSAGE, errorCode: "PUBG_AI_PROVIDER_ERROR", retryable: true },
+      ];
+      return new Response(records.map((record) => JSON.stringify(record)).join("\n") + "\n", { headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-cache" } });
+    };
+    const normalizeIdFinal = (raw: unknown) => {
+      let parsed: unknown;
+      try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return null; }
+      return normalizeSummaryCardFinal(parsed, serverCards, {
+        sanitizeText: (value) => sanitizeUnsupportedAiSummaryBenchmarkLanguage(sanitizeAiCoachingLanguageText(value), idCanonicalEvidence, { allowedMode: mainModeName }),
+        hasUnsupportedMode: (value) => hasUnsupportedAiSummaryMode(value, mainModeName),
+      });
+    };
     // Role identity follows the same deterministic score-best-five aggregate
     // as the potential tier. Keep the dominant mode only as context for
     // solo/team role gating; do not discard minority-mode weapon or stat
@@ -2173,9 +2259,10 @@ export async function POST(request: Request) {
           const cachedFinalCandidate = typeof cachedData.final === "string"
             ? cachedData.final
             : JSON.stringify(cachedData.final ?? "");
-          const canonicalCachedFinal = typeof cachedFinalCandidate === "string"
-            ? canonicalizeFinalJson(cachedFinalCandidate)
-            : null;
+          const cachedIdResult = useIdCards ? normalizeIdFinal(cachedData.providerFinal) : null;
+          const canonicalCachedFinal = useIdCards
+            ? cachedIdResult?.cacheable ? JSON.stringify(cachedIdResult.final) : null
+            : typeof cachedFinalCandidate === "string" ? canonicalizeFinalJson(cachedFinalCandidate) : null;
           if (canonicalCachedFinal) {
             trackAiUsage(authenticatedUserId, "gemini-cache", 0, 0, "summary", {
               durationMs: Date.now() - startedAt,
@@ -2189,6 +2276,7 @@ export async function POST(request: Request) {
                 // freshly recomputed match/benchmark inputs for this request.
                 // Never replay stale cached visuals alongside a valid final.
                 controller.enqueue(encoder.encode(JSON.stringify({ type: "visuals", data: precomputedVisuals }) + "\n"));
+                if (useIdCards) controller.enqueue(encoder.encode(JSON.stringify({ type: "cards", data: serverCards }) + "\n"));
                 controller.enqueue(encoder.encode(JSON.stringify({ type: "final", data: canonicalCachedFinal }) + "\n"));
                 controller.enqueue(encoder.encode(JSON.stringify({ type: "done", valid: true }) + "\n"));
                 controller.close();
@@ -2210,7 +2298,7 @@ export async function POST(request: Request) {
     const geminiApiKey = process.env.GOOGLE_GEMINI_API_KEY;
     if (!geminiApiKey) {
       trackAiFailure(authenticatedUserId, "summary", "No API Key", { errorCode: "configuration", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
-      return NextResponse.json({ error: "No API Key" }, { status: 500 });
+      return useIdCards ? factsOnlyResponse() : NextResponse.json({ error: "No API Key" }, { status: 500 });
     }
 
     const genAI = new GoogleGenerativeAI(geminiApiKey);
@@ -2358,6 +2446,7 @@ export async function POST(request: Request) {
 
     if (generationTimedOut || isRouteAborted() || (modelTimeoutObserved && !streamResult)) {
       cleanupGeneration();
+      if (useIdCards && !isRouteAborted()) return factsOnlyResponse();
       return abortResponse();
     }
     if (!streamResult) cleanupGeneration();
@@ -2383,6 +2472,7 @@ export async function POST(request: Request) {
 
           // 1. 비주얼 데이터 우선 전송
           controller.enqueue(encoder.encode(JSON.stringify({ type: "visuals", data: precomputedVisuals }) + "\n"));
+          if (useIdCards) controller.enqueue(encoder.encode(JSON.stringify({ type: "cards", data: serverCards }) + "\n"));
 
           // 4. Gemini 스트리밍 결과 처리
           if (streamResult) {
@@ -2427,7 +2517,8 @@ export async function POST(request: Request) {
           // An empty provider stream is an invalid generation. Let the error
           // path emit the neutral provider-error contract and skip persistence.
           const finalResult = aiResponseText;
-          const validJsonString = canonicalizeFinalJson(finalResult);
+          const idResult = useIdCards ? normalizeIdFinal(finalResult) : null;
+          const validJsonString = useIdCards ? idResult ? JSON.stringify(idResult.final) : null : canonicalizeFinalJson(finalResult);
 
           if (validJsonString) {
             if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
@@ -2436,6 +2527,10 @@ export async function POST(request: Request) {
               type: "final",
               data: validJsonString
             }) + "\n"));
+
+            // Keep the server facts and any validated card interpretation, but
+            // never cache a rejected interpretation as a successful summary.
+            if (useIdCards && !idResult?.cacheable) throw new Error("AI card interpretation did not pass validation");
 
             // 3. Write to DB Cache
             if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
@@ -2450,7 +2545,8 @@ export async function POST(request: Request) {
                     prompt_version: AI_SUMMARY_CACHE_VERSION,
                     ai_result: {
                       visuals: precomputedVisuals,
-                      final: validJsonString
+                      final: validJsonString,
+                      ...(useIdCards ? { schemaVersion: 2, providerFinal: finalResult } : {})
                     },
                     updated_at: new Date().toISOString()
                   }, { onConflict: "player_id,platform,match_ids_hash,prompt_version" })

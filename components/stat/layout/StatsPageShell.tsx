@@ -403,6 +403,7 @@ export function StatsPageShell({
                 <aside className="stats-overview-rail">
                   <StatSummaryPanel
                     stats={result.stats}
+                    statsAvailability={result.statsAvailability}
                     mode={statsMode}
                     partySize={partySize}
                     aiSummary={aiSummary}
