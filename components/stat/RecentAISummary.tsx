@@ -72,6 +72,7 @@ interface DebateData {
     latestMatchTime?: string;
     latestMatchCount?: number;
     bestMatchCount?: number;
+    calculationPendingCount?: number;
     reactionLatency?: string;
     reactionTier?: string;
     backupTier?: string;
@@ -222,7 +223,7 @@ export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | 
   if (counterLatency !== null) normalized.counterLatency = counterLatency;
   const reactionLatency = safeVisualDuration(source.reactionLatency);
   if (reactionLatency !== null) normalized.reactionLatency = reactionLatency;
-  ["latestMatchCount", "bestMatchCount"].forEach((key) => {
+  ["latestMatchCount", "bestMatchCount", "calculationPendingCount"].forEach((key) => {
     const count = finiteVisualNumber(source[key], 0, 100);
     if (count !== null) normalized[key] = Math.floor(count);
   });
@@ -524,6 +525,10 @@ class AiSummaryRequestError extends Error {
   }
 }
 
+const CALCULATION_UPGRADE_ERROR_CODE = "PUBG_CALCULATION_UPGRADE_REQUIRED";
+const CALCULATION_UPGRADE_MESSAGE = "분석 지표 업데이트 준비 중";
+const CALCULATION_UPGRADE_DETAIL = "기본 전적은 계속 확인할 수 있습니다. 업데이트가 완료된 뒤 최근 요약을 이용할 수 있습니다.";
+
 export const RecentAISummary = ({
   matchIds,
   nickname,
@@ -585,6 +590,7 @@ export const RecentAISummary = ({
 
   const latestMatchCount = debateData?.visuals?.latestMatchCount ?? 10;
   const bestMatchCount = debateData?.visuals?.bestMatchCount ?? 5;
+  const calculationPendingCount = debateData?.visuals?.calculationPendingCount ?? 0;
   const latestMatchRangeLabel = debateData?.visuals?.latestMatchCount === undefined
     ? "최대 10판"
     : `${latestMatchCount}판`;
@@ -882,6 +888,7 @@ export const RecentAISummary = ({
                     const retryable = failure.retryable === true;
                     const requestError = new AiSummaryRequestError(errMsg, {
                       status: errorCode === "PUBG_AI_CANONICAL_NOT_READY"
+                        || errorCode === CALCULATION_UPGRADE_ERROR_CODE
                         ? 409
                         : errorCode === "PUBG_AI_ROUTE_TIMEOUT" ? 504 : 200,
                       errorCode,
@@ -1036,10 +1043,13 @@ export const RecentAISummary = ({
         });
 
         const requestError = err instanceof AiSummaryRequestError ? err : null;
+        const calculationUpgradePending = requestError?.status === 409
+          && requestError.errorCode === CALCULATION_UPGRADE_ERROR_CODE;
         const canonicalNotReady = requestError?.status === 409
           && requestError.errorCode === "PUBG_AI_CANONICAL_NOT_READY"
           && requestError.retryable;
-        const shouldRetry = requestError?.retryable === true || isTransientError(errMsg);
+        const shouldRetry = !calculationUpgradePending
+          && (requestError?.retryable === true || isTransientError(errMsg));
         if (!shouldRetry || !scheduleRetry(
           canonicalNotReady
             ? "매치 분석 데이터가 아직 준비되지 않았어요. 자동으로 재시도 중이에요."
@@ -1220,17 +1230,24 @@ export const RecentAISummary = ({
   };
 
   if (error && !summaryCards) {
+    const calculationUpgradePending = error.errorCode === CALCULATION_UPGRADE_ERROR_CODE;
     return (
       <div className="p-6 bg-white/5 border border-white/10 rounded-2xl text-center">
         <BgmsIcon name="info" size={28} className="mx-auto mb-3 text-indigo-300" />
-        <p className="text-gray-300 text-sm mb-1">AI 분석이 잠깐 막혔어요.</p>
-        <p className="text-gray-500 text-xs mb-4">서버가 바쁘거나 네트워크가 불안정할 때 가끔 생겨요.</p>
-        <button
-          onClick={retrySummary}
-          className="px-5 py-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-sm hover:bg-indigo-500/30 transition-colors"
-        >
-          다시 시도하기
-        </button>
+        <p className="text-gray-300 text-sm mb-1">
+          {calculationUpgradePending ? CALCULATION_UPGRADE_MESSAGE : "AI 분석이 잠깐 막혔어요."}
+        </p>
+        <p className="text-gray-500 text-xs mb-4">
+          {calculationUpgradePending ? CALCULATION_UPGRADE_DETAIL : "서버가 바쁘거나 네트워크가 불안정할 때 가끔 생겨요."}
+        </p>
+        {!calculationUpgradePending && (
+          <button
+            onClick={retrySummary}
+            className="px-5 py-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-sm hover:bg-indigo-500/30 transition-colors"
+          >
+            다시 시도하기
+          </button>
+        )}
       </div>
     );
   }
@@ -1307,7 +1324,9 @@ export const RecentAISummary = ({
     winner: "kind" | "spicy" | null;
     evidence: SummaryEvidence[];
   }, idx: number) => {
-    const interpretationPending = card.analysisStatus === "pending" && loading && !error && !retryMessage;
+    const interpretationPending = card.analysisStatus === "pending"
+      && !retryMessage
+      && (loading || error?.errorCode === CALCULATION_UPGRADE_ERROR_CODE);
     const interpretationReady = card.analysisStatus === "ready";
     const interpretationStatus = interpretationReady
       ? "ready"
@@ -1465,14 +1484,23 @@ export const RecentAISummary = ({
       )}
       {summaryCards && error && !retryMessage && (
         <div role="alert" className="p-5 bg-white/5 border border-white/10 rounded-2xl text-center">
-          <p className="text-gray-300 text-sm mb-1">AI 해석을 표시할 수 없습니다.</p>
-          <p className="text-gray-500 text-xs mb-4">확인된 데이터는 아래에 표시됩니다. 잠시 후 다시 시도해주세요.</p>
-          <button
-            onClick={retrySummary}
-            className="px-5 py-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-sm hover:bg-indigo-500/30 transition-colors"
-          >
-            다시 시도하기
-          </button>
+          {error.errorCode === CALCULATION_UPGRADE_ERROR_CODE ? (
+            <>
+              <p className="text-gray-300 text-sm mb-1">{CALCULATION_UPGRADE_MESSAGE}</p>
+              <p className="text-gray-500 text-xs mb-4">{CALCULATION_UPGRADE_DETAIL}</p>
+            </>
+          ) : (
+            <>
+              <p className="text-gray-300 text-sm mb-1">AI 해석을 표시할 수 없습니다.</p>
+              <p className="text-gray-500 text-xs mb-4">확인된 데이터는 아래에 표시됩니다. 잠시 후 다시 시도해주세요.</p>
+              <button
+                onClick={retrySummary}
+                className="px-5 py-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-sm hover:bg-indigo-500/30 transition-colors"
+              >
+                다시 시도하기
+              </button>
+            </>
+          )}
         </div>
       )}
       {/* [MOBILE-FIX] @container + animate-in 조합이 모바일 Chrome에서 전체 회전 유발 → 제거 */}
@@ -1500,6 +1528,11 @@ export const RecentAISummary = ({
                 <p className="text-xs md:text-sm text-indigo-300/80 font-bold leading-relaxed max-w-md break-words">
                   {debateData?.visuals?.roleInfo?.description || "데이터를 분석하여 당신의 플레이 스타일을 정의했습니다."}
                 </p>
+                {calculationPendingCount > 0 && (
+                  <p role="status" className="text-xs font-semibold leading-relaxed text-sky-200/80">
+                    계산 업데이트 대기 {calculationPendingCount}경기는 분석에서 제외했습니다.
+                  </p>
+                )}
               </div>
             </div>
 

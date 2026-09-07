@@ -11,6 +11,8 @@ import {
   type StatsAdRegistry,
 } from "@/lib/ads/statsAdPlacements";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
+import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
+import { normalizeRecentMatchIds } from "@/lib/pubg/recentMatches";
 import { filterRenderableMatches } from "@/lib/stats/statsPageModel";
 import type {
   StatsMatchFilter,
@@ -74,6 +76,26 @@ function overlayModeMeta(summary: MatchSummaryData, meta?: StatsMatchModeMeta): 
   };
 }
 
+function normalizeSummaryMap(summaries: Record<string, MatchSummaryData>): Record<string, MatchSummaryData> {
+  const normalized: Record<string, MatchSummaryData> = {};
+  for (const [rawId, summary] of Object.entries(summaries)) {
+    if (!summary || typeof summary !== "object") continue;
+    const matchId = normalizeMatchId(rawId) ?? normalizeMatchId(summary.matchId);
+    if (!matchId || Object.prototype.hasOwnProperty.call(normalized, matchId)) continue;
+    normalized[matchId] = { ...summary, matchId };
+  }
+  return normalized;
+}
+
+function normalizeModeMetaMap(matchModeMeta: Record<string, StatsMatchModeMeta>): Record<string, StatsMatchModeMeta> {
+  const normalized: Record<string, StatsMatchModeMeta> = {};
+  for (const [rawId, meta] of Object.entries(matchModeMeta)) {
+    const matchId = normalizeMatchId(rawId);
+    if (matchId && !Object.prototype.hasOwnProperty.call(normalized, matchId)) normalized[matchId] = meta;
+  }
+  return normalized;
+}
+
 type PaginationItem = number | "ellipsis";
 
 export function getStatsHistoryPaginationItems(totalPages: number, currentPage: number): PaginationItem[] {
@@ -117,10 +139,14 @@ export function MatchFeed({
 }: MatchFeedProps) {
   const feedRef = useRef<HTMLElement>(null);
   const previousHistoryPageRef = useRef(historyPage);
-  const availableMatches = matchIds.flatMap((matchId) => {
-    if (missingMatchIds.has(matchId)) return [];
-    const value = summaries[matchId];
-    return value ? [overlayModeMeta(value, matchModeMeta[matchId])] : [];
+  const canonicalMatchIds = normalizeRecentMatchIds(matchIds);
+  const canonicalMissingMatchIds = new Set(normalizeRecentMatchIds([...missingMatchIds]));
+  const canonicalSummaries = normalizeSummaryMap(summaries);
+  const canonicalMatchModeMeta = normalizeModeMetaMap(matchModeMeta);
+  const availableMatches = canonicalMatchIds.flatMap((matchId) => {
+    if (canonicalMissingMatchIds.has(matchId)) return [];
+    const value = canonicalSummaries[matchId];
+    return value ? [overlayModeMeta(value, canonicalMatchModeMeta[matchId])] : [];
   });
   const renderableMatches = filterRenderableMatches(availableMatches, new Set<string>(), filter);
   const slots = getStatsFeedSlots({
@@ -141,7 +167,7 @@ export function MatchFeed({
   return (
     <section ref={feedRef} aria-label="최근 매치" className="min-w-0">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h3 className="text-lg font-black text-white">매치 기록 <span className="text-xs text-white/40">(현재 {matchIds.length}게임{historyTotalPages > 1 ? ` · ${historyPage}/${historyTotalPages}페이지` : ""})</span></h3>
+        <h3 className="text-lg font-black text-white">매치 기록 <span className="text-xs text-white/40">(현재 {canonicalMatchIds.length}게임{historyTotalPages > 1 ? ` · ${historyPage}/${historyTotalPages}페이지` : ""})</span></h3>
         <div role="group" aria-label="매치 유형 필터" className="flex flex-wrap gap-1 rounded-xl bg-white/5 p-1">
           {FILTERS.map((item) => (
             <button
@@ -172,7 +198,7 @@ export function MatchFeed({
 
       {(summaryStatus === "loading" || historyStatus === "loading") && renderableMatches.length === 0 ? (
         <div role="status" aria-label="최근 매치 요약 로딩" className="space-y-2">
-          {Array.from({ length: Math.min(3, matchIds.length || 3) }, (_, index) => (
+          {Array.from({ length: Math.min(3, canonicalMatchIds.length || 3) }, (_, index) => (
             <div key={index} data-match-skeleton className="h-24 animate-pulse rounded-2xl border border-white/10 bg-white/5" />
           ))}
         </div>

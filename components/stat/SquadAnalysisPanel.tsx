@@ -142,6 +142,19 @@ function averageObservedMetrics(values: unknown[]): number | null {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+const CALCULATION_UPGRADE_ERROR_CODE = "PUBG_CALCULATION_UPGRADE_REQUIRED";
+const CALCULATION_UPGRADE_MESSAGE = "분석 지표 업데이트 준비 중";
+const CALCULATION_UPGRADE_DETAIL = "기본 전적은 계속 확인할 수 있습니다. 업데이트가 완료된 뒤 스쿼드 분석을 이용할 수 있습니다.";
+
+function isCalculationUpgradeError(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === "object"
+    && "errorCode" in error
+    && error.errorCode === CALCULATION_UPGRADE_ERROR_CODE,
+  );
+}
+
 export default function SquadAnalysisPanel({
   requestCache,
   nickname,
@@ -161,8 +174,10 @@ export default function SquadAnalysisPanel({
   const [groups, setGroups] = useState<any[]>([]);
   const [loadingList, setLoadingList] = useState<boolean>(true);
   const [listError, setListError] = useState<boolean>(false);
+  const [listUpgradePending, setListUpgradePending] = useState<boolean>(false);
   const [loadingDetail, setLoadingDetail] = useState<boolean>(false);
   const [detailError, setDetailError] = useState<boolean>(false);
+  const [detailUpgradePending, setDetailUpgradePending] = useState<boolean>(false);
   const [analysisData, setAnalysisData] = useState<SquadAnalysisData | null>(null);
   
   // AI Coaching States
@@ -170,7 +185,7 @@ export default function SquadAnalysisPanel({
   const [loadingAi, setLoadingAi] = useState<boolean>(false);
   const { isAnalyzing: isGlobalAnalyzing } = useAIStatus();
   const [aiFeedback, setAiFeedback] = useState<AiFeedback | null>(null);
-  const [aiError, setAiError] = useState<{ message: string; retryable: boolean } | null>(null);
+  const [aiError, setAiError] = useState<{ message: string; retryable: boolean; errorCode?: string | null } | null>(null);
 
   // 2D Map Selected Match State
   const [selectedMapMatchId, setSelectedMapMatchId] = useState<string>("");
@@ -202,6 +217,7 @@ export default function SquadAnalysisPanel({
     try {
       setLoadingList(true);
       setListError(false);
+      setListUpgradePending(false);
       setGroups([]);
       const data = await cache.get(cacheScope, `/api/pubg/squad-analyze?nickname=${encodeURIComponent(nickname)}&platform=${platform}`);
       if (requestId !== listRequestId.current) return;
@@ -210,7 +226,8 @@ export default function SquadAnalysisPanel({
     } catch (err) {
       if (requestId !== listRequestId.current) return;
       console.error("Failed to load squad list:", err);
-      setListError(true);
+      if (isCalculationUpgradeError(err)) setListUpgradePending(true);
+      else setListError(true);
     } finally {
       if (requestId === listRequestId.current) setLoadingList(false);
     }
@@ -234,6 +251,7 @@ export default function SquadAnalysisPanel({
     const requestId = ++detailRequestId.current;
     setAnalysisData(null);
     setAiFeedback(null);
+    setDetailUpgradePending(false);
     if (!groupKey || !hasSelectedGroup) { setLoadingDetail(false); return; }
 
     try {
@@ -260,7 +278,8 @@ export default function SquadAnalysisPanel({
     } catch (err) {
       if (requestId !== detailRequestId.current) return;
       console.error("Failed to load squad details:", err);
-      setDetailError(true);
+      if (isCalculationUpgradeError(err)) setDetailUpgradePending(true);
+      else setDetailError(true);
     } finally {
       if (requestId === detailRequestId.current) setLoadingDetail(false);
     }
@@ -324,11 +343,15 @@ export default function SquadAnalysisPanel({
       const data = await res.json();
       if (aiRequest.current !== pending) return;
       if (!res.ok || !data || data.error) {
+        const calculationUpgradePending = data?.errorCode === CALCULATION_UPGRADE_ERROR_CODE;
         setAiError({
-          message: res.status === 409
-            ? "코칭에 필요한 경기 지표가 아직 없습니다. 전적 분석이 완료된 뒤 다시 확인해 주세요."
-            : "일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
-          retryable: data?.retryable !== false && res.status !== 409,
+          message: calculationUpgradePending
+            ? CALCULATION_UPGRADE_MESSAGE
+            : res.status === 409
+              ? "코칭에 필요한 경기 지표가 아직 없습니다. 전적 분석이 완료된 뒤 다시 확인해 주세요."
+              : "일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+          errorCode: typeof data?.errorCode === "string" ? data.errorCode : null,
+          retryable: !calculationUpgradePending && data?.retryable !== false && res.status !== 409,
         });
         return;
       }
@@ -571,6 +594,15 @@ export default function SquadAnalysisPanel({
         </div>
       );
     }
+    if (listUpgradePending) {
+      return (
+        <div role="status" aria-label="스쿼드 분석 지표 업데이트 준비 중" className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-8 text-center">
+          <ShieldAlert className="mx-auto h-12 w-12 text-sky-400 mb-2" />
+          <p className="text-sky-200 font-semibold">{CALCULATION_UPGRADE_MESSAGE}</p>
+          <p className="text-sky-100/70 text-sm mt-2">{CALCULATION_UPGRADE_DETAIL}</p>
+        </div>
+      );
+    }
     return (
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-8 text-center">
         <ShieldAlert className="mx-auto h-12 w-12 text-zinc-600 mb-2" />
@@ -612,7 +644,14 @@ export default function SquadAnalysisPanel({
         </div>
       )}
 
-      {detailError && !loadingDetail && (
+      {detailUpgradePending && !loadingDetail && (
+        <div role="status" aria-label="스쿼드 분석 지표 업데이트 준비 중" className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-6 text-center">
+          <p className="text-sm font-semibold text-sky-200">{CALCULATION_UPGRADE_MESSAGE}</p>
+          <p className="mt-2 text-xs text-sky-100/70">{CALCULATION_UPGRADE_DETAIL}</p>
+        </div>
+      )}
+
+      {detailError && !detailUpgradePending && !loadingDetail && (
         <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-6 text-center">
           <p role="alert" className="text-sm text-red-200">스쿼드 데이터를 불러오지 못했습니다. 다시 시도해 주세요.</p>
           <button
@@ -940,15 +979,17 @@ export default function SquadAnalysisPanel({
             </p>
           )}
           {aiError && (
-            <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4 text-center">
-              <p role="alert" className="text-sm text-red-200">{aiError.message}</p>
-              {aiError.retryable && <button
+            <div role="alert" className={`rounded-lg border p-4 text-center ${aiError.errorCode === CALCULATION_UPGRADE_ERROR_CODE ? "border-sky-500/20 bg-sky-500/5" : "border-red-500/20 bg-red-500/5"}`}>
+              <p className={`text-sm ${aiError.errorCode === CALCULATION_UPGRADE_ERROR_CODE ? "text-sky-200" : "text-red-200"}`}>{aiError.message}</p>
+              {aiError.errorCode === CALCULATION_UPGRADE_ERROR_CODE ? (
+                <p className="mt-2 text-xs text-sky-100/70">{CALCULATION_UPGRADE_DETAIL}</p>
+              ) : aiError.retryable ? <button
                 type="button"
                 onClick={requestAiCoaching}
                 className="mt-3 rounded-lg border border-red-400/30 px-3 py-1.5 text-xs font-bold text-red-200 transition-colors hover:bg-red-400/10"
               >
                 다시 시도
-              </button>}
+              </button> : null}
             </div>
           )}
 

@@ -5,6 +5,23 @@ const REQUEST_TIMEOUT_MS = 20_000;
 
 type Entry = { expiresAt: number; promise: Promise<any> };
 
+export class SquadRequestCacheError extends Error {
+  readonly status: number;
+  readonly errorCode: string | null;
+  readonly retryable: boolean;
+
+  constructor(
+    message: string,
+    details: { status?: number; errorCode?: string | null; retryable?: boolean } = {},
+  ) {
+    super(message);
+    this.name = "SquadRequestCacheError";
+    this.status = details.status ?? 0;
+    this.errorCode = details.errorCode ?? null;
+    this.retryable = details.retryable === true;
+  }
+}
+
 export function createSquadRequestCache() {
   const entries = new Map<string, Entry>();
   return {
@@ -21,9 +38,27 @@ export function createSquadRequestCache() {
       // subscriber. A bounded timeout stops abandoned network work.
       entry.promise = fetch(url, { signal: controller.signal, cache: "no-store" })
         .then(async (response) => {
-          if (!response.ok) throw new Error("스쿼드 데이터를 불러오지 못했습니다.");
-          const data = await response.json();
-          if (!data || data.error) throw new Error("스쿼드 분석 응답 오류");
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new SquadRequestCacheError(
+              typeof data?.error === "string" ? data.error : "스쿼드 데이터를 불러오지 못했습니다.",
+              {
+                status: response.status,
+                errorCode: typeof data?.errorCode === "string" ? data.errorCode : null,
+                retryable: data?.retryable === true,
+              },
+            );
+          }
+          if (!data || data.error) {
+            throw new SquadRequestCacheError(
+              typeof data?.error === "string" ? data.error : "스쿼드 분석 응답 오류",
+              {
+                status: response.status,
+                errorCode: typeof data?.errorCode === "string" ? data.errorCode : null,
+                retryable: data?.retryable === true,
+              },
+            );
+          }
           const groupKey = new URL(url, "https://bgms.kr").searchParams.get("groupKey");
           if (groupKey
             ? data.groupKey !== groupKey || !data.stats || !data.scores || !Array.isArray(data.matchesSummary) || !Array.isArray(data.roleProfiles)

@@ -206,6 +206,31 @@ describe("MatchCard isolated detail state", () => {
     expect(onRecovery).toHaveBeenCalledWith("detail_failed");
   });
 
+  it("계산 지표 업데이트 대기 409는 기본 요약을 유지하고 상세 재시도를 노출하지 않는다", async () => {
+    const onFailure = vi.fn();
+    const onRecovery = vi.fn();
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({
+      error: "분석 지표 업데이트 준비 중입니다.",
+      errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED",
+      retryable: false,
+    }, 409)));
+    vi.stubGlobal("fetch", fetchMock);
+    renderCard({ onFailure, onRecovery });
+
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+    expect(await screen.findByText("분석 지표 업데이트 준비 중")).toBeInTheDocument();
+    expect(screen.getByText(/기본 전적은 계속 확인할 수 있습니다/)).toBeInTheDocument();
+    expect(screen.getByText("에란겔")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "상세 다시 시도" })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(onFailure).not.toHaveBeenCalledWith("detail_failed");
+    expect(onRecovery).toHaveBeenCalledWith("detail_failed");
+
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 접기" }));
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("PUBG가 매치를 제공하지 않으면 기간 만료 안내를 보여주고 같은 매치를 재호출하지 않는다", async () => {
     const onFailure = vi.fn();
     const onRecovery = vi.fn();
@@ -621,6 +646,37 @@ describe("MatchCard isolated detail state", () => {
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
+  });
+
+  it("AI 계산 지표 업데이트 대기 409는 자동 재시도와 시작 CTA를 막는다", async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/match?")) return Promise.resolve(jsonResponse(detail()));
+      if (url === "/api/pubg/ai-analyze") {
+        return Promise.resolve(aiErrorResponse({
+          status: 409,
+          error: "분석 지표 업데이트 준비 중입니다.",
+          errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED",
+          retryable: false,
+        }));
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    renderCard();
+
+    await openAiPanel();
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
+    await flushMicrotasks();
+
+    expect(screen.getByRole("alert", { name: "AI 분석 실패" })).toHaveTextContent("분석 지표 업데이트 준비 중");
+    expect(screen.getByRole("alert", { name: "AI 분석 실패" })).toHaveTextContent(/기본 전적은 계속 확인할 수 있습니다/);
+    expect(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" })).toBeDisabled();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
   });
 

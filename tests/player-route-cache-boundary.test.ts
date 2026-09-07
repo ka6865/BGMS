@@ -46,6 +46,29 @@ describe("player route non-force cache boundary", () => {
     vi.stubGlobal("fetch", mockFetch);
   });
 
+  it("normalizes shard aliases in a legacy response-cache hit before returning it", async () => {
+    mockReadPubgCache.mockResolvedValue({
+      nickname: "Fixture_Player",
+      platform: "steam",
+      seasonId: "pc-2026-02",
+      seasons: [],
+      stats: { ranked: null, normal: null },
+      recentMatches: ["shard:newest", "newest", "older"],
+      matchModes: { "shard:newest": "squad-fpp", newest: "duo-fpp", older: "solo-fpp" },
+    });
+
+    const route = await import("../app/api/pubg/player/route");
+    const response = await route.GET(new Request(
+      "http://localhost/api/pubg/player?nickname=Fixture_Player&platform=steam",
+    ));
+
+    await expect(response.json()).resolves.toEqual(expect.objectContaining({
+      recentMatches: ["newest", "older"],
+      matchModes: { "newest": "squad-fpp", older: "solo-fpp" },
+    }));
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("does not call PUBG when mastery is stale and an explicit season is absent", async () => {
     const cacheRow = {
       nickname: "Fixture_Player",

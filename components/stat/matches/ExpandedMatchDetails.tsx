@@ -179,9 +179,9 @@ type MatchDetailState =
   | { status: "summary" }
   | { status: "loading" }
   | { status: "ready"; data: MatchData }
-  | { status: "error"; message: string; kind: "unavailable" | "retryable" | "generic" };
+  | { status: "error"; message: string; kind: "unavailable" | "upgrade_pending" | "retryable" | "generic" };
 
-type MatchDetailErrorKind = "unavailable" | "retryable" | "generic";
+type MatchDetailErrorKind = "unavailable" | "upgrade_pending" | "retryable" | "generic";
 
 type AiAnalysisErrorDetails = {
   status?: number;
@@ -221,6 +221,8 @@ const MATCH_PARTICIPANT_NOT_FOUND_MESSAGE = "해당 매치에서 플레이어 �
 const MATCH_CACHE_UNAVAILABLE_MESSAGE = "상세 분석 저장소가 일시적으로 불안정합니다. 잠시 후 다시 시도해 주세요.";
 const MATCH_RATE_LIMITED_MESSAGE = "PUBG API 호출 한도가 일시적으로 초과되었습니다. 잠시 후 다시 시도해 주세요.";
 const MATCH_TIMEOUT_MESSAGE = "상세 분석 요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.";
+const MATCH_CALCULATION_UPGRADE_MESSAGE = "분석 지표 업데이트 준비 중";
+const MATCH_CALCULATION_UPGRADE_DETAIL = "기본 전적은 계속 확인할 수 있습니다. 업데이트가 완료되면 상세 분석을 다시 이용할 수 있습니다.";
 const AI_ANALYSIS_RETRY_DELAY_MS = 2_500;
 const AI_ANALYSIS_MAX_AUTO_RETRIES = 1;
 const AI_ANALYSIS_CLIENT_SAFETY_TIMEOUT_MS = 45_000;
@@ -231,15 +233,18 @@ function classifyAiAnalysisError(
   retryable?: boolean,
   message?: string,
 ): AiAnalysisRequestError {
+  const isCalculationUpgradePending = status === 409 && errorCode === "PUBG_CALCULATION_UPGRADE_REQUIRED";
   const isCanonicalNotReady = status === 409 && errorCode === "PUBG_AI_CANONICAL_NOT_READY";
   const isRouteTimeout = status === 504 && errorCode === "PUBG_AI_ROUTE_TIMEOUT";
-  const isRetryable = retryable === true || isCanonicalNotReady || isRouteTimeout;
+  const isRetryable = !isCalculationUpgradePending && (retryable === true || isCanonicalNotReady || isRouteTimeout);
   return new AiAnalysisRequestError(
-    message || (isCanonicalNotReady
-      ? "매치 분석 데이터가 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요."
-      : isRouteTimeout
-        ? "AI 분석 요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."
-        : "AI 분석 요청에 실패했습니다."),
+    isCalculationUpgradePending
+      ? MATCH_CALCULATION_UPGRADE_MESSAGE
+      : message || (isCanonicalNotReady
+        ? "매치 분석 데이터가 아직 준비되지 않았습니다. 잠시 후 다시 시도해 주세요."
+        : isRouteTimeout
+          ? "AI 분석 요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."
+          : "AI 분석 요청에 실패했습니다."),
     { status, errorCode, retryable: isRetryable },
   );
 }
@@ -278,6 +283,9 @@ function classifyMatchDetailError(
   }
   if (errorCode === "PUBG_MATCH_TIMEOUT" || status === 504) {
     return new MatchDetailRequestError(serverMessage || MATCH_TIMEOUT_MESSAGE, "retryable");
+  }
+  if (errorCode === "PUBG_CALCULATION_UPGRADE_REQUIRED") {
+    return new MatchDetailRequestError(MATCH_CALCULATION_UPGRADE_MESSAGE, "upgrade_pending");
   }
   if (errorCode === "PUBG_MATCH_ANALYSIS_IN_PROGRESS" || status === 409) {
     return new MatchDetailRequestError(
@@ -483,7 +491,7 @@ export const ExpandedMatchDetails = ({
       "Tiger_Main": "Taego",
       "Kiki_Main": "Deston",
       "Neon_Main": "Rondo",
-      "Chimera_Main": "Vikendi"
+      "Chimera_Main": "Paramo"
     };
     const mapped = mapping[name];
     if (mapped) return mapped;
@@ -572,7 +580,7 @@ export const ExpandedMatchDetails = ({
         ? caught
         : new MatchDetailRequestError("상세 정보를 불러오지 못했습니다", "generic");
       setDetailState({ status: "error", message: detailError.message, kind: detailError.kind });
-      if (detailError.kind === "unavailable") callbacksRef.current.onRecovery?.("detail_failed");
+      if (detailError.kind === "unavailable" || detailError.kind === "upgrade_pending") callbacksRef.current.onRecovery?.("detail_failed");
       else callbacksRef.current.onFailure?.("detail_failed");
     } finally {
       if (!stale()) {
@@ -772,6 +780,7 @@ export const ExpandedMatchDetails = ({
       } | null;
       if (parsedStreamFailure) {
         const status = parsedStreamFailure.errorCode === "PUBG_AI_CANONICAL_NOT_READY"
+          || parsedStreamFailure.errorCode === "PUBG_CALCULATION_UPGRADE_REQUIRED"
           ? 409
           : parsedStreamFailure.errorCode === "PUBG_AI_ROUTE_TIMEOUT" ? 504 : res.status || 200;
         throw classifyAiAnalysisError(
@@ -921,13 +930,16 @@ export const ExpandedMatchDetails = ({
     }
   };
 
+  const isCalculationUpgradePending = analysisError?.errorCode === "PUBG_CALCULATION_UPGRADE_REQUIRED";
+
   if (detailState.status === "error") {
     const isUnavailable = detailState.kind === "unavailable";
+    const isUpgradePending = detailState.kind === "upgrade_pending";
     return (
-      <div className={`rounded-b-2xl border border-t-0 border-l-4 ${statusBorder} p-4 ${isUnavailable ? "border-sky-500/20 bg-sky-500/10" : "border-red-500/20 bg-red-500/10"}`} role="alert">
-        <p className={`text-sm font-black ${isUnavailable ? "text-sky-200" : "text-red-200"}`}>{detailState.message}</p>
-        <p className="mt-1 text-xs text-white/55">접힌 매치 요약은 그대로 유지됩니다.</p>
-        {!isUnavailable && (
+      <div className={`rounded-b-2xl border border-t-0 border-l-4 ${statusBorder} p-4 ${isUnavailable || isUpgradePending ? "border-sky-500/20 bg-sky-500/10" : "border-red-500/20 bg-red-500/10"}`} role="alert">
+        <p className={`text-sm font-black ${isUnavailable || isUpgradePending ? "text-sky-200" : "text-red-200"}`}>{detailState.message}</p>
+        <p className="mt-1 text-xs text-white/55">{isUpgradePending ? MATCH_CALCULATION_UPGRADE_DETAIL : "접힌 매치 요약은 그대로 유지됩니다."}</p>
+        {!isUnavailable && !isUpgradePending && (
           <button
             type="button"
             onClick={() => void fetchFullMatch()}
@@ -1474,7 +1486,11 @@ export const ExpandedMatchDetails = ({
                   className="mb-4 rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-center"
                 >
                   <p className="text-sm font-black text-red-100">{analysisError.message}</p>
-                  <p className="mt-1 text-xs font-medium text-red-200/70">잠시 후 같은 매치에서 다시 시도할 수 있습니다.</p>
+                  <p className="mt-1 text-xs font-medium text-red-200/70">
+                    {isCalculationUpgradePending
+                      ? MATCH_CALCULATION_UPGRADE_DETAIL
+                      : "잠시 후 같은 매치에서 다시 시도할 수 있습니다."}
+                  </p>
                 </div>
               )}
 
@@ -1590,7 +1606,7 @@ export const ExpandedMatchDetails = ({
                 type="button"
                 aria-label="이 매치 정밀 분석 시작하기"
                 onClick={handleAnalyze}
-                disabled={isGlobalAnalyzing || isAnalyzing}
+                disabled={isGlobalAnalyzing || isAnalyzing || isCalculationUpgradePending}
                 className={`w-full py-16 ${isRanked ? 'bg-amber-500/10 border-amber-500/20 hover:bg-amber-500/20' : 'bg-indigo-500/10 border-indigo-500/20 hover:bg-indigo-500/20'} border-2 border-dashed rounded-[2.5rem] flex flex-col items-center gap-4 group transition-all relative overflow-hidden ${
                   (isGlobalAnalyzing || isAnalyzing) && !isAnalyzing ? 'opacity-50 cursor-not-allowed grayscale' : ''
                 }`}
@@ -1609,7 +1625,11 @@ export const ExpandedMatchDetails = ({
                 )}
                 <div className="flex flex-col items-center gap-1 relative z-10">
                   <span className={`${isRanked ? 'text-amber-500' : 'text-indigo-400'} font-black text-lg tracking-tight`}>
-                    {isAnalyzing ? "전장 데이터를 복기하는 중..." : "이 매치 정밀 분석 시작하기"}
+                    {isAnalyzing
+                      ? "전장 데이터를 복기하는 중..."
+                      : isCalculationUpgradePending
+                        ? MATCH_CALCULATION_UPGRADE_MESSAGE
+                        : "이 매치 정밀 분석 시작하기"}
                   </span>
                   <span className="text-gray-500 text-xs font-medium uppercase tracking-widest">
                     {coachingStyle === 'mild' ? "KIND COACH 모드로 분석" : "SPICY BOMBER 모드로 분석"}

@@ -275,4 +275,30 @@ describe("MatchFeed renderable order and ads", () => {
     ]);
     expect(onRecovery).toHaveBeenCalledWith("detail_failed", "match:match-1");
   });
+
+  it("shard alias 중복은 한 행으로 렌더링하고 canonical 요약 키를 사용한다", async () => {
+    const { MatchFeed } = await import("@/components/stat/matches/MatchFeed");
+    const view = render(createElement(MatchFeed, {
+      matchIds: ["shard:duplicate-match", "duplicate-match", "unique-match"],
+      summaries: {
+        "shard:duplicate-match": summary("shard:duplicate-match"),
+        "unique-match": summary("unique-match"),
+      },
+      missingMatchIds: new Set<string>(),
+      matchModeMeta: {},
+      summaryStatus: "ready",
+      filter: "all",
+      viewportClass: "mobile",
+      nickname: "PlayerOne",
+      platform: "steam",
+      onFilterChange: vi.fn(),
+      onRetrySummaries: vi.fn(),
+      onNicknameClick: vi.fn(),
+      onModeDetected: vi.fn(),
+    }));
+
+    expect(Array.from(view.container.querySelectorAll<HTMLElement>("[data-feed-sequence]"))
+      .map((node) => node.dataset.feedSequence)).toEqual(["duplicate-match", "unique-match"]);
+    expect(screen.getByRole("heading", { name: /현재 2게임/ })).toBeInTheDocument();
+  });
 });

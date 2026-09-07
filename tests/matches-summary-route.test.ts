@@ -204,4 +204,42 @@ describe("matches-summary raw timestamp fallback", () => {
     });
     expect(body.missingMatchIds).toEqual([]);
   });
+
+  it("canonicalizes shard aliases before the 20-match limit and returns one summary per ID", async () => {
+    database.rows.match_stats_raw = [
+      {
+        match_id: "shard:duplicate-match",
+        player_id: "fixtureplayer",
+        platform: "steam",
+        created_at: "2026-07-02T10:00:00.000Z",
+        damage: 100,
+        kills: 1,
+        win_place: 5,
+        game_mode: "squad-fpp",
+        map_name: "Baltic_Main",
+      },
+      {
+        match_id: "match-18",
+        player_id: "fixtureplayer",
+        platform: "steam",
+        created_at: "2026-07-03T10:00:00.000Z",
+        damage: 200,
+        kills: 2,
+        win_place: 4,
+        game_mode: "squad-fpp",
+        map_name: "Baltic_Main",
+      },
+    ];
+    const requestedIds = [
+      "shard:duplicate-match",
+      "duplicate-match",
+      ...Array.from({ length: 19 }, (_, index) => `match-${index}`),
+    ];
+
+    const body = await (await POST(request(requestedIds))).json();
+
+    expect(Object.keys(body.summaries)).toEqual(["duplicate-match", "match-18"]);
+    expect(body.summaries["duplicate-match"].matchId).toBe("duplicate-match");
+    expect(body.missingMatchIds).toEqual(Array.from({ length: 18 }, (_, index) => `match-${index}`));
+  });
 });

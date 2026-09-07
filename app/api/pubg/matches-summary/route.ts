@@ -5,6 +5,8 @@ import { getLegacyFullResultForHistory, normalizePlatform } from "@/lib/pubg-ana
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { buildMatchSummary, buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
 import { fetchAndIngestBasicMatchSummary } from "@/lib/pubg/playerMatchesIngest";
+import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
+import { normalizeRecentMatchIds } from "@/lib/pubg/recentMatches";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -18,7 +20,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const matchIds = Array.isArray(body.matchIds)
-      ? body.matchIds.map(String).filter(Boolean).slice(0, 20)
+      ? normalizeRecentMatchIds(body.matchIds)
       : [];
     const platform = normalizePlatform(body.platform || "steam");
     const playerId = normalizeName(body.nickname || body.playerId || "");
@@ -41,6 +43,8 @@ export async function POST(request: NextRequest) {
 
     const summaries: Record<string, any> = {};
     for (const row of telemetryData || []) {
+      const matchId = normalizeMatchId(row.match_id);
+      if (!matchId || !matchIds.includes(matchId)) continue;
       const fullResult = getLegacyFullResultForHistory(row, playerId, platform);
       if (!fullResult || fullResult.v !== RESULT_VERSION) continue;
 
@@ -49,8 +53,8 @@ export async function POST(request: NextRequest) {
         // Legacy fullResult payloads may omit their embedded match ID. The
         // storage row was queried by the canonical ID, so retain it as the
         // authoritative navigation identity for history/detail consumers.
-        if (!summary.matchId) summary.matchId = row.match_id;
-        summaries[row.match_id] = summary;
+        summary.matchId = matchId;
+        summaries[matchId] = summary;
       }
     }
 
@@ -65,9 +69,9 @@ export async function POST(request: NextRequest) {
         .in("match_id", missingIds);
 
       for (const row of playerMatchesData || []) {
-        if (!summaries[row.match_id]) {
-          summaries[row.match_id] = buildBasicMatchSummary(row);
-        }
+        const matchId = normalizeMatchId(row.match_id);
+        if (!matchId || !matchIds.includes(matchId) || summaries[matchId]) continue;
+        summaries[matchId] = buildBasicMatchSummary({ ...row, match_id: matchId });
       }
     }
 
@@ -82,9 +86,9 @@ export async function POST(request: NextRequest) {
         .in("match_id", stillMissingIds);
 
       for (const row of rawStatsData || []) {
-        if (!summaries[row.match_id]) {
-          summaries[row.match_id] = buildBasicMatchSummary(row);
-        }
+        const matchId = normalizeMatchId(row.match_id);
+        if (!matchId || !matchIds.includes(matchId) || summaries[matchId]) continue;
+        summaries[matchId] = buildBasicMatchSummary({ ...row, match_id: matchId });
       }
     }
 
@@ -100,8 +104,9 @@ export async function POST(request: NextRequest) {
         );
 
         for (const record of fetchedRecords) {
-          if (record && !summaries[record.match_id]) {
-            summaries[record.match_id] = buildBasicMatchSummary(record);
+          const matchId = normalizeMatchId(record?.match_id);
+          if (record && matchId && matchIds.includes(matchId) && !summaries[matchId]) {
+            summaries[matchId] = buildBasicMatchSummary({ ...record, match_id: matchId });
           }
         }
       }

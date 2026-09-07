@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
 import { reportPubgApiError } from "@/lib/pubg/apiHelper";
-import { mergeRecentMatchIds } from "@/lib/pubg/recentMatches";
+import { mergeRecentMatchIds, normalizeRecentMatchIds } from "@/lib/pubg/recentMatches";
+import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
 import {
   normalizeSurvivalMasteryPayload,
   shouldRefreshSurvivalMastery,
@@ -49,6 +50,33 @@ function normalizeSeasonParam(value: string | null): string | null {
   const trimmed = (value || "").trim();
   if (!trimmed || trimmed === "null" || trimmed === "undefined") return null;
   return trimmed;
+}
+
+function normalizeMatchModes(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const normalized: Record<string, string> = {};
+  for (const [rawId, mode] of Object.entries(value)) {
+    if (typeof mode !== "string") continue;
+    const matchId = normalizeMatchId(rawId);
+    if (matchId && !normalized[matchId]) normalized[matchId] = mode;
+  }
+  return normalized;
+}
+
+function normalizeCachedPlayerResponse(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const candidate = value as Record<string, unknown>;
+  const recentMatches = Array.isArray(candidate.recentMatches)
+    ? normalizeRecentMatchIds(candidate.recentMatches)
+    : undefined;
+  const matchModes = Object.prototype.hasOwnProperty.call(candidate, "matchModes")
+    ? normalizeMatchModes(candidate.matchModes)
+    : undefined;
+  return {
+    ...candidate,
+    ...(recentMatches ? { recentMatches } : {}),
+    ...(matchModes ? { matchModes } : {}),
+  };
 }
 
 function isValidSeasonId(value: unknown): value is string {
@@ -135,7 +163,7 @@ export async function GET(request: Request) {
   } else {
     const cachedPayload = await readPubgCache(cacheKey);
     if (cachedPayload) {
-      return NextResponse.json(cachedPayload);
+      return NextResponse.json(normalizeCachedPlayerResponse(cachedPayload));
     }
   }
 
@@ -200,10 +228,9 @@ export async function GET(request: Request) {
         .select("match_id, game_mode")
         .in("match_id", recentMatches);
 
-      const matchModes = (modeData || []).reduce((acc: Record<string, string>, item: any) => {
-        acc[item.match_id] = item.game_mode;
-        return acc;
-      }, {});
+      const matchModes = normalizeMatchModes(Object.fromEntries(
+        (modeData || []).map((item: any) => [item.match_id, item.game_mode]),
+      ));
 
       const responseBody = {
         nickname: targetNickname,
@@ -394,10 +421,9 @@ export async function GET(request: Request) {
       .select("match_id, game_mode")
       .in("match_id", recentMatches);
     if (request.signal.aborted) throw request.signal.reason;
-    const matchModes = (modeData || []).reduce((acc: Record<string, string>, item: any) => {
-      acc[item.match_id] = item.game_mode;
-      return acc;
-    }, {});
+    const matchModes = normalizeMatchModes(Object.fromEntries(
+      (modeData || []).map((item: any) => [item.match_id, item.game_mode]),
+    ));
     const responseBody = {
       nickname: actualNickname, platform, seasonId: targetSeasonId,
       seasons: availableSeasons.map((season) => ({ id: season.id, name: season.name || `Season ${season.id.split("-").pop()}` })),

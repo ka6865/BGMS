@@ -248,6 +248,9 @@ describe("RecentAISummary callback bridge", () => {
     })).toMatchObject({
       trends: { dmgTrend: -5, winTrend: -12.5 },
     });
+    expect(normalizeRouteOwnedVisuals({ calculationPendingCount: 2.8 })).toMatchObject({
+      calculationPendingCount: 2,
+    });
   });
 
   it("bluezone unavailable marker survives normalization and display without turning into 0 HP", async () => {
@@ -281,6 +284,18 @@ describe("RecentAISummary callback bridge", () => {
 
     expect(screen.getByText(/자기장 누적 피해: 측정 불가/)).toBeInTheDocument();
     expect(screen.queryByText(/자기장 누적 피해: 0 HP/)).not.toBeInTheDocument();
+  });
+
+  it("계산 업데이트 대기 매치 수를 최근 요약 범위 안내에 표시한다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "A", calculationPendingCount: 2 } },
+      { type: "final", data: JSON.stringify(aiReady) },
+      { type: "done", valid: true },
+    ])));
+    render(createElement(RecentAISummary, { ...baseProps }));
+
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    expect(await screen.findByText("계산 업데이트 대기 2경기는 분석에서 제외했습니다.")).toBeInTheDocument();
   });
 
   it("mount/rerender만으로 AI를 요청하지 않고 platform+nickname+IDs identity 변경에 null을 배출한다", async () => {
@@ -877,6 +892,29 @@ describe("RecentAISummary callback bridge", () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("계산 지표 업데이트 대기 409는 일시적 장애 문구나 재시도를 표시하지 않는다", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: "분석 지표 업데이트 준비 중입니다. 기본 전적은 계속 이용할 수 있습니다.",
+      errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED",
+      retryable: false,
+    }), { status: 409, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(createElement(RecentAISummary, { ...baseProps }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    for (let index = 0; index < 10; index += 1) await act(async () => { await Promise.resolve(); });
+
+    expect(screen.getByText("분석 지표 업데이트 준비 중")).toBeInTheDocument();
+    expect(screen.getByText(/기본 전적은 계속 확인할 수 있습니다/)).toBeInTheDocument();
+    expect(screen.queryByText("AI 분석이 잠깐 막혔어요.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "다시 시도하기" })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("retryable route-timeout 504는 structured retryability로 bounded retry 한 번 뒤 성공한다", async () => {
