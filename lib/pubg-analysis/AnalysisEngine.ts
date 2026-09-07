@@ -6,6 +6,7 @@
  * - Units: Distance (m), Damage (HP), Latency (ms)
  */
 
+import { SquadObservationCollector } from './squadObservations';
 import { SquadFocusFireCollector } from './squadFocusFire';
 import { normalizeName } from './utils';
 import { AnalysisResult, AnalysisState } from './types';
@@ -180,6 +181,7 @@ export class AnalysisEngine {
 
     this.buildMappings(rosters, participants);
     const focusFire = new SquadFocusFireCollector(this.state.teamAccountIds, this.state.gameMode);
+    const squadObservation = new SquadObservationCollector(this.state.teamAccountIds, this.state.gameMode);
 
     // 2. 정확한 시작 시점 (LogMatchStart) 찾기
     const matchStartEv = telemetry.find(e => e._T === "LogMatchStart");
@@ -192,6 +194,7 @@ export class AnalysisEngine {
       const ts = new Date(e._D).getTime();
       const elapsed = ts - startTime;
       focusFire.observe(e, ts);
+      squadObservation.observe(e, ts);
 
       // 타임라인 기록 제한: 나 또는 아군 중 한 명이라도 살아있으면 계속 기록
       const isMyTeamAlive = Array.from(this.state.teamNames).some(name => this.state.playerAliveStatus.get(name) !== false);
@@ -250,6 +253,7 @@ export class AnalysisEngine {
     return {
       ...this.assembleResult(matchAttr, rosters, participants, myStats, teamStats, eliteBenchmark, matchStartEv),
       squadFocusFire: focusFire.result(),
+      squadObservation: squadObservation.result(),
     };
   }
 

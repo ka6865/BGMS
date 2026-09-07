@@ -110,8 +110,8 @@ ${membersReport}
 
 [Squad Collaboration Performance Average]
 - Average Isolation Index (대열 이탈 고립도): ${formatObserved(isolationValue)} (낮을수록 좋음. 1.0은 대열 유지 우수, 3.5 이상은 높은 고립 데스 위험)
-- Backup Speed (아군 기절 후 백업 속도): ${myTradeLatencySec} (평균적으로 아군이 누운 뒤 복수 킬을 내는 데 걸린 시간)
-- Smoke Rescues (연막 구출 세이브 성공 수): ${formatObserved(stats?.totalSmokeRescues, "회")} (단순히 연막탄을 던진 횟수가 아니라, 기절한 팀원 주변에 연막을 쳐서 안전을 도모하고 소생까지 성공적으로 완료한 '연막 세이브' 횟수)
+- Backup Speed (아군 기절 후 백업 속도): ${myTradeLatencySec} (팀 전체에서 아군을 기절시킨 동일 적을 다른 아군이 30초 미만에 처치한 기록의 시간 합계 / 처치 수)
+- Smoke Rescues (연막 구출 세이브 성공 수): ${formatObserved(stats?.totalSmokeRescues, "회")} (단순히 연막탄을 던진 횟수가 아니라, 기절 후 15초 안에 팀원이 100m 이내에서 연막을 투척하고 같은 아군 소생이 30초 안에 확인된 '연막 세이브' 횟수. 실제 연막 착탄/엄폐 효과/안전 여부는 측정하지 않음)
 - Ally Revives (아군 부활 성공 수): ${formatObserved(stats?.totalRevives, "회")}
 - Average Cover Rate (평균 아군 집중사격 커버율): ${coverRatePercent} (동시 교전 참여 지표)
 - Enemy Squad Team Wipes (적 스쿼드 전멸 유발 수): ${formatObserved(stats?.totalTeamWipes, "회")}
@@ -194,6 +194,7 @@ Use measured statistics and available benchmarks to provide concrete, quantitati
 - If cover rate or focus-fire score is unavailable, do not evaluate cover, covering teammates, simultaneous engagement, or focus-fire ability anywhere, including member feedback. There is no implemented cover collection yet; this does not mean a lack of cover opportunities.
 - Zero smoke rescues counts successful recorded rescues, NOT smoke attempts, unused smoke, or a refusal to save. Do not say 연막을 아꼈다/국 끓인다 or blame recovery skill from a success count alone.
 - Personal shares describe distribution only. Do not infer 소극적, 적극적, 후방 지원, 위치 선정, 연계 부족, 협공 능력, or intent from shares. If no personal weakness is measured, use "현재 기록만으로 개인의 약점을 단정하기 어렵습니다." in fault and offer a future practice action in advice.
+- These are team-scope observations across the selected matches, not the target player alone. Individual isolation/wipe/cover values cannot replace missing team metrics.
 - Only discuss measured metrics. If no supported weakness is evident, state that further observation is needed instead of inventing a fault.
 - Do not infer player intent, communication, safety, or actions from absent evidence.
 - Squad isolation, backup and recovery metrics describe the entire team. roleProfiles contain NO individual position, isolation, backup, smoke or revive evidence. Never blame an individual for a team metric, infer front/back positioning, or infer kill-stealing intent from kill/assist shares.

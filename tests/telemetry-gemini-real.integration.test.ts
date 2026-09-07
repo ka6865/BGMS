@@ -84,7 +84,7 @@ beforeAll(async()=>{
       expect(stable(run(filterTelemetryEvents(cached,context)))).toEqual(stable(full));
       const canonical={...full,platform:'steam',player_id:stats.name.toLowerCase()};
       audit.rows.push({match_id:id,platform:'steam',player_id:stats.name.toLowerCase(),updated_at:match.data.attributes.createdAt,data:{fullResult:canonical}});
-      audit.source.push({matchId:id,nickname:stats.name,rawEvents:raw.length,projectedEvents:projected.length,utility:full.combatPressure.utilityStats,trade:full.tradeStats,isolation:full.isolationData,score:full.benchmark});
+      audit.source.push({matchId:id,nickname:stats.name,rawEvents:raw.length,projectedEvents:projected.length,squadObservation:full.squadObservation,utility:full.combatPressure.utilityStats,trade:full.tradeStats,isolation:full.isolationData,score:full.benchmark});
     }
   }
 },60000);
@@ -108,6 +108,18 @@ async function runCase(name:string,route:(r:Request)=>Promise<Response>,body:any
   return final;
 }
 suite('actual telemetry through production AI routes and real Gemini',()=>{
+  it('team observations and selected team totals are independent of requester',async()=>{
+    for(const id of ids){
+      const sources=audit.source.filter(row=>row.matchId===id);
+      expect(sources).toHaveLength(4);
+      expect(sources.every(row=>row.squadObservation.status==='observed'&&JSON.stringify(row.squadObservation)===JSON.stringify(sources[0].squadObservation))).toBe(true);
+    }
+    for(const nickname of ['MiaeQ_Q','KangHeeSung_']){
+      const groups=await getSquadAnalysisData(nickname,'steam');const detail:any=await getSquadAnalysisData(nickname,'steam',(groups as any).groups[0].groupKey);
+      expect(detail.stats).toMatchObject({avgIsolation:null,avgTradeLatency:6094,totalTeammateKnocks:9,totalRevives:3,totalTradeKills:2,totalTeamWipes:null});
+      await mkdir(outputDir,{recursive:true});await writeFile(`${outputDir}/team-detail-${nickname}.json`,JSON.stringify(detail,null,2));
+    }
+  });
   for(const nickname of ['MiaeQ_Q','KangHeeSung_','Suk-Cun'])for(const coachingStyle of ['mild','spicy']){
     it(`match ${nickname} ${coachingStyle}`,async()=>{await runCase(`match-${nickname}-${coachingStyle}`,analyze,{nickname,platform:'steam',coachingStyle,matchData:{matchId:ids[1],combatPressure:{utilityDamage:999999}}});},120000);
   }

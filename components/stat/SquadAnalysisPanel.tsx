@@ -65,6 +65,7 @@ interface SquadAnalysisData {
     avgCoverRate: number | null;
     totalTeamWipes: number | null;
     totalTeammateKnocks?: number | null;
+    totalTradeKills?: number | null;
   };
   scores: {
     formation: number | null;
@@ -75,7 +76,7 @@ interface SquadAnalysisData {
   };
   squadGrade: string | null;
   benchmarkStats?: {
-    tier: string;
+    tier: string | null;
     avgIsolation: number | null;
     avgTradeLatency: number | null;
     avgReviveRate: number | null;
@@ -763,26 +764,28 @@ export default function SquadAnalysisPanel({
               
               <div className="flex flex-col gap-1 border-b border-zinc-900 pb-2">
                 <div className="flex justify-between">
-                  <span className="text-zinc-400 font-medium">평균 대열 이탈율 (고립)</span>
+                  <span className="text-zinc-400 font-medium">팀 전체 대열 유지</span>
                   <span className={`font-bold ${analysisData.stats.avgIsolation !== null && analysisData.stats.avgIsolation > 3.5 ? "text-red-400" : "text-zinc-100"}`}>
                     {isFiniteNonNegativeMetric(analysisData.stats.avgIsolation) ? `${analysisData.stats.avgIsolation} (평균)` : "측정 불가"}
                   </span>
                 </div>
-                {analysisData.benchmarkStats && (
+                {analysisData.benchmarkStats?.tier && (
                   <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
                     {analysisData.benchmarkStats.tier}티어 기준치: {formatObservedMetric(analysisData.benchmarkStats.avgIsolation)} (낮을수록 우수)
                   </div>
                 )}
               </div>
 
+              {analysisData.stats.avgIsolation === null && <p className="text-[10px] text-zinc-500 leading-relaxed">팀 전체 거리 지표를 준비 중입니다. 개인 고립도로 팀을 평가하지 않습니다.</p>}
               <div className="flex flex-col gap-1 border-b border-zinc-900 pb-2">
                 <div className="flex justify-between">
-                  <span className="text-zinc-400 font-medium">평균 백업 반응 속도 (트레이드)</span>
+                  <span className="text-zinc-400 font-medium">아군 기절 후 평균 복수 시간</span>
                   <span className="text-zinc-100 font-bold">
                     {formatLatencyMs(analysisData.stats.avgTradeLatency)}
                   </span>
                 </div>
-                {analysisData.benchmarkStats && (
+                <p className="text-[10px] text-zinc-500 leading-relaxed">아군을 기절시킨 적을 다른 팀원이 30초 안에 처치한 기록의 평균입니다. {isFiniteNonNegativeMetric(analysisData.stats.totalTradeKills) ? `확인된 복수 ${analysisData.stats.totalTradeKills}회 기준` : "팀 단위 기록을 확인하지 못해 보류합니다."}</p>
+                {analysisData.benchmarkStats?.tier && (
                   <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
                     {analysisData.benchmarkStats.tier}티어 기준치: {formatLatencyMs(analysisData.benchmarkStats.avgTradeLatency)} (빠를수록 우수)
                   </div>
@@ -791,10 +794,11 @@ export default function SquadAnalysisPanel({
 
               <div className="flex flex-col gap-1 border-b border-zinc-900 pb-2">
                 <div className="flex justify-between">
-                  <span className="text-zinc-400 font-medium">누적 세이브 (연막/소생)</span>
+                  <span className="text-zinc-400 font-medium">팀 구출 기록 (연막/소생)</span>
                     <span className="text-zinc-100 font-bold">{formatObservedMetric(analysisData.stats.totalSmokeRescues, "회")} / {formatObservedMetric(analysisData.stats.totalRevives, "회")}</span>
                 </div>
-                {analysisData.benchmarkStats && (
+                <p className="text-[10px] text-zinc-500 leading-relaxed">{isFiniteNonNegativeMetric(analysisData.stats.totalTeammateKnocks) ? `팀 전체 기절 ${analysisData.stats.totalTeammateKnocks}회에서 확인한 소생 기록입니다.` : "팀 단위 구출 기록이 없어 평가를 보류합니다."} 연막 구출은 주변 투척 후 소생이 이어진 기록이며, 실제 엄폐 효과를 뜻하지 않습니다.</p>
+                {analysisData.benchmarkStats?.tier && (
                   <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
                     {analysisData.benchmarkStats.tier}티어 기준치 (경기당 평균): 부활 {formatObservedPercent(analysisData.benchmarkStats.avgReviveRate)} / 연막 {formatObservedPercent(analysisData.benchmarkStats.avgSmokeRate)}
                   </div>
@@ -817,10 +821,11 @@ export default function SquadAnalysisPanel({
 
               <div className="flex flex-col gap-1">
                 <div className="flex justify-between">
-                  <span className="text-zinc-400 font-medium">적 스쿼드 전멸 유발 수</span>
+                  <span className="text-zinc-400 font-medium">팀 전체 전멸 기여</span>
                   <span className="text-purple-300 font-bold">{formatObservedMetric(analysisData.stats.totalTeamWipes, "회 전멸")}</span>
                 </div>
-                {analysisData.benchmarkStats && (
+                {analysisData.stats.totalTeamWipes === null && <p className="text-[10px] text-zinc-500 leading-relaxed">팀 단위 전멸 기여 집계를 준비 중입니다.</p>}
+                {analysisData.benchmarkStats?.tier && (
                   <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
                     {analysisData.benchmarkStats.tier}티어 기준치: 경기당 평균 {formatObservedMetric(analysisData.benchmarkStats.avgTeamWipes, "회")}
                   </div>

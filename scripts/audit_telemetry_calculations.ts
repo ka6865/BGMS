@@ -29,8 +29,8 @@ const teamNames=new Set<string>(members.map((p:any)=>normalizeName(p.attributes.
 const context={mode:'full' as const,teamAccountIds:teamIds,teamNames};
 const projected=filterTelemetryEvents(raw,context);
 const size=(value:unknown)=>{const body=JSON.stringify(value);return {jsonBytes:Buffer.byteLength(body),gzipBytes:gzipSync(body).length};};
-const fields=['benchmark','tradeStats','isolationData','initiative_rate','initiativeSampleCount','duelStats','combatPressure','itemUseSummary','bluezoneWaste','avgCircleLuck','avgVehicleMastery','squadFocusFire','stats','teamImpact','weaponStats','squadWeaponStats','zoneStrategy','goldenTimeDamage','killContribution','itemUseStats','timeline','mapData'];
-const results=[];
+const fields=['benchmark','tradeStats','isolationData','initiative_rate','initiativeSampleCount','duelStats','combatPressure','itemUseSummary','bluezoneWaste','avgCircleLuck','avgVehicleMastery','squadFocusFire','squadObservation','stats','teamImpact','weaponStats','squadWeaponStats','zoneStrategy','goldenTimeDamage','killContribution','itemUseStats','timeline','mapData'];
+const results:any[]=[];
 for(const member of values['all-team']?members:[requester]){
   const stats=member.attributes.stats;
   const identity={matchId:match.data.id,platform,playerId:stats.playerId,mode:'lite' as const,telemetryVersion:TELEMETRY_VERSION};
@@ -52,8 +52,9 @@ for(const member of values['all-team']?members:[requester]){
     for(const event of raw) collector.observe(event,Date.parse(event._D));
     return collector.result();
   });
-  results.push({nickname:stats.name,differences,engineMs:times,score:result.benchmark.score,isolation:result.isolationData.isolationIndex,personalThrows:result.itemUseStats?.throwCount ?? result.combatPressure.utilityStats.throwCount,teamRevives:{raw:rawRevives,timeline:recovery.squadRevives},teamSmokeRescues:recovery.squadSmokeRescues,focusFire:windows,liteMapSize:size(sampleReplayPositions(result.mapData.events,'lite')),fullMapSize:size(result.mapData.events)});
+  results.push({squadObservation:result.squadObservation,nickname:stats.name,differences,engineMs:times,score:result.benchmark.score,isolation:result.isolationData.isolationIndex,personalThrows:result.itemUseStats?.throwCount ?? result.combatPressure.utilityStats.throwCount,teamRevives:{raw:rawRevives,timeline:recovery.squadRevives},teamSmokeRescues:recovery.squadSmokeRescues,focusFire:windows,liteMapSize:size(sampleReplayPositions(result.mapData.events,'lite')),fullMapSize:size(result.mapData.events)});
 }
+if(values['all-team'] && results.some(row=>JSON.stringify(row.squadObservation)!==JSON.stringify(results[0].squadObservation))) throw new Error('Requester-dependent team observations');
 const report={matchId:match.data.id,platform,calculationVersion:ANALYSIS_CALCULATION_VERSION,events:{raw:raw.length,projected:projected.length},size:{raw:size(raw),fullProjection:size(projected)},results,limitations:['Only these local matches were replayed; no live collection or provider call.', 'Agreement does not prove a heuristic is calibrated or establishes intent.', 'Legacy processed results and benchmarks are unchanged; rollout requires a bounded version migration.']};
 if(values.output) await writeFile(values.output,JSON.stringify(report,null,2));
 console.log(JSON.stringify(report,null,2));

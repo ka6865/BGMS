@@ -1,3 +1,4 @@
+import { aggregateSquadObservations } from './squadObservations';
 import { aggregateSquadFocusFire } from "./squadFocusFire";
 import { createClient } from "@/utils/supabase/server";
 import {
@@ -5,10 +6,6 @@ import {
   SquadCauseScene,
   SquadCauseSceneMatchInput
 } from "@/lib/pubg-analysis/squadCauseScenes";
-import {
-  deriveSquadRecoveryStatsFromTimeline,
-  hasSquadRecoveryTimelineSignals
-} from "@/lib/pubg-analysis/squadRecoveryStats";
 import { getValidFullResultForMatch, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { evaluateMatchEligibility } from "@/lib/pubg-analysis/matchEligibility";
@@ -18,26 +15,10 @@ import {
   type RecentMatchCandidate,
 } from "@/lib/pubg-analysis/recentMatchSelection";
 import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
-import {
-  BENCHMARK_FILTER_VERSION,
-  BENCHMARK_POPULATION_EVIDENCE_VERSION,
-  getBenchmarkTierFamily,
-  isCanonicalBenchmarkTier,
-  isTrustedBenchmarkAggregate,
-  MIN_BENCHMARK_SAMPLE_COUNT,
-  type CanonicalBenchmarkTier,
-} from "@/lib/pubg-analysis/benchmarkLookup";
-
 // Invalid/legacy rows are filtered after hydration. Fetch a bounded window
 // larger than the ten rows we ultimately expose so stale, custom, or
 // unmarked entries cannot crowd newer valid matches out of the population.
 const SQUAD_ANALYSIS_SOURCE_LIMIT = 100;
-
-function finiteNonNegative(value: unknown): number | null {
-  if (value === null || value === undefined || (typeof value === "string" && value.trim() === "")) return null;
-  const numberValue = Number(value);
-  return Number.isFinite(numberValue) && numberValue >= 0 ? numberValue : null;
-}
 
 export async function getSquadAnalysisData(nickname: string, platform: string = "steam", groupKey?: string | null) {
   // normalizeName: 소문자 + trim만 수행, 특수문자(-. 등) 제거 없음 → DB player_id와 정합성 보장
@@ -206,19 +187,11 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   const analysisMatches = bestGroupMatches.get(normalizedGroupKey) || [];
   const matchCount = analysisMatches.length;
 
-  let accumIsolation = 0;
-  let accumTradeLatency = 0;
-  let validTradeLatencyCount = 0;
-  let totalSmokeRescues = 0;
-  let totalRevives = 0;
-  let coverAttempts = 0;
-  let coverSuccesses = 0;
-  let totalTeamWipes = 0;
-  let accumTeammateKnocks = 0;
-  let teammateKnockEvidenceComplete = true;
-  let reviveEvidenceComplete = true;
-  let smokeRescueEvidenceComplete = true;
-  let teamWipeEvidenceComplete = true;
+  const squadObservation = aggregateSquadObservations(analysisMatches.map(match => ({
+    matchId: match.match_id, observation: match.data?.fullResult?.squadObservation,
+    expectedTeamAccountIds: (match.data?.fullResult?.team || []).map((member: any) =>
+      [member.accountId, member.playerId].find(value => typeof value === "string" && value.trim())),
+  })));
 
   const memberNameByKey = new Map<string, string>();
   const addSquadMember = (name: string) => {
@@ -239,63 +212,10 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     playerAccumStats[key] = { damage: 0, kills: 0, assists: 0, dbnos: 0 };
   });
 
-  const tierCounts: Record<string, number> = {};
-  let invalidTierSeen = false;
 
   analysisMatches.forEach(m => {
     const data = m.data || {};
     const fullResult = data.fullResult || {};
-    const isolationData = fullResult.isolationData || {};
-    const tradeStats = fullResult.tradeStats || {};
-    const timeline = Array.isArray(fullResult.timeline) ? fullResult.timeline : [];
-    const squadRecoveryStats = deriveSquadRecoveryStatsFromTimeline(timeline, fullResult.matchInfo?.mapName || fullResult.mapName);
-    const hasRecoveryTimeline = hasSquadRecoveryTimelineSignals(timeline);
-
-    const isolation = finiteNonNegative(isolationData.isolationIndex);
-    if (isolation !== null) accumIsolation += isolation;
-
-    const tradeLatency = finiteNonNegative(tradeStats.tradeLatencyMs);
-    // Zero milliseconds is a valid finite observation.  Keep it in the
-    // denominator so a measured instant trade is not silently converted to
-    // "unavailable" downstream.
-    if (tradeLatency !== null) {
-      accumTradeLatency += tradeLatency;
-      validTradeLatencyCount++;
-    }
-
-    const observedSmokeRescues = hasRecoveryTimeline
-      ? finiteNonNegative(squadRecoveryStats.squadSmokeRescues)
-      : finiteNonNegative(tradeStats.smokeRescues);
-    const observedRevives = hasRecoveryTimeline
-      ? finiteNonNegative(squadRecoveryStats.squadRevives)
-      : finiteNonNegative(tradeStats.revCount);
-    if (observedSmokeRescues === null) smokeRescueEvidenceComplete = false;
-    else totalSmokeRescues += observedSmokeRescues;
-    if (observedRevives === null) reviveEvidenceComplete = false;
-    else totalRevives += observedRevives;
-    const coverRate = finiteNonNegative(tradeStats.coverRate);
-    const coverSampleCount = finiteNonNegative(tradeStats.coverRateSampleCount);
-    if (coverSampleCount !== null && coverSampleCount > 0 && coverRate !== null && coverRate <= 100) {
-      coverAttempts += coverSampleCount;
-      coverSuccesses += (coverRate / 100) * coverSampleCount;
-    }
-    const observedTeamWipes = finiteNonNegative(tradeStats.enemyTeamWipes);
-    if (observedTeamWipes === null) teamWipeEvidenceComplete = false;
-    else totalTeamWipes += observedTeamWipes;
-    const observedTeammateKnocks = finiteNonNegative(tradeStats.teammateKnocks);
-    if (observedTeammateKnocks === null) teammateKnockEvidenceComplete = false;
-    else accumTeammateKnocks += observedTeammateKnocks;
-
-    const matchTier = fullResult.benchmark?.tier || fullResult.matchInfo?.tier;
-    // Every selected best-five row must carry its own canonical tier proof.
-    // A majority vote must never launder one missing/invalid row into a
-    // measured squad tier.
-    if (!isCanonicalBenchmarkTier(matchTier)) {
-      invalidTierSeen = true;
-    } else {
-      tierCounts[matchTier] = (tierCounts[matchTier] || 0) + 1;
-    }
-
     const team = fullResult.team || [];
     team.forEach((t: any) => {
       const matchingMemberKey = squadMemberKeys.find(memberKey => memberKey === normalizeName(t.name));
@@ -308,182 +228,11 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     });
   });
 
-  const measuredIsolationCount = analysisMatches.reduce((count, m) => (
-    finiteNonNegative(m.data?.fullResult?.isolationData?.isolationIndex) === null ? count : count + 1
-  ), 0);
-  const avgIsolation = measuredIsolationCount > 0 ? (accumIsolation / measuredIsolationCount) : null;
-  const avgTradeLatency = validTradeLatencyCount > 0 ? (accumTradeLatency / validTradeLatencyCount) : null;
-  // The experimental same-target metric is a separate, uncalibrated contract.
-  // Even mixed cached rows with legacy cover values must not unlock its score.
-  const hasExperimentalFocusFire = analysisMatches.some((match) => match.data?.fullResult?.squadFocusFire !== undefined);
-  const avgCoverRate = !hasExperimentalFocusFire && coverAttempts > 0 ? coverSuccesses / coverAttempts : null;
-
-  let detectedTier: CanonicalBenchmarkTier | null = null;
-  let maxCount = 0;
-  for (const [tier, count] of Object.entries(tierCounts)) {
-    if (count > maxCount) {
-      maxCount = count;
-      detectedTier = tier as CanonicalBenchmarkTier;
-    }
-  }
-
-  if (invalidTierSeen || !isCanonicalBenchmarkTier(detectedTier)) {
-    throw new Error("Squad benchmark data unavailable.");
-  }
-
-  const baseTierChar = detectedTier.charAt(0).toUpperCase();
-  const targetTier: CanonicalBenchmarkTier = (
-    ["S", "A", "B", "C", "D"].includes(baseTierChar) ? baseTierChar : "B"
-  ) as CanonicalBenchmarkTier;
-
-  interface BenchmarkStats {
-    avgIsolation: number | null;
-    avgTradeLatency: number | null;
-    avgReviveRate: number | null;
-    avgSmokeRate: number | null;
-    avgTeamWipes: number | null;
-  }
-
-  const aggregateBenchmarkRows = (rows: unknown[], allowedTiers: ReadonlySet<string>): BenchmarkStats | null => {
-    const trustedRows = rows.filter((row) => {
-      if (!row || typeof row !== "object" || Array.isArray(row)) return false;
-      const candidate = row as Record<string, unknown>;
-      return isCanonicalBenchmarkTier(candidate.tier)
-        && allowedTiers.has(candidate.tier)
-        && isTrustedBenchmarkAggregate(candidate);
-    }) as Array<Record<string, unknown>>;
-    if (trustedRows.length === 0) return null;
-
-    const averageMetric = (field: string): number | null => {
-      const values = trustedRows
-        .map((row) => finiteNonNegative(row[field]))
-        .filter((value): value is number => value !== null);
-      if (values.length < MIN_BENCHMARK_SAMPLE_COUNT) return null;
-      const average = values.reduce((sum, value) => sum + value, 0) / values.length;
-      return Number.isFinite(average) ? average : null;
-    };
-
-    const avgIsolation = averageMetric("isolation_index");
-    const avgTradeLatency = averageMetric("trade_latency_ms");
-    const avgReviveRate = averageMetric("revive_rate");
-    const avgSmokeRate = averageMetric("smoke_rate");
-    const avgTeamWipes = averageMetric("team_wipes");
-    if (
-      avgIsolation === null
-      || avgTradeLatency === null
-      || avgReviveRate === null
-      || avgSmokeRate === null
-      || avgTeamWipes === null
-    ) return null;
-
-    return { avgIsolation, avgTradeLatency, avgReviveRate, avgSmokeRate, avgTeamWipes };
-  };
-
-  let benchmark: BenchmarkStats | null = null;
-  let benchmarkTier = detectedTier;
-
-  try {
-    const { data: dbBench, error: benchError } = await supabase
-      .from("global_benchmarks")
-      .select("tier, isolation_index, trade_latency_ms, revive_rate, smoke_rate, team_wipes, filter_version, population_evidence_version")
-      .eq("platform", cachePlatform)
-      .eq("tier", detectedTier)
-      .eq("filter_version", BENCHMARK_FILTER_VERSION)
-      .eq("population_evidence_version", BENCHMARK_POPULATION_EVIDENCE_VERSION)
-      .in("game_mode", ["squad", "squad-fpp"])
-      .in("match_type", ["official", "competitive"]);
-
-    if (benchError) throw benchError;
-    benchmark = aggregateBenchmarkRows(
-      Array.isArray(dbBench) ? dbBench : [],
-      new Set([detectedTier]),
-    );
-    if (benchmark === null) {
-      const { data: dbBenchBase, error: benchBaseError } = await supabase
-        .from("global_benchmarks")
-        .select("tier, isolation_index, trade_latency_ms, revive_rate, smoke_rate, team_wipes, filter_version, population_evidence_version")
-        .eq("platform", cachePlatform)
-        .in("tier", getBenchmarkTierFamily(targetTier))
-        .eq("filter_version", BENCHMARK_FILTER_VERSION)
-        .eq("population_evidence_version", BENCHMARK_POPULATION_EVIDENCE_VERSION)
-        .in("game_mode", ["squad", "squad-fpp"])
-        .in("match_type", ["official", "competitive"]);
-
-      if (benchBaseError) throw benchBaseError;
-      benchmark = aggregateBenchmarkRows(
-        Array.isArray(dbBenchBase) ? dbBenchBase : [],
-        new Set(getBenchmarkTierFamily(targetTier)),
-      );
-      if (benchmark !== null) benchmarkTier = targetTier;
-    }
-    // An empty or undersampled population is a normal missing comparison,
-    // not a provider outage. Observed personal/team facts remain usable.
-    benchmark ??= { avgIsolation: null, avgTradeLatency: null, avgReviveRate: null, avgSmokeRate: null, avgTeamWipes: null };
-  } catch (err) {
-    console.error("[SQUAD-ANALYZE] Live benchmark query failed; refusing synthetic benchmark evidence:", err);
-    throw new Error("Squad benchmark data unavailable.");
-  }
-
-  const hasRecoveryDenominator = matchCount > 0
-    && teammateKnockEvidenceComplete
-    && reviveEvidenceComplete
-    && smokeRescueEvidenceComplete
-    && accumTeammateKnocks > 0;
-  const userReviveRate = hasRecoveryDenominator ? (totalRevives / accumTeammateKnocks) * 100 : null;
-  const userSmokeRate = hasRecoveryDenominator ? (totalSmokeRescues / accumTeammateKnocks) * 100 : null;
-  const userWipes = matchCount > 0 && teamWipeEvidenceComplete
-    ? totalTeamWipes / matchCount
-    : null;
-
-  const formationScore = avgIsolation === null || benchmark.avgIsolation === null ? null : Math.max(10, Math.min(100, Math.round(70 + (benchmark.avgIsolation - avgIsolation) * 40)));
-  const backupSpeedScore = avgTradeLatency === null || benchmark.avgTradeLatency === null ? null : Math.max(10, Math.min(100, Math.round(70 + (benchmark.avgTradeLatency - avgTradeLatency) / 150)));
-  const survivalCareScore = userReviveRate === null || userSmokeRate === null || benchmark.avgReviveRate === null || benchmark.avgSmokeRate === null
-    ? null
-    : Math.max(10, Math.min(100, Math.round(70 + (userReviveRate - benchmark.avgReviveRate) * 1.5 + (userSmokeRate - benchmark.avgSmokeRate) * 5)));
-  const focusFireScore = avgCoverRate === null ? null : Math.max(10, Math.min(100, Math.round(70 + (avgCoverRate - 0.30) * 100)));
-  const teamWipeScore = userWipes === null || benchmark.avgTeamWipes === null ? null : Math.max(10, Math.min(100, Math.round(70 + (userWipes - benchmark.avgTeamWipes) * 6)));
-
-  const scores = {
-    formation: formationScore,
-    backupSpeed: backupSpeedScore,
-    survivalCare: survivalCareScore,
-    focusFire: focusFireScore,
-    teamWipe: teamWipeScore
-  };
-
-  const scoreParts = [
-    [formationScore, 0.20],
-    [backupSpeedScore, 0.25],
-    [survivalCareScore, 0.15],
-    [focusFireScore, 0.25],
-    [teamWipeScore, 0.15],
-  ] as const;
-  const scoreWeight = scoreParts.reduce((sum, [value, weight]) => value === null ? sum : sum + weight, 0);
-  // An overall grade is measured only when every constituent score is
-  // measured.  A partial weighted average can otherwise look like a genuine
-  // B (or another grade) even though isolation/latency/cover evidence is
-  // missing.
-  const allScoresMeasured = scoreParts.every(([value]) => value !== null);
-  const overallScore = allScoresMeasured
-    ? Math.round(scoreParts.reduce((sum, [value, weight]) => value === null ? sum : sum + value * weight, 0) / scoreWeight)
-    : null;
-
-  let squadGrade: string | null = null;
-  if (overallScore !== null) {
-    if (overallScore >= 95) squadGrade = "S+";
-    else if (overallScore >= 90) squadGrade = "S";
-    else if (overallScore >= 87) squadGrade = "A+";
-    else if (overallScore >= 83) squadGrade = "A";
-    else if (overallScore >= 80) squadGrade = "A-";
-    else if (overallScore >= 77) squadGrade = "B+";
-    else if (overallScore >= 73) squadGrade = "B";
-    else if (overallScore >= 70) squadGrade = "B-";
-    else if (overallScore >= 65) squadGrade = "C+";
-    else if (overallScore >= 60) squadGrade = "C";
-    else if (overallScore >= 55) squadGrade = "C-";
-    else if (overallScore >= 50) squadGrade = "D+";
-    else squadGrade = "D";
-  }
+  // There is no validated team isolation/wipe/cover observation or team
+  // benchmark population yet. Individual player rows cannot stand in for it.
+  // Do not fetch personal benchmarks just to discard them after two queries.
+  const scores = { formation:null, backupSpeed:null, survivalCare:null, focusFire:null, teamWipe:null };
+  const squadGrade = null;
 
   const totalStats = { damage: 0, kills: 0, assists: 0, dbnos: 0 };
   squadMemberKeys.forEach(key => {
@@ -606,7 +355,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
 
   const causeScenes: SquadCauseScene[] = extractSquadCauseScenes(causeSceneInputs, {
     maxScenes: 5,
-    benchmarkTradeLatencyMs: benchmark.avgTradeLatency === null ? null : Math.round(benchmark.avgTradeLatency)
+    benchmarkTradeLatencyMs: null
   });
 
   return {
@@ -622,29 +371,28 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     focusFireObservation: aggregateSquadFocusFire(analysisMatches.map((match) => ({
       matchId: match.match_id, observation: match.data?.fullResult?.squadFocusFire,
     }))),
+    squadObservation,
     stats: {
-      avgIsolation: avgIsolation === null ? null : Number(avgIsolation.toFixed(2)),
-      avgTradeLatency: avgTradeLatency === null ? null : Math.round(avgTradeLatency),
-      // A partial aggregate is not an observed total.  Keep an explicitly
-      // measured zero as zero, but withhold the sum whenever any selected
-      // match lacks evidence for that metric.
-      totalSmokeRescues: smokeRescueEvidenceComplete ? totalSmokeRescues : null,
-      totalRevives: reviveEvidenceComplete ? totalRevives : null,
-      avgCoverRate: avgCoverRate === null ? null : Number(avgCoverRate.toFixed(2)),
-      totalTeamWipes: teamWipeEvidenceComplete ? totalTeamWipes : null,
-      totalTeammateKnocks: teammateKnockEvidenceComplete ? accumTeammateKnocks : null
+      avgIsolation: null,
+      avgTradeLatency: squadObservation.avgTradeLatency === null ? null : Math.round(squadObservation.avgTradeLatency),
+      totalSmokeRescues: squadObservation.smokeRescues,
+      totalRevives: squadObservation.revives,
+      avgCoverRate: null,
+      totalTeamWipes: null,
+      totalTeammateKnocks: squadObservation.knocks,
+      totalTradeKills: squadObservation.tradeKills,
     },
     scores,
-    squadGrade,
+    squadGrade: squadGrade as string | null,
     roleProfiles,
     causeScenes,
     benchmarkStats: {
-      tier: benchmarkTier,
-      avgIsolation: benchmark.avgIsolation === null ? null : Number(benchmark.avgIsolation.toFixed(2)),
-      avgTradeLatency: benchmark.avgTradeLatency === null ? null : Math.round(benchmark.avgTradeLatency),
-      avgReviveRate: benchmark.avgReviveRate === null ? null : Number(benchmark.avgReviveRate.toFixed(2)),
-      avgSmokeRate: benchmark.avgSmokeRate === null ? null : Number(benchmark.avgSmokeRate.toFixed(2)),
-      avgTeamWipes: benchmark.avgTeamWipes === null ? null : Number(benchmark.avgTeamWipes.toFixed(2))
+      tier: null,
+      avgIsolation: null,
+      avgTradeLatency: null,
+      avgReviveRate: null,
+      avgSmokeRate: null,
+      avgTeamWipes: null,
     }
   };
 }

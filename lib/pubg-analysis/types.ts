@@ -1,3 +1,4 @@
+import type { SquadObservation } from './squadObservations';
 import type { SquadFocusFireObservation } from "./squadFocusFire";
 /**
  * PUBG 전술 분석 엔진 공용 타입 정의
@@ -122,6 +123,7 @@ export interface AnalysisResult {
   calculationVersion?: number;
   /** Same-target gun participation; never substitutes for calibrated cover scores. */
   squadFocusFire?: SquadFocusFireObservation;
+  squadObservation?: SquadObservation;
   matchId: string;
   v: number;
   populationEvidenceVersion?: number;
