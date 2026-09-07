@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import playerReady from "./fixtures/stats/player-ready.json";
@@ -56,7 +56,7 @@ function jsonResponse(body: unknown) {
   });
 }
 
-describe("StatSearch AI snapshot identity ownership", () => {
+describe("StatSearch recent summary identity ownership", () => {
   beforeEach(() => {
     storage.clear();
     routerPush.mockReset();
@@ -69,7 +69,7 @@ describe("StatSearch AI snapshot identity ownership", () => {
     vi.unstubAllGlobals();
   });
 
-  it("A의 AI snapshot을 B 빈 매치 route에 노출하지 않고 불필요한 이동 CTA를 표시하지 않는다", async () => {
+  it("A의 최근 경기와 AI 문장을 B 빈 매치 route에 노출하지 않는다", async () => {
     const playerA = { ...playerReady, nickname: "PlayerA", recentMatches: ["match-fixture-1"] };
     const playerB = { ...playerReady, nickname: "PlayerB", recentMatches: [] };
     let resolvePlayerB!: (response: Response) => void;
@@ -83,6 +83,9 @@ describe("StatSearch AI snapshot identity ownership", () => {
       }
       if (url.startsWith("/api/pubg/player?") && url.includes("nickname=PlayerB")) {
         return playerBResponse;
+      }
+      if (url.startsWith("/api/pubg/player/matches?")) {
+        return Promise.resolve(jsonResponse({ matches: [], page: 1, totalPages: 0 }));
       }
       if (url.startsWith("/api/pubg/matches-summary")) {
         return Promise.resolve(jsonResponse(summaryReady));
@@ -100,9 +103,10 @@ describe("StatSearch AI snapshot identity ownership", () => {
     }));
     await screen.findByRole("heading", { name: "PlayerA" });
     fireEvent.click(screen.getByRole("button", { name: "PlayerA AI 완료" }));
-    expect(screen.getByText("PlayerA verdict")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "AI 요약 더보기" }));
-    expect(screen.getByRole("button", { name: "AI 요약 접기" })).toBeInTheDocument();
+    expect(screen.queryByText("PlayerA verdict")).not.toBeInTheDocument();
+    const recentSummary = within(screen.getByRole("region", { name: "최근 20경기 요약" }));
+    expect(await recentSummary.findByTestId("kills")).toHaveTextContent("4");
+    expect(screen.queryByRole("button", { name: "AI 요약 더보기" })).not.toBeInTheDocument();
 
     view.rerender(createElement(StatSearch, {
       initialPlatform: "steam",
@@ -112,6 +116,9 @@ describe("StatSearch AI snapshot identity ownership", () => {
 
     resolvePlayerB(jsonResponse(playerB));
     await screen.findByRole("heading", { name: "PlayerB" });
+    const emptySummary = within(screen.getByRole("region", { name: "최근 20경기 요약" }));
+    expect(emptySummary.queryByTestId("kills")).not.toBeInTheDocument();
+    expect(emptySummary.getByText("최근 경기 기록이 없습니다.")).toBeInTheDocument();
     expect(screen.queryByText("PlayerA verdict")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "AI 요약 접기" })).not.toBeInTheDocument();
     screen.getByRole("region", { name: "AI 분석" });
