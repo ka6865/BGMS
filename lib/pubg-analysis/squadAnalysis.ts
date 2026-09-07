@@ -1,3 +1,4 @@
+import { aggregateSquadFocusFire } from "./squadFocusFire";
 import { createClient } from "@/utils/supabase/server";
 import {
   extractSquadCauseScenes,
@@ -312,7 +313,10 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   ), 0);
   const avgIsolation = measuredIsolationCount > 0 ? (accumIsolation / measuredIsolationCount) : null;
   const avgTradeLatency = validTradeLatencyCount > 0 ? (accumTradeLatency / validTradeLatencyCount) : null;
-  const avgCoverRate = coverAttempts > 0 ? coverSuccesses / coverAttempts : null;
+  // The experimental same-target metric is a separate, uncalibrated contract.
+  // Even mixed cached rows with legacy cover values must not unlock its score.
+  const hasExperimentalFocusFire = analysisMatches.some((match) => match.data?.fullResult?.squadFocusFire !== undefined);
+  const avgCoverRate = !hasExperimentalFocusFire && coverAttempts > 0 ? coverSuccesses / coverAttempts : null;
 
   let detectedTier: CanonicalBenchmarkTier | null = null;
   let maxCount = 0;
@@ -613,6 +617,9 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     bestMatchCount: analysisMatches.length,
     matchesSummary,
     selectedMatchIds: analysisMatches.map((match) => match.match_id),
+    focusFireObservation: aggregateSquadFocusFire(analysisMatches.map((match) => ({
+      matchId: match.match_id, observation: match.data?.fullResult?.squadFocusFire,
+    }))),
     stats: {
       avgIsolation: avgIsolation === null ? null : Number(avgIsolation.toFixed(2)),
       avgTradeLatency: avgTradeLatency === null ? null : Math.round(avgTradeLatency),

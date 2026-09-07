@@ -5653,6 +5653,32 @@ describe("AI cache route stabilization", () => {
     else expect(squadCache.upsert).toHaveBeenCalledWith(expect.objectContaining({ ai_result: expect.objectContaining({ squadGrade: null }) }), expect.anything());
   });
 
+  it.each([false, true])("ai-squad는 팀 전체 지표를 특정 팀원의 행동으로 단정하지 않는다 (cache=%s)", async (cached) => {
+    mockGetSquadAnalysisData.mockResolvedValue(canonicalSquadAnalysis);
+    const generated = {
+      squadGrade: "B", summary: "팀 고립도가 5.6입니다.", strength: "함께 움직이세요.", weakness: "대열 유지가 필요합니다.",
+      coaching: "피해량을 확인하세요.", overallOpinion: "다음 교전을 준비하세요.",
+      memberFeedbacks: [
+        { name: "Player_A", praise: "피해량 비중이 45%입니다.", fault: "팀 전체의 높은 고립도를 유발하는 주원인입니다.", advice: "혼자 앞서 나가서 대열을 깨지 마세요." },
+        { name: "Player_B", praise: "후방에서 든든히 지원했습니다.", fault: "혼자 킬을 주워 담는 데 급급합니다.", advice: "명중률을 확인하세요." },
+      ],
+    };
+    mockGenerateContent.mockResolvedValue({ response: { text: () => JSON.stringify(generated) } });
+    const squadCache = createQueryChain({ data: cached ? { ai_result: generated } : null, error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({ squad_ai_coaching_cache: squadCache }) });
+    const response = await aiSquadPOST(createRequest({ groupKey: "alpha,beta", nickname: "Player_A", platform: "steam" }));
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json.summary).toBe(generated.summary);
+    expect(json.memberFeedbacks[0].praise).toBe(generated.memberFeedbacks[0].praise);
+    expect(json.memberFeedbacks[0].fault).toContain("보류");
+    expect(json.memberFeedbacks[0].advice).toContain("보류");
+    expect(json.memberFeedbacks[1].praise).toContain("보류");
+    expect(json.memberFeedbacks[1].fault).toContain("보류");
+    expect(json.memberFeedbacks[1].advice).toBe(generated.memberFeedbacks[1].advice);
+    if (cached) expect(mockGenerateContent).not.toHaveBeenCalled();
+  });
+
   it("ai-squad는 Gemini 실패 시 측정되지 않은 fallback 대신 503을 반환한다", async () => {
     mockGenerateContent.mockRejectedValue(new Error("Gemini unavailable"));
     mockGetSquadAnalysisData.mockResolvedValue(canonicalSquadAnalysis);

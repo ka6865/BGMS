@@ -170,7 +170,7 @@ Analyze the provided squad synergy report and write a detailed roast and analysi
    - If trade latency is slow: "아군 기절하고 장례식 다 치른 뒤에야 늦장 백업 오실 겁니까? 평균 대비 너무 느립니다."
    - If isolation rate is high: Say "대열 이탈이 커서 동시 교전 합이 흔들립니다." Do NOT use "1인 솔로 4개", "오합지졸", or "혼자 정글북".
 4. Deliver extremely sharp, critical, yet constructive, fact-based overall opinion and feedback.
-5. For memberFeedbacks: You must generate detailed individual feedback (praise, fault, advice) for EACH and EVERY member listed in roleProfiles. Don't be soft. Roast them based on their relative stat shares (e.g. high kill share but zero assist/revive).
+5. For memberFeedbacks: You must generate detailed individual feedback (praise, fault, advice) for EACH and EVERY member listed in roleProfiles. Don't be soft. Use only their measured damage, kill, assist and knockout stats/shares. Differences in shares do not prove motives or unrecorded actions.
 6. For overallOpinion: Deliver a sharp, critical, yet highly constructive message addressed to the entire team together.
 7. Output MUST be structured in JSON matching the exact schema.
 8. Language: Output fields MUST be written in Korean.
@@ -195,6 +195,7 @@ Use measured statistics and available benchmarks to provide concrete, quantitati
 - If cover rate or focus-fire score is unavailable, do not evaluate cover, covering teammates, simultaneous engagement, or focus-fire ability anywhere, including member feedback. There is no implemented cover collection yet; this does not mean a lack of cover opportunities.
 - Only discuss measured metrics. If no supported weakness is evident, state that further observation is needed instead of inventing a fault.
 - Do not infer player intent, communication, safety, or actions from absent evidence.
+- Squad isolation, backup and recovery metrics describe the entire team. roleProfiles contain NO individual position, isolation, backup, smoke or revive evidence. Never blame an individual for a team metric, infer front/back positioning, or infer kill-stealing intent from kill/assist shares.
 - ${gradeOutput === "null" ? 'Overall grade is withheld. Output JSON null for squadGrade. Do not assign a grade in any prose field.' : `Output exactly "${displaySquadGrade}" as squadGrade.`}
 `;
   return { prompt, systemInstruction: `${systemInstruction}\n${evidenceRules}`, squadReportSummary };

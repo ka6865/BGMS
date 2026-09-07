@@ -46,8 +46,15 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
     output[field] = clean(data[field]);
   }
   if (Array.isArray(data.memberFeedbacks)) {
+    const cleanMember = (text: unknown) => {
+      if (typeof text !== "string") return text;
+      if (/고립|대열|이탈|백업|엄호|커버|연막|소생|부활|후방에서|혼자\s*앞서|킬을?\s*주워/.test(text)) {
+        return "개인 행동을 단정할 근거가 부족해 해당 평가는 보류합니다.";
+      }
+      return clean(text);
+    };
     output.memberFeedbacks = data.memberFeedbacks.map((member) => ({
-      ...member, praise: clean(member.praise), fault: clean(member.fault), advice: clean(member.advice),
+      ...member, praise: cleanMember(member.praise), fault: cleanMember(member.fault), advice: cleanMember(member.advice),
     }));
   }
   return output as T;

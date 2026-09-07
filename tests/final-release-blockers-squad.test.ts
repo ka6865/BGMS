@@ -431,6 +431,20 @@ describe("strict squad analysis population", () => {
     expect(zeroOnlyAnalysis.stats.totalTeammateKnocks).toBe(0);
   });
 
+  it.each([null, 100])("does not convert experimental focus fire into cover, a score or a grade (legacy cover=%s)", async (legacyCoverRate) => {
+    const row = canonicalRow(1, {
+      tradeStats: { teammateKnocks: 1, revCount: 1, smokeRescues: 0, coverRate: legacyCoverRate, coverRateSampleCount: legacyCoverRate === null ? 0 : 10 },
+      squadFocusFire: { version: 1, windowMs: 5000, calibration: "pending", status: "observed", numerator: 1, denominator: 2, rate: 50, issues: [] },
+    });
+    configureSquadClient(queryChain({ data: [row], error: null }), trustedBenchmarkRows(5));
+    const { getSquadAnalysisData } = await import("@/lib/pubg-analysis/squadAnalysis");
+    const analysis = await getSquadAnalysisData("Player_A", "steam", "Teammate_B") as any;
+    expect(analysis.focusFireObservation).toMatchObject({ status: "observed", numerator: 1, denominator: 2, rate: 50, calibration: "pending" });
+    expect(analysis.stats.avgCoverRate).toBeNull();
+    expect(analysis.scores.focusFire).toBeNull();
+    expect(analysis.squadGrade).toBeNull();
+  });
+
   it("keeps survival care and squad grade unavailable when no teammate-knock denominator exists", async () => {
     const row = canonicalRow(1, {
       tradeStats: {

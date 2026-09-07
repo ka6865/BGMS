@@ -15,7 +15,7 @@
 export const RESULT_VERSION = 73.0; // [V73.0] PUBG AI 분석 정확도 감사 기준 결과 버전
 export const TELEMETRY_VERSION = 61.0; // [V61.0] PUBG AI 분석 정확도 감사 기준 telemetry 버전
 export const AI_CACHE_VERSION = "2026-09-02.pubg-ai-accuracy-v3"; // ai-analyze/ai-squad cache contract; v3 requires marked canonical population evidence
-export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-partial-v1`;
+export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-partial-v2`;
 export const AI_SUMMARY_CACHE_VERSION = "2026-09-07.debate-coaching-context-v9"; // utility observations and two-opinion validation
 // Evidence marker for canonical rows written after the human BR population
 // boundary. This is deliberately independent of RESULT/telemetry/cache
