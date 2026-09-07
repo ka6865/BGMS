@@ -283,9 +283,12 @@ describe("stats route-first/deep-link", () => {
   });
 
   it("MatchCard 닉네임 클릭은 현재 결과에서 새 route로만 이동한다", async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse(playerReady))
-      .mockResolvedValueOnce(jsonResponse(summaryReady));
+    fetchMock.mockImplementation((input) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player?")) return Promise.resolve(jsonResponse(playerReady));
+      if (url === "/api/pubg/matches-summary") return Promise.resolve(jsonResponse(summaryReady));
+      return Promise.resolve(jsonResponse({ matches: [], page: 1, totalPages: 0 }));
+    });
     render(createElement(StatSearch, {
       initialPlatform: "steam",
       initialNickname: "FixturePlayer",

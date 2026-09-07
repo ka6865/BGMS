@@ -148,7 +148,7 @@ describe("stats route layout boundary", () => {
     });
     expect(view.container.querySelectorAll("main")).toHaveLength(1);
     expect(view.container.querySelectorAll('[data-ad-placement="stats-top"]')).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: /로그인 후 AI 전술 분석을 이용할 수 있습니다/ })).toHaveLength(1);
+    expect(await screen.findAllByRole("button", { name: /로그인 후 AI 전술 분석을 이용할 수 있습니다/ })).toHaveLength(1);
   });
 
   it("stats visual contract는 route-scoped exact token/grid/safe-area declarations만 가진다", () => {

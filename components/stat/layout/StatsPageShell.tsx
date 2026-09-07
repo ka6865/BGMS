@@ -3,8 +3,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { StatSummaryPanel } from "@/components/stat/StatSummaryPanel";
-import { RecentAISummary } from "@/components/stat/RecentAISummary";
-import SquadAnalysisPanel from "@/components/stat/SquadAnalysisPanel";
+import dynamic from "next/dynamic";
 import { Shield, ChevronDown } from "lucide-react";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { useAuth } from "@/components/AuthProvider";
@@ -25,6 +24,14 @@ import type { StatsPlatform, StatsSectionTab } from "@/types/stats-page";
 import { useAdViewportClass } from "@/hooks/useAdViewportClass";
 import { StatsManualAdRails } from "@/components/ads/StatsManualAdRails";
 // import CompanionEntryCard from "@/components/overwolf/CompanionEntryCard";
+
+const RecentAISummary = dynamic(
+  () => import("@/components/stat/RecentAISummary").then((mod) => mod.RecentAISummary),
+  { loading: () => <p role="status" className="min-h-28 rounded-2xl bg-white/5 p-5 text-sm text-white/60">AI 분석 화면을 준비하고 있습니다.</p> },
+);
+const SquadAnalysisPanel = dynamic(() => import("@/components/stat/SquadAnalysisPanel"), {
+  loading: () => <p role="status" className="min-h-40 rounded-2xl bg-white/5 p-5 text-sm text-white/60">스쿼드 분석 화면을 준비하고 있습니다.</p>,
+});
 
 const NAVIGATION_PENDING_TIMEOUT_MS = 1_000;
 const SEARCH_COOLDOWN_MS = 3_000;
@@ -265,7 +272,7 @@ export function StatsPageShell({
 
   return (
     <section
-      className="stats-page stats-auto-ads-excluded pb-safe-nav w-full text-white"
+      className="stats-page stats-auto-ads-excluded pb-safe-nav min-h-screen w-full text-white"
        data-testid="stats-auto-ads-boundary"
        {...({ "google-side-rail-overlap": "false" } as Record<string, string>)}
      >

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import React from "react";
+import React, { createElement } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
@@ -19,8 +19,11 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mockPush }),
 }));
 
+// These tests exercise detail state synchronously; real chunk loading is browser-tested.
 vi.mock("next/dynamic", () => ({
-  default: () => () => null,
+  default: (loader: () => unknown) => loader.toString().includes("ExpandedMatchDetails")
+    ? (props: React.ComponentProps<typeof ExpandedMatchDetails>) => createElement(ExpandedMatchDetails, props)
+    : () => null,
 }));
 
 vi.mock("@/components/common/BgmsIcon", () => ({
@@ -54,6 +57,8 @@ vi.mock("@/lib/replay/mapCapabilities", () => ({
 vi.mock("sonner", () => ({
   toast: { error: vi.fn() },
 }));
+
+import { ExpandedMatchDetails } from "@/components/stat/matches/ExpandedMatchDetails";
 
 import { MatchCard } from "../components/stat/MatchCard";
 
@@ -99,6 +104,16 @@ describe("MatchCard demand loading", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByText("에란겔")).toBeInTheDocument();
     expect(screen.queryByTestId("expanded-match-details")).not.toBeInTheDocument();
+  });
+
+  it("기본 전적의 미수집 지표는 0으로 표시하지 않고 상세 기록 도착 시 실제 값을 표시한다", () => {
+    const basic = { ...matchSummaryFixture, summarySource: "pubg_player_matches" as const, stats: { ...matchSummaryFixture.stats, DBNOs: 0, timeSurvived: 0 } };
+    const view = render(createElement(MatchCard, { matchId: basic.matchId, nickname: "FixturePlayer", platform: "steam", isMobile: true, initialMatchData: basic }));
+    expect(screen.getByLabelText("기절 정보 없음")).toHaveTextContent("—");
+    expect(screen.getByLabelText("생존 시간 정보 없음")).toHaveTextContent("—");
+    view.rerender(createElement(MatchCard, { matchId: basic.matchId, nickname: "FixturePlayer", platform: "steam", isMobile: true, initialMatchData: { ...basic, isSummary: false } }));
+    expect(screen.getByLabelText("기절 0회")).toHaveTextContent("0");
+    expect(screen.getByLabelText("생존 시간 0분")).toHaveTextContent("0");
   });
 
   it("optional summary가 없는 debug consumer도 마운트 0요청 후 명시적 click 한 번으로 요청한다", () => {

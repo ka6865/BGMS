@@ -5,7 +5,7 @@ import { ChevronDown, X } from "lucide-react";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import { classifyMatchMode } from "@/lib/stats/statsPageModel";
 import { estimateUserTier } from "@/lib/pubg-analysis/benchmarkScore";
-import { MatchPerformancePanel } from "@/components/stat/matches/ExpandedMatchDetails";
+import { MatchPerformancePanel } from "@/components/stat/matches/MatchPerformancePanel";
 
 export interface CompactMatchRowProps {
   summary: MatchSummaryData;
@@ -84,6 +84,10 @@ function formatMode(gameMode: string) {
 
 export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: CompactMatchRowProps) {
   const mode = classifyMatchMode(summary);
+  const basicOnly = summary.summarySource === "pubg_player_matches" && summary.isSummary !== false;
+  const knocks = !basicOnly && Number.isFinite(summary.stats.DBNOs) ? summary.stats.DBNOs : null;
+  const survivalMinutes = !basicOnly && Number.isFinite(summary.stats.timeSurvived)
+    ? Math.floor(summary.stats.timeSurvived / 60) : null;
   const status = getStatus(summary);
   const tier = summary.benchmark ? estimateUserTier(summary.benchmark.score) : null;
   const total = summary.totalTeams || summary.totalPlayers || 0;
@@ -231,8 +235,8 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-white/55">
             <span><strong className="text-white">{summary.stats.kills}</strong> 킬</span>
             <span><strong className="text-white">{Math.floor(summary.stats.damageDealt || 0)}</strong> 피해</span>
-            <span><strong className="text-white">{summary.stats.DBNOs || 0}</strong> DBNO</span>
-            <span><strong className="text-white">{Math.floor((summary.stats.timeSurvived || 0) / 60)}</strong>분 생존</span>
+            <span aria-label={knocks === null ? "기절 정보 없음" : `기절 ${knocks}회`}><strong className="text-white">{knocks ?? "—"}</strong> 기절</span>
+            <span aria-label={survivalMinutes === null ? "생존 시간 정보 없음" : `생존 시간 ${survivalMinutes}분`}><strong className="text-white">{survivalMinutes ?? "—"}</strong>{survivalMinutes === null ? " 생존" : "분 생존"}</span>
           </div>
         </div>
 

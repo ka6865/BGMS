@@ -17,7 +17,12 @@ const { aiStart, aiStop, mockPush, trackEvent } = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mockPush }) }));
-vi.mock("next/dynamic", () => ({ default: () => () => null }));
+// These tests exercise detail state synchronously; real chunk loading is browser-tested.
+vi.mock("next/dynamic", () => ({
+  default: (loader: () => unknown) => loader.toString().includes("ExpandedMatchDetails")
+    ? (props: React.ComponentProps<typeof ExpandedMatchDetails>) => createElement(ExpandedMatchDetails, props)
+    : () => null,
+}));
 vi.mock("@/components/common/BgmsIcon", () => ({
   BgmsIcon: () => createElement("span", { "aria-hidden": true }),
 }));
@@ -32,6 +37,8 @@ vi.mock("@/lib/replay/mapCapabilities", () => ({
   resolve3DMapCapability: () => ({ mapId: "Erangel", assetPath: "/fixture" }),
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+
+import { ExpandedMatchDetails } from "@/components/stat/matches/ExpandedMatchDetails";
 
 import { MatchCard } from "@/components/stat/MatchCard";
 

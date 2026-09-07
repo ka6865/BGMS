@@ -102,7 +102,7 @@ describe("StatSearch recent summary identity ownership", () => {
       initialNickname: "PlayerA",
     }));
     await screen.findByRole("heading", { name: "PlayerA" });
-    fireEvent.click(screen.getByRole("button", { name: "PlayerA AI 완료" }));
+    fireEvent.click(await screen.findByRole("button", { name: "PlayerA AI 완료" }));
     expect(screen.queryByText("PlayerA verdict")).not.toBeInTheDocument();
     const recentSummary = within(screen.getByRole("region", { name: "최근 20경기 요약" }));
     expect(await recentSummary.findByTestId("kills")).toHaveTextContent("4");
