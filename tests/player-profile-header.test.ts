@@ -95,16 +95,7 @@ const player: PlayerStatsResponse = {
 };
 
 function panelProps() {
-  return {
-    stats: player.stats,
-    mode: "ranked" as const,
-    partySize: "squad" as const,
-    aiSummary: null,
-    aiExpanded: false,
-    onModeChange: vi.fn(),
-    onPartySizeChange: vi.fn(),
-    onAiToggle: vi.fn(),
-  };
+  return { matchIds: player.recentMatches, summaries: {}, summaryStatus: "ready" as const };
 }
 
 describe("PlayerProfileHeader", () => {

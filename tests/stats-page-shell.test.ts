@@ -51,12 +51,8 @@ vi.mock("@/components/stat/profile/PlayerProfileHeader", () => ({
   ),
 }));
 vi.mock("@/components/stat/StatSummaryPanel", () => ({
-  StatSummaryPanel: ({ aiSummary }: {
-    aiSummary?: { verdict: string } | null;
-  }) =>
-    createElement("aside", { "data-testid": "summary-panel" },
-      aiSummary?.verdict ?? "summary-empty",
-    ),
+  StatSummaryPanel: ({ matchIds }: { matchIds: readonly string[] }) =>
+    createElement("aside", { "data-testid": "summary-panel" }, `recent-${matchIds.join(",")}`),
 }));
 vi.mock("@/components/stat/matches/MatchFeed", () => ({
   MatchFeed: ({ summaryStatus, filter, onRetrySummaries }: { summaryStatus: string; filter: string; onRetrySummaries(): void }) =>
@@ -68,13 +64,7 @@ vi.mock("@/components/stat/matches/MatchFeed", () => ({
     ),
 }));
 vi.mock("@/components/stat/RecentAISummary", () => ({
-  RecentAISummary: ({ onSummaryChange }: { onSummaryChange(value: { verdict: string; tier: string }): void }) =>
-    createElement("div", { "data-testid": "full-ai" },
-      createElement("button", {
-        type: "button",
-        onClick: () => onSummaryChange({ verdict: "fixture verdict", tier: "A" }),
-      }, "full-ai-action"),
-    ),
+  RecentAISummary: () => createElement("div", { "data-testid": "full-ai" }, "AI analysis"),
 }));
 vi.mock("@/components/stat/SquadAnalysisPanel", () => ({ default: () => createElement("div", null, "squad-panel") }));
 
@@ -281,7 +271,7 @@ describe("StatsPageShell state and ownership matrix", () => {
     expect(view.container.querySelector('[data-ad-placement="stats-top"]')).not.toBeInTheDocument();
   });
 
-  it("overview는 최근 10경기 AI → summary+feed grid → guide 순서이고 AI owner/snapshot은 하나다", () => {
+  it("overview는 상단 AI와 별도로 최신 경기 ID를 요약에 전달한다", () => {
     mocks.controller = controller({ status: "ready", result: readyResult(), summaryStatus: "ready" });
     const view = render(createElement(StatsPageShell));
     const grid = view.container.querySelector(".stats-result-grid")!;
@@ -291,8 +281,11 @@ describe("StatsPageShell state and ownership matrix", () => {
     expect(precedes(grid, guide)).toBe(true);
     expect(screen.getAllByTestId("full-ai")).toHaveLength(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "full-ai-action" }));
-    expect(screen.getByTestId("summary-panel")).toHaveTextContent("fixture verdict");
+    expect(screen.getByTestId("summary-panel")).toHaveTextContent("recent-match-fixture-1");
+    mocks.controller = controller({ status: "ready", result: readyResult(), summaryStatus: "ready", historyPage: 2, matchIds: ["older-match"] });
+    view.rerender(createElement(StatsPageShell));
+    expect(screen.getByTestId("summary-panel")).toHaveTextContent("recent-match-fixture-1");
+    expect(screen.getByTestId("summary-panel")).not.toHaveTextContent("older-match");
     expect(screen.queryByRole("button", { name: "최근 10경기 AI 분석으로 이동" })).not.toBeInTheDocument();
   });
 

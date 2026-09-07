@@ -489,6 +489,12 @@ function addObservedTotal(total: number | null, value: unknown): number | null {
   return observed === null ? total : (total ?? 0) + observed;
 }
 
+function sumCompleteObservations(values: unknown[]): number | null {
+  const observed = values.map(readObservedNonNegative);
+  if (observed.length === 0 || observed.some((value) => value === null)) return null;
+  return (observed as number[]).reduce((total, value) => total + value, 0);
+}
+
 function aggregateMatches(matches: any[]) {
   const inputMatches = Array.isArray(matches) ? matches : [];
   let totalKills = 0, totalDamage = 0, totalDamageImpact = 0, totalTeamDamageShare = 0, totalTeamKillShare = 0;
@@ -501,11 +507,11 @@ function aggregateMatches(matches: any[]) {
   let totalInitiativeSuccess = 0, totalInitiativeAttempts = 0;
   let totalCrossfireCount = 0, totalTeamWipes = 0, totalMaxHitDist: number | null = null;
   let totalDuelWins = 0, totalDuelLosses = 0, totalReversalWins = 0, totalReversalAttempts = 0;
-  let totalUtilityThrows: number | null = null;
-  let totalLethalThrows: number | null = null;
-  let totalUtilityHits: number | null = null;
-  let totalUtilityDamage: number | null = null;
-  let totalUtilityKills: number | null = null;
+  const observedUtilityThrows: Array<number | null> = [];
+  const observedLethalThrows: Array<number | null> = [];
+  const observedUtilityHits: Array<number | null> = [];
+  const observedUtilityDamage: Array<number | null> = [];
+  const observedUtilityKills: Array<number | null> = [];
   let totalDeathPhase = 0, totalBluezoneWaste: number | null = null;
   let deathPhaseCount = 0;
   let bluezoneWasteCount = 0;
@@ -640,7 +646,7 @@ function aggregateMatches(matches: any[]) {
     const utilityStats = m.combatPressure?.utilityStats;
     const fragCount = readObservedNonNegative(m.itemUseSummary?.frags);
     const molotovCount = readObservedNonNegative(m.itemUseSummary?.molotovs);
-    const derivedLethalThrowCount = fragCount !== null || molotovCount !== null
+    const derivedLethalThrowCount = fragCount !== null && molotovCount !== null
       ? (fragCount ?? 0) + (molotovCount ?? 0)
       : null;
     const lethalThrowCount = firstObservedNonNegative(
@@ -648,29 +654,22 @@ function aggregateMatches(matches: any[]) {
       m.itemUseStats?.lethalThrowCount,
       derivedLethalThrowCount,
     );
-    totalLethalThrows = addObservedTotal(totalLethalThrows, lethalThrowCount);
+    observedLethalThrows.push(lethalThrowCount);
 
     const utilityThrowCount = firstObservedNonNegative(
       utilityStats?.throwCount,
       m.itemUseStats?.throwCount,
     );
-    totalUtilityThrows = addObservedTotal(totalUtilityThrows, utilityThrowCount);
+    observedUtilityThrows.push(utilityThrowCount);
 
     const utilityHitCount = firstObservedNonNegative(
       utilityStats?.hitCount,
       m.combatPressure?.utilityHits,
     );
-    if (utilityHitCount !== null) {
-      totalUtilityHits = addObservedTotal(
-        totalUtilityHits,
-        lethalThrowCount === null ? utilityHitCount : Math.min(utilityHitCount, lethalThrowCount),
-      );
-    }
-    totalUtilityDamage = addObservedTotal(
-      totalUtilityDamage,
-      firstObservedNonNegative(utilityStats?.totalDamage, m.combatPressure?.utilityDamage),
-    );
-    totalUtilityKills = addObservedTotal(totalUtilityKills, utilityStats?.killCount);
+    observedUtilityHits.push(utilityHitCount === null ? null
+      : lethalThrowCount === null ? utilityHitCount : Math.min(utilityHitCount, lethalThrowCount));
+    observedUtilityDamage.push(firstObservedNonNegative(utilityStats?.totalDamage, m.combatPressure?.utilityDamage));
+    observedUtilityKills.push(readObservedNonNegative(utilityStats?.killCount));
 
     const maxHitDistance = firstObservedNonNegative(
       m.combatPressure?.maxHitDistance,
@@ -804,6 +803,11 @@ function aggregateMatches(matches: any[]) {
   const avgPressureIndex = pressureIndexCount > 0
     ? Math.max(0, Number((totalPressureIndex / pressureIndexCount).toFixed(2)))
     : null;
+  const totalUtilityThrows = sumCompleteObservations(observedUtilityThrows);
+  const totalLethalThrows = sumCompleteObservations(observedLethalThrows);
+  const totalUtilityHits = sumCompleteObservations(observedUtilityHits);
+  const totalUtilityDamage = sumCompleteObservations(observedUtilityDamage);
+  const totalUtilityKills = sumCompleteObservations(observedUtilityKills);
   const avgUtilityEfficiency = totalLethalThrows !== null
     && totalLethalThrows > 0
     && totalUtilityDamage !== null
@@ -867,6 +871,13 @@ function aggregateMatches(matches: any[]) {
       long: Math.max(0, Math.round(totalDistanceDamage.long / mLen)),
     },
     totalSmokes,
+    // Missing observations must not become zero or a partial total labeled
+    // as the entire selected population. Rescue attempts are not total use.
+    totalObservedSmokes: sumCompleteObservations(inputMatches.map((m) => m.itemUseSummary?.smokes)),
+    totalObservedRescueSmokes: sumCompleteObservations(inputMatches.map((m) => m.tradeStats?.smokeCount)),
+    totalObservedSmokeRescues: sumCompleteObservations(inputMatches.map((m) => m.tradeStats?.smokeRescues)),
+    totalObservedTeammateKnocks: sumCompleteObservations(inputMatches.map((m) => m.tradeStats?.teammateKnocks)),
+    totalObservedTradeKills: sumCompleteObservations(inputMatches.map((m) => m.tradeStats?.tradeKills)),
     itemUseSummary: { smokes: totalSmokes },
     weaponMatchCount,
     // [V58.4] 차량 고정밀 교전 지표 누적 반환
@@ -1457,8 +1468,7 @@ export async function POST(request: Request) {
       totalIsolationIndexFinal, totalCombatIso, totalDeathIso, totalMinDist, totalHeightDiff,
       totalCrossfireCount, totalTeammateCountFinal,
       rankedCount, normalCount,
-      totalInitiativeAttempts, totalInitiativeSuccess, totalSmokeRescues,
-      totalSmokes
+      totalInitiativeAttempts, totalInitiativeSuccess, totalSmokeRescues
     } = masteryStats;
 
     const groups: Record<string, any[]> = { solo: [], duo: [], squad: [], 'solo-duo': [], 'solo-squad': [] };
@@ -1531,7 +1541,7 @@ export async function POST(request: Request) {
       "- [INTELLIGENT ANALYSIS] 비교 평균보다 높은 성과는 두 코치 모두 인정하십시오. 매운맛 의견도 억지로 단점을 만들지 말고, 확인되는 보완점이 있으면 다음 행동을 제안하십시오.",
       "- [ZERO HALLUCINATION] 숫자를 인용할 때는 제공된 지표·수치·분모를 그대로 사용하고 추정하지 마십시오. 코치 의견은 숫자 나열보다 그 의미를 설명하고, 상세 수치는 근거 행에서 보여주십시오.",
       "- [READABLE COACHING] kindOpinion/spicyOpinion/reason/evaluation은 각각 짧고 완결된 한국어 1~2문장으로 작성하세요. 코치는 관측된 특징과 다음 행동을 말하며, 근거 표를 읽어 주듯 반복하지 마세요. '모드·매치 유형·티어 기준 BGMS 표본 평균', '[모드 duo · 매치 유형 competitive · 티어 B]', '해당 지표 n=36', 'player-match', ID 및 내부 메타데이터를 의견에 출력하지 마세요. 상세 조건·표본 수는 서버 근거 영역에서 제공합니다. 평균과 값이 같으면 부족하다고 단정하지 마세요.",
-      "- [UTILITY LOGIC] 투척물은 '연막/섬광 등 비피해형'과 '수류탄/화염병/C4 등 피해형'을 엄격히 구분하십시오. 총 투척 중 연막/비피해형 비중이 높다면 '피해형 투척 적중 0회'라고 뭉뚱그려 비난하지 말고, '투척물의 대부분(N회)을 연막 등 생존/엄폐용으로 적극 활용했으며 공격형 투척 시도는 적었다'고 분리해 설명하십시오.",
+      "- [UTILITY LOGIC] 연막 사용, 피해형 투척, 구출 연막 시도, 아군 기절 대비 연막 구출률은 서로 다른 기록입니다. 연막 사용만으로 생존·엄폐 목적이나 구출 성공을 단정하지 마세요. 피해형과 비피해형의 차이가 작으면 '대부분', '공격형 시도는 적다' 같은 판단을 하지 마세요. 종류별 횟수로 관측된 구성을 설명하고, 구출 성공이 없더라도 구출 시도까지 없었다고 말하지 마세요. 피해형이 아닌 투척을 적중 실패로 계산하지 마세요.",
       `- [BENCHMARK COMPARISON GUARD] debateIssues의 userStats/benchmarkStats에는 실제로 제공된 ${benchmarkPromptProvenance}가 존재하는 지표만 대조하십시오. 비교 표본이 없거나 개별 지표가 NULL이면 해당 benchmarkStats 행과 비교 문장을 생략하고 값을 추정하지 마십시오. 'Benchmark N/A'나 'N/A'를 출력하는 것을 엄격히 금지합니다. 연막 지표는 분모가 같은 '아군 기절 대비 연막 구출률'과 '${benchmarkPromptProvenance} 기회 대비 평균 연막 구출률'만 1:1 대칭으로 구성하고, '연막 구출률'·'내 연막 구출 성공률'·'내 구출 연막 성공률'처럼 시도 횟수 분모인 라벨은 벤치마크와 비교하지 마십시오. 그 밖에는 1:1 승률, 대응 사격 속도, 백업 속도 등 실제 평균이 명시된 지표만 대조하십시오.`,
       "- [BACKUP OUTCOME LOGIC] 백업 속도는 시간 단독으로 평가하지 말고, 적 제압/팀 전멸 기여/소생/연막 구출 결과를 함께 판단하십시오. 결과가 성공한 긴 백업은 '느린 백업'으로 단정하지 말고 '교전 정리 후 복구 성공'과 '복구 시간 단축 과제'를 분리해 말하십시오.",
       "- [MATCH IMPACT LOGIC] 매치 임팩트가 '하드캐리' 또는 '레전드'인 경기는 단일 경기 하이라이트 성과로 인정하십시오. 낮은 세부 지표를 지적하더라도 판 전체를 실패로 단정하지 말고, 강한 성과와 보완점을 분리하십시오.",
@@ -1942,6 +1952,9 @@ export async function POST(request: Request) {
         .filter((damage): damage is number => damage !== null);
       const evidence = buildSummaryCardEvidence({
         ...mainModeStats,
+        totalSmokeRescues: mainModeStats.totalObservedSmokeRescues,
+        totalTeammateKnocks: mainModeStats.totalObservedTeammateKnocks,
+        totalTradeKills: mainModeStats.totalObservedTradeKills,
         avgDamage: observedDamage.length > 0
           ? Math.floor(observedDamage.reduce((sum, damage) => sum + damage, 0) / observedDamage.length)
           : null,
@@ -1983,9 +1996,14 @@ export async function POST(request: Request) {
         "[ID CARD CONTRACT V2] SERVER_CARD_PLAN_V2가 카드의 유일한 근거입니다. 지정된 topicId 3개를 정확히 한 번씩 반환하고 해당 카드의 evidenceIds만 참조하세요. 제목, 질문, 지표 라벨과 수치는 서버가 표시하므로 생성하지 마세요.",
         "근거를 해석해 두 코치 의견, 근거 설명, 평가, 실천 행동을 작성하세요. 의견에는 숫자나 근거 ID를 반복하지 말고 관측 가능한 행동을 설명하세요. 비교값이 없으면 상위권·동일 티어 비교를 주장하지 마세요. 관측값이 없는 카드에는 근거 부족을 명시하고 evidenceIds는 빈 배열로 반환하세요.",
         "다른 카드의 근거, 다른 모드, AI가 추측한 수치를 사용하지 마세요. reason은 설명문이며 ID가 아닙니다. winner는 kind 또는 spicy만 사용하며 실제 표시 가능 여부는 서버가 검증합니다.",
+        "카드에 없는 소생 기여, 교전 주도권, 팀원의 화력 분담, 투척물 보유량은 판단하지 마세요. 평균 화력이 높다는 사실만으로 교전을 주도했다거나 팀원의 지원이 부족했다고 추론하지 마세요. 투척 횟수는 사용 기록이며 보유량이 아닙니다. 백업 시간만으로 복구 성공이나 실패를 단정하지 마세요.",
+        "finalVerdict는 아래 카드에서 확인된 강점과 다음 행동을 함께 정리하세요. 약점을 반드시 만들 필요는 없습니다. 비교가 가능한 의견은 '지표는 비교 평균보다 높습니다/낮습니다/빠릅니다/느립니다'처럼 완결된 문장으로 쓴 뒤 실천 행동을 별도 문장으로 제안하세요.",
         '반드시 JSON 객체만 반환하세요: {"signature":"칭호","signatureSub":"이유","finalVerdict":"종합 평가","debateIssues":[{"topicId":"지정된 ID","evidenceIds":["지정된 근거 ID"],"kindOpinion":"의견","spicyOpinion":"의견","winner":"kind","reason":"근거 설명","evaluation":"평가"}],"actionItems":[{"icon":"target","title":"목표","desc":"실천 방법"}]}',
       );
-      userPrompt += `\n### [SERVER_CARD_PLAN_V2]\n${JSON.stringify(serverCards.map(({ topicId, topic, question, evidenceIds, evidence: rows, context }) => ({ topicId, topic, question, evidenceIds, evidence: rows, context })))}\n### [END_SERVER_CARD_PLAN_V2]\n`;
+      // The ID contract must have one factual population. The legacy prompt
+      // includes latest-ten and best-five/minority-mode aggregates which are
+      // useful for visual panels, but are not evidence for these cards.
+      userPrompt = `\n### [SERVER_CARD_PLAN_V2]\n${JSON.stringify(serverCards.map(({ topicId, topic, question, evidenceIds, evidence: rows, context }) => ({ topicId, topic, question, evidenceIds, evidence: rows, context })))}\n### [END_SERVER_CARD_PLAN_V2]\n`;
     }
     const unavailableCards = () => serverCards.map((card) => ({ ...card, analysisStatus: "unavailable" as const, analysisReason: "AI 해석을 표시할 수 없습니다.", winner: null }));
     const factsOnlyResponse = () => {
@@ -2002,6 +2020,12 @@ export async function POST(request: Request) {
       try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return null; }
       return normalizeSummaryCardFinal(parsed, serverCards, {
         sanitizeText: (value) => sanitizeUnsupportedAiSummaryBenchmarkLanguage(sanitizeAiCoachingLanguageText(value), idCanonicalEvidence, { allowedMode: mainModeName }),
+        sanitizeCardText: (value, card) => {
+          const cardEvidence = Object.fromEntries(card.evidence
+            .filter((row) => row.status === "comparable" && idCanonicalEvidence[row.metricId])
+            .map((row) => [row.metricId, idCanonicalEvidence[row.metricId]]));
+          return sanitizeUnsupportedAiSummaryBenchmarkLanguage(sanitizeAiCoachingLanguageText(value), cardEvidence, { allowedMode: mainModeName });
+        },
         hasUnsupportedMode: (value) => hasUnsupportedAiSummaryMode(value, mainModeName),
       });
     };
@@ -2011,8 +2035,10 @@ export async function POST(request: Request) {
     // evidence from the role score itself.
     const roleStatsWithDistribution = { ...summaryStats, modeDistribution: { main: mainModeName } };
     const roleInfo = classifyRole(roleStatsWithDistribution, mainBench, mainUserTier);
-    userPrompt += `\n### [유저 전술적 정체성]\n- 부여된 칭호: ${roleInfo.title}\n- 전술 직업군: ${roleInfo.roleLabel}\n- 특징 요약: ${roleInfo.description}\n- 주요 취약점: ${roleInfo.weakness || "식별된 약점 없음 (완성형)"}\n- 시그니처 무기: ${roleInfo.signatureWeapon} (${roleInfo.signatureWeaponStats?.kills}킬, ${roleInfo.signatureWeaponStats?.dbnos}기절, 사용 일관성: ${roleInfo.signatureWeaponStats?.consistency}%)\n`;
-    userPrompt += `\n[INSTRUCTION] 'finalVerdict' 필드에 위 '주요 취약점'에 대한 분석과 전체 토론 내용을 결합하여, 유저에게 깊은 인상을 남길 수 있는 최종 판결문을 작성하십시오.`;
+    if (!useIdCards) {
+      userPrompt += `\n### [유저 전술적 정체성]\n- 부여된 칭호: ${roleInfo.title}\n- 전술 직업군: ${roleInfo.roleLabel}\n- 특징 요약: ${roleInfo.description}\n- 주요 취약점: ${roleInfo.weakness || "식별된 약점 없음 (완성형)"}\n- 시그니처 무기: ${roleInfo.signatureWeapon} (${roleInfo.signatureWeaponStats?.kills}킬, ${roleInfo.signatureWeaponStats?.dbnos}기절, 사용 일관성: ${roleInfo.signatureWeaponStats?.consistency}%)\n`;
+      userPrompt += `\n[INSTRUCTION] 'finalVerdict' 필드에 위 '주요 취약점'에 대한 분석과 전체 토론 내용을 결합하여, 유저에게 깊은 인상을 남길 수 있는 최종 판결문을 작성하십시오.`;
+    }
 
     const reactionTier = (lat: string) => { const v = parseFloat(lat); return isNaN(v) ? "C" : v < 0.4 ? "S" : v < 0.6 ? "A" : v < 0.8 ? "B" : "C"; };
     const backupContextForVisuals = buildBackupCoachingContext({
@@ -2103,13 +2129,13 @@ export async function POST(request: Request) {
       tactical: {
         suppRate: formatBoundedRate(totalSuppCount, totalTeammateKnocks),
         tradeRate: formatBoundedRate(totalTradeKills, totalTeammateKnocks),
-        smokeRate: formatBoundedRate(totalSmokeRescues, masteryStats.totalSmokeCount),
+        smokeRate: formatBoundedRate(masteryStats.totalObservedSmokeRescues, masteryStats.totalObservedRescueSmokes),
         reviveRate: formatBoundedRate(totalRevCount, totalTeammateKnocks),
         counts: {
           knocks: totalTeammateKnocks,
-          smokes: totalSmokes,
-          rescueSmokes: masteryStats.totalSmokeCount,
-          smokeRescues: totalSmokeRescues,
+          smokes: masteryStats.totalObservedSmokes,
+          rescueSmokes: masteryStats.totalObservedRescueSmokes,
+          smokeRescues: masteryStats.totalObservedSmokeRescues,
           revives: totalRevCount,
           trades: totalTradeKills,
           supps: totalSuppCount,

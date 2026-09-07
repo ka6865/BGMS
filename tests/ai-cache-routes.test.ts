@@ -4289,6 +4289,37 @@ describe("AI cache route stabilization", () => {
     expect(visuals.teamImpact).not.toHaveProperty("teamKillShare");
   });
 
+  it.each([false, true])("ai-summary는 일부 경기의 유틸리티 관측 누락을 전체 합계로 표시하지 않는다 (누락 먼저: %s)", async (missingFirst) => {
+    mockSummaryGeminiResponse();
+    const observed = createSummaryMatch("utility-observed", {
+      combatPressure: { utilityStats: { throwCount: 8, lethalThrowCount: 5, hitCount: 2, totalDamage: 90, killCount: 1 } },
+    });
+    const missing = createSummaryMatch("utility-missing", {
+      combatPressure: { utilityStats: {} },
+      itemUseStats: {},
+      // A frag count without a molotov observation cannot establish a lethal total.
+      itemUseSummary: { frags: 2 },
+    });
+    const matches = missingFirst ? [missing, observed] : [observed, missing];
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: createQueryChain({ data: null, error: null }),
+      processed_match_telemetry: createQueryChain({ data: matches.map((match) => ({
+        match_id: match.matchId, player_id: "player_a", platform: "kakao", data: { fullResult: match },
+      })), error: null }),
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: matches.map((match) => match.matchId), nickname: "Player_A", platform: "kakao", force: true,
+    }));
+    const visuals = parseSummaryNdjson(await response.text()).find((record) => record.type === "visuals")?.data;
+    expect(response.status).toBe(200);
+    expect(visuals.latestMatchCount).toBe(2);
+    expect(visuals.utility).toMatchObject({
+      totalThrows: "측정 불가", lethalThrows: "측정 불가", hits: "측정 불가", damage: "측정 불가", kills: "측정 불가",
+    });
+  });
+
   it("ai-summary는 결측 전투·운영·유틸리티 telemetry를 0으로 제조하지 않고 prompt와 visual을 측정 불가로 유지한다", async () => {
     let capturedPrompt = "";
     mockSummaryGeminiResponse((prompt) => {
@@ -4296,6 +4327,7 @@ describe("AI cache route stabilization", () => {
     });
 
     const match = createSummaryMatch("summary-missing-observations", {
+      tradeStats: undefined,
       combatPressure: { pressureIndex: null, utilityStats: {} },
       itemUseStats: {},
       itemUseSummary: {},
@@ -4346,6 +4378,8 @@ describe("AI cache route stabilization", () => {
     expect(visuals.crossfireExposureCount).toBe("측정 불가");
     expect(visuals.edgePlay).toBe("측정 불가");
     expect(visuals.fatalDelay).toBe("측정 불가");
+    expect(visuals.tactical.smokeRate).toBe("측정 불가");
+    expect(visuals.tactical.counts).toMatchObject({ smokes: null, rescueSmokes: null, smokeRescues: null });
     expect(visuals.utility).toMatchObject({
       totalThrows: "측정 불가",
       lethalThrows: "측정 불가",
@@ -5854,7 +5888,7 @@ describe("AI cache route stabilization", () => {
     expect(upsertPayload.ai_result.summary).toContain("다른 팀원들의 화력 지원 보완이 필요");
     expect(JSON.stringify(upsertPayload.ai_result)).not.toContain("혼자 다 해먹");
   });
-  it.each(['valid', 'shuffled', 'technical-provenance', 'wrong-reference', 'missing-reference', 'foreign-mode', 'duplicate-topic', 'unknown-topic', 'two-cards', 'non-json'])(
+  it.each(['valid', 'shuffled', 'technical-provenance', 'wrong-reference', 'missing-reference', 'foreign-mode', 'cross-card-prose', 'neutral-opinion', 'invented-match-count', 'duplicate-topic', 'unknown-topic', 'two-cards', 'non-json'])(
     'ai-summary v2 %s preserves server evidence and validates interpretation/cache separately', async (scenario) => {
       const summaryCache = createQueryChain();
       const telemetry = createQueryChain({ data: [{ match_id: 'id-contract', player_id: 'player_a', platform: 'kakao', data: { fullResult: createSummaryMatch('id-contract', { deathPhase: 4 }) } }], error: null });
@@ -5865,6 +5899,8 @@ describe("AI cache route stabilization", () => {
         const encoded = prompt.split('### [SERVER_CARD_PLAN_V2]\n')[1]?.split('\n### [END_SERVER_CARD_PLAN_V2]')[0];
         const plan = JSON.parse(encoded || '[]');
         expect(plan).toHaveLength(3);
+        expect(prompt).not.toContain('### [유저 전술적 정체성]');
+        expect(prompt).not.toContain('### [SQUAD 모드 분석]');
         const issues = plan.map((card: any) => ({ topicId: card.topicId, evidenceIds: [...card.evidenceIds], kindOpinion: '교전을 마무리하는 강점이 있습니다.', spicyOpinion: '합류 시점을 더 점검하세요.', winner: 'kind', reason: '관측된 기록에 근거합니다.', evaluation: '다음 경기에서 합류를 점검하세요.' }));
         providerFinal = { ...createValidSummaryFinal(), debateIssues: issues };
         if (scenario === 'shuffled') issues.reverse();
@@ -5874,6 +5910,9 @@ describe("AI cache route stabilization", () => {
         if (scenario === 'wrong-reference') issues[0].evidenceIds = ['another-context:damage_average'];
         if (scenario === 'missing-reference') issues[0].evidenceIds = [];
         if (scenario === 'foreign-mode') issues[0].kindOpinion = '듀오에서 교전을 마무리합니다.';
+        if (scenario === 'cross-card-prose') issues.find((issue: any) => issue.topicId !== 'firepower').kindOpinion = '평균 화력은 비교 평균보다 높습니다.';
+        if (scenario === 'neutral-opinion') issues[0].kindOpinion = '검증된 경기 지표를 바탕으로 분석합니다.';
+        if (scenario === 'invented-match-count') issues[0].kindOpinion = '최근 100경기에서 안정적인 플레이를 보여주었습니다.';
         if (scenario === 'duplicate-topic') issues[1].topicId = issues[0].topicId;
         if (scenario === 'unknown-topic') issues[1].topicId = 'invented';
         if (scenario === 'two-cards') issues.pop();
@@ -5915,9 +5954,9 @@ describe("AI cache route stabilization", () => {
       } else {
         expect(summaryCache.upsert).not.toHaveBeenCalled();
         expect(records.some(record => record.type === 'error')).toBe(true);
-        if (['wrong-reference', 'missing-reference', 'foreign-mode'].includes(scenario)) {
+        if (['wrong-reference', 'missing-reference', 'foreign-mode', 'cross-card-prose', 'neutral-opinion', 'invented-match-count'].includes(scenario)) {
           const partial = JSON.parse(records.find(record => record.type === 'final')?.data || '{}');
-          expect(partial.cards[0]).toMatchObject({ analysisStatus: 'unavailable', winner: null });
+          expect(partial.cards.some((card: any) => card.analysisStatus === 'unavailable' && card.winner === null)).toBe(true);
           expect(partial.cards.map((card: any) => card.evidence)).toEqual(facts.map((card: any) => card.evidence));
         } else {
           expect(records.some(record => record.type === 'final')).toBe(false);

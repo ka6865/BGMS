@@ -3,7 +3,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { StatSummaryPanel } from "@/components/stat/StatSummaryPanel";
-import { RecentAISummary, type AiSummarySnapshot } from "@/components/stat/RecentAISummary";
+import { RecentAISummary } from "@/components/stat/RecentAISummary";
 import SquadAnalysisPanel from "@/components/stat/SquadAnalysisPanel";
 import { Shield, ChevronDown } from "lucide-react";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
@@ -41,12 +41,6 @@ interface StatsSearchIntent {
   platform: StatsPlatform;
   seasonId: string;
   forceRefresh: boolean;
-}
-
-interface IdentityOwnedAiState {
-  identity: string;
-  summary: AiSummarySnapshot | null;
-  expanded: boolean;
 }
 
 /** 전적 검색 메인 컴포넌트 */
@@ -243,24 +237,6 @@ export function StatsPageShell({
   const toggleFavorite = (name: string) => toggleStoredFavorite(name);
 
   const [showGuideline, setShowGuideline] = useState(false);
-  const aiIdentity = result
-    ? `${result.platform}\u001f${result.nickname}\u001f${result.recentMatches.join("\u001e")}`
-    : "";
-  const [aiState, setAiState] = useState<IdentityOwnedAiState | null>(null);
-  const aiSummary = aiState?.identity === aiIdentity ? aiState.summary : null;
-  const aiExpanded = aiState?.identity === aiIdentity ? aiState.expanded : false;
-  const handleAiSummaryChange = useCallback((summary: AiSummarySnapshot | null) => {
-    setAiState((previous) => ({
-      identity: aiIdentity,
-      summary,
-      expanded: summary && previous?.identity === aiIdentity ? previous.expanded : false,
-    }));
-  }, [aiIdentity]);
-  const handleAiToggle = useCallback(() => {
-    setAiState((previous) => previous?.identity === aiIdentity
-      ? { ...previous, expanded: !previous.expanded }
-      : { identity: aiIdentity, summary: null, expanded: false });
-  }, [aiIdentity]);
   const handleRetry = useCallback(() => {
     const fallbackPlatform: StatsPlatform = initialPlatform === "kakao" ? "kakao" : "steam";
     const fallbackNickname = initialNickname?.trim() ?? "";
@@ -386,7 +362,6 @@ export function StatsPageShell({
                     nickname={result.nickname}
                     platform={result.platform}
                     isMobile={isMobile}
-                    onSummaryChange={handleAiSummaryChange}
                   />
                 ) : (
                   <p
@@ -402,13 +377,10 @@ export function StatsPageShell({
               <div className="stats-result-grid">
                 <aside className="stats-overview-rail">
                   <StatSummaryPanel
-                    stats={result.stats}
-                    statsAvailability={result.statsAvailability}
-                    mode={statsMode}
-                    partySize={partySize}
-                    aiSummary={aiSummary}
-                    aiExpanded={aiExpanded}
-                    onAiToggle={handleAiToggle}
+                    matchIds={result.recentMatches}
+                    summaries={matchSummaries}
+                    matchModeMeta={matchModeMeta}
+                    summaryStatus={summaryStatus}
                   />
                 </aside>
                 <div className="stats-match-column">

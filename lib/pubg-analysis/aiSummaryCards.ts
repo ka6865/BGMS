@@ -78,7 +78,7 @@ export const SUMMARY_TOPIC_DEFINITIONS: Readonly<Record<SummaryTopicId, {
   initiative: { topic: "교전 주도권", metricIds: ["initiative_rate", "pressure_index", "reaction_latency"], defaultQuestion: "교전 주도권에 대한 두 코치의 평가는?" },
   duel: { topic: "1:1 결정력", metricIds: ["duel_win_rate", "solo_kill_share"], defaultQuestion: "1:1 결정력에 대한 두 코치의 평가는?" },
   trade_backup: { topic: "복수 성공률 및 백업", metricIds: ["trade_success_rate", "backup_latency"], defaultQuestion: "복수 성공률 및 백업에 대한 두 코치의 평가는?" },
-  utility: { topic: "유틸리티 활용", metricIds: ["utility_throws", "smoke_opportunity_rate"], defaultQuestion: "유틸리티 활용에 대한 두 코치의 평가는?" },
+  utility: { topic: "유틸리티 활용", metricIds: ["utility_throws", "utility_smokes", "utility_lethal_throws", "smoke_rescue_attempts", "smoke_opportunity_rate"], defaultQuestion: "유틸리티 활용에 대한 두 코치의 평가는?" },
   positioning: { topic: "포지셔닝", metricIds: ["isolation_average"], defaultQuestion: "포지셔닝에 대한 두 코치의 평가는?" },
   survival: { topic: "생존 운영", metricIds: ["death_phase"], defaultQuestion: "생존 운영에 대한 두 코치의 평가는?" },
 };
@@ -103,6 +103,9 @@ const METRIC_DEFINITIONS: Readonly<Record<string, MetricDefinition>> = {
   trade_success_rate: { topicId: "trade_backup", unit: "%" },
   backup_latency: { topicId: "trade_backup", unit: "s" },
   utility_throws: { topicId: "utility", unit: "회" },
+  utility_smokes: { topicId: "utility", unit: "회" },
+  utility_lethal_throws: { topicId: "utility", unit: "회" },
+  smoke_rescue_attempts: { topicId: "utility", unit: "회" },
   smoke_opportunity_rate: { topicId: "utility", unit: "%" },
   isolation_average: { topicId: "positioning", unit: "" },
   death_phase: { topicId: "survival", unit: "" },
@@ -348,7 +351,7 @@ function topicIdForName(value: unknown): SummaryTopicId | null {
 function topicQuestion(topicId: SummaryTopicId, dataStatus: SummaryDataStatus): string {
   const definition = topicDefinitionForId(topicId);
   if (!definition) return "";
-  return dataStatus === "comparable"
+  return dataStatus === "comparable" && topicId !== "utility"
     ? `${definition.topic}${COMPARISON_QUESTION_SUFFIX}`
     : definition.defaultQuestion;
 }
@@ -441,7 +444,8 @@ function validateCardCatalog(cards: readonly SummaryCard[]): SummaryCard[] | nul
     if (kindOpinion === null || spicyOpinion === null || reason === null || evaluation === null) return null;
     if (analysisStatus === "ready") {
       if ([kindOpinion, spicyOpinion, reason, evaluation].some((text) => !nonEmptyString(text))) return null;
-      if (isNeutralText(kindOpinion) && isNeutralText(spicyOpinion)) return null;
+      if (isNeutralText(kindOpinion) || isNeutralText(spicyOpinion)) return null;
+      if ([kindOpinion, spicyOpinion, reason, evaluation].some((text) => hasUnsupportedCardConclusion(text, { topicId, context }))) return null;
     }
     const expectedTopic = topicDefinitionForId(topicId)?.topic;
     if (!expectedTopic) return null;
@@ -531,6 +535,17 @@ function validateSummaryEvidence(
 
 function isNeutralText(value: string): boolean {
   return !value.trim() || NEUTRAL_TEXTS.has(value.trim());
+}
+
+function hasUnsupportedCardConclusion(text: string, card: Pick<SummaryCard, "topicId" | "context">): boolean {
+  // A card's match population is server-owned, just like its metric values.
+  const populations = Array.from(text.matchAll(/최근\s*(\d+)\s*(?:개\s*)?(?:판|경기)/gu));
+  if (populations.some((match) => Number(match[1]) !== card.context.userMatchCount)) return true;
+  if (card.topicId !== "utility") return false;
+  // Counts establish use, not intent or an adequate frequency. Do not let
+  // an old provider/template infer cover purpose or "few offensive throws"
+  // from these observations, even when the referenced IDs are valid.
+  return /(?:대부분|거의\s*(?:모두|전부)).*(?:연막|생존|엄폐)|(?:공격형|피해형)\s*투척(?:\s*시도)?(?:은|는|이|가)?\s*(?:매우\s*)?(?:적었|적습니다|부족했)|(?:생존|엄폐)(?:\s*(?:및|·|\/)?\s*(?:생존|엄폐))?용으로\s*(?:적극\s*)?(?:활용했|사용했)|보유량에\s*비해/u.test(text);
 }
 
 function sanitizeRequiredText(
@@ -645,6 +660,7 @@ export function buildSummaryCards(input: {
 
 export function normalizeSummaryCardFinal(input: unknown, cards: readonly SummaryCard[], options: {
   sanitizeText: (value: string) => string;
+  sanitizeCardText?: (value: string, card: SummaryCard) => string;
   hasUnsupportedMode: (value: unknown) => boolean;
 }): { final: Record<string, unknown> & { schemaVersion: 2; cards: SummaryCard[] }; cacheable: boolean } | null {
   const serverCards = validateCardCatalog(cards);
@@ -670,7 +686,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
 
   const safeSignature = normalizedSignature.value || SAFE_SIGNATURE;
   const safeSignatureSub = normalizedSignatureSub.value || SAFE_SIGNATURE_SUB;
-  const safeVerdict = normalizedVerdict.value || SAFE_VERDICT;
+  let safeVerdict = normalizedVerdict.value || SAFE_VERDICT;
 
   const providerByTopic = new Map<SummaryTopicId, Record<string, unknown>>();
   for (const rawIssue of input.debateIssues) {
@@ -711,14 +727,13 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       return unavailableCard(serverCard, "AI 응답의 필수 해석 필드가 유효하지 않습니다.");
     }
 
-    const sanitized = [kindOpinion, spicyOpinion, reason, evaluation].map((text) => sanitizeRequiredText(text, options.sanitizeText));
+    const sanitized = [kindOpinion, spicyOpinion, reason, evaluation].map((text) => sanitizeRequiredText(text,
+      (value) => options.sanitizeCardText ? options.sanitizeCardText(value, serverCard) : options.sanitizeText(value)));
     const proseRejected = sanitized.some((item) => item.empty);
-    // An unavailable card has no observations to interpret, so the neutral
-    // unavailable copy is an expected terminal state. Neutral coach opinions
-    // remain invalid when the card has usable evidence.
-    const bothOpinionsNeutral = serverCard.dataStatus !== "unavailable"
-      && isNeutralText(sanitized[0].value)
-      && isNeutralText(sanitized[1].value);
+    // A debate needs two substantive opinions. A neutralized opinion must
+    // never win (or award a win to the other coach) just because facts exist.
+    const opinionNeutral = serverCard.dataStatus !== "unavailable"
+      && (isNeutralText(sanitized[0].value) || isNeutralText(sanitized[1].value));
     let issueHasForeignMode = false;
     try {
       // Inspect prose only. Topic/metric IDs are structured server
@@ -748,10 +763,12 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       else referencesValid = referencesValid && referenceValues.length > 0;
     }
 
-    const rejected = issueHasForeignMode || !referencesValid || proseRejected || bothOpinionsNeutral;
+    const unsupportedConclusion = [kindOpinion, spicyOpinion, reason, evaluation]
+      .some((text) => hasUnsupportedCardConclusion(text, serverCard));
+    const rejected = issueHasForeignMode || !referencesValid || proseRejected || opinionNeutral || unsupportedConclusion;
     if (rejected) {
       cacheable = false;
-      return unavailableCard(serverCard, issueHasForeignMode ? "허용되지 않은 게임 모드가 포함되어 AI 해석을 보류했습니다." : UNAVAILABLE_REASON);
+      return unavailableCard(serverCard, issueHasForeignMode ? "허용되지 않은 게임 모드가 포함되어 AI 해석을 보류했습니다." : unsupportedConclusion ? "경기 범위나 투척 기록으로 확인되지 않는 해석이 있어 판정을 보류했습니다." : opinionNeutral ? "두 코치의 의견을 모두 확인할 수 없어 승리 판정을 보류했습니다." : UNAVAILABLE_REASON);
     }
     if (serverCard.dataStatus === "unavailable") {
       // Missing observations are an expected server state. Preserve the
@@ -776,6 +793,19 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
 
   const normalizedActionItems = actionItems.items;
   const finalCards = normalizedCards.map(cloneCard);
+  // Removing any part of a verdict can change its balance, even without a
+  // leftover "다만". Reuse a strength and an improvement when those decisions
+  // exist; do not manufacture a negative verdict when all cards favor kind.
+  if (isNeutralText(safeVerdict) || normalizedVerdict.changed) {
+    const ready = finalCards.filter((card) => card.analysisStatus === "ready");
+    const first = ready.find((card) => card.winner === "kind") ?? ready[0];
+    const second = ready.find((card) => card !== first && card.winner === "spicy") ?? ready.find((card) => card !== first);
+    const interpretations = [first, second]
+      .filter((card): card is SummaryCard => Boolean(card))
+      .map((card) => card.winner === "spicy" ? card.spicyOpinion : card.kindOpinion)
+      .filter((text) => !isNeutralText(text));
+    safeVerdict = [...new Set(interpretations)].slice(0, 2).join(" ") || "코치 의견을 확인하지 못했습니다. 아래 경기 기록을 확인해 주세요.";
+  }
   if (finalCards.every((card) => card.dataStatus === "unavailable")) cacheable = false;
   const legacyIssues = finalCards.map((card) => {
     const comparableEvidence = card.evidence.filter((evidence) => evidence.status === "comparable" && evidence.userValue !== null && evidence.benchmarkValue !== null);
