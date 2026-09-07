@@ -22,6 +22,7 @@ function canonicalRow(index: number, overrides: Record<string, any> = {}) {
     player_id: "player_a",
     platform: "steam",
     v: RESULT_VERSION,
+    calculationVersion: 2,
     populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
     createdAt,
     gameMode: "squad-fpp",
@@ -154,7 +155,17 @@ describe("strict squad analysis population and scope",()=>{
     const result:any=await getSquadAnalysisData('Player_A','steam','Teammate_B');
     expect(result.stats.totalRevives).toBe(1);
   });
-  it('still fails when the canonical processed-record query fails',async()=>{
+  it('reports old squad arithmetic as upgrade pending, not missing match history',async()=>{
+    configureSquadClient(queryChain({data:[canonicalRow(1,{calculationVersion:undefined})],error:null}));
+    const {getSquadAnalysisData}=await import('@/lib/pubg-analysis/squadAnalysis');
+    expect(await getSquadAnalysisData('Player_A','steam')).toMatchObject({errorCode:'PUBG_CALCULATION_UPGRADE_REQUIRED',retryable:false});
+  });
+  it('reports pending squad history even when a current duo result is available',async()=>{
+    configureSquadClient(queryChain({data:[canonicalRow(1,{calculationVersion:1}),canonicalRow(2,{gameMode:'duo'})],error:null}));
+    const {getSquadAnalysisData}=await import('@/lib/pubg-analysis/squadAnalysis');
+    expect(await getSquadAnalysisData('Player_A','steam')).toMatchObject({errorCode:'PUBG_CALCULATION_UPGRADE_REQUIRED',retryable:false});
+  });
+  it('still fails when the canonical processed-record query fails' ,async()=>{
     configureSquadClient(queryChain({data:null,error:{message:'database unavailable'}}));
     const {getSquadAnalysisData}=await import('@/lib/pubg-analysis/squadAnalysis');
     await expect(getSquadAnalysisData('Player_A','steam','Teammate_B')).rejects.toThrow('Database error');

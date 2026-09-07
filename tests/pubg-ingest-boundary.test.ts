@@ -265,6 +265,7 @@ const roster = {
 };
 
 const analysisResult = {
+  calculationVersion: 2,
   matchType: "official",
   gameMode: "squad-fpp",
   isValidBenchmark: true,
@@ -772,7 +773,7 @@ describe("PUBG match persistence behavior", () => {
         data: {
           fullResult: {
             ...analysisResult,
-            v: RESULT_VERSION,
+            v: RESULT_VERSION, calculationVersion: 2,
             matchId: MATCH_ID,
             player_id: NICKNAME.toLowerCase(),
             platform: "steam",
@@ -791,6 +792,13 @@ describe("PUBG match persistence behavior", () => {
     expect(mockPersistMatchAnalysis).toHaveBeenCalledTimes(1);
   });
 
+  it.each([undefined,1,3])('holds outdated arithmetic %s before upstream fetch and reanalysis',async calculationVersion=>{
+    mockProcessedTelemetryMaybeSingle.mockResolvedValueOnce({data:{match_id:MATCH_ID,player_id:NICKNAME.toLowerCase(),platform:'steam',data:{fullResult:{...analysisResult,v:RESULT_VERSION,calculationVersion,populationEvidenceVersion:POPULATION_EVIDENCE_VERSION,matchId:MATCH_ID,player_id:NICKNAME.toLowerCase(),platform:'steam'}}},error:null});
+    const response=await GET(createMatchRequest());
+    expect(response.status).toBe(409);expect(await response.json()).toMatchObject({errorCode:'PUBG_CALCULATION_UPGRADE_REQUIRED',retryable:false});
+    expect(fetch).not.toHaveBeenCalled();expect(mockAnalysisEngine).not.toHaveBeenCalled();expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
+  });
+
   it("marked current v73 processed row is reused without needless reanalysis", async () => {
     mockProcessedTelemetryMaybeSingle.mockResolvedValueOnce({
       data: {
@@ -800,7 +808,7 @@ describe("PUBG match persistence behavior", () => {
         data: {
           fullResult: {
             ...analysisResult,
-            v: RESULT_VERSION,
+            v: RESULT_VERSION, calculationVersion: 2,
             populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
             matchId: MATCH_ID,
             player_id: NICKNAME.toLowerCase(),
@@ -860,7 +868,7 @@ describe("PUBG match persistence behavior", () => {
         data: {
           fullResult: {
             ...analysisResult,
-            v: RESULT_VERSION,
+            v: RESULT_VERSION, calculationVersion: 2,
             matchId: MATCH_ID,
             player_id: NICKNAME.toLowerCase(),
             platform: "steam",
@@ -1466,7 +1474,7 @@ describe("PUBG match query boundary", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      v: RESULT_VERSION,
+      v: RESULT_VERSION, calculationVersion: 2,
       matchId: MATCH_ID,
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -2869,7 +2877,7 @@ describe("PUBG match query boundary", () => {
       ...v72,
       data: { fullResult: {
         ...v72.data.fullResult,
-        v: RESULT_VERSION,
+        v: RESULT_VERSION, calculationVersion: 2,
         populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
       } },
     };
@@ -3378,7 +3386,7 @@ describe("PUBG match query boundary", () => {
 
   it.each([
     ["missing", null],
-    ["current marked", { v: RESULT_VERSION, populationEvidenceVersion: POPULATION_EVIDENCE_VERSION }],
+    ["current marked", { v: RESULT_VERSION, calculationVersion: 2, populationEvidenceVersion: POPULATION_EVIDENCE_VERSION }],
     ["current unmarked", { v: RESULT_VERSION }],
   ])("authorized recovery header rejects %s cached evidence before PUBG/background/engine work", async (_label, versionFields) => {
     vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");

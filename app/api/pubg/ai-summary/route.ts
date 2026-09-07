@@ -10,7 +10,7 @@ import {
   type ObservedBenchmark,
 } from "@/lib/pubg-analysis/benchmarkAdapter";
 import { BENCHMARK_FILTER_VERSION, fetchTierBenchmarkStats } from "@/lib/pubg-analysis/benchmarkLookup";
-import { getValidFullResultForMatch, isFullResultForPlayerPlatform, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
+import { hasCurrentCalculation, getValidFullResultForMatch, isFullResultForPlayerPlatform, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { buildBackupCoachingContext } from "@/lib/pubg-analysis/backupCoaching";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
@@ -114,7 +114,8 @@ async function awaitWithAbort<T>(promise: PromiseLike<T>, signal: AbortSignal): 
 function hasCurrentResultVersion(fullResult: any): boolean {
   return typeof fullResult?.v === "number"
     && Number.isFinite(fullResult.v)
-    && fullResult.v === RESULT_VERSION;
+    && fullResult.v === RESULT_VERSION
+    && hasCurrentCalculation(fullResult);
 }
 
 type SummaryDependencyFailure = "unavailable" | "timeout";
@@ -1024,6 +1025,8 @@ export async function POST(request: Request) {
     const cachedMap = new Map();
     const cachedResults: any[] = [];
     let staleMatchDetected = false;
+    let calculationUpgradePending = false;
+    const calculationPendingIds = new Set<string>();
     if (cachedMatches) {
       cachedMatches.forEach(m => {
         // Storage identity is authoritative. A row missing player/platform is
@@ -1046,6 +1049,7 @@ export async function POST(request: Request) {
           if (!pureId) return;
           if (!hasCurrentResultVersion(fullResult)) {
             staleMatchDetected = true;
+            if (fullResult.v === RESULT_VERSION && !hasCurrentCalculation(fullResult)) { calculationUpgradePending = true; calculationPendingIds.add(pureId); }
             console.warn(`[AI-SUMMARY] Ignored stale processed full result for ${pureId}`);
             return;
           }
@@ -1161,7 +1165,7 @@ export async function POST(request: Request) {
       }
     });
     const missingMatchIds = Array.from(firstRequestedIdByCanonicalId.entries())
-      .filter(([canonicalId]) => !cachedMap.has(canonicalId))
+      .filter(([canonicalId]) => !cachedMap.has(canonicalId) && !calculationPendingIds.has(canonicalId))
       .map(([canonicalId]) => canonicalId);
     const newResultsMap = new Map();
     let fallbackTimedOut = false;
@@ -1245,7 +1249,17 @@ export async function POST(request: Request) {
                 ...(internalMatchApi.headers ? { headers: internalMatchApi.headers } : {}),
               },
             );
-            if (!res.ok) return null;
+            if (!res.ok) {
+              if (res.status === 409) {
+                const failure = await res.json().catch(() => null);
+                const canonicalId = normalizeMatchId(id);
+                if (canonicalId && failure?.errorCode === "PUBG_CALCULATION_UPGRADE_REQUIRED") {
+                  calculationUpgradePending = true;
+                  calculationPendingIds.add(canonicalId);
+                }
+              }
+              return null;
+            }
             return await res.json();
           })();
           const data = await Promise.race([fetchPromise, abortPromise.promise]);
@@ -1285,6 +1299,10 @@ export async function POST(request: Request) {
           }
           if (!hasCurrentResultVersion(normalizedData)) {
             staleMatchDetected = true;
+            if (validatedFallback?.v === RESULT_VERSION && !hasCurrentCalculation(normalizedData)) {
+              calculationUpgradePending = true;
+              calculationPendingIds.add(requestedCanonicalId);
+            }
             console.warn(`[AI-SUMMARY] Ignored stale fallback full result for ${requestedCanonicalId}`);
             return;
           }
@@ -1398,6 +1416,9 @@ export async function POST(request: Request) {
       && hasCurrentResultVersion(value)
     ));
     if (isRouteAborted()) return abortResponse();
+    if (calculationUpgradePending && !hasUsableCanonicalSelection) {
+      return NextResponse.json({ error: "분석 지표 업데이트 준비 중입니다. 기본 전적은 계속 이용할 수 있습니다.", errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED", retryable: false }, { status: 409 });
+    }
     if ((staleMatchDetected || fallbackTimedOut || fallbackFetchTimedOut || request.signal.aborted) && !hasUsableCanonicalSelection) {
       return NextResponse.json({
         error: "canonical match analysis is not ready",
@@ -2096,6 +2117,8 @@ export async function POST(request: Request) {
     } : null;
 
     const precomputedVisuals = {
+      calculationVersion: 2,
+      calculationPendingCount: calculationPendingIds.size,
       latestMatchTime, latestMatchCount: selectedMatches.length, bestMatchCount: bestMatches.length,
       counterLatency: avgBackupLatency, reactionLatency: avgReactionLatency,
       reactionTier: reactionTier(avgReactionLatency), backupTier: backupContextForVisuals.tier, overallTier: mainUserTier, roleInfo,

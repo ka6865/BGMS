@@ -14,7 +14,7 @@ import { collectAiCoachingQualitySignals } from '@/lib/pubg-analysis/aiCoachingQ
 
 const audit=vi.hoisted(()=>({rows:[] as any[],calls:[] as any[],writes:[] as any[],cases:[] as any[],source:[] as any[]}));
 const db=vi.hoisted(()=>({from(table:string){
-  if(!['processed_match_telemetry','global_benchmarks','benchmark_stats_by_tier','match_ai_coaching_cache','player_ai_summary_cache','squad_ai_coaching_cache'].includes(table)) throw new Error(`Unexpected DB access: ${table}`);
+  if(!['processed_match_telemetry','global_benchmarks','benchmark_stats_by_tier_v2','match_ai_coaching_cache','player_ai_summary_cache','squad_ai_coaching_cache'].includes(table)) throw new Error(`Unexpected DB access: ${table}`);
   const predicates:Array<(row:any)=>boolean>=[];
   let single=false;
   const result=()=>{const rows=table==='processed_match_telemetry'?audit.rows.filter(row=>predicates.every(test=>test(row))):[];return {data:single?(rows[0]??null):rows,error:null};};

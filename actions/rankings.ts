@@ -1,4 +1,5 @@
 'use server';
+import { ANALYSIS_CALCULATION_VERSION } from "@/lib/pubg-analysis/constants";
 
 import { createClient } from '@supabase/supabase-js';
 import {
@@ -109,6 +110,7 @@ export async function getWeeklyTopDamage(
   let query = supabase
     .from('global_benchmarks')
     .select('player_id, damage, kills, game_mode, map_name, created_at, tier')
+    .eq('calculation_version', ANALYSIS_CALCULATION_VERSION)
     .eq('filter_version', BENCHMARK_FILTER_VERSION)
     .eq('population_evidence_version', BENCHMARK_POPULATION_EVIDENCE_VERSION)
     .gte('created_at', since)
@@ -172,6 +174,7 @@ export async function getWeeklyTopKills(
   let query = supabase
     .from('global_benchmarks')
     .select('player_id, damage, kills, game_mode, map_name, created_at, tier')
+    .eq('calculation_version', ANALYSIS_CALCULATION_VERSION)
     .eq('filter_version', BENCHMARK_FILTER_VERSION)
     .eq('population_evidence_version', BENCHMARK_POPULATION_EVIDENCE_VERSION)
     .gte('created_at', since)
@@ -234,6 +237,7 @@ export async function getTopTierRanking(
   let query = supabase
     .from('global_benchmarks')
     .select('player_id, score, tier, damage, kills, game_mode, created_at')
+    .eq('calculation_version', ANALYSIS_CALCULATION_VERSION)
     .eq('filter_version', BENCHMARK_FILTER_VERSION)
     .eq('population_evidence_version', BENCHMARK_POPULATION_EVIDENCE_VERSION)
     .gte('created_at', since)

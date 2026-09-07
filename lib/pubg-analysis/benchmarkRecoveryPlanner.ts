@@ -17,7 +17,7 @@ import {
 import {
   BENCHMARK_FILTER_VERSION,
   isCanonicalBenchmarkTier,
-  isTrustedBenchmarkAggregate,
+  isTrustedBenchmarkPopulation,
   type CanonicalBenchmarkTier,
 } from "./benchmarkLookup";
 import {
@@ -452,7 +452,7 @@ function assessCandidate(
   const benchmarkSnapshot = readBenchmarkRecoverySnapshot(benchmark);
   const bucket = bucketFromBenchmark(benchmark);
 
-  if (isTrustedBenchmarkAggregate(benchmark)) addReason(reasons, "already_trusted");
+  if (isTrustedBenchmarkPopulation(benchmark)) addReason(reasons, "already_trusted");
   if (!identity.matchId) addReason(reasons, "missing_match_id");
   if (!identity.playerId) addReason(reasons, "missing_player_id");
   addReason(reasons, platformReason(benchmark.platform));

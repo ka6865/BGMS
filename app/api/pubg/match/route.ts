@@ -18,6 +18,8 @@ import {
 import {
   buildProcessedTelemetryUpsert,
   getValidFullResultForMatch,
+  hasCurrentCalculation,
+  sanitizeCalculationBenchmark,
   normalizePlatform,
 } from "@/lib/pubg-analysis/cacheIdentity";
 import {
@@ -1002,7 +1004,7 @@ async function reportBackgroundReanalysisFailure(): Promise<void> {
 }
 
 function createTacticalResponse(result: any) {
-  const tacticalResult = { ...result };
+  const tacticalResult = { ...(result?.v === RESULT_VERSION && hasCurrentCalculation(result) ? sanitizeCalculationBenchmark(result) : result) };
   delete tacticalResult.mapData;
   return pseudonymizeTelemetryAccountIds(tacticalResult);
 }
@@ -1313,6 +1315,9 @@ export async function GET(request: NextRequest) {
         && typeof cachedFullResult.v === "number"
         && Number.isFinite(cachedFullResult.v)
         && cachedFullResult.v === RESULT_VERSION) {
+        if (!hasCurrentCalculation(cachedFullResult)) {
+          return NextResponse.json({ error: "분석 지표 업데이트 준비 중입니다. 기본 전적은 계속 이용할 수 있습니다.", errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED", retryable: false }, { status: 409 });
+        }
         if (hasPopulationEvidence(cachedFullResult)) {
           return NextResponse.json(createTacticalResponse(cachedFullResult));
         }
@@ -1827,7 +1832,8 @@ async function reanalyzeAndSave(
       && typeof cachedFullResult.v === "number"
       && Number.isFinite(cachedFullResult.v)
       && cachedFullResult.v === RESULT_VERSION
-      && hasPopulationEvidence(cachedFullResult)) {
+      && hasPopulationEvidence(cachedFullResult)
+      && hasCurrentCalculation(cachedFullResult)) {
       const sampleParticipants = participants
         .filter((p: any) => !p.attributes.stats.playerId?.startsWith("ai."))
         .map((p: any) => p.attributes.stats.name)

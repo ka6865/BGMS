@@ -42,7 +42,7 @@ describe("R2 weapon-meta burst backfill", () => {
     }]);
   });
 
-  it("accepts only the canonical v61 analyzed-event envelope for the exact identity", () => {
+  it("accepts only the canonical v62 analyzed-event envelope for the exact identity", () => {
     const identity = buildBurstTelemetryIdentity({ match_id: "match-1", platform: "steam" }, "account.me");
     expect(identity).not.toBeNull();
     const envelope = createTelemetryAnalyzeCacheEnvelope(identity!, [{ _T: "LogPlayerTakeDamage" }]);
@@ -61,7 +61,7 @@ describe("R2 weapon-meta burst backfill", () => {
       telemetryVersion: 60,
     })).toBeNull();
     expect(parseCanonicalBurstEvents(envelope.events, identity!)).toBeNull();
-    expect(buildTelemetryAnalyzeCacheKey(identity!)).toContain("v61/steam/match-1");
+    expect(buildTelemetryAnalyzeCacheKey(identity!)).toContain("v62/steam/match-1");
   });
 
   it("rejects empty, malformed, unknown, or mixed-invalid analyzed event arrays", () => {

@@ -141,6 +141,7 @@ function createSummaryMatch(matchId = "match-1", overrides: Record<string, any> 
     player_id: "player_a",
     platform: "kakao",
     v: RESULT_VERSION,
+    calculationVersion: 2,
     populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
     createdAt: "2026-06-01T00:00:00.000Z",
     mapName: "Baltic_Main",
@@ -232,6 +233,7 @@ function createCanonicalAnalyzeRow(
     player_id: "player_a",
     platform: "kakao",
     v: RESULT_VERSION,
+    calculationVersion: 2,
     ...overrides,
   };
   return {
@@ -378,11 +380,34 @@ describe("AI cache route stabilization", () => {
     expect(matchCache.eq).toHaveBeenCalledWith("platform", "kakao");
     expect(matchCache.eq).toHaveBeenCalledWith("player_id", "player_a");
     expect(matchCache.eq).toHaveBeenCalledWith("coaching_style", "spicy");
-    expect(matchCache.eq).toHaveBeenCalledWith("prompt_version", AI_CACHE_VERSION);
+    expect(matchCache.eq).toHaveBeenCalledWith("prompt_version", `${AI_CACHE_VERSION}.calc${ANALYSIS_CALCULATION_VERSION}`);
     expect(telemetry.select).toHaveBeenCalledWith("match_id,player_id,platform,data");
     expect(mockGenerateContentStream).not.toHaveBeenCalled();
   });
 
+  it.each([undefined,1,3])('ai-analyze rejects stale calculation %s before reading prose or calling Gemini',async calculationVersion=>{
+    const cache=createQueryChain({data:{ai_result:{text:'legacy'}},error:null});
+    const telemetry=createQueryChain({data:createCanonicalAnalyzeRow('calc-old',{calculationVersion}),error:null});
+    mockWithAuthGuard.mockResolvedValue({user:{id:'user-1'},supabaseAdmin:createSupabaseMock({match_ai_coaching_cache:cache,processed_match_telemetry:telemetry})});
+    const response=await aiAnalyzePOST(createRequest({nickname:'Player_A',platform:'kakao',matchData:{matchId:'calc-old'}}));
+    expect(response.status).toBe(409);expect(cache.select).not.toHaveBeenCalled();expect(mockGenerateContentStream).not.toHaveBeenCalled();
+  });
+  it('ai-summary holds old arithmetic without repeatedly fetching known stale matches',async()=>{
+    const fetchSpy=vi.spyOn(globalThis,'fetch').mockRejectedValue(new Error('Unexpected fallback fetch'));
+    const telemetry=createQueryChain({data:[createCanonicalAnalyzeRow('calc-old',{calculationVersion:undefined})],error:null});
+    mockWithAuthGuard.mockResolvedValue({user:{id:'user-1'},supabaseAdmin:createSupabaseMock({processed_match_telemetry:telemetry})});
+    const response=await aiSummaryPOST(createRequest({nickname:'Player_A',platform:'kakao',matchIds:['calc-old']}));
+    expect(response.status).toBe(409);expect(await response.json()).toMatchObject({errorCode:'PUBG_CALCULATION_UPGRADE_REQUIRED',retryable:false});
+    expect(fetchSpy).not.toHaveBeenCalled();expect(mockGenerateContentStream).not.toHaveBeenCalled();fetchSpy.mockRestore();
+  });
+  it('ai-summary preserves terminal calculation status from the match fallback',async()=>{
+    const fetchSpy=vi.spyOn(globalThis,'fetch').mockResolvedValue(new Response(JSON.stringify({errorCode:'PUBG_CALCULATION_UPGRADE_REQUIRED',retryable:false}),{status:409}));
+    const telemetry=createQueryChain({data:[],error:null});
+    mockWithAuthGuard.mockResolvedValue({user:{id:'user-1'},supabaseAdmin:createSupabaseMock({processed_match_telemetry:telemetry})});
+    const response=await aiSummaryPOST(createRequest({nickname:'Player_A',platform:'kakao',matchIds:['calc-fallback']}));
+    expect(response.status).toBe(409);expect(await response.json()).toMatchObject({errorCode:'PUBG_CALCULATION_UPGRADE_REQUIRED',retryable:false});
+    expect(fetchSpy).toHaveBeenCalledTimes(1);expect(mockGenerateContentStream).not.toHaveBeenCalled();fetchSpy.mockRestore();
+  });
   it("ai-analyze separates corrected calculation results from legacy cached prose", async () => {
     const matchCache=createQueryChain({data:{ai_result:{text:"corrected"}},error:null});
     const row=createCanonicalAnalyzeRow("match-calc", {calculationVersion:ANALYSIS_CALCULATION_VERSION});
@@ -987,7 +1012,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1045,7 +1070,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1079,7 +1104,7 @@ describe("AI cache route stabilization", () => {
         player_ai_summary_cache: summaryCache,
         processed_match_telemetry: telemetry,
         global_benchmarks: createQueryChain({ data: [], error: null }),
-        benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+        benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
       });
       mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1161,7 +1186,7 @@ describe("AI cache route stabilization", () => {
         player_ai_summary_cache: summaryCache,
         processed_match_telemetry: telemetry,
         global_benchmarks: createQueryChain({ data: [], error: null }),
-        benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+        benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
       });
       mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1221,7 +1246,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1294,7 +1319,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1349,7 +1374,7 @@ describe("AI cache route stabilization", () => {
         player_ai_summary_cache: summaryCache,
         processed_match_telemetry: telemetry,
         global_benchmarks: globalBenchmarks,
-        benchmark_stats_by_tier: tierBenchmarks,
+        benchmark_stats_by_tier_v2: tierBenchmarks,
       });
       mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1401,7 +1426,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1461,7 +1486,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1498,7 +1523,7 @@ describe("AI cache route stabilization", () => {
       const supabase = createSupabaseMock({
         player_ai_summary_cache: summaryCache,
         processed_match_telemetry: telemetry,
-        benchmark_stats_by_tier: tierBenchmarks,
+        benchmark_stats_by_tier_v2: tierBenchmarks,
       });
       mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1558,7 +1583,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1610,7 +1635,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1677,7 +1702,7 @@ describe("AI cache route stabilization", () => {
       avg_solo_kill_rate: 50,
       avg_death_phase: 6,
       filter_version: 8,
-      population_evidence_version: POPULATION_EVIDENCE_VERSION,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
     };
     const telemetry = createQueryChain({
       data: [{
@@ -1694,7 +1719,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1745,7 +1770,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1809,7 +1834,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1852,7 +1877,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1888,7 +1913,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1927,7 +1952,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -1969,7 +1994,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -2008,7 +2033,7 @@ describe("AI cache route stabilization", () => {
         player_ai_summary_cache: summaryCache,
         processed_match_telemetry: telemetry,
         global_benchmarks: createQueryChain({ data: [], error: null }),
-        benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+        benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
       });
       mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -2045,7 +2070,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -2149,7 +2174,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -2238,7 +2263,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -2294,7 +2319,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -2348,7 +2373,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -2405,7 +2430,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -2474,7 +2499,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -2534,7 +2559,7 @@ describe("AI cache route stabilization", () => {
       tier: "A+",
       match_count: 5,
       filter_version: 8,
-      population_evidence_version: POPULATION_EVIDENCE_VERSION,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
       avg_damage: 300,
       avg_damage_count: 5,
       avg_initiative_rate: null,
@@ -2545,7 +2570,7 @@ describe("AI cache route stabilization", () => {
       tier: "A+",
       match_count: 5,
       filter_version: 8,
-      population_evidence_version: POPULATION_EVIDENCE_VERSION,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
       avg_damage: null,
       avg_initiative_rate: 77,
     };
@@ -2579,7 +2604,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -2653,7 +2678,7 @@ describe("AI cache route stabilization", () => {
         tier: "A+",
         match_count: 5,
         filter_version: 8,
-        population_evidence_version: POPULATION_EVIDENCE_VERSION,
+        population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
         avg_damage: 300,
         avg_damage_count: 5,
         avg_solo_kill_rate: 40,
@@ -2678,7 +2703,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -2782,7 +2807,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -2856,7 +2881,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -2883,7 +2908,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
@@ -2920,7 +2945,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -2983,7 +3008,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -3037,7 +3062,7 @@ describe("AI cache route stabilization", () => {
         player_ai_summary_cache: summaryCache,
         processed_match_telemetry: telemetry,
         global_benchmarks: createQueryChain({ data: [], error: null }),
-        benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+        benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
       });
       mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -3096,7 +3121,7 @@ describe("AI cache route stabilization", () => {
         player_ai_summary_cache: summaryCache,
         processed_match_telemetry: telemetry,
         global_benchmarks: createQueryChain({ data: [], error: null }),
-        benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+        benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
       });
       mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -3163,7 +3188,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -3244,7 +3269,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -3289,7 +3314,7 @@ describe("AI cache route stabilization", () => {
         player_ai_summary_cache: summaryCache,
         processed_match_telemetry: telemetry,
         global_benchmarks: createQueryChain({ data: [], error: null }),
-        benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+        benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
       });
       mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -3349,7 +3374,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -3377,7 +3402,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -3399,7 +3424,7 @@ describe("AI cache route stabilization", () => {
       controller.abort();
       return { data: null, error: { message: "aborted" } };
     });
-    const supabase = createSupabaseMock({ benchmark_stats_by_tier: benchmarkChain });
+    const supabase = createSupabaseMock({ benchmark_stats_by_tier_v2: benchmarkChain });
 
     const result = await fetchTierBenchmarkStats(supabase, {
       gameMode: "squad",
@@ -3468,7 +3493,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("missing", { status: 404 })));
@@ -3515,7 +3540,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("missing", { status: 404 })));
@@ -3555,7 +3580,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("missing", { status: 404 })));
@@ -3581,7 +3606,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     const legacyFullResult = createSummaryMatch("match-fallback-wrapper-only-marker", {
@@ -3632,6 +3657,7 @@ describe("AI cache route stabilization", () => {
       data: {
         fullResult: createSummaryMatch(`match-current-${index}`, {
           v: RESULT_VERSION,
+    calculationVersion: 2,
           createdAt: new Date(Date.UTC(2026, 7, 28, 0, index)).toISOString(),
           benchmark: {
             score: 60 + index,
@@ -3656,7 +3682,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     const fetchMock = vi.fn().mockResolvedValue(new Response("missing", { status: 404 }));
@@ -3723,7 +3749,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -3788,7 +3814,7 @@ describe("AI cache route stabilization", () => {
           player_ai_summary_cache: summaryCache,
           processed_match_telemetry: telemetry,
           global_benchmarks: globalBenchmarks,
-          benchmark_stats_by_tier: tierBenchmarks,
+          benchmark_stats_by_tier_v2: tierBenchmarks,
         }),
         summaryCache,
       };
@@ -3890,7 +3916,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -3961,7 +3987,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -4040,7 +4066,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -4108,7 +4134,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -4145,7 +4171,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -4189,7 +4215,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -4225,7 +4251,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -4283,7 +4309,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -4319,7 +4345,7 @@ describe("AI cache route stabilization", () => {
       processed_match_telemetry: createQueryChain({ data: matches.map((match) => ({
         match_id: match.matchId, player_id: "player_a", platform: "kakao", data: { fullResult: match },
       })), error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     const response = await aiSummaryPOST(createRequest({
@@ -4361,7 +4387,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -4435,7 +4461,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -4482,6 +4508,7 @@ describe("AI cache route stabilization", () => {
     });
     const filteredCurrentFullResult = createSummaryMatch("match-current-event", {
       v: RESULT_VERSION,
+    calculationVersion: 2,
       gameMode: "event",
       benchmark: {
         score: 88,
@@ -4501,7 +4528,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("missing", { status: 404 })));
@@ -4548,7 +4575,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     const newest = createSummaryMatch("match-newest", {
@@ -4601,7 +4628,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -4694,7 +4721,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("missing", { status: 404 })));
@@ -4761,7 +4788,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: benchmarkChain,
+      benchmark_stats_by_tier_v2: benchmarkChain,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -4791,7 +4818,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     const fallbackStale = createSummaryMatch("match-fallback-stale", { v: RESULT_VERSION - 1 });
@@ -4859,7 +4886,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -4896,7 +4923,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("missing", { status: 404 })));
@@ -4924,7 +4951,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
@@ -4955,7 +4982,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     const fetchMock = vi.fn().mockResolvedValue(new Response(
@@ -4991,7 +5018,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     const fetchMock = vi.fn().mockResolvedValue(new Response(
@@ -5030,7 +5057,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     const fetchMock = vi.fn().mockResolvedValue(new Response(
@@ -5062,7 +5089,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: createQueryChain({ data: [], error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     const fallbackWithoutId: Record<string, any> = createSummaryMatch("missing-id-fallback");
@@ -5095,7 +5122,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(
@@ -5131,7 +5158,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     const fetchMock = vi.fn().mockResolvedValue(new Response(
@@ -5182,7 +5209,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -5222,7 +5249,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -5289,7 +5316,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -5359,7 +5386,7 @@ describe("AI cache route stabilization", () => {
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
       global_benchmarks: globalBenchmarks,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -5423,7 +5450,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -5504,7 +5531,7 @@ describe("AI cache route stabilization", () => {
         tier: "A+",
         match_count: 5,
         filter_version: 8,
-        population_evidence_version: POPULATION_EVIDENCE_VERSION,
+        population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
         avg_damage: 300,
         avg_damage_count: 5,
         avg_duel_win_rate: null,
@@ -5527,7 +5554,7 @@ describe("AI cache route stabilization", () => {
     const supabase = createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: telemetry,
-      benchmark_stats_by_tier: tierBenchmarks,
+      benchmark_stats_by_tier_v2: tierBenchmarks,
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
@@ -5972,8 +5999,8 @@ describe("AI cache route stabilization", () => {
     'ai-summary v2 %s preserves server evidence and validates interpretation/cache separately', async (scenario) => {
       const summaryCache = createQueryChain();
       const telemetry = createQueryChain({ data: [{ match_id: 'id-contract', player_id: 'player_a', platform: 'kakao', data: { fullResult: createSummaryMatch('id-contract', { deathPhase: 4 }) } }], error: null });
-      const tier = createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, avg_damage: 100, avg_damage_count: 5, avg_trade_rate: 20, avg_trade_rate_count: 5, avg_duel_win_rate: 10, avg_duel_win_rate_count: 5, avg_solo_kill_rate: 40, avg_solo_kill_rate_count: 5 }, error: null });
-      mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({ player_ai_summary_cache: summaryCache, processed_match_telemetry: telemetry, benchmark_stats_by_tier: tier }) });
+      const tier = createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2, avg_damage: 100, avg_damage_count: 5, avg_trade_rate: 20, avg_trade_rate_count: 5, avg_duel_win_rate: 10, avg_duel_win_rate_count: 5, avg_solo_kill_rate: 40, avg_solo_kill_rate_count: 5 }, error: null });
+      mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({ player_ai_summary_cache: summaryCache, processed_match_telemetry: telemetry, benchmark_stats_by_tier_v2: tier }) });
       let providerFinal: any;
       mockGenerateContentStream.mockImplementation(async (prompt: string) => {
         const encoded = prompt.split('### [SERVER_CARD_PLAN_V2]\n')[1]?.split('\n### [END_SERVER_CARD_PLAN_V2]')[0];
@@ -6048,7 +6075,7 @@ describe("AI cache route stabilization", () => {
   it('ai-summary v2 preserves user-only facts when provider configuration is unavailable', async () => {
     const summaryCache = createQueryChain();
     const telemetry = createQueryChain({ data: [{ match_id: 'facts-only', player_id: 'player_a', platform: 'kakao', data: { fullResult: createSummaryMatch('facts-only', { deathPhase: 4 }) } }], error: null });
-    mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({ player_ai_summary_cache: summaryCache, processed_match_telemetry: telemetry, benchmark_stats_by_tier: createQueryChain({ data: null, error: null }) }) });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({ player_ai_summary_cache: summaryCache, processed_match_telemetry: telemetry, benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }) }) });
     const previous = process.env.GOOGLE_GEMINI_API_KEY;
     delete process.env.GOOGLE_GEMINI_API_KEY;
     try {
@@ -6084,7 +6111,7 @@ describe("AI cache route stabilization", () => {
     mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: createQueryChain({ data: rows, error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, avg_damage: 100, avg_damage_count: 5 }, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2, avg_damage: 100, avg_damage_count: 5 }, error: null }),
     }) });
     const previous = process.env.GOOGLE_GEMINI_API_KEY;
     delete process.env.GOOGLE_GEMINI_API_KEY;
@@ -6106,7 +6133,7 @@ describe("AI cache route stabilization", () => {
     mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({
       player_ai_summary_cache: createQueryChain(),
       processed_match_telemetry: createQueryChain({ data: rows, error: null }),
-      benchmark_stats_by_tier: createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, avg_damage: 100, avg_damage_count: 5 }, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2, avg_damage: 100, avg_damage_count: 5 }, error: null }),
     }) });
     const previous = process.env.GOOGLE_GEMINI_API_KEY;
     delete process.env.GOOGLE_GEMINI_API_KEY;

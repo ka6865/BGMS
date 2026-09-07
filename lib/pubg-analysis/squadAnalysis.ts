@@ -6,7 +6,7 @@ import {
   SquadCauseScene,
   SquadCauseSceneMatchInput
 } from "@/lib/pubg-analysis/squadCauseScenes";
-import { getValidFullResultForMatch, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
+import { hasCurrentCalculation, getValidFullResultForMatch, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { evaluateMatchEligibility } from "@/lib/pubg-analysis/matchEligibility";
 import {
@@ -39,6 +39,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     throw new Error("Database error occurred.");
   }
 
+  let calculationUpgradePending = false;
   const validMatchData = (matchData || [])
     .flatMap((m: any, sourceIndex: number) => {
       const fullResult = getValidFullResultForMatch(m, {
@@ -60,6 +61,10 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
         metadataEvidence: [m, m?.data, fullResult].filter(Boolean),
       }, "ai");
       if (!eligibility.eligible) return [];
+      if (!hasCurrentCalculation(fullResult)) {
+        if (["squad", "squad-fpp"].includes(eligibility.mode ?? "")) calculationUpgradePending = true;
+        return [];
+      }
       return [{
         ...m,
         __sourceIndex: sourceIndex,
@@ -71,16 +76,20 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       }];
     }) as any[];
 
+  const squadMatches = validMatchData.filter((m) => (
+    m.__eligibility?.mode === "squad" || m.__eligibility?.mode === "squad-fpp"
+  ));
+
+  if (squadMatches.length === 0 && calculationUpgradePending) {
+    return { groups: [], error: "팀 분석 지표 업데이트 준비 중입니다. 기본 전적은 계속 이용할 수 있습니다.", errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED", retryable: false };
+  }
+
   if (validMatchData.length === 0) {
     return {
       message: "No match records found. Please search and analyze matches first.",
       groups: []
     };
   }
-
-  const squadMatches = validMatchData.filter((m) => (
-    m.__eligibility?.mode === "squad" || m.__eligibility?.mode === "squad-fpp"
-  ));
 
   const groupMap = new Map<string, {
     matches: any[];

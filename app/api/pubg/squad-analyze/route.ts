@@ -13,7 +13,7 @@ export async function GET(request: Request) {
 
   try {
     const data = await getSquadAnalysisData(nickname, platform, groupKey);
-    return NextResponse.json(data);
+    return NextResponse.json(data, { status: "errorCode" in data && data.errorCode === "PUBG_CALCULATION_UPGRADE_REQUIRED" ? 409 : 200 });
   } catch (error: any) {
     console.error("[SQUAD-ANALYZE-ERROR]", error);
     return NextResponse.json({ error: error.message || "Failed to analyze squad synergy." }, { status: 500 });

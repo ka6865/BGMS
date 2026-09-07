@@ -151,6 +151,7 @@ export async function POST(request: Request) {
     // intentionally ignored rather than compared or merged.
     const squadData = await getSquadAnalysisData(nickname, cachePlatform, groupKey);
     if (request.signal.aborted) throw new SquadRequestAbortedError();
+    if (squadData && "errorCode" in squadData && squadData.errorCode === "PUBG_CALCULATION_UPGRADE_REQUIRED") return NextResponse.json(squadData, { status: 409 });
     if (!squadData || !("matchesSummary" in squadData) || !Array.isArray(squadData.matchesSummary)
       || !squadData.stats || !squadData.scores || !Array.isArray(squadData.roleProfiles)
       || !squadData.benchmarkStats || !Number.isInteger(squadData.matchCount) || squadData.matchCount <= 0

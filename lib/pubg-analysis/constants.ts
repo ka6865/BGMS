@@ -14,10 +14,10 @@
 
 export const ANALYSIS_CALCULATION_VERSION = 2; // Per-throw evidence and target-linked trade/support arithmetic.
 export const RESULT_VERSION = 73.0; // [V73.0] PUBG AI 분석 정확도 감사 기준 결과 버전
-export const TELEMETRY_VERSION = 61.0; // [V61.0] PUBG AI 분석 정확도 감사 기준 telemetry 버전
+export const TELEMETRY_VERSION = 62.0; // [V62.0] Full projection analysis and corrected coordinate/lifecycle replay cache
 export const AI_CACHE_VERSION = "2026-09-02.pubg-ai-accuracy-v3"; // ai-analyze/ai-squad cache contract; v3 requires marked canonical population evidence
-export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-scope-v3`;
-export const AI_SUMMARY_CACHE_VERSION = "2026-09-07.debate-coaching-context-v9"; // utility observations and two-opinion validation
+export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-scope-calc2-v4`;
+export const AI_SUMMARY_CACHE_VERSION = "2026-09-07.debate-calculation2-v10"; // utility observations and two-opinion validation
 // Evidence marker for canonical rows written after the human BR population
 // boundary. This is deliberately independent of RESULT/telemetry/cache
 // versions so old v73/R2 rows can fail closed without a broad cache bump.

@@ -284,6 +284,7 @@ describe("persistMatchAnalysis", () => {
       match_type: "official",
       death_phase: 4,
       filter_version: 8,
+      calculation_version: null,
       population_evidence_version: POPULATION_EVIDENCE_VERSION,
       source: "user",
     }, { onConflict: "match_id,platform,player_id" });
@@ -300,6 +301,7 @@ describe("persistMatchAnalysis", () => {
       game_mode: "squad-fpp",
       match_type: "official",
       filter_version: 8,
+      calculation_version: null,
       population_evidence_version: POPULATION_EVIDENCE_VERSION,
     }));
 
@@ -336,6 +338,7 @@ describe("persistMatchAnalysis", () => {
       platform: "steam",
       player_id: "playerone",
       filter_version: 8,
+      calculation_version: null,
       population_evidence_version: POPULATION_EVIDENCE_VERSION,
     }));
     const query = update?.mock.results[0]?.value as {
@@ -559,6 +562,7 @@ describe("persistMatchAnalysis", () => {
       tactical_score: 0,
       survival_score: 0,
       filter_version: 8,
+      calculation_version: null,
       population_evidence_version: POPULATION_EVIDENCE_VERSION,
     });
     expect(row).toMatchObject({
@@ -848,6 +852,7 @@ describe("persistMatchAnalysis", () => {
     const benchmarkRow = upserts.get("global_benchmarks")?.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(benchmarkRow).toMatchObject({
       filter_version: 8,
+      calculation_version: null,
       population_evidence_version: POPULATION_EVIDENCE_VERSION,
       isolation_index: null,
       min_dist: null,

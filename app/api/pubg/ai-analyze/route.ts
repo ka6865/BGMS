@@ -172,8 +172,16 @@ export async function POST(request: Request) {
       requirePopulationEvidence: true,
       requireExactResultVersion: true,
       requirePromptSafeStats: true,
+      requireCurrentCalculation: true,
     });
     if (!canonicalFullResult) {
+      const previous = getValidFullResultForMatch(canonicalRow, {
+        matchId, playerId, platform: cachePlatform, minResultVersion: RESULT_VERSION,
+        requireExactResultVersion: true, requirePopulationEvidence: true, requirePromptSafeStats: true,
+      });
+      if (previous && previous.calculationVersion !== ANALYSIS_CALCULATION_VERSION) {
+        return NextResponse.json({error: "분석 지표 업데이트 준비 중입니다. 기본 전적은 계속 이용할 수 있습니다.", errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED", retryable: false}, {status:409});
+      }
       return NextResponse.json({
         error: "canonical match analysis is not ready",
         errorCode: "PUBG_AI_CANONICAL_NOT_READY",
@@ -181,8 +189,7 @@ export async function POST(request: Request) {
       }, { status: 409 });
     }
 
-    const cachePromptVersion = canonicalFullResult.calculationVersion === ANALYSIS_CALCULATION_VERSION
-      ? `${AI_CACHE_VERSION}.calc${ANALYSIS_CALCULATION_VERSION}` : AI_CACHE_VERSION;
+    const cachePromptVersion = `${AI_CACHE_VERSION}.calc${ANALYSIS_CALCULATION_VERSION}`;
 
     // Cache compatibility is checked only after the current marked canonical
     // telemetry row has been proven.  This prevents a pre-marker cache entry

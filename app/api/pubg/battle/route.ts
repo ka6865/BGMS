@@ -1,3 +1,4 @@
+import { ANALYSIS_CALCULATION_VERSION } from "@/lib/pubg-analysis/constants";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
@@ -141,6 +142,7 @@ export async function GET(request: Request) {
       .select(SELECT_COLS)
       .eq("player_id", player.playerId)
       .eq("platform", player.platform)
+      .eq("calculation_version", ANALYSIS_CALCULATION_VERSION)
       .eq("filter_version", BENCHMARK_FILTER_VERSION)
       .eq("population_evidence_version", BENCHMARK_POPULATION_EVIDENCE_VERSION)
       .in("game_mode", ["solo", "solo-fpp", "duo", "duo-fpp", "squad", "squad-fpp"])

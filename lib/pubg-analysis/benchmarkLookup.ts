@@ -1,3 +1,4 @@
+import { ANALYSIS_CALCULATION_VERSION } from "./constants";
 import { getBaseTier } from "./benchmarkScore";
 
 /**
@@ -16,13 +17,19 @@ export const BENCHMARK_POPULATION_EVIDENCE_VERSION = 1;
  * contract and its explicit population provenance marker are therefore
  * required; rows omitting either field fail closed.
  */
-export function isTrustedBenchmarkAggregate(row: unknown): boolean {
+export function isTrustedBenchmarkPopulation(row: unknown): boolean {
   if (!row || typeof row !== "object" || Array.isArray(row)) return false;
   const candidate = row as Record<string, unknown>;
   const filterVersion = Number(candidate.filter_version);
   if (!Number.isFinite(filterVersion) || filterVersion !== BENCHMARK_FILTER_VERSION) return false;
   const evidence = candidate.population_evidence_version ?? candidate.populationEvidenceVersion;
   return Number(evidence) === BENCHMARK_POPULATION_EVIDENCE_VERSION;
+}
+
+/** Analysis consumers additionally require matching arithmetic provenance. */
+export function isTrustedBenchmarkAggregate(row: unknown): boolean {
+  return isTrustedBenchmarkPopulation(row)
+    && (row as Record<string, unknown>).calculation_version === ANALYSIS_CALCULATION_VERSION;
 }
 
 const TIER_GROUPS: Record<string, string[]> = {
@@ -281,8 +288,9 @@ export async function fetchTierBenchmarkStats(
   if (!isCanonicalBenchmarkTier(exactTier)) return null;
 
   let exactQuery = supabase
-    .from("benchmark_stats_by_tier")
+    .from("benchmark_stats_by_tier_v2")
     .select("*")
+    .eq("calculation_version", ANALYSIS_CALCULATION_VERSION)
     .eq("game_mode", gameMode)
     .eq("match_type", matchType)
     .eq("tier", exactTier);
@@ -305,8 +313,9 @@ export async function fetchTierBenchmarkStats(
   if (signal?.aborted) return null;
 
   let groupedQuery = supabase
-    .from("benchmark_stats_by_tier")
+    .from("benchmark_stats_by_tier_v2")
     .select("*")
+    .eq("calculation_version", ANALYSIS_CALCULATION_VERSION)
     .eq("game_mode", gameMode)
     .eq("match_type", matchType)
     .in("tier", getBenchmarkTierFamily(exactTier));

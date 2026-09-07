@@ -31,7 +31,7 @@ import {
   type BenchmarkRecoverySnapshot,
   type BenchmarkRecoveryPlatform,
 } from "../lib/pubg-analysis/benchmarkRecoveryPlanner";
-import { isCanonicalBenchmarkTier, isTrustedBenchmarkAggregate } from "../lib/pubg-analysis/benchmarkLookup";
+import { isCanonicalBenchmarkTier, isTrustedBenchmarkPopulation } from "../lib/pubg-analysis/benchmarkLookup";
 import { evaluateMatchEligibility } from "../lib/pubg-analysis/matchEligibility";
 import { normalizeMatchId } from "../lib/pubg-analysis/recentMatchSelection";
 
@@ -340,7 +340,7 @@ function mapRowsByMatchId<T>(rows: readonly T[]): Map<string, T[]> {
 function candidateMatchIds(rows: readonly BenchmarkRecoveryBenchmarkRow[]): string[] {
   const ids = new Set<string>();
   rows.forEach((row) => {
-    if (isTrustedBenchmarkAggregate(row)) return;
+    if (isTrustedBenchmarkPopulation(row)) return;
     const matchId = normalizeMatchId(row.match_id);
     if (matchId) ids.add(matchId);
   });

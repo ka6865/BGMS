@@ -30,6 +30,7 @@ MIGRATIONS=(
   "20260902171741_telemetry_cache_recovery_claim"
   "20260904005531_telemetry_cache_recovery_finalize"
   "20260904130000_telemetry_cache_recovery_safety"
+  "20260907133015_analysis_calculation_version"
 )
 
 cleanup() {
@@ -93,7 +94,10 @@ for migration in "${MIGRATIONS[@]}"; do
 done
 
 echo "▶ RPC 동작 시나리오 실행"
-OUTPUT="$("${PSQL[@]}" -f tests/fixtures/migration-check/scenarios.sql 2>&1)"
+if ! OUTPUT="$("${PSQL[@]}" -f tests/fixtures/migration-check/scenarios.sql 2>&1)"; then
+  printf '%s\n' "$OUTPUT"
+  exit 1
+fi
 echo "$OUTPUT" | grep -E "NOTICE|ERROR|^---|^===" || true
 
 if echo "$OUTPUT" | grep -q "FAIL"; then
@@ -105,4 +109,5 @@ if ! echo "$OUTPUT" | grep -q "전체 시나리오 통과"; then
   exit 1
 fi
 
+"${PSQL[@]}" -f tests/fixtures/migration-check/calculation-scenarios.sql
 echo "✅ 신규 migration 적용 및 RPC 동작 검증 완료"
