@@ -62,3 +62,13 @@ Files: lib/pubg-analysis/squadObservations.ts, AnalysisEngine.ts, types.ts, squa
 - 전체 Vitest2358통과/59선택실행skipped/실패0. core는 종료0, TypeScript통과/기존ESLint경고55개/오류0. 최종프로덕션build종료0.
 - 프로덕션 빌드 기반 브라우저 QA: 375×667,390×844,430×932,768×1024,1280×720에서 수평 overflow/JS오류 없음. 실제 원본 팀 집계 응답을 API fixture로 사용했고 외부 인증/DB는 호출하지 않았다. 60초 이내 탭 재진입 추가조회0, 만료 뒤 갱신 및 관측 누락409 안내 확인.
 - 운영 반영은 아직 불가: 2단계 계산 버전 저장·조회 migration과 3단계 제한 재계산 canary가 남아 있다. RESULT_VERSION73/공개지도v61/기존 DB·R2는 이번 단계에서 바꾸지 않았다.
+
+## 2·3단계 실행 결과 (2026-09-07, develop)
+
+- 계산 버전 2 저장·조회 조건, 버전별 비교 view, 개인/요약/팀 AI 캐시 분리, 공개 지도 v62를 반영했다. v61 복구 worker와 함께 동작하도록 DB 복구 계약을 확장했다.
+- `20260907133015_analysis_calculation_version.sql` 로컬 PostgreSQL 검증 및 운영 적용 완료. 기존 6,667개 행에 새 계산 버전을 임의 부여하지 않았다. 구버전 writer의 하향 덮어쓰기, v72 복구 중 계산 provenance 변경, 점 포함 경기 ID의 저장 경로 오인을 차단했다.
+- 명시된 8개 선수·경기 후보에서 MiaeQ_Q의 정식 저장 기록 2개만 실제 원본 재계산 후 갱신했다. raw/full 값 일치, 원자적 processed+benchmark 갱신, 사후 전체 결과 대조와 `already_current` 재실행 확인. 다른 6개는 canonical_missing으로 제외했다.
+- 운영 DB를 읽는 새 코드의 개인/스쿼드 API HTTP200, 팀 합계 기절9·소생3·복수2·평균6094ms 확인. 같은 계산 표본2건이므로 비교 평균과 종합 등급은 보류한다.
+- 이번 실제 Gemini 9회, 개인6/요약1/스쿼드2 모두200. 원본 일치 시험 포함10개통과. DB 이행에서는 Gemini 호출/원본 다운로드/삭제/R2 쓰기 모두0.
+- 과거 전체 데이터의 이행 완료를 의미하지 않는다. 기본 전적은 유지하며, 이전 계산만 있는 AI는 업데이트 대기로 처리한다. 전면 사용 가능 범위는 검증된 원본 기반 점진 이행과 함께 넓혀야 한다.
+- 통합 코드/화면 점검 결과와 후속 성능·정확도 방향은 [전적·분석·리플레이 감사](../reviews/2026-09-07-stats-analysis-replay-audit.md)에 기록한다.
