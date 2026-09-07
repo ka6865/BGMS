@@ -67,7 +67,11 @@ export function createSquadRequestCache() {
           return data;
         })
         .catch((error) => {
-          if (entries.get(key) === entry) entries.delete(key);
+          // A known calculation rollout wait cannot recover from rapid tab revisits.
+          if (error instanceof SquadRequestCacheError
+              && error.status === 409 && error.errorCode === "PUBG_CALCULATION_UPGRADE_REQUIRED") {
+            entry.expiresAt = Date.now() + TTL_MS;
+          } else if (entries.get(key) === entry) entries.delete(key);
           throw error;
         })
         .finally(() => clearTimeout(timer));

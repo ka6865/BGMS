@@ -6,7 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PersistMatchAnalysisResult } from "@/lib/pubg-analysis/persistMatchAnalysis";
 import { noteDatabaseAvailable } from "@/lib/pubg/databaseCircuitBreaker";
 import { buildTelemetryCacheKey, buildTelemetryPlayerKey } from "@/lib/pubg-analysis/telemetryCacheKey.server";
-import { POPULATION_EVIDENCE_VERSION, RESULT_VERSION, TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
+import {
+  ANALYSIS_CALCULATION_VERSION,
+  POPULATION_EVIDENCE_VERSION,
+  RESULT_VERSION,
+  TELEMETRY_VERSION,
+} from "@/lib/pubg-analysis/constants";
 import { BENCHMARK_FILTER_VERSION } from "@/lib/pubg-analysis/benchmarkLookup";
 import { evaluateMatchEligibility } from "@/lib/pubg-analysis/matchEligibility";
 
@@ -2024,6 +2029,12 @@ describe("PUBG match query boundary", () => {
       },
       error: null,
     });
+    // The deployed v72 row may expose the new SQL column explicitly as NULL;
+    // this is equivalent to an omitted marker for local recovery preflight.
+    mockGlobalBenchmarkMaybeSingle.mockResolvedValueOnce({
+      data: recoveryGlobalBenchmarkRow({ calculation_version: null }),
+      error: null,
+    });
     mockRecoveryMatchResponse(validRecoveryTelemetry());
 
     const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
@@ -2069,6 +2080,10 @@ describe("PUBG match query boundary", () => {
         }),
       }),
     );
+    const finalizeArgs = (mockRpc.mock.calls as unknown as Array<[string, any]>).find(
+      ([name]) => name === "finalize_telemetry_cache_recovery",
+    )?.[1];
+    expect(finalizeArgs?.p_benchmark_guard).not.toHaveProperty("calculationVersion");
     const uploadCall = mockUploadRecoveryObjectToR2.mock.invocationCallOrder[0];
     const finalizeCall = mockRpc.mock.invocationCallOrder[
       mockRpc.mock.calls.findIndex(([name]) => name === "finalize_telemetry_cache_recovery")
@@ -2466,6 +2481,50 @@ describe("PUBG match query boundary", () => {
     expect(mockRpc).not.toHaveBeenCalled();
     expect(mockAnalysisEngine).not.toHaveBeenCalled();
     expect(mockUploadToR2).not.toHaveBeenCalled();
+    expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("recovery refuses a non-null calculation marker before telemetry fetch, engine, or R2 upload", async () => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+        } },
+      },
+      error: null,
+    });
+    mockGlobalBenchmarkMaybeSingle.mockResolvedValueOnce({
+      data: recoveryGlobalBenchmarkRow({
+        calculation_version: ANALYSIS_CALCULATION_VERSION,
+      }),
+      error: null,
+    });
+    const fetchMock = mockRecoveryMatchResponse(validRecoveryTelemetry());
+
+    const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      errorCode: "BENCHMARK_RECOVERY_GLOBAL_BENCHMARK_CHANGED",
+      retryable: false,
+    });
+    // The only fetch is the route's canonical match metadata request. The
+    // original telemetry asset must not be fetched after the marker preflight.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+    expect(mockEngineRun).not.toHaveBeenCalled();
+    expect(mockUploadToR2).not.toHaveBeenCalled();
+    expect(mockUploadRecoveryObjectToR2).not.toHaveBeenCalled();
+    expect(mockRpc).not.toHaveBeenCalled();
     expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
   });
 

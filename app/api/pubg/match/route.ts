@@ -185,6 +185,7 @@ const RECOVERY_GLOBAL_BENCHMARK_COLUMNS = [
   "tier",
   "filter_version",
   "population_evidence_version",
+  "calculation_version",
   "damage",
   "kills",
   "win_place",
@@ -310,6 +311,17 @@ function recoveryGlobalMarker(value: unknown): number | null | undefined {
   return value;
 }
 
+/**
+ * Legacy v72 benchmark rows predate the calculation marker column.  An
+ * omitted field and an explicit SQL NULL both mean "unknown legacy arithmetic"
+ * for the local recovery preflight; any concrete or malformed value fails
+ * closed before telemetry/R2 work.
+ */
+function recoveryCalculationMarker(value: unknown): number | null | undefined {
+  if (value === undefined || value === null) return null;
+  return recoveryGlobalMarker(value);
+}
+
 function sameRecoveryBenchmarkGuard(
   left: RecoveryBenchmarkGuard,
   right: RecoveryBenchmarkGuard,
@@ -323,6 +335,7 @@ function sameRecoveryBenchmarkGuard(
     && left.tier === right.tier
     && left.filterVersion === right.filterVersion
     && left.populationEvidenceVersion === right.populationEvidenceVersion
+    && (left.calculationVersion ?? null) === (right.calculationVersion ?? null)
     && JSON.stringify(left.snapshot ?? null) === JSON.stringify(right.snapshot ?? null);
 }
 
@@ -476,12 +489,14 @@ async function readFreshRecoveryBenchmarkGuard(
 
   const filterVersion = recoveryGlobalMarker(row.filter_version);
   const populationEvidenceVersion = recoveryGlobalMarker(row.population_evidence_version);
+  const calculationVersion = recoveryCalculationMarker(row.calculation_version);
   // Recovery may only upgrade the known legacy population.  A current marker
   // or any unknown/future non-null marker is never overwritten.
   if (filterVersion === undefined
     || populationEvidenceVersion === undefined
     || populationEvidenceVersion !== null
-    || (filterVersion !== null && filterVersion > BENCHMARK_FILTER_VERSION)) {
+    || (filterVersion !== null && filterVersion > BENCHMARK_FILTER_VERSION)
+    || calculationVersion !== null) {
     throw recoveryGlobalMarkerError();
   }
 
@@ -498,6 +513,7 @@ async function readFreshRecoveryBenchmarkGuard(
     tier: bucket.tier,
     filterVersion,
     populationEvidenceVersion,
+    calculationVersion,
     snapshot,
   };
 }
@@ -2060,6 +2076,13 @@ async function reanalyzeAndSave(
       JSON.stringify(telemetryPayload),
       "application/json",
     );
+    // The deployed recovery RPC intentionally keeps its historical fixed
+    // benchmark-guard JSON allow-list.  The calculation marker is a local
+    // preflight/equality guard; the SQL finalizer independently rejects a
+    // non-NULL database marker, so do not send this new field over that RPC
+    // boundary.
+    const finalizeBenchmarkGuard = { ...recoveryBenchmarkGuard };
+    delete finalizeBenchmarkGuard.calculationVersion;
     const finalizeResult = await finalizeRecoveryAtomically(supabase, {
       lease: reservedRow,
       processedGuard: {
@@ -2069,7 +2092,7 @@ async function reanalyzeAndSave(
         resultVersion: recoveryResultVersion,
         accountId: myAccountId,
       },
-      benchmarkGuard: recoveryBenchmarkGuard as RegistryRecoveryBenchmarkGuard,
+      benchmarkGuard: finalizeBenchmarkGuard as RegistryRecoveryBenchmarkGuard,
       rows: {
         master: {
           match_id: matchId,

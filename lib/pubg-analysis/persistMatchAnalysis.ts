@@ -158,6 +158,8 @@ export interface RecoveryBenchmarkGuard {
   tier: string;
   filterVersion: number | null;
   populationEvidenceVersion: number | null;
+  /** Local recovery preflight marker; omitted from the deployed RPC payload. */
+  calculationVersion?: number | null;
   /** Exact legacy payload observed before the recovery lease was claimed. */
   snapshot?: RecoveryBenchmarkSnapshot;
 }
