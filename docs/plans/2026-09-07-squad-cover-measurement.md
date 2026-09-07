@@ -93,3 +93,7 @@ PR #187 배포 커밋 `ba797e973d1c974634656d386be3f211ad7ed13b`에서 MiaeQ_Q �
 운영 결과에서 팀 고립도를 특정 팀원의 책임으로 단정하고 킬·어시스트 비중으로 킬 독점 의도를 추측하는 문장이 발견됐다. develop에서는 개인 위치·백업·복구 기록이 없음을 프롬프트에 명시하고, 개인 피드백의 해당 표현을 보류한다. 새 생성과 캐시 반환 모두 적용하며 스쿼드 AI 캐시 버전만 `squad-partial-v2`로 구분한다. 단어 기반 후처리는 모든 의미 오류를 검증하지 못하므로 지속적인 실제 응답 검토가 필요하다.
 
 참고 이벤트 계약: [PUBG telemetry events](https://documentation.pubg.com/en/telemetry-events.html), [telemetry objects](https://documentation.pubg.com/en/telemetry-objects.html).
+
+## 텔레메트리 계산 선행 감사
+
+[수집·필터·계산 감사](2026-09-07-telemetry-calculation-audit.md)에서 위치 identity 오류와 분석 캐시 이중 샘플링을 재현·수정했다. 같은 두 경기의 팀원 4명 모두 원본/투영/캐시 주요 값이 일치하고 집중사격 5초 6/40도 유지됐다. 다음 단계는 계산 버전별 결과·benchmark·공개 map 캐시 이행을 먼저 완성하고 대표 경기 정답 표본을 넓히는 것이다. 기존 5.6 고립도는 구버전 위치 오류로 재현됐으므로 새 집중사격 관측을 검증할 때 기존 고립 점수를 정답으로 사용하지 않는다. 관측 점수 공개와 종합 등급 해제는 계속 보류한다.
