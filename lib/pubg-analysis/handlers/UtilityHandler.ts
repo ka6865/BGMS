@@ -4,13 +4,13 @@ import { WEAPON_NAMES } from '../constants';
 
 export class UtilityHandler extends BaseHandler {
   private processedThrowIds = new Set<string>();
-  private underCoverKnocks = new Set<number>(); // 연막 보호 중인 기절 이벤트
+  private underCoverKnocks = new Set<string>(); // victim + knock timestamp; simultaneous knocks remain distinct
   private victimToKnockTs = new Map<string, number>(); // 피해자 이름 -> 기절 시점 매핑
 
   private getThrowEventKey(e: any, ts: number, actorName: string, itemId: string): string {
     const rawAttackId = e.attackId ?? e.attack_id ?? e.projectileId;
     if (rawAttackId !== undefined && rawAttackId !== null && rawAttackId !== "") {
-      return `attack:${String(rawAttackId)}`;
+      return `attack:${actorName}:${String(rawAttackId)}`;
     }
     return `fallback:${actorName || "unknown"}:${itemId || "unknown"}:${ts}`;
   }
@@ -88,26 +88,7 @@ export class UtilityHandler extends BaseHandler {
           this.state.itemUseSummary.smokes = (this.state.itemUseSummary.smokes || 0) + 1;
 
           // [V14.2] handleUseThrowable에서도 세이브 판정 로직 수행 (LogThrowableUse 누락 대비)
-          const myLoc = this.state.playerLocations.get(this.state.myAccountId) || this.state.playerLocations.get(this.state.lowerNickname);
-          const lastKnock = this.state.teammateKnockEvents.find(kts => {
-            if (ts >= kts && ts - kts < 20000) {
-              const knockedTeammate = Array.from(this.victimToKnockTs.entries())
-                .find(([, kTs]) => kTs === kts)?.[0];
-              if (knockedTeammate && myLoc) {
-                const tLoc = this.state.playerLocations.get(knockedTeammate);
-                if (tLoc) {
-                  const dist = calcDist3D(myLoc, tLoc) / 100; // [V47.0] cm -> m 변환
-                  return dist < 100; // [V55.2] 거리 판정 상향 (100m)
-                }
-              }
-            }
-            return false;
-          });
-
-          if (lastKnock && !this.underCoverKnocks.has(lastKnock)) {
-            this.state.totalSmokeCount++;
-            this.underCoverKnocks.add(lastKnock);
-          }
+          this.markSmokeAttempt(e.attacker || e.character, ts);
         }
       } else if (itemId.includes("grenade") || itemId.includes("c4")) {
         if (isMeAttacker) {
@@ -194,27 +175,36 @@ export class UtilityHandler extends BaseHandler {
     }
   }
 
-  private handleRevive(e: any) {
-    const victimName = normalizeName(e.victim?.name || "");
-    const knockTs = this.victimToKnockTs.get(victimName);
-
-    // 연막 보호 중인 상태에서 부활 성공 -> 구출 성공(Result) 카운트
-    if (knockTs && this.underCoverKnocks.has(knockTs)) {
-      this.state.totalSmokeRescues++;
-      this.underCoverKnocks.delete(knockTs);
-      this.victimToKnockTs.delete(victimName);
+  private markSmokeAttempt(actor: any, ts: number) {
+    const myLoc = actor?.location ?? actor?.loc ?? this.state.playerLocations.get(this.state.lowerNickname);
+    if (!myLoc) return;
+    for (const [victim, knockTs] of this.victimToKnockTs) {
+      const key = `${victim}:${knockTs}`;
+      if (ts < knockTs || ts - knockTs >= 20000 || this.underCoverKnocks.has(key)) continue;
+      const victimLoc = this.state.playerLocations.get(victim);
+      const distanceM = victimLoc ? calcDist3D(myLoc, victimLoc) / 100 : NaN;
+      if (!Number.isFinite(distanceM) || distanceM >= 100) continue;
+      this.state.totalSmokeCount++;
+      this.underCoverKnocks.add(key);
+      break;
     }
   }
 
-  private handleKill(e: any) {
-    const victimName = normalizeName(e.victim?.name || "");
-    const knockTs = this.victimToKnockTs.get(victimName);
-
-    // 연막을 뿌렸음에도 결국 확킬이 나버린 경우 보호 상태 해제 (성공 카운트 제외)
-    if (knockTs && this.underCoverKnocks.has(knockTs)) {
-      this.underCoverKnocks.delete(knockTs);
-      this.victimToKnockTs.delete(victimName);
+  private handleRevive(e: any) {
+    const victim = normalizeName(e.victim?.name || "");
+    const knockTs = this.victimToKnockTs.get(victim);
+    if (knockTs !== undefined && this.underCoverKnocks.delete(`${victim}:${knockTs}`)) {
+      this.state.totalSmokeRescues++;
     }
+    // Every revive closes the episode, even if no smoke was used.
+    this.victimToKnockTs.delete(victim);
+  }
+
+  private handleKill(e: any) {
+    const victim = normalizeName(e.victim?.name || "");
+    const knockTs = this.victimToKnockTs.get(victim);
+    if (knockTs !== undefined) this.underCoverKnocks.delete(`${victim}:${knockTs}`);
+    this.victimToKnockTs.delete(victim);
   }
 
   private handleThrowable(e: any, ts: number) {
@@ -228,28 +218,7 @@ export class UtilityHandler extends BaseHandler {
 
       // 연막 세이브 판정 강화 (V14.2: 시간 + 거리 기반)
       if (wId.includes("smoke") || wId.includes("m79")) {
-        const myLoc = this.state.playerLocations.get(this.state.myAccountId) || this.state.playerLocations.get(this.state.lowerNickname);
-        const lastKnock = this.state.teammateKnockEvents.find(kts => {
-          if (ts >= kts && ts - kts < 20000) { // 긴박한 상황 고려 20초로 확장
-            // 팀원 위치 확인
-            const knockedTeammate = Array.from(this.victimToKnockTs.entries())
-              .find(([, kTs]) => kTs === kts)?.[0];
-
-            if (knockedTeammate && myLoc) {
-              const tLoc = this.state.playerLocations.get(knockedTeammate);
-              if (tLoc) {
-                const dist = calcDist3D(myLoc, tLoc) / 100; // cm -> m 변환
-                return dist < 100; // [V55.2] 거리 판정 대폭 상향 (40m -> 100m) 원거리 지원 고려
-              }
-            }
-          }
-          return false;
-        });
-
-        if (lastKnock && !this.underCoverKnocks.has(lastKnock)) {
-          this.state.totalSmokeCount++;
-          this.underCoverKnocks.add(lastKnock);
-        }
+        this.markSmokeAttempt(e.attacker || e.character, ts);
       }
 
       this.state.myActionTimestamps.push(ts);
@@ -282,27 +251,7 @@ export class UtilityHandler extends BaseHandler {
       if (this.processedThrowIds.has(fireId)) return;
       this.processedThrowIds.add(fireId);
 
-      const myLoc = this.state.playerLocations.get(this.state.myAccountId) || this.state.playerLocations.get(this.state.lowerNickname);
-      const lastKnock = this.state.teammateKnockEvents.find(kts => {
-        if (ts >= kts && ts - kts < 20000) {
-          const knockedTeammate = Array.from(this.victimToKnockTs.entries())
-            .find(([, kTs]) => kTs === kts)?.[0];
-
-          if (knockedTeammate && myLoc) {
-            const tLoc = this.state.playerLocations.get(knockedTeammate);
-            if (tLoc) {
-              const dist = calcDist3D(myLoc, tLoc) / 100; // [V55.2] cm -> m 변환 누락 수정
-              return dist < 100; // [V55.2] 거리 판정 상향 (40m -> 100m)
-            }
-          }
-        }
-        return false;
-      });
-
-      if (lastKnock && !this.underCoverKnocks.has(lastKnock)) {
-        this.state.totalSmokeCount++;
-        this.underCoverKnocks.add(lastKnock);
-      }
+      this.markSmokeAttempt(e.character, ts);
       this.state.itemUseStats.throwCount++;
       this.state.itemUseSummary.smokes = (this.state.itemUseSummary.smokes || 0) + 1;
     }

@@ -1,6 +1,7 @@
 import { MAP_NAMES } from "./constants";
 import { TimelineEvent } from "./types";
 import { normalizeName } from "./utils";
+import { deriveSquadRecoveryStatsFromTimeline } from "./squadRecoveryStats";
 
 export type SquadCauseSceneType =
   | "late_trade"
@@ -408,6 +409,7 @@ export function extractSquadCauseScenes(
     const timeline = [...(match.fullResult.timeline || [])].sort((a, b) => a.ts - b.ts);
     if (timeline.length === 0) return;
 
+    const recovery = deriveSquadRecoveryStatsFromTimeline(timeline, match.mapName || match.fullResult.mapName);
     const isolation = match.fullResult.isolationData || {};
     const tradeStats = match.fullResult.tradeStats || {};
     const deathIsolation = Number(isolation.deathIsolation ?? isolation.isolationIndex ?? 0);
@@ -431,19 +433,18 @@ export function extractSquadCauseScenes(
       const tradeLatencyMs = nextFriendlyDamage ? nextFriendlyDamage.ts - event.ts : null;
       const smokeUsedWithin15s = timeline.some(candidate =>
         isSmokeEvent(candidate) &&
-        candidate.ts >= Math.max(0, event.ts - 5000) &&
+        candidate.ts >= event.ts &&
         candidate.ts <= event.ts + resolvedOptions.smokeWindowMs
       );
-      const reviveWithin30s = timeline.some(candidate =>
-        candidate.ts >= event.ts &&
-        candidate.ts <= event.ts + resolvedOptions.reviveWindowMs &&
-        isReviveEventForVictim(candidate, event.victim)
+      const lifeClosure = timeline.find(candidate =>
+        candidate !== event && candidate.ts >= event.ts &&
+        normalizeName(candidate.victim || "") === normalizeName(event.victim || "") &&
+        ["REVIVE", "TEAM_REVIVE", "DIED", "TEAM_DIED", "TEAM_KNOCK", "DOWNED"].includes(candidate.type) &&
+        !(candidate.ts === event.ts && ["TEAM_KNOCK", "DOWNED"].includes(candidate.type))
       );
-      const reviveEvent = timeline.find(candidate =>
-        candidate.ts >= event.ts &&
-        candidate.ts <= event.ts + resolvedOptions.reviveWindowMs &&
-        isReviveEventForVictim(candidate, event.victim)
-      );
+      const reviveEvent = lifeClosure && isReviveEventForVictim(lifeClosure, event.victim)
+        && lifeClosure.ts <= event.ts + resolvedOptions.reviveWindowMs ? lifeClosure : undefined;
+      const reviveWithin30s = Boolean(reviveEvent);
       const reviveDelayMs = reviveEvent ? reviveEvent.ts - event.ts : null;
       const recallEvent = timeline.find(candidate =>
         candidate.ts >= event.ts &&
@@ -461,7 +462,10 @@ export function extractSquadCauseScenes(
       const noTrade = tradeLatencyMs === null;
       const slowTrade = tradeLatencyMs !== null &&
         tradeLatencyMs > resolvedOptions.benchmarkTradeLatencyMs + 3000;
-      const rescuedWithUtility = smokeUsedWithin15s && reviveWithin30s;
+      const rescuedWithUtility = reviveWithin30s && recovery.smokeRescueCandidates.some(candidate =>
+        candidate.knockTs === event.ts && normalizeName(candidate.victim) === normalizeName(targetName)
+        && candidate.smokeDeltaMs <= resolvedOptions.smokeWindowMs
+      );
 
       if (isInitialKnock && !smokeUsedWithin15s && reviveWithin30s && enemyPressureEventsWithin10s === 0) {
         const base = sceneBase("safe_revive_without_smoke", match, event, resolvedOptions);
@@ -577,12 +581,12 @@ export function extractSquadCauseScenes(
         });
       }
 
-      if (isInitialKnock && smokeUsedWithin15s && reviveWithin30s) {
+      if (isInitialKnock && rescuedWithUtility) {
         const base = sceneBase("revive_save", match, event, resolvedOptions);
         pushUnique(scenes, {
           ...base,
           title: "연막 이후 소생 성공",
-          reason: "기절 직후 연막 사용과 소생 성공이 같은 구간에서 확인되었습니다.",
+          reason: "기절 위치 근처에서 연막을 사용한 뒤 소생한 기록입니다. 연막의 실제 엄폐 효과는 확인할 수 없습니다.",
           severity: "good",
           confidence: "high",
           facts: [
@@ -596,7 +600,7 @@ export function extractSquadCauseScenes(
             reviveWithin30s,
             tradeLatencyMs
           },
-          aiBrief: `${base.displayTime} 장면은 연막과 소생이 연결된 구출 성공 사례입니다.`
+          aiBrief: `${base.displayTime} 장면에서 기절 위치 근처 연막 사용 후 소생이 확인됩니다. 연막의 실제 엄폐 효과나 구출 의도는 측정하지 못합니다.`
         });
       }
 

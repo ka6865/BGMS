@@ -383,6 +383,17 @@ describe("AI cache route stabilization", () => {
     expect(mockGenerateContentStream).not.toHaveBeenCalled();
   });
 
+  it("ai-analyze separates corrected calculation results from legacy cached prose", async () => {
+    const matchCache=createQueryChain({data:{ai_result:{text:"corrected"}},error:null});
+    const row=createCanonicalAnalyzeRow("match-calc", {calculationVersion:1});
+    const telemetry=createQueryChain({data:row,error:null});
+    mockWithAuthGuard.mockResolvedValue({user:{id:"user-1"},supabaseAdmin:createSupabaseMock({match_ai_coaching_cache:matchCache,processed_match_telemetry:telemetry})});
+    const response=await aiAnalyzePOST(createRequest({nickname:"Player_A",platform:"kakao",coachingStyle:"spicy",matchData:{matchId:"match-calc"}}));
+    expect(response.status).toBe(200);
+    await response.text();
+    expect(matchCache.eq).toHaveBeenCalledWith("prompt_version", `${AI_CACHE_VERSION}.calc1`);
+  });
+
   it("ai-analyze는 캐시된 단일 경기 코칭의 과한 표현을 순화해서 반환한다", async () => {
     const matchCache = createQueryChain({
       data: { ai_result: { text: "혼자 다 해먹는 화력이고 팀 지원 지표가 바닥입니다." } },

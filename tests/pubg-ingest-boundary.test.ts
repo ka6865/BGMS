@@ -937,6 +937,50 @@ describe("PUBG match persistence behavior", () => {
     ]));
   });
 
+  it("analysis keeps all teammate and enemy positions and preserves them in its cache", async () => {
+    const positions = Array.from({length:100}, (_,i) => ({ _T:"LogPlayerPosition", _D:new Date(Date.parse(matchAttr.createdAt)+i*1000).toISOString(), character:{name:"Other",accountId:"account.other",location:{x:i,y:100,z:0}} }));
+    mockRecoveryMatchResponse([...validRecoveryTelemetry(), ...positions]);
+    const response=await GET(createMatchRequest());
+    expect(response.status).toBe(200);
+    expect(mockEngineRun.mock.calls[0][0].filter((e:any)=>e._T==="LogPlayerPosition")).toHaveLength(100);
+    const write=mockUploadToR2.mock.calls.find(([key])=>String(key).endsWith("_analyze.json"));
+    const envelope=JSON.parse(String(write?.[1]));
+    expect(envelope).toMatchObject({analyzeFormat:2,projection:"full"});
+    expect(envelope.events.filter((e:any)=>e._T==="LogPlayerPosition")).toHaveLength(100);
+    mockEngineRun.mockClear();
+    const fetchMock=mockRecoveryMatchResponse(validRecoveryTelemetry());
+    mockDownloadFromR2.mockImplementation(async (key:string)=>key.endsWith("_analyze.json")?JSON.stringify(envelope):null);
+    expect((await GET(createMatchRequest())).status).toBe(200);
+    expect(mockEngineRun.mock.calls[0][0].filter((e:any)=>e._T==="LogPlayerPosition")).toHaveLength(100);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("telemetry lite route samples display positions only after the engine lifecycle filter", async () => {
+    const positions = Array.from({length:100}, (_,i) => ({_T:"LogPlayerPosition",_D:new Date(Date.parse(matchAttr.createdAt)+i*1000).toISOString(),character:{name:"Other",accountId:"account.other",location:{x:i,y:100,z:0}}}));
+    mockRecoveryMatchResponse([...validRecoveryTelemetry(), ...positions]);
+    const response = await GET_TELEMETRY(new Request(`http://localhost/api/pubg/telemetry?matchId=${MATCH_ID}&nickname=${NICKNAME}&platform=steam&mode=lite`));
+    expect(response.status).toBe(200);
+    expect(mockEngineRun.mock.calls[0][0].filter((event:any)=>event._T==="LogPlayerPosition")).toHaveLength(100);
+  });
+
+  it.each(["empty", "other-account", "unknown-event"])("telemetry route rejects %s source without requested player evidence", async (kind) => {
+    const definition = validRecoveryTelemetry().filter((event:any)=>event._T==="LogMatchDefinition");
+    const extra = kind === "empty" ? [] : [{_T:kind === "unknown-event" ? "UnrecognizedEvent" : "LogPlayerPosition",character:{name:NICKNAME,accountId:kind === "other-account" ? "account.other" : PLAYER_ID,location:{x:100,y:100,z:0}}}];
+    mockRecoveryMatchResponse([...definition,...extra]);
+    const response = await GET_TELEMETRY(new Request(`http://localhost/api/pubg/telemetry?matchId=${MATCH_ID}&nickname=${NICKNAME}&platform=steam&mode=lite`));
+    expect(response.status).toBe(400);
+    expect(mockEngineRun).not.toHaveBeenCalled();
+    expect(mockUploadToR2).not.toHaveBeenCalled();
+  });
+
+  it("telemetry route rejects a cross-match raw definition before cache writes", async () => {
+    mockRecoveryMatchResponse(validRecoveryTelemetry().map((event:any)=>event._T==="LogMatchDefinition" ? {...event,MatchId:"match.bro.official.pc-2018-01.steam.squad.kr.2026.07.15.12.other-match"}:event));
+    const response=await GET_TELEMETRY(new Request(`http://localhost/api/pubg/telemetry?matchId=${MATCH_ID}&nickname=${NICKNAME}&platform=steam&mode=lite`));
+    expect(response.status).toBe(400);
+    expect(mockEngineRun).not.toHaveBeenCalled();
+    expect(mockUploadToR2).not.toHaveBeenCalled();
+  });
+
   it("malformed analyze R2 JSON is a cache miss and refetches raw telemetry", async () => {
     const telemetryUrl = DEFAULT_TELEMETRY_URL;
     const fetchMock = mockRecoveryMatchResponse(validRecoveryTelemetry());

@@ -102,6 +102,8 @@ const VEHICLE_FIELDS = [
 
 const SCALAR_FIELDS = [
   "attackId",
+  "attack_id",
+  "projectileId",
   "fireWeaponStackCount",
   "attackType",
   "dBNOId",
@@ -391,5 +393,16 @@ export function filterTelemetryEvents(
 
     enemyPositionOrdinal += 1;
     return enemyPositionOrdinal % 10 === 0 ? [projected] : [];
+  });
+}
+
+
+/** Sample only rendered enemy positions, after all analysis calculations are complete. */
+export function sampleReplayPositions<T extends { type?: string; isTeam?: boolean }>(events: T[], mode: TelemetryFilterMode): T[] {
+  if (mode === "full") return events;
+  let ordinal = 0;
+  return events.filter((event) => {
+    if (event.type !== "position" || event.isTeam !== false) return true;
+    return ++ordinal % 10 === 0;
   });
 }

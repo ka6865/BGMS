@@ -9,7 +9,7 @@
 import { SquadFocusFireCollector } from './squadFocusFire';
 import { normalizeName } from './utils';
 import { AnalysisResult, AnalysisState } from './types';
-import { MAP_NAMES, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from './constants';
+import { MAP_NAMES, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, ANALYSIS_CALCULATION_VERSION } from './constants';
 import { CombatHandler } from './handlers/CombatHandler';
 import { ZoneHandler } from './handlers/ZoneHandler';
 import { UtilityHandler } from './handlers/UtilityHandler';
@@ -317,7 +317,10 @@ export class AnalysisEngine {
     const totalTeamDamage = stats.reduce((sum, s) => sum + (s?.damageDealt || 0), 0);
     const totalTeamKills = stats.reduce((sum, s) => sum + (s?.kills || 0), 0);
 
-    const humanParticipants = participants.filter((p: any) => !p.attributes?.accountId?.startsWith("ai."));
+    const humanParticipants = participants.filter((p: any) => {
+      const accountId = p.attributes?.stats?.playerId || p.attributes?.accountId || "";
+      return !String(accountId).startsWith("ai.");
+    });
     const sortedByDamage = [...humanParticipants].map(p => p.attributes?.stats).filter(Boolean).sort((a, b) => b.damageDealt - a.damageDealt);
     const damageRank = sortedByDamage.findIndex((s: any) => normalizeName(s.name) === this.state.lowerNickname) + 1 || 1;
 
@@ -418,6 +421,7 @@ export class AnalysisEngine {
     return {
       matchId: matchAttr.id,
       v: RESULT_VERSION,
+      calculationVersion: ANALYSIS_CALCULATION_VERSION,
       populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
       processedAt: new Date().toISOString(),
       createdAt: matchAttr.createdAt,

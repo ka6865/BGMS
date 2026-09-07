@@ -248,7 +248,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     const isolationData = fullResult.isolationData || {};
     const tradeStats = fullResult.tradeStats || {};
     const timeline = Array.isArray(fullResult.timeline) ? fullResult.timeline : [];
-    const squadRecoveryStats = deriveSquadRecoveryStatsFromTimeline(timeline);
+    const squadRecoveryStats = deriveSquadRecoveryStatsFromTimeline(timeline, fullResult.matchInfo?.mapName || fullResult.mapName);
     const hasRecoveryTimeline = hasSquadRecoveryTimelineSignals(timeline);
 
     const isolation = finiteNonNegative(isolationData.isolationIndex);

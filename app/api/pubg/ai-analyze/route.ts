@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
-import { AI_CACHE_VERSION, GEMINI_MODELS_TO_TRY, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
+import { AI_CACHE_VERSION, ANALYSIS_CALCULATION_VERSION, GEMINI_MODELS_TO_TRY, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { getValidFullResultForMatch, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
@@ -180,6 +180,9 @@ export async function POST(request: Request) {
       }, { status: 409 });
     }
 
+    const cachePromptVersion = canonicalFullResult.calculationVersion === ANALYSIS_CALCULATION_VERSION
+      ? `${AI_CACHE_VERSION}.calc${ANALYSIS_CALCULATION_VERSION}` : AI_CACHE_VERSION;
+
     // Cache compatibility is checked only after the current marked canonical
     // telemetry row has been proven.  This prevents a pre-marker cache entry
     // from bypassing the v73/population-evidence contract.
@@ -191,7 +194,7 @@ export async function POST(request: Request) {
         .eq("platform", cachePlatform)
         .eq("player_id", playerId)
         .eq("coaching_style", coachingStyle)
-        .eq("prompt_version", AI_CACHE_VERSION)
+        .eq("prompt_version", cachePromptVersion)
         .abortSignal(routeSignal.signal)
         .maybeSingle(), routeSignal.signal);
 
@@ -380,7 +383,7 @@ export async function POST(request: Request) {
                   platform: cachePlatform,
                   player_id: playerId,
                   coaching_style: coachingStyle,
-                  prompt_version: AI_CACHE_VERSION,
+                  prompt_version: cachePromptVersion,
                   ai_result: { text: aiResponseText },
                   updated_at: new Date().toISOString()
                 }, { onConflict: "match_id,platform,player_id,coaching_style,prompt_version" })

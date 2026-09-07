@@ -116,6 +116,7 @@ export interface DuelStats {
 }
 
 export interface AnalysisResult {
+  calculationVersion?: number;
   /** Same-target gun participation; never substitutes for calibrated cover scores. */
   squadFocusFire?: SquadFocusFireObservation;
   matchId: string;

@@ -163,7 +163,7 @@ export class MapReplayHandler extends BaseHandler {
       x: this.scaleX(loc?.x ?? 0),
       y: this.scaleY(loc?.y ?? 0),
       z: (loc?.z ?? 0) / 100,
-      health: char.health || 100,
+      health: char.health ?? 100,
       vehicleId: vehicleId,
     });
   }

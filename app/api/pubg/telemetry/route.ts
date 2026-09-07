@@ -1,8 +1,9 @@
+import { containsTelemetryAccountEvidence, parseOrdinaryTelemetryUrl, relationshipBoundTelemetryAsset, hasMatchingTelemetryDefinition } from "@/lib/pubg-analysis/telemetrySource";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
-import { filterTelemetryEvents } from "@/lib/pubg-analysis/telemetryContract";
+import { filterTelemetryEvents, sampleReplayPositions } from "@/lib/pubg-analysis/telemetryContract";
 import {
   downloadFromR2,
   getPresignedUrlFromR2,
@@ -108,10 +109,13 @@ export async function GET(request: Request) {
 
     const participants = matchData.included.filter((item: any) => item.type === "participant");
     const rosters = matchData.included.filter((item: any) => item.type === "roster");
-    const asset = matchData.included.find((item: any) => item.type === "asset");
-    if (!asset?.attributes?.URL) {
+    const assetBinding = relationshipBoundTelemetryAsset(matchData);
+    const asset = assetBinding?.asset as { attributes?: { URL?: string } } | undefined;
+    if (!asset?.attributes?.URL || !assetBinding) {
       return NextResponse.json({ error: "텔레메트리 데이터를 찾을 수 없습니다." }, { status: 404 });
     }
+
+    const telemetryUrl = parseOrdinaryTelemetryUrl(asset.attributes.URL, assetBinding.id);
 
     const myInfo = participants.find(
       (p: any) => normalizeName(p.attributes.stats.name) === lowerNickname,
@@ -190,14 +194,24 @@ export async function GET(request: Request) {
     const reservedRow = cacheAccess.row;
 
     try {
-      const telemetryRes = await fetch(asset.attributes.URL, { cache: "no-store" });
+      const telemetryRes = await fetch(telemetryUrl, { cache: "no-store", redirect: "error", signal: AbortSignal.timeout(15_000) });
       if (!telemetryRes.ok) throw new Error("PUBG telemetry request failed");
+      if (telemetryRes.url !== telemetryUrl) throw new Error("PUBG telemetry source changed");
       const rawTelemetry = await telemetryRes.json();
+      if (!hasMatchingTelemetryDefinition(rawTelemetry, matchId, platform)) {
+        await releaseTelemetryMapCacheRow(reservedRow, deps);
+        return upstreamIdentityMismatch();
+      }
       const events = filterTelemetryEvents(rawTelemetry, {
-        mode,
+        mode: "full",
         teamNames,
         teamAccountIds,
       });
+
+      if (!events.length || !containsTelemetryAccountEvidence(events, playerId)) {
+        await releaseTelemetryMapCacheRow(reservedRow, deps);
+        return upstreamIdentityMismatch();
+      }
 
       const { AnalysisEngine } = await import("@/lib/pubg-analysis/AnalysisEngine");
       const engine = new AnalysisEngine(
@@ -224,7 +238,7 @@ export async function GET(request: Request) {
         startTime: matchData.data.attributes.createdAt,
         teammates: pseudonymizeTelemetryTeammates(result.mapData?.teammates || []),
         teamNames: result.mapData?.teamNames || [canonicalNickname],
-        events: pseudonymizeTelemetryAccountIds(result.mapData?.events || []),
+        events: pseudonymizeTelemetryAccountIds(sampleReplayPositions(result.mapData?.events || [], mode)),
         zoneEvents: pseudonymizeTelemetryAccountIds(result.mapData?.zoneEvents || []),
         mapName: result.mapName || matchData.data.attributes.mapName || mapName,
       });

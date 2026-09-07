@@ -1,7 +1,10 @@
 import { BaseHandler } from './BaseHandler';
 import { normalizeName, calcDist3D } from '../utils';
+import { normalizeTelemetryLocation } from '../telemetryContract';
 
 export class PositionHandler extends BaseHandler {
+  private readonly accountIdsByName = new Map<string, string>();
+  private readonly accountAliases = new Set<string>();
   handleEvent(e: any, ts: number, elapsed: number): void {
     switch (e._T) {
       case "LogPlayerPosition":
@@ -15,6 +18,9 @@ export class PositionHandler extends BaseHandler {
         break;
       case "LogPlayerTakeDamage":
       case "LogPlayerKill":
+      case "LogPlayerKillV2":
+      case "LogPlayerMakeDBNO":
+      case "LogPlayerRevive":
       case "LogPlayerMakeGroggy":
         this.updateParticipantLocations(e);
         break;
@@ -25,10 +31,10 @@ export class PositionHandler extends BaseHandler {
     const pName = normalizeName(e.character?.name || "");
     if (!pName) return;
 
-    const charLoc = e.character.location ?? e.character.loc;
+    const charLoc = normalizeTelemetryLocation(e.character.location ?? e.character.loc);
     if (!charLoc) return;
 
-    this.state.playerLocations.set(pName, { x: charLoc.x, y: charLoc.y, z: charLoc.z || 0 });
+    this.updateParticipantLocations(e);
     
     if (pName === this.state.lowerNickname) {
       // console.log(`[DEBUG-POS] My Position Updated: ${charLoc.x}, ${charLoc.y}`);
@@ -97,18 +103,19 @@ export class PositionHandler extends BaseHandler {
     if (pName) {
       this.state.playerAliveStatus.set(pName, true);
       if (e.character?.accountId) this.state.playerAliveStatus.set(e.character.accountId, true);
-      const loc = e.character.location ?? e.character.loc;
-      if (loc) this.state.playerLocations.set(pName, { x: loc.x, y: loc.y, z: loc.z || 0 });
+      this.updateParticipantLocations(e);
     }
   }
 
   private updateParticipantLocations(e: any) {
     const update = (char: any) => {
-      const loc = char?.location ?? char?.loc;
+      const loc = normalizeTelemetryLocation(char?.location ?? char?.loc);
       if (char?.name && loc) {
         const name = normalizeName(char.name);
         this.state.playerLocations.set(name, { x: loc.x, y: loc.y, z: loc.z || 0 });
         if (char.accountId) {
+          this.accountIdsByName.set(name, char.accountId);
+          this.accountAliases.add(char.accountId);
           this.state.playerLocations.set(char.accountId, { x: loc.x, y: loc.y, z: loc.z || 0 });
         }
       }
@@ -118,10 +125,13 @@ export class PositionHandler extends BaseHandler {
     update(e.character);
     update(e.maker);
     update(e.killer);
+    update(e.finisher);
+    update(e.dBNOMaker);
+    update(e.reviver);
   }
 
   private calculateIsolationData() {
-    const charLoc = this.state.playerLocations.get(this.state.myAccountId) || this.state.playerLocations.get(this.state.lowerNickname);
+    const charLoc = this.state.playerLocations.get(this.state.lowerNickname) || this.state.playerLocations.get(this.state.myAccountId);
     if (!charLoc || (this.state.playerAliveStatus.get(this.state.lowerNickname) === false && this.state.playerAliveStatus.get(this.state.myAccountId) === false)) return null;
 
     let minDist = 999999, minEnemyDist = 999999, hDiff = 0, nearbyTeammates = 0;
@@ -129,12 +139,11 @@ export class PositionHandler extends BaseHandler {
     let aliveTeammateCount = 0;
 
     this.state.teamNames.forEach(tName => {
-      // 닉네임과 매칭되는 accountId 찾기 (가장 정확한 방법)
-      const tAccountId = Array.from(this.state.teamAccountIds).find(id => this.state.teamMapping.get(id) === this.state.teamMapping.get(tName));
-
-      const status = this.state.playerAliveStatus.get(tName) || (tAccountId ? this.state.playerAliveStatus.get(tAccountId) : false);
+      // A shared roster identifies the team, never the individual teammate.
+      const tAccountId = this.accountIdsByName.get(tName);
+      const status = this.state.playerAliveStatus.get(tName) ?? (tAccountId ? this.state.playerAliveStatus.get(tAccountId) : undefined);
       if (tName !== this.state.lowerNickname && status !== false && status !== "groggy") {
-        const tLoc = (tAccountId ? this.state.playerLocations.get(tAccountId) : null) || this.state.playerLocations.get(tName);
+        const tLoc = this.state.playerLocations.get(tName) || (tAccountId ? this.state.playerLocations.get(tAccountId) : null);
         if (tLoc) {
           const d = calcDist3D(charLoc, tLoc) / 100; // [V47.0] cm -> m 변환
           if (d > 0.01) {
@@ -151,8 +160,9 @@ export class PositionHandler extends BaseHandler {
     });
 
     this.state.playerLocations.forEach((loc, name) => {
+      if (this.accountAliases.has(name)) return; // Same player, not a second enemy observation.
       const rId = this.state.teamMapping.get(name);
-      if (rId && rId !== this.state.myRosterId && this.state.playerAliveStatus.get(name) !== false) {
+      if (rId && rId !== this.state.myRosterId && this.state.playerAliveStatus.get(name) !== false && this.state.playerAliveStatus.get(name) !== "groggy") {
         const d = calcDist3D(charLoc, loc) / 100; // [V47.0] cm -> m 변환
         if (d > 0.01 && d < minEnemyDist) minEnemyDist = d;
       }

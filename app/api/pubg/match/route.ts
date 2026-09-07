@@ -1,3 +1,5 @@
+import { containsTelemetryAccountEvidence as containsRecoveryAccountIdentityEvidence, parseOrdinaryTelemetryUrl, relationshipBoundTelemetryAsset } from "@/lib/pubg-analysis/telemetrySource";
+import { sampleReplayPositions } from "@/lib/pubg-analysis/telemetryContract";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { after, NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -725,36 +727,6 @@ function parseRecoveryTelemetryUrl(value: unknown, expectedAssetId: string, expe
  * PUBG's telemetry CDN, and the relationship-bound asset-id filename are the
  * invariants that identify the requested object.
  */
-function parseOrdinaryTelemetryUrl(value: unknown, expectedAssetId: string): string {
-  if (typeof value !== "string" || !value.trim()) throw new Error("telemetry URL missing");
-  const raw = value.trim();
-  if (!/^https:\/\//i.test(raw) || raw.includes("\\")) throw new Error("telemetry URL invalid");
-  let parsed: URL;
-  try {
-    parsed = new URL(raw);
-  } catch {
-    throw new Error("telemetry URL invalid");
-  }
-  if (parsed.protocol !== "https:"
-    || parsed.hostname.toLowerCase() !== BENCHMARK_RECOVERY_TELEMETRY_HOST
-    || parsed.username
-    || parsed.password
-    || parsed.port
-    || parsed.search
-    || parsed.hash) {
-    throw new Error("telemetry URL invalid");
-  }
-  const path = parsed.pathname;
-  if (!path.startsWith("/")
-    || path.endsWith("/")
-    || path.includes("//")
-    || path.includes("%")
-    || path.slice(1).split("/").some((segment) => segment === "." || segment === ".." || !segment)
-    || !path.endsWith(`/${expectedAssetId}-telemetry.json`)) {
-    throw new Error("telemetry URL invalid");
-  }
-  return parsed.href;
-}
 
 function assertRecoveryTelemetryResponseUrl(response: Response, requestedUrl: string): void {
   let finalUrl: string;
@@ -776,20 +748,6 @@ function assertRecoveryTelemetryResponseUrl(response: Response, requestedUrl: st
  * `included` array is an unordered side-load and can contain unrelated
  * assets; selecting its first asset silently crosses match boundaries.
  */
-function relationshipBoundTelemetryAsset(matchData: unknown): { asset: Record<string, unknown>; id: string } | null {
-  if (!isRecord(matchData) || !isRecord(matchData.data)) return null;
-  const relationships = isRecord(matchData.data.relationships) ? matchData.data.relationships : null;
-  const assets = relationships && isRecord(relationships.assets) ? relationships.assets : null;
-  const refs = assets && Array.isArray(assets.data) ? assets.data : [];
-  if (refs.length !== 1 || !isRecord(refs[0]) || typeof refs[0].id !== "string" || refs[0].type !== "asset") return null;
-  const assetId = refs[0].id.trim();
-  if (!assetId) return null;
-  const included = Array.isArray(matchData.included) ? matchData.included : [];
-  const assetsById = included.filter((item): item is Record<string, unknown> => (
-    isRecord(item) && item.type === "asset" && item.id === assetId
-  ));
-  return assetsById.length === 1 ? { asset: assetsById[0], id: assetId } : null;
-}
 
 function recoveryMatchDefinitionIds(
   rawTelemetry: unknown,
@@ -861,24 +819,6 @@ function containsRecoveryIdentityEvidence(
   return false;
 }
 
-/** Recovery telemetry may mention a display name without proving which
- * account produced the event. Keep the existing nickname predicate for the
- * broader telemetry filter, but require this account-only predicate before a
- * recovery payload is authorized. */
-function containsRecoveryAccountIdentityEvidence(value: unknown, accountId: string): boolean {
-  if (Array.isArray(value)) return value.some((item) => containsRecoveryAccountIdentityEvidence(item, accountId));
-  if (!isRecord(value)) return false;
-
-  for (const [key, nested] of Object.entries(value)) {
-    if ((key === "accountId" || key === "playerId")
-      && typeof nested === "string"
-      && nested === accountId) {
-      return true;
-    }
-    if (containsRecoveryAccountIdentityEvidence(nested, accountId)) return true;
-  }
-  return false;
-}
 
 type TelemetryValidationMode = "ordinary" | "recovery";
 
@@ -983,7 +923,8 @@ async function loadAndValidateTelemetry(
   }
 
   const filtered = filterTelemetryEvents(rawTelemetry, {
-    mode: "lite",
+    // Analysis needs every player position; sampling is only for display payloads.
+    mode: "full",
     teamNames: new Set([normalizeName(nickname)]),
     teamAccountIds: new Set([accountId]),
   });
@@ -1735,7 +1676,7 @@ async function reanalyzeAndSave(
         const parsed = parseTelemetryAnalyzeCacheEnvelope(JSON.parse(fileText), telemetryIdentity);
         const filteredCached = parsed
           ? filterTelemetryEvents(parsed, {
-            mode: "lite",
+            mode: "full",
             teamNames,
             teamAccountIds,
           })
@@ -2043,7 +1984,7 @@ async function reanalyzeAndSave(
     startTime: matchAttr.createdAt,
     teammates: pseudonymizeTelemetryTeammates(mapData?.teammates || []),
     teamNames: mapData?.teamNames || [myParticipant.attributes.stats.name],
-    events: pseudonymizeTelemetryAccountIds(mapData?.events || []),
+    events: pseudonymizeTelemetryAccountIds(sampleReplayPositions(mapData?.events || [], "lite")),
     zoneEvents: pseudonymizeTelemetryAccountIds(mapData?.zoneEvents || []),
     mapName: result.mapName || matchAttr.mapName || matchAttr.mapId,
   });
