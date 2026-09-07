@@ -1,3 +1,4 @@
+import { buildCalculationPendingMatch } from "@/lib/pubg-analysis/calculationAvailability";
 import { containsTelemetryAccountEvidence as containsRecoveryAccountIdentityEvidence, parseOrdinaryTelemetryUrl, relationshipBoundTelemetryAsset } from "@/lib/pubg-analysis/telemetrySource";
 import { sampleReplayPositions } from "@/lib/pubg-analysis/telemetryContract";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -1332,7 +1333,10 @@ export async function GET(request: NextRequest) {
         && Number.isFinite(cachedFullResult.v)
         && cachedFullResult.v === RESULT_VERSION) {
         if (!hasCurrentCalculation(cachedFullResult)) {
-          return NextResponse.json({ error: "분석 지표 업데이트 준비 중입니다. 기본 전적은 계속 이용할 수 있습니다.", errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED", retryable: false }, { status: 409 });
+          if (hasPopulationEvidence(cachedFullResult)) {
+            return NextResponse.json(pseudonymizeTelemetryAccountIds(buildCalculationPendingMatch({ ...cachedFullResult, matchId })));
+          }
+          return NextResponse.json({ error: "새 계산 기준으로 다시 계산이 필요합니다. 기본 전적은 계속 이용할 수 있습니다.", errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED", retryable: false }, { status: 409 });
         }
         if (hasPopulationEvidence(cachedFullResult)) {
           return NextResponse.json(createTacticalResponse(cachedFullResult));

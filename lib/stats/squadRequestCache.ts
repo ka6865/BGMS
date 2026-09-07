@@ -60,8 +60,14 @@ export function createSquadRequestCache() {
             );
           }
           const groupKey = new URL(url, "https://bgms.kr").searchParams.get("groupKey");
+          const basicOnly = data.analysisAvailability === "basic_only"
+            && data.analysisUnavailableReason === "calculation_upgrade_required"
+            && Array.isArray(data.basicMatches) && data.basicMatches.length > 0
+            && data.basicMatches.every((match: any) => typeof match?.matchId === "string" && match.matchId && match.stats);
+          const fullAnalysis = data.analysisAvailability !== "basic_only" && data.stats && data.scores
+            && Array.isArray(data.matchesSummary) && Array.isArray(data.roleProfiles);
           if (groupKey
-            ? data.groupKey !== groupKey || !data.stats || !data.scores || !Array.isArray(data.matchesSummary) || !Array.isArray(data.roleProfiles)
+            ? data.groupKey !== groupKey || (!basicOnly && !fullAnalysis)
             : !Array.isArray(data.groups)) throw new Error("스쿼드 분석 형식 오류");
           entry.expiresAt = Date.now() + TTL_MS;
           return data;

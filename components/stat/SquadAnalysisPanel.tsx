@@ -54,6 +54,7 @@ interface MatchSummaryItem {
 }
 
 interface SquadAnalysisData {
+  calculationPendingMatchCount?: number;
   groupKey: string;
   matchCount: number;
   matchesSummary: MatchSummaryItem[];
@@ -143,8 +144,8 @@ function averageObservedMetrics(values: unknown[]): number | null {
 }
 
 const CALCULATION_UPGRADE_ERROR_CODE = "PUBG_CALCULATION_UPGRADE_REQUIRED";
-const CALCULATION_UPGRADE_MESSAGE = "분석 지표 업데이트 준비 중";
-const CALCULATION_UPGRADE_DETAIL = "기본 전적은 계속 확인할 수 있습니다. 업데이트가 완료된 뒤 스쿼드 분석을 이용할 수 있습니다.";
+const CALCULATION_UPGRADE_MESSAGE = "새 계산 기준 확인이 필요한 전적입니다";
+const CALCULATION_UPGRADE_DETAIL = "기본 전적은 계속 확인할 수 있습니다. 이 화면에서는 원본 보관 여부나 갱신 진행 상태를 확인할 수 없습니다.";
 
 function isCalculationUpgradeError(error: unknown): boolean {
   return Boolean(
@@ -179,6 +180,7 @@ export default function SquadAnalysisPanel({
   const [detailError, setDetailError] = useState<boolean>(false);
   const [detailUpgradePending, setDetailUpgradePending] = useState<boolean>(false);
   const [analysisData, setAnalysisData] = useState<SquadAnalysisData | null>(null);
+  const [basicMatches, setBasicMatches] = useState<Array<{matchId: string; stats: {kills: number | null; damageDealt: number | null; winPlace: number | null}}>>([]);
   
   // AI Coaching States
   const [coachingStyle, setCoachingStyle] = useState<"spicy" | "mild">("spicy");
@@ -250,6 +252,7 @@ export default function SquadAnalysisPanel({
   const fetchSquadDetails = useCallback(async () => {
     const requestId = ++detailRequestId.current;
     setAnalysisData(null);
+    setBasicMatches([]);
     setAiFeedback(null);
     setDetailUpgradePending(false);
     if (!groupKey || !hasSelectedGroup) { setLoadingDetail(false); return; }
@@ -264,6 +267,10 @@ export default function SquadAnalysisPanel({
       );
       if (requestId !== detailRequestId.current) return;
 
+      if (data.analysisAvailability === "basic_only") {
+        setBasicMatches(Array.isArray(data.basicMatches) ? data.basicMatches : []);
+        return;
+      }
       setAnalysisData(data);
       // GA4 스쿼드 시너지 전술 데이터 로드 완료
       trackEvent({
@@ -596,7 +603,7 @@ export default function SquadAnalysisPanel({
     }
     if (listUpgradePending) {
       return (
-        <div role="status" aria-label="스쿼드 분석 지표 업데이트 준비 중" className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-8 text-center">
+        <div role="status" aria-label="스쿼드 분석에 새 계산 기준 확인 필요" className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-8 text-center">
           <ShieldAlert className="mx-auto h-12 w-12 text-sky-400 mb-2" />
           <p className="text-sky-200 font-semibold">{CALCULATION_UPGRADE_MESSAGE}</p>
           <p className="text-sky-100/70 text-sm mt-2">{CALCULATION_UPGRADE_DETAIL}</p>
@@ -606,7 +613,7 @@ export default function SquadAnalysisPanel({
     return (
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-8 text-center">
         <ShieldAlert className="mx-auto h-12 w-12 text-zinc-600 mb-2" />
-        <p className="text-zinc-400">최근 20경기 중 분석할 수 있는 스쿼드 모드 파티 게임 기록이 없습니다.</p>
+        <p className="text-zinc-400">저장된 전적 중 분석할 수 있는 스쿼드 모드 파티 게임 기록이 없습니다.</p>
         <p className="text-zinc-500 text-sm mt-1">솔로나 듀오 모드를 제외하고, 스쿼드 매치 데이터를 추가로 검색해 주세요.</p>
       </div>
     );
@@ -618,7 +625,7 @@ export default function SquadAnalysisPanel({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl border border-zinc-800/80 bg-zinc-900/30 p-4 backdrop-blur-md">
         <div>
           <h3 className="font-semibold text-zinc-200">스쿼드 시너지 분석</h3>
-          <p className="text-xs text-zinc-500">최근 20경기에서 감지된 고정 팀원 파티와의 전술 분석입니다.</p>
+          <p className="text-xs text-zinc-500">저장된 스쿼드 전적에서 같은 팀원과 함께한 최근 경기의 분석입니다.</p>
         </div>
         <div className="relative">
           <select
@@ -645,7 +652,7 @@ export default function SquadAnalysisPanel({
       )}
 
       {detailUpgradePending && !loadingDetail && (
-        <div role="status" aria-label="스쿼드 분석 지표 업데이트 준비 중" className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-6 text-center">
+        <div role="status" aria-label="스쿼드 분석에 새 계산 기준 확인 필요" className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-6 text-center">
           <p className="text-sm font-semibold text-sky-200">{CALCULATION_UPGRADE_MESSAGE}</p>
           <p className="mt-2 text-xs text-sky-100/70">{CALCULATION_UPGRADE_DETAIL}</p>
         </div>
@@ -662,6 +669,23 @@ export default function SquadAnalysisPanel({
             다시 시도
           </button>
         </div>
+      )}
+
+      {analysisData && (analysisData.calculationPendingMatchCount ?? 0) > 0 && !loadingDetail && (
+        <p className="text-xs leading-relaxed text-sky-200">재계산이 필요한 {analysisData.calculationPendingMatchCount}경기는 전술 분석에서 제외했습니다. 아래 평가는 계산이 확인된 경기만 사용합니다.</p>
+      )}
+
+      {basicMatches.length > 0 && !loadingDetail && (
+        <section aria-label="스쿼드 기본 경기 기록" className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4">
+          <h4 className="text-sm font-bold text-sky-100">함께한 {basicMatches.length}경기</h4>
+          <p className="mt-2 text-xs leading-relaxed text-sky-100/70">내 킬·피해량·순위는 확인할 수 있습니다. 팀 전술 지표와 AI 코칭은 새 기준으로 재계산한 뒤 제공됩니다.</p>
+          <ul className="mt-3 divide-y divide-white/10">
+            {basicMatches.map((match, index) => <li key={match.matchId} className="flex flex-wrap justify-between gap-2 py-3 text-sm text-white/80">
+              <span>경기 {index + 1}</span>
+              <span>{match.stats.winPlace ?? "—"}위 · {match.stats.kills ?? "—"}킬 · {typeof match.stats.damageDealt === "number" ? Math.round(match.stats.damageDealt) : "—"} 피해</span>
+            </li>)}
+          </ul>
+        </section>
       )}
 
       {analysisData && !loadingDetail && (

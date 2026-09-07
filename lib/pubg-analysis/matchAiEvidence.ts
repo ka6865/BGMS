@@ -1,4 +1,5 @@
 import { hasObservedBenchmarkMetric, type NormalizedBenchmark } from './benchmarkAdapter';
+import { requiresRescueOpportunityEvidence } from './aiCoachingQuality';
 
 const finite = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 const display = (value: number) => Number(value.toFixed(1));
@@ -20,6 +21,15 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
     [/(?:피해량|딜량|화력)/u, 'avgDamage'], [/복수/u, 'avgTradeRate'],
   ];
   const clean = (value: string, key: string): string => {
+    if (requiresRescueOpportunityEvidence(value)) {
+      const opportunities = finite(match?.tradeStats?.teammateKnocks);
+      const successes = finite(match?.tradeStats?.smokeRescues);
+      if (opportunities === null || opportunities === 0 || successes === null) {
+        return opportunities === 0
+          ? '연막 구출 기회가 관측되지 않아 해당 평가는 보류합니다.'
+          : '연막 구출 기록이 부족해 해당 평가는 보류합니다.';
+      }
+    }
     if (isolation !== null && isolation < 2 && /고립형|고독한|고립(?:이|도|\s*위험)?.{0,8}(?:심|높)|대열\s*이탈/u.test(value)) {
       return key === 'signature' ? '대열 유지형 플레이어' : `평균 고립 지수는 ${display(isolation)}입니다. 실제 교전 위치와 함께 확인해 보세요.`;
     }

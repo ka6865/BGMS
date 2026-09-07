@@ -151,6 +151,20 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
   });
   const aiRequests = () => fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-squad");
 
+  it("재계산 대기 그룹도 기본 기록을 표시하며 AI 생성 버튼은 보류한다", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const params = new URL(String(input), "http://localhost").searchParams;
+      return Promise.resolve(jsonResponse(params.has("groupKey") ? {
+        groupKey: "g1", analysisAvailability: "basic_only", analysisUnavailableReason: "calculation_upgrade_required", basicMatches: [{matchId: "pending", stats: {kills: 2, damageDealt: 300, winPlace: 4}}],
+      } : {groups}));
+    });
+    renderPanel("g1");
+    expect(await screen.findByRole("region", {name: "스쿼드 기본 경기 기록"})).toBeInTheDocument();
+    expect(screen.getByText("4위 · 2킬 · 300 피해")).toBeInTheDocument();
+    expect(screen.queryByRole("button", {name: "AI 코칭 보고서 생성"})).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("같은 페이지에서 탭을 다시 열면 목록과 상세 GET을 재사용한다", async () => {
     const requestCache = createSquadRequestCache();
     const props = { nickname: "FixturePlayer", platform: "steam" as StatsPlatform, groupKey: "g1", onGroupKeyChange: vi.fn(), requestCache };
@@ -261,7 +275,7 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
     });
 
     renderPanel(undefined);
-    expect(await screen.findByRole("status", { name: "스쿼드 분석 지표 업데이트 준비 중" })).toBeInTheDocument();
+    expect(await screen.findByRole("status", { name: "스쿼드 분석에 새 계산 기준 확인 필요" })).toBeInTheDocument();
     expect(screen.getByText(/기본 전적은 계속 확인할 수 있습니다/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();
     expect(listRequests()).toHaveLength(1);
@@ -284,7 +298,7 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
     });
 
     renderPanel("g1");
-    expect(await screen.findByRole("status", { name: "스쿼드 분석 지표 업데이트 준비 중" })).toBeInTheDocument();
+    expect(await screen.findByRole("status", { name: "스쿼드 분석에 새 계산 기준 확인 필요" })).toBeInTheDocument();
     expect(screen.getByText(/기본 전적은 계속 확인할 수 있습니다/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();
     expect(detailRequests("g1")).toHaveLength(1);
@@ -303,7 +317,7 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
     renderPanel("g1");
     await screen.findByText("협동 시너지 밸런스");
     fireEvent.click(screen.getByRole("button", { name: "AI 코칭 보고서 생성" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("분석 지표 업데이트 준비 중");
+    expect(await screen.findByRole("alert")).toHaveTextContent("새 계산 기준 확인이 필요한 전적입니다");
     expect(screen.getByRole("alert")).toHaveTextContent(/기본 전적은 계속 확인할 수 있습니다/);
     expect(screen.getByRole("button", { name: "AI 코칭 보고서 생성" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();

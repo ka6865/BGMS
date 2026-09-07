@@ -1,3 +1,5 @@
+import { requiresRescueOpportunityEvidence } from './aiCoachingQuality';
+
 // Keep absent observations out of coaching, including results read from cache.
 const metrics = [
   { key: "avgIsolation", label: "대열 유지", pattern: /고립|대열|이탈|isolation/i },
@@ -26,6 +28,12 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
     // Split at sentence ends, not decimal points (e.g. 5.36 seconds).
     const sentences = text.split(/(?<=[.!?。])\s+|\n+/);
     return [...new Set(sentences.map((sentence) => {
+      if (requiresRescueOpportunityEvidence(sentence)
+        && (!isObserved(stats, "totalTeammateKnocks") || stats.totalTeammateKnocks === 0 || !isObserved(stats, "totalSmokeRescues"))) {
+        return stats.totalTeammateKnocks === 0
+          ? "연막 구출 기회가 관측되지 않아 해당 평가는 보류합니다."
+          : "연막 구출 기록이 부족해 해당 평가는 보류합니다.";
+      }
       if (/연막.{0,35}(?:아껴|아꼈|안\s*쓰|쓰지\s*않|국\s*끓)/.test(sentence)) return "연막 구출 성공 횟수만으로 연막 사용 여부나 구출 의도를 판단할 수 없습니다.";
       const unavailable = missing.find(({ pattern }) => pattern.test(sentence));
       if (unavailable) return `${unavailable.label} 평가는 근거가 부족해 보류합니다.`;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { sanitizeAiCoachingLanguageText } from "@/lib/pubg-analysis/aiCoachingQuality";
 import {
   buildSummaryCards,
   normalizeSummaryCardFinal,
@@ -67,7 +68,24 @@ function providerFinal(cards: SummaryCard[], overrides: Record<string, unknown> 
 }
 
 describe("ai summary v2 card catalog", () => {
+  it("withholds a disguised-blame opinion without removing server evidence or other cards", () => {
+    const cards = buildFixture();
+    const provider = providerFinal(cards);
+    (provider.debateIssues as Array<Record<string, unknown>>)[1].spicyOpinion = "연막탄 아껴서 국 끓여 먹을 겁니까?";
+    const result = normalizeSummaryCardFinal(provider, cards, {
+      sanitizeText: sanitizeAiCoachingLanguageText,
+      hasUnsupportedMode: () => false,
+    });
+    expect(result?.cacheable).toBe(false);
+    expect(result?.final.cards[1]).toMatchObject({ analysisStatus: "unavailable", winner: null, evidence: cards[1].evidence });
+    expect(result?.final.cards[0].analysisStatus).toBe("ready");
+    expect(result?.final.cards[2].analysisStatus).toBe("ready");
+    expect(parseSummaryCards(result?.final)).not.toBeNull();
+  });
+
   it.each([
+    "연막을 활용한 팀원 구출 능력을 보완해야 합니다.",
+    "연막 구출률은 0%입니다.",
     "최근 100경기에서 유틸리티 활용을 점검했습니다.",
     "투척물의 대부분을 연막 등 생존 엄폐용으로 적극 활용했으며 공격형 투척 시도는 적었습니다.",
     "유틸리티 보유량에 비해 구출 연막 활용도가 떨어집니다.",
@@ -231,6 +249,20 @@ describe("ai summary v2 card catalog", () => {
     });
     expect(result?.cacheable).toBe(true);
     expect(result?.final.cards[0]).toMatchObject({ analysisStatus: "ready", winner: "kind" });
+  });
+
+  it("normalizes repeated valid provider references without admitting foreign references", () => {
+    const cards = buildFixture();
+    const raw = providerFinal(cards);
+    const issue = (raw.debateIssues as Array<Record<string, unknown>>)[0];
+    issue.evidenceIds = [cards[0].evidenceIds[0], cards[0].evidenceIds[0]];
+    const options = { sanitizeText: (value: string) => value, hasUnsupportedMode: () => false };
+    const result = normalizeSummaryCardFinal(raw, cards, options);
+    expect(result?.cacheable).toBe(true);
+    expect(result?.final.cards[0].analysisStatus).toBe("ready");
+    expect(result?.final.cards[0].evidenceIds).toEqual(cards[0].evidenceIds);
+    issue.evidenceIds = [...(issue.evidenceIds as string[]), "foreign:damage_average", "foreign:damage_average"];
+    expect(normalizeSummaryCardFinal(raw, cards, options)?.cacheable).toBe(false);
   });
 
   it("keeps facts and marks only a card unavailable for invalid references", () => {

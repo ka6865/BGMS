@@ -151,6 +151,9 @@ export async function POST(request: Request) {
     // intentionally ignored rather than compared or merged.
     const squadData = await getSquadAnalysisData(nickname, cachePlatform, groupKey);
     if (request.signal.aborted) throw new SquadRequestAbortedError();
+    if (squadData && "analysisAvailability" in squadData && squadData.analysisAvailability === "basic_only") {
+      return NextResponse.json({error: "전술 지표를 다시 계산한 뒤 AI 코칭을 이용할 수 있습니다.", errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED", retryable: false}, {status: 409});
+    }
     if (squadData && "errorCode" in squadData && squadData.errorCode === "PUBG_CALCULATION_UPGRADE_REQUIRED") return NextResponse.json(squadData, { status: 409 });
     if (!squadData || !("matchesSummary" in squadData) || !Array.isArray(squadData.matchesSummary)
       || !squadData.stats || !squadData.scores || !Array.isArray(squadData.roleProfiles)

@@ -408,6 +408,28 @@ describe("AI cache route stabilization", () => {
     expect(response.status).toBe(409);expect(await response.json()).toMatchObject({errorCode:'PUBG_CALCULATION_UPGRADE_REQUIRED',retryable:false});
     expect(fetchSpy).toHaveBeenCalledTimes(1);expect(mockGenerateContentStream).not.toHaveBeenCalled();fetchSpy.mockRestore();
   });
+  it('ai-squad does not send basic-only history to Gemini', async () => {
+    mockGetSquadAnalysisData.mockResolvedValue({analysisAvailability: 'basic_only', groupKey: 'Teammate_B', basicMatches: []});
+    mockWithAuthGuard.mockResolvedValue({user: {id: 'user-1'}, supabaseAdmin: createSupabaseMock({})});
+    const response = await aiSquadPOST(createRequest({nickname: 'Player_A', platform: 'steam', groupKey: 'Teammate_B'}));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({errorCode: 'PUBG_CALCULATION_UPGRADE_REQUIRED', retryable: false});
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+  });
+  it('ai-summary withholds a basic-only match fallback without sending it to Gemini', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({
+      matchId: 'calc-fallback', platform: 'kakao', player_id: 'player_a',
+      stats: {name: 'Player_A', kills: 2, damageDealt: 300},
+      analysisAvailability: 'basic_only', analysisUnavailableReason: 'calculation_upgrade_required',
+    }));
+    const telemetry = createQueryChain({data: [], error: null});
+    mockWithAuthGuard.mockResolvedValue({user: {id: 'user-1'}, supabaseAdmin: createSupabaseMock({processed_match_telemetry: telemetry})});
+    const response = await aiSummaryPOST(createRequest({nickname: 'Player_A', platform: 'kakao', matchIds: ['calc-fallback']}));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({errorCode: 'PUBG_CALCULATION_UPGRADE_REQUIRED', retryable: false});
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
   it("ai-analyze separates corrected calculation results from legacy cached prose", async () => {
     const matchCache=createQueryChain({data:{ai_result:{text:"corrected"}},error:null});
     const row=createCanonicalAnalyzeRow("match-calc", {calculationVersion:ANALYSIS_CALCULATION_VERSION});
@@ -445,8 +467,8 @@ describe("AI cache route stabilization", () => {
     }));
     const text = await response.text();
 
-    expect(text).toContain("강한 화력을 보여주는");
-    expect(text).toContain("팀 지원 지표 보완이 필요");
+    expect(text).toContain("해당 평가는 행동 근거가 부족해 보류합니다.");
+    expect(text).not.toContain("팀 지원 지표 보완이 필요");
     expect(text).not.toContain("혼자 다 해먹");
     expect(text).not.toContain("팀 지원 지표가 바닥");
   });
@@ -523,14 +545,14 @@ describe("AI cache route stabilization", () => {
     const text = await response.text();
     const upsertPayload = matchCache.upsert.mock.calls[0]?.[0];
 
-    expect(text).toContain("강한 화력을 보여주는");
-    expect(text).toContain("팀 지원 지표 보완이 필요");
-    expect(text).toContain("백업 지연 위험");
+    expect(text).toContain("해당 평가는 행동 근거가 부족해 보류합니다.");
+    expect(text).not.toContain("팀 지원 지표 보완이 필요");
+    expect(text).not.toContain("백업 지연 위험");
     expect(text).not.toContain("혼자 다 해먹");
     expect(text).not.toContain("팀 지원 지표가 바닥");
     expect(text).not.toContain("느린 백업");
-    expect(upsertPayload.ai_result.text).toContain("강한 화력을 보여주는");
-    expect(upsertPayload.ai_result.text).toContain("백업 지연 위험");
+    expect(upsertPayload.ai_result.text).toContain("해당 평가는 행동 근거가 부족해 보류합니다.");
+    expect(upsertPayload.ai_result.text).not.toContain("백업 지연 위험");
     expect(upsertPayload.ai_result.text).not.toContain("혼자 다 해먹");
   });
 
@@ -5220,8 +5242,8 @@ describe("AI cache route stabilization", () => {
     }));
     const text = await response.text();
 
-    expect(text).toContain("강한 화력을 보여주는");
-    expect(text).toContain("팀 지원 지표 보완이 필요");
+    expect(text).toContain("해당 평가는 행동 근거가 부족해 보류합니다.");
+    expect(text).not.toContain("팀 지원 지표 보완이 필요");
     expect(text).not.toContain("혼자 다 해먹");
     expect(text).not.toContain("팀 지원 지표가 바닥");
   });
@@ -5262,11 +5284,11 @@ describe("AI cache route stabilization", () => {
     const text = await response.text();
     const upsertPayload = summaryCache.upsert.mock.calls[0]?.[0];
 
-    expect(text).toContain("강한 화력을 보여주는");
-    expect(text).toContain("팀 지원 지표 보완이 필요");
+    expect(text).toContain("해당 평가는 행동 근거가 부족해 보류합니다.");
+    expect(text).not.toContain("팀 지원 지표 보완이 필요");
     expect(text).not.toContain("혼자 다 해먹");
     expect(text).not.toContain("팀 지원 지표가 바닥");
-    expect(upsertPayload.ai_result.final).toContain("강한 화력을 보여주는");
+    expect(upsertPayload.ai_result.final).toContain("해당 평가는 행동 근거가 부족해 보류합니다.");
     expect(upsertPayload.ai_result.final).not.toContain("혼자 다 해먹");
   });
 
@@ -5927,10 +5949,9 @@ describe("AI cache route stabilization", () => {
     const json = await response.json();
     const text = JSON.stringify(json);
 
-    expect(text).toContain("다른 팀원들의 화력 지원 보완이 필요");
-    expect(text).toContain("교전 기여를 더 선명하게 만들 필요가 있습니다");
-    expect(text).toContain("강한 화력을 보여주는");
-    expect(text).toContain("팀 교전 안정성이 흔들릴 수 있으니");
+    expect(text).not.toContain("다른 팀원들의 화력 지원 보완이 필요");
+    expect(text).toContain("해당 평가는 행동 근거가 부족해 보류합니다.");
+    expect(text).not.toContain("팀 교전 안정성이 흔들릴 수 있으니");
     expect(text).not.toContain("전무");
     expect(text).not.toContain("존재감이 희미");
     expect(text).not.toContain("혼자 다 해먹");
@@ -5987,12 +6008,12 @@ describe("AI cache route stabilization", () => {
     const text = JSON.stringify(json);
     const upsertPayload = squadCache.upsert.mock.calls[0]?.[0];
 
-    expect(text).toContain("다른 팀원들의 화력 지원 보완이 필요");
-    expect(text).toContain("교전 기여를 더 선명하게 만들 필요가 있습니다");
+    expect(text).not.toContain("다른 팀원들의 화력 지원 보완이 필요");
+    expect(text).toContain("해당 평가는 행동 근거가 부족해 보류합니다.");
     expect(text).not.toContain("전무");
     expect(text).not.toContain("존재감이 희미");
     expect(text).not.toContain("혼자 다 해먹");
-    expect(upsertPayload.ai_result.summary).toContain("다른 팀원들의 화력 지원 보완이 필요");
+    expect(upsertPayload.ai_result.summary).toBe("해당 평가는 행동 근거가 부족해 보류합니다.");
     expect(JSON.stringify(upsertPayload.ai_result)).not.toContain("혼자 다 해먹");
   });
   it.each(['valid', 'shuffled', 'technical-provenance', 'wrong-reference', 'missing-reference', 'foreign-mode', 'cross-card-prose', 'neutral-opinion', 'invented-match-count', 'duplicate-topic', 'unknown-topic', 'two-cards', 'non-json'])(

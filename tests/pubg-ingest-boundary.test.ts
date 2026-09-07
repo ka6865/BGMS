@@ -797,10 +797,13 @@ describe("PUBG match persistence behavior", () => {
     expect(mockPersistMatchAnalysis).toHaveBeenCalledTimes(1);
   });
 
-  it.each([undefined,1,3])('holds outdated arithmetic %s before upstream fetch and reanalysis',async calculationVersion=>{
+  it.each([undefined,1,3])('serves only official basic records for outdated arithmetic %s without upstream work',async calculationVersion=>{
     mockProcessedTelemetryMaybeSingle.mockResolvedValueOnce({data:{match_id:MATCH_ID,player_id:NICKNAME.toLowerCase(),platform:'steam',data:{fullResult:{...analysisResult,v:RESULT_VERSION,calculationVersion,populationEvidenceVersion:POPULATION_EVIDENCE_VERSION,matchId:MATCH_ID,player_id:NICKNAME.toLowerCase(),platform:'steam'}}},error:null});
     const response=await GET(createMatchRequest());
-    expect(response.status).toBe(409);expect(await response.json()).toMatchObject({errorCode:'PUBG_CALCULATION_UPGRADE_REQUIRED',retryable:false});
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({analysisAvailability: 'basic_only', stats: {kills: analysisResult.stats.kills, damageDealt: analysisResult.stats.damageDealt}});
+    for (const key of ['benchmark','tradeStats','isolationData','combatPressure','calculationVersion','v','mapData']) expect(body).not.toHaveProperty(key);
     expect(fetch).not.toHaveBeenCalled();expect(mockAnalysisEngine).not.toHaveBeenCalled();expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
   });
 

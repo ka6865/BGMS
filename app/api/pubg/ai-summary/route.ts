@@ -1279,6 +1279,13 @@ export async function POST(request: Request) {
             console.warn(`[AI-SUMMARY] Ignored fallback with mismatched ID: requested=${requestedCanonicalId}, returned=${returnedCanonicalId}`);
             return;
           }
+          if (fallbackValue?.analysisAvailability === "basic_only"
+            && fallbackValue?.analysisUnavailableReason === "calculation_upgrade_required"
+            && isFullResultForPlayerPlatform(fallbackValue, lowerNickname, cachePlatform)) {
+            calculationUpgradePending = true;
+            calculationPendingIds.add(requestedCanonicalId);
+            return;
+          }
           const validatedFallback = getValidFullResultForMatch({
             match_id: requestedCanonicalId,
             player_id: lowerNickname,
@@ -1417,7 +1424,7 @@ export async function POST(request: Request) {
     ));
     if (isRouteAborted()) return abortResponse();
     if (calculationUpgradePending && !hasUsableCanonicalSelection) {
-      return NextResponse.json({ error: "분석 지표 업데이트 준비 중입니다. 기본 전적은 계속 이용할 수 있습니다.", errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED", retryable: false }, { status: 409 });
+      return NextResponse.json({ error: "새 계산 기준으로 다시 계산이 필요합니다. 기본 전적은 계속 이용할 수 있습니다.", errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED", retryable: false }, { status: 409 });
     }
     if ((staleMatchDetected || fallbackTimedOut || fallbackFetchTimedOut || request.signal.aborted) && !hasUsableCanonicalSelection) {
       return NextResponse.json({
@@ -2016,7 +2023,7 @@ export async function POST(request: Request) {
         if (/userStats|benchmarkStats/.test(promptLines[i])) promptLines.splice(i, 1);
       }
       promptLines.push(
-        "[ID CARD CONTRACT V2] SERVER_CARD_PLAN_V2가 카드의 유일한 근거입니다. 지정된 topicId 3개를 정확히 한 번씩 반환하고 해당 카드의 evidenceIds만 참조하세요. 제목, 질문, 지표 라벨과 수치는 서버가 표시하므로 생성하지 마세요.",
+        "[ID CARD CONTRACT V2] SERVER_CARD_PLAN_V2가 카드의 유일한 근거입니다. 지정된 topicId 3개를 정확히 한 번씩 반환하고 해당 카드의 evidenceIds만 중복 없이 한 번씩 참조하세요. 제목, 질문, 지표 라벨과 수치는 서버가 표시하므로 생성하지 마세요.",
         "근거를 해석해 두 코치 의견, 근거 설명, 평가, 실천 행동을 작성하세요. 의견에는 숫자나 근거 ID를 반복하지 말고 관측 가능한 행동을 설명하세요. 비교값이 없으면 상위권·동일 티어 비교를 주장하지 마세요. 관측값이 없는 카드에는 근거 부족을 명시하고 evidenceIds는 빈 배열로 반환하세요.",
         "다른 카드의 근거, 다른 모드, AI가 추측한 수치를 사용하지 마세요. reason은 설명문이며 ID가 아닙니다. winner는 kind 또는 spicy만 사용하며 실제 표시 가능 여부는 서버가 검증합니다.",
         "카드에 없는 소생 기여, 교전 주도권, 팀원의 화력 분담, 투척물 보유량은 판단하지 마세요. 평균 화력이 높다는 사실만으로 교전을 주도했다거나 팀원의 지원이 부족했다고 추론하지 마세요. 투척 횟수는 사용 기록이며 보유량이 아닙니다. 백업 시간만으로 복구 성공이나 실패를 단정하지 마세요.",

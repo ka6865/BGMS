@@ -1,3 +1,4 @@
+import { buildCalculationPendingMatch } from "./calculationAvailability";
 import { aggregateSquadObservations } from './squadObservations';
 import { aggregateSquadFocusFire } from "./squadFocusFire";
 import { createClient } from "@/utils/supabase/server";
@@ -39,7 +40,6 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     throw new Error("Database error occurred.");
   }
 
-  let calculationUpgradePending = false;
   const validMatchData = (matchData || [])
     .flatMap((m: any, sourceIndex: number) => {
       const fullResult = getValidFullResultForMatch(m, {
@@ -61,13 +61,10 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
         metadataEvidence: [m, m?.data, fullResult].filter(Boolean),
       }, "ai");
       if (!eligibility.eligible) return [];
-      if (!hasCurrentCalculation(fullResult)) {
-        if (["squad", "squad-fpp"].includes(eligibility.mode ?? "")) calculationUpgradePending = true;
-        return [];
-      }
       return [{
         ...m,
         __sourceIndex: sourceIndex,
+        __calculationPending: !hasCurrentCalculation(fullResult),
         __eligibility: eligibility,
         data: {
           ...(m.data || {}),
@@ -79,10 +76,6 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   const squadMatches = validMatchData.filter((m) => (
     m.__eligibility?.mode === "squad" || m.__eligibility?.mode === "squad-fpp"
   ));
-
-  if (squadMatches.length === 0 && calculationUpgradePending) {
-    return { groups: [], error: "팀 분석 지표 업데이트 준비 중입니다. 기본 전적은 계속 이용할 수 있습니다.", errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED", retryable: false };
-  }
 
   if (validMatchData.length === 0) {
     return {
@@ -161,7 +154,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   const groups = Array.from(groupMap.entries()).map(([normalizedKey, value]) => {
     const latestSelection = selectRecentMatches(selectCandidates(value.matches), { limit: 10 });
     const latestMatches = latestSelection.selected.map((candidate) => candidate.value);
-    const bestMatches = selectBestMatches(latestSelection.selected, { limit: 5 }).map((candidate) => candidate.value);
+    const bestMatches = selectBestMatches(latestSelection.selected.filter(candidate => !candidate.value.__calculationPending), { limit: 5 }).map((candidate) => candidate.value);
     selectedGroupMatches.set(normalizedKey, latestMatches);
     bestGroupMatches.set(normalizedKey, bestMatches);
     return {
@@ -170,6 +163,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       .map(([, displayName]) => displayName)
       .join(", "),
     matchCount: latestMatches.length,
+    calculationPendingMatchCount: latestMatches.filter(match => match.__calculationPending).length,
     matchIds: latestMatches.map((match) => match.match_id),
     members: Array.from(value.memberNamesByKey.entries())
       .sort(([a], [b]) => a.localeCompare(b))
@@ -192,7 +186,16 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       .map(([, displayName]) => displayName)
       .join(", ") === groupKey)?.[0];
   if (!normalizedGroupKey) throw new Error("Selected squad group not found.");
-  const targetMatches = selectedGroupMatches.get(normalizedGroupKey) || [];
+  const allTargetMatches = selectedGroupMatches.get(normalizedGroupKey) || [];
+  const targetMatches = allTargetMatches.filter(match => !match.__calculationPending);
+  if (targetMatches.length === 0) {
+    return {
+      groupKey, groups, analysisAvailability: "basic_only" as const,
+      analysisUnavailableReason: "calculation_upgrade_required" as const,
+      matchCount: allTargetMatches.length,
+      basicMatches: allTargetMatches.map(match => buildCalculationPendingMatch({ ...match.data.fullResult, matchId: match.match_id })),
+    };
+  }
   const analysisMatches = bestGroupMatches.get(normalizedGroupKey) || [];
   const matchCount = analysisMatches.length;
 
@@ -374,6 +377,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     // callers can still label the complete latest-ten window accurately.
     matchCount,
     latestMatchCount: targetMatches.length,
+    calculationPendingMatchCount: allTargetMatches.length - targetMatches.length,
     bestMatchCount: analysisMatches.length,
     matchesSummary,
     selectedMatchIds: analysisMatches.map((match) => match.match_id),

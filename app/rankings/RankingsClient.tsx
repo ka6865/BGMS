@@ -102,8 +102,8 @@ function RankRow({
 }) {
   const router = useRouter();
   const medal = RANK_MEDAL[entry.rank];
-  const tierColor = TIER_COLOR[entry.tier || 'C'] || 'text-gray-400';
-  const tierBg = TIER_BG[entry.tier || 'C'] || 'bg-gray-400/10 border-gray-400/20';
+  const tierColor = TIER_COLOR[entry.tier || ''] || 'text-gray-400';
+  const tierBg = TIER_BG[entry.tier || ''] || 'bg-gray-400/10 border-gray-400/20';
 
   const handleClick = () => {
     const displayName = entry.nickname || entry.player_id;
@@ -135,7 +135,7 @@ function RankRow({
             {entry.nickname || entry.player_id}
           </span>
           <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold border ${tierBg} ${tierColor} flex-shrink-0`}>
-            {entry.tier || 'C'}
+            {entry.tier || '등급 보류'}
           </span>
         </div>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">

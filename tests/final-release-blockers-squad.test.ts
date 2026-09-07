@@ -158,12 +158,26 @@ describe("strict squad analysis population and scope",()=>{
   it('reports old squad arithmetic as upgrade pending, not missing match history',async()=>{
     configureSquadClient(queryChain({data:[canonicalRow(1,{calculationVersion:undefined})],error:null}));
     const {getSquadAnalysisData}=await import('@/lib/pubg-analysis/squadAnalysis');
-    expect(await getSquadAnalysisData('Player_A','steam')).toMatchObject({errorCode:'PUBG_CALCULATION_UPGRADE_REQUIRED',retryable:false});
+    expect(await getSquadAnalysisData('Player_A','steam')).toMatchObject({groups: [{groupKey: 'Teammate_B', matchCount: 1, calculationPendingMatchCount: 1}]});
   });
   it('reports pending squad history even when a current duo result is available',async()=>{
     configureSquadClient(queryChain({data:[canonicalRow(1,{calculationVersion:1}),canonicalRow(2,{gameMode:'duo'})],error:null}));
     const {getSquadAnalysisData}=await import('@/lib/pubg-analysis/squadAnalysis');
-    expect(await getSquadAnalysisData('Player_A','steam')).toMatchObject({errorCode:'PUBG_CALCULATION_UPGRADE_REQUIRED',retryable:false});
+    expect(await getSquadAnalysisData('Player_A','steam')).toMatchObject({groups: [{groupKey: 'Teammate_B', matchCount: 1, calculationPendingMatchCount: 1}]});
+  });
+  it('returns basic squad history while excluding old tactical values from the selected group', async () => {
+    configureSquadClient(queryChain({data: [canonicalRow(1, {calculationVersion: undefined})], error: null}));
+    const {getSquadAnalysisData} = await import('@/lib/pubg-analysis/squadAnalysis');
+    const result: any = await getSquadAnalysisData('Player_A', 'steam', 'Teammate_B');
+    expect(result).toMatchObject({analysisAvailability: 'basic_only', matchCount: 1, basicMatches: [{stats: {damageDealt: 100, winPlace: 1}}]});
+    expect(result).not.toHaveProperty('scores');
+    expect(result.basicMatches[0]).not.toHaveProperty('tradeStats');
+  });
+  it('does not aggregate an old calculation into a current squad observation', async () => {
+    configureSquadClient(queryChain({data: [canonicalRow(1, {calculationVersion: undefined, squadObservation: observation({revives: 99})}), canonicalRow(2, {squadObservation: observation()})], error: null}));
+    const {getSquadAnalysisData} = await import('@/lib/pubg-analysis/squadAnalysis');
+    const result: any = await getSquadAnalysisData('Player_A', 'steam', 'Teammate_B');
+    expect(result).toMatchObject({matchCount: 1, calculationPendingMatchCount: 1, stats: {totalRevives: 1}});
   });
   it('still fails when the canonical processed-record query fails' ,async()=>{
     configureSquadClient(queryChain({data:null,error:{message:'database unavailable'}}));

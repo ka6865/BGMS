@@ -221,10 +221,8 @@ const MATCH_PARTICIPANT_NOT_FOUND_MESSAGE = "해당 매치에서 플레이어 �
 const MATCH_CACHE_UNAVAILABLE_MESSAGE = "상세 분석 저장소가 일시적으로 불안정합니다. 잠시 후 다시 시도해 주세요.";
 const MATCH_RATE_LIMITED_MESSAGE = "PUBG API 호출 한도가 일시적으로 초과되었습니다. 잠시 후 다시 시도해 주세요.";
 const MATCH_TIMEOUT_MESSAGE = "상세 분석 요청 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.";
-const MATCH_CALCULATION_UPGRADE_MESSAGE = "분석 지표 업데이트 준비 중";
-const MATCH_CALCULATION_UPGRADE_DETAIL = "기본 전적은 계속 확인할 수 있습니다. 업데이트가 완료되면 상세 분석을 다시 이용할 수 있습니다.";
-const AI_ANALYSIS_RETRY_DELAY_MS = 2_500;
-const AI_ANALYSIS_MAX_AUTO_RETRIES = 1;
+const MATCH_CALCULATION_UPGRADE_MESSAGE = "새 계산 기준 확인이 필요한 전적입니다";
+const MATCH_CALCULATION_UPGRADE_DETAIL = "기본 전적은 계속 확인할 수 있습니다. 이 화면에서는 원본 보관 여부나 갱신 진행 상태를 확인할 수 없습니다.";
 const AI_ANALYSIS_CLIENT_SAFETY_TIMEOUT_MS = 45_000;
 
 function classifyAiAnalysisError(
@@ -309,13 +307,6 @@ function isAbortError(error: unknown) {
     : Boolean(error && typeof error === "object" && "name" in error && error.name === "AbortError");
 }
 
-function isRetryableAiAnalysisError(error: unknown): error is AiAnalysisRequestError {
-  if (!(error instanceof AiAnalysisRequestError)) return false;
-  return error.retryable
-    || (error.status === 409 && error.errorCode === "PUBG_AI_CANONICAL_NOT_READY")
-    || (error.status === 504 && error.errorCode === "PUBG_AI_ROUTE_TIMEOUT");
-}
-
 function getMatchStatusBorder(summary?: MatchSummaryData | MatchData | null): string {
   if (!summary) return "border-l-white/20";
   const mode = (summary.gameMode || "").toLowerCase();
@@ -375,7 +366,6 @@ export const ExpandedMatchDetails = ({
   const [coachingStyle, setCoachingStyle] = useState<"mild" | "spicy">("spicy");
   const [analysis, setAnalysis] = useState<string | null>(null);
   const [analysisError, setAnalysisError] = useState<AiAnalysisRequestError | null>(null);
-  const [analysisRetryMessage, setAnalysisRetryMessage] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -645,11 +635,9 @@ export const ExpandedMatchDetails = ({
     isAnalyzingRef.current = true;
     setAnalysis("");
     setAnalysisError(null);
-    setAnalysisRetryMessage(null);
 
     const generation = ++aiGenerationRef.current;
     let activeAbortController: AbortController | null = null;
-    let retryCount = 0;
 
     // GA4 이벤트 트래킹: AI 코칭 시작
     trackEvent({
@@ -661,9 +649,6 @@ export const ExpandedMatchDetails = ({
     });
 
     const isCurrentOwner = () => generation === aiGenerationRef.current;
-    const waitForRetry = () => new Promise<void>((resolve) => {
-      setTimeout(resolve, AI_ANALYSIS_RETRY_DELAY_MS);
-    });
     const parseStreamResponse = async (res: Response, attemptSignal: AbortSignal): Promise<string> => {
       const reader = res.body?.getReader();
       if (!reader) {
@@ -868,7 +853,6 @@ export const ExpandedMatchDetails = ({
 
           setAnalysis(responseText);
           setAnalysisError(null);
-          setAnalysisRetryMessage(null);
           trackEvent({
             name: "feature_consumption",
             params: {
@@ -891,20 +875,7 @@ export const ExpandedMatchDetails = ({
                 retryable: true,
               });
 
-          if (isRetryableAiAnalysisError(error) && retryCount < AI_ANALYSIS_MAX_AUTO_RETRIES) {
-            retryCount += 1;
-            setAnalysis("");
-            setAnalysisError(null);
-            setAnalysisRetryMessage(`AI 분석 서버가 잠깐 불안정해 자동 재시도 중입니다. (${retryCount}/${AI_ANALYSIS_MAX_AUTO_RETRIES})`);
-            abortController.abort();
-            await waitForRetry();
-            if (!isCurrentOwner()) return;
-            setAnalysisRetryMessage(null);
-            continue;
-          }
-
           setAnalysis("");
-          setAnalysisRetryMessage(null);
           setAnalysisError(error);
           trackEvent({
             name: "feature_consumption",
@@ -999,6 +970,28 @@ export const ExpandedMatchDetails = ({
             매치 상세 불러오기
           </button>
         </div>
+      </div>
+    );
+  }
+
+  if (matchData.analysisAvailability === "basic_only") {
+    const value = (input: unknown, unit = "") => typeof input === "number" && Number.isFinite(input)
+      ? `${Math.round(input * 10) / 10}${unit}` : "기록 없음";
+    return (
+      <div data-testid="match-basic-only" className={`rounded-b-2xl border border-t-0 border-white/10 border-l-4 ${statusBorder} bg-[#141414] p-4`}>
+        <p className="text-sm font-bold text-white">기본 경기 기록</p>
+        <p className="mt-2 text-xs leading-relaxed text-white/60">전술 지표를 새 기준으로 다시 계산해야 하는 경기입니다. 킬·피해량·순위는 확인할 수 있으며, 전술 평가와 AI 코칭은 재계산 후 제공됩니다.</p>
+        <dl className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          {[
+            ["순위", value(matchData.stats.winPlace, "위")],
+            ["킬", value(matchData.stats.kills)],
+            ["피해량", value(matchData.stats.damageDealt)],
+            ["어시스트", value(matchData.stats.assists)],
+            ["기절시킴", value(matchData.stats.DBNOs)],
+            ["헤드샷", value(matchData.stats.headshotKills)],
+          ].map(([label, record]) => <div key={label}><dt className="text-xs text-white/50">{label}</dt><dd className="mt-1 text-lg font-bold text-white">{record}</dd></div>)}
+        </dl>
+        <button type="button" onClick={handleInternalReplay} className="mt-4 min-h-11 rounded-lg border border-white/20 px-4 text-sm font-bold text-white">2D 리플레이 열기</button>
       </div>
     );
   }
@@ -1440,7 +1433,6 @@ export const ExpandedMatchDetails = ({
                       setCoachingStyle("mild");
                       setAnalysis(null);
                       setAnalysisError(null);
-                      setAnalysisRetryMessage(null);
                     }}
                     className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
                       coachingStyle === 'mild'
@@ -1456,7 +1448,6 @@ export const ExpandedMatchDetails = ({
                       setCoachingStyle("spicy");
                       setAnalysis(null);
                       setAnalysisError(null);
-                      setAnalysisRetryMessage(null);
                     }}
                     className={`px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${
                       coachingStyle === 'spicy'
@@ -1470,15 +1461,6 @@ export const ExpandedMatchDetails = ({
                 </div>
               </div>
 
-              {analysisRetryMessage && (
-                <div
-                  role="status"
-                  aria-label="AI 분석 자동 재시도"
-                  className="mb-4 rounded-2xl border border-indigo-500/20 bg-indigo-500/10 p-4 text-center text-sm font-bold text-indigo-200"
-                >
-                  {analysisRetryMessage}
-                </div>
-              )}
               {analysisError && (
                 <div
                   role="alert"

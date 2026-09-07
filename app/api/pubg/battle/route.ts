@@ -132,7 +132,7 @@ export async function GET(request: Request) {
   }
 
   const SELECT_COLS = [
-    "damage", "kills", "initiative_rate", "reversal_rate", "counter_latency_ms", "revive_rate", "trade_rate",
+    "calculation_version", "damage", "kills", "initiative_rate", "reversal_rate", "counter_latency_ms", "revive_rate", "trade_rate",
     "duel_win_rate", "solo_kill_rate", "death_phase", "tier", "score", "game_mode", "created_at", "platform",
   ].join(", ");
 
@@ -142,7 +142,6 @@ export async function GET(request: Request) {
       .select(SELECT_COLS)
       .eq("player_id", player.playerId)
       .eq("platform", player.platform)
-      .eq("calculation_version", ANALYSIS_CALCULATION_VERSION)
       .eq("filter_version", BENCHMARK_FILTER_VERSION)
       .eq("population_evidence_version", BENCHMARK_POPULATION_EVIDENCE_VERSION)
       .in("game_mode", ["solo", "solo-fpp", "duo", "duo-fpp", "squad", "squad-fpp"])
@@ -183,13 +182,17 @@ export async function GET(request: Request) {
   const rows2 = availableRows2.slice(0, comparisonMatchCount);
 
   // 항목별 평균 계산: 두 플레이어 중 더 적은 분석 경기 수를 기준으로 동일 개수 비교
+  // Keep official kills/damage available; compare tactical values only when
+  // both complete comparison windows use the current calculation.
+  const tacticalComparable = [...rows1, ...rows2].every(row => row.calculation_version === ANALYSIS_CALCULATION_VERSION);
   const avg1 = Object.fromEntries(METRICS.map((m) => [m.key, calcAvg(rows1, m.key)]));
   const avg2 = Object.fromEntries(METRICS.map((m) => [m.key, calcAvg(rows2, m.key)]));
 
   // 항목별 승/패 판정
   const comparisons = METRICS.map((m) => {
-    const v1 = avg1[m.key] as number | null;
-    const v2 = avg2[m.key] as number | null;
+    const basicMetric = m.key === "damage" || m.key === "kills";
+    const v1 = basicMetric || tacticalComparable ? avg1[m.key] as number | null : null;
+    const v2 = basicMetric || tacticalComparable ? avg2[m.key] as number | null : null;
     
     let winner: "nick1" | "nick2" | "draw" = "draw";
 
@@ -207,16 +210,16 @@ export async function GET(request: Request) {
       winner = diff < threshold ? "draw" : m.higherIsBetter ? (v1 > v2 ? "nick1" : "nick2") : (v1 < v2 ? "nick1" : "nick2");
     }
 
-    return { ...m, v1: v1 ?? 0, v2: v2 ?? 0, winner };
+    return { ...m, v1, v2, winner, comparable: v1 !== null && v2 !== null };
   });
 
-  const tier1 = estimateAverageTierFromRows(rows1);
-  const tier2 = estimateAverageTierFromRows(rows2);
+  const tier1 = tacticalComparable ? estimateAverageTierFromRows(rows1) : null;
+  const tier2 = tacticalComparable ? estimateAverageTierFromRows(rows2) : null;
 
   const score = {
     nick1: comparisons.filter((c) => c.winner === "nick1").length,
     nick2: comparisons.filter((c) => c.winner === "nick2").length,
-    draw:  comparisons.filter((c) => c.winner === "draw").length,
+    draw:  comparisons.filter((c) => c.comparable && c.winner === "draw").length,
   };
 
   const overallWinner =
@@ -235,6 +238,8 @@ export async function GET(request: Request) {
     availableMatchCount2: availableRows2.length,
     comparisonMatchCount,
     comparisons,
+    tacticalComparable,
+    withheldCount: comparisons.filter(c => !c.comparable).length,
     score,
     overallWinner,
   });

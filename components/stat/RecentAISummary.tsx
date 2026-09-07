@@ -526,8 +526,8 @@ class AiSummaryRequestError extends Error {
 }
 
 const CALCULATION_UPGRADE_ERROR_CODE = "PUBG_CALCULATION_UPGRADE_REQUIRED";
-const CALCULATION_UPGRADE_MESSAGE = "분석 지표 업데이트 준비 중";
-const CALCULATION_UPGRADE_DETAIL = "기본 전적은 계속 확인할 수 있습니다. 업데이트가 완료된 뒤 최근 요약을 이용할 수 있습니다.";
+const CALCULATION_UPGRADE_MESSAGE = "새 계산 기준 확인이 필요한 전적입니다";
+const CALCULATION_UPGRADE_DETAIL = "기본 전적은 계속 확인할 수 있습니다. 이 화면에서는 원본 보관 여부나 갱신 진행 상태를 확인할 수 없습니다.";
 
 export const RecentAISummary = ({
   matchIds,
@@ -566,14 +566,9 @@ export const RecentAISummary = ({
   const dataIdentityRef = useRef<string | null>(null);
   const summaryCardsRef = useRef<SummaryCard[] | null>(null);
   const summaryContractVersionRef = useRef<2 | null>(null);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onSummaryChangeRef = useRef(onSummaryChange);
   const emittedSummaryRef = useRef<string | null>(null);
-  // [AUTO-RETRY] 일시적 Gemini 스트림 오류 자동 재시도
-  const retryCountRef = useRef(0);
-  const MAX_AUTO_RETRIES = 1;
   const AI_SUMMARY_CLIENT_SAFETY_TIMEOUT_MS = 55_000;
-  const [retryMessage, setRetryMessage] = useState<string | null>(null);
   const { isAnalyzing: isGlobalAnalyzing } = useAIStatus();
   const { user } = useAuth();
   const router = useRouter();
@@ -601,21 +596,6 @@ export const RecentAISummary = ({
   useEffect(() => {
     onSummaryChangeRef.current = onSummaryChange;
   }, [onSummaryChange]);
-
-  /** 일시적 오류 판별 (Failed to parse stream, 네트워크 순단, 서버 과부하 등) */
-  const isTransientError = (msg: string) => {
-    const lower = msg.toLowerCase();
-    return (
-      lower.includes('parse stream') ||
-      lower.includes('network') ||
-      lower.includes('fetch') ||
-      lower.includes('timeout') ||
-      lower.includes('overloaded') ||
-      lower.includes('503') ||
-      lower.includes('502') ||
-      lower.includes('500')
-    );
-  };
 
   const handleFetchSummary = async (force = false) => {
     const requestedIdentity = identity;
@@ -647,15 +627,6 @@ export const RecentAISummary = ({
 
     if (!aiManager.startAnalysis("summary")) return;
 
-    if (retryTimerRef.current) {
-      clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
-
-    // 수동 시작 시 재시도 카운트 초기화
-    if (!retryCountRef.current) retryCountRef.current = 0;
-    setRetryMessage(null);
-
     setLoading(true);
     isLoadingRef.current = true;
     setError(null);
@@ -685,28 +656,12 @@ export const RecentAISummary = ({
       && identityIsCurrent()
     );
     const canWriteRequest = () => ownsRequest() && !abortController.signal.aborted;
-    const scheduleRetry = (message: string) => {
-      if (!canWriteRequest() || retryTimerRef.current || retryCountRef.current >= MAX_AUTO_RETRIES) return false;
-      retryCountRef.current += 1;
-      setRetryMessage(`${message} (${retryCountRef.current}/${MAX_AUTO_RETRIES})`);
-      retryTimerRef.current = setTimeout(() => {
-        retryTimerRef.current = null;
-        if (!identityIsCurrent()) return;
-        setRetryMessage(null);
-        void handleFetchSummary(true);
-      }, 2500);
-      return true;
-    };
-
     // Route maxDuration(60초)보다 여유를 둬 cold path의 정상 응답을 재시도로 오인하지 않는다.
     const safetyTimeout = setTimeout(() => {
       if (!canWriteRequest()) return;
       console.warn("[AI-SUMMARY] Safety timeout triggered. Forcing cleanup.");
       readerRef.current?.cancel().catch(() => {});
-      if (!scheduleRetry("AI 서버 응답이 느려요. 잠깐만요...")) {
-        retryCountRef.current = 0;
-        setError(new AiSummaryRequestError("분석 서버 응답이 너무 느립니다. 잠시 후 다시 시도해주세요."));
-      }
+      setError(new AiSummaryRequestError("분석 서버 응답이 너무 느립니다. 잠시 후 다시 시도해주세요."));
       abortController.abort();
     }, AI_SUMMARY_CLIENT_SAFETY_TIMEOUT_MS);
 
@@ -898,14 +853,7 @@ export const RecentAISummary = ({
                     // successful analysis surface while a retry/CTA is shown.
                     clearPartialStreamState();
                     console.error("[AI-SUMMARY] Server reported failure:", errMsg);
-                    if (!(retryable || isTransientError(errMsg)) || !scheduleRetry(
-                      errorCode === "PUBG_AI_CANONICAL_NOT_READY"
-                        ? "매치 분석 데이터가 아직 준비되지 않았어요. 자동으로 재시도 중이에요."
-                        : "AI 서버가 잠깐 바빴어요. 자동으로 재시도 중이에요.",
-                    )) {
-                      retryCountRef.current = 0;
-                      setError(requestError);
-                    }
+                    setError(requestError);
                   } else {
                     try {
                       // The server emits route-owned visuals separately. A
@@ -955,8 +903,6 @@ export const RecentAISummary = ({
                         ...finalData,
                         visuals: routeOwnedVisuals ?? previous?.visuals,
                       }));
-                      retryCountRef.current = 0;
-
                       // GA4 이벤트 트래킹: 10경기 요약 성공
                       trackEvent({
                         name: "feature_consumption",
@@ -972,10 +918,7 @@ export const RecentAISummary = ({
                         errorCode: "PUBG_AI_INVALID_FINAL",
                         retryable: true,
                       });
-                      if (!scheduleRetry("분석 결과가 불완전해요. 자동으로 재시도 중이에요.")) {
-                        retryCountRef.current = 0;
-                        setError(parseRequestError);
-                      }
+                      setError(parseRequestError);
 
                       // GA4 이벤트 트래킹: 10경기 요약 파싱 실패
                       trackEvent({
@@ -1043,21 +986,7 @@ export const RecentAISummary = ({
         });
 
         const requestError = err instanceof AiSummaryRequestError ? err : null;
-        const calculationUpgradePending = requestError?.status === 409
-          && requestError.errorCode === CALCULATION_UPGRADE_ERROR_CODE;
-        const canonicalNotReady = requestError?.status === 409
-          && requestError.errorCode === "PUBG_AI_CANONICAL_NOT_READY"
-          && requestError.retryable;
-        const shouldRetry = !calculationUpgradePending
-          && (requestError?.retryable === true || isTransientError(errMsg));
-        if (!shouldRetry || !scheduleRetry(
-          canonicalNotReady
-            ? "매치 분석 데이터가 아직 준비되지 않았어요. 자동으로 재시도 중이에요."
-            : "AI 서버가 잠깐 바빴어요. 자동으로 재시도 중이에요.",
-        )) {
-          retryCountRef.current = 0;
-          setError(requestError ?? new AiSummaryRequestError("AI 분석 중 오류가 발생했어요. 다시 시도해주세요."));
-        }
+        setError(requestError ?? new AiSummaryRequestError("AI 분석 중 오류가 발생했어요. 다시 시도해주세요."));
       }
     } finally {
       clearTimeout(safetyTimeout);
@@ -1147,7 +1076,6 @@ export const RecentAISummary = ({
     setStreamingText("");
     setLoading(false);
     setError(null);
-    setRetryMessage(null);
     isLoadingRef.current = false;
     textBufferRef.current = "";
     lineBufferRef.current = "";
@@ -1159,10 +1087,6 @@ export const RecentAISummary = ({
 
     return () => {
       generationRef.current += 1;
-      if (retryTimerRef.current) {
-        clearTimeout(retryTimerRef.current);
-        retryTimerRef.current = null;
-      }
       const owner = requestOwnerRef.current;
       requestOwnerRef.current = null;
       readerRef.current?.cancel().catch(() => {});
@@ -1204,23 +1128,7 @@ export const RecentAISummary = ({
   // Hide the previous selection during the render before its reset effect.
   if (renderIdentity !== identity) return null;
 
-  // [AUTO-RETRY] 재시도 중 메시지 표시
-  if (retryMessage && !summaryCards) {
-    return (
-      <div className="p-8 bg-white/5 rounded-3xl border border-white/10 text-center">
-        <div className="w-10 h-10 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin mx-auto mb-4" />
-        <p className="text-indigo-300 text-sm font-medium">{retryMessage}</p>
-        <p className="text-gray-600 text-xs mt-2">잠시만 기다려주세요</p>
-      </div>
-    );
-  }
-
   const retrySummary = () => {
-    if (retryTimerRef.current) {
-      clearTimeout(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
-    retryCountRef.current = 0;
     dataIdentityRef.current = null;
     setError(null);
     if (summaryContractVersionRef.current !== 2) setDebateData(null);
@@ -1325,7 +1233,6 @@ export const RecentAISummary = ({
     evidence: SummaryEvidence[];
   }, idx: number) => {
     const interpretationPending = card.analysisStatus === "pending"
-      && !retryMessage
       && (loading || error?.errorCode === CALCULATION_UPGRADE_ERROR_CODE);
     const interpretationReady = card.analysisStatus === "ready";
     const interpretationStatus = interpretationReady
@@ -1475,14 +1382,7 @@ export const RecentAISummary = ({
 
   return (
     <div className="w-full flex flex-col gap-6">
-      {summaryCards && retryMessage && (
-        <div className="p-5 bg-indigo-500/5 border border-indigo-500/20 rounded-2xl text-center">
-          <div className="w-8 h-8 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-indigo-300 text-sm font-medium">{retryMessage}</p>
-          <p className="text-gray-600 text-xs mt-2">확인된 데이터는 계속 표시됩니다.</p>
-        </div>
-      )}
-      {summaryCards && error && !retryMessage && (
+      {summaryCards && error && (
         <div role="alert" className="p-5 bg-white/5 border border-white/10 rounded-2xl text-center">
           {error.errorCode === CALCULATION_UPGRADE_ERROR_CODE ? (
             <>
@@ -1530,7 +1430,7 @@ export const RecentAISummary = ({
                 </p>
                 {calculationPendingCount > 0 && (
                   <p role="status" className="text-xs font-semibold leading-relaxed text-sky-200/80">
-                    계산 업데이트 대기 {calculationPendingCount}경기는 분석에서 제외했습니다.
+                    새 계산 기준 확인이 필요한 {calculationPendingCount}경기는 분석에서 제외했습니다.
                   </p>
                 )}
               </div>

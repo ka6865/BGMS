@@ -22,7 +22,7 @@ const getCachedRankings = unstable_cache(
     ]);
     return { damage, kills, tier };
   },
-  ['rankings-all'],
+  ['rankings-all-basic-availability-v2'],
   { revalidate: 1800, tags: ['rankings'] }
 );
 

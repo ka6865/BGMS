@@ -218,7 +218,7 @@ describe("MatchCard isolated detail state", () => {
     renderCard({ onFailure, onRecovery });
 
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
-    expect(await screen.findByText("분석 지표 업데이트 준비 중")).toBeInTheDocument();
+    expect(await screen.findByText("새 계산 기준 확인이 필요한 전적입니다")).toBeInTheDocument();
     expect(screen.getByText(/기본 전적은 계속 확인할 수 있습니다/)).toBeInTheDocument();
     expect(screen.getByText("에란겔")).toBeVisible();
     expect(screen.queryByRole("button", { name: "상세 다시 시도" })).not.toBeInTheDocument();
@@ -525,7 +525,7 @@ describe("MatchCard isolated detail state", () => {
     expect(onRecovery.mock.calls.filter(([reason]) => reason === "analysis_failed")).toHaveLength(1);
   });
 
-  it("retryable AI 504는 정확히 한 번 자동 재시도하고 성공 전까지 failure/recovery를 기록하지 않는다", async () => {
+  it("retryable AI 504도 자동 재호출하지 않고 명시적 재시도를 기다린다", async () => {
     const onFailure = vi.fn();
     const onRecovery = vi.fn();
     let aiAttempt = 0;
@@ -553,7 +553,7 @@ describe("MatchCard isolated detail state", () => {
     fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
     await flushMicrotasks();
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
-    expect(onFailure).not.toHaveBeenCalled();
+    expect(onFailure).toHaveBeenCalledWith("analysis_failed");
     expect(onRecovery).not.toHaveBeenCalledWith("analysis_failed");
     expect(aiSuccessEvents()).toHaveLength(0);
 
@@ -561,19 +561,18 @@ describe("MatchCard isolated detail state", () => {
       await vi.advanceTimersByTimeAsync(2_500);
     });
     await flushMicrotasks();
-    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(2);
-    expect(screen.getByText(/recovered 504 verdict/)).toBeInTheDocument();
-    expect(onFailure).not.toHaveBeenCalled();
-    expect(onRecovery.mock.calls.filter(([reason]) => reason === "analysis_failed")).toHaveLength(1);
-    expect(aiSuccessEvents()).toHaveLength(1);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" })).toBeInTheDocument();
+    expect(onRecovery).not.toHaveBeenCalledWith("analysis_failed");
+    expect(aiSuccessEvents()).toHaveLength(0);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(2);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
   });
 
-  it("retryable AI 409 canonical-not-ready도 정확히 한 번 자동 재시도한다", async () => {
+  it("retryable AI 409 canonical-not-ready도 자동 재호출하지 않는다", async () => {
     let aiAttempt = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
@@ -605,13 +604,13 @@ describe("MatchCard isolated detail state", () => {
       await vi.advanceTimersByTimeAsync(2_500);
     });
     await flushMicrotasks();
-    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(2);
-    expect(screen.getByText(/recovered 409 verdict/)).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" })).toBeInTheDocument();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(2);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
   });
 
   it("비재시도 AI 오류는 응답 error/errorCode를 보존한 최종 실패로 끝나고 재호출하지 않는다", async () => {
@@ -671,7 +670,7 @@ describe("MatchCard isolated detail state", () => {
     fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
     await flushMicrotasks();
 
-    expect(screen.getByRole("alert", { name: "AI 분석 실패" })).toHaveTextContent("분석 지표 업데이트 준비 중");
+    expect(screen.getByRole("alert", { name: "AI 분석 실패" })).toHaveTextContent("새 계산 기준 확인이 필요한 전적입니다");
     expect(screen.getByRole("alert", { name: "AI 분석 실패" })).toHaveTextContent(/기본 전적은 계속 확인할 수 있습니다/);
     expect(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" })).toBeDisabled();
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
@@ -680,7 +679,7 @@ describe("MatchCard isolated detail state", () => {
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
   });
 
-  it("스트림 error+done(valid:false)는 retryable failure로 한 번 재시도하고 성공만 기록한다", async () => {
+  it("스트림 error+done(valid:false)는 자동 재호출하지 않고 실패를 남긴다", async () => {
     let aiAttempt = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
@@ -717,7 +716,7 @@ describe("MatchCard isolated detail state", () => {
     fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
     await flushMicrotasks();
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
-    expect(onFailure).not.toHaveBeenCalled();
+    expect(onFailure).toHaveBeenCalledWith("analysis_failed");
     expect(onRecovery).not.toHaveBeenCalledWith("analysis_failed");
     expect(aiSuccessEvents()).toHaveLength(0);
 
@@ -725,18 +724,16 @@ describe("MatchCard isolated detail state", () => {
       await vi.advanceTimersByTimeAsync(2_500);
     });
     await flushMicrotasks();
-    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(2);
-    expect(screen.getByText(/recovered streamed verdict/)).toBeInTheDocument();
-    expect(onFailure).not.toHaveBeenCalled();
-    expect(onRecovery.mock.calls.filter(([reason]) => reason === "analysis_failed")).toHaveLength(1);
-    expect(aiSuccessEvents()).toHaveLength(1);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
+    expect(onRecovery).not.toHaveBeenCalledWith("analysis_failed");
+    expect(aiSuccessEvents()).toHaveLength(0);
   });
 
   it.each([
     ["empty", new Response(null, { status: 200, headers: { "Content-Type": "application/x-ndjson" } })],
     ["chunk-no-done", aiStreamResponse([{ type: "chunk", data: "truncated analysis" }])],
     ["malformed-only", new Response("{not-json}\n", { status: 200, headers: { "Content-Type": "application/x-ndjson" } })],
-  ])("%s stream은 성공으로 처리하지 않고 최대 한 번 재시도한다", async (label, firstResponse) => {
+  ])("%s stream은 성공으로 처리하지 않고 자동 재호출하지 않는다", async (label, firstResponse) => {
     let aiAttempt = 0;
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
@@ -757,7 +754,7 @@ describe("MatchCard isolated detail state", () => {
     fireEvent.click(screen.getByRole("button", { name: "이 매치 정밀 분석 시작하기" }));
     await flushMicrotasks();
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
-    expect(onFailure).not.toHaveBeenCalled();
+    expect(onFailure).toHaveBeenCalledWith("analysis_failed");
     expect(onRecovery).not.toHaveBeenCalledWith("analysis_failed");
     expect(aiSuccessEvents()).toHaveLength(0);
 
@@ -765,16 +762,14 @@ describe("MatchCard isolated detail state", () => {
       await vi.advanceTimersByTimeAsync(2_500);
     });
     await flushMicrotasks();
-    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(2);
-    expect(screen.getByText(new RegExp(`recovered ${label} verdict`))).toBeInTheDocument();
-    expect(onFailure).not.toHaveBeenCalled();
-    expect(onRecovery.mock.calls.filter(([reason]) => reason === "analysis_failed")).toHaveLength(1);
-    expect(aiSuccessEvents()).toHaveLength(1);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
+    expect(onRecovery).not.toHaveBeenCalledWith("analysis_failed");
+    expect(aiSuccessEvents()).toHaveLength(0);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(2);
+    expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
   });
 
   it("NDJSON trailing buffer의 chunk+done은 정상 성공으로 처리한다", async () => {
@@ -913,5 +908,24 @@ describe("MatchCard isolated detail state", () => {
 
     expect(signal.aborted).toBe(true);
     expect(onFailure).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("재계산 대기 경기의 기본 기록", () => {
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+  it("기본 기록과 리플레이 링크를 표시하고 이전 전술 평가나 AI 호출을 노출하지 않는다", async () => {
+    const {buildCalculationPendingMatch} = await import("@/lib/pubg-analysis/calculationAvailability");
+    const basic = buildCalculationPendingMatch({...detail(), platform: "steam", player_id: "playerone"});
+    const fetcher = vi.fn().mockResolvedValue(jsonResponse(basic));
+    vi.stubGlobal("fetch", fetcher);
+    render(createElement(ExpandedMatchDetails, {matchId: "match-detail-1", nickname: "PlayerOne", platform: "steam"}));
+    const panel = await screen.findByTestId("match-basic-only");
+    expect(within(panel).getByText("기본 경기 기록")).toBeInTheDocument();
+    expect(within(panel).getByText("피해량")).toBeInTheDocument();
+    expect(within(panel).queryByRole("button", {name: /AI/})).not.toBeInTheDocument();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(panel).getByRole("button", {name: "2D 리플레이 열기"}));
+    expect(mockPush).toHaveBeenCalledWith(expect.stringContaining("playback=match-detail-1"));
   });
 });

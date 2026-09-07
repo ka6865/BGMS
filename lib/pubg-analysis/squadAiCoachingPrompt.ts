@@ -149,7 +149,7 @@ Analyze the provided squad synergy report and write a report.
 - Language: Output fields MUST be written in Korean.
 - Preserve nicknames exactly as provided. Do NOT translate, localize, or Korean-transliterate nicknames such as "KangHeeSung_".
 - Current Average Isolation Index is ${formatObserved(isolationValue)}. ${hasLowIsolation ? "It is below 2.0, so treat formation as good in summary, weakness, coaching, memberFeedbacks, and overallOpinion." : "If you mention spacing, use measured spacing facts only; if unavailable, say it is unavailable."} Do NOT say any member has "고립될 위험", "독단적인 플레이", "너무 멀리", "오합지졸", "1인 솔로 4개", or "혼자 정글북" for this squad.
-- Current top damage share is ${topDamageShareText}. ${topDamageGuidance} Use "주요 화력 담당" or "화력 분담 보완" instead.
+- Current top damage share is ${topDamageShareText}. ${topDamageGuidance} Describe the observed damage share only. Do not replace blame with an unsupported "화력 분담 보완" judgment. Separate conditional practice advice from observed facts.
 - Do NOT claim teammates are used as bait unless the data explicitly contains bait counts or bait death evidence.
 - Forbidden phrases for this input shape: "고립될 위험", "독단적인 플레이", "너무 멀리", "오합지졸", "1인 솔로 4개", "혼자 정글북", "원맨쇼", "혼자 다 해먹", "미끼", "팀이 무너지는 구조", "나머지 팀원들의 화력 지원이 전무", "팀 전체가 휘청", "존재감이 희미", "강희성".
 - CRITICAL: You MUST output ${gradeOutput} in the "squadGrade" property. Do NOT change or recalculate the grade yourself.
@@ -175,7 +175,7 @@ Analyze the provided squad synergy report and write a detailed roast and analysi
 8. Language: Output fields MUST be written in Korean.
 9. Preserve nicknames exactly as provided. Do NOT translate, localize, or Korean-transliterate nicknames such as "KangHeeSung_".
 10. Current Average Isolation Index is ${formatObserved(isolationValue)}. ${hasLowIsolation ? "It is below 2.0, so treat formation as good in summary, weakness, coaching, memberFeedbacks, and overallOpinion." : "If you mention spacing, use measured spacing facts only; if unavailable, say it is unavailable."} Do NOT say any member has "고립될 위험", "독단적인 플레이", "너무 멀리", "오합지졸", "1인 솔로 4개", or "혼자 정글북" for this squad.
-11. Current top damage share is ${topDamageShareText}. ${topDamageGuidance} Use "주요 화력 담당" or "화력 분담 보완" instead.
+11. Current top damage share is ${topDamageShareText}. ${topDamageGuidance} Describe the observed damage share only. Do not replace blame with an unsupported "화력 분담 보완" judgment. Separate conditional practice advice from observed facts.
 12. Do NOT claim teammates are used as bait unless the data explicitly contains bait counts or bait death evidence.
 13. Forbidden phrases for this input shape: "고립될 위험", "독단적인 플레이", "너무 멀리", "오합지졸", "1인 솔로 4개", "혼자 정글북", "원맨쇼", "혼자 다 해먹", "미끼", "팀이 무너지는 구조", "나머지 팀원들의 뇌", "나머지 팀원들의 화력 지원이 전무", "팀 전체가 휘청", "존재감이 희미", "강희성".
 14. CRITICAL: You MUST output ${gradeOutput} in the "squadGrade" property. Do NOT change or recalculate the grade yourself.
