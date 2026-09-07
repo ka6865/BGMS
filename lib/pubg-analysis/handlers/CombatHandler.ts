@@ -6,6 +6,29 @@ import { BaseHandler } from "./BaseHandler";
 const actorLocation = (actor: any) => actor?.location ?? actor?.loc;
 
 export class CombatHandler extends BaseHandler {
+  private readonly revengeWindows = new Map<string, number>();
+  private readonly creditedKills = new Set<string>();
+  private readonly observedKnocks = new Set<string>();
+  private readonly actorIdsByName = new Map<string, string>();
+  private readonly actorNamesById = new Map<string, string>();
+  private rememberActor(actor: any) {
+    const name = normalizeName(actor?.name || "");
+    if (!name || !actor?.accountId) return;
+    this.actorIdsByName.set(name, actor.accountId);
+    this.actorNamesById.set(actor.accountId, name);
+    const pending = this.revengeWindows.get(name);
+    if (pending !== undefined) {
+      this.revengeWindows.set(actor.accountId, pending);
+      this.revengeWindows.delete(name);
+    }
+  }
+  private actorName(actor: any): string {
+    return normalizeName(actor?.name || "") || this.actorNamesById.get(actor?.accountId) || actor?.accountId || "";
+  }
+  private actorKey(actor: any): string {
+    return actor?.accountId || this.actorIdsByName.get(normalizeName(actor?.name || "")) || normalizeName(actor?.name || "");
+  }
+
   constructor(state: AnalysisState) {
     super(state);
   }
@@ -117,6 +140,20 @@ export class CombatHandler extends BaseHandler {
   }
 
   public handleEvent(e: any, ts: number, _elapsed: number) {
+    for (const actor of [e.attacker, e.victim, e.killer, e.finisher, e.dBNOMaker, e.maker, e.character, e.reviver]) this.rememberActor(actor);
+    if (["LogPlayerRevive", "LogPlayerCreate", "LogPlayerRecall", "LogPlayerRecallShip", "LogPlayerRedeploy", "LogPlayerRedeployBRStart", "LogPlayerRedeployBrStart"].includes(e._T)) {
+      const actors = [e.victim || e.character,
+        ...(Array.isArray(e.recalledPlayers) ? e.recalledPlayers.map((entry: any) => entry?.character ?? entry) : []),
+        ...(Array.isArray(e.characters) ? e.characters.map((entry: any) => entry?.character ?? entry) : [])];
+      for (const actor of actors) {
+        this.rememberActor(actor);
+        const key = this.actorKey(actor);
+        this.creditedKills.delete(key);
+        this.revengeWindows.delete(key);
+        this.state.myVictimDamage.delete(this.actorName(actor));
+        for (const knock of this.observedKnocks) if (knock.startsWith(`${key}:`)) this.observedKnocks.delete(knock);
+      }
+    }
     switch (e._T) {
       case "LogPlayerTakeDamage":
         this.handleDamage(e, ts);
@@ -148,7 +185,7 @@ export class CombatHandler extends BaseHandler {
 
   private handleDamage(e: any, ts: number) {
     const attackerName = normalizeName(e.attacker?.name || "");
-    const victimName = normalizeName(e.victim?.name || e.victim?.accountId || "");
+    const victimName = this.actorName(e.victim);
     const damage = e.damage || 0;
 
     if (!e.victim) return;
@@ -225,7 +262,8 @@ export class CombatHandler extends BaseHandler {
           return;
         }
 
-        if (isMeAttacker) {
+        const victimStatus = this.state.playerAliveStatus.get(victimName);
+        if (isMeAttacker && Number.isFinite(damage) && damage > 0 && victimStatus !== "groggy" && victimStatus !== false) {
           const currentMyDmg = this.state.myVictimDamage.get(victimName) || 0;
           this.state.myVictimDamage.set(victimName, currentMyDmg + damage);
         }
@@ -427,7 +465,12 @@ export class CombatHandler extends BaseHandler {
     }
 
     if (isTeammateVictim && !isMeVictim) {
-      if (this.state.playerAliveStatus.get(this.state.lowerNickname) !== false) {
+      const knockKey = `${this.actorKey(e.victim)}:${Number.isFinite(e.dBNOId) && e.dBNOId >= 0 ? `dbno:${e.dBNOId}` : ts}`;
+      const firstKnock = !this.observedKnocks.has(knockKey);
+      this.observedKnocks.add(knockKey);
+      if (firstKnock && this.state.playerAliveStatus.get(this.state.lowerNickname) !== false) {
+        const enemy = this.actorKey(attacker);
+        if (enemy && !this.isTeammate(attacker)) this.revengeWindows.set(enemy, ts);
         this.state.totalTeammateKnocks++;
       }
       this.state.teammateKnockEvents.push(ts);
@@ -453,7 +496,7 @@ export class CombatHandler extends BaseHandler {
   }
 
   private handleKill(e: any, ts: number) {
-    const victimName = normalizeName(e.victim?.name || e.victim?.accountId || "");
+    const victimName = this.actorName(e.victim);
     const isMeKiller = this.isMe(e.killer);
     const isMeFinisher = this.isMe(e.finisher);
     const isMeVictim = this.isMe(e.victim);
@@ -480,26 +523,29 @@ export class CombatHandler extends BaseHandler {
     const wId = getWeaponId(e);
     const attackerObj = e.killer || e.attacker || e.finisher;
 
-    // [V55.2] 트레이드 킬: '내가' 팀원의 복수를 해준 경우 (isMeKiller)
-    if (isMeKiller && victimName && !isTeammateVictim) {
-      const lastTeammateKnock = this.state.teammateKnockEvents.length > 0 ? this.state.teammateKnockEvents[this.state.teammateKnockEvents.length - 1] : 0;
-      if (lastTeammateKnock > 0 && ts - lastTeammateKnock < 30000) {
+    const victimKey = this.actorKey(e.victim);
+    const killKey = victimKey;
+    // An actor-less legacy event must not consume the later attributed KillV2.
+    const firstKill = victimKey && this.actorKey(e.killer) && !this.creditedKills.has(killKey);
+    if (firstKill) {
+      this.creditedKills.add(killKey);
+      const knockTs = this.revengeWindows.get(victimKey);
+      if (isMeKiller && !isTeammateVictim && knockTs !== undefined && ts >= knockTs && ts - knockTs < 30000) {
         this.state.totalTradeKills++;
-        this.state.tradeLatencies.push(ts - lastTeammateKnock);
+        this.state.tradeLatencies.push(ts - knockTs);
       }
-    }
-
-    // [V55.2] 지원 사격(Support): '내가' 데미지를 50 이상 입혔는데, '팀원'이 킬을 한 경우
-    if (isTeammateKiller && !isMeKiller && victimName && !isTeammateVictim) {
-      const myDmgOnVictim = this.state.myVictimDamage.get(victimName) || 0;
-      if (myDmgOnVictim >= 50) {
-        this.state.totalSuppCount++;
+      // A kill by anybody closes this target's revenge window, including recalls.
+      this.revengeWindows.delete(victimKey);
+      if (isTeammateKiller && !isMeKiller && !isTeammateVictim) {
+        this.state.supportTeammateKills++;
+        if ((this.state.myVictimDamage.get(victimName) || 0) >= 50) this.state.totalSuppCount++;
       }
     }
 
     if (isTeammateKiller && !isMeKiller && victimName) {
       this.checkAndResolveInitiativeAssist(victimName);
     }
+    if (firstKill) this.state.myVictimDamage.delete(victimName);
 
     if (isMeKiller || isTeammateKiller) {
       if (wId && wId !== "Unknown" && !isTeammateVictim) {
@@ -664,6 +710,7 @@ export class CombatHandler extends BaseHandler {
   }
 
   private handleRevive(e: any, ts: number) {
+    this.state.myVictimDamage.delete(normalizeName(e.victim?.name || ""));
     const isMeReviver = this.isMe(e.reviver);
     const isTeammateReviver = this.isTeammate(e.reviver);
     const isMeVictim = this.isMe(e.victim);

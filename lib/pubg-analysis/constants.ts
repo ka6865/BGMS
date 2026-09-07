@@ -12,7 +12,7 @@
  *   파일 수준의 캐시 무효화를 수행합니다. (R2 파일명 기반, ISR 무관)
  */
 
-export const ANALYSIS_CALCULATION_VERSION = 1; // Position identity, full analysis projection and recovery arithmetic audit.
+export const ANALYSIS_CALCULATION_VERSION = 2; // Per-throw evidence and target-linked trade/support arithmetic.
 export const RESULT_VERSION = 73.0; // [V73.0] PUBG AI 분석 정확도 감사 기준 결과 버전
 export const TELEMETRY_VERSION = 61.0; // [V61.0] PUBG AI 분석 정확도 감사 기준 telemetry 버전
 export const AI_CACHE_VERSION = "2026-09-02.pubg-ai-accuracy-v3"; // ai-analyze/ai-squad cache contract; v3 requires marked canonical population evidence

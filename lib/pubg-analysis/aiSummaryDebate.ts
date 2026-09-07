@@ -907,8 +907,9 @@ function normalizeUnquantifiedComparison(
 export function sanitizeUnsupportedAiSummaryBenchmarkLanguage(
   value: string,
   canonicalEvidence: CanonicalDebateEvidenceMap = {},
-  options: { allowedMode?: string } = {},
+  options: { allowedMode?: string; observedUserMetricKeys?: readonly string[] } = {},
 ): string {
+  const observedUserKeys = new Set(options.observedUserMetricKeys || []);
   const supportedMetricKeys = new Set(Object.keys(canonicalEvidence));
   const allowedMode = typeof options.allowedMode === "string" ? normalizeSummaryMode(options.allowedMode) : null;
   // Never pre-clean a value that already names another mode. The original
@@ -943,7 +944,9 @@ export function sanitizeUnsupportedAiSummaryBenchmarkLanguage(
     // route-owned evidence map. Removing only one phrase can strand its
     // provider number or leave a directional conclusion attached to a
     // supported metric, so fail closed for the whole clause.
-    if (unsupportedKeys.length > 0 || (hasBenchmarkLanguage && keys.length === 0)) return;
+    const observedNarrative = !hasBenchmarkLanguage && !hasNumericValue
+      && unsupportedKeys.every((key) => observedUserKeys.has(key));
+    if ((unsupportedKeys.length > 0 && !observedNarrative) || (hasBenchmarkLanguage && keys.length === 0)) return;
 
     // A free numeric token must either be attached to a recognized metric or
     // be the explicit sample-window count ("최근 N판"/"지난 N경기"). This is

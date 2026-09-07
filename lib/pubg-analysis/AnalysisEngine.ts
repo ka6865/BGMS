@@ -88,6 +88,8 @@ export class AnalysisEngine {
       reactionLatencies: [],
       tradeLatencies: [],
       utilityTracker: new Map(),
+      utilityThrowEvidence: { throws: new Set(), hits: new Set(), missing: false },
+      supportTeammateKills: 0,
       utilitySummary: { totalDamage: 0, hitCount: 0, killCount: 0, throwCount: 0, accuracy: 0, avgDamagePerThrow: 0 },
       dbnoMap: new Map(),
       totalPressureSum: 0,
@@ -382,7 +384,11 @@ export class AnalysisEngine {
       ? Number((this.state.combatPressure.totalHits / Math.max(5, (this.state.myActionTimestamps.length / 10))).toFixed(2))
       : null;
     const hasLethalThrowSamples = this.state.itemUseStats.lethalThrowCount > 0;
-    const utilityHitCount = Math.min(this.state.combatPressure.utilityHits, this.state.itemUseStats.lethalThrowCount);
+    const utilityEvidence = this.state.utilityThrowEvidence;
+    const utilityHitCount = utilityEvidence.missing ? null : utilityEvidence.hits.size;
+    const hasMeasuredUtilityAccuracy = hasLethalThrowSamples && utilityHitCount !== null;
+    const supportShare = this.state.supportTeammateKills > 0
+      ? this.state.totalSuppCount * 100 / this.state.supportTeammateKills : null;
     const hasUtilityDamageObservation = this.state.itemUseStats.throwCount > 0 || this.state.combatPressure.utilityHits > 0;
     const deathPhase = this.state.deathPhaseSnapshot > 0
       ? this.state.deathPhaseSnapshot
@@ -494,7 +500,8 @@ export class AnalysisEngine {
         coverRateSampleCount: this.state.totalCoverAttempts,
         enemyTeamWipes: this.state.wipedTeamsByUserParticipation.size,
         tradeRate: this.state.totalTeammateKnocks > 0 ? (Math.min(this.state.totalTeammateKnocks, this.state.totalTradeKills) / this.state.totalTeammateKnocks) * 100 : null,
-        suppRate: this.state.totalTeammateKnocks > 0 ? (this.state.totalSuppCount / this.state.totalTeammateKnocks) * 100 : null
+        suppRate: supportShare,
+        teammateKills: this.state.supportTeammateKills
       },
       initiative_rate: initiativeRate,
       initiativeSampleCount: pData.total,
@@ -516,12 +523,13 @@ export class AnalysisEngine {
           throwCount: this.state.itemUseStats.throwCount,
           lethalThrowCount: this.state.itemUseStats.lethalThrowCount,
           hitCount: utilityHitCount,
+          accuracyStatus: utilityEvidence.missing ? "missing" : hasLethalThrowSamples ? "observed" : "no_opportunity",
           damageEventCount: this.state.combatPressure.utilityHits,
           totalDamage: hasUtilityDamageObservation ? this.state.combatPressure.utilityDamage : null,
           killCount: 0, // [V11.9.4] 유틸리티 킬 추적은 향후 고도화 예정
-          accuracy: hasLethalThrowSamples ? Number(((utilityHitCount / this.state.itemUseStats.lethalThrowCount) * 100).toFixed(1)) : null,
-          accuracyRaw: hasLethalThrowSamples ? (utilityHitCount / this.state.itemUseStats.lethalThrowCount) : null,
-          avgDamagePerThrow: hasLethalThrowSamples ? Number((this.state.combatPressure.utilityDamage / this.state.itemUseStats.lethalThrowCount).toFixed(1)) : null
+          accuracy: hasMeasuredUtilityAccuracy ? Number(((utilityHitCount / this.state.itemUseStats.lethalThrowCount) * 100).toFixed(1)) : null,
+          accuracyRaw: hasMeasuredUtilityAccuracy ? (utilityHitCount / this.state.itemUseStats.lethalThrowCount) : null,
+          avgDamagePerThrow: hasMeasuredUtilityAccuracy ? Number((this.state.combatPressure.utilityDamage / this.state.itemUseStats.lethalThrowCount).toFixed(1)) : null
         },
         isClutched: false,
         utilityDamage: hasUtilityDamageObservation ? this.state.combatPressure.utilityDamage : null,
@@ -563,7 +571,7 @@ export class AnalysisEngine {
         teamWipes: this.state.wipedTeamsByUserParticipation.size,
         reversalRate: reversalRate ?? -1,
         deathPhase: deathPhase ?? -1,
-        suppRate: this.state.totalTeammateKnocks > 0 ? (this.state.totalSuppCount / this.state.totalTeammateKnocks) * 100 : -1,
+        suppRate: supportShare ?? -1,
         // [V68.0] 스쿼드 모드용 고립 지수 추가
         isolationIndex: avgIsolation,
         // [V69.0] 생존 점수 고도화 필드 (0~1 범위 가드 적용)

@@ -337,11 +337,11 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   ) as CanonicalBenchmarkTier;
 
   interface BenchmarkStats {
-    avgIsolation: number;
-    avgTradeLatency: number;
-    avgReviveRate: number;
-    avgSmokeRate: number;
-    avgTeamWipes: number;
+    avgIsolation: number | null;
+    avgTradeLatency: number | null;
+    avgReviveRate: number | null;
+    avgSmokeRate: number | null;
+    avgTeamWipes: number | null;
   }
 
   const aggregateBenchmarkRows = (rows: unknown[], allowedTiers: ReadonlySet<string>): BenchmarkStats | null => {
@@ -416,7 +416,9 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       );
       if (benchmark !== null) benchmarkTier = targetTier;
     }
-    if (benchmark === null) throw new Error("Squad benchmark data unavailable.");
+    // An empty or undersampled population is a normal missing comparison,
+    // not a provider outage. Observed personal/team facts remain usable.
+    benchmark ??= { avgIsolation: null, avgTradeLatency: null, avgReviveRate: null, avgSmokeRate: null, avgTeamWipes: null };
   } catch (err) {
     console.error("[SQUAD-ANALYZE] Live benchmark query failed; refusing synthetic benchmark evidence:", err);
     throw new Error("Squad benchmark data unavailable.");
@@ -433,13 +435,13 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     ? totalTeamWipes / matchCount
     : null;
 
-  const formationScore = avgIsolation === null ? null : Math.max(10, Math.min(100, Math.round(70 + (benchmark.avgIsolation - avgIsolation) * 40)));
-  const backupSpeedScore = avgTradeLatency === null ? null : Math.max(10, Math.min(100, Math.round(70 + (benchmark.avgTradeLatency - avgTradeLatency) / 150)));
-  const survivalCareScore = userReviveRate === null || userSmokeRate === null
+  const formationScore = avgIsolation === null || benchmark.avgIsolation === null ? null : Math.max(10, Math.min(100, Math.round(70 + (benchmark.avgIsolation - avgIsolation) * 40)));
+  const backupSpeedScore = avgTradeLatency === null || benchmark.avgTradeLatency === null ? null : Math.max(10, Math.min(100, Math.round(70 + (benchmark.avgTradeLatency - avgTradeLatency) / 150)));
+  const survivalCareScore = userReviveRate === null || userSmokeRate === null || benchmark.avgReviveRate === null || benchmark.avgSmokeRate === null
     ? null
     : Math.max(10, Math.min(100, Math.round(70 + (userReviveRate - benchmark.avgReviveRate) * 1.5 + (userSmokeRate - benchmark.avgSmokeRate) * 5)));
   const focusFireScore = avgCoverRate === null ? null : Math.max(10, Math.min(100, Math.round(70 + (avgCoverRate - 0.30) * 100)));
-  const teamWipeScore = userWipes === null ? null : Math.max(10, Math.min(100, Math.round(70 + (userWipes - benchmark.avgTeamWipes) * 6)));
+  const teamWipeScore = userWipes === null || benchmark.avgTeamWipes === null ? null : Math.max(10, Math.min(100, Math.round(70 + (userWipes - benchmark.avgTeamWipes) * 6)));
 
   const scores = {
     formation: formationScore,
@@ -604,7 +606,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
 
   const causeScenes: SquadCauseScene[] = extractSquadCauseScenes(causeSceneInputs, {
     maxScenes: 5,
-    benchmarkTradeLatencyMs: Math.round(benchmark.avgTradeLatency)
+    benchmarkTradeLatencyMs: benchmark.avgTradeLatency === null ? null : Math.round(benchmark.avgTradeLatency)
   });
 
   return {
@@ -638,11 +640,11 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     causeScenes,
     benchmarkStats: {
       tier: benchmarkTier,
-      avgIsolation: Number(benchmark.avgIsolation.toFixed(2)),
-      avgTradeLatency: Math.round(benchmark.avgTradeLatency),
-      avgReviveRate: Number(benchmark.avgReviveRate.toFixed(2)),
-      avgSmokeRate: Number(benchmark.avgSmokeRate.toFixed(2)),
-      avgTeamWipes: Number(benchmark.avgTeamWipes.toFixed(2))
+      avgIsolation: benchmark.avgIsolation === null ? null : Number(benchmark.avgIsolation.toFixed(2)),
+      avgTradeLatency: benchmark.avgTradeLatency === null ? null : Math.round(benchmark.avgTradeLatency),
+      avgReviveRate: benchmark.avgReviveRate === null ? null : Number(benchmark.avgReviveRate.toFixed(2)),
+      avgSmokeRate: benchmark.avgSmokeRate === null ? null : Number(benchmark.avgSmokeRate.toFixed(2)),
+      avgTeamWipes: benchmark.avgTeamWipes === null ? null : Number(benchmark.avgTeamWipes.toFixed(2))
     }
   };
 }

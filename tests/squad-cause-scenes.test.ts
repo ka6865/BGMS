@@ -585,3 +585,12 @@ describe("squad cause scene experiment", () => {
     expect(issues.map(issue => issue.code)).not.toContain("team_wipe_ambiguity_claim");
   });
 });
+
+it('does not invent a 12-second benchmark when comparison is explicitly unavailable',()=>{
+  const scenes=extractSquadCauseScenes(fixture.matches as SquadCauseSceneMatchInput[],{benchmarkTradeLatencyMs:null,maxScenes:30});
+  expect(scenes.length).toBeGreaterThan(0);
+  for(const scene of scenes){
+    expect(scene.metricSnapshot?.benchmarkTradeLatencyMs).toBeNull();
+    expect(scene.facts.join(' ')).not.toContain('비교 기준 백업 속도');
+  }
+});

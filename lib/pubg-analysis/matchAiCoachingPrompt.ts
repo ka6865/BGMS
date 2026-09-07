@@ -87,7 +87,8 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     ? null
     : (fallbackFragCount ?? 0) + (fallbackMolotovCount ?? 0);
   const lethalThrows = lethalThrowValue ?? fallbackLethalThrows;
-  const rawUtilityHits = finiteNonNegative(combatPressure.utilityStats?.hitCount);
+  const missingThrowLink = combatPressure.utilityStats?.accuracyStatus === "missing";
+  const rawUtilityHits = missingThrowLink ? null : finiteNonNegative(combatPressure.utilityStats?.hitCount);
   const utilityHits = lethalThrows !== null && rawUtilityHits !== null
     ? Math.min(rawUtilityHits, lethalThrows)
     : null;
@@ -95,7 +96,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
   const utilityAccuracy = lethalThrows !== null && lethalThrows > 0 && utilityHits !== null
     ? Number(((utilityHits / lethalThrows) * 100).toFixed(1))
     : null;
-  const avgDamagePerLethalThrow = lethalThrows !== null && lethalThrows > 0 && utilityDamage !== null
+  const avgDamagePerLethalThrow = !missingThrowLink && lethalThrows !== null && lethalThrows > 0 && utilityDamage !== null
     ? Number((utilityDamage / lethalThrows).toFixed(1))
     : null;
   const utilityInterpretation = lethalThrows !== null && lethalThrows > 0
@@ -155,7 +156,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
 - 대응 사격 속도(반응): ${(() => { const latency = finiteNonNegative(tradeStats.reactionLatencyMs); return latency === null ? "데이터 부족" : `${(latency / 1000).toFixed(2)}s`; })()} (Elite Avg: ${formatBenchmarkNumber("avgCounterLatency", "s")})
 - 백업(Trade) 속도: ${backupLatencyText} (Elite Avg: ${formatBenchmarkNumber("avgTradeLatency", "s")})
 - 백업 결과 해석: ${backupContext.promptLine}
-- 전술 지원: 견제사격 ${formatCount(tradeStats.suppCount)}회 (Elite Avg: 측정 불가)
+- 전술 지원: 아군 처치 지원 ${formatCount(tradeStats.suppCount)}회 / 아군 처치 ${formatCount(tradeStats.teammateKills)}회 중 지원 비율 ${formatPercent(tradeStats.suppRate)} (비교 자료 없음)
 - 위기 관리: 내가 한 소생률 ${formatPercent(personalReviveRate)} (아군 기절 ${formatCount(tradeStats.teammateKnocks)}회 중 내 소생 ${formatCount(tradeStats.revCount)}회, Elite Avg: ${formatBenchmarkPercent("avgReviveRate")}) / 내 연막 구출률 ${formatPercent(smokeOpportunityRate)} (아군 기절 대비 성공, Elite Avg: ${formatBenchmarkPercent("avgSmokeRate")}) / 구출 연막 시도 성공률 ${formatPercent(smokeAttemptSuccessRate)} (시도 ${formatCount(tradeStats.smokeCount)}회, 성공 ${formatCount(tradeStats.smokeRescues)}회)
 - 공간 전술: 고립 지수 ${isolationData?.isolationIndex ?? "데이터 부족"} (Elite Avg: ${formatBenchmarkNumber("avgIsolationIndex")}) / 아군 평균 거리: ${formatNumber(isolationData?.minDist, "m")} / 고도차 ${formatNumber(isolationData?.heightDiff, "m")} / 십자포화 노출: ${isCrossfireText}
 - 유틸리티 정밀: 총 투척 ${formatCount(totalThrows)}회 / 피해형 투척 ${formatCount(lethalThrows)}회 / 피해 적중 ${formatCount(utilityHits)}회 / 피해형 투척 적중률 ${formatPercent(utilityAccuracy)} / 피해형 투척당 평균 딜 ${formatNumber(avgDamagePerLethalThrow)}
@@ -180,20 +181,23 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     "",
     "[데이터 기반 판정 지침]",
     "- 모든 분석 용어와 코치 이름은 반드시 한글로만 표기하십시오.",
-    "- [Apple-to-Apple] 반드시 유저의 수치와 상위권 벤치마크 수치를 직접 대조하십시오.",
+    "- [비교 근거] 해당 지표의 비교값이 숫자로 제공된 경우에만 비교하십시오. 비교값이 측정 불가이면 상위권보다 느림/낮음/부족 또는 평균 수준을 주장하지 마십시오.",
+    "- 배지가 없다는 이유로 실속 없음/훈장 사냥꾼/기여 부족을 단정하지 마십시오. 배지는 특정 조건의 보상일 뿐 전체 성과의 평가 기준이 아닙니다.",
+    "- 후방/전방/진입 위치는 측정되지 않았습니다. 칭호에도 사용하지 마십시오.",
     "- [배지 우선순위] 유저가 획득한 배지가 있다면 이를 signature(칭호) 결정의 핵심 근거로 사용하십시오.",
-    "- [팀 영향력] 내 딜량 비중이 40% 이상이면 '캐리', 15% 미만이면 '버스' 키워드를 전술적으로 활용하십시오.",
-    "- [팀 영향력 해석 보호 규칙] 높은 딜량 비중은 우선 '강한 캐리/교전 주도'로 해석하십시오. 아군 소생 실패, 복구 실패, 팀원 사망 방치 데이터가 없으면 의도, 인성, 팀원 이용 여부를 단정하는 표현을 금지합니다.",
+    "- [팀 영향력] 딜량 비중은 실제 화력 분담 비율만 설명하십시오. 비중만으로 교전 주도, 소극적 플레이, 후방 대기, 숨기, 동료 의존을 단정하지 마십시오.",
+    "- [팀 영향력 해석 보호 규칙] 높은 딜량 비중은 '화력 기여'로만 설명하십시오. 비중은 진입/선제 공격의 증거가 아닙니다. 아군 소생 실패, 복구 실패, 팀원 사망 방치 데이터가 없으면 의도, 인성, 팀원 이용 여부를 단정하는 표현을 금지합니다.",
     "- [매치 임팩트 해석 규칙] 매치 임팩트가 '하드캐리' 또는 '레전드'이면 해당 판은 단일 경기 하이라이트 성과로 인정하십시오. 낮은 세부 항목을 지적하더라도 '판 전체가 나쁘다'거나 '방관했다'고 단정하지 말고, 강한 성과와 보완점을 분리해 말하십시오.",
     "- [승리 기여 중복 방지] 1등 자체는 생존 결과입니다. '1등이라서 보너스'라고 표현하지 말고, 화력 캐리/복구 기여/결정적 마무리/승리 기여 근거처럼 행동 근거만 말하십시오.",
-    "- [고립 해석 보호 규칙] 고립 지수가 2.0 미만이면 양호한 대열 유지로 해석하십시오. 이 경우 '고립될 위험', '고립 위험이 높다', '너무 멀리', '독단적인 플레이', '독단 플레이'를 부정문에서도 쓰지 마십시오.",
+    "- [고립 해석 보호 규칙] 고립 지수가 2.0 미만이면 양호한 대열 유지로 해석하십시오. 이 경우 '고립될 위험', '고립 위험이 높다', '너무 멀리', '독단적인 플레이', '독단 플레이', '고립형', '고독한 화력소'를 칭호나 부정문에서도 쓰지 마십시오. 평균 거리로 실제 엄폐·시야·소통을 추정하지 마십시오.",
     "- [금지 표현] '팀원을 방패', '팀원을 들러리', '팀원을 방치', '팀원 등쳐먹음', '이기적 독식', '혼자 다 해먹', '팀 지원 지표가 바닥', '팀원은 들러리', '나머지 팀원들의 화력 지원이 전무', '팀 전체가 휘청', '존재감이 희미'를 signature/signatureSub/briefFeedback/finalVerdict/actionItems 어디에도 쓰지 마십시오. 대신 '교전 분담 부족', '팀 지원 지표 보완', '강한 캐리지만 협업 지표 보완 필요'라고 표현하십시오.",
     "- [출력 전 자체 검수] JSON을 작성한 뒤 signatureSub/briefFeedback/finalVerdict/actionItems에 금지 표현이 하나라도 있으면 응답하기 전에 반드시 고치십시오. 특히 '혼자 다 해먹는 화력'은 절대 쓰지 말고 '강한 화력을 보여주지만 협업 지표 보완이 필요'라고 쓰십시오.",
-    "- [투척물 분석 규칙 (V11.4)] ",
+    "- [관측/추천 구분] 측정하지 않은 과거 행동(숨어 다님, 후방 대기, 아군 곁을 맴돎)을 만들지 마십시오. 다음 경기의 제안과 이번 경기의 관측 사실을 별도 문장으로 쓰십시오.",
+    "- [투척물 분석 규칙] 총 투척 수와 피해형 투척 수는 다릅니다. 예: 총 12회/피해형 4회/명중 1회라면 '총 투척 12회 중 피해형 4회, 명중 1회, 적중률 25%'입니다. 12회를 피해형 투척이라고 쓰지 마십시오. 측정 불가 적중 수를 0회로 바꾸지 마십시오.",
     "  * '피해형 투척 적중률'은 수류탄/화염병/C4 등 피해형 투척물 기준입니다. 연막탄/M79 연막은 총 투척 수와 연막 구출 지표에서만 해석하십시오.",
-    "  * 피해형 투척이 0회이면 정확도 칭호를 만들지 말고, 연막 사용 또는 구출 기회 여부만 따로 설명하십시오.",
+    "  * 피해형 투척이 0회이면 정확도 칭호를 만들거나 유틸리티 보조를 못했다고 말하지 말고, 연막 사용 또는 구출 기회 여부만 따로 설명하십시오.",
     "  * 피해형 투척 적중률이 30% 이상이면 '폭파 전문가', 킬까지 있다면 '투척물 마스터' 칭호를 고려하십시오.",
-    "  * 피해형 투척당 평균 데미지가 50 이상이면 적의 위치를 정확히 파악하고 던지는 '정밀 폭격기'로 칭송하십시오.",
+    "  * 피해형 투척당 평균 데미지는 피해량만 설명하며, 적 위치 파악 능력이나 정확한 의도를 입증하지 않습니다.",
     "  * 투척물 딜량이 0이면 정확도만으로 교전 보조 능력을 단정하지 마십시오.",
     "- [백업 해석 규칙] 백업 속도는 시간 단독으로 평가하지 말고, 적 제압/팀 전멸 기여/소생/연막 구출 결과를 함께 판단하십시오. 결과가 성공한 긴 백업은 '느린 백업'으로 단정하지 말고 '교전 정리 후 복구 성공'과 '복구 시간 단축 과제'를 분리해 말하십시오.",
     "- [백업 성공 보호 규칙] 분석 데이터의 '백업 결과 해석'에 '느린 백업이라고 단정하지 말 것'이 포함되면 briefFeedback/finalVerdict/actionItems 어디에서도 '방관', '치명적', '느린 백업', '성공이라기엔 느림'으로 비난하지 마십시오. 이 경우 백업 액션 아이템 제목은 '복구 시간 단축'으로만 작성하고, 설명은 '성공 복구였지만 다음에는 시간을 줄이자'는 방향으로 작성하십시오.",

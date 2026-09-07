@@ -662,7 +662,7 @@ function aggregateMatches(matches: any[]) {
     );
     observedUtilityThrows.push(utilityThrowCount);
 
-    const utilityHitCount = firstObservedNonNegative(
+    const utilityHitCount = utilityStats?.accuracyStatus === "missing" ? null : firstObservedNonNegative(
       utilityStats?.hitCount,
       m.combatPressure?.utilityHits,
     );
@@ -877,6 +877,8 @@ function aggregateMatches(matches: any[]) {
     totalObservedRescueSmokes: sumCompleteObservations(inputMatches.map((m) => m.tradeStats?.smokeCount)),
     totalObservedSmokeRescues: sumCompleteObservations(inputMatches.map((m) => m.tradeStats?.smokeRescues)),
     totalObservedTeammateKnocks: sumCompleteObservations(inputMatches.map((m) => m.tradeStats?.teammateKnocks)),
+    totalObservedSupportKills: sumCompleteObservations(inputMatches.map((m) => m.tradeStats?.suppCount)),
+    totalObservedTeammateKills: sumCompleteObservations(inputMatches.map((m) => m.tradeStats?.teammateKills)),
     totalObservedTradeKills: sumCompleteObservations(inputMatches.map((m) => m.tradeStats?.tradeKills)),
     itemUseSummary: { smokes: totalSmokes },
     weaponMatchCount,
@@ -1547,9 +1549,9 @@ export async function POST(request: Request) {
       "- [MATCH IMPACT LOGIC] 매치 임팩트가 '하드캐리' 또는 '레전드'인 경기는 단일 경기 하이라이트 성과로 인정하십시오. 낮은 세부 지표를 지적하더라도 판 전체를 실패로 단정하지 말고, 강한 성과와 보완점을 분리하십시오.",
       "- [WIN CONTRIBUTION LOGIC] 1등 자체는 생존 결과입니다. '1등 보너스'라고 표현하지 말고, 화력 캐리/복구 기여/결정적 마무리/승리 기여 근거처럼 행동 기반 근거만 사용하십시오.",
       "- [LOW ISOLATION LOGIC] 고립 지수가 2.0 미만이면 양호한 대열 유지로 해석하십시오. 이 경우 '너무 멀리', '독단적인 플레이', '고립될 위험', '고립 위험이 높다' 같은 표현은 부정문에서도 쓰지 마십시오.",
-      "- [TEAM INTENT GUARD] 높은 딜량 비중은 '강한 교전 주도' 또는 '화력 분담 보완 필요'로 해석하십시오. 데이터에 명시된 미끼/방치/소생 실패 근거가 없으면 '팀원을 방패', '팀원을 들러리', '팀원을 방치', '혼자 다 해먹', '미끼' 같은 의도 단정 표현을 쓰지 마십시오.",
+      "- [TEAM INTENT GUARD] 높은 딜량 비중은 관측된 피해량 분포로만 설명하고 교전 선제성이나 팀원의 행동으로 해석하지 마십시오. 데이터에 명시된 미끼/방치/소생 실패 근거가 없으면 '팀원을 방패', '팀원을 들러리', '팀원을 방치', '혼자 다 해먹', '미끼' 같은 의도 단정 표현을 쓰지 마십시오.",
       "- [TEAM DISMISSAL GUARD] 팀원을 낮춰 부르는 표현은 금지입니다. '팀 지원 지표가 바닥', '나머지 팀원들의 화력 지원이 전무', '팀 전체가 휘청', '존재감이 희미' 대신 '팀 지원 지표 보완', '화력 분담 보완', '교전 기여를 더 선명하게 만들 필요'라고 표현하십시오.",
-      "- [OUTPUT SELF CHECK] JSON을 작성한 뒤 signatureSub/finalVerdict/debateIssues/actionItems에 '혼자서 모든 것을 해결', '팀원들의 지원이 부족하다는 방증', '혼자 다 해먹', '팀 민폐', '오만' 같은 표현이 있으면 응답하기 전에 반드시 '강한 교전 주도와 화력 분담 보완 필요'로 고치십시오.",
+      "- [OUTPUT SELF CHECK] JSON을 작성한 뒤 signatureSub/finalVerdict/debateIssues/actionItems에 '혼자서 모든 것을 해결', '팀원들의 지원이 부족하다는 방증', '혼자 다 해먹', '팀 민폐', '오만' 같은 표현이 있으면 응답하기 전에 해당 의도 단정을 삭제하고 이 응답에 제공된 주제·지표의 관측 사실로만 다시 쓰십시오. 화력 자료가 없으면 화력이나 교전 주도 평가를 새로 만들지 마십시오.",
       "- [DATA COMPARISON] 수치 대조는 서버 근거 표에서 보여줍니다. 의견에는 숫자 쌍이나 슬래시 비교를 쓰지 마십시오. 비교를 해석할 때는 실제로 제공된 단일 지표 이름과 관계를 명시하십시오. 실제 값이 그 관계를 뒷받침할 때만 '평균 화력은 비교 평균보다 높습니다.', '복수 성공률은 비교 평균보다 낮습니다.', '백업 속도는 비교 평균보다 빠릅니다.', '복수 성공률은 비교 평균과 같습니다.'처럼 한 문장으로 쓰십시오. 나머지 문장은 유지하거나 바꿀 행동을 설명하고 같은 비교를 반복하지 마십시오. 비교 표본이 없으면 유저 기록을 바탕으로 코칭만 제시하십시오.",
       "- debateIssues는 반드시 3개를 작성하고, 각 issue의 userStats/benchmarkStats는 항목명(label)과 값의 단위(%, 회, m 등)가 완벽히 대칭되어야 합니다.",
       "반드시 아래 구조의 JSON 객체로만 응답하세요.",
@@ -1827,10 +1829,10 @@ export async function POST(request: Request) {
         const smokeRescueSuccessRate = formatBoundedRate(gStats.totalSmokeRescues, gStats.totalSmokeCount);
         const smokeRescueOpportunityRate = formatBoundedRate(gStats.totalSmokeRescues, gStats.totalTeammateKnocks);
         const tradeRate = formatBoundedRate(gStats.totalTradeKills, gStats.totalTeammateKnocks);
-        const suppRate = formatBoundedRate(gStats.totalSuppCount, gStats.totalTeammateKnocks);
+        const suppRate = formatBoundedRate(gStats.totalObservedSupportKills, gStats.totalObservedTeammateKills);
         userPrompt += `- [팀 내 영향력(딜량/킬 비중)] 적 팀 전멸 기여: ${gStats.totalTeamWipes}회, 화력 집중(점사): ${formatObservedCount(gStats.totalFocusFireCount)}\n`;
         userPrompt += `- [개인 팀플레이 기여] 아군 기절 ${gStats.totalTeammateKnocks}회 → 내가 한 소생: ${gStats.totalRevCount}회, 내가 만든 복수(Trade): ${gStats.totalTradeKills}회 (복수 성공률: ${tradeRate}${bench?.avgTradeRate !== undefined ? ` vs ${metricBenchmarkProvenance("avgTradeRate")}: 복수 성공률 ${bench.avgTradeRate}%` : ""})\n`;
-        userPrompt += `- [개인 전술 기여] 견제 지원율: ${suppRate}, 미끼: ${gStats.totalBaitCount}회, 내 연막 구출 시도/성공: ${gStats.totalSmokeCount}/${gStats.totalSmokeRescues}회, 내 연막 구출 성공률: ${smokeRescueSuccessRate}, 아군 기절 대비 연막 구출률: ${smokeRescueOpportunityRate}${bench?.avgSmokeRate !== undefined ? ` (${metricBenchmarkProvenance("avgSmokeRate")}: 기회 대비 평균 연막 구출률 ${bench.avgSmokeRate}%)` : ""}, 내 총 연막 사용: ${gStats.totalSmokes}회\n`;
+        userPrompt += `- [개인 전술 기여] 아군 처치 지원 비율: ${suppRate}, 미끼: ${gStats.totalBaitCount}회, 내 연막 구출 시도/성공: ${gStats.totalSmokeCount}/${gStats.totalSmokeRescues}회, 내 연막 구출 성공률: ${smokeRescueSuccessRate}, 아군 기절 대비 연막 구출률: ${smokeRescueOpportunityRate}${bench?.avgSmokeRate !== undefined ? ` (${metricBenchmarkProvenance("avgSmokeRate")}: 기회 대비 평균 연막 구출률 ${bench.avgSmokeRate}%)` : ""}, 내 총 연막 사용: ${gStats.totalSmokes}회\n`;
       }
       const reactionStr = gStats.avgReactionLatency === "측정 불가"
         ? "측정 불가 (선제 공격 중심 플레이로 피격 후 반격 샘플 없음 — 이 항목을 언급하거나 추론하지 말 것)"
@@ -2019,12 +2021,12 @@ export async function POST(request: Request) {
       let parsed: unknown;
       try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return null; }
       return normalizeSummaryCardFinal(parsed, serverCards, {
-        sanitizeText: (value) => sanitizeUnsupportedAiSummaryBenchmarkLanguage(sanitizeAiCoachingLanguageText(value), idCanonicalEvidence, { allowedMode: mainModeName }),
+        sanitizeText: (value) => sanitizeUnsupportedAiSummaryBenchmarkLanguage(sanitizeAiCoachingLanguageText(value), idCanonicalEvidence, { allowedMode: mainModeName, observedUserMetricKeys: serverCards.flatMap(card => card.evidence.filter(row => row.userValue !== null).map(row => row.metricId)) }),
         sanitizeCardText: (value, card) => {
           const cardEvidence = Object.fromEntries(card.evidence
             .filter((row) => row.status === "comparable" && idCanonicalEvidence[row.metricId])
             .map((row) => [row.metricId, idCanonicalEvidence[row.metricId]]));
-          return sanitizeUnsupportedAiSummaryBenchmarkLanguage(sanitizeAiCoachingLanguageText(value), cardEvidence, { allowedMode: mainModeName });
+          return sanitizeUnsupportedAiSummaryBenchmarkLanguage(sanitizeAiCoachingLanguageText(value), cardEvidence, { allowedMode: mainModeName, observedUserMetricKeys: card.evidence.filter(row => row.userValue !== null).map(row => row.metricId) });
         },
         hasUnsupportedMode: (value) => hasUnsupportedAiSummaryMode(value, mainModeName),
       });
@@ -2127,7 +2129,7 @@ export async function POST(request: Request) {
       },
       modeDistribution: { ranked: rankedCount, normal: normalCount, main: rankedCount >= normalCount ? "경쟁전" : "일반전" },
       tactical: {
-        suppRate: formatBoundedRate(totalSuppCount, totalTeammateKnocks),
+        suppRate: formatBoundedRate(masteryStats.totalObservedSupportKills, masteryStats.totalObservedTeammateKills),
         tradeRate: formatBoundedRate(totalTradeKills, totalTeammateKnocks),
         smokeRate: formatBoundedRate(masteryStats.totalObservedSmokeRescues, masteryStats.totalObservedRescueSmokes),
         reviveRate: formatBoundedRate(totalRevCount, totalTeammateKnocks),

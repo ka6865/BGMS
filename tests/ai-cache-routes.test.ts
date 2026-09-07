@@ -2,7 +2,7 @@ import { afterEach, describe, it, expect, vi, beforeEach } from "vitest";
 import { POST as aiAnalyzePOST } from "../app/api/pubg/ai-analyze/route";
 import { POST as aiSummaryPOST } from "../app/api/pubg/ai-summary/route";
 import { POST as aiSquadPOST } from "../app/api/pubg/ai-squad/route";
-import { AI_SQUAD_CACHE_VERSION, AI_CACHE_VERSION, AI_SUMMARY_CACHE_VERSION, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
+import { ANALYSIS_CALCULATION_VERSION, AI_SQUAD_CACHE_VERSION, AI_CACHE_VERSION, AI_SUMMARY_CACHE_VERSION, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
 import { fetchTierBenchmarkStats } from "../lib/pubg-analysis/benchmarkLookup";
 import {
   buildBestMatchSelectionKey,
@@ -385,13 +385,13 @@ describe("AI cache route stabilization", () => {
 
   it("ai-analyze separates corrected calculation results from legacy cached prose", async () => {
     const matchCache=createQueryChain({data:{ai_result:{text:"corrected"}},error:null});
-    const row=createCanonicalAnalyzeRow("match-calc", {calculationVersion:1});
+    const row=createCanonicalAnalyzeRow("match-calc", {calculationVersion:ANALYSIS_CALCULATION_VERSION});
     const telemetry=createQueryChain({data:row,error:null});
     mockWithAuthGuard.mockResolvedValue({user:{id:"user-1"},supabaseAdmin:createSupabaseMock({match_ai_coaching_cache:matchCache,processed_match_telemetry:telemetry})});
     const response=await aiAnalyzePOST(createRequest({nickname:"Player_A",platform:"kakao",coachingStyle:"spicy",matchData:{matchId:"match-calc"}}));
     expect(response.status).toBe(200);
     await response.text();
-    expect(matchCache.eq).toHaveBeenCalledWith("prompt_version", `${AI_CACHE_VERSION}.calc1`);
+    expect(matchCache.eq).toHaveBeenCalledWith("prompt_version", `${AI_CACHE_VERSION}.calc${ANALYSIS_CALCULATION_VERSION}`);
   });
 
   it("ai-analyze는 캐시된 단일 경기 코칭의 과한 표현을 순화해서 반환한다", async () => {
@@ -2255,7 +2255,7 @@ describe("AI cache route stabilization", () => {
     expect(capturedPrompt).not.toContain("전술 안정도 101/100");
   });
 
-  it("ai-summary는 opportunity denominator가 없을 때 trade/smoke zero evidence를 만들지 않는다", async () => {
+  it.each([undefined, 3])("ai-summary는 기절 분모가 없어도 처치 지원 분모를 독립적으로 사용한다 (%s)", async (teammateKills) => {
     mockSummaryGeminiResponse();
     const telemetry = createQueryChain({
       data: [{
@@ -2267,6 +2267,8 @@ describe("AI cache route stabilization", () => {
             tradeStats: {
               ...createSummaryMatch().tradeStats,
               teammateKnocks: undefined,
+              teammateKills,
+              suppCount: 2,
               tradeKills: 0,
               smokeRescues: 0,
             },
@@ -2312,7 +2314,7 @@ describe("AI cache route stabilization", () => {
 
     expect(response.status).toBe(200);
     expect(visuals.tactical.tradeRate).toBe("측정 불가");
-    expect(visuals.tactical.suppRate).toBe("측정 불가");
+    expect(visuals.tactical.suppRate).toBe(teammateKills === undefined ? "측정 불가" : "67%");
     expect(visuals.tactical.reviveRate).toBe("측정 불가");
     expect(evidence.map((stat: any) => stat.label)).not.toContain("복수 성공률");
     expect(evidence.map((stat: any) => stat.label)).not.toContain("아군 기절 대비 연막 구출률");

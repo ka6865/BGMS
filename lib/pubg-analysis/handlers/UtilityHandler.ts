@@ -3,12 +3,27 @@ import { normalizeName, calcDist3D, scaleCoordinate } from '../utils';
 import { WEAPON_NAMES } from '../constants';
 
 export class UtilityHandler extends BaseHandler {
+  private readonly actorNamesById = new Map<string, string>();
   private processedThrowIds = new Set<string>();
   private underCoverKnocks = new Set<string>(); // victim + knock timestamp; simultaneous knocks remain distinct
   private victimToKnockTs = new Map<string, number>(); // 피해자 이름 -> 기절 시점 매핑
 
+  private attackKey(event: any): string | null {
+    for (const value of [event.attackId, event.attack_id, event.projectileId]) {
+      if (typeof value === "number" && Number.isFinite(value) && value >= 0) return String(value);
+      if (typeof value === "string" && value.trim() && value.trim() !== "-1") return value.trim();
+    }
+    return null;
+  }
+
+  private recordLethalThrow(event: any) {
+    const id = this.attackKey(event);
+    if (id === null) this.state.utilityThrowEvidence.missing = true;
+    else this.state.utilityThrowEvidence.throws.add(id);
+  }
+
   private getThrowEventKey(e: any, ts: number, actorName: string, itemId: string): string {
-    const rawAttackId = e.attackId ?? e.attack_id ?? e.projectileId;
+    const rawAttackId = this.attackKey(e);
     if (rawAttackId !== undefined && rawAttackId !== null && rawAttackId !== "") {
       return `attack:${actorName}:${String(rawAttackId)}`;
     }
@@ -16,6 +31,9 @@ export class UtilityHandler extends BaseHandler {
   }
 
   handleEvent(e: any, ts: number): void {
+    for (const actor of [e.attacker, e.victim, e.character, e.killer, e.finisher, e.dBNOMaker]) {
+      if (actor?.accountId && actor?.name) this.actorNamesById.set(actor.accountId, normalizeName(actor.name));
+    }
     switch (e._T) {
       case "LogPlayerTakeDamage":
         this.handleUtilityDamage(e);
@@ -61,7 +79,7 @@ export class UtilityHandler extends BaseHandler {
     const isTeammateAttacker = this.isTeammate(e.attacker || e.character);
 
     // 본인 또는 팀원이 투척물을 던진 경우
-    if (isTeammateAttacker && !this.processedThrowIds.has(throwKey)) {
+    if ((isMeAttacker || isTeammateAttacker) && !this.processedThrowIds.has(throwKey)) {
       this.processedThrowIds.add(throwKey);
       if (isMeAttacker) {
         this.state.itemUseStats.throwCount++;
@@ -90,15 +108,17 @@ export class UtilityHandler extends BaseHandler {
           // [V14.2] handleUseThrowable에서도 세이브 판정 로직 수행 (LogThrowableUse 누락 대비)
           this.markSmokeAttempt(e.attacker || e.character, ts);
         }
-      } else if (itemId.includes("grenade") || itemId.includes("c4")) {
+      } else if (itemId.includes("grenade") || itemId.includes("c4") || itemId.includes("stickybomb")) {
         if (isMeAttacker) {
           this.state.itemUseSummary.frags = (this.state.itemUseSummary.frags || 0) + 1;
           this.state.itemUseStats.lethalThrowCount++;
+          this.recordLethalThrow(e);
         }
       } else if (itemId.includes("molotov")) {
         if (isMeAttacker) {
           this.state.itemUseSummary.molotovs = (this.state.itemUseSummary.molotovs || 0) + 1;
           this.state.itemUseStats.lethalThrowCount++;
+          this.recordLethalThrow(e);
         }
       } else {
         if (isMeAttacker) {
@@ -114,17 +134,23 @@ export class UtilityHandler extends BaseHandler {
     const weapon = (e.damageCauserName || e.damageCauser?.itemId || e.weaponId || "").toLowerCase();
     const damage = e.damage || 0;
 
-    if (this.isMe(e.attacker)) {
-      const isUtility = ["grenade", "molotov", "c4", "explosion", "explosive"].some(k =>
-        dmgCat.includes(k) || weapon.includes(k)
-      );
-      if (isUtility) {
-        this.state.utilitySummary.totalDamage += damage;
-        this.state.utilitySummary.hitCount++;
-        this.state.combatPressure.utilityDamage += damage;
-        this.state.combatPressure.utilityHits++;
-      }
-    }
+    // Only positive enemy damage from throwable weapons. Panzer/vehicle/red-zone
+    // explosions and friendly/self damage are not successful throws.
+    if (!this.isMe(e.attacker) || !e.victim || this.isMe(e.victim) || this.isTeammate(e.victim)
+      || typeof damage !== "number" || !Number.isFinite(damage) || damage <= 0) return;
+    const isUtility = ["grenade", "molotov", "c4", "stickybomb"].some(k => weapon.includes(k))
+      || (!/panzer|redzone|vehicle|environment/.test(`${weapon} ${dmgCat}`) && ["grenade", "molotov", "c4", "stickybomb"].some(k => dmgCat.includes(k)));
+    if (!isUtility) return;
+    const victim = normalizeName(e.victim.name || "") || this.actorNamesById.get(e.victim.accountId) || e.victim.accountId;
+    const status = this.state.playerAliveStatus.get(victim) ?? this.state.playerAliveStatus.get(e.victim.accountId);
+    if (status === false || status === "groggy") return;
+    this.state.utilitySummary.totalDamage += damage;
+    this.state.utilitySummary.hitCount++;
+    this.state.combatPressure.utilityDamage += damage;
+    this.state.combatPressure.utilityHits++;
+    const id = this.attackKey(e);
+    if (id === null || !this.state.utilityThrowEvidence.throws.has(id)) this.state.utilityThrowEvidence.missing = true;
+    else this.state.utilityThrowEvidence.hits.add(id);
   }
 
   private handleItemUse(e: any) {
@@ -228,13 +254,15 @@ export class UtilityHandler extends BaseHandler {
       this.state.itemUseStats.throwCount++;
 
       if (wId.includes("smoke")) this.state.itemUseSummary.smokes++;
-      else if (wId.includes("grenade")) {
+      else if (wId.includes("grenade") || wId.includes("c4") || wId.includes("stickybomb")) {
         this.state.itemUseSummary.frags++;
         this.state.itemUseStats.lethalThrowCount++;
+          this.recordLethalThrow(e);
       }
       else if (wId.includes("molotov")) {
         this.state.itemUseSummary.molotovs++;
         this.state.itemUseStats.lethalThrowCount++;
+          this.recordLethalThrow(e);
       }
       else {
         this.state.itemUseSummary.others++;

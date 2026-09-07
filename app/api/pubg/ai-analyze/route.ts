@@ -1,3 +1,4 @@
+import { applyMatchAiEvidencePolicy } from "@/lib/pubg-analysis/matchAiEvidence";
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import { withAuthGuard } from "@/utils/supabase/guard";
@@ -205,7 +206,7 @@ export async function POST(request: Request) {
           platform: requestedPlatform,
         });
         const cachedData = cached.ai_result as any;
-        const cachedText = sanitizeAiCoachingLanguageText(String(cachedData.text || ""));
+        const cachedText = applyMatchAiEvidencePolicy(sanitizeAiCoachingLanguageText(String(cachedData.text || "")), canonicalFullResult);
         const encoder = new TextEncoder();
         const stream = new ReadableStream({
           start(controller) {
@@ -338,7 +339,7 @@ export async function POST(request: Request) {
               }
             }
             if (isRouteAborted()) throw new DOMException("The operation was aborted.", "AbortError");
-            const sanitizedText = sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(aiResponseText, backupContext));
+            const sanitizedText = applyMatchAiEvidencePolicy(sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(aiResponseText, backupContext)), canonicalFullResult);
             aiResponseText = sanitizedText;
             controller.enqueue(encoder.encode(JSON.stringify({ type: "chunk", data: sanitizedText }) + "\n"));
 
@@ -357,7 +358,7 @@ export async function POST(request: Request) {
             }).catch((err: any) => console.error("[AI-ANALYZE] Usage fetch error:", err));
 
           } else if (fallbackText) { 
-            aiResponseText = sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(fallbackText, backupContext));
+            aiResponseText = applyMatchAiEvidencePolicy(sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(fallbackText, backupContext)), canonicalFullResult);
             controller.enqueue(encoder.encode(JSON.stringify({ type: "chunk", data: aiResponseText }) + "\n"));
             
             if (nonStreamRes?.response?.usageMetadata) {

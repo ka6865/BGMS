@@ -300,8 +300,7 @@ describe("strict squad analysis population", () => {
     configureSquadClient(processed, trustedBenchmarkRows(count));
     const { getSquadAnalysisData } = await import("@/lib/pubg-analysis/squadAnalysis");
 
-    await expect(getSquadAnalysisData("Player_A", "steam", "Teammate_B"))
-      .rejects.toThrow(new Error("Squad benchmark data unavailable."));
+    expect(await getSquadAnalysisData("Player_A", "steam", "Teammate_B")).toMatchObject({squadGrade:null,benchmarkStats:{avgIsolation:null}});
   });
 
   it("fails closed when processed and benchmark tiers are malformed", async () => {
@@ -642,8 +641,7 @@ describe("strict squad analysis population", () => {
     configureSquadClient(processed, rows);
     const { getSquadAnalysisData } = await import("@/lib/pubg-analysis/squadAnalysis");
 
-    await expect(getSquadAnalysisData("Player_A", "steam", "Teammate_B"))
-      .rejects.toThrow(new Error("Squad benchmark data unavailable."));
+    expect(await getSquadAnalysisData("Player_A", "steam", "Teammate_B")).toMatchObject({squadGrade:null,benchmarkStats:{avgIsolation:null}});
   });
 
   it("fails closed when finite benchmark values overflow during averaging", async () => {
@@ -658,8 +656,7 @@ describe("strict squad analysis population", () => {
     configureSquadClient(processed, rows);
     const { getSquadAnalysisData } = await import("@/lib/pubg-analysis/squadAnalysis");
 
-    await expect(getSquadAnalysisData("Player_A", "steam", "Teammate_B"))
-      .rejects.toThrow(new Error("Squad benchmark data unavailable."));
+    expect(await getSquadAnalysisData("Player_A", "steam", "Teammate_B")).toMatchObject({squadGrade:null,benchmarkStats:{avgIsolation:null}});
   });
 
   it("does not aggregate rows missing the current benchmark provenance markers", async () => {
@@ -670,7 +667,6 @@ describe("strict squad analysis population", () => {
     configureSquadClient(processed, rows);
     const { getSquadAnalysisData } = await import("@/lib/pubg-analysis/squadAnalysis");
 
-    await expect(getSquadAnalysisData("Player_A", "steam", "Teammate_B"))
-      .rejects.toThrow(new Error("Squad benchmark data unavailable."));
+    expect(await getSquadAnalysisData("Player_A", "steam", "Teammate_B")).toMatchObject({squadGrade:null,benchmarkStats:{avgIsolation:null}});
   });
 });

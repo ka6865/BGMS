@@ -195,7 +195,7 @@ export async function POST(request: Request) {
           requestId,
           platform: requestedPlatform,
         });
-        return NextResponse.json(applySquadEvidencePolicy(sanitizeAiCoachingLanguage(cached.ai_result), canonicalStats, canonicalGrade, canonicalScores));
+        return NextResponse.json(applySquadEvidencePolicy(sanitizeAiCoachingLanguage(cached.ai_result), canonicalStats, canonicalGrade, canonicalScores, canonicalRoleProfiles));
       }
     } catch (dbErr) {
       if (request.signal.aborted) throw new SquadRequestAbortedError();
@@ -351,7 +351,7 @@ export async function POST(request: Request) {
     }
 
     const validJsonString = extractValidJson(responseText);
-    const resultJson = applySquadEvidencePolicy(sanitizeAiCoachingLanguage(JSON.parse(validJsonString)), canonicalStats, canonicalGrade, canonicalScores);
+    const resultJson = applySquadEvidencePolicy(sanitizeAiCoachingLanguage(JSON.parse(validJsonString)), canonicalStats, canonicalGrade, canonicalScores, canonicalRoleProfiles);
 
     // 3. Write to DB Cache
     if (request.signal.aborted) throw new SquadRequestAbortedError();

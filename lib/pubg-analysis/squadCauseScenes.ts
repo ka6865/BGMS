@@ -35,7 +35,7 @@ export interface SquadCauseScene {
   facts: string[];
   metricSnapshot: {
     tradeLatencyMs?: number | null;
-    benchmarkTradeLatencyMs?: number;
+    benchmarkTradeLatencyMs?: number | null;
     deathIsolation?: number;
     minDistanceM?: number;
     smokeUsedWithin15s?: boolean;
@@ -102,7 +102,7 @@ export interface SquadCauseSceneMatchInput {
 
 export interface ExtractSquadCauseScenesOptions {
   maxScenes?: number;
-  benchmarkTradeLatencyMs?: number;
+  benchmarkTradeLatencyMs?: number | null;
   isolationDangerThreshold?: number;
   minDistanceDangerMeters?: number;
   tradeWindowMs?: number;
@@ -460,7 +460,7 @@ export function extractSquadCauseScenes(
         normalizeName(getEventTargetName(candidate)) === normalizeName(targetName)
       ).length;
       const noTrade = tradeLatencyMs === null;
-      const slowTrade = tradeLatencyMs !== null &&
+      const slowTrade = tradeLatencyMs !== null && resolvedOptions.benchmarkTradeLatencyMs !== null &&
         tradeLatencyMs > resolvedOptions.benchmarkTradeLatencyMs + 3000;
       const rescuedWithUtility = reviveWithin30s && recovery.smokeRescueCandidates.some(candidate =>
         candidate.knockTs === event.ts && normalizeName(candidate.victim) === normalizeName(targetName)
@@ -523,17 +523,17 @@ export function extractSquadCauseScenes(
         const base = sceneBase("late_trade", match, event, resolvedOptions);
         const deltaText = tradeLatencyMs === null
           ? "30초 안에 확인된 복수 킬 없음"
-          : `기준보다 ${((tradeLatencyMs - resolvedOptions.benchmarkTradeLatencyMs) / 1000).toFixed(1)}초 느림`;
+          : `기준보다 ${((tradeLatencyMs - (resolvedOptions.benchmarkTradeLatencyMs ?? tradeLatencyMs)) / 1000).toFixed(1)}초 느림`;
         const title = smokeUsedWithin15s
           ? "연막 이후 후속 성과 미확인"
           : "아군 기절 후 백업 지연";
         const reason = smokeUsedWithin15s
           ? `${targetName} 기절 이후 연막 사용은 확인됐지만, 30초 안에 복수 킬 또는 소생 성공 이벤트가 확인되지 않았습니다.`
-          : `${targetName} 기절 이후 백업 결과가 기준보다 늦거나 확인되지 않았습니다.`;
+          : `${targetName} 기절 이후 30초 안에 복수 킬 또는 소생 성공이 확인되지 않았거나, 관측된 비교 기준보다 늦었습니다.`;
         const facts = [
           `${base.displayTime}에 ${targetName} ${getCriticalEventLabel(event)} 발생`,
           deltaText,
-          `비교 기준 백업 속도 ${(resolvedOptions.benchmarkTradeLatencyMs / 1000).toFixed(1)}초`
+          ...(resolvedOptions.benchmarkTradeLatencyMs === null ? [] : [`비교 기준 백업 속도 ${(resolvedOptions.benchmarkTradeLatencyMs / 1000).toFixed(1)}초`])
         ];
         if (smokeUsedWithin15s) facts.push("15초 안에 연막 사용은 확인됨");
         if (!reviveWithin30s) facts.push("30초 안에 소생 성공 이벤트 없음");
