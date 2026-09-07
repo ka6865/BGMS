@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import getApiUrl from "../../lib/api-config";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
@@ -44,6 +44,10 @@ export default function GameDataEditor() {
   const [showUserListOnMobile, setShowUserListOnMobile] = useState(false);
   const [userAccounts, setUserAccounts] = useState<any>(null);
   const [userMetrics, setUserMetrics] = useState<any>(null);
+  const [userMembership, setUserMembership] = useState<any>(null);
+  const [userWindowDays, setUserWindowDays] = useState<7 | 30 | 90>(30);
+
+  const itemsRequest = useRef<AbortController | null>(null);
 
   // 전역 공지 설정 상태
   const [noticeActiveId, setNoticeActiveId] = useState("");
@@ -386,6 +390,10 @@ export default function GameDataEditor() {
   }, [router, fetchDashboardData]);
 
   const fetchItems = useCallback(async () => {
+    itemsRequest.current?.abort();
+    const controller = new AbortController();
+    itemsRequest.current = controller;
+    const { signal } = controller;
     // 무기도감 갱신 제안 탭은 자체 컴포넌트가 데이터를 조회한다.
     if (activeCategory === "weapon-patch") {
       setItems([]);
@@ -403,21 +411,25 @@ export default function GameDataEditor() {
       fetchDashboardData();
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        const response = await fetch("/api/admin/users", {
+        if (signal.aborted) return;
+        const response = await fetch(`/api/admin/users?windowDays=${userWindowDays}`, {
+          signal,
           headers: {
             "Authorization": `Bearer ${session?.access_token}`
           }
         });
         if (!response.ok) throw new Error("유저 목록 로드 실패");
         const data = await response.json();
+        if (signal.aborted) return;
         const userList = Array.isArray(data) ? data : data.users || [];
         setItems(userList);
         setUserAccounts(data.accounts || null);
         setUserMetrics(data.metrics || null);
+        setUserMembership(data.membership || null);
         setSelectedCrateDetail(null);
         setSelectedItem(null);
       } catch (err: any) {
-        toast.error(err.message);
+        if (!signal.aborted) toast.error(err.message);
       }
       return;
     }
@@ -425,18 +437,21 @@ export default function GameDataEditor() {
     if (activeCategory === "crates") {
       try {
         const { data: { session } } = await supabase.auth.getSession();
+        if (signal.aborted) return;
         const response = await fetch("/api/admin/crates/data", {
+          signal,
           headers: {
             "Authorization": `Bearer ${session?.access_token}`
           }
         });
         if (!response.ok) throw new Error("은신처 상점 목록 로드 실패");
         const data = await response.json();
+        if (signal.aborted) return;
         setItems(data || []);
         setSelectedCrateDetail(null);
         setSelectedItem(null);
       } catch (err: any) {
-        toast.error(err.message);
+        if (!signal.aborted) toast.error(err.message);
       }
       return;
     }
@@ -446,6 +461,7 @@ export default function GameDataEditor() {
       .select("*")
       .order("name", { ascending: true });
 
+    if (signal.aborted) return;
     if (error) {
       console.error("Fetch error:", error);
     } else {
@@ -453,12 +469,13 @@ export default function GameDataEditor() {
       setSelectedItem(null);
       setSelectedCrateDetail(null);
     }
-  }, [activeCategory, fetchDashboardData, fetchSettings, setItems, setSelectedCrateDetail, setSelectedItem]);
+  }, [activeCategory, fetchDashboardData, fetchSettings, setItems, setSelectedCrateDetail, setSelectedItem, userWindowDays]);
 
   useEffect(() => {
     if (isAuthorized) {
       fetchItems();
     }
+    return () => itemsRequest.current?.abort();
   }, [isAuthorized, activeCategory, fetchItems]);
 
   const filteredItems = useMemo(() => {
@@ -992,6 +1009,9 @@ export default function GameDataEditor() {
                 users={items}
                 accounts={userAccounts}
                 metrics={userMetrics}
+                membership={userMembership}
+                selectedWindowDays={userWindowDays}
+                onWindowChange={(days) => setUserWindowDays(days)}
                 isRefreshing={isSaving}
                 isSaving={isSaving}
                 onRefresh={fetchItems}
