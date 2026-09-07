@@ -1,3 +1,4 @@
+import { orderedReplayEvents } from "../replay/orderedEvents";
 /**
  * @fileoverview PUBG Telemetry Analysis Engine (V11.9.2 Modularized)
  * 
@@ -602,8 +603,8 @@ export class AnalysisEngine {
       timeline: this.state.timeline.sort((a, b) => a.ts - b.ts),
       // [V26.0] 지도 리플레이용 데이터 포함
       mapData: {
-        events: this.state.mapEvents,
-        zoneEvents: this.state.mapZoneEvents,
+        events: orderedReplayEvents(this.state.mapEvents),
+        zoneEvents: orderedReplayEvents(this.state.mapZoneEvents),
         teammates: Array.from(this.state.teamAccountIds),
         teamNames: Array.from(this.state.teamNames),
         mapName: this.state.mapName

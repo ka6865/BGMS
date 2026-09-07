@@ -130,6 +130,11 @@ describe('analysis cache projection contract',()=>{
 
 
 describe('replay health and recovery scene evidence', () => {
+  it.each(['recalledPlayer','recallingPlayer'])('emits returned player life for singular %s and excludes the initiator',field=>{
+    const {state}=positionSetup();
+    new MapReplayHandler(state).handleEvent({_T:'LogPlayerRecall',[field]:{name:'enemy',accountId:'account.enemy',location:{x:100,y:100,z:0}},recaller:{name:'me'}},1000,1000);
+    expect(state.mapEvents.at(-1)).toMatchObject({type:'create',name:'enemy',isTeam:false,relativeTimeMs:1000});
+  });
   it('preserves measured zero health in replay positions', () => {
     const {state}=positionSetup();
     new MapReplayHandler(state).handleEvent({_T:'LogPlayerPosition',character:{name:'me',accountId:'account.me',health:0,location:{x:100,y:100,z:0}}},1000,1000);

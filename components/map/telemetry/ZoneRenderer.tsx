@@ -1,4 +1,5 @@
 import React from "react";
+import { toCalibratedCoords } from "@/utils/coordinate";
 import { Circle } from "react-leaflet";
 
 /**
@@ -21,7 +22,7 @@ export const ZoneRenderer = ({ telemetryData, showZones = true }: { telemetryDat
       {/* 하얀 원: 다음 안전구역 (White Circle) */}
       {latestZone.whiteX != null && latestZone.whiteY != null && latestZone.whiteRadius != null && (
         <Circle
-          center={[8192 - latestZone.whiteY, latestZone.whiteX]}
+          center={toCalibratedCoords(latestZone.whiteX, latestZone.whiteY, telemetryData.mapName)}
           radius={latestZone.whiteRadius}
           pathOptions={{
             color: "#ffffff",

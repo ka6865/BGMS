@@ -43,16 +43,23 @@ export const TelemetryCanvasLayer = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationRef = useRef<number | null>(null);
   const dataRef = useRef(telemetryData);
+  const optionsRef = useRef({ showZones, showFlightPath });
+  const effectEventsRef = useRef<any[]>([]);
   const posLogsRef = useRef<Record<string, { x: number, y: number, t: number, rotation: number }[]>>({});
   const flightPathRef = useRef<{ start: {x: number, y: number}, end: {x: number, y: number} } | null>(null);
 
   useEffect(() => {
     dataRef.current = telemetryData;
-  }, [telemetryData]);
+    optionsRef.current = { showZones, showFlightPath };
+  }, [telemetryData, showZones, showFlightPath]);
 
   useEffect(() => {
     const evs = telemetryData.events;
-    if (!evs) return;
+    effectEventsRef.current = (evs || []).filter((ev:any) => {
+      const type = String(ev._T || ev.type || "");
+      return ["groggy","kill","grenade","smoke","flash","molotov","bluezone","shield","damage","shot"].includes(type) || type.includes("Attack");
+    });
+    if (!evs) { posLogsRef.current = {}; flightPathRef.current = null; return; }
     const newLogs: Record<string, any[]> = {};
     evs.forEach((ev: any) => {
       const type = (ev._T || ev.type || "").toString();
@@ -126,11 +133,11 @@ export const TelemetryCanvasLayer = ({
     };
 
     const getPoint = (lat: number, lng: number) => {
-      if (typeof lat !== "number" || typeof lng !== "number" || isNaN(lat) || isNaN(lng)) {
+      if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng)) {
         return { x: -9999, y: -9999 }; // 화면 밖으로 밀어냄
       }
       try {
-        const calibrated = toCalibratedCoords(lng, lat, telemetryData.mapName);
+        const calibrated = toCalibratedCoords(lng, lat, dataRef.current.mapName);
         const p = map.latLngToContainerPoint(calibrated);
         return { x: p.x, y: p.y };
       } catch (e) {
@@ -143,8 +150,9 @@ export const TelemetryCanvasLayer = ({
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      const { currentStates: states, currentTimeMs, events, zoneEvents, showZone } = dataRef.current;
-      if (!states) { 
+      const { currentStates: states, currentTimeMs, zoneEvents, showZone } = dataRef.current || {};
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!states || dataRef.current?.isActive === false) {
         animationRef.current = requestAnimationFrame(draw); 
         return; 
       }
@@ -162,7 +170,7 @@ export const TelemetryCanvasLayer = ({
       const zoomScale = Math.pow(1.5, currentZoom - 1); 
 
       // [A] 인게임 스타일 자기장 (반전 채우기 & 보간 적용)
-      const isZoneVisible = showZones && showZone !== false;
+      const isZoneVisible = optionsRef.current.showZones && showZone !== false;
       if (isZoneVisible && zoneEvents && Array.isArray(zoneEvents) && zoneEvents.length > 0) {
         // 현재 시간 기준 이전(prev)과 다음(next) 상태 찾기
         let prevZone = zoneEvents[0];
@@ -191,24 +199,8 @@ export const TelemetryCanvasLayer = ({
           const startRadius = prevZone.blueRadius ?? nextZone.blueRadius;
           const endRadius = nextZone.blueRadius ?? prevZone.blueRadius;
 
-          // White zone interpolation
-          const startWhiteX = prevZone.whiteX ?? nextZone.whiteX;
-          const endWhiteX = nextZone.whiteX ?? prevZone.whiteX;
-          const startWhiteY = prevZone.whiteY ?? nextZone.whiteY;
-          const endWhiteY = nextZone.whiteY ?? prevZone.whiteY;
-          const startWhiteRadius = prevZone.whiteRadius ?? nextZone.whiteRadius;
-          const endWhiteRadius = nextZone.whiteRadius ?? prevZone.whiteRadius;
-
-          if (
-            typeof startX !== "number" || typeof endX !== "number" ||
-            typeof startY !== "number" || typeof endY !== "number" ||
-            typeof startRadius !== "number" || typeof endRadius !== "number"
-          ) {
-            ctx.restore();
-            animationRef.current = requestAnimationFrame(draw);
-            return;
-          }
-
+          // Missing zone evidence must not hide players and combat layers.
+          if ([startX,endX,startY,endY,startRadius,endRadius].every(value => typeof value === "number" && Number.isFinite(value))) {
           const interpX = startX + (endX - startX) * ratio;
           const interpY = startY + (endY - startY) * ratio;
           const interpRadius = startRadius + (endRadius - startRadius) * ratio;
@@ -248,8 +240,10 @@ export const TelemetryCanvasLayer = ({
         }
       }
 
+      }
+
       // [A-2] 비행기 경로 (Flight Path)
-      if (dataRef.current.showFlightPath && flightPathRef.current) {
+      if (optionsRef.current.showFlightPath && dataRef.current.showFlightPath && flightPathRef.current) {
         const p1 = getPoint(flightPathRef.current.start.y, flightPathRef.current.start.x);
         const p2 = getPoint(flightPathRef.current.end.y, flightPathRef.current.end.x);
         if (p1.x !== -9999 && p2.x !== -9999) {
@@ -281,12 +275,14 @@ export const TelemetryCanvasLayer = ({
       }
 
       // [B] 전투 이펙트
-      if (events && Array.isArray(events)) {
-        events.forEach((ev: any) => {
+      if (effectEventsRef.current.length) {
+        effectEventsRef.current.forEach((ev: any) => {
           const type = (ev._T || ev.type || "").toString();
           const ageMs = currentTimeMs - (ev.relativeTimeMs || 0);
           
-          if (ageMs < -1000 || ageMs > 40000) return;
+          if (ageMs < 0 || ageMs > 40000) return;
+          if (["groggy","kill"].includes(type) && dataRef.current.showCombatDots === false) return;
+          if ((["shot","damage"].includes(type) || type.includes("Attack")) && dataRef.current.showShotDots === false) return;
           if (typeof ev.x !== "number" || typeof ev.y !== "number" || isNaN(ev.x) || isNaN(ev.y)) return;
           
           const pt = getPoint(ev.y, ev.x);
@@ -294,7 +290,7 @@ export const TelemetryCanvasLayer = ({
           let rendered = false;
 
           // 1. 기절 효과
-          if (type === "groggy" && ageMs >= 0 && ageMs < 2500) {
+          if ((type === "groggy" || type === "kill") && ageMs >= 0 && ageMs < 2500) {
             const t = ageMs / 2500;
             ctx.beginPath();
             ctx.arc(pt.x, pt.y, Math.max(0, 100 * t * zoomScale), 0, Math.PI * 2);
@@ -419,7 +415,7 @@ export const TelemetryCanvasLayer = ({
               rendered = true;
             }
             // [고정밀 전용] 사격 궤적
-            else if (isHighPrecision && type === "damage" && ageMs < 600) {
+            else if (isHighPrecision && type === "damage" && ageMs >= 0 && ageMs < 600) {
               const op = 1 - (ageMs / 600);
               const attacker = getInterpolatedPos(ev.attackerName, currentTimeMs);
               const victim = getInterpolatedPos(ev.victimName, currentTimeMs);
@@ -465,12 +461,13 @@ export const TelemetryCanvasLayer = ({
       }
 
       // [C] 플레이어 & 차량 (기존 로직 유지)
+      const hidden = (name:string) => (dataRef.current.hiddenPlayers || []).some((value:string) => value.trim().toLowerCase() === name.trim().toLowerCase());
       const handledVehicles = new Set();
       Object.values(states).forEach((p: any) => {
-        if (p.isDead) return;
+        if (p.isDead || hidden(p.name)) return;
         const pos = getInterpolatedPos(p.name, currentTimeMs) || { x: p.x, y: p.y, rotation: 0 };
         const pt = getPoint(pos.y, pos.x);
-        const isMe = p.name === telemetryData.nickname;
+        const isMe = p.name === dataRef.current.nickname;
         const isGroggy = p.isGroggy;
         const isTeam = !p.isEnemy;
         const radius = isMe ? 12 : 9;
@@ -478,7 +475,7 @@ export const TelemetryCanvasLayer = ({
         if (p.isInVehicle && p.vehicleId) {
           if (handledVehicles.has(p.vehicleId)) return;
           handledVehicles.add(p.vehicleId);
-          const occupants = Object.values(states).filter((o: any) => !o.isDead && o.vehicleId === p.vehicleId) as any[];
+          const occupants = Object.values(states).filter((o: any) => !o.isDead && !hidden(o.name) && o.vehicleId === p.vehicleId) as any[];
           
           const isAirplane = p.vehicleId.toLowerCase().includes("aircraft") || p.vehicleId.toLowerCase().includes("c130");
 
@@ -504,7 +501,7 @@ export const TelemetryCanvasLayer = ({
 
           if (!isAirplane) {
             occupants.forEach((m, i) => {
-              if (telemetryData.showPlayerNames || m.name === telemetryData.nickname) {
+              if (dataRef.current.showPlayerNames || m.name === dataRef.current.nickname) {
                 ctx.font = "bold 10px Pretendard";
                 ctx.fillStyle = m.isGroggy ? "#ff4444" : "#ffffff";
                 ctx.textAlign = "center";
@@ -541,7 +538,7 @@ export const TelemetryCanvasLayer = ({
           ctx.fillText(p.teamId.toString(), 0, 0);
         }
 
-        if (telemetryData.showPlayerNames || isMe || (isTeam && isGroggy)) {
+        if (dataRef.current.showPlayerNames || isMe || (isTeam && isGroggy)) {
           ctx.font = isMe ? "bold 12px Pretendard" : "bold 10px Pretendard";
           ctx.fillStyle = isGroggy ? "#ff4444" : "#ffffff"; ctx.textAlign = "center";
           ctx.shadowColor = "black"; ctx.shadowBlur = 4;

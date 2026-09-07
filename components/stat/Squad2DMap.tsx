@@ -1,5 +1,6 @@
 "use client";
 
+import { replayPlayerStatus, finiteReplayPoint } from "@/lib/replay/orderedEvents";
 import React, { useCallback, useState, useEffect, useMemo } from "react";
 import {
   MapContainer,
@@ -143,33 +144,7 @@ const interpolateRawPosition = (
 };
 
 // 특정 시점의 플레이어 상태를 반환하는 함수
-const getPlayerStatusAtTime = (
-  events: any[],
-  playerName: string,
-  timeMs: number
-): "normal" | "groggy" | "dead" => {
-  const normPlayerName = normalizeName(playerName);
-  
-  // 플레이어가 대상인 기절, 사망, 소생 이벤트를 필터링
-  const playerEvents = events.filter(
-    (ev: any) =>
-      (ev.type === "groggy" || ev.type === "kill" || ev.type === "revive") &&
-      normalizeName(ev.victim) === normPlayerName &&
-      ev.relativeTimeMs <= timeMs
-  );
-  
-  if (playerEvents.length === 0) return "normal";
-  
-  // 시간 순서대로 정렬하여 가장 최근 이벤트를 획득
-  const sorted = [...playerEvents].sort((a, b) => b.relativeTimeMs - a.relativeTimeMs);
-  const lastEvent = sorted[0];
-  
-  if (lastEvent.type === "groggy") return "groggy";
-  if (lastEvent.type === "kill") return "dead";
-  if (lastEvent.type === "revive") return "normal";
-  
-  return "normal";
-};
+const getPlayerStatusAtTime = replayPlayerStatus;
 
 // 특정 시간(playbackTimeMs)과 가장 가까운 위치 이벤트에서 vehicleId 조회
 const getVehicleIdAtTime = (posEvs: any[], timeMs: number): string | null => {
@@ -438,11 +413,15 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
       }
     }
 
-    // Fallback 3: If absolutely nothing, create a dummy 300000ms knock event to prevent crash
+    const positionTimes = events.filter((e:any)=>["position","enemy_position"].includes(e.type) && Number.isFinite(e.relativeTimeMs) && e.relativeTimeMs >= 0).map((e:any)=>e.relativeTimeMs);
+    const overviewStart = positionTimes.length ? positionTimes.reduce((a:number,b:number)=>Math.min(a,b),Infinity) : 0;
+    const overviewEnd = positionTimes.length ? positionTimes.reduce((a:number,b:number)=>Math.max(a,b),-Infinity) : overviewStart;
+    // Without a combat scene, show the observed movement extent.
     if (knocks.length === 0) {
       knocks = [{
-        type: "groggy",
-        relativeTimeMs: 300000,
+        type: "focus_time",
+        isOverview: true,
+        relativeTimeMs: (overviewStart + overviewEnd) / 2,
         victim: nickname,
         attacker: "없음",
         weapon: "None",
@@ -455,8 +434,8 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
     const T = activeKnock.relativeTimeMs;
 
     // 2. Extract 4-players locations within T - 15s to T + 15s
-    const startMs = Math.max(0, T - 15000);
-    const endMs = T + 15000;
+    const startMs = activeKnock.isOverview ? Math.max(0, overviewStart) : Math.max(0, T - 15000);
+    const endMs = activeKnock.isOverview ? overviewEnd : T + 15000;
 
     // 기절 또는 포커스 이벤트 기준 상대 적의 닉네임을 식별합니다.
     const targetEnemyName = activeKnock
@@ -652,14 +631,14 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
       enemies,
       attackerPosEvs,
       knocks,
-      combatEvents,
+      combatEvents, startMs, endMs,
     };
   }, [telemetry, nickname, selectedKnockIdx, focusTimeMs, mapName]);
 
   // Extract variables for easier access
   const T = mapData?.firstKnock?.relativeTimeMs ?? 0;
-  const startMs = Math.max(0, T - 15000);
-  const endMs = T + 15000;
+  const startMs = mapData?.startMs ?? Math.max(0, T - 15000);
+  const endMs = mapData?.endMs ?? T + 15000;
 
   // 기절 발생 지점(교전지) 또는 전체 Bounds로부터 최초 center와 zoom을 구함
   const initialCenterAndZoom = useMemo(() => {
@@ -749,7 +728,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
         return diff >= 0 && diff < 400; // 0.4초 동안 선 유지
       })
       .map((ev: any, idx: number) => {
-        if (!ev.attackerX || !ev.attackerY || !ev.x || !ev.y) return null;
+        if (!finiteReplayPoint(ev.attackerX, ev.attackerY) || !finiteReplayPoint(ev.x, ev.y)) return null;
 
         const start = toLeafletCoords(ev.attackerX, ev.attackerY, mapName);
         const end = toLeafletCoords(ev.x, ev.y, mapName);
@@ -790,7 +769,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
       .map((ev: any, idx: number) => {
         const diff = playbackTimeMs - ev.relativeTimeMs;
         if (diff < 0 || diff >= 3000) return null; // 발생 후 3초간 표시
-        if (!ev.victimX || !ev.victimY) return null;
+        if (!finiteReplayPoint(ev.victimX, ev.victimY)) return null;
         
         const pos = toLeafletCoords(ev.victimX, ev.victimY, mapName);
         const isKill = ev.type === "kill";
@@ -1029,7 +1008,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
   let attackLine = null;
   let enemyMarker = null;
 
-  if (firstKnock && firstKnock.victimY && firstKnock.victimX && firstKnock.type !== "focus_time") {
+  if (firstKnock && finiteReplayPoint(firstKnock.victimX, firstKnock.victimY) && firstKnock.type !== "focus_time") {
     const isVictimInPlayers = computedPlayers.find(
       (p: any) => normalizeName(p.name) === normalizeName(firstKnock.victim)
     );
@@ -1127,7 +1106,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
 
   // 7. 실제 기절 고정 핀 마커 생성
   let groggyMarker = null;
-  if (firstKnock && firstKnock.victimY && firstKnock.victimX && playbackTimeMs >= T && firstKnock.type !== "focus_time") {
+  if (firstKnock && finiteReplayPoint(firstKnock.victimX, firstKnock.victimY) && playbackTimeMs >= T && firstKnock.type !== "focus_time") {
     const isVictimInPlayers = computedPlayers.find(
       (p: any) => normalizeName(p.name) === normalizeName(firstKnock.victim)
     );
@@ -1216,6 +1195,9 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
   // Time format helper for current playback status
   const relativeSec = ((playbackTimeMs - T) / 1000).toFixed(1);
   const formattedSec = Number(relativeSec) >= 0 ? `+${relativeSec}s` : `${relativeSec}s`;
+  const isOverview = firstKnock?.isOverview === true;
+  const formatTime = (timeMs: number) => `${Math.floor(timeMs / 60000)}:${String(Math.floor(timeMs / 1000) % 60).padStart(2, "0")}`;
+  const progressPercent = endMs > startMs ? Math.max(0, Math.min(100, ((playbackTimeMs - startMs) / (endMs - startMs)) * 100)) : 0;
 
   return (
     <div className="w-full rounded-xl overflow-hidden border border-zinc-800/80 bg-zinc-950 shadow-inner">
@@ -1272,14 +1254,14 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
         <div className="absolute top-3 left-3 z-[1000] bg-zinc-900/85 backdrop-blur-sm border border-zinc-800 px-2.5 py-1.5 rounded-lg pointer-events-none flex flex-col gap-0.5">
           <h6 className="text-[10px] font-bold text-zinc-200 flex items-center gap-1.5">
             <span className={`h-1.5 w-1.5 rounded-full ${isPlaying ? "bg-green-500 animate-pulse" : "bg-zinc-500"}`} />
-            교전 2D 리플레이 {isPlaying ? "재생 중" : "일시정지"}
+            {isOverview ? "이동 2D 리플레이" : "교전 2D 리플레이"} {isPlaying ? "재생 중" : "일시정지"}
           </h6>
-          <p className="text-[8px] text-zinc-400">기절 순간 전후 15초 리플레이 시뮬레이션</p>
+          <p className="text-[8px] text-zinc-400">{isOverview ? "교전 장면 없이 관측된 이동 경로를 표시합니다" : "선택 시점 전후 15초 리플레이"}</p>
         </div>
 
         <div className="absolute top-3 right-3 z-[1000] bg-purple-600/90 text-purple-100 font-mono text-[10px] font-black px-2 py-1 rounded border border-purple-500 shadow-lg pointer-events-none flex items-center gap-1">
-          <span className="opacity-60">기절 기준:</span>
-          <span>{formattedSec}</span>
+          <span className="opacity-60">{isOverview ? "경기 시간:" : "선택 시점:"}</span>
+          <span>{isOverview ? formatTime(playbackTimeMs) : formattedSec}</span>
         </div>
 
         <MapContainer
@@ -1340,7 +1322,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
       <div className="bg-zinc-900/90 border-t border-zinc-800/80 px-4 py-3 flex flex-col gap-3">
         {/* Timeline Slider and Status */}
         <div className="flex items-center gap-3">
-          <span className="font-mono text-[9px] text-zinc-500 font-bold">-15.0s</span>
+          <span className="font-mono text-[9px] text-zinc-500 font-bold">{isOverview ? formatTime(startMs) : `${((startMs - T) / 1000).toFixed(1)}s`}</span>
           <input
             type="range"
             min={startMs}
@@ -1352,10 +1334,10 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
             }}
             className="flex-1 h-1 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-purple-500 hover:accent-purple-400 transition-all outline-none"
             style={{
-              background: `linear-gradient(to right, #a855f7 0%, #a855f7 ${((playbackTimeMs - startMs) / (endMs - startMs)) * 100}%, #27272a ${((playbackTimeMs - startMs) / (endMs - startMs)) * 100}%, #27272a 100%)`
+              background: `linear-gradient(to right, #a855f7 0%, #a855f7 ${progressPercent}%, #27272a ${progressPercent}%, #27272a 100%)`
             }}
           />
-          <span className="font-mono text-[9px] text-zinc-500 font-bold">+15.0s</span>
+          <span className="font-mono text-[9px] text-zinc-500 font-bold">{isOverview ? formatTime(endMs) : `+${((endMs - T) / 1000).toFixed(1)}s`}</span>
         </div>
 
         {/* Buttons Controls */}

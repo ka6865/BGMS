@@ -1,3 +1,4 @@
+import { orderedReplayEvents } from "../replay/orderedEvents";
 import getApiUrl from "../api-config";
 import {
   parseTelemetryMode,
@@ -132,7 +133,8 @@ export async function fetchTelemetryPayload(
     DOWNLOAD_ERROR,
   );
   try {
-    return parseTelemetryPayload(payloadValue, envelope.identity);
+    const payload = parseTelemetryPayload(payloadValue, envelope.identity);
+    return { ...payload, events: orderedReplayEvents(payload.events), zoneEvents: orderedReplayEvents(payload.zoneEvents) };
   } catch {
     throw new Error(VALIDATION_ERROR);
   }
