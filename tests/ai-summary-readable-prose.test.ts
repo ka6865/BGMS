@@ -85,4 +85,92 @@ describe("readable AI coaching with verified evidence", () => {
     };
     expect(sanitize(source, evidence)).toBe(valid ? source : neutral);
   });
+
+  it("keeps the MiaeQ_Q smoke rescue comparison and its actionable follow-up", () => {
+    const evidence: CanonicalDebateEvidenceMap = {
+      smoke_opportunity_rate: {
+        user: { label: "아군 기절 대비 연막 구출률", value: "0%" },
+        benchmark: { label: "동일 티어 평균 아군 기절 대비 연막 구출률", value: "5.6%" },
+      },
+    };
+    const source = "아군 기절 대비 연막 구출률이 비교 평균보다 낮으므로 생존 연막 활용 범위를 구출까지 넓혀야 합니다.";
+    const output = sanitize(source, evidence, { allowedMode: "duo" });
+
+    expect(output).toBe("아군 기절 대비 연막 구출률은 비교 평균보다 낮습니다. 생존 연막 활용 범위를 구출까지 넓혀야 합니다.");
+    expect(output).not.toMatch(/BGMS|player-match|경쟁전|n\s*=|[()[\]]/iu);
+    expect(sanitize(output, evidence, { allowedMode: "duo" })).toBe(output);
+  });
+
+  it("preserves separate verified relationships in a final-summary style paragraph", () => {
+    const evidence: CanonicalDebateEvidenceMap = {
+      smoke_opportunity_rate: {
+        user: { label: "아군 기절 대비 연막 구출률", value: "0%" },
+        benchmark: { label: "동일 티어 평균 아군 기절 대비 연막 구출률", value: "5.6%" },
+      },
+      damage_average: {
+        user: { label: "평균 화력", value: "228" },
+        benchmark: { label: "동일 티어 평균 화력", value: "203" },
+      },
+    };
+    const output = sanitize(
+      "평균 화력은 비교 평균보다 높으므로 강점을 유지하십시오. 아군 기절 대비 연막 구출률이 비교 평균보다 낮으므로 생존 연막 활용 범위를 구출까지 넓혀야 합니다.",
+      evidence,
+    );
+
+    expect(output).toContain("평균 화력은 비교 평균보다 높습니다. 강점을 유지하십시오.");
+    expect(output).toContain("아군 기절 대비 연막 구출률은 비교 평균보다 낮습니다. 생존 연막 활용 범위를 구출까지 넓혀야 합니다.");
+  });
+
+  it("keeps a verified relationship when a safe final-summary lead-in precedes the metric", () => {
+    const evidence: CanonicalDebateEvidenceMap = {
+      trade_success_rate: {
+        user: { label: "복수 성공률", value: "33%" },
+        benchmark: { label: "동일 티어 평균 복수 성공률", value: "13.9%" },
+      },
+    };
+    const output = sanitize(
+      "교전 정리 후 복구 성공과 복수 성공률은 비교 평균보다 높습니다. 다만 연막을 활용한 팀원 구출 능력을 보완해야 합니다.",
+      evidence,
+    );
+
+    expect(output).toBe("복수 성공률은 비교 평균보다 높습니다. 연막을 활용한 팀원 구출 능력을 보완해야 합니다.");
+    expect(output).not.toContain("복구 성공");
+  });
+
+  it.each([
+    "아군 기절 대비 연막 구출률이 비교 평균보다 높으므로 생존 연막 활용 범위를 구출까지 넓혀야 합니다.",
+    "아군 기절 대비 연막 구출률이 비교 평균보다 낮지 않으므로 생존 연막 활용 범위를 구출까지 넓혀야 합니다.",
+    "아군 기절 대비 연막 구출률보다 비교 평균이 낮으므로 생존 연막 활용 범위를 구출까지 넓혀야 합니다.",
+    "아군 기절 대비 연막 구출률이 비교 평균보다 낮으므로 백업 속도도 개선해야 합니다.",
+    "아군 기절 대비 연막 구출률이 비교 평균보다 낮으므로 비밀 지표 999를 개선해야 합니다.",
+  ])("fails closed for reversed, negated, multi-metric, or invented MiaeQ_Q claims: %s", (source) => {
+    const evidence: CanonicalDebateEvidenceMap = {
+      smoke_opportunity_rate: {
+        user: { label: "아군 기절 대비 연막 구출률", value: "0%" },
+        benchmark: { label: "동일 티어 평균 아군 기절 대비 연막 구출률", value: "5.6%" },
+      },
+      backup_latency: {
+        user: { label: "백업 속도", value: "5.36s" },
+        benchmark: { label: "동일 티어 평균 백업 속도", value: "15.05s" },
+      },
+    };
+    expect(sanitize(source, evidence)).toBe(neutral);
+  });
+
+  it("does not treat a zero observation or missing benchmark as a generic failure", () => {
+    const zeroEvidence: CanonicalDebateEvidenceMap = {
+      smoke_opportunity_rate: {
+        user: { label: "아군 기절 대비 연막 구출률", value: "0%" },
+        benchmark: { label: "동일 티어 평균 아군 기절 대비 연막 구출률", value: "5.6%" },
+      },
+    };
+    expect(sanitize(
+      "아군 기절 대비 연막 구출률은 비교 평균보다 낮습니다.",
+      zeroEvidence,
+    )).toContain("낮습니다");
+    expect(sanitize(
+      "아군 기절 대비 연막 구출률은 비교 평균보다 낮습니다.",
+      {},
+    )).toBe(neutral);
+  });
 });

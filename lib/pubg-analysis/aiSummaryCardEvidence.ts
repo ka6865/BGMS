@@ -45,6 +45,9 @@ export function buildSummaryCardEvidence(stats: Record<string, unknown>, benchma
   add('smoke_opportunity_rate', '아군 기절 대비 연막 구출률', rate(stats.totalSmokeRescues, stats.totalTeammateKnocks), '%', 'avgSmokeRate', stats.totalSmokeRescues, stats.totalTeammateKnocks);
   add('solo_kill_share', '솔로 킬 비중', stats.soloKillRate, '%', 'avgSoloKillRate');
   add('utility_throws', '총 투척 횟수', stats.totalUtilityThrows, '회');
+  add('utility_smokes', '연막 사용', stats.totalObservedSmokes, '회');
+  add('utility_lethal_throws', '피해형 투척', stats.totalLethalThrows, '회');
+  add('smoke_rescue_attempts', '구출 연막 시도', stats.totalObservedRescueSmokes, '회');
   add('isolation_average', '평균 고립 지수', stats.avgIsolationStr, '');
   add('death_phase', '평균 사망 페이즈', stats.avgDeathPhase, '', 'avgDeathPhase');
   return entries;

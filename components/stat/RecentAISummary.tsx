@@ -477,6 +477,19 @@ function neutralBenchmarkLabel(
 export interface AiSummarySnapshot {
   verdict: string;
   tier?: string;
+  latestMatchCount?: number;
+  bestMatchCount?: number;
+  analysisMatchCount?: number;
+  analysisScope?: string;
+}
+
+function summaryCardScope(card: SummaryCard): string {
+  const mode = card.context.gameMode.split("/").map((gameMode) => (
+    formatBenchmarkDisplayLabel({ gameMode }).replace(/ 평균$/, "")
+  )).join(" / ");
+  const matchType = card.context.matchType === "competitive" ? "경쟁전"
+    : card.context.matchType === "official" ? "일반전" : "매치 유형 혼합";
+  return `${mode} · ${matchType}`;
 }
 
 export interface RecentAISummaryProps {
@@ -1157,17 +1170,26 @@ export const RecentAISummary = ({
   const summaryTier = typeof debateData?.visuals?.overallTier === "string"
     ? debateData.visuals.overallTier.trim()
     : "";
+  const summaryLatestCount = debateData?.visuals?.latestMatchCount;
+  const summaryBestCount = debateData?.visuals?.bestMatchCount;
+  const summaryAnalysisCount = summaryCards?.[0]?.context.userMatchCount;
+  const summaryScope = summaryCards?.[0] ? summaryCardScope(summaryCards[0]) : undefined;
 
   useEffect(() => {
     if (!summaryVerdict || dataIdentityRef.current !== identity) return;
-    const signature = `${identity}\u001e${summaryVerdict}\u001e${summaryTier}`;
-    if (emittedSummaryRef.current === signature) return;
-    emittedSummaryRef.current = signature;
-    onSummaryChangeRef.current?.({
+    const snapshot: AiSummarySnapshot = {
       verdict: summaryVerdict,
       ...(summaryTier ? { tier: summaryTier } : {}),
-    });
-  }, [identity, summaryTier, summaryVerdict]);
+      ...(summaryLatestCount !== undefined ? { latestMatchCount: summaryLatestCount } : {}),
+      ...(summaryBestCount !== undefined ? { bestMatchCount: summaryBestCount } : {}),
+      ...(summaryAnalysisCount !== undefined ? { analysisMatchCount: summaryAnalysisCount } : {}),
+      ...(summaryScope ? { analysisScope: summaryScope } : {}),
+    };
+    const signature = `${identity}\u001e${JSON.stringify(snapshot)}`;
+    if (emittedSummaryRef.current === signature) return;
+    emittedSummaryRef.current = signature;
+    onSummaryChangeRef.current?.(snapshot);
+  }, [identity, summaryTier, summaryVerdict, summaryLatestCount, summaryBestCount, summaryAnalysisCount, summaryScope]);
 
   // Hide the previous selection during the render before its reset effect.
   if (renderIdentity !== identity) return null;
@@ -1295,6 +1317,12 @@ export const RecentAISummary = ({
       : interpretationStatus === "unavailable"
         ? "AI 해석을 표시할 수 없습니다."
         : null;
+    const utilityDetails = evidence.filter((row) => ["utility_smokes", "utility_lethal_throws"].includes(row.metricId));
+    const rescueAttempts = evidence.find((row) => row.metricId === "smoke_rescue_attempts");
+    const hasThrowTotal = evidence.some((row) => row.metricId === "utility_throws" && row.userValue !== null);
+    const hasSmokeRate = evidence.some((row) => row.metricId === "smoke_opportunity_rate" && row.userValue !== null);
+    const visibleEvidence = evidence.filter((row) => !(hasThrowTotal && ["utility_smokes", "utility_lethal_throws"].includes(row.metricId))
+      && !(hasSmokeRate && row.metricId === "smoke_rescue_attempts"));
     const renderEvidenceRow = (row: SummaryEvidence, rowIdx: number) => {
       if (row.status === "comparable" && row.userValue !== null && row.benchmarkValue !== null) {
         return (
@@ -1313,23 +1341,32 @@ export const RecentAISummary = ({
               })}</div>
               <div className="text-[9px] text-gray-500">내 {card.context.userMatchCount}경기 · 비교 표본 {row.sampleCount}건</div>
             </div>
+            {row.metricId === "smoke_opportunity_rate" && row.denominator !== undefined && row.numerator !== undefined && (
+              <p className="col-span-11 border-t border-white/5 pt-3 text-xs leading-5 text-gray-400">
+                아군 기절 {row.denominator}회 · 연막 구출 성공 {row.numerator}회
+                {rescueAttempts?.userValue !== null && rescueAttempts?.userValue !== undefined ? ` · 구출 연막 시도 ${rescueAttempts.userValue}` : ""}
+              </p>
+            )}
           </div>
         );
       }
 
       if (row.status === "user_only" && row.userValue !== null) {
         return (
-          <div key={row.id || rowIdx} className="grid grid-cols-11 items-center gap-2 p-4 bg-white/5 rounded-xl border border-white/5 group hover:bg-white/10 transition-colors">
-            <div className="col-span-5 text-right">
+          <div key={row.id || rowIdx} className="p-4 bg-white/5 rounded-xl border border-white/5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm font-bold text-gray-300">{row.label}</div>
               <div className="text-lg md:text-xl font-black text-indigo-400">{row.userValue}</div>
-              <div className="text-[9px] text-gray-500 font-bold uppercase">{row.label} · 내 기록</div>
             </div>
-            <div className="col-span-2 flex items-center justify-center">
-              <span className="text-[10px] font-black text-gray-500 text-center">비교 자료 없음</span>
-            </div>
-            <div className="col-span-4 text-left">
-              <div className="text-sm font-bold text-gray-500">비교 자료 없음</div>
-            </div>
+            <p className="mt-1 text-xs leading-5 text-gray-500">내 {card.context.userMatchCount}경기 기록 · 평균 비교 없이 내 기록을 보여줍니다.</p>
+            {row.metricId === "utility_throws" && utilityDetails.length > 0 && (
+              <p className="mt-3 border-t border-white/5 pt-3 text-xs leading-5 text-gray-400">
+                {utilityDetails.map((detail) => `${detail.label} ${detail.userValue ?? "측정 기록 없음"}`).join(" · ")}
+              </p>
+            )}
+            {row.metricId === "smoke_opportunity_rate" && row.denominator !== undefined && row.numerator !== undefined && (
+              <p className="mt-2 text-xs leading-5 text-gray-400">아군 기절 {row.denominator}회 · 연막 구출 성공 {row.numerator}회{rescueAttempts?.userValue ? ` · 구출 연막 시도 ${rescueAttempts.userValue}` : ""}</p>
+            )}
           </div>
         );
       }
@@ -1397,12 +1434,17 @@ export const RecentAISummary = ({
 
             <div className="mt-8 p-6 bg-black/40 rounded-2xl border border-white/5">
               <div className="flex flex-col gap-1 text-center md:text-left mb-8">
-                <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">데이터 증거 (전술적 증거)</span>
-                <span className="text-lg font-black text-white">{card.topic || "데이터"} 상세 비교</span>
+                <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">분석에 사용한 기록</span>
+                <span className="text-lg font-black text-white">{card.topic || "데이터"} 기록과 비교</span>
+                <p className="mt-2 text-xs leading-5 text-gray-400">
+                  {debateData?.visuals?.latestMatchCount !== undefined && debateData?.visuals?.bestMatchCount !== undefined
+                    ? `최근 ${latestMatchCount}경기 중 점수 상위 ${bestMatchCount}경기에서 선택한 ` : "선택한 "}
+                  {summaryCardScope(card)} {card.context.userMatchCount}경기 기준
+                </p>
               </div>
               <div className="space-y-4">
-                {evidence.length > 0
-                  ? evidence.map(renderEvidenceRow)
+                {visibleEvidence.length > 0
+                  ? visibleEvidence.map(renderEvidenceRow)
                   : <p className="px-4 py-6 text-center text-sm font-medium leading-relaxed text-gray-400">이 항목의 비교 근거를 표시할 수 없습니다.</p>}
               </div>
             </div>
@@ -2125,11 +2167,11 @@ export const RecentAISummary = ({
                 <div className="flex flex-col gap-1">
                   <span className="text-[10px] text-blue-400 font-black uppercase">연막 구출 성공률</span>
                   <span className="text-2xl font-black text-white">
-                    {debateData?.visuals?.tactical?.smokeRate || "0%"}
+                    {debateData?.visuals?.tactical?.smokeRate || "측정 불가"}
                   </span>
                   {debateData?.visuals?.tactical?.counts && (
                     <span className="text-[10px] text-blue-300/60 font-bold">
-                      (시도 {debateData.visuals.tactical.counts.rescueSmokes ?? 0} / 성공 {debateData.visuals.tactical.counts.smokeRescues} / 전체 연막 {debateData.visuals.tactical.counts.smokes})
+                      (시도 {debateData.visuals.tactical.counts.rescueSmokes ?? "측정 불가"} / 성공 {debateData.visuals.tactical.counts.smokeRescues ?? "측정 불가"} / 전체 연막 {debateData.visuals.tactical.counts.smokes ?? "측정 불가"})
                     </span>
                   )}
                   <div className="w-full h-1 bg-white/5 rounded-full mt-1 overflow-hidden">

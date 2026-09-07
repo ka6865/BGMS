@@ -67,6 +67,49 @@ function providerFinal(cards: SummaryCard[], overrides: Record<string, unknown> 
 }
 
 describe("ai summary v2 card catalog", () => {
+  it.each([
+    "최근 100경기에서 유틸리티 활용을 점검했습니다.",
+    "투척물의 대부분을 연막 등 생존 엄폐용으로 적극 활용했으며 공격형 투척 시도는 적었습니다.",
+    "유틸리티 보유량에 비해 구출 연막 활용도가 떨어집니다.",
+  ])("holds unobserved utility conclusions while preserving the factual card: %s", (text) => {
+    const cards = buildFixture();
+    const provider = providerFinal(cards);
+    (provider.debateIssues as Array<Record<string, unknown>>)[1].kindOpinion = text;
+    const result = normalizeSummaryCardFinal(provider, cards, { sanitizeText: (value) => value, hasUnsupportedMode: () => false });
+    expect(result?.cacheable).toBe(false);
+    expect(result?.final.cards[1]).toMatchObject({ analysisStatus: "unavailable", winner: null, evidence: cards[1].evidence });
+  });
+
+  it.each(["kind", "spicy"])("holds the decision when only the %s opinion is neutralized", (coach) => {
+    const cards = buildFixture();
+    const provider = providerFinal(cards);
+    const issues = provider.debateIssues as Array<Record<string, unknown>>;
+    issues[0][`${coach}Opinion`] = "removed comparison";
+    issues[0].winner = coach;
+    const result = normalizeSummaryCardFinal(provider, cards, {
+      sanitizeText: (text) => text === "removed comparison" ? "검증된 경기 지표를 바탕으로 분석합니다." : text,
+      hasUnsupportedMode: () => false,
+    });
+    expect(result?.cacheable).toBe(false);
+    expect(result?.final.cards[0]).toMatchObject({ winner: null, analysisStatus: "unavailable", evidence: cards[0].evidence });
+    expect(parseSummaryCards(result?.final)).not.toBeNull();
+    const forged = JSON.parse(JSON.stringify(result?.final));
+    forged.cards[0] = { ...cards[0], analysisStatus: "ready", kindOpinion: "유효한 의견", spicyOpinion: "유효한 의견", reason: "근거", evaluation: "평가", winner: coach };
+    forged.cards[0][`${coach}Opinion`] = "검증된 경기 지표를 바탕으로 분석합니다.";
+    expect(parseSummaryCards(forged)).toBeNull();
+  });
+
+  it("rebuilds a detached negative verdict from validated card opinions", () => {
+    const cards = buildFixture();
+    const source = "검증되지 않은 장점입니다. 다만 구출을 보완하세요.";
+    const result = normalizeSummaryCardFinal(providerFinal(cards, { finalVerdict: source }), cards, {
+      sanitizeText: (text) => text === source ? "다만 구출을 보완하세요." : text,
+      hasUnsupportedMode: () => false,
+    });
+    expect(result?.final.finalVerdict).toBe(`${cards[0].topic} 순한 의견 ${cards[1].topic} 순한 의견`);
+    expect(result?.final.finalVerdict).not.toContain("다만");
+  });
+
   it("builds stable topic/evidence IDs and preserves zero, user-only, and unavailable states", () => {
     const cards = buildFixture();
     expect(cards.map((card) => card.topicId)).toEqual(["firepower", "utility", "positioning"]);

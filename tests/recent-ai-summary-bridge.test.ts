@@ -46,6 +46,7 @@ import {
   safeVisualRate,
 } from "@/components/stat/RecentAISummary";
 import { buildSummaryCards, type SummaryCard } from "@/lib/pubg-analysis/aiSummaryCards";
+import { buildSummaryCardEvidence } from "@/lib/pubg-analysis/aiSummaryCardEvidence";
 
 function ndjsonResponse(lines: readonly unknown[]): Response {
   return new Response(`${lines.map((line) => JSON.stringify(line)).join("\n")}\n`, {
@@ -179,6 +180,36 @@ function readyV2Cards(): SummaryCard[] {
 }
 
 describe("RecentAISummary callback bridge", () => {
+  it("MiaeQ_Q utility observations show the population and separate attempts from successes", async () => {
+    const cards = buildSummaryCards({
+      topics: ["화력", "유틸리티 활용", "포지셔닝"],
+      context: { ...v2Context, gameMode: "duo", tier: "B", userMatchCount: 4, benchmarkSampleCount: 42 },
+      evidence: buildSummaryCardEvidence({
+        avgDamage: 228, totalUtilityThrows: 17, totalObservedSmokes: 8, totalLethalThrows: 8,
+        totalObservedRescueSmokes: 1, totalTeammateKnocks: 3, totalSmokeRescues: 0, avgIsolationStr: "1.4",
+      }, { sampleCount: 42, avgDamage: 203, avgSmokeRate: 5.55555555555556, metricSampleCounts: { avgDamage: 42, avgSmokeRate: 36 } }),
+    }).map((card): SummaryCard => ({ ...card, analysisStatus: "ready", winner: card.dataStatus === "comparable" ? "kind" : null,
+      kindOpinion: "관측된 사용 기록을 확인했습니다.", spicyOpinion: "다음 경기에서 구출 연계를 점검하세요.", reason: "근거를 확인했습니다.", evaluation: "기록을 바탕으로 평가했습니다." }));
+    const onSummaryChange = vi.fn();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "B", latestMatchCount: 10, bestMatchCount: 5 } },
+      { type: "cards", data: cards },
+      { type: "final", data: JSON.stringify({ schemaVersion: 2, cards, finalVerdict: "구출 연계를 점검하세요." }) },
+      { type: "done", valid: true },
+    ])));
+    render(createElement(RecentAISummary, { ...baseProps, onSummaryChange }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await waitFor(() => expect(onSummaryChange).toHaveBeenLastCalledWith({ verdict: "구출 연계를 점검하세요.", tier: "B", latestMatchCount: 10, bestMatchCount: 5, analysisMatchCount: 4, analysisScope: "듀오 · 경쟁전" }));
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+    fireEvent.click(screen.getByRole("button", { name: /유틸리티 활용에 대한 두 코치의 평가는/ }));
+    expect(screen.getByText("최근 10경기 중 점수 상위 5경기에서 선택한 듀오 · 경쟁전 4경기 기준")).toBeInTheDocument();
+    expect(screen.getByText("17회")).toBeInTheDocument();
+    expect(screen.getByText("연막 사용 8회 · 피해형 투척 8회")).toBeInTheDocument();
+    expect(screen.getByText("아군 기절 3회 · 연막 구출 성공 0회 · 구출 연막 시도 1회")).toBeInTheDocument();
+    expect(screen.getByText("5.6%")).toBeInTheDocument();
+    expect(screen.queryByText("비교 자료 없음")).not.toBeInTheDocument();
+  });
+
   beforeEach(() => {
     aiState.active = false;
     startAnalysis.mockClear();
@@ -323,10 +354,10 @@ describe("RecentAISummary callback bridge", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
 
-    await waitFor(() => expect(onSummaryChange).toHaveBeenLastCalledWith({ verdict: "fixture verdict", tier: "A" }));
+    await waitFor(() => expect(onSummaryChange).toHaveBeenLastCalledWith({ verdict: "fixture verdict", tier: "A", latestMatchCount: 3, bestMatchCount: 3 }));
     expect(onSummaryChange.mock.calls).toEqual([
       [null],
-      [{ verdict: "fixture verdict", tier: "A" }],
+      [{ verdict: "fixture verdict", tier: "A", latestMatchCount: 3, bestMatchCount: 3 }],
     ]);
     expect(screen.getByText("점수 상위 3판 잠재 티어")).toBeInTheDocument();
     expect(screen.getByText("최근 3경기 평균 생존 구간")).toBeInTheDocument();
@@ -1007,7 +1038,7 @@ describe("RecentAISummary callback bridge", () => {
     render(createElement(RecentAISummary, { ...baseProps, onSummaryChange }));
 
     fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
-    await waitFor(() => expect(onSummaryChange).toHaveBeenLastCalledWith({ verdict: "v2 fixture verdict", tier: "A" }));
+    await waitFor(() => expect(onSummaryChange).toHaveBeenLastCalledWith({ verdict: "v2 fixture verdict", tier: "A", analysisMatchCount: 5, analysisScope: "스쿼드 · 경쟁전" }));
     expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
       body: JSON.stringify({
         matchIds: baseProps.matchIds,
@@ -1031,7 +1062,8 @@ describe("RecentAISummary callback bridge", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /교전 주도권에 대한 두 코치의 평가는/ }));
     expect(screen.getByText("60%")).toBeInTheDocument();
-    expect(screen.getAllByText("비교 자료 없음").length).toBeGreaterThan(0);
+    expect(screen.getByText(/평균 비교 없이 내 기록을 보여줍니다/)).toBeInTheDocument();
+    expect(screen.queryByText("비교 자료 없음")).not.toBeInTheDocument();
     expect(screen.queryByText("VS")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /포지셔닝에 대한 두 코치의 평가는/ }));

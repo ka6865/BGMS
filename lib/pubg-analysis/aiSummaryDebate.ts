@@ -279,7 +279,11 @@ function splitBenchmarkLanguageClauses(value: string): string[] {
   return value
     .replace(/(?<=\d)\.(?=\d)/gu, decimalPlaceholder)
     .split(/(?<=[.!?。！？,，;；])\s*|\s+(?:(?:그리고|및|하지만|다만|반면에)\s+)/iu)
-    .map((clause) => clause.trim())
+    // A sentence boundary leaves a discourse connector (`다만`, `그리고`,
+    // …) at the start of the next clause. It is not part of the metric
+    // subject grammar, so remove only that leading connector before the
+    // anchored comparison validator runs.
+    .map((clause) => clause.replace(/^(?:그리고|및|하지만|다만|반면에)\s+/iu, "").trim())
     .map((clause) => clause.replaceAll(decimalPlaceholder, "."))
     .filter(Boolean);
 }
@@ -766,57 +770,130 @@ function validateBenchmarkDirection(
   return false;
 }
 
-/**
- * Validate a qualitative comparison that intentionally omits the numeric
- * labels (the v2 prompt keeps those in the server-owned evidence rows).  Only
- * explicit, measurable predicates are accepted; generic praise/criticism is
- * still rejected.  The relation is checked against the canonical values, so a
- * provider cannot launder an invented direction through the phrase
- * `비교 평균`.
- */
-function validateUnquantifiedBenchmarkDirection(
-  clause: string,
-  metricKeyValue: string,
-  canonicalUser: DebateStat,
-  canonicalBenchmark: DebateStat,
-): boolean {
-  const metric = METRIC_BY_KEY.get(metricKeyValue);
-  if (!metric) return false;
-  const userMeasurement = parseMeasurement(canonicalUser.value);
-  const benchmarkMeasurement = parseMeasurement(canonicalBenchmark.value);
-  if (!userMeasurement || !benchmarkMeasurement || userMeasurement.dimension !== benchmarkMeasurement.dimension) return false;
+type UnquantifiedComparison = {
+  prefix: string;
+  metricLabel: string;
+  predicate: "higher" | "lower" | "faster" | "slower" | "equal";
+  connective: boolean;
+  tail: string;
+};
 
-  // Match only a complete, subject-first sentence. Substring direction checks
-  // are unsafe here: they accept negation (`높지 않습니다`), reversed subjects
-  // (`평균보다 비교 평균이 높습니다`), and incidental words such as
-  // `적극적`. Keep benchmark-qualified aliases out of the subject position.
+/**
+ * Parse the deliberately small grammar used for a qualitative comparison.
+ * The optional connective form (`...보다 낮으므로 ...`) is normalized into a
+ * complete comparison sentence plus an action sentence only after its
+ * canonical relation has been checked. Keeping the grammar anchored prevents
+ * negation, reversed subjects, and arbitrary benchmark prose from slipping
+ * through a substring match.
+ */
+function parseUnquantifiedComparison(
+  clause: string,
+  metric: (typeof METRIC_DEFINITIONS)[number],
+): UnquantifiedComparison | null {
   const aliases = metric.aliases
     .filter((alias) => !/(?:상위권|동일\s*티어|엘리트)/iu.test(alias))
     .sort((a, b) => b.length - a.length)
     .map(escapeRegExp)
     .join("|");
-  if (!aliases) return false;
-  const subjectPattern = `(?:${aliases})\\s*(?:은|는|이|가)\\s*`;
-  const comparison = clause.trim().match(new RegExp(
-    `^${subjectPattern}비교\\s*평균\\s*보다\\s*(높습니다|낮습니다|빠릅니다|느립니다)\\s*[.!?。！？]?$`,
+  if (!aliases) return null;
+  // Parse one unmeasured lead-in joined with `과/와/및` (for example,
+  // `교전 정리 후 복구 성공과 복수 성공률은 ...`). The lead-in is checked
+  // for known metrics, benchmark markers, and numbers so a second unverified
+  // condition cannot be hidden before the canonical subject; normalize then
+  // drops the lead-in from the rendered sentence.
+  const subjectPattern = `^\\s*(?:(.*?(?:(?:\\s+)?(?:과|와|및|그리고))\\s+))?(${aliases})(?:\\s+${NUMERIC_VALUE_SOURCE})?\\s*(?:은|는|이|가)\\s*`;
+  const trimmed = clause.trim();
+
+  const equality = trimmed.match(new RegExp(
+    `${subjectPattern}비교\\s*평균\\s*(?:과|와)\\s*같습니다\\s*[.!?。！？]?$`,
     "iu",
   ));
-  const equal = new RegExp(
-    `^${subjectPattern}비교\\s*평균\\s*(?:과|와)\\s*같습니다\\s*[.!?。！？]?$`,
+  if (equality) {
+    const prefix = equality[1] || "";
+    if (prefix && (metricKeysInText(prefix).length > 0 || BENCHMARK_LANGUAGE_PATTERN.test(prefix) || NUMERIC_VALUE_PATTERN.test(prefix))) return null;
+    return { prefix: prefix.trim(), metricLabel: equality[2], predicate: "equal", connective: false, tail: "" };
+  }
+
+  const relation = trimmed.match(new RegExp(
+    `${subjectPattern}비교\\s*평균\\s*보다\\s*(높습니다|낮습니다|빠릅니다|느립니다|높으므로|낮으므로|빠르므로|느리므로)(?=\\s|[.!?。！？,;:]|$)`,
     "iu",
-  ).test(clause.trim());
+  ));
+  if (!relation) return null;
+
+  const prefix = relation[1] || "";
+  if (prefix && (metricKeysInText(prefix).length > 0 || BENCHMARK_LANGUAGE_PATTERN.test(prefix) || NUMERIC_VALUE_PATTERN.test(prefix))) return null;
+
+  const predicateWord = relation[3].toLocaleLowerCase();
+  const connective = predicateWord.endsWith("므로");
+  const predicate = predicateWord.startsWith("높")
+    ? "higher"
+    : predicateWord.startsWith("낮")
+      ? "lower"
+      : predicateWord.startsWith("빠")
+        ? "faster"
+        : "slower";
+  const tail = trimmed
+    .slice(relation[0].length)
+    .replace(/^[.!?。！？,;:]\s*/u, "")
+    .trim();
+  if (!connective && tail) return null;
+  return { prefix: prefix.trim(), metricLabel: relation[2], predicate, connective, tail };
+}
+
+function normalizeUnquantifiedComparison(
+  clause: string,
+  metricKeyValue: string,
+  canonicalUser: DebateStat,
+  canonicalBenchmark: DebateStat,
+): string | null {
+  const metric = METRIC_BY_KEY.get(metricKeyValue);
+  if (!metric) return null;
+  const parsed = parseUnquantifiedComparison(clause, metric);
+  if (!parsed) return null;
+
+  const userMeasurement = parseMeasurement(canonicalUser.value);
+  const benchmarkMeasurement = parseMeasurement(canonicalBenchmark.value);
+  if (!userMeasurement || !benchmarkMeasurement || userMeasurement.dimension !== benchmarkMeasurement.dimension) return null;
 
   const epsilon = 1e-9;
   const difference = userMeasurement.baseValue - benchmarkMeasurement.baseValue;
-  if (equal) return Math.abs(difference) <= epsilon;
-  if (!comparison || Math.abs(difference) <= epsilon) return false;
+  const relationIsValid = parsed.predicate === "equal"
+    ? Math.abs(difference) <= epsilon
+    : Math.abs(difference) > epsilon
+      && (parsed.predicate === "higher"
+        ? difference > epsilon
+        : parsed.predicate === "lower"
+          ? difference < -epsilon
+          : parsed.predicate === "faster"
+            ? metric.dimension === "duration" && difference < -epsilon
+      : metric.dimension === "duration" && difference > epsilon);
+  if (!relationIsValid) return null;
+  if (!parsed.connective && !parsed.prefix) return clause.trim();
 
-  const predicate = comparison[1].toLocaleLowerCase();
-  if (predicate === "높습니다") return difference > epsilon;
-  if (predicate === "낮습니다") return difference < -epsilon;
-  if (predicate === "빠릅니다") return metric.dimension === "duration" && difference < -epsilon;
-  if (predicate === "느립니다") return metric.dimension === "duration" && difference > epsilon;
-  return false;
+  if (parsed.predicate === "equal") {
+    const subject = `${parsed.metricLabel}${metricSubjectParticle(parsed.metricLabel)}`;
+    return `${subject} 비교 평균과 같습니다.`;
+  }
+
+  // A connective action may mention neither another metric nor another
+  // comparison. Otherwise two provider claims would be fused into one
+  // validated sentence and the second claim could evade its own evidence
+  // checks. Numeric tokens are checked by the caller before this helper.
+  if (parsed.tail
+    && (metricKeysInText(parsed.tail).length > 0 || BENCHMARK_LANGUAGE_PATTERN.test(parsed.tail))) return null;
+  const predicateWord = parsed.predicate === "higher"
+    ? "높습니다"
+    : parsed.predicate === "lower"
+      ? "낮습니다"
+      : parsed.predicate === "faster"
+        ? "빠릅니다"
+        : "느립니다";
+  const subject = `${parsed.metricLabel}${metricSubjectParticle(parsed.metricLabel)}`;
+  const action = parsed.tail ? ` ${parsed.tail}` : "";
+  // The lead-in is intentionally discarded: it may contain an unrecognized
+  // claim (for example, `복구 성공과`) even though the following metric is
+  // verified. Keep only the canonical metric relationship and action.
+  return `${subject} 비교 평균보다 ${predicateWord}.${action}`.replace(/\s{2,}/g, " ").trim();
 }
 
 /**
@@ -892,6 +969,27 @@ export function sanitizeUnsupportedAiSummaryBenchmarkLanguage(
         clause = canonicalized;
       }
 
+      // A provider may attach an invented number to a qualitative comparison
+      // (`평균 화력 999은 비교 평균보다 낮으므로 ...`). Canonicalizing that
+      // number is not enough: the relationship itself must still agree with
+      // the server pair. Reuse the strict subject/order parser after the
+      // number has been replaced; reject ambiguous multi-metric comparisons.
+      if (hasBenchmarkLanguage && /비교\s*평균/iu.test(clause)) {
+        if (supportedKeys.length !== 1) return;
+        const canonical = canonicalEvidence[supportedKeys[0]];
+        const canonicalUser = canonical ? toStat(canonical.user) : null;
+        const canonicalBenchmark = canonical ? toStat(canonical.benchmark) : null;
+        if (!canonicalUser || !canonicalBenchmark) return;
+        const normalizedComparison = normalizeUnquantifiedComparison(
+          clause,
+          supportedKeys[0],
+          canonicalUser,
+          canonicalBenchmark,
+        );
+        if (!normalizedComparison) return;
+        clause = normalizedComparison;
+      }
+
       const metricOccurrences = supportedKeys.flatMap((key) => {
         const metric = METRIC_BY_KEY.get(key);
         return metric ? metricNumberOccurrences(clause, metric) : [];
@@ -924,8 +1022,15 @@ export function sanitizeUnsupportedAiSummaryBenchmarkLanguage(
         const canonical = key ? canonicalEvidence[key] : null;
         const canonicalUser = canonical ? toStat(canonical.user) : null;
         const canonicalBenchmark = canonical ? toStat(canonical.benchmark) : null;
-        if (!key || !canonicalUser || !canonicalBenchmark
-          || !validateUnquantifiedBenchmarkDirection(clause, key, canonicalUser, canonicalBenchmark)) return;
+        if (!key || !canonicalUser || !canonicalBenchmark) return;
+        const normalizedComparison = normalizeUnquantifiedComparison(
+          clause,
+          key,
+          canonicalUser,
+          canonicalBenchmark,
+        );
+        if (!normalizedComparison) return;
+        clause = normalizedComparison;
         unquantifiedComparisonAccepted = true;
       }
     }
