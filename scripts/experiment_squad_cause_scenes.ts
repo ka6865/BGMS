@@ -190,7 +190,7 @@ async function loadMatchesFromSupabase(nickname: string, limit: number, platform
     const isolationData = fullResult.isolationData || {};
     const timeline = Array.isArray(fullResult.timeline) ? fullResult.timeline : [];
     const recoveryStats = hasSquadRecoveryTimelineSignals(timeline)
-      ? deriveSquadRecoveryStatsFromTimeline(timeline)
+      ? deriveSquadRecoveryStatsFromTimeline(timeline, fullResult.mapName)
       : null;
     acc.isolationSum += Number(isolationData.isolationIndex ?? isolationData.deathIsolation ?? 0);
     acc.isolationCount += isolationData.isolationIndex !== undefined || isolationData.deathIsolation !== undefined ? 1 : 0;

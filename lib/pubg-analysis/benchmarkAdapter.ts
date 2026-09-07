@@ -128,6 +128,7 @@ export interface NormalizedBenchmark {
  */
 export type ObservedBenchmark = Partial<NormalizedBenchmark> & {
   sampleCount: number;
+  calculationVersion?: number;
   metricSampleCounts?: Partial<Record<keyof NormalizedBenchmark, number>>;
 };
 
@@ -250,7 +251,7 @@ export function adaptObservedBenchmark(raw: any): ObservedBenchmark | null {
   const sampleCount = finiteNumber(raw.match_count ?? raw.sample_count);
   if (sampleCount === undefined || sampleCount < MIN_BENCHMARK_SAMPLE_COUNT) return null;
 
-  const observed: ObservedBenchmark = { sampleCount };
+  const observed: ObservedBenchmark = { sampleCount, ...(typeof raw.calculation_version === "number" ? { calculationVersion: raw.calculation_version } : {}) };
   const counterLatencyMs = observedNonNegative(raw.avg_counter_latency_ms ?? raw.avg_counter_latency, 2);
   const tradeLatencyMs = observedNonNegative(raw.avg_trade_latency_ms ?? raw.avg_trade_latency, 2);
   const values: Array<{

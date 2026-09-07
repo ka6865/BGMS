@@ -34,7 +34,6 @@ const aliases: Record<string, Supported3DMapId> = {
   Erangel_Main: "Erangel",
   Desert_Main: "Miramar",
   DihorOtok_Main: "Vikendi",
-  Chimera_Main: "Vikendi",
   Tiger_Main: "Taego",
   Kiki_Main: "Deston",
   Neon_Main: "Rondo",

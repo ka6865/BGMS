@@ -1,4 +1,5 @@
 'use server';
+import { ANALYSIS_CALCULATION_VERSION } from "@/lib/pubg-analysis/constants";
 
 import { createClient } from '@supabase/supabase-js';
 import {
@@ -108,7 +109,7 @@ export async function getWeeklyTopDamage(
 
   let query = supabase
     .from('global_benchmarks')
-    .select('player_id, damage, kills, game_mode, map_name, created_at, tier')
+    .select('player_id, damage, kills, game_mode, map_name, created_at, tier, calculation_version')
     .eq('filter_version', BENCHMARK_FILTER_VERSION)
     .eq('population_evidence_version', BENCHMARK_POPULATION_EVIDENCE_VERSION)
     .gte('created_at', since)
@@ -154,7 +155,7 @@ export async function getWeeklyTopDamage(
       secondary: row.kills,
       game_mode: GAME_MODE_KO[row.game_mode] || row.game_mode,
       map_name: MAP_NAME_KO[row.map_name] || row.map_name || '알 수 없음',
-      tier: row.tier || 'C',
+      tier: row.calculation_version === ANALYSIS_CALCULATION_VERSION ? row.tier || undefined : undefined,
       created_at: row.created_at,
     })),
     hasError: false,
@@ -171,7 +172,7 @@ export async function getWeeklyTopKills(
 
   let query = supabase
     .from('global_benchmarks')
-    .select('player_id, damage, kills, game_mode, map_name, created_at, tier')
+    .select('player_id, damage, kills, game_mode, map_name, created_at, tier, calculation_version')
     .eq('filter_version', BENCHMARK_FILTER_VERSION)
     .eq('population_evidence_version', BENCHMARK_POPULATION_EVIDENCE_VERSION)
     .gte('created_at', since)
@@ -216,7 +217,7 @@ export async function getWeeklyTopKills(
       secondary: Math.round(row.damage),
       game_mode: GAME_MODE_KO[row.game_mode] || row.game_mode,
       map_name: MAP_NAME_KO[row.map_name] || row.map_name || '알 수 없음',
-      tier: row.tier || 'C',
+      tier: row.calculation_version === ANALYSIS_CALCULATION_VERSION ? row.tier || undefined : undefined,
       created_at: row.created_at,
     })),
     hasError: false,
@@ -234,6 +235,7 @@ export async function getTopTierRanking(
   let query = supabase
     .from('global_benchmarks')
     .select('player_id, score, tier, damage, kills, game_mode, created_at')
+    .eq('calculation_version', ANALYSIS_CALCULATION_VERSION)
     .eq('filter_version', BENCHMARK_FILTER_VERSION)
     .eq('population_evidence_version', BENCHMARK_POPULATION_EVIDENCE_VERSION)
     .gte('created_at', since)

@@ -20,16 +20,20 @@ function globalBenchmarkQueryBlocks(source: string): string[] {
 }
 
 describe("global_benchmarks reader population contract", () => {
-  it("gates every direct reader so legacy rows cannot be returned", () => {
+  it("gates every direct reader to the verified human BR population", () => {
     const blocks = readerPaths.flatMap((path) => globalBenchmarkQueryBlocks(read(path)));
 
-    expect(blocks).toHaveLength(6);
+    expect(blocks).toHaveLength(4);
     for (const block of blocks) {
       expect(block).toMatch(/\.eq\(\s*[\"']filter_version[\"']\s*,\s*(?:8|BENCHMARK_FILTER_VERSION)\s*\)/);
       expect(block).toMatch(/\.eq\(\s*[\"']population_evidence_version[\"']\s*,\s*(?:1|BENCHMARK_POPULATION_EVIDENCE_VERSION|POPULATION_EVIDENCE_VERSION)\s*\)/);
       expect(block).toMatch(/\.in\(\s*[\"']match_type[\"']\s*,\s*\[\s*[\"']official[\"']\s*,\s*[\"']competitive[\"']\s*\]\s*\)/);
       expect(block).toMatch(/\.in\(\s*[\"']game_mode[\"']/);
     }
+  });
+
+  it("does not query individual benchmarks for squad scoring",()=>{
+    expect(globalBenchmarkQueryBlocks(read("lib/pubg-analysis/squadAnalysis.ts"))).toHaveLength(0);
   });
 
   it("keeps battle comparisons inside the six canonical human BR modes", () => {

@@ -5,6 +5,7 @@ import {
   sanitizeBackupCoachingText,
 } from "../lib/pubg-analysis/backupCoaching";
 import {
+  COACHING_JUDGMENT_WITHHELD,
   collectAiCoachingQualitySignals,
   hasBlockingAiCoachingQualityIssue,
   sanitizeAiCoachingLanguage,
@@ -81,8 +82,9 @@ describe("AI backup coaching context", () => {
 
     const sanitized = sanitizeBackupCoachingText(text, context);
 
-    expect(sanitized).toContain("성공 복구");
-    expect(sanitized).toContain("복구 시간 단축");
+    expect(sanitized).toContain(COACHING_JUDGMENT_WITHHELD);
+    expect(sanitized).toContain("백업 효율 개선");
+    expect(sanitized).not.toContain("소생까지 완료한");
     expect(sanitized).not.toContain("방관");
     expect(sanitized).not.toContain("느린 백업");
     expect(sanitized).not.toContain("치명적");
@@ -225,7 +227,8 @@ describe("AI coaching prompt utility metrics", () => {
     expect(fullPrompt).toContain("의도, 인성, 팀원 이용 여부를 단정하는 표현을 금지");
     expect(fullPrompt).toContain("고립 지수가 2.0 미만이면 양호한 대열 유지");
     expect(fullPrompt).toContain("출력 전 자체 검수");
-    expect(fullPrompt).toContain("강한 화력을 보여주지만 협업 지표 보완이 필요");
+    expect(fullPrompt).toContain("금지 표현을 다른 부족 판정으로 바꾸지 마십시오");
+    expect(fullPrompt).not.toContain("독설을 퍼붓고");
     expect(fullPrompt).toContain("'팀원을 방패'");
     expect(fullPrompt).toContain("'팀원을 들러리'");
     expect(fullPrompt).toContain("'혼자 다 해먹'");
@@ -279,7 +282,7 @@ describe("AI coaching prompt utility metrics", () => {
     expect(isolationSignals.hasLowIsolationMisread).toBe(true);
   });
 
-  it("독단 플레이 안전 부정문은 고립 오판으로 잡지 않고 자연스럽게 순화하며, 긍정 단정은 잡는다", () => {
+  it("독단 플레이 부정문에서 측정되지 않은 대열 유지 사실을 만들지 않는다", () => {
     const safeNegationTexts = [
       "팀 내 딜량 비중 58% 및 1:1 교전 승률 68%는 독단적인 플레이가 아닌 확실한 교전 우위를 보여줍니다.",
       "팀 내 딜량 비중 58% 및 1:1 교전 승률 68%는 독단 플레이가 아닌 확실한 교전 우위를 보여줍니다.",
@@ -290,8 +293,8 @@ describe("AI coaching prompt utility metrics", () => {
       const sanitized = sanitizeAiCoachingLanguageText(text);
 
       expect(signals.hasLowIsolationMisread).toBe(false);
-      expect(sanitized).toContain("대열을 유지하며 만든 확실한 교전 우위");
-      expect(sanitized).not.toMatch(/독단적인 플레이|독단 플레이/);
+      expect(sanitized).toBe(text);
+      expect(sanitized).not.toContain("대열을 유지");
       expect(collectAiCoachingQualitySignals(sanitized).hasLowIsolationMisread).toBe(false);
     }
 
@@ -302,9 +305,7 @@ describe("AI coaching prompt utility metrics", () => {
   it("일반 AI 코칭 순화기는 과한 팀 비난 표현을 안전한 피드백으로 바꾼다", () => {
     const sanitized = sanitizeAiCoachingLanguageText("혼자 다 해먹는 화력이고 팀 지원 지표가 바닥이며 고립 지수 1.2의 위험한 독단 플레이입니다.");
 
-    expect(sanitized).toContain("강한 화력을 보여주는");
-    expect(sanitized).toContain("팀 지원 지표 보완이 필요");
-    expect(sanitized).toContain("팀 보조가 필요한 전진 플레이");
+    expect(sanitized).toBe(COACHING_JUDGMENT_WITHHELD);
     expect(collectAiCoachingQualitySignals(sanitized).hasUnsupportedTeamIntent).toBe(false);
     expect(collectAiCoachingQualitySignals(sanitized).hasUnsupportedTeamDismissal).toBe(false);
     expect(collectAiCoachingQualitySignals(sanitized).hasLowIsolationMisread).toBe(false);
@@ -314,19 +315,16 @@ describe("AI coaching prompt utility metrics", () => {
     const sanitized = sanitizeAiCoachingLanguageText("팀 딜량 비중 58%는 팀원들의 지원이 부족하다는 방증이며, 혼자서 모든 것을 해결하려는 부담이 큽니다.");
     const signals = collectAiCoachingQualitySignals(sanitized);
 
-    expect(sanitized).toContain("화력 비중이 높아 교전 주도는 선명하지만");
-    expect(sanitized).toContain("화력 분담을 더 고르게 만들 필요");
+    expect(sanitized).toBe(COACHING_JUDGMENT_WITHHELD);
     expect(signals.hasUnsupportedTeamIntent).toBe(false);
     expect(hasBlockingAiCoachingQualityIssue(signals)).toBe(false);
   });
 
-  it("일반 AI 코칭 순화기는 백업 비난 표현을 지연 위험 표현으로 바꾼다", () => {
+  it("일반 AI 코칭 순화기는 근거 없는 백업 비난을 다른 부족 판정으로 바꾸지 않는다", () => {
     const sanitized = sanitizeAiCoachingLanguageText("22.4초는 느린 백업이며 교전 정리 후 복구 성공이라기엔 방관입니다.");
     const signals = collectAiCoachingQualitySignals(sanitized);
 
-    expect(sanitized).toContain("백업 지연 위험");
-    expect(sanitized).toContain("성공 복구였지만");
-    expect(sanitized).toContain("후속 복구 부족");
+    expect(sanitized).toBe(COACHING_JUDGMENT_WITHHELD);
     expect(signals.hasUnsupportedBackupBlame).toBe(false);
     expect(hasBlockingAiCoachingQualityIssue(signals)).toBe(false);
   });
@@ -340,8 +338,8 @@ describe("AI coaching prompt utility metrics", () => {
     });
     const text = JSON.stringify(sanitized);
 
-    expect(text).toContain("다른 팀원들의 화력 지원 보완이 필요");
-    expect(text).toContain("교전 기여를 더 선명하게 만들 필요가 있습니다");
+    expect(sanitized.weakness).toBe(COACHING_JUDGMENT_WITHHELD);
+    expect(sanitized.memberFeedbacks[0].fault).toBe(COACHING_JUDGMENT_WITHHELD);
     expect(hasBlockingAiCoachingQualityIssue(collectAiCoachingQualitySignals(text))).toBe(false);
   });
 });

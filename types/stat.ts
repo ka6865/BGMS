@@ -53,6 +53,8 @@ export interface KillDetail {
 }
 
 export interface MatchData {
+  analysisAvailability?: "basic_only";
+  analysisUnavailableReason?: "calculation_upgrade_required";
   matchId: string;
   stats: MatchStats;
   mapName: string;

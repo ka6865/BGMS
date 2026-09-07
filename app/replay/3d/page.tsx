@@ -28,6 +28,15 @@ import {
   resolve3DMapCapability,
   type Supported3DMapId,
 } from "@/lib/replay/mapCapabilities";
+import {
+  getActiveDeathTime,
+  getReplayMaxTime,
+  normalizeReplayZoneEvents,
+  sampleTerrainHeight,
+  shouldMarkPlayerDeadFromHealth,
+  type ReplayZoneEvent,
+  type TerrainGrid,
+} from "@/lib/replay/replay3dHelpers";
 
 // PUBG 맵 크기 상수 (cm)
 const THREE_MAP_SIZE = 100; // Three.js 공간 상의 가로세로 크기
@@ -288,7 +297,8 @@ function Replay3DContent() {
     width: number;
     height: number;
   } | null>(null);
-  const terrainGridRef = useRef<{ grid: number[][]; size: number } | null>(null);
+  const terrainGridRef = useRef<TerrainGrid | null>(null);
+  const sceneGenerationRef = useRef(0);
   const currentTimeRef = useRef(0);
   const renderStateVersionRef = useRef(0);
   const lastUiTimeSyncRef = useRef(0);
@@ -322,6 +332,7 @@ function Replay3DContent() {
     setCarePackages([]);
     setMaxTimeMs(0);
     setIsPlaying(false);
+    setIsMapLoading(false);
     setCurrentTimeMs(0);
     setHiddenPlayers(new Set());
     setTrackingPlayer(null);
@@ -504,16 +515,8 @@ function Replay3DContent() {
       });
 
       // 2) 자기장 이벤트 필터링
-      const zoneEvents = data.zoneEvents as any[];
-      const parsedZones: ZoneState[] = zoneEvents.map((z: any) => ({
-        t: z.relativeTimeMs,
-        whiteX: z.whiteX ?? 408000,
-        whiteY: z.whiteY ?? 408000,
-        whiteRadius: z.whiteRadius ?? 0,
-        blueX: z.blueX ?? 408000,
-        blueY: z.blueY ?? 408000,
-        blueRadius: z.blueRadius ?? 0
-      })).sort((a: any, b: any) => a.t - b.t);
+      const zoneEvents = Array.isArray(data.zoneEvents) ? data.zoneEvents : [];
+      const parsedZones: ZoneState[] = normalizeReplayZoneEvents(zoneEvents as ReplayZoneEvent[]);
 
       // 3) 전체 재생 시간 산출
       // 3) 총탄 트레이서용 데미지 공격/피해 및 전투 이벤트 필터링
@@ -545,12 +548,8 @@ function Replay3DContent() {
         });
       });
 
-      // 5) 전체 재생 시간 산출
-      let finalMaxTime = 300000;
-      if (events.length > 0) {
-        const lastEv = events[events.length - 1];
-        finalMaxTime = lastEv.relativeTimeMs || 300000;
-      }
+      // 5) 전체 재생 시간 산출 (입력 이벤트 순서에 의존하지 않음)
+      const finalMaxTime = getReplayMaxTime(events);
 
       if (!isCurrent(request)) return;
       setSelectedMap(mapCapability.id);
@@ -606,40 +605,10 @@ function Replay3DContent() {
   }, [cancelRequest, qMatchId, qNickname, qPlatform, resetReplayState, startTelemetryRequest]);
 
   // 특정 X, Z 월드 좌표에서 하이트맵 고도 데이터를 기반으로 실제 지형 높이 Y를 계산하는 헬퍼 함수
-  const getTerrainHeight = (threeX: number, threeZ: number): number => {
+  const getTerrainHeight = useCallback((threeX: number, threeZ: number): number => {
     // 1) 3D 지형 메쉬와 동일한 격자 기준의 이중 선형 보간 캐시가 있는 경우 우선 사용
     if (terrainGridRef.current) {
-      const { grid, size } = terrainGridRef.current;
-      const maxIndex = size - 1;
-      
-      // threeX: -50 ~ 50, threeZ: -50 ~ 50 범위 매핑
-      // PlaneGeometry의 Local X는 -50 ~ 50 이며, ix = 0 일 때 x = -50, ix = 255 일 때 x = 50
-      const percentX = (threeX + THREE_MAP_SIZE / 2) / THREE_MAP_SIZE;
-      const ixFloat = percentX * maxIndex;
-      
-      // 3D 지형의 X축 -90도 회전(Local Y -> World -Z)에 맞춘 세로축 Z축 반전 보정 해결
-      const percentZ = (threeZ + THREE_MAP_SIZE / 2) / THREE_MAP_SIZE;
-      const iyFloat = percentZ * maxIndex;
-
-      const ix = Math.floor(ixFloat);
-      const iy = Math.floor(iyFloat);
-
-      const ix1 = Math.max(0, Math.min(maxIndex, ix));
-      const ix2 = Math.max(0, Math.min(maxIndex, ix + 1));
-      const iy1 = Math.max(0, Math.min(maxIndex, iy));
-      const iy2 = Math.max(0, Math.min(maxIndex, iy + 1));
-
-      const fx = ixFloat - ix;
-      const fy = iyFloat - iy;
-
-      const h11 = grid[iy1][ix1];
-      const h21 = grid[iy1][ix2];
-      const h12 = grid[iy2][ix1];
-      const h22 = grid[iy2][ix2];
-
-      const h1 = h11 * (1 - fx) + h21 * fx;
-      const h2 = h12 * (1 - fx) + h22 * fx;
-      return h1 * (1 - fy) + h2 * fy;
+      return sampleTerrainHeight(terrainGridRef.current, threeX, threeZ, THREE_MAP_SIZE);
     }
 
     // 2) 폴백: 캐시가 아직 로드되지 않은 경우 하이트맵 픽셀을 직접 쿼리
@@ -663,17 +632,32 @@ function Replay3DContent() {
     // PUBG 인게임 표준 8비트 고도 변환 공식: R=128 기준 ±262m 범위
     const elevation = (R - 128) * 2.048;
     return elevation * altitudeScale;
-  };
+  }, [altitudeScale]);
 
   // 2. 플레이어 위치 및 차량 탑승 상태 보간 계산 함수
-  const getInterpolatedState = (player: PlayerTrajectory, time: number, altitudeScale: number): { position: THREE.Vector3; vehicleId: string | null; health: number } => {
+  type InterpolatedPlayerState = {
+    position: THREE.Vector3;
+    vehicleId: string | null;
+    health: number;
+    healthSampleTimeMs: number | null;
+  };
+
+  const getInterpolatedState = useCallback((player: PlayerTrajectory, time: number, altitudeScale: number): InterpolatedPlayerState => {
     const pts = player.waypoints;
-    if (!pts || pts.length === 0) return { position: new THREE.Vector3(0, 0, 0), vehicleId: null, health: 100 };
+    if (!pts || pts.length === 0) {
+      return {
+        position: new THREE.Vector3(0, 0, 0),
+        vehicleId: null,
+        health: 100,
+        healthSampleTimeMs: null,
+      };
+    }
     if (time <= pts[0].t) {
       return { 
         position: convertTo3D(pts[0].x, pts[0].y, pts[0].z, altitudeScale),
         vehicleId: pts[0].vehicleId || null,
-        health: pts[0].health ?? 100
+        health: pts[0].health ?? 100,
+        healthSampleTimeMs: pts[0].t,
       };
     }
     if (time >= pts[pts.length - 1].t) {
@@ -681,7 +665,8 @@ function Replay3DContent() {
       return {
         position: convertTo3D(last.x, last.y, last.z, altitudeScale),
         vehicleId: last.vehicleId || null,
-        health: last.health ?? 100
+        health: last.health ?? 100,
+        healthSampleTimeMs: last.t,
       };
     }
 
@@ -693,25 +678,30 @@ function Replay3DContent() {
         const x = p1.x + (p2.x - p1.x) * ratio;
         const y = p1.y + (p2.y - p1.y) * ratio;
         const z = p1.z + (p2.z - p1.z) * ratio;
-        const health = (p1.health ?? 100) + ((p2.health ?? 100) - (p1.health ?? 100)) * ratio;
+        // Health is an observation, not a continuously interpolated value.
+        // Use the most recent sample at or before the current frame so a
+        // pre-redeploy zero cannot bleed into the next life.
+        const healthSample = time >= p2.t ? p2 : p1;
         return {
           position: convertTo3D(x, y, z, altitudeScale),
           vehicleId: (ratio >= 0.5 ? p2.vehicleId : p1.vehicleId) || null,
-          health: Math.max(0, Math.round(health))
+          health: healthSample.health ?? 100,
+          healthSampleTimeMs: healthSample.t,
         };
       }
     }
     return {
       position: convertTo3D(pts[0].x, pts[0].y, pts[0].z, altitudeScale),
       vehicleId: pts[0].vehicleId || null,
-      health: pts[0].health ?? 100
+      health: pts[0].health ?? 100,
+      healthSampleTimeMs: pts[0].t,
     };
-  };
+  }, []);
 
   // 3. 자기장 속성 선형 보간 계산 함수
-  const getInterpolatedZone = (time: number) => {
+  const getInterpolatedZone = useCallback((time: number) => {
     if (zones.length === 0) {
-      return { t: time, whiteX: 408000, whiteY: 408000, whiteRadius: 0, blueX: 408000, blueY: 408000, blueRadius: 0 };
+      return { t: time, whiteX: 4096, whiteY: 4096, whiteRadius: 0, blueX: 4096, blueY: 4096, blueRadius: 0 };
     }
     if (time <= zones[0].t) return zones[0];
     if (time >= zones[zones.length - 1].t) return zones[zones.length - 1];
@@ -733,11 +723,20 @@ function Replay3DContent() {
       }
     }
     return zones[0];
-  };
+  }, [zones]);
 
   // 4. Three.js Engine 마운트 및 렌더 룹 설정
   useEffect(() => {
     if (!selectedMap || !canvasRef.current || !containerRef.current) return;
+
+    const sceneGeneration = sceneGenerationRef.current + 1;
+    sceneGenerationRef.current = sceneGeneration;
+    let isSceneActive = true;
+    const isSceneCurrent = () =>
+      isSceneActive && sceneGenerationRef.current === sceneGeneration;
+    // Do not let a previous map's height data snap the new scene while assets load.
+    heightmapDataRef.current = null;
+    terrainGridRef.current = null;
 
     const renderProfile = getRenderProfile();
     const width = containerRef.current.clientWidth;
@@ -813,32 +812,43 @@ function Replay3DContent() {
     const texture = new THREE.Texture();
     texture.colorSpace = THREE.SRGBColorSpace;
     mapTextureRef.current = texture;
+    let fallbackTexture: THREE.Texture | null = null;
+    let mapMesh: THREE.Mesh | null = null;
 
     buildHighResTileTexture(selectedMap)
       .then((canvas) => {
+        if (!isSceneCurrent()) return;
         texture.image = canvas;
         // GPU가 지원하는 최대 이방성 필터링 적용 (경사 뷰에서 텍스처 선명도 유지)
-        if (rendererRef.current) {
-          texture.anisotropy = Math.min(rendererRef.current.capabilities.getMaxAnisotropy(), renderProfile.textureAnisotropy);
-        }
+        texture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), renderProfile.textureAnisotropy);
         texture.needsUpdate = true;
         setIsMapLoading(false);
       })
       .catch(() => {
+        if (!isSceneCurrent()) return;
         // 합성 실패 시 zoom 0 단일 이미지로 폴백
         const fallbackLoader = new THREE.TextureLoader();
         fallbackLoader.load(
           `/tiles/${selectedMap}/0/0/-1.jpg`,
           (txt) => {
-            txt.colorSpace = THREE.SRGBColorSpace;
-            if (mapMeshRef.current) {
-              (mapMeshRef.current.material as THREE.MeshStandardMaterial).map = txt;
-              (mapMeshRef.current.material as THREE.MeshStandardMaterial).needsUpdate = true;
+            if (!isSceneCurrent()) {
+              txt.dispose();
+              return;
             }
+            txt.colorSpace = THREE.SRGBColorSpace;
+            fallbackTexture = txt;
+            if (!mapMesh) {
+              txt.dispose();
+              return;
+            }
+            (mapMesh.material as THREE.MeshStandardMaterial).map = txt;
+            (mapMesh.material as THREE.MeshStandardMaterial).needsUpdate = true;
             setIsMapLoading(false);
           },
           undefined,
-          () => setIsMapLoading(false)
+          () => {
+            if (isSceneCurrent()) setIsMapLoading(false);
+          }
         );
       });
 
@@ -852,21 +862,25 @@ function Replay3DContent() {
       transparent: false
     });
 
-    const mapMesh = new THREE.Mesh(planeGeo, planeMat);
-    mapMesh.rotation.x = -Math.PI / 2;
-    mapMesh.position.y = 0;
-    mapMesh.receiveShadow = true;
-    scene.add(mapMesh);
-    mapMeshRef.current = mapMesh;
+    const terrainMesh = new THREE.Mesh(planeGeo, planeMat);
+    mapMesh = terrainMesh;
+    terrainMesh.rotation.x = -Math.PI / 2;
+    terrainMesh.position.y = 0;
+    terrainMesh.receiveShadow = true;
+    scene.add(terrainMesh);
+    mapMeshRef.current = terrainMesh;
 
     // Load map elevation details asynchronously for supported maps
     const supportedMaps = ["Erangel", "Miramar", "Vikendi", "Taego", "Deston", "Rondo"];
+    let heightmapImage: HTMLImageElement | null = null;
     if (supportedMaps.includes(selectedMap)) {
       const heightmapImg = new Image();
+      heightmapImage = heightmapImg;
       heightmapImg.crossOrigin = "anonymous";
       // 손상된 PNG를 우회하여 정상 JPG 하이트맵을 모든 맵에서 일관되게 사용
       heightmapImg.src = `/assets/map/${selectedMap}_HeightMap.jpg`;
       heightmapImg.onload = () => {
+        if (!isSceneCurrent()) return;
         const tempCanvas = document.createElement("canvas");
         tempCanvas.width = heightmapImg.width;
         tempCanvas.height = heightmapImg.height;
@@ -933,12 +947,12 @@ function Replay3DContent() {
             // 이를 통해 격자가 지상의 특정 저지대(음수 고도 지역) 위로 뚫고 나오는 공중 붕뜸 현상을 종식합니다.
             gridHelper.position.y = minElevation - 0.05;
           } catch {
-            setIsMapLoading(false);
+            if (isSceneCurrent()) setIsMapLoading(false);
           }
         }
       };
       heightmapImg.onerror = () => {
-        setIsMapLoading(false);
+        if (isSceneCurrent()) setIsMapLoading(false);
       };
     }
 
@@ -1447,9 +1461,20 @@ function Replay3DContent() {
 
     // [L] 메모리 누수 방지 리소스 수소 폐기
     return () => {
+      isSceneActive = false;
       window.removeEventListener("resize", handleResize);
       if (animationFrameIdRef.current) {
         cancelAnimationFrame(animationFrameIdRef.current);
+      }
+      animationFrameIdRef.current = null;
+      if (heightmapImage) {
+        heightmapImage.onload = null;
+        heightmapImage.onerror = null;
+        heightmapImage.src = "";
+      }
+      if (sceneGenerationRef.current === sceneGeneration) {
+        heightmapDataRef.current = null;
+        terrainGridRef.current = null;
       }
       
       controls.dispose();
@@ -1458,6 +1483,7 @@ function Replay3DContent() {
       planeGeo.dispose();
       planeMat.dispose();
       if (texture) texture.dispose();
+      if (fallbackTexture) fallbackTexture.dispose();
 
       borderGeo.dispose();
       edges.dispose();
@@ -1561,6 +1587,17 @@ function Replay3DContent() {
           scene.remove(line);
         }
       });
+      playerMeshesRef.current = {};
+      playerDropLinesRef.current = {};
+      playerLinesRef.current = {};
+      bluezoneMeshRef.current = null;
+      whitezoneMeshRef.current = null;
+      borderLineRef.current = null;
+      if (mapTextureRef.current === texture) mapTextureRef.current = null;
+      if (mapMeshRef.current === mapMesh) mapMeshRef.current = null;
+      if (rendererRef.current === renderer) rendererRef.current = null;
+      if (sceneRef.current === scene) sceneRef.current = null;
+      if (controlsRef.current === controls) controlsRef.current = null;
     };
   }, [players, selectedMap, altitudeScale, showEnemies, showTrajectories, carePackages]);
 
@@ -1605,6 +1642,7 @@ function Replay3DContent() {
       vehicleId: string | null;
       health: number;
       isDead: boolean;
+      deathTimeMs: number | null;
       isInVehicle: boolean;
       isPlane: boolean;
     }> = {};
@@ -1615,22 +1653,19 @@ function Replay3DContent() {
       const state = getInterpolatedState(player, currentTimeMs, altitudeScale);
       
       // 다중 사망 및 블루칩 부활 기록을 종합한 실시간 사망 판정
-      let isDead = false;
-      const dTimes = player.deathTimes || [];
-      const rTimes = player.redeployTimes || [];
-      const pastDeaths = dTimes.filter(t => t <= currentTimeMs);
-      const pastRedeploys = rTimes.filter(t => t <= currentTimeMs);
-      
-      if (pastDeaths.length > 0) {
-        const lastDeath = Math.max(...pastDeaths);
-        if (pastRedeploys.length > 0) {
-          const lastRedeploy = Math.max(...pastRedeploys);
-          isDead = lastDeath > lastRedeploy;
-        } else {
-          isDead = true;
-        }
-      }
-      if (state.health <= 0) {
+      const deathTimeMs = getActiveDeathTime(
+        player.deathTimes,
+        player.redeployTimes,
+        currentTimeMs,
+      );
+      let isDead = deathTimeMs !== null;
+      if (shouldMarkPlayerDeadFromHealth(
+        player.deathTimes,
+        player.redeployTimes,
+        currentTimeMs,
+        state.health,
+        state.healthSampleTimeMs,
+      )) {
         isDead = true;
       }
 
@@ -1642,6 +1677,7 @@ function Replay3DContent() {
         vehicleId: state.vehicleId,
         health: state.health,
         isDead,
+        deathTimeMs,
         isInVehicle,
         isPlane
       };
@@ -1742,9 +1778,9 @@ function Replay3DContent() {
         }
 
         // 사망 여부에 따라 그룹 위치를 사망 시점 좌표에 고정하거나 보간 위치로 갱신
-        if (isDead && player.deathTimeMs != null) {
+        if (isDead && state.deathTimeMs != null) {
           // 사망 시점의 좌표를 계산하여 묘비를 해당 위치에 고정 (매 프레임 갱신 금지)
-          const deathState = getInterpolatedState(player, player.deathTimeMs, altitudeScale);
+          const deathState = getInterpolatedState(player, state.deathTimeMs, altitudeScale);
           const finalDeathPos = deathState.position.clone();
           if (heightmapDataRef.current) {
             const terrainHeight = getTerrainHeight(finalDeathPos.x, finalDeathPos.z);
@@ -2093,7 +2129,7 @@ function Replay3DContent() {
         controlsRef.current.update();
       }
     }
-  }, [players, showBluezone, showTrajectories, altitudeScale, showEnemies, damageEvents, carePackages, trackingPlayer, hiddenPlayers, showNames, getInterpolatedZone, getTerrainHeight]);
+  }, [players, showBluezone, showTrajectories, altitudeScale, showEnemies, damageEvents, carePackages, trackingPlayer, hiddenPlayers, showNames, getInterpolatedZone, getTerrainHeight, getInterpolatedState]);
 
   useEffect(() => {
     updateReplaySceneRef.current = updateReplayScene;
@@ -2178,7 +2214,7 @@ function Replay3DContent() {
 
   // 생존자 수 계산 (사망 시간 기준)
   const aliveCount = players.filter(p =>
-    p.deathTimeMs == null || currentTimeMs < p.deathTimeMs
+    getActiveDeathTime(p.deathTimes, p.redeployTimes, currentTimeMs) === null
   ).length;
 
   // 타임라인 이벤트 마커 (킬/기절) 중 아군 관련 이벤트만 필터링

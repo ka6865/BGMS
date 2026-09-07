@@ -1,8 +1,9 @@
+import { applyMatchAiEvidencePolicy } from "@/lib/pubg-analysis/matchAiEvidence";
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
-import { AI_CACHE_VERSION, GEMINI_MODELS_TO_TRY, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
+import { AI_CACHE_VERSION, ANALYSIS_CALCULATION_VERSION, GEMINI_MODELS_TO_TRY, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { getValidFullResultForMatch, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
@@ -171,14 +172,24 @@ export async function POST(request: Request) {
       requirePopulationEvidence: true,
       requireExactResultVersion: true,
       requirePromptSafeStats: true,
+      requireCurrentCalculation: true,
     });
     if (!canonicalFullResult) {
+      const previous = getValidFullResultForMatch(canonicalRow, {
+        matchId, playerId, platform: cachePlatform, minResultVersion: RESULT_VERSION,
+        requireExactResultVersion: true, requirePopulationEvidence: true, requirePromptSafeStats: true,
+      });
+      if (previous && previous.calculationVersion !== ANALYSIS_CALCULATION_VERSION) {
+        return NextResponse.json({error: "새 계산 기준으로 다시 계산이 필요합니다. 기본 전적은 계속 이용할 수 있습니다.", errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED", retryable: false}, {status:409});
+      }
       return NextResponse.json({
         error: "canonical match analysis is not ready",
         errorCode: "PUBG_AI_CANONICAL_NOT_READY",
         retryable: true,
       }, { status: 409 });
     }
+
+    const cachePromptVersion = `${AI_CACHE_VERSION}.calc${ANALYSIS_CALCULATION_VERSION}`;
 
     // Cache compatibility is checked only after the current marked canonical
     // telemetry row has been proven.  This prevents a pre-marker cache entry
@@ -191,7 +202,7 @@ export async function POST(request: Request) {
         .eq("platform", cachePlatform)
         .eq("player_id", playerId)
         .eq("coaching_style", coachingStyle)
-        .eq("prompt_version", AI_CACHE_VERSION)
+        .eq("prompt_version", cachePromptVersion)
         .abortSignal(routeSignal.signal)
         .maybeSingle(), routeSignal.signal);
 
@@ -202,7 +213,7 @@ export async function POST(request: Request) {
           platform: requestedPlatform,
         });
         const cachedData = cached.ai_result as any;
-        const cachedText = sanitizeAiCoachingLanguageText(String(cachedData.text || ""));
+        const cachedText = applyMatchAiEvidencePolicy(sanitizeAiCoachingLanguageText(String(cachedData.text || "")), canonicalFullResult);
         const encoder = new TextEncoder();
         const stream = new ReadableStream({
           start(controller) {
@@ -335,7 +346,7 @@ export async function POST(request: Request) {
               }
             }
             if (isRouteAborted()) throw new DOMException("The operation was aborted.", "AbortError");
-            const sanitizedText = sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(aiResponseText, backupContext));
+            const sanitizedText = applyMatchAiEvidencePolicy(sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(aiResponseText, backupContext)), canonicalFullResult);
             aiResponseText = sanitizedText;
             controller.enqueue(encoder.encode(JSON.stringify({ type: "chunk", data: sanitizedText }) + "\n"));
 
@@ -354,7 +365,7 @@ export async function POST(request: Request) {
             }).catch((err: any) => console.error("[AI-ANALYZE] Usage fetch error:", err));
 
           } else if (fallbackText) { 
-            aiResponseText = sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(fallbackText, backupContext));
+            aiResponseText = applyMatchAiEvidencePolicy(sanitizeAiCoachingLanguageText(sanitizeBackupCoachingText(fallbackText, backupContext)), canonicalFullResult);
             controller.enqueue(encoder.encode(JSON.stringify({ type: "chunk", data: aiResponseText }) + "\n"));
             
             if (nonStreamRes?.response?.usageMetadata) {
@@ -380,7 +391,7 @@ export async function POST(request: Request) {
                   platform: cachePlatform,
                   player_id: playerId,
                   coaching_style: coachingStyle,
-                  prompt_version: AI_CACHE_VERSION,
+                  prompt_version: cachePromptVersion,
                   ai_result: { text: aiResponseText },
                   updated_at: new Date().toISOString()
                 }, { onConflict: "match_id,platform,player_id,coaching_style,prompt_version" })

@@ -3,19 +3,37 @@ import { normalizeName, calcDist3D, scaleCoordinate } from '../utils';
 import { WEAPON_NAMES } from '../constants';
 
 export class UtilityHandler extends BaseHandler {
+  private readonly actorNamesById = new Map<string, string>();
   private processedThrowIds = new Set<string>();
-  private underCoverKnocks = new Set<number>(); // 연막 보호 중인 기절 이벤트
+  private underCoverKnocks = new Set<string>(); // victim + knock timestamp; simultaneous knocks remain distinct
   private victimToKnockTs = new Map<string, number>(); // 피해자 이름 -> 기절 시점 매핑
 
+  private attackKey(event: any): string | null {
+    for (const value of [event.attackId, event.attack_id, event.projectileId]) {
+      if (typeof value === "number" && Number.isFinite(value) && value >= 0) return String(value);
+      if (typeof value === "string" && value.trim() && value.trim() !== "-1") return value.trim();
+    }
+    return null;
+  }
+
+  private recordLethalThrow(event: any) {
+    const id = this.attackKey(event);
+    if (id === null) this.state.utilityThrowEvidence.missing = true;
+    else this.state.utilityThrowEvidence.throws.add(id);
+  }
+
   private getThrowEventKey(e: any, ts: number, actorName: string, itemId: string): string {
-    const rawAttackId = e.attackId ?? e.attack_id ?? e.projectileId;
+    const rawAttackId = this.attackKey(e);
     if (rawAttackId !== undefined && rawAttackId !== null && rawAttackId !== "") {
-      return `attack:${String(rawAttackId)}`;
+      return `attack:${actorName}:${String(rawAttackId)}`;
     }
     return `fallback:${actorName || "unknown"}:${itemId || "unknown"}:${ts}`;
   }
 
   handleEvent(e: any, ts: number): void {
+    for (const actor of [e.attacker, e.victim, e.character, e.killer, e.finisher, e.dBNOMaker]) {
+      if (actor?.accountId && actor?.name) this.actorNamesById.set(actor.accountId, normalizeName(actor.name));
+    }
     switch (e._T) {
       case "LogPlayerTakeDamage":
         this.handleUtilityDamage(e);
@@ -61,7 +79,7 @@ export class UtilityHandler extends BaseHandler {
     const isTeammateAttacker = this.isTeammate(e.attacker || e.character);
 
     // 본인 또는 팀원이 투척물을 던진 경우
-    if (isTeammateAttacker && !this.processedThrowIds.has(throwKey)) {
+    if ((isMeAttacker || isTeammateAttacker) && !this.processedThrowIds.has(throwKey)) {
       this.processedThrowIds.add(throwKey);
       if (isMeAttacker) {
         this.state.itemUseStats.throwCount++;
@@ -88,36 +106,19 @@ export class UtilityHandler extends BaseHandler {
           this.state.itemUseSummary.smokes = (this.state.itemUseSummary.smokes || 0) + 1;
 
           // [V14.2] handleUseThrowable에서도 세이브 판정 로직 수행 (LogThrowableUse 누락 대비)
-          const myLoc = this.state.playerLocations.get(this.state.myAccountId) || this.state.playerLocations.get(this.state.lowerNickname);
-          const lastKnock = this.state.teammateKnockEvents.find(kts => {
-            if (ts >= kts && ts - kts < 20000) {
-              const knockedTeammate = Array.from(this.victimToKnockTs.entries())
-                .find(([, kTs]) => kTs === kts)?.[0];
-              if (knockedTeammate && myLoc) {
-                const tLoc = this.state.playerLocations.get(knockedTeammate);
-                if (tLoc) {
-                  const dist = calcDist3D(myLoc, tLoc) / 100; // [V47.0] cm -> m 변환
-                  return dist < 100; // [V55.2] 거리 판정 상향 (100m)
-                }
-              }
-            }
-            return false;
-          });
-
-          if (lastKnock && !this.underCoverKnocks.has(lastKnock)) {
-            this.state.totalSmokeCount++;
-            this.underCoverKnocks.add(lastKnock);
-          }
+          this.markSmokeAttempt(e.attacker || e.character, ts);
         }
-      } else if (itemId.includes("grenade") || itemId.includes("c4")) {
+      } else if (itemId.includes("grenade") || itemId.includes("c4") || itemId.includes("stickybomb")) {
         if (isMeAttacker) {
           this.state.itemUseSummary.frags = (this.state.itemUseSummary.frags || 0) + 1;
           this.state.itemUseStats.lethalThrowCount++;
+          this.recordLethalThrow(e);
         }
       } else if (itemId.includes("molotov")) {
         if (isMeAttacker) {
           this.state.itemUseSummary.molotovs = (this.state.itemUseSummary.molotovs || 0) + 1;
           this.state.itemUseStats.lethalThrowCount++;
+          this.recordLethalThrow(e);
         }
       } else {
         if (isMeAttacker) {
@@ -133,17 +134,23 @@ export class UtilityHandler extends BaseHandler {
     const weapon = (e.damageCauserName || e.damageCauser?.itemId || e.weaponId || "").toLowerCase();
     const damage = e.damage || 0;
 
-    if (this.isMe(e.attacker)) {
-      const isUtility = ["grenade", "molotov", "c4", "explosion", "explosive"].some(k =>
-        dmgCat.includes(k) || weapon.includes(k)
-      );
-      if (isUtility) {
-        this.state.utilitySummary.totalDamage += damage;
-        this.state.utilitySummary.hitCount++;
-        this.state.combatPressure.utilityDamage += damage;
-        this.state.combatPressure.utilityHits++;
-      }
-    }
+    // Only positive enemy damage from throwable weapons. Panzer/vehicle/red-zone
+    // explosions and friendly/self damage are not successful throws.
+    if (!this.isMe(e.attacker) || !e.victim || this.isMe(e.victim) || this.isTeammate(e.victim)
+      || typeof damage !== "number" || !Number.isFinite(damage) || damage <= 0) return;
+    const isUtility = ["grenade", "molotov", "c4", "stickybomb"].some(k => weapon.includes(k))
+      || (!/panzer|redzone|vehicle|environment/.test(`${weapon} ${dmgCat}`) && ["grenade", "molotov", "c4", "stickybomb"].some(k => dmgCat.includes(k)));
+    if (!isUtility) return;
+    const victim = normalizeName(e.victim.name || "") || this.actorNamesById.get(e.victim.accountId) || e.victim.accountId;
+    const status = this.state.playerAliveStatus.get(victim) ?? this.state.playerAliveStatus.get(e.victim.accountId);
+    if (status === false || status === "groggy") return;
+    this.state.utilitySummary.totalDamage += damage;
+    this.state.utilitySummary.hitCount++;
+    this.state.combatPressure.utilityDamage += damage;
+    this.state.combatPressure.utilityHits++;
+    const id = this.attackKey(e);
+    if (id === null || !this.state.utilityThrowEvidence.throws.has(id)) this.state.utilityThrowEvidence.missing = true;
+    else this.state.utilityThrowEvidence.hits.add(id);
   }
 
   private handleItemUse(e: any) {
@@ -194,27 +201,36 @@ export class UtilityHandler extends BaseHandler {
     }
   }
 
-  private handleRevive(e: any) {
-    const victimName = normalizeName(e.victim?.name || "");
-    const knockTs = this.victimToKnockTs.get(victimName);
-
-    // 연막 보호 중인 상태에서 부활 성공 -> 구출 성공(Result) 카운트
-    if (knockTs && this.underCoverKnocks.has(knockTs)) {
-      this.state.totalSmokeRescues++;
-      this.underCoverKnocks.delete(knockTs);
-      this.victimToKnockTs.delete(victimName);
+  private markSmokeAttempt(actor: any, ts: number) {
+    const myLoc = actor?.location ?? actor?.loc ?? this.state.playerLocations.get(this.state.lowerNickname);
+    if (!myLoc) return;
+    for (const [victim, knockTs] of this.victimToKnockTs) {
+      const key = `${victim}:${knockTs}`;
+      if (ts < knockTs || ts - knockTs >= 20000 || this.underCoverKnocks.has(key)) continue;
+      const victimLoc = this.state.playerLocations.get(victim);
+      const distanceM = victimLoc ? calcDist3D(myLoc, victimLoc) / 100 : NaN;
+      if (!Number.isFinite(distanceM) || distanceM >= 100) continue;
+      this.state.totalSmokeCount++;
+      this.underCoverKnocks.add(key);
+      break;
     }
   }
 
-  private handleKill(e: any) {
-    const victimName = normalizeName(e.victim?.name || "");
-    const knockTs = this.victimToKnockTs.get(victimName);
-
-    // 연막을 뿌렸음에도 결국 확킬이 나버린 경우 보호 상태 해제 (성공 카운트 제외)
-    if (knockTs && this.underCoverKnocks.has(knockTs)) {
-      this.underCoverKnocks.delete(knockTs);
-      this.victimToKnockTs.delete(victimName);
+  private handleRevive(e: any) {
+    const victim = normalizeName(e.victim?.name || "");
+    const knockTs = this.victimToKnockTs.get(victim);
+    if (knockTs !== undefined && this.underCoverKnocks.delete(`${victim}:${knockTs}`)) {
+      this.state.totalSmokeRescues++;
     }
+    // Every revive closes the episode, even if no smoke was used.
+    this.victimToKnockTs.delete(victim);
+  }
+
+  private handleKill(e: any) {
+    const victim = normalizeName(e.victim?.name || "");
+    const knockTs = this.victimToKnockTs.get(victim);
+    if (knockTs !== undefined) this.underCoverKnocks.delete(`${victim}:${knockTs}`);
+    this.victimToKnockTs.delete(victim);
   }
 
   private handleThrowable(e: any, ts: number) {
@@ -228,28 +244,7 @@ export class UtilityHandler extends BaseHandler {
 
       // 연막 세이브 판정 강화 (V14.2: 시간 + 거리 기반)
       if (wId.includes("smoke") || wId.includes("m79")) {
-        const myLoc = this.state.playerLocations.get(this.state.myAccountId) || this.state.playerLocations.get(this.state.lowerNickname);
-        const lastKnock = this.state.teammateKnockEvents.find(kts => {
-          if (ts >= kts && ts - kts < 20000) { // 긴박한 상황 고려 20초로 확장
-            // 팀원 위치 확인
-            const knockedTeammate = Array.from(this.victimToKnockTs.entries())
-              .find(([, kTs]) => kTs === kts)?.[0];
-
-            if (knockedTeammate && myLoc) {
-              const tLoc = this.state.playerLocations.get(knockedTeammate);
-              if (tLoc) {
-                const dist = calcDist3D(myLoc, tLoc) / 100; // cm -> m 변환
-                return dist < 100; // [V55.2] 거리 판정 대폭 상향 (40m -> 100m) 원거리 지원 고려
-              }
-            }
-          }
-          return false;
-        });
-
-        if (lastKnock && !this.underCoverKnocks.has(lastKnock)) {
-          this.state.totalSmokeCount++;
-          this.underCoverKnocks.add(lastKnock);
-        }
+        this.markSmokeAttempt(e.attacker || e.character, ts);
       }
 
       this.state.myActionTimestamps.push(ts);
@@ -259,13 +254,15 @@ export class UtilityHandler extends BaseHandler {
       this.state.itemUseStats.throwCount++;
 
       if (wId.includes("smoke")) this.state.itemUseSummary.smokes++;
-      else if (wId.includes("grenade")) {
+      else if (wId.includes("grenade") || wId.includes("c4") || wId.includes("stickybomb")) {
         this.state.itemUseSummary.frags++;
         this.state.itemUseStats.lethalThrowCount++;
+          this.recordLethalThrow(e);
       }
       else if (wId.includes("molotov")) {
         this.state.itemUseSummary.molotovs++;
         this.state.itemUseStats.lethalThrowCount++;
+          this.recordLethalThrow(e);
       }
       else {
         this.state.itemUseSummary.others++;
@@ -282,27 +279,7 @@ export class UtilityHandler extends BaseHandler {
       if (this.processedThrowIds.has(fireId)) return;
       this.processedThrowIds.add(fireId);
 
-      const myLoc = this.state.playerLocations.get(this.state.myAccountId) || this.state.playerLocations.get(this.state.lowerNickname);
-      const lastKnock = this.state.teammateKnockEvents.find(kts => {
-        if (ts >= kts && ts - kts < 20000) {
-          const knockedTeammate = Array.from(this.victimToKnockTs.entries())
-            .find(([, kTs]) => kTs === kts)?.[0];
-
-          if (knockedTeammate && myLoc) {
-            const tLoc = this.state.playerLocations.get(knockedTeammate);
-            if (tLoc) {
-              const dist = calcDist3D(myLoc, tLoc) / 100; // [V55.2] cm -> m 변환 누락 수정
-              return dist < 100; // [V55.2] 거리 판정 상향 (40m -> 100m)
-            }
-          }
-        }
-        return false;
-      });
-
-      if (lastKnock && !this.underCoverKnocks.has(lastKnock)) {
-        this.state.totalSmokeCount++;
-        this.underCoverKnocks.add(lastKnock);
-      }
+      this.markSmokeAttempt(e.character, ts);
       this.state.itemUseStats.throwCount++;
       this.state.itemUseSummary.smokes = (this.state.itemUseSummary.smokes || 0) + 1;
     }

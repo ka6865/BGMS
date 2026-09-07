@@ -1,3 +1,5 @@
+import { COACHING_JUDGMENT_WITHHELD, requiresRescueOpportunityEvidence } from "./aiCoachingQuality";
+
 /**
  * Server-owned card composition for the v2 AI summary contract.
  *
@@ -126,6 +128,7 @@ const SAFE_VERDICT = "검증된 경기 지표를 바탕으로 분석합니다.";
 
 const DISPLAY_VALUE_PATTERN = /^\s*([+-]?(?:(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?|\.\d+))\s*(%|ms|밀리초|s|secs?|초|m|미터|회|횟수)?\s*$/iu;
 const NEUTRAL_TEXTS = new Set([
+  COACHING_JUDGMENT_WITHHELD,
   "검증된 경기 지표를 바탕으로 분석합니다.",
   "검증된 경기 지표를 바탕으로 분석합니다",
   UNAVAILABLE_COPY,
@@ -445,7 +448,7 @@ function validateCardCatalog(cards: readonly SummaryCard[]): SummaryCard[] | nul
     if (analysisStatus === "ready") {
       if ([kindOpinion, spicyOpinion, reason, evaluation].some((text) => !nonEmptyString(text))) return null;
       if (isNeutralText(kindOpinion) || isNeutralText(spicyOpinion)) return null;
-      if ([kindOpinion, spicyOpinion, reason, evaluation].some((text) => hasUnsupportedCardConclusion(text, { topicId, context }))) return null;
+      if ([kindOpinion, spicyOpinion, reason, evaluation].some((text) => hasUnsupportedCardConclusion(text, { topicId, context, evidence: copiedEvidence }))) return null;
     }
     const expectedTopic = topicDefinitionForId(topicId)?.topic;
     if (!expectedTopic) return null;
@@ -534,14 +537,18 @@ function validateSummaryEvidence(
 }
 
 function isNeutralText(value: string): boolean {
-  return !value.trim() || NEUTRAL_TEXTS.has(value.trim());
+  let remaining = value.trim();
+  for (const neutral of NEUTRAL_TEXTS) remaining = remaining.split(neutral).join("");
+  return !remaining.trim();
 }
 
-function hasUnsupportedCardConclusion(text: string, card: Pick<SummaryCard, "topicId" | "context">): boolean {
+function hasUnsupportedCardConclusion(text: string, card: Pick<SummaryCard, "topicId" | "context" | "evidence">): boolean {
   // A card's match population is server-owned, just like its metric values.
   const populations = Array.from(text.matchAll(/최근\s*(\d+)\s*(?:개\s*)?(?:판|경기)/gu));
   if (populations.some((match) => Number(match[1]) !== card.context.userMatchCount)) return true;
   if (card.topicId !== "utility") return false;
+  if (requiresRescueOpportunityEvidence(text)
+    && !card.evidence.some((row) => row.metricId === "smoke_opportunity_rate" && row.userValue !== null && row.status !== "unavailable")) return true;
   // Counts establish use, not intent or an adequate frequency. Do not let
   // an old provider/template infer cover purpose or "few offensive throws"
   // from these observations, even when the referenced IDs are valid.
@@ -747,7 +754,9 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
 
     const evidenceIds = Array.isArray(issue.evidenceIds) ? issue.evidenceIds : [];
     let referencesValid = true;
-    const referenceValues = evidenceIds;
+    // Repeating an allowed reference adds no evidence. Normalize provider
+    // duplicates before checking ownership; unknown IDs still reject the card.
+    const referenceValues = [...new Set(evidenceIds)];
     if (referencesValid) {
       const uniqueReferences = new Set(referenceValues);
       referencesValid = referenceValues.every((id) => typeof id === "string" && id.trim() !== "")

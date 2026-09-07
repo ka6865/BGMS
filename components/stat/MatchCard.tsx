@@ -71,7 +71,7 @@ export function MatchCard(props: MatchCardProps) {
 
   const displaySummary = initialMatchData && detailData
     ? {
-        ...initialMatchData,
+        ...(detailData.analysisAvailability === "basic_only" ? {} : initialMatchData),
         ...detailData,
         stats: detailData.stats,
         isSummary: false,

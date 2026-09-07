@@ -24,9 +24,6 @@ import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 // 리팩토링으로 분리된 텔레메트리 컴포넌트 임포트
 import { ZoneRenderer } from "./telemetry/ZoneRenderer";
-import { CombatRenderer } from "./telemetry/CombatRenderer";
-import { ShotRenderer } from "./telemetry/ShotRenderer";
-import { PlayerPathRenderer } from "./telemetry/PlayerPathRenderer";
 import { TelemetryCanvasLayer } from "./telemetry/TelemetryCanvasLayer";
 import { SimulatorLayer } from "./SimulatorLayer";
 

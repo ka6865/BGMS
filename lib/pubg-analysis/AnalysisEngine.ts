@@ -1,3 +1,4 @@
+import { orderedReplayEvents } from "../replay/orderedEvents";
 /**
  * @fileoverview PUBG Telemetry Analysis Engine (V11.9.2 Modularized)
  * 
@@ -6,9 +7,11 @@
  * - Units: Distance (m), Damage (HP), Latency (ms)
  */
 
+import { SquadObservationCollector } from './squadObservations';
+import { SquadFocusFireCollector } from './squadFocusFire';
 import { normalizeName } from './utils';
 import { AnalysisResult, AnalysisState } from './types';
-import { MAP_NAMES, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from './constants';
+import { MAP_NAMES, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, ANALYSIS_CALCULATION_VERSION } from './constants';
 import { CombatHandler } from './handlers/CombatHandler';
 import { ZoneHandler } from './handlers/ZoneHandler';
 import { UtilityHandler } from './handlers/UtilityHandler';
@@ -87,6 +90,8 @@ export class AnalysisEngine {
       reactionLatencies: [],
       tradeLatencies: [],
       utilityTracker: new Map(),
+      utilityThrowEvidence: { throws: new Set(), hits: new Set(), missing: false },
+      supportTeammateKills: 0,
       utilitySummary: { totalDamage: 0, hitCount: 0, killCount: 0, throwCount: 0, accuracy: 0, avgDamagePerThrow: 0 },
       dbnoMap: new Map(),
       totalPressureSum: 0,
@@ -176,6 +181,8 @@ export class AnalysisEngine {
     // Map coordinates normalization logic
 
     this.buildMappings(rosters, participants);
+    const focusFire = new SquadFocusFireCollector(this.state.teamAccountIds, this.state.gameMode);
+    const squadObservation = new SquadObservationCollector(this.state.teamAccountIds, this.state.gameMode);
 
     // 2. 정확한 시작 시점 (LogMatchStart) 찾기
     const matchStartEv = telemetry.find(e => e._T === "LogMatchStart");
@@ -187,6 +194,8 @@ export class AnalysisEngine {
     telemetry.forEach(e => {
       const ts = new Date(e._D).getTime();
       const elapsed = ts - startTime;
+      focusFire.observe(e, ts);
+      squadObservation.observe(e, ts);
 
       // 타임라인 기록 제한: 나 또는 아군 중 한 명이라도 살아있으면 계속 기록
       const isMyTeamAlive = Array.from(this.state.teamNames).some(name => this.state.playerAliveStatus.get(name) !== false);
@@ -242,7 +251,11 @@ export class AnalysisEngine {
     });
 
     // 3. 결과 조립
-    return this.assembleResult(matchAttr, rosters, participants, myStats, teamStats, eliteBenchmark, matchStartEv);
+    return {
+      ...this.assembleResult(matchAttr, rosters, participants, myStats, teamStats, eliteBenchmark, matchStartEv),
+      squadFocusFire: focusFire.result(),
+      squadObservation: squadObservation.result(),
+    };
   }
 
   private buildMappings(rosters: any[], participants: any[]) {
@@ -311,7 +324,10 @@ export class AnalysisEngine {
     const totalTeamDamage = stats.reduce((sum, s) => sum + (s?.damageDealt || 0), 0);
     const totalTeamKills = stats.reduce((sum, s) => sum + (s?.kills || 0), 0);
 
-    const humanParticipants = participants.filter((p: any) => !p.attributes?.accountId?.startsWith("ai."));
+    const humanParticipants = participants.filter((p: any) => {
+      const accountId = p.attributes?.stats?.playerId || p.attributes?.accountId || "";
+      return !String(accountId).startsWith("ai.");
+    });
     const sortedByDamage = [...humanParticipants].map(p => p.attributes?.stats).filter(Boolean).sort((a, b) => b.damageDealt - a.damageDealt);
     const damageRank = sortedByDamage.findIndex((s: any) => normalizeName(s.name) === this.state.lowerNickname) + 1 || 1;
 
@@ -373,7 +389,11 @@ export class AnalysisEngine {
       ? Number((this.state.combatPressure.totalHits / Math.max(5, (this.state.myActionTimestamps.length / 10))).toFixed(2))
       : null;
     const hasLethalThrowSamples = this.state.itemUseStats.lethalThrowCount > 0;
-    const utilityHitCount = Math.min(this.state.combatPressure.utilityHits, this.state.itemUseStats.lethalThrowCount);
+    const utilityEvidence = this.state.utilityThrowEvidence;
+    const utilityHitCount = utilityEvidence.missing ? null : utilityEvidence.hits.size;
+    const hasMeasuredUtilityAccuracy = hasLethalThrowSamples && utilityHitCount !== null;
+    const supportShare = this.state.supportTeammateKills > 0
+      ? this.state.totalSuppCount * 100 / this.state.supportTeammateKills : null;
     const hasUtilityDamageObservation = this.state.itemUseStats.throwCount > 0 || this.state.combatPressure.utilityHits > 0;
     const deathPhase = this.state.deathPhaseSnapshot > 0
       ? this.state.deathPhaseSnapshot
@@ -412,6 +432,7 @@ export class AnalysisEngine {
     return {
       matchId: matchAttr.id,
       v: RESULT_VERSION,
+      calculationVersion: ANALYSIS_CALCULATION_VERSION,
       populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
       processedAt: new Date().toISOString(),
       createdAt: matchAttr.createdAt,
@@ -484,7 +505,8 @@ export class AnalysisEngine {
         coverRateSampleCount: this.state.totalCoverAttempts,
         enemyTeamWipes: this.state.wipedTeamsByUserParticipation.size,
         tradeRate: this.state.totalTeammateKnocks > 0 ? (Math.min(this.state.totalTeammateKnocks, this.state.totalTradeKills) / this.state.totalTeammateKnocks) * 100 : null,
-        suppRate: this.state.totalTeammateKnocks > 0 ? (this.state.totalSuppCount / this.state.totalTeammateKnocks) * 100 : null
+        suppRate: supportShare,
+        teammateKills: this.state.supportTeammateKills
       },
       initiative_rate: initiativeRate,
       initiativeSampleCount: pData.total,
@@ -506,12 +528,13 @@ export class AnalysisEngine {
           throwCount: this.state.itemUseStats.throwCount,
           lethalThrowCount: this.state.itemUseStats.lethalThrowCount,
           hitCount: utilityHitCount,
+          accuracyStatus: utilityEvidence.missing ? "missing" : hasLethalThrowSamples ? "observed" : "no_opportunity",
           damageEventCount: this.state.combatPressure.utilityHits,
           totalDamage: hasUtilityDamageObservation ? this.state.combatPressure.utilityDamage : null,
           killCount: 0, // [V11.9.4] 유틸리티 킬 추적은 향후 고도화 예정
-          accuracy: hasLethalThrowSamples ? Number(((utilityHitCount / this.state.itemUseStats.lethalThrowCount) * 100).toFixed(1)) : null,
-          accuracyRaw: hasLethalThrowSamples ? (utilityHitCount / this.state.itemUseStats.lethalThrowCount) : null,
-          avgDamagePerThrow: hasLethalThrowSamples ? Number((this.state.combatPressure.utilityDamage / this.state.itemUseStats.lethalThrowCount).toFixed(1)) : null
+          accuracy: hasMeasuredUtilityAccuracy ? Number(((utilityHitCount / this.state.itemUseStats.lethalThrowCount) * 100).toFixed(1)) : null,
+          accuracyRaw: hasMeasuredUtilityAccuracy ? (utilityHitCount / this.state.itemUseStats.lethalThrowCount) : null,
+          avgDamagePerThrow: hasMeasuredUtilityAccuracy ? Number((this.state.combatPressure.utilityDamage / this.state.itemUseStats.lethalThrowCount).toFixed(1)) : null
         },
         isClutched: false,
         utilityDamage: hasUtilityDamageObservation ? this.state.combatPressure.utilityDamage : null,
@@ -553,7 +576,7 @@ export class AnalysisEngine {
         teamWipes: this.state.wipedTeamsByUserParticipation.size,
         reversalRate: reversalRate ?? -1,
         deathPhase: deathPhase ?? -1,
-        suppRate: this.state.totalTeammateKnocks > 0 ? (this.state.totalSuppCount / this.state.totalTeammateKnocks) * 100 : -1,
+        suppRate: supportShare ?? -1,
         // [V68.0] 스쿼드 모드용 고립 지수 추가
         isolationIndex: avgIsolation,
         // [V69.0] 생존 점수 고도화 필드 (0~1 범위 가드 적용)
@@ -580,8 +603,8 @@ export class AnalysisEngine {
       timeline: this.state.timeline.sort((a, b) => a.ts - b.ts),
       // [V26.0] 지도 리플레이용 데이터 포함
       mapData: {
-        events: this.state.mapEvents,
-        zoneEvents: this.state.mapZoneEvents,
+        events: orderedReplayEvents(this.state.mapEvents),
+        zoneEvents: orderedReplayEvents(this.state.mapZoneEvents),
         teammates: Array.from(this.state.teamAccountIds),
         teamNames: Array.from(this.state.teamNames),
         mapName: this.state.mapName

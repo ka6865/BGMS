@@ -1,6 +1,6 @@
 import { normalizeName } from "./utils";
 import { normalizeBenchmarkScore, normalizeMatchId } from "./recentMatchSelection";
-import { POPULATION_EVIDENCE_VERSION } from "./constants";
+import { ANALYSIS_CALCULATION_VERSION, POPULATION_EVIDENCE_VERSION } from "./constants";
 
 export type CanonicalMatchLookup = {
   matchId: string;
@@ -13,6 +13,7 @@ export type CanonicalMatchLookup = {
   requireExactResultVersion?: boolean;
   /** AI prompt callers require finite, non-negative canonical base stats. */
   requirePromptSafeStats?: boolean;
+  requireCurrentCalculation?: boolean;
 };
 
 type PlainRecord = Record<string, unknown>;
@@ -92,6 +93,8 @@ export function getValidFullResultForMatch(
   // requiring explicit embedded identity fields for every canonical reader.
   if (!isFullResultForPlayerPlatform(fullResult, expectedPlayerId, expectedPlatform)) return null;
 
+  if (expected.requireCurrentCalculation && !hasCurrentCalculation(fullResult)) return null;
+
   const version = fullResult.v;
   if (typeof version !== "number" || !Number.isFinite(version) || version < minResultVersion) return null;
   if (expected.requireExactResultVersion === true && version !== minResultVersion) return null;
@@ -101,7 +104,22 @@ export function getValidFullResultForMatch(
     return null;
   }
 
-  return fullResult;
+  return expected.requireCurrentCalculation ? sanitizeCalculationBenchmark(fullResult) : fullResult;
+}
+
+/** Comparison evidence must use the same arithmetic as the current analysis. */
+export function sanitizeCalculationBenchmark<T extends PlainRecord>(result: T): T {
+  if (!isRecord(result.eliteBenchmark)
+      || result.eliteBenchmark.calculationVersion === ANALYSIS_CALCULATION_VERSION) return result;
+  return { ...result, eliteBenchmark: null,
+    teamImpact: isRecord(result.teamImpact)
+      ? { ...result.teamImpact, damageImpact: null, killImpact: null } : result.teamImpact,
+    ...(Array.isArray(result.badges) ? { badges: result.badges.filter(badge => !isRecord(badge) || badge.id !== "ace") } : {}),
+  };
+}
+
+export function hasCurrentCalculation(result: unknown): boolean {
+  return isRecord(result) && result.calculationVersion === ANALYSIS_CALCULATION_VERSION;
 }
 
 export function normalizePlatform(platform?: string | null): string {

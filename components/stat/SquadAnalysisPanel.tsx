@@ -54,6 +54,7 @@ interface MatchSummaryItem {
 }
 
 interface SquadAnalysisData {
+  calculationPendingMatchCount?: number;
   groupKey: string;
   matchCount: number;
   matchesSummary: MatchSummaryItem[];
@@ -65,6 +66,7 @@ interface SquadAnalysisData {
     avgCoverRate: number | null;
     totalTeamWipes: number | null;
     totalTeammateKnocks?: number | null;
+    totalTradeKills?: number | null;
   };
   scores: {
     formation: number | null;
@@ -75,7 +77,7 @@ interface SquadAnalysisData {
   };
   squadGrade: string | null;
   benchmarkStats?: {
-    tier: string;
+    tier: string | null;
     avgIsolation: number | null;
     avgTradeLatency: number | null;
     avgReviveRate: number | null;
@@ -141,6 +143,19 @@ function averageObservedMetrics(values: unknown[]): number | null {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
+const CALCULATION_UPGRADE_ERROR_CODE = "PUBG_CALCULATION_UPGRADE_REQUIRED";
+const CALCULATION_UPGRADE_MESSAGE = "새 계산 기준 확인이 필요한 전적입니다";
+const CALCULATION_UPGRADE_DETAIL = "기본 전적은 계속 확인할 수 있습니다. 이 화면에서는 원본 보관 여부나 갱신 진행 상태를 확인할 수 없습니다.";
+
+function isCalculationUpgradeError(error: unknown): boolean {
+  return Boolean(
+    error
+    && typeof error === "object"
+    && "errorCode" in error
+    && error.errorCode === CALCULATION_UPGRADE_ERROR_CODE,
+  );
+}
+
 export default function SquadAnalysisPanel({
   requestCache,
   nickname,
@@ -160,16 +175,19 @@ export default function SquadAnalysisPanel({
   const [groups, setGroups] = useState<any[]>([]);
   const [loadingList, setLoadingList] = useState<boolean>(true);
   const [listError, setListError] = useState<boolean>(false);
+  const [listUpgradePending, setListUpgradePending] = useState<boolean>(false);
   const [loadingDetail, setLoadingDetail] = useState<boolean>(false);
   const [detailError, setDetailError] = useState<boolean>(false);
+  const [detailUpgradePending, setDetailUpgradePending] = useState<boolean>(false);
   const [analysisData, setAnalysisData] = useState<SquadAnalysisData | null>(null);
+  const [basicMatches, setBasicMatches] = useState<Array<{matchId: string; stats: {kills: number | null; damageDealt: number | null; winPlace: number | null}}>>([]);
   
   // AI Coaching States
   const [coachingStyle, setCoachingStyle] = useState<"spicy" | "mild">("spicy");
   const [loadingAi, setLoadingAi] = useState<boolean>(false);
   const { isAnalyzing: isGlobalAnalyzing } = useAIStatus();
   const [aiFeedback, setAiFeedback] = useState<AiFeedback | null>(null);
-  const [aiError, setAiError] = useState<{ message: string; retryable: boolean } | null>(null);
+  const [aiError, setAiError] = useState<{ message: string; retryable: boolean; errorCode?: string | null } | null>(null);
 
   // 2D Map Selected Match State
   const [selectedMapMatchId, setSelectedMapMatchId] = useState<string>("");
@@ -201,6 +219,7 @@ export default function SquadAnalysisPanel({
     try {
       setLoadingList(true);
       setListError(false);
+      setListUpgradePending(false);
       setGroups([]);
       const data = await cache.get(cacheScope, `/api/pubg/squad-analyze?nickname=${encodeURIComponent(nickname)}&platform=${platform}`);
       if (requestId !== listRequestId.current) return;
@@ -209,7 +228,8 @@ export default function SquadAnalysisPanel({
     } catch (err) {
       if (requestId !== listRequestId.current) return;
       console.error("Failed to load squad list:", err);
-      setListError(true);
+      if (isCalculationUpgradeError(err)) setListUpgradePending(true);
+      else setListError(true);
     } finally {
       if (requestId === listRequestId.current) setLoadingList(false);
     }
@@ -232,7 +252,9 @@ export default function SquadAnalysisPanel({
   const fetchSquadDetails = useCallback(async () => {
     const requestId = ++detailRequestId.current;
     setAnalysisData(null);
+    setBasicMatches([]);
     setAiFeedback(null);
+    setDetailUpgradePending(false);
     if (!groupKey || !hasSelectedGroup) { setLoadingDetail(false); return; }
 
     try {
@@ -245,6 +267,10 @@ export default function SquadAnalysisPanel({
       );
       if (requestId !== detailRequestId.current) return;
 
+      if (data.analysisAvailability === "basic_only") {
+        setBasicMatches(Array.isArray(data.basicMatches) ? data.basicMatches : []);
+        return;
+      }
       setAnalysisData(data);
       // GA4 스쿼드 시너지 전술 데이터 로드 완료
       trackEvent({
@@ -259,7 +285,8 @@ export default function SquadAnalysisPanel({
     } catch (err) {
       if (requestId !== detailRequestId.current) return;
       console.error("Failed to load squad details:", err);
-      setDetailError(true);
+      if (isCalculationUpgradeError(err)) setDetailUpgradePending(true);
+      else setDetailError(true);
     } finally {
       if (requestId === detailRequestId.current) setLoadingDetail(false);
     }
@@ -323,11 +350,15 @@ export default function SquadAnalysisPanel({
       const data = await res.json();
       if (aiRequest.current !== pending) return;
       if (!res.ok || !data || data.error) {
+        const calculationUpgradePending = data?.errorCode === CALCULATION_UPGRADE_ERROR_CODE;
         setAiError({
-          message: res.status === 409
-            ? "코칭에 필요한 경기 지표가 아직 없습니다. 전적 분석이 완료된 뒤 다시 확인해 주세요."
-            : "일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
-          retryable: data?.retryable !== false && res.status !== 409,
+          message: calculationUpgradePending
+            ? CALCULATION_UPGRADE_MESSAGE
+            : res.status === 409
+              ? "코칭에 필요한 경기 지표가 아직 없습니다. 전적 분석이 완료된 뒤 다시 확인해 주세요."
+              : "일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+          errorCode: typeof data?.errorCode === "string" ? data.errorCode : null,
+          retryable: !calculationUpgradePending && data?.retryable !== false && res.status !== 409,
         });
         return;
       }
@@ -570,10 +601,19 @@ export default function SquadAnalysisPanel({
         </div>
       );
     }
+    if (listUpgradePending) {
+      return (
+        <div role="status" aria-label="스쿼드 분석에 새 계산 기준 확인 필요" className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-8 text-center">
+          <ShieldAlert className="mx-auto h-12 w-12 text-sky-400 mb-2" />
+          <p className="text-sky-200 font-semibold">{CALCULATION_UPGRADE_MESSAGE}</p>
+          <p className="text-sky-100/70 text-sm mt-2">{CALCULATION_UPGRADE_DETAIL}</p>
+        </div>
+      );
+    }
     return (
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-8 text-center">
         <ShieldAlert className="mx-auto h-12 w-12 text-zinc-600 mb-2" />
-        <p className="text-zinc-400">최근 20경기 중 분석할 수 있는 스쿼드 모드 파티 게임 기록이 없습니다.</p>
+        <p className="text-zinc-400">저장된 전적 중 분석할 수 있는 스쿼드 모드 파티 게임 기록이 없습니다.</p>
         <p className="text-zinc-500 text-sm mt-1">솔로나 듀오 모드를 제외하고, 스쿼드 매치 데이터를 추가로 검색해 주세요.</p>
       </div>
     );
@@ -585,7 +625,7 @@ export default function SquadAnalysisPanel({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl border border-zinc-800/80 bg-zinc-900/30 p-4 backdrop-blur-md">
         <div>
           <h3 className="font-semibold text-zinc-200">스쿼드 시너지 분석</h3>
-          <p className="text-xs text-zinc-500">최근 20경기에서 감지된 고정 팀원 파티와의 전술 분석입니다.</p>
+          <p className="text-xs text-zinc-500">저장된 스쿼드 전적에서 같은 팀원과 함께한 최근 경기의 분석입니다.</p>
         </div>
         <div className="relative">
           <select
@@ -611,7 +651,14 @@ export default function SquadAnalysisPanel({
         </div>
       )}
 
-      {detailError && !loadingDetail && (
+      {detailUpgradePending && !loadingDetail && (
+        <div role="status" aria-label="스쿼드 분석에 새 계산 기준 확인 필요" className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-6 text-center">
+          <p className="text-sm font-semibold text-sky-200">{CALCULATION_UPGRADE_MESSAGE}</p>
+          <p className="mt-2 text-xs text-sky-100/70">{CALCULATION_UPGRADE_DETAIL}</p>
+        </div>
+      )}
+
+      {detailError && !detailUpgradePending && !loadingDetail && (
         <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-6 text-center">
           <p role="alert" className="text-sm text-red-200">스쿼드 데이터를 불러오지 못했습니다. 다시 시도해 주세요.</p>
           <button
@@ -622,6 +669,23 @@ export default function SquadAnalysisPanel({
             다시 시도
           </button>
         </div>
+      )}
+
+      {analysisData && (analysisData.calculationPendingMatchCount ?? 0) > 0 && !loadingDetail && (
+        <p className="text-xs leading-relaxed text-sky-200">재계산이 필요한 {analysisData.calculationPendingMatchCount}경기는 전술 분석에서 제외했습니다. 아래 평가는 계산이 확인된 경기만 사용합니다.</p>
+      )}
+
+      {basicMatches.length > 0 && !loadingDetail && (
+        <section aria-label="스쿼드 기본 경기 기록" className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4">
+          <h4 className="text-sm font-bold text-sky-100">함께한 {basicMatches.length}경기</h4>
+          <p className="mt-2 text-xs leading-relaxed text-sky-100/70">내 킬·피해량·순위는 확인할 수 있습니다. 팀 전술 지표와 AI 코칭은 새 기준으로 재계산한 뒤 제공됩니다.</p>
+          <ul className="mt-3 divide-y divide-white/10">
+            {basicMatches.map((match, index) => <li key={match.matchId} className="flex flex-wrap justify-between gap-2 py-3 text-sm text-white/80">
+              <span>경기 {index + 1}</span>
+              <span>{match.stats.winPlace ?? "—"}위 · {match.stats.kills ?? "—"}킬 · {typeof match.stats.damageDealt === "number" ? Math.round(match.stats.damageDealt) : "—"} 피해</span>
+            </li>)}
+          </ul>
+        </section>
       )}
 
       {analysisData && !loadingDetail && (
@@ -763,26 +827,28 @@ export default function SquadAnalysisPanel({
               
               <div className="flex flex-col gap-1 border-b border-zinc-900 pb-2">
                 <div className="flex justify-between">
-                  <span className="text-zinc-400 font-medium">평균 대열 이탈율 (고립)</span>
+                  <span className="text-zinc-400 font-medium">팀 전체 대열 유지</span>
                   <span className={`font-bold ${analysisData.stats.avgIsolation !== null && analysisData.stats.avgIsolation > 3.5 ? "text-red-400" : "text-zinc-100"}`}>
                     {isFiniteNonNegativeMetric(analysisData.stats.avgIsolation) ? `${analysisData.stats.avgIsolation} (평균)` : "측정 불가"}
                   </span>
                 </div>
-                {analysisData.benchmarkStats && (
+                {analysisData.benchmarkStats?.tier && (
                   <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
                     {analysisData.benchmarkStats.tier}티어 기준치: {formatObservedMetric(analysisData.benchmarkStats.avgIsolation)} (낮을수록 우수)
                   </div>
                 )}
               </div>
 
+              {analysisData.stats.avgIsolation === null && <p className="text-[10px] text-zinc-500 leading-relaxed">팀 전체 거리 지표를 준비 중입니다. 개인 고립도로 팀을 평가하지 않습니다.</p>}
               <div className="flex flex-col gap-1 border-b border-zinc-900 pb-2">
                 <div className="flex justify-between">
-                  <span className="text-zinc-400 font-medium">평균 백업 반응 속도 (트레이드)</span>
+                  <span className="text-zinc-400 font-medium">아군 기절 후 평균 복수 시간</span>
                   <span className="text-zinc-100 font-bold">
                     {formatLatencyMs(analysisData.stats.avgTradeLatency)}
                   </span>
                 </div>
-                {analysisData.benchmarkStats && (
+                <p className="text-[10px] text-zinc-500 leading-relaxed">아군을 기절시킨 적을 다른 팀원이 30초 안에 처치한 기록의 평균입니다. {isFiniteNonNegativeMetric(analysisData.stats.totalTradeKills) ? `확인된 복수 ${analysisData.stats.totalTradeKills}회 기준` : "팀 단위 기록을 확인하지 못해 보류합니다."}</p>
+                {analysisData.benchmarkStats?.tier && (
                   <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
                     {analysisData.benchmarkStats.tier}티어 기준치: {formatLatencyMs(analysisData.benchmarkStats.avgTradeLatency)} (빠를수록 우수)
                   </div>
@@ -791,10 +857,11 @@ export default function SquadAnalysisPanel({
 
               <div className="flex flex-col gap-1 border-b border-zinc-900 pb-2">
                 <div className="flex justify-between">
-                  <span className="text-zinc-400 font-medium">누적 세이브 (연막/소생)</span>
+                  <span className="text-zinc-400 font-medium">팀 구출 기록 (연막/소생)</span>
                     <span className="text-zinc-100 font-bold">{formatObservedMetric(analysisData.stats.totalSmokeRescues, "회")} / {formatObservedMetric(analysisData.stats.totalRevives, "회")}</span>
                 </div>
-                {analysisData.benchmarkStats && (
+                <p className="text-[10px] text-zinc-500 leading-relaxed">{isFiniteNonNegativeMetric(analysisData.stats.totalTeammateKnocks) ? `팀 전체 기절 ${analysisData.stats.totalTeammateKnocks}회에서 확인한 소생 기록입니다.` : "팀 단위 구출 기록이 없어 평가를 보류합니다."} 연막 구출은 주변 투척 후 소생이 이어진 기록이며, 실제 엄폐 효과를 뜻하지 않습니다.</p>
+                {analysisData.benchmarkStats?.tier && (
                   <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
                     {analysisData.benchmarkStats.tier}티어 기준치 (경기당 평균): 부활 {formatObservedPercent(analysisData.benchmarkStats.avgReviveRate)} / 연막 {formatObservedPercent(analysisData.benchmarkStats.avgSmokeRate)}
                   </div>
@@ -817,10 +884,11 @@ export default function SquadAnalysisPanel({
 
               <div className="flex flex-col gap-1">
                 <div className="flex justify-between">
-                  <span className="text-zinc-400 font-medium">적 스쿼드 전멸 유발 수</span>
+                  <span className="text-zinc-400 font-medium">팀 전체 전멸 기여</span>
                   <span className="text-purple-300 font-bold">{formatObservedMetric(analysisData.stats.totalTeamWipes, "회 전멸")}</span>
                 </div>
-                {analysisData.benchmarkStats && (
+                {analysisData.stats.totalTeamWipes === null && <p className="text-[10px] text-zinc-500 leading-relaxed">팀 단위 전멸 기여 집계를 준비 중입니다.</p>}
+                {analysisData.benchmarkStats?.tier && (
                   <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
                     {analysisData.benchmarkStats.tier}티어 기준치: 경기당 평균 {formatObservedMetric(analysisData.benchmarkStats.avgTeamWipes, "회")}
                   </div>
@@ -935,15 +1003,17 @@ export default function SquadAnalysisPanel({
             </p>
           )}
           {aiError && (
-            <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4 text-center">
-              <p role="alert" className="text-sm text-red-200">{aiError.message}</p>
-              {aiError.retryable && <button
+            <div role="alert" className={`rounded-lg border p-4 text-center ${aiError.errorCode === CALCULATION_UPGRADE_ERROR_CODE ? "border-sky-500/20 bg-sky-500/5" : "border-red-500/20 bg-red-500/5"}`}>
+              <p className={`text-sm ${aiError.errorCode === CALCULATION_UPGRADE_ERROR_CODE ? "text-sky-200" : "text-red-200"}`}>{aiError.message}</p>
+              {aiError.errorCode === CALCULATION_UPGRADE_ERROR_CODE ? (
+                <p className="mt-2 text-xs text-sky-100/70">{CALCULATION_UPGRADE_DETAIL}</p>
+              ) : aiError.retryable ? <button
                 type="button"
                 onClick={requestAiCoaching}
                 className="mt-3 rounded-lg border border-red-400/30 px-3 py-1.5 text-xs font-bold text-red-200 transition-colors hover:bg-red-400/10"
               >
                 다시 시도
-              </button>}
+              </button> : null}
             </div>
           )}
 

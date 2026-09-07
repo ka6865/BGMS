@@ -151,6 +151,20 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
   });
   const aiRequests = () => fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-squad");
 
+  it("재계산 대기 그룹도 기본 기록을 표시하며 AI 생성 버튼은 보류한다", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const params = new URL(String(input), "http://localhost").searchParams;
+      return Promise.resolve(jsonResponse(params.has("groupKey") ? {
+        groupKey: "g1", analysisAvailability: "basic_only", analysisUnavailableReason: "calculation_upgrade_required", basicMatches: [{matchId: "pending", stats: {kills: 2, damageDealt: 300, winPlace: 4}}],
+      } : {groups}));
+    });
+    renderPanel("g1");
+    expect(await screen.findByRole("region", {name: "스쿼드 기본 경기 기록"})).toBeInTheDocument();
+    expect(screen.getByText("4위 · 2킬 · 300 피해")).toBeInTheDocument();
+    expect(screen.queryByRole("button", {name: "AI 코칭 보고서 생성"})).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("같은 페이지에서 탭을 다시 열면 목록과 상세 GET을 재사용한다", async () => {
     const requestCache = createSquadRequestCache();
     const props = { nickname: "FixturePlayer", platform: "steam" as StatsPlatform, groupKey: "g1", onGroupKeyChange: vi.fn(), requestCache };
@@ -224,6 +238,87 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
     await screen.findByText("협동 시너지 밸런스");
     fireEvent.click(screen.getByRole("button", { name: "AI 코칭 보고서 생성" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("경기 지표가 아직 없습니다");
+    expect(screen.getByRole("button", { name: "AI 코칭 보고서 생성" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();
+    expect(aiRequests()).toHaveLength(1);
+  });
+
+  it("스쿼드 요청 캐시는 계산 지표 업데이트 대기 응답의 오류 메타데이터를 보존한다", async () => {
+    const requestCache = createSquadRequestCache();
+    fetchMock.mockImplementationOnce(() => Promise.resolve(jsonResponse({
+      error: "팀 분석 지표 업데이트 준비 중입니다.",
+      errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED",
+      retryable: false,
+    }, 409)));
+
+    await expect(requestCache.get("fixture-user", "/api/pubg/squad-analyze?nickname=FixturePlayer&platform=steam"))
+      .rejects.toMatchObject({
+        status: 409,
+        errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED",
+        retryable: false,
+      });
+  });
+
+  it("스쿼드 목록의 계산 지표 업데이트 대기 409는 기본 전적 안내만 보여주고 재시도하지 않는다", async () => {
+    const normalFetch = fetchMock.getMockImplementation() as (input: RequestInfo | URL) => Promise<Response>;
+    fetchMock.mockImplementation((input) => {
+      const url = String(input);
+      const parsed = new URL(url, "http://localhost");
+      if (parsed.pathname === "/api/pubg/squad-analyze" && !parsed.searchParams.has("groupKey")) {
+        return Promise.resolve(jsonResponse({
+          error: "팀 분석 지표 업데이트 준비 중입니다.",
+          errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED",
+          retryable: false,
+        }, 409));
+      }
+      return normalFetch(input);
+    });
+
+    renderPanel(undefined);
+    expect(await screen.findByRole("status", { name: "스쿼드 분석에 새 계산 기준 확인 필요" })).toBeInTheDocument();
+    expect(screen.getByText(/기본 전적은 계속 확인할 수 있습니다/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();
+    expect(listRequests()).toHaveLength(1);
+    expect(detailRequests("g1")).toHaveLength(0);
+  });
+
+  it("선택된 스쿼드의 계산 지표 업데이트 대기 409는 상세 재시도 없이 안내한다", async () => {
+    const normalFetch = fetchMock.getMockImplementation() as (input: RequestInfo | URL) => Promise<Response>;
+    fetchMock.mockImplementation((input) => {
+      const url = String(input);
+      const parsed = new URL(url, "http://localhost");
+      if (parsed.pathname === "/api/pubg/squad-analyze" && parsed.searchParams.get("groupKey") === "g1") {
+        return Promise.resolve(jsonResponse({
+          error: "팀 분석 지표 업데이트 준비 중입니다.",
+          errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED",
+          retryable: false,
+        }, 409));
+      }
+      return normalFetch(input);
+    });
+
+    renderPanel("g1");
+    expect(await screen.findByRole("status", { name: "스쿼드 분석에 새 계산 기준 확인 필요" })).toBeInTheDocument();
+    expect(screen.getByText(/기본 전적은 계속 확인할 수 있습니다/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();
+    expect(detailRequests("g1")).toHaveLength(1);
+  });
+
+  it("AI 스쿼드 계산 지표 업데이트 대기 409는 코칭 재시도를 막는다", async () => {
+    const normalFetch = fetchMock.getMockImplementation() as (input: RequestInfo | URL) => Promise<Response>;
+    fetchMock.mockImplementation((input) => String(input) === "/api/pubg/ai-squad"
+      ? Promise.resolve(jsonResponse({
+        error: "팀 분석 지표 업데이트 준비 중입니다.",
+        errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED",
+        retryable: false,
+      }, 409))
+      : normalFetch(input));
+
+    renderPanel("g1");
+    await screen.findByText("협동 시너지 밸런스");
+    fireEvent.click(screen.getByRole("button", { name: "AI 코칭 보고서 생성" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("새 계산 기준 확인이 필요한 전적입니다");
+    expect(screen.getByRole("alert")).toHaveTextContent(/기본 전적은 계속 확인할 수 있습니다/);
     expect(screen.getByRole("button", { name: "AI 코칭 보고서 생성" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();
     expect(aiRequests()).toHaveLength(1);

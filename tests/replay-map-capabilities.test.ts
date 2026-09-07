@@ -14,6 +14,8 @@ describe("3D 리플레이 맵 capability", () => {
   it("미지원 맵을 다른 지도 지형으로 대체하지 않고 차단 메시지를 만든다", () => {
     expect(resolve3DMapCapability("사녹")).toBeNull();
     expect(resolve3DMapCapability("Savage_Main")).toBeNull();
+    expect(resolve3DMapCapability("Chimera_Main")).toBeNull();
+    expect(resolve3DMapCapability("파라모")).toBeNull();
     expect(get3DReplayUnsupportedMessage("사녹")).toBe(
       "사녹 맵은 현재 3D 리플레이를 지원하지 않습니다. 2D 리플레이를 이용해 주세요.",
     );

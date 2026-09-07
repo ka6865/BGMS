@@ -121,18 +121,20 @@ export class MapReplayHandler extends BaseHandler {
       ? e.characters.map((entry: any) => entry?.character ?? entry)
       : Array.isArray(e.recalledPlayers)
         ? e.recalledPlayers.map((entry: any) => entry?.character ?? entry)
-        : e.character
-          ? [e.character]
+        : (e.character ?? e.victim ?? e.recallingPlayer ?? e.recalledPlayer)
+          ? [e.character ?? e.victim ?? e.recallingPlayer ?? e.recalledPlayer]
           : [];
 
     characters.forEach((char: any) => {
-      if (!char || !this.isTeammate(char)) return;
+      if (!char || typeof char.name !== "string" || !char.name.trim()) return;
       const loc = actorLocation(char);
       this.state.mapEvents.push({
         type: "create",
         time: e._D,
         relativeTimeMs: elapsed,
         name: char.name,
+        isTeam: this.isTeammate(char),
+        teamId: char.teamId,
         x: this.scaleX(loc?.x ?? 0),
         y: this.scaleY(loc?.y ?? 0),
       });
@@ -163,7 +165,7 @@ export class MapReplayHandler extends BaseHandler {
       x: this.scaleX(loc?.x ?? 0),
       y: this.scaleY(loc?.y ?? 0),
       z: (loc?.z ?? 0) / 100,
-      health: char.health || 100,
+      health: char.health ?? 100,
       vehicleId: vehicleId,
     });
   }

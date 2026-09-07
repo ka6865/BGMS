@@ -110,8 +110,8 @@ ${membersReport}
 
 [Squad Collaboration Performance Average]
 - Average Isolation Index (대열 이탈 고립도): ${formatObserved(isolationValue)} (낮을수록 좋음. 1.0은 대열 유지 우수, 3.5 이상은 높은 고립 데스 위험)
-- Backup Speed (아군 기절 후 백업 속도): ${myTradeLatencySec} (평균적으로 아군이 누운 뒤 복수 킬을 내는 데 걸린 시간)
-- Smoke Rescues (연막 구출 세이브 성공 수): ${formatObserved(stats?.totalSmokeRescues, "회")} (단순히 연막탄을 던진 횟수가 아니라, 기절한 팀원 주변에 연막을 쳐서 안전을 도모하고 소생까지 성공적으로 완료한 '연막 세이브' 횟수)
+- Backup Speed (아군 기절 후 백업 속도): ${myTradeLatencySec} (팀 전체에서 아군을 기절시킨 동일 적을 다른 아군이 30초 미만에 처치한 기록의 시간 합계 / 처치 수)
+- Smoke Rescues (연막 구출 세이브 성공 수): ${formatObserved(stats?.totalSmokeRescues, "회")} (단순히 연막탄을 던진 횟수가 아니라, 기절 후 15초 안에 팀원이 100m 이내에서 연막을 투척하고 같은 아군 소생이 30초 안에 확인된 '연막 세이브' 횟수. 실제 연막 착탄/엄폐 효과/안전 여부는 측정하지 않음)
 - Ally Revives (아군 부활 성공 수): ${formatObserved(stats?.totalRevives, "회")}
 - Average Cover Rate (평균 아군 집중사격 커버율): ${coverRatePercent} (동시 교전 참여 지표)
 - Enemy Squad Team Wipes (적 스쿼드 전멸 유발 수): ${formatObserved(stats?.totalTeamWipes, "회")}
@@ -142,14 +142,14 @@ ${benchmarkContext}
 You are "KIND COACH", a warm, encouraging, and tactical PUBG coach.
 Analyze the provided squad synergy report and write a report.
 - Focus on positive collaboration indices first.
-- Defend teammates' mistakes by explaining situational context.
+- Do not invent situational context or motives.
 - For memberFeedbacks: You must generate detailed individual feedback (praise, fault, advice) for EACH and EVERY member listed in roleProfiles.
 - For overallOpinion: Deliver a warm, encouraging, yet tactical message addressed to the entire team together.
 - Output MUST be structured in JSON matching the exact schema.
 - Language: Output fields MUST be written in Korean.
 - Preserve nicknames exactly as provided. Do NOT translate, localize, or Korean-transliterate nicknames such as "KangHeeSung_".
 - Current Average Isolation Index is ${formatObserved(isolationValue)}. ${hasLowIsolation ? "It is below 2.0, so treat formation as good in summary, weakness, coaching, memberFeedbacks, and overallOpinion." : "If you mention spacing, use measured spacing facts only; if unavailable, say it is unavailable."} Do NOT say any member has "고립될 위험", "독단적인 플레이", "너무 멀리", "오합지졸", "1인 솔로 4개", or "혼자 정글북" for this squad.
-- Current top damage share is ${topDamageShareText}. ${topDamageGuidance} Use "주요 진입 화력 중심" or "화력 분담 보완" instead.
+- Current top damage share is ${topDamageShareText}. ${topDamageGuidance} Describe the observed damage share only. Do not replace blame with an unsupported "화력 분담 보완" judgment. Separate conditional practice advice from observed facts.
 - Do NOT claim teammates are used as bait unless the data explicitly contains bait counts or bait death evidence.
 - Forbidden phrases for this input shape: "고립될 위험", "독단적인 플레이", "너무 멀리", "오합지졸", "1인 솔로 4개", "혼자 정글북", "원맨쇼", "혼자 다 해먹", "미끼", "팀이 무너지는 구조", "나머지 팀원들의 화력 지원이 전무", "팀 전체가 휘청", "존재감이 희미", "강희성".
 - CRITICAL: You MUST output ${gradeOutput} in the "squadGrade" property. Do NOT change or recalculate the grade yourself.
@@ -163,20 +163,19 @@ Analyze the provided squad synergy report and write a detailed roast and analysi
    - "킬로그 배달부" (Killfeed delivery), "걸어다니는 파밍 상자/보급 상자" (Walking lootbox)
    - "뇌 빼고 배그함?" (Brainless play), "손가락 압수 마렵다" (Confiscating fingers)
    - "에임 실화냐?" (Terrible aim), "어휴 그저 샷발 원툴" (All aim no brain)
-   - "연막탄 아껴서 국 끓여 먹을 거냐" (Roast if smoke rescue/revive is very low or 0. Make sure to clarify that this represents "연막 구출 세이브 성공 수(연막치고 아군을 살린 횟수)"가 0회라는 의미임을 유저가 알도록 언급할 것.)
    - "대열 이탈이 커서 합류 타이밍이 흔들림" (Roast only if isolation index is high, e.g. > 3.0)
 3. Highlight metrics aggressively using clear, human-readable units (e.g. "X.X초", "X회", "X%"):
    - NEVER output raw millisecond values in the response. Always divide by 1000 and round to convert them to seconds like "23.0초" or "12.0초".
    - If trade latency is slow: "아군 기절하고 장례식 다 치른 뒤에야 늦장 백업 오실 겁니까? 평균 대비 너무 느립니다."
    - If isolation rate is high: Say "대열 이탈이 커서 동시 교전 합이 흔들립니다." Do NOT use "1인 솔로 4개", "오합지졸", or "혼자 정글북".
 4. Deliver extremely sharp, critical, yet constructive, fact-based overall opinion and feedback.
-5. For memberFeedbacks: You must generate detailed individual feedback (praise, fault, advice) for EACH and EVERY member listed in roleProfiles. Don't be soft. Roast them based on their relative stat shares (e.g. high kill share but zero assist/revive).
+5. For memberFeedbacks: You must generate detailed individual feedback (praise, fault, advice) for EACH and EVERY member listed in roleProfiles. Don't be soft. Use only their measured damage, kill, assist and knockout stats/shares. Differences in shares do not prove motives or unrecorded actions.
 6. For overallOpinion: Deliver a sharp, critical, yet highly constructive message addressed to the entire team together.
 7. Output MUST be structured in JSON matching the exact schema.
 8. Language: Output fields MUST be written in Korean.
 9. Preserve nicknames exactly as provided. Do NOT translate, localize, or Korean-transliterate nicknames such as "KangHeeSung_".
 10. Current Average Isolation Index is ${formatObserved(isolationValue)}. ${hasLowIsolation ? "It is below 2.0, so treat formation as good in summary, weakness, coaching, memberFeedbacks, and overallOpinion." : "If you mention spacing, use measured spacing facts only; if unavailable, say it is unavailable."} Do NOT say any member has "고립될 위험", "독단적인 플레이", "너무 멀리", "오합지졸", "1인 솔로 4개", or "혼자 정글북" for this squad.
-11. Current top damage share is ${topDamageShareText}. ${topDamageGuidance} Use "주요 진입 화력 중심" or "화력 분담 보완" instead.
+11. Current top damage share is ${topDamageShareText}. ${topDamageGuidance} Describe the observed damage share only. Do not replace blame with an unsupported "화력 분담 보완" judgment. Separate conditional practice advice from observed facts.
 12. Do NOT claim teammates are used as bait unless the data explicitly contains bait counts or bait death evidence.
 13. Forbidden phrases for this input shape: "고립될 위험", "독단적인 플레이", "너무 멀리", "오합지졸", "1인 솔로 4개", "혼자 정글북", "원맨쇼", "혼자 다 해먹", "미끼", "팀이 무너지는 구조", "나머지 팀원들의 뇌", "나머지 팀원들의 화력 지원이 전무", "팀 전체가 휘청", "존재감이 희미", "강희성".
 14. CRITICAL: You MUST output ${gradeOutput} in the "squadGrade" property. Do NOT change or recalculate the grade yourself.
@@ -193,8 +192,12 @@ Use measured statistics and available benchmarks to provide concrete, quantitati
 [Missing observation policy — overrides persona and grade instructions above]
 - Unavailable metrics are NOT zero or poor play. Never praise, blame, compare, or infer performance from them.
 - If cover rate or focus-fire score is unavailable, do not evaluate cover, covering teammates, simultaneous engagement, or focus-fire ability anywhere, including member feedback. There is no implemented cover collection yet; this does not mean a lack of cover opportunities.
+- Zero smoke rescues counts successful recorded rescues, NOT smoke attempts, unused smoke, or a refusal to save. Do not say 연막을 아꼈다/국 끓인다 or blame recovery skill from a success count alone.
+- Personal shares describe distribution only. Do not infer 소극적, 적극적, 후방 지원, 위치 선정, 연계 부족, 협공 능력, or intent from shares. If no personal weakness is measured, use "현재 기록만으로 개인의 약점을 단정하기 어렵습니다." in fault and offer a future practice action in advice.
+- These are team-scope observations across the selected matches, not the target player alone. Individual isolation/wipe/cover values cannot replace missing team metrics.
 - Only discuss measured metrics. If no supported weakness is evident, state that further observation is needed instead of inventing a fault.
 - Do not infer player intent, communication, safety, or actions from absent evidence.
+- Squad isolation, backup and recovery metrics describe the entire team. roleProfiles contain NO individual position, isolation, backup, smoke or revive evidence. Never blame an individual for a team metric, infer front/back positioning, or infer kill-stealing intent from kill/assist shares.
 - ${gradeOutput === "null" ? 'Overall grade is withheld. Output JSON null for squadGrade. Do not assign a grade in any prose field.' : `Output exactly "${displaySquadGrade}" as squadGrade.`}
 `;
   return { prompt, systemInstruction: `${systemInstruction}\n${evidenceRules}`, squadReportSummary };

@@ -1,6 +1,7 @@
 import React from "react";
 import { Compass, RefreshCw, Users, Crosshair, Loader2, Eye, EyeOff, Radio, Skull } from "lucide-react";
 import { PlayerTrajectory } from "@/types/replay3d";
+import { getActiveDeathTime } from "@/lib/replay/replay3dHelpers";
 
 interface ReplaySidebarProps {
   isOpen: boolean;
@@ -59,7 +60,7 @@ export default function ReplaySidebar({
 
   const renderPlayerBtn = (p: PlayerTrajectory) => {
     const isHidden = hiddenPlayers.has(p.name);
-    const isDead = p.deathTimeMs != null && currentTimeMs >= p.deathTimeMs;
+    const isDead = getActiveDeathTime(p.deathTimes, p.redeployTimes, currentTimeMs) !== null;
     const isTracking = trackingPlayer === p.name;
 
     return (

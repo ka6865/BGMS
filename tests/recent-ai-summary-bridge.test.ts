@@ -248,6 +248,9 @@ describe("RecentAISummary callback bridge", () => {
     })).toMatchObject({
       trends: { dmgTrend: -5, winTrend: -12.5 },
     });
+    expect(normalizeRouteOwnedVisuals({ calculationPendingCount: 2.8 })).toMatchObject({
+      calculationPendingCount: 2,
+    });
   });
 
   it("bluezone unavailable marker survives normalization and display without turning into 0 HP", async () => {
@@ -281,6 +284,18 @@ describe("RecentAISummary callback bridge", () => {
 
     expect(screen.getByText(/자기장 누적 피해: 측정 불가/)).toBeInTheDocument();
     expect(screen.queryByText(/자기장 누적 피해: 0 HP/)).not.toBeInTheDocument();
+  });
+
+  it("계산 업데이트 대기 매치 수를 최근 요약 범위 안내에 표시한다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "A", calculationPendingCount: 2 } },
+      { type: "final", data: JSON.stringify(aiReady) },
+      { type: "done", valid: true },
+    ])));
+    render(createElement(RecentAISummary, { ...baseProps }));
+
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    expect(await screen.findByText("새 계산 기준 확인이 필요한 2경기는 분석에서 제외했습니다.")).toBeInTheDocument();
   });
 
   it("mount/rerender만으로 AI를 요청하지 않고 platform+nickname+IDs identity 변경에 null을 배출한다", async () => {
@@ -627,7 +642,7 @@ describe("RecentAISummary callback bridge", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("done(valid:true)의 malformed/missing final payload는 partial 상태를 지우고 한 번 재시도한다", async () => {
+  it("done(valid:true)의 malformed/missing final payload는 partial 상태를 지우고 자동 재호출하지 않는다", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(ndjsonResponse([
@@ -655,7 +670,7 @@ describe("RecentAISummary callback bridge", () => {
     });
     for (let index = 0; index < 10; index += 1) await act(async () => { await Promise.resolve(); });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "다시 시도하기" })).toBeInTheDocument();
     expect(screen.queryByText("Partial missing visual")).not.toBeInTheDocument();
     expect(onSummaryChange.mock.calls.every(([summary]) => summary === null)).toBe(true);
@@ -684,7 +699,7 @@ describe("RecentAISummary callback bridge", () => {
 
     await act(async () => { await vi.advanceTimersByTimeAsync(2_500); });
     for (let index = 0; index < 10; index += 1) await act(async () => { await Promise.resolve(); });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "다시 시도하기" })).toBeInTheDocument();
   });
 
@@ -722,7 +737,7 @@ describe("RecentAISummary callback bridge", () => {
     expect(screen.queryByText("Provider forged visual")).not.toBeInTheDocument();
   });
 
-  it("done 없이 abrupt EOF가 발생하면 한 번 재시도하고 성공 응답만 snapshot으로 배출한다", async () => {
+  it("done 없이 abrupt EOF가 발생하면 자동 재호출하지 않고 CTA를 표시한다", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(ndjsonResponse([{ type: "final", data: JSON.stringify(aiReady) }]))
@@ -745,11 +760,12 @@ describe("RecentAISummary callback bridge", () => {
     });
     for (let index = 0; index < 10; index += 1) await act(async () => { await Promise.resolve(); });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(onSummaryChange).toHaveBeenLastCalledWith({ verdict: "fixture verdict", tier: "A" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "다시 시도하기" })).toBeInTheDocument();
+    expect(onSummaryChange.mock.calls).toEqual([[null]]);
   });
 
-  it("retry exhaustion 후 done(valid:false)의 partial visuals/text를 남기지 않고 error CTA만 표시한다", async () => {
+  it("done(valid:false)의 partial visuals/text를 남기고 자동 재호출하지 않는다", async () => {
     vi.useFakeTimers();
     const failedResponse = () => ndjsonResponse([
       { type: "visuals", data: { roleInfo: { title: "Partial failure visual" } } },
@@ -772,7 +788,7 @@ describe("RecentAISummary callback bridge", () => {
     });
     for (let index = 0; index < 10; index += 1) await act(async () => { await Promise.resolve(); });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "다시 시도하기" })).toBeInTheDocument();
     expect(screen.queryByText("Partial failure visual")).not.toBeInTheDocument();
     expect(screen.queryByText("Partial failure text")).not.toBeInTheDocument();
@@ -842,7 +858,7 @@ describe("RecentAISummary callback bridge", () => {
     expect(onSummaryChange).toHaveBeenLastCalledWith({ verdict: "fixture verdict", tier: "A" });
   });
 
-  it("retryable canonical-not-ready 409는 bounded retry 한 번 뒤 성공하고 세 번째 POST를 만들지 않는다", async () => {
+  it("retryable canonical-not-ready 409도 자동 POST를 만들지 않는다", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -869,17 +885,39 @@ describe("RecentAISummary callback bridge", () => {
     });
     for (let index = 0; index < 10; index += 1) await act(async () => { await Promise.resolve(); });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(screen.getByText(/fixture verdict/)).toBeInTheDocument();
-    expect(onSummaryChange).toHaveBeenLastCalledWith({ verdict: "fixture verdict", tier: "A" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "다시 시도하기" })).toBeInTheDocument();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5000);
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("retryable route-timeout 504는 structured retryability로 bounded retry 한 번 뒤 성공한다", async () => {
+  it("계산 지표 업데이트 대기 409는 일시적 장애 문구나 재시도를 표시하지 않는다", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: "분석 지표 업데이트 준비 중입니다. 기본 전적은 계속 이용할 수 있습니다.",
+      errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED",
+      retryable: false,
+    }), { status: 409, headers: { "content-type": "application/json" } }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(createElement(RecentAISummary, { ...baseProps }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    for (let index = 0; index < 10; index += 1) await act(async () => { await Promise.resolve(); });
+
+    expect(screen.getByText("새 계산 기준 확인이 필요한 전적입니다")).toBeInTheDocument();
+    expect(screen.getByText(/기본 전적은 계속 확인할 수 있습니다/)).toBeInTheDocument();
+    expect(screen.queryByText("AI 분석이 잠깐 막혔어요.")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "다시 시도하기" })).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(5_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("retryable route-timeout 504도 자동 POST를 만들지 않는다", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -906,17 +944,16 @@ describe("RecentAISummary callback bridge", () => {
     });
     for (let index = 0; index < 10; index += 1) await act(async () => { await Promise.resolve(); });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(screen.getByText(/fixture verdict/)).toBeInTheDocument();
-    expect(onSummaryChange).toHaveBeenLastCalledWith({ verdict: "fixture verdict", tier: "A" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "다시 시도하기" })).toBeInTheDocument();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("HTTP-200 streamed timeout error+done은 structured retryability로 한 번만 재시도한다", async () => {
+  it("HTTP-200 streamed timeout error+done도 자동 POST를 만들지 않는다", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(ndjsonResponse([
@@ -947,21 +984,20 @@ describe("RecentAISummary callback bridge", () => {
 
     for (let index = 0; index < 10; index += 1) await act(async () => { await Promise.resolve(); });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("button", { name: "다시 시도하기" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "다시 시도하기" })).toBeInTheDocument();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2_500);
     });
     for (let index = 0; index < 10; index += 1) await act(async () => { await Promise.resolve(); });
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(screen.getByText(/fixture verdict/)).toBeInTheDocument();
-    expect(onSummaryChange).toHaveBeenLastCalledWith({ verdict: "fixture verdict", tier: "A" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "다시 시도하기" })).toBeInTheDocument();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(5_000);
     });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("error CTA는 retry state를 초기화하고 새 POST를 직접 실행한다", async () => {
@@ -1136,7 +1172,7 @@ describe("RecentAISummary callback bridge", () => {
     expect(screen.queryByText("미완성 판결")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ })).toBeInTheDocument();
     expect(onSummaryChange.mock.calls.every(([summary]) => summary === null)).toBe(true);
-    expect(screen.getByText(/분석 결과가 불완전해요/)).toBeInTheDocument();
+    expect(screen.getByText("AI 해석을 표시할 수 없습니다.")).toBeInTheDocument();
   });
 
   it("v2 facts-only 응답에 visuals가 없으면 누락된 통계 수치를 0으로 만들지 않는다", async () => {

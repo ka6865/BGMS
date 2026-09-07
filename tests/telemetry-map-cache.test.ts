@@ -479,7 +479,7 @@ describe("telemetry map cache", () => {
     );
 
     expect(telemetryRoute.indexOf("claimOrWaitForTelemetryMapCache(identity"))
-      .toBeLessThan(telemetryRoute.indexOf("fetch(asset.attributes.URL"));
+      .toBeLessThan(telemetryRoute.indexOf("fetch(telemetryUrl"));
     const matchFlow = matchRoute.slice(matchRoute.indexOf("async function reanalyzeAndSave"));
     expect(matchFlow.indexOf("downloadFromR2(analyzePath)"))
       .toBeLessThan(matchFlow.indexOf("claimOrWaitForTelemetryMapCache(telemetryIdentity"));

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
 import { buildAiObservability, getAiErrorLabel, type AiUsageObservationRow, type PubgErrorObservationRow } from "@/lib/admin-agent/ai-observability";
+import { buildMembershipTimeline, normalizeMembershipWindowDays, type MembershipDailyRow } from "@/lib/admin-agent/membership-timeline";
 
 const USERS_PAGE_SIZE = 1000;
 const PROFILES_PAGE_SIZE = 1000;
@@ -68,6 +69,27 @@ async function listAllProfiles(supabaseAdmin: any) {
   }
 
   return profiles;
+}
+
+async function fetchMembershipLifecycle(
+  supabaseAdmin: any,
+  windowDays: 7 | 30 | 90,
+  now = new Date()
+): Promise<{ available: boolean; dailyRows: MembershipDailyRow[]; collectionStartedAt: string | null }> {
+  try {
+    const { data, error } = await supabaseAdmin.rpc("get_user_lifecycle_daily", {
+      p_window_days: windowDays,
+      p_window_end: now.toISOString(),
+    });
+    if (error) throw error;
+    const dailyRows = (data || []).filter((row: any) => typeof row?.event_date === "string") as MembershipDailyRow[];
+    const collectionStartedAt = dailyRows.find((row) => row.collection_started_at)?.collection_started_at || null;
+    if (!collectionStartedAt) throw new Error("회원 증감 수집 시작 메타데이터가 없습니다.");
+    return { available: true, dailyRows, collectionStartedAt };
+  } catch {
+    // Deployments predating the additive lifecycle migration intentionally render as unavailable.
+    return { available: false, dailyRows: [], collectionStartedAt: null };
+  }
 }
 
 export interface ActivityEventItem {
@@ -137,13 +159,16 @@ function getPageName(path: string): string {
   return path || "메인";
 }
 
-export async function GET() {
+export async function GET(request?: Request) {
   const adminContext = await verifyAdmin();
   if (!adminContext) {
     return NextResponse.json({ error: "🔒 관리자 권한이 없습니다." }, { status: 403 });
   }
 
   try {
+    const url = new URL(request?.url || "http://localhost/api/admin/users");
+    const membershipWindowDays = normalizeMembershipWindowDays(url.searchParams.get("windowDays"));
+    const membershipNow = new Date();
     const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
     const fetchAnalytics = async () => {
@@ -193,12 +218,13 @@ export async function GET() {
       }
     };
 
-    const [profiles, users, analyticsRows, aiRows, pubgRows] = await Promise.all([
+    const [profiles, users, analyticsRows, aiRows, pubgRows, lifecycle] = await Promise.all([
       listAllProfiles(adminContext.supabaseAdmin),
       listAllAuthUsers(adminContext.supabaseAdmin),
       fetchAnalytics(),
       fetchRows<AiUsageObservationRow>("ai_usage_logs", ["id", "user_id", "model_name", "prompt_tokens", "completion_tokens", "cost_usd", "analysis_type", "status", "error_code", "error_message", "duration_ms", "request_id", "platform", "created_at"], ["id", "user_id", "model_name", "prompt_tokens", "completion_tokens", "cost_usd", "analysis_type", "created_at"]),
       fetchRows<PubgErrorObservationRow>("pubg_api_errors", ["id", "route", "status", "message", "error_code", "failure_stage", "duration_ms", "platform", "request_id", "created_at"], ["id", "route", "status", "message", "created_at"]),
+      fetchMembershipLifecycle(adminContext.supabaseAdmin, membershipWindowDays, membershipNow),
     ]);
 
     const activityMap = new Map<string, {
@@ -459,6 +485,16 @@ export async function GET() {
       admins: mergedUsers.filter(u => u.role === "admin").length
     };
 
+    const activeMemberCount = users.filter((user) => !user.deleted_at).length;
+    const membership = buildMembershipTimeline([], {
+      windowDays: membershipWindowDays,
+      currentMembers: activeMemberCount,
+      status: lifecycle.available ? "ready" : "unavailable",
+      collectionStartedAt: lifecycle.collectionStartedAt,
+      dailyRows: lifecycle.dailyRows,
+      now: membershipNow,
+    });
+
     const metrics = {
       active7dUsers: active7dCount,
       topSearchUsers,
@@ -495,6 +531,7 @@ export async function GET() {
     return NextResponse.json({
       accounts,
       metrics: metricsWithAi,
+      membership,
       observability,
       users: usersWithConsistencyFlags
     });

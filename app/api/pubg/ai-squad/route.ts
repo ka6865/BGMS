@@ -151,6 +151,10 @@ export async function POST(request: Request) {
     // intentionally ignored rather than compared or merged.
     const squadData = await getSquadAnalysisData(nickname, cachePlatform, groupKey);
     if (request.signal.aborted) throw new SquadRequestAbortedError();
+    if (squadData && "analysisAvailability" in squadData && squadData.analysisAvailability === "basic_only") {
+      return NextResponse.json({error: "전술 지표를 다시 계산한 뒤 AI 코칭을 이용할 수 있습니다.", errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED", retryable: false}, {status: 409});
+    }
+    if (squadData && "errorCode" in squadData && squadData.errorCode === "PUBG_CALCULATION_UPGRADE_REQUIRED") return NextResponse.json(squadData, { status: 409 });
     if (!squadData || !("matchesSummary" in squadData) || !Array.isArray(squadData.matchesSummary)
       || !squadData.stats || !squadData.scores || !Array.isArray(squadData.roleProfiles)
       || !squadData.benchmarkStats || !Number.isInteger(squadData.matchCount) || squadData.matchCount <= 0
@@ -195,7 +199,7 @@ export async function POST(request: Request) {
           requestId,
           platform: requestedPlatform,
         });
-        return NextResponse.json(applySquadEvidencePolicy(sanitizeAiCoachingLanguage(cached.ai_result), canonicalStats, canonicalGrade, canonicalScores));
+        return NextResponse.json(applySquadEvidencePolicy(sanitizeAiCoachingLanguage(cached.ai_result), canonicalStats, canonicalGrade, canonicalScores, canonicalRoleProfiles));
       }
     } catch (dbErr) {
       if (request.signal.aborted) throw new SquadRequestAbortedError();
@@ -351,7 +355,7 @@ export async function POST(request: Request) {
     }
 
     const validJsonString = extractValidJson(responseText);
-    const resultJson = applySquadEvidencePolicy(sanitizeAiCoachingLanguage(JSON.parse(validJsonString)), canonicalStats, canonicalGrade, canonicalScores);
+    const resultJson = applySquadEvidencePolicy(sanitizeAiCoachingLanguage(JSON.parse(validJsonString)), canonicalStats, canonicalGrade, canonicalScores, canonicalRoleProfiles);
 
     // 3. Write to DB Cache
     if (request.signal.aborted) throw new SquadRequestAbortedError();

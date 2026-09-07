@@ -49,4 +49,18 @@ describe("page-scoped squad request cache", () => {
     expect(fetcher).toHaveBeenCalledTimes(3);
   });
 
+  it("reuses a known calculation wait across tab revisits and checks again after expiry", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({errorCode:"PUBG_CALCULATION_UPGRADE_REQUIRED",retryable:false},{status:409}))
+      .mockImplementation(() => Promise.resolve(Response.json({groups:[]})));
+    vi.stubGlobal("fetch", fetcher);
+    const cache = createSquadRequestCache();
+    await expect(cache.get("user", "/groups")).rejects.toMatchObject({status:409});
+    await expect(cache.get("user", "/groups")).rejects.toMatchObject({status:409});
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(60_001);
+    await expect(cache.get("user", "/groups")).resolves.toEqual({groups:[]});
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
 });

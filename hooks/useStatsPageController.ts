@@ -5,6 +5,8 @@ import { trackEvent } from "@/lib/analytics";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import { buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
 import type { PlayerMatchRecord } from "@/lib/pubg/playerMatches";
+import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
+import { normalizeRecentMatchIds } from "@/lib/pubg/recentMatches";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { parseStatsPlatform } from "@/lib/stats/statsPageModel";
 import type {
@@ -177,6 +179,42 @@ function normalizeSuggestions(value: unknown): { nickname: string; platform: Sta
     const platform = "platform" in item ? parseStatsPlatform(String(item.platform)) : null;
     return nickname && platform ? [{ nickname, platform }] : [];
   });
+}
+
+function normalizeMatchModes(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const normalized: Record<string, string> = {};
+  for (const [rawId, mode] of Object.entries(value)) {
+    if (typeof mode !== "string") continue;
+    const matchId = normalizeMatchId(rawId);
+    if (matchId && !Object.prototype.hasOwnProperty.call(normalized, matchId)) {
+      normalized[matchId] = mode;
+    }
+  }
+  return normalized;
+}
+
+function normalizeHistoryRecords(records: readonly PlayerMatchRecord[]): PlayerMatchRecord[] {
+  const seen = new Set<string>();
+  return records.flatMap((record) => {
+    const matchId = normalizeMatchId(record.match_id);
+    if (!matchId || seen.has(matchId)) return [];
+    seen.add(matchId);
+    return [{ ...record, match_id: matchId }];
+  });
+}
+
+function normalizeSummaryMap(value: unknown): Record<string, MatchSummaryData> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const normalized: Record<string, MatchSummaryData> = {};
+  for (const [rawId, summary] of Object.entries(value)) {
+    if (!summary || typeof summary !== "object" || Array.isArray(summary)) continue;
+    const matchId = normalizeMatchId(rawId)
+      ?? normalizeMatchId((summary as { matchId?: unknown }).matchId);
+    if (!matchId || Object.prototype.hasOwnProperty.call(normalized, matchId)) continue;
+    normalized[matchId] = { ...(summary as MatchSummaryData), matchId };
+  }
+  return normalized;
 }
 
 export function useStatsPageController(
@@ -468,6 +506,8 @@ export function useStatsPageController(
         const availability = parseStatsAvailability(data.statsAvailability);
         const player = {
           ...data,
+          recentMatches: normalizeRecentMatchIds(data.recentMatches as unknown[]),
+          matchModes: normalizeMatchModes(data.matchModes),
           statsAvailability: availability,
           ...(retryAfterSeconds === null ? {} : { retryAfterSeconds }),
         } as unknown as PlayerStatsResponse;
@@ -549,21 +589,22 @@ export function useStatsPageController(
   ), [runSearch]);
 
   const applyHistoryRecords = useCallback((incoming: readonly PlayerMatchRecord[]) => {
-    if (!incoming.length) return;
-    for (const record of incoming) historySummaryIdsRef.current.add(record.match_id);
+    const normalizedIncoming = normalizeHistoryRecords(incoming);
+    if (!normalizedIncoming.length) return;
+    for (const record of normalizedIncoming) historySummaryIdsRef.current.add(record.match_id);
     const basicSummaries = Object.fromEntries(
-      incoming.map((record) => [record.match_id, buildBasicMatchSummary(record)]),
+      normalizedIncoming.map((record) => [record.match_id, buildBasicMatchSummary(record)]),
     );
     setMatchSummaries((previous) => ({ ...basicSummaries, ...previous }));
     setMissingMatchIds((previous) => {
       if (!previous.size) return previous;
       const next = new Set(previous);
-      for (const record of incoming) next.delete(record.match_id);
+      for (const record of normalizedIncoming) next.delete(record.match_id);
       return next;
     });
     setMatchModeMeta((previous) => {
       const next = { ...previous };
-      for (const record of incoming) {
+      for (const record of normalizedIncoming) {
         next[record.match_id] = mergeModeMeta(previous[record.match_id], {
           gameMode: record.game_mode,
           matchType: record.match_type,
@@ -603,7 +644,9 @@ export function useStatsPageController(
       if (!response.ok) throw new Error("전체 전적을 불러오지 못했습니다.");
       if (stale()) return null;
 
-      const incoming = Array.isArray(data.matches) ? data.matches : [];
+      const incoming = Array.isArray(data.matches)
+        ? normalizeHistoryRecords(data.matches)
+        : [];
       applyHistoryRecords(incoming);
       setHistoryMatches(incoming);
       setHistoryLoaded(true);
@@ -621,7 +664,7 @@ export function useStatsPageController(
   }, [applyHistoryRecords]);
 
   const loadSummaries = useCallback((player: PlayerStatsResponse): Promise<readonly string[]> => {
-    const matchIds = player.recentMatches.slice(0, 20);
+    const matchIds = normalizeRecentMatchIds(player.recentMatches);
     summaryRequestRef.current?.controller.abort();
     const controller = new AbortController();
     const requestId = ++summaryRequestIdRef.current;
@@ -658,11 +701,15 @@ export function useStatsPageController(
         if (stale()) return [];
         if (!response.ok) throw new Error("최근 매치 요약을 불러오지 못했습니다.");
 
-        const summaries = data.summaries ?? {};
-        const missingIds = new Set((data.missingMatchIds ?? []).filter((id) => !historySummaryIdsRef.current.has(id)));
+        const summaries = normalizeSummaryMap(data.summaries);
+        const missingIds = new Set(
+          normalizeRecentMatchIds(data.missingMatchIds ?? [])
+            .filter((id) => !historySummaryIdsRef.current.has(id)),
+        );
         const nextModeMeta: Record<string, StatsMatchModeMeta> = {};
-        for (const [matchId, gameMode] of Object.entries(player.matchModes ?? {})) {
-          nextModeMeta[matchId] = { gameMode };
+        for (const [rawMatchId, gameMode] of Object.entries(player.matchModes ?? {})) {
+          const matchId = normalizeMatchId(rawMatchId);
+          if (matchId) nextModeMeta[matchId] = { gameMode };
         }
         for (const [matchId, summary] of Object.entries(summaries)) {
           const matchInfo = summary.matchInfo as { mode?: string; matchType?: string; mapId?: string } | undefined;
@@ -827,19 +874,17 @@ export function useStatsPageController(
     (reason) => (partialSources.get(reason)?.size ?? 0) > 0,
   ), [partialSources]);
   const matchIds = useMemo(() => {
-    const recent = (result?.recentMatches ?? []).slice(0, 20);
+    const recent = normalizeRecentMatchIds(result?.recentMatches ?? []);
     if (historyLoaded && historyMatches.length > 0) {
       if (historyPage === 1) {
-        const historyIds = historyMatches.map((record) => record.match_id);
-        const combined = [...recent];
-        for (const id of historyIds) {
-          if (!combined.includes(id)) combined.push(id);
-        }
-        return combined.slice(0, 20);
+        const historyIds = normalizeRecentMatchIds(
+          historyMatches.map((record) => record.match_id),
+        );
+        return normalizeRecentMatchIds([...recent, ...historyIds]);
       }
-      return [...new Set(historyMatches.map((record) => record.match_id))];
+      return normalizeRecentMatchIds(historyMatches.map((record) => record.match_id));
     }
-    return [...new Set(recent)];
+    return recent;
   }, [historyLoaded, historyMatches, historyPage, result]);
   const status = baseStatus === "ready" && partialReasons.length > 0
     ? "partial"

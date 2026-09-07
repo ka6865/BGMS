@@ -77,7 +77,11 @@ export function buildTelemetryAnalyzeCacheKey(input: TelemetryIdentity): string 
   return buildTelemetryCacheKey(input).replace(/\.json$/, "_analyze.json");
 }
 
+export const TELEMETRY_ANALYZE_FORMAT = 2;
+
 export type TelemetryAnalyzeCacheEnvelope = {
+  analyzeFormat: number;
+  projection: "full";
   identity: TelemetryPublicIdentity;
   events: unknown[];
 };
@@ -87,6 +91,8 @@ export function createTelemetryAnalyzeCacheEnvelope(
   events: unknown[],
 ): TelemetryAnalyzeCacheEnvelope {
   return {
+    analyzeFormat: TELEMETRY_ANALYZE_FORMAT,
+    projection: "full",
     identity: buildTelemetryPublicIdentity(identity),
     events,
   };
@@ -99,7 +105,8 @@ export function parseTelemetryAnalyzeCacheEnvelope(
 ): unknown[] | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
   const candidate = value as Record<string, unknown>;
-  if (!Array.isArray(candidate.events)) return null;
+  // Old envelopes may already be sampled with the wrong team context.
+  if (candidate.analyzeFormat !== TELEMETRY_ANALYZE_FORMAT || candidate.projection !== "full" || !Array.isArray(candidate.events)) return null;
 
   try {
     const actual = createTelemetryPublicIdentity(candidate.identity as TelemetryPublicIdentity);

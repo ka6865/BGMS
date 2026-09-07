@@ -1,7 +1,7 @@
-import { AdminPrivatePlayersSection } from "@/components/admin/AdminPrivatePlayersSection";
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { AdminPrivatePlayersSection } from "@/components/admin/AdminPrivatePlayersSection";
 import {
   Activity,
   Search,
@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import ConfirmModal from "@/components/common/ConfirmModal";
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 export interface ActivityEventItem {
   id: string;
@@ -128,10 +129,34 @@ export interface CommandCenterAccounts {
   admins: number;
 }
 
+export interface MembershipTimelinePoint {
+  date: string;
+  signups: number | null;
+  deletions: number | null;
+  net: number | null;
+}
+
+export interface MembershipTimelineData {
+  status: "ready" | "unavailable";
+  windowDays: 7 | 30 | 90;
+  currentMembers: number;
+  periodSignups: number | null;
+  periodDeletions: number | null;
+  netChange: number | null;
+  points: MembershipTimelinePoint[];
+  collectionStartedAt: string | null;
+  deletionHistoryAvailable: boolean;
+  periodCoverage: "complete" | "partial" | "none";
+  notes: string[];
+}
+
 export interface AdminUserCommandCenterProps {
   users: CommandCenterUser[];
   metrics?: CommandCenterMetrics | null;
   accounts?: CommandCenterAccounts | null;
+  membership?: MembershipTimelineData | null;
+  selectedWindowDays?: 7 | 30 | 90;
+  onWindowChange?: (windowDays: 7 | 30 | 90) => void;
   isRefreshing?: boolean;
   isSaving?: boolean;
   onRefresh?: () => void;
@@ -241,10 +266,118 @@ function ObsMetric({ label, value, tone = "default" }: { label: string; value: s
   return <div className="rounded-xl border border-white/10 bg-black/20 p-2.5"><span className="block text-[10px] font-bold text-white/40">{label}</span><strong className={`mt-1 block text-sm font-black ${color}`}>{value}</strong></div>;
 }
 
+function formatKstDate(date: string): string {
+  const parsed = new Date(`${date}T00:00:00+09:00`);
+  return parsed.toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" });
+}
+
+function MembershipTimelinePanel({
+  membership,
+  selectedWindowDays,
+  onWindowChange,
+}: {
+  membership?: MembershipTimelineData | null;
+  selectedWindowDays?: 7 | 30 | 90;
+  onWindowChange?: (windowDays: 7 | 30 | 90) => void;
+}) {
+  const available = membership?.status === "ready";
+  const points = membership?.points || [];
+  const unknownValue = "확인 불가";
+
+  return (
+    <section className="space-y-3 rounded-2xl border border-cyan-500/20 bg-[#111a1d] p-4 shadow-lg" aria-label="회원 가입 및 탈퇴 타임라인">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 className="text-sm font-black text-white">회원 증감 타임라인</h3>
+          <p className="mt-1 text-[10px] font-bold leading-relaxed text-white/45">
+            Auth 회원의 가입·탈퇴 이벤트만 KST 날짜로 표시합니다. 전적 검색 닉네임과 방문자는 회원 증감에 포함하지 않습니다.
+          </p>
+        </div>
+        <label className="flex shrink-0 items-center gap-2 text-[10px] font-bold text-white/55">
+          기간
+          <select
+            aria-label="회원 증감 기간"
+            value={selectedWindowDays ?? membership?.windowDays ?? 30}
+            onChange={(event) => onWindowChange?.(Number(event.target.value) as 7 | 30 | 90)}
+            className="rounded-lg border border-white/10 bg-black/50 px-2.5 py-1.5 text-xs font-bold text-white"
+          >
+            <option value="7">최근 7일</option>
+            <option value="30">최근 30일</option>
+            <option value="90">최근 90일</option>
+          </select>
+        </label>
+      </div>
+
+      {selectedWindowDays && membership && selectedWindowDays !== membership.windowDays ? (
+        <p role="status" className="text-xs text-cyan-200">기간 변경 중입니다. 아래는 최근 {membership.windowDays}일 조회 결과입니다.</p>
+      ) : null}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <ObsMetric label="현재 계정 (관리자 포함)" value={membership?.currentMembers ?? unknownValue} />
+        <ObsMetric label={membership?.periodCoverage === "partial" ? "기간 관측 가입" : "기간 확인 가입"} value={available ? membership?.periodSignups ?? unknownValue : unknownValue} tone="success" />
+        <ObsMetric label={membership?.periodCoverage === "partial" ? "기간 관측 탈퇴" : "기간 확인 탈퇴"} value={available ? membership?.periodDeletions ?? unknownValue : unknownValue} tone="danger" />
+        <ObsMetric
+          label={membership?.periodCoverage === "partial" ? "기간 관측 순증감" : "기간 순증감"}
+          value={available ? `${(membership?.netChange ?? 0) > 0 ? "+" : ""}${membership?.netChange ?? 0}` : unknownValue}
+          tone={(membership?.netChange ?? 0) >= 0 ? "success" : "danger"}
+        />
+      </div>
+
+      {available ? (
+        <>
+          <div className="h-56 w-full rounded-xl border border-white/10 bg-black/20 p-2" role="img" aria-label="일자별 가입 및 탈퇴 건수 막대그래프">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={points} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid stroke="rgba(255,255,255,0.08)" vertical={false} />
+                <XAxis dataKey="date" tickFormatter={formatKstDate} tick={{ fill: "rgba(255,255,255,0.45)", fontSize: 10 }} minTickGap={16} />
+                <YAxis allowDecimals={false} tick={{ fill: "rgba(255,255,255,0.65)", fontSize: 10 }} width={28} />
+                <Tooltip
+                  labelFormatter={(label) => `${formatKstDate(String(label))} (KST)`}
+                  formatter={(value, name) => [value, name === "signups" ? "가입" : "탈퇴"]}
+                  contentStyle={{ background: "#171b1d", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 8, fontSize: 11 }}
+                />
+                <Legend formatter={(value) => value === "signups" ? "가입" : "탈퇴"} wrapperStyle={{ fontSize: 10 }} />
+                <Bar dataKey="signups" name="signups" fill="#34d399" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="deletions" name="deletions" fill="#fb7185" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <details className="rounded-xl border border-white/10 bg-black/15 px-3 py-2">
+            <summary className="cursor-pointer text-[11px] font-black text-white/65">일자별 근거 표 열기</summary>
+            <div className="mt-2 max-h-48 overflow-auto">
+              <table className="w-full min-w-[280px] text-left text-[10px]" aria-label="KST 일자별 가입 및 탈퇴 근거">
+                <thead className="sticky top-0 bg-[#111a1d] text-white/40">
+                  <tr><th className="px-2 py-1.5 font-bold">KST 날짜</th><th className="px-2 py-1.5 text-right font-bold">가입</th><th className="px-2 py-1.5 text-right font-bold">탈퇴</th><th className="px-2 py-1.5 text-right font-bold">순증감</th></tr>
+                </thead>
+                <tbody className="text-white/70">
+                  {points.map((point) => <tr key={point.date} className="border-t border-white/5"><td className="px-2 py-1.5">{point.date}</td><td className="px-2 py-1.5 text-right text-emerald-300">{point.signups ?? "—"}</td><td className="px-2 py-1.5 text-right text-rose-300">{point.deletions ?? "—"}</td><td className="px-2 py-1.5 text-right">{point.net === null ? "—" : point.net > 0 ? `+${point.net}` : point.net}</td></tr>)}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </>
+      ) : (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-[11px] font-bold leading-relaxed text-amber-100/75">
+          가입·탈퇴 이벤트 수집이 시작되지 않았거나 조회 권한이 없습니다. 현재 잔존 계정의 created_at만으로 과거 총량이나 회원 수 곡선을 재구성하지 않습니다.
+        </div>
+      )}
+
+      <div className="flex flex-col gap-1 text-[10px] font-bold text-white/40">
+        <span>{membership?.periodCoverage === "complete" ? "선택 기간 전체 수집" : membership?.periodCoverage === "partial" ? "수집 시작일 이후 일부 기간 관측" : "선택 기간 관측 없음"} · {membership?.notes?.join(" ") || "이벤트 근거를 확인할 수 없습니다."}</span>
+        {available && points.some((point) => point.signups || point.deletions) ? (
+          <span className="text-white/55">근거 타임라인: {points.filter((point) => point.signups || point.deletions).slice(-5).map((point) => `${formatKstDate(point.date)} 가입 ${point.signups} · 탈퇴 ${point.deletions}`).join(" / ")}</span>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 export function AdminUserCommandCenter({
   users = [],
   metrics,
   accounts,
+  membership,
+  selectedWindowDays,
+  onWindowChange,
   isRefreshing = false,
   isSaving = false,
   onRefresh,
@@ -458,6 +591,8 @@ export function AdminUserCommandCenter({
           </div>
         </div>
       </div>
+
+      <MembershipTimelinePanel membership={membership} selectedWindowDays={selectedWindowDays} onWindowChange={onWindowChange} />
 
       <AiObservabilityPanel metrics={metrics} />
 

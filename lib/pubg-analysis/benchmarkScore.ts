@@ -281,7 +281,7 @@ export function calcBenchmarkScoreDetails(input: MatchTierInput, isSolo: boolean
 
   const counterLatencyMs = finiteOr(input.counterLatencyMs, -1);
   const latencyScoreBase = counterLatencyMs < 0 ? 5 :
-    (counterLatencyMs === 0 ? 0 : Math.max(0, Math.min(10, ((3000 - counterLatencyMs) / 2000) * 10)));
+    Math.max(0, Math.min(10, ((3000 - counterLatencyMs) / 2000) * 10));
 
   let combatScore = 0;
   let tacticalScore = 0;

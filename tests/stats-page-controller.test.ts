@@ -21,6 +21,7 @@ const summaryReady = summaryReadyFixture as unknown as {
   summaries: Record<string, unknown>;
   missingMatchIds: string[];
 };
+const summaryFixture = summaryReady.summaries["match-fixture-1"] as Record<string, unknown>;
 
 function jsonResponse(
   body: unknown,
@@ -745,4 +746,48 @@ describe("useStatsPageController", () => {
    });
    expect(summaryRequestedMatchIds).toContain("match-new-live");
  });
+
+  it("shard alias를 summary 요청 전에 canonical dedupe하고 20개 최신 순서를 보존한다", async () => {
+    const rawIds = [
+      "shard:duplicate-match",
+      "duplicate-match",
+      ...Array.from({ length: 19 }, (_, index) => `match-${index}`),
+    ];
+    const expectedIds = [
+      "duplicate-match",
+      ...Array.from({ length: 19 }, (_, index) => `match-${index}`),
+    ];
+    let requestedIds: string[] = [];
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player?")) {
+        return Promise.resolve(jsonResponse({
+          ...playerReady,
+          recentMatches: rawIds,
+          matchModes: { "shard:duplicate-match": "squad-fpp" },
+        }));
+      }
+      if (url === "/api/pubg/matches-summary") {
+        requestedIds = JSON.parse(String(init?.body)).matchIds;
+        return Promise.resolve(jsonResponse({
+          summaries: Object.fromEntries(requestedIds.map((matchId) => [matchId, {
+            ...summaryFixture,
+            matchId,
+          }])),
+          missingMatchIds: [],
+        }));
+      }
+      return Promise.resolve(jsonResponse({ matches: [], page: 1, totalPages: 0 }));
+    });
+
+    const { result } = renderHook(() => useStatsPageController({
+      initialNickname: "FixturePlayer",
+      initialPlatform: "steam",
+    }));
+
+    await waitFor(() => expect(result.current.summaryStatus).toBe("ready"));
+    expect(requestedIds).toEqual(expectedIds);
+    expect(result.current.matchIds).toEqual(expectedIds);
+    expect(result.current.matchSummaries["duplicate-match"]?.matchId).toBe("duplicate-match");
+  });
 });

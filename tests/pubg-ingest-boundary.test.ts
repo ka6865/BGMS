@@ -6,7 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PersistMatchAnalysisResult } from "@/lib/pubg-analysis/persistMatchAnalysis";
 import { noteDatabaseAvailable } from "@/lib/pubg/databaseCircuitBreaker";
 import { buildTelemetryCacheKey, buildTelemetryPlayerKey } from "@/lib/pubg-analysis/telemetryCacheKey.server";
-import { POPULATION_EVIDENCE_VERSION, RESULT_VERSION, TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
+import {
+  ANALYSIS_CALCULATION_VERSION,
+  POPULATION_EVIDENCE_VERSION,
+  RESULT_VERSION,
+  TELEMETRY_VERSION,
+} from "@/lib/pubg-analysis/constants";
 import { BENCHMARK_FILTER_VERSION } from "@/lib/pubg-analysis/benchmarkLookup";
 import { evaluateMatchEligibility } from "@/lib/pubg-analysis/matchEligibility";
 
@@ -265,6 +270,7 @@ const roster = {
 };
 
 const analysisResult = {
+  calculationVersion: 2,
   matchType: "official",
   gameMode: "squad-fpp",
   isValidBenchmark: true,
@@ -772,7 +778,7 @@ describe("PUBG match persistence behavior", () => {
         data: {
           fullResult: {
             ...analysisResult,
-            v: RESULT_VERSION,
+            v: RESULT_VERSION, calculationVersion: 2,
             matchId: MATCH_ID,
             player_id: NICKNAME.toLowerCase(),
             platform: "steam",
@@ -791,6 +797,16 @@ describe("PUBG match persistence behavior", () => {
     expect(mockPersistMatchAnalysis).toHaveBeenCalledTimes(1);
   });
 
+  it.each([undefined,1,3])('serves only official basic records for outdated arithmetic %s without upstream work',async calculationVersion=>{
+    mockProcessedTelemetryMaybeSingle.mockResolvedValueOnce({data:{match_id:MATCH_ID,player_id:NICKNAME.toLowerCase(),platform:'steam',data:{fullResult:{...analysisResult,v:RESULT_VERSION,calculationVersion,populationEvidenceVersion:POPULATION_EVIDENCE_VERSION,matchId:MATCH_ID,player_id:NICKNAME.toLowerCase(),platform:'steam'}}},error:null});
+    const response=await GET(createMatchRequest());
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({analysisAvailability: 'basic_only', stats: {kills: analysisResult.stats.kills, damageDealt: analysisResult.stats.damageDealt}});
+    for (const key of ['benchmark','tradeStats','isolationData','combatPressure','calculationVersion','v','mapData']) expect(body).not.toHaveProperty(key);
+    expect(fetch).not.toHaveBeenCalled();expect(mockAnalysisEngine).not.toHaveBeenCalled();expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
+  });
+
   it("marked current v73 processed row is reused without needless reanalysis", async () => {
     mockProcessedTelemetryMaybeSingle.mockResolvedValueOnce({
       data: {
@@ -800,7 +816,7 @@ describe("PUBG match persistence behavior", () => {
         data: {
           fullResult: {
             ...analysisResult,
-            v: RESULT_VERSION,
+            v: RESULT_VERSION, calculationVersion: 2,
             populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
             matchId: MATCH_ID,
             player_id: NICKNAME.toLowerCase(),
@@ -860,7 +876,7 @@ describe("PUBG match persistence behavior", () => {
         data: {
           fullResult: {
             ...analysisResult,
-            v: RESULT_VERSION,
+            v: RESULT_VERSION, calculationVersion: 2,
             matchId: MATCH_ID,
             player_id: NICKNAME.toLowerCase(),
             platform: "steam",
@@ -935,6 +951,50 @@ describe("PUBG match persistence behavior", () => {
     expect(mockEngineRun.mock.calls[0]?.[0]).toEqual(expect.arrayContaining([
       expect.objectContaining({ _T: "LogPlayerAttack" }),
     ]));
+  });
+
+  it("analysis keeps all teammate and enemy positions and preserves them in its cache", async () => {
+    const positions = Array.from({length:100}, (_,i) => ({ _T:"LogPlayerPosition", _D:new Date(Date.parse(matchAttr.createdAt)+i*1000).toISOString(), character:{name:"Other",accountId:"account.other",location:{x:i,y:100,z:0}} }));
+    mockRecoveryMatchResponse([...validRecoveryTelemetry(), ...positions]);
+    const response=await GET(createMatchRequest());
+    expect(response.status).toBe(200);
+    expect(mockEngineRun.mock.calls[0][0].filter((e:any)=>e._T==="LogPlayerPosition")).toHaveLength(100);
+    const write=mockUploadToR2.mock.calls.find(([key])=>String(key).endsWith("_analyze.json"));
+    const envelope=JSON.parse(String(write?.[1]));
+    expect(envelope).toMatchObject({analyzeFormat:2,projection:"full"});
+    expect(envelope.events.filter((e:any)=>e._T==="LogPlayerPosition")).toHaveLength(100);
+    mockEngineRun.mockClear();
+    const fetchMock=mockRecoveryMatchResponse(validRecoveryTelemetry());
+    mockDownloadFromR2.mockImplementation(async (key:string)=>key.endsWith("_analyze.json")?JSON.stringify(envelope):null);
+    expect((await GET(createMatchRequest())).status).toBe(200);
+    expect(mockEngineRun.mock.calls[0][0].filter((e:any)=>e._T==="LogPlayerPosition")).toHaveLength(100);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("telemetry lite route samples display positions only after the engine lifecycle filter", async () => {
+    const positions = Array.from({length:100}, (_,i) => ({_T:"LogPlayerPosition",_D:new Date(Date.parse(matchAttr.createdAt)+i*1000).toISOString(),character:{name:"Other",accountId:"account.other",location:{x:i,y:100,z:0}}}));
+    mockRecoveryMatchResponse([...validRecoveryTelemetry(), ...positions]);
+    const response = await GET_TELEMETRY(new Request(`http://localhost/api/pubg/telemetry?matchId=${MATCH_ID}&nickname=${NICKNAME}&platform=steam&mode=lite`));
+    expect(response.status).toBe(200);
+    expect(mockEngineRun.mock.calls[0][0].filter((event:any)=>event._T==="LogPlayerPosition")).toHaveLength(100);
+  });
+
+  it.each(["empty", "other-account", "unknown-event"])("telemetry route rejects %s source without requested player evidence", async (kind) => {
+    const definition = validRecoveryTelemetry().filter((event:any)=>event._T==="LogMatchDefinition");
+    const extra = kind === "empty" ? [] : [{_T:kind === "unknown-event" ? "UnrecognizedEvent" : "LogPlayerPosition",character:{name:NICKNAME,accountId:kind === "other-account" ? "account.other" : PLAYER_ID,location:{x:100,y:100,z:0}}}];
+    mockRecoveryMatchResponse([...definition,...extra]);
+    const response = await GET_TELEMETRY(new Request(`http://localhost/api/pubg/telemetry?matchId=${MATCH_ID}&nickname=${NICKNAME}&platform=steam&mode=lite`));
+    expect(response.status).toBe(400);
+    expect(mockEngineRun).not.toHaveBeenCalled();
+    expect(mockUploadToR2).not.toHaveBeenCalled();
+  });
+
+  it("telemetry route rejects a cross-match raw definition before cache writes", async () => {
+    mockRecoveryMatchResponse(validRecoveryTelemetry().map((event:any)=>event._T==="LogMatchDefinition" ? {...event,MatchId:"match.bro.official.pc-2018-01.steam.squad.kr.2026.07.15.12.other-match"}:event));
+    const response=await GET_TELEMETRY(new Request(`http://localhost/api/pubg/telemetry?matchId=${MATCH_ID}&nickname=${NICKNAME}&platform=steam&mode=lite`));
+    expect(response.status).toBe(400);
+    expect(mockEngineRun).not.toHaveBeenCalled();
+    expect(mockUploadToR2).not.toHaveBeenCalled();
   });
 
   it("malformed analyze R2 JSON is a cache miss and refetches raw telemetry", async () => {
@@ -1422,7 +1482,7 @@ describe("PUBG match query boundary", () => {
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
-      v: RESULT_VERSION,
+      v: RESULT_VERSION, calculationVersion: 2,
       matchId: MATCH_ID,
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -1972,6 +2032,12 @@ describe("PUBG match query boundary", () => {
       },
       error: null,
     });
+    // The deployed v72 row may expose the new SQL column explicitly as NULL;
+    // this is equivalent to an omitted marker for local recovery preflight.
+    mockGlobalBenchmarkMaybeSingle.mockResolvedValueOnce({
+      data: recoveryGlobalBenchmarkRow({ calculation_version: null }),
+      error: null,
+    });
     mockRecoveryMatchResponse(validRecoveryTelemetry());
 
     const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
@@ -2017,6 +2083,10 @@ describe("PUBG match query boundary", () => {
         }),
       }),
     );
+    const finalizeArgs = (mockRpc.mock.calls as unknown as Array<[string, any]>).find(
+      ([name]) => name === "finalize_telemetry_cache_recovery",
+    )?.[1];
+    expect(finalizeArgs?.p_benchmark_guard).not.toHaveProperty("calculationVersion");
     const uploadCall = mockUploadRecoveryObjectToR2.mock.invocationCallOrder[0];
     const finalizeCall = mockRpc.mock.invocationCallOrder[
       mockRpc.mock.calls.findIndex(([name]) => name === "finalize_telemetry_cache_recovery")
@@ -2414,6 +2484,50 @@ describe("PUBG match query boundary", () => {
     expect(mockRpc).not.toHaveBeenCalled();
     expect(mockAnalysisEngine).not.toHaveBeenCalled();
     expect(mockUploadToR2).not.toHaveBeenCalled();
+    expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
+  });
+
+  it("recovery refuses a non-null calculation marker before telemetry fetch, engine, or R2 upload", async () => {
+    vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");
+    vi.stubEnv("BENCHMARK_RECOVERY_TOKEN", "canary-token");
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({
+      data: {
+        match_id: MATCH_ID,
+        player_id: NICKNAME.toLowerCase(),
+        platform: "steam",
+        data: { fullResult: {
+          ...analysisResult,
+          v: RESULT_VERSION - 1,
+          matchId: MATCH_ID,
+          player_id: NICKNAME.toLowerCase(),
+          platform: "steam",
+        } },
+      },
+      error: null,
+    });
+    mockGlobalBenchmarkMaybeSingle.mockResolvedValueOnce({
+      data: recoveryGlobalBenchmarkRow({
+        calculation_version: ANALYSIS_CALCULATION_VERSION,
+      }),
+      error: null,
+    });
+    const fetchMock = mockRecoveryMatchResponse(validRecoveryTelemetry());
+
+    const response = await GET(createMatchRequest({ recoveryToken: "canary-token" }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      errorCode: "BENCHMARK_RECOVERY_GLOBAL_BENCHMARK_CHANGED",
+      retryable: false,
+    });
+    // The only fetch is the route's canonical match metadata request. The
+    // original telemetry asset must not be fetched after the marker preflight.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(mockAnalysisEngine).not.toHaveBeenCalled();
+    expect(mockEngineRun).not.toHaveBeenCalled();
+    expect(mockUploadToR2).not.toHaveBeenCalled();
+    expect(mockUploadRecoveryObjectToR2).not.toHaveBeenCalled();
+    expect(mockRpc).not.toHaveBeenCalled();
     expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
   });
 
@@ -2825,7 +2939,7 @@ describe("PUBG match query boundary", () => {
       ...v72,
       data: { fullResult: {
         ...v72.data.fullResult,
-        v: RESULT_VERSION,
+        v: RESULT_VERSION, calculationVersion: 2,
         populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
       } },
     };
@@ -3334,7 +3448,7 @@ describe("PUBG match query boundary", () => {
 
   it.each([
     ["missing", null],
-    ["current marked", { v: RESULT_VERSION, populationEvidenceVersion: POPULATION_EVIDENCE_VERSION }],
+    ["current marked", { v: RESULT_VERSION, calculationVersion: 2, populationEvidenceVersion: POPULATION_EVIDENCE_VERSION }],
     ["current unmarked", { v: RESULT_VERSION }],
   ])("authorized recovery header rejects %s cached evidence before PUBG/background/engine work", async (_label, versionFields) => {
     vi.stubEnv("BENCHMARK_RECOVERY_SYNC_STALE", "true");

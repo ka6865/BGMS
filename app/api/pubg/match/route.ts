@@ -1,3 +1,6 @@
+import { buildCalculationPendingMatch } from "@/lib/pubg-analysis/calculationAvailability";
+import { containsTelemetryAccountEvidence as containsRecoveryAccountIdentityEvidence, parseOrdinaryTelemetryUrl, relationshipBoundTelemetryAsset } from "@/lib/pubg-analysis/telemetrySource";
+import { sampleReplayPositions } from "@/lib/pubg-analysis/telemetryContract";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { after, NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -16,6 +19,8 @@ import {
 import {
   buildProcessedTelemetryUpsert,
   getValidFullResultForMatch,
+  hasCurrentCalculation,
+  sanitizeCalculationBenchmark,
   normalizePlatform,
 } from "@/lib/pubg-analysis/cacheIdentity";
 import {
@@ -181,6 +186,7 @@ const RECOVERY_GLOBAL_BENCHMARK_COLUMNS = [
   "tier",
   "filter_version",
   "population_evidence_version",
+  "calculation_version",
   "damage",
   "kills",
   "win_place",
@@ -306,6 +312,17 @@ function recoveryGlobalMarker(value: unknown): number | null | undefined {
   return value;
 }
 
+/**
+ * Legacy v72 benchmark rows predate the calculation marker column.  An
+ * omitted field and an explicit SQL NULL both mean "unknown legacy arithmetic"
+ * for the local recovery preflight; any concrete or malformed value fails
+ * closed before telemetry/R2 work.
+ */
+function recoveryCalculationMarker(value: unknown): number | null | undefined {
+  if (value === undefined || value === null) return null;
+  return recoveryGlobalMarker(value);
+}
+
 function sameRecoveryBenchmarkGuard(
   left: RecoveryBenchmarkGuard,
   right: RecoveryBenchmarkGuard,
@@ -319,6 +336,7 @@ function sameRecoveryBenchmarkGuard(
     && left.tier === right.tier
     && left.filterVersion === right.filterVersion
     && left.populationEvidenceVersion === right.populationEvidenceVersion
+    && (left.calculationVersion ?? null) === (right.calculationVersion ?? null)
     && JSON.stringify(left.snapshot ?? null) === JSON.stringify(right.snapshot ?? null);
 }
 
@@ -472,12 +490,14 @@ async function readFreshRecoveryBenchmarkGuard(
 
   const filterVersion = recoveryGlobalMarker(row.filter_version);
   const populationEvidenceVersion = recoveryGlobalMarker(row.population_evidence_version);
+  const calculationVersion = recoveryCalculationMarker(row.calculation_version);
   // Recovery may only upgrade the known legacy population.  A current marker
   // or any unknown/future non-null marker is never overwritten.
   if (filterVersion === undefined
     || populationEvidenceVersion === undefined
     || populationEvidenceVersion !== null
-    || (filterVersion !== null && filterVersion > BENCHMARK_FILTER_VERSION)) {
+    || (filterVersion !== null && filterVersion > BENCHMARK_FILTER_VERSION)
+    || calculationVersion !== null) {
     throw recoveryGlobalMarkerError();
   }
 
@@ -494,6 +514,7 @@ async function readFreshRecoveryBenchmarkGuard(
     tier: bucket.tier,
     filterVersion,
     populationEvidenceVersion,
+    calculationVersion,
     snapshot,
   };
 }
@@ -725,36 +746,6 @@ function parseRecoveryTelemetryUrl(value: unknown, expectedAssetId: string, expe
  * PUBG's telemetry CDN, and the relationship-bound asset-id filename are the
  * invariants that identify the requested object.
  */
-function parseOrdinaryTelemetryUrl(value: unknown, expectedAssetId: string): string {
-  if (typeof value !== "string" || !value.trim()) throw new Error("telemetry URL missing");
-  const raw = value.trim();
-  if (!/^https:\/\//i.test(raw) || raw.includes("\\")) throw new Error("telemetry URL invalid");
-  let parsed: URL;
-  try {
-    parsed = new URL(raw);
-  } catch {
-    throw new Error("telemetry URL invalid");
-  }
-  if (parsed.protocol !== "https:"
-    || parsed.hostname.toLowerCase() !== BENCHMARK_RECOVERY_TELEMETRY_HOST
-    || parsed.username
-    || parsed.password
-    || parsed.port
-    || parsed.search
-    || parsed.hash) {
-    throw new Error("telemetry URL invalid");
-  }
-  const path = parsed.pathname;
-  if (!path.startsWith("/")
-    || path.endsWith("/")
-    || path.includes("//")
-    || path.includes("%")
-    || path.slice(1).split("/").some((segment) => segment === "." || segment === ".." || !segment)
-    || !path.endsWith(`/${expectedAssetId}-telemetry.json`)) {
-    throw new Error("telemetry URL invalid");
-  }
-  return parsed.href;
-}
 
 function assertRecoveryTelemetryResponseUrl(response: Response, requestedUrl: string): void {
   let finalUrl: string;
@@ -776,20 +767,6 @@ function assertRecoveryTelemetryResponseUrl(response: Response, requestedUrl: st
  * `included` array is an unordered side-load and can contain unrelated
  * assets; selecting its first asset silently crosses match boundaries.
  */
-function relationshipBoundTelemetryAsset(matchData: unknown): { asset: Record<string, unknown>; id: string } | null {
-  if (!isRecord(matchData) || !isRecord(matchData.data)) return null;
-  const relationships = isRecord(matchData.data.relationships) ? matchData.data.relationships : null;
-  const assets = relationships && isRecord(relationships.assets) ? relationships.assets : null;
-  const refs = assets && Array.isArray(assets.data) ? assets.data : [];
-  if (refs.length !== 1 || !isRecord(refs[0]) || typeof refs[0].id !== "string" || refs[0].type !== "asset") return null;
-  const assetId = refs[0].id.trim();
-  if (!assetId) return null;
-  const included = Array.isArray(matchData.included) ? matchData.included : [];
-  const assetsById = included.filter((item): item is Record<string, unknown> => (
-    isRecord(item) && item.type === "asset" && item.id === assetId
-  ));
-  return assetsById.length === 1 ? { asset: assetsById[0], id: assetId } : null;
-}
 
 function recoveryMatchDefinitionIds(
   rawTelemetry: unknown,
@@ -861,24 +838,6 @@ function containsRecoveryIdentityEvidence(
   return false;
 }
 
-/** Recovery telemetry may mention a display name without proving which
- * account produced the event. Keep the existing nickname predicate for the
- * broader telemetry filter, but require this account-only predicate before a
- * recovery payload is authorized. */
-function containsRecoveryAccountIdentityEvidence(value: unknown, accountId: string): boolean {
-  if (Array.isArray(value)) return value.some((item) => containsRecoveryAccountIdentityEvidence(item, accountId));
-  if (!isRecord(value)) return false;
-
-  for (const [key, nested] of Object.entries(value)) {
-    if ((key === "accountId" || key === "playerId")
-      && typeof nested === "string"
-      && nested === accountId) {
-      return true;
-    }
-    if (containsRecoveryAccountIdentityEvidence(nested, accountId)) return true;
-  }
-  return false;
-}
 
 type TelemetryValidationMode = "ordinary" | "recovery";
 
@@ -983,7 +942,8 @@ async function loadAndValidateTelemetry(
   }
 
   const filtered = filterTelemetryEvents(rawTelemetry, {
-    mode: "lite",
+    // Analysis needs every player position; sampling is only for display payloads.
+    mode: "full",
     teamNames: new Set([normalizeName(nickname)]),
     teamAccountIds: new Set([accountId]),
   });
@@ -1061,7 +1021,7 @@ async function reportBackgroundReanalysisFailure(): Promise<void> {
 }
 
 function createTacticalResponse(result: any) {
-  const tacticalResult = { ...result };
+  const tacticalResult = { ...(result?.v === RESULT_VERSION && hasCurrentCalculation(result) ? sanitizeCalculationBenchmark(result) : result) };
   delete tacticalResult.mapData;
   return pseudonymizeTelemetryAccountIds(tacticalResult);
 }
@@ -1372,6 +1332,12 @@ export async function GET(request: NextRequest) {
         && typeof cachedFullResult.v === "number"
         && Number.isFinite(cachedFullResult.v)
         && cachedFullResult.v === RESULT_VERSION) {
+        if (!hasCurrentCalculation(cachedFullResult)) {
+          if (hasPopulationEvidence(cachedFullResult)) {
+            return NextResponse.json(pseudonymizeTelemetryAccountIds(buildCalculationPendingMatch({ ...cachedFullResult, matchId })));
+          }
+          return NextResponse.json({ error: "새 계산 기준으로 다시 계산이 필요합니다. 기본 전적은 계속 이용할 수 있습니다.", errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED", retryable: false }, { status: 409 });
+        }
         if (hasPopulationEvidence(cachedFullResult)) {
           return NextResponse.json(createTacticalResponse(cachedFullResult));
         }
@@ -1735,7 +1701,7 @@ async function reanalyzeAndSave(
         const parsed = parseTelemetryAnalyzeCacheEnvelope(JSON.parse(fileText), telemetryIdentity);
         const filteredCached = parsed
           ? filterTelemetryEvents(parsed, {
-            mode: "lite",
+            mode: "full",
             teamNames,
             teamAccountIds,
           })
@@ -1886,7 +1852,8 @@ async function reanalyzeAndSave(
       && typeof cachedFullResult.v === "number"
       && Number.isFinite(cachedFullResult.v)
       && cachedFullResult.v === RESULT_VERSION
-      && hasPopulationEvidence(cachedFullResult)) {
+      && hasPopulationEvidence(cachedFullResult)
+      && hasCurrentCalculation(cachedFullResult)) {
       const sampleParticipants = participants
         .filter((p: any) => !p.attributes.stats.playerId?.startsWith("ai."))
         .map((p: any) => p.attributes.stats.name)
@@ -2043,7 +2010,7 @@ async function reanalyzeAndSave(
     startTime: matchAttr.createdAt,
     teammates: pseudonymizeTelemetryTeammates(mapData?.teammates || []),
     teamNames: mapData?.teamNames || [myParticipant.attributes.stats.name],
-    events: pseudonymizeTelemetryAccountIds(mapData?.events || []),
+    events: pseudonymizeTelemetryAccountIds(sampleReplayPositions(mapData?.events || [], "lite")),
     zoneEvents: pseudonymizeTelemetryAccountIds(mapData?.zoneEvents || []),
     mapName: result.mapName || matchAttr.mapName || matchAttr.mapId,
   });
@@ -2113,6 +2080,13 @@ async function reanalyzeAndSave(
       JSON.stringify(telemetryPayload),
       "application/json",
     );
+    // The deployed recovery RPC intentionally keeps its historical fixed
+    // benchmark-guard JSON allow-list.  The calculation marker is a local
+    // preflight/equality guard; the SQL finalizer independently rejects a
+    // non-NULL database marker, so do not send this new field over that RPC
+    // boundary.
+    const finalizeBenchmarkGuard = { ...recoveryBenchmarkGuard };
+    delete finalizeBenchmarkGuard.calculationVersion;
     const finalizeResult = await finalizeRecoveryAtomically(supabase, {
       lease: reservedRow,
       processedGuard: {
@@ -2122,7 +2096,7 @@ async function reanalyzeAndSave(
         resultVersion: recoveryResultVersion,
         accountId: myAccountId,
       },
-      benchmarkGuard: recoveryBenchmarkGuard as RegistryRecoveryBenchmarkGuard,
+      benchmarkGuard: finalizeBenchmarkGuard as RegistryRecoveryBenchmarkGuard,
       rows: {
         master: {
           match_id: matchId,

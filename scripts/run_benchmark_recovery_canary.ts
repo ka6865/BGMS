@@ -25,7 +25,7 @@ import type { BenchmarkRecoveryManifest } from "./plan_benchmark_recovery";
 import {
   BENCHMARK_FILTER_VERSION,
   isCanonicalBenchmarkTier,
-  isTrustedBenchmarkAggregate,
+  isTrustedBenchmarkPopulation,
 } from "../lib/pubg-analysis/benchmarkLookup";
 import {
   decodeMaybeGzip,
@@ -747,7 +747,7 @@ function benchmarkSnapshotsEqual(
 function assertRaceGuard(state: DatabaseState, canary: readonly CanaryIdentity[]): void {
   for (const identity of canary) {
     const benchmark = exactRowOrFail(state.global_benchmarks, identity, "global_benchmarks");
-    if (isTrustedBenchmarkAggregate(benchmark)) throw new Error("race_benchmark_already_trusted");
+    if (isTrustedBenchmarkPopulation(benchmark)) throw new Error("race_benchmark_already_trusted");
     assertBucketMatches(benchmark, identity.bucket, "race_benchmark");
     const processed = exactRowOrFail(state.processed_match_telemetry, identity, "processed_match_telemetry");
     const fullResult = getValidFullResultForMatch(processed, {
@@ -817,7 +817,7 @@ function assertBoundReadEvidence(
     }
 
     const benchmark = exactRowOrFail(state.global_benchmarks, identity, "global_benchmarks");
-    if (isTrustedBenchmarkAggregate(benchmark)) throw new ReadEvidenceMismatchError();
+    if (isTrustedBenchmarkPopulation(benchmark)) throw new ReadEvidenceMismatchError();
     if (benchmarkIdKey(benchmark.id) !== benchmarkIdKey(evidence.benchmarkId)) {
       throw new ReadEvidenceMismatchError();
     }
@@ -878,7 +878,7 @@ function assertPostconditions(state: DatabaseState, canary: readonly CanaryIdent
     if (benchmarkIdKey(benchmark.id) !== benchmarkIdKey(identity.benchmarkId)) {
       throw new Error("postcondition_benchmark_id_mismatch");
     }
-    if (!isTrustedBenchmarkAggregate(benchmark)
+    if (!isTrustedBenchmarkPopulation(benchmark)
       || Number(benchmark.filter_version) !== BENCHMARK_FILTER_VERSION
       || Number(benchmark.population_evidence_version) !== POPULATION_EVIDENCE_VERSION) {
       throw new Error("postcondition_benchmark_marker_missing");

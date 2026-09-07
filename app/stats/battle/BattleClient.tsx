@@ -15,8 +15,8 @@ interface Comparison {
   label: string;
   icon: string;
   unit: string;
-  v1: number;
-  v2: number;
+  v1: number | null;
+  v2: number | null;
   winner: "nick1" | "nick2" | "draw";
 }
 
@@ -25,14 +25,16 @@ interface BattleResult {
   nick2: string;
   platform1: string;
   platform2: string;
-  tier1: string;
-  tier2: string;
+  tier1: string | null;
+  tier2: string | null;
   matchCount1: number;
   matchCount2: number;
   availableMatchCount1: number;
   availableMatchCount2: number;
   comparisonMatchCount: number;
   comparisons: Comparison[];
+  tacticalComparable?: boolean;
+  withheldCount?: number;
   score: { nick1: number; nick2: number; draw: number };
   overallWinner: string;
 }
@@ -701,8 +703,8 @@ function BattleContent() {
                 <div className="flex items-center justify-between mb-6">
                   {/* 플레이어 1 */}
                   <div className="text-center flex-1 min-w-0 flex flex-col items-center">
-                    <div className={`inline-block px-3 py-1 rounded-xl border text-[10px] md:text-xs font-black italic tracking-tighter mb-2 shrink-0 ${getTierStyle(result.tier1)}`}>
-                      {result.tier1} Tier
+                    <div className={`inline-block px-3 py-1 rounded-xl border text-[10px] md:text-xs font-black italic tracking-tighter mb-2 shrink-0 ${getTierStyle(result.tier1 || "")}`}>
+                      {result.tier1 ? `${result.tier1} Tier` : "등급 보류"}
                     </div>
                     <div className="mb-1 text-[9px] font-black uppercase tracking-wider text-indigo-200/50">{result.platform1}</div>
                     <div className="font-black text-base md:text-xl text-indigo-300 truncate w-full max-w-[80px] xs:max-w-[120px] md:max-w-none px-1" title={result.nick1}>
@@ -720,8 +722,8 @@ function BattleContent() {
 
                   {/* 플레이어 2 */}
                   <div className="text-center flex-1 min-w-0 flex flex-col items-center">
-                    <div className={`inline-block px-3 py-1 rounded-xl border text-[10px] md:text-xs font-black italic tracking-tighter mb-2 shrink-0 ${getTierStyle(result.tier2)}`}>
-                      {result.tier2} Tier
+                    <div className={`inline-block px-3 py-1 rounded-xl border text-[10px] md:text-xs font-black italic tracking-tighter mb-2 shrink-0 ${getTierStyle(result.tier2 || "")}`}>
+                      {result.tier2 ? `${result.tier2} Tier` : "등급 보류"}
                     </div>
                     <div className="mb-1 text-[9px] font-black uppercase tracking-wider text-rose-200/50">{result.platform2}</div>
                     <div className="font-black text-base md:text-xl text-rose-300 truncate w-full max-w-[80px] xs:max-w-[120px] md:max-w-none px-1" title={result.nick2}>
@@ -748,6 +750,7 @@ function BattleContent() {
                 )}
               </div>
 
+              {result.tacticalComparable === false && <p className="px-4 pb-4 text-center text-xs leading-relaxed text-sky-200">재계산이 필요한 경기가 포함되어 킬·피해량으로 비교합니다. 전술 지표와 등급은 보류합니다.</p>}
               {/* 항목별 비교 */}
               <div className="flex flex-col gap-3 px-2 pb-2">
                 {result.comparisons.map((c) => {
@@ -762,8 +765,8 @@ function BattleContent() {
                                  "border-white/10 bg-white/5"
                       }`}
                     >
-                      <div className={`flex-1 text-right font-black text-lg md:text-2xl tracking-tighter ${n1Wins ? "text-indigo-400" : "text-white/30"}`}>
-                        {typeof c.v1 === "number" ? c.v1.toFixed(1) : c.v1}<span className="text-[10px] md:text-xs ml-0.5 opacity-60">{c.unit}</span>
+                      <div className={`flex-1 text-right font-black text-lg md:text-2xl tracking-tighter ${c.v1 === null ? "text-sky-200" : n1Wins ? "text-indigo-400" : "text-white/30"}`}>
+                        {typeof c.v1 === "number" ? c.v1.toFixed(1) : "보류"}<span className="text-[10px] md:text-xs ml-0.5 opacity-60">{c.v1 !== null ? c.unit : ""}</span>
                       </div>
 
                       <div className="w-20 md:w-32 text-center shrink-0">
@@ -781,8 +784,8 @@ function BattleContent() {
                         </div>
                       </div>
 
-                      <div className={`flex-1 text-left font-black text-lg md:text-2xl tracking-tighter ${n2Wins ? "text-rose-400" : "text-white/30"}`}>
-                        {typeof c.v2 === "number" ? c.v2.toFixed(1) : c.v2}<span className="text-[10px] md:text-xs ml-0.5 opacity-60">{c.unit}</span>
+                      <div className={`flex-1 text-left font-black text-lg md:text-2xl tracking-tighter ${c.v2 === null ? "text-sky-200" : n2Wins ? "text-rose-400" : "text-white/30"}`}>
+                        {typeof c.v2 === "number" ? c.v2.toFixed(1) : "보류"}<span className="text-[10px] md:text-xs ml-0.5 opacity-60">{c.v2 !== null ? c.unit : ""}</span>
                       </div>
                     </div>
                   );

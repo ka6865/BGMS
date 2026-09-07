@@ -1,3 +1,5 @@
+import { sanitizeAiCoachingLanguageText } from "./aiCoachingQuality";
+
 export type BackupCoachingTier = "S" | "A" | "B" | "C";
 
 export interface BackupCoachingInput {
@@ -100,24 +102,7 @@ export function buildBackupCoachingContext(input: BackupCoachingInput): BackupCo
   };
 }
 
-export function sanitizeBackupCoachingText(text: string, context: BackupCoachingContext): string {
-  if (!context.shouldAvoidSlowBackupBlame || context.label !== "교전 정리 후 복구 성공") {
-    return text;
-  }
-
-  return text
-    .replace(/교전 정리 후 복구 성공이라기엔 너무나 느린 방관입니다\./g, "시간은 길었지만 적을 정리하고 소생까지 완료한 성공 복구입니다.")
-    .replace(/교전 정리 후 복구 성공이라기엔 너무 느린 방관입니다\./g, "시간은 길었지만 적을 정리하고 소생까지 완료한 성공 복구입니다.")
-    .replace(/느린 백업/g, "복구 시간 단축 과제")
-    .replace(/느린 방관/g, "복구 시간 단축 과제")
-    .replace(/교전 종료 후 소생에 ([0-9.]+초)를 소비하는 것은 치명적이며/g, "교전 정리와 소생까지 $1가 걸린 것은 개선 여지가 있으나 성공 복구였으며")
-    .replace(/([0-9.]+초)의 백업 속도는 교전 정리 후 복구 성공이라기엔 너무나 느린/g, "$1의 백업 속도는 교전 정리와 소생까지 완료한 성공 복구지만 더 줄여야 할")
-    .replace(/백업 효율 개선/g, "복구 시간 단축")
-    .replace(/팀원을 방패로 세운 채/g, "팀 교전 분담이 부족한 상태에서")
-    .replace(/팀원을 들러리로 세운/g, "팀 교전 분담이 부족했던")
-    .replace(/팀원을 방치하며/g, "팀 교전 분담이 부족한 상태로")
-    .replace(/팀원 등쳐먹는/g, "교전 분담 보완이 필요한")
-    .replace(/팀원은 당신의 들러리가 아닙니다/g, "강한 캐리력에 협업 지표 보완이 더해져야 합니다")
-    .replace(/이기적 독식/g, "교전 독점")
-    .replace(/방관/g, "후속 복구");
-}
+// Keep the existing call contract, but never turn blame into a new causal
+// story from aggregate recovery counts. Context belongs in the prompt;
+// unsupported output is withheld by the shared prose policy.
+export const sanitizeBackupCoachingText: (text: string, context: BackupCoachingContext) => string = sanitizeAiCoachingLanguageText;
