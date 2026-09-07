@@ -13,7 +13,7 @@ export function groupRolloutRows(rows: RolloutRow[]): RolloutMatch[] {
   }
   return [...groups.values()].sort((a,b)=>Math.max(...b.rows.map(r=>Date.parse(r.created_at)))-Math.max(...a.rows.map(r=>Date.parse(r.created_at)))||a.platform.localeCompare(b.platform)||a.matchId.localeCompare(b.matchId));
 }
-export function assertRolloutSnapshot(snapshot: any, project:string): asserts snapshot is {version:1;project:string;calculationVersion:2;rows:RolloutRow[];hash:string} {
+export function assertRolloutSnapshot(snapshot: any, project:string): asserts snapshot is {version:1;project:string;calculationVersion:2;canonicalOnly?:boolean;rows:RolloutRow[];hash:string} {
   if(snapshot?.version!==1||snapshot.project!==project||snapshot.calculationVersion!==2||!Array.isArray(snapshot.rows)
     ||snapshot.hash!==stableHash(snapshot.rows))throw new Error('rollout_snapshot_mismatch');
   groupRolloutRows(snapshot.rows);

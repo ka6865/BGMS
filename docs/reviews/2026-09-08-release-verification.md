@@ -39,3 +39,19 @@
 공식 API의 [보존기간은 14일](https://documentation.pubg.com/en/making-requests.html)이다. 원본이 없는 기간 밖의 경기는 최신 계산 마커만 붙이지 않는다. 기본 전적을 유지하고 변경된 전술 수치·등급은 보류한다. [match와 telemetry 엔드포인트는 API 키 RPM 제한에서 제외](https://documentation.pubg.com/en/rate-limits.html)되지만 운영 갱신은 동시성·요청량·디스크 사용량을 제한한다.
 
 최종 갱신 성공·원본 미확보·제외 집계와 배포 커밋/CI는 실행 완료 시 별도 기록한다.
+
+## 1차 운영 배포 완료
+
+- PR #188: develop `948340e`의 CI 두 건과 Vercel Preview 성공 후 main `e865da873e96e367839524b4d6d1e66d9b5708ab`으로 병합.
+- Production `dpl_mwFLNhiccmRa8rRwds9BECow3GhJ` READY, bgms.kr alias 및 해당 main commit 확인. main push CI도 성공.
+- 운영 API에서 KangHeeSung_·MiaeQ_Q의 개별 경기 4건 및 스쿼드 목록 조회 정상. 구 계산 단일 경기는 basic_only, 새 계산은 calculationVersion=2 반환.
+- 로컬 develop은 main 병합 커밋으로 fast-forward하여 후속 갱신 도구 보강을 계속했다.
+
+## 비교 평균 없는 경기 보완
+
+재고 감사 중 `isValidBenchmark`를 AI 자격으로 해석하면 누락이 생김을 확인했다. 실제 조건은 생존시간 >=300초다. 짧은 경기는 비교 평균에 추가하지 않고 개인 계산만 갱신한다. 이전 v72도 원본과 이전 계정 identity를 검증한 경우 갱신할 수 있도록 canonical-only RPC를 추가했다.
+
+- 신규 RPC 격리 PostgreSQL 검증: v72→v73, 짧은 경기의 benchmark 미생성, snapshot 경합·계정 불일치·중복 적용 거부, paired 경로 우회 거부, service_role 전용 ACL 통과. 운영 migration 적용 성공.
+- 실제 짧은 경기 3건 계산·저장·재조회 성공. 동일 checkpoint 재실행은 추가 RPC 0회.
+- 별도 전체 개인 inventory: 9,584행/8,241 실제 경기. 이는 비교 표본 inventory 4,799행과 분리된 identity 목록이며, 원본 만료·비적격 경기 분류를 포함하므로 성공 수가 아니다.
+- 1차 배포 이후 전체 회귀 2,469개 통과/59개 건너뜀. 이후 공통 쓰기 잠금 추가는 별도 회귀·타입 검증하고 후속 CI에서 다시 확인한다.

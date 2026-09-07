@@ -1,3 +1,4 @@
+import { withCalculationUpgradeWriteLock } from "./calculation_upgrade_write_lock";
 /** Applies a reviewed prepared manifest one compare-and-swap RPC at a time. */
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -63,7 +64,7 @@ try {
         return { processed: processed.data, benchmark: benchmark.data };
       },
       async upgrade(upgrade, timeoutMs) {
-        return db.rpc("upgrade_analysis_calculation", upgrade).abortSignal(AbortSignal.timeout(timeoutMs));
+        return withCalculationUpgradeWriteLock(new URL(url!).hostname, async () => await db.rpc("upgrade_analysis_calculation", upgrade).abortSignal(AbortSignal.timeout(timeoutMs)));
       },
     },
   });

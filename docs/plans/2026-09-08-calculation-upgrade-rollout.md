@@ -37,3 +37,26 @@ npx tsx scripts/run_calculation_upgrade_rollout.ts --apply --acquire-raw \
 - Gemini 호출과 AI 캐시 일괄 재생성, R2 쓰기는 하지 않는다.
 - 다운로드 집계는 정상 수신한 바이트다. 최초 32MiB 제한으로 취소된 응답처럼 중간에 차단한 전송은 실제 네트워크 사용량에 추가될 수 있다.
 - 소규모 안전 점검을 통과한 뒤에도 총 작업 시간은 대상 경기의 원본 크기와 실제 DB/다운로드 속도에 따라 달라진다.
+
+## 비교 표본이 없는 개인 경기와 이전 버전
+
+`isValidBenchmark`는 생존시간 300초 이상 여부이며 AI 분석 자격이나 human 여부를 뜻하지 않는다. 따라서 비교 표본이 없는 5분 미만 경기도 개인 계산을 갱신해야 한다.
+
+```bash
+# 별도 고정 목록: 2026-09-08 최초 전체 개인 목록 9,584행/8,241 실제 경기
+npx tsx scripts/run_calculation_upgrade_rollout.ts --canonical-only \
+  --output-dir tmp/calculation-upgrade-canonical-all-v2
+
+npx tsx scripts/run_calculation_upgrade_rollout.ts --canonical-only \
+  --output-dir tmp/calculation-upgrade-canonical-all-v2 \
+  --apply --acquire-raw --max-matches 10000 --max-source-mib 128 \
+  --max-download-mib 256000 --max-runtime-minutes 720
+```
+
+이 목록은 비교 표본 적격 identity를 제외한 processed 저장 identity를 모두 포함한다. 큰 JSON 속성을 전수 조회하지 않고 키 목록을 고정하며, 실제 경기 단계에서 버전과 공식 원본의 모드·유형을 검증한다. 목록에 포함됐다는 것이 갱신 성공이나 AI 자격을 뜻하지 않는다.
+
+`calculation_upgrade_canonical_batch.ts`는 공통 원본 계산기를 사용하고, `upgrade_analysis_calculation_canonical` RPC는 v72/v73 이전 snapshot과 계정·경기 identity가 맞을 때만 현행 결과로 바꾼다. 비교 평균 행을 만들거나 변경하지 않는다. 정상 비교 표본이 있는 장기 생존 경기는 기존 paired RPC를 사용해야 하며 이 경로로 우회할 수 없다. raw/full projection 계산 불일치는 중단한다.
+
+두 작업의 원본 준비가 겹쳐도 로컬 공통 project 잠금으로 RPC 요청은 하나씩 수행한다. 프로세스가 비정상 종료된 잠금은 실행 여부를 확인한 뒤 운영자가 복구하며 자동 삭제하지 않는다. 동일 checkpoint 재실행 시 이미 목표 결과와 같으면 RPC를 생략한다. CLI는 이번 실행의 RPC 시도와 누적 시도를 구별한다.
+
+새 runner를 실행한 작업은 output-dir에 `PAUSE` 파일을 만들면 현재 경기를 마친 뒤 멈춘다. 해당 파일을 제거하고 동일 명령으로 재개한다. 이미 이전 스크립트 버전으로 시작한 프로세스에는 새 pause 기능이 소급 적용되지 않는다.
