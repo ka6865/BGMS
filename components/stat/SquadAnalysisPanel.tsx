@@ -23,6 +23,8 @@ import SquadCauseScenes, { SquadCauseSceneCardData } from "./SquadCauseScenes";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import type { StatsPlatform } from "@/types/stats-page";
 
+import { createSquadRequestCache, type SquadRequestCache } from "@/lib/stats/squadRequestCache";
+
 const Squad2DMap = dynamic(() => import("./Squad2DMap"), { ssr: false });
 
 interface Teammate {
@@ -92,7 +94,7 @@ interface TeammateFeedback {
 }
 
 interface AiFeedback {
-  squadGrade: string;
+  squadGrade: string | null;
   summary: string;
   strength: string;
   weakness: string;
@@ -102,6 +104,7 @@ interface AiFeedback {
 }
 
 export interface SquadAnalysisPanelProps {
+  requestCache?: SquadRequestCache;
   nickname: string;
   platform: StatsPlatform;
   groupKey?: string;
@@ -139,6 +142,7 @@ function averageObservedMetrics(values: unknown[]): number | null {
 }
 
 export default function SquadAnalysisPanel({
+  requestCache,
   nickname,
   platform,
   groupKey,
@@ -146,6 +150,12 @@ export default function SquadAnalysisPanel({
 }: SquadAnalysisPanelProps) {
   const router = useRouter();
   const { user } = useAuth();
+  const [localCache] = useState(createSquadRequestCache);
+  const cache = requestCache ?? localCache;
+  const cacheScope = user?.id ?? "anonymous";
+  const listRequestId = useRef(0);
+  const detailRequestId = useRef(0);
+  const aiRequest = useRef<{ id: string; controller: AbortController } | null>(null);
 
   const [groups, setGroups] = useState<any[]>([]);
   const [loadingList, setLoadingList] = useState<boolean>(true);
@@ -159,7 +169,7 @@ export default function SquadAnalysisPanel({
   const [loadingAi, setLoadingAi] = useState<boolean>(false);
   const { isAnalyzing: isGlobalAnalyzing } = useAIStatus();
   const [aiFeedback, setAiFeedback] = useState<AiFeedback | null>(null);
-  const [aiError, setAiError] = useState<boolean>(false);
+  const [aiError, setAiError] = useState<{ message: string; retryable: boolean } | null>(null);
 
   // 2D Map Selected Match State
   const [selectedMapMatchId, setSelectedMapMatchId] = useState<string>("");
@@ -173,28 +183,41 @@ export default function SquadAnalysisPanel({
   const [shareBusy, setShareBusy] = useState<"share" | "copy" | "download" | "image" | null>(null);
   const [shareMessage, setShareMessage] = useState<string | null>(null);
 
+  useEffect(() => {
+    setAiFeedback(null);
+    setAiError(null);
+    setLoadingAi(false);
+    return () => {
+      const pending = aiRequest.current;
+      aiRequest.current = null;
+      pending?.controller.abort();
+      if (pending) aiManager.stopAnalysis(pending.id);
+    };
+  }, [nickname, platform, groupKey, coachingStyle, cache, cacheScope]);
+
   // 1. Fetch detected squad list on mount
   const fetchSquadGroups = useCallback(async () => {
+    const requestId = ++listRequestId.current;
     try {
       setLoadingList(true);
       setListError(false);
       setGroups([]);
-      const res = await fetch(`/api/pubg/squad-analyze?nickname=${encodeURIComponent(nickname)}&platform=${platform}`);
-      if (!res.ok) throw new Error("Squad list request failed");
-      const data = await res.json();
-      if (data?.error) throw new Error("Squad list response failed");
+      const data = await cache.get(cacheScope, `/api/pubg/squad-analyze?nickname=${encodeURIComponent(nickname)}&platform=${platform}`);
+      if (requestId !== listRequestId.current) return;
 
       setGroups(Array.isArray(data.groups) ? data.groups : []);
     } catch (err) {
+      if (requestId !== listRequestId.current) return;
       console.error("Failed to load squad list:", err);
       setListError(true);
     } finally {
-      setLoadingList(false);
+      if (requestId === listRequestId.current) setLoadingList(false);
     }
-  }, [nickname, platform]);
+  }, [nickname, platform, cache, cacheScope]);
 
   useEffect(() => {
     void fetchSquadGroups();
+    return () => { listRequestId.current += 1; };
   }, [fetchSquadGroups]);
 
   const firstGroupKey = groups[0]?.groupKey as string | undefined;
@@ -207,19 +230,20 @@ export default function SquadAnalysisPanel({
 
   // 2. Fetch detailed analysis when selected group changes
   const fetchSquadDetails = useCallback(async () => {
-    if (!groupKey || !hasSelectedGroup) return;
+    const requestId = ++detailRequestId.current;
+    setAnalysisData(null);
+    setAiFeedback(null);
+    if (!groupKey || !hasSelectedGroup) { setLoadingDetail(false); return; }
 
     try {
       setLoadingDetail(true);
       setDetailError(false);
       setAnalysisData(null);
       setAiFeedback(null);
-      const res = await fetch(
+      const data = await cache.get(cacheScope,
         `/api/pubg/squad-analyze?nickname=${encodeURIComponent(nickname)}&platform=${platform}&groupKey=${encodeURIComponent(groupKey)}`
       );
-      if (!res.ok) throw new Error("Squad detail request failed");
-      const data = await res.json();
-      if (!data || data.error) throw new Error("Squad detail response failed");
+      if (requestId !== detailRequestId.current) return;
 
       setAnalysisData(data);
       // GA4 스쿼드 시너지 전술 데이터 로드 완료
@@ -233,15 +257,17 @@ export default function SquadAnalysisPanel({
         },
       });
     } catch (err) {
+      if (requestId !== detailRequestId.current) return;
       console.error("Failed to load squad details:", err);
       setDetailError(true);
     } finally {
-      setLoadingDetail(false);
+      if (requestId === detailRequestId.current) setLoadingDetail(false);
     }
-  }, [groupKey, hasSelectedGroup, nickname, platform]);
+  }, [groupKey, hasSelectedGroup, nickname, platform, cache, cacheScope]);
 
   useEffect(() => {
     void fetchSquadDetails();
+    return () => { detailRequestId.current += 1; };
   }, [fetchSquadDetails]);
 
   // Sync selected map match ID when analysisData loads
@@ -256,7 +282,7 @@ export default function SquadAnalysisPanel({
   // 3. Request AI squad coaching
   const requestAiCoaching = async () => {
     if (!analysisData) return;
-    if (loadingAi || isGlobalAnalyzing) return;
+    if (loadingAi || isGlobalAnalyzing || aiError?.retryable === false) return;
     if (!user) {
       toast.error("AI 스쿼드 분석은 로그인 후 이용할 수 있습니다.", {
         action: {
@@ -276,12 +302,15 @@ export default function SquadAnalysisPanel({
       }
     });
 
+    const pending = { id: `squad:${crypto.randomUUID()}`, controller: new AbortController() };
+    if (!aiManager.startAnalysis(pending.id)) return;
+    aiRequest.current = pending;
     try {
-      if (!aiManager.startAnalysis("squad")) return;
       setLoadingAi(true);
-      setAiError(false);
+      setAiError(null);
       const res = await fetch("/api/pubg/ai-squad", {
         method: "POST",
+        signal: pending.controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           groupKey: analysisData.groupKey,
@@ -291,9 +320,17 @@ export default function SquadAnalysisPanel({
         })
       });
       
-      if (!res.ok) throw new Error("스쿼드 AI 분석 API 응답 에러");
       const data = await res.json();
-      if (!data || data.error) throw new Error("스쿼드 AI 분석 응답 오류");
+      if (aiRequest.current !== pending) return;
+      if (!res.ok || !data || data.error) {
+        setAiError({
+          message: res.status === 409
+            ? "코칭에 필요한 경기 지표가 아직 없습니다. 전적 분석이 완료된 뒤 다시 확인해 주세요."
+            : "일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+          retryable: data?.retryable !== false && res.status !== 409,
+        });
+        return;
+      }
       setAiFeedback(data);
       
       // [GA4 Analytics] AI 스쿼드 코칭 생성 완료
@@ -315,8 +352,9 @@ export default function SquadAnalysisPanel({
         }
       });
     } catch (err: any) {
+      if (aiRequest.current !== pending) return;
       console.error("AI coaching request failed:", err);
-      setAiError(true);
+      setAiError({ message: "일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.", retryable: true });
       
       // GA4 이벤트 트래킹: 스쿼드 시너지 분석 실패
       trackEvent({
@@ -328,8 +366,11 @@ export default function SquadAnalysisPanel({
         }
       });
     } finally {
-      setLoadingAi(false);
-      aiManager.stopAnalysis("squad");
+      if (aiRequest.current === pending) {
+        aiRequest.current = null;
+        setLoadingAi(false);
+      }
+      aiManager.stopAnalysis(pending.id);
     }
   };
 
@@ -572,7 +613,7 @@ export default function SquadAnalysisPanel({
 
       {detailError && !loadingDetail && (
         <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-6 text-center">
-          <p className="text-sm text-red-200">일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.</p>
+          <p role="alert" className="text-sm text-red-200">스쿼드 데이터를 불러오지 못했습니다. 다시 시도해 주세요.</p>
           <button
             type="button"
             onClick={() => void fetchSquadDetails()}
@@ -701,7 +742,7 @@ export default function SquadAnalysisPanel({
                         <InlineIconLabel icon="rank">스쿼드 협동 등급</InlineIconLabel>
                       </span>
                       <span className="text-purple-400 font-black text-sm tracking-wide bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/15">
-                        {analysisData.squadGrade || "측정 불가"} Grade
+                        {analysisData.squadGrade ? `${analysisData.squadGrade} Grade` : "등급 보류"}
                       </span>
                     </div>
                     <div className="flex justify-between border-b border-zinc-900 pb-2">
@@ -768,7 +809,9 @@ export default function SquadAnalysisPanel({
                   </span>
                 </div>
                 <div className="text-[10px] text-zinc-500 text-right -mt-0.5">
-                  글로벌 권장 기준치: 30% 이상
+                  {analysisData.stats.avgCoverRate === null
+                    ? "아직 집계하지 않는 지표입니다. 실제 엄호 여부와 관계없이 평가를 보류합니다."
+                    : "확인된 동시 교전 참여 기록 기준"}
                 </div>
               </div>
 
@@ -873,7 +916,7 @@ export default function SquadAnalysisPanel({
               
               <button
                 onClick={requestAiCoaching}
-                disabled={loadingAi || isGlobalAnalyzing}
+                disabled={loadingAi || isGlobalAnalyzing || aiError?.retryable === false}
                 className="flex items-center justify-center rounded-lg bg-purple-600 hover:bg-purple-700 px-4 py-2 text-xs font-semibold text-white transition-all disabled:opacity-50"
               >
                 {loadingAi ? (
@@ -886,22 +929,27 @@ export default function SquadAnalysisPanel({
             </div>
           </div>
  
+          {!analysisData.squadGrade && (
+            <p className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4 text-sm leading-relaxed break-keep text-amber-100/90">
+              미측정 지표가 있어 종합 등급은 보류합니다. AI 코칭은 확인된 경기 지표만으로 진행하며, 미측정 값을 0점으로 평가하지 않습니다.
+            </p>
+          )}
           {aiError && (
             <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4 text-center">
-              <p className="text-sm text-red-200">일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.</p>
-              <button
+              <p role="alert" className="text-sm text-red-200">{aiError.message}</p>
+              {aiError.retryable && <button
                 type="button"
                 onClick={requestAiCoaching}
                 className="mt-3 rounded-lg border border-red-400/30 px-3 py-1.5 text-xs font-bold text-red-200 transition-colors hover:bg-red-400/10"
               >
                 다시 시도
-              </button>
+              </button>}
             </div>
           )}
 
           {/* AI Result View */}
           {aiFeedback && (
-            <div className="space-y-4 pt-4 border-t border-purple-500/10">
+            <div className="space-y-4 pt-4 border-t border-purple-500/10 break-keep">
               {/* 캡처 타겟 박스 (resultCardRef) */}
               <div
                 ref={resultCardRef}
@@ -913,7 +961,7 @@ export default function SquadAnalysisPanel({
                     <span className="text-xs text-purple-400 font-bold tracking-wide">Squad Grade</span>
                     <div className="relative flex items-center justify-center h-20 w-20 my-3">
                       <Award className="h-16 w-16 text-purple-500" />
-                      <span className="absolute text-xl font-black text-white">{aiFeedback.squadGrade}</span>
+                      <span className="absolute text-xl font-black text-white">{aiFeedback.squadGrade || "보류"}</span>
                     </div>
                     <p className="text-xs text-zinc-200 font-semibold max-w-[200px] break-keep text-center leading-relaxed">{aiFeedback.summary}</p>
                   </div>

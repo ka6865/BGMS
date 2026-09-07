@@ -26,7 +26,7 @@ export function buildSquadAiCoachingPrompt(input: SquadAiPromptInput): SquadAiPr
     coachingStyle = "spicy",
     // Missing analysis evidence must stay visibly unavailable.  A synthetic
     // B grade would look measured to the model and downstream consumers.
-    squadGrade = "측정 불가",
+    squadGrade = null,
     benchmarkStats,
     matchCount = 1,
   } = input;
@@ -73,7 +73,8 @@ export function buildSquadAiCoachingPrompt(input: SquadAiPromptInput): SquadAiPr
     : `${Math.round(coverRateValue * 100)}%`;
   const displaySquadGrade = typeof squadGrade === "string" && squadGrade.trim()
     ? squadGrade.trim()
-    : "측정 불가";
+    : "등급 보류";
+  const gradeOutput = displaySquadGrade === "등급 보류" ? "null" : JSON.stringify(displaySquadGrade);
 
   const membersReport = roleProfiles.map((p: any) => {
     return `- Nickname: ${typeof p?.name === "string" && p.name.trim() ? p.name : "측정 불가"}
@@ -92,10 +93,10 @@ export function buildSquadAiCoachingPrompt(input: SquadAiPromptInput): SquadAiPr
 - Global Avg Squad Team Wipes (경기당 적 전멸 기여): ${formatObserved(benchmarkStats.avgTeamWipes, "회")} (Our Squad Avg: ${formatAverageObserved(stats?.totalTeamWipes, matchCount, "회")})
 
 [Assigned Fixed Squad Grade]
-- Given Grade: ${displaySquadGrade} (You must strictly output this exact grade in the "squadGrade" JSON field. Do NOT change it.)
+- Given Grade: ${displaySquadGrade} (Output ${gradeOutput} in the "squadGrade" JSON field. Do NOT recalculate.)
 ` : `
 [Assigned Fixed Squad Grade]
-- Given Grade: ${displaySquadGrade} (You must strictly output this exact grade in the "squadGrade" JSON field. Do NOT change it.)
+- Given Grade: ${displaySquadGrade} (Output ${gradeOutput} in the "squadGrade" JSON field. Do NOT recalculate.)
 `;
 
   const squadReportSummary = `
@@ -151,7 +152,7 @@ Analyze the provided squad synergy report and write a report.
 - Current top damage share is ${topDamageShareText}. ${topDamageGuidance} Use "주요 진입 화력 중심" or "화력 분담 보완" instead.
 - Do NOT claim teammates are used as bait unless the data explicitly contains bait counts or bait death evidence.
 - Forbidden phrases for this input shape: "고립될 위험", "독단적인 플레이", "너무 멀리", "오합지졸", "1인 솔로 4개", "혼자 정글북", "원맨쇼", "혼자 다 해먹", "미끼", "팀이 무너지는 구조", "나머지 팀원들의 화력 지원이 전무", "팀 전체가 휘청", "존재감이 희미", "강희성".
-- CRITICAL: You MUST use the exact GIVEN squadGrade ("${displaySquadGrade}") in the "squadGrade" output property. Do NOT change or recalculate the grade yourself.
+- CRITICAL: You MUST output ${gradeOutput} in the "squadGrade" property. Do NOT change or recalculate the grade yourself.
       `.trim() : `
 You are "SPICY BOMBER", a brutal, fact-based, and highly sarcastic PUBG tactical analyst.
 Analyze the provided squad synergy report and write a detailed roast and analysis.
@@ -178,15 +179,23 @@ Analyze the provided squad synergy report and write a detailed roast and analysi
 11. Current top damage share is ${topDamageShareText}. ${topDamageGuidance} Use "주요 진입 화력 중심" or "화력 분담 보완" instead.
 12. Do NOT claim teammates are used as bait unless the data explicitly contains bait counts or bait death evidence.
 13. Forbidden phrases for this input shape: "고립될 위험", "독단적인 플레이", "너무 멀리", "오합지졸", "1인 솔로 4개", "혼자 정글북", "원맨쇼", "혼자 다 해먹", "미끼", "팀이 무너지는 구조", "나머지 팀원들의 뇌", "나머지 팀원들의 화력 지원이 전무", "팀 전체가 휘청", "존재감이 희미", "강희성".
-14. CRITICAL: You MUST use the exact GIVEN squadGrade ("${displaySquadGrade}") in the "squadGrade" output property. Do NOT change or recalculate the grade yourself.
+14. CRITICAL: You MUST output ${gradeOutput} in the "squadGrade" property. Do NOT change or recalculate the grade yourself.
       `.trim();
 
   const prompt = `
 ${squadReportSummary}
 
 Based on the above performance data, write a tactical coaching report according to your designated persona.
-Make sure to reference the GIVEN squadGrade "${displaySquadGrade}" and the compared benchmark statistics to provide concrete, quantitative facts (e.g. "평균 대비 X초 빠름") in your feedback.
+Use measured statistics and available benchmarks to provide concrete, quantitative facts (e.g. "평균 대비 X초 빠름") in your feedback.
     `.trim();
 
-  return { prompt, systemInstruction, squadReportSummary };
+  const evidenceRules = `
+[Missing observation policy — overrides persona and grade instructions above]
+- Unavailable metrics are NOT zero or poor play. Never praise, blame, compare, or infer performance from them.
+- If cover rate or focus-fire score is unavailable, do not evaluate cover, covering teammates, simultaneous engagement, or focus-fire ability anywhere, including member feedback. There is no implemented cover collection yet; this does not mean a lack of cover opportunities.
+- Only discuss measured metrics. If no supported weakness is evident, state that further observation is needed instead of inventing a fault.
+- Do not infer player intent, communication, safety, or actions from absent evidence.
+- ${gradeOutput === "null" ? 'Overall grade is withheld. Output JSON null for squadGrade. Do not assign a grade in any prose field.' : `Output exactly "${displaySquadGrade}" as squadGrade.`}
+`;
+  return { prompt, systemInstruction: `${systemInstruction}\n${evidenceRules}`, squadReportSummary };
 }

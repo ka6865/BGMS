@@ -1,7 +1,8 @@
 // 파일 위치: components/stat/layout/StatsPageShell.tsx
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { createSquadRequestCache } from "@/lib/stats/squadRequestCache";
 import { StatSummaryPanel } from "@/components/stat/StatSummaryPanel";
 import dynamic from "next/dynamic";
 import { Shield, ChevronDown } from "lucide-react";
@@ -112,6 +113,10 @@ export function StatsPageShell({
   }, [matchTab, setHistoryPage, setMatchTab]);
 
   const { user } = useAuth();
+  // A fresh search/refresh result or login change owns a fresh cache. Tab
+  // switches retain this page instance and reuse both pending and ready GETs.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- Deliberately replace the cache when its owning snapshot or user changes.
+  const squadRequestCache = useMemo(() => createSquadRequestCache(), [result, user?.id]);
   const [cooldown, setCooldown] = useState(false);
   const isSearchingRef = useRef(false);
   const cooldownTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -503,6 +508,7 @@ export function StatsPageShell({
             </div>
           ) : (
             <SquadAnalysisPanel
+              requestCache={squadRequestCache}
               nickname={result.nickname}
               platform={result.platform}
               groupKey={groupKey}
