@@ -15,7 +15,7 @@ dotenv.config({path:'.env.local',quiet:true});
 const {values}=parseArgs({options:{
   'output-dir':{type:'string',default:'tmp/calculation-upgrade-full-rollout'},
   catalog:{type:'string',default:'tmp/calculation-upgrade-raw-catalog.json'},
-  apply:{type:'boolean',default:false},'acquire-raw':{type:'boolean',default:false},
+  apply:{type:'boolean',default:false},'canonical-only':{type:'boolean',default:false},'acquire-raw':{type:'boolean',default:false},
   'max-matches':{type:'string',default:'25'},'max-source-mib':{type:'string',default:'32'},'max-download-mib':{type:'string',default:'512'},
   'max-runtime-minutes':{type:'string',default:'10'},
 }});
@@ -27,6 +27,7 @@ if(values['acquire-raw']&&!values.apply)throw new Error('raw_acquisition_require
 const url=process.env.NEXT_PUBLIC_SUPABASE_URL,key=process.env.SUPABASE_SERVICE_ROLE_KEY;
 if(!url||!key)throw new Error('Supabase server environment required');
 const project=new URL(url).hostname;
+const canonicalOnly=values['canonical-only']===true;
 const db=createClient(url,key,{auth:{persistSession:false,autoRefreshToken:false}});
 const output=resolve(values['output-dir']!);await mkdir(output,{recursive:true,mode:0o700});
 const exists=async(p:string)=>{try{await access(p);return true;}catch{return false;}};
@@ -57,8 +58,8 @@ async function acquire(group:RolloutMatch,dir:string){
   const apiKey=(process.env.PUBG_API_KEY??'').split(' ')[0];if(!apiKey)throw new Error('PUBG_API_KEY missing');
   const m=await fetchJson(assertHttpsHost(`https://api.pubg.com/shards/${group.platform}/matches/${group.matchId}`,/^api\.pubg\.com$/i,'match'),{Authorization:`Bearer ${apiKey}`,Accept:'application/vnd.api+json'},'match');
   const match=m.value;
-  if(match?.data?.id!==group.matchId||match.data.attributes?.shardId!==group.platform||!['official','competitive'].includes(match.data.attributes?.matchType)
-    ||!['solo','solo-fpp','duo','duo-fpp','squad','squad-fpp'].includes(match.data.attributes?.gameMode))throw new Error('match_identity_or_population_rejected');
+  if(match?.data?.id!==group.matchId||match.data.attributes?.shardId!==group.platform)throw new Error('match_identity_rejected');
+  if(!['official','competitive'].includes(match.data.attributes?.matchType)||!['solo','solo-fpp','duo','duo-fpp','squad','squad-fpp'].includes(match.data.attributes?.gameMode))throw new Error('source_population_ineligible');
   const assetId=match.data.relationships?.assets?.data?.[0]?.id;
   const asset=match.included?.find((row:any)=>row.type==='asset'&&row.id===assetId);
   const t=await fetchJson(assertHttpsHost(String(asset?.attributes?.URL),/(^|\.)pubg\.com$/i,'telemetry'),{Accept:'application/json'},'telemetry');
@@ -80,10 +81,24 @@ try{
       rows.push(...page);if(rows.length>20000)throw new Error('inventory_row_cap');
       if(page.length<500)break;cursor=page.at(-1).id;
     }
-    snapshot={version:1,project,calculationVersion:2,createdAt:new Date().toISOString(),highWater,rows,hash:stableHash(rows)};
+    if(canonicalOnly){
+      rows.length=0;
+      const eligible=new Set<string>();let bcursor=0;
+      for(;;){const page=await readDb(db.from('global_benchmarks').select('id,match_id,platform,player_id').gt('id',bcursor).lte('id',highWater).eq('filter_version',8).eq('population_evidence_version',1).in('match_type',['official','competitive']).in('game_mode',['solo','solo-fpp','duo','duo-fpp','squad','squad-fpp']).order('id').limit(500));for(const b of page)eligible.add(`${b.platform}/${b.match_id}/${b.player_id}`);if(page.length<500)break;bcursor=page.at(-1).id;}
+      const cutoff=new Date().toISOString();let rowId=0;
+      for(let offset=0;;offset+=250){
+        const page=await readDb(db.from('processed_match_telemetry').select('match_id,platform,player_id,created_at').in('platform',['steam','kakao']).lte('created_at',cutoff).order('match_id').order('platform').order('player_id').range(offset,offset+249));
+        for(const r of page){
+          if(eligible.has(`${r.platform}/${r.match_id}/${r.player_id}`))continue;
+          rows.push({id:++rowId,match_id:r.match_id,platform:r.platform,player_id:r.player_id,created_at:r.created_at});
+        }
+        if(offset>20000)throw new Error('canonical_inventory_cap');if(page.length<250)break;
+      }
+    }
+    snapshot={version:1,project,calculationVersion:2,canonicalOnly,createdAt:new Date().toISOString(),highWater,rows,hash:stableHash(rows)};
     assertRolloutSnapshot(snapshot,project);await save(snapshotPath,snapshot);
   }
-  assertRolloutSnapshot(snapshot,project);const groups=groupRolloutRows(snapshot.rows);
+  assertRolloutSnapshot(snapshot,project);if(Boolean(snapshot.canonicalOnly)!==canonicalOnly)throw new Error('rollout_mode_mismatch');const groups=groupRolloutRows(snapshot.rows);
   state=await exists(statePath)?await json(statePath):{version:1,project,inventoryHash:snapshot.hash,nextIndex:0,totalMatches:groups.length,totalRows:snapshot.rows.length,upstreamRequests:0,downloadedBytes:0,results:[],phase:'prepared'};
   assertRolloutProgress(state,snapshot.hash,project,groups.length);
   if(!values.apply){await save(statePath,state);console.log(JSON.stringify({dryRun:true,rows:snapshot.rows.length,matches:groups.length,nextIndex:state.nextIndex,snapshot:snapshotPath}));}
@@ -92,24 +107,40 @@ try{
     if(catalog.version!==1||!Array.isArray(catalog.sources))throw new Error('invalid_source_catalog');
     const sources=new Map<string,any>(catalog.sources.map((s:any)=>[`${s.platform}/${s.matchId}`,{...s,matchFile:resolve(dirname(catalogPath),s.matchFile),telemetryFile:resolve(dirname(catalogPath),s.telemetryFile)}]));
     state.phase='running';delete state.error;await save(statePath,state);
-    while(state.nextIndex<groups.length&&handledThisRun<maxMatches&&Date.now()-started<runtimeMs){
+    while(state.nextIndex<groups.length&&handledThisRun<maxMatches&&Date.now()-started<runtimeMs&&!await exists(resolve(output,'PAUSE'))){
       const index=state.nextIndex,group=groups[index],dir=resolve(output,`match-${index}`);await mkdir(dir,{recursive:true,mode:0o700});
       const result:any={index,platform:group.platform,matchId:group.matchId,targetRows:group.rows.length,decisions:[],checkpoints:[]};
       // Inspect just version markers before paying for a raw download.
       const meta=await readDb(db.from('processed_match_telemetry').select('player_id,v:data->fullResult->v,calculation:data->fullResult->calculationVersion').eq('match_id',group.matchId).eq('platform',group.platform));
-      const currentVersion=meta.filter((r:any)=>Number(r.v)===73);
+      const currentVersion=meta.filter((r:any)=>(canonicalOnly?[72,73]:[73]).includes(Number(r.v)));
       let source=sources.get(`${group.platform}/${group.matchId}`),owned=false;
-      if(!currentVersion.length){result.status=meta.length?'legacy_version':'canonical_missing';}
+      const requestedPlayers=new Set(group.rows.map(r=>r.player_id));
+      const requestedMeta=meta.filter((r:any)=>requestedPlayers.has(r.player_id));
+      if(canonicalOnly&&requestedMeta.length===requestedPlayers.size&&requestedMeta.every((r:any)=>Number(r.calculation)===2)){result.status='already_current';}
+      else if(!currentVersion.length){result.status=meta.length?'legacy_version':'canonical_missing';}
       else{
         if(!source){
           if(!values['acquire-raw'])throw new Error('raw_acquisition_not_enabled');
           try{source=await acquire(group,dir);owned=true;}
-          catch(error:any){if(/^(match_http_404|telemetry_http_40[34])$/.test(error.message)){result.status='official_source_unavailable';result.reason=error.message;}else throw error;}
+          catch(error:any){if(/^(match_http_404|telemetry_http_40[34])$/.test(error.message)){result.status='official_source_unavailable';result.reason=error.message;}else if(error.message==='source_population_ineligible'){result.status='population_ineligible';}else throw error;}
         }
         if(source){
           const pairBytes=(await stat(source.matchFile)).size+(await stat(source.telemetryFile)).size;
           if(pairBytes>sourceLimit+2*1024*1024)throw new Error('raw_pair_exceeds_prepare_cap');
           const localCatalog=resolve(dir,'catalog.json');await save(localCatalog,{version:1,sources:[source]});
+          if(canonicalOnly){
+            for(let part=0;part<Math.ceil(group.rows.length/10);part++){
+              const plan=resolve(dir,`canonical-${part}.json`),checkpoint=`${plan}.checkpoint.json`,targetsFile=resolve(dir,`targets-${part}.json`);
+              if(!await exists(plan)){
+                await save(targetsFile,group.rows.slice(part*10,part*10+10).map(r=>({matchId:r.match_id,platform:r.platform,playerId:r.player_id})));
+                await run('scripts/calculation_upgrade_canonical_batch.ts',['--targets',targetsFile,'--catalog',localCatalog,'--output',plan]);
+              }
+              if(await exists(checkpoint)){if((await json(checkpoint)).phase!=='completed')await run('scripts/calculation_upgrade_canonical_batch.ts',['--resume',checkpoint,'--apply']);}
+              else await run('scripts/calculation_upgrade_canonical_batch.ts',['--plan',plan,'--apply']);
+              const completed=await json(checkpoint);if(completed.phase!=='completed')throw new Error('canonical_apply_not_completed');
+              result.decisions.push(...completed.decisions);result.checkpoints.push({path:checkpoint,writes:completed.counters.databaseWrites});
+            }
+          }else{
           // Revisit the SAME match until the bounded ten-row batch has no deferred rows.
           for(let part=0;part<100;part++){
             const plan=resolve(dir,`part-${part}.json`),checkpoint=`${plan}.checkpoint.json`;
@@ -128,6 +159,7 @@ try{
             result.decisions.push(...manifest.decisions.filter((d:any)=>d.status!=='deferred_batch_limit'));
             if(!manifest.decisions.some((d:any)=>d.status==='deferred_batch_limit'))break;
             if(!manifest.upgrades.length||part===99)throw new Error('batch_made_no_progress');
+          }
           }
           result.status='processed';
         }

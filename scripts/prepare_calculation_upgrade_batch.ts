@@ -1,3 +1,4 @@
+import { calculateUpgradeFromOfficialRaw } from "./calculation_upgrade_raw";
 /**
  * Read-only calculation-upgrade discovery.
  *
@@ -10,12 +11,9 @@ import { dirname, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
-import { AnalysisEngine } from "../lib/pubg-analysis/AnalysisEngine";
 import { getValidFullResultForMatch, hasCurrentCalculation } from "../lib/pubg-analysis/cacheIdentity";
 import { ANALYSIS_CALCULATION_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
 import { buildBenchmarkRow, type AnalysisSource } from "../lib/pubg-analysis/persistMatchAnalysis";
-import { filterTelemetryEvents } from "../lib/pubg-analysis/telemetryContract";
-import { containsTelemetryAccountEvidence, hasMatchingTelemetryDefinition } from "../lib/pubg-analysis/telemetrySource";
 import { normalizeName } from "../lib/pubg-analysis/utils";
 import {
   buildCalculationUpgradeManifest,
@@ -24,7 +22,6 @@ import {
   type CalculationUpgradeIdentity,
   type CalculationUpgradeLimits,
   type CalculationUpgradeCounters,
-  stableHash,
   summarizeCalculationUpgradeDecisions,
 } from "./calculation_upgrade_batch";
 
@@ -146,41 +143,13 @@ function registryEvidence(rows: any[], identity: CalculationUpgradeIdentity): Ca
 }
 
 function buildUpgrade(identity: CalculationUpgradeIdentity, processed: any, benchmark: any, source: RawSource): Upgrade | "benchmark_ineligible" {
-  const { match, telemetry: raw } = source;
-  if (match?.data?.id !== identity.matchId
-    || !hasMatchingTelemetryDefinition(raw, identity.matchId, identity.platform)
-    || !raw.some((event: any) => event?._T === "LogMatchStart")
-    || !raw.some((event: any) => event?._T === "LogMatchEnd")) throw new Error("raw_source_identity_or_boundary_invalid");
-  const participants = match.included?.filter((item: any) => item?.type === "participant") ?? [];
-  const rosters = match.included?.filter((item: any) => item?.type === "roster") ?? [];
-  const requester = participants.find((item: any) => normalizeName(item.attributes?.stats?.name) === identity.playerId);
-  const roster = requester && rosters.find((item: any) => item.relationships?.participants?.data?.some((member: any) => member.id === requester.id));
-  if (!requester || !roster) throw new Error("raw_source_canonical_roster_missing");
-  const members = participants.filter((item: any) => roster.relationships.participants.data.some((member: any) => member.id === item.id));
-  const stats = requester.attributes?.stats;
-  if (!stats?.playerId || !containsTelemetryAccountEvidence(raw, stats.playerId)) throw new Error("raw_source_account_evidence_missing");
-  const old = getValidFullResultForMatch(processed, { matchId: identity.matchId, platform: identity.platform, playerId: identity.playerId, minResultVersion: RESULT_VERSION, requireExactResultVersion: true });
-  if (!old || ((old.stats as any)?.playerId !== stats.playerId && (old.stats as any)?.accountId !== stats.playerId)) throw new Error("raw_source_previous_player_binding_mismatch");
-  const ids = new Set<string>(members.map((item: any) => item.attributes?.stats?.playerId).filter(Boolean));
-  const names = new Set<string>(members.map((item: any) => normalizeName(item.attributes?.stats?.name)).filter(Boolean));
-  const run = (events: any[]) => {
-    const result: any = new AnalysisEngine(stats.name, stats.playerId, names, ids, new Set(), new Set(), roster.id).run(
-      events, { ...match.data.attributes, id: identity.matchId }, rosters, participants, stats,
-      members.map((item: any) => item.attributes.stats), {},
-    );
-    delete result.processedAt;
-    delete result.mapData;
-    return { ...result, platform: identity.platform, player_id: identity.playerId };
-  };
-  const full = run(raw);
-  const filtered = run(filterTelemetryEvents(raw, { mode: "full", teamAccountIds: ids, teamNames: names }));
-  if (stableHash(full) !== stableHash(filtered)) throw new Error("raw_source_full_projection_arithmetic_mismatch");
+  const { full, matchAttr } = calculateUpgradeFromOfficialRaw(identity, processed, source);
   // Preserve the source marker observed in the complete benchmark snapshot.
   // A missing/unknown marker is unsafe to overwrite because it would silently
   // change provenance while upgrading only the calculation payload.
   const benchmarkSource = benchmark?.source;
   if (benchmarkSource !== "user" && benchmarkSource !== "scraper") throw new Error("benchmark_source_invalid");
-  const nextBenchmark = buildBenchmarkRow({ matchId: identity.matchId, platform: identity.platform, playerNickname: identity.playerId, source: benchmarkSource as AnalysisSource, forceBenchmark: false, finalResult: full, matchAttr: match.data.attributes });
+  const nextBenchmark = buildBenchmarkRow({ matchId: identity.matchId, platform: identity.platform, playerNickname: identity.playerId, source: benchmarkSource as AnalysisSource, forceBenchmark: false, finalResult: full, matchAttr });
   if (!nextBenchmark) return "benchmark_ineligible";
   return { p_match_id: identity.matchId, p_platform: identity.platform, p_player_id: identity.playerId, p_expected_data: processed.data, p_expected_benchmark: benchmark, p_full_result: full, p_benchmark: nextBenchmark };
 }

@@ -32,6 +32,7 @@ MIGRATIONS=(
   "20260904130000_telemetry_cache_recovery_safety"
   "20260907133015_analysis_calculation_version"
   "20260907140000_user_lifecycle_events"
+  "20260907183000_analysis_calculation_canonical_only"
 )
 
 cleanup() {
@@ -96,6 +97,7 @@ done
 
 echo "▶ RPC 동작 시나리오 실행"
 "${PSQL[@]}" -f tests/fixtures/migration-check/membership-lifecycle-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/calculation-canonical-scenarios.sql
 if ! OUTPUT="$("${PSQL[@]}" -f tests/fixtures/migration-check/scenarios.sql 2>&1)"; then
   printf '%s\n' "$OUTPUT"
   exit 1
