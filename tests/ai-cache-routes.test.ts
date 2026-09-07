@@ -4289,6 +4289,37 @@ describe("AI cache route stabilization", () => {
     expect(visuals.teamImpact).not.toHaveProperty("teamKillShare");
   });
 
+  it.each([false, true])("ai-summary는 일부 경기의 유틸리티 관측 누락을 전체 합계로 표시하지 않는다 (누락 먼저: %s)", async (missingFirst) => {
+    mockSummaryGeminiResponse();
+    const observed = createSummaryMatch("utility-observed", {
+      combatPressure: { utilityStats: { throwCount: 8, lethalThrowCount: 5, hitCount: 2, totalDamage: 90, killCount: 1 } },
+    });
+    const missing = createSummaryMatch("utility-missing", {
+      combatPressure: { utilityStats: {} },
+      itemUseStats: {},
+      // A frag count without a molotov observation cannot establish a lethal total.
+      itemUseSummary: { frags: 2 },
+    });
+    const matches = missingFirst ? [missing, observed] : [observed, missing];
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: createQueryChain({ data: null, error: null }),
+      processed_match_telemetry: createQueryChain({ data: matches.map((match) => ({
+        match_id: match.matchId, player_id: "player_a", platform: "kakao", data: { fullResult: match },
+      })), error: null }),
+      benchmark_stats_by_tier: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: matches.map((match) => match.matchId), nickname: "Player_A", platform: "kakao", force: true,
+    }));
+    const visuals = parseSummaryNdjson(await response.text()).find((record) => record.type === "visuals")?.data;
+    expect(response.status).toBe(200);
+    expect(visuals.latestMatchCount).toBe(2);
+    expect(visuals.utility).toMatchObject({
+      totalThrows: "측정 불가", lethalThrows: "측정 불가", hits: "측정 불가", damage: "측정 불가", kills: "측정 불가",
+    });
+  });
+
   it("ai-summary는 결측 전투·운영·유틸리티 telemetry를 0으로 제조하지 않고 prompt와 visual을 측정 불가로 유지한다", async () => {
     let capturedPrompt = "";
     mockSummaryGeminiResponse((prompt) => {

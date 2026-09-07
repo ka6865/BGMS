@@ -507,11 +507,11 @@ function aggregateMatches(matches: any[]) {
   let totalInitiativeSuccess = 0, totalInitiativeAttempts = 0;
   let totalCrossfireCount = 0, totalTeamWipes = 0, totalMaxHitDist: number | null = null;
   let totalDuelWins = 0, totalDuelLosses = 0, totalReversalWins = 0, totalReversalAttempts = 0;
-  let totalUtilityThrows: number | null = null;
-  let totalLethalThrows: number | null = null;
-  let totalUtilityHits: number | null = null;
-  let totalUtilityDamage: number | null = null;
-  let totalUtilityKills: number | null = null;
+  const observedUtilityThrows: Array<number | null> = [];
+  const observedLethalThrows: Array<number | null> = [];
+  const observedUtilityHits: Array<number | null> = [];
+  const observedUtilityDamage: Array<number | null> = [];
+  const observedUtilityKills: Array<number | null> = [];
   let totalDeathPhase = 0, totalBluezoneWaste: number | null = null;
   let deathPhaseCount = 0;
   let bluezoneWasteCount = 0;
@@ -646,7 +646,7 @@ function aggregateMatches(matches: any[]) {
     const utilityStats = m.combatPressure?.utilityStats;
     const fragCount = readObservedNonNegative(m.itemUseSummary?.frags);
     const molotovCount = readObservedNonNegative(m.itemUseSummary?.molotovs);
-    const derivedLethalThrowCount = fragCount !== null || molotovCount !== null
+    const derivedLethalThrowCount = fragCount !== null && molotovCount !== null
       ? (fragCount ?? 0) + (molotovCount ?? 0)
       : null;
     const lethalThrowCount = firstObservedNonNegative(
@@ -654,29 +654,22 @@ function aggregateMatches(matches: any[]) {
       m.itemUseStats?.lethalThrowCount,
       derivedLethalThrowCount,
     );
-    totalLethalThrows = addObservedTotal(totalLethalThrows, lethalThrowCount);
+    observedLethalThrows.push(lethalThrowCount);
 
     const utilityThrowCount = firstObservedNonNegative(
       utilityStats?.throwCount,
       m.itemUseStats?.throwCount,
     );
-    totalUtilityThrows = addObservedTotal(totalUtilityThrows, utilityThrowCount);
+    observedUtilityThrows.push(utilityThrowCount);
 
     const utilityHitCount = firstObservedNonNegative(
       utilityStats?.hitCount,
       m.combatPressure?.utilityHits,
     );
-    if (utilityHitCount !== null) {
-      totalUtilityHits = addObservedTotal(
-        totalUtilityHits,
-        lethalThrowCount === null ? utilityHitCount : Math.min(utilityHitCount, lethalThrowCount),
-      );
-    }
-    totalUtilityDamage = addObservedTotal(
-      totalUtilityDamage,
-      firstObservedNonNegative(utilityStats?.totalDamage, m.combatPressure?.utilityDamage),
-    );
-    totalUtilityKills = addObservedTotal(totalUtilityKills, utilityStats?.killCount);
+    observedUtilityHits.push(utilityHitCount === null ? null
+      : lethalThrowCount === null ? utilityHitCount : Math.min(utilityHitCount, lethalThrowCount));
+    observedUtilityDamage.push(firstObservedNonNegative(utilityStats?.totalDamage, m.combatPressure?.utilityDamage));
+    observedUtilityKills.push(readObservedNonNegative(utilityStats?.killCount));
 
     const maxHitDistance = firstObservedNonNegative(
       m.combatPressure?.maxHitDistance,
@@ -810,6 +803,11 @@ function aggregateMatches(matches: any[]) {
   const avgPressureIndex = pressureIndexCount > 0
     ? Math.max(0, Number((totalPressureIndex / pressureIndexCount).toFixed(2)))
     : null;
+  const totalUtilityThrows = sumCompleteObservations(observedUtilityThrows);
+  const totalLethalThrows = sumCompleteObservations(observedLethalThrows);
+  const totalUtilityHits = sumCompleteObservations(observedUtilityHits);
+  const totalUtilityDamage = sumCompleteObservations(observedUtilityDamage);
+  const totalUtilityKills = sumCompleteObservations(observedUtilityKills);
   const avgUtilityEfficiency = totalLethalThrows !== null
     && totalLethalThrows > 0
     && totalUtilityDamage !== null
