@@ -3,13 +3,15 @@ import { GoogleGenerativeAI, SchemaType, HarmCategory, HarmBlockThreshold } from
 import { jsonrepair } from "jsonrepair";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
-import { AI_CACHE_VERSION, GEMINI_MODELS_TO_TRY } from "@/lib/pubg-analysis/constants";
+import { AI_SQUAD_CACHE_VERSION, GEMINI_MODELS_TO_TRY } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import crypto from "crypto";
 import { getSquadAnalysisData } from "@/lib/pubg-analysis/squadAnalysis";
 import { buildSquadAiCoachingPrompt } from "@/lib/pubg-analysis/squadAiCoachingPrompt";
 import { sanitizeAiCoachingLanguage } from "@/lib/pubg-analysis/aiCoachingQuality";
+
+import { applySquadEvidencePolicy, hasSquadObservations } from "@/lib/pubg-analysis/squadAiEvidence";
 
 function extractValidJson(text: string): string {
   try {
@@ -151,12 +153,12 @@ export async function POST(request: Request) {
     if (request.signal.aborted) throw new SquadRequestAbortedError();
     if (!squadData || !("matchesSummary" in squadData) || !Array.isArray(squadData.matchesSummary)
       || !squadData.stats || !squadData.scores || !Array.isArray(squadData.roleProfiles)
-      || !squadData.benchmarkStats || !squadData.matchCount
-      || typeof squadData.squadGrade !== "string" || !squadData.squadGrade.trim()) {
+      || !squadData.benchmarkStats || !Number.isInteger(squadData.matchCount) || squadData.matchCount <= 0
+      || !hasSquadObservations(squadData.stats)) {
       return NextResponse.json({
-        error: "canonical squad analysis is not ready",
+        error: "코칭에 필요한 경기 지표가 아직 없습니다. 전적 분석이 완료된 뒤 다시 확인해 주세요.",
         errorCode: "PUBG_AI_SQUAD_CANONICAL_NOT_READY",
-        retryable: true,
+        retryable: false,
       }, { status: 409 });
     }
     const canonical = canonicalSquadIdentity(squadData);
@@ -164,7 +166,9 @@ export async function POST(request: Request) {
     const canonicalStats = squadData.stats;
     const canonicalScores = squadData.scores;
     const canonicalRoleProfiles = squadData.roleProfiles;
-    const canonicalGrade = squadData.squadGrade;
+    const canonicalGrade = [squadData.scores.formation, squadData.scores.backupSpeed, squadData.scores.survivalCare, squadData.scores.focusFire, squadData.scores.teamWipe]
+      .every((score) => typeof score === "number" && Number.isFinite(score) && score >= 0 && score <= 100)
+      && typeof squadData.squadGrade === "string" && squadData.squadGrade.trim() ? squadData.squadGrade : null;
     const canonicalBenchmarkStats = squadData.benchmarkStats;
     const canonicalMatchCount = squadData.matchCount;
 
@@ -179,7 +183,7 @@ export async function POST(request: Request) {
         .eq("group_key", groupKey)
         .eq("match_ids_hash", matchIdsHash)
         .eq("coaching_style", coachingStyle)
-        .eq("prompt_version", AI_CACHE_VERSION)
+        .eq("prompt_version", AI_SQUAD_CACHE_VERSION)
         .abortSignal(request.signal)
         .maybeSingle();
 
@@ -191,7 +195,7 @@ export async function POST(request: Request) {
           requestId,
           platform: requestedPlatform,
         });
-        return NextResponse.json(sanitizeAiCoachingLanguage(cached.ai_result));
+        return NextResponse.json(applySquadEvidencePolicy(sanitizeAiCoachingLanguage(cached.ai_result), canonicalStats, canonicalGrade, canonicalScores));
       }
     } catch (dbErr) {
       if (request.signal.aborted) throw new SquadRequestAbortedError();
@@ -267,7 +271,7 @@ export async function POST(request: Request) {
             responseSchema: {
               type: SchemaType.OBJECT,
               properties: {
-                squadGrade: { type: SchemaType.STRING, description: `Must be exactly "${canonicalGrade}" (GIVEN overall grade)` },
+                squadGrade: { type: SchemaType.STRING, nullable: true, description: canonicalGrade ? `Must be exactly "${canonicalGrade}"` : "Must be null: overall grade is withheld for missing observations" },
                 summary: { type: SchemaType.STRING, description: "One-line tactical summary of this squad" },
                 strength: { type: SchemaType.STRING, description: "Key strength of squad collaboration" },
                 weakness: { type: SchemaType.STRING, description: "Major vulnerability/weakness of the squad" },
@@ -347,7 +351,7 @@ export async function POST(request: Request) {
     }
 
     const validJsonString = extractValidJson(responseText);
-    const resultJson = sanitizeAiCoachingLanguage(JSON.parse(validJsonString));
+    const resultJson = applySquadEvidencePolicy(sanitizeAiCoachingLanguage(JSON.parse(validJsonString)), canonicalStats, canonicalGrade, canonicalScores);
 
     // 3. Write to DB Cache
     if (request.signal.aborted) throw new SquadRequestAbortedError();
@@ -360,7 +364,7 @@ export async function POST(request: Request) {
           group_key: groupKey,
           match_ids_hash: matchIdsHash,
           coaching_style: coachingStyle,
-          prompt_version: AI_CACHE_VERSION,
+          prompt_version: AI_SQUAD_CACHE_VERSION,
           ai_result: resultJson,
           updated_at: new Date().toISOString()
         }, { onConflict: "player_id,platform,group_key,match_ids_hash,coaching_style,prompt_version" });

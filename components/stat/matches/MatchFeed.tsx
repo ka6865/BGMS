@@ -140,16 +140,16 @@ export function MatchFeed({
 
   return (
     <section ref={feedRef} aria-label="최근 매치" className="min-w-0">
-      <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h3 className="text-lg font-black text-white">매치 기록 <span className="text-xs text-white/40">(현재 {matchIds.length}게임{historyTotalPages > 1 ? ` · ${historyPage}/${historyTotalPages}페이지` : ""})</span></h3>
-        <div role="group" aria-label="매치 유형 필터" className="flex gap-1 rounded-xl bg-white/5 p-1">
+        <div role="group" aria-label="매치 유형 필터" className="flex flex-wrap gap-1 rounded-xl bg-white/5 p-1">
           {FILTERS.map((item) => (
             <button
               key={item.value}
               type="button"
               aria-pressed={filter === item.value}
               onClick={() => onFilterChange(item.value)}
-              className={`min-h-11 rounded-lg px-3 text-xs font-black ${filter === item.value ? "bg-indigo-600 text-white" : "text-white/50"}`}
+              className={`min-h-11 whitespace-nowrap rounded-lg px-3 text-xs font-black ${filter === item.value ? "bg-indigo-600 text-white" : "text-white/50"}`}
             >
               {item.label}
             </button>
@@ -157,19 +157,23 @@ export function MatchFeed({
         </div>
       </div>
 
+      {summaryStatus === "loading" && renderableMatches.length > 0 && (
+        <p role="status" className="mb-3 text-xs text-white/50">기본 전적을 먼저 표시하고 있습니다. 상세 기록을 확인하는 중입니다.</p>
+      )}
+
       {summaryStatus === "error" && (
-        <div role="alert" className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3">
+        <div role="alert" className="mb-3 flex flex-col gap-3 rounded-xl sm:flex-row sm:items-center sm:justify-between border border-red-500/20 bg-red-500/10 p-3">
           <span className="text-sm font-bold text-red-200">최근 매치 요약을 불러오지 못했습니다.</span>
-          <button type="button" onClick={onRetrySummaries} className="min-h-11 rounded-lg px-3 text-xs font-black text-red-100">
+          <button type="button" onClick={onRetrySummaries} className="min-h-11 shrink-0 whitespace-nowrap rounded-lg px-3 text-xs font-black text-red-100">
             매치 요약 다시 시도
           </button>
         </div>
       )}
 
-      {summaryStatus === "loading" ? (
+      {(summaryStatus === "loading" || historyStatus === "loading") && renderableMatches.length === 0 ? (
         <div role="status" aria-label="최근 매치 요약 로딩" className="space-y-2">
-          {matchIds.slice(0, Math.min(3, matchIds.length)).map((matchId) => (
-            <div key={matchId} data-match-skeleton className="h-24 animate-pulse rounded-2xl border border-white/10 bg-white/5" />
+          {Array.from({ length: Math.min(3, matchIds.length || 3) }, (_, index) => (
+            <div key={index} data-match-skeleton className="h-24 animate-pulse rounded-2xl border border-white/10 bg-white/5" />
           ))}
         </div>
       ) : renderableMatches.length > 0 ? (
@@ -227,7 +231,7 @@ export function MatchFeed({
       {historyStatus === "error" && onRetryHistory && (
         <div role="alert" className="mt-4 flex flex-wrap items-center justify-center gap-3 rounded-xl border border-red-500/20 bg-red-500/10 p-3">
           <span className="text-xs font-bold text-red-200">저장된 전적 페이지를 불러오지 못했습니다.</span>
-          <button type="button" onClick={onRetryHistory} className="min-h-11 rounded-lg px-3 text-xs font-black text-red-100">
+          <button type="button" onClick={onRetryHistory} className="min-h-11 shrink-0 whitespace-nowrap rounded-lg px-3 text-xs font-black text-red-100">
             다시 시도
           </button>
         </div>

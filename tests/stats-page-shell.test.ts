@@ -162,10 +162,11 @@ describe("StatsPageShell state and ownership matrix", () => {
     expect(screen.getByRole("status")).toHaveTextContent("전적을 불러오는 중");
   });
 
-  it("loading no-result는 status만, ready result는 profile → top ad → tabs → overview grid를 렌더한다", () => {
+  it("loading no-result는 로딩 골격, ready result는 profile → top ad → tabs → overview grid를 렌더한다", () => {
     mocks.controller = controller({ status: "loading" });
     const view = render(createElement(StatsPageShell));
     expect(screen.getByRole("status")).toHaveTextContent("플레이어 전적을 불러오는 중");
+    expect(view.container.querySelector("[data-stats-loading-skeleton]")).toBeInTheDocument();
     expect(screen.queryByTestId("profile-header")).not.toBeInTheDocument();
     expect(view.container.querySelector('[data-ad-placement="stats-top"]')).not.toBeInTheDocument();
 
@@ -180,7 +181,7 @@ describe("StatsPageShell state and ownership matrix", () => {
     expect(precedes(tabs, grid)).toBe(true);
   });
 
-  it("mobile result/overview outer stack은 8px, md 이상은 16px이고 guide에 중복 margin이 없다", () => {
+  it("mobile result/overview outer stack은 8px, md 이상은 16px이고 guide에 중복 margin이 없다", async () => {
     mocks.controller = controller({ status: "ready", result: readyResult(), summaryStatus: "ready" });
     const view = render(createElement(StatsPageShell));
     const profile = screen.getByTestId("profile-header");
@@ -188,7 +189,7 @@ describe("StatsPageShell state and ownership matrix", () => {
     const tabs = screen.getByRole("group", { name: "전적 분석 섹션" });
     const grid = view.container.querySelector(".stats-result-grid")!;
     const guide = screen.getByRole("button", { name: /BGMS AI 전술 분석 가이드/ });
-    const fullAi = screen.getByTestId("full-ai");
+    const fullAi = await screen.findByTestId("full-ai");
 
     expect(profile.parentElement).toHaveClass("gap-2", "md:gap-4");
     expect(grid.parentElement).toHaveClass("gap-2", "md:gap-4");
@@ -226,7 +227,7 @@ describe("StatsPageShell state and ownership matrix", () => {
     expect(screen.getByTestId("match-feed")).toHaveTextContent("filter-tdm");
   });
 
-  it("refreshing/partial/error + result는 현재 result와 top ad를 유지하고 partial summary retry를 feed에 남긴다", () => {
+  it("refreshing/partial/error + result는 현재 result와 top ad를 유지하고 partial summary retry를 feed에 남긴다", async () => {
     mocks.controller = controller({ status: "refreshing", result: readyResult(), summaryStatus: "ready" });
     const view = render(createElement(StatsPageShell));
     expect(screen.getByTestId("profile-header")).toBeInTheDocument();
@@ -253,7 +254,7 @@ describe("StatsPageShell state and ownership matrix", () => {
     view.rerender(createElement(StatsPageShell));
     expect(screen.getByText("refresh failed")).toBeInTheDocument();
     expect(screen.getByTestId("profile-header")).toBeInTheDocument();
-    expect(screen.getByText("squad-panel")).toBeInTheDocument();
+    expect(await screen.findByText("squad-panel")).toBeInTheDocument();
     expect(view.container.querySelectorAll('[data-ad-placement="stats-top"]')).toHaveLength(1);
   });
 
@@ -271,12 +272,12 @@ describe("StatsPageShell state and ownership matrix", () => {
     expect(view.container.querySelector('[data-ad-placement="stats-top"]')).not.toBeInTheDocument();
   });
 
-  it("overview는 상단 AI와 별도로 최신 경기 ID를 요약에 전달한다", () => {
+  it("overview는 상단 AI와 별도로 최신 경기 ID를 요약에 전달한다", async () => {
     mocks.controller = controller({ status: "ready", result: readyResult(), summaryStatus: "ready" });
     const view = render(createElement(StatsPageShell));
     const grid = view.container.querySelector(".stats-result-grid")!;
     const guide = screen.getByRole("button", { name: /BGMS AI 전술 분석 가이드/ });
-    const fullAi = screen.getByTestId("full-ai");
+    const fullAi = await screen.findByTestId("full-ai");
     expect(precedes(fullAi, grid)).toBe(true);
     expect(precedes(grid, guide)).toBe(true);
     expect(screen.getAllByTestId("full-ai")).toHaveLength(1);

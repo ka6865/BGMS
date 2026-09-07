@@ -163,10 +163,18 @@ describe("MatchFeed renderable order and ads", () => {
     expect(feed.sequence()).toEqual(["match-3", "match-4"]);
   });
 
+  it("필터에 맞는 기록을 확인 중이면 빈 기록으로 단정하지 않는다", async () => {
+    const feed = await renderFeed({ viewportClass: "mobile", matchCount: 2, filter: "tdm", summaryStatus: "loading" });
+    expect(feed.sequence()).toEqual([]);
+    expect(screen.getByRole("status", { name: "최근 매치 요약 로딩" })).toBeInTheDocument();
+    expect(screen.queryByText(/팀 데스매치.*기록이 없습니다/)).not.toBeInTheDocument();
+  });
+
   it("summary loading·error retry·필터별 empty를 매치 영역 안에서 표현한다", async () => {
     const loading = await renderFeed({ viewportClass: "mobile", matchCount: 2, summaryStatus: "loading" });
-    expect(screen.getByRole("status", { name: "최근 매치 요약 로딩" })).toBeInTheDocument();
-    expect(loading.container.querySelectorAll("[data-match-skeleton]")).toHaveLength(2);
+    expect(screen.getByText(/기본 전적을 먼저 표시/)).toBeInTheDocument();
+    expect(loading.sequence()).toEqual(["match-1", "match-2"]);
+    expect(loading.container.querySelectorAll("[data-match-skeleton]")).toHaveLength(0);
     loading.unmount();
 
     const onRetrySummaries = vi.fn();
@@ -218,7 +226,7 @@ describe("MatchFeed renderable order and ads", () => {
     expect(getStatsHistoryPaginationItems(10, 5)).toEqual([1, "ellipsis", 4, 5, 6, "ellipsis", 10]);
   });
 
-  it("페이지 이동 중 상태와 현재 페이지 기준 empty 안내를 함께 보여준다", async () => {
+  it("기록 없이 페이지를 불러오는 동안 빈 기록으로 단정하지 않는다", async () => {
     const feed = await renderFeed({
       viewportClass: "mobile",
       matchCount: 0,
@@ -230,7 +238,8 @@ describe("MatchFeed renderable order and ads", () => {
 
     expect(screen.getByRole("status", { name: "전적 페이지 로딩" })).toHaveTextContent("페이지 불러오는 중...");
     expect(screen.getByRole("heading", { name: /2\/3페이지/ })).toBeInTheDocument();
-    expect(screen.getByText("현재 페이지에 일반전 기록이 없습니다. 다른 페이지도 확인해 보세요.")).toBeInTheDocument();
+    expect(screen.queryByText("현재 페이지에 일반전 기록이 없습니다. 다른 페이지도 확인해 보세요.")).not.toBeInTheDocument();
+    expect(feed.container.querySelectorAll("[data-match-skeleton]")).toHaveLength(3);
     feed.unmount();
   });
 

@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StatsPlatform } from "@/types/stats-page";
+import { createSquadRequestCache } from "@/lib/stats/squadRequestCache";
+import { aiManager } from "@/lib/ai-management";
 import SquadAnalysisPanel from "@/components/stat/SquadAnalysisPanel";
 
 const { authState, routerPush, trackEvent } = vi.hoisted(() => ({
@@ -148,6 +150,98 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
       && new URL(url, "http://localhost").searchParams.get("groupKey") === groupKey;
   });
   const aiRequests = () => fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-squad");
+
+  it("같은 페이지에서 탭을 다시 열면 목록과 상세 GET을 재사용한다", async () => {
+    const requestCache = createSquadRequestCache();
+    const props = { nickname: "FixturePlayer", platform: "steam" as StatsPlatform, groupKey: "g1", onGroupKeyChange: vi.fn(), requestCache };
+    const first = render(createElement(SquadAnalysisPanel, props));
+    await screen.findByText("협동 시너지 밸런스");
+    first.unmount();
+    const second = render(createElement(SquadAnalysisPanel, props));
+    await screen.findByText("협동 시너지 밸런스");
+    expect(listRequests()).toHaveLength(1);
+    expect(detailRequests("g1")).toHaveLength(1);
+    second.rerender(createElement(SquadAnalysisPanel, { ...props, requestCache: createSquadRequestCache() }));
+    await waitFor(() => expect(listRequests()).toHaveLength(2));
+    await waitFor(() => expect(detailRequests("g1")).toHaveLength(2));
+    expect(aiRequests()).toHaveLength(0);
+  });
+
+  it("전환 전 팀의 늦은 상세 응답을 무시한다", async () => {
+    let resolveOld!: (response: Response) => void;
+    const normalFetch = fetchMock.getMockImplementation() as (input: RequestInfo | URL) => Promise<Response>;
+    fetchMock.mockImplementation((input) => String(input).includes("groupKey=g1")
+      ? new Promise<Response>((resolve) => { resolveOld = resolve; }) : normalFetch(input));
+    const props = { nickname: "FixturePlayer", platform: "steam" as StatsPlatform, groupKey: "g1", onGroupKeyChange: vi.fn() };
+    const view = render(createElement(SquadAnalysisPanel, props));
+    await waitFor(() => expect(detailRequests("g1")).toHaveLength(1));
+    view.rerender(createElement(SquadAnalysisPanel, { ...props, groupKey: "g2" }));
+    await screen.findByText("협동 시너지 밸런스");
+    fireEvent.click(screen.getByRole("button", { name: /지도 펼치기/ }));
+    expect(screen.getByTestId("squad-map")).toHaveTextContent("match-g2");
+    await act(async () => { resolveOld(jsonResponse(detail("g1"))); });
+    expect(screen.getByTestId("squad-map")).toHaveTextContent("match-g2");
+  });
+
+  it("탭을 닫으면 AI를 취소하고 늦은 완료가 다른 분석의 잠금을 풀지 않는다", async () => {
+    let resolveAi!: (response: Response) => void;
+    const normalFetch = fetchMock.getMockImplementation() as (input: RequestInfo | URL) => Promise<Response>;
+    fetchMock.mockImplementation((input) => String(input) === "/api/pubg/ai-squad"
+      ? new Promise<Response>((resolve) => { resolveAi = resolve; }) : normalFetch(input));
+    const view = renderPanel("g1");
+    await screen.findByText("협동 시너지 밸런스");
+    fireEvent.click(screen.getByRole("button", { name: "AI 코칭 보고서 생성" }));
+    const signal = (aiRequests()[0][1] as RequestInit).signal!;
+    view.unmount();
+    expect(signal.aborted).toBe(true);
+    expect(aiManager.startAnalysis("another-analysis")).toBe(true);
+    try {
+      await act(async () => { resolveAi(jsonResponse({ squadGrade: "A", summary: "old response" })); });
+      expect(aiManager.getStatus().activeId).toBe("another-analysis");
+    } finally { aiManager.stopAnalysis("another-analysis"); }
+  });
+
+  it("엄호 미측정은 등급을 보류하고 측정된 지표로 AI를 요청한다", async () => {
+    const normalFetch = fetchMock.getMockImplementation() as (input: RequestInfo | URL) => Promise<Response>;
+    fetchMock.mockImplementation((input) => String(input).includes("groupKey=g1")
+      ? Promise.resolve(jsonResponse({ ...detail("g1"), squadGrade: null, stats: { ...detail("g1").stats, avgCoverRate: null }, scores: { ...detail("g1").scores, focusFire: null } }))
+      : normalFetch(input));
+    renderPanel("g1");
+    await screen.findByText("등급 보류");
+    expect(screen.getByText(/아직 집계하지 않는 지표/)).toBeInTheDocument();
+    expect(screen.queryByText(/권장 기준치: 30%/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "AI 코칭 보고서 생성" }));
+    await screen.findByText("fixture summary");
+    expect(aiRequests()).toHaveLength(1);
+  });
+
+  it("지표 준비 전 409는 이유를 안내하고 즉시 재시도 버튼을 제공하지 않는다", async () => {
+    const normalFetch = fetchMock.getMockImplementation() as (input: RequestInfo | URL) => Promise<Response>;
+    fetchMock.mockImplementation((input) => String(input) === "/api/pubg/ai-squad"
+      ? Promise.resolve(jsonResponse({ errorCode: "PUBG_AI_SQUAD_CANONICAL_NOT_READY", retryable: false }, 409))
+      : normalFetch(input));
+    renderPanel("g1");
+    await screen.findByText("협동 시너지 밸런스");
+    fireEvent.click(screen.getByRole("button", { name: "AI 코칭 보고서 생성" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("경기 지표가 아직 없습니다");
+    expect(screen.getByRole("button", { name: "AI 코칭 보고서 생성" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();
+    expect(aiRequests()).toHaveLength(1);
+  });
+
+  it("상세 요청 실패는 오류 안내 후 성공적으로 재시도할 수 있다", async () => {
+    const normalFetch = fetchMock.getMockImplementation() as (input: RequestInfo | URL) => Promise<Response>;
+    let fail = true;
+    fetchMock.mockImplementation((input) => String(input).includes("groupKey=g1") && fail
+      ? Promise.resolve(jsonResponse({ error: "temporary failure" }, 503)) : normalFetch(input));
+    renderPanel("g1");
+    expect(await screen.findByRole("alert")).toHaveTextContent("스쿼드 데이터를 불러오지 못했습니다");
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    await screen.findByText("협동 시너지 밸런스");
+    expect(detailRequests("g1")).toHaveLength(2);
+    expect(listRequests()).toHaveLength(1);
+  });
 
   it("valid g2를 초기 선택하고 g1 변경에는 상위만 알린 뒤 g1 detail만 추가한다", async () => {
     const onGroupKeyChange = vi.fn();

@@ -92,6 +92,15 @@ export interface StatsPageController {
 type ControllerError = StatsPageController["error"];
 type PartialSources = Map<StatsPartialReason, Set<string>>;
 
+function mergeModeMeta(primary: StatsMatchModeMeta | undefined, fallback?: StatsMatchModeMeta): StatsMatchModeMeta {
+  const matchType = primary?.matchType;
+  return {
+    gameMode: primary?.gameMode || fallback?.gameMode,
+    matchType: matchType && matchType.toLowerCase() !== "unknown" ? matchType : fallback?.matchType || matchType,
+    mapName: primary?.mapName || fallback?.mapName,
+  };
+}
+
 function emptyPartialSources(): PartialSources {
   return new Map(PARTIAL_REASONS.map((reason) => [reason, new Set<string>()]));
 }
@@ -216,6 +225,7 @@ export function useStatsPageController(
   const summaryRequestIdRef = useRef(0);
   const historyRequestRef = useRef<AbortController | null>(null);
   const historyRequestIdRef = useRef(0);
+  const historySummaryIdsRef = useRef(new Set<string>());
   const rateLimitUntilRef = useRef(new Map<string, number>());
   const activeRouteKeyRef = useRef<string | null>(null);
 
@@ -300,6 +310,7 @@ export function useStatsPageController(
     historyRequestRef.current?.abort();
     historyRequestRef.current = null;
     historyRequestIdRef.current += 1;
+    historySummaryIdsRef.current.clear();
     setHistoryMatches([]);
     setHistoryStatus("idle");
     setHistoryLoaded(false);
@@ -537,15 +548,42 @@ export function useStatsPageController(
     runSearch(request, false)
   ), [runSearch]);
 
+  const applyHistoryRecords = useCallback((incoming: readonly PlayerMatchRecord[]) => {
+    if (!incoming.length) return;
+    for (const record of incoming) historySummaryIdsRef.current.add(record.match_id);
+    const basicSummaries = Object.fromEntries(
+      incoming.map((record) => [record.match_id, buildBasicMatchSummary(record)]),
+    );
+    setMatchSummaries((previous) => ({ ...basicSummaries, ...previous }));
+    setMissingMatchIds((previous) => {
+      if (!previous.size) return previous;
+      const next = new Set(previous);
+      for (const record of incoming) next.delete(record.match_id);
+      return next;
+    });
+    setMatchModeMeta((previous) => {
+      const next = { ...previous };
+      for (const record of incoming) {
+        next[record.match_id] = mergeModeMeta(previous[record.match_id], {
+          gameMode: record.game_mode,
+          matchType: record.match_type,
+          mapName: record.map_name,
+        });
+      }
+      return next;
+    });
+  }, []);
+
   const loadHistoryPage = useCallback(async (
     player: PlayerStatsResponse,
     page: number,
-  ): Promise<PlayerMatchRecord[]> => {
+  ): Promise<PlayerMatchRecord[] | null> => {
     historyRequestRef.current?.abort();
     const controller = new AbortController();
     const requestId = ++historyRequestIdRef.current;
     historyRequestRef.current = controller;
     setHistoryStatus("loading");
+    const stale = () => controller.signal.aborted || requestId !== historyRequestIdRef.current;
 
     try {
       const params = new URLSearchParams({
@@ -563,9 +601,10 @@ export function useStatsPageController(
         totalPages?: number;
       };
       if (!response.ok) throw new Error("전체 전적을 불러오지 못했습니다.");
-      if (controller.signal.aborted || requestId !== historyRequestIdRef.current) return [];
+      if (stale()) return null;
 
       const incoming = Array.isArray(data.matches) ? data.matches : [];
+      applyHistoryRecords(incoming);
       setHistoryMatches(incoming);
       setHistoryLoaded(true);
       setHistoryPageState(data.page && data.page > 0 ? data.page : page);
@@ -573,15 +612,15 @@ export function useStatsPageController(
       setHistoryStatus("ready");
       return incoming;
     } catch (caught) {
-      if (isAbortError(caught)) return [];
+      if (stale() || isAbortError(caught)) return null;
       setHistoryStatus("error");
-      return [];
+      return null;
     } finally {
       if (historyRequestRef.current === controller) historyRequestRef.current = null;
     }
-  }, []);
+  }, [applyHistoryRecords]);
 
-  const loadSummaries = useCallback((player: PlayerStatsResponse): Promise<void> => {
+  const loadSummaries = useCallback((player: PlayerStatsResponse): Promise<readonly string[]> => {
     const matchIds = player.recentMatches.slice(0, 20);
     summaryRequestRef.current?.controller.abort();
     const controller = new AbortController();
@@ -595,7 +634,7 @@ export function useStatsPageController(
       setMissingMatchIds(new Set());
       setMatchModeMeta({});
       setSummaryStatus("idle");
-      return Promise.resolve();
+      return Promise.resolve([]);
     }
 
     setSummaryStatus("loading");
@@ -616,11 +655,11 @@ export function useStatsPageController(
           summaries?: Record<string, MatchSummaryData>;
           missingMatchIds?: string[];
         };
-        if (stale()) return;
+        if (stale()) return [];
         if (!response.ok) throw new Error("최근 매치 요약을 불러오지 못했습니다.");
 
         const summaries = data.summaries ?? {};
-        const missingIds = new Set(data.missingMatchIds ?? []);
+        const missingIds = new Set((data.missingMatchIds ?? []).filter((id) => !historySummaryIdsRef.current.has(id)));
         const nextModeMeta: Record<string, StatsMatchModeMeta> = {};
         for (const [matchId, gameMode] of Object.entries(player.matchModes ?? {})) {
           nextModeMeta[matchId] = { gameMode };
@@ -635,67 +674,56 @@ export function useStatsPageController(
         }
         setMatchSummaries((previous) => ({ ...previous, ...summaries }));
         setMissingMatchIds(missingIds);
-        setMatchModeMeta((previous) => ({ ...previous, ...nextModeMeta }));
+        setMatchModeMeta((previous) => {
+          const next = { ...previous };
+          for (const [id, meta] of Object.entries(nextModeMeta)) next[id] = mergeModeMeta(meta, previous[id]);
+          return next;
+        });
         setSummaryStatus("ready");
         clearPartial("summary_batch_failed", "summary-batch");
         if (missingIds.size) reportPartial("summary_missing", "summary-batch");
         else clearPartial("summary_missing", "summary-batch");
+        return Object.keys(summaries);
       } catch (caught) {
-        if (stale() || isAbortError(caught)) return;
+        if (stale() || isAbortError(caught)) return [];
         setSummaryStatus("error");
         reportPartial("summary_batch_failed", "summary-batch");
+        return [];
       }
     })();
   }, [clearPartial, reportPartial]);
-
-  const applyHistoryRecords = useCallback((incoming: readonly PlayerMatchRecord[]) => {
-    if (!incoming.length) return;
-    const basicSummaries = Object.fromEntries(
-      incoming.map((record) => [record.match_id, buildBasicMatchSummary(record)]),
-    );
-    setMatchSummaries((previous) => ({ ...basicSummaries, ...previous }));
-    setMissingMatchIds((previous) => {
-      if (!previous.size) return previous;
-      const next = new Set(previous);
-      for (const record of incoming) next.delete(record.match_id);
-      return next;
-    });
-    setMatchModeMeta((previous) => {
-      const next = { ...previous };
-      for (const record of incoming) {
-        next[record.match_id] = {
-          gameMode: record.game_mode,
-          matchType: record.match_type,
-          mapName: record.map_name,
-        };
-      }
-      return next;
-    });
-  }, []);
 
   const setHistoryPage = useCallback(async (page: number) => {
     const player = resultRef.current;
     if (!player || historyStatus === "loading") return;
     if (page < 1 || (historyTotalPages > 0 && page > historyTotalPages)) return;
     if (page === historyPage && historyLoaded) return;
-    const incoming = await loadHistoryPage(player, page);
-    applyHistoryRecords(incoming);
-  }, [applyHistoryRecords, historyLoaded, historyPage, historyStatus, historyTotalPages, loadHistoryPage]);
+    await loadHistoryPage(player, page);
+  }, [historyLoaded, historyPage, historyStatus, historyTotalPages, loadHistoryPage]);
 
   const retryHistory = useCallback(async () => {
     const player = resultRef.current;
     if (!player || historyStatus === "loading") return;
-    const incoming = await loadHistoryPage(player, historyPage);
-    applyHistoryRecords(incoming);
-  }, [applyHistoryRecords, historyPage, historyStatus, loadHistoryPage]);
+    await loadHistoryPage(player, historyPage);
+  }, [historyPage, historyStatus, loadHistoryPage]);
+
+  const loadRecentRecords = useCallback(async (player: PlayerStatsResponse) => {
+    // Publish each response independently so basic records never wait for analysis.
+    const history = loadHistoryPage(player, 1);
+    const historyRequestId = historyRequestIdRef.current;
+    const [records, summaryIds] = await Promise.all([history, loadSummaries(player)]);
+    if (resultRef.current !== player || historyRequestId !== historyRequestIdRef.current || !records) return;
+    const storedIds = new Set(records.map((record) => record.match_id));
+    // Summary lookup can ingest recent matches. Refresh pagination once only when
+    // it recovered records absent from the initial page, and no newer page owns it.
+    if (summaryIds.some((id) => !storedIds.has(id))) await loadHistoryPage(player, 1);
+  }, [loadHistoryPage, loadSummaries]);
 
   const retrySummaries = useCallback(async () => {
     const player = resultRef.current;
-    if (!player) return;
-    await loadSummaries(player);
-    const incoming = await loadHistoryPage(player, 1);
-    applyHistoryRecords(incoming);
-  }, [applyHistoryRecords, loadHistoryPage, loadSummaries]);
+    if (!player || summaryStatus === "loading") return;
+    await loadRecentRecords(player);
+  }, [loadRecentRecords, summaryStatus]);
 
   const refresh = useCallback(async () => {
     const player = resultRef.current;
@@ -728,18 +756,8 @@ export function useStatsPageController(
 
   useEffect(() => {
     if (!result) return;
-    let isCancelled = false;
-    void (async () => {
-      await loadSummaries(result);
-      if (isCancelled) return;
-      const incoming = await loadHistoryPage(result, 1);
-      if (isCancelled) return;
-      applyHistoryRecords(incoming);
-    })();
-    return () => {
-      isCancelled = true;
-    };
-  }, [applyHistoryRecords, loadHistoryPage, loadSummaries, result]);
+    void loadRecentRecords(result);
+  }, [loadRecentRecords, result]);
 
   useEffect(() => {
     setSectionTab(options.initialTab ?? "overview");

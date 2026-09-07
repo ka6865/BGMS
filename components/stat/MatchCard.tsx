@@ -6,7 +6,12 @@ import type { MatchData } from "@/types/stat";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { isMatchOlderThan14Days } from "@/components/stat/matchExpiryHelper";
 import { CompactMatchRow } from "@/components/stat/matches/CompactMatchRow";
-import { ExpandedMatchDetails } from "@/components/stat/matches/ExpandedMatchDetails";
+import dynamic from "next/dynamic";
+
+const ExpandedMatchDetails = dynamic(
+  () => import("@/components/stat/matches/ExpandedMatchDetails").then((mod) => mod.ExpandedMatchDetails),
+  { loading: () => <p role="status" className="min-h-24 p-4 text-sm text-white/60">매치 상세 화면을 준비하고 있습니다.</p> },
+);
 import type { StatsPlatform } from "@/types/stats-page";
 
 export interface MatchCardProps {

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AI_CACHE_VERSION, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
+import { AI_SQUAD_CACHE_VERSION, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 
 const {
   mockWithAuthGuard,
@@ -164,7 +164,7 @@ describe("AI squad release blockers", () => {
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: second.supabase });
     await aiSquadPOST(request({ ...forged, stats: { avgIsolation: -777, avgTradeLatency: 123456 } }));
     expect(second.cache.upsert.mock.calls[0]?.[0]?.match_ids_hash).toBe(firstHash);
-    expect(second.cache.eq).toHaveBeenCalledWith("prompt_version", AI_CACHE_VERSION);
+    expect(second.cache.eq).toHaveBeenCalledWith("prompt_version", AI_SQUAD_CACHE_VERSION);
   });
 
   it("fails closed when canonical squad analysis is unavailable", async () => {

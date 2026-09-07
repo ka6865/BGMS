@@ -2,7 +2,7 @@ import { afterEach, describe, it, expect, vi, beforeEach } from "vitest";
 import { POST as aiAnalyzePOST } from "../app/api/pubg/ai-analyze/route";
 import { POST as aiSummaryPOST } from "../app/api/pubg/ai-summary/route";
 import { POST as aiSquadPOST } from "../app/api/pubg/ai-squad/route";
-import { AI_CACHE_VERSION, AI_SUMMARY_CACHE_VERSION, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
+import { AI_SQUAD_CACHE_VERSION, AI_CACHE_VERSION, AI_SUMMARY_CACHE_VERSION, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
 import { fetchTierBenchmarkStats } from "../lib/pubg-analysis/benchmarkLookup";
 import {
   buildBestMatchSelectionKey,
@@ -5612,6 +5612,47 @@ describe("AI cache route stabilization", () => {
     expect(mockGenerateContentStream).not.toHaveBeenCalled();
   });
 
+  it("ai-squad는 관측값이 전혀 없으면 모델을 호출하지 않고 재시도 불가 409를 반환한다", async () => {
+    mockGetSquadAnalysisData.mockResolvedValue({ ...canonicalSquadAnalysis,
+      stats: Object.fromEntries(Object.keys(canonicalSquadAnalysis.stats).map(key => [key, null])), squadGrade: null });
+    const squadCache = createQueryChain({ data: null, error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({ squad_ai_coaching_cache: squadCache }) });
+    const response = await aiSquadPOST(createRequest({ groupKey: "alpha,beta", nickname: "Player_A", platform: "steam" }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ errorCode: "PUBG_AI_SQUAD_CANONICAL_NOT_READY", retryable: false });
+    expect(mockGenerateContent).not.toHaveBeenCalled();
+    expect(squadCache.upsert).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("ai-squad는 엄호 미측정 상태에서도 코칭하고 등급은 보류한다 (cache=%s)", async (cached) => {
+    const partial = {
+      ...canonicalSquadAnalysis,
+      stats: { ...canonicalSquadAnalysis.stats, avgCoverRate: null },
+      scores: { ...canonicalSquadAnalysis.scores, focusFire: null },
+      squadGrade: null,
+    };
+    mockGetSquadAnalysisData.mockResolvedValue(partial);
+    const generated = {
+      squadGrade: "S", summary: "백업 반응 속도는 8초입니다.",
+      strength: "확인된 복구 기록을 유지하세요.", weakness: "엄호가 부족합니다.",
+      coaching: "다음 경기에서도 함께 움직이세요.",
+      memberFeedbacks: [{ name: "Player_A", praise: "집중사격이 우수합니다.", fault: "엄호율 0%입니다.", advice: "커버 능력이 부족합니다." }],
+      overallOpinion: "전체 평가는 A입니다. 스쿼드 점수는 80점입니다. 종합 등급은 S입니다.",
+    };
+    mockGenerateContent.mockResolvedValue({ response: { text: () => JSON.stringify(generated) } });
+    const squadCache = createQueryChain({ data: cached ? { ai_result: generated } : null, error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({ squad_ai_coaching_cache: squadCache }) });
+    const response = await aiSquadPOST(createRequest({ groupKey: "alpha,beta", nickname: "Player_A", platform: "steam" }));
+    expect(response.status).toBe(200);
+    const json = await response.json();
+    expect(json.squadGrade).toBeNull();
+    expect(json.summary).toBe(generated.summary);
+    expect(JSON.stringify(json)).not.toMatch(/엄호가 부족|집중사격이 우수|엄호율 0%|커버 능력이 부족|전체 평가는 A|스쿼드 점수는 80|종합 등급은 S/);
+    expect(json.weakness).toContain("보류");
+    if (cached) expect(mockGenerateContent).not.toHaveBeenCalled();
+    else expect(squadCache.upsert).toHaveBeenCalledWith(expect.objectContaining({ ai_result: expect.objectContaining({ squadGrade: null }) }), expect.anything());
+  });
+
   it("ai-squad는 Gemini 실패 시 측정되지 않은 fallback 대신 503을 반환한다", async () => {
     mockGenerateContent.mockRejectedValue(new Error("Gemini unavailable"));
     mockGetSquadAnalysisData.mockResolvedValue(canonicalSquadAnalysis);
@@ -5656,7 +5697,7 @@ describe("AI cache route stabilization", () => {
     expect(json).toMatchObject({ errorCode: "PUBG_AI_SQUAD_PROVIDER_ERROR", retryable: true });
     expect(squadCache.eq).toHaveBeenCalledWith("player_id", "player_a");
     expect(squadCache.eq).toHaveBeenCalledWith("platform", "steam");
-    expect(squadCache.eq).toHaveBeenCalledWith("prompt_version", AI_CACHE_VERSION);
+    expect(squadCache.eq).toHaveBeenCalledWith("prompt_version", AI_SQUAD_CACHE_VERSION);
   });
 
   it("ai-squad는 모델 A의 attempt-local AbortError 뒤 모델 B로 계속해 성공한다", async () => {

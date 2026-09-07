@@ -81,6 +81,20 @@ export function StatsPageStates({
         </div>
       )}
 
+      {loadingMessage && !hasResult && (
+        <div aria-hidden="true" className="space-y-4 motion-safe:animate-pulse" data-stats-loading-skeleton>
+          <div className="h-52 rounded-2xl border border-white/10 bg-white/5" />
+          <div className="h-12 rounded-xl bg-white/5" />
+          <div className="h-28 rounded-2xl bg-white/5" />
+          <div className="stats-result-grid">
+            <div className="hidden h-64 rounded-2xl bg-white/5 xl:block" />
+            <div className="space-y-2">
+              {[0, 1, 2].map((index) => <div key={index} className="h-24 rounded-2xl bg-white/5" />)}
+            </div>
+          </div>
+        </div>
+      )}
+
       {error && (
         <div
           role="alert"
