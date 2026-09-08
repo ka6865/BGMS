@@ -9,6 +9,7 @@ import { collectYoutube } from "../lib/community-agent/sources/youtube";
 
 const NOW = new Date("2026-09-08T01:00:00.000Z");
 const dcHtml = readFileSync(resolve(process.cwd(), "tests/fixtures/community-agent/dc.html"), "utf8");
+const privacyHtml = readFileSync(resolve(process.cwd(), "tests/fixtures/community-agent/privacy.html"), "utf8");
 
 function deps(overrides: Partial<SourceDeps> = {}): SourceDeps {
   return {
@@ -78,11 +79,19 @@ describe("community source boundaries", () => {
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(response(dcHtml))
       .mockResolvedValueOnce(response(dcHtml))
-      .mockResolvedValueOnce(response('<div class="write_div"><div class="write_menu">메뉴</div><a href="/profile">프로필</a> 010-1234-5678 test@example.com 192.168.0.1 본문 내용<img src="ad"></div>'));
+      .mockResolvedValueOnce(response(privacyHtml));
     const report = await collectDc(deps({ fetchImpl }));
     expect(report.state).toBe("partial");
     expect(report.items[0]?.excerpt).toContain("본문 내용");
-    expect(report.items[0]?.excerpt).not.toMatch(/010-|@|192\.168|프로필|메뉴/);
+    expect(report.items[0]?.excerpt).not.toMatch(/010-|02-|070-|@|192\.168|2001:db8|프로필|메뉴/);
+  });
+
+  it("정상 빈 디시 목록은 차단이나 selector 실패로 기록하지 않는다", async () => {
+    const empty = '<table class="gall_list"><tbody><tr><td>게시물이 없습니다.</td></tr></tbody></table>';
+    const report = await collectDc(deps({
+      fetchImpl: vi.fn().mockImplementation(() => response(empty)),
+    }));
+    expect(report).toMatchObject({ source: "dc", state: "empty", reason: "dc_no_matching_posts", fetchedCount: 0 });
   });
 
   it("네이버 키와 YouTube 키가 없으면 설정 필요로 표시한다", async () => {
@@ -99,6 +108,32 @@ describe("community source boundaries", () => {
     const report = await collectYoutube(deps({ env: { YOUTUBE_DATA_API_KEY: "test-key" }, fetchImpl }));
     expect(report).toMatchObject({ source: "youtube", state: "partial", reason: "youtube_comments_disabled" });
     expect(report.items).toEqual([expect.objectContaining({ access: "description", official: true, externalId: "video-1" })]);
+  });
+
+  it("유튜브의 다른 403은 제한 원인을 보존하고 댓글 비활성화로 바꾸지 않는다", async () => {
+    const fixture = JSON.parse(readFileSync(resolve(process.cwd(), "tests/fixtures/community-agent/youtube.json"), "utf8"));
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(response(fixture.channel))
+      .mockResolvedValueOnce(response(fixture.playlist))
+      .mockResolvedValueOnce(response({ error: { errors: [{ reason: "quotaExceeded" }] } }, 403));
+    const report = await collectYoutube(deps({ env: { YOUTUBE_DATA_API_KEY: "test-key" }, fetchImpl }));
+    expect(report).toMatchObject({ state: "partial", reason: "youtube_quotaExceeded", fetchedCount: 1, retainedCount: 1 });
+  });
+
+  it("유튜브 댓글을 30개로 자르고 설명과 댓글을 모두 수집 건수에 넣는다", async () => {
+    const fixture = JSON.parse(readFileSync(resolve(process.cwd(), "tests/fixtures/community-agent/youtube.json"), "utf8"));
+    const comments = { items: Array.from({ length: 31 }, (_, index) => ({
+      snippet: { topLevelComment: { id: `comment-${index}`, snippet: {
+        textDisplay: `comment ${index}`, publishedAt: "2026-09-07T13:00:00Z",
+      } } },
+    })) };
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce(response(fixture.channel))
+      .mockResolvedValueOnce(response(fixture.playlist))
+      .mockResolvedValueOnce(response(comments));
+    const report = await collectYoutube(deps({ env: { YOUTUBE_DATA_API_KEY: "test-key" }, fetchImpl }));
+    expect(report).toMatchObject({ state: "ok", fetchedCount: 31, retainedCount: 31 });
+    expect(report.items.filter((item) => item.access === "comment")).toHaveLength(30);
   });
 
   it("네이버 응답은 대상 카페의 검증 가능한 요약만 저장한다", async () => {

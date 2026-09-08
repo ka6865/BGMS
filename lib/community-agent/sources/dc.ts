@@ -44,8 +44,12 @@ export function parseDcList(html: string, now: Date): DcListItem[] {
   return items;
 }
 
-function hasDcRows(html: string): boolean {
-  return parse(html).querySelectorAll("table.gall_list tr.ub-content").length > 0;
+function dcListState(html: string): "rows" | "empty" | "invalid" {
+  const root = parse(html);
+  if (root.querySelectorAll("table.gall_list tr.ub-content").length > 0) return "rows";
+  const table = root.querySelector("table.gall_list");
+  if (table && /(?:게시물이\s*없습니다|등록된\s*게시물이\s*없습니다|검색\s*결과가\s*없습니다)/.test(cleanText(table.text))) return "empty";
+  return "invalid";
 }
 
 function parseDcBody(html: string): string | null {
@@ -77,7 +81,9 @@ export async function collectDc(deps: SourceDeps): Promise<SourceReport> {
       const url = new URL("/board/lists/?id=battlegrounds", DC_ORIGIN);
       url.searchParams.set("page", String(page));
       const html = await fetchSourceText(url, {}, deps);
-      if (!hasDcRows(html)) return report("dc", "failed", [], "dc_selector_missing_or_blocked", rows.length);
+      const listState = dcListState(html);
+      if (listState === "invalid") return report("dc", "failed", [], "dc_selector_missing_or_blocked", rows.length);
+      if (listState === "empty") continue;
       const parsed = parseDcList(html, deps.now);
       rows.push(...parsed);
     }

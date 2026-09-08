@@ -13,6 +13,23 @@ export type HttpDeps = {
 
 const cleanupByResponse = new WeakMap<Response, () => void>();
 
+export class SourceHttpError extends Error {
+  constructor(readonly status: number, readonly providerReason: string | null) {
+    super(`source_http_${status}`);
+    this.name = "SourceHttpError";
+  }
+}
+
+function safeProviderReason(value: string): string | null {
+  try {
+    const body = JSON.parse(value) as { error?: { reason?: unknown; errors?: Array<{ reason?: unknown }> } };
+    const reason = body.error?.errors?.[0]?.reason ?? body.error?.reason;
+    return typeof reason === "string" && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(reason) ? reason : null;
+  } catch {
+    return null;
+  }
+}
+
 function rejectUrl(url: URL): void {
   if (
     url.protocol !== "https:" || url.username || url.password || url.port
@@ -49,8 +66,10 @@ export async function fetchSource(url: URL, init: RequestInit, deps: HttpDeps): 
   try {
     const response = await deps.fetchImpl(url, { ...init, redirect: "error", signal: request.signal });
     if (!response.ok) {
-      request.cleanup();
-      throw new Error(`source_http_${response.status}`);
+      cleanupByResponse.set(response, request.cleanup);
+      let providerReason: string | null = null;
+      try { providerReason = safeProviderReason(await readSourceText(response)); } catch { /* status remains useful without a body */ }
+      throw new SourceHttpError(response.status, providerReason);
     }
     cleanupByResponse.set(response, request.cleanup);
     return response;

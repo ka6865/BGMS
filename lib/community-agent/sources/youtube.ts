@@ -1,4 +1,4 @@
-import { fetchSourceJson } from "../http";
+import { fetchSourceJson, SourceHttpError } from "../http";
 import { evidence, failure, report, type SourceDeps } from "../sources";
 import type { Evidence, SourceReport } from "../types";
 
@@ -52,7 +52,7 @@ function commentsFrom(value: unknown, video: YoutubeVideo, now: Date): Evidence[
     const parsed = publishedAt === null ? Number.NaN : Date.parse(publishedAt);
     return [evidence("youtube", id, `https://www.youtube.com/watch?v=${encodeURIComponent(video.id)}&lc=${encodeURIComponent(id)}`,
       `영상 댓글: ${video.title}`, text, Number.isFinite(parsed) ? new Date(parsed).toISOString() : null, now, "comment", false)];
-  });
+  }).slice(0, 30);
 }
 
 async function commentEvidence(video: YoutubeVideo, key: string, deps: SourceDeps): Promise<{ items: Evidence[]; disabled: boolean; error: string | null }> {
@@ -66,8 +66,13 @@ async function commentEvidence(video: YoutubeVideo, key: string, deps: SourceDep
     url.searchParams.set("key", key);
     return { items: commentsFrom(await fetchSourceJson(url, {}, deps), video, deps.now), disabled: false, error: null };
   } catch (error) {
-    const reason = error instanceof Error ? error.message : "source_request_failed";
-    return { items: [], disabled: reason === "source_http_403", error: reason };
+    if (error instanceof SourceHttpError && error.status === 403 && error.providerReason === "commentsDisabled") {
+      return { items: [], disabled: true, error: null };
+    }
+    const reason = error instanceof SourceHttpError && error.providerReason
+      ? `youtube_${error.providerReason}`
+      : error instanceof Error ? error.message : "source_request_failed";
+    return { items: [], disabled: false, error: reason };
   }
 }
 
@@ -107,8 +112,9 @@ export async function collectYoutube(deps: SourceDeps): Promise<SourceReport> {
     const comments = results.flatMap((result) => result.items);
     const disabled = results.some((result) => result.disabled);
     const requestError = results.find((result) => result.error && !result.disabled)?.error ?? null;
-    const reason = disabled ? "youtube_comments_disabled" : requestError;
-    return report("youtube", reason ? "partial" : "ok", [...descriptionItems, ...comments], reason, videos.length, channel);
+    const reason = requestError ?? (disabled ? "youtube_comments_disabled" : null);
+    const items = [...descriptionItems, ...comments];
+    return report("youtube", reason ? "partial" : "ok", items, reason, items.length, channel);
   } catch (error) {
     return failure("youtube", error);
   }

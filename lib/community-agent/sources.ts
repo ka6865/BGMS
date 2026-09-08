@@ -21,8 +21,10 @@ export function cleanText(value: string): string {
 export function cleanExcerpt(value: string): string {
   return cleanText(value)
     .replace(/\b(?:\+?82[- ]?)?0?1[016789][ -]?\d{3,4}[ -]?\d{4}\b/g, "[redacted]")
+    .replace(/(?<!\d)(?:0(?:2|[3-6]\d|70|50\d)[ .-]?\d{3,4}[ .-]?\d{4}|1[5-8]\d{2}[ .-]?\d{4})(?!\d)/g, "[redacted]")
     .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[redacted]")
     .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, "[redacted]")
+    .replace(/(?<![0-9A-Fa-f:])(?:(?:[0-9A-Fa-f]{1,4}:){2,7}[0-9A-Fa-f]{1,4}|(?:[0-9A-Fa-f]{1,4}:){0,6}:[0-9A-Fa-f:]{0,29})(?![0-9A-Fa-f:])/g, "[redacted]")
     .slice(0, 500);
 }
 

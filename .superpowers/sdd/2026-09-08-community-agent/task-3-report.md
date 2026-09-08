@@ -68,3 +68,29 @@ TypeScript and focused ESLint completed with exit code 0 and no output.
 ## Concerns
 
 None. A future operation should still perform the separately authorized dry-run using configured Naver and YouTube credentials before enabling any scheduled production collection.
+
+## Review fix round 1
+
+- A verified DC list table that explicitly says there are no posts now reports `empty`; a missing list structure or an unrecognized empty shape remains `failed` as a block/format signal.
+- The final evidence sanitizer now redacts Korean landline and VoIP formats plus full and compressed IPv6 forms, in addition to the original mobile, email, and IPv4 checks. `privacy.html` fixes those representative forms at the collector boundary.
+- YouTube non-success responses retain only a small structured provider reason code. Only `commentsDisabled` is recorded as the normal comment restriction; another 403 such as `quotaExceeded` remains a partial collection failure cause.
+- YouTube caps parsed top-level comments at 30 even for malformed upstream results. Its `fetchedCount` now covers retained descriptions and comments, so it matches `retainedCount` and cannot be clamped by the run-report store.
+
+### Fix verification
+
+Commands:
+
+```text
+npx vitest run tests/community-agent-sources.test.ts
+npx tsc --noEmit --pretty false
+npx eslint lib/community-agent/http.ts lib/community-agent/sources.ts lib/community-agent/sources/dc.ts lib/community-agent/sources/youtube.ts tests/community-agent-sources.test.ts
+```
+
+Results:
+
+```text
+Test Files  1 passed (1)
+Tests  11 passed (11)
+```
+
+TypeScript and focused ESLint completed with exit code 0 and no output.
