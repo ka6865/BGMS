@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { GEMINI_MODELS_TO_TRY } from "@/lib/pubg-analysis/constants";
 import { cleanExcerpt } from "./sources";
-import { checkDraft } from "./validate";
+import { checkDraft, isVerifiedOfficialFactEvidence } from "./validate";
 import type { Claim, Draft, Evidence, Topic } from "./types";
 
 const MODEL_DEADLINE_MS = 35_000;
@@ -11,6 +11,7 @@ const MAX_PARAGRAPHS = 8;
 const MAX_PARAGRAPH_LENGTH = 500;
 const MAX_QUESTION_LENGTH = 200;
 const MAX_EVIDENCE_IDS = 10;
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
 export type JsonModel = (input: { instruction: string; data: unknown }) => Promise<unknown>;
 
@@ -182,12 +183,16 @@ function normalizeModelError(error: unknown): CommunityAgentModelError {
 }
 
 function recentDuplicate(topic: Topic, recent: Array<{ title: string; topicKey: string | null; createdAt: string }>, evidence: Evidence[], now: Date): boolean {
-  const matching = recent.filter((item) => item.topicKey === topic.topicKey || similarity(item.title, topic.title) >= 0.6);
+  const matching = recent.filter((item) => {
+    const createdAt = Date.parse(item.createdAt);
+    return Number.isFinite(createdAt) && createdAt <= now.getTime() && now.getTime() - createdAt <= SEVEN_DAYS_MS
+      && (item.topicKey === topic.topicKey || similarity(item.title, topic.title) >= 0.6);
+  });
   if (matching.length === 0) return false;
   if (!topic.officialUpdate) return true;
   return !matching.every((item) => {
     const createdAt = Date.parse(item.createdAt);
-    return Number.isFinite(createdAt) && evidence.some((source) => source.official
+    return Number.isFinite(createdAt) && evidence.some((source) => isVerifiedOfficialFactEvidence(source)
       && source.publishedAt !== null && Number.isFinite(Date.parse(source.publishedAt))
       && Date.parse(source.publishedAt) > createdAt && Date.parse(source.publishedAt) <= now.getTime());
   });
@@ -296,7 +301,10 @@ export async function selectTopic(
   }
   const topic = parseTopic(response, evidence);
   if (topic === null || recentDuplicate(topic, recent, evidence, now)) return null;
-  if (topic.officialUpdate && !topic.evidenceIds.some((id) => evidence.find((item) => item.id === id)?.official)) return null;
+  if (topic.officialUpdate && !topic.evidenceIds.some((id) => {
+    const item = evidence.find((source) => source.id === id);
+    return item ? isVerifiedOfficialFactEvidence(item) : false;
+  })) return null;
   return topic;
 }
 

@@ -53,8 +53,16 @@ function hasNumericGameStat(text: string): boolean {
     && /(?:피해량|데미지|damage|연사|rpm|반동|recoil|탄속|발사\s*속도|장전\s*시간|탄창|dps)/i.test(text);
 }
 
+/** Only source-verified patch bodies and official video descriptions can support factual claims. */
+export function isVerifiedOfficialFactEvidence(item: Evidence): boolean {
+  const excerpt = item.excerpt?.trim();
+  if (!item.official || !excerpt || excerpt === "[redacted]") return false;
+  return (item.source === "official" && item.access === "body")
+    || (item.source === "youtube" && item.access === "description");
+}
+
 function hasOfficialEvidence(items: Evidence[]): boolean {
-  return items.some((item) => item.official);
+  return items.some(isVerifiedOfficialFactEvidence);
 }
 
 function hasCurrentEvidence(items: Evidence[], window: NonNullable<Claim["recentWindow"]>, now: Date): boolean {

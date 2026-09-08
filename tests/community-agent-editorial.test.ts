@@ -83,6 +83,27 @@ it("7일을 넘긴 공식 패치로 최근 변경을 말할 수 없다", () => {
   expect(result.reasons).toContain("stale_recent_evidence");
 });
 
+it("공식 사실은 검증된 패치 본문 또는 실제 공식 YouTube 설명만 근거로 쓴다", () => {
+  const rejected = [
+    evidence({ access: "snippet" }),
+    evidence({ excerpt: null }),
+    evidence({ excerpt: "[redacted]" }),
+    evidence({ source: "dc", access: "body", official: true, url: "https://gall.dcinside.com/board/view/?id=battlegrounds&no=1" }),
+    evidence({ source: "naver", access: "body", official: true, url: "https://cafe.naver.com/playbattlegrounds/1" }),
+    evidence({ source: "youtube", access: "comment", official: true, url: "https://www.youtube.com/watch?v=official-video" }),
+  ];
+  for (const item of rejected) {
+    expect(checkDraft(safeDraft, [item], NOW).reasons).toContain("official_evidence_required");
+  }
+
+  const officialDescription = evidence({
+    source: "youtube", access: "description", official: true,
+    url: "https://www.youtube.com/watch?v=official-video",
+    excerpt: "PUBG 공식 채널 설명에 이번 업데이트의 변경 사항이 안내되어 있습니다.",
+  });
+  expect(checkDraft(safeDraft, [officialDescription], NOW)).toMatchObject({ passed: true });
+});
+
 it("수치가 포함된 제안도 공식 근거 없이는 통과하지 않는다", () => {
   const result = checkDraft({
     ...safeDraft,
@@ -132,6 +153,36 @@ it("모델은 선택 단계에서 한 번만 호출하고 최근 중복 주제�
     title: "M416 변경점 확인", topicKey: "different-key", createdAt: "2026-09-07T12:00:00.000Z",
   }], model, NOW)).resolves.toBeNull();
   expect(model).toHaveBeenCalledTimes(1);
+});
+
+it("7일보다 오래된 중복 주제는 새 주제를 막지 않는다", async () => {
+  const model = vi.fn().mockResolvedValue({
+    kind: "news", title: "M416 변경점 확인", topicKey: "m416-change",
+    evidenceIds: ["evidence-1"], reason: "공식 근거가 있습니다.", officialUpdate: false,
+  });
+
+  await expect(selectTopic([evidence()], [{
+    title: "M416 변경점 확인", topicKey: "m416-change", createdAt: "2026-09-01T00:59:59.999Z",
+  }], model, NOW)).resolves.toEqual(expect.objectContaining({ topicKey: "m416-change" }));
+  expect(model).toHaveBeenCalledTimes(1);
+});
+
+it("정확히 7일 전의 중복 주제는 보류하고 잘못된 또는 미래 날짜는 제외한다", async () => {
+  const topic = {
+    kind: "news", title: "M416 변경점 확인", topicKey: "m416-change",
+    evidenceIds: ["evidence-1"], reason: "공식 근거가 있습니다.", officialUpdate: false,
+  };
+  const boundaryModel = vi.fn().mockResolvedValue(topic);
+  await expect(selectTopic([evidence()], [{
+    title: topic.title, topicKey: topic.topicKey, createdAt: "2026-09-01T01:00:00.000Z",
+  }], boundaryModel, NOW)).resolves.toBeNull();
+
+  for (const createdAt of ["not-a-date", "2026-09-08T01:00:01.000Z"]) {
+    const model = vi.fn().mockResolvedValue(topic);
+    await expect(selectTopic([evidence()], [{ title: topic.title, topicKey: topic.topicKey, createdAt }], model, NOW))
+      .resolves.toEqual(expect.objectContaining({ topicKey: topic.topicKey }));
+    expect(model).toHaveBeenCalledTimes(1);
+  }
 });
 
 it("공식 업데이트 예외에는 이전 게시 뒤의 검증된 공식 발표 시각이 필요하다", async () => {
