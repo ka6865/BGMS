@@ -28,6 +28,7 @@ export function buildAgentAutomationContracts(input?: {
   monitorSeverity?: "ok" | "warn" | "critical";
   deploymentConfigured?: boolean;
   discordConfigured?: boolean;
+  communityAgent?: { enabled: boolean; publishingEnabled: boolean };
 }): AgentAutomationContractSummary {
   const contracts: AgentAutomationContract[] = [
     {
@@ -89,6 +90,22 @@ export function buildAgentAutomationContracts(input?: {
       guardrail: "Vercel cron을 추가하지 않고 Agent는 관찰, 기록, 승인 보조에 집중합니다.",
       whereToCheck: "GitHub Actions · daily-tasks",
       prompt: "GitHub Actions 자동화와 Agent 역할 분담을 요약해줘"
+    },
+    {
+      id: "community-agent-publishing",
+      title: "커뮤니티 정책 범위 자동 발행",
+      status: input?.communityAgent?.enabled && input.communityAgent.publishingEnabled
+        ? "active"
+        : input?.communityAgent?.enabled
+          ? "ready"
+          : "manual",
+      cadence: "하루 최대 1건, 수집과 검증 조건을 충족할 때",
+      owner: "agent",
+      risk: "approval_required",
+      whatRuns: "커뮤니티 AI 비서가 확인 가능한 자료를 수집하고 초안을 검증합니다. 자동 게시가 켜진 경우에만 정책 범위 안에서 게시합니다.",
+      guardrail: "수집 중지, 하루 한도, 허용 카테고리, 출처 설정, 자료 부족 보류를 모두 지킵니다. 댓글과 답글은 이 자동화에 포함하지 않습니다.",
+      whereToCheck: "/admin/bot · 커뮤니티 운영",
+      prompt: "커뮤니티 운영 상태와 보류 사유를 요약해줘"
     }
   ];
 
@@ -114,7 +131,7 @@ export function buildAgentAutomationContracts(input?: {
     counts,
     guardrails: [
       "Vercel cron은 추가하지 않습니다.",
-      "삭제, 발행, 권한 변경, 대량 수정은 승인 없이는 실행하지 않습니다.",
+      "일반 관리자 도구의 삭제, 발행, 권한 변경, 대량 수정은 승인 없이는 실행하지 않습니다. 커뮤니티 정책 범위 자동 발행은 별도 계약을 따릅니다.",
       "서비스 role 권한은 서버 route와 admin-agent lib 안에서만 사용합니다.",
       "긴 작업은 기존 GitHub Actions에 남기고 Agent는 snapshot과 영향 분석을 맡습니다."
     ],

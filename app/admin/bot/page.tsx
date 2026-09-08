@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import AdminAgentChat from "@/components/admin/AdminAgentChat";
+import CommunityAgentPanel from "@/components/admin/CommunityAgentPanel";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
@@ -13,6 +14,7 @@ export default function AdminBotPage() {
   const [prefillPrompt, setPrefillPrompt] = useState("");
   const [prefillVersion, setPrefillVersion] = useState(0);
   const [autoSend, setAutoSend] = useState(false);
+  const [activeTab, setActiveTab] = useState<"chat" | "community">("chat");
 
   useEffect(() => {
     async function checkAdmin() {
@@ -161,20 +163,28 @@ ${rootOriginalContent}
   }
 
   return (
-    <AdminAgentChat
-      mode="page"
-      prefillPrompt={prefillPrompt}
-      prefillVersion={prefillVersion}
-      autoSend={autoSend}
-      onBack={() => router.push("/admin/dashboard")}
-      onOpenDashboard={() => router.push("/admin/dashboard")}
-      onOpenApprovals={(approvalId) => {
-        if (approvalId) {
-          router.push(`/admin/dashboard?section=approvals&approval=${encodeURIComponent(approvalId)}`);
-          return;
-        }
-        router.push("/admin/dashboard?section=approvals");
-      }}
-    />
+    <>
+      <nav aria-label="관리 비서 화면" className="sticky top-0 z-20 flex gap-2 border-b border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 sm:px-4">
+        <button type="button" aria-pressed={activeTab === "chat"} onClick={() => setActiveTab("chat")} className="rounded-lg px-3 py-2 aria-pressed:bg-amber-500/15 aria-pressed:text-amber-200">관리자 대화</button>
+        <button type="button" aria-pressed={activeTab === "community"} onClick={() => setActiveTab("community")} className="rounded-lg px-3 py-2 aria-pressed:bg-amber-500/15 aria-pressed:text-amber-200">커뮤니티 운영</button>
+      </nav>
+      {activeTab === "community" ? <CommunityAgentPanel /> : (
+        <AdminAgentChat
+          mode="page"
+          prefillPrompt={prefillPrompt}
+          prefillVersion={prefillVersion}
+          autoSend={autoSend}
+          onBack={() => router.push("/admin/dashboard")}
+          onOpenDashboard={() => router.push("/admin/dashboard")}
+          onOpenApprovals={(approvalId) => {
+            if (approvalId) {
+              router.push(`/admin/dashboard?section=approvals&approval=${encodeURIComponent(approvalId)}`);
+              return;
+            }
+            router.push("/admin/dashboard?section=approvals");
+          }}
+        />
+      )}
+    </>
   );
 }
