@@ -34,6 +34,7 @@ vi.mock("../lib/admin-agent/logging", () => ({ verifyAdminRole: mocks.verifyAdmi
 
 import { POST as runPOST } from "../app/api/admin/agent/community/run/route";
 import { POST as communityPOST } from "../app/api/admin/agent/community/route";
+import { POST as cleanupPOST } from "../app/api/admin/agent/community/cleanup/route";
 import { executeAction } from "../lib/community-agent/service";
 import { prepareCommunityBot } from "../lib/community-agent/auth";
 
@@ -65,6 +66,17 @@ function request(body: unknown, token?: string, url = "https://bgms.test/api/adm
       ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
     },
     body: JSON.stringify(body),
+  });
+}
+
+function cleanupRequest(token?: string, body?: unknown) {
+  return new Request("https://bgms.test/api/admin/agent/community/cleanup", {
+    method: "POST",
+    headers: {
+      ...(token === undefined ? {} : { authorization: `Bearer ${token}` }),
+      ...(body === undefined ? {} : { "content-type": "application/json" }),
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 }
 
@@ -146,6 +158,36 @@ describe("community agent API authentication boundary", () => {
       expect(response.status).toBe(403);
     }
     expect(mocks.createClient).not.toHaveBeenCalled();
+  });
+
+  it("limits cleanup to an authenticated no-body admin or dedicated worker request", async () => {
+    process.env.COMMUNITY_AGENT_WORKER_SECRET = "worker-token";
+
+    const unauthorized = await cleanupPOST(cleanupRequest());
+    const injected = await cleanupPOST(cleanupRequest("worker-token", { action: "publish", runId: RUN_ID }));
+
+    expect(unauthorized.status).toBe(401);
+    expect(injected.status).toBe(400);
+    expect(mocks.createClient).not.toHaveBeenCalled();
+    expect(mocks.sourceFetch).not.toHaveBeenCalled();
+
+    const rpc = vi.fn().mockResolvedValue({ data: { excerpts: 3, drafts: 2, runs: 1 }, error: null });
+    mocks.createClient.mockReturnValue({ rpc });
+    const response = await cleanupPOST(cleanupRequest("worker-token"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ result: { excerpts: 3, drafts: 2, runs: 1 } });
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith("cleanup_community_agent");
+    expect(mocks.sourceFetch).not.toHaveBeenCalled();
+
+    const adminRpc = vi.fn().mockResolvedValue({ data: { excerpts: 0, drafts: 0, runs: 0 }, error: null });
+    mocks.createClient.mockReturnValue({ rpc: adminRpc });
+    mocks.withAuthGuard.mockResolvedValue({ user: { id: "admin-user" }, supabaseAdmin: {} });
+    const adminResponse = await cleanupPOST(cleanupRequest());
+
+    expect(adminResponse.status).toBe(200);
+    expect(adminRpc).toHaveBeenCalledWith("cleanup_community_agent");
   });
 });
 
