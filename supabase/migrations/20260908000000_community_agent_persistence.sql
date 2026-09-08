@@ -603,6 +603,8 @@ revoke all on function public.validate_community_agent_policy(),
   public.expire_community_stages(uuid), public.get_community_run(uuid), public.start_community_run(uuid, boolean),
   public.claim_community_stage(uuid, text), public.finish_community_stage(uuid, text, uuid, jsonb),
   public.publish_community_post(uuid), public.cleanup_community_agent() from public, anon, authenticated;
-grant execute on function public.get_community_run(uuid), public.start_community_run(uuid, boolean),
+grant execute on function public.community_run_payload(public.community_agent_runs),
+  public.community_evidence_ids(jsonb, integer), public.community_short_text_array(jsonb, integer, integer),
+  public.expire_community_stages(uuid), public.get_community_run(uuid), public.start_community_run(uuid, boolean),
   public.claim_community_stage(uuid, text), public.finish_community_stage(uuid, text, uuid, jsonb),
   public.publish_community_post(uuid), public.cleanup_community_agent() to service_role;

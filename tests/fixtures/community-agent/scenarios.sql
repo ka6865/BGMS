@@ -38,6 +38,23 @@ values ('00000000-0000-0000-0000-000000000901', 'BGMS AI 비서', 'user');
 update public.community_agent_policy
 set bot_user_id = '00000000-0000-0000-0000-000000000901', enabled = true, publishing_enabled = true;
 
+-- These are SECURITY INVOKER calls. Run as service_role so missing helper grants fail here.
+set role service_role;
+with started as materialized (
+  select public.start_community_run(null, false) as run
+), checked as materialized (
+  select public.get_community_run((run ->> 'id')::uuid) as run from started
+), claimed as materialized (
+  select public.claim_community_stage((run ->> 'id')::uuid, 'dc') as claim from started
+)
+select public.finish_community_stage(
+  (started.run ->> 'id')::uuid, 'dc', (claimed.claim ->> 'lease')::uuid,
+  jsonb_build_object('state', 'ok', 'reason', null, 'fetchedCount', 1, 'retainedCount', 0, 'evidenceIds', '[]'::jsonb)
+)
+from started cross join checked cross join claimed
+where claimed.claim ->> 'claimed' = 'true';
+reset role;
+
 do $$
 declare
   v_first uuid;
@@ -50,13 +67,13 @@ begin
   v_second := (public.start_community_run(null, false) ->> 'id')::uuid;
   if v_first <> v_second then raise exception 'same day produced two community runs'; end if;
 
-  v_claim := public.claim_community_stage(v_first, 'dc');
+  v_claim := public.claim_community_stage(v_first, 'naver');
   if v_claim ->> 'claimed' is distinct from 'true' then raise exception 'first stage claim failed'; end if;
   v_lease := (v_claim ->> 'lease')::uuid;
-  if (public.claim_community_stage(v_first, 'dc') ->> 'claimed')::boolean then
+  if (public.claim_community_stage(v_first, 'naver') ->> 'claimed')::boolean then
     raise exception 'duplicate stage claim succeeded';
   end if;
-  perform public.finish_community_stage(v_first, 'dc', v_lease, jsonb_build_object(
+  perform public.finish_community_stage(v_first, 'naver', v_lease, jsonb_build_object(
     'state', 'ok', 'reason', null, 'fetchedCount', 1, 'retainedCount', 0,
     'evidenceIds', '[]'::jsonb, 'rawSourceExcerpt', 'must not be persisted'
   ));
