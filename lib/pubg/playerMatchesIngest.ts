@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
-import { upsertPlayerMatches, type PlayerMatchRecord } from "./playerMatches";
+import { normalizeBasicMatchStat, upsertPlayerMatches, type PlayerMatchRecord } from "./playerMatches";
 
 export interface IngestParticipantInput {
   matchId: string;
@@ -14,6 +14,8 @@ export interface IngestParticipantInput {
   kills: number;
   damage: number;
   winPlace: number;
+  knocks?: unknown;
+  survivalTime?: unknown;
 }
 
 export function buildPlayerMatchRecordFromParticipant(input: IngestParticipantInput): PlayerMatchRecord {
@@ -27,6 +29,8 @@ export function buildPlayerMatchRecordFromParticipant(input: IngestParticipantIn
     kills: input.kills,
     damage: Math.floor(input.damage),
     win_place: input.winPlace,
+    knocks: normalizeBasicMatchStat(input.knocks),
+    survival_time: normalizeBasicMatchStat(input.survivalTime),
     match_type: input.matchType || "unknown",
   };
 }
@@ -173,6 +177,8 @@ export async function fetchAndIngestBasicMatchSummaryOutcome(
       kills: stats.kills || 0,
       damage: Math.floor(stats.damageDealt || 0),
       win_place: stats.winPlace || 99,
+      knocks: normalizeBasicMatchStat(stats.DBNOs),
+      survival_time: normalizeBasicMatchStat(stats.timeSurvived),
       match_type: String(matchAttr.matchType || "unknown").toLowerCase(),
     };
 

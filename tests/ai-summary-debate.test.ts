@@ -35,6 +35,12 @@ function createValidPayload(overrides: Record<string, unknown> = {}) {
 }
 
 describe("AI summary debate stat pairing", () => {
+  it.each(["draw", null])("preserves an explicit %s legacy conclusion", (winner) => {
+    const result = normalizeAiSummaryDebatePayload(createValidPayload({
+      debateIssues: [createDebateIssue({ winner }), createDebateIssue(), createDebateIssue()],
+    }));
+    expect((result?.debateIssues as Array<{ winner: unknown }>)[0].winner).toBe(winner);
+  });
   it("preserves a natural debate question instead of replacing it with a generic notice", () => {
     const question = "상위권과 비교했을 때 화력은 충분한가?";
     const duelQuestion = "상위권과 비교했을 때 1:1 결정력은 충분한가?";

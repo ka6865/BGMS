@@ -167,3 +167,12 @@ export function sanitizeAiCoachingLanguage<T>(value: T): T {
 
   return value;
 }
+
+/** Negation immediately following a matched coaching verb, scoped to its clause. */
+export function isNegatedCoachingDirectiveTail(tail: string): boolean {
+  const continuation = tail.trimStart().replace(/^(?:해야|하여야|야)\s*/u, '');
+  return /^(?:(?:한다는|하는|하라는|한다)\s*)?(?:뜻|의미|것)(?:은|는|이)?\s*(?:(?:결코|전혀)\s*)?(?:아니|아닙|아닌|아닐)/u.test(continuation)
+    || /^할\s*필요(?:가|는)?\s*없/u.test(continuation)
+    || /^(?:해야|한다|한)?고\s*(?:단정|판단|평가)할\s*수\s*없/u.test(continuation)
+    || /^(?:해서|하여서|서)는\s*안\s*(?:됩|되)/u.test(continuation);
+}

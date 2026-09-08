@@ -17,6 +17,8 @@ function rate(numerator: unknown, denominator: unknown): number | null {
 export function buildSummaryCardEvidence(stats: Record<string, unknown>, benchmark: ObservedBenchmark | null): SummaryEvidenceInput[] {
   const entries: SummaryEvidenceInput[] = [];
   const add = (metricId: string, label: string, user: unknown, unit: string, benchmarkKey?: keyof NormalizedBenchmark, numerator?: unknown, denominator?: unknown) => {
+    const counts = stats.metricMatchCounts as Record<string, number> | undefined;
+    const userMatchCount = counts?.[metricId];
     const value = numberOrNull(user);
     const benchmarkObserved = benchmarkKey !== undefined && hasObservedBenchmarkMetric(benchmark, benchmarkKey);
     const comparison = benchmarkObserved && benchmark ? numberOrNull(benchmark[benchmarkKey!]) : null;
@@ -25,6 +27,7 @@ export function buildSummaryCardEvidence(stats: Record<string, unknown>, benchma
     const userValue = denominator !== undefined && (denominatorValue === null || denominatorValue <= 0) ? null : format(value);
     entries.push({
       metricId, label, userValue,
+      ...(userMatchCount !== undefined ? { userMatchCount } : {}),
       benchmarkLabel: `동일 티어 평균 ${label.replace(/^평균 /, '')}`,
       benchmarkValue: comparison === null ? null : format(comparison),
       unit,
@@ -33,6 +36,15 @@ export function buildSummaryCardEvidence(stats: Record<string, unknown>, benchma
       ...(denominator !== undefined ? { denominator: denominatorValue } : {}),
       ...(userValue === null ? { unavailableReason: denominator !== undefined && denominatorValue === 0 ? '해당 지표를 계산할 기회가 관측되지 않았습니다.' : '이 지표를 측정할 수 있는 기록이 없습니다.' } : comparison === null ? { unavailableReason: '같은 조건의 비교 자료가 없습니다.' } : {}),
     });
+    const entry = entries[entries.length - 1];
+    if (userMatchCount === 0) {
+      entry.userValue = null;
+      entry.unavailableReason = metricId === 'backup_latency' && numberOrNull(stats.totalTradeKills) === 0
+        ? '복수 처치 성공 사례가 없어 시간을 계산할 수 없습니다.'
+        : '이 지표를 측정할 수 있는 기록이 없습니다.';
+    } else if (entry.userValue === null && userMatchCount !== undefined && typeof stats.mLen === 'number' && userMatchCount < stats.mLen) {
+      entry.unavailableReason = `선택된 ${stats.mLen}경기 중 ${userMatchCount}경기만 기록이 확인되어 전체 합계·비율을 표시하지 않습니다.`;
+    }
   };
   add('damage_average', '평균 화력', stats.avgDamage, '', 'avgDamage');
   add('initiative_rate', '주도권 성공률', stats.userInitiativeRate, '%', 'avgInitiativeRate', stats.totalInitiativeSuccess, stats.totalInitiativeAttempts);
@@ -43,7 +55,11 @@ export function buildSummaryCardEvidence(stats: Record<string, unknown>, benchma
   add('backup_latency', '백업 속도', stats.avgBackupLatency, 's', 'avgTradeLatency');
   add('trade_success_rate', '복수 성공률', rate(stats.totalTradeKills, stats.totalTeammateKnocks), '%', 'avgTradeRate', stats.totalTradeKills, stats.totalTeammateKnocks);
   add('smoke_opportunity_rate', '아군 기절 대비 연막 구출률', rate(stats.totalSmokeRescues, stats.totalTeammateKnocks), '%', 'avgSmokeRate', stats.totalSmokeRescues, stats.totalTeammateKnocks);
-  add('solo_kill_share', '솔로 킬 비중', stats.soloKillRate, '%', 'avgSoloKillRate');
+  const contributions = stats.killContribFinal as Record<string, unknown> | undefined;
+  const contributionValues = contributions ? [contributions.solo, contributions.cleanup, contributions.assist].map(numberOrNull) : null;
+  const contributionTotal = contributionValues?.every((value): value is number => value !== null)
+    ? contributionValues.reduce((sum, value) => sum + value, 0) : undefined;
+  add('solo_kill_share', '솔로 킬 비중', stats.soloKillRate, '%', 'avgSoloKillRate', contributions?.solo, contributionTotal);
   add('utility_throws', '총 투척 횟수', stats.totalUtilityThrows, '회');
   add('utility_smokes', '연막 사용', stats.totalObservedSmokes, '회');
   add('utility_lethal_throws', '피해형 투척', stats.totalLethalThrows, '회');

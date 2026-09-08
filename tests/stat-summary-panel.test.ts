@@ -53,6 +53,14 @@ describe("최근 20경기 요약", () => {
     expect(screen.getByTestId("average-rank")).toHaveTextContent("11.0");
   });
 
+  it('includes observed basic knocks in the recent twenty without inventing assists', () => {
+    const input = fixture(2);
+    input.summaries['match-0'] = buildBasicMatchSummary({ match_id: 'match-0', player_id: 'player', platform: 'steam', game_mode: 'duo', match_type: 'competitive', knocks: 3 });
+    expect(buildRecentMatchOverview(input)).toMatchObject({ dbnos: 5, assists: null });
+    input.summaries['match-0'].basicStats!.DBNOs = null;
+    expect(buildRecentMatchOverview(input).dbnos).toBeNull();
+  });
+
   it("기본 전적의 어시스트·기절 자리표시자 0은 관측값으로 쓰지 않는다", () => {
     const input = fixture(4);
     input.summaries["match-0"].summarySource = "pubg_player_matches";

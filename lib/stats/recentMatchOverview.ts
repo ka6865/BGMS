@@ -1,4 +1,4 @@
-import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
+import { getObservedBasicMatchStat, type MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import type { StatsMatchModeMeta } from "@/types/stats-page";
 import { classifyMatchMode } from "@/lib/stats/statsPageModel";
 
@@ -25,8 +25,9 @@ export function buildRecentMatchOverview({ matchIds, summaries, matchModeMeta = 
 
   function values(key: "kills" | "assists" | "DBNOs" | "damageDealt" | "winPlace") {
     const result = matches.map((match) => {
-      // Basic history rows contain placeholder zeroes for these unobserved fields.
-      if (match.summarySource === "pubg_player_matches" && (key === "assists" || key === "DBNOs")) return null;
+      if (key === "DBNOs") return getObservedBasicMatchStat(match, key);
+      // Assists remain unobserved in basic history rows.
+      if (match.summarySource === "pubg_player_matches" && key === "assists") return null;
       const value = match.stats?.[key];
       return typeof value === "number" && Number.isFinite(value) && value >= (key === "winPlace" ? 1 : 0)
         ? value : null;

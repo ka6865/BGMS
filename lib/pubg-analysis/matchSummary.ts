@@ -1,3 +1,4 @@
+import { normalizeBasicMatchStat } from "../pubg/playerMatches";
 import type { MatchData } from "@/types/stat";
 
 const EMPTY_STATS = {
@@ -22,9 +23,16 @@ const EMPTY_STATS = {
 
 export type MatchSummaryData = MatchData & {
   isSummary?: boolean;
+  // Separate observed basic values from legacy MatchData placeholder zeroes.
+  basicStats?: { DBNOs: number | null; timeSurvived: number | null };
   summarySource?: "processed_match_telemetry" | "pubg_player_matches";
 };
 
+
+export function getObservedBasicMatchStat(summary: MatchSummaryData, key: "DBNOs" | "timeSurvived"): number | null {
+  const isBasic = summary.summarySource === "pubg_player_matches" && summary.isSummary !== false;
+  return normalizeBasicMatchStat(isBasic ? summary.basicStats?.[key] : summary.stats?.[key]);
+}
 
 export function buildBasicMatchSummary(row: {
   match_id: string;
@@ -38,6 +46,8 @@ export function buildBasicMatchSummary(row: {
   damage?: number;
   win_place?: number;
   match_type?: string;
+  knocks?: number | null;
+  survival_time?: number | null;
 }): MatchSummaryData {
   const kills = row.kills ?? 0;
   const damage = Math.floor(row.damage ?? 0);
@@ -45,10 +55,13 @@ export function buildBasicMatchSummary(row: {
 
   return {
     matchId: row.match_id,
+    basicStats: { DBNOs: normalizeBasicMatchStat(row.knocks), timeSurvived: normalizeBasicMatchStat(row.survival_time) },
     stats: {
       ...EMPTY_STATS,
       winPlace,
       kills,
+      DBNOs: normalizeBasicMatchStat(row.knocks) ?? 0,
+      timeSurvived: normalizeBasicMatchStat(row.survival_time) ?? 0,
       damageDealt: damage,
       playerId: row.player_id,
     },

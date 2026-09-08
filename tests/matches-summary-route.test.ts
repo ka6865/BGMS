@@ -11,13 +11,20 @@ const database = vi.hoisted(() => ({
 vi.mock("@supabase/supabase-js", () => ({
   createClient: () => ({
     from: (table: string) => {
+      let invalidColumn = false;
       const query = {
         select: (columns: string) => {
           database.selects.push({ table, columns });
+          if (table === "match_stats_raw") {
+            const known = new Set(["match_id", "player_id", "platform", "created_at", "damage", "kills", "win_place", "game_mode", "map_name"]);
+            invalidColumn = columns.split(",").some(column => !known.has(column.trim()));
+          }
           return query;
         },
         eq: () => query,
-        in: async () => ({ data: database.rows[table] ?? [], error: null }),
+        in: async () => invalidColumn
+          ? { data: null, error: { code: "42703", message: "column does not exist" } }
+          : { data: database.rows[table] ?? [], error: null },
       };
       return query;
     },
@@ -53,11 +60,13 @@ describe("matches-summary raw timestamp fallback", () => {
       }],
     };
     database.selects = [];
+    vi.stubEnv("PUBG_API_KEY", "");
     vi.useFakeTimers();
   });
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   it("helper는 played_at, created_at, request-time ultimate fallback 순서를 지킨다", () => {
@@ -104,7 +113,7 @@ describe("matches-summary raw timestamp fallback", () => {
   it("요약 DB 조회에는 저장된 경기 종류를 포함한다", async () => {
     await POST(request());
     const playerMatchSelect = database.selects.find(({ table }) => table === "pubg_player_matches");
-    expect(playerMatchSelect?.columns.split(",").map((column) => column.trim())).toContain("match_type");
+    expect(playerMatchSelect?.columns.split(",").map((column) => column.trim())).toEqual(expect.arrayContaining(["match_type", "knocks", "survival_time"]));
   });
 
   it("ordinary history keeps a legacy processed row without embedded AI identity fields", async () => {
@@ -183,6 +192,8 @@ describe("matches-summary raw timestamp fallback", () => {
     }];
     database.rows.pubg_player_matches = [{
       match_id: "future-match",
+      knocks: 0,
+      survival_time: 724,
       player_id: "fixtureplayer",
       platform: "steam",
       played_at: "2026-08-10T00:00:00.000Z",
@@ -201,6 +212,7 @@ describe("matches-summary raw timestamp fallback", () => {
       v: 1,
       summarySource: "pubg_player_matches",
       stats: { kills: 2, damageDealt: 321, winPlace: 4 },
+      basicStats: { DBNOs: 0, timeSurvived: 724 },
     });
     expect(body.missingMatchIds).toEqual([]);
   });

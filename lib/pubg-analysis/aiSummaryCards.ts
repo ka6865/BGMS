@@ -1,3 +1,5 @@
+import { AI_SUMMARY_HIGHER_IS_BETTER } from "./aiSummaryDebate";
+import { hasUnsupportedSummaryInference, sanitizeSummaryInferenceText, hasUnsupportedSummaryAdvice, sanitizeSummaryAdviceText } from "./aiSummaryJudgment";
 import { COACHING_JUDGMENT_WITHHELD, requiresRescueOpportunityEvidence } from "./aiCoachingQuality";
 
 /**
@@ -34,6 +36,8 @@ export interface SummaryEvidence {
   status: SummaryDataStatus;
   unavailableReason?: string;
   sampleCount: number | null;
+  /** Matches with complete observations for this metric; absent on older cards. */
+  userMatchCount?: number;
   numerator?: number | null;
   denominator?: number | null;
 }
@@ -68,7 +72,7 @@ export interface SummaryCard {
   spicyOpinion: string;
   reason: string;
   evaluation: string;
-  winner: "kind" | "spicy" | null;
+  winner: "kind" | "spicy" | "draw" | null;
 }
 
 export const SUMMARY_TOPIC_DEFINITIONS: Readonly<Record<SummaryTopicId, {
@@ -273,6 +277,8 @@ function normalizeEvidenceInput(
     return null;
   }
 
+  const userMatchCount = input.userMatchCount === undefined ? undefined : finiteNonNegativeInteger(input.userMatchCount);
+  if (userMatchCount === null) return null;
   const id = `${contextId}:${metricId}`;
   const base: SummaryEvidence = {
     id,
@@ -284,6 +290,7 @@ function normalizeEvidenceInput(
     unit,
     status: "unavailable",
     sampleCount,
+    ...(userMatchCount !== undefined ? { userMatchCount } : {}),
     ...(input.unavailableReason ? { unavailableReason: String(input.unavailableReason).trim() } : {}),
     ...(numerator !== null ? { numerator } : {}),
     ...(denominator !== null ? { denominator } : {}),
@@ -433,10 +440,10 @@ function validateCardCatalog(cards: readonly SummaryCard[]): SummaryCard[] | nul
     if (card.dataStatus !== derivedDataStatus) return null;
     const analysisStatus = card.analysisStatus;
     if (analysisStatus !== "pending" && analysisStatus !== "ready" && analysisStatus !== "unavailable") return null;
-    const winner = card.winner === null || card.winner === "kind" || card.winner === "spicy"
+    const winner = card.winner === null || card.winner === "kind" || card.winner === "spicy" || card.winner === "draw"
       ? card.winner
       : undefined;
-    if (winner === undefined) return null;
+    if (winner === undefined || hasUnsupportedMixedWinner(winner, copiedEvidence)) return null;
     if (winner !== null && (derivedDataStatus !== "comparable" || analysisStatus !== "ready")) return null;
     if (derivedDataStatus === "unavailable" && analysisStatus !== "unavailable") return null;
     if (analysisStatus !== "ready" && winner !== null) return null;
@@ -448,7 +455,7 @@ function validateCardCatalog(cards: readonly SummaryCard[]): SummaryCard[] | nul
     if (analysisStatus === "ready") {
       if ([kindOpinion, spicyOpinion, reason, evaluation].some((text) => !nonEmptyString(text))) return null;
       if (isNeutralText(kindOpinion) || isNeutralText(spicyOpinion)) return null;
-      if ([kindOpinion, spicyOpinion, reason, evaluation].some((text) => hasUnsupportedCardConclusion(text, { topicId, context, evidence: copiedEvidence }))) return null;
+      if ([kindOpinion, spicyOpinion, reason, evaluation].some((text) => hasUnsupportedSummaryInference(text) || hasUnsupportedSummaryAdvice(text) || hasUnsupportedCardConclusion(text, { topicId, context, evidence: copiedEvidence }))) return null;
     }
     const expectedTopic = topicDefinitionForId(topicId)?.topic;
     if (!expectedTopic) return null;
@@ -501,6 +508,9 @@ function validateSummaryEvidence(
     || (value.benchmarkValue !== null && !benchmarkValue)
     || !["comparable", "user_only", "unavailable"].includes(String(status))) return null;
   if (id !== `${context.contextId}:${metricId}`) return null;
+  const userMatchCount = value.userMatchCount === undefined ? undefined : finiteNonNegativeInteger(value.userMatchCount);
+  if (userMatchCount === null || (userMatchCount !== undefined && userMatchCount > context.userMatchCount)
+    || (userMatchCount === 0 && userValue !== null)) return null;
   const numerator = value.numerator === null || value.numerator === undefined ? null : finiteNonNegativeNumber(value.numerator);
   const denominator = value.denominator === null || value.denominator === undefined ? null : finiteNumber(value.denominator);
   if ((value.numerator !== null && value.numerator !== undefined && numerator === null)
@@ -531,9 +541,25 @@ function validateSummaryEvidence(
     status: derivedStatus,
     ...(unavailableReason ? { unavailableReason } : {}),
     sampleCount,
+    ...(userMatchCount !== undefined ? { userMatchCount } : {}),
     ...(numerator !== null ? { numerator } : {}),
     ...(denominator !== null ? { denominator } : {}),
   };
+}
+
+// Necessary evidence for "strengths and weaknesses together": a card whose
+// known comparisons are all strictly favourable cannot establish a weakness.
+// Equal, unknown-direction and genuinely mixed evidence remain model-reviewed.
+function hasUnsupportedMixedWinner(winner: SummaryCard["winner"], evidence: readonly SummaryEvidence[]): boolean {
+  if (winner !== "draw") return false;
+  const comparisons = evidence.filter((row) => row.status === "comparable");
+  return comparisons.length > 0 && comparisons.every((row) => {
+    const higherIsBetter = AI_SUMMARY_HIGHER_IS_BETTER[row.metricId];
+    if (higherIsBetter === undefined || row.userValue === null || row.benchmarkValue === null) return false;
+    const user = parseDisplayValue(row.userValue, row.unit);
+    const benchmark = parseDisplayValue(row.benchmarkValue, row.unit);
+    return user !== null && benchmark !== null && (higherIsBetter ? user > benchmark : user < benchmark);
+  });
 }
 
 function isNeutralText(value: string): boolean {
@@ -560,7 +586,7 @@ function sanitizeRequiredText(
   sanitizeText: (value: string) => string,
 ): { value: string; changed: boolean; empty: boolean } {
   try {
-    const sanitized = sanitizeText(value);
+    const sanitized = sanitizeSummaryInferenceText(sanitizeSummaryAdviceText(sanitizeText(value)));
     if (typeof sanitized !== "string") return { value: "", changed: true, empty: true };
     const trimmed = sanitized.trim();
     return { value: trimmed, changed: trimmed !== value.trim(), empty: !trimmed };
@@ -629,7 +655,8 @@ export function buildSummaryCards(input: {
   const evidenceByMetric = new Map<string, SummaryEvidence>();
   for (const rawEvidence of input.evidence) {
     const normalized = normalizeEvidenceInput(rawEvidence, context.contextId);
-    if (!normalized) continue;
+    if (!normalized || (normalized.userMatchCount !== undefined && normalized.userMatchCount > context.userMatchCount)
+      || (normalized.userMatchCount === 0 && normalized.userValue !== null)) continue;
     // An ID is scoped to a single metric/context. Keep the first server record
     // and never merge duplicate or denominator-ambiguous rows.
     if (!evidenceByMetric.has(normalized.metricId)) evidenceByMetric.set(normalized.metricId, normalized);
@@ -729,7 +756,8 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     const spicyOpinion = nonEmptyString(issue.spicyOpinion);
     const reason = nonEmptyString(issue.reason);
     const evaluation = nonEmptyString(issue.evaluation);
-    if (!kindOpinion || !spicyOpinion || !reason || !evaluation || (providerWinner !== "kind" && providerWinner !== "spicy")) {
+    if (!kindOpinion || !spicyOpinion || !reason || !evaluation
+      || (providerWinner !== "kind" && providerWinner !== "spicy" && providerWinner !== "draw" && providerWinner !== null)) {
       cacheable = false;
       return unavailableCard(serverCard, "AI 응답의 필수 해석 필드가 유효하지 않습니다.");
     }
@@ -788,6 +816,11 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     }
 
     const sanitizedTexts = sanitized.map((item) => item.value);
+    const unsupportedMixedWinner = hasUnsupportedMixedWinner(providerWinner as SummaryCard["winner"], serverCard.evidence);
+    if (unsupportedMixedWinner) {
+      sanitizedTexts[2] = "비교 가능한 지표는 모두 평균보다 유리한 방향입니다.";
+      sanitizedTexts[3] = "비교 자료에서 약점이 확인되지 않았습니다. 연습 제안은 다음 경기의 점검 과제로 참고하세요.";
+    }
     const readyCard: SummaryCard = {
       ...serverCard,
       analysisStatus: "ready",
@@ -795,7 +828,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       spicyOpinion: sanitizedTexts[1],
       reason: sanitizedTexts[2],
       evaluation: sanitizedTexts[3],
-      winner: serverCard.dataStatus === "comparable" ? providerWinner : null,
+      winner: serverCard.dataStatus === "comparable" && !unsupportedMixedWinner && ![kindOpinion, spicyOpinion, reason, evaluation].some(text => hasUnsupportedSummaryInference(text) || hasUnsupportedSummaryAdvice(text)) ? providerWinner : null,
     };
     return readyCard;
   });
@@ -805,13 +838,14 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   // Removing any part of a verdict can change its balance, even without a
   // leftover "다만". Reuse a strength and an improvement when those decisions
   // exist; do not manufacture a negative verdict when all cards favor kind.
-  if (isNeutralText(safeVerdict) || normalizedVerdict.changed) {
+  if (isNeutralText(safeVerdict) || normalizedVerdict.changed
+    || finalCards.some(card => card.winner === null || card.winner === "draw")) {
     const ready = finalCards.filter((card) => card.analysisStatus === "ready");
     const first = ready.find((card) => card.winner === "kind") ?? ready[0];
     const second = ready.find((card) => card !== first && card.winner === "spicy") ?? ready.find((card) => card !== first);
     const interpretations = [first, second]
       .filter((card): card is SummaryCard => Boolean(card))
-      .map((card) => card.winner === "spicy" ? card.spicyOpinion : card.kindOpinion)
+      .map((card) => card.winner === "spicy" ? card.spicyOpinion : card.winner === "kind" ? card.kindOpinion : card.evaluation)
       .filter((text) => !isNeutralText(text));
     safeVerdict = [...new Set(interpretations)].slice(0, 2).join(" ") || "코치 의견을 확인하지 못했습니다. 아래 경기 기록을 확인해 주세요.";
   }
@@ -823,7 +857,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       question: card.question,
       kindOpinion: card.kindOpinion,
       spicyOpinion: card.spicyOpinion,
-      winner: card.winner || "kind",
+      winner: card.winner,
       reason: card.reason,
       evaluation: card.evaluation,
       userStats: comparableEvidence.map((evidence) => ({ label: evidence.label, value: evidence.userValue as string })),

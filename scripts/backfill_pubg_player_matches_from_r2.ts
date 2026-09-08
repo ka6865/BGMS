@@ -3,7 +3,7 @@
  import dotenv from "dotenv";
  import path from "path";
  import { decodeMaybeGzip } from "../lib/pubg-analysis/r2Service";
- import { upsertPlayerMatches, type PlayerMatchRecord } from "../lib/pubg/playerMatches";
+ import { normalizeBasicMatchStat, upsertPlayerMatches, type PlayerMatchRecord } from "../lib/pubg/playerMatches";
  
  dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
  
@@ -101,6 +101,8 @@
              kills: Number(kills) || 0,
              damage: Number(damage) || 0,
              win_place: Number(winPlace) || 99,
+             knocks: normalizeBasicMatchStat(parsed.stats?.DBNOs),
+             survival_time: normalizeBasicMatchStat(parsed.stats?.timeSurvived),
              match_type: matchType,
            });
          }

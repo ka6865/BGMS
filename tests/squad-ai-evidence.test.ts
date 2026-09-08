@@ -3,6 +3,11 @@ import { sanitizeAiCoachingLanguage } from "@/lib/pubg-analysis/aiCoachingQualit
 import { applySquadEvidencePolicy } from "@/lib/pubg-analysis/squadAiEvidence";
 
 describe("squad partial evidence prose", () => {
+  it("keeps member advice stable across fresh and cached evidence cleanup", () => {
+    const source = { memberFeedbacks: [{ name: 'player', praise: '관측된 처치 기록입니다.', fault: '확인할 기록이 부족합니다.', advice: '집중사격을 더 연습하세요.' }] };
+    const first = applySquadEvidencePolicy(source, { avgCoverRate: null }, null, { focusFire: null });
+    expect(applySquadEvidencePolicy(first, { avgCoverRate: null }, null, { focusFire: null })).toEqual(first);
+  });
   it("withholds derived focus-fire evaluation even with a raw rate", () => {
     const result = applySquadEvidencePolicy({ squadGrade: "A", summary: "집중사격이 우수합니다.", coaching: "평균 백업 속도는 5.36초입니다." },
       { avgCoverRate: 0.3, avgTradeLatency: 5360 }, null, { focusFire: null });

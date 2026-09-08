@@ -3,9 +3,13 @@ import {
   buildCursorQueryFilter,
   fetchPlayerMatchesPaginated,
   normalizePlayerMatchesPage,
+  normalizeBasicMatchStat,
 } from "../lib/pubg/playerMatches";
  
  describe("playerMatches helper", () => {
+  it.each([undefined, null, -1, NaN, Infinity, '3', 2147483648])('does not fabricate a basic counter from %s', value => {
+    expect(normalizeBasicMatchStat(value)).toBeNull();
+  });
    it("builds cursor condition correctly when cursor is provided", () => {
      const filter = buildCursorQueryFilter("testuser", "steam", "2026-07-20T12:00:00Z");
      expect(filter.player_id).toBe("testuser");
@@ -55,7 +59,7 @@ import {
     const result = await fetchPlayerMatchesPaginated(supabase, "TestUser", "steam", 3, 20);
 
     expect(query.range).toHaveBeenCalledWith(40, 59);
-    expect(query.select).toHaveBeenCalledWith(expect.any(String), { count: "exact" });
+    expect(query.select).toHaveBeenCalledWith(expect.stringContaining("knocks, survival_time"), { count: "exact" });
     expect(result).toMatchObject({ page: 3, pageSize: 20, totalCount: 41, totalPages: 3 });
     expect(result.matches).toEqual([row]);
   });

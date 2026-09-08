@@ -1,5 +1,5 @@
 import { hasObservedBenchmarkMetric, type NormalizedBenchmark } from './benchmarkAdapter';
-import { requiresRescueOpportunityEvidence } from './aiCoachingQuality';
+import { requiresRescueOpportunityEvidence, isNegatedCoachingDirectiveTail } from './aiCoachingQuality';
 
 const finite = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
 const display = (value: number) => Number(value.toFixed(1));
@@ -21,6 +21,30 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
     [/(?:피해량|딜량|화력)/u, 'avgDamage'], [/복수/u, 'avgTradeRate'],
   ];
   const clean = (value: string, key: string): string => {
+    // Duel outcomes do not measure concentration. Keep adjacent factual prose
+    // and use canonical counts instead of retaining the provider's inference.
+    const concentrationClaim = /(?:높은|뛰어난|우수한|탁월한)\s*집중력(?:을|이)?\s*(?:보여|입증|증명)/u;
+    if (concentrationClaim.test(value)) {
+      const wins = finite(match?.duelStats?.wins), duels = finite(match?.duelStats?.totalDuels);
+      const facts = wins !== null && duels !== null && duels > 0 && wins <= duels
+        ? `관측된 1:1 교전 ${duels}회 중 ${wins}회 승리했습니다.`
+        : '교전 결과만으로 집중력을 판단할 수 없습니다.';
+      value = value.split(/(?<=[.!?。！？])\s+|\n+/u)
+        .map(sentence => concentrationClaim.test(sentence) ? facts : sentence).join(' ');
+    }
+    // tradeLatencyMs ends at the revenge kill; revCount supplies no revive
+    // duration. Do not turn that interval into a revive-speed coaching target.
+    if (key === 'desc') {
+      value = value.split(/(?<=[.!?。！？])\s+|\n+/u).map(sentence => {
+        const directives = sentence.matchAll(/(?:소생|부활)\s*(?:소요\s*)?시간[^.!?\n]{0,30}?(?:줄여|단축)/gu);
+        for (const directive of directives) {
+          if (!isNegatedCoachingDirectiveTail(sentence.slice(directive.index + directive[0].length))) {
+            return '다음 교전에서는 적 제압 후 아군의 상태를 확인하고 소생 가능한 상황인지 점검하세요.';
+          }
+        }
+        return sentence;
+      }).join(' ');
+    }
     if (requiresRescueOpportunityEvidence(value)) {
       const opportunities = finite(match?.tradeStats?.teammateKnocks);
       const successes = finite(match?.tradeStats?.smokeRescues);
