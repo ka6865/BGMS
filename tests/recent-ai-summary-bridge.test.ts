@@ -186,6 +186,7 @@ describe("RecentAISummary callback bridge", () => {
       context: { ...v2Context, gameMode: "duo", tier: "B", userMatchCount: 4, benchmarkSampleCount: 42 },
       evidence: buildSummaryCardEvidence({
         avgDamage: 228, totalUtilityThrows: 17, totalObservedSmokes: 8, totalLethalThrows: 8,
+        metricMatchCounts: { damage_average: 2, utility_throws: 4, smoke_opportunity_rate: 4 },
         totalObservedRescueSmokes: 1, totalTeammateKnocks: 3, totalSmokeRescues: 0, avgIsolationStr: "1.4",
       }, { sampleCount: 42, avgDamage: 203, avgSmokeRate: 5.55555555555556, metricSampleCounts: { avgDamage: 42, avgSmokeRate: 36 } }),
     }).map((card): SummaryCard => ({ ...card, analysisStatus: "ready", winner: card.dataStatus === "comparable" ? "kind" : null,
@@ -203,6 +204,7 @@ describe("RecentAISummary callback bridge", () => {
     fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
     fireEvent.click(screen.getByRole("button", { name: /유틸리티 활용에 대한 두 코치의 평가는/ }));
     expect(screen.getByText("최근 10경기 중 점수 상위 5경기에서 선택한 듀오 · 경쟁전 4경기 기준")).toBeInTheDocument();
+    expect(screen.getByText("선택된 4경기 중 4경기 기록 확인 · 비교 표본 36건")).toBeInTheDocument();
     expect(screen.getByText("17회")).toBeInTheDocument();
     expect(screen.getByText("연막 사용 8회 · 피해형 투척 8회")).toBeInTheDocument();
     expect(screen.getByText("아군 기절 3회 · 연막 구출 성공 0회 · 구출 연막 시도 1회")).toBeInTheDocument();
@@ -545,10 +547,10 @@ describe("RecentAISummary callback bridge", () => {
     expect(screen.queryByText("11%")).not.toBeInTheDocument();
     expect(screen.queryByText("총 투척 횟수")).not.toBeInTheDocument();
     expect(screen.queryByText("아군 기절 대비 연막 구출률")).not.toBeInTheDocument();
-    expect(screen.getByText("근거 확인이 필요한 2개 항목은 판정을 보류했습니다.")).toBeInTheDocument();
+    expect(screen.getByText("2개 항목은 비교 근거가 부족하거나 한쪽 판단을 지지하기 어려워 판정을 보류했습니다.")).toBeInTheDocument();
     const kindScoreLabel = screen.getAllByText("착한맛 승").find((element) => element.className.includes("text-green-400/60"));
     const spicyScoreLabel = screen.getAllByText("매운맛 승").find((element) => element.className.includes("text-red-400/60"));
-    const drawScoreLabel = screen.getAllByText("무승부").find((element) => element.className.includes("text-yellow-400/60"));
+    const drawScoreLabel = screen.getAllByText("장단점 함께").find((element) => element.className.includes("text-yellow-400/60"));
     expect(kindScoreLabel?.parentElement).toHaveTextContent("1");
     expect(spicyScoreLabel?.parentElement).toHaveTextContent("0");
     expect(drawScoreLabel?.parentElement).toHaveTextContent("0");
@@ -583,10 +585,10 @@ describe("RecentAISummary callback bridge", () => {
     fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
 
     expect(screen.getAllByText("판정 보류")).toHaveLength(3);
-    expect(screen.getByText("근거 확인이 필요한 3개 항목은 판정을 보류했습니다.")).toBeInTheDocument();
+    expect(screen.getByText("3개 항목은 비교 근거가 부족하거나 한쪽 판단을 지지하기 어려워 판정을 보류했습니다.")).toBeInTheDocument();
     const kindScoreLabel = screen.getAllByText("착한맛 승").find((element) => element.className.includes("text-green-400/60"));
     const spicyScoreLabel = screen.getAllByText("매운맛 승").find((element) => element.className.includes("text-red-400/60"));
-    const drawScoreLabel = screen.getAllByText("무승부").find((element) => element.className.includes("text-yellow-400/60"));
+    const drawScoreLabel = screen.getAllByText("장단점 함께").find((element) => element.className.includes("text-yellow-400/60"));
     expect(kindScoreLabel?.parentElement).toHaveTextContent("0");
     expect(spicyScoreLabel?.parentElement).toHaveTextContent("0");
     expect(drawScoreLabel?.parentElement).toHaveTextContent("0");
@@ -1088,7 +1090,7 @@ describe("RecentAISummary callback bridge", () => {
     fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
     const kindScoreLabel = screen.getAllByText("착한맛 승").find((element) => element.className.includes("text-green-400/60"));
     expect(kindScoreLabel?.parentElement).toHaveTextContent("1");
-    expect(screen.getByText("근거 확인이 필요한 2개 항목은 판정을 보류했습니다.")).toBeInTheDocument();
+    expect(screen.getByText("2개 항목은 비교 근거가 부족하거나 한쪽 판단을 지지하기 어려워 판정을 보류했습니다.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ }));
     expect(screen.getByText(/화력 근거를 확인했습니다/)).toBeInTheDocument();
@@ -1150,7 +1152,7 @@ describe("RecentAISummary callback bridge", () => {
     fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
     fireEvent.click(screen.getByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ }));
     expect(screen.getByText(/화력 근거를 확인했습니다/)).toBeInTheDocument();
-    expect(screen.getByText("근거 확인이 필요한 2개 항목은 판정을 보류했습니다.")).toBeInTheDocument();
+    expect(screen.getByText("2개 항목은 비교 근거가 부족하거나 한쪽 판단을 지지하기 어려워 판정을 보류했습니다.")).toBeInTheDocument();
     expect(onSummaryChange.mock.calls.every(([summary]) => summary === null)).toBe(true);
   });
 

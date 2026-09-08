@@ -1,3 +1,4 @@
+import { normalizeBasicMatchStat, toPlayerMatchWriteRecord } from "../pubg/playerMatches";
 import { ANALYSIS_CALCULATION_VERSION, POPULATION_EVIDENCE_VERSION, WEAPON_NAMES } from "./constants";
 import { BENCHMARK_FILTER_VERSION, isCanonicalBenchmarkTier } from "./benchmarkLookup";
 import { categorizeWeapon } from "./weaponMetaBurst";
@@ -501,16 +502,18 @@ async function persistPlayerMatches(
       && normalizeName(participant.attributes.stats.name) === analysisPlayerId
     ))
     .slice(0, 1)
-    .map((participant) => ({
+    .map((participant) => toPlayerMatchWriteRecord({
       player_id: analysisPlayerId,
       platform: input.platform,
       match_id: input.matchId,
       played_at: (input.finalResult as any).matchInfo?.date || new Date().toISOString(),
-      game_mode: input.matchAttr?.gameMode || "unknown",
-      map_name: input.matchAttr?.mapName || "unknown",
+      game_mode: typeof input.matchAttr?.gameMode === "string" && input.matchAttr.gameMode ? input.matchAttr.gameMode : "unknown",
+      map_name: typeof input.matchAttr?.mapName === "string" && input.matchAttr.mapName ? input.matchAttr.mapName : "unknown",
       kills: participant.attributes.stats.kills || 0,
       damage: Math.floor(participant.attributes.stats.damageDealt || 0),
       win_place: participant.attributes.stats.winPlace || 99,
+      knocks: normalizeBasicMatchStat(participant.attributes.stats.DBNOs),
+      survival_time: normalizeBasicMatchStat(participant.attributes.stats.timeSurvived),
       match_type: typeof input.finalResult.matchType === "string" && input.finalResult.matchType.trim()
         ? input.finalResult.matchType.trim().toLowerCase()
         : "unknown",

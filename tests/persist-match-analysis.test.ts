@@ -143,6 +143,19 @@ describe("persistMatchAnalysis", () => {
     vi.unstubAllEnvs();
   });
 
+  it('omits unobserved counters from the conflict update after individual analysis', async () => {
+    await persistMatchAnalysis(supabase, input);
+    const rows = upserts.get('pubg_player_matches')!.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(rows[0]).not.toHaveProperty('knocks');
+    expect(rows[0]).not.toHaveProperty('survival_time');
+  });
+
+  it('persists official basic counters independently of calculated result placeholders', async () => {
+    const participant = input.rawParticipants[0];
+    await persistMatchAnalysis(supabase, { ...input, rawParticipants: [{ ...participant, attributes: { stats: { ...participant.attributes.stats, DBNOs: 0, timeSurvived: 724.7 } } }] });
+    expect(upserts.get('pubg_player_matches')).toHaveBeenCalledWith([expect.objectContaining({ player_id: 'playerone', knocks: 0, survival_time: 724 })], expect.anything());
+  });
+
   it("raw stats와 player cache를 현재 conflict key와 변환 규칙으로 저장한다", async () => {
     const result = await persistMatchAnalysis(supabase, input);
 

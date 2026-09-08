@@ -13,6 +13,8 @@ export interface PlayerMatchRecord {
    damage: number;
    win_place: number;
   match_type: string;
+  knocks?: number | null;
+  survival_time?: number | null;
 }
 
 export interface PlayerMatchesPage {
@@ -21,6 +23,24 @@ export interface PlayerMatchesPage {
   pageSize: number;
   totalCount: number;
   totalPages: number;
+}
+
+/** Basic PUBG counters: preserve observed zero; missing/invalid stays null. */
+export function normalizeBasicMatchStat(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 2147483647
+    ? Math.floor(value) : null;
+}
+
+/** Omit unobserved counters from conflict updates; inserts use nullable DB defaults. */
+export function toPlayerMatchWriteRecord(record: PlayerMatchRecord): PlayerMatchRecord {
+  const { knocks, survival_time, ...base } = record;
+  const observedKnocks = normalizeBasicMatchStat(knocks);
+  const observedSurvival = normalizeBasicMatchStat(survival_time);
+  return {
+    ...base,
+    ...(observedKnocks !== null ? { knocks: observedKnocks } : {}),
+    ...(observedSurvival !== null ? { survival_time: observedSurvival } : {}),
+  };
 }
 
 const DEFAULT_PAGE_SIZE = 20;
@@ -47,12 +67,24 @@ export async function upsertPlayerMatches(
   records: PlayerMatchRecord[]
  ): Promise<boolean> {
    if (!records || records.length === 0) return true;
-   const { error } = await supabase
-     .from("pubg_player_matches")
-     .upsert(records, { onConflict: "player_id,platform,match_id" });
-   if (error) {
-     console.error("[playerMatches] upsert failed:", error.message);
-     return false;
+   // PostgREST uses the union of a batch's keys for conflict updates. Group
+   // identical column sets so a missing counter never becomes an explicit NULL.
+   const batches = new Map<string, PlayerMatchRecord[]>();
+   for (const input of records) {
+     const record = toPlayerMatchWriteRecord(input);
+     const key = Object.keys(record).sort().join(',');
+     const batch = batches.get(key) ?? [];
+     batch.push(record);
+     batches.set(key, batch);
+   }
+   for (const batch of batches.values()) {
+     const { error } = await supabase
+       .from("pubg_player_matches")
+       .upsert(batch, { onConflict: "player_id,platform,match_id" });
+     if (error) {
+       console.error("[playerMatches] upsert failed:", error.message);
+       return false;
+     }
    }
    return true;
  }
@@ -73,7 +105,7 @@ export async function fetchPlayerMatchesPaginated(
 
   const query = supabase
     .from("pubg_player_matches")
-    .select("player_id, platform, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type", { count: "exact" })
+    .select("player_id, platform, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time", { count: "exact" })
     .eq("player_id", playerId)
     .eq("platform", normPlatform)
     .order("played_at", { ascending: false })

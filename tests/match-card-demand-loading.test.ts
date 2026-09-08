@@ -4,7 +4,7 @@ import "@testing-library/jest-dom/vitest";
 import React, { createElement } from "react";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
+import { buildBasicMatchSummary, type MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import matchDetailReady from "./fixtures/stats/match-detail-ready.json";
 import summaryReady from "./fixtures/stats/matches-summary-ready.json";
 
@@ -104,6 +104,16 @@ describe("MatchCard demand loading", () => {
     expect(fetchMock).not.toHaveBeenCalled();
     expect(screen.getByText("에란겔")).toBeInTheDocument();
     expect(screen.queryByTestId("expanded-match-details")).not.toBeInTheDocument();
+  });
+
+  it.each([[3, 1674, '기절 3회', '생존 시간 27분'], [0, 0, '기절 0회', '생존 시간 0분']])('목록의 관측 기절·생존은 상세 요청 없이 표시한다 (%s/%s)', (knocks, survival_time, knockLabel, survivalLabel) => {
+    const fetchMock = vi.fn(); vi.stubGlobal('fetch', fetchMock);
+    const basic = buildBasicMatchSummary({ match_id: 'basic-observed', player_id: 'player', platform: 'steam', played_at: '2026-08-10T00:00:00Z', knocks: Number(knocks), survival_time: Number(survival_time) });
+    renderCard(basic);
+    expect(screen.getByLabelText(String(knockLabel))).toBeInTheDocument();
+    expect(screen.getByLabelText(String(survivalLabel))).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('expanded-match-details')).not.toBeInTheDocument();
   });
 
   it("기본 전적의 미수집 지표는 0으로 표시하지 않고 상세 기록 도착 시 실제 값을 표시한다", () => {

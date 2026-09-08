@@ -13,12 +13,16 @@ import { buildPlayerMatchRecordFromParticipant, fetchAndIngestBasicMatchSummary 
        mapName: "Erangel",
        kills: 5,
        damage: 450,
-       winPlace: 1
+       winPlace: 1,
+       knocks: 0,
+       survivalTime: 1674.9
      });
      expect(record.player_id).toBe("kangheesung");
      expect(record.match_id).toBe("match-123");
      expect(record.kills).toBe(5);
      expect(record.win_place).toBe(1);
+     expect(record.knocks).toBe(0);
+     expect(record.survival_time).toBe(1674);
     expect(record.match_type).toBe("competitive");
   });
 
@@ -36,6 +40,20 @@ import { buildPlayerMatchRecordFromParticipant, fetchAndIngestBasicMatchSummary 
     });
 
     expect(record.match_type).toBe("unknown");
+  });
+
+  it('stores official knocks and survival from the basic API without telemetry', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: { attributes: { createdAt: '2026-09-08T00:00:00Z', gameMode: 'duo', mapName: 'Tiger_Main', matchType: 'competitive' } },
+      included: [{ type: 'participant', attributes: { stats: { name: 'Player', kills: 0, damageDealt: 25, winPlace: 26, DBNOs: 0, timeSurvived: 724.7 } } }],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const result = await fetchAndIngestBasicMatchSummary({ from: () => ({ upsert }) } as never, 'match-basic', 'Player', 'steam', 'test');
+    expect(result).toMatchObject({ knocks: 0, survival_time: 724 });
+    expect(upsert).toHaveBeenCalledWith([expect.objectContaining({ knocks: 0, survival_time: 724 })], expect.anything());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
   });
 
   it("does not report a PUBG match as ingested when the database upsert fails", async () => {

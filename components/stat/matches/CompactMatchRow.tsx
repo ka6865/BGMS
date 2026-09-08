@@ -1,5 +1,7 @@
 "use client";
 
+import { getObservedBasicMatchStat } from "@/lib/pubg-analysis/matchSummary";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, X } from "lucide-react";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
@@ -84,10 +86,9 @@ function formatMode(gameMode: string) {
 
 export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: CompactMatchRowProps) {
   const mode = classifyMatchMode(summary);
-  const basicOnly = summary.summarySource === "pubg_player_matches" && summary.isSummary !== false;
-  const knocks = !basicOnly && Number.isFinite(summary.stats.DBNOs) ? summary.stats.DBNOs : null;
-  const survivalMinutes = !basicOnly && Number.isFinite(summary.stats.timeSurvived)
-    ? Math.floor(summary.stats.timeSurvived / 60) : null;
+  const knocks = getObservedBasicMatchStat(summary, "DBNOs");
+  const survivalSeconds = getObservedBasicMatchStat(summary, "timeSurvived");
+  const survivalMinutes = survivalSeconds === null ? null : Math.floor(survivalSeconds / 60);
   const status = getStatus(summary);
   const tier = summary.benchmark ? estimateUserTier(summary.benchmark.score) : null;
   const total = summary.totalTeams || summary.totalPlayers || 0;
@@ -238,6 +239,9 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
             <span aria-label={knocks === null ? "기절 정보 없음" : `기절 ${knocks}회`}><strong className="text-white">{knocks ?? "—"}</strong> 기절</span>
             <span aria-label={survivalMinutes === null ? "생존 시간 정보 없음" : `생존 시간 ${survivalMinutes}분`}><strong className="text-white">{survivalMinutes ?? "—"}</strong>{survivalMinutes === null ? " 생존" : "분 생존"}</span>
           </div>
+          {(knocks === null || survivalMinutes === null) && (
+            <p className="mt-1 text-[10px] leading-relaxed text-white/45">일부 기본 기록이 저장되지 않은 경기입니다.</p>
+          )}
         </div>
 
         <div className="flex shrink-0 flex-col items-end gap-1">
