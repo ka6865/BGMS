@@ -119,3 +119,49 @@ The scenario explicitly switches to `service_role` for the terminal lease and us
 
 - No production DB migration, deployment, bot preparation, external source request, provider call, or public post was performed. Runtime deployment duration limits still need the planned pre-deployment check.
 - Provider-level priority relative to existing match analysis cannot be guaranteed; this implementation only preserves the requested per-run call cap, single model, no fallback, and immediate 429 defer behavior.
+
+## Review fix round 1
+
+The recorded two-call smoke returned a writer object with root `title` and `paragraphs` but no root `question`. The exact malformed field is not inferred beyond that recorded shape. The writer now passes the installed Gemini SDK a native `responseSchema` with required root `title`, `paragraphs`, and `question`, and required nested paragraph `text`, `kind`, `evidenceIds`, and `recentWindow`. The prompt also includes a complete JSON object example and explicitly places `question` at the root. The parser remains strict; no repair request, retry, model fallback, dependency change, live provider call, or dry-run change was added.
+
+RED command:
+
+```text
+npx vitest run tests/community-agent-editorial.test.ts
+```
+
+Relevant result before implementation:
+
+```text
+FAIL 작성 provider schema는 root question과 paragraph 하위 필드를 구조적으로 강제한다
+expected undefined to match object { type: 'object', ... }
+Test Files 1 failed (1); Tests 2 failed | 18 passed
+```
+
+The second failure was an existing global mock-call count exposed by the new provider invocation; it was made relative to the prior call count without changing product behavior.
+
+GREEN command:
+
+```text
+npx vitest run tests/community-agent-editorial.test.ts tests/community-agent-api.test.ts
+```
+
+Result:
+
+```text
+Test Files 2 passed (2)
+Tests 37 passed (37)
+```
+
+Static verification:
+
+```text
+npx eslint lib/community-agent/editorial.ts tests/community-agent-editorial.test.ts tests/community-agent-api.test.ts && npx tsc --noEmit --pretty false
+```
+
+Result: exit 0, no warnings or output.
+
+Files changed in this fix:
+
+- `lib/community-agent/editorial.ts`
+- `tests/community-agent-editorial.test.ts`

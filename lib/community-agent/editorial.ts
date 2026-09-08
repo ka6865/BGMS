@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI, SchemaType, type ResponseSchema } from "@google/generative-ai";
 import { GEMINI_MODELS_TO_TRY } from "@/lib/pubg-analysis/constants";
 import { cleanExcerpt } from "./sources";
 import { checkDraft, isVerifiedOfficialFactEvidence } from "./validate";
@@ -13,7 +13,11 @@ const MAX_QUESTION_LENGTH = 200;
 const MAX_EVIDENCE_IDS = 10;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
 
-export type JsonModel = (input: { instruction: string; data: unknown }) => Promise<unknown>;
+export type JsonModel = (input: {
+  instruction: string;
+  data: unknown;
+  responseSchema?: ResponseSchema;
+}) => Promise<unknown>;
 
 export type GeminiJsonUsage = {
   model: string;
@@ -45,6 +49,43 @@ type ModelEvidence = {
   publishedAt: string | null;
   access: Evidence["access"];
   official: boolean;
+};
+
+const DRAFT_RESPONSE_SCHEMA: ResponseSchema = {
+  type: SchemaType.OBJECT,
+  required: ["title", "paragraphs", "question"],
+  properties: {
+    title: { type: SchemaType.STRING, description: "1~120자 제목" },
+    paragraphs: {
+      type: SchemaType.ARRAY,
+      minItems: 1,
+      maxItems: MAX_PARAGRAPHS,
+      items: {
+        type: SchemaType.OBJECT,
+        required: ["text", "kind", "evidenceIds", "recentWindow"],
+        properties: {
+          text: { type: SchemaType.STRING, description: "1~500자 본문" },
+          kind: {
+            type: SchemaType.STRING,
+            format: "enum",
+            enum: ["official_fact", "observed_opinion", "suggestion"],
+          },
+          evidenceIds: {
+            type: SchemaType.ARRAY,
+            maxItems: MAX_EVIDENCE_IDS,
+            items: { type: SchemaType.STRING },
+          },
+          recentWindow: {
+            type: SchemaType.STRING,
+            format: "enum",
+            enum: ["24h", "7d"],
+            nullable: true,
+          },
+        },
+      },
+    },
+    question: { type: SchemaType.STRING, description: "1~200자 마무리 질문" },
+  },
 };
 
 const BASE_INSTRUCTION = [
@@ -235,7 +276,7 @@ function providerError(error: unknown, timedOut: boolean): CommunityAgentModelEr
 export function createGeminiJsonModel(options: CreateGeminiJsonModelOptions): JsonModel {
   const apiKey = options.apiKey?.trim();
   const modelName = options.modelName?.trim() || GEMINI_MODELS_TO_TRY[0];
-  return async ({ instruction, data }) => {
+  return async ({ instruction, data, responseSchema }) => {
     if (!apiKey) throw new CommunityAgentModelError("needs_setup", "gemini_api_key_missing");
     const controller = new AbortController();
     const deadline = setTimeout(() => controller.abort(), MODEL_DEADLINE_MS);
@@ -244,7 +285,12 @@ export function createGeminiJsonModel(options: CreateGeminiJsonModelOptions): Js
       const model = provider.getGenerativeModel({
         model: modelName,
         systemInstruction: instruction,
-        generationConfig: { responseMimeType: "application/json", temperature: 0.2, maxOutputTokens: 4096 },
+        generationConfig: {
+          responseMimeType: "application/json",
+          temperature: 0.2,
+          maxOutputTokens: 4096,
+          ...(responseSchema ? { responseSchema } : {}),
+        },
       });
       const result = await awaitWithAbort(model.generateContent(JSON.stringify(data), {
         signal: controller.signal, timeout: MODEL_DEADLINE_MS,
@@ -312,11 +358,12 @@ export async function selectTopic(
 export async function writeDraft(topic: Topic, evidence: Evidence[], model: JsonModel): Promise<Draft> {
   const selected = evidence.filter((item) => topic.evidenceIds.includes(item.id));
   if (selected.length !== topic.evidenceIds.length) throw invalidResponse();
-  const instruction = `${BASE_INSTRUCTION}\n선택된 주제와 근거만 사용해 약 600~1,200자의 글을 작성하세요. HTML, URL, 이미지, iframe, BGMS 내부 경로, 홍보 링크를 만들지 마세요. 공식 사실은 official_fact, 관찰한 개별 의견은 observed_opinion, 제안은 suggestion으로 나누세요. 수치가 포함된 게임 변경은 공식 근거가 있을 때만 단정하세요. observed_opinion이 근거 한 개만 인용하면 본문에 \"한 자료\", \"단일 출처\", \"개별 질문\", \"개별 의견\", \"개별 반응\" 중 맞는 표현으로 범위를 밝히세요. JSON 객체만 반환하세요. 객체 스키마: title은 1~120자 문자열, paragraphs는 1~8개 배열, 각 paragraph의 text는 1~500자 문자열, kind는 \"official_fact\"|\"observed_opinion\"|\"suggestion\", evidenceIds는 선택된 data.evidence의 서로 다른 id 문자열 0~10개, recentWindow는 \"24h\"|\"7d\"|null, question은 1~200자 문자열입니다. official_fact와 observed_opinion에는 evidenceIds가 최소 1개 필요합니다.`;
+  const instruction = `${BASE_INSTRUCTION}\n선택된 주제와 근거만 사용해 약 600~1,200자의 글을 작성하세요. HTML, URL, 이미지, iframe, BGMS 내부 경로, 홍보 링크를 만들지 마세요. 공식 사실은 official_fact, 관찰한 개별 의견은 observed_opinion, 제안은 suggestion으로 나누세요. 수치가 포함된 게임 변경은 공식 근거가 있을 때만 단정하세요. observed_opinion이 근거 한 개만 인용하면 본문에 \"한 자료\", \"단일 출처\", \"개별 질문\", \"개별 의견\", \"개별 반응\" 중 맞는 표현으로 범위를 밝히세요. 반환 JSON은 {\"title\":\"제목\",\"paragraphs\":[{\"text\":\"본문\",\"kind\":\"official_fact\",\"evidenceIds\":[\"evidence-id\"],\"recentWindow\":\"24h\"}],\"question\":\"마무리 질문\"} 구조의 객체만 허용합니다. question은 paragraph 객체 안이 아니라 title과 paragraphs와 같은 최상위 필수 필드입니다. title은 1~120자 문자열, paragraphs는 1~8개 배열, 각 paragraph의 text는 1~500자 문자열, kind는 \"official_fact\"|\"observed_opinion\"|\"suggestion\", evidenceIds는 선택된 data.evidence의 서로 다른 id 문자열 0~10개, recentWindow는 \"24h\"|\"7d\"|null, question은 1~200자 문자열입니다. official_fact와 observed_opinion에는 evidenceIds가 최소 1개 필요합니다.`;
   let response: unknown;
   try {
     response = await model({
       instruction,
+      responseSchema: DRAFT_RESPONSE_SCHEMA,
       data: {
         topic: {
           kind: topic.kind, title: topic.title, topicKey: topic.topicKey,

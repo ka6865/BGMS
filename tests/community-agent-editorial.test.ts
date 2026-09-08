@@ -2,12 +2,18 @@ import { expect, it, vi } from "vitest";
 
 const gemini = vi.hoisted(() => {
   const generateContent = vi.fn();
-  return { generateContent, getGenerativeModel: vi.fn(() => ({ generateContent })) };
+  return { generateContent, getGenerativeModel: vi.fn((params: unknown) => {
+    void params;
+    return { generateContent };
+  }) };
 });
 
 vi.mock("@google/generative-ai", () => ({
   GoogleGenerativeAI: class {
     getGenerativeModel = gemini.getGenerativeModel;
+  },
+  SchemaType: {
+    STRING: "string", BOOLEAN: "boolean", ARRAY: "array", OBJECT: "object",
   },
 }));
 
@@ -23,6 +29,17 @@ import type { Draft, Evidence } from "../lib/community-agent/types";
 
 const NOW = new Date("2026-09-08T01:00:00Z");
 const HASH = "a".repeat(64);
+
+type ProviderSchema = {
+  type?: string;
+  required?: string[];
+  properties?: Record<string, ProviderSchema>;
+  items?: ProviderSchema;
+  minItems?: number;
+  maxItems?: number;
+  enum?: string[];
+  nullable?: boolean;
+};
 
 function evidence(overrides: Partial<Evidence> = {}): Evidence {
   return {
@@ -238,6 +255,45 @@ it("작성 입력에는 허용된 근거 메타와 발췌만 넣고 외부 지�
   expect(input.data.evidence[0]).not.toHaveProperty("fetchedAt");
 });
 
+it("작성 provider schema는 root question과 paragraph 하위 필드를 구조적으로 강제한다", async () => {
+  gemini.generateContent.mockResolvedValueOnce({
+    response: { text: () => JSON.stringify(safeDraft), usageMetadata: {} },
+  });
+  const model = createGeminiJsonModel({ apiKey: "test-key", modelName: "gemini-test" });
+
+  await writeDraft({
+    kind: "news", title: "M416 변경점 확인", topicKey: "m416-change",
+    evidenceIds: ["evidence-1"], reason: "공식 근거가 있습니다.", officialUpdate: false,
+  }, [evidence()], model);
+
+  const params = gemini.getGenerativeModel.mock.calls.at(-1)?.[0] as {
+    generationConfig: { responseSchema: ProviderSchema };
+  };
+  const schema = params.generationConfig.responseSchema;
+  expect(schema).toMatchObject({
+    type: "object",
+    required: ["title", "paragraphs", "question"],
+    properties: {
+      title: { type: "string" },
+      question: { type: "string" },
+      paragraphs: {
+        type: "array", minItems: 1, maxItems: 8,
+        items: {
+          type: "object",
+          required: ["text", "kind", "evidenceIds", "recentWindow"],
+          properties: {
+            text: { type: "string" },
+            kind: { type: "string", enum: ["official_fact", "observed_opinion", "suggestion"] },
+            evidenceIds: { type: "array", maxItems: 10, items: { type: "string" } },
+            recentWindow: { type: "string", enum: ["24h", "7d"], nullable: true },
+          },
+        },
+      },
+    },
+  });
+  expect(schema.properties?.paragraphs.items?.required).not.toContain("question");
+});
+
 it("검증은 명시적인 true와 구조 검사를 모두 통과해야 한다", async () => {
   const rejected = vi.fn().mockResolvedValue({ passed: "true", reasons: [] });
 
@@ -291,6 +347,7 @@ it("설정 없는 Gemini factory는 안전한 needs_setup 오류를 반환한다
 });
 
 it("Gemini factory는 JSON만 반환하고 토큰 수만 usage callback으로 전달한다", async () => {
+  const callsBefore = gemini.generateContent.mock.calls.length;
   gemini.generateContent.mockResolvedValueOnce({
     response: {
       text: () => '{"ok":true}',
@@ -302,7 +359,7 @@ it("Gemini factory는 JSON만 반환하고 토큰 수만 usage callback으로 �
 
   await expect(model({ instruction: "test", data: { evidence: [] } })).resolves.toEqual({ ok: true });
   expect(gemini.getGenerativeModel).toHaveBeenCalledWith(expect.objectContaining({ model: "gemini-test" }));
-  expect(gemini.generateContent).toHaveBeenCalledTimes(1);
+  expect(gemini.generateContent).toHaveBeenCalledTimes(callsBefore + 1);
   expect(onUsage).toHaveBeenCalledWith({ model: "gemini-test", promptTokens: 12, completionTokens: 7 });
 });
 
