@@ -17,6 +17,29 @@ function query(response: { data?: unknown; error?: unknown }) {
 }
 
 describe("CommunityStore", () => {
+  it("partial policy updates do not resend a stale enabled value", async () => {
+    const update = vi.fn(() => ({
+      eq: () => ({
+        select: () => ({
+          single: async () => ({
+            data: {
+              enabled: false, publishing_enabled: false, bot_user_id: null,
+              categories: ["배그 소식", "자유"], daily_post_limit: 0,
+              source_enabled: { dc: true, naver: true, youtube: true },
+            }, error: null,
+          }),
+        }),
+      }),
+    }));
+    const from = vi.fn(() => ({ update }));
+    const store = new CommunityStore({ from } as never);
+
+    await store.updatePolicy({ dailyPostLimit: 0 });
+
+    expect(update).toHaveBeenCalledWith({ daily_post_limit: 0 });
+    expect(update).not.toHaveBeenCalledWith(expect.objectContaining({ enabled: expect.anything() }));
+  });
+
   it("RPC 오류를 숨기지 않고 start 호출을 중단한다", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "denied" } });
     const store = new CommunityStore({ rpc } as never);

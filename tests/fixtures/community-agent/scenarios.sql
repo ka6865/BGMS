@@ -108,6 +108,66 @@ begin
   update public.community_agent_runs set day = (clock_timestamp() at time zone 'Asia/Seoul')::date - 2 where run_id = v_first;
 end $$;
 
+set role service_role;
+do $$
+declare
+  v_run uuid;
+  v_claim jsonb;
+  v_lease uuid;
+  v_result jsonb;
+begin
+  v_run := (public.start_community_run(null, false) ->> 'id')::uuid;
+  update public.community_agent_runs
+  set stages = jsonb_build_object(
+    'dc', jsonb_build_object('status','completed','lease',gen_random_uuid()::text,'result','{}'::jsonb),
+    'naver', jsonb_build_object('status','completed','lease',gen_random_uuid()::text,'result','{}'::jsonb),
+    'youtube', jsonb_build_object('status','completed','lease',gen_random_uuid()::text,'result','{}'::jsonb)
+  ) where run_id = v_run;
+  v_claim := public.claim_community_stage(v_run, 'select');
+  v_lease := (v_claim ->> 'lease')::uuid;
+  begin
+    perform public.finish_community_stage(v_run, 'select', gen_random_uuid(), jsonb_build_object(
+      'terminal', jsonb_build_object('status', 'deferred', 'reason', 'no_usable_evidence')
+    ));
+    raise exception 'stale terminal lease was accepted';
+  exception when others then
+    if sqlerrm <> 'community_stage_lease_mismatch' then raise; end if;
+  end;
+  v_result := public.finish_community_stage(v_run, 'select', v_lease, jsonb_build_object(
+    'terminal', jsonb_build_object('status', 'deferred', 'reason', 'no_usable_evidence'),
+    'usage', jsonb_build_object('promptTokens', 12, 'completionTokens', 3),
+    'rawProviderBody', 'must not be persisted'
+  ));
+  if v_result ->> 'status' <> 'deferred' or v_result ->> 'reason' <> 'no_usable_evidence'
+    or v_result -> 'stages' -> 'select' -> 'result' -> 'usage' ->> 'promptTokens' <> '12'
+    or v_result::text like '%must not be persisted%' then
+    raise exception 'terminal result was not safely persisted immediately';
+  end if;
+  update public.community_agent_runs set day = (clock_timestamp() at time zone 'Asia/Seoul')::date - 4 where run_id = v_run;
+end $$;
+reset role;
+
+do $$
+declare
+  v_run uuid;
+  v_hash text := repeat('e', 64);
+begin
+  update public.community_agent_policy set publishing_enabled = false where singleton;
+  v_run := (public.start_community_run(null, true) ->> 'id')::uuid;
+  update public.community_agent_runs set status = 'ready', approved_title = 'dry run must stay local',
+    approved_html = '<p>validated</p>', approved_category = '자유', approved_hash = v_hash,
+    validation = jsonb_build_object('passed', true, 'contentHash', v_hash)
+  where run_id = v_run;
+  update public.community_agent_policy set publishing_enabled = true where singleton;
+  if public.publish_community_post(v_run) ->> 'code' <> 'not_ready' then
+    raise exception 'dry run became publishable after policy changed';
+  end if;
+  if exists (select 1 from public.posts where title = 'dry run must stay local') then
+    raise exception 'dry run wrote a post';
+  end if;
+  update public.community_agent_runs set day = (clock_timestamp() at time zone 'Asia/Seoul')::date - 5 where run_id = v_run;
+end $$;
+
 do $$
 declare
   v_run uuid;

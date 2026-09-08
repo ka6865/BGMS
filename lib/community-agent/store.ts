@@ -6,6 +6,7 @@ import type {
   Policy,
   PublishResult,
   RunSnapshot,
+  SourceStatus,
   Stage,
 } from "./types";
 
@@ -133,6 +134,26 @@ function normalizeEvidence(value: unknown): Evidence {
   };
 }
 
+function normalizeSourceStatus(value: unknown): SourceStatus {
+  const source = row(value, "source-status");
+  const id = text(source.id, "source-status-id") as CollectSource;
+  if (!SOURCE_IDS.includes(id)) fail("invalid-source-status-id");
+  const state = text(source.state, "source-status-state") as SourceStatus["state"];
+  if (!("ok partial empty needs_setup blocked failed disabled".split(" ") as SourceStatus["state"][]).includes(state)) {
+    fail("invalid-source-status-state");
+  }
+  const channelId = nullableText(source.resolved_channel_id, "source-channel-id");
+  const uploads = nullableText(source.uploads_playlist_id, "source-uploads-id");
+  return {
+    id,
+    state,
+    reason: nullableText(source.reason, "source-status-reason"),
+    lastSuccessAt: nullableText(source.last_success_at, "source-last-success"),
+    updatedAt: text(source.updated_at, "source-updated-at"),
+    channel: channelId && uploads ? { id: channelId, uploads } : null,
+  };
+}
+
 function requireSuccess(result: { error?: { message?: string } | null }, operation: string): void {
   if (result.error) throw new Error(`community-store-${operation}-failed: ${result.error.message || String(result.error)}`);
 }
@@ -196,29 +217,58 @@ export class CommunityStore {
   }
 
   async updatePolicy(patch: Partial<Policy>): Promise<Policy> {
-    const current = await this.getPolicy();
-    const next: Policy = {
-      ...current,
-      ...patch,
-      categories: patch.categories ?? current.categories,
-      sourceEnabled: patch.sourceEnabled ?? current.sourceEnabled,
-    };
-    // Validate before sending, while the database trigger remains the authority for bot state.
-    normalizePolicy({
-      enabled: next.enabled, publishing_enabled: next.publishingEnabled, bot_user_id: next.botUserId,
-      categories: next.categories, daily_post_limit: next.dailyPostLimit, source_enabled: next.sourceEnabled,
-    });
+    const update: Record<string, unknown> = {};
+    if (patch.enabled !== undefined) update.enabled = patch.enabled;
+    if (patch.publishingEnabled !== undefined) update.publishing_enabled = patch.publishingEnabled;
+    if (patch.botUserId !== undefined) update.bot_user_id = patch.botUserId;
+    if (patch.categories !== undefined) update.categories = patch.categories;
+    if (patch.dailyPostLimit !== undefined) update.daily_post_limit = patch.dailyPostLimit;
+    if (patch.sourceEnabled !== undefined) update.source_enabled = patch.sourceEnabled;
+    if (Object.keys(update).length === 0) return this.getPolicy();
     const { data, error } = await (this.client as any)
       .from("community_agent_policy")
-      .update({
-        enabled: next.enabled, publishing_enabled: next.publishingEnabled, bot_user_id: next.botUserId,
-        categories: next.categories, daily_post_limit: next.dailyPostLimit, source_enabled: next.sourceEnabled,
-      })
+      .update(update)
       .eq("singleton", true)
       .select("enabled,publishing_enabled,bot_user_id,categories,daily_post_limit,source_enabled")
       .single();
     requireSuccess({ error }, "update-policy");
     return normalizePolicy(data);
+  }
+
+  async getSources(): Promise<SourceStatus[]> {
+    const { data, error } = await (this.client as any)
+      .from("community_agent_sources")
+      .select("id,state,reason,last_success_at,updated_at,resolved_channel_id,uploads_playlist_id")
+      .order("id", { ascending: true });
+    requireSuccess({ error }, "get-sources");
+    return (data ?? []).map(normalizeSourceStatus);
+  }
+
+  async getSourceCache(source: CollectSource): Promise<{ id: string; uploads: string } | null> {
+    if (!SOURCE_IDS.includes(source)) fail("invalid-source-cache-id");
+    const { data, error } = await (this.client as any)
+      .from("community_agent_sources")
+      .select("resolved_channel_id,uploads_playlist_id")
+      .eq("id", source)
+      .single();
+    requireSuccess({ error }, "get-source-cache");
+    const sourceRow = row(data, "source-cache");
+    const id = nullableText(sourceRow.resolved_channel_id, "source-cache-channel");
+    const uploads = nullableText(sourceRow.uploads_playlist_id, "source-cache-uploads");
+    return id && uploads ? { id, uploads } : null;
+  }
+
+  async recentRuns(days: number): Promise<RunSnapshot[]> {
+    if (!Number.isInteger(days) || days < 1 || days > 30) fail("invalid-recent-run-days");
+    const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await (this.client as any)
+      .from("community_agent_runs")
+      .select("run_id,day,status,stages,reports,topic,draft,validation,model_calls,post_id,reason")
+      .gte("created_at", cutoff)
+      .order("created_at", { ascending: false })
+      .limit(31);
+    requireSuccess({ error }, "recent-runs");
+    return (data ?? []).map(normalizeSnapshot);
   }
 
   async startRun(actorId: string | null, dryRun: boolean): Promise<RunSnapshot> {

@@ -80,6 +80,15 @@ export type StageState = {
   result: Record<string, unknown>;
 };
 
+export type SourceStatus = {
+  id: CollectSource;
+  state: SourceState;
+  reason: string | null;
+  lastSuccessAt: string | null;
+  updatedAt: string;
+  channel: { id: string; uploads: string } | null;
+};
+
 export type RunSnapshot = {
   id: string;
   day: string;
@@ -111,4 +120,13 @@ export type PublishResult = {
     | "limit"
     | "invalid_bot";
   postId: number | null;
+};
+
+export type CommunityAgentStatus = {
+  generatedAt: string;
+  policy: Policy;
+  sources: SourceStatus[];
+  runs: RunSnapshot[];
+  usage: { promptTokens: number; completionTokens: number; totalTokens: number };
+  missingEnv: string[];
 };

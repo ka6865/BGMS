@@ -70,6 +70,7 @@ create table if not exists public.community_agent_runs (
   draft jsonb,
   validation jsonb,
   model_calls smallint not null default 0 check (model_calls between 0 and 3),
+  dry_run boolean not null default false,
   approved_title text,
   approved_html text,
   approved_category text check (approved_category is null or approved_category in ('배그 소식', '자유')),
@@ -195,6 +196,33 @@ begin
 end;
 $$;
 
+create or replace function public.community_stage_usage(p_result jsonb)
+returns jsonb
+language plpgsql immutable security invoker set search_path = ''
+as $$
+declare
+  v_usage jsonb := p_result -> 'usage';
+  v_prompt bigint;
+  v_completion bigint;
+begin
+  if v_usage is null then return null; end if;
+  if jsonb_typeof(v_usage) is distinct from 'object'
+    or v_usage - 'promptTokens' - 'completionTokens' <> '{}'::jsonb
+    or jsonb_typeof(v_usage -> 'promptTokens') is distinct from 'number'
+    or jsonb_typeof(v_usage -> 'completionTokens') is distinct from 'number'
+    or coalesce(v_usage ->> 'promptTokens', '') !~ '^\d{1,8}$'
+    or coalesce(v_usage ->> 'completionTokens', '') !~ '^\d{1,8}$' then
+    raise exception 'community_invalid_stage_usage';
+  end if;
+  v_prompt := (v_usage ->> 'promptTokens')::bigint;
+  v_completion := (v_usage ->> 'completionTokens')::bigint;
+  if v_prompt > 10000000 or v_completion > 10000000 then
+    raise exception 'community_invalid_stage_usage';
+  end if;
+  return jsonb_build_object('promptTokens', v_prompt, 'completionTokens', v_completion);
+end;
+$$;
+
 create or replace function public.expire_community_stages(p_run_id uuid)
 returns public.community_agent_runs
 language plpgsql security invoker set search_path = ''
@@ -266,8 +294,8 @@ begin
 
   insert into public.agent_runs (user_id, status, message)
   values (p_actor_id, 'running', 'community-agent') returning id into v_agent_run_id;
-  insert into public.community_agent_runs (run_id, day, status)
-  values (v_agent_run_id, v_day, 'collecting') returning * into v_run;
+  insert into public.community_agent_runs (run_id, day, status, dry_run)
+  values (v_agent_run_id, v_day, 'collecting', p_dry_run) returning * into v_run;
   return public.community_run_payload(v_run);
 end;
 $$;
@@ -373,6 +401,9 @@ declare
   v_html text;
   v_category text;
   v_hash text;
+  v_usage jsonb;
+  v_terminal jsonb;
+  v_terminal_status text;
 begin
   if p_stage not in ('dc', 'naver', 'youtube', 'select', 'draft', 'verify')
     or jsonb_typeof(p_result) is distinct from 'object' then
@@ -385,6 +416,37 @@ begin
   if v_stage_state ->> 'status' is distinct from 'running'
     or v_stage_state ->> 'lease' is distinct from p_lease::text then
     raise exception 'community_stage_lease_mismatch';
+  end if;
+
+  v_usage := public.community_stage_usage(p_result);
+  v_terminal := p_result -> 'terminal';
+  if v_terminal is not null then
+    if jsonb_typeof(v_terminal) is distinct from 'object'
+      or v_terminal - 'status' - 'reason' <> '{}'::jsonb then
+      raise exception 'community_invalid_terminal_result';
+    end if;
+    v_terminal_status := v_terminal ->> 'status';
+    v_reason := v_terminal ->> 'reason';
+    if v_terminal_status not in ('deferred', 'failed')
+      or v_reason is null or v_reason !~ '^[a-z][a-z0-9_]{0,99}$' then
+      raise exception 'community_invalid_terminal_result';
+    end if;
+    v_safe_result := jsonb_build_object('terminal', jsonb_build_object(
+      'status', v_terminal_status, 'reason', v_reason
+    )) || case when v_usage is null then '{}'::jsonb else jsonb_build_object('usage', v_usage) end;
+    update public.community_agent_runs
+    set stages = jsonb_set(stages, array[p_stage], jsonb_build_object(
+          'status', 'failed', 'lease', p_lease::text, 'result', v_safe_result
+        ), true),
+        status = v_terminal_status,
+        reason = v_reason
+    where run_id = v_run.run_id returning * into v_run;
+    update public.agent_runs
+    set status = case when v_terminal_status = 'failed' then 'failed' else 'completed' end,
+        error = case when v_terminal_status = 'failed' then v_reason else null end,
+        completed_at = clock_timestamp()
+    where id = v_run.run_id and status = 'running';
+    return public.community_run_payload(v_run);
   end if;
 
   if p_stage in ('dc', 'naver', 'youtube') then
@@ -439,7 +501,8 @@ begin
       raise exception 'community_invalid_topic';
     end if;
     v_safe_result := jsonb_build_object('kind', v_kind, 'title', v_title, 'topicKey', v_topic_key,
-      'evidenceIds', v_evidence_ids, 'reason', v_reason, 'officialUpdate', v_official_update);
+      'evidenceIds', v_evidence_ids, 'reason', v_reason, 'officialUpdate', v_official_update)
+      || case when v_usage is null then '{}'::jsonb else jsonb_build_object('usage', v_usage) end;
     update public.community_agent_runs
     set stages = jsonb_set(stages, array[p_stage], jsonb_build_object('status', 'completed', 'lease', p_lease::text, 'result', v_safe_result), true),
         topic = v_safe_result, status = 'selected'
@@ -471,7 +534,8 @@ begin
       ));
     end loop;
     if v_paragraph_count = 0 then raise exception 'community_invalid_draft'; end if;
-    v_safe_result := jsonb_build_object('title', v_title, 'paragraphs', v_paragraphs, 'question', v_question);
+    v_safe_result := jsonb_build_object('title', v_title, 'paragraphs', v_paragraphs, 'question', v_question)
+      || case when v_usage is null then '{}'::jsonb else jsonb_build_object('usage', v_usage) end;
     update public.community_agent_runs
     set stages = jsonb_set(stages, array[p_stage], jsonb_build_object('status', 'completed', 'lease', p_lease::text, 'result', v_safe_result), true),
         draft = v_safe_result, validation = null, approved_title = null, approved_html = null,
@@ -484,7 +548,8 @@ begin
     v_reasons := public.community_short_text_array(coalesce(v_validation -> 'reasons', '[]'::jsonb), 20, 300);
     v_hash := coalesce(v_validation ->> 'contentHash', p_result ->> 'contentHash', p_result ->> 'hash');
     if v_hash is null or v_hash !~ '^[0-9a-f]{64}$' then raise exception 'community_invalid_validation'; end if;
-    v_safe_result := jsonb_build_object('passed', v_passed, 'reasons', v_reasons, 'contentHash', v_hash);
+    v_safe_result := jsonb_build_object('passed', v_passed, 'reasons', v_reasons, 'contentHash', v_hash)
+      || case when v_usage is null then '{}'::jsonb else jsonb_build_object('usage', v_usage) end;
     v_title := coalesce(p_result ->> 'title', p_result -> 'rendered' ->> 'title');
     v_html := coalesce(p_result ->> 'html', p_result -> 'rendered' ->> 'html');
     v_category := coalesce(p_result ->> 'category', p_result -> 'rendered' ->> 'category');
@@ -525,6 +590,9 @@ begin
   select * into strict v_run from public.community_agent_runs where run_id = p_run_id for update;
   if v_run.published_at is not null then
     return jsonb_build_object('code', 'already_published', 'postId', v_run.post_id);
+  end if;
+  if v_run.dry_run then
+    return jsonb_build_object('code', 'not_ready', 'postId', null);
   end if;
   if not v_policy.enabled or not v_policy.publishing_enabled then
     return jsonb_build_object('code', 'paused', 'postId', null);
@@ -600,11 +668,13 @@ $$;
 revoke all on function public.validate_community_agent_policy(),
   public.community_run_payload(public.community_agent_runs),
   public.community_evidence_ids(jsonb, integer), public.community_short_text_array(jsonb, integer, integer),
+  public.community_stage_usage(jsonb),
   public.expire_community_stages(uuid), public.get_community_run(uuid), public.start_community_run(uuid, boolean),
   public.claim_community_stage(uuid, text), public.finish_community_stage(uuid, text, uuid, jsonb),
   public.publish_community_post(uuid), public.cleanup_community_agent() from public, anon, authenticated;
 grant execute on function public.community_run_payload(public.community_agent_runs),
   public.community_evidence_ids(jsonb, integer), public.community_short_text_array(jsonb, integer, integer),
+  public.community_stage_usage(jsonb),
   public.expire_community_stages(uuid), public.get_community_run(uuid), public.start_community_run(uuid, boolean),
   public.claim_community_stage(uuid, text), public.finish_community_stage(uuid, text, uuid, jsonb),
   public.publish_community_post(uuid), public.cleanup_community_agent() to service_role;

@@ -285,7 +285,7 @@ export async function selectTopic(
   now: Date = new Date(),
 ): Promise<Topic | null> {
   if (evidence.length === 0) return null;
-  const instruction = `${BASE_INSTRUCTION}\n주제만 선택하세요. 유사한 자료는 하나의 후보이며 각 evidenceIds는 원문 링크를 서버에서 보존합니다. 한 자료 기반 의견은 단일 출처임을 제목 또는 이유에 분명히 쓰고, 민심 백분율을 만들지 마세요. JSON 객체 {kind,title,topicKey,evidenceIds,reason,officialUpdate} 또는 null만 반환하세요.`;
+  const instruction = `${BASE_INSTRUCTION}\n주제만 선택하세요. 유사한 자료는 하나의 후보이며 각 evidenceIds는 원문 링크를 서버에서 보존합니다. 한 자료 기반 의견은 단일 출처임을 제목 또는 이유에 분명히 쓰고, 민심 백분율을 만들지 마세요. JSON 객체 또는 null만 반환하세요. 객체 스키마: kind는 \"news\"|\"tip\"|\"question\" 중 하나, title과 topicKey는 1~120자 문자열, evidenceIds는 data.evidence에 존재하는 서로 다른 id 문자열 1~10개, reason은 1~500자 문자열, officialUpdate는 boolean입니다.`;
   let response: unknown;
   try {
     response = await model({
@@ -312,7 +312,7 @@ export async function selectTopic(
 export async function writeDraft(topic: Topic, evidence: Evidence[], model: JsonModel): Promise<Draft> {
   const selected = evidence.filter((item) => topic.evidenceIds.includes(item.id));
   if (selected.length !== topic.evidenceIds.length) throw invalidResponse();
-  const instruction = `${BASE_INSTRUCTION}\n선택된 주제와 근거만 사용해 약 600~1,200자의 글을 작성하세요. HTML, URL, 이미지, iframe, BGMS 내부 경로, 홍보 링크를 만들지 마세요. 공식 사실은 official_fact, 관찰한 개별 의견은 observed_opinion, 제안은 suggestion으로 나누세요. 수치가 포함된 게임 변경은 공식 근거가 있을 때만 단정하세요. JSON 객체 {title,paragraphs:[{text,kind,evidenceIds,recentWindow}],question}만 반환하세요.`;
+  const instruction = `${BASE_INSTRUCTION}\n선택된 주제와 근거만 사용해 약 600~1,200자의 글을 작성하세요. HTML, URL, 이미지, iframe, BGMS 내부 경로, 홍보 링크를 만들지 마세요. 공식 사실은 official_fact, 관찰한 개별 의견은 observed_opinion, 제안은 suggestion으로 나누세요. 수치가 포함된 게임 변경은 공식 근거가 있을 때만 단정하세요. observed_opinion이 근거 한 개만 인용하면 본문에 \"한 자료\", \"단일 출처\", \"개별 질문\", \"개별 의견\", \"개별 반응\" 중 맞는 표현으로 범위를 밝히세요. JSON 객체만 반환하세요. 객체 스키마: title은 1~120자 문자열, paragraphs는 1~8개 배열, 각 paragraph의 text는 1~500자 문자열, kind는 \"official_fact\"|\"observed_opinion\"|\"suggestion\", evidenceIds는 선택된 data.evidence의 서로 다른 id 문자열 0~10개, recentWindow는 \"24h\"|\"7d\"|null, question은 1~200자 문자열입니다. official_fact와 observed_opinion에는 evidenceIds가 최소 1개 필요합니다.`;
   let response: unknown;
   try {
     response = await model({
