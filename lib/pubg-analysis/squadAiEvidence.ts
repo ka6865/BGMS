@@ -57,10 +57,14 @@ export function applySquadEvidencePolicy<T>(result: T, stats: Record<string, unk
   if (Array.isArray(data.memberFeedbacks)) {
     const cleanMember = (text: unknown) => {
       if (typeof text !== "string") return text;
-      if (/고립|대열|이탈|백업|엄호|커버|연막|소생|부활|후방|위치\s*선정|소극|적극|몸\s*사리|숨어|(?:연계|협공|시너지).{0,20}(?:부족|아쉬|떨어)|혼자\s*앞서|킬을?\s*주워/.test(text)) {
+      // Apply metric cleanup before the member guard, so generated withholding
+      // copy cannot change classification on the next cache read.
+      const cleaned = clean(text);
+      if (typeof cleaned !== "string") return cleaned;
+      if (/고립|대열|이탈|백업|엄호|커버|연막|소생|부활|후방|위치\s*선정|소극|적극|몸\s*사리|숨어|(?:연계|협공|시너지).{0,20}(?:부족|아쉬|떨어)|혼자\s*앞서|킬을?\s*주워/.test(cleaned)) {
         return "개인 행동을 단정할 근거가 부족해 해당 평가는 보류합니다.";
       }
-      return clean(text);
+      return cleaned;
     };
     output.memberFeedbacks = data.memberFeedbacks.map((member) => {
       const profile = roleProfiles.find(profile => profile.name.toLowerCase() === String(member.name).toLowerCase());

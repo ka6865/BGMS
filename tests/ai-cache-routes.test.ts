@@ -6016,7 +6016,34 @@ describe("AI cache route stabilization", () => {
     expect(upsertPayload.ai_result.summary).toBe("해당 평가는 행동 근거가 부족해 보류합니다.");
     expect(JSON.stringify(upsertPayload.ai_result)).not.toContain("혼자 다 해먹");
   });
-  it.each(['valid', 'shuffled', 'technical-provenance', 'wrong-reference', 'missing-reference', 'foreign-mode', 'cross-card-prose', 'neutral-opinion', 'invented-match-count', 'duplicate-topic', 'unknown-topic', 'two-cards', 'non-json'])(
+  it("ai-summary v2 excludes incomplete rate pairs and reports each metric's actual match count", async () => {
+    const complete = createSummaryMatch('coverage-complete', {
+      initiative_rate: 100, initiativeSampleCount: 2,
+      duelStats: { wins: 1, losses: 1 },
+      combatPressure: { pressureIndex: 2, utilityStats: { throwCount: 10 } },
+    });
+    const incomplete = createSummaryMatch('coverage-incomplete', {
+      initiative_rate: null, initiativeSampleCount: 2,
+      duelStats: { wins: 9, losses: null },
+      killContribution: { solo: 9 },
+      stats: { ...complete.stats, processedDamageDealt: null, damageDealt: null },
+      combatPressure: { pressureIndex: null, utilityStats: { throwCount: 10 } },
+    });
+    const telemetry = createQueryChain({ data: [complete, incomplete].map(fullResult => ({ match_id: fullResult.matchId, player_id: 'player_a', platform: 'kakao', data: { fullResult } })), error: null });
+    const tier = createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2, avg_damage: 100, avg_damage_count: 5, avg_initiative_rate: 0, avg_initiative_rate_count: 5, avg_duel_win_rate: 0, avg_duel_win_rate_count: 5, avg_solo_kill_rate: 0, avg_solo_kill_rate_count: 5 }, error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({ player_ai_summary_cache: createQueryChain(), processed_match_telemetry: telemetry, benchmark_stats_by_tier_v2: tier }) });
+    mockSummaryGeminiResponse();
+    const response = await aiSummaryPOST(createRequest({ matchIds: [complete.matchId, incomplete.matchId], nickname: 'Player_A', platform: 'kakao', force: true, summaryContractVersion: 2 }));
+    const records = parseSummaryNdjson(await response.text());
+    const cards = records.find(record => record.type === 'cards')?.data;
+    const rows = cards.flatMap((card: any) => card.evidence);
+    expect(cards.every((card: any) => card.context.userMatchCount === 2)).toBe(true);
+    expect(rows.find((row: any) => row.metricId === 'initiative_rate')).toMatchObject({ userValue: '100%', numerator: 2, denominator: 2, userMatchCount: 1 });
+    expect(rows.find((row: any) => row.metricId === 'duel_win_rate')).toMatchObject({ userValue: '50%', numerator: 1, denominator: 2, userMatchCount: 1 });
+    expect(rows.find((row: any) => row.metricId === 'solo_kill_share')).toMatchObject({ userValue: '50%', userMatchCount: 1 });
+    expect(rows.find((row: any) => row.metricId === 'damage_average')).toMatchObject({ userValue: '320', userMatchCount: 1 });
+  });
+  it.each(['valid', 'unsafe-advice', 'balanced', 'withheld', 'shuffled', 'technical-provenance', 'wrong-reference', 'missing-reference', 'foreign-mode', 'cross-card-prose', 'neutral-opinion', 'invented-match-count', 'duplicate-topic', 'unknown-topic', 'two-cards', 'non-json'])(
     'ai-summary v2 %s preserves server evidence and validates interpretation/cache separately', async (scenario) => {
       const summaryCache = createQueryChain();
       const telemetry = createQueryChain({ data: [{ match_id: 'id-contract', player_id: 'player_a', platform: 'kakao', data: { fullResult: createSummaryMatch('id-contract', { deathPhase: 4 }) } }], error: null });
@@ -6031,6 +6058,13 @@ describe("AI cache route stabilization", () => {
         expect(prompt).not.toContain('### [SQUAD 모드 분석]');
         const issues = plan.map((card: any) => ({ topicId: card.topicId, evidenceIds: [...card.evidenceIds], kindOpinion: '교전을 마무리하는 강점이 있습니다.', spicyOpinion: '합류 시점을 더 점검하세요.', winner: 'kind', reason: '관측된 기록에 근거합니다.', evaluation: '다음 경기에서 합류를 점검하세요.' }));
         providerFinal = { ...createValidSummaryFinal(), debateIssues: issues };
+        if (scenario === 'balanced' || scenario === 'withheld') {
+          for (const issue of issues) issue.winner = scenario === 'balanced' ? 'draw' : null;
+        }
+        if (scenario === 'unsafe-advice') {
+          issues.find((issue: any) => issue.topicId === 'firepower').spicyOpinion = '교전 참여 빈도를 높여 화력 생산력을 끌어올려야 합니다.';
+          providerFinal.actionItems = [{ icon: 'target', title: '교전 점검', desc: '공격 기회를 늘리세요.' }];
+        }
         if (scenario === 'shuffled') issues.reverse();
         if (scenario === 'technical-provenance') {
           issues.find((issue: any) => issue.topicId === 'firepower').kindOpinion = '평균 화력 320 (모드·매치 유형·티어 기준 BGMS 표본 평균 [모드 squad · 매치 유형 competitive · 티어 A+]; 해당 지표 n=5: 평균 화력 100). 교전 마무리에 집중하세요.';
@@ -6054,13 +6088,25 @@ describe("AI cache route stabilization", () => {
       expect(facts).toHaveLength(3);
       const damage = facts.find((card: any) => card.topicId === 'firepower').evidence[0];
       expect(damage).toMatchObject({ metricId: 'damage_average', userValue: '320', benchmarkValue: '100', status: 'comparable' });
-      const success = ['valid', 'shuffled', 'technical-provenance'].includes(scenario);
+      const success = ['valid', 'unsafe-advice', 'balanced', 'withheld', 'shuffled', 'technical-provenance'].includes(scenario);
       expect(records.find(record => record.type === 'done')?.valid).toBe(success);
       if (success) {
         const final = JSON.parse(records.find(record => record.type === 'final')?.data || '{}');
         expect(final.schemaVersion).toBe(2);
+        if (scenario === 'balanced' || scenario === 'withheld') {
+          const firepower = final.cards.find((card: any) => card.topicId === 'firepower');
+          expect(firepower.winner).toBeNull(); // A favourable damage comparison alone cannot establish mixed strengths/weaknesses.
+          expect(final.debateIssues.find((issue: any) => issue.topic === firepower.topic).winner).toBe(firepower.winner);
+        }
         expect(final.cards.map((card: any) => card.topicId)).toEqual(facts.map((card: any) => card.topicId));
         expect(final.cards.map((card: any) => card.evidence)).toEqual(facts.map((card: any) => card.evidence));
+        if (scenario === 'unsafe-advice') {
+          const card = final.cards.find((card: any) => card.topicId === 'firepower');
+          expect(card.winner).toBeNull();
+          expect(card.spicyOpinion).toContain('다음 교전이 끝난 뒤');
+          expect(final.actionItems[0].desc).not.toContain('공격 기회를 늘리세요');
+          expect(final.actionItems[0].desc).toContain('확인');
+        }
         if (scenario === 'technical-provenance') {
           const opinion = final.cards.find((card: any) => card.topicId === 'firepower').kindOpinion;
           expect(opinion).not.toMatch(/BGMS|competitive|n=|모드·매치/);

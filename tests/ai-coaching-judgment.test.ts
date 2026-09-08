@@ -7,6 +7,55 @@ import { applySquadEvidencePolicy } from '../lib/pubg-analysis/squadAiEvidence';
 const withheld = '해당 평가는 행동 근거가 부족해 보류합니다.';
 
 describe('coaching judgment regression corpus', () => {
+  it.each([
+    '소생 소요 시간을 줄여야 한다는 뜻은 아닙니다.',
+    '소생 소요 시간을 단축할 필요는 없습니다.',
+    '소생 소요 시간을 단축해야 한다는 뜻은 아닙니다.',
+    '소생 소요 시간을 단축해서는 안 됩니다.',
+    '소생 소요 시간을 줄여서는 안 됩니다.',
+    '소생 소요 시간을 줄여야 하는 것은 아닙니다.',
+  ])('preserves negated revive-duration advice across fresh and cached policy passes: %s', desc => {
+    const input = { actionItems: [{ desc }] };
+    const fresh = applyMatchAiEvidencePolicy(JSON.stringify(input), {});
+    expect(JSON.parse(fresh)).toEqual(input);
+    expect(applyMatchAiEvidencePolicy(fresh, {})).toBe(fresh);
+  });
+
+  it('keeps a revive limitation but removes the following unsupported directive', () => {
+    const fact = '소생 소요 시간을 줄여야 한다는 뜻은 아닙니다.';
+    const input = { actionItems: [{ desc: `${fact} 소생 시간을 단축하세요.` }] };
+    const final = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), {}));
+    expect(final.actionItems[0].desc).toContain(fact);
+    expect(final.actionItems[0].desc).not.toContain('소생 시간을 단축하세요.');
+  });
+
+  it('replaces concentration inferred from duel outcomes with observed match counts', () => {
+    const input = { briefFeedback: ['유효 딜량은 374입니다. 1:1 교전 승률 75%와 선제 공격 성공률 60%를 통해 교전 상황에서의 높은 집중력을 보여주셨습니다.'] };
+    const match = { duelStats: { wins: 3, totalDuels: 4, duelWinRate: 75 } };
+    const final = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), match));
+    expect(final.briefFeedback[0]).toBe('유효 딜량은 374입니다. 관측된 1:1 교전 4회 중 3회 승리했습니다.');
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(final), match))).toEqual(final);
+  });
+
+  it('does not manufacture duel facts when rejecting an unmeasured concentration claim', () => {
+    const final = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({ briefFeedback: ['높은 집중력을 보여주셨습니다.'] }), {}));
+    expect(final.briefFeedback[0]).toBe('교전 결과만으로 집중력을 판단할 수 없습니다.');
+  });
+
+  it('preserves limitations and conditional concentration advice', () => {
+    const input = { briefFeedback: ['높은 승률이 높은 집중력을 의미하지 않습니다.'], actionItems: [{ desc: '다음 교전에서 상대의 움직임에 집중해 보세요.' }] };
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), {}))).toEqual(input);
+  });
+
+  it('does not turn revenge latency into a measured revive duration', () => {
+    const input = { briefFeedback: ['백업 속도는 10.97초이며 소생은 1회입니다.'], actionItems: [{ title: '복구 시간 단축', desc: '성공적인 복구였지만 다음 교전 후에는 소생 소요 시간을 조금 더 줄여보세요.' }] };
+    const match = { tradeStats: { revCount: 1, tradeLatencyMs: 10973 } };
+    const final = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), match));
+    expect(final.briefFeedback).toEqual(input.briefFeedback);
+    expect(final.actionItems[0].desc).toBe('다음 교전에서는 적 제압 후 아군의 상태를 확인하고 소생 가능한 상황인지 점검하세요.');
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(final), match))).toEqual(final);
+  });
+
   it.each([0, null, undefined])('does not infer rescue weakness without opportunities (%s)', (teammateKnocks) => {
     const text = '연막을 활용한 팀원 구출 능력을 보완해야 합니다.';
     const individual = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({ briefFeedback: [text] }), { tradeStats: { teammateKnocks, smokeRescues: 0 } }));

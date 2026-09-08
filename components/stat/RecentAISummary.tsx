@@ -33,7 +33,7 @@ interface DebateIssue {
   question: string;
   kindOpinion: string;
   spicyOpinion: string;
-  winner: "kind" | "spicy" | "draw";
+  winner: "kind" | "spicy" | "draw" | null;
   userStats: DebateStat[];
   benchmarkStats: DebateStat[];
 }
@@ -1008,7 +1008,7 @@ export const RecentAISummary = ({
   const summaryCardViews = (summaryCards ?? []).map((card) => {
     const winner = card.dataStatus === "comparable"
       && card.analysisStatus === "ready"
-      && (card.winner === "kind" || card.winner === "spicy")
+      && (card.winner === "kind" || card.winner === "spicy" || card.winner === "draw")
       ? card.winner
       : null;
     const evidenceById = new Map(card.evidence.map((evidence) => [evidence.id, evidence]));
@@ -1229,7 +1229,7 @@ export const RecentAISummary = ({
     evidence,
   }: {
     card: SummaryCard;
-    winner: "kind" | "spicy" | null;
+    winner: "kind" | "spicy" | "draw" | null;
     evidence: SummaryEvidence[];
   }, idx: number) => {
     const interpretationPending = card.analysisStatus === "pending"
@@ -1250,6 +1250,9 @@ export const RecentAISummary = ({
     const visibleEvidence = evidence.filter((row) => !(hasThrowTotal && ["utility_smokes", "utility_lethal_throws"].includes(row.metricId))
       && !(hasSmokeRate && row.metricId === "smoke_rescue_attempts"));
     const renderEvidenceRow = (row: SummaryEvidence, rowIdx: number) => {
+      const observationScope = row.userMatchCount === undefined
+        ? `선택된 ${card.context.userMatchCount}경기 · 지표별 확인 경기 수 미확인`
+        : `선택된 ${card.context.userMatchCount}경기 중 ${row.userMatchCount}경기 기록 확인`;
       if (row.status === "comparable" && row.userValue !== null && row.benchmarkValue !== null) {
         return (
           <div key={row.id || rowIdx} className="grid grid-cols-11 items-center gap-2 p-4 bg-white/5 rounded-xl border border-white/5 group hover:bg-white/10 transition-colors">
@@ -1265,7 +1268,7 @@ export const RecentAISummary = ({
               <div className="text-[9px] text-gray-500 font-bold uppercase">{neutralBenchmarkLabel(row.benchmarkLabel, {
                 gameMode: card.context.gameMode, matchType: card.context.matchType, tier: card.context.tier ?? undefined,
               })}</div>
-              <div className="text-[9px] text-gray-500">내 {card.context.userMatchCount}경기 · 비교 표본 {row.sampleCount}건</div>
+              <div className="text-[9px] text-gray-500">{observationScope} · 비교 표본 {row.sampleCount}건</div>
             </div>
             {row.metricId === "smoke_opportunity_rate" && row.denominator !== undefined && row.numerator !== undefined && (
               <p className="col-span-11 border-t border-white/5 pt-3 text-xs leading-5 text-gray-400">
@@ -1284,7 +1287,7 @@ export const RecentAISummary = ({
               <div className="text-sm font-bold text-gray-300">{row.label}</div>
               <div className="text-lg md:text-xl font-black text-indigo-400">{row.userValue}</div>
             </div>
-            <p className="mt-1 text-xs leading-5 text-gray-500">내 {card.context.userMatchCount}경기 기록 · 평균 비교 없이 내 기록을 보여줍니다.</p>
+            <p className="mt-1 text-xs leading-5 text-gray-500">{observationScope} · 평균 비교 없이 내 기록을 보여줍니다.</p>
             {row.metricId === "utility_throws" && utilityDetails.length > 0 && (
               <p className="mt-3 border-t border-white/5 pt-3 text-xs leading-5 text-gray-400">
                 {utilityDetails.map((detail) => `${detail.label} ${detail.userValue ?? "측정 기록 없음"}`).join(" · ")}
@@ -1318,9 +1321,10 @@ export const RecentAISummary = ({
           <div className="flex items-center gap-4 shrink-0 ml-4">
             <div className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter ${winner === "spicy" ? "bg-red-500/20 text-red-400 border border-red-500/30" :
               winner === "kind" ? "bg-green-500/20 text-green-400 border border-green-500/30" :
+              winner === "draw" ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30" :
                 "bg-gray-500/20 text-gray-300 border border-gray-500/30"
               }`}>
-              {winner === "spicy" ? "매운맛 승" : winner === "kind" ? "착한맛 승" : "판정 보류"}
+              {winner === "spicy" ? "매운맛 승" : winner === "kind" ? "착한맛 승" : winner === "draw" ? "장단점 함께" : "판정 보류"}
             </div>
             <svg className={`w-6 h-6 text-white/50 transition-transform ${openIssueIdx === idx ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
           </div>
@@ -1612,13 +1616,13 @@ export const RecentAISummary = ({
           <div className="text-center group">
             <div className="text-3xl font-black text-yellow-400 mb-1">{score.draw}</div>
             <div className="text-[10px] text-yellow-400/60 font-bold uppercase tracking-wider group-hover:scale-110 transition-transform">
-              <InlineIconLabel icon="team" iconSize={11}>무승부</InlineIconLabel>
+              <InlineIconLabel icon="team" iconSize={11}>장단점 함께</InlineIconLabel>
             </div>
           </div>
         </div>
         {score.pending > 0 && (
           <p className="-mt-4 px-4 text-center text-xs font-bold leading-relaxed text-gray-400">
-            근거 확인이 필요한 {score.pending}개 항목은 판정을 보류했습니다.
+            {score.pending}개 항목은 비교 근거가 부족하거나 한쪽 판단을 지지하기 어려워 판정을 보류했습니다.
           </p>
         )}
 
@@ -2164,7 +2168,7 @@ export const RecentAISummary = ({
                       winner === "draw" ? "bg-yellow-500/20 text-yellow-400 border border-yellow-500/30" :
                         "bg-gray-500/20 text-gray-300 border border-gray-500/30"
                     }`}>
-                    {winner === "spicy" ? "매운맛 승" : winner === "kind" ? "착한맛 승" : winner === "draw" ? "무승부" : "판정 보류"}
+                    {winner === "spicy" ? "매운맛 승" : winner === "kind" ? "착한맛 승" : winner === "draw" ? "장단점 함께" : "판정 보류"}
                   </div>
                   <svg className={`w-6 h-6 text-white/50 transition-transform ${openIssueIdx === idx ? "rotate-180" : ""}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" /></svg>
                 </div>

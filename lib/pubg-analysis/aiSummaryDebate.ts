@@ -205,7 +205,7 @@ const FASTER_DIRECTION_PATTERN = /(?:더\s*)?(?:빠르(?:습니다|다|어요|�
 const SLOWER_DIRECTION_PATTERN = /(?:더\s*)?(?:느리(?:습니다|다|어요|은)|slow(?:er)?)/iu;
 
 /** Metrics for which a larger canonical value is a favourable comparison. */
-const HIGHER_IS_BETTER: Readonly<Record<string, boolean>> = {
+export const AI_SUMMARY_HIGHER_IS_BETTER: Readonly<Record<string, boolean>> = {
   damage_average: true,
   initiative_rate: true,
   duel_win_rate: true,
@@ -733,7 +733,7 @@ function validateBenchmarkDirection(
 
   const metric = METRIC_BY_KEY.get(metricKeyValue);
   if (!metric) return false;
-  const higherIsBetter = HIGHER_IS_BETTER[metricKeyValue];
+  const higherIsBetter = AI_SUMMARY_HIGHER_IS_BETTER[metricKeyValue];
   if (higherIsBetter === undefined) return false;
   const userMeasurement = parseMeasurement(canonicalUser.value);
   const benchmarkMeasurement = parseMeasurement(canonicalBenchmark.value);
@@ -1315,7 +1315,7 @@ export function normalizeAiSummaryDebatePayload(
       if (!trimmed) return null;
       trimmedFields[field] = trimmed;
     }
-    if (issue.winner !== "kind" && issue.winner !== "spicy") return null;
+    if (issue.winner !== "kind" && issue.winner !== "spicy" && issue.winner !== "draw" && issue.winner !== null) return null;
     if (!Array.isArray(issue.userStats) || !Array.isArray(issue.benchmarkStats)) return null;
 
     const matchedPairs = matchDebateStatPairs(issue.userStats, issue.benchmarkStats);

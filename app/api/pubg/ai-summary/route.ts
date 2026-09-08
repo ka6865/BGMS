@@ -508,6 +508,7 @@ function aggregateMatches(matches: any[]) {
   let totalInitiativeSuccess = 0, totalInitiativeAttempts = 0;
   let totalCrossfireCount = 0, totalTeamWipes = 0, totalMaxHitDist: number | null = null;
   let totalDuelWins = 0, totalDuelLosses = 0, totalReversalWins = 0, totalReversalAttempts = 0;
+  const metricMatchCounts: Record<string, number> = { initiative_rate: 0, duel_win_rate: 0, solo_kill_share: 0 };
   const observedUtilityThrows: Array<number | null> = [];
   const observedLethalThrows: Array<number | null> = [];
   const observedUtilityHits: Array<number | null> = [];
@@ -592,10 +593,14 @@ function aggregateMatches(matches: any[]) {
     totalSmokes += coerceNonNegativeNumber(m.itemUseSummary?.smokes ?? m.tradeStats?.smokeCount);
     totalSmokeRescues += coerceNonNegativeNumber(m.tradeStats?.smokeRescues);
 
-    const initiativeSampleCount = coerceNonNegativeNumber(m.initiativeSampleCount);
-    if (initiativeSampleCount > 0) {
+    const initiativeSampleCount = readObservedNonNegative(m.initiativeSampleCount);
+    const initiativeRate = readObservedNonNegative(m.initiative_rate);
+    // A missing outcome cannot be counted as a failed attempt. Keep each
+    // numerator and denominator on the same observed match population.
+    if (initiativeSampleCount === 0 || (initiativeSampleCount !== null && initiativeRate !== null && initiativeRate <= 100)) {
+      metricMatchCounts.initiative_rate++;
       totalInitiativeAttempts += initiativeSampleCount;
-      totalInitiativeSuccess += Math.round((Math.min(100, coerceNonNegativeNumber(m.initiative_rate)) / 100) * initiativeSampleCount);
+      totalInitiativeSuccess += Math.round(((initiativeRate ?? 0) / 100) * initiativeSampleCount);
     }
 
     if (m.isolationData) {
@@ -637,8 +642,11 @@ function aggregateMatches(matches: any[]) {
       const duelLosses = readObservedNonNegative(m.duelStats.losses);
       const reversals = readObservedNonNegative(m.duelStats.reversals);
       const reversalAttempts = readObservedNonNegative(m.duelStats.reversalAttempts);
-      if (duelWins !== null) totalDuelWins += duelWins;
-      if (duelLosses !== null) totalDuelLosses += duelLosses;
+      if (duelWins !== null && duelLosses !== null) {
+        totalDuelWins += duelWins;
+        totalDuelLosses += duelLosses;
+        metricMatchCounts.duel_win_rate++;
+      }
       if (reversals !== null) totalReversalWins += reversals;
       if (reversalAttempts !== null || reversals !== null) {
         totalReversalAttempts += Math.max(reversalAttempts ?? 0, reversals ?? 0);
@@ -690,10 +698,12 @@ function aggregateMatches(matches: any[]) {
       goldenTimeFinal.late += coerceFiniteNumber(m.goldenTimeDamage.late);
     }
 
-    if (m.killContribution) {
-      killContribFinal.solo += coerceFiniteNumber(m.killContribution.solo);
-      killContribFinal.cleanup += coerceFiniteNumber(m.killContribution.cleanup);
-      killContribFinal.assist += coerceFiniteNumber(m.killContribution.assist); // [V66.0] 팀원 기여 킬 누산 추가
+    const contributions = [m.killContribution?.solo, m.killContribution?.cleanup, m.killContribution?.assist].map(readObservedNonNegative);
+    if (contributions.every((value): value is number => value !== null)) {
+      killContribFinal.solo += contributions[0];
+      killContribFinal.cleanup += contributions[1];
+      killContribFinal.assist += contributions[2];
+      metricMatchCounts.solo_kill_share++;
     }
 
     totalKills += coerceFiniteNumber(m.stats?.kills);
@@ -852,7 +862,24 @@ function aggregateMatches(matches: any[]) {
     ? new Date(Math.max(...validMatchTimes)).toISOString()
     : new Date(0).toISOString();
 
+  const observedCount = (values: unknown[]) => values.filter((value) => readObservedNonNegative(value) !== null).length;
+  Object.assign(metricMatchCounts, {
+    damage_average: observedCount(inputMatches.map((m) => firstObservedNonNegative(m.stats?.processedDamageDealt, m.stats?.damageDealt))),
+    pressure_index: pressureIndexCount,
+    reaction_latency: reactionLatencies.length,
+    backup_latency: backupLatencies.length,
+    trade_success_rate: inputMatches.filter((m) => [m.tradeStats?.tradeKills, m.tradeStats?.teammateKnocks].every((value) => readObservedNonNegative(value) !== null)).length,
+    smoke_opportunity_rate: inputMatches.filter((m) => [m.tradeStats?.smokeRescues, m.tradeStats?.teammateKnocks].every((value) => readObservedNonNegative(value) !== null)).length,
+    utility_throws: observedCount(observedUtilityThrows),
+    utility_smokes: observedCount(inputMatches.map((m) => m.itemUseSummary?.smokes)),
+    utility_lethal_throws: observedCount(observedLethalThrows),
+    smoke_rescue_attempts: observedCount(inputMatches.map((m) => m.tradeStats?.smokeCount)),
+    isolation_average: isolationCountFinal,
+    death_phase: deathPhaseCount,
+  });
+
   return {
+    metricMatchCounts,
     mLen, avgDamage, avgKills, avgDamageImpact, avgTeamDamageShare, avgTeamKillShare, topBadges,
     userInitiativeRate, userReversalRate, avgBackupLatency, avgReactionLatency, avgCoverRate, avgDuelWinRate,
     totalDuelWins, totalDuelLosses, totalReversalWins, totalReversalAttempts, avgDeathPhase,
@@ -1592,7 +1619,7 @@ export async function POST(request: Request) {
       '      "question": "질문",',
       '      "spicyOpinion": "매운맛 의견",',
       '      "kindOpinion": "순한맛 의견",',
-      '      "winner": "승자 (반드시 \"spicy\" 또는 \"kind\" 중 하나만 선택)",',
+      '      "winner": "승자 (\"spicy\", \"kind\", \"draw\" 또는 JSON null; 장단점이 함께 확인되면 draw, 판단 근거 부족이면 null)",',
       '      "reason": "근거",',
       '      "evaluation": "종합 평가",',
       '      "userStats": [ { "label": "항목", "value": "값" } ],',
@@ -2025,9 +2052,13 @@ export async function POST(request: Request) {
       promptLines.push(
         "[ID CARD CONTRACT V2] SERVER_CARD_PLAN_V2가 카드의 유일한 근거입니다. 지정된 topicId 3개를 정확히 한 번씩 반환하고 해당 카드의 evidenceIds만 중복 없이 한 번씩 참조하세요. 제목, 질문, 지표 라벨과 수치는 서버가 표시하므로 생성하지 마세요.",
         "근거를 해석해 두 코치 의견, 근거 설명, 평가, 실천 행동을 작성하세요. 의견에는 숫자나 근거 ID를 반복하지 말고 관측 가능한 행동을 설명하세요. 비교값이 없으면 상위권·동일 티어 비교를 주장하지 마세요. 관측값이 없는 카드에는 근거 부족을 명시하고 evidenceIds는 빈 배열로 반환하세요.",
-        "다른 카드의 근거, 다른 모드, AI가 추측한 수치를 사용하지 마세요. reason은 설명문이며 ID가 아닙니다. winner는 kind 또는 spicy만 사용하며 실제 표시 가능 여부는 서버가 검증합니다.",
+        "다른 카드의 근거, 다른 모드, AI가 추측한 수치를 사용하지 마세요. reason은 설명문이며 ID가 아닙니다. winner는 kind, spicy, draw 또는 JSON null로 반환하세요. draw는 장점과 개선점 양쪽 모두 해당 카드 근거로 뒷받침될 때 사용하고, 비교·판단 근거가 부족하면 null을 사용하세요. 승자를 반드시 만들거나 두 코치에게 억지로 반대 의견을 맡기지 마세요. 실제 표시 가능 여부는 서버가 검증합니다.",
         "카드에 없는 소생 기여, 교전 주도권, 팀원의 화력 분담, 투척물 보유량은 판단하지 마세요. 평균 화력이 높다는 사실만으로 교전을 주도했다거나 팀원의 지원이 부족했다고 추론하지 마세요. 투척 횟수는 사용 기록이며 보유량이 아닙니다. 백업 시간만으로 복구 성공이나 실패를 단정하지 마세요.",
-        "finalVerdict는 아래 카드에서 확인된 강점과 다음 행동을 함께 정리하세요. 약점을 반드시 만들 필요는 없습니다. 비교가 가능한 의견은 '지표는 비교 평균보다 높습니다/낮습니다/빠릅니다/느립니다'처럼 완결된 문장으로 쓴 뒤 실천 행동을 별도 문장으로 제안하세요.",
+        "[측정 의미] 이 요약의 백업 속도는 아군을 기절시킨 적을 30초 안에 처치한 사례에서 기절부터 처치까지 걸린 평균 시간입니다. 성공한 복수 처치 사례만의 시간이며 이동·첫 대응 시간이나 모든 구조 기회의 시간이 아닙니다. 실제 이동 속도·기동력·합류 경로·집중력·판단력·소통 능력을 측정한 값이 아닙니다. 1:1 승률도 집중력이나 교전 주도권을 입증하지 않습니다. 기록에 없는 능력 평가를 붙이지 말고 비교 결과 자체를 짧게 설명하세요.",
+        "[비교 문장] 한 문장에는 지표 하나와 방향 하나만 쓰세요. '복수 성공률은 비교 평균보다 높습니다. 백업 속도는 비교 평균보다 빠릅니다.'처럼 분리하세요. '둘 다 우수합니다/높거나 빠릅니다/평균을 웃돕니다' 같은 복합·모호한 비교를 쓰지 마세요. 두 지표 모두 유리한 방향이면 단순한 연습 제안을 약점 근거로 삼아 draw로 판정하지 마세요.",
+        "[경기별 일관성] 평균·합계만으로 매 경기의 일관성이나 습관을 알 수 없습니다. 꾸준히 높은 피해량을 기록했다거나 꾸준한 딜링 능력을 증명했다고 쓰지 마세요. 관측 기간의 평균을 설명하고 이후 행동은 조건부 점검으로 제안하세요. [작은 표본] context.userMatchCount는 카드에 선택된 경기 수이고 evidence.userMatchCount는 해당 지표의 기록이 확인된 경기 수입니다. 서로 다르면 지표의 실제 확인 경기 수로 설명하세요. 누락 기록과 발생 기회가 없었던 기록을 0% 실패로 해석하지 마세요. 최근 10경기 전체의 일관된 습관·능력으로 확대하지 마세요. 관측된 구출/복수 기회가 적으면 그 한계를 밝히고, 실패 원인이나 연막 타이밍을 단정하지 마세요. 행동 제안은 다음 경기에서 확인할 구체적인 조건부 점검으로 쓰세요.",
+        "[행동 제안] 솔로 킬 비중은 처치 기여의 구성이지 혼자 싸워야 할 목표가 아닙니다. 솔로 킬 비중이 낮다고 독립적인 교전을 늘리거나, 화력이 낮다고 교전 참여 빈도를 무조건 높이라고 권하지 마세요. 다음 경기의 구체적인 상황 하나와 확인할 행동을 제안하세요. 예: 교전 전 상대 위치와 빠져나올 경로 확인, 교전 후 피해를 주기 어려웠던 구간 확인. 팀 모드에서는 팀원이 같은 적에게 함께 대응할 수 있는지도 점검하도록 제안할 수 있습니다. 지형·시야·팀원 위치를 실제로 관측했다고 단정하지 마세요. '집중력 유지/더 잘하세요'만으로 행동 제안을 끝내지 마세요.",
+        "finalVerdict는 각 카드의 evaluation과 결론을 존중해 아래 카드에서 확인된 강점과 다음 행동을 함께 정리하세요. draw 또는 null인 카드를 한쪽 코치의 승리나 확정된 약점으로 바꾸지 마세요. 약점을 반드시 만들 필요는 없습니다. 비교가 가능한 의견은 '지표는 비교 평균보다 높습니다/낮습니다/빠릅니다/느립니다'처럼 완결된 문장으로 쓴 뒤 실천 행동을 별도 문장으로 제안하세요.",
         '반드시 JSON 객체만 반환하세요: {"signature":"칭호","signatureSub":"이유","finalVerdict":"종합 평가","debateIssues":[{"topicId":"지정된 ID","evidenceIds":["지정된 근거 ID"],"kindOpinion":"의견","spicyOpinion":"의견","winner":"kind","reason":"근거 설명","evaluation":"평가"}],"actionItems":[{"icon":"target","title":"목표","desc":"실천 방법"}]}',
       );
       // The ID contract must have one factual population. The legacy prompt
