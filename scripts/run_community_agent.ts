@@ -172,12 +172,19 @@ export async function runCommunityWorker({
 }: CommunityWorkerOptions): Promise<CommunityWorkerResult> {
   const origin = validateCommunityWorkerBaseUrl(baseUrl);
   const workerSecret = requiredSecret(secret);
+  const runUrl = endpoint(origin, RUN_PATH);
   const call = (method: "GET" | "POST", body?: Record<string, unknown>) => requestJson(
     fetchImpl,
-    endpoint(origin, RUN_PATH),
+    runUrl,
     workerSecret,
     method,
     body,
+  );
+  const readRun = (runId: string) => requestJson(
+    fetchImpl,
+    `${runUrl}?runId=${encodeURIComponent(runId)}`,
+    workerSecret,
+    "GET",
   );
 
   let run = parseRun(await call("POST", { action: "start", dryRun: false }), "result");
@@ -195,7 +202,7 @@ export async function runCommunityWorker({
       run = parseRun(await call("POST", { action: "step", runId: run.id, stage }), "result");
     } catch (error) {
       if (!canRecover(error)) throw error;
-      run = parseRun(await call("GET"), "run");
+      run = parseRun(await readRun(run.id), "run");
       if (isTerminal(run)) return resultFrom(run);
       if (run.status === "ready") break;
       // A transport failure gets one status read. Only a persisted completion

@@ -80,3 +80,35 @@ Result: exit 0 with no output.
 
 - The local shell lacks `npx`, so test, lint, and TypeScript commands used the bundled Node runtime against the repository’s installed tools. GitHub Actions itself uses the requested `npx tsx` invocation after `npm ci`.
 - No production API request, database migration, GitHub Actions dispatch, external provider call, or public post was performed. The workflow requires repository `APP_URL`, `COMMUNITY_AGENT_WORKER_SECRET`, and the explicit schedule variable before any normal collection or publication can occur.
+
+## Review fix round 1: recovery read includes the persisted run ID
+
+The review found that lost-response recovery used the bare run endpoint. `GET /api/admin/agent/community/run` requires exactly one `runId` query parameter before it reaches authentication or the store, so the recovery request would receive 400.
+
+The runner now builds the recovery URL as:
+
+```text
+/api/admin/agent/community/run?runId=${encodeURIComponent(run.id)}
+```
+
+The existing lost-response regression now records every URL and asserts the exact GET query, as well as the existing no-repeat stage behavior.
+
+### RED
+
+```text
+/Users/kangheesung/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node node_modules/vitest/vitest.mjs run tests/community-agent-runner.test.ts
+```
+
+Result before the fix: 1 failing test. The recorded recovery request was `https://bgms.test/api/admin/agent/community/run`; the required URL was `https://bgms.test/api/admin/agent/community/run?runId=11111111-1111-4111-8111-111111111111`.
+
+### GREEN
+
+Runner regression command above: 1 file and 9 tests passed.
+
+```text
+/Users/kangheesung/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node node_modules/eslint/bin/eslint.js scripts/run_community_agent.ts tests/community-agent-runner.test.ts
+/Users/kangheesung/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node node_modules/typescript/bin/tsc --noEmit --pretty false
+git diff --check
+```
+
+Result: all commands exited 0 with no lint, type, or diff errors. No live calls were made.

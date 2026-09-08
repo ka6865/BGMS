@@ -103,10 +103,10 @@ describe("community agent worker", () => {
   });
 
   it("checks persisted state once after a lost stage response and never repeats that provider", async () => {
-    const requests: Array<{ method: string | undefined; body: Record<string, unknown> | null }> = [];
-    const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const requests: Array<{ url: string; method: string | undefined; body: Record<string, unknown> | null }> = [];
+    const fetchImpl = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
       const body = requestBody(init);
-      requests.push({ method: init?.method, body });
+      requests.push({ url: String(url), method: init?.method, body });
       if (body?.action === "start") return Response.json({ result: snapshot("collecting") });
       if (body?.action === "step" && body.stage === "dc") throw new TypeError("response connection lost");
       if (init?.method === "GET") return Response.json({ run: snapshot("ready", STAGES) });
@@ -117,10 +117,10 @@ describe("community agent worker", () => {
     await expect(runCommunityWorker({ baseUrl: "https://bgms.test", secret: "test-only", fetchImpl }))
       .resolves.toEqual({ status: "already_published", postId: 41 });
     expect(requests).toEqual([
-      { method: "POST", body: { action: "start", dryRun: false } },
-      { method: "POST", body: { action: "step", runId: RUN_ID, stage: "dc" } },
-      { method: "GET", body: null },
-      { method: "POST", body: { action: "publish", runId: RUN_ID } },
+      { url: "https://bgms.test/api/admin/agent/community/run", method: "POST", body: { action: "start", dryRun: false } },
+      { url: "https://bgms.test/api/admin/agent/community/run", method: "POST", body: { action: "step", runId: RUN_ID, stage: "dc" } },
+      { url: `https://bgms.test/api/admin/agent/community/run?runId=${RUN_ID}`, method: "GET", body: null },
+      { url: "https://bgms.test/api/admin/agent/community/run", method: "POST", body: { action: "publish", runId: RUN_ID } },
     ]);
   });
 
