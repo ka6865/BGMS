@@ -3,12 +3,17 @@
 do $$
 begin
   if has_function_privilege('anon', 'public.publish_community_post(uuid)', 'execute')
-     or has_function_privilege('authenticated', 'public.publish_community_post(uuid)', 'execute') then
+     or has_function_privilege('authenticated', 'public.publish_community_post(uuid)', 'execute')
+     or has_function_privilege('anon', 'public.configure_community_agent_policy(jsonb)', 'execute')
+     or has_function_privilege('authenticated', 'public.configure_community_agent_policy(jsonb)', 'execute') then
     raise exception 'community publisher must not be public';
   end if;
   if has_table_privilege('anon', 'public.community_agent_runs', 'select')
      or has_table_privilege('authenticated', 'public.community_agent_evidence', 'insert') then
     raise exception 'community tables must not be public';
+  end if;
+  if (select source_enabled ->> 'youtube' from public.community_agent_policy where singleton) <> 'false' then
+    raise exception 'youtube must be initially deselected';
   end if;
 end $$;
 
@@ -150,22 +155,103 @@ reset role;
 do $$
 declare
   v_run uuid;
-  v_hash text := repeat('e', 64);
+  v_evidence uuid := '00000000-0000-4000-8000-000000000911';
+  v_title text := 'validated same-day dry run';
+  v_html text := '<p>validated</p>';
+  v_hash text;
 begin
   update public.community_agent_policy set publishing_enabled = false where singleton;
   v_run := (public.start_community_run(null, true) ->> 'id')::uuid;
-  update public.community_agent_runs set status = 'ready', approved_title = 'dry run must stay local',
-    approved_html = '<p>validated</p>', approved_category = '자유', approved_hash = v_hash,
+  v_hash := encode(public.digest(convert_to(v_title || E'\n' || v_html, 'UTF8'), 'sha256'), 'hex');
+  insert into public.community_agent_evidence (
+    id, source, external_id, url, title, excerpt, published_at, fetched_at, access, content_hash, official, expires_at
+  ) values (
+    v_evidence, 'dc', 'promotion-evidence', 'https://gall.dcinside.com/board/view/?id=battlegrounds&no=911',
+    'promotion evidence', 'verified body', clock_timestamp(), clock_timestamp(), 'body', repeat('e', 64), false,
+    clock_timestamp() + interval '7 days'
+  );
+  update public.community_agent_runs set status = 'ready', approved_title = v_title,
+    approved_html = v_html, approved_category = '자유', approved_hash = v_hash,
+    draft = jsonb_build_object('title', v_title, 'paragraphs', jsonb_build_array(jsonb_build_object(
+      'text', 'verified body', 'kind', 'observed_opinion', 'evidenceIds', jsonb_build_array(v_evidence::text), 'recentWindow', null
+    )), 'question', 'question'),
     validation = jsonb_build_object('passed', true, 'contentHash', v_hash)
   where run_id = v_run;
-  update public.community_agent_policy set publishing_enabled = true where singleton;
   if public.publish_community_post(v_run) ->> 'code' <> 'not_ready' then
-    raise exception 'dry run became publishable after policy changed';
+    raise exception 'direct dry run publish was accepted';
   end if;
-  if exists (select 1 from public.posts where title = 'dry run must stay local') then
-    raise exception 'dry run wrote a post';
+  set local role service_role;
+  perform public.configure_community_agent_policy('{"publishingEnabled":true}'::jsonb);
+  reset role;
+  if (select dry_run from public.community_agent_runs where run_id = v_run) then
+    raise exception 'validated same-day dry run was not promoted';
   end if;
+  if exists (select 1 from public.posts where title = v_title) then
+    raise exception 'configure published a post';
+  end if;
+  update public.community_agent_policy set enabled = false, publishing_enabled = false where singleton;
+  if public.publish_community_post(v_run) ->> 'code' <> 'paused' then
+    raise exception 'pause after verify did not block publication';
+  end if;
+  update public.community_agent_policy set enabled = true, publishing_enabled = false where singleton;
   update public.community_agent_runs set day = (clock_timestamp() at time zone 'Asia/Seoul')::date - 5 where run_id = v_run;
+end $$;
+
+do $$
+declare
+  v_run uuid;
+  v_title text := 'hash rejection dry run';
+  v_html text := '<p>validated</p>';
+  v_hash text;
+begin
+  v_run := (public.start_community_run(null, true) ->> 'id')::uuid;
+  v_hash := encode(public.digest(convert_to(v_title || E'\n' || v_html, 'UTF8'), 'sha256'), 'hex');
+  update public.community_agent_runs set status = 'ready', approved_title = v_title,
+    approved_html = v_html, approved_category = '자유', approved_hash = v_hash,
+    draft = jsonb_build_object('paragraphs', jsonb_build_array(jsonb_build_object(
+      'evidenceIds', jsonb_build_array('00000000-0000-4000-8000-000000000911')
+    ))), validation = jsonb_build_object('passed', true, 'contentHash', repeat('f', 64))
+  where run_id = v_run;
+  set local role service_role;
+  perform public.configure_community_agent_policy('{"publishingEnabled":true}'::jsonb);
+  reset role;
+  if not (select dry_run from public.community_agent_runs where run_id = v_run) then
+    raise exception 'hash mismatch dry run was promoted';
+  end if;
+  update public.community_agent_policy set publishing_enabled = false where singleton;
+  update public.community_agent_runs set day = (clock_timestamp() at time zone 'Asia/Seoul')::date - 6 where run_id = v_run;
+  set local role service_role;
+  perform public.configure_community_agent_policy('{"publishingEnabled":true}'::jsonb);
+  reset role;
+  if not (select dry_run from public.community_agent_runs where run_id = v_run) then
+    raise exception 'prior-day dry run was promoted';
+  end if;
+  update public.community_agent_policy set publishing_enabled = false where singleton;
+end $$;
+
+do $$
+declare
+  v_run uuid;
+  v_title text := 'missing evidence dry run';
+  v_html text := '<p>validated</p>';
+  v_hash text;
+begin
+  v_run := (public.start_community_run(null, true) ->> 'id')::uuid;
+  v_hash := encode(public.digest(convert_to(v_title || E'\n' || v_html, 'UTF8'), 'sha256'), 'hex');
+  update public.community_agent_runs set status = 'ready', approved_title = v_title,
+    approved_html = v_html, approved_category = '자유', approved_hash = v_hash,
+    draft = jsonb_build_object('paragraphs', jsonb_build_array(jsonb_build_object(
+      'evidenceIds', jsonb_build_array('00000000-0000-4000-8000-000000000999')
+    ))), validation = jsonb_build_object('passed', true, 'contentHash', v_hash)
+  where run_id = v_run;
+  set local role service_role;
+  perform public.configure_community_agent_policy('{"publishingEnabled":true}'::jsonb);
+  reset role;
+  if not (select dry_run from public.community_agent_runs where run_id = v_run) then
+    raise exception 'missing evidence dry run was promoted';
+  end if;
+  update public.community_agent_policy set publishing_enabled = false where singleton;
+  update public.community_agent_runs set day = (clock_timestamp() at time zone 'Asia/Seoul')::date - 7 where run_id = v_run;
 end $$;
 
 do $$
@@ -175,6 +261,7 @@ declare
   v_hash text := repeat('a', 64);
 begin
   v_run := (public.start_community_run(null, false) ->> 'id')::uuid;
+  update public.community_agent_policy set publishing_enabled = true where singleton;
   update public.community_agent_runs set status = 'ready', approved_title = 'publisher checks',
     approved_html = '<p>validated</p>', approved_category = '자유', approved_hash = v_hash,
     validation = jsonb_build_object('passed', true, 'contentHash', v_hash)
@@ -195,6 +282,65 @@ begin
   update public.community_agent_policy set enabled = true, publishing_enabled = true;
   update public.community_agent_runs set day = (clock_timestamp() at time zone 'Asia/Seoul')::date - 1 where run_id = v_run;
   if public.publish_community_post(v_run) ->> 'code' <> 'expired' then raise exception 'old run published'; end if;
+end $$;
+
+do $$
+declare
+  v_youtube uuid := '00000000-0000-4000-8000-000000000912';
+  v_dc uuid := '00000000-0000-4000-8000-000000000913';
+  v_run uuid;
+  v_post bigint;
+begin
+  insert into public.community_agent_evidence (
+    id, source, external_id, url, title, excerpt, published_at, fetched_at, access, content_hash, official, expires_at
+  ) values
+    (v_youtube, 'youtube', 'retention-video', 'https://www.youtube.com/watch?v=retention-video',
+      'temporary API title', 'temporary API description', null, clock_timestamp() - interval '31 days',
+      'description', repeat('1', 64), true, clock_timestamp() - interval '24 days'),
+    (v_dc, 'dc', 'retention-dc', 'https://gall.dcinside.com/board/view/?id=battlegrounds&no=913',
+      'retained source title', 'expired excerpt', null, clock_timestamp() - interval '31 days',
+      'body', repeat('2', 64), false, clock_timestamp() - interval '24 days');
+  select run_id into strict v_run from public.community_agent_runs order by created_at limit 1;
+  update public.community_agent_runs
+  set reports = jsonb_build_array(jsonb_build_object('evidenceIds', jsonb_build_array(v_youtube::text, v_dc::text)))
+  where run_id = v_run;
+  insert into public.posts (title, content, category, author, user_id, status)
+  values ('retention sentinel post', '<p>published content remains</p>', '자유', 'BGMS AI 비서',
+    '00000000-0000-0000-0000-000000000901', 'published')
+  returning id into v_post;
+  update public.community_agent_sources
+  set resolved_channel_id = 'stale-channel', uploads_playlist_id = 'stale-uploads',
+      last_success_at = clock_timestamp() - interval '31 days', updated_at = clock_timestamp()
+  where id = 'youtube';
+
+  set local role service_role;
+  perform public.cleanup_community_agent();
+  reset role;
+  if exists (select 1 from public.community_agent_evidence where id = v_youtube) then
+    raise exception 'referenced youtube API metadata survived 30 days';
+  end if;
+  if not exists (select 1 from public.community_agent_evidence where id = v_dc and excerpt is null) then
+    raise exception 'other evidence metadata did not retain its existing lifecycle';
+  end if;
+  if not exists (select 1 from public.posts where id = v_post and status = 'published') then
+    raise exception 'youtube cleanup removed an existing post';
+  end if;
+  if exists (select 1 from public.community_agent_sources where id = 'youtube'
+    and (resolved_channel_id is not null or uploads_playlist_id is not null)) then
+    raise exception 'stale youtube channel cache survived 30 days without success';
+  end if;
+
+  update public.community_agent_sources
+  set resolved_channel_id = 'current-channel', uploads_playlist_id = 'current-uploads',
+      last_success_at = clock_timestamp(), updated_at = clock_timestamp() - interval '31 days'
+  where id = 'youtube';
+  set local role service_role;
+  perform public.cleanup_community_agent();
+  reset role;
+  if not exists (select 1 from public.community_agent_sources where id = 'youtube'
+    and resolved_channel_id = 'current-channel' and uploads_playlist_id = 'current-uploads') then
+    raise exception 'youtube channel cache used updated_at instead of last_success_at';
+  end if;
 end $$;
 
 do $$

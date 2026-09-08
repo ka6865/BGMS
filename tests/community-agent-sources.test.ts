@@ -132,7 +132,7 @@ describe("community source boundaries", () => {
       .mockResolvedValueOnce(response(fixture.playlist))
       .mockResolvedValueOnce(response(comments));
     const report = await collectYoutube(deps({ env: { YOUTUBE_DATA_API_KEY: "test-key" }, fetchImpl }));
-    expect(report).toMatchObject({ state: "ok", fetchedCount: 31, retainedCount: 31 });
+    expect(report).toMatchObject({ state: "ok", fetchedCount: 32, retainedCount: 31 });
     expect(report.items.filter((item) => item.access === "comment")).toHaveLength(30);
   });
 
@@ -146,8 +146,28 @@ describe("community source boundaries", () => {
     expect(report.items[0]).toMatchObject({ externalId: "100", excerpt: "실제 요약", publishedAt: null, access: "snippet" });
   });
 
-  it("통합 수집은 40초 deadline 아래에서 출처를 분기한다", async () => {
+  it("통합 수집은 설정 누락 출처를 즉시 분기한다", async () => {
     const report = await collectSource("naver", deps());
     expect(report).toMatchObject({ source: "naver", state: "needs_setup" });
+  });
+
+  it("중단 신호를 무시하는 fetch도 출처별 40초 deadline에서 종료한다", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = collectSource("dc", deps({
+        fetchImpl: vi.fn(() => new Promise<Response>(() => {})),
+      }));
+      await vi.advanceTimersByTimeAsync(39_999);
+      let settled = false;
+      void pending.then(() => { settled = true; });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(pending).resolves.toMatchObject({
+        source: "dc", state: "failed", reason: "source_deadline", fetchedCount: 0, retainedCount: 0,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -78,7 +78,7 @@ describe("CommunityAgentPanel", () => {
       id: "11111111-1111-4111-8111-111111111111",
       day: "2026-09-09",
       status: "deferred",
-      stages: {}, modelCalls: 0, reports: [], topic: null, draft: null, validation: null, postId: null, reason: "no_usable_evidence",
+      stages: {}, modelCalls: 0, reports: [], topic: null, draft: null, validation: null, dryRun: false, postId: null, reason: "no_usable_evidence",
     };
     const fetch = vi.fn()
       .mockResolvedValueOnce(Response.json({ status: status() }))

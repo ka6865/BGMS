@@ -10,7 +10,7 @@ create table if not exists public.community_agent_policy (
   bot_user_id uuid references public.profiles(id) on delete set null,
   categories text[] not null default array['배그 소식', '자유']::text[],
   daily_post_limit smallint not null default 1 check (daily_post_limit between 0 and 1),
-  source_enabled jsonb not null default '{"dc":true,"naver":true,"youtube":true}'::jsonb,
+  source_enabled jsonb not null default '{"dc":true,"naver":true,"youtube":false}'::jsonb,
   updated_at timestamptz not null default clock_timestamp(),
   constraint community_agent_policy_categories_check check (
     cardinality(categories) between 1 and 2
@@ -138,6 +138,7 @@ as $$
     'topic', p_run.topic,
     'draft', p_run.draft,
     'validation', p_run.validation,
+    'dryRun', p_run.dry_run,
     'postId', p_run.post_id,
     'reason', p_run.reason
   );
@@ -220,6 +221,93 @@ begin
     raise exception 'community_invalid_stage_usage';
   end if;
   return jsonb_build_object('promptTokens', v_prompt, 'completionTokens', v_completion);
+end;
+$$;
+
+create or replace function public.configure_community_agent_policy(p_patch jsonb)
+returns jsonb
+language plpgsql security invoker set search_path = ''
+as $$
+declare
+  v_policy public.community_agent_policy%rowtype;
+  v_run public.community_agent_runs%rowtype;
+  v_enable_publication boolean := false;
+  v_evidence_count integer := 0;
+  v_valid_evidence_count integer := 0;
+  v_render_hash text;
+begin
+  if jsonb_typeof(p_patch) is distinct from 'object'
+    or p_patch = '{}'::jsonb
+    or p_patch - 'enabled' - 'publishingEnabled' - 'botUserId' - 'categories' - 'dailyPostLimit' - 'sourceEnabled' <> '{}'::jsonb
+    or (p_patch ? 'enabled' and jsonb_typeof(p_patch -> 'enabled') is distinct from 'boolean')
+    or (p_patch ? 'publishingEnabled' and jsonb_typeof(p_patch -> 'publishingEnabled') is distinct from 'boolean')
+    or (p_patch ? 'botUserId' and jsonb_typeof(p_patch -> 'botUserId') not in ('string', 'null'))
+    or (p_patch ? 'categories' and jsonb_typeof(p_patch -> 'categories') is distinct from 'array')
+    or (p_patch ? 'dailyPostLimit' and (
+      jsonb_typeof(p_patch -> 'dailyPostLimit') is distinct from 'number'
+      or coalesce(p_patch ->> 'dailyPostLimit', '') not in ('0', '1')
+    ))
+    or (p_patch ? 'sourceEnabled' and jsonb_typeof(p_patch -> 'sourceEnabled') is distinct from 'object') then
+    raise exception 'community_invalid_policy_patch';
+  end if;
+
+  select * into strict v_policy
+  from public.community_agent_policy
+  where singleton
+  for update;
+  v_enable_publication := not v_policy.publishing_enabled
+    and p_patch ? 'publishingEnabled'
+    and (p_patch ->> 'publishingEnabled')::boolean;
+
+  update public.community_agent_policy
+  set enabled = case when p_patch ? 'enabled' then (p_patch ->> 'enabled')::boolean else enabled end,
+      publishing_enabled = case when p_patch ? 'publishingEnabled' then (p_patch ->> 'publishingEnabled')::boolean else publishing_enabled end,
+      bot_user_id = case when p_patch ? 'botUserId' then nullif(p_patch ->> 'botUserId', '')::uuid else bot_user_id end,
+      categories = case when p_patch ? 'categories' then array(select jsonb_array_elements_text(p_patch -> 'categories')) else categories end,
+      daily_post_limit = case when p_patch ? 'dailyPostLimit' then (p_patch ->> 'dailyPostLimit')::smallint else daily_post_limit end,
+      source_enabled = case when p_patch ? 'sourceEnabled' then p_patch -> 'sourceEnabled' else source_enabled end
+  where singleton
+  returning * into strict v_policy;
+
+  if v_enable_publication and v_policy.enabled and v_policy.publishing_enabled then
+    select * into v_run
+    from public.community_agent_runs
+    where day = (clock_timestamp() at time zone 'Asia/Seoul')::date
+    for update;
+
+    if found and v_run.dry_run and v_run.status = 'ready'
+      and v_run.published_at is null and v_run.post_id is null
+      and v_run.approved_title is not null and btrim(v_run.approved_title) <> ''
+      and v_run.approved_html is not null and v_run.approved_hash is not null
+      and v_run.validation ->> 'passed' = 'true'
+      and v_run.validation ->> 'contentHash' = v_run.approved_hash
+      and v_run.approved_category = any(v_policy.categories) then
+      v_render_hash := encode(public.digest(convert_to(v_run.approved_title || E'\n' || v_run.approved_html, 'UTF8'), 'sha256'), 'hex');
+      select count(*), count(evidence_row.id) filter (
+        where evidence_row.excerpt is not null
+          and evidence_row.expires_at > clock_timestamp()
+      )
+      into v_evidence_count, v_valid_evidence_count
+      from (
+        select distinct jsonb_array_elements_text(coalesce(paragraph.value -> 'evidenceIds', '[]'::jsonb)) as evidence_id
+        from jsonb_array_elements(coalesce(v_run.draft -> 'paragraphs', '[]'::jsonb)) as paragraph(value)
+      ) as reference_row
+      left join public.community_agent_evidence as evidence_row
+        on evidence_row.id = reference_row.evidence_id::uuid;
+
+      if v_render_hash = v_run.approved_hash
+        and v_evidence_count > 0
+        and v_valid_evidence_count = v_evidence_count then
+        update public.community_agent_runs
+        set dry_run = false
+        where run_id = v_run.run_id;
+      end if;
+    end if;
+  end if;
+
+  return to_jsonb(v_policy);
+exception when invalid_text_representation then
+  raise exception 'community_invalid_policy_patch';
 end;
 $$;
 
@@ -635,7 +723,12 @@ create or replace function public.cleanup_community_agent()
 returns jsonb
 language plpgsql security invoker set search_path = ''
 as $$
-declare v_excerpts integer := 0; v_drafts integer := 0; v_runs integer := 0;
+declare
+  v_excerpts integer := 0;
+  v_drafts integer := 0;
+  v_runs integer := 0;
+  v_youtube_evidence integer := 0;
+  v_youtube_cache integer := 0;
 begin
   update public.community_agent_evidence set excerpt = null
   where excerpt is not null and expires_at <= clock_timestamp();
@@ -647,6 +740,18 @@ begin
   where published_at is null and post_id is null and draft is not null
     and created_at < clock_timestamp() - interval '30 days';
   get diagnostics v_drafts = row_count;
+
+  delete from public.community_agent_evidence
+  where source = 'youtube'
+    and fetched_at <= clock_timestamp() - interval '30 days';
+  get diagnostics v_youtube_evidence = row_count;
+
+  update public.community_agent_sources
+  set resolved_channel_id = null, uploads_playlist_id = null
+  where id = 'youtube'
+    and (resolved_channel_id is not null or uploads_playlist_id is not null)
+    and last_success_at <= clock_timestamp() - interval '30 days';
+  get diagnostics v_youtube_cache = row_count;
 
   delete from public.agent_runs as agent_run
   using public.community_agent_runs as community_run
@@ -661,7 +766,13 @@ begin
       where run_row.reports @> jsonb_build_array(jsonb_build_object('evidenceIds', jsonb_build_array(evidence_row.id::text)))
         or run_row.topic @> jsonb_build_object('evidenceIds', jsonb_build_array(evidence_row.id::text))
     );
-  return jsonb_build_object('excerpts', v_excerpts, 'drafts', v_drafts, 'runs', v_runs);
+  return jsonb_build_object(
+    'excerpts', v_excerpts,
+    'drafts', v_drafts,
+    'runs', v_runs,
+    'youtubeEvidence', v_youtube_evidence,
+    'youtubeCache', v_youtube_cache
+  );
 end;
 $$;
 
@@ -669,12 +780,14 @@ revoke all on function public.validate_community_agent_policy(),
   public.community_run_payload(public.community_agent_runs),
   public.community_evidence_ids(jsonb, integer), public.community_short_text_array(jsonb, integer, integer),
   public.community_stage_usage(jsonb),
+  public.configure_community_agent_policy(jsonb),
   public.expire_community_stages(uuid), public.get_community_run(uuid), public.start_community_run(uuid, boolean),
   public.claim_community_stage(uuid, text), public.finish_community_stage(uuid, text, uuid, jsonb),
   public.publish_community_post(uuid), public.cleanup_community_agent() from public, anon, authenticated;
 grant execute on function public.community_run_payload(public.community_agent_runs),
   public.community_evidence_ids(jsonb, integer), public.community_short_text_array(jsonb, integer, integer),
   public.community_stage_usage(jsonb),
+  public.configure_community_agent_policy(jsonb),
   public.expire_community_stages(uuid), public.get_community_run(uuid), public.start_community_run(uuid, boolean),
   public.claim_community_stage(uuid, text), public.finish_community_stage(uuid, text, uuid, jsonb),
   public.publish_community_post(uuid), public.cleanup_community_agent() to service_role;

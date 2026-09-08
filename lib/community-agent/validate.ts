@@ -88,6 +88,11 @@ function contentHash(draft: Draft, evidence: Evidence[]): string {
   return renderDraft(safeRenderableDraft(draft, evidence), evidence.filter(isAllowedEvidenceUrl)).hash;
 }
 
+function citationLabel(source: Evidence): string {
+  if (source.source !== "youtube") return source.title;
+  return source.access === "comment" ? "YouTube 공개 댓글" : "YouTube 공식 영상";
+}
+
 /** Check structure and evidence rules before a generated draft can be published. */
 export function checkDraft(draft: Draft, evidence: Evidence[], now: Date): Validation {
   const reasons: string[] = [];
@@ -141,7 +146,7 @@ export function renderDraft(draft: Draft, evidence: Evidence[]): { title: string
     const source = evidenceById.get(id);
     if (!source) throw new Error("unknown_evidence");
     if (!isAllowedEvidenceUrl(source)) throw new Error("unsafe_evidence_url");
-    return `<li><a href="${escape(source.url)}" target="_blank" rel="noopener noreferrer">${escape(source.title)}</a></li>`;
+    return `<li><a href="${escape(source.url)}" target="_blank" rel="noopener noreferrer">${escape(citationLabel(source))}</a></li>`;
   }).join("");
   const html = sanitizeBoardHtml(`${paragraphs}<p>${escape(draft.question)}</p><p>BGMS AI 비서가 확인한 자료를 바탕으로 작성했습니다.</p><ul>${links}</ul>`);
   return { title: draft.title, html, hash: createHash("sha256").update(`${draft.title}\n${html}`).digest("hex") };

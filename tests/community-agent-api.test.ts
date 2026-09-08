@@ -48,6 +48,7 @@ function snapshot(overrides: Partial<RunSnapshot> = {}): RunSnapshot {
     status: "collecting",
     stages: {},
     modelCalls: 0,
+    dryRun: false,
     reports: [],
     topic: null,
     draft: null,

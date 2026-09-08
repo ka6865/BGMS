@@ -117,7 +117,7 @@ echo "▶ concurrent stop/publish is serialized by the policy row"
 "${PSQL[@]}" -c "begin; select public.publish_community_post('${STOP_RUN_ID}'::uuid); select pg_sleep(5); commit;" >/tmp/community-agent-stop-publish-a-$$.out &
 STOP_PUBLISH_A=$!
 wait_for_policy_lock
-"${PSQL[@]}" -c "begin; /* community-concurrent-stop */ update public.community_agent_policy set enabled = false, publishing_enabled = false where singleton; commit;" >/tmp/community-agent-stop-publish-b-$$.out &
+"${PSQL[@]}" -c "begin; set local role service_role; /* community-concurrent-stop */ select public.configure_community_agent_policy('{\"enabled\":false,\"publishingEnabled\":false}'::jsonb); commit;" >/tmp/community-agent-stop-publish-b-$$.out &
 STOP_PUBLISH_B=$!
 wait_for_blocked_query "community-concurrent-stop"
 wait "$STOP_PUBLISH_A"

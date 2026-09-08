@@ -67,12 +67,18 @@ function combinedSignal(parent: AbortSignal, controller: AbortController): () =>
 export async function collectSource(source: CollectSource, deps: SourceDeps): Promise<SourceReport> {
   const controller = new AbortController();
   const detach = combinedSignal(deps.signal, controller);
-  const timer = setTimeout(() => controller.abort(new Error("source_deadline")), COLLECT_DEADLINE_MS);
   const scoped = { ...deps, signal: controller.signal };
+  let resolveDeadline: ((report: SourceReport) => void) | null = null;
+  const deadline = new Promise<SourceReport>((resolve) => { resolveDeadline = resolve; });
+  const timer = setTimeout(() => {
+    controller.abort(new Error("source_deadline"));
+    resolveDeadline?.(report(source, "failed", [], "source_deadline", 0));
+  }, COLLECT_DEADLINE_MS);
   try {
-    if (source === "dc") return await collectDc(scoped);
-    if (source === "naver") return await collectNaver(scoped);
-    return await collectYoutube(scoped);
+    const collection = source === "dc" ? collectDc(scoped)
+      : source === "naver" ? collectNaver(scoped)
+        : collectYoutube(scoped);
+    return await Promise.race([collection, deadline]);
   } catch (error) {
     return failure(source, controller.signal.aborted && controller.signal.reason instanceof Error ? controller.signal.reason : error);
   } finally {

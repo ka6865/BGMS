@@ -266,7 +266,7 @@ export default function CommunityAgentPanel() {
                 <div className="min-w-0">
                   <a href={SOURCE_META[source].href} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-amber-200 underline-offset-4 hover:underline">{sourceName(source)} <span className="text-xs text-zinc-500">출처 열기</span></a>
                   <p className="mt-1 text-xs text-zinc-400">상태: {sourceStateText(item?.state)}{item?.reason ? ` · ${reasonText(item.reason)}` : ""}{report ? ` · 보존 전 ${report.fetchedCount}건 / 보존 후 ${report.retainedCount}건` : ""}</p>
-                  {source === "youtube" && report && <p className="mt-1 text-xs text-zinc-500">YouTube는 보존된 설명·댓글 기준 수치입니다.</p>}
+                  {source === "youtube" && report && <p className="mt-1 text-xs text-zinc-500">YouTube는 API 영상·공개 댓글 후보를 합산하며, 저장 근거 수는 필터와 상한 적용 후입니다.</p>}
                 </div>
                 <button type="button" aria-pressed={policy.sourceEnabled[source]} disabled={busy !== null} onClick={() => setSources(source, !policy.sourceEnabled[source])} className="w-fit rounded-lg border border-zinc-700 px-3 py-2 text-sm aria-pressed:border-emerald-400 aria-pressed:bg-emerald-500/10 disabled:opacity-50">{policy.sourceEnabled[source] ? "수집 사용" : "수집 안 함"}</button>
               </div>;

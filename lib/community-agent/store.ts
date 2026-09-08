@@ -104,6 +104,7 @@ function normalizeSnapshot(value: unknown): RunSnapshot {
     topic: (source.topic ?? null) as RunSnapshot["topic"],
     draft: (source.draft ?? null) as RunSnapshot["draft"],
     validation: (source.validation ?? null) as RunSnapshot["validation"],
+    dryRun: boolean(source.dry_run ?? source.dryRun, "run-dry-run"),
     postId: (postId ?? null) as number | null,
     reason: nullableText(source.reason, "run-reason"),
   };
@@ -217,21 +218,10 @@ export class CommunityStore {
   }
 
   async updatePolicy(patch: Partial<Policy>): Promise<Policy> {
-    const update: Record<string, unknown> = {};
-    if (patch.enabled !== undefined) update.enabled = patch.enabled;
-    if (patch.publishingEnabled !== undefined) update.publishing_enabled = patch.publishingEnabled;
-    if (patch.botUserId !== undefined) update.bot_user_id = patch.botUserId;
-    if (patch.categories !== undefined) update.categories = patch.categories;
-    if (patch.dailyPostLimit !== undefined) update.daily_post_limit = patch.dailyPostLimit;
-    if (patch.sourceEnabled !== undefined) update.source_enabled = patch.sourceEnabled;
-    if (Object.keys(update).length === 0) return this.getPolicy();
-    const { data, error } = await (this.client as any)
-      .from("community_agent_policy")
-      .update(update)
-      .eq("singleton", true)
-      .select("enabled,publishing_enabled,bot_user_id,categories,daily_post_limit,source_enabled")
-      .single();
-    requireSuccess({ error }, "update-policy");
+    const input = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined));
+    if (Object.keys(input).length === 0) return this.getPolicy();
+    const { data, error } = await this.client.rpc("configure_community_agent_policy", { p_patch: input });
+    requireSuccess({ error }, "configure-policy");
     return normalizePolicy(data);
   }
 
@@ -263,7 +253,7 @@ export class CommunityStore {
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     const { data, error } = await (this.client as any)
       .from("community_agent_runs")
-      .select("run_id,day,status,stages,reports,topic,draft,validation,model_calls,post_id,reason")
+      .select("run_id,day,status,stages,reports,topic,draft,validation,model_calls,dry_run,post_id,reason")
       .gte("created_at", cutoff)
       .order("created_at", { ascending: false })
       .limit(31);

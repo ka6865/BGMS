@@ -55,7 +55,7 @@ function commentsFrom(value: unknown, video: YoutubeVideo, now: Date): Evidence[
   }).slice(0, 30);
 }
 
-async function commentEvidence(video: YoutubeVideo, key: string, deps: SourceDeps): Promise<{ items: Evidence[]; disabled: boolean; error: string | null }> {
+async function commentEvidence(video: YoutubeVideo, key: string, deps: SourceDeps): Promise<{ items: Evidence[]; fetchedCount: number; disabled: boolean; error: string | null }> {
   try {
     const url = new URL("/youtube/v3/commentThreads", API_ORIGIN);
     url.searchParams.set("part", "snippet");
@@ -64,15 +64,16 @@ async function commentEvidence(video: YoutubeVideo, key: string, deps: SourceDep
     url.searchParams.set("order", "time");
     url.searchParams.set("textFormat", "plainText");
     url.searchParams.set("key", key);
-    return { items: commentsFrom(await fetchSourceJson(url, {}, deps), video, deps.now), disabled: false, error: null };
+    const response = await fetchSourceJson(url, {}, deps);
+    return { items: commentsFrom(response, video, deps.now), fetchedCount: list(response).length, disabled: false, error: null };
   } catch (error) {
     if (error instanceof SourceHttpError && error.status === 403 && error.providerReason === "commentsDisabled") {
-      return { items: [], disabled: true, error: null };
+      return { items: [], fetchedCount: 0, disabled: true, error: null };
     }
     const reason = error instanceof SourceHttpError && error.providerReason
       ? `youtube_${error.providerReason}`
       : error instanceof Error ? error.message : "source_request_failed";
-    return { items: [], disabled: false, error: reason };
+    return { items: [], fetchedCount: 0, disabled: false, error: reason };
   }
 }
 
@@ -103,18 +104,21 @@ export async function collectYoutube(deps: SourceDeps): Promise<SourceReport> {
     playlistUrl.searchParams.set("playlistId", channel.uploads);
     playlistUrl.searchParams.set("maxResults", "3");
     playlistUrl.searchParams.set("key", key);
-    const videos = videosFrom(await fetchSourceJson(playlistUrl, {}, deps), deps.now);
+    const playlist = await fetchSourceJson(playlistUrl, {}, deps);
+    const videos = videosFrom(playlist, deps.now);
+    const fetchedVideoCount = list(playlist).length;
     const descriptionItems = videos.map((video) => evidence("youtube", video.id,
       `https://www.youtube.com/watch?v=${encodeURIComponent(video.id)}`, video.title,
       video.description || null, video.publishedAt, deps.now, "description", true));
-    if (videos.length === 0) return report("youtube", "empty", [], "youtube_no_recent_videos", 0, channel);
+    if (videos.length === 0) return report("youtube", "empty", [], "youtube_no_recent_videos", fetchedVideoCount, channel);
     const results = await atMostTwo(videos, (video) => commentEvidence(video, key, deps));
     const comments = results.flatMap((result) => result.items);
     const disabled = results.some((result) => result.disabled);
     const requestError = results.find((result) => result.error && !result.disabled)?.error ?? null;
     const reason = requestError ?? (disabled ? "youtube_comments_disabled" : null);
     const items = [...descriptionItems, ...comments];
-    return report("youtube", reason ? "partial" : "ok", items, reason, items.length, channel);
+    const fetchedCount = fetchedVideoCount + results.reduce((count, result) => count + result.fetchedCount, 0);
+    return report("youtube", reason ? "partial" : "ok", items, reason, fetchedCount, channel);
   } catch (error) {
     return failure("youtube", error);
   }

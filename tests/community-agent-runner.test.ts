@@ -23,6 +23,7 @@ function snapshot(
       result: {},
     }])) as RunSnapshot["stages"],
     modelCalls: completed.filter((stage) => ["select", "draft", "verify"].includes(stage)).length,
+    dryRun: false,
     reports: [],
     topic: null,
     draft: null,

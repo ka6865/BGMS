@@ -18,26 +18,20 @@ function query(response: { data?: unknown; error?: unknown }) {
 
 describe("CommunityStore", () => {
   it("partial policy updates do not resend a stale enabled value", async () => {
-    const update = vi.fn(() => ({
-      eq: () => ({
-        select: () => ({
-          single: async () => ({
-            data: {
-              enabled: false, publishing_enabled: false, bot_user_id: null,
-              categories: ["배그 소식", "자유"], daily_post_limit: 0,
-              source_enabled: { dc: true, naver: true, youtube: true },
-            }, error: null,
-          }),
-        }),
-      }),
-    }));
-    const from = vi.fn(() => ({ update }));
-    const store = new CommunityStore({ from } as never);
+    const rpc = vi.fn().mockResolvedValue({
+      data: {
+        enabled: false, publishing_enabled: false, bot_user_id: null,
+        categories: ["배그 소식", "자유"], daily_post_limit: 0,
+        source_enabled: { dc: true, naver: true, youtube: false },
+      }, error: null,
+    });
+    const store = new CommunityStore({ rpc } as never);
 
     await store.updatePolicy({ dailyPostLimit: 0 });
 
-    expect(update).toHaveBeenCalledWith({ daily_post_limit: 0 });
-    expect(update).not.toHaveBeenCalledWith(expect.objectContaining({ enabled: expect.anything() }));
+    expect(rpc).toHaveBeenCalledWith("configure_community_agent_policy", {
+      p_patch: { dailyPostLimit: 0 },
+    });
   });
 
   it("RPC 오류를 숨기지 않고 start 호출을 중단한다", async () => {
@@ -57,7 +51,7 @@ describe("CommunityStore", () => {
           day: "2026-09-08",
           status: "collecting",
           stages: {}, modelCalls: 0, reports: [], topic: null, draft: null,
-          validation: null, postId: null, reason: null,
+          validation: null, dryRun: false, postId: null, reason: null,
         },
       }, error: null,
     });

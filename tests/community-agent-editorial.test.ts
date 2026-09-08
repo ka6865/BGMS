@@ -337,6 +337,26 @@ it("모델이 만든 링크나 스크립트 문자열은 렌더링하지 않고 
   expect(checkDraft(safeDraft, [evidence()], NOW).contentHash).toBe(renderDraft(safeDraft, [evidence()]).hash);
 });
 
+it("영구 YouTube 인용은 API 제목 대신 고정된 접근 유형을 표시한다", () => {
+  const video = evidence({
+    source: "youtube", access: "description", official: true,
+    url: "https://www.youtube.com/watch?v=video-1", title: "30일 뒤 삭제할 API 영상 제목",
+  });
+  const comment = evidence({
+    id: "evidence-2", source: "youtube", access: "comment", official: false,
+    url: "https://www.youtube.com/watch?v=video-1&lc=comment-1", title: "영상 댓글: API 영상 제목",
+  });
+  const rendered = renderDraft({
+    title: "고정 인용 라벨",
+    paragraphs: [{ text: "공식 설명과 공개 댓글을 구분합니다.", kind: "suggestion", evidenceIds: [video.id, comment.id], recentWindow: null }],
+    question: "어떤 정보가 도움이 되었나요?",
+  }, [video, comment]);
+
+  expect(rendered.html).toContain(">YouTube 공식 영상</a>");
+  expect(rendered.html).toContain(">YouTube 공개 댓글</a>");
+  expect(rendered.html).not.toContain("API 영상 제목");
+});
+
 it("설정 없는 Gemini factory는 안전한 needs_setup 오류를 반환한다", async () => {
   const model = createGeminiJsonModel({ apiKey: undefined });
 

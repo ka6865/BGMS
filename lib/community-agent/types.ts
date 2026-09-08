@@ -106,6 +106,7 @@ export type RunSnapshot = {
   topic: Topic | null;
   draft: Draft | null;
   validation: Validation | null;
+  dryRun: boolean;
   postId: number | null;
   reason: string | null;
 };
