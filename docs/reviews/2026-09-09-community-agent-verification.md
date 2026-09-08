@@ -11,7 +11,7 @@ Task 1~8 구현은 로컬 코드, fixture 제공자, disposable PostgreSQL 17, �
 - YouTube는 초기 선택 해제다. 원시 evidence metadata는 JSON에 ID가 남아 있어도 30일 뒤 삭제되며 기존 게시글은 유지된다. 영구 HTML 인용은 정적 접근 라벨을 사용한다.
 - YouTube channel cache는 `updated_at`이 아니라 실제 `last_success_at`을 기준으로 30일 뒤 정리한다.
 - stalled fetch가 내부 HTTP abort를 따르지 않아도 수집 단계는 40초 deadline 결과로 종료된다. YouTube `fetchedCount`는 playlist/comment API 후보 수, `retainedCount`는 보존된 설명·댓글 수를 나타낸다.
-- fixture lifecycle은 실제 run route, service, collectors, editorial parser/renderer, runner를 연결하고 외부 HTTP/Gemini만 대역했다. 세 출처 수집, 모델 최대 3회, ready dry-run, configure 후 1건 게시, 같은 날 재실행 1건 유지, verify 직후 pause 0건, 댓글 write 0건을 확인한다. DB 원자성은 이 fixture test가 아니라 별도의 두 session SQL verifier가 담당한다.
+- fixture lifecycle은 실제 run route, service, collectors, editorial parser/renderer, runner를 연결하고 외부 HTTP/Gemini와 DB repository를 in-memory `FlowStore`로 대역했다. 세 출처 수집, 모델 최대 3회, ready dry-run, configure 후 1건 게시, 같은 날 재실행 1건 유지, verify 직후 pause 0건, 댓글 write 0건을 확인한다. DB 원자성과 실제 service_role 동작은 별도의 PostgreSQL 및 두 session SQL verifier가 담당한다.
 
 ## 기록된 설계 판정과 비용
 
@@ -44,7 +44,7 @@ Task 1~8 구현은 로컬 코드, fixture 제공자, disposable PostgreSQL 17, �
 - 디시 adapter local probe: HTTP 200, 실제 갤러리 목록 60건에서 본문 확인 근거 9~10건, 발췌 500자 이하. 운영 배포망 접근 증거는 아니다.
 - 실제 Gemini 개발 smoke 3회: 첫 선택 응답과 다음 writer 응답의 schema 문제를 안전하게 보류했고, 수정 후 실제 자료 선택은 `no_topic`으로 보류했다. 실제 자료 기반 완성 글이나 게시 성공을 주장하지 않는다.
 - 합성 evidence writer schema smoke 1회: native response schema가 title, 2 paragraphs, root question 및 nested fields로 parsing됐다. 실제 자료 작성 검증은 아니다.
-- 기록된 개발 editorial/writer 호출은 5회, prompt 12,713 + completion 1,634 = 14,347 tokens다. 앞선 최소 연결 확인 1회의 token metadata는 없다. 무료 tier를 사용해 확인된 금전 지출은 0원이지만 quota는 소비했으며, 기록 token과 청구량이 같다고 주장하지 않는다.
+- 기록된 개발 editorial/writer 호출은 5회, prompt 12,713 + completion 1,634 = 14,347 tokens다. 앞선 최소 연결 확인 1회의 token metadata는 없다. 무료 tier를 전제로 검증했지만 유료 전환이나 결제 작업은 수행하지 않았으며 실제 청구 내역은 조회하지 않았다. 기록 token과 청구량이 같다고 주장하지 않는다.
 - 로컬 Naver/YouTube key는 없었고 fixture로만 검증했다. production environment는 열람하지 않았다.
 
 ## 최종 명령

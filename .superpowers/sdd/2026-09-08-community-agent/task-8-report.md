@@ -52,3 +52,19 @@ PASS
 - Existing live smoke established local DC access and bounded Gemini behavior, not a deployed API dry-run or a completed real-source article. The actual source pipeline safely deferred; only the synthetic writer-schema smoke parsed the complete writer contract.
 - Cleanup-only continues during a normal publication pause only while Actions and the server are available. If either is disabled, an operator must run authenticated cleanup manually.
 - The YouTube rollout condition is operational guidance based on the linked primary policies, not a general legal-compliance determination.
+
+## Review fix round 1
+
+- Corrected the lifecycle evidence to state that external HTTP/Gemini and the database repository use fixtures; the separate PostgreSQL verifier remains the basis for DB/service_role claims.
+- Replaced the unsupported zero-cost statement with the observed boundary: no paid conversion or payment action occurred, and billing records were not inspected.
+- Added a real service_role SQL scenario that starts from a paused policy, patches categories and source selection, and proves `enabled`, `publishing_enabled`, bot identity, and daily limit remain unchanged.
+
+Verification for this docs/SQL-only fix:
+
+```text
+PATH=/opt/homebrew/bin:$PATH bash scripts/verify_community_agent_migration.sh
+PASS — disposable PostgreSQL 17, including service_role paused partial-patch preservation
+
+git diff --check
+PASS
+```

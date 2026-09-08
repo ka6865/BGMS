@@ -41,7 +41,33 @@ insert into auth.users (id) values ('00000000-0000-0000-0000-000000000901');
 insert into public.profiles (id, nickname, role)
 values ('00000000-0000-0000-0000-000000000901', 'BGMS AI 비서', 'user');
 update public.community_agent_policy
-set bot_user_id = '00000000-0000-0000-0000-000000000901', enabled = true, publishing_enabled = true;
+set bot_user_id = '00000000-0000-0000-0000-000000000901',
+    enabled = false, publishing_enabled = false,
+    categories = array['자유']::text[], daily_post_limit = 0,
+    source_enabled = '{"dc":false,"naver":true,"youtube":false}'::jsonb;
+
+set role service_role;
+select public.configure_community_agent_policy(jsonb_build_object(
+  'categories', jsonb_build_array('배그 소식', '자유'),
+  'sourceEnabled', '{"dc":true,"naver":false,"youtube":false}'::jsonb
+));
+reset role;
+
+do $$
+begin
+  if (select enabled or publishing_enabled or daily_post_limit <> 0
+      or bot_user_id <> '00000000-0000-0000-0000-000000000901'::uuid
+      or categories <> array['배그 소식', '자유']::text[]
+      or source_enabled <> '{"dc":true,"naver":false,"youtube":false}'::jsonb
+      from public.community_agent_policy where singleton) then
+    raise exception 'partial configure changed a paused or omitted policy field';
+  end if;
+end $$;
+
+update public.community_agent_policy
+set enabled = true, publishing_enabled = true,
+    daily_post_limit = 1,
+    source_enabled = '{"dc":true,"naver":true,"youtube":true}'::jsonb;
 
 -- These are SECURITY INVOKER calls. Run as service_role so missing helper grants fail here.
 set role service_role;
