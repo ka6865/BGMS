@@ -16,12 +16,15 @@ Task 1~8 구현은 로컬 코드, fixture 제공자, disposable PostgreSQL 17, �
 
 ## 기록된 설계 판정과 비용
 
-- 계획의 code snippet은 빠진 fixture·오류 처리를 그대로 복사하는 예제가 아니라 행동 계약으로 해석했다. 통합 test와 runtime 검사를 완성하는 대신 추가 local review 비용을 감수했다.
-- 정책 patch는 전달된 필드만 DB lock 아래 갱신한다. 중지 동작은 활성 자동 게시 상태에서도 `enabled=false`, `publishingEnabled=false`를 원자적으로 보내고, `수집 재개`는 게시를 다시 켜지 않는다. 두 필드를 함께 저장하는 UI·RPC 회귀 검증 비용이 들었다.
-- 사이트 내부 `배그 소식` 본문은 공식 URL 일치나 관리자 작성만으로 원 제작자 관계를 증명할 수 없어 공식 근거에서 전부 제외한다. 검증된 공식 YouTube description은 계속 허용하고 semantic verifier를 통과해야 한다. 공식 소식 후보가 줄고 신뢰 가능한 원 제작자 연동 전까지 더 자주 보류될 수 있다.
-- 같은 날 ready dry-run 승격은 새 공개 action이나 게시물별 승인 UI 대신 기존 관리자 게시 활성화에 묶었다. private transition, SQL/flow coverage, pause/date/hash race 검증 비용이 들며 실패 시 안전하게 dry-run으로 남는다.
-- YouTube는 기본 선택 해제, raw metadata 30일 삭제, 영구 static citation label로 결정했다. 모든 인용에 서버 소유 출처·열람 라벨과 확인 시각을 추가해 HTML과 hash가 길어지는 비용이 있고, 운영자가 조건 확인 뒤 출처를 한 번 더 켜야 한다. 법률 준수 전체를 보장한다는 판정은 하지 않았다.
-- 자동 게시가 꺼진 일반 pause 중에도 매일 cleanup-only 작업을 유지한다. 별도 인증 route/runner/workflow test 비용이 들지만 수집·모델·게시를 수행하지 않고 Actions나 서버가 꺼지면 실행되지 않는다.
+판정 7개를 결정 순서대로 보존했다. 원문은 [rulings.md](community-agent-evidence/rulings.md)에 있다.
+
+1. 계획 예제의 누락된 fixture·오류 처리는 행동 계약에 맞춰 완성했다. 해석이 다르면 추가 코드 검토와 수정 비용이 든다.
+2. 정책 patch는 전달된 필드만 갱신해 동시 설정 변경이 중지를 되돌리지 않도록 했다. store/RPC와 회귀 검증 비용이 추가됐다. 중지 요청은 두 활성화 필드를 함께 false로 보낸다.
+3. 공식 본문과 검증된 공식 YouTube 설명을 사실 근거 후보로 허용하되 검색 요약·제목만 있는 자료는 제외했다. 설명으로 뒷받침되는 사실인지 semantic 검증에 의존하는 한계가 있다.
+4. 같은 날 ready dry-run 승격은 기존 관리자의 자동 게시 활성화에 묶었다. private transition과 날짜·근거·hash·중지 경합 검증 비용이 추가됐으며 잘못 구현되면 당일 초안이 보류 상태에 남을 수 있다.
+5. YouTube는 기본 선택 해제, 원시 metadata 30일 삭제, 영구 정적 인용 라벨을 적용했다. 출처 이력 상세가 짧아지고 사용 조건 확인 후 별도 활성화가 필요하다. 법률 준수 전체를 보장하지 않는다.
+6. 일반적인 게시 중지 중에도 cleanup-only 작업을 유지했다. 별도 인증 route/runner/workflow 검증 비용이 추가된다. Actions나 서버까지 꺼지면 수동 정리가 필요하다.
+7. 원 제작자와의 관계를 증명하지 못하는 사이트 내부 소식 본문은 공식 근거에서 제외했다. 공식 URL 복사나 관리자 작성만으로는 충분하지 않다. 신뢰 가능한 연동 전에는 공식 소식 후보가 줄고 더 자주 보류될 수 있다. 검증된 공식 YouTube 설명은 계속 지원한다.
 
 ## 로컬 SQL 시나리오
 
@@ -69,3 +72,11 @@ git diff --check
 - `git diff --check`: passed.
 
 운영 DB·배포·실제 게시·provider live call·유료 서비스 변경은 이 fix wave에서 수행하지 않았다.
+
+## 최종 검토와 보존 자료
+
+최종 수정 커밋은 `05fdb9d517e11feb2cd78cf589c5cde76d0be94c`다. 전체 브랜치 검토 후 한 차례 통합 수정과 해당 diff 재검토를 수행했다. 지적 6개 및 pgcrypto schema 호환성 검증은 모두 해결됐고 새 결함이나 미해결 지적은 없었다. [최종 재검토](community-agent-evidence/final-scoped-review.md), [수정·검증 보고](community-agent-evidence/final-fix-report.md), [중지 버튼 브라우저 회귀](community-agent-evidence/final-pause-browser-qa.md)를 보존했다.
+
+화면 증거: [390px 모바일](community-agent-evidence/ui-final-390.png), [1280px 데스크톱](community-agent-evidence/ui-final-1280.png). 같은 폴더의 live smoke JSON 네 개는 원문이나 자격 증명 없이 연결 상태·응답 구조·token metadata만 보존한다.
+
+구현은 `codex/community-agent` 브랜치의 별도 worktree에 남겨 통합 결정을 기다린다. 전용 브라우저 세션과 검증용 Vite 서버는 종료했다. 부모 checkout의 별도 관리자 관측 기능 변경은 보존했다. 코드·검증·운영 가이드는 커밋으로 남기고 이 계획의 임시 SDD 작업 폴더만 정리한다.
