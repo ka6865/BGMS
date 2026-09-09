@@ -54,9 +54,10 @@ describe("community source boundaries", () => {
   it("허용하지 않은 URL·redirect 우회·timeout과 1MB 응답을 거부한다", async () => {
     const sourceDeps = deps({ fetchImpl: vi.fn() });
     await expect(fetchSource(new URL("https://evil.example/path"), {}, sourceDeps)).rejects.toThrow("source_url_rejected");
+    await expect(fetchSource(new URL("https://naverapihub.apigw.ntruss.com.evil.example/path"), {}, sourceDeps)).rejects.toThrow("source_url_rejected");
     await expect(fetchSource(new URL("http://gall.dcinside.com/path"), {}, sourceDeps)).rejects.toThrow("source_url_rejected");
     const redirectFetch = vi.fn().mockResolvedValue(response("ok"));
-    await fetchSource(new URL("https://gall.dcinside.com/path"), {}, deps({ fetchImpl: redirectFetch }));
+    await fetchSource(new URL("https://naverapihub.apigw.ntruss.com/path"), {}, deps({ fetchImpl: redirectFetch }));
     expect(redirectFetch.mock.calls[0]?.[1]).toMatchObject({ redirect: "error" });
 
     vi.useFakeTimers();
@@ -109,6 +110,35 @@ describe("community source boundaries", () => {
       source: "naver", state: "needs_setup", reason: "naver_search_credentials_invalid",
       fetchedCount: 0, retainedCount: 0,
     });
+  });
+
+  it("네이버 API HUB 요청은 고정 endpoint와 NCP 헤더를 사용하며 URL에 키를 넣지 않는다", async () => {
+    const clientId = "client-id-fixture";
+    const clientSecret = "client-secret-fixture";
+    const fetchImpl = vi.fn().mockImplementation(() => response({ items: [] }));
+
+    await collectNaver(deps({
+      env: { NAVER_SEARCH_CLIENT_ID: clientId, NAVER_SEARCH_CLIENT_SECRET: clientSecret },
+      fetchImpl,
+    }));
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    for (const [input, init] of fetchImpl.mock.calls) {
+      const url = new URL(String(input));
+      expect(url.origin).toBe("https://naverapihub.apigw.ntruss.com");
+      expect(url.pathname).toBe("/search/v1/cafearticle");
+      expect(url.searchParams.get("format")).toBe("json");
+      expect(url.searchParams.get("display")).toBe("20");
+      expect(url.searchParams.get("sort")).toBe("date");
+      expect(url.toString()).not.toContain(clientId);
+      expect(url.toString()).not.toContain(clientSecret);
+
+      const headers = new Headers(init?.headers);
+      expect(headers.get("X-NCP-APIGW-API-KEY-ID")).toBe(clientId);
+      expect(headers.get("X-NCP-APIGW-API-KEY")).toBe(clientSecret);
+      expect(headers.get("X-Naver-Client-Id")).toBeNull();
+      expect(headers.get("X-Naver-Client-Secret")).toBeNull();
+    }
   });
 
   it("YouTube keyInvalid는 첫 요청과 댓글 요청 모두 설정 필요로 표시한다", async () => {

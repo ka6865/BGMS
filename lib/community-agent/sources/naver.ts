@@ -58,12 +58,13 @@ export async function collectNaver(deps: SourceDeps): Promise<SourceReport> {
   let credentialsInvalid = false;
   for (const query of SEARCH_TERMS) {
     try {
-      const url = new URL("/v1/search/cafearticle.json", "https://openapi.naver.com");
+      const url = new URL("/search/v1/cafearticle", "https://naverapihub.apigw.ntruss.com");
+      url.searchParams.set("format", "json");
       url.searchParams.set("query", query);
       url.searchParams.set("display", "20");
       url.searchParams.set("sort", "date");
       received.push(await fetchSourceJson(url, {
-        headers: { "X-Naver-Client-Id": clientId, "X-Naver-Client-Secret": clientSecret },
+        headers: { "X-NCP-APIGW-API-KEY-ID": clientId, "X-NCP-APIGW-API-KEY": clientSecret },
       }, deps));
     } catch (error) {
       credentialsInvalid = error instanceof SourceHttpError && error.status === 401;

@@ -10,6 +10,8 @@
 | GitHub Actions | secret `COMMUNITY_AGENT_WORKER_SECRET`; vars `APP_URL`, `COMMUNITY_AGENT_SCHEDULE_ENABLED`(기본 `false`) |
 | DB 정책 | `enabled=false`, `publishing_enabled=false`, YouTube 출처 선택 해제로 배포 |
 
+네이버 카페 검색은 Naver API HUB의 `https://naverapihub.apigw.ntruss.com/search/v1/cafearticle?format=json` 엔드포인트를 사용한다. 서버 환경 변수 이름은 기존 `NAVER_SEARCH_CLIENT_ID`, `NAVER_SEARCH_CLIENT_SECRET`를 유지하되 요청 헤더에는 각각 `X-NCP-APIGW-API-KEY-ID`, `X-NCP-APIGW-API-KEY`를 사용한다. 키 값은 URL이나 로그에 기록하지 않는다.
+
 제공자 키가 존재한다는 사실만으로 활성화 준비가 끝난 것은 아니다. 배포 런타임, 무료 한도, 접근 조건, 보관 조건을 각각 확인한 뒤 출처를 켠다.
 
 ## 최초 적용과 활성화
@@ -49,3 +51,11 @@ YouTube 채널 ID와 uploads playlist cache는 성공할 때마다 갱신한다.
 ## 운영 비용과 한도
 
 한 실행의 Gemini 호출은 분류·작성·검증 합계 최대 3회이며 실패 호출도 소비량에 포함된다. 모델 fallback이나 자동 유료 전환은 없다. 현재 개발 smoke 5회에서 기록된 사용량은 prompt 12,713, completion 1,634, 합계 14,347 tokens였다. 별도의 최소 연결 확인 1회는 사용량을 기록하지 않았고, 이 수치를 제공자 청구량으로 보지 않는다. 무료 tier를 전제로 검증했지만 유료 전환이나 결제 작업은 수행하지 않았으며 실제 청구 내역은 조회하지 않았다. 실제 활성화 전 현재 가격과 quota를 다시 확인한다.
+
+## 2026-09-09 네이버 API HUB 연결 확인
+
+새로 발급한 API HUB 인증정보는 develop 로컬 서버의 Git 제외 `.env.local`에 저장했다. 네이버 수집기를 공식 API HUB endpoint와 NCP 인증 헤더로 전환했고, Next 개발 서버의 환경 재로딩을 확인했다. 운영 배포 환경에는 키를 추가하지 않았다.
+
+인증 probe 1회(HTTP 200, 결과 5건)와 실제 `collectSource("naver")`의 검색 3회가 모두 HTTP 200으로 성공했다. 실제 수집기 결과는 검색 60건에서 지정 카페 근거 6건이며 모두 검색 요약(snippet)이다. 전체 본문을 읽었다고 취급하지 않는다. 원문/검색 결과는 DB나 로그에 보존하지 않았고, 기존 `community_agent_sources`의 네이버 연결 상태와 확인 시각만 비교 후 갱신했다. 실행 기록·모델 호출 수·자동 게시 정책은 변경하지 않았다. 오늘의 이전 보류 실행은 그대로 남는다.
+
+검증: source/flow 18 tests, community 89 tests, scoped ESLint, TypeScript, diff check 통과. 인증정보를 URL이나 커밋에 포함하지 않는 회귀 검증을 추가했다. [공식 카페글 검색 명세](https://api.ncloud-docs.com/docs/naver-api-hub-search-cafearticle)를 기준으로 연결했다.

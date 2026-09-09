@@ -1,6 +1,6 @@
 const ALLOWED_HOSTS = new Set([
   "gall.dcinside.com",
-  "openapi.naver.com",
+  "naverapihub.apigw.ntruss.com",
   "www.googleapis.com",
 ]);
 const MAX_BODY_BYTES = 1_048_576;

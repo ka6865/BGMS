@@ -196,7 +196,7 @@ function providerResponse(url: RequestInfo | URL): Response {
   if (parsed.hostname === "gall.dcinside.com" && parsed.pathname === "/board/view/") {
     return response('<div class="write_div">패치 이후 매칭 방식이 달라졌는지 궁금합니다.</div>');
   }
-  if (parsed.hostname === "openapi.naver.com") {
+  if (parsed.hostname === "naverapihub.apigw.ntruss.com" && parsed.pathname === "/search/v1/cafearticle") {
     return response({ items: [{
       title: "매칭 질문", link: "https://cafe.naver.com/playbattlegrounds/901",
       cafeurl: "https://cafe.naver.com/playbattlegrounds", description: "매칭 관련 공개 검색 요약",
@@ -267,7 +267,7 @@ describe("community agent provider-mocked lifecycle", () => {
     expect(store.posts).toHaveLength(0);
     expect(mocks.modelCalls).toBe(3);
     expect(new Set(mocks.providerFetch.mock.calls.map(([url]) => new URL(String(url)).hostname))).toEqual(new Set([
-      "gall.dcinside.com", "openapi.naver.com", "www.googleapis.com",
+      "gall.dcinside.com", "naverapihub.apigw.ntruss.com", "www.googleapis.com",
     ]));
 
     await configure({ publishingEnabled: true });
