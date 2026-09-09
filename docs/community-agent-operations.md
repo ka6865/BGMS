@@ -1,6 +1,6 @@
 # BGMS 커뮤니티 비서 운영 절차
 
-이 기능은 현재 코드와 로컬 검증만 완료된 상태다. 운영 Supabase migration, 배포, GitHub Actions 활성화, 실제 제공자 수집, 자동 게시를 수행했다는 뜻이 아니다. 서버만 게시를 담당하며 외부 디시인사이드·네이버 카페·YouTube에는 글이나 댓글을 작성하지 않는다.
+2026-09-09 관리자 상태 조회 오류를 복구하면서 연결된 Supabase에 `community_agent_persistence` migration을 적용했다. 원격 migration version은 `20260909061622`, 적용 SQL 원본은 `20260908000000_community_agent_persistence.sql`이다. 정책·출처·최근 실행 조회가 정상이며 수집과 자동 게시는 모두 꺼져 있다. 운영 앱 배포, GitHub Actions 활성화, 비서 계정 생성, 실제 자료 수집·게시는 아직 실행하지 않았다. 서버만 게시를 담당하며 외부 디시인사이드·네이버 카페·YouTube에는 글이나 댓글을 작성하지 않는다.
 
 ## 설정 위치
 
