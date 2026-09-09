@@ -55,7 +55,11 @@ function commentsFrom(value: unknown, video: YoutubeVideo, now: Date): Evidence[
   }).slice(0, 30);
 }
 
-async function commentEvidence(video: YoutubeVideo, key: string, deps: SourceDeps): Promise<{ items: Evidence[]; fetchedCount: number; disabled: boolean; error: string | null }> {
+function invalidApiKey(error: unknown): boolean {
+  return error instanceof SourceHttpError && error.providerReason === "keyInvalid";
+}
+
+async function commentEvidence(video: YoutubeVideo, key: string, deps: SourceDeps): Promise<{ items: Evidence[]; fetchedCount: number; disabled: boolean; invalidKey: boolean; error: string | null }> {
   try {
     const url = new URL("/youtube/v3/commentThreads", API_ORIGIN);
     url.searchParams.set("part", "snippet");
@@ -65,15 +69,18 @@ async function commentEvidence(video: YoutubeVideo, key: string, deps: SourceDep
     url.searchParams.set("textFormat", "plainText");
     url.searchParams.set("key", key);
     const response = await fetchSourceJson(url, {}, deps);
-    return { items: commentsFrom(response, video, deps.now), fetchedCount: list(response).length, disabled: false, error: null };
+    return { items: commentsFrom(response, video, deps.now), fetchedCount: list(response).length, disabled: false, invalidKey: false, error: null };
   } catch (error) {
+    if (invalidApiKey(error)) {
+      return { items: [], fetchedCount: 0, disabled: false, invalidKey: true, error: null };
+    }
     if (error instanceof SourceHttpError && error.status === 403 && error.providerReason === "commentsDisabled") {
-      return { items: [], fetchedCount: 0, disabled: true, error: null };
+      return { items: [], fetchedCount: 0, disabled: true, invalidKey: false, error: null };
     }
     const reason = error instanceof SourceHttpError && error.providerReason
       ? `youtube_${error.providerReason}`
       : error instanceof Error ? error.message : "source_request_failed";
-    return { items: [], fetchedCount: 0, disabled: false, error: reason };
+    return { items: [], fetchedCount: 0, disabled: false, invalidKey: false, error: reason };
   }
 }
 
@@ -112,6 +119,9 @@ export async function collectYoutube(deps: SourceDeps): Promise<SourceReport> {
       video.description || null, video.publishedAt, deps.now, "description", true));
     if (videos.length === 0) return report("youtube", "empty", [], "youtube_no_recent_videos", fetchedVideoCount, channel);
     const results = await atMostTwo(videos, (video) => commentEvidence(video, key, deps));
+    if (results.some((result) => result.invalidKey)) {
+      return report("youtube", "needs_setup", [], "youtube_data_api_key_invalid", fetchedVideoCount, channel);
+    }
     const comments = results.flatMap((result) => result.items);
     const disabled = results.some((result) => result.disabled);
     const requestError = results.find((result) => result.error && !result.disabled)?.error ?? null;
@@ -120,6 +130,7 @@ export async function collectYoutube(deps: SourceDeps): Promise<SourceReport> {
     const fetchedCount = fetchedVideoCount + results.reduce((count, result) => count + result.fetchedCount, 0);
     return report("youtube", reason ? "partial" : "ok", items, reason, fetchedCount, channel);
   } catch (error) {
+    if (invalidApiKey(error)) return report("youtube", "needs_setup", [], "youtube_data_api_key_invalid", 0);
     return failure("youtube", error);
   }
 }

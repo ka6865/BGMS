@@ -282,7 +282,9 @@ begin
       and v_run.validation ->> 'passed' = 'true'
       and v_run.validation ->> 'contentHash' = v_run.approved_hash
       and v_run.approved_category = any(v_policy.categories) then
-      v_render_hash := encode(public.digest(convert_to(v_run.approved_title || E'\n' || v_run.approved_html, 'UTF8'), 'sha256'), 'hex');
+      v_render_hash := pg_catalog.encode(pg_catalog.sha256(
+        pg_catalog.convert_to(v_run.approved_title || E'\n' || v_run.approved_html, 'UTF8')
+      ), 'hex');
       select count(*), count(evidence_row.id) filter (
         where evidence_row.excerpt is not null
           and evidence_row.expires_at > clock_timestamp()
@@ -672,6 +674,7 @@ as $$
 declare
   v_policy public.community_agent_policy%rowtype;
   v_run public.community_agent_runs%rowtype;
+  v_render_hash text;
   v_write record;
 begin
   select * into strict v_policy from public.community_agent_policy where singleton for update;
@@ -696,6 +699,12 @@ begin
     or v_run.validation ->> 'passed' is distinct from 'true'
     or v_run.validation ->> 'contentHash' is distinct from v_run.approved_hash
     or not (v_run.approved_category = any(v_policy.categories)) then
+    return jsonb_build_object('code', 'not_ready', 'postId', null);
+  end if;
+  v_render_hash := pg_catalog.encode(pg_catalog.sha256(
+    pg_catalog.convert_to(v_run.approved_title || E'\n' || v_run.approved_html, 'UTF8')
+  ), 'hex');
+  if v_render_hash is distinct from v_run.approved_hash then
     return jsonb_build_object('code', 'not_ready', 'postId', null);
   end if;
   if not exists (

@@ -89,8 +89,22 @@ function contentHash(draft: Draft, evidence: Evidence[]): string {
 }
 
 function citationLabel(source: Evidence): string {
-  if (source.source !== "youtube") return source.title;
+  if (source.source === "official") return "PUBG 공식 소식";
+  if (source.source === "dc") return "디시인사이드";
+  if (source.source === "naver") return "네이버 카페";
   return source.access === "comment" ? "YouTube 공개 댓글" : "YouTube 공식 영상";
+}
+
+function citationAccessLabel(source: Evidence): string {
+  if (source.access === "body") return source.source === "official" ? "공식 본문" : "게시글 본문";
+  if (source.access === "snippet") return "검색 요약";
+  if (source.access === "description") return "영상 설명";
+  return "공개 댓글";
+}
+
+function citationCheckedAt(source: Evidence): string {
+  const timestamp = Date.parse(source.fetchedAt);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : "확인 시각 미확인";
 }
 
 /** Check structure and evidence rules before a generated draft can be published. */
@@ -134,6 +148,12 @@ export function checkDraft(draft: Draft, evidence: Evidence[], now: Date): Valid
     if (hasOpinionPercentage(paragraph)) reasons.push("unsupported_opinion_percentage");
   }
 
+  const citedDraftEvidence = unique(draft.paragraphs.flatMap((paragraph) => paragraph.evidenceIds))
+    .flatMap((id) => evidenceById.get(id) ? [evidenceById.get(id)!] : []);
+  if (hasNumericGameStat(allText) && !hasOfficialEvidence(citedDraftEvidence)) {
+    reasons.push("official_evidence_required");
+  }
+
   return { passed: reasons.length === 0, reasons: unique(reasons), contentHash: contentHash(draft, evidence) };
 }
 
@@ -146,7 +166,7 @@ export function renderDraft(draft: Draft, evidence: Evidence[]): { title: string
     const source = evidenceById.get(id);
     if (!source) throw new Error("unknown_evidence");
     if (!isAllowedEvidenceUrl(source)) throw new Error("unsafe_evidence_url");
-    return `<li><a href="${escape(source.url)}" target="_blank" rel="noopener noreferrer">${escape(citationLabel(source))}</a></li>`;
+    return `<li><a href="${escape(source.url)}" target="_blank" rel="noopener noreferrer">${escape(citationLabel(source))}</a> · 열람: ${escape(citationAccessLabel(source))} · 확인: ${escape(citationCheckedAt(source))}</li>`;
   }).join("");
   const html = sanitizeBoardHtml(`${paragraphs}<p>${escape(draft.question)}</p><p>BGMS AI 비서가 확인한 자료를 바탕으로 작성했습니다.</p><ul>${links}</ul>`);
   return { title: draft.title, html, hash: createHash("sha256").update(`${draft.title}\n${html}`).digest("hex") };

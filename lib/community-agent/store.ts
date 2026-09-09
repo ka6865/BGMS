@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   CollectSource,
@@ -168,41 +167,6 @@ function assertEvidence(item: Evidence): void {
   if (item.publishedAt !== null && !Number.isFinite(Date.parse(item.publishedAt))) fail("invalid-evidence-published-at");
 }
 
-function canonicalOfficialUrl(value: string): string | null {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== "https:" || url.username || url.password || url.port) return null;
-    const host = url.hostname.toLowerCase();
-    if (!(host === "pubg.com" || host.endsWith(".pubg.com") || host === "battlegrounds.com" || host.endsWith(".battlegrounds.com"))) {
-      return null;
-    }
-    url.hostname = host;
-    url.hash = "";
-    if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/, "");
-    return url.toString();
-  } catch {
-    return null;
-  }
-}
-
-function htmlText(value: string): string {
-  return value
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&quot;/gi, '"')
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function stableUuid(seed: string): string {
-  const hash = createHash("sha256").update(seed).digest("hex");
-  return `${hash.slice(0, 8)}-${hash.slice(8, 12)}-5${hash.slice(13, 16)}-8${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
-}
-
 /** Service-role repository for the DB-owned community run state machine. */
 export class CommunityStore {
   constructor(private readonly client: DatabaseClient) {}
@@ -370,47 +334,9 @@ export class CommunityStore {
     });
   }
 
-  /**
-   * Reuses only a visible patch-note body whose anchor matches a recorded official URL.
-   * A board post's local publication time is never an official release timestamp.
-   */
+  /** Local news bodies have no producer-owned provenance and cannot become official evidence. */
   async loadOfficialEvidence(): Promise<Evidence[]> {
-    const [{ data: syncRows, error: syncError }, { data: postRows, error: postError }] = await Promise.all([
-      (this.client as any).from("sync_history").select("last_url"),
-      (this.client as any).from("posts")
-        .select("id,title,content,created_at")
-        .eq("category", "배그 소식")
-        .eq("status", "published")
-        .order("created_at", { ascending: false })
-        .limit(10),
-    ]);
-    requireSuccess({ error: syncError }, "official-sync-history");
-    requireSuccess({ error: postError }, "official-posts");
-    const approvedUrls = new Set((syncRows ?? []).flatMap((item: unknown) => {
-      const value = asObject(item).last_url;
-      return typeof value === "string" ? [canonicalOfficialUrl(value)].filter((url): url is string => url !== null) : [];
-    }));
-    const evidence = new Map<string, Evidence>();
-    for (const post of postRows ?? []) {
-      const postRow = row(post, "official-post");
-      const title = text(postRow.title, "official-post-title");
-      const content = text(postRow.content, "official-post-content");
-      const body = htmlText(content.replace(/<a\b[^>]*>[\s\S]*?<\/a>/gi, " "));
-      if (!body) continue;
-      const hrefPattern = /<a\b[^>]*\bhref\s*=\s*(["'])(.*?)\1[^>]*>/gi;
-      for (const match of content.matchAll(hrefPattern)) {
-        const url = canonicalOfficialUrl(match[2]);
-        if (!url || !approvedUrls.has(url) || evidence.has(url)) continue;
-        const excerpt = body.slice(0, 500) || null;
-        const fetchedAt = new Date().toISOString();
-        evidence.set(url, {
-          id: stableUuid(`official:${url}`), source: "official", externalId: `official:${url}`, url, title,
-          excerpt, publishedAt: null, fetchedAt, access: "body",
-          contentHash: createHash("sha256").update(`${title}\n${excerpt ?? ""}`).digest("hex"), official: true,
-        });
-      }
-    }
-    return [...evidence.values()];
+    return [];
   }
 
   async publish(id: string): Promise<PublishResult> {

@@ -223,7 +223,9 @@ export default function CommunityAgentPanel() {
             </div>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={() => void prepare()} disabled={busy !== null || Boolean(policy.botUserId)} className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-3 py-2 text-sm font-semibold text-amber-200 disabled:opacity-50">{policy.botUserId ? "계정 준비됨" : "계정 준비"}</button>
-              <button type="button" onClick={() => void updatePolicy({ enabled: !policy.enabled }, "enabled")} disabled={busy !== null} className="rounded-lg border border-zinc-600 px-3 py-2 text-sm font-semibold text-zinc-100 disabled:opacity-50">{policy.enabled ? "일시 중지" : "수집 재개"}</button>
+              <button type="button" onClick={() => void updatePolicy(policy.enabled
+                ? { enabled: false, publishingEnabled: false }
+                : { enabled: true }, "enabled")} disabled={busy !== null} className="rounded-lg border border-zinc-600 px-3 py-2 text-sm font-semibold text-zinc-100 disabled:opacity-50">{policy.enabled ? "일시 중지" : "수집 재개"}</button>
               <button type="button" onClick={() => void runTrial()} disabled={busy !== null || !canTrial} className="rounded-lg bg-emerald-500 px-3 py-2 text-sm font-bold text-zinc-950 disabled:opacity-50">{busy === "trial" ? "시험 실행 중" : "관리자 시험 실행"}</button>
             </div>
           </div>

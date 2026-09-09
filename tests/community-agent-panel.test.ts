@@ -45,8 +45,10 @@ describe("CommunityAgentPanel", () => {
   });
 
   it("중지 설정이 실패하면 상태와 토글을 되돌리고 오류를 알린다", async () => {
+    const active = status();
+    active.policy.publishingEnabled = true;
     const fetch = vi.fn()
-      .mockResolvedValueOnce(Response.json({ status: status() }))
+      .mockResolvedValueOnce(Response.json({ status: active }))
       .mockResolvedValueOnce(Response.json({ code: "storage_unavailable" }, { status: 503 }));
     vi.stubGlobal("fetch", fetch);
 
@@ -59,7 +61,10 @@ describe("CommunityAgentPanel", () => {
     expect(screen.getByRole("button", { name: "일시 중지" })).toBeEnabled();
     await waitFor(() => expect(fetch).toHaveBeenLastCalledWith(
       "/api/admin/agent/community",
-      expect.objectContaining({ method: "POST", body: JSON.stringify({ action: "configure", patch: { enabled: false } }) }),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ action: "configure", patch: { enabled: false, publishingEnabled: false } }),
+      }),
     ));
   });
 

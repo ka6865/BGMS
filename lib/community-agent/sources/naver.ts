@@ -1,5 +1,5 @@
 import { parse } from "node-html-parser";
-import { fetchSourceJson } from "../http";
+import { fetchSourceJson, SourceHttpError } from "../http";
 import { cleanText, evidence, report, type SourceDeps } from "../sources";
 import type { Evidence, SourceReport } from "../types";
 
@@ -55,6 +55,7 @@ export async function collectNaver(deps: SourceDeps): Promise<SourceReport> {
   if (!clientId || !clientSecret) return report("naver", "needs_setup", [], "naver_search_credentials_missing", 0);
   const received: unknown[] = [];
   let errorReason: string | null = null;
+  let credentialsInvalid = false;
   for (const query of SEARCH_TERMS) {
     try {
       const url = new URL("/v1/search/cafearticle.json", "https://openapi.naver.com");
@@ -65,6 +66,7 @@ export async function collectNaver(deps: SourceDeps): Promise<SourceReport> {
         headers: { "X-Naver-Client-Id": clientId, "X-Naver-Client-Secret": clientSecret },
       }, deps));
     } catch (error) {
+      credentialsInvalid = error instanceof SourceHttpError && error.status === 401;
       errorReason = error instanceof Error ? error.message : "source_request_failed";
       break;
     }
@@ -74,6 +76,7 @@ export async function collectNaver(deps: SourceDeps): Promise<SourceReport> {
       ? (value as { items: unknown[] }).items.length : 0
   ), 0);
   const items = [...new Map(received.flatMap((value) => parseNaverItems(value, deps.now)).map((item) => [item.externalId, item])).values()];
+  if (credentialsInvalid) return report("naver", "needs_setup", [], "naver_search_credentials_invalid", fetchedCount);
   if (errorReason && items.length === 0) return report("naver", "failed", [], errorReason, fetchedCount);
   if (errorReason) return report("naver", "partial", items, errorReason, fetchedCount);
   return report("naver", items.length ? "ok" : "empty", items, items.length ? null : "naver_no_matching_cafe_items", fetchedCount);

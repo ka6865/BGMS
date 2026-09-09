@@ -134,6 +134,37 @@ it("수치가 포함된 제안도 공식 근거 없이는 통과하지 않는다
   expect(result.reasons).toContain("official_evidence_required");
 });
 
+it.each([
+  { title: "M416 피해량이 99로 변경됐습니다", question: "어떻게 느끼셨나요?" },
+  { title: "M416 변경점", question: "M416 피해량 99 변경을 어떻게 느끼셨나요?" },
+])("제목이나 질문의 게임 수치도 공식 근거 없이는 통과하지 않는다", ({ title, question }) => {
+  const result = checkDraft({
+    ...safeDraft,
+    title,
+    question,
+    paragraphs: [{
+      text: "한 자료에서 이용자의 의견을 확인했습니다.", kind: "observed_opinion",
+      evidenceIds: ["evidence-1"], recentWindow: null,
+    }],
+  }, [evidence({ official: false, source: "dc", url: "https://gall.dcinside.com/board/view/?id=battlegrounds&no=1" })], NOW);
+
+  expect(result.passed).toBe(false);
+  expect(result.reasons).toContain("official_evidence_required");
+});
+
+it("게임 수치가 없는 일반 질문은 비공식 본문 근거로 통과한다", () => {
+  const result = checkDraft({
+    title: "매칭 경험을 알려주세요",
+    question: "여러분도 비슷한 상황을 겪으셨나요?",
+    paragraphs: [{
+      text: "한 자료에서 매칭 경험에 관한 질문을 확인했습니다.", kind: "observed_opinion",
+      evidenceIds: ["evidence-1"], recentWindow: null,
+    }],
+  }, [evidence({ official: false, source: "dc", url: "https://gall.dcinside.com/board/view/?id=battlegrounds&no=1" })], NOW);
+
+  expect(result).toMatchObject({ passed: true, reasons: [] });
+});
+
 it("한 자료의 반응을 전체 민심이나 백분율로 과장할 수 없다", () => {
   const result = checkDraft({
     ...safeDraft,
@@ -354,7 +385,29 @@ it("영구 YouTube 인용은 API 제목 대신 고정된 접근 유형을 표시
 
   expect(rendered.html).toContain(">YouTube 공식 영상</a>");
   expect(rendered.html).toContain(">YouTube 공개 댓글</a>");
+  expect(rendered.html).toContain("열람: 영상 설명 · 확인: 2026-09-08T00:45:00.000Z");
+  expect(rendered.html).toContain("열람: 공개 댓글 · 확인: 2026-09-08T00:45:00.000Z");
   expect(rendered.html).not.toContain("API 영상 제목");
+});
+
+it("인용은 서버가 정한 출처·열람 유형과 근거 확인 시각을 표시하고 hash가 안정적이다", () => {
+  const source = evidence({
+    source: "dc", access: "body", official: false,
+    url: "https://gall.dcinside.com/board/view/?id=battlegrounds&no=1",
+    title: "<img src=x onerror=alert(1)>", fetchedAt: "2026-09-08T00:45:00.000Z",
+  });
+  const draft: Draft = {
+    title: "인용 확인",
+    paragraphs: [{ text: "한 자료의 질문을 확인했습니다.", kind: "observed_opinion", evidenceIds: [source.id], recentWindow: null }],
+    question: "어떤 경험이 있으신가요?",
+  };
+
+  const first = renderDraft(draft, [source]);
+  const second = renderDraft(draft, [source]);
+  expect(first.html).toContain(">디시인사이드</a> · 열람: 게시글 본문 · 확인: 2026-09-08T00:45:00.000Z");
+  expect(first.html).not.toContain("onerror");
+  expect(first.hash).toBe(second.hash);
+  expect(first.hash).toHaveLength(64);
 });
 
 it("설정 없는 Gemini factory는 안전한 needs_setup 오류를 반환한다", async () => {

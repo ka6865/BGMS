@@ -99,6 +99,41 @@ describe("community source boundaries", () => {
     await expect(collectYoutube(deps())).resolves.toMatchObject({ source: "youtube", state: "needs_setup" });
   });
 
+  it("설정된 네이버 자격 증명의 401 인증 실패는 설정 필요로 표시한다", async () => {
+    const report = await collectNaver(deps({
+      env: { NAVER_SEARCH_CLIENT_ID: "invalid-id", NAVER_SEARCH_CLIENT_SECRET: "invalid-secret" },
+      fetchImpl: vi.fn().mockResolvedValue(response({ errorCode: "024", errorMessage: "Authentication failed" }, 401)),
+    }));
+
+    expect(report).toMatchObject({
+      source: "naver", state: "needs_setup", reason: "naver_search_credentials_invalid",
+      fetchedCount: 0, retainedCount: 0,
+    });
+  });
+
+  it("YouTube keyInvalid는 첫 요청과 댓글 요청 모두 설정 필요로 표시한다", async () => {
+    const fixture = JSON.parse(readFileSync(resolve(process.cwd(), "tests/fixtures/community-agent/youtube.json"), "utf8"));
+    const invalidKey = response({ error: { errors: [{ reason: "keyInvalid" }] } }, 400);
+    await expect(collectYoutube(deps({
+      env: { YOUTUBE_DATA_API_KEY: "invalid-key" },
+      fetchImpl: vi.fn().mockResolvedValue(invalidKey),
+    }))).resolves.toMatchObject({
+      source: "youtube", state: "needs_setup", reason: "youtube_data_api_key_invalid",
+      fetchedCount: 0, retainedCount: 0,
+    });
+
+    const commentKeyFailure = vi.fn()
+      .mockResolvedValueOnce(response(fixture.channel))
+      .mockResolvedValueOnce(response(fixture.playlist))
+      .mockResolvedValueOnce(response({ error: { errors: [{ reason: "keyInvalid" }] } }, 400));
+    await expect(collectYoutube(deps({
+      env: { YOUTUBE_DATA_API_KEY: "invalid-key" }, fetchImpl: commentKeyFailure,
+    }))).resolves.toMatchObject({
+      source: "youtube", state: "needs_setup", reason: "youtube_data_api_key_invalid",
+      fetchedCount: 1, retainedCount: 0,
+    });
+  });
+
   it("유튜브의 댓글 비활성화는 영상 설명 수집과 구분한다", async () => {
     const fixture = JSON.parse(readFileSync(resolve(process.cwd(), "tests/fixtures/community-agent/youtube.json"), "utf8"));
     const fetchImpl = vi.fn()
@@ -110,14 +145,14 @@ describe("community source boundaries", () => {
     expect(report.items).toEqual([expect.objectContaining({ access: "description", official: true, externalId: "video-1" })]);
   });
 
-  it("유튜브의 다른 403은 제한 원인을 보존하고 댓글 비활성화로 바꾸지 않는다", async () => {
+  it.each(["quotaExceeded", "forbidden"])("유튜브의 %s 403은 제한 원인을 보존하고 인증 오류로 바꾸지 않는다", async (reason) => {
     const fixture = JSON.parse(readFileSync(resolve(process.cwd(), "tests/fixtures/community-agent/youtube.json"), "utf8"));
     const fetchImpl = vi.fn()
       .mockResolvedValueOnce(response(fixture.channel))
       .mockResolvedValueOnce(response(fixture.playlist))
-      .mockResolvedValueOnce(response({ error: { errors: [{ reason: "quotaExceeded" }] } }, 403));
+      .mockResolvedValueOnce(response({ error: { errors: [{ reason }] } }, 403));
     const report = await collectYoutube(deps({ env: { YOUTUBE_DATA_API_KEY: "test-key" }, fetchImpl }));
-    expect(report).toMatchObject({ state: "partial", reason: "youtube_quotaExceeded", fetchedCount: 1, retainedCount: 1 });
+    expect(report).toMatchObject({ state: "partial", reason: `youtube_${reason}`, fetchedCount: 1, retainedCount: 1 });
   });
 
   it("유튜브 댓글을 30개로 자르고 설명과 댓글을 모두 수집 건수에 넣는다", async () => {

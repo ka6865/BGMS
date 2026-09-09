@@ -87,27 +87,14 @@ describe("CommunityStore", () => {
     });
   });
 
-  it("official evidence only uses a sync-history-matched PUBG anchor and never treats board time as release time", async () => {
-    const from = vi.fn((table: string) => {
-      if (table === "sync_history") {
-        return { select: () => query({ data: [{ last_url: "https://pubg.com/ko/news/99" }], error: null }) };
-      }
-      if (table === "posts") {
-        return {
-          select: () => query({ data: [{
-            id: 1, title: "Patch 99", created_at: "2026-09-08T00:00:00.000Z",
-            content: '<p>Verified patch detail</p><a href="https://pubg.com/ko/news/99">official</a><a href="https://example.test/no">ignore</a>',
-          }], error: null }),
-        };
-      }
-      throw new Error(`unexpected table ${table}`);
+  it("trusted URL이 복사된 사용자 소식 본문을 공식 근거로 승격하지 않는다", async () => {
+    const from = vi.fn(() => {
+      throw new Error("local news must not be queried for official evidence");
     });
     const store = new CommunityStore({ from } as never);
 
-    await expect(store.loadOfficialEvidence()).resolves.toEqual([expect.objectContaining({
-      source: "official", externalId: "official:https://pubg.com/ko/news/99", official: true,
-      excerpt: "Verified patch detail", publishedAt: null, access: "body",
-    })]);
+    await expect(store.loadOfficialEvidence()).resolves.toEqual([]);
+    expect(from).not.toHaveBeenCalled();
   });
 
   it("does not contain a direct posts insert bypass", () => {

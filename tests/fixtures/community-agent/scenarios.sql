@@ -65,6 +65,18 @@ begin
 end $$;
 
 update public.community_agent_policy
+set enabled = true, publishing_enabled = true, daily_post_limit = 1;
+set role service_role;
+select public.configure_community_agent_policy('{"enabled":false,"publishingEnabled":false}'::jsonb);
+reset role;
+do $$
+begin
+  if exists (select 1 from public.community_agent_policy where singleton and (enabled or publishing_enabled)) then
+    raise exception 'service-role active publication pause did not atomically disable collection and publishing';
+  end if;
+end $$;
+
+update public.community_agent_policy
 set enabled = true, publishing_enabled = true,
     daily_post_limit = 1,
     source_enabled = '{"dc":true,"naver":true,"youtube":true}'::jsonb;
@@ -188,7 +200,7 @@ declare
 begin
   update public.community_agent_policy set publishing_enabled = false where singleton;
   v_run := (public.start_community_run(null, true) ->> 'id')::uuid;
-  v_hash := encode(public.digest(convert_to(v_title || E'\n' || v_html, 'UTF8'), 'sha256'), 'hex');
+  v_hash := pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(v_title || E'\n' || v_html, 'UTF8')), 'hex');
   insert into public.community_agent_evidence (
     id, source, external_id, url, title, excerpt, published_at, fetched_at, access, content_hash, official, expires_at
   ) values (
@@ -231,7 +243,7 @@ declare
   v_hash text;
 begin
   v_run := (public.start_community_run(null, true) ->> 'id')::uuid;
-  v_hash := encode(public.digest(convert_to(v_title || E'\n' || v_html, 'UTF8'), 'sha256'), 'hex');
+  v_hash := pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(v_title || E'\n' || v_html, 'UTF8')), 'hex');
   update public.community_agent_runs set status = 'ready', approved_title = v_title,
     approved_html = v_html, approved_category = '자유', approved_hash = v_hash,
     draft = jsonb_build_object('paragraphs', jsonb_build_array(jsonb_build_object(
@@ -263,7 +275,7 @@ declare
   v_hash text;
 begin
   v_run := (public.start_community_run(null, true) ->> 'id')::uuid;
-  v_hash := encode(public.digest(convert_to(v_title || E'\n' || v_html, 'UTF8'), 'sha256'), 'hex');
+  v_hash := pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(v_title || E'\n' || v_html, 'UTF8')), 'hex');
   update public.community_agent_runs set status = 'ready', approved_title = v_title,
     approved_html = v_html, approved_category = '자유', approved_hash = v_hash,
     draft = jsonb_build_object('paragraphs', jsonb_build_array(jsonb_build_object(
@@ -284,18 +296,32 @@ do $$
 declare
   v_run uuid;
   v_result jsonb;
-  v_hash text := repeat('a', 64);
+  v_title text := 'publisher checks';
+  v_html text := '<p>validated</p>';
+  v_hash text;
 begin
   v_run := (public.start_community_run(null, false) ->> 'id')::uuid;
+  v_hash := pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(v_title || E'\n' || v_html, 'UTF8')), 'hex');
   update public.community_agent_policy set publishing_enabled = true where singleton;
-  update public.community_agent_runs set status = 'ready', approved_title = 'publisher checks',
-    approved_html = '<p>validated</p>', approved_category = '자유', approved_hash = v_hash,
+  update public.community_agent_runs set status = 'ready', approved_title = v_title,
+    approved_html = v_html, approved_category = '자유', approved_hash = v_hash,
     validation = jsonb_build_object('passed', true, 'contentHash', v_hash)
   where run_id = v_run;
 
   update public.community_agent_runs set validation = jsonb_build_object('passed', true, 'contentHash', repeat('b',64)) where run_id = v_run;
   if public.publish_community_post(v_run) ->> 'code' <> 'not_ready' then raise exception 'hash mismatch published'; end if;
   update public.community_agent_runs set validation = jsonb_build_object('passed', true, 'contentHash', v_hash) where run_id = v_run;
+
+  update public.community_agent_runs set approved_title = 'tampered approved title' where run_id = v_run;
+  if public.publish_community_post(v_run) ->> 'code' <> 'not_ready' then
+    raise exception 'tampered approved title published with stale validation hash';
+  end if;
+  if exists (select 1 from public.posts where title = 'tampered approved title')
+    or exists (select 1 from public.community_agent_runs where run_id = v_run
+      and (status <> 'ready' or post_id is not null or published_at is not null)) then
+    raise exception 'tampered approved title mutated post or publication state';
+  end if;
+  update public.community_agent_runs set approved_title = v_title where run_id = v_run;
 
   update public.profiles set nickname = 'not the bot' where id = '00000000-0000-0000-0000-000000000901';
   if public.publish_community_post(v_run) ->> 'code' <> 'invalid_bot' then raise exception 'invalid bot published'; end if;
@@ -372,9 +398,10 @@ end $$;
 do $$
 declare
   v_run uuid;
-  v_hash text := repeat('c', 64);
+  v_hash text;
 begin
   v_run := (public.start_community_run(null, false) ->> 'id')::uuid;
+  v_hash := pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to('rollback write' || E'\n' || '<p>validated</p>', 'UTF8')), 'hex');
   update public.community_agent_runs set status = 'ready', approved_title = 'rollback write',
     approved_html = '<p>validated</p>', approved_category = '자유', approved_hash = v_hash,
     validation = jsonb_build_object('passed', true, 'contentHash', v_hash)
@@ -411,7 +438,9 @@ end $$;
 drop trigger test_reject_community_write on public.posts;
 drop function public.test_reject_community_write();
 update public.community_agent_runs
-set approved_title = 'concurrency publish'
+set approved_title = 'concurrency publish',
+    approved_hash = pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to('concurrency publish' || E'\n' || approved_html, 'UTF8')), 'hex'),
+    validation = jsonb_set(validation, '{contentHash}', to_jsonb(pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to('concurrency publish' || E'\n' || approved_html, 'UTF8')), 'hex')))
 where day = (clock_timestamp() at time zone 'Asia/Seoul')::date;
 
 select 'community-agent sequential scenarios passed' as result;

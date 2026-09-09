@@ -44,11 +44,17 @@ psql -h 127.0.0.1 -p "$PG_PORT" -U postgres -d postgres -v ON_ERROR_STOP=1 -q \
   -c "create database ${DATABASE};"
 
 PSQL=(psql -h 127.0.0.1 -p "$PG_PORT" -U postgres -d "$DATABASE" -v ON_ERROR_STOP=1 -q)
+echo "▶ pgcrypto preinstalled outside public schema"
+"${PSQL[@]}" -c "create schema extensions; create extension pgcrypto with schema extensions;"
 echo "▶ prerequisite schema and real board writer"
 "${PSQL[@]}" -f "$FIXTURE"
 "${PSQL[@]}" -f "$BOARD_MIGRATION"
 echo "▶ community-agent migration"
 "${PSQL[@]}" -f "$MIGRATION"
+if [[ "$("${PSQL[@]}" -Atc "select n.nspname from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pgcrypto'")" != "extensions" ]]; then
+  echo "pgcrypto compatibility fixture was not preserved in extensions schema" >&2
+  exit 1
+fi
 echo "▶ sequential SQL scenarios"
 "${PSQL[@]}" -f "$SCENARIOS"
 
@@ -111,7 +117,7 @@ fi
 
 "${PSQL[@]}" -c "update public.community_agent_runs set day = (clock_timestamp() at time zone 'Asia/Seoul')::date - 3 where run_id = '${RUN_ID}'::uuid;"
 STOP_RUN_ID="$("${PSQL[@]}" -Atc "select public.start_community_run(null, false) ->> 'id'")"
-"${PSQL[@]}" -c "update public.community_agent_runs set status = 'ready', approved_title = 'stop publish serial', approved_html = '<p>validated</p>', approved_category = '자유', approved_hash = repeat('d', 64), validation = jsonb_build_object('passed', true, 'contentHash', repeat('d', 64)) where run_id = '${STOP_RUN_ID}'::uuid;"
+"${PSQL[@]}" -c "update public.community_agent_runs set status = 'ready', approved_title = 'stop publish serial', approved_html = '<p>validated</p>', approved_category = '자유', approved_hash = pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to('stop publish serial' || E'\\n' || '<p>validated</p>', 'UTF8')), 'hex'), validation = jsonb_build_object('passed', true, 'contentHash', pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to('stop publish serial' || E'\\n' || '<p>validated</p>', 'UTF8')), 'hex')) where run_id = '${STOP_RUN_ID}'::uuid;"
 
 echo "▶ concurrent stop/publish is serialized by the policy row"
 "${PSQL[@]}" -c "begin; select public.publish_community_post('${STOP_RUN_ID}'::uuid); select pg_sleep(5); commit;" >/tmp/community-agent-stop-publish-a-$$.out &
