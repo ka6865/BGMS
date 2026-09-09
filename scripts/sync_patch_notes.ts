@@ -14,6 +14,7 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const GEMINI_API_KEY = process.env.GOOGLE_GEMINI_API_KEY!;
 const DISCORD_WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
+const DRAFT_ONLY = process.env.PATCH_NOTES_DRAFT_ONLY === 'true';
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -138,6 +139,7 @@ ${cleanText}`;
       }
     }
 
+    if (!aiSummary && DRAFT_ONLY) throw new Error('초안 전용 실행: AI 요약 생성 실패');
     if (!aiSummary) aiSummary = "이번 소식의 주요 내용을 분석 중입니다. 상세한 내용은 아래 원문 링크를 통해 확인해 주세요.";
 
     console.log('--- AI SUMMARY START ---');
@@ -182,7 +184,7 @@ function minifyHtml(html: string): string {
     .trim();
 }
 
-function formatAiSummaryToHtml(summary: string): string {
+export function formatAiSummaryToHtml(summary: string): string {
   if (!summary) return "";
 
   // 1. 만약 대괄호 [섹션] 형태가 없고, "* **제목**:" 또는 "- **제목**:" 형태의 목록이 존재한다면,
@@ -223,10 +225,10 @@ function formatAiSummaryToHtml(summary: string): string {
     // 본문 줄바꿈 및 리스트 아이템 정밀 파싱
     const items = content.split('\n')
       .map(line => line.trim())
-      .filter(line => line.length > 2 && !/^[#\s]+$/.test(line))
+      .filter(line => line.length > 2 && !/^[#*\s]+$/.test(line))
       .map(line => {
         // 기존의 불렛 마커(-, *, • 등)를 말끔하게 제거하고 텍스트 정규화
-        const text = line.replace(/^[-*•\s]+/, "").trim();
+        const text = line.replace(/^(?:[-*•]\s+)+/, "").trim();
         // 볼드 처리(**텍스트**)를 Tailwind 스타일이 적용된 강조용 strong 태그로 치환
         const highlighted = text.replace(/\*\*(.*?)\*\*/g, '<strong class="text-[#F2A900] font-black">$1</strong>');
 
@@ -253,7 +255,7 @@ function formatAiSummaryToHtml(summary: string): string {
   return minifyHtml(cardsHtml);
 }
 
-async function syncPatchNotes() {
+export async function syncPatchNotes() {
   console.log('🚀 Starting Patch Notes Sync...');
   try {
     // 일일 GitHub Actions 실행은 공식 목록에서 최신 글을 선택한다.
@@ -319,28 +321,35 @@ async function syncPatchNotes() {
     const detail = await fetchPatchNoteDetail(fullUrl, cleanTitle);
     if (!detail) {
       console.error('❌ Failed to fetch patch note detail.');
+      if (DRAFT_ONLY) process.exitCode = 1;
       return;
     }
     const { formattedContent, sourceText, categoryType } = detail;
 
     // 기존에 동일한 제목의 글이 있는지 확인
-    const { data: existingPost } = await supabase
+    const { data: existingPost, error: existingError } = await supabase
       .from('posts')
-      .select('id')
+      .select('id,status')
       .eq('title', cleanTitle)
       .maybeSingle();
 
 
 
+    if (existingError) throw new Error(`기존 글 조회 실패: ${existingError.message}`);
+    if (DRAFT_ONLY && existingPost && existingPost.status !== 'draft') {
+      throw new Error('초안 전용 실행은 발행된 글이나 수정본을 덮어쓰지 않습니다.');
+    }
+
     let dbResult;
     if (existingPost) {
       console.log(`📝 기존 배그 소식 글(ID: ${existingPost.id})이 발견되어 업데이트합니다.`);
-      dbResult = await supabase.from('posts').update({
+      const update = supabase.from('posts').update({
         content: formattedContent,
         author: 'BGMS 시스템',
         category: '배그 소식',
         image_url: thumbnailUrl
       }).eq('id', existingPost.id);
+      dbResult = DRAFT_ONLY ? await update.eq('status', 'draft').select('id').single() : await update;
     } else {
       console.log('📝 신규 배그 소식 글을 등록합니다. (초안 상태)');
       dbResult = await supabase.from('posts').insert({
@@ -358,6 +367,7 @@ async function syncPatchNotes() {
 
     if (dbError) {
       console.error('❌ Failed to save post to database:', dbError);
+      if (DRAFT_ONLY) process.exitCode = 1;
       return;
     }
 
@@ -374,7 +384,7 @@ async function syncPatchNotes() {
 
     // 무기도감 갱신 제안 생성.
     // 제안 테이블에만 기록되며 관리자가 승인해야 실제 게임 데이터가 바뀐다.
-    if (categoryType === 'PATCH_NOTE' && sourceText) {
+    if (!DRAFT_ONLY && categoryType === 'PATCH_NOTE' && sourceText) {
       const { data: savedPost } = await supabase
         .from('posts')
         .select('id')
@@ -400,7 +410,7 @@ async function syncPatchNotes() {
       }
     }
 
-    if (DISCORD_WEBHOOK_URL) {
+    if (!DRAFT_ONLY && DISCORD_WEBHOOK_URL) {
       console.log('🔔 Sending Discord Notification...');
       await axios.post(DISCORD_WEBHOOK_URL, {
         content: `🆕 **새로운 배그 소식이 수집되었습니다 (승인 대기 중)**\n\n제목: ${cleanTitle}\n링크: ${SITE_URL}/board?f=어드민+검증\n\n*BGMS AI가 요약을 완료하여 초안(draft) 상태로 등록했습니다. 어드민 페이지에서 승인해 주세요.*`
@@ -408,7 +418,10 @@ async function syncPatchNotes() {
     }
   } catch (error) {
     console.error('❌ syncPatchNotes error:', error);
+    if (DRAFT_ONLY) process.exitCode = 1;
   }
 }
 
-syncPatchNotes();
+if (process.argv[1]?.endsWith('sync_patch_notes.ts')) {
+  void syncPatchNotes();
+}

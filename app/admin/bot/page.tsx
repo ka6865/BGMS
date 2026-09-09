@@ -8,6 +8,16 @@ import CommunityAgentPanel from "@/components/admin/CommunityAgentPanel";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
+const REVIEW_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function communityLoginReturnPath(): string | null {
+  const params = new URLSearchParams(window.location.search);
+  const review = params.get("review");
+  if (review && REVIEW_ID.test(review)) return `/admin/bot?tab=community&review=${encodeURIComponent(review)}`;
+  if (params.get("tab") === "community") return "/admin/bot?tab=community";
+  return null;
+}
+
 export default function AdminBotPage() {
   const router = useRouter();
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
@@ -20,7 +30,8 @@ export default function AdminBotPage() {
     async function checkAdmin() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
-        router.push("/login");
+        const next = communityLoginReturnPath();
+        router.push(next ? `/login?next=${encodeURIComponent(next)}` : "/login");
         return;
       }
 
@@ -46,12 +57,15 @@ export default function AdminBotPage() {
     if (!isAdmin) return;
 
     const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab");
     const approvalId = params.get("approval");
     const section = params.get("section");
     const prompt = params.get("prompt");
     const action = params.get("action");
     const postId = params.get("postId");
     const text = params.get("text");
+
+    if (tab === "community") setActiveTab("community");
 
     if (approvalId) {
       router.replace(`/admin/dashboard?section=approvals&approval=${encodeURIComponent(approvalId)}`);
@@ -163,11 +177,12 @@ ${rootOriginalContent}
   }
 
   return (
-    <>
-      <nav aria-label="관리 비서 화면" className="sticky top-0 z-20 flex gap-2 border-b border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 sm:px-4">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+      <nav aria-label="관리 비서 화면" className="z-20 flex shrink-0 gap-2 border-b border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 sm:px-4">
         <button type="button" aria-pressed={activeTab === "chat"} onClick={() => setActiveTab("chat")} className="rounded-lg px-3 py-2 aria-pressed:bg-amber-500/15 aria-pressed:text-amber-200">관리자 대화</button>
         <button type="button" aria-pressed={activeTab === "community"} onClick={() => setActiveTab("community")} className="rounded-lg px-3 py-2 aria-pressed:bg-amber-500/15 aria-pressed:text-amber-200">커뮤니티 운영</button>
       </nav>
+      <div className={`min-h-0 flex-1 ${activeTab === "community" ? "overflow-x-hidden overflow-y-auto" : "overflow-hidden"}`}>
       {activeTab === "community" ? <CommunityAgentPanel /> : (
         <AdminAgentChat
           mode="page"
@@ -185,6 +200,7 @@ ${rootOriginalContent}
           }}
         />
       )}
-    </>
+      </div>
+    </div>
   );
 }

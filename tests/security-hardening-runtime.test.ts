@@ -60,40 +60,6 @@ describe("/api/cleanup 인증 동작", () => {
   });
 });
 
-describe("/api/cron/patch-notes 인증 동작", () => {
-  beforeEach(() => {
-    vi.resetModules();
-    vi.unstubAllEnvs();
-    vi.stubEnv("CRON_SECRET", CRON_TOKEN);
-    vi.stubEnv("ADMIN_SECRET_TOKEN", ADMIN_TOKEN);
-  });
-
-  it("헤더가 없으면 401 (개발 환경에서도 우회 불가)", async () => {
-    vi.stubEnv("NODE_ENV", "development");
-    const { GET } = await import("@/app/api/cron/patch-notes/route");
-    const res = await GET(req("https://bgms.kr/api/cron/patch-notes"));
-    expect(res.status).toBe(401);
-  });
-
-  it("test 환경에서도 401 (NODE_ENV 우회 없음)", async () => {
-    const { GET } = await import("@/app/api/cron/patch-notes/route");
-    const res = await GET(req("https://bgms.kr/api/cron/patch-notes"));
-    expect(res.status).toBe(401);
-  });
-
-  it("쿼리 파라미터 secret 은 통하지 않는다 (401)", async () => {
-    const { GET } = await import("@/app/api/cron/patch-notes/route");
-    const res = await GET(req(`https://bgms.kr/api/cron/patch-notes?secret=${CRON_TOKEN}`));
-    expect(res.status).toBe(401);
-  });
-
-  it("Bearer 접두어 없는 헤더는 401", async () => {
-    const { GET } = await import("@/app/api/cron/patch-notes/route");
-    const res = await GET(req("https://bgms.kr/api/cron/patch-notes", { Authorization: CRON_TOKEN }));
-    expect(res.status).toBe(401);
-  });
-});
-
 describe("/api/discord/room/create 인증·쿼터 동작", () => {
   const guardMock = vi.fn();
 

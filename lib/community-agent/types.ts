@@ -113,6 +113,7 @@ export type RunSnapshot = {
 
 export type PublishResult = {
   code:
+    | "approval_required"
     | "published"
     | "already_published"
     | "paused"

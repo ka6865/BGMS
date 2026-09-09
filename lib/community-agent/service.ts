@@ -15,6 +15,7 @@ import type { CollectSource, Evidence, PublishResult, RunSnapshot, Stage } from 
 
 export type RunAction =
   | { action: "start"; dryRun: boolean }
+  | { action: "retry"; runId: string }
   | { action: "step"; runId: string; stage: Stage }
   | { action: "publish"; runId: string };
 
@@ -165,6 +166,11 @@ export async function executeAction(
   actor: Actor,
   store: CommunityStore,
 ): Promise<RunSnapshot | PublishResult> {
+  if (action.action === "retry") {
+    if (actor.kind !== "admin") throw new Error("community_retry_admin_required");
+    return store.retryRun(actor.userId, action.runId);
+  }
+
   if (action.action === "start") {
     if (actor.kind === "worker" && action.dryRun) throw new Error("community_worker_dry_run_forbidden");
     await store.cleanup();
@@ -172,18 +178,7 @@ export async function executeAction(
   }
 
   if (action.action === "publish") {
-    const run = await store.getRun(action.runId);
-    if (run.status === "published") return store.publish(action.runId);
-    if (!run.draft || !run.validation?.passed) return { code: "not_ready", postId: null };
-    const ids = draftEvidenceIds(run);
-    const items = await store.loadEvidence(ids);
-    if (items.length !== ids.length) return { code: "not_ready", postId: null };
-    const checked = checkDraft(run.draft, items, new Date());
-    const rendered = renderDraft(run.draft, items);
-    if (!checked.passed || checked.contentHash !== run.validation.contentHash || rendered.hash !== run.validation.contentHash) {
-      return { code: "not_ready", postId: null };
-    }
-    return store.publish(action.runId);
+    return { code: "approval_required", postId: null };
   }
 
   const claim = await store.claimStage(action.runId, action.stage);

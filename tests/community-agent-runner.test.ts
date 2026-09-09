@@ -39,7 +39,7 @@ function requestBody(init?: RequestInit): Record<string, unknown> | null {
 }
 
 describe("community agent worker", () => {
-  it("runs persisted stages in order and publishes only the returned run ID", async () => {
+  it("runs persisted stages in order and returns the ready run for human approval", async () => {
     const calls: Array<{ url: string; init?: RequestInit; body: Record<string, unknown> | null }> = [];
     const completed: Stage[] = [];
     const statusAfter: Record<Stage, RunSnapshot["status"]> = {
@@ -59,12 +59,11 @@ describe("community agent worker", () => {
         completed.push(stage);
         return Response.json({ result: snapshot(statusAfter[stage], completed) });
       }
-      if (body?.action === "publish") return Response.json({ result: { code: "published", postId: 41 } });
       throw new Error("unexpected request");
     }) as unknown as typeof fetch;
 
     await expect(runCommunityWorker({ baseUrl: "https://bgms.test", secret: "test-only", fetchImpl }))
-      .resolves.toEqual({ status: "published", postId: 41 });
+      .resolves.toEqual({ status: "ready", postId: null });
 
     expect(calls.map((call) => call.body)).toEqual([
       { action: "start", dryRun: false },
@@ -74,7 +73,6 @@ describe("community agent worker", () => {
       { action: "step", runId: RUN_ID, stage: "select" },
       { action: "step", runId: RUN_ID, stage: "draft" },
       { action: "step", runId: RUN_ID, stage: "verify" },
-      { action: "publish", runId: RUN_ID },
     ]);
     for (const call of calls) {
       expect(call.init?.redirect).toBe("error");
@@ -111,17 +109,15 @@ describe("community agent worker", () => {
       if (body?.action === "start") return Response.json({ result: snapshot("collecting") });
       if (body?.action === "step" && body.stage === "dc") throw new TypeError("response connection lost");
       if (init?.method === "GET") return Response.json({ run: snapshot("ready", STAGES) });
-      if (body?.action === "publish") return Response.json({ result: { code: "already_published", postId: 41 } });
       throw new Error("unexpected request");
     }) as unknown as typeof fetch;
 
     await expect(runCommunityWorker({ baseUrl: "https://bgms.test", secret: "test-only", fetchImpl }))
-      .resolves.toEqual({ status: "already_published", postId: 41 });
+      .resolves.toEqual({ status: "ready", postId: null });
     expect(requests).toEqual([
       { url: "https://bgms.test/api/admin/agent/community/run", method: "POST", body: { action: "start", dryRun: false } },
       { url: "https://bgms.test/api/admin/agent/community/run", method: "POST", body: { action: "step", runId: RUN_ID, stage: "dc" } },
       { url: `https://bgms.test/api/admin/agent/community/run?runId=${RUN_ID}`, method: "GET", body: null },
-      { url: "https://bgms.test/api/admin/agent/community/run", method: "POST", body: { action: "publish", runId: RUN_ID } },
     ]);
   });
 
@@ -166,21 +162,19 @@ describe("community agent worker", () => {
     ]);
   });
 
-  it("reuses an already-ready run and records a paused publish outcome", async () => {
+  it("reuses an already-ready run without attempting publication", async () => {
     const calls: Record<string, unknown>[] = [];
     const fetchImpl = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
       const body = requestBody(init)!;
       calls.push(body);
       if (body.action === "start") return Response.json({ result: snapshot("ready", STAGES) });
-      if (body.action === "publish") return Response.json({ result: { code: "paused", postId: null } });
       throw new Error("an existing ready run must not repeat a stage");
     }) as unknown as typeof fetch;
 
     await expect(runCommunityWorker({ baseUrl: "https://bgms.test", secret: "test-only", fetchImpl }))
-      .resolves.toEqual({ status: "paused", postId: null });
+      .resolves.toEqual({ status: "ready", postId: null });
     expect(calls).toEqual([
       { action: "start", dryRun: false },
-      { action: "publish", runId: RUN_ID },
     ]);
   });
 

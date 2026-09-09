@@ -11,6 +11,15 @@ const mocks = vi.hoisted(() => ({
   verifyDraft: vi.fn(),
   createGeminiJsonModel: vi.fn(() => vi.fn()),
 }));
+const reviewMocks = vi.hoisted(() => ({
+  enqueuePostReview: vi.fn(),
+  notifyNextReview: vi.fn(),
+}));
+
+vi.mock("next/server", async () => {
+  const actual = await vi.importActual<typeof import("next/server")>("next/server");
+  return { ...actual, after: vi.fn() };
+});
 
 vi.mock("../lib/community-agent/sources", async () => {
   const actual = await vi.importActual<typeof import("../lib/community-agent/sources")>("../lib/community-agent/sources");
@@ -31,6 +40,7 @@ vi.mock("../lib/community-agent/editorial", async () => {
 vi.mock("@supabase/supabase-js", () => ({ createClient: mocks.createClient }));
 vi.mock("../utils/supabase/guard", () => ({ withAuthGuard: mocks.withAuthGuard }));
 vi.mock("../lib/admin-agent/logging", () => ({ verifyAdminRole: mocks.verifyAdminRole }));
+vi.mock("../lib/community-agent/reviews", () => reviewMocks);
 
 import { POST as runPOST } from "../app/api/admin/agent/community/run/route";
 import { POST as communityPOST } from "../app/api/admin/agent/community/route";
@@ -124,11 +134,76 @@ describe("community agent API authentication boundary", () => {
     ["unknown action", { action: "erase" }],
     ["arbitrary stage", { action: "step", runId: RUN_ID, stage: "publish" }],
     ["publish body injection", { action: "publish", runId: RUN_ID, content: "attacker supplied" }],
+    ["retry invalid UUID", { action: "retry", runId: "not-a-uuid" }],
+    ["retry body injection", { action: "retry", runId: RUN_ID, reason: "attacker supplied" }],
   ])("returns 400 for %s without source access", async (_name, body) => {
     process.env.COMMUNITY_AGENT_WORKER_SECRET = "worker-token";
     const response = await runPOST(request(body, "worker-token"));
     expect(response.status).toBe(400);
     expect(mocks.sourceFetch).not.toHaveBeenCalled();
+  });
+
+  it("allows an authenticated admin to retry a previous run through the retry RPC", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: {
+      run_id: RUN_ID,
+      day: "2026-09-09",
+      status: "collecting",
+      stages: {},
+      model_calls: 0,
+      dry_run: false,
+      reports: [],
+      topic: null,
+      draft: null,
+      validation: null,
+      post_id: null,
+      reason: null,
+    }, error: null });
+    mocks.withAuthGuard.mockResolvedValue({ user: { id: "admin-user" }, supabaseAdmin: {} });
+    mocks.verifyAdminRole.mockResolvedValue(null);
+    mocks.createClient.mockReturnValue({ rpc });
+
+    const response = await runPOST(request({ action: "retry", runId: RUN_ID }));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ result: expect.objectContaining({
+      id: RUN_ID,
+      status: "collecting",
+      dryRun: false,
+    }) });
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith("retry_community_run", {
+      p_actor_id: "admin-user",
+      p_previous_run_id: RUN_ID,
+    });
+    expect(mocks.sourceFetch).not.toHaveBeenCalled();
+    expect(mocks.createGeminiJsonModel).not.toHaveBeenCalled();
+  });
+
+  it("rejects a worker retry even with the valid worker secret", async () => {
+    process.env.COMMUNITY_AGENT_WORKER_SECRET = "worker-token";
+
+    const response = await runPOST(request({ action: "retry", runId: RUN_ID }, "worker-token"));
+
+    expect(response.status).toBe(403);
+    expect(mocks.createClient).not.toHaveBeenCalled();
+    expect(mocks.sourceFetch).not.toHaveBeenCalled();
+    expect(mocks.createGeminiJsonModel).not.toHaveBeenCalled();
+  });
+
+  it("maps retry RPC conflict messages to 409", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: null, error: { message: "community_retry_not_retryable" } });
+    mocks.withAuthGuard.mockResolvedValue({ user: { id: "admin-user" }, supabaseAdmin: {} });
+    mocks.verifyAdminRole.mockResolvedValue(null);
+    mocks.createClient.mockReturnValue({ rpc });
+
+    const response = await runPOST(request({ action: "retry", runId: RUN_ID }));
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({ code: "execution_conflict" });
+    expect(rpc).toHaveBeenCalledWith("retry_community_run", {
+      p_actor_id: "admin-user",
+      p_previous_run_id: RUN_ID,
+    });
   });
 
   it("forbids worker dry-run starts", async () => {
@@ -251,19 +326,47 @@ describe("executeAction state boundaries", () => {
     expect(mocks.selectTopic).not.toHaveBeenCalled();
   });
 
-  it("preserves RPC idempotency for an already-published run after its draft is gone", async () => {
-    const publish = vi.fn().mockResolvedValue({ code: "already_published", postId: 41 });
+  it("requires human approval even for an already-published run after its draft is gone", async () => {
     const store = {
       getRun: vi.fn().mockResolvedValue(snapshot({ status: "published", draft: null, postId: 41 })),
-      publish,
       loadEvidence: vi.fn(),
     };
 
     await expect(executeAction(
       { action: "publish", runId: RUN_ID }, { kind: "worker", userId: null }, store as never,
-    )).resolves.toEqual({ code: "already_published", postId: 41 });
-    expect(publish).toHaveBeenCalledWith(RUN_ID);
+    )).resolves.toEqual({ code: "approval_required", postId: null });
+    expect(store.getRun).not.toHaveBeenCalled();
     expect(store.loadEvidence).not.toHaveBeenCalled();
+  });
+
+  it("delegates admin retries to the store without source, model, or publication work", async () => {
+    const retryRun = vi.fn().mockResolvedValue(snapshot({ status: "collecting" }));
+    const store = {
+      retryRun,
+      publish: vi.fn(),
+    };
+
+    await expect(executeAction(
+      { action: "retry", runId: RUN_ID }, { kind: "admin", userId: "admin-user" }, store as never,
+    )).resolves.toEqual(expect.objectContaining({ id: RUN_ID, status: "collecting" }));
+
+    expect(retryRun).toHaveBeenCalledWith("admin-user", RUN_ID);
+    expect(store.publish).not.toHaveBeenCalled();
+    expect(mocks.sourceFetch).not.toHaveBeenCalled();
+    expect(mocks.createGeminiJsonModel).not.toHaveBeenCalled();
+  });
+
+  it("defensively rejects worker retries before touching the store", async () => {
+    const retryRun = vi.fn();
+    const store = { retryRun };
+
+    await expect(executeAction(
+      { action: "retry", runId: RUN_ID }, { kind: "worker", userId: null }, store as never,
+    )).rejects.toThrow("community_retry_admin_required");
+
+    expect(retryRun).not.toHaveBeenCalled();
+    expect(mocks.sourceFetch).not.toHaveBeenCalled();
+    expect(mocks.createGeminiJsonModel).not.toHaveBeenCalled();
   });
 });
 
@@ -276,7 +379,7 @@ describe("reserved community bot identity", () => {
           id: "user-collision",
           email: "bgms-community-agent@users.invalid",
           app_metadata: {},
-          user_metadata: { nickname: "BGMS AI 비서" },
+          user_metadata: { nickname: "BGMS AI" },
         }] }, error: null }),
         createUser,
       } },
@@ -298,7 +401,7 @@ describe("reserved community bot identity", () => {
       id: "55555555-5555-4555-8555-555555555555",
       email: "bgms-community-agent@users.invalid",
       app_metadata: { community_agent: true },
-      user_metadata: { nickname: "BGMS AI 비서" },
+      user_metadata: { nickname: "BGMS AI" },
     };
     const listUsers = vi.fn()
       .mockResolvedValueOnce({ data: { users: [] }, error: null })
@@ -308,7 +411,7 @@ describe("reserved community bot identity", () => {
       auth: { admin: { listUsers, createUser } },
       from: vi.fn(() => ({
         select: () => ({ eq: () => ({ maybeSingle: async () => ({
-          data: { role: "user", nickname: "BGMS AI 비서" }, error: null,
+          data: { role: "user", nickname: "BGMS AI" }, error: null,
         }) }) }),
       })),
     };
@@ -325,7 +428,7 @@ describe("reserved community bot identity", () => {
     const createInput = createUser.mock.calls[0][0];
     expect(createInput).toMatchObject({
       email: "bgms-community-agent@users.invalid", email_confirm: true,
-      user_metadata: { nickname: "BGMS AI 비서" }, app_metadata: { community_agent: true },
+      user_metadata: { nickname: "BGMS AI" }, app_metadata: { community_agent: true },
     });
     expect(createInput.password).toHaveLength(64);
   });

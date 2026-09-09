@@ -1,0 +1,57 @@
+set role service_role;
+insert into public.agent_runs(id,message) values('33333333-3333-4333-8333-333333333333','review fixture');
+insert into public.community_agent_runs(run_id,day,status,approved_title,approved_html,approved_category,approved_hash,validation)
+values('33333333-3333-4333-8333-333333333333',(now() at time zone 'Asia/Seoul')::date,'ready','review fixture','<p>Exact draft</p>','자유',encode(sha256(convert_to('review fixture'||E'\n'||'<p>Exact draft</p>','UTF8')),'hex'),jsonb_build_object('passed',true,'contentHash',encode(sha256(convert_to('review fixture'||E'\n'||'<p>Exact draft</p>','UTF8')),'hex')));
+do $$ declare q jsonb; q2 jsonb; r jsonb; n integer; begin
+ q:=public.enqueue_community_post_review('33333333-3333-4333-8333-333333333333');
+ q2:=public.enqueue_community_post_review('33333333-3333-4333-8333-333333333333');
+ if q->>'id' is distinct from q2->>'id' then raise exception 'duplicate review'; end if;
+ if (select status from public.posts where id=(q->>'target_post_id')::bigint)<>'draft' then raise exception 'draft publicly visible'; end if;
+ r:=public.publish_community_post('33333333-3333-4333-8333-333333333333');
+ if r->>'code'<>'approval_required' then raise exception 'legacy publication allowed'; end if;
+ begin
+ perform public.decide_community_review((q->>'id')::uuid,'approve','11111111-1111-4111-8111-111111111111');
+ raise exception 'nonadmin accepted';
+ exception when others then if sqlerrm<>'admin_required' then raise; end if; end;
+ update public.posts set content='changed' where id=(q->>'target_post_id')::bigint;
+ r:=public.decide_community_review((q->>'id')::uuid,'approve','22222222-2222-4222-8222-222222222222');
+ if r->>'code'<>'target_changed' then raise exception 'mutated content approved'; end if;
+ update public.posts set content=q->>'body' where id=(q->>'target_post_id')::bigint;
+ update public.community_agent_policy set enabled=false;
+ r:=public.decide_community_review((q->>'id')::uuid,'approve','22222222-2222-4222-8222-222222222222');
+ if r->>'code'<>'paused' then raise exception 'pause ignored'; end if;
+ update public.community_agent_policy set enabled=true;
+ r:=public.decide_community_review((q->>'id')::uuid,'approve','22222222-2222-4222-8222-222222222222');
+ if r->>'code'<>'published' then raise exception 'approval failed %',r; end if;
+ r:=public.decide_community_review((q->>'id')::uuid,'reject','22222222-2222-4222-8222-222222222222');
+ if r->>'code'<>'published' then raise exception 'terminal decision changed'; end if;
+ select count(*) into n from public.posts where title='review fixture';
+ if n<>1 then raise exception 'duplicate publication'; end if;
+ insert into public.comments(post_id,user_id,author,content) values((q->>'target_post_id')::bigint,'22222222-2222-4222-8222-222222222222','human','Question');
+ q:=public.claim_community_reply();
+ if q->>'kind'<>'reply' then raise exception 'no reply candidate'; end if;
+ if public.claim_community_reply() is not null then raise exception 'duplicate generation'; end if;
+ perform public.finish_community_reply((q->>'id')::uuid,'Exact answer',null,'{}');
+ update public.comments set content='edited question' where id=(q->>'target_comment_id')::bigint;
+ r:=public.decide_community_review((q->>'id')::uuid,'approve','22222222-2222-4222-8222-222222222222');
+ if r->>'code'<>'target_changed' then raise exception 'edited question ignored'; end if;
+ update public.comments set content=q->>'target_comment_content' where id=(q->>'target_comment_id')::bigint;
+ r:=public.decide_community_review((q->>'id')::uuid,'approve','22222222-2222-4222-8222-222222222222');
+ if r->>'code'<>'published' then raise exception 'reply publish failed %',r; end if;
+ if not exists(select 1 from public.comments where id=(r->>'commentId')::bigint and content='Exact answer' and author='BGMS AI' and parent_id=(q->>'target_comment_id')::bigint) then raise exception 'reply snapshot mismatch'; end if;
+ perform public.decide_community_review((q->>'id')::uuid,'approve','22222222-2222-4222-8222-222222222222');
+ if (select count(*) from public.comments where user_id='11111111-1111-4111-8111-111111111111')<>1 then raise exception 'duplicate reply'; end if;
+ if public.claim_community_reply() is not null then raise exception 'bot replied to itself'; end if;
+ insert into public.comments(post_id,author,content) values((r->>'postId')::bigint,'human2','second question');
+ q:=public.claim_community_reply();
+ perform public.finish_community_reply((q->>'id')::uuid,'Never publish',null,'{}');
+ r:=public.decide_community_review((q->>'id')::uuid,'reject','22222222-2222-4222-8222-222222222222');
+ if r->>'code'<>'rejected' then raise exception 'rejection failed'; end if;
+ perform public.decide_community_review((q->>'id')::uuid,'approve','22222222-2222-4222-8222-222222222222');
+ if exists(select 1 from public.comments where content='Never publish') then raise exception 'rejected published'; end if;
+end $$;
+reset role;
+do $$ begin
+if has_function_privilege('anon','public.decide_community_review(uuid,text,uuid,text,text)','EXECUTE') or has_function_privilege('authenticated','public.decide_community_review(uuid,text,uuid,text,text)','EXECUTE') then raise exception 'public approval exposed'; end if;
+if not (select relrowsecurity from pg_class where oid='public.community_content_reviews'::regclass) then raise exception 'RLS missing'; end if;
+end $$;

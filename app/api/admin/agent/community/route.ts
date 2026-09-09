@@ -62,7 +62,7 @@ function parsePolicyPatch(value: unknown): Partial<Policy> | null {
     result.enabled = patch.enabled;
   }
   if ("publishingEnabled" in patch) {
-    if (typeof patch.publishingEnabled !== "boolean") return null;
+    if (patch.publishingEnabled !== false) return null;
     result.publishingEnabled = patch.publishingEnabled;
   }
   if ("dailyPostLimit" in patch) {

@@ -1,3 +1,5 @@
+import { after } from "next/server";
+import { enqueuePostReview, notifyNextReview } from "@/lib/community-agent/reviews";
 import { NextResponse } from "next/server";
 import { createCommunityStore, resolveCommunityActor } from "@/lib/community-agent/auth";
 import { executeAction, type RunAction } from "@/lib/community-agent/service";
@@ -50,6 +52,10 @@ function parseAction(value: unknown): RunAction | null {
   if (body.action === "start" && exactKeys(body, ["action", "dryRun"]) && typeof body.dryRun === "boolean") {
     return { action: "start", dryRun: body.dryRun };
   }
+  if (body.action === "retry" && exactKeys(body, ["action", "runId"])
+    && typeof body.runId === "string" && UUID.test(body.runId)) {
+    return { action: "retry", runId: body.runId };
+  }
   if (body.action === "step" && exactKeys(body, ["action", "runId", "stage"])
     && typeof body.runId === "string" && UUID.test(body.runId)
     && typeof body.stage === "string" && STAGES.has(body.stage as Stage)) {
@@ -64,7 +70,7 @@ function parseAction(value: unknown): RunAction | null {
 
 function failure(error: unknown): NextResponse {
   const message = error instanceof Error ? error.message : "";
-  if (/community_(?:agent_disabled|agent_dry_run_requires_publish_paused|stage_lease_mismatch|worker_dry_run_forbidden)/.test(message)) {
+  if (/community_(?:retry_[a-z_]+|agent_disabled|agent_dry_run_requires_publish_paused|stage_lease_mismatch|worker_dry_run_forbidden)/.test(message)) {
     return NextResponse.json({ code: "execution_conflict" }, { status: 409 });
   }
   return NextResponse.json({ code: "storage_unavailable" }, { status: 503 });
@@ -95,12 +101,17 @@ export async function POST(request: Request) {
 
   const actor = await resolveCommunityActor(request);
   if (actor instanceof Response) return actor;
-  if (actor.kind === "worker" && action.action === "start" && action.dryRun) {
+  if (actor.kind === "worker" && (action.action === "retry" || (action.action === "start" && action.dryRun))) {
     return NextResponse.json({ code: "worker_scope_forbidden" }, { status: 403 });
   }
   try {
     const { store } = createCommunityStore();
-    return NextResponse.json({ result: await executeAction(action, actor, store) });
+    const result = await executeAction(action, actor, store);
+    if ("status" in result && result.status === "ready") {
+      await enqueuePostReview(result.id);
+      after(async () => { await notifyNextReview(); });
+    }
+    return NextResponse.json({ result });
   } catch (error) {
     return failure(error);
   }

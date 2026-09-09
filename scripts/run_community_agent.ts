@@ -97,16 +97,6 @@ function parseRun(value: unknown, key: "result" | "run"): WorkerRun {
   };
 }
 
-function parsePublishResult(value: unknown): CommunityWorkerResult {
-  const body = record(value, "community-agent-response-invalid");
-  const result = record(body.result, "community-agent-response-invalid");
-  if (typeof result.code !== "string") throw new Error("community-agent-response-invalid");
-  if (result.postId !== null && result.postId !== undefined && (typeof result.postId !== "number" || !Number.isSafeInteger(result.postId) || result.postId < 0)) {
-    throw new Error("community-agent-response-invalid");
-  }
-  return { status: result.code, postId: typeof result.postId === "number" ? result.postId : null };
-}
-
 function parseCleanupResult(value: unknown): CommunityWorkerResult {
   const body = record(value, "community-agent-response-invalid");
   const result = record(body.result, "community-agent-response-invalid");
@@ -218,7 +208,7 @@ export async function runCommunityWorker({
   }
 
   if (run.status !== "ready") return resultFrom(run);
-  return parsePublishResult(await call("POST", { action: "publish", runId: run.id }));
+  return resultFrom(run); // Publication requires a separate human decision.
 }
 
 /** Invokes only retention cleanup; it cannot start, step, or publish a run. */

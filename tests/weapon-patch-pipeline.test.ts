@@ -234,9 +234,8 @@ describe("제안 조회·결정 계층", () => {
 describe("동기화 경로와 UI 배선", () => {
   const readSource = (path: string) => readFileSync(resolve(path), "utf8");
 
-  it("동기화 3경로가 모두 제안 생성 트리거를 호출한다", () => {
+  it("관리자와 CLI 동기화 경로가 제안 생성 트리거를 호출한다", () => {
     for (const path of [
-      "app/api/cron/patch-notes/route.ts",
       "app/api/admin/patch-notes/sync/route.ts",
       "scripts/sync_patch_notes.ts",
     ]) {

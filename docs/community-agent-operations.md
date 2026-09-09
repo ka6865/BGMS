@@ -1,6 +1,6 @@
 # BGMS 커뮤니티 비서 운영 절차
 
-2026-09-09 관리자 상태 조회 오류를 복구하면서 연결된 Supabase에 `community_agent_persistence` migration을 적용했다. 원격 migration version은 `20260909061622`, 적용 SQL 원본은 `20260908000000_community_agent_persistence.sql`이다. 정책·출처·최근 실행 조회가 정상이며 수집과 자동 게시는 모두 꺼져 있다. 운영 앱 배포, GitHub Actions 활성화, 비서 계정 생성, 실제 자료 수집·게시는 아직 실행하지 않았다. 서버만 게시를 담당하며 외부 디시인사이드·네이버 카페·YouTube에는 글이나 댓글을 작성하지 않는다.
+2026-09-09 관리자 상태 조회 오류를 복구하면서 연결된 Supabase에 `community_agent_persistence` migration을 적용했다. 원격 migration version은 `20260909061622`, 적용 SQL 원본은 `20260909061622_community_agent_persistence.sql`이다. 정책·출처·최근 실행 조회가 정상이며 수집과 자동 게시는 모두 꺼져 있다. 운영 앱 배포, GitHub Actions 활성화, 비서 계정 생성, 실제 자료 수집·게시는 아직 실행하지 않았다. 서버만 게시를 담당하며 외부 디시인사이드·네이버 카페·YouTube에는 글이나 댓글을 작성하지 않는다.
 
 ## 설정 위치
 
@@ -59,3 +59,58 @@ YouTube 채널 ID와 uploads playlist cache는 성공할 때마다 갱신한다.
 인증 probe 1회(HTTP 200, 결과 5건)와 실제 `collectSource("naver")`의 검색 3회가 모두 HTTP 200으로 성공했다. 실제 수집기 결과는 검색 60건에서 지정 카페 근거 6건이며 모두 검색 요약(snippet)이다. 전체 본문을 읽었다고 취급하지 않는다. 원문/검색 결과는 DB나 로그에 보존하지 않았고, 기존 `community_agent_sources`의 네이버 연결 상태와 확인 시각만 비교 후 갱신했다. 실행 기록·모델 호출 수·자동 게시 정책은 변경하지 않았다. 오늘의 이전 보류 실행은 그대로 남는다.
 
 검증: source/flow 18 tests, community 89 tests, scoped ESLint, TypeScript, diff check 통과. 인증정보를 URL이나 커밋에 포함하지 않는 회귀 검증을 추가했다. [공식 카페글 검색 명세](https://api.ncloud-docs.com/docs/naver-api-hub-search-cafearticle)를 기준으로 연결했다.
+
+
+## 2026-09-09 관리자 재실행과 수집 설정 개선
+
+커뮤니티 탭의 내부 스크롤을 복구하고, 세 출처 선택과 API 키 등록 여부를 화면 상단에 배치했다. 현재 키 존재 여부와 과거 수집 실패는 별도로 표시한다. `COMMUNITY_AGENT_WORKER_SECRET`은 예약 실행기 전용 내부 암호이며, 관리자 수동 시험 실행·재실행에는 필요하지 않다. 자동 예약을 연결할 때 서버와 실행기 양쪽에 동일한 값을 등록한다.
+
+당일 `deferred` 또는 `failed` 실행은 ‘다시 수집·초안 만들기’로 재실행한다. `POST /api/admin/agent/community/run`의 `{action: "retry", runId: 이전실행ID}`는 관리자만 사용할 수 있으며, 수집이 켜져 있고 자동 게시가 꺼진 상태에서만 새 dry-run을 생성한다. 기존 실행과 모델 사용량을 보존하고, 새 실행은 현재 출처 설정으로 시작한다. 실행당 Gemini 호출 상한 3회는 유지하며 수동 재실행마다 별도 사용량이 발생한다. 진행 중·검증 완료·발행 완료·지난 날짜 실행은 이 경로로 새로 시작하지 않는다. 진행 중 lease 만료를 자동 회수하는 UI 개선은 이번 범위에 포함하지 않았다.
+
+마이그레이션 `community_agent_manual_retry`를 현재 연결된 DB에 적용했다. 로컬 원본 `20260909100149_community_agent_manual_retry.sql`, 원격 버전 `20260909100149`. `community_agent_runs.retry_of`와 재시도 선행 실행별 고유 인덱스를 추가하고, 기존 날짜 고유 제약을 활성/검증 완료/발행 실행에 적용되는 날짜 고유 인덱스로 교체했다. 기존 1개 실행 기록은 그대로이며 데이터 삭제와 실제 재수집·게시는 하지 않았다. 적용 직후 실행 테이블+인덱스 합계는 81,920바이트로 적용 전과 같다. 행당 재시도 연결 UUID 및 소규모 인덱스 추가 외 대용량 데이터 증가는 없다.
+
+동시 재시도는 정책 행 lock과 고유 인덱스로 같은 후속 실행을 반환한다. 보류 기록이 여러 개여도 자동 게시 승격은 검증 완료된 실행만 선택하며, 하루 1건 발행 제한을 유지한다. 일반 worker의 start는 최신 실행을 반환하고 자동 재시도를 만들지 않는다. 기존 RLS와 서버 전용 권한을 유지했다. 되돌릴 때는 UI/API의 retry 노출을 먼저 되돌리고 기록 보존을 위해 DB의 재시도 열과 인덱스는 유지한다. 여러 실행이 생긴 후 기존 날짜 고유 제약을 바로 복원하지 않는다.
+
+검증: 커뮤니티 101 tests, 수정 파일 ESLint, TypeScript, PostgreSQL 17의 이력 보존/권한/재시도 멱등성/초안 승격/실제 게시 writer/동시 재시도/동시 발행/중지 경합 검사 통과. 모의 로그인·API와 실제 페이지/레이아웃/CSS로 375×667, 390×844, 430×932, 1280×720에서 스크롤, 출처 토글, 관리자 재실행 → 6단계 완료(게시 호출 없음)를 확인했다.
+
+## 2026-09-09: 게시글·답글 사람 승인으로 전환 (현재 동작)
+
+위의 자동 게시 설명은 과거 구현 기록이다. 현재는 `publishing_enabled=true`를 DB에서 거부하며 `publish_community_post`도 `approval_required`를 반환한다. 기존 예약 worker는 검증 완료 후 멈춘다. 모든 게시글은 `BGMS AI` 계정으로 `posts.status=draft`와 `community_content_reviews.status=pending`에 저장되고, 답글은 비공개 검토 큐에만 저장된다. 사용자의 항목별 승인만 실제 게시/댓글 작성을 허용한다.
+
+- 로컬 migration: `20260909111045_community_content_reviews.sql`, 알림 결과 보완 `20260909111823_community_review_notification_outcomes.sql`.
+- 검토 API: `/api/admin/agent/community/reviews`. GET은 관리자만 전체 초안/대상 댓글 확인. POST `approve`/`reject`는 관리자 세션에서만 처리. worker는 `process`만 허용하며 승인할 수 없다.
+- 승인 시 정책→검토→게시글/댓글 순서로 잠그고 원본 snapshot, bot 계정, 공개 상태, 만료, 카테고리, 하루 게시 한도를 재검사한다. 동일 승인/거절을 반복해도 공개 글/댓글은 한 번만 작성된다. 거절은 감사 기록과 비공개 초안을 보존한다.
+- 답글 대상: 최근 7일 내 봇 소유 공개 글에 달린 비봇 댓글. 댓글별 한 번, 한국 날짜 기준 생성 시도 하루 최대 5개, 호출당 Gemini 최대 1회. 근거는 해당 글/부모 댓글/대상 댓글과 조회한 공식 원문이며 모델 명령과 분리한다. 근거 부족·잘못된 응답은 미게시 실패 기록으로 남긴다. 이미 처리한 댓글의 재생성 기능은 없다.
+- 검토 기한 7일. 일시 중지는 승인 발행도 막는다. 글 발행 하루 최대 1건. 승인 시 실제 본문과 대상 댓글이 달라졌으면 `target_changed`; 내용을 다시 확인해야 한다.
+
+### Discord 설정
+
+기존 운영 알림 `DISCORD_WEBHOOK_URL`을 사용한다. 공개 커뮤니티 알림용 `DISCORD_COMMUNITY_WEBHOOK_URL`은 승인 초안 전송에 사용하지 않는다. 별도 검토 채널을 원하면 `DISCORD_COMMUNITY_REVIEW_WEBHOOK_URL`을 지정한다. 웹훅만 있으면 전체 초안/대상 댓글과 로그인 필요한 관리자 검토 링크를 보낸다. 링크 열기(GET)는 승인이나 게시를 실행하지 않는다.
+
+Discord 안에서 직접 승인·거절하려면 서버에 다음을 등록한다.
+
+- `DISCORD_BOT_TOKEN`: 기존 Discord 앱의 봇 토큰. 검토 채널에서 메시지 전송/첨부 권한 필요.
+- `DISCORD_COMMUNITY_APPROVER_ID`: 승인할 소유자의 Discord 사용자 ID.
+- `DISCORD_COMMUNITY_REVIEW_PUBLIC_KEY`, `DISCORD_COMMUNITY_REVIEW_APPLICATION_ID`: 검토 봇의 public key와 application ID. 기존 `DISCORD_PUBLIC_KEY`의 다른 슬래시 명령 앱과 분리해 서명을 검증한다.
+- 선택 `DISCORD_COMMUNITY_REVIEW_CHANNEL_ID`: 생략하면 운영 웹훅 metadata의 채널 ID를 조회한다.
+- 앱 Interactions Endpoint URL: `https://bgms.kr/api/discord/interactions`.
+
+공식 프로토콜: [Discord interactions](https://docs.discord.com/developers/interactions/receiving-and-responding). 서명/최근 timestamp/사용자 검증 후 즉시 defer하고, DB/채널 확인과 실제 결정은 Next after에서 수행한다. 저장된 메시지 ID와 현재 채널을 검증하며 비소유자에게 권한이 없다. 처리 결과는 기존 Discord 메시지와 ephemeral 응답에 반영한다. 멘션 알림은 비활성화한다. 긴 초안은 전체 텍스트 첨부파일과 검토 페이지에서 확인한다.
+
+알림은 DB claim으로 한 건씩 전송한다. 실패하면 초안은 유지하고 5분 뒤 재시도 가능하다. 승인 결과 메시지 수정 실패도 다음 처리에서 재시도한다. Discord HTTP 응답 유실은 중복 알림을 만들 수 있지만 동일 검토 ID의 중복 공개는 DB에서 차단한다.
+
+### 예약 실행과 배포
+
+`.github/workflows/community-agent.yml`: 매일 한국 오전 9시 게시글 수집/초안 생성.
+`.github/workflows/community-reviews.yml`: 15분마다 답글 초안 최대 1개/알림 1개 처리.
+두 실행기 모두 `COMMUNITY_AGENT_SCHEDULE_ENABLED=true`, 운영 `APP_URL`, 양쪽이 같은 `COMMUNITY_AGENT_WORKER_SECRET` 설정이 필요하다. 코드만 추가했다고 실행기가 활성화된 것은 아니다. 배포 후 관리자 검토 링크/로그인 이동과 실제 Discord 버튼을 검증한 다음 예약을 활성화한다.
+
+현재 작업에서는 기존 검증 완료 실행을 168번 비공개 draft와 검토 ID `58bcea61-128f-4caf-b9d5-74dca867cbc5`로 연결했다. 공개 발행/실제 답글 작성은 하지 않았다. 운영 사이트 배포, 개발 서버에는 원본 작업 폴더의 봇 설정을 아직 복사하지 않았다. 기존 BGMS 앱(1490545661702307840)과 소유자 kangheesung_를 API로 확인했으나, 운영 알림 채널 접근은 403이고 Interactions Endpoint는 미등록이다. 봇 초대/채널 권한, 검토 앱 전용 public key와 endpoint 연결, 예약 활성화 및 실제 알림 발송은 운영 연결이 남아 있다.
+
+## 2026-09-10: 답글의 공식 패치노트 근거 조회
+
+`reply-evidence.ts`는 게시글의 공식 PUBG 패치노트 링크를 먼저 읽는다. 링크가 없으면 제목의 정확한 패치 버전으로 공식 목록에서 원문을 찾는다. 실제 목록의 Nuxt 데이터는 id/title 리터럴만 읽고 스크립트를 실행하지 않는다. 원문의 자체 제목에서 버전을 재검사하므로 최신 글이나 관련 글의 버전을 잘못 인용하지 않는다. 조회 범위는 공식 한국어 패치노트이며 일반 웹 검색·댓글 URL 탐색은 하지 않는다.
+
+외부 조회는 전체 10초, 최대 3회(리다이렉트 포함), 응답당 2MiB로 제한한다. 모델에는 최대 12,000자의 본문과 확인 시각, 한국 시간대, 일정 구간을 전달한다. 일정 질문에 원문이 없거나 공식 채널로 돌려보내기만 하는 답글은 보류한다. 정상 초안에는 서버가 출처 링크를 붙이고 usage에 출처/확인 시각/원문 발췌를 남긴다. 승인 전에는 공개 답글을 만들지 않는다.
+
+43.1 제목과 “업데이트가 언제야?” 질문으로 공식 목록→원문→Gemini 실제 호출을 검증했다. PC 9월 10일 09:00~17:30, 콘솔 9월 17일 10:00~18:00 예정이라는 구체적인 답변과 원문 링크가 생성됐다. 기존 168번 게시글과 67번 댓글은 삭제되어 DB를 변경하지 않는 로컬 QA로 검증했으며, 기존 검토 항목을 재발행하거나 덮어쓰지 않았다. 운영 배포/Discord 연결 상태는 위의 미완료 항목과 같다.

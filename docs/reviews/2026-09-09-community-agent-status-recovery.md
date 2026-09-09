@@ -7,7 +7,7 @@
 ## 적용
 
 - 대상: 기존 서버가 연결된 BGMS Supabase 프로젝트.
-- 원본: `supabase/migrations/20260908000000_community_agent_persistence.sql` (앞서 로컬 PostgreSQL 17 검증과 코드 재검토를 통과한 SQL 그대로).
+- 원본: `supabase/migrations/20260909061622_community_agent_persistence.sql` (앞서 로컬 PostgreSQL 17 검증과 코드 재검토를 통과한 SQL 그대로).
 - Supabase MCP 적용 이름: `community_agent_persistence`; 원격 기록 version: `20260909061622`.
 - 사전 확인: profiles/posts/agent_runs 존재, 기존 board writer의 17개 인자 서명 일치, community 객체·migration 없음.
 - 추가: 전용 테이블 4개, 인덱스, 제약·trigger, service-role 전용 RPC, 비활성 기본 정책 1건과 출처 설정 3건.

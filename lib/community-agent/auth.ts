@@ -8,7 +8,7 @@ import { CommunityStore } from "./store";
 export type Actor = { kind: "admin"; userId: string } | { kind: "worker"; userId: null };
 
 export const COMMUNITY_BOT_EMAIL = "bgms-community-agent@users.invalid";
-export const COMMUNITY_BOT_NICKNAME = "BGMS AI 비서";
+export const COMMUNITY_BOT_NICKNAME = "BGMS AI";
 const USER_PAGE_SIZE = 200;
 const MAX_USER_PAGES = 5;
 

@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Draft, Evidence, Policy, RunSnapshot, Stage, Topic, Validation } from "../lib/community-agent/types";
-import { checkDraft, renderDraft } from "../lib/community-agent/validate";
 import { koreanDay } from "../lib/community-agent/policy";
 import { runCommunityWorker } from "../scripts/run_community_agent";
 
@@ -11,8 +10,16 @@ const mocks = vi.hoisted(() => ({
   store: null as unknown,
   modelCalls: 0,
   providerFetch: vi.fn(),
-  commentInsert: vi.fn(),
 }));
+const reviewMocks = vi.hoisted(() => ({
+  enqueuePostReview: vi.fn(),
+  notifyNextReview: vi.fn(),
+}));
+
+vi.mock("next/server", async () => {
+  const actual = await vi.importActual<typeof import("next/server")>("next/server");
+  return { ...actual, after: vi.fn() };
+});
 
 vi.mock("@/lib/community-agent/auth", () => ({
   resolveCommunityActor: vi.fn(async (request: Request) => request.headers.has("authorization")
@@ -21,6 +28,7 @@ vi.mock("@/lib/community-agent/auth", () => ({
   createCommunityStore: () => ({ client: {}, store: mocks.store }),
   prepareCommunityBot: vi.fn(),
 }));
+vi.mock("@/lib/community-agent/reviews", () => reviewMocks);
 
 vi.mock("@google/generative-ai", () => ({
   SchemaType: { STRING: "string", BOOLEAN: "boolean", ARRAY: "array", OBJECT: "object" },
@@ -66,8 +74,6 @@ vi.mock("@google/generative-ai", () => ({
 import { POST as configurePOST } from "../app/api/admin/agent/community/route";
 import { GET as runGET, POST as runPOST } from "../app/api/admin/agent/community/run/route";
 
-type ApprovedDraft = { title: string; html: string; category: "배그 소식" | "자유"; hash: string };
-
 class FlowStore {
   policy: Policy = {
     enabled: true,
@@ -79,29 +85,13 @@ class FlowStore {
   };
   run: RunSnapshot | null = null;
   evidence = new Map<string, Evidence>();
-  posts: Array<{ id: number; title: string; html: string }> = [];
-  approved: ApprovedDraft | null = null;
 
   async cleanup() { return { excerpts: 0, drafts: 0, runs: 0 }; }
 
   async getPolicy() { return this.policy; }
 
   async updatePolicy(patch: Partial<Policy>) {
-    const enablingPublication = !this.policy.publishingEnabled && patch.publishingEnabled === true;
     this.policy = { ...this.policy, ...patch };
-    if (enablingPublication && this.policy.enabled && this.policy.publishingEnabled && this.run?.dryRun
-      && this.run.status === "ready" && this.run.day === koreanDay(new Date()) && this.run.draft
-      && this.run.validation?.passed && this.approved) {
-      const ids = [...new Set(this.run.draft.paragraphs.flatMap((paragraph) => paragraph.evidenceIds))];
-      const evidence = ids.flatMap((id) => this.evidence.has(id) ? [this.evidence.get(id)!] : []);
-      const checked = checkDraft(this.run.draft, evidence, new Date());
-      const rendered = renderDraft(this.run.draft, evidence);
-      if (ids.length > 0 && evidence.length === ids.length && checked.passed
-        && checked.contentHash === this.run.validation.contentHash
-        && rendered.hash === this.approved.hash) {
-        this.run.dryRun = false;
-      }
-    }
     return this.policy;
   }
 
@@ -145,8 +135,6 @@ class FlowStore {
     } else {
       run.validation = result.validation as Validation;
       if (run.validation.passed) {
-        const rendered = result.rendered as ApprovedDraft;
-        this.approved = { ...rendered, hash: run.validation.contentHash };
         run.status = "ready";
       } else {
         run.status = "deferred";
@@ -168,20 +156,6 @@ class FlowStore {
   async loadOfficialEvidence() { return []; }
   async recentPosts() { return []; }
   async getSourceCache() { return null; }
-
-  async publish() {
-    const run = await this.getRun();
-    if (run.status === "published") return { code: "already_published" as const, postId: run.postId };
-    if (run.dryRun) return { code: "not_ready" as const, postId: null };
-    if (!this.policy.enabled || !this.policy.publishingEnabled) return { code: "paused" as const, postId: null };
-    if (run.day !== koreanDay(new Date())) return { code: "expired" as const, postId: null };
-    if (run.status !== "ready" || !this.approved) return { code: "not_ready" as const, postId: null };
-    const postId = this.posts.length + 1;
-    this.posts.push({ id: postId, title: this.approved.title, html: this.approved.html });
-    run.status = "published";
-    run.postId = postId;
-    return { code: "published" as const, postId };
-  }
 }
 
 function response(body: unknown, status = 200) {
@@ -241,7 +215,8 @@ describe("community agent provider-mocked lifecycle", () => {
   beforeEach(() => {
     vi.useFakeTimers({ now: NOW });
     mocks.modelCalls = 0;
-    mocks.commentInsert.mockClear();
+    reviewMocks.enqueuePostReview.mockClear();
+    reviewMocks.notifyNextReview.mockClear();
     mocks.providerFetch.mockReset().mockImplementation(providerResponse);
     vi.stubGlobal("fetch", mocks.providerFetch);
     mocks.store = new FlowStore();
@@ -256,44 +231,43 @@ describe("community agent provider-mocked lifecycle", () => {
     vi.useRealTimers();
   });
 
-  it("collects three providers, promotes one verified dry run, and keeps same-day retries idempotent", async () => {
+  it("collects three providers and leaves the verified draft ready for human approval", async () => {
     const store = mocks.store as FlowStore;
     await beginDryRun();
 
     await expect(runCommunityWorker({ baseUrl: "https://bgms.test", secret: "worker-secret", fetchImpl: routeFetch }))
-      .resolves.toEqual({ status: "not_ready", postId: null });
+      .resolves.toEqual({ status: "ready", postId: null });
     expect(store.run?.status).toBe("ready");
     expect(store.run?.dryRun).toBe(true);
-    expect(store.posts).toHaveLength(0);
     expect(mocks.modelCalls).toBe(3);
     expect(new Set(mocks.providerFetch.mock.calls.map(([url]) => new URL(String(url)).hostname))).toEqual(new Set([
       "gall.dcinside.com", "naverapihub.apigw.ntruss.com", "www.googleapis.com",
     ]));
 
-    await configure({ publishingEnabled: true });
-    expect(store.run?.dryRun).toBe(false);
-    expect(store.posts).toHaveLength(0);
+    const publicationEnable = await configurePOST(jsonRequest(
+      "https://bgms.test/api/admin/agent/community",
+      { action: "configure", patch: { publishingEnabled: true } },
+    ));
+    expect(publicationEnable.status).toBe(400);
+    expect(store.policy.publishingEnabled).toBe(false);
 
     await expect(runCommunityWorker({ baseUrl: "https://bgms.test", secret: "worker-secret", fetchImpl: routeFetch }))
-      .resolves.toEqual({ status: "published", postId: 1 });
+      .resolves.toEqual({ status: "ready", postId: null });
     await expect(runCommunityWorker({ baseUrl: "https://bgms.test", secret: "worker-secret", fetchImpl: routeFetch }))
-      .resolves.toEqual({ status: "published", postId: 1 });
-    expect(store.posts).toHaveLength(1);
-    expect(store.run?.modelCalls).toBeLessThanOrEqual(3);
-    expect(mocks.commentInsert).not.toHaveBeenCalled();
+      .resolves.toEqual({ status: "ready", postId: null });
+    expect(store.run?.modelCalls).toBe(3);
+    expect(reviewMocks.enqueuePostReview).toHaveBeenCalledTimes(3);
   });
 
-  it("respects an administrator pause immediately after verification", async () => {
+  it("keeps the ready draft paused when publication is disabled", async () => {
     const store = mocks.store as FlowStore;
     await beginDryRun();
     await runCommunityWorker({ baseUrl: "https://bgms.test", secret: "worker-secret", fetchImpl: routeFetch });
-    await configure({ publishingEnabled: true });
     await configure({ publishingEnabled: false });
 
     await expect(runCommunityWorker({ baseUrl: "https://bgms.test", secret: "worker-secret", fetchImpl: routeFetch }))
-      .resolves.toEqual({ status: "paused", postId: null });
-    expect(store.posts).toHaveLength(0);
+      .resolves.toEqual({ status: "ready", postId: null });
     expect(store.run?.modelCalls).toBe(3);
-    expect(mocks.commentInsert).not.toHaveBeenCalled();
+    expect(reviewMocks.enqueuePostReview).toHaveBeenCalledTimes(2);
   });
 });

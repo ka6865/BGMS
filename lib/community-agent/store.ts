@@ -233,6 +233,14 @@ export class CommunityStore {
     return normalizeSnapshot(data);
   }
 
+  async retryRun(actorId: string | null, previousRunId: string): Promise<RunSnapshot> {
+    const { data, error } = await this.client.rpc("retry_community_run", {
+      p_actor_id: actorId, p_previous_run_id: previousRunId,
+    });
+    requireSuccess({ error }, "retry-run");
+    return normalizeSnapshot(data);
+  }
+
   async getRun(id: string): Promise<RunSnapshot> {
     const { data, error } = await this.client.rpc("get_community_run", { p_run_id: id });
     requireSuccess({ error }, "get-run");
@@ -344,7 +352,7 @@ export class CommunityStore {
     requireSuccess({ error }, "publish");
     const result = row(data, "publish-result");
     const code = text(result.code, "publish-code") as PublishResult["code"];
-    if (!(["published", "already_published", "paused", "not_ready", "expired", "limit", "invalid_bot"] as const).includes(code)) {
+    if (!(["approval_required", "published", "already_published", "paused", "not_ready", "expired", "limit", "invalid_bot"] as const).includes(code)) {
       fail("invalid-publish-code");
     }
     const postId = result.postId ?? result.post_id ?? null;

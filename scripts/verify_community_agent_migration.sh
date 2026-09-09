@@ -7,7 +7,8 @@ readonly CONTAINER_NAME="bgms-community-agent-mig-check-$$"
 readonly PG_PORT="${BGMS_COMMUNITY_AGENT_MIG_PORT:-$((56000 + ($$ % 500)))}"
 readonly DATABASE="communityagentcheck"
 readonly BOARD_MIGRATION="supabase/migrations/20260718203104_board_image_storage_ownership.sql"
-readonly MIGRATION="supabase/migrations/20260908000000_community_agent_persistence.sql"
+readonly MIGRATION="supabase/migrations/20260909061622_community_agent_persistence.sql"
+readonly RETRY_MIGRATION="supabase/migrations/20260909100149_community_agent_manual_retry.sql"
 readonly FIXTURE="tests/fixtures/community-agent/prerequisites.sql"
 readonly SCENARIOS="tests/fixtures/community-agent/scenarios.sql"
 export PGPASSWORD=pw
@@ -51,6 +52,8 @@ echo "▶ prerequisite schema and real board writer"
 "${PSQL[@]}" -f "$BOARD_MIGRATION"
 echo "▶ community-agent migration"
 "${PSQL[@]}" -f "$MIGRATION"
+"${PSQL[@]}" -f "$RETRY_MIGRATION"
+"${PSQL[@]}" -f tests/fixtures/community-agent/retry-scenarios.sql
 if [[ "$("${PSQL[@]}" -Atc "select n.nspname from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pgcrypto'")" != "extensions" ]]; then
   echo "pgcrypto compatibility fixture was not preserved in extensions schema" >&2
   exit 1
@@ -130,6 +133,21 @@ wait "$STOP_PUBLISH_A"
 wait "$STOP_PUBLISH_B"
 "${PSQL[@]}" -c "do \$\$ begin if (select count(*) from public.posts where title = 'stop publish serial') <> 1 then raise exception 'stop/publish was not serial'; end if; if (select enabled from public.community_agent_policy where singleton) then raise exception 'stop did not persist'; end if; end \$\$;"
 
-rm -f /tmp/community-agent-publish-a-$$.out /tmp/community-agent-publish-b-$$.out \
+echo "▶ concurrent manual retries create one fresh dry run"
+RETRY_ADMIN="$("${PSQL[@]}" -Atc "with u as (insert into auth.users default values returning id) insert into public.profiles(id,nickname,role) select id,'manual retry admin','admin' from u returning id;")"
+"${PSQL[@]}" -c "update public.community_agent_runs set day = day - 30 where day = (clock_timestamp() at time zone 'Asia/Seoul')::date; update public.community_agent_policy set enabled = true, publishing_enabled = false where singleton;"
+RETRY_PREVIOUS="$("${PSQL[@]}" -Atc "select public.start_community_run(null,true)->>'id'")"
+"${PSQL[@]}" -c "update public.community_agent_runs set status='deferred',reason='no_usable_evidence' where run_id='${RETRY_PREVIOUS}'::uuid;"
+"${PSQL[@]}" -c "begin; select public.retry_community_run('${RETRY_ADMIN}'::uuid,'${RETRY_PREVIOUS}'::uuid); select pg_sleep(2); commit;" >/tmp/community-agent-retry-a-$$.out &
+RETRY_A=$!
+wait_for_policy_lock
+"${PSQL[@]}" -c "/* community-concurrent-retry */ select public.retry_community_run('${RETRY_ADMIN}'::uuid,'${RETRY_PREVIOUS}'::uuid);" >/tmp/community-agent-retry-b-$$.out &
+RETRY_B=$!
+wait_for_blocked_query "community-concurrent-retry"
+wait "$RETRY_A"
+wait "$RETRY_B"
+"${PSQL[@]}" -c "do \$\$ begin if (select count(*) from public.community_agent_runs where retry_of='${RETRY_PREVIOUS}'::uuid) <> 1 then raise exception 'concurrent retry created duplicates'; end if; if not exists (select 1 from public.community_agent_runs where retry_of='${RETRY_PREVIOUS}'::uuid and dry_run and status='collecting' and model_calls=0) then raise exception 'retry did not create fresh dry run'; end if; end \$\$;"
+
+rm -f /tmp/community-agent-retry-a-$$.out /tmp/community-agent-retry-b-$$.out /tmp/community-agent-publish-a-$$.out /tmp/community-agent-publish-b-$$.out \
   /tmp/community-agent-stop-publish-a-$$.out /tmp/community-agent-stop-publish-b-$$.out
 echo "✅ community-agent migration and atomic publishing checks passed"

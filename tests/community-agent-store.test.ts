@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CommunityStore } from "../lib/community-agent/store";
 
 const HASH = "a".repeat(64);
+const RUN_ID = "22222222-2222-4222-8222-222222222222";
 
 function query(response: { data?: unknown; error?: unknown }) {
   const value: Record<string, unknown> = {};
@@ -39,6 +40,56 @@ describe("CommunityStore", () => {
     const store = new CommunityStore({ rpc } as never);
 
     await expect(store.startRun(null, false)).rejects.toThrow("denied");
+  });
+
+  it("manual retry RPC 결과를 shared run contract로 변환한다", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: {
+        run_id: RUN_ID,
+        day: "2026-09-09",
+        status: "collecting",
+        stages: {},
+        model_calls: 0,
+        reports: [],
+        topic: null,
+        draft: null,
+        validation: null,
+        dry_run: true,
+        post_id: null,
+        reason: null,
+      },
+      error: null,
+    });
+    const store = new CommunityStore({ rpc } as never);
+
+    await expect(store.retryRun("admin-user", RUN_ID)).resolves.toEqual(expect.objectContaining({
+      id: RUN_ID,
+      day: "2026-09-09",
+      status: "collecting",
+      modelCalls: 0,
+      dryRun: true,
+      postId: null,
+    }));
+    expect(rpc).toHaveBeenCalledWith("retry_community_run", {
+      p_actor_id: "admin-user",
+      p_previous_run_id: RUN_ID,
+    });
+  });
+
+  it("manual retry RPC 오류를 숨기지 않는다", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: null,
+      error: { message: "community_retry_not_available" },
+    });
+    const store = new CommunityStore({ rpc } as never);
+
+    await expect(store.retryRun("admin-user", RUN_ID)).rejects.toThrow(
+      "community-store-retry-run-failed: community_retry_not_available",
+    );
+    expect(rpc).toHaveBeenCalledWith("retry_community_run", {
+      p_actor_id: "admin-user",
+      p_previous_run_id: RUN_ID,
+    });
   });
 
   it("stage RPC 결과를 shared run contract로 변환한다", async () => {

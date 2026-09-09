@@ -7,11 +7,12 @@ describe("community agent automation contract", () => {
     expect(contract).toEqual(expect.objectContaining({ status: "manual" }));
   });
 
-  it("is active only while collection and policy publishing are both enabled", () => {
-    const active = buildAgentAutomationContracts({ communityAgent: { enabled: true, publishingEnabled: true } });
-    const paused = buildAgentAutomationContracts({ communityAgent: { enabled: true, publishingEnabled: false } });
-    expect(active.contracts.find((item) => item.id === "community-agent-publishing")?.status).toBe("active");
-    expect(paused.contracts.find((item) => item.id === "community-agent-publishing")?.status).toBe("ready");
-    expect(active.guardrails.join(" ")).toContain("일반 관리자 도구");
+  it("describes the required human review for both posts and replies", () => {
+    const result = buildAgentAutomationContracts();
+    const contract = result.contracts.find((item) => item.id === "community-agent-publishing");
+    expect(contract?.status).toBe("manual");
+    expect(contract?.whatRuns).toContain("글·답글");
+    expect(contract?.whatRuns).toContain("운영자 승인");
+    expect(result.guardrails.join(" ")).not.toContain("별도 계약");
   });
 });
