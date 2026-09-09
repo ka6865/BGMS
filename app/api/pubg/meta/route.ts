@@ -5,8 +5,6 @@ import { BENCHMARK_FILTER_VERSION, BENCHMARK_POPULATION_EVIDENCE_VERSION } from 
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-const patchVersion = process.env.PUBG_META_PATCH_VERSION?.trim() || "";
-const patchStartedAt = process.env.PUBG_META_PATCH_STARTED_AT || "";
 export const BURST_COMPARISON_MIN_MATCHES = 20;
 
 type MetaRow = {
@@ -24,15 +22,6 @@ type MetaRow = {
   population_evidence_version?: number;
 };
 
-type DailyTrendPoint = {
-  date: string;
-  player_match_count: number;
-  weapon_pick_count: number;
-  weapon_name: string;
-  weapon_category: string;
-  scope: "weapon" | "category";
-};
-
 type ScopePickShare = {
   scope: "category";
   weapon_category: string;
@@ -41,11 +30,8 @@ type ScopePickShare = {
   weapon_pick_count: number;
 };
 
-/**
- * Weapon-meta RPC/sample rows are displayable only when both the benchmark
- * filter contract and population provenance marker are explicit.  A missing
- * marker (including legacy v8 rows) is indistinguishable from contaminated
- * pre-boundary data and therefore fails closed.
+/** Strict evidence gate retained for benchmark consumers. The public patch report
+ * separately includes preserved historical samples; it never promotes their provenance.
  */
 export function isSafeWeaponMetaPopulationRow(row: unknown): boolean {
   if (!row || typeof row !== "object" || Array.isArray(row)) return false;
@@ -55,13 +41,14 @@ export function isSafeWeaponMetaPopulationRow(row: unknown): boolean {
   return Number(evidence) === BENCHMARK_POPULATION_EVIDENCE_VERSION;
 }
 
-function metric(row: MetaRow | undefined) {
-  const samples = Number(row?.player_match_count || 0);
+function metric(row: MetaRow | undefined, periodSamples = 0) {
+  const samples = Number(row?.player_match_count ?? periodSamples);
   const picks = Number(row?.active_pick_count || 0);
   const damage = Number(row?.total_damage || 0);
   const killsAndDbnos = Number(row?.total_kills || 0) + Number(row?.total_dbnos || 0);
   return {
     match_count: samples,
+    active_pick_count: picks,
     pick_share: samples > 0 ? Number(((picks / samples) * 100).toFixed(1)) : 0,
     avg_damage: picks > 0 ? Math.round(damage / picks) : 0,
     sustained_hits: Number(row?.burst_sample_count || 0) > 0
@@ -71,40 +58,6 @@ function metric(row: MetaRow | undefined) {
     burst_available: Number(row?.burst_sample_count || 0) >= BURST_COMPARISON_MIN_MATCHES,
     kill_efficiency: damage > 0 ? Number(((killsAndDbnos * 1000) / damage).toFixed(1)) : 0,
   };
-}
-
-function buildDailyWeaponTrend(rows: Array<{
-  played_at: string;
-  weapon_category: string;
-  weapon_name: string;
-  active_pick: boolean;
-}>): DailyTrendPoint[] {
-  const totalMatchesByDate = new Map<string, Set<string>>();
-  const days = new Map<string, { weaponMatches: Set<string>; weaponName: string; weaponCategory: string; scope: "weapon" | "category" }>();
-  for (const row of rows as Array<typeof rows[number] & { match_id: string; platform: string; player_id: string }>) {
-    const date = row.played_at.slice(0, 10);
-    const key = `${date}:${row.weapon_name}`;
-    const identity = `${row.match_id}:${row.platform}:${row.player_id}`;
-    const totalMatches = totalMatchesByDate.get(date) || new Set<string>();
-    totalMatches.add(identity);
-    totalMatchesByDate.set(date, totalMatches);
-    const current = days.get(key) || { weaponMatches: new Set<string>(), weaponName: row.weapon_name, weaponCategory: row.weapon_category, scope: "weapon" as const };
-    if (row.active_pick) current.weaponMatches.add(identity);
-    days.set(key, current);
-
-    const categoryKey = `${date}:category:${row.weapon_category}`;
-    const category = days.get(categoryKey) || { weaponMatches: new Set<string>(), weaponName: row.weapon_category, weaponCategory: row.weapon_category, scope: "category" as const };
-    if (row.active_pick) category.weaponMatches.add(identity);
-    days.set(categoryKey, category);
-
-    const allCategoryKey = `${date}:category:ALL`;
-    const allCategory = days.get(allCategoryKey) || { weaponMatches: new Set<string>(), weaponName: "ALL", weaponCategory: "ALL", scope: "category" as const };
-    if (row.active_pick) allCategory.weaponMatches.add(identity);
-    days.set(allCategoryKey, allCategory);
-  }
-  return Array.from(days.entries())
-    .map(([key, values]) => ({ date: key.slice(0, 10), player_match_count: totalMatchesByDate.get(key.slice(0, 10))?.size || 0, weapon_pick_count: values.weaponMatches.size, weapon_name: values.weaponName, weapon_category: values.weaponCategory, scope: values.scope }))
-    .sort((left, right) => left.date.localeCompare(right.date));
 }
 
 export function buildScopePickShares(rows: Array<{
@@ -136,12 +89,16 @@ export function buildScopePickShares(rows: Array<{
 
 export async function GET(request: NextRequest) {
   const requestedMatchType = request.nextUrl.searchParams.get("matchType");
+  const patchVersion = request.nextUrl.searchParams.get("patch")?.trim() || null;
+  if (patchVersion && !/^[a-zA-Z0-9._-]{1,32}$/.test(patchVersion)) {
+    return NextResponse.json({ success: false, message: "올바른 패치를 선택해 주세요." }, { status: 400 });
+  }
   const matchType = requestedMatchType === "official" || requestedMatchType === "competitive" ? requestedMatchType : "all";
-  if (!supabaseUrl || !supabaseKey || !patchVersion || !Number.isFinite(Date.parse(patchStartedAt))) {
+  if (!supabaseUrl || !supabaseKey) {
     return NextResponse.json({
       success: false,
       status: "not_configured",
-      message: "메타 비교 시작 시각이 아직 설정되지 않았습니다.",
+      message: "메타 집계 연결이 아직 설정되지 않았습니다.",
       patchVersion: patchVersion || null,
       weapons: [],
       updatedAt: new Date().toISOString(),
@@ -150,40 +107,22 @@ export async function GET(request: NextRequest) {
 
   try {
     const supabase = createClient(supabaseUrl, supabaseKey);
-    const { data, error } = await supabase.rpc("get_weapon_meta_comparison", {
+    const { data, error } = await supabase.rpc("get_weapon_meta_patch_report", {
       p_patch_version: patchVersion,
-      p_patch_started_at: patchStartedAt,
-      p_baseline_days: 14,
       p_match_type: matchType,
     });
-    if (error) {
-      console.error("[META API] comparison query failed", { code: error.code, message: error.message });
-      return NextResponse.json({
-        success: false,
-        status: "unavailable",
-        message: "집계 테이블을 준비 중입니다.",
-        patchVersion,
-        weapons: [],
-        updatedAt: new Date().toISOString(),
-      }, { status: 503 });
+    if (error?.code === "22023") {
+      return NextResponse.json({ success: false, message: "등록되지 않은 패치입니다." }, { status: 400 });
     }
-
-    const rows = ((data || []) as MetaRow[]).filter(isSafeWeaponMetaPopulationRow);
-    const baselineStartAt = new Date(Date.parse(patchStartedAt) - 14 * 86_400_000).toISOString();
-    let trendQuery = supabase
-      .from("weapon_meta_match_samples")
-      .select("match_id,platform,player_id,played_at,weapon_category,weapon_name,active_pick,first_sec_hits,match_type,filter_version,population_evidence_version")
-      .gte("played_at", baselineStartAt)
-      .lt("played_at", new Date().toISOString())
-      .eq("filter_version", BENCHMARK_FILTER_VERSION)
-      .eq("population_evidence_version", BENCHMARK_POPULATION_EVIDENCE_VERSION)
-      .in("patch_version", [`pre_${patchVersion}`, patchVersion]);
-    trendQuery = matchType === "all"
-      ? trendQuery.in("match_type", ["official", "competitive"])
-      : trendQuery.eq("match_type", matchType);
-    const { data: rawTrendRows, error: trendError } = await trendQuery;
-    if (trendError) console.error("[META API] daily trend query failed", { code: trendError.code, message: trendError.message });
-    const trendRows = (rawTrendRows || []).filter(isSafeWeaponMetaPopulationRow);
+    if (error || !data || !Array.isArray(data.comparison)) {
+      console.error("[META API] report query failed", { code: error?.code });
+      return NextResponse.json({ success: false, status: "unavailable",
+        message: "메타 집계를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.",
+        patchVersion, weapons: [] }, { status: 503 });
+    }
+    // The public report reuses stored samples by match date within each patch window.
+    // It aggregates in the DB, so the REST row cap cannot truncate totals/trends.
+    const rows = data.comparison as MetaRow[];
     const byWeapon = new Map<string, { pre?: MetaRow; post?: MetaRow }>();
     for (const row of rows) {
       const current = byWeapon.get(row.weapon_name) || {};
@@ -195,33 +134,31 @@ export async function GET(request: NextRequest) {
         id: index + 1,
         weapon_name,
         weapon_category: periods.post?.weapon_category || periods.pre?.weapon_category || "OTHERS",
-        pre_patch: metric(periods.pre),
-        post_patch: metric(periods.post),
+        pre_patch: metric(periods.pre, data.burstCollection?.pre.total),
+        post_patch: metric(periods.post, data.burstCollection?.post.total),
       }))
       .sort((a, b) => b.post_patch.pick_share - a.post_patch.pick_share);
 
+    const hasPre = Number(data.burstCollection?.pre.total) > 0;
+    const hasPost = Number(data.burstCollection?.post.total) > 0;
     return NextResponse.json({
       success: true,
-      status: weapons.length > 0 ? "ready" : "collecting",
-      message: weapons.length > 0 ? null : "분석된 매치가 쌓이면 실제 비교값이 표시됩니다.",
-      patchVersion,
-      patchStartedAt,
+      status: hasPre && hasPost ? "ready" : "collecting",
+      message: data.scheduled ? "패치 적용 예정입니다. 지금은 패치 전 기록을 볼 수 있으며, 적용 후 수집된 경기가 비교에 반영됩니다." : !hasPost ? "패치 후 표본을 수집 중입니다. 경기가 쌓이면 비교가 표시됩니다." : !hasPre ? "보관된 패치 전 표본이 없습니다. 패치 후 기록부터 확인할 수 있습니다." : null,
+      patchVersion: data.patchVersion,
+      patchStartedAt: data.patchStartedAt,
+      preStartedAt: data.preStartedAt,
+      preEndedAt: data.preEndedAt,
+      postEndedAt: data.postEndedAt,
+      timingStatus: data.timingStatus,
+      patches: data.patches,
       matchType,
-      dailyWeaponTrend: trendError ? [] : buildDailyWeaponTrend(trendRows || []),
-      scopePickShares: trendError ? [] : buildScopePickShares(trendRows || [], patchStartedAt),
-      burstCollection: trendError ? null : {
-        pre: {
-          total: new Set((trendRows || []).filter((row: any) => Date.parse(row.played_at) < Date.parse(patchStartedAt)).map((row: any) => `${row.match_id}:${row.platform}:${row.player_id}`)).size,
-          completed: new Set((trendRows || []).filter((row: any) => Date.parse(row.played_at) < Date.parse(patchStartedAt) && row.first_sec_hits !== null).map((row: any) => `${row.match_id}:${row.platform}:${row.player_id}`)).size,
-        },
-        post: {
-          total: new Set((trendRows || []).filter((row: any) => Date.parse(row.played_at) >= Date.parse(patchStartedAt)).map((row: any) => `${row.match_id}:${row.platform}:${row.player_id}`)).size,
-          completed: new Set((trendRows || []).filter((row: any) => Date.parse(row.played_at) >= Date.parse(patchStartedAt) && row.first_sec_hits !== null).map((row: any) => `${row.match_id}:${row.platform}:${row.player_id}`)).size,
-        },
-      },
+      dailyWeaponTrend: data.dailyWeaponTrend,
+      scopePickShares: data.scopePickShares,
+      burstCollection: data.burstCollection,
       weapons,
       updatedAt: new Date().toISOString(),
-    });
+    }, { headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=120" } });
   } catch (error) {
     console.error("[META API] unexpected failure", error);
     return NextResponse.json({ success: false, status: "unavailable", message: "메타 집계를 불러오지 못했습니다.", weapons: [] }, { status: 500 });

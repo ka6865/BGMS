@@ -1,9 +1,15 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { buildScopePickShares, GET, isSafeWeaponMetaPopulationRow } from "../app/api/pubg/meta/route";
+import { buildScopePickShares, isSafeWeaponMetaPopulationRow } from "../app/api/pubg/meta/route";
+
+afterEach(() => vi.unstubAllEnvs());
 
 describe("GET /api/pubg/meta", () => {
   it("does not present example numbers as real data when collection is unavailable", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "");
+    vi.resetModules();
+    const { GET } = await import("../app/api/pubg/meta/route");
     const res = await GET(new NextRequest("http://localhost/api/pubg/meta"));
     const json = await res.json();
 
