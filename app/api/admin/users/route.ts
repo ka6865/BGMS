@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
-import { buildAiObservability, getAiErrorLabel, type AiUsageObservationRow, type PubgErrorObservationRow } from "@/lib/admin-agent/ai-observability";
+import { buildAiObservability, getAiErrorLabel, normalizeAiUsageRows, type AiUsageObservationRow, type PubgErrorObservationRow } from "@/lib/admin-agent/ai-observability";
 
 const USERS_PAGE_SIZE = 1000;
 const PROFILES_PAGE_SIZE = 1000;
@@ -193,13 +193,15 @@ export async function GET() {
       }
     };
 
-    const [profiles, users, analyticsRows, aiRows, pubgRows] = await Promise.all([
+    const [profiles, users, analyticsRows, rawAiRows, pubgRows] = await Promise.all([
       listAllProfiles(adminContext.supabaseAdmin),
       listAllAuthUsers(adminContext.supabaseAdmin),
       fetchAnalytics(),
       fetchRows<AiUsageObservationRow>("ai_usage_logs", ["id", "user_id", "model_name", "prompt_tokens", "completion_tokens", "cost_usd", "analysis_type", "status", "error_code", "error_message", "duration_ms", "request_id", "platform", "created_at"], ["id", "user_id", "model_name", "prompt_tokens", "completion_tokens", "cost_usd", "analysis_type", "created_at"]),
       fetchRows<PubgErrorObservationRow>("pubg_api_errors", ["id", "route", "status", "message", "error_code", "failure_stage", "duration_ms", "platform", "request_id", "created_at"], ["id", "route", "status", "message", "created_at"]),
     ]);
+
+    const aiRows = normalizeAiUsageRows(rawAiRows);
 
     const activityMap = new Map<string, {
       totalEvents: number;
@@ -473,16 +475,13 @@ export async function GET() {
     observability.windows.days7.memberUsageRate = active7dCount
       ? Number(((observability.windows.days7.uniqueUsers / active7dCount) * 100).toFixed(1))
       : 0;
-    const aiUserCounts = new Map<string, number>();
-    for (const row of aiRows) if (row.user_id) aiUserCounts.set(row.user_id, (aiUserCounts.get(row.user_id) || 0) + 1);
-    const topAiUsers = Array.from(aiUserCounts.entries())
-      .map(([userId, count]) => ({
-        userId,
-        nickname: profileById.get(userId)?.nickname || `회원 ${userId.slice(0, 8)}`,
-        count,
-      }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 5);
+    for (const window of Object.values(observability.windows)) {
+      window.topUsers = window.topUsers.map((user) => ({
+        ...user,
+        nickname: profileById.get(user.userId)?.nickname || `회원 ${user.userId.slice(0, 8)}`,
+      }));
+    }
+    const topAiUsers = observability.windows.days7.topUsers;
     const metricsWithAi = {
       ...metrics,
       topAiUsers,

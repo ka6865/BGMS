@@ -1,5 +1,7 @@
-import { AdminPrivatePlayersSection } from "@/components/admin/AdminPrivatePlayersSection";
 "use client";
+
+import { AdminPrivatePlayersSection } from "@/components/admin/AdminPrivatePlayersSection";
+import { getPubgErrorLabel } from "@/lib/admin-agent/ai-observability";
 
 import React, { useState, useMemo } from "react";
 import {
@@ -88,6 +90,7 @@ export interface AiWindowSummary {
   completionTokens: number;
   averageDurationMs: number | null;
   byType: Record<string, number>;
+  topUsers?: Array<{ userId: string; nickname?: string; count: number }>;
   errorsByReason: Array<{ code: string; label: string; count: number; lastAt: string | null }>;
   recentErrors: Array<{
     id: string;
@@ -180,17 +183,22 @@ function AiObservabilityPanel({ metrics }: { metrics?: CommandCenterMetrics | nu
   const [errorFilter, setErrorFilter] = useState<"all" | "ai" | "pubg">("all");
   const ai = metrics?.[windowKey];
   const pubg = windowKey === "ai24h" ? metrics?.pubgApi24h : metrics?.pubgApi7d;
-  const errors = errorFilter === "pubg" ? (pubg?.byReason || []).map((item) => ({ code: item.reason, label: item.reason, count: item.count })) : errorFilter === "ai" ? (ai?.errorsByReason || []) : [
+  const errors = errorFilter === "pubg" ? (pubg?.byReason || []).map((item) => ({ code: item.reason, label: getPubgErrorLabel(item.reason), count: item.count })) : errorFilter === "ai" ? (ai?.errorsByReason || []) : [
     ...(ai?.errorsByReason || []),
-    ...(pubg?.byReason || []).map((item) => ({ code: `pubg:${item.reason}`, label: `PUBG · ${item.reason}`, count: item.count, lastAt: item.lastAt })),
+    ...(pubg?.byReason || []).map((item) => ({ code: `pubg:${item.reason}`, label: `PUBG · ${getPubgErrorLabel(item.reason)}`, count: item.count, lastAt: item.lastAt })),
   ].sort((a, b) => b.count - a.count);
+
+  const recentErrors = [
+    ...(errorFilter !== "pubg" ? (ai?.recentErrors || []).map((error) => ({ id: `ai-${error.id}`, at: error.createdAt, label: `AI · ${error.errorLabel}`, detail: error.message })) : []),
+    ...(errorFilter !== "ai" ? (pubg?.recent || []).map((error) => ({ id: `pubg-${error.id}`, at: error.createdAt, label: `PUBG · ${error.route}`, detail: `${error.status ?? "?"} · ${getPubgErrorLabel(error.reason)}` })) : []),
+  ].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 10);
 
   return (
     <section className="space-y-3 rounded-2xl border border-indigo-500/20 bg-[#131321] p-4 shadow-lg" aria-label="AI 및 API 오류 관제">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-sm font-black text-white">AI 사용률 · 오류 관제</h3>
-          <p className="mt-1 text-[10px] font-bold text-white/40">AI 비용 로그와 PUBG API 오류 로그를 분리 집계합니다.</p>
+          <p className="mt-1 text-[10px] font-bold text-white/40">AI 요청은 요청 ID 기준으로 집계하며, 비용은 저장된 추정값입니다. AI 사용률은 선택 기간 활동 회원 대비 비율입니다.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <select aria-label="AI 관제 기간" value={windowKey} onChange={(e) => setWindowKey(e.target.value as "ai24h" | "ai7d")} className="rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-xs font-bold text-white">
@@ -209,7 +217,7 @@ function AiObservabilityPanel({ metrics }: { metrics?: CommandCenterMetrics | nu
         <ObsMetric label="성공률" value={`${ai?.successRate ?? 0}%`} tone="success" />
         <ObsMetric label="AI 오류" value={ai?.failedRequests ?? 0} tone="danger" />
         <ObsMetric label="AI 사용률" value={`${ai?.memberUsageRate ?? 0}% (${ai?.uniqueUsers ?? 0}명)`} />
-        <ObsMetric label="AI 비용" value={`$${(ai?.totalCostUsd ?? 0).toFixed(4)}`} />
+        <ObsMetric label="AI 기록 비용" value={`$${(ai?.totalCostUsd ?? 0).toFixed(4)}`} />
         <ObsMetric label="PUBG 오류" value={pubg?.total ?? 0} tone={pubg?.total ? "danger" : "success"} />
       </div>
       <div className="grid gap-3 lg:grid-cols-[1fr_1.4fr]">
@@ -219,18 +227,15 @@ function AiObservabilityPanel({ metrics }: { metrics?: CommandCenterMetrics | nu
         </div>
         <div className="rounded-xl border border-white/10 bg-black/20 p-3">
           <p className="mb-2 text-[11px] font-black text-white/65">최근 오류 사례</p>
-          {ai?.recentErrors?.length || pubg?.recent?.length ? (
-            <div className="max-h-36 space-y-1.5 overflow-y-auto">{[
-              ...(errorFilter !== "pubg" ? (ai?.recentErrors || []).map((error) => ({ id: `ai-${error.id}`, at: error.createdAt, label: `AI · ${error.errorLabel}`, detail: error.message })) : []),
-              ...(errorFilter !== "ai" ? (pubg?.recent || []).map((error) => ({ id: `pubg-${error.id}`, at: error.createdAt, label: `PUBG · ${error.route}`, detail: `${error.status ?? "?"} · ${error.reason}` })) : []),
-            ].sort((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 10).map((error) => <div key={error.id} className="rounded-lg border border-white/5 bg-white/[0.03] px-2.5 py-1.5 text-[10px]"><div className="flex justify-between gap-2"><strong className="truncate text-rose-200">{error.label}</strong><span className="shrink-0 text-white/30">{formatRelativeTime(error.at)}</span></div><p className="truncate text-white/55">{error.detail}</p></div>)}</div>
+          {recentErrors.length ? (
+            <div className="max-h-36 space-y-1.5 overflow-y-auto">{recentErrors.map((error) => <div key={error.id} className="rounded-lg border border-white/5 bg-white/[0.03] px-2.5 py-1.5 text-[10px]"><div className="flex justify-between gap-2"><strong className="truncate text-rose-200">{error.label}</strong><span className="shrink-0 text-white/30">{formatRelativeTime(error.at)}</span></div><p className="truncate text-white/55">{error.detail}</p></div>)}</div>
           ) : <p className="text-xs text-white/35">선택 기간 오류 없음</p>}
         </div>
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] font-bold text-white/40">
         <span>분석: {Object.entries(ai?.byType || {}).map(([type, count]) => `${type} ${count}`).join(" · ") || "없음"}</span>
         <span>평균 응답: {ai?.averageDurationMs ? `${ai.averageDurationMs}ms` : "기록 없음"}</span>
-        <span>상위 AI 사용자: {metrics?.topAiUsers?.slice(0, 3).map((user) => `${user.nickname} ${user.count}회`).join(" · ") || "없음"}</span>
+        <span>상위 AI 사용자: {ai?.topUsers?.slice(0, 3).map((user) => `${user.nickname} ${user.count}회`).join(" · ") || "없음"}</span>
       </div>
     </section>
   );
