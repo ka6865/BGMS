@@ -51,12 +51,12 @@ const RESULT_TEXT: Record<string, string> = {
   paused: "커뮤니티 운영이 일시 중지되어 발행하지 않았습니다.",
   target_changed: "원본 글이나 댓글이 변경되어 발행하지 않았습니다. 이 검토를 거절하고 변경된 내용을 직접 확인해주세요.",
   limit: "오늘 발행 한도에 도달해 발행하지 않았습니다.",
-  expired: "검토 기한이 지나 발행하지 않았습니다. 새 초안을 만들어주세요.",
+  expired: "검토 기한이 지나 발행하지 않았습니다. 원문 게시글에서 내용을 확인하고 직접 대응해주세요.",
   category_disabled: "현재 허용하지 않는 카테고리라 발행하지 않았습니다. 설정을 확인한 뒤 새 초안을 만들어주세요.",
   already_replied: "BGMS AI가 이미 답글을 작성해 중복 발행하지 않았습니다.",
   invalid_bot: "BGMS AI 계정 설정을 확인한 뒤 다시 시도해주세요.",
   pending: "이미 승인 대기 중인 초안입니다.",
-  failed: "초안 생성에 실패했습니다. 원인을 확인한 뒤 다시 처리해주세요.",
+  failed: "초안 생성에 실패했습니다. 실패한 답글은 원문 게시글에서 확인하고 직접 대응해주세요.",
   drafted: "새 초안을 승인 대기 목록에 저장했습니다.",
   deferred: "검토할 새 답글 초안을 만들지 못해 보류했습니다.",
   invalid_response: "AI 응답 형식이 맞지 않아 초안을 발행하지 않고 보류했습니다.",
@@ -228,6 +228,7 @@ function ReviewCard({
       </div>
 
       {review.reason && <p className="mt-3 break-words text-sm text-amber-200">사유: {review.reason}</p>}
+      {review.kind === "reply" && (review.status === "failed" || review.status === "expired") && <p className="mt-3 text-sm leading-6 text-zinc-300">이 댓글의 답글은 자동으로 다시 생성하지 않습니다. 게시글 열기에서 원문을 확인하고 직접 답글을 작성해주세요.</p>}
       {review.notification_error && <p className="mt-2 break-words text-sm text-rose-300">Discord 알림 오류: {review.notification_error}</p>}
       {review.discord_message_id && <p className="mt-2 text-xs text-zinc-500">Discord 알림 전송 완료</p>}
 

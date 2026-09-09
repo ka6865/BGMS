@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   after: vi.fn(),
   getReview: vi.fn(),
   decideDiscordReview: vi.fn(),
+  syncReviewDecisionNotification: vi.fn(),
 }));
 
 vi.mock("next/server", async (importOriginal) => {
@@ -15,6 +16,7 @@ vi.mock("next/server", async (importOriginal) => {
 vi.mock("@/lib/community-agent/reviews", () => ({
   getReview: mocks.getReview,
   decideDiscordReview: mocks.decideDiscordReview,
+  syncReviewDecisionNotification: mocks.syncReviewDecisionNotification,
 }));
 
 import { POST } from "@/app/api/discord/interactions/route";
@@ -107,6 +109,7 @@ describe("community Discord review delivery", () => {
     vi.stubEnv("DISCORD_COMMUNITY_REVIEW_CHANNEL_ID", CHANNEL_ID);
     vi.stubEnv("DISCORD_COMMUNITY_APPROVER_ID", OWNER_ID);
     mocks.after.mockReset();
+    mocks.syncReviewDecisionNotification.mockReset().mockResolvedValue(undefined);
     mocks.getReview.mockReset().mockResolvedValue(review());
     mocks.decideDiscordReview.mockReset().mockResolvedValue({ code: "published", postId: 77 });
   });
@@ -210,7 +213,8 @@ describe("community Discord review delivery", () => {
     expect(mocks.after).toHaveBeenCalledTimes(1);
     await mocks.after.mock.calls[0][0]();
     expect(mocks.decideDiscordReview).toHaveBeenCalledWith(REVIEW_ID, "approve", OWNER_ID, MESSAGE_ID);
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(mocks.syncReviewDecisionNotification).toHaveBeenCalledExactlyOnceWith(REVIEW_ID);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("attaches the complete plain-text draft and target comment when the embed would be too large", async () => {
@@ -325,7 +329,7 @@ describe("community Discord review delivery", () => {
     expect(mocks.decideDiscordReview).not.toHaveBeenCalled();
   });
 
-  it("defers an authorized component, decides after the response, and disables buttons after a terminal result", async () => {
+  it("defers an authorized component and uses persisted notification recovery after a terminal decision", async () => {
     vi.stubEnv("DISCORD_PUBLIC_KEY", publicKeyHex);
     vi.stubEnv("DISCORD_BOT_TOKEN", "b".repeat(68));
     const fetchImpl = vi.fn().mockResolvedValue(response({}));
@@ -341,15 +345,9 @@ describe("community Discord review delivery", () => {
 
     await mocks.after.mock.calls[0][0]();
     expect(mocks.decideDiscordReview).toHaveBeenCalledWith(REVIEW_ID, "approve", OWNER_ID, MESSAGE_ID);
-    expect(fetchImpl).toHaveBeenCalledTimes(2);
-    const [url, init] = fetchImpl.mock.calls[0] as [string | URL, RequestInit];
-    expect(String(url)).toContain(`/api/v10/channels/${CHANNEL_ID}/messages/${MESSAGE_ID}`);
-    const body = JSON.parse(String(init.body)) as { allowed_mentions: { parse: string[] }; components: Array<{ components: Array<Record<string, unknown>> }> };
-    expect(body.allowed_mentions).toEqual({ parse: [] });
-    expect(body.components[0].components).toEqual(expect.arrayContaining([
-      expect.objectContaining({ custom_id: `community:approve:${REVIEW_ID}`, disabled: true }),
-      expect.objectContaining({ custom_id: `community:reject:${REVIEW_ID}`, disabled: true }),
-    ]));
+    expect(mocks.syncReviewDecisionNotification).toHaveBeenCalledExactlyOnceWith(REVIEW_ID);
+    expect(fetchImpl).toHaveBeenCalledTimes(1); // Ephemeral interaction completion.
+
   });
 
   it("keeps buttons when the decision is paused or fails", async () => {

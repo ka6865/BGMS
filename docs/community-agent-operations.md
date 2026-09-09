@@ -1,5 +1,7 @@
 # BGMS 커뮤니티 비서 운영 절차
 
+현재는 글·답글 모두 운영자의 항목별 승인이 필요하다. `publishing_enabled=true`는 허용하지 않는다. 아래 날짜별 검증 기록의 과거 설정값과 현재 운영 정책을 구분한다.
+
 2026-09-09 관리자 상태 조회 오류를 복구하면서 연결된 Supabase에 `community_agent_persistence` migration을 적용했다. 원격 migration version은 `20260909061622`, 적용 SQL 원본은 `20260909061622_community_agent_persistence.sql`이다. 정책·출처·최근 실행 조회가 정상이며 수집과 자동 게시는 모두 꺼져 있다. 운영 앱 배포, GitHub Actions 활성화, 비서 계정 생성, 실제 자료 수집·게시는 아직 실행하지 않았다. 서버만 게시를 담당하며 외부 디시인사이드·네이버 카페·YouTube에는 글이나 댓글을 작성하지 않는다.
 
 ## 설정 위치
@@ -8,7 +10,7 @@
 | --- | --- |
 | 서버 | 기존 Supabase/Gemini 환경, `COMMUNITY_AGENT_WORKER_SECRET`, 선택적 `COMMUNITY_AGENT_MODEL`, `NAVER_SEARCH_CLIENT_ID`, `NAVER_SEARCH_CLIENT_SECRET`, `YOUTUBE_DATA_API_KEY` |
 | GitHub Actions | secret `COMMUNITY_AGENT_WORKER_SECRET`; vars `APP_URL`, `COMMUNITY_AGENT_SCHEDULE_ENABLED`(기본 `false`) |
-| DB 정책 | `enabled=false`, `publishing_enabled=false`, YouTube 출처 선택 해제로 배포 |
+| DB 초기값 | `enabled=false`, `publishing_enabled=false`, YouTube 출처 선택 해제. 수집 활성화 후에도 항목별 승인 필요 |
 
 네이버 카페 검색은 Naver API HUB의 `https://naverapihub.apigw.ntruss.com/search/v1/cafearticle?format=json` 엔드포인트를 사용한다. 서버 환경 변수 이름은 기존 `NAVER_SEARCH_CLIENT_ID`, `NAVER_SEARCH_CLIENT_SECRET`를 유지하되 요청 헤더에는 각각 `X-NCP-APIGW-API-KEY-ID`, `X-NCP-APIGW-API-KEY`를 사용한다. 키 값은 URL이나 로그에 기록하지 않는다.
 
@@ -21,10 +23,11 @@
 3. 배포 환경의 함수 실행시간, Gemini 모델 지원과 무료 한도, 각 수집 제공자의 접근·보관 조건을 확인한다. 확인하지 못한 출처는 `needs_setup` 또는 `blocked`로 둔다.
 4. `/admin/bot`의 커뮤니티 운영 탭에서 계정 준비를 실행한다. 준비 결과에는 비서 일반 계정 UUID와 출처별 설정 성공 여부만 기록하고 자격 증명은 기록하지 않는다.
 5. `enabled=true`, `publishing_enabled=false`로 수집만 켠 뒤 관리자 시험 실행을 한 번 수행한다. 디시·네이버·YouTube 각각에 대해 성공 자료 또는 구체적인 제한 이유, 근거 링크, 생성 초안, 모델 호출 수를 확인한다. 시험 실행도 무료 호출량을 소비한다. 현재 로컬 증거에서는 디시만 실제 접근했고, 네이버·YouTube 키는 없었으며 운영 환경은 확인하지 않았다.
-6. 운영 범위를 검토한 관리자가 자동 게시를 켠다. 같은 한국 날짜의 `ready` 시험 초안은 정책→실행 순서로 잠근 상태에서 근거가 남아 있고 렌더링 hash가 일치할 때만 게시 가능한 상태로 승격된다. 실제 게시 RPC도 같은 lock 안에서 승인된 제목과 HTML의 UTF-8 SHA-256을 다시 계산한 뒤 게시판 writer를 호출한다. 설정 요청 자체는 게시글을 만들지 않는다. 직접 dry-run 게시, 이전 날짜 초안, 일시 중지 상태, 사라진 근거, hash 불일치는 계속 거부된다.
-7. 기존 Codex 초안 자동화가 활성 상태인지 조회한다. 중복이면 사용자 의도에 맞게 초안 작성과 운영 점검 역할을 분리하고, 서버 worker 하나만 게시를 담당하도록 정리한다.
-8. 첫 게시 후 실제 공개 상태, `BGMS AI 비서` 작성자 표시, 모바일 본문, 근거 링크를 확인한다. 같은 날 두 번째 worker 실행과 응답 유실 재시도가 게시글 수를 늘리지 않는지 확인한다.
-9. 장애 시 관리자 화면의 `일시 중지`를 사용해 `enabled=false`, `publishing_enabled=false`를 한 요청으로 저장하고 workflow 변수 `COMMUNITY_AGENT_SCHEDULE_ENABLED=false`로 정지한다. 이후 `수집 재개`는 `enabled=true`만 저장하므로 자동 게시는 별도로 다시 켜야 한다. 이미 발행된 글은 보존한다. 잘못된 글의 수정·숨김은 구체적인 게시글을 확인한 운영자가 처리한다. 스키마 삭제를 첫 rollback 단계로 사용하지 않는다.
+6. 검증된 초안을 관리자 검토 큐에 저장하고 글·답글마다 승인 또는 거절한다. 승인 RPC는 정책, 대상 원문, 만료, 계정과 한도를 다시 검사한다. 수집 설정이나 worker 실행만으로 공개 게시하지 않는다.
+7. 기존 Codex 초안 자동화가 활성 상태인지 조회한다. 중복이면 초안 작성·운영 점검 역할을 정리하고 예약 worker는 수집과 검토 알림만 담당하도록 한다.
+8. 첫 승인 후 실제 공개 상태, `BGMS AI` 작성자 표시, 모바일 본문, 근거 링크를 확인한다. 동일 승인을 반복해도 게시글·답글 수가 늘어나지 않는지 확인한다.
+9. 장애 시 `일시 중지`로 `enabled=false`를 저장하고 workflow 변수 `COMMUNITY_AGENT_SCHEDULE_ENABLED=false`로 정지한다. 이후 `수집 재개`는 초안 수집만 재개하며 실제 게시는 계속 항목별 승인을 요구한다. 이미 발행된 글과 검토 기록은 보존한다. 잘못된 글은 운영자가 구체적인 내용을 확인한 뒤 수정·숨김 처리한다.
+
 
 ## 근거와 영구 인용
 
@@ -75,7 +78,7 @@ YouTube 채널 ID와 uploads playlist cache는 성공할 때마다 갱신한다.
 
 ## 2026-09-09: 게시글·답글 사람 승인으로 전환 (현재 동작)
 
-위의 자동 게시 설명은 과거 구현 기록이다. 현재는 `publishing_enabled=true`를 DB에서 거부하며 `publish_community_post`도 `approval_required`를 반환한다. 기존 예약 worker는 검증 완료 후 멈춘다. 모든 게시글은 `BGMS AI` 계정으로 `posts.status=draft`와 `community_content_reviews.status=pending`에 저장되고, 답글은 비공개 검토 큐에만 저장된다. 사용자의 항목별 승인만 실제 게시/댓글 작성을 허용한다.
+초기 자동 게시 구현은 폐기했다. 현재는 `publishing_enabled=true`를 DB에서 거부하며 `publish_community_post`도 `approval_required`를 반환한다. 기존 예약 worker는 검증 완료 후 멈춘다. 모든 게시글은 `BGMS AI` 계정으로 `posts.status=draft`와 `community_content_reviews.status=pending`에 저장되고, 답글은 비공개 검토 큐에만 저장된다. 사용자의 항목별 승인만 실제 게시/댓글 작성을 허용한다.
 
 - 로컬 migration: `20260909111045_community_content_reviews.sql`, 알림 결과 보완 `20260909111823_community_review_notification_outcomes.sql`.
 - 검토 API: `/api/admin/agent/community/reviews`. GET은 관리자만 전체 초안/대상 댓글 확인. POST `approve`/`reject`는 관리자 세션에서만 처리. worker는 `process`만 허용하며 승인할 수 없다.
@@ -114,3 +117,7 @@ Discord 안에서 직접 승인·거절하려면 서버에 다음을 등록한�
 외부 조회는 전체 10초, 최대 3회(리다이렉트 포함), 응답당 2MiB로 제한한다. 모델에는 최대 12,000자의 본문과 확인 시각, 한국 시간대, 일정 구간을 전달한다. 일정 질문에 원문이 없거나 공식 채널로 돌려보내기만 하는 답글은 보류한다. 정상 초안에는 서버가 출처 링크를 붙이고 usage에 출처/확인 시각/원문 발췌를 남긴다. 승인 전에는 공개 답글을 만들지 않는다.
 
 43.1 제목과 “업데이트가 언제야?” 질문으로 공식 목록→원문→Gemini 실제 호출을 검증했다. PC 9월 10일 09:00~17:30, 콘솔 9월 17일 10:00~18:00 예정이라는 구체적인 답변과 원문 링크가 생성됐다. 기존 168번 게시글과 67번 댓글은 삭제되어 DB를 변경하지 않는 로컬 QA로 검증했으며, 기존 검토 항목을 재발행하거나 덮어쓰지 않았다. 운영 배포/Discord 연결 상태는 위의 미완료 항목과 같다.
+
+## 답글 생성 실패 대응
+
+답글 초안은 댓글당 한 번 생성하며 실패·기한 만료 건을 자동 재생성하지 않는다. `새 초안 처리`는 아직 처리하지 않은 댓글을 대상으로 한다. 모델의 일시 오류나 근거 부족으로 실패한 댓글은 검토 목록에서 원문 게시글을 열어 운영자가 직접 답글을 작성한다. 실패 기록을 지우거나 재생성하기 위한 관리자 API는 이번 범위에 포함하지 않는다. 중복 응답과 반복 모델 호출을 피하기 위한 현재 제한이며, 실패 안내에도 직접 대응 경로를 명시한다.

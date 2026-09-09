@@ -3,13 +3,12 @@ import { verifyDiscordSignature } from "@/lib/discord/verify";
 import { handleLinkCommand } from "@/lib/discord/commands/link";
 import { handleStatsCommand } from "@/lib/discord/commands/stats";
 import { handleRecentMatchCommand } from "@/lib/discord/commands/recentMatch";
-import { decideDiscordReview, getReview } from "@/lib/community-agent/reviews";
+import { decideDiscordReview, getReview, syncReviewDecisionNotification } from "@/lib/community-agent/reviews";
 import {
   isDiscordInteractionToken,
   isDiscordSnowflake,
   isReviewId,
   resolveReviewChannelId,
-  updateReviewNotification,
 } from "@/lib/community-agent/discord-review";
 
 export const maxDuration = 15;
@@ -140,16 +139,13 @@ async function processReviewComponent(
         } else if (review.status !== "pending") {
           content = "이 검토는 이미 처리되었거나 만료되었습니다.";
           if (terminalStatus(review.status)) {
-            try { await updateReviewNotification(review); } catch { /* leave persisted outcome intact */ }
+            await syncReviewDecisionNotification(values.reviewId);
           }
         } else {
           const result = await decideDiscordReview(values.reviewId, values.decision, userId, messageId);
           content = decisionMessage(result?.code);
           if (terminalDecision(result?.code)) {
-            const updated = await getReview(values.reviewId);
-            if (updated) {
-              try { await updateReviewNotification(updated); } catch { /* retain persisted decision */ }
-            }
+            await syncReviewDecisionNotification(values.reviewId);
           }
         }
       }
