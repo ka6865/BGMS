@@ -1,0 +1,33 @@
+{
+  "at": "2026-09-08T17:26:14.746Z",
+  "mode": "local_source_editorial_smoke",
+  "databaseUsed": false,
+  "published": false,
+  "recentPostsChecked": false,
+  "source": {
+    "state": "partial",
+    "reason": null,
+    "fetched": 60,
+    "retained": 9
+  },
+  "status": "deferred",
+  "reason": "no_topic",
+  "modelCalls": 1,
+  "usage": [
+    {
+      "model": "gemini-3.5-flash-lite",
+      "promptTokens": 3314,
+      "completionTokens": 1
+    }
+  ],
+  "responseShapes": [
+    {
+      "call": 1,
+      "isNull": true,
+      "isObject": false,
+      "hasFields": null,
+      "topicKindValid": null,
+      "officialUpdateType": null
+    }
+  ]
+}
