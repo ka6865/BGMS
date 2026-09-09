@@ -36,3 +36,8 @@ describe("Weapon Meta Integration Verification", () => {
     expect(m249Stat?.sustainedHits).toBe(1);
   });
 });
+
+ it.each(["BP_Baltic_GasPump_C", "BP_NE_GasPump_C", "BP_Tiger_GasStationB_Gaspump_C", "BP_VK_GasPump_C"])("does not classify environmental %s as UMP", name => {
+   expect(categorizeWeapon(name)).toBe("OTHERS");
+   expect(categorizeWeapon("WeapUMP_C")).toBe("SMG");
+ });

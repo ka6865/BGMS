@@ -1,0 +1,23 @@
+{
+  "at": "2026-09-08T16:46:03.059Z",
+  "mode": "local_source_editorial_smoke",
+  "databaseUsed": false,
+  "published": false,
+  "recentPostsChecked": false,
+  "source": {
+    "state": "ok",
+    "reason": null,
+    "fetched": 60,
+    "retained": 10
+  },
+  "status": "deferred",
+  "reason": "model_invalid_response",
+  "modelCalls": 1,
+  "usage": [
+    {
+      "model": "gemini-3.5-flash-lite",
+      "promptTokens": 3759,
+      "completionTokens": 201
+    }
+  ]
+}

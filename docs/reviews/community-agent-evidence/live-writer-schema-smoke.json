@@ -1,0 +1,20 @@
+{
+  "at": "2026-09-08T17:47:41.592Z",
+  "mode": "synthetic_fixture_writer_schema_smoke",
+  "syntheticEvidence": true,
+  "databaseUsed": false,
+  "published": false,
+  "modelCalls": 1,
+  "usage": {
+    "model": "gemini-3.5-flash-lite",
+    "promptTokens": 655,
+    "completionTokens": 175
+  },
+  "status": "parsed_writer_contract",
+  "fields": {
+    "title": "string",
+    "paragraphs": 2,
+    "question": "string",
+    "paragraphFields": true
+  }
+}

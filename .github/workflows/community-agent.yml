@@ -1,0 +1,55 @@
+name: BGMS Community Agent
+
+on:
+  schedule:
+    # GitHub Actions schedules can start late, so this is not an exact publication time.
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bgms-community-agent
+  cancel-in-progress: false
+
+jobs:
+  community:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - id: config
+        name: Check community worker configuration
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          COMMUNITY_AGENT_WORKER_SECRET: ${{ secrets.COMMUNITY_AGENT_WORKER_SECRET }}
+        run: |
+          if [ -z "$APP_URL" ] || [ -z "$COMMUNITY_AGENT_WORKER_SECRET" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "Community worker configuration is missing; skipping."
+            exit 0
+          fi
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+      - name: Install dependencies
+        if: ${{ steps.config.outputs.configured == 'true' }}
+        run: npm ci
+      - name: Run community worker
+        if: ${{ steps.config.outputs.configured == 'true' && vars.COMMUNITY_AGENT_SCHEDULE_ENABLED == 'true' }}
+        run: npx tsx scripts/run_community_agent.ts
+        env:
+          COMMUNITY_AGENT_APP_URL: ${{ vars.APP_URL }}
+          COMMUNITY_AGENT_WORKER_SECRET: ${{ secrets.COMMUNITY_AGENT_WORKER_SECRET }}
+      - name: Run community retention cleanup
+        if: ${{ steps.config.outputs.configured == 'true' && vars.COMMUNITY_AGENT_SCHEDULE_ENABLED != 'true' }}
+        run: npx tsx scripts/run_community_agent.ts --cleanup-only
+        env:
+          COMMUNITY_AGENT_APP_URL: ${{ vars.APP_URL }}
+          COMMUNITY_AGENT_WORKER_SECRET: ${{ secrets.COMMUNITY_AGENT_WORKER_SECRET }}
+
+      # If Actions are disabled or the application is unavailable, no scheduled
+      # retention request can run; use the cleanup-only command manually instead.

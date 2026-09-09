@@ -5,8 +5,8 @@
  * 도입되기 전에 저장된 과거 패치노트에는 제안이 없습니다. 이 모듈은 과거
  * 글에 남아 있는 원문 링크를 이용해 본문을 다시 받아옵니다.
  *
- * 수집 대상 선택자는 기존 동기화 경로(app/api/cron/patch-notes,
- * app/api/admin/patch-notes/sync, scripts/sync_patch_notes.ts)와 동일하게 유지합니다.
+ * 수집 대상 선택자는 관리자 수동 동기화와 CLI 스크립트가 저장한 원문 링크와
+ * 동일하게 유지합니다.
  */
 
 import { parse } from "node-html-parser";
@@ -70,7 +70,7 @@ export interface FetchSourceTextDeps {
  * 공식 홈페이지(pubg.com) 패치노트 본문을 수집합니다.
  *
  * DOM 파싱으로 얻은 텍스트가 너무 짧으면 Nuxt 인라인 데이터에서 직접 추출합니다.
- * cron 경로에 이미 적용된 보완 로직과 같은 방식입니다.
+ * 기존 동기화 경로에 적용된 보완 로직과 같은 방식입니다.
  */
 async function fetchPubgSourceText(
   url: string,

@@ -11,6 +11,8 @@ export interface WeaponBurstStat {
 }
 
 export function categorizeWeapon(rawName: string): string {
+  // GasPump contains UMP but is environmental damage, not an SMG.
+  if (/gaspump/i.test(rawName || "")) return "OTHERS";
   const clean = (rawName || "").replace(/Item_Weapon_|Weap|_C|_Projectile/gi, "").toUpperCase();
   if (clean.includes("M249") || clean.includes("DP28") || clean.includes("MG3") || clean.includes("RPD")) return "LMG";
   if (clean.includes("BERYL") || clean.includes("HK416") || clean.includes("AK47") || clean.includes("AUG") || clean.includes("GROZA") || clean.includes("SCAR") || clean.includes("G36") || clean.includes("K2") || clean.includes("ACE32") || clean.includes("FAMAS")) return "AR";

@@ -1,0 +1,34 @@
+name: BGMS Community Review Queue
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bgms-community-reviews
+  cancel-in-progress: false
+jobs:
+  reviews:
+    if: ${{ vars.COMMUNITY_AGENT_SCHEDULE_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Generate one reply draft and deliver pending review notification
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          COMMUNITY_AGENT_WORKER_SECRET: ${{ secrets.COMMUNITY_AGENT_WORKER_SECRET }}
+        run: |
+          node --input-type=module <<'JS'
+          const origin = new URL(process.env.APP_URL);
+          if (origin.protocol !== 'https:' || origin.username || origin.password || !process.env.COMMUNITY_AGENT_WORKER_SECRET) throw new Error('Review worker configuration missing');
+          const response = await fetch(new URL('/api/admin/agent/community/reviews', origin), {
+            method: 'POST', redirect: 'error', signal: AbortSignal.timeout(65000),
+            headers: { 'content-type': 'application/json', authorization: `Bearer ${process.env.COMMUNITY_AGENT_WORKER_SECRET}` },
+            body: JSON.stringify({action:'process'})
+          });
+          if (!response.ok) throw new Error(`Review worker HTTP ${response.status}`);
+          const data=await response.json();
+          console.log({result:data.result?.code, notification:data.notification?.code});
+          if (data.notification?.code==='notification_failed') throw new Error('Discord review notification failed; draft retained');
+          JS

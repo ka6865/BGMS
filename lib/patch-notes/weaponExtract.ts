@@ -24,7 +24,7 @@ export const WEAPON_EXTRACT_MODELS = GEMINI_MODELS_TO_TRY;
 
 /**
  * 추출에 사용할 원문 최대 길이.
- * 기존 3개 경로가 15000 / 8000 / 5000자로 갈라져 있어 요약 결과가 경로마다 달랐습니다.
+ * 기존 동기화 구현이 15000 / 8000 / 5000자로 갈라져 있어 요약 결과가 경로마다 달랐습니다.
  * 추출은 수치 누락이 곧 품질 저하이므로 가장 긴 값을 기준으로 둡니다.
  */
 export const WEAPON_EXTRACT_MAX_SOURCE_LENGTH = 15000;

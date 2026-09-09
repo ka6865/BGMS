@@ -668,7 +668,7 @@ export default function AdminDashboardPage() {
           />
         </section>
 
-        <nav className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+        <nav className="grid grid-cols-3 gap-2 sm:grid-cols-4 lg:grid-cols-8">
           {([
             ["today", "오늘 할 일", ClipboardCheck],
             ["approvals", "승인 대기", ShieldCheck],
@@ -691,6 +691,9 @@ export default function AdminDashboardPage() {
               {label}
             </button>
           ))}
+          <button onClick={() => router.push('/admin/ai-coaching')} className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 px-3 py-2 text-xs font-semibold text-zinc-400 hover:border-amber-600">
+            <ClipboardCheck className="h-4 w-4" />AI 코칭 품질
+          </button>
         </nav>
 
         {activeSection === "today" && (

@@ -89,6 +89,18 @@ export function buildAgentAutomationContracts(input?: {
       guardrail: "Vercel cron을 추가하지 않고 Agent는 관찰, 기록, 승인 보조에 집중합니다.",
       whereToCheck: "GitHub Actions · daily-tasks",
       prompt: "GitHub Actions 자동화와 Agent 역할 분담을 요약해줘"
+    },
+    {
+      id: "community-agent-publishing",
+      title: "커뮤니티 글·답글 검토",
+      status: "manual",
+      cadence: "초안 작성 후 운영자 승인 시 게시",
+      owner: "agent",
+      risk: "approval_required",
+      whatRuns: "커뮤니티 AI 비서가 자료를 확인해 글·답글 초안을 작성합니다. 운영자 승인을 받아야 실제로 게시됩니다.",
+      guardrail: "수집 중지, 하루 한도, 허용 카테고리, 출처 설정, 자료 부족 보류를 지키며 글·답글 모두 운영자 검토를 거칩니다.",
+      whereToCheck: "/admin/bot · 커뮤니티 운영",
+      prompt: "커뮤니티 운영 상태와 보류 사유를 요약해줘"
     }
   ];
 

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { supabase } from '../../lib/supabase';
+import { safeNextPath } from '../../lib/auth/safeNextPath';
 import { toast } from 'sonner';
 
 /**
@@ -14,7 +15,11 @@ export default function Login() {
   const handleSocialLogin = async (provider: 'kakao' | 'google') => {
     setIsLoading(provider);
     try {
-      const redirectTo = `${window.location.origin}/auth/callback`;
+      const callback = new URL('/auth/callback', window.location.origin);
+      const requestedNext = new URLSearchParams(window.location.search).get('next');
+      const next = safeNextPath(requestedNext, '');
+      if (next) callback.searchParams.set('next', next);
+      const redirectTo = callback.toString();
       
       const { error } = await supabase.auth.signInWithOAuth({
         provider,

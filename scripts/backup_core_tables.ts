@@ -39,6 +39,9 @@ export const BACKUP_TABLES = [
   "map_settings",
   "reports",
   "global_benchmarks",
+  // Past-patch samples can outlive recoverable source telemetry. Preserve them.
+  "weapon_meta_match_samples",
+  "weapon_meta_patches",
 ] as const;
 
 /** Supabase 는 한 번에 1000행까지 반환하므로 범위로 나눠 읽습니다. */

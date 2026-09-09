@@ -30,6 +30,8 @@ describe("핵심 테이블 백업", () => {
     expect(BACKUP_TABLES).toContain("map_markers");
     expect(BACKUP_TABLES).toContain("profiles");
     expect(BACKUP_TABLES).toContain("global_benchmarks");
+    expect(BACKUP_TABLES).toContain("weapon_meta_match_samples");
+    expect(BACKUP_TABLES).toContain("weapon_meta_patches");
     expect(BACKUP_TABLES).not.toContain("match_stats_raw");
     expect(BACKUP_TABLES).not.toContain("processed_match_telemetry");
     expect(BACKUP_TABLES).not.toContain("pubg_player_cache");
