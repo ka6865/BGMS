@@ -11,4 +11,3 @@ export function classifyAiErrorCode(message: string): string {
   if (normalized.includes("model") || normalized.includes("gemini") || normalized.includes("generation")) return "model";
   return "unknown";
 }
-

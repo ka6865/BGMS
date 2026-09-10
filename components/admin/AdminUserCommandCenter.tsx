@@ -1,6 +1,5 @@
 "use client";
 
-import { AdminPrivatePlayersSection } from "@/components/admin/AdminPrivatePlayersSection";
 import { getPubgErrorLabel } from "@/lib/admin-agent/ai-observability";
 
 import React, { useState, useMemo } from "react";
