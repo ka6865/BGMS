@@ -1,3 +1,5 @@
+import { classifyAiErrorCode } from "@/lib/pubg-analysis/aiErrorCode";
+
 export type AiUsageObservationRow = {
   id?: string | null;
   user_id?: string | null;
@@ -78,6 +80,7 @@ export type AiWindowSummary = {
   completionTokens: number;
   averageDurationMs: number | null;
   byType: Record<string, number>;
+  topUsers: Array<{ userId: string; count: number; nickname?: string }>;
   errorsByReason: AiErrorSummary[];
   recentErrors: AiRecentError[];
 };
@@ -101,6 +104,7 @@ const ERROR_LABELS: Record<string, string> = {
   timeout: "응답 시간 초과",
   rate_limit: "요청 제한 또는 모델 혼잡",
   parse: "AI 응답 형식 처리 실패",
+  validation: "AI 응답 내용 검증 실패",
   storage: "캐시/DB 처리 실패",
   model: "AI 모델 응답 실패",
   upstream: "PUBG 외부 API 오류",
@@ -111,23 +115,73 @@ export function getAiErrorLabel(code: string | null | undefined): string {
   return ERROR_LABELS[code || "unknown"] || code || ERROR_LABELS.unknown;
 }
 
+// Older streaming routes recorded provider usage as success before final
+// validation, then wrote a second error row. Preserve billing, count one outcome.
+export function normalizeAiUsageRows(rows: AiUsageObservationRow[]): AiUsageObservationRow[] {
+  const requests = new Map<string, AiUsageObservationRow>();
+  return rows.reduce<AiUsageObservationRow[]>((result, source) => {
+    const row = { ...source };
+    if (row.status && row.status !== "success" && (!row.error_code || row.error_code === "unknown")) {
+      row.error_code = classifyAiErrorCode(row.error_message || "");
+    }
+    if (!row.request_id) {
+      result.push(row);
+      return result;
+    }
+    const key = JSON.stringify([row.request_id, row.user_id, row.analysis_type, row.platform]);
+    const current = requests.get(key);
+    if (!current) {
+      requests.set(key, row);
+      result.push(row);
+      return result;
+    }
+    current.cost_usd = Number(current.cost_usd || 0) + Number(row.cost_usd || 0);
+    current.prompt_tokens = Number(current.prompt_tokens || 0) + Number(row.prompt_tokens || 0);
+    current.completion_tokens = Number(current.completion_tokens || 0) + Number(row.completion_tokens || 0);
+    const durations = [current.duration_ms, row.duration_ms].filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);
+    current.duration_ms = durations.length ? Math.max(...durations) : null;
+    if (row.status && row.status !== "success") {
+      current.status = row.status;
+      current.error_code = row.error_code;
+      current.error_message = row.error_message;
+    }
+    if (Date.parse(row.created_at) > Date.parse(current.created_at)) current.created_at = row.created_at;
+    return result;
+  }, []);
+}
+
+export function getPubgErrorLabel(reason: string): string {
+  return ({
+    PUBG_MATCH_NOT_FOUND: "매치 데이터 없음 (404)",
+    PUBG_MATCH_PARTICIPANT_NOT_FOUND: "매치 내 플레이어 없음 (404)",
+    PUBG_RATE_LIMITED: "PUBG 호출 제한 (429)",
+  } as Record<string, string>)[reason] || reason;
+}
+
+function getPubgErrorReason(row: PubgErrorObservationRow): string {
+  if (row.status === 429) return "PUBG_RATE_LIMITED";
+  return row.error_code || row.failure_stage || row.message || "unknown";
+}
+
 export function summarizeAiUsageRows(
   rows: AiUsageObservationRow[],
   windowHours: number,
   now = Date.now(),
 ): AiWindowSummary {
   const cutoff = now - windowHours * 60 * 60 * 1000;
-  const scoped = rows.filter((row) => Date.parse(row.created_at) >= cutoff);
+  const scoped = normalizeAiUsageRows(rows).filter((row) => Date.parse(row.created_at) >= cutoff && Date.parse(row.created_at) <= now);
   const success = scoped.filter((row) => (row.status || "success") === "success");
   const failed = scoped.filter((row) => (row.status || "success") !== "success");
   const users = new Set(scoped.filter((row) => row.user_id).map((row) => row.user_id as string));
   const byType: Record<string, number> = {};
+  const userCounts = new Map<string, number>();
   const errors = new Map<string, AiErrorSummary>();
   const durations = scoped
     .map((row) => row.duration_ms)
     .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);
 
   for (const row of scoped) {
+    if (row.user_id) userCounts.set(row.user_id, (userCounts.get(row.user_id) || 0) + 1);
     const type = row.analysis_type || "unknown";
     byType[type] = (byType[type] || 0) + 1;
   }
@@ -173,6 +227,8 @@ export function summarizeAiUsageRows(
     completionTokens: scoped.reduce((sum, row) => sum + Number(row.completion_tokens || 0), 0),
     averageDurationMs: durations.length ? Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length) : null,
     byType,
+    topUsers: Array.from(userCounts, ([userId, count]) => ({ userId, count }))
+      .sort((a, b) => b.count - a.count || a.userId.localeCompare(b.userId)).slice(0, 5),
     errorsByReason: Array.from(errors.values()).sort((a, b) => b.count - a.count || a.code.localeCompare(b.code)),
     recentErrors,
   };
@@ -186,7 +242,7 @@ export function summarizePubgErrors(rows: PubgErrorObservationRow[], windowHours
   for (const row of scoped) {
     const status = String(row.status || "unknown");
     byStatus[status] = (byStatus[status] || 0) + 1;
-    const reason = row.error_code || row.failure_stage || row.message || "unknown";
+    const reason = getPubgErrorReason(row);
     const current = byReason.get(reason);
     byReason.set(reason, {
       count: (current?.count || 0) + 1,
@@ -202,7 +258,7 @@ export function summarizePubgErrors(rows: PubgErrorObservationRow[], windowHours
       createdAt: row.created_at,
       route: row.route || "unknown",
       status: typeof row.status === "number" ? row.status : null,
-      reason: row.error_code || row.failure_stage || row.message || "unknown",
+      reason: getPubgErrorReason(row),
       failureStage: row.failure_stage || null,
       platform: row.platform || null,
       durationMs: typeof row.duration_ms === "number" ? row.duration_ms : null,
