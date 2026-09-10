@@ -378,6 +378,14 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
             </p>
           </div>
         </details>
+        <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
+          <a href="https://pubg.com/ko/game-info/probability/pc/11077" target="_blank" rel="noopener noreferrer" className="py-2 underline underline-offset-4 hover:text-slate-200">
+            공식 확률표 #43.1
+          </a>
+          <a href="https://pubgitems.info/ko" target="_blank" rel="noopener noreferrer" className="py-2 underline underline-offset-4 hover:text-slate-200">
+            아이템 이미지 출처: PUBG Items
+          </a>
+        </p>
         
         {/* 전체 그리드 레이아웃: 좌측 패널 (lg:col-span-4) vs 우측 메인 영역 (lg:col-span-8) */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

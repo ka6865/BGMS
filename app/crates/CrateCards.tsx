@@ -21,6 +21,18 @@ export const getKoreanRarityName = (rarity: string) => {
  */
 export function isSpecialFlipEffectItem(itemName: string): boolean {
   const targetItems = [
+    // 양면 스쿠나 / 주술회전 계열
+    "양면 스쿠나 - 베릴 M762",
+    "고죠 사토루 - M24 도안",
+    "후시구로 메구미 - VSS 도안",
+    "이타도리 유지 세트 도안",
+    "고죠 사토루 세트 도안",
+    "후시구로 메구미 세트 도안",
+    "쿠기사키 노바라 세트 도안",
+    "양면 스쿠나 세트 도안",
+    // 플라밍고 플링 계열
+    "핑크 플라밍고 플링 - M79",
+    "블루 플라밍고 플링 - M79",
     // 상상력 풀가동 - SLR 계열
     "상상력 풀가동 - SLR (네이비 레드)",
     "상상력 풀가동 - SLR",

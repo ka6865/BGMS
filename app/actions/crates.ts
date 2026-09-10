@@ -164,7 +164,7 @@ export const getActiveCrates = unstable_cache(
       return [];
     }
   },
-  ["active-crates-data"],
+  ["active-crates-data", "pubg-43-1"],
   {
     revalidate: 604800, // 7 days
     tags: ["crate-data"],
