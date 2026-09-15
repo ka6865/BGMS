@@ -4,6 +4,11 @@ import { spawn } from 'node:child_process';
 import type { PersistedFinalResult } from '../lib/pubg-analysis/persistMatchAnalysis';
 import type { PerformanceJob } from '../lib/pubg/performanceCalculation';
 
+export function performanceSettlement(result: any) {
+  const state = result?.rankingEligible === true ? 'done' : 'excluded';
+  return { state, result: state === 'done' ? result : null } as const;
+}
+
 export async function runLimitedChild(job: PerformanceJob, timeoutMs = 110_000): Promise<any> {
   return new Promise((resolve,reject) => {
     const child = spawn(process.execPath, ['--max-old-space-size=512','--import','tsx',process.argv[1],'--calculate'], {stdio:['pipe','pipe','pipe']});
@@ -69,7 +74,8 @@ async function main() {
     const jobs=await call('claim_pubg_performance_job',{p_daily_limit:30});const job=jobs?.[0] as PerformanceJob|undefined;if(!job)break;
     try{
       const result=await runLimitedChild(job,Math.min(110_000,240_000-(Date.now()-started)));
-      if(!await call('finish_pubg_performance_job',{p_token:job.lease_token,p_state:result?'done':'excluded',p_result:result}))throw new Error('lease_lost');done++;
+      const settlement=performanceSettlement(result);
+      if(!await call('finish_pubg_performance_job',{p_token:job.lease_token,p_state:settlement.state,p_result:settlement.result}))throw new Error('lease_lost');done++;
     }catch(error){
       failed++;const reason=error instanceof Error?error.message:'calculation_failed';
       const settled=await call('finish_pubg_performance_job',{p_token:job.lease_token,p_state:reason.includes('upstream_404')?'unavailable':'retry',p_error:reason});
