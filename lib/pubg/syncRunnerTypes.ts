@@ -15,6 +15,8 @@ export type SyncQuotaStatus = {
 };
 
 export type FetchRecentMatchIdsResult = {
+  accountId?: string;
+  nickname?: string;
   status: number;
   matchIds: string[];
   rateLimitHeaders: PubgRateLimitHeaderSnapshot | null;

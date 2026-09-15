@@ -478,6 +478,7 @@ describe("benchmark recovery canary executor", () => {
     const manifest = manifestFixture();
     const rows = databaseFixture();
     const fetchRoute = vi.fn();
+    vi.stubEnv("CLOUDFLARE_R2_ENDPOINT", "");
 
     await expect(runBenchmarkRecoveryCanary(applyArgs(manifest), {
       manifest,

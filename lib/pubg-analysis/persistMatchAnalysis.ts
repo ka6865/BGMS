@@ -504,6 +504,8 @@ async function persistPlayerMatches(
     .slice(0, 1)
     .map((participant) => toPlayerMatchWriteRecord({
       player_id: analysisPlayerId,
+      ranking_eligible: evaluateMatchEligibility(benchmarkEligibilityInput(input), "benchmark").eligible,
+      ...(typeof participant.attributes.stats.playerId === "string" && /^account\.[A-Za-z0-9_-]+$/.test(participant.attributes.stats.playerId) ? { account_id: participant.attributes.stats.playerId } : {}),
       platform: input.platform,
       match_id: input.matchId,
       played_at: (input.finalResult as any).matchInfo?.date || new Date().toISOString(),

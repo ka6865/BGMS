@@ -1,0 +1,27 @@
+name: PUBG Encounter Cache Cleanup
+on:
+  schedule:
+    - cron: "43 19 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pubg-encounter-cache
+  cancel-in-progress: false
+jobs:
+  cleanup:
+    if: ${{ vars.PUBG_ENCOUNTER_CACHE_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx tsx scripts/cleanup_pubg_encounters.ts --apply
+        env:
+          PUBG_ENCOUNTER_CACHE_ENABLED: "true"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

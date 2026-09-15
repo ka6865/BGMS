@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
           rank: entry.rank,
           nickname: entry.nickname,
           playerId: entry.player_id,
-          platform: "steam",
+          platform: entry.platform,
           value: entry.value,
           secondary: entry.secondary,
           label: entry.tier ?? "",
@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
       },
       {
         headers: {
-          "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600",
+          "Cache-Control": "private, no-store",
         },
       }
     );

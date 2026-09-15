@@ -91,6 +91,7 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
   const survivalMinutes = survivalSeconds === null ? null : Math.floor(survivalSeconds / 60);
   const status = getStatus(summary);
   const tier = summary.benchmark ? estimateUserTier(summary.benchmark.score) : null;
+  const performanceLabel = ({ pending: "성과 계산 대기", running: "성과 계산 중", retry: "성과 재시도 대기", unavailable: "성과 계산 불가", excluded: "성과 산정 제외", done: "성과 불러오는 중" } as const)[summary.performanceState ?? "done"];
   const total = summary.totalTeams || summary.totalPlayers || 0;
   const matchDate = (summary as any).playedAt || summary.createdAt || summary.matchInfo?.date || "";
   const playedAtAgo = formatRelativeTime(matchDate);
@@ -316,21 +317,26 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
                       </button>
                     </div>
                   )}
-                  <MatchPerformancePanel
+                  {summary.performanceOnly ? (
+                    <div className="space-y-2 p-4 text-sm text-white/70">
+                      <p className="font-bold text-indigo-300">BGMS 성과 {summary.benchmark!.score.toFixed(1)}점 · {tier}</p>
+                      <p>서버에서 계산한 경기 성과입니다. 세부 근거는 경기 상세를 열어 확인할 수 있습니다.</p>
+                    </div>
+                  ) : <MatchPerformancePanel
                     matchData={summary}
                     isMobile={isMobile}
                     showTierDetails={showTierDetails}
                     onToggleTierDetails={() => setShowTierDetails((current) => !current)}
-                  />
+                  />}
                 </div>
               )}
             </div>
           ) : (
             <span
-              aria-label="티어 미산정"
+              aria-label={summary.performanceState ? performanceLabel : "티어 미산정"}
               className="whitespace-nowrap text-[10px] font-bold text-white/30"
             >
-              티어 미산정
+              {summary.performanceState ? performanceLabel : "티어 미산정"}
             </span>
           )}
         </div>

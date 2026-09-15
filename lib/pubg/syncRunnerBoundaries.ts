@@ -40,12 +40,13 @@ export async function fetchRecentMatchIds(
         error: error instanceof Error ? error.message : String(error),
       };
     }
-    const player = data?.data?.[0];
-    if (!player) return { status: 404, matchIds: [], rateLimitHeaders };
+    const player = data?.data?.find((entry: {id?: string; attributes?: {name?: string}}) =>
+      entry.attributes?.name?.toLowerCase() === candidate.displayNickname.toLowerCase());
+    if (!player || !/^account\.[A-Za-z0-9_-]+$/.test(player.id ?? "")) return { status: 404, matchIds: [], rateLimitHeaders };
     const matchIds = (player.relationships?.matches?.data || [])
       .map((match: any) => String(match.id || ""))
       .filter(Boolean);
-    return { status: 200, matchIds, rateLimitHeaders };
+    return { status: 200, matchIds, rateLimitHeaders, accountId: player.id, nickname: player.attributes.name };
   } catch (error) {
     return {
       status: 0,

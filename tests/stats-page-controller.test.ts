@@ -335,6 +335,7 @@ describe("useStatsPageController", () => {
 
   it("loads numbered cached match pages without another player API request", async () => {
     let historyCalls = 0;
+    const historyRequests: URL[] = [];
     const historyRecord = (matchId: string, playedAt: string) => ({
       player_id: "fixtureplayer",
       platform: "steam",
@@ -350,7 +351,9 @@ describe("useStatsPageController", () => {
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/pubg/player/matches")) {
-        const page = Number(new URL(url, "http://localhost").searchParams.get("page") || "1");
+        const requestUrl = new URL(url, "http://localhost");
+        historyRequests.push(requestUrl);
+        const page = Number(requestUrl.searchParams.get("page") || "1");
         historyCalls += 1;
         return Promise.resolve(jsonResponse({
           matches: [historyRecord(`history-${page}`, `2026-08-1${8 - page}T00:00:00Z`)],
@@ -375,6 +378,7 @@ describe("useStatsPageController", () => {
       expect(result.current.result?.nickname).toBe("FixturePlayer");
       expect(result.current.historyPage).toBe(1);
       expect(result.current.historyTotalPages).toBe(3);
+      expect(result.current.historyTotalCount).toBe(41);
     });
     expect(result.current.matchIds).toContain("history-1");
     expect(result.current.matchSummaries["history-1"]?.isSummary).toBe(true);
@@ -387,6 +391,14 @@ describe("useStatsPageController", () => {
     expect(result.current.matchIds).toContain("history-2");
     expect(result.current.matchSummaries["history-2"]?.isSummary).toBe(true);
     expect(historyCalls).toBe(2);
+
+    act(() => result.current.setMatchFilter("ranked"));
+    await waitFor(() => {
+      expect(historyCalls).toBe(3);
+      expect(result.current.historyPage).toBe(1);
+    });
+    expect(historyRequests[2].searchParams.get("filter")).toBe("ranked");
+    expect(historyRequests[2].searchParams.get("page")).toBe("1");
     expect(playerRequests(fetchMock)).toHaveLength(1);
   });
 
