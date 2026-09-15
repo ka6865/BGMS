@@ -25,6 +25,9 @@ import type {
 } from "@/types/stats-page";
 
 const REFRESH_COOLDOWN_MS = 60_000;
+const PERFORMANCE_POLL_INTERVAL_MS = 10_000;
+const PERFORMANCE_MAX_POLLS = 6;
+const PERFORMANCE_PENDING_STATES = new Set(["pending", "running", "retry"]);
 const PARTIAL_REASONS: readonly StatsPartialReason[] = [
   "summary_batch_failed",
   "summary_missing",
@@ -73,6 +76,7 @@ export interface StatsPageController {
   historyStatus: StatsHistoryStatus;
   historyPage: number;
   historyTotalPages: number;
+  historyTotalCount: number;
   setPlatform(value: StatsPlatform): void;
   setNickname(value: string): void;
   setSeasonId(value: string): void;
@@ -237,7 +241,7 @@ export function useStatsPageController(
   const [groupKey, setGroupKey] = useState<string | undefined>(options.initialGroupKey);
   const [statsMode, setStatsMode] = useState<StatsMode>("ranked");
   const [partySize, setPartySize] = useState<StatsPartySize>("squad");
-  const [matchFilter, setMatchFilter] = useState<StatsMatchFilter>("all");
+  const [matchFilter, setMatchFilterState] = useState<StatsMatchFilter>("all");
   const [matchSummaries, setMatchSummaries] = useState<Record<string, MatchSummaryData>>({});
   const [missingMatchIds, setMissingMatchIds] = useState<ReadonlySet<string>>(new Set());
   const [matchModeMeta, setMatchModeMeta] = useState<Record<string, StatsMatchModeMeta>>({});
@@ -247,6 +251,11 @@ export function useStatsPageController(
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyPage, setHistoryPageState] = useState(1);
   const [historyTotalPages, setHistoryTotalPages] = useState(0);
+  const [historyTotalCount, setHistoryTotalCount] = useState(0);
+  const [historyResponseVersion, setHistoryResponseVersion] = useState(0);
+  const [historyVisible, setHistoryVisible] = useState(() => (
+    typeof document === "undefined" || document.visibilityState !== "hidden"
+  ));
 
   const platformRef = useRef(platform);
   const nicknameRef = useRef(nickname);
@@ -263,6 +272,11 @@ export function useStatsPageController(
   const summaryRequestIdRef = useRef(0);
   const historyRequestRef = useRef<AbortController | null>(null);
   const historyRequestIdRef = useRef(0);
+  const historyPollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const historyPollAttemptRef = useRef(0);
+  const historyPollGenerationRef = useRef(0);
+  const historyPageRef = useRef(1);
+  const matchFilterRef = useRef<StatsMatchFilter>("all");
   const historySummaryIdsRef = useRef(new Set<string>());
   const rateLimitUntilRef = useRef(new Map<string, number>());
   const activeRouteKeyRef = useRef<string | null>(null);
@@ -325,6 +339,15 @@ export function useStatsPageController(
     setPartialSources(emptyPartialSources());
   }, []);
 
+  const cancelHistoryPolling = useCallback((resetAttempts = false) => {
+    if (historyPollTimeoutRef.current) {
+      clearTimeout(historyPollTimeoutRef.current);
+      historyPollTimeoutRef.current = null;
+    }
+    historyPollGenerationRef.current += 1;
+    if (resetAttempts) historyPollAttemptRef.current = 0;
+  }, []);
+
   const applyStatsAvailability = useCallback((availability?: PlayerStatsResponse["statsAvailability"]) => {
     for (const mode of STATS_MODES) {
       const sourceId = `player-stats:${mode}`;
@@ -348,17 +371,21 @@ export function useStatsPageController(
     historyRequestRef.current?.abort();
     historyRequestRef.current = null;
     historyRequestIdRef.current += 1;
+    cancelHistoryPolling(true);
+    historyPageRef.current = 1;
     historySummaryIdsRef.current.clear();
     setHistoryMatches([]);
     setHistoryStatus("idle");
     setHistoryLoaded(false);
     setHistoryPageState(1);
     setHistoryTotalPages(0);
+    setHistoryTotalCount(0);
+    setHistoryResponseVersion((version) => version + 1);
     setMatchSummaries({});
     setMissingMatchIds(new Set());
     setMatchModeMeta({});
     setSummaryStatus("idle");
-  }, []);
+  }, [cancelHistoryPolling]);
 
   const runSearch = useCallback((
     request: StatsSearchRequest = {},
@@ -618,7 +645,13 @@ export function useStatsPageController(
   const loadHistoryPage = useCallback(async (
     player: PlayerStatsResponse,
     page: number,
+    options: { isPoll?: boolean; filter?: StatsMatchFilter } = {},
   ): Promise<PlayerMatchRecord[] | null> => {
+    const isPoll = options.isPoll === true;
+    if (!isPoll) {
+      cancelHistoryPolling(true);
+      historyPageRef.current = Math.max(1, Math.floor(page));
+    }
     historyRequestRef.current?.abort();
     const controller = new AbortController();
     const requestId = ++historyRequestIdRef.current;
@@ -631,6 +664,7 @@ export function useStatsPageController(
         nickname: player.nickname,
         platform: player.platform,
         page: String(Math.max(1, Math.floor(page))),
+        filter: options.filter ?? matchFilterRef.current,
       });
       const response = await fetch(`/api/pubg/player/matches?${params.toString()}`, {
         cache: "no-store",
@@ -638,7 +672,10 @@ export function useStatsPageController(
       });
       const data = await response.json() as {
         matches?: PlayerMatchRecord[];
+        performances?: Record<string, MatchSummaryData["benchmark"]>;
+        performanceStates?: Record<string, MatchSummaryData["performanceState"]>;
         page?: number;
+        totalCount?: number;
         totalPages?: number;
       };
       if (!response.ok) throw new Error("전체 전적을 불러오지 못했습니다.");
@@ -648,20 +685,30 @@ export function useStatsPageController(
         ? normalizeHistoryRecords(data.matches)
         : [];
       applyHistoryRecords(incoming);
+      if (data.performances) {
+        const scored = normalizeSummaryMap(Object.fromEntries(incoming.filter(r => data.performances?.[r.match_id]).map(r => [r.match_id, { ...buildBasicMatchSummary(r), benchmark: data.performances?.[r.match_id], performanceOnly: true }])));
+        setMatchSummaries(previous => ({ ...scored, ...previous, ...Object.fromEntries(Object.entries(scored).filter(([id]) => !previous[id]?.benchmark)) }));
+      }
+      if (data.performanceStates) setMatchSummaries(previous => Object.fromEntries(Object.entries(previous).map(([id, summary]) => [id, data.performanceStates?.[id] ? { ...summary, performanceState: data.performanceStates[id] } : summary])));
       setHistoryMatches(incoming);
       setHistoryLoaded(true);
-      setHistoryPageState(data.page && data.page > 0 ? data.page : page);
+      const resolvedPage = data.page && data.page > 0 ? data.page : page;
+      historyPageRef.current = resolvedPage;
+      setHistoryPageState(resolvedPage);
       setHistoryTotalPages(Math.max(0, data.totalPages ?? 0));
+      setHistoryTotalCount(Math.max(0, data.totalCount ?? 0));
+      setHistoryResponseVersion((version) => version + 1);
       setHistoryStatus("ready");
       return incoming;
     } catch (caught) {
       if (stale() || isAbortError(caught)) return null;
       setHistoryStatus("error");
+      setHistoryResponseVersion((version) => version + 1);
       return null;
     } finally {
       if (historyRequestRef.current === controller) historyRequestRef.current = null;
     }
-  }, [applyHistoryRecords]);
+  }, [applyHistoryRecords, cancelHistoryPolling]);
 
   const loadSummaries = useCallback((player: PlayerStatsResponse): Promise<readonly string[]> => {
     const matchIds = normalizeRecentMatchIds(player.recentMatches);
@@ -748,6 +795,14 @@ export function useStatsPageController(
     await loadHistoryPage(player, page);
   }, [historyLoaded, historyPage, historyStatus, historyTotalPages, loadHistoryPage]);
 
+  const setMatchFilter = useCallback((value: StatsMatchFilter) => {
+    if (matchFilterRef.current === value) return;
+    matchFilterRef.current = value;
+    setMatchFilterState(value);
+    const player = resultRef.current;
+    if (player) void loadHistoryPage(player, 1, { filter: value });
+  }, [loadHistoryPage]);
+
   const retryHistory = useCallback(async () => {
     const player = resultRef.current;
     if (!player || historyStatus === "loading") return;
@@ -805,6 +860,55 @@ export function useStatsPageController(
     if (!result) return;
     void loadRecentRecords(result);
   }, [loadRecentRecords, result]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setHistoryVisible(document.visibilityState !== "hidden");
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
+
+  useEffect(() => {
+    const performancePending = Object.values(matchSummaries).some((summary) => (
+      PERFORMANCE_PENDING_STATES.has(summary.performanceState ?? "")
+    ));
+    const shouldPoll = performancePending;
+    if (!historyVisible || !result || !shouldPoll || historyPollAttemptRef.current >= PERFORMANCE_MAX_POLLS) {
+      cancelHistoryPolling(!shouldPoll || !result);
+      return;
+    }
+    if (historyPollTimeoutRef.current) return;
+
+    const player = result;
+    const page = historyPageRef.current;
+    const generation = historyPollGenerationRef.current;
+    const nextAttempt = historyPollAttemptRef.current + 1;
+    const timeout = setTimeout(() => {
+      if (historyPollTimeoutRef.current !== timeout) return;
+      historyPollTimeoutRef.current = null;
+      if (generation !== historyPollGenerationRef.current || document.visibilityState === "hidden") return;
+      if (resultRef.current !== player || historyPageRef.current !== page) return;
+      historyPollAttemptRef.current = nextAttempt;
+      void loadHistoryPage(player, page, { isPoll: true });
+    }, PERFORMANCE_POLL_INTERVAL_MS);
+    historyPollTimeoutRef.current = timeout;
+
+    return () => {
+      if (historyPollTimeoutRef.current !== timeout) return;
+      clearTimeout(timeout);
+      historyPollTimeoutRef.current = null;
+      historyPollGenerationRef.current += 1;
+    };
+  }, [
+    cancelHistoryPolling,
+    historyMatches,
+    matchSummaries,
+    historyResponseVersion,
+    historyVisible,
+    loadHistoryPage,
+    result,
+  ]);
 
   useEffect(() => {
     setSectionTab(options.initialTab ?? "overview");
@@ -867,25 +971,20 @@ export function useStatsPageController(
     summaryRequestRef.current = null;
     historyRequestRef.current?.abort();
     historyRequestRef.current = null;
+    cancelHistoryPolling(true);
     activeRouteKeyRef.current = null;
-  }, []);
+  }, [cancelHistoryPolling]);
 
   const partialReasons = useMemo(() => PARTIAL_REASONS.filter(
     (reason) => (partialSources.get(reason)?.size ?? 0) > 0,
   ), [partialSources]);
   const matchIds = useMemo(() => {
     const recent = normalizeRecentMatchIds(result?.recentMatches ?? []);
-    if (historyLoaded && historyMatches.length > 0) {
-      if (historyPage === 1) {
-        const historyIds = normalizeRecentMatchIds(
-          historyMatches.map((record) => record.match_id),
-        );
-        return normalizeRecentMatchIds([...recent, ...historyIds]);
-      }
+    if (historyLoaded && (historyTotalCount > 0 || historyPage > 1 || matchFilter !== "all")) {
       return normalizeRecentMatchIds(historyMatches.map((record) => record.match_id));
     }
     return recent;
-  }, [historyLoaded, historyMatches, historyPage, result]);
+  }, [historyLoaded, historyMatches, historyPage, historyTotalCount, matchFilter, result]);
   const status = baseStatus === "ready" && partialReasons.length > 0
     ? "partial"
     : baseStatus;
@@ -914,6 +1013,7 @@ export function useStatsPageController(
     historyStatus,
     historyPage,
     historyTotalPages,
+    historyTotalCount,
     setPlatform,
     setNickname,
     setSeasonId,

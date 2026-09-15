@@ -75,6 +75,25 @@ function renderCard(
 }
 
 describe("MatchCard demand loading", () => {
+  it.each([
+    ["pending", "성과 계산 대기"], ["running", "성과 계산 중"],
+    ["retry", "성과 재시도 대기"], ["unavailable", "성과 계산 불가"],
+    ["excluded", "성과 산정 제외"],
+  ] as const)("서버 계산 상태 %s를 추가 요청 없이 표시한다", (performanceState, label) => {
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    renderCard({ ...matchSummaryFixture, benchmark: undefined, performanceState });
+    expect(screen.getByLabelText(label)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("서버 성과 팝오버가 없는 세부 측정값을 만들지 않는다", () => {
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    renderCard({ ...matchSummaryFixture, performanceOnly: true, benchmark: { ...matchSummaryFixture.benchmark!, score: 72 } });
+    fireEvent.click(screen.getByRole("button", { name: /티어 근거 보기/ }));
+    expect(screen.getByText(/서버에서 계산한 경기 성과입니다/)).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   beforeEach(() => {
     vi.spyOn(Date, "now").mockReturnValue(TEST_NOW);
   });

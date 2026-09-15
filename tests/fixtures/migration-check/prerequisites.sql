@@ -374,3 +374,14 @@ $$;
 create table if not exists public.sync_history (type text primary key, last_url text, updated_at timestamptz);
 
 grant select, insert, update, delete on all tables in schema public to anon, authenticated, service_role;
+
+-- Basic match store exists in production since 2026-08-03.
+create table if not exists public.pubg_player_matches (
+  player_id varchar(64) not null, platform varchar(16) not null, match_id varchar(64) not null,
+  played_at timestamptz not null, game_mode varchar(32) not null, map_name varchar(32) not null,
+  kills integer not null default 0, damage integer not null default 0, win_place integer not null default 99,
+  match_type text not null default 'unknown', knocks integer, survival_time integer,
+  primary key(player_id,platform,match_id)
+);
+alter table public.pubg_player_matches enable row level security;
+grant all on public.pubg_player_matches to service_role;

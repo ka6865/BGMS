@@ -33,6 +33,11 @@ MIGRATIONS=(
   "20260907133015_analysis_calculation_version"
   "20260907140000_user_lifecycle_events"
   "20260907183000_analysis_calculation_canonical_only"
+  "20260911100000_pubg_match_discovery"
+  "20260911110000_pubg_ban_watch"
+  "20260913090000_pubg_rankings_and_performance"
+  "20260913100000_pubg_encounter_page"
+  "20260915090000_pubg_release_hardening"
 )
 
 cleanup() {
@@ -96,6 +101,11 @@ for migration in "${MIGRATIONS[@]}"; do
 done
 
 echo "▶ RPC 동작 시나리오 실행"
+"${PSQL[@]}" -f tests/fixtures/migration-check/ranking-performance-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/encounter-page-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/match-discovery-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/ban-watch-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/ban-watch-boundaries.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/membership-lifecycle-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-canonical-scenarios.sql
 if ! OUTPUT="$("${PSQL[@]}" -f tests/fixtures/migration-check/scenarios.sql 2>&1)"; then

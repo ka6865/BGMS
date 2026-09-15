@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import playerReady from "./fixtures/stats/player-ready.json";
@@ -77,6 +77,15 @@ describe("StatSearch MatchFeed live binding", () => {
           missingMatchIds: [],
         }));
       }
+      if (url.startsWith("/api/pubg/player/matches?")) {
+        const filter = new URL(url, "http://localhost").searchParams.get("filter");
+        const records = [
+          { match_id: "ranked-by-type", player_id: "fixtureplayer", platform: "steam", game_mode: "squad-fpp", match_type: "competitive", kills: 2, damage: 200, win_place: 4 },
+          { match_id: "normal-match", player_id: "fixtureplayer", platform: "steam", game_mode: "squad-fpp", match_type: "official", kills: 1, damage: 100, win_place: 8 },
+        ];
+        const matches = filter === "ranked" ? records.slice(0, 1) : records;
+        return Promise.resolve(jsonResponse({ matches, page: 1, pageSize: 20, totalCount: matches.length, totalPages: 1 }));
+      }
       return Promise.resolve(jsonResponse({ suggestions: [] }));
     }));
   });
@@ -97,8 +106,10 @@ describe("StatSearch MatchFeed live binding", () => {
 
     fireEvent.click(within(screen.getByRole("group", { name: "매치 유형 필터" })).getByRole("button", { name: "경쟁전" }));
 
-    expect(screen.getByText("ranked-by-type")).toBeInTheDocument();
-    expect(screen.queryByText("normal-match")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("ranked-by-type")).toBeInTheDocument();
+      expect(screen.queryByText("normal-match")).not.toBeInTheDocument();
+    });
     expect(view.container.firstElementChild).toHaveClass("stats-page");
   });
 });

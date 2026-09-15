@@ -5,14 +5,14 @@ import RankingsClient from './RankingsClient';
 
 export const metadata: Metadata = {
   title: '랭킹 | BGMS — PUBG 전술 지도 & AI 전적 분석',
-  description: '아시아 서버 BGMS 분석 데이터 기준 이번 주 최고 딜량, 최고 킬, BGMS 티어 상위 플레이어 랭킹',
+  description: 'BGMS에 수집된 최근 7일 경기 기준 최근 7일 최고 딜량, 최고 킬, BGMS 티어 상위 플레이어 랭킹',
   openGraph: {
     title: 'BGMS 랭킹',
-    description: '이번 주 최고 딜량 · 최고 킬 · BGMS 티어 TOP 100',
+    description: '최근 7일 최고 딜량 · 최고 킬 · BGMS 티어 TOP 30',
   },
 };
 
-// 30분마다 ISR 재검증
+// 5분마다 ISR 재검증
 const getCachedRankings = unstable_cache(
   async () => {
     const [damage, kills, tier] = await Promise.all([
@@ -20,21 +20,21 @@ const getCachedRankings = unstable_cache(
       getWeeklyTopKills('all'),
       getTopTierRanking('all'),
     ]);
-    return { damage, kills, tier };
+    return { damage, kills, tier, updatedAt: new Date().toISOString() };
   },
-  ['rankings-all-basic-availability-v2'],
-  { revalidate: 1800, tags: ['rankings'] }
+  ['rankings-basic-performance-v3'],
+  { revalidate: 300, tags: ['rankings'] }
 );
 
 export default async function RankingsPage() {
-  const { damage, kills, tier } = await getCachedRankings();
+  const { damage, kills, tier, updatedAt } = await getCachedRankings();
 
   return (
     <RankingsClient
       initialDamage={damage.data}
       initialKills={kills.data}
       initialTier={tier.data}
-      updatedAt={new Date().toISOString()}
+      updatedAt={updatedAt}
       initialDamageHasError={damage.hasError}
       initialKillsHasError={kills.hasError}
       initialTierHasError={tier.hasError}

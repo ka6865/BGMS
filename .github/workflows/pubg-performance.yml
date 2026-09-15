@@ -1,0 +1,30 @@
+name: PUBG Performance
+on:
+  schedule:
+    # The worker has a daily 30-job DB budget. Hourly runs keep results moving
+    # without paying for 288 dependency installs per day after the budget ends.
+    - cron: "11 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pubg-performance
+  cancel-in-progress: false
+jobs:
+  calculate:
+    if: ${{ vars.PUBG_PERFORMANCE_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx tsx scripts/refresh_pubg_performance.ts --apply
+        env:
+          PUBG_PERFORMANCE_ENABLED: "true"
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}

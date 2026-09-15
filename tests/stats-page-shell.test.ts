@@ -95,6 +95,7 @@ function controller(overrides: Partial<StatsPageController> = {}): StatsPageCont
     historyStatus: "idle",
     historyPage: 1,
     historyTotalPages: 0,
+    historyTotalCount: 0,
     setPlatform: vi.fn(),
     setNickname: vi.fn(),
     setSeasonId: vi.fn(),

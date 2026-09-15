@@ -26,6 +26,7 @@ import {
 import { useRouter } from "next/navigation";
 import { BgmsIcon } from "@/components/common/BgmsIcon";
 import { MatchTimeline } from "@/components/stat/MatchTimeline";
+import Link from "next/link";
 import dynamic from "next/dynamic";
 import type { MatchData, MatchTeamMember } from "@/types/stat";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
@@ -992,6 +993,7 @@ export const ExpandedMatchDetails = ({
           ].map(([label, record]) => <div key={label}><dt className="text-xs text-white/50">{label}</dt><dd className="mt-1 text-lg font-bold text-white">{record}</dd></div>)}
         </dl>
         <button type="button" onClick={handleInternalReplay} className="mt-4 min-h-11 rounded-lg border border-white/20 px-4 text-sm font-bold text-white">2D 리플레이 열기</button>
+        <Link className="inline-flex min-h-11 items-center rounded-xl border border-white/10 px-4 text-xs font-bold text-white/70" href={`/stats/${platform}/${encodeURIComponent(nickname)}/encounters?matchId=${encodeURIComponent(matchId)}`}>이 경기 상대 보기</Link>
       </div>
     );
   }
@@ -1065,6 +1067,8 @@ export const ExpandedMatchDetails = ({
           </button>
         </div>
       )}
+
+      <Link className="inline-flex min-h-11 items-center rounded-xl border border-white/10 px-4 text-xs font-bold text-white/70" href={`/stats/${platform}/${encodeURIComponent(nickname)}/encounters?matchId=${encodeURIComponent(matchId)}`}>이 경기 상대 보기</Link>
 
       {/* Expanded Content */}
       <div className="p-3 md:p-6 pt-0 border-t border-white/10 animate-in slide-in-from-top-4 duration-500 bg-transparent rounded-b-2xl relative z-10">

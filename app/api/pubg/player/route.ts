@@ -1,3 +1,6 @@
+import { readPlayerBanStatus, recordPlayerBanObservation } from "@/lib/pubg/banWatch.server";
+import { isBanAccountId, normalizeBanStatus } from "@/lib/pubg/banStatus";
+import { recordDiscoveredMatches } from "@/lib/pubg/matchDiscovery.server";
 import { isPlayerPrivate } from "@/lib/pubg/privatePlayers";
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
@@ -77,6 +80,23 @@ function normalizeCachedPlayerResponse(value: unknown): unknown {
     ...(recentMatches ? { recentMatches } : {}),
     ...(matchModes ? { matchModes } : {}),
   };
+}
+
+// Cache reads never create observations or borrow the profile update timestamp.
+async function withCachedBanObservation(value: unknown, platform: "steam" | "kakao"): Promise<unknown> {
+  if (!isRecord(value) || !isBanAccountId(value.accountId)) return value;
+  try {
+    const observation = await readPlayerBanStatus(platform, value.accountId);
+    if (observation?.checkedAt) return {
+      ...value,
+      banStatus: observation.status,
+      banType: observation.rawType ?? "Unknown",
+      banCheckedAt: observation.checkedAt,
+    };
+  } catch {
+    // Rolling migration or a store outage must not block existing stats.
+  }
+  return value;
 }
 
 function isValidSeasonId(value: unknown): value is string {
@@ -163,7 +183,16 @@ export async function GET(request: Request) {
   } else {
     const cachedPayload = await readPubgCache(cacheKey);
     if (cachedPayload) {
-      return NextResponse.json(normalizeCachedPlayerResponse(cachedPayload));
+      const cachedAccountId = isRecord(cachedPayload) && isBanAccountId(cachedPayload.accountId)
+        ? cachedPayload.accountId
+        : null;
+      if (cachedAccountId && await isPlayerPrivate(platform, nickname, cachedAccountId)) {
+        return NextResponse.json(
+          { error: `${nickname}의 프로필은 비공개입니다.`, code: "PLAYER_PRIVATE", nickname, platform },
+          { status: 403, headers: { "Cache-Control": "private, max-age=300" } },
+        );
+      }
+      return NextResponse.json(await withCachedBanObservation(normalizeCachedPlayerResponse(cachedPayload), platform));
     }
   }
 
@@ -184,6 +213,15 @@ export async function GET(request: Request) {
     .eq('lower_nickname', nickname.toLowerCase())
     .eq('platform', platform)
     .maybeSingle();
+  // A legacy privacy row may contain only the old nickname. Once the cache
+  // resolves the immutable account ID, apply the same privacy decision to
+  // renamed aliases before serving cached data or calling PUBG.
+  if (cacheData?.id && await isPlayerPrivate(platform, targetNickname, cacheData.id)) {
+    return NextResponse.json(
+      { error: `${nickname}의 프로필은 비공개입니다.`, code: "PLAYER_PRIVATE", nickname, platform },
+      { status: 403, headers: { "Cache-Control": "private, max-age=300" } },
+    );
+  }
   const cachedSurvivalMastery = normalizeSurvivalMasteryPayload({
     data: { attributes: cacheData?.survival_mastery_data },
   });
@@ -233,6 +271,7 @@ export async function GET(request: Request) {
       ));
 
       const responseBody = {
+        accountId: cacheData.id,
         nickname: targetNickname,
         platform: cacheData.platform,
         seasonId: selectedStatsSeasonId,
@@ -253,7 +292,7 @@ export async function GET(request: Request) {
       // 분산 캐시 업데이트 (L1 + L2)
       await writePubgCache(cacheKey, responseBody);
 
-      return NextResponse.json(responseBody);
+      return NextResponse.json(await withCachedBanObservation(responseBody, platform));
     }
   }
 
@@ -306,6 +345,21 @@ export async function GET(request: Request) {
       throw new Error("player identity mismatch");
     }
     const accountId = playerRecord.id;
+    if (await isPlayerPrivate(platform, playerRecord.attributes.name, accountId)) {
+      return NextResponse.json(
+        { error: `${nickname}의 프로필은 비공개입니다.`, code: "PLAYER_PRIVATE", nickname, platform },
+        { status: 403, headers: { "Cache-Control": "private, max-age=300" } },
+      );
+    }
+    // Persist discovery independently of downstream season/mastery availability.
+    let historyIngestError = false;
+    try {
+      await recordDiscoveredMatches({ platform, accountId, nickname: playerRecord.attributes.name,
+        matchIds: playerRecord.relationships.matches.data.map((match) => match.id) });
+    } catch {
+      historyIngestError = true;
+      console.warn('[pubg-player] match discovery persistence failed', { requestId });
+    }
     const actualNickname = playerRecord.attributes.name;
     const sameCachedPlayer = cacheData?.id === accountId
       && cacheData?.platform === platform
@@ -314,7 +368,14 @@ export async function GET(request: Request) {
     const previous = sameCachedPlayer ? cacheData : null;
     const apiRecentMatches = playerRecord.relationships.matches.data.map((match) => match.id);
     const recentMatches = mergeRecentMatchIds(apiRecentMatches, previous?.recent_match_ids);
-    const banType = playerRecord.attributes.banType ?? "None";
+    const banType = playerRecord.attributes.banType ?? "Unknown";
+    const banCheckedAt = new Date().toISOString();
+    const banStatus = normalizeBanStatus(banType);
+    try {
+      await recordPlayerBanObservation({ platform, accountId, banType, checkedAt: banCheckedAt });
+    } catch {
+      console.warn('[pubg-player] ban observation persistence failed', { requestId });
+    }
     const cachedSeasons: PubgSeason[] = isSeasonList(previous?.seasons_list) ? previous.seasons_list : [];
     let availableSeasons = cachedSeasons;
     let seasonsReady = false;
@@ -425,12 +486,12 @@ export async function GET(request: Request) {
       (modeData || []).map((item: any) => [item.match_id, item.game_mode]),
     ));
     const responseBody = {
-      nickname: actualNickname, platform, seasonId: targetSeasonId,
+      accountId, nickname: actualNickname, platform, seasonId: targetSeasonId,
       seasons: availableSeasons.map((season) => ({ id: season.id, name: season.name || `Season ${season.id.split("-").pop()}` })),
       stats: { ranked: rankedStats, normal: normalStats }, statsAvailability,
       recentMatches, matchModes, clan: clanResult.data,
       survivalMastery: mastery.data || previousMastery,
-      weaponMastery: previous?.weapon_mastery_data || [], banType,
+      weaponMastery: previous?.weapon_mastery_data || [], banType, banStatus, banCheckedAt,
       ...(complete ? { updatedAt: nowIso } : previous?.updated_at ? { updatedAt: previous.updated_at } : {}),
       ...(!complete ? { retryAfterSeconds } : {}),
     };
@@ -464,7 +525,7 @@ export async function GET(request: Request) {
         .then(({ error: cacheWriteError }) => {
           if (cacheWriteError) console.error("[pubg-player] pubg_player_cache 갱신 실패:", cacheWriteError.message);
         }).catch(() => console.warn("[pubg-player] pubg_player_cache 갱신 실패", { requestId }));
-      await writePubgCache(cacheKey, responseBody);
+      if (!historyIngestError) await writePubgCache(cacheKey, responseBody);
     }
     await Promise.all(failures.map((error) => safeLogFailure(error)));
     return NextResponse.json(responseBody, {

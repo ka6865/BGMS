@@ -1,6 +1,7 @@
 // 파일 위치: components/stat/layout/StatsPageShell.tsx
 "use client";
 
+
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createSquadRequestCache } from "@/lib/stats/squadRequestCache";
 import { StatSummaryPanel } from "@/components/stat/StatSummaryPanel";
@@ -84,6 +85,7 @@ export function StatsPageShell({
     historyStatus,
     historyPage,
     historyTotalPages,
+    historyTotalCount,
     refreshAvailableAt,
     isRefreshCoolingDown: isCoolingDown,
     statsMode,
@@ -109,8 +111,7 @@ export function StatsPageShell({
 
   const handleMatchFilterChange = useCallback((value: typeof matchTab) => {
     setMatchTab(value);
-    if (value !== matchTab) void setHistoryPage(1);
-  }, [matchTab, setHistoryPage, setMatchTab]);
+  }, [setMatchTab]);
 
   const { user } = useAuth();
   // A fresh search/refresh result or login change owns a fresh cache. Tab
@@ -411,6 +412,7 @@ export function StatsPageShell({
                     historyStatus={historyStatus}
                     historyPage={historyPage}
                     historyTotalPages={historyTotalPages}
+                    historyTotalCount={historyTotalCount}
                     onPageChange={(page) => void setHistoryPage(page)}
                     onRetryHistory={() => void retryHistory()}
                     onNicknameClick={(clickedName) => {

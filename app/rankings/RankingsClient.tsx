@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useTransition, useCallback } from 'react';
+import React, { useState, useTransition, useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Flame, Zap, Trophy, RefreshCw, ExternalLink, ChevronUp } from 'lucide-react';
 import AdfitBanner from '@/components/ads/AdfitBanner';
@@ -107,7 +107,7 @@ function RankRow({
 
   const handleClick = () => {
     const displayName = entry.nickname || entry.player_id;
-    router.push(`/stats/steam/${encodeURIComponent(displayName)}`);
+    router.push(`/stats/${entry.platform || "steam"}/${encodeURIComponent(displayName)}`);
   };
 
   return (
@@ -135,11 +135,11 @@ function RankRow({
             {entry.nickname || entry.player_id}
           </span>
           <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold border ${tierBg} ${tierColor} flex-shrink-0`}>
-            {entry.tier || '등급 보류'}
+            {entry.tier || '성과 미분석'}
           </span>
         </div>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-          <span className="text-[10px] text-gray-600">{entry.game_mode}</span>
+          <span className="text-[10px] text-gray-600">{entry.platform === "kakao" ? "Kakao" : "Steam"} · {entry.game_mode}</span>
           {entry.map_name && <span className="text-[10px] text-gray-600">· {entry.map_name}</span>}
           {entry.match_count && <span className="text-[10px] text-gray-600">· {entry.match_count}경기</span>}
           {entry.created_at && (
@@ -195,21 +195,30 @@ export default function RankingsClient({
   const [lastUpdated, setLastUpdated] = useState(updatedAt);
   const [isPending, startTransition] = useTransition();
 
+  const requestId = useRef(0);
+  const fetching = useRef(false);
   const fetchUpdatedData = useCallback((mode: GameModeFilter, perspective: PerspectiveFilter, matchType: MatchTypeFilter) => {
+    const id = ++requestId.current;
+    fetching.current = true;
     startTransition(async () => {
+      try {
       const { getWeeklyTopDamage, getWeeklyTopKills, getTopTierRanking } = await import('@/actions/rankings');
       const [d, k, t] = await Promise.all([
         getWeeklyTopDamage(mode, perspective, matchType),
         getWeeklyTopKills(mode, perspective, matchType),
         getTopTierRanking(mode, perspective, matchType),
       ]);
+      if (id !== requestId.current) return;
       setDamageData(d.data);
       setKillsData(k.data);
       setTierData(t.data);
       setDamageHasError(d.hasError);
       setKillsHasError(k.hasError);
       setTierHasError(t.hasError);
-      setLastUpdated(new Date().toISOString());
+      if (!d.hasError && !k.hasError && !t.hasError) setLastUpdated(new Date().toISOString());
+      } catch {
+        if (id === requestId.current) { setDamageHasError(true); setKillsHasError(true); setTierHasError(true); }
+      } finally { if (id === requestId.current) fetching.current = false; }
     });
   }, []);
 
@@ -232,13 +241,22 @@ export default function RankingsClient({
     fetchUpdatedData(modeFilter, perspectiveFilter, matchType);
   }, [fetchUpdatedData, modeFilter, perspectiveFilter]);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible' && !fetching.current) fetchUpdatedData(modeFilter, perspectiveFilter, matchTypeFilter);
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [fetchUpdatedData, modeFilter, perspectiveFilter, matchTypeFilter]);
+
+  useEffect(() => () => { requestId.current += 1; fetching.current = false; }, []);
+
   const currentData = tab === 'damage' ? damageData : tab === 'kills' ? killsData : tierData;
   const currentHasError = tab === 'damage' ? damageHasError : tab === 'kills' ? killsHasError : tierHasError;
 
   const tabs = [
-    { id: 'damage' as TabType, label: '이번 주 딜량', icon: Flame, color: 'text-orange-400', activeBg: 'bg-orange-400/15 border-orange-400/30' },
-    { id: 'kills' as TabType, label: '이번 주 킬', icon: Zap, color: 'text-yellow-400', activeBg: 'bg-yellow-400/15 border-yellow-400/30' },
-    { id: 'tier' as TabType, label: 'BGMS 티어', icon: Trophy, color: 'text-indigo-400', activeBg: 'bg-indigo-400/15 border-indigo-400/30' },
+    { id: 'damage' as TabType, label: '최근 7일 딜량', icon: Flame, color: 'text-orange-400', activeBg: 'bg-orange-400/15 border-orange-400/30' },
+    { id: 'kills' as TabType, label: '최근 7일 킬', icon: Zap, color: 'text-yellow-400', activeBg: 'bg-yellow-400/15 border-yellow-400/30' },
+    { id: 'tier' as TabType, label: 'BGMS 최고 경기', icon: Trophy, color: 'text-indigo-400', activeBg: 'bg-indigo-400/15 border-indigo-400/30' },
   ];
 
 
@@ -267,11 +285,12 @@ export default function RankingsClient({
             </button>
           </div>
           <p className="text-[10px] text-gray-700">
-            업데이트: {formatUpdatedAt(lastUpdated)}
+            조회 기준: {formatUpdatedAt(lastUpdated)}
           </p>
         </div>
       </div>
 
+      <p className="mx-auto max-w-2xl px-4 pb-4 text-xs leading-relaxed text-gray-400">최근 7일의 수집된 경기 중 개인 최고 기록입니다. 딜량·킬은 기본 전적, BGMS 최고 경기는 분석 완료 점수 기준이며 PUBG 공식 티어와 다릅니다.</p>
       {/* 탭 */}
       <div className="relative max-w-2xl mx-auto px-4">
         <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar pb-1">

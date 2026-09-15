@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import type { MatchData } from "@/types/stat";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
@@ -20,6 +20,7 @@ export interface MatchCardProps {
   platform: StatsPlatform;
   isMobile: boolean;
   index?: number;
+  initiallyExpanded?: boolean;
   initialMatchData?: MatchSummaryData;
   onNicknameClick?(nickname: string): void;
   onModeDetected?(matchId: string, gameMode: string, matchType?: string, mapName?: string): void;
@@ -48,10 +49,12 @@ export function MatchCard(props: MatchCardProps) {
   const identity = matchOwnerIdentity(platform, nickname, matchId);
   const [expansion, setExpansion] = useState<MatchCardExpansionState>({
     identity,
-    isExpanded: false,
-    hasExpandedOnce: false,
+    isExpanded: props.initiallyExpanded === true,
+    hasExpandedOnce: props.initiallyExpanded === true,
   });
   const [detailData, setDetailData] = useState<MatchData | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const deepLinkHandledRef = useRef(false);
   const isCurrent = expansion.identity === identity;
   const isExpanded = isCurrent && expansion.isExpanded;
   const hasExpandedOnce = isCurrent && expansion.hasExpandedOnce;
@@ -67,7 +70,20 @@ export function MatchCard(props: MatchCardProps) {
 
   useEffect(() => {
     setDetailData(null);
+    deepLinkHandledRef.current = false;
   }, [identity]);
+
+  useEffect(() => {
+    if (!initialMatchData || deepLinkHandledRef.current || typeof window === "undefined") return;
+    const linkedMatchId = new URLSearchParams(window.location.search).get("matchId");
+    if (!linkedMatchId || linkedMatchId !== matchId) return;
+    deepLinkHandledRef.current = true;
+    setExpansion({ identity, isExpanded: true, hasExpandedOnce: true });
+    const frame = window.requestAnimationFrame(() => {
+      cardRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [identity, initialMatchData, matchId]);
 
   const displaySummary = initialMatchData && detailData
     ? {
@@ -75,6 +91,10 @@ export function MatchCard(props: MatchCardProps) {
         ...detailData,
         stats: detailData.stats,
         isSummary: false,
+        performanceOnly: detailData.analysisAvailability === "basic_only" && initialMatchData.performanceOnly === true,
+        ...(detailData.analysisAvailability === "basic_only" && initialMatchData.performanceOnly
+          ? { benchmark: initialMatchData.benchmark, performanceState: initialMatchData.performanceState }
+          : {}),
       } as MatchSummaryData
     : initialMatchData;
 
@@ -112,7 +132,7 @@ export function MatchCard(props: MatchCardProps) {
 
   if (!initialMatchData) {
     return (
-      <div className="rounded-2xl border border-white/10 bg-[#161616] p-3">
+      <div ref={cardRef} className="rounded-2xl border border-white/10 bg-[#161616] p-3">
         <button
           type="button"
           aria-expanded={isExpanded}
@@ -128,7 +148,7 @@ export function MatchCard(props: MatchCardProps) {
   }
 
   return (
-    <div className="min-w-0" data-match-card-identity={identity}>
+    <div ref={cardRef} className="min-w-0" data-match-card-identity={identity}>
       <CompactMatchRow
         summary={displaySummary!}
         isExpanded={isExpanded}

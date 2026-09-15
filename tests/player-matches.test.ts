@@ -3,6 +3,7 @@ import {
   buildCursorQueryFilter,
   fetchPlayerMatchesPaginated,
   normalizePlayerMatchesPage,
+  normalizePlayerMatchHistoryFilter,
   normalizeBasicMatchStat,
 } from "../lib/pubg/playerMatches";
  
@@ -33,6 +34,17 @@ import {
     [4, 4],
   ])("normalizes page %s to %s", (value, expected) => {
     expect(normalizePlayerMatchesPage(value)).toBe(expected);
+  });
+
+  it.each([
+    ["ranked", "ranked"],
+    ["casual", "casual"],
+    ["tdm", "tdm"],
+    ["normal", "normal"],
+    ["unknown", "all"],
+    [null, "all"],
+  ])("normalizes history filter %s to %s", (value, expected) => {
+    expect(normalizePlayerMatchHistoryFilter(value)).toBe(expected);
   });
 
   it("requests the selected range and derives exact page metadata", async () => {
@@ -75,5 +87,22 @@ import {
 
     await expect(fetchPlayerMatchesPaginated(supabase, "TestUser", "steam", 1, 20))
       .rejects.toThrow("database unavailable");
+  });
+
+  it("applies the selected filter before range so count and pages describe the full filtered history", async () => {
+    const query = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      or: vi.fn().mockReturnThis(),
+      not: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      range: vi.fn().mockResolvedValue({ data: [], error: null, count: 7 }),
+    };
+    const supabase = { from: vi.fn(() => query) } as never;
+
+    const ranked = await fetchPlayerMatchesPaginated(supabase, "TestUser", "steam", 1, 20, "ranked");
+
+    expect(query.or).toHaveBeenCalledWith(expect.stringContaining("competitive"));
+    expect(ranked).toMatchObject({ totalCount: 7, totalPages: 1 });
   });
 });

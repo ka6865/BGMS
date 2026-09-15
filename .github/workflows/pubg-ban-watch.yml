@@ -1,0 +1,33 @@
+name: PUBG Ban Watch
+
+on:
+  schedule:
+    - cron: "37 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pubg-ban-watch
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    # Keep the job dormant until the ban-watch migration and secrets are
+    # enabled in the deployment environment.
+    if: ${{ vars.PUBG_BAN_WATCH_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx tsx scripts/refresh_pubg_bans.ts --apply
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}

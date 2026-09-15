@@ -50,6 +50,7 @@ async function renderFeed({
   historyStatus = "idle",
   historyPage = 1,
   historyTotalPages = 0,
+  historyTotalCount = matchCount,
   onPageChange,
   onRetryHistory,
 }: {
@@ -64,6 +65,7 @@ async function renderFeed({
   historyStatus?: "idle" | "loading" | "ready" | "error";
   historyPage?: number;
   historyTotalPages?: number;
+  historyTotalCount?: number;
   onPageChange?: (page: number) => void;
   onRetryHistory?: () => void;
 }) {
@@ -84,6 +86,7 @@ async function renderFeed({
     historyStatus,
     historyPage,
     historyTotalPages,
+    historyTotalCount,
     onPageChange,
     onRetryHistory,
     onFilterChange: vi.fn(),
@@ -195,7 +198,7 @@ describe("MatchFeed renderable order and ads", () => {
       filter: "tdm",
       matchModeMeta: { "match-1": { gameMode: "squad-fpp", matchType: "official" } },
     });
-    expect(screen.getByText("최근 14일 이내에 플레이한 팀 데스매치(TDM) 기록이 없습니다.")).toBeInTheDocument();
+    expect(screen.getByText("BGMS에 저장된 팀 데스매치(TDM) 기록이 없습니다.")).toBeInTheDocument();
     empty.unmount();
   });
 
@@ -207,6 +210,7 @@ describe("MatchFeed renderable order and ads", () => {
       historyStatus: "ready",
       historyPage: 2,
       historyTotalPages: 3,
+      historyTotalCount: 41,
       onPageChange,
     });
 
@@ -299,6 +303,6 @@ describe("MatchFeed renderable order and ads", () => {
 
     expect(Array.from(view.container.querySelectorAll<HTMLElement>("[data-feed-sequence]"))
       .map((node) => node.dataset.feedSequence)).toEqual(["duplicate-match", "unique-match"]);
-    expect(screen.getByRole("heading", { name: /현재 2게임/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /저장된 전적 2경기/ })).toBeInTheDocument();
   });
 });

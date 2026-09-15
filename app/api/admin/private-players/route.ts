@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidateTag } from "next/cache";
 import { createClient as createSupabaseServerClient } from "@/utils/supabase/server";
 import {
   getPrivatePlayersList,
@@ -47,13 +48,18 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json().catch(() => null);
-    const { platform = "steam", nickname } = body || {};
+    const { platform = "steam", nickname, account_id: accountId } = body || {};
 
     if (!nickname || !nickname.trim()) {
       return NextResponse.json({ error: "닉네임을 입력해 주세요." }, { status: 400 });
     }
 
-    const updatedList = await addPrivatePlayer(platform, nickname.trim());
+    const updatedList = await addPrivatePlayer(
+      platform,
+      nickname.trim(),
+      typeof accountId === "string" ? accountId : undefined,
+    );
+    revalidateTag("rankings", { expire: 0 });
     return NextResponse.json({ success: true, players: updatedList });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || "Internal Server Error" }, { status: 500 });
@@ -77,6 +83,7 @@ export async function DELETE(request: Request) {
     }
 
     const updatedList = await removePrivatePlayer(platform, nickname.trim());
+    revalidateTag("rankings", { expire: 0 });
     return NextResponse.json({ success: true, players: updatedList });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || "Internal Server Error" }, { status: 500 });

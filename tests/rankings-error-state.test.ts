@@ -1,18 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 
+vi.mock('next/cache',()=>({unstable_cache:(fn:unknown)=>fn}));
 vi.mock('@supabase/supabase-js', () => ({
   createClient: () => {
     const chain: any = {
       select: () => chain,
-      gte: () => chain,
-      in: () => chain,
       eq: () => chain,
-      not: () => chain,
-      order: () => chain,
-      limit: async () => ({ data: null, error: new Error('database unavailable') }),
+      maybeSingle: async () => ({ data: null, error: null }),
     };
     return {
       from: () => chain,
+      rpc: async () => ({ data: null, error: new Error('database unavailable') }),
     };
   },
 }));

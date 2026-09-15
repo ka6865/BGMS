@@ -1,3 +1,4 @@
+import { recordDiscoveredMatches } from "../lib/pubg/matchDiscovery.server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { randomUUID } from "node:crypto";
 import { appendFileSync } from "node:fs";
@@ -452,6 +453,10 @@ export async function runSyncUserMatches(
           continue;
         }
 
+        if (playerResult.accountId && playerResult.nickname) {
+          await recordDiscoveredMatches({ platform: candidate.platform as 'steam' | 'kakao',
+            accountId: playerResult.accountId, nickname: playerResult.nickname, matchIds: playerResult.matchIds }, supabase);
+        }
         const apiMatchIds = Array.from(new Set(playerResult.matchIds));
         const existingIds = await readExisting(supabase as SupabaseClient, candidate, apiMatchIds);
         const existing = new Set(existingIds);

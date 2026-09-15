@@ -89,3 +89,24 @@ import { buildPlayerMatchRecordFromParticipant, fetchAndIngestBasicMatchSummary 
     expect(record).toBeNull();
   });
 });
+
+describe('account-based discovery ingestion', () => {
+  it('uses the stable account after nickname change and rejects name-only matches', async () => {
+    const { fetchAndIngestBasicMatchSummaryOutcome } = await import('../lib/pubg/playerMatchesIngest');
+    const upsert = vi.fn().mockResolvedValue({error:null});
+    const payload = {data:{id:'match-id',attributes:{createdAt:'2026-09-11T00:00:00Z'}},included:[
+      {type:'participant',attributes:{stats:{name:'OldName',playerId:'account.other',kills:99}}},
+      {type:'participant',attributes:{stats:{name:'NewName',playerId:'account.target',kills:1}}},
+    ]};
+    const fetchImpl=vi.fn().mockImplementation(async()=>new Response(JSON.stringify(payload)));
+    const db={from:()=>({upsert})} as never;
+    const result=await fetchAndIngestBasicMatchSummaryOutcome(db,'match-id','OldName','steam','',{expectedAccountId:'account.target',fetchImpl});
+    expect(result.record).toMatchObject({player_id:'newname',kills:1});
+    upsert.mockClear();
+    const mismatch=await fetchAndIngestBasicMatchSummaryOutcome(db,'match-id','OldName','steam','',{expectedAccountId:'account.missing',fetchImpl});
+    expect(mismatch.status).toBe('upstream_error');expect(upsert).not.toHaveBeenCalled();
+    payload.data.id='other-match';
+    expect((await fetchAndIngestBasicMatchSummaryOutcome(db,'match-id','OldName','steam','',{expectedAccountId:'account.target',fetchImpl})).status).toBe('upstream_error');
+    expect(upsert).not.toHaveBeenCalled();
+  });
+});

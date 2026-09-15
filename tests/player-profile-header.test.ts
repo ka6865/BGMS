@@ -186,10 +186,10 @@ describe("PlayerProfileHeader", () => {
     for (const control of [season, ...actions]) expect(control).toHaveClass("min-h-11");
     for (const action of actions) expect(action).toHaveAttribute("type", "button");
     expect(screen.getByRole("button", { name: "클랜 FC 정보" })).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByRole("button", { name: "제재 상태 확인" })).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByRole("link", { name: "나를 처치한 상대 보기" })).toHaveClass("min-h-11");
   });
 
-  it("Innocent 상태는 한글로 표시하고 클랜/제재 팝오버는 하나만 연다", () => {
+  it("공개 제재 팝오버 대신 만난 상대 링크를 제공하고 클랜 팝오버를 유지한다", () => {
     render(createElement(PlayerProfileHeader, {
       player: { ...player, banType: "Innocent" },
       seasonId: player.seasonId,
@@ -204,18 +204,15 @@ describe("PlayerProfileHeader", () => {
     }));
 
     const clan = screen.getByRole("button", { name: "클랜 FC 정보" });
-    const ban = screen.getByRole("button", { name: "제재 상태 확인" });
+    expect(screen.queryByRole("button", { name: "제재 상태 확인" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "나를 처치한 상대 보기" })).toHaveAttribute("href", `/stats/${player.platform}/${encodeURIComponent(player.nickname)}/encounters`);
     fireEvent.click(clan);
     expect(screen.getByText("Fixture Clan")).toBeInTheDocument();
     expect(screen.queryByText("PUBG 상태: 정상")).not.toBeInTheDocument();
     expect(clan).toHaveAttribute("aria-expanded", "true");
-    expect(ban).toHaveAttribute("aria-expanded", "false");
-
-    fireEvent.click(ban);
+    fireEvent.click(clan);
     expect(screen.queryByText("Fixture Clan")).not.toBeInTheDocument();
-    expect(screen.getByText("PUBG 상태: 정상")).toBeInTheDocument();
     expect(clan).toHaveAttribute("aria-expanded", "false");
-    expect(ban).toHaveAttribute("aria-expanded", "true");
   });
 
   it("스쿼드 기록이 없으면 duo, solo 순으로 canonical 랭크를 fallback한다", () => {

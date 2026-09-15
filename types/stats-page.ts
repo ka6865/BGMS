@@ -58,6 +58,7 @@ export interface StatsSurvivalMastery {
 }
 
 export interface PlayerStatsResponse {
+  accountId?: string;
   nickname: string;
   platform: StatsPlatform;
   seasonId: string;
@@ -72,6 +73,8 @@ export interface PlayerStatsResponse {
   survivalMastery?: StatsSurvivalMastery | null;
   weaponMastery?: readonly unknown[];
   banType?: string | null;
+  banStatus?: import("@/lib/pubg/banStatus").BanStatus;
+  banCheckedAt?: string | null;
   updatedAt?: string;
   statsAvailability?: Partial<Record<StatsMode, StatsModeAvailability>>;
   retryAfterSeconds?: number;

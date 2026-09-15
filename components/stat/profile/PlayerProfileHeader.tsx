@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
+
 import { useState } from "react";
-import { Crosshair, RefreshCw, Shield, Star, Swords } from "lucide-react";
+import { Crosshair, RefreshCw, Star, Swords } from "lucide-react";
 import { getCurrentSeasonSummary } from "@/lib/stats/statsPageModel";
 import type { PlayerStatsResponse, StatsMode, StatsPartySize } from "@/types/stats-page";
 import { CurrentSeasonSummaryCard } from "./CurrentSeasonSummaryCard";
@@ -35,7 +37,7 @@ function updatedLabel(value?: string): string {
   return `${Math.floor(hours / 24)}일 전`;
 }
 
-type ProfilePopover = "clan" | "ban" | null;
+type ProfilePopover = "clan" | null;
 
 function ClanTrigger({
   clan,
@@ -61,53 +63,6 @@ function ClanTrigger({
         <div className="absolute left-0 top-full z-20 mt-2 min-w-48 rounded-xl border border-white/10 bg-[#161616] p-3 text-xs shadow-2xl">
           <div className="font-black text-white">{clan.name}</div>
           <div className="mt-1 text-white/50">Lv. {clan.level} · {clan.memberCount}명</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function localizedBanStatus(value?: string | null): string {
-  const normalized = value?.trim() || "None";
-  const labels: Record<string, string> = {
-    innocent: "정상",
-    none: "없음",
-    banned: "제재됨",
-  };
-  return labels[normalized.toLowerCase()] ?? normalized;
-}
-
-function BanTrigger({
-  banType,
-  open,
-  onToggle,
-}: {
-  banType?: string | null;
-  open: boolean;
-  onToggle(): void;
-}) {
-  const normalized = banType?.trim() || "None";
-  const normal = normalized.toLowerCase() === "none" || normalized.toLowerCase() === "innocent";
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        aria-label="제재 상태 확인"
-        aria-expanded={open}
-        onClick={onToggle}
-        className={`flex min-h-11 items-center gap-1.5 rounded-full border px-3 text-xs font-black ${
-          normal
-            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-            : "border-rose-500/30 bg-rose-500/10 text-rose-300"
-        }`}
-      >
-        <Shield size={13} aria-hidden="true" />
-        제재 상태
-      </button>
-      {open && (
-        <div className="absolute right-0 top-full z-20 mt-2 min-w-56 rounded-xl border border-white/10 bg-[#161616] p-3 text-xs shadow-2xl">
-          <div className="font-black text-white">{normal ? "정상 활동 계정" : "제재 상태 확인 필요"}</div>
-          <div className="mt-1 text-white/50">PUBG 상태: {localizedBanStatus(normalized)}</div>
         </div>
       )}
     </div>
@@ -151,11 +106,7 @@ export function PlayerProfileHeader({
               onToggle={() => setOpenPopover((current) => current === "clan" ? null : "clan")}
             />
           )}
-          <BanTrigger
-            banType={player.banType}
-            open={openPopover === "ban"}
-            onToggle={() => setOpenPopover((current) => current === "ban" ? null : "ban")}
-          />
+
         </div>
 
         <CurrentSeasonSummaryCard
@@ -168,6 +119,12 @@ export function PlayerProfileHeader({
         />
 
         <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/stats/${player.platform}/${encodeURIComponent(player.nickname)}/encounters`}
+            className="inline-flex min-h-11 items-center rounded-xl border border-indigo-400/60 bg-indigo-500/25 px-3 text-xs font-black text-indigo-100"
+          >
+            나를 처치한 상대 보기
+          </Link>
           <button
             type="button"
             aria-label={isRefreshCoolingDown ? "최신 전적" : "전적 갱신"}

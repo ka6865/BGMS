@@ -42,6 +42,7 @@ export interface MatchFeedProps {
   historyStatus?: StatsHistoryStatus;
   historyPage?: number;
   historyTotalPages?: number;
+  historyTotalCount?: number;
   onPageChange?(page: number): void;
   onRetryHistory?(): void;
 }
@@ -59,11 +60,11 @@ const FILTER_LABELS: Record<StatsMatchFilter, string> = Object.fromEntries(
 ) as Record<StatsMatchFilter, string>;
 
 const EMPTY_MESSAGES: Record<StatsMatchFilter, string> = {
-  all: "최근 14일 이내에 플레이한 매치 기록이 없습니다.",
-  normal: "최근 14일 이내에 플레이한 일반전 기록이 없습니다.",
-  ranked: "최근 14일 이내에 플레이한 경쟁전(랭크전) 기록이 없습니다.",
-  casual: "최근 14일 이내에 플레이한 캐주얼 모드 기록이 없습니다.",
-  tdm: "최근 14일 이내에 플레이한 팀 데스매치(TDM) 기록이 없습니다.",
+  all: "BGMS에 저장된 매치 기록이 없습니다.",
+  normal: "BGMS에 저장된 일반전 기록이 없습니다.",
+  ranked: "BGMS에 저장된 경쟁전(랭크전) 기록이 없습니다.",
+  casual: "BGMS에 저장된 캐주얼 모드 기록이 없습니다.",
+  tdm: "BGMS에 저장된 팀 데스매치(TDM) 기록이 없습니다.",
 };
 
 function overlayModeMeta(summary: MatchSummaryData, meta?: StatsMatchModeMeta): MatchSummaryData {
@@ -134,12 +135,14 @@ export function MatchFeed({
   historyStatus = "idle",
   historyPage = 1,
   historyTotalPages = 0,
+  historyTotalCount,
   onPageChange,
   onRetryHistory,
 }: MatchFeedProps) {
   const feedRef = useRef<HTMLElement>(null);
   const previousHistoryPageRef = useRef(historyPage);
   const canonicalMatchIds = normalizeRecentMatchIds(matchIds);
+  const storedMatchCount = historyTotalCount ?? canonicalMatchIds.length;
   const canonicalMissingMatchIds = new Set(normalizeRecentMatchIds([...missingMatchIds]));
   const canonicalSummaries = normalizeSummaryMap(summaries);
   const canonicalMatchModeMeta = normalizeModeMetaMap(matchModeMeta);
@@ -167,7 +170,7 @@ export function MatchFeed({
   return (
     <section ref={feedRef} aria-label="최근 매치" className="min-w-0">
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h3 className="text-lg font-black text-white">매치 기록 <span className="text-xs text-white/40">(현재 {canonicalMatchIds.length}게임{historyTotalPages > 1 ? ` · ${historyPage}/${historyTotalPages}페이지` : ""})</span></h3>
+        <h3 className="text-lg font-black text-white">매치 기록 <span className="text-xs text-white/40">(저장된 전적 {storedMatchCount}경기{historyTotalPages > 1 ? ` · ${historyPage}/${historyTotalPages}페이지` : ""})</span></h3>
         <div role="group" aria-label="매치 유형 필터" className="flex flex-wrap gap-1 rounded-xl bg-white/5 p-1">
           {FILTERS.map((item) => (
             <button

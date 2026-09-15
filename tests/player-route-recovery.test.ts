@@ -10,6 +10,8 @@ const {
   mockIsPlayerPrivate,
   mockTrackPubgRateLimit,
   mockFetch,
+  mockRecordBanObservation,
+  mockReadBanStatus,
 } = vi.hoisted(() => ({
   mockCreateServerClient: vi.fn(),
   mockCreateSupabaseAdminClient: vi.fn(),
@@ -20,6 +22,13 @@ const {
   mockIsPlayerPrivate: vi.fn(),
   mockTrackPubgRateLimit: vi.fn(),
   mockFetch: vi.fn(),
+  mockRecordBanObservation: vi.fn(),
+  mockReadBanStatus: vi.fn(),
+}));
+
+vi.mock("@/lib/pubg/banWatch.server", () => ({
+  recordPlayerBanObservation: mockRecordBanObservation,
+  readPlayerBanStatus: mockReadBanStatus,
 }));
 
 vi.mock("@/utils/supabase/server", () => ({
@@ -100,9 +109,10 @@ function configureSupabase(cacheRow: unknown = null) {
     if (table !== "pubg_player_cache") throw new Error(`unexpected admin table: ${table}`);
     return { upsert: adminUpsert };
   });
-  mockCreateSupabaseAdminClient.mockReturnValue({ from: adminFrom });
+  const discoveryRpc = vi.fn().mockResolvedValue({ data: null, error: null });
+  mockCreateSupabaseAdminClient.mockReturnValue({ from: adminFrom, rpc: discoveryRpc });
 
-  return { playerCache, matchModes, rpc, adminUpsert };
+  return { playerCache, matchModes, rpc, adminUpsert, discoveryRpc };
 }
 
 function jsonResponse(value: unknown, status = 200, headers: Record<string, string> = {}) {
@@ -140,7 +150,7 @@ function statsBucket(overrides: Record<string, unknown> = {}) {
 function playerPayload() {
   return {
     data: [{
-      id: "account-fixture-1",
+      id: "account.fixture1",
       attributes: { name: "Fixture_Player", banType: "None", clanId: null },
       relationships: { matches: { data: [] } },
     }],
@@ -245,7 +255,7 @@ function playerCalls(calls: FetchCall[]) {
 
 function staleCacheRow(normal: unknown = cachedModeBuckets(1)) {
   return {
-    id: "account-fixture-1",
+    id: "account.fixture1",
     nickname: "Fixture_Player",
     lower_nickname: "fixture_player",
     platform: "steam",
@@ -278,6 +288,8 @@ describe("player route recovery contract", () => {
     vi.stubEnv("PUBG_API_KEY", "fixture-api-key");
     vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://fixture.supabase.co");
     vi.stubEnv("SUPABASE_SERVICE_ROLE_KEY", "fixture-service-role");
+    mockReadBanStatus.mockResolvedValue(null);
+    mockRecordBanObservation.mockResolvedValue({ code: "recorded" });
     mockReadPubgCache.mockResolvedValue(null);
     mockWritePubgCache.mockResolvedValue(undefined);
     mockClaimForceRefresh.mockResolvedValue(true);
@@ -289,6 +301,58 @@ describe("player route recovery contract", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+  });
+
+  it("uses the ban observation time on cached profiles without recording a new check", async () => {
+    mockReadPubgCache.mockResolvedValue({ accountId: "account.fixture1", banType: "None", updatedAt: "2026-09-12T00:00:00Z" });
+    mockReadBanStatus.mockResolvedValue({ status: "permanent", rawType: "PermanentBan", checkedAt: "2026-09-10T00:00:00Z" });
+    const { GET } = await loadRoute();
+    const body = await (await GET(request())).json();
+    expect(body).toMatchObject({ banStatus: "permanent", banCheckedAt: "2026-09-10T00:00:00Z" });
+    expect(mockRecordBanObservation).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not fabricate an observation timestamp if the new store is unavailable", async () => {
+    mockReadPubgCache.mockResolvedValue({ accountId: "account.fixture1", banType: "None", updatedAt: "2026-09-12T00:00:00Z" });
+    mockReadBanStatus.mockRejectedValue(new Error("migration unavailable"));
+    const { GET } = await loadRoute();
+    const body = await (await GET(request())).json();
+    expect(body.banCheckedAt).toBeUndefined();
+    expect(mockRecordBanObservation).not.toHaveBeenCalled();
+  });
+
+  it("keeps missing upstream ban types unknown when persistence fails", async () => {
+    configureSupabase();
+    const player = playerPayload();
+    delete (player.data[0].attributes as { banType?: string }).banType;
+    mockRecordBanObservation.mockRejectedValue(new Error("store offline"));
+    installFetch({ player: [jsonResponse(player)], seasons: [jsonResponse(seasonsPayload())],
+      season: [jsonResponse(normalPayload())], ranked: [jsonResponse(rankedPayload())], mastery: [jsonResponse({}, 404)] });
+    const { GET } = await loadRoute();
+    const response = await GET(request());
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ banType: "Unknown", banStatus: "unknown", banCheckedAt: expect.any(String) });
+    expect(mockRecordBanObservation).toHaveBeenCalledWith(expect.objectContaining({ accountId: "account.fixture1", banType: "Unknown" }));
+  });
+
+  it.each([false, true])('preserves 99 IDs before partial season failure (discovery fails=%s)', async (failDiscovery) => {
+    const { discoveryRpc, adminUpsert } = configureSupabase();
+    if (failDiscovery) discoveryRpc.mockResolvedValue({ data:null, error:{message:'offline'} });
+    const player = playerPayload();
+    const ids=Array.from({length:99},(_,i)=>`match-${i}`);
+    player.data[0].relationships.matches.data=ids.map(id=>({id})) as never[];
+    installFetch({player:[jsonResponse(player)],seasons:[jsonResponse(seasonsPayload())],
+      season:[jsonResponse({},503),jsonResponse({},503)],ranked:[jsonResponse(rankedPayload())],mastery:[jsonResponse({},404)]});
+    const {GET}=await loadRoute();
+    const response=await GET(request()); const body=await response.json();
+    expect(response.status).toBe(200);
+    expect(discoveryRpc).toHaveBeenCalledWith('record_pubg_match_discovery',expect.objectContaining({p_match_ids:ids,p_account_id:'account.fixture1'}));
+    expect(body.recentMatches).toHaveLength(20);
+    expect(body.historyIngestError).toBeUndefined();
+    expect(adminUpsert).not.toHaveBeenCalled();
+    expect(mockWritePubgCache).not.toHaveBeenCalled();
   });
 
   it.each([

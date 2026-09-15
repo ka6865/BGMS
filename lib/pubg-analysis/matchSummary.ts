@@ -23,6 +23,8 @@ const EMPTY_STATS = {
 
 export type MatchSummaryData = MatchData & {
   isSummary?: boolean;
+  performanceOnly?: boolean;
+  performanceState?: import("../pubg/performanceCache").PerformanceState;
   // Separate observed basic values from legacy MatchData placeholder zeroes.
   basicStats?: { DBNOs: number | null; timeSurvived: number | null };
   summarySource?: "processed_match_telemetry" | "pubg_player_matches";

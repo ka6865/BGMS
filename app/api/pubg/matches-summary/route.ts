@@ -1,3 +1,4 @@
+import { readPerformanceCache, readPerformanceStates } from "@/lib/pubg/performanceCache";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
@@ -112,6 +113,12 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const performances = await readPerformanceCache(supabase, platform, playerId, matchIds);
+    for (const [id, benchmark] of Object.entries(performances)) {
+      if (summaries[id] && !summaries[id].benchmark) { summaries[id].benchmark = benchmark; summaries[id].performanceOnly = true; }
+    }
+    const performanceStates = await readPerformanceStates(supabase, platform, playerId, matchIds);
+    for (const [id, state] of Object.entries(performanceStates)) if (summaries[id]) summaries[id].performanceState = state;
     return NextResponse.json({
       summaries,
       missingMatchIds: matchIds.filter((id: string) => !summaries[id])

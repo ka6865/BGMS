@@ -3,6 +3,8 @@
  import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
  
 export interface PlayerMatchRecord {
+  account_id?: string;
+  ranking_eligible?: boolean;
    player_id: string;
    platform: string;
    match_id: string;
@@ -23,6 +25,22 @@ export interface PlayerMatchesPage {
   pageSize: number;
   totalCount: number;
   totalPages: number;
+}
+
+export type PlayerMatchHistoryFilter = "all" | "normal" | "ranked" | "casual" | "tdm";
+
+const PLAYER_MATCH_HISTORY_FILTERS = new Set<PlayerMatchHistoryFilter>([
+  "all",
+  "normal",
+  "ranked",
+  "casual",
+  "tdm",
+]);
+
+export function normalizePlayerMatchHistoryFilter(value: unknown): PlayerMatchHistoryFilter {
+  return typeof value === "string" && PLAYER_MATCH_HISTORY_FILTERS.has(value as PlayerMatchHistoryFilter)
+    ? value as PlayerMatchHistoryFilter
+    : "all";
 }
 
 /** Basic PUBG counters: preserve observed zero; missing/invalid stays null. */
@@ -95,6 +113,7 @@ export async function fetchPlayerMatchesPaginated(
   platform: string,
   page = 1,
   limit = DEFAULT_PAGE_SIZE,
+  filter: PlayerMatchHistoryFilter = "all",
 ): Promise<PlayerMatchesPage> {
   const playerId = normalizeName(nickname);
   const normPlatform = normalizePlatform(platform);
@@ -103,16 +122,33 @@ export async function fetchPlayerMatchesPaginated(
   const from = (safePage - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  const query = supabase
+  let query = supabase
     .from("pubg_player_matches")
     .select("player_id, platform, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time", { count: "exact" })
     .eq("player_id", playerId)
-    .eq("platform", normPlatform)
+    .eq("platform", normPlatform);
+
+  if (filter === "ranked") {
+    query = query.or("match_type.ilike.%competitive%,match_type.ilike.%ranked%,game_mode.ilike.%competitive%,game_mode.ilike.%ranked%");
+  } else if (filter === "casual") {
+    query = query.or("match_type.ilike.%airoyale%,match_type.ilike.%botmatch%,game_mode.ilike.%-ai,game_mode.ilike.ai-%,game_mode.ilike.%-ai-%,game_mode.ilike.%-bot,game_mode.ilike.bot-%,game_mode.ilike.%-bot-%");
+  } else if (filter === "tdm") {
+    query = query.or("game_mode.ilike.%tdm%,map_name.ilike.PillarCompound_Main,map_name.ilike.Italy_TDM_Main");
+  } else if (filter === "normal") {
+    query = query
+      .not("match_type", "ilike", "%competitive%")
+      .not("match_type", "ilike", "%ranked%")
+      .not("match_type", "in", "(unknown,unavailable)")
+      .not("game_mode", "ilike", "%competitive%")
+      .not("game_mode", "ilike", "%ranked%")
+      .not("game_mode", "ilike", "%tdm%")
+      .not("map_name", "in", "(PillarCompound_Main,Italy_TDM_Main)");
+  }
+
+  const { data, error, count } = await query
     .order("played_at", { ascending: false })
     .order("match_id", { ascending: false })
     .range(from, to);
-
-  const { data, error, count } = await query;
   if (error) {
     console.error("[playerMatches] fetch failed:", error.message);
     throw error;

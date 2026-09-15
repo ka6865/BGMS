@@ -1,3 +1,4 @@
+import { evaluateMatchEligibility } from "@/lib/pubg-analysis/matchEligibility";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
@@ -66,6 +67,7 @@ export type PubgFetchImpl = (
 ) => Promise<Response>;
 
 export interface BasicMatchIngestOptions {
+  expectedAccountId?: string;
   fetchImpl?: PubgFetchImpl;
   timeoutMs?: number;
   onResponseStatus?: (status: number) => void;
@@ -158,17 +160,28 @@ export async function fetchAndIngestBasicMatchSummaryOutcome(
     }
 
     const matchAttr = data.data?.attributes || {};
+    if (options.expectedAccountId && (
+      data.data?.id?.replace(/^shard:/, '') !== matchId
+      || !Number.isFinite(Date.parse(matchAttr.createdAt))
+    )) return { status: 'upstream_error', record: null, httpStatus: res.status, rateLimitHeaders, error: 'match-identity-or-date-invalid' };
     const participants = (data.included || []).filter((it: any) => it.type === "participant");
     const myParticipant = participants.find(
-      (p: any) => normalizeName(p.attributes?.stats?.name) === playerId,
+      (p: any) => options.expectedAccountId
+        ? p.attributes?.stats?.playerId === options.expectedAccountId
+        : normalizeName(p.attributes?.stats?.name) === playerId,
     );
     if (!myParticipant?.attributes?.stats) {
-      return { status: "not_found", record: null, httpStatus: res.status, rateLimitHeaders };
+      return { status: options.expectedAccountId ? "upstream_error" : "not_found", record: null, httpStatus: res.status, rateLimitHeaders };
     }
 
     const stats = myParticipant.attributes.stats;
+    if (options.expectedAccountId && (typeof stats.name !== 'string' || !stats.name.trim())) {
+      return { status: 'upstream_error', record: null, httpStatus: res.status, rateLimitHeaders, error: 'participant-name-missing' };
+    }
     const record: PlayerMatchRecord = {
-      player_id: playerId,
+      ranking_eligible: evaluateMatchEligibility({ ...matchAttr, stats }, "benchmark").eligible,
+      ...(typeof stats.playerId === "string" && /^account\.[A-Za-z0-9_-]+$/.test(stats.playerId) ? { account_id: stats.playerId } : {}),
+      player_id: options.expectedAccountId ? normalizeName(stats.name) : playerId,
       platform: normPlatform,
       match_id: matchId,
       played_at: matchAttr.createdAt || new Date().toISOString(),
