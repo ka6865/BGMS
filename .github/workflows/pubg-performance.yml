@@ -1,8 +1,8 @@
 name: PUBG Performance
 on:
   schedule:
-    # The worker has a daily 30-job DB budget. Hourly runs keep results moving
-    # without paying for 288 dependency installs per day after the budget ends.
+    # Each run processes at most five sequential jobs and the DB enforces a
+    # daily 30-job budget. Hourly runs keep the backlog moving without bursts.
     - cron: "11 * * * *"
   workflow_dispatch:
 permissions:
