@@ -76,7 +76,9 @@ async function executeCollect(
 async function executeSelect(run: RunSnapshot, lease: string, store: CommunityStore): Promise<RunSnapshot> {
   const official = await store.loadOfficialEvidence();
   const officialIds = await store.saveEvidence(official);
-  const items = usableEvidence(await store.loadEvidence([...new Set([...evidenceIds(run), ...officialIds])]));
+  const rejectedIds = new Set(await store.rejectedEvidenceIds());
+  const items = usableEvidence(await store.loadEvidence([...new Set([...evidenceIds(run), ...officialIds])]))
+    .filter(item => !rejectedIds.has(item.id));
   if (items.length === 0) {
     return store.finishStage(run.id, "select", lease, {
       terminal: { status: "deferred", reason: "no_usable_evidence" },

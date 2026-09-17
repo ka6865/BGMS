@@ -293,6 +293,28 @@ describe("executeAction state boundaries", () => {
     });
   });
 
+  it("excludes previously rejected evidence before topic selection", async () => {
+    const discarded = { id: "rejected-video", excerpt: "공식 영상 설명" };
+    const remaining = { id: "new-discussion", excerpt: "새로운 커뮤니티 글" };
+    const run = snapshot();
+    const store = {
+      claimStage: vi.fn().mockResolvedValue({ claimed: true, lease: LEASE, run }),
+      loadOfficialEvidence: vi.fn().mockResolvedValue([]),
+      rejectedEvidenceIds: vi.fn().mockResolvedValue([discarded.id]),
+      saveEvidence: vi.fn().mockResolvedValue([]),
+      loadEvidence: vi.fn().mockResolvedValue([discarded, remaining]),
+      recentPosts: vi.fn().mockResolvedValue([]),
+      finishStage: vi.fn().mockResolvedValue(run),
+    };
+    mocks.selectTopic.mockResolvedValue(null);
+    await executeAction({ action: "step", runId: RUN_ID, stage: "select" }, { kind: "admin", userId: "admin" }, store as never);
+    expect(mocks.selectTopic.mock.calls[0][0]).toEqual([remaining]);
+    mocks.selectTopic.mockClear();
+    store.loadEvidence.mockResolvedValue([discarded]);
+    await executeAction({ action: "step", runId: RUN_ID, stage: "select" }, { kind: "admin", userId: "admin" }, store as never);
+    expect(mocks.selectTopic).not.toHaveBeenCalled();
+  });
+
   it("finishes select as deferred without calling a model when there is no usable evidence", async () => {
     const run = snapshot({ reports: [
       { source: "dc", state: "empty", reason: "none", fetchedCount: 0, retainedCount: 0, evidenceIds: [] },
@@ -302,6 +324,7 @@ describe("executeAction state boundaries", () => {
     const store = {
       claimStage: vi.fn().mockResolvedValue({ claimed: true, lease: LEASE, run }),
       loadOfficialEvidence: vi.fn().mockResolvedValue([]),
+      rejectedEvidenceIds: vi.fn().mockResolvedValue([]),
       saveEvidence: vi.fn().mockResolvedValue([]),
       loadEvidence: vi.fn().mockResolvedValue([]),
       finishStage: vi.fn().mockResolvedValue(snapshot({ status: "deferred", reason: "no_usable_evidence" })),

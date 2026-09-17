@@ -18,6 +18,15 @@ function query(response: { data?: unknown; error?: unknown }) {
 }
 
 describe("CommunityStore", () => {
+  it("loads rejected evidence and fails closed on storage errors", async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: ["rejected-source"], error: null });
+    const store = new CommunityStore({ rpc } as never);
+    await expect(store.rejectedEvidenceIds()).resolves.toEqual(["rejected-source"]);
+    expect(rpc).toHaveBeenCalledWith("community_rejected_evidence_ids");
+    rpc.mockResolvedValue({ data: null, error: { message: "unavailable" } });
+    await expect(store.rejectedEvidenceIds()).rejects.toThrow();
+  });
+
   it("partial policy updates do not resend a stale enabled value", async () => {
     const rpc = vi.fn().mockResolvedValue({
       data: {

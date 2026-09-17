@@ -155,6 +155,7 @@ class FlowStore {
 
   async loadOfficialEvidence() { return []; }
   async recentPosts() { return []; }
+  async rejectedEvidenceIds() { return []; }
   async getSourceCache() { return null; }
 }
 

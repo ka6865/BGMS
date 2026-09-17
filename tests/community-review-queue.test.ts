@@ -58,6 +58,23 @@ afterEach(() => {
 });
 
 describe("CommunityReviewQueue", () => {
+  it("moves rejected cards into history and refreshes the parent's retry state", async () => {
+    let rejected = false;
+    const onDecision = vi.fn().mockResolvedValue(undefined);
+    const fetch = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") { rejected = true; return Response.json({ result: { code: "rejected" } }); }
+      return Response.json({ reviews: url.includes("view=history") ? [review({ status: "rejected" })] : rejected ? [] : [review()], discordMode: "buttons" });
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(React.createElement(CommunityReviewQueue, { onDecision }));
+    fireEvent.click(await screen.findByRole("button", { name: "거절" }));
+    await waitFor(() => expect(onDecision).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("heading", { name: "43.1 패치 핵심 정리" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "처리 내역" }));
+    expect(await screen.findByText("거절됨")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "거절" })).not.toBeInTheDocument();
+  });
+
   it("sanitizes post HTML and explains link-only Discord review honestly", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ reviews: [review()], discordMode: "review_link" })));
     const { container } = render(React.createElement(CommunityReviewQueue));

@@ -316,6 +316,13 @@ export class CommunityStore {
     return ids.flatMap((id) => loaded.has(id) ? [loaded.get(id)!] : []);
   }
 
+  async rejectedEvidenceIds(): Promise<string[]> {
+    const { data, error } = await this.client.rpc("community_rejected_evidence_ids");
+    requireSuccess({ error }, "rejected-evidence");
+    if (!Array.isArray(data) || data.some(id => typeof id !== "string")) fail("invalid-rejected-evidence");
+    return data as string[];
+  }
+
   async recentPosts(days: number): Promise<Array<{ title: string; topicKey: string | null; createdAt: string }>> {
     if (!Number.isInteger(days) || days < 1 || days > 90) fail("invalid-recent-post-days");
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();

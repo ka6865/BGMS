@@ -98,7 +98,8 @@ async function requestJson(path: string, init?: RequestInit): Promise<unknown> {
   return response.json();
 }
 
-export default function CommunityReviewQueue({ refreshKey = 0 }: { refreshKey?: string | number }) {
+export default function CommunityReviewQueue({ refreshKey = 0, onDecision }: { refreshKey?: string | number; onDecision?: () => Promise<void> }) {
+  const [showHistory, setShowHistory] = useState(false);
   const [reviews, setReviews] = useState<CommunityReview[]>([]);
   const [discordMode, setDiscordMode] = useState<DiscordMode>("review_link");
   const [loading, setLoading] = useState(true);
@@ -112,8 +113,8 @@ export default function CommunityReviewQueue({ refreshKey = 0 }: { refreshKey?: 
     try {
       const params = new URLSearchParams(window.location.search);
       const requested = params.get("review");
-      const focusedId = requested && REVIEW_ID.test(requested) ? requested : null;
-      const data = await requestJson(`/api/admin/agent/community/reviews${focusedId ? `?id=${encodeURIComponent(focusedId)}` : ""}`) as ReviewResponse;
+      const focusedId = !showHistory && requested && REVIEW_ID.test(requested) ? requested : null;
+      const data = await requestJson(`/api/admin/agent/community/reviews${focusedId ? `?id=${encodeURIComponent(focusedId)}` : showHistory ? "?view=history" : ""}`) as ReviewResponse;
       if (!Array.isArray(data.reviews) || !data.reviews.every(isReview)
         || (data.discordMode !== "buttons" && data.discordMode !== "review_link")) {
         throw new Error("invalid_review_response");
@@ -126,7 +127,7 @@ export default function CommunityReviewQueue({ refreshKey = 0 }: { refreshKey?: 
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showHistory]);
 
   useEffect(() => { void load(); }, [load, refreshKey]);
 
@@ -141,6 +142,7 @@ export default function CommunityReviewQueue({ refreshKey = 0 }: { refreshKey?: 
       }) as OperationResponse;
       setMessage(operationMessage(data));
       await load();
+      if (action === "approve" || action === "reject") await onDecision?.();
     } catch {
       setError("검토 요청을 처리하지 못했습니다. 현재 상태를 다시 확인해주세요.");
     } finally {
@@ -168,6 +170,11 @@ export default function CommunityReviewQueue({ refreshKey = 0 }: { refreshKey?: 
           ? "Discord 봇 버튼과 이 관리자 화면에서 승인·거절할 수 있습니다. 어느 쪽에서 처리해도 저장된 최신 상태를 다시 확인합니다."
           : "현재 Discord 알림은 로그인한 관리자 검토 페이지 링크를 엽니다. 실제 Discord 승인·거절 버튼은 봇 설정을 마친 뒤 사용할 수 있습니다."}
       </p>
+
+      <div className="mt-4 flex gap-2" aria-label="검토 목록 선택">
+        <button type="button" aria-pressed={!showHistory} onClick={() => setShowHistory(false)} disabled={busy !== null} className="min-h-11 rounded-lg border border-zinc-700 px-3 text-sm aria-pressed:border-amber-400 aria-pressed:text-amber-200">승인 대기</button>
+        <button type="button" aria-pressed={showHistory} onClick={() => setShowHistory(true)} disabled={busy !== null} className="min-h-11 rounded-lg border border-zinc-700 px-3 text-sm aria-pressed:border-amber-400 aria-pressed:text-amber-200">처리 내역</button>
+      </div>
 
       {message && <p role="status" aria-live="polite" className="mt-3 rounded-lg border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm leading-6 text-emerald-200">{message}</p>}
       {error && <p role="alert" className="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm leading-6 text-rose-200">{error}</p>}
