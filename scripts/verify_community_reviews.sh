@@ -13,6 +13,7 @@ sql < tests/fixtures/community-agent/review-prerequisites.sql
 sql < supabase/migrations/20260719000000_create_published_post_comment.sql
 sql < supabase/migrations/20260909111045_community_content_reviews.sql
 sql < supabase/migrations/20260909111823_community_review_notification_outcomes.sql
+sql < supabase/migrations/20260910220700_community_rejected_recollection.sql
 sql < tests/fixtures/community-agent/review-scenarios.sql
 # Simultaneous approvals create one published post from the existing draft.
 sql -c "update public.community_agent_runs set published_at=now()-interval '1 day' where published_at is not null; insert into public.agent_runs(id,message) values('44444444-4444-4444-8444-444444444444','concurrent review'); insert into public.community_agent_runs(run_id,day,status,approved_title,approved_html,approved_category,approved_hash,validation) select '44444444-4444-4444-8444-444444444444',day-1,'ready','race fixture',approved_html,approved_category,encode(sha256(convert_to('race fixture'||E'\\n'||approved_html,'UTF8')),'hex'),jsonb_build_object('passed',true,'contentHash',encode(sha256(convert_to('race fixture'||E'\\n'||approved_html,'UTF8')),'hex')) from public.community_agent_runs limit 1; select public.enqueue_community_post_review('44444444-4444-4444-8444-444444444444');" >/dev/null
@@ -25,4 +26,5 @@ wait "$FIRST"
 wait "$SECOND"
 sql -c "do \$\$ begin if (select count(*) from public.posts where title='race fixture' and status='published')<>1 then raise exception 'duplicate concurrent publication'; end if; end \$\$;"
 rm -f /tmp/bgms-review-a-$$ /tmp/bgms-review-b-$$
+sql < tests/fixtures/community-agent/recollection-scenarios.sql
 echo 'Community review SQL scenarios passed'

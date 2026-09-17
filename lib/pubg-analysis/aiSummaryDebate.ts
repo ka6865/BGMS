@@ -733,8 +733,11 @@ function validateBenchmarkDirection(
 
   const metric = METRIC_BY_KEY.get(metricKeyValue);
   if (!metric) return false;
-  const higherIsBetter = AI_SUMMARY_HIGHER_IS_BETTER[metricKeyValue];
-  if (higherIsBetter === undefined) return false;
+  // Validate the provider's statement against the observed numbers, not
+  // against whether the metric is desirable when it is high. A lower-than-
+  // average result is still a valid fact for a higher-is-better metric and is
+  // exactly the comparison the critical coach needs to explain.
+  if (AI_SUMMARY_HIGHER_IS_BETTER[metricKeyValue] === undefined) return false;
   const userMeasurement = parseMeasurement(canonicalUser.value);
   const benchmarkMeasurement = parseMeasurement(canonicalBenchmark.value);
   if (!userMeasurement || !benchmarkMeasurement
@@ -763,10 +766,10 @@ function validateBenchmarkDirection(
   if (Math.abs(subjectValue - otherValue) <= epsilon) return false;
 
   const higher = subjectValue > otherValue;
-  if (predicate === "higher") return higherIsBetter === true && higher;
-  if (predicate === "lower") return higherIsBetter === false && !higher;
-  if (predicate === "faster") return metric.dimension === "duration" && higherIsBetter === false && !higher;
-  if (predicate === "slower") return metric.dimension === "duration" && higherIsBetter === false && higher;
+  if (predicate === "higher") return higher;
+  if (predicate === "lower") return !higher;
+  if (predicate === "faster") return metric.dimension === "duration" && !higher;
+  if (predicate === "slower") return metric.dimension === "duration" && higher;
   return false;
 }
 

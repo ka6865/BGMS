@@ -65,6 +65,22 @@ describe("readable AI coaching with verified evidence", () => {
     expect(sanitize(source, evidence)).toBe(valid ? source : neutral);
   });
 
+  it("keeps a numerically verified lower result for a higher-is-better metric", () => {
+    const evidence = {
+      death_phase: {
+        user: { label: "평균 사망 페이즈", value: "7.4" },
+        benchmark: { label: "동일 티어 평균 사망 페이즈", value: "8" },
+      },
+    };
+    const source = "동일 티어 평균 사망 페이즈 8 대비 내 평균 사망 페이즈 7.4가 낮습니다.";
+    const output = sanitize(source, evidence);
+
+    expect(output).toContain("평균 사망 페이즈 7.4");
+    expect(output).toContain("동일 티어 평균 사망 페이즈 8");
+    expect(output).toContain("낮습니다");
+    expect(output).not.toBe(neutral);
+  });
+
   it.each([
     ["복수 성공률은 비교 평균과 같습니다.", true],
     ["복수 성공률은 비교 평균보다 낮습니다.", false],

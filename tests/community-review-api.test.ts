@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const m=vi.hoisted(()=>({actor:vi.fn(),rpc:vi.fn(),recentRuns:vi.fn(),enqueue:vi.fn(),notify:vi.fn(),reply:vi.fn()}));
-vi.mock('../lib/community-agent/auth',()=>({resolveCommunityActor:m.actor,createCommunityStore:()=>({client:{rpc:m.rpc},store:{recentRuns:m.recentRuns}})}));
+const m=vi.hoisted(()=>({actor:vi.fn(),rpc:vi.fn(),from:vi.fn(),recentRuns:vi.fn(),enqueue:vi.fn(),notify:vi.fn(),reply:vi.fn()}));
+vi.mock('../lib/community-agent/auth',()=>({resolveCommunityActor:m.actor,createCommunityStore:()=>({client:{rpc:m.rpc,from:m.from},store:{recentRuns:m.recentRuns}})}));
 vi.mock('../lib/community-agent/reviews',()=>({enqueuePostReview:m.enqueue,notifyNextReview:m.notify}));
 vi.mock('../lib/community-agent/replies',()=>({processReplyDraft:m.reply}));
 import {GET,POST} from '../app/api/admin/agent/community/reviews/route';
@@ -14,4 +14,26 @@ describe('community review authority',()=>{
  it('derives approval identity from session, accepts no body or actor override',async()=>{expect((await POST(req({action:'approve',id,body:'injected',actor:'admin'}))).status).toBe(400);const res=await POST(req({action:'approve',id}));expect(await res.json()).toEqual({result:{code:'target_changed'}});expect(m.rpc).toHaveBeenCalledWith('decide_community_review',{p_review_id:id,p_decision:'approve',p_actor_id:'admin-id'});});
  it('bounds chunked input',async()=>{expect((await POST(req({action:'approve',id:'x'.repeat(3000)}))).status).toBe(400);expect(m.rpc).not.toHaveBeenCalled();});
  it('worker creates drafts and notifications only',async()=>{m.actor.mockResolvedValue({kind:'worker',userId:null});m.recentRuns.mockResolvedValue([{id,status:'ready'},{id:'done',status:'published'}]);expect((await POST(req({action:'process'}))).status).toBe(200);expect(m.enqueue).toHaveBeenCalledExactlyOnceWith(id);expect(m.reply).toHaveBeenCalledOnce();expect(m.notify).toHaveBeenCalledOnce();expect(m.rpc).not.toHaveBeenCalled();});
+});
+
+
+describe('review list filters', () => {
+ it.each([
+   ['', ['pending', 'generating', 'failed']],
+   ['?view=history', ['published', 'rejected', 'expired']],
+ ])('filters %s before the server limit', async (suffix, statuses) => {
+   const query = { select: vi.fn(), order: vi.fn(), limit: vi.fn(), in: vi.fn().mockResolvedValue({ data: [], error: null }) };
+   query.select.mockReturnValue(query); query.order.mockReturnValue(query); query.limit.mockReturnValue(query);
+   m.from.mockReturnValue(query);
+   expect((await GET(new Request('https://bgms.test/api/admin/agent/community/reviews' + suffix))).status).toBe(200);
+   expect(query.in).toHaveBeenCalledWith('status', statuses);
+ });
+ it('preserves direct links to a decided review', async () => {
+   const query = { select: vi.fn(), order: vi.fn(), limit: vi.fn(), eq: vi.fn().mockResolvedValue({ data: [], error: null }), in: vi.fn() };
+   query.select.mockReturnValue(query); query.order.mockReturnValue(query); query.limit.mockReturnValue(query);
+   m.from.mockReturnValue(query);
+   expect((await GET(new Request('https://bgms.test/api/admin/agent/community/reviews?id=' + id))).status).toBe(200);
+   expect(query.eq).toHaveBeenCalledWith('id', id);
+   expect(query.in).not.toHaveBeenCalled();
+ });
 });

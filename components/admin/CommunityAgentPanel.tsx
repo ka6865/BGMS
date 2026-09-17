@@ -43,6 +43,7 @@ function reasonText(reason: string | null): string {
   const values: Record<string, string> = {
     missing_credentials: "연결 정보가 필요합니다",
     naver_search_credentials_missing: "네이버 검색 연결 정보가 필요합니다",
+    review_rejected: "초안을 거절했습니다. 다른 자료로 다시 수집할 수 있습니다",
     youtube_data_api_key_missing: "YouTube 연결 정보가 필요합니다",
     no_usable_evidence: "본문으로 확인한 자료가 부족해 보류했습니다",
   };
@@ -280,7 +281,7 @@ export default function CommunityAgentPanel() {
           <a href="#community-reviews" className="mt-3 inline-block text-sm text-amber-200 underline underline-offset-4">승인 대기 초안 확인 ↓</a>
         </section>
 
-        <CommunityReviewQueue refreshKey={reviewRefreshKey} />
+        <CommunityReviewQueue refreshKey={reviewRefreshKey} onDecision={() => load(false)} />
 
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
           <h2 className="font-semibold">3. 운영 제한</h2>
@@ -313,7 +314,7 @@ export default function CommunityAgentPanel() {
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
             <h2 id="community-draft" className="scroll-mt-20 font-semibold">초안과 실행 결과</h2>
             {currentRun ? <p className="mt-2 text-xs text-zinc-400">최근 실행: {runStatusText(currentRun.status)}{currentRun.reason ? ` · ${reasonText(currentRun.reason)}` : ""}</p> : null}
-            {currentRun?.draft ? <div className="mt-2 text-sm text-zinc-300"><p className="font-medium">{currentRun.draft.title}</p>{currentRun.draft.paragraphs.map((paragraph, index) => <p key={`${paragraph.text}-${index}`} className="mt-2 whitespace-pre-wrap text-zinc-400">{paragraph.text}</p>)}<p className="mt-2 text-zinc-400">질문: {currentRun.draft.question}</p></div> : <p className="mt-2 text-sm text-zinc-400">저장된 초안이 없습니다. 자료가 부족하면 발행을 보류합니다.</p>}
+            {currentRun?.draft && currentRun.reason !== "review_rejected" ? <div className="mt-2 text-sm text-zinc-300"><p className="font-medium">{currentRun.draft.title}</p>{currentRun.draft.paragraphs.map((paragraph, index) => <p key={`${paragraph.text}-${index}`} className="mt-2 whitespace-pre-wrap text-zinc-400">{paragraph.text}</p>)}<p className="mt-2 text-zinc-400">질문: {currentRun.draft.question}</p></div> : <p className="mt-2 text-sm text-zinc-400">{currentRun?.reason === "review_rejected" ? "거절한 초안은 처리 내역에서 확인할 수 있습니다. 위에서 다시 수집해 주세요." : "저장된 초안이 없습니다. 자료가 부족하면 발행을 보류합니다."}</p>}
             <p className="mt-3 text-xs leading-5 text-zinc-500">예약 실행기는 한국 시간 기준으로 자료와 답글 후보를 확인할 수 있습니다. 검증을 통과해도 먼저 승인 대기 초안으로 저장되며, 관리자가 승인하기 전에는 게시하지 않습니다.</p>
           </div>
         </section>

@@ -12,10 +12,14 @@ export async function GET(request: Request) {
   if (actor.kind !== 'admin') return NextResponse.json({ code: 'forbidden' }, { status: 403 });
   try {
     const { client } = createCommunityStore();
-    const requestedId = new URL(request.url).searchParams.get('id');
+    const params = new URL(request.url).searchParams;
+    const requestedId = params.get('id');
+    const view = params.get('view');
+    if (view && view !== 'history') return NextResponse.json({ code: 'invalid_request' }, { status: 400 });
     if (requestedId && !UUID.test(requestedId)) return NextResponse.json({ code: 'invalid_request' }, { status: 400 });
     let query = client.from('community_content_reviews').select('*').order('created_at', { ascending: false }).limit(50);
     if (requestedId) query = query.eq('id', requestedId);
+    else query = query.in('status', view === 'history' ? ['published', 'rejected', 'expired'] : ['pending', 'generating', 'failed']);
     const { data, error } = await query;
     if (error) throw error;
     return NextResponse.json({ reviews: data, discordMode: process.env.DISCORD_BOT_TOKEN && process.env.DISCORD_COMMUNITY_APPROVER_ID ? 'buttons' : 'review_link' });
