@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   uploadToSignedUrl: vi.fn(),
 }));
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.routerPush, refresh: vi.fn() }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.routerPush, refresh: vi.fn() }), useSearchParams: () => new URLSearchParams(window.location.search) }));
 vi.mock("@/components/AuthProvider", () => ({ useAuth: mocks.auth }));
 vi.mock("@/lib/supabase", () => ({
   supabase: { storage: { from: vi.fn(() => ({ uploadToSignedUrl: mocks.uploadToSignedUrl })) } },
@@ -51,6 +51,16 @@ describe("support center UI", () => {
     expect(screen.getByText("비공개 요청은?")).toBeTruthy();
     expect(screen.getByRole("link", { name: /로그인 후 1:1 문의/i }).getAttribute("href")).toBe("/login?next=/support/new");
     expect(screen.queryByLabelText("문의 유형")).toBeNull();
+  });
+
+  it("loads the authenticated user's private ticket list on the my tab", async () => {
+    window.history.replaceState({}, "", "/support?tab=my");
+    mocks.auth.mockReturnValue({ user: { id: "user-1" }, loading: false });
+    vi.mocked(fetch).mockImplementationOnce(() => response({ tickets: [{ id: ticket.id, subject: "내 문의", status: "answered", verification_status: "not_required", updated_at: "2026-09-21T00:00:00.000Z" }] }));
+    render(React.createElement(SupportCenter, { faqs: [faq], isAuthenticated: true }));
+    expect(await screen.findByRole("region", { name: "내 문의" })).toBeTruthy();
+    expect(screen.getAllByRole("link").some((link) => link.getAttribute("href") === `/support/${ticket.id}`)).toBe(true);
+    window.history.replaceState({}, "", "/");
   });
 
   it("reveals the privacy target and screenshot requirement, keeping submit disabled without evidence", () => {

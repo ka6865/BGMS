@@ -36,6 +36,26 @@ export default function TicketThread({ ticketId, initialTicket }: { ticketId: st
     return () => { active = false; };
   }, [refresh, ticketId]);
 
+  useEffect(() => {
+    if (!ticket || ticket.attachments.length === 0) return;
+    const attachments = ticket.attachments.filter((attachment) => attachment.status === "ready" && !attachment.signedUrl);
+    if (attachments.length === 0) return;
+    let active = true;
+    Promise.all(attachments.map(async (attachment) => {
+      try {
+        const response = await fetch(`/api/support/attachments/${attachment.id}/url`);
+        const payload = await response.json();
+        return response.ok && typeof payload.signedUrl === "string" ? { id: attachment.id, signedUrl: payload.signedUrl } : null;
+      } catch { return null; }
+    })).then((signed) => {
+      if (!active) return;
+      const signedById = new Map(signed.filter((value): value is { id: string; signedUrl: string } => Boolean(value)).map((value) => [value.id, value.signedUrl]));
+      if (signedById.size === 0) return;
+      setTicket((current) => current ? { ...current, attachments: current.attachments.map((attachment) => ({ ...attachment, ...(signedById.has(attachment.id) ? { signedUrl: signedById.get(attachment.id) } : {}) })) } : current);
+    });
+    return () => { active = false; };
+  }, [ticket?.id, ticket?.attachments.length]);
+
   async function sendMessage(event: React.FormEvent) {
     event.preventDefault();
     if (!body.trim()) return;
