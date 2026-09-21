@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     if (!requestedNickname) continue;
     const platforms = requestedPlatform ? [requestedPlatform] : ["steam", "kakao"];
     for (const platform of platforms) {
-      const privateResponse = await blockPrivatePlayer(platform, requestedNickname);
+      const privateResponse = await blockPrivatePlayer(platform, requestedNickname, undefined, { lookupUpstream: true });
       if (privateResponse) return privateResponse;
     }
   }

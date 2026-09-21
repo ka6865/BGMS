@@ -104,5 +104,29 @@ describe("support center UI", () => {
     fireEvent.change(screen.getByLabelText("답변"), { target: { value: "추가 정보를 보냅니다." } });
     fireEvent.click(screen.getByRole("button", { name: "답변 보내기" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(`/api/support/tickets/${ticket.id}/messages`, expect.objectContaining({ method: "POST" })));
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
+      headers: expect.objectContaining({ "Idempotency-Key": expect.stringMatching(/^[0-9a-f-]{36}$/) }),
+    }));
+  });
+
+  it("disables the reply while sending so the same request key can be retried safely", async () => {
+    const fetchMock = vi.mocked(fetch);
+    let resolveSend!: (value: Response) => void;
+    const pendingSend = new Promise<Response>((resolve) => { resolveSend = resolve; });
+    fetchMock
+      .mockImplementationOnce(() => response({ ticket }))
+      .mockImplementationOnce(() => pendingSend)
+      .mockImplementationOnce(() => response({ ticket }));
+    render(React.createElement(TicketThread, { ticketId: ticket.id }));
+    expect(await screen.findByText("확인했습니다.")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("답변"), { target: { value: "중복 없이 보냅니다." } });
+    const submit = screen.getByRole("button", { name: "답변 보내기" });
+    fireEvent.click(submit);
+    await waitFor(() => expect(submit).toBeDisabled());
+    expect(fetchMock.mock.calls[1]?.[1]).toEqual(expect.objectContaining({
+      headers: expect.objectContaining({ "Idempotency-Key": expect.stringMatching(/^[0-9a-f-]{36}$/) }),
+    }));
+    resolveSend(new Response(JSON.stringify({ message: { id: "m-2" } }), { status: 201 }));
+    await waitFor(() => expect(screen.getByLabelText("답변")).not.toBeDisabled());
   });
 });

@@ -64,6 +64,9 @@ vi.mock("@/lib/pubg-analysis/aiUsageTracker", () => ({
 vi.mock("@/lib/pubg/privatePlayers", () => ({
   isPlayerPrivate: vi.fn().mockResolvedValue(false),
 }));
+vi.mock("@/lib/pubg/privatePlayerIdentity", () => ({
+  resolvePrivatePlayerAccountId: vi.fn().mockResolvedValue(null),
+}));
 
 vi.mock("@/lib/pubg-analysis/squadAnalysis", () => ({
   getSquadAnalysisData: mockGetSquadAnalysisData,

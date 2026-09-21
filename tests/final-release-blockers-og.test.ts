@@ -27,6 +27,7 @@ const {
 vi.mock("next/og", () => ({ ImageResponse: MockImageResponse }));
 vi.mock("@/lib/pubg-analysis/squadAnalysis", () => ({ getSquadAnalysisData: mockGetSquadAnalysisData }));
 vi.mock("@/lib/pubg/privatePlayers", () => ({ isPlayerPrivate: mockIsPlayerPrivate }));
+vi.mock("@/lib/pubg/privatePlayerIdentity", () => ({ resolvePrivatePlayerAccountId: vi.fn().mockResolvedValue(null) }));
 
 import { GET } from "@/app/api/og/squad/route";
 

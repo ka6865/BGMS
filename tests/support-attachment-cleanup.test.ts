@@ -83,4 +83,10 @@ describe("support attachment cleanup", () => {
     const db = makeDb(remove);
     await expect(cleanupExpiredSupportAttachments(db, new Date("2026-09-21T00:00:00.000Z"))).resolves.toEqual({ deleted: 0, deferred: 2 });
   });
+
+  it("treats a storage 404 status as an already-removed object", async () => {
+    const remove = vi.fn().mockResolvedValue({ error: { status: 404 } });
+    const db = makeDb(remove);
+    await expect(cleanupExpiredSupportAttachments(db, new Date("2026-09-21T00:00:00.000Z"))).resolves.toEqual({ deleted: 2, deferred: 0 });
+  });
 });

@@ -71,8 +71,11 @@ function storageFrom(db: SupportDb) {
 }
 
 function isMissingStorageObjectError(value: unknown): boolean {
-  const message = value instanceof Error ? value.message : typeof value === "object" && value !== null && "message" in value
-    ? String((value as { message?: unknown }).message ?? "") : String(value ?? "");
+  const candidate = typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
+  const status = Number(candidate?.status ?? candidate?.statusCode ?? candidate?.httpStatus);
+  if (status === 404) return true;
+  const message = value instanceof Error ? value.message : candidate && "message" in candidate
+    ? String(candidate.message ?? "") : String(value ?? "");
   return /not.?found|no such key|does not exist|404/i.test(message);
 }
 

@@ -1,7 +1,10 @@
 import { Metadata } from 'next';
-import { unstable_cache } from 'next/cache';
 import { getWeeklyTopDamage, getWeeklyTopKills, getTopTierRanking } from '@/actions/rankings';
 import RankingsClient from './RankingsClient';
+
+// Privacy registrations can happen from the support center at any time. Keep
+// this SSR page uncached so a newly-private account is absent immediately.
+export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
   title: '랭킹 | BGMS — PUBG 전술 지도 & AI 전적 분석',
@@ -12,22 +15,13 @@ export const metadata: Metadata = {
   },
 };
 
-// 5분마다 ISR 재검증
-const getCachedRankings = unstable_cache(
-  async () => {
-    const [damage, kills, tier] = await Promise.all([
-      getWeeklyTopDamage('all'),
-      getWeeklyTopKills('all'),
-      getTopTierRanking('all'),
-    ]);
-    return { damage, kills, tier, updatedAt: new Date().toISOString() };
-  },
-  ['rankings-basic-performance-v3'],
-  { revalidate: 300, tags: ['rankings'] }
-);
-
 export default async function RankingsPage() {
-  const { damage, kills, tier, updatedAt } = await getCachedRankings();
+  const [damage, kills, tier] = await Promise.all([
+    getWeeklyTopDamage('all'),
+    getWeeklyTopKills('all'),
+    getTopTierRanking('all'),
+  ]);
+  const updatedAt = new Date().toISOString();
 
   return (
     <RankingsClient

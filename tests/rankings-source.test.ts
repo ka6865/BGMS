@@ -1,4 +1,6 @@
 import {beforeEach,describe,it,expect,vi} from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 const m=vi.hoisted(()=>({rpc:vi.fn(),privacy:vi.fn()}));
 vi.mock('next/cache',()=>({unstable_cache:(fn:unknown)=>fn}));
 vi.mock('@supabase/supabase-js',()=>({createClient:()=>({rpc:m.rpc,from:()=>{const q:any={select:()=>q,eq:()=>q,maybeSingle:m.privacy};return q;}})}));
@@ -17,4 +19,16 @@ describe('랭킹 데이터 원장',()=>{
   m.privacy.mockResolvedValue({data:{value:JSON.stringify([{platform:'steam',nickname:'Hidden'}])},error:null});await getTopTierRanking();
   expect(m.rpc).toHaveBeenCalledWith('get_pubg_rankings',expect.objectContaining({p_tab:'tier',p_excluded:['steam:hidden'],p_calculation:2,p_result:73}));
  });
-});
+ it('프라이버시 등록 직후 랭킹 SSR이 오래된 페이지 캐시에 머물지 않는다',()=>{
+  const source=readFileSync(resolve(process.cwd(),'app/rankings/page.tsx'),'utf8');
+  expect(source).toContain("dynamic = 'force-dynamic'");
+  expect(source).not.toContain('unstable_cache');
+  expect(source).toContain("getWeeklyTopDamage('all')");
+ });
+ it('legacy 랭킹 행도 현재 캐시의 안정 계정 ID와 연결해 비공개 처리한다',()=>{
+  const migration=readFileSync(resolve(process.cwd(),'supabase/migrations/20260921110000_support_privacy_ranking_identity.sql'),'utf8');
+  expect(migration).toContain('public.pubg_player_cache cache');
+  expect(migration).toContain("cache.lower_nickname=lower(m.player_id)");
+  expect(migration).toContain("m.platform||':account:'||cache.id");
+ });
+ });

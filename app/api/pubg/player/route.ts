@@ -1,7 +1,7 @@
 import { readPlayerBanStatus, recordPlayerBanObservation } from "@/lib/pubg/banWatch.server";
 import { isBanAccountId, normalizeBanStatus } from "@/lib/pubg/banStatus";
 import { recordDiscoveredMatches } from "@/lib/pubg/matchDiscovery.server";
-import { isPlayerPrivate } from "@/lib/pubg/privatePlayers";
+import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
@@ -134,6 +134,15 @@ async function playerNotFoundResponse(supabase: any, nickname: string, platform:
   );
 }
 
+async function guardPlayerPrivate(platform: string, nickname: string, accountId?: string) {
+  const response = await blockPrivatePlayer(platform, nickname, accountId);
+  if (!response || response.status !== 403) return response;
+  return NextResponse.json(
+    { error: `${nickname}의 프로필은 비공개입니다.`, code: "PLAYER_PRIVATE", nickname, platform },
+    { status: 403, headers: { "Cache-Control": "private, no-store" } },
+  );
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const nickname = searchParams.get("nickname")?.trim();
@@ -152,23 +161,10 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "지원하지 않는 플랫폼입니다." }, { status: 400 });
   }
 
-  // [비공개 유저 검사] 비공개 등록된 플레이어는 PUBG 호출을 차단하고 403 반환
-  if (await isPlayerPrivate(platform, nickname)) {
-    return NextResponse.json(
-      {
-        error: `${nickname}의 프로필은 비공개입니다.`,
-        code: "PLAYER_PRIVATE",
-        nickname,
-        platform,
-      },
-      {
-        status: 403,
-        headers: {
-          "Cache-Control": "private, max-age=300",
-        },
-      }
-    );
-  }
+  // [비공개 유저 검사] 비공개 등록된 플레이어는 PUBG 호출을 차단하고
+  // 레지스트리 장애는 공통 503 응답으로 fail-closed 처리한다.
+  const initialPrivateResponse = await guardPlayerPrivate(platform, nickname);
+  if (initialPrivateResponse) return initialPrivateResponse;
 
   // 1. 분산 캐시 조회 (인메모리 L1 → DB L2, 3분 TTL)
   const cacheKey = buildPlayerCacheKey(platform, nickname, reqSeason);
@@ -186,11 +182,13 @@ export async function GET(request: Request) {
       const cachedAccountId = isRecord(cachedPayload) && isBanAccountId(cachedPayload.accountId)
         ? cachedPayload.accountId
         : null;
-      if (cachedAccountId && await isPlayerPrivate(platform, nickname, cachedAccountId)) {
-        return NextResponse.json(
-          { error: `${nickname}의 프로필은 비공개입니다.`, code: "PLAYER_PRIVATE", nickname, platform },
-          { status: 403, headers: { "Cache-Control": "private, max-age=300" } },
-        );
+      if (cachedAccountId) {
+        const privateResponse = await guardPlayerPrivate(platform, nickname, cachedAccountId);
+        if (privateResponse) return privateResponse;
+      }
+      if (!cachedAccountId) {
+        const privateResponse = await blockPrivatePlayer(platform, nickname, undefined, { lookupUpstream: true });
+        if (privateResponse) return privateResponse;
       }
       return NextResponse.json(await withCachedBanObservation(normalizeCachedPlayerResponse(cachedPayload), platform));
     }
@@ -216,11 +214,9 @@ export async function GET(request: Request) {
   // A legacy privacy row may contain only the old nickname. Once the cache
   // resolves the immutable account ID, apply the same privacy decision to
   // renamed aliases before serving cached data or calling PUBG.
-  if (cacheData?.id && await isPlayerPrivate(platform, targetNickname, cacheData.id)) {
-    return NextResponse.json(
-      { error: `${nickname}의 프로필은 비공개입니다.`, code: "PLAYER_PRIVATE", nickname, platform },
-      { status: 403, headers: { "Cache-Control": "private, max-age=300" } },
-    );
+  if (cacheData?.id) {
+    const privateResponse = await guardPlayerPrivate(platform, targetNickname, cacheData.id);
+    if (privateResponse) return privateResponse;
   }
   const cachedSurvivalMastery = normalizeSurvivalMasteryPayload({
     data: { attributes: cacheData?.survival_mastery_data },
@@ -345,12 +341,8 @@ export async function GET(request: Request) {
       throw new Error("player identity mismatch");
     }
     const accountId = playerRecord.id;
-    if (await isPlayerPrivate(platform, playerRecord.attributes.name, accountId)) {
-      return NextResponse.json(
-        { error: `${nickname}의 프로필은 비공개입니다.`, code: "PLAYER_PRIVATE", nickname, platform },
-        { status: 403, headers: { "Cache-Control": "private, max-age=300" } },
-      );
-    }
+    const privateResponse = await guardPlayerPrivate(platform, playerRecord.attributes.name, accountId);
+    if (privateResponse) return privateResponse;
     // Persist discovery independently of downstream season/mastery availability.
     let historyIngestError = false;
     try {

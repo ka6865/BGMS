@@ -14,13 +14,20 @@ insert into public.pubg_player_matches(player_id,platform,match_id,played_at,gam
 values ('old-private-name','steam','rank-private-legacy',now()-interval '1 day','squad','Baltic_Main',30,4000,1,'official',null,true);
 insert into public.pubg_player_match_discovery(platform,account_id,match_id,nickname_at_discovery,state)
 values ('steam','account.ranksteam','rank-private-legacy','current-private-name','saved');
+-- A newer legacy row can have no account_id or discovery record yet, while
+-- the player cache already knows the current nickname's stable account.
+insert into public.pubg_player_cache(id,platform,nickname,lower_nickname,updated_at,last_seen_at,search_count)
+values ('account.ranksteam','steam','current-private-name','current-private-name',now(),now(),1)
+on conflict (id) do update set nickname=excluded.nickname,lower_nickname=excluded.lower_nickname,updated_at=excluded.updated_at,last_seen_at=excluded.last_seen_at;
+insert into public.pubg_player_matches(player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type,account_id,ranking_eligible)
+values ('current-private-name','steam','rank-private-cache-legacy',now()-interval '1 day','squad','Baltic_Main',25,3500,1,'official',null,true);
 do $$ declare n integer; v double precision; begin
   select count(*) into n from public.get_pubg_rankings('damage',array['squad'],'all',2,8,1,73,'{}');
-  if n<>3 then raise exception 'Expected two accounts and one legacy alias, got %',n; end if;
+  if n<>4 then raise exception 'Expected two accounts and two legacy aliases, got %',n; end if;
   select value into v from public.get_pubg_rankings('damage',array['squad'],'all',2,8,1,73,'{}') where platform='steam';
   if v<>4000 then raise exception 'Wrong highest match';end if;
   select count(*) into n from public.get_pubg_rankings('damage',array['squad'],'all',2,8,1,73,array['kakao:same']);
-  if n<>2 then raise exception 'Platform nickname private exclusion failed';end if;
+  if n<>3 then raise exception 'Platform nickname private exclusion failed';end if;
   select count(*) into n from public.get_pubg_rankings('damage',array['squad'],'all',2,8,1,73,array['steam:account:account.ranksteam']);
   if n<>1 then raise exception 'Account ID and legacy alias private exclusion failed';end if;
 end $$;

@@ -47,7 +47,7 @@ export async function GET(request: Request) {
     const prefix = escapeLikePrefix(q);
     const { data, error } = await supabase
       .from("pubg_player_cache")
-      .select("nickname, platform")
+      .select("id, nickname, platform")
       .like("lower_nickname", `${prefix}%`)
       .retry(false)
       .abortSignal(AbortSignal.timeout(2_000))
@@ -56,11 +56,19 @@ export async function GET(request: Request) {
     if (error) throw error;
     noteDatabaseAvailable();
 
-    const visibleSuggestions = [];
+    const visibleSuggestions: Array<{ nickname: string; platform: string }> = [];
     for (const suggestion of data || []) {
-      const privateResponse = await blockPrivatePlayer(suggestion.platform, suggestion.nickname);
+      const privateResponse = await blockPrivatePlayer(
+        suggestion.platform,
+        suggestion.nickname,
+        typeof suggestion.id === "string" ? suggestion.id : undefined,
+      );
       if (privateResponse?.status === 503) return privateResponse;
-      if (!privateResponse) visibleSuggestions.push(suggestion);
+      if (!privateResponse && typeof suggestion.nickname === "string" && typeof suggestion.platform === "string") {
+        // The stable account id is an internal privacy key, not part of the
+        // autocomplete contract. Never reflect it to the browser.
+        visibleSuggestions.push({ nickname: suggestion.nickname, platform: suggestion.platform });
+      }
     }
 
     return NextResponse.json(

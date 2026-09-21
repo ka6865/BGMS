@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ summaries: {}, missingMatchIds: matchIds });
     }
 
-    const privateResponse = await blockPrivatePlayer(platform, playerId);
+    const privateResponse = await blockPrivatePlayer(platform, playerId, undefined, { lookupUpstream: true });
     if (privateResponse) return privateResponse;
 
     // 1순위: processed_match_telemetry (3D/AI 풀 분석 완료 매치)

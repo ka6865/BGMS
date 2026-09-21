@@ -111,7 +111,7 @@ export async function GET(request: NextRequest) {
   // 실시간 스쿼드 분석 데이터 조회 (Self-Fetch 우회 로컬 쿼리 실행)
   if (nickname && groupKey) {
     try {
-      const privateResponse = await blockPrivatePlayer(platform, nickname);
+      const privateResponse = await blockPrivatePlayer(platform, nickname, undefined, { lookupUpstream: true });
       if (privateResponse) return privateResponse;
       const data = await getSquadAnalysisData(nickname, platform, groupKey);
       if (data && !("error" in data) && !("message" in data)) {

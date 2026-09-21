@@ -145,7 +145,7 @@ export async function POST(request: Request) {
       trackAiFailure(authenticatedUserId, "squad", "Missing required squad parameters", { errorCode: "invalid_input", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
       return NextResponse.json({ error: "Missing required squad parameters" }, { status: 400 });
     }
-    const privateResponse = await blockPrivatePlayer(cachePlatform, nickname);
+    const privateResponse = await blockPrivatePlayer(cachePlatform, nickname, undefined, { lookupUpstream: true });
     if (privateResponse) return privateResponse;
     if (request.signal.aborted) throw new SquadRequestAbortedError();
 

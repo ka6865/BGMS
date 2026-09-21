@@ -6,6 +6,9 @@ import { buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
 vi.mock("@/lib/pubg/privatePlayers", () => ({
   isPlayerPrivate: vi.fn().mockResolvedValue(false),
 }));
+vi.mock("@/lib/pubg/privatePlayerIdentity", () => ({
+  resolvePrivatePlayerAccountId: vi.fn().mockResolvedValue(null),
+}));
 
 const database = vi.hoisted(() => ({
   rows: {} as Record<string, unknown[]>,

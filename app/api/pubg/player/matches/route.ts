@@ -1,5 +1,5 @@
 import { readPerformanceCache, readPerformanceStates } from "@/lib/pubg/performanceCache";
-import { isPlayerPrivate } from "@/lib/pubg/privatePlayers";
+import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { fetchPlayerMatchesPaginated, normalizePlayerMatchesPage, normalizePlayerMatchHistoryFilter } from "@/lib/pubg/playerMatches";
@@ -62,7 +62,8 @@ async function readDiscoveredAccountIds(supabase: ReturnType<typeof getAdminClie
    }
  
    if (!['steam', 'kakao'].includes(platform)) return NextResponse.json({ error: '지원하지 않는 플랫폼입니다.' }, { status: 400 });
-   if (await isPlayerPrivate(platform, nickname)) return NextResponse.json({ error: '비공개 플레이어입니다.' }, { status: 403 });
+   const initialPrivateResponse = await blockPrivatePlayer(platform, nickname);
+   if (initialPrivateResponse) return initialPrivateResponse;
    const supabase = getAdminClient();
    if (!supabase) {
      return NextResponse.json({ error: "DB credentials missing" }, { status: 500 });
@@ -87,14 +88,19 @@ async function readDiscoveredAccountIds(supabase: ReturnType<typeof getAdminClie
       if (typeof matchAccountId === "string" && /^account\.[A-Za-z0-9_-]+$/.test(matchAccountId)) accountId = matchAccountId;
     }
     if (!accountId) accountId = await readCachedAccountId(supabase, platform, nickname);
-    if (accountId && await isPlayerPrivate(platform, nickname, accountId)) {
-      return NextResponse.json({ error: '비공개 플레이어입니다.' }, { status: 403 });
+    if (accountId) {
+      const accountPrivateResponse = await blockPrivatePlayer(platform, nickname, accountId);
+      if (accountPrivateResponse) return accountPrivateResponse;
     }
     const discoveredAccountIds = await readDiscoveredAccountIds(supabase, platform, nickname);
     for (const discoveredAccountId of discoveredAccountIds) {
-      if (discoveredAccountId !== accountId && await isPlayerPrivate(platform, nickname, discoveredAccountId)) {
-        return NextResponse.json({ error: '비공개 플레이어입니다.' }, { status: 403 });
-      }
+      if (discoveredAccountId === accountId) continue;
+      const discoveredPrivateResponse = await blockPrivatePlayer(platform, nickname, discoveredAccountId);
+      if (discoveredPrivateResponse) return discoveredPrivateResponse;
+    }
+    if (!accountId) {
+      const privateResponse = await blockPrivatePlayer(platform, nickname, undefined, { lookupUpstream: true });
+      if (privateResponse) return privateResponse;
     }
     const performances = await readPerformanceCache(supabase, platform, nickname, result.matches.map(m => m.match_id));
     const performanceStates = await readPerformanceStates(supabase, platform, nickname, result.matches.map(m => m.match_id));

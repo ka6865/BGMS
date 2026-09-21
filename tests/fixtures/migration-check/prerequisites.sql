@@ -149,8 +149,12 @@ create table if not exists public.vehicles (
 -- 쓰기 정책 강화 대상 테이블 (정책 이름까지 운영과 동일하게 재현)
 create table if not exists public.pubg_player_cache (
   id text primary key,
+  nickname text,
   lower_nickname text,
-  platform text
+  platform text,
+  updated_at timestamptz default now(),
+  last_seen_at timestamptz,
+  search_count integer default 0
 );
 alter table public.pubg_player_cache enable row level security;
 create policy "Service Role Write" on public.pubg_player_cache for all using (true) with check (true);

@@ -1317,6 +1317,23 @@ export async function GET(request: NextRequest) {
         platform,
         minResultVersion: 0,
       });
+      if (source === "user" && cachedFullResult) {
+        const cachedAccountId = [
+          cachedFullResult.accountId,
+          cachedFullResult.playerId,
+          cachedFullResult.stats?.accountId,
+          cachedFullResult.stats?.playerId,
+        ].find((value: unknown): value is string => (
+          typeof value === "string" && /^account\.[A-Za-z0-9_-]+$/.test(value)
+        ));
+        const cachedPrivateResponse = await blockPrivatePlayer(
+          platform,
+          nickname,
+          cachedAccountId,
+          cachedAccountId ? undefined : { lookupUpstream: true },
+        );
+        if (cachedPrivateResponse) return cachedPrivateResponse;
+      }
       if (recoveryAuthorized
         && (!cachedFullResult || cachedFullResult.v !== Math.max(1, RESULT_VERSION - 1))) {
         return benchmarkRecoveryContractResponse();

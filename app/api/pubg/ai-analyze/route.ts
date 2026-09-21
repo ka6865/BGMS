@@ -146,7 +146,7 @@ export async function POST(request: Request) {
     }
     const playerId = normalizeName(nickname);
     const cachePlatform = normalizePlatform(platform);
-    const privateResponse = await blockPrivatePlayer(cachePlatform, nickname);
+    const privateResponse = await blockPrivatePlayer(cachePlatform, nickname, undefined, { lookupUpstream: true });
     if (privateResponse) return privateResponse;
 
     let canonicalRow: unknown = null;

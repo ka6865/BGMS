@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 const mocks=vi.hoisted(()=>({private:vi.fn(),history:vi.fn(),db:vi.fn<(...args:unknown[])=>any>(()=>({}))}));
 vi.mock('@supabase/supabase-js',()=>({createClient:mocks.db}));
 vi.mock('@/lib/pubg/privatePlayers',()=>({isPlayerPrivate:mocks.private}));
+vi.mock('@/lib/pubg/privatePlayerIdentity',()=>({resolvePrivatePlayerAccountId:vi.fn().mockResolvedValue(null)}));
 vi.mock('@/lib/pubg/playerMatches',()=>({
   fetchPlayerMatchesPaginated:mocks.history,
   normalizePlayerMatchesPage:(x:string)=>Number(x)||1,

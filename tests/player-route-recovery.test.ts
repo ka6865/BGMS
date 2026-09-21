@@ -62,6 +62,9 @@ vi.mock("@/lib/pubg/apiHelper", () => ({
 vi.mock("@/lib/pubg/privatePlayers", () => ({
   isPlayerPrivate: mockIsPlayerPrivate,
 }));
+vi.mock("@/lib/pubg/privatePlayerIdentity", () => ({
+  resolvePrivatePlayerAccountId: vi.fn().mockResolvedValue(null),
+}));
 
 type QueryResult = { data: unknown; error: unknown };
 

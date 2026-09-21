@@ -57,7 +57,7 @@ describe("player suggest route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockLimit.mockResolvedValue({
-      data: [{ nickname: "KangPlayer", platform: "steam" }],
+      data: [{ nickname: "KangPlayer", platform: "steam", id: "account.internal-only" }],
       error: null,
     });
   });

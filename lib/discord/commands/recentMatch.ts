@@ -3,6 +3,7 @@ import { buildRecentMatchEmbed } from "../embeds";
 import { createClient } from "@supabase/supabase-js";
 import { MAP_NAMES } from "@/lib/pubg-analysis/constants";
 import { isPlayerPrivate } from "@/lib/pubg/privatePlayers";
+import { resolvePrivatePlayerAccountId } from "@/lib/pubg/privatePlayerIdentity";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co",
@@ -38,7 +39,8 @@ export async function handleRecentMatchCommand(interaction: any, appUrl: string)
 
   const { nickname, platform } = resolved;
   try {
-    if (await isPlayerPrivate(platform, nickname)) {
+    const accountId = await resolvePrivatePlayerAccountId(platform, nickname);
+    if (await isPlayerPrivate(platform, nickname, accountId ?? undefined)) {
       return { type: 4, data: { content: "비공개 플레이어의 전적은 Discord에서 제공하지 않습니다.", flags: 64 } };
     }
   } catch {

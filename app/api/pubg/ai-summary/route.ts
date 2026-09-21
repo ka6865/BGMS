@@ -996,7 +996,7 @@ export async function POST(request: Request) {
       trackAiFailure(authenticatedUserId, "summary", "Missing nickname", { errorCode: "invalid_input", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
       return NextResponse.json({ error: "Missing nickname" }, { status: 400 });
     }
-    const privateResponse = await blockPrivatePlayer(cachePlatform, nickname);
+    const privateResponse = await blockPrivatePlayer(cachePlatform, nickname, undefined, { lookupUpstream: true });
     if (privateResponse) return privateResponse;
 
     // [V45.3] 10개의 유효한 분석 데이터를 확보하기 위해 조회 범위를 25개로 확장 (이벤트/아케이드 필터링 대비)
