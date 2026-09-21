@@ -121,6 +121,11 @@ describe("support user APIs", () => {
       subject: "x".repeat(121),
       body: "내용",
     }))).status).toBe(400);
+    expect((await ticketsPOST(request("/api/support/tickets", {
+      category: "account",
+      subject: "문의",
+      body: "x".repeat(5001),
+    }))).status).toBe(413);
     expect(mocks.createTicket).not.toHaveBeenCalled();
   });
 

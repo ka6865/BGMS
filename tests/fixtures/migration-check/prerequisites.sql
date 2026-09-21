@@ -57,8 +57,26 @@ create table if not exists public.notifications (
   is_read boolean not null default false,
   created_at timestamptz not null default now()
 );
+create table if not exists storage.objects (
+  id uuid primary key default gen_random_uuid(),
+  bucket_id text not null,
+  name text not null,
+  metadata jsonb not null default '{}'::jsonb,
+  unique (bucket_id, name)
+);
+grant all on table storage.objects to service_role;
 grant all on table storage.buckets to service_role;
 grant all on table public.notifications to service_role;
+
+create table if not exists public.system_settings (
+  key text primary key,
+  value text not null,
+  description text,
+  updated_at timestamptz not null default now()
+);
+alter table public.system_settings enable row level security;
+grant select on table public.system_settings to anon, authenticated;
+grant all on table public.system_settings to service_role;
 
 -- 게시판
 create table if not exists public.posts (

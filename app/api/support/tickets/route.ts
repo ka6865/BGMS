@@ -11,7 +11,7 @@ export async function POST(request: Request) {
   if (auth.error) return auth.error;
   const body = await parseBody(request);
   const parsed = parseSupportCreateTicketInput(body);
-  if (!parsed.ok) return NextResponse.json({ error: validationMessage(parsed.code) }, { status: 400 });
+  if (!parsed.ok) return NextResponse.json({ error: validationMessage(parsed.code) }, { status: validationStatus(parsed.code) });
 
   const now = Date.now();
   const countResult = await (auth.supabaseAdmin as any)
@@ -60,11 +60,12 @@ export async function POST(request: Request) {
       targetResolvedNickname: target?.canonicalNickname ?? null,
       attachmentIds: parsed.value.attachmentIds,
     });
-    return NextResponse.json({ ticket }, { status: 201 });
+    return privateJson({ ticket }, 201);
   } catch (error) {
     if (error instanceof SupportStoreError || isStoreError(error)) {
       const code = (error as { code: string }).code;
       if (code === "duplicate") return NextResponse.json({ error: "같은 대상의 처리 중 문의가 이미 있습니다." }, { status: 409 });
+      if (code === "quota") return NextResponse.json({ error: "24시간 문의 한도를 초과했습니다." }, { status: 429 });
     }
     return NextResponse.json({ error: "문의를 저장하지 못했습니다." }, { status: 503 });
   }
@@ -74,25 +75,27 @@ export async function GET() {
   const auth = await withAuthGuard();
   if (auth.error) return auth.error;
   try {
-    return NextResponse.json({ tickets: await listSupportTicketsForUser(auth.supabaseAdmin as any, auth.user.id) });
+    return privateJson({ tickets: await listSupportTicketsForUser(auth.supabaseAdmin as any, auth.user.id) });
   } catch {
-    return NextResponse.json({ error: "문의 목록을 불러오지 못했습니다." }, { status: 503 });
+    return privateJson({ error: "문의 목록을 불러오지 못했습니다." }, 503);
   }
 }
 
 async function verifyReadyAttachments(db: unknown, userId: string, attachmentIds: string[]) {
   if (attachmentIds.length === 0) return { ok: true as const };
   if (attachmentIds.length > SUPPORT_LIMITS.maxAttachments) return { ok: false as const, status: 400, error: "첨부파일 한도를 초과했습니다." };
-  const result = await (db as any).from("support_attachments").select("id,uploader_id,ticket_id,status,byte_size").in("id", attachmentIds);
+  const result = await (db as any).from("support_attachments").select("id,uploader_id,ticket_id,status,byte_size,expires_at").in("id", attachmentIds);
   if (result.error) return { ok: false as const, status: 503, error: "첨부파일을 확인하지 못했습니다." };
   const rows = Array.isArray(result.data) ? result.data : [];
   const totalBytes = rows.reduce((sum: number, row: { byte_size?: unknown }) => sum + (typeof row.byte_size === "number" ? row.byte_size : 0), 0);
+  const now = Date.now();
   const valid = rows.length === attachmentIds.length
-    && rows.every((row: { id?: unknown; uploader_id?: unknown; ticket_id?: unknown; status?: unknown }) => (
+    && rows.every((row: { id?: unknown; uploader_id?: unknown; ticket_id?: unknown; status?: unknown; expires_at?: unknown }) => (
       typeof row.id === "string" && isUuid(row.id) && row.uploader_id === userId && row.ticket_id === null && row.status === "ready"
+      && (row.expires_at == null || (typeof row.expires_at === "string" && Date.parse(row.expires_at) > now))
     ));
   if (!valid) return { ok: false as const, status: 400, error: "첨부파일을 확인할 수 없습니다." };
-  if (totalBytes > SUPPORT_LIMITS.totalAttachmentBytes) return { ok: false as const, status: 400, error: "첨부파일 한도를 초과했습니다." };
+  if (totalBytes > SUPPORT_LIMITS.totalAttachmentBytes) return { ok: false as const, status: 413, error: "첨부파일 한도를 초과했습니다." };
   return { ok: true as const };
 }
 
@@ -107,6 +110,13 @@ function validationMessage(code: string): string {
   if (code === "body_too_long" || code === "subject_too_long") return "문의 내용이 너무 깁니다.";
   return "문의 입력값을 확인해 주세요.";
 }
+function validationStatus(code: string): number {
+  return code === "body_too_long" ? 413 : 400;
+}
 async function parseBody(request: Request): Promise<unknown> {
   try { return await request.json(); } catch { return null; }
+}
+
+function privateJson(data: unknown, status = 200): NextResponse {
+  return NextResponse.json(data, { status, headers: { "cache-control": "private, no-store" } });
 }

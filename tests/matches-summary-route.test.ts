@@ -3,6 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 import { buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
 
+vi.mock("@/lib/pubg/privatePlayers", () => ({
+  isPlayerPrivate: vi.fn().mockResolvedValue(false),
+}));
+
 const database = vi.hoisted(() => ({
   rows: {} as Record<string, unknown[]>,
   selects: [] as Array<{ table: string; columns: string }>,

@@ -23,7 +23,7 @@ const STATUS_OPTIONS = [
 ] as const;
 const CATEGORY_OPTIONS = [["", "전체 유형"], ["privacy", "전적 비공개"], ["account", "계정"], ["community", "커뮤니티"], ["bug", "오류"], ["other", "기타"]] as const;
 
-export default function SupportInbox({ onSelect, selectedTicketId = null }: { onSelect: (ticketId: string) => void; selectedTicketId?: string | null }) {
+export default function SupportInbox({ onSelect, selectedTicketId = null, refreshKey = 0 }: { onSelect: (ticketId: string) => void; selectedTicketId?: string | null; refreshKey?: number }) {
   const [status, setStatus] = useState("");
   const [category, setCategory] = useState("");
   const [query, setQuery] = useState("");
@@ -51,7 +51,7 @@ export default function SupportInbox({ onSelect, selectedTicketId = null }: { on
     }
   }, [category, query, status]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); }, [load, refreshKey]);
 
   const pendingCount = useMemo(() => tickets.filter((ticket) => ["new", "in_progress", "awaiting_user"].includes(ticket.status)).length, [tickets]);
 

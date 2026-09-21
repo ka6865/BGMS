@@ -14,6 +14,8 @@ interface Props {
     score1?: string;
     score2?: string;
     winner?: string;
+    platform1?: string;
+    platform2?: string;
   }>;
 }
 
@@ -24,6 +26,8 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   const score1 = params?.score1 || "";
   const score2 = params?.score2 || "";
   const winner = params?.winner || "";
+  const platform1 = params?.platform1 || "";
+  const platform2 = params?.platform2 || "";
 
   const hasPlayers = nick1 && nick2;
   const hasScore = score1 !== "" && score2 !== "";
@@ -42,6 +46,8 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   const ogParams = new URLSearchParams();
   if (nick1) ogParams.set("nick1", nick1);
   if (nick2) ogParams.set("nick2", nick2);
+  if (platform1) ogParams.set("platform1", platform1);
+  if (platform2) ogParams.set("platform2", platform2);
   if (hasScore) {
     ogParams.set("score1", score1);
     ogParams.set("score2", score2);

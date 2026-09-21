@@ -8,6 +8,7 @@ import {
   BENCHMARK_FILTER_VERSION,
   BENCHMARK_POPULATION_EVIDENCE_VERSION,
 } from "@/lib/pubg-analysis/benchmarkLookup";
+import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -123,6 +124,13 @@ export async function GET(request: Request) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
+
+  const privateResponses = await Promise.all([
+    blockPrivatePlayer(player1.platform, player1.nickname),
+    blockPrivatePlayer(player2.platform, player2.nickname),
+  ]);
+  const privateResponse = privateResponses.find((response) => response);
+  if (privateResponse) return privateResponse;
 
   const nick1 = player1.playerId;
   const nick2 = player2.playerId;

@@ -30,11 +30,14 @@ function resolvedQuery<T>(result: T) {
 function storageFake(options: {
   uploadToken?: string;
   objectExists?: boolean;
+  objectName?: string;
+  objectMetadata?: unknown;
+  storageObjectExists?: boolean;
   readUrl?: string;
   removeError?: Error | null;
 }) {
   const list = vi.fn().mockResolvedValue({
-    data: options.objectExists === false ? [] : [{ name: "attachment-object" }],
+    data: options.objectExists === false ? [] : [{ name: options.objectName ?? "attachment-object" }],
     error: null,
   });
   const createSignedUploadUrl = vi.fn().mockResolvedValue({
@@ -46,10 +49,18 @@ function storageFake(options: {
     error: null,
   });
   const remove = vi.fn().mockResolvedValue({ error: options.removeError ?? null });
+  const storageObjectQuery = resolvedQuery({
+    data: options.storageObjectExists === false ? null : {
+      name: options.objectName ?? "attachment-object",
+      metadata: options.objectMetadata ?? { mimetype: "image/png", size: 100 },
+    },
+    error: null,
+  });
   return {
     storage: {
       from: vi.fn(() => ({ list, createSignedUploadUrl, createSignedUrl, remove })),
     },
+    schema: vi.fn(() => ({ from: vi.fn(() => storageObjectQuery) })),
     list,
     createSignedUploadUrl,
     createSignedUrl,
@@ -134,6 +145,62 @@ describe("support attachment storage", () => {
     expect(attachmentQuery.update).not.toHaveBeenCalled();
   });
 
+  it("marks an uploaded object ready only when storage metadata matches the reservation", async () => {
+    const attachmentId = "11111111-1111-4111-8111-111111111111";
+    const attachmentQuery = resolvedQuery({
+      data: {
+        id: attachmentId,
+        uploader_id: "user-a",
+        ticket_id: null,
+        storage_key: `attachments/${attachmentId}`,
+        status: "pending",
+        mime_type: "image/png",
+        byte_size: 100,
+      },
+      error: null,
+    });
+    const storage = storageFake({
+      objectName: attachmentId,
+      objectMetadata: { mimetype: "image/png", size: 100 },
+    });
+    const db = { from: vi.fn(() => attachmentQuery), ...storage } as unknown as SupportDb;
+
+    await expect(completeSupportAttachment({
+      supabaseAdmin: db,
+      ownerUserId: "user-a",
+      attachmentId,
+    })).resolves.toEqual({ attachmentId, status: "ready" });
+    expect(attachmentQuery.update).toHaveBeenCalledWith({ status: "ready" });
+  });
+
+  it("rejects a storage object whose actual size or MIME differs from the reservation", async () => {
+    const attachmentId = "11111111-1111-4111-8111-111111111111";
+    const attachmentQuery = resolvedQuery({
+      data: {
+        id: attachmentId,
+        uploader_id: "user-a",
+        ticket_id: null,
+        storage_key: `attachments/${attachmentId}`,
+        status: "pending",
+        mime_type: "image/png",
+        byte_size: 100,
+      },
+      error: null,
+    });
+    const storage = storageFake({
+      objectName: attachmentId,
+      objectMetadata: { mimetype: "image/jpeg", size: 101 },
+    });
+    const db = { from: vi.fn(() => attachmentQuery), ...storage } as unknown as SupportDb;
+
+    await expect(completeSupportAttachment({
+      supabaseAdmin: db,
+      ownerUserId: "user-a",
+      attachmentId,
+    })).rejects.toMatchObject({ code: "upload_metadata_mismatch" });
+    expect(attachmentQuery.update).not.toHaveBeenCalled();
+  });
+
   it("allows an owner or admin to sign a URL but hides it from another user", async () => {
     const row = {
       id: "11111111-1111-4111-8111-111111111111",
@@ -177,15 +244,21 @@ describe("support attachment storage", () => {
     };
     const pendingQuery = resolvedQuery({ data: [expired], error: null });
     const terminalQuery = resolvedQuery({ data: [terminal], error: null });
-    const firstUpdate = resolvedQuery({ data: null, error: null });
-    const secondUpdate = resolvedQuery({ data: null, error: null });
+    const pendingClaim = resolvedQuery({ data: { ...expired, status: "deleting" }, error: null });
+    const pendingFinal = resolvedQuery({ data: null, error: null });
+    const terminalClaim = resolvedQuery({ data: { ...terminal, status: "deleting" }, error: null });
+    const retentionEvent = resolvedQuery({ data: null, error: null });
+    const terminalFinal = resolvedQuery({ data: null, error: null });
     const storage = storageFake({});
     const db = {
       from: vi.fn()
         .mockReturnValueOnce(pendingQuery)
         .mockReturnValueOnce(terminalQuery)
-        .mockReturnValueOnce(firstUpdate)
-        .mockReturnValueOnce(secondUpdate),
+        .mockReturnValueOnce(pendingClaim)
+        .mockReturnValueOnce(pendingFinal)
+        .mockReturnValueOnce(terminalClaim)
+        .mockReturnValueOnce(retentionEvent)
+        .mockReturnValueOnce(terminalFinal),
       ...storage,
     } as unknown as SupportDb;
 
@@ -193,6 +266,6 @@ describe("support attachment storage", () => {
 
     expect(result).toEqual({ deleted: 2, deferred: 0 });
     expect(storage.remove).toHaveBeenCalledTimes(2);
-    expect(firstUpdate.update).toHaveBeenCalledWith(expect.objectContaining({ status: "deleted" }));
+    expect(pendingFinal.update).toHaveBeenCalledWith(expect.objectContaining({ status: "deleted" }));
   });
 });

@@ -5,6 +5,7 @@ import { ImageResponse } from "next/og";
 import { NextRequest } from "next/server";
 import { isCanonicalBenchmarkTier } from "@/lib/pubg-analysis/benchmarkLookup";
 import { getSquadAnalysisData } from "@/lib/pubg-analysis/squadAnalysis";
+import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 
 export const runtime = "nodejs";
 
@@ -110,6 +111,8 @@ export async function GET(request: NextRequest) {
   // 실시간 스쿼드 분석 데이터 조회 (Self-Fetch 우회 로컬 쿼리 실행)
   if (nickname && groupKey) {
     try {
+      const privateResponse = await blockPrivatePlayer(platform, nickname);
+      if (privateResponse) return privateResponse;
       const data = await getSquadAnalysisData(nickname, platform, groupKey);
       if (data && !("error" in data) && !("message" in data)) {
         const candidateGrade = typeof data.squadGrade === "string" ? data.squadGrade.trim() : "";

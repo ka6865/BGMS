@@ -19,6 +19,16 @@ export async function GET(
   try {
     const ticket = await getSupportTicketForActor(admin.supabaseAdmin as any, id, { userId: admin.user.id, isAdmin: true });
     if (!ticket) return NextResponse.json({ error: "문의를 찾을 수 없습니다." }, { status: 404 });
+    let requesterNickname: string | null = null;
+    if (ticket.requester_id) {
+      const profile = await (admin.supabaseAdmin as any)
+        .from("profiles")
+        .select("nickname")
+        .eq("id", ticket.requester_id)
+        .maybeSingle();
+      if (profile.error) return NextResponse.json({ error: "문의 요청자 정보를 불러오지 못했습니다." }, { status: 503 });
+      requesterNickname = typeof profile.data?.nickname === "string" ? profile.data.nickname : null;
+    }
     const attachments = await Promise.all(ticket.attachments.map(async (attachment) => {
       try {
         const signedUrl = await getSupportAttachmentSignedUrl({
@@ -29,12 +39,12 @@ export async function GET(
         return { ...attachment, signedUrl };
       } catch (error) {
         if (error instanceof SupportAttachmentError && error.code === "not_found") return attachment;
-        return attachment;
+        throw error;
       }
     }));
-    return NextResponse.json({ ticket: { ...ticket, attachments } });
+    return privateJson({ ticket: { ...ticket, requester_nickname: requesterNickname, attachments } });
   } catch {
-    return NextResponse.json({ error: "문의를 불러오지 못했습니다." }, { status: 503 });
+    return privateJson({ error: "문의를 불러오지 못했습니다." }, 503);
   }
 }
 
@@ -67,23 +77,68 @@ export async function PATCH(
     if (body.verificationStatus === "not_required" && current.category === "privacy") {
       return NextResponse.json({ error: "전적 문의에는 검증 상태가 필요합니다." }, { status: 400 });
     }
+    if (body.status === "resolved"
+      && current.category === "privacy"
+      && body.verificationStatus !== "verified"
+      && current.verification_status !== "verified") {
+      return NextResponse.json({ error: "전적 문의는 검증 완료 후 해결할 수 있습니다." }, { status: 400 });
+    }
+    if (body.status === "resolved"
+      && current.category === "privacy"
+      && !(current.events ?? []).some((event) => event.event_type === "privacy_player_registered" || event.event_type === "privacy_player_already_registered")) {
+      return NextResponse.json({ error: "전적 문의는 비공개 등록 처리 후 해결할 수 있습니다." }, { status: 400 });
+    }
+    const statusRpc = (admin.supabaseAdmin as any).rpc;
+    if (typeof statusRpc === "function") {
+      let result: { data: Record<string, unknown> | { code?: string } | null; error: { message?: string } | null };
+      try {
+        result = await statusRpc("update_support_ticket_state", {
+          p_ticket_id: id,
+          p_actor_id: admin.user.id,
+          p_expected_status: current.status,
+          p_expected_verification_status: current.verification_status,
+          p_status: body.status ?? null,
+          p_verification_status: body.verificationStatus ?? null,
+        });
+      } catch {
+        return NextResponse.json({ error: "문의 상태를 저장하지 못했습니다." }, { status: 503 });
+      }
+      if (result.error) return NextResponse.json({ error: "문의 상태를 저장하지 못했습니다." }, { status: 503 });
+      const data = result.data;
+      if (data && typeof data.code === "string") {
+        if (data.code === "not_found") return NextResponse.json({ error: "문의를 찾을 수 없습니다." }, { status: 404 });
+        if (data.code === "forbidden") return NextResponse.json({ error: "관리자 권한이 필요합니다." }, { status: 403 });
+        if (data.code === "stale") return NextResponse.json({ error: "문의 상태가 먼저 변경되었습니다. 새로고침 후 다시 시도해 주세요." }, { status: 409 });
+        if (data.code === "invalid_transition") return NextResponse.json({ error: "허용되지 않은 문의 상태 전이입니다." }, { status: 400 });
+        if (data.code === "privacy_not_verified") return NextResponse.json({ error: "전적 문의는 검증 완료 후 해결할 수 있습니다." }, { status: 400 });
+        if (data.code === "privacy_action_required") return NextResponse.json({ error: "전적 문의는 비공개 등록 처리 후 해결할 수 있습니다." }, { status: 400 });
+        return NextResponse.json({ error: "문의 상태 입력값이 올바르지 않습니다." }, { status: 400 });
+      }
+      if (!data || !("id" in data) || typeof data.id !== "string") return NextResponse.json({ error: "문의 상태를 저장하지 못했습니다." }, { status: 503 });
+      return privateJson({ ticket: data });
+    }
     const patch: Record<string, unknown> = {};
+    const statusChanged = Boolean(body.status && body.status !== current.status);
     if (body.status) patch.status = body.status;
     if (body.verificationStatus) patch.verification_status = body.verificationStatus;
-    if (body.status === "resolved" || body.status === "rejected") patch.resolved_at = new Date().toISOString();
+    if (statusChanged && (body.status === "resolved" || body.status === "rejected")) patch.resolved_at = new Date().toISOString();
+    if (statusChanged && body.status !== "resolved" && body.status !== "rejected"
+      && (current.status === "resolved" || current.status === "rejected")) patch.resolved_at = null;
     const updated = await (admin.supabaseAdmin as any).from("support_tickets").update(patch).eq("id", id).select("*").maybeSingle();
     if (updated.error) return NextResponse.json({ error: "문의 상태를 저장하지 못했습니다." }, { status: 503 });
-    if (body.status && body.status !== current.status) {
-      await (admin.supabaseAdmin as any).from("support_ticket_events").insert({
+    if (statusChanged) {
+      const eventResult = await (admin.supabaseAdmin as any).from("support_ticket_events").insert({
         ticket_id: id, actor_id: admin.user.id, event_type: "status_changed", from_status: current.status, to_status: body.status,
       });
+      if (eventResult?.error) throw new Error("support_status_event_failed");
     }
     if (body.verificationStatus && body.verificationStatus !== current.verification_status) {
-      await (admin.supabaseAdmin as any).from("support_ticket_events").insert({
+      const eventResult = await (admin.supabaseAdmin as any).from("support_ticket_events").insert({
         ticket_id: id, actor_id: admin.user.id, event_type: "verification_changed", metadata: { to: body.verificationStatus },
       });
+      if (eventResult?.error) throw new Error("support_verification_event_failed");
     }
-    return NextResponse.json({ ticket: updated.data ?? { ...current, ...patch } });
+    return privateJson({ ticket: updated.data ?? { ...current, ...patch } });
   } catch {
     return NextResponse.json({ error: "문의 상태를 저장하지 못했습니다." }, { status: 503 });
   }
@@ -97,4 +152,8 @@ async function parseBody(request: Request): Promise<Record<string, unknown> | nu
     const value: unknown = await request.json();
     return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null;
   } catch { return null; }
+}
+
+function privateJson(data: unknown, status = 200): NextResponse {
+  return NextResponse.json(data, { status, headers: { "cache-control": "private, no-store" } });
 }

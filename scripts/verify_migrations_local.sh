@@ -39,6 +39,7 @@ MIGRATIONS=(
   "20260913100000_pubg_encounter_page"
   "20260915090000_pubg_release_hardening"
   "20260921100000_support_center"
+  "20260921103000_support_privacy_settings_hardening"
 )
 
 cleanup() {

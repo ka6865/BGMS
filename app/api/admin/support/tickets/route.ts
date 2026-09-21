@@ -33,8 +33,21 @@ export async function GET(request: Request) {
         if (typeof profile.id === "string" && typeof profile.nickname === "string") nicknameById.set(profile.id, profile.nickname);
       }
     }
-    return NextResponse.json({ tickets: tickets.map((ticket) => ({ ...ticket, requester_nickname: ticket.requester_id ? nicknameById.get(ticket.requester_id) ?? null : null })) });
+    const enriched = tickets.map((ticket) => ({
+      ...ticket,
+      requester_nickname: ticket.requester_id ? nicknameById.get(ticket.requester_id) ?? null : null,
+    }));
+    const normalizedQuery = q.toLowerCase();
+    const filtered = normalizedQuery
+      ? enriched.filter((ticket) => [ticket.subject, ticket.requester_nickname, ticket.target_nickname, ticket.target_account_id]
+        .some((value) => typeof value === "string" && value.toLowerCase().includes(normalizedQuery)))
+      : enriched;
+    return privateJson({ tickets: filtered });
   } catch {
-    return NextResponse.json({ error: "문의 목록을 불러오지 못했습니다." }, { status: 503 });
+    return privateJson({ error: "문의 목록을 불러오지 못했습니다." }, 503);
   }
+}
+
+function privateJson(data: unknown, status = 200): NextResponse {
+  return NextResponse.json(data, { status, headers: { "cache-control": "private, no-store" } });
 }

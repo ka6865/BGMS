@@ -44,7 +44,8 @@ export default async function OgImage({ params }: Props) {
     const res = await fetch(
       `${baseUrl}/api/pubg/player?nickname=${encodeURIComponent(decodedNickname)}&platform=${platform}`,
       {
-        next: { revalidate: 3600 }, // 1시간 캐시
+        // Privacy registry changes must invalidate OG output immediately.
+        cache: "no-store",
         signal: AbortSignal.timeout(5000), // 5초 타임아웃
       }
     );

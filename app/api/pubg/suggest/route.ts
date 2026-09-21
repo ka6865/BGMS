@@ -7,6 +7,7 @@ import {
   noteDatabaseAvailable,
   noteDatabaseUnavailable,
 } from "@/lib/pubg/databaseCircuitBreaker";
+import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 
 export const maxDuration = 5;
 
@@ -55,9 +56,16 @@ export async function GET(request: Request) {
     if (error) throw error;
     noteDatabaseAvailable();
 
+    const visibleSuggestions = [];
+    for (const suggestion of data || []) {
+      const privateResponse = await blockPrivatePlayer(suggestion.platform, suggestion.nickname);
+      if (privateResponse?.status === 503) return privateResponse;
+      if (!privateResponse) visibleSuggestions.push(suggestion);
+    }
+
     return NextResponse.json(
-      { suggestions: data || [] },
-      { headers: { "Cache-Control": "public, s-maxage=300, stale-while-revalidate=600" } },
+      { suggestions: visibleSuggestions },
+      { headers: { "Cache-Control": "private, no-store" } },
     );
   } catch (error: unknown) {
     if (isDatabaseUnavailableError(error)) {

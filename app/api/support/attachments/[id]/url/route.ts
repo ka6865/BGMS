@@ -26,10 +26,14 @@ export async function GET(
       attachmentId: id,
       actor: { userId: auth.user.id, isAdmin },
     });
-    return NextResponse.json({ signedUrl, expiresIn: 300 });
+    return privateJson({ signedUrl, expiresIn: 300 });
   } catch (error) {
     const code = error instanceof SupportAttachmentError ? error.code : "unavailable";
-    if (code === "not_found") return NextResponse.json({ error: "첨부파일을 찾을 수 없습니다." }, { status: 404 });
-    return NextResponse.json({ error: "첨부파일 URL을 만들지 못했습니다." }, { status: 503 });
+    if (code === "not_found") return privateJson({ error: "첨부파일을 찾을 수 없습니다." }, 404);
+    return privateJson({ error: "첨부파일 URL을 만들지 못했습니다." }, 503);
   }
+}
+
+function privateJson(data: unknown, status = 200): NextResponse {
+  return NextResponse.json(data, { status, headers: { "cache-control": "private, no-store" } });
 }

@@ -59,13 +59,12 @@ jobs:
         run: npm ci
 
       - name: Run Support Attachment Cleanup
-        continue-on-error: true
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           if [ -z "$NEXT_PUBLIC_SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
-            echo "::warning title=고객센터 증빙 정리 건너뜀::Supabase service-role 환경 변수가 없습니다."
+            echo "::error title=고객센터 증빙 정리 실패::Supabase service-role 환경 변수가 없습니다."
             exit 1
           fi
           npx tsx scripts/cleanup_support_attachments.ts --apply

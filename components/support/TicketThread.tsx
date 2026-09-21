@@ -70,6 +70,7 @@ export default function TicketThread({ ticketId, initialTicket }: { ticketId: st
   }
 
   if (notFound) return <main className="mx-auto w-full max-w-3xl px-4 py-16 text-center text-white"><h1 className="text-2xl font-black">문의가 없습니다</h1><p className="mt-3 text-sm text-white/50">문의가 삭제되었거나 접근 권한이 없습니다.</p></main>;
+  if (error && !ticket) return <main className="mx-auto w-full max-w-3xl px-4 py-16 text-center text-white"><h1 className="text-2xl font-black">문의를 불러오지 못했습니다</h1><p className="mt-3 text-sm text-red-200">{error}</p><button type="button" onClick={() => { setError(""); setRefresh((value) => value + 1); }} className="mt-5 rounded-xl bg-amber-400 px-4 py-2 text-sm font-black text-black">다시 시도</button></main>;
   if (!ticket) return <main className="mx-auto w-full max-w-3xl px-4 py-16 text-center text-sm text-white/50">문의 불러오는 중…</main>;
 
   return (

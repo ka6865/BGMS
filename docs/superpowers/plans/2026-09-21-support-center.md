@@ -281,7 +281,7 @@ git commit -m "feat: 고객센터 비공개 증빙 저장 수명주기 추가"
 
 - [ ] **Step 1: Write route tests**
 
-Mock `withAuthGuard`, `ticketStore`, `resolveSupportPlayerTarget`, and `attachmentStorage`. Assert public FAQ filtering; 401 for ticket POST/list/target preview; 400 for malformed JSON and overlong body; privacy POST rejects absent attachments, linked/foreign attachments, and mismatched target; target preview returns only the canonical identity; another user’s detail is 404; user messages update status; a five-ticket daily quota returns 429.
+Mock `withAuthGuard`, `ticketStore`, `resolveSupportPlayerTarget`, and `attachmentStorage`. Assert public FAQ filtering; 401 for ticket POST/list/target preview; 400 for malformed JSON and 413 for overlong body; privacy POST rejects absent attachments, linked/foreign attachments, and mismatched target; target preview returns only the canonical identity; another user’s detail is 404; user messages update status; a five-ticket daily quota returns 429.
 
 - [ ] **Step 2: Implement FAQ GET**
 

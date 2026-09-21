@@ -10,9 +10,9 @@ export async function GET() {
     const { data, error } = await (admin.supabaseAdmin as any).from("support_faqs")
       .select("id,category,question,answer,sort_order,is_published,created_by,updated_by,created_at,updated_at")
       .order("sort_order", { ascending: true }).order("updated_at", { ascending: false });
-    if (error) return NextResponse.json({ error: "FAQ를 불러오지 못했습니다." }, { status: 503 });
-    return NextResponse.json({ faqs: data ?? [] });
-  } catch { return NextResponse.json({ error: "FAQ를 불러오지 못했습니다." }, { status: 503 }); }
+    if (error) return privateJson({ error: "FAQ를 불러오지 못했습니다." }, 503);
+    return privateJson({ faqs: data ?? [] });
+  } catch { return privateJson({ error: "FAQ를 불러오지 못했습니다." }, 503); }
 }
 
 export async function POST(request: Request) {
@@ -84,6 +84,9 @@ async function parseFaqRecord(body: Record<string, unknown> | null): Promise<{ o
   return { ok: true, value: { category: body.category, question: body.question.trim(), answer: body.answer.trim(), sortOrder: body.sortOrder, isPublished: body.isPublished } };
 }
 function plainText(value: string): string { return value.replace(/<[^>]*>/g, "").trim(); }
+function privateJson(data: unknown, status = 200): NextResponse {
+  return NextResponse.json(data, { status, headers: { "cache-control": "private, no-store" } });
+}
 async function parseBody(request: Request): Promise<Record<string, unknown> | null> {
   try { const value: unknown = await request.json(); return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : null; } catch { return null; }
 }

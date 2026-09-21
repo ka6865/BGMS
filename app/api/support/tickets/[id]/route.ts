@@ -14,8 +14,12 @@ export async function GET(
   try {
     const ticket = await getSupportTicketForActor(auth.supabaseAdmin as any, id, { userId: auth.user.id, isAdmin: false });
     if (!ticket) return NextResponse.json({ error: "문의를 찾을 수 없습니다." }, { status: 404 });
-    return NextResponse.json({ ticket });
+    return privateJson({ ticket });
   } catch {
-    return NextResponse.json({ error: "문의를 불러오지 못했습니다." }, { status: 503 });
+    return privateJson({ error: "문의를 불러오지 못했습니다." }, 503);
   }
+}
+
+function privateJson(data: unknown, status = 200): NextResponse {
+  return NextResponse.json(data, { status, headers: { "cache-control": "private, no-store" } });
 }

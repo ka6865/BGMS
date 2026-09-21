@@ -20,7 +20,7 @@ export async function POST(request: Request) {
       supabaseAdmin: auth.supabaseAdmin as any,
       signal: request.signal,
     });
-    return NextResponse.json({ target });
+    return privateJson({ target });
   } catch (error) {
     const code = error instanceof SupportPlayerLookupError || isLookupError(error) ? (error as { code: string }).code : "unavailable";
     if (code === "not_found") return NextResponse.json({ error: "플레이어를 찾을 수 없습니다." }, { status: 404 });
@@ -36,6 +36,10 @@ function isLookupError(value: unknown): value is { code: "not_found" | "rate_lim
 
 function hasOnlyKeys(value: Record<string, unknown>, keys: string[]): boolean {
   return Object.keys(value).every((key) => keys.includes(key));
+}
+
+function privateJson(data: unknown, status = 200): NextResponse {
+  return NextResponse.json(data, { status, headers: { "cache-control": "private, no-store" } });
 }
 
 async function parseBody(request: Request): Promise<Record<string, unknown> | null> {

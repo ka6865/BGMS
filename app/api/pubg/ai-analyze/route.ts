@@ -11,6 +11,7 @@ import { sanitizeBackupCoachingText } from "@/lib/pubg-analysis/backupCoaching";
 import { buildMatchAiCoachingPrompt } from "@/lib/pubg-analysis/matchAiCoachingPrompt";
 import { sanitizeAiCoachingLanguageText } from "@/lib/pubg-analysis/aiCoachingQuality";
 import crypto from "crypto";
+import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 
 const CANONICAL_MATCH_ID = /^[A-Za-z0-9._-]{1,160}$/;
 const AI_ANALYZE_ROUTE_TIMEOUT_MS = 40_000;
@@ -145,6 +146,8 @@ export async function POST(request: Request) {
     }
     const playerId = normalizeName(nickname);
     const cachePlatform = normalizePlatform(platform);
+    const privateResponse = await blockPrivatePlayer(cachePlatform, nickname);
+    if (privateResponse) return privateResponse;
 
     let canonicalRow: unknown = null;
     try {

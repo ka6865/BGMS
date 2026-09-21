@@ -8,6 +8,7 @@ import { buildMatchSummary, buildBasicMatchSummary } from "@/lib/pubg-analysis/m
 import { fetchAndIngestBasicMatchSummary } from "@/lib/pubg/playerMatchesIngest";
 import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
 import { normalizeRecentMatchIds } from "@/lib/pubg/recentMatches";
+import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -29,6 +30,9 @@ export async function POST(request: NextRequest) {
     if (!playerId || matchIds.length === 0) {
       return NextResponse.json({ summaries: {}, missingMatchIds: matchIds });
     }
+
+    const privateResponse = await blockPrivatePlayer(platform, playerId);
+    if (privateResponse) return privateResponse;
 
     // 1순위: processed_match_telemetry (3D/AI 풀 분석 완료 매치)
     const { data: telemetryData, error } = await supabase

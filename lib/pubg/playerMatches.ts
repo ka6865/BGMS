@@ -124,7 +124,7 @@ export async function fetchPlayerMatchesPaginated(
 
   let query = supabase
     .from("pubg_player_matches")
-    .select("player_id, platform, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time", { count: "exact" })
+    .select("player_id, platform, account_id, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time", { count: "exact" })
     .eq("player_id", playerId)
     .eq("platform", normPlatform);
 

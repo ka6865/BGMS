@@ -25,7 +25,7 @@ const TICKET_COLUMNS = [
   "created_at",
   "updated_at",
 ].join(",");
-const MESSAGE_COLUMNS = "id,ticket_id,sender_id,sender_type,body,created_at";
+const MESSAGE_COLUMNS = "id,ticket_id,sender_id,sender_type,idempotency_key,body,created_at";
 const ATTACHMENT_COLUMNS = "id,ticket_id,message_id,original_name,mime_type,byte_size,status,expires_at,created_at,deleted_at";
 const EVENT_COLUMNS = "id,ticket_id,actor_id,event_type,from_status,to_status,metadata,created_at";
 
@@ -59,6 +59,7 @@ export type SupportMessageRow = {
   ticket_id: string;
   sender_id: string | null;
   sender_type: "user" | "admin";
+  idempotency_key?: string | null;
   body: string;
   created_at: string;
 };
@@ -111,10 +112,11 @@ export type AppendSupportMessageInput = {
   actor: SupportActor;
   senderType: "user" | "admin";
   body: string;
+  idempotencyKey?: string;
 };
 
 export class SupportStoreError extends Error {
-  readonly code: "not_found" | "forbidden" | "database" | "duplicate";
+  readonly code: "not_found" | "forbidden" | "database" | "duplicate" | "quota" | "idempotency_conflict";
 
   constructor(code: SupportStoreError["code"], message: string = code) {
     super(message);
@@ -129,6 +131,9 @@ function throwDatabaseError(error: { message?: string; code?: string } | null): 
   if (!error) return;
   if (error.code === "23505" || error.message?.includes("support_ticket_duplicate")) {
     throw new SupportStoreError("duplicate", "support_ticket_duplicate");
+  }
+  if (error.message?.includes("support_ticket_daily_quota")) {
+    throw new SupportStoreError("quota", "support_ticket_daily_quota");
   }
   throw new SupportStoreError("database", "support_store_database_error");
 }
@@ -245,19 +250,48 @@ export async function listSupportTicketsForAdmin(
     .order("last_message_at", { ascending: true });
   if (filters.status) query = query.eq("status", filters.status);
   if (filters.category) query = query.eq("category", filters.category);
-  if (filters.q?.trim()) {
-    const escaped = filters.q.trim().slice(0, 100).replace(/[\\%_]/g, "\\$&");
-    query = query.ilike("subject", `%${escaped}%`);
-  }
   const result = await readRows<SupportTicketRow[]>(query);
   throwDatabaseError(result.error);
-  return (result.data ?? []).map((row) => ({ ...row, unread: isUnread(row, "admin") }));
+  return (result.data ?? [])
+    .map((row) => ({ ...row, unread: isUnread(row, "admin") }))
+    .sort((left, right) => {
+      const leftPending = left.status === "resolved" || left.status === "rejected" ? 1 : 0;
+      const rightPending = right.status === "resolved" || right.status === "rejected" ? 1 : 0;
+      if (leftPending !== rightPending) return leftPending - rightPending;
+      return new Date(left.last_message_at).getTime() - new Date(right.last_message_at).getTime();
+    });
 }
 
 export async function appendSupportMessage(
   db: SupportDb,
   input: AppendSupportMessageInput,
 ): Promise<SupportMessageRow> {
+  const appendRpc = (db as any).rpc;
+  if (typeof appendRpc === "function") {
+    let rpcResult: { data: SupportMessageRow | { code?: string } | null; error: { message?: string; code?: string } | null };
+    try {
+      rpcResult = await appendRpc("append_support_message", {
+        p_ticket_id: input.ticketId,
+        p_actor_id: input.actor.userId,
+        p_sender_type: input.senderType,
+        p_body: input.body.trim(),
+        p_idempotency_key: input.idempotencyKey?.trim() || null,
+      });
+    } catch {
+      throw new SupportStoreError("database", "support_message_rpc_failed");
+    }
+    throwDatabaseError(rpcResult.error);
+    const data = rpcResult.data;
+    if (data && "code" in data && typeof data.code === "string") {
+      if (data.code === "not_found") throw new SupportStoreError("not_found", "support_ticket_not_found");
+      if (data.code === "forbidden") throw new SupportStoreError("forbidden", "support_ticket_forbidden");
+      if (data.code === "idempotency_conflict") throw new SupportStoreError("idempotency_conflict", "support_message_idempotency_conflict");
+      throw new SupportStoreError("database", "support_message_invalid");
+    }
+    if (!data || !("id" in data) || typeof data.id !== "string") throw new SupportStoreError("database", "support_message_missing_after_rpc");
+    return data as SupportMessageRow;
+  }
+
   const ticket = await readTicket(db, input.ticketId);
   if (!ticket) throw new SupportStoreError("not_found", "support_ticket_not_found");
   if (!input.actor.isAdmin && ticket.requester_id !== input.actor.userId) {
@@ -276,6 +310,24 @@ export async function appendSupportMessage(
       ? "answered"
       : ticket.status;
   const readColumn = input.senderType === "user" ? "user_last_read_at" : "admin_last_read_at";
+  const idempotencyKey = input.idempotencyKey?.trim() || null;
+
+  if (idempotencyKey) {
+    const existingResult = await readRows<SupportMessageRow | null>((db as any)
+      .from("support_messages")
+      .select(MESSAGE_COLUMNS)
+      .eq("ticket_id", input.ticketId)
+      .eq("sender_type", input.senderType)
+      .eq("idempotency_key", idempotencyKey)
+      .maybeSingle());
+    throwDatabaseError(existingResult.error);
+    if (existingResult.data) {
+      if (existingResult.data.body !== input.body.trim()) {
+        throw new SupportStoreError("idempotency_conflict", "support_message_idempotency_conflict");
+      }
+      return existingResult.data;
+    }
+  }
 
   const messageResult = await (db as any)
     .from("support_messages")
@@ -283,6 +335,7 @@ export async function appendSupportMessage(
       ticket_id: input.ticketId,
       sender_id: input.actor.userId,
       sender_type: input.senderType,
+      idempotency_key: idempotencyKey,
       body: input.body.trim(),
     })
     .select(MESSAGE_COLUMNS)
@@ -297,9 +350,23 @@ export async function appendSupportMessage(
       last_message_at: now,
       last_message_sender: input.senderType,
       [readColumn]: now,
-      ...(nextStatus === "resolved" || nextStatus === "rejected" ? { resolved_at: now } : {}),
+      ...(nextStatus === "resolved" || nextStatus === "rejected") && ticket.status !== "resolved" && ticket.status !== "rejected"
+        ? { resolved_at: now } : {},
+      ...(nextStatus !== "resolved" && nextStatus !== "rejected"
+        && (ticket.status === "resolved" || ticket.status === "rejected") ? { resolved_at: null } : {}),
     })
     .eq("id", input.ticketId) as QueryResult<unknown>;
   throwDatabaseError(updateResult?.error ?? null);
+  if (nextStatus !== ticket.status) {
+    const eventResult = await (db as any).from("support_ticket_events").insert({
+      ticket_id: input.ticketId,
+      actor_id: input.actor.userId,
+      event_type: "status_changed",
+      from_status: ticket.status,
+      to_status: nextStatus,
+      metadata: { reason: `${input.senderType}_message` },
+    });
+    throwDatabaseError(eventResult?.error ?? null);
+  }
   return messageResult.data;
 }

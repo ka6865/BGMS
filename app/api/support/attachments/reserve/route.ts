@@ -27,7 +27,7 @@ export async function POST(request: Request) {
       byteSize: body.byteSize,
       originalName: body.originalName,
     });
-    return NextResponse.json(result);
+    return privateJson(result);
   } catch (error) {
     return attachmentErrorResponse(error);
   }
@@ -36,10 +36,17 @@ export async function POST(request: Request) {
 function attachmentErrorResponse(error: unknown): NextResponse {
   const code = error instanceof SupportAttachmentError ? error.code : "unavailable";
   if (code === "attachment_quota") return NextResponse.json({ error: "첨부파일 한도를 초과했습니다." }, { status: 429 });
-  if (["unsupported_mime", "attachment_size_invalid", "attachment_too_large", "invalid_input"].includes(code)) {
+  if (code === "attachment_too_large") {
+    return NextResponse.json({ error: "첨부파일 크기가 너무 큽니다." }, { status: 413 });
+  }
+  if (["unsupported_mime", "attachment_size_invalid", "invalid_input"].includes(code)) {
     return NextResponse.json({ error: "첨부파일 형식 또는 크기가 올바르지 않습니다." }, { status: 400 });
   }
   return NextResponse.json({ error: "첨부파일 업로드를 준비하지 못했습니다." }, { status: 503 });
+}
+
+function privateJson(data: unknown, status = 200): NextResponse {
+  return NextResponse.json(data, { status, headers: { "cache-control": "private, no-store" } });
 }
 
 async function parseBody(request: Request): Promise<Record<string, unknown> | null> {

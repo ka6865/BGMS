@@ -3,11 +3,13 @@ import { NextRequest } from "next/server";
 
 const {
   mockGetSquadAnalysisData,
+  mockIsPlayerPrivate,
   mockImageResponse,
   mockFetch,
   MockImageResponse,
 } = vi.hoisted(() => {
   const mockGetSquadAnalysisData = vi.fn();
+  const mockIsPlayerPrivate = vi.fn();
   const mockImageResponse = vi.fn();
   const mockFetch = vi.fn();
   class MockImageResponse {
@@ -19,11 +21,12 @@ const {
       });
     }
   }
-  return { mockGetSquadAnalysisData, mockImageResponse, mockFetch, MockImageResponse };
+  return { mockGetSquadAnalysisData, mockIsPlayerPrivate, mockImageResponse, mockFetch, MockImageResponse };
 });
 
 vi.mock("next/og", () => ({ ImageResponse: MockImageResponse }));
 vi.mock("@/lib/pubg-analysis/squadAnalysis", () => ({ getSquadAnalysisData: mockGetSquadAnalysisData }));
+vi.mock("@/lib/pubg/privatePlayers", () => ({ isPlayerPrivate: mockIsPlayerPrivate }));
 
 import { GET } from "@/app/api/og/squad/route";
 
@@ -49,6 +52,17 @@ describe("squad OG benchmark-unavailable state", () => {
     vi.clearAllMocks();
     vi.stubGlobal("fetch", mockFetch);
     mockFetch.mockResolvedValue({ ok: false, status: 503 });
+    mockIsPlayerPrivate.mockResolvedValue(false);
+  });
+
+  it("does not render a private player's squad metrics", async () => {
+    mockIsPlayerPrivate.mockResolvedValue(true);
+    const response = await GET(new NextRequest(
+      "http://localhost/api/og/squad?nickname=Private_Player&platform=steam&groupKey=Teammate_B",
+    ));
+
+    expect(response.status).toBe(403);
+    expect(mockGetSquadAnalysisData).not.toHaveBeenCalled();
   });
 
   it("does not render a synthetic grade or score when benchmark data is unavailable", async () => {

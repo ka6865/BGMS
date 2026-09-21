@@ -151,19 +151,19 @@ describe("admin support APIs", () => {
         .mockReturnValueOnce(queryResult({ data: { ...ticket, verification_status: "verified" }, error: null }))
         .mockReturnValueOnce(queryResult({ data: null, error: null }))
         .mockReturnValueOnce(queryResult({ data: null, error: null }))
-        .mockReturnValueOnce(queryResult({ data: { ...ticket, verification_status: "verified" }, error: null }))
-        .mockReturnValueOnce(queryResult({ data: null, error: { code: "23505" } }))
-        .mockReturnValueOnce(queryResult({ data: null, error: null })),
+        .mockReturnValueOnce(queryResult({ data: null, error: null }))
+        .mockReturnValueOnce(queryResult({ data: { ...ticket, status: "resolved", verification_status: "verified", resolved_at: "2026-09-21T00:00:00.000Z" }, error: null }))
+        .mockReturnValueOnce(queryResult({ data: null, error: { code: "23505" } })),
     } as any;
     mocks.privateList.mockResolvedValueOnce([]).mockResolvedValueOnce([{
-      platform: "steam", nickname: "Player", lower_nickname: "player", account_id: "account.player", created_at: "2026-09-21T00:00:00.000Z",
+      platform: "steam", nickname: "OldPlayer", lower_nickname: "oldplayer", account_id: "account.player", created_at: "2026-09-21T00:00:00.000Z",
     }]);
 
     const first = await applySupportPrivacyAction({ ticketId, actorId: "admin-1", db });
     const second = await applySupportPrivacyAction({ ticketId, actorId: "admin-1", db });
     expect(first.outcome).toBe("registered");
     expect(second.outcome).toBe("already_registered");
-    expect(mocks.addPrivate).toHaveBeenCalledTimes(2);
+    expect(mocks.addPrivate).toHaveBeenCalledTimes(1);
   });
 
   it("supports FAQ create, update, and soft delete without HTML", async () => {

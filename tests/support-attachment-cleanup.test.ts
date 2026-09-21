@@ -15,12 +15,15 @@ function queryResult(data: unknown, error: unknown = null) {
     lte() { return this; },
     eq() { return this; },
     update() { return this; },
+    insert() { return this; },
+    maybeSingle() { return Promise.resolve({ data: this.data, error: this.error }); },
     then(resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) { return Promise.resolve({ data: this.data, error: this.error }).then(resolve, reject); },
   };
   return query;
 }
 
 function makeDb(remove: ReturnType<typeof vi.fn>) {
+  let claimRow = 0;
   const db: any = {
     from(table: string) {
       if (table !== "support_attachments") return queryResult([], null);
@@ -30,7 +33,13 @@ function makeDb(remove: ReturnType<typeof vi.fn>) {
             ? queryResult([oldTerminal], null)
             : queryResult([expiredPending], null);
         },
-        update(values: unknown) { return { ...queryResult(null, null), values }; },
+        update(values: { status?: string }) {
+          if (values.status === "deleting") {
+            const source = claimRow++ === 0 ? expiredPending : oldTerminal;
+            return queryResult({ ...source, status: "deleting" }, null);
+          }
+          return queryResult(null, null);
+        },
       };
     },
     storage: { from: () => ({ remove }) },

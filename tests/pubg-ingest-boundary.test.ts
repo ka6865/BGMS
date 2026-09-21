@@ -218,6 +218,10 @@ vi.mock("@/lib/pubg/apiHelper", () => ({
   reportPubgApiError: mockReportPubgApiError,
 }));
 
+vi.mock("@/lib/pubg/privatePlayers", () => ({
+  isPlayerPrivate: vi.fn().mockResolvedValue(false),
+}));
+
 import * as matchRoute from "../app/api/pubg/match/route";
 import { GET as GET_TELEMETRY } from "../app/api/pubg/telemetry/route";
 

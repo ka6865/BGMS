@@ -36,6 +36,9 @@ vi.mock("@/lib/pubg-analysis/aiUsageTracker", () => ({
   trackAiFailure: vi.fn(),
   trackAiUsage: vi.fn(),
 }));
+vi.mock("@/lib/pubg/privatePlayers", () => ({
+  isPlayerPrivate: vi.fn().mockResolvedValue(false),
+}));
 
 import { POST as aiSquadPOST } from "@/app/api/pubg/ai-squad/route";
 import { POST as aiAnalyzePOST } from "@/app/api/pubg/ai-analyze/route";

@@ -44,9 +44,12 @@ create table if not exists public.support_messages (
   ticket_id uuid not null references public.support_tickets(id) on delete cascade,
   sender_id uuid references public.profiles(id) on delete set null,
   sender_type text not null check (sender_type in ('user', 'admin')),
+  idempotency_key text,
   body text not null check (char_length(body) between 1 and 5000),
   created_at timestamptz not null default now()
 );
+
+alter table public.support_messages add column if not exists idempotency_key text;
 
 create table if not exists public.support_attachments (
   id uuid primary key default gen_random_uuid(),
@@ -63,6 +66,10 @@ create table if not exists public.support_attachments (
   created_at timestamptz not null default now(),
   deleted_at timestamptz
 );
+
+alter table public.support_attachments drop constraint if exists support_attachments_status_check;
+alter table public.support_attachments add constraint support_attachments_status_check
+  check (status in ('pending', 'ready', 'deleting', 'deleted'));
 
 create table if not exists public.support_ticket_events (
   id uuid primary key default gen_random_uuid(),
@@ -81,6 +88,9 @@ create index if not exists support_tickets_status_last_message_idx
   on public.support_tickets(status, last_message_at);
 create index if not exists support_messages_ticket_created_idx
   on public.support_messages(ticket_id, created_at);
+create unique index if not exists support_messages_idempotency_idx
+  on public.support_messages(ticket_id, sender_type, idempotency_key)
+  where idempotency_key is not null;
 create index if not exists support_attachments_ticket_status_idx
   on public.support_attachments(ticket_id, status);
 create index if not exists support_ticket_events_ticket_created_idx
@@ -94,12 +104,26 @@ create unique index if not exists support_ticket_privacy_action_once_idx
   on public.support_ticket_events(ticket_id)
   where event_type in ('privacy_player_registered', 'privacy_player_already_registered');
 
-insert into storage.buckets (id, name, public)
-values ('support-evidence', 'support-evidence', false)
-on conflict (id) do update set public = false;
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values (
+  'support-evidence',
+  'support-evidence',
+  false,
+  3145728,
+  array['image/png', 'image/jpeg', 'image/webp']::text[]
+)
+on conflict (id) do update set
+  public = false,
+  file_size_limit = 3145728,
+  allowed_mime_types = array['image/png', 'image/jpeg', 'image/webp']::text[];
 
 alter table public.notifications
   add column if not exists support_ticket_id uuid references public.support_tickets(id) on delete cascade;
+alter table public.notifications
+  add column if not exists support_message_id uuid references public.support_messages(id) on delete cascade;
+create unique index if not exists notifications_support_message_once_idx
+  on public.notifications(support_message_id)
+  where support_message_id is not null;
 
 create or replace function public.set_support_updated_at()
 returns trigger
@@ -150,6 +174,15 @@ begin
     raise exception 'support_ticket_invalid_input' using errcode = '22023';
   end if;
 
+  -- Serialize the per-user quota check with ticket creation so concurrent
+  -- requests cannot both pass the 24-hour limit.
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_requester_id::text, 47114));
+  if (select count(*) from public.support_tickets
+      where requester_id = p_requester_id
+        and created_at >= now() - interval '24 hours') >= 5 then
+    raise exception 'support_ticket_daily_quota' using errcode = 'P0001';
+  end if;
+
   if p_category = 'privacy' then
     if p_verification_status <> 'pending'
       or p_target_platform not in ('steam', 'kakao')
@@ -181,6 +214,7 @@ begin
       where attachment.status = 'ready'
         and attachment.ticket_id is null
         and attachment.uploader_id = p_requester_id
+        and (attachment.expires_at is null or attachment.expires_at > now())
       for update
     ) as locked_attachments;
 
@@ -224,6 +258,12 @@ begin
       and status = 'ready'
       and ticket_id is null
       and uploader_id = p_requester_id;
+
+    insert into public.support_ticket_events (ticket_id, actor_id, event_type, metadata)
+    select v_ticket_id, p_requester_id, 'attachment_added', jsonb_build_object('attachment_id', attachment.id)
+    from public.support_attachments as attachment
+    where attachment.ticket_id = v_ticket_id
+      and attachment.message_id = v_message_id;
   end if;
 
   insert into public.support_ticket_events (ticket_id, actor_id, event_type, to_status)

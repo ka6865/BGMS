@@ -38,10 +38,11 @@ export async function inspectExpiredSupportAttachments(db: SupportDb, now = new 
   const pending = await readQuery<unknown>((db as any).from("support_attachments")
     .select("id")
     .is("ticket_id", null)
-    .in("status", ["pending", "ready"])
+    .in("status", ["pending", "ready", "deleting"])
     .lte("expires_at", nowIso));
   const terminal = await readQuery<unknown>((db as any).from("support_attachments")
     .select("id,support_tickets!inner(status,resolved_at)")
+    .in("status", ["pending", "ready", "deleting"])
     .in("support_tickets.status", ["resolved", "rejected"])
     .lte("support_tickets.resolved_at", terminalCutoff));
   if (pending.error || terminal.error) throw new Error("support-attachment-cleanup-audit-failed");
@@ -57,7 +58,8 @@ export async function runSupportAttachmentCleanup(dependencies: CleanupDependenc
   const createServiceClient = dependencies.createServiceClient ?? ((url, key) => createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } }));
   const db = createServiceClient(supabaseUrl, serviceRoleKey) as SupportDb;
   const now = dependencies.now?.() ?? new Date();
-  if (dependencies.dryRun) {
+  const dryRun = dependencies.dryRun ?? true;
+  if (dryRun) {
     const result = await inspectExpiredSupportAttachments(db, now);
     dependencies.write?.(`support-attachment-cleanup mode=dry-run bucket=${SUPPORT_EVIDENCE_BUCKET} candidates=${result.candidates} pending=${result.pending} terminal=${result.terminal}`);
     return result;
