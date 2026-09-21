@@ -242,6 +242,17 @@ export default function MyPage({ initialCurrentUser, initialUserProfile, initial
           </DashboardCard>
           
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <button
+              onClick={() => router.push('/support')}
+              style={{
+                width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                padding: '18px 20px', backgroundColor: 'rgba(242,169,0,0.08)', border: '1px solid rgba(242,169,0,0.25)',
+                borderRadius: '16px', color: '#F2A900', cursor: 'pointer', fontSize: '14px', fontWeight: 800
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}><MessageSquare size={16} /> 고객센터</div>
+              <ChevronRight size={14} />
+            </button>
             <button 
               onClick={handleSignOut}
               style={{ 

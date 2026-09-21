@@ -30,7 +30,7 @@ export default function PrivacyPage() {
         개인정보처리방침
       </h1>
       <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.35)", marginBottom: "40px" }}>
-        최종 업데이트: 2026년 6월 22일
+        최종 업데이트: 2026년 9월 21일
       </p>
 
       <Section title="1. 개요">
@@ -97,7 +97,23 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      <Section title="5. 개인정보의 제3자 제공">
+      <Section title="5. 고객센터 문의 및 전적 비공개 요청">
+        <p>
+          로그인한 이용자는 <Link href="/support" style={{ color: "var(--color-accent, #F2A900)" }}>고객센터</Link>에서 FAQ를 확인하고 1:1 문의를 등록할 수 있습니다.
+          문의를 처리하기 위해 문의 내용, 계정 식별자, 답변 이력과 접속 시각을 수집합니다.
+        </p>
+        <p>
+          전적 비공개 요청에는 플랫폼·PUBG 닉네임·조회된 Account ID가 함께 저장됩니다.
+          본인 계정 확인을 위해 인게임 프로필 또는 최근 전적 화면의 <strong>스크린샷 증빙</strong>을 요청할 수 있으며,
+          해당 증빙은 관리자만 접근할 수 있는 비공개 저장소에서 수동 검토에 사용됩니다.
+        </p>
+        <p>
+          관리자에게만 문의와 증빙이 노출되며, 처리 완료 또는 반려된 증빙 파일은 처리일로부터 30일 후 삭제합니다.
+          미완료 문의의 증빙은 처리 목적에 필요한 기간 동안 보관하고, 문의가 종료되면 같은 보존 기준을 적용합니다.
+        </p>
+      </Section>
+
+      <Section title="6. 개인정보의 제3자 제공">
         <p>
           서비스는 이용자의 개인정보를 원칙적으로 제3자에게 제공하지 않습니다.
           다만, 아래의 경우에는 예외로 합니다.
@@ -108,7 +124,7 @@ export default function PrivacyPage() {
         </ul>
       </Section>
 
-      <Section title="6. 개인정보 처리 위탁">
+      <Section title="7. 개인정보 처리 위탁">
         <Table
           headers={["수탁자", "위탁 업무 내용"]}
           rows={[
@@ -122,7 +138,7 @@ export default function PrivacyPage() {
         />
       </Section>
 
-      <Section title="7. 쿠키(Cookie) 및 유사 기술 사용">
+      <Section title="8. 쿠키(Cookie) 및 유사 기술 사용">
         <p>
           서비스는 이용자 경험 개선 및 서비스 분석을 위해 쿠키와 유사 기술을 사용합니다.
         </p>
@@ -139,7 +155,7 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      <Section title="8. 광고 서비스 관련 안내">
+      <Section title="9. 광고 서비스 관련 안내">
         <p>
           서비스는 운영 비용 충당을 위해 아래 광고 플랫폼을 이용합니다.
           각 플랫폼은 이용자의 브라우저 정보와 쿠키를 기반으로 맞춤형 광고를 제공할 수 있습니다.
@@ -165,20 +181,21 @@ export default function PrivacyPage() {
         </ul>
       </Section>
 
-      <Section title="9. 이용자의 권리와 행사 방법">
+      <Section title="10. 이용자의 권리와 행사 방법">
         <p>이용자는 언제든지 다음의 권리를 행사할 수 있습니다.</p>
         <ul>
           <li>개인정보 열람 요청</li>
           <li>개인정보 정정·삭제 요청</li>
           <li>개인정보 처리 정지 요청</li>
           <li>회원 탈퇴 (마이페이지 &gt; 계정 설정)</li>
+          <li><Link href="/support" style={{ color: "var(--color-accent, #F2A900)" }}>고객센터 1:1 문의를 통한 열람·정정·삭제 요청</Link></li>
         </ul>
         <p>
           위 권리 행사는 아래 이메일로 요청하시면 지체 없이 처리합니다.
         </p>
       </Section>
 
-      <Section title="10. 개인정보 보호책임자">
+      <Section title="11. 개인정보 보호책임자">
         <Table
           headers={["항목", "내용"]}
           rows={[
@@ -194,13 +211,13 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      <Section title="11. 개인정보처리방침의 변경">
+      <Section title="12. 개인정보처리방침의 변경">
         <p>
           본 방침은 법령, 정책 또는 서비스 변경에 따라 수정될 수 있습니다.
           변경 시 서비스 내 공지사항 또는 본 페이지를 통해 사전 고지합니다.
         </p>
         <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.4)" }}>
-          시행일: 2026년 6월 22일
+          시행일: 2026년 9월 21일
         </p>
       </Section>
 
