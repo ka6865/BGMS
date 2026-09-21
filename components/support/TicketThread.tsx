@@ -54,7 +54,7 @@ export default function TicketThread({ ticketId, initialTicket }: { ticketId: st
       setTicket((current) => current ? { ...current, attachments: current.attachments.map((attachment) => ({ ...attachment, ...(signedById.has(attachment.id) ? { signedUrl: signedById.get(attachment.id) } : {}) })) } : current);
     });
     return () => { active = false; };
-  }, [ticket?.id, ticket?.attachments.length]);
+  }, [ticket, ticketId]);
 
   async function sendMessage(event: React.FormEvent) {
     event.preventDefault();

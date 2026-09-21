@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import SupportStatusBadge from "@/components/support/SupportStatusBadge";
 
@@ -29,7 +29,7 @@ export default function SupportTicketDetail({ ticketId, onChanged }: { ticketId:
   const [reply, setReply] = useState("");
   const [error, setError] = useState("");
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
       const response = await fetch(`/api/admin/support/tickets/${ticketId}`);
@@ -38,8 +38,8 @@ export default function SupportTicketDetail({ ticketId, onChanged }: { ticketId:
       setTicket(payload.ticket as SupportTicketDetailData);
     } catch { setError("문의를 불러오지 못했습니다."); setTicket(null); }
     finally { setLoading(false); }
-  }
-  useEffect(() => { void load(); }, [ticketId]);
+  }, [ticketId]);
+  useEffect(() => { void load(); }, [load]);
 
   async function patch(values: Record<string, string>) {
     setBusy(true); setError("");
