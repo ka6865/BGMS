@@ -128,6 +128,7 @@ export default function GlobalHeader() {
 
   const isBoardActive = pathname.startsWith("/board");
   const isStatsActive = pathname.startsWith("/stats");
+  const isSupportActive = pathname.startsWith("/support");
   const isWeaponsActive = pathname.startsWith("/weapons");
   const isBackpackActive = pathname.startsWith("/backpack");
   const isRankingsActive = pathname.startsWith("/rankings");
@@ -213,21 +214,6 @@ export default function GlobalHeader() {
             })}
             <div className="w-[1.5px] h-3.5 bg-black/15 mx-2 rounded-full shrink-0" />
             
-            <Link href="/board" className="shrink-0">
-              <button
-                className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
-                  isBoardActive
-                    ? "bg-black/90 text-[#F2A900] shadow-sm"
-                    : "text-black/60 hover:bg-black/10 hover:text-black/80"
-                }`}
-              >
-                커뮤니티
-                {isBoardActive && (
-                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#F2A900]" />
-                )}
-              </button>
-            </Link>
-            
             <Link href="/stats" className="shrink-0">
               <button
                 className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
@@ -238,6 +224,21 @@ export default function GlobalHeader() {
               >
                 AI 전적 검색
                 {isStatsActive && (
+                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#F2A900]" />
+                )}
+              </button>
+            </Link>
+            
+            <Link href="/board" className="shrink-0">
+              <button
+                className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
+                  isBoardActive
+                    ? "bg-black/90 text-[#F2A900] shadow-sm"
+                    : "text-black/60 hover:bg-black/10 hover:text-black/80"
+                }`}
+              >
+                커뮤니티
+                {isBoardActive && (
                   <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#F2A900]" />
                 )}
               </button>
@@ -286,6 +287,19 @@ export default function GlobalHeader() {
               }`}>
                 상자 시뮬
                 {isCratesActive && (
+                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#F2A900]" />
+                )}
+              </button>
+            </Link>
+
+            <div className="w-[1.5px] h-3.5 bg-black/15 mx-2 rounded-full shrink-0" />
+
+            <Link href="/support" className="shrink-0">
+              <button className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
+                isSupportActive ? "bg-black/90 text-[#F2A900]" : "text-black/60 hover:bg-black/10 hover:text-black/80"
+              }`}>
+                고객센터
+                {isSupportActive && (
                   <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#F2A900]" />
                 )}
               </button>
