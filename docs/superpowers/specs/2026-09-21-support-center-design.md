@@ -197,7 +197,7 @@ created_at timestamptz not null default now()
 - `support_tickets(requester_id, updated_at desc)`와 `(status, last_message_at)` 인덱스
 - privacy 중복 방지를 위한 `(requester_id, target_platform, target_account_id)` 부분 unique 인덱스. `status not in ('resolved', 'rejected')`인 privacy 행만 대상
 - `support_messages(ticket_id, created_at)`와 `support_attachments(ticket_id, status)` 인덱스
-- 한 ticket에서 `privacy_player_registered` 또는 `privacy_player_already_registered` 이벤트가 한 번만 생성되도록 partial unique 인덱스
+- 한 ticket에서 `privacy_player_registered` 또는 `privacy_player_already_registered` 중 하나만 생성되도록 `ticket_id` 기준 partial unique 인덱스
 - `support_ticket_events(ticket_id, created_at)` 인덱스
 
 ## 7. RLS와 저장소 보안
