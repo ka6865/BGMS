@@ -159,7 +159,7 @@ created_at timestamptz not null default now()
 
 ```text
 id uuid primary key
-ticket_id uuid not null references support_tickets(id) on delete cascade
+ticket_id uuid references support_tickets(id) on delete cascade
 message_id uuid references support_messages(id) on delete set null
 uploader_id uuid references profiles(id) on delete set null
 bucket_id text not null default 'support-evidence'
@@ -172,6 +172,13 @@ expires_at timestamptz
 created_at timestamptz not null default now()
 deleted_at timestamptz
 ```
+
+첨부는 문의를 저장하기 전에 업로드할 수 있어야 하므로 `ticket_id`를 처음에는
+`NULL`로 둔다. 예약 시 인증 사용자의 `uploader_id`와 `expires_at`을 기록하고,
+문의 생성 transaction이 `ready` 상태이면서 `ticket_id is null`이고 요청자 소유인
+첨부 ID만 새 ticket과 첫 메시지에 원자적으로 연결한다. 연결되지 않은 pending/ready
+행은 만료 정리 대상이다. storage key는 ticket ID에 의존하지 않는 무작위 UUID 경로
+(`attachments/<attachmentId>`)를 사용하므로 연결 전에 업로드할 수 있다.
 
 ### `support_ticket_events`
 
@@ -205,23 +212,24 @@ created_at timestamptz not null default now()
 - `support_faqs`: 공개 사용자는 `is_published = true` 행만 SELECT. INSERT/UPDATE/DELETE는 관리자만 가능하다.
 - `support_tickets`: requester 본인 또는 관리자만 SELECT. 신규 INSERT의 requester는 인증 사용자 본인으로만 허용한다. 수정은 Route Handler와 service role을 통해서만 수행한다.
 - `support_messages`: 문의 접근 권한이 있는 본인 또는 관리자만 SELECT. 사용자 INSERT는 본인 문의로 제한한다. 관리자 메시지는 관리자 API에서만 INSERT한다.
-- `support_attachments`: 문의 접근 권한이 있는 본인 또는 관리자만 행을 조회한다. storage bucket은 private이며 public SELECT 정책을 만들지 않는다.
+- `support_attachments`: 연결된 첨부는 문의 접근 권한이 있는 본인 또는 관리자만 행을 조회하고, 아직 `ticket_id`가 없는 pending/ready 첨부는 `uploader_id` 본인 또는 관리자만 조회한다. storage bucket은 private이며 public SELECT 정책을 만들지 않는다.
 - `support_ticket_events`: 관리자 조회만 허용하고, 기록은 service role 또는 관리자 API에서만 생성한다.
 - 모든 Route Handler는 쿠키 세션 또는 bearer 토큰을 `withAuthGuard`로 확인한다. 관리자 경로는 `requireAdmin`으로 한 번 더 확인한다. 문의 ID가 다른 사용자 소유이면 일반 사용자에게는 존재 여부가 드러나지 않도록 `404`를 반환한다.
 - 첨부 signed URL의 TTL은 5분으로 고정한다. URL을 로그나 알림 미리보기에 넣지 않는다.
-- 스크린샷은 전용 버킷의 `ticketId/attachmentId` 경로에 저장한다. 업로드 예약·완료 RPC 또는 Route Handler가 ticket 소유권과 파일 상태를 확인한 뒤에만 `ready`로 전환한다.
+- 스크린샷은 전용 버킷의 `attachments/attachmentId` 경로에 저장한다. 업로드 예약·완료 Route Handler가 uploader 소유권과 파일 상태를 확인한 뒤에만 `ready`로 전환하고, 문의 생성 transaction이 ready 첨부를 ticket에 연결한다.
 
 ## 8. API와 데이터 흐름
 
 ### 사용자 API
 
 - `GET /api/support/faqs?category=&q=`: 게시된 FAQ만 반환한다.
+- `POST /api/support/player-target`: 로그인 사용자가 입력한 플랫폼·닉네임을 서버 PUBG 조회로 확인하고 canonical nickname과 `account_id`를 반환한다. 원본 API 응답은 반환하지 않는다.
 - `POST /api/support/tickets`: 문의와 첫 메시지를 생성한다. privacy 유형은 서버 플레이어 조회 결과와 ready 첨부를 확인한다.
 - `GET /api/support/tickets`: 현재 사용자 문의 목록과 unread 여부를 반환한다.
 - `GET /api/support/tickets/[id]`: 소유자 문의의 메시지·첨부 메타데이터·상태를 반환한다.
 - `POST /api/support/tickets/[id]/messages`: 본인 문의에 메시지를 추가하고 `last_message_*`를 갱신한다.
-- `POST /api/support/attachments/reserve`: 문의 소유권, MIME, 크기를 검증하고 private bucket signed upload URL과 pending attachment ID를 반환한다.
-- `POST /api/support/attachments/complete`: 업로드 객체 존재를 확인하고 attachment를 `ready`로 전환한다.
+- `POST /api/support/attachments/reserve`: 인증 사용자, MIME, 크기를 검증하고 `ticket_id` 없는 pending attachment와 private bucket signed upload URL을 반환한다.
+- `POST /api/support/attachments/complete`: 본인 pending attachment의 업로드 객체 존재를 확인하고 attachment를 `ready`로 전환한다.
 - `GET /api/support/attachments/[id]/url`: 본인 또는 관리자에게만 5분 signed URL을 반환한다.
 
 ### 관리자 API
@@ -233,7 +241,7 @@ created_at timestamptz not null default now()
 - `POST /api/admin/support/tickets/[id]/privacy-action`: `verified` 문의에서만 기존 `addPrivatePlayer`를 호출한다. idempotent 결과와 이벤트를 저장한다.
 - `GET/POST/PATCH/DELETE /api/admin/support/faqs`: FAQ 관리 API다. 답변은 plain text로 저장한다.
 
-문의 생성 흐름은 `인증 → 입력 검증 → privacy면 PUBG 조회 → 첨부 ready 확인 → ticket/message 저장 → 생성 이벤트` 순서다. 관리자 비공개 처리는 `관리자 인증 → ticket 재조회 → verification=verified 확인 → addPrivatePlayer → privacy event → resolved` 순서로 실행한다. 이미 등록된 계정은 성공적인 no-op으로 취급한다.
+문의 생성 흐름은 `인증 → 입력 검증 → privacy면 PUBG 조회 → 요청자 소유의 미연결 첨부 ready 확인 → ticket/message/첨부 연결/RPC 이벤트 저장` 순서다. 관리자 비공개 처리는 `관리자 인증 → ticket 재조회 → verification=verified 확인 → addPrivatePlayer → privacy event → resolved` 순서로 실행한다. 이미 등록된 계정은 성공적인 no-op으로 취급한다.
 
 ## 9. UI 및 파일 경계
 
