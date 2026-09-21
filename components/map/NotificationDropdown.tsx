@@ -147,9 +147,11 @@ const NotificationDropdown = memo(({
                       {noti.sender_name}
                     </strong>
                     님이{" "}
-                    {noti.type === "reply"
-                      ? " 내 댓글에 답글을 남겼습니다."
-                      : " 내 글에 댓글을 남겼습니다."}
+                    {noti.type === "support_reply"
+                      ? " 고객센터 문의에 답변했습니다."
+                      : noti.type === "reply"
+                        ? " 내 댓글에 답글을 남겼습니다."
+                        : " 내 글에 댓글을 남겼습니다."}
                   </div>
                   {noti.preview_text && (
                     <div

@@ -105,8 +105,10 @@ export default function GlobalHeader() {
           setNotifications((prev) => [newNoti, ...prev]);
 
           // 제보 Toast처럼 우측 상단 팝업 알림 표시
-          const label = newNoti.type === 'reply' ? '답글' : '댓글';
-          toast.info(`${newNoti.sender_name}님이 내 글에 ${label}을 달았습니다.`, {
+          const label = newNoti.type === 'support_reply' ? '고객센터 문의에 답변' : newNoti.type === 'reply' ? '답글' : '댓글';
+          toast.info(newNoti.type === 'support_reply'
+            ? '관리자가 고객센터 문의에 답변했습니다.'
+            : `${newNoti.sender_name}님이 내 글에 ${label}을 달았습니다.`, {
             description: newNoti.preview_text || '',
             duration: 5000,
             position: 'top-right',
@@ -156,7 +158,11 @@ export default function GlobalHeader() {
       );
     }
     setShowNotiDropdown(false);
-    router.push(`/board/${noti.post_id}`);
+    if (noti.type === "support_reply" && noti.support_ticket_id) {
+      router.push(`/support/${noti.support_ticket_id}`);
+    } else if (noti.post_id !== null) {
+      router.push(`/board/${noti.post_id}`);
+    }
   };
 
   const formatNotiTime = (dateString: string) => {
@@ -328,6 +334,7 @@ export default function GlobalHeader() {
 
             <div className="relative">
               <button
+                aria-label="알림"
                 onClick={() => setShowNotiDropdown(!showNotiDropdown)}
                 className="p-2 text-black/80 hover:text-black active:scale-90 transition-transform relative"
               >

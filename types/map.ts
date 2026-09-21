@@ -50,8 +50,9 @@ export interface NotificationItem {
   id: string | number;
   user_id: string;
   sender_name: string;
-  type: "reply" | "comment";
-  post_id: string | number;
+  type: "reply" | "comment" | "support_reply";
+  post_id: string | number | null;
+  support_ticket_id?: string | null;
   is_read: boolean;
   preview_text?: string;
   created_at: string;
