@@ -3,6 +3,7 @@ import { createClient as createSupabaseServerClient } from "@/utils/supabase/ser
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 
 const clean = (val: string | undefined) => (val || '').replace(/['";\s]+/g, '').trim();
+const EDITABLE_SETTINGS = new Set(["notice_display_days", "notice_active_id"]);
 
 // 1. 관리자 권한 검증 및 세션 체크
 async function verifyAdmin() {
@@ -28,7 +29,8 @@ export async function GET() {
     const supabaseServer = await createSupabaseServerClient();
     const { data: settings, error } = await supabaseServer
       .from("system_settings")
-      .select("*");
+      .select("*")
+      .neq("key", "private_players_list");
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
@@ -55,11 +57,14 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json().catch(() => null);
-    if (!body || !body.settings) {
+    if (!body || typeof body.settings !== "object" || body.settings === null || Array.isArray(body.settings)) {
       return NextResponse.json({ error: "설정 데이터가 올바르지 않습니다." }, { status: 400 });
     }
 
     const { settings } = body;
+    if (Object.keys(settings).some((key) => !EDITABLE_SETTINGS.has(key))) {
+      return NextResponse.json({ error: "변경할 수 없는 설정이 포함되어 있습니다." }, { status: 400 });
+    }
     const errors: string[] = [];
 
     // 값 검증

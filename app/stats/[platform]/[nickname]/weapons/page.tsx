@@ -1,5 +1,7 @@
 import { Metadata } from 'next';
 import { createClient } from '@/utils/supabase/server';
+import { isPlayerPrivate } from '@/lib/pubg/privatePlayers';
+import { notFound } from 'next/navigation';
 import WeaponsClient from './WeaponsClient';
 
 interface Props {
@@ -25,10 +27,20 @@ export default async function PlayerWeaponsPage({ params }: Props) {
 
   const { data: cacheData } = await supabase
     .from('pubg_player_cache')
-    .select('weapon_mastery_data, nickname, platform, mastery_updated_at')
+    .select('id, weapon_mastery_data, nickname, platform, mastery_updated_at')
     .eq('lower_nickname', decodedNickname.toLowerCase())
     .eq('platform', platform)
     .maybeSingle();
+
+  try {
+    if (await isPlayerPrivate(platform, decodedNickname, typeof cacheData?.id === 'string' ? cacheData.id : undefined)) {
+      notFound();
+    }
+  } catch {
+    // Do not render cached private-player data when the privacy registry cannot
+    // be checked reliably.
+    notFound();
+  }
 
   return (
     <WeaponsClient

@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+export { resolvePrivatePlayerAccountId } from "@/lib/pubg/privatePlayerIdentity";
 
 export interface PrivatePlayer {
   platform: string;
@@ -13,7 +14,8 @@ const SETTINGS_KEY = "private_players_list";
 
 function getAdminClient() {
   const url = (process.env.NEXT_PUBLIC_SUPABASE_URL || "").replace(/['";\s]+/g, "").trim();
-  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "").replace(/['";\s]+/g, "").trim();
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").replace(/['";\s]+/g, "").trim();
+  if (!url || !key) throw new Error("private_player_service_credentials_missing");
   return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
@@ -57,6 +59,19 @@ export async function getPrivatePlayersList(): Promise<PrivatePlayer[]> {
   return parsed.map(normalizePrivatePlayer).filter((row): row is PrivatePlayer => row !== null);
 }
 
+/** Resolve a local nickname cache identity without contacting PUBG. */
+export async function getCachedPlayerAccountId(platform: string, nickname: string): Promise<string | null> {
+  if (!nickname) return null;
+  const { data, error } = await getAdminClient()
+    .from("pubg_player_cache")
+    .select("id")
+    .eq("platform", platform.toLowerCase())
+    .eq("lower_nickname", nickname.trim().toLowerCase())
+    .maybeSingle();
+  if (error) throw error;
+  return typeof data?.id === "string" && ACCOUNT_ID_PATTERN.test(data.id.trim()) ? data.id.trim() : null;
+}
+
 /**
  * 특정 플랫폼/닉네임이 비공개 대상인지 확인합니다.
  */
@@ -65,12 +80,32 @@ export async function isPlayerPrivate(platform: string, nickname: string, accoun
   const list = await getPrivatePlayersList();
   const lowerNick = nickname.trim().toLowerCase();
   const targetPlatform = platform.toLowerCase();
-  const targetAccountId = typeof accountId === "string" ? accountId.trim() : "";
+  const targetAccountId = typeof accountId === "string" && ACCOUNT_ID_PATTERN.test(accountId.trim())
+    ? accountId.trim()
+    : "";
+  const scoped = list.filter((p) => p.platform.toLowerCase() === targetPlatform || p.platform.toLowerCase() === "all");
+  const hasStableRegistration = scoped.some((p) => Boolean(p.account_id));
 
-  return list.some(
-    (p) =>
-      (p.platform.toLowerCase() === targetPlatform || p.platform.toLowerCase() === "all") &&
-      (p.lower_nickname === lowerNick || (targetAccountId !== "" && p.account_id === targetAccountId))
+  // Most public routes only have a nickname at the point where the privacy
+  // check runs. A local cache identity is enough to connect a renamed alias
+  // without turning every request into an upstream PUBG API call. Strict
+  // routes can opt into resolvePrivatePlayerAccountId through the guard when
+  // this local mapping is not available.
+  let resolvedAccountId = targetAccountId;
+  if (!resolvedAccountId && targetPlatform !== "all" && hasStableRegistration) {
+    resolvedAccountId = await getCachedPlayerAccountId(targetPlatform, nickname) ?? "";
+  }
+
+  return scoped.some(
+    (p) => {
+      // Stable account IDs take precedence over nicknames. Legacy rows without
+      // an account ID retain nickname matching until they are migrated. When a
+      // caller has not resolved an account yet, a matching stable-row nickname
+      // is conservatively blocked so legacy match rows cannot leak history.
+      return p.account_id
+        ? resolvedAccountId !== "" ? p.account_id === resolvedAccountId : p.lower_nickname === lowerNick
+        : p.lower_nickname === lowerNick;
+    }
   );
 }
 
@@ -78,7 +113,6 @@ export async function isPlayerPrivate(platform: string, nickname: string, accoun
  * 비공개 플레이어를 추가합니다.
  */
 export async function addPrivatePlayer(platform: string, nickname: string, accountId?: string): Promise<PrivatePlayer[]> {
-  const list = await getPrivatePlayersList();
   const lowerNick = nickname.trim().toLowerCase();
   const targetPlatform = platform.toLowerCase();
   let resolvedAccountId = typeof accountId === "string" && ACCOUNT_ID_PATTERN.test(accountId.trim())
@@ -101,60 +135,28 @@ export async function addPrivatePlayer(platform: string, nickname: string, accou
       // The nickname entry is still valid when the optional cache lookup is unavailable.
     }
   }
-
-  const existing = list.find(
-    (p) => p.lower_nickname === lowerNick && p.platform.toLowerCase() === targetPlatform
-  );
-  let changed = false;
-
-  if (!existing) {
-    list.unshift({
-      platform: targetPlatform,
-      nickname: nickname.trim(),
-      lower_nickname: lowerNick,
-      ...(resolvedAccountId ? { account_id: resolvedAccountId } : {}),
-      created_at: new Date().toISOString(),
-    });
-    changed = true;
-  } else if (resolvedAccountId && existing.account_id !== resolvedAccountId) {
-    existing.account_id = resolvedAccountId;
-    changed = true;
-  }
-
-  if (changed) {
-    const supabase = getAdminClient();
-    const { error } = await supabase.from("system_settings").upsert({
-      key: SETTINGS_KEY,
-      value: JSON.stringify(list),
-      description: "전적 비공개 처리된 배틀그라운드 플레이어 목록",
-      updated_at: new Date().toISOString(),
-    });
-    if (error) throw error;
-  }
-
-  return list;
+  const supabase = getAdminClient();
+  const { data, error } = await supabase.rpc("add_private_player", {
+    p_platform: targetPlatform,
+    p_nickname: nickname.trim(),
+    p_account_id: resolvedAccountId ?? null,
+  });
+  if (error) throw error;
+  if (!Array.isArray(data)) throw new Error("Invalid private player settings");
+  return data.map(normalizePrivatePlayer).filter((row): row is PrivatePlayer => row !== null);
 }
 
 /**
  * 비공개 플레이어를 목록에서 제거(공개 전환)합니다.
  */
 export async function removePrivatePlayer(platform: string, nickname: string): Promise<PrivatePlayer[]> {
-  const list = await getPrivatePlayersList();
-  const lowerNick = nickname.trim().toLowerCase();
   const targetPlatform = platform.toLowerCase();
-
-  const updated = list.filter(
-    (p) => !(p.lower_nickname === lowerNick && p.platform.toLowerCase() === targetPlatform)
-  );
-
   const supabase = getAdminClient();
-  const { error } = await supabase.from("system_settings").upsert({
-    key: SETTINGS_KEY,
-    value: JSON.stringify(updated),
-    description: "전적 비공개 처리된 배틀그라운드 플레이어 목록",
-    updated_at: new Date().toISOString(),
+  const { data, error } = await supabase.rpc("remove_private_player", {
+    p_platform: targetPlatform,
+    p_nickname: nickname.trim(),
   });
   if (error) throw error;
-
-  return updated;
+  if (!Array.isArray(data)) throw new Error("Invalid private player settings");
+  return data.map(normalizePrivatePlayer).filter((row): row is PrivatePlayer => row !== null);
 }

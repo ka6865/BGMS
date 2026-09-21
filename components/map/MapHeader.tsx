@@ -186,6 +186,7 @@ const MapHeader = memo(({
             {/* 알림 버튼 */}
             <div className="relative">
               <button
+                aria-label="알림"
                 onClick={onToggleNoti}
                 className="p-2 text-black/80 hover:text-black active:scale-90 transition-transform relative"
               >

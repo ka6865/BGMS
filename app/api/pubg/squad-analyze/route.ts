@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSquadAnalysisData } from "@/lib/pubg-analysis/squadAnalysis";
+import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -10,6 +11,12 @@ export async function GET(request: Request) {
   if (!nickname) {
     return NextResponse.json({ error: "Nickname is required." }, { status: 400 });
   }
+  if (platform !== "steam" && platform !== "kakao") {
+    return NextResponse.json({ error: "지원하지 않는 플랫폼입니다." }, { status: 400 });
+  }
+
+  const privateResponse = await blockPrivatePlayer(platform, nickname, undefined, { lookupUpstream: true });
+  if (privateResponse) return privateResponse;
 
   try {
     const data = await getSquadAnalysisData(nickname, platform, groupKey);

@@ -38,6 +38,9 @@ MIGRATIONS=(
   "20260913090000_pubg_rankings_and_performance"
   "20260913100000_pubg_encounter_page"
   "20260915090000_pubg_release_hardening"
+  "20260921100000_support_center"
+  "20260921103000_support_privacy_settings_hardening"
+  "20260921110000_support_privacy_ranking_identity"
 )
 
 cleanup() {
@@ -124,4 +127,5 @@ if ! echo "$OUTPUT" | grep -q "전체 시나리오 통과"; then
 fi
 
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/support-center-scenarios.sql
 echo "✅ 신규 migration 적용 및 RPC 동작 검증 완료"

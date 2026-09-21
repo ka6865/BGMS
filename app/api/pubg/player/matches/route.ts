@@ -1,5 +1,5 @@
 import { readPerformanceCache, readPerformanceStates } from "@/lib/pubg/performanceCache";
-import { isPlayerPrivate } from "@/lib/pubg/privatePlayers";
+import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { fetchPlayerMatchesPaginated, normalizePlayerMatchesPage, normalizePlayerMatchHistoryFilter } from "@/lib/pubg/playerMatches";
@@ -29,6 +29,24 @@ async function readCachedAccountId(supabase: ReturnType<typeof getAdminClient>, 
     return null;
   }
 }
+
+async function readDiscoveredAccountIds(supabase: ReturnType<typeof getAdminClient>, platform: string, nickname: string): Promise<string[]> {
+  try {
+    if (!supabase || typeof (supabase as any).from !== "function") return [];
+    const query = (supabase as any).from("pubg_player_match_discovery")
+      .select("account_id")
+      .eq("platform", platform)
+      .ilike("nickname_at_discovery", nickname.trim())
+      .limit(50);
+    const { data, error } = await query;
+    if (error || !Array.isArray(data)) return [];
+    return [...new Set(data
+      .map((row) => row && typeof row.account_id === "string" ? row.account_id : null)
+      .filter((accountId): accountId is string => Boolean(accountId && /^account\.[A-Za-z0-9_-]+$/.test(accountId))))];
+  } catch {
+    return [];
+  }
+}
  
  export async function GET(request: NextRequest) {
    const { searchParams } = request.nextUrl;
@@ -44,7 +62,8 @@ async function readCachedAccountId(supabase: ReturnType<typeof getAdminClient>, 
    }
  
    if (!['steam', 'kakao'].includes(platform)) return NextResponse.json({ error: '지원하지 않는 플랫폼입니다.' }, { status: 400 });
-   if (await isPlayerPrivate(platform, nickname)) return NextResponse.json({ error: '비공개 플레이어입니다.' }, { status: 403 });
+   const initialPrivateResponse = await blockPrivatePlayer(platform, nickname);
+   if (initialPrivateResponse) return initialPrivateResponse;
    const supabase = getAdminClient();
    if (!supabase) {
      return NextResponse.json({ error: "DB credentials missing" }, { status: 500 });
@@ -64,9 +83,24 @@ async function readCachedAccountId(supabase: ReturnType<typeof getAdminClient>, 
       accountId = await readCachedAccountId(supabase, platform, nickname);
       result = await fetchPlayerMatchesPaginated(supabase, nickname, platform, page, 20, filter);
     }
+    if (!accountId) {
+      const matchAccountId = result.matches.find((match) => typeof match.account_id === "string")?.account_id;
+      if (typeof matchAccountId === "string" && /^account\.[A-Za-z0-9_-]+$/.test(matchAccountId)) accountId = matchAccountId;
+    }
     if (!accountId) accountId = await readCachedAccountId(supabase, platform, nickname);
-    if (accountId && await isPlayerPrivate(platform, nickname, accountId)) {
-      return NextResponse.json({ error: '비공개 플레이어입니다.' }, { status: 403 });
+    if (accountId) {
+      const accountPrivateResponse = await blockPrivatePlayer(platform, nickname, accountId);
+      if (accountPrivateResponse) return accountPrivateResponse;
+    }
+    const discoveredAccountIds = await readDiscoveredAccountIds(supabase, platform, nickname);
+    for (const discoveredAccountId of discoveredAccountIds) {
+      if (discoveredAccountId === accountId) continue;
+      const discoveredPrivateResponse = await blockPrivatePlayer(platform, nickname, discoveredAccountId);
+      if (discoveredPrivateResponse) return discoveredPrivateResponse;
+    }
+    if (!accountId) {
+      const privateResponse = await blockPrivatePlayer(platform, nickname, undefined, { lookupUpstream: true });
+      if (privateResponse) return privateResponse;
     }
     const performances = await readPerformanceCache(supabase, platform, nickname, result.matches.map(m => m.match_id));
     const performanceStates = await readPerformanceStates(supabase, platform, nickname, result.matches.map(m => m.match_id));

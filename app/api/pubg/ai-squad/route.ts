@@ -8,6 +8,7 @@ import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import crypto from "crypto";
 import { getSquadAnalysisData } from "@/lib/pubg-analysis/squadAnalysis";
+import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 import { buildSquadAiCoachingPrompt } from "@/lib/pubg-analysis/squadAiCoachingPrompt";
 import { sanitizeAiCoachingLanguage } from "@/lib/pubg-analysis/aiCoachingQuality";
 
@@ -144,6 +145,8 @@ export async function POST(request: Request) {
       trackAiFailure(authenticatedUserId, "squad", "Missing required squad parameters", { errorCode: "invalid_input", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
       return NextResponse.json({ error: "Missing required squad parameters" }, { status: 400 });
     }
+    const privateResponse = await blockPrivatePlayer(cachePlatform, nickname, undefined, { lookupUpstream: true });
+    if (privateResponse) return privateResponse;
     if (request.signal.aborted) throw new SquadRequestAbortedError();
 
     // All numeric evidence is recomputed server-side.  The request contributes

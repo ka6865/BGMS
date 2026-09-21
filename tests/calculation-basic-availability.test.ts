@@ -3,6 +3,8 @@ import { buildCalculationPendingMatch } from '@/lib/pubg-analysis/calculationAva
 
 const { rows, filters, rankingCalls } = vi.hoisted(() => ({ rows: [] as any[], filters: [] as [string, unknown][], rankingCalls: [] as any[] }));
 vi.mock('next/cache',()=>({unstable_cache:(fn:unknown)=>fn}));
+vi.mock('@/lib/pubg/privatePlayers', () => ({ isPlayerPrivate: vi.fn().mockResolvedValue(false) }));
+vi.mock('@/lib/pubg/privatePlayerIdentity', () => ({ resolvePrivatePlayerAccountId: vi.fn().mockResolvedValue(null) }));
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => ({
   rpc: (_name: string, args: any) => {
     rankingCalls.push(args);

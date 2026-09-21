@@ -3,6 +3,7 @@
 
 import { ImageResponse } from "next/og";
 import { NextRequest } from "next/server";
+import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 
 export const runtime = "nodejs";
 
@@ -13,6 +14,19 @@ export async function GET(request: NextRequest) {
   const score1Raw = searchParams.get("score1");
   const score2Raw = searchParams.get("score2");
   const winner = searchParams.get("winner") || "";
+
+  const requestedNicknames = [
+    [searchParams.get("nick1"), searchParams.get("platform1")],
+    [searchParams.get("nick2"), searchParams.get("platform2")],
+  ] as const;
+  for (const [requestedNickname, requestedPlatform] of requestedNicknames) {
+    if (!requestedNickname) continue;
+    const platforms = requestedPlatform ? [requestedPlatform] : ["steam", "kakao"];
+    for (const platform of platforms) {
+      const privateResponse = await blockPrivatePlayer(platform, requestedNickname, undefined, { lookupUpstream: true });
+      if (privateResponse) return privateResponse;
+    }
+  }
 
   const hasScore = score1Raw !== null && score2Raw !== null;
   const s1 = hasScore ? Number(score1Raw) : 0;

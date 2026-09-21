@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 const mocks=vi.hoisted(()=>({private:vi.fn(),history:vi.fn(),db:vi.fn<(...args:unknown[])=>any>(()=>({}))}));
 vi.mock('@supabase/supabase-js',()=>({createClient:mocks.db}));
 vi.mock('@/lib/pubg/privatePlayers',()=>({isPlayerPrivate:mocks.private}));
+vi.mock('@/lib/pubg/privatePlayerIdentity',()=>({resolvePrivatePlayerAccountId:vi.fn().mockResolvedValue(null)}));
 vi.mock('@/lib/pubg/playerMatches',()=>({
   fetchPlayerMatchesPaginated:mocks.history,
   normalizePlayerMatchesPage:(x:string)=>Number(x)||1,
@@ -53,6 +54,16 @@ describe('stored history boundary',()=>{
   it('never exposes history of a private player',async()=>{
     mocks.private.mockResolvedValue(true);
     expect((await GET(req())).status).toBe(403);expect(mocks.history).not.toHaveBeenCalled();
+  });
+  it('checks discovered account IDs when the page and cache have no identity',async()=>{
+    mocks.private.mockImplementation(async (_platform: string, _nickname: string, accountId?: string) => accountId === 'account.hidden');
+    const cacheQuery:any={select:vi.fn(),eq:vi.fn(),maybeSingle:vi.fn().mockResolvedValue({data:null,error:null})};
+    cacheQuery.select.mockReturnValue(cacheQuery);cacheQuery.eq.mockReturnValue(cacheQuery);
+    const discoveryQuery:any={select:vi.fn(),eq:vi.fn(),ilike:vi.fn(),limit:vi.fn().mockResolvedValue({data:[{account_id:'account.hidden'}],error:null})};
+    discoveryQuery.select.mockReturnValue(discoveryQuery);discoveryQuery.eq.mockReturnValue(discoveryQuery);discoveryQuery.ilike.mockReturnValue(discoveryQuery);
+    mocks.db.mockReturnValue({from:vi.fn((table: string)=>table === 'pubg_player_match_discovery' ? discoveryQuery : cacheQuery)});
+    expect((await GET(req())).status).toBe(403);
+    expect(mocks.history).toHaveBeenCalled();
   });
   it('rejects unsupported platforms before using server credentials',async()=>{
     expect((await GET(new NextRequest('http://localhost/api/pubg/player/matches?nickname=A&platform=console'))).status).toBe(400);

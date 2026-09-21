@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { reportPubgApiError } from "@/lib/pubg/apiHelper";
 import { normalizeWeaponMasteryItems, parseWeaponMasteryResponse } from "@/lib/pubg/weaponMastery";
 import { trackPubgRateLimit } from "@/lib/pubg-analysis/pubgApiTracker";
+import { isPlayerPrivate } from "@/lib/pubg/privatePlayers";
 
 const MASTERY_CACHE_TTL_MS = 3 * 60 * 60 * 1000;
 
@@ -23,6 +24,9 @@ export async function POST(request: Request) {
     if (!nickname) {
       return NextResponse.json({ success: false, error: "닉네임이 필요합니다." }, { status: 400 });
     }
+    if (!["steam", "kakao"].includes(platform)) {
+      return NextResponse.json({ success: false, error: "지원하지 않는 플랫폼입니다." }, { status: 400 });
+    }
 
     const { data: cacheData, error: cacheError } = await supabaseAdmin
       .from("pubg_player_cache")
@@ -42,6 +46,9 @@ export async function POST(request: Request) {
         },
         { status: 409 }
       );
+    }
+    if (await isPlayerPrivate(platform, nickname, cacheData.id)) {
+      return NextResponse.json({ success: false, error: "비공개 플레이어입니다.", code: "PLAYER_PRIVATE" }, { status: 403 });
     }
 
     const cachedAt = cacheData.mastery_updated_at ? new Date(cacheData.mastery_updated_at).getTime() : 0;

@@ -47,6 +47,9 @@ const {
 vi.mock("@/utils/supabase/server", () => ({
   createClient: mockCreateClient,
 }));
+vi.mock("@/lib/pubg/privatePlayers", () => ({
+  isPlayerPrivate: vi.fn().mockResolvedValue(false),
+}));
 
 import * as suggestRoute from "../app/api/pubg/suggest/route";
 
@@ -54,7 +57,7 @@ describe("player suggest route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockLimit.mockResolvedValue({
-      data: [{ nickname: "KangPlayer", platform: "steam" }],
+      data: [{ nickname: "KangPlayer", platform: "steam", id: "account.internal-only" }],
       error: null,
     });
   });
@@ -80,7 +83,7 @@ describe("player suggest route", () => {
     expect(mockOrder).not.toHaveBeenCalled();
     expect(mockRetry).toHaveBeenCalledWith(false);
     expect(mockAbortSignal).toHaveBeenCalledWith(expect.any(AbortSignal));
-    expect(response.headers.get("cache-control")).toContain("s-maxage=300");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
   it("LIKE 와일드카드 입력은 literal prefix로 escape한다", async () => {

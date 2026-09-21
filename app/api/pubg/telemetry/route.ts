@@ -37,6 +37,7 @@ import {
 } from "@/lib/pubg-analysis/telemetryIdentity";
 import { createTelemetryPayload } from "@/lib/pubg-analysis/telemetryPayload";
 import { reportPubgApiError } from "@/lib/pubg/apiHelper";
+import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -78,6 +79,9 @@ export async function GET(request: Request) {
   } catch {
     return invalidRequest("지원하지 않는 telemetry platform 또는 mode입니다.");
   }
+
+  const privateResponse = await blockPrivatePlayer(platform, nickname);
+  if (privateResponse) return privateResponse;
 
   if (!isR2Configured()) {
     return NextResponse.json(
@@ -129,6 +133,8 @@ export async function GET(request: Request) {
     if (!playerId) {
       return NextResponse.json({ error: "플레이어 식별자를 찾을 수 없습니다." }, { status: 404 });
     }
+    const accountPrivateResponse = await blockPrivatePlayer(platform, canonicalNickname, playerId);
+    if (accountPrivateResponse) return accountPrivateResponse;
 
     const myRoster = rosters.find((roster: any) =>
       roster.relationships?.participants?.data?.some((participantRef: any) => participantRef.id === myInfo.id),

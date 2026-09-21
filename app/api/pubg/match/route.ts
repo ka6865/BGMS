@@ -91,6 +91,7 @@ import {
   noteDatabaseUnavailable,
 } from "@/lib/pubg/databaseCircuitBreaker";
 import { evaluateMatchEligibility } from "@/lib/pubg-analysis/matchEligibility";
+import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 
 // [ISR V1.0] force-dynamic 유지: PUBG API 호출, R2 업로드, DB Upsert 등 부수효과 보호
 // unstable_cache는 DB 읽기(캐시 조회) 전용 프록시로만 사용
@@ -1278,6 +1279,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Missing required parameters" }, { status: 400 });
   }
 
+  // Scraper/recovery requests are separately authenticated internal work. The
+  // ordinary user-facing detail route must never read a private player's
+  // cached or freshly fetched analysis.
+  if (source === "user") {
+    const privateResponse = await blockPrivatePlayer(platform, nickname);
+    if (privateResponse) return privateResponse;
+  }
+
   if (!force && isRecentlyNotFound(platform, matchId)) {
     return matchNotFoundResponse();
   }
@@ -1308,6 +1317,23 @@ export async function GET(request: NextRequest) {
         platform,
         minResultVersion: 0,
       });
+      if (source === "user" && cachedFullResult) {
+        const cachedAccountId = [
+          cachedFullResult.accountId,
+          cachedFullResult.playerId,
+          cachedFullResult.stats?.accountId,
+          cachedFullResult.stats?.playerId,
+        ].find((value: unknown): value is string => (
+          typeof value === "string" && /^account\.[A-Za-z0-9_-]+$/.test(value)
+        ));
+        const cachedPrivateResponse = await blockPrivatePlayer(
+          platform,
+          nickname,
+          cachedAccountId,
+          cachedAccountId ? undefined : { lookupUpstream: true },
+        );
+        if (cachedPrivateResponse) return cachedPrivateResponse;
+      }
       if (recoveryAuthorized
         && (!cachedFullResult || cachedFullResult.v !== Math.max(1, RESULT_VERSION - 1))) {
         return benchmarkRecoveryContractResponse();
@@ -1388,6 +1414,10 @@ export async function GET(request: NextRequest) {
     const myAccountId = myParticipant.attributes.stats.playerId || myParticipant.attributes.accountId;
     if (!myAccountId) {
       return NextResponse.json({ error: "Player account identifier is unavailable" }, { status: 404 });
+    }
+    if (source === "user") {
+      const accountPrivateResponse = await blockPrivatePlayer(platform, myParticipant.attributes.stats.name, myAccountId);
+      if (accountPrivateResponse) return accountPrivateResponse;
     }
     const canonicalNickname = myParticipant.attributes.stats.name;
 

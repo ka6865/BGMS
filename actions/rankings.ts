@@ -2,7 +2,6 @@
 import { ANALYSIS_CALCULATION_VERSION, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 
 import { createClient } from '@supabase/supabase-js';
-import { unstable_cache } from 'next/cache';
 import {
   BENCHMARK_FILTER_VERSION,
   BENCHMARK_POPULATION_EVIDENCE_VERSION,
@@ -126,10 +125,10 @@ async function readRanking(tab: 'damage' | 'kills' | 'tier', mode: GameModeFilte
   }
 }
 
-const readRankingCached = unstable_cache(readRanking, ['pubg-rankings-v4'], {
-  revalidate: 60,
-  tags: ['rankings'],
-});
+// Privacy settings can change at any time. Do not put rankings behind a
+// time-based cache that can keep a newly-private player visible for a minute.
+// The underlying RPC remains indexed and returns only the requested top rows.
+const readRankingCached = readRanking;
 
 export async function getWeeklyTopDamage(mode: GameModeFilter = 'all', perspective: PerspectiveFilter = 'all', matchType: MatchTypeFilter = 'all'): Promise<RankingQueryResult> {
   return readRankingCached('damage', mode, perspective, matchType);

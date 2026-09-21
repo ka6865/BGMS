@@ -8,6 +8,7 @@ import {
   BENCHMARK_FILTER_VERSION,
   BENCHMARK_POPULATION_EVIDENCE_VERSION,
 } from "@/lib/pubg-analysis/benchmarkLookup";
+import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -49,6 +50,7 @@ type ResolvedBattlePlayer = {
   nickname: string;
   playerId: string;
   platform: string;
+  accountId?: string;
 };
 
 async function resolveBattlePlayer(input: string, requestedPlatform?: string | null): Promise<ResolvedBattlePlayer> {
@@ -62,7 +64,7 @@ async function resolveBattlePlayer(input: string, requestedPlatform?: string | n
 
     const { data } = await supabase
       .from("pubg_player_cache")
-      .select("nickname, platform")
+      .select("id, nickname, platform")
       .eq("lower_nickname", input.toLowerCase())
       .eq("platform", normalizedRequestedPlatform)
       .order("updated_at", { ascending: false })
@@ -71,13 +73,14 @@ async function resolveBattlePlayer(input: string, requestedPlatform?: string | n
     return {
       nickname: data?.[0]?.nickname || input,
       playerId: normalizedInput,
-      platform: normalizedRequestedPlatform
+      platform: normalizedRequestedPlatform,
+      accountId: typeof data?.[0]?.id === "string" ? data[0].id : undefined,
     };
   }
 
   const { data } = await supabase
     .from("pubg_player_cache")
-    .select("nickname, platform")
+    .select("id, nickname, platform")
     .eq("lower_nickname", input.toLowerCase())
     .order("updated_at", { ascending: false })
     .limit(8);
@@ -89,7 +92,8 @@ async function resolveBattlePlayer(input: string, requestedPlatform?: string | n
     return {
       nickname: validRows[0]?.nickname || input,
       playerId: normalizedInput,
-      platform: platforms[0]
+      platform: platforms[0],
+      accountId: typeof validRows[0]?.id === "string" ? validRows[0].id : undefined,
     };
   }
 
@@ -123,6 +127,13 @@ export async function GET(request: Request) {
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 400 });
   }
+
+  const privateResponses = await Promise.all([
+    blockPrivatePlayer(player1.platform, player1.nickname, player1.accountId, player1.accountId ? undefined : { lookupUpstream: true }),
+    blockPrivatePlayer(player2.platform, player2.nickname, player2.accountId, player2.accountId ? undefined : { lookupUpstream: true }),
+  ]);
+  const privateResponse = privateResponses.find((response) => response);
+  if (privateResponse) return privateResponse;
 
   const nick1 = player1.playerId;
   const nick2 = player2.playerId;

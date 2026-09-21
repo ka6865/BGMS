@@ -27,12 +27,56 @@ create or replace function auth.role() returns text language sql stable as $$ se
 -- linked-player sync candidate source
 create table if not exists public.profiles (
   id uuid primary key default gen_random_uuid(),
+  nickname text,
+  role text not null default 'user',
   pubg_nickname text,
   pubg_platform text default 'steam',
   last_active_at timestamptz,
   updated_at timestamptz default now()
 );
 grant select on table public.profiles to anon, authenticated, service_role;
+
+-- Supabase Storage와 알림의 최소 구성. 고객센터 migration은 private bucket과
+-- support_ticket_id를 기존 알림 행에 추가하므로 실제 운영 객체의 핵심 컬럼만 재현한다.
+create schema if not exists storage;
+create table if not exists storage.buckets (
+  id text primary key,
+  name text not null,
+  public boolean not null default false,
+  file_size_limit bigint,
+  allowed_mime_types text[]
+);
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid,
+  sender_id uuid,
+  sender_name text not null default '',
+  type text not null default 'comment',
+  post_id bigint,
+  preview_text text,
+  is_read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create table if not exists storage.objects (
+  id uuid primary key default gen_random_uuid(),
+  bucket_id text not null,
+  name text not null,
+  metadata jsonb not null default '{}'::jsonb,
+  unique (bucket_id, name)
+);
+grant all on table storage.objects to service_role;
+grant all on table storage.buckets to service_role;
+grant all on table public.notifications to service_role;
+
+create table if not exists public.system_settings (
+  key text primary key,
+  value text not null,
+  description text,
+  updated_at timestamptz not null default now()
+);
+alter table public.system_settings enable row level security;
+grant select on table public.system_settings to anon, authenticated;
+grant all on table public.system_settings to service_role;
 
 -- 게시판
 create table if not exists public.posts (
@@ -105,8 +149,12 @@ create table if not exists public.vehicles (
 -- 쓰기 정책 강화 대상 테이블 (정책 이름까지 운영과 동일하게 재현)
 create table if not exists public.pubg_player_cache (
   id text primary key,
+  nickname text,
   lower_nickname text,
-  platform text
+  platform text,
+  updated_at timestamptz default now(),
+  last_seen_at timestamptz,
+  search_count integer default 0
 );
 alter table public.pubg_player_cache enable row level security;
 create policy "Service Role Write" on public.pubg_player_cache for all using (true) with check (true);

@@ -110,6 +110,23 @@ const Footer = () => {
           <span style={{ width: "1px", height: "14px", backgroundColor: "rgba(255,255,255,0.1)" }} />
 
           <Link
+            href="/support"
+            style={{
+              fontSize: "12px",
+              fontWeight: 700,
+              color: "rgba(255,255,255,0.55)",
+              textDecoration: "none",
+              transition: "color 0.15s ease",
+            }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "#F2A900")}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.55)")}
+          >
+            고객센터
+          </Link>
+
+          <span style={{ width: "1px", height: "14px", backgroundColor: "rgba(255,255,255,0.1)" }} />
+
+          <Link
             href="/weapons"
             style={{
               fontSize: "12px",

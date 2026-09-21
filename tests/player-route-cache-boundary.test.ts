@@ -37,6 +37,9 @@ vi.mock("@/lib/pubg/apiHelper", () => ({
 vi.mock("@/lib/pubg/privatePlayers", () => ({
   isPlayerPrivate: vi.fn().mockResolvedValue(false),
 }));
+vi.mock("@/lib/pubg/privatePlayerIdentity", () => ({
+  resolvePrivatePlayerAccountId: vi.fn().mockResolvedValue(null),
+}));
 
 describe("player route non-force cache boundary", () => {
   beforeEach(() => {
