@@ -27,12 +27,38 @@ create or replace function auth.role() returns text language sql stable as $$ se
 -- linked-player sync candidate source
 create table if not exists public.profiles (
   id uuid primary key default gen_random_uuid(),
+  nickname text,
+  role text not null default 'user',
   pubg_nickname text,
   pubg_platform text default 'steam',
   last_active_at timestamptz,
   updated_at timestamptz default now()
 );
 grant select on table public.profiles to anon, authenticated, service_role;
+
+-- Supabase Storage와 알림의 최소 구성. 고객센터 migration은 private bucket과
+-- support_ticket_id를 기존 알림 행에 추가하므로 실제 운영 객체의 핵심 컬럼만 재현한다.
+create schema if not exists storage;
+create table if not exists storage.buckets (
+  id text primary key,
+  name text not null,
+  public boolean not null default false,
+  file_size_limit bigint,
+  allowed_mime_types text[]
+);
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid,
+  sender_id uuid,
+  sender_name text not null default '',
+  type text not null default 'comment',
+  post_id bigint,
+  preview_text text,
+  is_read boolean not null default false,
+  created_at timestamptz not null default now()
+);
+grant all on table storage.buckets to service_role;
+grant all on table public.notifications to service_role;
 
 -- 게시판
 create table if not exists public.posts (

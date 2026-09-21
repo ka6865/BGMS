@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { X, User, LogOut, Sword, Package, Trophy, Box, Bot, MessageSquare } from 'lucide-react';
 import { useAuth } from '../AuthProvider';
 import { supabase } from '@/lib/supabase';
@@ -248,7 +249,7 @@ export default function GlobalMobileMenu({ isOpen, setIsOpen, activeMapId, isAdm
                 {/* Support Section */}
                 <div className="flex flex-col gap-4 mb-4">
                   <h3 className="text-[#666] text-[11px] font-black uppercase tracking-widest ml-1">Support</h3>
-                  <a
+                  <Link
                     href="/support"
                     onClick={() => setIsOpen(false)}
                     className="bg-[#1a1a1a] p-5 rounded-2xl border border-[#F2A900]/25 flex items-center justify-between active:bg-[#222] transition-colors group"
@@ -263,7 +264,7 @@ export default function GlobalMobileMenu({ isOpen, setIsOpen, activeMapId, isAdm
                       </div>
                     </div>
                     <ChevronRight size={18} className="text-[#666]" />
-                  </a>
+                  </Link>
                   <a 
                     href="https://discord.gg/T97MR78awb"
                     target="_blank"
