@@ -18,6 +18,7 @@ vi.mock("@google/generative-ai", () => ({
 }));
 
 import {
+  balanceSelectionEvidence,
   CommunityAgentModelError,
   createGeminiJsonModel,
   selectTopic,
@@ -207,6 +208,61 @@ it("모델은 선택 단계에서 한 번만 호출하고 최근 중복 주제�
   expect(instruction).toContain("evidenceIds는 data.evidence에 존재하는 서로 다른 id 문자열 1~10개");
 });
 
+it("선택 후보는 출처별 최대 10건으로 맞추고 교차 출처의 같은 여론을 한 후보로 묶는다", async () => {
+  const dc = evidence({
+    id: "dc-1", source: "dc", official: false,
+    url: "https://gall.dcinside.com/board/view/?id=battlegrounds&no=1",
+    title: "경쟁전 매칭 지연 불편", excerpt: "경쟁전 매칭 지연 때문에 대기 시간이 길다는 의견입니다.",
+  });
+  const naver = evidence({
+    id: "naver-1", source: "naver", official: false, access: "snippet",
+    url: "https://cafe.naver.com/playbattlegrounds/1",
+    title: "경쟁전 매칭 지연 불편", excerpt: "경쟁전 매칭 지연 때문에 대기 시간이 길다는 반응입니다.",
+  });
+  const youtube = Array.from({ length: 15 }, (_, index) => evidence({
+    id: `youtube-${index}`, source: "youtube", official: false, access: "comment",
+    url: `https://www.youtube.com/watch?v=video-${index}&lc=comment-${index}`,
+    title: index === 0 ? "경쟁전 매칭 지연 불편" : `영상 댓글 ${index}`,
+    excerpt: index === 0 ? "경쟁전 매칭 지연 때문에 대기 시간이 길다는 반응입니다." : `공개 댓글 ${index}`,
+  }));
+  const balanced = balanceSelectionEvidence([dc, naver, ...youtube]);
+  expect(balanced.filter((item) => item.source === "youtube")).toHaveLength(10);
+  expect(balanced.slice(0, 3).map((item) => item.source)).toEqual(["dc", "naver", "youtube"]);
+
+  const model = vi.fn().mockResolvedValue({
+    kind: "question", title: "경쟁전 매칭 지연 반응", topicKey: "ranked-match-delay",
+    evidenceIds: [dc.id, naver.id, youtube[0].id], reason: "여러 출처에 같은 반응이 있습니다.", officialUpdate: false,
+  });
+  await expect(selectTopic([dc, naver, ...youtube], [], model, NOW)).resolves.toEqual(expect.objectContaining({
+    evidenceIds: [dc.id, naver.id, youtube[0].id],
+  }));
+  const input = model.mock.calls[0][0] as {
+    data: { evidence: Array<{ source: Evidence["source"] }>; candidateGroups: Array<{ sourceCount: number; evidenceIds: string[] }> };
+  };
+  expect(input.data.evidence.filter((item) => item.source === "youtube")).toHaveLength(10);
+  expect(input.data.candidateGroups).toContainEqual(expect.objectContaining({
+    sourceCount: 3,
+    evidenceIds: expect.arrayContaining([dc.id, naver.id, youtube[0].id]),
+  }));
+});
+
+it("여러 출처 후보가 있는데 한 출처만 고른 주제는 보류한다", async () => {
+  const dc = evidence({
+    id: "dc-1", source: "dc", official: false,
+    url: "https://gall.dcinside.com/board/view/?id=battlegrounds&no=1",
+  });
+  const naver = evidence({
+    id: "naver-1", source: "naver", official: false, access: "snippet",
+    url: "https://cafe.naver.com/playbattlegrounds/1",
+  });
+  const model = vi.fn().mockResolvedValue({
+    kind: "question", title: "단일 출처 주제", topicKey: "single-source",
+    evidenceIds: [dc.id], reason: "한 출처만 선택했습니다.", officialUpdate: false,
+  });
+
+  await expect(selectTopic([dc, naver], [], model, NOW)).resolves.toBeNull();
+});
+
 it("7일보다 오래된 중복 주제는 새 주제를 막지 않는다", async () => {
   const model = vi.fn().mockResolvedValue({
     kind: "news", title: "M416 변경점 확인", topicKey: "m416-change",
@@ -284,6 +340,30 @@ it("작성 입력에는 허용된 근거 메타와 발췌만 넣고 외부 지�
   expect(input.data.evidence[0]).not.toHaveProperty("externalId");
   expect(input.data.evidence[0]).not.toHaveProperty("contentHash");
   expect(input.data.evidence[0]).not.toHaveProperty("fetchedAt");
+});
+
+it("여러 출처로 선택한 주제의 초안이 한 출처만 인용하면 보류한다", async () => {
+  const dc = evidence({
+    id: "dc-1", source: "dc", official: false,
+    url: "https://gall.dcinside.com/board/view/?id=battlegrounds&no=1",
+  });
+  const naver = evidence({
+    id: "naver-1", source: "naver", official: false, access: "snippet",
+    url: "https://cafe.naver.com/playbattlegrounds/1",
+  });
+  const model = vi.fn().mockResolvedValue({
+    title: "한 출처만 쓴 초안",
+    paragraphs: [{
+      text: "한 자료에서 확인한 개별 의견입니다.", kind: "observed_opinion",
+      evidenceIds: [dc.id], recentWindow: null,
+    }],
+    question: "여러분의 경험은 어떠신가요?",
+  });
+
+  await expect(writeDraft({
+    kind: "question", title: "교차 출처 주제", topicKey: "cross-source",
+    evidenceIds: [dc.id, naver.id], reason: "같은 주제를 다룹니다.", officialUpdate: false,
+  }, [dc, naver], model)).rejects.toMatchObject({ status: "deferred", reason: "model_invalid_response" });
 });
 
 it("작성 provider schema는 root question과 paragraph 하위 필드를 구조적으로 강제한다", async () => {
@@ -368,7 +448,7 @@ it("모델이 만든 링크나 스크립트 문자열은 렌더링하지 않고 
   expect(checkDraft(safeDraft, [evidence()], NOW).contentHash).toBe(renderDraft(safeDraft, [evidence()]).hash);
 });
 
-it("영구 YouTube 인용은 API 제목 대신 고정된 접근 유형을 표시한다", () => {
+it("같은 YouTube 영상의 인용은 출처 한 줄에서 한 링크로 묶는다", () => {
   const video = evidence({
     source: "youtube", access: "description", official: true,
     url: "https://www.youtube.com/watch?v=video-1", title: "30일 뒤 삭제할 API 영상 제목",
@@ -383,10 +463,12 @@ it("영구 YouTube 인용은 API 제목 대신 고정된 접근 유형을 표시
     question: "어떤 정보가 도움이 되었나요?",
   }, [video, comment]);
 
-  expect(rendered.html).toContain(">YouTube 공식 영상</a>");
-  expect(rendered.html).toContain(">YouTube 공개 댓글</a>");
-  expect(rendered.html).toContain("열람: 영상 설명 · 확인: 2026-09-08T00:45:00.000Z");
-  expect(rendered.html).toContain("열람: 공개 댓글 · 확인: 2026-09-08T00:45:00.000Z");
+  expect(rendered.html).toContain("출처: <a");
+  expect(rendered.html).toContain(">YouTube 공식 영상·댓글 2건</a>");
+  expect(rendered.html.match(/<a /g)).toHaveLength(1);
+  expect(rendered.html).toContain("확인: 2026-09-08T00:45:00.000Z");
+  expect(rendered.html).not.toContain("<ul>");
+  expect(rendered.html).not.toContain("<li>");
   expect(rendered.html).not.toContain("API 영상 제목");
 });
 
@@ -404,7 +486,8 @@ it("인용은 서버가 정한 출처·열람 유형과 근거 확인 시각을 
 
   const first = renderDraft(draft, [source]);
   const second = renderDraft(draft, [source]);
-  expect(first.html).toContain(">디시인사이드</a> · 열람: 게시글 본문 · 확인: 2026-09-08T00:45:00.000Z");
+  expect(first.html).toContain("출처: <a");
+  expect(first.html).toContain(">디시인사이드</a> · 확인: 2026-09-08T00:45:00.000Z");
   expect(first.html).not.toContain("onerror");
   expect(first.hash).toBe(second.hash);
   expect(first.hash).toHaveLength(64);

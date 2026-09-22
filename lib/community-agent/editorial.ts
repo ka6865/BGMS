@@ -11,7 +11,15 @@ const MAX_PARAGRAPHS = 8;
 const MAX_PARAGRAPH_LENGTH = 500;
 const MAX_QUESTION_LENGTH = 200;
 const MAX_EVIDENCE_IDS = 10;
+const MAX_SELECTION_EVIDENCE_PER_SOURCE = 10;
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+const SOURCE_ORDER: Evidence["source"][] = ["official", "dc", "naver", "youtube"];
+const TOPIC_STOP_TOKENS = new Set([
+  "배틀그라운드", "배그", "pubg", "영상", "댓글", "공식", "관련", "이번", "최근", "문제", "의견", "반응", "질문", "게임",
+]);
+const TOPIC_KEYWORDS = [
+  "방플", "핵", "해킹", "매칭", "패치", "스킨", "콜라보", "주술회전", "킬내기", "베트남", "서버", "프리셋", "에란겔",
+];
 
 export type JsonModel = (input: {
   instruction: string;
@@ -143,11 +151,47 @@ function similarity(left: string, right: string): number {
   return shared / new Set([...leftTokens, ...rightTokens]).size;
 }
 
+function crossSourceSimilarity(left: string, right: string): boolean {
+  const topicTokens = (value: string) => {
+    const normalized = value.normalize("NFKC").toLowerCase();
+    return new Set([
+      ...[...tokens(normalized)].filter((token) => token.length >= 2 && !TOPIC_STOP_TOKENS.has(token)),
+      ...TOPIC_KEYWORDS.filter((keyword) => normalized.includes(keyword)),
+    ]);
+  };
+  const leftTokens = topicTokens(left);
+  const rightTokens = topicTokens(right);
+  if (leftTokens.size === 0 || rightTokens.size === 0) return false;
+  const shared = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+  return shared >= 2;
+}
+
+/** Keep the model input bounded and prevent a high-volume source from dominating it. */
+export function balanceSelectionEvidence(evidence: Evidence[]): Evidence[] {
+  const buckets = new Map(SOURCE_ORDER.map((source) => [source, evidence
+    .filter((item) => item.source === source)
+    .sort((left, right) => {
+      if (left.official !== right.official) return left.official ? -1 : 1;
+      const time = Date.parse(right.publishedAt ?? "") - Date.parse(left.publishedAt ?? "");
+      return Number.isFinite(time) && time !== 0 ? time : left.id.localeCompare(right.id);
+    })
+    .slice(0, MAX_SELECTION_EVIDENCE_PER_SOURCE)]));
+  const balanced: Evidence[] = [];
+  for (let index = 0; index < MAX_SELECTION_EVIDENCE_PER_SOURCE; index += 1) {
+    for (const source of SOURCE_ORDER) {
+      const item = buckets.get(source)?.[index];
+      if (item) balanced.push(item);
+    }
+  }
+  return balanced;
+}
+
 function groupEvidence(evidence: Evidence[]): Array<{ evidenceIds: string[]; sourceCount: number; evidence: ModelEvidence[] }> {
   const groups: Array<{ evidenceIds: string[]; sourceCount: number; evidence: ModelEvidence[]; text: string }> = [];
   for (const item of evidence) {
     const text = `${item.title} ${item.excerpt ?? ""}`;
-    const group = groups.find((candidate) => similarity(candidate.text, text) >= 0.85);
+    const group = groups.find((candidate) => similarity(candidate.text, text) >= 0.85
+      || (candidate.evidence[0]?.source !== item.source && crossSourceSimilarity(candidate.text, text)));
     if (group) {
       group.evidenceIds.push(item.id);
       group.evidence.push(modelEvidence(item));
@@ -331,24 +375,28 @@ export async function selectTopic(
   now: Date = new Date(),
 ): Promise<Topic | null> {
   if (evidence.length === 0) return null;
-  const instruction = `${BASE_INSTRUCTION}\n주제만 선택하세요. 유사한 자료는 하나의 후보이며 각 evidenceIds는 원문 링크를 서버에서 보존합니다. 한 자료 기반 의견은 단일 출처임을 제목 또는 이유에 분명히 쓰고, 민심 백분율을 만들지 마세요. JSON 객체 또는 null만 반환하세요. 객체 스키마: kind는 \"news\"|\"tip\"|\"question\" 중 하나, title과 topicKey는 1~120자 문자열, evidenceIds는 data.evidence에 존재하는 서로 다른 id 문자열 1~10개, reason은 1~500자 문자열, officialUpdate는 boolean입니다.`;
+  const balanced = balanceSelectionEvidence(evidence);
+  const instruction = `${BASE_INSTRUCTION}\n주제만 선택하세요. 서로 다른 출처에서 같은 사건, 불만, 질문, 팁을 다루면 하나의 후보 주제로 묶고 관련 evidenceIds를 함께 선택하세요. data.candidateGroups에 sourceCount가 2 이상인 후보가 있으면 그 후보를 먼저 검토하세요. 출처 수를 맞추려고 관련 없는 자료를 섞지 마세요. 이용자 여론 주제는 가능한 경우 서로 다른 source 2개 이상을 우선하세요. 유사한 자료는 하나의 후보이며 각 evidenceIds는 원문 링크를 서버에서 보존합니다. 한 자료 기반 의견은 단일 출처임을 제목 또는 이유에 분명히 쓰고, 민심 백분율을 만들지 마세요. JSON 객체 또는 null만 반환하세요. 객체 스키마: kind는 \"news\"|\"tip\"|\"question\" 중 하나, title과 topicKey는 1~120자 문자열, evidenceIds는 data.evidence에 존재하는 서로 다른 id 문자열 1~10개, reason은 1~500자 문자열, officialUpdate는 boolean입니다.`;
   let response: unknown;
   try {
     response = await model({
       instruction,
       data: {
-        evidence: evidence.map(modelEvidence),
-        candidateGroups: groupEvidence(evidence),
+        evidence: balanced.map(modelEvidence),
+        candidateGroups: groupEvidence(balanced),
         recent: recent.map((item) => ({ title: item.title, topicKey: item.topicKey, createdAt: item.createdAt })),
       },
     });
   } catch (error) {
     throw normalizeModelError(error);
   }
-  const topic = parseTopic(response, evidence);
-  if (topic === null || recentDuplicate(topic, recent, evidence, now)) return null;
+  const topic = parseTopic(response, balanced);
+  if (topic === null || recentDuplicate(topic, recent, balanced, now)) return null;
+  const availableSources = new Set(balanced.map((item) => item.source));
+  const selectedSources = new Set(topic.evidenceIds.map((id) => balanced.find((item) => item.id === id)?.source));
+  if (availableSources.size >= 2 && selectedSources.size < 2) return null;
   if (topic.officialUpdate && !topic.evidenceIds.some((id) => {
-    const item = evidence.find((source) => source.id === id);
+    const item = balanced.find((source) => source.id === id);
     return item ? isVerifiedOfficialFactEvidence(item) : false;
   })) return null;
   return topic;
@@ -358,7 +406,7 @@ export async function selectTopic(
 export async function writeDraft(topic: Topic, evidence: Evidence[], model: JsonModel): Promise<Draft> {
   const selected = evidence.filter((item) => topic.evidenceIds.includes(item.id));
   if (selected.length !== topic.evidenceIds.length) throw invalidResponse();
-  const instruction = `${BASE_INSTRUCTION}\n선택된 주제와 근거만 사용해 약 600~1,200자의 글을 작성하세요. HTML, URL, 이미지, iframe, BGMS 내부 경로, 홍보 링크를 만들지 마세요. 공식 사실은 official_fact, 관찰한 개별 의견은 observed_opinion, 제안은 suggestion으로 나누세요. 수치가 포함된 게임 변경은 공식 근거가 있을 때만 단정하세요. observed_opinion이 근거 한 개만 인용하면 본문에 \"한 자료\", \"단일 출처\", \"개별 질문\", \"개별 의견\", \"개별 반응\" 중 맞는 표현으로 범위를 밝히세요. 반환 JSON은 {\"title\":\"제목\",\"paragraphs\":[{\"text\":\"본문\",\"kind\":\"official_fact\",\"evidenceIds\":[\"evidence-id\"],\"recentWindow\":\"24h\"}],\"question\":\"마무리 질문\"} 구조의 객체만 허용합니다. question은 paragraph 객체 안이 아니라 title과 paragraphs와 같은 최상위 필수 필드입니다. title은 1~120자 문자열, paragraphs는 1~8개 배열, 각 paragraph의 text는 1~500자 문자열, kind는 \"official_fact\"|\"observed_opinion\"|\"suggestion\", evidenceIds는 선택된 data.evidence의 서로 다른 id 문자열 0~10개, recentWindow는 \"24h\"|\"7d\"|null, question은 1~200자 문자열입니다. official_fact와 observed_opinion에는 evidenceIds가 최소 1개 필요합니다.`;
+  const instruction = `${BASE_INSTRUCTION}\n선택된 주제와 근거만 사용해 약 600~1,200자의 글을 작성하세요. 선택 근거에 서로 다른 출처가 있으면 본문에도 서로 다른 출처의 근거를 모두 인용하고, 같은 내용의 반응은 한 문단으로 묶으세요. HTML, URL, 이미지, iframe, BGMS 내부 경로, 홍보 링크를 만들지 마세요. 공식 사실은 official_fact, 관찰한 개별 의견은 observed_opinion, 제안은 suggestion으로 나누세요. 수치가 포함된 게임 변경은 공식 근거가 있을 때만 단정하세요. observed_opinion이 근거 한 개만 인용하면 본문에 \"한 자료\", \"단일 출처\", \"개별 질문\", \"개별 의견\", \"개별 반응\" 중 맞는 표현으로 범위를 밝히세요. 반환 JSON은 {\"title\":\"제목\",\"paragraphs\":[{\"text\":\"본문\",\"kind\":\"official_fact\",\"evidenceIds\":[\"evidence-id\"],\"recentWindow\":\"24h\"}],\"question\":\"마무리 질문\"} 구조의 객체만 허용합니다. question은 paragraph 객체 안이 아니라 title과 paragraphs와 같은 최상위 필수 필드입니다. title은 1~120자 문자열, paragraphs는 1~8개 배열, 각 paragraph의 text는 1~500자 문자열, kind는 \"official_fact\"|\"observed_opinion\"|\"suggestion\", evidenceIds는 선택된 data.evidence의 서로 다른 id 문자열 0~10개, recentWindow는 \"24h\"|\"7d\"|null, question은 1~200자 문자열입니다. official_fact와 observed_opinion에는 evidenceIds가 최소 1개 필요합니다.`;
   let response: unknown;
   try {
     response = await model({
@@ -375,7 +423,12 @@ export async function writeDraft(topic: Topic, evidence: Evidence[], model: Json
   } catch (error) {
     throw normalizeModelError(error);
   }
-  return parseDraft(response, selected);
+  const draft = parseDraft(response, selected);
+  const selectedSources = new Set(selected.map((item) => item.source));
+  const citedIds = new Set(draft.paragraphs.flatMap((paragraph) => paragraph.evidenceIds));
+  const citedSources = new Set(selected.filter((item) => citedIds.has(item.id)).map((item) => item.source));
+  if (selectedSources.size >= 2 && citedSources.size < 2) throw invalidResponse();
+  return draft;
 }
 
 /** Ask the model for an independent semantic check after the deterministic validator passes. */

@@ -41,18 +41,18 @@ vi.mock("@google/generative-ai", () => ({
           let output: unknown;
           if (Array.isArray(data.candidateGroups)) {
             const evidence = data.evidence as Array<Record<string, unknown>>;
-            const selected = evidence.find((item) => item.source === "dc") ?? evidence[0];
+            const selected = evidence.filter((item) => ["dc", "naver", "youtube"].includes(String(item.source)));
             output = {
               kind: "question", title: "패치 뒤 매칭 질문 살펴보기", topicKey: "matching-question",
-              evidenceIds: [selected.id], reason: "본문을 확인한 개별 질문입니다.", officialUpdate: false,
+              evidenceIds: selected.map((item) => item.id), reason: "여러 출처에서 같은 질문을 확인했습니다.", officialUpdate: false,
             };
           } else if (data.topic) {
             const evidence = data.evidence as Array<Record<string, unknown>>;
             output = {
               title: "패치 뒤 매칭 질문 살펴보기",
               paragraphs: [{
-                text: "한 자료에서 패치 이후 매칭에 관한 질문을 확인했습니다.",
-                kind: "observed_opinion", evidenceIds: [evidence[0].id], recentWindow: "24h",
+                text: "여러 출처에서 패치 이후 매칭에 관한 비슷한 질문을 확인했습니다.",
+                kind: "observed_opinion", evidenceIds: evidence.map((item) => item.id), recentWindow: "24h",
               }],
               question: "여러분은 비슷한 상황을 겪으셨나요?",
             };

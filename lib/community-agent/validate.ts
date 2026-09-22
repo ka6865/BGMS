@@ -95,16 +95,39 @@ function citationLabel(source: Evidence): string {
   return source.access === "comment" ? "YouTube 공개 댓글" : "YouTube 공식 영상";
 }
 
-function citationAccessLabel(source: Evidence): string {
-  if (source.access === "body") return source.source === "official" ? "공식 본문" : "게시글 본문";
-  if (source.access === "snippet") return "검색 요약";
-  if (source.access === "description") return "영상 설명";
-  return "공개 댓글";
-}
-
 function citationCheckedAt(source: Evidence): string {
   const timestamp = Date.parse(source.fetchedAt);
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : "확인 시각 미확인";
+}
+
+type CitationGroup = { key: string; sources: Evidence[] };
+
+function citationKey(source: Evidence): string {
+  if (source.source !== "youtube") return source.url;
+  const url = new URL(source.url);
+  return `youtube:${url.searchParams.get("v") ?? source.url}`;
+}
+
+function citationGroups(sources: Evidence[]): CitationGroup[] {
+  const groups = new Map<string, CitationGroup>();
+  for (const source of sources) {
+    const key = citationKey(source);
+    const group = groups.get(key);
+    if (group) group.sources.push(source);
+    else groups.set(key, { key, sources: [source] });
+  }
+  return [...groups.values()];
+}
+
+function citationGroupLabel(group: CitationGroup): string {
+  const [first] = group.sources;
+  if (!first || first.source !== "youtube" || group.sources.length === 1) {
+    return first ? citationLabel(first) : "출처";
+  }
+  const hasDescription = group.sources.some((source) => source.access === "description");
+  const hasComment = group.sources.some((source) => source.access === "comment");
+  const kind = hasDescription && hasComment ? "YouTube 공식 영상·댓글" : hasComment ? "YouTube 공개 댓글" : "YouTube 공식 영상";
+  return `${kind} ${group.sources.length}건`;
 }
 
 /** Check structure and evidence rules before a generated draft can be published. */
@@ -162,12 +185,19 @@ export function renderDraft(draft: Draft, evidence: Evidence[]): { title: string
   const paragraphs = draft.paragraphs.map((paragraph) => `<p>${escape(paragraph.text)}</p>`).join("");
   const evidenceById = new Map(evidence.map((item) => [item.id, item]));
   const ids = unique(draft.paragraphs.flatMap((paragraph) => paragraph.evidenceIds));
-  const links = ids.map((id) => {
+  const sources = ids.map((id) => {
     const source = evidenceById.get(id);
     if (!source) throw new Error("unknown_evidence");
     if (!isAllowedEvidenceUrl(source)) throw new Error("unsafe_evidence_url");
-    return `<li><a href="${escape(source.url)}" target="_blank" rel="noopener noreferrer">${escape(citationLabel(source))}</a> · 열람: ${escape(citationAccessLabel(source))} · 확인: ${escape(citationCheckedAt(source))}</li>`;
-  }).join("");
-  const html = sanitizeBoardHtml(`${paragraphs}<p>${escape(draft.question)}</p><p>BGMS AI 비서가 확인한 자료를 바탕으로 작성했습니다.</p><ul>${links}</ul>`);
+    return source;
+  });
+  const links = citationGroups(sources).map((group) => {
+    const source = group.sources.find((item) => item.access === "description") ?? group.sources[0];
+    if (!source) throw new Error("unknown_evidence");
+    return `<a href="${escape(source.url)}" target="_blank" rel="noopener noreferrer">${escape(citationGroupLabel(group))}</a>`;
+  }).join(" · ");
+  const checkedAt = sources.map(citationCheckedAt).sort().at(-1) ?? "확인 시각 미확인";
+  const sourceLine = links ? `<p>출처: ${links} · 확인: ${escape(checkedAt)}</p>` : "";
+  const html = sanitizeBoardHtml(`${paragraphs}<p>${escape(draft.question)}</p><p>BGMS AI 비서가 확인한 자료를 바탕으로 작성했습니다.</p>${sourceLine}`);
   return { title: draft.title, html, hash: createHash("sha256").update(`${draft.title}\n${html}`).digest("hex") };
 }
