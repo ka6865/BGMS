@@ -72,6 +72,8 @@ describe("게시판 DB 쓰기 권한 경계", () => {
   });
 
   it("승격 전 댓글 RPC와 AI 답글 승인은 service role에만 열고 draft를 명시적으로 허용한다", () => {
+    expect(draftCommentMigration).toContain('drop policy if exists "누구나 댓글 조회 가능" on public.comments');
+    expect(draftCommentMigration).toMatch(/create policy "발행 글 댓글 또는 비공개 초안 관계자만 조회" on public\.comments[\s\S]*posts\.status = 'published'[\s\S]*posts\.user_id = \(select auth\.uid\(\)\)[\s\S]*profiles\.role = 'admin'/i);
     expect(draftCommentMigration).toMatch(/posts\.status in \('published', 'draft'\)/i);
     expect(draftCommentMigration).toMatch(/ps\.status in \('published','draft'\)/i);
     expect(draftCommentMigration).toContain("ps.status not in ('published','draft')");
