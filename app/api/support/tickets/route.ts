@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isUuid } from "@/lib/board/imageStorageContract";
 import { SUPPORT_LIMITS } from "@/lib/support/contracts";
+import { notifySupportTicketCreated } from "@/lib/support/discordNotification.server";
 import { resolveSupportPlayerTarget, SupportPlayerLookupError } from "@/lib/support/playerTarget.server";
 import { createSupportTicket, listSupportTicketsForUser, SupportStoreError } from "@/lib/support/ticketStore.server";
 import { parseSupportCreateTicketInput } from "@/lib/support/validation";
@@ -60,6 +61,7 @@ export async function POST(request: Request) {
       targetResolvedNickname: target?.canonicalNickname ?? null,
       attachmentIds: parsed.value.attachmentIds,
     });
+    await notifySupportTicketCreated(ticket);
     return privateJson({ ticket }, 201);
   } catch (error) {
     if (error instanceof SupportStoreError || isStoreError(error)) {

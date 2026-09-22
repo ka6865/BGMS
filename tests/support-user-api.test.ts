@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   listTickets: vi.fn(),
   getTicket: vi.fn(),
   appendMessage: vi.fn(),
+  notifyTicket: vi.fn(),
 }));
 
 vi.mock("@/utils/supabase/guard", () => ({ withAuthGuard: mocks.auth }));
@@ -25,6 +26,7 @@ vi.mock("@/lib/support/playerTarget.server", () => ({
     }
   },
 }));
+vi.mock("@/lib/support/discordNotification.server", () => ({ notifySupportTicketCreated: mocks.notifyTicket }));
 vi.mock("@/lib/support/ticketStore.server", () => ({
   createSupportTicket: mocks.createTicket,
   listSupportTicketsForUser: mocks.listTickets,
@@ -169,6 +171,22 @@ describe("support user APIs", () => {
       canonicalNickname: "Player",
       accountId: "account.player",
     } });
+  });
+
+  it("sends a Discord alert only after the ticket has been created", async () => {
+    const countQuery = queryResult({ data: null, count: 0, error: null });
+    mocks.from.mockReturnValue(countQuery);
+    mocks.notifyTicket.mockResolvedValue(undefined);
+
+    const response = await ticketsPOST(request("/api/support/tickets", {
+      category: "account",
+      subject: "문의",
+      body: "본문",
+    }));
+
+    expect(response.status).toBe(201);
+    expect(mocks.createTicket).toHaveBeenCalled();
+    expect(mocks.notifyTicket).toHaveBeenCalledWith(expect.objectContaining({ id: ticketId, category: "account" }));
   });
 
   it("hides another user's detail and posts user replies through the store", async () => {
