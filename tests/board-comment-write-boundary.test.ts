@@ -47,6 +47,10 @@ const commentMigration = readFileSync(
   "supabase/migrations/20260719000000_create_published_post_comment.sql",
   "utf8",
 );
+const draftCommentMigration = readFileSync(
+  "supabase/migrations/20260922222932_allow_admin_comments_on_community_drafts.sql",
+  "utf8",
+);
 
 describe("게시판 DB 쓰기 권한 경계", () => {
   it("posts와 comments의 공개 INSERT·UPDATE policy와 권한을 제거한다", () => {
@@ -66,10 +70,22 @@ describe("게시판 DB 쓰기 권한 경계", () => {
     );
     expect(commentMigration).toMatch(/GRANT INSERT ON TABLE public\.notifications TO service_role/i);
   });
+
+  it("승격 전 댓글 RPC와 AI 답글 승인은 service role에만 열고 draft를 명시적으로 허용한다", () => {
+    expect(draftCommentMigration).toMatch(/posts\.status in \('published', 'draft'\)/i);
+    expect(draftCommentMigration).toMatch(/ps\.status in \('published','draft'\)/i);
+    expect(draftCommentMigration).toContain("ps.status not in ('published','draft')");
+    expect(draftCommentMigration).toMatch(
+      /revoke all on function public\.create_reviewable_post_comment\([^)]+\)\s+from public,anon,authenticated/i,
+    );
+    expect(draftCommentMigration).toMatch(
+      /grant execute on function public\.create_reviewable_post_comment\([^)]+\)\s+to service_role/i,
+    );
+  });
 });
 
 type AdminOptions = {
-  profile?: { nickname: string | null } | null;
+  profile?: { nickname: string | null; role?: string | null } | null;
   profileError?: unknown;
   parent?: {
     id: number;
@@ -89,7 +105,7 @@ type AdminOptions = {
 
 function createAdmin(options: AdminOptions = {}) {
   const profileSingle = vi.fn(async () => ({
-    data: options.profile === undefined ? { nickname: "서버닉네임" } : options.profile,
+    data: options.profile === undefined ? { nickname: "서버닉네임", role: "user" } : options.profile,
     error: options.profileError ?? null,
   }));
   const parentSingle = vi.fn(async () => ({
@@ -313,6 +329,40 @@ describe("댓글 Turnstile 저장 경계", () => {
     expect(await response.json()).toEqual({ error: "게시글을 찾을 수 없습니다." });
     expect(mocks.hash).not.toHaveBeenCalled();
     expect(admin.rpc).not.toHaveBeenCalled();
+  });
+
+  it("일반 회원은 승격 전 초안에 댓글을 작성할 수 없다", async () => {
+    const admin = createAdmin({
+      post: { user_id: "bot-user", title: "승인 대기 초안", status: "draft" },
+      profile: { nickname: "일반회원", role: "user" },
+    });
+    mocks.withOptionalAuth.mockResolvedValue({ user: { id: "member-a" }, supabaseAdmin: admin.supabaseAdmin });
+
+    const response = await commentsPOST(makeCommentRequest({
+      author: null, password: null, turnstileToken: null,
+    }));
+
+    expect(response.status).toBe(404);
+    expect(admin.rpc).not.toHaveBeenCalled();
+  });
+
+  it("관리자는 승격 전 초안에 테스트 댓글을 작성할 수 있다", async () => {
+    const admin = createAdmin({
+      post: { user_id: "bot-user", title: "승인 대기 초안", status: "draft" },
+      profile: { nickname: "관리자", role: "admin" },
+    });
+    mocks.withOptionalAuth.mockResolvedValue({ user: { id: "admin-user" }, supabaseAdmin: admin.supabaseAdmin });
+
+    const response = await commentsPOST(makeCommentRequest({
+      author: null, password: null, turnstileToken: null,
+    }));
+
+    expect(response.status).toBe(200);
+    expect(admin.rpc).toHaveBeenCalledWith("create_reviewable_post_comment", expect.objectContaining({
+      p_post_id: 7,
+      p_user_id: "admin-user",
+      p_author: "관리자",
+    }));
   });
 
   it("게시글 조회 장애는 원본 오류를 노출하지 않고 저장 전에 503으로 fail-closed 처리한다", async () => {

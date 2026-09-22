@@ -18,8 +18,10 @@ type PostTarget = {
   id: number;
   user_id: string | null;
   title: string;
-  status: "published";
+  status: "published" | "draft";
 };
+
+type UserProfile = { nickname: string | null; role: string | null };
 
 type CommentBody = {
   post_id: number;
@@ -122,6 +124,7 @@ export async function POST(request: Request) {
 
     const { user, supabaseAdmin } = auth;
     const clientIp = extractClientIp(request);
+    let userProfile: UserProfile | null = null;
 
     if (!user) {
       const author = body.author?.trim() ?? "";
@@ -172,9 +175,20 @@ export async function POST(request: Request) {
       || !isPositiveSafeInteger(post.id)
       || typeof post.title !== "string"
       || (post.user_id !== null && typeof post.user_id !== "string")
-      || post.status !== "published"
+      || (post.status !== "published" && post.status !== "draft")
     ) {
       return jsonError("게시글을 찾을 수 없습니다.", 404);
+    }
+    if (post.status === "draft") {
+      if (!user) return jsonError("게시글을 찾을 수 없습니다.", 404);
+      const { data: profile, error: profileError } = await supabaseAdmin
+        .from("profiles")
+        .select("nickname,role")
+        .eq("id", user.id)
+        .single();
+      if (profileError) return jsonError("댓글 작성자를 확인하지 못했습니다.", 500);
+      userProfile = profile as UserProfile | null;
+      if (userProfile?.role !== "admin") return jsonError("게시글을 찾을 수 없습니다.", 404);
     }
     const postTarget: PostTarget = post;
 
@@ -216,16 +230,17 @@ export async function POST(request: Request) {
       if (checkProfanity(body.content).blocked) {
         return jsonError("부적절한 표현이 포함되어 있습니다. 내용을 수정해주세요.", 400);
       }
-      const { data: profile, error: profileError } = await supabaseAdmin
-        .from("profiles")
-        .select("nickname")
-        .eq("id", user.id)
-        .single();
-      if (profileError) {
-        return jsonError("댓글 작성자를 확인하지 못했습니다.", 500);
+      if (!userProfile) {
+        const { data: profile, error: profileError } = await supabaseAdmin
+          .from("profiles")
+          .select("nickname,role")
+          .eq("id", user.id)
+          .single();
+        if (profileError) return jsonError("댓글 작성자를 확인하지 못했습니다.", 500);
+        userProfile = profile as UserProfile | null;
       }
-      author = typeof profile?.nickname === "string" && profile.nickname.trim()
-        ? profile.nickname.trim()
+      author = typeof userProfile?.nickname === "string" && userProfile.nickname.trim()
+        ? userProfile.nickname.trim()
         : "익명";
       if (parentTarget) {
         const replyPrefix = `@${parentTarget.author.trim()} `;
@@ -248,7 +263,10 @@ export async function POST(request: Request) {
       ipAddress = clientIp;
     }
 
-    const { data, error } = await supabaseAdmin.rpc("create_published_post_comment", {
+    const commentFunction = post.status === "draft"
+      ? "create_reviewable_post_comment"
+      : "create_published_post_comment";
+    const { data, error } = await supabaseAdmin.rpc(commentFunction, {
       p_post_id: body.post_id,
       p_user_id: user?.id ?? null,
       p_author: author,
