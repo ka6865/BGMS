@@ -103,7 +103,7 @@ export default function GlobalMobileMenu({ isOpen, setIsOpen, activeMapId, isAdm
                       {visibleUser ? "마이페이지" : "로그인하기"}
                     </button>
                     {visibleUser && (
-                      <button 
+                      <button
                         onClick={handleLogout}
                         className="px-4 bg-[#222] text-[#888] py-3 rounded-xl font-bold text-sm border border-[#333] flex items-center justify-center gap-2 active:bg-[#2a2a2a]"
                       >
@@ -241,6 +241,16 @@ export default function GlobalMobileMenu({ isOpen, setIsOpen, activeMapId, isAdm
                           <Bot size={20} className="text-amber-500" />
                         </div>
                         <span className="text-white font-bold text-xs">AI 비서</span>
+                      </button>
+
+                      <button
+                        onClick={() => { router.push('/admin/support'); setIsOpen(false); }}
+                        className="bg-[#1a1a1a] p-3.5 rounded-2xl border border-red-900/30 flex flex-col gap-2.5 items-center text-center active:bg-[#222] transition-colors"
+                      >
+                        <div className="p-2 bg-violet-500/10 rounded-xl">
+                          <MessageSquare size={20} className="text-violet-400" />
+                        </div>
+                        <span className="text-white font-bold text-xs">고객센터 관리</span>
                       </button>
                     </div>
                   </div>
