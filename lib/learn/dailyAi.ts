@@ -35,6 +35,24 @@ export function validateDailyAiStory(value: unknown, evidence: DailyEvidence): D
     };
   });
   parsedPoints.sort((a, b) => a.firstSeconds - b.firstSeconds);
+  const finishSeconds = evidence.teamKillEvents.at(-1)?.timeSeconds ?? evidence.killEvents.at(-1)?.timeSeconds;
+  if (finishSeconds !== undefined) {
+    const finishFacts = evidence.facts.filter((fact) => (fact.kind === "kill" || fact.kind === "teammate_kill")
+      && Math.abs(fact.timeSeconds - finishSeconds) <= 1).slice(-2);
+    if (finishFacts.length && !parsedPoints.some((point) => finishFacts.some((fact) => point.evidenceIds.includes(fact.id)))) {
+      const throwable = evidence.facts.filter((fact) => fact.kind === "throwable"
+        && fact.timeSeconds >= finishSeconds - 12 && fact.timeSeconds <= finishSeconds).at(-1);
+      const selected = [...(throwable ? [throwable] : []), ...finishFacts];
+      const finishPoint = {
+        text: selected.map((fact) => `${timeLabel(fact.timeSeconds)} ${fact.text}`).join(" · "),
+        evidenceIds: selected.map((fact) => fact.id),
+        firstSeconds: selected[0].timeSeconds,
+      };
+      if (parsedPoints.length === 5) parsedPoints.pop();
+      parsedPoints.push(finishPoint);
+      parsedPoints.sort((a, b) => a.firstSeconds - b.firstSeconds);
+    }
+  }
   const lastKill = evidence.killEvents.at(-1);
   const lastTeamKills = evidence.teamKillEvents.filter((kill) => kill.timeSeconds >= (evidence.teamKillEvents.at(-1)?.timeSeconds ?? Infinity) - 5);
   const landing = evidence.facts.find((fact) => fact.id === "landing");

@@ -57,14 +57,16 @@ describe("daily ranker publication boundaries", () => {
       nickname: "Winner", mode: "squad", mapName: "미라마", leaderboardRank: 1,
       playedAt: "2026-09-22T15:05:00Z", kills: 1, damage: 100, teamKills: 2,
       facts: [{ id: "landing", timeSeconds: 60, kind: "landing", text: "Winner 착지" },
+        { id: "mid", timeSeconds: 100, kind: "fight", text: "교전 관측" },
         { id: "teammate-kill", timeSeconds: 200, kind: "teammate_kill", text: "Teammate 수류탄 처치" }],
       killEvents: [{ timeSeconds: 100, victim: "Opponent1", weapon: "M416" }],
       teamKillEvents: [{ timeSeconds: 100, killer: "Winner", victim: "Opponent1", weapon: "M416", attackId: 1 },
         { timeSeconds: 200, killer: "Teammate", victim: "Opponent2", weapon: "수류탄", attackId: -1 }],
       route: [], aircraft: [], zones: [], weapons: [{ name: "M416", kills: 1 }], limitations: [],
     };
-    const story = validateDailyAiStory({ points: [{ evidenceIds: ["landing"] }, { evidenceIds: ["teammate-kill"] }] }, evidence);
+    const story = validateDailyAiStory({ points: [{ evidenceIds: ["landing"] }, { evidenceIds: ["mid"] }] }, evidence);
     expect(story.conclusion).toContain("마지막 팀 처치는 03:20 Teammate의 수류탄");
     expect(story.conclusion).toContain("마지막 개인 처치는 01:40 M416");
+    expect(story.points.at(-1)?.evidenceIds).toContain("teammate-kill");
   });
 });

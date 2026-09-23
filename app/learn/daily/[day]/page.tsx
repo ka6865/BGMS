@@ -87,7 +87,7 @@ export default async function DailyRankerStoryPage({ params }: DailyPageProps) {
         <h2 id="conclusion-heading" className="mt-2 text-lg font-bold">기록으로 본 우승 과정</h2>
         <p className="mt-3 break-words text-sm leading-7 text-zinc-200">{story.conclusion}</p>
         <details className="mt-5 border-t border-emerald-400/20 pt-2">
-          <summary className="min-h-11 cursor-pointer text-sm font-semibold leading-11 text-emerald-200">AI가 고른 근거 장면 {story.points.length}건 펼치기</summary>
+          <summary className="min-h-11 cursor-pointer text-sm font-semibold leading-11 text-emerald-200">주요 근거 장면 {story.points.length}건 펼치기</summary>
           <ol className="mt-2 space-y-4">
             {story.points.map((point, index) => (
               <li key={`${index}-${point.text}`} className="min-w-0 border-t border-zinc-800/80 pt-4">
