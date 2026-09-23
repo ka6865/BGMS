@@ -62,6 +62,45 @@ describe.skipIf(!hasLocalFixture)("buildDailyEvidence against local PUBG fixture
 });
 
 describe("buildDailyEvidence required input", () => {
+  it("separates squad finish, linked throwable damage, revive and sampled movement", () => {
+    const target = "account.target";
+    const teammate = "account.teammate";
+    const opponent = "account.opponent";
+    const at = (seconds: number) => new Date(Date.parse("2026-09-22T15:00:00Z") + seconds * 1000).toISOString();
+    const character = (accountId: string, name: string, x = 250000, y = 140000) => ({ accountId, name, location: { x, y }, zone: ["lacobreria"] });
+    const match = { data: { id: "squad-1", attributes: { shardId: "steam", gameMode: "squad", matchType: "competitive",
+      isCustomMatch: false, createdAt: at(0), mapName: "Desert_Main" } }, included: [
+      { type: "participant", attributes: { stats: { playerId: target, name: "Target", winPlace: 1, kills: 0, damageDealt: 10 } } },
+      { type: "participant", attributes: { stats: { playerId: teammate, name: "Teammate", winPlace: 1, kills: 1, damageDealt: 110 } } },
+    ] };
+    const events = [
+      { _T: "LogMatchDefinition", MatchId: "match.bro.competitive.steam.squad.squad-1", _D: at(0) },
+      { _T: "LogMatchStart", _D: at(0) },
+      { _T: "LogPlayerPosition", _D: at(10), character: character(target, "Target", 100000, 100000), vehicle: { vehicleId: "DummyTransportAircraft_C" } },
+      { _T: "LogParachuteLanding", _D: at(60), character: character(target, "Target") },
+      { _T: "LogParachuteLanding", _D: at(61), character: character(teammate, "Teammate", 251000) },
+      { _T: "LogPlayerPosition", _D: at(70), character: character(target, "Target") },
+      { _T: "LogPlayerPosition", _D: at(70), character: character(teammate, "Teammate", 251000) },
+      { _T: "LogPlayerMakeGroggy", _D: at(100), attacker: character(opponent, "Opponent"), victim: character(teammate, "Teammate") },
+      { _T: "LogPlayerRevive", _D: at(110), reviver: character(target, "Target"), victim: character(teammate, "Teammate") },
+      { _T: "LogPlayerUseThrowable", _D: at(200), attacker: character(teammate, "Teammate"), attackId: 42, weapon: { itemId: "Item_Weapon_Grenade_C" } },
+      { _T: "LogPlayerTakeDamage", _D: at(202), attacker: character(teammate, "Teammate"), victim: character(opponent, "Opponent"), attackId: 42, damage: 80 },
+      { _T: "LogPlayerKillV2", _D: at(208), killer: character(teammate, "Teammate"), victim: character(opponent, "Opponent"), killerDamageInfo: { damageCauserName: "ProjGrenade_C" }, attackId: -1 },
+      { _T: "LogPlayerPosition", _D: at(210), character: character(target, "Target", 300000, 200000) },
+      { _T: "LogPlayerPosition", _D: at(210), character: character(teammate, "Teammate", 301000, 200000) },
+    ];
+    const result = buildDailyEvidence({ match, events, candidate: { accountId: target, nickname: "Target", rank: 1 }, dayKst: "2026-09-23" });
+    expect(result.killEvents).toEqual([]);
+    expect(result.teamKillEvents).toEqual([{ timeSeconds: 208, killer: "Teammate", victim: "Opponent", weapon: "수류탄", attackId: -1 }]);
+    expect(result.aircraft).toHaveLength(1);
+    expect(result.route.length).toBeGreaterThanOrEqual(1);
+    expect(result.facts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "revive", text: expect.stringContaining("소생") }),
+      expect.objectContaining({ kind: "throwable", text: expect.stringContaining("attackId(42)") }),
+      expect.objectContaining({ kind: "teammate_kill", text: expect.stringContaining("수류탄") }),
+    ]));
+  });
+
   it("rejects a competitive match without the same leaderboard account", () => {
     const minimal = { data: { id: "match-1", attributes: {
       shardId: "steam", gameMode: "solo", matchType: "competitive", isCustomMatch: false,

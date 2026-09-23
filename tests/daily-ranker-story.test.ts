@@ -33,6 +33,8 @@ describe("daily ranker publication boundaries", () => {
       playedAt: "2026-09-22T15:05:00Z", kills: 1, damage: 100, teamKills: 1,
       facts: [{ id: "kill-1", timeSeconds: 42, kind: "kill", text: "M416 처치" }],
       killEvents: [{ timeSeconds: 42, victim: "Opponent", weapon: "M416" }],
+      teamKillEvents: [{ timeSeconds: 42, killer: "Winner", victim: "Opponent", weapon: "M416", attackId: null }],
+      route: [], aircraft: [],
       zones: [], weapons: [{ name: "M416", kills: 1 }], limitations: [],
     };
     const valid = {
@@ -47,5 +49,22 @@ describe("daily ranker publication boundaries", () => {
     ] }, evidence);
     expect(published.conclusion).not.toContain("노렸");
     expect(published.points[0].text).toBe("00:42 M416 처치");
+  });
+
+  it("names the squad's final credited weapon separately from the ranker's personal kill", () => {
+    const evidence: DailyEvidence = {
+      dayKst: "2026-09-23", matchId: "squad-1", accountId: candidate.accountId,
+      nickname: "Winner", mode: "squad", mapName: "미라마", leaderboardRank: 1,
+      playedAt: "2026-09-22T15:05:00Z", kills: 1, damage: 100, teamKills: 2,
+      facts: [{ id: "landing", timeSeconds: 60, kind: "landing", text: "Winner 착지" },
+        { id: "teammate-kill", timeSeconds: 200, kind: "teammate_kill", text: "Teammate 수류탄 처치" }],
+      killEvents: [{ timeSeconds: 100, victim: "Opponent1", weapon: "M416" }],
+      teamKillEvents: [{ timeSeconds: 100, killer: "Winner", victim: "Opponent1", weapon: "M416", attackId: 1 },
+        { timeSeconds: 200, killer: "Teammate", victim: "Opponent2", weapon: "수류탄", attackId: -1 }],
+      route: [], aircraft: [], zones: [], weapons: [{ name: "M416", kills: 1 }], limitations: [],
+    };
+    const story = validateDailyAiStory({ points: [{ evidenceIds: ["landing"] }, { evidenceIds: ["teammate-kill"] }] }, evidence);
+    expect(story.conclusion).toContain("마지막 팀 처치는 03:20 Teammate의 수류탄");
+    expect(story.conclusion).toContain("마지막 개인 처치는 01:40 M416");
   });
 });
