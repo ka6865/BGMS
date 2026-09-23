@@ -1,0 +1,131 @@
+{
+  "id": "2026-09-22-solo",
+  "title": "먼 첫 원을 넘어, 11킬 우승까지",
+  "mapId": "Miramar",
+  "mapName": "Desert_Main",
+  "replayMapName": "미라마",
+  "mapLabel": "미라마르",
+  "gameMode": "solo",
+  "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+  "nickname": "VIE_TanVuu284",
+  "rank": 16,
+  "rankObservedAt": "2026-09-23T00:51:44.044Z",
+  "playedAt": "2026-09-22T14:09:38Z",
+  "kills": 11,
+  "damage": 1323,
+  "teamKills": 11,
+  "durationSeconds": 1677,
+  "replayIdentity": {
+    "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+    "platform": "steam",
+    "playerKey": "7d5f91f0f3fca72955a749acc95e36e5",
+    "mode": "full",
+    "telemetryVersion": 62
+  },
+  "briefing": "첫 원 관측 직전 기록된 위치는 원 경계에서 약 1.3km 밖이었습니다. 차량에 오른 뒤 원 안에서 관측됐고, 이후 여러 처치 기록을 거쳐 마지막 상대를 수류탄으로 처치했습니다.",
+  "winSummary": {
+    "intro": "외곽에 착지해 첫 원 관측 당시 경계 밖에 있었고, 오토바이 탑승 후 원 안 위치가 관측됐습니다. 11킬을 기록했으며 마지막 상대는 수류탄으로 처치했습니다.",
+    "milestones": [
+      { "timeSeconds": 362.234, "text": "Kar98k로 첫 처치" },
+      { "timeSeconds": 502.418, "text": "07:18 오토바이 탑승 후 첫 원 안 위치 관측" },
+      { "timeSeconds": 944.543, "text": "15:44~16:25 M416·M24로 3킬" },
+      { "timeSeconds": 1157.258, "text": "18:42 다섯 번째 원 안 첫 위치 관측 후, 19:17~20:29 4킬" },
+      { "timeSeconds": 1390.231, "text": "23:10·23:47 링스 AMR로 2킬" },
+      { "timeSeconds": 1673.913, "text": "마지막 상대를 수류탄으로 처치, 1위" }
+    ],
+    "weapons": [
+      { "name": "M416", "kills": 4 },
+      { "name": "M24", "kills": 2 },
+      { "name": "링스 AMR", "kills": 2 },
+      { "name": "수류탄", "kills": 2 },
+      { "name": "Kar98k", "kills": 1 }
+    ],
+    "kills": [
+      { "timeSeconds": 362.234, "victim": "K-two2", "weapon": "Kar98k" },
+      { "timeSeconds": 944.543, "victim": "AlexTina", "weapon": "M416" },
+      { "timeSeconds": 959.197, "victim": "sysgoking", "weapon": "M24" },
+      { "timeSeconds": 985.141, "victim": "poim_1", "weapon": "M416" },
+      { "timeSeconds": 1157.258, "victim": "FluffyDemon", "weapon": "M416" },
+      { "timeSeconds": 1162.418, "victim": "Txxx6888", "weapon": "M24" },
+      { "timeSeconds": 1220.896, "victim": "Bruce_LYB", "weapon": "M416" },
+      { "timeSeconds": 1229.669, "victim": "LVG-Wum", "weapon": "수류탄" },
+      { "timeSeconds": 1390.231, "victim": "AST-HEAD", "weapon": "링스 AMR" },
+      { "timeSeconds": 1427.205, "victim": "HYUN32", "weapon": "링스 AMR" },
+      { "timeSeconds": 1673.913, "victim": "HXLANQ", "weapon": "수류탄" }
+    ]
+  },
+  "scenes": [
+    {
+      "id": "scene-1",
+      "title": "외곽에서 시작한 한 판",
+      "anchorSeconds": 77,
+      "startSeconds": 57,
+      "fact": "01:16 착지. 착지점은 원본 좌표 기준 (2,947m, 4,504m)이며 지명 필드는 비어 있습니다. 착지 전후 60초·500m 이내에서 상대 2명의 착지 기록을 확인했습니다.",
+      "limitation": "주변 적 수는 사후 관측 정보입니다. 실제로 적을 보고 착지점을 선택했는지는 알 수 없습니다.",
+      "mapSnapshot": { "path": [{ "x": 2947.2, "y": 4503.9 }], "viewSize": 2048, "playerLabel": "착지 지점" }
+    },
+    {
+      "id": "scene-2",
+      "title": "먼 첫 원, 차량으로 이어진 이동",
+      "anchorSeconds": 503,
+      "startSeconds": 483,
+      "fact": "01:40 첫 원 관측 직전 마지막 위치는 원 경계에서 약 1,264m 밖이었습니다. 07:18 오토바이 탑승, 08:22 원 안에서 첫 위치 관측. 첫 탑승부터 약 64초 뒤입니다.",
+      "limitation": "탑승 시각은 이동 시작과 다릅니다. 위치는 대체로 10초 간격이고, 이 경기의 자기장 피해 기록은 0 HP입니다.",
+      "mapSnapshot": { "path": [{ "x": 2954, "y": 4496 }, { "x": 2931, "y": 4522 }, { "x": 2963, "y": 4490 }, { "x": 2963, "y": 4488 }, { "x": 2813, "y": 4368 }, { "x": 3109, "y": 4224 }, { "x": 4246, "y": 5327 }], "zone": { "x": 4987, "y": 6941, "radius": 1921 }, "viewSize": 4096 }
+    },
+    {
+      "id": "scene-3",
+      "title": "약 59초의 피해 교환, 3킬",
+      "anchorSeconds": 986,
+      "startSeconds": 966,
+      "fact": "15:26~16:25 구간에서 대인 피해 약 280 HP, 받은 대인 피해 약 88 HP와 3킬이 기록됐습니다. 처치 무기는 M416 → M24 → M416 순서입니다.",
+      "limitation": "이 구간은 관련 피해·기절·처치 이벤트 간격 30초 이하로 묶었습니다. 서로 다른 상대와의 교전이 한 구간에 포함될 수 있습니다. 사격 이벤트는 발사 기록이며 조준 대상은 저장되지 않습니다. 마지막 1대1에서는 가장 이른 기록 사격과 피해 교환을 확인할 수 있지만, 사격 의도는 알 수 없습니다.",
+      "combatEvents": [
+        { "timeSeconds": 943.948, "kind": "damage", "actor": "VIE_TanVuu284", "target": "AlexTina", "weapon": "M416", "damage": 18 },
+        { "timeSeconds": 944.543, "kind": "kill", "actor": "VIE_TanVuu284", "target": "AlexTina", "weapon": "M416" },
+        { "timeSeconds": 959.127, "kind": "shot", "actor": "VIE_TanVuu284", "weapon": "M24", "target": "sysgoking" },
+        { "timeSeconds": 959.197, "kind": "kill", "actor": "VIE_TanVuu284", "target": "sysgoking", "weapon": "M24" },
+        { "timeSeconds": 982.582, "kind": "shot", "actor": "VIE_TanVuu284", "weapon": "M416", "note": "이 1대1 구간의 첫 기록 사격 · ID 117442178 피해 기록 없음" },
+        { "timeSeconds": 982.683, "kind": "shot", "actor": "VIE_TanVuu284", "weapon": "M416", "note": "ID 117442179 · 다음 피해와 연결" },
+        { "timeSeconds": 982.685, "kind": "damage", "actor": "VIE_TanVuu284", "target": "poim_1", "weapon": "M416", "damage": 17.1, "note": "attackId 일치 · 첫 확인 피해" },
+        { "timeSeconds": 982.931, "kind": "damage", "actor": "VIE_TanVuu284", "target": "poim_1", "weapon": "M416", "damage": 19.8, "note": "attackId가 사격 이벤트와 일치" },
+        { "timeSeconds": 984.676, "kind": "shot", "actor": "poim_1", "weapon": "AUG", "note": "상대의 첫 기록 사격 · ID 503317373 피해 기록 없음" },
+        { "timeSeconds": 984.726, "kind": "shot", "actor": "poim_1", "weapon": "AUG", "note": "ID 503317374 · 다음 피해와 연결" },
+        { "timeSeconds": 984.727, "kind": "received", "actor": "poim_1", "target": "VIE_TanVuu284", "weapon": "AUG", "damage": 24, "note": "attackId 일치 · 첫 확인 반격 피해" },
+        { "timeSeconds": 984.906, "kind": "received", "actor": "poim_1", "target": "VIE_TanVuu284", "weapon": "AUG", "damage": 24 },
+        { "timeSeconds": 984.974, "kind": "received", "actor": "poim_1", "target": "VIE_TanVuu284", "weapon": "AUG", "damage": 18 },
+        { "timeSeconds": 985.040, "kind": "damage", "actor": "VIE_TanVuu284", "target": "poim_1", "weapon": "M416", "damage": 19.8 },
+        { "timeSeconds": 985.073, "kind": "received", "actor": "poim_1", "target": "VIE_TanVuu284", "weapon": "AUG", "damage": 21.6 },
+        { "timeSeconds": 985.140, "kind": "damage", "actor": "VIE_TanVuu284", "target": "poim_1", "weapon": "M416", "damage": 44.3 },
+        { "timeSeconds": 985.141, "kind": "kill", "actor": "VIE_TanVuu284", "target": "poim_1", "weapon": "M416" }
+      ],
+      "mapSnapshot": { "path": [{ "x": 5448, "y": 6613 }, { "x": 5450, "y": 6615 }, { "x": 5477, "y": 6601 }, { "x": 5476, "y": 6603 }, { "x": 5479, "y": 6601 }, { "x": 5470, "y": 6602 }], "zone": { "x": 5325, "y": 6858, "radius": 380 }, "kills": [{ "x": 5479, "y": 6601 }, { "x": 5502, "y": 6550 }, { "x": 5474, "y": 6608 }], "marks": [{ "x": 5474, "y": 6609, "kind": "opponent", "label": "poim_1 위치 · AUG 사격 기록" }], "viewSize": 2048 }
+    },
+    {
+      "id": "scene-4",
+      "title": "다섯 번째 원에 다시 진입",
+      "anchorSeconds": 1123,
+      "startSeconds": 1103,
+      "fact": "17:40 다섯 번째 원 관측 당시 약 135m 밖. 17:51 차량 탑승 후 18:42 원 안에서 처음 관측됐습니다. 이후 19:17과 19:22에 두 차례 처치 기록이 있습니다.",
+      "limitation": "원 진입 다음에 처치가 일어난 순서는 확인됩니다. 해당 진입 위치가 처치를 만들었다는 인과관계는 확정하지 않습니다.",
+      "mapSnapshot": { "path": [{ "x": 5478, "y": 6607 }, { "x": 5473, "y": 6598 }, { "x": 5396, "y": 6601 }, { "x": 5302, "y": 6590 }, { "x": 5230, "y": 6638 }, { "x": 5254, "y": 6736 }, { "x": 5273, "y": 6741 }], "zone": { "x": 5352, "y": 6965, "radius": 247 }, "viewSize": 3072 }
+    },
+    {
+      "id": "scene-5",
+      "title": "마지막 처치는 수류탄",
+      "anchorSeconds": 1674,
+      "startSeconds": 1654,
+      "fact": "27:39·27:44·27:50에 수류탄을 던졌습니다. 원본 attackId 대조 결과, 27:44 투척(ID 480)이 40.9 HP 피해를, 27:50 투척(ID 482)이 70.1 HP 피해와 마지막 처치를 냈습니다. 매치 결과는 1위·11킬·약 1,323 대미지입니다.",
+      "limitation": "27:39 투척(ID 478)은 같은 attackId의 대인 피해 기록이 없습니다. 빗나감인지, 폭발 범위 밖이었는지 이유는 기록되지 않습니다. PUBG 텔레메트리에는 별도 폭발 이벤트가 없어 실제 폭발 중심점·비행 궤적·튕김 위치도 알 수 없습니다. 지도 재생의 폭발 표식은 투척 위치와 방향을 바탕으로 계산한 추정 위치입니다.",
+      "combatEvents": [
+        { "timeSeconds": 1659.253, "kind": "throw", "actor": "VIE_TanVuu284", "weapon": "수류탄", "note": "attackId 478 · 같은 ID의 대인 피해 기록 없음" },
+        { "timeSeconds": 1664.472, "kind": "throw", "actor": "VIE_TanVuu284", "weapon": "수류탄", "note": "attackId 480 · 아래 40.9 HP 피해와 연결 확인" },
+        { "timeSeconds": 1668.060, "kind": "damage", "actor": "VIE_TanVuu284", "target": "HXLANQ", "weapon": "수류탄", "damage": 40.9, "note": "attackId 480 일치" },
+        { "timeSeconds": 1670.522, "kind": "throw", "actor": "VIE_TanVuu284", "weapon": "수류탄", "note": "attackId 482 · 아래 70.1 HP 피해 및 처치와 연결 확인" },
+        { "timeSeconds": 1673.912, "kind": "damage", "actor": "VIE_TanVuu284", "target": "HXLANQ", "weapon": "수류탄", "damage": 70.1, "note": "attackId 482 일치" },
+        { "timeSeconds": 1673.913, "kind": "kill", "actor": "VIE_TanVuu284", "target": "HXLANQ", "weapon": "수류탄", "note": "kill 이벤트에서도 attackId 482 확인" }
+      ],
+      "mapSnapshot": { "path": [{ "x": 5409, "y": 6969 }, { "x": 5409, "y": 6969 }], "zone": { "x": 5408, "y": 7024, "radius": 68 }, "kills": [{ "x": 5443, "y": 7039 }], "marks": [{ "x": 5408.76, "y": 6968.92, "kind": "throw", "label": "수류탄 투척 · 27:39" }, { "x": 5409.03, "y": 6969.55, "kind": "throw", "label": "수류탄 투척 · 27:44 · 40.9 HP" }, { "x": 5408.89, "y": 6969.14, "kind": "throw", "label": "수류탄 투척 · 27:50 · 처치 연결" }], "viewSize": 2048 }
+    }
+  ]
+}

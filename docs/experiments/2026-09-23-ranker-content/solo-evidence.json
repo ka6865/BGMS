@@ -1,0 +1,2352 @@
+{
+  "meta": {
+    "label": "solo",
+    "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+    "match": {
+      "gameMode": "solo",
+      "titleId": "bluehole-pubg",
+      "isCustomMatch": false,
+      "createdAt": "2026-09-22T14:09:38Z",
+      "duration": 1677,
+      "stats": null,
+      "shardId": "steam",
+      "tags": null,
+      "mapName": "Desert_Main",
+      "matchType": "competitive",
+      "seasonState": "progress"
+    },
+    "player": {
+      "DBNOs": 0,
+      "assists": 0,
+      "boosts": 7,
+      "damageDealt": 1323.2235,
+      "deathType": "alive",
+      "headshotKills": 6,
+      "heals": 1,
+      "killPlace": 1,
+      "killStreaks": 2,
+      "kills": 11,
+      "longestKill": 329.53348,
+      "name": "VIE_TanVuu284",
+      "playerId": "account.b3cdfc9cc1f043d39523ff3af7fb5c62",
+      "revives": 0,
+      "rideDistance": 5166.334,
+      "roadKills": 0,
+      "swimDistance": 0,
+      "teamKills": 0,
+      "timeSurvived": 1677,
+      "vehicleDestroys": 1,
+      "walkDistance": 2901.4128,
+      "weaponsAcquired": 18,
+      "winPlace": 1
+    },
+    "leaderboard": {
+      "stats": {
+        "rankPoints": 4349,
+        "wins": 42,
+        "games": 115,
+        "winRatio": 0.3652174,
+        "averageDamage": 795,
+        "kills": 647,
+        "killDeathRatio": 0,
+        "kda": 0,
+        "averageRank": 7.2956524,
+        "averageKill": 5.626087,
+        "tier": "Survivor",
+        "subTier": "1"
+      },
+      "name": "VIE_TanVuu284",
+      "rank": 16
+    },
+    "roster": [
+      {
+        "DBNOs": 0,
+        "assists": 0,
+        "boosts": 7,
+        "damageDealt": 1323.2235,
+        "deathType": "alive",
+        "headshotKills": 6,
+        "heals": 1,
+        "killPlace": 1,
+        "killStreaks": 2,
+        "kills": 11,
+        "longestKill": 329.53348,
+        "name": "VIE_TanVuu284",
+        "playerId": "account.b3cdfc9cc1f043d39523ff3af7fb5c62",
+        "revives": 0,
+        "rideDistance": 5166.334,
+        "roadKills": 0,
+        "swimDistance": 0,
+        "teamKills": 0,
+        "timeSurvived": 1677,
+        "vehicleDestroys": 1,
+        "walkDistance": 2901.4128,
+        "weaponsAcquired": 18,
+        "winPlace": 1
+      }
+    ],
+    "fetchedAt": "2026-09-23T00:51:44.044Z"
+  },
+  "startAt": "2026-09-22T14:09:38.556Z",
+  "landing": {
+    "sourceIndex": 2136,
+    "type": "LogParachuteLanding",
+    "t": 76.757,
+    "at": "2026-09-22T14:10:55.313Z",
+    "location": {
+      "x": 2947.2221875,
+      "y": 4503.878125,
+      "z": 55.756591796875
+    },
+    "zone": [],
+    "nearbyOpponentLandings": [
+      {
+        "sourceIndex": 2049,
+        "type": "LogParachuteLanding",
+        "t": 73.427,
+        "at": "2026-09-22T14:10:51.983Z",
+        "name": "veimr68163",
+        "distanceMeters": 437.96673196221667
+      },
+      {
+        "sourceIndex": 2404,
+        "type": "LogParachuteLanding",
+        "t": 85.688,
+        "at": "2026-09-22T14:11:04.244Z",
+        "name": "K-two2",
+        "distanceMeters": 441.3871770120472
+      }
+    ]
+  },
+  "positionSamples": 168,
+  "positionGapMedian": 9.995999999999981,
+  "zones": [
+    {
+      "observation": {
+        "sourceIndex": 3001,
+        "type": "LogGameStatePeriodic",
+        "t": 100.663,
+        "at": "2026-09-22T14:11:19.219Z"
+      },
+      "center": {
+        "x": 4987.001875,
+        "y": 6940.75625
+      },
+      "radius": 1920.5971875,
+      "phase": 1,
+      "position": {
+        "x": 2963.759375,
+        "y": 4481.064375,
+        "z": 55.268798828125,
+        "ageSeconds": 8.24
+      },
+      "outsideMeters": 1264.3038052699903,
+      "firstInside": {
+        "sourceIndex": 14915,
+        "type": "LogPlayerPosition",
+        "t": 502.418,
+        "at": "2026-09-22T14:18:00.974Z"
+      },
+      "firstRide": {
+        "sourceIndex": 12666,
+        "type": "LogVehicleRide",
+        "t": 438.549,
+        "at": "2026-09-22T14:16:57.105Z"
+      }
+    },
+    {
+      "observation": {
+        "sourceIndex": 15599,
+        "type": "LogGameStatePeriodic",
+        "t": 520.64,
+        "at": "2026-09-22T14:18:19.196Z"
+      },
+      "center": {
+        "x": 5518.843125,
+        "y": 6531.87375
+      },
+      "radius": 1056.3284375,
+      "phase": 2,
+      "position": {
+        "x": 4575.25875,
+        "y": 5385.1975,
+        "z": 200.035390625,
+        "ageSeconds": 8.21
+      },
+      "outsideMeters": 428.6691702617777,
+      "firstInside": {
+        "sourceIndex": 16796,
+        "type": "LogPlayerPosition",
+        "t": 552.422,
+        "at": "2026-09-22T14:18:50.978Z"
+      },
+      "firstRide": null
+    },
+    {
+      "observation": {
+        "sourceIndex": 22429,
+        "type": "LogGameStatePeriodic",
+        "t": 700.624,
+        "at": "2026-09-22T14:21:19.180Z"
+      },
+      "center": {
+        "x": 5462.914375,
+        "y": 6810.470625
+      },
+      "radius": 633.7970703125,
+      "phase": 3,
+      "position": {
+        "x": 5537.381875,
+        "y": 6299.751875,
+        "z": 127.637099609375,
+        "ageSeconds": 8.19
+      },
+      "outsideMeters": 0,
+      "firstInside": {
+        "sourceIndex": 22473,
+        "type": "LogPlayerPosition",
+        "t": 702.433,
+        "at": "2026-09-22T14:21:20.989Z"
+      },
+      "firstRide": {
+        "sourceIndex": 22619,
+        "type": "LogVehicleRide",
+        "t": 706.113,
+        "at": "2026-09-22T14:21:24.669Z"
+      }
+    },
+    {
+      "observation": {
+        "sourceIndex": 28558,
+        "type": "LogGameStatePeriodic",
+        "t": 880.653,
+        "at": "2026-09-22T14:24:19.209Z"
+      },
+      "center": {
+        "x": 5325.47375,
+        "y": 6857.560625
+      },
+      "radius": 380.2782421875,
+      "phase": 4,
+      "position": {
+        "x": 5420.8125,
+        "y": 6607.255,
+        "z": 96.177802734375,
+        "ageSeconds": 8.21
+      },
+      "outsideMeters": 0,
+      "firstInside": {
+        "sourceIndex": 28647,
+        "type": "LogPlayerPosition",
+        "t": 882.444,
+        "at": "2026-09-22T14:24:21.000Z"
+      },
+      "firstRide": null
+    },
+    {
+      "observation": {
+        "sourceIndex": 31813,
+        "type": "LogGameStatePeriodic",
+        "t": 1060.639,
+        "at": "2026-09-22T14:27:19.195Z"
+      },
+      "center": {
+        "x": 5351.84125,
+        "y": 6964.863125
+      },
+      "radius": 247.18083984375,
+      "phase": 5,
+      "position": {
+        "x": 5467.69375,
+        "y": 6600.270625,
+        "z": 102.51830078125,
+        "ageSeconds": 8.21
+      },
+      "outsideMeters": 135.37568253235565,
+      "firstInside": {
+        "sourceIndex": 32700,
+        "type": "LogPlayerPosition",
+        "t": 1122.437,
+        "at": "2026-09-22T14:28:20.993Z"
+      },
+      "firstRide": {
+        "sourceIndex": 31902,
+        "type": "LogVehicleRide",
+        "t": 1071.137,
+        "at": "2026-09-22T14:27:29.693Z"
+      }
+    },
+    {
+      "observation": {
+        "sourceIndex": 33843,
+        "type": "LogGameStatePeriodic",
+        "t": 1230.619,
+        "at": "2026-09-22T14:30:09.175Z"
+      },
+      "center": {
+        "x": 5378.800625,
+        "y": 7016.168125
+      },
+      "radius": 160.6675390625,
+      "phase": 6,
+      "position": {
+        "x": 5292.385625,
+        "y": 6762.780625,
+        "z": 87.268798828125,
+        "ageSeconds": 8.21
+      },
+      "outsideMeters": 107.05018052522155,
+      "firstInside": {
+        "sourceIndex": 34189,
+        "type": "LogPlayerPosition",
+        "t": 1332.401,
+        "at": "2026-09-22T14:31:50.957Z"
+      },
+      "firstRide": {
+        "sourceIndex": 34047,
+        "type": "LogVehicleRide",
+        "t": 1291.817,
+        "at": "2026-09-22T14:31:10.373Z"
+      }
+    },
+    {
+      "observation": {
+        "sourceIndex": 34342,
+        "type": "LogGameStatePeriodic",
+        "t": 1410.625,
+        "at": "2026-09-22T14:33:09.181Z"
+      },
+      "center": {
+        "x": 5405.935,
+        "y": 7025.804375
+      },
+      "radius": 104.433896484375,
+      "phase": 7,
+      "position": {
+        "x": 5386.853125,
+        "y": 6972.948125,
+        "z": 4.523299865722656,
+        "ageSeconds": 8.22
+      },
+      "outsideMeters": 0,
+      "firstInside": {
+        "sourceIndex": 34343,
+        "type": "LogPlayerPosition",
+        "t": 1412.432,
+        "at": "2026-09-22T14:33:10.988Z"
+      },
+      "firstRide": null
+    },
+    {
+      "observation": {
+        "sourceIndex": 34542,
+        "type": "LogGameStatePeriodic",
+        "t": 1560.622,
+        "at": "2026-09-22T14:35:39.178Z"
+      },
+      "center": {
+        "x": 5407.56375,
+        "y": 7023.5425
+      },
+      "radius": 67.88203125,
+      "phase": 8,
+      "position": {
+        "x": 5407.975625,
+        "y": 6967.1975,
+        "z": 15.204200439453125,
+        "ageSeconds": 8.19
+      },
+      "outsideMeters": 0,
+      "firstInside": {
+        "sourceIndex": 34544,
+        "type": "LogPlayerPosition",
+        "t": 1562.426,
+        "at": "2026-09-22T14:35:40.982Z"
+      },
+      "firstRide": null
+    }
+  ],
+  "rides": [
+    {
+      "sourceIndex": 12666,
+      "type": "LogVehicleRide",
+      "t": 438.549,
+      "at": "2026-09-22T14:16:57.105Z",
+      "vehicle": "BP_Motorbike_04_Desert_C",
+      "location": {
+        "x": 3096.926875,
+        "y": 4212.310625,
+        "z": 58.049599609375
+      }
+    },
+    {
+      "sourceIndex": 15502,
+      "type": "LogVehicleRide",
+      "t": 518.203,
+      "at": "2026-09-22T14:18:16.759Z",
+      "vehicle": "BP_Mirado_A_03_Esports_C",
+      "location": {
+        "x": 4637.9859375,
+        "y": 5406.0125,
+        "z": 199.49720703125
+      }
+    },
+    {
+      "sourceIndex": 22619,
+      "type": "LogVehicleRide",
+      "t": 706.113,
+      "at": "2026-09-22T14:21:24.669Z",
+      "vehicle": "BP_Mirado_A_03_Esports_C",
+      "location": {
+        "x": 5548.51625,
+        "y": 6301.34,
+        "z": 128.403828125
+      }
+    },
+    {
+      "sourceIndex": 22628,
+      "type": "LogVehicleRide",
+      "t": 706.451,
+      "at": "2026-09-22T14:21:25.007Z",
+      "vehicle": "BP_Mirado_A_03_Esports_C",
+      "location": {
+        "x": 5548.833125,
+        "y": 6300.60625,
+        "z": 128.38927734375
+      }
+    },
+    {
+      "sourceIndex": 23934,
+      "type": "LogVehicleRide",
+      "t": 740.588,
+      "at": "2026-09-22T14:21:59.144Z",
+      "vehicle": "BP_Mirado_A_03_Esports_C",
+      "location": {
+        "x": 5367.8175,
+        "y": 6619.92125,
+        "z": 95.658056640625
+      }
+    },
+    {
+      "sourceIndex": 31902,
+      "type": "LogVehicleRide",
+      "t": 1071.137,
+      "at": "2026-09-22T14:27:29.693Z",
+      "vehicle": "BP_Mirado_A_01_C",
+      "location": {
+        "x": 5473.96125,
+        "y": 6599.78,
+        "z": 102.457509765625
+      }
+    },
+    {
+      "sourceIndex": 31905,
+      "type": "LogVehicleRide",
+      "t": 1071.4,
+      "at": "2026-09-22T14:27:29.956Z",
+      "vehicle": "BP_Mirado_A_01_C",
+      "location": {
+        "x": 5473.350625,
+        "y": 6598.830625,
+        "z": 102.4714453125
+      }
+    },
+    {
+      "sourceIndex": 34047,
+      "type": "LogVehicleRide",
+      "t": 1291.817,
+      "at": "2026-09-22T14:31:10.373Z",
+      "vehicle": "BP_Panamera_ULT_C",
+      "location": {
+        "x": 5301.898125,
+        "y": 6765.963125,
+        "z": 83.8819921875
+      }
+    },
+    {
+      "sourceIndex": 34067,
+      "type": "LogVehicleRide",
+      "t": 1301.104,
+      "at": "2026-09-22T14:31:19.660Z",
+      "vehicle": "BP_Panamera_ULT_C",
+      "location": {
+        "x": 5299.839375,
+        "y": 6786.98125,
+        "z": 83.27091796875
+      }
+    },
+    {
+      "sourceIndex": 34084,
+      "type": "LogVehicleRide",
+      "t": 1312.051,
+      "at": "2026-09-22T14:31:30.607Z",
+      "vehicle": "BP_Panamera_ULT_C",
+      "location": {
+        "x": 5288.0175,
+        "y": 6834.68,
+        "z": 64.441435546875
+      }
+    },
+    {
+      "sourceIndex": 34126,
+      "type": "LogVehicleRide",
+      "t": 1318.325,
+      "at": "2026-09-22T14:31:36.881Z",
+      "vehicle": "BP_Panamera_ULT_C",
+      "location": {
+        "x": 5288.011875,
+        "y": 6834.6725,
+        "z": 64.447607421875
+      }
+    },
+    {
+      "sourceIndex": 34128,
+      "type": "LogVehicleRide",
+      "t": 1318.583,
+      "at": "2026-09-22T14:31:37.139Z",
+      "vehicle": "BP_Panamera_ULT_C",
+      "location": {
+        "x": 5288.6925,
+        "y": 6834.749375,
+        "z": 64.103857421875
+      }
+    },
+    {
+      "sourceIndex": 34214,
+      "type": "LogVehicleRide",
+      "t": 1342.379,
+      "at": "2026-09-22T14:32:00.935Z",
+      "vehicle": "BP_Panamera_ULT_C",
+      "location": {
+        "x": 5384.0625,
+        "y": 6973.90875,
+        "z": 4.587593078613281
+      }
+    }
+  ],
+  "kills": [
+    {
+      "sourceIndex": 10668,
+      "type": "LogPlayerKillV2",
+      "t": 362.234,
+      "at": "2026-09-22T14:15:40.790Z",
+      "victim": "K-two2",
+      "weapon": "WeapKar98k_C",
+      "reason": "HeadShot"
+    },
+    {
+      "sourceIndex": 30159,
+      "type": "LogPlayerKillV2",
+      "t": 944.543,
+      "at": "2026-09-22T14:25:23.099Z",
+      "victim": "AlexTina",
+      "weapon": "WeapHK416_C",
+      "reason": "TorsoShot"
+    },
+    {
+      "sourceIndex": 30413,
+      "type": "LogPlayerKillV2",
+      "t": 959.197,
+      "at": "2026-09-22T14:25:37.753Z",
+      "victim": "sysgoking",
+      "weapon": "WeapM24_C",
+      "reason": "TorsoShot"
+    },
+    {
+      "sourceIndex": 30882,
+      "type": "LogPlayerKillV2",
+      "t": 985.141,
+      "at": "2026-09-22T14:26:03.697Z",
+      "victim": "poim_1",
+      "weapon": "WeapHK416_C",
+      "reason": "HeadShot"
+    },
+    {
+      "sourceIndex": 33207,
+      "type": "LogPlayerKillV2",
+      "t": 1157.258,
+      "at": "2026-09-22T14:28:55.814Z",
+      "victim": "FluffyDemon",
+      "weapon": "WeapHK416_C",
+      "reason": "HeadShot"
+    },
+    {
+      "sourceIndex": 33287,
+      "type": "LogPlayerKillV2",
+      "t": 1162.418,
+      "at": "2026-09-22T14:29:00.974Z",
+      "victim": "Txxx6888",
+      "weapon": "WeapM24_C",
+      "reason": "HeadShot"
+    },
+    {
+      "sourceIndex": 33764,
+      "type": "LogPlayerKillV2",
+      "t": 1220.896,
+      "at": "2026-09-22T14:29:59.452Z",
+      "victim": "Bruce_LYB",
+      "weapon": "WeapHK416_C",
+      "reason": "LegShot"
+    },
+    {
+      "sourceIndex": 33831,
+      "type": "LogPlayerKillV2",
+      "t": 1229.669,
+      "at": "2026-09-22T14:30:08.225Z",
+      "victim": "LVG-Wum",
+      "weapon": "ProjGrenade_C",
+      "reason": "NonSpecific"
+    },
+    {
+      "sourceIndex": 34302,
+      "type": "LogPlayerKillV2",
+      "t": 1390.231,
+      "at": "2026-09-22T14:32:48.787Z",
+      "victim": "AST-HEAD",
+      "weapon": "WeapL6_C",
+      "reason": "HeadShot"
+    },
+    {
+      "sourceIndex": 34371,
+      "type": "LogPlayerKillV2",
+      "t": 1427.205,
+      "at": "2026-09-22T14:33:25.761Z",
+      "victim": "HYUN32",
+      "weapon": "WeapL6_C",
+      "reason": "HeadShot"
+    },
+    {
+      "sourceIndex": 34681,
+      "type": "LogPlayerKillV2",
+      "t": 1673.913,
+      "at": "2026-09-22T14:37:32.469Z",
+      "victim": "HXLANQ",
+      "weapon": "ProjGrenade_C",
+      "reason": "NonSpecific"
+    }
+  ],
+  "death": null,
+  "teamDeaths": [],
+  "revives": [],
+  "blueDamage": 0,
+  "outgoingDamage": 1323.2235622406006,
+  "throwLinks": [
+    { "sourceIndex": 34644, "type": "LogPlayerUseThrowable", "t": 1659.253, "attackId": 478, "attacker": "VIE_TanVuu284", "weapon": "Item_Weapon_Grenade_C", "matchingDamage": null },
+    { "sourceIndex": 34659, "type": "LogPlayerUseThrowable", "t": 1664.472, "attackId": 480, "attacker": "VIE_TanVuu284", "weapon": "Item_Weapon_Grenade_C", "matchingDamage": { "sourceIndex": 34665, "t": 1668.06, "victim": "HXLANQ", "damage": 40.88697052001953, "damageTypeCategory": "Damage_Explosion_Grenade", "attackId": 480 } },
+    { "sourceIndex": 34668, "type": "LogPlayerUseThrowable", "t": 1670.522, "attackId": 482, "attacker": "VIE_TanVuu284", "weapon": "Item_Weapon_Grenade_C", "matchingDamage": { "sourceIndex": 34680, "t": 1673.912, "victim": "HXLANQ", "damage": 70.11302947998047, "damageTypeCategory": "Damage_Explosion_Grenade", "attackId": 482 }, "matchingKill": { "sourceIndex": 34681, "t": 1673.913, "victim": "HXLANQ", "weapon": "ProjGrenade_C", "attackId": 482 } }
+  ],
+  "fights": [
+    {
+      "from": 362.233,
+      "to": 362.234,
+      "teamDamage": 100,
+      "myDamage": 100,
+      "myReceived": 0,
+      "events": [
+        {
+          "sourceIndex": 10667,
+          "type": "LogPlayerTakeDamage",
+          "t": 362.233,
+          "at": "2026-09-22T14:15:40.789Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "K-two2",
+          "damage": 100,
+          "weapon": "WeapKar98k_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 10668,
+          "type": "LogPlayerKillV2",
+          "t": 362.234,
+          "at": "2026-09-22T14:15:40.790Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "K-two2",
+          "weapon": "WeapKar98k_C",
+          "reason": "HeadShot"
+        }
+      ],
+      "kills": [
+        {
+          "sourceIndex": 10668,
+          "type": "LogPlayerKillV2",
+          "t": 362.234,
+          "at": "2026-09-22T14:15:40.790Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "K-two2",
+          "teamKill": false
+        }
+      ]
+    },
+    {
+      "from": 926.281,
+      "to": 985.141,
+      "teamDamage": 280.0232582092285,
+      "myDamage": 280.0232582092285,
+      "myReceived": 87.60000038146973,
+      "events": [
+        {
+          "sourceIndex": 29784,
+          "type": "LogPlayerTakeDamage",
+          "t": 926.281,
+          "at": "2026-09-22T14:25:04.837Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "sysgoking",
+          "damage": 21.21380615234375,
+          "weapon": "WeapHK416_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 30136,
+          "type": "LogPlayerTakeDamage",
+          "t": 943.948,
+          "at": "2026-09-22T14:25:22.504Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "AlexTina",
+          "damage": 18,
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 30143,
+          "type": "LogPlayerTakeDamage",
+          "t": 944.118,
+          "at": "2026-09-22T14:25:22.674Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "AlexTina",
+          "damage": 19.799999237060547,
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 30147,
+          "type": "LogPlayerTakeDamage",
+          "t": 944.286,
+          "at": "2026-09-22T14:25:22.842Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "AlexTina",
+          "damage": 21.600000381469727,
+          "weapon": "WeapHK416_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 30150,
+          "type": "LogPlayerTakeDamage",
+          "t": 944.354,
+          "at": "2026-09-22T14:25:22.910Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "AlexTina",
+          "damage": 18,
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 30153,
+          "type": "LogPlayerTakeDamage",
+          "t": 944.466,
+          "at": "2026-09-22T14:25:23.022Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "AlexTina",
+          "damage": 18,
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 30158,
+          "type": "LogPlayerTakeDamage",
+          "t": 944.542,
+          "at": "2026-09-22T14:25:23.098Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "AlexTina",
+          "damage": 6.099998474121094,
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 30159,
+          "type": "LogPlayerKillV2",
+          "t": 944.543,
+          "at": "2026-09-22T14:25:23.099Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "AlexTina",
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 30412,
+          "type": "LogPlayerTakeDamage",
+          "t": 959.196,
+          "at": "2026-09-22T14:25:37.752Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "sysgoking",
+          "damage": 56.3094482421875,
+          "weapon": "WeapM24_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 30413,
+          "type": "LogPlayerKillV2",
+          "t": 959.197,
+          "at": "2026-09-22T14:25:37.753Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "sysgoking",
+          "weapon": "WeapM24_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 30802,
+          "type": "LogPlayerTakeDamage",
+          "t": 982.685,
+          "at": "2026-09-22T14:26:01.241Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "poim_1",
+          "damage": 17.100000381469727,
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 30811,
+          "type": "LogPlayerTakeDamage",
+          "t": 982.931,
+          "at": "2026-09-22T14:26:01.487Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "poim_1",
+          "damage": 19.799999237060547,
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 30859,
+          "type": "LogPlayerTakeDamage",
+          "t": 984.727,
+          "at": "2026-09-22T14:26:03.283Z",
+          "attacker": "poim_1",
+          "victim": "VIE_TanVuu284",
+          "damage": 24,
+          "weapon": "WeapAUG_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 30870,
+          "type": "LogPlayerTakeDamage",
+          "t": 984.906,
+          "at": "2026-09-22T14:26:03.462Z",
+          "attacker": "poim_1",
+          "victim": "VIE_TanVuu284",
+          "damage": 24,
+          "weapon": "WeapAUG_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 30873,
+          "type": "LogPlayerTakeDamage",
+          "t": 984.974,
+          "at": "2026-09-22T14:26:03.530Z",
+          "attacker": "poim_1",
+          "victim": "VIE_TanVuu284",
+          "damage": 18,
+          "weapon": "WeapAUG_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 30876,
+          "type": "LogPlayerTakeDamage",
+          "t": 985.04,
+          "at": "2026-09-22T14:26:03.596Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "poim_1",
+          "damage": 19.799999237060547,
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 30879,
+          "type": "LogPlayerTakeDamage",
+          "t": 985.073,
+          "at": "2026-09-22T14:26:03.629Z",
+          "attacker": "poim_1",
+          "victim": "VIE_TanVuu284",
+          "damage": 21.600000381469727,
+          "weapon": "WeapAUG_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 30881,
+          "type": "LogPlayerTakeDamage",
+          "t": 985.14,
+          "at": "2026-09-22T14:26:03.696Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "poim_1",
+          "damage": 44.30000686645508,
+          "weapon": "WeapHK416_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 30882,
+          "type": "LogPlayerKillV2",
+          "t": 985.141,
+          "at": "2026-09-22T14:26:03.697Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "poim_1",
+          "weapon": "WeapHK416_C",
+          "reason": "HeadShot"
+        }
+      ],
+      "kills": [
+        {
+          "sourceIndex": 30159,
+          "type": "LogPlayerKillV2",
+          "t": 944.543,
+          "at": "2026-09-22T14:25:23.099Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "AlexTina",
+          "teamKill": false
+        },
+        {
+          "sourceIndex": 30413,
+          "type": "LogPlayerKillV2",
+          "t": 959.197,
+          "at": "2026-09-22T14:25:37.753Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "sysgoking",
+          "teamKill": false
+        },
+        {
+          "sourceIndex": 30882,
+          "type": "LogPlayerKillV2",
+          "t": 985.141,
+          "at": "2026-09-22T14:26:03.697Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "poim_1",
+          "teamKill": false
+        }
+      ]
+    },
+    {
+      "from": 1041.903,
+      "to": 1067.582,
+      "teamDamage": 90.10795211791992,
+      "myDamage": 90.10795211791992,
+      "myReceived": 0,
+      "events": [
+        {
+          "sourceIndex": 31623,
+          "type": "LogPlayerTakeDamage",
+          "t": 1041.903,
+          "at": "2026-09-22T14:27:00.459Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "FluffyDemon",
+          "damage": 35.185646057128906,
+          "weapon": "WeapM24_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 31869,
+          "type": "LogPlayerTakeDamage",
+          "t": 1067.582,
+          "at": "2026-09-22T14:27:26.138Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "FluffyDemon",
+          "damage": 54.922306060791016,
+          "weapon": "WeapM24_C",
+          "reason": "TorsoShot"
+        }
+      ],
+      "kills": []
+    },
+    {
+      "from": 1130.046,
+      "to": 1162.418,
+      "teamDamage": 243.4953384399414,
+      "myDamage": 243.4953384399414,
+      "myReceived": 0,
+      "events": [
+        {
+          "sourceIndex": 32812,
+          "type": "LogPlayerTakeDamage",
+          "t": 1130.046,
+          "at": "2026-09-22T14:28:28.602Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "TTHNMCB",
+          "damage": 43.495338439941406,
+          "weapon": "WeapM24_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 33200,
+          "type": "LogPlayerTakeDamage",
+          "t": 1157.058,
+          "at": "2026-09-22T14:28:55.614Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "FluffyDemon",
+          "damage": 56.39999771118164,
+          "weapon": "WeapHK416_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 33203,
+          "type": "LogPlayerTakeDamage",
+          "t": 1157.156,
+          "at": "2026-09-22T14:28:55.712Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "FluffyDemon",
+          "damage": 24,
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 33206,
+          "type": "LogPlayerTakeDamage",
+          "t": 1157.257,
+          "at": "2026-09-22T14:28:55.813Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "FluffyDemon",
+          "damage": 19.60000228881836,
+          "weapon": "WeapHK416_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 33207,
+          "type": "LogPlayerKillV2",
+          "t": 1157.258,
+          "at": "2026-09-22T14:28:55.814Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "FluffyDemon",
+          "weapon": "WeapHK416_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 33286,
+          "type": "LogPlayerTakeDamage",
+          "t": 1162.417,
+          "at": "2026-09-22T14:29:00.973Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "Txxx6888",
+          "damage": 100,
+          "weapon": "WeapM24_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 33287,
+          "type": "LogPlayerKillV2",
+          "t": 1162.418,
+          "at": "2026-09-22T14:29:00.974Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "Txxx6888",
+          "weapon": "WeapM24_C",
+          "reason": "HeadShot"
+        }
+      ],
+      "kills": [
+        {
+          "sourceIndex": 33207,
+          "type": "LogPlayerKillV2",
+          "t": 1157.258,
+          "at": "2026-09-22T14:28:55.814Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "FluffyDemon",
+          "teamKill": false
+        },
+        {
+          "sourceIndex": 33287,
+          "type": "LogPlayerKillV2",
+          "t": 1162.418,
+          "at": "2026-09-22T14:29:00.974Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "Txxx6888",
+          "teamKill": false
+        }
+      ]
+    },
+    {
+      "from": 1213.678,
+      "to": 1229.669,
+      "teamDamage": 231.33701133728027,
+      "myDamage": 231.33701133728027,
+      "myReceived": 0,
+      "events": [
+        {
+          "sourceIndex": 33693,
+          "type": "LogPlayerTakeDamage",
+          "t": 1213.678,
+          "at": "2026-09-22T14:29:52.234Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "HXLANQ",
+          "damage": 35.33700942993164,
+          "weapon": "WeapM24_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 33746,
+          "type": "LogPlayerTakeDamage",
+          "t": 1220.128,
+          "at": "2026-09-22T14:29:58.684Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "Bruce_LYB",
+          "damage": 17.100000381469727,
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 33754,
+          "type": "LogPlayerTakeDamage",
+          "t": 1220.561,
+          "at": "2026-09-22T14:29:59.117Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "Bruce_LYB",
+          "damage": 19.799999237060547,
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 33759,
+          "type": "LogPlayerTakeDamage",
+          "t": 1220.729,
+          "at": "2026-09-22T14:29:59.285Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "Bruce_LYB",
+          "damage": 18,
+          "weapon": "WeapHK416_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 33761,
+          "type": "LogPlayerTakeDamage",
+          "t": 1220.827,
+          "at": "2026-09-22T14:29:59.383Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "Bruce_LYB",
+          "damage": 21.600000381469727,
+          "weapon": "WeapHK416_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 33763,
+          "type": "LogPlayerTakeDamage",
+          "t": 1220.895,
+          "at": "2026-09-22T14:29:59.451Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "Bruce_LYB",
+          "damage": 19.500001907348633,
+          "weapon": "WeapHK416_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 33764,
+          "type": "LogPlayerKillV2",
+          "t": 1220.896,
+          "at": "2026-09-22T14:29:59.452Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "Bruce_LYB",
+          "weapon": "WeapHK416_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 33830,
+          "type": "LogPlayerTakeDamage",
+          "t": 1229.669,
+          "at": "2026-09-22T14:30:08.225Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "LVG-Wum",
+          "damage": 100,
+          "weapon": "ProjGrenade_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 33831,
+          "type": "LogPlayerKillV2",
+          "t": 1229.669,
+          "at": "2026-09-22T14:30:08.225Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "LVG-Wum",
+          "weapon": "ProjGrenade_C",
+          "reason": "NonSpecific"
+        }
+      ],
+      "kills": [
+        {
+          "sourceIndex": 33764,
+          "type": "LogPlayerKillV2",
+          "t": 1220.896,
+          "at": "2026-09-22T14:29:59.452Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "Bruce_LYB",
+          "teamKill": false
+        },
+        {
+          "sourceIndex": 33831,
+          "type": "LogPlayerKillV2",
+          "t": 1229.669,
+          "at": "2026-09-22T14:30:08.225Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "LVG-Wum",
+          "teamKill": false
+        }
+      ]
+    },
+    {
+      "from": 1321.923,
+      "to": 1321.923,
+      "teamDamage": 0,
+      "myDamage": 0,
+      "myReceived": 18.722515106201172,
+      "events": [
+        {
+          "sourceIndex": 34140,
+          "type": "LogPlayerTakeDamage",
+          "t": 1321.923,
+          "at": "2026-09-22T14:31:40.479Z",
+          "attacker": "AST-HEAD",
+          "victim": "VIE_TanVuu284",
+          "damage": 18.722515106201172,
+          "weapon": "WeapMG3_C",
+          "reason": "ArmShot"
+        }
+      ],
+      "kills": []
+    },
+    {
+      "from": 1390.229,
+      "to": 1390.231,
+      "teamDamage": 100,
+      "myDamage": 100,
+      "myReceived": 0,
+      "events": [
+        {
+          "sourceIndex": 34301,
+          "type": "LogPlayerTakeDamage",
+          "t": 1390.229,
+          "at": "2026-09-22T14:32:48.785Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "AST-HEAD",
+          "damage": 100,
+          "weapon": "WeapL6_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 34302,
+          "type": "LogPlayerKillV2",
+          "t": 1390.231,
+          "at": "2026-09-22T14:32:48.787Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "AST-HEAD",
+          "weapon": "WeapL6_C",
+          "reason": "HeadShot"
+        }
+      ],
+      "kills": [
+        {
+          "sourceIndex": 34302,
+          "type": "LogPlayerKillV2",
+          "t": 1390.231,
+          "at": "2026-09-22T14:32:48.787Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "AST-HEAD",
+          "teamKill": false
+        }
+      ]
+    },
+    {
+      "from": 1427.204,
+      "to": 1457.112,
+      "teamDamage": 167.26000213623047,
+      "myDamage": 167.26000213623047,
+      "myReceived": 0,
+      "events": [
+        {
+          "sourceIndex": 34370,
+          "type": "LogPlayerTakeDamage",
+          "t": 1427.204,
+          "at": "2026-09-22T14:33:25.760Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "HYUN32",
+          "damage": 100,
+          "weapon": "WeapL6_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 34371,
+          "type": "LogPlayerKillV2",
+          "t": 1427.205,
+          "at": "2026-09-22T14:33:25.761Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "HYUN32",
+          "weapon": "WeapL6_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 34420,
+          "type": "LogPlayerTakeDamage",
+          "t": 1457.112,
+          "at": "2026-09-22T14:33:55.668Z",
+          "attacker": "VIE_TanVuu284",
+          "victim": "HXLANQ",
+          "damage": 67.26000213623047,
+          "weapon": "WeapL6_C",
+          "reason": "ArmShot"
+        }
+      ],
+      "kills": [
+        {
+          "sourceIndex": 34371,
+          "type": "LogPlayerKillV2",
+          "t": 1427.205,
+          "at": "2026-09-22T14:33:25.761Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "HYUN32",
+          "teamKill": false
+        }
+      ]
+    },
+    {
+      "from": 1668.06,
+      "to": 1673.913,
+      "teamDamage": 111,
+      "myDamage": 111,
+      "myReceived": 0,
+      "events": [
+        {
+          "sourceIndex": 34665,
+          "type": "LogPlayerTakeDamage",
+          "t": 1668.06,
+          "at": "2026-09-22T14:37:26.616Z",
+          "attackId": 480,
+          "attacker": "VIE_TanVuu284",
+          "victim": "HXLANQ",
+          "damage": 40.88697052001953,
+          "weapon": "ProjGrenade_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 34680,
+          "type": "LogPlayerTakeDamage",
+          "t": 1673.912,
+          "at": "2026-09-22T14:37:32.468Z",
+          "attackId": 482,
+          "attacker": "VIE_TanVuu284",
+          "victim": "HXLANQ",
+          "damage": 70.11302947998047,
+          "weapon": "ProjGrenade_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 34681,
+          "type": "LogPlayerKillV2",
+          "t": 1673.913,
+          "at": "2026-09-22T14:37:32.469Z",
+          "attackId": 482,
+          "killer": "VIE_TanVuu284",
+          "victim": "HXLANQ",
+          "weapon": "ProjGrenade_C",
+          "reason": "NonSpecific"
+        }
+      ],
+      "kills": [
+        {
+          "sourceIndex": 34681,
+          "type": "LogPlayerKillV2",
+          "t": 1673.913,
+          "at": "2026-09-22T14:37:32.469Z",
+          "killer": "VIE_TanVuu284",
+          "victim": "HXLANQ",
+          "teamKill": false
+        }
+      ]
+    }
+  ],
+  "route": [
+    {
+      "t": 82.452,
+      "x": 2954.3896875,
+      "y": 4495.654375,
+      "z": 55.268798828125
+    },
+    {
+      "t": 92.418,
+      "x": 2963.759375,
+      "y": 4481.064375,
+      "z": 55.268798828125
+    },
+    {
+      "t": 102.431,
+      "x": 2971.6434375,
+      "y": 4497.29625,
+      "z": 55.268798828125
+    },
+    {
+      "t": 112.416,
+      "x": 2966.67,
+      "y": 4502.9071875,
+      "z": 55.268798828125
+    },
+    {
+      "t": 122.515,
+      "x": 2974.4471875,
+      "y": 4520.7390625,
+      "z": 55.268701171875
+    },
+    {
+      "t": 132.471,
+      "x": 2936.380625,
+      "y": 4528.35375,
+      "z": 59.0766015625
+    },
+    {
+      "t": 142.474,
+      "x": 2938.6046875,
+      "y": 4527.31375,
+      "z": 55.761298828125
+    },
+    {
+      "t": 152.479,
+      "x": 2930.6425,
+      "y": 4521.61625,
+      "z": 55.761298828125
+    },
+    {
+      "t": 162.48,
+      "x": 2927.988125,
+      "y": 4517.421875,
+      "z": 55.481298828125
+    },
+    {
+      "t": 172.447,
+      "x": 2927.351875,
+      "y": 4510.0340625,
+      "z": 55.761298828125
+    },
+    {
+      "t": 182.436,
+      "x": 2923.0815625,
+      "y": 4506.37375,
+      "z": 59.23759765625
+    },
+    {
+      "t": 192.493,
+      "x": 2922.8540625,
+      "y": 4506.60125,
+      "z": 58.95759765625
+    },
+    {
+      "t": 202.429,
+      "x": 2928.640625,
+      "y": 4510.221875,
+      "z": 58.9797998046875
+    },
+    {
+      "t": 212.464,
+      "x": 2926.8984375,
+      "y": 4514.164375,
+      "z": 57.977001953125
+    },
+    {
+      "t": 222.417,
+      "x": 2962.584375,
+      "y": 4490.2990625,
+      "z": 54.988701171875
+    },
+    {
+      "t": 232.439,
+      "x": 2980.673125,
+      "y": 4507.5640625,
+      "z": 55.268701171875
+    },
+    {
+      "t": 242.413,
+      "x": 2984.670625,
+      "y": 4509.458125,
+      "z": 55.268701171875
+    },
+    {
+      "t": 252.457,
+      "x": 2965.376875,
+      "y": 4498.574375,
+      "z": 56.208681640625
+    },
+    {
+      "t": 262.466,
+      "x": 2969.454375,
+      "y": 4483.69625,
+      "z": 55.268798828125
+    },
+    {
+      "t": 272.442,
+      "x": 2981.97625,
+      "y": 4495.9353125,
+      "z": 55.268798828125
+    },
+    {
+      "t": 282.445,
+      "x": 2972.325,
+      "y": 4485.5971875,
+      "z": 55.2689013671875
+    },
+    {
+      "t": 292.423,
+      "x": 2962.95875,
+      "y": 4487.9059375,
+      "z": 55.2689013671875
+    },
+    {
+      "t": 302.413,
+      "x": 2920.0784375,
+      "y": 4475.29625,
+      "z": 54.3008984375
+    },
+    {
+      "t": 312.439,
+      "x": 2857.7946875,
+      "y": 4465.7525,
+      "z": 53.0052978515625
+    },
+    {
+      "t": 322.455,
+      "x": 2822.893125,
+      "y": 4425.56375,
+      "z": 51.043701171875
+    },
+    {
+      "t": 332.416,
+      "x": 2780.3059375,
+      "y": 4387.834375,
+      "z": 48.2441015625
+    },
+    {
+      "t": 342.439,
+      "x": 2742.3734375,
+      "y": 4368.788125,
+      "z": 49.309599609375
+    },
+    {
+      "t": 352.428,
+      "x": 2790.156875,
+      "y": 4368.5175,
+      "z": 48.1318994140625
+    },
+    {
+      "t": 362.417,
+      "x": 2812.7084375,
+      "y": 4367.873125,
+      "z": 47.7933984375
+    },
+    {
+      "t": 372.412,
+      "x": 2842.771875,
+      "y": 4355.374375,
+      "z": 47.7439013671875
+    },
+    {
+      "t": 382.423,
+      "x": 2897.143125,
+      "y": 4322.8390625,
+      "z": 47.74669921875
+    },
+    {
+      "t": 392.424,
+      "x": 2953.08625,
+      "y": 4292.3659375,
+      "z": 49.0635986328125
+    },
+    {
+      "t": 402.416,
+      "x": 3010.325625,
+      "y": 4264.7759375,
+      "z": 52.2602978515625
+    },
+    {
+      "t": 412.442,
+      "x": 3067.4303125,
+      "y": 4239.36,
+      "z": 55.7193994140625
+    },
+    {
+      "t": 422.441,
+      "x": 3108.87,
+      "y": 4223.5553125,
+      "z": 57.0097021484375
+    },
+    {
+      "t": 432.429,
+      "x": 3108.87,
+      "y": 4223.5553125,
+      "z": 57.0097021484375
+    },
+    {
+      "t": 442.437,
+      "x": 3088.455625,
+      "y": 4238.814375,
+      "z": 56.803896484375
+    },
+    {
+      "t": 452.436,
+      "x": 3135.81125,
+      "y": 4529.7625,
+      "z": 54.3923681640625
+    },
+    {
+      "t": 462.427,
+      "x": 3235.733125,
+      "y": 4736.4684375,
+      "z": 67.4835205078125
+    },
+    {
+      "t": 472.441,
+      "x": 3357.609375,
+      "y": 4981.4559375,
+      "z": 64.988017578125
+    },
+    {
+      "t": 482.414,
+      "x": 3619.8825,
+      "y": 5140.024375,
+      "z": 86.342451171875
+    },
+    {
+      "t": 492.422,
+      "x": 3966.0496875,
+      "y": 5203.1671875,
+      "z": 112.68708984375
+    },
+    {
+      "t": 502.418,
+      "x": 4245.59,
+      "y": 5327.331875,
+      "z": 159.36181640625
+    },
+    {
+      "t": 512.433,
+      "x": 4575.25875,
+      "y": 5385.1975,
+      "z": 200.035390625
+    },
+    {
+      "t": 522.423,
+      "x": 4658.028125,
+      "y": 5388.860625,
+      "z": 199.512265625
+    },
+    {
+      "t": 532.419,
+      "x": 4901.6875,
+      "y": 5322.7375,
+      "z": 199.39333984375
+    },
+    {
+      "t": 542.442,
+      "x": 5134.593125,
+      "y": 5457.89125,
+      "z": 199.45673828125
+    },
+    {
+      "t": 552.422,
+      "x": 5038.2946875,
+      "y": 5740.84625,
+      "z": 197.496015625
+    },
+    {
+      "t": 562.428,
+      "x": 5243.638125,
+      "y": 5960.815,
+      "z": 171.908046875
+    },
+    {
+      "t": 572.431,
+      "x": 5484.205625,
+      "y": 6177.624375,
+      "z": 133.321474609375
+    },
+    {
+      "t": 582.434,
+      "x": 5545.015625,
+      "y": 6296.844375,
+      "z": 128.4051953125
+    },
+    {
+      "t": 592.446,
+      "x": 5540.126875,
+      "y": 6296.335,
+      "z": 128.917099609375
+    },
+    {
+      "t": 602.442,
+      "x": 5556.926875,
+      "y": 6313.969375,
+      "z": 127.917099609375
+    },
+    {
+      "t": 612.416,
+      "x": 5551.675,
+      "y": 6309.903125,
+      "z": 127.637099609375
+    },
+    {
+      "t": 622.423,
+      "x": 5537.381875,
+      "y": 6299.751875,
+      "z": 127.637099609375
+    },
+    {
+      "t": 632.455,
+      "x": 5537.381875,
+      "y": 6299.751875,
+      "z": 127.637099609375
+    },
+    {
+      "t": 642.438,
+      "x": 5537.381875,
+      "y": 6299.751875,
+      "z": 127.637099609375
+    },
+    {
+      "t": 652.433,
+      "x": 5537.381875,
+      "y": 6299.751875,
+      "z": 127.637099609375
+    },
+    {
+      "t": 662.44,
+      "x": 5537.381875,
+      "y": 6299.751875,
+      "z": 127.637099609375
+    },
+    {
+      "t": 672.423,
+      "x": 5537.381875,
+      "y": 6299.751875,
+      "z": 127.637099609375
+    },
+    {
+      "t": 682.411,
+      "x": 5537.381875,
+      "y": 6299.751875,
+      "z": 127.637099609375
+    },
+    {
+      "t": 692.432,
+      "x": 5537.381875,
+      "y": 6299.751875,
+      "z": 127.637099609375
+    },
+    {
+      "t": 702.433,
+      "x": 5547.128125,
+      "y": 6302.700625,
+      "z": 127.637197265625
+    },
+    {
+      "t": 712.427,
+      "x": 5585.271875,
+      "y": 6308.364375,
+      "z": 127.15669921875
+    },
+    {
+      "t": 722.423,
+      "x": 5504.795,
+      "y": 6446.900625,
+      "z": 127.93091796875
+    },
+    {
+      "t": 732.449,
+      "x": 5390.116875,
+      "y": 6514.775,
+      "z": 104.75921875
+    },
+    {
+      "t": 742.435,
+      "x": 5364.080625,
+      "y": 6621.861875,
+      "z": 96.065302734375
+    },
+    {
+      "t": 752.446,
+      "x": 5376.886875,
+      "y": 6625.955,
+      "z": 98.84650390625
+    },
+    {
+      "t": 762.444,
+      "x": 5376.566875,
+      "y": 6616.795,
+      "z": 95.064599609375
+    },
+    {
+      "t": 772.451,
+      "x": 5377.48125,
+      "y": 6625.785,
+      "z": 98.8466015625
+    },
+    {
+      "t": 782.441,
+      "x": 5376.0375,
+      "y": 6615.176875,
+      "z": 94.862998046875
+    },
+    {
+      "t": 792.412,
+      "x": 5367.685,
+      "y": 6624.85625,
+      "z": 94.763701171875
+    },
+    {
+      "t": 802.445,
+      "x": 5378.13875,
+      "y": 6625.846875,
+      "z": 95.064404296875
+    },
+    {
+      "t": 812.438,
+      "x": 5371.221875,
+      "y": 6625.516875,
+      "z": 95.064404296875
+    },
+    {
+      "t": 822.438,
+      "x": 5380.134375,
+      "y": 6623.651875,
+      "z": 95.344404296875
+    },
+    {
+      "t": 832.459,
+      "x": 5380.085625,
+      "y": 6625.49,
+      "z": 95.344599609375
+    },
+    {
+      "t": 842.45,
+      "x": 5381.7025,
+      "y": 6625.819375,
+      "z": 95.064599609375
+    },
+    {
+      "t": 852.413,
+      "x": 5369.41875,
+      "y": 6623.22125,
+      "z": 94.996796875
+    },
+    {
+      "t": 862.407,
+      "x": 5397.625625,
+      "y": 6611.919375,
+      "z": 89.4091015625
+    },
+    {
+      "t": 872.447,
+      "x": 5420.8125,
+      "y": 6607.255,
+      "z": 96.177802734375
+    },
+    {
+      "t": 882.444,
+      "x": 5417.2275,
+      "y": 6608.0725,
+      "z": 93.284501953125
+    },
+    {
+      "t": 892.421,
+      "x": 5395.61,
+      "y": 6620.160625,
+      "z": 88.750498046875
+    },
+    {
+      "t": 902.421,
+      "x": 5402.155625,
+      "y": 6611.815625,
+      "z": 88.81259765625
+    },
+    {
+      "t": 912.417,
+      "x": 5410.699375,
+      "y": 6618.296875,
+      "z": 91.28509765625
+    },
+    {
+      "t": 922.419,
+      "x": 5447.169375,
+      "y": 6609.80875,
+      "z": 100.227802734375
+    },
+    {
+      "t": 932.431,
+      "x": 5447.995625,
+      "y": 6612.728125,
+      "z": 99.81900390625
+    },
+    {
+      "t": 942.423,
+      "x": 5449.885,
+      "y": 6614.505625,
+      "z": 99.8658984375
+    },
+    {
+      "t": 952.411,
+      "x": 5477.09125,
+      "y": 6600.545,
+      "z": 102.007900390625
+    },
+    {
+      "t": 962.437,
+      "x": 5476.16375,
+      "y": 6603.448125,
+      "z": 103.1025
+    },
+    {
+      "t": 972.403,
+      "x": 5479.1325,
+      "y": 6600.99,
+      "z": 103.018203125
+    },
+    {
+      "t": 982.429,
+      "x": 5470.028125,
+      "y": 6601.638125,
+      "z": 102.23830078125
+    },
+    {
+      "t": 992.423,
+      "x": 5468.109375,
+      "y": 6600.601875,
+      "z": 102.240703125
+    },
+    {
+      "t": 1002.417,
+      "x": 5471.405,
+      "y": 6602.325,
+      "z": 102.51830078125
+    },
+    {
+      "t": 1012.411,
+      "x": 5468.883125,
+      "y": 6602.131875,
+      "z": 102.23830078125
+    },
+    {
+      "t": 1022.422,
+      "x": 5477.23875,
+      "y": 6600.814375,
+      "z": 102.085302734375
+    },
+    {
+      "t": 1032.409,
+      "x": 5473.785,
+      "y": 6595.418125,
+      "z": 101.732900390625
+    },
+    {
+      "t": 1042.441,
+      "x": 5477.645,
+      "y": 6604.9225,
+      "z": 102.44650390625
+    },
+    {
+      "t": 1052.425,
+      "x": 5467.69375,
+      "y": 6600.270625,
+      "z": 102.51830078125
+    },
+    {
+      "t": 1062.415,
+      "x": 5478.030625,
+      "y": 6606.8225,
+      "z": 103.33150390625
+    },
+    {
+      "t": 1072.408,
+      "x": 5473.309375,
+      "y": 6598.08125,
+      "z": 102.47494140625
+    },
+    {
+      "t": 1082.432,
+      "x": 5395.795625,
+      "y": 6600.838125,
+      "z": 91.2696484375
+    },
+    {
+      "t": 1092.415,
+      "x": 5301.526875,
+      "y": 6589.6275,
+      "z": 111.64169921875
+    },
+    {
+      "t": 1102.432,
+      "x": 5229.685,
+      "y": 6638.3775,
+      "z": 95.673779296875
+    },
+    {
+      "t": 1112.404,
+      "x": 5253.809375,
+      "y": 6736.47625,
+      "z": 87.61919921875
+    },
+    {
+      "t": 1122.437,
+      "x": 5272.788125,
+      "y": 6740.741875,
+      "z": 88.980302734375
+    },
+    {
+      "t": 1132.411,
+      "x": 5274.34625,
+      "y": 6742.2675,
+      "z": 89.5016015625
+    },
+    {
+      "t": 1142.428,
+      "x": 5286.815625,
+      "y": 6768.22375,
+      "z": 83.2308984375
+    },
+    {
+      "t": 1152.414,
+      "x": 5286.4,
+      "y": 6768.705625,
+      "z": 83.2308984375
+    },
+    {
+      "t": 1162.437,
+      "x": 5294.913125,
+      "y": 6770.4725,
+      "z": 83.494404296875
+    },
+    {
+      "t": 1172.434,
+      "x": 5296.55875,
+      "y": 6774.778125,
+      "z": 83.46400390625
+    },
+    {
+      "t": 1182.433,
+      "x": 5313.225,
+      "y": 6785.68375,
+      "z": 82.5825
+    },
+    {
+      "t": 1192.433,
+      "x": 5300.23,
+      "y": 6773.99125,
+      "z": 83.463701171875
+    },
+    {
+      "t": 1202.408,
+      "x": 5292.2975,
+      "y": 6760.458125,
+      "z": 87.02259765625
+    },
+    {
+      "t": 1212.422,
+      "x": 5293.295,
+      "y": 6770.40375,
+      "z": 83.603203125
+    },
+    {
+      "t": 1222.412,
+      "x": 5292.385625,
+      "y": 6762.780625,
+      "z": 87.268798828125
+    },
+    {
+      "t": 1232.428,
+      "x": 5292.55875,
+      "y": 6759.255,
+      "z": 87.22259765625
+    },
+    {
+      "t": 1242.419,
+      "x": 5308.381875,
+      "y": 6775.6525,
+      "z": 83.39349609375
+    },
+    {
+      "t": 1252.413,
+      "x": 5309.426875,
+      "y": 6779.420625,
+      "z": 83.39349609375
+    },
+    {
+      "t": 1262.419,
+      "x": 5312.299375,
+      "y": 6781.174375,
+      "z": 83.67349609375
+    },
+    {
+      "t": 1272.409,
+      "x": 5313.2225,
+      "y": 6780.688125,
+      "z": 83.673603515625
+    },
+    {
+      "t": 1282.434,
+      "x": 5295.199375,
+      "y": 6776.29625,
+      "z": 83.182197265625
+    },
+    {
+      "t": 1292.422,
+      "x": 5302.165,
+      "y": 6766.14125,
+      "z": 83.878896484375
+    },
+    {
+      "t": 1302.41,
+      "x": 5299.84125,
+      "y": 6786.9825,
+      "z": 83.27158203125
+    },
+    {
+      "t": 1312.431,
+      "x": 5286.335625,
+      "y": 6834.04375,
+      "z": 64.7118017578125
+    },
+    {
+      "t": 1322.406,
+      "x": 5296.775625,
+      "y": 6863.655,
+      "z": 48.644921875
+    },
+    {
+      "t": 1332.401,
+      "x": 5342.684375,
+      "y": 6994.67,
+      "z": -3.9122491455078126
+    },
+    {
+      "t": 1342.425,
+      "x": 5384.081875,
+      "y": 6973.795625,
+      "z": 4.686557312011718
+    },
+    {
+      "t": 1352.415,
+      "x": 5385.480625,
+      "y": 6973.285,
+      "z": 3.7360000610351562
+    },
+    {
+      "t": 1362.429,
+      "x": 5385.480625,
+      "y": 6973.285,
+      "z": 3.7360000610351562
+    },
+    {
+      "t": 1372.414,
+      "x": 5385.480625,
+      "y": 6973.285,
+      "z": 3.7360000610351562
+    },
+    {
+      "t": 1382.404,
+      "x": 5385.480625,
+      "y": 6973.285,
+      "z": 3.7360000610351562
+    },
+    {
+      "t": 1392.414,
+      "x": 5385.764375,
+      "y": 6973.03625,
+      "z": 3.970799865722656
+    },
+    {
+      "t": 1402.404,
+      "x": 5386.853125,
+      "y": 6972.948125,
+      "z": 4.523299865722656
+    },
+    {
+      "t": 1412.432,
+      "x": 5386.756875,
+      "y": 6972.66,
+      "z": 4.5351998901367185
+    },
+    {
+      "t": 1422.406,
+      "x": 5385.561875,
+      "y": 6971.9225,
+      "z": 5.284199829101563
+    },
+    {
+      "t": 1432.429,
+      "x": 5378.641875,
+      "y": 6962.794375,
+      "z": 13.86219970703125
+    },
+    {
+      "t": 1442.423,
+      "x": 5378.218125,
+      "y": 6960.705,
+      "z": 15.1397998046875
+    },
+    {
+      "t": 1452.415,
+      "x": 5408.118125,
+      "y": 6968.336875,
+      "z": 15.51260009765625
+    },
+    {
+      "t": 1462.416,
+      "x": 5408.424375,
+      "y": 6967.28375,
+      "z": 15.228900146484374
+    },
+    {
+      "t": 1472.407,
+      "x": 5408.5475,
+      "y": 6967.010625,
+      "z": 15.22989990234375
+    },
+    {
+      "t": 1482.429,
+      "x": 5408.26625,
+      "y": 6966.97625,
+      "z": 15.21530029296875
+    },
+    {
+      "t": 1492.433,
+      "x": 5408.08,
+      "y": 6967.001875,
+      "z": 15.206500244140624
+    },
+    {
+      "t": 1502.425,
+      "x": 5408.714375,
+      "y": 6967.988125,
+      "z": 15.2572998046875
+    },
+    {
+      "t": 1512.42,
+      "x": 5408.680625,
+      "y": 6967.93625,
+      "z": 15.534599609375
+    },
+    {
+      "t": 1522.413,
+      "x": 5408.7775,
+      "y": 6967.654375,
+      "z": 15.534200439453125
+    },
+    {
+      "t": 1532.402,
+      "x": 5407.53,
+      "y": 6967.341875,
+      "z": 15.18469970703125
+    },
+    {
+      "t": 1542.424,
+      "x": 5408.18875,
+      "y": 6967.12375,
+      "z": 15.213399658203125
+    },
+    {
+      "t": 1552.434,
+      "x": 5407.975625,
+      "y": 6967.1975,
+      "z": 15.204200439453125
+    },
+    {
+      "t": 1562.426,
+      "x": 5408.1075,
+      "y": 6967.350625,
+      "z": 15.213599853515625
+    },
+    {
+      "t": 1572.399,
+      "x": 5408.32,
+      "y": 6968.089375,
+      "z": 15.038199462890624
+    },
+    {
+      "t": 1582.428,
+      "x": 5408.32,
+      "y": 6968.089375,
+      "z": 15.038199462890624
+    },
+    {
+      "t": 1592.416,
+      "x": 5408.32,
+      "y": 6968.089375,
+      "z": 15.038199462890624
+    },
+    {
+      "t": 1602.404,
+      "x": 5408.44,
+      "y": 6968.261875,
+      "z": 15.0477001953125
+    },
+    {
+      "t": 1612.4,
+      "x": 5408.44,
+      "y": 6968.261875,
+      "z": 15.0477001953125
+    },
+    {
+      "t": 1622.399,
+      "x": 5408.44,
+      "y": 6968.261875,
+      "z": 15.0477001953125
+    },
+    {
+      "t": 1632.409,
+      "x": 5408.44,
+      "y": 6968.261875,
+      "z": 15.0477001953125
+    },
+    {
+      "t": 1642.403,
+      "x": 5408.44,
+      "y": 6968.261875,
+      "z": 15.0477001953125
+    },
+    {
+      "t": 1652.426,
+      "x": 5408.44,
+      "y": 6968.261875,
+      "z": 15.2477001953125
+    },
+    {
+      "t": 1662.412,
+      "x": 5408.70125,
+      "y": 6968.8775,
+      "z": 15.271700439453125
+    },
+    {
+      "t": 1672.405,
+      "x": 5408.794375,
+      "y": 6969.0125,
+      "z": 15.274200439453125
+    }
+  ],
+  "scenes": [
+    {
+      "t": 77,
+      "title": "외곽에서 시작한 한 판",
+      "fact": "01:16 착지. 착지점은 원본 좌표 기준 (2,947m, 4,504m)이며 지명 필드는 비어 있습니다. 착지 전후 60초·500m 이내에서 상대 2명의 착지 기록을 확인했습니다.",
+      "limit": "주변 적 수는 사후 관측 정보입니다. 실제로 적을 보고 착지점을 선택했는지는 알 수 없습니다."
+    },
+    {
+      "t": 503,
+      "title": "먼 첫 원, 차량으로 이어진 이동",
+      "fact": "01:40 첫 원 관측 당시 최근 위치는 원 경계에서 약 1,264m 밖이었습니다. 07:18 오토바이 탑승, 08:22 원 안에서 첫 위치 관측. 첫 탑승부터 약 64초 뒤입니다.",
+      "limit": "탑승 시각은 이동 시작과 다릅니다. 위치는 대체로 10초 간격이고, 이 경기의 자기장 피해 기록은 0 HP입니다."
+    },
+    {
+      "t": 986,
+      "title": "약 59초의 피해 교환, 3킬",
+      "fact": "15:26~16:25 구간에서 대인 피해 약 280 HP, 받은 대인 피해 약 88 HP와 3킬이 기록됐습니다. 처치 무기는 M416 → M24 → M416 순서입니다.",
+      "limit": "이 구간은 관련 피해·기절·처치 이벤트 간격 30초 이하로 묶었습니다. 서로 다른 상대와의 교전이 한 구간에 포함될 수 있습니다."
+    },
+    {
+      "t": 1123,
+      "title": "다섯 번째 원에 다시 진입",
+      "fact": "17:40 다섯 번째 원 관측 당시 약 135m 밖. 17:51 차량 탑승 후 18:42 원 안에서 처음 관측됐습니다. 이후 19:17과 19:22에 두 차례 처치 기록이 있습니다.",
+      "limit": "원 진입 다음에 처치가 일어난 순서는 확인됩니다. 해당 진입 위치가 처치를 만들었다는 인과관계는 확정하지 않습니다."
+    },
+    {
+      "t": 1674,
+      "title": "마지막 처치는 수류탄",
+      "fact": "27:53 마지막 상대를 수류탄으로 처치했습니다. 매치 결과는 1위·11킬·약 1,323 대미지입니다.",
+      "limit": "직전 수류탄 사용 기록을 확인할 수 있지만, 특정 투척과 폭발의 연결은 attackId 추가 대조가 필요합니다."
+    }
+  ],
+  "displayMap": "미라마르",
+  "title": "먼 첫 원을 넘어, 11킬 우승까지"
+}

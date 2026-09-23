@@ -91,6 +91,8 @@ export function useTelemetry(
   playbackPlatform: TelemetryPlatform | null,
   playbackMode: TelemetryMode | null,
   mapName: string,
+  startTimeMs: number | null = null,
+  lessonId?: string,
 ) {
   const [events, setEvents] = useState<TelemetryEvent[]>([]);
   const [teammates, setTeammates] = useState<string[]>([]);
@@ -150,6 +152,7 @@ export function useTelemetry(
         platform: playbackPlatform,
         mapName,
         mode: full ? "full" : playbackMode,
+        ...(lessonId !== undefined ? { lessonId } : {}),
       }, { signal: controller.signal });
       if (controller.signal.aborted) return;
 
@@ -187,7 +190,14 @@ export function useTelemetry(
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [matchId, nickname, playbackPlatform, playbackMode, mapName, resetTelemetryState]);
+  }, [matchId, nickname, playbackPlatform, playbackMode, mapName, lessonId, resetTelemetryState]);
+
+  // Seek after data arrives, or when another scene is selected; never fetch again for a seek.
+  useEffect(() => {
+    if (!events.length || maxTimeMs <= 0 || startTimeMs === null || !Number.isFinite(startTimeMs)) return;
+    setCurrentTimeMs(Math.max(0, Math.min(startTimeMs, maxTimeMs)));
+    setIsPlaying(false);
+  }, [events, maxTimeMs, startTimeMs]);
 
   useEffect(() => {
     const controller = new AbortController();

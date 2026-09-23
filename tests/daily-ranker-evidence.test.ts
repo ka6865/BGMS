@@ -1,0 +1,96 @@
+import { existsSync, readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { buildDailyEvidence } from "@/lib/learn/dailyEvidence";
+
+const matchFile = "tmp/ranker-content-probe/match-cdd3a704-a14c-4ef9-9cbe-01ededea7319.json";
+const telemetryFile = "tmp/ranker-content-probe/solo-telemetry.json";
+const hasLocalFixture = existsSync(matchFile) && existsSync(telemetryFile);
+const match = hasLocalFixture ? JSON.parse(readFileSync(matchFile, "utf8")) : null;
+const events = hasLocalFixture ? JSON.parse(readFileSync(telemetryFile, "utf8")) : null;
+const candidate = {
+  accountId: "account.b3cdfc9cc1f043d39523ff3af7fb5c62",
+  nickname: "VIE_TanVuu284",
+  rank: 16,
+};
+const input = { match, events, candidate, dayKst: "2026-09-22" };
+
+describe.skipIf(!hasLocalFixture)("buildDailyEvidence against local PUBG fixture", () => {
+  it("extracts verified evidence from the local solo win without prose inference", () => {
+    const result = buildDailyEvidence(input);
+    expect(result).toMatchObject({
+      dayKst: "2026-09-22",
+      matchId: "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+      nickname: candidate.nickname,
+      mode: "solo",
+      mapName: "미라마",
+      leaderboardRank: 16,
+      kills: 11,
+      teamKills: 11,
+    });
+    expect(result.killEvents).toHaveLength(11);
+    expect(result.weapons).toEqual(expect.arrayContaining([
+      { name: "M416", kills: 4 },
+      { name: "수류탄", kills: 2 },
+      { name: "링스 AMR", kills: 2 },
+    ]));
+    expect(result.zones.length).toBeGreaterThan(0);
+    expect(result.facts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "kill", timeSeconds: expect.any(Number) }),
+      expect.objectContaining({ kind: "zone" }),
+    ]));
+    expect(result.limitations.length).toBeGreaterThan(0);
+  });
+
+  it("rejects a different KST day, mode, or account identity", () => {
+    expect(() => buildDailyEvidence({ ...input, dayKst: "2026-09-21" })).toThrow(/KST day/);
+    const wrongMode = structuredClone(match);
+    wrongMode.data.attributes.gameMode = "duo";
+    expect(() => buildDailyEvidence({ ...input, match: wrongMode })).toThrow(/solo\/squad/);
+    expect(() => buildDailyEvidence({ ...input, candidate: { ...candidate, accountId: "account.wrong" } })).toThrow(/identity/);
+  });
+
+  it("rejects telemetry whose killer events disagree with the PUBG API kill count", () => {
+    const mismatched = events.filter((event: { _T?: string; killer?: { accountId?: string } }) =>
+      !(event._T === "LogPlayerKillV2" && event.killer?.accountId === candidate.accountId));
+    expect(() => buildDailyEvidence({ ...input, events: mismatched })).toThrow(/kill count mismatch/);
+    const altered = structuredClone(events);
+    const victimKill = altered.find((event: { _T?: string; killer?: { accountId?: string } }) =>
+      event._T === "LogPlayerKillV2" && event.killer?.accountId === candidate.accountId);
+    victimKill.killer.accountId = "account.other";
+    expect(() => buildDailyEvidence({ ...input, events: altered })).toThrow(/kill count mismatch/);
+  });
+});
+
+describe("buildDailyEvidence required input", () => {
+  it("rejects a competitive match without the same leaderboard account", () => {
+    const minimal = { data: { id: "match-1", attributes: {
+      shardId: "steam", gameMode: "solo", matchType: "competitive", isCustomMatch: false,
+      createdAt: "2026-09-22T15:00:00Z",
+    } }, included: [{ type: "participant", attributes: { stats: {
+      playerId: "account.other", name: "Other", winPlace: 1, kills: 0, damageDealt: 0,
+    } } }] };
+    const definition = [{ _T: "LogMatchDefinition", MatchId: "match.bro.competitive.steam.solo.match-1" }];
+    expect(() => buildDailyEvidence({ match: minimal, events: definition, candidate, dayKst: "2026-09-23" })).toThrow(/identity/);
+  });
+
+  it("builds a small verified winner story without the ignored local fixture", () => {
+    const accountId = candidate.accountId;
+    const matchId = "match-1";
+    const match = { data: { id: matchId, attributes: {
+      shardId: "steam", gameMode: "solo", matchType: "competitive", isCustomMatch: false,
+      createdAt: "2026-09-22T15:00:00Z", mapName: "Desert_Main",
+    } }, included: [{ type: "participant", attributes: { stats: {
+      playerId: accountId, name: candidate.nickname, winPlace: 1, kills: 1, damageDealt: 100,
+    } } }] };
+    const events = [
+      { _T: "LogMatchDefinition", MatchId: "match.bro.competitive.steam.solo.match-1", _D: "2026-09-22T15:00:00Z" },
+      { _T: "LogMatchStart", _D: "2026-09-22T15:00:00Z" },
+      { _T: "LogParachuteLanding", _D: "2026-09-22T15:01:00Z", character: { accountId, location: { x: 294700, y: 450400 } } },
+      { _T: "LogPlayerKillV2", _D: "2026-09-22T15:06:00Z", killer: { accountId }, finisher: { accountId: "account.other" }, victim: { name: "Opponent", accountId: "account.opponent" }, killerDamageInfo: { damageCauserName: "WeapHK416_C" }, finishDamageInfo: { damageCauserName: "WeapBerylM762_C" } },
+    ];
+    const story = buildDailyEvidence({ match, events, candidate, dayKst: "2026-09-23" });
+    expect(story.killEvents).toEqual([{ timeSeconds: 360, victim: "Opponent", weapon: "M416" }]);
+    expect(story.facts).toEqual(expect.arrayContaining([expect.objectContaining({ id: "landing", timeSeconds: 60 })]));
+    expect(story.teamKills).toBe(1);
+  });
+});

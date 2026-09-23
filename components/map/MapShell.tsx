@@ -1,5 +1,6 @@
 import React, { memo, useState, useEffect } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import L from "leaflet";
 import Sidebar from "../Sidebar";
 import MobileBottomSheet from "./MobileBottomSheet";
@@ -17,6 +18,9 @@ import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { SimulatorPanel } from "./SimulatorPanel";
 import { HeatmapLegend } from "./HeatmapLegend";
 import type { TelemetryMode, TelemetryPlatform } from "../../lib/pubg-analysis/telemetryIdentity";
+import { parseReplayStartMs } from "../../lib/pubg-analysis/replay3dRequest";
+import { getRankerLesson, lessonMatchesReplay, type RankerScene } from "../../lib/learn/lessons";
+import RankerReplayGuide from "../learn/RankerReplayGuide";
 
 interface MapShellProps {
   activeMapId: string;
@@ -75,6 +79,15 @@ const MapShell = memo(({
       : playbackModeParam === "lite" || playbackModeParam === "full"
         ? playbackModeParam
         : null;
+    const lessonId = searchParams?.get("lesson") ?? undefined;
+    const candidateLesson = getRankerLesson(lessonId);
+    const rankerLesson = candidateLesson && lessonMatchesReplay(candidateLesson, {
+      matchId: playbackId, nickname: playbackNickname, platform: playbackPlatform,
+      mode: playbackMode, mapName: activeMapId,
+    }) ? candidateLesson : undefined;
+    const selectedSceneId = searchParams?.get("scene") ?? rankerLesson?.scenes[0].id ?? null;
+    const requestedStartMs = parseReplayStartMs(searchParams?.get("t") ?? null)
+      ?? (rankerLesson ? (rankerLesson.scenes.find(scene => scene.id === selectedSceneId) ?? rankerLesson.scenes[0]).startSeconds * 1000 : null);
     const playbackIdentityError = playbackId && !playbackNickname
       ? "리플레이 nickname이 누락되었습니다."
       : playbackId && !playbackPlatform
@@ -88,7 +101,7 @@ const MapShell = memo(({
       isPlaying, setIsPlaying, playbackSpeed, setPlaybackSpeed,
       currentTimeMs, setCurrentTimeMs, maxTimeMs, currentStates, teamNames, zoneEvents,
       isFullMode
-    } = useTelemetry(playbackId, playbackNickname, playbackPlatform, playbackMode, activeMapId);
+    } = useTelemetry(playbackId, playbackNickname, playbackPlatform, playbackMode, activeMapId, requestedStartMs, lessonId);
     const safeTelemetryEvents = playbackIdentityError ? [] : telemetryEvents;
     const safeCurrentStates = playbackIdentityError ? {} : currentStates;
     const safeTeamNames = playbackIdentityError ? [] : teamNames;
@@ -111,15 +124,29 @@ const MapShell = memo(({
     const [showCombatDots, setShowCombatDots] = useState(false);
     const [showShotDots, setShowShotDots] = useState(true);
     const [hiddenPlayers, setHiddenPlayers] = useState<string[]>([]);
-    const [showPlayerNames, setShowPlayerNames] = useState(true);
+    const [showPlayerNames, setShowPlayerNames] = useState(!lessonId);
     const [showFlightPath, setShowFlightPath] = useState(true);
     const [showSmokeNotice, setShowSmokeNotice] = useState(false); //  연막탄 공지 상태
     const [isInstructionDismissed, setIsInstructionDismissed] = useState(false);
+
+    const selectLessonScene = (scene: RankerScene) => {
+      setIsPlaying(false);
+      setCurrentTimeMs(Math.min(scene.startSeconds * 1000, maxTimeMs));
+      const query = new URLSearchParams(searchParams?.toString());
+      query.set("scene", scene.id);
+      query.set("t", String(scene.startSeconds));
+      router.replace(`/maps/${activeMapId.toLowerCase()}?${query}`, { scroll: false });
+      if (isMobile) setIsMenuOpen(false);
+    };
 
     // Reset instruction dismissal when activeMode changes
     useEffect(() => {
       setIsInstructionDismissed(false);
     }, [activeMode]);
+
+    useEffect(() => {
+      setShowPlayerNames(!lessonId);
+    }, [lessonId]);
 
     //  "오늘 하루 보지 않기" 체크 로직
     useEffect(() => {
@@ -459,7 +486,7 @@ const MapShell = memo(({
                 {/*  고도화된 통합 상단 상태바 (모바일 최적화) */}
                 <div className={`absolute ${isMobile ? 'top-2' : 'top-6'} left-1/2 -translate-x-1/2 z-[1000] flex flex-col items-center gap-2 w-full max-w-xl pointer-events-none`}>
                   {/* ℹ️ 연막탄 위치 추론 안내 공지 (모바일에서는 더 작게) */}
-                  {showSmokeNotice && (
+                  {showSmokeNotice && !rankerLesson && (
                     <div className={`pointer-events-auto bg-black/90 backdrop-blur-xl ${isMobile ? 'px-3 py-1.5 mx-4' : 'px-4 py-2'} rounded-xl border border-orange-500/30 shadow-[0_10px_30px_rgba(0,0,0,0.5)] flex items-center gap-3 mb-2 animate-in fade-in slide-in-from-top-2 duration-500`}>
                       <AlertCircle size={isMobile ? 12 : 14} className="text-orange-500 shrink-0" />
                       <div className="flex flex-col">
@@ -514,10 +541,16 @@ const MapShell = memo(({
                 {isMobile && (
                   <button 
                     onClick={() => setIsMenuOpen(!isMenuOpen)}
-                    className="absolute top-4 right-4 z-[2000] pointer-events-auto flex items-center justify-center w-[44px] h-[44px] bg-black/80 backdrop-blur-md border border-white/10 rounded-xl text-[#F2A900]"
+                    aria-label={rankerLesson ? "전술 해설 열기" : "팀 목록 열기"}
+                    aria-expanded={isMenuOpen}
+                    className="absolute top-4 right-4 z-[2000] pointer-events-auto flex items-center justify-center gap-1 min-w-11 h-11 px-2 bg-black/80 backdrop-blur-md border border-white/10 rounded-xl text-[#F2A900]"
                   >
                     <Menu size={20} />
+                    {rankerLesson && <span className="text-xs font-bold">해설</span>}
                   </button>
+                )}
+                {rankerLesson && isMobile && (
+                  <Link href="/learn" className="absolute left-3 top-4 z-[2000] flex h-11 items-center rounded-xl border border-white/10 bg-black/80 px-3 text-xs text-emerald-300">경기 목록</Link>
                 )}
 
                 {/* 하단 플레이어 컨트롤러 */}
@@ -533,11 +566,15 @@ const MapShell = memo(({
                     showPlayerNames={showPlayerNames} onTogglePlayerNames={() => setShowPlayerNames(!showPlayerNames)}
                     showFlightPath={showFlightPath} onToggleFlightPath={() => setShowFlightPath(!showFlightPath)}
                     onClose={() => {
+                      if (rankerLesson) { router.push("/learn"); return; }
                       const p = new URLSearchParams(searchParams?.toString() || "");
                       p.delete("playback");
                       p.delete("nickname");
                       p.delete("platform");
                       p.delete("mode");
+                      p.delete("lesson");
+                      p.delete("scene");
+                      p.delete("t");
                       router.push(`/?${p.toString()}`);
                     }}
                   />
@@ -565,7 +602,14 @@ const MapShell = memo(({
                   onClick={() => setIsMenuOpen(false)}
                 />
               )}
-              <TelemetrySidebar currentStates={safeCurrentStates} />
+              {rankerLesson ? (
+                <RankerReplayGuide
+                  lesson={rankerLesson} selectedSceneId={selectedSceneId}
+                  loading={telemetryLoading} error={playbackIdentityError || telemetryError}
+                  onSelect={selectLessonScene} onClose={() => setIsMenuOpen(false)}
+                  onRetry={() => window.location.reload()}
+                />
+              ) : <TelemetrySidebar currentStates={safeCurrentStates} />}
             </div>
           )}
         </div>

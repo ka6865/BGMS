@@ -44,7 +44,7 @@ describe("텔레메트리 소비자 계약", () => {
     expect(mapShellSource).toContain("playbackPlatform");
     expect(mapShellSource).toContain("playbackMode");
     expect(mapShellSource).toMatch(
-      /useTelemetry\(playbackId, playbackNickname, playbackPlatform, playbackMode, activeMapId\)/,
+      /useTelemetry\(playbackId, playbackNickname, playbackPlatform, playbackMode, activeMapId, requestedStartMs, lessonId\)/,
     );
     expect(mapShellSource).not.toMatch(/searchParams\?\.get\(["']platform["']\)\s*\|\|\s*["']steam["']/);
     expect(mapShellSource).toContain("playbackIdentityError");
