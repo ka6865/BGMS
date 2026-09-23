@@ -7,6 +7,8 @@ import { DailyEvidenceLink } from "@/components/learn/DailyEvidenceLink";
 
 export const dynamic = "force-dynamic";
 
+type DailyPageProps = { params: Promise<{ day: string }> };
+
 function formatDate(date: string) {
   const [year, month, day] = date.split("-");
   return year && month && day ? `${year}.${month}.${day}` : date;
@@ -23,7 +25,7 @@ const factKindNames: Record<string, string> = {
   teammate_death: "팀원 사망", fight: "교전", zone: "자기장",
 };
 
-export async function generateMetadata({ params }: PageProps<"/learn/daily/[day]">): Promise<Metadata> {
+export async function generateMetadata({ params }: DailyPageProps): Promise<Metadata> {
   const { day } = await params;
   const story = await getDailyRankerStory(day);
   return story
@@ -31,7 +33,7 @@ export async function generateMetadata({ params }: PageProps<"/learn/daily/[day]
     : { title: "전날 경기 분석 | BGMS" };
 }
 
-export default async function DailyRankerStoryPage({ params }: PageProps<"/learn/daily/[day]">) {
+export default async function DailyRankerStoryPage({ params }: DailyPageProps) {
   const { day } = await params;
   const story = await getDailyRankerStory(day);
   if (!story) notFound();

@@ -11,6 +11,7 @@ type Candidate = { accountId: string; nickname: string; rank: number };
 const PUBG_BASE = "https://api.pubg.com/shards/steam";
 const MAX_PLAYERS_PER_MODE = 20;
 const MAX_MATCHES_PER_PLAYER = 14;
+const MAX_SEARCH_MS = 12 * 60 * 1000;
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -28,8 +29,8 @@ function validDay(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && kstDate(new Date(`${value}T00:00:00+09:00`)) === value;
 }
 
-async function readJson(url: string, headers: Record<string, string>, maxBytes: number): Promise<unknown> {
-  const response = await fetch(url, { headers, redirect: "error", signal: AbortSignal.timeout(30_000) });
+async function readJson(url: string, headers: Record<string, string>, maxBytes: number, timeoutMs = 30_000): Promise<unknown> {
+  const response = await fetch(url, { headers, redirect: "error", signal: AbortSignal.timeout(timeoutMs) });
   if (!response.ok) throw new Error(`upstream_${response.status}:${new URL(url).pathname.slice(0, 90)}`);
   const length = Number(response.headers.get("content-length"));
   if (length > maxBytes) throw new Error("payload_too_large");
@@ -85,6 +86,10 @@ export function isWinningMatch(value: unknown, candidate: Candidate, day: string
 }
 
 async function selectEvidence(day: string, key: string): Promise<DailyEvidence | null> {
+  const searchDeadline = Date.now() + MAX_SEARCH_MS;
+  const checkSearchBudget = () => {
+    if (Date.now() >= searchDeadline) throw new Error("daily_story_search_budget_exhausted");
+  };
   const headers = pubgHeaders(key);
   const seasons = record(await readJson(`${PUBG_BASE}/seasons`, headers, 2_000_000));
   const season = (Array.isArray(seasons?.data) ? seasons.data : []).map(record)
@@ -92,10 +97,12 @@ async function selectEvidence(day: string, key: string): Promise<DailyEvidence |
   if (typeof season?.id !== "string") throw new Error("current_season_missing");
   const modes: ("solo" | "squad")[] = Number(day.slice(-2)) % 2 === 0 ? ["solo", "squad"] : ["squad", "solo"];
   for (const mode of modes) {
+    checkSearchBudget();
     const board = await readJson(`https://api.pubg.com/shards/pc-as/leaderboards/${encodeURIComponent(season.id)}/${mode}`, headers, 5_000_000);
     const players = parseLeaderboard(board);
     // The players batch endpoint costs one rate-limited call for up to ten IDs.
     for (let offset = 0; offset < players.length; offset += 10) {
+      checkSearchBudget();
       const batch = players.slice(offset, offset + 10);
       const ids = batch.map((player) => player.accountId).join(",");
       const playerResponse = record(await readJson(`${PUBG_BASE}/players?filter[playerIds]=${encodeURIComponent(ids)}`, headers, 6_000_000));
@@ -107,9 +114,17 @@ async function selectEvidence(day: string, key: string): Promise<DailyEvidence |
         const refs = Array.isArray(record(record(player?.relationships)?.matches)?.data)
           ? record(record(player?.relationships)?.matches)?.data as unknown[] : [];
         for (const rawRef of refs.slice(0, MAX_MATCHES_PER_PLAYER)) {
+          checkSearchBudget();
           const id = record(rawRef)?.id;
           if (typeof id !== "string" || !/^[A-Za-z0-9._-]{1,160}$/.test(id)) continue;
-          const match = await readJson(`${PUBG_BASE}/matches/${encodeURIComponent(id)}`, headers, 8_000_000);
+          let match: unknown;
+          try {
+            match = await readJson(`${PUBG_BASE}/matches/${encodeURIComponent(id)}`, headers, 8_000_000, 10_000);
+          } catch (error) {
+            if (error instanceof Error && error.message.startsWith("upstream_429:")) throw error;
+            console.warn(`DAILY_STORY_MATCH_SKIPPED:${id}:${error instanceof Error ? error.message : String(error)}`);
+            continue;
+          }
           if (isWinningMatch(match, candidate, day, mode)) {
             const matchData = record(record(match)?.data);
             const attributes = record(matchData?.attributes);

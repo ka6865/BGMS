@@ -7,11 +7,13 @@ import CombatTimeline from "@/components/learn/CombatTimeline";
 import WinSummary from "@/components/learn/WinSummary";
 import { formatLessonTime, getRankerLesson, rankerLessons, rankerReplayHref } from "@/lib/learn/lessons";
 
+type LessonPageProps = { params: Promise<{ lessonId: string }> };
+
 export function generateStaticParams() {
   return rankerLessons.filter((lesson) => lesson.id === "2026-09-22-solo").map((lesson) => ({ lessonId: lesson.id }));
 }
 
-export async function generateMetadata({ params }: PageProps<"/learn/[lessonId]">): Promise<Metadata> {
+export async function generateMetadata({ params }: LessonPageProps): Promise<Metadata> {
   const { lessonId } = await params;
   const lesson = getRankerLesson(lessonId);
   return lesson ? {
@@ -20,7 +22,7 @@ export async function generateMetadata({ params }: PageProps<"/learn/[lessonId]"
   } : { title: "전술 브리핑 | BGMS" };
 }
 
-export default async function RankerBriefingPage({ params }: PageProps<"/learn/[lessonId]">) {
+export default async function RankerBriefingPage({ params }: LessonPageProps) {
   const { lessonId } = await params;
   const lesson = getRankerLesson(lessonId);
   if (!lesson || lesson.id !== "2026-09-22-solo") notFound();
