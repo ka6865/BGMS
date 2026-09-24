@@ -31,14 +31,12 @@ export default function LearnPage() {
             <p className="text-sm text-emerald-300">스팀 경쟁전 {lesson.gameMode === "solo" ? "솔로" : "스쿼드"} · {lesson.mapLabel} · TPP</p>
             <h2 className="mt-3 text-xl font-bold leading-8">{lesson.title}</h2>
             <p className="mt-3 break-all text-sm text-zinc-300">{lesson.nickname}</p>
-            <p className="mt-1 text-xs leading-6 text-zinc-400">2026.09.22 경기 · 1위 · 개인 {lesson.kills}킬 · {lesson.damage.toLocaleString("ko-KR")} 대미지</p>
+            <p className="mt-1 text-xs leading-6 text-zinc-400">2026.09.22 경기 · 개인 {lesson.kills}킬 · {lesson.damage.toLocaleString("ko-KR")} 대미지{lesson.teamTotalKills !== undefined ? ` · 팀 합계 ${lesson.teamTotalKills}킬` : ""}</p>
             <p className="text-xs leading-6 text-zinc-500">2026.09.23 조회한 AS 리더보드 {lesson.rank}위 · 모드별 순위 아님</p>
             <div className="mt-5 grid gap-2 sm:grid-cols-2">
-              {lesson.id === "2026-09-22-solo" ? (
-                <Link href={`/learn/${lesson.id}`} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-300 px-4 py-3 text-sm font-bold text-zinc-950 hover:bg-emerald-200">
-                  <BookOpen size={17} /> 1분 전술 브리핑
-                </Link>
-              ) : null}
+              <Link href={`/learn/${lesson.id}`} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-emerald-300 px-4 py-3 text-sm font-bold text-zinc-950 hover:bg-emerald-200">
+                <BookOpen size={17} /> 장면 해설 읽기
+              </Link>
               <Link href={rankerReplayHref(lesson)} prefetch={false} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-zinc-700 px-4 py-3 text-sm font-semibold text-zinc-100 hover:border-emerald-400">
                 <MapPinned size={17} /> 지도 리플레이
               </Link>
@@ -46,7 +44,7 @@ export default function LearnPage() {
             <ol className="mt-5 divide-y divide-zinc-800">
               {lesson.scenes.map((scene) => (
                 <li key={scene.id}>
-                  <Link href={lesson.id === "2026-09-22-solo" ? `/learn/${lesson.id}#${scene.id}` : rankerReplayHref(lesson, scene)} prefetch={false} className="flex min-h-12 items-center gap-3 py-3 text-sm text-zinc-300 hover:text-emerald-300">
+                  <Link href={`/learn/${lesson.id}#${scene.id}`} className="flex min-h-12 items-center gap-3 py-3 text-sm text-zinc-300 hover:text-emerald-300">
                     <span className="shrink-0 font-mono text-xs text-zinc-500">{formatLessonTime(scene.anchorSeconds)}</span>
                     <span className="min-w-0 flex-1 break-keep">{scene.title}</span><ArrowUpRight size={15} className="shrink-0" />
                   </Link>

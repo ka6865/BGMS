@@ -24,7 +24,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const lessonEntries: MetadataRoute.Sitemap = [
     { url: `${siteUrl}/learn`, lastModified: new Date(), changeFrequency: 'weekly', priority: 0.6 },
     { url: `${siteUrl}/learn/daily`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.7 },
-    ...rankerLessons.filter((lesson) => lesson.id === '2026-09-22-solo').map((lesson) => ({
+    ...rankerLessons.map((lesson) => ({
       url: `${siteUrl}/learn/${lesson.id}`,
       lastModified: new Date(),
       changeFrequency: 'monthly' as const,

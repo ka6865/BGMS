@@ -136,9 +136,9 @@ export default async function DailyRankerStoryPage({ params }: DailyPageProps) {
         </div>}
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/5 p-5">
           <p className="text-xs font-semibold text-amber-300">04 · 마지막</p>
-          <h2 className="mt-1 text-lg font-bold">우승 직전 팀 처치</h2>
+          <h2 className="mt-1 text-lg font-bold">우승 직전 {story.mode === "squad" ? "팀 처치" : "처치"}</h2>
           {finalKills.length ? <p className="mt-3 text-sm leading-7 text-zinc-200">{finalKills.map((kill) => `${formatTime(kill.timeSeconds)} ${kill.killer} → ${kill.victim} 처치 · ${kill.weapon}${kill.distanceMeters === undefined ? "" : ` · 약 ${kill.distanceMeters}m`}`).join(" / ")}</p>
-            : <p className="mt-3 text-sm leading-6 text-zinc-400">팀 전체 처치 상세 기록이 저장되지 않은 경기입니다. 아래 개인 처치와 세부 이벤트를 확인해 주세요.</p>}
+            : <p className="mt-3 text-sm leading-6 text-zinc-400">{story.mode === "squad" ? "팀 전체" : "개인"} 처치 상세 기록이 저장되지 않은 경기입니다. 아래 개인 처치와 세부 이벤트를 확인해 주세요.</p>}
           {finalFacts.length ? <ul className="mt-3 space-y-2 border-t border-zinc-700/70 pt-3 text-xs leading-5 text-zinc-300">{finalFacts.map((fact) => <li key={fact.id}>{formatTime(fact.timeSeconds)} · {fact.text}</li>)}</ul> : null}
           {unlinkedFinalGrenade ? <p className="mt-3 text-xs leading-5 text-amber-200">직전에 던진 수류탄으로 상대가 피해를 입은 것은 확인됩니다. 다만 마지막 처치 기록에는 어떤 투척물이었는지 연결할 정보가 없어, 그 수류탄이 마무리했는지는 확정할 수 없습니다.</p> : null}
           <p className="mt-3 text-xs leading-5 text-zinc-500">무기는 처치 기록을 기준으로 표시합니다. 투척·피해·처치가 같은 공격으로 연결되는지 확인되지 않으면 하나의 행동으로 묶지 않습니다.</p>

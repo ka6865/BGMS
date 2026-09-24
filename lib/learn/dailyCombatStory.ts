@@ -11,12 +11,41 @@ export type DailyEncounterAction = {
   distanceMeters: number | null;
 };
 
+export type DailyEncounterSnapshotPoint = {
+  player: string;
+  side: "ally" | "opponent";
+  directlyInvolved: boolean;
+  x: number;
+  y: number;
+  sampleTimeSeconds: number;
+  ageSeconds: number;
+};
+
+export type DailyEncounterSnapshot = {
+  offsetSeconds: -30 | 0 | 30;
+  anchorLabel: "처음 기록된 피해" | "처음 기록된 교전 행동";
+  targetTimeSeconds: number;
+  points: DailyEncounterSnapshotPoint[];
+  missingPlayers: string[];
+};
+
 export type DailyEncounter = {
   id: string;
   startSeconds: number;
   endSeconds: number;
   opponents: string[];
   allies: string[];
+  /** Stable telemetry identity used to group this opponent team across cards. */
+  opponentIdentity?: { key: string; teamId: number | null; playerIds: string[] };
+  /** Roster members observed directly in combat, separate from the full allied roster. */
+  involvedAllies?: string[];
+  rosterAllies?: string[];
+  /** A later, separate card for the same opponent identity. */
+  reengagement?: { isReengagement: boolean; previousEncounterId: string | null; gapSeconds: number | null };
+  /** Other encounter intervals that intersect this card's observed event interval. */
+  overlapsWith?: string[];
+  /** Sparse relative position samples around the first recorded damage/action. */
+  snapshots?: DailyEncounterSnapshot[];
   teamKills: number;
   rankerWeapons: string[];
   firstRankerShot: { timeSeconds: number; weapon: string } | null;
@@ -57,6 +86,7 @@ type CombatEvent = {
   source: Event;
   timeSeconds: number;
   opponentKey: string;
+  opponentTeamId: number | null;
   ally: Event;
   opponent: Event;
   kind: "hit" | "knock" | "kill";
@@ -84,9 +114,10 @@ export function buildDailyCombatStory(events: Event[], startMs: number, targetId
     const ally = attackerAlly ? attacker : victim;
     const opponent = attackerAlly ? victim : attacker;
     if (!opponent || !ally) continue;
-    const opponentKey = Number.isInteger(opponent.teamId) && opponent.teamId > 0
-      ? `team-${opponent.teamId}` : `player-${id(opponent) ?? name(opponent)}`;
-    combat.push({ source: event, timeSeconds, opponentKey, ally, opponent, kind });
+    const opponentTeamId = Number.isInteger(opponent.teamId) && opponent.teamId > 0 ? opponent.teamId : null;
+    const opponentKey = opponentTeamId !== null
+      ? `team-${opponentTeamId}` : `player-${id(opponent) ?? name(opponent)}`;
+    combat.push({ source: event, timeSeconds, opponentKey, opponentTeamId, ally, opponent, kind });
   }
   combat.sort((a, b) => a.timeSeconds - b.timeSeconds);
 
@@ -100,16 +131,68 @@ export function buildDailyCombatStory(events: Event[], startMs: number, targetId
   }
 
   const landing = events.filter((event) => event._T === "LogParachuteLanding");
-  const positions = events.filter((event) => event._T === "LogPlayerPosition" && rosterIds.has(id(event.character)))
+  const positions = events.filter((event) => event._T === "LogPlayerPosition"
+      && typeof id(event.character) === "string"
+      && Number.isFinite(event.character?.location?.x) && Number.isFinite(event.character?.location?.y))
     .map((event) => ({ event, timeSeconds: seconds(event, startMs) }))
     .sort((a, b) => (a.timeSeconds ?? 0) - (b.timeSeconds ?? 0));
+  const positionsByPlayer = new Map<string, typeof positions>();
+  for (const position of positions) {
+    const playerId = id(position.event.character);
+    if (typeof playerId !== "string") continue;
+    const samples = positionsByPlayer.get(playerId) ?? [];
+    samples.push(position);
+    positionsByPlayer.set(playerId, samples);
+  }
   const targetLanding = landing.find((event) => id(event.character) === targetId);
   const encounters = groups.flatMap((group, index): DailyEncounter[] => {
     const first = group[0];
     const last = group.at(-1)!;
     const opponents = [...new Set(group.map((item) => name(item.opponent)))];
-    const allies = [...new Set(group.map((item) => name(item.ally)))];
+    const involvedAllies = [...new Set(group.map((item) => name(item.ally)))];
+    const subjects = new Map<string, { player: string; side: "ally" | "opponent"; directlyInvolved: boolean }>();
+    for (const playerId of rosterIds) {
+      const playerName = participantNames.get(playerId);
+      if (playerName) subjects.set(playerId, { player: playerName, side: "ally", directlyInvolved: false });
+    }
+    for (const item of group) {
+      const allyId = id(item.ally);
+      const opponentId = id(item.opponent);
+      if (typeof allyId === "string") subjects.set(allyId, { player: name(item.ally), side: "ally", directlyInvolved: true });
+      if (typeof opponentId === "string") subjects.set(opponentId, { player: name(item.opponent), side: "opponent", directlyInvolved: true });
+    }
+    const rosterAllies = [...rosterIds].map((playerId) => participantNames.get(playerId)).filter((value): value is string => Boolean(value));
     const firstHit = group.find((item) => item.kind === "hit");
+    const anchorSeconds = firstHit?.timeSeconds ?? first.timeSeconds;
+    const snapshots = ([-30, 0, 30] as const).map((offsetSeconds) => {
+      const targetTimeSeconds = anchorSeconds + offsetSeconds;
+      const anchorLabel: DailyEncounterSnapshot["anchorLabel"] = firstHit ? "처음 기록된 피해" : "처음 기록된 교전 행동";
+      const points: DailyEncounterSnapshotPoint[] = [];
+      const missingPlayers: string[] = [];
+      for (const [playerId, subject] of subjects) {
+        const samples = positionsByPlayer.get(playerId) ?? [];
+        let low = 0;
+        let high = samples.length;
+        while (low < high) {
+          const mid = (low + high) >>> 1;
+          if ((samples[mid].timeSeconds ?? Infinity) < targetTimeSeconds) low = mid + 1;
+          else high = mid;
+        }
+        const candidates = [samples[low - 1], samples[low]].filter((item) => item?.timeSeconds !== null && item);
+        const closest = candidates.sort((a, b) => Math.abs(a.timeSeconds! - targetTimeSeconds) - Math.abs(b.timeSeconds! - targetTimeSeconds))[0];
+        const ageSeconds = closest ? Math.abs(closest.timeSeconds! - targetTimeSeconds) : Infinity;
+        const nearest = closest && ageSeconds <= 45
+          ? { event: closest.event, timeSeconds: closest.timeSeconds!, ageSeconds } : null;
+        if (!nearest) {
+          missingPlayers.push(subject.player);
+          continue;
+        }
+        points.push({ player: subject.player, side: subject.side, directlyInvolved: subject.directlyInvolved,
+          x: nearest.event.character.location.x, y: nearest.event.character.location.y,
+          sampleTimeSeconds: nearest.timeSeconds, ageSeconds: nearest.ageSeconds });
+      }
+      return { offsetSeconds, anchorLabel, targetTimeSeconds, points, missingPlayers };
+    });
     const actions: DailyEncounterAction[] = [];
     if (firstHit) actions.push({
       timeSeconds: firstHit.timeSeconds, kind: "first_hit",
@@ -137,8 +220,7 @@ export function buildDailyCombatStory(events: Event[], startMs: number, targetId
       && (seconds(event, startMs) ?? -Infinity) <= last.timeSeconds + 1)
       .map((event) => ({ timeSeconds: seconds(event, startMs)!, weapon: weaponName(event.weapon?.itemId) }))
       .filter((shot) => shot.weapon !== "무기 확인 불가" && !["수류탄", "화염병", "연막탄", "섬광탄"].includes(shot.weapon));
-    const recentShots = recordedShots.filter((shot) => shot.timeSeconds >= last.timeSeconds - 30);
-    const shots = (recentShots.length ? recentShots : recordedShots).map((shot) => shot.weapon);
+    const shots = recordedShots.map((shot) => shot.weapon);
     const rankerWeapons = shots.filter((weapon, shotIndex) => shotIndex === 0 || weapon !== shots[shotIndex - 1]);
     const nearbyLandings = targetLanding && first.timeSeconds < 300
       ? landing.filter((event) => opponents.includes(name(event.character))
@@ -165,9 +247,29 @@ export function buildDailyCombatStory(events: Event[], startMs: number, targetId
       return meters === null ? [] : [{ player: name(near!.event.character), meters }];
     });
     return [{ id: `encounter-${index + 1}`, startSeconds: first.timeSeconds, endSeconds: last.timeSeconds,
-      opponents, allies, teamKills, rankerWeapons, firstRankerShot: recordedShots[0] ?? null,
-      precontactMovement, arrival, vehicle, actions }];
+      opponents, allies: involvedAllies, opponentIdentity: {
+        key: first.opponentKey, teamId: first.opponentTeamId,
+        playerIds: [...new Set(group.map((item) => id(item.opponent)).filter((value): value is string => typeof value === "string"))],
+      }, involvedAllies, rosterAllies, teamKills, rankerWeapons, firstRankerShot: recordedShots[0] ?? null,
+      precontactMovement, arrival, vehicle, actions, snapshots }];
   });
+
+  const previousByOpponent = new Map<string, DailyEncounter>();
+  for (const encounter of encounters) {
+    const key = encounter.opponentIdentity?.key;
+    if (!key) continue;
+    const previous = previousByOpponent.get(key);
+    encounter.reengagement = previous
+      ? { isReengagement: true, previousEncounterId: previous.id,
+        gapSeconds: Math.max(0, encounter.startSeconds - previous.endSeconds) }
+      : { isReengagement: false, previousEncounterId: null, gapSeconds: null };
+    previousByOpponent.set(key, encounter);
+  }
+  for (const encounter of encounters) {
+    encounter.overlapsWith = encounters.filter((other) => other !== encounter
+      && other.startSeconds <= encounter.endSeconds && encounter.startSeconds <= other.endSeconds)
+      .map((other) => other.id);
+  }
 
   const pickupKinds = new Set(["LogItemPickup", "LogItemPickupFromLootBox", "LogItemPickupFromLootbox",
     "LogItemPickupFromCarepackage", "LogItemPickupFromVehicleTrunk"]);

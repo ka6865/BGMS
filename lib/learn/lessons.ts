@@ -52,7 +52,7 @@ export type RankerLesson = {
     weapons: { name: string; kills: number }[];
     kills: { timeSeconds: number; victim: string; weapon: string; distanceMeters?: number }[];
   };
-  teamTotalKills: number;
+  teamTotalKills?: number;
   durationSeconds: number;
   replayIdentity: TelemetryPublicIdentity;
   scenes: RankerScene[];

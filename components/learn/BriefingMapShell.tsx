@@ -2,14 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import type { RoutePoint } from "./DailyRouteMap";
+import type { RankerScene } from "@/lib/learn/lessons";
 
-const DailyRouteMap = dynamic(() => import("./DailyRouteMap"), {
-  ssr: false,
-  loading: () => <div className="h-[280px] animate-pulse rounded-xl bg-zinc-800" aria-label="위치 지도 불러오는 중" />,
-});
+const BriefingMap = dynamic(() => import("./BriefingMap"), { ssr: false });
 
-export function DailyRouteMapShell(props: { route: RoutePoint[]; mapName: string; nickname: string }) {
+export default function BriefingMapShell({ snapshot, mapId }: {
+  snapshot: NonNullable<RankerScene["mapSnapshot"]>;
+  mapId: string;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [nearby, setNearby] = useState(false);
 
@@ -24,13 +24,13 @@ export function DailyRouteMapShell(props: { route: RoutePoint[]; mapName: string
         setNearby(true);
         observer.disconnect();
       }
-    }, { rootMargin: "300px" });
+    }, { rootMargin: "400px" });
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
 
   return <div ref={containerRef}>
-    {nearby ? <DailyRouteMap {...props} />
-      : <div className="flex h-[280px] items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/50 text-sm text-zinc-400 sm:h-[380px]">팀 이동 지도</div>}
+    {nearby ? <BriefingMap snapshot={snapshot} mapId={mapId} />
+      : <div className="grid aspect-square place-items-center rounded-xl border border-zinc-800 bg-zinc-900/60 text-sm text-zinc-400">장면 지도</div>}
   </div>;
 }

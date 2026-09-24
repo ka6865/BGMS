@@ -176,7 +176,7 @@ export async function publishDailyRankerStory(options: { day: string; apply: boo
     nickname: evidence.nickname, mode: evidence.mode, map_name: evidence.mapName,
     leaderboard_rank: evidence.leaderboardRank, played_at: evidence.playedAt,
     kills: evidence.kills, damage: evidence.damage, team_kills: evidence.teamKills,
-    story, evidence: { source: "PUBG API", version: 3, facts: evidence.facts, killEvents: evidence.killEvents,
+    story, evidence: { source: "PUBG API", version: 4, facts: evidence.facts, killEvents: evidence.killEvents,
       teamKillEvents: evidence.teamKillEvents, roster: evidence.roster, encounters: evidence.encounters,
       weaponFinds: evidence.weaponFinds },
     model, prompt_version: DAILY_STORY_PROMPT_VERSION,

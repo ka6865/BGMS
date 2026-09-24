@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { cache } from "react";
 import type { DailyEncounter, DailyWeaponFind } from "./dailyCombatStory";
 
 export type DailyRankerStory = {
@@ -45,6 +46,15 @@ type StoryRow = {
 };
 
 const FIELDS = "day_kst,match_id,nickname,mode,map_name,leaderboard_rank,played_at,published_at,kills,damage,team_kills,story";
+const LIST_FIELDS = "day_kst,nickname,mode,map_name,leaderboard_rank,published_at,kills,damage,headline:story->>headline,conclusion:story->>conclusion";
+
+export type DailyStorySummary = Pick<DailyRankerStory,
+  "dayKst" | "nickname" | "mode" | "mapName" | "leaderboardRank" | "publishedAt" | "kills" | "damage" | "headline" | "conclusion">;
+
+type StoryListRow = Pick<StoryRow, "day_kst" | "nickname" | "mode" | "map_name" | "leaderboard_rank" | "published_at" | "kills" | "damage"> & {
+  headline: string;
+  conclusion: string;
+};
 
 function storyClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -70,16 +80,27 @@ function toStory(row: StoryRow): DailyRankerStory {
   };
 }
 
-export async function listDailyRankerStories(limit = 30): Promise<DailyRankerStory[]> {
+export async function listDailyRankerStories(limit = 30): Promise<DailyStorySummary[]> {
   const db = storyClient();
   if (!db) return [];
   const { data, error } = await db.from("daily_ranker_stories")
-    .select(FIELDS).order("day_kst", { ascending: false }).limit(Math.max(1, Math.min(limit, 100)));
+    .select(LIST_FIELDS).order("day_kst", { ascending: false }).limit(Math.max(1, Math.min(limit, 100)));
   if (error) throw new Error(`daily-story-list:${error.code}`);
-  return ((data ?? []) as unknown as StoryRow[]).map(toStory);
+  return ((data ?? []) as unknown as StoryListRow[]).map((row) => ({
+    dayKst: row.day_kst,
+    nickname: row.nickname,
+    mode: row.mode,
+    mapName: row.map_name,
+    leaderboardRank: row.leaderboard_rank,
+    publishedAt: row.published_at,
+    kills: row.kills,
+    damage: row.damage,
+    headline: row.headline,
+    conclusion: row.conclusion,
+  }));
 }
 
-export async function getDailyRankerStory(day: string): Promise<DailyRankerStory | null> {
+export const getDailyRankerStory = cache(async (day: string): Promise<DailyRankerStory | null> => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return null;
   const db = storyClient();
   if (!db) return null;
@@ -87,4 +108,4 @@ export async function getDailyRankerStory(day: string): Promise<DailyRankerStory
     .select(FIELDS).eq("day_kst", day).maybeSingle();
   if (error) throw new Error(`daily-story-read:${error.code}`);
   return data ? toStory(data as unknown as StoryRow) : null;
-}
+});
