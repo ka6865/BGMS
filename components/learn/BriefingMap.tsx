@@ -109,7 +109,7 @@ export default function BriefingMap({ snapshot, mapId }: { snapshot: Snapshot; m
         {snapshot.zone && (
           <circle cx={snapshot.zone.x} cy={mapY(snapshot.zone.y)} r={snapshot.zone.radius} fill="#facc15" fillOpacity="0.07" stroke="#facc15" strokeWidth={view.size * 0.004} strokeDasharray={`${view.size * 0.05} ${view.size * 0.035}`} />
         )}
-        {snapshot.path.length > 1 && <polyline points={path} fill="none" stroke="#34d399" strokeWidth={view.size * 0.005} strokeLinecap="round" strokeLinejoin="round" opacity="0.95" />}
+        {snapshot.path.length > 1 && <polyline points={path} fill="none" stroke="#34d399" strokeWidth={view.size * 0.005} strokeDasharray={`${view.size * 0.015} ${view.size * 0.012}`} strokeLinecap="round" strokeLinejoin="round" opacity="0.95" />}
         {start && <circle cx={start.x} cy={mapY(start.y)} r={playerMarkerRadius} fill="#34d399" stroke="white" strokeWidth={markerStroke} />}
         {moved && current && <circle cx={current.x} cy={mapY(current.y)} r={playerMarkerRadius} fill="#34d399" stroke="white" strokeWidth={markerStroke} />}
         {snapshot.kills?.map((kill, index) => (
@@ -117,7 +117,7 @@ export default function BriefingMap({ snapshot, mapId }: { snapshot: Snapshot; m
         ))}
         {snapshot.marks?.map((mark, index) => (
           <g key={`${mark.label}-${index}`}>
-            <circle cx={mark.x} cy={mapY(mark.y)} r={playerMarkerRadius * 0.8} fill={mark.kind === "throw" ? "#fb923c" : "#60a5fa"} stroke="white" strokeWidth={markerStroke} />
+            <circle cx={mark.x} cy={mapY(mark.y)} r={playerMarkerRadius * 0.8} fill={mark.kind === "throw" ? "#fb923c" : mark.kind === "teammate" ? "#22d3ee" : "#60a5fa"} stroke="white" strokeWidth={markerStroke} />
             <title>{mark.label}</title>
           </g>
         ))}
@@ -131,7 +131,9 @@ export default function BriefingMap({ snapshot, mapId }: { snapshot: Snapshot; m
         <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-400" />{snapshot.playerLabel ?? "선수 위치"}</span>
         {snapshot.zone && <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-yellow-400" />관측된 원</span>}
         {!!snapshot.kills?.length && <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-rose-400" />처치 기록</span>}
-        {!!snapshot.marks?.length && <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-orange-400" />투척·상대 위치</span>}
+        {snapshot.marks?.some((mark) => mark.kind === "teammate") && <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-cyan-400" />팀원 위치</span>}
+        {snapshot.marks?.some((mark) => mark.kind === "throw") && <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-orange-400" />투척 위치</span>}
+        {snapshot.marks?.some((mark) => mark.kind === "opponent") && <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-blue-400" />상대 위치</span>}
       </div>
     </div>
   );

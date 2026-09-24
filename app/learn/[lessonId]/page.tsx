@@ -53,11 +53,23 @@ export default async function RankerBriefingPage({ params }: LessonPageProps) {
 
       {lesson.winSummary && <WinSummary summary={lesson.winSummary} />}
 
-      {!isSolo ? (
-        <p className="mt-5 rounded-xl border border-sky-900/70 bg-sky-950/30 p-4 text-sm leading-6 text-zinc-300">
-          개인 기록은 {lesson.kills}킬, 팀 합계는 {lesson.teamTotalKills}킬입니다. 아래는 저장된 {lesson.scenes.length}개 장면의 사실과 기록만으로 알 수 없는 점을 정리했습니다. 장면마다 연결된 리플레이는 표시된 시각보다 20초 앞에서 시작합니다.
-        </p>
-      ) : null}
+      {!isSolo && (
+        <section aria-labelledby="squad-summary-heading" className="mt-6 rounded-2xl border border-emerald-900/70 bg-emerald-950/20 p-4 sm:p-5">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-300">경기 요약</p>
+          <h2 id="squad-summary-heading" className="mt-1 text-xl font-bold">팀 {lesson.teamTotalKills}킬 우승 흐름</h2>
+          <p className="mt-3 text-sm leading-6 text-zinc-300">{lesson.nickname}의 개인 기록은 {lesson.kills}킬입니다. 초반 착지 교전 뒤 원으로 이동했고, 팀원이 소생한 뒤 마지막 두 상대를 Mk12와 AUG로 처치하며 팀이 우승했습니다.</p>
+          <h3 className="mt-5 text-sm font-semibold text-zinc-200">주요 시점</h3>
+          <ol className="mt-2 space-y-2">
+            {lesson.scenes.map((scene) => (
+              <li key={scene.id} className="grid min-w-0 grid-cols-[3rem_minmax(0,1fr)] gap-2 text-sm leading-6">
+                <time className="font-mono tabular-nums text-emerald-300">{formatLessonTime(scene.anchorSeconds)}</time>
+                <span className="min-w-0 break-words text-zinc-300">{scene.title}</span>
+              </li>
+            ))}
+          </ol>
+          <p className="mt-4 text-xs leading-5 text-zinc-500">마지막 두 처치의 무기는 확인됐습니다. 다른 처치의 무기와 보급 경로는 이 요약만으로 확정하지 않습니다.</p>
+        </section>
+      )}
 
       <nav aria-label="장면 바로가기" className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-4 sm:p-5">
         <h2 className="text-sm font-bold text-zinc-100">장면 바로가기</h2>
@@ -79,7 +91,7 @@ export default async function RankerBriefingPage({ params }: LessonPageProps) {
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">경기 흐름</p>
             <h2 id="match-flow-heading" className="mt-1 text-xl font-bold">장면별로 읽기</h2>
           </div>
-          <p className="text-xs text-zinc-500">{isSolo ? "기록한 위치와 원을 정지 지도로 볼 수 있어요" : "각 장면에서 확인된 사실과 한계를 먼저 읽어보세요"}</p>
+          <p className="text-xs text-zinc-500">기록한 위치와 원을 정지 지도로 볼 수 있어요</p>
         </div>
 
         <ol className="divide-y divide-zinc-800">
@@ -103,7 +115,7 @@ export default async function RankerBriefingPage({ params }: LessonPageProps) {
               {scene.mapSnapshot && (
                 <figure className="min-w-0">
                   <BriefingMapShell snapshot={scene.mapSnapshot} mapId={lesson.mapId} />
-                  <figcaption className="mt-2 text-xs leading-5 text-zinc-500">보관 기록에서 관측한 위치와 원을 표시했습니다. 원형 표식은 처치 이벤트 위치입니다.</figcaption>
+                  <figcaption className="mt-2 text-xs leading-5 text-zinc-500">기록된 위치를 표시했습니다. 점선은 위치 표본을 이은 선이며 실제 이동 경로를 뜻하지 않습니다. 빨간 점은 처치된 상대의 위치입니다.</figcaption>
                 </figure>
               )}
             </li>
@@ -112,9 +124,7 @@ export default async function RankerBriefingPage({ params }: LessonPageProps) {
       </section>
 
       <p className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-4 text-xs leading-6 text-zinc-400">
-        {isSolo
-          ? "위치는 대체로 10초 간격 관측값입니다. 원 안으로 들어간 정확한 경로와 선수의 의도는 기록만으로 확정할 수 없습니다. 이 한 경기만으로 특정 운영 방식의 우월성을 판단하지 않습니다."
-          : "이 스쿼드 해설에는 정지 지도용 위치 스냅샷이 없습니다. 리플레이 없이 확인할 수 있도록 저장된 장면 사실과 한계를 글로 정리했으며, 이동 경로나 교전 의도는 기록만으로 확정하지 않습니다."}
+        위치는 대체로 10초 간격 관측값입니다. 원 안으로 들어간 정확한 경로와 선수의 의도는 기록만으로 확정할 수 없습니다. 이 한 경기만으로 특정 운영 방식의 우월성을 판단하지 않습니다.
       </p>
       <Link href={rankerReplayHref(lesson)} prefetch={false} className="mt-5 flex min-h-12 items-center justify-center gap-2 rounded-xl bg-emerald-300 px-4 py-3 text-sm font-bold text-zinc-950 hover:bg-emerald-200">
         전체 지도 리플레이 열기 <ArrowUpRight size={16} />

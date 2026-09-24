@@ -24,7 +24,7 @@ export type RankerScene = {
     path: { x: number; y: number }[];
     zone?: { x: number; y: number; radius: number };
     kills?: { x: number; y: number }[];
-    marks?: { x: number; y: number; kind: "throw" | "opponent"; label: string }[];
+    marks?: { x: number; y: number; kind: "throw" | "opponent" | "teammate"; label: string }[];
     viewSize: number;
     playerLabel?: string;
   };
