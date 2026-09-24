@@ -66,6 +66,7 @@ export default async function RankerBriefingPage({ params }: LessonPageProps) {
                 <p className="text-xs font-semibold text-emerald-300">{String(index + 1).padStart(2, "0")} · {formatLessonTime(scene.anchorSeconds)}</p>
                 <h3 className="mt-1 text-lg font-bold leading-7">{scene.title}</h3>
                 <p className="mt-3 text-sm leading-7 text-zinc-300">{scene.fact}</p>
+                {scene.context && <div className="mt-3 border-l-2 border-sky-500/70 pl-3"><p className="text-xs font-semibold text-sky-200">당시 상황</p><p className="mt-1 text-sm leading-6 text-zinc-300">{scene.context}</p></div>}
                 {scene.combatEvents && <CombatTimeline events={scene.combatEvents} />}
                 <details className="mt-3 text-xs leading-6 text-zinc-500">
                   <summary className="min-h-11 cursor-pointer py-2 text-zinc-400">이 기록으로 알 수 없는 점</summary>

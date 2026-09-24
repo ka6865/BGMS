@@ -311,7 +311,7 @@ export function buildDailyEvidence({ match, events, candidate, dayKst }: Input):
     const totalDamage = Math.round(damageEvents.reduce((sum, hit) => sum + hit.damage, 0));
     const victims = [...new Set(damageEvents.map((hit) => String(hit.victim?.name ?? "상대")))];
     facts.push({ id: `throwable-${timeSeconds.toFixed(3)}-${event.attackId}`, timeSeconds, kind: "throwable",
-      text: `${event.attacker?.name ?? "팀원"} 투척물 ${/^(Item_|Weap|Proj)/.test(weapon) ? "사용" : `${weapon} 사용`} · 같은 attackId(${event.attackId}) 피해 ${victims.length}명, 총 약 ${totalDamage}HP` });
+      text: `${event.attacker?.name ?? "팀원"} ${/^(Item_|Weap|Proj)/.test(weapon) ? "투척물" : weapon} 사용 후 상대 ${victims.length}명에게 총 약 ${totalDamage} 피해` });
   }
 
   const combatEvents = (events as AnyRecord[]).flatMap((event) => {
@@ -411,7 +411,7 @@ export function buildDailyEvidence({ match, events, candidate, dayKst }: Input):
   const limitations = [
     "위치·피해·처치·기절·소생·투척 기록으로 행동을 재구성합니다. 시야, 엄폐, 이동 의도, 교전 선택의 이유나 푸시·방어 전술은 확정할 수 없습니다.",
     "위치 기록은 간헐적인 표본입니다. 표본 사이의 정확한 경로와 자리 선정 이유, 비행기 전체 항로는 확인할 수 없습니다.",
-    "교전 묶음의 첫 피해 기록은 실제 첫 발사와 다를 수 있습니다. 투척물과 피해는 동일 attackId일 때만 연결하며 킬 이벤트에 해당 ID가 없으면 투척-킬 직접 연결은 확정하지 않습니다.",
+    "처음 확인된 피해가 실제 첫 발사와 다를 수 있습니다. 투척과 피해는 같은 공격 기록으로 연결될 때만 한 행동으로 봅니다. 처치 기록까지 연결되지 않으면 마지막 처치에 사용한 투척물은 특정할 수 없습니다.",
     "자기장 거리는 원 공개 후 확인된 독성 가스 경고 원과 직전 15초 내 위치로 계산한 직선거리이며, 실제 이동 경로와 지형은 반영하지 않습니다.",
     ...(mode === "squad" ? ["개인 처치 무기는 킬 귀속자의 공격 기록 기준입니다. 팀원이 다른 무기로 마무리한 경우 그 무기와 다를 수 있습니다."] : []),
   ];

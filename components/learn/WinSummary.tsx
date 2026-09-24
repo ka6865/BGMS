@@ -1,5 +1,5 @@
 import type { RankerLesson } from "@/lib/learn/lessons";
-import { formatLessonTime } from "@/lib/learn/lessons";
+import { formatLessonDistance, formatLessonTime } from "@/lib/learn/lessons";
 
 type WinSummaryData = NonNullable<RankerLesson["winSummary"]>;
 
@@ -48,6 +48,7 @@ export default function WinSummary({ summary }: { summary: WinSummaryData }) {
               <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1">
                 <span className="min-w-0 break-all text-zinc-200">{kill.victim}</span>
                 <span className="break-words text-xs text-zinc-400">{kill.weapon}</span>
+                {kill.distanceMeters !== undefined && <span className="text-xs tabular-nums text-sky-200">약 {formatLessonDistance(kill.distanceMeters)}m</span>}
               </div>
             </li>
           ))}
@@ -55,7 +56,7 @@ export default function WinSummary({ summary }: { summary: WinSummaryData }) {
       </details>
 
       <p className="mt-3 text-xs leading-5 text-zinc-500">
-        무기 집계는 처치 이벤트 기준이며, 이동 의도와 정확한 교전 시야는 기록만으로 알 수 없습니다.
+        거리는 처치 순간 두 선수의 위치를 이은 직선 거리입니다. 무기는 처치 기록 기준이며, 이동 의도와 실제 시야는 기록만으로 알 수 없습니다.
       </p>
     </section>
   );

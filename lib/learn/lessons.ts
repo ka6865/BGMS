@@ -8,6 +8,7 @@ export type RankerScene = {
   anchorSeconds: number;
   startSeconds: number;
   fact: string;
+  context?: string;
   limitation: string;
   combatEvents?: {
     timeSeconds: number;
@@ -16,6 +17,7 @@ export type RankerScene = {
     target?: string;
     weapon?: string;
     damage?: number;
+    distanceMeters?: number;
     note?: string;
   }[];
   mapSnapshot?: {
@@ -48,7 +50,7 @@ export type RankerLesson = {
     intro: string;
     milestones: { timeSeconds: number; text: string }[];
     weapons: { name: string; kills: number }[];
-    kills: { timeSeconds: number; victim: string; weapon: string }[];
+    kills: { timeSeconds: number; victim: string; weapon: string; distanceMeters?: number }[];
   };
   teamTotalKills: number;
   durationSeconds: number;
@@ -91,4 +93,8 @@ export function rankerReplayHref(lesson: RankerLesson, scene = lesson.scenes[0])
 
 export function formatLessonTime(seconds: number) {
   return `${Math.floor(seconds / 60).toString().padStart(2, "0")}:${Math.floor(seconds % 60).toString().padStart(2, "0")}`;
+}
+
+export function formatLessonDistance(meters: number) {
+  return meters < 20 ? Math.round(meters) : Math.round(meters / 5) * 5;
 }

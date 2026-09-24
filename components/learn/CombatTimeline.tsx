@@ -1,5 +1,5 @@
 import type { RankerScene } from "@/lib/learn/lessons";
-import { formatLessonTime } from "@/lib/learn/lessons";
+import { formatLessonDistance, formatLessonTime } from "@/lib/learn/lessons";
 
 const labels = {
   shot: "사격",
@@ -14,7 +14,7 @@ export default function CombatTimeline({ events }: { events: NonNullable<RankerS
     <section aria-label="전투 기록" className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/70 p-3 sm:p-4">
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <h4 className="text-sm font-bold text-zinc-100">전투 기록</h4>
-        <span className="text-[11px] text-zinc-500">기록된 사격·피해·투척·처치</span>
+        <span className="text-[11px] text-zinc-500">사격·피해·투척·처치 순서</span>
       </div>
       <ol className="divide-y divide-zinc-800/90">
         {events.map((event, index) => (
@@ -28,13 +28,15 @@ export default function CombatTimeline({ events }: { events: NonNullable<RankerS
                 <span className="break-all text-zinc-200">{event.actor}</span>
                 {event.weapon && <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">{event.weapon}</span>}
                 {event.target && <span className="break-all text-zinc-400">→ {event.target}</span>}
-                {event.damage !== undefined && <span className="font-medium tabular-nums text-zinc-300">{event.damage.toFixed(1)} HP</span>}
+                {event.distanceMeters !== undefined && <span className="font-medium tabular-nums text-sky-200">약 {formatLessonDistance(event.distanceMeters)}m</span>}
+                {event.damage !== undefined && <span className="font-medium tabular-nums text-zinc-300">피해 {Math.round(event.damage)}</span>}
               </p>
               {event.note && <p className="mt-0.5 break-words leading-5 text-zinc-500">{event.note}</p>}
             </div>
           </li>
         ))}
       </ol>
+      <p className="mt-2 text-[11px] leading-5 text-zinc-500">표시된 거리는 두 선수의 위치 사이 직선 거리입니다. 수류탄이 날아간 거리는 아닙니다.</p>
     </section>
   );
 }

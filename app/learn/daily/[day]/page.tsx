@@ -132,8 +132,8 @@ export default async function DailyRankerStoryPage({ params }: DailyPageProps) {
           {finalKills.length ? <p className="mt-3 text-sm leading-7 text-zinc-200">{finalKills.map((kill) => `${formatTime(kill.timeSeconds)} ${kill.killer}가 ${kill.victim}을(를) ${kill.weapon}으로 처치`).join(" · ")}했습니다.</p>
             : <p className="mt-3 text-sm leading-6 text-zinc-400">팀 전체 처치 상세 기록이 저장되지 않은 경기입니다. 아래 개인 처치와 세부 이벤트를 확인해 주세요.</p>}
           {finalFacts.length ? <ul className="mt-3 space-y-2 border-t border-zinc-700/70 pt-3 text-xs leading-5 text-zinc-300">{finalFacts.map((fact) => <li key={fact.id}>{formatTime(fact.timeSeconds)} · {fact.text}</li>)}</ul> : null}
-          {unlinkedFinalGrenade ? <p className="mt-3 text-xs leading-5 text-amber-200">직전 수류탄 사용과 피해는 같은 attackId로 연결됩니다. 수류탄 처치 이벤트에는 연결 가능한 attackId가 없어, 그 투척이 이 처치를 냈다고 직접 확정할 수 없습니다.</p> : null}
-          <p className="mt-3 text-xs leading-5 text-zinc-500">처치 무기는 킬 귀속 기록 기준입니다. 투척·피해·처치 이벤트의 attackId가 다르면 직접 연결했다고 해석하지 않습니다.</p>
+          {unlinkedFinalGrenade ? <p className="mt-3 text-xs leading-5 text-amber-200">직전에 던진 수류탄으로 상대가 피해를 입은 것은 확인됩니다. 다만 마지막 처치 기록에는 어떤 투척물이었는지 연결할 정보가 없어, 그 수류탄이 마무리했는지는 확정할 수 없습니다.</p> : null}
+          <p className="mt-3 text-xs leading-5 text-zinc-500">무기는 처치 기록을 기준으로 표시합니다. 투척·피해·처치가 같은 공격으로 연결되는지 확인되지 않으면 하나의 행동으로 묶지 않습니다.</p>
         </div>
       </section>
 

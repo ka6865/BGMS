@@ -96,7 +96,7 @@ describe("buildDailyEvidence required input", () => {
     expect(result.route.length).toBeGreaterThanOrEqual(1);
     expect(result.facts).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: "revive", text: expect.stringContaining("소생") }),
-      expect.objectContaining({ kind: "throwable", text: expect.stringContaining("attackId(42)") }),
+      expect.objectContaining({ kind: "throwable", text: expect.stringContaining("상대 1명에게 총 약 80 피해") }),
       expect.objectContaining({ kind: "teammate_kill", text: expect.stringContaining("수류탄") }),
     ]));
   });
