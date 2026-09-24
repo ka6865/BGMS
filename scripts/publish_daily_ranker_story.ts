@@ -167,7 +167,8 @@ export async function publishDailyRankerStory(options: { day: string; apply: boo
   if (!evidence) throw new Error("no_verified_yesterday_winner");
   const { story: aiStory, model } = await generateDailyAiStory(evidence, aiKey);
   const story = { ...aiStory, facts: evidence.facts, weapons: evidence.weapons, killEvents: evidence.killEvents,
-    teamKillEvents: evidence.teamKillEvents, route: evidence.route, aircraft: evidence.aircraft,
+    teamKillEvents: evidence.teamKillEvents, roster: evidence.roster, encounters: evidence.encounters,
+    weaponFinds: evidence.weaponFinds, route: evidence.route, aircraft: evidence.aircraft,
     zones: evidence.zones, limitations: evidence.limitations };
   if (!options.apply) return { state: "preview", dayKst: options.day, matchId: evidence.matchId, story };
   const result = await db.from("daily_ranker_stories").insert({
@@ -175,8 +176,9 @@ export async function publishDailyRankerStory(options: { day: string; apply: boo
     nickname: evidence.nickname, mode: evidence.mode, map_name: evidence.mapName,
     leaderboard_rank: evidence.leaderboardRank, played_at: evidence.playedAt,
     kills: evidence.kills, damage: evidence.damage, team_kills: evidence.teamKills,
-    story, evidence: { source: "PUBG API", version: 2, facts: evidence.facts, killEvents: evidence.killEvents,
-      teamKillEvents: evidence.teamKillEvents },
+    story, evidence: { source: "PUBG API", version: 3, facts: evidence.facts, killEvents: evidence.killEvents,
+      teamKillEvents: evidence.teamKillEvents, roster: evidence.roster, encounters: evidence.encounters,
+      weaponFinds: evidence.weaponFinds },
     model, prompt_version: DAILY_STORY_PROMPT_VERSION,
   });
   if (result.error) {

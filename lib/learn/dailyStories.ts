@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import type { DailyEncounter, DailyWeaponFind } from "./dailyCombatStory";
 
 export type DailyRankerStory = {
   dayKst: string;
@@ -12,13 +13,16 @@ export type DailyRankerStory = {
   kills: number;
   damage: number;
   teamKills: number;
+  roster?: { name: string; kills: number; isRanker: boolean }[];
+  encounters?: DailyEncounter[];
+  weaponFinds?: DailyWeaponFind[];
   headline: string;
   conclusion: string;
   points: { text: string; evidenceIds: string[] }[];
   facts: { id: string; timeSeconds: number; kind: string; text: string }[];
   weapons: { name: string; kills: number }[];
-  killEvents: { timeSeconds: number; victim: string; weapon: string }[];
-  teamKillEvents?: { timeSeconds: number; killer: string; victim: string; weapon: string; attackId?: number | null }[];
+  killEvents: { timeSeconds: number; victim: string; weapon: string; distanceMeters?: number }[];
+  teamKillEvents?: { timeSeconds: number; killer: string; victim: string; weapon: string; attackId?: number | null; distanceMeters?: number }[];
   route?: { timeSeconds: number; x: number; y: number; place: string | null; spreadMeters: number; players: { name: string; x: number; y: number }[] }[];
   aircraft?: { timeSeconds: number; x: number; y: number }[];
   zones: { phase: number; observedSeconds: number; outsideMeters: number | null; firstInsideSeconds: number | null }[];
@@ -37,7 +41,7 @@ type StoryRow = {
   kills: number;
   damage: number;
   team_kills: number;
-  story: Pick<DailyRankerStory, "headline" | "conclusion" | "points" | "facts" | "weapons" | "killEvents" | "teamKillEvents" | "route" | "aircraft" | "zones" | "limitations">;
+  story: Pick<DailyRankerStory, "headline" | "conclusion" | "points" | "facts" | "weapons" | "killEvents" | "teamKillEvents" | "roster" | "encounters" | "weaponFinds" | "route" | "aircraft" | "zones" | "limitations">;
 };
 
 const FIELDS = "day_kst,match_id,nickname,mode,map_name,leaderboard_rank,played_at,published_at,kills,damage,team_kills,story";

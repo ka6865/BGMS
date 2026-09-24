@@ -1,5 +1,6 @@
 import { MAP_NAMES, getTranslatedWeaponName } from "../pubg-analysis/constants";
 import { hasMatchingTelemetryDefinition } from "../pubg-analysis/telemetrySource";
+import { buildDailyCombatStory, type DailyEncounter, type DailyWeaponFind } from "./dailyCombatStory";
 
 export type DailyEvidenceFact = {
   id: string;
@@ -20,10 +21,13 @@ export type DailyEvidence = {
   kills: number;
   damage: number;
   teamKills: number;
+  roster?: { name: string; kills: number; isRanker: boolean }[];
+  encounters?: DailyEncounter[];
+  weaponFinds?: DailyWeaponFind[];
   facts: DailyEvidenceFact[];
   weapons: { name: string; kills: number }[];
-  killEvents: { timeSeconds: number; victim: string; weapon: string }[];
-  teamKillEvents: { timeSeconds: number; killer: string; victim: string; weapon: string; attackId: number | null }[];
+  killEvents: { timeSeconds: number; victim: string; weapon: string; distanceMeters?: number }[];
+  teamKillEvents: { timeSeconds: number; killer: string; victim: string; weapon: string; attackId: number | null; distanceMeters?: number }[];
   route: { timeSeconds: number; x: number; y: number; place: string | null; spreadMeters: number; players: { name: string; x: number; y: number }[] }[];
   aircraft: { timeSeconds: number; x: number; y: number }[];
   zones: { phase: number; observedSeconds: number; outsideMeters: number | null; firstInsideSeconds: number | null }[];
@@ -71,6 +75,12 @@ const eventPosition = (event: AnyRecord) => {
   const location = event.character?.location;
   return record(location) && finite(location.x) && finite(location.y)
     ? { x: location.x / 100, y: location.y / 100 } : null;
+};
+const characterDistance = (first: AnyRecord | undefined, second: AnyRecord | undefined) => {
+  const a = first?.location;
+  const b = second?.location;
+  return record(a) && record(b) && finite(a.x) && finite(a.y) && finite(b.x) && finite(b.y)
+    ? Math.round(Math.hypot(a.x - b.x, a.y - b.y) / 100) : null;
 };
 
 /** Build only measured facts for a verified Steam competitive win. */
@@ -125,9 +135,10 @@ export function buildDailyEvidence({ match, events, candidate, dayKst }: Input):
       // credited killer's damage info describes the weapon behind this kill.
       const victim = typeof event.victim?.name === "string" ? event.victim.name : "알 수 없는 상대";
       const weapon = creditedWeapon(event, candidate.accountId);
-      return { timeSeconds, victim, weapon };
+      const distanceMeters = characterDistance(event.killer, event.victim);
+      return { timeSeconds, victim, weapon, ...(distanceMeters === null ? {} : { distanceMeters }) };
     })
-    .filter((event: { timeSeconds: number; victim: string; weapon: string } | null): event is { timeSeconds: number; victim: string; weapon: string } => event !== null)
+    .filter((event: { timeSeconds: number; victim: string; weapon: string; distanceMeters?: number } | null): event is { timeSeconds: number; victim: string; weapon: string; distanceMeters?: number } => event !== null)
     .sort((a: { timeSeconds: number }, b: { timeSeconds: number }) => a.timeSeconds - b.timeSeconds);
   if (killEvents.length !== stats.kills) throw new Error(`telemetry kill count mismatch: api=${stats.kills}, telemetry=${killEvents.length}`);
 
@@ -141,12 +152,19 @@ export function buildDailyEvidence({ match, events, candidate, dayKst }: Input):
     id: `kill-${index + 1}`,
     timeSeconds: event.timeSeconds,
     kind: "kill",
-    text: `${event.victim} 처치 (${event.weapon})`,
+    text: `${event.victim} 처치 · ${event.weapon}${"distanceMeters" in event ? ` · 상대와 약 ${event.distanceMeters}m` : ""}`,
   }));
 
   const winningRoster = participants.filter((entry: AnyRecord) => entry.attributes.stats.winPlace === 1);
   const rosterIds = new Set<string>(winningRoster.map((entry: AnyRecord) => entry.attributes.stats.playerId).filter((id: unknown): id is string => typeof id === "string"));
   const teammateIds = new Set([...rosterIds].filter((id) => id !== candidate.accountId));
+  const roster = winningRoster.map((entry: AnyRecord) => ({ name: String(entry.attributes.stats.name ?? "이름 확인 불가"),
+    kills: Number(entry.attributes.stats.kills ?? 0), isRanker: entry.attributes.stats.playerId === candidate.accountId }));
+  const participantNames = new Map<string, string>(participants.map((entry: AnyRecord) => [
+    entry.attributes.stats.playerId, String(entry.attributes.stats.name ?? "이름 확인 불가"),
+  ]));
+  const { encounters, weaponFinds } = buildDailyCombatStory(events as AnyRecord[], startMs,
+    candidate.accountId, rosterIds, participantNames);
   const rosterKills = winningRoster.reduce((sum: number, entry: AnyRecord) => {
     const count = entry.attributes.stats.kills;
     return sum + (finite(count) && count >= 0 ? count : 0);
@@ -156,9 +174,11 @@ export function buildDailyEvidence({ match, events, candidate, dayKst }: Input):
     .flatMap((event) => {
       const timeSeconds = relativeSeconds(event, startMs);
       if (timeSeconds === null) return [];
+      const distanceMeters = characterDistance(event.killer, event.victim);
       return [{ timeSeconds, killer: String(event.killer?.name ?? "알 수 없는 팀원"),
         victim: String(event.victim?.name ?? "알 수 없는 상대"),
-        weapon: creditedWeapon(event, characterId(event, "killer")), attackId: finite(event.attackId) ? event.attackId : null }];
+        weapon: creditedWeapon(event, characterId(event, "killer")), attackId: finite(event.attackId) ? event.attackId : null,
+        ...(distanceMeters === null ? {} : { distanceMeters }) }];
     }).sort((a, b) => a.timeSeconds - b.timeSeconds);
   if (teamKillEvents.length !== rosterKills) throw new Error(`telemetry team kill count mismatch: api=${rosterKills}, telemetry=${teamKillEvents.length}`);
   if (mode === "squad") {
@@ -171,7 +191,7 @@ export function buildDailyEvidence({ match, events, candidate, dayKst }: Input):
           id: `teammate-kill-${eventSeconds.toFixed(3)}`,
           timeSeconds: eventSeconds,
           kind: "teammate_kill",
-          text: `팀원 ${event.killer?.name ?? "알 수 없는 팀원"} 처치: ${event.victim?.name ?? "알 수 없는 상대"} (${creditedWeapon(event, characterId(event, "killer"))})`,
+          text: `아군 ${event.killer?.name ?? "알 수 없는 팀원"} → 상대 ${event.victim?.name ?? "알 수 없는 상대"} 처치 · ${creditedWeapon(event, characterId(event, "killer"))}${characterDistance(event.killer, event.victim) === null ? "" : ` · 상대와 약 ${characterDistance(event.killer, event.victim)}m`}`,
         });
       }
       if (teammateIds.has(characterId(event, "victim"))) {
@@ -184,6 +204,14 @@ export function buildDailyEvidence({ match, events, candidate, dayKst }: Input):
       }
     }
   }
+  encounters.forEach((encounter) => {
+    const first = encounter.actions.find((action) => action.kind === "first_hit");
+    facts.push({ id: encounter.id, timeSeconds: encounter.startSeconds, kind: "encounter",
+      text: `상대 팀(${encounter.opponents.join("·")})과 교전 · 첫 확인 피해 ${first ? `${first.actor}의 ${first.weapon} → ${first.victim}${first.distanceMeters === null ? "" : ` (약 ${first.distanceMeters}m)`}` : "확인 불가"} · 아군 ${encounter.teamKills}킬${encounter.rankerWeapons.length ? ` · 랭커가 쏜 총 ${encounter.rankerWeapons.join(" → ")}` : ""}` });
+  });
+  weaponFinds.filter((find) => find.source === "carepackage" || find.source === "lootbox")
+    .forEach((find, index) => facts.push({ id: `weapon-find-${index + 1}`, timeSeconds: find.timeSeconds,
+      kind: "weapon_find", text: `${find.player} · ${find.weapon} 획득 · ${find.source === "carepackage" ? "보급 상자" : `${find.owner ?? "다른 선수"}의 전리품 상자`}` }));
 
   const playerIds = mode === "squad" ? rosterIds : new Set([candidate.accountId]);
   const positionEvents = (events as AnyRecord[]).filter((event) => event._T === "LogPlayerPosition"
@@ -196,7 +224,7 @@ export function buildDailyEvidence({ match, events, candidate, dayKst }: Input):
       return timeSeconds === null || !position ? [] : [{ timeSeconds, ...position }];
     }).slice(0, 12);
   if (aircraft.length) facts.push({ id: "aircraft", timeSeconds: aircraft[0].timeSeconds, kind: "aircraft",
-    text: `비행기 위치 ${aircraft.length}회 관측: ${aircraft.map((item) => `${timeLabel(item.timeSeconds)} (${Math.round(item.x)}, ${Math.round(item.y)})m`).join(" → ")}. 전체 항로는 확인 불가` });
+    text: `비행기 위치가 ${aircraft.length}번 기록됐습니다. 전체 비행 경로는 확인할 수 없습니다.` });
   for (const event of events as AnyRecord[]) {
     if (event._T !== "LogParachuteLanding" || !playerIds.has(characterId(event, "character"))) continue;
     const timeSeconds = relativeSeconds(event, startMs);
@@ -208,12 +236,12 @@ export function buildDailyEvidence({ match, events, candidate, dayKst }: Input):
       && Array.isArray(item.character?.zone) && item.character.zone.length);
     const zone = Array.isArray(event.character?.zone) && event.character.zone.length
       ? event.character.zone : immediatePosition?.character?.zone;
-    const place = Array.isArray(zone) && zone.length ? `, 직후 위치 기록의 지역 ${zone.map(placeName).join(", ")}` : "";
+    const place = Array.isArray(zone) && zone.length ? zone.map(placeName).join(", ") : null;
     facts.push({
       id: characterId(event, "character") === candidate.accountId ? "landing" : `landing-${characterId(event, "character")}`,
       timeSeconds,
       kind: "landing",
-      text: `${mode === "squad" ? `${event.character?.name ?? "팀원"} ` : ""}착지: (${position.x.toFixed(0)}, ${position.y.toFixed(0)})m${place}`,
+      text: `${mode === "squad" ? `${event.character?.name ?? "팀원"} ` : ""}${place ? `${place} 근처에 ` : ""}착지`,
     });
   }
   const route: DailyEvidence["route"] = [];
@@ -264,14 +292,24 @@ export function buildDailyEvidence({ match, events, candidate, dayKst }: Input):
       if (maxDrift <= 150) stableWindow = { start: windowStart, end: windowStart + 180, maxDrift };
     }
     if (stableWindow) facts.push({ id: "stable-position", timeSeconds: stableWindow.start, kind: "hold",
-      text: `${timeLabel(stableWindow.start)}~${timeLabel(stableWindow.end)}에는 팀 ${playerIds.size}명의 위치 표본이 각자의 첫 위치에서 최대 약 ${Math.round(stableWindow.maxDrift)}m 이내로 관측됐습니다. 자리 선정 이유나 방어 의도는 확인할 수 없습니다.` });
+      text: `${timeLabel(stableWindow.start)}~${timeLabel(stableWindow.end)}에는 팀원 ${playerIds.size}명이 각자의 첫 위치에서 최대 약 ${Math.round(stableWindow.maxDrift)}m 안에서 움직였습니다. 왜 그곳에 머물렀는지는 알 수 없습니다.` });
   }
-  for (const [index, event] of (events as AnyRecord[]).filter((item) => item._T === "LogVehicleRide"
-    && characterId(item, "character") === candidate.accountId).entries()) {
+  let lastRide: { seconds: number; vehicle: string } | null = null;
+  for (const event of (events as AnyRecord[]).filter((item) => item._T === "LogVehicleRide"
+    && characterId(item, "character") === candidate.accountId)) {
     const timeSeconds = relativeSeconds(event, startMs);
     if (timeSeconds === null) continue;
+    const vehicleId = String(event.vehicle?.vehicleId ?? "");
+    if (/TransportAircraft/i.test(vehicleId)) {
+      if (!facts.some((fact) => fact.id === "aircraft-board")) {
+        facts.push({ id: "aircraft-board", timeSeconds, kind: "aircraft", text: "비행기 탑승" });
+      }
+      continue;
+    }
+    if (lastRide && lastRide.vehicle === vehicleId && timeSeconds - lastRide.seconds < 3) continue;
+    lastRide = { seconds: timeSeconds, vehicle: vehicleId };
     const vehicle = vehicleName(event.vehicle?.vehicleId);
-    facts.push({ id: `vehicle-${index + 1}`, timeSeconds, kind: "vehicle", text: `${vehicle} 탑승 이벤트` });
+    facts.push({ id: `vehicle-${timeSeconds.toFixed(3)}`, timeSeconds, kind: "vehicle", text: `${vehicle} 탑승` });
   }
   for (const event of events as AnyRecord[]) {
     const timeSeconds = relativeSeconds(event, startMs);
@@ -288,7 +326,7 @@ export function buildDailyEvidence({ match, events, candidate, dayKst }: Input):
     if (event._T === "LogPlayerRevive" && playerIds.has(characterId(event, "reviver"))
       && playerIds.has(characterId(event, "victim"))) {
       facts.push({ id: `revive-${timeSeconds.toFixed(3)}`, timeSeconds, kind: "revive",
-        text: `${event.reviver?.name ?? "팀원"}이 ${event.victim?.name ?? "팀원"} 소생` });
+        text: `${event.reviver?.name ?? "팀원"} → ${event.victim?.name ?? "팀원"} 소생` });
     }
   }
   const teamDamageByAttack = new Map<number, AnyRecord[]>();
@@ -405,7 +443,7 @@ export function buildDailyEvidence({ match, events, candidate, dayKst }: Input):
     id: `zone-${zone.phase}`,
     timeSeconds: zone.observedSeconds,
     kind: "zone",
-    text: `자기장 ${zone.phase}페이즈 관측${zone.outsideMeters === null ? " (위치 근거 없음)" : zone.outsideMeters > 0 ? `: 원 경계 밖 약 ${Math.round(zone.outsideMeters)}m` : ": 관측 시 원 안"}`,
+    text: `${zone.phase}번째 자기장 공개${zone.outsideMeters === null ? " · 당시 위치 확인 불가" : zone.outsideMeters > 0 ? ` · 안전지대까지 약 ${Math.round(zone.outsideMeters)}m` : " · 이미 안전지대 안"}`,
   }));
 
   const limitations = [
@@ -427,6 +465,9 @@ export function buildDailyEvidence({ match, events, candidate, dayKst }: Input):
     kills: stats.kills,
     damage: Math.round(stats.damageDealt),
     teamKills: mode === "squad" ? rosterKills : stats.kills,
+    roster,
+    encounters,
+    weaponFinds,
     facts: facts.sort((a, b) => a.timeSeconds - b.timeSeconds || a.id.localeCompare(b.id)),
     weapons,
     killEvents,

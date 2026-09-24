@@ -101,7 +101,7 @@ export const WEAPON_NAMES: Record<string, string> = {
   
   // SMG
   "WeapUZI_C": "마이크로 UZI", "UZI": "마이크로 UZI", "MicroUZI": "마이크로 UZI", 
-  "WeapUMP45_C": "UMP45", "UMP45": "UMP45", "UMP": "UMP45", 
+  "WeapUMP45_C": "UMP45", "WeapUMP_C": "UMP45", "UMP45": "UMP45", "UMP": "UMP45",
   "WeapVector_C": "벡터", "Vector": "벡터", "WeapTommyGun_C": "토미건", "TommyGun": "토미건", 
   "WeapMP5K_C": "MP5K", "MP5K": "MP5K", "WeapP90_C": "P90", "P90": "P90", "WeapJS9_C": "JS9", "JS9": "JS9",
   

@@ -5,6 +5,7 @@ import { ArrowLeft, Crosshair, Gauge, MapPinned, Trophy } from "lucide-react";
 import { getDailyRankerStory } from "@/lib/learn/dailyStories";
 import { DailyEvidenceLink } from "@/components/learn/DailyEvidenceLink";
 import { DailyRouteMapShell } from "@/components/learn/DailyRouteMapShell";
+import DailyBattleGuide from "@/components/learn/DailyBattleGuide";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,7 @@ function formatTime(seconds: number) {
 const factKindNames: Record<string, string> = {
   aircraft: "비행기", landing: "착지", route: "위치 표본", hold: "위치 유지 관측", vehicle: "이동", kill: "개인 처치", teammate_kill: "팀원 처치",
   teammate_death: "팀원 사망", fight: "교전", zone: "자기장", knock: "상대 기절", down: "아군 기절",
-  revive: "소생", throwable: "투척물 피해",
+  revive: "소생", throwable: "투척물 피해", encounter: "상대 팀 교전", weapon_find: "무기 획득",
 };
 
 export async function generateMetadata({ params }: DailyPageProps): Promise<Metadata> {
@@ -56,12 +57,15 @@ export default async function DailyRankerStoryPage({ params }: DailyPageProps) {
   const teamKills = story.teamKillEvents ?? [];
   const finalSeconds = teamKills.at(-1)?.timeSeconds ?? story.killEvents.at(-1)?.timeSeconds;
   const finalKills = finalSeconds === undefined ? [] : teamKills.filter((kill) => kill.timeSeconds >= finalSeconds - 5);
+  const finalKinds = story.encounters?.length ? ["throwable", "encounter", "kill", "teammate_kill", "knock"]
+    : ["throwable", "fight", "kill", "teammate_kill", "knock"];
   const finalFacts = finalSeconds === undefined ? [] : facts.filter((fact) => fact.timeSeconds >= finalSeconds - 12
-    && fact.timeSeconds <= finalSeconds + 2 && ["throwable", "fight", "kill", "teammate_kill", "knock"].includes(fact.kind));
+    && fact.timeSeconds <= finalSeconds + 2 && finalKinds.includes(fact.kind));
   const unlinkedFinalGrenade = finalKills.some((kill) => kill.weapon === "수류탄" && (kill.attackId === undefined || kill.attackId === null || kill.attackId < 0))
     && finalFacts.some((fact) => fact.kind === "throwable" && fact.text.includes("수류탄"));
   const teamWeapons = [...teamKills.reduce((counts, kill) => counts.set(kill.weapon, (counts.get(kill.weapon) ?? 0) + 1), new Map<string, number>()).entries()]
     .sort((a, b) => b[1] - a[1]);
+  const summaryParts = story.conclusion.split(/\n\s*\n/).filter(Boolean);
 
   return (
     <main className="mx-auto w-full min-w-0 max-w-4xl px-4 py-6 pb-28 text-zinc-100 sm:px-8 sm:py-10">
@@ -85,7 +89,11 @@ export default async function DailyRankerStoryPage({ params }: DailyPageProps) {
       <section className="mt-7 rounded-2xl border border-emerald-400/30 bg-emerald-400/5 p-5 sm:p-6" aria-labelledby="conclusion-heading">
         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-emerald-300">검증된 기록 요약</p>
         <h2 id="conclusion-heading" className="mt-2 text-lg font-bold">기록으로 본 우승 과정</h2>
-        <p className="mt-3 break-words text-sm leading-7 text-zinc-200">{story.conclusion}</p>
+        <div className="mt-3 space-y-4">
+          {summaryParts.map((part, index) => <p key={`${index}-${part.slice(0, 15)}`} className="break-words border-l-2 border-emerald-400/40 pl-3 text-sm leading-7 text-zinc-200">
+            {summaryParts.length > 1 && <span className="mr-2 text-xs font-semibold text-emerald-300">{["시작", "중반", "마지막"][index] ?? "경기 흐름"}</span>}{part}
+          </p>)}
+        </div>
         <details className="mt-5 border-t border-emerald-400/20 pt-2">
           <summary className="min-h-11 cursor-pointer text-sm font-semibold leading-11 text-emerald-200">주요 근거 장면 {story.points.length}건 펼치기</summary>
           <ol className="mt-2 space-y-4">
@@ -119,17 +127,17 @@ export default async function DailyRankerStoryPage({ params }: DailyPageProps) {
             : <p className="mt-3 text-sm text-zinc-400">이 경기에는 상세 위치 표본이 저장되지 않았습니다.</p>}
           {holdFacts.map((fact) => <p key={fact.id} className="mt-3 border-l-2 border-amber-400/60 pl-3 text-sm leading-6 text-zinc-300">{fact.text}</p>)}
         </div>
-        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
+        {story.encounters?.length ? <DailyBattleGuide story={story} /> : <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
           <p className="text-xs font-semibold text-emerald-300">03 · 교전</p>
           <h2 className="mt-1 text-lg font-bold">피해, 기절, 소생</h2>
           {keyFights.length ? <ol className="mt-3 space-y-3">{keyFights.map((fact) => <li key={fact.id} className="border-l-2 border-emerald-500/50 pl-3 text-sm leading-6 text-zinc-300"><span className="mr-2 font-mono text-xs text-emerald-300">{formatTime(fact.timeSeconds)}</span>{fact.text}</li>)}</ol>
             : <p className="mt-3 text-sm text-zinc-400">요약할 피해·기절·소생 이벤트가 없습니다. 아래 세부 기록에서 전체 이벤트를 확인할 수 있습니다.</p>}
           <p className="mt-3 text-xs leading-5 text-zinc-500">30초 이내 이어진 피해와 처치를 하나의 교전 묶음으로 표시했습니다. 첫 기록된 피해가 실제 첫 발사는 아닐 수 있습니다.</p>
-        </div>
+        </div>}
         <div className="rounded-2xl border border-amber-400/30 bg-amber-400/5 p-5">
           <p className="text-xs font-semibold text-amber-300">04 · 마지막</p>
           <h2 className="mt-1 text-lg font-bold">우승 직전 팀 처치</h2>
-          {finalKills.length ? <p className="mt-3 text-sm leading-7 text-zinc-200">{finalKills.map((kill) => `${formatTime(kill.timeSeconds)} ${kill.killer}가 ${kill.victim}을(를) ${kill.weapon}으로 처치`).join(" · ")}했습니다.</p>
+          {finalKills.length ? <p className="mt-3 text-sm leading-7 text-zinc-200">{finalKills.map((kill) => `${formatTime(kill.timeSeconds)} ${kill.killer} → ${kill.victim} 처치 · ${kill.weapon}${kill.distanceMeters === undefined ? "" : ` · 약 ${kill.distanceMeters}m`}`).join(" / ")}</p>
             : <p className="mt-3 text-sm leading-6 text-zinc-400">팀 전체 처치 상세 기록이 저장되지 않은 경기입니다. 아래 개인 처치와 세부 이벤트를 확인해 주세요.</p>}
           {finalFacts.length ? <ul className="mt-3 space-y-2 border-t border-zinc-700/70 pt-3 text-xs leading-5 text-zinc-300">{finalFacts.map((fact) => <li key={fact.id}>{formatTime(fact.timeSeconds)} · {fact.text}</li>)}</ul> : null}
           {unlinkedFinalGrenade ? <p className="mt-3 text-xs leading-5 text-amber-200">직전에 던진 수류탄으로 상대가 피해를 입은 것은 확인됩니다. 다만 마지막 처치 기록에는 어떤 투척물이었는지 연결할 정보가 없어, 그 수류탄이 마무리했는지는 확정할 수 없습니다.</p> : null}
@@ -187,6 +195,6 @@ export default async function DailyRankerStoryPage({ params }: DailyPageProps) {
   );
 }
 
-function KillList({ events }: { events: { timeSeconds: number; victim: string; weapon: string }[] }) {
-  return <ol className="divide-y divide-zinc-800">{events.map((event, index) => <li key={`${event.timeSeconds}-${event.victim}-${index}`} className="grid min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] gap-3 py-3 text-sm"><span className="font-mono text-xs text-emerald-300">{formatTime(event.timeSeconds)}</span><span className="min-w-0 break-words text-zinc-300">{event.victim} · {event.weapon}</span></li>)}</ol>;
+function KillList({ events }: { events: { timeSeconds: number; victim: string; weapon: string; distanceMeters?: number }[] }) {
+  return <ol className="divide-y divide-zinc-800">{events.map((event, index) => <li key={`${event.timeSeconds}-${event.victim}-${index}`} className="grid min-w-0 grid-cols-[3.5rem_minmax(0,1fr)] gap-3 py-3 text-sm"><span className="font-mono text-xs text-emerald-300">{formatTime(event.timeSeconds)}</span><span className="min-w-0 break-words text-zinc-300">{event.victim} · {event.weapon}{event.distanceMeters === undefined ? "" : ` · 약 ${event.distanceMeters}m`}</span></li>)}</ol>;
 }

@@ -61,6 +61,33 @@ describe.skipIf(!hasLocalFixture)("buildDailyEvidence against local PUBG fixture
   });
 });
 
+const squadMatchFile = "tmp/ranker-content-probe/daily-2026-09-23-match.json";
+const squadTelemetryFile = "tmp/ranker-content-probe/daily-2026-09-23-telemetry.json";
+describe.skipIf(!existsSync(squadMatchFile) || !existsSync(squadTelemetryFile))("daily squad raw telemetry", () => {
+  it("separates the first shot from pickup, team kill attribution and crate weapon origin", () => {
+    const squad = buildDailyEvidence({
+      match: JSON.parse(readFileSync(squadMatchFile, "utf8")),
+      events: JSON.parse(readFileSync(squadTelemetryFile, "utf8")),
+      candidate: { accountId: "account.15ba57e483694cac85c5248bf69ed3be", nickname: "You1Shuo1-_-", rank: 10 },
+      dayKst: "2026-09-23",
+    });
+    expect(squad).toMatchObject({ mode: "squad", kills: 3, teamKills: 15 });
+    expect(squad.facts.some((fact) => fact.kind === "aircraft" && fact.text === "비행기 탑승")).toBe(true);
+    expect(squad.facts.some((fact) => fact.kind === "vehicle" && fact.timeSeconds < 2)).toBe(false);
+    expect(squad.encounters?.[0]).toMatchObject({ teamKills: 3, rankerWeapons: ["M416"],
+      firstRankerShot: { weapon: "M416" } });
+    expect(squad.encounters?.[0].precontactMovement).toHaveLength(4);
+    expect(squad.weaponFinds).toEqual(expect.arrayContaining([
+      expect.objectContaining({ player: "You1Shuo1-_-", weapon: "UMP45", source: "ground" }),
+      expect.objectContaining({ player: "Emmm_XiaoXiao", weapon: "MG3", source: "lootbox", owner: "Kumbayawooo" }),
+      expect.objectContaining({ player: "You1Shuo1-_-", weapon: "그로자", source: "carepackage" }),
+    ]));
+    expect(squad.teamKillEvents.slice(-2).map((kill) => [kill.killer, kill.weapon])).toEqual([
+      ["Emmm_XiaoXiao", "수류탄"], ["Emmm_XiaoXiao", "MG3"],
+    ]);
+  });
+});
+
 describe("buildDailyEvidence required input", () => {
   it("separates squad finish, linked throwable damage, revive and sampled movement", () => {
     const target = "account.target";
@@ -91,7 +118,7 @@ describe("buildDailyEvidence required input", () => {
     ];
     const result = buildDailyEvidence({ match, events, candidate: { accountId: target, nickname: "Target", rank: 1 }, dayKst: "2026-09-23" });
     expect(result.killEvents).toEqual([]);
-    expect(result.teamKillEvents).toEqual([{ timeSeconds: 208, killer: "Teammate", victim: "Opponent", weapon: "수류탄", attackId: -1 }]);
+    expect(result.teamKillEvents).toEqual([{ timeSeconds: 208, killer: "Teammate", victim: "Opponent", weapon: "수류탄", attackId: -1, distanceMeters: 0 }]);
     expect(result.aircraft).toHaveLength(1);
     expect(result.route.length).toBeGreaterThanOrEqual(1);
     expect(result.facts).toEqual(expect.arrayContaining([
