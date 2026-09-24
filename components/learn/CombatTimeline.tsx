@@ -7,6 +7,8 @@ const labels = {
   received: "피해 받음",
   kill: "처치",
   throw: "투척",
+  knock: "기절시킴",
+  revive: "소생",
 } as const;
 
 export default function CombatTimeline({ events }: { events: NonNullable<RankerScene["combatEvents"]> }) {
@@ -14,7 +16,7 @@ export default function CombatTimeline({ events }: { events: NonNullable<RankerS
     <section aria-label="전투 기록" className="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/70 p-3 sm:p-4">
       <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
         <h4 className="text-sm font-bold text-zinc-100">전투 기록</h4>
-        <span className="text-[11px] text-zinc-500">사격·피해·투척·처치 순서</span>
+        <span className="text-[11px] text-zinc-500">기록된 전투 순서</span>
       </div>
       <ol className="divide-y divide-zinc-800/90">
         {events.map((event, index) => (
@@ -25,6 +27,7 @@ export default function CombatTimeline({ events }: { events: NonNullable<RankerS
                 <span className={`font-semibold ${event.kind === "received" ? "text-rose-300" : event.kind === "kill" ? "text-amber-200" : event.kind === "throw" ? "text-orange-200" : "text-emerald-200"}`}>
                   {labels[event.kind]}
                 </span>
+                {event.actorSide && <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${event.actorSide === "ally" ? "bg-cyan-950 text-cyan-200" : "bg-rose-950 text-rose-200"}`}>{event.actorSide === "ally" ? "우리 팀" : "상대"}</span>}
                 <span className="break-all text-zinc-200">{event.actor}</span>
                 {event.weapon && <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">{event.weapon}</span>}
                 {event.target && <span className="break-all text-zinc-400">→ {event.target}</span>}

@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowUpRight, Clock3, Crosshair, Gauge } from "lucide-react"
 import BriefingMapShell from "@/components/learn/BriefingMapShell";
 import CombatTimeline from "@/components/learn/CombatTimeline";
 import WinSummary from "@/components/learn/WinSummary";
+import ZoneResponse from "@/components/learn/ZoneResponse";
 import { formatLessonTime, getRankerLesson, rankerLessons, rankerReplayHref } from "@/lib/learn/lessons";
 
 type LessonPageProps = { params: Promise<{ lessonId: string }> };
@@ -27,7 +28,8 @@ export default async function RankerBriefingPage({ params }: LessonPageProps) {
   const lesson = getRankerLesson(lessonId);
   if (!lesson) notFound();
   const isSolo = lesson.gameMode === "solo";
-  const isObservedWinner = lesson.winSummary !== undefined || lesson.scenes.some(({ fact }) => fact.includes("팀은 1위"));
+  const isObservedWinner = lesson.placement === 1;
+  const firstMappedScene = lesson.scenes.find((scene) => scene.mapSnapshot);
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-6 pb-28 text-zinc-100 sm:px-8 sm:py-10">
@@ -49,6 +51,7 @@ export default async function RankerBriefingPage({ params }: LessonPageProps) {
           <p className="mt-4 max-w-3xl text-sm leading-7 text-zinc-300">{lesson.briefing}</p>
         ) : null}
         <p className="mt-2 text-xs leading-5 text-zinc-500">2026.09.23 조회한 AS 리더보드 {lesson.rank}위 · 모드별 순위 아님</p>
+        {firstMappedScene && <a href={`#${firstMappedScene.id}-map`} className="mt-4 inline-flex min-h-11 items-center rounded-lg border border-emerald-700/70 bg-emerald-950/30 px-3 text-sm font-semibold text-emerald-200 hover:bg-emerald-900/40">첫 장면 지도 바로 보기 ↓</a>}
       </header>
 
       {lesson.winSummary && <WinSummary summary={lesson.winSummary} />}
@@ -57,7 +60,7 @@ export default async function RankerBriefingPage({ params }: LessonPageProps) {
         <section aria-labelledby="squad-summary-heading" className="mt-6 rounded-2xl border border-emerald-900/70 bg-emerald-950/20 p-4 sm:p-5">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-300">경기 요약</p>
           <h2 id="squad-summary-heading" className="mt-1 text-xl font-bold">팀 {lesson.teamTotalKills}킬 우승 흐름</h2>
-          <p className="mt-3 text-sm leading-6 text-zinc-300">{lesson.nickname}의 개인 기록은 {lesson.kills}킬입니다. 초반 착지 교전 뒤 원으로 이동했고, 팀원이 소생한 뒤 마지막 두 상대를 Mk12와 AUG로 처치하며 팀이 우승했습니다.</p>
+          <p className="mt-3 text-sm leading-6 text-zinc-300">{lesson.nickname}의 개인 기록은 {lesson.kills}킬입니다. 착지 근처에서 팀원과 함께 교전하고 원으로 이동했습니다. 후반에는 팀원이 쓰러진 뒤 Mk12로 한 상대를 기절시켰고, 마지막 상대와는 AUG로 싸워 팀이 우승했습니다.</p>
           <h3 className="mt-5 text-sm font-semibold text-zinc-200">주요 시점</h3>
           <ol className="mt-2 space-y-2">
             {lesson.scenes.map((scene) => (
@@ -67,7 +70,7 @@ export default async function RankerBriefingPage({ params }: LessonPageProps) {
               </li>
             ))}
           </ol>
-          <p className="mt-4 text-xs leading-5 text-zinc-500">마지막 두 처치의 무기는 확인됐습니다. 다른 처치의 무기와 보급 경로는 이 요약만으로 확정하지 않습니다.</p>
+          <p className="mt-4 text-xs leading-5 text-zinc-500">Mk12 기절과 마지막 AUG 사격은 기록으로 확인됩니다. 사망 기록에는 무기가 없어 모든 처치 무기와 보급 경로를 확정할 수는 없습니다.</p>
         </section>
       )}
 
@@ -103,6 +106,7 @@ export default async function RankerBriefingPage({ params }: LessonPageProps) {
                 <p className="mt-3 text-xs font-semibold text-zinc-500">기록에서 확인되는 점</p>
                 <p className="mt-3 text-sm leading-7 text-zinc-300">{scene.fact}</p>
                 {scene.context && <div className="mt-3 border-l-2 border-sky-500/70 pl-3"><p className="text-xs font-semibold text-sky-200">당시 상황</p><p className="mt-1 text-sm leading-6 text-zinc-300">{scene.context}</p></div>}
+                {scene.zoneAnalysis && <ZoneResponse analysis={scene.zoneAnalysis} />}
                 {scene.combatEvents && <CombatTimeline events={scene.combatEvents} />}
                 <details className="mt-3 text-xs leading-6 text-zinc-500">
                   <summary className="min-h-11 cursor-pointer py-2 text-zinc-400">이 기록으로 알 수 없는 점</summary>
@@ -113,9 +117,22 @@ export default async function RankerBriefingPage({ params }: LessonPageProps) {
                 </Link>
               </div>
               {scene.mapSnapshot && (
-                <figure className="min-w-0">
+                <figure id={`${scene.id}-map`} className="min-w-0 scroll-mt-20">
                   <BriefingMapShell snapshot={scene.mapSnapshot} mapId={lesson.mapId} />
-                  <figcaption className="mt-2 text-xs leading-5 text-zinc-500">기록된 위치를 표시했습니다. 점선은 위치 표본을 이은 선이며 실제 이동 경로를 뜻하지 않습니다. 빨간 점은 처치된 상대의 위치입니다.</figcaption>
+                  <figcaption className="mt-2 text-xs leading-5 text-zinc-500">기록된 위치를 표시했습니다. 점선은 위치 표본을 이은 선이며 실제 이동 경로를 뜻하지 않습니다. 빨간 점은 상대의 사망 위치입니다.</figcaption>
+                  {(scene.mapSnapshot.marks?.length || scene.mapSnapshot.kills?.some((kill) => kill.label)) && (
+                    <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 text-xs leading-5 text-zinc-300">
+                      <p className="font-semibold text-zinc-200">지도 속 인물과 기록</p>
+                      <ul className="mt-2 space-y-1.5">
+                        {scene.mapSnapshot.marks?.map((mark, markIndex) => (
+                          <li key={`${mark.label}-${markIndex}`} className="flex items-start gap-2"><span className={`mt-1.5 size-2 shrink-0 rounded-full ${mark.kind === "teammate" ? "bg-cyan-400" : mark.kind === "throw" ? "bg-orange-400" : "bg-blue-400"}`} /><span>{mark.kind === "teammate" ? "우리 팀" : mark.kind === "throw" ? "투척" : "상대"} · {mark.label}</span></li>
+                        ))}
+                        {scene.mapSnapshot.kills?.filter((kill) => kill.label).map((kill, killIndex) => (
+                          <li key={`${kill.label}-${killIndex}`} className="flex items-start gap-2"><span className="mt-1.5 size-2 shrink-0 rounded-full bg-rose-400" /><span>사망한 상대 · {kill.label}</span></li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </figure>
               )}
             </li>

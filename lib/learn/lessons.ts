@@ -12,18 +12,31 @@ export type RankerScene = {
   limitation: string;
   combatEvents?: {
     timeSeconds: number;
-    kind: "shot" | "damage" | "received" | "kill" | "throw";
+    kind: "shot" | "damage" | "received" | "kill" | "throw" | "knock" | "revive";
     actor: string;
+    actorSide?: "ally" | "enemy";
     target?: string;
     weapon?: string;
     damage?: number;
     distanceMeters?: number;
     note?: string;
   }[];
+  zoneAnalysis?: {
+    routeSummary?: string;
+    rounds: {
+      label: string;
+      revealedSeconds: number;
+      shrinkSeconds: number;
+      movedSeconds: number;
+      enteredSeconds: number;
+      note: string;
+    }[];
+    nearbyOpponents?: { timeSeconds: number; name: string; distanceMeters: number; note?: string }[];
+  };
   mapSnapshot?: {
     path: { x: number; y: number }[];
     zone?: { x: number; y: number; radius: number };
-    kills?: { x: number; y: number }[];
+    kills?: { x: number; y: number; label?: string }[];
     marks?: { x: number; y: number; kind: "throw" | "opponent" | "teammate"; label: string }[];
     viewSize: number;
     playerLabel?: string;
@@ -44,6 +57,7 @@ export type RankerLesson = {
   rankObservedAt: string;
   playedAt: string;
   kills: number;
+  placement: number;
   damage: number;
   briefing?: string;
   winSummary?: {

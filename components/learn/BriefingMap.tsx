@@ -113,7 +113,9 @@ export default function BriefingMap({ snapshot, mapId }: { snapshot: Snapshot; m
         {start && <circle cx={start.x} cy={mapY(start.y)} r={playerMarkerRadius} fill="#34d399" stroke="white" strokeWidth={markerStroke} />}
         {moved && current && <circle cx={current.x} cy={mapY(current.y)} r={playerMarkerRadius} fill="#34d399" stroke="white" strokeWidth={markerStroke} />}
         {snapshot.kills?.map((kill, index) => (
-          <circle key={`${kill.x}-${kill.y}-${index}`} cx={kill.x} cy={mapY(kill.y)} r={killMarkerRadius} fill="#fb7185" stroke="white" strokeWidth={markerStroke} />
+          <circle key={`${kill.x}-${kill.y}-${index}`} cx={kill.x} cy={mapY(kill.y)} r={killMarkerRadius} fill="#fb7185" stroke="white" strokeWidth={markerStroke}>
+            {kill.label && <title>{kill.label}</title>}
+          </circle>
         ))}
         {snapshot.marks?.map((mark, index) => (
           <g key={`${mark.label}-${index}`}>
@@ -130,7 +132,7 @@ export default function BriefingMap({ snapshot, mapId }: { snapshot: Snapshot; m
       <div className="pointer-events-none absolute bottom-2 left-2 flex flex-wrap gap-2 rounded-lg bg-zinc-950/85 px-2.5 py-1.5 text-[10px] font-medium text-zinc-200">
         <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-400" />{snapshot.playerLabel ?? "선수 위치"}</span>
         {snapshot.zone && <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-yellow-400" />관측된 원</span>}
-        {!!snapshot.kills?.length && <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-rose-400" />처치 기록</span>}
+        {!!snapshot.kills?.length && <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-rose-400" />사망 위치</span>}
         {snapshot.marks?.some((mark) => mark.kind === "teammate") && <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-cyan-400" />팀원 위치</span>}
         {snapshot.marks?.some((mark) => mark.kind === "throw") && <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-orange-400" />투척 위치</span>}
         {snapshot.marks?.some((mark) => mark.kind === "opponent") && <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-blue-400" />상대 위치</span>}
