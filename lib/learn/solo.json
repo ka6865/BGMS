@@ -4,7 +4,7 @@
   "mapId": "Miramar",
   "mapName": "Desert_Main",
   "replayMapName": "미라마",
-  "mapLabel": "미라마르",
+  "mapLabel": "미라마",
   "gameMode": "solo",
   "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
   "nickname": "VIE_TanVuu284",
@@ -61,7 +61,7 @@
       "title": "외곽에서 시작한 한 판",
       "anchorSeconds": 77,
       "startSeconds": 57,
-      "fact": "01:16 미라마르 외곽에 착지했습니다. 약 5분 뒤에는 Kar98k로 약 330m 떨어진 상대를 처치하며 첫 킬을 기록했습니다.",
+      "fact": "01:16 미라마 외곽에 착지했습니다. 약 5분 뒤에는 Kar98k로 약 330m 떨어진 상대를 처치하며 첫 킬을 기록했습니다.",
       "context": "다른 선수 2명도 착지점에서 약 440m 떨어진 곳에 내렸습니다. 그중 한 명이 약 5분 뒤 첫 킬의 상대였습니다. 처치 순간 두 선수 모두 차량에 타고 있지 않았습니다.",
       "limitation": "착지할 때 그 상대를 실제로 봤는지, 이후 어떤 길로 접근했는지는 알 수 없습니다. 기록된 위치만으로 건물이나 엄폐물을 특정할 수 없습니다.",
       "mapSnapshot": { "path": [{ "x": 2947.2, "y": 4503.9 }], "viewSize": 2048, "playerLabel": "착지 지점" }
