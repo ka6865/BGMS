@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Minus, Plus, RotateCcw } from "lucide-react";
 import type { RankerScene } from "@/lib/learn/lessons";
+import { formatLessonTime } from "@/lib/learn/lessons";
 
 type Snapshot = NonNullable<RankerScene["mapSnapshot"]>;
 
@@ -44,6 +45,14 @@ export default function BriefingMap({ snapshot, mapId }: { snapshot: Snapshot; m
   const playerMarkerRadius = view.size * 0.008;
   const killMarkerRadius = view.size * 0.009;
   const markerStroke = view.size * 0.003;
+  const routeArrows = snapshot.path.slice(1).flatMap((point, index) => {
+    const previous = snapshot.path[index];
+    const dx = point.x - previous.x;
+    const dy = mapY(point.y) - mapY(previous.y);
+    if (Math.hypot(dx, dy) < view.size * 0.055) return [];
+    return [{ x: (point.x + previous.x) / 2, y: (mapY(point.y) + mapY(previous.y)) / 2, angle: Math.atan2(dy, dx) * 180 / Math.PI }];
+  });
+  const arrowSize = view.size * 0.025;
 
   const zoom = useCallback((factor: number, clientX?: number, clientY?: number) => {
     const rect = svgRef.current?.getBoundingClientRect();
@@ -89,7 +98,7 @@ export default function BriefingMap({ snapshot, mapId }: { snapshot: Snapshot; m
         ref={svgRef}
         viewBox={viewBox}
         role="img"
-        aria-label={`${mapId} 지도에 표시한 경기 위치와 이동 경로. 확대 후 드래그해 이동할 수 있습니다.`}
+        aria-label={`${mapId} 지도에 시간 순서대로 표시한 경기 위치 표본. 첫 위치는 초록색, 마지막 위치는 보라색입니다. 확대 후 드래그해 이동할 수 있습니다.`}
         className="h-full w-full cursor-grab touch-none active:cursor-grabbing"
         onPointerDown={(event) => { drag.current = { x: event.clientX, y: event.clientY, viewX: view.x, viewY: view.y }; event.currentTarget.setPointerCapture(event.pointerId); }}
         onPointerMove={(event) => pan(event.clientX, event.clientY)}
@@ -110,8 +119,11 @@ export default function BriefingMap({ snapshot, mapId }: { snapshot: Snapshot; m
           <circle cx={snapshot.zone.x} cy={mapY(snapshot.zone.y)} r={snapshot.zone.radius} fill="#facc15" fillOpacity="0.07" stroke="#facc15" strokeWidth={view.size * 0.004} strokeDasharray={`${view.size * 0.05} ${view.size * 0.035}`} />
         )}
         {snapshot.path.length > 1 && <polyline points={path} fill="none" stroke="#34d399" strokeWidth={view.size * 0.005} strokeDasharray={`${view.size * 0.015} ${view.size * 0.012}`} strokeLinecap="round" strokeLinejoin="round" opacity="0.95" />}
-        {start && <circle cx={start.x} cy={mapY(start.y)} r={playerMarkerRadius} fill="#34d399" stroke="white" strokeWidth={markerStroke} />}
-        {moved && current && <circle cx={current.x} cy={mapY(current.y)} r={playerMarkerRadius} fill="#34d399" stroke="white" strokeWidth={markerStroke} />}
+        {routeArrows.map((arrow, index) => (
+          <polygon key={index} points={`${-arrowSize / 2},${-arrowSize / 2} ${arrowSize / 2},0 ${-arrowSize / 2},${arrowSize / 2}`} transform={`translate(${arrow.x} ${arrow.y}) rotate(${arrow.angle})`} fill="#34d399" stroke="#052e16" strokeWidth={markerStroke} />
+        ))}
+        {start && <circle cx={start.x} cy={mapY(start.y)} r={playerMarkerRadius} fill="#052e16" stroke="#34d399" strokeWidth={markerStroke * 1.5} />}
+        {moved && current && <circle cx={current.x} cy={mapY(current.y)} r={playerMarkerRadius} fill="#c084fc" stroke="white" strokeWidth={markerStroke} />}
         {snapshot.kills?.map((kill, index) => (
           <circle key={`${kill.x}-${kill.y}-${index}`} cx={kill.x} cy={mapY(kill.y)} r={killMarkerRadius} fill="#fb7185" stroke="white" strokeWidth={markerStroke}>
             {kill.label && <title>{kill.label}</title>}
@@ -124,13 +136,19 @@ export default function BriefingMap({ snapshot, mapId }: { snapshot: Snapshot; m
           </g>
         ))}
       </svg>
+      {snapshot.pathStartSeconds !== undefined && snapshot.pathEndSeconds !== undefined && moved && (
+        <div className="pointer-events-none absolute left-2 top-2 rounded-md bg-zinc-950/90 px-2 py-1 text-[11px] font-semibold tabular-nums text-zinc-100">
+          위치 표본 {formatLessonTime(snapshot.pathStartSeconds)} → {formatLessonTime(snapshot.pathEndSeconds)}
+        </div>
+      )}
       <div className="absolute right-2 top-2 flex overflow-hidden rounded-lg border border-zinc-700 bg-zinc-950/90 shadow-lg" aria-label="지도 확대 도구">
         <button type="button" onClick={() => zoom(0.75)} aria-label="지도 확대" className="grid size-10 place-items-center text-zinc-200 hover:bg-zinc-800"><Plus size={17} /></button>
         <button type="button" onClick={() => zoom(1.33)} aria-label="지도 축소" className="grid size-10 place-items-center border-l border-zinc-700 text-zinc-200 hover:bg-zinc-800"><Minus size={17} /></button>
         <button type="button" onClick={() => setView(initial)} aria-label="지도 보기 초기화" className="grid size-10 place-items-center border-l border-zinc-700 text-zinc-200 hover:bg-zinc-800"><RotateCcw size={15} /></button>
       </div>
       <div className="pointer-events-none absolute bottom-2 left-2 flex flex-wrap gap-2 rounded-lg bg-zinc-950/85 px-2.5 py-1.5 text-[10px] font-medium text-zinc-200">
-        <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-400" />{snapshot.playerLabel ?? "선수 위치"}</span>
+        <span><i className="mr-1 inline-block h-2 w-2 rounded-full border border-emerald-400 bg-emerald-950" />{moved ? "첫 위치" : snapshot.playerLabel ?? "선수 위치"}</span>
+        {moved && <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-purple-400" />마지막 위치</span>}
         {snapshot.zone && <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-yellow-400" />관측된 원</span>}
         {!!snapshot.kills?.length && <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-rose-400" />사망 위치</span>}
         {snapshot.marks?.some((mark) => mark.kind === "teammate") && <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-cyan-400" />팀원 위치</span>}

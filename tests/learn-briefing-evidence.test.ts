@@ -37,6 +37,50 @@ function closest(events: ReplayEvent[], seconds: number) {
 }
 
 describe('2026-09-22 briefing evidence', () => {
+  it('shows all four squad personal kills with weapons from the original kill records', () => {
+    const evidence = JSON.parse(readFileSync(join(process.cwd(),
+      'docs/experiments/2026-09-23-ranker-content/squad-evidence.json'), 'utf8')) as {
+      kills: { t: number; victim: string; weapon: string }[];
+    };
+    const weaponLabels: Record<string, string> = {
+      WeapUMP_C: 'UMP45', WeapMk12_C: 'Mk12', WeapAUG_C: 'AUG',
+    };
+    expect(squad.personalKills).toHaveLength(squad.kills);
+    expect(squad.personalKills).toEqual(evidence.kills.map((kill) => ({
+      timeSeconds: kill.t, victim: kill.victim, weapon: weaponLabels[kill.weapon],
+    })));
+  });
+
+  it.each([['solo', solo], ['squad', squad]] as const)('%s map points follow the recorded time order', (mode, rawLesson) => {
+    const source = replay(mode);
+    const positions = source.events.filter((event) => event.type === 'position' &&
+      event.name === rawLesson.nickname && event.vehicleId !== 'DummyTransportAircraft_C');
+    const squadLanding = mode === 'squad' ? JSON.parse(readFileSync(join(process.cwd(),
+      'docs/experiments/2026-09-23-ranker-content/squad-evidence.json'), 'utf8')).landing as {
+      t: number; location: { x: number; y: number };
+    } : null;
+
+    for (const scene of (rawLesson as RankerLesson).scenes) {
+      const snapshot = scene.mapSnapshot;
+      if (snapshot?.pathStartSeconds === undefined || snapshot.pathEndSeconds === undefined) continue;
+      const times = snapshot.path.map((point, index) => {
+        if (mode === 'squad' && scene.id === 'scene-1' && index === 0 && squadLanding) {
+          expect(Math.hypot(point.x - squadLanding.location.x, point.y - squadLanding.location.y)).toBeLessThan(1);
+          return squadLanding.t;
+        }
+        const closestPosition = positions.reduce((best, event) =>
+          Math.hypot((event.x ?? 0) - point.x, (event.y ?? 0) - point.y) <
+          Math.hypot((best.x ?? 0) - point.x, (best.y ?? 0) - point.y) ? event : best);
+        expect(Math.hypot((closestPosition.x ?? 0) - point.x, (closestPosition.y ?? 0) - point.y),
+          `${mode} ${scene.id}: map point ${index + 1}`).toBeLessThan(4);
+        return closestPosition.relativeTimeMs / 1000;
+      });
+      expect(times, `${mode} ${scene.id}: map path order`).toEqual([...times].sort((a, b) => a - b));
+      expect(times[0]).toBeCloseTo(snapshot.pathStartSeconds, 0);
+      expect(times.at(-1)).toBeCloseTo(snapshot.pathEndSeconds, 0);
+    }
+  });
+
   it('separates squad knock, finish, shot, and revive records', () => {
     const source = replay('squad');
     const kindToSource: Record<string, string> = { knock: 'groggy', kill: 'kill', shot: 'shot', revive: 'revive' };

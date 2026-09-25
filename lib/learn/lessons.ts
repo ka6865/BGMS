@@ -35,6 +35,8 @@ export type RankerScene = {
   };
   mapSnapshot?: {
     path: { x: number; y: number }[];
+    pathStartSeconds?: number;
+    pathEndSeconds?: number;
     zone?: { x: number; y: number; radius: number };
     kills?: { x: number; y: number; label?: string }[];
     marks?: { x: number; y: number; kind: "throw" | "opponent" | "teammate"; label: string }[];
@@ -66,6 +68,7 @@ export type RankerLesson = {
     weapons: { name: string; kills: number }[];
     kills: { timeSeconds: number; victim: string; weapon: string; distanceMeters?: number }[];
   };
+  personalKills?: { timeSeconds: number; victim: string; weapon: string }[];
   teamTotalKills?: number;
   durationSeconds: number;
   replayIdentity: TelemetryPublicIdentity;

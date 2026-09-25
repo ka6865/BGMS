@@ -23,9 +23,9 @@
     "mode": "full",
     "telemetryVersion": 62
   },
-  "briefing": "외곽 착지 뒤 오토바이로 먼 첫 자기장을 넘었습니다. 중반에는 차량에서 내려 근거리와 장거리 상대를 차례로 처치했고, 마지막 작은 원에서는 약 80m 떨어진 상대를 수류탄으로 잡아 우승했습니다.",
+  "briefing": "페카도 서쪽·추마세라 북쪽에 착지한 뒤 오토바이로 먼 첫 자기장을 넘었습니다. 중반에는 차량에서 내려 근거리와 장거리 상대를 차례로 처치했고, 마지막 작은 원에서는 약 80m 떨어진 상대를 수류탄으로 잡아 우승했습니다.",
   "winSummary": {
-    "intro": "외곽에 착지해 오토바이로 먼 첫 자기장을 넘었습니다. 중반에는 차에서 내린 뒤 근거리 M416과 장거리 M24로 싸웠고, 후반에는 차로 자리를 옮긴 뒤 링스 AMR로 두 명을 처치했습니다. 마지막 작은 원에서 수류탄으로 최후의 상대를 잡아 11킬 우승했습니다.",
+    "intro": "페카도 서쪽·추마세라 북쪽에 착지해 오토바이로 먼 첫 자기장을 넘었습니다. 중반에는 차에서 내린 뒤 근거리 M416과 장거리 M24로 싸웠고, 후반에는 차로 자리를 옮긴 뒤 링스 AMR로 두 명을 처치했습니다. 마지막 작은 원에서 수류탄으로 최후의 상대를 잡아 11킬 우승했습니다.",
     "milestones": [
       { "timeSeconds": 362.234, "text": "Kar98k로 첫 처치" },
       { "timeSeconds": 502.418, "text": "오토바이를 타고 첫 자기장 안으로 이동" },
@@ -58,12 +58,12 @@
   "scenes": [
     {
       "id": "scene-1",
-      "title": "외곽에서 시작한 한 판",
+      "title": "페카도 서쪽·추마세라 북쪽 착지",
       "anchorSeconds": 77,
       "startSeconds": 57,
-      "fact": "01:16 미라마 외곽에 착지했습니다. 약 5분 뒤에는 Kar98k로 약 330m 떨어진 상대를 처치하며 첫 킬을 기록했습니다.",
+      "fact": "01:16 미라마의 페카도 서쪽·추마세라 북쪽, 두 지역 사이 도로 근처에 착지했습니다. 약 5분 뒤에는 Kar98k로 약 330m 떨어진 상대를 처치하며 첫 킬을 기록했습니다.",
       "context": "다른 선수 2명도 착지점에서 약 440m 떨어진 곳에 내렸습니다. 그중 한 명이 약 5분 뒤 첫 킬의 상대였습니다. 처치 순간 두 선수 모두 차량에 타고 있지 않았습니다.",
-      "limitation": "착지할 때 그 상대를 실제로 봤는지, 이후 어떤 길로 접근했는지는 알 수 없습니다. 기록된 위치만으로 건물이나 엄폐물을 특정할 수 없습니다.",
+      "limitation": "지명은 지도에서 읽은 상대적 위치이며 특정 도시 안에 착지했다는 뜻은 아닙니다. 착지할 때 그 상대를 실제로 봤는지, 이후 어떤 길로 접근했는지는 알 수 없습니다. 기록된 위치만으로 건물이나 엄폐물을 특정할 수 없습니다.",
       "mapSnapshot": { "path": [{ "x": 2947.2, "y": 4503.9 }], "viewSize": 2048, "playerLabel": "착지 지점" }
     },
     {
@@ -74,7 +74,7 @@
       "fact": "첫 자기장이 나타날 무렵 선수는 안전지대에서 약 1.3km 떨어져 있었습니다. 07:18 오토바이를 탔고, 08:22에는 안전지대 안에서 위치가 확인됩니다.",
       "context": "멀리 잡힌 첫 원을 향해 차량으로 이동한 흐름입니다. 이 구간에 자기장 피해를 입은 기록은 없습니다.",
       "limitation": "위치는 보통 10초마다 남아 정확히 어느 길로 갔고 몇 초에 원에 들어왔는지는 알 수 없습니다.",
-      "mapSnapshot": { "path": [{ "x": 2954, "y": 4496 }, { "x": 2931, "y": 4522 }, { "x": 2963, "y": 4490 }, { "x": 2963, "y": 4488 }, { "x": 2813, "y": 4368 }, { "x": 3109, "y": 4224 }, { "x": 4246, "y": 5327 }], "zone": { "x": 4987, "y": 6941, "radius": 1921 }, "marks": [{ "x": 3106.6, "y": 4500.9, "kind": "opponent", "label": "EVA-RX · 04:41 관측 위치" }, { "x": 4272.9, "y": 5664.9, "kind": "opponent", "label": "TTHNMCB · 08:18 관측 위치" }], "viewSize": 4096 },
+      "mapSnapshot": { "path": [{ "x": 2954, "y": 4496 }, { "x": 2931, "y": 4522 }, { "x": 2963, "y": 4490 }, { "x": 2963, "y": 4488 }, { "x": 2813, "y": 4368 }, { "x": 3109, "y": 4224 }, { "x": 4246, "y": 5327 }], "zone": { "x": 4987, "y": 6941, "radius": 1921 }, "marks": [{ "x": 3106.6, "y": 4500.9, "kind": "opponent", "label": "EVA-RX · 04:41 관측 위치" }, { "x": 4272.9, "y": 5664.9, "kind": "opponent", "label": "TTHNMCB · 08:18 관측 위치" }], "viewSize": 4096, "pathStartSeconds": 82.5, "pathEndSeconds": 502.4 },
       "zoneAnalysis": { "rounds": [{ "label": "첫 번째 원", "revealedSeconds": 100.663, "shrinkSeconds": 280.686, "movedSeconds": 312.439, "enteredSeconds": 502.418, "note": "새 원 공개 직후 큰 위치 변화는 관측되지 않았습니다. 파란 자기장이 줄기 시작한 뒤 위치가 100m 이상 바뀌었고, 줄어드는 도중 원 안에 들어왔습니다." }], "routeSummary": "착지 지역에서 동쪽·남쪽으로 위치를 옮겨 원 안에 들어온 흐름입니다. 이 동선 가까이에 상대 위치도 기록됐지만, 그들을 보고 길을 바꿨는지는 알 수 없습니다.", "nearbyOpponents": [{ "timeSeconds": 281.773, "name": "EVA-RX", "distanceMeters": 135, "note": "줄기 시작 무렵" }, { "timeSeconds": 498.874, "name": "TTHNMCB", "distanceMeters": 339, "note": "원 진입 무렵" }] }
     },
     {
@@ -95,7 +95,7 @@
         { "timeSeconds": 985.140, "kind": "damage", "actor": "VIE_TanVuu284", "target": "poim_1", "weapon": "M416", "damage": 44.3, "distanceMeters": 8 },
         { "timeSeconds": 985.141, "kind": "kill", "actor": "VIE_TanVuu284", "target": "poim_1", "weapon": "M416", "distanceMeters": 8 }
       ],
-      "mapSnapshot": { "path": [{ "x": 5448, "y": 6613 }, { "x": 5450, "y": 6615 }, { "x": 5477, "y": 6601 }, { "x": 5476, "y": 6603 }, { "x": 5479, "y": 6601 }, { "x": 5470, "y": 6602 }], "zone": { "x": 5325, "y": 6858, "radius": 380 }, "kills": [{ "x": 5479, "y": 6601, "label": "AlexTina · 15:44 사망" }, { "x": 5502, "y": 6550, "label": "sysgoking · 15:59 사망" }, { "x": 5474, "y": 6608, "label": "poim_1 · 16:25 사망" }], "marks": [{ "x": 5474, "y": 6609, "kind": "opponent", "label": "poim_1 위치 · AUG 사격 기록" }], "viewSize": 2048 }
+      "mapSnapshot": { "path": [{ "x": 5448, "y": 6613 }, { "x": 5450, "y": 6615 }, { "x": 5476, "y": 6603 }, { "x": 5479, "y": 6601 }, { "x": 5470, "y": 6602 }], "zone": { "x": 5325, "y": 6858, "radius": 380 }, "kills": [{ "x": 5479, "y": 6601, "label": "AlexTina · 15:44 사망" }, { "x": 5502, "y": 6550, "label": "sysgoking · 15:59 사망" }, { "x": 5474, "y": 6608, "label": "poim_1 · 16:25 사망" }], "marks": [{ "x": 5474, "y": 6609, "kind": "opponent", "label": "poim_1 위치 · AUG 사격 기록" }], "viewSize": 2048, "pathStartSeconds": 932.4, "pathEndSeconds": 982.4 }
     },
     {
       "id": "scene-4",
@@ -113,7 +113,7 @@
         { "timeSeconds": 1220.896, "kind": "kill", "actor": "VIE_TanVuu284", "target": "Bruce_LYB", "weapon": "M416", "distanceMeters": 22 },
         { "timeSeconds": 1229.669, "kind": "kill", "actor": "VIE_TanVuu284", "target": "LVG-Wum", "weapon": "수류탄", "distanceMeters": 34 }
       ],
-      "mapSnapshot": { "path": [{ "x": 5478, "y": 6607 }, { "x": 5473, "y": 6598 }, { "x": 5396, "y": 6601 }, { "x": 5302, "y": 6590 }, { "x": 5230, "y": 6638 }, { "x": 5254, "y": 6736 }, { "x": 5273, "y": 6741 }], "zone": { "x": 5352, "y": 6965, "radius": 247 }, "viewSize": 3072 },
+      "mapSnapshot": { "path": [{ "x": 5478, "y": 6607 }, { "x": 5473, "y": 6598 }, { "x": 5396, "y": 6601 }, { "x": 5302, "y": 6590 }, { "x": 5230, "y": 6638 }, { "x": 5254, "y": 6736 }, { "x": 5273, "y": 6741 }], "zone": { "x": 5352, "y": 6965, "radius": 247 }, "viewSize": 3072, "pathStartSeconds": 1062.4, "pathEndSeconds": 1122.4 },
       "zoneAnalysis": { "rounds": [{ "label": "다섯 번째 원", "revealedSeconds": 1060.639, "shrinkSeconds": 1120.639, "movedSeconds": 1092.415, "enteredSeconds": 1122.437, "note": "새 원이 보인 뒤, 줄기 시작 전에 100m 이상 바뀐 위치가 관측됐습니다. 원 안 위치는 줄기 시작 직후 처음 확인됩니다." }] }
     },
     {
@@ -129,7 +129,7 @@
         { "timeSeconds": 1390.231, "kind": "kill", "actor": "VIE_TanVuu284", "target": "AST-HEAD", "weapon": "링스 AMR", "distanceMeters": 155, "note": "처치 순간 상대는 차량 탑승 중" },
         { "timeSeconds": 1427.205, "kind": "kill", "actor": "VIE_TanVuu284", "target": "HYUN32", "weapon": "링스 AMR", "distanceMeters": 154, "note": "처치 순간 상대는 도보 상태" }
       ],
-      "mapSnapshot": { "path": [{ "x": 5302, "y": 6766 }, { "x": 5300, "y": 6787 }, { "x": 5289, "y": 6835 }, { "x": 5384, "y": 6974 }, { "x": 5386, "y": 6972 }], "zone": { "x": 5374, "y": 7008, "radius": 175 }, "kills": [{ "x": 5233, "y": 6943, "label": "AST-HEAD · 23:10 사망" }, { "x": 5240, "y": 7022, "label": "HYUN32 · 23:47 사망" }], "viewSize": 2048 },
+      "mapSnapshot": { "path": [{ "x": 5302, "y": 6766 }, { "x": 5300, "y": 6787 }, { "x": 5289, "y": 6835 }, { "x": 5384, "y": 6974 }, { "x": 5386, "y": 6972 }], "zone": { "x": 5374, "y": 7008, "radius": 175 }, "kills": [{ "x": 5233, "y": 6943, "label": "AST-HEAD · 23:10 사망" }, { "x": 5240, "y": 7022, "label": "HYUN32 · 23:47 사망" }], "viewSize": 2048, "pathStartSeconds": 1292.4, "pathEndSeconds": 1422.4 },
       "zoneAnalysis": { "rounds": [{ "label": "여섯 번째 원", "revealedSeconds": 1230.619, "shrinkSeconds": 1300.64, "movedSeconds": 1322.406, "enteredSeconds": 1332.401, "note": "줄기 시작 후에 100m 이상 떨어진 위치가 처음 관측됐고, 약 10초 뒤 원 안에서 위치가 확인됩니다. 이 사이 차량 탑승·하차 기록도 있습니다." }] }
     },
     {

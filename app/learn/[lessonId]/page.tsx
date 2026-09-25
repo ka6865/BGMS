@@ -59,8 +59,19 @@ export default async function RankerBriefingPage({ params }: LessonPageProps) {
       {!isSolo && (
         <section aria-labelledby="squad-summary-heading" className="mt-6 rounded-2xl border border-emerald-900/70 bg-emerald-950/20 p-4 sm:p-5">
           <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-300">경기 요약</p>
-          <h2 id="squad-summary-heading" className="mt-1 text-xl font-bold">팀 {lesson.teamTotalKills}킬 우승 흐름</h2>
-          <p className="mt-3 text-sm leading-6 text-zinc-300">{lesson.nickname}의 개인 기록은 {lesson.kills}킬입니다. 착지 근처에서 팀원과 함께 교전하고 원으로 이동했습니다. 후반에는 팀원이 쓰러진 뒤 Mk12로 한 상대를 기절시켰고, 마지막 상대와는 AUG로 싸워 팀이 우승했습니다.</p>
+          <h2 id="squad-summary-heading" className="mt-1 text-xl font-bold">팀 {lesson.teamTotalKills}킬 · 개인 {lesson.kills}킬 우승 흐름</h2>
+          <p className="mt-3 text-sm leading-6 text-zinc-300">{lesson.nickname}의 팀은 조지오폴 북서쪽에 내려 초반 교전을 치렀습니다. 팀원과 함께 세 상대를 쓰러뜨린 뒤 원 안쪽으로 이동했습니다. 이후 거의 같은 위치에서 Mk12로 먼 적 둘을 쓰러뜨리고 한 명을 처치했습니다. 마지막에는 팀원이 쓰러진 뒤 Mk12와 AUG 처치 기록을 남겨 우승했습니다.</p>
+          <p className="mt-2 text-xs leading-5 text-zinc-400">초반 세 상대의 사망 기록에는 {lesson.nickname}가 마지막 타격자로 남아 있습니다. 실제 개인 킬은 그중 UMP45로 먼저 쓰러뜨린 한 명입니다.</p>
+          {lesson.personalKills && <div className="mt-5">
+            <h3 className="text-sm font-semibold text-zinc-200">분석 대상 개인 {lesson.personalKills.length}킬 · 사용 무기</h3>
+            <ol className="mt-2 grid gap-2 sm:grid-cols-2">
+              {lesson.personalKills.map((kill) => <li key={`${kill.timeSeconds}-${kill.victim}`} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-zinc-900/70 px-3 py-2 text-xs leading-5 text-zinc-300">
+                <time className="shrink-0 font-mono tabular-nums text-emerald-300">{formatLessonTime(kill.timeSeconds)}</time>
+                <span className="min-w-0 break-all">{kill.victim}</span>
+                <span className="font-semibold text-sky-200">{kill.weapon}</span>
+              </li>)}
+            </ol>
+          </div>}
           <h3 className="mt-5 text-sm font-semibold text-zinc-200">주요 시점</h3>
           <ol className="mt-2 space-y-2">
             {lesson.scenes.map((scene) => (
@@ -70,7 +81,7 @@ export default async function RankerBriefingPage({ params }: LessonPageProps) {
               </li>
             ))}
           </ol>
-          <p className="mt-4 text-xs leading-5 text-zinc-500">Mk12 기절과 마지막 AUG 사격은 기록으로 확인됩니다. 사망 기록에는 무기가 없어 모든 처치 무기와 보급 경로를 확정할 수는 없습니다.</p>
+          <p className="mt-4 text-xs leading-5 text-zinc-500">개인 처치 무기는 원본 처치 기록으로 확인했습니다. 기절과 사망 사이의 모든 사격 장면, 보급 무기의 획득 경로와 팀원 간 소통은 확인되지 않습니다.</p>
         </section>
       )}
 
@@ -107,7 +118,7 @@ export default async function RankerBriefingPage({ params }: LessonPageProps) {
                 <p className="mt-3 text-sm leading-7 text-zinc-300">{scene.fact}</p>
                 {scene.context && <div className="mt-3 border-l-2 border-sky-500/70 pl-3"><p className="text-xs font-semibold text-sky-200">당시 상황</p><p className="mt-1 text-sm leading-6 text-zinc-300">{scene.context}</p></div>}
                 {scene.zoneAnalysis && <ZoneResponse analysis={scene.zoneAnalysis} />}
-                {scene.combatEvents && <CombatTimeline events={scene.combatEvents} />}
+                {scene.combatEvents && <CombatTimeline events={scene.combatEvents} squad={!isSolo} />}
                 <details className="mt-3 text-xs leading-6 text-zinc-500">
                   <summary className="min-h-11 cursor-pointer py-2 text-zinc-400">이 기록으로 알 수 없는 점</summary>
                   <p className="pb-2">{scene.limitation}</p>
@@ -119,7 +130,7 @@ export default async function RankerBriefingPage({ params }: LessonPageProps) {
               {scene.mapSnapshot && (
                 <figure id={`${scene.id}-map`} className="min-w-0 scroll-mt-20">
                   <BriefingMapShell snapshot={scene.mapSnapshot} mapId={lesson.mapId} />
-                  <figcaption className="mt-2 text-xs leading-5 text-zinc-500">기록된 위치를 표시했습니다. 점선은 위치 표본을 이은 선이며 실제 이동 경로를 뜻하지 않습니다. 빨간 점은 상대의 사망 위치입니다.</figcaption>
+                  <figcaption className="mt-2 text-xs leading-5 text-zinc-500">{scene.mapSnapshot.path.some((point) => point.x !== scene.mapSnapshot?.path[0].x || point.y !== scene.mapSnapshot?.path[0].y) ? "초록 원에서 보라 원으로 위치 표본을 시간순으로 이었습니다. 긴 구간의 화살표는 관측 순서이며 점선은 실제 주행·보행 경로가 아닙니다." : "기록된 한 지점의 위치를 표시했습니다."} 빨간 점은 상대의 사망 위치입니다.</figcaption>
                   {(scene.mapSnapshot.marks?.length || scene.mapSnapshot.kills?.some((kill) => kill.label)) && (
                     <div className="mt-3 rounded-lg border border-zinc-800 bg-zinc-900/50 p-3 text-xs leading-5 text-zinc-300">
                       <p className="font-semibold text-zinc-200">지도 속 인물과 기록</p>
