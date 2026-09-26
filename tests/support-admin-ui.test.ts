@@ -29,7 +29,7 @@ const ticket = {
   attachments: [{ id: "a-1", original_name: "proof.png", signedUrl: "https://signed.example/proof.png", status: "ready" }],
 };
 
-function response(body: unknown, ok = true, status = 200) {
+function response(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } }));
 }
 
@@ -40,11 +40,10 @@ beforeEach(() => {
 });
 
 describe("support admin UI", () => {
-  it("filters the oldest-first inbox and emits a selected ticket", async () => {
-    const onSelect = vi.fn();
+  it("filters the oldest-first inbox and links each ticket to its detail page", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockImplementation(() => response({ tickets: [ticket] }));
-    render(React.createElement(SupportInbox, { onSelect }));
+    render(React.createElement(SupportInbox));
 
     expect(await screen.findByText("전적 비공개 요청")).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("문의 상태"), { target: { value: "in_progress" } });
@@ -53,8 +52,7 @@ describe("support admin UI", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenLastCalledWith(expect.stringContaining("status=in_progress")));
     expect(fetchMock.mock.lastCall?.[0]).toContain("category=privacy");
     expect(fetchMock.mock.lastCall?.[0]).toContain("q=PlayerOne");
-    fireEvent.click(screen.getByRole("button", { name: /전적 비공개 요청/ }));
-    expect(onSelect).toHaveBeenCalledWith(ticketId);
+    expect(screen.getByRole("link", { name: /전적 비공개 요청/ })).toHaveAttribute("href", `/admin/support/${ticketId}`);
   });
 
   it("keeps privacy action disabled until verification is saved, then replies and applies it", async () => {
@@ -62,7 +60,7 @@ describe("support admin UI", () => {
     fetchMock
       .mockImplementationOnce(() => response({ ticket }))
       .mockImplementationOnce(() => response({ ticket: { ...ticket, verification_status: "verified" } }))
-      .mockImplementationOnce(() => response({ message: { id: "m-2" } }, true, 201))
+      .mockImplementationOnce(() => response({ message: { id: "m-2" } }, 201))
       .mockImplementationOnce(() => response({ ticket: { ...ticket, verification_status: "verified" } }))
       .mockImplementationOnce(() => response({ ok: true }));
     render(React.createElement(SupportTicketDetail, { ticketId }));
@@ -79,5 +77,13 @@ describe("support admin UI", () => {
     fireEvent.click(screen.getByRole("button", { name: "비공개 목록에 등록" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(`/api/admin/support/tickets/${ticketId}/privacy-action`, expect.objectContaining({ method: "POST" })));
     expect(mocks.toast.success).toHaveBeenCalled();
+  });
+
+  it("shows attachments on a general inquiry detail", async () => {
+    vi.mocked(fetch).mockImplementationOnce(() => response({ ticket: { ...ticket, category: "other", verification_status: "not_required" } }));
+    render(React.createElement(SupportTicketDetail, { ticketId }));
+
+    expect(await screen.findByRole("region", { name: "문의 상세" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "proof.png 열기" })).toHaveAttribute("href", "https://signed.example/proof.png");
   });
 });
