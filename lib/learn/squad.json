@@ -1,0 +1,550 @@
+{
+  "id": "2026-09-22-squad",
+  "title": "초반 교전부터 마지막 두 처치까지",
+  "mapId": "Erangel",
+  "mapName": "Baltic_Main",
+  "replayMapName": "에란겔",
+  "mapLabel": "에란겔",
+  "gameMode": "squad",
+  "matchId": "8fd67b1f-859f-428b-9da0-80f34536e2f2",
+  "nickname": "You1Shuo1-_-",
+  "rank": 9,
+  "rankObservedAt": "2026-09-23T00:53:58.502Z",
+  "playedAt": "2026-09-22T05:10:41Z",
+  "kills": 4,
+  "placement": 1,
+  "damage": 644,
+  "teamTotalKills": 14,
+  "personalKills": [
+    { "timeSeconds": 315.739, "victim": "MissMUiMU", "weapon": "UMP45" },
+    { "timeSeconds": 1371.239, "victim": "Eiioa_", "weapon": "Mk12" },
+    { "timeSeconds": 1512.733, "victim": "Damx1ng", "weapon": "Mk12" },
+    { "timeSeconds": 1515.566, "victim": "WuHuSiHai_YanQue", "weapon": "AUG" }
+  ],
+  "durationSeconds": 1519,
+  "replayIdentity": {
+    "matchId": "8fd67b1f-859f-428b-9da0-80f34536e2f2",
+    "platform": "steam",
+    "playerKey": "2b8f8c690ec2827d0ce03eb0046adde6",
+    "mode": "full",
+    "telemetryVersion": 62
+  },
+  "scenes": [
+    {
+      "id": "scene-1",
+      "title": "조지오폴 북서쪽 해안에 착지",
+      "anchorSeconds": 81,
+      "startSeconds": 61,
+      "fact": "01:02 조지오폴 북서쪽 해안에 가까운 곳에 착지했습니다. 같은 시각 전후 1분 사이 500m 안에 상대 10명이 내린 기록이 있습니다. 우리 팀 Curry77777은 01:13에 쓰러지고 01:20에 사망했습니다.",
+      "limitation": "지명은 지도에서 읽은 상대적 위치입니다. 해당 팀원은 이후 교전에도 등장합니다. 복귀 이벤트가 이번 원본에서 확인되지 않아 계속 3명이었다고 설명할 수 없습니다.",
+      "mapSnapshot": {
+        "path": [
+          {
+            "x": 1886.0,
+            "y": 2279.9
+          },
+          {
+            "x": 1886.7,
+            "y": 2287.9
+          },
+          {
+            "x": 1889.1,
+            "y": 2297.9
+          },
+          {
+            "x": 1872.9,
+            "y": 2289.1
+          }
+        ],
+        "viewSize": 1024,
+        "pathStartSeconds": 62.968,
+        "pathEndSeconds": 88.286,
+        "playerLabel": "분석 대상 위치",
+        "marks": [
+          {
+            "x": 1847.6,
+            "y": 2237,
+            "kind": "teammate",
+            "label": "Curry77777 · 01:09 관측 위치"
+          },
+          {
+            "x": 1869.7,
+            "y": 2236.2,
+            "kind": "teammate",
+            "label": "7xmi_ · 01:21 관측 위치"
+          },
+          {
+            "x": 1859.2,
+            "y": 2268.2,
+            "kind": "teammate",
+            "label": "roig--pig · 01:17 관측 위치"
+          }
+        ]
+      },
+      "context": "분석 대상과 팀원들은 비슷한 시각에 같은 착지 구역에 내렸습니다. 팀원 Curry77777은 착지 직후 기절하고 사망했습니다. 차량으로 이동하다 만난 교전이 아니라 착지 구역에서 시작된 혼전입니다."
+    },
+    {
+      "id": "scene-2",
+      "title": "우리 팀이 세 명을 쓰러뜨리고, 분석 대상이 마지막 타격",
+      "anchorSeconds": 320,
+      "startSeconds": 300,
+      "fact": "04:39 팀원 roig--pig가 M249로 한 명을 쓰러뜨렸습니다. 04:59 분석 대상 You1Shuo1-_-가 UMP45로 두 번째 상대를, 05:08 roig--pig가 윈체스터로 세 번째 상대를 쓰러뜨렸습니다. 세 상대는 05:12~05:19에 사망했고, 마지막 타격 기록은 모두 분석 대상에게 남았습니다. 이 중 분석 대상의 개인 킬은 05:15 UMP45로 잡은 MissMUiMU 한 명입니다.",
+      "limitation": "세 상대 중 두 명은 roig--pig가 먼저 쓰러뜨렸습니다. 사망 기록의 마지막 타격만으로 개인 킬 귀속이나 의도적인 역할 분담을 판단할 수 없습니다.",
+      "mapSnapshot": {
+        "path": [
+          {
+            "x": 1863.5,
+            "y": 2277.5
+          },
+          {
+            "x": 1862.8,
+            "y": 2278
+          },
+          {
+            "x": 1821.7,
+            "y": 2232.3
+          },
+          {
+            "x": 1827.2,
+            "y": 2221.7
+          }
+        ],
+        "viewSize": 2048,
+        "pathStartSeconds": 258.3,
+        "pathEndSeconds": 318.3,
+        "playerLabel": "분석 대상 위치",
+        "zone": {
+          "x": 3516,
+          "y": 2973,
+          "radius": 1921
+        },
+        "kills": [
+          {
+            "x": 1821.6,
+            "y": 2212.3,
+            "label": "3u331e · 05:12 사망"
+          },
+          {
+            "x": 1826.4,
+            "y": 2227.7,
+            "label": "MissMUiMU · 05:15 사망"
+          },
+          {
+            "x": 1828.7,
+            "y": 2217.1,
+            "label": "BornToBe1ST · 05:19 사망"
+          }
+        ],
+        "marks": [
+          {
+            "x": 1897.1,
+            "y": 2259.1,
+            "kind": "teammate",
+            "label": "7xmi_ · 05:21 관측 위치"
+          },
+          {
+            "x": 1837.1,
+            "y": 2245.5,
+            "kind": "teammate",
+            "label": "roig--pig · 05:17 관측 위치"
+          }
+        ]
+      },
+      "context": "세 상대는 같은 적 팀입니다. 기절 순간 사격자와 상대는 관측 위치 기준 약 29m·6m·7m 떨어져 있었습니다. 누가 어느 건물 안에 있었는지와 시야는 기록만으로 알 수 없습니다.",
+      "combatEvents": [
+        {
+          "timeSeconds": 279.128,
+          "kind": "knock",
+          "actor": "roig--pig",
+          "actorSide": "ally",
+          "target": "BornToBe1ST",
+          "weapon": "M249",
+          "distanceMeters": 29
+        },
+        {
+          "timeSeconds": 298.713,
+          "kind": "knock",
+          "actor": "You1Shuo1-_-",
+          "actorSide": "ally",
+          "target": "MissMUiMU",
+          "weapon": "UMP45",
+          "distanceMeters": 6
+        },
+        {
+          "timeSeconds": 308.138,
+          "kind": "knock",
+          "actor": "roig--pig",
+          "actorSide": "ally",
+          "target": "3u331e",
+          "weapon": "윈체스터",
+          "distanceMeters": 7
+        },
+        {
+          "timeSeconds": 312.349,
+          "kind": "kill",
+          "actor": "You1Shuo1-_-",
+          "actorSide": "ally",
+          "target": "3u331e",
+          "note": "roig--pig가 먼저 쓰러뜨린 상대 · 분석 대상 개인 킬은 아님"
+        },
+        {
+          "timeSeconds": 315.739,
+          "kind": "kill",
+          "actor": "You1Shuo1-_-",
+          "actorSide": "ally",
+          "target": "MissMUiMU",
+          "weapon": "UMP45",
+          "note": "분석 대상이 먼저 쓰러뜨려 개인 킬로 기록"
+        },
+        {
+          "timeSeconds": 319.549,
+          "kind": "kill",
+          "actor": "You1Shuo1-_-",
+          "actorSide": "ally",
+          "target": "BornToBe1ST",
+          "note": "roig--pig가 먼저 쓰러뜨린 상대 · 분석 대상 개인 킬은 아님"
+        }
+      ]
+    },
+    {
+      "id": "scene-3",
+      "title": "두 번째·세 번째 원으로 이동",
+      "anchorSeconds": 769,
+      "startSeconds": 749,
+      "fact": "두 번째 원은 08:40 관측, 당시 경계까지 약 135m 밖, 10:38 원 안에서 첫 관측. 세 번째 원은 11:40 관측, 약 170m 밖, 12:48 원 안에서 첫 관측됐습니다.",
+      "limitation": "차량 탑승은 11:13에 먼저 기록됐습니다. 세 번째 원 공개 이후 탑승이 없다고 도보 이동으로 판단하면 안 됩니다.",
+      "mapSnapshot": {
+        "path": [
+          {
+            "x": 2011.6,
+            "y": 2355.2
+          },
+          {
+            "x": 2171.2,
+            "y": 2336.9
+          },
+          {
+            "x": 2122.5,
+            "y": 2294.7
+          },
+          {
+            "x": 2413,
+            "y": 2355.9
+          }
+        ],
+        "viewSize": 2048,
+        "pathStartSeconds": 678.3,
+        "pathEndSeconds": 768.3,
+        "playerLabel": "분석 대상 위치",
+        "zone": {
+          "x": 2526,
+          "y": 2972,
+          "radius": 634
+        },
+        "marks": [
+          {
+            "x": 2482.4,
+            "y": 2407.9,
+            "kind": "teammate",
+            "label": "Curry77777 · 12:52 관측 위치"
+          },
+          {
+            "x": 2475.3,
+            "y": 2401.5,
+            "kind": "teammate",
+            "label": "7xmi_ · 12:51 관측 위치"
+          },
+          {
+            "x": 2394.8,
+            "y": 2347.4,
+            "kind": "teammate",
+            "label": "roig--pig · 12:47 관측 위치"
+          },
+          {
+            "x": 2297.6,
+            "y": 2460.8,
+            "kind": "opponent",
+            "label": "capjj · 12:04 관측 위치"
+          },
+          {
+            "x": 2472.3,
+            "y": 2413.9,
+            "kind": "opponent",
+            "label": "tinney_dad · 12:46 관측 위치"
+          }
+        ]
+      },
+      "context": "11:13 차량 탑승 기록이 먼저 있고, 11:40 세 번째 원이 나타났습니다. 12:48에는 원 안에서 처음 위치가 관측됩니다. 지도의 점선은 띄엄띄엄 기록된 위치를 연결한 것으로 실제 주행 경로는 아닙니다.",
+      "zoneAnalysis": {
+        "routeSummary": "서쪽 원 밖에서 동쪽으로 옮겨 세 번째 원의 북쪽 가장자리 안쪽에 들어온 위치가 관측됐습니다. 이동 중 남동쪽 주변에 다른 팀 선수들이 있었지만, 그들을 보고 이 길을 택했는지는 알 수 없습니다.",
+        "rounds": [
+          {
+            "label": "두 번째 원",
+            "revealedSeconds": 520.244,
+            "shrinkSeconds": 580.271,
+            "movedSeconds": 558.305,
+            "enteredSeconds": 638.278,
+            "note": "파란 자기장이 줄기 시작하기 전에 위치가 100m 이상 바뀌었습니다. 원 안에 처음 들어온 위치는 줄어드는 중에 확인됐습니다."
+          },
+          {
+            "label": "세 번째 원",
+            "revealedSeconds": 700.259,
+            "shrinkSeconds": 760.242,
+            "movedSeconds": 728.3,
+            "enteredSeconds": 768.288,
+            "note": "이 원도 줄기 시작 전에 100m 이상 위치 변화가 확인됐고, 줄기 시작 직후 원 안에서 관측됐습니다. 차량 탑승은 새 원 공개보다 앞선 11:13에 기록됐습니다."
+          }
+        ],
+        "nearbyOpponents": [
+          {
+            "timeSeconds": 724.018,
+            "name": "capjj",
+            "distanceMeters": 177,
+            "note": "같은 시간대 위치 표본"
+          },
+          {
+            "timeSeconds": 766.652,
+            "name": "tinney_dad",
+            "distanceMeters": 83,
+            "note": "세 번째 원 진입 무렵"
+          }
+        ]
+      }
+    },
+    {
+      "id": "scene-4",
+      "title": "기절 후 약 14.5초 만에 소생",
+      "anchorSeconds": 1016,
+      "startSeconds": 996,
+      "fact": "16:41 roig--pig 기절 → 16:55 7xmi_의 소생 이벤트. 이 소생은 분석 대상 개인이 아니라 다른 팀원의 행동입니다.",
+      "limitation": "소생이 완료된 사실을 설명합니다. 연막 효과·엄폐·안전성은 이 기록만으로 판단하지 않습니다.",
+      "mapSnapshot": {
+        "path": [
+          {
+            "x": 2486.3,
+            "y": 3171.7
+          },
+          {
+            "x": 2410.6,
+            "y": 3202.3
+          },
+          {
+            "x": 2338.1,
+            "y": 3234.4
+          },
+          {
+            "x": 2312.3,
+            "y": 3224.5
+          }
+        ],
+        "viewSize": 1536,
+        "pathStartSeconds": 958.3,
+        "pathEndSeconds": 1018.3,
+        "playerLabel": "분석 대상 위치",
+        "zone": {
+          "x": 2321,
+          "y": 2873,
+          "radius": 380
+        },
+        "marks": [
+          {
+            "x": 2479.5,
+            "y": 3169.9,
+            "kind": "teammate",
+            "label": "Curry77777 · 16:52 관측 위치"
+          },
+          {
+            "x": 2331.5,
+            "y": 3233.4,
+            "kind": "teammate",
+            "label": "7xmi_ · 16:51 관측 위치"
+          },
+          {
+            "x": 2329.9,
+            "y": 3233.8,
+            "kind": "teammate",
+            "label": "roig--pig · 16:57 관측 위치"
+          }
+        ]
+      },
+      "context": "상대 Slilent-nn325의 M24 공격으로 roig--pig가 쓰러졌고, 팀원 7xmi_가 약 14.5초 뒤 소생시켰습니다. 분석 대상이 소생한 장면은 아닙니다.",
+      "combatEvents": [
+        {
+          "timeSeconds": 1001.146,
+          "kind": "knock",
+          "actor": "Slilent-nn325",
+          "actorSide": "enemy",
+          "target": "roig--pig",
+          "weapon": "M24",
+          "note": "우리 팀원이 기절"
+        },
+        {
+          "timeSeconds": 1015.681,
+          "kind": "revive",
+          "actor": "7xmi_",
+          "actorSide": "ally",
+          "target": "roig--pig",
+          "note": "우리 팀원이 소생"
+        }
+      ]
+    },
+    {
+      "id": "scene-4b",
+      "title": "거의 같은 위치에서 Mk12로 먼 적 팀과 교전",
+      "anchorSeconds": 1371,
+      "startSeconds": 1314,
+      "fact": "22:14 분석 대상이 약 240m 거리의 Eiioa_를 Mk12로 쓰러뜨렸습니다. 22:51 같은 상대가 Mk12 처치 기록으로 사망해 분석 대상의 두 번째 개인 킬이 됐습니다. 이어 22:56 약 220m 거리의 Slilent-nn325도 Mk12로 쓰러뜨렸지만, 22:59 다른 적 팀의 Damx1ng이 그 상대를 마무리했습니다.",
+      "context": "Eiioa_와 Slilent-nn325는 같은 적 팀입니다. 분석 대상의 위치 표본은 이 구간에 거의 같은 곳에 머물렀고, 두 상대도 그곳에서 북동쪽에 기록됐습니다. Slilent-nn325의 사망은 분석 대상의 개인 킬이 아닙니다.",
+      "limitation": "두 상대를 볼 수 있었는지, 어느 엄폐물에서 쐈는지, 한 자리를 지킨 이유는 알 수 없습니다. Eiioa_의 처치 기록에는 Mk12가 남지만, 22:51에 다시 발사한 장면까지 확인되는 것은 아닙니다.",
+      "mapSnapshot": {
+        "path": [{ "x": 2260.9, "y": 2992.9 }],
+        "viewSize": 1024,
+        "playerLabel": "22:48 분석 대상 위치",
+        "kills": [{ "x": 2400.4, "y": 2802.3, "label": "Eiioa_ · 22:51 사망" }],
+        "marks": [{ "x": 2403.0, "y": 2824.4, "kind": "opponent", "label": "Slilent-nn325 · 22:56 기절" }]
+      },
+      "combatEvents": [
+        { "timeSeconds": 1334.184, "kind": "knock", "actor": "You1Shuo1-_-", "actorSide": "ally", "target": "Eiioa_", "weapon": "Mk12", "distanceMeters": 241 },
+        { "timeSeconds": 1371.239, "kind": "kill", "actor": "You1Shuo1-_-", "actorSide": "ally", "target": "Eiioa_", "weapon": "Mk12", "distanceMeters": 236, "note": "분석 대상의 두 번째 개인 킬 · 원본 처치 기록의 무기" },
+        { "timeSeconds": 1376.080, "kind": "knock", "actor": "You1Shuo1-_-", "actorSide": "ally", "target": "Slilent-nn325", "weapon": "Mk12", "distanceMeters": 221 },
+        { "timeSeconds": 1379.286, "kind": "kill", "actor": "Damx1ng", "actorSide": "enemy", "target": "Slilent-nn325", "note": "다른 적 팀이 마무리 · 분석 대상의 개인 킬은 아님" }
+      ]
+    },
+    {
+      "id": "scene-5",
+      "title": "팀원 사망 후 이어진 마지막 교전",
+      "anchorSeconds": 1516,
+      "startSeconds": 1496,
+      "fact": "24:38 Damx1ng의 Mini14에 7xmi_가 기절했고, 24:41 다른 적 팀의 xNobiii2407_-에게 사망했습니다. 24:47 분석 대상이 Damx1ng을 Mk12로 기절시켰고, 24:49 Curry77777이 xNobiii2407_-를 처치했습니다. 25:12 Damx1ng은 Mk12 처치 기록으로, 25:15 WuHuSiHai_YanQue는 AUG 사격 직후 AUG 처치 기록으로 사망했습니다. 이 두 건은 분석 대상의 개인 킬이며 팀이 1위·14킬로 끝냈습니다.",
+      "limitation": "Damx1ng의 원본 처치 기록에는 Mk12가 남지만, 기절시킨 뒤 약 25초가 지나 사망했고 그 순간의 새 사격 기록은 보이지 않습니다. 당시 다시 쐈다고 단정할 수 없습니다. 두 적을 공격한 의도나 팀원 간 소통도 알 수 없습니다.",
+      "mapSnapshot": {
+        "path": [
+          {
+            "x": 2213.4,
+            "y": 3002.9
+          },
+          {
+            "x": 2214.1,
+            "y": 3003.6
+          },
+          {
+            "x": 2220.4,
+            "y": 2984.4
+          },
+          {
+            "x": 2202.3,
+            "y": 2909.2
+          }
+        ],
+        "viewSize": 1024,
+        "pathStartSeconds": 1458.3,
+        "pathEndSeconds": 1518.3,
+        "playerLabel": "분석 대상 위치",
+        "zone": {
+          "x": 2257,
+          "y": 2899,
+          "radius": 104
+        },
+        "kills": [
+          {
+            "x": 2196.7,
+            "y": 2861.1,
+            "label": "Damx1ng · 25:12 사망"
+          },
+          {
+            "x": 2200.2,
+            "y": 2873.6,
+            "label": "WuHuSiHai_YanQue · 25:15 사망"
+          }
+        ],
+        "marks": [
+          {
+            "x": 2225.4,
+            "y": 2880.8,
+            "kind": "teammate",
+            "label": "Curry77777 · 25:02 관측 위치"
+          },
+          {
+            "x": 2208.8,
+            "y": 2882,
+            "kind": "teammate",
+            "label": "roig--pig · 25:17 관측 위치"
+          }
+        ]
+      },
+      "context": "7xmi_를 처음 쓰러뜨린 적과 마무리한 적은 서로 다른 팀입니다. 분석 대상의 마지막 두 상대인 Damx1ng과 WuHuSiHai_YanQue는 같은 적 팀으로 기록됩니다. 따라서 한 팀과만 맞선 교전으로 설명할 수 없습니다.",
+      "combatEvents": [
+        {
+          "timeSeconds": 1478.123,
+          "kind": "knock",
+          "actor": "Damx1ng",
+          "actorSide": "enemy",
+          "target": "7xmi_",
+          "weapon": "Mini14",
+          "note": "우리 팀원 기절 · 적 팀 13"
+        },
+        {
+          "timeSeconds": 1481.765,
+          "kind": "kill",
+          "actor": "xNobiii2407_-",
+          "actorSide": "enemy",
+          "target": "7xmi_",
+          "note": "다른 적 팀 7이 마무리"
+        },
+        {
+          "timeSeconds": 1487.176,
+          "kind": "knock",
+          "actor": "You1Shuo1-_-",
+          "actorSide": "ally",
+          "target": "Damx1ng",
+          "weapon": "Mk12",
+          "distanceMeters": 146
+        },
+        {
+          "timeSeconds": 1489.614,
+          "kind": "kill",
+          "actor": "Curry77777",
+          "actorSide": "ally",
+          "target": "xNobiii2407_-"
+        },
+        {
+          "timeSeconds": 1503.208,
+          "kind": "knock",
+          "actor": "WuHuSiHai_YanQue",
+          "actorSide": "enemy",
+          "target": "Curry77777",
+          "weapon": "AUG",
+          "note": "우리 팀원 기절"
+        },
+        {
+          "timeSeconds": 1512.733,
+          "kind": "kill",
+          "actor": "You1Shuo1-_-",
+          "actorSide": "ally",
+          "target": "Damx1ng",
+          "weapon": "Mk12",
+          "distanceMeters": 73,
+          "note": "개인 킬 · 앞서 Mk12로 기절시킨 상대. 원본 처치 기록에도 Mk12가 남음"
+        },
+        {
+          "timeSeconds": 1514.356,
+          "kind": "shot",
+          "actor": "You1Shuo1-_-",
+          "actorSide": "ally",
+          "weapon": "AUG",
+          "note": "Mk12 사용 뒤 확인된 AUG 사격"
+        },
+        {
+          "timeSeconds": 1515.566,
+          "kind": "kill",
+          "actor": "You1Shuo1-_-",
+          "actorSide": "ally",
+          "target": "WuHuSiHai_YanQue",
+          "weapon": "AUG",
+          "distanceMeters": 36,
+          "note": "개인 킬 · AUG 연사 직후 원본 처치 기록에도 AUG가 남음"
+        }
+      ]
+    }
+  ]
+}

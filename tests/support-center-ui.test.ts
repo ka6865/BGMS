@@ -32,7 +32,7 @@ const ticket = {
   attachments: [],
 };
 
-function response(body: unknown, ok = true, status = 200) {
+function response(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), {
     status,
     headers: { "content-type": "application/json" },
@@ -73,7 +73,7 @@ describe("support center UI", () => {
 
   it("navigates after a successful general inquiry and leaves an attachment error retryable", async () => {
     const fetchMock = vi.mocked(fetch);
-    fetchMock.mockImplementationOnce(() => response({ ticket: { id: ticket.id } }, true, 201));
+    fetchMock.mockImplementationOnce(() => response({ ticket: { id: ticket.id } }, 201));
     render(React.createElement(TicketForm, {}));
     fireEvent.change(screen.getByLabelText("제목"), { target: { value: "로그인 문의" } });
     fireEvent.change(screen.getByLabelText("문의 내용"), { target: { value: "확인 부탁드립니다." } });
@@ -82,22 +82,42 @@ describe("support center UI", () => {
 
     cleanup();
     fetchMock.mockReset();
-    fetchMock.mockImplementationOnce(() => response({ error: "업로드 실패" }, false, 503));
+    fetchMock.mockImplementationOnce(() => response({ error: "업로드 실패" }, 503));
     render(React.createElement(TicketForm, {}));
     fireEvent.change(screen.getByLabelText("제목"), { target: { value: "첨부 문의" } });
     fireEvent.change(screen.getByLabelText("문의 내용"), { target: { value: "재시도 부탁드립니다." } });
     fireEvent.change(screen.getByLabelText("첨부파일"), {
       target: { files: [new File(["proof"], "proof.png", { type: "image/png" })] },
     });
-    await waitFor(() => expect(screen.getByText("업로드 실패")).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("proof.png: 업로드 실패"));
     expect(screen.getByRole("button", { name: "문의 제출" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("uploads a selected image and keeps it when a later upload fails", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock
+      .mockImplementationOnce(() => response({ attachmentId: "image-1", bucketId: "support-evidence", storageKey: "attachments/image-1", token: "token-1" }))
+      .mockImplementationOnce(() => response({ attachmentId: "image-1", status: "ready" }))
+      .mockImplementationOnce(() => response({ error: "첨부파일 업로드를 준비하지 못했습니다." }, 503));
+    render(React.createElement(TicketForm, {}));
+    const input = screen.getByLabelText("첨부파일");
+    fireEvent.change(input, { target: { files: [new File(["proof"], "proof.png", { type: "image/png" })] } });
+    await waitFor(() => expect(screen.getByText("첨부파일 1개 준비 완료")).toBeTruthy());
+    expect(mocks.uploadToSignedUrl).toHaveBeenCalledWith(
+      "attachments/image-1", "token-1", expect.any(File), { contentType: "image/png", upsert: false },
+    );
+    expect(input).toHaveValue("");
+
+    fireEvent.change(input, { target: { files: [new File(["second"], "second.png", { type: "image/png" })] } });
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("second.png: 첨부파일 업로드를 준비하지 못했습니다."));
+    expect(screen.getByText("첨부파일 1개 준비 완료")).toBeTruthy();
   });
 
   it("renders an admin reply and posts a new user message", async () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock
       .mockImplementationOnce(() => response({ ticket }))
-      .mockImplementationOnce(() => response({ message: { id: "m-2" } }, true, 201))
+      .mockImplementationOnce(() => response({ message: { id: "m-2" } }, 201))
       .mockImplementationOnce(() => response({ ticket }));
     render(React.createElement(TicketThread, { ticketId: ticket.id }));
     expect(await screen.findByText("확인했습니다.")).toBeTruthy();

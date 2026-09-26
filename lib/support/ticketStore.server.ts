@@ -270,7 +270,7 @@ export async function appendSupportMessage(
   if (typeof appendRpc === "function") {
     let rpcResult: { data: SupportMessageRow | { code?: string } | null; error: { message?: string; code?: string } | null };
     try {
-      rpcResult = await appendRpc("append_support_message", {
+      rpcResult = await (db as any).rpc("append_support_message", {
         p_ticket_id: input.ticketId,
         p_actor_id: input.actor.userId,
         p_sender_type: input.senderType,

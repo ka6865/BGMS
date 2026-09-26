@@ -2,7 +2,11 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   trailingSlash: false,
-  allowedDevOrigins: ['localhost:3000', '127.0.0.1:3000'],
+  allowedDevOrigins: [
+    'localhost:3000',
+    '127.0.0.1:3000',
+    ...(process.env.BGMS_TAILSCALE_DEV_HOST ? [process.env.BGMS_TAILSCALE_DEV_HOST] : []),
+  ],
   images: {
     /*
       허용 호스트를 와일드카드로 열어두면 제3자가 임의 외부 이미지를

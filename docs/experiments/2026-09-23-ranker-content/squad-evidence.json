@@ -1,0 +1,4670 @@
+{
+  "meta": {
+    "label": "squad",
+    "matchId": "8fd67b1f-859f-428b-9da0-80f34536e2f2",
+    "match": {
+      "createdAt": "2026-09-22T05:10:41Z",
+      "shardId": "steam",
+      "isCustomMatch": false,
+      "matchType": "competitive",
+      "duration": 1519,
+      "stats": null,
+      "gameMode": "squad",
+      "titleId": "bluehole-pubg",
+      "tags": null,
+      "mapName": "Baltic_Main",
+      "seasonState": "progress"
+    },
+    "player": {
+      "DBNOs": 4,
+      "assists": 4,
+      "boosts": 8,
+      "damageDealt": 644.2467,
+      "deathType": "alive",
+      "headshotKills": 1,
+      "heals": 9,
+      "killPlace": 3,
+      "killStreaks": 2,
+      "kills": 4,
+      "longestKill": 240.90086,
+      "name": "You1Shuo1-_-",
+      "playerId": "account.15ba57e483694cac85c5248bf69ed3be",
+      "revives": 0,
+      "rideDistance": 1888.2654,
+      "roadKills": 0,
+      "swimDistance": 0,
+      "teamKills": 0,
+      "timeSurvived": 1519,
+      "vehicleDestroys": 1,
+      "walkDistance": 3789.7112,
+      "weaponsAcquired": 12,
+      "winPlace": 1
+    },
+    "leaderboard": {
+      "name": "You1Shuo1-_-",
+      "rank": 9,
+      "stats": {
+        "rankPoints": 4562,
+        "wins": 63,
+        "games": 146,
+        "winRatio": 0.43150684,
+        "averageDamage": 521,
+        "kills": 577,
+        "killDeathRatio": 0,
+        "kda": 0,
+        "averageRank": 4.2054796,
+        "averageKill": 3.9520547,
+        "tier": "Survivor",
+        "subTier": "1"
+      }
+    },
+    "roster": [
+      {
+        "DBNOs": 1,
+        "assists": 1,
+        "boosts": 5,
+        "damageDealt": 239.14444,
+        "deathType": "byplayer",
+        "headshotKills": 0,
+        "heals": 3,
+        "killPlace": 18,
+        "killStreaks": 1,
+        "kills": 1,
+        "longestKill": 10.267749,
+        "name": "Curry77777",
+        "playerId": "account.7729b6548749421da5f9d3378007d4ab",
+        "revives": 0,
+        "rideDistance": 1884.9547,
+        "roadKills": 0,
+        "swimDistance": 0,
+        "teamKills": 0,
+        "timeSurvived": 1060,
+        "vehicleDestroys": 1,
+        "walkDistance": 2357.2732,
+        "weaponsAcquired": 9,
+        "winPlace": 1
+      },
+      {
+        "DBNOs": 6,
+        "assists": 2,
+        "boosts": 12,
+        "damageDealt": 415.8747,
+        "deathType": "byplayer",
+        "headshotKills": 0,
+        "heals": 10,
+        "killPlace": 5,
+        "killStreaks": 1,
+        "kills": 3,
+        "longestKill": 169.95096,
+        "name": "7xmi_",
+        "playerId": "account.4e2c6e8ccf634299b76d1fd56ec468c9",
+        "revives": 1,
+        "rideDistance": 1749.2189,
+        "roadKills": 0,
+        "swimDistance": 0,
+        "teamKills": 0,
+        "timeSurvived": 1482,
+        "vehicleDestroys": 1,
+        "walkDistance": 3603.1877,
+        "weaponsAcquired": 16,
+        "winPlace": 1
+      },
+      {
+        "DBNOs": 4,
+        "assists": 4,
+        "boosts": 8,
+        "damageDealt": 644.2467,
+        "deathType": "alive",
+        "headshotKills": 1,
+        "heals": 9,
+        "killPlace": 3,
+        "killStreaks": 2,
+        "kills": 4,
+        "longestKill": 240.90086,
+        "name": "You1Shuo1-_-",
+        "playerId": "account.15ba57e483694cac85c5248bf69ed3be",
+        "revives": 0,
+        "rideDistance": 1888.2654,
+        "roadKills": 0,
+        "swimDistance": 0,
+        "teamKills": 0,
+        "timeSurvived": 1519,
+        "vehicleDestroys": 1,
+        "walkDistance": 3789.7112,
+        "weaponsAcquired": 12,
+        "winPlace": 1
+      },
+      {
+        "DBNOs": 5,
+        "assists": 1,
+        "boosts": 7,
+        "damageDealt": 963.5674,
+        "deathType": "alive",
+        "headshotKills": 3,
+        "heals": 4,
+        "killPlace": 1,
+        "killStreaks": 2,
+        "kills": 6,
+        "longestKill": 142.6573,
+        "name": "roig--pig",
+        "playerId": "account.1d19f2ef3e19480dbf2f1ba35cc348d4",
+        "revives": 1,
+        "rideDistance": 2188.0005,
+        "roadKills": 0,
+        "swimDistance": 0,
+        "teamKills": 0,
+        "timeSurvived": 1519,
+        "vehicleDestroys": 0,
+        "walkDistance": 4208.919,
+        "weaponsAcquired": 16,
+        "winPlace": 1
+      }
+    ],
+    "fetchedAt": "2026-09-23T00:53:58.502Z"
+  },
+  "startAt": "2026-09-22T05:10:41.769Z",
+  "landing": {
+    "sourceIndex": 2349,
+    "type": "LogParachuteLanding",
+    "t": 62.968,
+    "at": "2026-09-22T05:11:44.737Z",
+    "location": {
+      "x": 1886.02359375,
+      "y": 2279.9040625,
+      "z": 24.0367333984375
+    },
+    "zone": [],
+    "nearbyOpponentLandings": [
+      {
+        "sourceIndex": 2298,
+        "type": "LogParachuteLanding",
+        "t": 58.867,
+        "at": "2026-09-22T05:11:40.636Z",
+        "name": "BornToBe1ST",
+        "distanceMeters": 76.56849525793506
+      },
+      {
+        "sourceIndex": 2311,
+        "type": "LogParachuteLanding",
+        "t": 60.003,
+        "at": "2026-09-22T05:11:41.772Z",
+        "name": "TraChipChoTaoxXx",
+        "distanceMeters": 488.0325893975597
+      },
+      {
+        "sourceIndex": 2323,
+        "type": "LogParachuteLanding",
+        "t": 60.598,
+        "at": "2026-09-22T05:11:42.367Z",
+        "name": "Yamal10_",
+        "distanceMeters": 26.82538088852525
+      },
+      {
+        "sourceIndex": 2337,
+        "type": "LogParachuteLanding",
+        "t": 61.765,
+        "at": "2026-09-22T05:11:43.534Z",
+        "name": "xLambogini",
+        "distanceMeters": 475.7090059837508
+      },
+      {
+        "sourceIndex": 2339,
+        "type": "LogParachuteLanding",
+        "t": 61.8,
+        "at": "2026-09-22T05:11:43.569Z",
+        "name": "MissMUiMU",
+        "distanceMeters": 220.68616165655686
+      },
+      {
+        "sourceIndex": 2345,
+        "type": "LogParachuteLanding",
+        "t": 62.234,
+        "at": "2026-09-22T05:11:44.003Z",
+        "name": "KOTA_KOTA_KOTA",
+        "distanceMeters": 471.1550125129879
+      },
+      {
+        "sourceIndex": 2352,
+        "type": "LogParachuteLanding",
+        "t": 63.102,
+        "at": "2026-09-22T05:11:44.871Z",
+        "name": "Shadow_comeback",
+        "distanceMeters": 444.17606395334616
+      },
+      {
+        "sourceIndex": 2377,
+        "type": "LogParachuteLanding",
+        "t": 64.076,
+        "at": "2026-09-22T05:11:45.845Z",
+        "name": "HaloBaByKKB",
+        "distanceMeters": 276.93375518587914
+      },
+      {
+        "sourceIndex": 2418,
+        "type": "LogParachuteLanding",
+        "t": 66.284,
+        "at": "2026-09-22T05:11:48.053Z",
+        "name": "3u331e",
+        "distanceMeters": 262.59811481337783
+      },
+      {
+        "sourceIndex": 2584,
+        "type": "LogParachuteLanding",
+        "t": 72.554,
+        "at": "2026-09-22T05:11:54.323Z",
+        "name": "tinney_dad",
+        "distanceMeters": 325.49340143595026
+      }
+    ]
+  },
+  "positionSamples": 152,
+  "positionGapMedian": 9.996999999999957,
+  "zones": [
+    {
+      "observation": {
+        "sourceIndex": 3765,
+        "type": "LogGameStatePeriodic",
+        "t": 100.261,
+        "at": "2026-09-22T05:12:22.030Z"
+      },
+      "center": {
+        "x": 3515.604375,
+        "y": 2972.8525
+      },
+      "radius": 1920.5971875,
+      "phase": 1,
+      "position": {
+        "x": 1877.51546875,
+        "y": 2279.66421875,
+        "z": 19.23800048828125,
+        "ageSeconds": 1.98
+      },
+      "outsideMeters": 0,
+      "firstInside": {
+        "sourceIndex": 4220,
+        "type": "LogPlayerPosition",
+        "t": 108.305,
+        "at": "2026-09-22T05:12:30.074Z"
+      },
+      "firstRide": null
+    },
+    {
+      "observation": {
+        "sourceIndex": 18806,
+        "type": "LogGameStatePeriodic",
+        "t": 520.244,
+        "at": "2026-09-22T05:19:22.013Z"
+      },
+      "center": {
+        "x": 2818.8371875,
+        "y": 2864.3190625
+      },
+      "radius": 1056.3284375,
+      "phase": 2,
+      "position": {
+        "x": 1844.16859375,
+        "y": 2179.12578125,
+        "z": 11.743299560546875,
+        "ageSeconds": 1.94
+      },
+      "outsideMeters": 135.08614202836225,
+      "firstInside": {
+        "sourceIndex": 22123,
+        "type": "LogPlayerPosition",
+        "t": 638.278,
+        "at": "2026-09-22T05:21:20.047Z"
+      },
+      "firstRide": {
+        "sourceIndex": 22958,
+        "type": "LogVehicleRide",
+        "t": 673.322,
+        "at": "2026-09-22T05:21:55.091Z"
+      }
+    },
+    {
+      "observation": {
+        "sourceIndex": 23823,
+        "type": "LogGameStatePeriodic",
+        "t": 700.259,
+        "at": "2026-09-22T05:22:22.028Z"
+      },
+      "center": {
+        "x": 2526.175625,
+        "y": 2972.4275
+      },
+      "radius": 633.7970703125,
+      "phase": 3,
+      "position": {
+        "x": 2011.62,
+        "y": 2355.2271875,
+        "z": 10.090485229492188,
+        "ageSeconds": 1.98
+      },
+      "outsideMeters": 169.75984551191004,
+      "firstInside": {
+        "sourceIndex": 25645,
+        "type": "LogPlayerPosition",
+        "t": 768.288,
+        "at": "2026-09-22T05:23:30.057Z"
+      },
+      "firstRide": {
+        "sourceIndex": 28178,
+        "type": "LogVehicleRide",
+        "t": 858.68,
+        "at": "2026-09-22T05:25:00.449Z"
+      }
+    },
+    {
+      "observation": {
+        "sourceIndex": 28470,
+        "type": "LogGameStatePeriodic",
+        "t": 880.268,
+        "at": "2026-09-22T05:25:22.037Z"
+      },
+      "center": {
+        "x": 2321.35578125,
+        "y": 2872.975
+      },
+      "radius": 380.2782421875,
+      "phase": 4,
+      "position": {
+        "x": 2740.725,
+        "y": 2675.223125,
+        "z": 13.71590576171875,
+        "ageSeconds": 1.97
+      },
+      "outsideMeters": 83.37717479908173,
+      "firstInside": {
+        "sourceIndex": 28652,
+        "type": "LogPlayerPosition",
+        "t": 888.288,
+        "at": "2026-09-22T05:25:30.057Z"
+      },
+      "firstRide": null
+    },
+    {
+      "observation": {
+        "sourceIndex": 31550,
+        "type": "LogGameStatePeriodic",
+        "t": 1060.252,
+        "at": "2026-09-22T05:28:22.021Z"
+      },
+      "center": {
+        "x": 2239.70625,
+        "y": 2881.3790625
+      },
+      "radius": 247.18083984375,
+      "phase": 5,
+      "position": {
+        "x": 2312.87953125,
+        "y": 3226.135,
+        "z": 135.469296875,
+        "ageSeconds": 1.97
+      },
+      "outsideMeters": 105.25494938656573,
+      "firstInside": {
+        "sourceIndex": 32974,
+        "type": "LogPlayerPosition",
+        "t": 1158.297,
+        "at": "2026-09-22T05:30:00.066Z"
+      },
+      "firstRide": {
+        "sourceIndex": 33729,
+        "type": "LogVehicleRide",
+        "t": 1217.368,
+        "at": "2026-09-22T05:30:59.137Z"
+      }
+    },
+    {
+      "observation": {
+        "sourceIndex": 33951,
+        "type": "LogGameStatePeriodic",
+        "t": 1240.256,
+        "at": "2026-09-22T05:31:22.025Z"
+      },
+      "center": {
+        "x": 2243.42875,
+        "y": 2925.61
+      },
+      "radius": 160.6675390625,
+      "phase": 6,
+      "position": {
+        "x": 2253.966875,
+        "y": 2996.01625,
+        "z": 10.1377001953125,
+        "ageSeconds": 1.97
+      },
+      "outsideMeters": 0,
+      "firstInside": {
+        "sourceIndex": 34011,
+        "type": "LogPlayerPosition",
+        "t": 1248.307,
+        "at": "2026-09-22T05:31:30.076Z"
+      },
+      "firstRide": null
+    },
+    {
+      "observation": {
+        "sourceIndex": 35680,
+        "type": "LogGameStatePeriodic",
+        "t": 1410.259,
+        "at": "2026-09-22T05:34:12.028Z"
+      },
+      "center": {
+        "x": 2257.1684375,
+        "y": 2899.0090625
+      },
+      "radius": 104.433896484375,
+      "phase": 7,
+      "position": {
+        "x": 2256.0459375,
+        "y": 2985.808125,
+        "z": 11.72780029296875,
+        "ageSeconds": 1.97
+      },
+      "outsideMeters": 0,
+      "firstInside": {
+        "sourceIndex": 35739,
+        "type": "LogPlayerPosition",
+        "t": 1418.282,
+        "at": "2026-09-22T05:34:20.051Z"
+      },
+      "firstRide": null
+    }
+  ],
+  "rides": [
+    {
+      "sourceIndex": 22958,
+      "type": "LogVehicleRide",
+      "t": 673.322,
+      "at": "2026-09-22T05:21:55.091Z",
+      "vehicle": "Dacia_A_03_v2_Esports_C",
+      "location": {
+        "x": 2012.521875,
+        "y": 2355.08609375,
+        "z": 10.134979248046875
+      }
+    },
+    {
+      "sourceIndex": 22985,
+      "type": "LogVehicleRide",
+      "t": 674.551,
+      "at": "2026-09-22T05:21:56.320Z",
+      "vehicle": "Dacia_A_03_v2_Esports_C",
+      "location": {
+        "x": 2011.62,
+        "y": 2355.2271875,
+        "z": 10.092398681640624
+      }
+    },
+    {
+      "sourceIndex": 28178,
+      "type": "LogVehicleRide",
+      "t": 858.68,
+      "at": "2026-09-22T05:25:00.449Z",
+      "vehicle": "Dacia_A_03_v2_Esports_C",
+      "location": {
+        "x": 2483.226875,
+        "y": 2435.42109375,
+        "z": 26.707138671875
+      }
+    },
+    {
+      "sourceIndex": 28182,
+      "type": "LogVehicleRide",
+      "t": 858.94,
+      "at": "2026-09-22T05:25:00.709Z",
+      "vehicle": "Dacia_A_03_v2_Esports_C",
+      "location": {
+        "x": 2483.6325,
+        "y": 2434.99953125,
+        "z": 26.44998779296875
+      }
+    },
+    {
+      "sourceIndex": 33729,
+      "type": "LogVehicleRide",
+      "t": 1217.368,
+      "at": "2026-09-22T05:30:59.137Z",
+      "vehicle": "Dacia_A_03_v2_Esports_C",
+      "location": {
+        "x": 2300.92921875,
+        "y": 3087.5390625,
+        "z": 36.467138671875
+      }
+    }
+  ],
+  "kills": [
+    {
+      "sourceIndex": 12306,
+      "type": "LogPlayerKillV2",
+      "t": 315.739,
+      "at": "2026-09-22T05:15:57.508Z",
+      "victim": "MissMUiMU",
+      "weapon": "WeapUMP_C",
+      "reason": "TorsoShot"
+    },
+    {
+      "sourceIndex": 35244,
+      "type": "LogPlayerKillV2",
+      "t": 1371.239,
+      "at": "2026-09-22T05:33:33.008Z",
+      "victim": "Eiioa_",
+      "weapon": "WeapMk12_C",
+      "reason": "TorsoShot"
+    },
+    {
+      "sourceIndex": 36469,
+      "type": "LogPlayerKillV2",
+      "t": 1512.733,
+      "at": "2026-09-22T05:35:54.502Z",
+      "victim": "Damx1ng",
+      "weapon": "WeapMk12_C",
+      "reason": "HeadShot"
+    },
+    {
+      "sourceIndex": 36513,
+      "type": "LogPlayerKillV2",
+      "t": 1515.566,
+      "at": "2026-09-22T05:35:57.335Z",
+      "victim": "WuHuSiHai_YanQue",
+      "weapon": "WeapAUG_C",
+      "reason": "TorsoShot"
+    }
+  ],
+  "death": null,
+  "teamDeaths": [
+    {
+      "sourceIndex": 2965,
+      "type": "LogPlayerKillV2",
+      "t": 80.958,
+      "at": "2026-09-22T05:12:02.727Z",
+      "victim": "Curry77777",
+      "killer": "BornToBe1ST",
+      "finisher": "BornToBe1ST",
+      "teamKill": false
+    },
+    {
+      "sourceIndex": 36217,
+      "type": "LogPlayerKillV2",
+      "t": 1481.765,
+      "at": "2026-09-22T05:35:23.534Z",
+      "victim": "7xmi_",
+      "killer": "xNobiii2407_-",
+      "finisher": "xNobiii2407_-",
+      "teamKill": false
+    }
+  ],
+  "revives": [
+    {
+      "sourceIndex": 30938,
+      "type": "LogPlayerRevive",
+      "t": 1015.681,
+      "at": "2026-09-22T05:27:37.450Z",
+      "reviver": "7xmi_",
+      "victim": "roig--pig"
+    },
+    {
+      "sourceIndex": 35790,
+      "type": "LogPlayerRevive",
+      "t": 1429.943,
+      "at": "2026-09-22T05:34:31.712Z",
+      "reviver": "roig--pig",
+      "victim": "Curry77777"
+    }
+  ],
+  "blueDamage": 0,
+  "outgoingDamage": 644.246711730957,
+  "fights": [
+    {
+      "from": 72.989,
+      "to": 80.958,
+      "teamDamage": 0,
+      "myDamage": 0,
+      "myReceived": 0,
+      "events": [
+        {
+          "sourceIndex": 2599,
+          "type": "LogPlayerTakeDamage",
+          "t": 72.989,
+          "at": "2026-09-22T05:11:54.758Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 31.015010833740234,
+          "weapon": "WeapThompson_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 2612,
+          "type": "LogPlayerTakeDamage",
+          "t": 73.223,
+          "at": "2026-09-22T05:11:54.992Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 68.9849853515625,
+          "weapon": "WeapThompson_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 2613,
+          "type": "LogPlayerMakeGroggy",
+          "t": 73.225,
+          "at": "2026-09-22T05:11:54.994Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "weapon": "WeapThompson_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 2635,
+          "type": "LogPlayerTakeDamage",
+          "t": 73.532,
+          "at": "2026-09-22T05:11:55.301Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapThompson_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 2644,
+          "type": "LogPlayerTakeDamage",
+          "t": 73.633,
+          "at": "2026-09-22T05:11:55.402Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapThompson_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 2672,
+          "type": "LogPlayerTakeDamage",
+          "t": 74.244,
+          "at": "2026-09-22T05:11:56.013Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapThompson_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 2676,
+          "type": "LogPlayerTakeDamage",
+          "t": 74.316,
+          "at": "2026-09-22T05:11:56.085Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapThompson_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 2681,
+          "type": "LogPlayerTakeDamage",
+          "t": 74.386,
+          "at": "2026-09-22T05:11:56.155Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapThompson_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 2684,
+          "type": "LogPlayerTakeDamage",
+          "t": 74.484,
+          "at": "2026-09-22T05:11:56.253Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapThompson_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 2687,
+          "type": "LogPlayerTakeDamage",
+          "t": 74.552,
+          "at": "2026-09-22T05:11:56.321Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapThompson_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 2694,
+          "type": "LogPlayerTakeDamage",
+          "t": 74.65,
+          "at": "2026-09-22T05:11:56.419Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapThompson_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 2701,
+          "type": "LogPlayerTakeDamage",
+          "t": 74.718,
+          "at": "2026-09-22T05:11:56.487Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapThompson_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 2708,
+          "type": "LogPlayerTakeDamage",
+          "t": 74.789,
+          "at": "2026-09-22T05:11:56.558Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapThompson_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 2733,
+          "type": "LogPlayerTakeDamage",
+          "t": 75.265,
+          "at": "2026-09-22T05:11:57.034Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapThompson_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 2746,
+          "type": "LogPlayerTakeDamage",
+          "t": 75.436,
+          "at": "2026-09-22T05:11:57.205Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapThompson_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 2749,
+          "type": "LogPlayerTakeDamage",
+          "t": 75.504,
+          "at": "2026-09-22T05:11:57.273Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapThompson_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 2752,
+          "type": "LogPlayerTakeDamage",
+          "t": 75.602,
+          "at": "2026-09-22T05:11:57.371Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapThompson_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 2757,
+          "type": "LogPlayerTakeDamage",
+          "t": 75.671,
+          "at": "2026-09-22T05:11:57.440Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapThompson_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 2897,
+          "type": "LogPlayerTakeDamage",
+          "t": 79.53,
+          "at": "2026-09-22T05:12:01.299Z",
+          "attacker": "BornToBe1ST",
+          "victim": "7xmi_",
+          "damage": 29.655839920043945,
+          "weapon": "WeapThompson_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 2964,
+          "type": "LogPlayerTakeDamage",
+          "t": 80.957,
+          "at": "2026-09-22T05:12:02.726Z",
+          "attacker": "BornToBe1ST",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapThompson_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 2965,
+          "type": "LogPlayerKillV2",
+          "t": 80.958,
+          "at": "2026-09-22T05:12:02.727Z",
+          "killer": "BornToBe1ST",
+          "victim": "Curry77777",
+          "weapon": "WeapThompson_C",
+          "reason": "HeadShot"
+        }
+      ],
+      "kills": [
+        {
+          "sourceIndex": 2965,
+          "type": "LogPlayerKillV2",
+          "t": 80.958,
+          "at": "2026-09-22T05:12:02.727Z",
+          "killer": "BornToBe1ST",
+          "victim": "Curry77777",
+          "teamKill": false
+        }
+      ]
+    },
+    {
+      "from": 129.186,
+      "to": 129.186,
+      "teamDamage": 18,
+      "myDamage": 0,
+      "myReceived": 0,
+      "events": [
+        {
+          "sourceIndex": 5344,
+          "type": "LogPlayerTakeDamage",
+          "t": 129.186,
+          "at": "2026-09-22T05:12:50.955Z",
+          "attacker": "roig--pig",
+          "victim": "BornToBe1ST",
+          "damage": 18,
+          "weapon": "WeapHK416_C",
+          "reason": "ArmShot"
+        }
+      ],
+      "kills": []
+    },
+    {
+      "from": 220.984,
+      "to": 220.984,
+      "teamDamage": 52.190738677978516,
+      "myDamage": 52.190738677978516,
+      "myReceived": 0,
+      "events": [
+        {
+          "sourceIndex": 8973,
+          "type": "LogPlayerTakeDamage",
+          "t": 220.984,
+          "at": "2026-09-22T05:14:22.753Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Yamal10_",
+          "damage": 52.190738677978516,
+          "weapon": "WeapUMP_C",
+          "reason": "HeadShot"
+        }
+      ],
+      "kills": []
+    },
+    {
+      "from": 278.893,
+      "to": 319.549,
+      "teamDamage": 275.60030364990234,
+      "myDamage": 75.60029792785645,
+      "myReceived": 91.07999801635742,
+      "events": [
+        {
+          "sourceIndex": 10799,
+          "type": "LogPlayerTakeDamage",
+          "t": 278.893,
+          "at": "2026-09-22T05:15:20.662Z",
+          "attacker": "roig--pig",
+          "victim": "BornToBe1ST",
+          "damage": 22.14000129699707,
+          "weapon": "WeapM249_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 10803,
+          "type": "LogPlayerTakeDamage",
+          "t": 278.99,
+          "at": "2026-09-22T05:15:20.759Z",
+          "attacker": "roig--pig",
+          "victim": "BornToBe1ST",
+          "damage": 24.600000381469727,
+          "weapon": "WeapM249_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 10807,
+          "type": "LogPlayerTakeDamage",
+          "t": 279.126,
+          "at": "2026-09-22T05:15:20.895Z",
+          "attacker": "roig--pig",
+          "victim": "BornToBe1ST",
+          "damage": 53.26000213623047,
+          "weapon": "WeapM249_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 10808,
+          "type": "LogPlayerMakeGroggy",
+          "t": 279.128,
+          "at": "2026-09-22T05:15:20.897Z",
+          "attacker": "roig--pig",
+          "victim": "BornToBe1ST",
+          "weapon": "WeapM249_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 11472,
+          "type": "LogPlayerTakeDamage",
+          "t": 297.975,
+          "at": "2026-09-22T05:15:39.744Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "MissMUiMU",
+          "damage": 25.109926223754883,
+          "weapon": "WeapUMP_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 11499,
+          "type": "LogPlayerTakeDamage",
+          "t": 298.407,
+          "at": "2026-09-22T05:15:40.176Z",
+          "attacker": "MissMUiMU",
+          "victim": "You1Shuo1-_-",
+          "damage": 29.040000915527344,
+          "weapon": "WeapBerylM762_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 11512,
+          "type": "LogPlayerTakeDamage",
+          "t": 298.578,
+          "at": "2026-09-22T05:15:40.347Z",
+          "attacker": "MissMUiMU",
+          "victim": "You1Shuo1-_-",
+          "damage": 62.03999710083008,
+          "weapon": "WeapBerylM762_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 11514,
+          "type": "LogPlayerTakeDamage",
+          "t": 298.613,
+          "at": "2026-09-22T05:15:40.382Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "MissMUiMU",
+          "damage": 39.66399002075195,
+          "weapon": "WeapUMP_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 11519,
+          "type": "LogPlayerTakeDamage",
+          "t": 298.712,
+          "at": "2026-09-22T05:15:40.481Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "MissMUiMU",
+          "damage": 10.82638168334961,
+          "weapon": "WeapUMP_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 11520,
+          "type": "LogPlayerMakeGroggy",
+          "t": 298.713,
+          "at": "2026-09-22T05:15:40.482Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "MissMUiMU",
+          "weapon": "WeapUMP_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 11523,
+          "type": "LogPlayerTakeDamage",
+          "t": 298.811,
+          "at": "2026-09-22T05:15:40.580Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "MissMUiMU",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 11526,
+          "type": "LogPlayerTakeDamage",
+          "t": 298.88,
+          "at": "2026-09-22T05:15:40.649Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "MissMUiMU",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 11536,
+          "type": "LogPlayerTakeDamage",
+          "t": 299.014,
+          "at": "2026-09-22T05:15:40.783Z",
+          "attacker": "roig--pig",
+          "victim": "MissMUiMU",
+          "damage": 0,
+          "weapon": "WeapM249_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 11542,
+          "type": "LogPlayerTakeDamage",
+          "t": 299.147,
+          "at": "2026-09-22T05:15:40.916Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "MissMUiMU",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 11550,
+          "type": "LogPlayerTakeDamage",
+          "t": 299.246,
+          "at": "2026-09-22T05:15:41.015Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "MissMUiMU",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 12012,
+          "type": "LogPlayerTakeDamage",
+          "t": 308.133,
+          "at": "2026-09-22T05:15:49.902Z",
+          "attacker": "roig--pig",
+          "victim": "3u331e",
+          "damage": 15.443999290466309,
+          "weapon": "WeapWinchester_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 12013,
+          "type": "LogPlayerTakeDamage",
+          "t": 308.134,
+          "at": "2026-09-22T05:15:49.903Z",
+          "attacker": "roig--pig",
+          "victim": "3u331e",
+          "damage": 16.3799991607666,
+          "weapon": "WeapWinchester_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 12014,
+          "type": "LogPlayerTakeDamage",
+          "t": 308.135,
+          "at": "2026-09-22T05:15:49.904Z",
+          "attacker": "roig--pig",
+          "victim": "3u331e",
+          "damage": 8.1899995803833,
+          "weapon": "WeapWinchester_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 12015,
+          "type": "LogPlayerTakeDamage",
+          "t": 308.135,
+          "at": "2026-09-22T05:15:49.904Z",
+          "attacker": "roig--pig",
+          "victim": "3u331e",
+          "damage": 15.443999290466309,
+          "weapon": "WeapWinchester_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 12016,
+          "type": "LogPlayerTakeDamage",
+          "t": 308.135,
+          "at": "2026-09-22T05:15:49.904Z",
+          "attacker": "roig--pig",
+          "victim": "3u331e",
+          "damage": 8.1899995803833,
+          "weapon": "WeapWinchester_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 12017,
+          "type": "LogPlayerTakeDamage",
+          "t": 308.136,
+          "at": "2026-09-22T05:15:49.905Z",
+          "attacker": "roig--pig",
+          "victim": "3u331e",
+          "damage": 16.3799991607666,
+          "weapon": "WeapWinchester_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 12018,
+          "type": "LogPlayerTakeDamage",
+          "t": 308.136,
+          "at": "2026-09-22T05:15:49.905Z",
+          "attacker": "roig--pig",
+          "victim": "3u331e",
+          "damage": 13.649999618530273,
+          "weapon": "WeapWinchester_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 12019,
+          "type": "LogPlayerTakeDamage",
+          "t": 308.137,
+          "at": "2026-09-22T05:15:49.906Z",
+          "attacker": "roig--pig",
+          "victim": "3u331e",
+          "damage": 6.3220062255859375,
+          "weapon": "WeapWinchester_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 12020,
+          "type": "LogPlayerMakeGroggy",
+          "t": 308.138,
+          "at": "2026-09-22T05:15:49.907Z",
+          "attacker": "roig--pig",
+          "victim": "3u331e",
+          "weapon": "WeapWinchester_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 12021,
+          "type": "LogPlayerTakeDamage",
+          "t": 308.139,
+          "at": "2026-09-22T05:15:49.908Z",
+          "attacker": "roig--pig",
+          "victim": "3u331e",
+          "damage": 0,
+          "weapon": "WeapWinchester_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 12155,
+          "type": "LogPlayerTakeDamage",
+          "t": 311.812,
+          "at": "2026-09-22T05:15:53.581Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "3u331e",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 12162,
+          "type": "LogPlayerTakeDamage",
+          "t": 311.91,
+          "at": "2026-09-22T05:15:53.679Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "3u331e",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 12168,
+          "type": "LogPlayerTakeDamage",
+          "t": 312.078,
+          "at": "2026-09-22T05:15:53.847Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "3u331e",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 12174,
+          "type": "LogPlayerTakeDamage",
+          "t": 312.178,
+          "at": "2026-09-22T05:15:53.947Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "3u331e",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 12182,
+          "type": "LogPlayerTakeDamage",
+          "t": 312.277,
+          "at": "2026-09-22T05:15:54.046Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "3u331e",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 12187,
+          "type": "LogPlayerTakeDamage",
+          "t": 312.348,
+          "at": "2026-09-22T05:15:54.117Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "3u331e",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 12188,
+          "type": "LogPlayerKillV2",
+          "t": 312.349,
+          "at": "2026-09-22T05:15:54.118Z",
+          "killer": "roig--pig",
+          "victim": "3u331e",
+          "weapon": "WeapWinchester_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 12267,
+          "type": "LogPlayerTakeDamage",
+          "t": 314.609,
+          "at": "2026-09-22T05:15:56.378Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "MissMUiMU",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 12270,
+          "type": "LogPlayerTakeDamage",
+          "t": 314.661,
+          "at": "2026-09-22T05:15:56.430Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "MissMUiMU",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 12276,
+          "type": "LogPlayerTakeDamage",
+          "t": 314.76,
+          "at": "2026-09-22T05:15:56.529Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "MissMUiMU",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 12282,
+          "type": "LogPlayerTakeDamage",
+          "t": 314.859,
+          "at": "2026-09-22T05:15:56.628Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "MissMUiMU",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 12306,
+          "type": "LogPlayerKillV2",
+          "t": 315.739,
+          "at": "2026-09-22T05:15:57.508Z",
+          "killer": "You1Shuo1-_-",
+          "victim": "MissMUiMU",
+          "weapon": "WeapUMP_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 12425,
+          "type": "LogPlayerTakeDamage",
+          "t": 319.206,
+          "at": "2026-09-22T05:16:00.975Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "BornToBe1ST",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 12434,
+          "type": "LogPlayerTakeDamage",
+          "t": 319.374,
+          "at": "2026-09-22T05:16:01.143Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "BornToBe1ST",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 12439,
+          "type": "LogPlayerTakeDamage",
+          "t": 319.48,
+          "at": "2026-09-22T05:16:01.249Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "BornToBe1ST",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 12442,
+          "type": "LogPlayerTakeDamage",
+          "t": 319.548,
+          "at": "2026-09-22T05:16:01.317Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "BornToBe1ST",
+          "damage": 0,
+          "weapon": "WeapUMP_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 12443,
+          "type": "LogPlayerKillV2",
+          "t": 319.549,
+          "at": "2026-09-22T05:16:01.318Z",
+          "killer": "roig--pig",
+          "victim": "BornToBe1ST",
+          "weapon": "WeapM249_C",
+          "reason": "HeadShot"
+        }
+      ],
+      "kills": [
+        {
+          "sourceIndex": 12188,
+          "type": "LogPlayerKillV2",
+          "t": 312.349,
+          "at": "2026-09-22T05:15:54.118Z",
+          "killer": "roig--pig",
+          "victim": "3u331e",
+          "teamKill": false
+        },
+        {
+          "sourceIndex": 12306,
+          "type": "LogPlayerKillV2",
+          "t": 315.739,
+          "at": "2026-09-22T05:15:57.508Z",
+          "killer": "You1Shuo1-_-",
+          "victim": "MissMUiMU",
+          "teamKill": false
+        },
+        {
+          "sourceIndex": 12443,
+          "type": "LogPlayerKillV2",
+          "t": 319.549,
+          "at": "2026-09-22T05:16:01.318Z",
+          "killer": "roig--pig",
+          "victim": "BornToBe1ST",
+          "teamKill": false
+        }
+      ]
+    },
+    {
+      "from": 355.977,
+      "to": 355.981,
+      "teamDamage": 99.99999523162842,
+      "myDamage": 0,
+      "myReceived": 0,
+      "events": [
+        {
+          "sourceIndex": 13442,
+          "type": "LogPlayerTakeDamage",
+          "t": 355.977,
+          "at": "2026-09-22T05:16:37.746Z",
+          "attacker": "roig--pig",
+          "victim": "Yamal10_",
+          "damage": 15.443999290466309,
+          "weapon": "WeapWinchester_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 13444,
+          "type": "LogPlayerTakeDamage",
+          "t": 355.978,
+          "at": "2026-09-22T05:16:37.747Z",
+          "attacker": "roig--pig",
+          "victim": "Yamal10_",
+          "damage": 15.443999290466309,
+          "weapon": "WeapWinchester_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 13445,
+          "type": "LogPlayerTakeDamage",
+          "t": 355.978,
+          "at": "2026-09-22T05:16:37.747Z",
+          "attacker": "roig--pig",
+          "victim": "Yamal10_",
+          "damage": 15.443999290466309,
+          "weapon": "WeapWinchester_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 13446,
+          "type": "LogPlayerTakeDamage",
+          "t": 355.979,
+          "at": "2026-09-22T05:16:37.748Z",
+          "attacker": "roig--pig",
+          "victim": "Yamal10_",
+          "damage": 15.443999290466309,
+          "weapon": "WeapWinchester_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 13447,
+          "type": "LogPlayerTakeDamage",
+          "t": 355.979,
+          "at": "2026-09-22T05:16:37.748Z",
+          "attacker": "roig--pig",
+          "victim": "Yamal10_",
+          "damage": 15.443999290466309,
+          "weapon": "WeapWinchester_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 13448,
+          "type": "LogPlayerTakeDamage",
+          "t": 355.979,
+          "at": "2026-09-22T05:16:37.748Z",
+          "attacker": "roig--pig",
+          "victim": "Yamal10_",
+          "damage": 15.443999290466309,
+          "weapon": "WeapWinchester_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 13449,
+          "type": "LogPlayerTakeDamage",
+          "t": 355.98,
+          "at": "2026-09-22T05:16:37.749Z",
+          "attacker": "roig--pig",
+          "victim": "Yamal10_",
+          "damage": 7.335999488830566,
+          "weapon": "WeapWinchester_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 13450,
+          "type": "LogPlayerKillV2",
+          "t": 355.981,
+          "at": "2026-09-22T05:16:37.750Z",
+          "killer": "roig--pig",
+          "victim": "Yamal10_",
+          "weapon": "WeapWinchester_C",
+          "reason": "TorsoShot"
+        }
+      ],
+      "kills": [
+        {
+          "sourceIndex": 13450,
+          "type": "LogPlayerKillV2",
+          "t": 355.981,
+          "at": "2026-09-22T05:16:37.750Z",
+          "killer": "roig--pig",
+          "victim": "Yamal10_",
+          "teamKill": false
+        }
+      ]
+    },
+    {
+      "from": 776.129,
+      "to": 802.923,
+      "teamDamage": 100,
+      "myDamage": 0,
+      "myReceived": 66.68867301940918,
+      "events": [
+        {
+          "sourceIndex": 25852,
+          "type": "LogPlayerTakeDamage",
+          "t": 776.129,
+          "at": "2026-09-22T05:23:37.898Z",
+          "attacker": "7xmi_",
+          "victim": "tinney_dad",
+          "damage": 62.03999710083008,
+          "weapon": "WeapBerylM762_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 25905,
+          "type": "LogPlayerTakeDamage",
+          "t": 777.036,
+          "at": "2026-09-22T05:23:38.805Z",
+          "attacker": "Curry77777",
+          "victim": "tinney_dad",
+          "damage": 26.399999618530273,
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 25933,
+          "type": "LogPlayerTakeDamage",
+          "t": 777.67,
+          "at": "2026-09-22T05:23:39.439Z",
+          "attacker": "7xmi_",
+          "victim": "tinney_dad",
+          "damage": 11.560003280639648,
+          "weapon": "WeapBerylM762_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 25934,
+          "type": "LogPlayerMakeGroggy",
+          "t": 777.672,
+          "at": "2026-09-22T05:23:39.441Z",
+          "attacker": "7xmi_",
+          "victim": "tinney_dad",
+          "weapon": "WeapBerylM762_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 25951,
+          "type": "LogPlayerTakeDamage",
+          "t": 778.204,
+          "at": "2026-09-22T05:23:39.973Z",
+          "attacker": "7xmi_",
+          "victim": "tinney_dad",
+          "damage": 0,
+          "weapon": "WeapBerylM762_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 26001,
+          "type": "LogPlayerTakeDamage",
+          "t": 780.142,
+          "at": "2026-09-22T05:23:41.911Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "tinney_dad",
+          "damage": 0,
+          "weapon": "WeapAUG_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 26017,
+          "type": "LogPlayerTakeDamage",
+          "t": 780.475,
+          "at": "2026-09-22T05:23:42.244Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "tinney_dad",
+          "damage": 0,
+          "weapon": "WeapAUG_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 26024,
+          "type": "LogPlayerTakeDamage",
+          "t": 780.777,
+          "at": "2026-09-22T05:23:42.546Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "tinney_dad",
+          "damage": 0,
+          "weapon": "WeapAUG_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 26041,
+          "type": "LogPlayerTakeDamage",
+          "t": 781.312,
+          "at": "2026-09-22T05:23:43.081Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "tinney_dad",
+          "damage": 0,
+          "weapon": "WeapAUG_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 26048,
+          "type": "LogPlayerTakeDamage",
+          "t": 781.611,
+          "at": "2026-09-22T05:23:43.380Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "tinney_dad",
+          "damage": 0,
+          "weapon": "WeapAUG_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 26056,
+          "type": "LogPlayerKillV2",
+          "t": 781.689,
+          "at": "2026-09-22T05:23:43.458Z",
+          "killer": "7xmi_",
+          "victim": "tinney_dad",
+          "weapon": "WeapBerylM762_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 26619,
+          "type": "LogPlayerTakeDamage",
+          "t": 802.021,
+          "at": "2026-09-22T05:24:03.790Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "You1Shuo1-_-",
+          "damage": 41.78688049316406,
+          "weapon": "WeapMini14_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 26640,
+          "type": "LogPlayerTakeDamage",
+          "t": 802.923,
+          "at": "2026-09-22T05:24:04.692Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "You1Shuo1-_-",
+          "damage": 24.901792526245117,
+          "weapon": "WeapMini14_C",
+          "reason": "TorsoShot"
+        }
+      ],
+      "kills": [
+        {
+          "sourceIndex": 26056,
+          "type": "LogPlayerKillV2",
+          "t": 781.689,
+          "at": "2026-09-22T05:23:43.458Z",
+          "killer": "7xmi_",
+          "victim": "tinney_dad",
+          "teamKill": false
+        }
+      ]
+    },
+    {
+      "from": 835.446,
+      "to": 837.919,
+      "teamDamage": 82.96774291992188,
+      "myDamage": 0,
+      "myReceived": 0,
+      "events": [
+        {
+          "sourceIndex": 27477,
+          "type": "LogPlayerTakeDamage",
+          "t": 835.446,
+          "at": "2026-09-22T05:24:37.215Z",
+          "attacker": "7xmi_",
+          "victim": "Slilent-nn325",
+          "damage": 40.93059158325195,
+          "weapon": "WeapM24_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 27577,
+          "type": "LogPlayerTakeDamage",
+          "t": 837.918,
+          "at": "2026-09-22T05:24:39.687Z",
+          "attacker": "7xmi_",
+          "victim": "Slilent-nn325",
+          "damage": 42.03715133666992,
+          "weapon": "WeapM24_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 27578,
+          "type": "LogPlayerMakeGroggy",
+          "t": 837.919,
+          "at": "2026-09-22T05:24:39.688Z",
+          "attacker": "7xmi_",
+          "victim": "Slilent-nn325",
+          "weapon": "WeapM24_C",
+          "reason": "TorsoShot"
+        }
+      ],
+      "kills": []
+    },
+    {
+      "from": 926.171,
+      "to": 939.403,
+      "teamDamage": 0,
+      "myDamage": 0,
+      "myReceived": 20.33320426940918,
+      "events": [
+        {
+          "sourceIndex": 29392,
+          "type": "LogPlayerTakeDamage",
+          "t": 926.171,
+          "at": "2026-09-22T05:26:07.940Z",
+          "attacker": "CSKH_THL",
+          "victim": "You1Shuo1-_-",
+          "damage": 20.33320426940918,
+          "weapon": "WeapMk12_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 29862,
+          "type": "LogPlayerTakeDamage",
+          "t": 939.403,
+          "at": "2026-09-22T05:26:21.172Z",
+          "attacker": "Slilent-nn325",
+          "victim": "7xmi_",
+          "damage": 34.580570220947266,
+          "weapon": "WeapM24_C",
+          "reason": "ArmShot"
+        }
+      ],
+      "kills": []
+    },
+    {
+      "from": 984.198,
+      "to": 1075.377,
+      "teamDamage": 105.55209159851074,
+      "myDamage": 79.03804779052734,
+      "myReceived": 60.727664947509766,
+      "events": [
+        {
+          "sourceIndex": 30455,
+          "type": "LogPlayerTakeDamage",
+          "t": 984.198,
+          "at": "2026-09-22T05:27:05.967Z",
+          "attacker": "Slilent-nn325",
+          "victim": "Curry77777",
+          "damage": 34.7796630859375,
+          "weapon": "WeapM24_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 30723,
+          "type": "LogPlayerTakeDamage",
+          "t": 1001.145,
+          "at": "2026-09-22T05:27:22.914Z",
+          "attacker": "Slilent-nn325",
+          "victim": "roig--pig",
+          "damage": 100,
+          "weapon": "WeapM24_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 30724,
+          "type": "LogPlayerMakeGroggy",
+          "t": 1001.146,
+          "at": "2026-09-22T05:27:22.915Z",
+          "attacker": "Slilent-nn325",
+          "victim": "roig--pig",
+          "weapon": "WeapM24_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 30983,
+          "type": "LogPlayerTakeDamage",
+          "t": 1018.613,
+          "at": "2026-09-22T05:27:40.382Z",
+          "attacker": "Curry77777",
+          "victim": "Roustaz",
+          "damage": 16.5140438079834,
+          "weapon": "WeapMk12_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 31295,
+          "type": "LogPlayerTakeDamage",
+          "t": 1042.167,
+          "at": "2026-09-22T05:28:03.936Z",
+          "attacker": "7xmi_",
+          "victim": "BabicuaQueMinhh",
+          "damage": 10,
+          "weapon": "WeapM24_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 31296,
+          "type": "LogPlayerMakeGroggy",
+          "t": 1042.168,
+          "at": "2026-09-22T05:28:03.937Z",
+          "attacker": "7xmi_",
+          "victim": "BabicuaQueMinhh",
+          "weapon": "WeapM24_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 31370,
+          "type": "LogPlayerTakeDamage",
+          "t": 1047.778,
+          "at": "2026-09-22T05:28:09.547Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "CSKH_THL",
+          "damage": 25.463027954101562,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 31414,
+          "type": "LogPlayerTakeDamage",
+          "t": 1051.05,
+          "at": "2026-09-22T05:28:12.819Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "CSKH_THL",
+          "damage": 25.464006423950195,
+          "weapon": "WeapMk12_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 31438,
+          "type": "LogPlayerTakeDamage",
+          "t": 1052.788,
+          "at": "2026-09-22T05:28:14.557Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "CSKH_THL",
+          "damage": 28.111013412475586,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 31460,
+          "type": "LogPlayerTakeDamage",
+          "t": 1054.592,
+          "at": "2026-09-22T05:28:16.361Z",
+          "attacker": "NhimsOwO",
+          "victim": "You1Shuo1-_-",
+          "damage": 24.045791625976562,
+          "weapon": "WeapMini14_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 31476,
+          "type": "LogPlayerTakeDamage",
+          "t": 1055.57,
+          "at": "2026-09-22T05:28:17.339Z",
+          "attacker": "NhimsOwO",
+          "victim": "You1Shuo1-_-",
+          "damage": 36.6818733215332,
+          "weapon": "WeapMini14_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 31777,
+          "type": "LogPlayerTakeDamage",
+          "t": 1075.377,
+          "at": "2026-09-22T05:28:37.146Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "7xmi_",
+          "damage": 24.162899017333984,
+          "weapon": "WeapMini14_C",
+          "reason": "TorsoShot"
+        }
+      ],
+      "kills": []
+    },
+    {
+      "from": 1121.412,
+      "to": 1282.304,
+      "teamDamage": 676.4743785858154,
+      "myDamage": 77.73304176330566,
+      "myReceived": 100.67403411865234,
+      "events": [
+        {
+          "sourceIndex": 32207,
+          "type": "LogPlayerTakeDamage",
+          "t": 1121.412,
+          "at": "2026-09-22T05:29:23.181Z",
+          "attacker": "Khang-_-Deptrai",
+          "victim": "roig--pig",
+          "damage": 21.53807258605957,
+          "weapon": "WeapAUG_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 32214,
+          "type": "LogPlayerTakeDamage",
+          "t": 1121.578,
+          "at": "2026-09-22T05:29:23.347Z",
+          "attacker": "Khang-_-Deptrai",
+          "victim": "roig--pig",
+          "damage": 17.957334518432617,
+          "weapon": "WeapAUG_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 32232,
+          "type": "LogPlayerTakeDamage",
+          "t": 1122.179,
+          "at": "2026-09-22T05:29:23.948Z",
+          "attacker": "Khang-_-Deptrai",
+          "victim": "roig--pig",
+          "damage": 17.978927612304688,
+          "weapon": "WeapAUG_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 32258,
+          "type": "LogPlayerTakeDamage",
+          "t": 1122.914,
+          "at": "2026-09-22T05:29:24.683Z",
+          "attacker": "Khang-_-Deptrai",
+          "victim": "roig--pig",
+          "damage": 17.070011138916016,
+          "weapon": "WeapAUG_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 32261,
+          "type": "LogPlayerTakeDamage",
+          "t": 1122.949,
+          "at": "2026-09-22T05:29:24.718Z",
+          "attacker": "roig--pig",
+          "victim": "Khang-_-Deptrai",
+          "damage": 56.57999801635742,
+          "weapon": "WeapM249_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 32264,
+          "type": "LogPlayerTakeDamage",
+          "t": 1123.013,
+          "at": "2026-09-22T05:29:24.782Z",
+          "attacker": "Khang-_-Deptrai",
+          "victim": "roig--pig",
+          "damage": 17.07102394104004,
+          "weapon": "WeapAUG_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 32289,
+          "type": "LogPlayerTakeDamage",
+          "t": 1123.649,
+          "at": "2026-09-22T05:29:25.418Z",
+          "attacker": "7xmi_",
+          "victim": "Khang-_-Deptrai",
+          "damage": 25.911785125732422,
+          "weapon": "WeapBerylM762_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 32302,
+          "type": "LogPlayerTakeDamage",
+          "t": 1124.083,
+          "at": "2026-09-22T05:29:25.852Z",
+          "attacker": "7xmi_",
+          "victim": "Khang-_-Deptrai",
+          "damage": 12.008216857910156,
+          "weapon": "WeapBerylM762_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 32303,
+          "type": "LogPlayerMakeGroggy",
+          "t": 1124.084,
+          "at": "2026-09-22T05:29:25.853Z",
+          "attacker": "7xmi_",
+          "victim": "Khang-_-Deptrai",
+          "weapon": "WeapBerylM762_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 32326,
+          "type": "LogPlayerTakeDamage",
+          "t": 1124.951,
+          "at": "2026-09-22T05:29:26.720Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Khang-_-Deptrai",
+          "damage": 0,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 32353,
+          "type": "LogPlayerTakeDamage",
+          "t": 1125.754,
+          "at": "2026-09-22T05:29:27.523Z",
+          "attacker": "roig--pig",
+          "victim": "khuongduaaa9-",
+          "damage": 37.780086517333984,
+          "weapon": "WeapM249_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 32392,
+          "type": "LogPlayerTakeDamage",
+          "t": 1126.99,
+          "at": "2026-09-22T05:29:28.759Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "khuongduaaa9-",
+          "damage": 23.86757469177246,
+          "weapon": "WeapMk12_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 32471,
+          "type": "LogPlayerTakeDamage",
+          "t": 1129.628,
+          "at": "2026-09-22T05:29:31.397Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Khang-_-Deptrai",
+          "damage": 0,
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 32482,
+          "type": "LogPlayerTakeDamage",
+          "t": 1129.928,
+          "at": "2026-09-22T05:29:31.697Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Khang-_-Deptrai",
+          "damage": 0,
+          "weapon": "WeapMk12_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 32490,
+          "type": "LogPlayerTakeDamage",
+          "t": 1130.229,
+          "at": "2026-09-22T05:29:31.998Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Khang-_-Deptrai",
+          "damage": 0,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 32495,
+          "type": "LogPlayerTakeDamage",
+          "t": 1130.262,
+          "at": "2026-09-22T05:29:32.031Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "You1Shuo1-_-",
+          "damage": 25.795387268066406,
+          "weapon": "WeapMini14_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 32504,
+          "type": "LogPlayerTakeDamage",
+          "t": 1130.596,
+          "at": "2026-09-22T05:29:32.365Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "You1Shuo1-_-",
+          "damage": 23.44601058959961,
+          "weapon": "WeapMini14_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 32606,
+          "type": "LogPlayerTakeDamage",
+          "t": 1135.773,
+          "at": "2026-09-22T05:29:37.542Z",
+          "attacker": "capjj",
+          "victim": "7xmi_",
+          "damage": 29.171266555786133,
+          "weapon": "WeapDragunov_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 32691,
+          "type": "LogPlayerTakeDamage",
+          "t": 1140.248,
+          "at": "2026-09-22T05:29:42.017Z",
+          "attacker": "khuongduaaa9-",
+          "victim": "7xmi_",
+          "damage": 21.315452575683594,
+          "weapon": "WeapP90_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 32697,
+          "type": "LogPlayerTakeDamage",
+          "t": 1140.315,
+          "at": "2026-09-22T05:29:42.084Z",
+          "attacker": "khuongduaaa9-",
+          "victim": "7xmi_",
+          "damage": 23.45050811767578,
+          "weapon": "WeapP90_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 32703,
+          "type": "LogPlayerKillV2",
+          "t": 1140.384,
+          "at": "2026-09-22T05:29:42.153Z",
+          "killer": "7xmi_",
+          "victim": "Khang-_-Deptrai",
+          "weapon": "WeapBerylM762_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 32849,
+          "type": "LogPlayerTakeDamage",
+          "t": 1150.609,
+          "at": "2026-09-22T05:29:52.378Z",
+          "attacker": "capjj",
+          "victim": "You1Shuo1-_-",
+          "damage": 29.44288444519043,
+          "weapon": "WeapDragunov_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 32898,
+          "type": "LogPlayerTakeDamage",
+          "t": 1153.113,
+          "at": "2026-09-22T05:29:54.882Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "You1Shuo1-_-",
+          "damage": 21.9897518157959,
+          "weapon": "WeapMini14_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 32935,
+          "type": "LogPlayerTakeDamage",
+          "t": 1155.819,
+          "at": "2026-09-22T05:29:57.588Z",
+          "attacker": "roig--pig",
+          "victim": "NhimsOwO",
+          "damage": 55.68693542480469,
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 33011,
+          "type": "LogPlayerTakeDamage",
+          "t": 1162.167,
+          "at": "2026-09-22T05:30:03.936Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "7xmi_",
+          "damage": 18.584867477416992,
+          "weapon": "WeapMini14_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 33033,
+          "type": "LogPlayerTakeDamage",
+          "t": 1163.436,
+          "at": "2026-09-22T05:30:05.205Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "7xmi_",
+          "damage": 22.321880340576172,
+          "weapon": "WeapMini14_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 33100,
+          "type": "LogPlayerTakeDamage",
+          "t": 1166.879,
+          "at": "2026-09-22T05:30:08.648Z",
+          "attacker": "WuHuSiHai_YanQue",
+          "victim": "Curry77777",
+          "damage": 14.682361602783203,
+          "weapon": "WeapAUG_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 33371,
+          "type": "LogPlayerTakeDamage",
+          "t": 1185.388,
+          "at": "2026-09-22T05:30:27.157Z",
+          "attacker": "roig--pig",
+          "victim": "capjj",
+          "damage": 55.20749282836914,
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 33376,
+          "type": "LogPlayerTakeDamage",
+          "t": 1185.789,
+          "at": "2026-09-22T05:30:27.558Z",
+          "attacker": "roig--pig",
+          "victim": "capjj",
+          "damage": 44.79250717163086,
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 33377,
+          "type": "LogPlayerMakeGroggy",
+          "t": 1185.789,
+          "at": "2026-09-22T05:30:27.558Z",
+          "attacker": "roig--pig",
+          "victim": "capjj",
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 33690,
+          "type": "LogPlayerTakeDamage",
+          "t": 1214.656,
+          "at": "2026-09-22T05:30:56.425Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "7xmi_",
+          "damage": 27.398672103881836,
+          "weapon": "WeapMini14_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 33703,
+          "type": "LogPlayerTakeDamage",
+          "t": 1215.592,
+          "at": "2026-09-22T05:30:57.361Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "7xmi_",
+          "damage": 27.39944839477539,
+          "weapon": "WeapMini14_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 33706,
+          "type": "LogPlayerTakeDamage",
+          "t": 1215.625,
+          "at": "2026-09-22T05:30:57.394Z",
+          "attacker": "7xmi_",
+          "victim": "xNobiii2407_-",
+          "damage": 75,
+          "weapon": "WeapM24_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 33707,
+          "type": "LogPlayerMakeGroggy",
+          "t": 1215.626,
+          "at": "2026-09-22T05:30:57.395Z",
+          "attacker": "7xmi_",
+          "victim": "xNobiii2407_-",
+          "weapon": "WeapM24_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 33808,
+          "type": "LogPlayerTakeDamage",
+          "t": 1226.416,
+          "at": "2026-09-22T05:31:08.185Z",
+          "attacker": "7xmi_",
+          "victim": "NhimsOwO",
+          "damage": 42.502071380615234,
+          "weapon": "WeapM24_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 33831,
+          "type": "LogPlayerTakeDamage",
+          "t": 1229.121,
+          "at": "2026-09-22T05:31:10.890Z",
+          "attacker": "7xmi_",
+          "victim": "NhimsOwO",
+          "damage": 50.997928619384766,
+          "weapon": "WeapM24_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 33832,
+          "type": "LogPlayerMakeGroggy",
+          "t": 1229.122,
+          "at": "2026-09-22T05:31:10.891Z",
+          "attacker": "7xmi_",
+          "victim": "NhimsOwO",
+          "weapon": "WeapM24_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 33882,
+          "type": "LogPlayerTakeDamage",
+          "t": 1234.233,
+          "at": "2026-09-22T05:31:16.002Z",
+          "attacker": "7xmi_",
+          "victim": "NhimsOwO",
+          "damage": 0,
+          "weapon": "WeapM24_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 33916,
+          "type": "LogPlayerTakeDamage",
+          "t": 1236.908,
+          "at": "2026-09-22T05:31:18.677Z",
+          "attacker": "7xmi_",
+          "victim": "NhimsOwO",
+          "damage": 0,
+          "weapon": "WeapM24_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 33917,
+          "type": "LogPlayerKillV2",
+          "t": 1236.909,
+          "at": "2026-09-22T05:31:18.678Z",
+          "killer": "7xmi_",
+          "victim": "NhimsOwO",
+          "weapon": "WeapM24_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 34043,
+          "type": "LogPlayerTakeDamage",
+          "t": 1250.271,
+          "at": "2026-09-22T05:31:32.040Z",
+          "attacker": "roig--pig",
+          "victim": "Damx1ng",
+          "damage": 18.46489143371582,
+          "weapon": "WeapMk12_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 34047,
+          "type": "LogPlayerTakeDamage",
+          "t": 1250.872,
+          "at": "2026-09-22T05:31:32.641Z",
+          "attacker": "roig--pig",
+          "victim": "Damx1ng",
+          "damage": 22.22399139404297,
+          "weapon": "WeapMk12_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 34103,
+          "type": "LogPlayerTakeDamage",
+          "t": 1256.517,
+          "at": "2026-09-22T05:31:38.286Z",
+          "attacker": "SANGE66886",
+          "victim": "roig--pig",
+          "damage": 20.24599838256836,
+          "weapon": "WeapMk12_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 34153,
+          "type": "LogPlayerTakeDamage",
+          "t": 1261.259,
+          "at": "2026-09-22T05:31:43.028Z",
+          "attacker": "Curry77777",
+          "victim": "Slilent-nn325",
+          "damage": 20.925153732299805,
+          "weapon": "WeapMk12_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 34173,
+          "type": "LogPlayerTakeDamage",
+          "t": 1263.331,
+          "at": "2026-09-22T05:31:45.100Z",
+          "attacker": "Damx1ng",
+          "victim": "7xmi_",
+          "damage": 23.657886505126953,
+          "weapon": "WeapMini14_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 34271,
+          "type": "LogPlayerTakeDamage",
+          "t": 1273.353,
+          "at": "2026-09-22T05:31:55.122Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Eiioa_",
+          "damage": 53.8654670715332,
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 34358,
+          "type": "LogPlayerTakeDamage",
+          "t": 1280.066,
+          "at": "2026-09-22T05:32:01.835Z",
+          "attacker": "roig--pig",
+          "victim": "Damx1ng",
+          "damage": 20.801815032958984,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 34365,
+          "type": "LogPlayerTakeDamage",
+          "t": 1280.534,
+          "at": "2026-09-22T05:32:02.303Z",
+          "attacker": "Curry77777",
+          "victim": "SANGE66886",
+          "damage": 40.95150375366211,
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 34367,
+          "type": "LogPlayerTakeDamage",
+          "t": 1280.701,
+          "at": "2026-09-22T05:32:02.470Z",
+          "attacker": "roig--pig",
+          "victim": "Damx1ng",
+          "damage": 18.906959533691406,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 34391,
+          "type": "LogPlayerTakeDamage",
+          "t": 1282.304,
+          "at": "2026-09-22T05:32:04.073Z",
+          "attacker": "Slilent-nn325",
+          "victim": "roig--pig",
+          "damage": 42.78799819946289,
+          "weapon": "WeapM24_C",
+          "reason": "PelvisShot"
+        }
+      ],
+      "kills": [
+        {
+          "sourceIndex": 32703,
+          "type": "LogPlayerKillV2",
+          "t": 1140.384,
+          "at": "2026-09-22T05:29:42.153Z",
+          "killer": "7xmi_",
+          "victim": "Khang-_-Deptrai",
+          "teamKill": false
+        },
+        {
+          "sourceIndex": 33917,
+          "type": "LogPlayerKillV2",
+          "t": 1236.909,
+          "at": "2026-09-22T05:31:18.678Z",
+          "killer": "7xmi_",
+          "victim": "NhimsOwO",
+          "teamKill": false
+        }
+      ]
+    },
+    {
+      "from": 1333.547,
+      "to": 1417.615,
+      "teamDamage": 453.9347743988037,
+      "myDamage": 176.22801399230957,
+      "myReceived": 52.97451400756836,
+      "events": [
+        {
+          "sourceIndex": 34877,
+          "type": "LogPlayerTakeDamage",
+          "t": 1333.547,
+          "at": "2026-09-22T05:32:55.316Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Eiioa_",
+          "damage": 18.0808048248291,
+          "weapon": "WeapMk12_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 34885,
+          "type": "LogPlayerTakeDamage",
+          "t": 1333.882,
+          "at": "2026-09-22T05:32:55.651Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Eiioa_",
+          "damage": 53.70083999633789,
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 34890,
+          "type": "LogPlayerTakeDamage",
+          "t": 1334.183,
+          "at": "2026-09-22T05:32:55.952Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Eiioa_",
+          "damage": 3.2183570861816406,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 34891,
+          "type": "LogPlayerMakeGroggy",
+          "t": 1334.184,
+          "at": "2026-09-22T05:32:55.953Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Eiioa_",
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 34929,
+          "type": "LogPlayerTakeDamage",
+          "t": 1337.824,
+          "at": "2026-09-22T05:32:59.593Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Slilent-nn325",
+          "damage": 17.936241149902344,
+          "weapon": "WeapMk12_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 34995,
+          "type": "LogPlayerTakeDamage",
+          "t": 1343.704,
+          "at": "2026-09-22T05:33:05.473Z",
+          "attacker": "roig--pig",
+          "victim": "Slilent-nn325",
+          "damage": 18.032960891723633,
+          "weapon": "WeapMk12_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 34998,
+          "type": "LogPlayerTakeDamage",
+          "t": 1343.871,
+          "at": "2026-09-22T05:33:05.640Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Slilent-nn325",
+          "damage": 17.10187339782715,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35118,
+          "type": "LogPlayerTakeDamage",
+          "t": 1356.703,
+          "at": "2026-09-22T05:33:18.472Z",
+          "attacker": "Curry77777",
+          "victim": "capjj",
+          "damage": 26.653512954711914,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35122,
+          "type": "LogPlayerTakeDamage",
+          "t": 1357.004,
+          "at": "2026-09-22T05:33:18.773Z",
+          "attacker": "Curry77777",
+          "victim": "capjj",
+          "damage": 26.654314041137695,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35130,
+          "type": "LogPlayerTakeDamage",
+          "t": 1357.271,
+          "at": "2026-09-22T05:33:19.040Z",
+          "attacker": "Curry77777",
+          "victim": "capjj",
+          "damage": 29.32110595703125,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35135,
+          "type": "LogPlayerTakeDamage",
+          "t": 1357.638,
+          "at": "2026-09-22T05:33:19.407Z",
+          "attacker": "Curry77777",
+          "victim": "capjj",
+          "damage": 18.371070861816406,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35136,
+          "type": "LogPlayerMakeGroggy",
+          "t": 1357.639,
+          "at": "2026-09-22T05:33:19.408Z",
+          "attacker": "Curry77777",
+          "victim": "capjj",
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35240,
+          "type": "LogPlayerTakeDamage",
+          "t": 1371.176,
+          "at": "2026-09-22T05:33:32.945Z",
+          "attacker": "roig--pig",
+          "victim": "BabicuaQueMinhh",
+          "damage": 100,
+          "weapon": "ProjGrenade_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 35241,
+          "type": "LogPlayerMakeGroggy",
+          "t": 1371.177,
+          "at": "2026-09-22T05:33:32.946Z",
+          "attacker": "roig--pig",
+          "victim": "BabicuaQueMinhh",
+          "weapon": "ProjGrenade_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 35244,
+          "type": "LogPlayerKillV2",
+          "t": 1371.239,
+          "at": "2026-09-22T05:33:33.008Z",
+          "killer": "You1Shuo1-_-",
+          "victim": "Eiioa_",
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35267,
+          "type": "LogPlayerTakeDamage",
+          "t": 1373.84,
+          "at": "2026-09-22T05:33:35.609Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Slilent-nn325",
+          "damage": 17.269948959350586,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35288,
+          "type": "LogPlayerTakeDamage",
+          "t": 1376.079,
+          "at": "2026-09-22T05:33:37.848Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Slilent-nn325",
+          "damage": 11.045255661010742,
+          "weapon": "WeapMk12_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 35289,
+          "type": "LogPlayerMakeGroggy",
+          "t": 1376.08,
+          "at": "2026-09-22T05:33:37.849Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Slilent-nn325",
+          "weapon": "WeapMk12_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 35304,
+          "type": "LogPlayerTakeDamage",
+          "t": 1377.683,
+          "at": "2026-09-22T05:33:39.452Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Slilent-nn325",
+          "damage": 0,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35308,
+          "type": "LogPlayerTakeDamage",
+          "t": 1378.15,
+          "at": "2026-09-22T05:33:39.919Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Slilent-nn325",
+          "damage": 0,
+          "weapon": "WeapMk12_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 35317,
+          "type": "LogPlayerTakeDamage",
+          "t": 1378.584,
+          "at": "2026-09-22T05:33:40.353Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Slilent-nn325",
+          "damage": 0,
+          "weapon": "WeapMk12_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 35325,
+          "type": "LogPlayerTakeDamage",
+          "t": 1379.019,
+          "at": "2026-09-22T05:33:40.788Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Slilent-nn325",
+          "damage": 0,
+          "weapon": "WeapMk12_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 35366,
+          "type": "LogPlayerTakeDamage",
+          "t": 1381.49,
+          "at": "2026-09-22T05:33:43.259Z",
+          "attacker": "SANGE66886",
+          "victim": "7xmi_",
+          "damage": 25.592330932617188,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35370,
+          "type": "LogPlayerTakeDamage",
+          "t": 1381.724,
+          "at": "2026-09-22T05:33:43.493Z",
+          "attacker": "SANGE66886",
+          "victim": "7xmi_",
+          "damage": 24.300167083740234,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35374,
+          "type": "LogPlayerKillV2",
+          "t": 1382.201,
+          "at": "2026-09-22T05:33:43.970Z",
+          "killer": "roig--pig",
+          "victim": "BabicuaQueMinhh",
+          "weapon": "ProjGrenade_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 35392,
+          "type": "LogPlayerTakeDamage",
+          "t": 1383.294,
+          "at": "2026-09-22T05:33:45.063Z",
+          "attacker": "SANGE66886",
+          "victim": "7xmi_",
+          "damage": 43.02992248535156,
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 35402,
+          "type": "LogPlayerTakeDamage",
+          "t": 1384.197,
+          "at": "2026-09-22T05:33:45.966Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "SANGE66886",
+          "damage": 18.938779830932617,
+          "weapon": "WeapMk12_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 35463,
+          "type": "LogPlayerTakeDamage",
+          "t": 1389.909,
+          "at": "2026-09-22T05:33:51.678Z",
+          "attacker": "SANGE66886",
+          "victim": "Curry77777",
+          "damage": 19.004810333251953,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35482,
+          "type": "LogPlayerTakeDamage",
+          "t": 1391.346,
+          "at": "2026-09-22T05:33:53.115Z",
+          "attacker": "SANGE66886",
+          "victim": "Curry77777",
+          "damage": 31.832656860351562,
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 35581,
+          "type": "LogPlayerTakeDamage",
+          "t": 1399.195,
+          "at": "2026-09-22T05:34:00.964Z",
+          "attacker": "SANGE66886",
+          "victim": "You1Shuo1-_-",
+          "damage": 25.198875427246094,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35591,
+          "type": "LogPlayerTakeDamage",
+          "t": 1401.133,
+          "at": "2026-09-22T05:34:02.902Z",
+          "attacker": "SANGE66886",
+          "victim": "You1Shuo1-_-",
+          "damage": 27.775638580322266,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35602,
+          "type": "LogPlayerTakeDamage",
+          "t": 1402.034,
+          "at": "2026-09-22T05:34:03.803Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "SANGE66886",
+          "damage": 18.9359130859375,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35671,
+          "type": "LogPlayerTakeDamage",
+          "t": 1408.584,
+          "at": "2026-09-22T05:34:10.353Z",
+          "attacker": "SANGE66886",
+          "victim": "Curry77777",
+          "damage": 42.43319320678711,
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 35674,
+          "type": "LogPlayerTakeDamage",
+          "t": 1409.049,
+          "at": "2026-09-22T05:34:10.818Z",
+          "attacker": "SANGE66886",
+          "victim": "Curry77777",
+          "damage": 35.56680679321289,
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 35675,
+          "type": "LogPlayerMakeGroggy",
+          "t": 1409.05,
+          "at": "2026-09-22T05:34:10.819Z",
+          "attacker": "SANGE66886",
+          "victim": "Curry77777",
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 35683,
+          "type": "LogPlayerTakeDamage",
+          "t": 1410.653,
+          "at": "2026-09-22T05:34:12.422Z",
+          "attacker": "roig--pig",
+          "victim": "SANGE66886",
+          "damage": 21.12701988220215,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35685,
+          "type": "LogPlayerTakeDamage",
+          "t": 1410.787,
+          "at": "2026-09-22T05:34:12.556Z",
+          "attacker": "SANGE66886",
+          "victim": "roig--pig",
+          "damage": 21.124616622924805,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35689,
+          "type": "LogPlayerTakeDamage",
+          "t": 1410.954,
+          "at": "2026-09-22T05:34:12.723Z",
+          "attacker": "roig--pig",
+          "victim": "SANGE66886",
+          "damage": 19.200878143310547,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35697,
+          "type": "LogPlayerTakeDamage",
+          "t": 1411.622,
+          "at": "2026-09-22T05:34:13.391Z",
+          "attacker": "roig--pig",
+          "victim": "SANGE66886",
+          "damage": 18.345897674560547,
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 35698,
+          "type": "LogPlayerKillV2",
+          "t": 1411.623,
+          "at": "2026-09-22T05:34:13.392Z",
+          "killer": "roig--pig",
+          "victim": "SANGE66886",
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 35737,
+          "type": "LogPlayerTakeDamage",
+          "t": 1417.615,
+          "at": "2026-09-22T05:34:19.384Z",
+          "attacker": "capjj",
+          "victim": "7xmi_",
+          "damage": 40.01815414428711,
+          "weapon": "ProjGrenade_C",
+          "reason": "NonSpecific"
+        }
+      ],
+      "kills": [
+        {
+          "sourceIndex": 35244,
+          "type": "LogPlayerKillV2",
+          "t": 1371.239,
+          "at": "2026-09-22T05:33:33.008Z",
+          "killer": "You1Shuo1-_-",
+          "victim": "Eiioa_",
+          "teamKill": false
+        },
+        {
+          "sourceIndex": 35374,
+          "type": "LogPlayerKillV2",
+          "t": 1382.201,
+          "at": "2026-09-22T05:33:43.970Z",
+          "killer": "roig--pig",
+          "victim": "BabicuaQueMinhh",
+          "teamKill": false
+        },
+        {
+          "sourceIndex": 35698,
+          "type": "LogPlayerKillV2",
+          "t": 1411.623,
+          "at": "2026-09-22T05:34:13.392Z",
+          "killer": "roig--pig",
+          "victim": "SANGE66886",
+          "teamKill": false
+        }
+      ]
+    },
+    {
+      "from": 1459.946,
+      "to": 1515.566,
+      "teamDamage": 398.11314582824707,
+      "myDamage": 183.4565715789795,
+      "myReceived": 0,
+      "events": [
+        {
+          "sourceIndex": 35953,
+          "type": "LogPlayerTakeDamage",
+          "t": 1459.946,
+          "at": "2026-09-22T05:35:01.715Z",
+          "attacker": "roig--pig",
+          "victim": "xNobiii2407_-",
+          "damage": 19.372499465942383,
+          "weapon": "WeapM249_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 35994,
+          "type": "LogPlayerTakeDamage",
+          "t": 1464.99,
+          "at": "2026-09-22T05:35:06.759Z",
+          "attacker": "roig--pig",
+          "victim": "capjj",
+          "damage": 22.14000129699707,
+          "weapon": "WeapM249_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 36007,
+          "type": "LogPlayerTakeDamage",
+          "t": 1465.324,
+          "at": "2026-09-22T05:35:07.093Z",
+          "attacker": "capjj",
+          "victim": "roig--pig",
+          "damage": 18.809999465942383,
+          "weapon": "WeapBerylM762_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36010,
+          "type": "LogPlayerTakeDamage",
+          "t": 1465.358,
+          "at": "2026-09-22T05:35:07.127Z",
+          "attacker": "roig--pig",
+          "victim": "capjj",
+          "damage": 77.86000061035156,
+          "weapon": "WeapM249_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 36011,
+          "type": "LogPlayerMakeGroggy",
+          "t": 1465.359,
+          "at": "2026-09-22T05:35:07.128Z",
+          "attacker": "roig--pig",
+          "victim": "capjj",
+          "weapon": "WeapM249_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 36020,
+          "type": "LogPlayerTakeDamage",
+          "t": 1466.1,
+          "at": "2026-09-22T05:35:07.869Z",
+          "attacker": "7xmi_",
+          "victim": "capjj",
+          "damage": 0,
+          "weapon": "BP_FireEffectController_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36022,
+          "type": "LogPlayerTakeDamage",
+          "t": 1466.502,
+          "at": "2026-09-22T05:35:08.271Z",
+          "attacker": "7xmi_",
+          "victim": "capjj",
+          "damage": 0,
+          "weapon": "BP_FireEffectController_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36025,
+          "type": "LogPlayerTakeDamage",
+          "t": 1466.903,
+          "at": "2026-09-22T05:35:08.672Z",
+          "attacker": "7xmi_",
+          "victim": "capjj",
+          "damage": 0,
+          "weapon": "BP_FireEffectController_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36026,
+          "type": "LogPlayerTakeDamage",
+          "t": 1466.935,
+          "at": "2026-09-22T05:35:08.704Z",
+          "attacker": "7xmi_",
+          "victim": "capjj",
+          "damage": 0,
+          "weapon": "BP_MolotovFireDebuff_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36031,
+          "type": "LogPlayerTakeDamage",
+          "t": 1467.303,
+          "at": "2026-09-22T05:35:09.072Z",
+          "attacker": "7xmi_",
+          "victim": "capjj",
+          "damage": 0,
+          "weapon": "BP_FireEffectController_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36038,
+          "type": "LogPlayerTakeDamage",
+          "t": 1467.704,
+          "at": "2026-09-22T05:35:09.473Z",
+          "attacker": "7xmi_",
+          "victim": "capjj",
+          "damage": 0,
+          "weapon": "BP_FireEffectController_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36042,
+          "type": "LogPlayerTakeDamage",
+          "t": 1467.937,
+          "at": "2026-09-22T05:35:09.706Z",
+          "attacker": "7xmi_",
+          "victim": "capjj",
+          "damage": 0,
+          "weapon": "BP_MolotovFireDebuff_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36044,
+          "type": "LogPlayerTakeDamage",
+          "t": 1468.104,
+          "at": "2026-09-22T05:35:09.873Z",
+          "attacker": "7xmi_",
+          "victim": "capjj",
+          "damage": 0,
+          "weapon": "BP_FireEffectController_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36050,
+          "type": "LogPlayerTakeDamage",
+          "t": 1468.505,
+          "at": "2026-09-22T05:35:10.274Z",
+          "attacker": "7xmi_",
+          "victim": "capjj",
+          "damage": 0,
+          "weapon": "BP_FireEffectController_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36053,
+          "type": "LogPlayerTakeDamage",
+          "t": 1468.906,
+          "at": "2026-09-22T05:35:10.675Z",
+          "attacker": "7xmi_",
+          "victim": "capjj",
+          "damage": 0,
+          "weapon": "BP_FireEffectController_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36054,
+          "type": "LogPlayerTakeDamage",
+          "t": 1468.939,
+          "at": "2026-09-22T05:35:10.708Z",
+          "attacker": "7xmi_",
+          "victim": "capjj",
+          "damage": 0,
+          "weapon": "BP_MolotovFireDebuff_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36055,
+          "type": "LogPlayerTakeDamage",
+          "t": 1469.307,
+          "at": "2026-09-22T05:35:11.076Z",
+          "attacker": "7xmi_",
+          "victim": "capjj",
+          "damage": 0,
+          "weapon": "BP_FireEffectController_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36059,
+          "type": "LogPlayerTakeDamage",
+          "t": 1469.707,
+          "at": "2026-09-22T05:35:11.476Z",
+          "attacker": "7xmi_",
+          "victim": "capjj",
+          "damage": 0,
+          "weapon": "BP_FireEffectController_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36061,
+          "type": "LogPlayerTakeDamage",
+          "t": 1469.942,
+          "at": "2026-09-22T05:35:11.711Z",
+          "attacker": "7xmi_",
+          "victim": "capjj",
+          "damage": 0,
+          "weapon": "BP_MolotovFireDebuff_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36065,
+          "type": "LogPlayerTakeDamage",
+          "t": 1470.109,
+          "at": "2026-09-22T05:35:11.878Z",
+          "attacker": "7xmi_",
+          "victim": "capjj",
+          "damage": 0,
+          "weapon": "BP_FireEffectController_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36066,
+          "type": "LogPlayerKillV2",
+          "t": 1470.109,
+          "at": "2026-09-22T05:35:11.878Z",
+          "killer": "roig--pig",
+          "victim": "capjj",
+          "weapon": "WeapM249_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 36091,
+          "type": "LogPlayerTakeDamage",
+          "t": 1470.736,
+          "at": "2026-09-22T05:35:12.505Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "Curry77777",
+          "damage": 42.29999923706055,
+          "weapon": "WeapHK416_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 36093,
+          "type": "LogPlayerTakeDamage",
+          "t": 1470.836,
+          "at": "2026-09-22T05:35:12.605Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "Curry77777",
+          "damage": 18,
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36097,
+          "type": "LogPlayerTakeDamage",
+          "t": 1470.936,
+          "at": "2026-09-22T05:35:12.705Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "Curry77777",
+          "damage": 18,
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36127,
+          "type": "LogPlayerTakeDamage",
+          "t": 1473.751,
+          "at": "2026-09-22T05:35:15.520Z",
+          "attacker": "7xmi_",
+          "victim": "xNobiii2407_-",
+          "damage": 42.886924743652344,
+          "weapon": "ProjGrenade_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36141,
+          "type": "LogPlayerTakeDamage",
+          "t": 1476.518,
+          "at": "2026-09-22T05:35:18.287Z",
+          "attacker": "Damx1ng",
+          "victim": "7xmi_",
+          "damage": 21.829498291015625,
+          "weapon": "WeapMini14_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36144,
+          "type": "LogPlayerTakeDamage",
+          "t": 1476.753,
+          "at": "2026-09-22T05:35:18.522Z",
+          "attacker": "Damx1ng",
+          "victim": "7xmi_",
+          "damage": 19.844999313354492,
+          "weapon": "WeapMini14_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 36147,
+          "type": "LogPlayerTakeDamage",
+          "t": 1477.054,
+          "at": "2026-09-22T05:35:18.823Z",
+          "attacker": "Damx1ng",
+          "victim": "7xmi_",
+          "damage": 23.940000534057617,
+          "weapon": "WeapMini14_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 36151,
+          "type": "LogPlayerTakeDamage",
+          "t": 1477.421,
+          "at": "2026-09-22T05:35:19.190Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Damx1ng",
+          "damage": 17.99066925048828,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36159,
+          "type": "LogPlayerTakeDamage",
+          "t": 1477.855,
+          "at": "2026-09-22T05:35:19.624Z",
+          "attacker": "Damx1ng",
+          "victim": "7xmi_",
+          "damage": 19.844999313354492,
+          "weapon": "WeapMini14_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36162,
+          "type": "LogPlayerTakeDamage",
+          "t": 1478.089,
+          "at": "2026-09-22T05:35:19.858Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Damx1ng",
+          "damage": 19.04214096069336,
+          "weapon": "WeapMk12_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 36163,
+          "type": "LogPlayerTakeDamage",
+          "t": 1478.122,
+          "at": "2026-09-22T05:35:19.891Z",
+          "attacker": "Damx1ng",
+          "victim": "7xmi_",
+          "damage": 14.540498733520508,
+          "weapon": "WeapMini14_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36164,
+          "type": "LogPlayerMakeGroggy",
+          "t": 1478.123,
+          "at": "2026-09-22T05:35:19.892Z",
+          "attacker": "Damx1ng",
+          "victim": "7xmi_",
+          "weapon": "WeapMini14_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36185,
+          "type": "LogPlayerTakeDamage",
+          "t": 1480.427,
+          "at": "2026-09-22T05:35:22.196Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Damx1ng",
+          "damage": 22.9460391998291,
+          "weapon": "WeapMk12_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 36189,
+          "type": "LogPlayerTakeDamage",
+          "t": 1480.729,
+          "at": "2026-09-22T05:35:22.498Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Damx1ng",
+          "damage": 18.094514846801758,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36204,
+          "type": "LogPlayerTakeDamage",
+          "t": 1481.463,
+          "at": "2026-09-22T05:35:23.232Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "7xmi_",
+          "damage": 0,
+          "weapon": "WeapHK416_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 36206,
+          "type": "LogPlayerTakeDamage",
+          "t": 1481.53,
+          "at": "2026-09-22T05:35:23.299Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "7xmi_",
+          "damage": 0,
+          "weapon": "WeapHK416_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 36210,
+          "type": "LogPlayerTakeDamage",
+          "t": 1481.63,
+          "at": "2026-09-22T05:35:23.399Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "7xmi_",
+          "damage": 0,
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36212,
+          "type": "LogPlayerTakeDamage",
+          "t": 1481.697,
+          "at": "2026-09-22T05:35:23.466Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "7xmi_",
+          "damage": 0,
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36216,
+          "type": "LogPlayerTakeDamage",
+          "t": 1481.764,
+          "at": "2026-09-22T05:35:23.533Z",
+          "attacker": "xNobiii2407_-",
+          "victim": "7xmi_",
+          "damage": 0,
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36217,
+          "type": "LogPlayerKillV2",
+          "t": 1481.765,
+          "at": "2026-09-22T05:35:23.534Z",
+          "killer": "xNobiii2407_-",
+          "victim": "7xmi_",
+          "weapon": "WeapHK416_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36245,
+          "type": "LogPlayerTakeDamage",
+          "t": 1482.933,
+          "at": "2026-09-22T05:35:24.702Z",
+          "attacker": "roig--pig",
+          "victim": "Damx1ng",
+          "damage": 19.04343032836914,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36272,
+          "type": "LogPlayerTakeDamage",
+          "t": 1487.175,
+          "at": "2026-09-22T05:35:28.944Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Damx1ng",
+          "damage": 4.383203506469727,
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 36273,
+          "type": "LogPlayerMakeGroggy",
+          "t": 1487.176,
+          "at": "2026-09-22T05:35:28.945Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Damx1ng",
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 36301,
+          "type": "LogPlayerTakeDamage",
+          "t": 1489.513,
+          "at": "2026-09-22T05:35:31.282Z",
+          "attacker": "Curry77777",
+          "victim": "xNobiii2407_-",
+          "damage": 21.600000381469727,
+          "weapon": "WeapHK416_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 36304,
+          "type": "LogPlayerTakeDamage",
+          "t": 1489.613,
+          "at": "2026-09-22T05:35:31.382Z",
+          "attacker": "Curry77777",
+          "victim": "xNobiii2407_-",
+          "damage": 11.753717422485352,
+          "weapon": "WeapHK416_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 36305,
+          "type": "LogPlayerKillV2",
+          "t": 1489.614,
+          "at": "2026-09-22T05:35:31.383Z",
+          "killer": "Curry77777",
+          "victim": "xNobiii2407_-",
+          "weapon": "WeapHK416_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 36333,
+          "type": "LogPlayerTakeDamage",
+          "t": 1492.319,
+          "at": "2026-09-22T05:35:34.088Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Damx1ng",
+          "damage": 0,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36339,
+          "type": "LogPlayerTakeDamage",
+          "t": 1492.987,
+          "at": "2026-09-22T05:35:34.756Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Damx1ng",
+          "damage": 0,
+          "weapon": "WeapMk12_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36344,
+          "type": "LogPlayerTakeDamage",
+          "t": 1493.355,
+          "at": "2026-09-22T05:35:35.124Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Damx1ng",
+          "damage": 0,
+          "weapon": "WeapMk12_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 36394,
+          "type": "LogPlayerTakeDamage",
+          "t": 1502.873,
+          "at": "2026-09-22T05:35:44.642Z",
+          "attacker": "WuHuSiHai_YanQue",
+          "victim": "Curry77777",
+          "damage": 18,
+          "weapon": "WeapAUG_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 36396,
+          "type": "LogPlayerTakeDamage",
+          "t": 1502.973,
+          "at": "2026-09-22T05:35:44.742Z",
+          "attacker": "WuHuSiHai_YanQue",
+          "victim": "Curry77777",
+          "damage": 19.799999237060547,
+          "weapon": "WeapAUG_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36398,
+          "type": "LogPlayerTakeDamage",
+          "t": 1503.04,
+          "at": "2026-09-22T05:35:44.809Z",
+          "attacker": "WuHuSiHai_YanQue",
+          "victim": "Curry77777",
+          "damage": 19.799999237060547,
+          "weapon": "WeapAUG_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36401,
+          "type": "LogPlayerTakeDamage",
+          "t": 1503.14,
+          "at": "2026-09-22T05:35:44.909Z",
+          "attacker": "WuHuSiHai_YanQue",
+          "victim": "Curry77777",
+          "damage": 18,
+          "weapon": "WeapAUG_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36403,
+          "type": "LogPlayerTakeDamage",
+          "t": 1503.207,
+          "at": "2026-09-22T05:35:44.976Z",
+          "attacker": "WuHuSiHai_YanQue",
+          "victim": "Curry77777",
+          "damage": 8.400001525878906,
+          "weapon": "WeapAUG_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 36404,
+          "type": "LogPlayerMakeGroggy",
+          "t": 1503.208,
+          "at": "2026-09-22T05:35:44.977Z",
+          "attacker": "WuHuSiHai_YanQue",
+          "victim": "Curry77777",
+          "weapon": "WeapAUG_C",
+          "reason": "ArmShot"
+        },
+        {
+          "sourceIndex": 36407,
+          "type": "LogPlayerTakeDamage",
+          "t": 1503.307,
+          "at": "2026-09-22T05:35:45.076Z",
+          "attacker": "WuHuSiHai_YanQue",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapAUG_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36409,
+          "type": "LogPlayerTakeDamage",
+          "t": 1503.407,
+          "at": "2026-09-22T05:35:45.176Z",
+          "attacker": "WuHuSiHai_YanQue",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapAUG_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36421,
+          "type": "LogPlayerTakeDamage",
+          "t": 1505.311,
+          "at": "2026-09-22T05:35:47.080Z",
+          "attacker": "WuHuSiHai_YanQue",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "WeapAUG_C",
+          "reason": "LegShot"
+        },
+        {
+          "sourceIndex": 36468,
+          "type": "LogPlayerTakeDamage",
+          "t": 1512.733,
+          "at": "2026-09-22T05:35:54.502Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "Damx1ng",
+          "damage": 0,
+          "weapon": "ProjGrenade_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36469,
+          "type": "LogPlayerKillV2",
+          "t": 1512.733,
+          "at": "2026-09-22T05:35:54.502Z",
+          "killer": "You1Shuo1-_-",
+          "victim": "Damx1ng",
+          "weapon": "WeapMk12_C",
+          "reason": "HeadShot"
+        },
+        {
+          "sourceIndex": 36477,
+          "type": "LogPlayerTakeDamage",
+          "t": 1512.736,
+          "at": "2026-09-22T05:35:54.505Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "WuHuSiHai_YanQue",
+          "damage": 33.00114822387695,
+          "weapon": "ProjGrenade_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36482,
+          "type": "LogPlayerTakeDamage",
+          "t": 1514.164,
+          "at": "2026-09-22T05:35:55.933Z",
+          "attacker": "WuHuSiHai_YanQue",
+          "victim": "roig--pig",
+          "damage": 38.101783752441406,
+          "weapon": "PanzerFaust100M_Projectile_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36483,
+          "type": "LogPlayerTakeDamage",
+          "t": 1514.164,
+          "at": "2026-09-22T05:35:55.933Z",
+          "attacker": "WuHuSiHai_YanQue",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "PanzerFaust100M_Projectile_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36484,
+          "type": "LogPlayerTakeDamage",
+          "t": 1514.165,
+          "at": "2026-09-22T05:35:55.934Z",
+          "attacker": "WuHuSiHai_YanQue",
+          "victim": "roig--pig",
+          "damage": 42.93452835083008,
+          "weapon": "PanzerFaust100M_Projectile_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36485,
+          "type": "LogPlayerTakeDamage",
+          "t": 1514.165,
+          "at": "2026-09-22T05:35:55.934Z",
+          "attacker": "WuHuSiHai_YanQue",
+          "victim": "Curry77777",
+          "damage": 0,
+          "weapon": "PanzerFaust100M_Projectile_C",
+          "reason": "NonSpecific"
+        },
+        {
+          "sourceIndex": 36492,
+          "type": "LogPlayerTakeDamage",
+          "t": 1514.663,
+          "at": "2026-09-22T05:35:56.432Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "WuHuSiHai_YanQue",
+          "damage": 19.799999237060547,
+          "weapon": "WeapAUG_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36504,
+          "type": "LogPlayerTakeDamage",
+          "t": 1515.231,
+          "at": "2026-09-22T05:35:57.000Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "WuHuSiHai_YanQue",
+          "damage": 18,
+          "weapon": "WeapAUG_C",
+          "reason": "PelvisShot"
+        },
+        {
+          "sourceIndex": 36512,
+          "type": "LogPlayerTakeDamage",
+          "t": 1515.565,
+          "at": "2026-09-22T05:35:57.334Z",
+          "attacker": "You1Shuo1-_-",
+          "victim": "WuHuSiHai_YanQue",
+          "damage": 30.198856353759766,
+          "weapon": "WeapAUG_C",
+          "reason": "TorsoShot"
+        },
+        {
+          "sourceIndex": 36513,
+          "type": "LogPlayerKillV2",
+          "t": 1515.566,
+          "at": "2026-09-22T05:35:57.335Z",
+          "killer": "You1Shuo1-_-",
+          "victim": "WuHuSiHai_YanQue",
+          "weapon": "WeapAUG_C",
+          "reason": "TorsoShot"
+        }
+      ],
+      "kills": [
+        {
+          "sourceIndex": 36066,
+          "type": "LogPlayerKillV2",
+          "t": 1470.109,
+          "at": "2026-09-22T05:35:11.878Z",
+          "killer": "roig--pig",
+          "victim": "capjj",
+          "teamKill": false
+        },
+        {
+          "sourceIndex": 36217,
+          "type": "LogPlayerKillV2",
+          "t": 1481.765,
+          "at": "2026-09-22T05:35:23.534Z",
+          "killer": "xNobiii2407_-",
+          "victim": "7xmi_",
+          "teamKill": false
+        },
+        {
+          "sourceIndex": 36305,
+          "type": "LogPlayerKillV2",
+          "t": 1489.614,
+          "at": "2026-09-22T05:35:31.383Z",
+          "killer": "Curry77777",
+          "victim": "xNobiii2407_-",
+          "teamKill": false
+        },
+        {
+          "sourceIndex": 36469,
+          "type": "LogPlayerKillV2",
+          "t": 1512.733,
+          "at": "2026-09-22T05:35:54.502Z",
+          "killer": "You1Shuo1-_-",
+          "victim": "Damx1ng",
+          "teamKill": false
+        },
+        {
+          "sourceIndex": 36513,
+          "type": "LogPlayerKillV2",
+          "t": 1515.566,
+          "at": "2026-09-22T05:35:57.335Z",
+          "killer": "You1Shuo1-_-",
+          "victim": "WuHuSiHai_YanQue",
+          "teamKill": false
+        }
+      ]
+    }
+  ],
+  "route": [
+    {
+      "t": 68.299,
+      "x": 1886.73015625,
+      "y": 2287.94734375,
+      "z": 19.23800048828125
+    },
+    {
+      "t": 78.288,
+      "x": 1889.12546875,
+      "y": 2297.9271875,
+      "z": 19.23800048828125
+    },
+    {
+      "t": 88.286,
+      "x": 1872.9,
+      "y": 2289.116875,
+      "z": 19.23800048828125
+    },
+    {
+      "t": 98.279,
+      "x": 1877.51546875,
+      "y": 2279.66421875,
+      "z": 19.23800048828125
+    },
+    {
+      "t": 108.305,
+      "x": 1877.555,
+      "y": 2280.39265625,
+      "z": 19.23800048828125
+    },
+    {
+      "t": 118.294,
+      "x": 1887.19921875,
+      "y": 2283.21875,
+      "z": 16.154300537109375
+    },
+    {
+      "t": 128.295,
+      "x": 1886.613125,
+      "y": 2295.97921875,
+      "z": 15.13780029296875
+    },
+    {
+      "t": 138.309,
+      "x": 1873.24234375,
+      "y": 2290.071875,
+      "z": 15.4097998046875
+    },
+    {
+      "t": 148.281,
+      "x": 1884.08234375,
+      "y": 2281.45125,
+      "z": 15.40969970703125
+    },
+    {
+      "t": 158.294,
+      "x": 1888.07984375,
+      "y": 2280.933125,
+      "z": 17.2447998046875
+    },
+    {
+      "t": 168.293,
+      "x": 1888.73296875,
+      "y": 2283.66765625,
+      "z": 22.42719970703125
+    },
+    {
+      "t": 178.301,
+      "x": 1889.04796875,
+      "y": 2288.17546875,
+      "z": 22.76929931640625
+    },
+    {
+      "t": 188.309,
+      "x": 1887.6134375,
+      "y": 2289.056875,
+      "z": 22.74179931640625
+    },
+    {
+      "t": 198.292,
+      "x": 1888.286875,
+      "y": 2284.73578125,
+      "z": 22.9897998046875
+    },
+    {
+      "t": 208.29,
+      "x": 1887.81078125,
+      "y": 2281.51984375,
+      "z": 20.96989990234375
+    },
+    {
+      "t": 218.306,
+      "x": 1888.53625,
+      "y": 2283.558125,
+      "z": 22.14469970703125
+    },
+    {
+      "t": 228.296,
+      "x": 1878.606875,
+      "y": 2285.83203125,
+      "z": 23.0214990234375
+    },
+    {
+      "t": 238.31,
+      "x": 1863.763125,
+      "y": 2276.944375,
+      "z": 22.741298828125
+    },
+    {
+      "t": 248.291,
+      "x": 1863.22546875,
+      "y": 2277.46953125,
+      "z": 22.741298828125
+    },
+    {
+      "t": 258.283,
+      "x": 1863.4771875,
+      "y": 2277.45953125,
+      "z": 22.741298828125
+    },
+    {
+      "t": 268.288,
+      "x": 1863.57125,
+      "y": 2277.400625,
+      "z": 22.74139892578125
+    },
+    {
+      "t": 278.3,
+      "x": 1862.826875,
+      "y": 2277.95234375,
+      "z": 22.74389892578125
+    },
+    {
+      "t": 288.287,
+      "x": 1837.21765625,
+      "y": 2261.84546875,
+      "z": 23.019599609375
+    },
+    {
+      "t": 298.283,
+      "x": 1821.725,
+      "y": 2232.3121875,
+      "z": 11.301500244140625
+    },
+    {
+      "t": 308.28,
+      "x": 1823.223125,
+      "y": 2224.9165625,
+      "z": 11.581500244140624
+    },
+    {
+      "t": 318.28,
+      "x": 1827.2184375,
+      "y": 2221.7109375,
+      "z": 15.409100341796876
+    },
+    {
+      "t": 328.292,
+      "x": 1830.055625,
+      "y": 2223.99421875,
+      "z": 23.05469970703125
+    },
+    {
+      "t": 338.289,
+      "x": 1844.27234375,
+      "y": 2193.228125,
+      "z": 11.048399658203126
+    },
+    {
+      "t": 348.289,
+      "x": 1883.71421875,
+      "y": 2203.23125,
+      "z": 12.248900146484376
+    },
+    {
+      "t": 358.288,
+      "x": 1884.4121875,
+      "y": 2214.07515625,
+      "z": 11.034300537109376
+    },
+    {
+      "t": 368.3,
+      "x": 1893.609375,
+      "y": 2219.189375,
+      "z": 11.613599853515625
+    },
+    {
+      "t": 378.288,
+      "x": 1893.51125,
+      "y": 2218.96515625,
+      "z": 11.573299560546875
+    },
+    {
+      "t": 388.303,
+      "x": 1878.556875,
+      "y": 2208.365,
+      "z": 11.933199462890625
+    },
+    {
+      "t": 398.29,
+      "x": 1837.498125,
+      "y": 2222.47421875,
+      "z": 11.581500244140624
+    },
+    {
+      "t": 408.291,
+      "x": 1825.8878125,
+      "y": 2226.92734375,
+      "z": 11.581500244140624
+    },
+    {
+      "t": 418.296,
+      "x": 1821.54984375,
+      "y": 2212.803125,
+      "z": 11.581500244140624
+    },
+    {
+      "t": 428.299,
+      "x": 1821.54984375,
+      "y": 2212.803125,
+      "z": 11.581500244140624
+    },
+    {
+      "t": 438.3,
+      "x": 1821.54984375,
+      "y": 2212.803125,
+      "z": 11.581500244140624
+    },
+    {
+      "t": 448.3,
+      "x": 1805.32703125,
+      "y": 2194.1971875,
+      "z": 12.011800537109375
+    },
+    {
+      "t": 458.303,
+      "x": 1793.73734375,
+      "y": 2138.6678125,
+      "z": 11.034300537109376
+    },
+    {
+      "t": 468.304,
+      "x": 1772.481875,
+      "y": 2109.10453125,
+      "z": 11.04989990234375
+    },
+    {
+      "t": 478.299,
+      "x": 1772.481875,
+      "y": 2109.10453125,
+      "z": 11.04989990234375
+    },
+    {
+      "t": 488.305,
+      "x": 1773.9559375,
+      "y": 2109.15078125,
+      "z": 11.04989990234375
+    },
+    {
+      "t": 498.296,
+      "x": 1779.848125,
+      "y": 2107.22703125,
+      "z": 11.034300537109376
+    },
+    {
+      "t": 508.309,
+      "x": 1814.228125,
+      "y": 2133.395625,
+      "z": 11.904599609375
+    },
+    {
+      "t": 518.306,
+      "x": 1844.16859375,
+      "y": 2179.12578125,
+      "z": 11.743299560546875
+    },
+    {
+      "t": 528.3,
+      "x": 1850.1209375,
+      "y": 2181.8340625,
+      "z": 11.743299560546875
+    },
+    {
+      "t": 538.302,
+      "x": 1875.6028125,
+      "y": 2201.1371875,
+      "z": 11.034300537109376
+    },
+    {
+      "t": 548.304,
+      "x": 1907.00453125,
+      "y": 2193.3471875,
+      "z": 11.84780029296875
+    },
+    {
+      "t": 558.305,
+      "x": 1952.94359375,
+      "y": 2186.40546875,
+      "z": 11.54699951171875
+    },
+    {
+      "t": 568.293,
+      "x": 1955.8884375,
+      "y": 2176.07703125,
+      "z": 11.589599609375
+    },
+    {
+      "t": 578.299,
+      "x": 1962.5059375,
+      "y": 2188.5271875,
+      "z": 11.589599609375
+    },
+    {
+      "t": 588.284,
+      "x": 1966.42640625,
+      "y": 2181.68453125,
+      "z": 15.4097998046875
+    },
+    {
+      "t": 598.306,
+      "x": 1961.991875,
+      "y": 2180.05125,
+      "z": 15.4097998046875
+    },
+    {
+      "t": 608.299,
+      "x": 1960.819375,
+      "y": 2177.12953125,
+      "z": 19.23800048828125
+    },
+    {
+      "t": 618.29,
+      "x": 1953.2184375,
+      "y": 2170.1928125,
+      "z": 19.23800048828125
+    },
+    {
+      "t": 628.279,
+      "x": 1959.9984375,
+      "y": 2178.81125,
+      "z": 23.02610107421875
+    },
+    {
+      "t": 638.278,
+      "x": 1990.251875,
+      "y": 2217.46453125,
+      "z": 10.94719970703125
+    },
+    {
+      "t": 648.298,
+      "x": 1999.56796875,
+      "y": 2272.238125,
+      "z": 10.923599853515626
+    },
+    {
+      "t": 658.283,
+      "x": 2005.59265625,
+      "y": 2301.26234375,
+      "z": 9.565599975585938
+    },
+    {
+      "t": 668.28,
+      "x": 2017.868125,
+      "y": 2342.4084375,
+      "z": 9.565599975585938
+    },
+    {
+      "t": 678.3,
+      "x": 2011.62,
+      "y": 2355.2271875,
+      "z": 10.090485229492188
+    },
+    {
+      "t": 688.287,
+      "x": 2011.62,
+      "y": 2355.2271875,
+      "z": 10.090484619140625
+    },
+    {
+      "t": 698.284,
+      "x": 2011.62,
+      "y": 2355.2271875,
+      "z": 10.090485229492188
+    },
+    {
+      "t": 708.286,
+      "x": 2011.62,
+      "y": 2355.2271875,
+      "z": 10.090484008789062
+    },
+    {
+      "t": 718.306,
+      "x": 2050.66015625,
+      "y": 2399.0225,
+      "z": 10.073320922851563
+    },
+    {
+      "t": 728.3,
+      "x": 2171.23703125,
+      "y": 2336.930625,
+      "z": 12.367210693359375
+    },
+    {
+      "t": 738.289,
+      "x": 2122.52859375,
+      "y": 2294.7290625,
+      "z": 11.3277197265625
+    },
+    {
+      "t": 748.309,
+      "x": 2122.4790625,
+      "y": 2294.7465625,
+      "z": 11.316702880859374
+    },
+    {
+      "t": 758.304,
+      "x": 2174.29796875,
+      "y": 2314.9121875,
+      "z": 13.782410888671874
+    },
+    {
+      "t": 768.288,
+      "x": 2412.9915625,
+      "y": 2355.85734375,
+      "z": 17.39495361328125
+    },
+    {
+      "t": 778.281,
+      "x": 2491.9709375,
+      "y": 2373.82421875,
+      "z": 23.48056884765625
+    },
+    {
+      "t": 788.281,
+      "x": 2470.03296875,
+      "y": 2398.64890625,
+      "z": 26.12796875
+    },
+    {
+      "t": 798.289,
+      "x": 2462.33,
+      "y": 2423.09921875,
+      "z": 34.6368994140625
+    },
+    {
+      "t": 808.292,
+      "x": 2465.78078125,
+      "y": 2417.55953125,
+      "z": 32.4885009765625
+    },
+    {
+      "t": 818.29,
+      "x": 2469.40265625,
+      "y": 2433.955,
+      "z": 32.62530029296875
+    },
+    {
+      "t": 828.309,
+      "x": 2485.92296875,
+      "y": 2490.99765625,
+      "z": 32.4935009765625
+    },
+    {
+      "t": 838.294,
+      "x": 2486.551875,
+      "y": 2491.06734375,
+      "z": 32.12139892578125
+    },
+    {
+      "t": 848.293,
+      "x": 2487.9771875,
+      "y": 2491.77796875,
+      "z": 31.40639892578125
+    },
+    {
+      "t": 858.279,
+      "x": 2482.2009375,
+      "y": 2437.9628125,
+      "z": 26.8068994140625
+    },
+    {
+      "t": 868.299,
+      "x": 2602.24671875,
+      "y": 2514.14703125,
+      "z": 11.48749267578125
+    },
+    {
+      "t": 878.298,
+      "x": 2740.725,
+      "y": 2675.223125,
+      "z": 13.71590576171875
+    },
+    {
+      "t": 888.288,
+      "x": 2574.44734375,
+      "y": 2900.166875,
+      "z": 24.2224609375
+    },
+    {
+      "t": 898.306,
+      "x": 2517.556875,
+      "y": 3069.076875,
+      "z": 54.682451171875
+    },
+    {
+      "t": 908.276,
+      "x": 2503.81578125,
+      "y": 3110.7240625,
+      "z": 62.94419921875
+    },
+    {
+      "t": 918.295,
+      "x": 2526.283125,
+      "y": 3152.1178125,
+      "z": 85.46919921875
+    },
+    {
+      "t": 928.283,
+      "x": 2520.16453125,
+      "y": 3169.12875,
+      "z": 93.706103515625
+    },
+    {
+      "t": 938.277,
+      "x": 2528.39859375,
+      "y": 3173.71875,
+      "z": 92.638798828125
+    },
+    {
+      "t": 948.295,
+      "x": 2482.3421875,
+      "y": 3199.2075,
+      "z": 105.9541015625
+    },
+    {
+      "t": 958.281,
+      "x": 2486.306875,
+      "y": 3171.651875,
+      "z": 101.00740234375
+    },
+    {
+      "t": 968.307,
+      "x": 2440.09453125,
+      "y": 3159.6853125,
+      "z": 104.380302734375
+    },
+    {
+      "t": 978.294,
+      "x": 2410.63265625,
+      "y": 3202.2584375,
+      "z": 118.595302734375
+    },
+    {
+      "t": 988.279,
+      "x": 2391.1709375,
+      "y": 3218.1825,
+      "z": 125.152001953125
+    },
+    {
+      "t": 998.28,
+      "x": 2338.14078125,
+      "y": 3234.413125,
+      "z": 127.8858984375
+    },
+    {
+      "t": 1008.3,
+      "x": 2319.995,
+      "y": 3237.1084375,
+      "z": 137.8676953125
+    },
+    {
+      "t": 1018.286,
+      "x": 2312.298125,
+      "y": 3224.545625,
+      "z": 135.398603515625
+    },
+    {
+      "t": 1028.28,
+      "x": 2312.041875,
+      "y": 3223.76125,
+      "z": 135.226796875
+    },
+    {
+      "t": 1038.299,
+      "x": 2312.19953125,
+      "y": 3224.779375,
+      "z": 135.36669921875
+    },
+    {
+      "t": 1048.287,
+      "x": 2311.38421875,
+      "y": 3222.39625,
+      "z": 135.73669921875
+    },
+    {
+      "t": 1058.281,
+      "x": 2312.87953125,
+      "y": 3226.135,
+      "z": 135.469296875
+    },
+    {
+      "t": 1068.301,
+      "x": 2324.4834375,
+      "y": 3233.60625,
+      "z": 135.586103515625
+    },
+    {
+      "t": 1078.29,
+      "x": 2341.3790625,
+      "y": 3227.8915625,
+      "z": 126.9073046875
+    },
+    {
+      "t": 1088.283,
+      "x": 2366.3628125,
+      "y": 3220.575,
+      "z": 123.86759765625
+    },
+    {
+      "t": 1098.302,
+      "x": 2424.15265625,
+      "y": 3199.445,
+      "z": 115.7198046875
+    },
+    {
+      "t": 1108.289,
+      "x": 2445.65453125,
+      "y": 3152.4778125,
+      "z": 102.043095703125
+    },
+    {
+      "t": 1118.279,
+      "x": 2388.5409375,
+      "y": 3141.613125,
+      "z": 88.116201171875
+    },
+    {
+      "t": 1128.299,
+      "x": 2366.18921875,
+      "y": 3136.411875,
+      "z": 85.864501953125
+    },
+    {
+      "t": 1138.285,
+      "x": 2368.9371875,
+      "y": 3120.2003125,
+      "z": 74.3889013671875
+    },
+    {
+      "t": 1148.277,
+      "x": 2365.78046875,
+      "y": 3097.5371875,
+      "z": 59.7443017578125
+    },
+    {
+      "t": 1158.297,
+      "x": 2374.37296875,
+      "y": 3064.3571875,
+      "z": 49.41669921875
+    },
+    {
+      "t": 1168.288,
+      "x": 2373.7990625,
+      "y": 3064.6,
+      "z": 49.4306982421875
+    },
+    {
+      "t": 1178.28,
+      "x": 2372.0871875,
+      "y": 3065.234375,
+      "z": 49.6189013671875
+    },
+    {
+      "t": 1188.302,
+      "x": 2323.2184375,
+      "y": 3080.269375,
+      "z": 38.12169921875
+    },
+    {
+      "t": 1198.29,
+      "x": 2304.30046875,
+      "y": 3082.1159375,
+      "z": 33.1460009765625
+    },
+    {
+      "t": 1208.281,
+      "x": 2301.4565625,
+      "y": 3089.624375,
+      "z": 36.33010009765625
+    },
+    {
+      "t": 1218.304,
+      "x": 2301.3240625,
+      "y": 3087.5375,
+      "z": 36.4043505859375
+    },
+    {
+      "t": 1228.293,
+      "x": 2284.1075,
+      "y": 3044.3915625,
+      "z": 18.685614013671874
+    },
+    {
+      "t": 1238.285,
+      "x": 2253.966875,
+      "y": 2996.01625,
+      "z": 10.1377001953125
+    },
+    {
+      "t": 1248.307,
+      "x": 2254.730625,
+      "y": 2996.070625,
+      "z": 10.387900390625
+    },
+    {
+      "t": 1258.294,
+      "x": 2255.17296875,
+      "y": 2995.600625,
+      "z": 10.178499755859375
+    },
+    {
+      "t": 1268.282,
+      "x": 2255.8559375,
+      "y": 2994.469375,
+      "z": 10.573599853515624
+    },
+    {
+      "t": 1278.304,
+      "x": 2256.42234375,
+      "y": 2993.1375,
+      "z": 11.811500244140625
+    },
+    {
+      "t": 1288.29,
+      "x": 2254.49453125,
+      "y": 2997.1896875,
+      "z": 10.833599853515626
+    },
+    {
+      "t": 1298.28,
+      "x": 2256.49859375,
+      "y": 2993.8303125,
+      "z": 11.559100341796874
+    },
+    {
+      "t": 1308.302,
+      "x": 2256.8159375,
+      "y": 2992.4934375,
+      "z": 12.0081005859375
+    },
+    {
+      "t": 1318.287,
+      "x": 2257.5665625,
+      "y": 2994.573125,
+      "z": 11.539200439453126
+    },
+    {
+      "t": 1328.276,
+      "x": 2258.9859375,
+      "y": 2995.61625,
+      "z": 11.5227001953125
+    },
+    {
+      "t": 1338.298,
+      "x": 2259.80125,
+      "y": 2993.6884375,
+      "z": 11.759300537109375
+    },
+    {
+      "t": 1348.288,
+      "x": 2258.51625,
+      "y": 2991.5171875,
+      "z": 12.23760009765625
+    },
+    {
+      "t": 1358.28,
+      "x": 2260.41140625,
+      "y": 2993.2146875,
+      "z": 12.095899658203125
+    },
+    {
+      "t": 1368.301,
+      "x": 2260.85140625,
+      "y": 2992.8596875,
+      "z": 12.141700439453125
+    },
+    {
+      "t": 1378.291,
+      "x": 2260.53625,
+      "y": 2992.843125,
+      "z": 12.139100341796874
+    },
+    {
+      "t": 1388.279,
+      "x": 2253.4709375,
+      "y": 2985.480625,
+      "z": 12.619300537109375
+    },
+    {
+      "t": 1398.3,
+      "x": 2253.57140625,
+      "y": 2990.701875,
+      "z": 12.2281005859375
+    },
+    {
+      "t": 1408.288,
+      "x": 2256.0459375,
+      "y": 2985.808125,
+      "z": 11.72780029296875
+    },
+    {
+      "t": 1418.282,
+      "x": 2254.7859375,
+      "y": 2987.7490625,
+      "z": 12.37280029296875
+    },
+    {
+      "t": 1428.276,
+      "x": 2235.17875,
+      "y": 3033.4315625,
+      "z": 12.709100341796875
+    },
+    {
+      "t": 1438.304,
+      "x": 2197.1090625,
+      "y": 3044.47125,
+      "z": 12.765400390625
+    },
+    {
+      "t": 1448.295,
+      "x": 2215.67703125,
+      "y": 3023.9853125,
+      "z": 12.301600341796876
+    },
+    {
+      "t": 1458.283,
+      "x": 2213.4259375,
+      "y": 3002.874375,
+      "z": 13.08739990234375
+    },
+    {
+      "t": 1468.305,
+      "x": 2213.37625,
+      "y": 3003.166875,
+      "z": 13.263199462890626
+    },
+    {
+      "t": 1478.298,
+      "x": 2214.05703125,
+      "y": 3003.6325,
+      "z": 13.51969970703125
+    },
+    {
+      "t": 1488.284,
+      "x": 2208.8859375,
+      "y": 3001.1803125,
+      "z": 13.556800537109375
+    },
+    {
+      "t": 1498.304,
+      "x": 2220.38078125,
+      "y": 2984.369375,
+      "z": 13.81719970703125
+    },
+    {
+      "t": 1508.29,
+      "x": 2211.6359375,
+      "y": 2932.5965625,
+      "z": 12.285799560546875
+    },
+    {
+      "t": 1518.276,
+      "x": 2202.26015625,
+      "y": 2909.2015625,
+      "z": 11.4106005859375
+    }
+  ],
+  "scenes": [
+    {
+      "t": 81,
+      "title": "밀집한 초반 착지",
+      "fact": "01:02 착지. 500m·전후 60초 안에 상대 10명의 고유 착지 기록이 있습니다. 우리 팀 Curry77777의 기절은 01:13, 사망 이벤트는 01:20에 기록됐습니다.",
+      "limit": "해당 팀원은 이후 교전에도 등장합니다. 복귀 이벤트가 이번 원본에서 확인되지 않아 계속 3명이었다고 설명할 수 없습니다."
+    },
+    {
+      "t": 320,
+      "title": "두 팀원의 처치가 이어진 초반 교전",
+      "fact": "04:38~05:19 구간에서 팀 대인 피해 약 276 HP. roig--pig, You1Shuo1-_-, roig--pig 순으로 05:12~05:19 사이 처치 3건이 기록됐습니다.",
+      "limit": "팀의 관측된 행동 순서입니다. 상대 팀 전멸이나 음성 소통, 의도적인 역할 분담을 확정하지 않습니다."
+    },
+    {
+      "t": 769,
+      "title": "두 번째·세 번째 원으로 이동",
+      "fact": "두 번째 원은 08:40 관측, 당시 경계까지 약 135m 밖, 10:38 원 안에서 첫 관측. 세 번째 원은 11:40 관측, 약 170m 밖, 12:48 원 안에서 첫 관측됐습니다.",
+      "limit": "차량 탑승은 11:13에 먼저 기록됐습니다. 세 번째 원 공개 이후 탑승이 없다고 도보 이동으로 판단하면 안 됩니다."
+    },
+    {
+      "t": 1016,
+      "title": "기절 후 약 14.5초 만에 소생",
+      "fact": "16:41 roig--pig 기절 → 16:55 7xmi_의 소생 이벤트. 이 소생은 분석 대상 개인이 아니라 다른 팀원의 행동입니다.",
+      "limit": "소생이 완료된 사실을 설명합니다. 연막 효과·엄폐·안전성은 이 기록만으로 판단하지 않습니다."
+    },
+    {
+      "t": 1516,
+      "title": "팀원 사망 후 이어진 마지막 교전",
+      "fact": "24:41 7xmi_ 사망, 24:49 Curry77777이 해당 사망의 처치 주체를 처치했습니다. 이후 분석 대상은 25:12 Mk12, 25:15 AUG로 각각 1킬을 기록했습니다. 팀은 1위·합계 14킬입니다.",
+      "limit": "시간상 약 7.8초 뒤의 후속 처치입니다. 의도적인 복수나 소통이었다고 단정하지 않습니다."
+    }
+  ],
+  "displayMap": "에란겔",
+  "title": "초반 교전부터 마지막 두 처치까지"
+}

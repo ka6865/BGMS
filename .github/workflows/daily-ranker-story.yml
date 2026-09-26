@@ -1,0 +1,41 @@
+name: Daily Ranker Story
+
+on:
+  schedule:
+    # 09:37 KST. GitHub schedules are UTC and can be delayed.
+    - cron: '37 0,3 * * *'
+  workflow_dispatch:
+    inputs:
+      day_kst:
+        description: '경기 날짜 (KST, YYYY-MM-DD). 비우면 전날.'
+        required: false
+        type: string
+
+concurrency:
+  group: daily-ranker-story
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Publish one verified yesterday winner
+        env:
+          PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
+          GOOGLE_GEMINI_API_KEY: ${{ secrets.GOOGLE_GEMINI_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DAY_KST: ${{ inputs.day_kst }}
+        run: |
+          if [ -n "$DAY_KST" ]; then
+            npx tsx scripts/publish_daily_ranker_story.ts --apply "--day=$DAY_KST"
+          else
+            npx tsx scripts/publish_daily_ranker_story.ts --apply
+          fi

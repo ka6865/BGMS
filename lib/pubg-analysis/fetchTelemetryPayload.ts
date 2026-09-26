@@ -1,5 +1,7 @@
 import { orderedReplayEvents } from "../replay/orderedEvents";
 import getApiUrl from "../api-config";
+import { getRankerLesson, lessonMatchesReplay } from "../learn/lessons";
+import { normalizeName } from "./utils";
 import {
   parseTelemetryMode,
   parseTelemetryPlatform,
@@ -19,6 +21,7 @@ type TelemetryRequest = {
   platform: TelemetryPlatform;
   mapName?: string;
   mode: TelemetryMode;
+  lessonId?: string;
 };
 
 type TelemetryFetchOptions = {
@@ -109,6 +112,18 @@ export async function fetchTelemetryPayload(
   if (request.mapName !== undefined) query.set("mapName", request.mapName);
 
   const fetchFn = options.fetchFn ?? fetch;
+  if (request.lessonId !== undefined) {
+    const lesson = getRankerLesson(request.lessonId);
+    if (!lesson || !lessonMatchesReplay(lesson, request)) {
+      throw new Error("전술 해설과 리플레이 경기 정보가 일치하지 않습니다.");
+    }
+    const value = await requestJson(fetchFn, getApiUrl(`/learn/replays/${lesson.id}.json`), options.signal, DOWNLOAD_ERROR);
+    const payload = parseTelemetryPayload(value, lesson.replayIdentity);
+    if (payload.mapName !== lesson.replayMapName || !payload.teamNames.some(name => normalizeName(name) === normalizeName(lesson.nickname))) {
+      throw new Error(VALIDATION_ERROR);
+    }
+    return { ...payload, events: orderedReplayEvents(payload.events), zoneEvents: orderedReplayEvents(payload.zoneEvents) };
+  }
   const envelopeValue = await requestJson(
     fetchFn,
     getApiUrl(`/api/pubg/telemetry?${query.toString()}`),

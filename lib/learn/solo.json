@@ -1,0 +1,154 @@
+{
+  "id": "2026-09-22-solo",
+  "title": "먼 첫 원을 넘어, 11킬 우승까지",
+  "mapId": "Miramar",
+  "mapName": "Desert_Main",
+  "replayMapName": "미라마",
+  "mapLabel": "미라마",
+  "gameMode": "solo",
+  "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+  "nickname": "VIE_TanVuu284",
+  "rank": 16,
+  "rankObservedAt": "2026-09-23T00:51:44.044Z",
+  "playedAt": "2026-09-22T14:09:38Z",
+  "kills": 11,
+  "placement": 1,
+  "damage": 1323,
+  "teamKills": 11,
+  "durationSeconds": 1677,
+  "replayIdentity": {
+    "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+    "platform": "steam",
+    "playerKey": "7d5f91f0f3fca72955a749acc95e36e5",
+    "mode": "full",
+    "telemetryVersion": 62
+  },
+  "briefing": "페카도 서쪽·추마세라 북쪽에 착지한 뒤 오토바이로 먼 첫 자기장을 넘었습니다. 중반에는 차량에서 내려 근거리와 장거리 상대를 차례로 처치했고, 마지막 작은 원에서는 약 80m 떨어진 상대를 수류탄으로 잡아 우승했습니다.",
+  "winSummary": {
+    "intro": "페카도 서쪽·추마세라 북쪽에 착지해 오토바이로 먼 첫 자기장을 넘었습니다. 중반에는 차에서 내린 뒤 근거리 M416과 장거리 M24로 싸웠고, 후반에는 차로 자리를 옮긴 뒤 링스 AMR로 두 명을 처치했습니다. 마지막 작은 원에서 수류탄으로 최후의 상대를 잡아 11킬 우승했습니다.",
+    "milestones": [
+      { "timeSeconds": 362.234, "text": "Kar98k로 첫 처치" },
+      { "timeSeconds": 502.418, "text": "오토바이를 타고 첫 자기장 안으로 이동" },
+      { "timeSeconds": 944.543, "text": "15:44~16:25 도보 상태에서 30m·50m·8m 상대를 차례로 처치" },
+      { "timeSeconds": 1157.258, "text": "미라도에서 내려 자리를 잡고 19:17~20:29에 4킬" },
+      { "timeSeconds": 1390.231, "text": "차로 옮긴 자리에서 링스 AMR로 약 150m 상대 2명 처치" },
+      { "timeSeconds": 1673.913, "text": "마지막 작은 원에서 수류탄으로 약 80m 상대 처치, 1위" }
+    ],
+    "weapons": [
+      { "name": "M416", "kills": 4 },
+      { "name": "M24", "kills": 2 },
+      { "name": "링스 AMR", "kills": 2 },
+      { "name": "수류탄", "kills": 2 },
+      { "name": "Kar98k", "kills": 1 }
+    ],
+    "kills": [
+      { "timeSeconds": 362.234, "victim": "K-two2", "weapon": "Kar98k", "distanceMeters": 329 },
+      { "timeSeconds": 944.543, "victim": "AlexTina", "weapon": "M416", "distanceMeters": 29 },
+      { "timeSeconds": 959.197, "victim": "sysgoking", "weapon": "M24", "distanceMeters": 52 },
+      { "timeSeconds": 985.141, "victim": "poim_1", "weapon": "M416", "distanceMeters": 8 },
+      { "timeSeconds": 1157.258, "victim": "FluffyDemon", "weapon": "M416", "distanceMeters": 25 },
+      { "timeSeconds": 1162.418, "victim": "Txxx6888", "weapon": "M24", "distanceMeters": 182 },
+      { "timeSeconds": 1220.896, "victim": "Bruce_LYB", "weapon": "M416", "distanceMeters": 22 },
+      { "timeSeconds": 1229.669, "victim": "LVG-Wum", "weapon": "수류탄", "distanceMeters": 34 },
+      { "timeSeconds": 1390.231, "victim": "AST-HEAD", "weapon": "링스 AMR", "distanceMeters": 155 },
+      { "timeSeconds": 1427.205, "victim": "HYUN32", "weapon": "링스 AMR", "distanceMeters": 154 },
+      { "timeSeconds": 1673.913, "victim": "HXLANQ", "weapon": "수류탄", "distanceMeters": 78 }
+    ]
+  },
+  "scenes": [
+    {
+      "id": "scene-1",
+      "title": "페카도 서쪽·추마세라 북쪽 착지",
+      "anchorSeconds": 77,
+      "startSeconds": 57,
+      "fact": "01:16 미라마의 페카도 서쪽·추마세라 북쪽, 두 지역 사이 도로 근처에 착지했습니다. 약 5분 뒤에는 Kar98k로 약 330m 떨어진 상대를 처치하며 첫 킬을 기록했습니다.",
+      "context": "다른 선수 2명도 착지점에서 약 440m 떨어진 곳에 내렸습니다. 그중 한 명이 약 5분 뒤 첫 킬의 상대였습니다. 처치 순간 두 선수 모두 차량에 타고 있지 않았습니다.",
+      "limitation": "지명은 지도에서 읽은 상대적 위치이며 특정 도시 안에 착지했다는 뜻은 아닙니다. 착지할 때 그 상대를 실제로 봤는지, 이후 어떤 길로 접근했는지는 알 수 없습니다. 기록된 위치만으로 건물이나 엄폐물을 특정할 수 없습니다.",
+      "mapSnapshot": { "path": [{ "x": 2947.2, "y": 4503.9 }], "viewSize": 2048, "playerLabel": "착지 지점" }
+    },
+    {
+      "id": "scene-2",
+      "title": "먼 첫 원, 차량으로 이어진 이동",
+      "anchorSeconds": 503,
+      "startSeconds": 483,
+      "fact": "첫 자기장이 나타날 무렵 선수는 안전지대에서 약 1.3km 떨어져 있었습니다. 07:18 오토바이를 탔고, 08:22에는 안전지대 안에서 위치가 확인됩니다.",
+      "context": "멀리 잡힌 첫 원을 향해 차량으로 이동한 흐름입니다. 이 구간에 자기장 피해를 입은 기록은 없습니다.",
+      "limitation": "위치는 보통 10초마다 남아 정확히 어느 길로 갔고 몇 초에 원에 들어왔는지는 알 수 없습니다.",
+      "mapSnapshot": { "path": [{ "x": 2954, "y": 4496 }, { "x": 2931, "y": 4522 }, { "x": 2963, "y": 4490 }, { "x": 2963, "y": 4488 }, { "x": 2813, "y": 4368 }, { "x": 3109, "y": 4224 }, { "x": 4246, "y": 5327 }], "zone": { "x": 4987, "y": 6941, "radius": 1921 }, "marks": [{ "x": 3106.6, "y": 4500.9, "kind": "opponent", "label": "EVA-RX · 04:41 관측 위치" }, { "x": 4272.9, "y": 5664.9, "kind": "opponent", "label": "TTHNMCB · 08:18 관측 위치" }], "viewSize": 4096, "pathStartSeconds": 82.5, "pathEndSeconds": 502.4 },
+      "zoneAnalysis": { "rounds": [{ "label": "첫 번째 원", "revealedSeconds": 100.663, "shrinkSeconds": 280.686, "movedSeconds": 312.439, "enteredSeconds": 502.418, "note": "새 원 공개 직후 큰 위치 변화는 관측되지 않았습니다. 파란 자기장이 줄기 시작한 뒤 위치가 100m 이상 바뀌었고, 줄어드는 도중 원 안에 들어왔습니다." }], "routeSummary": "착지 지역에서 동쪽·남쪽으로 위치를 옮겨 원 안에 들어온 흐름입니다. 이 동선 가까이에 상대 위치도 기록됐지만, 그들을 보고 길을 바꿨는지는 알 수 없습니다.", "nearbyOpponents": [{ "timeSeconds": 281.773, "name": "EVA-RX", "distanceMeters": 135, "note": "줄기 시작 무렵" }, { "timeSeconds": 498.874, "name": "TTHNMCB", "distanceMeters": 339, "note": "원 진입 무렵" }] }
+    },
+    {
+      "id": "scene-3",
+      "title": "차량에 탄 상대에게 먼저 피해, 세 상대와 연속 교전",
+      "anchorSeconds": 985,
+      "startSeconds": 916,
+      "fact": "15:26 기록상 첫 피해는 선수의 M416 사격입니다. 약 90m 떨어진 sysgoking은 당시 차량을 타고 있었습니다. 15:44에는 29m AlexTina를 M416으로 처치했고, 15:59에는 도보 상태의 sysgoking을 52m에서 M24로 마무리했습니다. poim_1과는 16:22 약 16m에서 M416 피해가 먼저 기록됐습니다. 16:24 상대가 8m에서 AUG로 반격해 선수가 피해를 입었고, 16:25 M416으로 처치했습니다. poim_1 교환에서 기록상 첫 발사는 선수 쪽입니다.",
+      "context": "첫 킬은 Kar98k였습니다. 07:10 전리품 상자에서 M24를 얻고 장착한 기록이 있으며, 이후 15:59에 sysgoking을 처치할 때 사용했습니다. 그 상자가 K-two2의 것이었는지는 확인되지 않습니다. 12:21 미라도에서 내린 뒤 세 처치는 도보 상태에서 이뤄졌습니다. sysgoking은 첫 피격 때 차량 안에 있었지만 M24 처치 순간에는 도보였습니다. poim_1도 첫 피격 때 차량 안이었고, 마지막 교환 때는 도보였습니다. 세 명은 서로 다른 상대입니다.",
+      "limitation": "기록된 발사 순서만 확인할 수 있고, 발사 시각이 적을 발견한 시각을 뜻하지는 않습니다. 그 전에 기록되지 않은 행동이 있을 수 있으며, 조준 대상도 저장되지 않습니다. 차량에서 내린 정확한 시각과 이유, 집 안팎이나 엄폐 여부도 확인할 수 없습니다.",
+      "combatEvents": [
+        { "timeSeconds": 926.281, "kind": "damage", "actor": "VIE_TanVuu284", "target": "sysgoking", "weapon": "M416", "damage": 21.2, "distanceMeters": 90, "note": "이 장면에서 처음 확인된 피해. 상대는 차량 탑승 중" },
+        { "timeSeconds": 944.543, "kind": "kill", "actor": "VIE_TanVuu284", "target": "AlexTina", "weapon": "M416", "distanceMeters": 29 },
+        { "timeSeconds": 959.197, "kind": "kill", "actor": "VIE_TanVuu284", "target": "sysgoking", "weapon": "M24", "distanceMeters": 52, "note": "처치 순간 상대는 도보 상태" },
+        { "timeSeconds": 982.685, "kind": "damage", "actor": "VIE_TanVuu284", "target": "poim_1", "weapon": "M416", "damage": 17.1, "distanceMeters": 16, "note": "기록상 이 교환에서 선수의 첫 M416 피해. 상대는 차량 탑승 중" },
+        { "timeSeconds": 984.676, "kind": "shot", "actor": "poim_1", "weapon": "AUG", "note": "상대의 첫 기록 사격" },
+        { "timeSeconds": 984.727, "kind": "received", "actor": "poim_1", "target": "VIE_TanVuu284", "weapon": "AUG", "damage": 24, "distanceMeters": 8, "note": "상대의 반격으로 처음 확인된 피해" },
+        { "timeSeconds": 985.140, "kind": "damage", "actor": "VIE_TanVuu284", "target": "poim_1", "weapon": "M416", "damage": 44.3, "distanceMeters": 8 },
+        { "timeSeconds": 985.141, "kind": "kill", "actor": "VIE_TanVuu284", "target": "poim_1", "weapon": "M416", "distanceMeters": 8 }
+      ],
+      "mapSnapshot": { "path": [{ "x": 5448, "y": 6613 }, { "x": 5450, "y": 6615 }, { "x": 5476, "y": 6603 }, { "x": 5479, "y": 6601 }, { "x": 5470, "y": 6602 }], "zone": { "x": 5325, "y": 6858, "radius": 380 }, "kills": [{ "x": 5479, "y": 6601, "label": "AlexTina · 15:44 사망" }, { "x": 5502, "y": 6550, "label": "sysgoking · 15:59 사망" }, { "x": 5474, "y": 6608, "label": "poim_1 · 16:25 사망" }], "marks": [{ "x": 5474, "y": 6609, "kind": "opponent", "label": "poim_1 위치 · AUG 사격 기록" }], "viewSize": 2048, "pathStartSeconds": 932.4, "pathEndSeconds": 982.4 }
+    },
+    {
+      "id": "scene-4",
+      "title": "M24로 먼저 맞힌 상대를 근거리에서 마무리, 이어 네 킬",
+      "anchorSeconds": 1123,
+      "startSeconds": 1020,
+      "fact": "17:21과 17:47에 M24로 FluffyDemon에게 약 238m·232m에서 피해를 줬습니다. 17:51 차량에 탔고 18:28 하차한 뒤, 19:17 약 25m에서 M416으로 같은 상대를 처치했습니다. 19:22에는 약 182m에서 M24로 Txxx6888을 잡았습니다. 이어 20:20 약 22m에서 M416, 20:29 약 34m에서 수류탄으로 두 명을 더 처치했습니다.",
+      "context": "처치 기록에서 상대는 모두 도보 상태였습니다. M24 피해 두 번이 기록된 FluffyDemon은 약 1분 30초 뒤 근거리 M416 처치로 이어졌습니다. 차량 탑승과 하차는 로그에 남지만, 그 이동이 이후 처치의 원인이었다고는 확인되지 않습니다.",
+      "limitation": "상대가 왜 그쪽으로 왔는지, 선수가 집 안에서 지켰는지 야외에서 대기했는지는 알 수 없습니다. 기록된 위치만으로 시야나 엄폐물을 판단할 수 없습니다.",
+      "combatEvents": [
+        { "timeSeconds": 1041.903, "kind": "damage", "actor": "VIE_TanVuu284", "target": "FluffyDemon", "weapon": "M24", "damage": 35.2, "distanceMeters": 238, "note": "이후 근거리에서 처치한 상대에게 먼저 준 피해" },
+        { "timeSeconds": 1067.582, "kind": "damage", "actor": "VIE_TanVuu284", "target": "FluffyDemon", "weapon": "M24", "damage": 54.9, "distanceMeters": 232 },
+        { "timeSeconds": 1157.258, "kind": "kill", "actor": "VIE_TanVuu284", "target": "FluffyDemon", "weapon": "M416", "distanceMeters": 25, "note": "앞서 M24 피해를 준 상대를 근거리에서 처치" },
+        { "timeSeconds": 1162.418, "kind": "kill", "actor": "VIE_TanVuu284", "target": "Txxx6888", "weapon": "M24", "distanceMeters": 182 },
+        { "timeSeconds": 1220.896, "kind": "kill", "actor": "VIE_TanVuu284", "target": "Bruce_LYB", "weapon": "M416", "distanceMeters": 22 },
+        { "timeSeconds": 1229.669, "kind": "kill", "actor": "VIE_TanVuu284", "target": "LVG-Wum", "weapon": "수류탄", "distanceMeters": 34 }
+      ],
+      "mapSnapshot": { "path": [{ "x": 5478, "y": 6607 }, { "x": 5473, "y": 6598 }, { "x": 5396, "y": 6601 }, { "x": 5302, "y": 6590 }, { "x": 5230, "y": 6638 }, { "x": 5254, "y": 6736 }, { "x": 5273, "y": 6741 }], "zone": { "x": 5352, "y": 6965, "radius": 247 }, "viewSize": 3072, "pathStartSeconds": 1062.4, "pathEndSeconds": 1122.4 },
+      "zoneAnalysis": { "rounds": [{ "label": "다섯 번째 원", "revealedSeconds": 1060.639, "shrinkSeconds": 1120.639, "movedSeconds": 1092.415, "enteredSeconds": 1122.437, "note": "새 원이 보인 뒤, 줄기 시작 전에 100m 이상 바뀐 위치가 관측됐습니다. 원 안 위치는 줄기 시작 직후 처음 확인됩니다." }] }
+    },
+    {
+      "id": "scene-4b",
+      "title": "전리품 상자에서 얻은 링스 AMR로 차량 탑승자 처치",
+      "anchorSeconds": 1390,
+      "startSeconds": 1305,
+      "fact": "21:55에는 전리품 상자에서 링스 AMR를 얻고 장착한 기록이 있습니다. 22:01 약 66m 거리에서 AST-HEAD의 MG3 사격에 18.7 피해를 입었습니다. 23:10에는 차량에 탄 AST-HEAD를 약 155m에서 링스 AMR로 처치했고, 23:47에는 도보인 HYUN32를 약 154m에서 같은 총으로 처치했습니다.",
+      "context": "두 처치 모두 선수는 도보 상태였습니다. 첫 상대는 처치 순간 차량을 타고 있었고, 두 번째 상대는 도보였습니다. 링스 AMR 획득은 상자에서 얻은 기록과 연결되지만 어느 선수의 상자였는지는 확인되지 않습니다.",
+      "limitation": "상대가 차량으로 지나가던 중이었는지, 선수를 먼저 발견했는지는 기록으로 확인할 수 없습니다. 사격 당시 조준 화면·시야·엄폐물은 저장되지 않았고, 링스 AMR를 얻은 전리품 상자의 주인도 특정되지 않습니다.",
+      "combatEvents": [
+        { "timeSeconds": 1321.923, "kind": "received", "actor": "AST-HEAD", "target": "VIE_TanVuu284", "weapon": "MG3", "damage": 18.7, "distanceMeters": 66, "note": "22:01 상대의 MG3 사격으로 받은 피해" },
+        { "timeSeconds": 1390.231, "kind": "kill", "actor": "VIE_TanVuu284", "target": "AST-HEAD", "weapon": "링스 AMR", "distanceMeters": 155, "note": "처치 순간 상대는 차량 탑승 중" },
+        { "timeSeconds": 1427.205, "kind": "kill", "actor": "VIE_TanVuu284", "target": "HYUN32", "weapon": "링스 AMR", "distanceMeters": 154, "note": "처치 순간 상대는 도보 상태" }
+      ],
+      "mapSnapshot": { "path": [{ "x": 5302, "y": 6766 }, { "x": 5300, "y": 6787 }, { "x": 5289, "y": 6835 }, { "x": 5384, "y": 6974 }, { "x": 5386, "y": 6972 }], "zone": { "x": 5374, "y": 7008, "radius": 175 }, "kills": [{ "x": 5233, "y": 6943, "label": "AST-HEAD · 23:10 사망" }, { "x": 5240, "y": 7022, "label": "HYUN32 · 23:47 사망" }], "viewSize": 2048, "pathStartSeconds": 1292.4, "pathEndSeconds": 1422.4 },
+      "zoneAnalysis": { "rounds": [{ "label": "여섯 번째 원", "revealedSeconds": 1230.619, "shrinkSeconds": 1300.64, "movedSeconds": 1322.406, "enteredSeconds": 1332.401, "note": "줄기 시작 후에 100m 이상 떨어진 위치가 처음 관측됐고, 약 10초 뒤 원 안에서 위치가 확인됩니다. 이 사이 차량 탑승·하차 기록도 있습니다." }] }
+    },
+    {
+      "id": "scene-5",
+      "title": "마지막 작은 원, 약 80m 상대를 수류탄으로",
+      "anchorSeconds": 1673,
+      "startSeconds": 1654,
+      "fact": "마지막 자기장 안에서 선수와 상대는 약 78m 떨어져 있었습니다. 선수는 27:39·27:44·27:50에 수류탄을 한 개씩 던졌습니다. 두 번째 투척 뒤 27:48에 40.9 피해, 세 번째 투척 뒤 27:53에 70.1 피해가 기록됐고 같은 순간 마지막 처치로 1위·11킬 우승을 확정했습니다.",
+      "context": "마지막 1분 반 동안 기록된 위치에서 선수는 거의 움직이지 않았고, 상대도 가까운 지역에 머물렀습니다. 두 사람 모두 차량에 타고 있지 않았습니다. 자기장이 좁아지는 동안 서로 약 80m 떨어진 곳에 있었습니다.",
+      "limitation": "첫 번째 수류탄으로 상대가 피해를 입은 기록이 없는 이유는 알 수 없습니다. 정확히 어디에 떨어져 폭발했는지, 상대에게 엄폐물이 있었는지도 기록되지 않습니다. 지도 리플레이의 폭발 표식은 추정 위치입니다.",
+      "combatEvents": [
+        { "timeSeconds": 1659.253, "kind": "throw", "actor": "VIE_TanVuu284", "weapon": "수류탄", "note": "첫 투척 · 상대에게 피해를 준 기록은 없음" },
+        { "timeSeconds": 1664.472, "kind": "throw", "actor": "VIE_TanVuu284", "weapon": "수류탄", "note": "두 번째 투척" },
+        { "timeSeconds": 1668.060, "kind": "damage", "actor": "VIE_TanVuu284", "target": "HXLANQ", "weapon": "수류탄", "damage": 40.9, "distanceMeters": 78, "note": "27:44 투척 뒤 폭발 기록에서 확인된 피해" },
+        { "timeSeconds": 1670.522, "kind": "throw", "actor": "VIE_TanVuu284", "weapon": "수류탄", "note": "세 번째 투척" },
+        { "timeSeconds": 1673.912, "kind": "damage", "actor": "VIE_TanVuu284", "target": "HXLANQ", "weapon": "수류탄", "damage": 70.1, "distanceMeters": 78, "note": "27:50 투척 뒤 폭발 기록에서 확인된 피해" },
+        { "timeSeconds": 1673.913, "kind": "kill", "actor": "VIE_TanVuu284", "target": "HXLANQ", "weapon": "수류탄", "distanceMeters": 78, "note": "세 번째 수류탄으로 우승 확정" }
+      ],
+      "mapSnapshot": { "path": [{ "x": 5409, "y": 6969 }, { "x": 5409, "y": 6969 }], "zone": { "x": 5407, "y": 7024, "radius": 74 }, "kills": [{ "x": 5443, "y": 7039, "label": "HXLANQ · 27:53 사망" }], "marks": [{ "x": 5408.76, "y": 6968.92, "kind": "throw", "label": "수류탄 투척 · 27:39" }, { "x": 5409.03, "y": 6969.55, "kind": "throw", "label": "수류탄 투척 · 27:44 · 피해" }, { "x": 5408.89, "y": 6969.14, "kind": "throw", "label": "수류탄 투척 · 27:50 · 처치" }], "viewSize": 2048 }
+    }
+  ]
+}

@@ -53,7 +53,7 @@ export async function applySupportPrivacyAction(input: {
   if (typeof actionRpc === "function") {
     let result: { data: { outcome?: string; code?: string } | null; error: { message?: string } | null };
     try {
-      result = await actionRpc("apply_support_privacy_action", {
+      result = await (input.db as any).rpc("apply_support_privacy_action", {
         p_ticket_id: input.ticketId,
         p_actor_id: input.actorId,
       });
