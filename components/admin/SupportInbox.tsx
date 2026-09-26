@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import SupportStatusBadge from "@/components/support/SupportStatusBadge";
 
 type SupportTicketSummary = {
@@ -23,7 +24,7 @@ const STATUS_OPTIONS = [
 ] as const;
 const CATEGORY_OPTIONS = [["", "전체 유형"], ["privacy", "전적 비공개"], ["account", "계정"], ["community", "커뮤니티"], ["bug", "오류"], ["other", "기타"]] as const;
 
-export default function SupportInbox({ onSelect, selectedTicketId = null, refreshKey = 0 }: { onSelect: (ticketId: string) => void; selectedTicketId?: string | null; refreshKey?: number }) {
+export default function SupportInbox() {
   const [status, setStatus] = useState("");
   const [category, setCategory] = useState("");
   const [query, setQuery] = useState("");
@@ -51,7 +52,7 @@ export default function SupportInbox({ onSelect, selectedTicketId = null, refres
     }
   }, [category, query, status]);
 
-  useEffect(() => { void load(); }, [load, refreshKey]);
+  useEffect(() => { void load(); }, [load]);
 
   const pendingCount = useMemo(() => tickets.filter((ticket) => ["new", "in_progress", "awaiting_user"].includes(ticket.status)).length, [tickets]);
 
@@ -70,10 +71,11 @@ export default function SupportInbox({ onSelect, selectedTicketId = null, refres
       <div className="mt-4 flex-1 space-y-2 overflow-y-auto pr-1">
         {loading ? <p className="py-10 text-center text-sm text-white/45">문의 목록을 불러오는 중…</p>
           : tickets.length === 0 ? <p className="py-10 text-center text-sm text-white/45">조건에 맞는 문의가 없습니다.</p>
-          : tickets.map((ticket) => <button key={ticket.id} type="button" onClick={() => onSelect(ticket.id)} className={`w-full rounded-xl border p-3 text-left transition ${selectedTicketId === ticket.id ? "border-amber-300/70 bg-amber-300/10" : "border-white/10 bg-black/10 hover:border-white/25"}`}>
+          : tickets.map((ticket) => <Link key={ticket.id} href={`/admin/support/${ticket.id}`} prefetch={false} className="block w-full rounded-xl border border-white/10 bg-black/10 p-3 text-left transition hover:border-amber-300/60 hover:bg-amber-300/[0.06] focus-visible:outline-2 focus-visible:outline-amber-300">
             <div className="flex items-start justify-between gap-2"><span className="min-w-0 truncate text-sm font-black">{ticket.subject}</span><SupportStatusBadge value={ticket.status} /></div>
             <div className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-xs text-white/50"><span>{ticket.requester_nickname ?? "탈퇴 회원"}</span><span>·</span><span>{ticket.category === "privacy" ? "전적 비공개" : ticket.category}</span>{ticket.unread && <span className="text-amber-200">새 답변</span>}</div>
-          </button>)}
+            <span className="mt-2 block text-right text-xs font-bold text-amber-200">문의 상세 보기 →</span>
+          </Link>)}
       </div>
     </section>
   );
