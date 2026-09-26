@@ -38,7 +38,7 @@ export default function TicketForm({ onCreated }: { onCreated?: (ticketId: strin
     }
   }
 
-  async function uploadFiles(files: FileList | null) {
+  async function uploadFiles(files: File[]) {
     if (!files || files.length === 0) return;
     if (isPrivacy && !target) {
       setError("먼저 PUBG 닉네임을 확인해 주세요.");
@@ -46,29 +46,37 @@ export default function TicketForm({ onCreated }: { onCreated?: (ticketId: strin
     }
     setError("");
     setIsUploading(true);
+    const nextIds = [...attachmentIds];
     try {
-      const nextIds: string[] = [];
-      for (const file of Array.from(files)) {
-        if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) throw new Error("PNG, JPEG, WebP 이미지만 첨부할 수 있습니다.");
-        if (file.size > 3 * 1024 * 1024) throw new Error("첨부파일은 3MiB 이하만 가능합니다.");
+      if (nextIds.length + files.length > 3) throw new Error("첨부파일은 최대 3개까지 올릴 수 있습니다.");
+      for (const file of files) {
+        if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+          throw new Error(`${file.name}: PNG, JPEG, WebP 이미지만 첨부할 수 있습니다. HEIC 사진은 JPEG로 변환해 주세요.`);
+        }
+        if (file.size > 3 * 1024 * 1024) throw new Error(`${file.name}: 파일 크기는 3MB 이하여야 합니다.`);
         const reserveResponse = await fetch("/api/support/attachments/reserve", {
           method: "POST", headers: { "content-type": "application/json" },
           body: JSON.stringify({ mimeType: file.type, byteSize: file.size, originalName: file.name }),
         });
         const reserved = await reserveResponse.json();
-        if (!reserveResponse.ok) throw new Error(reserved.error || "업로드 실패");
-        const uploadResult = await supabase.storage.from(reserved.bucketId).uploadToSignedUrl(reserved.storageKey, reserved.token, file);
-        if (uploadResult.error) throw new Error("업로드 실패");
+        if (!reserveResponse.ok) throw new Error(`${file.name}: ${reserved.error || "업로드를 준비하지 못했습니다."}`);
+        const uploadResult = await supabase.storage.from(reserved.bucketId).uploadToSignedUrl(reserved.storageKey, reserved.token, file, {
+          contentType: file.type,
+          upsert: false,
+        });
+        if (uploadResult.error) {
+          console.error("[support attachment] Storage upload failed", uploadResult.error);
+          throw new Error(`${file.name}: 파일 저장에 실패했습니다. ${uploadResult.error.message || "잠시 후 다시 시도해 주세요."}`);
+        }
         const completeResponse = await fetch("/api/support/attachments/complete", {
           method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ attachmentId: reserved.attachmentId }),
         });
         const completed = await completeResponse.json();
-        if (!completeResponse.ok) throw new Error(completed.error || "첨부파일을 완료하지 못했습니다.");
+        if (!completeResponse.ok) throw new Error(`${file.name}: ${completed.error || "첨부파일을 완료하지 못했습니다."}`);
         nextIds.push(reserved.attachmentId);
+        setAttachmentIds([...nextIds]);
       }
-      setAttachmentIds(nextIds);
     } catch (caught) {
-      setAttachmentIds([]);
       setError(caught instanceof Error ? caught.message : "업로드 실패");
     } finally {
       setIsUploading(false);
@@ -118,7 +126,8 @@ export default function TicketForm({ onCreated }: { onCreated?: (ticketId: strin
       </div>}
 
       <label className="block text-sm font-bold">문의 내용<textarea aria-label="문의 내용" value={body} maxLength={5000} onChange={(event) => setBody(event.target.value)} rows={7} className="mt-2 w-full rounded-xl border border-white/10 bg-black/20 px-3 py-3 font-normal outline-none focus:border-amber-400/60" /></label>
-      <label className="block text-sm font-bold">첨부파일<input aria-label="첨부파일" type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={(event) => uploadFiles(event.target.files)} disabled={isUploading} className="mt-2 block w-full text-sm text-white/60 file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-white" /></label>
+      <label className="block text-sm font-bold">첨부파일<input aria-label="첨부파일" type="file" accept="image/*" multiple onChange={(event) => { const files = Array.from(event.target.files ?? []); event.target.value = ""; void uploadFiles(files); }} disabled={isUploading} className="mt-2 block w-full text-sm text-white/60 file:mr-3 file:rounded-lg file:border-0 file:bg-white/10 file:px-3 file:py-2 file:text-white" /></label>
+      <p className="text-xs text-white/50">PNG·JPEG·WebP 이미지, 파일당 3MB 이하, 최대 3개</p>
       {attachmentIds.length > 0 && <p className="text-xs text-emerald-300">첨부파일 {attachmentIds.length}개 준비 완료</p>}
       {error && <p role="alert" className="rounded-xl border border-red-400/30 bg-red-400/10 px-3 py-2 text-sm text-red-200">{error}</p>}
       <button type="submit" disabled={!canSubmit} className="min-h-11 rounded-xl bg-amber-400 px-5 text-sm font-black text-black disabled:cursor-not-allowed disabled:opacity-40">{isSubmitting ? "제출 중…" : "문의 제출"}</button>

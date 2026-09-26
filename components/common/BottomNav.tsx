@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter, useSearchParams, usePathname } from 'next/navigation';
-import { Map, BarChart2, MessageSquare, Trophy, Menu, Route } from 'lucide-react';
+import { Map, BarChart2, MessageSquare, Trophy, Menu } from 'lucide-react';
 import GlobalMobileMenu from './GlobalMobileMenu';
 import { useAuth } from '../AuthProvider';
 import { supabase } from '@/lib/supabase';
@@ -64,13 +64,6 @@ export default function BottomNav() {
       icon: BarChart2,
       onClick: () => router.push('/stats'),
       active: isStatsPath(pathname) && !isMenuOpen,
-    },
-    {
-      id: 'Learn',
-      label: '전술',
-      icon: Route,
-      onClick: () => router.push('/learn'),
-      active: pathname.startsWith('/learn') && !isMenuOpen,
     },
     {
       id: 'Rankings',

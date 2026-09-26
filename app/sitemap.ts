@@ -1,7 +1,5 @@
 import { MetadataRoute } from 'next';
 import { createClient } from '@/utils/supabase/server';
-import { rankerLessons } from '@/lib/learn/lessons';
-import { listDailyRankerStories } from '@/lib/learn/dailyStories';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,29 +18,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     changeFrequency: 'daily',
     priority: 0.8,
   }));
-
-  const lessonEntries: MetadataRoute.Sitemap = [
-    { url: `${siteUrl}/learn`, lastModified: new Date(), changeFrequency: 'weekly', priority: 0.6 },
-    { url: `${siteUrl}/learn/daily`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.7 },
-    ...rankerLessons.map((lesson) => ({
-      url: `${siteUrl}/learn/${lesson.id}`,
-      lastModified: new Date(),
-      changeFrequency: 'monthly' as const,
-      priority: 0.6,
-    })),
-  ];
-  let dailyStoryEntries: MetadataRoute.Sitemap = [];
-  try {
-    const stories = await listDailyRankerStories(100);
-    dailyStoryEntries = stories.map((story) => ({
-      url: `${siteUrl}/learn/daily/${story.dayKst}`,
-      lastModified: new Date(story.publishedAt),
-      changeFrequency: 'monthly',
-      priority: 0.6,
-    }));
-  } catch (error) {
-    console.error('[Sitemap] Failed to fetch daily stories:', error);
-  }
 
   const staticEntries: MetadataRoute.Sitemap = [
     {
@@ -99,5 +74,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     console.error('[Sitemap] Failed to fetch posts:', error);
   }
 
-  return [...staticEntries, ...mapEntries, ...lessonEntries, ...dailyStoryEntries, ...postEntries];
+  return [...staticEntries, ...mapEntries, ...postEntries];
 }

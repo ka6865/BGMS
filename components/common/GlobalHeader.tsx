@@ -3,7 +3,7 @@
 import React, { useState, useEffect, startTransition } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, User, Hammer, Database, LogIn, Settings, Bot, MessageSquare, Route } from 'lucide-react';
+import { Bell, User, Hammer, Database, LogIn, Settings, Bot, MessageSquare } from 'lucide-react';
 import { useAuth } from "../AuthProvider";
 import { supabase } from "@/lib/supabase";
 import NotificationDropdown from "../map/NotificationDropdown";
@@ -133,7 +133,6 @@ export default function GlobalHeader() {
   const isBackpackActive = pathname.startsWith("/backpack");
   const isRankingsActive = pathname.startsWith("/rankings");
   const isCratesActive = pathname.startsWith("/crates");
-  const isLearnActive = pathname.startsWith("/learn");
 
   const hasCurrentUserProfile = profileUserId === user?.id;
   const displayName = hasCurrentUserProfile ? userProfile?.nickname || "익명" : null;
@@ -230,15 +229,6 @@ export default function GlobalHeader() {
               </button>
             </Link>
 
-            <Link href="/learn" className="shrink-0">
-              <button className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] whitespace-nowrap transition-all tracking-wide ${
-                isLearnActive ? "bg-black/90 text-[#F2A900] shadow-sm" : "text-black/60 hover:bg-black/10 hover:text-black/80"
-              }`}>
-                <span className="flex items-center gap-1"><Route size={13} /> 랭커 전술</span>
-                {isLearnActive && <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#F2A900]" />}
-              </button>
-            </Link>
-            
             <Link href="/board" className="shrink-0">
               <button
                 className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
