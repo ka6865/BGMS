@@ -41,6 +41,7 @@ MIGRATIONS=(
   "20260921100000_support_center"
   "20260921103000_support_privacy_settings_hardening"
   "20260921110000_support_privacy_ranking_identity"
+  "20260926123052_fix_support_reply_notification_conflict"
 )
 
 cleanup() {

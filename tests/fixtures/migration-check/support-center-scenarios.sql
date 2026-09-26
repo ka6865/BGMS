@@ -74,3 +74,35 @@ begin
   end if;
   raise notice 'PASS: 고객센터 private bucket, RLS, RPC 권한 격리';
 end $$;
+
+-- 관리자 답변은 메시지와 알림을 함께 저장해야 한다. 부분 유니크 인덱스의
+-- ON CONFLICT 대상이 맞지 않으면 RPC 전체가 롤백되는 회귀를 잡는다.
+do $$
+declare
+  admin_id uuid := '33333333-3333-4333-8333-333333333333';
+  requester_id uuid := '11111111-1111-4111-8111-111111111111';
+  v_ticket_id uuid;
+  reply jsonb;
+begin
+  insert into public.profiles (id, nickname, role)
+  values (admin_id, 'support-admin', 'admin')
+  on conflict (id) do update set role = 'admin';
+
+  insert into public.support_tickets (requester_id, category, subject)
+  values (requester_id, 'other', 'reply regression')
+  returning id into v_ticket_id;
+
+  reply := public.append_support_message(
+    v_ticket_id, admin_id, 'admin', '확인 후 답변드립니다.',
+    '44444444-4444-4444-8444-444444444444'
+  );
+
+  if not (reply ? 'id')
+    or (select count(*) from public.support_messages
+        where ticket_id = v_ticket_id and sender_type = 'admin') <> 1
+    or (select count(*) from public.notifications
+        where support_message_id = (reply->>'id')::uuid) <> 1 then
+    raise exception 'admin reply or notification was not saved';
+  end if;
+  raise notice 'PASS: 관리자 답변과 알림 저장';
+end $$;
