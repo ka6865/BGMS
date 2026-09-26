@@ -159,7 +159,7 @@ export async function reserveSupportAttachment(input: {
   if (typeof reserveRpc === "function") {
     let reserved: { data: Array<{ id?: string; bucket_id?: string; storage_key?: string }> | null; error: { message?: string; code?: string } | null };
     try {
-      reserved = await reserveRpc("reserve_support_attachment", {
+      reserved = await (input.supabaseAdmin as any).rpc("reserve_support_attachment", {
         p_owner_user_id: input.ownerUserId,
         p_mime_type: meta.value.mimeType,
         p_byte_size: meta.value.byteSize,
@@ -255,7 +255,7 @@ export async function completeSupportAttachment(input: {
   if (typeof rpc === "function") {
     let completion: { data: string | null; error: { message?: string } | null };
     try {
-      completion = await rpc("complete_support_attachment", {
+      completion = await (input.supabaseAdmin as any).rpc("complete_support_attachment", {
         p_attachment_id: input.attachmentId,
         p_owner_user_id: input.ownerUserId,
       });
@@ -338,7 +338,7 @@ export async function cleanupExpiredSupportAttachments(
     const rpc = (db as any).rpc;
     if (typeof rpc === "function") {
       try {
-        const result = await rpc("claim_support_attachment_cleanup", {
+        const result = await (db as any).rpc("claim_support_attachment_cleanup", {
           p_attachment_id: row.id,
           p_now: nowIso,
         });

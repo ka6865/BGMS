@@ -120,6 +120,48 @@ describe("support attachment storage", () => {
     expect((db as any).storage.from).toHaveBeenCalledWith("support-evidence");
   });
 
+  it("keeps the Supabase client bound when reserving and completing through RPC", async () => {
+    const attachmentId = "11111111-1111-4111-8111-111111111111";
+    const attachmentQuery = resolvedQuery({
+      data: {
+        id: attachmentId,
+        uploader_id: "user-a",
+        ticket_id: null,
+        storage_key: `attachments/${attachmentId}`,
+        status: "pending",
+        mime_type: "image/png",
+        byte_size: 100,
+      },
+      error: null,
+    });
+    const db = {
+      marker: true,
+      from: vi.fn(() => attachmentQuery),
+      rpc: vi.fn(function (this: { marker?: boolean }, name: string) {
+        if (!this.marker) throw new Error("Supabase RPC lost its client context");
+        return Promise.resolve(name === "reserve_support_attachment"
+          ? { data: [{ id: attachmentId, bucket_id: "support-evidence", storage_key: `attachments/${attachmentId}` }], error: null }
+          : { data: "ready", error: null });
+      }),
+      ...storageFake({}),
+    } as unknown as SupportDb;
+
+    const reserved = await reserveSupportAttachment({
+      supabaseAdmin: db,
+      ownerUserId: "user-a",
+      mimeType: "image/png",
+      byteSize: 100,
+      originalName: "proof.png",
+    });
+    expect(reserved.attachmentId).toBe(attachmentId);
+    await expect(completeSupportAttachment({
+      supabaseAdmin: db,
+      ownerUserId: "user-a",
+      attachmentId,
+    })).resolves.toEqual({ attachmentId, status: "ready" });
+    expect((db as any).rpc).toHaveBeenCalledTimes(2);
+  });
+
   it("does not mark a missing uploaded object ready", async () => {
     const attachmentQuery = resolvedQuery({
       data: {

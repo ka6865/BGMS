@@ -92,7 +92,7 @@ export async function PATCH(
     if (typeof statusRpc === "function") {
       let result: { data: Record<string, unknown> | { code?: string } | null; error: { message?: string } | null };
       try {
-        result = await statusRpc("update_support_ticket_state", {
+        result = await (admin.supabaseAdmin as any).rpc("update_support_ticket_state", {
           p_ticket_id: id,
           p_actor_id: admin.user.id,
           p_expected_status: current.status,
