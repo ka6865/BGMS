@@ -1,0 +1,186 @@
+{
+  "source": "anonymized excerpts from daily-2026-09-23-telemetry.json",
+  "events": [
+    {
+      "_T": "LogPlayerTakeDamage",
+      "_D": "2026-09-23T08:07:32.095Z",
+      "attacker": {
+        "accountId": "enemy-a",
+        "name": "Enemy A",
+        "teamId": 2
+      },
+      "victim": {
+        "accountId": "ranker",
+        "name": "Ranker",
+        "teamId": 11
+      },
+      "damage": 20,
+      "damageCauserName": "WeapVSS_C"
+    },
+    {
+      "_T": "LogPlayerMakeGroggy",
+      "_D": "2026-09-23T08:08:12.104Z",
+      "attacker": {
+        "accountId": "ally",
+        "name": "Ally",
+        "teamId": 11
+      },
+      "victim": {
+        "accountId": "enemy-a",
+        "name": "Enemy A",
+        "teamId": 2
+      },
+      "damageCauserName": "WeapUMP_C",
+      "dBNOId": 352321536
+    },
+    {
+      "_T": "LogPlayerAttack",
+      "_D": "2026-09-23T08:08:53.121Z",
+      "attacker": {
+        "accountId": "ranker",
+        "name": "Ranker",
+        "teamId": 11,
+        "location": {
+          "x": 242796.71875,
+          "y": 148327.984375,
+          "z": 4330.27
+        }
+      },
+      "weapon": {
+        "itemId": "Item_Weapon_UMP_C"
+      }
+    },
+    {
+      "_T": "LogPlayerMakeGroggy",
+      "_D": "2026-09-23T08:08:54.326Z",
+      "attacker": {
+        "accountId": "ranker",
+        "name": "Ranker",
+        "teamId": 11
+      },
+      "victim": {
+        "accountId": "enemy-b",
+        "name": "Enemy B",
+        "teamId": 2
+      },
+      "damageCauserName": "WeapUMP_C",
+      "dBNOId": 83886080
+    },
+    {
+      "_T": "LogPlayerKillV2",
+      "_D": "2026-09-23T08:09:07.714Z",
+      "killer": {
+        "accountId": "ranker",
+        "name": "Ranker",
+        "teamId": 11
+      },
+      "finisher": {
+        "accountId": "ranker",
+        "name": "Ranker",
+        "teamId": 11
+      },
+      "victim": {
+        "accountId": "enemy-b",
+        "name": "Enemy B",
+        "teamId": 2
+      },
+      "dBNOId": 369098752,
+      "killerDamageInfo": {
+        "damageCauserName": "WeapHK416_C"
+      }
+    },
+    {
+      "_T": "LogPlayerTakeDamage",
+      "_D": "2026-09-23T08:19:17.273Z",
+      "attacker": {
+        "accountId": "enemy-c",
+        "name": "Enemy C",
+        "teamId": 4,
+        "location": {
+          "x": 578965.5,
+          "y": 193036.78125,
+          "z": 9138.59
+        }
+      },
+      "victim": {
+        "accountId": "ally",
+        "name": "Ally",
+        "teamId": 11,
+        "location": {
+          "x": 585241.6875,
+          "y": 190541.3125,
+          "z": 9455
+        }
+      },
+      "damage": 28.8,
+      "damageCauserName": "WeapMG3_C"
+    },
+    {
+      "_T": "LogPlayerRevive",
+      "_D": "2026-09-23T08:19:33.722Z",
+      "reviver": {
+        "accountId": "ranker",
+        "name": "Ranker",
+        "teamId": 11,
+        "location": {
+          "x": 585380.625,
+          "y": 190717.6875,
+          "z": 9358.33
+        }
+      },
+      "victim": {
+        "accountId": "ally",
+        "name": "Ally",
+        "teamId": 11,
+        "location": {
+          "x": 585454.125,
+          "y": 190685.765625,
+          "z": 9342.04
+        }
+      },
+      "dBNOId": 654311424
+    }
+  ],
+  "expected": {
+    "firstDamage": {
+      "sourceIndex": 3565,
+      "timeSeconds": 96.598,
+      "actorTeamId": 2,
+      "victimTeamId": 11,
+      "weapon": "VSS"
+    },
+    "knockBeforeKill": {
+      "knockSourceIndex": 7110,
+      "knockTimeSeconds": 178.829,
+      "killSourceIndex": 7614,
+      "killTimeSeconds": 192.217
+    },
+    "mg3": {
+      "sourceIndex": 25878,
+      "actorTeamId": 4,
+      "victimTeamId": 11,
+      "weapon": "MG3"
+    },
+    "revive": {
+      "sourceIndex": 26300,
+      "timeSeconds": 818.225,
+      "actorId": "ranker",
+      "victimId": "ally"
+    },
+    "shot": {
+      "sourceIndex": 7044,
+      "timeSeconds": 177.624,
+      "actorTeamId": 11,
+      "weapon": "UMP45"
+    }
+  },
+  "originalSourceIndices": [
+    3565,
+    5350,
+    7044,
+    7110,
+    7614,
+    25878,
+    26300
+  ]
+}

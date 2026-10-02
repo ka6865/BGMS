@@ -1,0 +1,1907 @@
+{
+  "status": "two_round_baseline_with_completed_cooldown_recheck",
+  "summary": {
+    "commonSuccessfulTrialsPerModel": 8,
+    "scheduled": 84,
+    "uncompleted": 28,
+    "completed": 56,
+    "attempts": 85,
+    "models": [
+      {
+        "model": "gemini-3.5-flash-lite",
+        "trials": 14,
+        "attempts": 14,
+        "statuses": {
+          "published": 12,
+          "fallback": 2
+        },
+        "retries": 0,
+        "medianSeconds": 2.0755,
+        "p95Seconds": 6.29,
+        "successfulResponseRawCoverage": 0.7738095238095238,
+        "commonResponseRawCoverage": 0.7395833333333334,
+        "rawCoverage": 0.7738095238095238,
+        "publishedCoverage": 0.8333333333333334,
+        "coverageByMode": {
+          "solo": 1.0,
+          "duo": 0.8611111111111112,
+          "squad": 0.75
+        },
+        "statusesByMode": {
+          "solo": {
+            "published": 2
+          },
+          "duo": {
+            "fallback": 1,
+            "published": 5
+          },
+          "squad": {
+            "published": 5,
+            "fallback": 1
+          }
+        },
+        "validationReasons": {
+          "overlapping_evidence": 2
+        },
+        "inputTokens": 2798072,
+        "cachedTokens": 409497,
+        "outputAndThinkingTokens": 610,
+        "estimatedUsd": 0.73038241,
+        "httpErrors": {},
+        "reportedDailyQuotaErrorAttempts": 0
+      },
+      {
+        "model": "gemini-3.6-flash",
+        "trials": 14,
+        "attempts": 29,
+        "statuses": {
+          "published": 9,
+          "fallback": 1,
+          "call_error": 4
+        },
+        "retries": 13,
+        "medianSeconds": 14.6475,
+        "p95Seconds": 104.298,
+        "successfulResponseRawCoverage": 0.725,
+        "commonResponseRawCoverage": 0.75,
+        "rawCoverage": 0.5178571428571429,
+        "publishedCoverage": 0.5535714285714286,
+        "coverageByMode": {
+          "solo": 0.5,
+          "duo": 0.4583333333333333,
+          "squad": 0.6666666666666666
+        },
+        "statusesByMode": {
+          "solo": {
+            "published": 1,
+            "call_error": 1
+          },
+          "duo": {
+            "published": 3,
+            "call_error": 3
+          },
+          "squad": {
+            "published": 5,
+            "fallback": 1
+          }
+        },
+        "validationReasons": {
+          "overlapping_evidence": 1
+        },
+        "inputTokens": 2306758,
+        "cachedTokens": 720403,
+        "outputAndThinkingTokens": 9691,
+        "estimatedUsd": 1.2801377250000001,
+        "httpErrors": {
+          "503": 4,
+          "429": 15
+        },
+        "reportedDailyQuotaErrorAttempts": 12
+      },
+      {
+        "model": "gemini-3.7-flash",
+        "trials": 14,
+        "attempts": 20,
+        "statuses": {
+          "published": 13,
+          "fallback": 1
+        },
+        "retries": 4,
+        "medianSeconds": 12.653,
+        "p95Seconds": 128.91,
+        "successfulResponseRawCoverage": 0.7678571428571429,
+        "commonResponseRawCoverage": 0.71875,
+        "rawCoverage": 0.7678571428571429,
+        "publishedCoverage": 0.7857142857142857,
+        "coverageByMode": {
+          "solo": 1.0,
+          "duo": 0.875,
+          "squad": 0.625
+        },
+        "statusesByMode": {
+          "solo": {
+            "published": 2
+          },
+          "duo": {
+            "published": 6
+          },
+          "squad": {
+            "published": 5,
+            "fallback": 1
+          }
+        },
+        "validationReasons": {
+          "overlapping_evidence": 1
+        },
+        "inputTokens": 2798072,
+        "cachedTokens": 0,
+        "outputAndThinkingTokens": 9216,
+        "estimatedUsd": 2.133114,
+        "httpErrors": {
+          "429": 6
+        },
+        "reportedDailyQuotaErrorAttempts": 6
+      },
+      {
+        "model": "gemini-3.8-flash",
+        "trials": 14,
+        "attempts": 22,
+        "statuses": {
+          "published": 12,
+          "call_error": 2
+        },
+        "retries": 8,
+        "medianSeconds": 8.849,
+        "p95Seconds": 103.713,
+        "successfulResponseRawCoverage": 0.7430555555555556,
+        "commonResponseRawCoverage": 0.71875,
+        "rawCoverage": 0.6369047619047619,
+        "publishedCoverage": 0.6369047619047619,
+        "coverageByMode": {
+          "solo": 1.0,
+          "duo": 0.7777777777777778,
+          "squad": 0.375
+        },
+        "statusesByMode": {
+          "solo": {
+            "published": 2
+          },
+          "duo": {
+            "published": 6
+          },
+          "squad": {
+            "published": 4,
+            "call_error": 2
+          }
+        },
+        "validationReasons": {},
+        "inputTokens": 2303514,
+        "cachedTokens": 667053,
+        "outputAndThinkingTokens": 11130,
+        "estimatedUsd": 1.319112225,
+        "httpErrors": {
+          "429": 10
+        },
+        "reportedDailyQuotaErrorAttempts": 7
+      }
+    ],
+    "pilotAttempts": 12,
+    "pilotEstimatedUsd": 0.5322251,
+    "rateLimitedPilotAttempts": 107,
+    "rateLimitedPilotEstimatedUsd": 1.687013975,
+    "partialAttemptCount": 4
+  },
+  "codeFreeze": {
+    "frozenAt": "2026-09-27T20:41:57.121516+00:00",
+    "files": {
+      "lib/learn/dailyEvidence.ts": "4304bedd4e304e678c4356c401900f072df22f261533c316fbff6dd72c74b3ed",
+      "lib/learn/dailyCombatStory.ts": "73bd923b5857be1294dba9d88021aae16f77c8f9e8a9d6f5ddcf812a38ac29a0",
+      "lib/learn/dailyScenes.ts": "880400c90be5088d12403b485171ad67cf30358878165ddba8dcdacfa6b82fbf",
+      "lib/learn/dailyAi.ts": "4bfecb726281e6fc73d9f0c6426c6633760a5fa0157ca84c0570286e28c85f19",
+      "scripts/compare_daily_models.ts": "93cc7298ef18dfcba6ac9c94d8946da6b5e6fa9926e5d2f2b1047313ee34eee4",
+      "tmp/learn-reevaluation/manifest.json": "92bac32589c37a7733fd8065f0331cc2bf76a7acc0cfc781d4fb68f32499d058"
+    }
+  },
+  "matches": [
+    {
+      "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+      "dayKst": "2026-09-22",
+      "matchSha256": "13e4680b818b61350be3476fca38bf394963f2433cbce3487df7db09a314d015",
+      "telemetrySha256": "1fcf142015567eaf28ea323a0056c5bd979966f75055ab9e5325e63f06dc3bea",
+      "requiredEvidenceGroups": [
+        {
+          "id": "landing",
+          "factIds": [
+            "landing"
+          ]
+        },
+        {
+          "id": "finish",
+          "factIds": [
+            "finish"
+          ]
+        },
+        {
+          "id": "opening-combat",
+          "factIds": [
+            "encounter-1"
+          ]
+        }
+      ]
+    },
+    {
+      "matchId": "1a1fbf4e-0524-4c0f-b5a9-31f80ae016f4",
+      "dayKst": "2026-09-20",
+      "matchSha256": "4192e5b630f4e138191807e26399177aae93b25aa40758c8f4224b32c75c6bb3",
+      "telemetrySha256": "d2a4343c8b7ec0e47c214ac6b34c383831f92df4b8b85245313a1f247ee40dd7",
+      "requiredEvidenceGroups": [
+        {
+          "id": "landing",
+          "factIds": [
+            "landing"
+          ]
+        },
+        {
+          "id": "finish",
+          "factIds": [
+            "finish"
+          ]
+        },
+        {
+          "id": "opening-combat",
+          "factIds": [
+            "encounter-1"
+          ]
+        }
+      ]
+    },
+    {
+      "matchId": "4ed68222-d711-437e-a0df-c2f42331512e",
+      "dayKst": "2026-09-20",
+      "matchSha256": "cc96966611e79d8536cc3a2208141bf6ca15d7c863233d98be6c13a4d87824bd",
+      "telemetrySha256": "483be6825b292c3149da063ae721375e6a80e1533244daabcf406f27855027ad",
+      "requiredEvidenceGroups": [
+        {
+          "id": "landing",
+          "factIds": [
+            "landing"
+          ]
+        },
+        {
+          "id": "finish",
+          "factIds": [
+            "finish"
+          ]
+        },
+        {
+          "id": "opening-combat",
+          "factIds": [
+            "encounter-1"
+          ]
+        }
+      ]
+    },
+    {
+      "matchId": "51778f64-30dc-44bf-ae2d-c5c2f20b4ff8",
+      "dayKst": "2026-09-20",
+      "matchSha256": "2ae922d363f55a6fd4a7fac5da7d054fe725bb1485e3acea0f2e60fb30d1a830",
+      "telemetrySha256": "0795c2991212912a483b3ef07ae705ecf1957c0a98efca5a7ca204565e0f368d",
+      "requiredEvidenceGroups": [
+        {
+          "id": "landing",
+          "factIds": [
+            "landing"
+          ]
+        },
+        {
+          "id": "revive",
+          "factIds": [
+            "revive-1323.101"
+          ]
+        },
+        {
+          "id": "finish",
+          "factIds": [
+            "finish"
+          ]
+        },
+        {
+          "id": "opening-combat",
+          "factIds": [
+            "encounter-1"
+          ]
+        }
+      ]
+    },
+    {
+      "matchId": "09086e41-2c69-4959-9d7c-5fddbe48d093",
+      "dayKst": "2026-09-23",
+      "matchSha256": "166a26b7d344ca2665806c0de12ba04b8cc29371fddbb5342bf5fcf1b7422dbf",
+      "telemetrySha256": "52810ba98c63f28076daf92f5c86cec43dc700f160b1562670fc36a9dbf5ff38",
+      "requiredEvidenceGroups": [
+        {
+          "id": "landing",
+          "factIds": [
+            "landing"
+          ]
+        },
+        {
+          "id": "revive",
+          "factIds": [
+            "revive-507.142"
+          ]
+        },
+        {
+          "id": "finish",
+          "factIds": [
+            "finish"
+          ]
+        },
+        {
+          "id": "opening-combat",
+          "factIds": [
+            "encounter-1"
+          ]
+        }
+      ]
+    },
+    {
+      "matchId": "372fc5fd-7b71-46cf-a891-192691e5f474",
+      "dayKst": "2026-09-23",
+      "matchSha256": "5021aeaabd5b05a94099a7708cbf20d559ebd9fdd4001477de0917a95d3ece71",
+      "telemetrySha256": "f21227a0d4060a8273f69009eca5035bd0ed0a8ff35f715a592a85ebefced6b3",
+      "requiredEvidenceGroups": [
+        {
+          "id": "landing",
+          "factIds": [
+            "landing"
+          ]
+        },
+        {
+          "id": "revive",
+          "factIds": [
+            "revive-818.225"
+          ]
+        },
+        {
+          "id": "finish",
+          "factIds": [
+            "finish"
+          ]
+        },
+        {
+          "id": "opening-combat",
+          "factIds": [
+            "encounter-1"
+          ]
+        }
+      ]
+    },
+    {
+      "matchId": "8fd67b1f-859f-428b-9da0-80f34536e2f2",
+      "dayKst": "2026-09-22",
+      "matchSha256": "dcf703e4a30849af1c93e0b44ae5ed497c33a2b563a908991f743da54d0f2225",
+      "telemetrySha256": "0fa83d3e14811193d27d30b7e8fe91369040dfb5d60de6fb84aa837ceb4b70d3",
+      "requiredEvidenceGroups": [
+        {
+          "id": "landing",
+          "factIds": [
+            "landing"
+          ]
+        },
+        {
+          "id": "revive",
+          "factIds": [
+            "revive-1015.681"
+          ]
+        },
+        {
+          "id": "finish",
+          "factIds": [
+            "finish"
+          ]
+        },
+        {
+          "id": "opening-combat",
+          "factIds": [
+            "encounter-1"
+          ]
+        }
+      ]
+    }
+  ],
+  "trials": [
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+      "dayKst": "2026-09-22",
+      "model": "gemini-3.5-flash-lite",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 1702,
+      "inputHash": "d67f1b7ca091cfb82a05068e3e1d96e3cfa1df456d0da45aa96533ad6a79077a",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-15",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+      "dayKst": "2026-09-22",
+      "model": "gemini-3.6-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 2,
+      "retryCount": 1,
+      "totalLatencyMs": 8428,
+      "inputHash": "d67f1b7ca091cfb82a05068e3e1d96e3cfa1df456d0da45aa96533ad6a79077a",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-12",
+        "scene-combat-encounter-15",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+      "dayKst": "2026-09-22",
+      "model": "gemini-3.7-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 14643,
+      "inputHash": "d67f1b7ca091cfb82a05068e3e1d96e3cfa1df456d0da45aa96533ad6a79077a",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-12",
+        "scene-combat-encounter-15",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+      "dayKst": "2026-09-22",
+      "model": "gemini-3.8-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 4831,
+      "inputHash": "d67f1b7ca091cfb82a05068e3e1d96e3cfa1df456d0da45aa96533ad6a79077a",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-12",
+        "scene-combat-encounter-15",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "1a1fbf4e-0524-4c0f-b5a9-31f80ae016f4",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.5-flash-lite",
+      "run": 1,
+      "status": "fallback",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 1947,
+      "inputHash": "49c5cc964d36e9bb35fc690a14b12329bff56aee80c695f35fe1cb6c6c9d699c",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-3",
+        "scene-combat-encounter-4",
+        "scene-combat-encounter-5",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [
+        "overlapping_evidence"
+      ],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "1a1fbf4e-0524-4c0f-b5a9-31f80ae016f4",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.6-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 3,
+      "retryCount": 2,
+      "totalLatencyMs": 34556,
+      "inputHash": "49c5cc964d36e9bb35fc690a14b12329bff56aee80c695f35fe1cb6c6c9d699c",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-4",
+        "scene-combat-encounter-9",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "1a1fbf4e-0524-4c0f-b5a9-31f80ae016f4",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.7-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 10615,
+      "inputHash": "49c5cc964d36e9bb35fc690a14b12329bff56aee80c695f35fe1cb6c6c9d699c",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-5",
+        "scene-combat-encounter-9",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "1a1fbf4e-0524-4c0f-b5a9-31f80ae016f4",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.8-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 4020,
+      "inputHash": "49c5cc964d36e9bb35fc690a14b12329bff56aee80c695f35fe1cb6c6c9d699c",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-5",
+        "scene-combat-encounter-9",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "4ed68222-d711-437e-a0df-c2f42331512e",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.5-flash-lite",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 2669,
+      "inputHash": "e04510104ebe2e329a4e6d47dc5d8e63e84167ae484c8619fbf93a1208769944",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-3",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "4ed68222-d711-437e-a0df-c2f42331512e",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.6-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 9248,
+      "inputHash": "e04510104ebe2e329a4e6d47dc5d8e63e84167ae484c8619fbf93a1208769944",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-6",
+        "scene-combat-encounter-13",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "4ed68222-d711-437e-a0df-c2f42331512e",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.7-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 11092,
+      "inputHash": "e04510104ebe2e329a4e6d47dc5d8e63e84167ae484c8619fbf93a1208769944",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-8",
+        "scene-combat-encounter-13",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "4ed68222-d711-437e-a0df-c2f42331512e",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.8-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 9163,
+      "inputHash": "e04510104ebe2e329a4e6d47dc5d8e63e84167ae484c8619fbf93a1208769944",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-8",
+        "scene-combat-encounter-13",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "51778f64-30dc-44bf-ae2d-c5c2f20b4ff8",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.5-flash-lite",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 6290,
+      "inputHash": "d3ff2965e66c7007a8bc4c8f1c29c2b8567c2049e4462e376500747f531dde20",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-5",
+        "scene-recovery-revive-1323.101",
+        "scene-combat-encounter-14",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "51778f64-30dc-44bf-ae2d-c5c2f20b4ff8",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.6-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 7408,
+      "inputHash": "d3ff2965e66c7007a8bc4c8f1c29c2b8567c2049e4462e376500747f531dde20",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-5",
+        "scene-recovery-revive-1323.101",
+        "scene-combat-encounter-11",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "51778f64-30dc-44bf-ae2d-c5c2f20b4ff8",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.7-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 11990,
+      "inputHash": "d3ff2965e66c7007a8bc4c8f1c29c2b8567c2049e4462e376500747f531dde20",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-5",
+        "scene-combat-encounter-11",
+        "scene-combat-encounter-14",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "51778f64-30dc-44bf-ae2d-c5c2f20b4ff8",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.8-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 4239,
+      "inputHash": "d3ff2965e66c7007a8bc4c8f1c29c2b8567c2049e4462e376500747f531dde20",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-5",
+        "scene-combat-encounter-11",
+        "scene-combat-encounter-14",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "09086e41-2c69-4959-9d7c-5fddbe48d093",
+      "dayKst": "2026-09-23",
+      "model": "gemini-3.5-flash-lite",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 2059,
+      "inputHash": "2f53dd12b1f3e757b8abb987fa2e803ed17621661a5e15192eab52efc14e99fd",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-2",
+        "scene-combat-encounter-12",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "09086e41-2c69-4959-9d7c-5fddbe48d093",
+      "dayKst": "2026-09-23",
+      "model": "gemini-3.6-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 2,
+      "retryCount": 1,
+      "totalLatencyMs": 55367,
+      "inputHash": "2f53dd12b1f3e757b8abb987fa2e803ed17621661a5e15192eab52efc14e99fd",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-2",
+        "scene-combat-encounter-12",
+        "scene-combat-encounter-22",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "09086e41-2c69-4959-9d7c-5fddbe48d093",
+      "dayKst": "2026-09-23",
+      "model": "gemini-3.7-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 13316,
+      "inputHash": "2f53dd12b1f3e757b8abb987fa2e803ed17621661a5e15192eab52efc14e99fd",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-3",
+        "scene-combat-encounter-12",
+        "scene-combat-encounter-22",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "09086e41-2c69-4959-9d7c-5fddbe48d093",
+      "dayKst": "2026-09-23",
+      "model": "gemini-3.8-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 15436,
+      "inputHash": "2f53dd12b1f3e757b8abb987fa2e803ed17621661a5e15192eab52efc14e99fd",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-3",
+        "scene-combat-encounter-12",
+        "scene-combat-encounter-22",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "372fc5fd-7b71-46cf-a891-192691e5f474",
+      "dayKst": "2026-09-23",
+      "model": "gemini-3.5-flash-lite",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 4867,
+      "inputHash": "16e9525abd912e2a80f0bc44d4d99787121ddd86375232e4268fb4f7edca629f",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-recovery-revive-818.225",
+        "scene-combat-encounter-10",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "372fc5fd-7b71-46cf-a891-192691e5f474",
+      "dayKst": "2026-09-23",
+      "model": "gemini-3.6-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 6670,
+      "inputHash": "16e9525abd912e2a80f0bc44d4d99787121ddd86375232e4268fb4f7edca629f",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-7",
+        "scene-combat-encounter-13",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "372fc5fd-7b71-46cf-a891-192691e5f474",
+      "dayKst": "2026-09-23",
+      "model": "gemini-3.7-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 8521,
+      "inputHash": "16e9525abd912e2a80f0bc44d4d99787121ddd86375232e4268fb4f7edca629f",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-10",
+        "scene-combat-encounter-13",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "372fc5fd-7b71-46cf-a891-192691e5f474",
+      "dayKst": "2026-09-23",
+      "model": "gemini-3.8-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 2,
+      "retryCount": 1,
+      "totalLatencyMs": 59395,
+      "inputHash": "16e9525abd912e2a80f0bc44d4d99787121ddd86375232e4268fb4f7edca629f",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-10",
+        "scene-combat-encounter-13",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "8fd67b1f-859f-428b-9da0-80f34536e2f2",
+      "dayKst": "2026-09-22",
+      "model": "gemini-3.5-flash-lite",
+      "run": 1,
+      "status": "fallback",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 4215,
+      "inputHash": "0e3daa0c3dcbac53cf09775a219780c0858f6329df6a7590437d88fb4f662664",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-2",
+        "scene-combat-encounter-15",
+        "scene-combat-encounter-16",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [
+        "overlapping_evidence"
+      ],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "8fd67b1f-859f-428b-9da0-80f34536e2f2",
+      "dayKst": "2026-09-22",
+      "model": "gemini-3.6-flash",
+      "run": 1,
+      "status": "fallback",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 10273,
+      "inputHash": "0e3daa0c3dcbac53cf09775a219780c0858f6329df6a7590437d88fb4f662664",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-2",
+        "scene-combat-encounter-15",
+        "scene-combat-encounter-16",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [
+        "overlapping_evidence"
+      ],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "8fd67b1f-859f-428b-9da0-80f34536e2f2",
+      "dayKst": "2026-09-22",
+      "model": "gemini-3.7-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 7877,
+      "inputHash": "0e3daa0c3dcbac53cf09775a219780c0858f6329df6a7590437d88fb4f662664",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-2",
+        "scene-combat-encounter-14",
+        "scene-combat-encounter-16",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "8fd67b1f-859f-428b-9da0-80f34536e2f2",
+      "dayKst": "2026-09-22",
+      "model": "gemini-3.8-flash",
+      "run": 1,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 8535,
+      "inputHash": "0e3daa0c3dcbac53cf09775a219780c0858f6329df6a7590437d88fb4f662664",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-2",
+        "scene-combat-encounter-14",
+        "scene-combat-encounter-16",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+      "dayKst": "2026-09-22",
+      "model": "gemini-3.6-flash",
+      "run": 2,
+      "status": "call_error",
+      "attemptCount": 3,
+      "retryCount": 2,
+      "totalLatencyMs": 85216,
+      "inputHash": "d67f1b7ca091cfb82a05068e3e1d96e3cfa1df456d0da45aa96533ad6a79077a",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [],
+      "rejectedReasons": [],
+      "httpStatus": 503
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+      "dayKst": "2026-09-22",
+      "model": "gemini-3.7-flash",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 9975,
+      "inputHash": "d67f1b7ca091cfb82a05068e3e1d96e3cfa1df456d0da45aa96533ad6a79077a",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-12",
+        "scene-combat-encounter-15",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+      "dayKst": "2026-09-22",
+      "model": "gemini-3.8-flash",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 6378,
+      "inputHash": "d67f1b7ca091cfb82a05068e3e1d96e3cfa1df456d0da45aa96533ad6a79077a",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-12",
+        "scene-combat-encounter-15",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+      "dayKst": "2026-09-22",
+      "model": "gemini-3.5-flash-lite",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 1462,
+      "inputHash": "d67f1b7ca091cfb82a05068e3e1d96e3cfa1df456d0da45aa96533ad6a79077a",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-15",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "1a1fbf4e-0524-4c0f-b5a9-31f80ae016f4",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.6-flash",
+      "run": 2,
+      "status": "call_error",
+      "attemptCount": 3,
+      "retryCount": 2,
+      "totalLatencyMs": 38517,
+      "inputHash": "49c5cc964d36e9bb35fc690a14b12329bff56aee80c695f35fe1cb6c6c9d699c",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [],
+      "rejectedReasons": [],
+      "httpStatus": 429
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "1a1fbf4e-0524-4c0f-b5a9-31f80ae016f4",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.7-flash",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 36277,
+      "inputHash": "49c5cc964d36e9bb35fc690a14b12329bff56aee80c695f35fe1cb6c6c9d699c",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-4",
+        "scene-combat-encounter-9",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "1a1fbf4e-0524-4c0f-b5a9-31f80ae016f4",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.8-flash",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 2875,
+      "inputHash": "49c5cc964d36e9bb35fc690a14b12329bff56aee80c695f35fe1cb6c6c9d699c",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-3",
+        "scene-combat-encounter-5",
+        "scene-combat-encounter-9",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "1a1fbf4e-0524-4c0f-b5a9-31f80ae016f4",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.5-flash-lite",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 2040,
+      "inputHash": "49c5cc964d36e9bb35fc690a14b12329bff56aee80c695f35fe1cb6c6c9d699c",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-4",
+        "scene-combat-encounter-9",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "4ed68222-d711-437e-a0df-c2f42331512e",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.6-flash",
+      "run": 2,
+      "status": "call_error",
+      "attemptCount": 3,
+      "retryCount": 2,
+      "totalLatencyMs": 78965,
+      "inputHash": "e04510104ebe2e329a4e6d47dc5d8e63e84167ae484c8619fbf93a1208769944",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [],
+      "rejectedReasons": [],
+      "httpStatus": 429
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "4ed68222-d711-437e-a0df-c2f42331512e",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.7-flash",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 3,
+      "retryCount": 2,
+      "totalLatencyMs": 128910,
+      "inputHash": "e04510104ebe2e329a4e6d47dc5d8e63e84167ae484c8619fbf93a1208769944",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-8",
+        "scene-combat-encounter-13",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "4ed68222-d711-437e-a0df-c2f42331512e",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.8-flash",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 4688,
+      "inputHash": "e04510104ebe2e329a4e6d47dc5d8e63e84167ae484c8619fbf93a1208769944",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-8",
+        "scene-combat-encounter-13",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "4ed68222-d711-437e-a0df-c2f42331512e",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.5-flash-lite",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 1936,
+      "inputHash": "e04510104ebe2e329a4e6d47dc5d8e63e84167ae484c8619fbf93a1208769944",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-6",
+        "scene-combat-encounter-13",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "51778f64-30dc-44bf-ae2d-c5c2f20b4ff8",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.6-flash",
+      "run": 2,
+      "status": "call_error",
+      "attemptCount": 3,
+      "retryCount": 2,
+      "totalLatencyMs": 104298,
+      "inputHash": "d3ff2965e66c7007a8bc4c8f1c29c2b8567c2049e4462e376500747f531dde20",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [],
+      "rejectedReasons": [],
+      "httpStatus": 429
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "51778f64-30dc-44bf-ae2d-c5c2f20b4ff8",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.7-flash",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 3,
+      "retryCount": 2,
+      "totalLatencyMs": 127893,
+      "inputHash": "d3ff2965e66c7007a8bc4c8f1c29c2b8567c2049e4462e376500747f531dde20",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-recovery-revive-1323.101",
+        "scene-combat-encounter-11",
+        "scene-combat-encounter-14",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "51778f64-30dc-44bf-ae2d-c5c2f20b4ff8",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.8-flash",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 2,
+      "retryCount": 1,
+      "totalLatencyMs": 57887,
+      "inputHash": "d3ff2965e66c7007a8bc4c8f1c29c2b8567c2049e4462e376500747f531dde20",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-5",
+        "scene-combat-encounter-11",
+        "scene-combat-encounter-14",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039",
+      "matchId": "51778f64-30dc-44bf-ae2d-c5c2f20b4ff8",
+      "dayKst": "2026-09-20",
+      "model": "gemini-3.5-flash-lite",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 2092,
+      "inputHash": "d3ff2965e66c7007a8bc4c8f1c29c2b8567c2049e4462e376500747f531dde20",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-5",
+        "scene-recovery-revive-1323.101",
+        "scene-combat-encounter-14",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039-resumed",
+      "matchId": "09086e41-2c69-4959-9d7c-5fddbe48d093",
+      "dayKst": "2026-09-23",
+      "model": "gemini-3.6-flash",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 2,
+      "retryCount": 1,
+      "totalLatencyMs": 17652,
+      "inputHash": "2f53dd12b1f3e757b8abb987fa2e803ed17621661a5e15192eab52efc14e99fd",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-3",
+        "scene-combat-encounter-12",
+        "scene-combat-encounter-22",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039-resumed",
+      "matchId": "09086e41-2c69-4959-9d7c-5fddbe48d093",
+      "dayKst": "2026-09-23",
+      "model": "gemini-3.7-flash",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 21282,
+      "inputHash": "2f53dd12b1f3e757b8abb987fa2e803ed17621661a5e15192eab52efc14e99fd",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-3",
+        "scene-combat-encounter-12",
+        "scene-combat-encounter-22",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039-resumed",
+      "matchId": "09086e41-2c69-4959-9d7c-5fddbe48d093",
+      "dayKst": "2026-09-23",
+      "model": "gemini-3.8-flash",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 3,
+      "retryCount": 2,
+      "totalLatencyMs": 103713,
+      "inputHash": "2f53dd12b1f3e757b8abb987fa2e803ed17621661a5e15192eab52efc14e99fd",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-3",
+        "scene-combat-encounter-12",
+        "scene-combat-encounter-22",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039-resumed",
+      "matchId": "09086e41-2c69-4959-9d7c-5fddbe48d093",
+      "dayKst": "2026-09-23",
+      "model": "gemini-3.5-flash-lite",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 5947,
+      "inputHash": "2f53dd12b1f3e757b8abb987fa2e803ed17621661a5e15192eab52efc14e99fd",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-2",
+        "scene-combat-encounter-12",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039-resumed",
+      "matchId": "372fc5fd-7b71-46cf-a891-192691e5f474",
+      "dayKst": "2026-09-23",
+      "model": "gemini-3.6-flash",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 7876,
+      "inputHash": "16e9525abd912e2a80f0bc44d4d99787121ddd86375232e4268fb4f7edca629f",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-10",
+        "scene-combat-encounter-13",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039-resumed",
+      "matchId": "372fc5fd-7b71-46cf-a891-192691e5f474",
+      "dayKst": "2026-09-23",
+      "model": "gemini-3.7-flash",
+      "run": 2,
+      "status": "fallback",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 20273,
+      "inputHash": "16e9525abd912e2a80f0bc44d4d99787121ddd86375232e4268fb4f7edca629f",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-7",
+        "scene-combat-encounter-10",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [
+        "overlapping_evidence"
+      ],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039-resumed",
+      "matchId": "372fc5fd-7b71-46cf-a891-192691e5f474",
+      "dayKst": "2026-09-23",
+      "model": "gemini-3.8-flash",
+      "run": 2,
+      "status": "call_error",
+      "attemptCount": 3,
+      "retryCount": 2,
+      "totalLatencyMs": 73070,
+      "inputHash": "16e9525abd912e2a80f0bc44d4d99787121ddd86375232e4268fb4f7edca629f",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [],
+      "rejectedReasons": [],
+      "httpStatus": 429
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039-resumed",
+      "matchId": "372fc5fd-7b71-46cf-a891-192691e5f474",
+      "dayKst": "2026-09-23",
+      "model": "gemini-3.5-flash-lite",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 6120,
+      "inputHash": "16e9525abd912e2a80f0bc44d4d99787121ddd86375232e4268fb4f7edca629f",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-combat-encounter-1",
+        "scene-combat-encounter-2",
+        "scene-recovery-revive-818.225",
+        "scene-combat-encounter-13",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039-resumed",
+      "matchId": "8fd67b1f-859f-428b-9da0-80f34536e2f2",
+      "dayKst": "2026-09-22",
+      "model": "gemini-3.6-flash",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 11643,
+      "inputHash": "0e3daa0c3dcbac53cf09775a219780c0858f6329df6a7590437d88fb4f662664",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-2",
+        "scene-combat-encounter-16",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039-resumed",
+      "matchId": "8fd67b1f-859f-428b-9da0-80f34536e2f2",
+      "dayKst": "2026-09-22",
+      "model": "gemini-3.7-flash",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 7500,
+      "inputHash": "0e3daa0c3dcbac53cf09775a219780c0858f6329df6a7590437d88fb4f662664",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-2",
+        "scene-combat-encounter-14",
+        "scene-combat-encounter-16",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039-resumed",
+      "matchId": "8fd67b1f-859f-428b-9da0-80f34536e2f2",
+      "dayKst": "2026-09-22",
+      "model": "gemini-3.8-flash",
+      "run": 2,
+      "status": "call_error",
+      "attemptCount": 3,
+      "retryCount": 2,
+      "totalLatencyMs": 94337,
+      "inputHash": "0e3daa0c3dcbac53cf09775a219780c0858f6329df6a7590437d88fb4f662664",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [],
+      "rejectedReasons": [],
+      "httpStatus": 429
+    },
+    {
+      "recordType": "trial_summary",
+      "runId": "cb43e1cd-a3cd-4fa4-b704-18eeb3543039-resumed",
+      "matchId": "8fd67b1f-859f-428b-9da0-80f34536e2f2",
+      "dayKst": "2026-09-22",
+      "model": "gemini-3.5-flash-lite",
+      "run": 2,
+      "status": "published",
+      "attemptCount": 1,
+      "retryCount": 0,
+      "totalLatencyMs": 1810,
+      "inputHash": "0e3daa0c3dcbac53cf09775a219780c0858f6329df6a7590437d88fb4f662664",
+      "promptHash": "0c2dc81400dbf55f6fa2f1fd82ef78c5f1c4e94b84a60e9df8381f38f344b0c3",
+      "sceneIds": [
+        "scene-opening-landing",
+        "scene-combat-encounter-2",
+        "scene-recovery-revive-1015.681",
+        "scene-combat-encounter-15",
+        "scene-finish-finish"
+      ],
+      "rejectedReasons": [],
+      "httpStatus": 200
+    }
+  ],
+  "quotaInterpretation": "Error quota IDs are reported labels, not independently verified account limits. Earlier same-trial retries succeeded within 17.651–128.907 seconds.",
+  "priorQuotaRecoveries": [
+    {
+      "model": "gemini-3.7-flash",
+      "matchId": "4ed68222-d711-437e-a0df-c2f42331512e",
+      "run": 2,
+      "errorAttempt": 1,
+      "successAttempt": 3,
+      "successWithinTrialSeconds": 128.907
+    },
+    {
+      "model": "gemini-3.7-flash",
+      "matchId": "4ed68222-d711-437e-a0df-c2f42331512e",
+      "run": 2,
+      "errorAttempt": 2,
+      "successAttempt": 3,
+      "successWithinTrialSeconds": 128.907
+    },
+    {
+      "model": "gemini-3.7-flash",
+      "matchId": "51778f64-30dc-44bf-ae2d-c5c2f20b4ff8",
+      "run": 2,
+      "errorAttempt": 1,
+      "successAttempt": 3,
+      "successWithinTrialSeconds": 127.892
+    },
+    {
+      "model": "gemini-3.7-flash",
+      "matchId": "51778f64-30dc-44bf-ae2d-c5c2f20b4ff8",
+      "run": 2,
+      "errorAttempt": 2,
+      "successAttempt": 3,
+      "successWithinTrialSeconds": 127.892
+    },
+    {
+      "model": "gemini-3.8-flash",
+      "matchId": "51778f64-30dc-44bf-ae2d-c5c2f20b4ff8",
+      "run": 2,
+      "errorAttempt": 1,
+      "successAttempt": 2,
+      "successWithinTrialSeconds": 57.885
+    },
+    {
+      "model": "gemini-3.6-flash",
+      "matchId": "09086e41-2c69-4959-9d7c-5fddbe48d093",
+      "run": 2,
+      "errorAttempt": 1,
+      "successAttempt": 2,
+      "successWithinTrialSeconds": 17.651
+    },
+    {
+      "model": "gemini-3.8-flash",
+      "matchId": "09086e41-2c69-4959-9d7c-5fddbe48d093",
+      "run": 2,
+      "errorAttempt": 1,
+      "successAttempt": 3,
+      "successWithinTrialSeconds": 103.712
+    },
+    {
+      "model": "gemini-3.8-flash",
+      "matchId": "09086e41-2c69-4959-9d7c-5fddbe48d093",
+      "run": 2,
+      "errorAttempt": 2,
+      "successAttempt": 3,
+      "successWithinTrialSeconds": 103.712
+    }
+  ],
+  "cooldownVerification": {
+    "status": "rechecked_not_recovered_for_36_37_38",
+    "interpretation": "The earlier fixed free daily20 claim is retracted. Error labels do not independently establish account tier or reset interval. Prior same-trial recoveries conflict with the original stop rationale. Current 65s/300s probes still receive429 exceptFlashLite.",
+    "minimumPerModelIntervalSeconds": 65,
+    "quietPeriodSeconds": 300.286,
+    "shortIntervalObservations": [
+      {
+        "model": "gemini-3.7-flash",
+        "startedAt": "2026-09-27T21:33:51.042Z",
+        "finishedAt": "2026-09-27T21:33:51.559Z",
+        "status": "error",
+        "httpStatus": 429,
+        "reportedQuotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+        "reportedQuotaValue": 20,
+        "reportedRetryDelaySeconds": "8.607250908"
+      },
+      {
+        "model": "gemini-3.7-flash",
+        "startedAt": "2026-09-27T21:34:56.048Z",
+        "finishedAt": "2026-09-27T21:34:56.693Z",
+        "status": "error",
+        "httpStatus": 429,
+        "reportedQuotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+        "reportedQuotaValue": 20,
+        "reportedRetryDelaySeconds": "3.485681582"
+      },
+      {
+        "model": "gemini-3.6-flash",
+        "startedAt": "2026-09-27T21:35:25.242Z",
+        "finishedAt": "2026-09-27T21:35:25.835Z",
+        "status": "error",
+        "httpStatus": 429,
+        "reportedQuotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+        "reportedQuotaValue": 20,
+        "reportedRetryDelaySeconds": "34.282908602"
+      },
+      {
+        "model": "gemini-3.7-flash",
+        "startedAt": "2026-09-27T21:36:01.058Z",
+        "finishedAt": "2026-09-27T21:36:01.676Z",
+        "status": "error",
+        "httpStatus": 429,
+        "reportedQuotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+        "reportedQuotaValue": 20,
+        "reportedRetryDelaySeconds": "58.466850665"
+      },
+      {
+        "model": "gemini-3.8-flash",
+        "startedAt": "2026-09-27T21:36:13.509Z",
+        "finishedAt": "2026-09-27T21:36:14.167Z",
+        "status": "error",
+        "httpStatus": 429,
+        "reportedQuotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+        "reportedQuotaValue": 20,
+        "reportedRetryDelaySeconds": "45.994423563"
+      },
+      {
+        "model": "gemini-3.6-flash",
+        "startedAt": "2026-09-27T21:36:30.246Z",
+        "finishedAt": "2026-09-27T21:36:30.946Z",
+        "status": "error",
+        "httpStatus": 429,
+        "reportedQuotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+        "reportedQuotaValue": 20,
+        "reportedRetryDelaySeconds": "29.206704929"
+      },
+      {
+        "model": "gemini-3.8-flash",
+        "startedAt": "2026-09-27T21:37:18.514Z",
+        "finishedAt": "2026-09-27T21:37:19.322Z",
+        "status": "error",
+        "httpStatus": 429,
+        "reportedQuotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+        "reportedQuotaValue": 20,
+        "reportedRetryDelaySeconds": "40.898092609"
+      },
+      {
+        "model": "gemini-3.6-flash",
+        "startedAt": "2026-09-27T21:37:35.250Z",
+        "finishedAt": "2026-09-27T21:37:36.110Z",
+        "status": "error",
+        "httpStatus": 429,
+        "reportedQuotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+        "reportedQuotaValue": 20,
+        "reportedRetryDelaySeconds": "24.026053603"
+      },
+      {
+        "model": "gemini-3.8-flash",
+        "startedAt": "2026-09-27T21:38:23.518Z",
+        "finishedAt": "2026-09-27T21:38:24.320Z",
+        "status": "error",
+        "httpStatus": 429,
+        "reportedQuotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+        "reportedQuotaValue": 20,
+        "reportedRetryDelaySeconds": "35.889507539"
+      }
+    ],
+    "quietPeriodChecks": [
+      {
+        "model": "gemini-3.7-flash",
+        "startedAt": "2026-09-27T21:43:38.455Z",
+        "finishedAt": "2026-09-27T21:43:39.301Z",
+        "status": "error",
+        "inputHash": "d67f1b7ca091cfb82a05068e3e1d96e3cfa1df456d0da45aa96533ad6a79077a",
+        "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+        "requestedWaitMs": 300000,
+        "pauseStartedAt": "2026-09-27T21:38:38.169Z",
+        "httpStatus": 429,
+        "reportedQuotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+        "reportedQuotaValue": 20,
+        "reportedRetryDelaySeconds": "20.908469021"
+      },
+      {
+        "model": "gemini-3.6-flash",
+        "startedAt": "2026-09-27T21:43:39.302Z",
+        "finishedAt": "2026-09-27T21:43:39.812Z",
+        "status": "error",
+        "inputHash": "d67f1b7ca091cfb82a05068e3e1d96e3cfa1df456d0da45aa96533ad6a79077a",
+        "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+        "requestedWaitMs": 300000,
+        "pauseStartedAt": "2026-09-27T21:38:38.169Z",
+        "httpStatus": 429,
+        "reportedQuotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+        "reportedQuotaValue": 20,
+        "reportedRetryDelaySeconds": "20.395076105"
+      },
+      {
+        "model": "gemini-3.8-flash",
+        "startedAt": "2026-09-27T21:43:39.813Z",
+        "finishedAt": "2026-09-27T21:43:40.364Z",
+        "status": "error",
+        "inputHash": "d67f1b7ca091cfb82a05068e3e1d96e3cfa1df456d0da45aa96533ad6a79077a",
+        "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+        "requestedWaitMs": 300000,
+        "pauseStartedAt": "2026-09-27T21:38:38.169Z",
+        "httpStatus": 429,
+        "reportedQuotaId": "GenerateRequestsPerDayPerProjectPerModel-FreeTier",
+        "reportedQuotaValue": 20,
+        "reportedRetryDelaySeconds": "19.834235661"
+      },
+      {
+        "model": "gemini-3.5-flash-lite",
+        "startedAt": "2026-09-27T21:43:40.364Z",
+        "finishedAt": "2026-09-27T21:43:41.807Z",
+        "status": "success",
+        "inputHash": "d67f1b7ca091cfb82a05068e3e1d96e3cfa1df456d0da45aa96533ad6a79077a",
+        "matchId": "cdd3a704-a14c-4ef9-9cbe-01ededea7319",
+        "requestedWaitMs": 300000,
+        "pauseStartedAt": "2026-09-27T21:38:38.169Z",
+        "usage": {
+          "promptTokenCount": 78502,
+          "candidatesTokenCount": 54,
+          "totalTokenCount": 78556,
+          "promptTokensDetails": [
+            {
+              "modality": "TEXT",
+              "tokenCount": 78502
+            }
+          ],
+          "serviceTier": "standard"
+        },
+        "modelVersion": "gemini-3.5-flash-lite"
+      }
+    ],
+    "comparisonScheduled": 84,
+    "comparisonTrialSummaries": 59,
+    "comparisonPending": 25,
+    "additionalComparisonTrials": 3,
+    "modelGenerationAttempts": 94,
+    "separateProbeAttempts": 4,
+    "frozenCodeUnchanged": true
+  }
+}

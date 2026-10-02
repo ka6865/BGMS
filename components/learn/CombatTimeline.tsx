@@ -8,7 +8,7 @@ const labels = {
   kill: "처치",
   throw: "투척",
   knock: "기절시킴",
-  revive: "소생",
+  revive: "팀원 살리기(소생)",
 } as const;
 
 export default function CombatTimeline({ events, squad = false }: { events: NonNullable<RankerScene["combatEvents"]>; squad?: boolean }) {

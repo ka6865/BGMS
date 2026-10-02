@@ -12,7 +12,7 @@ export function DailyEvidenceLink({ id }: { id: string }) {
       }}
       className="inline-flex min-h-8 items-center gap-1 text-emerald-300 underline decoration-emerald-300/40 underline-offset-4 hover:text-emerald-200"
     >
-      근거 {id} <ArrowUpRight size={12} />
+      기록 {id} 보기 <ArrowUpRight size={12} />
     </a>
   );
 }

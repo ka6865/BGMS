@@ -1,7 +1,48 @@
 import { describe, expect, it } from "vitest";
-import { buildDailyCombatStory } from "@/lib/learn/dailyCombatStory";
+import { buildDailyCombatStory, dailyWeaponName } from "@/lib/learn/dailyCombatStory";
+import regression from "./fixtures/learn/daily-regressions.json";
 
 describe("buildDailyCombatStory", () => {
+  it("retains the first recorded hit in each direction and each actor-target pair with vehicle state", () => {
+    const origin = Date.parse("2026-09-23T00:00:00Z");
+    const at = (second: number) => new Date(origin + second * 1000).toISOString();
+    const ally = { accountId: "ally", name: "Ally", teamId: 1, isInVehicle: true };
+    const enemy = { accountId: "enemy", name: "Enemy", teamId: 2, isInVehicle: false };
+    const secondEnemy = { accountId: "enemy-2", name: "Enemy 2", teamId: 2, isInVehicle: true };
+    const events = [
+      { _T: "LogPlayerTakeDamage", _D: at(100), attacker: ally, victim: enemy, damage: 20, damageCauserName: "WeapMutant_C" },
+      { _T: "LogPlayerTakeDamage", _D: at(101), attacker: ally, victim: enemy, damage: 15, damageCauserName: "WeapMutant_C" },
+      { _T: "LogPlayerMakeGroggy", _D: at(100.5), attacker: ally, victim: enemy, damageCauserName: "WeapMutant_C" },
+      { _T: "LogPlayerTakeDamage", _D: at(102), attacker: enemy, victim: ally, damage: 20, damageCauserName: "WeapACE32_C" },
+      { _T: "LogPlayerTakeDamage", _D: at(103), attacker: secondEnemy, victim: ally, damage: 20, damageCauserName: "WeapAUG_C" },
+    ];
+    const { encounters } = buildDailyCombatStory(events, origin, "ally", new Set(["ally"]), new Map());
+    expect(encounters[0].actions.filter(({ kind }) => kind === "first_hit")).toEqual([
+      expect.objectContaining({ actor: "Ally", victim: "Enemy", timeSeconds: 100, actorInVehicle: true, victimInVehicle: false }),
+      expect.objectContaining({ actor: "Enemy", victim: "Ally", timeSeconds: 102, actorInVehicle: false, victimInVehicle: true }),
+      expect.objectContaining({ actor: "Enemy 2", victim: "Ally", timeSeconds: 103, actorInVehicle: true, victimInVehicle: true }),
+    ]);
+    expect(encounters[0].actions.filter(({ kind }) => kind === "first_hit").map(({ sourceIndices }) => sourceIndices))
+      .toEqual([[0], [3], [4]]);
+    expect(encounters[0].actions.map(({ timeSeconds }) => timeSeconds)).toEqual([100, 100.5, 102, 103]);
+  });
+
+  it("preserves regression timing, event distinctions, teams and source indices", () => {
+    const origin = Date.parse("2026-09-23T08:05:55.497Z");
+    const events = regression.events.map((event) => ({ ...event }));
+    const sourceIndex = (originalIndex: number) => regression.originalSourceIndices.indexOf(originalIndex);
+    const { encounters } = buildDailyCombatStory(events, origin, "ranker", new Set(["ranker", "ally"]),
+      new Map([["ranker", "Ranker"], ["ally", "Ally"]]));
+    const actions = encounters.flatMap((encounter) => encounter.actions);
+    expect(actions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "first_hit", sourceIndices: [sourceIndex(3565)], actorTeamId: 2, victimTeamId: 11, weapon: "VSS" }),
+      expect.objectContaining({ kind: "knock", sourceIndices: [sourceIndex(7110)], timeSeconds: 178.829, weapon: "UMP45" }),
+      expect.objectContaining({ kind: "kill", sourceIndices: [sourceIndex(7614)], timeSeconds: 192.217, weapon: "M416" }),
+      expect.objectContaining({ kind: "first_hit", sourceIndices: [sourceIndex(25878)], actorTeamId: 4, victimTeamId: 11, weapon: "MG3" }),
+    ]));
+    expect(actions.find((action) => action.sourceIndices?.[0] === sourceIndex(7110))?.kind).toBe("knock");
+    expect(actions.find((action) => action.sourceIndices?.[0] === sourceIndex(7614))?.kind).toBe("kill");
+  });
   it("keeps weapon pickup, confirmed fire, teams and loot source separate", () => {
     const origin = Date.parse("2026-09-23T00:00:00Z");
     const at = (second: number) => new Date(origin + second * 1000).toISOString();
@@ -65,8 +106,8 @@ describe("buildDailyCombatStory", () => {
     const first15 = encounters.find((encounter) => encounter.startSeconds === 100)!;
     const second15 = encounters.find((encounter) => encounter.startSeconds === 185)!;
     const team7 = encounters.find((encounter) => encounter.startSeconds === 170)!;
-    expect(first15.opponentIdentity).toEqual({ key: "team-15", teamId: 15, playerIds: ["enemy-15a"] });
-    expect(second15.opponentIdentity).toEqual({ key: "team-15", teamId: 15, playerIds: ["enemy-15b"] });
+    expect(first15.opponentIdentity).toMatchObject({ key: "team-15", teamId: 15, playerIds: ["enemy-15a", "enemy-15b"] });
+    expect(second15.opponentIdentity).toMatchObject({ key: "team-15", teamId: 15, playerIds: ["enemy-15a", "enemy-15b"] });
     expect(second15.reengagement).toEqual({ isReengagement: true, previousEncounterId: first15.id, gapSeconds: 85 });
     expect(first15.reengagement?.isReengagement).toBe(false);
     expect(team7.overlapsWith).toEqual([second15.id]);
@@ -114,21 +155,106 @@ describe("buildDailyCombatStory", () => {
     expect(encounters[0].snapshots?.[1].missingPlayers).toEqual(expect.arrayContaining(["Enemy 2", "Bench"]));
   });
 
-  it("keeps a stale nearby sample timestamped and omits positions farther than 45 seconds", () => {
+  it("keeps only nearby observed samples and omits positions farther than 15 seconds", () => {
     const origin = Date.parse("2026-09-23T00:00:00Z");
     const at = (second: number) => new Date(origin + second * 1000).toISOString();
     const ranker = { accountId: "ranker", name: "Ranker", teamId: 1, location: { x: 100000, y: 100000 } };
     const enemy = { accountId: "enemy", name: "Enemy", teamId: 2, location: { x: 105000, y: 100000 } };
     const events = [
-      { _T: "LogPlayerPosition", _D: at(80), character: enemy },
+      { _T: "LogPlayerPosition", _D: at(90), character: enemy },
       { _T: "LogPlayerTakeDamage", _D: at(100), attacker: enemy, victim: ranker, damage: 20, damageCauserName: "WeapVSS_C" },
       { _T: "LogPlayerMakeGroggy", _D: at(100), attacker: ranker, victim: enemy, damageCauserName: "WeapHK416_C" },
     ];
     const { encounters } = buildDailyCombatStory(events, origin, "ranker", new Set(["ranker"]), new Map());
     expect(encounters[0].snapshots?.[1].points).toEqual(expect.arrayContaining([
-      expect.objectContaining({ player: "Enemy", sampleTimeSeconds: 80, ageSeconds: 20 }),
+      expect.objectContaining({ player: "Enemy", sampleTimeSeconds: 90, ageSeconds: 10 }),
     ]));
     expect(encounters[0].snapshots?.[2].missingPlayers).toEqual(["Ranker", "Enemy"]);
+    expect(encounters[0].snapshots?.[2].deadPlayerIds).toEqual([]);
+  });
+
+  it("includes the full opponent team, leaves unobserved and already-dead members unlocated", () => {
+    const origin = Date.parse("2026-09-23T00:00:00Z");
+    const at = (second: number) => new Date(origin + second * 1000).toISOString();
+    const player = (accountId: string, name: string, teamId: number, x = 100000) => ({
+      accountId, name, teamId, location: { x, y: 100000 },
+    });
+    const ranker = player("ranker", "Ranker", 1);
+    const observed = player("enemy-a", "Enemy A", 2, 110000);
+    const unobserved = player("enemy-b", "Enemy B", 2, 120000);
+    const deadBefore = player("enemy-c", "Enemy C", 2, 130000);
+    const events = [
+      { _T: "LogPlayerPosition", _D: at(100), character: ranker },
+      { _T: "LogPlayerPosition", _D: at(100), character: observed },
+      { _T: "LogPlayerPosition", _D: at(140), character: unobserved },
+      { _T: "LogPlayerPosition", _D: at(95), character: deadBefore },
+      { _T: "LogPlayerKillV2", _D: at(85), killer: player("other", "Other", 3), victim: deadBefore },
+      { _T: "LogPlayerKillV2", _D: at(100), killer: ranker, victim: unobserved },
+      { _T: "LogPlayerTakeDamage", _D: at(100), attacker: observed, victim: ranker, damage: 20, damageCauserName: "WeapVSS_C" },
+    ];
+    const { encounters } = buildDailyCombatStory(events, origin, "ranker", new Set(["ranker"]), new Map());
+    const encounter = encounters[0];
+    expect(encounter.opponents).toEqual(["Enemy A", "Enemy B", "Enemy C"]);
+    expect(encounter.opponentIdentity?.players).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "enemy-a", name: "Enemy A" }),
+      expect.objectContaining({ id: "enemy-b", name: "Enemy B", deathTimeSeconds: 100 }),
+      expect.objectContaining({ id: "enemy-c", name: "Enemy C", deathTimeSeconds: 85 }),
+    ]));
+    expect(encounter.snapshots?.[1].points).toEqual(expect.arrayContaining([
+      expect.objectContaining({ playerId: "enemy-a", directlyInvolved: true }),
+    ]));
+    expect(encounter.snapshots?.[1].missingPlayers).toEqual(expect.arrayContaining(["Enemy B", "Enemy C"]));
+    expect(encounter.snapshots?.[1].deadPlayerIds).toEqual(expect.arrayContaining(["enemy-b", "enemy-c"]));
+    expect(encounter.snapshots?.[2].points.some(({ playerId }) => playerId === "enemy-b" || playerId === "enemy-c")).toBe(false);
+  });
+
+  it("tracks death, return-to-alive evidence, and a later death at each snapshot time", () => {
+    const origin = Date.parse("2026-09-23T00:00:00Z");
+    const at = (second: number) => new Date(origin + second * 1000).toISOString();
+    const ranker = { accountId: "ranker", name: "Ranker", teamId: 1 };
+    const enemy = { accountId: "enemy", name: "Enemy", teamId: 2, location: { x: 105000, y: 100000 } };
+    const events = [
+      { _T: "LogPlayerMakeGroggy", _D: at(50), attacker: ranker, victim: enemy, damageCauserName: "WeapHK416_C" },
+      { _T: "LogPlayerKillV2", _D: at(60), killer: { accountId: "other", name: "Other", teamId: 3 }, victim: enemy },
+      { _T: "LogPlayerPosition", _D: at(70), character: { ...enemy, health: 0 } },
+      { _T: "LogPlayerCreate", _D: at(85), character: enemy },
+      { _T: "LogPlayerPosition", _D: at(99), character: { ...enemy, health: 100 } },
+      { _T: "LogPlayerTakeDamage", _D: at(100), attacker: enemy, victim: ranker, damage: 20, damageCauserName: "WeapThompson_C" },
+      { _T: "LogPlayerKillV2", _D: at(130), killer: ranker, victim: enemy },
+    ];
+    const { encounters } = buildDailyCombatStory(events, origin, "ranker", new Set(["ranker"]), new Map());
+    const encounter = encounters[0];
+    expect(encounter.opponentIdentity?.players).toEqual([
+      expect.objectContaining({ id: "enemy", name: "Enemy", deathTimeSeconds: 130, deathKillerTeamId: 1 }),
+    ]);
+    expect(encounter.actions.find(({ kind }) => kind === "first_hit")?.weapon).toBe("토미건");
+    expect(encounter.snapshots?.map(({ deadPlayerIds }) => deadPlayerIds)).toEqual([["enemy"], [], ["enemy"]]);
+    expect(encounter.snapshots?.[1].points).toEqual(expect.arrayContaining([
+      expect.objectContaining({ playerId: "enemy", sampleTimeSeconds: 99, sourceIndices: [4] }),
+    ]));
+    expect(encounter.snapshots?.[0].missingPlayers).toContain("Enemy");
+    expect(encounter.snapshots?.[2].missingPlayers).toContain("Enemy");
+  });
+
+  it("does not clear confirmed death from kill or damage attribution without health proof", () => {
+    const origin = Date.parse("2026-09-23T00:00:00Z");
+    const at = (second: number) => new Date(origin + second * 1000).toISOString();
+    const ranker = { accountId: "ranker", name: "Ranker", teamId: 1 };
+    const enemy = { accountId: "enemy", name: "Enemy", teamId: 2, location: { x: 105000, y: 100000 } };
+    const events = [
+      { _T: "LogPlayerKillV2", _D: at(60), killer: { accountId: "other", name: "Other", teamId: 3 }, victim: enemy },
+      { _T: "LogPlayerKillV2", _D: at(70), killer: enemy, victim: { accountId: "third", name: "Third", teamId: 3 } },
+      { _T: "LogPlayerTakeDamage", _D: at(100), attacker: enemy, victim: ranker, damage: 20 },
+    ];
+    const { encounters } = buildDailyCombatStory(events, origin, "ranker", new Set(["ranker"]), new Map());
+    expect(encounters[0].snapshots?.map(({ deadPlayerIds, missingPlayers }) => [deadPlayerIds, missingPlayers.includes("Enemy")]))
+      .toEqual([[ ["enemy"], true], [["enemy"], true], [["enemy"], true]]);
+    expect(encounters[0].opponentIdentity?.players?.[0]).toMatchObject({ deathTimeSeconds: 60 });
+  });
+
+  it("reuses the existing Tommy Gun alias for Thompson telemetry IDs", () => {
+    expect(dailyWeaponName("WeapThompson_C")).toBe("토미건");
+    expect(dailyWeaponName("Item_Weapon_Thompson_C")).toBe("토미건");
   });
 
   it("preserves confirmed weapon changes across the whole encounter interval", () => {
@@ -147,6 +273,7 @@ describe("buildDailyCombatStory", () => {
     const { encounters } = buildDailyCombatStory(events, origin, "ranker", new Set(["ranker"]), new Map());
     expect(encounters).toHaveLength(1);
     expect(encounters[0].rankerWeapons).toEqual(["M416", "베릴 M762"]);
-    expect(encounters[0].firstRankerShot).toEqual({ timeSeconds: 101, weapon: "M416" });
+    expect(encounters[0].firstRankerShot).toMatchObject({ timeSeconds: 101, weapon: "M416",
+      sourceIndices: [1], actorId: "ranker", actorTeamId: 1 });
   });
 });

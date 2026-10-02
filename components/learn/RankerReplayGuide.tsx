@@ -16,7 +16,7 @@ type Props = {
 
 export default function RankerReplayGuide({ lesson, selectedSceneId, loading, error, onSelect, onClose, onRetry }: Props) {
   return (
-    <aside aria-label="랭커 전술 해설" className="flex h-full w-[min(340px,100vw)] flex-col border-l border-zinc-700 bg-zinc-950 text-zinc-100">
+    <aside aria-label="랭커 경기 해설" className="flex h-full w-[min(340px,100vw)] flex-col border-l border-zinc-700 bg-zinc-950 text-zinc-100">
       <div className="shrink-0 border-b border-zinc-800 p-4">
         <div className="flex items-center justify-between gap-2">
           <Link href="/learn" className="inline-flex min-h-11 items-center gap-1 text-xs text-emerald-300"><ArrowLeft size={15} /> 다른 경기 보기</Link>
@@ -28,7 +28,7 @@ export default function RankerReplayGuide({ lesson, selectedSceneId, loading, er
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 pb-24 md:pb-6">
         {loading && <p role="status" className="mb-4 text-sm text-emerald-300">보관된 경기 리플레이를 불러오는 중입니다.</p>}
-        {error && <div role="alert" className="mb-4 text-sm text-amber-200"><p>리플레이를 불러오지 못했습니다. 해설은 계속 읽을 수 있습니다.</p><button type="button" onClick={onRetry} className="mt-2 min-h-11 underline">다시 불러오기</button></div>}
+        {error && <div role="alert" className="mb-4 text-sm text-amber-200"><p>리플레이를 불러오지 못했습니다. 해설은 계속 읽을 수 있습니다.</p><button type="button" onClick={onRetry} className="mt-2 min-h-11 underline">리플레이 다시 불러오기</button></div>}
         <p className="mb-4 text-xs leading-5 text-zinc-500">장면을 누르면 약 20초 전으로 이동해 일시정지합니다. 지도 하단의 재생 버튼으로 이어서 볼 수 있습니다.</p>
         <ol className="space-y-6">
           {lesson.scenes.map((scene) => (
@@ -38,7 +38,7 @@ export default function RankerReplayGuide({ lesson, selectedSceneId, loading, er
               </button>
               <p className="mt-2 text-sm leading-7 text-zinc-300">{scene.fact}</p>
               <details className="mt-2 text-xs leading-6 text-zinc-500">
-                <summary className="min-h-11 cursor-pointer py-2 text-zinc-400">해석 범위</summary>{scene.limitation}
+                <summary className="min-h-11 cursor-pointer py-2 text-zinc-400">이 기록으로 알 수 없는 점</summary>{scene.limitation}
               </details>
             </li>
           ))}
