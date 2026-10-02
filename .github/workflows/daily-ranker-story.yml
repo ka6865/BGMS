@@ -10,6 +10,12 @@ on:
         description: '경기 날짜 (KST, YYYY-MM-DD). 비우면 전날.'
         required: false
         type: string
+      mode:
+        description: '발행 모드. all은 AS 지원 큐인 미발행 Duo/Squad를 순회합니다. Solo는 unsupported로 건너뜁니다.'
+        required: false
+        type: choice
+        options: [all, solo, duo, squad]
+        default: all
 
 concurrency:
   group: daily-ranker-story
@@ -26,16 +32,21 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - name: Publish one verified yesterday winner
+      - name: Publish verified yesterday winners by mode
         env:
           PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
           GOOGLE_GEMINI_API_KEY: ${{ secrets.GOOGLE_GEMINI_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DAY_KST: ${{ inputs.day_kst }}
+          DAILY_MODE: ${{ inputs.mode }}
         run: |
+          mode_arg=()
+          if [ -n "$DAILY_MODE" ] && [ "$DAILY_MODE" != "all" ]; then
+            mode_arg=("--mode=$DAILY_MODE")
+          fi
           if [ -n "$DAY_KST" ]; then
-            npx tsx scripts/publish_daily_ranker_story.ts --apply "--day=$DAY_KST"
+            npx tsx scripts/publish_daily_ranker_story.ts --apply "--day=$DAY_KST" "${mode_arg[@]}"
           else
-            npx tsx scripts/publish_daily_ranker_story.ts --apply
+            npx tsx scripts/publish_daily_ranker_story.ts --apply "${mode_arg[@]}"
           fi

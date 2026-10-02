@@ -25,7 +25,7 @@ export default function WinSummary({ summary }: { summary: WinSummaryData }) {
       </div>
 
       <div className="mt-5">
-        <h3 className="text-sm font-semibold text-zinc-200">무기별 처치 수</h3>
+        <h3 className="text-sm font-semibold text-zinc-200">무기별 처치(킬) 수</h3>
         <ul className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
           {summary.weapons.map((weapon) => (
             <li key={weapon.name} className="flex min-w-0 items-center justify-between gap-2 rounded-lg bg-zinc-900/70 px-3 py-2 text-sm">

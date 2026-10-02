@@ -46,8 +46,8 @@ export default function DailyRouteMap({ route, mapName, nickname }: { route: Rou
         </CircleMarker>)}
       </MapContainer>
     </div>
-    <p className="mt-2 text-xs leading-5 text-zinc-400">노란 점선은 간헐적으로 기록된 대상 선수의 위치를 잇습니다. 실제 이동 경로가 아닙니다. 초록 점은 대상, 파란 점은 팀원입니다. 확대·축소할 수 있습니다.</p>
-    <div className="mt-3 flex gap-2 overflow-x-auto pb-2" aria-label="위치 관측 시점 선택">
+    <p className="mt-2 text-xs leading-5 text-zinc-400">노란 점선은 기록된 랭커의 위치를 시간순으로 이은 선입니다. 실제 이동 경로와 다를 수 있습니다. 초록 점은 랭커, 파란 점은 팀원입니다. 확대·축소할 수 있습니다.</p>
+    <div className="mt-3 flex gap-2 overflow-x-auto pb-2" aria-label="위치 기록 시각 선택">
       {route.map((sample, index) => <button key={`${sample.timeSeconds}-${index}`} type="button" onClick={() => setSelectedIndex(index)}
         aria-pressed={selectedIndex === index} className={`min-h-11 shrink-0 rounded-lg border px-3 text-xs font-semibold ${selectedIndex === index ? "border-emerald-400 bg-emerald-400/15 text-emerald-200" : "border-zinc-700 text-zinc-300"}`}>
         {timeLabel(sample.timeSeconds)}

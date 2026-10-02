@@ -31,6 +31,6 @@ export function DailyRouteMapShell(props: { route: RoutePoint[]; mapName: string
 
   return <div ref={containerRef}>
     {nearby ? <DailyRouteMap {...props} />
-      : <div className="flex h-[280px] items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/50 text-sm text-zinc-400 sm:h-[380px]">팀 이동 지도</div>}
+      : <div className="flex h-[280px] items-center justify-center rounded-xl border border-zinc-800 bg-zinc-900/50 text-sm text-zinc-400 sm:h-[380px]">기록된 위치 지도</div>}
   </div>;
 }
