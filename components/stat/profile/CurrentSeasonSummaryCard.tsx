@@ -78,11 +78,13 @@ function Metric({
 }
 
 function EmptySummary({
+  label,
   seasonName,
   mode,
   party,
   availability,
 }: {
+  label: string;
   seasonName: string;
   mode: string;
   party: string;
@@ -106,8 +108,10 @@ function EmptySummary({
   return (
     <div className="flex min-h-28 items-center justify-center px-5 py-6 text-center">
       <div>
-        <div className="text-sm font-black text-white/70">기록 없음</div>
-        <div className="mt-1 text-xs font-bold text-white/35">{seasonName} {mode}에 저장된 {party} 경기가 아직 없습니다.</div>
+        <div className="text-sm font-black text-white/70">{label}</div>
+        <div className="mt-1 text-xs font-bold text-white/35">{label === "아직 갱신하지 않은 시즌"
+          ? "전적 갱신을 눌러 이 시즌의 기록을 불러오세요."
+          : `${seasonName} ${mode}에 저장된 ${party} 경기가 아직 없습니다.`}</div>
       </div>
     </div>
   );
@@ -209,6 +213,7 @@ export function CurrentSeasonSummaryCard({
         <UnavailableSummary message={summary.message} />
       ) : summary.kind === "empty" ? (
         <EmptySummary
+          label={summary.label}
           seasonName={summary.seasonName}
           mode={modeLabel}
           party={party}

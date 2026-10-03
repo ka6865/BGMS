@@ -2,7 +2,7 @@ import { readPerformanceCache, readPerformanceStates } from "@/lib/pubg/performa
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { fetchPlayerMatchesPaginated, normalizePlayerMatchesPage, normalizePlayerMatchHistoryFilter } from "@/lib/pubg/playerMatches";
+import { buildPlayerMatchIdentityFilter, fetchPlayerMatchesPaginated, normalizePlayerMatchesPage, normalizePlayerMatchHistoryFilter } from "@/lib/pubg/playerMatches";
  
  export const dynamic = "force-dynamic";
  export const runtime = "nodejs";
@@ -70,18 +70,19 @@ async function readDiscoveredAccountIds(supabase: ReturnType<typeof getAdminClie
   }
 
   try {
-    let accountId: string | null = null;
+    let accountId = await readCachedAccountId(supabase, platform, nickname);
     let result;
     if (matchId) {
-      const { data, error } = await supabase.from("pubg_player_matches").select("player_id, platform, account_id, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time")
-        .eq("player_id", nickname.trim().toLowerCase()).eq("platform", platform).eq("match_id", matchId).limit(1);
+      let query = supabase.from("pubg_player_matches").select("player_id, platform, account_id, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time");
+      const identityFilter = buildPlayerMatchIdentityFilter(nickname, accountId);
+      query = identityFilter ? query.or(identityFilter) : query.eq("player_id", nickname.trim().toLowerCase());
+      const { data, error } = await query.eq("platform", platform).eq("match_id", matchId).limit(1);
       if (error) throw error;
       if (!data?.length) return NextResponse.json({ error: "이 플레이어의 저장된 경기 기록을 찾을 수 없습니다." }, { status: 404 });
       result = { matches: data, page: 1, pageSize: 1, totalCount: 1, totalPages: 1 };
-      accountId = typeof data[0]?.account_id === "string" ? data[0].account_id : null;
+      accountId ??= typeof data[0]?.account_id === "string" ? data[0].account_id : null;
     } else {
-      accountId = await readCachedAccountId(supabase, platform, nickname);
-      result = await fetchPlayerMatchesPaginated(supabase, nickname, platform, page, 20, filter);
+      result = await fetchPlayerMatchesPaginated(supabase, nickname, platform, page, 20, filter, accountId);
     }
     if (!accountId) {
       const matchAccountId = result.matches.find((match) => typeof match.account_id === "string")?.account_id;
@@ -102,8 +103,8 @@ async function readDiscoveredAccountIds(supabase: ReturnType<typeof getAdminClie
       const privateResponse = await blockPrivatePlayer(platform, nickname, undefined, { lookupUpstream: true });
       if (privateResponse) return privateResponse;
     }
-    const performances = await readPerformanceCache(supabase, platform, nickname, result.matches.map(m => m.match_id));
-    const performanceStates = await readPerformanceStates(supabase, platform, nickname, result.matches.map(m => m.match_id));
+    const performances = await readPerformanceCache(supabase, platform, nickname, result.matches.map(m => m.match_id), accountId);
+    const performanceStates = await readPerformanceStates(supabase, platform, nickname, result.matches.map(m => m.match_id), accountId);
     return NextResponse.json({ ...result, performances, performanceStates }, { headers: { 'Cache-Control': 'no-store' } });
    } catch (error: any) {
      return NextResponse.json({ error: error.message || "과거 매치 조회 실패" }, { status: 500 });

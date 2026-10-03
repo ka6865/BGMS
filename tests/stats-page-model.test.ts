@@ -46,6 +46,12 @@ const readyPlayer: PlayerStatsResponse = {
   recentMatches: ["match-1"],
 };
 
+it("미조회 시즌은 실제 경기 기록이 없는 시즌과 구분한다", () => {
+  const emptyPlayer = { ...readyPlayer, stats: { ranked: null, normal: null } };
+  expect(getCurrentSeasonSummary({ ...emptyPlayer, seasonStatsCached: false })).toMatchObject({ kind: "empty", label: "아직 갱신하지 않은 시즌" });
+  expect(getCurrentSeasonSummary({ ...emptyPlayer, seasonStatsCached: true })).toMatchObject({ kind: "empty", label: "기록 없음" });
+});
+
 describe("stats page primitives", () => {
   it("parses only supported platform and section URL values", () => {
     expect(parseStatsSectionTab("squad")).toBe("squad");

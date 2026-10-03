@@ -79,6 +79,7 @@ function queryChain(result: QueryResult) {
     "range",
     "abortSignal",
     "upsert",
+    "is",
   ]) {
     chain[method] = vi.fn().mockReturnValue(chain);
   }
@@ -108,14 +109,17 @@ function configureSupabase(cacheRow: unknown = null) {
   mockCreateServerClient.mockResolvedValue(supabase);
 
   const adminUpsert = vi.fn().mockResolvedValue({ data: null, error: null });
+  const partialQuery = queryChain({ data: [{ id: 'account.fixture1' }], error: null });
+  const adminUpdate = vi.fn().mockReturnValue(partialQuery);
+  const adminInsert = vi.fn().mockReturnValue(partialQuery);
   const adminFrom = vi.fn((table: string) => {
     if (table !== "pubg_player_cache") throw new Error(`unexpected admin table: ${table}`);
-    return { upsert: adminUpsert };
+    return { upsert: (data: unknown, options: { ignoreDuplicates?: boolean }) => options?.ignoreDuplicates ? adminInsert(data, options) : adminUpsert(data, options), update: adminUpdate };
   });
   const discoveryRpc = vi.fn().mockResolvedValue({ data: null, error: null });
   mockCreateSupabaseAdminClient.mockReturnValue({ from: adminFrom, rpc: discoveryRpc });
 
-  return { playerCache, matchModes, rpc, adminUpsert, discoveryRpc };
+  return { playerCache, matchModes, rpc, adminUpsert, discoveryRpc, adminUpdate, adminInsert, partialQuery };
 }
 
 function jsonResponse(value: unknown, status = 200, headers: Record<string, string> = {}) {
@@ -485,9 +489,9 @@ describe("player route recovery contract", () => {
     expect(mockWritePubgCache).not.toHaveBeenCalled();
   });
 
-  it("returns ranked data with stale normal fallback and never overwrites either cache on partial stats", async () => {
+  it("saves successful ranked stats and preserves stale normal stats with a version guard", async () => {
     const cacheRow = staleCacheRow();
-    const { adminUpsert } = configureSupabase(cacheRow);
+    const { adminUpsert, adminUpdate } = configureSupabase(cacheRow);
     const calls = installFetch({
       player: [jsonResponse(playerPayload())],
       seasons: [jsonResponse(seasonsPayload())],
@@ -510,13 +514,51 @@ describe("player route recovery contract", () => {
       status: "stale",
       updatedAt: "2026-08-01T00:00:00.000Z",
     });
+    const savedSeason = adminUpdate.mock.calls[0][0].season_stats_data[body.seasonId];
+    expect(savedSeason.ranked.solo.kills).toBe(9);
+    expect(savedSeason.normal).toEqual(cacheRow.season_stats_data['pc-2026-01'].normal);
     expect(playerCalls(calls)).toHaveLength(1);
     expect(adminUpsert).not.toHaveBeenCalled();
     expect(mockWritePubgCache).not.toHaveBeenCalled();
   });
 
-  it("returns unavailable normal stats when no cached normal bucket exists and still does not write partial data", async () => {
-    const { adminUpsert } = configureSupabase();
+  it('keeps newly discovered IDs and successful normal stats on reload after ranked fails', async () => {
+    const old = { ...staleCacheRow(), recent_match_ids: ['old'], last_seen_at: '2026-08-01T00:00:00.000Z' };
+    const { adminUpdate, partialQuery, playerCache } = configureSupabase(old);
+    adminUpdate.mockImplementation((saved) => {
+      playerCache.maybeSingle.mockResolvedValue({ data: { ...old, ...saved }, error: null });
+      return partialQuery;
+    });
+    const player = playerPayload();
+    const ids = Array.from({ length: 45 }, (_, i) => `new-${i}`);
+    player.data[0].relationships.matches.data = ids.map(id => ({ id })) as never[];
+    installFetch({ player: [jsonResponse(player)], seasons: [jsonResponse(seasonsPayload())],
+      season: [jsonResponse(normalPayload(9))], ranked: [jsonResponse({}, 503), jsonResponse({}, 503)], mastery: [jsonResponse({}, 404)] });
+    const { GET } = await loadRoute();
+    const refreshed = await GET(request('http://localhost/api/pubg/player?nickname=Fixture_Player&platform=steam&season=pc-2026-01&refresh=true'));
+    expect(refreshed.status).toBe(200);
+    const body = await (await GET(request())).json();
+    expect(body.collectionMatchIds).toEqual(ids);
+    expect(body.stats.normal.solo.kills).toBe(9);
+    expect(body.statsAvailability.ranked.status).toBe('unavailable');
+    expect(body.updatedAt).toBe(old.updated_at);
+    expect(partialQuery.eq).toHaveBeenCalledWith('updated_at', old.updated_at);
+    expect(partialQuery.eq).toHaveBeenCalledWith('last_seen_at', old.last_seen_at);
+  });
+
+  it('rejects a partial save if a concurrent refresh has changed the stored version', async () => {
+    const { partialQuery, adminUpsert } = configureSupabase(staleCacheRow());
+    partialQuery.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve);
+    installFetch({ player: [jsonResponse(playerPayload())], seasons: [jsonResponse(seasonsPayload())],
+      season: [jsonResponse(normalPayload())], ranked: [jsonResponse({}, 503), jsonResponse({}, 503)], mastery: [jsonResponse({}, 404)] });
+    const { GET } = await loadRoute();
+    const response = await GET(request('http://localhost/api/pubg/player?nickname=Fixture_Player&platform=steam&refresh=true'));
+    expect(response.status).toBe(503);
+    expect(adminUpsert).not.toHaveBeenCalled();
+  });
+
+  it("saves successful ranked stats without fabricating unavailable normal stats", async () => {
+    const { adminUpsert, adminInsert } = configureSupabase();
     installFetch({
       player: [jsonResponse(playerPayload())],
       seasons: [jsonResponse(seasonsPayload())],
@@ -535,6 +577,8 @@ describe("player route recovery contract", () => {
     expect(body.stats.ranked.solo).toMatchObject({ kills: 9 });
     expect(body.stats.normal).toBeNull();
     expect(body.statsAvailability.normal).toMatchObject({ status: "unavailable" });
+    expect(adminInsert).toHaveBeenCalledWith(expect.objectContaining({ season_stats_data: expect.objectContaining({ [body.seasonId]: expect.objectContaining({ ranked: expect.objectContaining({ solo: expect.objectContaining({ kills: 9 }) }) }) }) }), { onConflict: 'id', ignoreDuplicates: true });
+    expect(adminInsert.mock.calls[0][0].season_stats_data[body.seasonId].normal).toBeUndefined();
     expect(adminUpsert).not.toHaveBeenCalled();
     expect(mockWritePubgCache).not.toHaveBeenCalled();
   });

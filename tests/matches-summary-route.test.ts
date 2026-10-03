@@ -5,6 +5,7 @@ import { buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
 
 vi.mock("@/lib/pubg/privatePlayers", () => ({
   isPlayerPrivate: vi.fn().mockResolvedValue(false),
+  getCachedPlayerAccountId: vi.fn(async () => database.accountId),
 }));
 vi.mock("@/lib/pubg/privatePlayerIdentity", () => ({
   resolvePrivatePlayerAccountId: vi.fn().mockResolvedValue(null),
@@ -14,9 +15,13 @@ const database = vi.hoisted(() => ({
   rows: {} as Record<string, unknown[]>,
   errors: {} as Record<string, { message: string }>,
   selects: [] as Array<{ table: string; columns: string }>,
+  writes: [] as Array<{ table: string; rows: any[]; options: Record<string, unknown> }>,
+  accountId: null as string | null,
+  identityFilters: [] as string[],
 }));
 const { ingestMatch } = vi.hoisted(() => ({ ingestMatch: vi.fn() }));
-vi.mock("@/lib/pubg/playerMatchesIngest", () => ({
+vi.mock("@/lib/pubg/playerMatchesIngest", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/pubg/playerMatchesIngest")>(),
   fetchAndIngestBasicMatchSummaryOutcome: ingestMatch,
 }));
 
@@ -34,6 +39,11 @@ vi.mock("@supabase/supabase-js", () => ({
           return query;
         },
         eq: () => query,
+        or: (filter: string) => { database.identityFilters.push(filter); return query; },
+        upsert: async (rows: any[], options: Record<string, unknown>) => {
+          database.writes.push({ table, rows, options });
+          return { error: database.errors[`${table}:write`] ?? null };
+        },
         in: async () => invalidColumn
           ? { data: null, error: { code: "42703", message: "column does not exist" } }
           : { data: database.rows[table] ?? [], error: database.errors[table] ?? null },
@@ -72,7 +82,10 @@ describe("matches-summary raw timestamp fallback", () => {
       }],
     };
     database.selects = [];
+    database.writes = [];
     database.errors = {};
+    database.accountId = null;
+    database.identityFilters = [];
     ingestMatch.mockReset();
     ingestMatch.mockResolvedValue({ status: "not_found", record: null });
     vi.stubEnv("PUBG_API_KEY", "");
@@ -82,6 +95,15 @@ describe("matches-summary raw timestamp fallback", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllEnvs();
+  });
+
+  it("닉네임 변경 전 경기는 캐시에서 확인한 계정 ID로 수집한다", async () => {
+    database.accountId = "account.fixture1";
+    database.rows.match_stats_raw = [];
+    vi.stubEnv("PUBG_API_KEY", "test-key");
+    await POST(request());
+    expect(ingestMatch).toHaveBeenCalledWith(expect.anything(), "raw-match", "fixtureplayer", "steam", "test-key", expect.objectContaining({ expectedAccountId: "account.fixture1" }));
+    expect(database.identityFilters).toEqual(['account_id.eq.account.fixture1,and(account_id.is.null,player_id.eq."fixtureplayer")']);
   });
 
   it("helper는 played_at, created_at, request-time ultimate fallback 순서를 지킨다", () => {
@@ -131,6 +153,33 @@ describe("matches-summary raw timestamp fallback", () => {
     expect(playerMatchSelect?.columns.split(",").map((column) => column.trim())).toEqual(expect.arrayContaining(["match_type", "knocks", "survival_time"]));
   });
 
+  it('repairs a raw-only basic history row without fetching PUBG or replacing concurrent records', async () => {
+    const body = await (await POST(request())).json();
+    expect(database.writes).toEqual([expect.objectContaining({
+      table: 'pubg_player_matches',
+      rows: [expect.objectContaining({ match_id: 'raw-match', played_at: '2026-07-01T10:00:00.000Z', kills: 2, match_type: 'unknown' })],
+      options: expect.objectContaining({ ignoreDuplicates: true }),
+    })]);
+    expect(body.ingestedMatchIds).toEqual(['raw-match']);
+    expect(ingestMatch).not.toHaveBeenCalled();
+  });
+
+  it('repairs a processed-only history row using observed counters and its actual match type', async () => {
+    database.rows.processed_match_telemetry = [{ match_id: 'processed-only', data: { fullResult: {
+      v: RESULT_VERSION, createdAt: '2026-10-03T00:00:00Z', gameMode: 'squad-fpp', matchType: 'competitive', mapName: 'Baltic_Main',
+      stats: { name: 'FixturePlayer', playerId: 'account.fixture', kills: 0, damageDealt: 150, winPlace: 4, DBNOs: 0, timeSurvived: 1000 },
+    } } }];
+    const body = await (await POST(request(['processed-only']))).json();
+    expect(database.writes[0]?.rows[0]).toMatchObject({ match_id: 'processed-only', account_id: 'account.fixture', match_type: 'competitive', kills: 0, knocks: 0, survival_time: 1000 });
+    expect(body.ingestedMatchIds).toEqual(['processed-only']);
+  });
+
+  it('does not silently complete collection when repairing a basic row fails', async () => {
+    database.errors['pubg_player_matches:write'] = { message: 'write unavailable' };
+    const response = await POST(request());
+    expect(response.status).toBe(503);
+  });
+
   it("ordinary history keeps a legacy processed row without embedded AI identity fields", async () => {
     database.rows.processed_match_telemetry = [{
       match_id: "legacy-match",
@@ -157,7 +206,8 @@ describe("matches-summary raw timestamp fallback", () => {
       summarySource: "processed_match_telemetry",
       stats: { name: "FixturePlayer", kills: 2 },
     });
-    expect(body.missingMatchIds).toEqual([]);
+    expect(body.missingMatchIds).toEqual(["legacy-match"]);
+    expect(database.writes).toEqual([]);
   });
 
   it("ordinary history falls back to the storage row match_id when legacy fullResult omits it", async () => {
@@ -184,7 +234,8 @@ describe("matches-summary raw timestamp fallback", () => {
       matchId: "row-canonical-match",
       summarySource: "processed_match_telemetry",
     });
-    expect(body.missingMatchIds).toEqual([]);
+    expect(body.missingMatchIds).toEqual(["row-canonical-match"]);
+    expect(database.writes).toEqual([]);
   });
 
   it("future processed versions fall back to the current basic match summary contract", async () => {

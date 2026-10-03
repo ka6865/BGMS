@@ -201,7 +201,7 @@ export function getCurrentSeasonSummary(
       seasonName,
       mode: preferredMode,
       partySize: preferredPartySize ?? "squad",
-      label: "기록 없음",
+      label: player.seasonStatsCached === false ? "아직 갱신하지 않은 시즌" : "기록 없음",
     };
     return availability ? { ...empty, availability } : empty;
   }

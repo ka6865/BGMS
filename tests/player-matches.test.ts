@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
+import { readPerformanceCache, readPerformanceStates } from "../lib/pubg/performanceCache";
 import {
   buildCursorQueryFilter,
+  buildPlayerMatchIdentityFilter,
   fetchPlayerMatchesPaginated,
   normalizePlayerMatchesPage,
   normalizePlayerMatchHistoryFilter,
@@ -8,6 +10,27 @@ import {
 } from "../lib/pubg/playerMatches";
  
  describe("playerMatches helper", () => {
+  it("uses stable account identity with an escaped legacy nickname fallback", async () => {
+    const filter = buildPlayerMatchIdentityFilter('New"Name\\', 'account.same');
+    expect(filter).toBe('account_id.eq.account.same,and(account_id.is.null,player_id.eq."new\\"name\\\\")');
+    expect(buildPlayerMatchIdentityFilter('NewName', 'account.bad,account_id.not.is.null')).toBeNull();
+    const renamed = { player_id: "oldname", account_id: "account.same", match_id: "old-match" };
+    const query = { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), or: vi.fn().mockReturnThis(), order: vi.fn().mockReturnThis(), range: vi.fn().mockResolvedValue({ data: [renamed], error: null, count: 1 }) };
+    const result = await fetchPlayerMatchesPaginated({ from: () => query } as never, "NewName", "steam", 1, 20, "all", "account.same");
+    expect(query.or).toHaveBeenCalledWith('account_id.eq.account.same,and(account_id.is.null,player_id.eq."newname")');
+    expect(query.eq).not.toHaveBeenCalledWith('player_id', 'newname');
+    expect(result.matches).toEqual([renamed]);
+  });
+
+  it("keeps cached scores and analysis states visible after a nickname change", async () => {
+    const benchmark = { score: 72, tier: 'A' };
+    const query = { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), in: vi.fn().mockResolvedValue({ data: [{ match_id: 'old-match', benchmark, state: 'done' }], error: null }) };
+    const db = { from: () => query } as never;
+    expect(await readPerformanceCache(db, 'steam', 'NewName', ['old-match'], 'account.same')).toEqual({ 'old-match': benchmark });
+    expect(await readPerformanceStates(db, 'steam', 'NewName', ['old-match'], 'account.same')).toEqual({ 'old-match': 'done' });
+    expect(query.eq).toHaveBeenCalledWith('account_id', 'account.same');
+    expect(query.eq).not.toHaveBeenCalledWith('player_id', 'newname');
+  });
   it.each([undefined, null, -1, NaN, Infinity, '3', 2147483648])('does not fabricate a basic counter from %s', value => {
     expect(normalizeBasicMatchStat(value)).toBeNull();
   });

@@ -5,6 +5,7 @@ vi.mock('@supabase/supabase-js',()=>({createClient:mocks.db}));
 vi.mock('@/lib/pubg/privatePlayers',()=>({isPlayerPrivate:mocks.private}));
 vi.mock('@/lib/pubg/privatePlayerIdentity',()=>({resolvePrivatePlayerAccountId:vi.fn().mockResolvedValue(null)}));
 vi.mock('@/lib/pubg/playerMatches',()=>({
+  buildPlayerMatchIdentityFilter:(nickname:string,accountId?:string|null)=>accountId?`account_id.eq.${accountId},and(account_id.is.null,player_id.eq."${nickname.trim().toLowerCase()}")`:null,
   fetchPlayerMatchesPaginated:mocks.history,
   normalizePlayerMatchesPage:(x:string)=>Number(x)||1,
   normalizePlayerMatchHistoryFilter:(x:string|null)=>['normal','ranked','casual','tdm'].includes(x||'')?x:'all',
@@ -27,7 +28,7 @@ describe('stored history boundary',()=>{
     const response=await GET(req('&matchId=old-match'));
     expect(response.status).toBe(200);
     expect((await response.json()).matches).toHaveLength(1);
-    expect(chain.eq.mock.calls.slice(0,3)).toEqual([['player_id','zucchini__'],['platform','steam'],['match_id','old-match']]);
+    expect(chain.eq.mock.calls).toEqual(expect.arrayContaining([['player_id','zucchini__'],['platform','steam'],['match_id','old-match']]));
     expect(chain.limit).toHaveBeenCalledWith(1);
     expect(mocks.history).not.toHaveBeenCalled();
   });
@@ -49,7 +50,7 @@ describe('stored history boundary',()=>{
     const body=await response.json();
     expect(body).toMatchObject({page:2,totalCount:99});
     expect(body.historyIngest).toBeUndefined();
-    expect(mocks.history).toHaveBeenCalledWith(expect.anything(),'Zucchini__','steam',2,20,'ranked');
+    expect(mocks.history).toHaveBeenCalledWith(expect.anything(),'Zucchini__','steam',2,20,'ranked','account.zucchini');
   });
   it('never exposes history of a private player',async()=>{
     mocks.private.mockResolvedValue(true);
