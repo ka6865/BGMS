@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runDiscoveryWorker } from '@/lib/pubg/discoveryWorker';
-import { main, parseDiscoveryWorkerArgs } from '@/scripts/ingest_discovered_matches';
+import { assertDiscoveryWorkerApiKey, main, parseDiscoveryWorkerArgs } from '@/scripts/ingest_discovered_matches';
 import * as discoveryServer from '@/lib/pubg/matchDiscovery.server';
 import type { BasicMatchIngestOutcome } from '@/lib/pubg/playerMatchesIngest';
 import type { DiscoveryJob } from '@/lib/pubg/matchDiscovery';
@@ -57,6 +57,14 @@ describe('durable match collection worker',()=>{
   });
   it('parses a valid canary limit',()=>{
     expect(parseDiscoveryWorkerArgs(['--apply','--limit','3'])).toMatchObject({apply:true,limit:3});
+  });
+  it('rejects a missing API key before claiming or modifying collection jobs',async()=>{
+    vi.stubEnv('PUBG_API_KEY', '');
+    const client = vi.spyOn(discoveryServer,'discoveryClient');
+    await expect(main(['--apply'])).rejects.toThrow('discovery-worker-api-key-missing');
+    expect(client).not.toHaveBeenCalled();
+    expect(() => assertDiscoveryWorkerApiKey(parseDiscoveryWorkerArgs([]), '')).not.toThrow();
+    expect(() => assertDiscoveryWorkerApiKey(parseDiscoveryWorkerArgs(['--apply','--seed-cache','--nickname','Tester']), '')).not.toThrow();
   });
   it.each(['500','1000'])('accepts a larger bounded CLI run: %s',(limit)=>{
     expect(parseDiscoveryWorkerArgs(['--apply','--limit',limit]).limit).toBe(Number(limit));

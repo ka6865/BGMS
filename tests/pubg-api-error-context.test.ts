@@ -104,6 +104,9 @@ describe("PUBG API 오류 원인 컨텍스트", () => {
     const source = readFileSync(resolve("app/api/admin/agent/monitor/route.ts"), "utf8");
 
     expect(source).toContain('select("id", { count: "exact", head: true })');
-    expect(source).toContain("const [countResult, latestResult] = await Promise.all");
+    expect(source).toContain("const [countResult, clientResult, expectedResult404, expectedResult409");
+    expect(source).toContain('.eq("error_code", "PUBG_MATCH_NOT_FOUND")');
+    expect(source).toContain('.eq("error_code", "PUBG_MATCH_ANALYSIS_IN_PROGRESS")');
+    expect(source).toContain('.limit(200)');
   });
 });

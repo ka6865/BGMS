@@ -306,6 +306,7 @@ export async function processReplyDraft(deps: ReplyDraftDeps = {}): Promise<Repl
   let body: string | null = null;
   let sources: Awaited<ReturnType<typeof loadReplyEvidence>>["sources"] = [];
   let reason = "reply_generated";
+  let generationFailed = false;
   try {
     const now = deps.now ?? new Date();
     const evidence = await (deps.loadEvidence ?? loadReplyEvidence)({ title: claim.title, postHtml: claim.postContent, question: claim.targetCommentContent }, { now });
@@ -318,6 +319,7 @@ export async function processReplyDraft(deps: ReplyDraftDeps = {}): Promise<Repl
     const parsed = parseModelReply(output);
     if (!parsed) {
       reason = "model_invalid_response";
+      generationFailed = true;
     } else {
       body = parsed.reply;
       reason = parsed.reason;
@@ -340,6 +342,7 @@ export async function processReplyDraft(deps: ReplyDraftDeps = {}): Promise<Repl
     }
   } catch (error) {
     reason = modelErrorReason(error);
+    generationFailed = true;
   }
 
   let finished = false;
@@ -350,6 +353,6 @@ export async function processReplyDraft(deps: ReplyDraftDeps = {}): Promise<Repl
   }
   if (!finished) return { code: "failed", reviewId: claim.id };
   return body === null
-    ? { code: "failed", reviewId: claim.id }
+    ? { code: generationFailed ? "failed" : "deferred", reviewId: claim.id }
     : { code: "drafted", reviewId: claim.id };
 }

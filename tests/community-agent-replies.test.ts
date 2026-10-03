@@ -103,21 +103,21 @@ describe("community reply draft processor", () => {
     "43.1 패치 일정은 공식 채널에서 확인해 주세요.",
   ])("holds a referral-only schedule response instead of offering it for approval", async (reply) => {
     const fixture = deps(claim({ target_comment_content: "업데이트가 언제야?" }), vi.fn().mockResolvedValue({ reply, reason: "정중한 안내" }));
-    await expect(processReplyDraft(fixture)).resolves.toEqual({ code: "failed", reviewId: REVIEW_ID });
+    await expect(processReplyDraft(fixture)).resolves.toEqual({ code: "deferred", reviewId: REVIEW_ID });
     expect(fixture.rpc).toHaveBeenCalledWith("finish_community_reply", expect.objectContaining({ p_body: null, p_reason: "질문에 직접 답하지 않은 초안이라 보류했습니다." }));
   });
 
   it("does not save invented schedule dates when official retrieval failed", async () => {
     const fixture = deps(claim({ target_comment_content: "업데이트가 언제야?" }), vi.fn().mockResolvedValue({ reply: "9월 10일 오전 9시에 업데이트합니다.", reason: "모델 추정" }));
     fixture.loadEvidence.mockResolvedValue({ sources: [], reason: "source_timeout" });
-    await expect(processReplyDraft(fixture)).resolves.toEqual({ code: "failed", reviewId: REVIEW_ID });
+    await expect(processReplyDraft(fixture)).resolves.toEqual({ code: "deferred", reviewId: REVIEW_ID });
     expect(fixture.rpc).toHaveBeenCalledWith("finish_community_reply", expect.objectContaining({ p_body: null, p_reason: "일정을 확인할 공식 원문을 확보하지 못했습니다." }));
   });
 
   it("keeps insufficient evidence as a held draft with a specific reason", async () => {
     const fixture = deps(claim(), vi.fn().mockResolvedValue({ reply: null, reason: "해당 무기 변경 사항을 확인할 원문이 없습니다." }));
     fixture.loadEvidence.mockResolvedValue({ sources: [], reason: "source_timeout" });
-    await expect(processReplyDraft(fixture)).resolves.toEqual({ code: "failed", reviewId: REVIEW_ID });
+    await expect(processReplyDraft(fixture)).resolves.toEqual({ code: "deferred", reviewId: REVIEW_ID });
     expect(fixture.rpc).toHaveBeenCalledWith("finish_community_reply", expect.objectContaining({ p_body: null, p_reason: "해당 무기 변경 사항을 확인할 원문이 없습니다." }));
   });
 

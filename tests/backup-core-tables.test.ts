@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   BACKUP_TABLES,
+  MAX_ROWS_PER_TABLE,
+  assertBackupComplete,
   backupCoreTables,
   buildBackupKey,
   readTableRows,
@@ -11,15 +13,19 @@ type TableData = Record<string, unknown[]>;
 
 function createSupabase(tables: TableData, errors: Record<string, string> = {}) {
   return {
-    from: vi.fn((table: string) => ({
-      select: vi.fn(() => ({
-        range: vi.fn(async (from: number, to: number) => {
-          if (errors[table]) return { data: null, error: { message: errors[table] } };
-          const rows = tables[table] ?? [];
-          return { data: rows.slice(from, to + 1), error: null };
-        }),
-      })),
-    })),
+    from: vi.fn((table: string) => {
+      let from = 0, to = 0;
+      const chain = {
+        select: vi.fn(() => chain),
+        order: vi.fn(() => chain),
+        range: vi.fn((start: number, end: number) => { from = start; to = end; return chain; }),
+        abortSignal: vi.fn(() => chain),
+        then: (resolve: (result: unknown) => unknown) => Promise.resolve(errors[table]
+          ? { data: null, error: { message: errors[table] } }
+          : { data: (tables[table] ?? []).slice(from, to + 1), error: null }).then(resolve),
+      };
+      return chain;
+    }),
   } as never;
 }
 
@@ -63,6 +69,43 @@ describe("핵심 테이블 백업", () => {
     expect(uploaded).toHaveLength(1);
     expect(result.tables.find((table) => table.table === "reports")?.skipped).toBe(true);
     expect(result.totalRows).toBe(2);
+    expect(result.complete).toBe(false);
+    expect(JSON.parse(uploaded[0].body)).toMatchObject({
+      complete: false,
+      tables: expect.arrayContaining([expect.objectContaining({ table: "reports", error: "relation does not exist" })]),
+    });
+    expect(() => assertBackupComplete(result)).toThrow("backup-core-tables-incomplete: reports");
+  });
+
+  it("detects rows beyond the safety limit rather than claiming a full backup", async () => {
+    const rows = Array.from({ length: MAX_ROWS_PER_TABLE + 1 }, (_, id) => ({ id }));
+    const result = await readTableRows(createSupabase({ map_markers: rows }), "map_markers");
+    expect(result.rows).toHaveLength(MAX_ROWS_PER_TABLE);
+    expect(result.error).toBe("backup-row-limit-exceeded");
+    const exact = await readTableRows(createSupabase({ map_markers: rows.slice(0, MAX_ROWS_PER_TABLE) }), "map_markers");
+    expect(exact.error).toBeNull();
+  });
+
+  it.each([["map_markers", "id"], ["map_settings", "map_id"], ["weapon_meta_patches", "version"]])(
+    "paginates %s by its unique key and bounds each request", async (table, key) => {
+      const supabase = createSupabase({}) as unknown as { from: ReturnType<typeof vi.fn> };
+      await readTableRows(supabase as never, table);
+      const chain = supabase.from.mock.results[0].value;
+      expect(chain.order).toHaveBeenCalledWith(key);
+      expect(chain.abortSignal).toHaveBeenCalledWith(expect.any(AbortSignal));
+    },
+  );
+
+  it("marks failures after the first page as partial without losing already read rows", async () => {
+    const chain = {
+      select: () => chain, order: () => chain,
+      range: () => chain, abortSignal: () => chain,
+      then: vi.fn().mockImplementationOnce(resolve => resolve({ data: Array(1000).fill({ id: 1 }), error: null }))
+        .mockImplementationOnce(resolve => resolve({ data: null, error: { message: "read interrupted" } })),
+    };
+    const result = await readTableRows({ from: () => chain } as never, "profiles");
+    expect(result).toMatchObject({ skipped: false, error: "read interrupted" });
+    expect(result.rows).toHaveLength(1000);
   });
 
   it("dry-run 은 업로드하지 않는다", async () => {
@@ -98,6 +141,7 @@ describe("핵심 테이블 백업", () => {
 
     expect(parsed.data.map_markers).toEqual([{ id: 1, map_id: "Erangel", x: 100, y: 200 }]);
     expect(parsed.createdAt).toBeTypeOf("string");
+    expect(parsed.complete).toBe(true);
   });
 
   it("백업 키는 날짜순으로 정렬된다", () => {

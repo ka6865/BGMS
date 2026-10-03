@@ -30,7 +30,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
  */
 async function fetchPatchNoteDetail(url: string, title: string) {
   try {
-    const { data: html } = await axios.get(url);
+    const { data: html } = await axios.get(url, { timeout: 15_000 });
     const root = parse(html);
 
     // 공식 홈페이지 구조 분석 기반 선택자
@@ -263,7 +263,7 @@ export async function syncPatchNotes() {
     // 기본 실행 경로와 중복 방지 로직은 그대로 유지한다.
     const requestedUrl = process.env.PATCH_NOTES_TARGET_URL?.trim();
     const targetUrl = requestedUrl || 'https://pubg.com/ko/news';
-    const { data: html } = await axios.get(targetUrl);
+    const { data: html } = await axios.get(targetUrl, { timeout: 15_000 });
 
     // 썸네일 이미지 URL 추출 로직 개선 (배그 소식 전체 매칭)
     const nuxtRegex = /postId:(\d+),(?:(?!postId:).)*?title:"([^"]+?)".*?thumbUrl:"([^"]+)"/g;
@@ -321,7 +321,7 @@ export async function syncPatchNotes() {
     const detail = await fetchPatchNoteDetail(fullUrl, cleanTitle);
     if (!detail) {
       console.error('❌ Failed to fetch patch note detail.');
-      if (DRAFT_ONLY) process.exitCode = 1;
+      process.exitCode = 1;
       return;
     }
     const { formattedContent, sourceText, categoryType } = detail;
@@ -367,7 +367,7 @@ export async function syncPatchNotes() {
 
     if (dbError) {
       console.error('❌ Failed to save post to database:', dbError);
-      if (DRAFT_ONLY) process.exitCode = 1;
+      process.exitCode = 1;
       return;
     }
 
@@ -413,12 +413,16 @@ export async function syncPatchNotes() {
     if (!DRAFT_ONLY && DISCORD_WEBHOOK_URL) {
       console.log('🔔 Sending Discord Notification...');
       await axios.post(DISCORD_WEBHOOK_URL, {
-        content: `🆕 **새로운 배그 소식이 수집되었습니다 (승인 대기 중)**\n\n제목: ${cleanTitle}\n링크: ${SITE_URL}/board?f=어드민+검증\n\n*BGMS AI가 요약을 완료하여 초안(draft) 상태로 등록했습니다. 어드민 페이지에서 승인해 주세요.*`
-      }).catch(err => console.error('❌ Discord notification failed:', err.message));
+        content: `🆕 **배그 소식 초안 등록 · 승인 대기**\n\n제목: ${cleanTitle}\n확인: ${SITE_URL}/board?f=어드민+검증\n\n공식 소식의 요약 초안을 저장했습니다. 내용을 검토하고 승인하면 게시됩니다.`,
+        allowed_mentions: { parse: [] },
+      }, { timeout: 8_000 }).catch(() => {
+        console.error('패치 소식 초안은 저장했으나 Discord 알림을 전송하지 못했습니다.');
+        process.exitCode = 1;
+      });
     }
   } catch (error) {
-    console.error('❌ syncPatchNotes error:', error);
-    if (DRAFT_ONLY) process.exitCode = 1;
+    console.error('패치 소식 동기화를 완료하지 못했습니다.', error instanceof Error ? error.name : 'unknown');
+    process.exitCode = 1;
   }
 }
 

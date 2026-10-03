@@ -13,6 +13,8 @@ import { completeAgentRun, createAgentRun, createApprovalRequest, verifyAdminRol
 import { buildNextBestActions } from "@/lib/admin-agent/next-actions";
 import { buildOperatorValueScorecard } from "@/lib/admin-agent/operator-value";
 import { buildAgentOwnerBrief } from "@/lib/admin-agent/owner-brief";
+import { buildApiErrorSummary, getApiErrorSeverity } from "@/lib/admin-agent/api-error-summary";
+import { buildMatchCollectionProgress } from "@/lib/admin-agent/match-collection-progress";
 import { matchPlaybooks } from "@/lib/admin-agent/playbooks";
 import { getAgentThresholds } from "@/lib/admin-agent/thresholds";
 import { buildTrafficSummary } from "@/lib/admin-agent/traffic-summary";
@@ -58,7 +60,9 @@ async function runMonitor(request: Request) {
       status: "completed",
       summary: JSON.stringify(snapshotWithNotification)
     });
-    return NextResponse.json(snapshotWithNotification);
+    const deliveryFailed = notification.configured && !notification.sent
+      && ["http_error", "receipt_missing", "timeout", "send_failed"].includes(notification.reason);
+    return NextResponse.json(snapshotWithNotification, { status: deliveryFailed ? 502 : 200 });
   } catch (error: any) {
     const failureSnapshot = {
       generatedAt: new Date().toISOString(),
@@ -110,7 +114,7 @@ async function buildOperationalSnapshot(
 ) {
   const thresholds = getAgentThresholds();
   const since = new Date(Date.now() - thresholds.windowHours * 60 * 60 * 1000).toISOString();
-  const [apiErrors, aiUsage, pendingApprovals, approvalGateSummary, telemetryRows, latestPubgStatus, deploymentHealth, trafficSummary, dataQualityAudit] = await Promise.all([
+  const [apiErrors, aiUsage, pendingApprovals, approvalGateSummary, telemetryRows, latestPubgStatus, deploymentHealth, trafficSummary, dataQualityAudit, matchCollection] = await Promise.all([
     fetchApiErrors(supabase, since),
     fetchAiUsage(supabase, since),
     fetchApprovalQueueSummary(supabase),
@@ -119,7 +123,8 @@ async function buildOperationalSnapshot(
     fetchLatestPubgStatus(supabase),
     fetchVercelDeploymentHealth(),
     buildTrafficSummary(supabase, thresholds.windowHours),
-    fetchDataQualityAudit(supabase)
+    fetchDataQualityAudit(supabase),
+    fetchMatchCollectionProgress(supabase)
   ]);
   const dataQualityApproval = await ensureDataQualityApproval(supabase, dataQualityAudit, options);
 
@@ -150,12 +155,36 @@ async function buildOperationalSnapshot(
       }
     });
   }
-  if (apiErrors.total > 0) {
+  if (apiErrors.error) {
+    alerts.push({
+      type: "api_errors_unavailable",
+      severity: "warn",
+      message: "PUBG API 오류 집계를 불러오지 못했습니다. 오류 수가 0건이라는 뜻은 아닙니다."
+    });
+  }
+  if (apiErrors.actionableTotal > 0) {
     alerts.push({
       type: "api_errors",
-      severity: apiErrors.total >= thresholds.apiErrorsCritical ? "critical" : "warn",
-      message: `최근 ${thresholds.windowHours}시간 PUBG API 에러 ${apiErrors.total}건 감지`,
-      value: apiErrors.byStatus
+      severity: getApiErrorSeverity(apiErrors, thresholds.apiErrorsCritical),
+      message: `최근 ${thresholds.windowHours}시간 PUBG API 확인 필요 ${apiErrors.actionableTotal}건 (서버 오류 ${apiErrors.serverErrorCount}건, 429 ${apiErrors.rateLimitedCount}건, 기타 요청 오류 ${apiErrors.otherClientErrorCount}건)`,
+      value: {
+        byStatus: apiErrors.byStatus,
+        expected404And409: apiErrors.expectedCount
+      }
+    });
+  }
+  if (matchCollection.available && matchCollection.stalled) {
+    alerts.push({
+      type: "match_collection_stalled",
+      severity: "warn",
+      message: `매치 수집 대기 ${matchCollection.waitingCount}건 중 1시간 넘은 항목이 있고, 해당 항목이 등록된 뒤 저장 기록이 없습니다. 수집 정체 여부를 확인하세요.`,
+      value: matchCollection
+    });
+  } else if (!matchCollection.available) {
+    alerts.push({
+      type: "match_collection_unavailable",
+      severity: "warn",
+      message: "매치 수집 대기열과 마지막 저장 시각을 확인하지 못했습니다. 대기 건수가 0이라는 뜻은 아닙니다."
     });
   }
   if (aiUsage.totalCostUsd > thresholds.aiCostWarnUsd) {
@@ -227,7 +256,7 @@ async function buildOperationalSnapshot(
     staleApprovals: pendingApprovals.staleCount,
     highRiskApprovals: pendingApprovals.highRiskCount,
     failedRuns: 0,
-    apiErrors: apiErrors.total,
+    apiErrors: apiErrors.serverErrorCount + apiErrors.otherClientErrorCount,
     aiCost: aiUsage.totalCostUsd,
     deploymentHealth,
     contentRecommendations: [],
@@ -238,7 +267,7 @@ async function buildOperationalSnapshot(
     pendingApprovals,
     approvalGateSummary,
     failedRuns: { count: 0 },
-    apiErrors,
+    apiErrors: { total: apiErrors.serverErrorCount + apiErrors.otherClientErrorCount },
     aiUsage,
     deploymentSeverity: deploymentHealth.severity,
     nextActions,
@@ -299,6 +328,7 @@ async function buildOperationalSnapshot(
     severity,
     alerts,
     apiErrors,
+    matchCollection,
     aiUsage,
     pendingApprovals,
     approvalGateSummary,
@@ -348,6 +378,9 @@ function buildRecommendations(alerts: MonitorAlert[], dailyCheckout?: { status: 
   return [
     ...alerts.map((alert) => {
       if (alert.type === "api_errors") return "PUBG API 에러가 감지되었습니다. /admin/bot에서 route/status별 원인을 확인하세요.";
+      if (alert.type === "api_errors_unavailable") return "오류 집계가 확인되지 않았습니다. /admin/bot의 최근 실행 기록과 PUBG API 오류 기록을 확인하세요.";
+      if (alert.type === "match_collection_stalled") return "전적 수집 대기열과 마지막 저장 시각을 확인하세요. 대기 건수만으로는 수집 완료 여부를 판단할 수 없습니다.";
+      if (alert.type === "match_collection_unavailable") return "전적 수집 상태를 확인하지 못했습니다. Supabase 연결과 pubg_player_match_discovery 테이블 접근을 확인하세요.";
       if (alert.type === "ai_cost") return "AI 비용이 임계치를 넘었습니다. 고비용 모델/분석 타입을 점검하세요.";
       if (alert.type === "pending_approvals") return "승인 대기 작업이 있습니다. /admin/bot 승인 패널에서 오래된 작업과 high risk 작업부터 검토하세요.";
       if (alert.type === "approval_gate_block") return "Execution Gate block 요청이 있습니다. 필수 대상값 누락을 해결하기 전에는 승인하지 마세요.";
@@ -388,15 +421,22 @@ function buildMonitorDiscordContent(snapshot: any): string {
   ));
 
   return [
-    `**BGMS 운영 점검 알림 · ${monitorSeverityLabel(severity)}**`,
+    `**BGMS 운영 신호 점검 · ${monitorSeverityLabel(severity)}**`,
+      `범위: 최근 ${Number.isFinite(snapshot.windowHours) ? snapshot.windowHours : "확인 불가"}시간 · CI 상태와 별도인 운영 점검입니다.`,
     "",
     "**현재 문제**",
     ...(lines.length ? lines : ["- 감지된 운영 경고가 없습니다."]),
     ...(checkout ? [
       "",
-      `**마감 상태**: ${cleanDiscordLine(checkout.label || checkout.status)} (${checkout.score ?? "-"}/100)`,
-      checkout.summary ? `- ${cleanDiscordLine(checkout.summary)}` : "",
+      `**운영 점검 참고값**: ${checkout.status === "blocked" ? "확인 필요" : checkout.status === "attention" ? "주의" : checkout.status === "clear" ? "양호" : "확인 불가"}`,
+      Number.isFinite(checkout.score) ? `- 점검 참고 점수 ${checkout.score}/100` : "- 점검 점수: 확인 불가",
     ] : []),
+    ...(snapshot.matchCollection?.available ? [
+      "",
+      `**전적 수집**: 대기 ${snapshot.matchCollection.waitingCount}건 · worker 처리 중 ${snapshot.matchCollection.runningCount}건 · 상태 ${snapshot.matchCollection.stalled ? "정체 의심" : snapshot.matchCollection.runningCount > 0 ? "처리 중" : snapshot.matchCollection.waitingCount > 0 ? "대기/재시도" : "대기 없음"}`,
+      `- 마지막 저장: ${snapshot.matchCollection.lastSavedAt || "저장 기록 없음"}`,
+      `- 마지막 저장/미취득 처리: ${snapshot.matchCollection.lastProgressAt || "처리 기록 없음"}`,
+    ] : ["", "**전적 수집**: 상태 확인 불가 (대기 0건으로 단정하지 않음)" ]),
     ...(ownerBrief ? [
       "",
       `**운영 요약**: ${cleanDiscordLine(ownerBrief.headline)}`,
@@ -417,7 +457,7 @@ function buildMonitorDiscordContent(snapshot: any): string {
       `**참고 절차**: ${cleanDiscordLine(snapshot.playbooks[0].title)}`,
     ] : []),
     "",
-    "확인 위치: `/admin/bot` 승인 패널 및 최근 실행 기록",
+    "확인 위치: `/admin/bot` 최근 운영 점검·오류 기록",
   ].filter(Boolean).join("\n").slice(0, 1900);
 }
 
@@ -439,17 +479,43 @@ async function sendDiscordMonitorAlert(snapshot: any, supabase?: any) {
       };
     }
 
-    await fetch(webhookUrl, {
+    const deliveryUrl = new URL(webhookUrl);
+    deliveryUrl.searchParams.set("wait", "true");
+    const response = await fetch(deliveryUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        content: buildMonitorDiscordContent(snapshot)
-      })
+        content: buildMonitorDiscordContent(snapshot),
+        allowed_mentions: { parse: [] }
+      }),
+      signal: AbortSignal.timeout(8_000)
     });
-    return { provider: "discord", configured: true, sent: true, reason: "alert_sent" };
+    if (!response.ok) {
+      return {
+        provider: "discord",
+        configured: true,
+        sent: false,
+        reason: "http_error",
+        httpStatus: response.status
+      };
+    }
+    const receipt = await response.json().catch(() => null);
+    if (typeof receipt?.id !== "string" || !receipt.id) {
+      return { provider: "discord", configured: true, sent: false, reason: "receipt_missing", httpStatus: response.status };
+    }
+    return {
+      provider: "discord",
+      configured: true,
+      sent: true,
+      reason: "alert_sent",
+      httpStatus: response.status,
+      messageId: receipt.id,
+      deliveredAt: new Date().toISOString()
+    };
   } catch (error: any) {
-    console.warn("[ADMIN-AGENT] Discord monitor alert failed:", error.message || error);
-    return { provider: "discord", configured: true, sent: false, reason: "send_failed", error: error.message || String(error) };
+    const timedOut = error?.name === "TimeoutError" || error?.name === "AbortError";
+    console.warn("[ADMIN-AGENT] Discord monitor alert failed:", timedOut ? "timeout" : "request_failed");
+    return { provider: "discord", configured: true, sent: false, reason: timedOut ? "timeout" : "send_failed" };
   }
 }
 
@@ -554,6 +620,7 @@ async function findRecentDiscordAlert(supabase: any, snapshot: any) {
   const recent = (data || []).find((run: any) => {
     const parsed = parseJson(run.summary);
     return parsed?.notification?.sent === true
+      && typeof parsed?.notification?.messageId === "string"
       && parsed?.severity === snapshot.severity
       && getAlertSignature(parsed) === currentSignature;
   });
@@ -583,34 +650,105 @@ function numberEnv(name: string, fallback: number) {
 }
 
 async function fetchApiErrors(supabase: any, since: string) {
-  const [countResult, latestResult] = await Promise.all([
+  const [countResult, clientResult, expectedResult404, expectedResult409, rateLimitResult, serverResult, latestResult] = await Promise.all([
     supabase
       .from("pubg_api_errors")
       .select("id", { count: "exact", head: true })
       .gte("created_at", since),
     supabase
       .from("pubg_api_errors")
-      .select("route, status, message, created_at")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", since)
+      .gte("status", 400)
+      .lt("status", 500),
+    supabase
+      .from("pubg_api_errors")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", since)
+      .eq("status", 404)
+      .eq("error_code", "PUBG_MATCH_NOT_FOUND")
+      .eq("route", "/api/pubg/match")
+      .eq("source", "user"),
+    supabase
+      .from("pubg_api_errors")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", since)
+      .eq("status", 409)
+      .eq("error_code", "PUBG_MATCH_ANALYSIS_IN_PROGRESS")
+      .eq("route", "/api/pubg/match")
+      .eq("source", "user"),
+    supabase
+      .from("pubg_api_errors")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", since)
+      .eq("status", 429),
+    supabase
+      .from("pubg_api_errors")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", since)
+      .gte("status", 500),
+    supabase
+      .from("pubg_api_errors")
+      .select("route, status, error_code, failure_stage, source, created_at")
       .gte("created_at", since)
       .order("created_at", { ascending: false })
       .limit(200)
   ]);
 
-  if (countResult.error || latestResult.error) {
-    return { total: 0, error: countResult.error?.message || latestResult.error?.message };
+  const error = countResult.error || clientResult.error || expectedResult404.error || expectedResult409.error || rateLimitResult.error || serverResult.error || latestResult.error;
+  if (error) {
+    return { total: 0, actionableTotal: 0, expectedCount: 0, rateLimitedCount: 0, serverErrorCount: 0, otherClientErrorCount: 0, byStatus: {}, error: "PUBG API error metrics unavailable" };
   }
 
   const data = latestResult.data || [];
-  const byStatus: Record<string, number> = {};
-  data.forEach((row: any) => {
-    const key = String(row.status || "unknown");
-    byStatus[key] = (byStatus[key] || 0) + 1;
-  });
   return {
-    total: typeof countResult.count === "number" ? countResult.count : data.length,
-    byStatus,
+    ...buildApiErrorSummary({
+      total: typeof countResult.count === "number" ? countResult.count : data.length,
+      expectedCount: (expectedResult404.count || 0) + (expectedResult409.count || 0),
+      rateLimitedCount: rateLimitResult.count || 0,
+      serverErrorCount: serverResult.count || 0,
+      otherClientErrorCount: Math.max(0, (clientResult.count || 0) - (expectedResult404.count || 0) - (expectedResult409.count || 0) - (rateLimitResult.count || 0)),
+      rows: data
+    }),
     latest: data.slice(0, 5)
   };
+}
+
+async function fetchMatchCollectionProgress(supabase: any) {
+  const activeStates = ["pending", "retry"];
+  const now = new Date().toISOString();
+  const [waiting, running, oldestWaiting, latestSettled, latestSaved, latestRetry, ready, expired, oldestExpired] = await Promise.all([
+    supabase.from("pubg_player_match_discovery").select("match_id", { count: "exact", head: true }).in("state", activeStates),
+    supabase.from("pubg_player_match_discovery").select("match_id", { count: "exact", head: true }).eq("state", "running").gt("lease_expires_at", now),
+    supabase.from("pubg_player_match_discovery").select("first_seen_at").in("state", activeStates).lte("next_attempt_at", now).order("first_seen_at", { ascending: true }).limit(1),
+    supabase.from("pubg_player_match_discovery").select("next_attempt_at, saved_at, state").in("state", ["saved", "unavailable"]).order("next_attempt_at", { ascending: false }).limit(1),
+    supabase.from("pubg_player_match_discovery").select("saved_at").eq("state", "saved").order("saved_at", { ascending: false }).limit(1),
+    supabase.from("pubg_player_match_discovery").select("next_attempt_at").eq("state", "retry").order("next_attempt_at", { ascending: false }).limit(1),
+    supabase.from("pubg_player_match_discovery").select("match_id", { count: "exact", head: true }).in("state", activeStates).lte("next_attempt_at", now),
+    supabase.from("pubg_player_match_discovery").select("match_id", { count: "exact", head: true }).eq("state", "running").lte("lease_expires_at", now),
+    supabase.from("pubg_player_match_discovery").select("first_seen_at").eq("state", "running").lte("lease_expires_at", now).order("first_seen_at", { ascending: true }).limit(1)
+  ]);
+  if ([waiting, running, oldestWaiting, latestSettled, latestSaved, latestRetry, ready, expired, oldestExpired].some((result) => result.error)) {
+    return { available: false as const, status: "unknown" as const };
+  }
+
+  const waitingCount = Number(waiting.count || 0) + Number(expired.count || 0);
+  const runningCount = Number(running.count || 0);
+  const oldestQueuedAt = [oldestWaiting.data?.[0]?.first_seen_at, oldestExpired.data?.[0]?.first_seen_at]
+    .filter((value): value is string => typeof value === "string" && Number.isFinite(Date.parse(value)))
+    .sort()[0] || null;
+  const lastSavedAt = latestSaved.data?.[0]?.saved_at || null;
+  const lastProgressAt = latestSettled.data?.[0]?.next_attempt_at || null;
+  const lastRetryScheduledAt = latestRetry.data?.[0]?.next_attempt_at || null;
+  return buildMatchCollectionProgress({
+    waitingCount,
+    runningCount,
+    readyCount: Number(ready.count || 0) + Number(expired.count || 0),
+    oldestQueuedAt,
+    lastSavedAt,
+    lastProgressAt,
+    lastRetryScheduledAt
+  });
 }
 
 async function fetchAiUsage(supabase: any, since: string) {

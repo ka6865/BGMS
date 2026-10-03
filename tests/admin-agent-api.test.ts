@@ -3536,7 +3536,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
         { type: "approval_gate_block", severity: "critical" },
         { type: "pubg_quota", severity: "critical" }
       ],
-      notification: { provider: "discord", sent: true }
+      notification: { provider: "discord", sent: true, messageId: "discord-message-previous" }
     });
     tables.agent_runs = chain({
       data: [{ summary: recentSummary, completed_at: new Date().toISOString() }],
@@ -3598,7 +3598,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
         error: null
       }
     });
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ id: "discord-message-123" }) });
     vi.stubGlobal("fetch", fetchMock);
     mockAdminAuth();
 
@@ -3609,17 +3609,71 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     expect(body.notification).toEqual(expect.objectContaining({
       configured: true,
       sent: true,
-      reason: "alert_sent"
+      reason: "alert_sent",
+      httpStatus: 200,
+      messageId: "discord-message-123",
+      deliveredAt: expect.any(String)
     }));
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const payload = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const [requestUrl, requestInit] = fetchMock.mock.calls[0];
+    expect(new URL(String(requestUrl)).searchParams.get("wait")).toBe("true");
+    expect(requestInit.signal).toBeInstanceOf(AbortSignal);
+    const payload = JSON.parse(requestInit.body as string);
     expect(payload.content).toContain("현재 문제");
-    expect(payload.content).toContain("**마감 상태**:");
+    expect(payload.content).toContain("최근 24시간");
+    expect(payload.content).toContain("CI 상태와 별도인 운영 점검입니다");
+    expect(payload.content).toContain("**운영 점검 참고값**:");
+    expect(payload.content).not.toContain("**마감 차단**");
+    expect(payload.content).not.toContain("webhook");
     expect(payload.content).toContain("**운영 요약**:");
     expect(payload.content).toContain("지금 할 일:");
     expect(payload.content).toContain("**승인 차단**: 1건");
     expect(payload.content).toContain("다음 조치");
     expect(payload.content).toContain("확인 위치: `/admin/bot`");
+  });
+
+  it("Discord monitor 전송이 HTTP 오류이면 sent=false로 기록하고 응답 본문은 저장하지 않는다", async () => {
+    process.env.DISCORD_WEBHOOK_URL = "https://discord.example/webhook/secret-key";
+    tables.agent_runs = chain({
+      data: [],
+      insertSingle: { data: { id: "monitor-run" }, error: null },
+      updateResult: { data: null, error: null }
+    });
+    tables.agent_approvals = chain({
+      data: [{ id: "approval-cache", action_type: "flush_match_cache", status: "pending", payload: {}, created_at: new Date().toISOString() }]
+    });
+    tables.pubg_api_status = chain({ maybeSingle: { data: { api_limit: 1000, remaining: 25, reset_at: null }, error: null } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503, text: async () => "secret response body" }));
+    mockAdminAuth();
+
+    const response = await monitorPOST(new Request("http://localhost/api/admin/agent/monitor", { method: "POST" })) as Response;
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(body.notification).toEqual(expect.objectContaining({
+      configured: true,
+      sent: false,
+      reason: "http_error",
+      httpStatus: 503
+    }));
+    expect(JSON.stringify(body)).not.toContain("secret-key");
+    expect(JSON.stringify(body)).not.toContain("secret response body");
+  });
+
+  it("Discord monitor 요청 타임아웃은 sent=false로 기록하고 webhook 주소를 노출하지 않는다", async () => {
+    process.env.DISCORD_WEBHOOK_URL = "https://discord.example/webhook/secret-key";
+    tables.agent_runs = chain({ data: [], insertSingle: { data: { id: "monitor-run" }, error: null } });
+    tables.agent_approvals = chain({ data: [{ id: "approval-cache", action_type: "flush_match_cache", status: "pending", payload: {}, created_at: new Date().toISOString() }] });
+    tables.pubg_api_status = chain({ maybeSingle: { data: { api_limit: 1000, remaining: 25, reset_at: null }, error: null } });
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new DOMException("timed out", "TimeoutError")));
+    mockAdminAuth();
+
+    const response = await monitorPOST(new Request("http://localhost/api/admin/agent/monitor", { method: "POST" })) as Response;
+    const body = await response.json();
+
+    expect(response.status).toBe(502);
+    expect(body.notification).toEqual(expect.objectContaining({ configured: true, sent: false, reason: "timeout" }));
+    expect(JSON.stringify(body)).not.toContain("secret-key");
   });
 
   it("POST /content-drafts는 게시글을 직접 발행하지 않고 create_board_post 승인 요청을 만든다", async () => {
@@ -3869,6 +3923,8 @@ function chain(options: {
     neq: vi.fn(() => query),
     gte: vi.fn(() => query),
     lt: vi.fn(() => query),
+    gt: vi.fn(() => query),
+    lte: vi.fn(() => query),
     in: vi.fn(() => query),
     or: vi.fn(() => query),
     order: vi.fn(() => query),

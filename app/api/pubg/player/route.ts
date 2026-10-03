@@ -16,7 +16,7 @@ import {
 import type { PlayerStatsResponse, StatsMode } from "@/types/stats-page";
 import { createPlayerApiClient, PlayerApiError } from "@/lib/pubg/playerApiClient";
 import {
-  isRecord, isPlayerPayload, isSeasonList, isSeasonsPayload,
+  isRecord, isPlayerPayload, playerPayloadIssue, isSeasonList, isSeasonsPayload,
   isNormalPayload, isRankedPayload, selectPlayerModeBuckets, validatedCachedBuckets,
   type PlayerModeBuckets, type PubgNormalPayload, type PubgSeason,
 } from "@/lib/pubg/playerPayload";
@@ -268,7 +268,8 @@ export async function GET(request: Request) {
         route: "/api/pubg/player",
         status: failure?.upstreamStatus === 429 ? 429 : 503,
         message: failure?.message || "플레이어 전적 조회를 완료하지 못했습니다.",
-        detail: JSON.stringify({ contentType: failure?.contentType ?? null, responseBytes: failure?.responseBytes ?? null }),
+        detail: JSON.stringify({ contentType: failure?.contentType ?? null, responseBytes: failure?.responseBytes ?? null,
+          validationIssue: failure?.validationIssue ?? null }),
         context: {
           failureStage: failure?.stage ?? "player_route",
           errorCode: failure?.errorCode ?? "PLAYER_LOOKUP_FAILED",
@@ -292,10 +293,10 @@ export async function GET(request: Request) {
     };
     let playerData;
     try {
-      playerData = await api.read(playerUrl(targetNickname), { stage: "player", validate: isPlayerPayload });
+      playerData = await api.read(playerUrl(targetNickname), { stage: "player", validate: isPlayerPayload, invalidShapeReason: playerPayloadIssue });
     } catch (error) {
       if (error instanceof PlayerApiError && error.upstreamStatus === 404 && targetNickname !== nickname) {
-        playerData = await api.read(playerUrl(nickname), { stage: "player", validate: isPlayerPayload });
+        playerData = await api.read(playerUrl(nickname), { stage: "player", validate: isPlayerPayload, invalidShapeReason: playerPayloadIssue });
       } else throw error;
     }
     const playerRecord = playerData.data.find((player) => player.attributes.name.toLowerCase() === nickname.toLowerCase());

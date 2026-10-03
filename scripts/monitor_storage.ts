@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { getR2BucketUsage } from '../lib/pubg-analysis/r2Service';
 import dotenv from 'dotenv';
 import path from 'path';
 import {
@@ -12,11 +12,6 @@ dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-const r2Endpoint = process.env.CLOUDFLARE_R2_ENDPOINT;
-const r2AccessKey = process.env.CLOUDFLARE_R2_ACCESS_KEY_ID;
-const r2SecretKey = process.env.CLOUDFLARE_R2_SECRET_ACCESS_KEY;
-const r2BucketName = process.env.CLOUDFLARE_R2_BUCKET_NAME || 'telemetry';
 
 const DB_LIMIT_BYTES = getSupabaseDatabaseLimitBytes();
 const R2_LIMIT_BYTES = R2_FREE_STORAGE_LIMIT_BYTES;
@@ -55,47 +50,19 @@ async function getDatabaseSize(): Promise<number> {
     auth: { autoRefreshToken: false, persistSession: false }
   });
 
-  const { data, error } = await supabase.rpc('get_db_size');
+  const { data, error } = await supabase.rpc('get_db_size').abortSignal(AbortSignal.timeout(30_000));
   if (error) {
     throw error;
   }
-  return Number(data);
+  const bytes = Number(data);
+  if (data === null || !Number.isFinite(bytes) || bytes < 0) throw new Error('database-size-invalid');
+  return bytes;
 }
 
 async function getR2BucketSize(): Promise<number> {
-  if (!r2Endpoint || !r2AccessKey || !r2SecretKey) {
-    throw new Error('Cloudflare R2 credentials are missing');
-  }
-
-  const s3 = new S3Client({
-    region: 'auto',
-    endpoint: r2Endpoint,
-    credentials: {
-      accessKeyId: r2AccessKey,
-      secretAccessKey: r2SecretKey,
-    },
-    forcePathStyle: true,
-  });
-
-  let totalSize = 0;
-  let continuationToken: string | undefined = undefined;
-
-  do {
-    const command: ListObjectsV2Command = new ListObjectsV2Command({
-      Bucket: r2BucketName,
-      ContinuationToken: continuationToken,
-    });
-
-    const response = await s3.send(command);
-    if (response.Contents) {
-      for (const item of response.Contents) {
-        totalSize += item.Size || 0;
-      }
-    }
-    continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
-  } while (continuationToken);
-
-  return totalSize;
+  const usage = await getR2BucketUsage();
+  if (!usage.configured || usage.truncated) throw new Error('r2-size-unavailable-or-incomplete');
+  return usage.totalSizeBytes;
 }
 
 async function main() {
@@ -108,8 +75,9 @@ async function main() {
     console.log(`\x1b[1m[Database Size]\x1b[0m`);
     console.log(`  - Used: ${formatBytes(dbSize)} / ${formatBytes(DB_LIMIT_BYTES)} (${dbUsagePercent.toFixed(2)}%)`);
     console.log(`  - Status: ${getStatusLabel(dbUsagePercent)}`);
-  } catch (err: any) {
-    console.error(`❌ DB 용량 조회 실패: ${err.message}`);
+  } catch {
+    console.error('DB 용량 측정 불가 · 정상 용량으로 판단하지 않습니다.');
+    process.exitCode = 1;
   }
 
   console.log('');
@@ -121,8 +89,9 @@ async function main() {
     console.log(`\x1b[1m[Cloudflare R2 Bucket Size]\x1b[0m`);
     console.log(`  - Used: ${formatBytes(r2Size)} / ${formatBytes(R2_LIMIT_BYTES)} (${r2UsagePercent.toFixed(2)}%)`);
     console.log(`  - Status: ${getStatusLabel(r2UsagePercent)}`);
-  } catch (err: any) {
-    console.error(`❌ Cloudflare R2 용량 조회 실패: ${err.message}`);
+  } catch {
+    console.error('R2 용량 측정 불가 또는 일부만 조회됨 · 정상 용량으로 판단하지 않습니다.');
+    process.exitCode = 1;
   }
 
   console.log(`\x1b[1;36m===============================================================\x1b[0m\n`);
