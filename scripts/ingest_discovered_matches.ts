@@ -27,9 +27,15 @@ export function parseDiscoveryWorkerArgs(args: string[]): DiscoveryWorkerArgs {
   };
 }
 
+export function assertDiscoveryWorkerApiKey(options: DiscoveryWorkerArgs, key: string): void {
+  if (options.apply && !options.seedCache && !key.trim()) throw new Error('discovery-worker-api-key-missing');
+}
+
 export async function main(args=process.argv.slice(2)) {
   dotenv.config({path:'.env.local',quiet:true});
   const options=parseDiscoveryWorkerArgs(args);
+  const key=(process.env.PUBG_API_KEY ?? '').split(' ')[0].trim();
+  assertDiscoveryWorkerApiKey(options,key);
   const db=discoveryClient();
   const {apply,nickname}=options;
   if(options.seedCache) {
@@ -59,7 +65,6 @@ export async function main(args=process.argv.slice(2)) {
     if(pendingResult.error || readyResult.error) throw new Error('discovery-read-failed');
     return {mode:'dry-run',pending:pendingResult.count,oldestReadyAt:readyResult.data?.[0]?.next_attempt_at ?? null};
   }
-  const key=(process.env.PUBG_API_KEY ?? '').split(' ')[0];
   return runDiscoveryWorker({
     limit:options.limit,
     claim:limit=>claimDiscoveredMatches(db,limit),

@@ -11,8 +11,9 @@
  *   comments        4건
  *   pending_markers 2건
  *
- * 분석 캐시(match_stats_raw, processed_match_telemetry 등)는 PUBG API 로
- * 재생성 가능하므로 대상이 아닙니다. 다만 global_benchmarks 는 복구 기준
+ * 분석 캐시(match_stats_raw, processed_match_telemetry 등)는 용량 때문에
+ * 대상에서 제외합니다. PUBG의 14일 보존 범위를 넘긴 원본은 다시 받을 수
+ * 없으므로 캐시를 모두 재생성할 수 있다고 가정하지 않습니다. global_benchmarks 는 복구 기준
  * 데이터이므로 별도로 보호합니다.
  *
  * 저장 위치는 R2 의 backups/ 경로이고 gzip 압축됩니다. R2 정리 작업이
@@ -66,6 +67,7 @@ export type BackupResult = {
   tables: TableBackupResult[];
   totalRows: number;
   dryRun: boolean;
+  complete: boolean;
 };
 
 type TableReader = Pick<SupabaseClient, "from">;
@@ -82,11 +84,20 @@ export async function readTableRows(
 ): Promise<{ rows: unknown[]; skipped: boolean; error: string | null }> {
   const rows: unknown[] = [];
 
-  for (let from = 0; from < MAX_ROWS_PER_TABLE; from += PAGE_SIZE) {
-    const { data, error } = await supabase
-      .from(table)
-      .select("*")
-      .range(from, from + PAGE_SIZE - 1);
+  // Every listed table has a unique key. Pagination without ordering can
+  // duplicate or omit rows even when each request succeeds.
+  const orderColumn = table === "map_settings" ? "map_id"
+    : table === "weapon_meta_patches" ? "version" : "id";
+  for (let from = 0; from <= MAX_ROWS_PER_TABLE; from += PAGE_SIZE) {
+    let result;
+    try {
+      result = await supabase.from(table).select("*").order(orderColumn)
+        .range(from, from === MAX_ROWS_PER_TABLE ? from : from + PAGE_SIZE - 1)
+        .abortSignal(AbortSignal.timeout(30_000));
+    } catch {
+      return { rows, skipped: from === 0, error: "backup-table-read-failed" };
+    }
+    const { data, error } = result;
 
     if (error) {
       // 첫 페이지부터 실패하면 테이블 자체를 읽을 수 없는 상황이다.
@@ -94,12 +105,23 @@ export async function readTableRows(
       return { rows, skipped: false, error: error.message };
     }
     if (!data || data.length === 0) break;
+    if (from === MAX_ROWS_PER_TABLE) {
+      return { rows, skipped: false, error: "backup-row-limit-exceeded" };
+    }
 
     rows.push(...data);
     if (data.length < PAGE_SIZE) break;
   }
 
   return { rows, skipped: false, error: null };
+}
+
+/** Keep a partial recovery file, but never report it as a complete backup. */
+export function assertBackupComplete(result: BackupResult): void {
+  if (!result.complete) {
+    throw new Error(`backup-core-tables-incomplete: ${result.tables
+      .filter(table => table.skipped || table.error).map(table => table.table).join(",")}`);
+  }
 }
 
 /** 백업 파일 키를 만듭니다. 날짜순으로 정렬되도록 ISO 형식을 씁니다. */
@@ -131,9 +153,10 @@ export async function backupCoreTables(
     write(`${table}: ${skipped ? "건너뜀" : `${rows.length.toLocaleString()}행`}${error ? ` (${error})` : ""}`);
   }
 
+  const complete = tables.every(table => !table.skipped && !table.error);
   if (dryRun) {
     write(`dry-run 이므로 업로드하지 않았습니다. 총 ${totalRows.toLocaleString()}행이 대상입니다.`);
-    return { key: null, createdAt: now.toISOString(), tables, totalRows, dryRun: true };
+    return { key: null, createdAt: now.toISOString(), tables, totalRows, dryRun: true, complete };
   }
 
   // 백업할 것이 없으면 빈 파일을 만들지 않는다. 조회가 전부 실패한 상황일 수 있다.
@@ -144,12 +167,13 @@ export async function backupCoreTables(
   const key = buildBackupKey(now);
   await upload(key, JSON.stringify({
     createdAt: now.toISOString(),
-    tables: tables.map(({ table, rowCount, skipped }) => ({ table, rowCount, skipped })),
+    complete,
+    tables,
     data: payload,
   }));
 
-  write(`백업 완료: ${key} (${totalRows.toLocaleString()}행)`);
-  return { key, createdAt: now.toISOString(), tables, totalRows, dryRun: false };
+  write(`${complete ? "백업 완료" : "부분 백업 저장 · 누락 테이블 확인 필요"}: ${key} (${totalRows.toLocaleString()}행)`);
+  return { key, createdAt: now.toISOString(), tables, totalRows, dryRun: false, complete };
 }
 
 async function runFromEnvironment(): Promise<void> {
@@ -174,7 +198,7 @@ async function runFromEnvironment(): Promise<void> {
       await uploadToR2(key, body, "application/json");
     };
 
-  await backupCoreTables(supabase, upload, { dryRun });
+  assertBackupComplete(await backupCoreTables(supabase, upload, { dryRun }));
 }
 
 const isDirectRun = Boolean(process.argv[1])

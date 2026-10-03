@@ -6,7 +6,7 @@ import { POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from '../lib/pubg-analysi
 import { BENCHMARK_FILTER_VERSION, BENCHMARK_POPULATION_EVIDENCE_VERSION } from '../lib/pubg-analysis/benchmarkLookup';
 import { getValidFullResult } from '../lib/pubg-analysis/cacheIdentity';
 import { normalizeName } from '../lib/pubg-analysis/utils';
-import { describeScraperRequestFailure, type ScraperRequestStage } from '../lib/pubg-analysis/scraperDiagnostics';
+import { describeScraperRequestFailure, scraperRequestRequiresAttention, type ScraperRequestStage } from '../lib/pubg-analysis/scraperDiagnostics';
 import { appendFileSync } from 'node:fs';
 
 // .env 및 .env.local 파일의 환경변수 로드
@@ -76,7 +76,10 @@ type ScraperCounters = {
 
 function logRequestFailure(stage: ScraperRequestStage, error: unknown, counters: ScraperCounters) {
   counters.failed += 1;
-  console.error("⚠️ 스크래퍼 요청 실패", JSON.stringify(describeScraperRequestFailure(stage, error)));
+  const failure = describeScraperRequestFailure(stage, error);
+  console.error("스크래퍼 요청 실패", JSON.stringify(failure));
+  if (scraperRequestRequiresAttention(failure)) process.exitCode = 1;
+  if (failure.status === 429) throw new Error("scraper-pubg-rate-limited");
 }
 
 function writeGithubOutput(counters: ScraperCounters) {
@@ -119,7 +122,7 @@ export async function scrapeEliteData() {
   try {
     let seasonRes;
     try {
-      seasonRes = await axios.get(`${BASE_URL}/seasons`, { headers: HEADERS });
+      seasonRes = await axios.get(`${BASE_URL}/seasons`, { headers: HEADERS, timeout: 10_000 });
     } catch (error) {
       logRequestFailure("season", error, counters);
       throw error;
@@ -141,7 +144,7 @@ export async function scrapeEliteData() {
       console.log(`📡 [${mode}] 리더보드 조회 중...`);
       try {
         // 1. 일반 리더보드
-        const leaderboardRes = await axios.get(`https://api.pubg.com/shards/pc-as/leaderboards/${seasonId}/${mode}`, { headers: HEADERS });
+        const leaderboardRes = await axios.get(`https://api.pubg.com/shards/pc-as/leaderboards/${seasonId}/${mode}`, { headers: HEADERS, timeout: 10_000 });
         const modePlayers = leaderboardRes.data.included?.filter((i: any) => i.type === "player").slice(0, PLAYER_LIMIT) || [];
         modePlayers.forEach((p: any) => playerPool.set(p.id, p.attributes.name));
         
@@ -163,7 +166,7 @@ export async function scrapeEliteData() {
 
       let matchIds: string[] = [];
       try {
-        const pDetails = await axios.get(`${BASE_URL}/players/${accountId}`, { headers: HEADERS });
+        const pDetails = await axios.get(`${BASE_URL}/players/${accountId}`, { headers: HEADERS, timeout: 10_000 });
         matchIds = pDetails.data.data.relationships.matches.data.slice(0, MATCH_LIMIT).map((m: any) => m.id);
       } catch (error) {
         logRequestFailure("player", error, counters);
@@ -231,7 +234,7 @@ export async function scrapeEliteData() {
           // [Step 3] 로컬/원격 서버 API 호출 (동기적으로 대기)
           const res = await axios.get(
             `${MATCH_API_URL}?matchId=${matchId}&nickname=${encodeURIComponent(nickname.trim())}&platform=steam&source=scraper${forceParam}`,
-            { headers: matchApiHeaders },
+            { headers: matchApiHeaders, timeout: 120_000 },
           );
           
           if (res.status === 200) {
@@ -249,7 +252,7 @@ export async function scrapeEliteData() {
                   await sleep(5000); // 샘플 참가자 분석 시 매치당 sleep 적용
                   await axios.get(
                     `${MATCH_API_URL}?matchId=${matchId}&nickname=${encodeURIComponent(sampleName)}&platform=steam&source=scraper`,
-                    { headers: MATCH_API_HEADERS },
+                    { headers: MATCH_API_HEADERS, timeout: 120_000 },
                   );
                   console.log(`         ✅ 샘플링 완료`);
                   counters.succeeded += 1;
@@ -277,7 +280,7 @@ export async function scrapeEliteData() {
   } finally {
     console.log("📊 스크래퍼 실행 요약", JSON.stringify(counters));
     writeGithubOutput(counters);
-    console.log("\n✨ 모든 작업이 완료되었습니다.");
+    console.log(process.exitCode ? "스크래퍼 일부 또는 전체 수집 실패 · 실행 로그 확인 필요" : "스크래퍼 실행 종료 · 성공/건너뜀 건수는 위 요약 참조");
   }
 }
 

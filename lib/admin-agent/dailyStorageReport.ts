@@ -11,6 +11,19 @@ export type DailyStorageReportInput = {
   runUrl: string;
 };
 
+export function requireCompleteDailyReportR2Usage(usage: {
+  configured: boolean;
+  truncated: boolean;
+  totalSizeBytes: number;
+}): number {
+  if (!usage.configured) throw new Error("daily-storage-report-r2-unconfigured");
+  if (usage.truncated) throw new Error("daily-storage-report-r2-truncated");
+  if (!Number.isFinite(usage.totalSizeBytes) || usage.totalSizeBytes < 0) {
+    throw new Error("daily-storage-report-r2-usage-invalid");
+  }
+  return usage.totalSizeBytes;
+}
+
 function formatMegabytes(bytes: number): string {
   return `${Math.round(bytes / (1024 * 1024))} MB`;
 }
@@ -30,11 +43,12 @@ export function buildDailyStorageReport(input: DailyStorageReportInput): string 
 
   return [
     "📦 **[BGMS 일일 데이터 점검]**",
-    `작업: ${input.maintenanceStatus}`,
+    `현재 단계 상태: ${input.maintenanceStatus} · 전체 유지보수와 매치 수집이 끝나기 전에 생성된 중간 보고입니다.`,
     `DB: ${formatMegabytes(input.databaseBytes)} / ${formatGigabytes(input.databaseLimitBytes)} (${percent(input.databaseBytes, input.databaseLimitBytes)})`,
     `R2: ${formatMegabytes(input.r2Bytes)} / ${formatGigabytes(input.r2LimitBytes)} (${percent(input.r2Bytes, input.r2LimitBytes)})`,
     `보존 매치: 분석 ${input.processedTelemetryRows.toLocaleString()} · 원본 ${input.masterTelemetryRows.toLocaleString()} · 벤치마커 ${input.benchmarkRows.toLocaleString()}`,
-    `수집: ${scraper}`,
+    `수집 단계 요약(현재까지): ${scraper}`,
+    "표시된 용량·건수는 보고 생성 시점 기준이며, 뒤이어 실행되는 전적 수집·정리 결과는 아직 포함되지 않았습니다.",
     `로그: ${input.runUrl}`,
     "AI 토큰 사용 없음 · 매치 티어/분석 DB 장기 보관",
   ].join("\n");

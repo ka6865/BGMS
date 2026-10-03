@@ -6,6 +6,12 @@ export type ScraperRequestFailure = {
   code: string;
 };
 
+export function scraperRequestRequiresAttention(failure: ScraperRequestFailure): boolean {
+  if (failure.stage === "leaderboard" && failure.status === 404) return false;
+  if (["match", "sample"].includes(failure.stage) && [404, 409].includes(failure.status ?? 0)) return false;
+  return true;
+}
+
 type AxiosLikeError = {
   code?: unknown;
   response?: {

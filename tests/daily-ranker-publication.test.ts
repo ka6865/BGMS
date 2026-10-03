@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   insertError: "" as string,
   raceRow: null as Record<string, any> | null,
   aiCalls: 0,
+  aiError: "" as string,
   evidenceCalls: 0,
   supabaseClientCalls: 0,
   boardStatus: {} as Record<string, number>,
@@ -41,6 +42,7 @@ vi.mock("@/lib/learn/dailyAi", () => ({
   DAILY_STORY_PROMPT_VERSION: "test-prompt",
   generateDailyAiStory: vi.fn(async () => {
     state.aiCalls++;
+    if (state.aiError) throw new Error(state.aiError);
     return { story: { headline: "test", conclusion: "test", points: [], scenes: [
       { id: "opening", kind: "opening" }, { id: "combat", kind: "combat" }, { id: "finish", kind: "finish" },
     ], schemaVersion: 2, evidenceVersion: 5, promptVersion: "test-prompt", selection: { usedFallback: false, rejectedReasons: [] } }, model: "mock" };
@@ -76,7 +78,7 @@ vi.mock("@/lib/pubg-analysis/telemetrySource", () => ({
 
 import {
   buildStoredStory, fallbackLeaderboardMode, isRateLimited, isWinningMatch,
-  publicationExitCode, publicationRepeatCount, publishDailyRankerStory,
+  formatPublicationSummary, publicationExitCode, publicationRepeatCount, publishDailyRankerStory,
   rankPublicationCandidates, recentKstStart,
 } from "@/scripts/publish_daily_ranker_story";
 
@@ -86,7 +88,11 @@ const env: NodeJS.ProcessEnv = {
 };
 const dayKst = "2026-09-23";
 
-function installApi(statusForBoard: number | null = null) {
+function installApi(
+  statusForBoard: number | null = null,
+  statusForMatch: number | null = null,
+  telemetryResponse: number | "malformed" | null = null,
+) {
   const fetchMock = vi.fn(async (input: string | URL | Request) => {
     const url = String(input);
     state.requests.push(url);
@@ -105,8 +111,15 @@ function installApi(statusForBoard: number | null = null) {
         relationships: { matches: { data: player.matchIds.map((id) => ({ id })) } },
       })) });
     }
-    if (parsed.pathname.includes("/matches/")) return Response.json(state.matches[parsed.pathname.split("/").at(-1)!]);
-    if (parsed.hostname === "telemetry.test") return Response.json([]);
+    if (parsed.pathname.includes("/matches/")) {
+      if (statusForMatch !== null) return new Response("{}", { status: statusForMatch });
+      return Response.json(state.matches[parsed.pathname.split("/").at(-1)!]);
+    }
+    if (parsed.hostname === "telemetry.test") {
+      if (telemetryResponse === "malformed") return new Response("{", { headers: { "content-type": "application/json" } });
+      if (typeof telemetryResponse === "number") return new Response("not found", { status: telemetryResponse });
+      return Response.json([]);
+    }
     throw new Error(`unexpected mocked URL: ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -130,6 +143,7 @@ function reset() {
   state.insertError = "";
   state.raceRow = null;
   state.aiCalls = 0;
+  state.aiError = "";
   state.evidenceCalls = 0;
   state.supabaseClientCalls = 0;
   state.boardStatus = {};
@@ -195,6 +209,48 @@ describe("daily ranker publication", () => {
     expect(rateLimited.mock.calls.some(([url]) => String(url).includes("/leaderboards/") && String(url).endsWith("/squad"))).toBe(false);
   });
 
+  it("keeps match API outages as failures while treating an unavailable match as an ordinary skip", async () => {
+    setupWinningMatch("duo", ["winner"]);
+    installApi(null, 503);
+    const failed = await publishDailyRankerStory({ day: dayKst, mode: "duo", apply: false, env });
+    expect(failed).toMatchObject({ state: "failed", error: expect.stringContaining("upstream_503") });
+
+    reset();
+    setupWinningMatch("duo", ["winner"]);
+    installApi(null, 404);
+    const skipped = await publishDailyRankerStory({ day: dayKst, mode: "duo", apply: false, env });
+    expect(skipped).toMatchObject({ state: "no_verified_candidate" });
+    expect(publicationExitCode(skipped)).toBe(0);
+  });
+
+  it("fails the mode for telemetry HTTP and malformed JSON errors instead of reporting no candidate", async () => {
+    for (const telemetryResponse of [404, "malformed"] as const) {
+      reset();
+      setupWinningMatch("duo", ["winner"]);
+      installApi(null, null, telemetryResponse);
+      const result = await publishDailyRankerStory({ day: dayKst, mode: "duo", apply: false, env });
+      expect(result).toMatchObject({ state: "failed", mode: "duo" });
+      expect(publicationExitCode(result)).toBe(1);
+    }
+  });
+
+  it("keeps AI provider outages red but defers invalid story output without failing the workflow", async () => {
+    setupWinningMatch("duo", ["winner"]);
+    installApi();
+    state.aiError = "model transport unavailable";
+    const failed = await publishDailyRankerStory({ day: dayKst, mode: "duo", apply: false, env });
+    expect(failed).toMatchObject({ state: "failed", error: "model transport unavailable" });
+    expect(publicationExitCode(failed)).toBe(1);
+
+    reset();
+    setupWinningMatch("duo", ["winner"]);
+    installApi();
+    state.aiError = "ai_json_invalid";
+    const deferred = await publishDailyRankerStory({ day: dayKst, mode: "duo", apply: false, env });
+    expect(deferred).toMatchObject({ state: "no_complete_story" });
+    expect(publicationExitCode(deferred)).toBe(0);
+  });
+
   it("treats a concurrent same-mode 23505 as success, but reports a match collision from another day", async () => {
     setupWinningMatch("duo", ["winner"]);
     installApi();
@@ -212,10 +268,22 @@ describe("daily ranker publication", () => {
     expect(collision).toMatchObject({ state: "failed", error: "daily_story_match_collision:match-1" });
   });
 
-  it("returns a failing CLI exit code for incomplete publications", () => {
-    expect(publicationExitCode([{ state: "published" }, { state: "no_verified_candidate" }])).toBe(1);
-    expect(publicationExitCode({ state: "no_complete_story" })).toBe(1);
+  it("treats no-candidate and no-story modes as normal partial publication outcomes", () => {
+    expect(publicationExitCode([{ state: "published" }, { state: "no_verified_candidate" }])).toBe(0);
+    expect(publicationExitCode({ state: "no_complete_story" })).toBe(0);
     expect(publicationExitCode([{ state: "published" }, { state: "already_published" }])).toBe(0);
+    expect(publicationExitCode({ state: "unsupported" })).toBe(0);
+  });
+
+  it("keeps provider and persistence failures red and reports each mode outcome", () => {
+    expect(publicationExitCode([{ state: "published" }, { state: "failed" }])).toBe(1);
+    expect(publicationExitCode({ state: "unexpected" })).toBe(1);
+    expect(formatPublicationSummary([
+      { state: "published", dayKst: dayKst, mode: "squad" },
+      { state: "no_verified_candidate", dayKst, mode: "duo" },
+    ])).toContain("검증된 우승 후보 없음 · 미발행");
+    expect(formatPublicationSummary([{ state: "failed", dayKst, mode: "duo" }]))
+      .toContain("API·AI·DB 처리 실패는 Actions 실패로 표시됩니다.");
   });
 
   it("accepts verified competitive wins for all modes", () => {

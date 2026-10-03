@@ -1,7 +1,7 @@
 name: PR Verify
 
-# PR 및 develop·main push 시 정적 검증과 단위 테스트만 실행한다.
-# 운영 DB, R2, 외부 API에는 접근하지 않는다.
+# PR 및 develop·main push 시 정적 검증, 단위 테스트, 격리 migration 검증, 운영 의존성 감사를 실행한다.
+# migration 검증은 일회용 PostgreSQL만 사용하며 운영 DB 자격 증명은 전달하지 않는다.
 on:
   pull_request:
     branches:
@@ -34,10 +34,12 @@ jobs:
       PUBG_API_KEY: ci-placeholder-pubg-key
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
           cache: 'npm'
@@ -50,3 +52,38 @@ jobs:
 
       - name: Unit Tests
         run: npm run test:unit
+
+  verify-migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Apply migrations and run isolated PostgreSQL scenarios
+        run: npm run verify:migrations
+
+  audit-production-dependencies:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high

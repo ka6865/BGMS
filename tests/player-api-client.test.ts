@@ -125,6 +125,21 @@ describe("createPlayerApiClient", () => {
     client.dispose();
   });
 
+  it.each(["player_matches_missing", "secret@example.com", "https://private.example/token"])(
+    "records only a bounded structural validation reason (%s)", async (reason) => {
+      fetchMock.mockResolvedValueOnce(jsonResponse({ id: 123, name: "private-name" }));
+      const client = createPlayerApiClient({ headers: {}, signal: new AbortController().signal });
+      const error = await client.read("https://api.pubg.com/players", {
+        stage: "player", validate: asPlayerPayload, invalidShapeReason: () => reason,
+      }).catch(error => error);
+      expect(error).toMatchObject({ errorCode: "invalid_shape",
+        validationIssue: reason === "player_matches_missing" ? reason : null });
+      expect(JSON.stringify(error)).not.toContain("private-name");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      client.dispose();
+    },
+  );
+
   it("checks HTTP status before body parsing and never retries 404 or 429", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse("not-json", 404, { "content-type": "text/plain" }));
     const client = createPlayerApiClient({ headers: {}, signal: new AbortController().signal });

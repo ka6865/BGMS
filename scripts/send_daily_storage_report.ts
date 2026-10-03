@@ -1,8 +1,40 @@
 import axios from "axios";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { getR2BucketUsage } from "../lib/pubg-analysis/r2Service";
 import { getSupabaseDatabaseLimitBytes, R2_FREE_STORAGE_LIMIT_BYTES } from "../lib/admin-agent/storage-limits";
-import { buildDailyStorageReport } from "../lib/admin-agent/dailyStorageReport";
+import { buildDailyStorageReport, requireCompleteDailyReportR2Usage } from "../lib/admin-agent/dailyStorageReport";
+
+export async function deliverDailyStorageReport(webhookUrl: string, message: string) {
+  let deliveryUrl: URL;
+  try {
+    deliveryUrl = new URL(webhookUrl);
+  } catch {
+    throw new Error("daily-storage-report-discord-url-invalid");
+  }
+  if (deliveryUrl.protocol !== "https:") throw new Error("daily-storage-report-discord-url-invalid");
+  deliveryUrl.searchParams.set("wait", "true");
+  let response;
+  try {
+    response = await axios.post(deliveryUrl.toString(), { content: message, allowed_mentions: { parse: [] } }, {
+      timeout: 8_000,
+      validateStatus: () => true,
+    });
+  } catch (error: any) {
+    if (error?.code === "ECONNABORTED" || error?.code === "ETIMEDOUT" || /timeout|timed out/i.test(String(error?.message || ""))) {
+      throw new Error("daily-storage-report-discord-timeout");
+    }
+    throw new Error("daily-storage-report-discord-request-failed");
+  }
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`daily-storage-report-discord-http-${response.status}`);
+  }
+  if (typeof response.data?.id !== "string" || !response.data.id) {
+    throw new Error("daily-storage-report-discord-receipt-missing");
+  }
+  return { status: response.status, messageId: response.data.id };
+}
 
 function asCount(value: string | undefined): number {
   const parsed = Number(value);
@@ -31,14 +63,12 @@ async function main() {
   if (processedResult.error || masterResult.error || benchmarkResult.error) {
     throw new Error("daily-storage-report-match-count-failed");
   }
-  if (!r2Usage.configured || r2Usage.truncated) {
-    throw new Error("daily-storage-report-r2-usage-unavailable");
-  }
+  const r2Bytes = requireCompleteDailyReportR2Usage(r2Usage);
 
   const message = buildDailyStorageReport({
     databaseBytes: Number(databaseResult.data),
     databaseLimitBytes: getSupabaseDatabaseLimitBytes(),
-    r2Bytes: r2Usage.totalSizeBytes,
+    r2Bytes,
     r2LimitBytes: R2_FREE_STORAGE_LIMIT_BYTES,
     processedTelemetryRows: processedResult.count ?? 0,
     masterTelemetryRows: masterResult.count ?? 0,
@@ -52,11 +82,13 @@ async function main() {
     runUrl: process.env.RUN_URL || "(실행 URL 없음)",
   });
 
-  await axios.post(webhookUrl, { content: message });
-  console.log("일일 DB/R2 점검 보고를 Discord에 전송했습니다.");
+  const receipt = await deliverDailyStorageReport(webhookUrl, message);
+  console.log("일일 DB/R2 점검 보고를 Discord에 전송했습니다.", { status: receipt.status, messageId: receipt.messageId });
 }
 
-main().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
+  main().catch((error: unknown) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

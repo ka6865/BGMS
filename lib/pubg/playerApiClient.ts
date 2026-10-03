@@ -24,6 +24,7 @@ export interface PlayerApiErrorFields {
   responseBytes: number | null;
   durationMs: number;
   retryAfterSeconds: number | null;
+  validationIssue?: string | null;
 }
 
 /** Structured upstream failure. The message never contains URL/body data. */
@@ -35,6 +36,7 @@ export class PlayerApiError extends Error implements PlayerApiErrorFields {
   readonly responseBytes: number | null;
   readonly durationMs: number;
   readonly retryAfterSeconds: number | null;
+  readonly validationIssue: string | null;
 
   constructor(fields: PlayerApiErrorFields) {
     super("PUBG player API request failed");
@@ -46,6 +48,7 @@ export class PlayerApiError extends Error implements PlayerApiErrorFields {
     this.responseBytes = fields.responseBytes;
     this.durationMs = fields.durationMs;
     this.retryAfterSeconds = fields.retryAfterSeconds;
+    this.validationIssue = fields.validationIssue ?? null;
   }
 }
 
@@ -53,6 +56,7 @@ export interface PlayerApiReadOptions<T> {
   stage: string;
   validate: (payload: unknown) => payload is T;
   timeoutMs?: number;
+  invalidShapeReason?: (payload: unknown) => string | null;
 }
 
 export interface PlayerApiClientOptions {
@@ -69,7 +73,7 @@ export interface PlayerApiClient {
 
 type ErrorDetails = Partial<Pick<
   PlayerApiErrorFields,
-  "upstreamStatus" | "contentType" | "responseBytes" | "retryAfterSeconds"
+  "upstreamStatus" | "contentType" | "responseBytes" | "retryAfterSeconds" | "validationIssue"
 >>;
 
 function makeError(stage: string, errorCode: PlayerApiErrorCode, startedAt: number, details: ErrorDetails = {}): PlayerApiError {
@@ -81,6 +85,7 @@ function makeError(stage: string, errorCode: PlayerApiErrorCode, startedAt: numb
     responseBytes: details.responseBytes ?? null,
     durationMs: Math.max(0, Date.now() - startedAt),
     retryAfterSeconds: details.retryAfterSeconds ?? null,
+    validationIssue: details.validationIssue ?? null,
   });
 }
 
@@ -300,7 +305,14 @@ export function createPlayerApiClient(options: PlayerApiClientOptions): PlayerAp
         } catch {
           valid = false;
         }
-        if (!valid) throw makeError(stage, "invalid_shape", startedAt, { upstreamStatus: status, contentType, responseBytes });
+        if (!valid) {
+          let validationIssue: string | null = null;
+          try {
+            const reason = readOptions.invalidShapeReason?.(payload);
+            if (typeof reason === "string" && /^[a-z_]{1,60}$/.test(reason)) validationIssue = reason;
+          } catch { /* Diagnostics must not change the validation result. */ }
+          throw makeError(stage, "invalid_shape", startedAt, { upstreamStatus: status, contentType, responseBytes, validationIssue });
+        }
         if (interrupted()) throw interruption(stage, startedAt);
         return payload as T;
       } catch (caught) {

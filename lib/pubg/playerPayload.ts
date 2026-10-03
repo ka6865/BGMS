@@ -20,14 +20,21 @@ export interface PubgPlayerPayload {
 }
 
 export function isPlayerPayload(value: unknown): value is PubgPlayerPayload {
-  if (!isRecord(value) || !Array.isArray(value.data)) return false;
-  return value.data.every((player) => {
-    if (!isRecord(player) || !nonEmptyString(player.id) || !isRecord(player.attributes)
-      || !nonEmptyString(player.attributes.name) || !isRecord(player.relationships)
-      || !isRecord(player.relationships.matches)) return false;
+  return playerPayloadIssue(value) === null;
+}
+
+/** Structural reason only; never record a player name, account ID or body. */
+export function playerPayloadIssue(value: unknown): string | null {
+  if (!isRecord(value) || !Array.isArray(value.data)) return "player_data_not_array";
+  for (const player of value.data) {
+    if (!isRecord(player) || !nonEmptyString(player.id)) return "player_id_missing";
+    if (!isRecord(player.attributes) || !nonEmptyString(player.attributes.name)) return "player_name_missing";
+    if (!isRecord(player.relationships) || !isRecord(player.relationships.matches)) return "player_matches_missing";
     const matches = player.relationships.matches.data;
-    return Array.isArray(matches) && matches.every((match) => isRecord(match) && nonEmptyString(match.id));
-  });
+    if (!Array.isArray(matches)) return "player_matches_not_array";
+    if (!matches.every((match) => isRecord(match) && nonEmptyString(match.id))) return "player_match_id_missing";
+  }
+  return null;
 }
 
 export interface PubgSeason {

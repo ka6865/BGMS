@@ -26,6 +26,8 @@ type WorkflowStep = {
 type Workflow = {
   jobs: Record<string, {
     permissions?: Record<string, string>;
+    needs?: string[];
+    "timeout-minutes"?: number;
     steps?: WorkflowStep[];
   }>;
 };
@@ -46,12 +48,16 @@ describe("일일 유지보수 실패 알림이 원인을 함께 전달한다", (
     expect(env.GH_TOKEN).toBe("${{ github.token }}");
     expect(env.REPOSITORY).toBe("${{ github.repository }}");
     expect(env.RUN_ID).toBe("${{ github.run_id }}");
-    expect(env.RUN_STARTED_AT).toBe("${{ github.run_started_at }}");
+    expect(env.RUN_STARTED_AT).toBeUndefined();
     expect(env.DISCORD_WEBHOOK_URL).toBe("${{ secrets.DISCORD_WEBHOOK_URL }}");
+    expect(notifyStep?.run).toContain('gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}" --jq \'.run_started_at // .created_at\'');
+    expect(notifyStep?.run).toContain("실행 시작 시각(UTC)");
   });
 
   it("워크플로 로그 조회를 위해 actions read 권한을 최소 범위로 갖는다", () => {
     expect(notifyJob.permissions).toEqual({ contents: "read", actions: "read" });
+    expect(notifyJob["timeout-minutes"]).toBe(3);
+    expect(notifyJob.needs).toContain("support-attachment-cleanup");
   });
 
   it("실패한 step 이름과 원인 로그를 메시지에 포함한다", () => {
@@ -133,6 +139,7 @@ describe("일일 유지보수 실패 알림이 원인을 함께 전달한다", (
         join(bin, "gh"),
         `#!/bin/sh
 case "$*" in
+  *"/actions/runs/123"*) printf '2026-08-19T00:00:00Z\\n' ;;
   *"/logs"*) cat "$FAKE_LOG" ;;
   *) printf '123\\tmaintenance\\tfailure\\n' ;;
 esac
@@ -157,7 +164,6 @@ esac
           QUOTA_RESULT: "success",
           MAINTENANCE_RESULT: "failure",
           MATCH_TYPE_BACKFILL_RESULT: "success",
-          RUN_STARTED_AT: "2026-08-19T00:00:00Z",
           GH_TOKEN: "gh-token",
           REPOSITORY: "example/repo",
           RUN_ID: "123",
@@ -181,6 +187,7 @@ esac
       expect(payload.content).toContain("Hotdrop failure");
       expect(payload.content).toContain("PUBG API failure");
       expect(payload.content).toContain("step failure (details hidden)");
+      expect(payload.content).toContain("실행 시작 시각(UTC): 2026-08-19T00:00:00Z");
       for (const rawValue of rawValues) {
         expect(readFileSync(payloadPath, "utf8")).not.toContain(rawValue);
       }
@@ -210,7 +217,8 @@ esac
   it("메시지는 실제 개행을 가진 운영 요약으로 전송한다", () => {
     const run = notifyStep?.run ?? "";
     expect(run).toContain("MESSAGE=$(cat <<EOF");
-    expect(run).toContain("allowed_mentions: {parse: [\"everyone\"]}");
+    expect(run).toContain("allowed_mentions: {parse: []}");
+    expect(run).toContain("--connect-timeout 10 --max-time 30");
     expect(run).not.toContain('printf \'%s\' \\\n            "🚨');
   });
 

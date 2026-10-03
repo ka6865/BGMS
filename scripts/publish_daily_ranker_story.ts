@@ -109,6 +109,25 @@ export function isRateLimited(error: unknown): boolean {
     || (error instanceof Error && /(?:upstream_)?429\b/.test(error.message));
 }
 
+function isMissingMatch(error: unknown): boolean {
+  return error instanceof Error && /^upstream_404:/.test(error.message);
+}
+
+function isProviderFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (/^upstream_\d{3}:/.test(error.message)) return !isMissingMatch(error);
+  return error.name === "AbortError" || error.name === "TimeoutError"
+    || (error instanceof TypeError && /fetch failed|network|socket|timed? ?out/i.test(error.message));
+}
+
+function isExpectedStoryRejection(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return new Set([
+    "ai_json_invalid", "ai_scene_shape", "ai_story_shape", "ai_point_shape",
+    "ai_point_evidence", "daily_story_insufficient_scenes",
+  ]).has(error.message) || error.message.startsWith("ai_incomplete:");
+}
+
 export function recentKstStart(day: string): string {
   return kstDate(new Date(Date.parse(`${day}T00:00:00+09:00`) - 7 * 86_400_000));
 }
@@ -193,19 +212,29 @@ async function selectEvidence(mode: DailyMode, run: ReturnType<typeof createRun>
         try { match = await pending; }
         catch (error) {
           if (isRateLimited(error)) throw error;
-          console.warn(`DAILY_STORY_MATCH_SKIPPED:${id}:${error instanceof Error ? error.message : String(error)}`);
+          if (!isMissingMatch(error)) throw error;
+          console.warn(`DAILY_STORY_MATCH_SKIPPED:${id}:match_unavailable`);
           continue;
         }
         if (!isWinningMatch(match, candidate, day, mode)) continue;
+        const participant = (Array.isArray(record(match)?.included) ? record(match)?.included as unknown[] : [])
+          .map(record).find((item) => item?.type === "participant" && record(record(item.attributes)?.stats)?.playerId === candidate.accountId);
+        const name = record(record(participant?.attributes)?.stats)?.name;
+        if (typeof name !== "string") continue;
+        let assetUrl: string;
         try {
-          const participant = (Array.isArray(record(match)?.included) ? record(match)?.included as unknown[] : [])
-            .map(record).find((item) => item?.type === "participant" && record(record(item.attributes)?.stats)?.playerId === candidate.accountId);
-          const name = record(record(participant?.attributes)?.stats)?.name;
-          if (typeof name !== "string") continue;
           const binding = relationshipBoundTelemetryAsset(match);
           if (!binding) throw new Error("match_telemetry_asset_missing");
-          const assetUrl = parseOrdinaryTelemetryUrl(record(binding.asset.attributes)?.URL, binding.id);
-          const events = await readCached(assetUrl, {}, 64 * 1024 * 1024);
+          assetUrl = parseOrdinaryTelemetryUrl(record(binding.asset.attributes)?.URL, binding.id);
+        } catch {
+          console.warn(`DAILY_STORY_CANDIDATE_SKIPPED:${id}:telemetry_reference_invalid`);
+          continue;
+        }
+
+        // Download and decode telemetry outside the candidate-quality catch: any HTTP,
+        // network, timeout, or JSON parse error is an upstream failure for this mode.
+        const events = await readCached(assetUrl, {}, 64 * 1024 * 1024);
+        try {
           const evidence = buildDailyEvidence({ match, events, candidate: { ...candidate, nickname: name }, dayKst: day });
           seenMatchIds.add(id);
           const scenes = buildDailySceneCandidates(evidence);
@@ -221,8 +250,8 @@ async function selectEvidence(mode: DailyMode, run: ReturnType<typeof createRun>
           found.push({ evidence, scenes: distinctScenes, observedAt: run.observedAt(boardUrl) ?? new Date().toISOString(), season: seasonId, source });
           if (found.length === 3) break;
         } catch (error) {
-          if (isRateLimited(error)) throw error;
-          console.warn(`DAILY_STORY_CANDIDATE_SKIPPED:${id}:${error instanceof Error ? error.message : String(error)}`);
+          if (isRateLimited(error) || isProviderFailure(error)) throw error;
+          console.warn(`DAILY_STORY_CANDIDATE_SKIPPED:${id}:evidence_unavailable`);
         }
       }
       if (found.length === 3) break;
@@ -264,8 +293,8 @@ async function publishMode(day: string, mode: DailyMode, apply: boolean, db: any
         break;
       }
     } catch (error) {
-      if (isRateLimited(error)) throw error;
-      console.warn(`DAILY_STORY_GENERATION_SKIPPED:${item.evidence.matchId}:${error instanceof Error ? error.message : String(error)}`);
+      if (isRateLimited(error) || !isExpectedStoryRejection(error)) throw error;
+      console.warn(`DAILY_STORY_GENERATION_SKIPPED:${item.evidence.matchId}:story_rejected`);
     }
   }
   if (!chosen) return { state: "no_complete_story", dayKst: day, mode };
@@ -335,8 +364,36 @@ export function publicationExitCode(result: unknown): number {
   const results = Array.isArray(result) ? result : [result];
   return results.some((item) => {
     const state = record(item)?.state;
-    return state === "failed" || state === "no_verified_candidate" || state === "no_complete_story";
+    return !["published", "already_published", "preview", "unsupported", "no_verified_candidate", "no_complete_story"].includes(String(state));
   }) ? 1 : 0;
+}
+
+export function formatPublicationSummary(result: unknown): string {
+  const results = Array.isArray(result) ? result : [result];
+  const labels: Record<string, string> = {
+    published: "발행 완료",
+    already_published: "이미 발행되어 건너뜀",
+    preview: "미리보기 생성",
+    unsupported: "지원되지 않는 모드",
+    no_verified_candidate: "검증된 우승 후보 없음 · 미발행",
+    no_complete_story: "완성된 근거 기반 스토리 없음 · 미발행",
+    failed: "처리 실패",
+  };
+  return [
+    "## 랭커 스토리 발행 결과",
+    "",
+    "| 날짜(KST) | 모드 | 결과 |",
+    "| --- | --- | --- |",
+    ...results.map((item) => {
+      const row = record(item) ?? {};
+      const state = typeof row.state === "string" ? row.state : "unknown";
+      const day = typeof row.dayKst === "string" ? row.dayKst : "확인 불가";
+      const mode = typeof row.mode === "string" ? row.mode : "확인 불가";
+      return `| ${day} | ${mode} | ${labels[state] ?? "알 수 없는 결과 · 확인 필요"} |`;
+    }),
+    "",
+    "후보나 완성된 스토리가 없으면 정상적으로 미발행 처리됩니다. API·AI·DB 처리 실패는 Actions 실패로 표시됩니다.",
+  ].join("\n");
 }
 
 async function main() {
@@ -348,6 +405,11 @@ async function main() {
   if (modeArg && !["solo", "duo", "squad"].includes(modeArg)) throw new Error("invalid_mode");
   const result = await publishDailyRankerStory({ day, mode: modeArg, apply: process.argv.includes("--apply") });
   console.log(JSON.stringify(result));
+  const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+  if (summaryPath) {
+    const { appendFileSync } = await import("node:fs");
+    appendFileSync(summaryPath, `${formatPublicationSummary(result)}\n`);
+  }
   process.exitCode = publicationExitCode(result);
 }
 

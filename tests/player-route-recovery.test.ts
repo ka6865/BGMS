@@ -468,6 +468,26 @@ describe("player route recovery contract", () => {
     expect(mockWritePubgCache).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["player_matches_missing", { assets: { data: [] } }],
+    ["player_matches_not_array", { matches: { data: null } }],
+    ["player_match_id_missing", { matches: { data: [{}] } }],
+  ])("records %s without accepting unverified history or replacing the cache", async (issue, relationships) => {
+    const { adminUpsert, adminUpdate, discoveryRpc } = configureSupabase(staleCacheRow());
+    const player = playerPayload();
+    player.data[0].relationships = relationships as never;
+    installFetch({ player: [jsonResponse(player)] });
+    const { GET } = await loadRoute();
+    const response = await GET(request("http://localhost/api/pubg/player?nickname=Fixture_Player&platform=steam&refresh=true"));
+    expect(response.status).toBe(503);
+    expect(mockReportPubgApiError).toHaveBeenCalledWith(expect.objectContaining({
+      detail: expect.stringContaining(`"validationIssue":"${issue}"`),
+    }));
+    expect(adminUpsert).not.toHaveBeenCalled();
+    expect(adminUpdate).not.toHaveBeenCalled();
+    expect(discoveryRpc).not.toHaveBeenCalled();
+  });
+
   it("returns 503 for a repeated malformed player payload instead of misclassifying it as not found", async () => {
     const { adminUpsert } = configureSupabase();
     installFetch({
