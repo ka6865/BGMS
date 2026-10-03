@@ -1,7 +1,16 @@
 name: PUBG Match Retention
 on:
   schedule:
-    - cron: "17 * * * *"
+    # GitHub 예약 실행은 지연될 수 있으므로 20분 간격으로 실행 기회를 둔다.
+    - cron: "7,27,47 * * * *"
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/pubg-match-retention.yml
+      - scripts/ingest_discovered_matches.ts
+      - lib/pubg/discoveryWorker.ts
+      - lib/pubg/playerMatches*.ts
+      - lib/pubg/matchDiscovery*.ts
   workflow_dispatch:
     inputs:
       limit:
