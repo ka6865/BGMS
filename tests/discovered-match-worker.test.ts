@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runDiscoveryWorker } from '@/lib/pubg/discoveryWorker';
-import { parseDiscoveryWorkerArgs } from '@/scripts/ingest_discovered_matches';
+import { main, parseDiscoveryWorkerArgs } from '@/scripts/ingest_discovered_matches';
+import * as discoveryServer from '@/lib/pubg/matchDiscovery.server';
 import type { BasicMatchIngestOutcome } from '@/lib/pubg/playerMatchesIngest';
 import type { DiscoveryJob } from '@/lib/pubg/matchDiscovery';
 const job: DiscoveryJob = {platform:'steam',account_id:'account.a',nickname_at_discovery:'A',match_id:'m',lease_token:'lease',attempts:1,not_found_count:0};
@@ -12,6 +13,7 @@ function setup(outcome: ReturnType<typeof result>) {
   return {claim,settle,ingest,now:()=>Date.parse('2026-09-11T00:00:00Z')};
 }
 describe('durable match collection worker',()=>{
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
   it('marks saved only after an acknowledged basic write',async()=>{
     const d=setup(result('saved'));
     expect((await runDiscoveryWorker(d)).saved).toBe(1);
@@ -64,5 +66,29 @@ describe('durable match collection worker',()=>{
     expect(d.ingest).not.toHaveBeenCalled();
     expect(d.settle).toHaveBeenCalledWith(job,{state:'saved'});
     expect(summary.saved).toBe(1);
+  });
+  it('one account timeout does not cancel another account collecting the same match', async () => {
+    const jobs = [job, { ...job, account_id: 'account.b', nickname_at_discovery: 'B' }];
+    const rpc = vi.fn().mockImplementation(async (name) => ({
+      data: name === 'claim_pubg_match_discovery' ? jobs.splice(0) : true, error: null,
+    }));
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const query = { select: () => query, eq: () => query, limit: async () => ({ data: [], error: null }), upsert };
+    vi.spyOn(discoveryServer, 'discoveryClient').mockReturnValue({ from: () => query, rpc } as never);
+    vi.stubEnv('PUBG_API_KEY', 'fixture');
+    const timedOut = new AbortController();
+    vi.spyOn(AbortSignal, 'timeout').mockReturnValueOnce(timedOut.signal).mockReturnValue(new AbortController().signal);
+    const payload = { data: { id: 'm', attributes: { createdAt: '2026-10-03T00:00:00Z', gameMode: 'squad-fpp', matchType: 'official' } }, included: [{ type: 'participant', attributes: { stats: { name: 'B', playerId: 'account.b', kills: 1 } } }] };
+    const fetchMock = vi.fn((_input, init) => {
+      if (fetchMock.mock.calls.length > 1) return Promise.resolve(new Response(JSON.stringify(payload)));
+      return Promise.resolve(new Response(new ReadableStream({ start(controller) {
+        init.signal.addEventListener('abort', () => controller.error(init.signal.reason), { once: true });
+        setTimeout(() => timedOut.abort(new DOMException('timeout', 'TimeoutError')), 0);
+      } })));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const summary = await main(['--apply', '--limit', '2']);
+    expect(summary).toMatchObject({ saved: 1, retry: 1 });
+    expect(upsert).toHaveBeenCalledWith([expect.objectContaining({ account_id: 'account.b' })], expect.anything());
   });
 });
