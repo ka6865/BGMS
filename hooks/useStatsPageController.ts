@@ -73,6 +73,7 @@ export interface StatsPageController {
   missingMatchIds: ReadonlySet<string>;
   matchModeMeta: Record<string, StatsMatchModeMeta>;
   summaryStatus: "idle" | "loading" | "ready" | "error";
+  collectionProgress?: { loaded: number; total: number };
   matchIds: readonly string[];
   historyStatus: StatsHistoryStatus;
   historyPage: number;
@@ -170,14 +171,8 @@ function isPlayerResponseForRequest(value: unknown, request: Required<StatsSearc
   );
 }
 
-function isAbortError(error: unknown): boolean {
-  return error instanceof DOMException
-    ? error.name === "AbortError"
-    : Boolean(error && typeof error === "object" && "name" in error && error.name === "AbortError");
-}
-
-function withRequestTimeout(signal: AbortSignal): AbortSignal {
-  const deadline = AbortSignal.timeout(15_000);
+function withRequestTimeout(signal: AbortSignal, timeoutMs = 15_000): AbortSignal {
+  const deadline = AbortSignal.timeout(timeoutMs);
   if (typeof AbortSignal.any === "function") return AbortSignal.any([signal, deadline]);
   const controller = new AbortController();
   const abort = () => {
@@ -185,7 +180,7 @@ function withRequestTimeout(signal: AbortSignal): AbortSignal {
     signal.removeEventListener("abort", abort);
     deadline.removeEventListener("abort", abort);
   };
-  if (signal.aborted) abort();
+  if (signal.aborted || deadline.aborted) abort();
   else {
     signal.addEventListener("abort", abort, { once: true });
     deadline.addEventListener("abort", abort, { once: true });
@@ -264,6 +259,7 @@ export function useStatsPageController(
   const [missingMatchIds, setMissingMatchIds] = useState<ReadonlySet<string>>(new Set());
   const [matchModeMeta, setMatchModeMeta] = useState<Record<string, StatsMatchModeMeta>>({});
   const [summaryStatus, setSummaryStatus] = useState<StatsPageController["summaryStatus"]>("idle");
+  const [collectionProgress, setCollectionProgress] = useState<StatsPageController["collectionProgress"]>();
   const [historyMatches, setHistoryMatches] = useState<PlayerMatchRecord[]>([]);
   const [historyStatus, setHistoryStatus] = useState<StatsHistoryStatus>("idle");
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -403,6 +399,7 @@ export function useStatsPageController(
     setMissingMatchIds(new Set());
     setMatchModeMeta({});
     setSummaryStatus("idle");
+    setCollectionProgress(undefined);
   }, [cancelHistoryPolling]);
 
   const runSearch = useCallback((
@@ -497,7 +494,7 @@ export function useStatsPageController(
       try {
         const response = await fetch(url, {
           cache: "no-store",
-          signal: controller.signal,
+          signal: withRequestTimeout(controller.signal, 35_000),
         });
         const contentType = response.headers.get("content-type");
         if (!contentType?.includes("application/json")) {
@@ -583,8 +580,10 @@ export function useStatsPageController(
         });
         return player;
       } catch (caught) {
-        if (stale() || isAbortError(caught)) return null;
-        const message = caught instanceof Error
+        if (stale()) return null;
+        const message = caught && typeof caught === "object" && "name" in caught && caught.name === "TimeoutError"
+          ? "전적 조회 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."
+          : caught instanceof Error
           ? caught.message
           : "전적 서버 응답이 지연되거나 실패했습니다. 잠시 후 다시 시도해 주세요.";
         const isRateLimit = message.includes("429") || message.toLowerCase().includes("too many requests");
@@ -720,7 +719,7 @@ export function useStatsPageController(
       setHistoryStatus("ready");
       return incoming;
     } catch (caught) {
-      if (stale() || isAbortError(caught)) return null;
+      if (stale()) return null;
       setHistoryStatus("error");
       setHistoryResponseVersion((version) => version + 1);
       return null;
@@ -732,7 +731,7 @@ export function useStatsPageController(
   const loadSummaries = useCallback((
     player: PlayerStatsResponse,
     requestedIds: readonly string[] = player.recentMatches,
-  ): Promise<{ summaryIds: string[]; missingMatchIds: string[]; nextMatchIds: string[]; collectionStopped: boolean } | null> => {
+  ): Promise<{ summaryIds: string[]; ingestedMatchIds: string[]; missingMatchIds: string[]; nextMatchIds: string[]; collectionStopped: boolean } | null> => {
     const matchIds = normalizeRecentMatchIds(requestedIds);
     summaryRequestRef.current?.controller.abort();
     const controller = new AbortController();
@@ -764,6 +763,7 @@ export function useStatsPageController(
         });
         const data = await response.json() as {
           summaries?: Record<string, MatchSummaryData>;
+          ingestedMatchIds?: string[];
           missingMatchIds?: string[];
           nextMatchIds?: string[];
           collectionStopped?: boolean;
@@ -777,7 +777,7 @@ export function useStatsPageController(
             .filter((id) => !historySummaryIdsRef.current.has(id)),
         );
         const nextMatchIds = normalizeRecentMatchIds(Array.isArray(data.nextMatchIds) ? data.nextMatchIds : [])
-          .filter((id) => matchIds.includes(id) && !summaries[id] && !historySummaryIdsRef.current.has(id));
+          .filter((id) => matchIds.includes(id) && !historySummaryIdsRef.current.has(id));
         const continuation = nextMatchIds.length < matchIds.length ? nextMatchIds : [];
         const nextModeMeta: Record<string, StatsMatchModeMeta> = {};
         for (const [rawMatchId, gameMode] of Object.entries(player.matchModes ?? {})) {
@@ -806,9 +806,11 @@ export function useStatsPageController(
         setSummaryStatus(collectionStopped ? "error" : "loading");
         if (collectionStopped) reportPartial("summary_batch_failed", "summary-batch");
         if ([...missingIds].some((id) => !continuation.includes(id))) reportPartial("summary_missing", "summary-batch");
-        return { summaryIds: Object.keys(summaries), missingMatchIds: [...missingIds], nextMatchIds: continuation, collectionStopped };
+        const ingestedMatchIds = normalizeRecentMatchIds(Array.isArray(data.ingestedMatchIds) ? data.ingestedMatchIds : Object.keys(summaries))
+          .filter(id => matchIds.includes(id));
+        return { summaryIds: Object.keys(summaries), ingestedMatchIds, missingMatchIds: [...missingIds], nextMatchIds: continuation, collectionStopped };
       } catch (caught) {
-        if (stale() || isAbortError(caught)) return null;
+        if (stale()) return null;
         setSummaryStatus("error");
         reportPartial("summary_batch_failed", "summary-batch");
         return null;
@@ -841,6 +843,9 @@ export function useStatsPageController(
   const loadRecentRecords = useCallback(async (player: PlayerStatsResponse) => {
     clearPartial("summary_missing", "summary-batch");
     let pending = normalizeDiscoveredMatchIds(player.collectionMatchIds ?? player.recentMatches);
+    const collectionIds = new Set(pending);
+    const loadedIds = new Set<string>();
+    setCollectionProgress({ loaded: 0, total: collectionIds.size });
     // Publish each response independently so basic records never wait for analysis.
     const history = loadHistoryPage(player, 1);
     let historyRequestId = historyRequestIdRef.current;
@@ -848,14 +853,20 @@ export function useStatsPageController(
     let summaryRequestId = summaryRequestIdRef.current;
     let [records, batch] = await Promise.all([history, summary]);
     const stale = () => resultRef.current !== player || summaryRequestId !== summaryRequestIdRef.current;
+    for (const record of records ?? []) if (collectionIds.has(record.match_id)) loadedIds.add(record.match_id);
+    if (!stale()) setCollectionProgress({ loaded: loadedIds.size, total: collectionIds.size });
     const missingIds = new Set<string>();
     while (batch && !stale()) {
-      for (const id of batch.summaryIds) missingIds.delete(id);
+      for (const id of batch.summaryIds) {
+        missingIds.delete(id);
+        if (collectionIds.has(id) && !batch.missingMatchIds.includes(id)) loadedIds.add(id);
+      }
+      setCollectionProgress({ loaded: loadedIds.size, total: collectionIds.size });
       for (const id of batch.missingMatchIds) missingIds.add(id);
       // Publish each saved batch without taking over a newer page/filter request.
       if (records && historyRequestId === historyRequestIdRef.current) {
         const storedIds = new Set(records.map((record) => record.match_id));
-        if (batch.summaryIds.some((id) => !storedIds.has(id))) {
+        if (batch.ingestedMatchIds.some((id) => !storedIds.has(id))) {
           const reload = loadHistoryPage(player, 1);
           historyRequestId = historyRequestIdRef.current;
           records = await reload;
@@ -869,6 +880,9 @@ export function useStatsPageController(
       const next = loadSummaries(player, pending.slice(0, RECENT_MATCH_LIMIT));
       summaryRequestId = summaryRequestIdRef.current;
       batch = await next;
+    }
+    if (!records && !stale() && historyRequestId === historyRequestIdRef.current) {
+      await loadHistoryPage(player, historyPageRef.current);
     }
     if (batch && !stale()) {
       if (!batch.collectionStopped) setSummaryStatus("ready");
@@ -925,9 +939,17 @@ export function useStatsPageController(
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, []);
 
+  const matchIds = useMemo(() => {
+    const recent = normalizeRecentMatchIds(result?.recentMatches ?? []);
+    if (historyLoaded && (historyTotalCount > 0 || historyPage > 1 || matchFilter !== "all")) {
+      return normalizeRecentMatchIds(historyMatches.map((record) => record.match_id));
+    }
+    return recent;
+  }, [historyLoaded, historyMatches, historyPage, historyTotalCount, matchFilter, result]);
+
   useEffect(() => {
-    const performancePending = Object.values(matchSummaries).some((summary) => (
-      PERFORMANCE_PENDING_STATES.has(summary.performanceState ?? "")
+    const performancePending = matchIds.some((id) => (
+      PERFORMANCE_PENDING_STATES.has(matchSummaries[id]?.performanceState ?? "")
     ));
     const shouldPoll = performancePending;
     if (!historyVisible || !result || !shouldPoll || historyPollAttemptRef.current >= PERFORMANCE_MAX_POLLS) {
@@ -959,6 +981,7 @@ export function useStatsPageController(
   }, [
     cancelHistoryPolling,
     historyMatches,
+    matchIds,
     matchSummaries,
     historyResponseVersion,
     historyVisible,
@@ -1034,13 +1057,6 @@ export function useStatsPageController(
   const partialReasons = useMemo(() => PARTIAL_REASONS.filter(
     (reason) => (partialSources.get(reason)?.size ?? 0) > 0,
   ), [partialSources]);
-  const matchIds = useMemo(() => {
-    const recent = normalizeRecentMatchIds(result?.recentMatches ?? []);
-    if (historyLoaded && (historyTotalCount > 0 || historyPage > 1 || matchFilter !== "all")) {
-      return normalizeRecentMatchIds(historyMatches.map((record) => record.match_id));
-    }
-    return recent;
-  }, [historyLoaded, historyMatches, historyPage, historyTotalCount, matchFilter, result]);
   const status = baseStatus === "ready" && partialReasons.length > 0
     ? "partial"
     : baseStatus;
@@ -1065,6 +1081,7 @@ export function useStatsPageController(
     missingMatchIds,
     matchModeMeta,
     summaryStatus,
+    collectionProgress,
     matchIds,
     historyStatus,
     historyPage,

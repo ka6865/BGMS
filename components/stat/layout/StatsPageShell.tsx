@@ -81,6 +81,7 @@ export function StatsPageShell({
     missingMatchIds,
     matchModeMeta,
     summaryStatus,
+    collectionProgress,
     matchIds,
     historyStatus,
     historyPage,
@@ -244,10 +245,10 @@ export function StatsPageShell({
   useEffect(() => {
     if (!resultIdentity || recordedResultRef.current === resultIdentity) return;
     recordedResultRef.current = resultIdentity;
-    addRecent(resultNickname);
-  }, [addRecent, resultIdentity, resultNickname]);
+    if (resultPlatform) addRecent(resultNickname, resultPlatform);
+  }, [addRecent, resultIdentity, resultNickname, resultPlatform]);
 
-  const toggleFavorite = (name: string) => toggleStoredFavorite(name);
+  const toggleFavorite = (name: string) => toggleStoredFavorite(name, result?.platform ?? platform);
 
   const [showGuideline, setShowGuideline] = useState(false);
   const handleRetry = useCallback(() => {
@@ -305,7 +306,7 @@ export function StatsPageShell({
           setNickname(value);
         }}
         onSubmit={() => navigateToPlayer(nickname)}
-        onQuickSearch={(name) => navigateToPlayer(name)}
+        onQuickSearch={(name, savedPlatform) => navigateToPlayer(name, savedPlatform)}
         onSuggestionSelect={(suggestion) => navigateToPlayer(suggestion.nickname, suggestion.platform)}
         onFavoriteToggle={toggleStoredFavorite}
         onRecentRemove={removeRecent}
@@ -344,7 +345,7 @@ export function StatsPageShell({
             refreshing={refreshing}
             isRefreshCoolingDown={isCoolingDown}
             refreshAvailableAt={refreshAvailableAt}
-            favorite={favorites.includes(result.nickname)}
+            favorite={favorites.some(entry => entry.platform === result.platform && entry.nickname.toLowerCase() === result.nickname.toLowerCase())}
             onSeasonChange={(value) => {
               void handleControllerSearch(value, result.nickname, result.platform, false, true);
             }}
@@ -404,6 +405,7 @@ export function StatsPageShell({
                     matchModeMeta={matchModeMeta}
                     summaryStatus={summaryStatus}
                     filter={matchTab}
+                    collectionProgress={collectionProgress}
                     viewportClass={viewportClass}
                     nickname={result.nickname}
                     platform={result.platform}

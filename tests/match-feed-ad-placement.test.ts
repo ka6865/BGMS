@@ -46,6 +46,7 @@ async function renderFeed({
   matchModeMeta = {},
   placements = fixturePlacements,
   summaryStatus = "ready",
+  collectionProgress,
   onRetrySummaries = vi.fn(),
   historyStatus = "idle",
   historyPage = 1,
@@ -61,6 +62,7 @@ async function renderFeed({
   matchModeMeta?: Record<string, StatsMatchModeMeta>;
   placements?: typeof fixturePlacements;
   summaryStatus?: "idle" | "loading" | "ready" | "error";
+  collectionProgress?: { loaded: number; total: number };
   onRetrySummaries?: () => void;
   historyStatus?: "idle" | "loading" | "ready" | "error";
   historyPage?: number;
@@ -78,6 +80,7 @@ async function renderFeed({
     missingMatchIds,
     matchModeMeta,
     summaryStatus,
+    collectionProgress,
     filter,
     viewportClass,
     nickname: "PlayerOne",
@@ -107,6 +110,18 @@ describe("MatchFeed renderable order and ads", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("수집 중 진행률을 표시하고 완료 후 개별 누락도 재시도할 수 있다", async () => {
+    await renderFeed({ viewportClass: "mobile", matchCount: 2, summaryStatus: "loading", collectionProgress: { loaded: 1, total: 45 } });
+    expect(screen.getByText("전체 45경기 중 1경기 불러오는 중입니다.")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    cleanup();
+    const retry = vi.fn();
+    await renderFeed({ viewportClass: "mobile", matchCount: 2, missingMatchIds: new Set(["match-2"]), collectionProgress: { loaded: 44, total: 45 }, onRetrySummaries: retry });
+    expect(screen.getByRole("alert")).toHaveTextContent("1경기를 불러오지 못했습니다.");
+    fireEvent.click(screen.getByRole("button", { name: "매치 요약 다시 시도" }));
+    expect(retry).toHaveBeenCalledOnce();
   });
 
   it("mobile 7개는 6번째 뒤에 한 슬롯을 두고 광고로 끝나지 않는다", async () => {
@@ -175,7 +190,7 @@ describe("MatchFeed renderable order and ads", () => {
 
   it("summary loading·error retry·필터별 empty를 매치 영역 안에서 표현한다", async () => {
     const loading = await renderFeed({ viewportClass: "mobile", matchCount: 2, summaryStatus: "loading" });
-    expect(screen.getByText(/기본 전적을 먼저 표시/)).toBeInTheDocument();
+    expect(screen.getByText(/전적을 수집하는 중/)).toBeInTheDocument();
     expect(loading.sequence()).toEqual(["match-1", "match-2"]);
     expect(loading.container.querySelectorAll("[data-match-skeleton]")).toHaveLength(0);
     loading.unmount();

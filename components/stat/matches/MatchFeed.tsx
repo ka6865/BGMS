@@ -28,6 +28,7 @@ export interface MatchFeedProps {
   missingMatchIds: ReadonlySet<string>;
   matchModeMeta: Record<string, StatsMatchModeMeta>;
   summaryStatus: "idle" | "loading" | "ready" | "error";
+  collectionProgress?: { loaded: number; total: number };
   filter: StatsMatchFilter;
   viewportClass: AdViewportClass;
   nickname: string;
@@ -121,6 +122,7 @@ export function MatchFeed({
   missingMatchIds,
   matchModeMeta,
   summaryStatus,
+  collectionProgress,
   filter,
   viewportClass,
   nickname,
@@ -144,6 +146,9 @@ export function MatchFeed({
   const canonicalMatchIds = normalizeRecentMatchIds(matchIds);
   const storedMatchCount = historyTotalCount ?? canonicalMatchIds.length;
   const canonicalMissingMatchIds = new Set(normalizeRecentMatchIds([...missingMatchIds]));
+  const unfinishedCount = collectionProgress
+    ? Math.max(0, collectionProgress.total - collectionProgress.loaded)
+    : canonicalMissingMatchIds.size;
   const canonicalSummaries = normalizeSummaryMap(summaries);
   const canonicalMatchModeMeta = normalizeModeMetaMap(matchModeMeta);
   const availableMatches = canonicalMatchIds.flatMap((matchId) => {
@@ -186,13 +191,17 @@ export function MatchFeed({
         </div>
       </div>
 
-      {summaryStatus === "loading" && renderableMatches.length > 0 && (
-        <p role="status" className="mb-3 text-xs text-white/50">기본 전적을 먼저 표시하고 있습니다. 상세 기록을 확인하는 중입니다.</p>
+      {summaryStatus === "loading" && (
+        <p role="status" className="mb-3 text-xs text-white/50">{collectionProgress?.total
+          ? `전체 ${collectionProgress.total}경기 중 ${collectionProgress.loaded}경기 불러오는 중입니다.`
+          : "전적을 수집하는 중입니다."}</p>
       )}
 
-      {summaryStatus === "error" && (
+      {(summaryStatus === "error" || (summaryStatus === "ready" && unfinishedCount > 0)) && (
         <div role="alert" className="mb-3 flex flex-col gap-3 rounded-xl sm:flex-row sm:items-center sm:justify-between border border-red-500/20 bg-red-500/10 p-3">
-          <span className="text-sm font-bold text-red-200">최근 매치 요약을 불러오지 못했습니다.</span>
+          <span className="text-sm font-bold text-red-200">{unfinishedCount > 0
+            ? `${unfinishedCount}경기를 불러오지 못했습니다. 다시 시도해 주세요.`
+            : "최근 매치 요약을 불러오지 못했습니다."}</span>
           <button type="button" onClick={onRetrySummaries} className="min-h-11 shrink-0 whitespace-nowrap rounded-lg px-3 text-xs font-black text-red-100">
             매치 요약 다시 시도
           </button>

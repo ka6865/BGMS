@@ -67,6 +67,6 @@ describe("전적 검색과 배틀의 localStorage 호환성", () => {
 
     expect(screen.getByRole("heading", { name: "전적 비교 배틀" })).toBeInTheDocument();
     expect(localStorage.getItem(STORAGE_KEY_RECENT)).toBeNull();
-    expect(localStorage.getItem(STORAGE_KEY_FAVORITES)).toBe("[]");
+    expect(localStorage.getItem(STORAGE_KEY_FAVORITES)).toBeNull();
   });
 });

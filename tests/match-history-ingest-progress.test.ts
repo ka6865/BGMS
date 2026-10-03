@@ -84,6 +84,25 @@ describe("background result polling", () => {
     expect("historyIngest" in hook.result.current).toBe(false);
   });
 
+  it("다른 페이지의 분석 대기 때문에 현재 페이지를 반복 조회하지 않는다", async () => {
+    const match = { player_id: "fixtureplayer", platform: "steam", played_at: "2026-09-12T00:00:00.000Z", game_mode: "squad-fpp", map_name: "Baltic_Main", kills: 2, damage: 300, win_place: 8, match_type: "official" };
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player?")) return Promise.resolve(playerResponse());
+      const page = new URL(url, "http://localhost").searchParams.get("page") === "2" ? 2 : 1;
+      const id = page === 1 ? "old-pending" : "current-done";
+      return Promise.resolve(historyResponse({ matches: [{ ...match, match_id: id }], page, totalCount: 21, totalPages: 2, performanceStates: { [id]: page === 1 ? "pending" : "done" } }));
+    });
+    const hook = renderHook(() => useStatsPageController({ initialNickname: "FixturePlayer", initialPlatform: "steam" }));
+    await flushAsync();
+    await act(async () => hook.result.current.setHistoryPage(2));
+    await flushAsync();
+    expect(hook.result.current.matchSummaries["old-pending"]?.performanceState).toBe("pending");
+    const requests = vi.mocked(fetch).mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(vi.mocked(fetch).mock.calls).toHaveLength(requests);
+  });
+
   it("polls performance-only pending rows and publishes the completed benchmark", async () => {
     const match = {
       match_id: "match-performance-pending",

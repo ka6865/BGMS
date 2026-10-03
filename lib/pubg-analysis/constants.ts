@@ -220,8 +220,8 @@ export function getTranslatedWeaponName(wId: string): string {
 /**
  * 로컬 스토리지 키 (최근 검색, 즐겨찾기)
  */
-export const STORAGE_KEY_RECENT = "pubg_recent_searches_v2";
-export const STORAGE_KEY_FAVORITES = "pubg_favorites_v2";
+export const STORAGE_KEY_RECENT = "pubg_recent_searches_v3";
+export const STORAGE_KEY_FAVORITES = "pubg_favorites_v3";
 
 /**
  * 전술 분석 티어 순위 (높을수록 숙련도 높음)
