@@ -60,6 +60,30 @@ describe("Hotdrop 수집 작업", () => {
     expect(db.rpc).not.toHaveBeenCalled();
   });
 
+  it("PUBG 요청이 응답하지 않아도 제한 시간에 취소되어 DB 작업 전에 실패한다", async () => {
+    const db = createSupabaseMock();
+    const createTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockImplementation(() => createTimeout(10));
+    const fetchFn = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal;
+      if (!signal) return reject(new Error("missing request deadline"));
+      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+    }));
+    try {
+      await expect(runHotdropCollection("pubg-key", defaultConfig, {
+        fetchFn,
+        supabase: db.adapter,
+        sleep: vi.fn().mockResolvedValue(undefined),
+        now: () => "2026-10-04T00:00:00.000Z",
+      })).rejects.toMatchObject({ name: "TimeoutError" });
+      expect(timeout).toHaveBeenCalledWith(8_000);
+      expect(fetchFn).toHaveBeenCalledTimes(1);
+      expect(db.from).not.toHaveBeenCalled();
+    } finally {
+      timeout.mockRestore();
+    }
+  });
+
   it.each([
     ["HOTDROP_MAX_RANKERS", "0"],
     ["HOTDROP_MAX_RANKERS", "21"],
@@ -94,6 +118,35 @@ describe("Hotdrop 수집 작업", () => {
       rows: expect.stringContaining('"grid_x":128'),
     });
     expect(db.neq).toHaveBeenCalledWith("season", "season-1");
+  });
+
+  it.each([401, 403, 429].flatMap((status) => (
+    ["leaderboard", "player", "match"].map((stage) => [status, stage] as const)
+  )))("%s 응답이 %s 수집에서 나오면 후속 호출과 정상 완료를 막는다", async (status, stage) => {
+    const db = createSupabaseMock();
+    const fixtures = [
+      { data: [{ id: "season-1", attributes: { isCurrentSeason: true } }] },
+      { data: { relationships: { players: { data: [{ id: "account-1" }, { id: "account-2" }] } } } },
+      { data: { relationships: { matches: { data: [{ id: "match-1" }, { id: "match-2" }] } } } },
+    ];
+    const failureIndex = stage === "leaderboard" ? 1 : stage === "player" ? 2 : 3;
+    const fetchFn = vi.fn();
+    for (const fixture of fixtures.slice(0, failureIndex)) {
+      fetchFn.mockResolvedValueOnce(jsonResponse(fixture));
+    }
+    fetchFn.mockResolvedValue(jsonResponse({ error: "blocked" }, { status }));
+
+    await expect(runHotdropCollection("pubg-key", {
+      ...defaultConfig,
+      maxRankers: stage === "player" ? 2 : 1,
+    }, {
+      fetchFn,
+      supabase: db.adapter,
+      sleep: vi.fn().mockResolvedValue(undefined),
+      now: () => "2026-10-04T00:00:00.000Z",
+    })).rejects.toThrow(`PUBG API error ${status}`);
+    expect(fetchFn).toHaveBeenCalledTimes(failureIndex + 1);
+    expect(db.rpc).not.toHaveBeenCalled();
   });
 
   it("leaderboard 실패 시 samples 매치로 fallback한다", async () => {
