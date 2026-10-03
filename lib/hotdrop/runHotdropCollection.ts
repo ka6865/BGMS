@@ -1,6 +1,16 @@
 const PUBG_BASE = "https://api.pubg.com/shards/steam";
 const GRID_DIVISIONS = 256;
 
+class PubgHttpError extends Error {
+  constructor(readonly status: number) {
+    super(`PUBG API error ${status}`);
+  }
+}
+
+function isPubgAccessBlocked(error: unknown): boolean {
+  return error instanceof PubgHttpError && [401, 403, 429].includes(error.status);
+}
+
 const MAP_SLUG: Record<string, string> = {
   Baltic_Main: "erangel",
   Erangel_Main: "erangel",
@@ -155,8 +165,9 @@ async function pubgFetch(
       Accept: "application/vnd.api+json",
     },
     cache: "no-store",
+    signal: AbortSignal.timeout(8_000),
   });
-  if (!response.ok) throw new Error(`PUBG API error ${response.status}`);
+  if (!response.ok) throw new PubgHttpError(response.status);
   return response.json() as Promise<unknown>;
 }
 
@@ -307,7 +318,8 @@ async function collectMatchIds(
       config.rateLimitMs,
     );
     rankerIds = relationshipIds(leaderboard, "players").slice(0, config.maxRankers);
-  } catch {
+  } catch (error) {
+    if (isPubgAccessBlocked(error)) throw error;
     rankerIds = [];
   }
 
@@ -324,7 +336,8 @@ async function collectMatchIds(
         for (const id of relationshipIds(player, "matches").slice(0, config.matchesPerPlayer)) {
           ids.add(id);
         }
-      } catch {
+      } catch (error) {
+        if (isPubgAccessBlocked(error)) throw error;
         continue;
       }
     }
@@ -382,10 +395,12 @@ export async function runHotdropCollection(
       const telemetry = await dependencies.fetchFn(meta.telemetryUrl, {
         headers: { "Accept-Encoding": "gzip, deflate" },
         cache: "no-store",
+        signal: AbortSignal.timeout(20_000),
       });
       if (!telemetry.ok) throw new Error(`telemetry-http-${telemetry.status}`);
       landings = extractLandings(await readTelemetryEvents(telemetry, config), meta.mapSlug);
-    } catch {
+    } catch (error) {
+      if (isPubgAccessBlocked(error)) throw error;
       skippedMatches += 1;
       continue;
     }
