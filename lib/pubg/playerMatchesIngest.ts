@@ -69,6 +69,7 @@ export type PubgFetchImpl = (
 export interface BasicMatchIngestOptions {
   expectedAccountId?: string;
   fetchImpl?: PubgFetchImpl;
+  signal?: AbortSignal;
   timeoutMs?: number;
   onResponseStatus?: (status: number) => void;
 }
@@ -127,7 +128,9 @@ export async function fetchAndIngestBasicMatchSummaryOutcome(
       `https://api.pubg.com/shards/${normPlatform}/matches/${encodeURIComponent(matchId)}`,
       {
         headers: { Authorization: `Bearer ${apiKey}`, Accept: "application/vnd.api+json" },
-        signal: typeof AbortSignal.timeout === "function" ? AbortSignal.timeout(timeoutMs) : undefined,
+        signal: options.signal
+          ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)])
+          : AbortSignal.timeout(timeoutMs),
       },
     );
     const rateLimitHeaders = readPubgRateLimitHeaders(res.headers);

@@ -68,6 +68,7 @@ export interface PlayerStatsResponse {
     normal?: Partial<Record<StatsPartySize, StatsBucket | null>> | null;
   };
   recentMatches: readonly string[];
+  collectionMatchIds?: readonly string[];
   matchModes?: Record<string, string>;
   clan?: { id: string; name: string; tag: string; level: number; memberCount: number } | null;
   survivalMastery?: StatsSurvivalMastery | null;

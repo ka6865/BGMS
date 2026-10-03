@@ -1,12 +1,13 @@
 import { readPlayerBanStatus, recordPlayerBanObservation } from "@/lib/pubg/banWatch.server";
 import { isBanAccountId, normalizeBanStatus } from "@/lib/pubg/banStatus";
 import { recordDiscoveredMatches } from "@/lib/pubg/matchDiscovery.server";
+import { normalizeDiscoveredMatchIds } from "@/lib/pubg/matchDiscovery";
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
 import { reportPubgApiError } from "@/lib/pubg/apiHelper";
-import { mergeRecentMatchIds, normalizeRecentMatchIds } from "@/lib/pubg/recentMatches";
+import { normalizeRecentMatchIds } from "@/lib/pubg/recentMatches";
 import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
 import {
   normalizeSurvivalMasteryPayload,
@@ -21,11 +22,8 @@ import {
 } from "@/lib/pubg/playerPayload";
 
 import {
-  buildPlayerCacheKey,
   buildPlayerRefreshLockKey,
   claimForceRefresh,
-  readPubgCache,
-  writePubgCache,
 } from "@/lib/pubg/responseCache";
 
 export const maxDuration = 30;
@@ -42,13 +40,6 @@ function createServiceRoleClient() {
   );
 }
 
-// ─────────────────────────────────────────────────────────────
-// [CACHE] PUBG API 호출 절약을 위한 2단 캐시 (인메모리 L1 + DB L2, 3분 TTL)
-// 인메모리 단독 캐시는 Vercel 서버리스에서 인스턴스별로 분리되어 히트율이 낮았고,
-// 강제 갱신 쿨다운도 인스턴스마다 따로 계산되어 우회가 가능했다.
-// 상세 구현은 lib/pubg/responseCache.ts 참고.
-// ─────────────────────────────────────────────────────────────
-
 function normalizeSeasonParam(value: string | null): string | null {
   const trimmed = (value || "").trim();
   if (!trimmed || trimmed === "null" || trimmed === "undefined") return null;
@@ -64,22 +55,6 @@ function normalizeMatchModes(value: unknown): Record<string, string> {
     if (matchId && !normalized[matchId]) normalized[matchId] = mode;
   }
   return normalized;
-}
-
-function normalizeCachedPlayerResponse(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  const candidate = value as Record<string, unknown>;
-  const recentMatches = Array.isArray(candidate.recentMatches)
-    ? normalizeRecentMatchIds(candidate.recentMatches)
-    : undefined;
-  const matchModes = Object.prototype.hasOwnProperty.call(candidate, "matchModes")
-    ? normalizeMatchModes(candidate.matchModes)
-    : undefined;
-  return {
-    ...candidate,
-    ...(recentMatches ? { recentMatches } : {}),
-    ...(matchModes ? { matchModes } : {}),
-  };
 }
 
 // Cache reads never create observations or borrow the profile update timestamp.
@@ -166,8 +141,8 @@ export async function GET(request: Request) {
   const initialPrivateResponse = await guardPlayerPrivate(platform, nickname);
   if (initialPrivateResponse) return initialPrivateResponse;
 
-  // 1. 분산 캐시 조회 (인메모리 L1 → DB L2, 3분 TTL)
-  const cacheKey = buildPlayerCacheKey(platform, nickname, reqSeason);
+  // Reads below use the saved player row so default and explicit-season
+  // requests cannot reuse a pre-refresh response from another instance.
   if (forceRefresh) {
     const claimed = await claimForceRefresh(buildPlayerRefreshLockKey(platform, nickname));
     if (!claimed) {
@@ -175,22 +150,6 @@ export async function GET(request: Request) {
         { error: "강제 갱신은 같은 전적에 대해 1분에 한 번만 요청할 수 있습니다." },
         { status: 429, headers: { "Retry-After": "60", "Cache-Control": "no-store" } },
       );
-    }
-  } else {
-    const cachedPayload = await readPubgCache(cacheKey);
-    if (cachedPayload) {
-      const cachedAccountId = isRecord(cachedPayload) && isBanAccountId(cachedPayload.accountId)
-        ? cachedPayload.accountId
-        : null;
-      if (cachedAccountId) {
-        const privateResponse = await guardPlayerPrivate(platform, nickname, cachedAccountId);
-        if (privateResponse) return privateResponse;
-      }
-      if (!cachedAccountId) {
-        const privateResponse = await blockPrivatePlayer(platform, nickname, undefined, { lookupUpstream: true });
-        if (privateResponse) return privateResponse;
-      }
-      return NextResponse.json(await withCachedBanObservation(normalizeCachedPlayerResponse(cachedPayload), platform));
     }
   }
 
@@ -256,7 +215,8 @@ export async function GET(request: Request) {
       // empty bucket; stale optional mastery never escalates this request to
       // PUBG either.
       // 최근 매치들의 모드 정보를 match_master_telemetry에서 일괄 가져옴
-      const recentMatches = cacheData.recent_match_ids || [];
+      const collectionMatchIds = normalizeDiscoveredMatchIds(cacheData.recent_match_ids || []);
+      const recentMatches = normalizeRecentMatchIds(collectionMatchIds);
       const { data: modeData } = await supabase
         .from("match_master_telemetry")
         .select("match_id, game_mode")
@@ -277,6 +237,7 @@ export async function GET(request: Request) {
         })),
         stats: statsForSeason || { ranked: null, normal: null },
         recentMatches,
+        collectionMatchIds,
         matchModes,
         clan: cacheData.clan_data,
         survivalMastery: cachedSurvivalMastery,
@@ -285,10 +246,9 @@ export async function GET(request: Request) {
         updatedAt: cacheData.updated_at
       };
 
-      // 분산 캐시 업데이트 (L1 + L2)
-      await writePubgCache(cacheKey, responseBody);
-
-      return NextResponse.json(await withCachedBanObservation(responseBody, platform));
+      return NextResponse.json(await withCachedBanObservation(responseBody, platform), {
+        headers: { "Cache-Control": "no-store" },
+      });
     }
   }
 
@@ -344,12 +304,10 @@ export async function GET(request: Request) {
     const privateResponse = await guardPlayerPrivate(platform, playerRecord.attributes.name, accountId);
     if (privateResponse) return privateResponse;
     // Persist discovery independently of downstream season/mastery availability.
-    let historyIngestError = false;
     try {
       await recordDiscoveredMatches({ platform, accountId, nickname: playerRecord.attributes.name,
         matchIds: playerRecord.relationships.matches.data.map((match) => match.id) });
     } catch {
-      historyIngestError = true;
       console.warn('[pubg-player] match discovery persistence failed', { requestId });
     }
     const actualNickname = playerRecord.attributes.name;
@@ -359,7 +317,8 @@ export async function GET(request: Request) {
       && cacheData.nickname.toLowerCase() === actualNickname.toLowerCase();
     const previous = sameCachedPlayer ? cacheData : null;
     const apiRecentMatches = playerRecord.relationships.matches.data.map((match) => match.id);
-    const recentMatches = mergeRecentMatchIds(apiRecentMatches, previous?.recent_match_ids);
+    const collectionMatchIds = normalizeDiscoveredMatchIds(apiRecentMatches);
+    const recentMatches = normalizeRecentMatchIds(collectionMatchIds);
     const banType = playerRecord.attributes.banType ?? "Unknown";
     const banCheckedAt = new Date().toISOString();
     const banStatus = normalizeBanStatus(banType);
@@ -481,7 +440,7 @@ export async function GET(request: Request) {
       accountId, nickname: actualNickname, platform, seasonId: targetSeasonId,
       seasons: availableSeasons.map((season) => ({ id: season.id, name: season.name || `Season ${season.id.split("-").pop()}` })),
       stats: { ranked: rankedStats, normal: normalStats }, statsAvailability,
-      recentMatches, matchModes, clan: clanResult.data,
+      recentMatches, collectionMatchIds, matchModes, clan: clanResult.data,
       survivalMastery: mastery.data || previousMastery,
       weaponMastery: previous?.weapon_mastery_data || [], banType, banStatus, banCheckedAt,
       ...(complete ? { updatedAt: nowIso } : previous?.updated_at ? { updatedAt: previous.updated_at } : {}),
@@ -501,7 +460,7 @@ export async function GET(request: Request) {
         updated_at: nowIso,
         last_seen_at: nowIso,
         ban_type: banType, season_stats_data: updatedSeasonStats, last_season_id: targetSeasonId,
-        recent_match_ids: recentMatches, seasons_list: availableSeasons,
+        recent_match_ids: collectionMatchIds, seasons_list: availableSeasons,
       };
       if (mastery.updated && mastery.data) {
         cacheUpdateData.survival_mastery_updated_at = nowIso;
@@ -511,13 +470,13 @@ export async function GET(request: Request) {
         cacheUpdateData.clan_data = clanResult.data;
         cacheUpdateData.clan_updated_at = nowIso;
       }
-      void Promise.resolve(createServiceRoleClient()
+      const { error: cacheWriteError } = await createServiceRoleClient()
         .from('pubg_player_cache')
-        .upsert(cacheUpdateData, { onConflict: 'id' }))
-        .then(({ error: cacheWriteError }) => {
-          if (cacheWriteError) console.error("[pubg-player] pubg_player_cache 갱신 실패:", cacheWriteError.message);
-        }).catch(() => console.warn("[pubg-player] pubg_player_cache 갱신 실패", { requestId }));
-      if (!historyIngestError) await writePubgCache(cacheKey, responseBody);
+        .upsert(cacheUpdateData, { onConflict: 'id' });
+      if (cacheWriteError) {
+        console.error("[pubg-player] pubg_player_cache 갱신 실패:", cacheWriteError.message);
+        throw new Error("player-cache-write-failed");
+      }
     }
     await Promise.all(failures.map((error) => safeLogFailure(error)));
     return NextResponse.json(responseBody, {

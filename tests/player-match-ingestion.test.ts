@@ -91,6 +91,22 @@ import { buildPlayerMatchRecordFromParticipant, fetchAndIngestBasicMatchSummary 
 });
 
 describe('account-based discovery ingestion', () => {
+  it('cancels the upstream fetch when the requesting page is cancelled', async () => {
+    const { fetchAndIngestBasicMatchSummaryOutcome } = await import('../lib/pubg/playerMatchesIngest');
+    const controller = new AbortController();
+    let upstreamSignal: AbortSignal | undefined;
+    const fetchImpl = vi.fn((_input, init) => new Promise<Response>((_resolve, reject) => {
+      upstreamSignal = init.signal;
+      upstreamSignal?.addEventListener('abort', () => reject(upstreamSignal?.reason), { once: true });
+    }));
+    const outcome = fetchAndIngestBasicMatchSummaryOutcome({} as never, 'cancelled-match', 'Player', 'steam', '', {
+      fetchImpl, signal: controller.signal,
+    });
+    controller.abort();
+    expect((await outcome).status).toBe('network_error');
+    expect(upstreamSignal?.aborted).toBe(true);
+  });
+
   it('uses the stable account after nickname change and rejects name-only matches', async () => {
     const { fetchAndIngestBasicMatchSummaryOutcome } = await import('../lib/pubg/playerMatchesIngest');
     const upsert = vi.fn().mockResolvedValue({error:null});

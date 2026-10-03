@@ -6,7 +6,8 @@ import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import { buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
 import type { PlayerMatchRecord } from "@/lib/pubg/playerMatches";
 import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
-import { normalizeRecentMatchIds } from "@/lib/pubg/recentMatches";
+import { normalizeRecentMatchIds, RECENT_MATCH_LIMIT } from "@/lib/pubg/recentMatches";
+import { normalizeDiscoveredMatchIds } from "@/lib/pubg/matchDiscovery";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { parseStatsPlatform } from "@/lib/stats/statsPageModel";
 import type {
@@ -173,6 +174,23 @@ function isAbortError(error: unknown): boolean {
   return error instanceof DOMException
     ? error.name === "AbortError"
     : Boolean(error && typeof error === "object" && "name" in error && error.name === "AbortError");
+}
+
+function withRequestTimeout(signal: AbortSignal): AbortSignal {
+  const deadline = AbortSignal.timeout(15_000);
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([signal, deadline]);
+  const controller = new AbortController();
+  const abort = () => {
+    controller.abort(signal.aborted ? signal.reason : deadline.reason);
+    signal.removeEventListener("abort", abort);
+    deadline.removeEventListener("abort", abort);
+  };
+  if (signal.aborted) abort();
+  else {
+    signal.addEventListener("abort", abort, { once: true });
+    deadline.addEventListener("abort", abort, { once: true });
+  }
+  return controller.signal;
 }
 
 function normalizeSuggestions(value: unknown): { nickname: string; platform: StatsPlatform }[] {
@@ -534,6 +552,7 @@ export function useStatsPageController(
         const player = {
           ...data,
           recentMatches: normalizeRecentMatchIds(data.recentMatches as unknown[]),
+          collectionMatchIds: normalizeDiscoveredMatchIds(Array.isArray(data.collectionMatchIds) ? data.collectionMatchIds : data.recentMatches as unknown[]),
           matchModes: normalizeMatchModes(data.matchModes),
           statsAvailability: availability,
           ...(retryAfterSeconds === null ? {} : { retryAfterSeconds }),
@@ -668,7 +687,7 @@ export function useStatsPageController(
       });
       const response = await fetch(`/api/pubg/player/matches?${params.toString()}`, {
         cache: "no-store",
-        signal: controller.signal,
+        signal: withRequestTimeout(controller.signal),
       });
       const data = await response.json() as {
         matches?: PlayerMatchRecord[];
@@ -710,21 +729,23 @@ export function useStatsPageController(
     }
   }, [applyHistoryRecords, cancelHistoryPolling]);
 
-  const loadSummaries = useCallback((player: PlayerStatsResponse): Promise<readonly string[]> => {
-    const matchIds = normalizeRecentMatchIds(player.recentMatches);
+  const loadSummaries = useCallback((
+    player: PlayerStatsResponse,
+    requestedIds: readonly string[] = player.recentMatches,
+  ): Promise<{ summaryIds: string[]; missingMatchIds: string[]; nextMatchIds: string[]; collectionStopped: boolean } | null> => {
+    const matchIds = normalizeRecentMatchIds(requestedIds);
     summaryRequestRef.current?.controller.abort();
     const controller = new AbortController();
     const requestId = ++summaryRequestIdRef.current;
     summaryRequestRef.current = { id: requestId, controller };
     clearPartial("summary_batch_failed", "summary-batch");
-    clearPartial("summary_missing", "summary-batch");
 
     if (!matchIds.length) {
       setMatchSummaries({});
       setMissingMatchIds(new Set());
       setMatchModeMeta({});
       setSummaryStatus("idle");
-      return Promise.resolve([]);
+      return Promise.resolve(null);
     }
 
     setSummaryStatus("loading");
@@ -739,13 +760,15 @@ export function useStatsPageController(
             nickname: player.nickname,
             platform: player.platform,
           }),
-          signal: controller.signal,
+          signal: withRequestTimeout(controller.signal),
         });
         const data = await response.json() as {
           summaries?: Record<string, MatchSummaryData>;
           missingMatchIds?: string[];
+          nextMatchIds?: string[];
+          collectionStopped?: boolean;
         };
-        if (stale()) return [];
+        if (stale()) return null;
         if (!response.ok) throw new Error("최근 매치 요약을 불러오지 못했습니다.");
 
         const summaries = normalizeSummaryMap(data.summaries);
@@ -753,6 +776,9 @@ export function useStatsPageController(
           normalizeRecentMatchIds(data.missingMatchIds ?? [])
             .filter((id) => !historySummaryIdsRef.current.has(id)),
         );
+        const nextMatchIds = normalizeRecentMatchIds(Array.isArray(data.nextMatchIds) ? data.nextMatchIds : [])
+          .filter((id) => matchIds.includes(id) && !summaries[id] && !historySummaryIdsRef.current.has(id));
+        const continuation = nextMatchIds.length < matchIds.length ? nextMatchIds : [];
         const nextModeMeta: Record<string, StatsMatchModeMeta> = {};
         for (const [rawMatchId, gameMode] of Object.entries(player.matchModes ?? {})) {
           const matchId = normalizeMatchId(rawMatchId);
@@ -767,22 +793,25 @@ export function useStatsPageController(
           };
         }
         setMatchSummaries((previous) => ({ ...previous, ...summaries }));
-        setMissingMatchIds(missingIds);
+        setMissingMatchIds((previous) => new Set([
+          ...[...previous].filter((id) => !matchIds.includes(id)),
+          ...missingIds,
+        ]));
         setMatchModeMeta((previous) => {
           const next = { ...previous };
           for (const [id, meta] of Object.entries(nextModeMeta)) next[id] = mergeModeMeta(meta, previous[id]);
           return next;
         });
-        setSummaryStatus("ready");
-        clearPartial("summary_batch_failed", "summary-batch");
-        if (missingIds.size) reportPartial("summary_missing", "summary-batch");
-        else clearPartial("summary_missing", "summary-batch");
-        return Object.keys(summaries);
+        const collectionStopped = data.collectionStopped === true;
+        setSummaryStatus(collectionStopped ? "error" : "loading");
+        if (collectionStopped) reportPartial("summary_batch_failed", "summary-batch");
+        if ([...missingIds].some((id) => !continuation.includes(id))) reportPartial("summary_missing", "summary-batch");
+        return { summaryIds: Object.keys(summaries), missingMatchIds: [...missingIds], nextMatchIds: continuation, collectionStopped };
       } catch (caught) {
-        if (stale() || isAbortError(caught)) return [];
+        if (stale() || isAbortError(caught)) return null;
         setSummaryStatus("error");
         reportPartial("summary_batch_failed", "summary-batch");
-        return [];
+        return null;
       }
     })();
   }, [clearPartial, reportPartial]);
@@ -810,16 +839,43 @@ export function useStatsPageController(
   }, [historyPage, historyStatus, loadHistoryPage]);
 
   const loadRecentRecords = useCallback(async (player: PlayerStatsResponse) => {
+    clearPartial("summary_missing", "summary-batch");
+    let pending = normalizeDiscoveredMatchIds(player.collectionMatchIds ?? player.recentMatches);
     // Publish each response independently so basic records never wait for analysis.
     const history = loadHistoryPage(player, 1);
-    const historyRequestId = historyRequestIdRef.current;
-    const [records, summaryIds] = await Promise.all([history, loadSummaries(player)]);
-    if (resultRef.current !== player || historyRequestId !== historyRequestIdRef.current || !records) return;
-    const storedIds = new Set(records.map((record) => record.match_id));
-    // Summary lookup can ingest recent matches. Refresh pagination once only when
-    // it recovered records absent from the initial page, and no newer page owns it.
-    if (summaryIds.some((id) => !storedIds.has(id))) await loadHistoryPage(player, 1);
-  }, [loadHistoryPage, loadSummaries]);
+    let historyRequestId = historyRequestIdRef.current;
+    const summary = loadSummaries(player, pending.slice(0, RECENT_MATCH_LIMIT));
+    let summaryRequestId = summaryRequestIdRef.current;
+    let [records, batch] = await Promise.all([history, summary]);
+    const stale = () => resultRef.current !== player || summaryRequestId !== summaryRequestIdRef.current;
+    const missingIds = new Set<string>();
+    while (batch && !stale()) {
+      for (const id of batch.summaryIds) missingIds.delete(id);
+      for (const id of batch.missingMatchIds) missingIds.add(id);
+      // Publish each saved batch without taking over a newer page/filter request.
+      if (records && historyRequestId === historyRequestIdRef.current) {
+        const storedIds = new Set(records.map((record) => record.match_id));
+        if (batch.summaryIds.some((id) => !storedIds.has(id))) {
+          const reload = loadHistoryPage(player, 1);
+          historyRequestId = historyRequestIdRef.current;
+          records = await reload;
+        }
+      }
+      if (stale()) return;
+      if (batch.collectionStopped) break;
+      // Each bounded request consumes IDs; only unattempted IDs rejoin the queue.
+      pending = [...batch.nextMatchIds, ...pending.slice(RECENT_MATCH_LIMIT)];
+      if (!pending.length) break;
+      const next = loadSummaries(player, pending.slice(0, RECENT_MATCH_LIMIT));
+      summaryRequestId = summaryRequestIdRef.current;
+      batch = await next;
+    }
+    if (batch && !stale()) {
+      if (!batch.collectionStopped) setSummaryStatus("ready");
+      if ([...missingIds].some((id) => !historySummaryIdsRef.current.has(id))) reportPartial("summary_missing", "summary-batch");
+      else clearPartial("summary_missing", "summary-batch");
+    }
+  }, [clearPartial, loadHistoryPage, loadSummaries, reportPartial]);
 
   const retrySummaries = useCallback(async () => {
     const player = resultRef.current;

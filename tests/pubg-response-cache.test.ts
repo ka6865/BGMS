@@ -162,7 +162,7 @@ describe("PUBG 캐시 마이그레이션 계약", () => {
   });
 });
 
-describe("player 라우트가 분산 캐시를 사용한다", () => {
+describe("player 라우트의 저장 캐시와 분산 갱신 잠금", () => {
   const routeSource = readFileSync(resolve("app/api/pubg/player/route.ts"), "utf8");
 
   it("인메모리 전용 캐시 구현이 남아 있지 않다", () => {
@@ -171,11 +171,11 @@ describe("player 라우트가 분산 캐시를 사용한다", () => {
     expect(routeSource).not.toContain("CACHE_TTL_MS");
   });
 
-  it("공유 캐시 모듈을 통해 읽고 쓴다", () => {
-    expect(routeSource).toContain('from "@/lib/pubg/responseCache"');
-    expect(routeSource).toContain("await readPubgCache(cacheKey)");
+  it("전적 조회는 저장된 플레이어 캐시를 사용하고 갱신 잠금은 공유 모듈을 사용한다", () => {
+    expect(routeSource).toContain(".from('pubg_player_cache')");
+    expect(routeSource).not.toContain("readPubgCache");
+    expect(routeSource).not.toContain("writePubgCache");
     expect(routeSource).toContain("await claimForceRefresh(buildPlayerRefreshLockKey(platform, nickname))");
-    expect(routeSource.match(/await writePubgCache\(cacheKey, responseBody\)/g)).toHaveLength(2);
   });
 
   it("강제 갱신은 시즌 의존 response-cache 키가 아닌 canonical player lock을 claim한다", () => {

@@ -307,7 +307,7 @@ describe("player route recovery contract", () => {
   });
 
   it("uses the ban observation time on cached profiles without recording a new check", async () => {
-    mockReadPubgCache.mockResolvedValue({ accountId: "account.fixture1", banType: "None", updatedAt: "2026-09-12T00:00:00Z" });
+    configureSupabase(staleCacheRow());
     mockReadBanStatus.mockResolvedValue({ status: "permanent", rawType: "PermanentBan", checkedAt: "2026-09-10T00:00:00Z" });
     const { GET } = await loadRoute();
     const body = await (await GET(request())).json();
@@ -317,7 +317,7 @@ describe("player route recovery contract", () => {
   });
 
   it("does not fabricate an observation timestamp if the new store is unavailable", async () => {
-    mockReadPubgCache.mockResolvedValue({ accountId: "account.fixture1", banType: "None", updatedAt: "2026-09-12T00:00:00Z" });
+    configureSupabase(staleCacheRow());
     mockReadBanStatus.mockRejectedValue(new Error("migration unavailable"));
     const { GET } = await loadRoute();
     const body = await (await GET(request())).json();
@@ -353,6 +353,7 @@ describe("player route recovery contract", () => {
     expect(response.status).toBe(200);
     expect(discoveryRpc).toHaveBeenCalledWith('record_pubg_match_discovery',expect.objectContaining({p_match_ids:ids,p_account_id:'account.fixture1'}));
     expect(body.recentMatches).toHaveLength(20);
+    expect(body.collectionMatchIds).toEqual(ids);
     expect(body.historyIngestError).toBeUndefined();
     expect(adminUpsert).not.toHaveBeenCalled();
     expect(mockWritePubgCache).not.toHaveBeenCalled();
@@ -391,10 +392,76 @@ describe("player route recovery contract", () => {
       updated_at: expect.any(String),
       season_stats_data: expect.any(Object),
     }));
-    expect(mockWritePubgCache).toHaveBeenCalledTimes(1);
-    expect(mockWritePubgCache.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
-      updatedAt: body.updatedAt,
-    }));
+    expect(mockWritePubgCache).not.toHaveBeenCalled();
+    expect(adminUpsert.mock.calls[0]?.[0].updated_at).toBe(body.updatedAt);
+  });
+
+  it.each([0, 3, 45])("waits for the save and serves the same refreshed records on default and explicit-season reloads (%s matches)", async (matchCount) => {
+    const { adminUpsert, playerCache } = configureSupabase({
+      ...staleCacheRow(), recent_match_ids: Array.from({ length: 20 }, (_, index) => `older-match-${index}`),
+    });
+    mockReadPubgCache.mockResolvedValue({
+      accountId: "account.fixture1", nickname: "Fixture_Player", platform: "steam",
+      seasonId: "pc-2026-01", stats: { ranked: cachedModeBuckets(1), normal: cachedModeBuckets(1) },
+      recentMatches: ["before-refresh"],
+    });
+    let finishWrite!: () => void;
+    const writeCompleted = new Promise<void>((resolve) => { finishWrite = resolve; });
+    adminUpsert.mockImplementation(async (savedRow) => {
+      await writeCompleted;
+      playerCache.maybeSingle.mockResolvedValue({ data: savedRow, error: null });
+      return { data: null, error: null };
+    });
+    const player = playerPayload();
+    const ids = Array.from({ length: matchCount }, (_, index) => `new-match-${index}`);
+    player.data[0].relationships.matches.data = ids.map((id) => ({ id })) as never[];
+    installFetch({ player: [jsonResponse(player)], seasons: [jsonResponse(seasonsPayload())],
+      season: [jsonResponse(normalPayload(7))], ranked: [jsonResponse(rankedPayload(9))], mastery: [jsonResponse({}, 404)] });
+    const { GET } = await loadRoute();
+    let responded = false;
+    const refreshed = GET(request(
+      "http://localhost/api/pubg/player?nickname=Fixture_Player&platform=steam&season=pc-2026-01&refresh=true",
+    )).then((response) => { responded = true; return response; });
+    try {
+      await vi.waitFor(() => expect(adminUpsert).toHaveBeenCalledTimes(1));
+      expect(responded).toBe(false);
+    } finally {
+      finishWrite();
+    }
+    const refreshResponse = await refreshed;
+    expect(refreshResponse.status).toBe(200);
+    const body = await refreshResponse.json();
+    expect(body.recentMatches).toEqual(ids.slice(0, 20));
+    expect(body.collectionMatchIds).toEqual(ids);
+    for (const seasonQuery of ["", "&season=pc-2026-01"]) {
+      const response = await GET(request(
+        `http://localhost/api/pubg/player?nickname=Fixture_Player&platform=steam${seasonQuery}`,
+      ));
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        seasonId: body.seasonId, stats: body.stats, recentMatches: ids.slice(0, 20), collectionMatchIds: ids, updatedAt: body.updatedAt,
+      });
+    }
+    expect(mockReadPubgCache).not.toHaveBeenCalled();
+    expect(adminUpsert.mock.calls[0][0].recent_match_ids).toEqual(ids);
+    expect(mockWritePubgCache).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledTimes(5);
+  });
+
+  it.each(["error", "rejected"])("does not report a successful refresh when saving fails (%s)", async (failure) => {
+    const { adminUpsert } = configureSupabase(staleCacheRow());
+    if (failure === "error") adminUpsert.mockResolvedValue({ data: null, error: { message: "store offline" } });
+    else adminUpsert.mockRejectedValue(new Error("store offline"));
+    installFetch({ player: [jsonResponse(playerPayload())], seasons: [jsonResponse(seasonsPayload())],
+      season: [jsonResponse(normalPayload())], ranked: [jsonResponse(rankedPayload())], mastery: [jsonResponse({}, 404)] });
+    const { GET } = await loadRoute();
+    const response = await GET(request(
+      "http://localhost/api/pubg/player?nickname=Fixture_Player&platform=steam&refresh=true",
+    ));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ error: expect.any(String), retryable: true });
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(mockWritePubgCache).not.toHaveBeenCalled();
   });
 
   it("returns 503 for a repeated malformed player payload instead of misclassifying it as not found", async () => {
