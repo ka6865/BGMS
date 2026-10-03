@@ -78,6 +78,7 @@ export interface PlayerStatsResponse {
   banCheckedAt?: string | null;
   updatedAt?: string;
   statsAvailability?: Partial<Record<StatsMode, StatsModeAvailability>>;
+  seasonStatsCached?: boolean;
   retryAfterSeconds?: number;
 }
 
@@ -110,7 +111,7 @@ export type StatsSeasonSummaryMetrics =
       seasonName: string;
       mode: StatsMode;
       partySize: StatsPartySize;
-      label: "기록 없음";
+      label: "기록 없음" | "아직 갱신하지 않은 시즌";
       availability?: StatsModeAvailability;
     }
   | {

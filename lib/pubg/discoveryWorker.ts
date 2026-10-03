@@ -13,7 +13,7 @@ export async function runDiscoveryWorker(d: DiscoveryWorkerDependencies) {
   const now=d.now ?? Date.now;
   const started=now();
   const limit=Math.max(0,Math.min(300,d.limit ?? 300));
-  const summary={claimed:0,saved:0,retry:0,unavailable:0,rateLimited:false,durationMs:0};
+  const summary={claimed:0,saved:0,retry:0,unavailable:0,rateLimited:false,durationMs:0,failureCounts:{} as Record<string,number>};
   while(summary.claimed<limit && now()-started<(d.maxDurationMs ?? 480000)) {
     const jobs=await d.claim(Math.min(3,limit-summary.claimed));
     if(!jobs.length) break;
@@ -27,6 +27,10 @@ export async function runDiscoveryWorker(d: DiscoveryWorkerDependencies) {
       let result: BasicMatchIngestOutcome;
       try { result=await d.ingest(job); }
       catch { result={status:'network_error',record:null,httpStatus:null,rateLimitHeaders:null}; }
+      if(result.status!=='saved') {
+        const code=`${result.status}:${result.httpStatus ?? 'none'}`;
+        summary.failureCounts[code]=(summary.failureCounts[code] ?? 0)+1;
+      }
       let outcome: Settlement;
       if(result.status==='saved') outcome={state:'saved'};
       else if(result.status==='not_found' && job.not_found_count>=1) outcome={state:'unavailable',errorCode:'not_found'};

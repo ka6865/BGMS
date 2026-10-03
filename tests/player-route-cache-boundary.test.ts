@@ -143,6 +143,7 @@ describe("player route non-force cache boundary", () => {
     await expect(response.json()).resolves.toEqual(expect.objectContaining({
       nickname: "Fixture_Player",
       seasonId: "pc-2026-missing",
+      seasonStatsCached: false,
       stats: { ranked: null, normal: null },
       survivalMastery: { level: 7, xp: 12 },
     }));

@@ -91,6 +91,14 @@ import { buildPlayerMatchRecordFromParticipant, fetchAndIngestBasicMatchSummary 
 });
 
 describe('account-based discovery ingestion', () => {
+  it('closes an unsuccessful response body before returning its retry status', async () => {
+    const { fetchAndIngestBasicMatchSummaryOutcome } = await import('../lib/pubg/playerMatchesIngest');
+    const cancel = vi.fn();
+    const fetchImpl = vi.fn().mockResolvedValue(new Response(new ReadableStream({ cancel }), { status: 503 }));
+    const outcome = await fetchAndIngestBasicMatchSummaryOutcome({} as never, 'failed-match', 'Player', 'steam', '', { fetchImpl });
+    expect(outcome).toMatchObject({ status: 'upstream_error', httpStatus: 503 });
+    expect(cancel).toHaveBeenCalledOnce();
+  });
   it('cancels the upstream fetch when the requesting page is cancelled', async () => {
     const { fetchAndIngestBasicMatchSummaryOutcome } = await import('../lib/pubg/playerMatchesIngest');
     const controller = new AbortController();

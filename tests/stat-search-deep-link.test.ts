@@ -206,7 +206,7 @@ describe("stats route-first/deep-link", () => {
     const input = screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요");
     fireEvent.focus(input);
 
-    fireEvent.click(await screen.findByRole("button", { name: "RecentPlayer" }));
+    fireEvent.click(await screen.findByRole("button", { name: "RecentPlayer 스팀으로 검색" }));
     expect(routerPush).toHaveBeenCalledWith("/stats/steam/RecentPlayer");
     expect(playerRequests()).toHaveLength(0);
 
@@ -214,7 +214,7 @@ describe("stats route-first/deep-link", () => {
     routerPush.mockReset();
     render(createElement(StatSearch));
     fireEvent.focus(screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요"));
-    fireEvent.click(await screen.findByRole("button", { name: "FavoritePlayer" }));
+    fireEvent.click(await screen.findByRole("button", { name: "FavoritePlayer 스팀으로 검색" }));
     expect(routerPush).toHaveBeenCalledWith("/stats/steam/FavoritePlayer");
     expect(playerRequests()).toHaveLength(0);
   });
@@ -231,6 +231,15 @@ describe("stats route-first/deep-link", () => {
     fireEvent.click(await screen.findByRole("button", { name: "AutoPlayer 카카오로 검색" }));
 
     expect(routerPush).toHaveBeenCalledWith("/stats/kakao/AutoPlayer");
+    expect(playerRequests()).toHaveLength(0);
+  });
+
+  it("카카오 최근 검색은 플랫폼 선택이 스팀이어도 카카오 경로로 이동한다", async () => {
+    localStorage.setItem(STORAGE_KEY_RECENT, JSON.stringify([{ nickname: "KakaoOnly", platform: "kakao" }]));
+    render(createElement(StatSearch));
+    fireEvent.focus(screen.getByPlaceholderText("정확한 대소문자 닉네임을 입력하세요"));
+    fireEvent.click(await screen.findByRole("button", { name: "KakaoOnly 카카오로 검색" }));
+    expect(routerPush).toHaveBeenCalledWith("/stats/kakao/KakaoOnly");
     expect(playerRequests()).toHaveLength(0);
   });
 

@@ -4,7 +4,9 @@ import { useState, useEffect, Suspense, useRef, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Camera, Copy, Download, Share2, Star, Clock, User, X } from "lucide-react";
-import { STORAGE_KEY_RECENT, STORAGE_KEY_FAVORITES } from "../../../lib/pubg-analysis/constants";
+import { useStatsSearchHistory, statsSearchKey, type StatsSearchEntry } from "@/hooks/useStatsSearchHistory";
+import { parseStatsPlatform } from "@/lib/stats/statsPageModel";
+import type { StatsPlatform } from "@/types/stats-page";
 import { trackEvent } from "@/lib/analytics";
 import AdfitBanner from "@/components/ads/AdfitBanner";
 import { BgmsIcon } from "@/components/common/BgmsIcon";
@@ -79,8 +81,7 @@ function BattleContent() {
   const [shareBusy, setShareBusy] = useState<"share" | "copy" | "download" | "image" | null>(null);
 
   // 로컬 스토리지 데이터 상태
-  const [recentSearches, setRecentSearches] = useState<string[]>([]);
-  const [favorites, setFavorites] = useState<string[]>([]);
+  const { recentSearches, favorites, addRecent: updateRecentSearches, toggleFavorite: toggleStoredFavorite, removeRecent } = useStatsSearchHistory();
   const [showDropdown1, setShowDropdown1] = useState(false);
   const [showDropdown2, setShowDropdown2] = useState(false);
 
@@ -90,53 +91,15 @@ function BattleContent() {
   const [isSuggesting1, setIsSuggesting1] = useState(false);
   const [isSuggesting2, setIsSuggesting2] = useState(false);
 
-  // 초기 데이터 로드
-  useEffect(() => {
-    const savedRecent = localStorage.getItem(STORAGE_KEY_RECENT);
-    const savedFavorites = localStorage.getItem(STORAGE_KEY_FAVORITES);
-    try {
-      if (savedRecent) setRecentSearches(JSON.parse(savedRecent));
-    } catch {
-      localStorage.removeItem(STORAGE_KEY_RECENT);
-    }
-    try {
-      if (savedFavorites) setFavorites(JSON.parse(savedFavorites));
-    } catch {
-      localStorage.removeItem(STORAGE_KEY_FAVORITES);
-    }
-  }, []);
-  
-  // 즐겨찾기 데이터 저장
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY_FAVORITES, JSON.stringify(favorites));
-  }, [favorites]);
-
-  const toggleFavorite = (name: string, e: React.MouseEvent) => {
+  const toggleFavorite = (name: string, platform: StatsPlatform, e: React.MouseEvent) => {
     e.stopPropagation();
-    setFavorites((prev) =>
-      prev.includes(name) ? prev.filter((n) => n !== name) : [name, ...prev]
-    );
+    toggleStoredFavorite(name, platform);
   };
 
-  const removeRecentSearch = (name: string, e: React.MouseEvent) => {
+  const removeRecentSearch = (name: string, platform: StatsPlatform, e: React.MouseEvent) => {
     e.stopPropagation();
-    setRecentSearches((prev) => {
-      const updated = prev.filter((n) => n !== name);
-      localStorage.setItem(STORAGE_KEY_RECENT, JSON.stringify(updated));
-      return updated;
-    });
+    removeRecent(name, platform);
   };
-
-  // 검색 기록 업데이트 함수
-  const updateRecentSearches = useCallback((nick: string) => {
-    if (!nick.trim()) return;
-    setRecentSearches(prev => {
-      const filtered = prev.filter(n => n !== nick);
-      const next = [nick, ...filtered].slice(0, 10);
-      localStorage.setItem(STORAGE_KEY_RECENT, JSON.stringify(next));
-      return next;
-    });
-  }, []);
 
   const buildShareUrl = (
     player1: string,
@@ -256,8 +219,8 @@ function BattleContent() {
       if (resolvedPlatform1) setPlatform1(resolvedPlatform1);
       if (resolvedPlatform2) setPlatform2(resolvedPlatform2);
 
-      updateRecentSearches(data.nick1 || n1);
-      updateRecentSearches(data.nick2 || n2);
+      updateRecentSearches(data.nick1 || n1, resolvedPlatform1 || p1 || "steam");
+      updateRecentSearches(data.nick2 || n2, resolvedPlatform2 || p2 || "steam");
 
       const finalNick1 = data.nick1 || n1;
       const finalNick2 = data.nick2 || n2;
@@ -465,11 +428,11 @@ function BattleContent() {
   };
 
   const getDropdownItems = () => {
-    const items: { name: string; type: "favorite" | "recent" }[] = [];
-    favorites.forEach(name => items.push({ name, type: "favorite" }));
+    const items: (StatsSearchEntry & { type: "favorite" | "recent" })[] = [];
+    favorites.forEach(entry => items.push({ ...entry, type: "favorite" }));
     recentSearches
-      .filter(name => !favorites.includes(name))
-      .forEach(name => items.push({ name, type: "recent" }));
+      .filter(entry => !favorites.some(favorite => statsSearchKey(favorite) === statsSearchKey(entry)))
+      .forEach(entry => items.push({ ...entry, type: "recent" }));
     return items;
   };
 
@@ -881,12 +844,12 @@ function NicknameDropdown({
   nickname: string;
   suggestions: PlayerSuggestion[];
   isSuggesting: boolean;
-  recentSearches: string[];
-  favorites: string[];
-  items: { name: string; type: "favorite" | "recent" }[];
+  recentSearches: readonly StatsSearchEntry[];
+  favorites: readonly StatsSearchEntry[];
+  items: (StatsSearchEntry & { type: "favorite" | "recent" })[];
   onSelect: (val: string, platform?: string) => void;
-  onToggleFavorite: (name: string, e: React.MouseEvent) => void;
-  onRemoveRecent: (name: string, e: React.MouseEvent) => void;
+  onToggleFavorite: (name: string, platform: StatsPlatform, e: React.MouseEvent) => void;
+  onRemoveRecent: (name: string, platform: StatsPlatform, e: React.MouseEvent) => void;
   onClose: () => void;
 }) {
   return (
@@ -897,8 +860,9 @@ function NicknameDropdown({
           <div className="pb-2">
             <div className="px-4 py-2 text-[10px] font-black text-amber-500/50 uppercase tracking-widest border-b border-white/5 bg-white/2">추천 플레이어</div>
             {suggestions.map((s, i) => {
-              const isRecent = recentSearches.includes(s.nickname);
-              const isFav = favorites.includes(s.nickname);
+              const entry = { nickname: s.nickname, platform: parseStatsPlatform(s.platform) ?? "steam" };
+              const isRecent = recentSearches.some(value => statsSearchKey(value) === statsSearchKey(entry));
+              const isFav = favorites.some(value => statsSearchKey(value) === statsSearchKey(entry));
               return (
                 <div
                   key={`suggest-${s.nickname}-${i}`}
@@ -923,7 +887,7 @@ function NicknameDropdown({
                   </div>
                   <div className="ml-auto flex items-center gap-2">
                     <button
-                      onClick={(e) => onToggleFavorite(s.nickname, e)}
+                      onClick={(e) => onToggleFavorite(s.nickname, entry.platform, e)}
                       className={`p-1.5 rounded-lg transition-all ${isFav ? "text-yellow-400 bg-yellow-400/10" : "text-gray-600 hover:text-yellow-400 hover:bg-yellow-400/10"}`}
                     >
                       <Star size={14} fill={isFav ? "currentColor" : "none"} />
@@ -941,13 +905,13 @@ function NicknameDropdown({
             {nickname.length >= 2 && suggestions.length === 0 && !isSuggesting && (
               <div className="px-4 py-4 text-center text-xs text-gray-500 italic border-b border-white/5">검색 결과가 없습니다.</div>
             )}
-            {items.map((item, i) => {
-              const isFav = favorites.includes(item.name);
+            {items.map((item) => {
+              const isFav = favorites.some(value => statsSearchKey(value) === statsSearchKey(item));
               return (
                 <div
-                  key={`${item.name}-${i}`}
+                  key={statsSearchKey(item)}
                   onClick={() => {
-                    onSelect(item.name);
+                    onSelect(item.nickname, item.platform);
                     onClose();
                   }}
                   className="w-full px-4 py-3 flex items-center gap-3 hover:bg-white/5 transition-colors text-left border-b border-white/5 last:border-0 group cursor-pointer"
@@ -957,18 +921,19 @@ function NicknameDropdown({
                   ) : (
                     <Clock size={14} className="text-gray-500 shrink-0" />
                   )}
-                  <span className="text-sm font-bold text-gray-300 group-hover:text-white truncate">{item.name}</span>
+                  <span className="text-sm font-bold text-gray-300 group-hover:text-white truncate">{item.nickname}</span>
+                  <span className="text-[10px] text-gray-500 uppercase">{item.platform}</span>
                   
                   <div className="ml-auto flex items-center gap-2">
                     <button
-                      onClick={(e) => onToggleFavorite(item.name, e)}
+                      onClick={(e) => onToggleFavorite(item.nickname, item.platform, e)}
                       className={`p-1.5 rounded-lg transition-all ${isFav ? "text-yellow-400 bg-yellow-400/10" : "text-gray-600 hover:text-yellow-400 hover:bg-yellow-400/10"}`}
                     >
                       <Star size={14} fill={isFav ? "currentColor" : "none"} />
                     </button>
                     {item.type === "recent" && (
                       <button
-                        onClick={(e) => onRemoveRecent(item.name, e)}
+                        onClick={(e) => onRemoveRecent(item.nickname, item.platform, e)}
                         className="p-1.5 text-gray-600 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all"
                       >
                         <X size={14} />

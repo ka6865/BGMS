@@ -136,6 +136,7 @@ export async function fetchAndIngestBasicMatchSummaryOutcome(
     const rateLimitHeaders = readPubgRateLimitHeaders(res.headers);
 
     if (!res.ok) {
+      await res.body?.cancel().catch(() => undefined);
       options.onResponseStatus?.(res.status);
       return {
         status: res.status === 404

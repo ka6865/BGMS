@@ -3,12 +3,13 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Clock, Star, User, X } from "lucide-react";
 import type { StatsPlatform } from "@/types/stats-page";
+import { statsSearchKey, type StatsSearchEntry } from "@/hooks/useStatsSearchHistory";
 
 export interface StatsSearchBarProps {
   platform: StatsPlatform;
   nickname: string;
-  recentSearches: readonly string[];
-  favorites: readonly string[];
+  recentSearches: readonly StatsSearchEntry[];
+  favorites: readonly StatsSearchEntry[];
   suggestions: readonly { nickname: string; platform: StatsPlatform }[];
   suggesting: boolean;
   empty: boolean;
@@ -17,10 +18,10 @@ export interface StatsSearchBarProps {
   onPlatformChange(value: StatsPlatform): void;
   onNicknameChange(value: string): void;
   onSubmit(): void;
-  onQuickSearch(name: string): void;
+  onQuickSearch(name: string, platform: StatsPlatform): void;
   onSuggestionSelect(value: { nickname: string; platform: StatsPlatform }): void;
-  onFavoriteToggle(name: string): void;
-  onRecentRemove(name: string): void;
+  onFavoriteToggle(name: string, platform: StatsPlatform): void;
+  onRecentRemove(name: string, platform: StatsPlatform): void;
 }
 
 export function StatsSearchBar({
@@ -46,10 +47,10 @@ export function StatsSearchBar({
   const [showDropdown, setShowDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const items = useMemo(() => [
-    ...favorites.map((name) => ({ name, type: "favorite" as const })),
+    ...favorites.map((entry) => ({ ...entry, type: "favorite" as const })),
     ...recentSearches
-      .filter((name) => !favorites.includes(name))
-      .map((name) => ({ name, type: "recent" as const })),
+      .filter((entry) => !favorites.some(favorite => statsSearchKey(favorite) === statsSearchKey(entry)))
+      .map((entry) => ({ ...entry, type: "recent" as const })),
   ], [favorites, recentSearches]);
 
   useEffect(() => {
@@ -129,13 +130,14 @@ export function StatsSearchBar({
               )}
 
               {(nickname.trim().length < 2 || suggestions.length === 0) && items.map((item) => {
-                const favorite = favorites.includes(item.name);
+                const favorite = favorites.some(entry => statsSearchKey(entry) === statsSearchKey(item));
                 return (
-                  <div key={`${item.type}:${item.name}`} className="w-full px-4 py-3 flex items-center gap-3 border-b border-white/5 last:border-0">
+                  <div key={statsSearchKey(item)} className="w-full px-4 py-3 flex items-center gap-3 border-b border-white/5 last:border-0">
                     <button
                       type="button"
+                      aria-label={`${item.nickname} ${item.platform === "kakao" ? "카카오로" : "스팀으로"} 검색`}
                       onClick={() => {
-                        onQuickSearch(item.name);
+                        onQuickSearch(item.nickname, item.platform);
                         setShowDropdown(false);
                       }}
                       className="flex min-h-11 min-w-0 flex-1 items-center gap-3 text-left"
@@ -143,14 +145,15 @@ export function StatsSearchBar({
                       {item.type === "favorite"
                         ? <Star size={14} className="text-yellow-400 fill-yellow-400 shrink-0" />
                         : <Clock size={14} className="text-gray-500 shrink-0" />}
-                      <span className="truncate text-sm font-bold text-gray-300">{item.name}</span>
+                      <span className="truncate text-sm font-bold text-gray-300">{item.nickname}</span>
+                      <span aria-hidden="true" className="text-[10px] text-gray-500">{item.platform === "kakao" ? "카카오" : "스팀"}</span>
                     </button>
                     <button
                       type="button"
-                      aria-label={`${item.name} 즐겨찾기 ${favorite ? "해제" : "추가"}`}
+                      aria-label={`${item.nickname} ${item.platform === "kakao" ? "카카오" : "스팀"} 즐겨찾기 ${favorite ? "해제" : "추가"}`}
                       onClick={(event) => {
                         event.stopPropagation();
-                        onFavoriteToggle(item.name);
+                        onFavoriteToggle(item.nickname, item.platform);
                       }}
                       className={favorite ? "flex min-h-11 min-w-11 items-center justify-center text-yellow-400" : "flex min-h-11 min-w-11 items-center justify-center text-gray-600"}
                     >
@@ -159,10 +162,10 @@ export function StatsSearchBar({
                     {item.type === "recent" && (
                       <button
                         type="button"
-                        aria-label={`${item.name} 최근 검색 삭제`}
+                        aria-label={`${item.nickname} ${item.platform === "kakao" ? "카카오" : "스팀"} 최근 검색 삭제`}
                         onClick={(event) => {
                           event.stopPropagation();
-                          onRecentRemove(item.name);
+                          onRecentRemove(item.nickname, item.platform);
                         }}
                         className="flex min-h-11 min-w-11 items-center justify-center text-gray-600 hover:text-red-400"
                       >

@@ -29,6 +29,11 @@ export interface PlayerMatchesPage {
 
 export type PlayerMatchHistoryFilter = "all" | "normal" | "ranked" | "casual" | "tdm";
 
+export function buildPlayerMatchIdentityFilter(nickname: string, accountId?: string | null): string | null {
+  if (!accountId || !/^account\.[A-Za-z0-9_-]+$/.test(accountId)) return null;
+  return `account_id.eq.${accountId},and(account_id.is.null,player_id.eq.${JSON.stringify(normalizeName(nickname))})`;
+}
+
 const PLAYER_MATCH_HISTORY_FILTERS = new Set<PlayerMatchHistoryFilter>([
   "all",
   "normal",
@@ -82,7 +87,8 @@ function normalizePageSize(value: number): number {
  
 export async function upsertPlayerMatches(
   supabase: SupabaseClient,
-  records: PlayerMatchRecord[]
+  records: PlayerMatchRecord[],
+  options: { ignoreDuplicates?: boolean } = {},
  ): Promise<boolean> {
    if (!records || records.length === 0) return true;
    // PostgREST uses the union of a batch's keys for conflict updates. Group
@@ -98,7 +104,7 @@ export async function upsertPlayerMatches(
    for (const batch of batches.values()) {
      const { error } = await supabase
        .from("pubg_player_matches")
-       .upsert(batch, { onConflict: "player_id,platform,match_id" });
+       .upsert(batch, { onConflict: "player_id,platform,match_id", ...options });
      if (error) {
        console.error("[playerMatches] upsert failed:", error.message);
        return false;
@@ -114,6 +120,7 @@ export async function fetchPlayerMatchesPaginated(
   page = 1,
   limit = DEFAULT_PAGE_SIZE,
   filter: PlayerMatchHistoryFilter = "all",
+  accountId?: string | null,
 ): Promise<PlayerMatchesPage> {
   const playerId = normalizeName(nickname);
   const normPlatform = normalizePlatform(platform);
@@ -125,8 +132,9 @@ export async function fetchPlayerMatchesPaginated(
   let query = supabase
     .from("pubg_player_matches")
     .select("player_id, platform, account_id, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time", { count: "exact" })
-    .eq("player_id", playerId)
     .eq("platform", normPlatform);
+  const identityFilter = buildPlayerMatchIdentityFilter(nickname, accountId);
+  query = identityFilter ? query.or(identityFilter) : query.eq("player_id", playerId);
 
   if (filter === "ranked") {
     query = query.or("match_type.ilike.%competitive%,match_type.ilike.%ranked%,game_mode.ilike.%competitive%,game_mode.ilike.%ranked%");

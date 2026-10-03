@@ -235,7 +235,9 @@ export async function GET(request: Request) {
           id: s.id,
           name: s.name || `Season ${s.id.split("-").pop()}`,
         })),
-        stats: statsForSeason || { ranked: null, normal: null },
+        stats: { ranked: statsForSeason?.ranked ?? null, normal: statsForSeason?.normal ?? null },
+        statsAvailability: statsForSeason?.statsAvailability,
+        seasonStatsCached: Boolean(statsForSeason),
         recentMatches,
         collectionMatchIds,
         matchModes,
@@ -243,7 +245,9 @@ export async function GET(request: Request) {
         survivalMastery: cachedSurvivalMastery,
         weaponMastery: cacheData.weapon_mastery_data || [],
         banType: cacheData.ban_type || "None",
-        updatedAt: cacheData.updated_at
+        updatedAt: cacheData.updated_at,
+        ...(Number.isFinite(Date.parse(cacheData.last_seen_at)) && Date.parse(cacheData.last_seen_at) + 60_000 > Date.now()
+          ? { retryAfterSeconds: Math.ceil((Date.parse(cacheData.last_seen_at) + 60_000 - Date.now()) / 1000) } : {}),
       };
 
       return NextResponse.json(await withCachedBanObservation(responseBody, platform), {
@@ -378,7 +382,8 @@ export async function GET(request: Request) {
     const fallbackMode = (mode: StatsMode): PlayerModeBuckets | null => {
       const buckets = validatedCachedBuckets(previousSeason?.[mode]);
       statsAvailability[mode] = buckets
-        ? { status: "stale", ...(previous?.updated_at ? { updatedAt: previous.updated_at } : {}) }
+        ? { status: "stale", ...((previousSeason?.statsAvailability?.[mode]?.updatedAt || previous?.updated_at)
+          ? { updatedAt: previousSeason?.statsAvailability?.[mode]?.updatedAt || previous.updated_at } : {}) }
         : { status: "unavailable" };
       return buckets;
     };
@@ -447,17 +452,22 @@ export async function GET(request: Request) {
       ...(!complete ? { retryAfterSeconds } : {}),
     };
 
-    // A partial refresh must never replace a complete JSON season cache, even
-    // when another request completes successfully while this one is in flight.
-    if (complete && !api.signal.aborted) {
+    if (!request.signal.aborted) {
       const updatedSeasonStats = {
         ...(previous?.season_stats_data || {}),
-        [targetSeasonId]: { ranked: rankedStats, normal: normalStats },
+        ...(targetSeasonId && (previousSeason || statsAvailability.ranked?.status === 'ready' || statsAvailability.normal?.status === 'ready') ? {
+          [targetSeasonId]: {
+            ...(previousSeason || {}),
+            ...(statsAvailability.ranked?.status === 'ready' ? { ranked: rankedStats } : {}),
+            ...(statsAvailability.normal?.status === 'ready' ? { normal: normalStats } : {}),
+            statsAvailability,
+          },
+        } : {}),
       };
       const cacheUpdateData: any = {
         id: accountId, platform, nickname: actualNickname, lower_nickname: actualNickname.toLowerCase(),
         search_count: (previous?.search_count ?? 0) + 1,
-        updated_at: nowIso,
+        ...(complete || !previous ? { updated_at: nowIso } : {}),
         last_seen_at: nowIso,
         ban_type: banType, season_stats_data: updatedSeasonStats, last_season_id: targetSeasonId,
         recent_match_ids: collectionMatchIds, seasons_list: availableSeasons,
@@ -470,9 +480,25 @@ export async function GET(request: Request) {
         cacheUpdateData.clan_data = clanResult.data;
         cacheUpdateData.clan_updated_at = nowIso;
       }
-      const { error: cacheWriteError } = await createServiceRoleClient()
-        .from('pubg_player_cache')
-        .upsert(cacheUpdateData, { onConflict: 'id' });
+      const table = createServiceRoleClient().from('pubg_player_cache');
+      let cacheWriteError;
+      if (complete) {
+        ({ error: cacheWriteError } = await table.upsert(cacheUpdateData, { onConflict: 'id' }));
+      } else {
+        // Preserve failed modes, and never overwrite a concurrent refresh with
+        // the JSON snapshot read at the beginning of this partial request.
+        let write;
+        if (previous) {
+          write = table.update(cacheUpdateData).eq('id', accountId).eq('platform', platform);
+          write = previous.updated_at ? write.eq('updated_at', previous.updated_at) : write.is('updated_at', null);
+          write = previous.last_seen_at ? write.eq('last_seen_at', previous.last_seen_at) : write.is('last_seen_at', null);
+        } else {
+          write = table.upsert(cacheUpdateData, { onConflict: 'id', ignoreDuplicates: true });
+        }
+        const saved = await write.select('id');
+        cacheWriteError = saved.error;
+        if (!cacheWriteError && !saved.data?.length) throw new Error('player-cache-write-conflict');
+      }
       if (cacheWriteError) {
         console.error("[pubg-player] pubg_player_cache 갱신 실패:", cacheWriteError.message);
         throw new Error("player-cache-write-failed");

@@ -5,10 +5,12 @@ import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 import { getLegacyFullResultForHistory, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { buildMatchSummary, buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
-import { fetchAndIngestBasicMatchSummaryOutcome } from "@/lib/pubg/playerMatchesIngest";
+import { buildPlayerMatchRecordFromParticipant, fetchAndIngestBasicMatchSummaryOutcome } from "@/lib/pubg/playerMatchesIngest";
+import { buildPlayerMatchIdentityFilter, upsertPlayerMatches } from "@/lib/pubg/playerMatches";
 import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
 import { normalizeRecentMatchIds } from "@/lib/pubg/recentMatches";
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
+import { resolveCachedPlayerAccountId } from "@/lib/pubg/privatePlayerCache";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -31,7 +33,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ summaries: {}, missingMatchIds: matchIds });
     }
 
-    const privateResponse = await blockPrivatePlayer(platform, playerId, undefined, { lookupUpstream: true });
+    const cachedAccountId = await resolveCachedPlayerAccountId(platform, playerId);
+    const accountId = cachedAccountId && /^account\.[A-Za-z0-9_-]+$/.test(cachedAccountId) ? cachedAccountId : undefined;
+    const privateResponse = await blockPrivatePlayer(platform, playerId, accountId, { lookupUpstream: true });
     if (privateResponse) return privateResponse;
 
     // 1순위: processed_match_telemetry (3D/AI 풀 분석 완료 매치)
@@ -47,6 +51,9 @@ export async function POST(request: NextRequest) {
     }
 
     const summaries: Record<string, any> = {};
+    const cachedRecords = new Map<string, any>();
+    const storedIds = new Set<string>();
+    const ingestedMatchIds: string[] = [];
     for (const row of telemetryData || []) {
       const matchId = normalizeMatchId(row.match_id);
       if (!matchId || !matchIds.includes(matchId)) continue;
@@ -60,24 +67,31 @@ export async function POST(request: NextRequest) {
         // authoritative navigation identity for history/detail consumers.
         summary.matchId = matchId;
         summaries[matchId] = summary;
+        cachedRecords.set(matchId, {
+          created_at: summary.createdAt, game_mode: summary.gameMode, map_name: summary.mapName,
+          match_type: summary.matchType, kills: fullResult.stats?.kills, damage: fullResult.stats?.damageDealt,
+          win_place: fullResult.stats?.winPlace, knocks: fullResult.stats?.DBNOs,
+          survival_time: fullResult.stats?.timeSurvived, account_id: fullResult.stats?.playerId,
+        });
       }
     }
 
     // 2순위: pubg_player_matches (기본 스탯 DB)
-    const missingIds = matchIds.filter((id: string) => !summaries[id]);
-    if (missingIds.length > 0) {
-      const { data: playerMatchesData, error: playerMatchesError } = await supabase
+    {
+      let query = supabase
         .from("pubg_player_matches")
-        .select("match_id, player_id, platform, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time")
-        .eq("platform", platform)
-        .eq("player_id", playerId)
-        .in("match_id", missingIds);
+        .select("match_id, player_id, platform, account_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time")
+        .eq("platform", platform);
+      const identityFilter = buildPlayerMatchIdentityFilter(playerId, accountId);
+      query = identityFilter ? query.or(identityFilter) : query.eq("player_id", playerId);
+      const { data: playerMatchesData, error: playerMatchesError } = await query.in("match_id", matchIds);
       if (playerMatchesError) return NextResponse.json({ error: playerMatchesError.message }, { status: 503 });
 
       for (const row of playerMatchesData || []) {
         const matchId = normalizeMatchId(row.match_id);
-        if (!matchId || !matchIds.includes(matchId) || summaries[matchId]) continue;
-        summaries[matchId] = buildBasicMatchSummary({ ...row, match_id: matchId });
+        if (!matchId || !matchIds.includes(matchId)) continue;
+        storedIds.add(matchId);
+        if (!summaries[matchId]) summaries[matchId] = buildBasicMatchSummary({ ...row, match_id: matchId });
       }
     }
 
@@ -96,12 +110,35 @@ export async function POST(request: NextRequest) {
         const matchId = normalizeMatchId(row.match_id);
         if (!matchId || !matchIds.includes(matchId) || summaries[matchId]) continue;
         summaries[matchId] = buildBasicMatchSummary({ ...row, match_id: matchId });
+        cachedRecords.set(matchId, row);
       }
+    }
+
+    // A summary cache hit does not imply that the paginated basic row exists.
+    // Insert observed values only, and leave concurrently saved rows untouched.
+    const repairs = [...cachedRecords].flatMap(([matchId, row]) => {
+      const createdAt = row.created_at;
+      if (storedIds.has(matchId) || typeof createdAt !== 'string' || !Number.isFinite(Date.parse(createdAt))
+        || ![row.kills, row.damage, row.win_place].every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)
+        || row.win_place < 1) return [];
+      const record = buildPlayerMatchRecordFromParticipant({
+        matchId, nickname: playerId, platform, createdAt,
+        gameMode: row.game_mode || 'unknown', mapName: row.map_name || 'unknown',
+        matchType: row.match_type || 'unknown', kills: row.kills, damage: row.damage,
+        winPlace: row.win_place, knocks: row.knocks, survivalTime: row.survival_time,
+      });
+      return [{ ...record, ...(typeof row.account_id === 'string' && /^account\.[A-Za-z0-9_-]+$/.test(row.account_id) ? { account_id: row.account_id } : {}) }];
+    });
+    if (repairs.length) {
+      if (!await upsertPlayerMatches(supabase, repairs, { ignoreDuplicates: true })) {
+        return NextResponse.json({ error: '기본 전적을 저장하지 못했습니다.' }, { status: 503 });
+      }
+      for (const record of repairs) { storedIds.add(record.match_id); ingestedMatchIds.push(record.match_id); }
     }
 
     // Fetch at most five new matches per request; the client continues with
     // unattempted IDs so expired or failed matches cannot block later records.
-    const uningestedIds = matchIds.filter((id: string) => !summaries[id]);
+    const uningestedIds = matchIds.filter((id: string) => !storedIds.has(id));
     let nextMatchIds: string[] = [];
     let collectionStopped = false;
     if (uningestedIds.length > 0) {
@@ -109,14 +146,16 @@ export async function POST(request: NextRequest) {
       if (apiKey) {
         const outcomes = await Promise.all(
           uningestedIds.slice(0, 5).map((id: string) =>
-            fetchAndIngestBasicMatchSummaryOutcome(supabase, id, playerId, platform, apiKey, { signal: request.signal })
+            fetchAndIngestBasicMatchSummaryOutcome(supabase, id, playerId, platform, apiKey, { signal: request.signal, ...(accountId ? { expectedAccountId: accountId } : {}) })
           )
         );
 
         for (const { record } of outcomes) {
           const matchId = normalizeMatchId(record?.match_id);
-          if (record && matchId && matchIds.includes(matchId) && !summaries[matchId]) {
-            summaries[matchId] = buildBasicMatchSummary({ ...record, match_id: matchId });
+          if (record && matchId && matchIds.includes(matchId)) {
+            storedIds.add(matchId);
+            ingestedMatchIds.push(matchId);
+            if (!summaries[matchId]) summaries[matchId] = buildBasicMatchSummary({ ...record, match_id: matchId });
           }
         }
         collectionStopped = outcomes.some((outcome) => outcome.status === "rate_limited" || outcome.httpStatus === 401 || outcome.httpStatus === 403)
@@ -127,17 +166,18 @@ export async function POST(request: NextRequest) {
       } else collectionStopped = true;
     }
 
-    const performances = await readPerformanceCache(supabase, platform, playerId, matchIds);
+    const performances = await readPerformanceCache(supabase, platform, playerId, matchIds, accountId);
     for (const [id, benchmark] of Object.entries(performances)) {
       if (summaries[id] && !summaries[id].benchmark) { summaries[id].benchmark = benchmark; summaries[id].performanceOnly = true; }
     }
-    const performanceStates = await readPerformanceStates(supabase, platform, playerId, matchIds);
+    const performanceStates = await readPerformanceStates(supabase, platform, playerId, matchIds, accountId);
     for (const [id, state] of Object.entries(performanceStates)) if (summaries[id]) summaries[id].performanceState = state;
     return NextResponse.json({
       summaries,
-      missingMatchIds: matchIds.filter((id: string) => !summaries[id]),
+      missingMatchIds: matchIds.filter((id: string) => !storedIds.has(id)),
       nextMatchIds,
       collectionStopped,
+      ingestedMatchIds,
     });
   } catch (error: any) {
     return NextResponse.json(

@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { discoveryClient, claimDiscoveredMatches, settleDiscoveredMatch, recordDiscoveredMatches } from '../lib/pubg/matchDiscovery.server';
 import { runDiscoveryWorker } from '../lib/pubg/discoveryWorker';
-import { fetchAndIngestBasicMatchSummaryOutcome, type PubgFetchImpl } from '../lib/pubg/playerMatchesIngest';
+import { fetchAndIngestBasicMatchSummaryOutcome } from '../lib/pubg/playerMatchesIngest';
 
 export type DiscoveryWorkerArgs = {
   apply: boolean;
@@ -60,18 +60,9 @@ export async function main(args=process.argv.slice(2)) {
     return {mode:'dry-run',pending:pendingResult.count,oldestReadyAt:readyResult.data?.[0]?.next_attempt_at ?? null};
   }
   const key=(process.env.PUBG_API_KEY ?? '').split(' ')[0];
-  // /matches doesn't consume the player quota; Authorization is optional.
-  // Reuse a response within one claimed batch, cloning its body for each account.
-  let responses=new Map<string,Promise<Response>>();
-  const fetchImpl:PubgFetchImpl=(input,init)=>{
-    const url=String(input);
-    let pending=responses.get(url);
-    if(!pending) {pending=fetch(input,init);responses.set(url,pending);}
-    return pending.then(response=>response.clone());
-  };
   return runDiscoveryWorker({
     limit:options.limit,
-    claim:async limit=>{responses=new Map();return claimDiscoveredMatches(db,limit);},
+    claim:limit=>claimDiscoveredMatches(db,limit),
     settle:(job,outcome)=>settleDiscoveredMatch(db,job,outcome),
     alreadyStored:async job=>{
       const {data,error}=await db.from('pubg_player_matches').select('match_id')
@@ -79,9 +70,13 @@ export async function main(args=process.argv.slice(2)) {
       if(error) throw new Error('discovery-existing-match-read-failed');
       return Boolean(data?.length);
     },
-    ingest:job=>fetchAndIngestBasicMatchSummaryOutcome(db,job.match_id,job.nickname_at_discovery,job.platform,key,{expectedAccountId:job.account_id,timeoutMs:8000,fetchImpl}),
+    ingest:job=>fetchAndIngestBasicMatchSummaryOutcome(db,job.match_id,job.nickname_at_discovery,job.platform,key,{expectedAccountId:job.account_id,timeoutMs:8000}),
   });
 }
 if(process.argv[1] && import.meta.url===pathToFileURL(resolve(process.argv[1])).href) {
-  main().then(result=>console.log(JSON.stringify(result))).catch(()=>{console.error('Match discovery worker failed; unacknowledged jobs remain retryable.');process.exitCode=1;});
+  main().then(result=>console.log(JSON.stringify(result))).catch((error: unknown)=>{
+    const errorCode=error instanceof Error && /^(?:match-discovery|discovery-|seed-cache)/.test(error.message) ? error.message : error instanceof Error ? error.name : 'unknown';
+    console.error('Match discovery worker failed; unacknowledged jobs remain retryable.', {errorCode});
+    process.exitCode=1;
+  });
 }

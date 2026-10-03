@@ -150,7 +150,7 @@ describe("StatSearch baseline", () => {
     await screen.findByText("FixturePlayer");
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
 
-    expect(JSON.parse(localStorage.getItem(STORAGE_KEY_RECENT)!)).toEqual(["FixturePlayer"]);
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY_RECENT)!)).toEqual([{ nickname: "FixturePlayer", platform: "steam" }]);
     expect(playerRequests()).toHaveLength(1);
   });
 
