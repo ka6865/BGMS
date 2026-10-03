@@ -52,11 +52,32 @@ describe('durable match collection worker',()=>{
     expect(d.claim).toHaveBeenNthCalledWith(1,3);
     expect(summary.claimed).toBe(3);
   });
-  it.each(['0','301','1.5','nope',undefined])('rejects an invalid CLI limit: %s',(value)=>{
+  it.each(['0','1001','1.5','nope',undefined])('rejects an invalid CLI limit: %s',(value)=>{
     expect(()=>parseDiscoveryWorkerArgs(['--apply','--limit',...(value ? [value] : [])])).toThrow('discovery-worker-invalid-limit');
   });
   it('parses a valid canary limit',()=>{
     expect(parseDiscoveryWorkerArgs(['--apply','--limit','3'])).toMatchObject({apply:true,limit:3});
+  });
+  it.each(['500','1000'])('accepts a larger bounded CLI run: %s',(limit)=>{
+    expect(parseDiscoveryWorkerArgs(['--apply','--limit',limit]).limit).toBe(Number(limit));
+  });
+  it('processes 1000 jobs in batches of at most three',async()=>{
+    const d=setup(result('saved'));
+    let claimed=0;
+    d.claim.mockReset().mockImplementation(async(limit:number)=>Array.from({length:limit},()=>({...job,match_id:`m-${claimed++}`})));
+    const summary=await runDiscoveryWorker({...d,limit:1000});
+    expect(summary).toMatchObject({claimed:1000,saved:1000});
+    expect(d.claim).toHaveBeenCalledTimes(334);
+    expect(d.claim).toHaveBeenLastCalledWith(1);
+    expect(d.claim.mock.calls.every(([limit])=>limit<=3)).toBe(true);
+  });
+  it('keeps the time budget when the requested run is larger',async()=>{
+    const d=setup(result('saved'));
+    let elapsed=0;
+    d.claim.mockReset().mockImplementation(async()=>{elapsed+=1000;return [job,{...job,match_id:'m2'},{...job,match_id:'m3'}];});
+    const summary=await runDiscoveryWorker({...d,limit:1000,now:()=>elapsed,maxDurationMs:1500});
+    expect(summary.claimed).toBe(6);
+    expect(d.claim).toHaveBeenCalledTimes(2);
   });
   it('settles an already stored account match without calling PUBG',async()=>{
     const d=setup(result('saved'));
@@ -66,6 +87,7 @@ describe('durable match collection worker',()=>{
     expect(d.ingest).not.toHaveBeenCalled();
     expect(d.settle).toHaveBeenCalledWith(job,{state:'saved'});
     expect(summary.saved).toBe(1);
+    expect(summary.alreadyStored).toBe(1);
   });
   it('one account timeout does not cancel another account collecting the same match', async () => {
     const jobs = [job, { ...job, account_id: 'account.b', nickname_at_discovery: 'B' }];
