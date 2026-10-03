@@ -151,7 +151,7 @@ describe("전적 조회 라우트의 last_seen_at 기록", () => {
     expect(source).not.toContain("last_seen_at");
   });
 
-  it("기존 플레이어의 non-force 검색은 stale mastery나 missing season 때문에 API로 빠지지 않는다", async () => {
+  it("일반 DB-first 검색은 stale mastery나 missing season 때문에 API로 빠지지 않는다", async () => {
     const fs = await import("node:fs");
     const path = await import("node:path");
     const source = fs.readFileSync(
@@ -159,7 +159,10 @@ describe("전적 조회 라우트의 last_seen_at 기록", () => {
       "utf8",
     );
 
-    expect(source).toContain("if (!forceRefresh)");
+    expect(source).toContain("const shouldRefreshCachedPlayer = forceRefresh");
+    expect(source).toContain("isAutoRefreshDue(cacheData.updated_at)");
+    expect(source).toContain("hasCompleteCachedStats(cacheData, reqSeason)");
+    expect(source).toContain("updated_at: null");
     expect(source).not.toContain("shouldFetchMissingRequestedSeason");
     expect(source).not.toContain("!shouldFetchMissingRequestedSeason && !shouldFetchSurvivalMastery");
   });

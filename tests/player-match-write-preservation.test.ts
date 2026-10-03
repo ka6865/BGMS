@@ -9,6 +9,11 @@ const record = (match_id: string, counters: Partial<PlayerMatchRecord> = {}): Pl
 });
 
 describe('basic counter conflict writes through the real Supabase client', () => {
+  it('does not send duplicate conflict keys in the same PostgREST batch', async () => {
+    const upsert = vi.fn().mockResolvedValue({error: null});
+    expect(await upsertPlayerMatches({from: () => ({upsert})} as never, [record('same'), record('same', {kills: 3})])).toBe(true);
+    expect(upsert).toHaveBeenCalledWith([expect.objectContaining({match_id: 'same', kills: 3})], expect.anything());
+  });
   it('preserves previous observations for missing fields even in a mixed restoration batch', async () => {
     const stored = new Map<string, Record<string, unknown>>([
       ['missing', { knocks: 3, survival_time: 700 }],

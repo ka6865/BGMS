@@ -21,10 +21,20 @@ export async function recordDiscoveredMatches(input: DiscoveryInput, client?: Su
     if (error) throw new Error('match-discovery-write-failed');
   }
 }
-export async function claimDiscoveredMatches(db: SupabaseClient, limit = 3): Promise<DiscoveryJob[]> {
-  const { data, error } = await db.rpc('claim_pubg_match_discovery', { p_limit: limit });
+export type DiscoveryScope = { platform: 'steam' | 'kakao'; accountId: string };
+export async function claimDiscoveredMatches(db: SupabaseClient, limit = 3, scope?: DiscoveryScope): Promise<DiscoveryJob[]> {
+  if (scope && (!['steam', 'kakao'].includes(scope.platform) || !/^account\.[A-Za-z0-9_-]+$/.test(scope.accountId))) {
+    throw new Error('match-discovery-invalid-scope');
+  }
+  const { data, error } = await db.rpc(scope ? 'claim_scoped_pubg_match_discovery' : 'claim_pubg_match_discovery', {
+    p_limit: limit, ...(scope ? {p_platform: scope.platform, p_account_id: scope.accountId} : {}),
+  });
   if (error) throw new Error('match-discovery-claim-failed');
-  return (data ?? []) as DiscoveryJob[];
+  const jobs = (data ?? []) as DiscoveryJob[];
+  if (scope && jobs.some(job => job.platform !== scope.platform || job.account_id !== scope.accountId)) {
+    throw new Error('match-discovery-scope-mismatch');
+  }
+  return jobs;
 }
 export async function settleDiscoveredMatch(db: SupabaseClient, job: DiscoveryJob, outcome: {
   state: 'saved' | 'retry' | 'unavailable'; nextAttemptAt?: string; errorCode?: string;
@@ -41,8 +51,14 @@ export async function readHistoryIngest(db: SupabaseClient, platform: string, ac
   // does not reset or hide the discovery backlog. Do not call the RPC with a
   // legacy nickname: a zero result would look like completed history.
   if (!/^account\.[A-Za-z0-9_-]+$/.test(accountId)) return null;
-  const { data, error } = await db.rpc('pubg_match_discovery_progress', { p_platform: platform, p_account_id: accountId });
-  // Rolling deployment: old schema is unknown, never falsely report zero pending.
-  if (error) return null;
-  return data as HistoryIngest | null;
+  try {
+    const { data, error } = await db.rpc('pubg_match_discovery_progress', { p_platform: platform, p_account_id: accountId });
+    // Rolling deployment: old schema is unknown, never falsely report zero pending.
+    if (error || !data || !Number.isSafeInteger(data.pendingCount) || data.pendingCount < 0
+      || !Number.isSafeInteger(data.unavailableCount) || data.unavailableCount < 0
+      || (data.lastSavedAt !== null && (typeof data.lastSavedAt !== 'string' || !Number.isFinite(Date.parse(data.lastSavedAt))))) return null;
+    return { pendingCount: data.pendingCount, unavailableCount: data.unavailableCount, lastSavedAt: data.lastSavedAt };
+  } catch {
+    return null;
+  }
 }

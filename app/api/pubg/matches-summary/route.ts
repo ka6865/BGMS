@@ -6,7 +6,7 @@ import { getLegacyFullResultForHistory, normalizePlatform } from "@/lib/pubg-ana
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { buildMatchSummary, buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
 import { buildPlayerMatchRecordFromParticipant, fetchAndIngestBasicMatchSummaryOutcome } from "@/lib/pubg/playerMatchesIngest";
-import { buildPlayerMatchIdentityFilter, upsertPlayerMatches } from "@/lib/pubg/playerMatches";
+import { buildPlayerMatchIdentityFilter, hasObservedPlayerMatchValues, upsertPlayerMatches } from "@/lib/pubg/playerMatches";
 import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
 import { normalizeRecentMatchIds } from "@/lib/pubg/recentMatches";
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
@@ -19,6 +19,10 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
+
+function isAccountId(value: unknown): value is string {
+  return typeof value === "string" && /^account\.[A-Za-z0-9_-]+$/.test(value);
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -34,9 +38,16 @@ export async function POST(request: NextRequest) {
     }
 
     const cachedAccountId = await resolveCachedPlayerAccountId(platform, playerId);
-    const accountId = cachedAccountId && /^account\.[A-Za-z0-9_-]+$/.test(cachedAccountId) ? cachedAccountId : undefined;
+    const accountId = isAccountId(cachedAccountId) ? cachedAccountId : undefined;
     const privateResponse = await blockPrivatePlayer(platform, playerId, accountId, { lookupUpstream: true });
     if (privateResponse) return privateResponse;
+    const checkedAccounts = new Set<string>(accountId ? [accountId] : []);
+    const checkCachePrivacy = async (cacheAccountId: string | undefined) => {
+      if (!cacheAccountId || checkedAccounts.has(cacheAccountId)) return null;
+      const response = await blockPrivatePlayer(platform, playerId, cacheAccountId);
+      if (!response) checkedAccounts.add(cacheAccountId);
+      return response;
+    };
 
     // 1순위: processed_match_telemetry (3D/AI 풀 분석 완료 매치)
     const { data: telemetryData, error } = await supabase
@@ -53,12 +64,19 @@ export async function POST(request: NextRequest) {
     const summaries: Record<string, any> = {};
     const cachedRecords = new Map<string, any>();
     const storedIds = new Set<string>();
+    const existingMatchIds = new Set<string>();
     const ingestedMatchIds: string[] = [];
     for (const row of telemetryData || []) {
       const matchId = normalizeMatchId(row.match_id);
       if (!matchId || !matchIds.includes(matchId)) continue;
       const fullResult = getLegacyFullResultForHistory(row, playerId, platform);
       if (!fullResult || fullResult.v !== RESULT_VERSION) continue;
+      const resultAccountId = isAccountId(fullResult.stats?.playerId) ? fullResult.stats.playerId : undefined;
+      if (accountId && resultAccountId && resultAccountId !== accountId) continue;
+      const cachePrivateResponse = await checkCachePrivacy(resultAccountId);
+      if (cachePrivateResponse) return cachePrivateResponse;
+      const embeddedId = fullResult.matchId || fullResult.match_id;
+      if (embeddedId && normalizeMatchId(embeddedId) !== matchId) continue;
 
       const summary = buildMatchSummary(fullResult);
       if (summary) {
@@ -90,7 +108,12 @@ export async function POST(request: NextRequest) {
       for (const row of playerMatchesData || []) {
         const matchId = normalizeMatchId(row.match_id);
         if (!matchId || !matchIds.includes(matchId)) continue;
-        storedIds.add(matchId);
+        const rowAccountId = isAccountId(row.account_id) ? row.account_id : undefined;
+        if (accountId && rowAccountId && rowAccountId !== accountId) continue;
+        const cachePrivateResponse = await checkCachePrivacy(rowAccountId);
+        if (cachePrivateResponse) return cachePrivateResponse;
+        existingMatchIds.add(matchId);
+        if (hasObservedPlayerMatchValues(row)) storedIds.add(matchId);
         if (!summaries[matchId]) summaries[matchId] = buildBasicMatchSummary({ ...row, match_id: matchId });
       }
     }
@@ -115,10 +138,11 @@ export async function POST(request: NextRequest) {
     }
 
     // A summary cache hit does not imply that the paginated basic row exists.
-    // Insert observed values only, and leave concurrently saved rows untouched.
+    // Insert absent rows only. Existing incomplete rows remain pending for
+    // official collection; ignoreDuplicates cannot repair or acknowledge them.
     const repairs = [...cachedRecords].flatMap(([matchId, row]) => {
       const createdAt = row.created_at;
-      if (storedIds.has(matchId) || typeof createdAt !== 'string' || !Number.isFinite(Date.parse(createdAt))
+      if (existingMatchIds.has(matchId) || typeof createdAt !== 'string' || !Number.isFinite(Date.parse(createdAt))
         || ![row.kills, row.damage, row.win_place].every(value => typeof value === 'number' && Number.isFinite(value) && value >= 0)
         || row.win_place < 1) return [];
       const record = buildPlayerMatchRecordFromParticipant({
@@ -127,13 +151,34 @@ export async function POST(request: NextRequest) {
         matchType: row.match_type || 'unknown', kills: row.kills, damage: row.damage,
         winPlace: row.win_place, knocks: row.knocks, survivalTime: row.survival_time,
       });
+      if (!hasObservedPlayerMatchValues(record)) return [];
       return [{ ...record, ...(typeof row.account_id === 'string' && /^account\.[A-Za-z0-9_-]+$/.test(row.account_id) ? { account_id: row.account_id } : {}) }];
     });
     if (repairs.length) {
       if (!await upsertPlayerMatches(supabase, repairs, { ignoreDuplicates: true })) {
         return NextResponse.json({ error: '기본 전적을 저장하지 못했습니다.' }, { status: 503 });
       }
-      for (const record of repairs) { storedIds.add(record.match_id); ingestedMatchIds.push(record.match_id); }
+      // An ignored conflict is not proof of persistence: another request may
+      // have inserted incomplete values or a different account under this key.
+      const { data: repairedRows, error: repairReadError } = await supabase
+        .from("pubg_player_matches")
+        .select("match_id, player_id, platform, account_id, played_at, game_mode, map_name, kills, damage, win_place, match_type")
+        .eq("platform", platform)
+        .eq("player_id", playerId)
+        .in("match_id", repairs.map(record => record.match_id));
+      if (repairReadError) return NextResponse.json({ error: '기본 전적 저장 결과를 확인하지 못했습니다.' }, { status: 503 });
+      for (const record of repairs) {
+        const saved = (repairedRows || []).find(row => normalizeMatchId(row.match_id) === record.match_id
+          && hasObservedPlayerMatchValues(row)
+          && (!accountId || !isAccountId(row.account_id) || row.account_id === accountId)
+          && (!record.account_id || row.account_id === record.account_id));
+        if (saved) {
+          const cachePrivateResponse = await checkCachePrivacy(isAccountId(saved.account_id) ? saved.account_id : undefined);
+          if (cachePrivateResponse) return cachePrivateResponse;
+          storedIds.add(record.match_id);
+          ingestedMatchIds.push(record.match_id);
+        }
+      }
     }
 
     // Fetch at most five new matches per request; the client continues with
@@ -141,7 +186,7 @@ export async function POST(request: NextRequest) {
     const uningestedIds = matchIds.filter((id: string) => !storedIds.has(id));
     let nextMatchIds: string[] = [];
     let collectionStopped = false;
-    if (uningestedIds.length > 0) {
+    if (body.collect !== false && uningestedIds.length > 0) {
       const apiKey = (process.env.PUBG_API_KEY || "").split(" ")[0];
       if (apiKey) {
         const outcomes = await Promise.all(
@@ -178,7 +223,7 @@ export async function POST(request: NextRequest) {
       nextMatchIds,
       collectionStopped,
       ingestedMatchIds,
-    });
+    }, {headers: {"Cache-Control": "no-store"}});
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "최근 매치 요약을 불러오지 못했습니다." },

@@ -2,7 +2,7 @@ import { evaluateMatchEligibility } from "@/lib/pubg-analysis/matchEligibility";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
-import { normalizeBasicMatchStat, upsertPlayerMatches, type PlayerMatchRecord } from "./playerMatches";
+import { hasObservedPlayerMatchValues, normalizeBasicMatchStat, upsertPlayerMatches, type PlayerMatchRecord } from "./playerMatches";
 
 export interface IngestParticipantInput {
   matchId: string;
@@ -164,11 +164,11 @@ export async function fetchAndIngestBasicMatchSummaryOutcome(
     }
 
     const matchAttr = data.data?.attributes || {};
-    if (options.expectedAccountId && (
-      data.data?.id?.replace(/^shard:/, '') !== matchId
-      || !Number.isFinite(Date.parse(matchAttr.createdAt))
-    )) return { status: 'upstream_error', record: null, httpStatus: res.status, rateLimitHeaders, error: 'match-identity-or-date-invalid' };
-    const participants = (data.included || []).filter((it: any) => it.type === "participant");
+    if ((data.data?.id && data.data.id.replace(/^shard:/, '') !== matchId)
+      || (options.expectedAccountId && !data.data?.id)) {
+      return { status: 'upstream_error', record: null, httpStatus: res.status, rateLimitHeaders, error: 'match-identity-invalid' };
+    }
+    const participants = (Array.isArray(data.included) ? data.included : []).filter((it: any) => it.type === "participant");
     const myParticipant = participants.find(
       (p: any) => options.expectedAccountId
         ? p.attributes?.stats?.playerId === options.expectedAccountId
@@ -188,16 +188,20 @@ export async function fetchAndIngestBasicMatchSummaryOutcome(
       player_id: options.expectedAccountId ? normalizeName(stats.name) : playerId,
       platform: normPlatform,
       match_id: matchId,
-      played_at: matchAttr.createdAt || new Date().toISOString(),
-      game_mode: matchAttr.gameMode || "unknown",
-      map_name: matchAttr.mapName || "unknown",
-      kills: stats.kills || 0,
-      damage: Math.floor(stats.damageDealt || 0),
-      win_place: stats.winPlace || 99,
+      played_at: matchAttr.createdAt,
+      game_mode: matchAttr.gameMode,
+      map_name: matchAttr.mapName,
+      kills: stats.kills,
+      damage: stats.damageDealt,
+      win_place: stats.winPlace,
       knocks: normalizeBasicMatchStat(stats.DBNOs),
       survival_time: normalizeBasicMatchStat(stats.timeSurvived),
       match_type: String(matchAttr.matchType || "unknown").toLowerCase(),
     };
+    if (!hasObservedPlayerMatchValues(record)) {
+      return { status: "upstream_error", record: null, httpStatus: res.status, rateLimitHeaders, error: "match-basic-values-missing" };
+    }
+    record.damage = Math.floor(record.damage);
 
     let persisted = false;
     try {

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
+import { isPlayerPrivate } from "@/lib/pubg/privatePlayers";
 import { buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
 
 vi.mock("@/lib/pubg/privatePlayers", () => ({
@@ -18,6 +19,7 @@ const database = vi.hoisted(() => ({
   writes: [] as Array<{ table: string; rows: any[]; options: Record<string, unknown> }>,
   accountId: null as string | null,
   identityFilters: [] as string[],
+  concurrentRows: [] as any[],
 }));
 const { ingestMatch } = vi.hoisted(() => ({ ingestMatch: vi.fn() }));
 vi.mock("@/lib/pubg/playerMatchesIngest", async (importOriginal) => ({
@@ -42,6 +44,17 @@ vi.mock("@supabase/supabase-js", () => ({
         or: (filter: string) => { database.identityFilters.push(filter); return query; },
         upsert: async (rows: any[], options: Record<string, unknown>) => {
           database.writes.push({ table, rows, options });
+          if (!database.errors[`${table}:write`]) {
+            const existing = database.rows[table] as any[];
+            existing.push(...database.concurrentRows);
+            database.concurrentRows = [];
+            for (const row of rows) {
+              const duplicate = existing.findIndex(candidate => candidate.match_id === row.match_id
+                && candidate.player_id === row.player_id && candidate.platform === row.platform);
+              if (duplicate < 0) existing.push(row);
+              else if (!options.ignoreDuplicates) existing[duplicate] = row;
+            }
+          }
           return { error: database.errors[`${table}:write`] ?? null };
         },
         in: async () => invalidColumn
@@ -55,16 +68,32 @@ vi.mock("@supabase/supabase-js", () => ({
 
 import { POST } from "@/app/api/pubg/matches-summary/route";
 
-function request(matchIds = ["raw-match"]) {
+function request(matchIds = ["raw-match"], collect = true) {
   return new NextRequest("http://localhost/api/pubg/matches-summary", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ matchIds, nickname: "FixturePlayer", platform: "steam" }),
+    body: JSON.stringify({ matchIds, nickname: "FixturePlayer", platform: "steam", collect }),
   });
+}
+
+function processedRow(matchId: string, accountId?: string) {
+  return { match_id: matchId, data: { fullResult: {
+    v: RESULT_VERSION, matchId, createdAt: '2026-10-03T00:00:00Z',
+    gameMode: 'squad-fpp', mapName: 'Baltic_Main', matchType: 'official',
+    stats: { name: 'FixturePlayer', ...(accountId ? {playerId: accountId} : {}),
+      kills: 8, damageDealt: 800, winPlace: 2 },
+  } } };
+}
+
+function basicRow(matchId: string) {
+  return {match_id: matchId, player_id: 'fixtureplayer', platform: 'steam',
+    played_at: '2026-10-03T00:00:00Z', game_mode: 'squad-fpp', map_name: 'Baltic_Main',
+    match_type: 'official', kills: 1, damage: 100, win_place: 4};
 }
 
 describe("matches-summary raw timestamp fallback", () => {
   beforeEach(() => {
+    vi.mocked(isPlayerPrivate).mockReset().mockResolvedValue(false);
     database.rows = {
       processed_match_telemetry: [],
       pubg_player_matches: [],
@@ -86,6 +115,7 @@ describe("matches-summary raw timestamp fallback", () => {
     database.errors = {};
     database.accountId = null;
     database.identityFilters = [];
+    database.concurrentRows = [];
     ingestMatch.mockReset();
     ingestMatch.mockResolvedValue({ status: "not_found", record: null });
     vi.stubEnv("PUBG_API_KEY", "");
@@ -106,7 +136,96 @@ describe("matches-summary raw timestamp fallback", () => {
     expect(database.identityFilters).toEqual(['account_id.eq.account.fixture1,and(account_id.is.null,player_id.eq."fixtureplayer")']);
   });
 
-  it("helper는 played_at, created_at, request-time ultimate fallback 순서를 지킨다", () => {
+  it('excludes a processed cache from a different account from both summary and restoration', async () => {
+    database.accountId = 'account.current';
+    database.rows.processed_match_telemetry = [processedRow('reused-name', 'account.previous')];
+    database.rows.match_stats_raw = [];
+    const body = await (await POST(request(['reused-name'], false))).json();
+    expect(body.summaries).toEqual({});
+    expect(body.missingMatchIds).toEqual(['reused-name']);
+    expect(body.ingestedMatchIds).toEqual([]);
+    expect(database.writes).toEqual([]);
+    expect(ingestMatch).not.toHaveBeenCalled();
+  });
+
+  it('uses the current account basic row instead of a same-nickname foreign analysis', async () => {
+    database.accountId = 'account.current';
+    database.rows.processed_match_telemetry = [processedRow('shared-match', 'account.previous')];
+    database.rows.pubg_player_matches = [{...basicRow('shared-match'), account_id: 'account.current'}];
+    const body = await (await POST(request(['shared-match'], false))).json();
+    expect(body.summaries['shared-match']).toMatchObject({summarySource: 'pubg_player_matches', stats: {kills: 1}});
+    expect(database.writes).toEqual([]);
+  });
+
+  it('preserves account-ID-free legacy summaries without binding them to the current account', async () => {
+    database.accountId = 'account.current';
+    database.rows.processed_match_telemetry = [processedRow('legacy-id-free')];
+    const body = await (await POST(request(['legacy-id-free'], false))).json();
+    expect(body.summaries['legacy-id-free'].stats.kills).toBe(8);
+    expect(database.writes[0].rows[0]).not.toHaveProperty('account_id');
+    expect(body.ingestedMatchIds).toEqual(['legacy-id-free']);
+  });
+
+  it.each(['processed_match_telemetry', 'pubg_player_matches'])('checks an explicit cached account privacy even without a current nickname mapping (%s)', async table => {
+    database.rows[table] = table === 'processed_match_telemetry'
+      ? [processedRow('private-cache', 'account.private')]
+      : [{...basicRow('private-cache'), account_id: 'account.private'}];
+    vi.mocked(isPlayerPrivate).mockImplementation(async (_platform, _nickname, id) => id === 'account.private');
+    const response = await POST(request(['private-cache'], false));
+    expect(response.status).toBe(403);
+    expect(database.writes).toEqual([]);
+    expect(ingestMatch).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the explicit cache account privacy lookup fails', async () => {
+    database.rows.processed_match_telemetry = [processedRow('private-cache', 'account.private')];
+    vi.mocked(isPlayerPrivate).mockImplementation(async (_platform, _nickname, id) => {
+      if (id === 'account.private') throw new Error('registry unavailable');
+      return false;
+    });
+    expect((await POST(request(['private-cache'], false))).status).toBe(503);
+    expect(database.writes).toEqual([]);
+  });
+
+  it('keeps an incomplete existing row pending instead of acknowledging an ignored restoration', async () => {
+    database.accountId = 'account.current';
+    database.rows.processed_match_telemetry = [processedRow('incomplete', 'account.current')];
+    database.rows.pubg_player_matches = [{...basicRow('incomplete'), account_id: 'account.current', map_name: 'unknown'}];
+    const body = await (await POST(request(['incomplete'], false))).json();
+    expect(body.summaries.incomplete.stats.kills).toBe(8);
+    expect(body.missingMatchIds).toEqual(['incomplete']);
+    expect(body.ingestedMatchIds).toEqual([]);
+    expect(database.writes).toEqual([]);
+    expect(ingestMatch).not.toHaveBeenCalled();
+  });
+
+  it('still collects an incomplete existing row when explicit collection is enabled', async () => {
+    database.accountId = 'account.current';
+    database.rows.processed_match_telemetry = [processedRow('incomplete', 'account.current')];
+    database.rows.pubg_player_matches = [{...basicRow('incomplete'), account_id: 'account.current', map_name: 'unknown'}];
+    vi.stubEnv('PUBG_API_KEY', 'test-key');
+    ingestMatch.mockResolvedValueOnce({status: 'saved', record: {...basicRow('incomplete'), account_id: 'account.current'}});
+    const body = await (await POST(request(['incomplete']))).json();
+    expect(database.writes).toEqual([]);
+    expect(ingestMatch).toHaveBeenCalledWith(expect.anything(), 'incomplete', 'fixtureplayer', 'steam', 'test-key', expect.objectContaining({expectedAccountId: 'account.current'}));
+    expect(body.missingMatchIds).toEqual([]);
+    expect(body.ingestedMatchIds).toEqual(['incomplete']);
+  });
+
+  it.each(['incomplete', 'foreign-account'])('does not acknowledge an ignored restoration over a concurrently inserted %s row', async kind => {
+    database.accountId = 'account.current';
+    database.rows.processed_match_telemetry = [processedRow('concurrent', 'account.current')];
+    database.concurrentRows = [{...basicRow('concurrent'),
+      account_id: kind === 'foreign-account' ? 'account.previous' : 'account.current',
+      map_name: kind === 'incomplete' ? 'unknown' : 'Baltic_Main'}];
+    const body = await (await POST(request(['concurrent'], false))).json();
+    expect(database.writes).toHaveLength(1);
+    expect(body.missingMatchIds).toEqual(['concurrent']);
+    expect(body.ingestedMatchIds).toEqual([]);
+    expect(ingestMatch).not.toHaveBeenCalled();
+  });
+
+  it("helper는 실제 played_at과 created_at만 사용하고 없는 시각을 만들지 않는다", () => {
     vi.setSystemTime(new Date("2026-08-10T12:34:56.000Z"));
 
     expect(buildBasicMatchSummary({
@@ -129,13 +248,14 @@ describe("matches-summary raw timestamp fallback", () => {
       platform: "steam",
       played_at: null,
       created_at: null,
-    }).createdAt).toBe("2026-08-10T12:34:56.000Z");
+    }).createdAt).toBe("");
   });
 
   it("서로 다른 request time에도 raw created_at을 읽어 동일한 createdAt을 반환한다", async () => {
     vi.setSystemTime(new Date("2026-08-10T00:00:00.000Z"));
     const firstBody = await (await POST(request())).json();
 
+    database.rows.pubg_player_matches = [];
     vi.setSystemTime(new Date("2026-08-11T00:00:00.000Z"));
     const secondBody = await (await POST(request())).json();
 
@@ -321,11 +441,21 @@ describe("matches-summary raw timestamp fallback", () => {
     expect(body.missingMatchIds).toEqual(Array.from({ length: 18 }, (_, index) => `match-${index}`));
   });
 
+  it('lets mobile read summaries without starting upstream collection', async () => {
+    database.rows.match_stats_raw = [];
+    vi.stubEnv('PUBG_API_KEY', 'test-key');
+    const response = await POST(request(['missing-match'], false));
+    expect(ingestMatch).not.toHaveBeenCalled();
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(await response.json()).toMatchObject({missingMatchIds: ['missing-match'], nextMatchIds: [], ingestedMatchIds: []});
+  });
+
   it("attempts at most five missing matches and continues past failures without re-fetching stored matches", async () => {
     vi.stubEnv("PUBG_API_KEY", "test-key");
     const ids = Array.from({ length: 20 }, (_, index) => `new-${index}`);
     database.rows.pubg_player_matches = [{
       match_id: ids[0], player_id: "fixtureplayer", platform: "steam", kills: 1, damage: 100, win_place: 5,
+      played_at: "2026-10-03T00:00:00Z", game_mode: "duo", map_name: "Tiger_Main", match_type: "official",
     }];
     const req = request(ids);
     const body = await (await POST(req)).json();

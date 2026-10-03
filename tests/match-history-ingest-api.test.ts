@@ -4,6 +4,7 @@ const mocks=vi.hoisted(()=>({private:vi.fn(),history:vi.fn(),db:vi.fn<(...args:u
 vi.mock('@supabase/supabase-js',()=>({createClient:mocks.db}));
 vi.mock('@/lib/pubg/privatePlayers',()=>({isPlayerPrivate:mocks.private}));
 vi.mock('@/lib/pubg/privatePlayerIdentity',()=>({resolvePrivatePlayerAccountId:vi.fn().mockResolvedValue(null)}));
+vi.mock('@/lib/pubg/matchDiscovery.server',()=>({readHistoryIngest:vi.fn().mockResolvedValue({pendingCount:3,unavailableCount:1,lastSavedAt:null})}));
 vi.mock('@/lib/pubg/playerMatches',()=>({
   buildPlayerMatchIdentityFilter:(nickname:string,accountId?:string|null)=>accountId?`account_id.eq.${accountId},and(account_id.is.null,player_id.eq."${nickname.trim().toLowerCase()}")`:null,
   fetchPlayerMatchesPaginated:mocks.history,
@@ -44,12 +45,12 @@ describe('stored history boundary',()=>{
     expect(mocks.history).not.toHaveBeenCalled();
   });
 
-  it('returns stored totals and preserves the requested page without exposing worker progress',async()=>{
+  it('returns exact stored totals and distinguishes pending discovery from saved history',async()=>{
     const response=await GET(req('&page=2&filter=ranked'));
     expect(response.headers.get('Cache-Control')).toBe('no-store');
     const body=await response.json();
     expect(body).toMatchObject({page:2,totalCount:99});
-    expect(body.historyIngest).toBeUndefined();
+    expect(body.historyIngest).toEqual({pendingCount:3,unavailableCount:1,lastSavedAt:null});
     expect(mocks.history).toHaveBeenCalledWith(expect.anything(),'Zucchini__','steam',2,20,'ranked','account.zucchini');
   });
   it('never exposes history of a private player',async()=>{

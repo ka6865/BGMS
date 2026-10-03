@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
 import { withAuthGuard } from "@/utils/supabase/guard";
-import { checkProfanity } from "@/lib/board/profanityFilter";
-import { extractClientIp, checkIpBlacklist } from "@/lib/board/ipUtils";
+import { checkIpBlacklist, extractClientIp } from "@/lib/board/ipUtils";
 import { toBoardImageProxyUrl } from "@/lib/board-image-proxy";
-import { consumeBoardWriteQuota } from "@/lib/board/writeQuota.server";
+import { boardCategoryFilterValues, parseCurrentBoardCategory } from "@/lib/board/mobileCategories";
+import { POST as writeBoardPost } from "@/app/api/posts/write/route";
 
 const clean = (value: string | undefined) => (value || "").replace(/['";\s]+/g, "").trim();
 const supabaseUrl = clean(process.env.NEXT_PUBLIC_SUPABASE_URL);
 const supabaseServiceKey = clean(process.env.SUPABASE_SERVICE_ROLE_KEY);
-const validCategories = new Set(["free", "strategy", "question", "notice", "clan", "자유", "공략", "질문", "공지", "클랜"]);
 
 type BoardPostCursor = {
   isNotice: boolean;
@@ -27,10 +26,6 @@ function jsonError(message: string, status: number) {
 
 function originOf(request: Request) {
   return new URL(request.url).origin;
-}
-
-function hasImagePayload(content: string) {
-  return /<img\b|data:image\/|!\[[^\]]*]\([^)]*\)/i.test(content);
 }
 
 function encodeCursor(row: any) {
@@ -122,7 +117,11 @@ export async function GET(request: Request) {
     .order("id", { ascending: false });
 
   query = applyCursor(query, cursor);
-  if (category && category !== "all") query = query.eq("category", category);
+  if (category && category !== "all") {
+    const values = boardCategoryFilterValues(category);
+    if (!values) return jsonError("게시판 분류가 올바르지 않습니다.", 400);
+    query = values.length === 1 ? query.eq("category", values[0]) : query.in("category", values);
+  }
   if (queryText) {
     const safeQuery = queryText.replace(/[%_]/g, "");
     if (safeQuery) query = query.or(`title.ilike.%${safeQuery}%,content.ilike.%${safeQuery}%`);
@@ -162,62 +161,43 @@ export async function POST(request: Request) {
     return jsonError("요청 본문이 올바르지 않습니다.", 400);
   }
 
-  const title = String(body.title || "").trim();
-  const content = String(body.content || "").trim();
-  const category = validCategories.has(String(body.category || ""))
-    ? String(body.category)
-    : "free";
-
-  if (title.length < 2 || title.length > 80) {
-    return jsonError("제목은 2~80자로 입력해주세요.", 400);
-  }
-  if (content.length < 2 || content.length > 5000) {
-    return jsonError("본문은 2~5000자로 입력해주세요.", 400);
-  }
-  if (body.image_url || body.imageUrl || hasImagePayload(content)) {
-    return jsonError("모바일 앱에서는 사진 첨부를 지원하지 않습니다.", 400);
-  }
+  const category = parseCurrentBoardCategory(body.category);
+  if (!category) return jsonError("게시판 분류가 올바르지 않습니다.", 400);
 
   const clientIp = extractClientIp(request);
-  const isBlocked = await checkIpBlacklist(clientIp, auth.supabaseAdmin);
-  if (isBlocked) return jsonError("차단된 IP입니다. 관리자에게 문의해주세요.", 403);
+  if (await checkIpBlacklist(clientIp, auth.supabaseAdmin)) {
+    return jsonError("차단된 IP입니다. 관리자에게 문의해주세요.", 403);
+  }
 
-  if (checkProfanity(title).blocked) return jsonError("제목에 부적절한 표현이 포함되어 있습니다.", 400);
-  if (checkProfanity(content).blocked) return jsonError("본문에 부적절한 표현이 포함되어 있습니다.", 400);
-
-  const quota = await consumeBoardWriteQuota({
-    supabaseAdmin: auth.supabaseAdmin,
-    scope: "post",
-    actor: auth.user.id,
-  });
-  if (!quota.ok) return jsonError(quota.error, quota.status);
-
-  const { data: profile } = await auth.supabaseAdmin
-    .from("profiles")
-    .select("nickname")
-    .eq("id", auth.user.id)
-    .maybeSingle();
-
-  const author = profile?.nickname || auth.user.email || "알 수 없음";
-  const { data, error } = await auth.supabaseAdmin
-    .from("posts")
-    .insert([{
-      title,
-      content,
-      author,
-      user_id: auth.user.id,
+  // 이미지 소유권·본문 정화·quota·revision RPC를 웹 작성 API와 하나로 유지한다.
+  const forwarded = new Request(request.url, {
+    method: "POST",
+    headers: forwardHeaders(request),
+    body: JSON.stringify({
+      title: body.title,
+      content: body.content,
       category,
-      status: "published",
-      image_url: null,
-      ip_address: clientIp,
+      user_id: auth.user.id,
+      image_url: imageUrlForThumbnail(body.thumbnailImageId),
       is_notice: false,
-      views: 0,
-      likes: 0,
-    }])
-    .select("id")
-    .single();
+      contentImageIds: body.contentImageIds ?? [],
+      thumbnailImageId: body.thumbnailImageId ?? null,
+    }),
+  });
+  return writeBoardPost(forwarded);
+}
 
-  if (error || !data) return jsonError("게시글 저장 중 오류가 발생했습니다.", 500);
+function forwardHeaders(request: Request) {
+  const headers = new Headers({ "Content-Type": "application/json" });
+  for (const name of ["authorization", "cookie", "x-forwarded-for", "x-real-ip", "cf-connecting-ip"]) {
+    const value = request.headers.get(name);
+    if (value) headers.set(name, value);
+  }
+  return headers;
+}
 
-  return NextResponse.json({ success: true, id: data.id });
+function imageUrlForThumbnail(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const baseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
+  return baseUrl ? `${baseUrl}/storage/v1/object/public/board-images-v2/${encodeURIComponent(value)}` : null;
 }
