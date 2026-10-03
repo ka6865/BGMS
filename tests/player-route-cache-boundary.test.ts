@@ -34,6 +34,11 @@ vi.mock("@/lib/pubg/apiHelper", () => ({
   reportPubgApiError: vi.fn(),
 }));
 
+vi.mock("@/lib/pubg/banWatch.server", () => ({
+  readPlayerBanStatus: vi.fn().mockResolvedValue(null),
+  recordPlayerBanObservation: vi.fn(),
+}));
+
 vi.mock("@/lib/pubg/privatePlayers", () => ({
   isPlayerPrivate: vi.fn().mockResolvedValue(false),
 }));
