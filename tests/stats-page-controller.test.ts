@@ -671,6 +671,192 @@ describe("useStatsPageController", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it.each([false, true])("수집 결과를 5판씩 게시하고 실패 경기를 건너뛰어 최대 20판을 확인한다 (페이지 이동: %s)", async (movePage) => {
+    const ids = Array.from({ length: 20 }, (_, index) => `progress-${index}`);
+    const requested: string[][] = [];
+    const saved = new Set<string>();
+    const second = deferredResponse({
+      summaries: Object.fromEntries(ids.slice(5, 10).map((id) => [id, { ...summaryFixture, matchId: id }])),
+      missingMatchIds: ids.slice(10), nextMatchIds: ids.slice(10),
+    });
+    const record = (id: string) => ({ match_id: id, player_id: "fixtureplayer", platform: "steam", game_mode: "squad-fpp", match_type: "official", kills: 2, damage: 200, win_place: 5 });
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player?")) return Promise.resolve(jsonResponse({ ...playerReady, recentMatches: ids }));
+      if (url === "/api/pubg/matches-summary") {
+        const pending = JSON.parse(String(init?.body)).matchIds as string[];
+        requested.push(pending);
+        if (requested.length === 2) return second.fetch(input, init);
+        const batch = pending.slice(0, 5).filter((id) => id !== ids[1]);
+        batch.forEach((id) => saved.add(id));
+        return Promise.resolve(jsonResponse({
+          summaries: Object.fromEntries(batch.map((id) => [id, { ...summaryFixture, matchId: id }])),
+          missingMatchIds: pending.filter((id) => !saved.has(id)), nextMatchIds: pending.slice(5),
+        }));
+      }
+      const page = Number(new URL(url, "http://localhost").searchParams.get("page"));
+      return Promise.resolve(jsonResponse({
+        matches: page === 2 ? [record("older-page-two")] : ids.filter((id) => saved.has(id)).map(record),
+        page, totalPages: 2, totalCount: saved.size,
+      }));
+    });
+    const { result } = renderHook(() => useStatsPageController({ initialNickname: "FixturePlayer", initialPlatform: "steam" }));
+    await waitFor(() => expect(requested).toHaveLength(2));
+    expect(result.current.matchIds).toHaveLength(4);
+    expect(result.current.summaryStatus).toBe("loading");
+    if (movePage) await act(async () => { await result.current.setHistoryPage(2); });
+    ids.slice(5, 10).forEach((id) => saved.add(id));
+    await act(async () => second.resolve());
+    await waitFor(() => expect(result.current.summaryStatus).toBe("ready"));
+    expect(requested).toEqual([ids, ids.slice(5), ids.slice(10), ids.slice(15)]);
+    expect(Object.keys(result.current.matchSummaries)).toHaveLength(movePage ? 20 : 19);
+    expect(result.current.missingMatchIds).toEqual(new Set([ids[1]]));
+    expect(result.current.partialReasons).toContain("summary_missing");
+    expect(result.current.historyPage).toBe(movePage ? 2 : 1);
+    expect(result.current.matchIds).toEqual(movePage ? ["older-page-two"] : ids.filter((id) => id !== ids[1]));
+  });
+
+  it("14일치 45판을 끝까지 확인하되 저장된 경기와 실패한 경기는 다시 조회하지 않는다", async () => {
+    const ids = Array.from({ length: 45 }, (_, index) => `all-${index}`);
+    const initiallySaved = [ids[0], ids[7], ids[20], ids[44]];
+    const saved = new Set(initiallySaved);
+    const fetched: string[] = [];
+    const requested: string[][] = [];
+    const record = (id: string) => ({ match_id: id, player_id: "fixtureplayer", platform: "steam", kills: 2, damage: 200, win_place: 5 });
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player?")) return Promise.resolve(jsonResponse({
+        ...playerReady, recentMatches: ids.slice(0, 20), collectionMatchIds: [...ids, `shard:${ids[40]}`],
+      }));
+      if (url === "/api/pubg/matches-summary") {
+        const pending = JSON.parse(String(init?.body)).matchIds as string[];
+        requested.push(pending);
+        const missing = pending.filter((id) => !saved.has(id));
+        fetched.push(...missing.slice(0, 5));
+        missing.slice(0, 5).filter((id) => id !== ids[1]).forEach((id) => saved.add(id));
+        return Promise.resolve(jsonResponse({
+          summaries: Object.fromEntries(pending.filter((id) => saved.has(id)).map((id) => [id, { ...summaryFixture, matchId: id }])),
+          missingMatchIds: pending.filter((id) => !saved.has(id)), nextMatchIds: missing.slice(5),
+        }));
+      }
+      return Promise.resolve(jsonResponse({
+        matches: ids.filter((id) => saved.has(id)).slice(0, 20).map(record), page: 1,
+        totalPages: Math.ceil(saved.size / 20), totalCount: saved.size,
+      }));
+    });
+    const { result } = renderHook(() => useStatsPageController({ initialNickname: "FixturePlayer", initialPlatform: "steam" }));
+    await waitFor(() => expect(result.current.summaryStatus).toBe("ready"));
+    expect(requested.length).toBeGreaterThan(4);
+    expect(requested.every((batch) => batch.length <= 20)).toBe(true);
+    expect(fetched).toEqual(ids.filter((id) => !initiallySaved.includes(id)));
+    expect(saved.size).toBe(44);
+    expect(result.current.historyTotalCount).toBe(44);
+    expect(result.current.historyTotalPages).toBe(3);
+    expect(result.current.matchIds).toHaveLength(20);
+    expect(result.current.missingMatchIds).toEqual(new Set([ids[1]]));
+  });
+
+  it("서버가 수집 중단을 알려주면 20판 밖의 대기 기록도 요청하지 않고 저장 결과를 유지한다", async () => {
+    const ids = Array.from({ length: 45 }, (_, index) => `stopped-${index}`);
+    let summaryCalls = 0;
+    fetchMock.mockImplementation((input) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player?")) return Promise.resolve(jsonResponse({ ...playerReady, recentMatches: ids.slice(0, 20), collectionMatchIds: ids }));
+      if (url === "/api/pubg/matches-summary") {
+        summaryCalls += 1;
+        return Promise.resolve(jsonResponse({
+          summaries: Object.fromEntries(ids.slice(0, 3).map((id) => [id, { ...summaryFixture, matchId: id }])),
+          missingMatchIds: ids.slice(3, 20), nextMatchIds: [], collectionStopped: true,
+        }));
+      }
+      return Promise.resolve(jsonResponse({ matches: [], page: 1, totalPages: 0 }));
+    });
+    const { result } = renderHook(() => useStatsPageController({ initialNickname: "FixturePlayer", initialPlatform: "steam" }));
+    await waitFor(() => expect(result.current.summaryStatus).toBe("error"));
+    expect(summaryCalls).toBe(1);
+    expect(Object.keys(result.current.matchSummaries)).toHaveLength(3);
+    expect(result.current.partialReasons).toContain("summary_batch_failed");
+  });
+
+  it.each([false, true])("후속 수집이 실패하거나 화면을 떠나도 앞서 수집한 기록을 보존하고 추가 요청을 멈춘다 (화면 종료: %s)", async (unmount) => {
+    const ids = Array.from({ length: 45 }, (_, index) => `partial-${index}`);
+    const second = deferredResponse({ error: "offline" });
+    let summaryCalls = 0;
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player?")) return Promise.resolve(jsonResponse({ ...playerReady, recentMatches: ids.slice(0, 20), collectionMatchIds: ids }));
+      if (url === "/api/pubg/matches-summary") {
+        summaryCalls += 1;
+        if (summaryCalls === 2) return second.fetch(input, init).then(async (response) => jsonResponse(await response.json(), 503));
+        return Promise.resolve(jsonResponse({
+          summaries: Object.fromEntries(ids.slice(0, 5).map((id) => [id, { ...summaryFixture, matchId: id }])),
+          missingMatchIds: ids.slice(5), nextMatchIds: ids.slice(5),
+        }));
+      }
+      return Promise.resolve(jsonResponse({ matches: [], page: 1, totalPages: 0 }));
+    });
+    const hook = renderHook(() => useStatsPageController({ initialNickname: "FixturePlayer", initialPlatform: "steam" }));
+    await waitFor(() => expect(summaryCalls).toBe(2));
+    if (unmount) hook.unmount();
+    await act(async () => second.resolve());
+    if (unmount) expect(second.signal?.aborted).toBe(true);
+    else {
+      await waitFor(() => expect(hook.result.current.summaryStatus).toBe("error"));
+      expect(Object.keys(hook.result.current.matchSummaries)).toHaveLength(5);
+    }
+    expect(summaryCalls).toBe(2);
+  });
+
+  it.each([0, 1])("잘못된 continuation도 입력 ID를 모두 소비하면 종료하고 같은 목록을 반복하지 않는다 (제거 수: %s)", async (removed) => {
+    const ids = Array.from({ length: 20 }, (_, index) => `bounded-${index}`);
+    let summaryCalls = 0;
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player?")) return Promise.resolve(jsonResponse({ ...playerReady, recentMatches: ids }));
+      if (url === "/api/pubg/matches-summary") {
+        summaryCalls += 1;
+        const pending = JSON.parse(String(init?.body)).matchIds;
+        return Promise.resolve(jsonResponse({ summaries: {}, missingMatchIds: pending, nextMatchIds: pending.slice(removed) }));
+      }
+      return Promise.resolve(jsonResponse({ matches: [], page: 1, totalPages: 0 }));
+    });
+    const { result } = renderHook(() => useStatsPageController({ initialNickname: "FixturePlayer", initialPlatform: "steam" }));
+    await waitFor(() => expect(result.current.summaryStatus).toBe("ready"));
+    expect(summaryCalls).toBe(removed ? 20 : 1);
+    expect(result.current.missingMatchIds.size).toBe(20);
+  });
+
+  it.each([
+    ["summary", true], ["history", true], ["summary", false], ["history", false],
+  ] as const)("요청의 시간 제한이 끝나면 로딩을 종료하고 오류를 표시한다 (%s, native any: %s)", async (kind, nativeAny) => {
+    const deadline = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal);
+    const any = Object.getOwnPropertyDescriptor(AbortSignal, "any")!;
+    if (!nativeAny) Object.defineProperty(AbortSignal, "any", { ...any, value: undefined });
+    try {
+      fetchMock.mockImplementation((input, init) => {
+        const url = String(input);
+        if (url.startsWith("/api/pubg/player?")) return Promise.resolve(jsonResponse(playerReady));
+        const isSummary = url === "/api/pubg/matches-summary";
+        if ((kind === "summary") === isSummary) return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+        });
+        if (isSummary) return Promise.resolve(jsonResponse({ summaries: { "match-fixture-1": summaryFixture }, missingMatchIds: [] }));
+        return Promise.resolve(jsonResponse({ matches: [], page: 1, totalPages: 0 }));
+      });
+      const { result } = renderHook(() => useStatsPageController({ initialNickname: "FixturePlayer", initialPlatform: "steam" }));
+      await waitFor(() => expect(kind === "summary" ? result.current.summaryStatus : result.current.historyStatus).toBe("loading"));
+      expect(timeout).toHaveBeenCalledWith(15_000);
+      await act(async () => deadline.abort(new DOMException("deadline exceeded", "TimeoutError")));
+      await waitFor(() => expect(kind === "summary" ? result.current.summaryStatus : result.current.historyStatus).toBe("error"));
+      if (kind === "summary") expect(result.current.partialReasons).toContain("summary_batch_failed");
+      else expect(result.current.matchSummaries["match-fixture-1"]).toBeDefined();
+    } finally {
+      Object.defineProperty(AbortSignal, "any", any);
+      timeout.mockRestore();
+    }
+  });
+
   it("전적 갱신 시 DB 미반영 최신 매치가 1페이지 matchIds에 즉시 노출되고 요약/히스토리가 동기화된다", async () => {
     const initialPlayer = {
       ...playerReady,

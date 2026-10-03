@@ -49,15 +49,35 @@ describe("player route non-force cache boundary", () => {
     vi.stubGlobal("fetch", mockFetch);
   });
 
-  it("normalizes shard aliases in a legacy response-cache hit before returning it", async () => {
+  it("reads the saved player instead of a stale legacy response cache and normalizes shard aliases", async () => {
     mockReadPubgCache.mockResolvedValue({
+      accountId: "account.fixture1",
       nickname: "Fixture_Player",
       platform: "steam",
       seasonId: "pc-2026-02",
       seasons: [],
       stats: { ranked: null, normal: null },
-      recentMatches: ["shard:newest", "newest", "older"],
-      matchModes: { "shard:newest": "squad-fpp", newest: "duo-fpp", older: "solo-fpp" },
+      recentMatches: ["before-refresh"],
+      matchModes: {},
+    });
+    const playerQuery = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      maybeSingle: vi.fn().mockResolvedValue({ data: {
+        id: "account.fixture1", nickname: "Fixture_Player", platform: "steam",
+        last_season_id: "pc-2026-02", recent_match_ids: ["shard:newest", "newest", "older"],
+      }, error: null }),
+    };
+    const telemetryQuery = {
+      select: vi.fn().mockReturnThis(),
+      in: vi.fn().mockResolvedValue({ data: [
+        { match_id: "shard:newest", game_mode: "squad-fpp" },
+        { match_id: "newest", game_mode: "duo-fpp" },
+        { match_id: "older", game_mode: "solo-fpp" },
+      ], error: null }),
+    };
+    mockCreateServerClient.mockResolvedValue({
+      from: vi.fn((table: string) => table === "pubg_player_cache" ? playerQuery : telemetryQuery),
     });
 
     const route = await import("../app/api/pubg/player/route");
@@ -70,6 +90,8 @@ describe("player route non-force cache boundary", () => {
       matchModes: { "newest": "squad-fpp", older: "solo-fpp" },
     }));
     expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockReadPubgCache).not.toHaveBeenCalled();
+    expect(response.headers.get("cache-control")).toContain("no-store");
   });
 
   it("does not call PUBG when mastery is stale and an explicit season is absent", async () => {
@@ -120,6 +142,6 @@ describe("player route non-force cache boundary", () => {
       survivalMastery: { level: 7, xp: 12 },
     }));
     expect(mockFetch).not.toHaveBeenCalled();
-    expect(mockWritePubgCache).toHaveBeenCalledTimes(1);
+    expect(mockWritePubgCache).not.toHaveBeenCalled();
   });
 });

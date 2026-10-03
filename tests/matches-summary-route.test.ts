@@ -12,7 +12,12 @@ vi.mock("@/lib/pubg/privatePlayerIdentity", () => ({
 
 const database = vi.hoisted(() => ({
   rows: {} as Record<string, unknown[]>,
+  errors: {} as Record<string, { message: string }>,
   selects: [] as Array<{ table: string; columns: string }>,
+}));
+const { ingestMatch } = vi.hoisted(() => ({ ingestMatch: vi.fn() }));
+vi.mock("@/lib/pubg/playerMatchesIngest", () => ({
+  fetchAndIngestBasicMatchSummaryOutcome: ingestMatch,
 }));
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -31,7 +36,7 @@ vi.mock("@supabase/supabase-js", () => ({
         eq: () => query,
         in: async () => invalidColumn
           ? { data: null, error: { code: "42703", message: "column does not exist" } }
-          : { data: database.rows[table] ?? [], error: null },
+          : { data: database.rows[table] ?? [], error: database.errors[table] ?? null },
       };
       return query;
     },
@@ -67,6 +72,9 @@ describe("matches-summary raw timestamp fallback", () => {
       }],
     };
     database.selects = [];
+    database.errors = {};
+    ingestMatch.mockReset();
+    ingestMatch.mockResolvedValue({ status: "not_found", record: null });
     vi.stubEnv("PUBG_API_KEY", "");
     vi.useFakeTimers();
   });
@@ -260,5 +268,51 @@ describe("matches-summary raw timestamp fallback", () => {
     expect(Object.keys(body.summaries)).toEqual(["duplicate-match", "match-18"]);
     expect(body.summaries["duplicate-match"].matchId).toBe("duplicate-match");
     expect(body.missingMatchIds).toEqual(Array.from({ length: 18 }, (_, index) => `match-${index}`));
+  });
+
+  it("attempts at most five missing matches and continues past failures without re-fetching stored matches", async () => {
+    vi.stubEnv("PUBG_API_KEY", "test-key");
+    const ids = Array.from({ length: 20 }, (_, index) => `new-${index}`);
+    database.rows.pubg_player_matches = [{
+      match_id: ids[0], player_id: "fixtureplayer", platform: "steam", kills: 1, damage: 100, win_place: 5,
+    }];
+    const req = request(ids);
+    const body = await (await POST(req)).json();
+    expect(ingestMatch).toHaveBeenCalledTimes(5);
+    expect(ingestMatch.mock.calls.map((call) => call[1])).toEqual(ids.slice(1, 6));
+    expect(ingestMatch.mock.calls[0][5].signal).toBe(req.signal);
+    expect(body.nextMatchIds).toEqual(ids.slice(6));
+    expect(body.collectionStopped).toBe(false);
+    expect(body.missingMatchIds).toEqual(ids.slice(1));
+    expect(body.summaries[ids[0]]).toBeDefined();
+  });
+
+  it.each([
+    ["rate_limited", 429], ["upstream_error", 401], ["upstream_error", 403],
+  ])("stops continuation when one match returns a request-wide error (%s, %s)", async (status, httpStatus) => {
+    vi.stubEnv("PUBG_API_KEY", "test-key");
+    ingestMatch.mockResolvedValueOnce({ status, httpStatus, record: null });
+    const ids = Array.from({ length: 20 }, (_, index) => `new-${index}`);
+    const body = await (await POST(request(ids))).json();
+    expect(ingestMatch).toHaveBeenCalledTimes(5);
+    expect(body.nextMatchIds).toEqual([]);
+    expect(body.collectionStopped).toBe(true);
+    expect(body.missingMatchIds).toEqual(ids);
+  });
+
+  it.each(["network_error", "upstream_error"])("stops continuation when the whole batch fails (%s)", async (status) => {
+    vi.stubEnv("PUBG_API_KEY", "test-key");
+    ingestMatch.mockResolvedValue({ status, record: null });
+    const body = await (await POST(request(Array.from({ length: 20 }, (_, index) => `new-${index}`)))).json();
+    expect(body.collectionStopped).toBe(true);
+    expect(body.nextMatchIds).toEqual([]);
+  });
+
+  it.each(["pubg_player_matches", "match_stats_raw"])("does not mistake a storage read error for missing matches (%s)", async (table) => {
+    vi.stubEnv("PUBG_API_KEY", "test-key");
+    database.errors[table] = { message: "storage unavailable" };
+    const response = await POST(request(["new-match"]));
+    expect(response.status).toBe(503);
+    expect(ingestMatch).not.toHaveBeenCalled();
   });
 });
