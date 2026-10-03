@@ -87,6 +87,7 @@ describe('durable match collection worker',()=>{
     expect(d.ingest).not.toHaveBeenCalled();
     expect(d.settle).toHaveBeenCalledWith(job,{state:'saved'});
     expect(summary.saved).toBe(1);
+    expect(summary.alreadyStored).toBe(1);
   });
   it('one account timeout does not cancel another account collecting the same match', async () => {
     const jobs = [job, { ...job, account_id: 'account.b', nickname_at_discovery: 'B' }];

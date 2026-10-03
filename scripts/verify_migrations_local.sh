@@ -44,6 +44,7 @@ MIGRATIONS=(
   "20260926123052_fix_support_reply_notification_conflict"
   "20261003090309_player_match_account_history_index"
   "20261003144730_pubg_discovery_fair_claim"
+  "20261003145149_pubg_discovery_claim_index_predicate"
 )
 
 cleanup() {

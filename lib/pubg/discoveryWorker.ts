@@ -15,7 +15,7 @@ export async function runDiscoveryWorker(d: DiscoveryWorkerDependencies) {
   const now=d.now ?? Date.now;
   const started=now();
   const limit=Math.max(0,Math.min(DISCOVERY_WORKER_MAX_JOBS,d.limit ?? 300));
-  const summary={claimed:0,saved:0,retry:0,unavailable:0,rateLimited:false,durationMs:0,failureCounts:{} as Record<string,number>};
+  const summary={claimed:0,saved:0,alreadyStored:0,retry:0,unavailable:0,rateLimited:false,durationMs:0,failureCounts:{} as Record<string,number>};
   while(summary.claimed<limit && now()-started<(d.maxDurationMs ?? 480000)) {
     const jobs=await d.claim(Math.min(3,limit-summary.claimed));
     if(!jobs.length) break;
@@ -24,6 +24,7 @@ export async function runDiscoveryWorker(d: DiscoveryWorkerDependencies) {
       if (await d.alreadyStored?.(job)) {
         await d.settle(job,{state:'saved'});
         summary.saved+=1;
+        summary.alreadyStored+=1;
         return;
       }
       let result: BasicMatchIngestOutcome;
