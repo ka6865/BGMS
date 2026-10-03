@@ -1,6 +1,8 @@
 import type { DiscoveryJob } from './matchDiscovery';
 import type { BasicMatchIngestOutcome } from './playerMatchesIngest';
 
+export const DISCOVERY_WORKER_MAX_JOBS = 1000;
+
 type Settlement = { state: 'saved' | 'retry' | 'unavailable'; nextAttemptAt?: string; errorCode?: string };
 export type DiscoveryWorkerDependencies = {
   claim: (limit: number) => Promise<DiscoveryJob[]>;
@@ -12,7 +14,7 @@ export type DiscoveryWorkerDependencies = {
 export async function runDiscoveryWorker(d: DiscoveryWorkerDependencies) {
   const now=d.now ?? Date.now;
   const started=now();
-  const limit=Math.max(0,Math.min(300,d.limit ?? 300));
+  const limit=Math.max(0,Math.min(DISCOVERY_WORKER_MAX_JOBS,d.limit ?? 300));
   const summary={claimed:0,saved:0,retry:0,unavailable:0,rateLimited:false,durationMs:0,failureCounts:{} as Record<string,number>};
   while(summary.claimed<limit && now()-started<(d.maxDurationMs ?? 480000)) {
     const jobs=await d.claim(Math.min(3,limit-summary.claimed));

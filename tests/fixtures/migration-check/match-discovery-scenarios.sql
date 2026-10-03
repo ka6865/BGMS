@@ -40,3 +40,38 @@ begin
   if (select count(*) from public.pubg_player_match_discovery where account_id='account.discovery')<>131 then raise exception 'platform isolation failed'; end if;
   raise notice 'match discovery scenarios passed';
 end $$;
+
+do $$
+declare ids text[]; n integer;
+begin
+  -- Isolate this scenario from pending work above, including future retries.
+  update public.pubg_player_match_discovery set next_attempt_at=now()+interval '1 day'
+    where state in ('pending','retry');
+  perform public.record_pubg_match_discovery('steam','account.fair','Fair',array['old-1','old-2','new-1','new-2','new-3','waiting']);
+  update public.pubg_player_match_discovery
+    set first_seen_at=now()-interval '10 days',last_seen_at=now()-interval '10 days'
+    where account_id='account.fair' and match_id like 'old-%';
+  update public.pubg_player_match_discovery
+    set state='running',lease_token=gen_random_uuid(),lease_expires_at=now()-interval '1 minute',attempts=1
+    where account_id='account.fair' and match_id='old-1';
+  update public.pubg_player_match_discovery
+    set state='retry',next_attempt_at=now()+interval '1 day',last_seen_at=now()+interval '1 day'
+    where account_id='account.fair' and match_id='waiting';
+  select count(*) into n from public.claim_pubg_match_discovery(0);
+  if n<>0 then raise exception 'zero claim must not lease work'; end if;
+  select array_agg(match_id order by match_id) into ids from public.claim_pubg_match_discovery(999);
+  if ids is distinct from array['new-1','new-2','old-1'] then
+    raise exception 'claim must cap at three and mix recent work with oldest backlog: %',ids;
+  end if;
+  if not exists(select from public.pubg_player_match_discovery
+    where account_id='account.fair' and match_id='old-1' and attempts=2 and lease_expires_at>now()) then
+    raise exception 'expired old work must receive a fresh lease';
+  end if;
+  select array_agg(match_id order by match_id) into ids from public.claim_pubg_match_discovery(3);
+  if ids is distinct from array['new-3','old-2'] then
+    raise exception 'claim must fill available slots without duplicate live leases: %',ids;
+  end if;
+  select count(*) into n from public.claim_pubg_match_discovery(3);
+  if n<>0 then raise exception 'live leases and future retries must not be claimed'; end if;
+  raise notice 'fair discovery claim scenarios passed';
+end $$;

@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       limit:
-        description: "이번 수동 실행에서 처리할 최대 경기 수"
+        description: "이번 수동 실행에서 처리할 최대 수집 작업 수"
         required: true
         default: "3"
         type: choice
@@ -16,6 +16,8 @@ on:
           - "20"
           - "50"
           - "300"
+          - "500"
+          - "1000"
 permissions:
   contents: read
 concurrency:
@@ -34,7 +36,7 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci --ignore-scripts
-      - run: npx tsx scripts/ingest_discovered_matches.ts --apply --limit "${{ github.event_name == 'workflow_dispatch' && inputs.limit || '300' }}"
+      - run: npx tsx scripts/ingest_discovered_matches.ts --apply --limit "${{ github.event_name == 'workflow_dispatch' && inputs.limit || '1000' }}"
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { discoveryClient, claimDiscoveredMatches, settleDiscoveredMatch, recordDiscoveredMatches } from '../lib/pubg/matchDiscovery.server';
-import { runDiscoveryWorker } from '../lib/pubg/discoveryWorker';
+import { DISCOVERY_WORKER_MAX_JOBS, runDiscoveryWorker } from '../lib/pubg/discoveryWorker';
 import { fetchAndIngestBasicMatchSummaryOutcome } from '../lib/pubg/playerMatchesIngest';
 
 export type DiscoveryWorkerArgs = {
@@ -17,7 +17,7 @@ export function parseDiscoveryWorkerArgs(args: string[]): DiscoveryWorkerArgs {
   const rawLimit=limitIndex>=0 ? args[limitIndex+1] : undefined;
   if(limitIndex>=0 && (!rawLimit || !/^\d+$/.test(rawLimit))) throw new Error('discovery-worker-invalid-limit');
   const limit=rawLimit === undefined ? 300 : Number(rawLimit);
-  if(!Number.isInteger(limit) || limit<1 || limit>300) throw new Error('discovery-worker-invalid-limit');
+  if(!Number.isInteger(limit) || limit<1 || limit>DISCOVERY_WORKER_MAX_JOBS) throw new Error('discovery-worker-invalid-limit');
   const nicknameIndex=args.indexOf('--nickname');
   return {
     apply:args.includes('--apply'),
