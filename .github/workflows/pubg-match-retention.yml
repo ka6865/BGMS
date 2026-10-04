@@ -35,7 +35,7 @@ concurrency:
 jobs:
   collect:
     # Enable after applying and verifying the discovery migration.
-    if: ${{ github.event_name == 'workflow_dispatch' || vars.PUBG_MATCH_RETENTION_ENABLED == 'true' }}
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.PUBG_MATCH_RETENTION_ENABLED == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
