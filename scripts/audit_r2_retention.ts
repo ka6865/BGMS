@@ -1,10 +1,10 @@
 /** Diagnostic branch only: SELECT, LIST and GET; no database or R2 writes. */
-import { S3Client, ListObjectsV2Command, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, ListObjectsV2Command, GetObjectCommand, GetBucketLifecycleConfigurationCommand } from '@aws-sdk/client-s3';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
 import { createHash, publicEncrypt, randomBytes } from 'node:crypto';
 import { readFile, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import { gzipSync, gunzipSync } from 'node:zlib';
+import { gzipSync, gunzipSync, brotliCompressSync, brotliDecompressSync, constants } from 'node:zlib';
 import { sealRecoveryArchive } from './r2_recovery_archive';
 import { parseTelemetryPayload } from '../lib/pubg-analysis/telemetryPayload';
 import { createTelemetryPublicIdentity, type TelemetryPublicIdentity } from '../lib/pubg-analysis/telemetryIdentity';
@@ -39,6 +39,14 @@ export function describeBody(body: Buffer): Row {
   const decoded = zipped ? gunzipSync(body, { maxOutputLength: 134217728 }) : body;
   const parsed: unknown = JSON.parse(decoded.toString('utf8'));
   const record = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Row : {};
+  const compressionStudy: Row[] = [];
+  for (const quality of [5, 7]) {
+    const start = performance.now();
+    const compressed = brotliCompressSync(decoded, { params: { [constants.BROTLI_PARAM_QUALITY]: quality } });
+    compressionStudy.push({ codec: 'brotli', quality, bytes: compressed.length,
+      compressionMs: Math.round((performance.now() - start) * 100) / 100,
+      roundtripEqual: brotliDecompressSync(compressed, { maxOutputLength: 134217728 }).equals(decoded) });
+  }
   const events: Row[] | null = Array.isArray(parsed) ? parsed : Array.isArray(record.events) ? record.events : Array.isArray(record.telemetry) ? record.telemetry : null;
   const types: Record<string, number> = {};
   if (events) for (const event of events) {
@@ -53,24 +61,33 @@ export function describeBody(body: Buffer): Row {
     } catch { mapContractValid = false; }
   }
   const participants: Array<{ playerHash: string; accountHash?: string; platform?: unknown }> = [];
+  const participantIdentities = new Set<string>();
   const matchDefinitions: Row[] = [];
   if (events) for (const event of events) {
     if (!event || typeof event !== 'object') continue;
     if (event._T === 'LogMatchDefinition') matchDefinitions.push(event);
-    if (event._T === 'LogMatchStart' && Array.isArray(event.characters)) {
-      for (const value of event.characters) {
+    const characters = [
+      ...((event._T === 'LogMatchStart' && Array.isArray(event.characters)) ? event.characters : []),
+      ...['character', 'attacker', 'victim', 'killer', 'finisher', 'reviver'].map(field => event[field]).filter(Boolean),
+    ];
+    if (characters.length) {
+      for (const value of characters) {
         const character = value && typeof value === 'object' ? ('character' in value ? value.character : value) as Row : null;
-        if (character && typeof character.name === 'string') participants.push({
-          playerHash: sha(character.name.toLowerCase()),
-          accountHash: typeof character.accountId === 'string' ? sha(character.accountId).slice(0, 32) : undefined,
-          platform: character.platform,
-        });
+        if (character && typeof character.name === 'string') {
+          const evidence = { playerHash: sha(character.name.toLowerCase()),
+            accountHash: typeof character.accountId === 'string' ? sha(character.accountId).slice(0, 32) : undefined,
+            platform: character.platform };
+          const identity = JSON.stringify(evidence);
+          if (!participantIdentities.has(identity)) participants.push(evidence);
+          participantIdentities.add(identity);
+        }
       }
     }
   }
   return {
     gzip: zipped, compressedBytes: body.length, decodedBytes: decoded.length,
     sha256: sha(body), gzip9Bytes: gzipSync(decoded, { level: 9 }).length,
+    compressionStudy,
     kind: Array.isArray(parsed) ? 'array' : typeof parsed,
     keys: Object.keys(record), identity: record.identity, projection: record.projection,
     format: record.analyzeFormat ?? record.formatVersion, version: record.version ?? record.v,
@@ -98,6 +115,13 @@ async function main() {
     requestHandler: new NodeHttpHandler({ connectionTimeout: 10000, requestTimeout: 20000 }), maxAttempts: 2,
   });
   const bucket = env('CLOUDFLARE_R2_BUCKET_NAME');
+  let lifecycle: Row;
+  try {
+    const config = await client.send(new GetBucketLifecycleConfigurationCommand({ Bucket: bucket }), { abortSignal: AbortSignal.timeout(12000) });
+    lifecycle = { status: 'configured', rules: config.Rules ?? [] };
+  } catch (error) {
+    lifecycle = { status: error instanceof Error && error.name === 'NoSuchLifecycleConfiguration' ? 'none' : 'unavailable' };
+  }
   const validationOnly = process.env.RETENTION_VALIDATION_ONLY === 'true';
   const supabaseUrl = validationOnly ? '' : env('NEXT_PUBLIC_SUPABASE_URL');
   const serviceKey = validationOnly ? '' : env('SUPABASE_SERVICE_ROLE_KEY');
@@ -220,6 +244,7 @@ async function main() {
     complete: !inventoryArchives.some(manifest => manifest.error) && !samples.some(sample => sample.error),
     inventoryComplete: true, databaseMetadataComplete: !validationOnly,
     validationOnly,
+    lifecycleStatus: lifecycle.status,
     readOnly: true, pages, objects: objects.length,
     bytes: objects.reduce((sum, item) => sum + item.bytes, 0), groups,
     tableRows: Object.fromEntries(Object.entries(database).map(([table, rows]) => [table, rows.length])),
@@ -229,7 +254,7 @@ async function main() {
   };
   const output = env('RUNNER_TEMP');
   const plaintext = join(output, 'r2-retention-private.json.gz');
-  await writeFile(plaintext, gzipSync(JSON.stringify({ report, objects, database, inventoryArchives, samples })), { mode: 0o600, flag: 'wx' });
+  await writeFile(plaintext, gzipSync(JSON.stringify({ report, objects, database, inventoryArchives, samples, lifecycle })), { mode: 0o600, flag: 'wx' });
   try { await sealRecoveryArchive(plaintext, join(output, 'r2-retention-private.enc'), encryptionKey); }
   finally { await unlink(plaintext); }
   await writeFile(join(output, 'r2-retention-wrapped-key.enc'), wrappedKey, { mode: 0o600, flag: 'wx' });
