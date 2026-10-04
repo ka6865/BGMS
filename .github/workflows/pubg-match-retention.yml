@@ -35,7 +35,7 @@ concurrency:
 jobs:
   collect:
     # Enable after applying and verifying the discovery migration.
-    if: ${{ github.event_name == 'workflow_dispatch' || vars.PUBG_MATCH_RETENTION_ENABLED == 'true' }}
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.PUBG_MATCH_RETENTION_ENABLED == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -46,9 +46,23 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-      - run: npm ci --ignore-scripts
-      - run: npx tsx scripts/ingest_discovered_matches.ts --apply --limit "${{ github.event_name == 'workflow_dispatch' && inputs.limit || '1000' }}"
+      - id: install
+        run: npm ci --ignore-scripts
+      - name: Check collection backlog before
+        run: npx tsx scripts/check_match_discovery_health.ts before
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      - name: Collect discovered matches
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npx tsx scripts/ingest_discovered_matches.ts --apply --limit "${{ github.event_name == 'workflow_dispatch' && inputs.limit || '1000' }}"
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
+      - name: Check collection backlog after
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npx tsx scripts/check_match_discovery_health.ts after
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

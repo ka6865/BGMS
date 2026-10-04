@@ -435,7 +435,7 @@ export async function readObjectForVerification(key: string): Promise<R2ObjectVe
       || error?.$metadata?.httpStatusCode === 404) {
       return null;
     }
-    console.error(`[R2 Error] Failed to HEAD verification key: ${key}`, error);
+    console.error("[R2 verification] HEAD failed", { statusCode: error?.$metadata?.httpStatusCode });
     throw error;
   }
 
@@ -454,7 +454,7 @@ export async function readObjectForVerification(key: string): Promise<R2ObjectVe
       || error?.$metadata?.httpStatusCode === 404) {
       return null;
     }
-    console.error(`[R2 Error] Failed to GET verification key: ${key}`, error);
+    console.error("[R2 verification] GET failed", { statusCode: error?.$metadata?.httpStatusCode });
     throw error;
   }
   if (!response.Body) throw new Error("r2-verification-body-missing");

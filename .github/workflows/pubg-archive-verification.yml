@@ -1,0 +1,66 @@
+name: PUBG Archive Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      prime_shared:
+        description: "공식 경기·이벤트 검증 후 공통 객체 최대 1개 생성 (기존 객체는 덮어쓰지 않음)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pubg-archive-verification
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Verify one shared game and two players
+        env:
+          PRIME_SHARED: ${{ inputs.prime_shared }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
+          CLOUDFLARE_R2_ENDPOINT: ${{ secrets.CLOUDFLARE_R2_ENDPOINT }}
+          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+        run: |
+          umask 077
+          args=()
+          if [ "$PRIME_SHARED" = 'true' ]; then args+=(--prime-shared); fi
+          npx tsx scripts/verify_archived_match_reads.ts "${args[@]}" > "$RUNNER_TEMP/archive-verification.json"
+          cat "$RUNNER_TEMP/archive-verification.json"
+          jq -e '.verified == true' "$RUNNER_TEMP/archive-verification.json"
+      - name: Verify archived bluezone reads without writes
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
+          CLOUDFLARE_R2_ENDPOINT: ${{ secrets.CLOUDFLARE_R2_ENDPOINT }}
+          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+        run: npx tsx scripts/extract_bluezone.ts --dry-run --limit 3
+      - name: Upload aggregate proof
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pubg-archive-verification-${{ github.run_id }}
+          path: ${{ runner.temp }}/archive-verification.json
+          retention-days: 7
+          if-no-files-found: ignore
