@@ -6,6 +6,8 @@ import { readFile, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { sealRecoveryArchive } from './r2_recovery_archive';
+import { parseTelemetryPayload } from '../lib/pubg-analysis/telemetryContract';
+import { createTelemetryPublicIdentity, type TelemetryPublicIdentity } from '../lib/pubg-analysis/telemetryIdentity';
 
 type Row = Record<string, unknown>;
 type ObjectEntry = { key: string; bytes: number; etag: string; modified: string };
@@ -43,12 +45,36 @@ export function describeBody(body: Buffer): Row {
     const name = event && typeof event === 'object' ? String(event._T ?? '(unknown)') : '(invalid)';
     types[name] = (types[name] ?? 0) + 1;
   }
+  let mapContractValid: boolean | undefined;
+  if (record.identity && record.startTime && Array.isArray(record.zoneEvents)) {
+    try {
+      parseTelemetryPayload(parsed, createTelemetryPublicIdentity(record.identity as TelemetryPublicIdentity));
+      mapContractValid = true;
+    } catch { mapContractValid = false; }
+  }
+  const participants: Array<{ playerHash: string; accountHash?: string; platform?: unknown }> = [];
+  const matchDefinitions: Row[] = [];
+  if (events) for (const event of events) {
+    if (!event || typeof event !== 'object') continue;
+    if (event._T === 'LogMatchDefinition') matchDefinitions.push(event);
+    if (event._T === 'LogMatchStart' && Array.isArray(event.characters)) {
+      for (const value of event.characters) {
+        const character = value && typeof value === 'object' ? ('character' in value ? value.character : value) as Row : null;
+        if (character && typeof character.name === 'string') participants.push({
+          playerHash: sha(character.name.toLowerCase()),
+          accountHash: typeof character.accountId === 'string' ? sha(character.accountId).slice(0, 32) : undefined,
+          platform: character.platform,
+        });
+      }
+    }
+  }
   return {
     gzip: zipped, compressedBytes: body.length, decodedBytes: decoded.length,
     sha256: sha(body), gzip9Bytes: gzipSync(decoded, { level: 9 }).length,
     kind: Array.isArray(parsed) ? 'array' : typeof parsed,
     keys: Object.keys(record), identity: record.identity, projection: record.projection,
     format: record.analyzeFormat ?? record.formatVersion, version: record.version ?? record.v,
+    mapContractValid, participants, matchDefinitions,
     matchId: record.matchId, player_id: record.player_id, matchInfo: record.matchInfo, stats: record.stats,
     eventCount: events?.length, eventTypes: types, eventsSha256: events ? sha(JSON.stringify(events)) : undefined,
     firstEventTime: events?.find(event => event && typeof event === 'object' && event._D)?._D,
@@ -72,8 +98,9 @@ async function main() {
     requestHandler: new NodeHttpHandler({ connectionTimeout: 10000, requestTimeout: 20000 }), maxAttempts: 2,
   });
   const bucket = env('CLOUDFLARE_R2_BUCKET_NAME');
-  const supabaseUrl = env('NEXT_PUBLIC_SUPABASE_URL');
-  const serviceKey = env('SUPABASE_SERVICE_ROLE_KEY');
+  const validationOnly = process.env.RETENTION_VALIDATION_ONLY === 'true';
+  const supabaseUrl = validationOnly ? '' : env('NEXT_PUBLIC_SUPABASE_URL');
+  const serviceKey = validationOnly ? '' : env('SUPABASE_SERVICE_ROLE_KEY');
   const checkBudget = () => { if (Date.now() > deadline) throw new Error('audit-duration-bound'); };
   const objects: ObjectEntry[] = [];
   let cursor: string | undefined;
@@ -93,7 +120,7 @@ async function main() {
   if (new Set(objects.map(item => item.key)).size !== objects.length) throw new Error('inventory-pagination-conflict');
   console.log(`Complete inventory: ${objects.length} objects, ${pages} pages.`);
   const database: Record<string, Row[]> = {};
-  for (const [table, select, order] of tables) {
+  for (const [table, select, order] of validationOnly ? [] : tables) {
     const rows: Row[] = [];
     for (let offset = 0; ; offset += 1000) {
       checkBudget();
@@ -114,7 +141,7 @@ async function main() {
     console.log(`Read ${table}: ${rows.length} metadata rows.`);
   }
   const inventoryArchives: Row[] = [];
-  const manifests = objects.filter(item => item.key.startsWith('telemetry-inventory/'));
+  const manifests = validationOnly ? [] : objects.filter(item => item.key.startsWith('telemetry-inventory/'));
   if (manifests.length > 500) throw new Error('audit-manifest-bound');
   let manifestIndex = 0;
   await Promise.all(Array.from({ length: 4 }, async () => {
@@ -157,7 +184,17 @@ async function main() {
     const pair = [...matchGroups.entries()].find(([key, entries]) => key.includes(`/${version}/`) && entries.length >= 2);
     if (pair) for (const item of pair[1].slice(0, 3)) selected.set(item.key, item);
   }
-  for (const item of [...selected.values()].slice(0, 40)) {
+  if (validationOnly) {
+    selected.clear();
+    const targetFile = JSON.parse(await readFile('scripts/r2-retention-audit-targets.json', 'utf8')) as { targets: Array<{ keyHash: string; etag: string; bytes: number }> };
+    if (!Array.isArray(targetFile.targets) || targetFile.targets.length > 120) throw new Error('audit-content-bound');
+    for (const target of targetFile.targets) {
+      const item = objects.find(object => sha(object.key) === target.keyHash);
+      if (!item || item.etag !== target.etag || item.bytes !== target.bytes) throw new Error('audit-target-conflict');
+      selected.set(item.key, item);
+    }
+  }
+  for (const item of [...selected.values()].slice(0, validationOnly ? 120 : 40)) {
     checkBudget();
     if (item.bytes > 33554432) { samples.push({ key: item.key, error: 'sample-size-bound' }); continue; }
     try {
@@ -179,7 +216,11 @@ async function main() {
     group.objects++; group.bytes += item.bytes; groups[objectGroup(item.key)] = group;
   }
   const ended = new Date().toISOString();
-  const report = { started, ended, complete: true, readOnly: true, pages, objects: objects.length,
+  const report = { started, ended,
+    complete: !inventoryArchives.some(manifest => manifest.error) && !samples.some(sample => sample.error),
+    inventoryComplete: true, databaseMetadataComplete: !validationOnly,
+    validationOnly,
+    readOnly: true, pages, objects: objects.length,
     bytes: objects.reduce((sum, item) => sum + item.bytes, 0), groups,
     tableRows: Object.fromEntries(Object.entries(database).map(([table, rows]) => [table, rows.length])),
     samples: samples.length, sampleFailures: samples.filter(sample => sample.error).length,
