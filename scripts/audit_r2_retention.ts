@@ -6,7 +6,7 @@ import { readFile, writeFile, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { sealRecoveryArchive } from './r2_recovery_archive';
-import { parseTelemetryPayload } from '../lib/pubg-analysis/telemetryContract';
+import { parseTelemetryPayload } from '../lib/pubg-analysis/telemetryPayload';
 import { createTelemetryPublicIdentity, type TelemetryPublicIdentity } from '../lib/pubg-analysis/telemetryIdentity';
 
 type Row = Record<string, unknown>;
