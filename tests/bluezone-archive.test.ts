@@ -8,6 +8,11 @@ const events = [{ _T: "LogGameStatePeriodic", gameState: { safetyZoneRadius: 100
 const envelope = { analyzeFormat: 2, projection: "full", identity: { matchId: "m", platform: "steam", playerKey, mode: "lite", telemetryVersion: 62 }, events };
 
 describe("bluezone archived sources", () => {
+  it("does not mistake missing storage credentials for a missing archive", async () => {
+    vi.stubEnv("CLOUDFLARE_R2_ENDPOINT", "");
+    try { await expect(readBluezoneArchive("m", "steam", key)).rejects.toThrow("r2-credentials-missing"); }
+    finally { vi.unstubAllEnvs(); }
+  });
   it("binds legacy events to the exact DB path and public identity", () => {
     expect(parseBluezoneLegacyEvents(envelope, key, "m", "steam")).toEqual(events);
     expect(parseBluezoneLegacyEvents(envelope, key, "other", "steam")).toBeNull();

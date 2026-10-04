@@ -1,9 +1,18 @@
 import { buildSharedTelemetrySourceKey, parseSharedTelemetrySource } from "./sharedTelemetrySourceContract";
 import { createTelemetryPublicIdentity, telemetryPublicIdentityEquals, type TelemetryPlatform } from "./telemetryIdentity";
-import { downloadFromR2 } from "./r2Service";
+import { readObjectForVerification } from "./r2Service";
+import { gunzipSync } from "node:zlib";
 import { TELEMETRY_VERSION } from "./constants";
 
 type ArchiveResult = { events: any[]; source: "shared" | "legacy" | "missing" };
+
+async function readArchiveText(key: string): Promise<string | null> {
+  const object = await readObjectForVerification(key);
+  if (!object) return null;
+  if (object.body.length > 33554432) throw new Error("bluezone-archive-read-failed");
+  const body = object.body;
+  return (body[0] === 0x1f && body[1] === 0x8b ? gunzipSync(body, { maxOutputLength: 134217728 }) : body).toString("utf8");
+}
 
 function legacyPathMatches(key: string, matchId: string, platform: TelemetryPlatform): boolean {
   const parts = key.split("/");
@@ -39,7 +48,7 @@ export function parseBluezoneLegacyEvents(value: unknown, key: string, matchId: 
 }
 
 export async function readBluezoneArchive(matchId: string, platform: TelemetryPlatform, storagePath?: string | null,
-  download = downloadFromR2): Promise<ArchiveResult> {
+  download = readArchiveText): Promise<ArchiveResult> {
   const sharedText = await download(buildSharedTelemetrySourceKey(matchId, platform));
   if (sharedText) {
     let source;
