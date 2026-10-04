@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import type { MatchData } from "@/types/stat";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
-import { isMatchOlderThan14Days } from "@/components/stat/matchExpiryHelper";
 import { CompactMatchRow } from "@/components/stat/matches/CompactMatchRow";
 import dynamic from "next/dynamic";
 
@@ -58,11 +57,6 @@ export function MatchCard(props: MatchCardProps) {
   const isCurrent = expansion.identity === identity;
   const isExpanded = isCurrent && expansion.isExpanded;
   const hasExpandedOnce = isCurrent && expansion.hasExpandedOnce;
-  const matchDate = (initialMatchData as (MatchSummaryData & { playedAt?: string }) | undefined)?.playedAt
-    || initialMatchData?.createdAt
-    || initialMatchData?.matchInfo?.date
-    || "";
-  const isHistoricalSummary = Boolean(initialMatchData && isMatchOlderThan14Days(matchDate));
   const summaryGameMode = initialMatchData?.gameMode || initialMatchData?.matchInfo?.mode || "";
   const summaryMatchType = initialMatchData?.matchType;
   const summaryMapName = initialMatchData?.mapName;
@@ -109,7 +103,7 @@ export function MatchCard(props: MatchCardProps) {
       : { identity, isExpanded: true, hasExpandedOnce: true });
   };
 
-  const expanded = hasExpandedOnce && !isHistoricalSummary ? (
+  const expanded = hasExpandedOnce ? (
     <div
       data-testid="expanded-match-details"
       hidden={!isExpanded}
@@ -155,16 +149,6 @@ export function MatchCard(props: MatchCardProps) {
         isMobile={props.isMobile}
         onToggle={handleToggle}
       />
-      {hasExpandedOnce && isHistoricalSummary && (
-        <div
-          data-testid="expanded-match-details"
-          hidden={!isExpanded}
-          aria-hidden={!isExpanded}
-          className="rounded-b-2xl border border-t-0 border-sky-500/20 bg-sky-500/10 p-4 text-sm font-bold text-sky-200"
-        >
-          14일이 경과된 과거 전적입니다. PUBG 매치 제공 기간이 지나 상세 분석은 제한되지만, 저장된 순위·킬·피해량·맵 요약은 확인할 수 있습니다.
-        </div>
-      )}
       {expanded}
     </div>
   );

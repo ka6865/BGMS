@@ -1309,7 +1309,10 @@ describeBrowser("stats browser smoke", () => {
     });
   }, 90_000);
 
-  it.each(FUNCTIONAL_VIEWPORTS)("13/15/91-day rows keep product expiry behavior at %sx%s", async (viewport) => {
+  it.each([
+    { width: 375, height: 667 }, { width: 390, height: 844 },
+    { width: 430, height: 932 }, { width: 1440, height: 900 },
+  ])("13/15/91-day rows load archived details on demand at %sx%s", async (viewport) => {
     await withStatsBrowserPage({
       browser,
       baseUrl,
@@ -1325,9 +1328,16 @@ describeBrowser("stats browser smoke", () => {
         for (const matchId of ["match-age-13", "match-age-15", "match-age-91"]) {
           await page.click(`[data-compact-match-id="${matchId}"] button[aria-label="매치 상세 펼치기"]`);
         }
-        await waitForStatsText({ dispatcher, page, text: "14일이 경과된 과거 전적입니다" });
-        await waitForDetailSuccess(dispatcher, "ExpiredPlayer", "steam", "match-age-13");
-        expect(dispatcher.ledger.records.filter((record) => record.pathname === "/api/pubg/match" && record.successful)).toHaveLength(1);
+        await waitForStatsText({ dispatcher, page, text: "보관된 상세 기록과 리플레이가 있으면 계속 볼 수 있습니다" });
+        for (const matchId of ["match-age-13", "match-age-15", "match-age-91"]) {
+          await waitForDetailSuccess(dispatcher, "ExpiredPlayer", "steam", matchId);
+          await page.click(`[data-compact-match-id="${matchId}"] button[aria-label="매치 상세 접기"]`);
+          await page.click(`[data-compact-match-id="${matchId}"] button[aria-label="매치 상세 펼치기"]`);
+        }
+        expect(dispatcher.ledger.records.filter((record) => record.pathname === "/api/pubg/match" && record.successful)).toHaveLength(3);
+        expect(log.pageErrors).toEqual([]);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        await page.screenshot({ path: screenshotPath("historical", viewport) });
         await recordScenarioEvidence("expired", viewport, dispatcher, log);
       },
     });

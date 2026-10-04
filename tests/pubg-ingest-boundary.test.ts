@@ -129,11 +129,22 @@ const {
         retry: mockProcessedTelemetryRetry,
         abortSignal: mockProcessedTelemetryAbortSignal,
         maybeSingle: mockProcessedTelemetryMaybeSingle,
+        limit: vi.fn(),
+        then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve),
       };
       query.select.mockReturnValue(query);
       query.eq.mockReturnValue(query);
       query.retry.mockReturnValue(query);
       query.abortSignal.mockReturnValue(query);
+      query.limit.mockReturnValue(query);
+      return query;
+    }
+
+    if (table === "pubg_player_matches" || table === "telemetry_map_cache_entries") {
+      const query: any = { select: vi.fn(), eq: vi.fn(), limit: vi.fn(), lte: vi.fn(), order: vi.fn(), abortSignal: vi.fn(),
+        then: (resolve: (value: unknown) => unknown) => Promise.resolve({ data: [], error: null }).then(resolve),
+      };
+      for (const key of ["select", "eq", "limit", "lte", "order", "abortSignal"]) query[key].mockReturnValue(query);
       return query;
     }
 
@@ -565,8 +576,7 @@ describe("PUBG ingest architecture boundary", () => {
     const telemetrySource = readFileSync(resolve("app/api/pubg/telemetry/route.ts"), "utf8");
 
     expect(matchSource).toContain("buildTelemetryPublicIdentity(telemetryIdentity)");
-    expect(telemetrySource).toContain("identity: cacheAccess.cache.payload.identity");
-    expect(telemetrySource).toContain("identity: cachedResult.payload.identity");
+    expect(telemetrySource).toContain("identity: cache.payload.identity");
     expect(telemetrySource).not.toMatch(/downloadUrl:\s*(?:cached|cachedResult)\.downloadUrl,\s*identity\s*[,}]/);
   });
 });
@@ -750,7 +760,7 @@ describe("PUBG match persistence behavior", () => {
       retryable: false,
     });
     expect(fetch).toHaveBeenCalledTimes(1);
-    expect(mockDownloadFromR2).not.toHaveBeenCalled();
+    expect(mockDownloadFromR2.mock.calls.every(([key]) => String(key).startsWith("telemetry-source/"))).toBe(true);
     expect(mockUploadToR2).not.toHaveBeenCalled();
     expect(mockRpc).not.toHaveBeenCalled();
     expect(mockAnalysisEngine).not.toHaveBeenCalled();
@@ -915,7 +925,7 @@ describe("PUBG match persistence behavior", () => {
   });
 
   it("legacy analyze R2 cache key는 raw nickname 대신 match/platform/account hash identity를 사용한다", async () => {
-    const fetchMock = mockRecoveryMatchResponse(validRecoveryTelemetry());
+    mockRecoveryMatchResponse(validRecoveryTelemetry());
 
     const response = await GET(createMatchRequest());
 
@@ -966,16 +976,112 @@ describe("PUBG match persistence behavior", () => {
     const response=await GET(createMatchRequest());
     expect(response.status).toBe(200);
     expect(mockEngineRun.mock.calls[0][0].filter((e:any)=>e._T==="LogPlayerPosition")).toHaveLength(100);
-    const write=mockUploadToR2.mock.calls.find(([key])=>String(key).endsWith("_analyze.json"));
+    const write=mockUploadRecoveryObjectToR2.mock.calls.find(([key])=>String(key).startsWith("telemetry-source/"));
     const envelope=JSON.parse(String(write?.[1]));
-    expect(envelope).toMatchObject({analyzeFormat:2,projection:"full"});
+    expect(envelope).toMatchObject({sourceFormat:1,filterVersion:1});
     expect(envelope.events.filter((e:any)=>e._T==="LogPlayerPosition")).toHaveLength(100);
+    expect(mockUploadToR2.mock.calls.every(([key])=>!String(key).endsWith("_analyze.json"))).toBe(true);
     mockEngineRun.mockClear();
     const fetchMock=mockRecoveryMatchResponse(validRecoveryTelemetry());
-    mockDownloadFromR2.mockImplementation(async (key:string)=>key.endsWith("_analyze.json")?JSON.stringify(envelope):null);
+    mockDownloadFromR2.mockImplementation(async (key:string)=>key.startsWith("telemetry-source/")?JSON.stringify(envelope):null);
     expect((await GET(createMatchRequest())).status).toBe(200);
     expect(mockEngineRun.mock.calls[0][0].filter((e:any)=>e._T==="LogPlayerPosition")).toHaveLength(100);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockUploadRecoveryObjectToR2).toHaveBeenCalledTimes(1);
+  });
+
+  it("공통 원본 보관이 실패해도 검증된 경기의 개인 분석과 지도는 저장한다", async () => {
+    mockRecoveryMatchResponse(validRecoveryTelemetry());
+    mockUploadRecoveryObjectToR2.mockRejectedValueOnce(new Error("shared upload unavailable"));
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      const response = await GET(createMatchRequest());
+      expect(response.status).toBe(200);
+      expect(mockPersistMatchAnalysis).toHaveBeenCalledTimes(1);
+      expect(mockUploadToR2).toHaveBeenCalledTimes(1);
+      expect(warning).toHaveBeenCalledWith("[PUBG shared source] retention failed", {
+        route: "/api/pubg/match", platform: "steam", matchId: MATCH_ID,
+      });
+    } finally { warning.mockRestore(); }
+  });
+
+  it("같은 경기의 두 플레이어가 공통 원본을 재사용하고 개인 분석은 분리 저장한다", async () => {
+    const second = {
+      ...participant, id: "participant-2",
+      attributes: { accountId: "account.second", stats: { ...participant.attributes.stats, name: "SecondPlayer", playerId: "account.second", damageDealt: 123 } },
+    };
+    const sharedRoster = { ...roster, relationships: { participants: { data: [{ id: participant.id }, { id: second.id }] } } };
+    const metadata = { data: { id: MATCH_ID, attributes: matchAttr }, included: [participant, second, sharedRoster] };
+    const events = [...validRecoveryTelemetry(), { _T: "LogPlayerPosition", _D: matchAttr.createdAt, character: { name: "SecondPlayer", accountId: "account.second", location: { x: 10, y: 20, z: 0 } } }];
+    const { writeSharedTelemetrySource } = await import("@/lib/pubg-analysis/sharedTelemetrySource");
+    await writeSharedTelemetrySource(metadata, "steam", events);
+    const source = String(mockUploadRecoveryObjectToR2.mock.calls[0][1]);
+    mockDownloadFromR2.mockImplementation(async (key: string) => key.startsWith("telemetry-source/") ? source : null);
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+
+    expect((await GET(createMatchRequest())).status).toBe(200);
+    mockEngineRun.mockReturnValue({ ...analysisResult, stats: second.attributes.stats });
+    const response = await GET(createMatchRequest({ nickname: "SecondPlayer" }));
+    expect(response.status).toBe(200);
+    expect((await response.json()).stats).toMatchObject({ name: "SecondPlayer", damageDealt: 123 });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockUploadRecoveryObjectToR2).toHaveBeenCalledTimes(1);
+    expect(mockAnalysisEngine.mock.calls[1].slice(0, 2)).toEqual(["SecondPlayer", "account.second"]);
+    expect(mockPersistMatchAnalysis.mock.calls.map((call) => (call[1] as { playerNickname: string }).playerNickname)).toEqual(["playerone", "secondplayer"]);
+    expect(new Set(mockUploadToR2.mock.calls.map((call) => call[0])).size).toBe(2);
+  });
+
+  it("일치하는 과거 결과는 PUBG 만료 시 기본 전적을 유지하고 구버전 점수는 숨긴다", async () => {
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({ data: {
+      match_id: MATCH_ID, player_id: NICKNAME.toLowerCase(), platform: "steam",
+      data: { fullResult: { ...analysisResult, v: RESULT_VERSION - 1, matchId: MATCH_ID, player_id: NICKNAME.toLowerCase(), platform: "steam" } },
+    }, error: null });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 404 })));
+    const response = await GET(createMatchRequest());
+    expect(response.status).toBe(200);
+    const result = await response.json();
+    expect(result).toMatchObject({ analysisAvailability: "basic_only", stats: { kills: 3, damageDealt: 321 } });
+    expect(result).not.toHaveProperty("benchmark");
+    expect(mockEngineRun).not.toHaveBeenCalled();
+    expect(mockAfter).not.toHaveBeenCalled();
+  });
+
+  it("이전 404 캐시가 이후 확보한 공통 경기 원본을 가리지 않는다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 404 })));
+    expect((await GET(createMatchRequest())).status).toBe(404);
+    const { writeSharedTelemetrySource } = await import("@/lib/pubg-analysis/sharedTelemetrySource");
+    await writeSharedTelemetrySource({ data: { id: MATCH_ID, attributes: matchAttr }, included: [participant, roster] }, "steam", validRecoveryTelemetry());
+    const source = String(mockUploadRecoveryObjectToR2.mock.calls[0][1]);
+    mockDownloadFromR2.mockImplementation(async (key: string) => key.startsWith("telemetry-source/") ? source : null);
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    expect((await GET(createMatchRequest())).status).toBe(200);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("R2 공통 원본 조회가 일시 실패해도 만료된 경기의 기본 전적은 유지한다", async () => {
+    mockProcessedTelemetryMaybeSingle.mockResolvedValue({ data: {
+      match_id: MATCH_ID, player_id: NICKNAME.toLowerCase(), platform: "steam",
+      data: { fullResult: { ...analysisResult, v: RESULT_VERSION - 1, matchId: MATCH_ID, player_id: NICKNAME.toLowerCase(), platform: "steam" } },
+    }, error: null });
+    mockDownloadFromR2.mockRejectedValue(new Error("R2 temporarily unavailable"));
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 404 })));
+    const response = await GET(createMatchRequest());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ analysisAvailability: "basic_only", stats: { kills: 3, damageDealt: 321 } });
+    expect(mockEngineRun).not.toHaveBeenCalled();
+  });
+
+  it("개인용 full 표식만으로는 일부 이벤트를 경기 공통 원본으로 승격하지 않는다", async () => {
+    const partial = { analyzeFormat: 2, projection: "full", identity: {
+      matchId: MATCH_ID, platform: "steam", playerKey: buildTelemetryPlayerKey(PLAYER_ID), mode: "lite", telemetryVersion: TELEMETRY_VERSION,
+    }, events: [{ _T: "LogPlayerAttack", _D: matchAttr.createdAt, attacker: { name: NICKNAME, accountId: PLAYER_ID } }] };
+    mockDownloadFromR2.mockImplementation(async (key: string) => key.endsWith("_analyze.json") ? JSON.stringify(partial) : null);
+    mockPubgMatchResponse();
+    const response = await GET(createMatchRequest());
+    expect(response.status).toBe(200);
+    expect(mockEngineRun.mock.calls[0][0]).toHaveLength(1);
+    expect(mockUploadRecoveryObjectToR2).not.toHaveBeenCalled();
+    expect(mockUploadToR2.mock.calls.every(([key]) => !String(key).endsWith("_analyze.json"))).toBe(true);
   });
 
   it("telemetry lite route samples display positions only after the engine lifecycle filter", async () => {
@@ -1408,7 +1514,7 @@ describe("PUBG match query boundary", () => {
       retryable: false,
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(mockDownloadFromR2).not.toHaveBeenCalled();
+    expect(mockDownloadFromR2.mock.calls.every(([key]) => String(key).startsWith("telemetry-source/"))).toBe(true);
     expect(mockUploadToR2).not.toHaveBeenCalled();
     expect(mockRpc).not.toHaveBeenCalled();
     expect(JSON.stringify(body)).not.toContain("match-other-upstream");
