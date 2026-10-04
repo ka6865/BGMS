@@ -8,6 +8,7 @@ export interface StatsPageStatesProps {
   error: StatsPageController["error"];
   suggestedPlayers: StatsPageController["suggestedPlayers"];
   hasResult: boolean;
+  partialReasons?: StatsPageController["partialReasons"];
   routeBooting?: boolean;
   retryDisabled: boolean;
   onRetry(): void;
@@ -19,6 +20,7 @@ export function StatsPageStates({
   error,
   suggestedPlayers,
   hasResult,
+  partialReasons,
   routeBooting = false,
   retryDisabled,
   onRetry,
@@ -70,6 +72,18 @@ export function StatsPageStates({
 
   return (
     <>
+      {hasResult && !loadingMessage && !error && (
+        partialReasons?.includes("stats_save_failed") || partialReasons?.includes("history_discovery_failed")
+      ) && (
+        <div role="status" className="mb-4 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-200">
+          {partialReasons?.includes("stats_save_failed") && (
+            <p>불러온 전적을 저장하지 못했습니다. 새로고침하면 이전 기록이 보일 수 있으니 잠시 후 전적 갱신을 다시 눌러 주세요.</p>
+          )}
+          {partialReasons?.includes("history_discovery_failed") && (
+            <p>최근 경기 목록을 저장하지 못했습니다. 일부 경기가 빠질 수 있으니 잠시 후 전적 갱신을 다시 눌러 주세요.</p>
+          )}
+        </div>
+      )}
       {loadingMessage && (
         <div
           role="status"

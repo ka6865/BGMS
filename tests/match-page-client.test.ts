@@ -110,6 +110,14 @@ describe("MatchPageClient performance refresh", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
+  it("shows an explanation for incomplete history rather than fabricated stats", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse({matches: [{...record, damage: null}]})));
+    render(createElement(MatchPageClient, {platform: "steam", nickname: "FixturePlayer", matchId: record.match_id}));
+    await flushAsync();
+    expect(screen.getByRole("alert")).toHaveTextContent("저장된 기록이 불완전");
+    expect(screen.queryByTestId("match-card")).toBeNull();
+  });
+
   it("does not request while the detail tab is hidden", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse({
       matches: [record],

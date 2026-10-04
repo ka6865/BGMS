@@ -84,7 +84,7 @@ import {
       : Promise.resolve(new Response(
         status === "saved"
           ? JSON.stringify({
-            data: { attributes: { createdAt: "2026-08-19T00:00:00.000Z", gameMode: "squad-fpp", mapName: "Erangel" } },
+            data: { id: "match-structured", attributes: { createdAt: "2026-08-19T00:00:00.000Z", gameMode: "squad-fpp", mapName: "Erangel" } },
             included: [{ type: "participant", attributes: { stats: { name: "Linked_Player", kills: 1, damageDealt: 20, winPlace: 3 } } }],
           })
           : "{}",

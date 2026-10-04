@@ -5,11 +5,16 @@ import { discoveryClient, claimDiscoveredMatches, settleDiscoveredMatch, recordD
 import { DISCOVERY_WORKER_MAX_JOBS, runDiscoveryWorker } from '../lib/pubg/discoveryWorker';
 import { fetchAndIngestBasicMatchSummaryOutcome } from '../lib/pubg/playerMatchesIngest';
 
+import { isDiscoveredMatchStored } from '../lib/pubg/discoveryBatch.server';
+export { isDiscoveredMatchStored } from '../lib/pubg/discoveryBatch.server';
+import type { DiscoveryScope } from '../lib/pubg/matchDiscovery.server';
+
 export type DiscoveryWorkerArgs = {
   apply: boolean;
   seedCache: boolean;
   nickname?: string;
   limit: number;
+  scope?: DiscoveryScope;
 };
 
 export function parseDiscoveryWorkerArgs(args: string[]): DiscoveryWorkerArgs {
@@ -19,11 +24,18 @@ export function parseDiscoveryWorkerArgs(args: string[]): DiscoveryWorkerArgs {
   const limit=rawLimit === undefined ? 300 : Number(rawLimit);
   if(!Number.isInteger(limit) || limit<1 || limit>DISCOVERY_WORKER_MAX_JOBS) throw new Error('discovery-worker-invalid-limit');
   const nicknameIndex=args.indexOf('--nickname');
+  const platformIndex=args.indexOf('--platform');
+  const accountIndex=args.indexOf('--account-id');
+  const platform=platformIndex >= 0 ? args[platformIndex+1] : undefined;
+  const accountId=accountIndex >= 0 ? args[accountIndex+1] : undefined;
+  if ((platformIndex >= 0 || accountIndex >= 0) && (!['steam','kakao'].includes(platform ?? '') || !/^account\.[A-Za-z0-9_-]+$/.test(accountId ?? ''))) throw new Error('discovery-worker-invalid-scope');
+  if (nicknameIndex >= 0 && !args.includes('--seed-cache')) throw new Error('discovery-worker-nickname-is-seed-only');
   return {
     apply:args.includes('--apply'),
     seedCache:args.includes('--seed-cache'),
     nickname:nicknameIndex>=0 ? args[nicknameIndex+1] : undefined,
     limit,
+    ...(platform && accountId ? {scope: {platform: platform as DiscoveryScope["platform"], accountId}} : {}),
   };
 }
 
@@ -44,6 +56,7 @@ export async function main(args=process.argv.slice(2)) {
     for(;;) {
       let query=db.from('pubg_player_cache').select('id,nickname,platform,recent_match_ids').order('id').range(offset,offset+249);
       if(nickname) query=query.eq('lower_nickname',nickname.toLowerCase());
+      if(options.scope) query=query.eq('platform',options.scope.platform).eq('id',options.scope.accountId);
       const {data,error}=await query;
       if(error) throw new Error('seed-cache-read-failed');
       for(const row of data ?? []) {
@@ -58,23 +71,21 @@ export async function main(args=process.argv.slice(2)) {
   }
   if(!apply) {
     const now=new Date().toISOString();
-    const [pendingResult,readyResult]=await Promise.all([
-      db.from('pubg_player_match_discovery').select('match_id',{count:'exact',head:true}).in('state',['pending','retry','running']),
-      db.from('pubg_player_match_discovery').select('next_attempt_at').in('state',['pending','retry']).lte('next_attempt_at',now).order('next_attempt_at',{ascending:true}).limit(1),
-    ]);
+    let pendingQuery=db.from('pubg_player_match_discovery').select('match_id',{count:'exact',head:true}).in('state',['pending','retry','running']);
+    let readyQuery=db.from('pubg_player_match_discovery').select('next_attempt_at').in('state',['pending','retry']).lte('next_attempt_at',now).order('next_attempt_at',{ascending:true}).limit(1);
+    if(options.scope) {
+      pendingQuery=pendingQuery.eq('platform',options.scope.platform).eq('account_id',options.scope.accountId);
+      readyQuery=readyQuery.eq('platform',options.scope.platform).eq('account_id',options.scope.accountId);
+    }
+    const [pendingResult,readyResult]=await Promise.all([pendingQuery,readyQuery]);
     if(pendingResult.error || readyResult.error) throw new Error('discovery-read-failed');
     return {mode:'dry-run',pending:pendingResult.count,oldestReadyAt:readyResult.data?.[0]?.next_attempt_at ?? null};
   }
   return runDiscoveryWorker({
     limit:options.limit,
-    claim:limit=>claimDiscoveredMatches(db,limit),
+    claim:limit=>claimDiscoveredMatches(db,limit,options.scope),
     settle:(job,outcome)=>settleDiscoveredMatch(db,job,outcome),
-    alreadyStored:async job=>{
-      const {data,error}=await db.from('pubg_player_matches').select('match_id')
-        .eq('platform',job.platform).eq('account_id',job.account_id).eq('match_id',job.match_id).limit(1);
-      if(error) throw new Error('discovery-existing-match-read-failed');
-      return Boolean(data?.length);
-    },
+    alreadyStored:job=>isDiscoveredMatchStored(db,job),
     ingest:job=>fetchAndIngestBasicMatchSummaryOutcome(db,job.match_id,job.nickname_at_discovery,job.platform,key,{expectedAccountId:job.account_id,timeoutMs:8000}),
   });
 }

@@ -626,7 +626,7 @@ export async function waitForStatsText(input: {
 }): Promise<void> {
   await input.dispatcher.withFatal(input.page.waitForFunction(
     (expected) => document.body?.innerText.includes(expected),
-    { timeout: input.timeoutMs ?? 30_000 },
+    { timeout: input.timeoutMs ?? 30_000, polling: 100 },
     input.text,
   ));
 }

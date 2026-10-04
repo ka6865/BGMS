@@ -5,6 +5,7 @@ import { trackEvent } from "@/lib/analytics";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import { buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
 import type { PlayerMatchRecord } from "@/lib/pubg/playerMatches";
+import { hasObservedPlayerMatchValues } from "@/lib/pubg/playerMatches";
 import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
 import { normalizeRecentMatchIds, RECENT_MATCH_LIMIT } from "@/lib/pubg/recentMatches";
 import { normalizeDiscoveredMatchIds } from "@/lib/pubg/matchDiscovery";
@@ -35,6 +36,8 @@ const PARTIAL_REASONS: readonly StatsPartialReason[] = [
   "detail_failed",
   "analysis_failed",
   "stats_stale",
+  "stats_save_failed",
+  "history_discovery_failed",
   "stats_unavailable",
 ];
 const STATS_MODES: readonly StatsMode[] = ["ranked", "normal"];
@@ -469,7 +472,15 @@ export function useStatsPageController(
 
     setError(null);
     setSuggestedPlayers([]);
-    clearAllPartials();
+    if (samePlayer) {
+      setPartialSources(previous => {
+        const next = emptyPartialSources();
+        for (const reason of ["stats_save_failed", "history_discovery_failed"] as const) {
+          next.set(reason, new Set(previous.get(reason)));
+        }
+        return next;
+      });
+    } else clearAllPartials();
     if (preserveResult) {
       setBaseStatus("refreshing");
     } else {
@@ -562,6 +573,10 @@ export function useStatsPageController(
         setSeasonId(responseSeason);
         setSuggestedPlayers([]);
         applyStatsAvailability(availability);
+        if (player.syncStatus === "save_failed") reportPartial("stats_save_failed", "player-sync");
+        else if (player.syncStatus === "saved") clearPartial("stats_save_failed", "player-sync");
+        if (player.historyDiscoveryStatus === "failed") reportPartial("history_discovery_failed", "player-sync");
+        else if (player.historyDiscoveryStatus === "queued") clearPartial("history_discovery_failed", "player-sync");
         rateLimitUntilRef.current.delete(identity);
         const updatedAt = player.updatedAt ? Date.parse(player.updatedAt) : Number.NaN;
         if (retryAfterSeconds === null) {
@@ -627,6 +642,8 @@ export function useStatsPageController(
     setSeasonId,
     setSectionTab,
     applyStatsAvailability,
+    reportPartial,
+    clearPartial,
   ]);
 
   const search = useCallback((request?: StatsSearchRequest) => (
@@ -636,15 +653,16 @@ export function useStatsPageController(
   const applyHistoryRecords = useCallback((incoming: readonly PlayerMatchRecord[]) => {
     const normalizedIncoming = normalizeHistoryRecords(incoming);
     if (!normalizedIncoming.length) return;
-    for (const record of normalizedIncoming) historySummaryIdsRef.current.add(record.match_id);
+    const observed = normalizedIncoming.filter(hasObservedPlayerMatchValues);
+    for (const record of observed) historySummaryIdsRef.current.add(record.match_id);
     const basicSummaries = Object.fromEntries(
-      normalizedIncoming.map((record) => [record.match_id, buildBasicMatchSummary(record)]),
+      observed.map((record) => [record.match_id, buildBasicMatchSummary(record)]),
     );
     setMatchSummaries((previous) => ({ ...basicSummaries, ...previous }));
     setMissingMatchIds((previous) => {
       if (!previous.size) return previous;
       const next = new Set(previous);
-      for (const record of normalizedIncoming) next.delete(record.match_id);
+      for (const record of observed) next.delete(record.match_id);
       return next;
     });
     setMatchModeMeta((previous) => {
@@ -704,7 +722,7 @@ export function useStatsPageController(
         : [];
       applyHistoryRecords(incoming);
       if (data.performances) {
-        const scored = normalizeSummaryMap(Object.fromEntries(incoming.filter(r => data.performances?.[r.match_id]).map(r => [r.match_id, { ...buildBasicMatchSummary(r), benchmark: data.performances?.[r.match_id], performanceOnly: true }])));
+        const scored = normalizeSummaryMap(Object.fromEntries(incoming.filter(r => hasObservedPlayerMatchValues(r) && data.performances?.[r.match_id]).map(r => [r.match_id, { ...buildBasicMatchSummary(r), benchmark: data.performances?.[r.match_id], performanceOnly: true }])));
         setMatchSummaries(previous => ({ ...scored, ...previous, ...Object.fromEntries(Object.entries(scored).filter(([id]) => !previous[id]?.benchmark)) }));
       }
       if (data.performanceStates) setMatchSummaries(previous => Object.fromEntries(Object.entries(previous).map(([id, summary]) => [id, data.performanceStates?.[id] ? { ...summary, performanceState: data.performanceStates[id] } : summary])));

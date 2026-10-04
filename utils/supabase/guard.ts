@@ -32,17 +32,26 @@ type AuthGuardFailure = {
 
 export type AuthGuardResult = AuthGuardSuccess | AuthGuardFailure;
 
+function invalidBearerResponse() {
+  return NextResponse.json(
+    { error: "인증 토큰이 유효하지 않습니다. 다시 로그인해 주세요." },
+    { status: 401 },
+  );
+}
+
 export async function withAuthGuard(): Promise<AuthGuardResult> {
   try {
     const cookieStore = await cookies();
     const headerStore = await headers();
-    const bearerToken = getBearerToken(headerStore.get("authorization"));
+    const authorization = headerStore.get("authorization");
+    const bearerToken = getBearerToken(authorization);
     const supabaseAdmin = createAdminClient<any>(
       clean(process.env.NEXT_PUBLIC_SUPABASE_URL),
       clean(process.env.SUPABASE_SERVICE_ROLE_KEY)
     );
 
-    if (bearerToken) {
+    if (hasBearerAuthorization(authorization)) {
+      if (!bearerToken) return { error: invalidBearerResponse() };
       const {
         data: { user },
         error: bearerError,
@@ -51,6 +60,9 @@ export async function withAuthGuard(): Promise<AuthGuardResult> {
       if (!bearerError && user) {
         return { user, supabaseAdmin };
       }
+      // An explicitly supplied mobile token has precedence over a browser
+      // cookie. Falling back here could execute a write as a different user.
+      return { error: invalidBearerResponse() };
     }
 
     // 1. 쿠키 기반 Supabase SSR 클라이언트로 JWT 세션 복원
@@ -108,6 +120,10 @@ function getBearerToken(authorization: string | null) {
   return match?.[1]?.trim() || null;
 }
 
+function hasBearerAuthorization(authorization: string | null) {
+  return /^Bearer\b/i.test(authorization || "");
+}
+
 // 비회원도 통과 가능한 선택적 인증 가드
 // 로그인 상태면 user 반환, 비로그인이어도 에러 없이 user: null 반환
 type OptionalAuthSuccess = {
@@ -127,6 +143,7 @@ export type OptionalAuthResult = OptionalAuthSuccess | OptionalAuthFailure;
 export async function withOptionalAuth(): Promise<OptionalAuthResult> {
   try {
     const cookieStore = await cookies();
+    const headerStore = await headers();
 
     const supabase = createServerClient(
       clean(process.env.NEXT_PUBLIC_SUPABASE_URL),
@@ -155,9 +172,22 @@ export async function withOptionalAuth(): Promise<OptionalAuthResult> {
       clean(process.env.SUPABASE_SERVICE_ROLE_KEY)
     );
 
+    const authorization = headerStore.get("authorization");
+    const bearerToken = getBearerToken(authorization);
+    if (hasBearerAuthorization(authorization)) {
+      if (!bearerToken) return { error: invalidBearerResponse() };
+      const {
+        data: { user },
+        error,
+      } = await supabaseAdmin.auth.getUser(bearerToken);
+      if (!error && user) {
+        return { user, supabaseAdmin };
+      }
+      return { error: invalidBearerResponse() };
+    }
+
     // 세션이 없어도 에러 반환하지 않고 user: null로 통과
     const { data: { user } } = await supabase.auth.getUser();
-
     return { user: user ?? null, supabaseAdmin };
   } catch (err) {
     console.error("[withOptionalAuth] 처리 중 예외:", err);

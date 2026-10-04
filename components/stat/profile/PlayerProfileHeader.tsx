@@ -145,7 +145,7 @@ export function PlayerProfileHeader({
           >
             <Star size={17} fill={favorite ? "currentColor" : "none"} aria-hidden="true" />
           </button>
-          <span className="text-[11px] font-bold text-white/40">최근 업데이트: {updatedLabel(player.updatedAt)}</span>
+          <span className="text-[11px] font-bold text-white/40">최근 업데이트: {updatedLabel(player.updatedAt ?? undefined)}</span>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

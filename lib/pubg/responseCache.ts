@@ -135,9 +135,10 @@ const localRefreshLocks = new Map<string, number>();
 
 export async function claimForceRefresh(
   lockKey: string,
-  cooldownSeconds: number = FORCE_REFRESH_COOLDOWN_SECONDS
+  cooldownSeconds: number = FORCE_REFRESH_COOLDOWN_SECONDS,
+  client?: SupabaseClient,
 ): Promise<boolean> {
-  const supabase = getAdminClient();
+  const supabase = client ?? getAdminClient();
 
   if (supabase) {
     try {
