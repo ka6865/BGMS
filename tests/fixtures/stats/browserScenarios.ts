@@ -186,12 +186,13 @@ export function cloneMatchDetailForRequest(input: {
   matchId: string;
   nickname: string;
   clock: StatsQaClock;
+  playedAt?: string;
 }): MatchDetailFixture {
   const clone = deepClone(matchDetailReady) as MatchDetailFixture;
   clone.matchId = input.matchId;
   clone.stats.name = input.nickname;
   clone.stats.playerId = accountIdForNickname(input.nickname);
-  clone.createdAt = input.clock.readyIso;
+  clone.createdAt = input.playedAt ?? input.clock.readyIso;
   return clone;
 }
 
@@ -480,7 +481,11 @@ export function createStatsBrowserScenario(input: {
     if (input.name === "detail-retry" && attempt === 1) {
       return errorResponse(500, "fixture detail retry");
     }
-    return jsonResponse(200, cloneMatchDetailForRequest({ matchId, nickname, clock: input.clock }));
+    const expiredIndex = EXPIRED_MATCH_IDS.indexOf(matchId as typeof EXPIRED_MATCH_IDS[number]);
+    return jsonResponse(200, cloneMatchDetailForRequest({ matchId, nickname, clock: input.clock,
+      playedAt: input.name === "expired" && expiredIndex >= 0
+        ? input.clock.daysAgo([13, 15, 91][expiredIndex] as 13 | 15 | 91) : undefined,
+    }));
   };
 
   const resolveSquad = (request: StatsApiRequest): MockHttpResponse => {

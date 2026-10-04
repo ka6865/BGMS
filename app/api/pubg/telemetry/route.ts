@@ -1,9 +1,14 @@
-import { containsTelemetryAccountEvidence, parseOrdinaryTelemetryUrl, relationshipBoundTelemetryAsset, hasMatchingTelemetryDefinition } from "@/lib/pubg-analysis/telemetrySource";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { filterTelemetryEvents, sampleReplayPositions } from "@/lib/pubg-analysis/telemetryContract";
+import {
+  containsTelemetryAccountEvidence,
+  hasMatchingTelemetryDefinition,
+  parseOrdinaryTelemetryUrl,
+  relationshipBoundTelemetryAsset,
+} from "@/lib/pubg-analysis/telemetrySource";
 import {
   downloadFromR2,
   getPresignedUrlFromR2,
@@ -17,6 +22,7 @@ import {
 } from "@/lib/pubg-analysis/telemetryCacheKey.server";
 import {
   claimOrWaitForTelemetryMapCache,
+  readTelemetryMapCache,
   releaseTelemetryMapCacheRow,
   writeTelemetryMapCache,
   type TelemetryMapCacheDependencies,
@@ -36,6 +42,12 @@ import {
   type TelemetryPlatform,
 } from "@/lib/pubg-analysis/telemetryIdentity";
 import { createTelemetryPayload } from "@/lib/pubg-analysis/telemetryPayload";
+import {
+  historicalMapIdentity,
+  resolveHistoricalAccountId,
+  selectHistoricalMapCacheCandidates,
+} from "@/lib/pubg-analysis/historicalTelemetryMap";
+import { readSharedTelemetrySource, writeSharedTelemetrySource } from "@/lib/pubg-analysis/sharedTelemetrySource";
 import { reportPubgApiError } from "@/lib/pubg/apiHelper";
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 
@@ -45,6 +57,8 @@ const supabase = createClient(
 );
 
 const MAX_NICKNAME_LENGTH = 64;
+const HISTORICAL_MAP_CANDIDATE_LIMIT = 8;
+const HISTORICAL_LOOKUP_TIMEOUT_MS = 3_000;
 
 function invalidRequest(message: string, errorCode = "PUBG_TELEMETRY_INVALID_REQUEST") {
   return NextResponse.json({ error: message, errorCode, retryable: false }, { status: 400 });
@@ -56,6 +70,82 @@ function upstreamIdentityMismatch() {
     errorCode: "PUBG_MATCH_UPSTREAM_IDENTITY_MISMATCH",
     retryable: false,
   }, { status: 400 });
+}
+
+function notFound(message: string) {
+  return NextResponse.json({ error: message }, { status: 404 });
+}
+
+async function readHistoricalAccountId(
+  matchId: string,
+  platform: TelemetryPlatform,
+  playerId: string,
+): Promise<ReturnType<typeof resolveHistoricalAccountId>> {
+  const signal = AbortSignal.timeout(HISTORICAL_LOOKUP_TIMEOUT_MS);
+  const [playerMatchesResult, processedResult] = await Promise.all([
+    supabase.from("pubg_player_matches")
+      .select("player_id, platform, account_id, match_id")
+      .eq("match_id", matchId).eq("platform", platform).eq("player_id", playerId)
+      .limit(4).abortSignal(signal),
+    supabase.from("processed_match_telemetry")
+      .select("player_id, platform, match_id, data")
+      .eq("match_id", matchId).eq("platform", platform).eq("player_id", playerId)
+      .limit(4).abortSignal(signal),
+  ]);
+  if (playerMatchesResult.error) throw playerMatchesResult.error;
+  if (processedResult.error) throw processedResult.error;
+  return resolveHistoricalAccountId({
+    matchId,
+    platform,
+    playerId,
+    playerMatchRows: playerMatchesResult.data,
+    processedRows: processedResult.data,
+  });
+}
+
+function getParticipantsAndRosters(matchData: any) {
+  const included = Array.isArray(matchData?.included) ? matchData.included : [];
+  return {
+    participants: included.filter((item: any) => item?.type === "participant"),
+    rosters: included.filter((item: any) => item?.type === "roster"),
+  };
+}
+
+function findRequestedParticipant(
+  participants: any[],
+  nickname: string,
+  expectedAccountId?: string,
+) {
+  const matches = participants.filter((participant) => {
+    const stats = participant.attributes?.stats;
+    const accountId = stats?.playerId || stats?.accountId || participant.attributes?.accountId;
+    return normalizeName(stats?.name) === nickname
+      && (!expectedAccountId || accountId === expectedAccountId)
+      && typeof accountId === "string" && isSupportedParticipantAccountId(accountId);
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function isSupportedParticipantAccountId(accountId: string): boolean {
+  try {
+    createTelemetryIdentity({
+      matchId: "participant-validation",
+      platform: "steam",
+      playerId: accountId,
+      mode: "lite",
+      telemetryVersion: TELEMETRY_VERSION,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function responseFromCache(cache: { downloadUrl: string; payload: { identity: unknown } }) {
+  return NextResponse.json(
+    { downloadUrl: cache.downloadUrl, identity: cache.payload.identity },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }
 
 export async function GET(request: Request) {
@@ -80,68 +170,133 @@ export async function GET(request: Request) {
     return invalidRequest("지원하지 않는 telemetry platform 또는 mode입니다.");
   }
 
-  const privateResponse = await blockPrivatePlayer(platform, nickname);
-  if (privateResponse) return privateResponse;
-
-  if (!isR2Configured()) {
-    return NextResponse.json(
-      { error: "텔레메트리 캐시 저장소를 사용할 수 없습니다." },
-      { status: 503 },
-    );
-  }
-
   const lowerNickname = normalizeName(nickname);
-  const apiKey = (process.env.PUBG_API_KEY || "").split(" ")[0];
-  const headers = {
-    Authorization: `Bearer ${apiKey}`,
-    Accept: "application/vnd.api+json",
-  };
-
   try {
-    const matchRes = await fetch(
-      `https://api.pubg.com/shards/${platform}/matches/${matchId}`,
-      { headers, next: { revalidate: 3600 } },
-    );
-    if (matchRes.status === 404) {
-      return NextResponse.json({ error: "매치를 찾을 수 없습니다." }, { status: 404 });
-    }
-    if (!matchRes.ok) throw new Error("PUBG match request failed");
-    const matchData = await matchRes.json();
-    if (!hasMatchingUpstreamMatchId(matchData, matchId)) {
-      return upstreamIdentityMismatch();
+    const privateResponse = await blockPrivatePlayer(platform, nickname);
+    if (privateResponse) return privateResponse;
+    if (!isR2Configured()) {
+      return NextResponse.json({ error: "텔레메트리 캐시 저장소를 사용할 수 없습니다." }, { status: 503 });
     }
 
-    const participants = matchData.included.filter((item: any) => item.type === "participant");
-    const rosters = matchData.included.filter((item: any) => item.type === "roster");
-    const assetBinding = relationshipBoundTelemetryAsset(matchData);
-    const asset = assetBinding?.asset as { attributes?: { URL?: string } } | undefined;
-    if (!asset?.attributes?.URL || !assetBinding) {
-      return NextResponse.json({ error: "텔레메트리 데이터를 찾을 수 없습니다." }, { status: 404 });
+    // Historical identity authorizes offline saved-map lookup. Its absence
+    // leaves the ordinary authoritative shared/upstream participant flow intact.
+    const historicalIdentity = await readHistoricalAccountId(matchId, platform, lowerNickname);
+    if (historicalIdentity.status === "conflict") {
+      return notFound("저장된 매치의 플레이어 식별자가 일치하지 않습니다.");
+    }
+    const historicalPlayerId = historicalIdentity.status === "resolved" ? historicalIdentity.accountId : null;
+
+    const cacheDeps: TelemetryMapCacheDependencies = {
+      isConfigured: isR2Configured,
+      download: downloadFromR2,
+      upload: uploadToR2,
+      sign: getPresignedUrlFromR2,
+      claim: (row) => claimTelemetryMapCacheReservation(supabase, row),
+      release: (row) => releaseTelemetryMapCacheReservation(supabase, row),
+      finalize: (row) => finalizeTelemetryMapCacheLifecycle(supabase, {
+        row,
+        mapName: "unknown",
+        gameMode: "unknown",
+      }),
+      now: () => new Date(),
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+      random: Math.random,
+    };
+    const readOldMap = async (playerId: string) => {
+      const baseIdentity = historicalMapIdentity(matchId, platform, playerId, mode);
+      const { data: cacheRows, error: cacheRowsError } = await supabase
+        .from("telemetry_map_cache_entries")
+        .select("match_id, platform, player_id, mode, telemetry_version, storage_path, status")
+        .eq("match_id", matchId).eq("platform", platform).eq("player_id", playerId)
+        .eq("mode", mode).eq("status", "ready")
+        .lte("telemetry_version", TELEMETRY_VERSION)
+        .order("telemetry_version", { ascending: false })
+        .limit(HISTORICAL_MAP_CANDIDATE_LIMIT)
+        .abortSignal(AbortSignal.timeout(HISTORICAL_LOOKUP_TIMEOUT_MS));
+      if (cacheRowsError) throw cacheRowsError;
+      const candidates = selectHistoricalMapCacheCandidates(cacheRows, baseIdentity, TELEMETRY_VERSION, HISTORICAL_MAP_CANDIDATE_LIMIT);
+      for (const candidate of candidates) {
+        try {
+          const cached = await readTelemetryMapCache(candidate.identity, cacheDeps);
+          if (cached && cached.storagePath === candidate.storagePath) return responseFromCache(cached);
+        } catch {
+          // A stale or unreadable legacy object is a miss for this identity.
+        }
+      }
+      return null;
+    };
+
+    if (historicalPlayerId) {
+      const privateAccountResponse = await blockPrivatePlayer(platform, nickname, historicalPlayerId);
+      if (privateAccountResponse) return privateAccountResponse;
+      const oldMapResponse = await readOldMap(historicalPlayerId);
+      if (oldMapResponse) return oldMapResponse;
     }
 
-    const telemetryUrl = parseOrdinaryTelemetryUrl(asset.attributes.URL, assetBinding.id);
+    let sharedSource = null;
+    try {
+      sharedSource = await readSharedTelemetrySource(matchId, platform);
+    } catch {
+      // Shared storage is an optimization; a transient read failure keeps the
+      // established official match/telemetry fetch path available.
+    }
+    let matchData: any;
+    let participants: any[];
+    let rosters: any[];
+    let myInfo: any;
+    let telemetryEvents: unknown[] | null = null;
+    let telemetryUrl: string | null = null;
 
-    const myInfo = participants.find(
-      (p: any) => normalizeName(p.attributes.stats.name) === lowerNickname,
-    );
-    if (!myInfo) {
-      return NextResponse.json({ error: "플레이어를 매치에서 찾을 수 없습니다." }, { status: 404 });
+    if (sharedSource) {
+      matchData = sharedSource.matchData;
+      if (!hasMatchingUpstreamMatchId(matchData, matchId)) return upstreamIdentityMismatch();
+      ({ participants, rosters } = getParticipantsAndRosters(matchData));
+      myInfo = findRequestedParticipant(participants, lowerNickname, historicalPlayerId || undefined);
+      if (!myInfo) return notFound("플레이어를 매치에서 찾을 수 없습니다.");
+      telemetryEvents = sharedSource.events;
+    } else {
+      const apiKey = (process.env.PUBG_API_KEY || "").split(" ")[0];
+      const headers = {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: "application/vnd.api+json",
+      };
+      const matchRes = await fetch(
+        `https://api.pubg.com/shards/${platform}/matches/${matchId}`,
+        { headers, next: { revalidate: 3600 } },
+      );
+      if (matchRes.status === 404) return notFound("매치를 찾을 수 없습니다.");
+      if (!matchRes.ok) throw new Error("PUBG match request failed");
+      matchData = await matchRes.json();
+      if (!hasMatchingUpstreamMatchId(matchData, matchId)) return upstreamIdentityMismatch();
+      ({ participants, rosters } = getParticipantsAndRosters(matchData));
+      myInfo = findRequestedParticipant(participants, lowerNickname, historicalPlayerId || undefined);
+      if (!myInfo) return notFound("플레이어를 매치에서 찾을 수 없습니다.");
+      const assetBinding = relationshipBoundTelemetryAsset(matchData);
+      const asset = assetBinding?.asset as { attributes?: { URL?: string } } | undefined;
+      if (!asset?.attributes?.URL || !assetBinding) return notFound("텔레메트리 데이터를 찾을 수 없습니다.");
+      telemetryUrl = parseOrdinaryTelemetryUrl(asset.attributes.URL, assetBinding.id);
+    }
+
+    const participantAccountId = myInfo.attributes.stats.playerId
+      || myInfo.attributes.stats.accountId
+      || myInfo.attributes.accountId;
+    if (historicalPlayerId && participantAccountId !== historicalPlayerId) return notFound("플레이어를 매치에서 찾을 수 없습니다.");
+    const playerId = historicalPlayerId || participantAccountId;
+    const accountPrivateResponse = await blockPrivatePlayer(platform, myInfo.attributes.stats.name, playerId);
+    if (accountPrivateResponse) return accountPrivateResponse;
+
+    if (!historicalPlayerId) {
+      const oldMapResponse = await readOldMap(playerId);
+      if (oldMapResponse) return oldMapResponse;
     }
 
     const canonicalNickname = myInfo.attributes.stats.name;
-    const playerId = myInfo.attributes.stats.playerId || myInfo.attributes.accountId;
-    if (!playerId) {
-      return NextResponse.json({ error: "플레이어 식별자를 찾을 수 없습니다." }, { status: 404 });
-    }
-    const accountPrivateResponse = await blockPrivatePlayer(platform, canonicalNickname, playerId);
-    if (accountPrivateResponse) return accountPrivateResponse;
-
     const myRoster = rosters.find((roster: any) =>
-      roster.relationships?.participants?.data?.some((participantRef: any) => participantRef.id === myInfo.id),
+      roster.relationships?.participants?.data?.some((ref: any) => ref.id === myInfo.id),
     );
     const teamParticipants = myRoster
       ? myRoster.relationships.participants.data
-        .map((participantRef: any) => participants.find((participant: any) => participant.id === participantRef.id))
+        .map((ref: any) => participants.find((participant: any) => participant.id === ref.id))
         .filter(Boolean)
       : [myInfo];
     const teamStats = teamParticipants
@@ -152,44 +307,22 @@ export async function GET(request: Request) {
       .filter((name: string) => name.length > 0));
     const teamAccountIds = new Set<string>(teamParticipants
       .map((participant: any) => participant.attributes?.stats?.playerId
-        || participant.attributes?.stats?.accountId
-        || participant.attributes?.accountId)
+        || participant.attributes?.stats?.accountId || participant.attributes?.accountId)
       .filter((id: unknown): id is string => typeof id === "string" && id.length > 0));
 
     const identity = createTelemetryIdentity({
-      matchId,
-      platform,
-      playerId,
-      mode,
-      telemetryVersion: TELEMETRY_VERSION,
+      matchId, platform, playerId, mode, telemetryVersion: TELEMETRY_VERSION,
     });
     const deps: TelemetryMapCacheDependencies = {
-      isConfigured: isR2Configured,
-      download: downloadFromR2,
-      upload: uploadToR2,
-      sign: getPresignedUrlFromR2,
-      claim: (row) => claimTelemetryMapCacheReservation(supabase, row),
-      release: (row) => releaseTelemetryMapCacheReservation(supabase, row),
+      ...cacheDeps,
       finalize: (row) => finalizeTelemetryMapCacheLifecycle(supabase, {
         row,
         mapName: matchData.data.attributes.mapId || mapName,
         gameMode: matchData.data.attributes.gameMode || "unknown",
       }),
-      now: () => new Date(),
-      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-      random: Math.random,
     };
     const cacheAccess = await claimOrWaitForTelemetryMapCache(identity, deps);
-    if (cacheAccess.kind === "hit") {
-      return NextResponse.json(
-        {
-          downloadUrl: cacheAccess.cache.downloadUrl,
-          identity: cacheAccess.cache.payload.identity,
-        },
-        { headers: { "Cache-Control": "no-store" } },
-      );
-    }
-
+    if (cacheAccess.kind === "hit") return responseFromCache(cacheAccess.cache);
     if (cacheAccess.kind === "pending") {
       return NextResponse.json(
         { error: "텔레메트리 생성이 진행 중입니다. 잠시 후 다시 시도해 주세요." },
@@ -198,22 +331,36 @@ export async function GET(request: Request) {
     }
 
     const reservedRow = cacheAccess.row;
-
     try {
-      const telemetryRes = await fetch(telemetryUrl, { cache: "no-store", redirect: "error", signal: AbortSignal.timeout(15_000) });
-      if (!telemetryRes.ok) throw new Error("PUBG telemetry request failed");
-      if (telemetryRes.url !== telemetryUrl) throw new Error("PUBG telemetry source changed");
-      const rawTelemetry = await telemetryRes.json();
-      if (!hasMatchingTelemetryDefinition(rawTelemetry, matchId, platform)) {
+      if (!telemetryEvents) {
+        const telemetryRes = await fetch(telemetryUrl!, {
+          cache: "no-store", redirect: "error", signal: AbortSignal.timeout(15_000),
+        });
+        if (!telemetryRes.ok) throw new Error("PUBG telemetry request failed");
+        if (telemetryRes.url !== telemetryUrl) throw new Error("PUBG telemetry source changed");
+        const rawTelemetry = await telemetryRes.json();
+        if (!hasMatchingTelemetryDefinition(rawTelemetry, matchId, platform)) {
+          await releaseTelemetryMapCacheRow(reservedRow, deps);
+          return upstreamIdentityMismatch();
+        }
+        const fullEvents = filterTelemetryEvents(rawTelemetry, {
+          mode: "full", teamNames: new Set(), teamAccountIds: new Set(),
+        });
+        if (!fullEvents.length || !containsTelemetryAccountEvidence(fullEvents, playerId)) {
+          await releaseTelemetryMapCacheRow(reservedRow, deps);
+          return upstreamIdentityMismatch();
+        }
+        await writeSharedTelemetrySource(matchData, platform, fullEvents).catch(() => {
+          console.warn("[PUBG shared source] retention failed", { route: "/api/pubg/telemetry", platform, matchId });
+        });
+        telemetryEvents = fullEvents;
+      }
+
+      if (!telemetryEvents.length || !containsTelemetryAccountEvidence(telemetryEvents, playerId)) {
         await releaseTelemetryMapCacheRow(reservedRow, deps);
         return upstreamIdentityMismatch();
       }
-      const events = filterTelemetryEvents(rawTelemetry, {
-        mode: "full",
-        teamNames,
-        teamAccountIds,
-      });
-
+      const events = filterTelemetryEvents(telemetryEvents, { mode: "full", teamNames, teamAccountIds });
       if (!events.length || !containsTelemetryAccountEvidence(events, playerId)) {
         await releaseTelemetryMapCacheRow(reservedRow, deps);
         return upstreamIdentityMismatch();
@@ -221,14 +368,7 @@ export async function GET(request: Request) {
 
       const { AnalysisEngine } = await import("@/lib/pubg-analysis/AnalysisEngine");
       const engine = new AnalysisEngine(
-        canonicalNickname,
-        playerId,
-        teamNames,
-        teamAccountIds,
-        new Set(),
-        new Set(),
-        myRoster?.id || "",
-        mode,
+        canonicalNickname, playerId, teamNames, teamAccountIds, new Set(), new Set(), myRoster?.id || "", mode,
       );
       const result = engine.run(
         events,
@@ -249,11 +389,7 @@ export async function GET(request: Request) {
         mapName: result.mapName || matchData.data.attributes.mapName || mapName,
       });
       const cachedResult = await writeTelemetryMapCache(identity, payload, deps, { reservedRow });
-
-      return NextResponse.json(
-        { downloadUrl: cachedResult.downloadUrl, identity: cachedResult.payload.identity },
-        { headers: { "Cache-Control": "no-store" } },
-      );
+      return responseFromCache(cachedResult);
     } catch (error) {
       await releaseTelemetryMapCacheRow(reservedRow, deps).catch(() => undefined);
       throw error;

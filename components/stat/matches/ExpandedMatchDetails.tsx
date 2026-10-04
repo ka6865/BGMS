@@ -39,7 +39,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
 import { resolve3DMapCapability } from "@/lib/replay/mapCapabilities";
-import { isMatchTelemetryExpired, isMatchOlderThan14Days } from "@/components/stat/matchExpiryHelper";
+import { isMatchOlderThan14Days } from "@/components/stat/matchExpiryHelper";
 import { isCanonicalMatchId } from "@/lib/pubg-analysis/telemetryIdentity";
 import type { StatsPlatform } from "@/types/stats-page";
 
@@ -352,14 +352,7 @@ export const ExpandedMatchDetails = ({
   const [mounted, setMounted] = useState(false);
 
   const matchDate = (matchData as any)?.playedAt || matchData?.createdAt || matchData?.matchInfo?.date || (initialMatchData as any)?.playedAt || initialMatchData?.createdAt || "";
-  const isTelemetryExpired = isMatchTelemetryExpired(matchDate);
   const is14DaysExpired = isMatchOlderThan14Days(matchDate);
-
-  // ref로 감싸서 useCallback 내부에서도 최신 값을 참조할 수 있게 한다
-  const is14DaysExpiredRef = useRef(is14DaysExpired);
-  useEffect(() => {
-    is14DaysExpiredRef.current = is14DaysExpired;
-  }, [is14DaysExpired]);
 
   useEffect(() => {
     setMounted(true);
@@ -508,7 +501,7 @@ export const ExpandedMatchDetails = ({
 
 
   const fetchFullMatch = useCallback(async () => {
-    if (detailRequestRef.current || is14DaysExpiredRef.current) return;
+    if (detailRequestRef.current) return;
     if (!isCanonicalMatchId(matchId)) {
       setDetailState({ status: "error", message: "상세 정보를 불러오지 못했습니다", kind: "generic" });
       callbacksRef.current.onFailure?.("detail_failed");
@@ -608,7 +601,7 @@ export const ExpandedMatchDetails = ({
   }, [initialMatchData, matchId, ownerIdentity]);
 
   useEffect(() => {
-    if (detailState.status === "summary" && !is14DaysExpiredRef.current) {
+    if (detailState.status === "summary") {
       void fetchFullMatch();
     }
   }, [detailState.status, fetchFullMatch]);
@@ -1043,7 +1036,7 @@ export const ExpandedMatchDetails = ({
       {is14DaysExpired && (
         <div className="mx-3 md:mx-5 mt-3.5 p-3 bg-sky-500/10 border border-sky-500/20 rounded-xl flex items-center gap-2 text-xs text-sky-300">
           <Info size={14} className="shrink-0 text-sky-400" />
-          <span>14일이 경과된 과거 전적입니다. PUBG 매치 제공 기간이 지나 상세 분석은 제한되지만, 순위·킬·딜량·맵 정보는 계속 확인할 수 있습니다.</span>
+          <span>14일이 지난 경기입니다. 보관된 상세 기록과 리플레이가 있으면 계속 볼 수 있습니다.</span>
         </div>
       )}
 
@@ -1747,7 +1740,7 @@ export const ExpandedMatchDetails = ({
                   router.push(`/replay/3d?matchId=${matchId}&nickname=${nickname}&platform=${platform}`);
                 }}
                 disabled={!is3DReplaySupported}
-                title={!is3DReplaySupported ? "이 맵은 현재 3D 리플레이를 지원하지 않습니다." : isTelemetryExpired ? "90일이 경과하여 3D 동선 데이터가 만료되었습니다." : undefined}
+                title={!is3DReplaySupported ? "이 맵은 현재 3D 리플레이를 지원하지 않습니다." : undefined}
                 className="w-full text-left p-4 bg-gradient-to-r from-amber-500/10 via-amber-500/[0.03] to-transparent hover:from-amber-500/15 border border-amber-500/30 hover:border-amber-500/50 rounded-2xl transition-all flex gap-3.5 items-center cursor-pointer group hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:scale-100 disabled:hover:from-amber-500/10 disabled:hover:border-amber-500/30"
               >
                 <div className="w-10 h-10 bg-amber-500/20 rounded-xl flex items-center justify-center text-amber-500 shrink-0">
@@ -1761,7 +1754,7 @@ export const ExpandedMatchDetails = ({
                   <p className="text-[10px] text-gray-400 mt-1 leading-normal font-medium font-sans">
                     {is3DReplaySupported
                       ? "3D 홀로그램 전술 작전판에서 실시간 킬로그 피드, 총탄 궤적, 입체 고도 및 카메라 추적으로 정밀 분석합니다."
-                      : isTelemetryExpired ? "90일이 경과하여 3D 동선 데이터가 만료되었습니다. 기본 전적 요약 통계는 정상 조회 가능합니다." : "이 맵은 3D 지형 자산 준비 전입니다. 2D 미니 리플레이를 이용해 주세요."}
+                      : "이 맵은 3D 지형 자산 준비 전입니다. 2D 미니 리플레이를 이용해 주세요."}
                   </p>
                 </div>
               </button>
