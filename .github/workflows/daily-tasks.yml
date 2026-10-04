@@ -466,7 +466,15 @@ jobs:
       contents: read
       actions: read
     steps:
+      - name: Checkout Notification Helper
+        if: always()
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Notify Discord On Failure
+        if: always()
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -517,20 +525,34 @@ jobs:
             esac
           }
 
-          JOB_ROWS=$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/jobs" \
-            --paginate \
-            --jq '.jobs[] | select(.name != "failure-notify" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != null) | [.id, .name, .conclusion] | @tsv' \
-            2>/tmp/bgms-jobs-error.log) || JOB_ROWS=""
-
-          FAILED_STEPS=$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/jobs" \
-            --paginate \
-            --jq '[.jobs[] | select(.name != "failure-notify") | .name as $job | .steps[]? | select(.conclusion != "success" and .conclusion != "skipped" and .conclusion != null) | "\($job) / \(.name) (\(.conclusion))"] | .[0:8] | join("\n")' \
-            2>/tmp/bgms-step-error.log) || FAILED_STEPS=""
-
           LOOKUP_NOTES=""
+          JOBS_JSONL="/tmp/bgms-failure-notify-jobs.jsonl"
+          if gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/jobs" \
+            --paginate \
+            --jq '.jobs[]?' \
+            >"$JOBS_JSONL" 2>/tmp/bgms-jobs-error.log; then
+            JOB_ROWS=$(jq -sr '
+              [.[]
+                | select(.name != "failure-notify" and .conclusion != "success" and .conclusion != "skipped" and .conclusion != null)
+                | [.id, .name, .conclusion] | @tsv]
+              | join("\n")' "$JOBS_JSONL")
+            FAILED_STEPS=$(jq -sr '
+              [.[] | select(.name != "failure-notify") as $job
+                | $job.steps[]?
+                | select(.conclusion != "success" and .conclusion != "skipped" and .conclusion != null)
+                | "\($job.name) / \(.name) (\(.conclusion))"]
+              | .[0:8] | join("\n")' "$JOBS_JSONL")
+          else
+            JOB_ROWS=""
+            FAILED_STEPS=""
+            LOOKUP_NOTES="실패 잡 목록 조회 실패: Actions 로그에서 직접 확인이 필요합니다."
+          fi
+
           if [ -z "$JOB_ROWS" ]; then
             FAILED_STEPS="(실패 잡 목록을 조회하지 못했습니다.)"
-            LOOKUP_NOTES="실패 잡 목록 조회 실패: Actions 로그에서 직접 확인이 필요합니다."
+            if [ -z "$LOOKUP_NOTES" ]; then
+              LOOKUP_NOTES="실패 잡 목록 조회 실패: Actions 로그에서 직접 확인이 필요합니다."
+            fi
           elif [ -z "$FAILED_STEPS" ]; then
             FAILED_STEPS=$(printf '%s\n' "$JOB_ROWS" | awk -F '\t' '{printf "%s (%s)\n", $2, $3}' | head -8)
           fi
@@ -538,7 +560,7 @@ jobs:
           ERROR_LINES=""
           add_failure_category() {
             case "$1" in
-              "rate limit"|"timeout"|"Hotdrop failure"|"PUBG API failure"|"step failure (details hidden)"|HTTP\ [0-9][0-9][0-9])
+              "rate limit"|"timeout"|"Hotdrop failure"|"PUBG API failure"|"Bluezone "*|HTTP\ [45][0-9][0-9])
                 case $'\n'"${ERROR_LINES}"$'\n' in
                   *$'\n'"$1"$'\n'*) return ;;
                 esac
@@ -552,41 +574,44 @@ jobs:
             [ -z "$JOB_ID" ] && continue
             JOB_LOG="/tmp/bgms-job-${JOB_ID}.log"
             JOB_LOG_ERROR="/tmp/bgms-job-${JOB_ID}.error"
-            if ! gh api "repos/${REPOSITORY}/actions/jobs/${JOB_ID}/logs" >"$JOB_LOG" 2>"$JOB_LOG_ERROR"; then
+            if ! gh run view "${RUN_ID}" --job "${JOB_ID}" --log >"$JOB_LOG" 2>"$JOB_LOG_ERROR"; then
               if [ -n "$LOOKUP_NOTES" ]; then LOOKUP_NOTES="${LOOKUP_NOTES}"$'\n'; fi
               LOOKUP_NOTES="${LOOKUP_NOTES}실패 잡 로그 조회 실패: Actions 로그에서 직접 확인이 필요합니다."
               continue
             fi
-            ERROR_LINES_BEFORE_JOB="$ERROR_LINES"
-            if grep -qiE '(^|[^[:alnum:]])(429|rate[ -]?limit|rate_limited|too many requests)([^[:alnum:]]|$)' "$JOB_LOG" 2>/dev/null; then
-              add_failure_category "rate limit"
+            STEP_ROWS=$(jq -sr --arg job_id "$JOB_ID" '
+              [.[] | select((.id | tostring) == $job_id) as $job
+                | $job.steps[]?
+                | select(.conclusion == "failure" or .conclusion == "timed_out")
+                | {name, started_at, completed_at}]
+              | .[] | @json' "$JOBS_JSONL")
+            if [ -z "$STEP_ROWS" ]; then
+              if [ -n "$LOOKUP_NOTES" ]; then LOOKUP_NOTES="${LOOKUP_NOTES}"$'\n'; fi
+              LOOKUP_NOTES="${LOOKUP_NOTES}실패 단계 실행 시간 조회 실패: 원인은 미확인 상태로 표시했습니다."
+              continue
             fi
-            if grep -qiE 'timeout|timed out|ETIMEDOUT|ESOCKETTIMEDOUT' "$JOB_LOG" 2>/dev/null; then
-              add_failure_category "timeout"
+
+            if ! command -v node >/dev/null 2>&1 || [ ! -f scripts/classify_daily_maintenance_failure.cjs ]; then
+              if [ -n "$LOOKUP_NOTES" ]; then LOOKUP_NOTES="${LOOKUP_NOTES}"$'\n'; fi
+              LOOKUP_NOTES="${LOOKUP_NOTES}실패 단계 분류 도구를 사용할 수 없습니다: 원인은 미확인 상태로 표시했습니다."
+              continue
             fi
-            while IFS= read -r HTTP_CODE; do
-              case "$HTTP_CODE" in
-                [0-9][0-9][0-9]) add_failure_category "HTTP ${HTTP_CODE}" ;;
-              esac
-            done < <(
-              grep -Eio 'HTTP[[:space:]]+[0-9]{3}' "$JOB_LOG" 2>/dev/null \
-                | sed -E 's/[^0-9]//g' \
-                | sort -u \
-                | tail -n 8 \
-                || true
-            )
-            if grep -qi 'Hotdrop 수집 실패' "$JOB_LOG" 2>/dev/null; then
-              add_failure_category "Hotdrop failure"
-            fi
-            if grep -qiE 'PUBG API[[:space:]]+(error|failure)|PUBG API.*(failed|failure)' "$JOB_LOG" 2>/dev/null; then
-              add_failure_category "PUBG API failure"
-            fi
-            if grep -qiE '(^|[^[:alnum:]])(Error:|error-|failed|failure|fatal)([^[:alnum:]]|$)' "$JOB_LOG" 2>/dev/null; then
-              add_failure_category "step failure (details hidden)"
-            fi
-            if [ "$ERROR_LINES" = "$ERROR_LINES_BEFORE_JOB" ]; then
-              add_failure_category "step failure (details hidden)"
-            fi
+
+            while IFS= read -r STEP_ROW; do
+              [ -z "$STEP_ROW" ] && continue
+              STEP_NAME=$(printf '%s' "$STEP_ROW" | jq -r '.name // "실패 단계"')
+              STEP_STARTED_AT=$(printf '%s' "$STEP_ROW" | jq -r '.started_at // empty')
+              STEP_COMPLETED_AT=$(printf '%s' "$STEP_ROW" | jq -r '.completed_at // empty')
+              if [ -z "$STEP_STARTED_AT" ] || [ -z "$STEP_COMPLETED_AT" ]; then
+                if [ -n "$LOOKUP_NOTES" ]; then LOOKUP_NOTES="${LOOKUP_NOTES}"$'\n'; fi
+                LOOKUP_NOTES="${LOOKUP_NOTES}실패 단계 실행 시간 조회 실패: 원인은 미확인 상태로 표시했습니다."
+                continue
+              fi
+
+              while IFS= read -r CATEGORY; do
+                [ -z "$CATEGORY" ] || add_failure_category "$CATEGORY"
+              done < <(node scripts/classify_daily_maintenance_failure.cjs "$JOB_LOG" "$STEP_STARTED_AT" "$STEP_COMPLETED_AT" "$STEP_NAME" 2>/dev/null || true)
+            done <<< "$STEP_ROWS"
           done <<< "$JOB_ROWS"
 
           if [ -z "$ERROR_LINES" ]; then
