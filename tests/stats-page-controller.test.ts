@@ -195,6 +195,40 @@ describe("useStatsPageController", () => {
     expect(result.current.isRefreshCoolingDown).toBe(true);
   });
 
+  it.each([
+    { syncStatus: "save_failed", historyDiscoveryStatus: "queued", reason: "stats_save_failed" },
+    { syncStatus: "saved", historyDiscoveryStatus: "failed", reason: "history_discovery_failed" },
+  ] as const)("HTTP 200 응답도 $reason 상태를 표시하고 재갱신 성공 시 해제한다", async (failure) => {
+    let mode: "failed" | "cached" | "saved" = "failed";
+    const updatedAt = "2026-08-08T00:00:00.000Z";
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player/matches")) return Promise.resolve(jsonResponse({matches: [], page: 1, totalPages: 0}));
+      if (url.startsWith("/api/pubg/matches-summary")) return Promise.resolve(jsonResponse(summaryReady));
+      return Promise.resolve(jsonResponse({
+        ...playerReady, recentMatches: [], updatedAt,
+        statsAvailability: {ranked: {status: "ready"}, normal: {status: "ready"}},
+        ...(mode === "failed" ? failure : mode === "cached"
+          ? {syncStatus: "cached", historyDiscoveryStatus: "unknown"}
+          : {syncStatus: "saved", historyDiscoveryStatus: "queued"}),
+      }));
+    });
+    const { result } = renderHook(() => useStatsPageController({
+      initialNickname: "FixturePlayer", initialPlatform: "steam",
+    }));
+    await waitFor(() => expect(result.current.status).toBe("partial"));
+    expect(result.current.partialReasons).toContain(failure.reason);
+    expect(result.current.result?.updatedAt).toBe(updatedAt);
+    mode = "cached";
+    await act(async () => { await result.current.search({nickname: "FixturePlayer", platform: "steam"}); });
+    expect(result.current.status).toBe("partial");
+    expect(result.current.partialReasons).toContain(failure.reason);
+    mode = "saved";
+    await act(async () => { await result.current.refresh(); });
+    await waitFor(() => expect(result.current.status).toBe("ready"));
+    expect(result.current.partialReasons).not.toContain(failure.reason);
+  });
+
   it("force refresh가 다른 시즌 응답을 반환하면 기존 시즌 전적과 metadata를 섞지 않는다", async () => {
     let playerAttempt = 0;
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
@@ -573,7 +607,7 @@ describe("useStatsPageController", () => {
   });
 
   it.each([true, false])("기본 목록과 요약을 병렬로 표시하고 분석값을 유지한다 (목록 먼저: %s)", async (historyFirst) => {
-    const record = { match_id: "match-fixture-1", player_id: "fixtureplayer", platform: "steam", game_mode: "squad-fpp", match_type: "unknown", map_name: "Baltic_Main", kills: 2, damage: 240, win_place: 4 };
+    const record = { match_id: "match-fixture-1", player_id: "fixtureplayer", platform: "steam", played_at: "2026-08-10T00:00:00Z", game_mode: "squad-fpp", match_type: "unknown", map_name: "Baltic_Main", kills: 2, damage: 240, win_place: 4 };
     const history = deferredResponse({ matches: [record], page: 1, totalPages: 1 });
     const summary = deferredResponse(summaryReady);
     fetchMock.mockImplementation((input, init) => {
@@ -595,7 +629,7 @@ describe("useStatsPageController", () => {
   });
 
   it.each([true, false])("요약에 모드 정보가 없어도 기본 전적의 모드와 맵을 유지한다 (목록 먼저: %s)", async (historyFirst) => {
-    const history = deferredResponse({ matches: [{ match_id: "match-fixture-1", player_id: "fixtureplayer", platform: "steam", game_mode: "duo", match_type: "competitive", map_name: "Tiger_Main", kills: 4, damage: 420, win_place: 3 }], page: 1, totalPages: 1 });
+    const history = deferredResponse({ matches: [{ match_id: "match-fixture-1", player_id: "fixtureplayer", platform: "steam", played_at: "2026-08-10T00:00:00Z", game_mode: "duo", match_type: "competitive", map_name: "Tiger_Main", kills: 4, damage: 420, win_place: 3 }], page: 1, totalPages: 1 });
     const summary = deferredResponse({ summaries: { "match-fixture-1": { ...summaryReadyFixture.summaries["match-fixture-1"], gameMode: undefined, matchType: undefined, mapName: undefined, mapId: undefined } }, missingMatchIds: [] });
     fetchMock.mockImplementation((input, init) => {
       const url = String(input);
@@ -634,7 +668,7 @@ describe("useStatsPageController", () => {
   it.each([false, true])("요약이 새 경기를 복구하면 현재 1페이지에 한해 페이지 정보를 갱신한다 (다른 페이지 이동: %s)", async (movePage) => {
     const summary = deferredResponse(summaryReady);
     let historyCalls = 0;
-    const record = (id: string) => ({ match_id: id, player_id: "fixtureplayer", platform: "steam", game_mode: "squad-fpp", match_type: "official", kills: 2, damage: 200, win_place: 5 });
+    const record = (id: string) => ({ match_id: id, player_id: "fixtureplayer", platform: "steam", played_at: "2026-08-10T00:00:00Z", map_name: "Baltic_Main", game_mode: "squad-fpp", match_type: "official", kills: 2, damage: 200, win_place: 5 });
     fetchMock.mockImplementation((input, init) => {
       const url = String(input);
       if (url.startsWith("/api/pubg/player?")) return Promise.resolve(jsonResponse({ ...playerReady, recentMatches: ["match-fixture-1"] }));
@@ -661,7 +695,7 @@ describe("useStatsPageController", () => {
       const url = String(input);
       if (url.startsWith("/api/pubg/player?")) return Promise.resolve(jsonResponse({ ...playerReady, recentMatches: ["match-fixture-1"] }));
       if (url === "/api/pubg/matches-summary") return summary.fetch(input, init);
-      return Promise.resolve(jsonResponse({ matches: [{ match_id: "match-fixture-1", player_id: "fixtureplayer", platform: "steam", kills: 2, damage: 200, win_place: 3 }], page: 1, totalPages: 1 }));
+      return Promise.resolve(jsonResponse({ matches: [{ match_id: "match-fixture-1", player_id: "fixtureplayer", platform: "steam", played_at: "2026-08-10T00:00:00Z", map_name: "Baltic_Main", game_mode: "squad-fpp", kills: 2, damage: 200, win_place: 3 }], page: 1, totalPages: 1 }));
     });
     const { result } = renderHook(() => useStatsPageController({ initialNickname: "FixturePlayer", initialPlatform: "steam" }));
     await waitFor(() => expect(result.current.historyStatus).toBe("ready"));
@@ -679,7 +713,7 @@ describe("useStatsPageController", () => {
       summaries: Object.fromEntries(ids.slice(5, 10).map((id) => [id, { ...summaryFixture, matchId: id }])),
       missingMatchIds: ids.slice(10), nextMatchIds: ids.slice(10),
     });
-    const record = (id: string) => ({ match_id: id, player_id: "fixtureplayer", platform: "steam", game_mode: "squad-fpp", match_type: "official", kills: 2, damage: 200, win_place: 5 });
+    const record = (id: string) => ({ match_id: id, player_id: "fixtureplayer", platform: "steam", played_at: "2026-08-10T00:00:00Z", map_name: "Baltic_Main", game_mode: "squad-fpp", match_type: "official", kills: 2, damage: 200, win_place: 5 });
     fetchMock.mockImplementation((input, init) => {
       const url = String(input);
       if (url.startsWith("/api/pubg/player?")) return Promise.resolve(jsonResponse({ ...playerReady, recentMatches: ids }));
@@ -924,6 +958,25 @@ describe("useStatsPageController", () => {
       Object.defineProperty(AbortSignal, "any", any);
       timeout.mockRestore();
     }
+  });
+
+  it("불완전한 DB 이력을 가짜 통계 요약으로 표시하지 않고 경기 ID는 유지한다", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player?")) return Promise.resolve(jsonResponse({...playerReady, recentMatches: []}));
+      if (url.startsWith("/api/pubg/player/matches")) return Promise.resolve(jsonResponse({
+        matches: [{match_id: "incomplete-history", player_id: "fixtureplayer", platform: "steam",
+          played_at: "2026-08-10T00:00:00Z", game_mode: "squad-fpp", map_name: "Baltic_Main",
+          kills: 0, damage: null, win_place: 0, match_type: "official"}],
+        performances: {"incomplete-history": {score: 100}}, page: 1, totalPages: 1, totalCount: 1,
+      }));
+      return Promise.resolve(jsonResponse({summaries: {}, missingMatchIds: [], nextMatchIds: []}));
+    });
+    const { result } = renderHook(() => useStatsPageController({initialNickname: "FixturePlayer", initialPlatform: "steam"}));
+    await waitFor(() => expect(result.current.historyStatus).toBe("ready"));
+    expect(result.current.matchIds).toContain("incomplete-history");
+    expect(result.current.matchSummaries["incomplete-history"]).toBeUndefined();
+    expect(result.current.historyTotalCount).toBe(1);
   });
 
   it("전적 갱신 시 DB 미반영 최신 매치가 1페이지 matchIds에 즉시 노출되고 요약/히스토리가 동기화된다", async () => {

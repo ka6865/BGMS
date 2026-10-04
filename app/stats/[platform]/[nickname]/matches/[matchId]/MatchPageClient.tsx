@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { MatchCard } from "@/components/stat/MatchCard";
 import { buildBasicMatchSummary, type MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
+import { hasObservedPlayerMatchValues } from "@/lib/pubg/playerMatches";
 
 const PERFORMANCE_POLL_INTERVAL_MS = 10_000;
 const PERFORMANCE_MAX_POLLS = 6;
@@ -64,10 +65,13 @@ export default function MatchPageClient({
     if (!response.ok) throw new Error(data.error || "경기를 불러오지 못했습니다.");
     const record = data.matches?.find((row) => row.match_id === matchId);
     if (!record) throw new Error("저장된 경기 기록이 없습니다.");
+    if (!hasObservedPlayerMatchValues(record)) {
+      throw new Error("이 경기의 저장된 기록이 불완전합니다. 플레이어 전적을 갱신한 뒤 다시 확인해 주세요.");
+    }
     const benchmark = data.performances?.[matchId];
     return {
       summary: {
-        ...buildBasicMatchSummary(record as Parameters<typeof buildBasicMatchSummary>[0]),
+        ...buildBasicMatchSummary(record),
         ...(benchmark ? { benchmark, performanceOnly: true } : {}),
         performanceState: data.performanceStates?.[matchId],
       } as MatchSummaryData,

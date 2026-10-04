@@ -879,6 +879,42 @@ describeBrowser("stats browser smoke", () => {
     });
   }, 60_000);
 
+  it.each([
+    {width: 375, height: 667}, {width: 390, height: 844},
+    {width: 430, height: 932}, {width: 1440, height: 900},
+  ])("sync failure notice wraps within the viewport at $width x $height", async (viewport) => {
+    await withStatsBrowserPage({
+      browser, baseUrl, scenarioName: "sync-failure", clock, viewport,
+      run: async ({page, dispatcher}) => {
+        const log = attachRuntimeLog(page);
+        await gotoStatsPage({page, dispatcher, url: baseUrl + "/stats/steam/FixturePlayer"});
+        try {
+          await waitForStatsText({page, dispatcher, text: "불러온 전적을 저장하지 못했습니다"});
+        } catch (error) {
+          console.log(JSON.stringify({kind: "sync-notice-failure", viewport, log,
+            text: await page.$eval("body", body => body.innerText.slice(0, 2000)),
+            records: dispatcher.ledger.records}));
+          throw error;
+        }
+        await waitForStatsText({page, dispatcher, text: "일부 경기가 빠질 수"});
+        const evidence = await page.evaluate(() => {
+          const notice = [...document.querySelectorAll<HTMLElement>('[role="status"]')]
+            .find(element => element.textContent?.includes("불러온 전적을 저장하지 못했습니다"));
+          if (!notice) throw new Error("Missing sync failure notice");
+          const bounds = notice.getBoundingClientRect();
+          return {left: bounds.left, right: bounds.right, width: innerWidth,
+            scrollWidth: notice.scrollWidth, clientWidth: notice.clientWidth, text: notice.innerText};
+        });
+        expect(evidence.left).toBeGreaterThanOrEqual(0);
+        expect(evidence.right).toBeLessThanOrEqual(evidence.width);
+        expect(evidence.scrollWidth).toBeLessThanOrEqual(evidence.clientWidth + 1);
+        expect(log.pageErrors).toEqual([]);
+        dispatcher.ledger.assertNoUnexpected();
+        console.log(JSON.stringify({kind: "sync-notice-layout", viewport, evidence}));
+      },
+    });
+  }, 60_000);
+
   it.each(FUNCTIONAL_VIEWPORTS)("functional ready/double-submit/control flow at %sx%s", async (viewport) => {
     await withStatsBrowserPage({
       browser,

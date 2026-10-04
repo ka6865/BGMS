@@ -63,6 +63,7 @@ export interface StatsApiRequest {
 
 export type StatsBrowserScenarioName =
   | "ready"
+  | "sync-failure"
   | "player-retry"
   | "not-found-then-ready"
   | "rate-limit"
@@ -407,6 +408,10 @@ export function createStatsBrowserScenario(input: {
       qaResponse,
     });
     supportedIdentities.add(identity);
+    if (input.name === "sync-failure") {
+      body.syncStatus = "save_failed";
+      body.historyDiscoveryStatus = "failed";
+    }
     return jsonResponse(200, body, {
       delayMs: input.name === "route-race" && nickname === "PlayerA" ? 600 : undefined,
     });
@@ -503,6 +508,19 @@ export function createStatsBrowserScenario(input: {
       case "/api/pubg/player": return resolvePlayer(request);
       case "/api/pubg/suggest": return resolveSuggest(request);
       case "/api/pubg/matches-summary": return resolveSummary(request);
+      case "/api/pubg/player/matches": {
+        assertMethod(request, "GET");
+        assertNoRequestBody(request);
+        assertAllowedQuery(request, new Set(["nickname", "platform", "page", "filter"]));
+        const nickname = requiredQuery(request, "nickname");
+        const platform = requiredQuery(request, "platform");
+        assertIdentity(nickname, platform);
+        if (!supportedIdentities.has(identityKey(nickname, platform))) throw new Error("History identity was not resolved");
+        const page = Number(request.query.page ?? 1);
+        if (!Number.isSafeInteger(page) || page < 1) throw new Error("Invalid history page");
+        return jsonResponse(200, {matches: [], page, pageSize: 20, totalPages: 0, totalCount: 0,
+          performances: {}, performanceStates: {}, historyIngest: null});
+      }
       case "/api/pubg/match": return resolveDetail(request);
       case "/api/pubg/squad-analyze": return resolveSquad(request);
       default: throw new Error(`Unexpected endpoint: ${request.pathname}`);

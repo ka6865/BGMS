@@ -140,15 +140,28 @@ describe("StatSearch baseline", () => {
     expect(pushStateSpy).not.toHaveBeenCalled();
     landing.unmount();
 
-    fetchMock.mockResolvedValueOnce(jsonResponse(playerReady));
-    fetchMock.mockResolvedValueOnce(jsonResponse(summaryReady));
-    fetchMock.mockResolvedValueOnce(historyPageResponse());
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player?")) {
+        return Promise.resolve(jsonResponse(playerReady));
+      }
+      if (url.startsWith("/api/pubg/matches-summary")) {
+        return Promise.resolve(jsonResponse(summaryReady));
+      }
+      if (url.startsWith("/api/pubg/player/matches?")) {
+        return Promise.resolve(historyPageResponse());
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
     render(createElement(StatSearch, {
       initialPlatform: "steam",
       initialNickname: "FixturePlayer",
     }));
     await screen.findByText("FixturePlayer");
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith("/api/pubg/matches-summary", expect.objectContaining({ method: "POST" }));
+      expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/^\/api\/pubg\/player\/matches\?/), expect.anything());
+    });
 
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY_RECENT)!)).toEqual([{ nickname: "FixturePlayer", platform: "steam" }]);
     expect(playerRequests()).toHaveLength(1);

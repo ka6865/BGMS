@@ -45,11 +45,16 @@ MIGRATIONS=(
   "20261003090309_player_match_account_history_index"
   "20261003144730_pubg_discovery_fair_claim"
   "20261003145149_pubg_discovery_claim_index_predicate"
+  "20261003200626_mobile_scoped_match_collection"
+  "20261003200721_unique_scoped_pubg_discovery_rpc"
+  "20261004050604_pubg_scoped_collection_short_lease"
+  "20261004050621_mobile_board_like_atomic"
 )
 
 cleanup() {
   if [ "$USE_LOCAL_POSTGRES" = true ] && [ -n "$LOCAL_DATA_DIR" ]; then
     "$PG_BIN/pg_ctl" -D "$LOCAL_DATA_DIR" -m immediate stop >/dev/null 2>&1 || true
+    rm -rf "$LOCAL_DATA_DIR" "$LOCAL_SOCKET_DIR"
   else
     docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
   fi
@@ -111,6 +116,8 @@ echo "▶ RPC 동작 시나리오 실행"
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/encounter-page-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/match-discovery-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/scoped-match-discovery-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/mobile-board-likes-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ban-watch-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ban-watch-boundaries.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/membership-lifecycle-scenarios.sql

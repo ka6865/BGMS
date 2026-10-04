@@ -12,6 +12,8 @@ export type StatsPartialReason =
   | "detail_failed"
   | "analysis_failed"
   | "stats_stale"
+  | "stats_save_failed"
+  | "history_discovery_failed"
   | "stats_unavailable";
 export type StatsErrorType = "not_found" | "rate_limit" | "server" | "private";
 export type StatsAvailabilityStatus = "ready" | "stale" | "unavailable";
@@ -76,7 +78,9 @@ export interface PlayerStatsResponse {
   banType?: string | null;
   banStatus?: import("@/lib/pubg/banStatus").BanStatus;
   banCheckedAt?: string | null;
-  updatedAt?: string;
+  updatedAt?: string | null;
+  syncStatus?: "cached" | "saved" | "partial" | "save_failed";
+  historyDiscoveryStatus?: "queued" | "failed" | "unknown";
   statsAvailability?: Partial<Record<StatsMode, StatsModeAvailability>>;
   seasonStatsCached?: boolean;
   retryAfterSeconds?: number;

@@ -54,6 +54,22 @@ export function normalizeBasicMatchStat(value: unknown): number | null {
     ? Math.floor(value) : null;
 }
 
+/** Required NOT NULL fields must be observed, not filled with display defaults. */
+export function hasObservedPlayerMatchValues(value: unknown): value is PlayerMatchRecord {
+  if (!value || typeof value !== "object") return false;
+  const row = value as Record<string, unknown>;
+  const integer = (v: unknown, minimum: number) => typeof v === "number"
+    && Number.isSafeInteger(v) && v >= minimum && v <= 2147483647;
+  const knownText = (v: unknown) => typeof v === "string" && Boolean(v.trim())
+    && !["unknown", "unavailable"].includes(v.trim().toLowerCase());
+  return integer(row.kills, 0) && integer(row.win_place, 1)
+    && typeof row.damage === "number" && Number.isFinite(row.damage)
+    && row.damage >= 0 && row.damage <= 2147483647
+    && typeof row.played_at === "string" && Number.isFinite(Date.parse(row.played_at))
+    && knownText(row.game_mode) && knownText(row.map_name)
+    && row.match_type !== "unavailable";
+}
+
 /** Omit unobserved counters from conflict updates; inserts use nullable DB defaults. */
 export function toPlayerMatchWriteRecord(record: PlayerMatchRecord): PlayerMatchRecord {
   const { knocks, survival_time, ...base } = record;
@@ -91,6 +107,7 @@ export async function upsertPlayerMatches(
   options: { ignoreDuplicates?: boolean } = {},
  ): Promise<boolean> {
    if (!records || records.length === 0) return true;
+   if (records.some(record => !hasObservedPlayerMatchValues(record))) return false;
    // PostgREST uses the union of a batch's keys for conflict updates. Group
    // identical column sets so a missing counter never becomes an explicit NULL.
    const batches = new Map<string, PlayerMatchRecord[]>();
@@ -102,9 +119,10 @@ export async function upsertPlayerMatches(
      batches.set(key, batch);
    }
    for (const batch of batches.values()) {
+     const unique = new Map(batch.map(record => [JSON.stringify([record.player_id, record.platform, record.match_id]), record]));
      const { error } = await supabase
        .from("pubg_player_matches")
-       .upsert(batch, { onConflict: "player_id,platform,match_id", ...options });
+       .upsert([...unique.values()], { onConflict: "player_id,platform,match_id", ...options });
      if (error) {
        console.error("[playerMatches] upsert failed:", error.message);
        return false;
