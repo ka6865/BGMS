@@ -317,6 +317,7 @@ export function StatsPageShell({
         error={controllerError}
         suggestedPlayers={suggestedUsers}
         hasResult={Boolean(result)}
+        partialReasons={controller.partialReasons}
         routeBooting={routeLoading}
         retryDisabled={retryDisabled}
         onRetry={handleRetry}

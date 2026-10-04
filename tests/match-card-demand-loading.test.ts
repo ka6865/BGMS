@@ -199,8 +199,10 @@ describe("MatchCard demand loading", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("14일 초과 summary는 성공한 보존 상태로 펼치며 detail 요청·오류·retry가 없다", () => {
-    const fetchMock = vi.fn();
+  it("14일 초과 요약도 펼칠 때 보관된 상세 기록을 요청하고 다시 펼치면 재사용한다", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify({
+      ...matchDetailReady, matchId: "match-demand-1", createdAt: "2020-01-01T00:00:00.000Z",
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
     vi.stubGlobal("fetch", fetchMock);
     renderCard({
       ...matchSummaryFixture,
@@ -209,9 +211,13 @@ describe("MatchCard demand loading", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
 
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByText(/과거 전적/)).toBeInTheDocument();
+    await screen.findByText("팀원 교전 성적");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/보관된 상세 기록과 리플레이/)).toBeInTheDocument();
     expect(screen.queryByText("상세 정보를 불러오지 못했습니다")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "상세 다시 시도" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 접기" }));
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

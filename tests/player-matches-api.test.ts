@@ -14,6 +14,15 @@ describe("GET /api/pubg/player/matches route validation", () => {
 });
 
 describe("buildBasicMatchSummary helper", () => {
+  it('does not invent kills, damage, rank, map, or request time for a missing row', () => {
+    const summary = buildBasicMatchSummary({match_id: 'missing', player_id: 'player', platform: 'steam'});
+    expect(summary.stats.kills).toBeNull();
+    expect(summary.stats.damageDealt).toBeNull();
+    expect(summary.stats.winPlace).toBeNull();
+    expect(summary.createdAt).toBe('');
+    expect(summary.mapName).toBe('');
+    expect(summary.gameMode).toBe('');
+  });
   it.each([[0, 0], [3, 1674], [null, null], [undefined, undefined]])("keeps observed basic stats distinct from missing (%s, %s)", (knocks, survival_time) => {
     const summary = buildBasicMatchSummary({ match_id: 'basic', player_id: 'player', platform: 'steam', knocks, survival_time });
     expect(summary.basicStats).toEqual({ DBNOs: knocks ?? null, timeSurvived: survival_time ?? null });
@@ -33,4 +42,10 @@ describe("buildBasicMatchSummary helper", () => {
     expect(summary.stats.winPlace).toBe(2);
     expect(summary.matchType).toBe("competitive");
   });
+  it('preserves observed fractional damage and zero kills', () => {
+    const summary = buildBasicMatchSummary({match_id: 'm', player_id: 'a', platform: 'steam', kills: 0, damage: 12.75, win_place: 1});
+    expect(summary.stats.kills).toBe(0);
+    expect(summary.stats.damageDealt).toBe(12.75);
+  });
+
 });

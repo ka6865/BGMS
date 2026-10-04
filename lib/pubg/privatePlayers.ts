@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 export { resolvePrivatePlayerAccountId } from "@/lib/pubg/privatePlayerIdentity";
 
 export interface PrivatePlayer {
@@ -44,8 +44,8 @@ function normalizePrivatePlayer(row: unknown): PrivatePlayer | null {
 /**
  * 전역 설정(system_settings)에서 비공개 플레이어 목록을 조회합니다.
  */
-export async function getPrivatePlayersList(): Promise<PrivatePlayer[]> {
-  const supabase = getAdminClient();
+export async function getPrivatePlayersList(client?: SupabaseClient): Promise<PrivatePlayer[]> {
+  const supabase = client ?? getAdminClient();
   const { data, error } = await supabase
     .from("system_settings")
     .select("value")
@@ -60,9 +60,9 @@ export async function getPrivatePlayersList(): Promise<PrivatePlayer[]> {
 }
 
 /** Resolve a local nickname cache identity without contacting PUBG. */
-export async function getCachedPlayerAccountId(platform: string, nickname: string): Promise<string | null> {
+export async function getCachedPlayerAccountId(platform: string, nickname: string, client?: SupabaseClient): Promise<string | null> {
   if (!nickname) return null;
-  const { data, error } = await getAdminClient()
+  const { data, error } = await (client ?? getAdminClient())
     .from("pubg_player_cache")
     .select("id")
     .eq("platform", platform.toLowerCase())
@@ -75,9 +75,9 @@ export async function getCachedPlayerAccountId(platform: string, nickname: strin
 /**
  * 특정 플랫폼/닉네임이 비공개 대상인지 확인합니다.
  */
-export async function isPlayerPrivate(platform: string, nickname: string, accountId?: string): Promise<boolean> {
+export async function isPlayerPrivate(platform: string, nickname: string, accountId?: string, client?: SupabaseClient): Promise<boolean> {
   if (!nickname) return false;
-  const list = await getPrivatePlayersList();
+  const list = await getPrivatePlayersList(client);
   const lowerNick = nickname.trim().toLowerCase();
   const targetPlatform = platform.toLowerCase();
   const targetAccountId = typeof accountId === "string" && ACCOUNT_ID_PATTERN.test(accountId.trim())
@@ -93,7 +93,7 @@ export async function isPlayerPrivate(platform: string, nickname: string, accoun
   // this local mapping is not available.
   let resolvedAccountId = targetAccountId;
   if (!resolvedAccountId && targetPlatform !== "all" && hasStableRegistration) {
-    resolvedAccountId = await getCachedPlayerAccountId(targetPlatform, nickname) ?? "";
+    resolvedAccountId = await getCachedPlayerAccountId(targetPlatform, nickname, client) ?? "";
   }
 
   return scoped.some(

@@ -25,6 +25,7 @@ export const PROTECTED_EXTENSIONS = [
  * 이 파일이 유일한 복구 수단이므로 어떤 정리 작업도 지우지 못하게 합니다.
  */
 export const PROTECTED_KEY_PATTERNS = [
+  /^telemetry-source\//,
   /^telemetry-inventory\//,
   /^backups\//,
 ] as const;

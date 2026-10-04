@@ -499,7 +499,8 @@ describe("telemetry map cache", () => {
     expect(source).toContain("buildTelemetryAnalyzeCacheKey(telemetryIdentity)");
     expect(cacheKeySource).toContain('replace(/\\.json$/, "_analyze.json")');
     expect(source).toContain("downloadFromR2(analyzePath)");
-    expect(source).toMatch(/uploadToR2\(\s*analyzePath/);
+    expect(source).toContain("writeSharedTelemetrySource(matchData, platform, telData)");
+    expect(source).not.toMatch(/uploadToR2\(\s*analyzePath/);
     expect(source).not.toMatch(/getPresignedUrlFromR2\s*\(\s*analyzePath/);
     expect(source).not.toMatch(/NextResponse[^\n]*analyzePath/);
   });
@@ -516,7 +517,7 @@ describe("telemetry map cache", () => {
   it("nickname은 정규화 비교하고 canonical name으로 engine을 실행한다", () => {
     const source = fs.readFileSync(path.resolve("app/api/pubg/telemetry/route.ts"), "utf8");
 
-    expect(source).toContain("normalizeName(p.attributes.stats.name) === lowerNickname");
+    expect(source).toContain("normalizeName(stats?.name) === nickname");
     expect(source).toMatch(/new AnalysisEngine\(\s*canonicalNickname,/);
   });
 });

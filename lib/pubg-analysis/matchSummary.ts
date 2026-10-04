@@ -51,9 +51,13 @@ export function buildBasicMatchSummary(row: {
   knocks?: number | null;
   survival_time?: number | null;
 }): MatchSummaryData {
-  const kills = row.kills ?? 0;
-  const damage = Math.floor(row.damage ?? 0);
-  const winPlace = row.win_place ?? 99;
+  // MatchData is also the legacy full-analysis UI type. Missing basic values
+  // are null on the wire rather than invented numeric observations.
+  const kills = normalizeBasicMatchStat(row.kills) as number;
+  const damage = (typeof row.damage === "number" && Number.isFinite(row.damage)
+    && row.damage >= 0 && row.damage <= 2147483647 ? row.damage : null) as number;
+  const winPlace = (typeof row.win_place === "number" && row.win_place >= 1
+    ? normalizeBasicMatchStat(row.win_place) : null) as number;
 
   return {
     matchId: row.match_id,
@@ -67,10 +71,10 @@ export function buildBasicMatchSummary(row: {
       damageDealt: damage,
       playerId: row.player_id,
     },
-    mapName: row.map_name || "Baltic_Main",
-    mapId: row.map_name || "Baltic_Main",
-    createdAt: row.played_at ?? row.created_at ?? new Date().toISOString(),
-    gameMode: row.game_mode || "squad",
+    mapName: row.map_name || "",
+    mapId: row.map_name || "",
+    createdAt: [row.played_at, row.created_at].find(value => typeof value === "string" && Number.isFinite(Date.parse(value))) || "",
+    gameMode: row.game_mode || "",
     matchType: row.match_type || "unknown",
     totalTeams: 0,
     totalPlayers: 0,
@@ -89,6 +93,9 @@ export function buildBasicMatchSummary(row: {
 
 export function buildMatchSummary(fullResult: any): MatchSummaryData | null {
   if (!fullResult) return null;
+  if (fullResult.matchType === "unavailable" || normalizeBasicMatchStat(fullResult.stats?.kills) === null
+    || normalizeBasicMatchStat(fullResult.stats?.damageDealt) === null
+    || normalizeBasicMatchStat(fullResult.stats?.winPlace) === null || fullResult.stats.winPlace < 1) return null;
 
   const stats = {
     ...EMPTY_STATS,

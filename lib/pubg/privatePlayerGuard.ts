@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { isPlayerPrivate } from "@/lib/pubg/privatePlayers";
 import { resolveCachedPlayerAccountId } from "@/lib/pubg/privatePlayerCache";
 import { resolvePrivatePlayerAccountId } from "@/lib/pubg/privatePlayerIdentity";
@@ -14,10 +15,13 @@ export async function blockPrivatePlayer(
   platform: string,
   nickname: string,
   accountId?: string,
-  options?: { resolveAccountId?: PrivatePlayerIdentityResolver; lookupUpstream?: boolean },
+  options?: { resolveAccountId?: PrivatePlayerIdentityResolver; lookupUpstream?: boolean; client?: SupabaseClient },
 ): Promise<NextResponse | null> {
   try {
-    if (await isPlayerPrivate(platform, nickname, accountId)) {
+    const checkPrivate = (resolvedId?: string) => options?.client
+      ? isPlayerPrivate(platform, nickname, resolvedId, options.client)
+      : isPlayerPrivate(platform, nickname, resolvedId);
+    if (await checkPrivate(accountId)) {
       return NextResponse.json(
         { error: "비공개 플레이어입니다.", code: "private_player" },
         { status: 403, headers: { "Cache-Control": "private, no-store" } },
@@ -31,7 +35,7 @@ export async function blockPrivatePlayer(
       // that have no local account mapping at all.
       const cachedAccountId = await resolveCachedPlayerAccountId(platform, nickname);
       if (cachedAccountId) {
-        if (await isPlayerPrivate(platform, nickname, cachedAccountId)) {
+        if (await checkPrivate(cachedAccountId)) {
           return NextResponse.json(
             { error: "비공개 플레이어입니다.", code: "private_player" },
             { status: 403, headers: { "Cache-Control": "private, no-store" } },
@@ -40,7 +44,7 @@ export async function blockPrivatePlayer(
         return null;
       }
       const resolvedAccountId = await resolveAccountId();
-      if (resolvedAccountId && await isPlayerPrivate(platform, nickname, resolvedAccountId)) {
+      if (resolvedAccountId && await checkPrivate(resolvedAccountId)) {
         return NextResponse.json(
           { error: "비공개 플레이어입니다.", code: "private_player" },
           { status: 403, headers: { "Cache-Control": "private, no-store" } },

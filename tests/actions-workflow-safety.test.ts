@@ -8,19 +8,26 @@ const workflowFiles = readdirSync(workflowDirectory).filter((file) => file.endsW
 
 describe("GitHub Actions workflow permissions and action pins", () => {
   it("grants only read access and pins every workflow action to a verified full SHA", () => {
-    expect(workflowFiles).toHaveLength(9);
+    expect(workflowFiles.length).toBeGreaterThan(0);
+    expect(workflowFiles).toContain("pr-verify.yml");
     for (const file of workflowFiles) {
       const source = readFileSync(join(workflowDirectory, file), "utf8");
       expect(source, file).toMatch(/^permissions:\n  contents: read$/m);
       expect(source, file).not.toMatch(/uses:\s*[^\s@]+@v\d+/);
       expect(source, file).not.toMatch(/actions\/(?:checkout|setup-node)@v4/);
+      for (const action of source.matchAll(/uses:\s*([^\s#]+)/g)) {
+        expect(action[1], file).toMatch(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+@[0-9a-f]{40}$/);
+      }
 
       const checkoutUses = [...source.matchAll(/uses:\s*actions\/checkout@([0-9a-f]{40})\s+#\s+v([\d.]+)/g)];
       const setupNodeUses = [...source.matchAll(/uses:\s*actions\/setup-node@([0-9a-f]{40})\s+#\s+v([\d.]+)/g)];
+      const artifactUses = [...source.matchAll(/uses:\s*actions\/upload-artifact@([0-9a-f]{40})\s+#\s+v([\d.]+)/g)];
       for (const match of checkoutUses) expect(match[1]).toBe("3d3c42e5aac5ba805825da76410c181273ba90b1");
       for (const match of setupNodeUses) expect(match[1]).toBe("820762786026740c76f36085b0efc47a31fe5020");
+      for (const match of artifactUses) expect(match[1]).toBe("043fb46d1a93c77aae656e7c1c64a875d1fc6a0a");
       expect(checkoutUses.length, file).toBe((source.match(/uses:\s*actions\/checkout@/g) ?? []).length);
       expect(setupNodeUses.length, file).toBe((source.match(/uses:\s*actions\/setup-node@/g) ?? []).length);
+      expect(artifactUses.length, file).toBe((source.match(/uses:\s*actions\/upload-artifact@/g) ?? []).length);
       if (checkoutUses.length) expect(source.match(/persist-credentials: false/g)).toHaveLength(checkoutUses.length);
     }
   });

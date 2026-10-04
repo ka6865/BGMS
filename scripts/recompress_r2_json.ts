@@ -1,273 +1,690 @@
 /**
- * @fileoverview 이미 저장된 R2 JSON 캐시를 gzip 으로 재압축합니다.
+ * Safely gzip existing JSON objects in bounded R2 batches.
  *
- * 압축 도입 이전에 저장된 텔레메트리 캐시가 비압축 상태로 남아 있습니다.
- * 실측 기준 gzip 으로 약 94% 절감되므로, 무료 한도를 넘긴 상황에서
- * 기존 객체를 재압축하면 즉시 사용량을 줄일 수 있습니다.
- *
- * 안전 장치:
- *   - 이미지 자산은 r2DeletionGuard 의 보호 규칙과 동일한 기준으로 제외합니다.
- *   - JSON 이 아닌 객체, 이미 gzip 인 객체는 건너뜁니다.
- *   - 내려받은 내용을 JSON 으로 파싱해 유효성을 확인한 뒤에만 재업로드합니다.
- *   - 재업로드 후 다시 내려받아 원본과 일치하는지 검증합니다.
- *   - 검증에 실패하면 원본을 그대로 복원하고 해당 객체를 실패로 기록합니다.
- *
- * 기본은 dry-run 입니다. 실제 재압축은 `--apply` 를 명시해야 수행됩니다.
+ * Dry-run reads a bounded sample and measures actual gzip output. Apply saves
+ * each original locally before an ETag-conditional replacement, verifies the
+ * exact bytes, and only rolls back conditionally against the replacement ETag.
  */
-
-import { resolve } from "node:path";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, open } from "node:fs/promises";
+import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { S3Client, ListObjectsV2Command, GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
-import { compressJsonText, decodeMaybeGzip } from "../lib/pubg-analysis/r2Service";
+import {
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+  S3Client,
+} from "@aws-sdk/client-s3";
+import { config as loadDotenv } from "dotenv";
+import { gunzipSync, gzipSync } from "node:zlib";
+import { compressJsonText } from "../lib/pubg-analysis/r2Service";
 import { inspectDeletionKey } from "../lib/pubg-analysis/r2DeletionGuard";
+import { sealRecoveryBytes } from "./r2_recovery_archive";
 
-// 한 번 실행에서 처리할 최대 객체 수. 중단·재실행이 가능하도록 제한합니다.
-export const RECOMPRESS_BATCH_LIMIT = 500;
+export const RECOMPRESS_BATCH_LIMIT = 20;
+export const RECOMPRESS_CONCURRENCY = 2;
 
-// 동시 처리 수. 객체 하나당 다운로드·업로드·검증 왕복이 3회 발생하므로
-// 순차 처리 시 대량 객체에 과도한 시간이 걸립니다.
-export const RECOMPRESS_CONCURRENCY = 12;
+const DEFAULT_MAX_PAGES = 1;
+const DEFAULT_PAGE_SIZE = 100;
+const DEFAULT_MAX_DURATION_MS = 60_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 12_000;
+const DEFAULT_MAX_OBJECT_BYTES = 25 * 1024 * 1024;
+const MAX_PAGES = 100;
+const MAX_PAGE_SIZE = 1000;
+const MAX_OBJECTS = 5000;
+const MAX_DURATION_MS = 15 * 60_000;
+const MAX_CONCURRENCY = 4;
+const MAX_OBJECT_BYTES = 100 * 1024 * 1024;
 
-export type RecompressCandidate = {
-  key: string;
-  sizeBytes: number;
-};
+export type RecompressCandidate = { key: string; sizeBytes: number };
 
 export type RecompressResult = {
-  scannedObjects: number;
-  jsonObjects: number;
-  alreadyCompressed: number;
-  skippedByGuard: number;
-  candidates: number;
-  candidateBytes: number;
-  processed: number;
-  savedBytes: number;
-  failed: Array<{ key: string; message: string }>;
-  remaining: number;
+  scannedObjects: number; scannedBytes: number; prefixBytes: number; pages: number;
+  truncated: boolean; nextCursor: string | null; inventoryOnly: boolean;
+  groups: RecompressGroup[]; inventory?: InventoryObject[];
+  jsonObjects: number; skippedByGuard: number; objectsRead: number; gzipCount: number;
+  alreadyCompressed: number; notWorthCompressing: number; estimatedSavedBytes: number;
+  processed: number; savedBytes: number; recoveryBytes: number; estimatedRecoveryBytes: number;
+  netSavedBytes: number; durableBackupKeys: string[]; conflicts: number; ambiguous: number;
+  failed: Array<{ key: string; code: string }>;
   dryRun: boolean;
 };
 
-type S3Like = Pick<S3Client, "send">;
+type S3Like = { send(command: unknown, options?: { abortSignal?: AbortSignal }): Promise<unknown> };
+type InventoryObject = { key: string; sizeBytes: number; etag?: string; lastModified?: string; storageClass?: string };
+type RecompressGroup = { group: string; objects: number; bytes: number; jsonObjects: number };
+type ObjectHeaders = { ContentType?: string; ContentEncoding?: string; CacheControl?: string; ContentDisposition?: string; ContentLanguage?: string; Expires?: Date; WebsiteRedirectLocation?: string; StorageClass?: string; Metadata?: Record<string, string> };
+type ReadObject = { bytes: Buffer; etag?: string; headers: ObjectHeaders };
+type CursorPayload = { version: 1; prefix: string; startAfter: string };
 
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
-  if (bytes >= 1024 ** 2) return `${(bytes / 1024 ** 2).toFixed(0)} MB`;
-  return `${(bytes / 1024).toFixed(0)} KB`;
+export function isRecompressTarget(key: string): boolean {
+  return inspectDeletionKey(key).allowed && key.toLowerCase().endsWith(".json");
 }
 
-/**
- * 재압축 대상 여부를 판정합니다.
- * 이미지 보호 규칙을 그대로 적용하고, JSON 확장자만 허용합니다.
- */
-export function isRecompressTarget(key: string): boolean {
-  // 이미지 및 보호 경로는 삭제 가드와 동일 기준으로 제외한다.
-  if (!inspectDeletionKey(key).allowed) return false;
-  return key.toLowerCase().endsWith(".json");
+function positiveInt(value: unknown, name: string, fallback: number, max: number): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > max) {
+    throw new Error(`invalid-argument:${name}`);
+  }
+  return value;
+}
+
+function encodeCursor(cursor: CursorPayload): string {
+  return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
+}
+
+function decodeCursor(value: string | undefined, prefix: string): CursorPayload | undefined {
+  if (!value) return undefined;
+  if (value.length > 8_000) throw new Error("invalid-argument:cursor-too-large");
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as CursorPayload;
+    if (parsed.version !== 1 || parsed.prefix !== prefix || typeof parsed.startAfter !== "string" || parsed.startAfter.length > 1024) throw new Error();
+    return parsed;
+  } catch {
+    throw new Error("invalid-argument:cursor");
+  }
+}
+
+function responseHeaders(value: Record<string, unknown>): ObjectHeaders {
+  const headers: ObjectHeaders = {};
+  for (const key of ["ContentType", "ContentEncoding", "CacheControl", "ContentDisposition", "ContentLanguage", "WebsiteRedirectLocation", "StorageClass"] as const) {
+    const item = value[key];
+    if (typeof item === "string") headers[key] = item;
+  }
+  if (value.Expires instanceof Date) headers.Expires = value.Expires;
+  if (value.Metadata && typeof value.Metadata === "object") {
+    headers.Metadata = { ...(value.Metadata as Record<string, string>) };
+  }
+  return headers;
+}
+
+function safeErrorCode(error: unknown): string {
+  if (error instanceof Error && ["timeout", "object_too_large", "empty_body", "list_cursor_missing", "missing_etag", "verify_etag_mismatch", "verify_bytes_mismatch", "recovery_backup_verify_failed", "apply_budget_reserved_for_recovery"].includes(error.message)) {
+    return error.message;
+  }
+  const value = error as { name?: unknown; Code?: unknown; code?: unknown; $metadata?: { httpStatusCode?: number } };
+  const status = value?.$metadata?.httpStatusCode;
+  if (status === 412 || value?.name === "PreconditionFailed" || value?.Code === "PreconditionFailed") return "precondition_failed";
+  if (value?.name === "AbortError" || value?.name === "TimeoutError") return "timeout";
+  if (typeof status === "number" && status >= 500) return "upstream_5xx";
+  if (typeof status === "number" && status >= 400) return `upstream_${status}`;
+  const code = value?.name ?? value?.Code ?? value?.code;
+  if (typeof code === "string" && /^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(code)) return code.toLowerCase();
+  return "request_failed";
+}
+
+function throwIfDeadline(deadline: number): void {
+  if (Date.now() >= deadline) throw new Error("timeout");
+}
+
+async function sendBounded<T>(
+  client: S3Like,
+  command: unknown,
+  deadline: number,
+  requestTimeoutMs: number,
+): Promise<T> {
+  throwIfDeadline(deadline);
+  const controller = new AbortController();
+  const timeoutMs = Math.max(1, Math.min(requestTimeoutMs, deadline - Date.now()));
+  let timer!: ReturnType<typeof setTimeout>;
+  const timedOut = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort(new Error("timeout"));
+      reject(new Error("timeout"));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([client.send(command, { abortSignal: controller.signal }) as Promise<T>, timedOut]);
+  } catch (error) {
+    if (controller.signal.aborted) throw new Error("timeout");
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function readObject(
   client: S3Like,
   bucket: string,
   key: string,
-): Promise<{ bytes: Buffer; contentEncoding?: string }> {
-  const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: key })) as {
-    Body?: AsyncIterable<Uint8Array>;
-    ContentEncoding?: string;
-  };
-  if (!response.Body) throw new Error("본문이 비어 있습니다.");
-
+  deadline: number,
+  requestTimeoutMs: number,
+  maxObjectBytes: number,
+  ifMatch?: string,
+): Promise<ReadObject> {
+  const requestDeadline = Math.min(deadline, Date.now() + requestTimeoutMs);
+  const response = await sendBounded<Record<string, unknown>>(
+    client,
+    new GetObjectCommand({ Bucket: bucket, Key: key, ...(ifMatch ? { IfMatch: ifMatch } : {}) }),
+    requestDeadline,
+    requestTimeoutMs,
+  );
+  if (!response.Body || typeof (response.Body as AsyncIterable<Uint8Array>)[Symbol.asyncIterator] !== "function") {
+    throw new Error("empty_body");
+  }
+  const controller = new AbortController();
   const chunks: Buffer[] = [];
-  for await (const chunk of response.Body) chunks.push(Buffer.from(chunk));
-  return { bytes: Buffer.concat(chunks), contentEncoding: response.ContentEncoding };
+  let total = 0;
+  const bodyStream = response.Body as { destroy?: (error?: Error) => void };
+  const timer = setTimeout(() => {
+    controller.abort();
+    bodyStream.destroy?.(new Error("timeout"));
+  }, Math.max(1, requestDeadline - Date.now()));
+  try {
+    for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
+      if (controller.signal.aborted || Date.now() >= requestDeadline) throw new Error("timeout");
+      const bytes = Buffer.from(chunk);
+      total += bytes.length;
+      if (total > maxObjectBytes) throw new Error("object_too_large");
+      chunks.push(bytes);
+    }
+  } catch (error) {
+    if (controller.signal.aborted || Date.now() >= requestDeadline) throw new Error("timeout");
+    bodyStream.destroy?.();
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    if (controller.signal.aborted) await (response.Body as { destroy?: (error?: Error) => void }).destroy?.();
+  }
+  return {
+    bytes: Buffer.concat(chunks, total),
+    etag: typeof response.ETag === "string" ? response.ETag : undefined,
+    headers: responseHeaders(response),
+  };
+}
+
+function putHeaders(headers: ObjectHeaders, compressed: boolean): Record<string, unknown> {
+  return {
+    ...(headers.ContentType ? { ContentType: headers.ContentType } : {}),
+    ...(compressed ? { ContentEncoding: "gzip" } : headers.ContentEncoding ? { ContentEncoding: headers.ContentEncoding } : {}),
+    ...(headers.CacheControl ? { CacheControl: headers.CacheControl } : {}),
+    ...(headers.ContentDisposition ? { ContentDisposition: headers.ContentDisposition } : {}),
+    ...(headers.ContentLanguage ? { ContentLanguage: headers.ContentLanguage } : {}),
+    ...(headers.Expires ? { Expires: headers.Expires } : {}),
+    ...(headers.WebsiteRedirectLocation ? { WebsiteRedirectLocation: headers.WebsiteRedirectLocation } : {}),
+    ...(headers.StorageClass ? { StorageClass: headers.StorageClass } : {}),
+    ...(headers.Metadata ? { Metadata: headers.Metadata } : {}),
+  };
+}
+
+async function persistRecoveryOriginal(
+  backupDir: string,
+  bucket: string,
+  key: string,
+  original: ReadObject,
+): Promise<string> {
+  if (!original.etag) throw new Error("missing_etag");
+  const root = resolve(backupDir);
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  const digest = createHash("sha256").update(`${bucket}\0${key}`).digest("hex");
+  const originalPath = resolve(root, `${digest}.original`);
+  const file = await open(originalPath, "wx", 0o600);
+  try {
+    await file.writeFile(original.bytes);
+    await file.sync();
+  } finally {
+    await file.close();
+  }
+  const manifestPath = resolve(root, "manifest.jsonl");
+  const manifest = await open(manifestPath, "a", 0o600);
+  try {
+    await manifest.writeFile(`${JSON.stringify({
+      version: 1,
+      bucket,
+      key,
+      etag: original.etag,
+      originalPath,
+      headers: original.headers,
+      recordedAt: new Date().toISOString(),
+    })}\n`);
+    await manifest.sync();
+  } finally {
+    await manifest.close();
+  }
+  const directory = await open(root, "r");
+  try {
+    await directory.sync();
+  } finally {
+    await directory.close();
+  }
+  return originalPath;
 }
 
 export async function runR2Recompression(options: {
   apply?: boolean;
   limit?: number;
+  maxObjects?: number;
+  maxPages?: number;
+  pageSize?: number;
+  maxDurationMs?: number;
+  requestTimeoutMs?: number;
+  maxObjectBytes?: number;
+  concurrency?: number;
+  prefix?: string;
+  cursor?: string;
+  startAfter?: string;
+  inventoryOnly?: boolean;
+  json?: boolean;
+  recoveryDir?: string;
+  durableRecoveryPrefix?: string;
   env?: Record<string, string | undefined>;
+  client?: S3Like;
+  createClient?: (config: { endpoint: string; accessKeyId: string; secretAccessKey: string }) => S3Like;
   write?: (message: string) => void;
 } = {}): Promise<RecompressResult> {
-  const env = options.env ?? process.env;
-  const write = options.write ?? ((message: string) => console.info(message));
   const apply = options.apply === true;
-  const limit = Math.max(1, Math.min(options.limit ?? RECOMPRESS_BATCH_LIMIT, 5000));
-
+  const write = options.json ? (() => undefined) : options.write ?? ((message: string) => console.info(message));
+  const prefix = options.prefix ?? "";
+  if (typeof prefix !== "string" || prefix.length > 1024 || prefix.includes("\0")) throw new Error("invalid-argument:prefix");
+  const limit = positiveInt(options.limit ?? options.maxObjects, "limit", RECOMPRESS_BATCH_LIMIT, MAX_OBJECTS);
+  if (options.limit !== undefined && options.maxObjects !== undefined && options.limit !== options.maxObjects) {
+    throw new Error("invalid-argument:limit");
+  }
+  const maxPages = positiveInt(options.maxPages, "max-pages", DEFAULT_MAX_PAGES, MAX_PAGES);
+  const pageSize = positiveInt(options.pageSize, "page-size", DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
+  const maxDurationMs = positiveInt(options.maxDurationMs, "max-duration-ms", DEFAULT_MAX_DURATION_MS, MAX_DURATION_MS);
+  const requestTimeoutMs = positiveInt(options.requestTimeoutMs, "request-timeout-ms", DEFAULT_REQUEST_TIMEOUT_MS, DEFAULT_MAX_DURATION_MS);
+  const maxObjectBytes = positiveInt(options.maxObjectBytes, "max-object-bytes", DEFAULT_MAX_OBJECT_BYTES, MAX_OBJECT_BYTES);
+  const concurrency = positiveInt(options.concurrency, "concurrency", RECOMPRESS_CONCURRENCY, MAX_CONCURRENCY);
+  if (options.recoveryDir && !isAbsolute(options.recoveryDir)) throw new Error("invalid-argument:recovery-dir-must-be-absolute");
+  const durableRecoveryPrefix = options.durableRecoveryPrefix;
+  if (durableRecoveryPrefix !== undefined && (!durableRecoveryPrefix.startsWith("backups/r2-recompression/")
+    || durableRecoveryPrefix.includes("..") || durableRecoveryPrefix.includes("\\")
+    || durableRecoveryPrefix.includes("\0") || !durableRecoveryPrefix.endsWith("/"))) {
+    throw new Error("invalid-argument:durable-recovery-prefix");
+  }
+  if (options.startAfter !== undefined && (options.startAfter.length > 1024 || options.startAfter.includes("\0"))) {
+    throw new Error("invalid-argument:start-after");
+  }
+  const decodedCursor = decodeCursor(options.cursor, prefix);
+  if (decodedCursor && (!decodedCursor.startAfter.startsWith(prefix) || (options.startAfter && decodedCursor.startAfter !== options.startAfter))) {
+    throw new Error("invalid-argument:start-after-cursor-mismatch");
+  }
+  const env = options.env ?? process.env;
+  const recoverySecret = env.R2_RECOVERY_ARCHIVE_KEY;
+  if (apply && !durableRecoveryPrefix) throw new Error("durable-recovery-prefix-required");
+  if ((apply || durableRecoveryPrefix) && !recoverySecret?.trim()) throw new Error("r2-recovery-secret-missing");
   const endpoint = env.CLOUDFLARE_R2_ENDPOINT?.trim();
   const accessKeyId = env.CLOUDFLARE_R2_ACCESS_KEY_ID?.trim();
   const secretAccessKey = env.CLOUDFLARE_R2_SECRET_ACCESS_KEY?.trim();
   const bucket = env.CLOUDFLARE_R2_BUCKET_NAME?.trim();
-
-  if (!endpoint || !accessKeyId || !secretAccessKey || !bucket) {
+  if (!options.client && (!endpoint || !accessKeyId || !secretAccessKey || !bucket)) {
     throw new Error("r2-recompress-credentials-missing");
   }
+  if (!bucket) throw new Error("r2-recompress-credentials-missing");
 
-  const s3 = new S3Client({
-    region: "auto",
-    endpoint,
-    credentials: { accessKeyId, secretAccessKey },
-    forcePathStyle: true,
-  });
-
-  // 1단계: 대상 후보 수집
-  const candidates: RecompressCandidate[] = [];
-  let scanned = 0;
-  let jsonObjects = 0;
-  let skippedByGuard = 0;
-  let continuationToken: string | undefined;
-
-  do {
-    const response = await s3.send(new ListObjectsV2Command({
-      Bucket: bucket,
-      ContinuationToken: continuationToken,
-      MaxKeys: 1000,
-    })) as {
-      Contents?: Array<{ Key?: string; Size?: number }>;
-      IsTruncated?: boolean;
-      NextContinuationToken?: string;
-    };
-
-    for (const item of response.Contents ?? []) {
-      scanned += 1;
-      const key = item.Key ?? "";
-      if (!key) continue;
-
-      if (!inspectDeletionKey(key).allowed) {
-        skippedByGuard += 1;
-        continue;
-      }
-      if (!isRecompressTarget(key)) continue;
-
-      jsonObjects += 1;
-      candidates.push({ key, sizeBytes: item.Size ?? 0 });
-    }
-
-    continuationToken = response.IsTruncated ? response.NextContinuationToken : undefined;
-  } while (continuationToken);
-
-  // 큰 객체부터 처리해 조기 효과를 극대화한다.
-  candidates.sort((left, right) => right.sizeBytes - left.sizeBytes);
-
+  const s3: S3Like = options.client ?? options.createClient?.({ endpoint: endpoint!, accessKeyId: accessKeyId!, secretAccessKey: secretAccessKey! })
+    ?? new S3Client({
+      region: "auto",
+      endpoint,
+      credentials: { accessKeyId: accessKeyId!, secretAccessKey: secretAccessKey! },
+      forcePathStyle: true,
+      maxAttempts: 1,
+    });
+  const deadline = Date.now() + maxDurationMs;
+  const recoveryReserveMs = apply ? Math.min(requestTimeoutMs, Math.max(1, Math.floor(maxDurationMs * 0.25))) : 0;
+  const mutationDeadline = deadline - recoveryReserveMs;
   const result: RecompressResult = {
-    scannedObjects: scanned,
-    jsonObjects,
+    scannedObjects: 0,
+    scannedBytes: 0,
+    prefixBytes: 0,
+    pages: 0,
+    truncated: false,
+    nextCursor: null,
+    inventoryOnly: options.inventoryOnly === true,
+    groups: [],
+    ...(options.inventoryOnly ? { inventory: [] } : {}),
+    jsonObjects: 0,
+    skippedByGuard: 0,
+    objectsRead: 0,
+    gzipCount: 0,
     alreadyCompressed: 0,
-    skippedByGuard,
-    candidates: candidates.length,
-    candidateBytes: candidates.reduce((sum, entry) => sum + entry.sizeBytes, 0),
+    notWorthCompressing: 0,
+    estimatedSavedBytes: 0,
     processed: 0,
     savedBytes: 0,
+    recoveryBytes: 0,
+    estimatedRecoveryBytes: 0,
+    netSavedBytes: 0,
+    durableBackupKeys: [],
+    conflicts: 0,
+    ambiguous: 0,
     failed: [],
-    remaining: 0,
     dryRun: !apply,
   };
 
-  write(`스캔 객체: ${scanned.toLocaleString()}개`);
-  write(`보호 자산 제외: ${skippedByGuard.toLocaleString()}개`);
-  write(`JSON 후보: ${candidates.length.toLocaleString()}개 / ${formatBytes(result.candidateBytes)}`);
-
-  if (!apply) {
-    write(`dry-run 이므로 재압축하지 않았습니다. 실제 실행은 --apply 를 사용하세요.`);
-    write(`이번 실행 처리 예정: 최대 ${limit.toLocaleString()}개`);
-    return result;
-  }
-
-  // 2단계: 재압축
-  const targets = candidates.slice(0, limit);
-
-  /** 객체 하나를 재압축합니다. 검증 실패 시 원본을 복원합니다. */
-  const recompressOne = async (candidate: RecompressCandidate): Promise<void> => {
-    const { bytes, contentEncoding } = await readObject(s3, bucket, candidate.key);
-
-    // 이미 gzip 이면 건너뛴다. 매직 넘버와 헤더 둘 다 확인한다.
-    const isGzip = (bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b)
-      || contentEncoding === "gzip";
-    if (isGzip) {
-      result.alreadyCompressed += 1;
-      return;
-    }
-
-    const text = bytes.toString("utf8");
-
-    // JSON 으로 해석되지 않으면 건드리지 않는다.
-    JSON.parse(text);
-
-    const compressed = compressJsonText(text);
-
-    await s3.send(new PutObjectCommand({
+  const startAfter = decodedCursor?.startAfter ?? options.startAfter;
+  const candidates: RecompressCandidate[] = [];
+  const inventoryCandidates: InventoryObject[] = [];
+  const groupMap = new Map<string, RecompressGroup>();
+  let token: string | undefined;
+  let finished = false;
+  let lastListedKey: string | undefined;
+  while (!finished && result.pages < maxPages
+    && (options.inventoryOnly ? inventoryCandidates.length : candidates.length) < limit) {
+    throwIfDeadline(deadline);
+    const page = await sendBounded<{
+      Contents?: Array<{ Key?: string; Size?: number; ETag?: string; LastModified?: Date; StorageClass?: string }>;
+      IsTruncated?: boolean;
+      NextContinuationToken?: string;
+    }>(s3, new ListObjectsV2Command({
       Bucket: bucket,
-      Key: candidate.key,
-      Body: compressed,
-      ContentType: "application/json",
-      ContentEncoding: "gzip",
-    }));
-
-    // 3단계: 재업로드 결과를 다시 읽어 원본과 대조한다.
-    const verify = await readObject(s3, bucket, candidate.key);
-    if (decodeMaybeGzip(verify.bytes) !== text) {
-      // 검증 실패 시 원본을 복원한다.
-      await s3.send(new PutObjectCommand({
-        Bucket: bucket,
-        Key: candidate.key,
-        Body: bytes,
-        ContentType: "application/json",
-      }));
-      throw new Error("재압축 검증 실패로 원본을 복원했습니다.");
+      Prefix: prefix || undefined,
+      ContinuationToken: token,
+      ...(!token && startAfter ? { StartAfter: startAfter } : {}),
+      MaxKeys: options.inventoryOnly ? Math.min(pageSize, limit - inventoryCandidates.length) : pageSize,
+    }), deadline, requestTimeoutMs);
+    result.pages += 1;
+    for (const item of page.Contents ?? []) {
+      result.scannedObjects += 1;
+      result.prefixBytes += Math.max(0, item.Size ?? 0);
+      result.scannedBytes += Math.max(0, item.Size ?? 0);
+      const key = item.Key ?? "";
+      if (!key) continue;
+      lastListedKey = key;
+      const entry: InventoryObject = {
+        key,
+        sizeBytes: Math.max(0, item.Size ?? 0),
+        ...(item.ETag ? { etag: item.ETag } : {}),
+        ...(item.LastModified instanceof Date ? { lastModified: item.LastModified.toISOString() } : {}),
+        ...(item.StorageClass ? { storageClass: item.StorageClass } : {}),
+      };
+      const directories = key.split("/").slice(0, -1);
+      const groupName = directories.length ? directories.slice(0, 2).join("/") : "(root)";
+      const group = groupMap.get(groupName) ?? { group: groupName, objects: 0, bytes: 0, jsonObjects: 0 };
+      group.objects += 1;
+      group.bytes += entry.sizeBytes;
+      groupMap.set(groupName, group);
+      if (!inspectDeletionKey(key).allowed) {
+        result.skippedByGuard += 1;
+      } else if (isRecompressTarget(key)) {
+        result.jsonObjects += 1;
+        group.jsonObjects += 1;
+        if (!options.inventoryOnly) candidates.push({ key, sizeBytes: entry.sizeBytes });
+      }
+      if (options.inventoryOnly) inventoryCandidates.push(entry);
     }
+    token = page.IsTruncated ? page.NextContinuationToken : undefined;
+    if (page.IsTruncated && !token) throw new Error("list_cursor_missing");
+    finished = !page.IsTruncated;
+    const foundLimit = options.inventoryOnly ? inventoryCandidates.length >= limit : candidates.length >= limit;
+    if (foundLimit) break;
+  }
+  result.groups = [...groupMap.values()].sort((left, right) => left.group.localeCompare(right.group));
 
-    result.processed += 1;
-    result.savedBytes += bytes.length - compressed.length;
+  const entries = options.inventoryOnly ? inventoryCandidates : candidates;
+  const selected = options.inventoryOnly ? [] : candidates.slice(0, limit);
+  const selectedInventory = options.inventoryOnly ? inventoryCandidates.slice(0, limit) : [];
+  const moreListed = Boolean(token) || !finished || entries.length > limit;
+  result.truncated = moreListed;
+  if (options.inventoryOnly) result.inventory = selectedInventory;
+
+  const processOne = async (candidate: RecompressCandidate): Promise<boolean> => {
+    try {
+      throwIfDeadline(deadline);
+      result.objectsRead += 1;
+      const original = await readObject(s3, bucket, candidate.key, apply ? mutationDeadline : deadline, requestTimeoutMs, maxObjectBytes);
+      const isGzip = (original.bytes.length >= 2 && original.bytes[0] === 0x1f && original.bytes[1] === 0x8b)
+        || original.headers.ContentEncoding?.toLowerCase().split(",").map((part) => part.trim()).includes("gzip");
+      if (isGzip) {
+        result.alreadyCompressed += 1;
+        return true;
+      }
+      if (original.headers.ContentEncoding && original.headers.ContentEncoding.toLowerCase() !== "identity") {
+        result.failed.push({ key: candidate.key, code: "unsupported_content_encoding" });
+        return false;
+      }
+      if (!original.etag) {
+        result.failed.push({ key: candidate.key, code: "missing_etag" });
+        return false;
+      }
+      const text = original.bytes.toString("utf8");
+      if (!Buffer.from(text, "utf8").equals(original.bytes)) {
+        result.failed.push({ key: candidate.key, code: "invalid_utf8" });
+        return false;
+      }
+      try {
+        JSON.parse(text);
+      } catch {
+        result.failed.push({ key: candidate.key, code: "invalid_json" });
+        return false;
+      }
+      const compressed = compressJsonText(text);
+      if (compressed.length >= original.bytes.length) {
+        result.notWorthCompressing += 1;
+        return true;
+      }
+      const estimated = original.bytes.length - compressed.length;
+      const recoveryPayload = durableRecoveryPrefix ? Buffer.from(JSON.stringify({
+        version: 1,
+        bucket,
+        key: candidate.key,
+        etag: original.etag,
+        headers: original.headers,
+        originalSha256: createHash("sha256").update(original.bytes).digest("hex"),
+        originalBase64: original.bytes.toString("base64"),
+      })) : undefined;
+      const sealedRecovery = recoveryPayload
+        ? sealRecoveryBytes(gzipSync(recoveryPayload), recoverySecret!)
+        : undefined;
+      if (sealedRecovery) {
+        if (estimated <= sealedRecovery.length) {
+          result.notWorthCompressing += 1;
+          return true;
+        }
+        result.estimatedRecoveryBytes += sealedRecovery.length;
+      }
+      result.gzipCount += 1;
+      result.estimatedSavedBytes += estimated;
+      if (!apply) return true;
+
+      if (Date.now() >= mutationDeadline) throw new Error("apply_budget_reserved_for_recovery");
+      await persistRecoveryOriginal(options.recoveryDir ?? resolve(".r2-recompression-backups", new Date().toISOString().replace(/[:.]/g, "-")), bucket, candidate.key, original);
+      if (Date.now() >= mutationDeadline) throw new Error("apply_budget_reserved_for_recovery");
+      const backupKey = `${durableRecoveryPrefix}${createHash("sha256").update(`${bucket}\0${candidate.key}\0${original.etag}\0${randomUUID()}`).digest("hex")}.enc`;
+      result.durableBackupKeys.push(backupKey);
+      // Count before the request: a lost response may still have stored this immutable object.
+      result.recoveryBytes += sealedRecovery!.length;
+      try {
+        const backupPut = await sendBounded<{ ETag?: string }>(s3, new PutObjectCommand({
+          Bucket: bucket,
+          Key: backupKey,
+          Body: sealedRecovery!,
+          ContentType: "application/octet-stream",
+          IfNoneMatch: "*",
+        }), mutationDeadline, requestTimeoutMs);
+        if (!backupPut.ETag) throw new Error("missing_etag");
+        const backupRead = await readObject(s3, bucket, backupKey, mutationDeadline, requestTimeoutMs,
+          Math.min(200 * 1024 * 1024, maxObjectBytes * 2 + 64 * 1024), backupPut.ETag);
+        if (backupRead.etag !== backupPut.ETag || !backupRead.bytes.equals(sealedRecovery!)) {
+          throw new Error("recovery_backup_verify_failed");
+        }
+      } catch (error) {
+        result.failed.push({ key: candidate.key, code: `recovery_backup_${safeErrorCode(error)}` });
+        return false;
+      }
+      if (Date.now() >= mutationDeadline) throw new Error("apply_budget_reserved_for_recovery");
+      let replacementEtag: string | undefined;
+      try {
+        const putResult = await sendBounded<{ ETag?: string }>(s3, new PutObjectCommand({
+          Bucket: bucket,
+          Key: candidate.key,
+          Body: compressed,
+          ...putHeaders(original.headers, true),
+          IfMatch: original.etag,
+        }), mutationDeadline, requestTimeoutMs);
+        replacementEtag = putResult.ETag;
+        if (!replacementEtag) {
+          result.ambiguous += 1;
+          result.failed.push({ key: candidate.key, code: "put_missing_etag_ambiguous_backup_preserved" });
+          return false;
+        }
+      } catch (error) {
+        if (safeErrorCode(error) === "precondition_failed") {
+          result.conflicts += 1;
+          return true;
+        }
+        result.ambiguous += 1;
+        result.failed.push({ key: candidate.key, code: `put_ambiguous_${safeErrorCode(error)}_backup_preserved` });
+        return false;
+      }
+
+      try {
+        const verified = await readObject(s3, bucket, candidate.key, mutationDeadline, requestTimeoutMs, maxObjectBytes, replacementEtag);
+        if (!verified.etag || verified.etag !== replacementEtag) throw new Error("verify_etag_mismatch");
+        const restoredBytes = verified.bytes[0] === 0x1f && verified.bytes[1] === 0x8b
+          ? gunzipSync(verified.bytes, { maxOutputLength: maxObjectBytes })
+          : verified.bytes;
+        if (!restoredBytes.equals(original.bytes)) throw new Error("verify_bytes_mismatch");
+      } catch (error) {
+        try {
+          await sendBounded(s3, new PutObjectCommand({
+            Bucket: bucket,
+            Key: candidate.key,
+            Body: original.bytes,
+            ...putHeaders(original.headers, false),
+            IfMatch: replacementEtag,
+          }), deadline, requestTimeoutMs);
+          result.failed.push({ key: candidate.key, code: `verify_failed_rollback_attempted_${safeErrorCode(error)}` });
+        } catch (rollbackError) {
+          if (safeErrorCode(rollbackError) === "precondition_failed") result.conflicts += 1;
+          result.failed.push({ key: candidate.key, code: `verify_failed_rollback_not_applied_${safeErrorCode(rollbackError)}` });
+        }
+        return false;
+      }
+      result.processed += 1;
+      result.savedBytes += estimated;
+      return true;
+    } catch (error) {
+      result.failed.push({ key: candidate.key, code: safeErrorCode(error) });
+      return false;
+    }
   };
 
-  // 객체당 왕복이 3회라 순차 처리는 대량에서 지나치게 느리다.
-  // 청크 단위 병렬 처리로 진행하되 실패는 개별 기록해 전체를 중단하지 않는다.
-  for (let index = 0; index < targets.length; index += RECOMPRESS_CONCURRENCY) {
-    const chunk = targets.slice(index, index + RECOMPRESS_CONCURRENCY);
-    const settled = await Promise.allSettled(chunk.map((candidate) => recompressOne(candidate)));
-
-    settled.forEach((outcome, offset) => {
-      if (outcome.status === "rejected") {
-        const reason = outcome.reason;
-        result.failed.push({
-          key: chunk[offset].key,
-          message: reason instanceof Error ? reason.message : String(reason),
-        });
-      }
-    });
-
-    const done = result.processed + result.alreadyCompressed + result.failed.length;
-    if (done % 500 < RECOMPRESS_CONCURRENCY) {
-      write(`  진행: ${result.processed.toLocaleString()}개 완료 / 절감 ${formatBytes(result.savedBytes)}`);
+  const outcomes = Array.from({ length: selected.length }, () => false);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < selected.length) {
+      const index = nextIndex++;
+      outcomes[index] = await processOne(selected[index]);
     }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, selected.length) }, () => worker()));
+
+  let cursorKey: string | undefined;
+  if (options.inventoryOnly) {
+    cursorKey = selectedInventory.at(-1)?.key ?? (moreListed ? lastListedKey : undefined);
+  } else {
+    for (let index = 0; index < outcomes.length; index += 1) {
+      if (!outcomes[index]) break;
+      cursorKey = selected[index].key;
+    }
+    if (outcomes.every(Boolean) && !entries.length) cursorKey = startAfter;
+    if (outcomes.every(Boolean) && entries.length <= limit && moreListed) cursorKey = lastListedKey ?? cursorKey;
+  }
+  if (result.failed.length > 0) result.truncated = true;
+  result.netSavedBytes = apply
+    ? result.savedBytes - result.recoveryBytes
+    : result.estimatedSavedBytes - result.estimatedRecoveryBytes;
+  if (result.truncated) {
+    cursorKey ??= startAfter;
+    if (cursorKey) result.nextCursor = encodeCursor({ version: 1, prefix, startAfter: cursorKey });
   }
 
-  // 이번 실행에서 확인하지 못한 후보 수. limit 로 잘린 뒤 남은 대상만 센다.
-  result.remaining = Math.max(0, candidates.length - targets.length);
-
-  write(`이미 압축됨: ${result.alreadyCompressed.toLocaleString()}개`);
-  write(`재압축 완료: ${result.processed.toLocaleString()}개 / 절감 ${formatBytes(result.savedBytes)}`);
-  if (result.failed.length > 0) {
-    write(`실패: ${result.failed.length.toLocaleString()}개`);
-    result.failed.slice(0, 5).forEach((entry) => write(`  ${entry.key}: ${entry.message}`));
-  }
-  write(`남은 후보: ${result.remaining.toLocaleString()}개 (다음 실행에서 이어서 처리)`);
-
+  write(`목록: ${result.scannedObjects}개 / ${result.pages}페이지 / ${result.prefixBytes} bytes${result.truncated ? " (일부 페이지)" : " (완료)"}`);
+  write(`JSON ${result.jsonObjects}개, 실제 읽기 ${result.objectsRead}개, gzip 대상 ${result.gzipCount}개, 예상 절감 ${result.estimatedSavedBytes} bytes`);
+  if (result.alreadyCompressed) write(`이미 gzip: ${result.alreadyCompressed}개`);
+  if (result.notWorthCompressing) write(`압축 이득 없음: ${result.notWorthCompressing}개`);
+  if (result.processed) write(`교체 검증 완료 ${result.processed}개 / 절감 ${result.savedBytes} bytes`);
+  if (durableRecoveryPrefix) write(`복구 백업 ${result.durableBackupKeys.length}개 / ${apply ? result.recoveryBytes : result.estimatedRecoveryBytes} bytes / 순절감 ${result.netSavedBytes} bytes`);
+  if (result.conflicts) write(`동시 변경 충돌: ${result.conflicts}개`);
+  if (result.ambiguous) write(`결과 불명확(원본 백업 보존): ${result.ambiguous}개`);
+  if (result.failed.length) write(`실패 ${result.failed.length}개 (오류 상세나 URL은 출력하지 않음)`);
+  if (result.nextCursor) write(`다음 cursor: ${result.nextCursor}`);
+  if (!apply) write("dry-run: 선택된 JSON을 읽어 실제 gzip 예상 절감량을 계산했습니다. 객체는 변경하지 않았습니다.");
   return result;
+}
+
+type CliArgs = NonNullable<Parameters<typeof runR2Recompression>[0]>;
+
+export function parseRecompressionArgs(args: string[]): CliArgs {
+  const values = new Map<string, string>();
+  let apply = false;
+  let dryRun = false;
+  let inventoryOnly = false;
+  let json = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const [rawName, inlineValue] = args[i].split("=", 2);
+    if (!rawName.startsWith("--")) throw new Error("invalid-argument:unexpected-value");
+    const name = rawName.slice(2);
+    if (["apply", "dry-run", "inventory-only", "json"].includes(name)) {
+      if (inlineValue !== undefined) throw new Error(`invalid-argument:${name}`);
+      if (name === "apply") apply = true;
+      else if (name === "dry-run") dryRun = true;
+      else if (name === "inventory-only") inventoryOnly = true;
+      else json = true;
+      continue;
+    }
+    const value = inlineValue ?? args[++i];
+    if (!value || value.startsWith("--") || values.has(name)) throw new Error(`invalid-argument:${name}`);
+    if (!["prefix", "limit", "max-objects", "maxObjects", "max-pages", "maxPages", "page-size", "pageSize", "max-duration-ms", "maxDurationMs", "concurrency", "max-object-bytes", "maxObjectBytes", "cursor", "start-after", "recovery-dir", "durable-recovery-prefix"].includes(name)) {
+      throw new Error(`invalid-argument:${name}`);
+    }
+    values.set(name, value);
+  }
+  if (apply && dryRun) throw new Error("invalid-argument:apply-dry-run-conflict");
+  const numeric = (names: string[], max: number) => {
+    const present = names.filter((name) => values.has(name));
+    if (present.length > 1) throw new Error(`invalid-argument:${names[0]}`);
+    const value = present.length ? values.get(present[0]) : undefined;
+    if (value === undefined) return undefined;
+    if (!/^\d+$/.test(value)) throw new Error(`invalid-argument:${names[0]}`);
+    return positiveInt(Number(value), names[0], 1, max);
+  };
+  const recoveryDir = values.get("recovery-dir");
+  if (recoveryDir && !isAbsolute(recoveryDir)) throw new Error("invalid-argument:recovery-dir-must-be-absolute");
+  return {
+    apply, prefix: values.get("prefix"),
+    limit: numeric(["limit", "max-objects", "maxObjects"], MAX_OBJECTS),
+    maxPages: numeric(["max-pages", "maxPages"], MAX_PAGES),
+    pageSize: numeric(["page-size", "pageSize"], MAX_PAGE_SIZE),
+    maxDurationMs: numeric(["max-duration-ms", "maxDurationMs"], MAX_DURATION_MS),
+    concurrency: numeric(["concurrency"], MAX_CONCURRENCY),
+    maxObjectBytes: numeric(["max-object-bytes", "maxObjectBytes"], MAX_OBJECT_BYTES),
+    cursor: values.get("cursor"), startAfter: values.get("start-after"), inventoryOnly, json, recoveryDir,
+    durableRecoveryPrefix: values.get("durable-recovery-prefix"),
+  };
 }
 
 const isDirectRun = Boolean(process.argv[1])
   && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
 
 if (isDirectRun) {
-  const apply = process.argv.includes("--apply");
-  const limitArg = process.argv.find((arg) => arg.startsWith("--limit="));
-  const limit = limitArg ? Number.parseInt(limitArg.split("=")[1], 10) : undefined;
-
-  runR2Recompression({ apply, limit: Number.isFinite(limit) ? limit : undefined })
-    .catch((error: unknown) => {
-      const detail = error instanceof Error
-        ? `${error.message}${error.stack ? `\n${error.stack}` : ""}`
-        : String(error);
-      console.error(`R2 재압축 실패: ${detail}`);
+  loadDotenv({ path: resolve(process.cwd(), ".env.local"), quiet: true, override: false });
+  const wantsJson = process.argv.slice(2).includes("--json");
+  try {
+    const args = parseRecompressionArgs(process.argv.slice(2));
+    runR2Recompression(args).then((result) => {
+      if (args.json) console.log(JSON.stringify(result));
+      if (result.failed.length > 0) process.exitCode = 1;
+    }).catch((error: unknown) => {
+      const code = safeErrorCode(error);
+      if (args.json) {
+        console.log(JSON.stringify({
+          scannedObjects: 0, scannedBytes: 0, prefixBytes: 0, pages: 0, groups: [], truncated: false, nextCursor: null,
+          savedBytes: 0, estimatedSavedBytes: 0, failed: [{ code }],
+        }));
+      } else console.error(`R2 재압축 실패: ${code}`);
       process.exitCode = 1;
     });
+  } catch (error) {
+    const code = safeErrorCode(error);
+    if (wantsJson) {
+      console.log(JSON.stringify({
+        scannedObjects: 0, scannedBytes: 0, prefixBytes: 0, pages: 0, groups: [], truncated: false, nextCursor: null,
+        savedBytes: 0, estimatedSavedBytes: 0, failed: [{ code }],
+      }));
+    } else console.error(`R2 재압축 실패: ${code}`);
+    process.exitCode = 2;
+  }
 }

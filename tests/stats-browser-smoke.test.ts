@@ -879,6 +879,42 @@ describeBrowser("stats browser smoke", () => {
     });
   }, 60_000);
 
+  it.each([
+    {width: 375, height: 667}, {width: 390, height: 844},
+    {width: 430, height: 932}, {width: 1440, height: 900},
+  ])("sync failure notice wraps within the viewport at $width x $height", async (viewport) => {
+    await withStatsBrowserPage({
+      browser, baseUrl, scenarioName: "sync-failure", clock, viewport,
+      run: async ({page, dispatcher}) => {
+        const log = attachRuntimeLog(page);
+        await gotoStatsPage({page, dispatcher, url: baseUrl + "/stats/steam/FixturePlayer"});
+        try {
+          await waitForStatsText({page, dispatcher, text: "불러온 전적을 저장하지 못했습니다"});
+        } catch (error) {
+          console.log(JSON.stringify({kind: "sync-notice-failure", viewport, log,
+            text: await page.$eval("body", body => body.innerText.slice(0, 2000)),
+            records: dispatcher.ledger.records}));
+          throw error;
+        }
+        await waitForStatsText({page, dispatcher, text: "일부 경기가 빠질 수"});
+        const evidence = await page.evaluate(() => {
+          const notice = [...document.querySelectorAll<HTMLElement>('[role="status"]')]
+            .find(element => element.textContent?.includes("불러온 전적을 저장하지 못했습니다"));
+          if (!notice) throw new Error("Missing sync failure notice");
+          const bounds = notice.getBoundingClientRect();
+          return {left: bounds.left, right: bounds.right, width: innerWidth,
+            scrollWidth: notice.scrollWidth, clientWidth: notice.clientWidth, text: notice.innerText};
+        });
+        expect(evidence.left).toBeGreaterThanOrEqual(0);
+        expect(evidence.right).toBeLessThanOrEqual(evidence.width);
+        expect(evidence.scrollWidth).toBeLessThanOrEqual(evidence.clientWidth + 1);
+        expect(log.pageErrors).toEqual([]);
+        dispatcher.ledger.assertNoUnexpected();
+        console.log(JSON.stringify({kind: "sync-notice-layout", viewport, evidence}));
+      },
+    });
+  }, 60_000);
+
   it.each(FUNCTIONAL_VIEWPORTS)("functional ready/double-submit/control flow at %sx%s", async (viewport) => {
     await withStatsBrowserPage({
       browser,
@@ -1273,7 +1309,10 @@ describeBrowser("stats browser smoke", () => {
     });
   }, 90_000);
 
-  it.each(FUNCTIONAL_VIEWPORTS)("13/15/91-day rows keep product expiry behavior at %sx%s", async (viewport) => {
+  it.each([
+    { width: 375, height: 667 }, { width: 390, height: 844 },
+    { width: 430, height: 932 }, { width: 1440, height: 900 },
+  ])("13/15/91-day rows load archived details on demand at %sx%s", async (viewport) => {
     await withStatsBrowserPage({
       browser,
       baseUrl,
@@ -1289,9 +1328,16 @@ describeBrowser("stats browser smoke", () => {
         for (const matchId of ["match-age-13", "match-age-15", "match-age-91"]) {
           await page.click(`[data-compact-match-id="${matchId}"] button[aria-label="매치 상세 펼치기"]`);
         }
-        await waitForStatsText({ dispatcher, page, text: "14일이 경과된 과거 전적입니다" });
-        await waitForDetailSuccess(dispatcher, "ExpiredPlayer", "steam", "match-age-13");
-        expect(dispatcher.ledger.records.filter((record) => record.pathname === "/api/pubg/match" && record.successful)).toHaveLength(1);
+        await waitForStatsText({ dispatcher, page, text: "보관된 상세 기록과 리플레이가 있으면 계속 볼 수 있습니다" });
+        for (const matchId of ["match-age-13", "match-age-15", "match-age-91"]) {
+          await waitForDetailSuccess(dispatcher, "ExpiredPlayer", "steam", matchId);
+          await page.click(`[data-compact-match-id="${matchId}"] button[aria-label="매치 상세 접기"]`);
+          await page.click(`[data-compact-match-id="${matchId}"] button[aria-label="매치 상세 펼치기"]`);
+        }
+        expect(dispatcher.ledger.records.filter((record) => record.pathname === "/api/pubg/match" && record.successful)).toHaveLength(3);
+        expect(log.pageErrors).toEqual([]);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        await page.screenshot({ path: screenshotPath("historical", viewport) });
         await recordScenarioEvidence("expired", viewport, dispatcher, log);
       },
     });

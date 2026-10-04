@@ -7,6 +7,7 @@ import {
   normalizePlayerMatchesPage,
   normalizePlayerMatchHistoryFilter,
   normalizeBasicMatchStat,
+  hasObservedPlayerMatchValues,
 } from "../lib/pubg/playerMatches";
  
  describe("playerMatches helper", () => {
@@ -127,5 +128,25 @@ import {
 
     expect(query.or).toHaveBeenCalledWith(expect.stringContaining("competitive"));
     expect(ranked).toMatchObject({ totalCount: 7, totalPages: 1 });
+  });
+
+  it('reads earlier nicknames by account while limiting legacy rows to the requested name', async () => {
+    const query = { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(),
+      or: vi.fn().mockReturnThis(), order: vi.fn().mockReturnThis(),
+      range: vi.fn().mockResolvedValue({data: [], error: null, count: 192}) };
+    const page = await fetchPlayerMatchesPaginated({from: () => query} as never, 'NewName_', 'steam', 10, 20, 'all', 'account.target');
+    expect(query.or).toHaveBeenCalledWith('account_id.eq.account.target,and(account_id.is.null,player_id.eq."newname_")');
+    expect(query.eq).not.toHaveBeenCalledWith('player_id', expect.anything());
+    expect(query.range).toHaveBeenCalledWith(180, 199);
+    expect(page).toMatchObject({totalCount: 192, totalPages: 10, page: 10});
+  });
+
+  it('requires observed required stats but preserves an official zero', () => {
+    const row = {kills: 0, damage: 0, win_place: 42, played_at: '2026-10-01T00:00:00Z', game_mode: 'duo', map_name: 'Tiger_Main'};
+    expect(hasObservedPlayerMatchValues(row)).toBe(true);
+    for (const key of ['kills', 'damage', 'win_place', 'played_at', 'game_mode', 'map_name']) {
+      expect(hasObservedPlayerMatchValues({...row, [key]: null})).toBe(false);
+    }
+    expect(hasObservedPlayerMatchValues({...row, match_type: 'unavailable'})).toBe(false);
   });
 });
