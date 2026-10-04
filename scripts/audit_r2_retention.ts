@@ -12,7 +12,7 @@ type ObjectEntry = { key: string; bytes: number; etag: string; modified: string 
 const tables: Array<[string, string, string]> = [
   ['match_master_telemetry', 'match_id,storage_path,telemetry_version,created_at', 'match_id'],
   ['telemetry_map_cache_entries', 'id,match_id,platform,player_id,mode,telemetry_version,storage_path,status,created_at,updated_at', 'id'],
-  ['processed_match_telemetry', 'match_id,player_id,platform,created_at,updated_at,version:data->>v,match_info:data->matchInfo', 'match_id,player_id,platform'],
+  ['processed_match_telemetry', 'match_id,player_id,platform,created_at,updated_at', 'match_id,player_id,platform'],
   ['pubg_player_matches', 'match_id,player_id,account_id,platform,played_at', 'match_id,player_id,platform'],
   ['pubg_player_match_discovery', 'match_id,account_id,platform,state,first_seen_at,last_seen_at', 'match_id,account_id,platform'],
   ['match_stats_raw', 'id,match_id,player_id,platform,created_at', 'id'],
@@ -113,6 +113,28 @@ async function main() {
     database[table] = rows;
     console.log(`Read ${table}: ${rows.length} metadata rows.`);
   }
+  const inventoryArchives: Row[] = [];
+  const manifests = objects.filter(item => item.key.startsWith('telemetry-inventory/'));
+  if (manifests.length > 500) throw new Error('audit-manifest-bound');
+  let manifestIndex = 0;
+  await Promise.all(Array.from({ length: 4 }, async () => {
+    while (manifestIndex < manifests.length) {
+      const item = manifests[manifestIndex++];
+      checkBudget();
+      try {
+        if (item.bytes > 65536) throw new Error('manifest-size-bound');
+        const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: item.key, IfMatch: item.etag }), { abortSignal: AbortSignal.timeout(25000) });
+        if (!response.Body || response.ContentLength !== item.bytes || response.ETag !== item.etag) throw new Error('manifest-conflict');
+        const body = Buffer.from(await response.Body.transformToByteArray());
+        if (body.length !== item.bytes || body.length > 65536) throw new Error('manifest-body-bound');
+        const decoded = body[0] === 0x1f && body[1] === 0x8b ? gunzipSync(body, { maxOutputLength: 2097152 }) : body;
+        const parsed = JSON.parse(decoded.toString('utf8'));
+        if (parsed.version !== 1 || !Array.isArray(parsed.objects) || parsed.objects.some((entry: Row) => typeof entry.storagePath !== 'string' && typeof entry.storage_path !== 'string')) throw new Error('manifest-unknown-format');
+        inventoryArchives.push({ key: item.key, etag: item.etag, sha256: sha(body), objects: parsed.objects });
+      } catch { inventoryArchives.push({ key: item.key, error: 'manifest-read-or-parse-failed' }); }
+    }
+  }));
+  console.log(`Read ${inventoryArchives.length} archived inventory manifests.`);
   const samples: Row[] = [];
   const selected = new Map<string, ObjectEntry>();
   const sampleGroups = new Map<string, ObjectEntry[]>();
@@ -160,11 +182,13 @@ async function main() {
   const report = { started, ended, complete: true, readOnly: true, pages, objects: objects.length,
     bytes: objects.reduce((sum, item) => sum + item.bytes, 0), groups,
     tableRows: Object.fromEntries(Object.entries(database).map(([table, rows]) => [table, rows.length])),
-    samples: samples.length, sampleFailures: samples.filter(sample => sample.error).length, atomicSnapshot: false,
+    samples: samples.length, sampleFailures: samples.filter(sample => sample.error).length,
+    manifests: inventoryArchives.length, manifestFailures: inventoryArchives.filter(manifest => manifest.error).length,
+    atomicSnapshot: false,
   };
   const output = env('RUNNER_TEMP');
   const plaintext = join(output, 'r2-retention-private.json.gz');
-  await writeFile(plaintext, gzipSync(JSON.stringify({ report, objects, database, samples })), { mode: 0o600, flag: 'wx' });
+  await writeFile(plaintext, gzipSync(JSON.stringify({ report, objects, database, inventoryArchives, samples })), { mode: 0o600, flag: 'wx' });
   try { await sealRecoveryArchive(plaintext, join(output, 'r2-retention-private.enc'), encryptionKey); }
   finally { await unlink(plaintext); }
   await writeFile(join(output, 'r2-retention-wrapped-key.enc'), wrappedKey, { mode: 0o600, flag: 'wx' });
