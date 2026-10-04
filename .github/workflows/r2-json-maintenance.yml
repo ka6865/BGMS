@@ -1,21 +1,53 @@
-# Temporary diagnostic branch definition. Never merge this replacement into main.
-name: R2 Retention Read-only Audit
+name: R2 JSON Maintenance
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Inventory, estimated savings, or conditional recompression'
+        type: choice
+        options: [inventory, dry-run, apply]
+        default: dry-run
+      prefix:
+        description: 'Object prefix (empty scans the bucket within the page bound)'
+        type: string
+        default: ''
+      limit:
+        description: 'JSON objects to examine, including already compressed objects (1–100)'
+        type: number
+        default: 20
+      max_pages:
+        description: 'Maximum list pages of 1,000 objects (1–100)'
+        type: number
+        default: 10
+      cursor:
+        description: 'Continuation cursor from an incomplete inventory'
+        type: string
+        default: ''
+      start_after:
+        description: 'Last examined key to resume sampling; exclusive with cursor'
+        type: string
+        default: ''
 
 permissions:
   contents: read
 
 concurrency:
-  group: r2-retention-audit
+  group: r2-json-maintenance
   cancel-in-progress: false
 
 jobs:
   inspect:
-    if: ${{ github.ref == 'refs/heads/codex/r2-retention-audit' }}
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
+    env:
+      OP_MODE: ${{ inputs.mode }}
+      OP_PREFIX: ${{ inputs.prefix }}
+      OP_LIMIT: ${{ inputs.limit }}
+      OP_MAX_PAGES: ${{ inputs.max_pages }}
+      OP_CURSOR: ${{ inputs.cursor }}
+      OP_START_AFTER: ${{ inputs.start_after }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -24,30 +56,86 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      - name: Validate bounds
+        run: |
+          node --input-type=module - <<'JS'
+          for (const name of ['OP_LIMIT', 'OP_MAX_PAGES']) {
+            const value = process.env[name] ?? '';
+            if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 100) throw new Error('Invalid operation bound');
+          }
+          if (!['inventory','dry-run','apply'].includes(process.env.OP_MODE)) throw new Error('Invalid operation mode');
+          if (process.env.OP_CURSOR && process.env.OP_START_AFTER) throw new Error('Choose cursor or start_after');
+          JS
       - run: npm ci --ignore-scripts
-      - name: Read object metadata and database references; encrypt private evidence
+      - name: Inspect or recompress bounded JSON
         env:
           CLOUDFLARE_R2_ENDPOINT: ${{ secrets.CLOUDFLARE_R2_ENDPOINT }}
           CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
           CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
           CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
-          RETENTION_VALIDATION_ONLY: 'true'
+          R2_RECOVERY_ARCHIVE_KEY: ${{ secrets.R2_RECOVERY_ARCHIVE_KEY }}
         run: |
           umask 077
-          npx tsx scripts/audit_r2_retention.ts
-          node --input-type=module - <<'JS'
+          effective_limit="$OP_LIMIT"
+          if [ "$OP_MODE" = 'inventory' ]; then effective_limit=5000; fi
+          args=(--json --limit "$effective_limit" --max-pages "$OP_MAX_PAGES" --page-size 1000 --max-duration-ms 180000 --concurrency 2 --max-object-bytes 33554432)
+          if [ -n "$OP_PREFIX" ]; then args+=(--prefix "$OP_PREFIX"); fi
+          if [ -n "$OP_CURSOR" ]; then args+=(--cursor "$OP_CURSOR"); fi
+          if [ -n "$OP_START_AFTER" ]; then args+=(--start-after "$OP_START_AFTER"); fi
+          case "$OP_MODE" in
+            inventory) args+=(--inventory-only) ;;
+            dry-run) args+=(--dry-run) ;;
+            apply)
+              if [ "${#R2_RECOVERY_ARCHIVE_KEY}" -lt 32 ]; then
+                echo '::error::A dedicated recovery encryption key is required before modifying R2.'
+                exit 1
+              fi
+              mkdir -p "$RUNNER_TEMP/r2-recovery"
+              args+=(--apply --recovery-dir "$RUNNER_TEMP/r2-recovery")
+              ;;
+          esac
+          if [ "$OP_MODE" != 'inventory' ]; then
+            args+=(--durable-recovery-prefix "backups/r2-recompression/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/")
+          fi
+          set +e
+          npx tsx scripts/recompress_r2_json.ts "${args[@]}" > "$RUNNER_TEMP/r2-operation.log" 2>&1
+          operation_exit=$?
+          set -e
+          OP_EXIT="$operation_exit" node --input-type=module - <<'JS'
           import fs from 'node:fs';
           import path from 'node:path';
-          const report = fs.readFileSync(path.join(process.env.RUNNER_TEMP, 'r2-retention-summary.json'), 'utf8');
-          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, '```json\n' + report + '\n```\n');
+          const lines = fs.readFileSync(path.join(process.env.RUNNER_TEMP, 'r2-operation.log'),'utf8').split('\n');
+          const line = lines.reverse().find(value => value.trim().startsWith('{'));
+          const result = line ? JSON.parse(line) : { failed: [{ code: 'operation_report_missing' }] };
+          const report = { mode: process.env.OP_MODE, prefix: process.env.OP_PREFIX };
+          for (const key of ['scannedObjects','scannedBytes','prefixBytes','pages','groups','truncated','nextCursor','resumeAfterKey','jsonObjects','alreadyCompressed','candidates','candidateBytes','estimatedSavedBytes','processed','savedBytes','netSavedBytes','recoveryBytes','durableBackupKeys','remaining','dryRun','conflicts','recoveryDir']) {
+            if (key in result) report[key] = result[key];
+          }
+          report.failures = (result.failed ?? []).map(entry => entry.code ?? 'object_operation_failed');
+          fs.writeFileSync(path.join(process.env.RUNNER_TEMP,'r2-report.json'),JSON.stringify(report,null,2),{mode:0o600});
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,'```json\n'+JSON.stringify(report,null,2)+'\n```\n');
+          if (Number(process.env.OP_EXIT) !== 0 || report.failures.length) process.exitCode = 1;
           JS
-      - name: Preserve aggregate report and authenticated ciphertext only
+      - name: Encrypt recovery originals
+        if: ${{ always() && inputs.mode == 'apply' }}
+        env:
+          R2_RECOVERY_ARCHIVE_KEY: ${{ secrets.R2_RECOVERY_ARCHIVE_KEY }}
+        run: |
+          umask 077
+          if [ -d "$RUNNER_TEMP/r2-recovery" ]; then
+            if [ -f "$RUNNER_TEMP/r2-operation.log" ]; then
+              cp "$RUNNER_TEMP/r2-operation.log" "$RUNNER_TEMP/r2-recovery/operation.log"
+            fi
+            tar -czf "$RUNNER_TEMP/r2-recovery.tar.gz" -C "$RUNNER_TEMP/r2-recovery" .
+            npx tsx scripts/r2_recovery_archive.ts seal "$RUNNER_TEMP/r2-recovery.tar.gz" "$RUNNER_TEMP/r2-recovery.enc"
+          fi
+      - name: Preserve measurements and encrypted recovery
+        if: ${{ always() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: r2-retention-audit-${{ github.run_id }}
+          name: r2-json-maintenance-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/r2-retention-summary.json
-            ${{ runner.temp }}/r2-retention-private.enc
-            ${{ runner.temp }}/r2-retention-wrapped-key.enc
-          if-no-files-found: error
+            ${{ runner.temp }}/r2-report.json
+            ${{ runner.temp }}/r2-recovery.enc
+          if-no-files-found: warn
           retention-days: 7
