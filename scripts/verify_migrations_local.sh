@@ -49,7 +49,7 @@ MIGRATIONS=(
   "20261003200721_unique_scoped_pubg_discovery_rpc"
   "20261004050604_pubg_scoped_collection_short_lease"
   "20261004050621_mobile_board_like_atomic"
-  "20261005075606_pubg_collection_database_clock"
+  "20261005081214_pubg_collection_database_clock"
 )
 
 cleanup() {
@@ -110,7 +110,7 @@ echo "▶ prerequisite 스키마 구성"
 
 echo "▶ 신규 migration 적용"
 for migration in "${MIGRATIONS[@]}"; do
-  if [ "$migration" = "20261005075606_pubg_collection_database_clock" ]; then
+  if [ "$migration" = "20261005081214_pubg_collection_database_clock" ]; then
     # The hosted extensions are fixture interfaces here; all application SQL is
     # applied unchanged. Real extension install and delivery need live checks.
     sed '/^create extension if not exists pg_cron /d; /^create extension if not exists pg_net /d' \
