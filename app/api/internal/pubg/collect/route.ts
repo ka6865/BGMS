@@ -1,4 +1,4 @@
-import { authorizeBearerSecret } from '@/lib/server/secretAuth';
+import { authorizeCollectionCronRequest } from '@/lib/pubg/collectionCronAuth';
 import { runScheduledDiscoveryBatch } from '@/lib/pubg/scheduledDiscovery.server';
 
 export const runtime = 'nodejs';
@@ -7,7 +7,7 @@ export const maxDuration = 60;
 /** A fixed, bounded batch. Query parameters and request bodies cannot expand it. */
 export async function POST(request: Request) {
   const headers = { 'Cache-Control': 'no-store' };
-  if (!authorizeBearerSecret(request, ['PUBG_MATCH_COLLECTION_SECRET'])) {
+  if (!authorizeCollectionCronRequest(request)) {
     return Response.json({ ok: false, error: 'unauthorized' }, { status: 401, headers });
   }
   try {

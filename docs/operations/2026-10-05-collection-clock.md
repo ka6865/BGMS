@@ -18,6 +18,8 @@ GitHub 수집은 실행 후 약 5~6분에 성공했지만, 2026-10-05 00:10~05:5
 
 로컬 PostgreSQL 검증은 Cron/Net/Vault의 테스트 인터페이스를 사용한다. 실제 확장 설치·암호화·네트워크 배달은 운영 확인으로 검증하며, 로컬 테스트를 이 검증의 대체로 보고하지 않는다.
 
+운영 설치 확인에서 pg_net 기본 권한으로 DB 역할이 네트워크 함수와 대기 헤더 테이블에 접근 가능한 것을 확인했다. ACL 회수를 시도한 `20261005081741` 이력은 보존하지만, Supabase 관리자 소유 객체여서 실제 권한은 바뀌지 않았다. 외부 익명 Data API의 Net 접근은 실제 406/PGRST106으로 거부되고 Vault의 익명 접근도 거부된다. 최종 호출은 비밀값 원문 대신 요청 시각·메서드·경로에 대한 HMAC 서명을 전송하며 120초 뒤 만료된다. 키는 Vercel/Vault에만 보관하고 queued header에는 넣지 않는다. 기존 점유·저장 확인은 짧은 유효 기간 안의 중복 호출에도 유지된다. 일반 역할의 Net SQL 권한이 회수됐다고 보고하지 않는다.
+
 최대 처리 기회는 하루 28,800작업이다. 실제 처리량은 응답 속도·저장 여부·404 재시도에 따라 달라진다. 자동 실행을 정상화하는 것과 기존 누적 전체가 해소되는 것은 별도 결과다. 특히 공식 API에서 이미 만료된 경기를 이 수정으로 복구했다고 보고하지 않는다.
 
 근거: [GitHub schedule](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule), [Supabase 예약 호출과 Vault](https://supabase.com/docs/guides/functions/schedule-functions).

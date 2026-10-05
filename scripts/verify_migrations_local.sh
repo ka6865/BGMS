@@ -50,6 +50,8 @@ MIGRATIONS=(
   "20261004050604_pubg_scoped_collection_short_lease"
   "20261004050621_mobile_board_like_atomic"
   "20261005081214_pubg_collection_database_clock"
+  "20261005081741_pubg_collection_network_acl"
+  "20261005082711_pubg_collection_signed_requests"
 )
 
 cleanup() {

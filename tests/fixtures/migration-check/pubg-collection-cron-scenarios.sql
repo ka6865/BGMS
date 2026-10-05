@@ -73,7 +73,10 @@ do $$ declare rid bigint; status jsonb; begin
   rid := bgms_private.dispatch_pubg_collection_tick();
   if rid is null or not exists(select 1 from net.test_requests where id=rid
     and url='https://bgms.kr/api/internal/pubg/collect' and body='{}'::jsonb
-    and headers->>'Authorization'='Bearer ' || repeat('a',64) and timeout_milliseconds=55000) then
+    and headers->>'Authorization'='Bearer ' || encode(extensions.hmac(
+      (headers->>'X-BGMS-Collection-Time') || E'\nPOST\n/api/internal/pubg/collect',repeat('a',64),'sha256'),'hex')
+    and headers->>'Authorization' not like '%' || repeat('a',64) || '%'
+    and timeout_milliseconds=55000) then
     raise exception 'FAIL: bounded authenticated clock dispatch';
   end if;
   status := public.pubg_collection_cron_status();

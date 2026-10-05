@@ -4,6 +4,8 @@
 create schema cron;
 create schema net;
 create schema vault;
+create schema if not exists extensions;
+create function extensions.hmac(text,text,text) returns bytea language sql as $$ select public.hmac($1,$2,$3); $$;
 create table cron.job(jobid bigserial primary key,jobname text unique,schedule text,command text,active boolean default true);
 create table cron.job_run_details(jobid bigint,end_time timestamptz);
 create function cron.schedule(text,text,text) returns bigint language sql as $$
@@ -22,3 +24,6 @@ create function net.http_post(url text,body jsonb default '{}',params jsonb defa
 returns bigint language sql as $$
   insert into net.test_requests(url,body,headers,timeout_milliseconds) values($1,$2,$4,$5) returning id;
 $$;
+-- Reproduce hosted defaults so our follow-up ACL migration is exercised.
+grant usage on schema net to public;
+grant select on net.test_requests,net._http_response to public;
