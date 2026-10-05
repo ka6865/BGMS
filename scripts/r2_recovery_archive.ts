@@ -14,6 +14,22 @@ function archiveKey(secret: string): Buffer {
   return createHash('sha256').update('bgms:r2-recovery:v1\0').update(secret).digest();
 }
 
+/** Decrypt one authenticated in-memory recovery object without touching files. */
+export function openRecoveryBytes(input: Buffer, secret: string): Buffer {
+  const headerBytes = MAGIC.length + IV_BYTES;
+  if (!Buffer.isBuffer(input) || input.length <= headerBytes + TAG_BYTES
+    || !input.subarray(0, MAGIC.length).equals(MAGIC)) {
+    throw new Error('r2-recovery-invalid-archive');
+  }
+  const decipher = createDecipheriv('aes-256-gcm', archiveKey(secret), input.subarray(MAGIC.length, headerBytes));
+  decipher.setAAD(MAGIC);
+  decipher.setAuthTag(input.subarray(input.length - TAG_BYTES));
+  return Buffer.concat([
+    decipher.update(input.subarray(headerBytes, input.length - TAG_BYTES)),
+    decipher.final(),
+  ]);
+}
+
 /** Small per-object recovery payloads are encrypted before durable R2 storage. */
 export function sealRecoveryBytes(input: Buffer, secret: string): Buffer {
   const iv = randomBytes(IV_BYTES);
