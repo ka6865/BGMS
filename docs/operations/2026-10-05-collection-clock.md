@@ -8,7 +8,7 @@ GitHub 수집은 실행 후 약 5~6분에 성공했지만, 2026-10-05 00:10~05:5
 
 적용 순서:
 
-1. 마이그레이션 `20261005081214_pubg_collection_database_clock`을 격리 DB에서 검사한 뒤 운영에 적용한다. 설치만으로 예약이 켜지지 않는다. MCP 적용 기록의 실제 버전과 파일명을 맞췄다.
+1. 격리 DB 검사 후 운영에 `20261005081214_pubg_collection_database_clock`, `20261005081741_pubg_collection_network_acl`, `20261005082711_pubg_collection_signed_requests`를 이 순서로 적용한다. 세 이력이 모두 있고 현재 dispatcher가 `extensions.hmac`과 `X-BGMS-Collection-Time`으로 서명을 만드는지 확인한다. 첫 migration만 적용한 상태에서는 활성화하지 않는다. 설치만으로 예약은 켜지지 않으며 MCP 적용 기록과 파일명을 맞췄다.
 2. 전용 비밀값을 Vercel production에 설정하고 코드를 PR/CI를 거쳐 배포한다.
 3. 운영 API의 인증 거부와 인증된 제한 수집 응답을 확인한다.
 4. 별도 보안 env 파일을 지정해 `BGMS_ENV_FILE=/path/to/main/.env.local BGMS_COLLECTION_ENV_FILE=/private/collection.env npx tsx scripts/configure_pubg_collection_cron.ts --apply`로 활성화한다.
