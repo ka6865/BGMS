@@ -108,6 +108,9 @@ fi
 
 echo "▶ prerequisite 스키마 구성"
 "${PSQL[@]}" -f tests/fixtures/migration-check/prerequisites.sql
+
+# Account repair must roll back both records if either live snapshot or account uniqueness changes.
+"${PSQL[@]}" -f tests/fixtures/migration-check/legacy_account_binding_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/pubg-cron-extension-stubs.sql
 
 echo "▶ 신규 migration 적용"

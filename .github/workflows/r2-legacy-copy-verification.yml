@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: 'Read current evidence or compact one proven pair into recovery aliases'
+        description: 'Verify copies, prepare missing account links with backup, or compact one proven pair'
         type: choice
-        options: [verify, apply]
+        options: [verify, prepare-account-links, apply]
         default: verify
       pair:
         description: 'One private target pair index for apply (1–20)'
@@ -56,7 +56,7 @@ jobs:
           node --input-type=module - <<'JS'
           import fs from 'node:fs';
           import path from 'node:path';
-          if (!['verify', 'apply'].includes(process.env.OP_MODE)) throw new Error('Invalid mode');
+          if (!['verify', 'prepare-account-links', 'apply'].includes(process.env.OP_MODE)) throw new Error('Invalid mode');
           const pair = Number(process.env.OP_PAIR);
           if (!Number.isInteger(pair) || pair < 1 || pair > 20) throw new Error('Invalid pair');
           const targets = JSON.parse(process.env.PRIVATE_TARGETS || '{}');
@@ -67,9 +67,14 @@ jobs:
           }
           fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'copy-targets.json'), JSON.stringify(targets), { mode: 0o600 });
           JS
-          args=(--targets "$RUNNER_TEMP/copy-targets.json" --output "$RUNNER_TEMP/copy-private.json")
-          if [ "$OP_MODE" = 'apply' ]; then args+=(--apply --plan-hash "$OP_PLAN_HASH"); fi
-          npx tsx scripts/verify_legacy_match_copies.ts "${args[@]}" > "$RUNNER_TEMP/copy-summary.json"
+          if [ "$OP_MODE" = 'prepare-account-links' ]; then
+            npx tsx scripts/prepare_legacy_account_bindings.ts --targets "$RUNNER_TEMP/copy-targets.json" \
+              --output "$RUNNER_TEMP/account-links.sql" --durable-backup > "$RUNNER_TEMP/copy-summary.json"
+          else
+            args=(--targets "$RUNNER_TEMP/copy-targets.json" --output "$RUNNER_TEMP/copy-private.json")
+            if [ "$OP_MODE" = 'apply' ]; then args+=(--apply --plan-hash "$OP_PLAN_HASH"); fi
+            npx tsx scripts/verify_legacy_match_copies.ts "${args[@]}" > "$RUNNER_TEMP/copy-summary.json"
+          fi
           cat "$RUNNER_TEMP/copy-summary.json"
           cat "$RUNNER_TEMP/copy-summary.json" >> "$GITHUB_STEP_SUMMARY"
       - name: Encrypt private proof
@@ -89,5 +94,6 @@ jobs:
             ${{ runner.temp }}/copy-summary.json
             ${{ runner.temp }}/copy-private.enc
             ${{ runner.temp }}/copy-private.json.journal.enc
+            ${{ runner.temp }}/account-links.sql.enc
           retention-days: 7
           if-no-files-found: ignore
