@@ -49,6 +49,7 @@ MIGRATIONS=(
   "20261003200721_unique_scoped_pubg_discovery_rpc"
   "20261004050604_pubg_scoped_collection_short_lease"
   "20261004050621_mobile_board_like_atomic"
+  "20261005075606_pubg_collection_database_clock"
 )
 
 cleanup() {
@@ -105,10 +106,18 @@ fi
 
 echo "▶ prerequisite 스키마 구성"
 "${PSQL[@]}" -f tests/fixtures/migration-check/prerequisites.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/pubg-cron-extension-stubs.sql
 
 echo "▶ 신규 migration 적용"
 for migration in "${MIGRATIONS[@]}"; do
-  "${PSQL[@]}" -f "supabase/migrations/${migration}.sql"
+  if [ "$migration" = "20261005075606_pubg_collection_database_clock" ]; then
+    # The hosted extensions are fixture interfaces here; all application SQL is
+    # applied unchanged. Real extension install and delivery need live checks.
+    sed '/^create extension if not exists pg_cron /d; /^create extension if not exists pg_net /d' \
+      "supabase/migrations/${migration}.sql" | "${PSQL[@]}"
+  else
+    "${PSQL[@]}" -f "supabase/migrations/${migration}.sql"
+  fi
   echo "  ✅ ${migration}"
 done
 
@@ -118,6 +127,7 @@ echo "▶ RPC 동작 시나리오 실행"
 "${PSQL[@]}" -f tests/fixtures/migration-check/match-discovery-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/scoped-match-discovery-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/mobile-board-likes-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/pubg-collection-cron-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ban-watch-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ban-watch-boundaries.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/membership-lifecycle-scenarios.sql
