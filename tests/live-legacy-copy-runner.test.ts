@@ -33,7 +33,7 @@ vi.mock("@aws-sdk/client-s3", () => ({
 
 vi.mock("@smithy/node-http-handler", () => ({ NodeHttpHandler: class {} }));
 
-vi.mock("@/lib/pubg-analysis/telemetryCacheKey.server", () => ({
+vi.mock("@/lib/pubg-analysis/telemetryCacheKey", () => ({
   buildTelemetryPlayerKey: (accountId: string) => accountId,
 }));
 

@@ -13,7 +13,7 @@ import { buildSharedTelemetrySourceKey, parseSharedTelemetrySource } from "../li
 import { readLegacyCopyRecords, sealLegacyCopyManifest, type LegacyCopyManifest } from "../lib/pubg-analysis/legacyCopyManifest";
 import { filterTelemetryEvents } from "../lib/pubg-analysis/telemetryContract";
 import { parseTelemetryPayload } from "../lib/pubg-analysis/telemetryPayload";
-import { buildTelemetryPlayerKey } from "../lib/pubg-analysis/telemetryCacheKey.server";
+import { buildTelemetryPlayerKey } from "../lib/pubg-analysis/telemetryCacheKey";
 import { TELEMETRY_VERSION } from "../lib/pubg-analysis/constants";
 import { inspectDeletionKey } from "../lib/pubg-analysis/r2DeletionGuard";
 import { recalculateReplayPayload, assertReplayMatchesRecalculation } from "./verify_archived_match_reads";
