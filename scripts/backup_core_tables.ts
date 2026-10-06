@@ -40,6 +40,9 @@ export const BACKUP_TABLES = [
   "map_settings",
   "reports",
   "global_benchmarks",
+  // 14일 만료 후 원본에서 복구할 수 없는 기본 전적과 작은 성과 요약.
+  "pubg_player_matches",
+  "pubg_match_performance",
   // Past-patch samples can outlive recoverable source telemetry. Preserve them.
   "weapon_meta_match_samples",
   "weapon_meta_patches",
@@ -91,8 +94,12 @@ export async function readTableRows(
   for (let from = 0; from <= MAX_ROWS_PER_TABLE; from += PAGE_SIZE) {
     let result;
     try {
-      result = await supabase.from(table).select("*").order(orderColumn)
-        .range(from, from === MAX_ROWS_PER_TABLE ? from : from + PAGE_SIZE - 1)
+      let query = supabase.from(table).select("*");
+      if (table === "pubg_player_matches" || table === "pubg_match_performance") {
+        query = query.order("platform").order("match_id").order(table === "pubg_match_performance" ? "account_id" : "player_id");
+        if (table === "pubg_match_performance") query = query.order("calculation_version").order("result_version");
+      } else query = query.order(orderColumn);
+      result = await query.range(from, from === MAX_ROWS_PER_TABLE ? from : from + PAGE_SIZE - 1)
         .abortSignal(AbortSignal.timeout(30_000));
     } catch {
       return { rows, skipped: from === 0, error: "backup-table-read-failed" };

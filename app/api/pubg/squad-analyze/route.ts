@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSquadAnalysisData } from "@/lib/pubg-analysis/squadAnalysis";
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
+import { isMatchDetailExpired } from "@/lib/pubg-analysis/matchRetention.server";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -20,7 +21,19 @@ export async function GET(request: Request) {
 
   try {
     const data = await getSquadAnalysisData(nickname, platform, groupKey);
-    return NextResponse.json(data, { status: "errorCode" in data && data.errorCode === "PUBG_CALCULATION_UPGRADE_REQUIRED" ? 409 : 200 });
+    if ("errorCode" in data && data.errorCode === "PUBG_CALCULATION_UPGRADE_REQUIRED") {
+      return NextResponse.json(data, { status: 409 });
+    }
+    if ("causeScenes" in data && Array.isArray(data.causeScenes) && Array.isArray(data.matchesSummary)) {
+      const expiredMatchIds = new Set(data.matchesSummary
+        .filter((match: any) => isMatchDetailExpired(match?.createdAt))
+        .map((match: any) => match?.matchId));
+      return NextResponse.json({
+        ...data,
+        causeScenes: data.causeScenes.filter((scene: any) => !expiredMatchIds.has(scene?.matchId)),
+      });
+    }
+    return NextResponse.json(data);
   } catch (error: any) {
     console.error("[SQUAD-ANALYZE-ERROR]", error);
     return NextResponse.json({ error: error.message || "Failed to analyze squad synergy." }, { status: 500 });

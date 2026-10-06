@@ -334,7 +334,8 @@ describe("benchmark recovery R2 payload postcondition verifier", () => {
     const state = verifierStateFixture(identity);
     const payload = Buffer.from(JSON.stringify(telemetryPayloadFixture(identity)), "utf8");
     const body = compressed ? gzipSync(payload) : payload;
-    const readObject = vi.fn(async (key: string) => ({ key, etag: '"etag-valid"', body }));
+    const readObject = vi.fn(async (key: string) => ({ key, etag: '"etag-valid"', body,
+      sizeBytes: body.length, contentType: "application/json", contentEncoding: null }));
     const verifier = createBenchmarkRecoveryR2PostconditionVerifier(readObject);
 
     await expect(verifier(identity, state, state)).resolves.toMatchObject({
@@ -369,7 +370,8 @@ describe("benchmark recovery R2 payload postcondition verifier", () => {
       : variant === "invalid-json"
         ? Buffer.from("not-json", "utf8")
         : canonicalBody;
-    const readObject = vi.fn(async (key: string) => ({ key, etag: '"etag-invalid"', body }));
+    const readObject = vi.fn(async (key: string) => ({ key, etag: '"etag-invalid"', body,
+      sizeBytes: body.length, contentType: "application/json", contentEncoding: null }));
     const verifier = createBenchmarkRecoveryR2PostconditionVerifier(readObject);
 
     await expect(verifier(identity, state, state)).rejects.toThrow();

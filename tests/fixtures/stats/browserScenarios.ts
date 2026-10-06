@@ -482,6 +482,14 @@ export function createStatsBrowserScenario(input: {
       return errorResponse(500, "fixture detail retry");
     }
     const expiredIndex = EXPIRED_MATCH_IDS.indexOf(matchId as typeof EXPIRED_MATCH_IDS[number]);
+    if (input.name === "expired" && expiredIndex > 0) {
+      return jsonResponse(410, {
+        error: "상세 분석과 리플레이 제공 기간이 만료되었습니다. 기본 전적과 저장된 성과는 계속 확인할 수 있습니다.",
+        errorCode: "PUBG_MATCH_DETAIL_EXPIRED",
+        retryable: false,
+        expiresAt: new Date(Date.parse(input.clock.daysAgo([13, 15, 91][expiredIndex] as 13 | 15 | 91)) + 14 * DAY_MS).toISOString(),
+      });
+    }
     return jsonResponse(200, cloneMatchDetailForRequest({ matchId, nickname, clock: input.clock,
       playedAt: input.name === "expired" && expiredIndex >= 0
         ? input.clock.daysAgo([13, 15, 91][expiredIndex] as 13 | 15 | 91) : undefined,

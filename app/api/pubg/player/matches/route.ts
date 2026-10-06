@@ -1,4 +1,5 @@
 import { readPerformanceCache, readPerformanceStates } from "@/lib/pubg/performanceCache";
+import { readRetainedPerformance } from "@/lib/pubg/retainedPerformance";
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
@@ -161,9 +162,10 @@ async function readDiscoveredAccountIds(supabase: ReturnType<typeof getAdminClie
       if (privateResponse) return privateResponse;
     }
     const performances = await readPerformanceCache(supabase, platform, nickname, result.matches.map(m => m.match_id), accountId);
+    const performanceSummaries = await readRetainedPerformance(supabase, platform, nickname, result.matches.map(m => m.match_id), accountId);
     const performanceStates = await readPerformanceStates(supabase, platform, nickname, result.matches.map(m => m.match_id), accountId);
     const historyIngest = accountId ? await readHistoryIngest(supabase, platform, accountId) : null;
-    return NextResponse.json({ ...result, performances, performanceStates, historyIngest }, { headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json({ ...result, performances, performanceSummaries, performanceStates, historyIngest }, { headers: { 'Cache-Control': 'no-store' } });
    } catch (error: any) {
      return NextResponse.json({ error: error.message || "과거 매치 조회 실패" }, { status: 500 });
    }

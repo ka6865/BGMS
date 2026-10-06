@@ -8,7 +8,7 @@ const MAX_JOBS_PER_RUN = 5;
 
 export function performanceSettlement(result: any) {
   const state = result?.rankingEligible === true ? 'done' : 'excluded';
-  return { state, result: state === 'done' ? result : null } as const;
+  return { state, result: state === 'done' || result?.retainedPerformance ? result : null } as const;
 }
 
 export async function runLimitedChild(job: PerformanceJob, timeoutMs = 110_000): Promise<any> {
@@ -45,13 +45,16 @@ async function main() {
   if(process.argv.includes('--calculate')){
     let input='';for await(const chunk of process.stdin)input+=chunk;const job=JSON.parse(input) as PerformanceJob;
     const {getValidFullResultForMatch,hasCurrentCalculation}=await import('../lib/pubg-analysis/cacheIdentity');
-    const cached=await db.from('processed_match_telemetry').select('data').eq('platform',job.platform).eq('player_id',job.player_id).eq('match_id',job.match_id).maybeSingle();
+    const cached=await db.from('processed_match_telemetry').select('match_id,player_id,platform,data').eq('platform',job.platform).eq('player_id',job.player_id).eq('match_id',job.match_id).maybeSingle();
     if(cached.error)throw new Error('cache_read_failed');
     const full=getValidFullResultForMatch(cached.data,{matchId:job.match_id,platform:job.platform,playerId:job.player_id,minResultVersion:RESULT_VERSION,requireExactResultVersion:true});
     const {buildBenchmarkRow}=await import('../lib/pubg-analysis/persistMatchAnalysis');
+    const {buildRetainedPerformanceRow}=await import('../lib/pubg/retainedPerformance');
     if(full && hasCurrentCalculation(full) && (full.stats as Record<string,unknown>)?.playerId===job.account_id && full.populationEvidenceVersion===1 && full.benchmark){
       const row=buildBenchmarkRow({matchId:job.match_id,platform:job.platform,playerNickname:job.player_id,finalResult:full as unknown as PersistedFinalResult,source:'user',forceBenchmark:false});
-      console.log('BGMS_RESULT:'+JSON.stringify({benchmark:full.benchmark,rankingEligible:Boolean(row)}));return;
+      const retainedPerformance = buildRetainedPerformanceRow(full, {matchId:job.match_id,platform:job.platform,playerId:job.player_id});
+      if (!retainedPerformance) throw new Error('performance_summary_invalid');
+      console.log('BGMS_RESULT:'+JSON.stringify({benchmark:full.benchmark,rankingEligible:Boolean(row),retainedPerformance}));return;
     }
     const {relationshipBoundTelemetryAsset,parseOrdinaryTelemetryUrl}=await import('../lib/pubg-analysis/telemetrySource');
     const {preparePerformanceMatch,calculatePerformance}=await import('../lib/pubg/performanceCalculation');

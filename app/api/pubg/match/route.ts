@@ -92,6 +92,8 @@ import {
 } from "@/lib/pubg/databaseCircuitBreaker";
 import { evaluateMatchEligibility } from "@/lib/pubg-analysis/matchEligibility";
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
+import { persistRetainedPerformance } from "@/lib/pubg/retainedPerformance";
+import { canonicalMatchPlayedAt, expiredMatchDetailResponse, isMatchDetailExpired, lookupMatchPlayedAt, resolveTrustedMatchPlayedAt } from "@/lib/pubg-analysis/matchRetention.server";
 
 // [ISR V1.0] force-dynamic 유지: PUBG API 호출, R2 업로드, DB Upsert 등 부수효과 보호
 // unstable_cache는 DB 읽기(캐시 조회) 전용 프록시로만 사용
@@ -643,6 +645,13 @@ const MATCH_TELEMETRY_UNAVAILABLE_MESSAGE =
  * client can render the detail panel as unavailable without treating the
  * saved basic history as lost.
  */
+class MatchDetailExpiredError extends Error {
+  constructor(readonly playedAt: unknown) {
+    super("PUBG_MATCH_DETAIL_EXPIRED");
+    this.name = "MatchDetailExpiredError";
+  }
+}
+
 class MatchTelemetryUnavailableError extends Error {
   readonly errorCode = "PUBG_MATCH_TELEMETRY_UNAVAILABLE";
   readonly status = 404;
@@ -1305,6 +1314,9 @@ export async function GET(request: NextRequest) {
       return benchmarkRecoveryContractResponse();
     }
 
+    let storedPlayedAt: string | null = null;
+    let cachedTrustedPlayedAt: string | null = null;
+
     if (!shouldForce) {
       const cachedData = await getCachedMatchTelemetry(matchId, lowerNickname, platform) as any;
       noteDatabaseAvailable();
@@ -1330,6 +1342,22 @@ export async function GET(request: NextRequest) {
           cachedAccountId ? undefined : { lookupUpstream: true },
         );
         if (cachedPrivateResponse) return cachedPrivateResponse;
+      }
+      if (source === "user") {
+        try {
+          storedPlayedAt = await lookupMatchPlayedAt(supabase, {
+            matchId, platform, playerId: lowerNickname,
+          });
+          noteDatabaseAvailable();
+        } catch (error) {
+          if (isDatabaseUnavailableError(error)) noteDatabaseUnavailable();
+          console.error("[MATCH] Match retention date lookup failed");
+          return databaseUnavailableResponse();
+        }
+      }
+      cachedTrustedPlayedAt = resolveTrustedMatchPlayedAt(storedPlayedAt, canonicalMatchPlayedAt(cachedFullResult));
+      if (source === "user" && isMatchDetailExpired(cachedTrustedPlayedAt)) {
+        return expiredMatchDetailResponse(cachedTrustedPlayedAt);
       }
       if (cachedFullResult && typeof cachedFullResult.v === "number"
         && Number.isFinite(cachedFullResult.v) && cachedFullResult.v <= RESULT_VERSION) {
@@ -1377,13 +1405,6 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    if (!isR2Configured()) {
-      return NextResponse.json(
-        { error: "텔레메트리 캐시 저장소를 사용할 수 없습니다." },
-        { status: 503 },
-      );
-    }
-
     // A negative PUBG result must not hide data preserved after that response.
     failureStage = "analysis";
     analysisStep = "telemetry_r2_read";
@@ -1398,7 +1419,7 @@ export async function GET(request: NextRequest) {
     let matchData: any = savedSource?.matchData;
     if (!matchData) {
       if (!shouldForce && isRecentlyNotFound(platform, matchId)) {
-        if (basicFallbackResult) return NextResponse.json(pseudonymizeTelemetryAccountIds(buildCalculationPendingMatch({ ...basicFallbackResult, matchId })));
+        if (basicFallbackResult && (source !== "user" || cachedTrustedPlayedAt)) return NextResponse.json(pseudonymizeTelemetryAccountIds(buildCalculationPendingMatch({ ...basicFallbackResult, matchId })));
         return matchNotFoundResponse();
       }
       const apiKey = (process.env.PUBG_API_KEY || "").split(" ")[0];
@@ -1412,7 +1433,8 @@ export async function GET(request: NextRequest) {
       upstreamStatus = res.status;
       trackPubgRateLimit(res.headers);
       if (!res.ok) {
-        if (res.status === 404 && basicFallbackResult && !shouldForce && !recoveryAuthorized) {
+        if (res.status === 404 && basicFallbackResult && !shouldForce && !recoveryAuthorized
+          && (source !== "user" || cachedTrustedPlayedAt)) {
           return NextResponse.json(pseudonymizeTelemetryAccountIds(buildCalculationPendingMatch({ ...basicFallbackResult, matchId })));
         }
         throw new Error(`PUBG API Match Load Failed: ${res.status}`);
@@ -1426,6 +1448,13 @@ export async function GET(request: NextRequest) {
       return upstreamIdentityMismatchResponse();
     }
     const matchAttr = matchData.data.attributes;
+    const trustedPlayedAt = resolveTrustedMatchPlayedAt(storedPlayedAt, matchAttr.createdAt);
+    if (!isR2Configured()) {
+      return NextResponse.json(
+        { error: "텔레메트리 캐시 저장소를 사용할 수 없습니다." },
+        { status: 503 },
+      );
+    }
 
     const participants = matchData.included.filter((it: any) => it.type === "participant");
     const rosters = matchData.included.filter((it: any) => it.type === "roster");
@@ -1441,6 +1470,9 @@ export async function GET(request: NextRequest) {
     if (source === "user") {
       const accountPrivateResponse = await blockPrivatePlayer(platform, myParticipant.attributes.stats.name, myAccountId);
       if (accountPrivateResponse) return accountPrivateResponse;
+    }
+    if (source === "user" && isMatchDetailExpired(trustedPlayedAt)) {
+      return expiredMatchDetailResponse(trustedPlayedAt);
     }
     const canonicalNickname = myParticipant.attributes.stats.name;
 
@@ -1551,6 +1583,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(finalResponse);
 
   } catch (err: unknown) {
+    if (err instanceof MatchDetailExpiredError) return expiredMatchDetailResponse(err.playedAt);
     if (err instanceof MatchTelemetryUnavailableError) {
       return matchTelemetryUnavailableResponse();
     }
@@ -1967,6 +2000,9 @@ async function reanalyzeAndSave(
 
   try {
   if (!recoveryAuthorized && !savedSource && hasFreshWholeSource) {
+    if (source === "user" && isMatchDetailExpired(matchAttr.createdAt)) {
+      throw new MatchDetailExpiredError(matchAttr.createdAt);
+    }
     markAnalysisStep("telemetry_r2_upload");
     // A player's older full envelope has no whole-corpus provenance. Continue
     // reading it for that player, but share only a freshly verified raw asset.
@@ -2189,6 +2225,9 @@ async function reanalyzeAndSave(
     let mayPersistDerivedStats = true;
     markAnalysisStep("telemetry_cache_finalize");
     try {
+      if (source === "user" && isMatchDetailExpired(matchAttr.createdAt)) {
+        throw new MatchDetailExpiredError(matchAttr.createdAt);
+      }
       await writeTelemetryMapCache(telemetryIdentity, telemetryPayload, {
         ...cacheDeps,
         finalize: (row) => finalizeTelemetryMapCacheLifecycle(supabase, {
@@ -2209,6 +2248,10 @@ async function reanalyzeAndSave(
         // Ignore in non-Next execution contexts
       }
     } catch (error) {
+      if (error instanceof MatchDetailExpiredError) {
+        await releaseReservationOnce();
+        throw error;
+      }
       markAnalysisStep("telemetry_cache_persistence");
       if (isDatabaseUnavailableError(error)) {
         mayPersistDerivedStats = false;
@@ -2222,6 +2265,9 @@ async function reanalyzeAndSave(
     }
 
     if (mayPersistDerivedStats) {
+      if (source === "user" && isMatchDetailExpired(matchAttr.createdAt)) {
+        throw new MatchDetailExpiredError(matchAttr.createdAt);
+      }
       try {
         const persistenceResult = await persistMatchAnalysis(supabase, persistenceInput);
 
@@ -2234,7 +2280,22 @@ async function reanalyzeAndSave(
       } catch {
         console.error("[MATCH] 파생 통계 저장 중 예외 발생");
       }
+      if (source === "user" && isMatchDetailExpired(matchAttr.createdAt)) {
+        throw new MatchDetailExpiredError(matchAttr.createdAt);
+      }
+      try {
+        const retained = await persistRetainedPerformance(supabase, persistenceInput.finalResult, {
+          matchId, platform, playerId: lowerNickname,
+        });
+        if (!retained) console.warn("[MATCH] 장기 경기 성과 저장을 건너뛰었습니다.");
+      } catch {
+        console.error("[MATCH] 장기 경기 성과 저장 중 예외 발생");
+      }
     }
+  }
+
+  if (source === "user" && !recoveryAuthorized && isMatchDetailExpired(matchAttr.createdAt)) {
+    throw new MatchDetailExpiredError(matchAttr.createdAt);
   }
 
   const allParticipantNames = participants

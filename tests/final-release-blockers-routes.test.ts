@@ -83,8 +83,8 @@ const canonicalSquadData = {
   bestMatchCount: 2,
   selectedMatchIds: ["match-2", "match-1"],
   matchesSummary: [
-    { matchId: "match-2", mapName: "Baltic_Main", winPlace: 2, createdAt: "2026-09-01T00:00:00.000Z" },
-    { matchId: "match-1", mapName: "Baltic_Main", winPlace: 4, createdAt: "2026-08-31T00:00:00.000Z" },
+    { matchId: "match-2", mapName: "Baltic_Main", winPlace: 2, createdAt: new Date(Date.now() - 86_400_000).toISOString() },
+    { matchId: "match-1", mapName: "Baltic_Main", winPlace: 4, createdAt: new Date(Date.now() - 2 * 86_400_000).toISOString() },
   ],
   stats: {
     avgIsolation: 1.1,
@@ -119,12 +119,15 @@ function configuredSupabase(cacheResult: any = { data: null, error: null }) {
 function configuredAnalyzeSupabase(cacheResult: any, canonicalResult: any) {
   const cache = queryChain(cacheResult);
   const telemetry = queryChain(canonicalResult);
+  const history = queryChain({ data: { played_at: new Date(Date.now() - 86_400_000).toISOString() }, error: null });
   return {
     cache,
     telemetry,
+    history,
     supabase: { from: vi.fn((table: string) => {
       if (table === "match_ai_coaching_cache") return cache;
       if (table === "processed_match_telemetry") return telemetry;
+      if (table === "pubg_player_matches") return history;
       throw new Error(`unexpected table ${table}`);
     }) },
   };
@@ -200,7 +203,7 @@ describe("AI squad release blockers", () => {
         },
       },
     };
-    const { supabase, cache, telemetry } = configuredAnalyzeSupabase(
+    const { supabase, cache, telemetry, history } = configuredAnalyzeSupabase(
       { data: { ai_result: { text: "old cached answer" } }, error: null },
       { data: oldCanonicalRow, error: null },
     );
@@ -219,6 +222,7 @@ describe("AI squad release blockers", () => {
       retryable: true,
     });
     expect(telemetry.select).toHaveBeenCalled();
+    expect(history.select).toHaveBeenCalledWith("played_at");
     expect(cache.select).not.toHaveBeenCalled();
     expect(mockGenerateContent).not.toHaveBeenCalled();
   });

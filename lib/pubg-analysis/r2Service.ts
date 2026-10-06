@@ -11,6 +11,9 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { NodeHttpHandler } from '@smithy/node-http-handler';
 import { gzipSync, gunzipSync } from 'node:zlib';
 import { partitionDeletionKeys, type DeletionGuardReason } from './r2DeletionGuard';
+import { buildSharedTelemetrySourceKey, parseSharedTelemetrySource } from './sharedTelemetrySourceContract';
+import { getMatchDetailRetention } from './matchRetention';
+import { buildTelemetryAnalyzeCacheKey, buildTelemetryCacheKey } from './telemetryCacheKey';
 
 let r2ClientInstance: S3Client | null = null;
 
@@ -45,6 +48,9 @@ export type R2DeletionResult = {
 export type R2ObjectVerificationRead = {
   key: string;
   etag: string;
+  sizeBytes: number;
+  contentType: string | null;
+  contentEncoding: string | null;
   body: Buffer;
 };
 
@@ -53,6 +59,8 @@ export type R2RecoveryUploadResult = {
   etag: string;
   bodySha256: string;
 };
+
+export type R2ListedObject = { key: string; sizeBytes: number; etag: string };
 
 // S3 DeleteObjects API 의 1회 요청 상한.
 const DELETE_REQUEST_CHUNK = 1000;
@@ -417,18 +425,21 @@ export async function downloadBufferFromR2(key: string): Promise<Buffer | null> 
  * successful verification. The HEAD ETag must be present and, when returned
  * by GET, must match the same immutable object.
  */
-export async function readObjectForVerification(key: string): Promise<R2ObjectVerificationRead | null> {
+export async function readObjectForVerification(
+  key: string,
+  options: { maxBytes?: number } = {},
+): Promise<R2ObjectVerificationRead | null> {
   if (!isR2Configured()) {
     throw new Error("r2-credentials-missing");
   }
 
   const bucket = getBucketName();
-  let head: { ETag?: string };
+  let head: { ETag?: string; ContentLength?: number; ContentType?: string; ContentEncoding?: string };
   try {
     head = await getR2Client().send(new HeadObjectCommand({
       Bucket: bucket,
       Key: key,
-    })) as { ETag?: string };
+    })) as typeof head;
   } catch (error: any) {
     if (error?.name === "NotFound"
       || error?.name === "NoSuchKey"
@@ -441,8 +452,15 @@ export async function readObjectForVerification(key: string): Promise<R2ObjectVe
 
   const etag = typeof head.ETag === "string" ? head.ETag.trim() : "";
   if (!etag) throw new Error("r2-verification-etag-missing");
+  const sizeBytes = head.ContentLength;
+  if (!Number.isSafeInteger(sizeBytes) || (sizeBytes as number) < 0) {
+    throw new Error("r2-verification-size-missing");
+  }
+  if (options.maxBytes !== undefined && (sizeBytes as number) > options.maxBytes) {
+    throw new Error("r2-verification-size-limit");
+  }
 
-  let response: { ETag?: string; Body?: { transformToByteArray(): Promise<Uint8Array> } };
+  let response: { ETag?: string; ContentLength?: number; ContentType?: string; ContentEncoding?: string; Body?: { transformToByteArray(): Promise<Uint8Array> } };
   try {
     response = await getR2Client().send(new GetObjectCommand({
       Bucket: bucket,
@@ -461,7 +479,209 @@ export async function readObjectForVerification(key: string): Promise<R2ObjectVe
   const getEtag = typeof response.ETag === "string" ? response.ETag.trim() : "";
   if (getEtag && getEtag !== etag) throw new Error("r2-verification-etag-changed");
   const bytes = await response.Body.transformToByteArray();
-  return { key, etag, body: Buffer.from(bytes) };
+  const body = Buffer.from(bytes);
+  if (body.length !== sizeBytes || (response.ContentLength !== undefined && response.ContentLength !== sizeBytes)) {
+    throw new Error("r2-verification-size-changed");
+  }
+  return {
+    key,
+    etag,
+    sizeBytes: sizeBytes as number,
+    contentType: response.ContentType ?? head.ContentType ?? null,
+    contentEncoding: response.ContentEncoding ?? head.ContentEncoding ?? null,
+    body,
+  };
+}
+
+/**
+ * The ordinary deletion guard protects every telemetry-source object. This
+ * narrow path permits only the canonical shared source for an expired match,
+ * after checking the database-derived account snapshot gate and the source's
+ * own match identity/date again. R2 has no verified conditional-delete contract
+ * here, so a concurrent replacement between the final GET and DELETE remains
+ * a small, explicit race window.
+ */
+export async function deleteExpiredMatchSourceFromR2(input: {
+  matchId: string;
+  platform: "steam" | "kakao";
+  playedAt: string;
+  referencedAccountIds: string[];
+  preservedAccountIds: string[];
+  noActiveWork: boolean;
+  expectedEtag: string;
+  expectedSizeBytes: number;
+  expectedSha256: string;
+  now?: number;
+}): Promise<{ deleted: boolean; key: string }> {
+  const key = buildSharedTelemetrySourceKey(input.matchId, input.platform);
+  const retention = getMatchDetailRetention(input.playedAt, input.now);
+  const refs = [...new Set(input.referencedAccountIds)];
+  const preserved = new Set(input.preservedAccountIds);
+  if (retention.status !== "expired" || !input.noActiveWork || refs.length === 0
+    || refs.some((id) => !/^account\.[A-Za-z0-9_-]+$/.test(id) || !preserved.has(id))
+    || !/^\"?[^\"]+\"?$/.test(input.expectedEtag)
+    || !Number.isSafeInteger(input.expectedSizeBytes) || input.expectedSizeBytes <= 0
+    || !/^[a-f0-9]{64}$/.test(input.expectedSha256)) {
+    throw new Error("r2-match-retention-source-proof-invalid");
+  }
+
+  const object = await readObjectForVerification(key);
+  if (!object) throw new Error("r2-match-retention-source-missing");
+  const hash = createHash("sha256").update(object.body).digest("hex");
+  if (object.etag !== input.expectedEtag || object.sizeBytes !== input.expectedSizeBytes
+    || hash !== input.expectedSha256) {
+    throw new Error("r2-match-retention-source-changed");
+  }
+  let source;
+  try {
+    source = parseSharedTelemetrySource(JSON.parse(decodeMaybeGzip(object.body)), input.matchId, input.platform);
+  } catch {
+    source = null;
+  }
+  const sourceDate = source?.matchData?.data?.attributes?.createdAt;
+  const participants = source?.matchData?.included?.filter((participant: any) => participant?.type === "participant") ?? [];
+  const participantIds = new Set<string>(participants.map((participant: any) =>
+    participant?.attributes?.stats?.playerId || participant?.attributes?.accountId).filter((id: unknown): id is string => typeof id === "string"));
+  if (!source || typeof sourceDate !== "string" || Date.parse(sourceDate) !== Date.parse(input.playedAt)
+    || refs.some((id) => !participantIds.has(id))) {
+    throw new Error("r2-match-retention-source-identity-invalid");
+  }
+
+  // S3 DeleteObjects has no If-Match condition in the Cloudflare R2 path used
+  // here. Keep this single-key request immediately adjacent to the verified GET.
+  const response = await getR2Client().send(new DeleteObjectsCommand({
+    Bucket: getBucketName(),
+    Delete: { Objects: [{ Key: key }], Quiet: true },
+  }));
+  if (response.Errors?.length) throw new Error("r2-match-retention-source-delete-failed");
+  const after = await readObjectForVerification(key);
+  if (after) throw new Error("r2-match-retention-source-delete-unverified");
+  return { deleted: true, key };
+}
+
+/** Lists only a bounded root prefix; callers must still match complete keys to DB identities. */
+export async function listR2ObjectsByPrefix(
+  prefix: string,
+  options: { maxPages: number; maxObjects: number },
+): Promise<{ objects: R2ListedObject[]; pages: number; truncated: boolean }> {
+  if (!isR2Configured()) throw new Error("r2-credentials-missing");
+  if (!/^[A-Za-z0-9._-]{1,160}_$/.test(prefix) || prefix.includes("..")
+    || !Number.isInteger(options.maxPages) || options.maxPages < 1 || options.maxPages > 20
+    || !Number.isInteger(options.maxObjects) || options.maxObjects < 1 || options.maxObjects > 20) {
+    throw new Error("r2-prefix-list-bound-invalid");
+  }
+  const objects: R2ListedObject[] = [];
+  let token: string | undefined;
+  let pages = 0;
+  let truncated = false;
+  do {
+    const response = await getR2Client().send(new ListObjectsV2Command({
+      Bucket: getBucketName(),
+      Prefix: prefix,
+      MaxKeys: Math.min(1000, Math.max(1, options.maxObjects - objects.length)),
+      ContinuationToken: token,
+    }));
+    pages += 1;
+    for (const item of response.Contents ?? []) {
+      if (objects.length >= options.maxObjects) { truncated = true; break; }
+      if (typeof item.Key !== "string" || !Number.isSafeInteger(item.Size) || typeof item.ETag !== "string") continue;
+      objects.push({ key: item.Key, sizeBytes: item.Size as number, etag: item.ETag });
+    }
+    token = response.IsTruncated ? response.NextContinuationToken : undefined;
+    if (token && (pages >= options.maxPages || objects.length >= options.maxObjects)) truncated = true;
+  } while (token && !truncated);
+  return { objects, pages, truncated };
+}
+
+/** One-object 14-day cache deletion with a fresh exact-key HEAD/GET immediately before DELETE. */
+export async function deleteExpiredPersonalMatchObjectFromR2(input: {
+  kind: "personal-map" | "personal-analysis" | "legacy-analysis";
+  key: string;
+  matchId: string;
+  platform: "steam" | "kakao";
+  accountId: string;
+  playerId: string;
+  mode?: "lite" | "full";
+  telemetryVersion: number;
+  playedAt: string;
+  now?: number;
+  compactSnapshotPreserved: boolean;
+  noActiveWork: boolean;
+  expectedEtag: string;
+  expectedSizeBytes: number;
+  expectedSha256: string;
+}): Promise<{ deleted: boolean }> {
+  const retention = getMatchDetailRetention(input.playedAt, input.now);
+  const accountIdValid = /^account\.[A-Za-z0-9_-]+$/.test(input.accountId);
+  let expectedKey = "";
+  try {
+    if (input.kind === "legacy-analysis") {
+      const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      expectedKey = new RegExp(`^${escape(input.matchId)}_${escape(input.playerId.trim().toLowerCase())}_v${input.telemetryVersion}_analyze\\.json$`)
+        .test(input.key) ? input.key : "";
+    } else {
+      if (!input.mode) throw new Error("identity");
+      const identity = { matchId: input.matchId, platform: input.platform, playerId: input.accountId,
+        mode: input.mode, telemetryVersion: input.telemetryVersion };
+      expectedKey = input.kind === "personal-map"
+        ? buildTelemetryCacheKey(identity) : buildTelemetryAnalyzeCacheKey(identity);
+    }
+  } catch { expectedKey = ""; }
+  if (retention.status !== "expired" || !accountIdValid || !input.compactSnapshotPreserved
+    || !input.noActiveWork || !expectedKey || expectedKey !== input.key
+    || !input.expectedEtag.trim() || !Number.isSafeInteger(input.expectedSizeBytes)
+    || input.expectedSizeBytes <= 0 || input.expectedSizeBytes > 32 * 1024 * 1024
+    || !/^[a-f0-9]{64}$/.test(input.expectedSha256)) {
+    throw new Error("r2-match-retention-personal-proof-invalid");
+  }
+  const latest = await readObjectForVerification(input.key, { maxBytes: 32 * 1024 * 1024 });
+  if (!latest || latest.etag !== input.expectedEtag || latest.sizeBytes !== input.expectedSizeBytes
+    || createHash("sha256").update(latest.body).digest("hex") !== input.expectedSha256) {
+    throw new Error("r2-match-retention-personal-object-changed");
+  }
+
+  // R2's current compatibility table does not document conditional DELETE.
+  // The cleanup caller therefore relies on expired-writer blocking, freshly
+  // rechecked leases/DB state, and this immediately preceding exact GET. A
+  // concurrent writer in the request gap remains a narrow race.
+  const result = await deleteObjectsFromR2([input.key], { dryRun: false });
+  if (result.deletedCount !== 1 || result.failed.length || result.blocked.length) {
+    throw new Error("r2-match-retention-personal-delete-failed");
+  }
+  if (await readObjectForVerification(input.key, { maxBytes: 32 * 1024 * 1024 })) {
+    throw new Error("r2-match-retention-personal-delete-unverified");
+  }
+  return { deleted: true };
+}
+
+/** Restore an exact encrypted-artifact object without overwriting a concurrent replacement. */
+export async function restoreR2ObjectFromRetentionBackup(input: {
+  key: string;
+  body: Buffer;
+  sha256: string;
+  contentType: string | null;
+  contentEncoding: string | null;
+}): Promise<void> {
+  if (createHash("sha256").update(input.body).digest("hex") !== input.sha256) {
+    throw new Error("r2-match-retention-restore-backup-invalid");
+  }
+  if (!isR2Configured()) throw new Error("r2-credentials-missing");
+  try {
+    await getR2Client().send(new PutObjectCommand({
+      Bucket: getBucketName(),
+      Key: input.key,
+      Body: input.body,
+      ContentType: input.contentType ?? "application/octet-stream",
+      ...(input.contentEncoding ? { ContentEncoding: input.contentEncoding } : {}),
+      IfNoneMatch: "*",
+    }));
+  } catch (error: any) {
+    if (error?.name !== "PreconditionFailed" && error?.$metadata?.httpStatusCode !== 412) throw error;
+  }
+  const restored = await readObjectForVerification(input.key, { maxBytes: 32 * 1024 * 1024 });
+  if (!restored || createHash("sha256").update(restored.body).digest("hex") !== input.sha256) {
+    throw new Error("r2-match-retention-restore-readback-failed");
+  }
 }
 
 /**

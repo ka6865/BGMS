@@ -709,6 +709,7 @@ export function useStatsPageController(
       const data = await response.json() as {
         matches?: PlayerMatchRecord[];
         performances?: Record<string, MatchSummaryData["benchmark"]>;
+        performanceSummaries?: Record<string, MatchSummaryData>;
         performanceStates?: Record<string, MatchSummaryData["performanceState"]>;
         page?: number;
         totalCount?: number;
@@ -724,6 +725,13 @@ export function useStatsPageController(
       if (data.performances) {
         const scored = normalizeSummaryMap(Object.fromEntries(incoming.filter(r => hasObservedPlayerMatchValues(r) && data.performances?.[r.match_id]).map(r => [r.match_id, { ...buildBasicMatchSummary(r), benchmark: data.performances?.[r.match_id], performanceOnly: true }])));
         setMatchSummaries(previous => ({ ...scored, ...previous, ...Object.fromEntries(Object.entries(scored).filter(([id]) => !previous[id]?.benchmark)) }));
+      }
+      if (data.performanceSummaries) {
+        const retained = normalizeSummaryMap(Object.fromEntries(incoming
+          .filter(row => hasObservedPlayerMatchValues(row) && data.performanceSummaries?.[row.match_id])
+          .map(row => [row.match_id, data.performanceSummaries![row.match_id]])));
+        setMatchSummaries(previous => ({ ...previous, ...Object.fromEntries(Object.entries(retained)
+          .filter(([id]) => previous[id]?.summarySource !== "processed_match_telemetry")) }));
       }
       if (data.performanceStates) setMatchSummaries(previous => Object.fromEntries(Object.entries(previous).map(([id, summary]) => [id, data.performanceStates?.[id] ? { ...summary, performanceState: data.performanceStates[id] } : summary])));
       setHistoryMatches(incoming);

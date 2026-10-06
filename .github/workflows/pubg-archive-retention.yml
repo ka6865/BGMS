@@ -1,0 +1,124 @@
+name: PUBG Detail Archive Retention
+
+on:
+  schedule:
+    - cron: '38 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '조사 또는 백업 확인 후 14일 만료 자료 소량 정리'
+        type: choice
+        options: [dry-run, apply]
+        default: dry-run
+      platform:
+        description: 'all은 저장된 전체 전적을 이어서 검사'
+        type: choice
+        options: [all, steam, kakao]
+        default: all
+      account_id:
+        description: '계정 범위 제한 (steam/kakao 선택 시 필수)'
+        type: string
+        default: ''
+      match_id:
+        description: '선택한 경기만 검증할 때 사용'
+        type: string
+        default: ''
+      limit:
+        description: '한 번에 삭제할 최대 객체 수'
+        type: choice
+        options: ['1', '3', '5']
+        default: '1'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: pubg-detail-archive-retention
+  cancel-in-progress: false
+
+jobs:
+  retain:
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.PUBG_DETAIL_ARCHIVE_RETENTION_ENABLED == 'true') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      OP_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'apply' }}
+      OP_PLATFORM: ${{ inputs.platform || 'all' }}
+      OP_ACCOUNT: ${{ inputs.account_id }}
+      OP_MATCH: ${{ inputs.match_id }}
+      OP_LIMIT: ${{ inputs.limit || '5' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Preserve measured performance before archive cleanup
+        if: ${{ env.OP_MODE == 'apply' }}
+        run: npx tsx scripts/preserve_match_performance.ts --apply --limit 1000
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      - name: Inspect expired objects and prepare encrypted backup
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CLOUDFLARE_R2_ENDPOINT: ${{ secrets.CLOUDFLARE_R2_ENDPOINT }}
+          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+          R2_RECOVERY_ARCHIVE_KEY: ${{ secrets.R2_RECOVERY_ARCHIVE_KEY }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/match-retention"
+          args=(--platform "$OP_PLATFORM" --limit "$OP_LIMIT" --scan-limit 100 --manifest "$RUNNER_TEMP/match-retention/manifest.json")
+          if [ -n "$OP_ACCOUNT" ]; then args+=(--account-id "$OP_ACCOUNT"); fi
+          if [ -n "$OP_MATCH" ]; then args+=(--match-id "$OP_MATCH"); fi
+          if [ "$OP_MODE" = 'apply' ]; then
+            args+=(--prepare-backup --backup-artifact "$RUNNER_TEMP/match-retention/backup.enc")
+          elif [ "$OP_MODE" != 'dry-run' ]; then
+            exit 1
+          fi
+          npx tsx scripts/cleanup_expired_match_archives.ts "${args[@]}" | tee "$RUNNER_TEMP/match-retention/summary.json"
+          cat "$RUNNER_TEMP/match-retention/summary.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload encrypted recovery artifact
+        id: backup
+        if: ${{ env.OP_MODE == 'apply' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pubg-detail-retention-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/match-retention/backup.enc
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Verify uploaded backup bytes before deletion
+        if: ${{ env.OP_MODE == 'apply' && steps.backup.outcome == 'success' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OP_ARTIFACT_ID: ${{ steps.backup.outputs.artifact-id }}
+        run: |
+          [ -n "$OP_ARTIFACT_ID" ]
+          mkdir -p "$RUNNER_TEMP/match-retention/readback"
+          gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$OP_ARTIFACT_ID/zip" > "$RUNNER_TEMP/match-retention/readback.zip"
+          unzip -q "$RUNNER_TEMP/match-retention/readback.zip" -d "$RUNNER_TEMP/match-retention/readback"
+          cmp "$RUNNER_TEMP/match-retention/backup.enc" "$RUNNER_TEMP/match-retention/readback/backup.enc"
+      - name: Apply exact plan and verify object absence
+        if: ${{ env.OP_MODE == 'apply' && steps.backup.outcome == 'success' }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CLOUDFLARE_R2_ENDPOINT: ${{ secrets.CLOUDFLARE_R2_ENDPOINT }}
+          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+          R2_RECOVERY_ARCHIVE_KEY: ${{ secrets.R2_RECOVERY_ARCHIVE_KEY }}
+        run: |
+          args=(--apply --backup-upload-verified --platform "$OP_PLATFORM" --limit "$OP_LIMIT" --scan-limit 100 --manifest "$RUNNER_TEMP/match-retention/manifest.json" --backup-artifact "$RUNNER_TEMP/match-retention/backup.enc")
+          if [ -n "$OP_ACCOUNT" ]; then args+=(--account-id "$OP_ACCOUNT"); fi
+          if [ -n "$OP_MATCH" ]; then args+=(--match-id "$OP_MATCH"); fi
+          npx tsx scripts/cleanup_expired_match_archives.ts "${args[@]}" | tee "$RUNNER_TEMP/match-retention/result.json"
+          cat "$RUNNER_TEMP/match-retention/result.json" >> "$GITHUB_STEP_SUMMARY"

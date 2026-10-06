@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const { download, create } = vi.hoisted(() => ({ download: vi.fn(), create: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/lib/pubg-analysis/r2Service", () => ({ downloadFromR2: download, uploadRecoveryObjectToR2: create }));
@@ -17,7 +17,13 @@ const events = ["A", "B"].flatMap((name) => Array.from({ length: 20 }, (_, i) =>
   character: { name, accountId: `account.${name}`, location: { x: i, y: 1, z: 0 } },
 })));
 
-beforeEach(() => { vi.clearAllMocks(); download.mockResolvedValue(null); create.mockResolvedValue({ etag: "etag" }); });
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-08-02T00:00:00Z"));
+  download.mockResolvedValue(null);
+  create.mockResolvedValue({ etag: "etag" });
+});
+afterEach(() => vi.restoreAllMocks());
 async function saved() {
   await writeSharedTelemetrySource(matchData, "steam", events);
   return JSON.parse(create.mock.calls[0][1]);
@@ -69,6 +75,13 @@ describe("one shared PUBG event source per game", () => {
     create.mockRejectedValue(new Error("connection lost"));
     await expect(writeSharedTelemetrySource(matchData, "steam", events)).rejects.toThrow("connection lost");
   });
+  it("does not create or rewrite a shared source after the official match retention expires", async () => {
+    const expiredMatch = structuredClone(matchData);
+    expiredMatch.data.attributes.createdAt = "2026-07-01T00:00:00Z";
+    await expect(writeSharedTelemetrySource(expiredMatch, "steam", events)).rejects.toThrow("PUBG_MATCH_DETAIL_EXPIRED");
+    expect(create).not.toHaveBeenCalled();
+  });
+
   it("unsafe identifiers cannot choose arbitrary R2 keys", () => {
     expect(() => buildSharedTelemetrySourceKey("../other", "steam")).toThrow();
     expect(() => buildSharedTelemetrySourceKey("match-shared", "console" as any)).toThrow();

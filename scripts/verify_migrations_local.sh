@@ -52,6 +52,8 @@ MIGRATIONS=(
   "20261005081214_pubg_collection_database_clock"
   "20261005081741_pubg_collection_network_acl"
   "20261005082711_pubg_collection_signed_requests"
+  "20261005193048_pubg_long_term_match_performance"
+  "20261006115638_pubg_archive_cleanup_cursor"
 )
 
 cleanup() {
@@ -128,6 +130,7 @@ done
 
 echo "▶ RPC 동작 시나리오 실행"
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-performance-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/retained-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/encounter-page-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/match-discovery-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/scoped-match-discovery-scenarios.sql

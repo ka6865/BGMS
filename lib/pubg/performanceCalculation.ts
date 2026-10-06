@@ -4,6 +4,7 @@ import { hasMatchingTelemetryDefinition, containsTelemetryAccountEvidence } from
 import { evaluateMatchEligibility } from '@/lib/pubg-analysis/matchEligibility';
 import { ANALYSIS_CALCULATION_VERSION, RESULT_VERSION } from '@/lib/pubg-analysis/constants';
 import type { ObservedBenchmark } from '@/lib/pubg-analysis/benchmarkAdapter';
+import { buildRetainedPerformanceRow } from './retainedPerformance';
 
 export type PerformanceJob = {
   platform: 'steam' | 'kakao'; account_id: string; match_id: string; player_id: string;
@@ -36,8 +37,12 @@ export function calculatePerformance(job: PerformanceJob, match: any, events: an
   const names = new Set<string>(c.members.map((p:any)=>normalizeName(p.attributes.stats.name)));
   const accounts = new Set<string>(c.members.map((p:any)=>p.attributes.stats.playerId));
   const eligibility = evaluateMatchEligibility({...c.attributes,stats:c.stats,telemetryEvents:events},'benchmark');
-  if (!eligibility.eligible) return null;
   const result = new AnalysisEngine(c.stats.name,job.account_id,names,accounts,new Set(),new Set(),c.roster.id)
     .run(events,c.attributes,c.rosters,c.participants,c.stats,c.members.map((p:any)=>p.attributes.stats),benchmark);
-  return { benchmark: result.benchmark, rankingEligible: result.isValidBenchmark === true };
+  const retainedPerformance = buildRetainedPerformanceRow(result, {
+    matchId: job.match_id, platform: job.platform, playerId: job.player_id,
+  });
+  if (!retainedPerformance) throw new Error('performance_summary_invalid');
+  return { benchmark: result.benchmark, rankingEligible: eligibility.eligible && retainedPerformance.ranking_eligible,
+    retainedPerformance };
 }

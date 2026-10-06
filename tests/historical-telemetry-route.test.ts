@@ -5,7 +5,7 @@ import { buildTelemetryCacheKey, buildTelemetryPlayerKey } from "../lib/pubg-ana
 import { resolveHistoricalAccountId, selectHistoricalMapCacheCandidates } from "../lib/pubg-analysis/historicalTelemetryMap";
 
 const mocks = vi.hoisted(() => ({
-  from: vi.fn(), guard: vi.fn(), readMap: vi.fn(), claimMap: vi.fn(), writeMap: vi.fn(),
+  from: vi.fn(), guard: vi.fn(), readMap: vi.fn(), downloadR2: vi.fn(), claimMap: vi.fn(), writeMap: vi.fn(),
   readShared: vi.fn(), writeShared: vi.fn(), engineRun: vi.fn(),
 }));
 
@@ -14,7 +14,7 @@ vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ from: mocks.fro
 vi.mock("@/lib/pubg/privatePlayerGuard", () => ({ blockPrivatePlayer: mocks.guard }));
 vi.mock("@/lib/pubg/apiHelper", () => ({ reportPubgApiError: vi.fn() }));
 vi.mock("@/lib/pubg-analysis/r2Service", () => ({
-  downloadFromR2: vi.fn(), getPresignedUrlFromR2: vi.fn(), isR2Configured: () => true, uploadToR2: vi.fn(),
+  downloadFromR2: mocks.downloadR2, getPresignedUrlFromR2: vi.fn(), isR2Configured: () => true, uploadToR2: vi.fn(),
 }));
 vi.mock("@/lib/pubg-analysis/telemetryMapCache", () => ({
   claimOrWaitForTelemetryMapCache: mocks.claimMap, readTelemetryMapCache: mocks.readMap,
@@ -53,17 +53,17 @@ const shared = {
   ], checksum: "private-checksum",
 };
 
-function query(data: unknown) {
+function query(data: unknown, error: unknown = null) {
   const q: any = {};
   for (const method of ["select", "eq", "lte", "order", "limit", "abortSignal"]) q[method] = vi.fn(() => q);
-  q.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data, error: null }).then(resolve);
+  q.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data, error }).then(resolve);
   return q;
 }
 function request(mode = "lite", platform = "steam") {
   return new Request(`http://localhost/api/pubg/telemetry?matchId=${MATCH}&nickname=OldPlayer&platform=${platform}&mode=${mode}`);
 }
-function playerMatchRow(accountId = ACCOUNT) {
-  return [{ match_id: MATCH, platform: "steam", player_id: NICKNAME, account_id: accountId }];
+function playerMatchRow(accountId = ACCOUNT, playedAt: string | null = "2026-09-01T10:00:00Z") {
+  return [{ match_id: MATCH, platform: "steam", player_id: NICKNAME, account_id: accountId, played_at: playedAt }];
 }
 function mapRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -75,12 +75,14 @@ function mapRow(overrides: Record<string, unknown> = {}) {
 }
 
 beforeEach(() => {
+  vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-02T10:00:00Z"));
   vi.clearAllMocks();
   mocks.from.mockImplementation((table: string) => table === "pubg_player_matches" ? query(playerMatchRow())
     : table === "processed_match_telemetry" ? query([]) : table === "telemetry_map_cache_entries" ? query([])
       : (() => { throw new Error(`unexpected table ${table}`); })());
   mocks.guard.mockResolvedValue(null);
   mocks.readMap.mockResolvedValue(null);
+  mocks.downloadR2.mockResolvedValue(undefined);
   mocks.claimMap.mockResolvedValue({ kind: "claimed", row: { lease_token: "lease" } });
   mocks.readShared.mockResolvedValue(null);
   mocks.writeShared.mockResolvedValue(undefined);
@@ -90,9 +92,36 @@ beforeEach(() => {
     storagePath: buildTelemetryCacheKey(requestIdentity),
   }));
 });
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("historical telemetry route", () => {
+  it("blocks an expired match before reading a cached replay", async () => {
+    mocks.from.mockImplementation((table: string) => table === "pubg_player_matches" ? query(playerMatchRow(ACCOUNT, "2026-08-01T10:00:00Z"))
+      : table === "processed_match_telemetry" ? query([]) : table === "telemetry_map_cache_entries" ? query([mapRow()]) : query([]));
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(410);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual(expect.objectContaining({
+      errorCode: "PUBG_MATCH_DETAIL_EXPIRED", retryable: false, retentionDays: 14,
+    }));
+    expect(mocks.readMap).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns retryable 503 when the scoped match date lookup fails", async () => {
+    mocks.from.mockImplementation((table: string) => table === "pubg_player_matches" ? query(null, new Error("db unavailable")) : query([]));
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual(expect.objectContaining({
+      errorCode: "PUBG_MATCH_DETAIL_RETENTION_UNAVAILABLE", retryable: true,
+    }));
+  });
+
   it("serves a saved ready map offline after account-aware privacy check", async () => {
     mocks.from.mockImplementation((table: string) => table === "telemetry_map_cache_entries" ? query([mapRow()])
       : table === "pubg_player_matches" ? query(playerMatchRow()) : query([]));
@@ -107,6 +136,22 @@ describe("historical telemetry route", () => {
     expect(mocks.guard).toHaveBeenCalledWith("steam", "OldPlayer", ACCOUNT);
     expect(mocks.guard).toHaveBeenNthCalledWith(2, "steam", "OldPlayer", ACCOUNT);
     expect(mocks.readMap).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a genuinely missing ready R2 replay with the separate unavailable code", async () => {
+    mocks.from.mockImplementation((table: string) => table === "telemetry_map_cache_entries" ? query([mapRow()])
+      : table === "pubg_player_matches" ? query(playerMatchRow()) : query([]));
+    mocks.downloadR2.mockResolvedValue(null);
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+
+    const response = await GET(request());
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual(expect.objectContaining({
+      errorCode: "PUBG_MATCH_DETAIL_UNAVAILABLE", retryable: false,
+    }));
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

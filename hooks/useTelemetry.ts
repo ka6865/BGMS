@@ -1,7 +1,8 @@
 // BGMS Refreshed V2
 import { useState, useEffect, useRef, useCallback } from "react";
-import { fetchTelemetryPayload } from "../lib/pubg-analysis/fetchTelemetryPayload";
+import { fetchTelemetryPayload, TelemetryFetchError } from "../lib/pubg-analysis/fetchTelemetryPayload";
 import type { TelemetryMode, TelemetryPlatform } from "../lib/pubg-analysis/telemetryIdentity";
+import { getMatchDetailRetention, MATCH_DETAIL_EXPIRED_CODE, MATCH_DETAIL_EXPIRED_MESSAGE, MATCH_DETAIL_UNAVAILABLE_CODE } from "../lib/pubg-analysis/matchRetention";
 
 export interface TelemetryEvent {
   type: "position" | "enemy_position" | "ride" | "leave" | "kill" | "groggy" | "took_damage" | "shot" | "revive" | "create" | "throw" | "throw_explode" | "grenade" | "smoke" | "damage";
@@ -93,13 +94,20 @@ export function useTelemetry(
   mapName: string,
   startTimeMs: number | null = null,
   lessonId?: string,
+  playedAt?: string | null,
 ) {
+  const routeParams = typeof window === "undefined" ? null : new URLSearchParams(window.location.search);
+  const routePlayedAt = routeParams?.get("playback") === matchId ? routeParams.get("playedAt") : null;
+  const activePlayedAt = playedAt ?? routePlayedAt;
   const [events, setEvents] = useState<TelemetryEvent[]>([]);
   const [teammates, setTeammates] = useState<string[]>([]);
   const [teamNames, setTeamNames] = useState<string[]>([]); 
   const [zoneEvents, setZoneEvents] = useState<any[]>([]); 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorCode, setErrorCode] = useState<string | null>(null);
+  const [errorKind, setErrorKind] = useState<"expired" | "unavailable" | "unknown" | "network" | null>(null);
+  const [expiresAt, setExpiresAt] = useState<string | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
@@ -115,6 +123,7 @@ export function useTelemetry(
   const historyPosRef = useRef<Record<string, { x: number, y: number, time: number, health: number }>>({});
   const futurePosRef = useRef<Record<string, { x: number, y: number, time: number, health: number } | null>>({});
   const [currentStates, setCurrentStates] = useState<Record<string, PlayerState>>({});
+  const telemetryRequestRef = useRef<AbortController | null>(null);
 
   const resetTelemetryState = useCallback(() => {
     if (timerRef.current !== null) cancelAnimationFrame(timerRef.current);
@@ -125,6 +134,9 @@ export function useTelemetry(
     setZoneEvents([]);
     setLoading(false);
     setError(null);
+    setErrorCode(null);
+    setErrorKind(null);
+    setExpiresAt(null);
     setIsPlaying(false);
     setCurrentTimeMs(0);
     setMaxTimeMs(0);
@@ -187,10 +199,20 @@ export function useTelemetry(
     } catch (error: unknown) {
       if (controller.signal.aborted) return;
       setError(error instanceof Error ? error.message : "텔레메트리 요청에 실패했습니다.");
+      if (error instanceof TelemetryFetchError) {
+        const isExpired = error.errorCode === MATCH_DETAIL_EXPIRED_CODE;
+        setErrorCode(error.errorCode);
+        setErrorKind(isExpired ? "expired"
+          : error.errorCode === MATCH_DETAIL_UNAVAILABLE_CODE ? "unavailable"
+            : error.errorCode === "PUBG_MATCH_DETAIL_RETENTION_UNAVAILABLE" ? "unknown" : "network");
+        if (isExpired) setExpiresAt(getMatchDetailRetention(activePlayedAt).expiresAt);
+      } else {
+        setErrorKind("network");
+      }
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [matchId, nickname, playbackPlatform, playbackMode, mapName, lessonId, resetTelemetryState]);
+  }, [matchId, nickname, playbackPlatform, playbackMode, mapName, lessonId, activePlayedAt, resetTelemetryState]);
 
   // Seek after data arrives, or when another scene is selected; never fetch again for a seek.
   useEffect(() => {
@@ -200,10 +222,40 @@ export function useTelemetry(
   }, [events, maxTimeMs, startTimeMs]);
 
   useEffect(() => {
+    const retention = getMatchDetailRetention(activePlayedAt);
+    if (retention.status === "expired") {
+      resetTelemetryState();
+      setError(MATCH_DETAIL_EXPIRED_MESSAGE);
+      setErrorCode(MATCH_DETAIL_EXPIRED_CODE);
+      setErrorKind("expired");
+      setExpiresAt(retention.expiresAt);
+      return;
+    }
     const controller = new AbortController();
+    telemetryRequestRef.current = controller;
     void fetchTelemetry(playbackMode === "full", controller);
-    return () => controller.abort();
-  }, [fetchTelemetry, playbackMode]);
+    return () => {
+      controller.abort();
+      if (telemetryRequestRef.current === controller) telemetryRequestRef.current = null;
+    };
+  }, [activePlayedAt, fetchTelemetry, playbackMode, resetTelemetryState]);
+
+  useEffect(() => {
+    const retention = getMatchDetailRetention(activePlayedAt);
+    if (retention.status !== "available" || !retention.expiresAt) return;
+    const delay = Date.parse(retention.expiresAt) - Date.now();
+    if (delay <= 0) return;
+    const timer = window.setTimeout(() => {
+      telemetryRequestRef.current?.abort();
+      telemetryRequestRef.current = null;
+      resetTelemetryState();
+      setError(MATCH_DETAIL_EXPIRED_MESSAGE);
+      setErrorCode(MATCH_DETAIL_EXPIRED_CODE);
+      setErrorKind("expired");
+      setExpiresAt(retention.expiresAt);
+    }, delay);
+    return () => window.clearTimeout(timer);
+  }, [activePlayedAt, resetTelemetryState]);
 
   // 🎯 React 19 대응: 마운트 시점에 안전하게 초기값 할당 (Purity 보장)
   useEffect(() => {
@@ -371,6 +423,9 @@ export function useTelemetry(
     zoneEvents,
     loading,
     error,
+    errorCode,
+    errorKind,
+    expiresAt,
     isPlaying,
     setIsPlaying,
     playbackSpeed,
