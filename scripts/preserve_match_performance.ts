@@ -10,7 +10,7 @@ export async function preserveMatchPerformance(db: SupabaseClient, input: {apply
   const {data,error}=await db.rpc('list_unretained_match_performance', {
     p_limit:input.limit,p_player_id:input.nickname?.toLowerCase().trim() ?? null,
   }).abortSignal(AbortSignal.timeout(30_000));
-  if(error || !Array.isArray(data))throw new Error('preserve-performance-source-read-failed');
+  if(error || !Array.isArray(data))throw new Error(`preserve-performance-source-read-failed:${error?.code ?? 'invalid-response'}`);
   const rows=[];
   for(const source of data){
     result.scanned++;
@@ -48,6 +48,8 @@ async function main(){
   const db=createClient(process.env.NEXT_PUBLIC_SUPABASE_URL,process.env.SUPABASE_SERVICE_ROLE_KEY,{auth:{persistSession:false,autoRefreshToken:false}});
   console.log(JSON.stringify(await preserveMatchPerformance(db,{apply:argv.includes('--apply'),limit,nickname:nameIndex<0?undefined:argv[nameIndex+1]})));
 }
-if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)main().catch(()=>{
-  console.error('성과 요약 보존에 실패했습니다. 원본 자료를 정리하지 않습니다.');process.exitCode=1;
+if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href)main().catch((error: unknown)=>{
+  const reason = error instanceof Error && /^preserve-performance-[a-z-]+(?::[A-Za-z0-9-]+)?$/.test(error.message)
+    ? error.message : 'preserve-performance-unexpected-failure';
+  console.error(`성과 요약 보존에 실패했습니다. 원본 자료를 정리하지 않습니다. (${reason})`);process.exitCode=1;
 });
