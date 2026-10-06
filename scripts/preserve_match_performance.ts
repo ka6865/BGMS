@@ -30,7 +30,7 @@ export async function preserveMatchPerformance(db: SupabaseClient, input: {apply
         played_at:row.played_at,summary_version:row.summary_version,source_checksum:row.source_checksum})
         .eq('platform',row.platform).eq('account_id',row.account_id).eq('match_id',row.match_id)
         .eq('calculation_version',row.calculation_version).eq('result_version',row.result_version)
-        .eq('player_id',row.player_id).or('summary.is.null,summary_version.is.null,summary_version.neq.1')
+        .eq('player_id',row.player_id).or('summary_version.is.null,summary_version.lt.1,and(summary.is.null,summary_version.eq.1)')
         .abortSignal(AbortSignal.timeout(30_000));
       if(fillError)throw new Error('preserve-performance-write-failed');
     }

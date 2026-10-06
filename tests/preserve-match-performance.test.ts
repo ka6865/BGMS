@@ -11,6 +11,20 @@ const source={match_id:'preserve-match',platform:'steam',player_id:'target',data
 }}};
 const compact=()=>buildRetainedPerformanceRow(source.data.fullResult,{matchId:source.match_id,platform:'steam',playerId:'target'})!;
 
+function matchesOr(row:Record<string,any>,expression:string):boolean{
+  const evaluate=(term:string):boolean=>{
+    if(term.startsWith('and('))return term.slice(4,-1).split(',').every(evaluate);
+    const [field,operator,value]=term.split('.');
+    if(operator==='is' && value==='null')return row[field]==null;
+    if(row[field]==null)return false;
+    if(operator==='eq')return row[field]===Number(value);
+    if(operator==='lt')return row[field]<Number(value);
+    if(operator==='neq')return row[field]!==Number(value);
+    throw new Error(`unsupported test filter: ${term}`);
+  };
+  return (expression.match(/and\([^)]*\)|[^,]+/g)??[]).some(evaluate);
+}
+
 function fixture(existing?:Record<string,any>,completeConcurrently=false){
   let stored=existing ? structuredClone(existing) : undefined;
   const payloads:Record<string,unknown>[]=[];
@@ -21,14 +35,14 @@ function fixture(existing?:Record<string,any>,completeConcurrently=false){
     return {error:null};
   });
   const db:any={rpc:vi.fn(()=>({abortSignal:async()=>({data:[source],error:null})})),from:()=>{
-    let action='select',payload:any;
+    let action='select',payload:any,orExpression='';
     const filters:Record<string,unknown>={};
     const q:any={upsert,select:()=>q,eq:(key:string,value:unknown)=>{filters[key]=value;return q;},
-      or:()=>q,in:()=>q,update:(value:any)=>{action='update';payload=value;payloads.push(value);return q;},
+      or:(expression:string)=>{orExpression=expression;return q;},in:()=>q,update:(value:any)=>{action='update';payload=value;payloads.push(value);return q;},
       abortSignal:()=>{
         if(action==='select')return Promise.resolve({data:stored?[stored]:[],error:null});
         if(stored && Object.entries(filters).every(([key,value])=>stored![key]===value)
-          && (!stored.summary || stored.summary_version!==1))Object.assign(stored,payload);
+          && matchesOr(stored,orExpression))Object.assign(stored,payload);
         return Promise.resolve({error:null});
       }};
     // upsert also returns an abortable PostgREST builder.
@@ -66,5 +80,11 @@ describe('bulk retained performance preservation',()=>{
     expect(await preserveMatchPerformance(f.db,{apply:false,limit:1})).toMatchObject({prepared:1,saved:0});
     expect(f.upsert).not.toHaveBeenCalled();
     expect(f.payloads).toEqual([]);
+  });
+  it.each([null,{...compact().summary,newer:true}])('does not downgrade newer summary version even if its payload is %s',async(summary)=>{
+    const before={...compact(),summary_version:2,summary};
+    const f=fixture(before);
+    await expect(preserveMatchPerformance(f.db,{apply:true,limit:1})).rejects.toThrow('preserve-performance-readback-failed');
+    expect(f.stored()).toEqual(before);
   });
 });
