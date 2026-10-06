@@ -83,8 +83,8 @@ const canonicalSquadData = {
   bestMatchCount: 2,
   selectedMatchIds: ["match-2", "match-1"],
   matchesSummary: [
-    { matchId: "match-2", mapName: "Baltic_Main", winPlace: 2, createdAt: "2026-09-01T00:00:00.000Z" },
-    { matchId: "match-1", mapName: "Baltic_Main", winPlace: 4, createdAt: "2026-08-31T00:00:00.000Z" },
+    { matchId: "match-2", mapName: "Baltic_Main", winPlace: 2, createdAt: new Date(Date.now() - 86_400_000).toISOString() },
+    { matchId: "match-1", mapName: "Baltic_Main", winPlace: 4, createdAt: new Date(Date.now() - 2 * 86_400_000).toISOString() },
   ],
   stats: {
     avgIsolation: 1.1,
@@ -119,7 +119,7 @@ function configuredSupabase(cacheResult: any = { data: null, error: null }) {
 function configuredAnalyzeSupabase(cacheResult: any, canonicalResult: any) {
   const cache = queryChain(cacheResult);
   const telemetry = queryChain(canonicalResult);
-  const history = queryChain({ data: { played_at: "2026-09-30T12:00:00.000Z" }, error: null });
+  const history = queryChain({ data: { played_at: new Date(Date.now() - 86_400_000).toISOString() }, error: null });
   return {
     cache,
     telemetry,
