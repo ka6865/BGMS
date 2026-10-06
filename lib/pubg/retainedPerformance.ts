@@ -103,7 +103,7 @@ export async function persistRetainedPerformance(db: SupabaseClient, full: unkno
 export async function readRetainedPerformance(db: SupabaseClient, platform: string, nickname: string, ids: string[], accountId?: string | null): Promise<Record<string, MatchSummaryData>> {
   if (!ids.length) return {};
   try {
-    let query = db.from('pubg_match_performance').select('match_id,account_id,summary,summary_version,played_at,calculation_version,result_version').eq('platform', platform);
+    let query = db.from('pubg_match_performance').select('match_id,account_id,summary,summary_version,played_at,calculation_version,result_version,benchmark').eq('platform', platform);
     query = accountId && /^account\.[A-Za-z0-9_-]+$/.test(accountId) ? query.eq('account_id', accountId) : query.eq('player_id', normalizeName(nickname));
     const { data, error } = await query.in('match_id', ids);
     if (error) return {};
@@ -118,6 +118,10 @@ export async function readRetainedPerformance(db: SupabaseClient, platform: stri
       if (!prior || row.calculation_version > prior.calculation_version
         || (row.calculation_version === prior.calculation_version && row.result_version > prior.result_version)) selected[row.match_id] = row;
     }
-    return Object.fromEntries(Object.entries(selected).map(([id, row]) => [id, row.summary]));
+    return Object.fromEntries(Object.entries(selected).map(([id, row]) => {
+      const measured = record(row.benchmark) && Number.isFinite(row.benchmark.score)
+        && row.benchmark.score >= 0 && row.benchmark.score <= 100 ? row.benchmark : null;
+      return [id, measured ? { ...row.summary, benchmark: measured } : row.summary];
+    }));
   } catch { return {}; }
 }
