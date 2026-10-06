@@ -25,11 +25,12 @@ function matchesOr(row:Record<string,any>,expression:string):boolean{
   return (expression.match(/and\([^)]*\)|[^,]+/g)??[]).some(evaluate);
 }
 
-function fixture(existing?:Record<string,any>,completeConcurrently=false){
+function fixture(existing?:Record<string,any>,completeConcurrently=false,fixtureOptions:{writeError?:boolean;readback?:'summary-null'|'player-mismatch'|'date-mismatch'}={}){
   let stored=existing ? structuredClone(existing) : undefined;
   const payloads:Record<string,unknown>[]=[];
-  const upsert=vi.fn(async(batch:any[],options:any)=>{
-    expect(options.ignoreDuplicates).toBe(true);
+  const upsert=vi.fn(async(batch:any[],upsertOptions:any)=>{
+    expect(upsertOptions.ignoreDuplicates).toBe(true);
+    if(fixtureOptions.writeError)return {error:{code:'write-failed'}};
     if(!stored)stored=structuredClone(batch[0]);
     if(completeConcurrently)stored={...compact(),source_checksum:'f'.repeat(64),summary:{...compact().summary,concurrent:true}};
     return {error:null};
@@ -40,7 +41,14 @@ function fixture(existing?:Record<string,any>,completeConcurrently=false){
     const q:any={upsert,select:()=>q,eq:(key:string,value:unknown)=>{filters[key]=value;return q;},
       or:(expression:string)=>{orExpression=expression;return q;},in:()=>q,update:(value:any)=>{action='update';payload=value;payloads.push(value);return q;},
       abortSignal:()=>{
-        if(action==='select')return Promise.resolve({data:stored?[stored]:[],error:null});
+        if(action==='select'){
+          if(!stored)return Promise.resolve({data:[],error:null});
+          const readback=structuredClone(stored);
+          if(fixtureOptions.readback==='summary-null')readback.summary=null;
+          if(fixtureOptions.readback==='player-mismatch')readback.player_id='copied-player';
+          if(fixtureOptions.readback==='date-mismatch')readback.played_at='2000-01-01T00:00:00Z';
+          return Promise.resolve({data:[readback],error:null});
+        }
         if(stored && Object.entries(filters).every(([key,value])=>stored![key]===value)
           && matchesOr(stored,orExpression))Object.assign(stored,payload);
         return Promise.resolve({error:null});
@@ -68,6 +76,20 @@ describe('bulk retained performance preservation',()=>{
     const f=fixture();
     expect(await preserveMatchPerformance(f.db,{apply:true,limit:1})).toMatchObject({prepared:1,saved:1});
     expect(f.stored()).toEqual(compact());
+  });
+  it('stops when the database upsert fails',async()=>{
+    const f=fixture(undefined,false,{writeError:true});
+    await expect(preserveMatchPerformance(f.db,{apply:true,limit:1})).rejects.toThrow('preserve-performance-write-failed');
+    expect(f.stored()).toBeUndefined();
+  });
+  it('rejects a readback with a missing summary even when its checksum matches',async()=>{
+    const f=fixture(undefined,false,{readback:'summary-null'});
+    await expect(preserveMatchPerformance(f.db,{apply:true,limit:1})).rejects.toThrow('preserve-performance-readback-failed');
+    expect(f.stored()?.source_checksum).toBe(compact().source_checksum);
+  });
+  it.each(['player-mismatch','date-mismatch'] as const)('rejects copied %s identity on readback',async(readback)=>{
+    const f=fixture(undefined,false,{readback});
+    await expect(preserveMatchPerformance(f.db,{apply:true,limit:1})).rejects.toThrow('preserve-performance-readback-failed');
   });
   it('preserves a concurrently completed summary and fails verification when the source changed',async()=>{
     const f=fixture({...compact(),summary:null,summary_version:null},true);

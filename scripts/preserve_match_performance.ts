@@ -1,9 +1,45 @@
 /** 분석 자료를 정리하기 전에 작은 성과 요약을 DB에 보존한다. 기본은 읽기만 수행한다. */
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import dotenv from 'dotenv';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { buildRetainedPerformanceRow } from '../lib/pubg/retainedPerformance';
+import { buildRetainedPerformanceRow, type RetainedPerformanceRow } from '../lib/pubg/retainedPerformance';
+
+/** 기존 점수와 완성된 요약을 덮어쓰지 않고 저장 후 실제 내용을 다시 확인한다. */
+export async function preservePerformanceRows(db: SupabaseClient, rows: RetainedPerformanceRow[]): Promise<number> {
+  let savedCount = 0;
+  for(let index=0;index<rows.length;index+=50){
+    const batch=rows.slice(index,index+50);
+    const {error:writeError}=await db.from('pubg_match_performance').upsert(batch,{onConflict:'platform,account_id,match_id,calculation_version,result_version',ignoreDuplicates:true})
+      .abortSignal(AbortSignal.timeout(30_000));
+    if(writeError)throw new Error('preserve-performance-write-failed');
+    for(const row of batch){
+      const {error:fillError}=await db.from('pubg_match_performance').update({summary:row.summary,
+        played_at:row.played_at,summary_version:row.summary_version,source_checksum:row.source_checksum})
+        .eq('platform',row.platform).eq('account_id',row.account_id).eq('match_id',row.match_id)
+        .eq('calculation_version',row.calculation_version).eq('result_version',row.result_version)
+        .eq('player_id',row.player_id).or('summary_version.is.null,summary_version.lt.1,and(summary.is.null,summary_version.eq.1)')
+        .abortSignal(AbortSignal.timeout(30_000));
+      if(fillError)throw new Error('preserve-performance-write-failed');
+    }
+    const {data:saved,error:verifyError}=await db.from('pubg_match_performance')
+      .select('platform,account_id,player_id,match_id,calculation_version,result_version,source_checksum,summary_version,played_at,summary')
+      .in('match_id',batch.map(row=>row.match_id)).abortSignal(AbortSignal.timeout(30_000));
+    if(verifyError || !Array.isArray(saved))throw new Error('preserve-performance-readback-failed');
+    for(const row of batch){
+      if(!saved.some(s=>s.platform===row.platform && s.account_id===row.account_id && s.match_id===row.match_id
+        && s.player_id===row.player_id && Date.parse(s.played_at)===Date.parse(row.played_at)
+        && s.calculation_version===row.calculation_version && s.result_version===row.result_version
+        && s.source_checksum===row.source_checksum && s.summary_version===row.summary_version
+        && s.summary?.matchId===row.match_id && s.summary?.stats?.playerId===row.account_id
+        && isDeepStrictEqual(s.summary,row.summary)))
+        throw new Error('preserve-performance-readback-failed');
+      savedCount++;
+    }
+  }
+  return savedCount;
+}
 
 export async function preserveMatchPerformance(db: SupabaseClient, input: {apply:boolean;limit:number;nickname?:string}) {
   const result = {mode:input.apply?'apply':'dry-run',scanned:0,prepared:0,saved:0,skipped:0};
@@ -19,33 +55,7 @@ export async function preserveMatchPerformance(db: SupabaseClient, input: {apply
     rows.push(row);result.prepared++;
   }
   if(!input.apply)return result;
-  for(let index=0;index<rows.length;index+=50){
-    const batch=rows.slice(index,index+50);
-    const {error:writeError}=await db.from('pubg_match_performance').upsert(batch,{onConflict:'platform,account_id,match_id,calculation_version,result_version',ignoreDuplicates:true})
-      .abortSignal(AbortSignal.timeout(30_000));
-    if(writeError)throw new Error('preserve-performance-write-failed');
-    // 이미 측정한 점수·티어·benchmark·랭킹 자격은 유지하고 누락된 보존 요약만 채운다.
-    for(const row of batch){
-      const {error:fillError}=await db.from('pubg_match_performance').update({summary:row.summary,
-        played_at:row.played_at,summary_version:row.summary_version,source_checksum:row.source_checksum})
-        .eq('platform',row.platform).eq('account_id',row.account_id).eq('match_id',row.match_id)
-        .eq('calculation_version',row.calculation_version).eq('result_version',row.result_version)
-        .eq('player_id',row.player_id).or('summary_version.is.null,summary_version.lt.1,and(summary.is.null,summary_version.eq.1)')
-        .abortSignal(AbortSignal.timeout(30_000));
-      if(fillError)throw new Error('preserve-performance-write-failed');
-    }
-    const {data:saved,error:verifyError}=await db.from('pubg_match_performance')
-      .select('platform,account_id,match_id,calculation_version,result_version,source_checksum,summary_version')
-      .in('match_id',batch.map(row=>row.match_id)).abortSignal(AbortSignal.timeout(30_000));
-    if(verifyError || !Array.isArray(saved))throw new Error('preserve-performance-readback-failed');
-    for(const row of batch){
-      if(!saved.some(s=>s.platform===row.platform && s.account_id===row.account_id && s.match_id===row.match_id
-        && s.calculation_version===row.calculation_version && s.result_version===row.result_version
-        && s.source_checksum===row.source_checksum && s.summary_version===row.summary_version))
-        throw new Error('preserve-performance-readback-failed');
-      result.saved++;
-    }
-  }
+  result.saved=await preservePerformanceRows(db,rows);
   return result;
 }
 async function main(){

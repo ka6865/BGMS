@@ -25,10 +25,13 @@ import dotenv from "dotenv";
 import { parseSharedTelemetrySource, buildSharedTelemetrySourceKey } from "../lib/pubg-analysis/sharedTelemetrySourceContract";
 import { buildTelemetryAnalyzeCacheKey, buildTelemetryCacheKey } from "../lib/pubg-analysis/telemetryCacheKey";
 import { sealRecoveryBytes, openRecoveryBytes } from "./r2_recovery_archive";
+import { preserveExpiredMatchPerformance } from '../lib/pubg-analysis/retentionPerformanceRecovery';
+import { MAX_RETENTION_BATCH_OBJECTS, MAX_RETENTION_BATCH_BYTES, RETENTION_SCAN_LIMIT,
+  RETENTION_SCAN_TIME_MS, selectRetentionBatchObjects } from '../lib/pubg-analysis/matchRetentionBatch';
 
 const ROW_LIMIT = 101;
 const MAX_OBJECT_BYTES = 32 * 1024 * 1024;
-const FIRST_BATCH_OBJECTS = 5;
+const FIRST_BATCH_OBJECTS = MAX_RETENTION_BATCH_OBJECTS;
 const ACCOUNT_ID = /^account\.[A-Za-z0-9_-]+$/;
 const FORMATS = { manifest: 1, backup: 1 } as const;
 
@@ -46,6 +49,7 @@ type Args = {
   manifestPath: string;
   backupPath?: string;
   backupUploadVerified: boolean;
+  preservePerformance?: boolean;
 };
 type BasicMatch = {
   account_id: string | null; player_id: string; platform: string; match_id: string; played_at: string;
@@ -118,7 +122,7 @@ function parseArgs(argv: string[]): Args {
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
     if (!token.startsWith("--")) throw new Error("unexpected-cli-argument");
-    if (token === "--apply" || token === "--prepare-backup" || token === "--backup-upload-verified") {
+    if (token === "--apply" || token === "--prepare-backup" || token === "--backup-upload-verified" || token === '--preserve-performance') {
       flags.add(token);
       continue;
     }
@@ -141,14 +145,15 @@ function parseArgs(argv: string[]): Args {
   if ([...values.keys()].some((key) => !allowed.has(key))) throw new Error("cli-option-unknown");
   if ((platform !== "steam" && platform !== "kakao" && platform !== "all")
     || (accountId !== undefined && !ACCOUNT_ID.test(accountId)) || (platform !== "all" && !accountId)
-    || !Number.isInteger(limit) || limit < 1 || limit > 20
+    || !Number.isInteger(limit) || limit < 1 || limit > FIRST_BATCH_OBJECTS
     || !Number.isInteger(maxPages) || maxPages < 1 || maxPages > 20
-    || !Number.isInteger(scanLimit) || scanLimit < 100 || scanLimit > 1000
+    || !Number.isInteger(scanLimit) || scanLimit < 100 || scanLimit > RETENTION_SCAN_LIMIT
     || (matchId !== undefined && !/^[A-Za-z0-9_-]{1,128}$/.test(matchId))
     || !manifestPath || (mode !== "dry-run" && !backupPath)
-    || (mode === "dry-run" && backupPath)) throw new Error("cli-arguments-invalid");
+    || (mode === "dry-run" && (backupPath || flags.has('--preserve-performance')))
+    || (mode === 'apply' && flags.has('--preserve-performance'))) throw new Error("cli-arguments-invalid");
   return { mode, platform, accountId, scanLimit, matchId, limit, maxPages, manifestPath: resolve(manifestPath), backupPath: backupPath ? resolve(backupPath) : undefined,
-    backupUploadVerified: flags.has("--backup-upload-verified") };
+    backupUploadVerified: flags.has("--backup-upload-verified"), preservePerformance: flags.has('--preserve-performance') };
 }
 
 async function writePrivateNewFile(path: string, body: Buffer): Promise<void> {
@@ -193,7 +198,8 @@ async function readExactObject(key: string): Promise<R2ObjectVerificationRead | 
 async function inspectOneMatch(input: {
   db: SupabaseClient; match: BasicMatch; args: Args; now: number; projectRef: string;
   legacyListings: Manifest["legacyListings"];
-}): Promise<{ plan: PlannedMatch; objects: ObjectProof[] }> {
+  recoveryBudget?: { calculations: number };
+}): Promise<{ plan: PlannedMatch; objects: ObjectProof[]; eligibleObjectCount?: number }> {
   const { db, match, args, now } = input;
   const platform = match.platform as Platform;
   const [basics, processed, performances, registry, masters, discoveries, jobs, benchmarks] = await Promise.all([
@@ -229,6 +235,34 @@ async function inspectOneMatch(input: {
   const activeMapLease = registry.some((row) => row.status !== "ready" || isActiveLease(row.lease_token, row.lease_expires_at, now));
   const pendingDiscovery = discoveries.some((row) => isUnfinished(row.state) || isActiveLease(row.lease_token, row.lease_expires_at, now));
   const pendingJob = jobs.some((row) => isUnfinished(row.state) || isActiveLease(row.lease_token, row.lease_expires_at, now));
+  if (args.preservePerformance && !activeMapLease && !pendingDiscovery && !pendingJob) {
+    let source = null;
+    // 기존 DB 결과를 우선하며 계정 연결이나 누락 성과 복구에 필요한 공통 원본만 읽는다.
+    const needsSource = basics.some(b => !b.account_id || (!processed.some(p => normalized(p.player_id) === normalized(b.player_id)
+      && p.data?.fullResult) && !performances.some(p => p.account_id === b.account_id && p.summary != null)));
+    if (needsSource) {
+      let key: string | null = null;
+      try { key = buildSharedTelemetrySourceKey(match.match_id, platform); } catch { /* Noncanonical match remains protected. */ }
+      if (key) {
+        const object = await readExactObject(key);
+        if (object) {
+          try {
+            const text = decodeMaybeGzip(object.body);
+            if (Buffer.byteLength(text) <= 64 * 1024 * 1024)
+              source = parseSharedTelemetrySource(JSON.parse(text), match.match_id, platform);
+          } catch { /* Invalid source is protected, never used for recovery. */ }
+        }
+      }
+    }
+    const preserved = await preserveExpiredMatchPerformance(db, { matchId: match.match_id, platform, basics,
+      processed: processed as any[], performances, source, now,
+      maxCalculations: Math.max(0, 5 - (input.recoveryBudget?.calculations ?? 0)) });
+    if (input.recoveryBudget) input.recoveryBudget.calculations += preserved.recoveredSummaries;
+    if (preserved.linkedAccounts || preserved.savedSummaries) {
+      // 저장 후 DB를 다시 읽어 전체 참조와 원본 checksum을 검증한다.
+      return inspectOneMatch({ ...input, args: { ...args, preservePerformance: false } });
+    }
+  }
   const evidence: MatchRetentionAccountEvidence[] = [...refs].filter((id) => ACCOUNT_ID.test(id)).map((accountId) => {
     const accountBasics = basics.filter((row) => row.account_id === accountId);
     const basicMatch = accountBasics.length === 1 ? accountBasics[0] : null;
@@ -278,7 +312,7 @@ async function inspectOneMatch(input: {
       matchId: match.match_id, playedAt: match.played_at,
       accountId, playerId: normalized(basics.find((basic) => basic.account_id === accountId)?.player_id), mode: identity.mode, telemetryVersion: version });
   }
-  const legacy = await listR2ObjectsByPrefix(`${match.match_id}_`, { maxPages: args.maxPages, maxObjects: 20 });
+  const legacy = await listR2ObjectsByPrefix(`${match.match_id}_`, { maxPages: args.maxPages, maxObjects: 100 });
   input.legacyListings.push({ pages: legacy.pages, truncated: legacy.truncated, objects: legacy.objects.length });
   for (const listed of legacy.objects) {
     for (const basic of basics) {
@@ -296,7 +330,7 @@ async function inspectOneMatch(input: {
   // Analysis needs its registry identity until it is removed; delete the map last.
   const priority = { "shared-source": 0, "personal-analysis": 1, "legacy-analysis": 2, "personal-map": 3 };
   const uniqueKeys = [...new Map(keys.map((item) => [item.key, item])).values()]
-    .sort((a, b) => priority[a.kind] - priority[b.kind]).slice(0, 20);
+    .sort((a, b) => priority[a.kind] - priority[b.kind]);
   const objectProofs: ObjectProof[] = [];
   let sourceEvidence: NonNullable<Parameters<typeof assessMatchRetentionCleanup>[0]["source"]> | undefined;
   for (const candidate of uniqueKeys) {
@@ -333,7 +367,8 @@ async function inspectOneMatch(input: {
   const selected = assessment.objects.slice(0, args.limit) as ObjectProof[];
   return { plan: { platform, matchId: match.match_id, playedAt: match.played_at, reasons: assessment.reasons,
     accountCount: assessment.retainedAccountCount, objectCount: selected.length,
-    bytes: selected.reduce((sum, object) => sum + object.sizeBytes, 0) }, objects: selected };
+      bytes: selected.reduce((sum, object) => sum + object.sizeBytes, 0) }, objects: selected,
+    eligibleObjectCount: assessment.objects.length + (legacy.truncated ? 1 : 0) };
 }
 
 async function inspect(options: Args, env: Record<string, string | undefined> = process.env,
@@ -387,17 +422,30 @@ async function inspect(options: Args, env: Record<string, string | undefined> = 
   const visited = new Set<string>();
   let nextCursor: Manifest["nextCursor"] = null;
   const started = Date.now();
+  const recoveryBudget = { calculations: 0 };
   for (const match of (candidateRows ?? []) as BasicMatch[]) {
     const key = `${match.platform}:${match.match_id}`;
     if (visited.has(key)) continue;
     visited.add(key);
     if (getMatchDetailRetention(match.played_at, now).status !== "expired") continue;
     const remaining = options.limit - objects.length;
-    const result = await inspectOneMatch({ db, match, args: { ...options, limit: remaining }, now, projectRef, legacyListings });
-    matches.push({ ...result.plan, platform: match.platform as Platform });
-    objects.push(...result.objects);
-    nextCursor = { played_at: match.played_at, platform: match.platform as Platform, match_id: match.match_id };
-    if (objects.length >= options.limit || Date.now() - started > 120_000) break;
+    const result = await inspectOneMatch({ db, match, args: { ...options, limit: remaining }, now, projectRef, legacyListings, recoveryBudget });
+    const remainingBytes = MAX_RETENTION_BATCH_BYTES - objects.reduce((sum, o) => sum + o.sizeBytes, 0);
+    let selected = remainingBytes > 0 ? selectRetentionBatchObjects(result.objects, { maxObjects: remaining, maxBytes: remainingBytes }) : [];
+    // 분석 객체의 식별자는 map registry에 의존하므로 분석이 남아 있으면 map을 먼저 지우지 않는다.
+    selected = selected.filter(object => object.kind !== 'personal-map' || !result.objects.some(analysis =>
+      analysis.kind === 'personal-analysis' && analysis.accountId === object.accountId
+      && analysis.mode === object.mode && analysis.telemetryVersion === object.telemetryVersion
+      && !selected.includes(analysis)));
+    matches.push({ ...result.plan, platform: match.platform as Platform, objectCount: selected.length,
+      bytes: selected.reduce((sum, o) => sum + o.sizeBytes, 0) });
+    objects.push(...selected);
+    const partialMatch = selected.length < (result.eligibleObjectCount ?? result.objects.length);
+    // 한 경기 도중 상한에 도달하면 다음 실행도 같은 경기의 남은 자료를 처리한다.
+    if (!partialMatch) nextCursor = { played_at: match.played_at, platform: match.platform as Platform, match_id: match.match_id };
+    else if (!nextCursor && cursor?.played_at && cursor.platform && cursor.match_id)
+      nextCursor = { played_at: cursor.played_at, platform: cursor.platform, match_id: cursor.match_id };
+    if (partialMatch || objects.length >= options.limit || Date.now() - started > RETENTION_SCAN_TIME_MS) break;
   }
   const manifest: Manifest = { format: FORMATS.manifest, planId: randomUUID(),
     createdAt: new Date(now).toISOString(), projectRef,
@@ -461,7 +509,7 @@ async function recheckMatchEligibility(db: SupabaseClient, proof: ObjectProof, m
   // basic value, active job, lease and shared-source participant is checked again.
   const fresh = await inspectOneMatch({ db, match: basic, now, projectRef: manifest.projectRef, legacyListings: [],
     args: { mode: 'dry-run', platform: proof.platform, accountId: basic.account_id ?? undefined,
-      scanLimit: 100, matchId: proof.matchId, limit: 20, maxPages: manifest.maxPages, manifestPath: '', backupUploadVerified: false } });
+      scanLimit: 100, matchId: proof.matchId, limit: FIRST_BATCH_OBJECTS, maxPages: manifest.maxPages, manifestPath: '', backupUploadVerified: false } });
   const current = fresh.objects.find(object => object.key === proof.key);
   if (!current || stableJson(current) !== stableJson(proof)) throw new Error('retention-final-evidence-changed');
 }
