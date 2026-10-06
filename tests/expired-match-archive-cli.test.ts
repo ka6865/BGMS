@@ -12,6 +12,8 @@ const harness = vi.hoisted(() => ({
   failRegistryDeleteAfterRemoving: false,
   recreateConcurrentRegistryOnDeleteFailure: false,
   objectBody: Buffer.from('{"map":"retained"}'),
+  failBinding: false,
+  failPreservation: false,
 }));
 const r2 = vi.hoisted(() => ({
   read: vi.fn(),
@@ -99,8 +101,33 @@ vi.mock("@supabase/supabase-js", () => {
       return { data: single ? rows[0] ?? null : rows, error: null };
     }
   }
-  return { createClient: vi.fn(() => ({ from: (table: string) => new Query(table) })) };
+  return { createClient: vi.fn(() => ({ from: (table: string) => new Query(table),
+    rpc: (name: string, args: any) => {
+      if (name === 'list_retention_archive_candidates') return new Query('pubg_player_matches');
+      if (name !== 'bind_retention_legacy_accounts') throw new Error('unexpected-rpc');
+      return { abortSignal: async () => {
+        harness.actions.push('legacy-binding');
+        if (harness.failBinding) return { data: null, error: { code: '40001' } };
+        const linked = args.p_bindings.map((proof: any) => {
+          const row = harness.tables.pubg_player_matches.find(row => row.match_id === proof.before.match_id
+            && row.platform === proof.before.platform && row.player_id === proof.before.player_id);
+          row.account_id = proof.accountId; return { ...row };
+        });
+        return { data: linked, error: null };
+      } };
+    },
+  })) };
 });
+
+vi.mock('../scripts/preserve_match_performance', () => ({
+  preservePerformanceRows: async (_db: unknown, rows: any[]) => {
+    if (!rows.length) return 0;
+    harness.actions.push('preserve-performance');
+    if (harness.failPreservation) throw new Error('preserve-performance-readback-failed');
+    harness.tables.pubg_match_performance.push(...rows);
+    return rows.length;
+  },
+}));
 
 vi.mock("../lib/pubg-analysis/r2Service", () => ({
   isR2Configured: vi.fn(() => true),
@@ -182,6 +209,8 @@ beforeEach(async () => {
   harness.actions = [];
   harness.failRegistryDeleteAfterRemoving = false;
   harness.recreateConcurrentRegistryOnDeleteFailure = false;
+  harness.failBinding = false;
+  harness.failPreservation = false;
   harness.objectBody = Buffer.from('{"map":"retained"}');
   r2.read.mockReset();
   r2.deletePersonal.mockReset().mockImplementation(async () => { harness.actions.push("r2-delete"); return { deleted: true }; });
@@ -214,6 +243,64 @@ const env = {
 };
 
 describe("expired match archive CLI apply protocol", () => {
+  function legacyFixture() {
+    const legacyMatch = '37466cd0-d4ac-4b1c-81c9-fb6d358b0bec';
+    const original = basic({ match_id: legacyMatch, account_id: null });
+    const full = { matchId: legacyMatch, platform, player_id: playerId, createdAt: playedAt,
+      gameMode: 'squad', mapName: '에란겔', matchType: 'competitive', v: 72,
+      stats: { name: playerId, playerId: accountId, kills: 2, damageDealt: 180, winPlace: 3 },
+      teamImpact: { damageImpact: 1.25 }, benchmark: { score: 70, tier: 'A' } };
+    const key = `${legacyMatch}_${playerId}_v60_analyze.json`;
+    harness.tables.pubg_player_matches = [original];
+    harness.tables.processed_match_telemetry = [{ match_id: legacyMatch, platform, player_id: playerId, data: { fullResult: full } }];
+    harness.tables.pubg_match_performance = [];
+    harness.tables.telemetry_map_cache_entries = [];
+    r2.read.mockImplementation(async readKey => readKey === key ? {
+      key, etag: '"legacy-etag"', sizeBytes: harness.objectBody.length, body: harness.objectBody,
+      contentType: 'application/json', contentEncoding: null,
+    } : null);
+    r2.list.mockResolvedValue({ objects: [{ key, sizeBytes: harness.objectBody.length }], pages: 1, truncated: false });
+    return { legacyMatch, original, full, key };
+  }
+
+  it('keeps dry-run read-only and protects legacy rows whose account is not linked', async () => {
+    legacyFixture();
+    await cleanup(['--platform', 'all', '--manifest', manifestPath], env);
+    const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(plan.objects).toHaveLength(0);
+    expect(plan.matches[0].reasons).toContain('account_references_unknown');
+    expect(harness.actions).toEqual([]);
+    expect(harness.tables.pubg_player_matches[0].account_id).toBeNull();
+  });
+
+  it('binds and preserves legacy DB performance before backing up and deleting its expired events', async () => {
+    const { legacyMatch, original, key } = legacyFixture();
+    const prep = ['--prepare-backup', '--preserve-performance', '--platform', 'all', '--limit', '1',
+      '--manifest', manifestPath, '--backup-artifact', backupPath];
+    await cleanup(prep, env);
+    const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(plan.objects.map((o: any) => o.key)).toEqual([key]);
+    expect(plan.preservation).toEqual({ linkedAccounts: 1, savedSummaries: 1, recoveredSummaries: 0 });
+    expect(harness.actions).toEqual(['legacy-binding', 'preserve-performance']);
+    expect(harness.tables.pubg_player_matches[0]).toEqual({ ...original, account_id: accountId });
+    expect(harness.tables.pubg_match_performance[0]).toMatchObject({ match_id: legacyMatch,
+      summary: { teamImpact: { damageImpact: 1.25 } }, score: 70, tier: 'A', ranking_eligible: false });
+    await cleanup(['--apply', '--backup-upload-verified', '--platform', 'all', '--limit', '1',
+      '--manifest', manifestPath, '--backup-artifact', backupPath], env);
+    expect(harness.actions.indexOf('r2-delete')).toBeGreaterThan(harness.actions.indexOf('preserve-performance'));
+    expect(harness.tables.pubg_player_matches).toHaveLength(1);
+    expect(harness.tables.pubg_match_performance).toHaveLength(1);
+  });
+
+  it.each(['failBinding', 'failPreservation'] as const)('does not prepare a deletion when %s is true', async failure => {
+    legacyFixture(); harness[failure] = true;
+    await expect(cleanup(['--prepare-backup', '--preserve-performance', '--platform', 'all', '--manifest', manifestPath,
+      '--backup-artifact', backupPath], env)).rejects.toThrow(failure === 'failBinding'
+      ? 'retention-account-binding-unverified' : 'preserve-performance-readback-failed');
+    expect(r2.deletePersonal).not.toHaveBeenCalled();
+    await expect(readFile(backupPath)).rejects.toThrow();
+  });
+
   it('moves beyond a truncated legacy listing containing only protected keys', async () => {
     r2.read.mockResolvedValue(null);
     r2.list.mockResolvedValue({ objects: [], pages: 1, truncated: true });

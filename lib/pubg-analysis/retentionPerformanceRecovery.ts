@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { isDeepStrictEqual } from 'node:util';
 import { buildRetainedPerformanceRow, type RetainedPerformanceRow } from '../pubg/retainedPerformance';
 import { hasObservedPlayerMatchValues } from '../pubg/playerMatches';
 import { preparePerformanceMatch, type PerformanceJob } from '../pubg/performanceCalculation';
@@ -9,6 +10,7 @@ import { containsTelemetryAccountEvidence, hasMatchingTelemetryDefinition } from
 import { getMatchDetailRetention } from './matchRetention';
 import { normalizeName } from './utils';
 import { preservePerformanceRows } from '../../scripts/preserve_match_performance';
+import { proveLegacyAccountBinding, type LegacyAccountBinding } from './legacyAccountBinding';
 
 export type RetentionBasicMatch = {
   account_id: string | null; player_id: string; platform: string; match_id: string; played_at: string;
@@ -17,6 +19,42 @@ export type RetentionBasicMatch = {
 type ProcessedRow = { match_id: string; platform: string; player_id: string; data?: { fullResult?: unknown } };
 type StoredPerformance = Record<string, any>;
 const ACCOUNT_ID = /^account\.[A-Za-z0-9_-]+$/;
+
+/** 기본 전적과 저장된 공식 개인 관측값이 모두 일치하는 기존 분석만 계정 결합 후보로 삼는다. */
+export function planLegacyRetentionBindings(basics: RetentionBasicMatch[], processed: ProcessedRow[]): LegacyAccountBinding[] {
+  const proofs: LegacyAccountBinding[] = [];
+  for (const basic of basics) {
+    if (basic.account_id !== null) continue;
+    try {
+      const proof = proveLegacyAccountBinding(basic, processed, basics);
+      const retained = buildRetainedPerformanceRow(proof.processed.data?.fullResult,
+        { matchId: basic.match_id, platform: basic.platform, playerId: basic.player_id });
+      if (retained && retainedRowMatchesBasic(retained, { ...basic, account_id: proof.accountId })) proofs.push(proof);
+    } catch { /* 모호하거나 불완전한 기존 자료는 보호한다. */ }
+  }
+  // 같은 경기의 서로 다른 닉네임을 같은 계정에 연결하지 않는다.
+  return proofs.filter(proof => proofs.filter(other => other.before.platform === proof.before.platform
+    && other.before.match_id === proof.before.match_id && other.accountId === proof.accountId).length === 1);
+}
+
+async function bindLegacyRetentionAccounts(db: SupabaseClient, proofs: LegacyAccountBinding[]): Promise<RetentionBasicMatch[]> {
+  const linked: RetentionBasicMatch[] = [];
+  for (let index = 0; index < proofs.length; index += 40) {
+    const batch = proofs.slice(index, index + 40);
+    // DB 함수가 기본 전적과 분석 양쪽의 전체 스냅샷을 잠그고 전부 일치할 때만 NULL을 갱신한다.
+    const { data, error } = await db.rpc('bind_retention_legacy_accounts', { p_bindings: batch })
+      .abortSignal(AbortSignal.timeout(15_000));
+    if (error || !Array.isArray(data) || data.length !== batch.length) throw new Error('retention-account-binding-unverified');
+    for (const proof of batch) {
+      const matches = data.filter(row => row.platform === proof.before.platform && row.match_id === proof.before.match_id
+        && row.player_id === proof.before.player_id);
+      if (matches.length !== 1 || !isDeepStrictEqual(matches[0], { ...proof.before, account_id: proof.accountId }))
+        throw new Error('retention-account-binding-unverified');
+      linked.push(matches[0]);
+    }
+  }
+  return linked;
+}
 
 export function retainedRowMatchesBasic(row: RetainedPerformanceRow, basic: RetentionBasicMatch): boolean {
   return hasObservedPlayerMatchValues(basic) && row.match_id === basic.match_id && row.platform === basic.platform
@@ -81,11 +119,14 @@ export async function preserveExpiredMatchPerformance(db: SupabaseClient, input:
   const now = input.now ?? Date.now();
   if (!input.basics.length || input.basics.some(b => b.platform !== input.platform || b.match_id !== input.matchId
     || getMatchDetailRetention(b.played_at, now).status !== 'expired')) return result;
+  const legacyProofs = planLegacyRetentionBindings(input.basics, input.processed);
+  const legacyBasics = await bindLegacyRetentionAccounts(db, legacyProofs);
+  result.linkedAccounts += legacyBasics.length;
   let source = input.source ? parseSharedTelemetrySource(input.source, input.matchId, input.platform) : null;
   if (source && !completeArchivedSource(source)) source = null;
   const pending: RetainedPerformanceRow[] = [];
   for (const original of input.basics) {
-    let basic = { ...original };
+    let basic = { ...(legacyBasics.find(row => row.player_id === original.player_id) ?? original) };
     const participant = source ? archiveParticipantForBasic(source, basic) : null;
     if (!basic.account_id && participant) {
       let update = db.from('pubg_player_matches').update({ account_id: participant.attributes.stats.playerId })

@@ -47,10 +47,42 @@ describe('expired archive performance preservation', () => {
       expect(await preserveExpiredMatchPerformance({} as any, i)).toMatchObject({ savedSummaries: 0 });
       expect(mocks.preserve.mock.calls[0][1]).toEqual([]);
     });
-  it('does not infer a missing account from a display name or fullResult alone', async () => {
-    const db = { from: vi.fn() }; const i: any = input(); i.basics[0].account_id = null;
+  it('does not infer a missing account from an incomplete cached identity', async () => {
+    const db = { from: vi.fn(), rpc: vi.fn() }; const i: any = input(); i.basics[0].account_id = null;
+    i.processed[0].data.fullResult = { ...full, player_id: undefined };
     expect(await preserveExpiredMatchPerformance(db as any, i)).toMatchObject({ linkedAccounts: 0, savedSummaries: 0 });
     expect(db.from).not.toHaveBeenCalled();
+    expect(db.rpc).not.toHaveBeenCalled();
+  });
+  it('preserves verified legacy DB performance without requiring a new shared source', async () => {
+    const i: any = input(); i.basics[0].account_id = null;
+    i.processed[0].data.fullResult = { ...full, mapName: '에란겔' };
+    const rpc = vi.fn(() => ({ abortSignal: async () => ({ data: [{ ...basic }], error: null }) }));
+    const db = { from: vi.fn(), rpc };
+    expect(await preserveExpiredMatchPerformance(db as any, i)).toMatchObject({ linkedAccounts: 1, savedSummaries: 1, recoveredSummaries: 0 });
+    expect(rpc).toHaveBeenCalledWith('bind_retention_legacy_accounts', { p_bindings: [{
+      before: i.basics[0], processed: i.processed[0], accountId: basic.account_id,
+    }] });
+    expect(mocks.preserve.mock.calls[0][1][0].source_checksum).toBe(buildRetainedPerformanceRow(
+      i.processed[0].data.fullResult, { matchId, platform: 'steam', playerId: 'target' })!.source_checksum);
+    expect(mocks.calculate).not.toHaveBeenCalled();
+    expect(db.from).not.toHaveBeenCalled();
+  });
+  it.each(['matchId', 'createdAt', 'gameMode', 'mapName', 'platform'])('protects legacy binding with conflicting %s', async field => {
+    const i: any = input(); i.basics[0].account_id = null;
+    i.processed[0].data.fullResult = { ...full, mapName: '에란겔', [field]: 'conflict' };
+    const db = { rpc: vi.fn(), from: vi.fn() };
+    expect(await preserveExpiredMatchPerformance(db as any, i)).toMatchObject({ linkedAccounts: 0, savedSummaries: 0 });
+    expect(db.rpc).not.toHaveBeenCalled();
+  });
+  it('stops before preservation if the legacy transaction failed or returned changed observations', async () => {
+    const i: any = input(); i.basics[0].account_id = null;
+    i.processed[0].data.fullResult = { ...full, mapName: '에란겔' };
+    const rpc = vi.fn(() => ({ abortSignal: async () => ({ data: [{ ...basic, kills: 99 }], error: null }) }));
+    await expect(preserveExpiredMatchPerformance({ rpc } as any, i)).rejects.toThrow('retention-account-binding-unverified');
+    expect(mocks.preserve).not.toHaveBeenCalled();
+    rpc.mockReturnValue({ abortSignal: async () => ({ data: [], error: { code: '40001' } } as any) });
+    await expect(preserveExpiredMatchPerformance({ rpc } as any, i)).rejects.toThrow('retention-account-binding-unverified');
   });
   it('links only the exact observed row using official archived match and real account events', async () => {
     const filters: any[] = []; const update = vi.fn(); const q: any = {
