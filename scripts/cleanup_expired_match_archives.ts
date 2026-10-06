@@ -25,7 +25,7 @@ import dotenv from "dotenv";
 import { parseSharedTelemetrySource, buildSharedTelemetrySourceKey } from "../lib/pubg-analysis/sharedTelemetrySourceContract";
 import { buildTelemetryAnalyzeCacheKey, buildTelemetryCacheKey } from "../lib/pubg-analysis/telemetryCacheKey";
 import { sealRecoveryBytes, openRecoveryBytes } from "./r2_recovery_archive";
-import { preserveExpiredMatchPerformance } from '../lib/pubg-analysis/retentionPerformanceRecovery';
+import { preserveExpiredMatchPerformance, planLegacyRetentionBindings } from '../lib/pubg-analysis/retentionPerformanceRecovery';
 import { MAX_RETENTION_BATCH_OBJECTS, MAX_RETENTION_BATCH_BYTES, RETENTION_SCAN_LIMIT,
   RETENTION_SCAN_TIME_MS, selectRetentionBatchObjects } from '../lib/pubg-analysis/matchRetentionBatch';
 
@@ -94,6 +94,7 @@ type Manifest = {
   legacyListings: Array<{ pages: number; truncated: boolean; objects: number }>;
   cursorGeneration?: number;
   nextCursor?: { played_at: string; platform: Platform; match_id: string } | null;
+  preservation?: { linkedAccounts: number; savedSummaries: number; recoveredSummaries: number };
 };
 type BackupObject = ObjectProof & {
   bodyBase64: string;
@@ -198,13 +199,13 @@ async function readExactObject(key: string): Promise<R2ObjectVerificationRead | 
 async function inspectOneMatch(input: {
   db: SupabaseClient; match: BasicMatch; args: Args; now: number; projectRef: string;
   legacyListings: Manifest["legacyListings"];
-  recoveryBudget?: { calculations: number };
+  recoveryBudget?: { calculations: number; linkedAccounts: number; savedSummaries: number };
 }): Promise<{ plan: PlannedMatch; objects: ObjectProof[]; eligibleObjectCount?: number }> {
   const { db, match, args, now } = input;
   const platform = match.platform as Platform;
   const [basics, processed, performances, registry, masters, discoveries, jobs, benchmarks] = await Promise.all([
-    rows<BasicMatch>(db, "pubg_player_matches", "account_id,player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type", match.match_id, platform),
-    rows<Record<string, any>>(db, "processed_match_telemetry", "match_id,platform,player_id,data", match.match_id, platform),
+    rows<BasicMatch>(db, "pubg_player_matches", args.preservePerformance ? "*" : "account_id,player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type", match.match_id, platform),
+    rows<Record<string, any>>(db, "processed_match_telemetry", args.preservePerformance ? "*" : "match_id,platform,player_id,data", match.match_id, platform),
     rows<RetainedPerformanceRow & Record<string, any>>(db, "pubg_match_performance", "platform,account_id,match_id,player_id,played_at,source_checksum,summary_version,summary", match.match_id, platform),
     rows<RegistryRow>(db, "telemetry_map_cache_entries", "id,match_id,platform,player_id,mode,telemetry_version,storage_path,status,lease_token,lease_expires_at,updated_at", match.match_id, platform),
     rows<{ storage_path: string | null }>(db, "match_master_telemetry", "storage_path", match.match_id, platform),
@@ -238,7 +239,8 @@ async function inspectOneMatch(input: {
   if (args.preservePerformance && !activeMapLease && !pendingDiscovery && !pendingJob) {
     let source = null;
     // 기존 DB 결과를 우선하며 계정 연결이나 누락 성과 복구에 필요한 공통 원본만 읽는다.
-    const needsSource = basics.some(b => !b.account_id || (!processed.some(p => normalized(p.player_id) === normalized(b.player_id)
+    const legacyBindings = planLegacyRetentionBindings(basics, processed as any[]);
+    const needsSource = basics.some(b => (!b.account_id && !legacyBindings.some(proof => proof.before.player_id === b.player_id)) || (!processed.some(p => normalized(p.player_id) === normalized(b.player_id)
       && p.data?.fullResult) && !performances.some(p => p.account_id === b.account_id && p.summary != null)));
     if (needsSource) {
       let key: string | null = null;
@@ -257,7 +259,11 @@ async function inspectOneMatch(input: {
     const preserved = await preserveExpiredMatchPerformance(db, { matchId: match.match_id, platform, basics,
       processed: processed as any[], performances, source, now,
       maxCalculations: Math.max(0, 5 - (input.recoveryBudget?.calculations ?? 0)) });
-    if (input.recoveryBudget) input.recoveryBudget.calculations += preserved.recoveredSummaries;
+    if (input.recoveryBudget) {
+      input.recoveryBudget.calculations += preserved.recoveredSummaries;
+      input.recoveryBudget.linkedAccounts += preserved.linkedAccounts;
+      input.recoveryBudget.savedSummaries += preserved.savedSummaries;
+    }
     if (preserved.linkedAccounts || preserved.savedSummaries) {
       // 저장 후 DB를 다시 읽어 전체 참조와 원본 checksum을 검증한다.
       return inspectOneMatch({ ...input, args: { ...args, preservePerformance: false } });
@@ -405,14 +411,17 @@ async function inspect(options: Args, env: Record<string, string | undefined> = 
     if (cursorError || !data) throw new Error("retention-cursor-read-failed");
     cursor = data;
   }
-  let candidateQuery = db.from("pubg_player_matches")
+  let candidateQuery = globalScan ? db.rpc('list_retention_archive_candidates', {
+    p_limit: options.scanLimit, p_cutoff: cutoff, p_after_played_at: cursor?.played_at ?? null,
+    p_after_platform: cursor?.platform ?? null, p_after_match_id: cursor?.match_id ?? null,
+  }).select("account_id,player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type") : db.from("pubg_player_matches")
     .select("account_id,player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type")
     .lt("played_at", cutoff).order("played_at", { ascending: true })
     .order("platform", { ascending: true }).order("match_id", { ascending: true });
   if (cursor?.played_at && cursor.platform && cursor.match_id) {
     if (!Number.isFinite(Date.parse(cursor.played_at)) || !["steam", "kakao"].includes(cursor.platform)
       || !/^[A-Za-z0-9_-]{1,128}$/.test(cursor.match_id)) throw new Error("retention-cursor-invalid");
-    candidateQuery = candidateQuery.or(`played_at.gt.${cursor.played_at},and(played_at.eq.${cursor.played_at},platform.gt.${cursor.platform}),and(played_at.eq.${cursor.played_at},platform.eq.${cursor.platform},match_id.gt.${cursor.match_id})`);
+    if (!globalScan) candidateQuery = candidateQuery.or(`played_at.gt.${cursor.played_at},and(played_at.eq.${cursor.played_at},platform.gt.${cursor.platform}),and(played_at.eq.${cursor.played_at},platform.eq.${cursor.platform},match_id.gt.${cursor.match_id})`);
   }
   if (options.accountId) candidateQuery = candidateQuery.eq("account_id", options.accountId);
   if (options.platform !== "all") candidateQuery = candidateQuery.eq("platform", options.platform);
@@ -426,7 +435,7 @@ async function inspect(options: Args, env: Record<string, string | undefined> = 
   const visited = new Set<string>();
   let nextCursor: Manifest["nextCursor"] = null;
   const started = Date.now();
-  const recoveryBudget = { calculations: 0 };
+  const recoveryBudget = { calculations: 0, linkedAccounts: 0, savedSummaries: 0 };
   for (const match of (candidateRows ?? []) as BasicMatch[]) {
     const key = `${match.platform}:${match.match_id}`;
     if (visited.has(key)) continue;
@@ -456,6 +465,8 @@ async function inspect(options: Args, env: Record<string, string | undefined> = 
     platform: options.platform, accountId: options.accountId, scanLimit: options.scanLimit, matchId: options.matchId,
     limit: options.limit, maxPages: options.maxPages,
     matches, objects: objects.slice(0, options.limit), legacyListings,
+    preservation: { linkedAccounts: recoveryBudget.linkedAccounts, savedSummaries: recoveryBudget.savedSummaries,
+      recoveredSummaries: recoveryBudget.calculations },
     ...(globalScan ? { cursorGeneration: cursor!.generation, nextCursor } : {}) };
   return { manifest, supabase: db, env };
 }
@@ -624,7 +635,7 @@ export async function runExpiredMatchArchiveCleanup(argv = process.argv.slice(2)
     await saveManifest(manifest, options.manifestPath);
     console.info(JSON.stringify({ mode: options.mode, matches: manifest.matches.length, eligibleObjects: manifest.objects.length,
       candidateBytes: manifest.objects.reduce((sum, object) => sum + object.sizeBytes, 0), legacyLists: manifest.legacyListings.length,
-      truncatedLegacyLists: manifest.legacyListings.filter(entry => entry.truncated).length, reasonCounts }));
+      truncatedLegacyLists: manifest.legacyListings.filter(entry => entry.truncated).length, preservation: manifest.preservation, reasonCounts }));
     return;
   }
   if (options.mode === 'prepare-backup') {
@@ -632,7 +643,7 @@ export async function runExpiredMatchArchiveCleanup(argv = process.argv.slice(2)
     await prepareBackup(manifest, options.backupPath!, env.R2_RECOVERY_ARCHIVE_KEY ?? '');
     console.info(JSON.stringify({ mode: options.mode, matches: manifest.matches.length, eligibleObjects: manifest.objects.length,
       candidateBytes: manifest.objects.reduce((sum, object) => sum + object.sizeBytes, 0), backupArtifact: basename(options.backupPath!),
-      backupBytes: (await stat(options.backupPath!)).size, reasonCounts }));
+      backupBytes: (await stat(options.backupPath!)).size, preservation: manifest.preservation, reasonCounts }));
     return;
   }
   if (!options.backupUploadVerified && env.R2_RETENTION_BACKUP_UPLOAD_VERIFIED !== 'true') {
@@ -650,7 +661,7 @@ export async function runExpiredMatchArchiveCleanup(argv = process.argv.slice(2)
   const backupBytes = (await stat(options.backupPath!)).size;
   console.info(JSON.stringify({ mode: options.mode, deletedObjects: result.deleted, removedBytes: result.bytes,
     backupBytes, netBytesIncludingTemporaryBackup: result.bytes - backupBytes,
-    scannedMatches: manifest.matches.length, reasonCounts }));
+    scannedMatches: manifest.matches.length, preservation: manifest.preservation, reasonCounts }));
 }
 
 const isDirectRun = Boolean(process.argv[1]) && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
