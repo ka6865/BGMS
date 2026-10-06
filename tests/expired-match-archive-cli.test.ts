@@ -111,7 +111,9 @@ vi.mock("@supabase/supabase-js", () => {
         const linked = args.p_bindings.map((proof: any) => {
           const row = harness.tables.pubg_player_matches.find(row => row.match_id === proof.before.match_id
             && row.platform === proof.before.platform && row.player_id === proof.before.player_id);
-          row.account_id = proof.accountId; return { ...row };
+          row.account_id = proof.accountId;
+          if (row.match_type === 'unknown' || row.match_type === 'unavailable') row.match_type = proof.processed.data.fullResult.matchType;
+          return { ...row };
         });
         return { data: linked, error: null };
       } };
@@ -299,6 +301,23 @@ describe("expired match archive CLI apply protocol", () => {
       ? 'retention-account-binding-unverified' : 'preserve-performance-readback-failed');
     expect(r2.deletePersonal).not.toHaveBeenCalled();
     await expect(readFile(backupPath)).rejects.toThrow();
+  });
+
+  it('preserves an expired special-mode result after restoring its unavailable match type', async () => {
+    const { original, key } = legacyFixture();
+    harness.tables.pubg_player_matches[0].match_type = 'unavailable';
+    harness.tables.processed_match_telemetry[0].data.fullResult.matchType = 'event';
+    await cleanup(['--prepare-backup', '--preserve-performance', '--platform', 'all', '--limit', '1',
+      '--manifest', manifestPath, '--backup-artifact', backupPath], env);
+    const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(plan.objects.map((o: any) => o.key)).toEqual([key]);
+    expect(harness.tables.pubg_player_matches[0]).toEqual({ ...original, account_id: accountId, match_type: 'event' });
+    expect(harness.tables.pubg_match_performance[0]).toMatchObject({ summary: { matchType: 'event' }, ranking_eligible: false });
+    await cleanup(['--apply', '--backup-upload-verified', '--platform', 'all', '--limit', '1',
+      '--manifest', manifestPath, '--backup-artifact', backupPath], env);
+    expect(harness.actions.indexOf('r2-delete')).toBeGreaterThan(harness.actions.indexOf('preserve-performance'));
+    expect(harness.tables.pubg_player_matches).toHaveLength(1);
+    expect(harness.tables.pubg_match_performance).toHaveLength(1);
   });
 
   it('moves beyond a truncated legacy listing containing only protected keys', async () => {

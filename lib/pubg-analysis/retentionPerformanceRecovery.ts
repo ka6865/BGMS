@@ -19,6 +19,19 @@ export type RetentionBasicMatch = {
 type ProcessedRow = { match_id: string; platform: string; player_id: string; data?: { fullResult?: unknown } };
 type StoredPerformance = Record<string, any>;
 const ACCOUNT_ID = /^account\.[A-Za-z0-9_-]+$/;
+const RECOVERABLE_MATCH_TYPES = new Set(['official', 'competitive', 'custom', 'event', 'seasonal', 'airoyale', 'training']);
+
+function boundLegacyBasic(proof: LegacyAccountBinding): RetentionBasicMatch | null {
+  const basic = { ...proof.before, account_id: proof.accountId } as RetentionBasicMatch;
+  if (basic.match_type !== 'unknown' && basic.match_type !== 'unavailable') return basic;
+  const full = proof.processed.data?.fullResult;
+  const type = full?.matchType;
+  if (typeof type !== 'string' || !RECOVERABLE_MATCH_TYPES.has(type)
+    || (full.matchInfo != null && (typeof full.matchInfo !== 'object' || Array.isArray(full.matchInfo)))
+    || (full.matchInfo && Object.prototype.hasOwnProperty.call(full.matchInfo, 'matchType')
+      && full.matchInfo.matchType !== type)) return null;
+  return { ...basic, match_type: type };
+}
 
 /** 기본 전적과 저장된 공식 개인 관측값이 모두 일치하는 기존 분석만 계정 결합 후보로 삼는다. */
 export function planLegacyRetentionBindings(basics: RetentionBasicMatch[], processed: ProcessedRow[]): LegacyAccountBinding[] {
@@ -29,7 +42,8 @@ export function planLegacyRetentionBindings(basics: RetentionBasicMatch[], proce
       const proof = proveLegacyAccountBinding(basic, processed, basics);
       const retained = buildRetainedPerformanceRow(proof.processed.data?.fullResult,
         { matchId: basic.match_id, platform: basic.platform, playerId: basic.player_id });
-      if (retained && retainedRowMatchesBasic(retained, { ...basic, account_id: proof.accountId })) proofs.push(proof);
+      const boundBasic = boundLegacyBasic(proof);
+      if (retained && boundBasic && retainedRowMatchesBasic(retained, boundBasic)) proofs.push(proof);
     } catch { /* 모호하거나 불완전한 기존 자료는 보호한다. */ }
   }
   // 같은 경기의 서로 다른 닉네임을 같은 계정에 연결하지 않는다.
@@ -48,7 +62,7 @@ async function bindLegacyRetentionAccounts(db: SupabaseClient, proofs: LegacyAcc
     for (const proof of batch) {
       const matches = data.filter(row => row.platform === proof.before.platform && row.match_id === proof.before.match_id
         && row.player_id === proof.before.player_id);
-      if (matches.length !== 1 || !isDeepStrictEqual(matches[0], { ...proof.before, account_id: proof.accountId }))
+      if (matches.length !== 1 || !isDeepStrictEqual(matches[0], boundLegacyBasic(proof)))
         throw new Error('retention-account-binding-unverified');
       linked.push(matches[0]);
     }

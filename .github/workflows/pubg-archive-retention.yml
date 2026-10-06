@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: '조사 또는 백업 확인 후 14일 만료 자료 소량 정리'
+        description: '조사, 보호 경기 복구 증거 수집 또는 백업 확인 후 14일 만료 자료 소량 정리'
         type: choice
-        options: [dry-run, apply]
+        options: [dry-run, apply, inspect-recovery]
         default: dry-run
       platform:
         description: 'all은 저장된 전체 전적을 이어서 검사'
@@ -21,6 +21,10 @@ on:
         default: ''
       match_id:
         description: '선택한 경기만 검증할 때 사용'
+        type: string
+        default: ''
+      match_ids_json:
+        description: 'inspect-recovery 전용: [{"matchId":"UUID","platform":"steam|kakao"}] 최대 30개'
         type: string
         default: ''
       limit:
@@ -51,6 +55,7 @@ jobs:
       OP_PLATFORM: ${{ inputs.platform || 'all' }}
       OP_ACCOUNT: ${{ inputs.account_id }}
       OP_MATCH: ${{ inputs.match_id }}
+      OP_MATCH_IDS_JSON: ${{ inputs.match_ids_json }}
       OP_LIMIT: ${{ inputs.limit || '50' }}
       OP_SCAN_LIMIT: '1000'
     steps:
@@ -63,6 +68,7 @@ jobs:
           cache: npm
       - run: npm ci --ignore-scripts
       - name: Inspect expired objects and prepare encrypted backup
+        if: ${{ env.OP_MODE != 'inspect-recovery' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -84,6 +90,30 @@ jobs:
           fi
           npx tsx scripts/cleanup_expired_match_archives.ts "${args[@]}" | tee "$RUNNER_TEMP/match-retention/summary.json"
           cat "$RUNNER_TEMP/match-retention/summary.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Inspect protected match recovery evidence
+        if: ${{ env.OP_MODE == 'inspect-recovery' }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CLOUDFLARE_R2_ENDPOINT: ${{ secrets.CLOUDFLARE_R2_ENDPOINT }}
+          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+          R2_RECOVERY_ARCHIVE_KEY: ${{ secrets.R2_RECOVERY_ARCHIVE_KEY }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/match-retention"
+          npx tsx scripts/inspect_expired_match_recovery.ts --matches-json "$OP_MATCH_IDS_JSON" --output "$RUNNER_TEMP/match-retention/recovery-proof.enc" | tee "$RUNNER_TEMP/match-retention/recovery-summary.json"
+          cat "$RUNNER_TEMP/match-retention/recovery-summary.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload encrypted recovery proof
+        if: ${{ env.OP_MODE == 'inspect-recovery' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pubg-match-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/match-retention/recovery-proof.enc
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
       - name: Upload encrypted recovery artifact
         id: backup
         if: ${{ env.OP_MODE == 'apply' }}
