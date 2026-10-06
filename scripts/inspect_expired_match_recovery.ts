@@ -64,6 +64,12 @@ export function formatRecoverySummary(summary: RecoverySummary): string {
   return JSON.stringify(summary);
 }
 
+export function formatRecoveryInspectionFailure(error: unknown): string {
+  const safeReasons = new Set(["recovery-object-size-invalid", "recovery-total-size-limit", "recovery-decoded-size-limit", "recovery-inspection-timeout", "recovery-db-row-limit"]);
+  const reason = error instanceof Error && safeReasons.has(error.message) ? error.message : "unknown";
+  return JSON.stringify({ error: "recovery-inspection-failed", reason });
+}
+
 export function parseRecoveryMatches(input: string): RecoveryRequest[] {
   let value: unknown;
   try { value = JSON.parse(input); } catch { throw new Error("recovery-matches-json-invalid"); }
@@ -141,7 +147,12 @@ function canonicalCandidates(request: RecoveryRequest, rows: MatchRows): Array<{
     if (row.match_id !== request.matchId || row.platform !== request.platform || row.status !== "ready") continue;
     const version = Number(row.telemetry_version);
     const mode = row.mode as TelemetryMode;
-    const account = typeof row.player_id === "string" ? basicAccounts.get(row.player_id) ?? basicAccounts.get(safeNickname(row.player_id) ?? "") : undefined;
+    // This read-only audit may inspect an explicit registry account before a basic row is bound.
+    // The exact match/platform/mode/version storage path is still checked below.
+    const account = typeof row.player_id === "string"
+      ? /^account\.[A-Za-z0-9_-]+$/.test(row.player_id) ? row.player_id
+        : basicAccounts.get(row.player_id) ?? basicAccounts.get(safeNickname(row.player_id) ?? "")
+      : undefined;
     if (!account || !Number.isInteger(version) || version < 1 || (mode !== "lite" && mode !== "full")) continue;
     const identity = { matchId: request.matchId, platform: request.platform, playerId: account, mode, telemetryVersion: version };
     try {
@@ -298,8 +309,7 @@ export async function runRecoveryInspection(env = process.env, argv = process.ar
 const direct = Boolean(process.argv[1]) && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;
 if (direct) {
   runRecoveryInspection().then((summary) => console.info(formatRecoverySummary(summary))).catch((error: unknown) => {
-    void error;
-    console.error(JSON.stringify({ error: "recovery-inspection-failed" }));
+    console.error(formatRecoveryInspectionFailure(error));
     process.exitCode = 1;
   });
 }
