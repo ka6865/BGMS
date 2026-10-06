@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { open, readFile, stat } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { gunzipSync } from 'node:zlib';
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   deleteExpiredMatchSourceFromR2,
@@ -26,6 +27,8 @@ import { parseSharedTelemetrySource, buildSharedTelemetrySourceKey } from "../li
 import { buildTelemetryAnalyzeCacheKey, buildTelemetryCacheKey } from "../lib/pubg-analysis/telemetryCacheKey";
 import { sealRecoveryBytes, openRecoveryBytes } from "./r2_recovery_archive";
 import { preserveExpiredMatchPerformance, planLegacyRetentionBindings } from '../lib/pubg-analysis/retentionPerformanceRecovery';
+import { planLegacyTeamRetentionRecovery, preserveLegacyTeamRetentionPackets,
+  type LegacyTeamEventArtifact } from '../lib/pubg-analysis/legacyTeamRetentionPreservation';
 import { MAX_RETENTION_BATCH_OBJECTS, MAX_RETENTION_BATCH_BYTES, RETENTION_SCAN_LIMIT,
   RETENTION_SCAN_TIME_MS, selectRetentionBatchObjects } from '../lib/pubg-analysis/matchRetentionBatch';
 
@@ -196,10 +199,39 @@ async function readExactObject(key: string): Promise<R2ObjectVerificationRead | 
   return readObjectForVerification(key, { maxBytes: MAX_OBJECT_BYTES });
 }
 
+async function readLegacyTeamArtifacts(match: BasicMatch, processed: Array<Record<string, any>>,
+  budget: { decodedLegacyBytes: number }): Promise<LegacyTeamEventArtifact[]> {
+  const legacy = await listR2ObjectsByPrefix(`${match.match_id}_`, { maxPages: 1, maxObjects: 100 });
+  if (legacy.truncated) return [];
+  const candidates = legacy.objects.filter(object => {
+    const identity = /^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})_([a-z0-9._-]+)_v[1-9][0-9]*_analyze\.json$/i.exec(object.key);
+    return identity?.[1] === match.match_id && processed.some(p => p.match_id === match.match_id
+      && p.platform === match.platform && normalized(p.player_id) === normalized(identity[2]) && p.data?.fullResult);
+  });
+  if (!candidates.length || candidates.length > 3) return [];
+  const artifacts: LegacyTeamEventArtifact[] = [];
+  for (const candidate of candidates) {
+    const available = 32 * 1024 * 1024 - budget.decodedLegacyBytes;
+    if (available <= 0 || candidate.sizeBytes > 8 * 1024 * 1024) return [];
+    const object = await readObjectForVerification(candidate.key, { maxBytes: 8 * 1024 * 1024 });
+    if (!object || object.etag !== candidate.etag || object.sizeBytes !== candidate.sizeBytes) return [];
+    try {
+      const bytes = object.body[0] === 0x1f && object.body[1] === 0x8b
+        ? gunzipSync(object.body, { maxOutputLength: available }) : object.body;
+      if (bytes.length > available) return [];
+      budget.decodedLegacyBytes += bytes.length;
+      const events = JSON.parse(bytes.toString('utf8'));
+      if (!Array.isArray(events)) return [];
+      artifacts.push({ key: candidate.key, sha256: sha256(object.body), events });
+    } catch { return []; }
+  }
+  return artifacts;
+}
+
 async function inspectOneMatch(input: {
   db: SupabaseClient; match: BasicMatch; args: Args; now: number; projectRef: string;
   legacyListings: Manifest["legacyListings"];
-  recoveryBudget?: { calculations: number; linkedAccounts: number; savedSummaries: number };
+  recoveryBudget?: { calculations: number; linkedAccounts: number; savedSummaries: number; recoveredSummaries: number; decodedLegacyBytes: number };
 }): Promise<{ plan: PlannedMatch; objects: ObjectProof[]; eligibleObjectCount?: number }> {
   const { db, match, args, now } = input;
   const platform = match.platform as Platform;
@@ -261,12 +293,26 @@ async function inspectOneMatch(input: {
       maxCalculations: Math.max(0, 5 - (input.recoveryBudget?.calculations ?? 0)) });
     if (input.recoveryBudget) {
       input.recoveryBudget.calculations += preserved.recoveredSummaries;
+      input.recoveryBudget.recoveredSummaries += preserved.recoveredSummaries;
       input.recoveryBudget.linkedAccounts += preserved.linkedAccounts;
       input.recoveryBudget.savedSummaries += preserved.savedSummaries;
     }
     if (preserved.linkedAccounts || preserved.savedSummaries) {
       // 저장 후 DB를 다시 읽어 전체 참조와 원본 checksum을 검증한다.
       return inspectOneMatch({ ...input, args: { ...args, preservePerformance: false } });
+    }
+    if (!source && needsSource && input.recoveryBudget && input.recoveryBudget.calculations < 5) {
+      const artifacts = await readLegacyTeamArtifacts(match, processed, input.recoveryBudget);
+      const planned = planLegacyTeamRetentionRecovery({ basics, processed: processed as any[], performances, artifacts,
+        now, maxCalculations: 5 - input.recoveryBudget.calculations });
+      input.recoveryBudget.calculations += planned.calculations;
+      const saved = await preserveLegacyTeamRetentionPackets(db, planned.packets);
+      input.recoveryBudget.linkedAccounts += saved;
+      input.recoveryBudget.savedSummaries += saved;
+      input.recoveryBudget.recoveredSummaries += saved;
+      if (saved) return inspectOneMatch({ ...input,
+        match: { ...match, played_at: planned.packets[0].expectedBasic.played_at },
+        args: { ...args, preservePerformance: false } });
     }
   }
   const evidence: MatchRetentionAccountEvidence[] = [...refs].filter((id) => ACCOUNT_ID.test(id)).map((accountId) => {
@@ -435,7 +481,7 @@ async function inspect(options: Args, env: Record<string, string | undefined> = 
   const visited = new Set<string>();
   let nextCursor: Manifest["nextCursor"] = null;
   const started = Date.now();
-  const recoveryBudget = { calculations: 0, linkedAccounts: 0, savedSummaries: 0 };
+  const recoveryBudget = { calculations: 0, linkedAccounts: 0, savedSummaries: 0, recoveredSummaries: 0, decodedLegacyBytes: 0 };
   for (const match of (candidateRows ?? []) as BasicMatch[]) {
     const key = `${match.platform}:${match.match_id}`;
     if (visited.has(key)) continue;
@@ -466,7 +512,7 @@ async function inspect(options: Args, env: Record<string, string | undefined> = 
     limit: options.limit, maxPages: options.maxPages,
     matches, objects: objects.slice(0, options.limit), legacyListings,
     preservation: { linkedAccounts: recoveryBudget.linkedAccounts, savedSummaries: recoveryBudget.savedSummaries,
-      recoveredSummaries: recoveryBudget.calculations },
+      recoveredSummaries: recoveryBudget.recoveredSummaries },
     ...(globalScan ? { cursorGeneration: cursor!.generation, nextCursor } : {}) };
   return { manifest, supabase: db, env };
 }

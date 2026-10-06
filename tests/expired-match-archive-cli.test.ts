@@ -5,6 +5,8 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computeFullResultSourceChecksum } from "../lib/pubg-analysis/matchRetentionCleanup";
 import { buildTelemetryCacheKey } from "../lib/pubg-analysis/telemetryCacheKey";
+import { buildRetainedPerformanceRow } from '../lib/pubg/retainedPerformance';
+import { legacyTeamRecoveryInput } from './fixtures/legacy-team-retention';
 
 const harness = vi.hoisted(() => ({
   tables: {} as Record<string, any[]>,
@@ -104,6 +106,16 @@ vi.mock("@supabase/supabase-js", () => {
   return { createClient: vi.fn(() => ({ from: (table: string) => new Query(table),
     rpc: (name: string, args: any) => {
       if (name === 'list_retention_archive_candidates') return new Query('pubg_player_matches');
+      if (name === 'recover_retention_legacy_team') return { abortSignal: async () => {
+        harness.actions.push('legacy-team-recovery');
+        if (harness.failBinding) return { data: null, error: { code: '40001' } };
+        const packet = args.p_packet;
+        const index = harness.tables.pubg_player_matches.findIndex(row => row.match_id === packet.before.match_id
+          && row.platform === packet.before.platform && row.player_id === packet.before.player_id);
+        harness.tables.pubg_player_matches[index] = { ...packet.expectedBasic };
+        harness.tables.pubg_match_performance.push(packet.performance);
+        return { data: { saved: true, basic: { ...packet.expectedBasic } }, error: null };
+      } };
       if (name !== 'bind_retention_legacy_accounts') throw new Error('unexpected-rpc');
       return { abortSignal: async () => {
         harness.actions.push('legacy-binding');
@@ -245,6 +257,49 @@ const env = {
 };
 
 describe("expired match archive CLI apply protocol", () => {
+  function missingTeamFixture() {
+    const fixture = legacyTeamRecoveryInput();
+    fixture.targetBasic = { ...fixture.targetBasic, kills: 0, damage: 0, win_place: 99,
+      played_at: '2026-09-02T00:00:00.000Z', game_mode: 'unknown', map_name: 'unknown', match_type: 'unavailable' };
+    harness.tables.pubg_player_matches = [fixture.targetBasic, fixture.sourceBasic];
+    harness.tables.processed_match_telemetry = [{ match_id: fixture.sourceBasic.match_id, platform: 'steam',
+      player_id: fixture.sourceBasic.player_id, data: { fullResult: fixture.sourceFullResult } }];
+    harness.tables.pubg_match_performance = [buildRetainedPerformanceRow(fixture.sourceFullResult,
+      { matchId: fixture.sourceBasic.match_id, platform: 'steam', playerId: fixture.sourceBasic.player_id })];
+    harness.tables.telemetry_map_cache_entries = [];
+    const key = fixture.eventSource.legacyKey;
+    const body = Buffer.from(JSON.stringify(fixture.eventSource.events));
+    r2.read.mockImplementation(async readKey => readKey === key ? {
+      key, etag: '"team-etag"', sizeBytes: body.length, body, contentType: 'application/json', contentEncoding: null,
+    } : null);
+    r2.list.mockResolvedValue({ objects: [{ key, etag: '"team-etag"', sizeBytes: body.length }], pages: 1, truncated: false });
+    return fixture;
+  }
+
+  it('recovers a verified teammate placeholder atomically before preparing its original backup', async () => {
+    const fixture = missingTeamFixture();
+    const sourceSnapshot = structuredClone(harness.tables.processed_match_telemetry);
+    await cleanup(['--prepare-backup', '--preserve-performance', '--platform', 'all', '--match-id', fixture.targetBasic.match_id,
+      '--manifest', manifestPath, '--backup-artifact', backupPath], env);
+    const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(plan.preservation).toEqual({ linkedAccounts: 1, savedSummaries: 1, recoveredSummaries: 1 });
+    expect(plan.objects).toHaveLength(1);
+    expect(plan.objects[0].playedAt).toBe(fixture.sourceBasic.played_at);
+    expect(harness.tables.pubg_player_matches[0]).toMatchObject({ account_id: 'account.target', kills: 3,
+      damage: 400, win_place: 2, game_mode: 'squad', map_name: 'Baltic_Main', played_at: fixture.sourceBasic.played_at });
+    expect(harness.tables.processed_match_telemetry).toEqual(sourceSnapshot);
+    expect(harness.actions).toEqual(['legacy-team-recovery']);
+    expect(r2.deletePersonal).not.toHaveBeenCalled();
+  });
+
+  it('does not prepare deletion after a failed teammate recovery transaction', async () => {
+    const fixture = missingTeamFixture(); harness.failBinding = true;
+    await expect(cleanup(['--prepare-backup', '--preserve-performance', '--platform', 'all', '--match-id', fixture.targetBasic.match_id,
+      '--manifest', manifestPath, '--backup-artifact', backupPath], env)).rejects.toThrow('retention-legacy-team-write-unverified');
+    expect(r2.deletePersonal).not.toHaveBeenCalled();
+    expect(harness.tables.pubg_player_matches[0].account_id).toBeNull();
+  });
+
   function legacyFixture() {
     const legacyMatch = '37466cd0-d4ac-4b1c-81c9-fb6d358b0bec';
     const original = basic({ match_id: legacyMatch, account_id: null });

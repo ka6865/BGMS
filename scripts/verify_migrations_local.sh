@@ -57,6 +57,7 @@ MIGRATIONS=(
   "20261006130700_bounded_unretained_match_performance"
   "20261006193137_retention_legacy_account_binding"
   "20261006210245_retention_match_type_recovery"
+  "20261006223434_legacy_team_retention_recovery"
 )
 
 cleanup() {
@@ -134,6 +135,11 @@ done
 echo "▶ RPC 동작 시나리오 실행"
 "${PSQL[@]}" -f tests/fixtures/migration-check/retention_legacy_binding_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retention_match_type_recovery_checks.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/legacy_team_retention_recovery_checks.sql
+if [ -n "${BGMS_RETENTION_PACKET_FILE:-}" ]; then
+  BGMS_PSQL_BIN="${PSQL[0]}" BGMS_RETENTION_PGHOST="${PSQL[2]}" BGMS_RETENTION_PGPORT="${PSQL[4]}" \
+    npx tsx scripts/verify_legacy_team_retention_rpc.mts
+fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retained-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/encounter-page-scenarios.sql
