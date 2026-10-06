@@ -54,6 +54,7 @@ MIGRATIONS=(
   "20261005082711_pubg_collection_signed_requests"
   "20261005193048_pubg_long_term_match_performance"
   "20261006115638_pubg_archive_cleanup_cursor"
+  "20261006130700_bounded_unretained_match_performance"
 )
 
 cleanup() {
