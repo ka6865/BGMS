@@ -31,7 +31,11 @@ vi.mock("@supabase/supabase-js", () => {
     payload: unknown;
     constructor(table: string) { this.table = table; }
     select() { return this; }
-    eq(key: string, value: unknown) { this.filters[key] = value; return this; }
+    eq(key: string, value: unknown) {
+      if (this.table === "match_master_telemetry" && key === "platform") throw new Error("column platform does not exist");
+      this.filters[key] = value;
+      return this;
+    }
     is(key: string, value: unknown) { this.filters[key] = value; return this; }
     in(key: string, value: unknown) { this.filters[key] = value; return this; }
     lt() { return this; }
@@ -53,7 +57,6 @@ vi.mock("@supabase/supabase-js", () => {
         const step = restoring ? "master-restore" : "master-clear";
         harness.actions.push(step);
         const row = (harness.tables[this.table] ?? []).find((entry) => entry.match_id === this.filters.match_id
-          && entry.platform === this.filters.platform
           && (restoring ? entry.storage_path === null : entry.storage_path === this.filters.storage_path));
         if (!row) return { data: [], error: null };
         row.storage_path = (this.payload as any).storage_path;
@@ -272,7 +275,7 @@ describe("expired match archive CLI apply protocol", () => {
   });
 
   it("master pointer를 먼저 비우고 registry 삭제가 모호하게 실패하면 객체·pointer·registry snapshot을 복원한다", async () => {
-    harness.tables.match_master_telemetry = [{ match_id: matchId, platform, storage_path: mapKey }];
+    harness.tables.match_master_telemetry = [{ match_id: matchId, storage_path: mapKey }];
     await cleanup(args("prepare"), env);
     harness.failRegistryDeleteAfterRemoving = true;
 
@@ -285,6 +288,21 @@ describe("expired match archive CLI apply protocol", () => {
     ]);
     expect(harness.tables.match_master_telemetry[0].storage_path).toBe(mapKey);
     expect(harness.tables.telemetry_map_cache_entries).toEqual([registrySnapshot]);
+  });
+
+  it("platform 열이 없는 운영 master pointer를 정확한 경로로 비우고 다른 경기는 보존한다", async () => {
+    harness.tables.match_master_telemetry = [
+      { match_id: matchId, storage_path: mapKey },
+      { match_id: "other-match", storage_path: "other/object" },
+    ];
+    await cleanup(args("prepare"), env);
+    await cleanup(args("apply"), env);
+
+    expect(harness.tables.match_master_telemetry).toEqual([
+      { match_id: matchId, storage_path: null },
+      { match_id: "other-match", storage_path: "other/object" },
+    ]);
+    expect(harness.actions).toEqual(["r2-delete", "master-clear", "registry-delete"]);
   });
 
   it("rollback은 동시 생성된 registry identity와 활성 lease를 덮어쓰지 않는다", async () => {
