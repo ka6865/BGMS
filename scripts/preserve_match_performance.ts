@@ -21,9 +21,19 @@ export async function preserveMatchPerformance(db: SupabaseClient, input: {apply
   if(!input.apply)return result;
   for(let index=0;index<rows.length;index+=50){
     const batch=rows.slice(index,index+50);
-    const {error:writeError}=await db.from('pubg_match_performance').upsert(batch,{onConflict:'platform,account_id,match_id,calculation_version,result_version'})
+    const {error:writeError}=await db.from('pubg_match_performance').upsert(batch,{onConflict:'platform,account_id,match_id,calculation_version,result_version',ignoreDuplicates:true})
       .abortSignal(AbortSignal.timeout(30_000));
     if(writeError)throw new Error('preserve-performance-write-failed');
+    // 이미 측정한 점수·티어·benchmark·랭킹 자격은 유지하고 누락된 보존 요약만 채운다.
+    for(const row of batch){
+      const {error:fillError}=await db.from('pubg_match_performance').update({summary:row.summary,
+        played_at:row.played_at,summary_version:row.summary_version,source_checksum:row.source_checksum})
+        .eq('platform',row.platform).eq('account_id',row.account_id).eq('match_id',row.match_id)
+        .eq('calculation_version',row.calculation_version).eq('result_version',row.result_version)
+        .eq('player_id',row.player_id).or('summary.is.null,summary_version.is.null,summary_version.neq.1')
+        .abortSignal(AbortSignal.timeout(30_000));
+      if(fillError)throw new Error('preserve-performance-write-failed');
+    }
     const {data:saved,error:verifyError}=await db.from('pubg_match_performance')
       .select('platform,account_id,match_id,calculation_version,result_version,source_checksum,summary_version')
       .in('match_id',batch.map(row=>row.match_id)).abortSignal(AbortSignal.timeout(30_000));

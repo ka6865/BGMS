@@ -55,6 +55,14 @@ describe('retained match performance',()=>{
     const db={from:()=>({upsert:vi.fn().mockResolvedValue({error:{code:'503'}})})};
     expect(await persistRetainedPerformance(db as any,result(),identity)).toBe(false);
   });
+  it('returns the measured DB benchmark when retained source omitted its score',async()=>{
+    const row=buildRetainedPerformanceRow({...result(),benchmark:null,isValidBenchmark:false},identity)!;
+    const measured={score:97,tier:'S',breakdown:{combat:40,tactical:35,survival:22}};
+    const q:any={select:()=>q,eq:()=>q,in:async()=>({data:[{...row,benchmark:measured}],error:null})};
+    const summaries=await readRetainedPerformance({from:()=>q} as any,'steam','target',[identity.matchId],'account.target');
+    expect(summaries[identity.matchId].benchmark).toEqual(measured);
+    expect(summaries[identity.matchId].stats.kills).toBe(3);
+  });
   it('chooses the latest retained version and rejects account or date conflicts',async()=>{
     const row=buildRetainedPerformanceRow(result(),identity)!;
     const prior=buildRetainedPerformanceRow({...result(),calculationVersion:0},identity)!;
