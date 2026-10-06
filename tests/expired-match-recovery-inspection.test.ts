@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import {
   inspectExpiredMatchRecovery,
+  formatRecoveryInspectionFailure,
   formatRecoverySummary,
   parseRecoveryMatches,
   RECOVERY_DECODED_BYTES_LIMIT,
@@ -52,6 +53,14 @@ describe("expired match recovery inspection", () => {
     expect(() => parseRecoveryMatches(JSON.stringify(tooMany))).toThrow("recovery-matches-count-invalid");
   });
 
+  it("reports fixed limit failures while hiding arbitrary errors with personal data", () => {
+    expect(JSON.parse(formatRecoveryInspectionFailure(new Error("recovery-decoded-size-limit"))).reason).toBe("recovery-decoded-size-limit");
+    const output = formatRecoveryInspectionFailure(new Error("account.private/player_nickname/path.json"));
+    expect(JSON.parse(output)).toEqual({ error: "recovery-inspection-failed", reason: "unknown" });
+    expect(output).not.toContain("account.private");
+    expect(output).not.toContain("player_nickname");
+  });
+
   it("fails a DB read before checking or calling R2 and never emits an artifact", async () => {
     const state = deps({ readRows: async () => { throw new Error("db-down"); }, r2Configured: vi.fn(() => true) });
     await expect(inspectExpiredMatchRecovery({ requests: [request], outputPath, secret }, state.value)).rejects.toThrow("db-down");
@@ -95,6 +104,24 @@ describe("expired match recovery inspection", () => {
     expect(state.writes[0].path).toBe(outputPath);
     expect(state.writes[0].bytes.subarray(0, 8).toString()).toBe("BGMSR2v1");
     expect(openRecoveryBytes(state.writes[0].bytes, secret).toString("utf8")).toContain(accountId);
+  });
+
+  it("reads a valid registry account before basic binding without accepting another match path", async () => {
+    const identity = { matchId, platform: "steam" as const, playerId: "account.unbound", mode: "full" as const, telemetryVersion: 73 };
+    const mapKey = buildTelemetryCacheKey(identity);
+    const badKey = buildTelemetryCacheKey({ ...identity, matchId: "123e4567-e89b-42d3-a456-426614174999" });
+    const state = deps({ readRows: async (_request, table) => table === "pubg_player_matches"
+      ? [{ match_id: matchId, platform: "steam", account_id: null, player_id: "unbound_player" }]
+      : table === "telemetry_map_cache_entries" ? [
+        { match_id: matchId, platform: "steam", player_id: identity.playerId, mode: "full", telemetry_version: 73, status: "ready", storage_path: mapKey },
+        { match_id: matchId, platform: "steam", player_id: "account.other", mode: "full", telemetry_version: 73, status: "ready", storage_path: badKey },
+      ] : [] });
+    await inspectExpiredMatchRecovery({ requests: [request], outputPath, secret }, state.value);
+    expect(state.reads).toContain(mapKey);
+    expect(state.reads).toContain(buildTelemetryAnalyzeCacheKey(identity));
+    expect(state.reads).not.toContain(badKey);
+    const payload = JSON.parse(openRecoveryBytes(state.writes[0].bytes, secret).toString("utf8"));
+    expect(payload.matches[0].rows.pubg_player_matches[0].account_id).toBeNull();
   });
 
   it("keeps the shared source and selects the newest legacy versions within eight candidates", async () => {
@@ -176,7 +203,7 @@ describe("expired match recovery inspection", () => {
     expect(source).toContain('open(path, "wx", 0o600)');
     expect(source).toContain("RECOVERY_OBJECT_LIMIT = 8");
     expect(source).toContain("console.info(formatRecoverySummary(summary))");
-    expect(source).toContain('console.error(JSON.stringify({ error: "recovery-inspection-failed" }))');
+    expect(source).toContain('console.error(formatRecoveryInspectionFailure(error))');
     const r2Service = await readFile(new URL("../lib/pubg-analysis/r2Service.ts", import.meta.url), "utf8");
     const listFunction = r2Service.match(/export async function listR2ObjectsByPrefix\([\s\S]*?^\}/m)?.[0];
     expect(listFunction).toBeDefined();
