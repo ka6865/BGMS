@@ -12,6 +12,7 @@ import { buildMatchAiCoachingPrompt } from "@/lib/pubg-analysis/matchAiCoachingP
 import { sanitizeAiCoachingLanguageText } from "@/lib/pubg-analysis/aiCoachingQuality";
 import crypto from "crypto";
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
+import { canonicalMatchPlayedAt, expiredMatchDetailResponse, isMatchDetailExpired, lookupMatchPlayedAt, resolveTrustedMatchPlayedAt } from "@/lib/pubg-analysis/matchRetention.server";
 
 const CANONICAL_MATCH_ID = /^[A-Za-z0-9._-]{1,160}$/;
 const AI_ANALYZE_ROUTE_TIMEOUT_MS = 40_000;
@@ -166,6 +167,26 @@ export async function POST(request: Request) {
       console.warn("[AI-ANALYZE] Canonical telemetry lookup failed:", canonicalLookupError);
     }
     if (isRouteAborted()) throw new DOMException("The operation was aborted.", "AbortError");
+
+    let historyPlayedAt: string | null;
+    try {
+      historyPlayedAt = await awaitWithAbort(lookupMatchPlayedAt(supabase, {
+        matchId, platform: cachePlatform, playerId, signal: routeSignal.signal,
+      }), routeSignal.signal);
+    } catch (error) {
+      if (isRouteAborted()) throw error;
+      console.error("[AI-ANALYZE] Match retention date lookup failed");
+      return NextResponse.json({
+        error: "경기 상세 제공 기간을 확인할 수 없습니다.",
+        errorCode: "PUBG_MATCH_DETAIL_RETENTION_UNAVAILABLE",
+        retryable: true,
+      }, { status: 503, headers: { "Cache-Control": "no-store" } });
+    }
+    const retentionResult = getValidFullResultForMatch(canonicalRow, {
+      matchId, playerId, platform: cachePlatform, minResultVersion: 0,
+    });
+    const playedAt = resolveTrustedMatchPlayedAt(historyPlayedAt, canonicalMatchPlayedAt(retentionResult));
+    if (isMatchDetailExpired(playedAt)) return expiredMatchDetailResponse(playedAt);
 
     const canonicalFullResult = getValidFullResultForMatch(canonicalRow, {
       matchId,

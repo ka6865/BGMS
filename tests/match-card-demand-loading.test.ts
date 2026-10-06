@@ -199,10 +199,8 @@ describe("MatchCard demand loading", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("14일 초과 요약도 펼칠 때 보관된 상세 기록을 요청하고 다시 펼치면 재사용한다", async () => {
-    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify({
-      ...matchDetailReady, matchId: "match-demand-1", createdAt: "2020-01-01T00:00:00.000Z",
-    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+  it("14일 초과 요약은 상세 기록을 요청하지 않고 만료 안내와 기본 성과를 보존한다", async () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     renderCard({
       ...matchSummaryFixture,
@@ -211,13 +209,27 @@ describe("MatchCard demand loading", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
 
-    await screen.findByText("팀원 교전 성적");
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(screen.getByText(/보관된 상세 기록과 리플레이/)).toBeInTheDocument();
-    expect(screen.queryByText("상세 정보를 불러오지 못했습니다")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("match-detail-expired")).toBeVisible();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(screen.getByText("에란겔")).toBeVisible();
     expect(screen.queryByRole("button", { name: "상세 다시 시도" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 접기" }));
     fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("경기 생성 후 14일 이내에는 상세 분석을 펼칠 수 있다", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify({
+      ...matchDetailReady,
+      matchId: "match-demand-1",
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    vi.stubGlobal("fetch", fetchMock);
+    renderCard({ ...matchSummaryFixture, createdAt: "2026-07-28T12:00:00.000Z" });
+
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+
+    await screen.findByText("팀원 교전 성적");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId("match-detail-expired")).not.toBeInTheDocument();
   });
 });

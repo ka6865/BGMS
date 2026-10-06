@@ -119,12 +119,15 @@ function configuredSupabase(cacheResult: any = { data: null, error: null }) {
 function configuredAnalyzeSupabase(cacheResult: any, canonicalResult: any) {
   const cache = queryChain(cacheResult);
   const telemetry = queryChain(canonicalResult);
+  const history = queryChain({ data: { played_at: "2026-09-30T12:00:00.000Z" }, error: null });
   return {
     cache,
     telemetry,
+    history,
     supabase: { from: vi.fn((table: string) => {
       if (table === "match_ai_coaching_cache") return cache;
       if (table === "processed_match_telemetry") return telemetry;
+      if (table === "pubg_player_matches") return history;
       throw new Error(`unexpected table ${table}`);
     }) },
   };
@@ -200,7 +203,7 @@ describe("AI squad release blockers", () => {
         },
       },
     };
-    const { supabase, cache, telemetry } = configuredAnalyzeSupabase(
+    const { supabase, cache, telemetry, history } = configuredAnalyzeSupabase(
       { data: { ai_result: { text: "old cached answer" } }, error: null },
       { data: oldCanonicalRow, error: null },
     );
@@ -219,6 +222,7 @@ describe("AI squad release blockers", () => {
       retryable: true,
     });
     expect(telemetry.select).toHaveBeenCalled();
+    expect(history.select).toHaveBeenCalledWith("played_at");
     expect(cache.select).not.toHaveBeenCalled();
     expect(mockGenerateContent).not.toHaveBeenCalled();
   });

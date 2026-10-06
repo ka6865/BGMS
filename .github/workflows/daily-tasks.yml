@@ -193,13 +193,20 @@ jobs:
           CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
         run: npx tsx scripts/monitor_storage.ts --label "BEFORE"
 
+      - name: Preserve Long Term Match Performance
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npx tsx scripts/preserve_match_performance.ts --apply --limit 1000
+
       - name: Run Storage Cleanup
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           CLEANUP_TARGET_VERSION: ${{ secrets.CLEANUP_TARGET_VERSION }}
-          CLEANUP_RETENTION_DAYS: ${{ secrets.CLEANUP_RETENTION_DAYS || 5 }}
+          CLEANUP_RETENTION_DAYS: '14'
           CLOUDFLARE_R2_ENDPOINT: ${{ secrets.CLOUDFLARE_R2_ENDPOINT }}
           CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
           CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}

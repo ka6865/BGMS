@@ -3,16 +3,29 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { fetchTelemetryPayloadMock } = vi.hoisted(() => ({
+const { fetchTelemetryPayloadMock, TelemetryFetchErrorMock } = vi.hoisted(() => ({
   fetchTelemetryPayloadMock: vi.fn(),
+  TelemetryFetchErrorMock: class TelemetryFetchErrorMock extends Error {
+    status: number;
+    errorCode: string | null;
+    retryable: boolean;
+    constructor(message: string, details: { status?: number; errorCode?: string | null; retryable?: boolean } = {}) {
+      super(message);
+      this.status = details.status ?? 0;
+      this.errorCode = details.errorCode ?? null;
+      this.retryable = details.retryable === true;
+    }
+  },
 }));
 
 vi.mock("../lib/pubg-analysis/fetchTelemetryPayload", () => ({
   fetchTelemetryPayload: fetchTelemetryPayloadMock,
+  TelemetryFetchError: TelemetryFetchErrorMock,
 }));
 
 import { useTelemetry } from "../hooks/useTelemetry";
 import type { TelemetryMode, TelemetryPlatform } from "../lib/pubg-analysis/telemetryIdentity";
+import { TelemetryFetchError } from "../lib/pubg-analysis/fetchTelemetryPayload";
 
 const useTelemetryWithMode = useTelemetry as unknown as (
   matchId: string | null,
@@ -79,6 +92,29 @@ describe("useTelemetry identity 전환", () => {
     expect(result.current.zoneEvents).toEqual([]);
     expect(result.current.currentTimeMs).toBe(0);
     expect(result.current.maxTimeMs).toBe(0);
+  });
+
+  it("14일 초과가 요약에서 확인되면 리플레이 요청 없이 만료 상태가 된다", async () => {
+    const { result } = renderHook(() => useTelemetry(
+      "match-old", "Player", "steam", "lite", "erangel", null, undefined, "2026-07-20T00:00:00.000Z",
+    ));
+
+    await waitFor(() => expect(result.current.errorKind).toBe("expired"));
+    expect(result.current.errorCode).toBe("PUBG_MATCH_DETAIL_EXPIRED");
+    expect(fetchTelemetryPayloadMock).not.toHaveBeenCalled();
+    expect(result.current.events).toEqual([]);
+  });
+
+  it("매치 날짜가 없으면 통신 실패와 구분하고 서버의 명시적 410 만료 코드를 보존한다", async () => {
+    fetchTelemetryPayloadMock.mockRejectedValue(new TelemetryFetchError("기간 만료", {
+      status: 410,
+      errorCode: "PUBG_MATCH_DETAIL_EXPIRED",
+      retryable: false,
+    }));
+    const { result } = renderHook(() => useTelemetry("match-unknown", "Player", "steam", "lite", "erangel"));
+
+    await waitFor(() => expect(result.current.errorKind).toBe("expired"));
+    expect(result.current.errorCode).toBe("PUBG_MATCH_DETAIL_EXPIRED");
   });
 
   it("새 identity 요청이 실패해도 이전 성공 궤적을 복원하지 않는다", async () => {

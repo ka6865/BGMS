@@ -1,4 +1,5 @@
 import { readPerformanceCache, readPerformanceStates } from "@/lib/pubg/performanceCache";
+import { readRetainedPerformance } from "@/lib/pubg/retainedPerformance";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
@@ -225,6 +226,15 @@ export async function POST(request: NextRequest) {
       } else collectionStopped = true;
     }
 
+    const retained = await readRetainedPerformance(supabase, platform, playerId, matchIds, accountId);
+    for (const [id, summary] of Object.entries(retained)) {
+      if (summaries[id]?.summarySource === "processed_match_telemetry") continue;
+      // 기본 전적은 공식 DB 값을 우선하고, 성과만 보존된 분석에서 보충한다.
+      const basic = summaries[id];
+      summaries[id] = { ...basic, ...summary, stats: { ...summary.stats,
+        ...(basic ? { kills: basic.stats.kills, damageDealt: basic.stats.damageDealt,
+          winPlace: basic.stats.winPlace } : {}) } };
+    }
     const performances = await readPerformanceCache(supabase, platform, playerId, matchIds, accountId);
     for (const [id, benchmark] of Object.entries(performances)) {
       if (summaries[id] && !summaries[id].benchmark) { summaries[id].benchmark = benchmark; summaries[id].performanceOnly = true; }

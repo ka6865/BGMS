@@ -20,8 +20,7 @@ import {
   X,
   Car,
   Video,
-  Map as MapIcon,
-  Info
+  Map as MapIcon
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { BgmsIcon } from "@/components/common/BgmsIcon";
@@ -39,9 +38,15 @@ import { useAuth } from "@/components/AuthProvider";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
 import { resolve3DMapCapability } from "@/lib/replay/mapCapabilities";
-import { isMatchOlderThan14Days } from "@/components/stat/matchExpiryHelper";
 import { isCanonicalMatchId } from "@/lib/pubg-analysis/telemetryIdentity";
 import type { StatsPlatform } from "@/types/stats-page";
+import {
+  getMatchDetailRetention,
+  MATCH_DETAIL_EXPIRED_CODE,
+  MATCH_DETAIL_UNAVAILABLE_CODE,
+  MATCH_DETAIL_EXPIRED_MESSAGE,
+} from "@/lib/pubg-analysis/matchRetention";
+import { MatchDetailExpiredNotice } from "./MatchDetailExpiredNotice";
 
 const TimelineMiniMap = dynamic(
   () => import("@/components/stat/TimelineMiniMap").then((mod) => mod.TimelineMiniMap),
@@ -179,10 +184,11 @@ export interface ExpandedMatchDetailsProps {
 type MatchDetailState =
   | { status: "summary" }
   | { status: "loading" }
+  | { status: "expired"; expiresAt: string | null }
   | { status: "ready"; data: MatchData }
-  | { status: "error"; message: string; kind: "unavailable" | "upgrade_pending" | "retryable" | "generic" };
+  | { status: "error"; message: string; kind: MatchDetailErrorKind };
 
-type MatchDetailErrorKind = "unavailable" | "upgrade_pending" | "retryable" | "generic";
+type MatchDetailErrorKind = "expired" | "unavailable" | "upgrade_pending" | "retryable" | "generic";
 
 type AiAnalysisErrorDetails = {
   status?: number;
@@ -271,6 +277,12 @@ function classifyMatchDetailError(
   errorCode?: string,
   serverMessage?: string,
 ): MatchDetailRequestError {
+  if (errorCode === MATCH_DETAIL_EXPIRED_CODE) {
+    return new MatchDetailRequestError(serverMessage || MATCH_DETAIL_EXPIRED_MESSAGE, "expired");
+  }
+  if (errorCode === MATCH_DETAIL_UNAVAILABLE_CODE) {
+    return new MatchDetailRequestError(serverMessage || "상세 분석 자료가 저장되어 있지 않습니다. 기본 전적은 계속 확인할 수 있습니다.", "unavailable");
+  }
   if (errorCode === "PUBG_MATCH_PARTICIPANT_NOT_FOUND") {
     return new MatchDetailRequestError(serverMessage || MATCH_PARTICIPANT_NOT_FOUND_MESSAGE, "unavailable");
   }
@@ -351,8 +363,22 @@ export const ExpandedMatchDetails = ({
   const [showReplayModal, setShowReplayModal] = useState(false);
   const [mounted, setMounted] = useState(false);
 
-  const matchDate = (matchData as any)?.playedAt || matchData?.createdAt || matchData?.matchInfo?.date || (initialMatchData as any)?.playedAt || initialMatchData?.createdAt || "";
-  const is14DaysExpired = isMatchOlderThan14Days(matchDate);
+  const matchDate = (initialMatchData as any)?.playedAt || initialMatchData?.createdAt || initialMatchData?.matchInfo?.date
+    || (matchData as any)?.playedAt || matchData?.createdAt || matchData?.matchInfo?.date || "";
+  const matchRetention = getMatchDetailRetention(matchDate);
+
+  useEffect(() => {
+    if (matchRetention.status !== "available" || !matchRetention.expiresAt) return;
+    const delay = Date.parse(matchRetention.expiresAt) - Date.now();
+    if (delay <= 0) {
+      setDetailState({ status: "expired", expiresAt: matchRetention.expiresAt });
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setDetailState({ status: "expired", expiresAt: matchRetention.expiresAt });
+    }, Math.min(delay, 2_147_000_000));
+    return () => window.clearTimeout(timer);
+  }, [matchRetention.expiresAt, matchRetention.status]);
 
   useEffect(() => {
     setMounted(true);
@@ -489,6 +515,7 @@ export const ExpandedMatchDetails = ({
 
   const handleInternalReplay = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (getMatchDetailRetention(matchDate).status !== "available") return;
     trackEvent({
       name: "feature_consumption",
       params: {
@@ -496,12 +523,20 @@ export const ExpandedMatchDetails = ({
         status: "start"
       }
     });
-    router.push(`/maps/${mapId}?playback=${matchId}&nickname=${nickname}&platform=${encodeURIComponent(platform)}`);
+    const query = new URLSearchParams({ playback: matchId, nickname, platform, playedAt: matchDate });
+    router.push(`/maps/${mapId}?${query.toString()}`);
   };
 
 
   const fetchFullMatch = useCallback(async () => {
     if (detailRequestRef.current) return;
+    const retention = getMatchDetailRetention(
+      (initialMatchData as any)?.playedAt || initialMatchData?.createdAt || initialMatchData?.matchInfo?.date || matchDate,
+    );
+    if (retention.status === "expired") {
+      setDetailState({ status: "expired", expiresAt: retention.expiresAt });
+      return;
+    }
     if (!isCanonicalMatchId(matchId)) {
       setDetailState({ status: "error", message: "상세 정보를 불러오지 못했습니다", kind: "generic" });
       callbacksRef.current.onFailure?.("detail_failed");
@@ -531,6 +566,11 @@ export const ExpandedMatchDetails = ({
       if (stale()) return;
       if (!res.ok || data.error) {
         const detailError = classifyMatchDetailError(res.status, data.errorCode, data.error);
+        if (detailError.kind === "expired") {
+          setDetailState({ status: "expired", expiresAt: (data as { expiresAt?: string | null }).expiresAt || matchRetention.expiresAt });
+          callbacksRef.current.onRecovery?.("detail_failed");
+          return;
+        }
         if (detailError.kind === "unavailable" && data.errorCode === "PUBG_MATCH_NOT_FOUND") {
           rememberUnavailableMatch(unavailableKey);
         }
@@ -572,7 +612,7 @@ export const ExpandedMatchDetails = ({
         setLoading(false);
       }
     }
-  }, [matchId, nickname, platform]);
+  }, [initialMatchData, matchDate, matchRetention.expiresAt, matchId, nickname, platform]);
 
   const detailIdentityRef = useRef<string | null>(null);
   useEffect(() => {
@@ -897,6 +937,10 @@ export const ExpandedMatchDetails = ({
 
   const isCalculationUpgradePending = analysisError?.errorCode === "PUBG_CALCULATION_UPGRADE_REQUIRED";
 
+  if (detailState.status === "expired" || matchRetention.status === "expired") {
+    return <MatchDetailExpiredNotice summary={initialMatchData || matchData} expiresAt={detailState.status === "expired" ? detailState.expiresAt : matchRetention.expiresAt} />;
+  }
+
   if (detailState.status === "error") {
     const isUnavailable = detailState.kind === "unavailable";
     const isUpgradePending = detailState.kind === "upgrade_pending";
@@ -1032,13 +1076,6 @@ export const ExpandedMatchDetails = ({
         </div>
       )}
 
-      {/* 과거 전적 보존 안내 바 */}
-      {is14DaysExpired && (
-        <div className="mx-3 md:mx-5 mt-3.5 p-3 bg-sky-500/10 border border-sky-500/20 rounded-xl flex items-center gap-2 text-xs text-sky-300">
-          <Info size={14} className="shrink-0 text-sky-400" />
-          <span>14일이 지난 경기입니다. 보관된 상세 기록과 리플레이가 있으면 계속 볼 수 있습니다.</span>
-        </div>
-      )}
 
       {/* Quick Action Bar (Floating) */}
       {!isTdmMatch && (
@@ -1795,7 +1832,8 @@ export const ExpandedMatchDetails = ({
                       status: "start"
                     }
                   });
-                  router.push(`/maps/${mapId}?playback=${matchId}&nickname=${nickname}&platform=${encodeURIComponent(platform)}&mode=full`);
+                  const query = new URLSearchParams({ playback: matchId, nickname, platform, mode: "full", playedAt: matchDate });
+                  router.push(`/maps/${mapId}?${query.toString()}`);
                 }}
                 className="w-full text-left p-4 bg-white/3 hover:bg-white/5 border border-white/5 hover:border-white/10 rounded-2xl transition-all flex gap-3.5 items-center cursor-pointer group hover:scale-[1.01]"
               >

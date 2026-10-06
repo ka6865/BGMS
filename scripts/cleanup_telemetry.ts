@@ -295,27 +295,6 @@ function createTelemetryCleanupDependencies(
   };
 }
 
-async function cleanupOrphanedAnalysisRows(supabase: SupabaseClient): Promise<void> {
-  const { data, error } = await supabase.rpc("get_orphaned_match_ids");
-  if (error) throw new Error("telemetry-cleanup-orphan-query-failed");
-
-  const rows = (data ?? []) as Array<{ match_id: string | null }>;
-  const matchIds = uniqueValues(
-    rows
-      .map((row) => row.match_id)
-      .filter((matchId): matchId is string => Boolean(matchId)),
-  );
-  for (const batch of chunkValues(matchIds, DELETE_BATCH_SIZE)) {
-    for (const table of ["match_stats_raw", "processed_match_telemetry"]) {
-      const { error: deleteError } = await supabase
-        .from(table)
-        .delete()
-        .in("match_id", batch);
-      if (deleteError) throw new Error(`telemetry-cleanup-delete-${table}-failed`);
-    }
-  }
-}
-
 /**
  * 자동완성 후보로만 쌓인 pubg_player_cache 행을 정리합니다.
  *
@@ -400,7 +379,7 @@ export async function runTelemetryCleanupFromEnvironment(): Promise<void> {
     targetVersion,
   }, createTelemetryCleanupDependencies(supabase));
 
-  await cleanupOrphanedAnalysisRows(supabase);
+  // master 부재만으로 성과 원본을 지우지 않는다. 만료 정리는 별도 보존 검증을 거친다.
   await cleanupInactivePlayerCache(supabase);
   console.info(JSON.stringify(result));
 }

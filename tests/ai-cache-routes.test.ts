@@ -117,7 +117,7 @@ function createQueryChain(result: any = { data: null, error: null }) {
 function createSupabaseMock(tables: Record<string, any>) {
   return {
     from: vi.fn((table: string) => {
-      const chain = tables[table];
+      const chain = tables[table] ?? (table === "pubg_player_matches" ? createQueryChain({ data: null, error: null }) : null);
       if (!chain) throw new Error(`Unexpected table access: ${table}`);
       return chain;
     }),
@@ -240,6 +240,7 @@ function createCanonicalAnalyzeRow(
     platform: "kakao",
     v: RESULT_VERSION,
     calculationVersion: 2,
+    createdAt: overrides.createdAt ?? new Date().toISOString(),
     ...overrides,
   };
   return {
@@ -353,6 +354,31 @@ describe("AI cache route stabilization", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.unstubAllEnvs();
+  });
+
+  it("ai-analyze는 forged body 날짜와 캐시를 무시하고 scoped played_at 만료를 먼저 적용한다", async () => {
+    const telemetry = createQueryChain({ data: createCanonicalAnalyzeRow("expired-match") , error: null });
+    const matchCache = createQueryChain({ data: { ai_result: { text: "must-not-serve" } }, error: null });
+    const history = createQueryChain({ data: { played_at: "2026-09-01T00:00:00.000Z" }, error: null });
+    const supabase = createSupabaseMock({
+      processed_match_telemetry: telemetry,
+      match_ai_coaching_cache: matchCache,
+      pubg_player_matches: history,
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiAnalyzePOST(createRequest({
+      nickname: "Player_A", platform: "kakao",
+      matchData: { matchId: "expired-match", createdAt: new Date().toISOString() },
+    }));
+
+    expect(response.status).toBe(410);
+    expect(await response.json()).toEqual(expect.objectContaining({ errorCode: "PUBG_MATCH_DETAIL_EXPIRED", retryable: false }));
+    expect(matchCache.maybeSingle).not.toHaveBeenCalled();
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    expect(history.eq.mock.calls).toEqual([
+      ["match_id", "expired-match"], ["platform", "kakao"], ["player_id", "player_a"],
+    ]);
   });
 
   it("ai-analyze는 match_id뿐 아니라 player_id, platform, prompt_version으로 캐시를 조회한다", async () => {

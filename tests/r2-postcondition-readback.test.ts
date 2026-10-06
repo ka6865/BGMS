@@ -37,9 +37,11 @@ describe("R2 postcondition read-back", () => {
     const { readObjectForVerification } = await import("../lib/pubg-analysis/r2Service");
     const body = Buffer.from('{"fullResult":{"v":73}}', "utf8");
     send
-      .mockResolvedValueOnce({ ETag: '"etag-73"' })
+      .mockResolvedValueOnce({ ETag: '"etag-73"', ContentLength: body.length, ContentType: "application/json" })
       .mockResolvedValueOnce({
         ETag: '"etag-73"',
+        ContentLength: body.length,
+        ContentType: "application/json",
         Body: { transformToByteArray: async () => Uint8Array.from(body) },
       });
 
@@ -47,6 +49,9 @@ describe("R2 postcondition read-back", () => {
       .resolves.toEqual({
         key: "telemetry-map/v61/steam/match/hash/lite.json",
         etag: '"etag-73"',
+        sizeBytes: body.length,
+        contentType: "application/json",
+        contentEncoding: null,
         body,
       });
     expect(send).toHaveBeenCalledTimes(2);

@@ -14,6 +14,7 @@ import {
   type TelemetryEnvelope,
   type TelemetryPayload,
 } from "./telemetryPayload";
+import { MATCH_DETAIL_EXPIRED_CODE, MATCH_DETAIL_UNAVAILABLE_CODE } from "./matchRetention";
 
 type TelemetryRequest = {
   matchId: string;
@@ -35,6 +36,20 @@ const MAP_NAME = /^[^\u0000-\u001f\u007f]{1,80}$/;
 const REQUEST_ERROR = "텔레메트리 요청에 실패했습니다.";
 const DOWNLOAD_ERROR = "텔레메트리 다운로드에 실패했습니다.";
 const VALIDATION_ERROR = "텔레메트리 데이터 검증에 실패했습니다.";
+
+export class TelemetryFetchError extends Error {
+  readonly status: number;
+  readonly errorCode: string | null;
+  readonly retryable: boolean;
+
+  constructor(message: string, details: { status?: number; errorCode?: string | null; retryable?: boolean } = {}) {
+    super(message);
+    this.name = "TelemetryFetchError";
+    this.status = details.status ?? 0;
+    this.errorCode = details.errorCode ?? null;
+    this.retryable = details.retryable === true;
+  }
+}
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
@@ -89,7 +104,23 @@ async function requestJson(
     throw new Error(failureMessage);
   }
 
-  if (!response.ok) throw new Error(failureMessage);
+  if (!response.ok) {
+    let body: { error?: string; errorCode?: string; retryable?: boolean } = {};
+    try {
+      body = await response.clone().json() as typeof body;
+    } catch {
+      // 응답 본문이 없거나 JSON이 아닌 경우에는 기존 요청 오류 문구를 사용한다.
+    }
+    if (body.errorCode === MATCH_DETAIL_EXPIRED_CODE || body.errorCode === MATCH_DETAIL_UNAVAILABLE_CODE
+      || body.errorCode === "PUBG_MATCH_DETAIL_RETENTION_UNAVAILABLE") {
+      throw new TelemetryFetchError(body.error || failureMessage, {
+        status: response.status,
+        errorCode: body.errorCode,
+        retryable: body.retryable,
+      });
+    }
+    throw new Error(failureMessage);
+  }
 
   try {
     return await response.json();

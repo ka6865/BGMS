@@ -37,7 +37,8 @@ describe("텔레메트리 소비자 계약", () => {
   });
 
   it("ExpandedMatchDetails의 두 2D URL이 platform을 인코딩해 전달한다", () => {
-    expect(expandedMatchDetailsSource.match(/platform=\$\{encodeURIComponent\(platform\)\}/g)).toHaveLength(2);
+    expect(expandedMatchDetailsSource).toContain("new URLSearchParams({ playback: matchId, nickname, platform, playedAt: matchDate })");
+    expect(expandedMatchDetailsSource).toContain("new URLSearchParams({ playback: matchId, nickname, platform, mode: \"full\", playedAt: matchDate })");
   });
 
   it("MapShell이 완전한 playback identity를 fail-closed 검증하고 hook에 전달한다", () => {

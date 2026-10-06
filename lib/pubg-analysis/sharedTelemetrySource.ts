@@ -1,5 +1,6 @@
 import "server-only";
 import { type TelemetryPlatform } from "./telemetryIdentity";
+import { getMatchDetailRetention } from "./matchRetention";
 import { downloadFromR2, uploadRecoveryObjectToR2 } from "./r2Service";
 import { buildSharedTelemetrySourceKey, createSharedTelemetrySource, parseSharedTelemetrySource, type SharedTelemetrySource } from "./sharedTelemetrySourceContract";
 
@@ -14,6 +15,8 @@ export async function readSharedTelemetrySource(matchId: string, platform: Telem
 
 /** Called only with events validated against the official, relationship-bound asset. */
 export async function writeSharedTelemetrySource(matchData: any, platform: TelemetryPlatform, events: any[]): Promise<void> {
+  const retention = getMatchDetailRetention(matchData?.data?.attributes?.createdAt);
+  if (retention.status === "expired") throw new Error("PUBG_MATCH_DETAIL_EXPIRED");
   const envelope = createSharedTelemetrySource(matchData, platform, events);
   const { matchId } = envelope;
   const key = buildSharedTelemetrySourceKey(envelope.matchId, platform);
