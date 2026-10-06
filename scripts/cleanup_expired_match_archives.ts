@@ -163,7 +163,11 @@ function projectRefFromUrl(url: string): string {
 }
 
 async function rows<T>(db: SupabaseClient, table: string, columns: string, matchId: string, platform: Platform): Promise<T[]> {
-  const { data, error } = await db.from(table).select(columns).eq("match_id", matchId).eq("platform", platform).limit(ROW_LIMIT)
+  let query = db.from(table).select(columns).eq("match_id", matchId);
+  // This legacy shared table is keyed by match_id and has no platform column.
+  // Exact platform/account storage paths are still checked before deletion.
+  if (table !== "match_master_telemetry") query = query.eq("platform", platform);
+  const { data, error } = await query.limit(ROW_LIMIT)
     .abortSignal(AbortSignal.timeout(15_000));
   if (error) throw new Error(`retention-query-failed:${table}:${error.code ?? "unknown"}`);
   if ((data ?? []).length >= ROW_LIMIT) throw new Error(`retention-reference-limit:${table}`);
@@ -505,7 +509,7 @@ async function applyPlan(inspection: Inspection, backup: BackupPayload): Promise
       }
       if (proof.masterPathReferenced) {
         const { data, error } = await supabase.from('match_master_telemetry').update({ storage_path: null })
-          .eq('match_id', proof.matchId).eq('platform', proof.platform).eq('storage_path', proof.key).select('match_id');
+          .eq('match_id', proof.matchId).eq('storage_path', proof.key).select('match_id');
         if (error || !Array.isArray(data) || data.length !== 1) throw new Error('retention-master-pointer-clear-failed');
         masterPointerCleared = true;
       }
@@ -523,7 +527,7 @@ async function applyPlan(inspection: Inspection, backup: BackupPayload): Promise
           // A failed transport can hide a committed pointer update. Restore only
           // a now-null pointer; never replace another worker's new object.
           const { data, error: restoreError } = await supabase.from('match_master_telemetry').update({ storage_path: proof.key })
-            .eq('match_id', proof.matchId).eq('platform', proof.platform).is('storage_path', null).select('match_id');
+            .eq('match_id', proof.matchId).is('storage_path', null).select('match_id');
           if (restoreError) throw new Error('retention-master-restore-unverified');
           if (data?.length !== 1) {
             const current = await rows<{ storage_path: string | null }>(supabase, 'match_master_telemetry', 'storage_path', proof.matchId, proof.platform);

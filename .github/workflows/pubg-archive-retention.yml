@@ -33,6 +33,10 @@ permissions:
   contents: read
   actions: read
 
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: pubg-detail-archive-retention
   cancel-in-progress: false

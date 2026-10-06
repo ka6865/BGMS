@@ -2,11 +2,22 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
 
 const workflowDirectory = join(process.cwd(), ".github/workflows");
 const workflowFiles = readdirSync(workflowDirectory).filter((file) => file.endsWith(".yml"));
 
 describe("GitHub Actions workflow permissions and action pins", () => {
+  it("archive cleanup pipeline failures stop the workflow before subsequent steps", () => {
+    const yaml = createRequire(import.meta.url)("js-yaml") as { load(text: string): any };
+    const config = yaml.load(readFileSync(join(workflowDirectory, "pubg-archive-retention.yml"), "utf8"));
+    expect(config.defaults.run.shell).toBe("bash");
+    const result = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c",
+      "(exit 23) | tee /dev/null\nprintf 'UNSAFE_NEXT_STEP'"], { encoding: "utf8" });
+    expect(result.status).toBe(23);
+    expect(result.stdout).not.toContain("UNSAFE_NEXT_STEP");
+  });
+
   it("grants only read access and pins every workflow action to a verified full SHA", () => {
     expect(workflowFiles.length).toBeGreaterThan(0);
     expect(workflowFiles).toContain("pr-verify.yml");
