@@ -68,6 +68,47 @@ describe('expired archive performance preservation', () => {
     expect(mocks.calculate).not.toHaveBeenCalled();
     expect(db.from).not.toHaveBeenCalled();
   });
+  it.each([['unavailable', 'event'], ['unknown', 'airoyale']])(
+    'repairs missing match type %s from matching stored %s before preservation', async (missing, observed) => {
+      const i: any = input(); i.basics[0] = { ...basic, account_id: null, match_type: missing };
+      i.processed[0].data.fullResult = { ...full, mapName: '에란겔', matchType: observed };
+      const linked = { ...basic, match_type: observed };
+      const rpc = vi.fn<(_name: string, _bindings: unknown) => any>(() => ({ abortSignal: async () => ({ data: [linked], error: null }) }));
+      expect(await preserveExpiredMatchPerformance({ rpc } as any, i))
+        .toMatchObject({ linkedAccounts: 1, savedSummaries: 1, recoveredSummaries: 0 });
+      expect(rpc.mock.calls[0][1]).toEqual({ p_bindings: [{ before: i.basics[0], processed: i.processed[0], accountId: basic.account_id }] });
+      expect(mocks.preserve.mock.calls[0][1][0].summary.matchType).toBe(observed);
+      expect(mocks.calculate).not.toHaveBeenCalled();
+    });
+  it.each([undefined, null, '', 'unknown', 'unavailable', 'invented-type'])(
+    'protects missing type when stored type is not usable: %s', async (storedType) => {
+      const i: any = input(); i.basics[0] = { ...basic, account_id: null, match_type: 'unavailable' };
+      i.processed[0].data.fullResult = { ...full, mapName: '에란겔', matchType: storedType };
+      const rpc = vi.fn();
+      expect(await preserveExpiredMatchPerformance({ rpc } as any, i)).toMatchObject({ linkedAccounts: 0, savedSummaries: 0 });
+      expect(rpc).not.toHaveBeenCalled();
+    });
+  it.each(['competitive', null])('protects a recovered type contradicted by the secondary cached type: %s', async secondary => {
+    const i: any = input(); i.basics[0] = { ...basic, account_id: null, match_type: 'unavailable' };
+    i.processed[0].data.fullResult = { ...full, mapName: '에란겔', matchType: 'event', matchInfo: { matchType: secondary } };
+    const rpc = vi.fn();
+    expect(await preserveExpiredMatchPerformance({ rpc } as any, i)).toMatchObject({ linkedAccounts: 0, savedSummaries: 0 });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+  it.each([{ secondary: ['matchType'] }, { secondary: [] }, { secondary: 'matchType' }, { secondary: 1 }])('protects malformed secondary metadata: $secondary', async ({ secondary }) => {
+    const i: any = input(); i.basics[0] = { ...basic, account_id: null, match_type: 'unavailable' };
+    i.processed[0].data.fullResult = { ...full, mapName: '에란겔', matchType: 'event', matchInfo: secondary };
+    const rpc = vi.fn();
+    expect(await preserveExpiredMatchPerformance({ rpc } as any, i)).toMatchObject({ linkedAccounts: 0, savedSummaries: 0 });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+  it('stops preservation if DB did not repair the expected missing type', async () => {
+    const i: any = input(); i.basics[0] = { ...basic, account_id: null, match_type: 'unavailable' };
+    i.processed[0].data.fullResult = { ...full, mapName: '에란겔', matchType: 'event' };
+    const rpc = vi.fn(() => ({ abortSignal: async () => ({ data: [{ ...basic, match_type: 'unavailable' }], error: null }) }));
+    await expect(preserveExpiredMatchPerformance({ rpc } as any, i)).rejects.toThrow('retention-account-binding-unverified');
+    expect(mocks.preserve).not.toHaveBeenCalled();
+  });
   it.each(['matchId', 'createdAt', 'gameMode', 'mapName', 'platform'])('protects legacy binding with conflicting %s', async field => {
     const i: any = input(); i.basics[0].account_id = null;
     i.processed[0].data.fullResult = { ...full, mapName: '에란겔', [field]: 'conflict' };

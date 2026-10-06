@@ -56,7 +56,7 @@ select '00000000-0000-0000-0000-000000000701', 'steam', f.player_id,
   jsonb_build_object('fullResult', jsonb_build_object(
     'matchId', '00000000-0000-0000-0000-000000000701',
     'platform', 'steam', 'player_id', f.player_id,
-    'createdAt', '2026-08-01T00:00:00+00:00', 'gameMode', 'squad-fpp', 'mapName', '에란겔',
+    'createdAt', '2026-08-01T00:00:00+00:00', 'matchType', 'official', 'gameMode', 'squad-fpp', 'mapName', '에란겔',
     'stats', jsonb_build_object('name', f.player_id, 'playerId', f.account_id,
       'kills', f.kills, 'damageDealt', f.damage, 'winPlace', f.win_place)
   ))

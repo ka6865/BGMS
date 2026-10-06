@@ -56,6 +56,7 @@ MIGRATIONS=(
   "20261006115638_pubg_archive_cleanup_cursor"
   "20261006130700_bounded_unretained_match_performance"
   "20261006193137_retention_legacy_account_binding"
+  "20261006210245_retention_match_type_recovery"
 )
 
 cleanup() {
@@ -132,6 +133,7 @@ done
 
 echo "▶ RPC 동작 시나리오 실행"
 "${PSQL[@]}" -f tests/fixtures/migration-check/retention_legacy_binding_checks.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/retention_match_type_recovery_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retained-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/encounter-page-scenarios.sql
