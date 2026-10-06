@@ -214,6 +214,16 @@ const env = {
 };
 
 describe("expired match archive CLI apply protocol", () => {
+  it('moves beyond a truncated legacy listing containing only protected keys', async () => {
+    r2.read.mockResolvedValue(null);
+    r2.list.mockResolvedValue({ objects: [], pages: 1, truncated: true });
+    await cleanup(['--platform', 'all', '--manifest', manifestPath], env);
+    const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(plan.nextCursor).toEqual({ played_at: playedAt, platform, match_id: matchId });
+    expect(plan.matches[0].reasons).toContain('legacy_listing_truncated');
+    expect(r2.deletePersonal).not.toHaveBeenCalled();
+  });
+
   it('inspects more than 20 objects from one match rather than moving past uninspected maps', async () => {
     harness.tables.telemetry_map_cache_entries = Array.from({ length: 26 }, (_, i) => ({ ...registrySnapshot,
       id: 100 + i, telemetry_version: 50 + i,

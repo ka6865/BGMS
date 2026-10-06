@@ -365,10 +365,14 @@ async function inspectOneMatch(input: {
     masterStoragePaths: masterPaths, objects: objectProofs,
   });
   const selected = assessment.objects.slice(0, args.limit) as ObjectProof[];
-  return { plan: { platform, matchId: match.match_id, playedAt: match.played_at, reasons: assessment.reasons,
+  // 삭제 가능한 legacy가 목록 앞에 남아 있을 때만 같은 경기를 이어서 검사한다.
+  // 보호 대상만 반복해서 보이는 잘린 목록은 기록하고 다음 경기로 이동한다.
+  const moreLegacyMayRemain = legacy.truncated && assessment.objects.some(object => object.kind === 'legacy-analysis');
+  return { plan: { platform, matchId: match.match_id, playedAt: match.played_at,
+    reasons: [...assessment.reasons, ...(legacy.truncated ? ['legacy_listing_truncated'] : [])],
     accountCount: assessment.retainedAccountCount, objectCount: selected.length,
       bytes: selected.reduce((sum, object) => sum + object.sizeBytes, 0) }, objects: selected,
-    eligibleObjectCount: assessment.objects.length + (legacy.truncated ? 1 : 0) };
+    eligibleObjectCount: assessment.objects.length + (moreLegacyMayRemain ? 1 : 0) };
 }
 
 async function inspect(options: Args, env: Record<string, string | undefined> = process.env,

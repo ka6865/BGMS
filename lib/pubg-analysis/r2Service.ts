@@ -567,7 +567,7 @@ export async function listR2ObjectsByPrefix(
   if (!isR2Configured()) throw new Error("r2-credentials-missing");
   if (!/^[A-Za-z0-9._-]{1,160}_$/.test(prefix) || prefix.includes("..")
     || !Number.isInteger(options.maxPages) || options.maxPages < 1 || options.maxPages > 20
-    || !Number.isInteger(options.maxObjects) || options.maxObjects < 1 || options.maxObjects > 20) {
+    || !Number.isInteger(options.maxObjects) || options.maxObjects < 1 || options.maxObjects > 100) {
     throw new Error("r2-prefix-list-bound-invalid");
   }
   const objects: R2ListedObject[] = [];

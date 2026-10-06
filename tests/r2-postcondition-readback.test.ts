@@ -91,4 +91,18 @@ describe("R2 postcondition read-back", () => {
     expect(source).not.toContain("DeleteObjectCommand");
     expect(source).not.toContain("deleteRecoveryObjectIfOwned");
   });
+
+  it('lists up to 100 legacy objects and reports a truncated result without deleting', async () => {
+    const { listR2ObjectsByPrefix } = await import('../lib/pubg-analysis/r2Service');
+    const contents = Array.from({ length: 100 }, (_, i) => ({ Key: `match_player_v${i + 1}_analyze.json`, Size: 18, ETag: '"etag"' }));
+    send.mockResolvedValueOnce({ Contents: contents, IsTruncated: true, NextContinuationToken: 'next-page' });
+    await expect(listR2ObjectsByPrefix('match_', { maxPages: 1, maxObjects: 100 }))
+      .resolves.toMatchObject({ objects: contents.map(item => ({ key: item.Key, sizeBytes: item.Size, etag: item.ETag })),
+        pages: 1, truncated: true });
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0].input).toMatchObject({ Prefix: 'match_', MaxKeys: 100 });
+    await expect(listR2ObjectsByPrefix('match_', { maxPages: 1, maxObjects: 101 }))
+      .rejects.toThrow('r2-prefix-list-bound-invalid');
+    expect(send).toHaveBeenCalledTimes(1);
+  });
 });
