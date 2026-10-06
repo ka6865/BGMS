@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { open, readFile } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -560,18 +560,23 @@ export async function runExpiredMatchArchiveCleanup(argv = process.argv.slice(2)
     ? JSON.parse(await readFile(options.manifestPath, 'utf8')) as Manifest : undefined;
   const inspection = await inspect(options, env, storedManifest);
   const { manifest } = inspection;
+  const reasonCounts: Record<string, number> = {};
+  for (const match of manifest.matches) {
+    for (const reason of match.reasons) reasonCounts[reason] = (reasonCounts[reason] ?? 0) + 1;
+  }
   if (options.mode === 'dry-run') {
     await saveManifest(manifest, options.manifestPath);
     console.info(JSON.stringify({ mode: options.mode, matches: manifest.matches.length, eligibleObjects: manifest.objects.length,
       candidateBytes: manifest.objects.reduce((sum, object) => sum + object.sizeBytes, 0), legacyLists: manifest.legacyListings.length,
-      truncatedLegacyLists: manifest.legacyListings.filter(entry => entry.truncated).length }));
+      truncatedLegacyLists: manifest.legacyListings.filter(entry => entry.truncated).length, reasonCounts }));
     return;
   }
   if (options.mode === 'prepare-backup') {
     await saveManifest(manifest, options.manifestPath);
     await prepareBackup(manifest, options.backupPath!, env.R2_RECOVERY_ARCHIVE_KEY ?? '');
     console.info(JSON.stringify({ mode: options.mode, matches: manifest.matches.length, eligibleObjects: manifest.objects.length,
-      candidateBytes: manifest.objects.reduce((sum, object) => sum + object.sizeBytes, 0), backupArtifact: basename(options.backupPath!) }));
+      candidateBytes: manifest.objects.reduce((sum, object) => sum + object.sizeBytes, 0), backupArtifact: basename(options.backupPath!),
+      backupBytes: (await stat(options.backupPath!)).size, reasonCounts }));
     return;
   }
   if (!options.backupUploadVerified && env.R2_RETENTION_BACKUP_UPLOAD_VERIFIED !== 'true') {
@@ -586,7 +591,10 @@ export async function runExpiredMatchArchiveCleanup(argv = process.argv.slice(2)
       .eq('id', 1).eq('generation', manifest.cursorGeneration).select('id').abortSignal(AbortSignal.timeout(15_000));
     if (error || data?.length !== 1) throw new Error('retention-cursor-update-failed');
   }
-  console.info(JSON.stringify({ mode: options.mode, deletedObjects: result.deleted, removedBytes: result.bytes, scannedMatches: manifest.matches.length }));
+  const backupBytes = (await stat(options.backupPath!)).size;
+  console.info(JSON.stringify({ mode: options.mode, deletedObjects: result.deleted, removedBytes: result.bytes,
+    backupBytes, netBytesIncludingTemporaryBackup: result.bytes - backupBytes,
+    scannedMatches: manifest.matches.length, reasonCounts }));
 }
 
 const isDirectRun = Boolean(process.argv[1]) && pathToFileURL(resolve(process.argv[1])).href === import.meta.url;

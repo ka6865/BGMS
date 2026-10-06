@@ -23,6 +23,8 @@ import {
   type CanonicalDebateEvidenceMap,
 } from "@/lib/pubg-analysis/aiSummaryDebate";
 import { isAiSummaryEligibleMatch } from "@/lib/pubg-analysis/matchEligibility";
+import { expiredMatchDetailResponse } from "@/lib/pubg-analysis/matchRetention.server";
+import { getMatchDetailRetention, MATCH_DETAIL_RETENTION_DAYS } from "@/lib/pubg-analysis/matchRetention";
 import {
   buildBestMatchSelectionKey,
   buildMatchScoreSelectionKey,
@@ -1200,9 +1202,15 @@ export async function POST(request: Request) {
     const newResultsMap = new Map();
     let fallbackTimedOut = false;
     let fallbackFetchTimedOut = false;
+    let expiredFallbackDetected = false;
+    let expiredFallbackPlayedAt: string | null = null;
     const firstValue = (...values: unknown[]): unknown => values.find((value) => value !== undefined && value !== null && value !== "");
+    const isExpiredMatch = (match: any) => getMatchDetailRetention(
+      firstValue(match.createdAt, match.created_at, match.date, match.matchInfo?.date),
+    ).status === "expired";
     const countEligibleCanonicalMatches = () => {
       const candidates: RecentMatchCandidate<any>[] = [...cachedResults, ...newResultsMap.values()]
+        .filter((match: any) => !isExpiredMatch(match))
         .map((match: any, sourceIndex: number) => {
           const rawId = firstValue(match.__selectionRawId, match.matchId, match.match_id, match.id);
           const canonicalId = normalizeMatchId(rawId);
@@ -1280,6 +1288,17 @@ export async function POST(request: Request) {
               },
             );
             if (!res.ok) {
+              if (res.status === 410) {
+                const failure = await res.json().catch(() => null);
+                if (failure?.errorCode === "PUBG_MATCH_DETAIL_EXPIRED") {
+                  expiredFallbackDetected = true;
+                  const expiresAtMs = typeof failure.expiresAt === "string" ? Date.parse(failure.expiresAt) : NaN;
+                  const playedAt = new Date(expiresAtMs - MATCH_DETAIL_RETENTION_DAYS * 86_400_000);
+                  expiredFallbackPlayedAt = Number.isFinite(expiresAtMs) && Number.isFinite(playedAt.getTime())
+                    ? playedAt.toISOString()
+                    : null;
+                }
+              }
               if (res.status === 409) {
                 const failure = await res.json().catch(() => null);
                 const canonicalId = normalizeMatchId(id);
@@ -1414,7 +1433,16 @@ export async function POST(request: Request) {
 
     if (isRouteAborted()) return abortResponse();
     const allMatches = [...cachedResults, ...newResultsMap.values()];
-    const rawMatches = allMatches;
+    const expiredMatches = allMatches.filter(isExpiredMatch);
+    if (allMatches.length > 0 && expiredMatches.length === allMatches.length) {
+      const playedAt = firstValue(expiredMatches[0]?.createdAt, expiredMatches[0]?.created_at,
+        expiredMatches[0]?.date, expiredMatches[0]?.matchInfo?.date);
+      return expiredMatchDetailResponse(playedAt);
+    }
+    if (allMatches.length === 0 && expiredFallbackDetected) {
+      return expiredMatchDetailResponse(expiredFallbackPlayedAt);
+    }
+    const rawMatches = allMatches.filter((match: any) => !isExpiredMatch(match));
 
     // AI/bot rows remain available to detail/replay and are never rejected at
     // ingest. This narrower summary boundary keeps latest10/best5 and their

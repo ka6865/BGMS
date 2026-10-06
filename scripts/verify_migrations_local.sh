@@ -52,8 +52,8 @@ MIGRATIONS=(
   "20261005081214_pubg_collection_database_clock"
   "20261005081741_pubg_collection_network_acl"
   "20261005082711_pubg_collection_signed_requests"
-  "20261005190642_pubg_long_term_match_performance"
-  "20261006114929_pubg_archive_cleanup_cursor"
+  "20261005193048_pubg_long_term_match_performance"
+  "20261006115638_pubg_archive_cleanup_cursor"
 )
 
 cleanup() {

@@ -141,6 +141,10 @@ function createAbortableRequest(body: any, signal: AbortSignal) {
   });
 }
 
+function recentMatchDate(minutesAgo = 1) {
+  return new Date(Date.now() - minutesAgo * 60 * 1000).toISOString();
+}
+
 function createSummaryMatch(matchId = "match-1", overrides: Record<string, any> = {}) {
   return {
     matchId,
@@ -149,7 +153,7 @@ function createSummaryMatch(matchId = "match-1", overrides: Record<string, any> 
     v: RESULT_VERSION,
     calculationVersion: 2,
     populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
-    createdAt: "2026-06-01T00:00:00.000Z",
+    createdAt: recentMatchDate(),
     mapName: "Baltic_Main",
     gameMode: "squad",
     matchType: "competitive",
@@ -258,8 +262,8 @@ const canonicalSquadAnalysis = {
   bestMatchCount: 2,
   selectedMatchIds: ["match-2", "match-1"],
   matchesSummary: [
-    { matchId: "match-2", mapName: "Baltic_Main", winPlace: 2, createdAt: "2026-09-01T00:00:00.000Z" },
-    { matchId: "match-1", mapName: "Baltic_Main", winPlace: 4, createdAt: "2026-08-31T00:00:00.000Z" },
+    { matchId: "match-2", mapName: "Baltic_Main", winPlace: 2, createdAt: recentMatchDate(1) },
+    { matchId: "match-1", mapName: "Baltic_Main", winPlace: 4, createdAt: recentMatchDate(2) },
   ],
   stats: {
     avgIsolation: 1.5,
@@ -379,6 +383,156 @@ describe("AI cache route stabilization", () => {
     expect(history.eq.mock.calls).toEqual([
       ["match_id", "expired-match"], ["platform", "kakao"], ["player_id", "player_a"],
     ]);
+  });
+
+  it("ai-summary는 만료 cache 경기를 제외해 hash와 Gemini 입력을 만들고 전부 만료면 410으로 끝낸다", async () => {
+    const expired = createSummaryMatch("expired-summary", {
+      createdAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
+      stats: { ...createSummaryMatch().stats, damageDealt: 987654, processedDamageDealt: 987654 },
+    });
+    const recent = createSummaryMatch("recent-summary", {
+      createdAt: recentMatchDate(1),
+      stats: { ...createSummaryMatch().stats, damageDealt: 123, processedDamageDealt: 123 },
+    });
+    let capturedPrompt = "";
+    mockSummaryGeminiResponse((prompt) => { capturedPrompt = prompt; });
+    const mixedCache = createQueryChain();
+    const mixedTelemetry = createQueryChain({ data: [expired, recent].map((fullResult) => ({
+      match_id: fullResult.matchId, player_id: "player_a", platform: "kakao", data: { fullResult },
+    })), error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({
+      player_ai_summary_cache: mixedCache,
+      processed_match_telemetry: mixedTelemetry,
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    }) });
+
+    const mixedResponse = await aiSummaryPOST(createRequest({
+      matchIds: [expired.matchId, recent.matchId], nickname: "Player_A", platform: "kakao", force: true,
+    }));
+    await mixedResponse.text();
+    const mixedHash = mixedCache.upsert.mock.calls[0]?.[0]?.match_ids_hash;
+    expect(mixedResponse.status).toBe(200);
+    expect(capturedPrompt).toContain("평균 화력: 123");
+    expect(capturedPrompt).not.toContain("987654");
+
+    const recentOnlyCache = createQueryChain();
+    mockWithAuthGuard.mockResolvedValueOnce({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({
+      player_ai_summary_cache: recentOnlyCache,
+      processed_match_telemetry: createQueryChain({ data: [{
+        match_id: recent.matchId, player_id: "player_a", platform: "kakao", data: { fullResult: recent },
+      }], error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    }) });
+    const recentOnlyResponse = await aiSummaryPOST(createRequest({
+      matchIds: [recent.matchId], nickname: "Player_A", platform: "kakao", force: true,
+    }));
+    await recentOnlyResponse.text();
+    expect(recentOnlyCache.upsert.mock.calls[0]?.[0]?.match_ids_hash).toBe(mixedHash);
+
+    const expiredCache = createQueryChain();
+    const expiredTelemetry = createQueryChain({ data: [{
+      match_id: expired.matchId, player_id: "player_a", platform: "kakao", data: { fullResult: expired },
+    }], error: null });
+    mockWithAuthGuard.mockResolvedValueOnce({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({
+      player_ai_summary_cache: expiredCache,
+      processed_match_telemetry: expiredTelemetry,
+    }) });
+    mockGenerateContentStream.mockClear();
+    const expiredResponse = await aiSummaryPOST(createRequest({
+      matchIds: [expired.matchId], nickname: "Player_A", platform: "kakao",
+    }));
+    expect(expiredResponse.status).toBe(410);
+    expect(expiredResponse.headers.get("cache-control")).toBe("no-store");
+    expect(await expiredResponse.json()).toMatchObject({ errorCode: "PUBG_MATCH_DETAIL_EXPIRED", retryable: false });
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    expect(expiredCache.maybeSingle).not.toHaveBeenCalled();
+    expect(expiredCache.upsert).not.toHaveBeenCalled();
+  });
+
+  it.each([["expiresAt 누락", null], ["malformed expiresAt", "not-a-date"]])(
+    "ai-summary는 match fallback의 만료 410을 재시도 409로 바꾸지 않는다 (%s)", async (_label, expiresAt) => {
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({
+      errorCode: "PUBG_MATCH_DETAIL_EXPIRED", retryable: false,
+      expiresAt,
+    }, { status: 410, headers: { "Cache-Control": "no-store" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const summaryCache = createQueryChain();
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: createQueryChain({ data: [], error: null }),
+    }) });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: ["expired-fallback"], nickname: "Player_A", platform: "kakao",
+    }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(410);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toMatchObject({ errorCode: "PUBG_MATCH_DETAIL_EXPIRED", retryable: false });
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+    expect(summaryCache.upsert).not.toHaveBeenCalled();
+  });
+
+  it("ai-summary fallback 개수는 만료된 cache 10경기를 유효 경기로 세지 않는다", async () => {
+    const expiredRows = Array.from({ length: 10 }, (_, index) => {
+      const matchId = `expired-cache-${index}`;
+      const fullResult = createSummaryMatch(matchId, {
+        createdAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000 + index * 60_000).toISOString(),
+        stats: { ...createSummaryMatch().stats, damageDealt: 987654, processedDamageDealt: 987654 },
+        benchmark: { score: 99, impactReasons: [`EXPIRED_CACHE_${index}`] },
+      });
+      return { match_id: matchId, player_id: "player_a", platform: "kakao", data: { fullResult } };
+    });
+    const recent = createSummaryMatch("requested-recent", {
+      createdAt: recentMatchDate(1),
+      stats: { ...createSummaryMatch().stats, damageDealt: 123, processedDamageDealt: 123 },
+      benchmark: { score: 80, impactReasons: ["REQUESTED_RECENT_ONLY"], breakdown: { combat: 80, tactical: 80, survival: 80 } },
+    });
+    let capturedPrompt = "";
+    mockSummaryGeminiResponse((prompt) => { capturedPrompt = prompt; });
+    const fetchMock = vi.fn().mockResolvedValue(Response.json(recent));
+    vi.stubGlobal("fetch", fetchMock);
+    const summaryCache = createQueryChain();
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({
+      player_ai_summary_cache: summaryCache,
+      processed_match_telemetry: createQueryChain({ data: expiredRows, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    }) });
+
+    const response = await aiSummaryPOST(createRequest({
+      matchIds: [recent.matchId, ...expiredRows.map((row) => row.match_id)],
+      nickname: "Player_A", platform: "kakao", force: true,
+    }));
+    const records = parseSummaryNdjson(await response.text());
+    expect(response.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(recent.matchId);
+    expect(capturedPrompt).toContain("평균 화력: 123");
+    expect(capturedPrompt).not.toContain("987654");
+    expect(records.find((record) => record.type === "visuals")?.data.latestMatchCount).toBe(1);
+  });
+
+  it("ai-squad는 expired selectedMatchIds를 Gemini와 cache lookup 전에 차단한다", async () => {
+    const expiredSquad = {
+      ...canonicalSquadAnalysis,
+      matchesSummary: [
+        { matchId: "match-2", createdAt: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString() },
+        { matchId: "match-1", createdAt: recentMatchDate(1) },
+      ],
+    };
+    mockGetSquadAnalysisData.mockResolvedValue(expiredSquad);
+    const squadCache = createQueryChain();
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({
+      squad_ai_coaching_cache: squadCache,
+    }) });
+
+    const response = await aiSquadPOST(createRequest({ groupKey: "alpha,beta", nickname: "Player_A", platform: "steam" }));
+    expect(response.status).toBe(410);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toMatchObject({ errorCode: "PUBG_MATCH_DETAIL_EXPIRED", retryable: false });
+    expect(squadCache.maybeSingle).not.toHaveBeenCalled();
+    expect(squadCache.upsert).not.toHaveBeenCalled();
+    expect(mockGenerateContent).not.toHaveBeenCalled();
   });
 
   it("ai-analyze는 match_id뿐 아니라 player_id, platform, prompt_version으로 캐시를 조회한다", async () => {
@@ -1352,7 +1506,7 @@ describe("AI cache route stabilization", () => {
         platform: "kakao",
         data: {
           fullResult: createSummaryMatch(`match-${index}`, {
-            createdAt: new Date(Date.UTC(2026, 7, 27, 0, index)).toISOString(),
+            createdAt: new Date(Date.now() - 2 * 86_400_000 + index * 60_000).toISOString(),
             stats: {
               ...createSummaryMatch().stats,
               damageDealt: index === 0 ? 9999 : 100,
@@ -1415,7 +1569,7 @@ describe("AI cache route stabilization", () => {
           platform: "kakao",
           data: {
             fullResult: createSummaryMatch(matchId, {
-              createdAt: new Date(Date.UTC(2026, 7, 27, 0, index)).toISOString(),
+              createdAt: recentMatchDate(index + 1),
               benchmark: { score: scores[index] },
             }),
           },
@@ -1466,7 +1620,7 @@ describe("AI cache route stabilization", () => {
       platform: "kakao",
       data: {
         fullResult: createSummaryMatch(matchId, {
-          createdAt: new Date(Date.UTC(2026, 7, 27, 0, index)).toISOString(),
+          createdAt: recentMatchDate(index + 1),
           benchmark: {
             score: scores[index],
             breakdown: { combat: scores[index], tactical: scores[index], survival: scores[index] },
@@ -1528,7 +1682,7 @@ describe("AI cache route stabilization", () => {
             gameMode: spec.gameMode,
             matchType: "official",
             matchInfo: { mode: spec.mode },
-            createdAt: new Date(Date.UTC(2026, 7, 27, 0, index)).toISOString(),
+            createdAt: recentMatchDate(index + 1),
             benchmark: { score: spec.score, breakdown: { combat: spec.score, tactical: spec.score, survival: spec.score } },
           }),
         },
@@ -1619,7 +1773,7 @@ describe("AI cache route stabilization", () => {
         platform: "kakao",
         data: {
           fullResult: createSummaryMatch(`fallback-best-${index}`, {
-            createdAt: new Date(Date.UTC(2026, 7, 27, 0, index)).toISOString(),
+            createdAt: recentMatchDate(index + 1),
             benchmark: {
               score: index === 0 ? 1 : 100,
               breakdown: { combat: index === 0 ? 1 : 100, tactical: index === 0 ? 1 : 100, survival: index === 0 ? 1 : 100 },
@@ -1671,7 +1825,7 @@ describe("AI cache route stabilization", () => {
     mockSummaryGeminiResponse();
 
     const fullResult = createSummaryMatch("identity-payload", {
-      createdAt: "2026-08-27T00:00:00.000Z",
+      createdAt: recentMatchDate(10),
       mapName: "Baltic_Main",
       benchmark: {
         score: 77,
@@ -1707,7 +1861,7 @@ describe("AI cache route stabilization", () => {
     // Keep the canonical ID, latest10 membership, best5 order, and score fixed;
     // mutate only effective telemetry/benchmark fields consumed by the prompt
     // and visuals.
-    fullResult.createdAt = "2026-08-28T00:00:00.000Z";
+    fullResult.createdAt = recentMatchDate(1);
     fullResult.mapName = "Desert_Main";
     fullResult.stats.processedDamageDealt = 999;
     fullResult.stats.damageDealt = 999;
@@ -2199,7 +2353,7 @@ describe("AI cache route stabilization", () => {
           platform: "kakao",
           data: {
             fullResult: createSummaryMatch(`match-${index}`, {
-              createdAt: new Date(Date.UTC(2026, 7, 27, 0, index)).toISOString(),
+              createdAt: new Date(Date.now() - 2 * 86_400_000 + index * 60_000).toISOString(),
               mapName: index % 2 === 0 ? "Baltic_Main" : "Desert_Main",
               stats: {
                 ...createSummaryMatch().stats,
@@ -2414,7 +2568,7 @@ describe("AI cache route stabilization", () => {
           platform: "kakao",
           data: {
             fullResult: createSummaryMatch(id, {
-              createdAt: new Date(Date.UTC(2026, 7, 27, 0, index)).toISOString(),
+              createdAt: recentMatchDate(index + 1),
               duelStats: undefined,
             }),
           },
@@ -2469,7 +2623,7 @@ describe("AI cache route stabilization", () => {
         platform: "kakao",
         data: {
           fullResult: createSummaryMatch(`string-team-wipe-${index}`, {
-            createdAt: new Date(Date.UTC(2026, 7, 27, 0, index)).toISOString(),
+            createdAt: recentMatchDate(index + 1),
             tradeStats: {
               ...createSummaryMatch().tradeStats,
               enemyTeamWipes,
@@ -2642,7 +2796,7 @@ describe("AI cache route stabilization", () => {
         data: {
           fullResult: createSummaryMatch(id, {
             gameMode: mode,
-            createdAt: new Date(Date.UTC(2026, 7, 27, 0, index)).toISOString(),
+            createdAt: recentMatchDate(index + 1),
           }),
         },
       })),
@@ -2838,7 +2992,7 @@ describe("AI cache route stabilization", () => {
         data: {
           fullResult: createSummaryMatch(spec.id, {
             gameMode: spec.mode,
-            createdAt: new Date(Date.UTC(2026, 7, 27, 0, index)).toISOString(),
+            createdAt: recentMatchDate(index + 1),
             stats: {
               ...createSummaryMatch().stats,
               damageDealt: spec.damage,
@@ -2923,7 +3077,7 @@ describe("AI cache route stabilization", () => {
           fullResult: createSummaryMatch(spec.id, {
             gameMode: spec.gameMode,
             matchType: spec.matchType,
-            createdAt: new Date(Date.UTC(2026, 7, 27, 0, index)).toISOString(),
+            createdAt: recentMatchDate(index + 1),
           }),
         },
       })),
@@ -3696,7 +3850,7 @@ describe("AI cache route stabilization", () => {
 
     const staleFullResult = createSummaryMatch("match-stale-summary", {
       v: RESULT_VERSION - 1,
-      createdAt: "2026-08-28T00:10:00.000Z",
+      createdAt: recentMatchDate(9),
       benchmark: {
         score: 9999,
         impactScore: 9999,
@@ -3712,7 +3866,7 @@ describe("AI cache route stabilization", () => {
         fullResult: createSummaryMatch(`match-current-${index}`, {
           v: RESULT_VERSION,
     calculationVersion: 2,
-          createdAt: new Date(Date.UTC(2026, 7, 28, 0, index)).toISOString(),
+          createdAt: recentMatchDate(index + 1),
           benchmark: {
             score: 60 + index,
             impactScore: 60 + index,
@@ -3768,7 +3922,7 @@ describe("AI cache route stabilization", () => {
     });
 
     const humanMatch = createSummaryMatch("match-human-summary", {
-      createdAt: "2026-08-28T00:01:00.000Z",
+      createdAt: recentMatchDate(3),
       matchType: "official",
       gameMode: "squad-fpp",
       benchmark: {
@@ -3779,7 +3933,7 @@ describe("AI cache route stabilization", () => {
       },
     });
     const aiMatch = createSummaryMatch("match-ai-summary", {
-      createdAt: "2026-08-28T00:02:00.000Z",
+      createdAt: recentMatchDate(4),
       matchType: "official",
       gameMode: "squad-ai",
       benchmark: {
@@ -3830,7 +3984,7 @@ describe("AI cache route stabilization", () => {
     });
 
     const humanMatch = createSummaryMatch("match-row-evidence-human", {
-      createdAt: "2026-08-28T00:01:00.000Z",
+      createdAt: recentMatchDate(3),
       matchType: "official",
       gameMode: "squad-fpp",
       benchmark: {
@@ -3841,7 +3995,7 @@ describe("AI cache route stabilization", () => {
       },
     });
     const botMatch = createSummaryMatch("match-row-evidence-bot", {
-      createdAt: "2026-08-28T00:02:00.000Z",
+      createdAt: recentMatchDate(4),
       matchType: "official",
       gameMode: "squad-fpp",
       benchmark: {
@@ -3920,7 +4074,7 @@ describe("AI cache route stabilization", () => {
     });
 
     const humanMatch = createSummaryMatch("match-evidence-human", {
-      createdAt: "2026-08-28T00:01:00.000Z",
+      createdAt: recentMatchDate(3),
       matchType: "official",
       gameMode: "squad-fpp",
       benchmark: {
@@ -3931,7 +4085,7 @@ describe("AI cache route stabilization", () => {
       },
     });
     const contaminatedFullResult = createSummaryMatch("match-evidence-contaminated", {
-      createdAt: "2026-08-28T00:02:00.000Z",
+      createdAt: recentMatchDate(4),
       matchType: "official",
       gameMode: "squad-fpp",
       matchInfo: { mode: "ranked" },
@@ -3997,7 +4151,7 @@ describe("AI cache route stabilization", () => {
     });
 
     const human = createSummaryMatch("match-mixed-telemetry-human", {
-      createdAt: "2026-08-28T00:01:00.000Z",
+      createdAt: recentMatchDate(3),
       matchType: "official",
       gameMode: "squad-fpp",
       benchmark: {
@@ -4007,7 +4161,7 @@ describe("AI cache route stabilization", () => {
       },
     });
     const contaminated = createSummaryMatch("match-mixed-telemetry-contaminated", {
-      createdAt: "2026-08-28T00:02:00.000Z",
+      createdAt: recentMatchDate(4),
       matchType: "official",
       gameMode: "squad-fpp",
       benchmark: {
@@ -4072,40 +4226,40 @@ describe("AI cache route stabilization", () => {
       data: { fullResult: createSummaryMatch(matchId, overrides) },
     });
     const validOfficial = row("mixed-official", {
-      createdAt: "2026-08-28T00:01:00.000Z",
+      createdAt: recentMatchDate(3),
       gameMode: "squad-fpp",
       matchType: "official",
       benchmark: { score: 90, impactReasons: ["MIXED_VALID_OFFICIAL"], breakdown: { combat: 90, tactical: 90, survival: 90 } },
     });
     const validCompetitive = row("mixed-competitive", {
-      createdAt: "2026-08-28T00:02:00.000Z",
+      createdAt: recentMatchDate(4),
       gameMode: "duo-fpp",
       matchType: "competitive",
       benchmark: { score: 80, impactReasons: ["MIXED_VALID_COMPETITIVE"], breakdown: { combat: 80, tactical: 80, survival: 80 } },
     });
     const tdm = row("mixed-tdm", {
-      createdAt: "2026-08-28T00:03:00.000Z",
+      createdAt: recentMatchDate(5),
       gameMode: "tdm",
       matchType: "official",
       mapName: " Italy_TDM_Main ",
       benchmark: { score: 999, impactReasons: ["MIXED_TDM_CONTAMINATION"], breakdown: { combat: 99, tactical: 99, survival: 99 } },
     });
     const custom = row("mixed-custom", {
-      createdAt: "2026-08-28T00:04:00.000Z",
+      createdAt: recentMatchDate(6),
       gameMode: "squad-fpp",
       matchType: "official",
       attributes: { isCustomMatch: true },
       benchmark: { score: 998, impactReasons: ["MIXED_CUSTOM_CONTAMINATION"], breakdown: { combat: 99, tactical: 99, survival: 99 } },
     });
     const event = row("mixed-event", {
-      createdAt: "2026-08-28T00:05:00.000Z",
+      createdAt: recentMatchDate(7),
       gameMode: "squad-fpp",
       matchType: "official",
       telemetryFlags: { isEventMode: true },
       benchmark: { score: 997, impactReasons: ["MIXED_EVENT_CONTAMINATION"], breakdown: { combat: 99, tactical: 99, survival: 99 } },
     });
     const unknown = row("mixed-unknown", {
-      createdAt: "2026-08-28T00:06:00.000Z",
+      createdAt: recentMatchDate(8),
       gameMode: undefined,
       matchType: "official",
       benchmark: { score: 996, impactReasons: ["MIXED_UNKNOWN_CONTAMINATION"], breakdown: { combat: 99, tactical: 99, survival: 99 } },
@@ -4159,7 +4313,7 @@ describe("AI cache route stabilization", () => {
       platform: "kakao",
       data: {
         fullResult: createSummaryMatch("isolation-missing", {
-          createdAt: "2026-08-28T00:01:00.000Z",
+          createdAt: recentMatchDate(3),
           isolationData: { isCrossfire: false },
         }),
       },
@@ -4170,7 +4324,7 @@ describe("AI cache route stabilization", () => {
       platform: "kakao",
       data: {
         fullResult: createSummaryMatch("isolation-measured", {
-          createdAt: "2026-08-28T00:02:00.000Z",
+          createdAt: recentMatchDate(4),
           isolationData: {
             isolationIndex: 2,
             combatIsolation: 0,
@@ -4617,7 +4771,7 @@ describe("AI cache route stabilization", () => {
         platform: "kakao",
         data: {
           fullResult: createSummaryMatch(matchId, {
-            createdAt: new Date(Date.UTC(2026, 5, 1, index)).toISOString(),
+            createdAt: recentMatchDate(index + 1),
             benchmark: { score: 1, impactScore: 1, impactReasons: [`OLD_MARKER_${index}`], breakdown: { combat: 1, tactical: 1, survival: 1 } },
           }),
         },
@@ -4633,7 +4787,7 @@ describe("AI cache route stabilization", () => {
     });
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
     const newest = createSummaryMatch("match-newest", {
-      createdAt: "2026-08-30T00:00:00.000Z",
+      createdAt: recentMatchDate(3),
       benchmark: { score: 99, impactScore: 99, impactReasons: ["REQUESTED_NEWEST_MARKER"], breakdown: { combat: 99, tactical: 99, survival: 99 } },
     });
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(newest), {
@@ -4670,7 +4824,7 @@ describe("AI cache route stabilization", () => {
         platform: "kakao",
         data: {
           fullResult: createSummaryMatch(matchId, {
-            createdAt: new Date(Date.UTC(2026, 5, 1, index)).toISOString(),
+            createdAt: recentMatchDate(index + 1),
             benchmark: { score: 1, impactScore: 1, impactReasons: [`OLD_HYDRATION_MARKER_${index}`], breakdown: { combat: 1, tactical: 1, survival: 1 } },
           }),
         },
@@ -4687,12 +4841,12 @@ describe("AI cache route stabilization", () => {
     mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
     const aiExcluded = createSummaryMatch("match-hydration-ai", {
-      createdAt: "2026-08-30T00:00:00.000Z",
+      createdAt: recentMatchDate(3),
       matchType: "airoyale",
       benchmark: { score: 999, impactScore: 999, impactReasons: ["AI_SHOULD_BE_EXCLUDED"], breakdown: { combat: 99, tactical: 99, survival: 99 } },
     });
     const requestedLater = createSummaryMatch("match-hydration-later", {
-      createdAt: "2026-08-29T00:00:00.000Z",
+      createdAt: recentMatchDate(4),
       benchmark: { score: 99, impactScore: 99, impactReasons: ["REQUESTED_LATER_MARKER"], breakdown: { combat: 99, tactical: 99, survival: 99 } },
     });
     const fetchMock = vi.fn()
@@ -4917,7 +5071,7 @@ describe("AI cache route stabilization", () => {
         platform: "kakao",
         data: {
           fullResult: createSummaryMatch(spec.id, {
-            createdAt: new Date(Date.UTC(2026, 7, 27, 0, index)).toISOString(),
+            createdAt: recentMatchDate(index + 1),
             benchmark: { score: spec.score, breakdown: spec.breakdown },
           }),
         },
