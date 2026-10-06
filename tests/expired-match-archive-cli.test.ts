@@ -214,6 +214,73 @@ const env = {
 };
 
 describe("expired match archive CLI apply protocol", () => {
+  it('moves beyond a truncated legacy listing containing only protected keys', async () => {
+    r2.read.mockResolvedValue(null);
+    r2.list.mockResolvedValue({ objects: [], pages: 1, truncated: true });
+    await cleanup(['--platform', 'all', '--manifest', manifestPath], env);
+    const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(plan.nextCursor).toEqual({ played_at: playedAt, platform, match_id: matchId });
+    expect(plan.matches[0].reasons).toContain('legacy_listing_truncated');
+    expect(r2.deletePersonal).not.toHaveBeenCalled();
+  });
+
+  it('inspects more than 20 objects from one match rather than moving past uninspected maps', async () => {
+    harness.tables.telemetry_map_cache_entries = Array.from({ length: 26 }, (_, i) => ({ ...registrySnapshot,
+      id: 100 + i, telemetry_version: 50 + i,
+      storage_path: buildTelemetryCacheKey({ matchId, platform, playerId: accountId, mode: 'full', telemetryVersion: 50 + i }),
+    }));
+    const keys = new Set(harness.tables.telemetry_map_cache_entries.map(row => row.storage_path));
+    r2.read.mockImplementation(async (key: string) => keys.has(key) ? {
+      key, etag: '"etag"', sizeBytes: harness.objectBody.length, body: harness.objectBody,
+      contentType: 'application/json', contentEncoding: null,
+    } : null);
+    await cleanup(['--prepare-backup', '--platform', 'all', '--limit', '50', '--manifest', manifestPath, '--backup-artifact', backupPath], env);
+    const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(plan.objects).toHaveLength(26);
+    expect(new Set(plan.objects.map((p: any) => p.key)).size).toBe(26);
+  });
+
+  it('keeps cursor before a partly planned match when object count limit is reached', async () => {
+    const second = { ...registrySnapshot, id: 18, mode: 'lite',
+      storage_path: buildTelemetryCacheKey({ matchId, platform, playerId: accountId, mode: 'lite', telemetryVersion: 73 }) };
+    harness.tables.telemetry_map_cache_entries.push(second);
+    const keys = new Set([mapKey, second.storage_path]);
+    r2.read.mockImplementation(async (key: string) => keys.has(key) ? {
+      key, etag: '"etag"', sizeBytes: harness.objectBody.length, body: harness.objectBody,
+      contentType: 'application/json', contentEncoding: null,
+    } : null);
+    const prior = { played_at: '2026-08-31T00:00:00Z', platform, match_id: 'previous-match' };
+    Object.assign(harness.tables.pubg_archive_cleanup_cursor[0], prior);
+    await cleanup(['--prepare-backup', '--platform', 'all', '--limit', '1', '--manifest', manifestPath, '--backup-artifact', backupPath], env);
+    const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(plan.objects).toHaveLength(1);
+    expect(plan.nextCursor).toEqual(prior);
+    expect(r2.deletePersonal).not.toHaveBeenCalled();
+  });
+
+  it('refuses write-enabled preservation during dry-run or apply verification', async () => {
+    await expect(cleanup(['--preserve-performance', '--platform', 'all', '--manifest', manifestPath], env)).rejects.toThrow('cli-arguments-invalid');
+    await expect(cleanup(['--preserve-performance', ...args('apply')], env)).rejects.toThrow('cli-arguments-invalid');
+    expect(r2.deletePersonal).not.toHaveBeenCalled();
+  });
+
+  it('keeps a map and registry when its analysis does not fit the remaining backup byte budget', async () => {
+    const second = { ...registrySnapshot, id: 18, mode: 'lite',
+      storage_path: buildTelemetryCacheKey({ matchId, platform, playerId: accountId, mode: 'lite', telemetryVersion: 73 }) };
+    harness.tables.telemetry_map_cache_entries.push(second);
+    const analyzeKeys = [mapKey, second.storage_path].map(key => key.replace(/\.json$/, '_analyze.json'));
+    const allKeys = new Set([mapKey, second.storage_path, ...analyzeKeys]);
+    r2.read.mockImplementation(async (key: string) => allKeys.has(key) ? {
+      key, etag: '"etag"', sizeBytes: analyzeKeys.includes(key) ? 20 * 1024 * 1024 : 18,
+      body: harness.objectBody, contentType: 'application/json', contentEncoding: null,
+    } : null);
+    await cleanup(['--platform', 'all', '--limit', '50', '--manifest', manifestPath], env);
+    const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(plan.objects.map((p: any) => p.key)).toEqual([analyzeKeys[0], mapKey]);
+    expect(plan.nextCursor).toBeNull();
+    expect(harness.tables.telemetry_map_cache_entries).toHaveLength(2);
+  });
+
   it("prepare-backup manifest를 그대로 apply하고 새 plan identity를 만들지 않는다", async () => {
     await cleanup(args("prepare"), env);
     const prepared = await readFile(manifestPath, "utf8");
