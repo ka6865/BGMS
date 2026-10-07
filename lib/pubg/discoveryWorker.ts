@@ -39,7 +39,7 @@ export async function runDiscoveryWorker(d: DiscoveryWorkerDependencies) {
       if(result.status==='saved') outcome={state:'saved'};
       else if(result.status==='unsupported_match') outcome={state:'unavailable',errorCode:'match-placement-unavailable'};
       // 최초 발견일은 경기일의 상한이다. 기간이 지난 뒤 실제 404를 확인한 경우만 제외한다.
-      else if(result.status==='not_found' && getMatchDetailRetention(job.first_seen_at,now()).status==='expired') outcome={state:'unavailable',errorCode:'discovery_window_elapsed'};
+      else if(result.status==='not_found' && result.httpStatus===404 && getMatchDetailRetention(job.first_seen_at,now()).status==='expired') outcome={state:'unavailable',errorCode:'discovery_window_elapsed'};
       else if(result.status==='not_found' && job.not_found_count>=1) outcome={state:'unavailable',errorCode:'not_found'};
       else {
         let delay=result.status==='not_found' ? 21600000 : [60000,300000,1800000,21600000][Math.min(Math.max(job.attempts-1,0),3)];

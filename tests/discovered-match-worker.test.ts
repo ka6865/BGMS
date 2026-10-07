@@ -50,12 +50,19 @@ describe('durable match collection worker',()=>{
     ['2026-08-01T00:00:00Z', 'upstream_error', 'retry', 'upstream_error'],
     ['2026-09-10T00:00:00Z', 'unsupported_match', 'unavailable', 'match-placement-unavailable'],
   ] as const)('settles %s / %s without discarding obtainable matches', async (first_seen_at, status, state, errorCode) => {
-    const d = setup(result(status));
+    const d = setup(result(status, {httpStatus: status === 'not_found' ? 404 : 200}));
     const target = { ...job, first_seen_at };
     d.claim.mockReset().mockResolvedValueOnce([target]).mockResolvedValue([]);
     await runDiscoveryWorker(d);
     expect(d.ingest).toHaveBeenCalledWith(target);
     expect(d.settle).toHaveBeenCalledWith(target, expect.objectContaining({state, ...(errorCode ? {errorCode} : {})}));
+  });
+  it('does not label a missing participant in a successful response as expiration', async () => {
+    const d = setup(result('not_found', {httpStatus: 200}));
+    const target = {...job, first_seen_at: '2026-08-01T00:00:00Z'};
+    d.claim.mockReset().mockResolvedValueOnce([target]).mockResolvedValue([]);
+    await runDiscoveryWorker(d);
+    expect(d.settle).toHaveBeenCalledWith(target, expect.objectContaining({state: 'retry', errorCode: 'not_found'}));
   });
   it('does not treat thrown network failures as successful writes',async()=>{
     const d=setup(result('saved'));d.ingest.mockRejectedValueOnce(new Error('network'));
