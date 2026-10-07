@@ -27,6 +27,10 @@ describe("GitHub Actions workflow permissions and action pins", () => {
       expect(source, file).not.toMatch(/uses:\s*[^\s@]+@v\d+/);
       expect(source, file).not.toMatch(/actions\/(?:checkout|setup-node)@v4/);
       for (const action of source.matchAll(/uses:\s*([^\s#]+)/g)) {
+        if (action[1].startsWith("./")) {
+          expect(action[1], file).toBe("./.github/actions/pubg-retention-batch");
+          continue;
+        }
         expect(action[1], file).toMatch(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+@[0-9a-f]{40}$/);
       }
 

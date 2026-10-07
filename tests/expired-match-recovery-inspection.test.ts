@@ -189,13 +189,15 @@ describe("expired match recovery inspection", () => {
   it("uploads only the encrypted proof in inspect-recovery mode and skips cleanup/apply stages", async () => {
     const workflow = await readFile(new URL("../.github/workflows/pubg-archive-retention.yml", import.meta.url), "utf8");
     expect(workflow).toContain("options: [dry-run, apply, inspect-recovery]");
-    expect(workflow).toContain("timeout-minutes: 15");
+    expect(workflow).toContain("inputs.mode == 'inspect-recovery' && 15 || 90");
     expect(workflow).toMatch(/permissions:\n  contents: read\n  actions: read/);
     expect(workflow).toContain('--matches-json "$OP_MATCH_IDS_JSON"');
-    expect(workflow).toMatch(/Inspect expired objects and prepare encrypted backup\n\s+if: \$\{\{ env\.OP_MODE != 'inspect-recovery' \}\}/);
+    expect(workflow).toMatch(/Initialize continuous batch budget\n\s+if: \$\{\{ env\.OP_MODE != 'inspect-recovery' \}\}/);
     expect(workflow).toMatch(/Inspect protected match recovery evidence\n\s+if: \$\{\{ env\.OP_MODE == 'inspect-recovery' \}\}/);
     expect(workflow).toMatch(/Upload encrypted recovery proof[\s\S]*?if: \$\{\{ env\.OP_MODE == 'inspect-recovery' \}\}[\s\S]*?path: \$\{\{ runner\.temp \}\}\/match-retention\/recovery-proof\.enc[\s\S]*?retention-days: 7/);
-    expect(workflow).toMatch(/Apply exact plan and verify object absence\n\s+if: \$\{\{ env\.OP_MODE == 'apply'/);
+    expect(workflow).toMatch(/Retain expired match batch 1[\s\S]*?if: \$\{\{ env\.OP_MODE != 'inspect-recovery' \}\}/);
+    const batch = await readFile(new URL("../.github/actions/pubg-retention-batch/action.yml", import.meta.url), "utf8");
+    expect(batch).toMatch(/Apply exact plan and verify object absence\n\s+if: \$\{\{ steps\.gate\.outputs\.enabled == 'true' && env\.OP_MODE == 'apply'/);
     const source = await readFile(new URL("../scripts/inspect_expired_match_recovery.ts", import.meta.url), "utf8");
     expect(source).toContain('.select("*")');
     expect(source).toContain("skippedCandidateCount");
