@@ -6,6 +6,7 @@ export type DiscoveryInput = {
 export type DiscoveryJob = {
   platform: 'steam' | 'kakao'; account_id: string; nickname_at_discovery: string;
   match_id: string; lease_token: string; attempts: number; not_found_count: number;
+  first_seen_at?: string;
 };
 export type HistoryIngest = { pendingCount: number; unavailableCount: number; lastSavedAt: string | null };
 

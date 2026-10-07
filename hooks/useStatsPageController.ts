@@ -653,7 +653,7 @@ export function useStatsPageController(
   const applyHistoryRecords = useCallback((incoming: readonly PlayerMatchRecord[]) => {
     const normalizedIncoming = normalizeHistoryRecords(incoming);
     if (!normalizedIncoming.length) return;
-    const observed = normalizedIncoming.filter(hasObservedPlayerMatchValues);
+    const observed = normalizedIncoming.filter(match => hasObservedPlayerMatchValues(match));
     for (const record of observed) historySummaryIdsRef.current.add(record.match_id);
     const basicSummaries = Object.fromEntries(
       observed.map((record) => [record.match_id, buildBasicMatchSummary(record)]),

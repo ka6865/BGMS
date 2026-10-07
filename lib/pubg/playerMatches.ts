@@ -55,14 +55,14 @@ export function normalizeBasicMatchStat(value: unknown): number | null {
 }
 
 /** Required NOT NULL fields must be observed, not filled with display defaults. */
-export function hasObservedPlayerMatchValues(value: unknown): value is PlayerMatchRecord {
+export function hasObservedPlayerMatchValues(value: unknown, options: { allowZeroPlacement?: boolean } = {}): value is PlayerMatchRecord {
   if (!value || typeof value !== "object") return false;
   const row = value as Record<string, unknown>;
   const integer = (v: unknown, minimum: number) => typeof v === "number"
     && Number.isSafeInteger(v) && v >= minimum && v <= 2147483647;
   const knownText = (v: unknown) => typeof v === "string" && Boolean(v.trim())
     && !["unknown", "unavailable"].includes(v.trim().toLowerCase());
-  return integer(row.kills, 0) && integer(row.win_place, 1)
+  return integer(row.kills, 0) && integer(row.win_place, options.allowZeroPlacement ? 0 : 1)
     && typeof row.damage === "number" && Number.isFinite(row.damage)
     && row.damage >= 0 && row.damage <= 2147483647
     && typeof row.played_at === "string" && Number.isFinite(Date.parse(row.played_at))

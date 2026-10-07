@@ -39,6 +39,7 @@ export function buildPlayerMatchRecordFromParticipant(input: IngestParticipantIn
 export type BasicMatchIngestStatus =
   | "saved"
   | "not_found"
+  | "unsupported_match"
   | "rate_limited"
   | "upstream_error"
   | "network_error";
@@ -198,8 +199,13 @@ export async function fetchAndIngestBasicMatchSummaryOutcome(
       survival_time: normalizeBasicMatchStat(stats.timeSurvived),
       match_type: String(matchAttr.matchType || "unknown").toLowerCase(),
     };
-    if (!hasObservedPlayerMatchValues(record)) {
+    const noPlacement = record.win_place === 0 && (record.match_type === 'tutorialatoz' || String(record.game_mode).toLowerCase() === 'tdm');
+    if (!hasObservedPlayerMatchValues(record, {allowZeroPlacement: noPlacement})) {
       return { status: "upstream_error", record: null, httpStatus: res.status, rateLimitHeaders, error: "match-basic-values-missing" };
+    }
+    // 다른 필수값까지 관측된 순위 없는 훈련·TDM만 영구 제외한다. DB 순위 계약은 유지한다.
+    if (noPlacement) {
+      return { status: 'unsupported_match', record: null, httpStatus: res.status, rateLimitHeaders, error: 'match-placement-unavailable' };
     }
     record.damage = Math.floor(record.damage);
 
