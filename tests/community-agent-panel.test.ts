@@ -7,7 +7,7 @@ vi.mock("../components/admin/CommunityReviewQueue", () => ({
   default: () => React.createElement("section", { "aria-label": "게시글·답글 승인 대기" }),
 }));
 import CommunityAgentPanel from "../components/admin/CommunityAgentPanel";
-import type { CommunityAgentStatus } from "../lib/community-agent/types";
+import type { CommunityAgentStatus, RunSnapshot, Stage } from "../lib/community-agent/types";
 
 function status(overrides: Partial<CommunityAgentStatus> = {}): CommunityAgentStatus {
   return {
@@ -29,6 +29,14 @@ function status(overrides: Partial<CommunityAgentStatus> = {}): CommunityAgentSt
     usage: { promptTokens: 12, completionTokens: 8, totalTokens: 20 },
     missingEnv: [],
     ...overrides,
+  };
+}
+
+function run(overrides: Partial<RunSnapshot> = {}): RunSnapshot {
+  return {
+    id: "22222222-2222-4222-8222-222222222222", day: "2026-10-07", status: "collecting",
+    stages: {}, modelCalls: 0, reports: [], topic: null, draft: null, validation: null,
+    dryRun: true, postId: null, reason: null, ...overrides,
   };
 }
 
@@ -144,7 +152,8 @@ describe("CommunityAgentPanel", () => {
     fireEvent.click(trial);
     await waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
     expect(JSON.parse(fetch.mock.calls[1][1].body)).toEqual({ action: "retry", runId: "held" });
-    expect(screen.getByRole("status")).toHaveTextContent("이전 기록은 보존");
+    expect(screen.getByText(/이전 기록은 보존/)).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("게시글 초안을 만들지 못했습니다");
   });
 
   it("예약 암호 미설정은 수동 실행 오류로 표시하지 않는다", async () => {
@@ -166,5 +175,154 @@ describe("CommunityAgentPanel", () => {
     fireEvent.click(await screen.findByRole("button", { name: "자료 수집·초안 만들기" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("시험 실행을 완료하지 못했습니다");
+  });
+
+  it("재수집 중 단계와 새 실행 ID를 갱신하고 주제 없음 결과를 알린다", async () => {
+    let releaseNaver: (() => void) | undefined;
+    let latest = run();
+    const fetch = vi.fn(async (_path: string, init?: RequestInit) => {
+      if (!init?.body) return Response.json({ status: status({ runs: latest.status === "collecting" ? [] : [latest] }) });
+      const body = JSON.parse(String(init.body));
+      if (body.action === "start") return Response.json({ result: latest });
+      const stage = body.stage as Stage;
+      if (stage === "naver") await new Promise<void>((resolve) => { releaseNaver = resolve; });
+      latest = run({
+        stages: { ...latest.stages, [stage]: { status: "completed", lease: stage, result: {} } },
+        reports: [{ source: "dc", state: "ok", reason: null, fetchedCount: 8, retainedCount: 8, evidenceIds: [] }],
+        ...(stage === "select" ? { status: "deferred", reason: "no_publishable_topic" } : {}),
+      });
+      return Response.json({ result: latest });
+    });
+    vi.stubGlobal("fetch", fetch);
+    render(React.createElement(CommunityAgentPanel));
+    fireEvent.click(await screen.findByRole("button", { name: "자료 수집·초안 만들기" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("네이버 카페 수집 중"));
+    expect(screen.getByLabelText("최근 실행 상세")).toHaveTextContent(latest.id);
+    expect(screen.getByLabelText("최근 실행 상세")).toHaveTextContent("조회 8건 · 채택 8건");
+    expect(screen.getByRole("button", { name: "자료 수집·초안 작성 중…" })).toBeDisabled();
+    releaseNaver?.();
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Gemini가 작성할 주제를 선정하지 못했습니다"));
+    expect(screen.getByLabelText("최근 실행 상세")).toHaveTextContent("주제 선정 · 처리 완료");
+    expect(fetch.mock.calls.some(([, init]) => String(init?.body).includes('"stage":"draft"'))).toBe(false);
+  });
+
+  it.each([
+    ["duplicate_topic", "최근 게시글과 겹치는 주제"],
+    ["insufficient_topic_sources", "서로 다른 출처가 부족"],
+    ["unverified_official_update", "공식 업데이트를 확인할 근거가 부족"],
+    ["no_relevant_topic", "배그 게시글로 다룰 주제를 찾지 못"],
+    ["insufficient_topic_evidence", "구체적인 내용이 부족"],
+  ])("%s 보류 사유를 한국어로 표시한다", async (reason, message) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ status: status({ runs: [run({ status: "deferred", reason })] }) })));
+    render(React.createElement(CommunityAgentPanel));
+    const details = await screen.findByLabelText("최근 실행 상세");
+    expect(details).toHaveTextContent(message);
+    expect(details).toHaveTextContent("시간 기록 없음");
+  });
+
+  it("검증 실패는 작성된 초안과 승인 대기 미등록 상태를 함께 보여준다", async () => {
+    const rejected = run({ status: "deferred", reason: "validation_failed", draft: { title: "검증 전 초안", paragraphs: [], question: "어떻게 생각하세요?" } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ status: status({ runs: [rejected] }) })));
+    render(React.createElement(CommunityAgentPanel));
+    expect(await screen.findByText("검증 전 초안")).toBeInTheDocument();
+    expect(screen.getByText(/초안은 작성했지만 승인 대기에 등록하지 못했습니다/)).toBeInTheDocument();
+    expect(screen.getByLabelText("최근 실행 상세")).toHaveTextContent("근거 검증을 통과하지 못했습니다");
+  });
+
+  it("거절된 초안을 승인 대기 등록 실패로 안내하지 않는다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ status: status({ runs: [run({ status: "deferred", reason: "review_rejected" })] }) })));
+    render(React.createElement(CommunityAgentPanel));
+    expect(await screen.findByText(/거절한 초안은 처리 내역/)).toBeInTheDocument();
+    expect(screen.queryByText(/승인 대기에 등록하지 못했습니다/)).not.toBeInTheDocument();
+  });
+
+  it("완료 응답의 실행 결과와 조회 응답의 실제 시작 시간을 보존한다", async () => {
+    const ready = run({ status: "ready" });
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ status: status() }))
+      .mockResolvedValueOnce(Response.json({ result: ready }))
+      .mockResolvedValueOnce(Response.json({ status: status({ runs: [{ ...ready, createdAt: "2026-10-07T03:04:05.000Z" }] }) }));
+    vi.stubGlobal("fetch", fetch);
+    render(React.createElement(CommunityAgentPanel));
+    fireEvent.click(await screen.findByRole("button", { name: "자료 수집·초안 만들기" }));
+    await waitFor(() => expect(screen.getByLabelText("최근 실행 상세")).toHaveTextContent("12:04:05"));
+    expect(screen.getAllByRole("status").some((element) => element.textContent?.includes("초안 작성과 검증이 완료"))).toBe(true);
+    expect(screen.getByLabelText("최근 실행 상세")).toHaveTextContent(ready.id);
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("최종 상태 조회가 이전 기록을 반환해도 새 실행 결과를 유지한다", async () => {
+    const final = run({ status: "deferred", reason: "duplicate_topic" });
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ status: status() }))
+      .mockResolvedValueOnce(Response.json({ result: final }))
+      .mockResolvedValueOnce(Response.json({ status: status() }));
+    vi.stubGlobal("fetch", fetch);
+    render(React.createElement(CommunityAgentPanel));
+    fireEvent.click(await screen.findByRole("button", { name: "자료 수집·초안 만들기" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("최근 게시글과 겹치는 주제"));
+    expect(screen.getByLabelText("최근 실행 상세")).toHaveTextContent(final.id);
+  });
+
+  it.each([
+    ["published", null, "게시글이 발행되었습니다."],
+    ["deferred", "review_rejected", "초안을 거절했습니다"],
+  ] as const)("최종 조회의 %s 결과를 이전 ready 응답으로 되돌리지 않는다", async (statusValue, reason, message) => {
+    const ready = run({ status: "ready" });
+    const reviewed = { ...ready, status: statusValue, reason, createdAt: "2026-10-07T03:04:05.000Z" };
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ status: status() }))
+      .mockResolvedValueOnce(Response.json({ result: ready }))
+      .mockResolvedValueOnce(Response.json({ status: status({ runs: [reviewed] }) }));
+    vi.stubGlobal("fetch", fetch);
+    render(React.createElement(CommunityAgentPanel));
+    fireEvent.click(await screen.findByRole("button", { name: "자료 수집·초안 만들기" }));
+    await waitFor(() => expect(screen.getAllByRole("status").some((element) => element.textContent?.includes(message))).toBe(true));
+    const details = screen.getByLabelText("최근 실행 상세");
+    expect(details).toHaveTextContent("12:04:05");
+    expect(details).toHaveTextContent(statusValue === "published" ? "최근 실행: 발행됨" : "초안을 거절했습니다");
+    expect(details).not.toHaveTextContent("발행 준비됨");
+  });
+
+  it("최종 조회에 더 최근 재실행이 있으면 최신 실행을 표시한다", async () => {
+    const finished = run({ status: "deferred", reason: "duplicate_topic" });
+    const newest = run({ id: "33333333-3333-4333-8333-333333333333", createdAt: "2026-10-07T03:05:00.000Z" });
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ status: status() }))
+      .mockResolvedValueOnce(Response.json({ result: finished }))
+      .mockResolvedValueOnce(Response.json({ status: status({ runs: [newest, { ...finished, createdAt: "2026-10-07T03:04:05.000Z" }] }) }));
+    vi.stubGlobal("fetch", fetch);
+    render(React.createElement(CommunityAgentPanel));
+    fireEvent.click(await screen.findByRole("button", { name: "자료 수집·초안 만들기" }));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("실행이 아직 완료되지 않았습니다"));
+    expect(screen.getByLabelText("최근 실행 상세")).toHaveTextContent(newest.id);
+    expect(screen.getByLabelText("최근 실행 상세")).toHaveTextContent("최근 실행: 수집 중");
+  });
+
+  it("완료 알림은 이후 새로고침의 발행 상태와 함께 갱신된다", async () => {
+    const ready = run({ status: "ready" });
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ status: status() }))
+      .mockResolvedValueOnce(Response.json({ result: ready }))
+      .mockResolvedValueOnce(Response.json({ status: status({ runs: [ready] }) }))
+      .mockResolvedValueOnce(Response.json({ status: status({ runs: [{ ...ready, status: "published" }] }) }));
+    vi.stubGlobal("fetch", fetch);
+    render(React.createElement(CommunityAgentPanel));
+    fireEvent.click(await screen.findByRole("button", { name: "자료 수집·초안 만들기" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "새로고침" })).toBeEnabled());
+    expect(screen.getAllByRole("status").some((element) => element.textContent?.includes("초안 작성과 검증이 완료"))).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
+    await waitFor(() => expect(screen.getAllByRole("status").some((element) => element.textContent?.includes("게시글이 발행되었습니다"))).toBe(true));
+    expect(screen.getByLabelText("최근 실행 상세")).toHaveTextContent("최근 실행: 발행됨");
+    expect(screen.getAllByRole("status").some((element) => element.textContent?.includes("초안 작성과 검증이 완료"))).toBe(false);
+  });
+
+  it("동시에 진행 중인 단계가 반환되면 다음 단계 실행을 멈춘다", async () => {
+    const running = run({ stages: { dc: { status: "running", lease: "existing", result: {} } } });
+    const fetch = vi.fn().mockResolvedValueOnce(Response.json({ status: status() }))
+      .mockResolvedValueOnce(Response.json({ result: run() }))
+      .mockResolvedValueOnce(Response.json({ result: running }))
+      .mockResolvedValueOnce(Response.json({ status: status({ runs: [running] }) }));
+    vi.stubGlobal("fetch", fetch);
+    render(React.createElement(CommunityAgentPanel));
+    fireEvent.click(await screen.findByRole("button", { name: "자료 수집·초안 만들기" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("이미 진행 중인 단계가 있습니다");
+    expect(fetch).toHaveBeenCalledTimes(4);
+    expect(screen.getByLabelText("최근 실행 상세")).toHaveTextContent("디시인사이드 수집 진행 중");
   });
 });

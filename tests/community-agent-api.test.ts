@@ -315,6 +315,27 @@ describe("executeAction state boundaries", () => {
     expect(mocks.selectTopic).not.toHaveBeenCalled();
   });
 
+  it("주제 없음의 구체 사유를 실행 결과에 보존한다", async () => {
+    const run = snapshot();
+    const store = {
+      claimStage: vi.fn().mockResolvedValue({ claimed: true, lease: LEASE, run }),
+      loadOfficialEvidence: vi.fn().mockResolvedValue([]),
+      rejectedEvidenceIds: vi.fn().mockResolvedValue([]),
+      saveEvidence: vi.fn().mockResolvedValue([]),
+      loadEvidence: vi.fn().mockResolvedValue([{ id: "item", excerpt: "질문" }]),
+      recentPosts: vi.fn().mockResolvedValue([]),
+      finishStage: vi.fn().mockResolvedValue(run),
+    };
+    mocks.selectTopic.mockImplementation(async (_items, _recent, _model, _now, onDeferred) => {
+      onDeferred("duplicate_topic");
+      return null;
+    });
+    await executeAction({ action: "step", runId: RUN_ID, stage: "select" }, { kind: "admin", userId: "admin" }, store as never);
+    expect(store.finishStage).toHaveBeenCalledWith(RUN_ID, "select", LEASE, {
+      terminal: { status: "deferred", reason: "duplicate_topic" },
+    });
+  });
+
   it("finishes select as deferred without calling a model when there is no usable evidence", async () => {
     const run = snapshot({ reports: [
       { source: "dc", state: "empty", reason: "none", fetchedCount: 0, retainedCount: 0, evidenceIds: [] },

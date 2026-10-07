@@ -246,7 +246,7 @@ it("선택 후보는 출처별 최대 10건으로 맞추고 교차 출처의 같
   }));
 });
 
-it("여러 출처 후보가 있는데 한 출처만 고른 주제는 보류한다", async () => {
+it("같은 주제의 여러 출처 후보가 있는데 한 출처만 고르면 사유를 남긴다", async () => {
   const dc = evidence({
     id: "dc-1", source: "dc", official: false,
     url: "https://gall.dcinside.com/board/view/?id=battlegrounds&no=1",
@@ -260,7 +260,74 @@ it("여러 출처 후보가 있는데 한 출처만 고른 주제는 보류한�
     evidenceIds: [dc.id], reason: "한 출처만 선택했습니다.", officialUpdate: false,
   });
 
-  await expect(selectTopic([dc, naver], [], model, NOW)).resolves.toBeNull();
+  const onDeferred = vi.fn();
+  await expect(selectTopic([dc, naver], [], model, NOW, onDeferred)).resolves.toBeNull();
+  expect(onDeferred).toHaveBeenCalledWith("insufficient_topic_sources");
+});
+
+it.each(["tip", "question"] as const)("관련 없는 다른 출처가 있어도 유효한 단일 출처 %s을 선택한다", async (kind) => {
+  const dc = evidence({
+    id: "dc-tip", source: "dc", official: false,
+    title: "연막탄 활용 질문", excerpt: "개별 이용자가 연막탄을 활용한 이동 방법을 물었습니다.",
+  });
+  const naver = evidence({
+    id: "naver-other", source: "naver", official: false, access: "snippet",
+    title: "의상 쿠폰 등록", excerpt: "의상 쿠폰 등록 위치를 묻는 검색 요약입니다.",
+  });
+  const model = vi.fn().mockResolvedValue({
+    kind, title: "연막탄 활용을 어떻게 하시나요?", topicKey: "smoke-rotation",
+    evidenceIds: [dc.id], reason: "개별 질문에서 출발한 단일 출처 주제입니다.",
+    officialUpdate: false, coverage: "individual",
+  });
+  await expect(selectTopic([dc, naver], [], model, NOW)).resolves.toEqual(expect.objectContaining({ kind }));
+});
+
+it("전체 여론 주제에는 실제 선택 근거의 두 출처가 필요하다", async () => {
+  const dc = evidence({ id: "dc-only", source: "dc", official: false });
+  const onDeferred = vi.fn();
+  const model = vi.fn().mockResolvedValue({
+    kind: "question", title: "배그 매칭에 대한 커뮤니티 여론", topicKey: "matching-sentiment",
+    evidenceIds: [dc.id], reason: "이용자 여론을 소개합니다.", officialUpdate: false,
+    coverage: "community_sentiment",
+  });
+  await expect(selectTopic([dc], [], model, NOW, onDeferred)).resolves.toBeNull();
+  expect(onDeferred).toHaveBeenCalledWith("insufficient_topic_sources");
+});
+
+it.each(["no_relevant_topic", "insufficient_topic_evidence", "duplicate_topic"] as const)(
+  "모델의 주제 없음 사유 %s을 보존한다", async (reason) => {
+    const onDeferred = vi.fn();
+    await expect(selectTopic([evidence()], [], vi.fn().mockResolvedValue({ noTopicReason: reason }), NOW, onDeferred))
+      .resolves.toBeNull();
+    expect(onDeferred).toHaveBeenCalledWith(reason);
+  },
+);
+
+it("주제와 함께 온 보류 필드로 유효성 검사를 우회하지 못한다", async () => {
+  await expect(selectTopic([evidence()], [], vi.fn().mockResolvedValue({
+    noTopicReason: "no_relevant_topic", title: "혼합 응답",
+  }), NOW)).rejects.toMatchObject({ reason: "model_invalid_response" });
+});
+
+it("공통 맵·패치 단어로 묶인 무관한 후보는 개별 질문을 막지 않는다", async () => {
+  const dc = evidence({ id: "dc-smoke", source: "dc", official: false,
+    title: "패치 후 에란겔 연막탄 활용 질문", excerpt: "에란겔에서 연막탄을 어디에 던질까요?" });
+  const naver = evidence({ id: "naver-skin", source: "naver", official: false, access: "snippet",
+    title: "패치 후 에란겔 스킨 쿠폰 등록", excerpt: "스킨 쿠폰을 어디에서 등록하나요?" });
+  const model = vi.fn().mockResolvedValue({
+    kind: "question", title: "에란겔 연막탄 이동 경험 공유", topicKey: "erangel-smoke",
+    evidenceIds: [dc.id], reason: "단일 출처의 개별 질문입니다.", officialUpdate: false, coverage: "individual",
+  });
+  await expect(selectTopic([dc, naver], [], model, NOW)).resolves.toMatchObject({ evidenceIds: [dc.id] });
+});
+
+it.each([
+  { noTopicReason: ["no_relevant_topic"] },
+  { kind: "question", title: "매칭 질문", topicKey: "matching", evidenceIds: ["evidence-1"],
+    reason: "질문", officialUpdate: false, coverage: ["community_sentiment"] },
+])("enum 필드의 배열 응답은 보류 형식 오류로 처리한다", async (response) => {
+  await expect(selectTopic([evidence()], [], vi.fn().mockResolvedValue(response), NOW))
+    .rejects.toMatchObject({ reason: "model_invalid_response" });
 });
 
 it("7일보다 오래된 중복 주제는 새 주제를 막지 않는다", async () => {
