@@ -240,7 +240,8 @@ async function inspectOneMatch(input: {
     rows<BasicMatch>(db, "pubg_player_matches", args.preservePerformance ? "*" : "account_id,player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type,knocks,survival_time", match.match_id, platform),
     rows<Record<string, any>>(db, "processed_match_telemetry", args.preservePerformance ? "*" : "match_id,platform,player_id,data", match.match_id, platform),
     rows<RetainedPerformanceRow & Record<string, any>>(db, "pubg_match_performance", "platform,account_id,match_id,player_id,played_at,calculation_version,result_version,score,tier,benchmark,ranking_eligible,source_checksum,summary_version,summary", match.match_id, platform),
-    rows<RegistryRow>(db, "telemetry_map_cache_entries", args.preservePerformance ? "*" : "id,match_id,platform,player_id,mode,telemetry_version,storage_path,status,lease_token,lease_expires_at,updated_at", match.match_id, platform),
+    // 복구 준비·삭제 재검증·실패 복원에서 같은 전체 등록부 스냅샷을 사용한다.
+    rows<RegistryRow>(db, "telemetry_map_cache_entries", "*", match.match_id, platform),
     rows<{ storage_path: string | null }>(db, "match_master_telemetry", "storage_path", match.match_id, platform),
     rows<Record<string, any>>(db, "pubg_player_match_discovery", "account_id,state,lease_token,lease_expires_at", match.match_id, platform),
     rows<Record<string, any>>(db, "pubg_performance_jobs", "account_id,state,lease_token,lease_expires_at", match.match_id, platform),
