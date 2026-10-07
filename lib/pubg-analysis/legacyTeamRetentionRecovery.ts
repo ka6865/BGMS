@@ -57,6 +57,12 @@ export type LegacyTeamRecoveryEvidence = {
   cohortEvidence: 'LogPlayerCreate exact official lobby counts' | 'LogPlayerCreate ∩ LogMatchEnd.allWeaponStats.accountId'
     | 'LogMatchEnd.characters exact official lobby counts';
   unavailableEvidence: ['full-lobby-damage-rank', 'opponent-official-stats', 'LogPlayerAttack'];
+  compatibility?: {
+    metadataSource: 'verified-legacy-event-interval';
+    startedAt: string;
+    endedAt: string;
+    duration: number;
+  };
 };
 
 export type LegacyTeamRecoveryResult = {
@@ -149,12 +155,38 @@ function omitUnobservedDefaults(value: unknown): unknown {
   if (record(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, omitUnobservedDefaults(item)]));
   return value;
 }
-function sourceMetadata(full: Dict, basic: LegacyRetentionBasic): { date: string; duration: number; mapId: string; gameMode: string; matchType: string } | null {
-  const info = full.matchInfo;
-  if (!record(info) || Array.isArray(info)) return null;
+type SourceMetadata = { date: string; duration: number; mapId: string; gameMode: string; matchType: string;
+  compatibility?: NonNullable<LegacyTeamRecoveryEvidence['compatibility']> };
+function sourceMetadata(full: Dict, basic: LegacyRetentionBasic, rawEvents: unknown[]): SourceMetadata | null {
   const date = full.createdAt;
   const gameMode = full.gameMode;
   const matchType = full.matchType;
+  const mapId = Object.keys(MAP_NAMES).find(key => mapIdentity(key) === mapIdentity(basic.map_name));
+  if (!mapId) return null;
+  if (!Object.prototype.hasOwnProperty.call(full, 'matchInfo')) {
+    if (typeof matchType !== 'string' || !RECOVERABLE_MATCH_TYPES.has(matchType)
+      || typeof gameMode !== 'string' || !sameInstant(date, basic.played_at) || gameMode !== basic.game_mode
+      || basic.match_type !== matchType || !matchingMap(basic.map_name, full.mapName) || !Array.isArray(rawEvents)) return null;
+    const starts = rawEvents.filter((event): event is Dict => record(event) && event._T === 'LogMatchStart');
+    const ends = rawEvents.filter((event): event is Dict => record(event) && event._T === 'LogMatchEnd');
+    if (starts.length !== 1 || ends.length !== 1 || typeof starts[0]._D !== 'string' || typeof ends[0]._D !== 'string') return null;
+    const startedAt = Date.parse(starts[0]._D), endedAt = Date.parse(ends[0]._D), officialAt = Date.parse(date);
+    const duration = (endedAt - startedAt) / 1000;
+    if (![startedAt, endedAt, officialAt, duration].every(Number.isFinite) || Math.abs(startedAt - officialAt) > 60_000
+      || duration < 1 || duration > 7200 || !Array.isArray(full.team)
+      || full.team.some(stat => !record(stat) || typeof stat.timeSurvived !== 'number'
+        || !Number.isFinite(stat.timeSurvived) || stat.timeSurvived < 0 || stat.timeSurvived > duration + 60)) return null;
+    const rawStart = starts[0] as Dict;
+    const startMaps = ['mapName', 'map', 'mapId'].filter(key => Object.prototype.hasOwnProperty.call(rawStart, key))
+      .map(key => rawStart[key]);
+    if (startMaps.some(startMap => mapIdentity(startMap) !== mapIdentity(full.mapName))) return null;
+    return { date, duration, mapId, gameMode, matchType, compatibility: {
+      metadataSource: 'verified-legacy-event-interval',
+      startedAt: new Date(startedAt).toISOString(), endedAt: new Date(endedAt).toISOString(), duration,
+    } };
+  }
+  const info = full.matchInfo;
+  if (!record(info) || Array.isArray(info)) return null;
   const infoDate = info.date;
   const infoMode = info.mode;
   const infoType = info.matchType;
@@ -170,8 +202,6 @@ function sourceMetadata(full: Dict, basic: LegacyRetentionBasic): { date: string
   // That derived default is not official map evidence; the root map and basic row are.
   const legacyUiDefault = info.mapId === 'erangel' && info.map === undefined && info.mapName === undefined;
   if (!legacyUiDefault && info.mapId != null && !matchingMap(basic.map_name, info.mapId)) return null;
-  const mapId = Object.keys(MAP_NAMES).find(key => mapIdentity(key) === mapIdentity(basic.map_name));
-  if (!mapId) return null;
   return { date, duration: info.duration, mapId, gameMode, matchType };
 }
 function sourceResultMatchesBasic(full: Dict, basic: LegacyRetentionBasic): boolean {
@@ -303,7 +333,7 @@ export function recoverLegacyTeamPerformance(input: LegacyTeamRecoveryInput): Le
       || (source.id !== undefined && source.id !== input.targetBasic.match_id)
       || (source.player_id !== undefined && normalizeName(source.player_id) !== normalizeName(input.sourceIdentity.playerId))
       || !sourceResultMatchesBasic(source, input.sourceBasic)) return null;
-    const metadata = sourceMetadata(source, input.sourceBasic);
+    const metadata = sourceMetadata(source, input.sourceBasic, input.eventSource.events);
     if (!metadata || !Array.isArray(source.team) || !source.team.length) return null;
     if (input.targetBasic.match_type !== metadata.matchType
       && !['unknown', 'unavailable'].includes(input.targetBasic.match_type)) return null;
@@ -311,7 +341,8 @@ export function recoverLegacyTeamPerformance(input: LegacyTeamRecoveryInput): Le
       && input.targetBasic.damage === 0 && input.targetBasic.win_place === 99
       && input.targetBasic.map_name.toLowerCase() === 'unknown' && input.targetBasic.game_mode.toLowerCase() === 'unknown';
     if (!fallbackMetadata && (!sameInstant(input.targetBasic.played_at, metadata.date) || input.targetBasic.game_mode !== metadata.gameMode
-      || !matchingMap(input.targetBasic.map_name, metadata.mapId, source.matchInfo.map ?? source.matchInfo.mapName ?? source.mapName))) return null;
+      || !matchingMap(input.targetBasic.map_name, metadata.mapId,
+        record(source.matchInfo) ? source.matchInfo.map ?? source.matchInfo.mapName ?? source.mapName : source.mapName))) return null;
     if (source.team.some(stats => !validOfficialStats(stats))) return null;
     const officialTeam = source.team.map(copyOfficialStats);
     const cohort = makeRosterEvidence(input, officialTeam, metadata.date, metadata.duration);
@@ -353,6 +384,7 @@ export function recoverLegacyTeamPerformance(input: LegacyTeamRecoveryInput): Le
         personalAnalysis: 'recomputed-from-legacy-event-projection',
         officialStatsScope: 'target-observed-team-only',
         basicMetadataRecovered: fallbackMetadata,
+        ...(metadata.compatibility ? { metadataSource: metadata.compatibility.metadataSource } : {}),
         unavailable: ['full-lobby-damage-rank', 'opponent-official-stats', 'LogPlayerAttack'],
       } };
     delete fullResult.myRank;
@@ -381,6 +413,7 @@ export function recoverLegacyTeamPerformance(input: LegacyTeamRecoveryInput): Le
       observedPlayers: cohort.cohort.length, officialPlayers: cohort.officialPlayers,
       observedTeams: cohort.teams.size, officialTeams: cohort.officialTeams, observedTeamId: cohort.targetCharacter.teamId,
       telemetryFilter: 'current-allowlist-projection', cohortEvidence: cohort.cohortEvidence,
+      ...(metadata.compatibility ? { compatibility: metadata.compatibility } : {}),
       unavailableEvidence: ['full-lobby-damage-rank', 'opponent-official-stats', 'LogPlayerAttack'],
     };
     fullResult.retentionRecoveryEvidence = evidence;
