@@ -61,6 +61,11 @@ function parseDcBody(html: string): string | null {
   return text || null;
 }
 
+function bodyPriority(title: string): number {
+  if (/홍보|광고|좌표|오픈채팅|클랜.*모집|(?:디스코드|디코).*(?:서버|모집|초대)/.test(title)) return -1;
+  return /출시|콜라보|스킨|패치|업데이트|질문|팁|공략|오류|버그|방법|설정|매칭|프레임|성능|렉|왜|어떻게|언제|\?/.test(title) ? 1 : 0;
+}
+
 async function bounded<T, R>(values: T[], limit: number, work: (value: T) => Promise<R>): Promise<R[]> {
   const result: R[] = [];
   let index = 0;
@@ -89,7 +94,8 @@ export async function collectDc(deps: SourceDeps): Promise<SourceReport> {
     }
     const candidates = [...new Map(rows.slice(0, MAX_CANDIDATES).map((item) => [item.externalId, item])).values()];
     if (candidates.length === 0) return report("dc", "empty", [], "dc_no_matching_posts", 0);
-    const outcomes = await bounded(candidates.slice(0, MAX_BODIES), 2, async (item) => {
+    const selected = candidates.sort((a, b) => bodyPriority(b.title) - bodyPriority(a.title)).slice(0, MAX_BODIES);
+    const outcomes = await bounded(selected, 2, async (item) => {
       try { return { item, body: parseDcBody(await fetchSourceText(new URL(item.url), {}, deps)), error: null as string | null }; }
       catch (error) { return { item, body: null, error: error instanceof Error ? error.message : "source_request_failed" }; }
     });

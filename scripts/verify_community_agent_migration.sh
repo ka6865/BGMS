@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verify the community-agent migration against a disposable local PostgreSQL 17.
+# Verify the community-agent migrations against a disposable local PostgreSQL 17.
 # This script never reads a production connection string.
 set -euo pipefail
 
@@ -9,21 +9,26 @@ readonly DATABASE="communityagentcheck"
 readonly BOARD_MIGRATION="supabase/migrations/20260718203104_board_image_storage_ownership.sql"
 readonly MIGRATION="supabase/migrations/20260909061622_community_agent_persistence.sql"
 readonly RETRY_MIGRATION="supabase/migrations/20260909100149_community_agent_manual_retry.sql"
+readonly SELECTION_MIGRATION="supabase/migrations/20261007180035_community_selection_diagnostics.sql"
 readonly FIXTURE="tests/fixtures/community-agent/prerequisites.sql"
 readonly SCENARIOS="tests/fixtures/community-agent/scenarios.sql"
 export PGPASSWORD=pw
+LOCAL_DATA_DIR=""
+LOCAL_SOCKET_DIR=""
+PG_BIN=""
 
 cleanup() {
-  docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+  if [[ -n "$LOCAL_DATA_DIR" ]]; then
+    "$PG_BIN/pg_ctl" -D "$LOCAL_DATA_DIR" -m immediate stop >/dev/null 2>&1 || true
+    rm -rf "$LOCAL_DATA_DIR" "$LOCAL_SOCKET_DIR"
+  else
+    docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 
 if ! command -v psql >/dev/null 2>&1; then
   echo "community-agent migration verification unavailable: psql is required; production DB is not used" >&2
-  exit 2
-fi
-if ! docker info >/dev/null 2>&1; then
-  echo "community-agent migration verification unavailable: Docker daemon is required; production DB is not used" >&2
   exit 2
 fi
 if [[ ! -f "$MIGRATION" ]]; then
@@ -32,8 +37,23 @@ if [[ ! -f "$MIGRATION" ]]; then
 fi
 
 echo "▶ disposable PostgreSQL 17: 127.0.0.1:${PG_PORT}"
-docker run -d --name "$CONTAINER_NAME" -e POSTGRES_PASSWORD=pw \
-  -p "127.0.0.1:${PG_PORT}:5432" postgres:17 >/dev/null
+if docker info >/dev/null 2>&1; then
+  docker run -d --name "$CONTAINER_NAME" -e POSTGRES_PASSWORD=pw \
+    -p "127.0.0.1:${PG_PORT}:5432" postgres:17 >/dev/null
+else
+  if command -v brew >/dev/null 2>&1; then
+    PG_BIN="$(brew --prefix postgresql@17 2>/dev/null)/bin"
+  fi
+  if [[ ! -x "$PG_BIN/initdb" || ! -x "$PG_BIN/pg_ctl" ]]; then
+    echo "community-agent migration verification unavailable: Docker or PostgreSQL 17 is required; production DB is not used" >&2
+    exit 2
+  fi
+  LOCAL_DATA_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bgms-community-data.XXXXXX")"
+  LOCAL_SOCKET_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bgms-community-socket.XXXXXX")"
+  "$PG_BIN/initdb" -D "$LOCAL_DATA_DIR" -A trust -U postgres --no-locale >/dev/null
+  "$PG_BIN/pg_ctl" -D "$LOCAL_DATA_DIR" -o "-h 127.0.0.1 -p ${PG_PORT} -k ${LOCAL_SOCKET_DIR}" \
+    -l "$LOCAL_DATA_DIR/postgres.log" start >/dev/null
+fi
 
 for _ in $(seq 1 60); do
   if psql -h 127.0.0.1 -p "$PG_PORT" -U postgres -d postgres -c 'select 1' >/dev/null 2>&1; then
@@ -53,6 +73,8 @@ echo "▶ prerequisite schema and real board writer"
 echo "▶ community-agent migration"
 "${PSQL[@]}" -f "$MIGRATION"
 "${PSQL[@]}" -f "$RETRY_MIGRATION"
+"${PSQL[@]}" -f "$SELECTION_MIGRATION"
+"${PSQL[@]}" -f tests/fixtures/community-agent/selection-diagnostics-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/community-agent/retry-scenarios.sql
 if [[ "$("${PSQL[@]}" -Atc "select n.nspname from pg_extension e join pg_namespace n on n.oid = e.extnamespace where e.extname = 'pgcrypto'")" != "extensions" ]]; then
   echo "pgcrypto compatibility fixture was not preserved in extensions schema" >&2
