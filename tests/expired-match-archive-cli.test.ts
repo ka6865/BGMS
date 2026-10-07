@@ -16,6 +16,7 @@ const harness = vi.hoisted(() => ({
   objectBody: Buffer.from('{"map":"retained"}'),
   failBinding: false,
   failPreservation: false,
+  projectRegistryColumns: false,
 }));
 const r2 = vi.hoisted(() => ({
   read: vi.fn(),
@@ -33,8 +34,9 @@ vi.mock("@supabase/supabase-js", () => {
     action = "select";
     filters: Record<string, unknown> = {};
     payload: unknown;
+    columns = '*';
     constructor(table: string) { this.table = table; }
-    select() { return this; }
+    select(columns = '*') { this.columns = columns; return this; }
     eq(key: string, value: unknown) {
       if (this.table === "match_master_telemetry" && key === "platform") throw new Error("column platform does not exist");
       this.filters[key] = value;
@@ -99,6 +101,10 @@ vi.mock("@supabase/supabase-js", () => {
       if (this.table === "telemetry_map_cache_entries" && single) {
         harness.actions.push("registry-read-for-restore");
         rows = rows.slice(0, 1);
+      }
+      if (harness.projectRegistryColumns && this.table === 'telemetry_map_cache_entries'
+        && this.action === 'select' && this.columns !== '*') {
+        rows = rows.map(row => Object.fromEntries(this.columns.split(',').map(key => [key, row[key]])));
       }
       return { data: single ? rows[0] ?? null : rows, error: null };
     }
@@ -235,6 +241,7 @@ beforeEach(async () => {
   harness.recreateConcurrentRegistryOnDeleteFailure = false;
   harness.failBinding = false;
   harness.failPreservation = false;
+  harness.projectRegistryColumns = false;
   harness.objectBody = Buffer.from('{"map":"retained"}');
   r2.read.mockReset();
   r2.deletePersonal.mockReset().mockImplementation(async () => { harness.actions.push("r2-delete"); return { deleted: true }; });
@@ -267,6 +274,16 @@ const env = {
 };
 
 describe("expired match archive CLI apply protocol", () => {
+  it('보존 준비와 삭제 직전 재검증에서 지도 등록부의 전체 필드를 동일하게 대조한다', async () => {
+    harness.projectRegistryColumns = true;
+    harness.tables.telemetry_map_cache_entries[0].created_at = '2026-09-02T00:00:00.000Z';
+    await cleanup([...args('prepare'), '--preserve-performance'], env);
+    const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(plan.objects[0].registrySnapshot.created_at).toBe('2026-09-02T00:00:00.000Z');
+    await cleanup(args('apply'), env);
+    expect(r2.deletePersonal).toHaveBeenCalledTimes(1);
+  });
+
   function missingMapFixture() {
     const id = '123e4567-e89b-42d3-a456-426614174000';
     const identity = { matchId: id, platform: 'steam' as const, playerId: accountId, mode: 'full' as const, telemetryVersion: 73 };
