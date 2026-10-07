@@ -92,6 +92,7 @@ export type SourceStatus = {
 export type RunSnapshot = {
   id: string;
   day: string;
+  createdAt?: string | null;
   status:
     | "collecting"
     | "selected"
