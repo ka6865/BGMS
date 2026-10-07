@@ -96,6 +96,7 @@ function normalizeSnapshot(value: unknown): RunSnapshot {
   return {
     id: text(source.run_id ?? source.id, "run-id"),
     day: text(source.day, "run-day"),
+    createdAt: nullableText(source.created_at ?? source.createdAt, "run-created-at"),
     status,
     stages: asObject(source.stages) as RunSnapshot["stages"],
     modelCalls,
@@ -217,7 +218,7 @@ export class CommunityStore {
     const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
     const { data, error } = await (this.client as any)
       .from("community_agent_runs")
-      .select("run_id,day,status,stages,reports,topic,draft,validation,model_calls,dry_run,post_id,reason")
+      .select("run_id,day,created_at,status,stages,reports,topic,draft,validation,model_calls,dry_run,post_id,reason")
       .gte("created_at", cutoff)
       .order("created_at", { ascending: false })
       .limit(31);
@@ -273,26 +274,37 @@ export class CommunityStore {
     for (const source of new Set(items.map((item) => item.source))) {
       const group = items.filter((item) => item.source === source);
       const rows = group.map((item) => ({
-        id: item.id, source: item.source, external_id: item.externalId, url: item.url, title: item.title,
+        source: item.source, external_id: item.externalId, url: item.url, title: item.title,
         excerpt: item.excerpt, published_at: item.publishedAt, fetched_at: item.fetchedAt,
         access: item.access, content_hash: item.contentHash, official: item.official,
         expires_at: new Date(Date.parse(item.fetchedAt) + EVIDENCE_TTL_MS).toISOString(),
       }));
-      // DO NOTHING on conflict preserves the original ID, fetch time, and excerpt expiry.
+      // 원문 ID는 유지하고, 실제 재수집한 내용은 아래에서 확인 시각과 함께 갱신한다.
       const { error: writeError } = await (this.client as any)
         .from("community_agent_evidence")
         .upsert(rows, { onConflict: "source,external_id", ignoreDuplicates: true });
       requireSuccess({ error: writeError }, "save-evidence");
       const { data, error } = await (this.client as any)
         .from("community_agent_evidence")
-        .select("id,source,external_id")
+        .select("id,source,external_id,fetched_at")
         .eq("source", source)
         .in("external_id", group.map((item) => item.externalId));
       requireSuccess({ error }, "load-saved-evidence");
+      const refreshes: Array<{ id: string; fresh: (typeof rows)[number] }> = [];
       for (const saved of (data ?? [])) {
         const savedRow = row(saved, "saved-evidence");
-        ids.set(`${text(savedRow.source, "saved-evidence-source")}:${text(savedRow.external_id, "saved-evidence-external-id")}`,
-          text(savedRow.id, "saved-evidence-id"));
+        const externalId = text(savedRow.external_id, "saved-evidence-external-id");
+        const id = text(savedRow.id, "saved-evidence-id");
+        ids.set(`${text(savedRow.source, "saved-evidence-source")}:${externalId}`, id);
+        const fresh = rows.find((item) => item.external_id === externalId);
+        if (fresh && Date.parse(String(savedRow.fetched_at)) < Date.parse(fresh.fetched_at)) refreshes.push({ id, fresh });
+      }
+      for (let offset = 0; offset < refreshes.length; offset += 10) {
+        const results = await Promise.all(refreshes.slice(offset, offset + 10).map(({ id, fresh }) => {
+          return (this.client as any).from("community_agent_evidence").update(fresh)
+            .eq("id", id).lte("fetched_at", fresh.fetched_at);
+        }));
+        for (const result of results) requireSuccess(result, "refresh-evidence");
       }
     }
     return items.map((item) => {

@@ -7,6 +7,7 @@ import {
   verifyDraft,
   writeDraft,
   type GeminiJsonUsage,
+  type TopicDeferReason,
 } from "./editorial";
 import { checkDraft, renderDraft } from "./validate";
 import type { CommunityStore } from "./store";
@@ -91,10 +92,11 @@ async function executeSelect(run: RunSnapshot, lease: string, store: CommunitySt
     onUsage: (value) => { usage = value; },
   });
   try {
-    const topic = await selectTopic(items, await store.recentPosts(7), model, new Date());
+    let reason: TopicDeferReason = "no_publishable_topic";
+    const topic = await selectTopic(items, await store.recentPosts(7), model, new Date(), (value) => { reason = value; });
     if (!topic) {
       return store.finishStage(run.id, "select", lease, {
-        terminal: { status: "deferred", reason: "no_publishable_topic" },
+        terminal: { status: "deferred", reason },
         ...usagePayload(usage),
       });
     }
