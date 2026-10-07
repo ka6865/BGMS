@@ -39,6 +39,7 @@ export function buildPlayerMatchRecordFromParticipant(input: IngestParticipantIn
 export type BasicMatchIngestStatus =
   | "saved"
   | "not_found"
+  | "unsupported_match"
   | "rate_limited"
   | "upstream_error"
   | "network_error";
@@ -181,6 +182,10 @@ export async function fetchAndIngestBasicMatchSummaryOutcome(
     const stats = myParticipant.attributes.stats;
     if (options.expectedAccountId && (typeof stats.name !== 'string' || !stats.name.trim())) {
       return { status: 'upstream_error', record: null, httpStatus: res.status, rateLimitHeaders, error: 'participant-name-missing' };
+    }
+    // 순위가 없는 훈련·중도 이탈 TDM 응답은 기본 전적 계약에 맞지 않으며 재호출로 보완되지 않는다.
+    if (stats.winPlace === 0 && (String(matchAttr.matchType).toLowerCase() === 'tutorialatoz' || String(matchAttr.gameMode).toLowerCase() === 'tdm')) {
+      return { status: 'unsupported_match', record: null, httpStatus: res.status, rateLimitHeaders, error: 'match-placement-unavailable' };
     }
     const record: PlayerMatchRecord = {
       ranking_eligible: evaluateMatchEligibility({ ...matchAttr, stats }, "benchmark").eligible,

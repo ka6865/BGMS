@@ -160,6 +160,17 @@ import {
       nextEligibleAt: "2026-08-20T00:00:00.000Z",
     }));
   });
+  it("continues past a match without placement and still saves the next match", async () => {
+    const ingestMatch = vi.fn()
+      .mockResolvedValueOnce({status: "unsupported_match", record: null, httpStatus: 200, rateLimitHeaders: null})
+      .mockResolvedValueOnce({status: "saved", record: {match_id: "normal"}, httpStatus: 200, rateLimitHeaders: null});
+    const { dependencies } = runnerDependencies({
+      fetchRecentMatchIds: vi.fn().mockResolvedValue({status: 200, matchIds: ["tutorial", "normal"], rateLimitHeaders: null}),
+      ingestMatch,
+    });
+    expect(await runSyncUserMatches({dependencies})).toMatchObject({unsupportedMatches: 1, newMatches: 1, syncedIdentities: 1, upstreamErrors: 0});
+    expect(dependencies.completeSync).toHaveBeenCalledWith(expect.objectContaining({status: "success"}));
+  });
 
   it("skips a refresh-lock collision and clears the owned lease without failing it", async () => {
     const { dependencies } = runnerDependencies({

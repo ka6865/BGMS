@@ -41,6 +41,22 @@ describe('durable match collection worker',()=>{
     expect(summary.rateLimited).toBe(true);expect(d.claim).toHaveBeenCalledTimes(1);
     expect(d.settle).toHaveBeenCalledWith(job,expect.objectContaining({state:'retry',nextAttemptAt:'2026-09-11T00:03:00.000Z'}));
   });
+  it.each([
+    ['2026-08-28T00:00:00Z', 'not_found', 'unavailable', 'discovery_window_elapsed'],
+    ['2026-08-28T00:00:00.001Z', 'not_found', 'retry', 'not_found'],
+    ['invalid', 'not_found', 'retry', 'not_found'],
+    ['2026-09-12T00:00:00Z', 'not_found', 'retry', 'not_found'],
+    ['2026-08-01T00:00:00Z', 'saved', 'saved', undefined],
+    ['2026-08-01T00:00:00Z', 'upstream_error', 'retry', 'upstream_error'],
+    ['2026-09-10T00:00:00Z', 'unsupported_match', 'unavailable', 'match-placement-unavailable'],
+  ] as const)('settles %s / %s without discarding obtainable matches', async (first_seen_at, status, state, errorCode) => {
+    const d = setup(result(status));
+    const target = { ...job, first_seen_at };
+    d.claim.mockReset().mockResolvedValueOnce([target]).mockResolvedValue([]);
+    await runDiscoveryWorker(d);
+    expect(d.ingest).toHaveBeenCalledWith(target);
+    expect(d.settle).toHaveBeenCalledWith(target, expect.objectContaining({state, ...(errorCode ? {errorCode} : {})}));
+  });
   it('does not treat thrown network failures as successful writes',async()=>{
     const d=setup(result('saved'));d.ingest.mockRejectedValueOnce(new Error('network'));
     expect((await runDiscoveryWorker(d)).saved).toBe(0);

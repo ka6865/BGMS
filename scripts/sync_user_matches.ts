@@ -242,6 +242,7 @@ export async function runSyncUserMatches(
     lockCollisions: 0,
     invalidNicknames: 0,
     notFoundMatches: 0,
+    unsupportedMatches: 0,
     upstreamErrors: 0,
     networkErrors: 0,
     rateLimited: false,
@@ -481,6 +482,7 @@ export async function runSyncUserMatches(
 
           if (outcome.status === "saved") summary.newMatches += 1;
           else if (outcome.status === "not_found") summary.notFoundMatches += 1;
+          else if (outcome.status === "unsupported_match") summary.unsupportedMatches = (summary.unsupportedMatches ?? 0) + 1;
           else if (outcome.status === "rate_limited") {
             summary.rateLimited = true;
             summary.stoppedReason = "rate_limited";

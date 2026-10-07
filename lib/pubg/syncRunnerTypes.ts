@@ -34,6 +34,7 @@ export type SyncRunSummary = {
   lockCollisions: number;
   invalidNicknames: number;
   notFoundMatches: number;
+  unsupportedMatches?: number;
   upstreamErrors: number;
   networkErrors: number;
   rateLimited: boolean;
