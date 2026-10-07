@@ -79,6 +79,7 @@ export type SyncRunnerDependencies = {
     supabase: SupabaseClient,
     candidate: SyncCandidateUser,
     matchIds: string[],
+    accountId?: string,
   ) => Promise<string[]>;
   ingestMatch?: (
     supabase: SupabaseClient,

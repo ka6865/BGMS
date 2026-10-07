@@ -183,10 +183,6 @@ export async function fetchAndIngestBasicMatchSummaryOutcome(
     if (options.expectedAccountId && (typeof stats.name !== 'string' || !stats.name.trim())) {
       return { status: 'upstream_error', record: null, httpStatus: res.status, rateLimitHeaders, error: 'participant-name-missing' };
     }
-    // 순위가 없는 훈련·중도 이탈 TDM 응답은 기본 전적 계약에 맞지 않으며 재호출로 보완되지 않는다.
-    if (stats.winPlace === 0 && (String(matchAttr.matchType).toLowerCase() === 'tutorialatoz' || String(matchAttr.gameMode).toLowerCase() === 'tdm')) {
-      return { status: 'unsupported_match', record: null, httpStatus: res.status, rateLimitHeaders, error: 'match-placement-unavailable' };
-    }
     const record: PlayerMatchRecord = {
       ranking_eligible: evaluateMatchEligibility({ ...matchAttr, stats }, "benchmark").eligible,
       ...(typeof stats.playerId === "string" && /^account\.[A-Za-z0-9_-]+$/.test(stats.playerId) ? { account_id: stats.playerId } : {}),
@@ -203,8 +199,13 @@ export async function fetchAndIngestBasicMatchSummaryOutcome(
       survival_time: normalizeBasicMatchStat(stats.timeSurvived),
       match_type: String(matchAttr.matchType || "unknown").toLowerCase(),
     };
-    if (!hasObservedPlayerMatchValues(record)) {
+    const noPlacement = record.win_place === 0 && (record.match_type === 'tutorialatoz' || String(record.game_mode).toLowerCase() === 'tdm');
+    if (!hasObservedPlayerMatchValues(record, {allowZeroPlacement: noPlacement})) {
       return { status: "upstream_error", record: null, httpStatus: res.status, rateLimitHeaders, error: "match-basic-values-missing" };
+    }
+    // 다른 필수값까지 관측된 순위 없는 훈련·TDM만 영구 제외한다. DB 순위 계약은 유지한다.
+    if (noPlacement) {
+      return { status: 'unsupported_match', record: null, httpStatus: res.status, rateLimitHeaders, error: 'match-placement-unavailable' };
     }
     record.damage = Math.floor(record.damage);
 

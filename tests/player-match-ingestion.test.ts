@@ -173,4 +173,15 @@ describe('account-based discovery ingestion', () => {
     expect(outcome.status).toBe(status);
     expect(upsert).toHaveBeenCalledTimes(status === 'saved' ? 1 : 0);
   });
+  it.each(['createdAt', 'gameMode', 'mapName', 'kills', 'damageDealt', 'winPlace'])('keeps an incomplete zero-placement TDM retryable when %s is missing', async key => {
+    const {fetchAndIngestBasicMatchSummaryOutcome} = await import('../lib/pubg/playerMatchesIngest');
+    const attributes: Record<string, unknown> = {createdAt: '2026-10-01T00:00:00Z', gameMode: 'tdm', mapName: 'Kiki_Main', matchType: 'arcade'};
+    const stats: Record<string, unknown> = {name: 'A', playerId: 'account.a', kills: 0, damageDealt: 0, winPlace: 0};
+    delete attributes[key]; delete stats[key];
+    const upsert = vi.fn();
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({data: {id: 'm', attributes}, included: [{type: 'participant', attributes: {stats}}]})));
+    expect(await fetchAndIngestBasicMatchSummaryOutcome({from: () => ({upsert})} as never, 'm', 'A', 'steam', '', {expectedAccountId: 'account.a', fetchImpl}))
+      .toMatchObject({status: 'upstream_error', error: 'match-basic-values-missing'});
+    expect(upsert).not.toHaveBeenCalled();
+  });
 });

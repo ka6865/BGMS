@@ -286,8 +286,8 @@ export async function runSyncUserMatches(
   const fetchRecent = dependencies.fetchRecentMatchIds || ((candidate, key, impl) => (
     fetchRecentMatchIds(candidate, key, impl, playerTimeoutMs)
   ));
-  const readExisting = dependencies.readExistingMatchIds || ((client, candidate, matchIds) => (
-    readExistingMatchIds(client, candidate, matchIds)
+  const readExisting = dependencies.readExistingMatchIds || ((client, candidate, matchIds, accountId) => (
+    readExistingMatchIds(client, candidate, matchIds, accountId)
   ));
   const ingest = dependencies.ingestMatch || ((client, matchId, candidate, key, impl) => (
     fetchAndIngestBasicMatchSummaryOutcome(
@@ -459,7 +459,7 @@ export async function runSyncUserMatches(
             accountId: playerResult.accountId, nickname: playerResult.nickname, matchIds: playerResult.matchIds }, supabase);
         }
         const apiMatchIds = Array.from(new Set(playerResult.matchIds));
-        const existingIds = await readExisting(supabase as SupabaseClient, candidate, apiMatchIds);
+        const existingIds = await readExisting(supabase as SupabaseClient, candidate, apiMatchIds, playerResult.accountId);
         const existing = new Set(existingIds);
         const missingIds = apiMatchIds.filter((matchId) => !existing.has(matchId)).slice(0, matchLimit);
         let failedOutcome: "upstream_error" | "network_error" | null = null;
