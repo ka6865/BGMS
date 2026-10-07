@@ -63,6 +63,25 @@ describe("GitHub Actions workflow permissions and action pins", () => {
     }
     expect(Object.values(config.jobs.verify.env ?? {}).every((value) => value.includes("ci-placeholder"))).toBe(true);
   });
+  it.each([
+    [true, false, 0, false],
+    [false, false, 0, true],
+    [false, true, 23, true],
+  ])('reuses a working client and fails closed on installation failure (%s/%s)', (ready, installFails, status, installs) => {
+    const yaml = createRequire(import.meta.url)("js-yaml") as {load(text: string): any};
+    const config = yaml.load(readFileSync(join(workflowDirectory, "pr-verify.yml"), "utf8"));
+    const script = config.jobs['verify-migrations'].steps.find((step: {name?: string}) => step.name === 'Ensure PostgreSQL client').run;
+    const result = spawnSync('bash', ['-euo', 'pipefail', '-c', `
+      client_ready=${ready};
+      psql() { if "$client_ready"; then echo CLIENT_READY; else return 1; fi; }
+      sudo() { echo INSTALL_CALL; if [[ "$*" == 'apt-get install --yes postgresql-client' ]]; then
+        if ${installFails}; then return 23; fi; client_ready=true; fi; }
+      ${script}
+    `], {encoding: 'utf8'});
+    expect(result.status).toBe(status);
+    expect(result.stdout.includes('INSTALL_CALL')).toBe(installs);
+    expect(result.stdout.includes('CLIENT_READY')).toBe(status === 0);
+  });
 
   it("schedules grouped monthly patch/minor updates and ignores major version updates", () => {
     const source = readFileSync(join(process.cwd(), ".github/dependabot.yml"), "utf8");
