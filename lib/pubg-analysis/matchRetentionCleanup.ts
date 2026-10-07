@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { isDeepStrictEqual } from 'node:util';
 import type { PlayerMatchRecord } from "../pubg/playerMatches";
 import { hasObservedPlayerMatchValues } from "../pubg/playerMatches";
 import { getMatchDetailRetention, MATCH_DETAIL_RETENTION_DAYS } from "./matchRetention";
@@ -19,6 +20,9 @@ export type RetainedPerformanceRow = {
   source_checksum: string;
   summary_version: number;
   summary: unknown;
+  calculation_version?: number;
+  result_version?: number;
+  benchmark?: unknown;
   score?: number | null;
   tier?: string | null;
   ranking_eligible?: boolean;
@@ -120,6 +124,24 @@ export function computeFullResultSourceChecksum(fullResult: unknown): string | n
   return createHash("sha256").update(JSON.stringify(sortJsonKeys(fullResult)), "utf8").digest("hex");
 }
 
+export function legacyMapBasicSnapshot(basic: Record<string, any>): Record<string, any> {
+  return Object.fromEntries(['account_id', 'player_id', 'platform', 'match_id', 'played_at', 'game_mode', 'map_name',
+    'kills', 'damage', 'win_place', 'match_type', 'knocks', 'survival_time'].map(key => [key, basic[key]]));
+}
+
+/** 미확인 유형은 유지하며 전용 지도 보존 근거가 있을 때만 정리를 허용한다. */
+export function hasRetainedLegacyMapEvidence(value: unknown, basic: Record<string, any>): boolean {
+  if (!isRecord(value) || !isRecord(value.summary)) return false;
+  const s = value.summary, e = s.retentionRecoveryEvidence;
+  return s.retentionRecoveryContext === 'partial-legacy-map-events' && s.performanceHistorical === true
+    && s.performanceOnly === true && value.calculation_version === 0 && value.result_version === 0
+    && value.ranking_eligible === false && value.score == null && value.tier == null && value.benchmark == null
+    && isRecord(e) && e.kind === 'legacy-map-retention-v1' && SHA256.test(e.sha256)
+    && isDeepStrictEqual(e.basicSnapshot, legacyMapBasicSnapshot(basic))
+    && value.source_checksum === computeFullResultSourceChecksum(s)
+    && s.matchType === basic.match_type && s.mapName === basic.map_name && s.gameMode === basic.game_mode;
+}
+
 function basicMatchMatchesIdentity(
   value: unknown,
   input: { matchId: string; platform: string; playedAt: string; accountId: string },
@@ -173,8 +195,15 @@ function accountHasPreservedSnapshot(
   input: { matchId: string; platform: string; playedAt: string },
 ): boolean {
   const expected = { ...input, accountId: evidence.accountId };
-  if (!basicMatchMatchesIdentity(evidence.basicMatch, expected)) return false;
-  const basic = evidence.basicMatch;
+  const rawBasic = evidence.basicMatch;
+  const mapEvidence = isRecord(rawBasic) && evidence.retainedPerformanceRows.some(row =>
+    hasRetainedLegacyMapEvidence(row, rawBasic));
+  // A partial replay summary preserves existing observed stats without inventing
+  // a classification. The usual evidence still requires a known match type.
+  const basicForValidation = mapEvidence && isRecord(rawBasic)
+    ? { ...rawBasic, match_type: 'retained-map-observations' } : rawBasic;
+  if (!basicMatchMatchesIdentity(basicForValidation, expected)) return false;
+  const basic = rawBasic as PlayerMatchRecord;
   const processedRows = evidence.processedRows.filter((row) => isRecord(row)
     && row.match_id === expected.matchId && row.platform === expected.platform
     && normalized(row.player_id) === normalized(basic.player_id));
@@ -307,6 +336,17 @@ export function assessMatchRetentionCleanup(
     if (!account || !isExactPersonalObject(object, account, input.matchId, input.platform)) {
       objectExclusionReasons.add("personal_object_identity_unverified");
       continue;
+    }
+    const mapOnlyRows = account.retainedPerformanceRows.filter(row =>
+      isRecord(account.basicMatch) && hasRetainedLegacyMapEvidence(row, account.basicMatch));
+    if (mapOnlyRows.length) {
+      const exactSourceCovered = object.kind === 'personal-map' && mapOnlyRows.some(row => {
+        if (!isRecord(row) || !isRecord(row.summary)) return false;
+        const proof = row.summary.retentionRecoveryEvidence;
+        return proof.key === object.key && proof.sha256 === object.sha256
+          && proof.etag === object.etag && proof.sizeBytes === object.sizeBytes;
+      });
+      if (!exactSourceCovered) { objectExclusionReasons.add('partial_map_summary_covers_map_only'); continue; }
     }
     if (knownPaths.has(object.key) && object.kind !== "personal-map") {
       objectExclusionReasons.add("master_storage_path_reference");

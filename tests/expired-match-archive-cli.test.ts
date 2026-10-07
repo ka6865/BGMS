@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computeFullResultSourceChecksum } from "../lib/pubg-analysis/matchRetentionCleanup";
-import { buildTelemetryCacheKey } from "../lib/pubg-analysis/telemetryCacheKey";
+import { buildTelemetryCacheKey, buildTelemetryPublicIdentity } from "../lib/pubg-analysis/telemetryCacheKey";
 import { buildRetainedPerformanceRow } from '../lib/pubg/retainedPerformance';
 import { legacyTeamRecoveryInput } from './fixtures/legacy-team-retention';
 
@@ -106,6 +106,16 @@ vi.mock("@supabase/supabase-js", () => {
   return { createClient: vi.fn(() => ({ from: (table: string) => new Query(table),
     rpc: (name: string, args: any) => {
       if (name === 'list_retention_archive_candidates') return new Query('pubg_player_matches');
+      if (name === 'recover_retention_legacy_map') return { abortSignal: async () => {
+        harness.actions.push('legacy-map-recovery');
+        if (harness.failBinding) return { data: null, error: { code: '40001' } };
+        const packet = args.p_packet;
+        const index = harness.tables.pubg_player_matches.findIndex(row => row.match_id === packet.before.match_id
+          && row.platform === packet.before.platform && row.player_id === packet.before.player_id);
+        harness.tables.pubg_player_matches[index] = { ...packet.expectedBasic };
+        harness.tables.pubg_match_performance.push(packet.performance);
+        return { data: { saved: true, basic: { ...packet.expectedBasic } }, error: null };
+      } };
       if (name === 'recover_retention_legacy_team') return { abortSignal: async () => {
         harness.actions.push('legacy-team-recovery');
         if (harness.failBinding) return { data: null, error: { code: '40001' } };
@@ -257,6 +267,60 @@ const env = {
 };
 
 describe("expired match archive CLI apply protocol", () => {
+  function missingMapFixture() {
+    const id = '123e4567-e89b-42d3-a456-426614174000';
+    const identity = { matchId: id, platform: 'steam' as const, playerId: accountId, mode: 'full' as const, telemetryVersion: 73 };
+    const publicIdentity = buildTelemetryPublicIdentity(identity);
+    const key = buildTelemetryCacheKey(identity);
+    const before = basic({ account_id: null, match_id: id, kills: 1, damage: 12, win_place: 12,
+      match_type: 'unavailable', knocks: null, survival_time: null });
+    const payload = { identity: publicIdentity, startTime: playedAt, teammates: [publicIdentity.playerKey], teamNames: [playerId],
+      mapName: '에란겔', zoneEvents: [], events: [
+        { type: 'damage', time: playedAt, attackerName: playerId, attackerAccountId: publicIdentity.playerKey,
+          victimName: 'enemy', victimAccountId: 'a'.repeat(32), damage: 12.06 },
+        { type: 'kill', time: playedAt, attacker: playerId, attackerAccountId: publicIdentity.playerKey,
+          victim: 'enemy', victimAccountId: 'a'.repeat(32) },
+      ] };
+    harness.tables.pubg_player_matches = [before];
+    harness.tables.processed_match_telemetry = [];
+    harness.tables.pubg_match_performance = [];
+    harness.tables.telemetry_map_cache_entries = [{ ...registrySnapshot, match_id: id, storage_path: key }];
+    harness.objectBody = Buffer.from(JSON.stringify(payload));
+    r2.read.mockImplementation(async (requested: string) => requested === key ? {
+      key, etag: '"map-etag"', sizeBytes: harness.objectBody.length, body: Buffer.from(harness.objectBody),
+      contentType: 'application/json', contentEncoding: null,
+    } : null);
+    return { before, key, id };
+  }
+
+  it('구형 지도의 기본 관측을 먼저 원자 보존·재조회하고 유형을 추정하지 않은 채 exact map을 정리한다', async () => {
+    const fixture = missingMapFixture();
+    await cleanup(['--prepare-backup', '--preserve-performance', '--platform', 'all', '--limit', '1',
+      '--manifest', manifestPath, '--backup-artifact', backupPath], env);
+    const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(plan.objects.map((o: any) => o.key)).toEqual([fixture.key]);
+    expect(plan.preservation).toEqual({ linkedAccounts: 1, savedSummaries: 1, recoveredSummaries: 1 });
+    expect(harness.tables.pubg_player_matches[0]).toEqual({ ...fixture.before, account_id: accountId });
+    await cleanup(['--apply', '--backup-upload-verified', '--platform', 'all', '--limit', '1',
+      '--manifest', manifestPath, '--backup-artifact', backupPath], env);
+    expect(harness.actions.indexOf('r2-delete')).toBeGreaterThan(harness.actions.indexOf('legacy-map-recovery'));
+    expect(harness.tables.pubg_player_matches[0].match_type).toBe('unavailable');
+    expect(harness.tables.processed_match_telemetry).toEqual([]);
+    expect(harness.tables.pubg_match_performance).toHaveLength(1);
+  });
+
+  it('구형 지도 준비 쓰기 실패와 dry-run은 R2 삭제를 수행하지 않는다', async () => {
+    missingMapFixture();
+    await cleanup(['--platform', 'all', '--manifest', manifestPath], env);
+    expect(harness.actions).toEqual([]);
+    expect(harness.tables.pubg_player_matches[0].account_id).toBeNull();
+    harness.failBinding = true;
+    await expect(cleanup(['--prepare-backup', '--preserve-performance', '--platform', 'all', '--limit', '1',
+      '--manifest', manifestPath + '.prepare', '--backup-artifact', backupPath], env))
+      .rejects.toThrow('retention-legacy-map-write-unverified');
+    expect(r2.deletePersonal).not.toHaveBeenCalled();
+  });
+
   function missingTeamFixture() {
     const fixture = legacyTeamRecoveryInput();
     fixture.targetBasic = { ...fixture.targetBasic, kills: 0, damage: 0, win_place: 99,

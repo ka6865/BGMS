@@ -219,6 +219,7 @@ create table if not exists public.telemetry_map_cache_entries (
   status text not null default 'pending' check (status in ('pending', 'ready')),
   lease_expires_at timestamptz,
   lease_token uuid,
+  created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (match_id, platform, player_id, mode, telemetry_version)
 );

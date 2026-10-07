@@ -31,6 +31,7 @@ import { planLegacyTeamRetentionRecovery, preserveLegacyTeamRetentionPackets,
   type LegacyTeamEventArtifact } from '../lib/pubg-analysis/legacyTeamRetentionPreservation';
 import { MAX_RETENTION_BATCH_OBJECTS, MAX_RETENTION_BATCH_BYTES, RETENTION_SCAN_LIMIT,
   RETENTION_SCAN_TIME_MS, selectRetentionBatchObjects } from '../lib/pubg-analysis/matchRetentionBatch';
+import { planLegacyMapRetentionRecovery, preserveLegacyMapRetentionPacket } from '../lib/pubg-analysis/legacyMapRetentionRecovery';
 
 const ROW_LIMIT = 101;
 const MAX_OBJECT_BYTES = 32 * 1024 * 1024;
@@ -236,10 +237,10 @@ async function inspectOneMatch(input: {
   const { db, match, args, now } = input;
   const platform = match.platform as Platform;
   const [basics, processed, performances, registry, masters, discoveries, jobs, benchmarks] = await Promise.all([
-    rows<BasicMatch>(db, "pubg_player_matches", args.preservePerformance ? "*" : "account_id,player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type", match.match_id, platform),
+    rows<BasicMatch>(db, "pubg_player_matches", args.preservePerformance ? "*" : "account_id,player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type,knocks,survival_time", match.match_id, platform),
     rows<Record<string, any>>(db, "processed_match_telemetry", args.preservePerformance ? "*" : "match_id,platform,player_id,data", match.match_id, platform),
-    rows<RetainedPerformanceRow & Record<string, any>>(db, "pubg_match_performance", "platform,account_id,match_id,player_id,played_at,source_checksum,summary_version,summary", match.match_id, platform),
-    rows<RegistryRow>(db, "telemetry_map_cache_entries", "id,match_id,platform,player_id,mode,telemetry_version,storage_path,status,lease_token,lease_expires_at,updated_at", match.match_id, platform),
+    rows<RetainedPerformanceRow & Record<string, any>>(db, "pubg_match_performance", "platform,account_id,match_id,player_id,played_at,calculation_version,result_version,score,tier,benchmark,ranking_eligible,source_checksum,summary_version,summary", match.match_id, platform),
+    rows<RegistryRow>(db, "telemetry_map_cache_entries", args.preservePerformance ? "*" : "id,match_id,platform,player_id,mode,telemetry_version,storage_path,status,lease_token,lease_expires_at,updated_at", match.match_id, platform),
     rows<{ storage_path: string | null }>(db, "match_master_telemetry", "storage_path", match.match_id, platform),
     rows<Record<string, any>>(db, "pubg_player_match_discovery", "account_id,state,lease_token,lease_expires_at", match.match_id, platform),
     rows<Record<string, any>>(db, "pubg_performance_jobs", "account_id,state,lease_token,lease_expires_at", match.match_id, platform),
@@ -313,6 +314,43 @@ async function inspectOneMatch(input: {
       if (saved) return inspectOneMatch({ ...input,
         match: { ...match, played_at: planned.packets[0].expectedBasic.played_at },
         args: { ...args, preservePerformance: false } });
+    }
+    // Full replay maps contain measured combat events even without official
+    // metadata or a personal analysis. Preserve those observations separately.
+    if (!source && needsSource && input.recoveryBudget && input.recoveryBudget.calculations < 5) {
+      for (const basic of basics) {
+        if (input.recoveryBudget.calculations >= 5) break;
+        if (basic.account_id !== null || processed.some(p => normalized(p.player_id) === normalized(basic.player_id))
+          || performances.some(p => normalized(p.player_id) === normalized(basic.player_id))) continue;
+        const candidates = registry.filter(r => r.mode === 'full' && r.status === 'ready' && ACCOUNT_ID.test(r.player_id));
+        if (candidates.length !== 1) continue;
+        const r = candidates[0];
+        let key;
+        try { key = buildTelemetryCacheKey({ matchId: match.match_id, platform, playerId: r.player_id,
+          mode: 'full', telemetryVersion: r.telemetry_version }); } catch { continue; }
+        if (key !== r.storage_path) continue;
+        const object = await readObjectForVerification(key, { maxBytes: 8 * 1024 * 1024 });
+        if (!object) continue;
+        const available = 32 * 1024 * 1024 - input.recoveryBudget.decodedLegacyBytes;
+        let payload;
+        try {
+          if (available <= 0) continue;
+          const bytes = object.body[0] === 0x1f && object.body[1] === 0x8b
+            ? gunzipSync(object.body, { maxOutputLength: available }) : object.body;
+          if (bytes.length > available) continue;
+          input.recoveryBudget.decodedLegacyBytes += bytes.length;
+          payload = JSON.parse(bytes.toString('utf8'));
+        } catch { continue; }
+        input.recoveryBudget.calculations++;
+        const packet = planLegacyMapRetentionRecovery({ before: basic, registry: r, payload, key,
+          sha256: sha256(object.body), etag: object.etag, sizeBytes: object.sizeBytes, now });
+        if (!packet) continue;
+        await preserveLegacyMapRetentionPacket(db, packet);
+        input.recoveryBudget.linkedAccounts++;
+        input.recoveryBudget.savedSummaries++;
+        input.recoveryBudget.recoveredSummaries++;
+        return inspectOneMatch({ ...input, args: { ...args, preservePerformance: false } });
+      }
     }
   }
   const evidence: MatchRetentionAccountEvidence[] = [...refs].filter((id) => ACCOUNT_ID.test(id)).map((accountId) => {
