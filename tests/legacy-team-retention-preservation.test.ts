@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { planLegacyTeamRetentionRecovery, preserveLegacyTeamRetentionPackets } from '../lib/pubg-analysis/legacyTeamRetentionPreservation';
 import { legacyTeamRecoveryInput } from './fixtures/legacy-team-retention';
+import { computeFullResultSourceChecksum } from '../lib/pubg-analysis/matchRetentionCleanup';
 
 function input() {
   const fixture = legacyTeamRecoveryInput();
@@ -51,11 +52,38 @@ describe('bounded legacy-team retention plan', () => {
     value.maxCalculations = 2;
     expect(planLegacyTeamRetentionRecovery(value)).toMatchObject({ calculations: 2, packets: [expect.anything()] });
   });
-  it('protects differing event bodies even if they produce the same compact metrics', () => {
+  it('preserves agreed observations from independently verified alternate projections', () => {
     const value = input();
     value.artifacts.push({ ...value.artifacts[0], key: value.artifacts[0].key.replace('_v62_', '_v63_'),
       sha256: 'b'.repeat(64), events: [...structuredClone(value.artifacts[0].events), { _T: 'LogPlayerAttack' }] });
+    const planned = planLegacyTeamRetentionRecovery(value);
+    expect(planned.packets).toHaveLength(1);
+    expect(planned.packets[0].performance.summary).toMatchObject({
+      stats: { kills: 3, damageDealt: 400.9, winPlace: 2 },
+      retentionRecoveryAgreement: { policy: 'common-observations-only', artifacts: [expect.anything(), expect.anything()] },
+    });
+  });
+  it('protects an invalid alternate even when another artifact verifies', () => {
+    const value = input();
+    value.artifacts.push({ ...value.artifacts[0], key: value.artifacts[0].key.replace('_v62_', '_v61_'),
+      sha256: 'b'.repeat(64), events: value.artifacts[0].events.filter((event: any) => event._T !== 'LogMatchEnd') });
     expect(planLegacyTeamRetentionRecovery(value).packets).toEqual([]);
+  });
+  it('leaves conflicting distance observations unavailable without dropping official stats', () => {
+    const value = input();
+    (value.artifacts[0].events[1] as any).character.location = { x: 0, y: 0, z: 0 };
+    const position = { _T: 'LogPlayerPosition', _D: '2026-09-01T00:03:00.000Z',
+      character: { accountId: 'account.target', name: 'Target', teamId: 7, location: { x: 20000, y: 0, z: 0 } } };
+    value.artifacts[0].events.splice(-1, 0, position as any);
+    const alternate = structuredClone(value.artifacts[0]);
+    alternate.key = alternate.key.replace('_v62_', '_v61_'); alternate.sha256 = 'b'.repeat(64);
+    (alternate.events.at(-2) as any).character.location.x = 40000;
+    value.artifacts.push(alternate);
+    const { packets } = planLegacyTeamRetentionRecovery(value);
+    expect(packets).toHaveLength(1);
+    expect(packets[0].performance.summary).toMatchObject({ stats: { kills: 3, damageDealt: 400.9, winPlace: 2 },
+      isolationData: { minDist: null, isolationIndex: null, teammateCount: null } });
+    expect(packets[0].performance.source_checksum).toBe(computeFullResultSourceChecksum(packets[0].fullResult));
   });
 });
 

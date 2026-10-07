@@ -52,6 +52,68 @@ describe('legacy same-team performance recovery', () => {
     expect(recovered!.evidence.sourceFullResultSha256).toMatch(/^[a-f0-9]{64}$/);
   });
 
+  it('recovers wholly absent matchInfo from a verified raw event interval', () => {
+    const value = input();
+    delete (value.sourceFullResult as any).matchInfo;
+    const recovered = recoverLegacyTeamPerformance(value);
+    expect(recovered).not.toBeNull();
+    expect(recovered!.evidence).toMatchObject({
+      compatibility: {
+        metadataSource: 'verified-legacy-event-interval',
+        startedAt: playedAt,
+        endedAt: '2026-09-01T00:20:00.000Z',
+        duration: 1200,
+      },
+    });
+    expect(recovered!.fullResult.retentionRecoveryContext).toMatchObject({
+      metadataSource: 'verified-legacy-event-interval',
+    });
+    expect(recovered!.compact.retentionRecoveryEvidence).toMatchObject({
+      compatibility: recovered!.evidence.compatibility,
+    });
+    expect(recovered!.fullResult).not.toHaveProperty('matchInfo');
+  });
+
+  it.each([
+    ['null matchInfo', (value: LegacyTeamRecoveryInput) => { (value.sourceFullResult as any).matchInfo = null; }],
+    ['malformed matchInfo', (value: LegacyTeamRecoveryInput) => { (value.sourceFullResult as any).matchInfo = 'bad'; }],
+    ['existing matchInfo without duration', (value: LegacyTeamRecoveryInput) => {
+      (value.sourceFullResult as any).matchInfo = { date: playedAt, mode: 'squad', matchType: 'official' };
+    }],
+    ['ambiguous start events', (value: LegacyTeamRecoveryInput) => {
+      (value.eventSource.events as any[]).push({ _T: 'LogMatchStart', _D: playedAt, mapName: 'Baltic_Main' });
+    }],
+    ['ambiguous end events', (value: LegacyTeamRecoveryInput) => {
+      (value.eventSource.events as any[]).push({ _T: 'LogMatchEnd', _D: '2026-09-01T00:20:00.000Z' });
+    }],
+    ['start map contradicts root map', (value: LegacyTeamRecoveryInput) => {
+      (value.eventSource.events as any[])[0].mapName = 'Desert_Main';
+    }],
+    ['present but malformed start map', (value: LegacyTeamRecoveryInput) => {
+      (value.eventSource.events as any[])[0].mapName = null;
+    }],
+    ['contradictory additional start map', (value: LegacyTeamRecoveryInput) => {
+      Object.assign((value.eventSource.events as any[])[0], { map: 'Baltic_Main', mapId: 'Desert_Main' });
+    }],
+    ['duration below minimum', (value: LegacyTeamRecoveryInput) => {
+      (value.eventSource.events as any[])[5]._D = '2026-09-01T00:00:00.500Z';
+    }],
+    ['duration above maximum', (value: LegacyTeamRecoveryInput) => {
+      (value.eventSource.events as any[])[5]._D = '2026-09-01T02:00:01.000Z';
+    }],
+    ['official survival exceeds interval boundary', (value: LegacyTeamRecoveryInput) => {
+      (value.sourceFullResult as any).team[0].timeSurvived = 1261;
+    }],
+    ['raw start differs from official createdAt by more than 60 seconds', (value: LegacyTeamRecoveryInput) => {
+      (value.eventSource.events as any[])[0]._D = '2026-09-01T00:01:01.000Z';
+    }],
+  ] as const)('rejects compatibility fallback for %s', (_label, mutate) => {
+    const value = input();
+    delete (value.sourceFullResult as any).matchInfo;
+    mutate(value);
+    expect(recoverLegacyTeamPerformance(value)).toBeNull();
+  });
+
   it('binds the real nickname-bearing legacy filename to the source or target', () => {
     const value = input();
     value.eventSource.legacyKey = `${matchId}_target_v72_analyze.json`;

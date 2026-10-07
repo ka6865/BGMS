@@ -60,6 +60,7 @@ MIGRATIONS=(
   "20261006210245_retention_match_type_recovery"
   "20261006223434_legacy_team_retention_recovery"
   "20261007053338_legacy_map_retention_recovery"
+  "20261007062957_legacy_team_retention_event_metadata"
 )
 
 cleanup() {
@@ -141,6 +142,7 @@ echo "▶ RPC 동작 시나리오 실행"
 "${PSQL[@]}" -f tests/fixtures/migration-check/retention_legacy_binding_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retention_match_type_recovery_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/legacy_team_retention_recovery_checks.sql
+"${PSQL[@]}" -f tests/sql/legacy-team-event-metadata-checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/legacy_map_retention_recovery_checks.sql
 if [ -n "${BGMS_RETENTION_PACKET_FILE:-}" ]; then
   BGMS_PSQL_BIN="${PSQL[0]}" BGMS_RETENTION_PGHOST="${PSQL[2]}" BGMS_RETENTION_PGPORT="${PSQL[4]}" \

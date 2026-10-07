@@ -28,7 +28,7 @@ export const fullA = {
   matchInfo: { date: playedAt, mapId: 'Baltic_Main', mode: 'squad', matchType: 'official', duration: 1200, rankPct: 0.2 },
 };
 const events = [
-  { _T: 'LogMatchStart', _D: playedAt },
+  { _T: 'LogMatchStart', _D: playedAt, mapName: 'Baltic_Main' },
   { _T: 'LogPlayerCreate', _D: '2026-09-01T00:00:01.000Z', character: { accountId: 'account.alpha', name: 'Alpha', teamId: 7 } },
   { _T: 'LogPlayerCreate', _D: '2026-09-01T00:00:02.000Z', character: { accountId: 'account.target', name: 'Target', teamId: 7 } },
   { _T: 'LogPlayerCreate', _D: '2026-09-01T00:00:03.000Z', character: { accountId: 'account.enemy1', name: 'EnemyOne', teamId: 9 } },

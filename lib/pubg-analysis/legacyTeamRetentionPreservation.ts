@@ -1,10 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isDeepStrictEqual } from 'node:util';
-import { buildRetainedPerformanceRow, type RetainedPerformanceRow } from '../pubg/retainedPerformance';
+import { buildRetainedPerformanceRow, MAX_RETAINED_PERFORMANCE_BYTES, type RetainedPerformanceRow } from '../pubg/retainedPerformance';
 import { getMatchDetailRetention } from './matchRetention';
 import { normalizeName } from './utils';
 import { recoverLegacyTeamPerformance, type LegacyRetentionBasic } from './legacyTeamRetentionRecovery';
 import { retainedRowMatchesBasic } from './retentionPerformanceRecovery';
+import { computeFullResultSourceChecksum } from './matchRetentionCleanup';
 
 export type LegacyTeamEventArtifact = { key: string; sha256: string; events: unknown[] };
 type ProcessedSource = { match_id: string; platform: string; player_id: string; data?: { fullResult?: any } };
@@ -12,6 +13,35 @@ export type LegacyTeamRetentionPacket = {
   before: LegacyRetentionBasic; sourceBasic: LegacyRetentionBasic; processedSource: ProcessedSource;
   expectedBasic: LegacyRetentionBasic; fullResult: Record<string, any>; performance: RetainedPerformanceRow;
 };
+
+/** 사본마다 다른 관측값은 미확인으로 남기고, 모든 사본에서 일치하는 값만 보존한다. */
+function commonObservedValue(left: unknown, right: unknown): unknown {
+  if (isDeepStrictEqual(left, right)) return structuredClone(left);
+  if (left && right && typeof left === 'object' && typeof right === 'object'
+    && !Array.isArray(left) && !Array.isArray(right)) {
+    const a = left as Record<string, unknown>, b = right as Record<string, unknown>;
+    return Object.fromEntries([...new Set([...Object.keys(a), ...Object.keys(b)])].map(key =>
+      [key, commonObservedValue(a[key], b[key])]));
+  }
+  return null;
+}
+
+function mergeVerifiedObservations(selected: LegacyTeamRetentionPacket, next: LegacyTeamRetentionPacket): boolean {
+  // 개인 식별자와 공식 기본 통계가 다른 사본은 부분 집계로도 병합하지 않는다.
+  const official = ['matchId', 'createdAt', 'mapName', 'gameMode', 'matchType', 'v', 'stats', 'totalPlayers', 'totalTeams'];
+  if (!isDeepStrictEqual(selected.expectedBasic, next.expectedBasic)
+    || official.some(key => !isDeepStrictEqual((selected.performance.summary as any)[key], (next.performance.summary as any)[key]))) return false;
+  const summary = selected.performance.summary as any, alternate = next.performance.summary as any;
+  for (const key of [...new Set([...Object.keys(summary), ...Object.keys(alternate)])]) {
+    if (key === 'retentionRecoveryEvidence' || key === 'retentionRecoveryAgreement') continue;
+    if (!isDeepStrictEqual(summary[key], alternate[key])) {
+      summary[key] = commonObservedValue(summary[key], alternate[key]);
+      selected.fullResult[key] = commonObservedValue(selected.fullResult[key], next.fullResult[key]);
+    }
+  }
+  selected.performance.source_checksum = computeFullResultSourceChecksum(selected.fullResult)!;
+  return true;
+}
 
 /** The plan is bounded and read-only. An ambiguous source never becomes a write. */
 export function planLegacyTeamRetentionRecovery(input: {
@@ -39,7 +69,7 @@ export function planLegacyTeamRetentionRecovery(input: {
     if (sourceBasics.length !== 1) continue;
     const sourceBasic = sourceBasics[0];
     let selected: LegacyTeamRetentionPacket | null = null;
-    let selectedEvents: unknown[] | null = null;
+    const verifiedArtifacts: Array<{ key: string; sha256: string }> = [];
     let ambiguous = false;
     let exhausted = false;
     for (const artifact of artifacts) {
@@ -52,23 +82,26 @@ export function planLegacyTeamRetentionRecovery(input: {
         sourceFullResult: processedSource.data?.fullResult,
         eventSource: { matchId: before.match_id, platform: before.platform, legacyKey: artifact.key, requestedLegacyKey: artifact.key,
           verification: 'verified-nickname', verifiedNickname: nick, artifactSha256: artifact.sha256, events: artifact.events } });
-      if (!recovered) continue;
+      if (!recovered) { ambiguous = true; break; }
       const row = buildRetainedPerformanceRow(recovered.fullResult,
         { matchId: before.match_id, platform: before.platform, playerId: before.player_id });
-      if (!row || !retainedRowMatchesBasic(row, recovered.expectedBasic)) continue;
+      if (!row || !retainedRowMatchesBasic(row, recovered.expectedBasic)) { ambiguous = true; break; }
       row.summary = JSON.parse(JSON.stringify(recovered.compact));
       row.benchmark = null; row.score = null; row.tier = null; row.ranking_eligible = false;
       const packet = { before, sourceBasic, processedSource, expectedBasic: recovered.expectedBasic,
         fullResult: recovered.fullResult, performance: row };
       if (selected) {
-        const prior = { ...selected.performance.summary } as any;
-        const next = { ...row.summary } as any;
-        delete prior.retentionRecoveryEvidence;
-        delete next.retentionRecoveryEvidence;
-        if (!isDeepStrictEqual(selectedEvents, artifact.events) || !isDeepStrictEqual(prior, next)) { ambiguous = true; break; }
-      } else { selected = packet; selectedEvents = artifact.events; }
+        if (!mergeVerifiedObservations(selected, packet)) { ambiguous = true; break; }
+      } else selected = packet;
+      verifiedArtifacts.push({ key: artifact.key, sha256: artifact.sha256 });
     }
-    if (selected && !ambiguous && !exhausted && !input.basics.some(other => other !== before
+    if (selected && verifiedArtifacts.length > 1) (selected.performance.summary as any).retentionRecoveryAgreement = {
+      policy: 'common-observations-only', artifacts: verifiedArtifacts,
+    };
+    if (selected && !ambiguous && !exhausted
+      // jsonb::text의 구분 공백보다 큰 표현으로 RPC 크기 제한을 먼저 확인한다.
+      && Buffer.byteLength(JSON.stringify(selected.performance.summary, null, 1)) <= MAX_RETAINED_PERFORMANCE_BYTES
+      && !input.basics.some(other => other !== before
       && other.match_id === before.match_id && other.platform === before.platform
       && other.account_id === selected!.expectedBasic.account_id)
       && !result.packets.some(other => other.before.match_id === before.match_id && other.before.platform === before.platform
