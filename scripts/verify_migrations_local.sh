@@ -17,6 +17,7 @@ PG_BIN="${BGMS_PG_BIN:-}"
 FORCE_LOCAL_POSTGRES="${BGMS_USE_LOCAL_POSTGRES:-false}"
 LOCAL_DATA_DIR=""
 LOCAL_SOCKET_DIR=""
+ACTUAL_MAP_PACKET_SQL_FILE=""
 USE_LOCAL_POSTGRES=false
 export PGPASSWORD=pw
 
@@ -58,9 +59,13 @@ MIGRATIONS=(
   "20261006193137_retention_legacy_account_binding"
   "20261006210245_retention_match_type_recovery"
   "20261006223434_legacy_team_retention_recovery"
+  "20261007053338_legacy_map_retention_recovery"
 )
 
 cleanup() {
+  if [ -n "$ACTUAL_MAP_PACKET_SQL_FILE" ]; then
+    rm -f "$ACTUAL_MAP_PACKET_SQL_FILE"
+  fi
   if [ "$USE_LOCAL_POSTGRES" = true ] && [ -n "$LOCAL_DATA_DIR" ]; then
     "$PG_BIN/pg_ctl" -D "$LOCAL_DATA_DIR" -m immediate stop >/dev/null 2>&1 || true
     rm -rf "$LOCAL_DATA_DIR" "$LOCAL_SOCKET_DIR"
@@ -136,9 +141,96 @@ echo "▶ RPC 동작 시나리오 실행"
 "${PSQL[@]}" -f tests/fixtures/migration-check/retention_legacy_binding_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retention_match_type_recovery_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/legacy_team_retention_recovery_checks.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/legacy_map_retention_recovery_checks.sql
 if [ -n "${BGMS_RETENTION_PACKET_FILE:-}" ]; then
   BGMS_PSQL_BIN="${PSQL[0]}" BGMS_RETENTION_PGHOST="${PSQL[2]}" BGMS_RETENTION_PGPORT="${PSQL[4]}" \
     npx tsx scripts/verify_legacy_team_retention_rpc.mts
+fi
+if [ -n "${BGMS_LEGACY_MAP_PACKET_FILE:-}" ]; then
+  ACTUAL_MAP_PACKET_SQL_FILE="$(mktemp "${TMPDIR:-/tmp}/bgms-legacy-map-packet.XXXXXX.sql")"
+  chmod 600 "$ACTUAL_MAP_PACKET_SQL_FILE"
+  python3 - "$BGMS_LEGACY_MAP_PACKET_FILE" "$ACTUAL_MAP_PACKET_SQL_FILE" <<'PY'
+import json
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1])
+destination = pathlib.Path(sys.argv[2])
+try:
+    if source.stat().st_mode & 0o077:
+        raise ValueError
+    raw = source.read_bytes()
+    packet = json.loads(raw)
+    if len(raw) > 131072 or not isinstance(packet, dict) or set(packet) != {
+        "before", "registry", "expectedBasic", "performance"
+    }:
+        raise ValueError
+except Exception:
+    print("Invalid or non-private legacy map packet; refusing local verification", file=sys.stderr)
+    sys.exit(1)
+
+packet_hex = raw.hex()
+sql = f"""begin;
+set local timezone='UTC';
+create temporary table actual_legacy_map_packet(packet jsonb not null) on commit drop;
+insert into actual_legacy_map_packet values (pg_catalog.convert_from(pg_catalog.decode('{packet_hex}','hex'),'UTF8')::jsonb);
+insert into public.pubg_player_matches
+select (pg_catalog.jsonb_populate_record(null::public.pubg_player_matches,p.packet->'before')).*
+from actual_legacy_map_packet p on conflict do nothing;
+insert into public.telemetry_map_cache_entries
+select (pg_catalog.jsonb_populate_record(null::public.telemetry_map_cache_entries,p.packet->'registry')).*
+from actual_legacy_map_packet p on conflict do nothing;
+grant select on actual_legacy_map_packet to service_role;
+set local role service_role;
+do $verify$
+declare p jsonb; answer jsonb; basic_after jsonb; performance_after jsonb; saved_count integer;
+begin
+  select packet into p from actual_legacy_map_packet;
+  answer := public.recover_retention_legacy_map(p);
+  if answer->>'saved' is distinct from 'true' or answer->'basic' is distinct from p->'expectedBasic' then
+    raise exception 'actual map packet basic readback mismatch';
+  end if;
+  select pg_catalog.to_jsonb(m) into basic_after from public.pubg_player_matches m
+  where m.platform=p->'performance'->>'platform' and m.match_id=p->'performance'->>'match_id'
+    and m.player_id=p->'performance'->>'player_id';
+  select pg_catalog.to_jsonb(f),count(*)::integer into performance_after,saved_count
+  from public.pubg_match_performance f
+  where f.platform=p->'performance'->>'platform' and f.match_id=p->'performance'->>'match_id'
+    and f.account_id=p->'performance'->>'account_id'
+    and f.calculation_version=(p->'performance'->>'calculation_version')::integer
+    and f.result_version=(p->'performance'->>'result_version')::integer
+  group by f.platform,f.account_id,f.match_id,f.player_id,f.calculation_version,f.result_version,
+    f.score,f.tier,f.benchmark,f.ranking_eligible,f.calculated_at,f.summary,f.played_at,f.summary_version,f.source_checksum;
+  if basic_after is distinct from p->'expectedBasic' or saved_count is distinct from 1
+     or (performance_after - array['calculated_at','played_at']::text[]) is distinct from ((p->'performance') - 'played_at')
+     or (performance_after->>'played_at')::timestamptz is distinct from (p->'performance'->>'played_at')::timestamptz then
+    raise exception 'actual map packet strict readback mismatch';
+  end if;
+end;
+$verify$;
+reset role;
+rollback;
+select 'actual legacy-map production packet passed isolated PostgreSQL verification' as result;
+"""
+destination.write_text(sql)
+destination.chmod(0o600)
+PY
+  OUTPUT="$("${PSQL[@]}" -f "$ACTUAL_MAP_PACKET_SQL_FILE" 2>&1)" || {
+    ACTUAL_MAP_ERROR_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bgms-legacy-map-error.XXXXXX")"
+    chmod 700 "$ACTUAL_MAP_ERROR_DIR"
+    printf '%s\n' "$OUTPUT" > "$ACTUAL_MAP_ERROR_DIR/error.log"
+    chmod 600 "$ACTUAL_MAP_ERROR_DIR/error.log"
+    rm -f "$ACTUAL_MAP_PACKET_SQL_FILE"
+    printf 'Actual map packet verification failed; private details: %s\n' "$ACTUAL_MAP_ERROR_DIR"
+    exit 1
+  }
+  echo "$OUTPUT" | grep -q "actual legacy-map production packet passed isolated PostgreSQL verification" || {
+    rm -f "$ACTUAL_MAP_PACKET_SQL_FILE"
+    printf '%s\n' 'Actual map packet verification completion was not confirmed'
+    exit 1
+  }
+  rm -f "$ACTUAL_MAP_PACKET_SQL_FILE"
+  echo "  ✅ 비공개 실제 map packet 격리 검증"
 fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retained-performance-scenarios.sql
