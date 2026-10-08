@@ -8,6 +8,60 @@ const record = (match_id: string, counters: Partial<PlayerMatchRecord> = {}): Pl
   match_type: 'official', ...counters,
 });
 
+describe('atomic official participant writes', () => {
+  const records = () => [
+    record('same-match', {player_id: 'target', account_id: 'account.target', retention_scope: 'detail', knocks: null}),
+    record('same-match', {player_id: 'peer', account_id: 'account.peer', retention_scope: 'basic_only', knocks: 0, survival_time: 724.7}),
+  ];
+
+  it('sends mixed optional columns as one real Supabase RPC payload without changing the inputs', async () => {
+    const input = records();
+    const original = structuredClone(input);
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      expect(url.pathname).toBe('/rest/v1/rpc/upsert_pubg_participant_matches');
+      expect(init?.method).toBe('POST');
+      const payload = JSON.parse(String(init?.body));
+      expect(payload.p_records).toHaveLength(2);
+      expect(payload.p_records[0]).not.toHaveProperty('knocks');
+      expect(payload.p_records[1]).toMatchObject({knocks: 0, survival_time: 724});
+      return new Response('2', {status: 200, headers: {'content-type': 'application/json'}});
+    });
+    const client = createClient('https://fixture.supabase.co', 'fixture-key', {global: {fetch}});
+    expect(await upsertPlayerMatches(client, input, {atomic: true})).toBe(true);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(input).toEqual(original);
+  });
+
+  it.each([1, null, '2'])('refuses an unverified RPC count %s without falling back to table writes', async data => {
+    const rpc = vi.fn().mockResolvedValue({data, error: null});
+    const from = vi.fn();
+    const client = {rpc, from} as never;
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(await upsertPlayerMatches(client, records(), {atomic: true})).toBe(false);
+      expect(log).toHaveBeenCalledWith('[playerMatches] upsert failed:', 'player-match-upsert-count-mismatch');
+      await expect(upsertPlayerMatches(client, records(), {atomic: true, throwOnError: true}))
+        .rejects.toThrow('player-match-upsert-count-mismatch');
+      expect(from).not.toHaveBeenCalled();
+    } finally { log.mockRestore(); }
+  });
+
+  it('preserves the original RPC error for analysis and the existing boolean/log contract for ingestion', async () => {
+    const error = {message: 'participant transaction rejected', code: 'P0001'};
+    const rpc = vi.fn().mockResolvedValue({data: null, error});
+    const from = vi.fn();
+    const client = {rpc, from} as never;
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      expect(await upsertPlayerMatches(client, records(), {atomic: true})).toBe(false);
+      expect(log).toHaveBeenCalledWith('[playerMatches] upsert failed:', error.message);
+      await expect(upsertPlayerMatches(client, records(), {atomic: true, throwOnError: true})).rejects.toBe(error);
+      expect(from).not.toHaveBeenCalled();
+    } finally { log.mockRestore(); }
+  });
+});
+
 describe('basic counter conflict writes through the real Supabase client', () => {
   it('rejects conflicting stable accounts across optional-column batches before any write', async () => {
     const upsert = vi.fn().mockResolvedValue({error: null});

@@ -507,7 +507,7 @@ async function persistPlayerMatches(
     target.retention_scope = "detail";
     const rankingEligible = evaluateMatchEligibility(benchmarkEligibilityInput(input), "benchmark").eligible;
     for (const row of rows) row.ranking_eligible = row.ranking_eligible === true && rankingEligible;
-    if (!await upsertPlayerMatches(supabase, rows, { throwOnError: true })) throw new Error("player-match-upsert-failed");
+    if (!await upsertPlayerMatches(supabase, rows, { atomic: true, throwOnError: true })) throw new Error("player-match-upsert-failed");
     return { error: null };
   });
   if (succeeded) result.succeeded.push("pubg_player_matches");

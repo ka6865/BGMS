@@ -105,7 +105,7 @@ function normalizePageSize(value: number): number {
 export async function upsertPlayerMatches(
   supabase: SupabaseClient,
   records: PlayerMatchRecord[],
-  options: { ignoreDuplicates?: boolean; throwOnError?: boolean } = {},
+  options: { ignoreDuplicates?: boolean; throwOnError?: boolean; atomic?: boolean } = {},
  ): Promise<boolean> {
    if (!records || records.length === 0) return true;
    if (records.some(record => !hasObservedPlayerMatchValues(record))) return false;
@@ -117,7 +117,19 @@ export async function upsertPlayerMatches(
        accounts.set(key, record.account_id);
      }
    }
-   const { throwOnError, ...writeOptions } = options;
+   const { atomic, throwOnError, ...writeOptions } = options;
+   if (atomic) {
+     const { data, error } = await supabase.rpc("upsert_pubg_participant_matches", {
+       p_records: records.map(toPlayerMatchWriteRecord),
+     });
+     const failure = error ?? (data !== records.length ? new Error("player-match-upsert-count-mismatch") : null);
+     if (failure) {
+       if (throwOnError) throw failure;
+       console.error("[playerMatches] upsert failed:", failure.message);
+       return false;
+     }
+     return true;
+   }
    // PostgREST uses the union of a batch's keys for conflict updates. Group
    // identical column sets so a missing counter never becomes an explicit NULL.
    const batches = new Map<string, PlayerMatchRecord[]>();

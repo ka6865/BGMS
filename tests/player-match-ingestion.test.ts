@@ -9,7 +9,12 @@ function matchDatabase(upsert = vi.fn().mockResolvedValue({ error: null }), priv
     if (table === "pubg_player_matches") return { upsert };
     throw new Error(`unexpected table: ${table}`);
   });
-  return { db: { from } as never, from, upsert, settingsRead };
+  const rpc = vi.fn(async (name: string, { p_records }: { p_records: unknown[] }) => {
+    expect(name).toBe("upsert_pubg_participant_matches");
+    const { error } = await upsert(p_records, { onConflict: "player_id,platform,match_id" });
+    return { data: error ? null : p_records.length, error };
+  });
+  return { db: { from, rpc } as never, from, rpc, upsert, settingsRead };
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -123,7 +128,9 @@ describe("official participant basic histories", () => {
       expect.objectContaining({ account_id: "account.target", retention_scope: "basic_only" }),
       expect.objectContaining({ account_id: "account.peer", retention_scope: "basic_only", kills: 0, damage: 0 }),
     ], expect.anything());
-    expect(h.from.mock.calls.map(([table]) => table)).toEqual(["system_settings", "pubg_player_matches"]);
+    expect(h.from.mock.calls.map(([table]) => table)).toEqual(["system_settings"]);
+    expect(h.rpc).toHaveBeenCalledOnce();
+    expect(h.rpc).toHaveBeenCalledWith("upsert_pubg_participant_matches", { p_records: h.upsert.mock.calls[0][0] });
   });
 
   it("honors stable account aliases, all-platform entries and legacy nicknames without peer cache lookups", async () => {
@@ -190,12 +197,28 @@ describe("official participant basic histories", () => {
     expect(h.upsert).not.toHaveBeenCalled();
   });
 
-  it("does not report saved when a grouped participant write fails", async () => {
+  it("submits mixed optional participant columns together in one atomic call", async () => {
     const h = matchDatabase();
-    h.upsert.mockResolvedValueOnce({ error: null }).mockResolvedValueOnce({ error: { message: "peer write failed" } });
+    expect(await collect(h.db, fetchPayload(payload([participant("Target"), participant("Peer", "account.peer", { DBNOs: 0 })]))))
+      .toMatchObject({ status: "saved" });
+    expect(h.rpc).toHaveBeenCalledOnce();
+    expect(h.upsert).toHaveBeenCalledOnce();
+    const rows = h.rpc.mock.calls[0][1].p_records;
+    expect(rows[0]).not.toHaveProperty("knocks");
+    expect(rows[1]).toMatchObject({ account_id: "account.peer", knocks: 0 });
+  });
+
+  it.each([
+    { data: null, error: { message: "peer write failed" } },
+    { data: 1, error: null },
+  ])("never reports saved or falls back to split writes after an atomic RPC failure", async result => {
+    const h = matchDatabase();
+    h.rpc.mockResolvedValueOnce(result);
     expect(await collect(h.db, fetchPayload(payload([participant("Target"), participant("Peer", "account.peer", { DBNOs: 0 })]))))
       .toMatchObject({ status: "upstream_error", record: null, error: "player-match-upsert-failed" });
-    expect(h.upsert).toHaveBeenCalledTimes(2);
+    expect(h.rpc).toHaveBeenCalledOnce();
+    expect(h.upsert).not.toHaveBeenCalled();
+    expect(h.from).not.toHaveBeenCalledWith("pubg_player_matches");
   });
 
   it("blocks an observed response from a different platform before any DB write", async () => {

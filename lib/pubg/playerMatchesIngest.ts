@@ -250,7 +250,7 @@ export async function fetchAndIngestBasicMatchSummaryOutcome(
     }
     let persisted = false;
     try {
-      persisted = await upsertPlayerMatches(supabase, records.filter(row => row.win_place > 0));
+      persisted = await upsertPlayerMatches(supabase, records.filter(row => row.win_place > 0), { atomic: true });
     } catch (error) {
       return {
         status: "upstream_error",

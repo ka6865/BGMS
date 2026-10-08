@@ -28,7 +28,13 @@ const updateQueries = new Map<string, {
   select: ReturnType<typeof vi.fn<() => Promise<UpdateResult>>>;
 }>();
 const settingsRead = vi.fn();
+const participantRpc = vi.fn(async (name: string, { p_records }: { p_records: unknown[] }) => {
+  expect(name).toBe("upsert_pubg_participant_matches");
+  const { error } = await upserts.get("pubg_player_matches")!(p_records, { onConflict: "player_id,platform,match_id" });
+  return { data: error ? null : p_records.length, error };
+});
 const supabase = {
+  rpc: participantRpc,
   from: vi.fn((table: string) => ({
     ...(table === "system_settings" ? { select: () => ({ eq: () => ({ maybeSingle: settingsRead }) }) } : {}),
     upsert: upserts.get(table),
@@ -155,6 +161,7 @@ describe("persistMatchAnalysis", () => {
 
   it('fans out official basic histories while only the analyzed account receives detail and player cache', async () => {
     const peers = createParticipants(3);
+    Object.assign(peers[0].attributes.stats, { DBNOs: 0 });
     const result = await persistMatchAnalysis(supabase, {...input, rawParticipants: [input.rawParticipants[0], ...peers]});
     expect(result.failures).toEqual([]);
     expect(settingsRead).toHaveBeenCalledTimes(1);
@@ -162,9 +169,23 @@ describe("persistMatchAnalysis", () => {
     expect(rows).toHaveLength(4);
     expect(rows[0]).toMatchObject({account_id: 'account.target', retention_scope: 'detail', played_at: input.matchAttr.createdAt});
     expect(rows.slice(1).every(row => row.retention_scope === 'basic_only')).toBe(true);
+    expect(participantRpc).toHaveBeenCalledOnce();
+    expect(participantRpc).toHaveBeenCalledWith('upsert_pubg_participant_matches', { p_records: rows });
+    expect(rows[0]).not.toHaveProperty('knocks');
+    expect(rows[1]).toMatchObject({ knocks: 0 });
+    expect(supabase.from).not.toHaveBeenCalledWith('pubg_player_matches');
     expect(upserts.get('pubg_player_cache')!.mock.calls[0][0]).toHaveLength(1);
     expect(upserts.get('processed_match_telemetry')).not.toHaveBeenCalled();
     expect(supabase.from).not.toHaveBeenCalledWith('pubg_match_performance');
+  });
+
+  it('reports an atomic count mismatch without marking participant history as saved', async () => {
+    participantRpc.mockResolvedValueOnce({ data: 0, error: null });
+    const result = await persistMatchAnalysis(supabase, input);
+    expect(result.failures).toContainEqual({ taskName: 'pubg_player_matches', message: 'player-match-upsert-count-mismatch' });
+    expect(result.succeeded).not.toContain('pubg_player_matches');
+    expect(participantRpc).toHaveBeenCalledOnce();
+    expect(supabase.from).not.toHaveBeenCalledWith('pubg_player_matches');
   });
 
   it.each(['createdAt', 'gameMode', 'mapName', 'kills', 'damageDealt', 'winPlace'])('does not fabricate analysis history when required %s is absent', async key => {

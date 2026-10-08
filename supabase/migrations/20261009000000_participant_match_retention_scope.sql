@@ -30,7 +30,9 @@ for each row execute function public.preserve_player_match_retention_scope();
 comment on column public.pubg_player_matches.retention_scope is
   'Per-match retention evidence: legacy=unclassified existing writer, basic_only=official basic ingestion, detail=personal analysis. Actual personal references always require a retained summary.';
 
--- 참가자 수가 늘어도 후보 상한은 경기 수로 계산한다.
+-- Cursor 범위의 경기별 최소 시각만 읽고 LIMIT 전에 참가자를 중복 제거한다.
+create index idx_pubg_match_retention_cursor on public.pubg_player_matches(played_at,platform,match_id,player_id);
+create index idx_pubg_match_retention_identity on public.pubg_player_matches(platform,match_id,played_at);
 create or replace function public.list_retention_archive_candidates(
   p_limit integer,
   p_cutoff timestamptz,
@@ -63,29 +65,19 @@ begin
   end if;
 
   return query
-  with match_keys as materialized (
-    select m.platform,m.match_id,min(m.played_at) as played_at
-    from public.pubg_player_matches m
-    where m.platform in ('steam','kakao') and m.played_at < p_cutoff
-    group by m.platform,m.match_id
-  ), candidates as materialized (
-    select k.* from match_keys k
-    where (p_after_played_at is null
-      or (k.played_at,k.platform,k.match_id) > (p_after_played_at,p_after_platform,p_after_match_id))
-      and (exists(select 1 from public.telemetry_map_cache_entries c
-        where c.platform=k.platform and c.match_id=k.match_id)
-        or exists(select 1 from public.processed_match_telemetry t
-          where t.platform=k.platform and t.match_id=k.match_id))
-    order by k.played_at,k.platform,k.match_id
-    limit p_limit
-  )
-  select representative.* from candidates k
-  cross join lateral (
-    select m.* from public.pubg_player_matches m
-    where m.platform=k.platform and m.match_id=k.match_id and m.played_at=k.played_at
-    order by m.player_id limit 1
-  ) representative
-  order by k.played_at,k.platform,k.match_id;
+  select distinct on (m.played_at,m.platform,m.match_id) m.*
+  from public.pubg_player_matches m
+  where m.platform in ('steam','kakao') and m.played_at < p_cutoff
+    and (p_after_played_at is null
+      or (m.played_at,m.platform,m.match_id) > (p_after_played_at,p_after_platform,p_after_match_id))
+    and not exists(select 1 from public.pubg_player_matches earlier
+      where earlier.platform=m.platform and earlier.match_id=m.match_id and earlier.played_at<m.played_at)
+    and (exists(select 1 from public.telemetry_map_cache_entries c
+      where c.platform=m.platform and c.match_id=m.match_id)
+      or exists(select 1 from public.processed_match_telemetry t
+        where t.platform=m.platform and t.match_id=m.match_id))
+  order by m.played_at,m.platform,m.match_id,m.player_id
+  limit p_limit;
 end;
 $$;
 
@@ -100,13 +92,14 @@ create or replace function public.list_unretained_match_performance(p_limit inte
 returns setof public.processed_match_telemetry
 language sql stable security invoker set search_path='' as $$
   with scope_rows as materialized (
-    select m.match_id,m.platform
+    select distinct m.played_at,m.platform,m.match_id
     from public.pubg_player_matches m cross join public.pubg_archive_cleanup_cursor c
     where p_player_id is null and c.id=1
       and m.platform in ('steam','kakao') and m.played_at<now()-interval '14 days'
-    group by m.platform,m.match_id,c.played_at,c.platform,c.match_id
-    having c.played_at is null or (min(m.played_at),m.platform,m.match_id)>(c.played_at,c.platform,c.match_id)
-    order by min(m.played_at),m.platform,m.match_id
+      and (c.played_at is null or (m.played_at,m.platform,m.match_id)>(c.played_at,c.platform,c.match_id))
+      and not exists(select 1 from public.pubg_player_matches earlier
+        where earlier.platform=m.platform and earlier.match_id=m.match_id and earlier.played_at<m.played_at)
+    order by m.played_at,m.platform,m.match_id
     limit 100
   ), scope_keys as materialized (
     select distinct match_id,platform from scope_rows
@@ -191,4 +184,71 @@ begin
   end loop;
 end;
 $migration$;
+
+-- 선택한 경기의 참가자 전적이 부분 저장되면 기존 저장 확인으로 재시도를 건너뛸 수 있다.
+create function public.upsert_pubg_participant_matches(p_records jsonb)
+returns integer language plpgsql security invoker set search_path='' as $$
+declare expected_count integer; saved_count integer;
+begin
+  if p_records is null or jsonb_typeof(p_records) is distinct from 'array'
+    or jsonb_array_length(p_records) not between 1 and 100
+    or octet_length(p_records::text)>131072 then
+    raise exception 'participant-match-batch-invalid' using errcode='22023';
+  end if;
+  expected_count := jsonb_array_length(p_records);
+  if exists(select 1 from jsonb_array_elements(p_records) x where jsonb_typeof(x) <> 'object'
+    or coalesce(x->>'account_id','') !~ '^account\.[A-Za-z0-9_-]+$'
+    or coalesce(x->>'platform','') not in ('steam','kakao')
+    or coalesce(x->>'match_id','') !~ '^[A-Za-z0-9_.-]{1,128}$'
+    or coalesce(x->>'retention_scope','') not in ('basic_only','detail')
+    or length(coalesce(x->>'player_id','')) not between 1 and 64
+    or x->>'player_id' is distinct from lower(trim(x->>'player_id'))
+    or jsonb_typeof(x->'ranking_eligible') is distinct from 'boolean'
+    or coalesce(lower(x->>'game_mode'),'') in ('','unknown','unavailable')
+    or coalesce(lower(x->>'map_name'),'') in ('','unknown','unavailable')
+    or coalesce(x->>'match_type','') in ('','unavailable')
+    or coalesce(x->>'played_at','') !~ '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,6})?(Z|[+-]\d{2}:\d{2})$'
+    or not pg_catalog.pg_input_is_valid(coalesce(x->>'played_at',''),'timestamp with time zone')
+    or jsonb_typeof(x->'kills') is distinct from 'number'
+    or jsonb_typeof(x->'damage') is distinct from 'number'
+    or jsonb_typeof(x->'win_place') is distinct from 'number') then
+    raise exception 'participant-match-batch-invalid' using errcode='22023';
+  end if;
+  if (select count(distinct (r.platform,r.match_id,r.played_at)) from jsonb_to_recordset(p_records)
+      r(platform text,match_id text,played_at timestamptz))<>1
+    or (select count(distinct x->>'account_id') from jsonb_array_elements(p_records) x)<>expected_count
+    or (select count(distinct x->>'player_id') from jsonb_array_elements(p_records) x)<>expected_count then
+    raise exception 'participant-match-batch-invalid' using errcode='22023';
+  end if;
+  if exists(select 1 from jsonb_to_recordset(p_records) r(kills numeric,damage numeric,win_place numeric,knocks numeric,survival_time numeric)
+    where r.kills not between 0 and 2147483647 or r.kills<>trunc(r.kills)
+      or r.damage not between 0 and 2147483647 or r.damage<>trunc(r.damage)
+      or r.win_place not between 1 and 2147483647 or r.win_place<>trunc(r.win_place)
+      or (r.knocks is not null and (r.knocks not between 0 and 2147483647 or r.knocks<>trunc(r.knocks)))
+      or (r.survival_time is not null and (r.survival_time not between 0 and 2147483647 or r.survival_time<>trunc(r.survival_time)))) then
+    raise exception 'participant-match-batch-invalid' using errcode='22023';
+  end if;
+  insert into public.pubg_player_matches as stored
+    (account_id,retention_scope,ranking_eligible,player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type,knocks,survival_time)
+  select r.account_id,r.retention_scope,r.ranking_eligible,r.player_id,r.platform,r.match_id,r.played_at,r.game_mode,r.map_name,
+    r.kills,r.damage,r.win_place,r.match_type,r.knocks,r.survival_time
+  from jsonb_to_recordset(p_records) r(account_id text,retention_scope text,ranking_eligible boolean,player_id text,
+    platform text,match_id text,played_at timestamptz,game_mode text,map_name text,kills integer,damage integer,win_place integer,
+    match_type text,knocks integer,survival_time integer)
+  order by r.player_id
+  on conflict(player_id,platform,match_id) do update set
+    account_id=excluded.account_id,retention_scope=excluded.retention_scope,ranking_eligible=excluded.ranking_eligible,
+    played_at=excluded.played_at,game_mode=excluded.game_mode,map_name=excluded.map_name,
+    kills=excluded.kills,damage=excluded.damage,win_place=excluded.win_place,match_type=excluded.match_type,
+    knocks=coalesce(excluded.knocks,stored.knocks),survival_time=coalesce(excluded.survival_time,stored.survival_time)
+  where stored.account_id is null or stored.account_id=excluded.account_id;
+  get diagnostics saved_count=row_count;
+  if saved_count<>expected_count then
+    raise exception 'participant-match-account-conflict' using errcode='22023';
+  end if;
+  return saved_count;
+end;
+$$;
+revoke all on function public.upsert_pubg_participant_matches(jsonb) from public,anon,authenticated;
+grant execute on function public.upsert_pubg_participant_matches(jsonb) to service_role;
 commit;
