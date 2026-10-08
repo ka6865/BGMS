@@ -21,7 +21,10 @@ describe("PUBG archive retention workflow contract", () => {
     expect(workflow.jobs.retain.env.OP_BATCHES).toContain("'10'");
     expect(workflow.jobs.retain.env.OP_SCAN_LIMIT).toBe("1000");
     expect(workflow.jobs.retain.env.OP_CUTOFF).toContain('inputs.cutoff');
-    expect(workflow.concurrency).toMatchObject({ group: "pubg-detail-archive-retention", "cancel-in-progress": false });
+    // A skipped schedule must not replace a pending child dispatched by backlog cleanup.
+    expect(workflow.concurrency).toBeUndefined();
+    expect(workflow.jobs.retain.concurrency).toMatchObject({ group: "pubg-detail-archive-retention", "cancel-in-progress": false });
+    expect(workflow.jobs.retain.if).toContain("vars.PUBG_ARCHIVE_BACKLOG_ENABLED != 'true'");
     expect(workflow.permissions).toEqual({ contents: "read", actions: "read" });
     expect(workflow.jobs.retain.env).not.toHaveProperty("SUPABASE_SERVICE_ROLE_KEY");
     expect(workflow.jobs.retain.steps[0]).toMatchObject({ id: "started" });

@@ -37,6 +37,7 @@ import { planLegacyMapRetentionRecovery, preserveLegacyMapRetentionPacket } from
 const ROW_LIMIT = 101;
 const MAX_OBJECT_BYTES = 32 * 1024 * 1024;
 const FIRST_BATCH_OBJECTS = MAX_RETENTION_BATCH_OBJECTS;
+const MATCH_CONCURRENCY = 3;
 const ACCOUNT_ID = /^account\.[A-Za-z0-9_-]+$/;
 const FORMATS = { manifest: 1, backup: 1 } as const;
 
@@ -240,7 +241,7 @@ async function inspectOneMatch(input: {
   db: SupabaseClient; match: BasicMatch; args: Args; now: number; projectRef: string;
   legacyListings: Manifest["legacyListings"];
   objectKey?: string;
-  recoveryBudget?: { calculations: number; linkedAccounts: number; savedSummaries: number; recoveredSummaries: number; decodedLegacyBytes: number };
+  recoveryBudget?: { calculations: number; linkedAccounts: number; savedSummaries: number; recoveredSummaries: number; decodedLegacyBytes: number; preservationTail: Promise<void> };
 }): Promise<{ plan: PlannedMatch; objects: ObjectProof[]; eligibleObjectCount?: number }> {
   const { db, match, args, now } = input;
   const platform = match.platform as Platform;
@@ -279,88 +280,95 @@ async function inspectOneMatch(input: {
   const pendingDiscovery = discoveries.some((row) => isUnfinished(row.state) || isActiveLease(row.lease_token, row.lease_expires_at, now));
   const pendingJob = jobs.some((row) => isUnfinished(row.state) || isActiveLease(row.lease_token, row.lease_expires_at, now));
   if (args.preservePerformance && !activeMapLease && !pendingDiscovery && !pendingJob) {
-    let source = null;
-    // 기존 DB 결과를 우선하며 계정 연결이나 누락 성과 복구에 필요한 공통 원본만 읽는다.
-    const legacyBindings = planLegacyRetentionBindings(basics, processed as any[]);
-    const needsSource = basics.some(b => (!b.account_id && !legacyBindings.some(proof => proof.before.player_id === b.player_id)) || (!processed.some(p => normalized(p.player_id) === normalized(b.player_id)
-      && p.data?.fullResult) && !performances.some(p => p.account_id === b.account_id && p.summary != null)));
-    if (needsSource) {
-      let key: string | null = null;
-      try { key = buildSharedTelemetrySourceKey(match.match_id, platform); } catch { /* Noncanonical match remains protected. */ }
-      if (key) {
-        const object = await readExactObject(key);
-        if (object) {
-          try {
-            const text = decodeMaybeGzip(object.body);
-            if (Buffer.byteLength(text) <= 64 * 1024 * 1024)
-              source = parseSharedTelemetrySource(JSON.parse(text), match.match_id, platform);
-          } catch { /* Invalid source is protected, never used for recovery. */ }
+    // Serialize DB repairs and the shared recovery budget; independent reads can overlap.
+    const previous = input.recoveryBudget?.preservationTail;
+    let release = () => {};
+    if (input.recoveryBudget) input.recoveryBudget.preservationTail = new Promise<void>(resolve => { release = resolve; });
+    await previous;
+    try {
+      let source = null;
+      // 기존 DB 결과를 우선하며 계정 연결이나 누락 성과 복구에 필요한 공통 원본만 읽는다.
+      const legacyBindings = planLegacyRetentionBindings(basics, processed as any[]);
+      const needsSource = basics.some(b => (!b.account_id && !legacyBindings.some(proof => proof.before.player_id === b.player_id)) || (!processed.some(p => normalized(p.player_id) === normalized(b.player_id)
+        && p.data?.fullResult) && !performances.some(p => p.account_id === b.account_id && p.summary != null)));
+      if (needsSource) {
+        let key: string | null = null;
+        try { key = buildSharedTelemetrySourceKey(match.match_id, platform); } catch { /* Noncanonical match remains protected. */ }
+        if (key) {
+          const object = await readExactObject(key);
+          if (object) {
+            try {
+              const text = decodeMaybeGzip(object.body);
+              if (Buffer.byteLength(text) <= 64 * 1024 * 1024)
+                source = parseSharedTelemetrySource(JSON.parse(text), match.match_id, platform);
+            } catch { /* Invalid source is protected, never used for recovery. */ }
+          }
         }
       }
-    }
-    const preserved = await preserveExpiredMatchPerformance(db, { matchId: match.match_id, platform, basics,
-      processed: processed as any[], performances, source, now,
-      maxCalculations: Math.max(0, 5 - (input.recoveryBudget?.calculations ?? 0)) });
-    if (input.recoveryBudget) {
-      input.recoveryBudget.calculations += preserved.recoveredSummaries;
-      input.recoveryBudget.recoveredSummaries += preserved.recoveredSummaries;
-      input.recoveryBudget.linkedAccounts += preserved.linkedAccounts;
-      input.recoveryBudget.savedSummaries += preserved.savedSummaries;
-    }
-    if (preserved.linkedAccounts || preserved.savedSummaries) {
-      // 저장 후 DB를 다시 읽어 전체 참조와 원본 checksum을 검증한다.
-      return inspectOneMatch({ ...input, args: { ...args, preservePerformance: false } });
-    }
-    if (!source && needsSource && input.recoveryBudget && input.recoveryBudget.calculations < 5) {
-      const artifacts = await readLegacyTeamArtifacts(match, processed, input.recoveryBudget);
-      const planned = planLegacyTeamRetentionRecovery({ basics, processed: processed as any[], performances, artifacts,
-        now, maxCalculations: 5 - input.recoveryBudget.calculations });
-      input.recoveryBudget.calculations += planned.calculations;
-      const saved = await preserveLegacyTeamRetentionPackets(db, planned.packets);
-      input.recoveryBudget.linkedAccounts += saved;
-      input.recoveryBudget.savedSummaries += saved;
-      input.recoveryBudget.recoveredSummaries += saved;
-      if (saved) return inspectOneMatch({ ...input,
-        match: { ...match, played_at: planned.packets[0].expectedBasic.played_at },
-        args: { ...args, preservePerformance: false } });
-    }
-    // Full replay maps contain measured combat events even without official
-    // metadata or a personal analysis. Preserve those observations separately.
-    if (!source && needsSource && input.recoveryBudget && input.recoveryBudget.calculations < 5) {
-      for (const basic of basics) {
-        if (input.recoveryBudget.calculations >= 5) break;
-        if (basic.account_id !== null || processed.some(p => normalized(p.player_id) === normalized(basic.player_id))
-          || performances.some(p => normalized(p.player_id) === normalized(basic.player_id))) continue;
-        const candidates = registry.filter(r => r.mode === 'full' && r.status === 'ready' && ACCOUNT_ID.test(r.player_id));
-        if (candidates.length !== 1) continue;
-        const r = candidates[0];
-        let key;
-        try { key = buildTelemetryCacheKey({ matchId: match.match_id, platform, playerId: r.player_id,
-          mode: 'full', telemetryVersion: r.telemetry_version }); } catch { continue; }
-        if (key !== r.storage_path) continue;
-        const object = await readObjectForVerification(key, { maxBytes: 8 * 1024 * 1024 });
-        if (!object) continue;
-        const available = 32 * 1024 * 1024 - input.recoveryBudget.decodedLegacyBytes;
-        let payload;
-        try {
-          if (available <= 0) continue;
-          const bytes = object.body[0] === 0x1f && object.body[1] === 0x8b
-            ? gunzipSync(object.body, { maxOutputLength: available }) : object.body;
-          if (bytes.length > available) continue;
-          input.recoveryBudget.decodedLegacyBytes += bytes.length;
-          payload = JSON.parse(bytes.toString('utf8'));
-        } catch { continue; }
-        input.recoveryBudget.calculations++;
-        const packet = planLegacyMapRetentionRecovery({ before: basic, registry: r, payload, key,
-          sha256: sha256(object.body), etag: object.etag, sizeBytes: object.sizeBytes, now });
-        if (!packet) continue;
-        await preserveLegacyMapRetentionPacket(db, packet);
-        input.recoveryBudget.linkedAccounts++;
-        input.recoveryBudget.savedSummaries++;
-        input.recoveryBudget.recoveredSummaries++;
+      const preserved = await preserveExpiredMatchPerformance(db, { matchId: match.match_id, platform, basics,
+        processed: processed as any[], performances, source, now,
+        maxCalculations: Math.max(0, 5 - (input.recoveryBudget?.calculations ?? 0)) });
+      if (input.recoveryBudget) {
+        input.recoveryBudget.calculations += preserved.recoveredSummaries;
+        input.recoveryBudget.recoveredSummaries += preserved.recoveredSummaries;
+        input.recoveryBudget.linkedAccounts += preserved.linkedAccounts;
+        input.recoveryBudget.savedSummaries += preserved.savedSummaries;
+      }
+      if (preserved.linkedAccounts || preserved.savedSummaries) {
+        // 저장 후 DB를 다시 읽어 전체 참조와 원본 checksum을 검증한다.
         return inspectOneMatch({ ...input, args: { ...args, preservePerformance: false } });
       }
-    }
+      if (!source && needsSource && input.recoveryBudget && input.recoveryBudget.calculations < 5) {
+        const artifacts = await readLegacyTeamArtifacts(match, processed, input.recoveryBudget);
+        const planned = planLegacyTeamRetentionRecovery({ basics, processed: processed as any[], performances, artifacts,
+          now, maxCalculations: 5 - input.recoveryBudget.calculations });
+        input.recoveryBudget.calculations += planned.calculations;
+        const saved = await preserveLegacyTeamRetentionPackets(db, planned.packets);
+        input.recoveryBudget.linkedAccounts += saved;
+        input.recoveryBudget.savedSummaries += saved;
+        input.recoveryBudget.recoveredSummaries += saved;
+        if (saved) return inspectOneMatch({ ...input,
+          match: { ...match, played_at: planned.packets[0].expectedBasic.played_at },
+          args: { ...args, preservePerformance: false } });
+      }
+      // Full replay maps contain measured combat events even without official
+      // metadata or a personal analysis. Preserve those observations separately.
+      if (!source && needsSource && input.recoveryBudget && input.recoveryBudget.calculations < 5) {
+        for (const basic of basics) {
+          if (input.recoveryBudget.calculations >= 5) break;
+          if (basic.account_id !== null || processed.some(p => normalized(p.player_id) === normalized(basic.player_id))
+            || performances.some(p => normalized(p.player_id) === normalized(basic.player_id))) continue;
+          const candidates = registry.filter(r => r.mode === 'full' && r.status === 'ready' && ACCOUNT_ID.test(r.player_id));
+          if (candidates.length !== 1) continue;
+          const r = candidates[0];
+          let key;
+          try { key = buildTelemetryCacheKey({ matchId: match.match_id, platform, playerId: r.player_id,
+            mode: 'full', telemetryVersion: r.telemetry_version }); } catch { continue; }
+          if (key !== r.storage_path) continue;
+          const object = await readObjectForVerification(key, { maxBytes: 8 * 1024 * 1024 });
+          if (!object) continue;
+          const available = 32 * 1024 * 1024 - input.recoveryBudget.decodedLegacyBytes;
+          let payload;
+          try {
+            if (available <= 0) continue;
+            const bytes = object.body[0] === 0x1f && object.body[1] === 0x8b
+              ? gunzipSync(object.body, { maxOutputLength: available }) : object.body;
+            if (bytes.length > available) continue;
+            input.recoveryBudget.decodedLegacyBytes += bytes.length;
+            payload = JSON.parse(bytes.toString('utf8'));
+          } catch { continue; }
+          input.recoveryBudget.calculations++;
+          const packet = planLegacyMapRetentionRecovery({ before: basic, registry: r, payload, key,
+            sha256: sha256(object.body), etag: object.etag, sizeBytes: object.sizeBytes, now });
+          if (!packet) continue;
+          await preserveLegacyMapRetentionPacket(db, packet);
+          input.recoveryBudget.linkedAccounts++;
+          input.recoveryBudget.savedSummaries++;
+          input.recoveryBudget.recoveredSummaries++;
+          return inspectOneMatch({ ...input, args: { ...args, preservePerformance: false } });
+        }
+      }
+    } finally { release(); }
   }
   const evidence: MatchRetentionAccountEvidence[] = [...refs].filter((id) => ACCOUNT_ID.test(id)).map((accountId) => {
     const accountBasics = basics.filter((row) => row.account_id === accountId);
@@ -535,31 +543,43 @@ async function inspect(options: Args, env: Record<string, string | undefined> = 
   const visited = new Set<string>();
   let nextCursor: Manifest["nextCursor"] = null;
   const started = Date.now();
-  const recoveryBudget = { calculations: 0, linkedAccounts: 0, savedSummaries: 0, recoveredSummaries: 0, decodedLegacyBytes: 0 };
-  for (const match of (candidateRows ?? []) as BasicMatch[]) {
+  const recoveryBudget = { calculations: 0, linkedAccounts: 0, savedSummaries: 0, recoveredSummaries: 0, decodedLegacyBytes: 0,
+    preservationTail: Promise.resolve() };
+  const candidates = ((candidateRows ?? []) as BasicMatch[]).filter(match => {
     const key = `${match.platform}:${match.match_id}`;
-    if (visited.has(key)) continue;
+    if (visited.has(key)) return false;
     visited.add(key);
-    if (getMatchDetailRetention(match.played_at, now).status !== "expired"
-      || Date.parse(match.played_at) >= Date.parse(cutoff)) continue;
-    const remaining = options.limit - objects.length;
-    const result = await inspectOneMatch({ db, match, args: { ...options, limit: remaining }, now, projectRef, legacyListings, recoveryBudget });
-    const remainingBytes = MAX_RETENTION_BATCH_BYTES - objects.reduce((sum, o) => sum + o.sizeBytes, 0);
-    let selected = remainingBytes > 0 ? selectRetentionBatchObjects(result.objects, { maxObjects: remaining, maxBytes: remainingBytes }) : [];
-    // 분석 객체의 식별자는 map registry에 의존하므로 분석이 남아 있으면 map을 먼저 지우지 않는다.
-    selected = selected.filter(object => object.kind !== 'personal-map' || !result.objects.some(analysis =>
-      analysis.kind === 'personal-analysis' && analysis.accountId === object.accountId
-      && analysis.mode === object.mode && analysis.telemetryVersion === object.telemetryVersion
-      && !selected.includes(analysis)));
-    matches.push({ ...result.plan, platform: match.platform as Platform, objectCount: selected.length,
-      bytes: selected.reduce((sum, o) => sum + o.sizeBytes, 0) });
-    objects.push(...selected);
-    const partialMatch = selected.length < (result.eligibleObjectCount ?? result.objects.length);
-    // 한 경기 도중 상한에 도달하면 다음 실행도 같은 경기의 남은 자료를 처리한다.
-    if (!partialMatch) nextCursor = { played_at: match.played_at, platform: match.platform as Platform, match_id: match.match_id };
-    else if (!nextCursor && cursor?.played_at && cursor.platform && cursor.match_id)
-      nextCursor = { played_at: cursor.played_at, platform: cursor.platform, match_id: cursor.match_id };
-    if (partialMatch || objects.length >= options.limit || Date.now() - started > RETENTION_SCAN_TIME_MS) break;
+    return getMatchDetailRetention(match.played_at, now).status === "expired"
+      && Date.parse(match.played_at) < Date.parse(cutoff);
+  });
+  scan: for (let offset = 0; offset < candidates.length; offset += MATCH_CONCURRENCY) {
+    const window = candidates.slice(offset, offset + MATCH_CONCURRENCY);
+    const results = await Promise.allSettled(window.map(match => inspectOneMatch({ db, match,
+      args: options, now, projectRef, legacyListings, recoveryBudget })));
+    const failure = results.find(result => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
+    // Consume in candidate order, even when a later inspection finishes first.
+    for (let index = 0; index < window.length; index++) {
+      const match = window[index];
+      const result = (results[index] as PromiseFulfilledResult<Awaited<ReturnType<typeof inspectOneMatch>>>).value;
+      const remaining = options.limit - objects.length;
+      const remainingBytes = MAX_RETENTION_BATCH_BYTES - objects.reduce((sum, o) => sum + o.sizeBytes, 0);
+      let selected = remainingBytes > 0 ? selectRetentionBatchObjects(result.objects, { maxObjects: remaining, maxBytes: remainingBytes }) : [];
+      // 분석 객체의 식별자는 map registry에 의존하므로 분석이 남아 있으면 map을 먼저 지우지 않는다.
+      selected = selected.filter(object => object.kind !== 'personal-map' || !result.objects.some(analysis =>
+        analysis.kind === 'personal-analysis' && analysis.accountId === object.accountId
+        && analysis.mode === object.mode && analysis.telemetryVersion === object.telemetryVersion
+        && !selected.includes(analysis)));
+      matches.push({ ...result.plan, platform: match.platform as Platform, objectCount: selected.length,
+        bytes: selected.reduce((sum, o) => sum + o.sizeBytes, 0) });
+      objects.push(...selected);
+      const partialMatch = selected.length < (result.eligibleObjectCount ?? result.objects.length);
+      // 한 경기 도중 상한에 도달하면 다음 실행도 같은 경기의 남은 자료를 처리한다.
+      if (!partialMatch) nextCursor = { played_at: match.played_at, platform: match.platform as Platform, match_id: match.match_id };
+      else if (!nextCursor && cursor?.played_at && cursor.platform && cursor.match_id)
+        nextCursor = { played_at: cursor.played_at, platform: cursor.platform, match_id: cursor.match_id };
+      if (partialMatch || objects.length >= options.limit || Date.now() - started > RETENTION_SCAN_TIME_MS) break scan;
+    }
   }
   const manifest: Manifest = { format: FORMATS.manifest, planId: randomUUID(),
     createdAt: new Date(now).toISOString(), projectRef,
@@ -652,10 +672,12 @@ async function applyPlan(inspection: Inspection, backup: BackupPayload): Promise
   const byKey = new Map(backup.objects.map((item) => [item.key, item]));
   let deleted = 0;
   let bytes = 0;
-  for (const proof of manifest.objects) {
+  let failed = false;
+  const applyObject = async (proof: ObjectProof) => {
     const backupObject = byKey.get(proof.key);
     if (!backupObject) throw new Error("retention-backup-object-missing");
     await recheckMatchEligibility(supabase, proof, manifest, Date.now());
+    if (failed) return;
     let registryDeleted = false;
     let masterPointerCleared = false;
     try {
@@ -664,6 +686,7 @@ async function applyPlan(inspection: Inspection, backup: BackupPayload): Promise
           .eq("match_id", proof.matchId).eq("platform", proof.platform).limit(ROW_LIMIT);
         if (error || (basicRows ?? []).length >= ROW_LIMIT) throw new Error("retention-source-reference-recheck-failed");
         const refs = [...new Set((basicRows ?? []).map((row: any) => row.account_id).filter((id: unknown): id is string => typeof id === "string" && ACCOUNT_ID.test(id)))];
+        if (failed) return;
         await deleteExpiredMatchSourceFromR2({ matchId: proof.matchId, platform: proof.platform, playedAt: proof.playedAt!,
           referencedAccountIds: refs, preservedAccountIds: refs, noActiveWork: true, expectedEtag: proof.etag,
           expectedSizeBytes: proof.sizeBytes, expectedSha256: proof.sha256 });
@@ -687,6 +710,7 @@ async function applyPlan(inspection: Inspection, backup: BackupPayload): Promise
         registryDeleted = true;
       }
     } catch (error) {
+      failed = true;
       try {
         await rollbackObject(backupObject);
         if (masterPointerCleared || proof.masterPathReferenced) {
@@ -718,6 +742,30 @@ async function applyPlan(inspection: Inspection, backup: BackupPayload): Promise
     }
     deleted += 1;
     bytes += proof.sizeBytes;
+  };
+  const groups = new Map<string, ObjectProof[]>();
+  for (const proof of manifest.objects) {
+    // Legacy master pointers have no platform column; the same ID stays serial across platforms.
+    const key = proof.matchId;
+    const group = groups.get(key) ?? [];
+    group.push(proof);
+    groups.set(key, group);
+  }
+  const matchGroups = [...groups.values()];
+  for (let offset = 0; offset < matchGroups.length; offset += MATCH_CONCURRENCY) {
+    const results = await Promise.allSettled(matchGroups.slice(offset, offset + MATCH_CONCURRENCY).map(async group => {
+      try {
+        for (const proof of group) {
+          if (failed) return;
+          await applyObject(proof);
+        }
+      } catch (error) { failed = true; throw error; }
+    }));
+    // Wait for all in-flight deletes and restores before returning an error.
+    const failure = results.find(result => result.status === 'rejected'
+      && result.reason instanceof Error && result.reason.message === 'retention-delete-failed-restore-unverified')
+      ?? results.find(result => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
   }
   return { deleted, bytes };
 }

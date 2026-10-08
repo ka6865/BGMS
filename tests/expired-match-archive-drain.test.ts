@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -18,6 +19,7 @@ function report(reason = "end-of-pass", startedFromBeginning = true): Array<Reco
 const asLog = (records = report()) => records.map(r => "retain\tSTEP\t2026-10-08T03:00:00Z " + JSON.stringify(r)).join("\n");
 const folders: string[] = [];
 afterEach(async () => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   for (const folder of folders.splice(0)) await rm(folder, { recursive: true, force: true });
 });
@@ -32,6 +34,9 @@ describe("one-off archive drain", () => {
       ["--log", "/tmp/a", "--apply", "--apply"],
       ["--log", "/tmp/a", "--unknown", "1"]]) {
       expect(() => parseDrainOptions(argv, now)).toThrow();
+    }
+    for (const minutes of ['0', '211', '1.5', 'NaN']) {
+      expect(() => parseDrainOptions(['--log', '/tmp/a', '--max-runtime-minutes', minutes], now)).toThrow();
     }
   });
 
@@ -97,6 +102,32 @@ describe("one-off archive drain", () => {
     expect((await readFile(h.records, 'utf8')).split('\n').filter(line => line.startsWith('workflow run'))).toHaveLength(2);
     const lines = (await readFile(h.log, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
     expect(lines.at(-1)).toMatchObject({ stopReason: 'end-of-pass', passEnds: 2, deletedObjects: 10 });
+  });
+
+  it('실행 예산에 도달해도 진행 중인 작업의 근거를 기록한 뒤 다음 실행을 중단한다', async () => {
+    const h = await fakeGh(true, [false]);
+    vi.spyOn(Date, 'now').mockImplementation(() => existsSync(h.records)
+      && readFileSync(h.records, 'utf8').includes('--log') ? now + 60_001 : now);
+    await drainExpiredMatchArchives(['--apply', '--max-runtime-minutes', '1', '--log', h.log]);
+    expect((await readFile(h.records, 'utf8')).split('\n').filter(line => line.startsWith('workflow run'))).toHaveLength(1);
+    const lines = (await readFile(h.log, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+    expect(lines.at(-1)).toMatchObject({ event: 'stopped', stopReason: 'runtime-budget', deletedObjects: 5 });
+  });
+
+  it('읽기 실패는 재시도하되 dispatch 오류는 재시도하지 않고 단계를 기록한다', async () => {
+    const h = await fakeGh(true);
+    const gh = join(h.folder, 'gh');
+    const original = await readFile(gh, 'utf8');
+    await writeFile(gh, original.replace('case "$1 $2" in',
+      'if [ "$1 $2" = "run view" ] && [ ! -f "' + h.folder + '/retried" ]; then touch "' + h.folder + '/retried"; exit 1; fi\ncase "$1 $2" in'));
+    await drainExpiredMatchArchives(['--apply', '--log', h.log]);
+    expect((await readFile(h.records, 'utf8')).split('\n').filter(line => line.includes('--json'))).toHaveLength(2);
+    const failed = await fakeGh(true);
+    await writeFile(join(failed.folder, 'gh'), '#!/bin/sh\nprintf "called\\n" >> "' + failed.records + '"\nexit 1\n');
+    await expect(drainExpiredMatchArchives(['--apply', '--log', failed.log])).rejects.toThrow('backlog-drain-stopped');
+    expect((await readFile(failed.records, 'utf8')).trim()).toBe('called');
+    const records = (await readFile(failed.log, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
+    expect(records.at(-1)).toMatchObject({ event: 'failed', failureStage: 'dispatch', activeRun: null });
   });
 
   it('does not count two empty wraps as a pass until a run actually starts at the beginning', async () => {

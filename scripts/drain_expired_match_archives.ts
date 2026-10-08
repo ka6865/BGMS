@@ -13,7 +13,7 @@ const WORKFLOW = "pubg-archive-retention.yml";
 const STOP_REASONS = ["batch-limit", "time-budget", "dry-run", "end-of-pass", "no-progress", "scope-exhausted"];
 
 export function parseDrainOptions(argv: string[], now = Date.now()) {
-  let apply = false, maxRuns = 100;
+  let apply = false, maxRuns = 100, maxRuntimeMinutes = 210;
   let cutoff = new Date(now - MATCH_DETAIL_RETENTION_DAYS * 86_400_000).toISOString();
   let logPath: string | undefined;
   const seen = new Set<string>();
@@ -25,17 +25,19 @@ export function parseDrainOptions(argv: string[], now = Date.now()) {
     const value = argv[++index];
     if (!value || value.startsWith("--")) throw new Error("backlog-option-missing");
     if (name === "--max-runs") maxRuns = Number(value);
+    else if (name === "--max-runtime-minutes") maxRuntimeMinutes = Number(value);
     else if (name === "--cutoff") cutoff = value;
     else if (name === "--log") logPath = resolve(value);
     else throw new Error("backlog-option-unknown");
   }
   if (!Number.isSafeInteger(maxRuns) || maxRuns < 1 || maxRuns > 100 || !logPath
+    || !Number.isSafeInteger(maxRuntimeMinutes) || maxRuntimeMinutes < 1 || maxRuntimeMinutes > 210
     || !Number.isFinite(Date.parse(cutoff))
     || Date.parse(cutoff) > now - MATCH_DETAIL_RETENTION_DAYS * 86_400_000) {
     throw new Error("backlog-options-invalid");
   }
   return { mode: apply ? "apply" : "dry-run", maxRuns: apply ? maxRuns : 1,
-    cutoff: new Date(cutoff).toISOString(), logPath };
+    maxRuntimeMinutes, cutoff: new Date(cutoff).toISOString(), logPath };
 }
 
 export function summarizeDrainRun(log: string, successful = true) {
@@ -74,8 +76,16 @@ export function summarizeDrainRun(log: string, successful = true) {
 }
 
 async function gh(args: string[]) {
-  const result = await exec("gh", args, { encoding: "utf8", timeout: 60_000, maxBuffer: 32 * 1024 * 1024 });
-  return result.stdout;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const result = await exec("gh", args, { encoding: "utf8", timeout: 60_000, maxBuffer: 32 * 1024 * 1024 });
+      return result.stdout;
+    } catch (error) {
+      // Only read-only requests can be retried; dispatch might already have succeeded.
+      if (args[0] !== 'run' || attempt >= 2) throw error;
+      await delay(1000);
+    }
+  }
 }
 
 export async function drainExpiredMatchArchives(argv = process.argv.slice(2)) {
@@ -94,11 +104,15 @@ export async function drainExpiredMatchArchives(argv = process.argv.slice(2)) {
   let finalBytes: number | null = null;
   let stopReason = "run-limit";
   let passEnds = 0, fullPassStarted = false;
+  const dispatchDeadline = Date.now() + options.maxRuntimeMinutes * 60_000;
+  let failureStage = 'start';
   try {
     await record({ event: "start", repo: REPO, ...options });
     for (let index = 0; index < options.maxRuns; index++) {
+      if (Date.now() >= dispatchDeadline) { stopReason = 'runtime-budget'; break; }
       // Reuse main's concurrency group and each batch's uploaded, downloaded backup.
       // The local process never receives the production storage credentials.
+      failureStage = 'dispatch';
       const dispatched = (await gh(["workflow", "run", WORKFLOW, "--repo", REPO, "--ref", "main",
         "--raw-field", "mode=" + options.mode, "--raw-field", "platform=all",
         "--raw-field", "batches=" + (options.mode === "apply" ? "10" : "1"),
@@ -110,6 +124,7 @@ export async function drainExpiredMatchArchives(argv = process.argv.slice(2)) {
       await record({ event: "dispatched", run: Number(activeRun), url: dispatched });
       const deadline = Date.now() + 2 * 60 * 60_000;
       let successful = false;
+      failureStage = 'watch';
       while (true) {
         const state = JSON.parse(await gh(["run", "view", activeRun, "--repo", REPO,
           "--json", "status,conclusion"])) as { status?: string; conclusion?: string };
@@ -120,6 +135,7 @@ export async function drainExpiredMatchArchives(argv = process.argv.slice(2)) {
         if (Date.now() >= deadline) throw new Error("backlog-run-watch-timeout");
         await delay(30_000);
       }
+      failureStage = 'read-evidence';
       const result = summarizeDrainRun(await gh(["run", "view", activeRun, "--repo", REPO, "--log"]), successful);
       deletedObjects += result.deletedObjects;
       removedBytes += result.removedBytes;
@@ -129,6 +145,7 @@ export async function drainExpiredMatchArchives(argv = process.argv.slice(2)) {
       await record({ event: successful ? "completed" : "failed-run", run: Number(activeRun), ...result,
         totalsScope: 'completed-batches-only', unverifiedPartialDeletionMayRemain: !successful,
         netBucketReductionBytes: result.beforeBytes === null || result.afterBytes === null ? null : result.beforeBytes - result.afterBytes });
+      failureStage = 'completed-run';
       if (!successful) throw new Error('backlog-run-not-successful');
       activeRun = null;
       fullPassStarted ||= result.startedFromBeginning;
@@ -146,7 +163,7 @@ export async function drainExpiredMatchArchives(argv = process.argv.slice(2)) {
       netBucketReductionBytes: initialBytes === null || finalBytes === null ? null : initialBytes - finalBytes,
       protectedObjectsMayRemain: true });
   } catch {
-    await record({ event: "failed", activeRun, deletedObjects, removedBytes, backupBytes,
+    await record({ event: "failed", failureStage, activeRun, deletedObjects, removedBytes, backupBytes,
       totalsScope: 'completed-batches-only', totalsIncomplete: true, unverifiedPartialDeletionMayRemain: true });
     throw new Error("backlog-drain-stopped-see-private-log");
   } finally { await log.close(); }
