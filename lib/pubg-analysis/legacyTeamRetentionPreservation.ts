@@ -116,10 +116,15 @@ export async function preserveLegacyTeamRetentionPackets(db: SupabaseClient, pac
   if (packets.length > 5) throw new Error('retention-legacy-team-limit-invalid');
   let saved = 0;
   for (const packet of packets) {
-    const { data, error } = await db.rpc('recover_retention_legacy_team', { p_packet: packet })
+    const { data, error, status } = await db.rpc('recover_retention_legacy_team', { p_packet: packet })
       .abortSignal(AbortSignal.timeout(15_000));
-    if (error || data?.saved !== true || !isDeepStrictEqual(data.basic, packet.expectedBasic))
-      throw new Error('retention-legacy-team-write-unverified');
+    // 응답 유실 뒤에는 쓰기를 반복하지 않고 실제 저장된 두 행을 대조한다.
+    const responseLost = error && (status === 0 || (status >= 500 && status <= 599));
+    if (!responseLost && (error || data?.saved !== true || !isDeepStrictEqual(data.basic, packet.expectedBasic))) {
+      const reason = ['lock-unavailable', 'lock-budget-exceeded', 'snapshot-changed', 'active-lease',
+        'target-exists', 'validation-rejected'].includes(error?.details ?? '') ? error!.details : 'unknown';
+      throw new Error(`retention-legacy-team-write-unverified:${status ?? 'unknown'}:${reason}`);
+    }
     const identity = packet.performance;
     const [{ data: basics, error: basicError }, { data: rows, error: readError }] = await Promise.all([
       db.from('pubg_player_matches').select('*').eq('platform', identity.platform).eq('match_id', identity.match_id)
@@ -131,7 +136,7 @@ export async function preserveLegacyTeamRetentionPackets(db: SupabaseClient, pac
       || !isDeepStrictEqual(basics[0], packet.expectedBasic)
       || Object.entries(identity).some(([key, value]) => key === 'played_at'
         ? Date.parse(rows[0][key]) !== Date.parse(String(value)) : !isDeepStrictEqual(rows[0][key], value)))
-      throw new Error('retention-legacy-team-readback-unverified');
+      throw new Error(`retention-legacy-team-readback-unverified:${status ?? 'unknown'}`);
     saved++;
   }
   return saved;
