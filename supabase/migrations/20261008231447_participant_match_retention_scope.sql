@@ -129,7 +129,7 @@ $$;
 revoke all on function public.list_unretained_match_performance(integer,text) from public,anon,authenticated;
 grant execute on function public.list_unretained_match_performance(integer,text) to service_role;
 
--- retention_scope 컬럼 추가 뒤 같은 migration에 포함할 보완안. 운영 적용하지 않음.
+-- 새 분류 컬럼을 과거 복구 packet의 엄격한 행 비교에도 반영한다.
 -- 누락 키만 legacy로 보완하며 명시된 값, CAS, 잠금, 권한, 보존 근거는 유지한다.
 do $migration$
 declare
