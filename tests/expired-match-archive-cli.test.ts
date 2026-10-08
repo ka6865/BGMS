@@ -24,6 +24,7 @@ const r2 = vi.hoisted(() => ({
   deleteSource: vi.fn(),
   restore: vi.fn(),
   list: vi.fn(),
+  usage: vi.fn(),
 }));
 
 vi.mock("dotenv", () => ({ default: { config: vi.fn() } }));
@@ -167,6 +168,7 @@ vi.mock("../lib/pubg-analysis/r2Service", () => ({
   restoreR2ObjectFromRetentionBackup: r2.restore,
   listR2ObjectsByPrefix: r2.list,
   decodeMaybeGzip: (body: Buffer) => body.toString("utf8"),
+  getR2BucketUsage: r2.usage,
 }));
 
 vi.mock("../scripts/r2_recovery_archive", () => ({
@@ -248,6 +250,7 @@ beforeEach(async () => {
   r2.deleteSource.mockReset();
   r2.restore.mockReset().mockImplementation(async () => { harness.actions.push("r2-restore"); });
   r2.list.mockReset().mockResolvedValue({ objects: [], pages: 1, truncated: false });
+  r2.usage.mockReset().mockResolvedValue({ configured: true, truncated: false, totalSizeBytes: 12345, fileCount: 50 });
   makeRead();
   const cleanupModule = await import("../scripts/cleanup_expired_match_archives");
   cleanup = cleanupModule.runExpiredMatchArchiveCleanup;
@@ -274,6 +277,63 @@ const env = {
 };
 
 describe("expired match archive CLI apply protocol", () => {
+  it('기준 시각 뒤의 경기와 apply에서 바뀐 기준 시각을 정리하지 않는다', async () => {
+    await cleanup([...args('prepare'), '--cutoff', '2026-08-31T00:00:00.000Z'], env);
+    expect(JSON.parse(await readFile(manifestPath, 'utf8')).objects).toEqual([]);
+    await expect(cleanup([...args('apply'), '--cutoff', '2026-09-01T00:00:00.000Z'], env))
+      .rejects.toThrow('retention-manifest-scope-invalid');
+    expect(r2.deletePersonal).not.toHaveBeenCalled();
+  });
+
+  it('전체 용량 측정은 쓰지 않으며 잘린 측정을 거부한다', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await cleanup(['--measure-usage'], env);
+    expect(JSON.parse(info.mock.calls[0][0])).toEqual({ mode: 'r2-usage', bytes: 12345, objects: 50 });
+    expect(harness.actions).toEqual([]);
+    r2.usage.mockResolvedValue({ configured: true, truncated: true, totalSizeBytes: 1, fileCount: 1 });
+    await expect(cleanup(['--measure-usage'], env)).rejects.toThrow('retention-r2-usage-incomplete');
+  });
+
+  it('예약 작업의 커서가 고정 기준 밖에 있으면 빈 범위의 정상 CAS로 감싸고 다음 순회를 허용한다', async () => {
+    harness.tables.pubg_archive_cleanup_cursor[0].played_at = '2026-09-24T01:00:00.000Z';
+    harness.tables.pubg_archive_cleanup_cursor[0].platform = platform;
+    harness.tables.pubg_archive_cleanup_cursor[0].match_id = matchId;
+    const scope = ['--platform', 'all', '--limit', '1', '--manifest', manifestPath,
+      '--backup-artifact', backupPath, '--cutoff', '2026-09-22T00:00:00.000Z'];
+    await cleanup(['--prepare-backup', ...scope], env);
+    const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(plan).toMatchObject({ matches: [], objects: [], startedFromBeginning: false, nextCursor: null });
+    await cleanup(['--apply', '--backup-upload-verified', ...scope], env);
+    expect(harness.tables.pubg_archive_cleanup_cursor[0]).toMatchObject({ played_at: null, generation: 5 });
+    expect(r2.deletePersonal).not.toHaveBeenCalled();
+  });
+
+  it('삭제 대상만 R2에서 다시 읽으면서 모든 현재 DB 참조를 검사한다', async () => {
+    const otherKey = buildTelemetryCacheKey({ matchId, platform, playerId: accountId, mode: 'full', telemetryVersion: 74 });
+    harness.tables.telemetry_map_cache_entries.push({ ...registrySnapshot, id: 18, telemetry_version: 74, storage_path: otherKey });
+    r2.read.mockImplementation(async (key: string) => [mapKey, otherKey].includes(key) ? {
+      key, etag: '"archive-etag"', sizeBytes: harness.objectBody.length, contentType: 'application/json', contentEncoding: null,
+      body: Buffer.from(harness.objectBody),
+    } : null);
+    await cleanup(args('prepare'), env);
+    r2.read.mockClear();
+    await cleanup(args('apply'), env);
+    expect(r2.read.mock.calls.map(call => call[0])).toEqual([mapKey]);
+    expect(r2.deletePersonal).toHaveBeenCalledTimes(1);
+    expect(harness.tables.telemetry_map_cache_entries).toEqual([{ ...registrySnapshot, id: 18, telemetry_version: 74, storage_path: otherKey }]);
+  });
+
+  it('백업할 본문이 준비 중 바뀌면 백업·삭제를 중단한다', async () => {
+    let reads = 0;
+    r2.read.mockImplementation(async (key: string) => key === mapKey ? {
+      key, etag: ++reads === 1 ? '"archive-etag"' : '"changed"', sizeBytes: harness.objectBody.length,
+      contentType: 'application/json', contentEncoding: null, body: Buffer.from(harness.objectBody),
+    } : null);
+    await expect(cleanup(args('prepare'), env)).rejects.toThrow('retention-backup-object-changed');
+    await expect(readFile(backupPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(r2.deletePersonal).not.toHaveBeenCalled();
+  });
+
   it('보존 준비와 삭제 직전 재검증에서 지도 등록부의 전체 필드를 동일하게 대조한다', async () => {
     harness.projectRegistryColumns = true;
     harness.tables.telemetry_map_cache_entries[0].created_at = '2026-09-02T00:00:00.000Z';
@@ -572,6 +632,7 @@ describe("expired match archive CLI apply protocol", () => {
       account_id: "account.NewReference", player_id: "new-player",
     }))],
     ["compact checksum change", () => { harness.tables.pubg_match_performance[0].source_checksum = "f".repeat(64); }],
+    ["new map lease", () => { harness.tables.telemetry_map_cache_entries[0].lease_token = 'new-lease'; }],
   ])("apply-time %s blocks every delete", async (_label, mutate) => {
     await cleanup(args("prepare"), env);
     mutate();

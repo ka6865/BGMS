@@ -30,6 +30,7 @@ runs:
       run: |
         umask 077
         args=(--platform "$OP_PLATFORM" --limit "$OP_LIMIT" --scan-limit "$OP_SCAN_LIMIT" --manifest "$OP_BATCH_DIRECTORY/manifest.json")
+        if [ -n "$OP_CUTOFF" ]; then args+=(--cutoff "$OP_CUTOFF"); fi
         if [ -n "$OP_ACCOUNT" ]; then args+=(--account-id "$OP_ACCOUNT"); fi
         if [ -n "$OP_MATCH" ]; then args+=(--match-id "$OP_MATCH"); fi
         if [ "$OP_MODE" = 'apply' ]; then
@@ -69,6 +70,7 @@ runs:
         OP_BATCH_DIRECTORY: ${{ steps.gate.outputs.directory }}
       run: |
         args=(--apply --backup-upload-verified --platform "$OP_PLATFORM" --limit "$OP_LIMIT" --scan-limit "$OP_SCAN_LIMIT" --manifest "$OP_BATCH_DIRECTORY/manifest.json" --backup-artifact "$OP_BATCH_DIRECTORY/backup.enc")
+        if [ -n "$OP_CUTOFF" ]; then args+=(--cutoff "$OP_CUTOFF"); fi
         if [ -n "$OP_ACCOUNT" ]; then args+=(--account-id "$OP_ACCOUNT"); fi
         if [ -n "$OP_MATCH" ]; then args+=(--match-id "$OP_MATCH"); fi
         npx tsx scripts/cleanup_expired_match_archives.ts "${args[@]}" | tee "$OP_BATCH_DIRECTORY/result.json"

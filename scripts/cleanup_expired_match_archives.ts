@@ -12,6 +12,7 @@ import {
   readObjectForVerification,
   restoreR2ObjectFromRetentionBackup,
   decodeMaybeGzip,
+  getR2BucketUsage,
   type R2ObjectVerificationRead,
 } from "../lib/pubg-analysis/r2Service";
 import {
@@ -54,6 +55,7 @@ type Args = {
   backupPath?: string;
   backupUploadVerified: boolean;
   preservePerformance?: boolean;
+  cutoff?: string;
 };
 type BasicMatch = {
   account_id: string | null; player_id: string; platform: string; match_id: string; played_at: string;
@@ -94,7 +96,9 @@ type Manifest = {
   limit: number;
   maxPages: number;
   matches: PlannedMatch[];
+  cutoff?: string;
   objects: ObjectProof[];
+  startedFromBeginning?: boolean;
   legacyListings: Array<{ pages: number; truncated: boolean; objects: number }>;
   cursorGeneration?: number;
   nextCursor?: { played_at: string; platform: Platform; match_id: string } | null;
@@ -146,7 +150,8 @@ function parseArgs(argv: string[]): Args {
   const matchId = values.get("--match-id");
   const manifestPath = values.get("--manifest") ?? "";
   const backupPath = values.get("--backup-artifact");
-  const allowed = new Set(["--platform", "--account-id", "--limit", "--max-pages", "--scan-limit", "--match-id", "--manifest", "--backup-artifact"]);
+  const cutoff = values.get("--cutoff");
+  const allowed = new Set(["--platform", "--account-id", "--limit", "--max-pages", "--scan-limit", "--match-id", "--manifest", "--backup-artifact", "--cutoff"]);
   if ([...values.keys()].some((key) => !allowed.has(key))) throw new Error("cli-option-unknown");
   if ((platform !== "steam" && platform !== "kakao" && platform !== "all")
     || (accountId !== undefined && !ACCOUNT_ID.test(accountId)) || (platform !== "all" && !accountId)
@@ -156,9 +161,11 @@ function parseArgs(argv: string[]): Args {
     || (matchId !== undefined && !/^[A-Za-z0-9_-]{1,128}$/.test(matchId))
     || !manifestPath || (mode !== "dry-run" && !backupPath)
     || (mode === "dry-run" && (backupPath || flags.has('--preserve-performance')))
+    || (cutoff !== undefined && (!Number.isFinite(Date.parse(cutoff))
+      || Date.parse(cutoff) > Date.now() - MATCH_DETAIL_RETENTION_DAYS * 86_400_000))
     || (mode === 'apply' && flags.has('--preserve-performance'))) throw new Error("cli-arguments-invalid");
   return { mode, platform, accountId, scanLimit, matchId, limit, maxPages, manifestPath: resolve(manifestPath), backupPath: backupPath ? resolve(backupPath) : undefined,
-    backupUploadVerified: flags.has("--backup-upload-verified"), preservePerformance: flags.has('--preserve-performance') };
+    backupUploadVerified: flags.has("--backup-upload-verified"), preservePerformance: flags.has('--preserve-performance'), cutoff };
 }
 
 async function writePrivateNewFile(path: string, body: Buffer): Promise<void> {
@@ -232,6 +239,7 @@ async function readLegacyTeamArtifacts(match: BasicMatch, processed: Array<Recor
 async function inspectOneMatch(input: {
   db: SupabaseClient; match: BasicMatch; args: Args; now: number; projectRef: string;
   legacyListings: Manifest["legacyListings"];
+  objectKey?: string;
   recoveryBudget?: { calculations: number; linkedAccounts: number; savedSummaries: number; recoveredSummaries: number; decodedLegacyBytes: number };
 }): Promise<{ plan: PlannedMatch; objects: ObjectProof[]; eligibleObjectCount?: number }> {
   const { db, match, args, now } = input;
@@ -403,7 +411,8 @@ async function inspectOneMatch(input: {
       matchId: match.match_id, playedAt: match.played_at,
       accountId, playerId: normalized(basics.find((basic) => basic.account_id === accountId)?.player_id), mode: identity.mode, telemetryVersion: version });
   }
-  const legacy = await listR2ObjectsByPrefix(`${match.match_id}_`, { maxPages: args.maxPages, maxObjects: 100 });
+  const legacy = input.objectKey?.includes('/') ? { objects: [], pages: 0, truncated: false }
+    : await listR2ObjectsByPrefix(`${match.match_id}_`, { maxPages: args.maxPages, maxObjects: 100 });
   input.legacyListings.push({ pages: legacy.pages, truncated: legacy.truncated, objects: legacy.objects.length });
   for (const listed of legacy.objects) {
     for (const basic of basics) {
@@ -425,6 +434,7 @@ async function inspectOneMatch(input: {
   const objectProofs: ObjectProof[] = [];
   let sourceEvidence: NonNullable<Parameters<typeof assessMatchRetentionCleanup>[0]["source"]> | undefined;
   for (const candidate of uniqueKeys) {
+    if (input.objectKey && candidate.key !== input.objectKey) continue;
     const object = await readExactObject(candidate.key);
     if (!object) continue;
     const proof: ObjectProof = { ...candidate, etag: object.etag, sizeBytes: object.sizeBytes,
@@ -479,6 +489,7 @@ async function inspect(options: Args, env: Record<string, string | undefined> = 
       || storedManifest.platform !== options.platform || storedManifest.accountId !== options.accountId
       || storedManifest.matchId !== options.matchId || storedManifest.limit !== options.limit
       || storedManifest.scanLimit !== options.scanLimit || storedManifest.maxPages !== options.maxPages
+      || storedManifest.cutoff !== options.cutoff
       || !Array.isArray(storedManifest.objects) || storedManifest.objects.length > FIRST_BATCH_OBJECTS
       || !Number.isFinite(Date.parse(storedManifest.createdAt))
       || Date.now() - Date.parse(storedManifest.createdAt) > 3_600_000) {
@@ -487,7 +498,7 @@ async function inspect(options: Args, env: Record<string, string | undefined> = 
     return { manifest: storedManifest, supabase: db, env };
   }
   const now = Date.now();
-  const cutoff = new Date(now - MATCH_DETAIL_RETENTION_DAYS * 86_400_000).toISOString();
+  const cutoff = options.cutoff ?? new Date(now - MATCH_DETAIL_RETENTION_DAYS * 86_400_000).toISOString();
   const globalScan = options.platform === "all" && !options.accountId && !options.matchId;
   let cursor: { played_at: string | null; platform: Platform | null; match_id: string | null; generation: number } | null = null;
   if (globalScan) {
@@ -512,7 +523,11 @@ async function inspect(options: Args, env: Record<string, string | undefined> = 
   if (options.platform !== "all") candidateQuery = candidateQuery.eq("platform", options.platform);
   else candidateQuery = candidateQuery.in("platform", ["steam", "kakao"]);
   if (options.matchId) candidateQuery = candidateQuery.eq("match_id", options.matchId);
-  const { data: candidateRows, error } = await candidateQuery.limit(options.scanLimit).abortSignal(AbortSignal.timeout(15_000));
+  // A scheduled run may already have moved past a one-off run's frozen cutoff.
+  // This is the end of that scope; apply uses the normal empty-page cursor CAS to wrap.
+  const cursorPastCutoff = cursor?.played_at && Date.parse(cursor.played_at) >= Date.parse(cutoff);
+  const { data: candidateRows, error } = cursorPastCutoff ? { data: [], error: null }
+    : await candidateQuery.limit(options.scanLimit).abortSignal(AbortSignal.timeout(15_000));
   if (error) throw new Error(`retention-candidate-query-failed:${error.code ?? "unknown"}`);
   const legacyListings: Manifest["legacyListings"] = [];
   const matches: PlannedMatch[] = [];
@@ -525,7 +540,8 @@ async function inspect(options: Args, env: Record<string, string | undefined> = 
     const key = `${match.platform}:${match.match_id}`;
     if (visited.has(key)) continue;
     visited.add(key);
-    if (getMatchDetailRetention(match.played_at, now).status !== "expired") continue;
+    if (getMatchDetailRetention(match.played_at, now).status !== "expired"
+      || Date.parse(match.played_at) >= Date.parse(cutoff)) continue;
     const remaining = options.limit - objects.length;
     const result = await inspectOneMatch({ db, match, args: { ...options, limit: remaining }, now, projectRef, legacyListings, recoveryBudget });
     const remainingBytes = MAX_RETENTION_BATCH_BYTES - objects.reduce((sum, o) => sum + o.sizeBytes, 0);
@@ -549,10 +565,11 @@ async function inspect(options: Args, env: Record<string, string | undefined> = 
     createdAt: new Date(now).toISOString(), projectRef,
     platform: options.platform, accountId: options.accountId, scanLimit: options.scanLimit, matchId: options.matchId,
     limit: options.limit, maxPages: options.maxPages,
+    ...(options.cutoff ? { cutoff: options.cutoff } : {}),
     matches, objects: objects.slice(0, options.limit), legacyListings,
     preservation: { linkedAccounts: recoveryBudget.linkedAccounts, savedSummaries: recoveryBudget.savedSummaries,
       recoveredSummaries: recoveryBudget.recoveredSummaries },
-    ...(globalScan ? { cursorGeneration: cursor!.generation, nextCursor } : {}) };
+    ...(globalScan ? { cursorGeneration: cursor!.generation, nextCursor, startedFromBeginning: !cursor!.played_at } : {}) };
   return { manifest, supabase: db, env };
 }
 
@@ -565,15 +582,18 @@ async function saveManifest(manifest: Manifest, path: string): Promise<void> {
 async function prepareBackup(manifest: Manifest, path: string, secret: string): Promise<void> {
   if (!secret.trim()) throw new Error("retention-backup-key-missing");
   const objects: BackupObject[] = [];
-  let bytes = 0;
-  for (const proof of manifest.objects) {
-    const latest = await readExactObject(proof.key);
-    if (!latest || latest.etag !== proof.etag || latest.sizeBytes !== proof.sizeBytes || sha256(latest.body) !== proof.sha256) {
-      throw new Error("retention-backup-object-changed");
-    }
-    bytes += latest.sizeBytes;
-    if (bytes > MAX_OBJECT_BYTES) throw new Error("retention-backup-size-limit");
-    objects.push({ ...proof, bodyBase64: latest.body.toString("base64"), contentType: latest.contentType, contentEncoding: latest.contentEncoding });
+  if (manifest.objects.reduce((sum, proof) => sum + proof.sizeBytes, 0) > MAX_OBJECT_BYTES) {
+    throw new Error("retention-backup-size-limit");
+  }
+  for (let offset = 0; offset < manifest.objects.length; offset += 3) {
+    const verified = await Promise.all(manifest.objects.slice(offset, offset + 3).map(async proof => {
+      const latest = await readExactObject(proof.key);
+      if (!latest || latest.etag !== proof.etag || latest.sizeBytes !== proof.sizeBytes || sha256(latest.body) !== proof.sha256) {
+        throw new Error("retention-backup-object-changed");
+      }
+      return { ...proof, bodyBase64: latest.body.toString("base64"), contentType: latest.contentType, contentEncoding: latest.contentEncoding };
+    }));
+    objects.push(...verified);
   }
   const payload: BackupPayload = { format: FORMATS.backup, planSha256: manifestDigest(manifest), projectRef: manifest.projectRef, objects };
   await writePrivateNewFile(path, sealRecoveryBytes(Buffer.from(JSON.stringify(payload), "utf8"), secret));
@@ -599,15 +619,17 @@ async function decryptBackup(path: string, secret: string): Promise<BackupPayloa
 async function recheckMatchEligibility(db: SupabaseClient, proof: ObjectProof, manifest: Manifest, now: number): Promise<void> {
   if (!['steam', 'kakao'].includes(proof.platform) || !proof.playedAt
     || getMatchDetailRetention(proof.playedAt, now).status !== 'expired'
+    || (manifest.cutoff && Date.parse(proof.playedAt) >= Date.parse(manifest.cutoff))
     || (manifest.platform !== 'all' && proof.platform !== manifest.platform)
     || (manifest.matchId && proof.matchId !== manifest.matchId)) throw new Error('retention-date-scope-recheck-failed');
   const basics = await rows<BasicMatch>(db, 'pubg_player_matches',
     'account_id,player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type', proof.matchId, proof.platform);
   const basic = basics.find(row => !manifest.accountId || row.account_id === manifest.accountId);
   if (!basic || Date.parse(basic.played_at) !== Date.parse(proof.playedAt)) throw new Error('retention-basic-recheck-failed');
-  // Reuse the complete initial assessment: every reference, checksum, measured
-  // basic value, active job, lease and shared-source participant is checked again.
+  // Recheck every DB reference, summary/checksum and lease for each deletion.
+  // Read only this object's R2 evidence; the delete helper reads it again immediately before DELETE.
   const fresh = await inspectOneMatch({ db, match: basic, now, projectRef: manifest.projectRef, legacyListings: [],
+    objectKey: proof.key,
     args: { mode: 'dry-run', platform: proof.platform, accountId: basic.account_id ?? undefined,
       scanLimit: 100, matchId: proof.matchId, limit: FIRST_BATCH_OBJECTS, maxPages: manifest.maxPages, manifestPath: '', backupUploadVerified: false } });
   const current = fresh.objects.find(object => object.key === proof.key);
@@ -634,10 +656,6 @@ async function applyPlan(inspection: Inspection, backup: BackupPayload): Promise
     const backupObject = byKey.get(proof.key);
     if (!backupObject) throw new Error("retention-backup-object-missing");
     await recheckMatchEligibility(supabase, proof, manifest, Date.now());
-    const latest = await readExactObject(proof.key);
-    if (!latest || latest.etag !== proof.etag || latest.sizeBytes !== proof.sizeBytes || sha256(latest.body) !== proof.sha256) {
-      throw new Error("retention-object-final-recheck-failed");
-    }
     let registryDeleted = false;
     let masterPointerCleared = false;
     try {
@@ -706,6 +724,14 @@ async function applyPlan(inspection: Inspection, backup: BackupPayload): Promise
 
 export async function runExpiredMatchArchiveCleanup(argv = process.argv.slice(2), env: Record<string, string | undefined> = process.env): Promise<void> {
   dotenv.config({ path: env.BGMS_ENV_FILE || '.env.local', quiet: true });
+  if (argv[0] === '--measure-usage' && (argv.length === 1
+    || (argv.length === 2 && ['before', 'after'].includes(argv[1])))) {
+    const usage = await getR2BucketUsage();
+    if (!usage.configured || usage.truncated) throw new Error('retention-r2-usage-incomplete');
+    console.info(JSON.stringify({ mode: 'r2-usage', ...(argv[1] ? { phase: argv[1] } : {}),
+      bytes: usage.totalSizeBytes, objects: usage.fileCount }));
+    return;
+  }
   const options = parseArgs(argv);
   if (options.limit > FIRST_BATCH_OBJECTS) throw new Error('retention-first-batch-bound-exceeded');
   const storedManifest = options.mode === 'apply'
