@@ -337,10 +337,12 @@ it("질문형 보완은 홍보·외부 지시·짧은 단문·허용하지 않�
 it("같은 주제의 여러 출처 후보가 있는데 한 출처만 고르면 사유를 남긴다", async () => {
   const dc = evidence({
     id: "dc-1", source: "dc", official: false,
+    title: "M416 피해량 조정 의견",
     url: "https://gall.dcinside.com/board/view/?id=battlegrounds&no=1",
   });
   const naver = evidence({
     id: "naver-1", source: "naver", official: false, access: "snippet",
+    title: "M416 피해량 조정 질문",
     url: "https://cafe.naver.com/playbattlegrounds/1",
   });
   const model = vi.fn().mockResolvedValue({

@@ -165,7 +165,7 @@ export function checkDraft(draft: Draft, evidence: Evidence[], now: Date): Valid
         ? "unverified_recent_evidence" : "stale_recent_evidence");
     }
     if (paragraph.kind === "observed_opinion" && cited.length === 1
-      && !/(?:한\s*(?:자료|출처|건)|단일\s*출처|개별\s*(?:질문|의견|반응))/.test(paragraph.text)) {
+      && !/(?:한\s*(?:자료|출처|건)|단일\s*출처|개별\s*(?:이용자(?:의)?\s*)?(?:질문|의견|반응))/.test(paragraph.text)) {
       reasons.push("single_source_opinion_unlabeled");
     }
     if (hasOpinionPercentage(paragraph)) reasons.push("unsupported_opinion_percentage");
