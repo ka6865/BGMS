@@ -13,6 +13,7 @@ declare
   recent_payload jsonb;
   payload jsonb;
   result jsonb;
+  failure_reason text;
 begin
   insert into public.pubg_player_matches
     (match_id,platform,player_id,account_id,played_at,game_mode,map_name,kills,damage,win_place,match_type)
@@ -98,6 +99,8 @@ begin
     raise exception 'malformed payload unexpectedly succeeded';
   exception when others then
     if sqlerrm <> 'legacy-team-retention-recovery-failed' then raise; end if;
+    get stacked diagnostics failure_reason = pg_exception_detail;
+    if failure_reason is distinct from 'validation-rejected' then raise exception 'unsafe validation failure reason'; end if;
   end;
 
   begin
@@ -126,6 +129,8 @@ begin
     raise exception 'stale source CAS unexpectedly succeeded';
   exception when others then
     if sqlerrm <> 'legacy-team-retention-recovery-failed' then raise; end if;
+    get stacked diagnostics failure_reason = pg_exception_detail;
+    if failure_reason is distinct from 'snapshot-changed' then raise exception 'snapshot failure reason mismatch'; end if;
   end;
 
   begin
@@ -149,6 +154,8 @@ begin
     raise exception 'existing target processed row unexpectedly succeeded';
   exception when others then
     if sqlerrm <> 'legacy-team-retention-recovery-failed' then raise; end if;
+    get stacked diagnostics failure_reason = pg_exception_detail;
+    if failure_reason is distinct from 'target-exists' then raise exception 'target collision failure reason mismatch'; end if;
   end;
   delete from public.processed_match_telemetry where match_id=match_key and platform='steam' and player_id='player_b';
 
@@ -170,6 +177,8 @@ begin
     raise exception 'active registry lease unexpectedly succeeded';
   exception when others then
     if sqlerrm <> 'legacy-team-retention-recovery-failed' then raise; end if;
+    get stacked diagnostics failure_reason = pg_exception_detail;
+    if failure_reason is distinct from 'active-lease' then raise exception 'active lease failure reason mismatch'; end if;
   end;
   delete from public.telemetry_map_cache_entries where storage_path='fixture/legacy-team-pending.json';
 

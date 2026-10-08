@@ -61,6 +61,7 @@ MIGRATIONS=(
   "20261006223434_legacy_team_retention_recovery"
   "20261007053338_legacy_map_retention_recovery"
   "20261007062957_legacy_team_retention_event_metadata"
+  "20261008213000_legacy_team_retention_failure_reasons"
 )
 
 cleanup() {

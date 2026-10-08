@@ -114,6 +114,63 @@ describe('legacy-team compact write verification', () => {
     await expect(preserveLegacyTeamRetentionPackets(db(packet, true).client as any, [packet]))
       .rejects.toThrow('retention-legacy-team-readback-unverified');
   });
+  it.each([0, 502, 503, 504])('verifies a committed write after an ambiguous HTTP %i response without repeating it', async status => {
+    const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+    const { client, calls } = db(packet);
+    client.rpc.mockImplementation(() => ({ abortSignal: async () => ({
+      data: null, error: { message: 'private transport details' }, status,
+    }) }) as any);
+    expect(await preserveLegacyTeamRetentionPackets(client as any, [packet])).toBe(1);
+    expect(client.rpc).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual(['pubg_player_matches', 'pubg_match_performance']);
+  });
+  it('keeps deletion blocked when an ambiguous response has no matching saved summary', async () => {
+    const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+    const { client } = db(packet, true);
+    client.rpc.mockImplementation(() => ({ abortSignal: async () => ({
+      data: null, error: { message: 'private transport details' }, status: 504,
+    }) }) as any);
+    await expect(preserveLegacyTeamRetentionPackets(client as any, [packet]))
+      .rejects.toThrow('retention-legacy-team-readback-unverified');
+    expect(client.rpc).toHaveBeenCalledTimes(1);
+  });
+  it.each([400, 401, 403])('does not reconcile an explicit HTTP %i rejection through an existing row', async status => {
+    const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+    const { client, calls } = db(packet);
+    client.rpc.mockImplementation(() => ({ abortSignal: async () => ({
+      data: null, error: { code: 'P0001', message: 'private database details' }, status,
+    }) }) as any);
+    await expect(preserveLegacyTeamRetentionPackets(client as any, [packet]))
+      .rejects.toThrow('retention-legacy-team-write-unverified');
+    expect(calls).toEqual([]);
+  });
+  it('does not accept an invalid success response even when readback could match', async () => {
+    const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+    const { client, calls } = db(packet);
+    client.rpc.mockImplementation(() => ({ abortSignal: async () => ({
+      data: { saved: true, basic: { ...packet.expectedBasic, kills: 999 } }, error: null, status: 200,
+    }) }) as any);
+    await expect(preserveLegacyTeamRetentionPackets(client as any, [packet]))
+      .rejects.toThrow('retention-legacy-team-write-unverified:200');
+    expect(calls).toEqual([]);
+  });
+  it.each(['lock-unavailable', 'lock-budget-exceeded', 'snapshot-changed', 'active-lease', 'target-exists', 'validation-rejected'])(
+    'reports only the fixed database rejection reason %s', async details => {
+      const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+      const client = { rpc: () => ({ abortSignal: async () => ({
+        error: { message: 'PRIVATE_SENTINEL', details }, status: 400,
+      }) }) };
+      await expect(preserveLegacyTeamRetentionPackets(client as any, [packet]))
+        .rejects.toThrow(`retention-legacy-team-write-unverified:400:${details}`);
+    });
+  it('redacts database details outside the fixed rejection reasons', async () => {
+    const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+    const client = { rpc: () => ({ abortSignal: async () => ({
+      error: { message: 'PRIVATE_SENTINEL', details: 'private row contents' }, status: 400,
+    }) }) };
+    const message = await preserveLegacyTeamRetentionPackets(client as any, [packet]).catch(error => error.message);
+    expect(message).toBe('retention-legacy-team-write-unverified:400:unknown');
+  });
   it('does not expose failed database responses', async () => {
     const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
     const client = { rpc: () => ({ abortSignal: async () => ({ error: { message: 'private data' } }) }) };

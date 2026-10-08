@@ -58,9 +58,32 @@ runs:
         OP_ARTIFACT_ID: ${{ steps.backup.outputs.artifact-id }}
         OP_BATCH_DIRECTORY: ${{ steps.gate.outputs.directory }}
       run: |
+        umask 077
         [ -n "$OP_ARTIFACT_ID" ]
         mkdir -p "$OP_BATCH_DIRECTORY/readback"
-        gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$OP_ARTIFACT_ID/zip" > "$OP_BATCH_DIRECTORY/readback.zip"
+        # A successful upload can briefly return 404; retry only this readback.
+        for attempt in 1 2 3; do
+          if timeout 60s gh api --method GET "repos/$GITHUB_REPOSITORY/actions/artifacts/$OP_ARTIFACT_ID/zip" \
+            > "$OP_BATCH_DIRECTORY/readback.zip" 2> "$OP_BATCH_DIRECTORY/readback.err"; then
+            break
+          else
+            readback_status=$?
+          fi
+          retryable=false
+          readback_error=$(< "$OP_BATCH_DIRECTORY/readback.err")
+          if [[ "$readback_error" =~ HTTP[[:space:]]([0-9]{3}) ]]; then
+            case "${BASH_REMATCH[1]}" in 404|429|5??) retryable=true ;; esac
+          elif [ "$readback_status" -eq 124 ] || grep -Eqi \
+            'timeout|timed out|EOF|connection (reset|refused|closed)|no such host|network is unreachable|temporary failure in name resolution' \
+            "$OP_BATCH_DIRECTORY/readback.err"; then
+            retryable=true
+          fi
+          if [ "$retryable" != true ] || [ "$attempt" -eq 3 ]; then
+            printf 'Artifact readback failed; apply blocked.\n' >&2
+            exit 1
+          fi
+          sleep "$attempt"
+        done
         unzip -q "$OP_BATCH_DIRECTORY/readback.zip" -d "$OP_BATCH_DIRECTORY/readback"
         cmp "$OP_BATCH_DIRECTORY/backup.enc" "$OP_BATCH_DIRECTORY/readback/backup.enc"
     - name: Apply exact plan and verify object absence
