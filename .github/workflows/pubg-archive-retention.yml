@@ -50,13 +50,12 @@ defaults:
   run:
     shell: bash
 
-concurrency:
-  group: pubg-detail-archive-retention
-  cancel-in-progress: false
-
 jobs:
   retain:
-    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.PUBG_DETAIL_ARCHIVE_RETENTION_ENABLED == 'true') }}
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (vars.PUBG_DETAIL_ARCHIVE_RETENTION_ENABLED == 'true' && vars.PUBG_ARCHIVE_BACKLOG_ENABLED != 'true')) }}
+    concurrency:
+      group: pubg-detail-archive-retention
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.mode == 'inspect-recovery' && 15 || 90 }}
     env:

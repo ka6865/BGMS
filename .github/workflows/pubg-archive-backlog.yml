@@ -1,0 +1,83 @@
+name: PUBG Archive Backlog
+
+on:
+  schedule:
+    - cron: '17 */3 * * *'
+  workflow_dispatch:
+    inputs:
+      cutoff:
+        description: '고정 기준 경기 시각 ISO-8601 (비우면 드라이버 시작 시점의 14일 전)'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+  actions: write
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  drain:
+    if: ${{ github.repository == 'ka6865/BGMS' && github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && vars.PUBG_ARCHIVE_BACKLOG_ENABLED == 'true')) }}
+    concurrency:
+      group: pubg-archive-backlog
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Drain expired archive backlog
+        id: drain
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OP_CUTOFF: ${{ inputs.cutoff }}
+        run: |
+          umask 077
+          args=(--apply --max-runs 100 --max-runtime-minutes 210 --log "$RUNNER_TEMP/private.jsonl")
+          if [ -n "$OP_CUTOFF" ]; then args+=(--cutoff "$OP_CUTOFF"); fi
+          npx tsx scripts/drain_expired_match_archives.ts "${args[@]}"
+      - name: Preserve backlog counters
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pubg-archive-backlog-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/private.jsonl
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: Summarize backlog
+        if: ${{ always() }}
+        env:
+          DRAIN_OUTCOME: ${{ steps.drain.outcome }}
+        run: |
+          node --input-type=module - <<'JS'
+          import { appendFileSync, existsSync, readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          const logPath = join(process.env.RUNNER_TEMP, 'private.jsonl');
+          const records = [];
+          for (const line of existsSync(logPath) ? readFileSync(logPath, 'utf8').split('\n') : []) {
+            try {
+              const record = JSON.parse(line);
+              if (record && typeof record === 'object' && !Array.isArray(record)) records.push(record);
+            } catch { /* An interrupted final line has no verified counters. */ }
+          }
+          const totals = records.filter(record => ['stopped', 'failed'].includes(record.event)).at(-1);
+          const report = {
+            status: process.env.DRAIN_OUTCOME,
+            verifiedRuns: records.filter(record => record.event === 'completed').length,
+            totalsScope: 'completed-batches-only',
+            totalsIncomplete: !totals || totals.event === 'failed',
+          };
+          for (const key of ['deletedObjects', 'removedBytes', 'backupBytes', 'netBucketReductionBytes']) {
+            if (Number.isSafeInteger(totals?.[key])) report[key] = totals[key];
+          }
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY, '```json\n' + JSON.stringify(report, null, 2) + '\n```\n');
+          JS
