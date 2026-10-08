@@ -47,7 +47,7 @@ describe("one-off archive drain", () => {
     });
   });
 
-  async function fakeGh(success: boolean, startedFromBeginning = true) {
+  async function fakeGh(success: boolean, starts: boolean[] = [true]) {
     const folder = await mkdtemp(join(tmpdir(), "bgms-drain-"));
     folders.push(folder);
     const records = join(folder, "commands");
@@ -59,10 +59,13 @@ describe("one-off archive drain", () => {
       "  'workflow run') printf '%s\\n' \"https://github.com/ka6865/BGMS/actions/runs/$((1233 + task_dispatch_count))\" ;;",
       "  'run view')",
       "    case \"$*\" in",
-      "      *--log*) cat <<'LOG'",
-      asLog(report('end-of-pass', startedFromBeginning)),
-      "LOG",
-      "        ;;",
+      "      *--log*)",
+      "        case \"$task_dispatch_count\" in",
+      ...[...starts, starts.at(-1)!].flatMap((started, index) => [
+        "          " + (index === starts.length ? '*' : String(index + 1)) + ") cat <<'LOG'",
+        asLog(report('end-of-pass', started)), "LOG", "            ;;",
+      ]),
+      "        esac ;;",
       "      *) printf '%s\\n' '" + JSON.stringify({ status: "completed", conclusion: success ? "success" : "failure" }) + "' ;;",
       "    esac ;;",
       "  *) exit 1 ;;",
@@ -89,11 +92,17 @@ describe("one-off archive drain", () => {
   });
 
   it('starts from a middle cursor, wraps, and covers the prefix before finishing the full pass', async () => {
-    const h = await fakeGh(true, false);
+    const h = await fakeGh(true, [false, true]);
     await drainExpiredMatchArchives(['--apply', '--log', h.log]);
     expect((await readFile(h.records, 'utf8')).split('\n').filter(line => line.startsWith('workflow run'))).toHaveLength(2);
     const lines = (await readFile(h.log, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
-    expect(lines.at(-1)).toMatchObject({ stopReason: 'end-of-pass', passEnds: 2, requiredPassEnds: 2, deletedObjects: 10 });
+    expect(lines.at(-1)).toMatchObject({ stopReason: 'end-of-pass', passEnds: 2, deletedObjects: 10 });
+  });
+
+  it('does not count two empty wraps as a pass until a run actually starts at the beginning', async () => {
+    const h = await fakeGh(true, [false, false, true]);
+    await drainExpiredMatchArchives(['--apply', '--log', h.log]);
+    expect((await readFile(h.records, 'utf8')).split('\n').filter(line => line.startsWith('workflow run'))).toHaveLength(3);
   });
 
   it("stops on a failed run and does not count unverified partial deletion or dispatch another", async () => {

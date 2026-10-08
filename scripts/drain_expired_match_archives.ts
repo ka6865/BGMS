@@ -93,7 +93,7 @@ export async function drainExpiredMatchArchives(argv = process.argv.slice(2)) {
   let initialBytes: number | null = null;
   let finalBytes: number | null = null;
   let stopReason = "run-limit";
-  let passEnds = 0, requiredPassEnds: number | null = null;
+  let passEnds = 0, fullPassStarted = false;
   try {
     await record({ event: "start", repo: REPO, ...options });
     for (let index = 0; index < options.maxRuns; index++) {
@@ -131,10 +131,10 @@ export async function drainExpiredMatchArchives(argv = process.argv.slice(2)) {
         netBucketReductionBytes: result.beforeBytes === null || result.afterBytes === null ? null : result.beforeBytes - result.afterBytes });
       if (!successful) throw new Error('backlog-run-not-successful');
       activeRun = null;
-      requiredPassEnds ??= result.startedFromBeginning ? 1 : 2;
+      fullPassStarted ||= result.startedFromBeginning;
       if (options.mode === 'apply' && result.stopReason === 'end-of-pass') {
         passEnds++;
-        if (passEnds < requiredPassEnds) continue;
+        if (!fullPassStarted) continue;
       }
       if (!["batch-limit", "time-budget"].includes(result.stopReason ?? '')) {
         stopReason = result.stopReason!;
@@ -142,7 +142,7 @@ export async function drainExpiredMatchArchives(argv = process.argv.slice(2)) {
       }
     }
     await record({ event: "stopped", stopReason, deletedObjects, removedBytes, backupBytes,
-      passEnds, requiredPassEnds, totalsScope: 'completed-batches-only',
+      passEnds, fullPassStarted, totalsScope: 'completed-batches-only',
       netBucketReductionBytes: initialBytes === null || finalBytes === null ? null : initialBytes - finalBytes,
       protectedObjectsMayRemain: true });
   } catch {
