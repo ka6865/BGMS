@@ -112,8 +112,12 @@ begin
   values ('scope-fanout-1','steam','scope_fanout_1','{}'),('scope-fanout-2','steam','scope_next','{}');
   select count(distinct match_id) into n from public.list_retention_archive_candidates(2,cutoff);
   if n<>2 then raise exception 'fanout consumed match candidate limit'; end if;
+  insert into public.pubg_player_matches(player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type)
+  values ('scope_inconsistent_date','steam','scope-fanout-1',now()-interval '38 days','squad','Baltic_Main',0,0,1,'official');
   if not exists(select 1 from public.list_retention_archive_candidates(1,cutoff,now()-interval '40 days','steam','scope-fanout-1')
     where match_id='scope-fanout-2') then raise exception 'match cursor skipped next match'; end if;
+  if exists(select 1 from public.list_retention_archive_candidates(2,cutoff,now()-interval '40 days','steam','scope-fanout-1')
+    where match_id='scope-fanout-1') then raise exception 'cursor reused later date from same match'; end if;
   update public.processed_match_telemetry set data=jsonb_build_object('fullResult',jsonb_build_object(
     'stats',jsonb_build_object('name',player_id,'playerId','account.fanout_1'),
     'v',72,'calculationVersion',1)) where match_id in ('scope-fanout-1','scope-fanout-2');
