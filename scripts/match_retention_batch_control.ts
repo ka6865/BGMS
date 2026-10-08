@@ -11,10 +11,12 @@ export type RetentionBatchState = {
   mode: "apply" | "dry-run"; maxBatches: number; startedAt: number;
   completedBatches: number; deletedObjects: number; removedBytes: number; backupBytes: number;
   lastCursor: string | null; stopReason: StopReason | null;
+  startedFromBeginning?: boolean;
 };
 type BatchManifest = {
   objects: unknown[]; matches: unknown[]; cursorGeneration?: number;
   nextCursor?: { played_at: string; platform: string; match_id: string } | null;
+  startedFromBeginning?: boolean;
 };
 type BatchResult = { mode: string; deletedObjects?: number; removedBytes?: number; backupBytes?: number };
 
@@ -50,7 +52,8 @@ export function completeRetentionBatch(state: RetentionBatchState, manifest: Bat
   result: BatchResult, now = Date.now()): RetentionBatchState {
   if (state.stopReason || !Array.isArray(manifest.objects) || !Array.isArray(manifest.matches)
     || manifest.objects.length > MAX_RETENTION_BATCH_OBJECTS || result.mode !== state.mode) throw new Error("retention-run-result-invalid");
-  let updated = { ...state, completedBatches: state.completedBatches + 1 };
+  let updated = { ...state, completedBatches: state.completedBatches + 1,
+    startedFromBeginning: state.completedBatches === 0 ? manifest.startedFromBeginning === true : state.startedFromBeginning };
   if (state.mode === "dry-run") return { ...updated, stopReason: "dry-run" };
   if (![result.deletedObjects, result.removedBytes, result.backupBytes].every(nonnegative)
     || result.deletedObjects !== manifest.objects.length || result.removedBytes! > MAX_RETENTION_BATCH_BYTES) {
@@ -71,6 +74,7 @@ export function completeRetentionBatch(state: RetentionBatchState, manifest: Bat
 function formatProgress(state: RetentionBatchState, failed = false) {
   return JSON.stringify({ mode: "continuous-retention", completedBatches: state.completedBatches,
     scope: "completed-batches", failed,
+    startedFromBeginning: state.startedFromBeginning === true,
     maxBatches: state.maxBatches, deletedObjects: state.deletedObjects, removedBytes: state.removedBytes,
     backupBytes: state.backupBytes, netBytesIncludingTemporaryBackup: state.removedBytes - state.backupBytes,
     stopReason: state.stopReason });
