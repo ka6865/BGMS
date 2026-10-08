@@ -29,7 +29,13 @@ const values = packets.map((packet: any) => {
     .every((value) => value && typeof value === 'object' && !Array.isArray(value))) {
     throw new Error('Packet schema is incomplete');
   }
-  const p = { before, sourceBasic, processedSource, expectedBasic, fullResult, performance };
+  // 전체 record INSERT는 기본값을 적용하지 않으므로 과거 자료의 누락 scope만 보완한다.
+  const p = {
+    before: { retention_scope: 'legacy', ...before },
+    sourceBasic: { retention_scope: 'legacy', ...sourceBasic },
+    expectedBasic: { retention_scope: 'legacy', ...expectedBasic },
+    processedSource, fullResult, performance,
+  };
   return `(${['before', 'sourceBasic', 'processedSource', 'expectedBasic', 'fullResult', 'performance']
     .map((key) => `convert_from(decode('${encodeJson(p[key as keyof typeof p])}','base64'),'UTF8')::jsonb`).join(',')})`;
 });

@@ -129,7 +129,7 @@ async function readDiscoveredAccountIds(supabase: ReturnType<typeof getAdminClie
     let accountId = await readCachedAccountId(supabase, platform, nickname);
     let result;
     if (matchId) {
-      let query = supabase.from("pubg_player_matches").select("player_id, platform, account_id, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time");
+      let query = supabase.from("pubg_player_matches").select("player_id, platform, account_id, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time, retention_scope");
       const identityFilter = buildPlayerMatchIdentityFilter(nickname, accountId);
       query = identityFilter ? query.or(identityFilter) : query.eq("player_id", nickname.trim().toLowerCase());
       const { data, error } = await query.eq("platform", platform).eq("match_id", matchId).limit(1);

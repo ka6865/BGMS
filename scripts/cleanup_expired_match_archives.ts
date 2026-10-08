@@ -17,6 +17,7 @@ import {
 } from "../lib/pubg-analysis/r2Service";
 import {
   assessMatchRetentionCleanup,
+  isBasicOnlyRetentionEvidence,
   MATCH_DETAIL_RETENTION_DAYS,
   type MatchRetentionAccountEvidence,
   type MatchRetentionObjectCandidate,
@@ -61,6 +62,7 @@ type Args = {
 type BasicMatch = {
   account_id: string | null; player_id: string; platform: string; match_id: string; played_at: string;
   game_mode: string; map_name: string; kills: number; damage: number; win_place: number; match_type: string;
+  retention_scope?: 'legacy' | 'basic_only' | 'detail';
 };
 type RegistryRow = {
   id: number; match_id: string; platform: string; player_id: string; mode: string;
@@ -75,6 +77,8 @@ type ObjectProof = MatchRetentionObjectCandidate & {
   registryUpdatedAt?: string;
   registrySnapshot?: RegistryRow;
   masterPathReferenced?: boolean;
+  basicOnlyAccountIds?: string[];
+  referencedAccountIds?: string[];
 };
 type PlannedMatch = {
   platform: Platform;
@@ -246,7 +250,7 @@ async function inspectOneMatch(input: {
   const { db, match, args, now } = input;
   const platform = match.platform as Platform;
   const [basics, processed, performances, registry, masters, discoveries, jobs, benchmarks] = await Promise.all([
-    rows<BasicMatch>(db, "pubg_player_matches", args.preservePerformance ? "*" : "account_id,player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type,knocks,survival_time", match.match_id, platform),
+    rows<BasicMatch>(db, "pubg_player_matches", args.preservePerformance ? "*" : "account_id,player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type,knocks,survival_time,retention_scope", match.match_id, platform),
     rows<Record<string, any>>(db, "processed_match_telemetry", args.preservePerformance ? "*" : "match_id,platform,player_id,data", match.match_id, platform),
     rows<RetainedPerformanceRow & Record<string, any>>(db, "pubg_match_performance", "platform,account_id,match_id,player_id,played_at,calculation_version,result_version,score,tier,benchmark,ranking_eligible,source_checksum,summary_version,summary", match.match_id, platform),
     // 복구 준비·삭제 재검증·실패 복원에서 같은 전체 등록부 스냅샷을 사용한다.
@@ -279,6 +283,20 @@ async function inspectOneMatch(input: {
   const activeMapLease = registry.some((row) => row.status !== "ready" || isActiveLease(row.lease_token, row.lease_expires_at, now));
   const pendingDiscovery = discoveries.some((row) => isUnfinished(row.state) || isActiveLease(row.lease_token, row.lease_expires_at, now));
   const pendingJob = jobs.some((row) => isUnfinished(row.state) || isActiveLease(row.lease_token, row.lease_expires_at, now));
+  const evidence: MatchRetentionAccountEvidence[] = [...refs].filter((id) => ACCOUNT_ID.test(id)).map((accountId) => {
+    const accountBasics = basics.filter((row) => row.account_id === accountId);
+    const basicMatch = accountBasics.length === 1 ? accountBasics[0] : null;
+    const nickname = normalized(basicMatch?.player_id);
+    return {
+      accountId, basicMatch,
+      processedRows: processed.filter((row) => normalized(row.player_id) === nickname),
+      retainedPerformanceRows: performances.filter((row) => row.account_id === accountId),
+      detailReferenced: registry.some(row => mapRegistryAccount(row, basics) === accountId)
+        || jobs.some(row => row.account_id === accountId)
+        || benchmarks.some(row => normalized(row.player_id) === nickname),
+    };
+  });
+  const basicOnlyAccountIds = evidence.filter(isBasicOnlyRetentionEvidence).map(row => row.accountId).sort();
   if (args.preservePerformance && !activeMapLease && !pendingDiscovery && !pendingJob) {
     // Serialize DB repairs and the shared recovery budget; independent reads can overlap.
     const previous = input.recoveryBudget?.preservationTail;
@@ -289,8 +307,9 @@ async function inspectOneMatch(input: {
       let source = null;
       // 기존 DB 결과를 우선하며 계정 연결이나 누락 성과 복구에 필요한 공통 원본만 읽는다.
       const legacyBindings = planLegacyRetentionBindings(basics, processed as any[]);
-      const needsSource = basics.some(b => (!b.account_id && !legacyBindings.some(proof => proof.before.player_id === b.player_id)) || (!processed.some(p => normalized(p.player_id) === normalized(b.player_id)
-        && p.data?.fullResult) && !performances.some(p => p.account_id === b.account_id && p.summary != null)));
+      const needsSource = basics.some(b => (!b.account_id || !basicOnlyAccountIds.includes(b.account_id))
+        && ((!b.account_id && !legacyBindings.some(proof => proof.before.player_id === b.player_id)) || (!processed.some(p => normalized(p.player_id) === normalized(b.player_id)
+        && p.data?.fullResult) && !performances.some(p => p.account_id === b.account_id && p.summary != null))));
       if (needsSource) {
         let key: string | null = null;
         try { key = buildSharedTelemetrySourceKey(match.match_id, platform); } catch { /* Noncanonical match remains protected. */ }
@@ -306,7 +325,7 @@ async function inspectOneMatch(input: {
         }
       }
       const preserved = await preserveExpiredMatchPerformance(db, { matchId: match.match_id, platform, basics,
-        processed: processed as any[], performances, source, now,
+        processed: processed as any[], performances, source, now, basicOnlyAccountIds,
         maxCalculations: Math.max(0, 5 - (input.recoveryBudget?.calculations ?? 0)) });
       if (input.recoveryBudget) {
         input.recoveryBudget.calculations += preserved.recoveredSummaries;
@@ -370,17 +389,6 @@ async function inspectOneMatch(input: {
       }
     } finally { release(); }
   }
-  const evidence: MatchRetentionAccountEvidence[] = [...refs].filter((id) => ACCOUNT_ID.test(id)).map((accountId) => {
-    const accountBasics = basics.filter((row) => row.account_id === accountId);
-    const basicMatch = accountBasics.length === 1 ? accountBasics[0] : null;
-    const nickname = normalized(basicMatch?.player_id);
-    return {
-      accountId,
-      basicMatch,
-      processedRows: processed.filter((row) => normalized(row.player_id) === nickname),
-      retainedPerformanceRows: performances.filter((row) => row.account_id === accountId),
-    };
-  });
   const noActiveWork = !activeMapLease && !pendingDiscovery && !pendingJob;
   const masterPaths = masters.map((row) => row.storage_path).filter((value): value is string => typeof value === "string");
   const baseAssessment = assessMatchRetentionCleanup({
@@ -447,6 +455,10 @@ async function inspectOneMatch(input: {
     if (!object) continue;
     const proof: ObjectProof = { ...candidate, etag: object.etag, sizeBytes: object.sizeBytes,
       sha256: sha256(object.body), masterPathReferenced: masterPaths.includes(candidate.key) && candidate.kind === "personal-map" };
+    if (basicOnlyAccountIds.length) {
+      proof.basicOnlyAccountIds = basicOnlyAccountIds;
+      proof.referencedAccountIds = [...refs].sort();
+    }
     if (candidate.registry) proof.registrySnapshot = candidate.registry;
     delete (proof as any).registry;
     if (candidate.kind === "shared-source") {
@@ -682,10 +694,14 @@ async function applyPlan(inspection: Inspection, backup: BackupPayload): Promise
     let masterPointerCleared = false;
     try {
       if (proof.kind === "shared-source") {
-        const { data: basicRows, error } = await supabase.from("pubg_player_matches").select("account_id")
+        const { data: basicRows, error } = await supabase.from("pubg_player_matches").select("account_id,retention_scope")
           .eq("match_id", proof.matchId).eq("platform", proof.platform).limit(ROW_LIMIT);
         if (error || (basicRows ?? []).length >= ROW_LIMIT) throw new Error("retention-source-reference-recheck-failed");
         const refs = [...new Set((basicRows ?? []).map((row: any) => row.account_id).filter((id: unknown): id is string => typeof id === "string" && ACCOUNT_ID.test(id)))];
+        if (proof.basicOnlyAccountIds && (stableJson([...refs].sort()) !== stableJson(proof.referencedAccountIds)
+          || proof.basicOnlyAccountIds.some(id => !basicRows?.some(row => row.account_id === id && row.retention_scope === 'basic_only')))) {
+          throw new Error('retention-source-reference-recheck-failed');
+        }
         if (failed) return;
         await deleteExpiredMatchSourceFromR2({ matchId: proof.matchId, platform: proof.platform, playedAt: proof.playedAt!,
           referencedAccountIds: refs, preservedAccountIds: refs, noActiveWork: true, expectedEtag: proof.etag,

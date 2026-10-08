@@ -134,7 +134,8 @@ describe('durable match collection worker',()=>{
       data: name === 'claim_pubg_match_discovery' ? jobs.splice(0) : true, error: null,
     }));
     const upsert = vi.fn().mockResolvedValue({ error: null });
-    const query = { select: () => query, eq: () => query, or: async () => ({ data: [], error: null }), limit: async () => ({ data: [], error: null }), upsert };
+    const query = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: null, error: null }),
+      or: async () => ({ data: [], error: null }), limit: async () => ({ data: [], error: null }), upsert };
     vi.spyOn(discoveryServer, 'discoveryClient').mockReturnValue({ from: () => query, rpc } as never);
     vi.stubEnv('PUBG_API_KEY', 'fixture');
     const timedOut = new AbortController();

@@ -27,8 +27,10 @@ const updateQueries = new Map<string, {
   is: ReturnType<typeof vi.fn>;
   select: ReturnType<typeof vi.fn<() => Promise<UpdateResult>>>;
 }>();
+const settingsRead = vi.fn();
 const supabase = {
   from: vi.fn((table: string) => ({
+    ...(table === "system_settings" ? { select: () => ({ eq: () => ({ maybeSingle: settingsRead }) }) } : {}),
     upsert: upserts.get(table),
     update: updates.get(table),
   })),
@@ -40,13 +42,13 @@ const input = {
   platform: "steam",
   source: "user",
   forceBenchmark: false,
-  matchAttr: { gameMode: "squad-fpp", mapName: "Baltic_Main" },
+  matchAttr: { gameMode: "squad-fpp", mapName: "Baltic_Main", matchType: "official", createdAt: "2026-08-12T01:00:00.000Z", shardId: "steam" },
   rawParticipants: [
     {
       id: "participant-1",
       attributes: {
         stats: {
-          playerId: "account-1",
+          playerId: "account.target",
           name: "PlayerOne",
           damageDealt: 100.9,
           kills: 1,
@@ -110,7 +112,7 @@ function createParticipants(count: number) {
     id: `participant-${index}`,
     attributes: {
       stats: {
-        playerId: `account-${index}`,
+        playerId: `account.peer_${index}`,
         name: `Player${index}`,
         damageDealt: index,
         kills: 0,
@@ -123,6 +125,7 @@ function createParticipants(count: number) {
 describe("persistMatchAnalysis", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    settingsRead.mockResolvedValue({ data: { value: "[]" }, error: null });
     upserts.clear();
     updates.clear();
     updateQueries.clear();
@@ -150,6 +153,59 @@ describe("persistMatchAnalysis", () => {
     expect(rows[0]).not.toHaveProperty('survival_time');
   });
 
+  it('fans out official basic histories while only the analyzed account receives detail and player cache', async () => {
+    const peers = createParticipants(3);
+    const result = await persistMatchAnalysis(supabase, {...input, rawParticipants: [input.rawParticipants[0], ...peers]});
+    expect(result.failures).toEqual([]);
+    expect(settingsRead).toHaveBeenCalledTimes(1);
+    const rows = upserts.get('pubg_player_matches')!.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(4);
+    expect(rows[0]).toMatchObject({account_id: 'account.target', retention_scope: 'detail', played_at: input.matchAttr.createdAt});
+    expect(rows.slice(1).every(row => row.retention_scope === 'basic_only')).toBe(true);
+    expect(upserts.get('pubg_player_cache')!.mock.calls[0][0]).toHaveLength(1);
+    expect(upserts.get('processed_match_telemetry')).not.toHaveBeenCalled();
+    expect(supabase.from).not.toHaveBeenCalledWith('pubg_match_performance');
+  });
+
+  it.each(['createdAt', 'gameMode', 'mapName', 'kills', 'damageDealt', 'winPlace'])('does not fabricate analysis history when required %s is absent', async key => {
+    const copy = structuredClone(input);
+    delete (copy.matchAttr as Record<string, unknown>)[key];
+    delete (copy.rawParticipants[0].attributes.stats as Record<string, unknown>)[key];
+    const result = await persistMatchAnalysis(supabase, copy);
+    expect(upserts.get('pubg_player_matches')).not.toHaveBeenCalled();
+    expect(result.failures).toContainEqual({taskName: 'pubg_player_matches', message: 'analysis-participant-basic-values-missing'});
+  });
+
+  it('blocks basic fanout when the analyzed target is absent even if peers are valid', async () => {
+    const result = await persistMatchAnalysis(supabase, {...input, rawParticipants: createParticipants(3)});
+    expect(upserts.get('pubg_player_matches')).not.toHaveBeenCalled();
+    expect(result.succeeded).not.toContain('pubg_player_matches');
+  });
+
+  it('uses the same privacy identity rules for analysis peers and fails closed on privacy read errors', async () => {
+    const peers = createParticipants(2);
+    settingsRead.mockResolvedValue({data: {value: JSON.stringify([{platform: 'all', nickname: 'OldName', lower_nickname: 'oldname', account_id: 'account.peer_0'}])}, error: null});
+    await persistMatchAnalysis(supabase, {...input, rawParticipants: [input.rawParticipants[0], ...peers]});
+    expect(upserts.get('pubg_player_matches')!.mock.calls[0][0]).toHaveLength(2);
+    upserts.get('pubg_player_matches')!.mockClear();
+    settingsRead.mockResolvedValue({data: null, error: {message: 'privacy unavailable'}});
+    const result = await persistMatchAnalysis(supabase, input);
+    expect(upserts.get('pubg_player_matches')).not.toHaveBeenCalled();
+    expect(result.failures).toContainEqual({taskName: 'pubg_player_matches', message: 'privacy unavailable'});
+  });
+
+  it('keeps analysis exclusion evidence in every participant history ranking flag', async () => {
+    const result = await persistMatchAnalysis(supabase, {
+      ...input,
+      rawParticipants: [input.rawParticipants[0], ...createParticipants(2)],
+      finalResult: { ...input.finalResult, matchType: 'official', telemetryFlags: { isEventMode: true } },
+    });
+    expect(result.failures).toEqual([]);
+    const rows = upserts.get('pubg_player_matches')!.mock.calls[0][0] as Array<Record<string, unknown>>;
+    expect(rows).toHaveLength(3);
+    expect(rows.every(row => row.ranking_eligible === false)).toBe(true);
+  });
+
   it('persists official basic counters independently of calculated result placeholders', async () => {
     const participant = input.rawParticipants[0];
     await persistMatchAnalysis(supabase, { ...input, rawParticipants: [{ ...participant, attributes: { stats: { ...participant.attributes.stats, DBNOs: 0, timeSurvived: 724.7 } } }] });
@@ -175,7 +231,7 @@ describe("persistMatchAnalysis", () => {
     );
     expect(upserts.get("pubg_player_cache")).toHaveBeenCalledWith(
       [expect.objectContaining({
-        id: "account-1",
+        id: "account.target",
         platform: "steam",
         nickname: "PlayerOne",
         lower_nickname: "playerone",
@@ -193,7 +249,7 @@ describe("persistMatchAnalysis", () => {
           id: "target",
           attributes: {
             stats: {
-              playerId: "account-target",
+              playerId: "account.target",
               name: "PlayerOne",
               damageDealt: 120.8,
               kills: 2,
@@ -205,7 +261,7 @@ describe("persistMatchAnalysis", () => {
           id: "winner",
           attributes: {
             stats: {
-              playerId: "account-winner",
+              playerId: "account.winner",
               name: "HumanWinner",
               damageDealt: 500.9,
               kills: 6,
@@ -217,7 +273,7 @@ describe("persistMatchAnalysis", () => {
           id: "bystander",
           attributes: {
             stats: {
-              playerId: "account-bystander",
+              playerId: "account.bystander",
               name: "Bystander",
               damageDealt: 50,
               kills: 0,
@@ -524,7 +580,7 @@ describe("persistMatchAnalysis", () => {
     expect(upserts.get("pubg_player_cache")).toHaveBeenCalledTimes(1);
     expect(upserts.get("pubg_player_cache")).toHaveBeenCalledWith(
       [expect.objectContaining({
-        id: "account-1",
+        id: "account.target",
         nickname: "PlayerOne",
         lower_nickname: "playerone",
       })],
@@ -707,9 +763,9 @@ describe("persistMatchAnalysis", () => {
     }],
     ["unknown matchType", {
       finalResult: { matchType: "unknown" },
-      matchAttr: {},
+      matchAttr: { matchType: "unknown" },
     }],
-  ] as const)("%s는 global·weapon 모집단에는 들어가지 않지만 raw/history는 보존한다", async (_label, override) => {
+  ] as const)("%s는 global·weapon 모집단에서 제외하고 관측된 raw/history만 보존한다", async (_label, override) => {
     vi.stubEnv("PUBG_META_PATCH_VERSION", "42.3");
     vi.stubEnv("PUBG_META_PATCH_STARTED_AT", "2026-08-12T00:00:00.000Z");
     const ineligibleInput = {
@@ -729,7 +785,8 @@ describe("persistMatchAnalysis", () => {
     expect(upserts.get("global_benchmarks")).not.toHaveBeenCalled();
     expect(upserts.get("weapon_meta_match_samples")).not.toHaveBeenCalled();
     expect(upserts.get("match_stats_raw")).toHaveBeenCalled();
-    expect(upserts.get("pubg_player_matches")).toHaveBeenCalled();
+    if (_label === 'unknown mode') expect(upserts.get("pubg_player_matches")).not.toHaveBeenCalled();
+    else expect(upserts.get("pubg_player_matches")).toHaveBeenCalled();
   });
 
   it.each([

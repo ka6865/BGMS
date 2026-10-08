@@ -11,10 +11,12 @@ import { getMatchDetailRetention } from './matchRetention';
 import { normalizeName } from './utils';
 import { preservePerformanceRows } from '../../scripts/preserve_match_performance';
 import { proveLegacyAccountBinding, type LegacyAccountBinding } from './legacyAccountBinding';
+import { isBasicOnlyRetentionEvidence } from './matchRetentionCleanup';
 
 export type RetentionBasicMatch = {
   account_id: string | null; player_id: string; platform: string; match_id: string; played_at: string;
   game_mode: string; map_name: string; kills: number; damage: number; win_place: number; match_type: string;
+  retention_scope?: 'legacy' | 'basic_only' | 'detail';
 };
 type ProcessedRow = { match_id: string; platform: string; player_id: string; data?: { fullResult?: unknown } };
 type StoredPerformance = Record<string, any>;
@@ -54,7 +56,8 @@ export function planLegacyRetentionBindings(basics: RetentionBasicMatch[], proce
 async function bindLegacyRetentionAccounts(db: SupabaseClient, proofs: LegacyAccountBinding[]): Promise<RetentionBasicMatch[]> {
   const linked: RetentionBasicMatch[] = [];
   for (let index = 0; index < proofs.length; index += 40) {
-    const batch = proofs.slice(index, index + 40);
+    const batch: LegacyAccountBinding[] = proofs.slice(index, index + 40).map(proof => ({ ...proof,
+      before: { retention_scope: 'legacy', ...proof.before } }));
     // DB 함수가 기본 전적과 분석 양쪽의 전체 스냅샷을 잠그고 전부 일치할 때만 NULL을 갱신한다.
     const { data, error } = await db.rpc('bind_retention_legacy_accounts', { p_bindings: batch })
       .abortSignal(AbortSignal.timeout(15_000));
@@ -62,7 +65,7 @@ async function bindLegacyRetentionAccounts(db: SupabaseClient, proofs: LegacyAcc
     for (const proof of batch) {
       const matches = data.filter(row => row.platform === proof.before.platform && row.match_id === proof.before.match_id
         && row.player_id === proof.before.player_id);
-      if (matches.length !== 1 || !isDeepStrictEqual(matches[0], boundLegacyBasic(proof)))
+      if (matches.length !== 1 || !isDeepStrictEqual({ retention_scope: 'legacy', ...matches[0] }, boundLegacyBasic(proof)))
         throw new Error('retention-account-binding-unverified');
       linked.push(matches[0]);
     }
@@ -128,6 +131,7 @@ export async function preserveExpiredMatchPerformance(db: SupabaseClient, input:
   matchId: string; platform: 'steam' | 'kakao'; basics: RetentionBasicMatch[];
   processed: ProcessedRow[]; performances: StoredPerformance[]; source?: SharedTelemetrySource | null;
   maxCalculations?: number; now?: number;
+  basicOnlyAccountIds?: string[];
 }): Promise<{ linkedAccounts: number; savedSummaries: number; recoveredSummaries: number }> {
   const result = { linkedAccounts: 0, savedSummaries: 0, recoveredSummaries: 0 };
   const now = input.now ?? Date.now();
@@ -140,6 +144,11 @@ export async function preserveExpiredMatchPerformance(db: SupabaseClient, input:
   if (source && !completeArchivedSource(source)) source = null;
   const pending: RetainedPerformanceRow[] = [];
   for (const original of input.basics) {
+    if (original.account_id && input.basicOnlyAccountIds?.includes(original.account_id)
+      && isBasicOnlyRetentionEvidence({ accountId: original.account_id, basicMatch: original,
+        detailReferenced: false,
+        processedRows: input.processed.filter(row => normalizeName(row.player_id) === normalizeName(original.player_id)),
+        retainedPerformanceRows: input.performances.filter(row => row.account_id === original.account_id) })) continue;
     let basic = { ...(legacyBasics.find(row => row.player_id === original.player_id) ?? original) };
     const participant = source ? archiveParticipantForBasic(source, basic) : null;
     if (!basic.account_id && participant) {

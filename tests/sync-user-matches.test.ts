@@ -85,7 +85,7 @@ import {
         status === "saved"
           ? JSON.stringify({
             data: { id: "match-structured", attributes: { createdAt: "2026-08-19T00:00:00.000Z", gameMode: "squad-fpp", mapName: "Erangel" } },
-            included: [{ type: "participant", attributes: { stats: { name: "Linked_Player", kills: 1, damageDealt: 20, winPlace: 3 } } }],
+            included: [{ type: "participant", attributes: { stats: { name: "Linked_Player", playerId: "account.linked", kills: 1, damageDealt: 20, winPlace: 3 } } }],
           })
           : "{}",
         {
@@ -95,7 +95,9 @@ import {
       ));
     const fetchImpl = vi.fn(() => response);
     const supabase = {
-      from: vi.fn(() => ({
+      from: vi.fn((table: string) => table === 'system_settings' ? {
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+      } : ({
         upsert: vi.fn().mockResolvedValue({ error: null }),
       })),
     } as never;
