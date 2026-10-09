@@ -1,4 +1,6 @@
-import { normalizeBasicMatchStat, toPlayerMatchWriteRecord } from "../pubg/playerMatches";
+import { upsertPlayerMatches } from "../pubg/playerMatches";
+import { buildOfficialParticipantMatchRecords } from "../pubg/playerMatchesIngest";
+import { getPrivatePlayersList } from "../pubg/privatePlayers";
 import { ANALYSIS_CALCULATION_VERSION, POPULATION_EVIDENCE_VERSION, WEAPON_NAMES } from "./constants";
 import { BENCHMARK_FILTER_VERSION, isCanonicalBenchmarkTier } from "./benchmarkLookup";
 import { categorizeWeapon } from "./weaponMetaBurst";
@@ -496,37 +498,18 @@ async function persistPlayerMatches(
   if (!participants || participants.length === 0 || !input.matchAttr) return;
 
   const analysisPlayerId = normalizeName(input.playerNickname);
-  const rows = participants
-    .filter((participant) => (
-      !participant.attributes.stats.playerId?.startsWith("ai.")
-      && normalizeName(participant.attributes.stats.name) === analysisPlayerId
-    ))
-    .slice(0, 1)
-    .map((participant) => toPlayerMatchWriteRecord({
-      player_id: analysisPlayerId,
-      ranking_eligible: evaluateMatchEligibility(benchmarkEligibilityInput(input), "benchmark").eligible,
-      ...(typeof participant.attributes.stats.playerId === "string" && /^account\.[A-Za-z0-9_-]+$/.test(participant.attributes.stats.playerId) ? { account_id: participant.attributes.stats.playerId } : {}),
-      platform: input.platform,
-      match_id: input.matchId,
-      played_at: (input.finalResult as any).matchInfo?.date || new Date().toISOString(),
-      game_mode: typeof input.matchAttr?.gameMode === "string" && input.matchAttr.gameMode ? input.matchAttr.gameMode : "unknown",
-      map_name: typeof input.matchAttr?.mapName === "string" && input.matchAttr.mapName ? input.matchAttr.mapName : "unknown",
-      kills: participant.attributes.stats.kills || 0,
-      damage: Math.floor(participant.attributes.stats.damageDealt || 0),
-      win_place: participant.attributes.stats.winPlace || 99,
-      knocks: normalizeBasicMatchStat(participant.attributes.stats.DBNOs),
-      survival_time: normalizeBasicMatchStat(participant.attributes.stats.timeSurvived),
-      match_type: typeof input.finalResult.matchType === "string" && input.finalResult.matchType.trim()
-        ? input.finalResult.matchType.trim().toLowerCase()
-        : "unknown",
-    }));
-
-  if (rows.length === 0) return;
-  const succeeded = await runPersistenceTask("pubg_player_matches", result, () => (
-    supabase.from("pubg_player_matches").upsert(rows, {
-      onConflict: "player_id,platform,match_id",
-    })
-  ));
+  const succeeded = await runPersistenceTask("pubg_player_matches", result, async () => {
+    const privatePlayers = await getPrivatePlayersList(supabase);
+    const rows = buildOfficialParticipantMatchRecords({ matchId: input.matchId, platform: input.platform,
+      matchAttr: input.matchAttr!, participants, privatePlayers }).filter(row => row.win_place > 0);
+    const target = rows.find(row => row.player_id === analysisPlayerId);
+    if (!target) throw new Error("analysis-participant-basic-values-missing");
+    target.retention_scope = "detail";
+    const rankingEligible = evaluateMatchEligibility(benchmarkEligibilityInput(input), "benchmark").eligible;
+    for (const row of rows) row.ranking_eligible = row.ranking_eligible === true && rankingEligible;
+    if (!await upsertPlayerMatches(supabase, rows, { atomic: true, throwOnError: true })) throw new Error("player-match-upsert-failed");
+    return { error: null };
+  });
   if (succeeded) result.succeeded.push("pubg_player_matches");
 }
 

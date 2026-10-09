@@ -4,6 +4,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const route = vi.hoisted(() => ({ pathname: "/stats" }));
+vi.mock("next/navigation", () => ({ usePathname: () => route.pathname }));
+vi.mock("@/components/common/Footer", () => ({ default: () => null }));
+
 vi.mock("next/script", () => ({
   default: function MockScript({ strategy, ...props }: Record<string, unknown>) {
     void strategy;
@@ -16,7 +20,6 @@ vi.mock("@/components/common/GlobalHeader", () => ({ default: () => null }));
 vi.mock("@/components/common/BottomNav", () => ({ default: () => null }));
 vi.mock("@/components/seo/JsonLd", () => ({ default: () => null }));
 vi.mock("@next/third-parties/google", () => ({ GoogleAnalytics: () => null }));
-vi.mock("@/components/layout/SidebarFooterWrapper", () => ({ default: ({ children }: { children: unknown }) => children }));
 vi.mock("@vercel/analytics/react", () => ({ Analytics: () => null }));
 vi.mock("@vercel/speed-insights/react", () => ({ SpeedInsights: () => null }));
 vi.mock("@/components/analytics/PageViewTracker", () => ({ default: () => null }));
@@ -28,6 +31,7 @@ import { shouldLoadExternalAdScripts } from "@/lib/ads/statsAdPlacements";
 describe("stats auto ads ownership boundary", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    route.pathname = "/stats";
   });
 
   it.each([
@@ -56,6 +60,29 @@ describe("stats auto ads ownership boundary", () => {
     expect(html).not.toContain("auto-ad-side-rail");
     expect(html).not.toContain("auto-ad-anchor");
   });
+
+  it.each(["/admin/support", "/admin/support/ticket-1", "/support", "/support/ticket-1"])(
+    "%s는 광고 없이 전체 내용을 스크롤할 수 있다",
+    (pathname) => {
+      vi.stubEnv("NODE_ENV", "production");
+      route.pathname = pathname;
+      const html = renderToStaticMarkup(createElement(RootLayout, null, createElement("div", null, "문의")));
+      expect(html).not.toContain("adsbygoogle-main-js");
+      expect(html).toContain('data-ad-free="true"');
+      expect(html).toContain("overflow-visible");
+      expect(html).not.toContain("overflow-hidden");
+      expect(html).not.toContain("h-[calc(100dvh-56px)]");
+    },
+  );
+
+  it.each(["/", "/maps/erangel", "/admin/agent", "/replay/match-1"])(
+    "%s의 기존 전체 화면 레이아웃을 유지한다",
+    (pathname) => {
+      route.pathname = pathname;
+      const html = renderToStaticMarkup(createElement(RootLayout, null, createElement(Fragment)));
+      expect(html).toContain("overflow-hidden");
+    },
+  );
 
   it("stats 광고 예약 CSS는 mobile/tablet visibility와 768px 경계를 선언한다", () => {
     const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");

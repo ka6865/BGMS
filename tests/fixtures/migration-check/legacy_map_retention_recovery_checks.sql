@@ -128,10 +128,13 @@ begin
   perform pg_catalog.set_config('role','postgres',true);
   perform pg_temp.assert_legacy_map_rejected(null,'null packet');
   perform pg_temp.assert_legacy_map_rejected(packet || pg_catalog.jsonb_build_object('padding',pg_catalog.repeat('x',131100)),'oversized packet');
+  perform pg_temp.assert_legacy_map_rejected(pg_catalog.jsonb_set(packet,'{before,retention_scope}','null'::jsonb),'explicit null scope');
+  perform pg_temp.assert_legacy_map_rejected(pg_catalog.jsonb_set(packet,'{before,retention_scope}','"detail"'::jsonb),'changed scope');
 
   -- The successful packet keeps every observed field byte-for-byte and only
   -- links account_id; unavailable match_type remains unavailable.
-  result := public.recover_retention_legacy_map(packet);
+  result := public.recover_retention_legacy_map(pg_catalog.jsonb_set(pg_catalog.jsonb_set(packet,
+    '{before}',(packet->'before')-'retention_scope'),'{expectedBasic}',(packet->'expectedBasic')-'retention_scope'));
   if result->>'saved' is distinct from 'true'
      or result->'basic' is distinct from packet->'expectedBasic'
      or result->'basic'->>'match_type' is distinct from 'unavailable'

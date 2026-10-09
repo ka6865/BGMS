@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { planLegacyMapRetentionRecovery } from '../lib/pubg-analysis/legacyMapRetentionRecovery';
+import { describe, expect, it, vi } from 'vitest';
+import { planLegacyMapRetentionRecovery, preserveLegacyMapRetentionPacket } from '../lib/pubg-analysis/legacyMapRetentionRecovery';
 import { assessMatchRetentionCleanup, hasRetainedLegacyMapEvidence } from '../lib/pubg-analysis/matchRetentionCleanup';
 import { buildTelemetryCacheKey, buildTelemetryPublicIdentity, buildTelemetryPlayerKey } from '../lib/pubg-analysis/telemetryCacheKey';
 
@@ -104,5 +104,64 @@ describe('구형 지도에서 관측한 성과만 보존', () => {
     expect(hasRetainedLegacyMapEvidence(packet.performance, { ...packet.expectedBasic, knocks: 1 })).toBe(false);
     input.before.survival_time = -1 as any;
     expect(planLegacyMapRetentionRecovery(input)).toBeNull();
+  });
+});
+
+describe('구형 지도 RPC의 retention_scope 호환성', () => {
+  function db(packet: NonNullable<ReturnType<typeof planLegacyMapRetentionRecovery>>, basic = packet.expectedBasic) {
+    const client = { rpc: vi.fn(() => ({ abortSignal: async () => ({
+      data: { saved: true, basic }, error: null,
+    }) })), from: vi.fn((table: string) => {
+      const q: any = { select: () => q, eq: () => q, limit: () => q, abortSignal: async () => ({
+        data: table === 'pubg_player_matches' ? [basic] : [packet.performance], error: null,
+      }) };
+      return q;
+    }) };
+    return client;
+  }
+
+  it('과거 packet을 새 legacy 행과 비교하고 지도 보존 근거와 checksum은 유지한다', async () => {
+    const packet = planLegacyMapRetentionRecovery(legacyMapRecoveryFixture())!;
+    const snapshot = structuredClone(packet);
+    const client = db(packet, { ...packet.expectedBasic, retention_scope: 'legacy' });
+    await preserveLegacyMapRetentionPacket(client as any, packet);
+    expect(client.rpc).toHaveBeenCalledWith('recover_retention_legacy_map', { p_packet: {
+      ...packet, before: { ...packet.before, retention_scope: 'legacy' },
+      expectedBasic: { ...packet.expectedBasic, retention_scope: 'legacy' },
+    } });
+    expect(packet).toEqual(snapshot);
+    expect(hasRetainedLegacyMapEvidence(packet.performance, packet.expectedBasic)).toBe(true);
+  });
+  it('이전 schema의 누락 scope 응답도 legacy로만 비교한다', async () => {
+    const packet = planLegacyMapRetentionRecovery(legacyMapRecoveryFixture())!;
+    await expect(preserveLegacyMapRetentionPacket(db(packet) as any, packet)).resolves.toBeUndefined();
+  });
+  it.each(['legacy', 'basic_only', 'detail'])('명시된 %s scope를 유지한다', async retention_scope => {
+    const packet = planLegacyMapRetentionRecovery(legacyMapRecoveryFixture())!;
+    Object.assign(packet.before, { retention_scope }); Object.assign(packet.expectedBasic, { retention_scope });
+    const client = db(packet);
+    await preserveLegacyMapRetentionPacket(client as any, packet);
+    expect(client.rpc).toHaveBeenCalledWith('recover_retention_legacy_map', { p_packet: packet });
+  });
+  it.each([null, 'invalid'])('명시된 잘못된 scope %s는 보완하지 않고 RPC 거부를 유지한다', async retention_scope => {
+    const packet = planLegacyMapRetentionRecovery(legacyMapRecoveryFixture())!;
+    Object.assign(packet.before, { retention_scope }); Object.assign(packet.expectedBasic, { retention_scope });
+    const client = db(packet);
+    client.rpc.mockImplementation(() => ({ abortSignal: async () => ({
+      data: null, error: { code: 'P0001' },
+    }) }) as any);
+    await expect(preserveLegacyMapRetentionPacket(client as any, packet))
+      .rejects.toThrow('retention-legacy-map-write-unverified');
+    expect(client.rpc).toHaveBeenCalledWith('recover_retention_legacy_map', { p_packet: packet });
+    expect(client.from).not.toHaveBeenCalled();
+  });
+  it.each(['response', 'readback'])('%s의 scope 변경은 엄격 비교로 차단한다', async phase => {
+    const packet = planLegacyMapRetentionRecovery(legacyMapRecoveryFixture())!;
+    const client = db(packet, { ...packet.expectedBasic, retention_scope: 'detail' });
+    if (phase === 'readback') client.rpc.mockImplementation(() => ({ abortSignal: async () => ({
+      data: { saved: true, basic: packet.expectedBasic }, error: null,
+    }) }));
+    await expect(preserveLegacyMapRetentionPacket(client as any, packet))
+      .rejects.toThrow(phase === 'response' ? 'retention-legacy-map-write-unverified' : 'retention-legacy-map-readback-unverified');
   });
 });

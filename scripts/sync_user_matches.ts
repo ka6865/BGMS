@@ -242,6 +242,7 @@ export async function runSyncUserMatches(
     lockCollisions: 0,
     invalidNicknames: 0,
     notFoundMatches: 0,
+    unsupportedMatches: 0,
     upstreamErrors: 0,
     networkErrors: 0,
     rateLimited: false,
@@ -285,8 +286,8 @@ export async function runSyncUserMatches(
   const fetchRecent = dependencies.fetchRecentMatchIds || ((candidate, key, impl) => (
     fetchRecentMatchIds(candidate, key, impl, playerTimeoutMs)
   ));
-  const readExisting = dependencies.readExistingMatchIds || ((client, candidate, matchIds) => (
-    readExistingMatchIds(client, candidate, matchIds)
+  const readExisting = dependencies.readExistingMatchIds || ((client, candidate, matchIds, accountId) => (
+    readExistingMatchIds(client, candidate, matchIds, accountId)
   ));
   const ingest = dependencies.ingestMatch || ((client, matchId, candidate, key, impl) => (
     fetchAndIngestBasicMatchSummaryOutcome(
@@ -458,7 +459,7 @@ export async function runSyncUserMatches(
             accountId: playerResult.accountId, nickname: playerResult.nickname, matchIds: playerResult.matchIds }, supabase);
         }
         const apiMatchIds = Array.from(new Set(playerResult.matchIds));
-        const existingIds = await readExisting(supabase as SupabaseClient, candidate, apiMatchIds);
+        const existingIds = await readExisting(supabase as SupabaseClient, candidate, apiMatchIds, playerResult.accountId);
         const existing = new Set(existingIds);
         const missingIds = apiMatchIds.filter((matchId) => !existing.has(matchId)).slice(0, matchLimit);
         let failedOutcome: "upstream_error" | "network_error" | null = null;
@@ -481,6 +482,7 @@ export async function runSyncUserMatches(
 
           if (outcome.status === "saved") summary.newMatches += 1;
           else if (outcome.status === "not_found") summary.notFoundMatches += 1;
+          else if (outcome.status === "unsupported_match") summary.unsupportedMatches = (summary.unsupportedMatches ?? 0) + 1;
           else if (outcome.status === "rate_limited") {
             summary.rateLimited = true;
             summary.stoppedReason = "rate_limited";

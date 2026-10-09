@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { planLegacyTeamRetentionRecovery, preserveLegacyTeamRetentionPackets } from '../lib/pubg-analysis/legacyTeamRetentionPreservation';
 import { legacyTeamRecoveryInput } from './fixtures/legacy-team-retention';
 import { computeFullResultSourceChecksum } from '../lib/pubg-analysis/matchRetentionCleanup';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
+import ts from 'typescript';
 
 function input() {
   const fixture = legacyTeamRecoveryInput();
@@ -107,16 +110,174 @@ describe('legacy-team compact write verification', () => {
     const { client, calls } = db(packet);
     expect(await preserveLegacyTeamRetentionPackets(client as any, [packet])).toBe(1);
     expect(calls).toEqual(['atomic-rpc', 'pubg_player_matches', 'pubg_match_performance']);
+    expect(client.rpc).toHaveBeenCalledWith('recover_retention_legacy_team', { p_packet: {
+      ...packet,
+      before: { retention_scope: 'legacy', ...packet.before },
+      sourceBasic: { retention_scope: 'legacy', ...packet.sourceBasic },
+      expectedBasic: { retention_scope: 'legacy', ...packet.expectedBasic },
+    } });
+  });
+  it.each([200, 504])('과거 packet을 HTTP %i 응답과 새 legacy 행에 대조하며 원본과 checksum을 유지한다', async status => {
+    const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+    const snapshot = structuredClone(packet);
+    const stored = { ...packet, expectedBasic: { ...packet.expectedBasic, retention_scope: 'legacy' } };
+    const { client } = db(stored);
+    if (status === 504) client.rpc.mockImplementation(() => ({ abortSignal: async () => ({
+      data: null, error: { message: 'transport failure' }, status,
+    }) }) as any);
+    expect(await preserveLegacyTeamRetentionPackets(client as any, [packet])).toBe(1);
+    expect(client.rpc).toHaveBeenCalledTimes(1);
+    const sent = (client.rpc.mock.calls[0] as unknown as [string, { p_packet: typeof stored }])[1].p_packet;
+    expect(sent.before).toEqual({ ...packet.before, retention_scope: 'legacy' });
+    expect(sent.sourceBasic).toEqual({ ...packet.sourceBasic, retention_scope: 'legacy' });
+    expect(sent.expectedBasic).toEqual(stored.expectedBasic);
+    expect(sent.performance).toEqual(snapshot.performance);
+    expect(sent.fullResult).toEqual(snapshot.fullResult);
+    expect(packet).toEqual(snapshot);
+  });
+  it.each(['legacy', 'basic_only', 'detail'])('명시된 %s scope는 제출과 응답 비교에서 유지한다', async retention_scope => {
+    const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+    for (const row of [packet.before, packet.sourceBasic, packet.expectedBasic]) Object.assign(row, { retention_scope });
+    const { client } = db(packet);
+    expect(await preserveLegacyTeamRetentionPackets(client as any, [packet])).toBe(1);
     expect(client.rpc).toHaveBeenCalledWith('recover_retention_legacy_team', { p_packet: packet });
+  });
+  it.each([null, 'invalid'])('명시된 잘못된 scope %s는 legacy로 바꾸지 않고 RPC 거부를 유지한다', async retention_scope => {
+    const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+    for (const row of [packet.before, packet.sourceBasic, packet.expectedBasic]) Object.assign(row, { retention_scope });
+    const { client, calls } = db(packet);
+    client.rpc.mockImplementation(() => ({ abortSignal: async () => ({
+      data: null, error: { code: 'P0001' }, status: 400,
+    }) }) as any);
+    await expect(preserveLegacyTeamRetentionPackets(client as any, [packet]))
+      .rejects.toThrow('retention-legacy-team-write-unverified');
+    expect(client.rpc).toHaveBeenCalledWith('recover_retention_legacy_team', { p_packet: packet });
+    expect(calls).toEqual([]);
+  });
+  it.each(['response', 'readback', 'ambiguous'])('%s의 변경된 scope는 과거 packet과 같다고 인정하지 않는다', async phase => {
+    const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+    const changed = { ...packet, expectedBasic: { ...packet.expectedBasic, retention_scope: 'detail' } };
+    const { client } = db(changed);
+    if (phase !== 'response') {
+      client.rpc.mockImplementation(() => ({
+        abortSignal: async () => {
+          if (phase === 'ambiguous') return { data: null, error: { message: 'transport failure' }, status: 504 };
+          return { data: { saved: true, basic: packet.expectedBasic }, error: null, status: 200 };
+        },
+      }) as any);
+    }
+    await expect(preserveLegacyTeamRetentionPackets(client as any, [packet]))
+      .rejects.toThrow(phase === 'response' ? 'retention-legacy-team-write-unverified' : 'retention-legacy-team-readback-unverified');
+    expect(client.rpc).toHaveBeenCalledTimes(1);
   });
   it('halts cleanup when readback content differs even after a successful response', async () => {
     const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
     await expect(preserveLegacyTeamRetentionPackets(db(packet, true).client as any, [packet]))
       .rejects.toThrow('retention-legacy-team-readback-unverified');
   });
+  it.each([0, 502, 503, 504])('verifies a committed write after an ambiguous HTTP %i response without repeating it', async status => {
+    const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+    const { client, calls } = db(packet);
+    client.rpc.mockImplementation(() => ({ abortSignal: async () => ({
+      data: null, error: { message: 'private transport details' }, status,
+    }) }) as any);
+    expect(await preserveLegacyTeamRetentionPackets(client as any, [packet])).toBe(1);
+    expect(client.rpc).toHaveBeenCalledTimes(1);
+    expect(calls).toEqual(['pubg_player_matches', 'pubg_match_performance']);
+  });
+  it('keeps deletion blocked when an ambiguous response has no matching saved summary', async () => {
+    const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+    const { client } = db(packet, true);
+    client.rpc.mockImplementation(() => ({ abortSignal: async () => ({
+      data: null, error: { message: 'private transport details' }, status: 504,
+    }) }) as any);
+    await expect(preserveLegacyTeamRetentionPackets(client as any, [packet]))
+      .rejects.toThrow('retention-legacy-team-readback-unverified');
+    expect(client.rpc).toHaveBeenCalledTimes(1);
+  });
+  it.each([400, 401, 403])('does not reconcile an explicit HTTP %i rejection through an existing row', async status => {
+    const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+    const { client, calls } = db(packet);
+    client.rpc.mockImplementation(() => ({ abortSignal: async () => ({
+      data: null, error: { code: 'P0001', message: 'private database details' }, status,
+    }) }) as any);
+    await expect(preserveLegacyTeamRetentionPackets(client as any, [packet]))
+      .rejects.toThrow('retention-legacy-team-write-unverified');
+    expect(calls).toEqual([]);
+  });
+  it('does not accept an invalid success response even when readback could match', async () => {
+    const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+    const { client, calls } = db(packet);
+    client.rpc.mockImplementation(() => ({ abortSignal: async () => ({
+      data: { saved: true, basic: { ...packet.expectedBasic, kills: 999 } }, error: null, status: 200,
+    }) }) as any);
+    await expect(preserveLegacyTeamRetentionPackets(client as any, [packet]))
+      .rejects.toThrow('retention-legacy-team-write-unverified:200');
+    expect(calls).toEqual([]);
+  });
+  it.each(['lock-unavailable', 'lock-budget-exceeded', 'snapshot-changed', 'active-lease', 'target-exists', 'validation-rejected'])(
+    'reports only the fixed database rejection reason %s', async details => {
+      const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+      const client = { rpc: () => ({ abortSignal: async () => ({
+        error: { message: 'PRIVATE_SENTINEL', details }, status: 400,
+      }) }) };
+      await expect(preserveLegacyTeamRetentionPackets(client as any, [packet]))
+        .rejects.toThrow(`retention-legacy-team-write-unverified:400:${details}`);
+    });
+  it('redacts database details outside the fixed rejection reasons', async () => {
+    const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+    const client = { rpc: () => ({ abortSignal: async () => ({
+      error: { message: 'PRIVATE_SENTINEL', details: 'private row contents' }, status: 400,
+    }) }) };
+    const message = await preserveLegacyTeamRetentionPackets(client as any, [packet]).catch(error => error.message);
+    expect(message).toBe('retention-legacy-team-write-unverified:400:unknown');
+  });
   it('does not expose failed database responses', async () => {
     const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
     const client = { rpc: () => ({ abortSignal: async () => ({ error: { message: 'private data' } }) }) };
     await expect(preserveLegacyTeamRetentionPackets(client as any, [packet])).rejects.toThrow('retention-legacy-team-write-unverified');
   });
+});
+
+describe('격리 RPC 검증 seed의 과거 packet 호환성', () => {
+  const program = ts.transpileModule(readFileSync('scripts/verify_legacy_team_retention_rpc.mts', 'utf8'), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+
+  it.each(['missing', 'legacy', 'basic_only', 'detail', null, 'invalid'])(
+    '전체 record INSERT 전에 %s scope를 보완하거나 그대로 유지한다', retention_scope => {
+      const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+      if (retention_scope !== 'missing') {
+        for (const row of [packet.before, packet.sourceBasic, packet.expectedBasic]) Object.assign(row, { retention_scope });
+      }
+      const snapshot = structuredClone(packet);
+      let sql = '';
+      const spawn = vi.fn((_command: string, _args: string[], options: { input: string }) => {
+        sql = options.input;
+        return { status: 0, stdout: '', stderr: '' };
+      });
+      runInNewContext(program, {
+        exports: {}, Buffer,
+        process: { env: { BGMS_RETENTION_PACKET_FILE: '/private/packet.json',
+          BGMS_RETENTION_PGHOST: '127.0.0.1', BGMS_RETENTION_PGPORT: '5432' }, stdout: { write: vi.fn() } },
+        require: (name: string) => {
+          if (name === 'node:fs') return { readFileSync: () => JSON.stringify([packet]), statSync: () => ({ mode: 0o600 }) };
+          if (name === 'node:child_process') return { spawnSync: spawn };
+          if (name === 'node:os') return { tmpdir: () => '/tmp' };
+          if (name === 'node:path') return { join: (...parts: string[]) => parts.join('/') };
+          throw new Error('unexpected verification dependency');
+        },
+      });
+      const records = [...sql.matchAll(/decode\('([A-Za-z0-9+/=]+)','base64'\)/g)]
+        .map(match => JSON.parse(Buffer.from(match[1], 'base64').toString('utf8')));
+      expect(records).toEqual([
+        { retention_scope: 'legacy', ...packet.before },
+        { retention_scope: 'legacy', ...packet.sourceBasic }, packet.processedSource,
+        { retention_scope: 'legacy', ...packet.expectedBasic }, packet.fullResult, packet.performance,
+      ]);
+      expect(spawn).toHaveBeenCalledTimes(1);
+      expect(sql).toContain('jsonb_populate_record(null::public.pubg_player_matches, p.before_row)');
+      expect(sql).toContain('jsonb_populate_record(null::public.pubg_player_matches, p.source_basic)');
+      expect(packet).toEqual(snapshot);
+    });
 });

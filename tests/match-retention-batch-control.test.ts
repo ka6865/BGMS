@@ -43,6 +43,13 @@ describe("continuous retention batch control", () => {
     expect(state.stopReason).toBe("end-of-pass");
     expect(() => completeRetentionBatch(state, manifest(), applied(), now)).toThrow();
   });
+
+  it('keeps the first batch start position while later batches advance to the end', () => {
+    let state = createRetentionBatchState('apply', 10, now);
+    state = completeRetentionBatch(state, { ...manifest(), startedFromBeginning: true }, applied(), now);
+    state = completeRetentionBatch(state, { ...manifest(), startedFromBeginning: false }, applied(), now);
+    expect(state.startedFromBeginning).toBe(true);
+  });
   it("continues the first partial match while the cursor remains at the beginning", () => {
     const m = { ...manifest(), nextCursor: null };
     expect(completeRetentionBatch(createRetentionBatchState("apply", 10, now), m, applied(), now).stopReason).toBeNull();

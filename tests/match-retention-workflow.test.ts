@@ -20,7 +20,11 @@ describe("PUBG archive retention workflow contract", () => {
     expect(workflow.jobs.retain.env.OP_LIMIT).toContain("'50'");
     expect(workflow.jobs.retain.env.OP_BATCHES).toContain("'10'");
     expect(workflow.jobs.retain.env.OP_SCAN_LIMIT).toBe("1000");
-    expect(workflow.concurrency).toMatchObject({ group: "pubg-detail-archive-retention", "cancel-in-progress": false });
+    expect(workflow.jobs.retain.env.OP_CUTOFF).toContain('inputs.cutoff');
+    // A skipped schedule must not replace a pending child dispatched by backlog cleanup.
+    expect(workflow.concurrency).toBeUndefined();
+    expect(workflow.jobs.retain.concurrency).toMatchObject({ group: "pubg-detail-archive-retention", "cancel-in-progress": false });
+    expect(workflow.jobs.retain.if).toContain("vars.PUBG_ARCHIVE_BACKLOG_ENABLED != 'true'");
     expect(workflow.permissions).toEqual({ contents: "read", actions: "read" });
     expect(workflow.jobs.retain.env).not.toHaveProperty("SUPABASE_SERVICE_ROLE_KEY");
     expect(workflow.jobs.retain.steps[0]).toMatchObject({ id: "started" });
@@ -47,6 +51,7 @@ describe("PUBG archive retention workflow contract", () => {
     expect(upload.with.path).toContain("steps.gate.outputs.directory");
     expect(actionSource).toContain("batch-$OP_BATCH_INDEX");
     expect(actionSource).toContain("--prepare-backup --preserve-performance");
+    expect(actionSource.match(/--cutoff "\$OP_CUTOFF"/g)).toHaveLength(2);
     expect(actionSource).toContain('cmp "$OP_BATCH_DIRECTORY/backup.enc" "$OP_BATCH_DIRECTORY/readback/backup.enc"');
     expect(actionSource).toContain("--apply --backup-upload-verified");
     const verify = steps.findIndex((s: any) => s.name === "Verify uploaded backup bytes before deletion");
@@ -57,6 +62,20 @@ describe("PUBG archive retention workflow contract", () => {
       expect(step.if).toContain("steps.gate.outputs.enabled == 'true'");
       expect(step.if).not.toMatch(/always\(|failure\(/);
       expect(step["continue-on-error"]).toBeUndefined();
+    }
+  });
+
+  it('일괄 실행과 예약 실행 모두 전후 전체 용량을 측정하며 백업 실패 때 성공으로 표시하지 않는다', () => {
+    const before = workflow.jobs.retain.steps.findIndex((s: any) => s.name === 'Measure R2 before retention');
+    const first = workflow.jobs.retain.steps.findIndex((s: any) => s.id === 'batch1');
+    const after = workflow.jobs.retain.steps.findIndex((s: any) => s.name === 'Measure R2 after retention');
+    expect(before).toBeLessThan(first);
+    expect(after).toBeGreaterThan(first);
+    for (const index of [before, after]) {
+      const step = workflow.jobs.retain.steps[index];
+      expect(step.run).toContain('--measure-usage');
+      expect(step.env.CLOUDFLARE_R2_BUCKET_NAME).toContain('secrets.CLOUDFLARE_R2_BUCKET_NAME');
+      expect(step['continue-on-error']).toBeUndefined();
     }
   });
 

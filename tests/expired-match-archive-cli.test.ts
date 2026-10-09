@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computeFullResultSourceChecksum } from "../lib/pubg-analysis/matchRetentionCleanup";
 import { buildTelemetryCacheKey, buildTelemetryPublicIdentity } from "../lib/pubg-analysis/telemetryCacheKey";
 import { buildRetainedPerformanceRow } from '../lib/pubg/retainedPerformance';
+import { buildSharedTelemetrySourceKey, createSharedTelemetrySource } from '../lib/pubg-analysis/sharedTelemetrySourceContract';
 import { legacyTeamRecoveryInput } from './fixtures/legacy-team-retention';
 
 const harness = vi.hoisted(() => ({
@@ -24,6 +25,7 @@ const r2 = vi.hoisted(() => ({
   deleteSource: vi.fn(),
   restore: vi.fn(),
   list: vi.fn(),
+  usage: vi.fn(),
 }));
 
 vi.mock("dotenv", () => ({ default: { config: vi.fn() } }));
@@ -98,6 +100,7 @@ vi.mock("@supabase/supabase-js", () => {
       }
       let rows = (harness.tables[this.table] ?? []).filter((row) => Object.entries(this.filters)
         .every(([key, value]) => Array.isArray(value) ? value.includes(row[key]) : row[key] === value));
+      if (this.table === 'pubg_player_matches' && this.action === 'select') rows = structuredClone(rows);
       if (this.table === "telemetry_map_cache_entries" && single) {
         harness.actions.push("registry-read-for-restore");
         rows = rows.slice(0, 1);
@@ -167,6 +170,7 @@ vi.mock("../lib/pubg-analysis/r2Service", () => ({
   restoreR2ObjectFromRetentionBackup: r2.restore,
   listR2ObjectsByPrefix: r2.list,
   decodeMaybeGzip: (body: Buffer) => body.toString("utf8"),
+  getR2BucketUsage: r2.usage,
 }));
 
 vi.mock("../scripts/r2_recovery_archive", () => ({
@@ -248,6 +252,7 @@ beforeEach(async () => {
   r2.deleteSource.mockReset();
   r2.restore.mockReset().mockImplementation(async () => { harness.actions.push("r2-restore"); });
   r2.list.mockReset().mockResolvedValue({ objects: [], pages: 1, truncated: false });
+  r2.usage.mockReset().mockResolvedValue({ configured: true, truncated: false, totalSizeBytes: 12345, fileCount: 50 });
   makeRead();
   const cleanupModule = await import("../scripts/cleanup_expired_match_archives");
   cleanup = cleanupModule.runExpiredMatchArchiveCleanup;
@@ -274,6 +279,222 @@ const env = {
 };
 
 describe("expired match archive CLI apply protocol", () => {
+  function sharedWithBasicPeer() {
+    const peer = { ...basic({ account_id: 'account.Peer', player_id: 'peer' }), retention_scope: 'basic_only' };
+    harness.tables.pubg_player_matches.push(peer);
+    const participants = [basic(), peer].map((row, i) => ({ type: 'participant', id: `p${i}`,
+      attributes: { stats: { name: row.player_id, playerId: row.account_id, kills: row.kills,
+        damageDealt: row.damage, winPlace: row.win_place, timeSurvived: 500 } } }));
+    const source = createSharedTelemetrySource({ data: { id: matchId, attributes: { createdAt: playedAt,
+      gameMode: 'squad', matchType: 'competitive', mapName: 'Baltic_Main', duration: 600 } },
+      included: [...participants, { type: 'roster', id: 'r', relationships: { participants: { data: participants.map(p => ({ id: p.id })) } } }] },
+      'steam', participants.map(p => ({ _T: 'LogPlayerPosition', _D: playedAt,
+        character: { name: p.attributes.stats.name, accountId: p.attributes.stats.playerId } })));
+    const key = buildSharedTelemetrySourceKey(matchId, 'steam');
+    const body = Buffer.from(JSON.stringify(source));
+    r2.read.mockImplementation(async candidate => candidate === key ? { key, etag: 'etag', sizeBytes: body.length,
+      contentType: 'application/json', contentEncoding: null, body } : null);
+    return { key, peer, body };
+  }
+
+  it('성과가 보존된 분석 참가자와 기본 수집 참가자를 함께 재검증한 후 공통 원본을 정리한다', async () => {
+    const { key } = sharedWithBasicPeer();
+    const before = structuredClone(harness.tables.pubg_player_matches);
+    await cleanup([...args('prepare'), '--preserve-performance'], env);
+    const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(plan.objects).toHaveLength(1);
+    expect(plan.objects[0]).toMatchObject({ key, basicOnlyAccountIds: ['account.Peer'] });
+    await cleanup(args('apply'), env);
+    expect(r2.deleteSource).toHaveBeenCalledOnce();
+    expect(harness.tables.pubg_player_matches).toEqual(before);
+    expect(harness.tables.pubg_match_performance).toHaveLength(1);
+  });
+
+  it.each(['detail', 'job', 'final-read'])('준비 후 참가자의 %s 변경이면 공통 원본 삭제를 막는다', async change => {
+    const { peer, key, body } = sharedWithBasicPeer();
+    await cleanup(args('prepare'), env);
+    if (change === 'detail') peer.retention_scope = 'detail';
+    if (change === 'job') harness.tables.pubg_performance_jobs.push({ account_id: peer.account_id, platform,
+      match_id: matchId, state: 'done' });
+    if (change === 'final-read') r2.read.mockImplementation(async candidate => {
+      if (candidate !== key) return null;
+      peer.retention_scope = 'detail';
+      return { key, etag: 'etag', sizeBytes: body.length, contentType: 'application/json', contentEncoding: null, body };
+    });
+    await expect(cleanup(args('apply'), env)).rejects.toThrow(change === 'final-read'
+      ? 'retention-source-reference-recheck-failed' : 'retention-final-evidence-changed');
+    expect(r2.deleteSource).not.toHaveBeenCalled();
+  });
+
+  function multipleMatches(count: number, withAnalysis = false) {
+    const ids = Array.from({ length: count }, (_, i) => `match-retention-${i + 1}`);
+    const maps = ids.map(id => buildTelemetryCacheKey({ matchId: id, platform, playerId: accountId, mode: 'full', telemetryVersion: 73 }));
+    harness.tables.pubg_player_matches = ids.map(id => basic({ match_id: id }));
+    harness.tables.processed_match_telemetry = ids.map(id => ({ match_id: id, platform, player_id: playerId,
+      data: { fullResult: { ...fullResult, data: { ...fullResult.data, id } } } }));
+    harness.tables.pubg_match_performance = ids.map((id, i) => performance({ match_id: id,
+      summary: { ...performance().summary, matchId: id },
+      source_checksum: computeFullResultSourceChecksum(harness.tables.processed_match_telemetry[i].data.fullResult) }));
+    harness.tables.telemetry_map_cache_entries = ids.map((id, i) => ({ ...registrySnapshot, id: 17 + i, match_id: id, storage_path: maps[i] }));
+    const keys = new Set(maps.flatMap(key => withAnalysis ? [key, key.replace(/\.json$/, '_analyze.json')] : [key]));
+    const read = async (key: string) => keys.has(key) ? { key, etag: '"archive-etag"', sizeBytes: harness.objectBody.length,
+      contentType: 'application/json', contentEncoding: null, body: Buffer.from(harness.objectBody) } : null;
+    r2.read.mockImplementation(read);
+    const scope = ['--platform', 'all', '--limit', String(count * (withAnalysis ? 2 : 1)),
+      '--manifest', manifestPath, '--backup-artifact', backupPath];
+    return { ids, maps, read, scope };
+  }
+
+  it('서로 다른 경기 세 개를 겹쳐 검사해도 제한된 첫 경기 이전에 커서를 유지한다', async () => {
+    const h = multipleMatches(4, true);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const started = new Set<string>();
+    r2.read.mockImplementation(async key => {
+      if (h.maps.includes(key)) { started.add(key); await gate; }
+      return h.read(key);
+    });
+    const pending = cleanup(['--prepare-backup', ...h.scope, '--limit', '1'], env);
+    try { await vi.waitFor(() => expect(started.size).toBe(3)); }
+    finally { release(); }
+    await pending;
+    const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(plan.objects.map((o: any) => o.key)).toEqual([h.maps[0].replace(/\.json$/, '_analyze.json')]);
+    expect(plan.nextCursor).toBeNull();
+    expect(started.has(h.maps[3])).toBe(false);
+  });
+
+  it('삭제는 최대 세 경기만 겹치며 각 경기의 분석을 지운 뒤 지도를 지운다', async () => {
+    const h = multipleMatches(4, true);
+    await cleanup(['--prepare-backup', ...h.scope], env);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let active = 0, maximum = 0;
+    const finished: string[] = [];
+    r2.deletePersonal.mockImplementation(async proof => {
+      active++; maximum = Math.max(maximum, active);
+      if (proof.kind === 'personal-analysis' && proof.matchId !== h.ids[3]) await gate;
+      finished.push(proof.key); active--;
+      return { deleted: true };
+    });
+    const pending = cleanup(['--apply', '--backup-upload-verified', ...h.scope], env);
+    try {
+      await vi.waitFor(() => expect(active).toBe(3));
+      expect(r2.deletePersonal.mock.calls.every(([proof]) => proof.kind === 'personal-analysis')).toBe(true);
+    } finally { release(); }
+    await pending;
+    expect(maximum).toBe(3);
+    for (const key of h.maps) expect(finished.indexOf(key)).toBeGreaterThan(finished.indexOf(key.replace(/\.json$/, '_analyze.json')));
+    expect(harness.tables.telemetry_map_cache_entries).toEqual([]);
+    expect(harness.tables.pubg_player_matches).toHaveLength(4);
+  });
+
+  it('한 삭제가 실패하면 새 대상을 시작하지 않고 진행 중인 삭제와 복원을 기다린다', async () => {
+    const h = multipleMatches(4, true);
+    await cleanup(['--prepare-backup', ...h.scope], env);
+    let releaseDeletes!: () => void, releaseRestore!: () => void;
+    const deletes = new Promise<void>(resolve => { releaseDeletes = resolve; });
+    const restore = new Promise<void>(resolve => { releaseRestore = resolve; });
+    r2.deletePersonal.mockImplementation(async proof => {
+      if (proof.matchId === h.ids[0]) throw new Error('simulated-delete-failed');
+      await deletes;
+      return { deleted: true };
+    });
+    r2.restore.mockImplementation(async () => { await restore; });
+    let settled = false;
+    const pending = cleanup(['--apply', '--backup-upload-verified', ...h.scope], env)
+      .then(() => { settled = true; return null; }, error => { settled = true; return error; });
+    try {
+      await vi.waitFor(() => expect(r2.restore).toHaveBeenCalledTimes(1));
+      expect(settled).toBe(false);
+      releaseDeletes();
+      await new Promise(resolve => setTimeout(resolve, 10));
+      expect(settled).toBe(false);
+      expect(r2.deletePersonal.mock.calls.every(([proof]) => proof.kind === 'personal-analysis' && proof.matchId !== h.ids[3])).toBe(true);
+    } finally { releaseDeletes(); releaseRestore(); }
+    expect((await pending).message).toBe('simulated-delete-failed');
+    expect(harness.actions).not.toContain('cursor-cas-update');
+    expect(harness.tables.telemetry_map_cache_entries).toHaveLength(4);
+  });
+
+  it('여러 삭제가 함께 실패하면 다른 경기의 복원 미검증을 대표 오류로 보존한다', async () => {
+    const h = multipleMatches(3, true);
+    await cleanup(['--prepare-backup', ...h.scope], env);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    r2.deletePersonal.mockImplementation(async proof => {
+      await gate;
+      if (proof.matchId !== h.ids[2]) throw new Error('ordinary-delete-failed');
+      return { deleted: true };
+    });
+    r2.restore.mockImplementation(async object => {
+      if (object.key === h.maps[1].replace(/\.json$/, '_analyze.json')) throw new Error('restore-failed');
+    });
+    const pending = cleanup(['--apply', '--backup-upload-verified', ...h.scope], env).catch(error => error);
+    try { await vi.waitFor(() => expect(r2.deletePersonal).toHaveBeenCalledTimes(3)); }
+    finally { release(); }
+    expect((await pending).message).toBe('retention-delete-failed-restore-unverified');
+    expect(r2.restore).toHaveBeenCalledTimes(2);
+    expect(harness.actions).not.toContain('cursor-cas-update');
+  });
+
+  it('기준 시각 뒤의 경기와 apply에서 바뀐 기준 시각을 정리하지 않는다', async () => {
+    await cleanup([...args('prepare'), '--cutoff', '2026-08-31T00:00:00.000Z'], env);
+    expect(JSON.parse(await readFile(manifestPath, 'utf8')).objects).toEqual([]);
+    await expect(cleanup([...args('apply'), '--cutoff', '2026-09-01T00:00:00.000Z'], env))
+      .rejects.toThrow('retention-manifest-scope-invalid');
+    expect(r2.deletePersonal).not.toHaveBeenCalled();
+  });
+
+  it('전체 용량 측정은 쓰지 않으며 잘린 측정을 거부한다', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    await cleanup(['--measure-usage'], env);
+    expect(JSON.parse(info.mock.calls[0][0])).toEqual({ mode: 'r2-usage', bytes: 12345, objects: 50 });
+    expect(harness.actions).toEqual([]);
+    r2.usage.mockResolvedValue({ configured: true, truncated: true, totalSizeBytes: 1, fileCount: 1 });
+    await expect(cleanup(['--measure-usage'], env)).rejects.toThrow('retention-r2-usage-incomplete');
+  });
+
+  it('예약 작업의 커서가 고정 기준 밖에 있으면 빈 범위의 정상 CAS로 감싸고 다음 순회를 허용한다', async () => {
+    harness.tables.pubg_archive_cleanup_cursor[0].played_at = '2026-09-24T01:00:00.000Z';
+    harness.tables.pubg_archive_cleanup_cursor[0].platform = platform;
+    harness.tables.pubg_archive_cleanup_cursor[0].match_id = matchId;
+    const scope = ['--platform', 'all', '--limit', '1', '--manifest', manifestPath,
+      '--backup-artifact', backupPath, '--cutoff', '2026-09-22T00:00:00.000Z'];
+    await cleanup(['--prepare-backup', ...scope], env);
+    const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(plan).toMatchObject({ matches: [], objects: [], startedFromBeginning: false, nextCursor: null });
+    await cleanup(['--apply', '--backup-upload-verified', ...scope], env);
+    expect(harness.tables.pubg_archive_cleanup_cursor[0]).toMatchObject({ played_at: null, generation: 5 });
+    expect(r2.deletePersonal).not.toHaveBeenCalled();
+  });
+
+  it('삭제 대상만 R2에서 다시 읽으면서 모든 현재 DB 참조를 검사한다', async () => {
+    const otherKey = buildTelemetryCacheKey({ matchId, platform, playerId: accountId, mode: 'full', telemetryVersion: 74 });
+    harness.tables.telemetry_map_cache_entries.push({ ...registrySnapshot, id: 18, telemetry_version: 74, storage_path: otherKey });
+    r2.read.mockImplementation(async (key: string) => [mapKey, otherKey].includes(key) ? {
+      key, etag: '"archive-etag"', sizeBytes: harness.objectBody.length, contentType: 'application/json', contentEncoding: null,
+      body: Buffer.from(harness.objectBody),
+    } : null);
+    await cleanup(args('prepare'), env);
+    r2.read.mockClear();
+    await cleanup(args('apply'), env);
+    expect(r2.read.mock.calls.map(call => call[0])).toEqual([mapKey]);
+    expect(r2.deletePersonal).toHaveBeenCalledTimes(1);
+    expect(harness.tables.telemetry_map_cache_entries).toEqual([{ ...registrySnapshot, id: 18, telemetry_version: 74, storage_path: otherKey }]);
+  });
+
+  it('백업할 본문이 준비 중 바뀌면 백업·삭제를 중단한다', async () => {
+    let reads = 0;
+    r2.read.mockImplementation(async (key: string) => key === mapKey ? {
+      key, etag: ++reads === 1 ? '"archive-etag"' : '"changed"', sizeBytes: harness.objectBody.length,
+      contentType: 'application/json', contentEncoding: null, body: Buffer.from(harness.objectBody),
+    } : null);
+    await expect(cleanup(args('prepare'), env)).rejects.toThrow('retention-backup-object-changed');
+    await expect(readFile(backupPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    expect(r2.deletePersonal).not.toHaveBeenCalled();
+  });
+
   it('보존 준비와 삭제 직전 재검증에서 지도 등록부의 전체 필드를 동일하게 대조한다', async () => {
     harness.projectRegistryColumns = true;
     harness.tables.telemetry_map_cache_entries[0].created_at = '2026-09-02T00:00:00.000Z';
@@ -317,7 +538,7 @@ describe("expired match archive CLI apply protocol", () => {
     const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
     expect(plan.objects.map((o: any) => o.key)).toEqual([fixture.key]);
     expect(plan.preservation).toEqual({ linkedAccounts: 1, savedSummaries: 1, recoveredSummaries: 1 });
-    expect(harness.tables.pubg_player_matches[0]).toEqual({ ...fixture.before, account_id: accountId });
+    expect(harness.tables.pubg_player_matches[0]).toEqual({ ...fixture.before, account_id: accountId, retention_scope: 'legacy' });
     await cleanup(['--apply', '--backup-upload-verified', '--platform', 'all', '--limit', '1',
       '--manifest', manifestPath, '--backup-artifact', backupPath], env);
     expect(harness.actions.indexOf('r2-delete')).toBeGreaterThan(harness.actions.indexOf('legacy-map-recovery'));
@@ -335,6 +556,29 @@ describe("expired match archive CLI apply protocol", () => {
     await expect(cleanup(['--prepare-backup', '--preserve-performance', '--platform', 'all', '--limit', '1',
       '--manifest', manifestPath + '.prepare', '--backup-artifact', backupPath], env))
       .rejects.toThrow('retention-legacy-map-write-unverified');
+    expect(r2.deletePersonal).not.toHaveBeenCalled();
+  });
+
+  it('여러 경기의 보존을 병렬 준비해도 전역 복구 예산 다섯 건을 초과하지 않는다', async () => {
+    const fixture = missingMapFixture();
+    const original = JSON.parse(harness.objectBody.toString('utf8'));
+    const ids = Array.from({ length: 6 }, (_, i) => `123e4567-e89b-42d3-a456-${String(i).padStart(12, '0')}`);
+    const keys = ids.map(id => buildTelemetryCacheKey({ matchId: id, platform, playerId: accountId, mode: 'full', telemetryVersion: 73 }));
+    harness.tables.pubg_player_matches = ids.map(id => ({ ...fixture.before, match_id: id }));
+    harness.tables.telemetry_map_cache_entries = ids.map((id, i) => ({ ...registrySnapshot, id: 17 + i, match_id: id, storage_path: keys[i] }));
+    r2.read.mockImplementation(async key => {
+      const index = keys.indexOf(key);
+      if (index < 0) return null;
+      const identity = buildTelemetryPublicIdentity({ matchId: ids[index], platform, playerId: accountId, mode: 'full', telemetryVersion: 73 });
+      const body = Buffer.from(JSON.stringify({ ...original, identity }));
+      return { key, etag: '"map-etag"', sizeBytes: body.length, body, contentType: 'application/json', contentEncoding: null };
+    });
+    await cleanup(['--prepare-backup', '--preserve-performance', '--platform', 'all', '--limit', '50',
+      '--manifest', manifestPath, '--backup-artifact', backupPath], env);
+    const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(plan.preservation).toEqual({ linkedAccounts: 5, savedSummaries: 5, recoveredSummaries: 5 });
+    expect(plan.objects).toHaveLength(5);
+    expect(harness.tables.pubg_player_matches.filter(row => row.account_id === null)).toHaveLength(1);
     expect(r2.deletePersonal).not.toHaveBeenCalled();
   });
 
@@ -572,6 +816,7 @@ describe("expired match archive CLI apply protocol", () => {
       account_id: "account.NewReference", player_id: "new-player",
     }))],
     ["compact checksum change", () => { harness.tables.pubg_match_performance[0].source_checksum = "f".repeat(64); }],
+    ["new map lease", () => { harness.tables.telemetry_map_cache_entries[0].lease_token = 'new-lease'; }],
   ])("apply-time %s blocks every delete", async (_label, mutate) => {
     await cleanup(args("prepare"), env);
     mutate();

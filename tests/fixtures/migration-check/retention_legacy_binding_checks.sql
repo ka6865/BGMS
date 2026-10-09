@@ -129,7 +129,7 @@ begin
   end;
   if (select count(*) from public.list_retention_archive_candidates(
       100, '2026-09-01T00:00:00+00:00'::timestamptz
-    )) <> 11
+    )) <> 2
     or exists (select 1 from public.list_retention_archive_candidates(
       100, '2026-09-01T00:00:00+00:00'::timestamptz
     ) where player_id = 'retention_no_assets')
@@ -176,7 +176,7 @@ begin
   end;
   perform pg_catalog.set_config('role', 'postgres', true);
 
-  select jsonb_agg(binding order by player_id) into payload
+  select jsonb_agg(jsonb_set(binding,'{before}',(binding->'before')-'retention_scope') order by player_id) into payload
   from retention_binding_inputs where case_name = 'valid';
   perform pg_catalog.set_config('role', 'service_role', true);
   result_rows := public.bind_retention_legacy_accounts(payload);

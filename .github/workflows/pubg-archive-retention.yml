@@ -32,6 +32,10 @@ on:
         type: choice
         options: ['1', '2', '5', '10']
         default: '1'
+      cutoff:
+        description: '일괄 정리 기준 경기 시각 ISO-8601 (비우면 실행 시점의 14일 전)'
+        type: string
+        default: ''
       limit:
         description: '한 번에 삭제할 최대 객체 수'
         type: choice
@@ -46,13 +50,12 @@ defaults:
   run:
     shell: bash
 
-concurrency:
-  group: pubg-detail-archive-retention
-  cancel-in-progress: false
-
 jobs:
   retain:
-    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.PUBG_DETAIL_ARCHIVE_RETENTION_ENABLED == 'true') }}
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (vars.PUBG_DETAIL_ARCHIVE_RETENTION_ENABLED == 'true' && vars.PUBG_ARCHIVE_BACKLOG_ENABLED != 'true')) }}
+    concurrency:
+      group: pubg-detail-archive-retention
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: ${{ inputs.mode == 'inspect-recovery' && 15 || 90 }}
     env:
@@ -64,6 +67,7 @@ jobs:
       OP_LIMIT: ${{ inputs.limit || '50' }}
       OP_SCAN_LIMIT: '1000'
       OP_BATCHES: ${{ inputs.batches || '10' }}
+      OP_CUTOFF: ${{ inputs.cutoff }}
     steps:
       - name: Record retention run start
         id: started
@@ -79,6 +83,7 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci --ignore-scripts
+        id: install
       - name: Initialize continuous batch budget
         if: ${{ env.OP_MODE != 'inspect-recovery' }}
         env:
@@ -111,13 +116,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
           compression-level: 0
-      - name: Retain expired match batch 1
-        id: batch1
+      - name: Measure R2 before retention
         if: ${{ env.OP_MODE != 'inspect-recovery' }}
-        timeout-minutes: 20
-        uses: ./.github/actions/pubg-retention-batch
-        with:
-          batch: '1'
         env: &retention_secrets
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -126,6 +126,15 @@ jobs:
           CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
           CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
           R2_RECOVERY_ARCHIVE_KEY: ${{ secrets.R2_RECOVERY_ARCHIVE_KEY }}
+        run: npx tsx scripts/cleanup_expired_match_archives.ts --measure-usage before
+      - name: Retain expired match batch 1
+        id: batch1
+        if: ${{ env.OP_MODE != 'inspect-recovery' }}
+        timeout-minutes: 20
+        uses: ./.github/actions/pubg-retention-batch
+        with:
+          batch: '1'
+        env: *retention_secrets
       - name: Retain expired match batch 2
         id: batch2
         if: ${{ steps.batch1.outputs.continue == 'true' }}
@@ -198,6 +207,10 @@ jobs:
         with:
           batch: '10'
         env: *retention_secrets
+      - name: Measure R2 after retention
+        if: ${{ !cancelled() && env.OP_MODE != 'inspect-recovery' && steps.install.outcome == 'success' }}
+        env: *retention_secrets
+        run: npx tsx scripts/cleanup_expired_match_archives.ts --measure-usage after
       - name: Summarize completed retention batches
         if: ${{ !cancelled() && env.OP_MODE != 'inspect-recovery' }}
         env:

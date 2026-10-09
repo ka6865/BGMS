@@ -75,10 +75,20 @@ export async function getCachedPlayerAccountId(platform: string, nickname: strin
 /**
  * 특정 플랫폼/닉네임이 비공개 대상인지 확인합니다.
  */
+export function matchesPrivatePlayer(list: readonly PrivatePlayer[], platform: string, nickname: string, accountId?: string): boolean {
+  if (!nickname) return false;
+  const lowerNick = nickname.trim().toLowerCase();
+  const targetPlatform = platform.toLowerCase();
+  const resolvedAccountId = typeof accountId === "string" && ACCOUNT_ID_PATTERN.test(accountId.trim()) ? accountId.trim() : "";
+  return list.some(p => (p.platform.toLowerCase() === targetPlatform || p.platform.toLowerCase() === "all")
+    && (p.account_id
+      ? resolvedAccountId !== "" ? p.account_id === resolvedAccountId : p.lower_nickname === lowerNick
+      : p.lower_nickname === lowerNick));
+}
+
 export async function isPlayerPrivate(platform: string, nickname: string, accountId?: string, client?: SupabaseClient): Promise<boolean> {
   if (!nickname) return false;
   const list = await getPrivatePlayersList(client);
-  const lowerNick = nickname.trim().toLowerCase();
   const targetPlatform = platform.toLowerCase();
   const targetAccountId = typeof accountId === "string" && ACCOUNT_ID_PATTERN.test(accountId.trim())
     ? accountId.trim()
@@ -96,17 +106,7 @@ export async function isPlayerPrivate(platform: string, nickname: string, accoun
     resolvedAccountId = await getCachedPlayerAccountId(targetPlatform, nickname, client) ?? "";
   }
 
-  return scoped.some(
-    (p) => {
-      // Stable account IDs take precedence over nicknames. Legacy rows without
-      // an account ID retain nickname matching until they are migrated. When a
-      // caller has not resolved an account yet, a matching stable-row nickname
-      // is conservatively blocked so legacy match rows cannot leak history.
-      return p.account_id
-        ? resolvedAccountId !== "" ? p.account_id === resolvedAccountId : p.lower_nickname === lowerNick
-        : p.lower_nickname === lowerNick;
-    }
-  );
+  return matchesPrivatePlayer(list, platform, nickname, resolvedAccountId);
 }
 
 /**

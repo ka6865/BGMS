@@ -11,9 +11,7 @@ import SidebarFooterWrapper from "@/components/layout/SidebarFooterWrapper";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import PageViewTracker from "@/components/analytics/PageViewTracker";
-import Script from "next/script";
 import { isVercelSpeedInsightsEnabled } from "@/lib/vercel-usage-controls";
-import { shouldLoadExternalAdScripts } from "@/lib/ads/statsAdPlacements";
 
 // 브라우저 탭 제목, 설명, 파비콘 메타데이터 정의
 const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://bgms.kr";
@@ -126,15 +124,6 @@ export default function RootLayout({
           <Analytics />
           {isVercelSpeedInsightsEnabled() && <SpeedInsights />}
         </AuthProvider>
-        {shouldLoadExternalAdScripts(process.env.NODE_ENV) && (
-          <Script
-            id="adsbygoogle-main-js"
-            async
-            src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3993032200487955"
-            crossOrigin="anonymous"
-            strategy="afterInteractive"
-          />
-        )}
       </body>
     </html>
   );

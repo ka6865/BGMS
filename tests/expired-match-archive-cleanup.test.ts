@@ -115,6 +115,52 @@ function get(etag: string, body: Buffer) {
 }
 
 describe("만료 전적 archive cleanup assessment", () => {
+  function basicOnlyEvidence(): MatchRetentionAccountEvidence {
+    const evidence = accountEvidence(accountB, 'bravo');
+    return { ...evidence, basicMatch: { ...(evidence.basicMatch as object), retention_scope: 'basic_only' },
+      detailReferenced: false, processedRows: [], retainedPerformanceRows: [] };
+  }
+
+  it('기본 수집 참가자의 상세 분석을 새로 만들지 않고 검증된 공통 원본만 정리한다', () => {
+    const objects: MatchRetentionObjectCandidate[] = [{ kind: 'shared-source',
+      key: buildSharedTelemetrySourceKey(matchId, 'steam'), etag: 'etag', sizeBytes: 100, sha256: 'a'.repeat(64) }];
+    const result = assessMatchRetentionCleanup(eligibleInput({
+      accounts: [accountEvidence(accountA, 'alpha'), basicOnlyEvidence()], objects,
+    }));
+    expect(result).toMatchObject({ eligible: true, retainedAccountCount: 2, plannedObjectCount: 1 });
+  });
+
+  it.each(['legacy', 'detail', undefined])('이전·상세·미분류 %s 기록은 요약 없이 허용하지 않는다', scope => {
+    const evidence = basicOnlyEvidence();
+    (evidence.basicMatch as any).retention_scope = scope;
+    const result = assessMatchRetentionCleanup(eligibleInput({ accounts: [accountEvidence(accountA, 'alpha'), evidence] }));
+    expect(result.reasons).toContain('account_snapshot_unverified');
+  });
+
+  it.each([true, undefined])('개인 자료 참조 확인이 %s이면 기본 수집 표시만으로 허용하지 않는다', detailReferenced => {
+    const evidence = { ...basicOnlyEvidence(), detailReferenced };
+    expect(assessMatchRetentionCleanup(eligibleInput({ accounts: [accountEvidence(accountA, 'alpha'), evidence] })).eligible).toBe(false);
+  });
+
+  it('기본 수집 표시라도 실제 분석 자료나 개인 객체가 있으면 요약을 요구한다', () => {
+    const evidence = basicOnlyEvidence();
+    evidence.processedRows = accountEvidence(accountB, 'bravo').processedRows;
+    expect(assessMatchRetentionCleanup(eligibleInput({ accounts: [accountEvidence(accountA, 'alpha'), evidence] })).eligible).toBe(false);
+    const basicEvidence = basicOnlyEvidence();
+    expect(assessMatchRetentionCleanup(eligibleInput({ accounts: [accountEvidence(accountA, 'alpha'), basicEvidence],
+      objects: [personalMap(accountB, 'bravo')] })).eligible).toBe(false);
+  });
+
+  it('기본 수집 기록의 공식 개인 스탯이 공통 원본과 다르면 원본 삭제를 막는다', () => {
+    const evidence = basicOnlyEvidence();
+    (evidence.basicMatch as any).kills = 4;
+    const result = assessMatchRetentionCleanup(eligibleInput({ accounts: [accountEvidence(accountA, 'alpha'), evidence],
+      objects: [{ kind: 'shared-source', key: buildSharedTelemetrySourceKey(matchId, 'steam'),
+        etag: 'etag', sizeBytes: 100, sha256: 'a'.repeat(64) }] }));
+    expect(result.eligible).toBe(false);
+    expect(result.reasons).toContain('shared_source_reference_not_preserved');
+  });
+
   it("모든 참조 계정의 기본 전적과 compact identity/counters/rank/hash가 일치할 때 exact object만 계획한다", () => {
     const result = assessMatchRetentionCleanup(eligibleInput());
 

@@ -35,6 +35,24 @@ beforeEach(() => {
   mocks.calculate.mockReturnValue(full);
 });
 describe('expired archive performance preservation', () => {
+  it('명시적으로 검증한 기본 수집 참가자는 성과 재계산·저장을 요구하지 않는다', async () => {
+    const i: any = input();
+    i.basics[0].retention_scope = 'basic_only';
+    i.processed = [];
+    i.source = source();
+    i.basicOnlyAccountIds = [basic.account_id];
+    expect(await preserveExpiredMatchPerformance({} as any, i))
+      .toEqual({ linkedAccounts: 0, savedSummaries: 0, recoveredSummaries: 0 });
+    expect(mocks.calculate).not.toHaveBeenCalled();
+    expect(mocks.preserve.mock.calls[0][1]).toEqual([]);
+  });
+  it('기본 수집 표시가 있어도 실제 분석 또는 요약이 있으면 보존을 검증한다', async () => {
+    const i: any = input();
+    i.basics[0].retention_scope = 'basic_only';
+    i.basicOnlyAccountIds = [basic.account_id];
+    expect(await preserveExpiredMatchPerformance({} as any, i)).toMatchObject({ savedSummaries: 1 });
+    expect(mocks.preserve.mock.calls[0][1]).toEqual([row()]);
+  });
   it('copies an observed DB result and waits for verified persistence', async () => {
     const result = await preserveExpiredMatchPerformance({} as any, input());
     expect(result).toEqual({ linkedAccounts: 0, savedSummaries: 1, recoveredSummaries: 0 });
@@ -61,7 +79,7 @@ describe('expired archive performance preservation', () => {
     const db = { from: vi.fn(), rpc };
     expect(await preserveExpiredMatchPerformance(db as any, i)).toMatchObject({ linkedAccounts: 1, savedSummaries: 1, recoveredSummaries: 0 });
     expect(rpc).toHaveBeenCalledWith('bind_retention_legacy_accounts', { p_bindings: [{
-      before: i.basics[0], processed: i.processed[0], accountId: basic.account_id,
+      before: { retention_scope: 'legacy', ...i.basics[0] }, processed: i.processed[0], accountId: basic.account_id,
     }] });
     expect(mocks.preserve.mock.calls[0][1][0].source_checksum).toBe(buildRetainedPerformanceRow(
       i.processed[0].data.fullResult, { matchId, platform: 'steam', playerId: 'target' })!.source_checksum);
@@ -76,7 +94,7 @@ describe('expired archive performance preservation', () => {
       const rpc = vi.fn<(_name: string, _bindings: unknown) => any>(() => ({ abortSignal: async () => ({ data: [linked], error: null }) }));
       expect(await preserveExpiredMatchPerformance({ rpc } as any, i))
         .toMatchObject({ linkedAccounts: 1, savedSummaries: 1, recoveredSummaries: 0 });
-      expect(rpc.mock.calls[0][1]).toEqual({ p_bindings: [{ before: i.basics[0], processed: i.processed[0], accountId: basic.account_id }] });
+      expect(rpc.mock.calls[0][1]).toEqual({ p_bindings: [{ before: { retention_scope: 'legacy', ...i.basics[0] }, processed: i.processed[0], accountId: basic.account_id }] });
       expect(mocks.preserve.mock.calls[0][1][0].summary.matchType).toBe(observed);
       expect(mocks.calculate).not.toHaveBeenCalled();
     });

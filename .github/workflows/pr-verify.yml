@@ -62,10 +62,13 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install PostgreSQL client
+      - name: Ensure PostgreSQL client
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes postgresql-client
+          if ! psql --version; then
+            sudo apt-get update
+            sudo apt-get install --yes postgresql-client
+            psql --version
+          fi
 
       - name: Apply migrations and run isolated PostgreSQL scenarios
         run: npm run verify:migrations

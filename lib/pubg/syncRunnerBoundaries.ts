@@ -61,6 +61,7 @@ export async function readExistingMatchIds(
   supabase: SupabaseClient,
   candidate: SyncCandidateUser,
   matchIds: string[],
+  accountId?: string,
 ): Promise<string[]> {
   if (matchIds.length === 0) return [];
   const { data, error } = await supabase
@@ -70,9 +71,20 @@ export async function readExistingMatchIds(
     .eq("platform", candidate.platform)
     .in("match_id", matchIds);
   if (error) throw error;
-  return (data || [])
+  const existing = (data || [])
     .map((row: { match_id?: unknown }) => String(row.match_id || ""))
     .filter(Boolean);
+  if (!accountId) return existing;
+  if (!/^account\.[A-Za-z0-9_-]+$/.test(accountId)) throw new Error('match-discovery-invalid-scope');
+  const excluded: string[] = [];
+  for (let offset = 0; offset < matchIds.length; offset += 250) {
+    const {data: unavailable, error: unavailableError} = await supabase.from('pubg_player_match_discovery')
+      .select('match_id').eq('platform', candidate.platform).eq('account_id', accountId)
+      .eq('state', 'unavailable').in('match_id', matchIds.slice(offset, offset + 250));
+    if (unavailableError) throw unavailableError;
+    excluded.push(...(unavailable ?? []).map(row => row.match_id));
+  }
+  return [...new Set([...existing, ...excluded])];
 }
 
 export async function readLatestQuota(supabase: SupabaseClient): Promise<SyncQuotaStatus | null> {

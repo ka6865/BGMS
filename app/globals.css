@@ -53,6 +53,13 @@
   }
 }
 
+/* 다른 페이지에서 이미 로드된 자동 광고도 관리자·고객센터 작업 영역을 덮지 않게 한다. */
+body:has(main[data-ad-free]) ins.adsbygoogle,
+body:has(main[data-ad-free]) .google-auto-placed,
+body:has(main[data-ad-free]) #google_vignette {
+  display: none !important;
+}
+
 /* ============================================
    유틸리티 클래스
    ============================================ */
