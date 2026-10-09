@@ -4,6 +4,7 @@
  
 export interface PlayerMatchRecord {
   account_id?: string;
+  retention_scope?: "legacy" | "basic_only" | "detail";
   ranking_eligible?: boolean;
    player_id: string;
    platform: string;
@@ -104,10 +105,31 @@ function normalizePageSize(value: number): number {
 export async function upsertPlayerMatches(
   supabase: SupabaseClient,
   records: PlayerMatchRecord[],
-  options: { ignoreDuplicates?: boolean } = {},
+  options: { ignoreDuplicates?: boolean; throwOnError?: boolean; atomic?: boolean } = {},
  ): Promise<boolean> {
    if (!records || records.length === 0) return true;
    if (records.some(record => !hasObservedPlayerMatchValues(record))) return false;
+   const accounts = new Map<string, string>();
+   for (const record of records) {
+     const key = JSON.stringify([record.player_id, record.platform, record.match_id]);
+     if (record.account_id) {
+       if (accounts.has(key) && accounts.get(key) !== record.account_id) return false;
+       accounts.set(key, record.account_id);
+     }
+   }
+   const { atomic, throwOnError, ...writeOptions } = options;
+   if (atomic) {
+     const { data, error } = await supabase.rpc("upsert_pubg_participant_matches", {
+       p_records: records.map(toPlayerMatchWriteRecord),
+     });
+     const failure = error ?? (data !== records.length ? new Error("player-match-upsert-count-mismatch") : null);
+     if (failure) {
+       if (throwOnError) throw failure;
+       console.error("[playerMatches] upsert failed:", failure.message);
+       return false;
+     }
+     return true;
+   }
    // PostgREST uses the union of a batch's keys for conflict updates. Group
    // identical column sets so a missing counter never becomes an explicit NULL.
    const batches = new Map<string, PlayerMatchRecord[]>();
@@ -122,8 +144,9 @@ export async function upsertPlayerMatches(
      const unique = new Map(batch.map(record => [JSON.stringify([record.player_id, record.platform, record.match_id]), record]));
      const { error } = await supabase
        .from("pubg_player_matches")
-       .upsert([...unique.values()], { onConflict: "player_id,platform,match_id", ...options });
+       .upsert([...unique.values()], { onConflict: "player_id,platform,match_id", ...writeOptions });
      if (error) {
+       if (throwOnError) throw error;
        console.error("[playerMatches] upsert failed:", error.message);
        return false;
      }
@@ -149,7 +172,7 @@ export async function fetchPlayerMatchesPaginated(
 
   let query = supabase
     .from("pubg_player_matches")
-    .select("player_id, platform, account_id, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time", { count: "exact" })
+    .select("player_id, platform, account_id, retention_scope, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time", { count: "exact" })
     .eq("platform", normPlatform);
   const identityFilter = buildPlayerMatchIdentityFilter(nickname, accountId);
   query = identityFilter ? query.or(identityFilter) : query.eq("player_id", playerId);

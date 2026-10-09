@@ -85,7 +85,7 @@ import {
         status === "saved"
           ? JSON.stringify({
             data: { id: "match-structured", attributes: { createdAt: "2026-08-19T00:00:00.000Z", gameMode: "squad-fpp", mapName: "Erangel" } },
-            included: [{ type: "participant", attributes: { stats: { name: "Linked_Player", kills: 1, damageDealt: 20, winPlace: 3 } } }],
+            included: [{ type: "participant", attributes: { stats: { name: "Linked_Player", playerId: "account.linked", kills: 1, damageDealt: 20, winPlace: 3 } } }],
           })
           : "{}",
         {
@@ -94,9 +94,18 @@ import {
         },
       ));
     const fetchImpl = vi.fn(() => response);
+    const upsert = vi.fn().mockResolvedValue({ error: null });
+    const rpc = vi.fn(async (name: string, { p_records }: { p_records: unknown[] }) => {
+      expect(name).toBe('upsert_pubg_participant_matches');
+      const { error } = await upsert(p_records);
+      return { data: error ? null : p_records.length, error };
+    });
     const supabase = {
-      from: vi.fn(() => ({
-        upsert: vi.fn().mockResolvedValue({ error: null }),
+      rpc,
+      from: vi.fn((table: string) => table === 'system_settings' ? {
+        select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }),
+      } : ({
+        upsert,
       })),
     } as never;
 
@@ -110,6 +119,12 @@ import {
     );
 
     expect(outcome.status).toBe(status);
+    if (status === 'saved') {
+      expect(rpc).toHaveBeenCalledOnce();
+      expect(rpc).toHaveBeenCalledWith('upsert_pubg_participant_matches', {p_records: [
+        expect.objectContaining({account_id: 'account.linked', retention_scope: 'basic_only'}),
+      ]});
+    }
     if (status === "rate_limited") {
       expect(outcome.rateLimitHeaders?.remaining).toBe(9);
     }

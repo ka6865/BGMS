@@ -130,11 +130,16 @@ describe('durable match collection worker',()=>{
   });
   it('one account timeout does not cancel another account collecting the same match', async () => {
     const jobs = [job, { ...job, account_id: 'account.b', nickname_at_discovery: 'B' }];
-    const rpc = vi.fn().mockImplementation(async (name) => ({
-      data: name === 'claim_pubg_match_discovery' ? jobs.splice(0) : true, error: null,
-    }));
     const upsert = vi.fn().mockResolvedValue({ error: null });
-    const query = { select: () => query, eq: () => query, or: async () => ({ data: [], error: null }), limit: async () => ({ data: [], error: null }), upsert };
+    const rpc = vi.fn().mockImplementation(async (name, args) => {
+      if (name === 'upsert_pubg_participant_matches') {
+        const { error } = await upsert(args.p_records, {onConflict: 'player_id,platform,match_id'});
+        return {data: error ? null : args.p_records.length, error};
+      }
+      return {data: name === 'claim_pubg_match_discovery' ? jobs.splice(0) : true, error: null};
+    });
+    const query = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: null, error: null }),
+      or: async () => ({ data: [], error: null }), limit: async () => ({ data: [], error: null }), upsert };
     vi.spyOn(discoveryServer, 'discoveryClient').mockReturnValue({ from: () => query, rpc } as never);
     vi.stubEnv('PUBG_API_KEY', 'fixture');
     const timedOut = new AbortController();
@@ -151,6 +156,9 @@ describe('durable match collection worker',()=>{
     const summary = await main(['--apply', '--limit', '2']);
     expect(summary).toMatchObject({ saved: 1, retry: 1 });
     expect(upsert).toHaveBeenCalledWith([expect.objectContaining({ account_id: 'account.b' })], expect.anything());
+    expect(rpc).toHaveBeenCalledWith('upsert_pubg_participant_matches', {p_records: [
+      expect.objectContaining({account_id: 'account.b', retention_scope: 'basic_only'}),
+    ]});
   });
   it('requires a full account scope instead of implying that nickname restricts claims', () => {
     expect(parseDiscoveryWorkerArgs(['--apply', '--platform', 'steam', '--account-id', 'account.a', '--limit', '3']))

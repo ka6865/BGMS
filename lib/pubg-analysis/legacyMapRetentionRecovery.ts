@@ -100,9 +100,15 @@ export function planLegacyMapRetentionRecovery(input: {
 
 /** 기본 관측값을 보존한 계정 연결과 작은 성과 요약을 원자 저장한 뒤 둘 다 재조회한다. */
 export async function preserveLegacyMapRetentionPacket(db: SupabaseClient, packet: LegacyMapRetentionPacket): Promise<void> {
+  // 과거 packet의 누락 필드만 보완하고 명시된 scope와 보존 근거는 유지한다.
+  packet = { ...packet,
+    before: { retention_scope: 'legacy', ...packet.before },
+    expectedBasic: { retention_scope: 'legacy', ...packet.expectedBasic },
+  };
   const { data, error } = await db.rpc('recover_retention_legacy_map', { p_packet: packet })
     .abortSignal(AbortSignal.timeout(15_000));
-  if (error || data?.saved !== true || !isDeepStrictEqual(data.basic, packet.expectedBasic))
+  if (error || data?.saved !== true
+    || !isDeepStrictEqual({ retention_scope: 'legacy', ...data.basic }, packet.expectedBasic))
     throw new Error('retention-legacy-map-write-unverified');
   const identity = packet.performance;
   const [{ data: basics, error: basicError }, { data: saved, error: readError }] = await Promise.all([
@@ -112,7 +118,8 @@ export async function preserveLegacyMapRetentionPacket(db: SupabaseClient, packe
       .eq('account_id', identity.account_id).limit(2).abortSignal(AbortSignal.timeout(15_000)),
   ]);
   if (basicError || readError || basics?.length !== 1 || saved?.length !== 1
-    || !isDeepStrictEqual(basics[0], packet.expectedBasic) || Object.entries(identity).some(([key, v]) => key === 'played_at'
+    || !isDeepStrictEqual({ retention_scope: 'legacy', ...basics[0] }, packet.expectedBasic)
+    || Object.entries(identity).some(([key, v]) => key === 'played_at'
       ? Date.parse(saved[0][key]) !== Date.parse(String(v)) : !isDeepStrictEqual(saved[0][key], v)))
     throw new Error('retention-legacy-map-readback-unverified');
 }

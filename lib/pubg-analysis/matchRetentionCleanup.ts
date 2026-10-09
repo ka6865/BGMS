@@ -33,7 +33,15 @@ export type MatchRetentionAccountEvidence = {
   basicMatch: unknown;
   processedRows: unknown[];
   retainedPerformanceRows: unknown[];
+  /** False only after inspecting personal maps, jobs and benchmark references. */
+  detailReferenced?: boolean;
 };
+
+export function isBasicOnlyRetentionEvidence(evidence: MatchRetentionAccountEvidence): boolean {
+  return isRecord(evidence.basicMatch) && evidence.basicMatch.retention_scope === "basic_only"
+    && evidence.detailReferenced === false && evidence.processedRows.length === 0
+    && evidence.retainedPerformanceRows.length === 0;
+}
 
 export type MatchRetentionObjectCandidate = {
   kind: "shared-source" | "personal-map" | "personal-analysis" | "legacy-analysis";
@@ -203,6 +211,7 @@ function accountHasPreservedSnapshot(
   const basicForValidation = mapEvidence && isRecord(rawBasic)
     ? { ...rawBasic, match_type: 'retained-map-observations' } : rawBasic;
   if (!basicMatchMatchesIdentity(basicForValidation, expected)) return false;
+  if (isBasicOnlyRetentionEvidence(evidence)) return true;
   const basic = rawBasic as PlayerMatchRecord;
   const processedRows = evidence.processedRows.filter((row) => isRecord(row)
     && row.match_id === expected.matchId && row.platform === expected.platform
@@ -278,7 +287,9 @@ export function assessMatchRetentionCleanup(
   if (uniqueRefs.length === 0 || uniqueRefs.some((accountId) => !ACCOUNT_ID.test(accountId))) {
     reasons.add("account_references_unknown");
   }
-  const evidenceByAccount = new Map(input.accounts.map((item) => [item.accountId, item]));
+  const evidenceByAccount = new Map(input.accounts.map((item) => [item.accountId,
+    input.objects.some(object => object.kind !== 'shared-source' && object.accountId === item.accountId)
+      ? { ...item, detailReferenced: true } : item]));
   if (uniqueRefs.some((accountId) => !evidenceByAccount.has(accountId))) reasons.add("account_snapshot_missing");
   let retainedAccountCount = 0;
   if (playedAtMs !== null) {

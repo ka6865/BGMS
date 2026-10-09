@@ -212,7 +212,9 @@ begin
   end;
   delete from public.pubg_performance_jobs where match_id=match_key and account_id='account.player-b';
 
-  result := public.recover_retention_legacy_team(payload);
+  result := public.recover_retention_legacy_team(pg_catalog.jsonb_set(pg_catalog.jsonb_set(pg_catalog.jsonb_set(payload,
+    '{before}',(payload->'before')-'retention_scope'),'{sourceBasic}',(payload->'sourceBasic')-'retention_scope'),
+    '{expectedBasic}',(payload->'expectedBasic')-'retention_scope'));
   if result->>'saved' is distinct from 'true'
      or result->'basic'->>'account_id' is distinct from 'account.player-b'
      or result->'basic'->>'damage' is distinct from '300'

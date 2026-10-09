@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { computeFullResultSourceChecksum } from "../lib/pubg-analysis/matchRetentionCleanup";
 import { buildTelemetryCacheKey, buildTelemetryPublicIdentity } from "../lib/pubg-analysis/telemetryCacheKey";
 import { buildRetainedPerformanceRow } from '../lib/pubg/retainedPerformance';
+import { buildSharedTelemetrySourceKey, createSharedTelemetrySource } from '../lib/pubg-analysis/sharedTelemetrySourceContract';
 import { legacyTeamRecoveryInput } from './fixtures/legacy-team-retention';
 
 const harness = vi.hoisted(() => ({
@@ -99,6 +100,7 @@ vi.mock("@supabase/supabase-js", () => {
       }
       let rows = (harness.tables[this.table] ?? []).filter((row) => Object.entries(this.filters)
         .every(([key, value]) => Array.isArray(value) ? value.includes(row[key]) : row[key] === value));
+      if (this.table === 'pubg_player_matches' && this.action === 'select') rows = structuredClone(rows);
       if (this.table === "telemetry_map_cache_entries" && single) {
         harness.actions.push("registry-read-for-restore");
         rows = rows.slice(0, 1);
@@ -277,6 +279,53 @@ const env = {
 };
 
 describe("expired match archive CLI apply protocol", () => {
+  function sharedWithBasicPeer() {
+    const peer = { ...basic({ account_id: 'account.Peer', player_id: 'peer' }), retention_scope: 'basic_only' };
+    harness.tables.pubg_player_matches.push(peer);
+    const participants = [basic(), peer].map((row, i) => ({ type: 'participant', id: `p${i}`,
+      attributes: { stats: { name: row.player_id, playerId: row.account_id, kills: row.kills,
+        damageDealt: row.damage, winPlace: row.win_place, timeSurvived: 500 } } }));
+    const source = createSharedTelemetrySource({ data: { id: matchId, attributes: { createdAt: playedAt,
+      gameMode: 'squad', matchType: 'competitive', mapName: 'Baltic_Main', duration: 600 } },
+      included: [...participants, { type: 'roster', id: 'r', relationships: { participants: { data: participants.map(p => ({ id: p.id })) } } }] },
+      'steam', participants.map(p => ({ _T: 'LogPlayerPosition', _D: playedAt,
+        character: { name: p.attributes.stats.name, accountId: p.attributes.stats.playerId } })));
+    const key = buildSharedTelemetrySourceKey(matchId, 'steam');
+    const body = Buffer.from(JSON.stringify(source));
+    r2.read.mockImplementation(async candidate => candidate === key ? { key, etag: 'etag', sizeBytes: body.length,
+      contentType: 'application/json', contentEncoding: null, body } : null);
+    return { key, peer, body };
+  }
+
+  it('성과가 보존된 분석 참가자와 기본 수집 참가자를 함께 재검증한 후 공통 원본을 정리한다', async () => {
+    const { key } = sharedWithBasicPeer();
+    const before = structuredClone(harness.tables.pubg_player_matches);
+    await cleanup([...args('prepare'), '--preserve-performance'], env);
+    const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+    expect(plan.objects).toHaveLength(1);
+    expect(plan.objects[0]).toMatchObject({ key, basicOnlyAccountIds: ['account.Peer'] });
+    await cleanup(args('apply'), env);
+    expect(r2.deleteSource).toHaveBeenCalledOnce();
+    expect(harness.tables.pubg_player_matches).toEqual(before);
+    expect(harness.tables.pubg_match_performance).toHaveLength(1);
+  });
+
+  it.each(['detail', 'job', 'final-read'])('준비 후 참가자의 %s 변경이면 공통 원본 삭제를 막는다', async change => {
+    const { peer, key, body } = sharedWithBasicPeer();
+    await cleanup(args('prepare'), env);
+    if (change === 'detail') peer.retention_scope = 'detail';
+    if (change === 'job') harness.tables.pubg_performance_jobs.push({ account_id: peer.account_id, platform,
+      match_id: matchId, state: 'done' });
+    if (change === 'final-read') r2.read.mockImplementation(async candidate => {
+      if (candidate !== key) return null;
+      peer.retention_scope = 'detail';
+      return { key, etag: 'etag', sizeBytes: body.length, contentType: 'application/json', contentEncoding: null, body };
+    });
+    await expect(cleanup(args('apply'), env)).rejects.toThrow(change === 'final-read'
+      ? 'retention-source-reference-recheck-failed' : 'retention-final-evidence-changed');
+    expect(r2.deleteSource).not.toHaveBeenCalled();
+  });
+
   function multipleMatches(count: number, withAnalysis = false) {
     const ids = Array.from({ length: count }, (_, i) => `match-retention-${i + 1}`);
     const maps = ids.map(id => buildTelemetryCacheKey({ matchId: id, platform, playerId: accountId, mode: 'full', telemetryVersion: 73 }));
@@ -489,7 +538,7 @@ describe("expired match archive CLI apply protocol", () => {
     const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
     expect(plan.objects.map((o: any) => o.key)).toEqual([fixture.key]);
     expect(plan.preservation).toEqual({ linkedAccounts: 1, savedSummaries: 1, recoveredSummaries: 1 });
-    expect(harness.tables.pubg_player_matches[0]).toEqual({ ...fixture.before, account_id: accountId });
+    expect(harness.tables.pubg_player_matches[0]).toEqual({ ...fixture.before, account_id: accountId, retention_scope: 'legacy' });
     await cleanup(['--apply', '--backup-upload-verified', '--platform', 'all', '--limit', '1',
       '--manifest', manifestPath, '--backup-artifact', backupPath], env);
     expect(harness.actions.indexOf('r2-delete')).toBeGreaterThan(harness.actions.indexOf('legacy-map-recovery'));

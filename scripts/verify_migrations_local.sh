@@ -62,6 +62,7 @@ MIGRATIONS=(
   "20261007053338_legacy_map_retention_recovery"
   "20261007062957_legacy_team_retention_event_metadata"
   "20261008213709_legacy_team_retention_failure_reasons"
+  "20261009022508_participant_match_retention_scope"
 )
 
 cleanup() {
@@ -140,6 +141,7 @@ for migration in "${MIGRATIONS[@]}"; do
 done
 
 echo "▶ RPC 동작 시나리오 실행"
+"${PSQL[@]}" -f tests/fixtures/migration-check/participant_match_retention_scope_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retention_legacy_binding_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retention_match_type_recovery_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/legacy_team_retention_recovery_checks.sql
@@ -172,7 +174,10 @@ except Exception:
     print("Invalid or non-private legacy map packet; refusing local verification", file=sys.stderr)
     sys.exit(1)
 
-packet_hex = raw.hex()
+for key in ("before", "expectedBasic"):
+    if isinstance(packet.get(key), dict) and "retention_scope" not in packet[key]:
+        packet[key]["retention_scope"] = "legacy"
+packet_hex = json.dumps(packet, separators=(",", ":")).encode().hex()
 sql = f"""begin;
 set local timezone='UTC';
 create temporary table actual_legacy_map_packet(packet jsonb not null) on commit drop;
