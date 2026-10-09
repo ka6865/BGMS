@@ -65,6 +65,46 @@ describe("PUBG API 오류 저장", () => {
     }));
   });
 
+  it("Vercel 로그에 실패 사유를 남기고 원문과 식별자는 노출하지 않는다", async () => {
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const { reportPubgApiError } = await import("../lib/pubg/apiHelper");
+    const diagnostics = {
+      failureStage: "player",
+      errorCode: "invalid_shape",
+      upstreamStatus: 200,
+      durationMs: 238,
+      contentType: "application/json",
+      responseBytes: 419,
+      validationIssue: "player_privacy_protected",
+      platform: "steam",
+      source: "player_refresh",
+      requestId: "fixture-request",
+    };
+
+    await reportPubgApiError({
+      route: "/api/pubg/player",
+      status: 503,
+      message: "PUBG player API request failed",
+      detail: "private-response-body",
+      context: {
+        ...diagnostics,
+        ...{ nickname: "PrivatePlayer", accountId: "account.private", authorization: "private-token" },
+      },
+      notify: false,
+    });
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining("Route: /api/pubg/player, Status: 503"),
+      expect.objectContaining(diagnostics),
+    );
+    const log = JSON.stringify(warnSpy.mock.calls);
+    for (const sensitive of ["private-response-body", "PrivatePlayer", "account.private", "private-token"]) {
+      expect(log).not.toContain(sensitive);
+    }
+    expect(mocks.insert).toHaveBeenCalledWith(expect.objectContaining({ detail: "private-response-body" }));
+    warnSpy.mockRestore();
+  });
+
   it("원인별 alert reservation이 이미 점유됐으면 Discord 전송과 오류 로그를 건너뛴다", async () => {
     mocks.rpc.mockImplementation((name: string) => {
       if (name === "count_pubg_api_errors_in_window") {

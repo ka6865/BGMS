@@ -475,6 +475,37 @@ describe("player route recovery contract", () => {
   });
 
   it.each([
+    [undefined, "player_id_missing"],
+    [false, "player_id_missing"],
+    [true, "player_privacy_protected"],
+  ])("비공개 보호 표시가 %s인 ID 누락 응답의 사유를 기록하고 캐시를 보존한다", async (privacyProtected, issue) => {
+    const { adminUpsert, adminUpdate, discoveryRpc } = configureSupabase(staleCacheRow());
+    const player = playerPayload();
+    Reflect.deleteProperty(player.data[0], "id");
+    Object.assign(player.data[0].attributes, { isPrivacyProtected: privacyProtected });
+    installFetch({ player: [jsonResponse(player, 200, { "content-type": "application/json" })] });
+    const { GET } = await loadRoute();
+    const response = await GET(request("http://localhost/api/pubg/player?nickname=Fixture_Player&platform=steam&refresh=true"));
+
+    expect(response.status).toBe(503);
+    expect(mockReportPubgApiError).toHaveBeenCalledWith(expect.objectContaining({
+      context: expect.objectContaining({
+        failureStage: "player",
+        errorCode: "invalid_shape",
+        upstreamStatus: 200,
+        contentType: "application/json",
+        responseBytes: new TextEncoder().encode(JSON.stringify(player)).byteLength,
+        validationIssue: issue,
+        source: "player_refresh",
+      }),
+    }));
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(adminUpsert).not.toHaveBeenCalled();
+    expect(adminUpdate).not.toHaveBeenCalled();
+    expect(discoveryRpc).not.toHaveBeenCalled();
+  });
+
+  it.each([
     ["player_matches_missing", { assets: { data: [] } }],
     ["player_matches_not_array", { matches: { data: null } }],
     ["player_match_id_missing", { matches: { data: [{}] } }],

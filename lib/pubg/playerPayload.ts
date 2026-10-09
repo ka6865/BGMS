@@ -27,7 +27,11 @@ export function isPlayerPayload(value: unknown): value is PubgPlayerPayload {
 export function playerPayloadIssue(value: unknown): string | null {
   if (!isRecord(value) || !Array.isArray(value.data)) return "player_data_not_array";
   for (const player of value.data) {
-    if (!isRecord(player) || !nonEmptyString(player.id)) return "player_id_missing";
+    if (!isRecord(player) || !nonEmptyString(player.id)) {
+      return isRecord(player) && isRecord(player.attributes) && player.attributes.isPrivacyProtected === true
+        ? "player_privacy_protected"
+        : "player_id_missing";
+    }
     if (!isRecord(player.attributes) || !nonEmptyString(player.attributes.name)) return "player_name_missing";
     if (!isRecord(player.relationships) || !isRecord(player.relationships.matches)) return "player_matches_missing";
     const matches = player.relationships.matches.data;
