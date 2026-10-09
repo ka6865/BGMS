@@ -22,6 +22,12 @@ BEGIN
   SELECT * INTO r FROM public.get_pubg_rankings('tier',ARRAY['squad'],'official',3,8,1,73,'{}');
   IF r.value IS DISTINCT FROM 77::double precision OR r.match_count IS DISTINCT FROM 2::bigint
     THEN RAISE EXCEPTION 'FAIL: existing v2 ranking disappeared'; END IF;
+  SELECT * INTO r FROM public.get_pubg_rankings('damage',ARRAY['squad'],'official',3,8,1,73,'{}');
+  IF r.value IS DISTINCT FROM 500::double precision OR r.match_count IS DISTINCT FROM 6::bigint
+    THEN RAISE EXCEPTION 'FAIL: unscored matches disappeared from damage'; END IF;
+  SELECT * INTO r FROM public.get_pubg_rankings('kills',ARRAY['squad'],'official',3,8,1,73,'{}');
+  IF r.value IS DISTINCT FROM 5::double precision OR r.match_count IS DISTINCT FROM 6::bigint
+    THEN RAISE EXCEPTION 'FAIL: unscored matches disappeared from kills'; END IF;
   SELECT * INTO r FROM public.get_pubg_rankings('tier',ARRAY['duo'],'official',3,8,1,73,'{}');
   IF r.value IS DISTINCT FROM 74::double precision OR r.match_count IS DISTINCT FROM 1::bigint
     THEN RAISE EXCEPTION 'FAIL: mixed retained match duplicated or older result selected'; END IF;

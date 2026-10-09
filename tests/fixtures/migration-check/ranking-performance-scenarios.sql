@@ -46,6 +46,15 @@ do $$ declare j public.pubg_performance_jobs;n integer;ok boolean; begin
   if n<>1 then raise exception 'Automatic score not ranked';end if;
 end $$;
 -- Queue repair counts a currently running lease within the same global cap.
+insert into public.global_benchmarks(match_id,platform,player_id,game_mode,match_type,tier,score,filter_version,population_evidence_version,calculation_version)
+values ('rank-private-legacy','steam','old-private-name','squad','official','S',90,8,1,2),
+  ('rank-private-cache-legacy','steam','current-private-name','squad','official','S',89,8,1,2);
+do $$ declare n integer; begin
+  select count(*) into n from public.get_pubg_rankings('tier',array['squad'],'all',3,8,1,73,'{}');
+  if n<>3 then raise exception 'Tier candidates lost legacy scored aliases'; end if;
+  select count(*) into n from public.get_pubg_rankings('tier',array['squad'],'all',3,8,1,73,array['steam:account:account.ranksteam']) where platform='steam';
+  if n<>0 then raise exception 'Tier candidates exposed private account aliases'; end if;
+end $$;
 insert into public.pubg_performance_jobs(platform,account_id,match_id,player_id,calculation_version,result_version)
 select 'steam','account.queue','queue-'||n,'queue',2,73 from generate_series(1,400) n;
 insert into public.pubg_performance_jobs(platform,account_id,match_id,player_id,calculation_version,result_version,state,lease_token,lease_expires_at)
