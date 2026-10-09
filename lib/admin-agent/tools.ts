@@ -449,7 +449,7 @@ const inspectFinalReadinessDecl: FunctionDeclaration = {
 
 const createBoardPostDecl: FunctionDeclaration = {
   name: "create_board_post",
-  description: "커뮤니티 자유게시판에 HTML 본문을 포함한 분석 리포트 글을 발행합니다. 위험 작업이므로 승인 대기 요청만 생성합니다.",
+  description: "커뮤니티 자유게시판의 비공개 분석 리포트 초안 저장을 승인 대기 요청으로 등록합니다. 승인 후 초안을 저장하며 공개 발행은 초안 확인 후 별도로 진행합니다.",
   parameters: {
     type: SchemaType.OBJECT,
     properties: {
@@ -462,7 +462,7 @@ const createBoardPostDecl: FunctionDeclaration = {
 
 const updateBoardPostDecl: FunctionDeclaration = {
   name: "update_board_post",
-  description: "이미 등록된 게시글의 제목과 본문을 수정합니다. 위험 작업이므로 승인 대기 요청만 생성합니다. [주의] 기존 본문에 있던 이미지 태그(<img>)를 누락하고 content를 작성하면 승인 시 스토리지에서 실제 이미지 파일이 자동 삭제되므로, 이미지를 명시적으로 삭제하려는 목적이 아니라면 원본 본문의 <img> 태그들을 반드시 누락 없이 복사하여 새 content에 유지시켜야 합니다.",
+  description: "이미 등록된 게시글의 비공개 수정 초안 저장을 승인 대기 요청으로 등록합니다. 승인 후 초안을 저장하며 원본 반영은 초안 확인 후 별도 발행이 필요합니다. 원본 본문의 이미지 태그(<img>)와 URL을 새 content에 유지하고 저장된 초안에서 이미지를 확인하세요.",
   parameters: {
     type: SchemaType.OBJECT,
     properties: {
@@ -651,7 +651,7 @@ const analyzeContentPerformanceDecl: FunctionDeclaration = {
 
 const requestContentPostDecl: FunctionDeclaration = {
   name: "request_content_post",
-  description: "운영 데이터 기반 게시글 초안을 만들고 자유게시판 발행 승인 요청을 생성합니다. 실제 발행은 관리자 승인 후에만 됩니다.",
+  description: "운영 데이터 기반 게시글을 만들고 자유게시판 비공개 초안 저장 승인 요청을 생성합니다. 승인하면 초안을 저장합니다. 공개 발행은 초안 확인 후 별도로 진행합니다.",
   parameters: {
     type: SchemaType.OBJECT,
     properties: {
@@ -2761,7 +2761,7 @@ async function requestBoardPostApproval(args: any, context: AdminAgentContext): 
     result: JSON.stringify({
       approvalRequired: true,
       approvalId,
-      message: "게시글 발행은 승인 대기열에 등록되었습니다. 관리자 승인 후 실제 발행됩니다.",
+      message: "게시글 초안 작성 요청이 승인 대기열에 등록되었습니다. 승인 후 비공개 초안을 저장하며 공개 발행은 초안 확인 후 별도로 진행합니다.",
       preview: { title: args.title, content: args.content }
     })
   };
@@ -2801,7 +2801,7 @@ async function requestUpdateBoardPostApproval(args: any, context: AdminAgentCont
     result: JSON.stringify({
       approvalRequired: true,
       approvalId,
-      message: "게시글 수정 승인 대기 요청을 성공적으로 올렸습니다.",
+      message: "비공개 수정 초안 저장 요청이 승인 대기열에 등록되었습니다. 승인 후 초안을 저장하며 원본 반영은 초안 확인 후 별도로 발행합니다.",
       preview: {
         postId: args.postId,
         title: args.title,
@@ -3303,7 +3303,7 @@ async function requestContentPost(args: any, context: AdminAgentContext): Promis
     result: JSON.stringify({
       approvalRequired: true,
       approvalId,
-      message: "콘텐츠 게시글 발행은 승인 대기열에 등록되었습니다.",
+      message: "콘텐츠 비공개 초안 저장 요청이 승인 대기열에 등록되었습니다. 승인 후 초안을 저장하며 공개 발행은 초안 확인 후 별도로 진행합니다.",
       title: args.title || draft.title,
       draftType: draft.draftType
     })

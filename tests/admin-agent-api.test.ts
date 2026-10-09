@@ -2325,7 +2325,12 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
 
     expect(response.status).toBe(200);
     expect(body.approvals[0].impact.risk).toBe("medium");
-    expect(body.approvals[0].impact.preview.headline).toBe("게시글 수정 미리보기");
+    expect(body.approvals[0].impact.preview.headline).toBe("비공개 수정 초안 미리보기");
+    expect(body.approvals[0].impact.preview.warnings).toContain("승인하면 비공개 수정 초안이 저장됩니다. 원본 반영은 초안 확인 후 별도 발행이 필요합니다.");
+    expect(body.approvals[0].impact.checklist).toContainEqual(expect.objectContaining({
+      label: "원본 반영",
+      message: expect.stringContaining("별도 발행")
+    }));
     expect(body.approvals[0].impact.preview.diff).toEqual(expect.objectContaining({
       titleChanged: true,
       contentChanged: true,
@@ -3695,7 +3700,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     }));
   });
 
-  it("POST /approvals/:id/approve는 콘텐츠 게시글을 승인 후 발행한다", async () => {
+  it("POST /approvals/:id/approve는 콘텐츠를 비공개 초안으로 저장하고 공개 전 확인을 안내한다", async () => {
     tables.agent_approvals = chain({
       count: 1,
       singleResult: {
@@ -3726,19 +3731,22 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     expect(body.success).toBe(true);
     expect(body.result.impact.checklist).toEqual(expect.arrayContaining([
       expect.objectContaining({ label: "제목 확인", status: "pass" }),
-      expect.objectContaining({ label: "공개 노출", status: "review" })
+      expect.objectContaining({ label: "공개 전 확인", status: "review" })
     ]));
     expect(tables.posts.insert).toHaveBeenCalledWith(expect.objectContaining({
       title: "운영 데이터 기반 게시글",
       content: "<p>초안 본문</p>",
       category: "자유",
       author: "BGMS_AI_BOT",
-      user_id: "admin-id"
+      user_id: "admin-id",
+      status: "draft"
     }));
+    expect(body.result.impact.summary).toContain("비공개 초안");
+    expect(body.result.impact.preview.warnings).toContain("승인하면 비공개 초안으로 저장됩니다. 공개 발행은 별도 확인이 필요합니다.");
     expect(body.result.execution.message).toContain("자유게시판");
     expect(body.result.postExecution).toEqual(expect.objectContaining({
       status: "completed",
-      title: "게시글 발행",
+      title: "게시글 초안 작성",
       outcome: expect.stringContaining("자유게시판"),
       followUp: expect.arrayContaining([
         expect.stringContaining("게시판")

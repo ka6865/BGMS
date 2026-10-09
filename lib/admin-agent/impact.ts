@@ -72,11 +72,11 @@ export function buildApprovalExecutionGate(
   if (actionType === "create_board_post") {
     if (!String(payload.title || "").trim()) {
       reasons.push("게시글 제목이 비어 있습니다.");
-      requiredBeforeApproval.push("제목이 포함된 발행 요청을 다시 생성하세요.");
+      requiredBeforeApproval.push("제목이 포함된 초안 작성 요청을 다시 생성하세요.");
     }
     if (!String(payload.content || "").trim()) {
       reasons.push("게시글 본문이 비어 있습니다.");
-      requiredBeforeApproval.push("본문이 포함된 발행 요청을 다시 생성하세요.");
+      requiredBeforeApproval.push("본문이 포함된 초안 작성 요청을 다시 생성하세요.");
     }
   }
 
@@ -186,7 +186,7 @@ export async function calculateApprovalImpact(
       : undefined;
     return {
       risk: "medium",
-      summary: `게시글 "${payload.title || "제목 없음"}" 공개 발행 대기`,
+      summary: `게시글 "${payload.title || "제목 없음"}" 비공개 초안 작성 대기`,
       details: {
         title: payload.title || null,
         category: payload.category || "자유",
@@ -196,7 +196,7 @@ export async function calculateApprovalImpact(
         seoTitle: payload.draft?.seoTitle || null
       },
       preview: {
-        headline: "게시판 공개 발행 미리보기",
+        headline: "비공개 게시글 초안 미리보기",
         items: [
           { label: "제목", value: String(payload.title || "제목 없음") },
           { label: "게시판", value: String(payload.category || "자유") },
@@ -207,7 +207,7 @@ export async function calculateApprovalImpact(
         bodyPreview: htmlToPlainText(content),
         diff,
         warnings: [
-          "승인 즉시 공개 게시글로 노출됩니다.",
+          "승인하면 비공개 초안으로 저장됩니다. 공개 발행은 별도 확인이 필요합니다.",
           ...(diff?.titleChanged || diff?.contentChanged ? ["원본 초안과 최종 발행안이 다릅니다. 변경 요약을 확인하세요."] : []),
           ...(hasImage ? [] : ["이미지 없는 게시글입니다. 공지 목적이 아니라면 시각 자료를 확인하세요."])
         ]
@@ -229,9 +229,9 @@ export async function calculateApprovalImpact(
           message: hasImage ? "본문에 이미지가 포함되어 있습니다." : "이미지 없는 텍스트 게시글입니다."
         },
         {
-          label: "공개 노출",
+          label: "공개 전 확인",
           status: "review",
-          message: `${payload.category || "자유"} 게시판에 즉시 공개됩니다.`
+          message: `${payload.category || "자유"} 게시판의 비공개 초안으로 저장됩니다.`
         }
       ]
     };
@@ -257,7 +257,7 @@ export async function calculateApprovalImpact(
       : undefined;
     return {
       risk: "medium",
-      summary: `게시글 #${payload.postId} "${payload.title || "제목 없음"}" 수정 대기`,
+      summary: `게시글 #${payload.postId} "${payload.title || "제목 없음"}" 비공개 수정 초안 저장 대기`,
       details: {
         postId: payload.postId,
         title: payload.title || null,
@@ -267,7 +267,7 @@ export async function calculateApprovalImpact(
         beforeContentLength: beforeContent?.length || null
       },
       preview: {
-        headline: "게시글 수정 미리보기",
+        headline: "비공개 수정 초안 미리보기",
         items: [
           { label: "게시글 ID", value: String(payload.postId) },
           { label: "수정 제목", value: String(payload.title || "제목 없음") },
@@ -278,9 +278,9 @@ export async function calculateApprovalImpact(
         bodyPreview: htmlToPlainText(content),
         diff,
         warnings: [
-          "승인 즉시 기존 게시글이 덮어씁니다.",
-          ...(diff?.titleChanged ? ["제목이 변경됩니다. 변경 전후를 확인하세요."] : []),
-          ...(diff?.imageChanged ? ["이미지 포함 여부가 변경됩니다. 기존 이미지는 Storage에서 자동 정리됩니다."] : [])
+          "승인하면 비공개 수정 초안이 저장됩니다. 원본 반영은 초안 확인 후 별도 발행이 필요합니다.",
+          ...(diff?.titleChanged ? ["수정 초안의 제목이 달라집니다. 변경 전후를 확인하세요."] : []),
+          ...(diff?.imageChanged ? ["요청 본문의 이미지 포함 여부가 다릅니다. 저장된 수정 초안에서 이미지 보존 상태를 확인하세요."] : [])
         ]
       },
       checklist: [
@@ -300,9 +300,9 @@ export async function calculateApprovalImpact(
           message: `${content.length.toLocaleString("ko-KR")}자. 너무 짧으면 게시글 품질을 다시 확인하세요.`
         },
         {
-          label: "덮어쓰기",
+          label: "원본 반영",
           status: "review",
-          message: `게시글 #${payload.postId}의 기존 내용이 수정된 내용으로 대체됩니다.`
+          message: `게시글 #${payload.postId}의 원본 반영은 수정 초안 확인 후 별도 발행이 필요합니다.`
         }
       ]
     };

@@ -149,7 +149,8 @@ describe("데이터 정리 API", () => {
     const body = await response.json();
 
     const applyCalls = calls.filter((call) => call.args.p_apply === true);
-    expect(applyCalls.length).toBeLessThanOrEqual(20);
+    expect(applyCalls).toHaveLength(20);
+    expect(body.deletedCount).toBe(20_000);
     expect(body.hasRemaining).toBe(true);
     expect(body.message).toContain("다시 실행");
   });
@@ -203,5 +204,40 @@ describe("데이터 정리 API", () => {
 
     expect(response.status).toBe(500);
     expect(body.error).toContain("rpc down");
+  });
+
+  it("실행 전 대상 확인이 실패하면 삭제를 시작하지 않는다", async () => {
+    const { calls } = mockAdmin({
+      rpc: () => ({ ...compactionRow(), error: { message: "preview failed" } }),
+    });
+
+    const response = await compactPOST(request({ target: "pubg_player_cache", apply: true }));
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.error).toBe("preview failed");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.args.p_apply).toBe(false);
+  });
+
+  it("배치 중간 실패는 확인된 삭제량과 부분 실행 가능성을 안내한다", async () => {
+    let applied = 0;
+    const { calls } = mockAdmin({ rpc: (_name, args) => {
+      if (args.p_apply !== true) return compactionRow();
+      applied += 1;
+      return applied === 1
+        ? compactionRow({ deleted_count: 1_000, remaining_count: 11_000 })
+        : { data: null, error: { message: "batch failed" } };
+    } });
+
+    const response = await compactPOST(request({ target: "pubg_player_cache", apply: true }));
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.deletedCount).toBe(1_000);
+    expect(body.partialExecution).toBe(true);
+    expect(body.error).toContain("1,000건");
+    expect(body.error).toContain("대상을 다시 확인");
+    expect(calls.filter((call) => call.args.p_apply === true)).toHaveLength(2);
   });
 });

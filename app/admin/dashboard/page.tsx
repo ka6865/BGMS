@@ -14,13 +14,11 @@ import {
   ClipboardCheck,
   Database,
   FileText,
-  HardDrive,
   Loader2,
   MessageSquare,
   RefreshCw,
   Search,
   ShieldCheck,
-  Trash2
 } from "lucide-react";
 import { Drawer } from "vaul";
 import AdminAgentChat from "@/components/admin/AdminAgentChat";
@@ -29,6 +27,8 @@ import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import ConfirmModal from "@/components/common/ConfirmModal";
 import PromptModal from "@/components/common/PromptModal";
+import StoragePanel from "@/components/admin/dashboard/StoragePanel";
+import { ADMIN_COMPACTION_MAX_ROWS } from "@/lib/admin-agent/storage-limits";
 import type {
   AgentApproval,
   AgentApprovalSummary,
@@ -106,6 +106,7 @@ export default function AdminDashboardPage() {
   const [showProcessedApprovals, setShowProcessedApprovals] = useState(false);
   const [showDeveloperInfo, setShowDeveloperInfo] = useState(false);
   const [approvalLoadingId, setApprovalLoadingId] = useState<string | null>(null);
+  const [unverifiedApprovalIds, setUnverifiedApprovalIds] = useState<string[]>([]);
   const [approvalNotice, setApprovalNotice] = useState<string | null>(null);
   const [memories, setMemories] = useState<AgentMemory[]>([]);
   const [memorySummary, setMemorySummary] = useState<AgentMemorySummary | null>(null);
@@ -285,12 +286,34 @@ export default function AdminDashboardPage() {
     if (!response.ok) return;
     const data = await response.json();
     const nextApprovals: AgentApproval[] = data.approvals || [];
+    const recovered = nextApprovals.find((approval) =>
+      approval.id === selectedApprovalId && unverifiedApprovalIds.includes(approval.id));
+    if (recovered) setShowProcessedApprovals(recovered.status !== "pending");
+    setUnverifiedApprovalIds((current) => current.filter((id) => !unverifiedApprovalIds.includes(id)));
     setApprovals(nextApprovals);
     setApprovalSummary(data.summary || null);
     setSelectedApprovalId((current) => {
       if (current && nextApprovals.some((approval) => approval.id === current)) return current;
       return nextApprovals.find((approval) => approval.status === "pending")?.id || nextApprovals[0]?.id || null;
     });
+    return nextApprovals;
+  };
+
+  const recoverApprovalState = async (id: string, message: string) => {
+    setApprovalNotice(message);
+    setUnverifiedApprovalIds((current) => current.includes(id) ? current : [...current, id]);
+    try {
+      const next = await loadApprovals();
+      if (!next) throw new Error("승인 상태를 조회하지 못했습니다.");
+      const target = next.find((approval) => approval.id === id);
+      if (target) {
+        setUnverifiedApprovalIds((current) => current.filter((currentId) => currentId !== id));
+        setShowProcessedApprovals(target.status !== "pending");
+        setSelectedApprovalId(id);
+      }
+    } catch {
+      setApprovalNotice(`${message}\n승인 상태를 다시 읽지 못했습니다. 실제 결과를 확인하고 새로고침 전에는 재실행하지 마세요.`);
+    }
   };
 
   const loadMemories = async (options?: { q?: string; category?: string; includeInactive?: boolean }) => {
@@ -354,6 +377,7 @@ export default function AdminDashboardPage() {
       setCompactionPreview((current) => ({ ...current, [target]: result }));
       toast.info(result.message);
     } catch (error: any) {
+      setCompactionPreview((current) => ({ ...current, [target]: undefined }));
       toast.error(error?.message || "정리 대상 확인에 실패했습니다.");
     } finally {
       setCompactionPending(null);
@@ -382,7 +406,9 @@ export default function AdminDashboardPage() {
       });
       await loadStorageHealth();
     } catch (error: any) {
+      setCompactionPreview((current) => ({ ...current, [target]: undefined }));
       toast.error(error?.message || "정리 작업에 실패했습니다.");
+      await loadStorageHealth();
     } finally {
       setCompactionPending(null);
       setCompactionConfirmTarget(null);
@@ -428,15 +454,19 @@ export default function AdminDashboardPage() {
       const response = await fetch(`/api/admin/agent/approvals/${approval.id}/approve`, fetchOptions);
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        throw new Error(body.error || "승인 요청 처리에 실패했습니다.");
+        const message = body.error || "승인 요청 처리에 실패했습니다.";
+        throw new Error(message);
       }
       const body = await response.json().catch(() => ({}));
-      await Promise.all([loadApprovals(), loadCommandCenter(), loadMemories()]);
+      const [nextApprovals] = await Promise.all([loadApprovals(), loadCommandCenter(), loadMemories()]);
+      if (!nextApprovals) throw new Error("승인 처리 후 상태 조회에 실패했습니다. 실제 결과를 확인하세요.");
       setShowProcessedApprovals(true);
       setSelectedApprovalId(approval.id);
       setApprovalNotice(body.result?.execution?.message || "수락한 작업이 실행되었습니다.");
     } catch (error: any) {
-      toast.error(error.message || "승인 요청 처리에 실패했습니다.");
+      const message = error.message || "승인 요청 처리에 실패했습니다.";
+      await recoverApprovalState(approval.id, message);
+      toast.error(message);
     } finally {
       setApprovalLoadingId(null);
       setHighRiskApproval(null);
@@ -459,15 +489,19 @@ export default function AdminDashboardPage() {
       const response = await fetch(`/api/admin/agent/approvals/${approval.id}/reject`, fetchOptions);
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        throw new Error(body.error || "거절 처리에 실패했습니다.");
+        const message = body.error || "거절 처리에 실패했습니다.";
+        throw new Error(message);
       }
       const body = await response.json().catch(() => ({}));
-      await Promise.all([loadApprovals(), loadCommandCenter(), loadMemories()]);
+      const [nextApprovals] = await Promise.all([loadApprovals(), loadCommandCenter(), loadMemories()]);
+      if (!nextApprovals) throw new Error("거절 처리 후 상태 조회에 실패했습니다. 실제 결과를 확인하세요.");
       setShowProcessedApprovals(true);
       setSelectedApprovalId(approval.id);
       setApprovalNotice(body.result?.reason ? `거절됨: ${body.result.reason}` : "승인 요청을 거절했습니다.");
     } catch (error: any) {
-      toast.error(error.message || "거절 처리에 실패했습니다.");
+      const message = error.message || "거절 처리에 실패했습니다.";
+      await recoverApprovalState(approval.id, message);
+      toast.error(message);
     } finally {
       setApprovalLoadingId(null);
       setRejectApproval(null);
@@ -496,17 +530,21 @@ export default function AdminDashboardPage() {
       const response = await fetch(`/api/admin/agent/approvals/${approval.id}/${action}`, fetchOptions);
       if (!response.ok) {
         const body = await response.json().catch(() => ({}));
-        throw new Error(body.error || "승인 요청 처리에 실패했습니다.");
+        const message = body.error || "승인 요청 처리에 실패했습니다.";
+        throw new Error(message);
       }
       const body = await response.json().catch(() => ({}));
-      await Promise.all([loadApprovals(), loadCommandCenter(), loadMemories()]);
+      const [nextApprovals] = await Promise.all([loadApprovals(), loadCommandCenter(), loadMemories()]);
+      if (!nextApprovals) throw new Error("승인 처리 후 상태 조회에 실패했습니다. 실제 결과를 확인하세요.");
       setShowProcessedApprovals(true);
       setSelectedApprovalId(approval.id);
       setApprovalNotice(action === "approve"
         ? body.result?.execution?.message || "수락한 작업이 실행되었습니다."
         : body.result?.reason ? `거절됨: ${body.result.reason}` : "승인 요청을 거절했습니다.");
     } catch (error: any) {
-      toast.error(error.message || "승인 요청 처리에 실패했습니다.");
+      const message = error.message || "승인 요청 처리에 실패했습니다.";
+      await recoverApprovalState(approval.id, message);
+      toast.error(message);
     } finally {
       setApprovalLoadingId(null);
     }
@@ -833,6 +871,7 @@ export default function AdminDashboardPage() {
                   <ApprovalDetail
                     approval={selectedApproval}
                     loading={approvalLoadingId === selectedApproval.id}
+                    statusUnverified={unverifiedApprovalIds.includes(selectedApproval.id)}
                     showDeveloperInfo={showDeveloperInfo}
                     onToggleDeveloperInfo={() => setShowDeveloperInfo((value) => !value)}
                     onApprove={() => handleApprovalAction(selectedApproval, "approve")}
@@ -893,112 +932,16 @@ export default function AdminDashboardPage() {
         )}
 
         {activeSection === "data" && (
-          <section className="space-y-3">
-            <div className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-base font-bold text-zinc-100">데이터 관리</h2>
-                  <p className="mt-1 text-xs text-zinc-500">
-                    저장 용량과 정리 대상을 확인합니다. 정리는 대상 건수를 먼저 확인한 뒤 실행합니다.
-                  </p>
-                </div>
-                <button
-                  onClick={loadStorageHealth}
-                  disabled={storageLoading}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-300 disabled:opacity-50"
-                >
-                  {storageLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                  새로 조회
-                </button>
-              </div>
-              {storageHealth && (
-                <p className="mt-3 text-[11px] text-zinc-500">
-                  조회 시각 {new Date(storageHealth.generatedAt).toLocaleString("ko-KR")}
-                </p>
-              )}
-            </div>
-
-            {storageError && (
-              <div className="rounded-lg border border-red-500/25 bg-red-500/5 p-4 text-xs text-red-200">
-                {storageError}
-              </div>
-            )}
-
-            {storageLoading && !storageHealth && (
-              <div className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900 p-4 text-xs text-zinc-400">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                용량을 조회하고 있습니다. R2 버킷 전체를 훑기 때문에 몇 초 걸립니다.
-              </div>
-            )}
-
-            {storageHealth && (
-              <>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <UsageCard
-                    label="Supabase DB"
-                    icon={Database}
-                    usedBytes={storageHealth.database.usedBytes}
-                    limitBytes={storageHealth.database.limitBytes}
-                    usagePercent={storageHealth.database.usagePercent}
-                    status={storageHealth.database.status}
-                    error={storageHealth.database.error}
-                  />
-                  <UsageCard
-                    label="Cloudflare R2"
-                    icon={HardDrive}
-                    usedBytes={storageHealth.r2.totalSizeBytes}
-                    limitBytes={storageHealth.r2.limitBytes}
-                    usagePercent={storageHealth.r2.usagePercent}
-                    status={storageHealth.r2.status}
-                    error={storageHealth.r2.error}
-                    detail={`파일 ${storageHealth.r2.fileCount.toLocaleString()}개`}
-                  />
-                </div>
-
-                <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-                  <h3 className="text-sm font-bold text-zinc-100">정리로 회수할 수 있는 용량</h3>
-                  <p className="mt-1 text-xs text-zinc-500">
-                    삭제는 되돌릴 수 없습니다. 먼저 대상 건수를 확인하면 실행 버튼이 나타납니다.
-                  </p>
-                  <div className="mt-3 space-y-3">
-                    {storageHealth.reclaimable.map((item) => (
-                      <ReclaimRow
-                        key={item.target}
-                        item={item}
-                        preview={compactionPreview[item.target] ?? null}
-                        pending={compactionPending === item.target}
-                        onPreview={() => previewCompaction(item.target)}
-                        onApply={() => setCompactionConfirmTarget(item.target)}
-                      />
-                    ))}
-                  </div>
-                </section>
-
-                <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-                  <h3 className="text-sm font-bold text-zinc-100">테이블 용량</h3>
-                  <p className="mt-1 text-xs text-zinc-500">큰 순서입니다. 인덱스 크기를 포함합니다.</p>
-                  <div className="mt-3 space-y-1.5">
-                    {storageHealth.tables.map((table) => (
-                      <TableUsageRow key={table.table} table={table} />
-                    ))}
-                  </div>
-                </section>
-
-                {storageHealth.recommendations.length > 0 && (
-                  <section className="rounded-lg border border-zinc-800 bg-zinc-900 p-4">
-                    <h3 className="text-sm font-bold text-zinc-100">점검 결과</h3>
-                    <div className="mt-2 space-y-2">
-                      {storageHealth.recommendations.map((item, index) => (
-                        <p key={`${item}-${index}`} className="rounded-md bg-zinc-950 p-2 text-xs leading-relaxed text-zinc-400">
-                          {item}
-                        </p>
-                      ))}
-                    </div>
-                  </section>
-                )}
-              </>
-            )}
-          </section>
+          <StoragePanel
+            storageHealth={storageHealth}
+            storageLoading={storageLoading}
+            storageError={storageError}
+            compactionPending={compactionPending}
+            compactionPreview={compactionPreview}
+            onRefresh={loadStorageHealth}
+            onPreview={previewCompaction}
+            onApply={setCompactionConfirmTarget}
+          />
         )}
 
         {activeSection === "memories" && (
@@ -1461,12 +1404,13 @@ export default function AdminDashboardPage() {
           if (!compactionConfirmTarget) return "";
           const preview = compactionPreview[compactionConfirmTarget];
           if (!preview) return "";
-          return `${preview.label}\n\n${preview.candidateCount.toLocaleString()}건을 삭제합니다.`
+          return `${preview.label}\n\n${preview.candidateCount.toLocaleString()}건이 정리 대상입니다.`
             + "\n이 작업은 되돌릴 수 없습니다."
-            + "\n\n한 번에 최대 3만 건까지 처리하며, 남으면 다시 실행할 수 있습니다.";
+            + `\n\n이번 실행에서는 최대 ${ADMIN_COMPACTION_MAX_ROWS.toLocaleString()}건까지 처리하며, 남으면 다시 실행할 수 있습니다.`;
         })()}
         confirmText="삭제 실행"
         cancelText="취소"
+        isPending={compactionPending !== null}
         type="danger"
         onConfirm={() => {
           if (compactionConfirmTarget) runCompaction(compactionConfirmTarget);
@@ -1523,173 +1467,6 @@ function SummaryCard({
   );
 }
 
-/** 용량 사용률 카드. 임계값에 따라 색을 바꿔 위험 상태를 눈에 띄게 한다. */
-function UsageCard({
-  label,
-  icon: Icon,
-  usedBytes,
-  limitBytes,
-  usagePercent,
-  status,
-  error,
-  detail
-}: {
-  label: string;
-  icon: typeof Database;
-  usedBytes: number;
-  limitBytes: number;
-  usagePercent: number;
-  status: string;
-  error: string | null;
-  detail?: string;
-}) {
-  const tone = status === "critical"
-    ? "border-red-500/30 bg-red-500/5"
-    : status === "warn"
-      ? "border-amber-500/25 bg-amber-500/5"
-      : status === "unavailable"
-        ? "border-zinc-800 bg-zinc-900"
-        : "border-emerald-500/25 bg-emerald-500/5";
-  const barTone = status === "critical"
-    ? "bg-red-400"
-    : status === "warn"
-      ? "bg-amber-400"
-      : "bg-emerald-400";
-
-  return (
-    <div className={`rounded-lg border p-4 ${tone}`}>
-      <div className="flex items-center gap-2">
-        <Icon className="h-4 w-4 text-zinc-400" />
-        <p className="text-xs font-semibold text-zinc-300">{label}</p>
-      </div>
-      {error ? (
-        <p className="mt-3 text-xs text-zinc-500">조회 실패: {error}</p>
-      ) : (
-        <>
-          <p className="mt-2 text-xl font-bold text-zinc-100">
-            {formatStorageBytes(usedBytes)}
-            <span className="ml-1 text-xs font-normal text-zinc-500">/ {formatStorageBytes(limitBytes)}</span>
-          </p>
-          <div
-            className="mt-2 h-1.5 overflow-hidden rounded-full bg-zinc-800"
-            role="progressbar"
-            aria-label={`${label} 사용률`}
-            aria-valuenow={Math.round(usagePercent)}
-            aria-valuemin={0}
-            aria-valuemax={100}
-          >
-            <div className={`h-full ${barTone}`} style={{ width: `${Math.min(100, Math.max(0, usagePercent))}%` }} />
-          </div>
-          <p className="mt-2 text-[11px] text-zinc-500">
-            {usagePercent.toFixed(1)}% 사용{detail ? ` · ${detail}` : ""}
-          </p>
-        </>
-      )}
-    </div>
-  );
-}
-
-/** 정리 대상 한 줄. dry-run 을 거치지 않으면 실행 버튼을 만들지 않는다. */
-function ReclaimRow({
-  item,
-  preview,
-  pending,
-  onPreview,
-  onApply
-}: {
-  item: StorageHealthSummary["reclaimable"][number];
-  preview: StorageCompactionResult | null;
-  pending: boolean;
-  onPreview: () => void;
-  onApply: () => void;
-}) {
-  // dry-run 결과가 있고 지울 것이 남아 있을 때만 실행을 허용한다.
-  const canApply = Boolean(preview && preview.candidateCount > 0);
-
-  return (
-    <div className="rounded-md border border-zinc-800 bg-zinc-950 p-3">
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold text-zinc-200">{item.label}</p>
-          <p className="mt-1 text-[11px] leading-relaxed text-zinc-500">{item.detail}</p>
-        </div>
-        <div className="shrink-0 text-right">
-          {item.error ? (
-            <p className="text-[11px] text-red-300">조회 실패</p>
-          ) : (
-            <>
-              <p className="text-sm font-bold text-zinc-100">{formatStorageBytes(item.estimatedBytes)}</p>
-              <p className="text-[11px] text-zinc-500">{item.candidateRows.toLocaleString()}건</p>
-            </>
-          )}
-        </div>
-      </div>
-
-      {preview && (
-        <p className="mt-2 rounded bg-zinc-900 p-2 text-[11px] leading-relaxed text-amber-200">
-          {preview.message}
-        </p>
-      )}
-
-      {!item.error && item.candidateRows > 0 && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          <button
-            onClick={onPreview}
-            disabled={pending}
-            className="inline-flex items-center gap-1.5 rounded border border-zinc-700 bg-zinc-900 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-300 disabled:opacity-50"
-          >
-            {pending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
-            대상 확인
-          </button>
-          {canApply && (
-            <button
-              onClick={onApply}
-              disabled={pending}
-              className="inline-flex items-center gap-1.5 rounded border border-red-500/30 bg-red-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-red-200 disabled:opacity-50"
-            >
-              <Trash2 className="h-3 w-3" />
-              정리 실행
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** 테이블 한 줄. 크기와 행수를 함께 보여준다. */
-function TableUsageRow({ table }: { table: StorageHealthSummary["tables"][number] }) {
-  return (
-    <div className="flex items-center justify-between gap-3 rounded bg-zinc-950 px-3 py-2">
-      <p className="min-w-0 truncate text-[11px] text-zinc-300">{table.table}</p>
-      <div className="shrink-0 text-right">
-        {table.totalBytes === null ? (
-          <p className="text-[11px] text-zinc-500">
-            {table.count === null ? "조회 실패" : `${table.count.toLocaleString()}행`}
-          </p>
-        ) : (
-          <p className="text-[11px] text-zinc-400">
-            <span className="font-semibold text-zinc-200">{formatStorageBytes(table.totalBytes)}</span>
-            {table.indexBytes !== null && (
-              <span className="ml-1 text-zinc-600">인덱스 {formatStorageBytes(table.indexBytes)}</span>
-            )}
-            {table.count !== null && <span className="ml-1 text-zinc-600">{table.count.toLocaleString()}행</span>}
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** 화면 표기용 용량 포맷. 서버의 formatBytes 와 같은 규칙을 쓴다. */
-function formatStorageBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes <= 0) return "0MB";
-  const mb = bytes / (1024 * 1024);
-  if (mb >= 1024) return `${(mb / 1024).toFixed(2)}GB`;
-  if (mb >= 1) return `${mb.toFixed(1)}MB`;
-  return `${Math.max(1, Math.round(bytes / 1024))}KB`;
-}
-
 function MetricCard({ label, value, detail }: { label: string; value: React.ReactNode; detail: string }) {
   return (
     <div className="min-w-0 rounded-lg border border-zinc-800 bg-zinc-900 p-4">
@@ -1718,6 +1495,7 @@ function ApprovalMiniCard({ approval, onClick }: { approval: AgentApproval; onCl
 function ApprovalDetail({
   approval,
   loading,
+  statusUnverified,
   showDeveloperInfo,
   onToggleDeveloperInfo,
   onApprove,
@@ -1725,6 +1503,7 @@ function ApprovalDetail({
 }: {
   approval: AgentApproval;
   loading: boolean;
+  statusUnverified: boolean;
   showDeveloperInfo: boolean;
   onToggleDeveloperInfo: () => void;
   onApprove: () => void;
@@ -1840,19 +1619,19 @@ function ApprovalDetail({
         <div className="sticky bottom-3 grid gap-2 rounded-lg border border-zinc-800 bg-zinc-950/95 p-2 shadow-lg shadow-black/30 backdrop-blur sm:grid-cols-2">
           <button
             onClick={onReject}
-            disabled={loading}
+            disabled={loading || statusUnverified}
             className="rounded-md bg-zinc-800 px-3 py-2 text-xs font-semibold text-zinc-300 disabled:opacity-50"
           >
             거절
           </button>
           <button
             onClick={onApprove}
-            disabled={loading || gateBlocked}
+            disabled={loading || gateBlocked || statusUnverified}
             className={`rounded-md px-3 py-2 text-xs font-bold disabled:opacity-50 ${
               isHighRiskApproval(approval) ? "bg-rose-500 text-white" : "bg-emerald-500 text-zinc-950"
             }`}
           >
-            {loading ? "처리 중..." : gateBlocked ? "수락 불가" : isHighRiskApproval(approval) ? "위험 작업 수락" : "수락하고 실행"}
+            {loading ? "처리 중..." : statusUnverified ? "상태 확인 필요" : gateBlocked ? "수락 불가" : isHighRiskApproval(approval) ? "위험 작업 수락" : "수락하고 실행"}
           </button>
         </div>
       )}
@@ -2005,6 +1784,7 @@ function isHighRiskApproval(approval: AgentApproval) {
 }
 
 function getApprovalDecisionLabel(approval: AgentApproval) {
+  if (approval.status === "approved") return "실행 상태 확인";
   if (approval.status !== "pending") return approval.status === "failed" ? "실패 기록" : approval.status === "rejected" ? "거절됨" : "처리 완료";
   if (approval.impact?.executionGate?.status === "block") return "수락 불가";
   if (isHighRiskApproval(approval) || approval.impact?.executionGate?.status === "review") return "검토 필요";
@@ -2026,7 +1806,8 @@ function getApprovalActionLabel(approval: AgentApproval) {
   const map: Record<string, string> = {
     save_agent_memory: "내부 기록 저장",
     save_agent_report: "운영 일지 저장",
-    create_board_post: "게시글 발행",
+    create_board_post: "게시글 초안 작성",
+    update_board_post: "게시글 수정 초안",
     flush_old_cache: "오래된 캐시 정리",
     flush_player_cache: "플레이어 캐시 정리",
     flush_match_cache: "매치 캐시 정리",
@@ -2036,10 +1817,12 @@ function getApprovalActionLabel(approval: AgentApproval) {
 }
 
 function getApprovalOutcomeText(approval: AgentApproval) {
+  if (approval.status === "approved") return "승인은 확보됐지만 실행 완료 기록이 없습니다. 실제 결과를 확인하고 재실행하지 마세요.";
   if (approval.impact?.executionGate?.status === "block") {
     return approval.impact.executionGate.label || "필수 조건을 통과하지 못해 지금은 수락할 수 없습니다.";
   }
-  if (approval.action_type === "create_board_post") return "수락하면 게시판에 글이 공개됩니다.";
+  if (approval.action_type === "create_board_post") return "수락하면 비공개 게시글 초안이 저장됩니다. 공개하려면 초안을 확인한 뒤 별도로 발행해야 합니다.";
+  if (approval.action_type === "update_board_post") return "수락하면 비공개 수정 초안이 저장됩니다. 원본에 반영하려면 초안을 확인한 뒤 별도로 발행해야 합니다.";
   if (approval.action_type === "save_agent_memory") return "수락하면 AI 비서가 참고하는 비공개 운영 기준이 저장됩니다.";
   if (approval.action_type === "save_agent_report") return "수락하면 오늘 운영 상태가 비공개 운영 일지로 저장됩니다.";
   if (approval.action_type === "flush_old_cache") return "수락하면 오래된 분석 캐시가 삭제됩니다.";
