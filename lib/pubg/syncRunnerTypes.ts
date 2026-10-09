@@ -34,6 +34,7 @@ export type SyncRunSummary = {
   lockCollisions: number;
   invalidNicknames: number;
   notFoundMatches: number;
+  unsupportedMatches?: number;
   upstreamErrors: number;
   networkErrors: number;
   rateLimited: boolean;
@@ -78,6 +79,7 @@ export type SyncRunnerDependencies = {
     supabase: SupabaseClient,
     candidate: SyncCandidateUser,
     matchIds: string[],
+    accountId?: string,
   ) => Promise<string[]>;
   ingestMatch?: (
     supabase: SupabaseClient,

@@ -80,6 +80,17 @@ export type StageState = {
   result: Record<string, unknown>;
 };
 
+export type SelectionDiagnostics = {
+  storedCount: number;
+  usableCount: number;
+  inputCount: number;
+  emptyCount: number;
+  rejectedCount: number;
+  supplementalCount: number;
+  detail: string | null;
+  candidates: Array<{ title: string; reason: string }>;
+};
+
 export type SourceStatus = {
   id: CollectSource;
   state: SourceState;
@@ -92,6 +103,7 @@ export type SourceStatus = {
 export type RunSnapshot = {
   id: string;
   day: string;
+  createdAt?: string | null;
   status:
     | "collecting"
     | "selected"

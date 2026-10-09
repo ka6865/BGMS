@@ -309,6 +309,9 @@ export async function GET(request: Request) {
           errorCode: failure?.errorCode ?? "PLAYER_LOOKUP_FAILED",
           upstreamStatus: failure?.upstreamStatus ?? null,
           durationMs: failure?.durationMs ?? null,
+          contentType: failure?.contentType ?? null,
+          responseBytes: failure?.responseBytes ?? null,
+          validationIssue: failure?.validationIssue ?? null,
           platform, source: forceRefresh ? "player_refresh" : autoRefresh ? "player_auto_refresh" : "player_search", requestId,
         },
         // Partial recovery is diagnostic only; keep alerts for complete failures.

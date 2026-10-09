@@ -41,6 +41,29 @@ describe('durable match collection worker',()=>{
     expect(summary.rateLimited).toBe(true);expect(d.claim).toHaveBeenCalledTimes(1);
     expect(d.settle).toHaveBeenCalledWith(job,expect.objectContaining({state:'retry',nextAttemptAt:'2026-09-11T00:03:00.000Z'}));
   });
+  it.each([
+    ['2026-08-28T00:00:00Z', 'not_found', 'unavailable', 'discovery_window_elapsed'],
+    ['2026-08-28T00:00:00.001Z', 'not_found', 'retry', 'not_found'],
+    ['invalid', 'not_found', 'retry', 'not_found'],
+    ['2026-09-12T00:00:00Z', 'not_found', 'retry', 'not_found'],
+    ['2026-08-01T00:00:00Z', 'saved', 'saved', undefined],
+    ['2026-08-01T00:00:00Z', 'upstream_error', 'retry', 'upstream_error'],
+    ['2026-09-10T00:00:00Z', 'unsupported_match', 'unavailable', 'match-placement-unavailable'],
+  ] as const)('settles %s / %s without discarding obtainable matches', async (first_seen_at, status, state, errorCode) => {
+    const d = setup(result(status, {httpStatus: status === 'not_found' ? 404 : 200}));
+    const target = { ...job, first_seen_at };
+    d.claim.mockReset().mockResolvedValueOnce([target]).mockResolvedValue([]);
+    await runDiscoveryWorker(d);
+    expect(d.ingest).toHaveBeenCalledWith(target);
+    expect(d.settle).toHaveBeenCalledWith(target, expect.objectContaining({state, ...(errorCode ? {errorCode} : {})}));
+  });
+  it('does not label a missing participant in a successful response as expiration', async () => {
+    const d = setup(result('not_found', {httpStatus: 200}));
+    const target = {...job, first_seen_at: '2026-08-01T00:00:00Z'};
+    d.claim.mockReset().mockResolvedValueOnce([target]).mockResolvedValue([]);
+    await runDiscoveryWorker(d);
+    expect(d.settle).toHaveBeenCalledWith(target, expect.objectContaining({state: 'retry', errorCode: 'not_found'}));
+  });
   it('does not treat thrown network failures as successful writes',async()=>{
     const d=setup(result('saved'));d.ingest.mockRejectedValueOnce(new Error('network'));
     expect((await runDiscoveryWorker(d)).saved).toBe(0);
@@ -107,11 +130,16 @@ describe('durable match collection worker',()=>{
   });
   it('one account timeout does not cancel another account collecting the same match', async () => {
     const jobs = [job, { ...job, account_id: 'account.b', nickname_at_discovery: 'B' }];
-    const rpc = vi.fn().mockImplementation(async (name) => ({
-      data: name === 'claim_pubg_match_discovery' ? jobs.splice(0) : true, error: null,
-    }));
     const upsert = vi.fn().mockResolvedValue({ error: null });
-    const query = { select: () => query, eq: () => query, or: async () => ({ data: [], error: null }), limit: async () => ({ data: [], error: null }), upsert };
+    const rpc = vi.fn().mockImplementation(async (name, args) => {
+      if (name === 'upsert_pubg_participant_matches') {
+        const { error } = await upsert(args.p_records, {onConflict: 'player_id,platform,match_id'});
+        return {data: error ? null : args.p_records.length, error};
+      }
+      return {data: name === 'claim_pubg_match_discovery' ? jobs.splice(0) : true, error: null};
+    });
+    const query = { select: () => query, eq: () => query, maybeSingle: async () => ({ data: null, error: null }),
+      or: async () => ({ data: [], error: null }), limit: async () => ({ data: [], error: null }), upsert };
     vi.spyOn(discoveryServer, 'discoveryClient').mockReturnValue({ from: () => query, rpc } as never);
     vi.stubEnv('PUBG_API_KEY', 'fixture');
     const timedOut = new AbortController();
@@ -128,6 +156,9 @@ describe('durable match collection worker',()=>{
     const summary = await main(['--apply', '--limit', '2']);
     expect(summary).toMatchObject({ saved: 1, retry: 1 });
     expect(upsert).toHaveBeenCalledWith([expect.objectContaining({ account_id: 'account.b' })], expect.anything());
+    expect(rpc).toHaveBeenCalledWith('upsert_pubg_participant_matches', {p_records: [
+      expect.objectContaining({account_id: 'account.b', retention_scope: 'basic_only'}),
+    ]});
   });
   it('requires a full account scope instead of implying that nickname restricts claims', () => {
     expect(parseDiscoveryWorkerArgs(['--apply', '--platform', 'steam', '--account-id', 'account.a', '--limit', '3']))

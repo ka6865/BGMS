@@ -21,7 +21,7 @@ import {
 const describeBrowser = process.env.RUN_STATS_BROWSER_SMOKE === "true" ? describe : describe.skip;
 
 type Viewport = { width: number; height: number };
-type RuntimeLog = { consoleErrors: string[]; pageErrors: string[] };
+type RuntimeLog = { consoleErrors: string[]; pageErrors: string[]; requestFailures: string[] };
 
 const FUNCTIONAL_VIEWPORTS: readonly Viewport[] = [
   { width: 390, height: 844 },
@@ -46,6 +46,14 @@ type ControlState = "ready" | "detail-error" | "detail-expanded" | "squad";
 
 function screenshotPath(name: string, viewport: Viewport): string {
   return join(process.cwd(), "tmp", "stats-browser-qa", `${name}-${viewport.width}x${viewport.height}.png`);
+}
+
+async function warmStatsRoutes(baseUrl: string): Promise<void> {
+  for (const pathname of ["/stats", "/stats/steam/ExpiredPlayer"]) {
+    const response = await fetch(`${baseUrl}${pathname}`);
+    await response.arrayBuffer();
+    if (!response.ok) throw new Error(`Could not warm ${pathname}: HTTP ${response.status}`);
+  }
 }
 
 function playerSemanticKey(input: {
@@ -333,11 +341,12 @@ async function waitForDetailSuccess(
 }
 
 function attachRuntimeLog(page: Page): RuntimeLog {
-  const log: RuntimeLog = { consoleErrors: [], pageErrors: [] };
+  const log: RuntimeLog = { consoleErrors: [], pageErrors: [], requestFailures: [] };
   page.on("console", (message) => {
     if (["error", "warning"].includes(message.type())) log.consoleErrors.push(message.text());
   });
   page.on("pageerror", (error) => log.pageErrors.push(error instanceof Error ? error.message : String(error)));
+  page.on("requestfailed", (request) => log.requestFailures.push(`${request.method()} ${request.url()}: ${request.failure()?.errorText ?? "unknown"}`));
   return log;
 }
 
@@ -839,6 +848,7 @@ describeBrowser("stats browser smoke", () => {
       ownedServer = await startOwnedStatsDevServer();
       baseUrl = ownedServer.baseUrl;
     }
+    await warmStatsRoutes(baseUrl);
     browser = await puppeteer.launch({
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"],
@@ -1022,7 +1032,7 @@ describeBrowser("stats browser smoke", () => {
           (button as HTMLButtonElement | undefined)?.click();
         });
         expect(dispatcher.ledger.count({ pathname: "/api/pubg/player" })).toBe(0);
-        await recordScenarioEvidence("empty-submit", viewport, dispatcher, { consoleErrors: [], pageErrors: [] });
+        await recordScenarioEvidence("empty-submit", viewport, dispatcher, { consoleErrors: [], pageErrors: [], requestFailures: [] });
       },
     });
   }, 60_000);
@@ -1205,7 +1215,7 @@ describeBrowser("stats browser smoke", () => {
         }));
         expect(storage.recent).toBeNull();
         expect(storage.favorites).toBeNull();
-        await recordScenarioEvidence("storage-fresh-context", viewport, dispatcher, { consoleErrors: [], pageErrors: [] });
+        await recordScenarioEvidence("storage-fresh-context", viewport, dispatcher, { consoleErrors: [], pageErrors: [], requestFailures: [] });
       },
     });
   }, 60_000);
@@ -1309,7 +1319,10 @@ describeBrowser("stats browser smoke", () => {
     });
   }, 90_000);
 
-  it.each(FUNCTIONAL_VIEWPORTS)("13/15/91-day rows keep product expiry behavior at %sx%s", async (viewport) => {
+  it.each([
+    { width: 375, height: 667 }, { width: 390, height: 844 },
+    { width: 430, height: 932 }, { width: 1440, height: 900 },
+  ])("13-day detail remains available while 15/91-day matches preserve summary only at %sx%s", async (viewport) => {
     await withStatsBrowserPage({
       browser,
       baseUrl,
@@ -1319,15 +1332,36 @@ describeBrowser("stats browser smoke", () => {
       run: async ({ page, dispatcher }) => {
         const log = attachRuntimeLog(page);
         await goToPlayer(page, dispatcher, baseUrl, "steam", "ExpiredPlayer");
-        await waitForPlayerSuccess(dispatcher, "ExpiredPlayer", "steam");
+        try {
+          await waitForPlayerSuccess(dispatcher, "ExpiredPlayer", "steam");
+        } catch (error) {
+          const runtime = await page.evaluate(() => ({
+            readyState: document.readyState,
+            scripts: [...document.scripts].map((script) => script.src).filter(Boolean),
+            bodyText: document.body.innerText.slice(0, 1200),
+          }));
+          console.error(JSON.stringify({ kind: "expired-browser-diagnostic", viewport, runtime, consoleErrors: log.consoleErrors, pageErrors: log.pageErrors, requestFailures: log.requestFailures, records: dispatcher.ledger.records }));
+          throw error;
+        }
         await waitForSummarySuccess(dispatcher, "ExpiredPlayer", "steam", ["match-age-13", "match-age-15", "match-age-91"]);
         await waitForStatsSelector({ dispatcher, page, selector: '[data-compact-match-id="match-age-13"]' });
         for (const matchId of ["match-age-13", "match-age-15", "match-age-91"]) {
           await page.click(`[data-compact-match-id="${matchId}"] button[aria-label="매치 상세 펼치기"]`);
         }
-        await waitForStatsText({ dispatcher, page, text: "14일이 경과된 과거 전적입니다" });
+        await waitForStatsSelector({ dispatcher, page, selector: '[data-testid="match-detail-expired"]' });
         await waitForDetailSuccess(dispatcher, "ExpiredPlayer", "steam", "match-age-13");
+        expect(await page.$$('[data-testid="match-detail-expired"]')).toHaveLength(2);
+        for (const matchId of ["match-age-15", "match-age-91"]) {
+          expect(dispatcher.ledger.records.some((record) => record.pathname === "/api/pubg/match" && record.url.includes(matchId))).toBe(false);
+        }
+        for (const matchId of ["match-age-13"]) {
+          await page.click(`[data-compact-match-id="${matchId}"] button[aria-label="매치 상세 접기"]`);
+          await page.click(`[data-compact-match-id="${matchId}"] button[aria-label="매치 상세 펼치기"]`);
+        }
         expect(dispatcher.ledger.records.filter((record) => record.pathname === "/api/pubg/match" && record.successful)).toHaveLength(1);
+        expect(log.pageErrors).toEqual([]);
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        await page.screenshot({ path: screenshotPath("historical", viewport) });
         await recordScenarioEvidence("expired", viewport, dispatcher, log);
       },
     });
@@ -1498,7 +1532,7 @@ describeBrowser("stats browser smoke", () => {
         await gotoStatsPage({ dispatcher, page, url: `${baseUrl}/stats/xbox/FixturePlayer` });
         await dispatcher.withFatal(page.waitForFunction(() => location.pathname === "/stats"));
         expect(dispatcher.ledger.count({ pathname: "/api/pubg/player" })).toBe(0);
-        await recordScenarioEvidence("STATS-013", { width: 1440, height: 900 }, dispatcher, { consoleErrors: [], pageErrors: [] });
+        await recordScenarioEvidence("STATS-013", { width: 1440, height: 900 }, dispatcher, { consoleErrors: [], pageErrors: [], requestFailures: [] });
       },
     });
 
@@ -1545,7 +1579,7 @@ describeBrowser("stats browser smoke", () => {
           matchRowText: expect.any(String),
         });
         expect(afterFailure).toEqual(beforeFailure);
-        await recordScenarioEvidence("STATS-014", { width: 1440, height: 900 }, dispatcher, { consoleErrors: [], pageErrors: [] });
+        await recordScenarioEvidence("STATS-014", { width: 1440, height: 900 }, dispatcher, { consoleErrors: [], pageErrors: [], requestFailures: [] });
       },
     });
 
@@ -1557,7 +1591,7 @@ describeBrowser("stats browser smoke", () => {
       viewport: { width: 1440, height: 900 },
       run: async ({ page, dispatcher }) => {
         await executeRouteRemountRace({ page, dispatcher, baseUrl, label: "STATS-016" });
-        await recordScenarioEvidence("STATS-016", { width: 1440, height: 900 }, dispatcher, { consoleErrors: [], pageErrors: [] });
+        await recordScenarioEvidence("STATS-016", { width: 1440, height: 900 }, dispatcher, { consoleErrors: [], pageErrors: [], requestFailures: [] });
       },
     });
   }, 120_000);

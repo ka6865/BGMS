@@ -252,6 +252,63 @@ describe("MatchCard isolated detail state", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("14일 만료 요약은 상세 요청과 AI·리플레이 진입을 막고 저장된 성과와 기본 전적을 보존한다", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const historicalSummary = {
+      ...summaryWithTierEvidence("match-retained-1"),
+      createdAt: "2026-07-20T12:00:00.000Z",
+      summarySource: "pubg_match_performance" as const,
+      performanceHistorical: true,
+      stats: { ...summaryWithTierEvidence().stats, assists: 0 },
+    };
+    renderCard({ matchId: "match-retained-1", initialMatchData: historicalSummary });
+
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+
+    expect(await screen.findByTestId("match-detail-expired")).toBeVisible();
+    expect(screen.getByText(/이전 계산 기준으로 산출된 결과입니다/)).toBeInTheDocument();
+    const basicStats = within(screen.getByLabelText("기본 경기 기록"));
+    expect(basicStats.getByText("어시스트").nextElementSibling).toHaveTextContent("0");
+    expect(screen.getByText(/안정도 .* \/ 100/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "상세 다시 시도" })).not.toBeInTheDocument();
+    expect(screen.queryByText("AI 전술 코칭")).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("기본 summary의 placeholder 어시스트 0은 미측정으로 표시한다", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    const basicSummary = {
+      ...summary("match-basic-placeholder"),
+      createdAt: "2026-07-20T12:00:00.000Z",
+      summarySource: "pubg_player_matches" as const,
+      stats: { ...summary().stats, assists: 0 },
+    };
+    renderCard({ matchId: "match-basic-placeholder", initialMatchData: basicSummary });
+
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+    const basicStats = within(await screen.findByLabelText("기본 경기 기록"));
+    expect(basicStats.getByText("어시스트").nextElementSibling).toHaveTextContent("기록 없음");
+  });
+
+  it("날짜가 불확실해도 서버의 명시적 410 만료 코드를 카드 만료 상태로 표시한다", async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({
+      error: "상세 분석과 리플레이 제공 기간이 만료되었습니다.",
+      errorCode: "PUBG_MATCH_DETAIL_EXPIRED",
+      retryable: false,
+      expiresAt: "2026-07-20T12:00:00.000Z",
+    }, 410)));
+    vi.stubGlobal("fetch", fetchMock);
+    const uncertainSummary = { ...summary("match-retention-410"), createdAt: "" };
+    renderCard({ matchId: "match-retention-410", initialMatchData: uncertainSummary });
+
+    fireEvent.click(screen.getByRole("button", { name: "매치 상세 펼치기" }));
+
+    expect(await screen.findByTestId("match-detail-expired")).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "상세 다시 시도" })).not.toBeInTheDocument();
+  });
+
   it("상세 매치 요청 중에는 빈 어두운 영역 대신 로딩 안내를 표시한다", async () => {
     let resolveDetail!: (response: Response) => void;
     const detailRequest = new Promise<Response>((resolve) => {
@@ -438,7 +495,7 @@ describe("MatchCard isolated detail state", () => {
     fireEvent.click(screen.getByRole("button", { name: "리플레이 분석" }));
     fireEvent.click(screen.getByRole("button", { name: /2D 맵 리플레이/ }));
     expect(mockPush).toHaveBeenLastCalledWith(
-      "/maps/Erangel?playback=match-detail-1&nickname=PlayerOne&platform=kakao",
+      "/maps/Erangel?playback=match-detail-1&nickname=PlayerOne&platform=kakao&playedAt=2026-08-09T12%3A00%3A00.000Z",
     );
   });
 
@@ -913,13 +970,22 @@ describe("MatchCard isolated detail state", () => {
 
 
 describe("재계산 대기 경기의 기본 기록", () => {
-  afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+  beforeEach(() => { vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-08-10T12:00:00.000Z")); });
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
   it("기본 기록과 리플레이 링크를 표시하고 이전 전술 평가나 AI 호출을 노출하지 않는다", async () => {
     const {buildCalculationPendingMatch} = await import("@/lib/pubg-analysis/calculationAvailability");
-    const basic = buildCalculationPendingMatch({...detail(), platform: "steam", player_id: "playerone"});
+    const basic = {
+      ...buildCalculationPendingMatch({...detail(), platform: "steam", player_id: "playerone"}),
+      createdAt: "2020-01-01T00:00:00.000Z",
+    };
     const fetcher = vi.fn().mockResolvedValue(jsonResponse(basic));
     vi.stubGlobal("fetch", fetcher);
-    render(createElement(ExpandedMatchDetails, {matchId: "match-detail-1", nickname: "PlayerOne", platform: "steam"}));
+    render(createElement(ExpandedMatchDetails, {
+      matchId: "match-detail-1",
+      nickname: "PlayerOne",
+      platform: "steam",
+      summary: { ...summary(), createdAt: "2026-08-09T12:00:00.000Z" },
+    }));
     const panel = await screen.findByTestId("match-basic-only");
     expect(within(panel).getByText("기본 경기 기록")).toBeInTheDocument();
     expect(within(panel).getByText("피해량")).toBeInTheDocument();

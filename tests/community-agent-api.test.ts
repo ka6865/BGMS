@@ -315,6 +315,28 @@ describe("executeAction state boundaries", () => {
     expect(mocks.selectTopic).not.toHaveBeenCalled();
   });
 
+  it("주제 없음의 구체 사유를 실행 결과에 보존한다", async () => {
+    const run = snapshot();
+    const store = {
+      claimStage: vi.fn().mockResolvedValue({ claimed: true, lease: LEASE, run }),
+      loadOfficialEvidence: vi.fn().mockResolvedValue([]),
+      rejectedEvidenceIds: vi.fn().mockResolvedValue([]),
+      saveEvidence: vi.fn().mockResolvedValue([]),
+      loadEvidence: vi.fn().mockResolvedValue([{ id: "item", excerpt: "질문" }]),
+      recentPosts: vi.fn().mockResolvedValue([]),
+      finishStage: vi.fn().mockResolvedValue(run),
+    };
+    mocks.selectTopic.mockImplementation(async (_items, _recent, _model, _now, onDeferred) => {
+      onDeferred("duplicate_topic");
+      return null;
+    });
+    await executeAction({ action: "step", runId: RUN_ID, stage: "select" }, { kind: "admin", userId: "admin" }, store as never);
+    expect(store.finishStage).toHaveBeenCalledWith(RUN_ID, "select", LEASE, expect.objectContaining({
+      terminal: { status: "deferred", reason: "duplicate_topic" },
+      selection: expect.objectContaining({ storedCount: 1, usableCount: 1, supplementalCount: 0 }),
+    }));
+  });
+
   it("finishes select as deferred without calling a model when there is no usable evidence", async () => {
     const run = snapshot({ reports: [
       { source: "dc", state: "empty", reason: "none", fetchedCount: 0, retainedCount: 0, evidenceIds: [] },
@@ -333,10 +355,44 @@ describe("executeAction state boundaries", () => {
     const result = await executeAction({ action: "step", runId: RUN_ID, stage: "select" }, { kind: "worker", userId: null }, store as never);
 
     expect(mocks.selectTopic).not.toHaveBeenCalled();
-    expect(store.finishStage).toHaveBeenCalledWith(RUN_ID, "select", LEASE, {
+    expect(store.finishStage).toHaveBeenCalledWith(RUN_ID, "select", LEASE, expect.objectContaining({
       terminal: { status: "deferred", reason: "no_usable_evidence" },
-    });
+      selection: expect.objectContaining({ storedCount: 0, usableCount: 0, inputCount: 0 }),
+    }));
     expect(result).toEqual(expect.objectContaining({ status: "deferred" }));
+  });
+
+  it("공식 보강은 거절되지 않은 자료로만 시작하고 제외 수와 모델의 후보별 이유를 함께 저장한다", async () => {
+    const run = snapshot();
+    const collected = [
+      { id: "question", source: "naver", externalId: "10", official: false, publishedAt: null,
+        title: "벤틀리 출시", excerpt: "벤틀리 출시일이 언제인가요?" },
+      { id: "empty", source: "naver", externalId: "9", official: false, publishedAt: null, excerpt: null },
+      { id: "rejected", source: "dc", externalId: "8", official: false, publishedAt: null, excerpt: "거절한 원문" },
+    ];
+    const official = { id: "saved-official", source: "official", externalId: "1", official: true,
+      title: "공식 차량 안내", excerpt: "본문으로 확인한 공식 자료입니다.", publishedAt: null };
+    const store = {
+      claimStage: vi.fn().mockResolvedValue({ claimed: true, lease: LEASE, run }),
+      loadOfficialEvidence: vi.fn().mockResolvedValue([{ ...official, id: "temporary-official" }]),
+      rejectedEvidenceIds: vi.fn().mockResolvedValue(["rejected"]),
+      saveEvidence: vi.fn().mockResolvedValue([official.id]),
+      loadEvidence: vi.fn(async (ids: string[]) => ids.includes(official.id) ? [official] : collected),
+      recentPosts: vi.fn().mockResolvedValue([]), finishStage: vi.fn().mockResolvedValue(run),
+    };
+    const explanation = { detail: "일정 확인이 필요한 질문입니다.",
+      candidates: [{ title: "벤틀리 출시", reason: "출시일이 본문에 없습니다." }] };
+    mocks.selectTopic.mockImplementation(async (_items, _recent, _model, _now, onDeferred, onExplanation) => {
+      onExplanation(explanation); onDeferred("insufficient_topic_evidence"); return null;
+    });
+    await executeAction({ action: "step", runId: RUN_ID, stage: "select" }, { kind: "admin", userId: "admin" }, store as never);
+    expect(store.loadOfficialEvidence).toHaveBeenCalledWith([collected[0]]);
+    expect(mocks.selectTopic.mock.calls[0][0]).toEqual([collected[0], official]);
+    expect(store.finishStage).toHaveBeenCalledWith(RUN_ID, "select", LEASE, {
+      terminal: { status: "deferred", reason: "insufficient_topic_evidence" },
+      selection: { storedCount: 4, usableCount: 2, inputCount: 2, emptyCount: 1,
+        rejectedCount: 1, supplementalCount: 1, ...explanation },
+    });
   });
 
   it("returns the stored run and does no work when a stage was already claimed or completed", async () => {

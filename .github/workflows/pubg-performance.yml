@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   calculate:
-    if: ${{ vars.PUBG_PERFORMANCE_ENABLED == 'true' }}
+    if: ${{ github.ref == 'refs/heads/main' && vars.PUBG_PERFORMANCE_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 7
     steps:

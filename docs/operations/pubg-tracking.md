@@ -9,6 +9,12 @@
 - 제재 추적은 경기 상대를 서버 원본으로 확인한 뒤 로그인한 사용자의 개인 목록에 저장한다. 제재 사유·신고 처리 결과를 판단하지 않는다. 표시 시각은 관찰 시각이다.
 - `/matches`·텔레메트리는 플레이어 조회의 10 RPM 한도에서 제외되지만 실행 시간·네트워크·저장 비용은 발생한다. 공식 원본 매치 보존 기간은 14일이므로 ID만 저장하고 수집하지 않으면 복구를 보장할 수 없다.
 
+### 플레이어 조회 실패 진단
+
+- Vercel의 `[MONITORING] API Error Recorded` 로그는 실패 단계·오류 코드·외부 HTTP 상태·소요 시간과 `contentType`, `responseBytes`, `validationIssue`, 요청 ID 및 계정 fingerprint를 함께 기록한다. 원문 응답, 토큰, 닉네임·계정 ID와 임의 context 필드는 출력하지 않는다.
+- 이름 검색 응답에 계정 ID가 없고 `attributes.isPrivacyProtected`가 `true`이면 `validationIssue=player_privacy_protected`로 구분한다. 그 외 ID 누락은 `player_id_missing`이다. PUBG의 HTTP 200만으로 정상 플레이어 응답이라고 판단하지 않는다.
+- 이 진단 분류는 기존 503 응답과 유효성 검사·캐시 보존 정책을 유지한다. PUBG 자체 비공개 상태와 BGMS 고객센터의 접수·본인 확인·비공개 목록 등록은 별도 절차다.
+
 ## 배포 순서
 
 1. 임시 DB에서 `npm run verify:migrations`와 관련 테스트를 통과시킨다.

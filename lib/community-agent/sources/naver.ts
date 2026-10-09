@@ -1,10 +1,11 @@
 import { parse } from "node-html-parser";
+import { extractIssueSearchTerms } from "../discovery";
 import { fetchSourceJson, SourceHttpError } from "../http";
 import { cleanText, evidence, report, type SourceDeps } from "../sources";
 import type { Evidence, SourceReport } from "../types";
 
 const CAFE_URL = "https://cafe.naver.com/playbattlegrounds";
-const SEARCH_TERMS = ["배틀그라운드 패치", "배틀그라운드 질문", "배틀그라운드 팁"];
+const SEARCH_TERMS = ["배틀그라운드 패치", "배틀그라운드 질문", "배틀그라운드 팁", "배틀그라운드 콜라보"];
 
 function normalizedCafe(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -56,7 +57,8 @@ export async function collectNaver(deps: SourceDeps): Promise<SourceReport> {
   const received: unknown[] = [];
   let errorReason: string | null = null;
   let credentialsInvalid = false;
-  for (const query of SEARCH_TERMS) {
+  const queries = [...SEARCH_TERMS];
+  for (const [index, query] of queries.entries()) {
     try {
       const url = new URL("/search/v1/cafearticle", "https://naverapihub.apigw.ntruss.com");
       url.searchParams.set("format", "json");
@@ -66,6 +68,10 @@ export async function collectNaver(deps: SourceDeps): Promise<SourceReport> {
       received.push(await fetchSourceJson(url, {
         headers: { "X-NCP-APIGW-API-KEY-ID": clientId, "X-NCP-APIGW-API-KEY": clientSecret },
       }, deps));
+      if (index === SEARCH_TERMS.length - 1) {
+        queries.push(...extractIssueSearchTerms(received.flatMap((value) => parseNaverItems(value, deps.now).map((item) => item.title)))
+          .map((term) => `배틀그라운드 ${term}`));
+      }
     } catch (error) {
       credentialsInvalid = error instanceof SourceHttpError && error.status === 401;
       errorReason = error instanceof Error ? error.message : "source_request_failed";
@@ -76,7 +82,13 @@ export async function collectNaver(deps: SourceDeps): Promise<SourceReport> {
     value && typeof value === "object" && Array.isArray((value as { items?: unknown }).items)
       ? (value as { items: unknown[] }).items.length : 0
   ), 0);
-  const items = [...new Map(received.flatMap((value) => parseNaverItems(value, deps.now)).map((item) => [item.externalId, item])).values()];
+  const parsed = received.map((value) => parseNaverItems(value, deps.now));
+  const base = parsed.slice(0, SEARCH_TERMS.length);
+  const prioritized = parsed.slice(SEARCH_TERMS.length).flat();
+  for (let index = 0; index < Math.max(0, ...base.map((items) => items.length)); index++) {
+    for (const items of base) if (items[index]) prioritized.push(items[index]);
+  }
+  const items = [...new Map(prioritized.map((item) => [item.externalId, item])).values()].slice(0, 60);
   if (credentialsInvalid) return report("naver", "needs_setup", [], "naver_search_credentials_invalid", fetchedCount);
   if (errorReason && items.length === 0) return report("naver", "failed", [], errorReason, fetchedCount);
   if (errorReason) return report("naver", "partial", items, errorReason, fetchedCount);

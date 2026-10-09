@@ -1,0 +1,221 @@
+name: PUBG Detail Archive Retention
+
+on:
+  schedule:
+    - cron: '8,23,38,53 * * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '조사, 보호 경기 복구 증거 수집 또는 백업 확인 후 14일 만료 자료 소량 정리'
+        type: choice
+        options: [dry-run, apply, inspect-recovery]
+        default: dry-run
+      platform:
+        description: 'all은 저장된 전체 전적을 이어서 검사'
+        type: choice
+        options: [all, steam, kakao]
+        default: all
+      account_id:
+        description: '계정 범위 제한 (steam/kakao 선택 시 필수)'
+        type: string
+        default: ''
+      match_id:
+        description: '선택한 경기만 검증할 때 사용'
+        type: string
+        default: ''
+      match_ids_json:
+        description: 'inspect-recovery 전용: [{"matchId":"UUID","platform":"steam|kakao"}] 최대 30개'
+        type: string
+        default: ''
+      batches:
+        description: '연속 처리할 최대 배치 수 (배치별 검증과 60분 시작 예산 유지)'
+        type: choice
+        options: ['1', '2', '5', '10']
+        default: '1'
+      cutoff:
+        description: '일괄 정리 기준 경기 시각 ISO-8601 (비우면 실행 시점의 14일 전)'
+        type: string
+        default: ''
+      limit:
+        description: '한 번에 삭제할 최대 객체 수'
+        type: choice
+        options: ['1', '3', '5', '20', '50']
+        default: '1'
+
+permissions:
+  contents: read
+  actions: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  retain:
+    if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (vars.PUBG_DETAIL_ARCHIVE_RETENTION_ENABLED == 'true' && vars.PUBG_ARCHIVE_BACKLOG_ENABLED != 'true')) }}
+    concurrency:
+      group: pubg-detail-archive-retention
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: ${{ inputs.mode == 'inspect-recovery' && 15 || 90 }}
+    env:
+      OP_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'apply' }}
+      OP_PLATFORM: ${{ inputs.platform || 'all' }}
+      OP_ACCOUNT: ${{ inputs.account_id }}
+      OP_MATCH: ${{ inputs.match_id }}
+      OP_MATCH_IDS_JSON: ${{ inputs.match_ids_json }}
+      OP_LIMIT: ${{ inputs.limit || '50' }}
+      OP_SCAN_LIMIT: '1000'
+      OP_BATCHES: ${{ inputs.batches || '10' }}
+      OP_CUTOFF: ${{ inputs.cutoff }}
+    steps:
+      - name: Record retention run start
+        id: started
+        if: ${{ env.OP_MODE != 'inspect-recovery' }}
+        run: |
+          printf 'timestamp=' >> "$GITHUB_OUTPUT"
+          date +%s%3N >> "$GITHUB_OUTPUT"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+        id: install
+      - name: Initialize continuous batch budget
+        if: ${{ env.OP_MODE != 'inspect-recovery' }}
+        env:
+          OP_RUN_STARTED_AT: ${{ steps.started.outputs.timestamp }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/match-retention"
+          npx tsx scripts/match_retention_batch_control.ts init "$RUNNER_TEMP/match-retention/state.json"
+      - name: Inspect protected match recovery evidence
+        if: ${{ env.OP_MODE == 'inspect-recovery' }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CLOUDFLARE_R2_ENDPOINT: ${{ secrets.CLOUDFLARE_R2_ENDPOINT }}
+          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+          R2_RECOVERY_ARCHIVE_KEY: ${{ secrets.R2_RECOVERY_ARCHIVE_KEY }}
+        run: |
+          umask 077
+          mkdir -p "$RUNNER_TEMP/match-retention"
+          npx tsx scripts/inspect_expired_match_recovery.ts --matches-json "$OP_MATCH_IDS_JSON" --output "$RUNNER_TEMP/match-retention/recovery-proof.enc" | tee "$RUNNER_TEMP/match-retention/recovery-summary.json"
+          cat "$RUNNER_TEMP/match-retention/recovery-summary.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload encrypted recovery proof
+        if: ${{ env.OP_MODE == 'inspect-recovery' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pubg-match-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/match-retention/recovery-proof.enc
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Measure R2 before retention
+        if: ${{ env.OP_MODE != 'inspect-recovery' }}
+        env: &retention_secrets
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          CLOUDFLARE_R2_ENDPOINT: ${{ secrets.CLOUDFLARE_R2_ENDPOINT }}
+          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+          R2_RECOVERY_ARCHIVE_KEY: ${{ secrets.R2_RECOVERY_ARCHIVE_KEY }}
+        run: npx tsx scripts/cleanup_expired_match_archives.ts --measure-usage before
+      - name: Retain expired match batch 1
+        id: batch1
+        if: ${{ env.OP_MODE != 'inspect-recovery' }}
+        timeout-minutes: 20
+        uses: ./.github/actions/pubg-retention-batch
+        with:
+          batch: '1'
+        env: *retention_secrets
+      - name: Retain expired match batch 2
+        id: batch2
+        if: ${{ steps.batch1.outputs.continue == 'true' }}
+        timeout-minutes: 20
+        uses: ./.github/actions/pubg-retention-batch
+        with:
+          batch: '2'
+        env: *retention_secrets
+      - name: Retain expired match batch 3
+        id: batch3
+        if: ${{ steps.batch2.outputs.continue == 'true' }}
+        timeout-minutes: 20
+        uses: ./.github/actions/pubg-retention-batch
+        with:
+          batch: '3'
+        env: *retention_secrets
+      - name: Retain expired match batch 4
+        id: batch4
+        if: ${{ steps.batch3.outputs.continue == 'true' }}
+        timeout-minutes: 20
+        uses: ./.github/actions/pubg-retention-batch
+        with:
+          batch: '4'
+        env: *retention_secrets
+      - name: Retain expired match batch 5
+        id: batch5
+        if: ${{ steps.batch4.outputs.continue == 'true' }}
+        timeout-minutes: 20
+        uses: ./.github/actions/pubg-retention-batch
+        with:
+          batch: '5'
+        env: *retention_secrets
+      - name: Retain expired match batch 6
+        id: batch6
+        if: ${{ steps.batch5.outputs.continue == 'true' }}
+        timeout-minutes: 20
+        uses: ./.github/actions/pubg-retention-batch
+        with:
+          batch: '6'
+        env: *retention_secrets
+      - name: Retain expired match batch 7
+        id: batch7
+        if: ${{ steps.batch6.outputs.continue == 'true' }}
+        timeout-minutes: 20
+        uses: ./.github/actions/pubg-retention-batch
+        with:
+          batch: '7'
+        env: *retention_secrets
+      - name: Retain expired match batch 8
+        id: batch8
+        if: ${{ steps.batch7.outputs.continue == 'true' }}
+        timeout-minutes: 20
+        uses: ./.github/actions/pubg-retention-batch
+        with:
+          batch: '8'
+        env: *retention_secrets
+      - name: Retain expired match batch 9
+        id: batch9
+        if: ${{ steps.batch8.outputs.continue == 'true' }}
+        timeout-minutes: 20
+        uses: ./.github/actions/pubg-retention-batch
+        with:
+          batch: '9'
+        env: *retention_secrets
+      - name: Retain expired match batch 10
+        id: batch10
+        if: ${{ steps.batch9.outputs.continue == 'true' }}
+        timeout-minutes: 20
+        uses: ./.github/actions/pubg-retention-batch
+        with:
+          batch: '10'
+        env: *retention_secrets
+      - name: Measure R2 after retention
+        if: ${{ !cancelled() && env.OP_MODE != 'inspect-recovery' && steps.install.outcome == 'success' }}
+        env: *retention_secrets
+        run: npx tsx scripts/cleanup_expired_match_archives.ts --measure-usage after
+      - name: Summarize completed retention batches
+        if: ${{ !cancelled() && env.OP_MODE != 'inspect-recovery' }}
+        env:
+          OP_RUN_FAILED: ${{ job.status == 'failure' }}
+        run: |
+          if [ -f "$RUNNER_TEMP/match-retention/state.json" ]; then
+            npx tsx scripts/match_retention_batch_control.ts summary "$RUNNER_TEMP/match-retention/state.json"
+          fi

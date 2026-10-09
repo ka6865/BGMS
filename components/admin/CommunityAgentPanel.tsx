@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import CommunityReviewQueue from "@/components/admin/CommunityReviewQueue";
-import type { CollectSource, CommunityAgentStatus, Policy, RunSnapshot, Stage } from "@/lib/community-agent/types";
+import type { CollectSource, CommunityAgentStatus, Policy, RunSnapshot, SelectionDiagnostics, Stage } from "@/lib/community-agent/types";
 
 const SOURCE_META: Record<CollectSource, { label: string; href: string }> = {
   dc: { label: "디시인사이드 배틀그라운드", href: "https://gall.dcinside.com/board/lists/?id=battlegrounds" },
@@ -16,6 +16,10 @@ const SOURCE_HELP: Record<CollectSource, { title: string; description: string; e
 };
 const SOURCE_ORDER: CollectSource[] = ["dc", "naver", "youtube"];
 const TRIAL_STAGES: Stage[] = ["dc", "naver", "youtube", "select", "draft", "verify"];
+const STAGE_LABELS: Record<Stage, string> = {
+  dc: "디시인사이드 수집", naver: "네이버 카페 수집", youtube: "유튜브 수집",
+  select: "주제 선정", draft: "Gemini 초안 작성", verify: "근거 검증",
+};
 
 function isStatus(value: unknown): value is CommunityAgentStatus {
   return Boolean(value && typeof value === "object" && "policy" in value && "runs" in value && "sources" in value && "usage" in value);
@@ -46,6 +50,29 @@ function reasonText(reason: string | null): string {
     review_rejected: "초안을 거절했습니다. 다른 자료로 다시 수집할 수 있습니다",
     youtube_data_api_key_missing: "YouTube 연결 정보가 필요합니다",
     no_usable_evidence: "본문으로 확인한 자료가 부족해 보류했습니다",
+    no_publishable_topic: "Gemini가 작성할 주제를 선정하지 못했습니다",
+    duplicate_topic: "최근 게시글과 겹치는 주제여서 보류했습니다",
+    insufficient_topic_sources: "같은 주제를 뒷받침하는 서로 다른 출처가 부족합니다",
+    unverified_official_update: "공식 업데이트를 확인할 근거가 부족합니다",
+    no_relevant_topic: "수집 자료에서 배그 게시글로 다룰 주제를 찾지 못했습니다",
+    insufficient_topic_evidence: "주제를 뒷받침할 구체적인 내용이 부족합니다",
+    topic_selection_failed: "주제 선정에 실패했습니다",
+    draft_generation_failed: "Gemini 초안 작성에 실패했습니다",
+    draft_verification_failed: "초안 근거 검증에 실패했습니다",
+    validation_failed: "초안의 근거 검증을 통과하지 못했습니다",
+    gemini_api_key_missing: "Gemini 연결 정보가 필요합니다",
+    gemini_quota_exceeded: "Gemini 사용 한도를 초과했습니다",
+    gemini_request_failed: "Gemini 요청에 실패했습니다",
+    gemini_invalid_response: "Gemini 응답을 해석하지 못했습니다",
+    model_invalid_response: "Gemini 응답 형식이 맞지 않아 보류했습니다",
+    model_request_failed: "Gemini 요청에 실패했습니다",
+    model_response_too_large: "Gemini 응답이 너무 길어 보류했습니다",
+    gemini_deadline: "Gemini 응답 시간이 초과되었습니다",
+    gemini_rate_limited: "Gemini 요청 한도에 도달했습니다. 잠시 후 다시 시도하세요",
+    gemini_configuration_required: "Gemini 연결 설정을 확인해야 합니다",
+    execution_conflict: "다른 실행이 진행 중이거나 현재 상태에서 재실행할 수 없습니다",
+    storage_unavailable: "실행 기록을 저장하거나 불러오지 못했습니다",
+    trial_already_running: "이미 진행 중인 단계가 있습니다. 새로고침으로 상태를 확인하세요",
   };
   return values[reason] ?? reason.replaceAll("_", " ");
 }
@@ -76,12 +103,42 @@ function runStatusText(status: RunSnapshot["status"]): string {
   return values[status];
 }
 
+function runStageText(run: RunSnapshot): string {
+  const active = TRIAL_STAGES.find((stage) => run.stages[stage]?.status === "running");
+  if (active) return `${STAGE_LABELS[active]} 진행 중`;
+  const latest = [...TRIAL_STAGES].reverse().find((stage) => run.stages[stage]);
+  if (!latest) return "실행 시작";
+  const result = run.stages[latest]?.result;
+  const terminal = result?.terminal as { status?: string } | undefined;
+  const held = run.status === "deferred" || terminal?.status === "deferred";
+  return `${STAGE_LABELS[latest]} · ${held ? "보류" : run.stages[latest]?.status === "failed" ? "실패" : "처리 완료"}`;
+}
+
+function runTimeText(run: RunSnapshot): string {
+  const time = run.createdAt ? new Date(run.createdAt) : null;
+  return time && Number.isFinite(time.getTime())
+    ? new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", dateStyle: "short", timeStyle: "medium" }).format(time)
+    : `${run.day} · 시간 기록 없음`;
+}
+
+function runOutcomeText(run: RunSnapshot): string {
+  if (run.reason === "review_rejected") return reasonText(run.reason);
+  if (run.status === "ready") return "초안 작성과 검증이 완료되었습니다. 아래 승인 대기에서 확인하세요.";
+  if (run.status === "published") return "게시글이 발행되었습니다.";
+  if (run.status === "failed") return `실행에 실패했습니다. ${reasonText(run.reason)}`;
+  if (run.status === "deferred") return `${run.draft ? "초안은 작성했지만 승인 대기에 등록하지 못했습니다." : "게시글 초안을 만들지 못했습니다."} ${reasonText(run.reason)}`;
+  return "실행이 아직 완료되지 않았습니다. 새로고침으로 진행 상태를 확인하세요.";
+}
+
 async function requestJson(path: string, init?: RequestInit): Promise<unknown> {
   const response = await fetch(path, {
     ...init,
     headers: { "content-type": "application/json", ...init?.headers },
   });
-  if (!response.ok) throw new Error("request_failed");
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { code?: unknown } | null;
+    throw new Error(typeof body?.code === "string" ? body.code : "request_failed");
+  }
   return response.json();
 }
 
@@ -90,6 +147,7 @@ export default function CommunityAgentPanel() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [reviewRefreshKey, setReviewRefreshKey] = useState(0);
+  const [trialMessage, setTrialMessage] = useState<string | null>(null);
 
   const load = async (clearError = true) => {
     if (clearError) setError(null);
@@ -98,9 +156,10 @@ export default function CommunityAgentPanel() {
       const candidate = (data as { status?: unknown }).status;
       if (!isStatus(candidate)) throw new Error("invalid_status");
       setStatus(candidate);
+      return candidate;
     } catch {
-      setStatus(null);
       setError("운영 상태를 불러오지 못했습니다. 잠시 후 다시 시도해주세요.");
+      return null;
     }
   };
 
@@ -145,6 +204,9 @@ export default function CommunityAgentPanel() {
   const runTrial = async () => {
     setBusy("trial");
     setError(null);
+    setTrialMessage(canRetry ? "이전 기록을 보존하고 새 실행을 시작하고 있습니다…" : "새 실행을 시작하고 있습니다…");
+    const showRun = (run: RunSnapshot) => setStatus((current) => current
+      ? { ...current, runs: [{ ...run, createdAt: run.createdAt ?? current.runs.find((value) => value.id === run.id)?.createdAt }, ...current.runs.filter((value) => value.id !== run.id)] } : current);
     try {
       const started = await requestJson("/api/admin/agent/community/run", {
         method: "POST", body: JSON.stringify(canRetry && todayRun
@@ -153,21 +215,38 @@ export default function CommunityAgentPanel() {
       });
       let run = (started as { result?: unknown }).result as RunSnapshot | undefined;
       if (!run?.id) throw new Error("invalid_run");
+      showRun(run);
       for (const stage of TRIAL_STAGES) {
         if (["ready", "deferred", "failed", "published"].includes(run.status)) break;
         const savedStage = run.stages[stage];
         if (savedStage?.status === "completed") continue;
         if (savedStage?.status === "running") throw new Error("trial_already_running");
+        setTrialMessage(`${STAGE_LABELS[stage]} 중…`);
         const stepped = await requestJson("/api/admin/agent/community/run", {
           method: "POST", body: JSON.stringify({ action: "step", runId: run.id, stage }),
         });
         run = (stepped as { result?: unknown }).result as RunSnapshot | undefined;
         if (!run?.id) throw new Error("invalid_run");
+        showRun(run);
+        if (run.stages[stage]?.status === "running") throw new Error("trial_already_running");
       }
-      await load();
+      setTrialMessage(runOutcomeText(run));
+      const refreshed = await load(false);
+      const refreshedIndex = refreshed?.runs.findIndex((value) => value.id === run.id) ?? -1;
+      const refreshedRun = refreshed?.runs[refreshedIndex];
+      const newestRun = refreshed?.runs[0];
+      const runTime = Date.parse(refreshedRun?.createdAt ?? run.createdAt ?? "");
+      const newestTime = Date.parse(newestRun?.createdAt ?? "");
+      const newerRun = newestRun && newestRun.id !== run.id && (refreshedIndex > 0
+        || (Number.isFinite(runTime) && newestTime > runTime));
+      if (!newerRun && refreshedRun?.status !== "published" && refreshedRun?.reason !== "review_rejected") {
+        showRun(run);
+      }
       setReviewRefreshKey((value) => value + 1);
-    } catch {
-      setError("시험 실행을 완료하지 못했습니다. 발행 없이 중단되었으며 상태를 다시 확인해주세요.");
+    } catch (cause) {
+      setTrialMessage(null);
+      const code = cause instanceof Error ? cause.message : "request_failed";
+      setError(`시험 실행을 완료하지 못했습니다. ${["execution_conflict", "storage_unavailable", "trial_already_running"].includes(code) ? reasonText(code) : "발행 없이 중단되었으며 상태를 다시 확인해주세요."}`);
       await load(false);
     } finally {
       setBusy(null);
@@ -202,6 +281,7 @@ export default function CommunityAgentPanel() {
 
   const policy = status.policy;
   const currentRun = status.runs[0];
+  const selection = currentRun?.stages.select?.result.selection as SelectionDiagnostics | undefined;
   const todayRun = status.runs.find((run) => run.day === dateKey());
   const canRetry = Boolean(todayRun && ["deferred", "failed"].includes(todayRun.status));
   const todayFinished = Boolean(todayRun && ["ready", "published"].includes(todayRun.status));
@@ -273,15 +353,35 @@ export default function CommunityAgentPanel() {
             </div>
           </div>
           <p className="mt-3 text-xs leading-5 text-zinc-500">버튼을 누르면 선택한 사이트 조회 → 주제 선정 → Gemini 초안 작성 → 근거 검증을 진행합니다. 이 과정에서는 게시하지 않으며, 자료가 부족하면 이유를 표시하고 보류합니다.</p>
+          {trialMessage && <p role="status" aria-live="polite" aria-atomic="true" className={`mt-3 rounded-lg px-3 py-2 text-sm leading-6 ${busy === "trial" ? "bg-emerald-500/10 text-emerald-200" : currentRun?.status === "failed" ? "bg-rose-500/10 text-rose-200" : currentRun?.status === "deferred" ? "bg-amber-500/10 text-amber-200" : "bg-emerald-500/10 text-emerald-200"}`}>{busy === "trial" || !currentRun ? trialMessage : runOutcomeText(currentRun)}</p>}
+          {currentRun && <div aria-label="최근 실행 상세" className="mt-3 border-t border-zinc-800 pt-3 text-xs leading-6 text-zinc-400">
+            <p>최근 실행: {runStatusText(currentRun.status)}</p>
+            <p className="break-all">실행 ID: {currentRun.id}</p>
+            <p>시작 시간: {runTimeText(currentRun)} (한국 시간)</p>
+            <p>단계: {runStageText(currentRun)}</p>
+            {currentRun.reason && <p className="text-amber-200">사유: {reasonText(currentRun.reason)}</p>}
+            {SOURCE_ORDER.map((source) => {
+              const report = currentRun.reports.find((item) => item.source === source);
+              return <p key={source}>{SOURCE_HELP[source].title}: {report ? `조회 ${report.fetchedCount}건 · 채택 ${report.retainedCount}건 · ${sourceStateText(report.state)}${report.reason ? ` · ${reasonText(report.reason)}` : ""}` : "수집 결과 없음"}</p>;
+            })}
+            {selection && <div aria-label="주제 선정 진단" className="mt-2 break-words border-t border-zinc-800 pt-2">
+              <p>저장 자료 {selection.storedCount}건 · 실자료 사용 {selection.usableCount}건 · 모델 입력 {selection.inputCount}건</p>
+              <p>비어 제외 {selection.emptyCount}건 · 거절 제외 {selection.rejectedCount}건 · 추가 확인 {selection.supplementalCount}건</p>
+              {selection.detail && <p className="text-amber-200">선정 판단: {selection.detail}</p>}
+              {selection.candidates.length > 0 && <ul className="mt-1 space-y-1">
+                {selection.candidates.map((candidate, index) => <li key={index}>후보 {index + 1}: {candidate.title} · 보류 이유: {candidate.reason}</li>)}
+              </ul>}
+            </div>}
+          </div>}
           {todayFinished && <p role="status" className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-sm leading-6 text-amber-200">오늘 실행은 {runStatusText(todayRun!.status)} 상태입니다. 완성된 초안이나 발행된 글이 있어 추가 수집을 하지 않습니다. 하루 발행 한도는 1건입니다.</p>}
-          {canRetry && <p role="status" className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-sm leading-6 text-amber-200">최근 실행이 {runStatusText(todayRun!.status)} 상태입니다. 키나 출처를 수정했다면 ‘다시 수집·초안 만들기’를 누르세요. 이전 기록은 보존하고 현재 설정으로 새 시험 실행을 시작합니다. 재실행마다 API와 Gemini 사용량이 발생할 수 있으며 자동으로 게시하지 않습니다.</p>}
+          {canRetry && busy !== "trial" && <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-sm leading-6 text-amber-200">최근 실행이 {runStatusText(todayRun!.status)} 상태입니다. 키나 출처를 수정했다면 ‘다시 수집·초안 만들기’를 누르세요. 이전 기록은 보존하고 현재 설정으로 새 시험 실행을 시작합니다. 재실행마다 API와 Gemini 사용량이 발생할 수 있으며 자동으로 게시하지 않습니다.</p>}
           {!policy.botUserId && <p className="mt-2 text-sm text-amber-200">먼저 ‘계정 준비’를 눌러 글을 작성할 AI 비서 계정을 준비하세요.</p>}
           {!policy.enabled && <p className="mt-2 text-sm text-amber-200">‘수집 허용 켜기’를 누르면 초안을 만들 수 있습니다.</p>}
           {!SOURCE_ORDER.some((source) => policy.sourceEnabled[source]) && <p className="mt-2 text-sm text-amber-200">위에서 수집할 사이트를 하나 이상 켜세요.</p>}
           <a href="#community-reviews" className="mt-3 inline-block text-sm text-amber-200 underline underline-offset-4">승인 대기 초안 확인 ↓</a>
         </section>
 
-        <CommunityReviewQueue refreshKey={reviewRefreshKey} onDecision={() => load(false)} />
+        <CommunityReviewQueue refreshKey={reviewRefreshKey} onDecision={async () => { await load(false); }} />
 
         <section className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
           <h2 className="font-semibold">3. 운영 제한</h2>
@@ -313,8 +413,8 @@ export default function CommunityAgentPanel() {
           </div>
           <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 sm:p-5">
             <h2 id="community-draft" className="scroll-mt-20 font-semibold">초안과 실행 결과</h2>
-            {currentRun ? <p className="mt-2 text-xs text-zinc-400">최근 실행: {runStatusText(currentRun.status)}{currentRun.reason ? ` · ${reasonText(currentRun.reason)}` : ""}</p> : null}
-            {currentRun?.draft && currentRun.reason !== "review_rejected" ? <div className="mt-2 text-sm text-zinc-300"><p className="font-medium">{currentRun.draft.title}</p>{currentRun.draft.paragraphs.map((paragraph, index) => <p key={`${paragraph.text}-${index}`} className="mt-2 whitespace-pre-wrap text-zinc-400">{paragraph.text}</p>)}<p className="mt-2 text-zinc-400">질문: {currentRun.draft.question}</p></div> : <p className="mt-2 text-sm text-zinc-400">{currentRun?.reason === "review_rejected" ? "거절한 초안은 처리 내역에서 확인할 수 있습니다. 위에서 다시 수집해 주세요." : "저장된 초안이 없습니다. 자료가 부족하면 발행을 보류합니다."}</p>}
+            {currentRun && <p className="mt-2 text-xs leading-6 text-zinc-400">{runOutcomeText(currentRun)}</p>}
+            {currentRun?.draft && currentRun.reason !== "review_rejected" ? <div className="mt-2 break-words text-sm text-zinc-300"><p className="font-medium">{currentRun.draft.title}</p>{currentRun.draft.paragraphs.map((paragraph, index) => <p key={`${paragraph.text}-${index}`} className="mt-2 whitespace-pre-wrap text-zinc-400">{paragraph.text}</p>)}<p className="mt-2 text-zinc-400">질문: {currentRun.draft.question}</p></div> : <p className="mt-2 text-sm text-zinc-400">{currentRun?.reason === "review_rejected" ? "거절한 초안은 처리 내역에서 확인할 수 있습니다. 위에서 다시 수집해 주세요." : currentRun ? "이 실행에서 저장된 초안이 없습니다. 위의 사유와 출처별 수집 결과를 확인하세요." : "아직 실행 기록이 없습니다. 위에서 자료 수집·초안 만들기를 시작하세요."}</p>}
             <p className="mt-3 text-xs leading-5 text-zinc-500">예약 실행기는 한국 시간 기준으로 자료와 답글 후보를 확인할 수 있습니다. 검증을 통과해도 먼저 승인 대기 초안으로 저장되며, 관리자가 승인하기 전에는 게시하지 않습니다.</p>
           </div>
         </section>

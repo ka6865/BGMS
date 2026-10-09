@@ -4,6 +4,8 @@ import path from "path";
 import dotenv from "dotenv";
 import { pathToFileURL } from "node:url";
 import { hasMatchingTelemetryDefinition, parseOrdinaryTelemetryUrl, relationshipBoundTelemetryAsset } from "../lib/pubg-analysis/telemetrySource";
+import { readBluezoneArchive, safeBluezoneErrorCode } from "../lib/pubg-analysis/bluezoneArchive";
+import { isCanonicalMatchId, type TelemetryPlatform } from "../lib/pubg-analysis/telemetryIdentity";
 
 dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
 
@@ -30,7 +32,19 @@ const MAP_NAME_MAP: Record<string, string> = {
   "카라킨": "Summerland_Main"
 };
 
-export async function extractSimulatorData() {
+export type BluezoneOptions = { dryRun?: boolean; limit?: number };
+
+export function parseBluezoneOptions(args: string[]): BluezoneOptions {
+  if (args.some((arg, i) => arg !== "--dry-run" && arg !== "--limit" && args[i - 1] !== "--limit")) throw new Error("bluezone-invalid-options");
+  const index = args.indexOf("--limit");
+  const raw = index < 0 ? "150" : args[index + 1];
+  if (!raw || !/^\d+$/.test(raw) || Number(raw) < 1 || Number(raw) > 150) throw new Error("bluezone-invalid-limit");
+  return { dryRun: args.includes("--dry-run"), limit: Number(raw) };
+}
+
+export async function extractSimulatorData(options: BluezoneOptions = {}) {
+  const PROCESS_LIMIT = options.limit ?? 150;
+  if (!Number.isInteger(PROCESS_LIMIT) || PROCESS_LIMIT < 1 || PROCESS_LIMIT > 150) throw new Error("bluezone-invalid-limit");
   console.log("🚀 [Bluezone Extractor] 자기장 데이터 추출 시작...");
 
   let rawMatches: any[] = [];
@@ -79,7 +93,8 @@ export async function extractSimulatorData() {
   
   const { data: processedMatches, error: processedError } = await supabase
     .from("processed_match_telemetry")
-    .select("match_id, platform, data->fullResult->mapName");
+    .select("match_id, platform, data->fullResult->mapName, created_at")
+    .order("created_at", { ascending: false }).limit(1000);
   if (processedError) throw new Error("bluezone-match-list-read-failed");
 
   const matches = (processedMatches || [])
@@ -91,17 +106,18 @@ export async function extractSimulatorData() {
         map_name: MAP_NAME_MAP[korName] || korName || '' 
       };
     })
-    .filter(m => m.map_name !== '' && ['steam', 'kakao'].includes(m.platform));
+    .filter(m => isCanonicalMatchId(m.match_id) && m.map_name !== '' && ['steam', 'kakao'].includes(m.platform));
+  const uniqueMatches = [...new Map(matches.map(match => [`${match.platform}:${match.match_id}`, match])).values()];
 
-  console.log(`총 ${matches.length}개의 매치 발견.`);
+  console.log(`총 ${uniqueMatches.length}개의 고유 매치 발견.`);
 
   let processedCount = 0;
   let attemptedCount = 0;
   let failedCount = 0;
-  const PROCESS_LIMIT = 150;
+  const sources = { shared: 0, legacy: 0, inline: 0, upstream: 0, notFound: 0 };
   const deadline = Date.now() + 5 * 60_000;
 
-  const prioritizedMatches = matches.sort((a, b) => {
+  const prioritizedMatches = uniqueMatches.sort((a, b) => {
     const priorityMaps = ['Baltic_Main', 'Tiger_Main'];
     const aPri = priorityMaps.includes(a.map_name) ? 0 : 1;
     const bPri = priorityMaps.includes(b.map_name) ? 0 : 1;
@@ -115,12 +131,25 @@ export async function extractSimulatorData() {
 
     const { data, error: telemetryError } = await supabase
       .from("match_master_telemetry")
-      .select("telemetry_events")
+      .select("telemetry_events, storage_path")
       .eq("match_id", match.match_id)
       .maybeSingle();
     if (telemetryError) throw new Error("bluezone-stored-telemetry-read-failed");
 
-    let events = data?.telemetry_events || [];
+    let events: any[] = [];
+    if (hasMatchingTelemetryDefinition(data?.telemetry_events, match.match_id, match.platform)) {
+      events = data!.telemetry_events;
+      sources.inline++;
+    } else {
+      try {
+        const archived = await readBluezoneArchive(match.match_id, match.platform as TelemetryPlatform, data?.storage_path);
+        events = archived.events;
+        if (archived.source !== "missing") sources[archived.source]++;
+      } catch (error) {
+        const code = safeBluezoneErrorCode(error);
+        throw new Error(code === "bluezone-unexpected-failure" ? "bluezone-archive-read-failed" : code);
+      }
+    }
 
     if (events.length === 0) {
       try {
@@ -130,6 +159,7 @@ export async function extractSimulatorData() {
           signal: AbortSignal.timeout(8_000)
         });
         if (matchRes.status === 429) throw new Error("bluezone-pubg-rate-limited");
+        if (matchRes.status === 404) sources.notFound++;
         if (!matchRes.ok && matchRes.status !== 404) throw new Error("bluezone-match-fetch-failed");
         if (matchRes.ok) {
           const matchJson = await matchRes.json();
@@ -139,14 +169,16 @@ export async function extractSimulatorData() {
           const asset = boundAsset.asset as { attributes?: { URL?: unknown } };
           const telemetryUrl = parseOrdinaryTelemetryUrl(asset.attributes?.URL, boundAsset.id);
           const telemetryRes = await fetch(telemetryUrl, { signal: AbortSignal.timeout(20_000), redirect: "error" });
+          if (telemetryRes.status === 429) throw new Error("bluezone-pubg-rate-limited");
           if (!telemetryRes.ok) throw new Error("bluezone-telemetry-fetch-failed");
           events = await telemetryRes.json();
           if (!hasMatchingTelemetryDefinition(events, match.match_id, match.platform)) throw new Error("bluezone-telemetry-identity-mismatch");
+          sources.upstream++;
         }
       } catch (error) {
         if (error instanceof Error && error.message === "bluezone-pubg-rate-limited") throw error;
         failedCount++;
-        console.warn("[Bluezone] 매치 원본 조회 실패 · 기존 데이터는 유지합니다.");
+        console.warn("[Bluezone] 매치 원본 조회 실패 · 기존 데이터는 유지합니다.", { errorCode: safeBluezoneErrorCode(error) });
       }
     }
 
@@ -236,19 +268,25 @@ export async function extractSimulatorData() {
     }
   }
 
-  fs.writeFileSync(outputPath, JSON.stringify(finalMatches, null, 2));
-  const { error: uploadError } = await supabase.storage.from("app-data").upload("bluezone_data_v2.json", JSON.stringify(finalMatches), {
-    contentType: "application/json",
-    upsert: true,
-  });
-  if (uploadError) throw new Error("bluezone-storage-upload-failed");
-  console.log(`자기장 추출: 시도 ${attemptedCount} · 처리 ${processedCount} · 조회 실패 ${failedCount} (최종 데이터: ${finalMatches.length}건)`);
+  const changed = processedCount > 0 || cleanedMatches.length !== allMatches.length;
   if (failedCount > 0) throw new Error("bluezone-partial-fetch-failure");
+  if (!options.dryRun && changed) {
+    const { error: uploadError } = await supabase.storage.from("app-data").upload("bluezone_data_v2.json", JSON.stringify(finalMatches), {
+      contentType: "application/json",
+      upsert: true,
+    });
+    if (uploadError) throw new Error("bluezone-storage-upload-failed");
+    fs.writeFileSync(outputPath, JSON.stringify(finalMatches, null, 2));
+  }
+  console.log(`자기장 추출: 시도 ${attemptedCount} · 처리 ${processedCount} · 조회 실패 ${failedCount} (최종 데이터: ${finalMatches.length}건)`);
+  const summary = { dryRun: Boolean(options.dryRun), attemptedCount, processedCount, failedCount, finalCount: finalMatches.length, changed, sources };
+  console.log(JSON.stringify(summary));
+  return summary;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  void extractSimulatorData().catch(() => {
-    console.error("자기장 데이터 수집을 완료하지 못했습니다. DB·PUBG 응답 및 실행 제한을 확인하세요.");
+  void Promise.resolve().then(() => extractSimulatorData(parseBluezoneOptions(process.argv.slice(2)))).catch((error: unknown) => {
+    console.error("자기장 데이터 수집 실패", { errorCode: safeBluezoneErrorCode(error) });
     process.exitCode = 1;
   });
 }

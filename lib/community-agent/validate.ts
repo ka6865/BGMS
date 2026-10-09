@@ -20,7 +20,7 @@ function unique<T>(values: readonly T[]): T[] {
   return [...new Set(values)];
 }
 
-function isAllowedEvidenceUrl(item: Evidence): boolean {
+export function isAllowedEvidenceUrl(item: Evidence): boolean {
   try {
     const url = new URL(item.url);
     if (url.protocol !== "https:" || url.username || url.password || url.port) return false;
@@ -38,7 +38,7 @@ function isBounded(value: unknown, limit: number): value is string {
   return typeof value === "string" && value.trim().length > 0 && [...value].length <= limit;
 }
 
-function hasPrivateOrUnsafeInstruction(value: string): boolean {
+export function hasPrivateOrUnsafeInstruction(value: string): boolean {
   return /(?:\b(?:\+?82[- ]?)?0?1[016789][ -]?\d{3,4}[ -]?\d{4}\b|\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|\b(?:\d{1,3}\.){3}\d{1,3}\b|씨발|병신|개새끼|\bfuck\b|\bshit\b|<\/?script\b|process\.env|api[_ -]?key|system prompt|ignore (?:all |previous )?instructions?|이전\s*지시.*무시|무시.*지시|도구.*실행|터미널.*실행|(?:curl|wget|rm\s+-rf)\b)/i.test(value);
 }
 
@@ -165,7 +165,7 @@ export function checkDraft(draft: Draft, evidence: Evidence[], now: Date): Valid
         ? "unverified_recent_evidence" : "stale_recent_evidence");
     }
     if (paragraph.kind === "observed_opinion" && cited.length === 1
-      && !/(?:한\s*(?:자료|출처|건)|단일\s*출처|개별\s*(?:질문|의견|반응))/.test(paragraph.text)) {
+      && !/(?:한\s*(?:자료|출처|건)|단일\s*출처|개별\s*(?:이용자(?:의)?\s*)?(?:질문|의견|반응))/.test(paragraph.text)) {
       reasons.push("single_source_opinion_unlabeled");
     }
     if (hasOpinionPercentage(paragraph)) reasons.push("unsupported_opinion_percentage");

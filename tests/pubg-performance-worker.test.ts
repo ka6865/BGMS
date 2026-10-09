@@ -17,4 +17,8 @@ describe('performanceSettlement', () => {
     expect(performanceSettlement(excluded)).toEqual({ state: 'excluded', result: null });
     expect(performanceSettlement(null)).toEqual({ state: 'excluded', result: null });
   });
+  it('preserves observed compact results even when ranking excludes the match', () => {
+    const result = {rankingEligible:false,retainedPerformance:{summary:{stats:{kills:0}},summary_version:1}};
+    expect(performanceSettlement(result)).toEqual({state:'excluded',result});
+  });
 });

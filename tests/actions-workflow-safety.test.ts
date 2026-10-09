@@ -2,11 +2,22 @@ import { describe, expect, it } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
 
 const workflowDirectory = join(process.cwd(), ".github/workflows");
 const workflowFiles = readdirSync(workflowDirectory).filter((file) => file.endsWith(".yml"));
 
 describe("GitHub Actions workflow permissions and action pins", () => {
+  it("archive cleanup pipeline failures stop the workflow before subsequent steps", () => {
+    const yaml = createRequire(import.meta.url)("js-yaml") as { load(text: string): any };
+    const config = yaml.load(readFileSync(join(workflowDirectory, "pubg-archive-retention.yml"), "utf8"));
+    expect(config.defaults.run.shell).toBe("bash");
+    const result = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c",
+      "(exit 23) | tee /dev/null\nprintf 'UNSAFE_NEXT_STEP'"], { encoding: "utf8" });
+    expect(result.status).toBe(23);
+    expect(result.stdout).not.toContain("UNSAFE_NEXT_STEP");
+  });
+
   it("grants only read access and pins every workflow action to a verified full SHA", () => {
     expect(workflowFiles.length).toBeGreaterThan(0);
     expect(workflowFiles).toContain("pr-verify.yml");
@@ -16,6 +27,10 @@ describe("GitHub Actions workflow permissions and action pins", () => {
       expect(source, file).not.toMatch(/uses:\s*[^\s@]+@v\d+/);
       expect(source, file).not.toMatch(/actions\/(?:checkout|setup-node)@v4/);
       for (const action of source.matchAll(/uses:\s*([^\s#]+)/g)) {
+        if (action[1].startsWith("./")) {
+          expect(action[1], file).toBe("./.github/actions/pubg-retention-batch");
+          continue;
+        }
         expect(action[1], file).toMatch(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+@[0-9a-f]{40}$/);
       }
 
@@ -47,6 +62,25 @@ describe("GitHub Actions workflow permissions and action pins", () => {
       expect(config.jobs[job].env ?? {}, job).toEqual({});
     }
     expect(Object.values(config.jobs.verify.env ?? {}).every((value) => value.includes("ci-placeholder"))).toBe(true);
+  });
+  it.each([
+    [true, false, 0, false],
+    [false, false, 0, true],
+    [false, true, 23, true],
+  ])('reuses a working client and fails closed on installation failure (%s/%s)', (ready, installFails, status, installs) => {
+    const yaml = createRequire(import.meta.url)("js-yaml") as {load(text: string): any};
+    const config = yaml.load(readFileSync(join(workflowDirectory, "pr-verify.yml"), "utf8"));
+    const script = config.jobs['verify-migrations'].steps.find((step: {name?: string}) => step.name === 'Ensure PostgreSQL client').run;
+    const result = spawnSync('bash', ['-euo', 'pipefail', '-c', `
+      client_ready=${ready};
+      psql() { if "$client_ready"; then echo CLIENT_READY; else return 1; fi; }
+      sudo() { echo INSTALL_CALL; if [[ "$*" == 'apt-get install --yes postgresql-client' ]]; then
+        if ${installFails}; then return 23; fi; client_ready=true; fi; }
+      ${script}
+    `], {encoding: 'utf8'});
+    expect(result.status).toBe(status);
+    expect(result.stdout.includes('INSTALL_CALL')).toBe(installs);
+    expect(result.stdout.includes('CLIENT_READY')).toBe(status === 0);
   });
 
   it("schedules grouped monthly patch/minor updates and ignores major version updates", () => {

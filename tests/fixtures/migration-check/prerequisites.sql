@@ -220,6 +220,7 @@ create table if not exists public.telemetry_map_cache_entries (
   status text not null default 'pending' check (status in ('pending', 'ready')),
   lease_expires_at timestamptz,
   lease_token uuid,
+  created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (match_id, platform, player_id, mode, telemetry_version)
 );
@@ -440,6 +441,7 @@ create table if not exists public.pubg_player_matches (
   played_at timestamptz not null, game_mode varchar(32) not null, map_name varchar(32) not null,
   kills integer not null default 0, damage integer not null default 0, win_place integer not null default 99,
   match_type text not null default 'unknown', knocks integer, survival_time integer,
+  created_at timestamptz default now(), ranking_eligible boolean,
   primary key(player_id,platform,match_id)
 );
 alter table public.pubg_player_matches enable row level security;

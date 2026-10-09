@@ -13,6 +13,7 @@ import { buildSquadAiCoachingPrompt } from "@/lib/pubg-analysis/squadAiCoachingP
 import { sanitizeAiCoachingLanguage } from "@/lib/pubg-analysis/aiCoachingQuality";
 
 import { applySquadEvidencePolicy, hasSquadObservations } from "@/lib/pubg-analysis/squadAiEvidence";
+import { expiredMatchDetailResponse, isMatchDetailExpired } from "@/lib/pubg-analysis/matchRetention.server";
 
 function extractValidJson(text: string): string {
   try {
@@ -158,6 +159,12 @@ export async function POST(request: Request) {
       return NextResponse.json({error: "전술 지표를 다시 계산한 뒤 AI 코칭을 이용할 수 있습니다.", errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED", retryable: false}, {status: 409});
     }
     if (squadData && "errorCode" in squadData && squadData.errorCode === "PUBG_CALCULATION_UPGRADE_REQUIRED") return NextResponse.json(squadData, { status: 409 });
+    if (squadData && Array.isArray(squadData.selectedMatchIds) && Array.isArray(squadData.matchesSummary)) {
+      const selectedIds = new Set(squadData.selectedMatchIds);
+      const expiredSelected = squadData.matchesSummary.filter((match: any) => selectedIds.has(match?.matchId)
+        && isMatchDetailExpired(match?.createdAt));
+      if (expiredSelected.length > 0) return expiredMatchDetailResponse(expiredSelected[0].createdAt);
+    }
     if (!squadData || !("matchesSummary" in squadData) || !Array.isArray(squadData.matchesSummary)
       || !squadData.stats || !squadData.scores || !Array.isArray(squadData.roleProfiles)
       || !squadData.benchmarkStats || !Number.isInteger(squadData.matchCount) || squadData.matchCount <= 0
