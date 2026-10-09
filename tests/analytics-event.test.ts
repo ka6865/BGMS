@@ -92,6 +92,62 @@ describe("analytics event API", () => {
     })]));
   });
 
+  it.each([undefined, "1"])("Content-Length가 %s여도 실제 32KiB 초과 본문을 거부한다", async (length) => {
+    const request = new Request("https://bgms.test/api/analytics/event", {
+      method: "POST", headers: length ? { "content-length": length } : {},
+      body: JSON.stringify({ name: "page_view", padding: "가".repeat(11_000) })
+    });
+    const parse = vi.spyOn(request, "json");
+    const response = await POST(request);
+    expect(response.status).toBe(413);
+    expect(parse).not.toHaveBeenCalled();
+    expect(mockCreateSupabaseAdminClient).not.toHaveBeenCalled();
+    expect(mockConsumeQuota).not.toHaveBeenCalled();
+    expect(mockAnalyticsInsert).not.toHaveBeenCalled();
+  });
+
+  it("상한을 넘긴 스트림은 취소하고 뒤의 청크를 읽지 않는다", async () => {
+    const cancel = vi.fn();
+    const stream = new ReadableStream({
+      start(controller) { controller.enqueue(new Uint8Array(32 * 1024 + 1)); }, cancel
+    });
+    const request = new Request("https://bgms.test/api/analytics/event", {
+      method: "POST", body: stream, duplex: "half"
+    } as RequestInit);
+    expect((await POST(request)).status).toBe(413);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(mockCreateSupabaseAdminClient).not.toHaveBeenCalled();
+  });
+
+  it("정확히 32KiB인 유효한 본문은 허용한다", async () => {
+    const body = await buildRequest().text();
+    const request = new Request("https://bgms.test/api/analytics/event", {
+      method: "POST", body: body + " ".repeat(32 * 1024 - new TextEncoder().encode(body).byteLength)
+    });
+    expect((await POST(request)).status).toBe(200);
+    expect(mockAnalyticsInsert).toHaveBeenCalledOnce();
+  });
+
+  it("한글이 청크 사이에서 나뉘어도 UTF-8을 손상시키지 않는다", async () => {
+    const body = JSON.parse(await buildRequest().text());
+    body.pageTitle = "한글 화면";
+    const bytes = new TextEncoder().encode(JSON.stringify(body));
+    const stream = new ReadableStream({ start(controller) {
+      for (const byte of bytes) controller.enqueue(new Uint8Array([byte]));
+      controller.close();
+    } });
+    expect((await POST(new Request("https://bgms.test/api/analytics/event", { method: "POST", body: stream, duplex: "half" } as RequestInit))).status).toBe(200);
+    expect(mockAnalyticsInsert).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ page_title: "한글 화면" })]));
+  });
+
+  it("잘못된 JSON이나 본문 수신 실패는 저장 전에 거부한다", async () => {
+    const malformed = new Request("https://bgms.test/api/analytics/event", { method: "POST", body: "{" });
+    expect((await POST(malformed)).status).toBe(400);
+    const stream = new ReadableStream({ start(controller) { controller.error(new Error("connection failed")); } });
+    expect((await POST(new Request("https://bgms.test/api/analytics/event", { method: "POST", body: stream, duplex: "half" } as RequestInit))).status).toBe(400);
+    expect(mockCreateSupabaseAdminClient).not.toHaveBeenCalled();
+  });
+
   it("로컬 host 이벤트는 기본 저장하지 않는다", async () => {
     const response = await POST(buildRequest(undefined, "http://localhost/api/analytics/event"));
     const body = await response.json();

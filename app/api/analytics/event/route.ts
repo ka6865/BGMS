@@ -24,7 +24,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "이벤트 payload가 너무 큽니다." }, { status: 413 });
   }
 
-  const body = await request.json().catch(() => null);
+  let body;
+  try {
+    body = await readBody(request);
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof RangeError ? "이벤트 payload가 너무 큽니다." : "이벤트 payload가 올바르지 않습니다." },
+      { status: error instanceof RangeError ? 413 : 400 });
+  }
   if (!body) {
     return NextResponse.json({ error: "이벤트 payload가 올바르지 않습니다." }, { status: 400 });
   }
@@ -97,6 +103,29 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ success: true });
+}
+
+async function readBody(request: Request): Promise<any> {
+  if (!request.body) return null;
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder();
+  let size = 0;
+  let text = "";
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      size += chunk.value.byteLength;
+      if (size > MAX_PAYLOAD_BYTES) {
+        await reader.cancel().catch(() => {});
+        throw new RangeError("analytics payload too large");
+      }
+      text += decoder.decode(chunk.value, { stream: true });
+    }
+    return JSON.parse(text + decoder.decode());
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 async function insertAnalyticsEvents(supabaseAdmin: any, payloads: any[]) {

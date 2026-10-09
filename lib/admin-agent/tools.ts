@@ -1285,7 +1285,8 @@ function buildTrafficRecommendations(summary: Awaited<ReturnType<typeof buildTra
 }
 
 function buildUserMetricRecommendations(summary: Awaited<ReturnType<typeof buildUserMetricsSummary>>) {
-  if (summary.status === "unavailable") return ["SUPABASE_SERVICE_ROLE_KEY와 auth.admin.listUsers 권한을 확인하세요."];
+  if (summary.status === "unavailable") return ["Auth・profiles・analytics_events 조회 오류와 서버 권한을 확인하세요. 조회 실패를 활동 0건으로 해석하지 마세요."];
+  if (summary.status === "partial") return ["부분 집계입니다. 전체 데이터 확인 전에는 가입자 수나 누락 프로필을 확정하거나 유저 동기화를 실행하지 마세요."];
   const recommendations = [];
   if (summary.accounts.missingProfiles > 0) recommendations.push("누락된 profiles가 있으니 /admin 데이터 관리에서 유저 동기화를 실행하세요.");
   if (summary.accounts.orphanProfiles > 0) recommendations.push("Auth에 없는 profiles가 있어 과거/테스트 데이터인지 확인하세요.");
