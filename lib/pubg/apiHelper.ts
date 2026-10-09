@@ -14,6 +14,9 @@ export interface PubgApiErrorContext {
   errorCode?: string;
   upstreamStatus?: number | null;
   durationMs?: number | null;
+  contentType?: string | null;
+  responseBytes?: number | null;
+  validationIssue?: string | null;
   platform?: string | null;
   source?: string | null;
   clientKind?: string | null;
@@ -124,7 +127,22 @@ export async function reportPubgApiError(
   const cutOff = now - WINDOW_SIZE;
   errorQueue = errorQueue.filter(err => err.timestamp >= cutOff);
 
-  console.warn(`[MONITORING] API Error Recorded - Route: ${route}, Status: ${status}, Message: ${message}`);
+  // 원문 detail과 임의 필드는 제외하고 허용된 진단 정보만 Vercel 로그에 남긴다.
+  console.warn(`[MONITORING] API Error Recorded - Route: ${route}, Status: ${status}, Message: ${message}`, {
+    failureStage: context?.failureStage ?? null,
+    errorCode: context?.errorCode ?? null,
+    upstreamStatus: context?.upstreamStatus ?? null,
+    durationMs: context?.durationMs ?? null,
+    contentType: context?.contentType ?? null,
+    responseBytes: context?.responseBytes ?? null,
+    validationIssue: context?.validationIssue ?? null,
+    platform: context?.platform ?? null,
+    source: context?.source ?? null,
+    clientKind: context?.clientKind ?? null,
+    requestId: context?.requestId ?? null,
+    matchFingerprint: context?.matchFingerprint ?? null,
+    nicknameFingerprint: context?.nicknameFingerprint ?? null,
+  });
 
   // 5분 동안 발생한 에러 수가 임계치에 도달하고 쿨다운이 지난 경우 알림 전송
   if (notify && now - lastAlertSentAt > ALERT_COOLDOWN) {
