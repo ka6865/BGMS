@@ -16,6 +16,8 @@
 - [x] constants/cacheIdentity 및 match·AI·squad reader를 수정하고 계산 2 조회/계산 3 신규 결과/허용되지 않은 버전 회귀를 검증한다.
 - [x] benchmark 조회·battle·성과 캐시·랭킹과 DB 보존 함수를 수정하고 혼합 표본·중복 경기·버전별 AI 캐시를 검증한다.
 - [x] 운영 문서를 갱신하고 core·analysis·admin·전체 unit·격리 migration·빌드 검증 후 Luna 최종 리뷰를 받는다.
-- [ ] 운영 함수 정의와 migration 이력을 대조한다. 배포 조건을 만족하면 기존 승인 범위에서 main 반영·배포하고 기존/신규 자료 조회를 확인한다.
+- [x] 운영 함수 정의와 migration 이력을 대조한다. 배포 조건을 만족하면 기존 승인 범위에서 main 반영·배포하고 기존/신규 자료 조회를 확인한다.
+
+2026-10-10 운영 함수 migration 4개 적용, PR #246 main 병합, bgms.kr 배포와 기존 계산 2·신규 계산 3의 실제 저장/조회 확인을 완료했다. 구체적인 검증 범위는 [결과 문서](2026-10-10-calculation-coexistence-results.md)에 기록했다.
 
 운영 데이터의 강제 재계산이나 삭제는 이 계획의 범위가 아니다. 실제 Gemini 호출은 로컬 캐시/API 계약 검증과 구분한다.
