@@ -1,3 +1,4 @@
+import { ANALYSIS_CALCULATION_VERSION } from '../lib/pubg-analysis/constants';
 import { describe, expect, it } from "vitest";
 import {
   assertCalculationUpgradeManifest,
@@ -13,7 +14,7 @@ const limits = normalizeCalculationUpgradeLimits({ maxBatch: 2, maxScan: 4, maxW
 const input = () => ({
   generatedAt: "2026-09-07T00:00:00.000Z",
   project: "example.supabase.co",
-  calculationVersion: 2,
+  calculationVersion: ANALYSIS_CALCULATION_VERSION,
   limits,
   counters: { databaseReads: 5, databaseWrites: 0, localSourceBytes: 123, providerCalls: 0 as const, upstreamDownloads: 0 as const, errors: 0 },
   decisions: [

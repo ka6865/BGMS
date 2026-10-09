@@ -5,6 +5,7 @@ import {resolve} from 'node:path';
 import {parseArgs} from 'node:util';
 import {createClient} from '@supabase/supabase-js';
 import dotenv from 'dotenv';
+import {ANALYSIS_CALCULATION_VERSION} from '../lib/pubg-analysis/constants';
 import {calculateUpgradeFromOfficialRaw} from './calculation_upgrade_raw';
 import {stableHash} from './calculation_upgrade_batch';
 import {acquireCalculationUpgradeCheckpointLock} from './calculation_upgrade_checkpoint';
@@ -21,7 +22,7 @@ if(values.apply){
  const lock=await acquireCalculationUpgradeCheckpointLock(checkpoint);let plan:any;
  try{
   plan=await json(input);
-  if(plan.kind!=='canonical-calculation-upgrade'||plan.version!==1||plan.project!==project||plan.calculationVersion!==2||!Array.isArray(plan.upgrades)||plan.upgrades.length>10||plan.hash!==stableHash(plan.upgrades))throw new Error('invalid_canonical_plan');
+  if(plan.kind!=='canonical-calculation-upgrade'||plan.version!==1||plan.project!==project||plan.calculationVersion!==ANALYSIS_CALCULATION_VERSION||!Array.isArray(plan.upgrades)||plan.upgrades.length>10||plan.hash!==stableHash(plan.upgrades))throw new Error('invalid_canonical_plan');
   const initialWrites=plan.counters.databaseWrites;
   plan.phase='running';const started=Date.now();await save(checkpoint,plan);
   for(const upgrade of plan.upgrades){
@@ -49,7 +50,7 @@ if(values.apply){
  for(const identity of targets){
   const previous=await read(identity);reads++;
   if(!previous){decisions.push({identity,status:'canonical_missing'});continue;}
-  if(previous.data?.fullResult?.calculationVersion===2){decisions.push({identity,status:'already_current'});continue;}
+  if(previous.data?.fullResult?.calculationVersion===ANALYSIS_CALCULATION_VERSION){decisions.push({identity,status:'already_current'});continue;}
   const k=`${identity.platform}/${identity.matchId}`;
   if(!sources.has(k)){
    const pair=catalog.sources.find((p:any)=>p.kind==='local_official_raw'&&p.matchId===identity.matchId&&p.platform===identity.platform);if(!pair)throw new Error('source_missing');
@@ -59,6 +60,6 @@ if(values.apply){
   const {full}=calculateUpgradeFromOfficialRaw(identity,previous,sources.get(k),[72,73]);
   upgrades.push({identity,expectedData:previous.data,fullResult:full});decisions.push({identity,status:'prepared'});
  }
- const plan={kind:'canonical-calculation-upgrade',version:1,project,calculationVersion:2,hash:stableHash(upgrades),phase:'prepared',upgrades,decisions,counters:{databaseReads:reads,databaseWrites:0}};
+ const plan={kind:'canonical-calculation-upgrade',version:1,project,calculationVersion:ANALYSIS_CALCULATION_VERSION,hash:stableHash(upgrades),phase:'prepared',upgrades,decisions,counters:{databaseReads:reads,databaseWrites:0}};
  await save(resolve(values.output),plan);console.log(JSON.stringify({prepared:upgrades.length,decisions:decisions.length}));
 }

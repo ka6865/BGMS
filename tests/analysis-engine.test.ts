@@ -601,6 +601,26 @@ describe('티어 산정 및 조기 탈락 폴백 엔진 검증', () => {
     expect(result.impactReasons).not.toContain("승리 기여 근거 4개 이상");
   });
 
+  it.each([undefined, null, -1, Number.NaN, Number.POSITIVE_INFINITY])('미측정 고립 지수 %s는 승리 기여 근거로 세지 않는다', (isolationIndex) => {
+    const input = {
+      rankPct: 0.05, survivalTime: 1700, initiativeRate: 35, counterLatencyMs: -1,
+      pressureIndex: 1.2, smokeRate: -1, suppCount: 0, reviveRate: -1, tradeRate: -1,
+      teamWipes: 0, reversalRate: -1, deathPhase: 9, suppRate: -1,
+      survivalRankPct: 1 / 25, myKnockCount: 0, myDeathCount: 1, winPlace: 1,
+      kills: 1, damageDealt: 180, teamDamageShare: 20, teamMode: 'squad' as const,
+    };
+    const measured = getBenchmarkTier({ ...input, isolationIndex: 0 }, false);
+    const unmeasured = getBenchmarkTier({ ...input, isolationIndex: isolationIndex as number | undefined }, false);
+    expect(measured.impactReasons).toContain('승리 기여 근거 2개');
+    expect(unmeasured.impactReasons).not.toContain('승리 기여 근거 2개');
+    expect(unmeasured.impactReasons).not.toContain('고립 리스크 감경');
+    expect(unmeasured.impactBonus).toBe(measured.impactBonus - 4);
+    if (isolationIndex === undefined || isolationIndex === null) {
+      expect(unmeasured.score).toBe(measured.score);
+      expect(unmeasured.tier).toBe(measured.tier);
+    }
+  });
+
   it('듀오 팀 딜 35%는 팀 화력 보정을 받지 않고 스쿼드 35%는 인정한다', () => {
     const base = {
       rankPct: 0.2,

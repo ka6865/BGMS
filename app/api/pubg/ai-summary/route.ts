@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
-import { AI_SUMMARY_CACHE_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
+import { AI_SUMMARY_CACHE_VERSION, ANALYSIS_CALCULATION_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
 import { estimateUserTier } from "@/lib/pubg-analysis/benchmarkScore";
 import { classifyRole } from "@/lib/pubg-analysis/roleClassifier";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
@@ -2158,7 +2158,7 @@ export async function POST(request: Request) {
     } : null;
 
     const precomputedVisuals = {
-      calculationVersion: 2,
+      calculationVersion: ANALYSIS_CALCULATION_VERSION,
       calculationPendingCount: calculationPendingIds.size,
       latestMatchTime, latestMatchCount: selectedMatches.length, bestMatchCount: bestMatches.length,
       counterLatency: avgBackupLatency, reactionLatency: avgReactionLatency,

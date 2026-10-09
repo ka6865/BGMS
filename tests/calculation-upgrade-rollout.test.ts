@@ -1,3 +1,4 @@
+import { ANALYSIS_CALCULATION_VERSION } from '../lib/pubg-analysis/constants';
 import {describe,it,expect} from 'vitest';
 import {groupRolloutRows,assertRolloutSnapshot,assertRolloutProgress,type RolloutRow} from '../scripts/calculation_upgrade_rollout_helpers';
 import {stableHash} from '../scripts/calculation_upgrade_batch';
@@ -10,9 +11,10 @@ describe('immutable all-user rollout inventory',()=>{
   expect(groupRolloutRows(rows)).toEqual(groups);
  });
  it('binds saved inventory to its project, version and every target identity',()=>{
-  const rows=[row(1)],snapshot={version:1,project:'test.supabase.co',calculationVersion:2,rows,hash:stableHash(rows)};
+  const rows=[row(1)],snapshot={version:1,project:'test.supabase.co',calculationVersion: ANALYSIS_CALCULATION_VERSION,rows,hash:stableHash(rows)};
   expect(()=>assertRolloutSnapshot(snapshot,'test.supabase.co')).not.toThrow();
   expect(()=>assertRolloutSnapshot(snapshot,'other.supabase.co')).toThrow();
+  expect(()=>assertRolloutSnapshot({...snapshot,calculationVersion:2},'test.supabase.co')).toThrow();
   expect(()=>assertRolloutSnapshot({...snapshot,rows:[row(2)]},'test.supabase.co')).toThrow();
  });
  it('rejects corrupt resume counters and skipped progress entries',()=>{

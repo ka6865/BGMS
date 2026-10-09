@@ -163,7 +163,7 @@ const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRe
 const rawCatalog = await readRawCatalog(values.catalog);
 const sourceCache = new Map<string, RawSource>();
 let sampleQuery = pendingOnly
-  ? db.from("global_benchmarks").select("match_id,platform,player_id,created_at").in("platform", ["steam", "kakao"]).or("calculation_version.is.null,calculation_version.lt.2").eq("filter_version", 8).eq("population_evidence_version", 1).in("match_type", ["official", "competitive"])
+  ? db.from("global_benchmarks").select("match_id,platform,player_id,created_at").in("platform", ["steam", "kakao"]).or(`calculation_version.is.null,calculation_version.lt.${ANALYSIS_CALCULATION_VERSION}`).eq("filter_version", 8).eq("population_evidence_version", 1).in("match_type", ["official", "competitive"])
   : db.from("match_stats_raw").select("match_id,platform,player_id,created_at").in("platform", ["steam", "kakao"]).eq("is_analysis_sample", true);
 if (values.platform) sampleQuery = sampleQuery.eq("platform", values.platform);
 if (playerIdFilter) sampleQuery = sampleQuery.eq("player_id", playerIdFilter);

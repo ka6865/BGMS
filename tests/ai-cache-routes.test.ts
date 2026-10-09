@@ -147,7 +147,7 @@ function createSummaryMatch(matchId = "match-1", overrides: Record<string, any> 
     player_id: "player_a",
     platform: "kakao",
     v: RESULT_VERSION,
-    calculationVersion: 2,
+    calculationVersion: ANALYSIS_CALCULATION_VERSION,
     populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
     createdAt: "2026-06-01T00:00:00.000Z",
     mapName: "Baltic_Main",
@@ -239,7 +239,7 @@ function createCanonicalAnalyzeRow(
     player_id: "player_a",
     platform: "kakao",
     v: RESULT_VERSION,
-    calculationVersion: 2,
+    calculationVersion: ANALYSIS_CALCULATION_VERSION,
     ...overrides,
   };
   return {
@@ -391,7 +391,7 @@ describe("AI cache route stabilization", () => {
     expect(mockGenerateContentStream).not.toHaveBeenCalled();
   });
 
-  it.each([undefined,1,3])('ai-analyze rejects stale calculation %s before reading prose or calling Gemini',async calculationVersion=>{
+  it.each([undefined,1,2,ANALYSIS_CALCULATION_VERSION + 1])('ai-analyze rejects stale calculation %s before reading prose or calling Gemini',async calculationVersion=>{
     const cache=createQueryChain({data:{ai_result:{text:'legacy'}},error:null});
     const telemetry=createQueryChain({data:createCanonicalAnalyzeRow('calc-old',{calculationVersion}),error:null});
     mockWithAuthGuard.mockResolvedValue({user:{id:'user-1'},supabaseAdmin:createSupabaseMock({match_ai_coaching_cache:cache,processed_match_telemetry:telemetry})});
@@ -1730,7 +1730,7 @@ describe("AI cache route stabilization", () => {
       avg_solo_kill_rate: 50,
       avg_death_phase: 6,
       filter_version: 8,
-      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
     };
     const telemetry = createQueryChain({
       data: [{
@@ -2587,7 +2587,7 @@ describe("AI cache route stabilization", () => {
       tier: "A+",
       match_count: 5,
       filter_version: 8,
-      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
       avg_damage: 300,
       avg_damage_count: 5,
       avg_initiative_rate: null,
@@ -2598,7 +2598,7 @@ describe("AI cache route stabilization", () => {
       tier: "A+",
       match_count: 5,
       filter_version: 8,
-      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
       avg_damage: null,
       avg_initiative_rate: 77,
     };
@@ -2706,7 +2706,7 @@ describe("AI cache route stabilization", () => {
         tier: "A+",
         match_count: 5,
         filter_version: 8,
-        population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
+        population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
         avg_damage: 300,
         avg_damage_count: 5,
         avg_solo_kill_rate: 40,
@@ -3685,7 +3685,7 @@ describe("AI cache route stabilization", () => {
       data: {
         fullResult: createSummaryMatch(`match-current-${index}`, {
           v: RESULT_VERSION,
-    calculationVersion: 2,
+    calculationVersion: ANALYSIS_CALCULATION_VERSION,
           createdAt: new Date(Date.UTC(2026, 7, 28, 0, index)).toISOString(),
           benchmark: {
             score: 60 + index,
@@ -4536,7 +4536,7 @@ describe("AI cache route stabilization", () => {
     });
     const filteredCurrentFullResult = createSummaryMatch("match-current-event", {
       v: RESULT_VERSION,
-    calculationVersion: 2,
+    calculationVersion: ANALYSIS_CALCULATION_VERSION,
       gameMode: "event",
       benchmark: {
         score: 88,
@@ -5559,7 +5559,7 @@ describe("AI cache route stabilization", () => {
         tier: "A+",
         match_count: 5,
         filter_version: 8,
-        population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
+        population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
         avg_damage: 300,
         avg_damage_count: 5,
         avg_duel_win_rate: null,
@@ -6036,7 +6036,7 @@ describe("AI cache route stabilization", () => {
       combatPressure: { pressureIndex: null, utilityStats: { throwCount: 10 } },
     });
     const telemetry = createQueryChain({ data: [complete, incomplete].map(fullResult => ({ match_id: fullResult.matchId, player_id: 'player_a', platform: 'kakao', data: { fullResult } })), error: null });
-    const tier = createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2, avg_damage: 100, avg_damage_count: 5, avg_initiative_rate: 0, avg_initiative_rate_count: 5, avg_duel_win_rate: 0, avg_duel_win_rate_count: 5, avg_solo_kill_rate: 0, avg_solo_kill_rate_count: 5 }, error: null });
+    const tier = createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 5, avg_initiative_rate: 0, avg_initiative_rate_count: 5, avg_duel_win_rate: 0, avg_duel_win_rate_count: 5, avg_solo_kill_rate: 0, avg_solo_kill_rate_count: 5 }, error: null });
     mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({ player_ai_summary_cache: createQueryChain(), processed_match_telemetry: telemetry, benchmark_stats_by_tier_v2: tier }) });
     mockSummaryGeminiResponse();
     const response = await aiSummaryPOST(createRequest({ matchIds: [complete.matchId, incomplete.matchId], nickname: 'Player_A', platform: 'kakao', force: true, summaryContractVersion: 2 }));
@@ -6053,7 +6053,7 @@ describe("AI cache route stabilization", () => {
     'ai-summary v2 %s preserves server evidence and validates interpretation/cache separately', async (scenario) => {
       const summaryCache = createQueryChain();
       const telemetry = createQueryChain({ data: [{ match_id: 'id-contract', player_id: 'player_a', platform: 'kakao', data: { fullResult: createSummaryMatch('id-contract', { deathPhase: 4 }) } }], error: null });
-      const tier = createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2, avg_damage: 100, avg_damage_count: 5, avg_trade_rate: 20, avg_trade_rate_count: 5, avg_duel_win_rate: 10, avg_duel_win_rate_count: 5, avg_solo_kill_rate: 40, avg_solo_kill_rate_count: 5 }, error: null });
+      const tier = createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 5, avg_trade_rate: 20, avg_trade_rate_count: 5, avg_duel_win_rate: 10, avg_duel_win_rate_count: 5, avg_solo_kill_rate: 40, avg_solo_kill_rate_count: 5 }, error: null });
       mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({ player_ai_summary_cache: summaryCache, processed_match_telemetry: telemetry, benchmark_stats_by_tier_v2: tier }) });
       let providerFinal: any;
       mockGenerateContentStream.mockImplementation(async (prompt: string) => {
@@ -6184,7 +6184,7 @@ describe("AI cache route stabilization", () => {
     mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: createQueryChain({ data: rows, error: null }),
-      benchmark_stats_by_tier_v2: createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2, avg_damage: 100, avg_damage_count: 5 }, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 5 }, error: null }),
     }) });
     const previous = process.env.GOOGLE_GEMINI_API_KEY;
     delete process.env.GOOGLE_GEMINI_API_KEY;
@@ -6206,7 +6206,7 @@ describe("AI cache route stabilization", () => {
     mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({
       player_ai_summary_cache: createQueryChain(),
       processed_match_telemetry: createQueryChain({ data: rows, error: null }),
-      benchmark_stats_by_tier_v2: createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2, avg_damage: 100, avg_damage_count: 5 }, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 5 }, error: null }),
     }) });
     const previous = process.env.GOOGLE_GEMINI_API_KEY;
     delete process.env.GOOGLE_GEMINI_API_KEY;

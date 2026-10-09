@@ -1,3 +1,4 @@
+import { ANALYSIS_CALCULATION_VERSION } from '../lib/pubg-analysis/constants';
 import { describe, expect, it, vi } from "vitest";
 import {
   buildProcessedTelemetryUpsert,
@@ -243,7 +244,7 @@ describe("PUBG benchmark and tier stabilization", () => {
       avg_damage: 999,
       avg_damage_count: 5,
       filter_version: 8,
-      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
     };
     const validFallback = {
       tier: "B",
@@ -251,7 +252,7 @@ describe("PUBG benchmark and tier stabilization", () => {
       avg_damage: 300,
       avg_damage_count: 5,
       filter_version: 8,
-      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
     };
     const query: any = {
       select: vi.fn().mockReturnThis(),
@@ -276,7 +277,7 @@ describe("PUBG benchmark and tier stabilization", () => {
       avg_damage: 300,
       avg_damage_count: 5,
       filter_version: 8,
-      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
     };
     const malformed = { ...valid, tier: "BLAH", avg_damage: 900 };
     const otherFamily = { ...valid, tier: "A", avg_damage: 800 };
@@ -303,7 +304,7 @@ describe("PUBG benchmark and tier stabilization", () => {
       avg_damage: 900,
       avg_damage_count: 5,
       filter_version: 8,
-      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
     };
     const query: any = {
       select: vi.fn().mockReturnThis(),
@@ -346,7 +347,7 @@ describe("PUBG benchmark and tier stabilization", () => {
   it("benchmark 조회는 명시적으로 현재 filter와 population provenance가 함께 있는 aggregate만 사용한다", async () => {
     const trusted = {
       filter_version: 8,
-      population_evidence_version: 1, calculation_version: 2,
+      population_evidence_version: 1, calculation_version: ANALYSIS_CALCULATION_VERSION,
       tier: "A",
       match_count: 5,
       avg_damage: 300,
@@ -368,12 +369,12 @@ describe("PUBG benchmark and tier stabilization", () => {
     })).resolves.toMatchObject({ filter_version: 8, population_evidence_version: 1 });
   });
 
-  it.each([undefined,null,1,3,'2'])('does not compare mismatched arithmetic %s even if a DB filter is ignored',async calculation_version=>{
+  it.each([undefined,null,1,2,ANALYSIS_CALCULATION_VERSION + 1,String(ANALYSIS_CALCULATION_VERSION)])('does not compare mismatched arithmetic %s even if a DB filter is ignored',async calculation_version=>{
     const row={filter_version:8,population_evidence_version:1,calculation_version,tier:'A',match_count:10,avg_damage:300};
     const query:any={select:vi.fn().mockReturnThis(),eq:vi.fn().mockReturnThis(),in:vi.fn().mockReturnThis(),
       maybeSingle:vi.fn().mockResolvedValue({data:row,error:null}),limit:vi.fn().mockResolvedValue({data:[row],error:null})};
     expect(await fetchTierBenchmarkStats({from:()=>query},{gameMode:'squad',matchType:'official',tier:'A'})).toBeNull();
-    expect(query.eq).toHaveBeenCalledWith('calculation_version',2);
+    expect(query.eq).toHaveBeenCalledWith('calculation_version',ANALYSIS_CALCULATION_VERSION);
   });
   it('removes outdated comparison-derived impact and badges while retaining personal facts',()=>{
     const result={stats:{kills:3},eliteBenchmark:{avgDamage:500},teamImpact:{damageImpact:120,killImpact:150,other:1},badges:[{id:'ace'},{id:'survival'}]};
@@ -432,7 +433,7 @@ describe("PUBG benchmark and tier stabilization", () => {
       avg_damage: 900,
       avg_damage_count: 3,
       filter_version: 8,
-      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
     };
     const grouped = [
       exact,
@@ -442,7 +443,7 @@ describe("PUBG benchmark and tier stabilization", () => {
         avg_damage: 300,
         avg_damage_count: 2,
         filter_version: 8,
-        population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
+        population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
       },
     ];
     const query: any = {

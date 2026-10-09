@@ -51,6 +51,7 @@ MIGRATIONS=(
   "20261004050604_pubg_scoped_collection_short_lease"
   "20261004050621_mobile_board_like_atomic"
   "20261009182823_restore_player_cache_compaction_contract"
+  "20261010000000_analysis_calculation_v3"
 )
 
 cleanup() {
@@ -141,5 +142,6 @@ if ! echo "$OUTPUT" | grep -q "전체 시나리오 통과"; then
 fi
 
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v3-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/support-center-scenarios.sql
 echo "✅ 신규 migration 적용 및 RPC 동작 검증 완료"

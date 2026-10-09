@@ -6,6 +6,7 @@ import { readFile, writeFile, mkdir, rename, unlink, access, statfs, stat } from
 import { resolve, dirname } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import dotenv from 'dotenv';
+import { ANALYSIS_CALCULATION_VERSION } from '../lib/pubg-analysis/constants';
 import { stableHash } from './calculation_upgrade_batch';
 import { acquireCalculationUpgradeCheckpointLock } from './calculation_upgrade_checkpoint';
 import { groupRolloutRows, assertRolloutSnapshot, assertRolloutProgress, type RolloutRow, type RolloutMatch } from './calculation_upgrade_rollout_helpers';
@@ -77,7 +78,7 @@ try{
       const page=await readDb(db.from('global_benchmarks').select('id,match_id,platform,player_id,created_at')
         .in('platform',['steam','kakao']).eq('filter_version',8).eq('population_evidence_version',1)
         .in('match_type',['official','competitive']).in('game_mode',['solo','solo-fpp','duo','duo-fpp','squad','squad-fpp'])
-        .or('calculation_version.is.null,calculation_version.lt.2').gt('id',cursor).lte('id',highWater).order('id',{ascending:true}).limit(500));
+        .or(`calculation_version.is.null,calculation_version.lt.${ANALYSIS_CALCULATION_VERSION}`).gt('id',cursor).lte('id',highWater).order('id',{ascending:true}).limit(500));
       rows.push(...page);if(rows.length>20000)throw new Error('inventory_row_cap');
       if(page.length<500)break;cursor=page.at(-1).id;
     }
@@ -95,7 +96,7 @@ try{
         if(offset>20000)throw new Error('canonical_inventory_cap');if(page.length<250)break;
       }
     }
-    snapshot={version:1,project,calculationVersion:2,canonicalOnly,createdAt:new Date().toISOString(),highWater,rows,hash:stableHash(rows)};
+    snapshot={version:1,project,calculationVersion:ANALYSIS_CALCULATION_VERSION,canonicalOnly,createdAt:new Date().toISOString(),highWater,rows,hash:stableHash(rows)};
     assertRolloutSnapshot(snapshot,project);await save(snapshotPath,snapshot);
   }
   assertRolloutSnapshot(snapshot,project);if(Boolean(snapshot.canonicalOnly)!==canonicalOnly)throw new Error('rollout_mode_mismatch');const groups=groupRolloutRows(snapshot.rows);
@@ -116,7 +117,7 @@ try{
       let source=sources.get(`${group.platform}/${group.matchId}`),owned=false;
       const requestedPlayers=new Set(group.rows.map(r=>r.player_id));
       const requestedMeta=meta.filter((r:any)=>requestedPlayers.has(r.player_id));
-      if(canonicalOnly&&requestedMeta.length===requestedPlayers.size&&requestedMeta.every((r:any)=>Number(r.calculation)===2)){result.status='already_current';}
+      if(canonicalOnly&&requestedMeta.length===requestedPlayers.size&&requestedMeta.every((r:any)=>Number(r.calculation)===ANALYSIS_CALCULATION_VERSION)){result.status='already_current';}
       else if(!currentVersion.length){result.status=meta.length?'legacy_version':'canonical_missing';}
       else{
         if(!source){
