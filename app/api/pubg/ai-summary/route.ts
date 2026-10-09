@@ -2185,8 +2185,11 @@ export async function POST(request: Request) {
       } : {}),
     } : null;
 
+    const calculationVersions = [...new Set(selectedMatches.map(match => match.calculationVersion))].sort();
     const precomputedVisuals = {
-      calculationVersions: [...new Set(selectedMatches.map(match => match.calculationVersion))].sort(),
+      ...(calculationVersions.length === 1
+        ? { calculationVersion: calculationVersions[0] }
+        : { calculationVersions }),
       calculationPendingCount: calculationPendingIds.size,
       latestMatchTime, latestMatchCount: selectedMatches.length, bestMatchCount: bestMatches.length,
       counterLatency: avgBackupLatency, reactionLatency: avgReactionLatency,
