@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import CommunityReviewQueue from "@/components/admin/CommunityReviewQueue";
-import type { CollectSource, CommunityAgentStatus, Policy, RunSnapshot, Stage } from "@/lib/community-agent/types";
+import type { CollectSource, CommunityAgentStatus, Policy, RunSnapshot, SelectionDiagnostics, Stage } from "@/lib/community-agent/types";
 
 const SOURCE_META: Record<CollectSource, { label: string; href: string }> = {
   dc: { label: "디시인사이드 배틀그라운드", href: "https://gall.dcinside.com/board/lists/?id=battlegrounds" },
@@ -108,7 +108,10 @@ function runStageText(run: RunSnapshot): string {
   if (active) return `${STAGE_LABELS[active]} 진행 중`;
   const latest = [...TRIAL_STAGES].reverse().find((stage) => run.stages[stage]);
   if (!latest) return "실행 시작";
-  return `${STAGE_LABELS[latest]} · ${run.stages[latest]?.status === "failed" ? "실패" : "처리 완료"}`;
+  const result = run.stages[latest]?.result;
+  const terminal = result?.terminal as { status?: string } | undefined;
+  const held = run.status === "deferred" || terminal?.status === "deferred";
+  return `${STAGE_LABELS[latest]} · ${held ? "보류" : run.stages[latest]?.status === "failed" ? "실패" : "처리 완료"}`;
 }
 
 function runTimeText(run: RunSnapshot): string {
@@ -278,6 +281,7 @@ export default function CommunityAgentPanel() {
 
   const policy = status.policy;
   const currentRun = status.runs[0];
+  const selection = currentRun?.stages.select?.result.selection as SelectionDiagnostics | undefined;
   const todayRun = status.runs.find((run) => run.day === dateKey());
   const canRetry = Boolean(todayRun && ["deferred", "failed"].includes(todayRun.status));
   const todayFinished = Boolean(todayRun && ["ready", "published"].includes(todayRun.status));
@@ -360,6 +364,14 @@ export default function CommunityAgentPanel() {
               const report = currentRun.reports.find((item) => item.source === source);
               return <p key={source}>{SOURCE_HELP[source].title}: {report ? `조회 ${report.fetchedCount}건 · 채택 ${report.retainedCount}건 · ${sourceStateText(report.state)}${report.reason ? ` · ${reasonText(report.reason)}` : ""}` : "수집 결과 없음"}</p>;
             })}
+            {selection && <div aria-label="주제 선정 진단" className="mt-2 break-words border-t border-zinc-800 pt-2">
+              <p>저장 자료 {selection.storedCount}건 · 실자료 사용 {selection.usableCount}건 · 모델 입력 {selection.inputCount}건</p>
+              <p>비어 제외 {selection.emptyCount}건 · 거절 제외 {selection.rejectedCount}건 · 추가 확인 {selection.supplementalCount}건</p>
+              {selection.detail && <p className="text-amber-200">선정 판단: {selection.detail}</p>}
+              {selection.candidates.length > 0 && <ul className="mt-1 space-y-1">
+                {selection.candidates.map((candidate, index) => <li key={index}>후보 {index + 1}: {candidate.title} · 보류 이유: {candidate.reason}</li>)}
+              </ul>}
+            </div>}
           </div>}
           {todayFinished && <p role="status" className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-sm leading-6 text-amber-200">오늘 실행은 {runStatusText(todayRun!.status)} 상태입니다. 완성된 초안이나 발행된 글이 있어 추가 수집을 하지 않습니다. 하루 발행 한도는 1건입니다.</p>}
           {canRetry && busy !== "trial" && <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-sm leading-6 text-amber-200">최근 실행이 {runStatusText(todayRun!.status)} 상태입니다. 키나 출처를 수정했다면 ‘다시 수집·초안 만들기’를 누르세요. 이전 기록은 보존하고 현재 설정으로 새 시험 실행을 시작합니다. 재실행마다 API와 Gemini 사용량이 발생할 수 있으며 자동으로 게시하지 않습니다.</p>}

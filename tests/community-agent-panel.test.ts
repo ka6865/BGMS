@@ -202,7 +202,7 @@ describe("CommunityAgentPanel", () => {
     expect(screen.getByRole("button", { name: "자료 수집·초안 작성 중…" })).toBeDisabled();
     releaseNaver?.();
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Gemini가 작성할 주제를 선정하지 못했습니다"));
-    expect(screen.getByLabelText("최근 실행 상세")).toHaveTextContent("주제 선정 · 처리 완료");
+    expect(screen.getByLabelText("최근 실행 상세")).toHaveTextContent("주제 선정 · 보류");
     expect(fetch.mock.calls.some(([, init]) => String(init?.body).includes('"stage":"draft"'))).toBe(false);
   });
 
@@ -227,6 +227,37 @@ describe("CommunityAgentPanel", () => {
     expect(await screen.findByText("검증 전 초안")).toBeInTheDocument();
     expect(screen.getByText(/초안은 작성했지만 승인 대기에 등록하지 못했습니다/)).toBeInTheDocument();
     expect(screen.getByLabelText("최근 실행 상세")).toHaveTextContent("근거 검증을 통과하지 못했습니다");
+  });
+
+  it("선별 진단의 실자료·제외·추가 확인 수와 후보별 보류 이유를 표시한다", async () => {
+    const held = run({ status: "deferred", reason: "insufficient_topic_evidence", stages: {
+      select: { status: "failed", lease: "selection", result: {
+        terminal: { status: "deferred", reason: "insufficient_topic_evidence" },
+        selection: { storedCount: 24, usableCount: 12, inputCount: 15, emptyCount: 3, rejectedCount: 9,
+          supplementalCount: 3, detail: "업데이트 근거가 구체적이지 않습니다.",
+          candidates: [{ title: "차량 운용", reason: "서로 다른 출처의 근거가 부족합니다." }] },
+      } },
+    } });
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ status: status({ runs: [held] }) })));
+    render(React.createElement(CommunityAgentPanel));
+    const diagnostics = await screen.findByLabelText("주제 선정 진단");
+    expect(screen.getByLabelText("최근 실행 상세")).toContainElement(diagnostics);
+    expect(diagnostics).toHaveTextContent("저장 자료 24건 · 실자료 사용 12건 · 모델 입력 15건");
+    expect(diagnostics).toHaveTextContent("비어 제외 3건 · 거절 제외 9건 · 추가 확인 3건");
+    expect(diagnostics).toHaveTextContent("선정 판단: 업데이트 근거가 구체적이지 않습니다.");
+    expect(diagnostics).toHaveTextContent("후보 1: 차량 운용 · 보류 이유: 서로 다른 출처의 근거가 부족합니다.");
+    expect(screen.getByLabelText("최근 실행 상세")).toHaveTextContent("주제 선정 · 보류");
+    expect(screen.getByLabelText("최근 실행 상세")).not.toHaveTextContent("주제 선정 · 실패");
+  });
+
+  it("진단이 없는 기존 실패 기록은 기존 단계와 사유만 표시한다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ status: status({ runs: [run({
+      status: "failed", reason: "model_request_failed",
+      stages: { select: { status: "failed", lease: "old", result: {} } },
+    })] }) })));
+    render(React.createElement(CommunityAgentPanel));
+    expect(await screen.findByLabelText("최근 실행 상세")).toHaveTextContent("주제 선정 · 실패");
+    expect(screen.queryByLabelText("주제 선정 진단")).not.toBeInTheDocument();
   });
 
   it("거절된 초안을 승인 대기 등록 실패로 안내하지 않는다", async () => {

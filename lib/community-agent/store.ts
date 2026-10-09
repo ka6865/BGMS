@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadOfficialIssueEvidence } from "./sources/official";
 import type {
   CollectSource,
   Evidence,
@@ -361,9 +362,9 @@ export class CommunityStore {
     });
   }
 
-  /** Local news bodies have no producer-owned provenance and cannot become official evidence. */
-  async loadOfficialEvidence(): Promise<Evidence[]> {
-    return [];
+  /** 내부 게시글이 아닌 검증한 공식 PUBG 원문만 근거로 보강한다. */
+  async loadOfficialEvidence(items: Evidence[] = []): Promise<Evidence[]> {
+    return loadOfficialIssueEvidence(items);
   }
 
   async publish(id: string): Promise<PublishResult> {

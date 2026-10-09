@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { fetchSource } from "../lib/community-agent/http";
+import { extractIssueSearchTerms } from "../lib/community-agent/discovery";
 import { collectSource, type SourceDeps } from "../lib/community-agent/sources";
 import { collectDc, parseDcList } from "../lib/community-agent/sources/dc";
 import { collectNaver, parseNaverItems } from "../lib/community-agent/sources/naver";
@@ -27,6 +28,12 @@ function response(body: unknown, status = 200): Response {
 }
 
 describe("community source boundaries", () => {
+  it("이슈 검색어는 브랜드를 하드코딩하지 않고 일반어·명령·URL·긴 토큰을 제외한다", () => {
+    expect(extractIssueSearchTerms(["이번 차량 콜라보 판매기간 3주?", "패치 질문", "이번 출시 안내"])).toEqual([]);
+    expect(extractIssueSearchTerms(["벤틀리 출시", "벤틀리 콜라보 가격", "아이브 콜라보 언제?", "포르쉐 스킨"])).toEqual(["벤틀리", "아이브"]);
+    expect(extractIssueSearchTerms(["PUBG x Bentley", "Bentley Collaboration", "콜라보 아이브"])).toEqual(["Bentley", "아이브"]);
+    expect(extractIssueSearchTerms(["https://evil.example 출시", "$(rm) 출시", `${"가".repeat(25)} 출시`, "아이브스킨"])).toEqual(["아이브"]);
+  });
   it("카페 이름이 비슷해도 실제 URL이 다르면 제외한다", () => {
     const items = parseNaverItems({ items: [
       { title: "매칭 질문", link: "https://cafe.naver.com/playbattlegrounds/123",
@@ -122,7 +129,7 @@ describe("community source boundaries", () => {
       fetchImpl,
     }));
 
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
     for (const [input, init] of fetchImpl.mock.calls) {
       const url = new URL(String(input));
       expect(url.origin).toBe("https://naverapihub.apigw.ntruss.com");
@@ -207,13 +214,118 @@ describe("community source boundaries", () => {
       env: { NAVER_SEARCH_CLIENT_ID: "id", NAVER_SEARCH_CLIENT_SECRET: "secret" },
       fetchImpl: vi.fn().mockImplementation(() => response(fixture)),
     }));
-    expect(report).toMatchObject({ state: "ok", fetchedCount: 6, retainedCount: 1 });
+    expect(report).toMatchObject({ state: "ok", fetchedCount: 8, retainedCount: 1 });
     expect(report.items[0]).toMatchObject({ externalId: "100", excerpt: "실제 요약", publishedAt: null, access: "snippet" });
   });
 
   it("통합 수집은 설정 누락 출처를 즉시 분기한다", async () => {
     const report = await collectSource("naver", deps());
     expect(report).toMatchObject({ source: "naver", state: "needs_setup" });
+  });
+
+  it("네이버는 허용 카페의 새 콜라보 주체를 발견해 최대 두 검색을 추가하고 중복을 제거한다", async () => {
+    const cafeItem = (id: number, title: string, cafe = "playbattlegrounds") => ({
+      title, link: `https://cafe.naver.com/${cafe}/${id}`, cafeurl: `https://cafe.naver.com/${cafe}`, description: "검색 요약",
+    });
+    const fetchImpl = vi.fn((input: URL | RequestInfo) => {
+      const query = new URL(String(input)).searchParams.get("query");
+      return Promise.resolve(response({ items: query === "배틀그라운드 벤틀리"
+        ? [cafeItem(5, "벤틀리 출시 일정 질문"), cafeItem(1, "벤틀리 출시")]
+        : [cafeItem(1, "벤틀리 출시"), cafeItem(2, "아이브 콜라보 언제?"), cafeItem(3, "포르쉐 스킨"),
+          cafeItem(4, "이번 차량 콜라보 판매기간 3주?"), cafeItem(6, "다른브랜드 출시", "other")] }));
+    });
+    const report = await collectNaver(deps({
+      env: { NAVER_SEARCH_CLIENT_ID: "id", NAVER_SEARCH_CLIENT_SECRET: "secret" }, fetchImpl,
+    }));
+    expect(fetchImpl.mock.calls.map(([input]) => new URL(String(input)).searchParams.get("query"))).toEqual([
+      "배틀그라운드 패치", "배틀그라운드 질문", "배틀그라운드 팁", "배틀그라운드 콜라보", "배틀그라운드 벤틀리", "배틀그라운드 아이브",
+    ]);
+    expect(report).toMatchObject({ state: "ok", retainedCount: 5 });
+    expect(new Set(report.items.map((item) => item.externalId)).size).toBe(5);
+    expect(report.items.every((item) => item.access === "snippet" && !item.official && item.publishedAt === null)).toBe(true);
+  });
+
+  it.each([500, 401])("네이버 발견 검색의 %s 오류는 기존 부분 성공·인증 실패 계약을 유지한다", async (status) => {
+    const fetchImpl = vi.fn((input: URL | RequestInfo) => Promise.resolve(
+      new URL(String(input)).searchParams.get("query") === "배틀그라운드 벤틀리"
+        ? response({}, status)
+        : response({ items: [{ title: "벤틀리 출시", link: "https://cafe.naver.com/playbattlegrounds/1",
+          cafeurl: "https://cafe.naver.com/playbattlegrounds", description: "출시 날짜 질문" }] }),
+    ));
+    const report = await collectNaver(deps({
+      env: { NAVER_SEARCH_CLIENT_ID: "id", NAVER_SEARCH_CLIENT_SECRET: "secret" }, fetchImpl,
+    }));
+    expect(report).toMatchObject(status === 401
+      ? { state: "needs_setup", retainedCount: 0, reason: "naver_search_credentials_invalid" }
+      : { state: "partial", retainedCount: 1, reason: "source_http_500" });
+    expect(fetchImpl).toHaveBeenCalledTimes(5);
+  });
+
+  it("네이버의 늘어난 검색도 저장 근거를 60개로 제한한다", async () => {
+    let request = 0;
+    const fetchImpl = vi.fn(() => {
+      const base = request++ * 20;
+      return Promise.resolve(response({ items: Array.from({ length: 20 }, (_, index) => ({
+        title: "매칭 질문", link: `https://cafe.naver.com/playbattlegrounds/${base + index}`,
+        cafeurl: "https://cafe.naver.com/playbattlegrounds", description: "검색 요약",
+      })) }));
+    });
+    const report = await collectNaver(deps({
+      env: { NAVER_SEARCH_CLIENT_ID: "id", NAVER_SEARCH_CLIENT_SECRET: "secret" }, fetchImpl,
+    }));
+    expect(report).toMatchObject({ state: "ok", fetchedCount: 80, retainedCount: 60 });
+  });
+
+  it("네이버 60개 저장 상한에서도 발견 검색으로 얻은 새 근거를 우선 보존한다", async () => {
+    let request = 0;
+    const fetchImpl = vi.fn(() => {
+      const base = request++ * 20;
+      return Promise.resolve(response({ items: Array.from({ length: 20 }, (_, index) => ({
+        title: index === 0 ? "벤틀리 출시" : "매칭 질문", link: `https://cafe.naver.com/playbattlegrounds/${base + index}`,
+        cafeurl: "https://cafe.naver.com/playbattlegrounds", description: "검색 요약",
+      })) }));
+    });
+    const report = await collectNaver(deps({
+      env: { NAVER_SEARCH_CLIENT_ID: "id", NAVER_SEARCH_CLIENT_SECRET: "secret" }, fetchImpl,
+    }));
+    expect(report).toMatchObject({ state: "ok", fetchedCount: 100, retainedCount: 60 });
+    expect(report.items.slice(0, 20).map((item) => item.externalId)).toEqual(Array.from({ length: 20 }, (_, index) => String(80 + index)));
+  });
+
+  it("주체를 추출할 수 없는 콜라보 검색도 기본 네 검색의 60개 저장 범위에 고르게 남는다", async () => {
+    let request = 0;
+    const fetchImpl = vi.fn(() => {
+      const base = request++ * 20;
+      return Promise.resolve(response({ items: Array.from({ length: 20 }, (_, index) => ({
+        title: "이번 차량 콜라보 판매기간 3주?", link: `https://cafe.naver.com/playbattlegrounds/${base + index}`,
+        cafeurl: "https://cafe.naver.com/playbattlegrounds", description: `검색 ${base / 20} 요약`,
+      })) }));
+    });
+    const report = await collectNaver(deps({
+      env: { NAVER_SEARCH_CLIENT_ID: "id", NAVER_SEARCH_CLIENT_SECRET: "secret" }, fetchImpl,
+    }));
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    expect(report).toMatchObject({ state: "ok", fetchedCount: 80, retainedCount: 60 });
+    for (const query of [0, 1, 2, 3]) {
+      expect(report.items.filter((item) => Math.floor(Number(item.externalId) / 20) === query)).toHaveLength(15);
+    }
+  });
+
+  it("디시는 기존 60개 후보와 10개 본문 한도에서 질문·출시를 우선하고 홍보를 뒤로 미룬다", async () => {
+    const titles = ["디스코드 홍보 질문", ...Array.from({ length: 10 }, (_, index) => `오늘 잡담 ${index}`),
+      "벤틀리 출시 질문", "콜라보 스킨 출시", ...Array.from({ length: 50 }, () => "오늘 잡담")];
+    const html = `<table class="gall_list">${titles.map((title, index) =>
+      `<tr class="ub-content"><td class="gall_num">${index + 1}</td><td><a href="/board/view/?id=battlegrounds&no=${index + 1}">${title}</a></td></tr>`).join("")}</table>`;
+    const fetchImpl = vi.fn((input: URL | RequestInfo) => Promise.resolve(response(
+      new URL(String(input)).pathname === "/board/lists/" ? html : '<div class="write_div">실제 본문</div>',
+    )));
+    const report = await collectDc(deps({ fetchImpl }));
+    const bodies = fetchImpl.mock.calls.map(([input]) => new URL(String(input))).filter((url) => url.pathname === "/board/view/");
+    expect(bodies).toHaveLength(10);
+    expect(bodies.slice(0, 2).map((url) => url.searchParams.get("no"))).toEqual(["12", "13"]);
+    expect(bodies.slice(2).map((url) => url.searchParams.get("no"))).toEqual(["2", "3", "4", "5", "6", "7", "8", "9"]);
+    expect(bodies.some((url) => url.searchParams.get("no") === "1")).toBe(false);
+    expect(report).toMatchObject({ state: "ok", fetchedCount: 60, retainedCount: 10 });
   });
 
   it("중단 신호를 무시하는 fetch도 출처별 40초 deadline에서 종료한다", async () => {

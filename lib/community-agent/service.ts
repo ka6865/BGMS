@@ -2,6 +2,7 @@ import { categoryFor } from "./policy";
 import { collectSource } from "./sources";
 import {
   CommunityAgentModelError,
+  balanceSelectionEvidence,
   createGeminiJsonModel,
   selectTopic,
   verifyDraft,
@@ -12,7 +13,7 @@ import {
 import { checkDraft, renderDraft } from "./validate";
 import type { CommunityStore } from "./store";
 import type { Actor } from "./auth";
-import type { CollectSource, Evidence, PublishResult, RunSnapshot, Stage } from "./types";
+import type { CollectSource, Evidence, PublishResult, RunSnapshot, SelectionDiagnostics, Stage } from "./types";
 
 export type RunAction =
   | { action: "start"; dryRun: boolean }
@@ -75,14 +76,26 @@ async function executeCollect(
 }
 
 async function executeSelect(run: RunSnapshot, lease: string, store: CommunityStore): Promise<RunSnapshot> {
-  const official = await store.loadOfficialEvidence();
-  const officialIds = await store.saveEvidence(official);
+  const collected = await store.loadEvidence(evidenceIds(run));
   const rejectedIds = new Set(await store.rejectedEvidenceIds());
-  const items = usableEvidence(await store.loadEvidence([...new Set([...evidenceIds(run), ...officialIds])]))
+  const seedItems = usableEvidence(collected).filter(item => !rejectedIds.has(item.id));
+  const official = seedItems.length > 0 ? await store.loadOfficialEvidence(seedItems) : [];
+  const officialIds = await store.saveEvidence(official);
+  const supplemental = officialIds.length > 0 ? await store.loadEvidence(officialIds) : [];
+  const stored = [...new Map([...collected, ...supplemental].map(item => [item.id, item])).values()];
+  const usable = usableEvidence(stored);
+  const items = usable
     .filter(item => !rejectedIds.has(item.id));
+  const selection: SelectionDiagnostics = {
+    storedCount: stored.length, usableCount: items.length,
+    inputCount: balanceSelectionEvidence(items).length,
+    emptyCount: stored.length - usable.length, rejectedCount: usable.length - items.length,
+    supplementalCount: supplemental.length, detail: null, candidates: [],
+  };
   if (items.length === 0) {
     return store.finishStage(run.id, "select", lease, {
       terminal: { status: "deferred", reason: "no_usable_evidence" },
+      selection,
     });
   }
   let usage: GeminiJsonUsage | null = null;
@@ -93,16 +106,19 @@ async function executeSelect(run: RunSnapshot, lease: string, store: CommunitySt
   });
   try {
     let reason: TopicDeferReason = "no_publishable_topic";
-    const topic = await selectTopic(items, await store.recentPosts(7), model, new Date(), (value) => { reason = value; });
+    const topic = await selectTopic(items, await store.recentPosts(7), model, new Date(),
+      (value) => { reason = value; },
+      (value) => { selection.detail = value.detail; selection.candidates = value.candidates; });
     if (!topic) {
       return store.finishStage(run.id, "select", lease, {
         terminal: { status: "deferred", reason },
+        selection,
         ...usagePayload(usage),
       });
     }
-    return store.finishStage(run.id, "select", lease, { topic, ...usagePayload(usage) });
+    return store.finishStage(run.id, "select", lease, { topic, selection, ...usagePayload(usage) });
   } catch (error) {
-    return store.finishStage(run.id, "select", lease, terminal(error, "topic_selection_failed", usage));
+    return store.finishStage(run.id, "select", lease, { ...terminal(error, "topic_selection_failed", usage), selection });
   }
 }
 
