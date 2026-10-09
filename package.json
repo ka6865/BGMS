@@ -76,7 +76,7 @@
     "react-leaflet": "^5.0.0",
     "react-quill-new": "^3.8.3",
     "recharts": "^3.10.1",
-    "sharp": "^0.35.4",
+    "sharp": "^0.35.5",
     "sonner": "^2.0.7",
     "three": "^0.184.0",
     "tweetnacl": "^1.0.3",
