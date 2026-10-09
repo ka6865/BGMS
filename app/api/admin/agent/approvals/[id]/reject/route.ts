@@ -39,7 +39,7 @@ export async function POST(request: Request, context: RouteContext) {
     reason: reason || "사유 미입력"
   };
 
-  const { error } = await supabase
+  const { data: rejected, error } = await supabase
     .from("agent_approvals")
     .update({
       status: "rejected",
@@ -47,8 +47,12 @@ export async function POST(request: Request, context: RouteContext) {
       decided_at: result.rejectedAt,
       result: JSON.stringify(redactForAgentLog(result))
     })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("status", "pending")
+    .select("id")
+    .maybeSingle();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!rejected) return NextResponse.json({ error: "이미 처리된 승인 요청입니다." }, { status: 409 });
   return NextResponse.json({ success: true, result });
 }

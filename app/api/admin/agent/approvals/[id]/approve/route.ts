@@ -36,6 +36,8 @@ export async function POST(request: Request, context: RouteContext) {
     return NextResponse.json({ error: "이미 처리된 승인 요청입니다." }, { status: 409 });
   }
 
+  let claimed = false;
+  let actionCompleted = false;
   try {
     const body = await request.json().catch(() => ({}));
     const approvalNote = String(body.approvalNote || "").trim();
@@ -58,16 +60,24 @@ export async function POST(request: Request, context: RouteContext) {
       }, { status: 400 });
     }
 
-    await supabase
+    const { data: claimedApproval, error: claimError } = await supabase
       .from("agent_approvals")
       .update({
         status: "approved",
         approved_by: user.id,
         decided_at: new Date().toISOString()
       })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("status", "pending")
+      .select("id")
+      .maybeSingle();
+
+    if (claimError) return NextResponse.json({ error: claimError.message }, { status: 500 });
+    if (!claimedApproval) return NextResponse.json({ error: "이미 처리된 승인 요청입니다." }, { status: 409 });
+    claimed = true;
 
     const executionResult = await executeApprovedAction(approval.action_type, approval.payload, supabase, user.id);
+    actionCompleted = true;
     const execution = safeJsonParse(executionResult);
     const postExecution = buildApprovalPostExecution({
       actionType: approval.action_type,
@@ -88,25 +98,52 @@ export async function POST(request: Request, context: RouteContext) {
       postExecution
     }));
 
-    await supabase
+    const { data: executedApproval, error: executionWriteError } = await supabase
       .from("agent_approvals")
       .update({
         status: "executed",
         result,
         executed_at: new Date().toISOString()
       })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("status", "approved")
+      .eq("approved_by", user.id)
+      .select("id")
+      .maybeSingle();
+
+    if (executionWriteError || !executedApproval) {
+      throw new Error(executionWriteError?.message || "승인 상태가 변경되어 실행 결과를 저장할 수 없습니다.");
+    }
 
     return NextResponse.json({ success: true, result: safeJsonParse(result) });
   } catch (err: any) {
-    await supabase
-      .from("agent_approvals")
-      .update({
-        status: "failed",
-        error: redactForAgentLog(err.message || String(err)),
-        executed_at: new Date().toISOString()
-      })
-      .eq("id", id);
+    if (actionCompleted) {
+      return NextResponse.json({
+        error: "작업은 실행되었지만 결과 기록에 실패했습니다. 다시 실행하지 말고 실제 결과와 승인 상태를 확인하세요."
+      }, { status: 500 });
+    }
+
+    if (claimed) {
+      try {
+        const { data: failedApproval, error: failureWriteError } = await supabase
+          .from("agent_approvals")
+          .update({
+            status: "failed",
+            error: redactForAgentLog(err.message || String(err)),
+            executed_at: new Date().toISOString()
+          })
+          .eq("id", id)
+          .eq("status", "approved")
+          .eq("approved_by", user.id)
+          .select("id")
+          .maybeSingle();
+        if (failureWriteError || !failedApproval) throw new Error("failure-write-failed");
+      } catch {
+        return NextResponse.json({
+          error: "승인 작업 실행과 실패 상태 기록에 오류가 발생했습니다. 실제 결과와 승인 상태를 확인하세요."
+        }, { status: 500 });
+      }
+    }
 
     return NextResponse.json({ error: err.message || "승인 작업 실행 실패" }, { status: 500 });
   }

@@ -3712,7 +3712,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
         },
         error: null
       },
-      updateResult: { data: null, error: null }
+      updateResult: { data: { id: "approval-content" }, error: null }
     });
     mockAdminAuth();
 
@@ -3769,7 +3769,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
         },
         error: null
       },
-      updateResult: { data: null, error: null }
+      updateResult: { data: { id: "approval-report" }, error: null }
     });
     mockAdminAuth();
 
@@ -3877,7 +3877,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
         },
         error: null
       },
-      updateResult: { data: null, error: null }
+      updateResult: { data: { id: "approval-reject" }, error: null }
     });
     mockAdminAuth();
 
@@ -3899,6 +3899,158 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
       result: expect.stringContaining("중복 요청")
     }));
   });
+
+  it("같은 승인에 두 요청이 겹쳐도 작업은 한 번만 실행한다", async () => {
+    const state = mockApprovalState();
+    mockAdminAuth();
+
+    const responses = await Promise.all([approveRequest(), approveRequest()]);
+
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    expect(tables.agent_memories.insert).toHaveBeenCalledTimes(1);
+    expect(state.row.status).toBe("executed");
+  });
+
+  it.each(["approve", "reject"])("%s 상태 저장 오류이면 작업을 실행하지 않는다", async (decision) => {
+    const state = mockApprovalState({ updateError: decision === "approve" ? "approved" : "rejected" });
+    mockAdminAuth();
+
+    const response = await (decision === "approve" ? approveRequest() : rejectRequest());
+
+    expect(response.status).toBe(500);
+    expect(tables.agent_memories.insert).not.toHaveBeenCalled();
+    expect(state.row.status).toBe("pending");
+    expect(state.updates.map((update) => update.status)).not.toContain("failed");
+  });
+
+  it.each(["approve", "reject"])("%s가 먼저 처리된 승인·거절 경쟁에서는 한 요청만 성공한다", async (first) => {
+    const state = mockApprovalState({ firstDecision: first === "approve" ? "approved" : "rejected" });
+    mockAdminAuth();
+
+    const responses = await Promise.all(first === "approve"
+      ? [approveRequest(), rejectRequest()]
+      : [rejectRequest(), approveRequest()]);
+
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    const approved = state.row.status === "executed";
+    expect(tables.agent_memories.insert).toHaveBeenCalledTimes(approved ? 1 : 0);
+    expect(state.row.status).toBe(first === "approve" ? "executed" : "rejected");
+    expect(state.updates.map((update) => update.status)).not.toContain("failed");
+  });
+
+  it("승인 전 impact 조회 실패는 다른 요청의 상태를 덮어쓰지 않는다", async () => {
+    const state = mockApprovalState();
+    state.row.action_type = "flush_old_cache";
+    tables.processed_match_telemetry = chain({});
+    tables.processed_match_telemetry.select.mockImplementationOnce(() => {
+      throw new Error("impact 조회 실패");
+    });
+    mockAdminAuth();
+
+    const response = await approveRequest();
+
+    expect(response.status).toBe(500);
+    expect(state.row.status).toBe("pending");
+    expect(state.updates).toHaveLength(0);
+  });
+
+  it("작업 실행 실패만 승인 상태에서 failed로 기록한다", async () => {
+    const state = mockApprovalState();
+    tables.agent_memories = chain({ insertSingle: { data: null, error: { message: "작업 실패" } } });
+    mockAdminAuth();
+
+    const response = await approveRequest();
+
+    expect(response.status).toBe(500);
+    expect(state.row.status).toBe("failed");
+    expect(state.updates.find((update) => update.status === "failed")?.filters)
+      .toEqual(expect.objectContaining({ status: "approved", approved_by: "admin-id" }));
+  });
+
+  it.each(["error", "missing"])("실행 후 결과 기록이 %s이면 성공이나 작업 실패로 표시하지 않는다", async (failure) => {
+    const state = mockApprovalState(failure === "error"
+      ? { updateError: "executed" }
+      : { missingUpdate: "executed" });
+    mockAdminAuth();
+
+    const response = await approveRequest();
+    const body = await response.json();
+    const retry = await approveRequest();
+
+    expect(response.status).toBe(500);
+    expect(body.error).toContain("다시 실행하지");
+    expect(retry.status).toBe(409);
+    expect(tables.agent_memories.insert).toHaveBeenCalledTimes(1);
+    expect(state.row.status).toBe("approved");
+    expect(state.updates.map((update) => update.status)).not.toContain("failed");
+  });
+
+  it("작업 실패 기록도 저장하지 못하면 수동 확인이 필요함을 알린다", async () => {
+    const state = mockApprovalState({ updateError: "failed" });
+    tables.agent_memories = chain({ insertSingle: { data: null, error: { message: "작업 실패" } } });
+    mockAdminAuth();
+
+    const response = await approveRequest();
+
+    expect(response.status).toBe(500);
+    expect((await response.json()).error).toContain("상태 기록");
+    expect(state.row.status).toBe("approved");
+  });
+
+  function approveRequest() {
+    return approvalApprovePOST(new Request("http://localhost/api/admin/agent/approvals/approval-race/approve", {
+      method: "POST", body: JSON.stringify({ confirmedImpact: true }),
+    }), { params: Promise.resolve({ id: "approval-race" }) });
+  }
+
+  function rejectRequest() {
+    return approvalRejectPOST(new Request("http://localhost/api/admin/agent/approvals/approval-race/reject", {
+      method: "POST", body: JSON.stringify({ reason: "경쟁 요청" }),
+    }), { params: Promise.resolve({ id: "approval-race" }) });
+  }
+
+  // 조회는 복사본을 주고 갱신 시 현재 필터를 다시 확인해 DB의 조건부 갱신을 재현한다.
+  function mockApprovalState(options: { updateError?: string; missingUpdate?: string; firstDecision?: string } = {}) {
+    const row: Record<string, any> = {
+      id: "approval-race", status: "pending", action_type: "save_agent_report",
+      payload: { category: "report", title: "리포트", body: "본문" },
+    };
+    const updates: Array<{ status: string; filters: Record<string, unknown> }> = [];
+    let releaseDecision!: () => void;
+    const firstDecision = new Promise<void>((resolve) => { releaseDecision = resolve; });
+    mockSupabaseAdmin.from.mockImplementation((table: string) => {
+      if (table !== "agent_approvals") return tables[table] || chain({});
+      const filters: Record<string, unknown> = {};
+      let patch: Record<string, any> | undefined;
+      const run = () => {
+        if (!patch) return { data: { ...row }, error: null };
+        updates.push({ status: patch.status, filters: { ...filters } });
+        if (options.updateError === patch.status) return { data: null, error: { message: "상태 저장 실패" } };
+        if (options.missingUpdate === patch.status || Object.entries(filters).some(([key, value]) => row[key] !== value)) {
+          return { data: null, error: null };
+        }
+        Object.assign(row, patch);
+        return { data: { id: row.id }, error: null };
+      };
+      const decide = async () => {
+        if (options.firstDecision && patch && ["approved", "rejected"].includes(patch.status)) {
+          if (patch.status !== options.firstDecision) await firstDecision;
+          else releaseDecision();
+        }
+        return run();
+      };
+      const query: any = {
+        select: () => query,
+        eq: (key: string, value: unknown) => { filters[key] = value; return query; },
+        update: (value: Record<string, any>) => { patch = value; return query; },
+        single: async () => run(),
+        maybeSingle: decide,
+        then: (resolve: (value: unknown) => unknown) => decide().then(resolve),
+      };
+      return query;
+    });
+    return { row, updates };
+  }
 
   function mockAdminAuth() {
     (withAuthGuard as any).mockResolvedValue({
@@ -3943,9 +4095,16 @@ function chain(options: {
     count: options.count ?? options.data?.length ?? 0
   });
 
-  query.update.mockImplementation(() => ({
-    eq: vi.fn(() => Promise.resolve(options.updateResult || { data: null, error: options.error || null }))
-  }));
+  query.update.mockImplementation(() => {
+    const result = options.updateResult || { data: null, error: options.error || null };
+    const updateQuery: any = {
+      eq: vi.fn(() => updateQuery),
+      select: vi.fn(() => updateQuery),
+      maybeSingle: vi.fn(async () => result),
+      then: (resolve: any) => resolve(result),
+    };
+    return updateQuery;
+  });
 
   return query;
 }

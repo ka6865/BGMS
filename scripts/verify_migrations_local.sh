@@ -25,6 +25,7 @@ MIGRATIONS=(
   "20260730203000_tighten_service_data_write_policies"
   "20260730204500_discord_room_rate_limit"
   "20260730210000_pubg_response_cache"
+  "20260804000000_optimize_player_cache_compaction"
   "20260819115023_profile_linked_pubg_auto_sync"
   "20260901141209_pubg_analysis_population_provenance"
   "20260902171741_telemetry_cache_recovery_claim"
@@ -49,6 +50,7 @@ MIGRATIONS=(
   "20261003200721_unique_scoped_pubg_discovery_rpc"
   "20261004050604_pubg_scoped_collection_short_lease"
   "20261004050621_mobile_board_like_atomic"
+  "20261009182823_restore_player_cache_compaction_contract"
 )
 
 cleanup() {
@@ -113,6 +115,7 @@ for migration in "${MIGRATIONS[@]}"; do
 done
 
 echo "▶ RPC 동작 시나리오 실행"
+"${PSQL[@]}" -f tests/fixtures/migration-check/player-cache-compaction-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/encounter-page-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/match-discovery-scenarios.sql
