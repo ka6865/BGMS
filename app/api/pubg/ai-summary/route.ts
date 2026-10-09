@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
-import { AI_SUMMARY_CACHE_VERSION, ANALYSIS_CALCULATION_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
+import { AI_SUMMARY_CACHE_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
 import { estimateUserTier } from "@/lib/pubg-analysis/benchmarkScore";
 import { classifyRole } from "@/lib/pubg-analysis/roleClassifier";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
@@ -10,7 +10,7 @@ import {
   type ObservedBenchmark,
 } from "@/lib/pubg-analysis/benchmarkAdapter";
 import { BENCHMARK_FILTER_VERSION, fetchTierBenchmarkStats } from "@/lib/pubg-analysis/benchmarkLookup";
-import { hasCurrentCalculation, getValidFullResultForMatch, isFullResultForPlayerPlatform, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
+import { hasSupportedCalculation, getValidFullResultForMatch, isFullResultForPlayerPlatform, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { buildBackupCoachingContext } from "@/lib/pubg-analysis/backupCoaching";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
@@ -118,7 +118,7 @@ function hasCurrentResultVersion(fullResult: any): boolean {
   return typeof fullResult?.v === "number"
     && Number.isFinite(fullResult.v)
     && fullResult.v === RESULT_VERSION
-    && hasCurrentCalculation(fullResult);
+    && hasSupportedCalculation(fullResult);
 }
 
 type SummaryDependencyFailure = "unavailable" | "timeout";
@@ -1081,7 +1081,7 @@ export async function POST(request: Request) {
           if (!pureId) return;
           if (!hasCurrentResultVersion(fullResult)) {
             staleMatchDetected = true;
-            if (fullResult.v === RESULT_VERSION && !hasCurrentCalculation(fullResult)) { calculationUpgradePending = true; calculationPendingIds.add(pureId); }
+            if (fullResult.v === RESULT_VERSION && !hasSupportedCalculation(fullResult)) { calculationUpgradePending = true; calculationPendingIds.add(pureId); }
             console.warn(`[AI-SUMMARY] Ignored stale processed full result for ${pureId}`);
             return;
           }
@@ -1355,7 +1355,7 @@ export async function POST(request: Request) {
           }
           if (!hasCurrentResultVersion(normalizedData)) {
             staleMatchDetected = true;
-            if (validatedFallback?.v === RESULT_VERSION && !hasCurrentCalculation(normalizedData)) {
+            if (validatedFallback?.v === RESULT_VERSION && !hasSupportedCalculation(normalizedData)) {
               calculationUpgradePending = true;
               calculationPendingIds.add(requestedCanonicalId);
             }
@@ -2186,7 +2186,7 @@ export async function POST(request: Request) {
     } : null;
 
     const precomputedVisuals = {
-      calculationVersion: ANALYSIS_CALCULATION_VERSION,
+      calculationVersions: [...new Set(selectedMatches.map(match => match.calculationVersion))].sort(),
       calculationPendingCount: calculationPendingIds.size,
       latestMatchTime, latestMatchCount: selectedMatches.length, bestMatchCount: bestMatches.length,
       counterLatency: avgBackupLatency, reactionLatency: avgReactionLatency,

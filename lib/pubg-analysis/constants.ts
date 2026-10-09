@@ -13,6 +13,11 @@
  */
 
 export const ANALYSIS_CALCULATION_VERSION = 3; // 미측정 고립을 승리 기여 근거로 사용하지 않는다.
+// 계산 2→3은 캐리 보정만 변경하므로 기본 점수와 비교 지표는 함께 조회한다.
+export const SUPPORTED_ANALYSIS_CALCULATION_VERSIONS = [2, ANALYSIS_CALCULATION_VERSION] as const;
+export function isSupportedAnalysisCalculationVersion(value: unknown): value is number {
+  return SUPPORTED_ANALYSIS_CALCULATION_VERSIONS.some(version => value === version);
+}
 export const RESULT_VERSION = 73.0; // [V73.0] PUBG AI 분석 정확도 감사 기준 결과 버전
 export const TELEMETRY_VERSION = 62.0; // [V62.0] Full projection analysis and corrected coordinate/lifecycle replay cache
 export const AI_CACHE_VERSION = "2026-09-07.coaching-judgment-v4"; // Preserve population identity; reject prose from the former blame-replacement policy

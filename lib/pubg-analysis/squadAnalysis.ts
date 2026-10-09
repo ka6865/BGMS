@@ -7,7 +7,7 @@ import {
   SquadCauseScene,
   SquadCauseSceneMatchInput
 } from "@/lib/pubg-analysis/squadCauseScenes";
-import { hasCurrentCalculation, getValidFullResultForMatch, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
+import { hasSupportedCalculation, getValidFullResultForMatch, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { evaluateMatchEligibility } from "@/lib/pubg-analysis/matchEligibility";
 import {
@@ -64,7 +64,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       return [{
         ...m,
         __sourceIndex: sourceIndex,
-        __calculationPending: !hasCurrentCalculation(fullResult),
+        __calculationPending: !hasSupportedCalculation(fullResult),
         __eligibility: eligibility,
         data: {
           ...(m.data || {}),
@@ -345,6 +345,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     const winPlace = stats.winPlace || 0;
     return {
       matchId: m.match_id,
+      calculationVersion: fullResult.calculationVersion,
       mapName,
       mapDisplayName: MAP_DISPLAY_NAMES[mapName] || mapName,
       winPlace,
@@ -357,6 +358,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     const mapName = fullResult.mapName || "Unknown";
     return {
       matchId: m.match_id,
+      calculationVersion: fullResult.calculationVersion,
       mapName,
       mapDisplayName: MAP_DISPLAY_NAMES[mapName] || mapName,
       winPlace: fullResult.stats?.winPlace || 0,

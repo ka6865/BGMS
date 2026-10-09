@@ -868,7 +868,7 @@ describe("PUBG match persistence behavior", () => {
     expect(mockPersistMatchAnalysis).toHaveBeenCalledTimes(1);
   });
 
-  it.each([undefined,1,2,ANALYSIS_CALCULATION_VERSION + 1])('serves only official basic records for outdated arithmetic %s without upstream work',async calculationVersion=>{
+  it.each([undefined,1,ANALYSIS_CALCULATION_VERSION + 1])('serves only official basic records for outdated arithmetic %s without upstream work',async calculationVersion=>{
     mockProcessedTelemetryMaybeSingle.mockResolvedValueOnce({data:{match_id:MATCH_ID,player_id:NICKNAME.toLowerCase(),platform:'steam',data:{fullResult:{...analysisResult,v:RESULT_VERSION,calculationVersion,populationEvidenceVersion:POPULATION_EVIDENCE_VERSION,matchId:MATCH_ID,player_id:NICKNAME.toLowerCase(),platform:'steam'}}},error:null});
     const response=await GET(createMatchRequest());
     expect(response.status).toBe(200);
@@ -878,7 +878,7 @@ describe("PUBG match persistence behavior", () => {
     expect(fetch).not.toHaveBeenCalled();expect(mockAnalysisEngine).not.toHaveBeenCalled();expect(mockPersistMatchAnalysis).not.toHaveBeenCalled();
   });
 
-  it("marked current v73 processed row is reused without needless reanalysis", async () => {
+  it.each([2, 3])("marked v73 calculation %s is reused without writes or reanalysis", async (calculationVersion) => {
     mockProcessedTelemetryMaybeSingle.mockResolvedValueOnce({
       data: {
         match_id: MATCH_ID,
@@ -887,7 +887,7 @@ describe("PUBG match persistence behavior", () => {
         data: {
           fullResult: {
             ...analysisResult,
-            v: RESULT_VERSION, calculationVersion: ANALYSIS_CALCULATION_VERSION,
+            v: RESULT_VERSION, calculationVersion,
             populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
             matchId: MATCH_ID,
             player_id: NICKNAME.toLowerCase(),

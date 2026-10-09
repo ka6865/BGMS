@@ -20,7 +20,7 @@ import {
 import {
   buildProcessedTelemetryUpsert,
   getValidFullResultForMatch,
-  hasCurrentCalculation,
+  hasSupportedCalculation,
   sanitizeCalculationBenchmark,
   normalizePlatform,
 } from "@/lib/pubg-analysis/cacheIdentity";
@@ -1031,7 +1031,7 @@ async function reportBackgroundReanalysisFailure(): Promise<void> {
 }
 
 function createTacticalResponse(result: any) {
-  const tacticalResult = { ...(result?.v === RESULT_VERSION && hasCurrentCalculation(result) ? sanitizeCalculationBenchmark(result) : result) };
+  const tacticalResult = { ...(result?.v === RESULT_VERSION && hasSupportedCalculation(result) ? sanitizeCalculationBenchmark(result) : result) };
   delete tacticalResult.mapData;
   return pseudonymizeTelemetryAccountIds(tacticalResult);
 }
@@ -1387,7 +1387,7 @@ export async function GET(request: NextRequest) {
         && typeof cachedFullResult.v === "number"
         && Number.isFinite(cachedFullResult.v)
         && cachedFullResult.v === RESULT_VERSION) {
-        if (!hasCurrentCalculation(cachedFullResult)) {
+        if (!hasSupportedCalculation(cachedFullResult)) {
           if (hasPopulationEvidence(cachedFullResult)) {
             return NextResponse.json(pseudonymizeTelemetryAccountIds(buildCalculationPendingMatch({ ...cachedFullResult, matchId })));
           }
@@ -1943,7 +1943,7 @@ async function reanalyzeAndSave(
       && Number.isFinite(cachedFullResult.v)
       && cachedFullResult.v === RESULT_VERSION
       && hasPopulationEvidence(cachedFullResult)
-      && hasCurrentCalculation(cachedFullResult)) {
+      && hasSupportedCalculation(cachedFullResult)) {
       const sampleParticipants = participants
         .filter((p: any) => !p.attributes.stats.playerId?.startsWith("ai."))
         .map((p: any) => p.attributes.stats.name)

@@ -1,6 +1,6 @@
 import { normalizeName } from "./utils";
 import { normalizeBenchmarkScore, normalizeMatchId } from "./recentMatchSelection";
-import { ANALYSIS_CALCULATION_VERSION, POPULATION_EVIDENCE_VERSION } from "./constants";
+import { ANALYSIS_CALCULATION_VERSION, POPULATION_EVIDENCE_VERSION, isSupportedAnalysisCalculationVersion } from "./constants";
 
 export type CanonicalMatchLookup = {
   matchId: string;
@@ -14,6 +14,7 @@ export type CanonicalMatchLookup = {
   /** AI prompt callers require finite, non-negative canonical base stats. */
   requirePromptSafeStats?: boolean;
   requireCurrentCalculation?: boolean;
+  requireSupportedCalculation?: boolean;
 };
 
 type PlainRecord = Record<string, unknown>;
@@ -94,6 +95,7 @@ export function getValidFullResultForMatch(
   if (!isFullResultForPlayerPlatform(fullResult, expectedPlayerId, expectedPlatform)) return null;
 
   if (expected.requireCurrentCalculation && !hasCurrentCalculation(fullResult)) return null;
+  if (expected.requireSupportedCalculation && !hasSupportedCalculation(fullResult)) return null;
 
   const version = fullResult.v;
   if (typeof version !== "number" || !Number.isFinite(version) || version < minResultVersion) return null;
@@ -104,13 +106,13 @@ export function getValidFullResultForMatch(
     return null;
   }
 
-  return expected.requireCurrentCalculation ? sanitizeCalculationBenchmark(fullResult) : fullResult;
+  return expected.requireCurrentCalculation || expected.requireSupportedCalculation ? sanitizeCalculationBenchmark(fullResult) : fullResult;
 }
 
-/** Comparison evidence must use the same arithmetic as the current analysis. */
+/** 계산 2·3의 비교 지표 산식은 같다. 미확인 버전은 비교 근거에서 제외한다. */
 export function sanitizeCalculationBenchmark<T extends PlainRecord>(result: T): T {
   if (!isRecord(result.eliteBenchmark)
-      || result.eliteBenchmark.calculationVersion === ANALYSIS_CALCULATION_VERSION) return result;
+      || (hasSupportedCalculation(result) && isSupportedAnalysisCalculationVersion(result.eliteBenchmark.calculationVersion))) return result;
   return { ...result, eliteBenchmark: null,
     teamImpact: isRecord(result.teamImpact)
       ? { ...result.teamImpact, damageImpact: null, killImpact: null } : result.teamImpact,
@@ -120,6 +122,10 @@ export function sanitizeCalculationBenchmark<T extends PlainRecord>(result: T): 
 
 export function hasCurrentCalculation(result: unknown): boolean {
   return isRecord(result) && result.calculationVersion === ANALYSIS_CALCULATION_VERSION;
+}
+
+export function hasSupportedCalculation(result: unknown): boolean {
+  return isRecord(result) && isSupportedAnalysisCalculationVersion(result.calculationVersion);
 }
 
 export function normalizePlatform(platform?: string | null): string {

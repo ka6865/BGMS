@@ -65,6 +65,7 @@ MIGRATIONS=(
   "20261008213709_legacy_team_retention_failure_reasons"
   "20261009022508_participant_match_retention_scope"
   "20261009182823_restore_player_cache_compaction_contract"
+  "20261009213020_analysis_calculation_coexistence"
   "20261010000000_analysis_calculation_v3"
 )
 
@@ -245,6 +246,7 @@ PY
 fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/player-cache-compaction-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-performance-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/calculation-coexistence-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retained-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/encounter-page-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/match-discovery-scenarios.sql

@@ -1,4 +1,4 @@
-import { ANALYSIS_CALCULATION_VERSION } from "./constants";
+import { SUPPORTED_ANALYSIS_CALCULATION_VERSIONS, isSupportedAnalysisCalculationVersion } from "./constants";
 import { getBaseTier } from "./benchmarkScore";
 
 /**
@@ -29,7 +29,7 @@ export function isTrustedBenchmarkPopulation(row: unknown): boolean {
 /** Analysis consumers additionally require matching arithmetic provenance. */
 export function isTrustedBenchmarkAggregate(row: unknown): boolean {
   return isTrustedBenchmarkPopulation(row)
-    && (row as Record<string, unknown>).calculation_version === ANALYSIS_CALCULATION_VERSION;
+    && isSupportedAnalysisCalculationVersion((row as Record<string, unknown>).calculation_version);
 }
 
 const TIER_GROUPS: Record<string, string[]> = {
@@ -287,55 +287,36 @@ export async function fetchTierBenchmarkStats(
   if (signal?.aborted) return null;
   if (!isCanonicalBenchmarkTier(exactTier)) return null;
 
-  let exactQuery = supabase
-    .from("benchmark_stats_by_tier_v2")
-    .select("*")
-    .eq("calculation_version", ANALYSIS_CALCULATION_VERSION)
-    .eq("game_mode", gameMode)
-    .eq("match_type", matchType)
-    .eq("tier", exactTier);
-  if (signal) exactQuery = exactQuery.abortSignal(signal);
-  const { data: exact, error: exactError } = await exactQuery.maybeSingle();
-
-  if (exactError) {
+  const exactRows: any[] = [];
+  for (const calculation of SUPPORTED_ANALYSIS_CALCULATION_VERSIONS) {
+    let query: any = supabase.from("benchmark_stats_by_tier_v2").select("*")
+      .eq("calculation_version", calculation).eq("game_mode", gameMode)
+      .eq("match_type", matchType).eq("tier", exactTier);
+    if (signal) query = query.abortSignal(signal);
+    const { data: exact, error } = await query.maybeSingle();
     if (signal?.aborted) return null;
-    throw exactError;
+    if (error) throw error;
+    if (exact?.tier === exactTier && exact.calculation_version === calculation
+      && isTrustedBenchmarkAggregate(exact)) exactRows.push(exact);
   }
-  // A fine-tier row with too few samples is not an observed benchmark. Keep
-  // looking for the existing same-base-tier aggregate before giving up.
-  if (
-    exact
-    && isCanonicalBenchmarkTier(exact.tier)
-    && exact.tier === exactTier
-    && isTrustedBenchmarkAggregate(exact)
-    && getMatchCount(exact) >= MIN_BENCHMARK_SAMPLE_COUNT
-  ) return exact;
-  if (signal?.aborted) return null;
+  // 두 버전의 기본 지표는 동일하며 표본 수로 합친다. 저장된 점수는 바꾸지 않는다.
+  const exact = exactRows.length === 1 ? exactRows[0] : aggregateTierBenchmarkRows(exactRows, exactTier);
+  if (exact && getMatchCount(exact) >= MIN_BENCHMARK_SAMPLE_COUNT) return { ...exact, tier: exactTier };
 
-  let groupedQuery = supabase
-    .from("benchmark_stats_by_tier_v2")
-    .select("*")
-    .eq("calculation_version", ANALYSIS_CALCULATION_VERSION)
-    .eq("game_mode", gameMode)
-    .eq("match_type", matchType)
-    .in("tier", getBenchmarkTierFamily(exactTier));
-  if (signal) groupedQuery = groupedQuery.abortSignal(signal);
-  const { data: grouped, error: groupError } = await groupedQuery.limit(10);
-
-  if (groupError) {
-    if (signal?.aborted) return null;
-    throw groupError;
-  }
-  if (!Array.isArray(grouped) || grouped.length === 0) return null;
   const family = new Set(getBenchmarkTierFamily(exactTier));
-  const trustedGrouped = grouped.filter((row) => (
-    isCanonicalBenchmarkTier(row?.tier)
-    && family.has(row.tier)
-    && isTrustedBenchmarkAggregate(row)
-  ));
-  if (trustedGrouped.length === 0) return null;
+  const trustedGrouped: any[] = [];
+  for (const calculation of SUPPORTED_ANALYSIS_CALCULATION_VERSIONS) {
+    let query: any = supabase.from("benchmark_stats_by_tier_v2").select("*")
+      .eq("calculation_version", calculation).eq("game_mode", gameMode)
+      .eq("match_type", matchType).in("tier", [...family]);
+    if (signal) query = query.abortSignal(signal);
+    const { data: grouped, error } = await query.limit(10);
+    if (signal?.aborted) return null;
+    if (error) throw error;
+    if (Array.isArray(grouped)) trustedGrouped.push(...grouped.filter(row => (
+      row?.calculation_version === calculation && family.has(row.tier) && isTrustedBenchmarkAggregate(row)
+    )));
+  }
   const aggregated = aggregateTierBenchmarkRows(trustedGrouped, exactTier);
-  return aggregated && getMatchCount(aggregated) >= MIN_BENCHMARK_SAMPLE_COUNT
-    ? aggregated
-    : null;
+  return aggregated && getMatchCount(aggregated) >= MIN_BENCHMARK_SAMPLE_COUNT ? aggregated : null;
 }

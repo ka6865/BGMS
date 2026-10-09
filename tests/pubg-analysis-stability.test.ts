@@ -229,7 +229,7 @@ describe("PUBG benchmark and tier stabilization", () => {
       matchType: "official",
       tier: "A",
     })).resolves.toBeNull();
-    expect(query.limit).toHaveBeenCalledTimes(1);
+    expect(query.limit).toHaveBeenCalledTimes(2);
   });
 
   it("canonical tier family rejects malformed prefixes instead of coercing them to a base tier", () => {
@@ -369,7 +369,7 @@ describe("PUBG benchmark and tier stabilization", () => {
     })).resolves.toMatchObject({ filter_version: 8, population_evidence_version: 1 });
   });
 
-  it.each([undefined,null,1,2,ANALYSIS_CALCULATION_VERSION + 1,String(ANALYSIS_CALCULATION_VERSION)])('does not compare mismatched arithmetic %s even if a DB filter is ignored',async calculation_version=>{
+  it.each([undefined,null,1,ANALYSIS_CALCULATION_VERSION + 1,String(ANALYSIS_CALCULATION_VERSION)])('does not compare mismatched arithmetic %s even if a DB filter is ignored',async calculation_version=>{
     const row={filter_version:8,population_evidence_version:1,calculation_version,tier:'A',match_count:10,avg_damage:300};
     const query:any={select:vi.fn().mockReturnThis(),eq:vi.fn().mockReturnThis(),in:vi.fn().mockReturnThis(),
       maybeSingle:vi.fn().mockResolvedValue({data:row,error:null}),limit:vi.fn().mockResolvedValue({data:[row],error:null})};

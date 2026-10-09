@@ -535,13 +535,13 @@ describe("AI cache route stabilization", () => {
     expect(mockGenerateContent).not.toHaveBeenCalled();
   });
 
-  it("ai-analyze는 match_id뿐 아니라 player_id, platform, prompt_version으로 캐시를 조회한다", async () => {
+  it.each([2, 3])("ai-analyze는 계산 %s의 실제 버전으로 기존 코칭 캐시를 조회한다", async (calculationVersion) => {
     const matchCache = createQueryChain({
       data: { ai_result: { text: "cached-player-a-analysis" } },
       error: null,
     });
     const telemetry = createQueryChain({
-      data: createCanonicalAnalyzeRow("match-a"),
+      data: createCanonicalAnalyzeRow("match-a", { calculationVersion }),
       error: null,
     });
     const supabase = createSupabaseMock({
@@ -566,12 +566,12 @@ describe("AI cache route stabilization", () => {
     expect(matchCache.eq).toHaveBeenCalledWith("platform", "kakao");
     expect(matchCache.eq).toHaveBeenCalledWith("player_id", "player_a");
     expect(matchCache.eq).toHaveBeenCalledWith("coaching_style", "spicy");
-    expect(matchCache.eq).toHaveBeenCalledWith("prompt_version", `${AI_CACHE_VERSION}.calc${ANALYSIS_CALCULATION_VERSION}`);
+    expect(matchCache.eq).toHaveBeenCalledWith("prompt_version", `${AI_CACHE_VERSION}.calc${calculationVersion}`);
     expect(telemetry.select).toHaveBeenCalledWith("match_id,player_id,platform,data");
     expect(mockGenerateContentStream).not.toHaveBeenCalled();
   });
 
-  it.each([undefined,1,2,ANALYSIS_CALCULATION_VERSION + 1])('ai-analyze rejects stale calculation %s before reading prose or calling Gemini',async calculationVersion=>{
+  it.each([undefined,1,ANALYSIS_CALCULATION_VERSION + 1])('ai-analyze rejects stale calculation %s before reading prose or calling Gemini',async calculationVersion=>{
     const cache=createQueryChain({data:{ai_result:{text:'legacy'}},error:null});
     const telemetry=createQueryChain({data:createCanonicalAnalyzeRow('calc-old',{calculationVersion}),error:null});
     mockWithAuthGuard.mockResolvedValue({user:{id:'user-1'},supabaseAdmin:createSupabaseMock({match_ai_coaching_cache:cache,processed_match_telemetry:telemetry})});
@@ -1883,6 +1883,26 @@ describe("AI cache route stabilization", () => {
     expect(summaryCache.upsert).toHaveBeenCalledTimes(2);
   });
 
+  it("ai-summary는 같은 점수여도 실제 계산 버전이 바뀌면 코칭 캐시를 구분한다", async () => {
+    mockSummaryGeminiResponse();
+    const full = createSummaryMatch("version-hash", { calculationVersion: 2 });
+    const summaryCache = createQueryChain();
+    const telemetry = createQueryChain({ data: [{ match_id: full.matchId, player_id: "player_a",
+      platform: "kakao", data: { fullResult: full } }], error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({
+      player_ai_summary_cache: summaryCache, processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    }) });
+    const request = () => createRequest({ matchIds: [full.matchId], nickname: "Player_A", platform: "kakao", force: true });
+    const first = await aiSummaryPOST(request()); await first.text();
+    const oldHash = summaryCache.upsert.mock.calls[0]?.[0]?.match_ids_hash;
+    expect(first.status).toBe(200); expect(oldHash).toMatch(/^[a-f0-9]{64}$/);
+    full.calculationVersion = 3;
+    const next = await aiSummaryPOST(request()); await next.text();
+    expect(next.status).toBe(200);
+    expect(summaryCache.upsert.mock.calls[1]?.[0]?.match_ids_hash).not.toBe(oldHash);
+  });
+
   it("ai-summary cache identity는 normalized tier benchmark 변경도 반영한다", async () => {
     mockSummaryGeminiResponse();
 
@@ -1958,7 +1978,7 @@ describe("AI cache route stabilization", () => {
     expect(secondResponse.status).toBe(200);
     expect(mockGenerateContentStream).toHaveBeenCalledTimes(2);
     expect(summaryCache.upsert).toHaveBeenCalledTimes(2);
-    expect(tierBenchmarks.maybeSingle).toHaveBeenCalledTimes(2);
+    expect(tierBenchmarks.maybeSingle).toHaveBeenCalledTimes(4);
   });
 
   it("ai-summary cache hit은 Gemini API 키가 없어도 NDJSON을 반환한다", async () => {
