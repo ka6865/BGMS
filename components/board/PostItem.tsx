@@ -108,11 +108,11 @@ export default function PostItem({ post, isMobile, onClickDesktop, formatTimeAgo
       </td>
       <td className="p-4 py-5">
         <div className="flex items-center gap-1.5">
-          <span className={`text-[14px] transition-colors group-hover:text-white ${
+          <Link href={`/board/${post.id}`} prefetch={false} onClick={(event) => event.stopPropagation()} className={`text-[14px] transition-colors group-hover:text-white rounded focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400 ${
             post.is_notice ? "text-[#F2A900] font-bold" : "text-white/90 font-semibold"
           }`}>
             {post.title}
-          </span>
+          </Link>
           {post.image_url && <ImageIcon />}
           {(post.comment_count || 0) > 0 && (
             <span className="text-[12px] text-[#F2A900]/70 font-bold ml-1">

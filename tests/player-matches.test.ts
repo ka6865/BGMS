@@ -25,7 +25,7 @@ import {
 
   it("keeps cached scores and analysis states visible after a nickname change", async () => {
     const benchmark = { score: 72, tier: 'A' };
-    const query = { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), in: vi.fn().mockResolvedValue({ data: [{ match_id: 'old-match', benchmark, state: 'done' }], error: null }) };
+    const query = { select: vi.fn().mockReturnThis(), eq: vi.fn().mockReturnThis(), in: vi.fn().mockReturnThis(), order: vi.fn().mockResolvedValue({ data: [{ match_id: 'old-match', benchmark, state: 'done', calculation_version: 2 }], error: null }) };
     const db = { from: () => query } as never;
     expect(await readPerformanceCache(db, 'steam', 'NewName', ['old-match'], 'account.same')).toEqual({ 'old-match': benchmark });
     expect(await readPerformanceStates(db, 'steam', 'NewName', ['old-match'], 'account.same')).toEqual({ 'old-match': 'done' });

@@ -164,6 +164,7 @@ create table if not exists public.pubg_player_cache (
   platform text,
   updated_at timestamptz default now(),
   last_seen_at timestamptz,
+  season_stats_data jsonb,
   search_count integer default 0
 );
 alter table public.pubg_player_cache enable row level security;

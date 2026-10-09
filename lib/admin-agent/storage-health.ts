@@ -6,6 +6,8 @@ import type {
 } from "@/types/storage-health";
 import {
   getSupabaseDatabaseLimitBytes,
+  PLAYER_CACHE_KEEP_RECENT,
+  PLAYER_CACHE_RETENTION_DAYS,
   R2_FREE_STORAGE_LIMIT_BYTES,
 } from "@/lib/admin-agent/storage-limits";
 
@@ -92,14 +94,10 @@ export const RECLAIM_TARGETS: Record<ReclaimTarget, {
     label: "자동완성 후보 정리",
     table: "pubg_player_cache",
     rpc: "compact_pubg_player_cache",
-    detail: "사용자가 한 번도 조회하지 않은 후보를 최근 관측 순 상위 15만 건만 남기고 지웁니다. 검색되면 다시 캐시됩니다.",
+    detail: `최근 관측 순 ${PLAYER_CACHE_KEEP_RECENT.toLocaleString("ko-KR")}건과 조회 횟수가 있거나 시즌 통계가 있는 후보는 보존합니다. 그 외에는 최근 ${PLAYER_CACHE_RETENTION_DAYS}일간 조회되지 않은 후보를 정리합니다. 검색하면 다시 캐시됩니다.`,
   },
 };
 
-// cleanup_telemetry.ts 와 같은 값을 쓴다. 화면에서 보는 예상치와 실제 정리
-// 결과가 어긋나지 않도록 한다.
-const PLAYER_CACHE_RETENTION_DAYS = 90;
-const PLAYER_CACHE_KEEP_RECENT = 150_000;
 // 5,000 은 Supabase 무료 플랜의 statement timeout 을 넘긴다(2026-08-01 실측).
 // dry-run 은 count 만 세지만 실제 정리와 같은 값을 써 혼동을 줄인다.
 const PLAYER_CACHE_BATCH_LIMIT = 500;

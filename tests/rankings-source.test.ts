@@ -1,3 +1,4 @@
+import { ANALYSIS_CALCULATION_VERSION } from '../lib/pubg-analysis/constants';
 import {beforeEach,describe,it,expect,vi} from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -17,7 +18,7 @@ describe('랭킹 데이터 원장',()=>{
  });
  it('비공개 대상과 계산 버전을 집계에 전달한다',async()=>{
   m.privacy.mockResolvedValue({data:{value:JSON.stringify([{platform:'steam',nickname:'Hidden'}])},error:null});await getTopTierRanking();
-  expect(m.rpc).toHaveBeenCalledWith('get_pubg_rankings',expect.objectContaining({p_tab:'tier',p_excluded:['steam:hidden'],p_calculation:2,p_result:73}));
+  expect(m.rpc).toHaveBeenCalledWith('get_pubg_rankings',expect.objectContaining({p_tab:'tier',p_excluded:['steam:hidden'],p_calculation:ANALYSIS_CALCULATION_VERSION,p_result:73}));
  });
  it('프라이버시 등록 직후 랭킹 SSR이 오래된 페이지 캐시에 머물지 않는다',()=>{
   const source=readFileSync(resolve(process.cwd(),'app/rankings/page.tsx'),'utf8');

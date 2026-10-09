@@ -2,6 +2,12 @@ import { NextResponse } from "next/server";
 import { verifyAdminRole } from "@/lib/admin-agent/logging";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { RECLAIM_TARGETS, type ReclaimTarget } from "@/lib/admin-agent/storage-health";
+import {
+  ADMIN_COMPACTION_BATCH_LIMIT as BATCH_LIMIT,
+  ADMIN_COMPACTION_MAX_BATCHES as MAX_BATCHES_PER_REQUEST,
+  PLAYER_CACHE_KEEP_RECENT,
+  PLAYER_CACHE_RETENTION_DAYS,
+} from "@/lib/admin-agent/storage-limits";
 
 /**
  * @fileoverview 저장 용량 정리 API (관리자 전용)
@@ -16,21 +22,6 @@ import { RECLAIM_TARGETS, type ReclaimTarget } from "@/lib/admin-agent/storage-h
  * 남은 대상이 있으면 응답의 hasRemaining 이 true 이고, 다시 호출하면 이어서
  * 정리합니다.
  */
-
-// 한 번 요청에서 처리할 배치 수. 1,000 * 20 = 20,000행이다.
-// 관리자가 버튼 한 번으로 28만 행을 지우지 못하게 제한한다.
-//
-// 배치 크기가 5,000 이면 Supabase 무료 플랜의 statement timeout 을 넘긴다.
-// 2026-08-01 실측에서 5,000 은 8.7초에 취소되고 1,000 은 1.25초였다.
-//
-// Vercel 함수 실행 시간도 고려해 요청당 배치 수를 워크플로(30회)보다 낮춘다.
-// 배치당 약 1.3초이므로 20회는 26초 수준이다.
-const MAX_BATCHES_PER_REQUEST = 20;
-const BATCH_LIMIT = 1_000;
-
-// scripts/cleanup_telemetry.ts 와 같은 값을 쓴다.
-const PLAYER_CACHE_RETENTION_DAYS = 90;
-const PLAYER_CACHE_KEEP_RECENT = 150_000;
 
 type CompactionOutcome = {
   candidateCount: number;
@@ -76,6 +67,8 @@ function parseOutcome(value: unknown): CompactionOutcome {
 }
 
 export async function POST(request: Request) {
+  let compactionStarted = false;
+  let deletedCount = 0;
   try {
     const auth = await withAuthGuard();
     if (auth.error) return auth.error;
@@ -119,13 +112,13 @@ export async function POST(request: Request) {
     }
 
     // 실제 삭제. 배치를 반복하되 요청당 상한을 둔다.
-    const preview = parseOutcome(
-      (await auth.supabaseAdmin.rpc(config.rpc, buildRpcArgs(target, false))).data,
-    );
+    const previewResult = await auth.supabaseAdmin.rpc(config.rpc, buildRpcArgs(target, false));
+    if (previewResult.error) throw new Error(previewResult.error.message);
+    const preview = parseOutcome(previewResult.data);
 
-    let deletedCount = 0;
     let remainingCount = preview.candidateCount;
     for (let batch = 0; batch < MAX_BATCHES_PER_REQUEST && remainingCount > 0; batch += 1) {
+      compactionStarted = true;
       const { data, error } = await auth.supabaseAdmin.rpc(config.rpc, buildRpcArgs(target, true));
       if (error) throw new Error(error.message);
       const outcome = parseOutcome(data);
@@ -151,8 +144,12 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     console.error("[Admin Storage Compact] error:", error);
+    const message = error?.message || "정리 작업에 실패했습니다.";
     return NextResponse.json(
-      { error: error?.message || "정리 작업에 실패했습니다." },
+      compactionStarted
+        ? { error: `정리가 중단되었습니다. 확인된 삭제는 ${deletedCount.toLocaleString()}건이며 실패한 배치에서도 삭제됐을 수 있습니다. 대상을 다시 확인하세요. (${message})`,
+          deletedCount, partialExecution: true }
+        : { error: message },
       { status: 500 },
     );
   }

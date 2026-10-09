@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
-import { AI_CACHE_VERSION, ANALYSIS_CALCULATION_VERSION, GEMINI_MODELS_TO_TRY, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
+import { AI_CACHE_VERSION, isSupportedAnalysisCalculationVersion, GEMINI_MODELS_TO_TRY, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { getValidFullResultForMatch, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
@@ -196,14 +196,14 @@ export async function POST(request: Request) {
       requirePopulationEvidence: true,
       requireExactResultVersion: true,
       requirePromptSafeStats: true,
-      requireCurrentCalculation: true,
+      requireSupportedCalculation: true,
     });
     if (!canonicalFullResult) {
       const previous = getValidFullResultForMatch(canonicalRow, {
         matchId, playerId, platform: cachePlatform, minResultVersion: RESULT_VERSION,
         requireExactResultVersion: true, requirePopulationEvidence: true, requirePromptSafeStats: true,
       });
-      if (previous && previous.calculationVersion !== ANALYSIS_CALCULATION_VERSION) {
+      if (previous && !isSupportedAnalysisCalculationVersion(previous.calculationVersion)) {
         return NextResponse.json({error: "새 계산 기준으로 다시 계산이 필요합니다. 기본 전적은 계속 이용할 수 있습니다.", errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED", retryable: false}, {status:409});
       }
       return NextResponse.json({
@@ -213,7 +213,7 @@ export async function POST(request: Request) {
       }, { status: 409 });
     }
 
-    const cachePromptVersion = `${AI_CACHE_VERSION}.calc${ANALYSIS_CALCULATION_VERSION}`;
+    const cachePromptVersion = `${AI_CACHE_VERSION}.calc${canonicalFullResult.calculationVersion}`;
 
     // Cache compatibility is checked only after the current marked canonical
     // telemetry row has been proven.  This prevents a pre-marker cache entry

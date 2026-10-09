@@ -151,7 +151,7 @@ function createSummaryMatch(matchId = "match-1", overrides: Record<string, any> 
     player_id: "player_a",
     platform: "kakao",
     v: RESULT_VERSION,
-    calculationVersion: 2,
+    calculationVersion: ANALYSIS_CALCULATION_VERSION,
     populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
     createdAt: recentMatchDate(),
     mapName: "Baltic_Main",
@@ -243,7 +243,7 @@ function createCanonicalAnalyzeRow(
     player_id: "player_a",
     platform: "kakao",
     v: RESULT_VERSION,
-    calculationVersion: 2,
+    calculationVersion: ANALYSIS_CALCULATION_VERSION,
     createdAt: overrides.createdAt ?? new Date().toISOString(),
     ...overrides,
   };
@@ -535,13 +535,13 @@ describe("AI cache route stabilization", () => {
     expect(mockGenerateContent).not.toHaveBeenCalled();
   });
 
-  it("ai-analyze는 match_id뿐 아니라 player_id, platform, prompt_version으로 캐시를 조회한다", async () => {
+  it.each([2, 3])("ai-analyze는 계산 %s의 실제 버전으로 기존 코칭 캐시를 조회한다", async (calculationVersion) => {
     const matchCache = createQueryChain({
       data: { ai_result: { text: "cached-player-a-analysis" } },
       error: null,
     });
     const telemetry = createQueryChain({
-      data: createCanonicalAnalyzeRow("match-a"),
+      data: createCanonicalAnalyzeRow("match-a", { calculationVersion }),
       error: null,
     });
     const supabase = createSupabaseMock({
@@ -566,12 +566,12 @@ describe("AI cache route stabilization", () => {
     expect(matchCache.eq).toHaveBeenCalledWith("platform", "kakao");
     expect(matchCache.eq).toHaveBeenCalledWith("player_id", "player_a");
     expect(matchCache.eq).toHaveBeenCalledWith("coaching_style", "spicy");
-    expect(matchCache.eq).toHaveBeenCalledWith("prompt_version", `${AI_CACHE_VERSION}.calc${ANALYSIS_CALCULATION_VERSION}`);
+    expect(matchCache.eq).toHaveBeenCalledWith("prompt_version", `${AI_CACHE_VERSION}.calc${calculationVersion}`);
     expect(telemetry.select).toHaveBeenCalledWith("match_id,player_id,platform,data");
     expect(mockGenerateContentStream).not.toHaveBeenCalled();
   });
 
-  it.each([undefined,1,3])('ai-analyze rejects stale calculation %s before reading prose or calling Gemini',async calculationVersion=>{
+  it.each([undefined,1,ANALYSIS_CALCULATION_VERSION + 1])('ai-analyze rejects stale calculation %s before reading prose or calling Gemini',async calculationVersion=>{
     const cache=createQueryChain({data:{ai_result:{text:'legacy'}},error:null});
     const telemetry=createQueryChain({data:createCanonicalAnalyzeRow('calc-old',{calculationVersion}),error:null});
     mockWithAuthGuard.mockResolvedValue({user:{id:'user-1'},supabaseAdmin:createSupabaseMock({match_ai_coaching_cache:cache,processed_match_telemetry:telemetry})});
@@ -1883,6 +1883,26 @@ describe("AI cache route stabilization", () => {
     expect(summaryCache.upsert).toHaveBeenCalledTimes(2);
   });
 
+  it("ai-summary는 같은 점수여도 실제 계산 버전이 바뀌면 코칭 캐시를 구분한다", async () => {
+    mockSummaryGeminiResponse();
+    const full = createSummaryMatch("version-hash", { calculationVersion: 2 });
+    const summaryCache = createQueryChain();
+    const telemetry = createQueryChain({ data: [{ match_id: full.matchId, player_id: "player_a",
+      platform: "kakao", data: { fullResult: full } }], error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({
+      player_ai_summary_cache: summaryCache, processed_match_telemetry: telemetry,
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    }) });
+    const request = () => createRequest({ matchIds: [full.matchId], nickname: "Player_A", platform: "kakao", force: true });
+    const first = await aiSummaryPOST(request()); await first.text();
+    const oldHash = summaryCache.upsert.mock.calls[0]?.[0]?.match_ids_hash;
+    expect(first.status).toBe(200); expect(oldHash).toMatch(/^[a-f0-9]{64}$/);
+    full.calculationVersion = 3;
+    const next = await aiSummaryPOST(request()); await next.text();
+    expect(next.status).toBe(200);
+    expect(summaryCache.upsert.mock.calls[1]?.[0]?.match_ids_hash).not.toBe(oldHash);
+  });
+
   it("ai-summary cache identity는 normalized tier benchmark 변경도 반영한다", async () => {
     mockSummaryGeminiResponse();
 
@@ -1910,7 +1930,7 @@ describe("AI cache route stabilization", () => {
       avg_solo_kill_rate: 50,
       avg_death_phase: 6,
       filter_version: 8,
-      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
     };
     const telemetry = createQueryChain({
       data: [{
@@ -1958,7 +1978,7 @@ describe("AI cache route stabilization", () => {
     expect(secondResponse.status).toBe(200);
     expect(mockGenerateContentStream).toHaveBeenCalledTimes(2);
     expect(summaryCache.upsert).toHaveBeenCalledTimes(2);
-    expect(tierBenchmarks.maybeSingle).toHaveBeenCalledTimes(2);
+    expect(tierBenchmarks.maybeSingle).toHaveBeenCalledTimes(4);
   });
 
   it("ai-summary cache hit은 Gemini API 키가 없어도 NDJSON을 반환한다", async () => {
@@ -2767,7 +2787,7 @@ describe("AI cache route stabilization", () => {
       tier: "A+",
       match_count: 5,
       filter_version: 8,
-      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
       avg_damage: 300,
       avg_damage_count: 5,
       avg_initiative_rate: null,
@@ -2778,7 +2798,7 @@ describe("AI cache route stabilization", () => {
       tier: "A+",
       match_count: 5,
       filter_version: 8,
-      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
+      population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
       avg_damage: null,
       avg_initiative_rate: 77,
     };
@@ -2886,7 +2906,7 @@ describe("AI cache route stabilization", () => {
         tier: "A+",
         match_count: 5,
         filter_version: 8,
-        population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
+        population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
         avg_damage: 300,
         avg_damage_count: 5,
         avg_solo_kill_rate: 40,
@@ -3865,7 +3885,7 @@ describe("AI cache route stabilization", () => {
       data: {
         fullResult: createSummaryMatch(`match-current-${index}`, {
           v: RESULT_VERSION,
-    calculationVersion: 2,
+    calculationVersion: ANALYSIS_CALCULATION_VERSION,
           createdAt: recentMatchDate(index + 1),
           benchmark: {
             score: 60 + index,
@@ -4716,7 +4736,7 @@ describe("AI cache route stabilization", () => {
     });
     const filteredCurrentFullResult = createSummaryMatch("match-current-event", {
       v: RESULT_VERSION,
-    calculationVersion: 2,
+    calculationVersion: ANALYSIS_CALCULATION_VERSION,
       gameMode: "event",
       benchmark: {
         score: 88,
@@ -5739,7 +5759,7 @@ describe("AI cache route stabilization", () => {
         tier: "A+",
         match_count: 5,
         filter_version: 8,
-        population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2,
+        population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
         avg_damage: 300,
         avg_damage_count: 5,
         avg_duel_win_rate: null,
@@ -6216,7 +6236,7 @@ describe("AI cache route stabilization", () => {
       combatPressure: { pressureIndex: null, utilityStats: { throwCount: 10 } },
     });
     const telemetry = createQueryChain({ data: [complete, incomplete].map(fullResult => ({ match_id: fullResult.matchId, player_id: 'player_a', platform: 'kakao', data: { fullResult } })), error: null });
-    const tier = createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2, avg_damage: 100, avg_damage_count: 5, avg_initiative_rate: 0, avg_initiative_rate_count: 5, avg_duel_win_rate: 0, avg_duel_win_rate_count: 5, avg_solo_kill_rate: 0, avg_solo_kill_rate_count: 5 }, error: null });
+    const tier = createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 5, avg_initiative_rate: 0, avg_initiative_rate_count: 5, avg_duel_win_rate: 0, avg_duel_win_rate_count: 5, avg_solo_kill_rate: 0, avg_solo_kill_rate_count: 5 }, error: null });
     mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({ player_ai_summary_cache: createQueryChain(), processed_match_telemetry: telemetry, benchmark_stats_by_tier_v2: tier }) });
     mockSummaryGeminiResponse();
     const response = await aiSummaryPOST(createRequest({ matchIds: [complete.matchId, incomplete.matchId], nickname: 'Player_A', platform: 'kakao', force: true, summaryContractVersion: 2 }));
@@ -6233,7 +6253,7 @@ describe("AI cache route stabilization", () => {
     'ai-summary v2 %s preserves server evidence and validates interpretation/cache separately', async (scenario) => {
       const summaryCache = createQueryChain();
       const telemetry = createQueryChain({ data: [{ match_id: 'id-contract', player_id: 'player_a', platform: 'kakao', data: { fullResult: createSummaryMatch('id-contract', { deathPhase: 4 }) } }], error: null });
-      const tier = createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2, avg_damage: 100, avg_damage_count: 5, avg_trade_rate: 20, avg_trade_rate_count: 5, avg_duel_win_rate: 10, avg_duel_win_rate_count: 5, avg_solo_kill_rate: 40, avg_solo_kill_rate_count: 5 }, error: null });
+      const tier = createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 5, avg_trade_rate: 20, avg_trade_rate_count: 5, avg_duel_win_rate: 10, avg_duel_win_rate_count: 5, avg_solo_kill_rate: 40, avg_solo_kill_rate_count: 5 }, error: null });
       mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({ player_ai_summary_cache: summaryCache, processed_match_telemetry: telemetry, benchmark_stats_by_tier_v2: tier }) });
       let providerFinal: any;
       mockGenerateContentStream.mockImplementation(async (prompt: string) => {
@@ -6364,7 +6384,7 @@ describe("AI cache route stabilization", () => {
     mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: createQueryChain({ data: rows, error: null }),
-      benchmark_stats_by_tier_v2: createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2, avg_damage: 100, avg_damage_count: 5 }, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 5 }, error: null }),
     }) });
     const previous = process.env.GOOGLE_GEMINI_API_KEY;
     delete process.env.GOOGLE_GEMINI_API_KEY;
@@ -6386,7 +6406,7 @@ describe("AI cache route stabilization", () => {
     mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({
       player_ai_summary_cache: createQueryChain(),
       processed_match_telemetry: createQueryChain({ data: rows, error: null }),
-      benchmark_stats_by_tier_v2: createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: 2, avg_damage: 100, avg_damage_count: 5 }, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 5 }, error: null }),
     }) });
     const previous = process.env.GOOGLE_GEMINI_API_KEY;
     delete process.env.GOOGLE_GEMINI_API_KEY;

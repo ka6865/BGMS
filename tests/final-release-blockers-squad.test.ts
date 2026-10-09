@@ -1,3 +1,4 @@
+import { ANALYSIS_CALCULATION_VERSION } from '../lib/pubg-analysis/constants';
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 import { buildSquadAiCoachingPrompt } from "@/lib/pubg-analysis/squadAiCoachingPrompt";
@@ -22,7 +23,7 @@ function canonicalRow(index: number, overrides: Record<string, any> = {}) {
     player_id: "player_a",
     platform: "steam",
     v: RESULT_VERSION,
-    calculationVersion: 2,
+    calculationVersion: ANALYSIS_CALCULATION_VERSION,
     populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
     createdAt,
     gameMode: "squad-fpp",

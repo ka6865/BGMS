@@ -41,13 +41,13 @@ npx tsx scripts/ingest_discovered_matches.ts --seed-cache --nickname Zucchini__ 
 npx tsx scripts/ingest_discovered_matches.ts --apply --limit 3
 # 2차 canary: 3건 결과 확인 후 최대 20개 처리
 npx tsx scripts/ingest_discovered_matches.ts --apply --limit 20
-# 정기 작업과 같은 최대 300개 처리
-npx tsx scripts/ingest_discovered_matches.ts --apply --limit 300
+# 정기 작업과 같은 최대 1,000개 처리 (작은 canary 결과 확인 후)
+npx tsx scripts/ingest_discovered_matches.ts --apply --limit 1000
 ```
 
 `--seed-cache --apply`는 운영 DB 전체를 한 번에 등록하지 못하도록 정확한 `--nickname`을 필수로 요구한다. dry-run 결과를 확인한 플레이어만 순서대로 실행한다.
 
-매치 worker: 수동 실행은 활성화 변수 없이 1·3·10·50·300건 canary를 선택할 수 있다. 정기 실행은 GitHub variable `PUBG_MATCH_RETENTION_ENABLED=true`일 때만 매시 17분에 작동하며 회당 최대 300건, 동시 3건, 처리 8분이다. 필요한 secrets는 `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, 선택적으로 `PUBG_API_KEY`다. service key는 브라우저에 전달하지 않는다.
+매치 worker: 수동 실행은 활성화 변수 없이 1·3·10·20·50·300·500·1,000건 canary를 선택할 수 있다. 정기 실행은 GitHub variable `PUBG_MATCH_RETENTION_ENABLED=true`일 때만 UTC 기준 매시 7·27·47분에 실행 기회를 만들며 회당 최대 1,000건, 동시 3건, 처리 8분이다. 필요한 secrets는 `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `PUBG_API_KEY`다. 실제 수집 `--apply`에는 API 키가 필수이며 dry-run과 `--seed-cache`에는 불필요하다. service key는 브라우저에 전달하지 않는다.
 
 canary마다 Actions 요약의 `claimed/saved/retry/unavailable/rateLimited/durationMs`를 확인하고, 처리 전후 dry-run의 `pending`과 `oldestReadyAt`을 비교한다. `retry` 또는 `unavailable`이 예상보다 많거나 `rateLimited=true`이면 다음 단계로 늘리지 않는다.
 

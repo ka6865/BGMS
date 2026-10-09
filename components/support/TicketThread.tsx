@@ -92,12 +92,12 @@ export default function TicketThread({ ticketId, initialTicket }: { ticketId: st
     }
   }
 
-  if (notFound) return <main className="mx-auto w-full max-w-3xl px-4 py-16 text-center text-white"><h1 className="text-2xl font-black">문의가 없습니다</h1><p className="mt-3 text-sm text-white/50">문의가 삭제되었거나 접근 권한이 없습니다.</p></main>;
-  if (error && !ticket) return <main className="mx-auto w-full max-w-3xl px-4 py-16 text-center text-white"><h1 className="text-2xl font-black">문의를 불러오지 못했습니다</h1><p className="mt-3 text-sm text-red-200">{error}</p><button type="button" onClick={() => { setError(""); setRefresh((value) => value + 1); }} className="mt-5 rounded-xl bg-amber-400 px-4 py-2 text-sm font-black text-black">다시 시도</button></main>;
-  if (!ticket) return <main className="mx-auto w-full max-w-3xl px-4 py-16 text-center text-sm text-white/50">문의 불러오는 중…</main>;
+  if (notFound) return <div className="mx-auto w-full max-w-3xl px-4 py-16 text-center text-white"><h1 className="text-2xl font-black">문의가 없습니다</h1><p className="mt-3 text-sm text-white/50">문의가 삭제되었거나 접근 권한이 없습니다.</p></div>;
+  if (error && !ticket) return <div className="mx-auto w-full max-w-3xl px-4 py-16 text-center text-white"><h1 className="text-2xl font-black">문의를 불러오지 못했습니다</h1><p className="mt-3 text-sm text-red-200">{error}</p><button type="button" onClick={() => { setError(""); setRefresh((value) => value + 1); }} className="mt-5 rounded-xl bg-amber-400 px-4 py-2 text-sm font-black text-black">다시 시도</button></div>;
+  if (!ticket) return <div className="mx-auto w-full max-w-3xl px-4 py-16 text-center text-sm text-white/50">문의 불러오는 중…</div>;
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-10 text-white sm:px-6">
+    <div className="mx-auto w-full max-w-3xl px-4 py-10 text-white sm:px-6">
       <div className="mb-5 rounded-3xl border border-white/10 bg-white/[0.03] p-6">
         <div className="flex flex-wrap items-center gap-2"><SupportStatusBadge value={ticket.status} />{ticket.verification_status && <SupportStatusBadge value={ticket.verification_status} />}</div>
         <h1 className="mt-4 text-2xl font-black">{ticket.subject}</h1>
@@ -109,6 +109,6 @@ export default function TicketThread({ ticketId, initialTicket }: { ticketId: st
         <form onSubmit={sendMessage} className="flex gap-2 border-t border-white/10 pt-4"><label className="sr-only" htmlFor="support-reply">답변</label><textarea id="support-reply" aria-label="답변" value={body} disabled={sending} onChange={(event) => { setBody(event.target.value); setMessageIdempotencyKey(""); }} rows={2} placeholder="추가로 전달할 내용" className="min-w-0 flex-1 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm" /><button type="submit" disabled={sending || !body.trim()} className="self-end rounded-xl bg-amber-400 px-4 py-2 text-xs font-black text-black disabled:cursor-not-allowed disabled:opacity-50">{sending ? "보내는 중…" : "답변 보내기"}</button></form>
         {error && <p role="alert" className="text-sm text-red-200">{error}</p>}
       </section>
-    </main>
+    </div>
   );
 }

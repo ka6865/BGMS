@@ -237,11 +237,11 @@ function proceduresFromContent(input: Parameters<typeof buildAgentOperatingSop>[
     steps: [
       step("performance", "성과 분석", "agent", "read", "최근 게시글 성과와 low-effort win을 확인합니다.", "최근 게시글 성과를 분석하고 다음 콘텐츠를 추천해줘"),
       step("draft", "초안 생성", "agent", "read", "운영 데이터 기반 게시글 초안을 만듭니다.", "이번 주 운영 데이터 기반 게시글 초안을 만들어줘"),
-      step("publish-approval", "발행 승인", "admin", "approval_required", "게시글 발행은 승인 패널에서 preview와 HTML 본문을 검토한 뒤 승인합니다.", "이 초안을 게시판 발행 승인 요청으로 올려줘")
+      step("publish-approval", "초안 저장 승인", "admin", "approval_required", "승인 패널에서 preview와 HTML 본문을 검토한 뒤 승인하면 비공개 초안이 저장됩니다. 어드민 검증 탭에서 초안을 확인하고 공개 발행은 별도로 진행합니다.", "이 게시글을 비공개 초안 저장 승인 요청으로 올려줘")
     ],
     doneWhen: [
-      "게시글 초안이 생성되었거나 발행 승인 요청이 만들어집니다.",
-      "실제 발행은 approval result에 기록됩니다."
+      "게시글 초안이 생성되었거나 초안 저장 승인 요청이 만들어집니다.",
+      "승인 결과에는 비공개 초안 저장이 기록되고, 공개 발행 여부는 게시판에서 별도로 확인합니다."
     ],
     nextPrompt: "최근 게시글 성과를 분석하고 다음 콘텐츠를 추천해줘"
   }];

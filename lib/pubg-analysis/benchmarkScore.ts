@@ -105,6 +105,8 @@ function getImpactAnalysis(input: MatchTierInput, isSolo: boolean, score: number
   const revives = input.revives || 0;
   const smokeRescues = input.smokeRescues || 0;
   const safeRevives = input.safeRevivesWithoutSmoke || 0;
+  const hasMeasuredIsolation = typeof input.isolationIndex === "number"
+    && Number.isFinite(input.isolationIndex) && input.isolationIndex >= 0;
   const teamDamageThresholds = getTeamDamageThresholds(input, isSolo);
   const hasTeamDamageCore = Boolean(teamDamageThresholds && teamDamageShare >= teamDamageThresholds.core);
 
@@ -204,7 +206,7 @@ function getImpactAnalysis(input: MatchTierInput, isSolo: boolean, score: number
   if (!isSolo && (revives >= 1 || smokeRescues >= 1 || safeRevives > 0)) actionEvidenceCount += 1;
   let riskManagementEvidenceCount = 0;
   if (input.myDeathCount === 0) riskManagementEvidenceCount += 1;
-  if ((input.isolationIndex || 0) < 2) riskManagementEvidenceCount += 1;
+  if (hasMeasuredIsolation && input.isolationIndex! < 2) riskManagementEvidenceCount += 1;
   const winEvidenceCount = actionEvidenceCount > 0
     ? actionEvidenceCount + Math.min(1, riskManagementEvidenceCount)
     : 0;
@@ -235,7 +237,7 @@ function getImpactAnalysis(input: MatchTierInput, isSolo: boolean, score: number
     riskPenalty += 8;
     reasons.push("조기 사망 리스크 감경");
   }
-  if ((input.isolationIndex || 0) >= 4.5) {
+  if (hasMeasuredIsolation && input.isolationIndex! >= 4.5) {
     riskPenalty += 6;
     reasons.push("고립 리스크 감경");
   }

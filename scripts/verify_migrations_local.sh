@@ -26,6 +26,7 @@ MIGRATIONS=(
   "20260730203000_tighten_service_data_write_policies"
   "20260730204500_discord_room_rate_limit"
   "20260730210000_pubg_response_cache"
+  "20260804000000_optimize_player_cache_compaction"
   "20260819115023_profile_linked_pubg_auto_sync"
   "20260901141209_pubg_analysis_population_provenance"
   "20260902171741_telemetry_cache_recovery_claim"
@@ -63,6 +64,10 @@ MIGRATIONS=(
   "20261007062957_legacy_team_retention_event_metadata"
   "20261008213709_legacy_team_retention_failure_reasons"
   "20261009022508_participant_match_retention_scope"
+  "20261009182823_restore_player_cache_compaction_contract"
+  "20261009213020_analysis_calculation_coexistence"
+  "20261010000000_analysis_calculation_v3"
+  "20261010001000_bound_tier_ranking_candidates"
 )
 
 cleanup() {
@@ -240,7 +245,9 @@ PY
   rm -f "$ACTUAL_MAP_PACKET_SQL_FILE"
   echo "  ✅ 비공개 실제 map packet 격리 검증"
 fi
+"${PSQL[@]}" -f tests/fixtures/migration-check/player-cache-compaction-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-performance-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/calculation-coexistence-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retained-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/encounter-page-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/match-discovery-scenarios.sql
@@ -267,5 +274,6 @@ if ! echo "$OUTPUT" | grep -q "전체 시나리오 통과"; then
 fi
 
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v3-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/support-center-scenarios.sql
 echo "✅ 신규 migration 적용 및 RPC 동작 검증 완료"

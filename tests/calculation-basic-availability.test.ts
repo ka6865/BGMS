@@ -1,3 +1,4 @@
+import { ANALYSIS_CALCULATION_VERSION } from '../lib/pubg-analysis/constants';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { buildCalculationPendingMatch } from '@/lib/pubg-analysis/calculationAvailability';
 
@@ -8,12 +9,12 @@ vi.mock('@/lib/pubg/privatePlayerIdentity', () => ({ resolvePrivatePlayerAccount
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => ({
   rpc: (_name: string, args: any) => {
     rankingCalls.push(args);
-    const data = args.p_tab === 'tier' ? rows.filter(row => row.calculation_version === 2) : rows;
+    const data = args.p_tab === 'tier' ? rows.filter(row => row.calculation_version === args.p_calculation) : rows;
     return Promise.resolve({ data: data.map(row => ({
       platform: row.platform, player_id: row.player_id, account_id: null,
       value: args.p_tab === 'damage' ? row.damage : args.p_tab === 'kills' ? row.kills : row.score,
       secondary: args.p_tab === 'damage' ? row.kills : row.damage,
-      tier: row.calculation_version === 2 ? row.tier : null,
+      tier: row.calculation_version === args.p_calculation ? row.tier : null,
       game_mode: row.game_mode, map_name: row.map_name, played_at: row.created_at, match_count: 1,
     })), error: null });
   },
@@ -62,14 +63,14 @@ describe('calculation rollout preserves official basic records', () => {
     expect((await getWeeklyTopKills()).data[0]).toMatchObject({value: 3, tier: undefined});
     expect((await getTopTierRanking()).data).toEqual([]);
     expect(rankingCalls).toEqual(expect.arrayContaining([
-      expect.objectContaining({ p_tab: 'damage', p_calculation: 2 }),
-      expect.objectContaining({ p_tab: 'kills', p_calculation: 2 }),
-      expect.objectContaining({ p_tab: 'tier', p_calculation: 2 }),
+      expect.objectContaining({ p_tab: 'damage', p_calculation: ANALYSIS_CALCULATION_VERSION }),
+      expect.objectContaining({ p_tab: 'kills', p_calculation: ANALYSIS_CALCULATION_VERSION }),
+      expect.objectContaining({ p_tab: 'tier', p_calculation: ANALYSIS_CALCULATION_VERSION }),
     ]));
   });
 
   it('compares basic records while unmeasured tactical results never become zero or draws', async () => {
-    rows.push(row('one', null), {...row('two', 2), kills: 1});
+    rows.push(row('one', null), {...row('two', ANALYSIS_CALCULATION_VERSION), kills: 1});
     const { GET } = await import('@/app/api/pubg/battle/route');
     const response = await GET(new Request('http://localhost/api/pubg/battle?nick1=one&nick2=two&platform1=steam&platform2=steam'));
     expect(response.status).toBe(200);
@@ -80,7 +81,7 @@ describe('calculation rollout preserves official basic records', () => {
   });
 
   it('keeps observed current tactical zero available for comparison', async () => {
-    rows.push(row('one', 2), row('two', 2));
+    rows.push(row('one', ANALYSIS_CALCULATION_VERSION), row('two', ANALYSIS_CALCULATION_VERSION));
     const { GET } = await import('@/app/api/pubg/battle/route');
     const response = await GET(new Request('http://localhost/api/pubg/battle?nick1=one&nick2=two&platform1=steam&platform2=steam'));
     const data = await response.json();

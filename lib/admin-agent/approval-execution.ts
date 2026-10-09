@@ -33,13 +33,13 @@ export function buildApprovalPostExecution(input: ApprovalPostExecutionInput) {
 }
 
 function getActionTitle(actionType: string) {
-  if (actionType === "create_board_post") return "게시글 발행";
+  if (actionType === "create_board_post") return "게시글 초안 작성";
   if (actionType === "flush_old_cache") return "오래된 캐시 삭제";
   if (actionType === "flush_player_cache") return "플레이어 캐시 삭제";
   if (actionType === "flush_match_cache") return "매치 캐시 삭제";
   if (actionType === "reset_benchmarks") return "벤치마크 초기화";
   if (actionType === "repair_processed_telemetry_identity") return "전적 분석 identity mismatch 정리";
-  if (actionType === "update_board_post") return "게시글 수정";
+  if (actionType === "update_board_post") return "게시글 수정 초안";
   if (actionType === "save_agent_report") return "운영 리포트 저장";
   if (actionType === "save_agent_memory") return "운영 기억 저장";
   return actionType;
@@ -85,14 +85,14 @@ function buildMetrics(actionType: string, payload: Record<string, any>, executio
 function buildFollowUp(actionType: string, payload: Record<string, any>, execution: any, impact: ApprovalImpactLike | null) {
   if (actionType === "create_board_post") {
     return [
-      "게시판에서 제목/본문/이미지 렌더링을 확인하세요.",
-      "콘텐츠 성과 패널에서 조회수와 반응을 다음 운영 요약에 반영하세요."
+      "게시판의 어드민 검증 탭에서 비공개 초안의 제목/본문/이미지를 확인하세요.",
+      "공개하려면 초안 확인 후 별도로 발행하세요."
     ];
   }
   if (actionType === "update_board_post") {
     return [
-      "게시판에서 수정된 제목/본문/이미지가 정상 반영되었는지 확인하세요.",
-      "기존 첨부 이미지가 정리되었다면 Storage 용량 변화를 확인하세요."
+      "게시판의 어드민 검증 탭에서 비공개 수정 초안의 제목/본문/이미지를 확인하세요.",
+      "원본에 반영하려면 수정 초안 확인 후 별도로 발행하세요."
     ];
   }
   if (actionType === "flush_old_cache" || actionType === "flush_player_cache" || actionType === "flush_match_cache") {

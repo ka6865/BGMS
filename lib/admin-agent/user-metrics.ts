@@ -26,7 +26,7 @@ type AnalyticsUserRow = {
 
 export type UserMetricsSummary = {
   generatedAt: string;
-  status: "ready" | "unavailable";
+  status: "ready" | "partial" | "unavailable";
   windowHours: number;
   accounts: {
     authUsers: number;
@@ -68,11 +68,19 @@ export async function buildUserMetricsSummary(supabase: any, windowHours = 24): 
   const since = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString();
 
   try {
-    const [authUsers, profiles, analyticsRows] = await Promise.all([
+    const [authResult, profileResult, analyticsResult] = await Promise.all([
       fetchAllAuthUsers(supabase),
       fetchProfiles(supabase),
       fetchAnalyticsRows(supabase, since)
     ]);
+    const authUsers = authResult.rows;
+    const profiles = profileResult.rows;
+    const analyticsRows = analyticsResult.rows;
+    const partialSources = [
+      authResult.partial ? "Auth 유저" : null,
+      profileResult.partial ? "profiles" : null,
+      analyticsResult.partial ? "analytics_events" : null
+    ].filter(Boolean);
 
     const profilesById = new Map(profiles.map((profile) => [profile.id, profile]));
     const authUsersNotDeleted = authUsers.filter((user) => !user.deleted_at);
@@ -90,11 +98,14 @@ export async function buildUserMetricsSummary(supabase: any, windowHours = 24): 
       authUsers
         .filter((user) => !user.deleted_at)
         .filter((user) => !adminProfileIds.has(user.id))
+        .filter((user) => !profileResult.partial || profilesById.has(user.id))
         .filter((user) => isSince(user.last_sign_in_at, since))
         .map((user) => user.id)
     );
 
-    const nonAdminAnalyticsRows = analyticsRows.filter((row) => !row.user_id || profilesById.get(row.user_id)?.role !== "admin");
+    const nonAdminAnalyticsRows = analyticsRows.filter((row) => !row.user_id || (
+      profilesById.get(row.user_id)?.role !== "admin" && (!profileResult.partial || profilesById.has(row.user_id))
+    ));
     const sessionHasUser = new Map<string, boolean>();
     const analyticsUserIds = new Set<string>();
     const topSearchedTargets = buildTopSearchedTargets(nonAdminAnalyticsRows, nonAdminProfiles);
@@ -125,16 +136,18 @@ export async function buildUserMetricsSummary(supabase: any, windowHours = 24): 
     const memberSessions = Array.from(sessionHasUser.values()).filter(Boolean).length;
     const guestSessions = Array.from(sessionHasUser.values()).filter((hasUser) => !hasUser).length;
     const notes = buildUserMetricNotes({
-      missingProfiles,
-      orphanProfiles,
+      missingProfiles: authResult.partial || profileResult.partial ? 0 : missingProfiles,
+      orphanProfiles: authResult.partial || profileResult.partial ? 0 : orphanProfiles,
       analyticsLoggedInUsers: analyticsUserIds.size,
       analyticsEvents: nonAdminAnalyticsRows.length,
       profileActiveUsers: activeProfileIds.size
     });
+    if (partialSources.length) notes.unshift(`부분 집계: ${partialSources.join(", ")} 전체 조회를 확인하지 못했습니다. 반환된 데이터만 집계했으므로 전체 수치와 다를 수 있습니다.`);
+    if (profileResult.partial) notes.push("역할을 확인하지 못한 회원 이벤트와 로그인 기록은 관리자 활동이 섞이지 않도록 제외했습니다.");
 
     return {
       generatedAt,
-      status: "ready",
+      status: partialSources.length ? "partial" : "ready",
       windowHours,
       accounts: {
         authUsers: authUsers.length,
@@ -210,6 +223,7 @@ export function renderUserMetricsSummaryText(summary: UserMetricsSummary) {
     .join(", ") || "전적 검색 대상 없음";
 
   return [
+    summary.status === "partial" ? "부분 집계입니다. 아래 수치는 전체 가입자나 전체 활동을 확정하는 데 사용할 수 없습니다." : null,
     `가입자 기준: Supabase Auth 유저 ${summary.accounts.authUsersNotDeleted}명, Auth와 연결된 profiles ${summary.accounts.authLinkedProfiles}개입니다.`,
     `관리자 제외 실제 회원 프로필은 ${summary.accounts.nonAdminProfiles}개이고, 관리자 프로필은 ${summary.accounts.adminProfiles}개입니다. profiles 원본 행은 ${summary.accounts.profiles}개입니다.`,
     `최근 ${summary.windowHours}시간 활동 기준: 로그인 기록 ${summary.activity.authSignedInUsers}명, profile last_active ${summary.activity.profileActiveUsers}명, 수집 세션 ${summary.activity.analyticsSessions}개입니다.`,
@@ -220,7 +234,7 @@ export function renderUserMetricsSummaryText(summary: UserMetricsSummary) {
   ].filter(Boolean).join("\n");
 }
 
-async function fetchAllAuthUsers(supabase: any): Promise<AuthUserRow[]> {
+async function fetchAllAuthUsers(supabase: any): Promise<{ rows: AuthUserRow[]; partial: boolean }> {
   if (!supabase.auth?.admin?.listUsers) {
     throw new Error("service role auth.admin.listUsers 권한이 없습니다.");
   }
@@ -232,29 +246,31 @@ async function fetchAllAuthUsers(supabase: any): Promise<AuthUserRow[]> {
     if (error) throw error;
     const pageUsers = (data?.users || []) as AuthUserRow[];
     users.push(...pageUsers);
-    if (pageUsers.length < perPage) break;
+    if (pageUsers.length < perPage) return { rows: users, partial: false };
   }
-  return users;
+  return { rows: users, partial: true };
 }
 
-async function fetchProfiles(supabase: any): Promise<UserProfileRow[]> {
-  const { data, error } = await supabase
+async function fetchProfiles(supabase: any): Promise<{ rows: UserProfileRow[]; partial: boolean }> {
+  const { data, error, count } = await supabase
     .from("profiles")
-    .select("id, nickname, role, pubg_nickname, last_active_at, updated_at")
+    .select("id, nickname, role, pubg_nickname, last_active_at, updated_at", { count: "exact" })
     .range(0, 9999);
   if (error) throw error;
-  return (data || []) as UserProfileRow[];
+  const rows = (data || []) as UserProfileRow[];
+  return { rows, partial: count == null || count > rows.length };
 }
 
-async function fetchAnalyticsRows(supabase: any, since: string): Promise<AnalyticsUserRow[]> {
-  const { data, error } = await supabase
+async function fetchAnalyticsRows(supabase: any, since: string): Promise<{ rows: AnalyticsUserRow[]; partial: boolean }> {
+  const { data, error, count } = await supabase
     .from("analytics_events")
-    .select("event_name, session_id, user_id, page_path, params, created_at")
+    .select("event_name, session_id, user_id, page_path, params, created_at", { count: "exact" })
     .gte("created_at", since)
     .order("created_at", { ascending: false })
     .limit(10000);
-  if (error) return [];
-  return (data || []) as AnalyticsUserRow[];
+  if (error) throw error;
+  const rows = (data || []) as AnalyticsUserRow[];
+  return { rows, partial: count == null || count > rows.length };
 }
 
 function buildUserMetricNotes(input: {

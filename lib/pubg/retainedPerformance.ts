@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { buildMatchSummary, type MatchSummaryData } from '../pubg-analysis/matchSummary';
 import { getLegacyFullResultForHistory } from '../pubg-analysis/cacheIdentity';
-import { ANALYSIS_CALCULATION_VERSION, RESULT_VERSION } from '../pubg-analysis/constants';
+import { isSupportedAnalysisCalculationVersion, RESULT_VERSION } from '../pubg-analysis/constants';
 import { normalizeName } from '../pubg-analysis/utils';
 import { computeFullResultSourceChecksum } from '../pubg-analysis/matchRetentionCleanup';
 
@@ -55,8 +55,8 @@ export function buildRetainedPerformanceRow(full: unknown, identity: Identity): 
   const compact: Record<string, any> = {
     matchId: identity.matchId, createdAt: playedAt, mapName: base.mapName, mapId: base.mapId,
     gameMode: base.gameMode, matchType: base.matchType, v: version,
-    isSummary: true, summarySource: 'pubg_match_performance', performanceOnly: true,
-    performanceHistorical: calculation !== ANALYSIS_CALCULATION_VERSION || version !== RESULT_VERSION,
+    isSummary: true, summarySource: 'pubg_match_performance', performanceOnly: true, calculationVersion: calculation,
+    performanceHistorical: !isSupportedAnalysisCalculationVersion(calculation) || version !== RESULT_VERSION,
     totalTeams: full.totalTeams, totalPlayers: full.totalPlayers,
     totalTeamKills: full.totalTeamKills, totalTeamDamage: full.totalTeamDamage,
     team: [], killDetails: [], dbnoDetails: [], tacticalTimeline: [],
@@ -87,7 +87,7 @@ export function buildRetainedPerformanceRow(full: unknown, identity: Identity): 
     source_checksum: computeFullResultSourceChecksum(full)!,
     summary: JSON.parse(serialized), benchmark: benchmark as MatchSummaryData['benchmark'] | null,
     score: benchmark?.score ?? null, tier: typeof benchmark?.tier === 'string' ? benchmark.tier : null,
-    ranking_eligible: full.isValidBenchmark === true && calculation === ANALYSIS_CALCULATION_VERSION
+    ranking_eligible: full.isValidBenchmark === true && isSupportedAnalysisCalculationVersion(calculation)
       && version === RESULT_VERSION && full.populationEvidenceVersion === 1 && typeof benchmark?.tier === 'string',
   };
 }

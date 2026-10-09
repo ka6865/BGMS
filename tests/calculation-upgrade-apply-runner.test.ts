@@ -1,3 +1,4 @@
+import { ANALYSIS_CALCULATION_VERSION } from '../lib/pubg-analysis/constants';
 import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -29,12 +30,12 @@ afterEach(async () => {
 });
 
 function manifest(): CalculationUpgradeManifest {
-  const fullResult = { v: 73, calculationVersion: 2, stats: { playerId: "player-a" } };
-  const benchmark = { calculation_version: 2, match_id: "match-a", player_id: "player-a", damage: 120 };
+  const fullResult = { v: 73, calculationVersion: ANALYSIS_CALCULATION_VERSION, stats: { playerId: "player-a" } };
+  const benchmark = { calculation_version: ANALYSIS_CALCULATION_VERSION, match_id: "match-a", player_id: "player-a", damage: 120 };
   return buildCalculationUpgradeManifest({
     generatedAt: "2026-09-07T00:00:00.000Z",
     project: "example.supabase.co",
-    calculationVersion: 2,
+    calculationVersion: ANALYSIS_CALCULATION_VERSION,
     limits: normalizeCalculationUpgradeLimits({ maxBatch: 1, maxScan: 1, maxWrites: 1, maxRequests: 8 }),
     counters: { databaseReads: 0, databaseWrites: 0, localSourceBytes: 0, providerCalls: 0, upstreamDownloads: 0, errors: 0 },
     decisions: [{ identity: { matchId: "match-a", platform: "steam", playerId: "player-a" }, status: "prepared", reasons: ["verified"], upgradeIndex: 0 }],

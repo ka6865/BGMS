@@ -1,4 +1,4 @@
-import { ANALYSIS_CALCULATION_VERSION } from "@/lib/pubg-analysis/constants";
+import { isSupportedAnalysisCalculationVersion } from "@/lib/pubg-analysis/constants";
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
@@ -195,7 +195,7 @@ export async function GET(request: Request) {
   // 항목별 평균 계산: 두 플레이어 중 더 적은 분석 경기 수를 기준으로 동일 개수 비교
   // Keep official kills/damage available; compare tactical values only when
   // both complete comparison windows use the current calculation.
-  const tacticalComparable = [...rows1, ...rows2].every(row => row.calculation_version === ANALYSIS_CALCULATION_VERSION);
+  const tacticalComparable = [...rows1, ...rows2].every(row => isSupportedAnalysisCalculationVersion(row.calculation_version));
   const avg1 = Object.fromEntries(METRICS.map((m) => [m.key, calcAvg(rows1, m.key)]));
   const avg2 = Object.fromEntries(METRICS.map((m) => [m.key, calcAvg(rows2, m.key)]));
 

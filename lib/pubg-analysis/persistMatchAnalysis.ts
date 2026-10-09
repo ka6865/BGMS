@@ -1,7 +1,7 @@
 import { upsertPlayerMatches } from "../pubg/playerMatches";
 import { buildOfficialParticipantMatchRecords } from "../pubg/playerMatchesIngest";
 import { getPrivatePlayersList } from "../pubg/privatePlayers";
-import { ANALYSIS_CALCULATION_VERSION, POPULATION_EVIDENCE_VERSION, WEAPON_NAMES } from "./constants";
+import { isSupportedAnalysisCalculationVersion, POPULATION_EVIDENCE_VERSION, WEAPON_NAMES } from "./constants";
 import { BENCHMARK_FILTER_VERSION, isCanonicalBenchmarkTier } from "./benchmarkLookup";
 import { categorizeWeapon } from "./weaponMetaBurst";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -589,7 +589,7 @@ export function buildBenchmarkRow(
     team_wipes: nullableNonNegativeInteger(finalResult.tradeStats?.enemyTeamWipes),
     match_type: eligibility.matchType,
     death_phase: nullableNonNegativeInteger(finalResult.deathPhase),
-    calculation_version: finalResult.calculationVersion === ANALYSIS_CALCULATION_VERSION ? ANALYSIS_CALCULATION_VERSION : null,
+    calculation_version: isSupportedAnalysisCalculationVersion(finalResult.calculationVersion) ? finalResult.calculationVersion : null,
     filter_version: BENCHMARK_FILTER_VERSION,
     population_evidence_version: POPULATION_EVIDENCE_VERSION,
     source: input.source,
