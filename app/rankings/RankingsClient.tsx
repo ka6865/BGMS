@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useTransition, useCallback, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { Flame, Zap, Trophy, RefreshCw, ExternalLink, ChevronUp } from 'lucide-react';
 import AdfitBanner from '@/components/ads/AdfitBanner';
 import AdSenseBanner from '@/components/ads/AdSenseBanner';
@@ -100,20 +100,16 @@ function RankRow({
   index: number;
   referenceTime: string;
 }) {
-  const router = useRouter();
   const medal = RANK_MEDAL[entry.rank];
   const tierColor = TIER_COLOR[entry.tier || ''] || 'text-gray-400';
   const tierBg = TIER_BG[entry.tier || ''] || 'bg-gray-400/10 border-gray-400/20';
 
-  const handleClick = () => {
-    const displayName = entry.nickname || entry.player_id;
-    router.push(`/stats/${entry.platform || "steam"}/${encodeURIComponent(displayName)}`);
-  };
-
   return (
-    <div
-      onClick={handleClick}
-      className="group flex items-center gap-3 md:gap-4 px-4 md:px-5 py-3.5 rounded-2xl cursor-pointer transition-all duration-200 hover:bg-white/5 active:scale-[0.99]"
+    <Link
+      href={`/stats/${entry.platform || "steam"}/${encodeURIComponent(entry.nickname || entry.player_id)}`}
+      prefetch={false}
+      aria-label={`${entry.nickname || entry.player_id} 전적 보기`}
+      className="group flex items-center gap-3 md:gap-4 px-4 md:px-5 py-3.5 rounded-2xl cursor-pointer transition-all duration-200 hover:bg-white/5 active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
       style={{
         borderBottom: '1px solid rgba(255,255,255,0.04)',
         animationDelay: `${index * 30}ms`,
@@ -168,7 +164,7 @@ function RankRow({
 
       {/* 외부 링크 아이콘 */}
       <ExternalLink size={14} className="text-gray-700 group-hover:text-gray-400 transition-colors flex-shrink-0" />
-    </div>
+    </Link>
   );
 }
 

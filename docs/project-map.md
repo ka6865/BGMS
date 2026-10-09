@@ -24,6 +24,7 @@
 | 문서 | 사용 목적 |
 | --- | --- |
 | [점검 후속 수정·운영 반영 준비](operations/2026-10-10-audit-followup.md) | 이번 브랜치의 변경점, 실제 DB 조회 결과, 적용 순서와 남은 확인 |
+| [점검 4~8번 수정](operations/2026-10-10-audit-fixes-4-8.md) | 지표 집계·이벤트 요청·매치 임팩트·키보드 이동·고객센터 수정과 계산 버전 3 적용 조건 |
 | [앞선 승인·캐시·인증 수정](operations/2026-10-10-audit-fixes-1-3.md) | 1~3번 수정과 당시 검증 근거 |
 | [매치 추적 운영](operations/pubg-tracking.md) | 수집 worker의 동작과 canary·관찰 방법 |
 | [커뮤니티 비서 운영](community-agent-operations.md) | 커뮤니티 검토·승인·운영 흐름 |

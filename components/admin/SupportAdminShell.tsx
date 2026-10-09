@@ -3,7 +3,7 @@ import SupportInbox from "@/components/admin/SupportInbox";
 
 export default function SupportAdminShell() {
   return (
-    <main className="min-h-screen bg-[#0b0f19] p-4 text-white sm:p-6">
+    <div className="h-full min-h-0 overflow-y-auto bg-[#0b0f19] p-4 text-white sm:p-6">
       <div className="mx-auto max-w-[1440px]">
         <div className="mb-6">
           <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-300">BGMS Support</p>
@@ -15,6 +15,6 @@ export default function SupportAdminShell() {
           <SupportFaqEditor />
         </div>
       </div>
-    </main>
+    </div>
   );
 }

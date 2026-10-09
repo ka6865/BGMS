@@ -23,7 +23,7 @@ export default function SupportCenter({
   )), [category, faqs, query]);
 
   return (
-    <main className="mx-auto w-full max-w-5xl px-4 py-10 text-white sm:px-6">
+    <div className="mx-auto w-full max-w-5xl px-4 py-10 text-white sm:px-6">
       <div className="mb-8 flex flex-col gap-5 rounded-3xl border border-white/10 bg-white/[0.03] p-6 shadow-2xl sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="mb-2 text-xs font-bold uppercase tracking-[0.24em] text-amber-400">BGMS Support</p>
@@ -72,7 +72,7 @@ export default function SupportCenter({
           {visibleFaqs.length === 0 && <p className="py-10 text-center text-sm text-white/45">조건에 맞는 FAQ가 없습니다.</p>}
         </div>
       </section>
-    </main>
+    </div>
   );
 }
 

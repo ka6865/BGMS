@@ -47,6 +47,22 @@ beforeEach(() => {
 });
 
 describe("support center UI", () => {
+  it.each([200, 404, 500])("문의 응답 %s에서도 공통 main만 유지한다", async (status) => {
+    vi.mocked(fetch).mockImplementationOnce(() => response(status === 200 ? { ticket } : { error: "검증 오류" }, status));
+    render(React.createElement("main", {}, React.createElement(TicketThread, { ticketId: ticket.id })));
+    await screen.findByText(status === 200 ? "확인했습니다." : status === 404 ? "문의가 없습니다" : "문의를 불러오지 못했습니다");
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+  });
+
+  it("문의 로딩과 FAQ 화면에서도 공통 main만 유지한다", () => {
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise<Response>(() => {}));
+    const view = render(React.createElement("main", {}, React.createElement(TicketThread, { ticketId: ticket.id })));
+    expect(screen.getByText("문의 불러오는 중…")).toBeTruthy();
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+    view.rerender(React.createElement("main", {}, React.createElement(SupportCenter, { faqs: [faq], isAuthenticated: false })));
+    expect(screen.getAllByRole("main")).toHaveLength(1);
+  });
+
   it("shows public FAQ and login action without exposing the ticket form to anonymous users", () => {
     render(React.createElement(SupportCenter, { faqs: [faq], isAuthenticated: false }));
     expect(screen.getByText("비공개 요청은?")).toBeTruthy();
