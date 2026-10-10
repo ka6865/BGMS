@@ -7,7 +7,8 @@ const {
   mockListUsers,
   mockProfileMaybeSingle,
   mockProfileDeleteEq,
-  mockProfilesRange
+  mockProfilesRange,
+  mockSaveProfile
 } = vi.hoisted(() => {
   const serverProfileChain = {
     select: vi.fn().mockReturnThis(),
@@ -29,6 +30,7 @@ const {
   const mockProfileMaybeSingle = vi.fn().mockResolvedValue({ data: { id: "target-user" }, error: null });
   const mockProfileDeleteEq = vi.fn().mockResolvedValue({ data: null, error: null });
   const mockProfilesRange = vi.fn().mockResolvedValue({ data: [], error: null });
+  const mockSaveProfile = vi.fn().mockResolvedValue({ data: null, error: null });
   const adminProfileSelectChain: any = {
     maybeSingle: mockProfileMaybeSingle,
     range: mockProfilesRange
@@ -43,6 +45,7 @@ const {
     delete: vi.fn(() => adminProfileDeleteChain)
   };
   const mockCreateSupabaseAdminClient = vi.fn(() => ({
+    rpc: mockSaveProfile,
     auth: {
       admin: {
         listUsers: mockListUsers,
@@ -59,7 +62,8 @@ const {
     mockListUsers,
     mockProfileMaybeSingle,
     mockProfileDeleteEq,
-    mockProfilesRange
+    mockProfilesRange,
+    mockSaveProfile
   };
 });
 
@@ -71,7 +75,7 @@ vi.mock("@supabase/supabase-js", () => ({
   createClient: mockCreateSupabaseAdminClient
 }));
 
-import { DELETE, GET } from "../app/api/admin/users/route";
+import { DELETE, GET, POST } from "../app/api/admin/users/route";
 
 describe("admin users API", () => {
   beforeEach(() => {
@@ -86,6 +90,37 @@ describe("admin users API", () => {
     mockProfileMaybeSingle.mockResolvedValue({ data: { id: "target-user" }, error: null });
     mockProfileDeleteEq.mockResolvedValue({ data: null, error: null });
     mockProfilesRange.mockResolvedValue({ data: [], error: null });
+    mockSaveProfile.mockResolvedValue({ data: null, error: null });
+  });
+
+  it("회원 프로필 저장을 역할과 선택 필드가 보존되는 단일 RPC로 처리한다", async () => {
+    const response = await POST(new Request("http://localhost/api/admin/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: "target-user",
+        role: "admin",
+        pubg_nickname: "Player",
+        pubg_platform: "steam"
+      })
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mockSaveProfile).toHaveBeenCalledWith("save_admin_profile", {
+      p_user_id: "target-user",
+      p_profile: { role: "admin", pubg_nickname: "Player", pubg_platform: "steam" }
+    });
+  });
+
+  it("잘못된 역할은 DB 호출 전에 거부한다", async () => {
+    const response = await POST(new Request("http://localhost/api/admin/users", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: "target-user", role: "owner" })
+    }));
+
+    expect(response.status).toBe(400);
+    expect(mockSaveProfile).not.toHaveBeenCalled();
   });
 
   it("Auth 유저 삭제 후 profiles 행도 명시적으로 삭제한다", async () => {

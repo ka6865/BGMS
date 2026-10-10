@@ -743,8 +743,12 @@ export default function GameDataEditor() {
       });
       const data = await res.json();
       if (data.success) {
-        toast.success(data.message);
-        setFlushMatchId("");
+        if (data.storageCleared === false) {
+          toast.warning(data.message || "DB 캐시는 삭제됐지만 Storage 캐시 삭제에 실패했습니다. 다시 시도해 주세요.");
+        } else {
+          toast.success(data.message);
+          setFlushMatchId("");
+        }
       } else throw new Error(data.error);
     } catch (err: any) {
       toast.error(err.message);
