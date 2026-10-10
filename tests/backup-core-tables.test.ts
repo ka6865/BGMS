@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { gunzipSync } from "node:zlib";
+import { resolve } from "node:path";
 import {
   BACKUP_TABLES,
   MAX_ROWS_PER_TABLE,
@@ -40,6 +43,8 @@ describe("핵심 테이블 백업", () => {
     expect(BACKUP_TABLES).toContain("pubg_match_performance");
     expect(BACKUP_TABLES).toContain("weapon_meta_match_samples");
     expect(BACKUP_TABLES).toContain("weapon_meta_patches");
+    expect(BACKUP_TABLES).toContain("board_post_delete_credentials");
+    expect(BACKUP_TABLES).toContain("board_comment_delete_credentials");
     expect(BACKUP_TABLES).not.toContain("match_stats_raw");
     expect(BACKUP_TABLES).not.toContain("processed_match_telemetry");
     expect(BACKUP_TABLES).not.toContain("pubg_player_cache");
@@ -88,7 +93,13 @@ describe("핵심 테이블 백업", () => {
     expect(exact.error).toBeNull();
   });
 
-  it.each([["map_markers", "id"], ["map_settings", "map_id"], ["weapon_meta_patches", "version"]])(
+  it.each([
+    ["map_markers", "id"],
+    ["map_settings", "map_id"],
+    ["weapon_meta_patches", "version"],
+    ["board_post_delete_credentials", "post_id"],
+    ["board_comment_delete_credentials", "comment_id"],
+  ])(
     "paginates %s by its unique key and bounds each request", async (table, key) => {
       const supabase = createSupabase({}) as unknown as { from: ReturnType<typeof vi.fn> };
       await readTableRows(supabase as never, table);
@@ -144,6 +155,19 @@ describe("핵심 테이블 백업", () => {
     expect(parsed.data.map_markers).toEqual([{ id: 1, map_id: "Erangel", x: 100, y: 200 }]);
     expect(parsed.createdAt).toBeTypeOf("string");
     expect(parsed.complete).toBe(true);
+  });
+
+  it("gzip 백업 fixture에 최종 삭제 비밀과 분석 버전을 보존한다", () => {
+    const compressed = readFileSync(resolve("tests/fixtures/backup/core-tables-roundtrip.json.gz"));
+    expect(compressed.subarray(0, 2)).toEqual(Buffer.from([0x1f, 0x8b]));
+    const fixture = JSON.parse(gunzipSync(compressed).toString("utf8"));
+
+    expect(fixture.complete).toBe(true);
+    expect(fixture.data.posts[0].password_hash).toBeNull();
+    expect(fixture.data.comments[0].password_hash).toBeNull();
+    expect(fixture.data.board_post_delete_credentials[0]).toMatchObject({ post_id: 918001, password_hash: expect.any(String) });
+    expect(fixture.data.board_comment_delete_credentials[0]).toMatchObject({ comment_id: 918002, password_hash: fixture.data.board_post_delete_credentials[0].password_hash });
+    expect(fixture.data.pubg_match_performance[0]).toMatchObject({ calculation_version: 73, result_version: 2 });
   });
 
   it("백업 키는 날짜순으로 정렬된다", () => {
