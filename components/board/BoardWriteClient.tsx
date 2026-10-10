@@ -1,5 +1,7 @@
 'use client';
 
+import { BOARD_POST_PUBLIC_FIELDS } from "@/lib/board/publicFields";
+
 import React, { useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import BoardWrite from "../BoardWrite";
@@ -63,7 +65,7 @@ export default function BoardWriteClient() {
   // 수정 모드일 때 기존 데이터 페칭
   useEffect(() => {
     if (editPostId) {
-      supabase.from("posts").select("*, revision").eq("id", editPostId).single().then(({ data }) => {
+      supabase.from("posts").select(BOARD_POST_PUBLIC_FIELDS).eq("id", editPostId).single().then(({ data }) => {
         if (data) {
           setNewTitle(data.title);
           setNewContent(data.content || "");

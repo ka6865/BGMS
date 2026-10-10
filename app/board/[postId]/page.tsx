@@ -8,6 +8,7 @@ import Link from 'next/link';
 import { CircleAlert, ChevronLeft } from 'lucide-react';
 import { maskIp } from '@/lib/board/ipUtils';
 import { resolvePromoteExpectedParentRevision } from '@/lib/board/promotionRevision';
+import { BOARD_POST_PUBLIC_FIELDS, BOARD_COMMENT_PUBLIC_FIELDS } from '@/lib/board/publicFields';
 
 //  캐시를 완전히 끄고 항상 실시간 데이터를 가져오도록 설정 (수정 사항 반영 확인용)
 export const revalidate = 0;
@@ -49,13 +50,13 @@ export default async function PostDetailPage({ params }: { params: Promise<{ pos
   // 데이터 조회 (작성자 최신 닉네임을 위해 profiles join)
   const { data: postResult, error: postError } = await supabase
     .from("posts")
-    .select("*, profiles(nickname, role)")
+    .select(`${BOARD_POST_PUBLIC_FIELDS}, profiles(nickname, role)`)
     .eq("id", numericPostId)
     .single();
 
   const { data: commentResult, error: commentError } = await supabase
     .from("comments")
-    .select("*, profiles(nickname, role)")
+    .select(`${BOARD_COMMENT_PUBLIC_FIELDS}, profiles(nickname, role)`)
     .eq("post_id", numericPostId)
     .order("created_at", { ascending: true });
 

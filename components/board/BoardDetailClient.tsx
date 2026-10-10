@@ -9,6 +9,7 @@ import CommentSection from "../CommentSection";
 import { AdminBadge } from "./AdminBadge";
 import { BoardPostPromotionState, Post, Comment } from "@/types/board";
 import { supabase } from "@/lib/supabase";
+import { BOARD_COMMENT_PUBLIC_FIELDS } from "@/lib/board/publicFields";
 import { useAuth } from "@/components/AuthProvider";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/analytics";
@@ -210,7 +211,7 @@ export default function BoardDetailClient({
   const fetchComments = async () => {
     const { data } = await supabase
       .from("comments")
-      .select("*, profiles(nickname, role)")
+      .select(`${BOARD_COMMENT_PUBLIC_FIELDS}, profiles(nickname, role)`)
       .eq("post_id", post.id)
       .order("created_at", { ascending: true });
     if (data) {
