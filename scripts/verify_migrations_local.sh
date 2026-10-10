@@ -68,6 +68,7 @@ MIGRATIONS=(
   "20261009213020_analysis_calculation_coexistence"
   "20261010000000_analysis_calculation_v3"
   "20261010001000_bound_tier_ranking_candidates"
+  "20261010031908_defer_ranking_scores_and_metadata"
 )
 
 cleanup() {

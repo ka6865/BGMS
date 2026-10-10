@@ -73,4 +73,42 @@ do $$ declare r record; n integer; begin
  select count(*) into n from public.pubg_performance_jobs where match_id like 'cleanup-%';
  if n<>1 then raise exception 'Cleanup remainder missing'; end if;
 end $$;
+-- Deferred display lookups must retain scoring eligibility, version precedence,
+-- exact counts and the winning match's metadata even for unscored basic games.
+insert into public.pubg_player_matches(player_id,platform,account_id,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type,ranking_eligible) values
+('query-regular','steam','account.queryregular','query-recent',now()-interval '1 day','duo','Tiger_Main',10,1000,1,'official',true),
+('query-regular','steam','account.queryregular','query-older',now()-interval '2 days','duo','Baltic_Main',10,1000,1,'official',true),
+('query-fallback','steam','account.queryfallback','query-fallback',now()-interval '1 day','duo','Desert_Main',15,1500,1,'official',false),
+('query-null','steam','account.querynull','query-null',now()-interval '1 day','duo','Baltic_Main',90,9000,1,'official',false),
+('query-unsupported','steam','account.queryunsupported','query-unsupported',now()-interval '1 day','duo','Baltic_Main',80,8000,1,'official',null),
+('query-plain','steam','account.queryplain','query-plain',now()-interval '1 day','duo','Baltic_Main',5,500,1,'official',true),
+('query-fallback','steam','account.queryfallback','query-future',now()+interval '1 day','duo','Baltic_Main',99,9999,1,'official',true);
+insert into public.global_benchmarks(match_id,platform,player_id,game_mode,match_type,tier,score,filter_version,population_evidence_version,calculation_version) values
+('query-recent','steam','query-regular','duo','official','A',70,8,1,2),
+('query-fallback','steam','query-fallback','duo','official','A',70,8,1,2),
+('query-unsupported','steam','query-unsupported','duo','official','S+',99,8,1,1);
+insert into public.pubg_match_performance(platform,account_id,match_id,player_id,calculation_version,result_version,score,tier,benchmark,ranking_eligible) values
+('steam','account.queryregular','query-recent','query-regular',3,73,82,'S','{"score":82}',true),
+('steam','account.querynull','query-null','query-null',2,73,99,'S+','{"score":99}',true),
+('steam','account.querynull','query-null','query-null',3,73,null,null,null,true);
+do $$ declare r record; n integer; tab text; begin
+  foreach tab in array array['damage','kills','tier'] loop
+    select count(*) into n from public.get_pubg_rankings(tab,array['duo'],'all',3,8,1,73,'{}');
+    if n<>(case when tab='tier' then 2 else 3 end) then raise exception 'Deferred eligibility changed for %: %',tab,n; end if;
+    select * into r from public.get_pubg_rankings(tab,array['duo'],'all',3,8,1,73,'{}') where player_id='query-regular';
+    if r.map_name is distinct from 'Tiger_Main' or r.tier is distinct from 'S'
+      or r.match_count is distinct from (case when tab='tier' then 1::bigint else 2::bigint end)
+    then raise exception 'Winning metadata, latest score or count changed for %',tab; end if;
+  end loop;
+  select * into r from public.get_pubg_rankings('damage',array['duo'],'all',3,8,1,73,'{}') limit 1;
+  if r.player_id is distinct from 'query-fallback' or r.value is distinct from 1500::double precision
+    or r.tier is distinct from 'A' or r.map_name is distinct from 'Desert_Main'
+  then raise exception 'Scored fallback was lost'; end if;
+  select * into r from public.get_pubg_rankings('damage',array['duo'],'all',2,8,1,73,'{}') limit 1;
+  if r.player_id is distinct from 'query-null' or r.value is distinct from 9000::double precision
+  then raise exception 'Older reader lost its score'; end if;
+  select count(*) into n from public.get_pubg_rankings('damage',array['duo'],'all',3,8,1,73,array['steam:account:account.queryfallback']);
+  if n<>2 then raise exception 'Scored fallback privacy failed'; end if;
+  raise notice 'PASS: deferred ranking eligibility, null version precedence, counts and winning metadata';
+end $$;
 rollback;
