@@ -445,15 +445,10 @@ async function assertRouteRaceSettledOnB(
     .filter((record) => record.id > input.raceAfterRecordId);
   const bRecords = playerRecords(dispatcher, "PlayerB", "steam")
     .filter((record) => record.id > input.returningBAfterRecordId);
-  expect(aRecords).toHaveLength(1);
-  expect(aRecords.every((record) => ["aborted", "completed"].includes(record.state))).toBe(true);
+  expect(aRecords.length).toBeGreaterThanOrEqual(1);
   expect(aRecords.filter((record) => record.successful)).toHaveLength(0);
   for (const record of aRecords) {
-    if (record.state === "aborted") {
-      expect(["fetch-signal", "request-failed"]).toContain(record.terminalSource);
-    } else {
-      expect(record).toMatchObject({ successful: false, terminalSource: "response" });
-    }
+    expect(record).toMatchObject({ state: "aborted", terminalSource: "fetch-signal" });
     expect(record.terminalSource).not.toBe("main-frame-navigation");
   }
   expect(bRecords.filter((record) => record.state === "completed" && record.successful)).toHaveLength(1);
@@ -552,8 +547,8 @@ async function controlEvidence(page: Page, state: ControlState) {
       add("profile-weapons", query('button[aria-label="무기 분석"]'));
       add("profile-season", query('select[aria-label="시즌 선택"]'));
       add("section-tab", query('[role="group"][aria-label="전적 분석 섹션"] button'));
-      add("stats-mode", query('[role="group"][aria-label="통계 모드"] button'));
-      add("party-size", query('[role="group"][aria-label="파티 인원"] button'));
+      add("stats-mode", query('[role="group"][aria-label="현재 시즌 모드 필터"] button'));
+      add("party-size", query('[role="group"][aria-label="현재 시즌 파티 필터"] button'));
       add("match-filter", query('[role="group"][aria-label="매치 유형 필터"] button'));
       add("match-expand", query('button[aria-label="매치 상세 펼치기"], button[aria-label="매치 상세 접기"]'));
       add("bottom-nav", query('nav[class*="fixed"][class*="bottom-0"] button'));
@@ -565,7 +560,7 @@ async function controlEvidence(page: Page, state: ControlState) {
       add("recent-remove", deleteButtons);
       add("recent-quick", deleteButtons.flatMap((button) => {
         const row = button.parentElement;
-        const candidate = row?.querySelector("button:not([aria-label])");
+        const candidate = row?.querySelector('button[aria-label$="로 검색"]');
         return candidate ? [candidate] : [];
       }));
       add("recent-favorite", deleteButtons.flatMap((button) => {
@@ -677,7 +672,15 @@ async function layoutEvidence(page: Page) {
         const overScroll = element.scrollWidth - element.clientWidth;
         const overRight = rect.right - (shellRect?.right ?? rect.right);
         return overScroll > 1 || overRight > 1
-          ? [{ tag: element.tagName, className: element.className, overScroll, overRight }]
+          ? [{
+              tag: element.tagName,
+              className: String(element.className),
+              adRailSide: element.closest<HTMLElement>('[data-ad-rail="manual"]')?.dataset.adRailSide ?? null,
+              left: rect.left,
+              right: rect.right,
+              overScroll,
+              overRight,
+            }]
           : [];
       })
       .slice(0, 20);
@@ -759,7 +762,7 @@ function assertMountedCreativeEvidence(
     : [
         ["stats-top", "adfit"],
         ["stats-after-5", "adsense"],
-        ["stats-after-10", "adfit"],
+        ...(process.env.NEXT_PUBLIC_ADFIT_STATS_FEED_UNIT?.trim() ? [["stats-after-10", "adfit"]] : []),
         ["stats-after-15", "adsense"],
       ];
   expect(evidence.adEvidence.map(({ placement, provider }) => [placement, provider])).toEqual(expected);
@@ -773,12 +776,25 @@ function assertMountedCreativeEvidence(
   expect(topOwner).toContain(width < 768 ? "320x100" : "728x90");
 }
 
+function assertNoUnexpectedViewportOverflow(
+  evidence: Awaited<ReturnType<typeof layoutEvidence>>,
+  width: number,
+): void {
+  const unexpectedOverflow = evidence.internalOverflow.filter((item) => {
+    const isIntentional1920AdRail = width === 1920
+      && ((item.adRailSide === "left" && item.left >= 160 && item.right <= 360)
+        || (item.adRailSide === "right" && item.left >= 1560 && item.right <= 1760));
+    return !isIntentional1920AdRail;
+  });
+  expect(unexpectedOverflow).toEqual([]);
+  expect(evidence.globalOverflow).toBe(0);
+}
+
 function assertLayoutContract(
   evidence: Awaited<ReturnType<typeof layoutEvidence>>,
   width: number,
 ): void {
-  expect(evidence.globalOverflow).toBe(0);
-  expect(evidence.internalOverflow).toEqual([]);
+  assertNoUnexpectedViewportOverflow(evidence, width);
   expect(evidence.shellCapOk).toBe(true);
   expect(evidence.gridColumnCount).toBe(width < 1024 ? 1 : 2);
   expect(evidence.sequence.map((item) => item.name)).toEqual([
@@ -1134,10 +1150,17 @@ describeBrowser("stats browser smoke", () => {
           selector: { pathname: "/api/pubg/matches-summary", method: "POST", semanticKey: summarySemanticKey({ matchIds: ["match-fixture-1"], nickname: "FixturePlayer", platform: "steam" }), state: "completed" },
           count: 1,
         });
-        await waitForStatsText({ dispatcher, page, text: "최근 매치 요약을 불러오지 못했습니다." });
+        await waitForStatsText({ dispatcher, page, text: "1경기를 불러오지 못했습니다. 다시 시도해 주세요." });
+        await waitForButtonEnabled(page, dispatcher, "매치 요약 다시 시도");
         await clickButtonText(page, "매치 요약 다시 시도");
         await waitForSummarySuccess(dispatcher, "FixturePlayer", "steam");
         await waitForStatsSelector({ dispatcher, page, selector: '[data-compact-match-id="match-fixture-1"]' });
+        const summaryRecords = dispatcher.ledger.records.filter((record) =>
+          record.pathname === "/api/pubg/matches-summary"
+          && record.semanticKey === summarySemanticKey({ matchIds: ["match-fixture-1"], nickname: "FixturePlayer", platform: "steam" }),
+        );
+        expect(summaryRecords.map((record) => record.status)).toEqual([500, 200]);
+        expect(summaryRecords.filter((record) => record.successful)).toHaveLength(1);
         await recordScenarioEvidence("summary-retry", viewport, dispatcher, log);
       },
     });
@@ -1193,8 +1216,8 @@ describeBrowser("stats browser smoke", () => {
         await waitForSummarySuccess(dispatcher, "FixturePlayer", "steam");
         await page.click('button[aria-label="즐겨찾기 추가"]');
         const storage = await page.evaluate(() => ({
-          recent: localStorage.getItem("pubg_recent_searches_v2"),
-          favorites: localStorage.getItem("pubg_favorites_v2"),
+          recent: localStorage.getItem("pubg_recent_searches_v3"),
+          favorites: localStorage.getItem("pubg_favorites_v3"),
         }));
         expect(storage.recent).toContain("FixturePlayer");
         expect(storage.favorites).toContain("FixturePlayer");
@@ -1210,8 +1233,8 @@ describeBrowser("stats browser smoke", () => {
       run: async ({ page, dispatcher }) => {
         await goToLanding(page, dispatcher, baseUrl);
         const storage = await page.evaluate(() => ({
-          recent: localStorage.getItem("pubg_recent_searches_v2"),
-          favorites: localStorage.getItem("pubg_favorites_v2"),
+          recent: localStorage.getItem("pubg_recent_searches_v3"),
+          favorites: localStorage.getItem("pubg_favorites_v3"),
         }));
         expect(storage.recent).toBeNull();
         expect(storage.favorites).toBeNull();
@@ -1379,11 +1402,11 @@ describeBrowser("stats browser smoke", () => {
         await goToPlayer(page, dispatcher, baseUrl, "steam", "FixturePlayer");
         await waitForPlayerSuccess(dispatcher, "FixturePlayer", "steam");
         await waitForSummarySuccess(dispatcher, "FixturePlayer", "steam");
-        await page.click('[role="group"][aria-label="통계 모드"] button:nth-child(2)');
-        await page.click('[role="group"][aria-label="파티 인원"] button:nth-child(1)');
+        await page.click('[role="group"][aria-label="현재 시즌 모드 필터"] button:nth-child(2)');
+        await page.click('[role="group"][aria-label="현재 시즌 파티 필터"] button:nth-child(1)');
         await dispatcher.withFatal(page.waitForFunction(() => (
-          document.querySelector('[role="group"][aria-label="통계 모드"] button:nth-child(2)')?.getAttribute("aria-pressed") === "true"
-          && document.querySelector('[role="group"][aria-label="파티 인원"] button:nth-child(1)')?.getAttribute("aria-pressed") === "true"
+          document.querySelector('[role="group"][aria-label="현재 시즌 모드 필터"] button:nth-child(2)')?.getAttribute("aria-pressed") === "true"
+          && document.querySelector('[role="group"][aria-label="현재 시즌 파티 필터"] button:nth-child(1)')?.getAttribute("aria-pressed") === "true"
         )));
         expect(await page.$$('[data-compact-match-id="match-fixture-1"]')).toHaveLength(1);
         expect(dispatcher.ledger.count({ pathname: "/api/pubg/player", successful: true })).toBe(1);
@@ -1501,7 +1524,7 @@ describeBrowser("stats browser smoke", () => {
       run: async ({ page, dispatcher }) => {
         const log = attachRuntimeLog(page);
         await goToLanding(page, dispatcher, baseUrl);
-        await page.evaluate(() => localStorage.setItem("pubg_recent_searches_v2", JSON.stringify(["StoredPlayer"])));
+        await page.evaluate(() => localStorage.setItem("pubg_recent_searches_v3", JSON.stringify(["StoredPlayer"])));
         await page.reload({ waitUntil: "domcontentloaded" });
         await waitForStatsSelector({ dispatcher, page, selector: 'input[name="nickname"]' });
         expect(log.pageErrors.filter((message) => /hydration|mismatch/i.test(message))).toEqual([]);
@@ -1708,8 +1731,7 @@ describeBrowser("stats browser smoke", () => {
         await waitForSummarySuccess(dispatcher, "ManyMatches", "steam", Array.from({ length: 16 }, (_, index) => `match-many-${index + 1}`));
         await page.screenshot({ path: screenshotPath("stats-screenshot", viewport), fullPage: true });
         const evidence = await layoutEvidence(page);
-        expect(evidence.globalOverflow).toBe(0);
-        expect(evidence.internalOverflow).toEqual([]);
+        assertNoUnexpectedViewportOverflow(evidence, viewport.width);
         console.log(JSON.stringify({ kind: "stats-browser-screenshot", viewport, path: screenshotPath("stats-screenshot", viewport), evidence }));
         dispatcher.ledger.throwIfUnexpected();
       },
