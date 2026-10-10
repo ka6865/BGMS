@@ -33,6 +33,10 @@ export type RankingEntry = {
 export type RankingQueryResult = {
   data: RankingEntry[];
   hasError: boolean;
+  generatedAt?: string;
+  cacheStatus?: 'hit' | 'miss';
+  databaseMs?: number;
+  aggregationMs?: number;
 };
 
 export type RankingApiEntry = Omit<RankingEntry, 'player_id' | 'game_mode' | 'map_name' | 'created_at' | 'match_count'> & {
@@ -92,36 +96,19 @@ function getModes(filter: GameModeFilter, perspective: PerspectiveFilter): strin
   return modes;
 }
 
-function privateRankingKeys(rows: Array<{ platform?: string; lower_nickname?: string; nickname?: string; account_id?: string }>): string[] {
-  const keys: string[] = [];
-  for (const row of rows) {
-    const platform = String(row.platform || '').toLowerCase();
-    if (!platform) continue;
-    const platforms = platform === 'all' ? ['steam', 'kakao'] : [platform];
-    const nickname = String(row.lower_nickname || row.nickname || '').trim().toLowerCase();
-    for (const scopedPlatform of platforms) {
-      if (nickname) keys.push(`${scopedPlatform}:${nickname}`);
-      if (row.account_id) keys.push(`${scopedPlatform}:account:${row.account_id}`);
-    }
-  }
-  return [...new Set(keys)];
-}
-
 /** The database selects each player's best match before applying TOP 30. */
 async function readRanking(tab: 'damage' | 'kills' | 'tier', mode: GameModeFilter, perspective: PerspectiveFilter, matchType: MatchTypeFilter): Promise<RankingQueryResult> {
   try {
-    const privacy = await supabase.from('system_settings').select('value').eq('key', 'private_players_list').maybeSingle();
-    if (privacy.error) throw privacy.error;
-    const privatePlayers = privacy.data?.value ? JSON.parse(privacy.data.value) : [];
-    if (!Array.isArray(privatePlayers)) throw new Error('Invalid privacy settings');
-    const { data, error } = await supabase.rpc('get_pubg_rankings', {
+    const { data, error } = await supabase.rpc('get_pubg_rankings_cached', {
       p_tab: tab, p_modes: getModes(mode, perspective), p_match_type: matchType,
       p_calculation: ANALYSIS_CALCULATION_VERSION, p_filter: BENCHMARK_FILTER_VERSION,
       p_population: BENCHMARK_POPULATION_EVIDENCE_VERSION, p_result: RESULT_VERSION,
-      p_excluded: privateRankingKeys(privatePlayers),
-    });
-    if (error || !Array.isArray(data)) throw error || new Error('Missing ranking response');
-    return { hasError: false, data: data.map((row, index) => ({
+    }).abortSignal(AbortSignal.timeout(10_000));
+    if (error || !Array.isArray(data?.entries) || !Number.isFinite(Date.parse(data.generated_at))) {
+      throw error || new Error('Missing ranking response');
+    }
+    return { hasError: false, generatedAt: data.generated_at, cacheStatus: data.cache_hit ? 'hit' : 'miss',
+      databaseMs: data.database_ms, aggregationMs: data.aggregation_ms, data: data.entries.map((row: any, index: number) => ({
       rank: index + 1, platform: row.platform, player_id: row.player_id, nickname: row.player_id,
       value: Math.round(row.value), secondary: Math.round(row.secondary), tier: row.tier || undefined,
       game_mode: GAME_MODE_KO[row.game_mode] || row.game_mode,
@@ -134,17 +121,12 @@ async function readRanking(tab: 'damage' | 'kills' | 'tier', mode: GameModeFilte
   }
 }
 
-// Privacy settings can change at any time. Do not put rankings behind a
-// time-based cache that can keep a newly-private player visible for a minute.
-// The underlying RPC remains indexed and returns only the requested top rows.
-const readRankingCached = readRanking;
-
 export async function getWeeklyTopDamage(mode: GameModeFilter = 'all', perspective: PerspectiveFilter = 'all', matchType: MatchTypeFilter = 'all'): Promise<RankingQueryResult> {
-  return readRankingCached('damage', mode, perspective, matchType);
+  return readRanking('damage', mode, perspective, matchType);
 }
 export async function getWeeklyTopKills(mode: GameModeFilter = 'all', perspective: PerspectiveFilter = 'all', matchType: MatchTypeFilter = 'all'): Promise<RankingQueryResult> {
-  return readRankingCached('kills', mode, perspective, matchType);
+  return readRanking('kills', mode, perspective, matchType);
 }
 export async function getTopTierRanking(mode: GameModeFilter = 'all', perspective: PerspectiveFilter = 'all', matchType: MatchTypeFilter = 'all'): Promise<RankingQueryResult> {
-  return readRankingCached('tier', mode, perspective, matchType);
+  return readRanking('tier', mode, perspective, matchType);
 }

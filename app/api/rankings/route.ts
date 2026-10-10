@@ -18,6 +18,7 @@ const VALID_PERSPECTIVES = new Set(["all", "fpp", "tpp"]);
 const VALID_MATCH_TYPES = new Set(["all", "competitive", "official"]);
 
 export async function GET(request: NextRequest) {
+  const startedAt = performance.now();
   const { searchParams } = request.nextUrl;
   const tab = valueOrDefault(searchParams.get("tab"), VALID_TABS, "damage");
   const mode = valueOrDefault(searchParams.get("mode"), VALID_MODES, "all");
@@ -55,7 +56,7 @@ export async function GET(request: NextRequest) {
     if (rankingResult.hasError) {
       return NextResponse.json(
         { error: '랭킹 데이터를 불러오지 못했습니다.' },
-        { status: 503 }
+        { status: 503, headers: { 'Cache-Control': 'private, no-store' } }
       );
     }
 
@@ -76,16 +77,19 @@ export async function GET(request: NextRequest) {
           matchCount: entry.match_count,
         } satisfies RankingApiEntry)),
         query: { tab, mode, perspective, matchType },
+        generatedAt: rankingResult.generatedAt,
       },
       {
         headers: {
           "Cache-Control": "private, no-store",
+          "Server-Timing": `ranking;dur=${Math.round(performance.now() - startedAt)}, db;dur=${Math.round(rankingResult.databaseMs ?? 0)}, aggregate;dur=${Math.round(rankingResult.aggregationMs ?? 0)}`,
+          "X-Ranking-Cache": rankingResult.cacheStatus ?? 'miss',
         },
       }
     );
   } catch (error) {
     console.error('랭킹 API 요청 오류:', error);
-    return NextResponse.json({ error: '랭킹 데이터를 불러오지 못했습니다.' }, { status: 500 });
+    return NextResponse.json({ error: '랭킹 데이터를 불러오지 못했습니다.' }, { status: 500, headers: { 'Cache-Control': 'private, no-store' } });
   }
 }
 
