@@ -6,6 +6,7 @@ import {
   type GameModeFilter,
   type MatchTypeFilter,
   type PerspectiveFilter,
+  type RankingApiEntry,
 } from "@/actions/rankings";
 
 export const dynamic = "force-dynamic";
@@ -73,7 +74,7 @@ export async function GET(request: NextRequest) {
           tier: entry.tier,
           createdAt: entry.created_at,
           matchCount: entry.match_count,
-        })),
+        } satisfies RankingApiEntry)),
         query: { tab, mode, perspective, matchType },
       },
       {

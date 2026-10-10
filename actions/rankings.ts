@@ -35,6 +35,15 @@ export type RankingQueryResult = {
   hasError: boolean;
 };
 
+export type RankingApiEntry = Omit<RankingEntry, 'player_id' | 'game_mode' | 'map_name' | 'created_at' | 'match_count'> & {
+  label: string;
+  playerId: string;
+  gameMode: string;
+  mapName: string;
+  createdAt?: string;
+  matchCount?: number;
+};
+
 const MAP_NAME_KO: Record<string, string> = {
   Baltic_Main: '에란겔',
   Desert_Main: '미라마',

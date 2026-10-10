@@ -1,23 +1,17 @@
 'use client';
 
-import React, { useState, useTransition, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Flame, Zap, Trophy, RefreshCw, ExternalLink, ChevronUp } from 'lucide-react';
 import AdfitBanner from '@/components/ads/AdfitBanner';
 import AdSenseBanner from '@/components/ads/AdSenseBanner';
 import { BgmsIcon, type BgmsIconName } from '@/components/common/BgmsIcon';
-import type { RankingEntry, GameModeFilter, MatchTypeFilter, PerspectiveFilter } from '@/actions/rankings';
+import type { RankingApiEntry, GameModeFilter, MatchTypeFilter, PerspectiveFilter } from '@/actions/rankings';
 
 type TabType = 'damage' | 'kills' | 'tier';
 
 interface Props {
-  initialDamage: RankingEntry[];
-  initialKills: RankingEntry[];
-  initialTier: RankingEntry[];
   updatedAt: string;
-  initialDamageHasError?: boolean;
-  initialKillsHasError?: boolean;
-  initialTierHasError?: boolean;
 }
 
 const TIER_COLOR: Record<string, string> = {
@@ -95,7 +89,7 @@ function RankRow({
   index,
   referenceTime,
 }: {
-  entry: RankingEntry;
+  entry: RankingApiEntry;
   tab: TabType;
   index: number;
   referenceTime: string;
@@ -106,9 +100,9 @@ function RankRow({
 
   return (
     <Link
-      href={`/stats/${entry.platform || "steam"}/${encodeURIComponent(entry.nickname || entry.player_id)}`}
+      href={`/stats/${entry.platform || "steam"}/${encodeURIComponent(entry.nickname || entry.playerId)}`}
       prefetch={false}
-      aria-label={`${entry.nickname || entry.player_id} 전적 보기`}
+      aria-label={`${entry.nickname || entry.playerId} 전적 보기`}
       className="group flex items-center gap-3 md:gap-4 px-4 md:px-5 py-3.5 rounded-2xl cursor-pointer transition-all duration-200 hover:bg-white/5 active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
       style={{
         borderBottom: '1px solid rgba(255,255,255,0.04)',
@@ -128,19 +122,19 @@ function RankRow({
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className={`font-bold text-sm md:text-base truncate ${medal ? medal.color : 'text-gray-200'} group-hover:text-white transition-colors`}>
-            {entry.nickname || entry.player_id}
+            {entry.nickname || entry.playerId}
           </span>
           <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold border ${tierBg} ${tierColor} flex-shrink-0`}>
             {entry.tier || '성과 미분석'}
           </span>
         </div>
         <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-          <span className="text-[10px] text-gray-600">{entry.platform === "kakao" ? "Kakao" : "Steam"} · {entry.game_mode}</span>
-          {entry.map_name && <span className="text-[10px] text-gray-600">· {entry.map_name}</span>}
-          {entry.match_count && <span className="text-[10px] text-gray-600">· {entry.match_count}경기</span>}
-          {entry.created_at && (
+          <span className="text-[10px] text-gray-600">{entry.platform === "kakao" ? "Kakao" : "Steam"} · {entry.gameMode}</span>
+          {entry.mapName && <span className="text-[10px] text-gray-600">· {entry.mapName}</span>}
+          {entry.matchCount && <span className="text-[10px] text-gray-600">· {entry.matchCount}경기</span>}
+          {entry.createdAt && (
             <span className="text-[10px] text-gray-700">
-              {timeAgo(entry.created_at, referenceTime)}
+              {timeAgo(entry.createdAt, referenceTime)}
             </span>
           )}
         </div>
@@ -168,86 +162,52 @@ function RankRow({
   );
 }
 
-export default function RankingsClient({
-  initialDamage,
-  initialKills,
-  initialTier,
-  updatedAt,
-  initialDamageHasError = false,
-  initialKillsHasError = false,
-  initialTierHasError = false,
-}: Props) {
+export default function RankingsClient({ updatedAt }: Props) {
   const [tab, setTab] = useState<TabType>('damage');
   const [modeFilter, setModeFilter] = useState<GameModeFilter>('all');
   const [perspectiveFilter, setPerspectiveFilter] = useState<PerspectiveFilter>('all');
   const [matchTypeFilter, setMatchTypeFilter] = useState<MatchTypeFilter>('all');
   
-  const [damageData, setDamageData] = useState(initialDamage);
-  const [killsData, setKillsData] = useState(initialKills);
-  const [tierData, setTierData] = useState(initialTier);
-  const [damageHasError, setDamageHasError] = useState(initialDamageHasError);
-  const [killsHasError, setKillsHasError] = useState(initialKillsHasError);
-  const [tierHasError, setTierHasError] = useState(initialTierHasError);
+  const query = new URLSearchParams({ tab, mode: modeFilter, perspective: perspectiveFilter, matchType: matchTypeFilter }).toString();
+  const [result, setResult] = useState<{ query: string; data: RankingApiEntry[]; hasError: boolean } | null>(null);
+  const [isFetching, setIsFetching] = useState(false);
+  const [refreshVersion, setRefreshVersion] = useState(0);
   const [lastUpdated, setLastUpdated] = useState(updatedAt);
-  const [isPending, startTransition] = useTransition();
-
-  const requestId = useRef(0);
-  const fetching = useRef(false);
-  const fetchUpdatedData = useCallback((mode: GameModeFilter, perspective: PerspectiveFilter, matchType: MatchTypeFilter) => {
-    const id = ++requestId.current;
-    fetching.current = true;
-    startTransition(async () => {
-      try {
-      const { getWeeklyTopDamage, getWeeklyTopKills, getTopTierRanking } = await import('@/actions/rankings');
-      const [d, k, t] = await Promise.all([
-        getWeeklyTopDamage(mode, perspective, matchType),
-        getWeeklyTopKills(mode, perspective, matchType),
-        getTopTierRanking(mode, perspective, matchType),
-      ]);
-      if (id !== requestId.current) return;
-      setDamageData(d.data);
-      setKillsData(k.data);
-      setTierData(t.data);
-      setDamageHasError(d.hasError);
-      setKillsHasError(k.hasError);
-      setTierHasError(t.hasError);
-      if (!d.hasError && !k.hasError && !t.hasError) setLastUpdated(new Date().toISOString());
-      } catch {
-        if (id === requestId.current) { setDamageHasError(true); setKillsHasError(true); setTierHasError(true); }
-      } finally { if (id === requestId.current) fetching.current = false; }
-    });
-  }, []);
-
-  const handleRefresh = useCallback(() => {
-    fetchUpdatedData(modeFilter, perspectiveFilter, matchTypeFilter);
-  }, [fetchUpdatedData, modeFilter, perspectiveFilter, matchTypeFilter]);
-
-  const handleModeChange = useCallback((mode: GameModeFilter) => {
-    setModeFilter(mode);
-    fetchUpdatedData(mode, perspectiveFilter, matchTypeFilter);
-  }, [fetchUpdatedData, perspectiveFilter, matchTypeFilter]);
-
-  const handlePerspectiveChange = useCallback((perspective: PerspectiveFilter) => {
-    setPerspectiveFilter(perspective);
-    fetchUpdatedData(modeFilter, perspective, matchTypeFilter);
-  }, [fetchUpdatedData, modeFilter, matchTypeFilter]);
-
-  const handleMatchTypeChange = useCallback((matchType: MatchTypeFilter) => {
-    setMatchTypeFilter(matchType);
-    fetchUpdatedData(modeFilter, perspectiveFilter, matchType);
-  }, [fetchUpdatedData, modeFilter, perspectiveFilter]);
+  const isPending = isFetching || result?.query !== query;
+  const handleRefresh = () => setRefreshVersion(version => version + 1);
 
   useEffect(() => {
+    let active = true;
+    let pending = false;
+    const controller = new AbortController();
+    async function load() {
+      if (pending) return;
+      pending = true;
+      setIsFetching(true);
+      try {
+        const response = await fetch(`/api/rankings?${query}`, { cache: 'no-store', signal: controller.signal });
+        if (!response.ok) throw new Error('Ranking request failed');
+        const body = await response.json();
+        if (!Array.isArray(body.entries)) throw new Error('Invalid ranking response');
+        if (!active) return;
+        setResult({ query, data: body.entries, hasError: false });
+        setLastUpdated(new Date().toISOString());
+      } catch {
+        if (active) setResult({ query, data: [], hasError: true });
+      } finally {
+        pending = false;
+        if (active) setIsFetching(false);
+      }
+    }
+    void load();
     const timer = window.setInterval(() => {
-      if (document.visibilityState === 'visible' && !fetching.current) fetchUpdatedData(modeFilter, perspectiveFilter, matchTypeFilter);
+      if (document.visibilityState === 'visible') void load();
     }, 60_000);
-    return () => window.clearInterval(timer);
-  }, [fetchUpdatedData, modeFilter, perspectiveFilter, matchTypeFilter]);
+    return () => { active = false; controller.abort(); window.clearInterval(timer); };
+  }, [query, refreshVersion]);
 
-  useEffect(() => () => { requestId.current += 1; fetching.current = false; }, []);
-
-  const currentData = tab === 'damage' ? damageData : tab === 'kills' ? killsData : tierData;
-  const currentHasError = tab === 'damage' ? damageHasError : tab === 'kills' ? killsHasError : tierHasError;
+  const currentData = result?.query === query ? result.data : [];
+  const currentHasError = result?.query === query && result.hasError;
 
   const tabs = [
     { id: 'damage' as TabType, label: '최근 7일 딜량', icon: Flame, color: 'text-orange-400', activeBg: 'bg-orange-400/15 border-orange-400/30' },
@@ -281,7 +241,7 @@ export default function RankingsClient({
             </button>
           </div>
           <p className="text-[10px] text-gray-700">
-            조회 기준: {formatUpdatedAt(lastUpdated)}
+            조회 기준: {isPending ? '조회 중' : currentHasError ? '조회 실패' : formatUpdatedAt(lastUpdated)}
           </p>
         </div>
       </div>
@@ -316,7 +276,7 @@ export default function RankingsClient({
             {MATCH_TYPE_FILTERS.map((m) => (
               <button
                 key={m.value}
-                onClick={() => handleMatchTypeChange(m.value)}
+                onClick={() => setMatchTypeFilter(m.value)}
                 className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap flex-shrink-0 border ${
                   matchTypeFilter === m.value
                     ? 'bg-indigo-500/15 border-indigo-500/30 text-indigo-400'
@@ -336,7 +296,7 @@ export default function RankingsClient({
             {PERSPECTIVE_FILTERS.map((p) => (
               <button
                 key={p.value}
-                onClick={() => handlePerspectiveChange(p.value)}
+                onClick={() => setPerspectiveFilter(p.value)}
                 className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap flex-shrink-0 border ${
                   perspectiveFilter === p.value
                     ? 'bg-sky-500/15 border-sky-500/30 text-sky-400'
@@ -356,7 +316,7 @@ export default function RankingsClient({
             {MODE_FILTERS.map((m) => (
               <button
                 key={m.value}
-                onClick={() => handleModeChange(m.value)}
+                onClick={() => setModeFilter(m.value)}
                 className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all whitespace-nowrap flex-shrink-0 border ${
                   modeFilter === m.value
                     ? 'bg-[#F2A900]/15 border-[#F2A900]/30 text-[#F2A900]'
@@ -385,7 +345,7 @@ export default function RankingsClient({
         </div>
 
         {/* 랭킹 리스트 */}
-        <div className="bg-white/[0.03] border border-white/[0.06] rounded-3xl overflow-hidden mb-8">
+        <div aria-busy={isPending} aria-label="랭킹 결과" className="bg-white/[0.03] border border-white/[0.06] rounded-3xl overflow-hidden mb-8">
           {/* 컬럼 헤더 */}
           <div className="flex items-center gap-3 md:gap-4 px-4 md:px-5 py-2.5 border-b border-white/[0.06]">
             <div className="w-8 text-center text-[10px] text-gray-700 font-bold">#</div>
@@ -397,17 +357,18 @@ export default function RankingsClient({
           </div>
 
           {isPending ? (
-            // 스켈레톤
-            Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-4 px-5 py-4 border-b border-white/[0.04]">
-                <div className="w-8 h-4 bg-white/5 rounded animate-pulse" />
-                <div className="flex-1 space-y-1.5">
-                  <div className="h-3.5 w-32 bg-white/5 rounded animate-pulse" />
-                  <div className="h-2.5 w-20 bg-white/5 rounded animate-pulse" />
+            <div role="status" aria-label="랭킹 불러오는 중">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-4 px-5 py-4 border-b border-white/[0.04]">
+                  <div className="w-8 h-4 bg-white/5 rounded animate-pulse" />
+                  <div className="flex-1 space-y-1.5">
+                    <div className="h-3.5 w-32 bg-white/5 rounded animate-pulse" />
+                    <div className="h-2.5 w-20 bg-white/5 rounded animate-pulse" />
+                  </div>
+                  <div className="h-5 w-16 bg-white/5 rounded animate-pulse" />
                 </div>
-                <div className="h-5 w-16 bg-white/5 rounded animate-pulse" />
-              </div>
-            ))
+              ))}
+            </div>
           ) : currentHasError ? (
             <div className="py-16 text-center">
               <BgmsIcon name="message" size={30} className="mx-auto mb-3 text-red-400" />
@@ -430,7 +391,7 @@ export default function RankingsClient({
           ) : (
             currentData.map((entry, i) => (
               <RankRow
-                key={`${entry.player_id}-${i}`}
+                key={`${entry.platform}-${entry.playerId}-${i}`}
                 entry={entry}
                 tab={tab}
                 index={i}

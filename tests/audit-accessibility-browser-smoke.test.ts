@@ -2,7 +2,7 @@ import { createServer, type Server } from 'node:http';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
-import puppeteer, { type Browser, type Page } from 'puppeteer';
+import puppeteer, { type Browser, type HTTPRequest, type Page } from 'puppeteer';
 import { startOwnedStatsDevServer, type OwnedStatsDevServer } from './helpers/statsBrowserHarness';
 
 const enabled = process.env.RUN_AUDIT_ACCESSIBILITY_BROWSER_SMOKE === 'true';
@@ -38,6 +38,10 @@ describe.skipIf(!enabled)('점검 7·8 격리 브라우저 검증', () => {
   let server: OwnedStatsDevServer;
   let browser: Browser;
   const unexpected: string[] = [];
+  let holdRankings = false;
+  let rankingError = false;
+  const rankingCalls: Array<{ p_tab: string; p_modes: string[] }> = [];
+  const heldRankings: Array<() => void> = [];
   beforeAll(async () => {
     stub = createServer((request, response) => {
       response.setHeader('Access-Control-Allow-Origin', '*');
@@ -47,7 +51,17 @@ describe.skipIf(!enabled)('점검 7·8 격리 브라우저 검증', () => {
       if (request.method === 'OPTIONS') { response.end(); return; }
       const path = new URL(request.url!, 'http://fixture').pathname;
       if (request.method === 'POST' && path === '/rest/v1/rpc/get_pubg_rankings') {
-        response.end(JSON.stringify([{ player_id: 'KeyboardPlayer', platform: 'steam', value: 900, secondary: 5, tier: 'A', game_mode: 'squad', map_name: 'Baltic_Main', match_count: 1, played_at: new Date().toISOString() }])); return;
+        let body = '';
+        request.on('data', chunk => { body += chunk; });
+        request.on('end', () => {
+          rankingCalls.push(JSON.parse(body));
+          const send = () => {
+            response.statusCode = rankingError ? 500 : 200;
+            response.end(JSON.stringify(rankingError ? { message: 'fixture ranking error' } : [{ player_id: 'KeyboardPlayer', platform: 'steam', value: 900, secondary: 5, tier: 'A', game_mode: 'squad', map_name: 'Baltic_Main', match_count: 1, played_at: new Date().toISOString() }]));
+          };
+          if (holdRankings) heldRankings.push(send); else send();
+        });
+        return;
       }
       // 게시글 이동 시 조회수 RPC는 로컬 응답만 반환하고 저장하지 않는다.
       if (request.method === 'POST' && path === '/rest/v1/rpc/increment_views') { response.end('null'); return; }
@@ -77,6 +91,69 @@ describe.skipIf(!enabled)('점검 7·8 격리 브라우저 검증', () => {
     vi.unstubAllEnvs();
   }, 30000);
 
+  it.each(viewports)('랭킹 화면은 DB 대기 없이 열리고 선택한 탭만 조회한다 $width × $height', async viewport => {
+    const page = await browser.newPage();
+    const requests: HTTPRequest[] = [];
+    const abortedRequests = new WeakSet<HTTPRequest>();
+    const errors: string[] = [];
+    const firstCall = rankingCalls.length;
+    holdRankings = true;
+    rankingError = false;
+    page.on('pageerror', error => errors.push(String(error)));
+    page.on('requestfailed', request => abortedRequests.add(request));
+    await page.setViewport(viewport);
+    await page.setRequestInterception(true);
+    page.on('request', async request => {
+      if (request.isInterceptResolutionHandled()) return;
+      const url = new URL(request.url());
+      if (url.origin !== server.baseUrl && url.origin !== process.env.NEXT_PUBLIC_SUPABASE_URL) { await request.abort(); return; }
+      if (url.pathname === '/api/rankings') requests.push(request);
+      if (url.pathname.startsWith('/api/') && url.pathname !== '/api/rankings') {
+        await request.respond({ status: 200, contentType: 'application/json', body: '{}' }); return;
+      }
+      await request.continue();
+    });
+    const clickButton = async (name: string) => {
+      await page.evaluate(value => { const button = [...document.querySelectorAll('button')].find(element => element.textContent?.trim() === value); if (!button) throw new Error(value); button.click(); }, name);
+    };
+    try {
+      await page.goto(server.baseUrl + '/rankings', { waitUntil: 'domcontentloaded' });
+      await page.waitForSelector('[aria-label="랭킹 불러오는 중"]');
+      expect(await page.$eval('h1', element => element.textContent?.trim())).toBe('랭킹');
+      await checkLayout(page);
+      await vi.waitFor(() => expect(rankingCalls.length).toBe(firstCall + 1), { timeout: 20000 });
+      expect(rankingCalls[firstCall].p_tab).toBe('damage');
+      // React Strict Mode may start and cancel its first development request.
+      await vi.waitFor(() => expect(requests.filter(request => !abortedRequests.has(request)).map(request => new URL(request.url()).search)).toEqual(['?tab=damage&mode=all&perspective=all&matchType=all']));
+      await page.screenshot({ path: join(process.cwd(), 'tmp', 'audit-accessibility-qa', 'ranking-loading-' + viewport.width + '.png') });
+      holdRankings = false;
+      for (const send of heldRankings.splice(0)) send();
+      await waitText(page, 'KeyboardPlayer');
+      await clickButton('최근 7일 킬');
+      await vi.waitFor(() => expect(rankingCalls.length).toBe(firstCall + 2), { timeout: 20000 });
+      await waitText(page, 'KeyboardPlayer');
+      await clickButton('스쿼드');
+      await vi.waitFor(() => expect(rankingCalls.length).toBe(firstCall + 3), { timeout: 20000 });
+      expect(rankingCalls.at(-1)).toMatchObject({ p_tab: 'kills', p_modes: ['squad', 'squad-fpp'] });
+      await waitText(page, 'KeyboardPlayer');
+      await checkLayout(page);
+      await page.screenshot({ path: join(process.cwd(), 'tmp', 'audit-accessibility-qa', 'ranking-loaded-' + viewport.width + '.png') });
+      rankingError = true;
+      await clickButton('BGMS 최고 경기');
+      await waitText(page, '일시적인 문제가 발생했습니다');
+      rankingError = false;
+      await clickButton('다시 시도');
+      await waitText(page, 'KeyboardPlayer');
+      await tabTo(page, 'a[aria-label="KeyboardPlayer 전적 보기"]');
+      expect(errors).toEqual([]);
+    } finally {
+      holdRankings = false;
+      rankingError = false;
+      for (const send of heldRankings.splice(0)) send();
+      await page.close();
+    }
+  }, 120000);
+
   it.each(viewports)('키보드 이동·고객센터 본문·하단 접근 $width × $height', async (viewport) => {
     const context = await browser.createBrowserContext();
     const page = await context.newPage();
@@ -94,6 +171,7 @@ describe.skipIf(!enabled)('점검 7·8 격리 브라우저 검증', () => {
       const url = new URL(request.url());
       if (url.origin !== server.baseUrl && url.origin !== process.env.NEXT_PUBLIC_SUPABASE_URL) { await request.abort(); return; }
       if (!url.pathname.startsWith('/api/')) { await request.continue(); return; }
+      if (url.pathname === '/api/rankings') { await request.continue(); return; }
       let result: unknown = {};
       let status = 200;
       if (url.pathname === '/api/admin/support/faqs') result = { faqs: [faq] };

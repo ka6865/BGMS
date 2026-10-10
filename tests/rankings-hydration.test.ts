@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, createElement } from "react";
-import { hydrateRoot } from "react-dom/client";
+import { hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import RankingsClient from "@/app/rankings/RankingsClient";
@@ -11,20 +11,23 @@ vi.mock("next/navigation", () => ({
 }));
 
 const originalTimeZone = process.env.TZ;
+const roots: Root[] = [];
+vi.mock('@/components/ads/AdfitBanner', () => ({ default: () => null }));
+vi.mock('@/components/ads/AdSenseBanner', () => ({ default: () => null }));
 
-afterEach(() => {
+afterEach(async () => {
+  await act(async () => { for (const root of roots.splice(0)) root.unmount(); });
   vi.useRealTimers();
+  vi.unstubAllGlobals();
   process.env.TZ = originalTimeZone;
   document.body.replaceChildren();
 });
 
 describe("랭킹 하이드레이션", () => {
   it("서버 UTC와 클라이언트 KST의 업데이트 시각이 달라도 텍스트 불일치가 발생하지 않는다", async () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
     process.env.TZ = "UTC";
     const props = {
-      initialDamage: [],
-      initialKills: [],
-      initialTier: [],
       updatedAt: "2026-07-31T15:39:00.000Z",
     };
     const markup = renderToString(
@@ -38,37 +41,24 @@ describe("랭킹 하이드레이션", () => {
     const recoverableErrors: unknown[] = [];
 
     await act(async () => {
-      hydrateRoot(
+      roots.push(hydrateRoot(
         container,
         createElement(RankingsClient, props),
         {
           onRecoverableError: (error) => recoverableErrors.push(error),
         }
-      );
+      ));
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
     expect(recoverableErrors).toHaveLength(0);
   });
 
-  it("캐시된 서버 HTML과 접속 시각이 달라도 상대 시간 텍스트 불일치가 발생하지 않는다", async () => {
+  it("서버 HTML과 접속 시각이 달라도 초기 조회 표시가 빈 데이터로 바뀌지 않는다", async () => {
+    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-01T00:00:00.000Z"));
-    const entry = {
-      rank: 1,
-      player_id: "hydration-player",
-      nickname: "HydrationPlayer",
-      value: 1500,
-      secondary: 5,
-      game_mode: "스쿼드",
-      map_name: "에란겔",
-      tier: "A",
-      created_at: "2026-07-31T00:01:00.000Z",
-    };
     const props = {
-      initialDamage: [entry],
-      initialKills: [],
-      initialTier: [],
       updatedAt: "2026-08-01T00:00:00.000Z",
     };
     const markup = renderToString(createElement(RankingsClient, props));
@@ -80,13 +70,14 @@ describe("랭킹 하이드레이션", () => {
     const recoverableErrors: unknown[] = [];
 
     await act(async () => {
-      hydrateRoot(container, createElement(RankingsClient, props), {
+      roots.push(hydrateRoot(container, createElement(RankingsClient, props), {
         onRecoverableError: (error) => recoverableErrors.push(error),
-      });
-      await vi.runAllTimersAsync();
+      }));
+      await vi.advanceTimersByTimeAsync(0);
     });
 
     expect(recoverableErrors).toHaveLength(0);
-    expect(container.textContent).toContain("23시간 전");
+    expect(container.querySelector('[aria-label="랭킹 불러오는 중"]')).not.toBeNull();
+    expect(container.textContent).not.toContain('이번 주 데이터가 없습니다');
   });
 });
