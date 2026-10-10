@@ -69,6 +69,7 @@ MIGRATIONS=(
   "20261010000000_analysis_calculation_v3"
   "20261010001000_bound_tier_ranking_candidates"
   "20261010031908_defer_ranking_scores_and_metadata"
+  "20261010041817_pubg_ranking_safe_cache"
 )
 
 cleanup() {
@@ -248,6 +249,7 @@ PY
 fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/player-cache-compaction-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-performance-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/ranking-cache-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-coexistence-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retained-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/encounter-page-scenarios.sql
@@ -277,4 +279,32 @@ fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v3-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/support-center-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/ranking-cache-concurrency-setup.sql
+"${PSQL[@]}" -c "set role service_role; select public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73)->>'cache_hit';" &
+ranking_first_pid=$!
+"${PSQL[@]}" -c "set role service_role; select public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73)->>'cache_hit';" &
+ranking_second_pid=$!
+wait "$ranking_first_pid"
+wait "$ranking_second_pid"
+"${PSQL[@]}" -c "do \$\$ begin if (select count(*) from public.pubg_response_cache where cache_key like 'rankings:v1:%')<>1 then raise exception 'Shared cache missing'; end if; end \$\$; delete from public.pubg_response_cache where cache_key like 'rankings:v1:%';"
+"${PSQL[@]}" -c "set role service_role; select public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73)->>'cache_hit';" &
+ranking_privacy_pid=$!
+ranking_aggregate_started=false
+for _ in $(seq 1 50); do
+  if [ "$("${PSQL[@]}" -At -c "select exists(select 1 from pg_locks where locktype='advisory' and classid=(20261010041817::bigint>>32)::oid and objid=(20261010041817::bigint&4294967295)::oid and granted);")" = "t" ]; then
+    ranking_aggregate_started=true
+    break
+  fi
+  sleep 0.02
+done
+if [ "$ranking_aggregate_started" != true ]; then
+  echo "❌ 동시 비공개 검증의 집계 시작을 확인하지 못했습니다"
+  exit 1
+fi
+"${PSQL[@]}" -c "update public.system_settings set value='[{\"platform\":\"steam\",\"nickname\":\"concurrent-ranking\",\"account_id\":\"account.concurrentranking\"}]' where key='private_players_list';"
+if wait "$ranking_privacy_pid"; then
+  echo "❌ 집계 중 비공개 변경을 정상 결과로 반환했습니다"
+  exit 1
+fi
+"${PSQL[@]}" -f tests/fixtures/migration-check/ranking-cache-concurrency-checks.sql
 echo "✅ 신규 migration 적용 및 RPC 동작 검증 완료"

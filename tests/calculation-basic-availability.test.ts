@@ -10,13 +10,13 @@ vi.mock('@supabase/supabase-js', () => ({ createClient: () => ({
   rpc: (_name: string, args: any) => {
     rankingCalls.push(args);
     const data = args.p_tab === 'tier' ? rows.filter(row => row.calculation_version === args.p_calculation) : rows;
-    return Promise.resolve({ data: data.map(row => ({
+    return { abortSignal: () => Promise.resolve({ data: { entries: data.map(row => ({
       platform: row.platform, player_id: row.player_id, account_id: null,
       value: args.p_tab === 'damage' ? row.damage : args.p_tab === 'kills' ? row.kills : row.score,
       secondary: args.p_tab === 'damage' ? row.kills : row.damage,
       tier: row.calculation_version === args.p_calculation ? row.tier : null,
       game_mode: row.game_mode, map_name: row.map_name, played_at: row.created_at, match_count: 1,
-    })), error: null });
+    })), generated_at: new Date().toISOString(), cache_hit: false, database_ms: 1 }, error: null }) };
   },
   from: (table: string) => {
     const predicates: ((row: any) => boolean)[] = [];

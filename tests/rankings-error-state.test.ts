@@ -10,7 +10,7 @@ vi.mock('@supabase/supabase-js', () => ({
     };
     return {
       from: () => chain,
-      rpc: async () => ({ data: null, error: new Error('database unavailable') }),
+      rpc: () => ({ abortSignal: async () => ({ data: null, error: new Error('database unavailable') }) }),
     };
   },
 }));

@@ -9,7 +9,7 @@ import RankingsClient from '@/app/rankings/RankingsClient';
 const fetchMock = vi.fn();
 const props = { updatedAt: '2026-09-13T00:00:00Z' };
 const entry = (nickname: string) => ({ rank: 1, platform: 'kakao', playerId: nickname, nickname, value: 1000, secondary: 5, gameMode: '스쿼드', mapName: '에란겔' });
-const response = (entries: unknown[] = []) => ({ ok: true, json: async () => ({ entries }) });
+const response = (entries: unknown[] = []) => ({ ok: true, json: async () => ({ entries, generatedAt: '2026-10-10T04:00:00Z' }) });
 
 beforeEach(() => { fetchMock.mockReset().mockResolvedValue(response()); vi.stubGlobal('fetch', fetchMock); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); vi.restoreAllMocks(); });
@@ -88,5 +88,43 @@ describe('랭킹 조회', () => {
     vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('자동 갱신 중에는 같은 조건의 목록을 유지하고 실패하면 이전 목록을 숨긴다', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValueOnce(response([entry('Previous')]));
+    render(createElement(RankingsClient, props));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    let finish!: (value: unknown) => void;
+    fetchMock.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(screen.getByText('Previous')).toBeTruthy();
+    expect(screen.getByText('최신 랭킹을 확인하고 있습니다.')).toBeTruthy();
+    expect(screen.queryByLabelText('랭킹 불러오는 중')).toBeNull();
+    await act(async () => { finish({ ok: false, status: 503 }); });
+    expect(screen.queryByText('Previous')).toBeNull();
+    expect(screen.getByRole('button', { name: '다시 시도' })).toBeTruthy();
+  });
+
+  it('12초 응답 제한 이후에는 재시도할 수 있고 다음 요청은 새 signal을 쓴다', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation((_url, { signal }) => new Promise((_resolve, reject) => {
+      signal.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+    }));
+    render(createElement(RankingsClient, props));
+    await act(async () => { await vi.advanceTimersByTimeAsync(12_000); });
+    expect(screen.getByText('조회 시간이 초과되었습니다. 다시 시도해 주세요.')).toBeTruthy();
+    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(true);
+    fetchMock.mockResolvedValue(response([entry('Recovered')]));
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '다시 시도' })); });
+    expect(screen.getByText('Recovered')).toBeTruthy();
+    expect(fetchMock.mock.calls[1][1].signal.aborted).toBe(false);
+  });
+
+  it('캐시의 집계 시각을 현재 응답 수신 시각으로 바꾸지 않는다', async () => {
+    fetchMock.mockResolvedValue(response([entry('Snapshot')]));
+    render(createElement(RankingsClient, props));
+    await screen.findByText('Snapshot');
+    expect(screen.getByText('조회 기준: 10월 10일 오후 1:00')).toBeTruthy();
   });
 });

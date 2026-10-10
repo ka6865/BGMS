@@ -169,7 +169,7 @@ export default function RankingsClient({ updatedAt }: Props) {
   const [matchTypeFilter, setMatchTypeFilter] = useState<MatchTypeFilter>('all');
   
   const query = new URLSearchParams({ tab, mode: modeFilter, perspective: perspectiveFilter, matchType: matchTypeFilter }).toString();
-  const [result, setResult] = useState<{ query: string; data: RankingApiEntry[]; hasError: boolean } | null>(null);
+  const [result, setResult] = useState<{ query: string; data: RankingApiEntry[]; hasError: boolean; timedOut?: boolean } | null>(null);
   const [isFetching, setIsFetching] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [lastUpdated, setLastUpdated] = useState(updatedAt);
@@ -184,17 +184,24 @@ export default function RankingsClient({ updatedAt }: Props) {
       if (pending) return;
       pending = true;
       setIsFetching(true);
+      const requestController = new AbortController();
+      const abort = () => requestController.abort();
+      controller.signal.addEventListener('abort', abort, { once: true });
+      const timeout = window.setTimeout(abort, 12_000);
       try {
-        const response = await fetch(`/api/rankings?${query}`, { cache: 'no-store', signal: controller.signal });
+        const response = await fetch(`/api/rankings?${query}`, { cache: 'no-store', signal: requestController.signal });
         if (!response.ok) throw new Error('Ranking request failed');
         const body = await response.json();
         if (!Array.isArray(body.entries)) throw new Error('Invalid ranking response');
+        if (requestController.signal.aborted) throw new Error('Ranking request timed out');
         if (!active) return;
         setResult({ query, data: body.entries, hasError: false });
-        setLastUpdated(new Date().toISOString());
+        setLastUpdated(Number.isFinite(Date.parse(body.generatedAt)) ? body.generatedAt : new Date().toISOString());
       } catch {
-        if (active) setResult({ query, data: [], hasError: true });
+        if (active) setResult({ query, data: [], hasError: true, timedOut: requestController.signal.aborted });
       } finally {
+        window.clearTimeout(timeout);
+        controller.signal.removeEventListener('abort', abort);
         pending = false;
         if (active) setIsFetching(false);
       }
@@ -241,7 +248,7 @@ export default function RankingsClient({ updatedAt }: Props) {
             </button>
           </div>
           <p className="text-[10px] text-gray-700">
-            조회 기준: {isPending ? '조회 중' : currentHasError ? '조회 실패' : formatUpdatedAt(lastUpdated)}
+            조회 기준: {isPending && currentData.length === 0 ? '조회 중' : currentHasError ? '조회 실패' : formatUpdatedAt(lastUpdated)}{isPending && currentData.length > 0 ? ' · 갱신 중' : ''}
           </p>
         </div>
       </div>
@@ -356,7 +363,7 @@ export default function RankingsClient({ updatedAt }: Props) {
             <div className="w-4" />
           </div>
 
-          {isPending ? (
+          {isPending && currentData.length === 0 ? (
             <div role="status" aria-label="랭킹 불러오는 중">
               {Array.from({ length: 8 }).map((_, i) => (
                 <div key={i} className="flex items-center gap-4 px-5 py-4 border-b border-white/[0.04]">
@@ -372,7 +379,7 @@ export default function RankingsClient({ updatedAt }: Props) {
           ) : currentHasError ? (
             <div className="py-16 text-center">
               <BgmsIcon name="message" size={30} className="mx-auto mb-3 text-red-400" />
-              <p className="text-gray-300 text-sm">일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.</p>
+              <p className="text-gray-300 text-sm">{result?.timedOut ? '조회 시간이 초과되었습니다. 다시 시도해 주세요.' : '일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.'}</p>
               <button
                 type="button"
                 onClick={handleRefresh}
@@ -389,7 +396,9 @@ export default function RankingsClient({ updatedAt }: Props) {
               <p className="text-gray-700 text-xs mt-1">전적 검색 후 데이터가 쌓이면 표시됩니다</p>
             </div>
           ) : (
-            currentData.map((entry, i) => (
+            <>
+            {isPending && <p role="status" className="px-5 py-2 text-xs text-gray-400">최신 랭킹을 확인하고 있습니다.</p>}
+            {currentData.map((entry, i) => (
               <RankRow
                 key={`${entry.platform}-${entry.playerId}-${i}`}
                 entry={entry}
@@ -397,7 +406,8 @@ export default function RankingsClient({ updatedAt }: Props) {
                 index={i}
                 referenceTime={lastUpdated}
               />
-            ))
+            ))}
+            </>
           )}
         </div>
 
