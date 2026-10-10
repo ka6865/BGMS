@@ -20,11 +20,15 @@ describe('랭킹 데이터 원장',()=>{
   m.privacy.mockResolvedValue({data:{value:JSON.stringify([{platform:'steam',nickname:'Hidden'}])},error:null});await getTopTierRanking();
   expect(m.rpc).toHaveBeenCalledWith('get_pubg_rankings',expect.objectContaining({p_tab:'tier',p_excluded:['steam:hidden'],p_calculation:ANALYSIS_CALCULATION_VERSION,p_result:73}));
  });
- it('프라이버시 등록 직후 랭킹 SSR이 오래된 페이지 캐시에 머물지 않는다',()=>{
+ it('랭킹 페이지가 조회를 기다리지 않고 비공개 반영은 캐시 없는 API로 확인한다',()=>{
   const source=readFileSync(resolve(process.cwd(),'app/rankings/page.tsx'),'utf8');
+  const client=readFileSync(resolve(process.cwd(),'app/rankings/RankingsClient.tsx'),'utf8');
+  const api=readFileSync(resolve(process.cwd(),'app/api/rankings/route.ts'),'utf8');
   expect(source).toContain("dynamic = 'force-dynamic'");
   expect(source).not.toContain('unstable_cache');
-  expect(source).toContain("getWeeklyTopDamage('all')");
+  expect(source).not.toContain('getWeeklyTopDamage');
+  expect(client).toContain("cache: 'no-store'");
+  expect(api).toContain('private, no-store');
  });
  it('legacy 랭킹 행도 현재 캐시의 안정 계정 ID와 연결해 비공개 처리한다',()=>{
   const migration=readFileSync(resolve(process.cwd(),'supabase/migrations/20260921110000_support_privacy_ranking_identity.sql'),'utf8');

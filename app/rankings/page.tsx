@@ -1,9 +1,8 @@
 import { Metadata } from 'next';
-import { getWeeklyTopDamage, getWeeklyTopKills, getTopTierRanking } from '@/actions/rankings';
 import RankingsClient from './RankingsClient';
 
-// Privacy registrations can happen from the support center at any time. Keep
-// this SSR page uncached so a newly-private account is absent immediately.
+// Render the controls without waiting for database queries; the client reads
+// only the selected ranking through the uncached API.
 export const dynamic = 'force-dynamic';
 
 export const metadata: Metadata = {
@@ -15,23 +14,6 @@ export const metadata: Metadata = {
   },
 };
 
-export default async function RankingsPage() {
-  const [damage, kills, tier] = await Promise.all([
-    getWeeklyTopDamage('all'),
-    getWeeklyTopKills('all'),
-    getTopTierRanking('all'),
-  ]);
-  const updatedAt = new Date().toISOString();
-
-  return (
-    <RankingsClient
-      initialDamage={damage.data}
-      initialKills={kills.data}
-      initialTier={tier.data}
-      updatedAt={updatedAt}
-      initialDamageHasError={damage.hasError}
-      initialKillsHasError={kills.hasError}
-      initialTierHasError={tier.hasError}
-    />
-  );
+export default function RankingsPage() {
+  return <RankingsClient updatedAt={new Date().toISOString()} />;
 }
