@@ -1610,11 +1610,12 @@ begin
       now()
     );
     raise exception 'FAIL: ordinary finalizer accepted a missing non-null lease';
-  exception when sqlstate '40001' then
+  exception when sqlstate 'P0001' then
     error_code := SQLSTATE;
   end;
 
-  if error_code <> '40001' then
+  -- 20261013185213 이후 lease 유실은 PostgREST 재시도를 부르지 않는 P0001 로 끝난다.
+  if error_code <> 'P0001' then
     raise exception 'FAIL: ordinary finalizer did not return telemetry-finalize-lease-lost';
   end if;
   if exists (select 1 from public.match_master_telemetry where match_id = 'ordinary-finalize-missing-lease')
