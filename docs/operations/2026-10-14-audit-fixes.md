@@ -67,11 +67,31 @@
   - 비슈퍼유저 PostgreSQL 17 컨테이너에서 같은 에러를 재현했고, 함수 정의 전에 `similarity()`를 한 번 호출해 라이브러리를 로드하면 생성·재실행·호출이 모두 정상이며 세션 임계값도 바뀌지 않음을 확인했다.
   - 이 사이 앱은 service role로 기존 함수를 호출해 닉네임 추천은 계속 동작했다.
 - 2026-10-13 22:35 UTC `20261014120000_protect_board_post_views` 적용. 배포 직후부터 적용 전까지 조회수 API는 503(조회수 미반영), 적용 직후 PostgREST 스키마 갱신 전 한 번 503, 이후 정상(없는 글 404). anon·authenticated의 `increment_views`, `increment_board_post_views` 실행 권한 false.
-- 실패한 닉네임 추천 migration은 `20261014120000` 뒤로 순서를 맞추기 위해 `20261014130000_suggest_similar_players_trgm_index_scan`으로 번호를 바꿔 다시 적용한다(`20261014110000`은 어느 환경에도 적용되지 않았다).
+- 실패한 닉네임 추천 migration은 PR #260에서 `20261014130000_suggest_similar_players_trgm_index_scan`으로 번호를 바꿔 병합·운영 적용했다(`20261014110000`은 어느 환경에도 적용되지 않았다).
+- 2026-10-14 이어받기 점검에서 운영 이력의 `20261014090000`, `20261014100000`, `20261014120000`, `20261014130000` 적용을 재확인했다. 닉네임 추천은 SECURITY INVOKER이며 `search_path=public`, `pg_trgm.similarity_threshold=0.2` 설정을 유지하고 service role만 실행할 수 있다. 익명 실행 가능 SECURITY DEFINER 함수는 0개다.
+
+## 4차 보완 (브라우저 재현·회귀 검증)
+
+| 항목 | 조치 |
+| --- | --- |
+| 비활성 게시판 화살표가 Tab으로 선택되고 Enter 클릭 이벤트를 발생시킴 | 375·390·430·1440px에서 재현. 첫 페이지의 이전·마지막 페이지의 다음은 `href` 없는 비활성 요소로 표시하며, 실제 Tab 이동과 활성 화살표의 페이지 전환을 검사 |
+| 접근성 브라우저 fixture가 새 조회수 POST를 예상 밖 요청으로 처리 | 현재 게시글 bigint ID·랭킹 캐시 RPC 계약으로 fixture 갱신. 조회수 API 응답·화면의 조회수 2·sessionStorage 기록을 확인하고 기존 직접 `increment_views` 호출 허용 제거 |
+| pg_trgm 선로드 정적 검사가 주석·문자열에도 통과 | 실행 문장만 인정하고, 격리 DB의 새 연결에서 NOSUPERUSER 소유자로 migration 전체 적용·재실행 및 service role 호출·권한 검증 |
+| 추천 순서 검사가 반환 결과를 스스로 재정렬 | WITH ORDINALITY로 실제 반환 순서를 수집해 최소 두 결과의 모든 인접값 검사 |
+| `reports`의 공개 TRUNCATE 권한 잔존 | `20261014140000_reports_revoke_public_truncate`에서 PUBLIC·anon·authenticated 권한만 회수. 기존 조회·관리자 수정·삭제와 service role 권한 유지. 외부 악용 경로가 확인된 항목은 아니며 예방 권한 정리 |
+| 개발 도구의 `sprintf-js` 취약 의존 경로 | 기존 `js-yaml` 4.3.2를 override로 재사용해 구버전 YAML·argparse·esprima·sprintf 의존성 4개 제거. 실제 NYC YAML 설정 로딩과 Jest 커버리지 실행 확인 |
+
+새 TRUNCATE 권한 migration은 격리 DB에서 최초·재실행과 권한 유지까지 검증한 뒤 운영에 적용했다. 2026-10-13 23:45 UTC 확인 결과 이력에 `20261014140000`이 추가됐고 PUBLIC·anon·authenticated TRUNCATE는 false, service role TRUNCATE와 기존 SELECT·UPDATE·DELETE 권한은 true다. 신고 행 수는 적용 전후 0행이다. 이 권한은 앱 호출 경로에서 쓰지 않아 앱 배포에 의존하지 않는다. 실제 TRUNCATE나 운영 데이터 삭제는 실행하지 않았다.
+
+- 검증: `verify:core` 통과(에러 0, 기존 경고 45), `verify:admin` 420개, 전체 Vitest 4,117개, Jest 2개, 격리 migration 검증, 운영 의존성 감사 취약점 0건.
+- 브라우저: 375×667, 390×844, 430×932, 1440×900의 키보드·화면·fixture 요청 검증 13개 통과. 웹 뷰포트 검증이며 실기기·실제 OAuth·운영 회원 데이터 쓰기는 포함하지 않는다.
+- 검증 자체의 회귀 확인: 일회용 사본에서 pg_trgm 선로드를 제거하거나 추천을 오름차순으로 바꾸면 DB 검증이 실패함을 확인했다.
+- 운영 적용 준비: 원격 이력 142개를 보존한 임시 폴더의 `db push --linked --dry-run` 대상이 `20261014140000_reports_revoke_public_truncate.sql` 한 개임을 확인했다. 운영 `reports`는 0행이며 이 migration은 데이터 변경 없이 공개 TRUNCATE 권한만 회수한다.
+- 개발 의존성 전체 audit: `sprintf-js`에서 파생된 moderate 20건이 제거됐다. 남은 high 5건은 개발용 `braces` 한 개에서 파생된 경고다. [공식 공지](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)에 수정 버전이 없으며 운영 의존성 audit은 0건이다.
 
 ## 남은 항목
 
-- Daily BGMS Maintenance: 핵심 백업이 `pubg_player_matches`에서 미완료로 4회 연속 실패. #256(백업 병렬 읽기) 이후 정기 실행 결과 확인 필요. 같은 실행의 `bluezone-storage-upload-failed`, 스크래퍼 5건 실패는 별도 원인.
+- Daily BGMS Maintenance: [2026-10-13 22:27 UTC 실행](https://github.com/ka6865/BGMS/actions/runs/38477924938)에서 핵심 백업과 복구 검증은 성공했다. 전체 실행은 Run Storage Cleanup, Extract Bluezone Statistics, Backfill Unknown Match Types 실패로 종료돼 해당 단계의 후속 조치가 필요하다.
 - PUBG Archive Backlog·Detail Archive Retention: `retention-legacy-team-write-unverified:400:lock-budget-exceeded`로 반복 중단. 삭제 전 안전 중단이라 손실은 없으나 정리가 진행되지 않음.
 - `suggest_similar_players`: 인덱스 조건으로 바꾼 뒤에도 콜드 캐시 기준 약 3초(운영 EXPLAIN). service role 호출이라 timeout은 피하지만, 더 줄이려면 후보 수를 줄이는 별도 설계가 필요.
 - RLS 성능 advisor(`auth.uid()` 행별 재평가 38건, 중복 permissive 정책 86건, 인덱스 없는 FK 36건), Auth 유출 비밀번호 보호 비활성.

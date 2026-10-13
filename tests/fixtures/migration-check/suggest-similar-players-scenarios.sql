@@ -86,19 +86,21 @@ begin
   declare
     sims real[];
   begin
-    select array_agg(similarity order by similarity desc)
+    select array_agg(similarity order by ordinality)
     into sims
-    from public.suggest_similar_players('ka6865', 'steam', 10);
+    from public.suggest_similar_players('ka6865', 'steam', 10) with ordinality;
 
-    if sims is not null and array_length(sims, 1) > 1 then
-      if sims[1] >= sims[2] then
-        raise notice 'PASS: % (정렬 확인 완료)', test_name;
-      else
-        raise notice 'FAIL: % - 유사도 정렬 순서 오류', test_name;
-        test_passed := false;
-      end if;
+    if coalesce(array_length(sims, 1), 0) < 2 then
+      raise notice 'FAIL: % - 정렬 검증에 최소 2개 결과 필요', test_name;
+      test_passed := false;
+    elsif exists (
+      select from generate_subscripts(sims, 1) as s(i)
+      where sims[i] is null or (i > 1 and sims[i - 1] < sims[i])
+    ) then
+      raise notice 'FAIL: % - 유사도 정렬 순서 오류', test_name;
+      test_passed := false;
     else
-      raise notice 'PASS: % (결과 1개 이하)', test_name;
+      raise notice 'PASS: % (모든 인접 결과 정렬 확인)', test_name;
     end if;
   end;
 

@@ -11,7 +11,9 @@ begin
   if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon nologin; end if;
   if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated nologin; end if;
   if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role nologin bypassrls; end if;
+  if not exists (select 1 from pg_roles where rolname = 'bgms_migration_check') then create role bgms_migration_check nologin nosuperuser nobypassrls; end if;
 end $$;
+grant usage, create on schema public to bgms_migration_check;
 
 -- Supabase auth 스키마 최소 구성
 create schema if not exists auth;
@@ -135,6 +137,8 @@ alter table public.reports enable row level security;
 drop policy if exists "Allow public insert reports" on public.reports;
 create policy "Allow public insert reports" on public.reports for insert with check (true);
 grant all on table public.reports to anon, authenticated, service_role;
+-- PUBLIC 상속 권한까지 회수되는지 검증한다.
+grant truncate on table public.reports to public;
 grant usage, select on sequence public.reports_id_seq to anon, authenticated, service_role;
 
 create or replace function public.increment_likes(row_id integer)
@@ -597,3 +601,5 @@ grant execute on function
   public.delete_orphaned_stats(), public.delete_orphaned_stats_limited(integer),
   public.get_orphaned_match_ids(), public.increment_player_search_count(text,text,text)
 to anon, authenticated, service_role;
+-- 운영처럼 비슈퍼유저가 기존 함수의 소유자로 CREATE OR REPLACE 를 실행한다.
+alter function public.suggest_similar_players(text,text,integer) owner to bgms_migration_check;

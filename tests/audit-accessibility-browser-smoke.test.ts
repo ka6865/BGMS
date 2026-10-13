@@ -10,9 +10,9 @@ const viewports = [{ width: 375, height: 667 }, { width: 390, height: 844 }, { w
 const user = { id: '00000000-0000-4000-8000-000000000001', aud: 'authenticated', role: 'authenticated', email: 'fixture@example.invalid', app_metadata: {}, user_metadata: {}, created_at: '2026-01-01T00:00:00Z' };
 const faq = { id: 'faq-1', category: 'stats', question: '격리 검증 FAQ', answer: '고객센터 안내', sort_order: 0, is_published: true };
 const ticketId = '11111111-1111-4111-8111-111111111111';
-const postId = '22222222-2222-4222-8222-222222222222';
+const postId = '920001';
 const ticket = { id: ticketId, subject: '격리 검증 문의', category: 'other', status: 'answered', verification_status: 'not_required', requester_nickname: '검증 회원', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', messages: [{ id: 'm-1', sender_type: 'admin', body: '답변 내용\n'.repeat(35), created_at: '2026-01-01T00:00:00Z' }], attachments: [] };
-const post = { id: postId, title: '키보드로 여는 게시글', author: '검증 회원', user_id: user.id, category: '자유', status: 'published', content: '<p>검증 내용</p>', created_at: '2026-01-01T00:00:00Z', views: 1, likes: 0, is_notice: false, comments: [], profiles: { nickname: '검증 회원', role: 'user' } };
+const post = { id: Number(postId), title: '키보드로 여는 게시글', author: '검증 회원', user_id: user.id, category: '자유', status: 'published', content: '<p>검증 내용</p>', created_at: '2026-01-01T00:00:00Z', views: 1, likes: 0, is_notice: false, revision: 1, parent_id: null, comments: [], profiles: { nickname: '검증 회원', role: 'user' } };
 
 async function waitText(page: Page, text: string) {
   await page.waitForFunction((value) => document.body.innerText.includes(value), { timeout: 20000 }, text);
@@ -50,28 +50,26 @@ describe.skipIf(!enabled)('점검 7·8 격리 브라우저 검증', () => {
       response.setHeader('Content-Type', 'application/json');
       if (request.method === 'OPTIONS') { response.end(); return; }
       const path = new URL(request.url!, 'http://fixture').pathname;
-      if (request.method === 'POST' && path === '/rest/v1/rpc/get_pubg_rankings') {
+      if (request.method === 'POST' && path === '/rest/v1/rpc/get_pubg_rankings_cached') {
         let body = '';
         request.on('data', chunk => { body += chunk; });
         request.on('end', () => {
           rankingCalls.push(JSON.parse(body));
           const send = () => {
             response.statusCode = rankingError ? 500 : 200;
-            response.end(JSON.stringify(rankingError ? { message: 'fixture ranking error' } : [{ player_id: 'KeyboardPlayer', platform: 'steam', value: 900, secondary: 5, tier: 'A', game_mode: 'squad', map_name: 'Baltic_Main', match_count: 1, played_at: new Date().toISOString() }]));
+            response.end(JSON.stringify(rankingError ? { message: 'fixture ranking error' } : { entries: [{ player_id: 'KeyboardPlayer', platform: 'steam', value: 900, secondary: 5, tier: 'A', game_mode: 'squad', map_name: 'Baltic_Main', match_count: 1, played_at: new Date().toISOString() }], generated_at: new Date().toISOString(), cache_hit: false }));
           };
           if (holdRankings) heldRankings.push(send); else send();
         });
         return;
       }
-      // 게시글 이동 시 조회수 RPC는 로컬 응답만 반환하고 저장하지 않는다.
-      if (request.method === 'POST' && path === '/rest/v1/rpc/increment_views') { response.end('null'); return; }
       if (request.method !== 'GET') { unexpected.push(request.method + ' ' + path); response.writeHead(405); response.end('{}'); return; }
       let value: unknown = [];
       if (path === '/auth/v1/user') value = user;
       else if (path === '/rest/v1/profiles') value = { id: user.id, role: 'admin', nickname: '검증 관리자' };
       else if (path === '/rest/v1/system_settings') value = { value: '[]' };
       else if (path === '/rest/v1/support_faqs') value = [faq];
-      else if (path === '/rest/v1/posts') { value = request.headers.accept?.includes('object') ? post : [post]; response.setHeader('Content-Range', '0-0/1'); }
+      else if (path === '/rest/v1/posts') { value = request.headers.accept?.includes('object') ? post : [post]; response.setHeader('Content-Range', '0-0/21'); }
       if (path !== '/auth/v1/user' && !Array.isArray(value) && !request.headers.accept?.includes('object')) value = [value];
       response.end(JSON.stringify(value));
     });
@@ -90,6 +88,47 @@ describe.skipIf(!enabled)('점검 7·8 격리 브라우저 검증', () => {
     await new Promise<void>((resolve) => stub ? stub.close(() => resolve()) : resolve());
     vi.unstubAllEnvs();
   }, 30000);
+
+  it.each(viewports)('비활성 페이지 화살표는 키보드 이동 대상이 아니다 $width × $height', async viewport => {
+    const page = await browser.newPage();
+    await page.setViewport(viewport);
+    await page.setRequestInterception(true);
+    page.on('request', async request => {
+      if (request.isInterceptResolutionHandled()) return;
+      const url = new URL(request.url());
+      if (url.origin !== server.baseUrl && url.origin !== process.env.NEXT_PUBLIC_SUPABASE_URL) { await request.abort(); return; }
+      if (url.pathname.startsWith('/api/')) { await request.respond({ status: 200, contentType: 'application/json', body: '{}' }); return; }
+      await request.continue();
+    });
+    try {
+      await page.goto(server.baseUrl + '/board', { waitUntil: 'domcontentloaded' });
+      const previous = '[aria-label="이전 페이지"]';
+      await page.waitForSelector(previous);
+      expect(await page.$eval(previous, element => element.hasAttribute('href'))).toBe(false);
+      expect(await page.$eval(previous, element => (element as HTMLElement).tabIndex)).toBe(-1);
+      await page.focus('form button[type="submit"]');
+      await page.keyboard.press('Tab');
+      expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-disabled'))).not.toBe('true');
+      await checkLayout(page);
+      await tabTo(page, 'a[aria-label="다음 페이지"]');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => new URL(location.href).searchParams.get('page') === '2');
+      await tabTo(page, 'a[aria-label="다음 페이지"]');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => new URL(location.href).searchParams.get('page') === '3');
+      const next = '[aria-label="다음 페이지"]';
+      expect(await page.$eval(next, element => element.hasAttribute('href'))).toBe(false);
+      expect(await page.$eval(next, element => (element as HTMLElement).tabIndex)).toBe(-1);
+      await page.focus('a[href="/board?page=3"]');
+      await page.keyboard.press('Tab');
+      expect(await page.evaluate(() => document.activeElement?.getAttribute('aria-disabled'))).not.toBe('true');
+      await checkLayout(page);
+      await page.screenshot({ path: join(process.cwd(), 'tmp', 'audit-accessibility-qa', 'pagination-' + viewport.width + '.png') });
+      await tabTo(page, 'a[aria-label="이전 페이지"]');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => new URL(location.href).searchParams.get('page') === '2');
+    } finally { await page.close(); }
+  }, 120000);
 
   it.each(viewports)('랭킹 화면은 DB 대기 없이 열리고 선택한 탭만 조회한다 $width × $height', async viewport => {
     const page = await browser.newPage();
@@ -159,6 +198,7 @@ describe.skipIf(!enabled)('점검 7·8 격리 브라우저 검증', () => {
     const page = await context.newPage();
     let ticketStatus = 200;
     const errors: string[] = [];
+    const viewRequests: string[] = [];
     page.on('pageerror', (error) => errors.push(String(error)));
     await page.setViewport(viewport);
     const expiresAt = Math.floor(Date.now() / 1000) + 3600;
@@ -181,6 +221,10 @@ describe.skipIf(!enabled)('점검 7·8 격리 브라우저 검증', () => {
       else if (url.pathname.startsWith('/api/pubg/')) { status = 404; result = { error: '격리 검증에서는 외부 전적 조회를 하지 않습니다.' }; }
       else if (url.pathname === '/api/auth/get-profile') result = { profile: { id: user.id, role: 'admin', nickname: '검증 관리자' } };
       else if (url.pathname === '/api/analytics/event') result = { ok: true };
+      else if (request.method() === 'POST' && url.pathname === '/api/board/posts/' + postId + '/views') {
+        viewRequests.push(url.pathname);
+        result = { success: true, views: 2 };
+      }
       else if (request.method() !== 'GET') unexpected.push(request.method() + ' ' + url.pathname);
       await request.respond({ status, contentType: 'application/json', body: JSON.stringify(result) });
     });
@@ -197,6 +241,11 @@ describe.skipIf(!enabled)('점검 7·8 격리 브라우저 검증', () => {
       await tabTo(page, postLink);
       await page.keyboard.press('Enter');
       await page.waitForFunction((id) => location.pathname === '/board/' + id, {}, postId);
+      await waitText(page, '조회: 2');
+      expect(viewRequests.length).toBeGreaterThan(0);
+      expect(await page.evaluate(id => sessionStorage.getItem('viewed_post_' + id), postId)).toBe('true');
+      await checkLayout(page);
+      await page.screenshot({ path: join(process.cwd(), 'tmp', 'audit-accessibility-qa', 'board-views-' + viewport.width + '.png') });
 
       for (const [path, text] of [['/support', '격리 검증 FAQ'], ['/support/new', '문의 작성'], ['/support/' + ticketId, '격리 검증 문의'], ['/admin/support', 'FAQ 관리'], ['/admin/support/' + ticketId, '관리자 답변']]) {
         await page.goto(server.baseUrl + path, { waitUntil: 'domcontentloaded' }); await waitText(page, text); await checkLayout(page);

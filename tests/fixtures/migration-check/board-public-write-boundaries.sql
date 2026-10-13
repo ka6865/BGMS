@@ -12,6 +12,24 @@ begin
   if not has_table_privilege('service_role','public.reports','INSERT') then
     raise exception 'service role must keep report insert access';
   end if;
+  if has_table_privilege('anon','public.reports','TRUNCATE')
+    or has_table_privilege('authenticated','public.reports','TRUNCATE')
+    or exists (
+      select from aclexplode((select relacl from pg_class where oid='public.reports'::regclass))
+      where grantee=0 and privilege_type='TRUNCATE'
+    ) then
+    raise exception 'PUBLIC, anon and authenticated must not truncate reports';
+  end if;
+  if not has_table_privilege('service_role','public.reports','TRUNCATE') then
+    raise exception 'service role must keep report truncate access';
+  end if;
+  if exists (
+    select from unnest(array['anon','authenticated','service_role']) as r(role_name)
+    cross join unnest(array['SELECT','UPDATE','DELETE']) as p(privilege)
+    where not has_table_privilege(role_name,'public.reports',privilege)
+  ) then
+    raise exception 'reports SELECT/UPDATE/DELETE grants must be preserved';
+  end if;
 
   if has_function_privilege('anon','public.increment_likes(integer)','EXECUTE')
     or has_function_privilege('authenticated','public.increment_likes(integer)','EXECUTE') then

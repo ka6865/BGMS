@@ -17,11 +17,15 @@ export default function BoardPagination({
 }: BoardPaginationProps) {
   return (
     <div className="flex gap-1 items-center mx-auto md:mx-0">
-      <Link href={currentPage > 1 ? buildPageLink(currentPage - 1) : '#'} aria-label="이전 페이지" aria-disabled={currentPage === 1} className={currentPage === 1 ? 'pointer-events-none opacity-50' : ''}>
-        <div className="w-8 h-8 flex items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/60 hover:bg-white/10 transition-colors">
+      {currentPage > 1 ? (
+        <Link href={buildPageLink(currentPage - 1)} aria-label="이전 페이지" className="w-8 h-8 flex items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/60 hover:bg-white/10 transition-colors">
           <ChevronLeft size={16} />
-        </div>
-      </Link>
+        </Link>
+      ) : (
+        <span role="link" aria-label="이전 페이지" aria-disabled="true" className="w-8 h-8 flex items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/60 opacity-50">
+          <ChevronLeft size={16} />
+        </span>
+      )}
 
       {pageNumbers.map(num => (
         <Link key={num} href={buildPageLink(num)}>
@@ -35,11 +39,15 @@ export default function BoardPagination({
         </Link>
       ))}
 
-      <Link href={currentPage < totalPages ? buildPageLink(currentPage + 1) : '#'} aria-label="다음 페이지" aria-disabled={currentPage >= totalPages} className={currentPage >= totalPages ? 'pointer-events-none opacity-50' : ''}>
-        <div className="w-8 h-8 flex items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/60 hover:bg-white/10 transition-colors">
+      {currentPage < totalPages ? (
+        <Link href={buildPageLink(currentPage + 1)} aria-label="다음 페이지" className="w-8 h-8 flex items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/60 hover:bg-white/10 transition-colors">
           <ChevronRight size={16} />
-        </div>
-      </Link>
+        </Link>
+      ) : (
+        <span role="link" aria-label="다음 페이지" aria-disabled="true" className="w-8 h-8 flex items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/60 opacity-50">
+          <ChevronRight size={16} />
+        </span>
+      )}
     </div>
   );
 }
