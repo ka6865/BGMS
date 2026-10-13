@@ -84,6 +84,7 @@
   },
   "overrides": {
     "esbuild": "0.27.2",
+    "handlebars": "4.7.10",
     "react-quill-new": {
       "quill": "2.0.2"
     }
