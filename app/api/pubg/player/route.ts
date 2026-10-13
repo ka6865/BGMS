@@ -589,7 +589,7 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     if (error instanceof PlayerApiError && error.stage === "player" && error.upstreamStatus === 404) {
-      return playerNotFoundResponse(supabase, nickname, platform);
+      return playerNotFoundResponse(nickname, platform);
     }
     await safeLogFailure(error, true);
     const failure = error instanceof PlayerApiError ? error : null;

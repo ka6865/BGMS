@@ -80,7 +80,7 @@ MIGRATIONS=(
   "20261013185213_telemetry_lease_errors_without_postgrest_retry"
   "20261014090000_restrict_public_board_writes"
   "20261014100000_pin_legacy_function_search_path"
-  "20261014110000_optimize_suggest_similar_players_trgm"
+  "20261014110000_suggest_similar_players_trgm_index_scan"
 )
 
 cleanup() {

@@ -1,5 +1,5 @@
 -- suggest_similar_players RPC 테스트 시나리오
--- 새 GIN trgm 인덱스로 유사 닉네임 검색이 올바르게 작동하는지 검증
+-- 기존 nickname trgm 인덱스 조건으로 유사 닉네임 검색 결과·권한·설정을 검증
 
 do $$
 declare
@@ -106,8 +106,40 @@ begin
   delete from pubg_player_cache where id like 'account.test%';
 
   if test_passed then
-    raise notice '✅ suggest_similar_players RPC 시나리오 통과';
+    raise notice 'PASS: suggest_similar_players RPC 시나리오';
   else
-    raise exception '❌ suggest_similar_players RPC 시나리오 실패';
+    raise exception 'suggest_similar_players RPC 시나리오 실패';
   end if;
 end $$;
+
+-- 권한과 함수 설정: 서버 전용, invoker, 임계값은 함수 설정으로만 적용
+do $$
+declare
+  before_threshold text;
+begin
+  if has_function_privilege('anon','public.suggest_similar_players(text,text,integer)','EXECUTE')
+    or has_function_privilege('authenticated','public.suggest_similar_players(text,text,integer)','EXECUTE')
+    or not has_function_privilege('service_role','public.suggest_similar_players(text,text,integer)','EXECUTE') then
+    raise exception 'suggest_similar_players must be executable by service_role only';
+  end if;
+  if exists(select from pg_proc where oid='public.suggest_similar_players(text,text,integer)'::regprocedure and prosecdef) then
+    raise exception 'suggest_similar_players must be SECURITY INVOKER';
+  end if;
+  if not exists(
+    select from pg_proc
+    where oid='public.suggest_similar_players(text,text,integer)'::regprocedure
+      and array_position(proconfig, 'search_path=public') is not null
+      and array_position(proconfig, 'pg_trgm.similarity_threshold=0.2') is not null
+  ) then
+    raise exception 'suggest_similar_players must pin search_path and similarity threshold in its config';
+  end if;
+
+  -- 함수 호출 뒤 세션 임계값이 바뀌면 연결 풀의 다른 쿼리에 영향을 준다.
+  before_threshold := current_setting('pg_trgm.similarity_threshold');
+  perform count(*) from public.suggest_similar_players('ka6865','steam',3);
+  if current_setting('pg_trgm.similarity_threshold') <> before_threshold then
+    raise exception 'suggest_similar_players must not change the session similarity threshold';
+  end if;
+  raise notice 'PASS: suggest_similar_players 권한·설정';
+end;
+$$;

@@ -116,7 +116,7 @@ function configureSupabase(cacheRow: unknown = null) {
     if (table !== "pubg_player_cache") throw new Error(`unexpected admin table: ${table}`);
     return { upsert: (data: unknown, options: { ignoreDuplicates?: boolean }) => options?.ignoreDuplicates ? adminInsert(data, options) : adminUpsert(data, options), update: adminUpdate };
   });
-  const discoveryRpc = vi.fn((rpcName: string) => {
+  const discoveryRpc = vi.fn<(rpcName: string) => Promise<{ data: unknown; error: unknown }>>((rpcName: string) => {
     if (rpcName === "suggest_similar_players") {
       return Promise.resolve({ data: [], error: null });
     }
