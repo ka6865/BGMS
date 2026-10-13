@@ -108,6 +108,7 @@ supabase db dump --linked --data-only --use-copy -s public -x public.<제외 테
 운영 스키마 확인 결과 `upsert_hotdrop_counts`는 `(rows json)`과 `(rows text)` 두 overload가 모두 anon/authenticated에
 실행 권한을 갖고 있다(SECURITY DEFINER). repair_hotdrop_atomic_counts가 json overload를 제거하고 text overload의
 권한을 service_role로 좁히므로, 이 migration 적용 전까지 익명 호출로 핫드롭 수치를 쓸 수 있는 상태가 유지된다.
+(2026-10-13 13:11 UTC 적용 후 anon 키 호출이 HTTP 401로 차단되는 것을 확인했다.)
 
 ### 2026-10-13 전환 전 백업 실적
 
@@ -117,8 +118,22 @@ supabase db dump --linked --data-only --use-copy -s public -x public.<제외 테
 - 같은 복원본에서 준비 migration 4개 → 기존 제보 창 INSERT(authenticated) → 활성화 migration → 전용 테이블 덤프·재복원까지 통과했다.
 - 관리형 일일 물리 백업은 최근 7개가 COMPLETED(최신 2026-10-12 17:16 UTC)이다. PITR 사용 여부는 확인하지 않았다.
 
+### 2026-10-13 준비 migration 적용 실적
+
+- 적용 직전(13:09 UTC) 대상 12개 테이블 데이터를 다시 덤프하고 기준값을 기록했다: 공개 해시 글 3·댓글 0, `hotdrop_heatmap` 5,869행·합계 10,371, profiles 511.
+- 적용 방법: 임시 작업 폴더에 원격 이력 버전마다 빈 자리표시 파일을 두고 대상 파일 하나만 넣은 뒤
+  `supabase db push --linked --workdir <임시 폴더>`로 적용했다. 매번 `--dry-run`으로 대상이 그 파일 하나인지 먼저 확인했고,
+  이력은 CLI가 기록했다. 같은 경로를 격리 컨테이너(운영 스키마·데이터·이력 132개 재현)에서 먼저 리허설했다.
+- 적용 시각(UTC)과 확인 결과(운영 스키마 재덤프 + PostgREST 읽기, 누적 항목 수):
+  `112340` 13:10:16 12/12, `112343` 13:11:25 20/20, `112345` 13:11:49 24/24, `113347` 13:12:33 27/27 통과.
+  원격 이력 136개, 활성화 migration(`113427`) 미적용, 공개 해시·핫드롭 합계·profiles 수 불변.
+- 준비 후 백업: 비밀번호 전용 테이블 2개를 더한 14개 테이블을 백업하고 격리 복원을 검증했다.
+  14개 테이블 행 수·내용 해시 일치, 외래키 30개 고아 행 0, 테이블 권한 30쌍·함수 권한 11쌍 일치,
+  전용 테이블 해시가 공개 해시와 동일, 복원본에서 활성화 migration 리허설 통과.
+- 남은 단계: PR 병합(Production 배포) → 배포 확인 → 활성화 migration.
+
 활성화 migration을 포함한 전체 migration을 새 앱보다 먼저 일괄 적용하면 예전 삭제 API가 비밀번호를 찾지 못한다.
-운영에서 2단계와 4단계를 분리해야 한다. 준비 단계는 기존 비밀번호 열을 유지하고 복사 저장하며,
+운영에서 2단계와 5단계를 분리해야 한다. 준비 단계는 기존 비밀번호 열을 유지하고 복사 저장하며,
 활성화 단계는 쓰기 잠금 아래 최종 복사 후 공개 열을 NULL로 바꾼다. 열 자체를 제거하지 않아 기존 SELECT *도 동작한다.
 
 활성화 후 앱을 되돌릴 때에는 서버 전용 비밀번호 읽기를 지원하는 버전으로만 되돌린다.
