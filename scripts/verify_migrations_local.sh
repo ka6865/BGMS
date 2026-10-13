@@ -77,6 +77,7 @@ MIGRATIONS=(
   "20261010112345_repair_hotdrop_atomic_counts"
   "20261010113347_admin_profile_save"
   "20261010113427_activate_board_delete_credential_privacy"
+  "20261013185213_telemetry_lease_errors_without_postgrest_retry"
 )
 
 cleanup() {
@@ -157,6 +158,10 @@ for migration in "${MIGRATIONS[@]}"; do
 done
 
 echo "▶ RPC 동작 시나리오 실행"
+"${PSQL[@]}" -f tests/fixtures/migration-check/telemetry-retry-sqlstate-checks.sql
+# 이미 적용된 DB 에 다시 실행해도 아무것도 바꾸지 않아야 한다.
+"${PSQL[@]}" -f supabase/migrations/20261013185213_telemetry_lease_errors_without_postgrest_retry.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/telemetry-retry-sqlstate-checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/board-credential-privacy.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/pending-marker-security.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/pending-marker-concurrency-setup.sql
