@@ -44,9 +44,9 @@ export default function ConfirmModal({
       case 'warning':
         return {
           icon: AlertCircle,
-          iconColor: '#F2A900',
+          iconColor: 'var(--color-accent)',
           iconBg: 'rgba(242, 169, 0, 0.1)',
-          confirmBg: '#F2A900',
+          confirmBg: 'var(--color-accent)',
           confirmHoverBg: '#d99700',
           shadow: '0 4px 15px rgba(242, 169, 0, 0.2)',
         };
@@ -84,7 +84,7 @@ export default function ConfirmModal({
     >
       <div 
         style={{
-          backgroundColor: '#161616',
+          backgroundColor: 'var(--color-bg-surface)',
           border: '1px solid rgba(255,255,255,0.08)',
           borderRadius: '24px',
           maxWidth: '400px',

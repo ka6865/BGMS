@@ -5,7 +5,8 @@ declare
 begin
   for target in
     select * from (values
-      ('public.suggest_similar_players(text,text,integer)', false),
+      -- 20261014110000 부터 서버(service role) 전용이다.
+      ('public.suggest_similar_players(text,text,integer)', true),
       ('public.get_db_size()', true),
       ('public.handle_new_user()', true),
       ('public.delete_orphaned_stats()', true),

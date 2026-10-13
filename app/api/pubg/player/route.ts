@@ -165,9 +165,10 @@ async function buildCachedPlayerResponse(supabase: any, cacheData: any, reqSeaso
   };
 }
 
-async function getSimilarPlayerSuggestions(supabase: any, nickname: string, platform: string) {
+async function getSimilarPlayerSuggestions(nickname: string, platform: string) {
   try {
-    const { data } = await supabase.rpc("suggest_similar_players", {
+    const serviceRoleClient = createServiceRoleClient();
+    const { data } = await serviceRoleClient.rpc("suggest_similar_players", {
       search_name: nickname,
       search_platform: platform,
       limit_val: 3
@@ -178,8 +179,8 @@ async function getSimilarPlayerSuggestions(supabase: any, nickname: string, plat
   }
 }
 
-async function playerNotFoundResponse(supabase: any, nickname: string, platform: string) {
-  const suggestions = await getSimilarPlayerSuggestions(supabase, nickname, platform);
+async function playerNotFoundResponse(nickname: string, platform: string) {
+  const suggestions = await getSimilarPlayerSuggestions(nickname, platform);
 
   return NextResponse.json(
     {
@@ -338,7 +339,7 @@ export async function GET(request: Request) {
     }
     const playerRecord = playerData.data.find((player) => player.attributes.name.toLowerCase() === nickname.toLowerCase());
     if (!playerRecord) {
-      if (playerData.data.length === 0) return playerNotFoundResponse(supabase, nickname, platform);
+      if (playerData.data.length === 0) return playerNotFoundResponse(nickname, platform);
       // A valid JSON response for a different player must never seed this cache.
       throw new Error("player identity mismatch");
     }
@@ -588,7 +589,7 @@ export async function GET(request: Request) {
     });
   } catch (error) {
     if (error instanceof PlayerApiError && error.stage === "player" && error.upstreamStatus === 404) {
-      return playerNotFoundResponse(supabase, nickname, platform);
+      return playerNotFoundResponse(nickname, platform);
     }
     await safeLogFailure(error, true);
     const failure = error instanceof PlayerApiError ? error : null;

@@ -116,7 +116,12 @@ function configureSupabase(cacheRow: unknown = null) {
     if (table !== "pubg_player_cache") throw new Error(`unexpected admin table: ${table}`);
     return { upsert: (data: unknown, options: { ignoreDuplicates?: boolean }) => options?.ignoreDuplicates ? adminInsert(data, options) : adminUpsert(data, options), update: adminUpdate };
   });
-  const discoveryRpc = vi.fn().mockResolvedValue({ data: null, error: null });
+  const discoveryRpc = vi.fn<(rpcName: string) => Promise<{ data: unknown; error: unknown }>>((rpcName: string) => {
+    if (rpcName === "suggest_similar_players") {
+      return Promise.resolve({ data: [], error: null });
+    }
+    return Promise.resolve({ data: null, error: null });
+  });
   mockCreateSupabaseAdminClient.mockReturnValue({ from: adminFrom, rpc: discoveryRpc });
 
   return { playerCache, matchModes, rpc, adminUpsert, discoveryRpc, adminUpdate, adminInsert, partialQuery };
@@ -768,7 +773,7 @@ describe("player route recovery contract", () => {
   });
 
   it("preserves the player-not-found contract for a genuine 404 identity response", async () => {
-    const { adminUpsert, rpc } = configureSupabase();
+    const { adminUpsert, discoveryRpc } = configureSupabase();
     installFetch({
       player: [jsonResponse({ errors: [{ status: "404", title: "Not Found" }] }, 404)],
     });
@@ -779,7 +784,7 @@ describe("player route recovery contract", () => {
 
     expect(response.status).toBe(404);
     expect(body).toEqual(expect.objectContaining({ code: "PLAYER_NOT_FOUND" }));
-    expect(rpc).toHaveBeenCalledWith("suggest_similar_players", expect.any(Object));
+    expect(discoveryRpc).toHaveBeenCalledWith("suggest_similar_players", expect.any(Object));
     expect(mockReportPubgApiError).not.toHaveBeenCalled();
     expect(adminUpsert).not.toHaveBeenCalled();
     expect(mockWritePubgCache).not.toHaveBeenCalled();

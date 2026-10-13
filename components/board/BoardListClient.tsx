@@ -172,9 +172,9 @@ export default function BoardListClient({
                 </button>
               </div>
             ) : posts.length === 0 ? (
-              <div className="py-24 text-center text-white/20">
+              <div className="py-24 text-center text-white/65">
                 <p className="text-base font-medium">등록된 게시글이 없습니다</p>
-                <p className="text-xs mt-2 opacity-50">첫 번째 주인공이 되어보세요!</p>
+                <p className="text-xs mt-2 text-white/65">첫 번째 주인공이 되어보세요!</p>
               </div>
             ) : isMobile ? (
               <ul className="list-none p-0 m-0 divide-y divide-white/5">

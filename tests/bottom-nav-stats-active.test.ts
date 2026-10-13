@@ -31,8 +31,8 @@ describe("BottomNav stats active", () => {
     pathname = "/stats/steam/FixturePlayer";
     render(createElement(BottomNav));
 
-    expect(screen.getByRole("button", { name: "AI 전적" })).toHaveStyle({
-      color: "#F2A900",
-    });
+    const button = screen.getByRole("button", { name: "AI 전적" });
+    const style = button.getAttribute("style");
+    expect(style).toContain("var(--color-accent)");
   });
 });

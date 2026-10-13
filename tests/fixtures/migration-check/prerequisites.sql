@@ -3,6 +3,7 @@
 -- 컬럼 타입은 2026-07-30 운영 information_schema 조회 결과와 일치시킨다.
 
 create extension if not exists pgcrypto;
+create extension if not exists pg_trgm;
 
 -- Supabase 역할
 do $$
@@ -91,6 +92,7 @@ create table if not exists public.posts (
   content text,
   status text default 'published',
   likes bigint default 0,
+  views bigint default 0,
   user_id uuid references public.profiles(id) on delete set null,
   password_hash text
 );
@@ -146,6 +148,18 @@ begin
 end;
 $$;
 grant all on function public.increment_likes(integer) to anon, authenticated, service_role;
+
+create or replace function public.increment_views(row_id integer)
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $$
+begin
+  update public.posts set views = views + 1 where id = row_id;
+end;
+$$;
+grant all on function public.increment_views(integer) to anon, authenticated, service_role;
 
 -- 제보 RPC가 조회하는 지도 설정과 카테고리, baseline의 기존 제보 쓰기 정책.
 create table if not exists public.map_settings (
