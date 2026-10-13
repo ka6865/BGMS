@@ -519,7 +519,7 @@ function BattleContent() {
 
         {/* 헤더 */}
         <div className="text-center">
-          <Link href="/stats" className="text-xs text-gray-600 hover:text-gray-400 transition-colors mb-4 inline-block py-2 px-3">
+          <Link href="/stats" className="text-xs text-gray-400 hover:text-gray-200 transition-colors mb-4 inline-block py-2 px-3">
             ← 전적 검색으로 돌아가기
           </Link>
           <BgmsIcon name="battle" size={52} className="mx-auto mb-4 text-indigo-300" />
