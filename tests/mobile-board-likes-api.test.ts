@@ -14,6 +14,7 @@ vi.mock("@/utils/supabase/guard", () => ({
 }));
 
 import { POST as likePost } from "../app/api/mobile/board/posts/[postId]/likes/route";
+import { POST as webLikePost } from "../app/api/board/posts/[postId]/likes/route";
 
 const USER_ID = "11111111-1111-4111-8111-111111111111";
 
@@ -23,6 +24,12 @@ function request(postId = "10") {
     { params: Promise.resolve({ postId }) },
   );
 }
+
+describe("web board recommendation API", () => {
+  it("reuses the mobile handler so web likes share the same atomic RPC path", () => {
+    expect(webLikePost).toBe(likePost);
+  });
+});
 
 describe("mobile board recommendation API", () => {
   beforeEach(() => {
