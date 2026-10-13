@@ -1,101 +1,90 @@
--- 게시글 조회수 증가 경로를 보호한다.
+-- 게시글 조회수 증가 경로를 서버 전용으로 닫는다.
 --
--- increment_views 는 사용자 확인 없이 views + 1 만 수행하므로 anon 과
--- authenticated 실행 권한을 회수한다.
+-- increment_views 는 anon 도 실행할 수 있는 SECURITY DEFINER 함수로, 호출할 때마다
+-- views + 1 만 수행해 PostgREST 직접 호출로 조회수를 무제한 올릴 수 있었다.
 --
--- 웹과 모바일 모두 increment_board_post_views 원자 RPC(service role 전용)를
--- 거친다. 이 함수는 IP 해시와 post ID 조합으로 최근 1시간 내 중복 증가를
--- 방지한다. 비공개 글은 제외된다.
+-- - 웹은 /api/board/posts/[postId]/views 가 service role 로 increment_board_post_views 를 호출한다.
+-- - 같은 게시글·같은 IP 해시는 1시간에 한 번만 센다. 게시글 행을 잠근 뒤 기록을 넣고,
+--   기록이 새로 들어가거나 1시간이 지나 갱신된 경우에만 조회수를 올린다.
+-- - 공개(status = 'published') 게시글만 센다.
+-- - 기록은 그 게시글을 셀 때 하루가 지난 것부터 지운다.
+-- - increment_views 의 anon·authenticated 실행 권한을 회수한다.
 --
--- 배포 순서: 조회수를 API route 로 옮긴 앱 배포가 먼저 끝난 뒤 적용한다.
+-- 배포 순서: 조회수를 API route 로 옮긴 앱 배포가 끝난 뒤 적용한다.
 -- 재실행해도 결과가 같다.
 
 set lock_timeout = '3s';
 set statement_timeout = '30s';
 
--- 게시글 조회 추적 테이블 (IP 해시 기반 중복 방지)
 create table if not exists public.board_post_view_tracking (
-  post_id integer not null,
+  post_id bigint not null references public.posts(id) on delete cascade,
   ip_hash text not null check (ip_hash ~ '^[a-f0-9]{64}$'),
-  last_viewed_at timestamptz not null default statement_timestamp(),
+  last_viewed_at timestamptz not null default now(),
   primary key (post_id, ip_hash)
 );
 
 alter table public.board_post_view_tracking enable row level security;
-create index if not exists board_post_view_tracking_cleanup_idx
-  on public.board_post_view_tracking (last_viewed_at);
+create index if not exists board_post_view_tracking_viewed_at_idx
+  on public.board_post_view_tracking (post_id, last_viewed_at);
 
 revoke all on table public.board_post_view_tracking from public, anon, authenticated;
-grant select, insert, update on table public.board_post_view_tracking to service_role;
+grant select, insert, update, delete on table public.board_post_view_tracking to service_role;
 
--- 조회수 증가 RPC (IP 기반 중복 방지, 비공개 글 제외)
 create or replace function public.increment_board_post_views(
-  p_post_id integer,
+  p_post_id bigint,
   p_ip_hash text
-)
-returns json
+) returns jsonb
 language plpgsql
-security definer
-set search_path = 'public'
+security invoker
+set search_path = ''
 as $$
 declare
-  v_published boolean;
   v_views bigint;
-  v_last_viewed_at timestamptz;
-  v_view_window_minutes constant integer := 60;
+  v_counted boolean;
 begin
-  -- 게시글 존재 및 published 여부 확인
-  select is_published into v_published
-    from public.posts
-    where id = p_post_id;
-
-  if v_published is null then
-    return json_build_object('status', 'not_found');
+  if p_post_id is null or p_ip_hash is null or p_ip_hash !~ '^[a-f0-9]{64}$' then
+    raise exception 'post ID and IP hash are required';
   end if;
 
-  -- 비공개 글은 조회수 증가 안 함
-  if not v_published then
-    return json_build_object('status', 'not_found');
+  -- 같은 게시글의 조회 처리를 직렬화하고 공개 글만 받는다.
+  select post_row.views
+  into v_views
+  from public.posts as post_row
+  where post_row.id = p_post_id
+    and post_row.status = 'published'
+  for update;
+
+  if not found then
+    return jsonb_build_object('status', 'not_found', 'views', null);
   end if;
 
-  -- 최근 조회 기록 확인 (IP 해시와 post ID 조합)
-  select last_viewed_at into v_last_viewed_at
-    from public.board_post_view_tracking
-    where post_id = p_post_id
-      and ip_hash = p_ip_hash
-      and last_viewed_at > now() - make_interval(mins => v_view_window_minutes);
+  insert into public.board_post_view_tracking as tracking (post_id, ip_hash, last_viewed_at)
+  values (p_post_id, p_ip_hash, now())
+  on conflict (post_id, ip_hash) do update
+    set last_viewed_at = excluded.last_viewed_at
+    where tracking.last_viewed_at <= now() - interval '1 hour'
+  returning true into v_counted;
 
-  -- 최근에 이미 조회했으면 증가 안 함, 현재 조회수만 반환
-  if v_last_viewed_at is not null then
-    select views into v_views
-      from public.posts
-      where id = p_post_id;
-    return json_build_object(
-      'status', 'incremented',
-      'views', coalesce(v_views, 0)
-    );
+  if not coalesce(v_counted, false) then
+    return jsonb_build_object('status', 'already_counted', 'views', coalesce(v_views, 0));
   end if;
 
-  -- 조회수 증가 (원자 작업)
-  update public.posts
-    set views = views + 1
-    where id = p_post_id
-    returning views into v_views;
+  update public.posts as post_row
+  set views = coalesce(post_row.views, 0) + 1
+  where post_row.id = p_post_id
+  returning post_row.views into v_views;
 
-  -- 조회 기록 생성 또는 갱신
-  insert into public.board_post_view_tracking (post_id, ip_hash, last_viewed_at)
-    values (p_post_id, p_ip_hash, now())
-    on conflict (post_id, ip_hash)
-    do update set last_viewed_at = now();
+  delete from public.board_post_view_tracking as tracking
+  where tracking.post_id = p_post_id
+    and tracking.last_viewed_at < now() - interval '1 day';
 
-  return json_build_object(
-    'status', 'incremented',
-    'views', coalesce(v_views, 0)
-  );
+  return jsonb_build_object('status', 'counted', 'views', v_views);
 end;
 $$;
 
--- increment_views 의 public 실행 권한 회수
+revoke all on function public.increment_board_post_views(bigint, text) from public, anon, authenticated;
+grant execute on function public.increment_board_post_views(bigint, text) to service_role;
+
 do $$
 begin
   if to_regprocedure('public.increment_views(integer)') is not null then

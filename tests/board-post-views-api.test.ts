@@ -30,11 +30,11 @@ describe("board post views API", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.createClient.mockReturnValue({ rpc: mocks.rpc });
-    mocks.rpc.mockResolvedValue({ data: { status: "incremented", views: 5 }, error: null });
+    mocks.rpc.mockResolvedValue({ data: { status: "counted", views: 5 }, error: null });
   });
 
   it("increments views using the atomic RPC and returns the updated count", async () => {
-    mocks.rpc.mockResolvedValue({ data: { status: "incremented", views: 5 }, error: null });
+    mocks.rpc.mockResolvedValue({ data: { status: "counted", views: 5 }, error: null });
 
     const response = await request();
 
@@ -46,8 +46,8 @@ describe("board post views API", () => {
     });
   });
 
-  it("prevents duplicate increments within the view window by returning current count", async () => {
-    mocks.rpc.mockResolvedValue({ data: { status: "incremented", views: 1 }, error: null });
+  it("returns the current count without error when the view was already counted", async () => {
+    mocks.rpc.mockResolvedValue({ data: { status: "already_counted", views: 1 }, error: null });
 
     const response = await request();
 
@@ -83,7 +83,7 @@ describe("board post views API", () => {
   });
 
   it("rejects malformed RPC acknowledgements instead of claiming a view", async () => {
-    mocks.rpc.mockResolvedValueOnce({ data: { status: "incremented", views: "5" }, error: null });
+    mocks.rpc.mockResolvedValueOnce({ data: { status: "counted", views: "5" }, error: null });
 
     const response = await request();
 
@@ -102,7 +102,7 @@ describe("board post views API", () => {
   });
 
   it("extracts client IP from x-forwarded-for header", async () => {
-    mocks.rpc.mockResolvedValue({ data: { status: "incremented", views: 1 }, error: null });
+    mocks.rpc.mockResolvedValue({ data: { status: "counted", views: 1 }, error: null });
 
     const req = new Request(`https://bgms.test/api/board/posts/10/views`, { method: "POST" });
     Object.defineProperty(req, "headers", {

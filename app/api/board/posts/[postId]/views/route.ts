@@ -52,7 +52,8 @@ export async function POST(
 
   const result = data as { status?: unknown; views?: unknown };
   if (result.status === "not_found") return jsonError("게시글을 찾을 수 없습니다.", 404);
-  if (result.status !== "incremented" || !Number.isSafeInteger(result.views) || (result.views as number) < 0) {
+  if ((result.status !== "counted" && result.status !== "already_counted")
+    || !Number.isSafeInteger(result.views) || (result.views as number) < 0) {
     return jsonError("조회수 결과를 확인하지 못했습니다.", 503);
   }
 

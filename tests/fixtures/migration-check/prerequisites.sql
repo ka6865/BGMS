@@ -90,7 +90,6 @@ create table if not exists public.posts (
   title text,
   content text,
   status text default 'published',
-  is_published boolean default true,
   likes bigint default 0,
   views bigint default 0,
   user_id uuid references public.profiles(id) on delete set null,
