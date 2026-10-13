@@ -299,6 +299,8 @@ const MapShell = memo(({
                     <div className="flex justify-between items-center w-full">
                       <button 
                         onClick={() => onSetSidebarOpen(!isSidebarOpen)} 
+                        aria-label={isSidebarOpen ? "지도 필터 닫기" : "지도 필터 열기"}
+                        aria-expanded={isSidebarOpen}
                         className="pointer-events-auto flex items-center justify-center w-[52px] h-[52px] bg-black/80 backdrop-blur-md border border-white/10 rounded-2xl shadow-2xl active:scale-90 transition-all text-[#F2A900]"
                       >
                         <SlidersHorizontal size={22} strokeWidth={2.5} />
@@ -322,6 +324,7 @@ const MapShell = memo(({
                       {!isSidebarOpen && (
                         <button 
                           onClick={() => onSetSidebarOpen(true)} 
+                          aria-label="지도 필터 열기"
                           className="pointer-events-auto absolute left-4 top-0 flex items-center justify-center w-[44px] h-[44px] bg-black/80 backdrop-blur-md border border-white/10 rounded-xl shadow-2xl active:scale-90 transition-all text-white hover:text-[#F2A900] z-[5000]"
                         >
                           <Menu size={22} strokeWidth={2.5} />
