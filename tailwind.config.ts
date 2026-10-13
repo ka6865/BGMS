@@ -9,6 +9,21 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      colors: {
+        accent: "var(--color-accent)",
+        "accent-glow": "var(--color-accent-glow)",
+        "accent-dim": "var(--color-accent-dim)",
+        "bg-base": "var(--color-bg-base)",
+        "bg-surface": "var(--color-bg-surface)",
+        "bg-elevated": "var(--color-bg-elevated)",
+        "bg-hover": "var(--color-bg-hover)",
+        "border-default": "var(--color-border)",
+        "border-subtle": "var(--color-border-subtle)",
+        "text-primary": "var(--color-text-primary)",
+        "text-secondary": "var(--color-text-secondary)",
+        "text-muted": "var(--color-text-muted)",
+        "text-auxiliary": "rgba(255, 255, 255, 0.65)",
+      },
       backgroundImage: {
         "gradient-radial": "radial-gradient(var(--tw-gradient-stops))",
         "gradient-conic":

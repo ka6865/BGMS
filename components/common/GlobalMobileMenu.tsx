@@ -68,7 +68,7 @@ export default function GlobalMobileMenu({ isOpen, setIsOpen, activeMapId, isAdm
             <div className="max-w-md mx-auto">
               <div className="flex items-center justify-between mb-6">
                 <Drawer.Title asChild>
-                  <h2 className="text-[#F2A900] font-black text-2xl italic tracking-tighter uppercase">
+                  <h2 className="text-accent font-black text-2xl italic tracking-tighter uppercase">
                     BGMS Menu
                   </h2>
                 </Drawer.Title>
@@ -87,8 +87,8 @@ export default function GlobalMobileMenu({ isOpen, setIsOpen, activeMapId, isAdm
                 {/* Profile Card */}
                 <div className="bg-[#1a1a1a] p-5 rounded-2xl border border-[#333] flex flex-col gap-4">
                   <div className="flex items-center gap-4">
-                    <div className="w-14 h-14 bg-[#252525] rounded-full flex items-center justify-center border-2 border-[#F2A900]/30 shadow-inner">
-                      <User size={30} className="text-[#F2A900]" />
+                    <div className="w-14 h-14 bg-[#252525] rounded-full flex items-center justify-center border-2 border-[var(--color-accent)]/30 shadow-inner">
+                      <User size={30} className="text-accent" />
                     </div>
                     <div className="flex flex-col">
                       <span className="text-white font-black text-lg">{visibleUser ? (displayName || "게이머") : "익명 사용자"}</span>
@@ -98,7 +98,7 @@ export default function GlobalMobileMenu({ isOpen, setIsOpen, activeMapId, isAdm
                   <div className="flex gap-2">
                     <button 
                       onClick={() => { router.push(visibleUser ? '/mypage' : '/login'); setIsOpen(false); }}
-                      className="flex-1 bg-[#F2A900] text-black py-3 rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-transform"
+                      className="flex-1 bg-accent text-black py-3 rounded-xl font-bold text-sm shadow-lg active:scale-95 transition-transform"
                     >
                       {visibleUser ? "마이페이지" : "로그인하기"}
                     </button>
@@ -130,7 +130,7 @@ export default function GlobalMobileMenu({ isOpen, setIsOpen, activeMapId, isAdm
                         onClick={() => { router.push(`/maps/${m.id.toLowerCase()}`); setIsOpen(false); }}
                         className={`text-[13px] font-bold py-3.5 rounded-xl border active:scale-95 transition-all ${
                           activeMapId === m.id 
-                            ? 'bg-[#F2A900] text-black border-[#F2A900] shadow-[0_5px_15px_rgba(242,169,0,0.3)]' 
+                            ? 'bg-accent text-black border-[var(--color-accent)] shadow-[0_5px_15px_rgba(242,169,0,0.3)]' 
                             : 'bg-[#1a1a1a] text-white border-[#333] hover:border-[#444]'
                         }`}
                       >
@@ -262,11 +262,11 @@ export default function GlobalMobileMenu({ isOpen, setIsOpen, activeMapId, isAdm
                   <Link
                     href="/support"
                     onClick={() => setIsOpen(false)}
-                    className="bg-[#1a1a1a] p-5 rounded-2xl border border-[#F2A900]/25 flex items-center justify-between active:bg-[#222] transition-colors group"
+                    className="bg-[#1a1a1a] p-5 rounded-2xl border border-[var(--color-accent)]/25 flex items-center justify-between active:bg-[#222] transition-colors group"
                   >
                     <div className="flex items-center gap-4">
-                      <div className="p-2.5 bg-[#F2A900]/10 rounded-xl">
-                        <MessageSquare size={24} className="text-[#F2A900]" />
+                      <div className="p-2.5 bg-accent/10 rounded-xl">
+                        <MessageSquare size={24} className="text-accent" />
                       </div>
                       <div>
                         <p className="text-white font-bold text-sm">1:1 문의/FAQ</p>

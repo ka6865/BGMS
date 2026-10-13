@@ -42,7 +42,7 @@ const Footer = () => {
             }}
           >
             BG
-            <span style={{ color: "var(--color-accent, #F2A900)" }}>MS</span>
+            <span style={{ color: "var(--color-accent)" }}>MS</span>
           </span>
           <span
             style={{
@@ -101,12 +101,12 @@ const Footer = () => {
             style={{
               fontSize: "12px",
               fontWeight: 600,
-              color: "rgba(255,255,255,0.35)",
+              color: "rgba(255,255,255,0.65)",
               textDecoration: "none",
               transition: "color 0.15s ease",
             }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.7)")}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.35)")}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.85)")}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.65)")}
           >
             커뮤니티
           </Link>
@@ -118,12 +118,12 @@ const Footer = () => {
             style={{
               fontSize: "12px",
               fontWeight: 700,
-              color: "rgba(255,255,255,0.55)",
+              color: "rgba(255,255,255,0.65)",
               textDecoration: "none",
               transition: "color 0.15s ease",
             }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "#F2A900")}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.55)")}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "var(--color-accent)")}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.65)")}
           >
             고객센터
           </Link>
@@ -135,12 +135,12 @@ const Footer = () => {
             style={{
               fontSize: "12px",
               fontWeight: 600,
-              color: "rgba(255,255,255,0.35)",
+              color: "rgba(255,255,255,0.65)",
               textDecoration: "none",
               transition: "color 0.15s ease",
             }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.7)")}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.35)")}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.85)")}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.65)")}
           >
             무기 도감
           </Link>
@@ -152,12 +152,12 @@ const Footer = () => {
             style={{
               fontSize: "12px",
               fontWeight: 600,
-              color: "rgba(255,255,255,0.35)",
+              color: "rgba(255,255,255,0.65)",
               textDecoration: "none",
               transition: "color 0.15s ease",
             }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.7)")}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.35)")}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.85)")}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.65)")}
           >
             개인정보처리방침
           </Link>
@@ -169,12 +169,12 @@ const Footer = () => {
             style={{
               fontSize: "12px",
               fontWeight: 600,
-              color: "rgba(255,255,255,0.35)",
+              color: "rgba(255,255,255,0.65)",
               textDecoration: "none",
               transition: "color 0.15s ease",
             }}
-            onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.7)")}
-            onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.35)")}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.85)")}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.65)")}
           >
             이용약관
           </Link>
@@ -184,7 +184,7 @@ const Footer = () => {
         <p
           style={{
             fontSize: "11px",
-            color: "rgba(255,255,255,0.2)",
+            color: "rgba(255,255,255,0.65)",
             lineHeight: 1.6,
             textAlign: "center",
             maxWidth: "600px",

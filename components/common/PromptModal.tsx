@@ -53,9 +53,9 @@ export default function PromptModal({
       case 'warning':
         return {
           icon: AlertCircle,
-          iconColor: '#F2A900',
+          iconColor: 'var(--color-accent)',
           iconBg: 'rgba(242, 169, 0, 0.1)',
-          confirmBg: '#F2A900',
+          confirmBg: 'var(--color-accent)',
           confirmHoverBg: '#d99700',
           shadow: '0 4px 15px rgba(242, 169, 0, 0.2)',
         };
@@ -63,9 +63,9 @@ export default function PromptModal({
       default:
         return {
           icon: MessageSquare,
-          iconColor: '#F2A900', // 골드빛 테마 매칭
+          iconColor: 'var(--color-accent)', // 골드빛 테마 매칭
           iconBg: 'rgba(242, 169, 0, 0.1)',
-          confirmBg: '#F2A900',
+          confirmBg: 'var(--color-accent)',
           confirmHoverBg: '#d99700',
           shadow: '0 4px 15px rgba(242, 169, 0, 0.2)',
         };
@@ -99,7 +99,7 @@ export default function PromptModal({
       <form 
         onSubmit={handleSubmit}
         style={{
-          backgroundColor: '#161616',
+          backgroundColor: 'var(--color-bg-surface)',
           border: '1px solid rgba(255,255,255,0.08)',
           borderRadius: '24px',
           maxWidth: '400px',

@@ -111,7 +111,7 @@ export default function BottomNav() {
               onClick={(e) => item.onClick(e)}
               className="flex flex-col items-center justify-center w-full gap-[3px] relative"
               style={{
-                color: item.active ? '#F2A900' : 'rgba(255,255,255,0.4)',
+                color: item.active ? 'var(--color-accent)' : 'rgba(255,255,255,0.65)',
                 transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                 transform: item.active ? 'scale(1.08)' : 'scale(1)',
               }}
@@ -125,7 +125,7 @@ export default function BottomNav() {
                     width: '4px',
                     height: '4px',
                     borderRadius: '50%',
-                    backgroundColor: '#F2A900',
+                    backgroundColor: 'var(--color-accent)',
                     boxShadow: '0 0 6px rgba(242, 169, 0, 0.8)',
                   }}
                 />
