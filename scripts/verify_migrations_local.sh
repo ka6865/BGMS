@@ -80,6 +80,7 @@ MIGRATIONS=(
   "20261013185213_telemetry_lease_errors_without_postgrest_retry"
   "20261014090000_restrict_public_board_writes"
   "20261014100000_pin_legacy_function_search_path"
+  "20261014110000_optimize_suggest_similar_players_trgm"
 )
 
 cleanup() {
@@ -306,6 +307,7 @@ PY
   echo "  ✅ 비공개 실제 map packet 격리 검증"
 fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/player-cache-compaction-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/suggest-similar-players-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-cache-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-coexistence-scenarios.sql

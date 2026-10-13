@@ -3,6 +3,7 @@
 -- 컬럼 타입은 2026-07-30 운영 information_schema 조회 결과와 일치시킨다.
 
 create extension if not exists pgcrypto;
+create extension if not exists pg_trgm;
 
 -- Supabase 역할
 do $$

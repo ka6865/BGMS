@@ -8,30 +8,36 @@ vi.mock('@/lib/pubg/responseCache', () => ({
   writePubgCache: vi.fn().mockResolvedValue(undefined),
 }));
 
-// Supabase Server Client Mock
+// Supabase Clients Mock (SSR and Service Role)
+const createMockSupabaseClient = () => ({
+  from: vi.fn().mockReturnThis(),
+  select: vi.fn().mockReturnThis(),
+  eq: vi.fn().mockReturnThis(),
+  maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+  upsert: vi.fn().mockResolvedValue({ data: null, error: null }),
+  rpc: vi.fn((rpcName) => {
+    if (rpcName === "suggest_similar_players") {
+      return Promise.resolve({
+        data: [
+          { nickname: "iMISSiiiiiiiii", platform: "steam" },
+          { nickname: "iMISS", platform: "steam" }
+        ],
+        error: null
+      });
+    }
+    return Promise.resolve({ data: null, error: null });
+  })
+});
+
 vi.mock('@/utils/supabase/server', () => {
   return {
-    createClient: vi.fn(() => ({
-      from: vi.fn().mockReturnThis(),
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
-      upsert: vi.fn().mockResolvedValue({ data: null, error: null }),
-      rpc: vi.fn((rpcName) => {
-        if (rpcName === "suggest_similar_players") {
-          return Promise.resolve({
-            data: [
-              { nickname: "iMISSiiiiiiiii", platform: "steam" },
-              { nickname: "iMISS", platform: "steam" }
-            ],
-            error: null
-          });
-        }
-        return Promise.resolve({ data: null, error: null });
-      })
-    }))
+    createClient: vi.fn(createMockSupabaseClient)
   };
 });
+
+vi.mock('@supabase/supabase-js', () => ({
+  createClient: vi.fn(createMockSupabaseClient)
+}));
 
 vi.mock('@/lib/pubg-analysis/pubgApiTracker', () => ({
   trackPubgRateLimit: vi.fn(),
