@@ -252,34 +252,23 @@ export default function BoardDetailClient({
 
     setIsLikingPost(true);
     try {
-      const { data } = await supabase
-        .from("post_likes")
-        .select("post_id")
-        .eq("post_id", post.id)
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (data) {
+      // 추천 기록과 카운트 증가는 서버의 원자 RPC 한 번으로 처리된다.
+      const response = await fetch(`/api/board/posts/${post.id}/likes`, { method: "POST" });
+      if (response.status === 409) {
         toast.info("이미 추천하신 게시글입니다.");
         return;
       }
-
-      // 추천 기록 삽입이 실패하면 카운트를 올리지 않는다.
-      // 동시 클릭 시 unique 제약 위반이 발생하면 이 지점에서 중단된다.
-      const { error: insertError } = await supabase
-        .from("post_likes")
-        .insert([{ post_id: post.id, user_id: user.id }]);
-      if (insertError) {
-        toast.info("이미 추천하신 게시글입니다.");
+      if (response.status === 401) {
+        toast.error("로그인 후 이용 가능합니다.");
         return;
       }
-
-      const { error: incrementError } = await supabase.rpc("increment_likes", { row_id: post.id });
-      if (incrementError) {
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !Number.isSafeInteger(result?.likes)) {
         toast.error("추천 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.");
         return;
       }
 
-      setPost(prev => ({ ...prev, likes: prev.likes + 1 }));
+      setPost(prev => ({ ...prev, likes: result.likes }));
       toast.success("게시글을 추천했습니다!");
     } catch {
       toast.error("추천 처리 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.");

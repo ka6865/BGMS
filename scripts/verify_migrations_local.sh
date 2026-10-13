@@ -78,6 +78,7 @@ MIGRATIONS=(
   "20261010113347_admin_profile_save"
   "20261010113427_activate_board_delete_credential_privacy"
   "20261013185213_telemetry_lease_errors_without_postgrest_retry"
+  "20261014090000_restrict_public_board_writes"
 )
 
 cleanup() {
@@ -312,6 +313,10 @@ fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/match-discovery-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/scoped-match-discovery-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/mobile-board-likes-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/board-public-write-boundaries.sql
+# 이미 적용된 DB 에 다시 실행해도 권한 상태가 같아야 한다.
+"${PSQL[@]}" -f supabase/migrations/20261014090000_restrict_public_board_writes.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/board-public-write-boundaries.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/pubg-collection-cron-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ban-watch-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ban-watch-boundaries.sql

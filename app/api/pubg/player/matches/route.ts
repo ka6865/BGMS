@@ -166,7 +166,8 @@ async function readDiscoveredAccountIds(supabase: ReturnType<typeof getAdminClie
     const performanceStates = await readPerformanceStates(supabase, platform, nickname, result.matches.map(m => m.match_id), accountId);
     const historyIngest = accountId ? await readHistoryIngest(supabase, platform, accountId) : null;
     return NextResponse.json({ ...result, performances, performanceSummaries, performanceStates, historyIngest }, { headers: { 'Cache-Control': 'no-store' } });
-   } catch (error: any) {
-     return NextResponse.json({ error: error.message || "과거 매치 조회 실패" }, { status: 500 });
+   } catch (error: unknown) {
+     console.error("[PLAYER-MATCHES] request failed", error);
+     return NextResponse.json({ error: "과거 매치 조회 실패" }, { status: 500 });
    }
  }

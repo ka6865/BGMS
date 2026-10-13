@@ -66,7 +66,8 @@ export async function POST(request: NextRequest) {
       .in("match_id", matchIds);
 
     if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
+      console.error("[MATCHES-SUMMARY] performance read failed", error);
+      return NextResponse.json({ error: "최근 매치 요약을 불러오지 못했습니다." }, { status: 500 });
     }
 
     const summaries: Record<string, any> = {};
@@ -113,7 +114,10 @@ export async function POST(request: NextRequest) {
       const identityFilter = buildPlayerMatchIdentityFilter(playerId, accountId);
       query = identityFilter ? query.or(identityFilter) : query.eq("player_id", playerId);
       const { data: playerMatchesData, error: playerMatchesError } = await query.in("match_id", matchIds);
-      if (playerMatchesError) return NextResponse.json({ error: playerMatchesError.message }, { status: 503 });
+      if (playerMatchesError) {
+        console.error("[MATCHES-SUMMARY] player match read failed", playerMatchesError);
+        return NextResponse.json({ error: "최근 매치 요약을 불러오지 못했습니다." }, { status: 503 });
+      }
 
       for (const row of playerMatchesData || []) {
         const matchId = normalizeMatchId(row.match_id);
@@ -141,7 +145,10 @@ export async function POST(request: NextRequest) {
         .eq("platform", platform)
         .eq("player_id", playerId)
         .in("match_id", stillMissingIds);
-      if (rawStatsError) return NextResponse.json({ error: rawStatsError.message }, { status: 503 });
+      if (rawStatsError) {
+        console.error("[MATCHES-SUMMARY] raw stats read failed", rawStatsError);
+        return NextResponse.json({ error: "최근 매치 요약을 불러오지 못했습니다." }, { status: 503 });
+      }
 
       for (const row of rawStatsData || []) {
         const matchId = normalizeMatchId(row.match_id);
@@ -248,9 +255,10 @@ export async function POST(request: NextRequest) {
       collectionStopped,
       ingestedMatchIds,
     }, {headers: {"Cache-Control": "no-store"}});
-  } catch (error: any) {
+  } catch (error: unknown) {
+    console.error("[MATCHES-SUMMARY] request failed", error);
     return NextResponse.json(
-      { error: error.message || "최근 매치 요약을 불러오지 못했습니다." },
+      { error: "최근 매치 요약을 불러오지 못했습니다." },
       { status: 500 }
     );
   }

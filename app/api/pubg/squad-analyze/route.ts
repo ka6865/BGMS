@@ -36,6 +36,6 @@ export async function GET(request: Request) {
     return NextResponse.json(data);
   } catch (error: any) {
     console.error("[SQUAD-ANALYZE-ERROR]", error);
-    return NextResponse.json({ error: error.message || "Failed to analyze squad synergy." }, { status: 500 });
+    return NextResponse.json({ error: "스쿼드 분석을 완료하지 못했습니다." }, { status: 500 });
   }
 }

@@ -72,8 +72,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
       }
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: message, mapId }, { status: 500 });
+    console.error("[MAP-MARKERS] read failed", { mapId, error });
+    return NextResponse.json({ error: "지도 마커를 불러오지 못했습니다.", mapId }, { status: 500 });
   }
 }
 

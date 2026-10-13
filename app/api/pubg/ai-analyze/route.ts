@@ -469,7 +469,8 @@ export async function POST(request: Request) {
       requestId,
       platform: requestedPlatform,
     });
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[AI-ANALYZE] request failed", error);
+    return NextResponse.json({ error: "AI 분석을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요." }, { status: 500 });
   } finally {
     if (!routeCleanupOwnedByStream) cleanupRoute();
   }
