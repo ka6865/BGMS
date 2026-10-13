@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import puppeteer, { type Browser, type Page } from "puppeteer";
 import {
   buildStatsApiRequest,
@@ -19,6 +19,7 @@ import {
 } from "./helpers/statsBrowserHarness";
 
 const describeBrowser = process.env.RUN_STATS_BROWSER_SMOKE === "true" ? describe : describe.skip;
+const productionBrowserServer = process.env.STATS_SERVER_MODE === "production";
 
 type Viewport = { width: number; height: number };
 type RuntimeLog = { consoleErrors: string[]; pageErrors: string[]; requestFailures: string[] };
@@ -194,6 +195,13 @@ async function waitForSearchCooldownReleased(
 }
 
 async function fillNickname(page: Page, dispatcher: InstalledStatsDispatcher, nickname: string): Promise<void> {
+  // shortcut: SSR 입력과 React state를 비공개 props로 동기화 확인; 공개 hydration 신호가 생기면 교체.
+  await dispatcher.withFatal(page.waitForFunction(() => {
+    const input = document.querySelector<HTMLInputElement>('input[name="nickname"]');
+    return input && Object.keys(input).some((key) =>
+      key.startsWith("__reactProps$") && typeof Reflect.get(input, key)?.onChange === "function",
+    );
+  }));
   await page.$eval('input[name="nickname"]', (element) => {
     const input = element as HTMLInputElement;
     input.focus();
@@ -204,9 +212,12 @@ async function fillNickname(page: Page, dispatcher: InstalledStatsDispatcher, ni
     document.querySelector<HTMLInputElement>('input[name="nickname"]')?.value === ""
   )));
   await page.keyboard.type(nickname);
-  await dispatcher.withFatal(page.waitForFunction((expected) => (
-    document.querySelector<HTMLInputElement>('input[name="nickname"]')?.value === expected
-  ), {}, nickname));
+  await dispatcher.withFatal(page.waitForFunction((expected) => {
+    const input = document.querySelector<HTMLInputElement>('input[name="nickname"]');
+    return input?.value === expected && Object.keys(input).some((key) =>
+      key.startsWith("__reactProps$") && Reflect.get(input, key)?.value === expected,
+    );
+  }, {}, nickname));
 }
 
 async function goToLanding(page: Page, dispatcher: InstalledStatsDispatcher, baseUrl: string): Promise<void> {
@@ -446,6 +457,8 @@ async function assertRouteRaceSettledOnB(
   const bRecords = playerRecords(dispatcher, "PlayerB", "steam")
     .filter((record) => record.id > input.returningBAfterRecordId);
   expect(aRecords.length).toBeGreaterThanOrEqual(1);
+  // Next dev StrictMode의 effect setup/cleanup 한 쌍만 허용한다.
+  expect(aRecords.length).toBeLessThanOrEqual(2);
   expect(aRecords.filter((record) => record.successful)).toHaveLength(0);
   for (const record of aRecords) {
     expect(record).toMatchObject({ state: "aborted", terminalSource: "fetch-signal" });
@@ -513,7 +526,15 @@ async function recordScenarioEvidence(
   dispatcher.ledger.throwIfUnexpected();
   const records = dispatcher.ledger.records;
   const adExternal = records.filter((record) => record.category === "ad-external");
-  expect(adExternal, `${label} local advertising external requests`).toHaveLength(0);
+  if (productionBrowserServer) {
+    expect(adExternal.length, `${label} production advertising initialization`).toBeGreaterThan(0);
+    for (const record of adExternal) {
+      expect(record, `${label} advertising network remains blocked`)
+        .toMatchObject({ state: "aborted", successful: false, terminalSource: "external-block" });
+    }
+  } else {
+    expect(adExternal, `${label} local advertising external requests`).toHaveLength(0);
+  }
   console.log(JSON.stringify({
     kind: "stats-browser-scenario",
     label,
@@ -728,8 +749,9 @@ async function layoutEvidence(page: Page) {
           state: element.getAttribute("data-ad-state"),
           visibility: element.getAttribute("data-ad-visibility"),
           display: getComputedStyle(element).display,
-          childOwnerKeys: [...element.querySelectorAll<HTMLElement>("[data-ad-owner-key]")]
+          childOwnerKeys: [...element.querySelectorAll<HTMLElement>(":scope > [data-ad-owner-key]")]
             .map((child) => child.getAttribute("data-ad-owner-key")),
+          providerCreativeCount: element.querySelectorAll("ins[data-ad-owner-key]").length,
         })),
       feedSequence: [...(shell?.querySelectorAll<HTMLElement>("[data-feed-sequence]") ?? [])]
         .map((element) => element.getAttribute("data-feed-sequence")),
@@ -765,11 +787,14 @@ function assertMountedCreativeEvidence(
         ...(process.env.NEXT_PUBLIC_ADFIT_STATS_FEED_UNIT?.trim() ? [["stats-after-10", "adfit"]] : []),
         ["stats-after-15", "adsense"],
       ];
-  expect(evidence.adEvidence.map(({ placement, provider }) => [placement, provider])).toEqual(expected);
+  expect(evidence.adEvidence.map(({ placement, provider }) => [placement, provider]),
+    "광고 목록/설정 불일치: 기존 서버의 NEXT_PUBLIC_ADFIT_STATS_FEED_UNIT과 테스트 환경 값을 동일하게 설정하세요.",
+  ).toEqual(expected);
   for (const creative of evidence.adEvidence) {
     expect(creative.state, `${creative.placement} mounted state`).toBe("mounted");
     expect(creative.display, `${creative.placement} active display`).not.toBe("none");
     expect(creative.childOwnerKeys, `${creative.placement} provider child`).toHaveLength(1);
+    expect(creative.providerCreativeCount, `${creative.placement} duplicate provider creative`).toBeLessThanOrEqual(1);
     expect(creative.childOwnerKeys[0], `${creative.placement} owner key`).toContain(`${creative.placement}:`);
   }
   const topOwner = evidence.adEvidence.find((creative) => creative.placement === "stats-top")?.childOwnerKeys[0];
@@ -827,14 +852,16 @@ async function setStatsViewportAndWait(
   await page.setViewport(viewport);
   const expectedPlacements = viewport.width < 768
     ? ["stats-top", "stats-mobile-after-6"]
-    : ["stats-top", "stats-after-5", "stats-after-10", "stats-after-15"];
+    : ["stats-top", "stats-after-5",
+        ...(process.env.NEXT_PUBLIC_ADFIT_STATS_FEED_UNIT?.trim() ? ["stats-after-10"] : []),
+        "stats-after-15"];
   await dispatcher.withFatal(page.waitForFunction((expected) => {
     const grid = document.querySelector<HTMLElement>(".stats-result-grid");
     const top = document.querySelector<HTMLElement>('[data-ad-placement="stats-top"]');
     const placements = [...document.querySelectorAll<HTMLElement>("[data-ad-placement]")]
       .map((element) => element.getAttribute("data-ad-placement"));
     const childrenReady = [...document.querySelectorAll<HTMLElement>("[data-ad-placement]")]
-      .every((element) => element.querySelectorAll("[data-ad-owner-key]").length === 1);
+      .every((element) => element.querySelectorAll(":scope > [data-ad-owner-key]").length === 1);
     const columns = grid ? getComputedStyle(grid).gridTemplateColumns.trim().split(/\s+/).length : 0;
     return window.innerWidth === expected.width
       && top?.getBoundingClientRect().height === expected.topHeight
@@ -861,6 +888,7 @@ describeBrowser("stats browser smoke", () => {
     if (process.env.STATS_BASE_URL) {
       baseUrl = process.env.STATS_BASE_URL.replace(/\/$/, "");
     } else {
+      vi.stubEnv("NEXT_PUBLIC_ADFIT_STATS_FEED_UNIT", "DAN-fixture-stats-feed-728");
       ownedServer = await startOwnedStatsDevServer();
       baseUrl = ownedServer.baseUrl;
     }
@@ -877,6 +905,7 @@ describeBrowser("stats browser smoke", () => {
       await browser?.close();
     } finally {
       await ownedServer?.stop();
+      vi.unstubAllEnvs();
     }
   }, 30_000);
 
@@ -967,6 +996,15 @@ describeBrowser("stats browser smoke", () => {
         expect(playerRecords(dispatcher, "FixturePlayer", "steam").filter((record) => record.successful)).toHaveLength(before);
         await page.focus('input[name="nickname"]');
         await waitForStatsSelector({ dispatcher, page, selector: 'button[aria-label*="최근 검색 삭제"]' });
+        if (viewport.width < 768) {
+          await dispatcher.withFatal(page.waitForFunction(() => {
+            const buttons = document.querySelectorAll<HTMLElement>('nav[class*="fixed"][class*="bottom-0"] button');
+            return [...buttons].some((button) => {
+              const rect = button.getBoundingClientRect();
+              return rect.width > 0 && rect.height > 0;
+            });
+          }));
+        }
         const controls = await controlEvidence(page, "ready");
         assertControlEvidence({
           evidence: controls,
@@ -1064,6 +1102,7 @@ describeBrowser("stats browser smoke", () => {
         const log = attachRuntimeLog(page);
         await goToLanding(page, dispatcher, baseUrl);
         await fillNickname(page, dispatcher, "MissingPlayer");
+        await waitForButtonEnabled(page, dispatcher, "검색");
         await clickButtonText(page, "검색");
         await waitForPlayerTerminal(dispatcher, "MissingPlayer", "steam");
         await waitForStatsText({ dispatcher, page, text: "플레이어를 찾을 수 없습니다" });
@@ -1428,7 +1467,11 @@ describeBrowser("stats browser smoke", () => {
         await waitForSummarySuccess(dispatcher, "FixturePlayer", "steam");
         await page.click('[data-compact-match-id="match-fixture-1"] button[aria-label="매치 상세 펼치기"]');
         await waitForDetailSuccess(dispatcher, "FixturePlayer", "steam");
+        const tierButtonSelector = '[data-compact-match-id="match-fixture-1"] button[aria-haspopup="dialog"]';
+        await page.click(tierButtonSelector);
         await waitForStatsSelector({ dispatcher, page, selector: 'section[aria-label="매치 성과 및 티어 근거"]' });
+        await page.click(viewport.width < 768 ? 'button[aria-label="티어 근거 닫기"]' : tierButtonSelector);
+        await dispatcher.withFatal(page.waitForFunction(() => !document.querySelector('[data-testid="match-tier-tooltip"]')));
         await clickButtonText(page, "무기 사용 및 고정밀 교전 분석");
         await waitForStatsText({ dispatcher, page, text: "내 무기 상세 스탯" });
         await waitForStatsText({ dispatcher, page, text: "전술 위치 분석 및 타임라인" });
@@ -1643,7 +1686,33 @@ describeBrowser("stats browser smoke", () => {
         }
         if (viewport.width === 1440 && viewport.height === 900) {
           expect(evidence.scrollY).toBe(0);
-          expect(evidence.sequence.every((item) => item.inFirstViewport)).toBe(true);
+          for (const zone of evidence.sequence.slice(0, 2)) {
+            expect(zone.top, `${zone.name} starts in the first viewport`).toBeGreaterThanOrEqual(0);
+            expect(zone.top, `${zone.name} starts in the first viewport`).toBeLessThan(viewport.height);
+            expect(zone.inFirstViewport, JSON.stringify(zone)).toBe(true);
+          }
+          for (const [name, selector] of [
+            ["tabs", '[aria-label="전적 분석 섹션"]'],
+            ["overview", ".stats-overview-rail"],
+            ["match", '[aria-label="최근 매치"]'],
+          ] as const) {
+            await dispatcher.withFatal(page.$eval(selector, (element) => element.scrollIntoView({ behavior: "instant", block: "start" })));
+            await dispatcher.withFatal(page.waitForFunction((zoneSelector) => {
+              const element = document.querySelector<HTMLElement>(zoneSelector);
+              if (!element) return false;
+              const rect = element.getBoundingClientRect();
+              const style = getComputedStyle(element);
+              return style.display !== "none" && style.visibility === "visible"
+                && rect.width > 0 && rect.height > 0
+                && rect.top < window.innerHeight && rect.bottom > 0;
+            }, {}, selector));
+            const scrolledEvidence = await layoutEvidence(page);
+            expect(scrolledEvidence.scrollY, `${name} reached by scrolling`).toBeGreaterThan(0);
+            expect(scrolledEvidence.sequence.find((zone) => zone.name === name), JSON.stringify(scrolledEvidence.sequence))
+              .toMatchObject({ inFirstViewport: true });
+            assertLayoutContract(scrolledEvidence, viewport.width);
+            console.log(JSON.stringify({ kind: "stats-browser-scrolled-zone", name, evidence: scrolledEvidence }));
+          }
         }
         console.log(JSON.stringify({ kind: "stats-browser-layout", evidence }));
         await recordScenarioEvidence(`layout-${viewport.width}x${viewport.height}`, viewport, dispatcher, log);
@@ -1704,7 +1773,8 @@ describeBrowser("stats browser smoke", () => {
         if (from.width === 767) {
           expect(before.adEvidence.some((creative) => creative.placement === "stats-mobile-after-6")).toBe(true);
           expect(after.adEvidence.some((creative) => creative.placement === "stats-mobile-after-6")).toBe(false);
-          expect(after.adEvidence.some((creative) => creative.placement === "stats-after-10" && creative.provider === "adfit")).toBe(true);
+          expect(after.adEvidence.some((creative) => creative.placement === "stats-after-10" && creative.provider === "adfit"))
+            .toBe(Boolean(process.env.NEXT_PUBLIC_ADFIT_STATS_FEED_UNIT?.trim()));
           expect(returned.adEvidence.some((creative) => creative.placement === "stats-after-10")).toBe(false);
         } else {
           expect(after.adEvidence).toEqual(before.adEvidence);

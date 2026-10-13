@@ -100,7 +100,12 @@ class RequestLedger implements StatsRequestLedgerController {
   }
 
   abort(record: StatsRequestRecord, terminalSource: StatsRequestRecord["terminalSource"] = "ledger-abort"): void {
-    if (record.terminal) return;
+    if (record.terminal) {
+      if (record.state === "aborted" && record.terminalSource === "request-failed" && terminalSource === "fetch-signal") {
+        record.terminalSource = terminalSource;
+      }
+      return;
+    }
     record.state = "aborted";
     record.successful = false;
     record.terminal = true;
@@ -279,7 +284,12 @@ export async function installStatsApiDispatcher(input: {
   ): void => {
     const record = requestRecords.get(request);
     const apiRequest = scenarioRequests.get(request);
-    if (!record || record.terminal || !apiRequest) {
+    if (!record || !apiRequest) {
+      untrackActiveRequest(request);
+      return;
+    }
+    if (record.terminal) {
+      ledger.abort(record, terminalSource);
       untrackActiveRequest(request);
       return;
     }
@@ -396,7 +406,8 @@ export async function installStatsApiDispatcher(input: {
     const apiRequest = scenarioRequests.get(request);
     if (apiRequest) scenario.abort(apiRequest);
     ledger.abort(record, "request-failed");
-    untrackActiveRequest(request);
+    // Chromium 중단 이벤트가 실제 AbortSignal 알림보다 먼저 도착할 수 있다.
+    if (request.failure()?.errorText !== "net::ERR_ABORTED") untrackActiveRequest(request);
     terminalResolvers.get(request)?.();
   };
 
