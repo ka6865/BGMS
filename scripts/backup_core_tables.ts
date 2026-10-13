@@ -128,33 +128,69 @@ function keysFor(table: string): readonly string[] {
  *   k1 > v1                          → 다음 k1 묶음
  * 각 조건이 기본키 인덱스의 앞 열에 걸리므로 OFFSET 처럼 앞부분을 다시 훑지 않는다.
  */
+type KeysetPage = PageResult & { done: boolean };
+
+async function runQuery(query: ReturnType<ReturnType<TableReader["from"]>["select"]>, limit: number): Promise<PageResult> {
+  try {
+    const result = await query.limit(limit).abortSignal(AbortSignal.timeout(REQUEST_TIMEOUT_MS));
+    if (result.error) return { data: [], error: result.error.message };
+    return { data: (result.data ?? []) as Row[], error: null };
+  } catch {
+    return { data: [], error: "backup-table-read-failed" };
+  }
+}
+
+/**
+ * 기본키 순서로 last 다음 행을 limit 개까지 읽는다. done 은 테이블 끝까지 읽었는지 나타낸다.
+ *
+ * 빠른 경로(복합키): 첫 키 >= 마지막 값 으로 PAGE_SIZE 행을 한 번에 읽고, DB 가 정렬한 결과 안에서
+ * 마지막으로 읽은 행의 위치를 찾아 그 뒤만 쓴다. JS 문자열 비교는 DB 정렬 규칙과 다를 수 있어 쓰지 않는다.
+ * 대부분의 페이지가 요청 1번으로 끝난다.
+ *
+ * 정확한 경로: 마지막 행을 찾지 못하면(같은 첫 키 묶음이 PAGE_SIZE 보다 크거나 그 사이 삭제됨)
+ * 복합키 (k1, k2, k3) 의 다음 행을 깊은 단계부터 차례로 찾는다.
+ *   k1 = v1 and k2 = v2 and k3 > v3  → 같은 묶음의 나머지
+ *   k1 = v1 and k2 > v2              → 다음 k2 묶음
+ *   k1 > v1                          → 다음 k1 묶음
+ * 각 조건이 기본키 인덱스의 앞 열에 걸리므로 OFFSET 처럼 앞부분을 다시 훑지 않는다.
+ */
 export async function readKeysetPage(
   supabase: TableReader,
   table: string,
   last: Row | null,
   limit: number,
-): Promise<PageResult> {
+): Promise<KeysetPage> {
   const keys = keysFor(table);
+  const select = () => supabase.from(table).select("*");
+  const order = <T extends { order: (column: string) => T }>(query: T): T => keys.reduce((q, key) => q.order(key), query);
+
+  if (last && keys.length > 1) {
+    const fast = await runQuery(order(select().gte(keys[0], last[keys[0]])), PAGE_SIZE);
+    if (fast.error) return { data: [], error: fast.error, done: false };
+    const index = fast.data.findIndex(row => keys.every(key => row[key] === last[key]));
+    if (index >= 0) {
+      const after = fast.data.slice(index + 1);
+      const reachedEnd = fast.data.length < PAGE_SIZE;
+      if (after.length > 0 || reachedEnd) {
+        return { data: after.slice(0, limit), error: null, done: reachedEnd && after.length <= limit };
+      }
+    }
+  }
+
   const rows: Row[] = [];
   const depths = last ? keys.map((_, index) => keys.length - 1 - index) : [-1];
   for (const depth of depths) {
     if (rows.length >= limit) break;
-    let query = supabase.from(table).select("*");
+    let query = select();
     if (last && depth >= 0) {
       for (const key of keys.slice(0, depth)) query = query.eq(key, last[key]);
       query = query.gt(keys[depth], last[keys[depth]]);
     }
-    for (const key of keys) query = query.order(key);
-    let result;
-    try {
-      result = await query.limit(limit - rows.length).abortSignal(AbortSignal.timeout(REQUEST_TIMEOUT_MS));
-    } catch {
-      return { data: rows, error: "backup-table-read-failed" };
-    }
-    if (result.error) return { data: rows, error: result.error.message };
-    rows.push(...((result.data ?? []) as Row[]));
+    const result = await runQuery(order(query), limit - rows.length);
+    rows.push(...result.data);
+    if (result.error) return { data: rows, error: result.error, done: false };
   }
-  return { data: rows, error: null };
+  return { data: rows, error: null, done: rows.length < limit };
 }
 
 /**
@@ -176,7 +212,7 @@ export async function streamTableRows(
   while (true) {
     const remaining = maxRows - rowCount;
     // 한도에 닿으면 한 행만 더 읽어 한도를 넘는 테이블인지 확인한다.
-    const { data, error } = await readKeysetPage(supabase, table, last, remaining > 0 ? Math.min(PAGE_SIZE, remaining) : 1);
+    const { data, error, done } = await readKeysetPage(supabase, table, last, remaining > 0 ? Math.min(PAGE_SIZE, remaining) : 1);
     if (remaining <= 0) {
       if (error) return { rowCount, skipped: false, error };
       return { rowCount, skipped: false, error: data.length > 0 ? "backup-row-limit-exceeded" : null };
@@ -188,7 +224,7 @@ export async function streamTableRows(
     }
     // 첫 페이지부터 실패하면 테이블 자체를 읽을 수 없는 상황이다.
     if (error) return { rowCount, skipped: rowCount === 0, error };
-    if (data.length < Math.min(PAGE_SIZE, remaining)) break;
+    if (done) break;
   }
 
   return { rowCount, skipped: false, error: null };

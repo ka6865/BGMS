@@ -53,6 +53,7 @@ function makeFixtureReader() {
         order: () => chain,
         eq: (column: string, value: unknown) => { filters.push(row => row[column] === value); return chain; },
         gt: (column: string, value: unknown) => { filters.push(row => String(row[column]) > String(value)); return chain; },
+        gte: (column: string, value: unknown) => { filters.push(row => String(row[column]) >= String(value)); return chain; },
         limit: (count: number) => { limit = count; return chain; },
         abortSignal: () => chain,
         then: (resolve: (value: unknown) => unknown) => Promise.resolve({
