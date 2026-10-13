@@ -285,7 +285,8 @@ export async function finalizeRecoveryAtomically(
     // so a committed transaction can report `already_finalized` instead of
     // causing unsafe R2 deletion.
     const code = error instanceof TelemetryRegistryError ? error.code : null;
-    const knownRollback = Boolean(code && (/^(?:22|23|40)/.test(code) || code === "PGRST116"));
+    // P0001 은 함수가 직접 던진 예외(lease 유실·조건 실패)이므로 트랜잭션이 롤백된 것이 확실하다.
+    const knownRollback = Boolean(code && (/^(?:22|23|40)/.test(code) || code === "P0001" || code === "PGRST116"));
     if (knownRollback) throw error;
     try {
       const reconciled = await call();
