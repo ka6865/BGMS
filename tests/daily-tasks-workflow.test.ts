@@ -107,7 +107,7 @@ type MaintenanceWorkflow = {
     expect(content).toContain("support-attachment-cleanup:\n    needs: board-image-cleanup\n    if: ${{ always() && !cancelled() }}\n    runs-on: ubuntu-latest\n    timeout-minutes: 10");
     expect(content).toContain("board-write-quota-cleanup:\n    runs-on: ubuntu-latest\n    timeout-minutes: 5");
     expect(content).toContain("maintenance:\n    needs: board-write-quota-cleanup\n    if: ${{ always() && !cancelled() }}");
-    expect(content).toContain("timeout-minutes: 60");
+    expect(content).toContain("timeout-minutes: 90");
     expect(content).toContain("needs: [support-attachment-cleanup, board-write-quota-cleanup, maintenance, match-type-backfill]");
     expect(content).toContain("--connect-timeout 10 --max-time 60");
     expect(content).not.toContain("github.run_started_at");
