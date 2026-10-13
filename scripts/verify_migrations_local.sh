@@ -82,6 +82,7 @@ MIGRATIONS=(
   "20261014100000_pin_legacy_function_search_path"
   "20261014120000_protect_board_post_views"
   "20261014130000_suggest_similar_players_trgm_index_scan"
+  "20261014140000_reports_revoke_public_truncate"
 )
 
 cleanup() {
@@ -155,6 +156,13 @@ for migration in "${MIGRATIONS[@]}"; do
     # applied unchanged. Real extension install and delivery need live checks.
     sed '/^create extension if not exists pg_cron /d; /^create extension if not exists pg_net /d' \
       "supabase/migrations/${migration}.sql" | "${PSQL[@]}"
+  elif [ "$migration" = "20261014130000_suggest_similar_players_trgm_index_scan" ]; then
+    # 각 psql 은 새 연결이다. 슈퍼유저 세션의 pg_trgm 로드 상태를 재사용하지 않는다.
+    for _ in 1 2; do
+      "${PSQL[@]}" -c "set role bgms_migration_check;" \
+        -f "supabase/migrations/${migration}.sql" \
+        -f tests/fixtures/migration-check/suggest-similar-players-migration-role.sql
+    done
   else
     "${PSQL[@]}" -f "supabase/migrations/${migration}.sql"
   fi
@@ -320,6 +328,7 @@ fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/board-public-write-boundaries.sql
 # 이미 적용된 DB 에 다시 실행해도 권한 상태가 같아야 한다.
 "${PSQL[@]}" -f supabase/migrations/20261014090000_restrict_public_board_writes.sql
+"${PSQL[@]}" -f supabase/migrations/20261014140000_reports_revoke_public_truncate.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/board-public-write-boundaries.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/board-post-views-scenarios.sql
 # 이미 적용된 DB 에 다시 실행해도 조회수 경로 권한과 동작이 같아야 한다.
