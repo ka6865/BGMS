@@ -31,6 +31,7 @@
     "db:cleanup": "tsx scripts/cleanup_telemetry.ts",
     "db:backup": "tsx scripts/backup_core_tables.ts",
     "db:backup:dry": "tsx scripts/backup_core_tables.ts --dry-run",
+    "db:backup:verify": "tsx scripts/verify_core_backup.ts",
     "db:baseline:refresh": "tsx scripts/refresh_baseline_schema.ts",
     "verify:baseline": "bash scripts/verify_baseline_restore.sh",
     "cleanup:board-images": "tsx scripts/cleanup_board_images.ts",

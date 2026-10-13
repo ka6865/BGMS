@@ -5,27 +5,47 @@ import { resolve } from "node:path";
 import {
   BACKUP_TABLES,
   MAX_ROWS_PER_TABLE,
+  PAGE_SIZE,
+  TABLE_KEYS,
   assertBackupComplete,
   backupCoreTables,
   buildBackupKey,
+  buildPartKey,
   readTableRows,
+  restoreBackupRows,
 } from "../scripts/backup_core_tables";
+import { verifyCoreBackup } from "../scripts/verify_core_backup";
 import { isDeletableKey } from "../lib/pubg-analysis/r2DeletionGuard";
 
-type TableData = Record<string, unknown[]>;
+type Row = Record<string, unknown>;
+type TableData = Record<string, Row[]>;
 
+function compare(a: unknown, b: unknown): number {
+  return (a as number | string) < (b as number | string) ? -1 : (a as number | string) > (b as number | string) ? 1 : 0;
+}
+
+/** PostgREST 의 select/eq/gt/order/limit 동작을 흉내 낸다. */
 function createSupabase(tables: TableData, errors: Record<string, string> = {}) {
   return {
     from: vi.fn((table: string) => {
-      let from = 0, to = 0;
+      const filters: Array<(row: Row) => boolean> = [];
+      const orders: string[] = [];
+      let limit = Number.POSITIVE_INFINITY;
       const chain = {
         select: vi.fn(() => chain),
-        order: vi.fn(() => chain),
-        range: vi.fn((start: number, end: number) => { from = start; to = end; return chain; }),
+        eq: vi.fn((column: string, value: unknown) => { filters.push(row => row[column] === value); return chain; }),
+        gt: vi.fn((column: string, value: unknown) => { filters.push(row => compare(row[column], value) > 0); return chain; }),
+        order: vi.fn((column: string) => { orders.push(column); return chain; }),
+        limit: vi.fn((count: number) => { limit = count; return chain; }),
         abortSignal: vi.fn(() => chain),
-        then: (resolve: (result: unknown) => unknown) => Promise.resolve(errors[table]
-          ? { data: null, error: { message: errors[table] } }
-          : { data: (tables[table] ?? []).slice(from, to + 1), error: null }).then(resolve),
+        then: (resolve: (result: unknown) => unknown) => {
+          if (errors[table]) return Promise.resolve({ data: null, error: { message: errors[table] } }).then(resolve);
+          const rows = (tables[table] ?? [])
+            .filter(row => filters.every(filter => filter(row)))
+            .sort((a, b) => orders.reduce((result, column) => result || compare(a[column], b[column]), 0))
+            .slice(0, limit);
+          return Promise.resolve({ data: rows, error: null }).then(resolve);
+        },
       };
       return chain;
     }),
@@ -50,6 +70,14 @@ describe("핵심 테이블 백업", () => {
     expect(BACKUP_TABLES).not.toContain("pubg_player_cache");
   });
 
+  it("모든 백업 대상에 기본키 순서를 정의한다", () => {
+    for (const table of BACKUP_TABLES) expect(TABLE_KEYS[table].length).toBeGreaterThan(0);
+    // 운영 기본키와 같은 순서여야 인덱스를 따라 읽는다.
+    expect(TABLE_KEYS.pubg_player_matches).toEqual(["player_id", "platform", "match_id"]);
+    expect(TABLE_KEYS.pubg_match_performance)
+      .toEqual(["platform", "account_id", "match_id", "calculation_version", "result_version"]);
+  });
+
   it("1000행 제한을 넘는 테이블을 끝까지 읽는다", async () => {
     const rows = Array.from({ length: 2_500 }, (_, index) => ({ id: index + 1 }));
     const supabase = createSupabase({ map_markers: rows });
@@ -58,6 +86,29 @@ describe("핵심 테이블 백업", () => {
 
     expect(result.rows).toHaveLength(2_500);
     expect(result.skipped).toBe(false);
+  });
+
+  it("복합 기본키 테이블을 OFFSET 없이 기본키 순서로 빠짐없이 한 번씩 읽는다", async () => {
+    // 한 선수의 경기가 페이지 경계에 걸치도록 묶음 크기를 PAGE_SIZE 와 어긋나게 만든다.
+    const rows: Row[] = [];
+    for (let player = 0; player < 7; player++) {
+      for (const platform of ["kakao", "steam"]) {
+        for (let match = 0; match < 333; match++) {
+          rows.push({ player_id: `p${player}`, platform, match_id: `m${String(match).padStart(4, "0")}` });
+        }
+      }
+    }
+    const shuffled = [...rows].reverse();
+    const supabase = createSupabase({ pubg_player_matches: shuffled }) as unknown as { from: ReturnType<typeof vi.fn> };
+
+    const result = await readTableRows(supabase as never, "pubg_player_matches");
+
+    expect(result.error).toBeNull();
+    expect(result.rows).toEqual(rows);
+    const chains = supabase.from.mock.results.map(entry => entry.value);
+    expect(chains.every(chain => chain.limit.mock.calls.every(([count]: [number]) => count <= PAGE_SIZE))).toBe(true);
+    expect(chains.some(chain => "range" in chain && chain.range)).toBe(false);
+    expect(chains[0].order.mock.calls.map(([column]: [string]) => column)).toEqual(["player_id", "platform", "match_id"]);
   });
 
   it("한 테이블을 읽지 못해도 나머지를 백업한다", async () => {
@@ -85,12 +136,14 @@ describe("핵심 테이블 백업", () => {
   });
 
   it("detects rows beyond the safety limit rather than claiming a full backup", async () => {
-    const rows = Array.from({ length: MAX_ROWS_PER_TABLE + 1 }, (_, id) => ({ id }));
-    const result = await readTableRows(createSupabase({ map_markers: rows }), "map_markers");
-    expect(result.rows).toHaveLength(MAX_ROWS_PER_TABLE);
+    expect(MAX_ROWS_PER_TABLE).toBeGreaterThan(1_100_000);
+    const rows = Array.from({ length: 2_501 }, (_, id) => ({ id }));
+    const result = await readTableRows(createSupabase({ map_markers: rows }), "map_markers", { maxRows: 2_500 });
+    expect(result.rows).toHaveLength(2_500);
     expect(result.error).toBe("backup-row-limit-exceeded");
-    const exact = await readTableRows(createSupabase({ map_markers: rows.slice(0, MAX_ROWS_PER_TABLE) }), "map_markers");
+    const exact = await readTableRows(createSupabase({ map_markers: rows.slice(0, 2_500) }), "map_markers", { maxRows: 2_500 });
     expect(exact.error).toBeNull();
+    expect(exact.rows).toHaveLength(2_500);
   });
 
   it.each([
@@ -111,14 +164,141 @@ describe("핵심 테이블 백업", () => {
 
   it("marks failures after the first page as partial without losing already read rows", async () => {
     const chain = {
-      select: () => chain, order: () => chain,
-      range: () => chain, abortSignal: () => chain,
-      then: vi.fn().mockImplementationOnce(resolve => resolve({ data: Array(1000).fill({ id: 1 }), error: null }))
+      select: () => chain, order: () => chain, eq: () => chain, gt: () => chain,
+      limit: () => chain, abortSignal: () => chain,
+      then: vi.fn().mockImplementationOnce(resolve => resolve({ data: Array.from({ length: 1000 }, (_, id) => ({ id })), error: null }))
         .mockImplementationOnce(resolve => resolve({ data: null, error: { message: "read interrupted" } })),
     };
     const result = await readTableRows({ from: () => chain } as never, "profiles");
     expect(result).toMatchObject({ skipped: false, error: "read interrupted" });
     expect(result.rows).toHaveLength(1000);
+  });
+
+  it("큰 테이블은 part 로 나눠 올리고 manifest 를 마지막에 올린다", async () => {
+    const matches = Array.from({ length: 2_500 }, (_, index) => ({ player_id: "p", platform: "steam", match_id: `m${String(index).padStart(5, "0")}` }));
+    const supabase = createSupabase({ pubg_player_matches: matches, profiles: [{ id: "a" }] });
+    const uploaded: Array<{ key: string; body: string }> = [];
+    const now = new Date("2026-10-13T00:00:00.000Z");
+
+    const result = await backupCoreTables(supabase, async (key, body) => { uploaded.push({ key, body }); },
+      { write: () => undefined, partRows: 1_000, now });
+
+    const manifestKey = buildBackupKey(now);
+    expect(uploaded.map(entry => entry.key)).toEqual([
+      buildPartKey(manifestKey, "pubg_player_matches", 1),
+      buildPartKey(manifestKey, "pubg_player_matches", 2),
+      buildPartKey(manifestKey, "pubg_player_matches", 3),
+      manifestKey,
+    ]);
+    const manifest = JSON.parse(uploaded[3].body);
+    expect(manifest).toMatchObject({ formatVersion: 2, complete: true });
+    expect(manifest.data.pubg_player_matches).toBeUndefined();
+    expect(manifest.data.profiles).toEqual([{ id: "a" }]);
+    expect(manifest.parts.pubg_player_matches.map((part: { rows: number }) => part.rows)).toEqual([1_000, 1_000, 500]);
+    const restored = uploaded.slice(0, 3).flatMap(entry => JSON.parse(entry.body));
+    expect(restored).toEqual(matches);
+    expect(result.tables.find(table => table.table === "pubg_player_matches")).toMatchObject({ rowCount: 2_500, parts: 3 });
+    expect(() => assertBackupComplete(result)).not.toThrow();
+    for (const entry of uploaded) expect(isDeletableKey(entry.key)).toBe(false);
+  });
+
+  it("part 업로드가 실패하면 완전 백업으로 보고하지 않는다", async () => {
+    const matches = Array.from({ length: 2_500 }, (_, index) => ({ player_id: "p", platform: "steam", match_id: `m${String(index).padStart(5, "0")}` }));
+    const supabase = createSupabase({ pubg_player_matches: matches, profiles: [{ id: "a" }] });
+    const uploaded: string[] = [];
+    let calls = 0;
+
+    const result = await backupCoreTables(supabase, async (key) => {
+      calls += 1;
+      if (calls === 2) throw new Error("r2 unavailable");
+      uploaded.push(key);
+    }, { write: () => undefined, partRows: 1_000 });
+
+    expect(result.complete).toBe(false);
+    expect(result.tables.find(table => table.table === "pubg_player_matches")?.error).toBe("backup-part-upload-failed");
+    const manifest = uploaded[uploaded.length - 1];
+    expect(manifest.endsWith(".json") && !manifest.includes("/part-")).toBe(true);
+    expect(() => assertBackupComplete(result)).toThrow("backup-core-tables-incomplete: pubg_player_matches");
+  });
+
+  describe("분할 백업 복원", () => {
+    const now = new Date("2026-10-13T00:00:00.000Z");
+    const manifestKey = buildBackupKey(now);
+    const matches = Array.from({ length: 2_500 }, (_, index) => ({ player_id: "p", platform: "steam", match_id: `m${String(index).padStart(5, "0")}` }));
+    const source = { pubg_player_matches: matches, profiles: [{ id: "a" }], posts: [{ id: 1, title: "t" }] };
+
+    async function storeBackup() {
+      const store = new Map<string, string>();
+      await backupCoreTables(createSupabase(source), async (key, body) => { store.set(key, body); },
+        { write: () => undefined, partRows: 1_000, now });
+      return store;
+    }
+
+    it("manifest 의 part 목록을 따라 원래 행을 그대로 다시 조립한다", async () => {
+      const store = await storeBackup();
+      const manifest = JSON.parse(store.get(manifestKey)!);
+      const restored = await restoreBackupRows(manifestKey, manifest, async key => store.get(key) ?? null);
+
+      expect(Object.keys(restored).sort()).toEqual([...BACKUP_TABLES].sort());
+      expect(restored.pubg_player_matches).toEqual(matches);
+      expect(restored.profiles).toEqual(source.profiles);
+      expect(restored.posts).toEqual(source.posts);
+      expect(restored.map_markers).toEqual([]);
+
+      const lines: string[] = [];
+      const counts = await verifyCoreBackup(manifestKey, async key => store.get(key) ?? null, line => lines.push(line));
+      expect(counts.pubg_player_matches).toBe(2_500);
+      expect(lines.at(-1)).toContain("복원 검증 통과");
+    });
+
+    it("part 파일이 없으면 실패한다", async () => {
+      const store = await storeBackup();
+      const missing = buildPartKey(manifestKey, "pubg_player_matches", 2);
+      store.delete(missing);
+      await expect(restoreBackupRows(manifestKey, JSON.parse(store.get(manifestKey)!), async key => store.get(key) ?? null))
+        .rejects.toThrow(`backup-restore-part-missing: ${missing}`);
+    });
+
+    it("part 행 수가 manifest 와 다르면 실패한다", async () => {
+      const store = await storeBackup();
+      const key = buildPartKey(manifestKey, "pubg_player_matches", 3);
+      store.set(key, JSON.stringify(JSON.parse(store.get(key)!).slice(1)));
+      await expect(restoreBackupRows(manifestKey, JSON.parse(store.get(manifestKey)!), async k => store.get(k) ?? null))
+        .rejects.toThrow(`backup-restore-part-row-mismatch: ${key}`);
+    });
+
+    it("테이블 총 행 수가 manifest 기록과 다르면 실패한다", async () => {
+      const store = await storeBackup();
+      const manifest = JSON.parse(store.get(manifestKey)!);
+      manifest.tables.find((table: { table: string }) => table.table === "profiles").rowCount = 2;
+      await expect(restoreBackupRows(manifestKey, manifest, async key => store.get(key) ?? null))
+        .rejects.toThrow("backup-restore-row-count-mismatch: profiles");
+    });
+
+    it("part 목록이 줄었거나 순서가 바뀌면 실패한다", async () => {
+      const store = await storeBackup();
+      const dropped = JSON.parse(store.get(manifestKey)!);
+      dropped.parts.pubg_player_matches.pop();
+      await expect(restoreBackupRows(manifestKey, dropped, async key => store.get(key) ?? null))
+        .rejects.toThrow("backup-restore-part-count-mismatch: pubg_player_matches");
+      const swapped = JSON.parse(store.get(manifestKey)!);
+      swapped.parts.pubg_player_matches.reverse();
+      await expect(restoreBackupRows(manifestKey, swapped, async key => store.get(key) ?? null))
+        .rejects.toThrow("backup-restore-part-key-mismatch");
+    });
+
+    it("미완료 manifest 나 테이블 목록이 다른 manifest 로는 복원하지 않는다", async () => {
+      const store = await storeBackup();
+      const incomplete = { ...JSON.parse(store.get(manifestKey)!), complete: false };
+      await expect(restoreBackupRows(manifestKey, incomplete, async key => store.get(key) ?? null))
+        .rejects.toThrow("backup-restore-incomplete-manifest");
+      const shortList = JSON.parse(store.get(manifestKey)!);
+      shortList.tables = shortList.tables.filter((table: { table: string }) => table.table !== "posts");
+      await expect(restoreBackupRows(manifestKey, shortList, async key => store.get(key) ?? null))
+        .rejects.toThrow("backup-restore-table-list-mismatch");
+      await expect(verifyCoreBackup(manifestKey, async () => null, () => undefined))
+        .rejects.toThrow(`backup-restore-manifest-missing: ${manifestKey}`);
+    });
   });
 
   it("dry-run 은 업로드하지 않는다", async () => {
@@ -130,6 +310,7 @@ describe("핵심 테이블 백업", () => {
     expect(upload).not.toHaveBeenCalled();
     expect(result.dryRun).toBe(true);
     expect(result.key).toBeNull();
+    expect(result.tables.find(table => table.table === "profiles")?.rowCount).toBe(1);
   });
 
   it("조회가 전부 실패하면 빈 백업을 만들지 않는다", async () => {
@@ -184,5 +365,6 @@ describe("핵심 테이블 백업", () => {
 
     expect(isDeletableKey(key)).toBe(false);
     expect(isDeletableKey("backups/anything.json")).toBe(false);
+    expect(isDeletableKey(buildPartKey(key, "pubg_player_matches", 1))).toBe(false);
   });
 });
