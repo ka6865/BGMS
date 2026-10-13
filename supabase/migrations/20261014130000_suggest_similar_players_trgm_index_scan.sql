@@ -10,11 +10,18 @@
 -- - 호출부(app/api/pubg/player)가 service role 로 바뀌므로 SECURITY INVOKER 로 바꾸고
 --   anon·authenticated 실행 권한을 회수한다. 반환 컬럼 이름과 타입은 유지한다.
 --
+-- 운영 migration 역할은 슈퍼유저가 아니다. pg_trgm 라이브러리가 아직 로드되지 않은 세션에서는
+-- pg_trgm.similarity_threshold 가 정의되지 않은 설정으로 취급되어 함수 설정으로 붙일 수 없다
+-- (permission denied to set parameter). 아래에서 similarity() 를 한 번 호출해 먼저 로드한다.
+-- 2026-10-14 운영 적용 실패 후 같은 번호(20261014110000)를 버리고 이 번호로 다시 만들었다.
+--
 -- 배포 순서: 앱 배포 후 적용한다. 먼저 적용하면 이전 앱의 추천 호출은 빈 목록으로 처리된다.
 -- 재실행해도 결과가 같다.
 
 set lock_timeout = '3s';
 set statement_timeout = '30s';
+
+select public.similarity('', '');
 
 create or replace function public.suggest_similar_players(
   search_name text,

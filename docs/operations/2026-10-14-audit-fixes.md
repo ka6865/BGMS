@@ -49,7 +49,7 @@
 - 익명 키 REST 확인: `get_db_size` 401(권한 거부), `suggest_similar_players` 200
 - 적용 전 회원 512명·프로필 512개
 
-## 3차 조치 (이 문서와 같은 PR)
+## 3차 조치 (PR #259, 병합·배포 완료)
 
 | 항목 | 조치 |
 | --- | --- |
@@ -58,7 +58,16 @@
 | 보조 텍스트 대비 부족 | 푸터 링크·고지문 8.13:1, 모바일 하단 내비 비활성 라벨 8.42:1, 게시판 빈 상태 문구, 1:1 비교 돌아가기 링크 개선(375·390·430·1440 실측) |
 | 색상 토큰 미사용 | `globals.css` 토큰을 Tailwind 테마 색상으로 등록. 공통 헤더·내비·푸터·모달·게시판 일부의 `#F2A900` 등을 토큰 클래스로 교체 |
 
-두 migration(`20261014110000_suggest_similar_players_trgm_index_scan`, `20261014120000_protect_board_post_views`)은 모두 앱 배포 후 적용한다. 먼저 적용하면 이전 앱의 닉네임 추천은 빈 목록, 조회수 증가는 실패(화면 영향 없음)로 처리된다.
+두 migration은 모두 앱 배포 후 적용한다. 먼저 적용하면 이전 앱의 닉네임 추천은 빈 목록, 조회수 증가는 실패(화면 영향 없음)로 처리된다.
+
+### 운영 migration 적용 실적
+
+- 2026-10-13 22:34 UTC `20261014110000_suggest_similar_players_trgm_index_scan` 적용 실패: `permission denied to set parameter "pg_trgm.similarity_threshold"`. 트랜잭션이 되돌려져 함수·권한·이력은 바뀌지 않았다. 격리 검증은 슈퍼유저로 실행되어 이 차이를 잡지 못했다.
+  - 원인: 운영 migration 역할은 슈퍼유저가 아니고, pg_trgm 라이브러리가 로드되지 않은 세션에서는 이 설정을 정의되지 않은 값으로 보고 함수 설정으로 붙이지 못한다.
+  - 비슈퍼유저 PostgreSQL 17 컨테이너에서 같은 에러를 재현했고, 함수 정의 전에 `similarity()`를 한 번 호출해 라이브러리를 로드하면 생성·재실행·호출이 모두 정상이며 세션 임계값도 바뀌지 않음을 확인했다.
+  - 이 사이 앱은 service role로 기존 함수를 호출해 닉네임 추천은 계속 동작했다.
+- 2026-10-13 22:35 UTC `20261014120000_protect_board_post_views` 적용. 배포 직후부터 적용 전까지 조회수 API는 503(조회수 미반영), 적용 직후 PostgREST 스키마 갱신 전 한 번 503, 이후 정상(없는 글 404). anon·authenticated의 `increment_views`, `increment_board_post_views` 실행 권한 false.
+- 실패한 닉네임 추천 migration은 `20261014120000` 뒤로 순서를 맞추기 위해 `20261014130000_suggest_similar_players_trgm_index_scan`으로 번호를 바꿔 다시 적용한다(`20261014110000`은 어느 환경에도 적용되지 않았다).
 
 ## 남은 항목
 
