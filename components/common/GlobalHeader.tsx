@@ -181,7 +181,7 @@ export default function GlobalHeader() {
   }
 
   return (
-    <header className="flex items-center justify-between min-h-[56px] h-auto px-4 bg-[#F2A900] border-b-2 border-[#cc8b00] z-[6000] safe-top shadow-md select-none shrink-0 w-full">
+    <header className="flex items-center justify-between min-h-[56px] h-auto px-4 bg-accent border-b-2 border-[#cc8b00] z-[6000] safe-top shadow-md select-none shrink-0 w-full">
       <div className="flex items-center gap-3 overflow-hidden flex-1">
         
         <Link href="/" className="flex items-center cursor-pointer group flex-shrink-0">
@@ -206,7 +206,7 @@ export default function GlobalHeader() {
                   >
                     {m.label}
                     {isActive && (
-                      <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#F2A900]" />
+                      <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
                     )}
                   </button>
                 </Link>
@@ -218,13 +218,13 @@ export default function GlobalHeader() {
               <button
                 className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
                   isStatsActive
-                    ? "bg-black/90 text-[#F2A900] shadow-sm"
+                    ? "bg-black/90 text-accent shadow-sm"
                     : "text-black/60 hover:bg-black/10 hover:text-black/80"
                 }`}
               >
                 AI 전적 검색
                 {isStatsActive && (
-                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#F2A900]" />
+                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
                 )}
               </button>
             </Link>
@@ -233,13 +233,13 @@ export default function GlobalHeader() {
               <button
                 className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
                   isBoardActive
-                    ? "bg-black/90 text-[#F2A900] shadow-sm"
+                    ? "bg-black/90 text-accent shadow-sm"
                     : "text-black/60 hover:bg-black/10 hover:text-black/80"
                 }`}
               >
                 커뮤니티
                 {isBoardActive && (
-                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#F2A900]" />
+                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
                 )}
               </button>
             </Link>
@@ -248,46 +248,46 @@ export default function GlobalHeader() {
               <button
                 className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
                   isRankingsActive
-                    ? "bg-black/90 text-[#F2A900] shadow-sm"
+                    ? "bg-black/90 text-accent shadow-sm"
                     : "text-black/60 hover:bg-black/10 hover:text-black/80"
                 }`}
               >
                 랭킹
                 {isRankingsActive && (
-                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#F2A900]" />
+                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
                 )}
               </button>
             </Link>
 
             <Link href="/weapons" className="shrink-0">
               <button className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
-                isWeaponsActive ? "bg-black/90 text-[#F2A900] shadow-sm" : "text-black/60 hover:bg-black/10 hover:text-black/80"
+                isWeaponsActive ? "bg-black/90 text-accent shadow-sm" : "text-black/60 hover:bg-black/10 hover:text-black/80"
               }`}>
                 무기 도감
                 {isWeaponsActive && (
-                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#F2A900]" />
+                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
                 )}
               </button>
             </Link>
 
             <Link href="/backpack" className="shrink-0">
               <button className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
-                isBackpackActive ? "bg-black/90 text-[#F2A900] shadow-sm" : "text-black/60 hover:bg-black/10 hover:text-black/80"
+                isBackpackActive ? "bg-black/90 text-accent shadow-sm" : "text-black/60 hover:bg-black/10 hover:text-black/80"
               }`}>
                 가방 시뮬
                 {isBackpackActive && (
-                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#F2A900]" />
+                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
                 )}
               </button>
             </Link>
 
             <Link href="/crates" className="shrink-0">
               <button className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
-                isCratesActive ? "bg-black/90 text-[#F2A900] shadow-sm" : "text-black/60 hover:bg-black/10 hover:text-black/80"
+                isCratesActive ? "bg-black/90 text-accent shadow-sm" : "text-black/60 hover:bg-black/10 hover:text-black/80"
               }`}>
                 상자 시뮬
                 {isCratesActive && (
-                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#F2A900]" />
+                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
                 )}
               </button>
             </Link>
@@ -296,11 +296,11 @@ export default function GlobalHeader() {
 
             <Link href="/support" className="shrink-0">
               <button className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
-                isSupportActive ? "bg-black/90 text-[#F2A900]" : "text-black/60 hover:bg-black/10 hover:text-black/80"
+                isSupportActive ? "bg-black/90 text-accent" : "text-black/60 hover:bg-black/10 hover:text-black/80"
               }`}>
                 고객센터
                 {isSupportActive && (
-                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-[#F2A900]" />
+                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
                 )}
               </button>
             </Link>
@@ -320,7 +320,7 @@ export default function GlobalHeader() {
             {isAdmin && !isMobile && (
               <div className="flex gap-2 mr-2">
                 <Link href="/map-editor">
-                  <button className="flex items-center gap-1.5 px-3 py-1.5 bg-black text-[#F2A900] border border-black/10 rounded-lg font-black text-[10px] uppercase">
+                  <button className="flex items-center gap-1.5 px-3 py-1.5 bg-black text-accent border border-black/10 rounded-lg font-black text-[10px] uppercase">
                     <Hammer size={12} />
                     <span>맵 에디터</span>
                   </button>
