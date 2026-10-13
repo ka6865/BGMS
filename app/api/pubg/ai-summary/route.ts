@@ -2795,7 +2795,7 @@ export async function POST(request: Request) {
       requestId,
       platform: requestedPlatform,
     });
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "AI 요약을 만들지 못했습니다. 잠시 후 다시 시도해 주세요." }, { status: 500 });
   } finally {
     if (!streamOwnsRouteDeadline) cleanupRouteDeadline();
   }

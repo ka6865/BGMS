@@ -37,7 +37,7 @@ export async function GET() {
       },
     );
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[MAP-SETTINGS] read failed", error);
+    return NextResponse.json({ error: "지도 설정을 불러오지 못했습니다." }, { status: 500 });
   }
 }

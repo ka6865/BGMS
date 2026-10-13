@@ -89,7 +89,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : "디스코드 알림 처리에 실패했습니다.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[REPORT-NOTIFY] request failed", error);
+    return NextResponse.json({ error: "디스코드 알림 처리에 실패했습니다." }, { status: 500 });
   }
 }

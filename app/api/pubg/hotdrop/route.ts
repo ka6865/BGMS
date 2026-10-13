@@ -79,7 +79,8 @@ export async function GET(request: Request) {
         },
       }
     );
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+  } catch (err: unknown) {
+    console.error("[HOTDROP] read failed", err);
+    return NextResponse.json({ error: "핫드랍 데이터를 불러오지 못했습니다." }, { status: 500 });
   }
 }
