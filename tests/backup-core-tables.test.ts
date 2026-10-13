@@ -35,6 +35,7 @@ function createSupabase(tables: TableData, errors: Record<string, string> = {}) 
         select: vi.fn(() => chain),
         eq: vi.fn((column: string, value: unknown) => { filters.push(row => row[column] === value); return chain; }),
         gt: vi.fn((column: string, value: unknown) => { filters.push(row => compare(row[column], value) > 0); return chain; }),
+        gte: vi.fn((column: string, value: unknown) => { filters.push(row => compare(row[column], value) >= 0); return chain; }),
         order: vi.fn((column: string) => { orders.push(column); return chain; }),
         limit: vi.fn((count: number) => { limit = count; return chain; }),
         abortSignal: vi.fn(() => chain),
@@ -109,6 +110,29 @@ describe("핵심 테이블 백업", () => {
     expect(chains.every(chain => chain.limit.mock.calls.every(([count]: [number]) => count <= PAGE_SIZE))).toBe(true);
     expect(chains.some(chain => "range" in chain && chain.range)).toBe(false);
     expect(chains[0].order.mock.calls.map(([column]: [string]) => column)).toEqual(["player_id", "platform", "match_id"]);
+  });
+
+  it("복합 기본키 테이블은 대부분의 페이지를 요청 1번으로 읽는다", async () => {
+    const rows: Row[] = [];
+    for (let player = 0; player < 50; player++) {
+      for (let match = 0; match < 97; match++) rows.push({ player_id: `p${String(player).padStart(3, "0")}`, platform: "steam", match_id: `m${String(match).padStart(3, "0")}` });
+    }
+    const supabase = createSupabase({ pubg_player_matches: rows }) as unknown as { from: ReturnType<typeof vi.fn> };
+
+    const result = await readTableRows(supabase as never, "pubg_player_matches");
+
+    expect(result.rows).toEqual(rows);
+    const pages = Math.ceil(rows.length / PAGE_SIZE);
+    // 페이지마다 이미 읽은 묶음 일부를 다시 받으므로 페이지 수가 조금 늘 수 있지만, 단계 조회(페이지당 3번)보다 훨씬 적다.
+    expect(supabase.from.mock.calls.length).toBeLessThanOrEqual(pages * 2);
+  });
+
+  it("한 묶음이 PAGE_SIZE 보다 커도 정확한 단계 조회로 빠짐없이 한 번씩 읽는다", async () => {
+    const big = Array.from({ length: 2_345 }, (_, match) => ({ player_id: "p0", platform: "steam", match_id: `m${String(match).padStart(5, "0")}` }));
+    const rest = Array.from({ length: 10 }, (_, match) => ({ player_id: "p1", platform: "kakao", match_id: `m${match}` }));
+    const result = await readTableRows(createSupabase({ pubg_player_matches: [...rest, ...big] }), "pubg_player_matches");
+    expect(result.error).toBeNull();
+    expect(result.rows).toEqual([...big, ...rest]);
   });
 
   it("한 테이블을 읽지 못해도 나머지를 백업한다", async () => {

@@ -114,7 +114,8 @@ jobs:
       stopped_reason: ${{ steps.sync_user_matches.outputs.stopped_reason }}
       rate_limit_tracking_errors: ${{ steps.linked_sync_summary.outputs.rate_limit_tracking_errors }}
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 기존 정비 25~30분에 대용량 백업과 복원 검증이 더해진다.
+    timeout-minutes: 90
     steps:
       - name: Checkout Repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -173,8 +174,8 @@ jobs:
       - name: Backup Core Tables
         id: core_backup
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
-        # 약 110만 행 전적을 기본키 순서로 읽는 데 운영 기준 8분 안팎이 걸린다. 뒤 단계 시간을 남기도록 상한을 둔다.
-        timeout-minutes: 20
+        # 약 110만 행 전적을 GitHub 러너(미국)에서 서울 DB로 읽는다. 뒤 단계 시간을 남기도록 상한을 둔다.
+        timeout-minutes: 30
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
