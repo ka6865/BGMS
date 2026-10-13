@@ -4,6 +4,8 @@ INSERT INTO public.profiles(id,nickname,role) VALUES
  ('99100000-0000-4000-8000-000000000002','report voter','user'),
  ('99100000-0000-4000-8000-000000000003','report downvoter','user'),
  ('99100000-0000-4000-8000-000000000004','report admin','admin');
+INSERT INTO public.map_settings(map_id,categories) VALUES('Erangel',ARRAY['Garage','CustomVehicle']);
+INSERT INTO public.categories(id,label,is_active) VALUES('CustomVehicle','custom fixture',false);
 DO $$
 BEGIN
   IF has_table_privilege('authenticated','public.pending_markers','UPDATE')
@@ -21,6 +23,24 @@ INSERT INTO public.pending_markers(map_name,marker_type,x,y,weight,contributor_i
 VALUES('Erangel','Garage',7900,7900,1,ARRAY['99100000-0000-4000-8000-000000000001']::uuid[],false);
 DO $$
 BEGIN
+  BEGIN
+    INSERT INTO public.pending_markers(map_name,marker_type,x,y,weight,contributor_ids,is_notified)
+    VALUES('ImaginaryMap','Garage',7800,7800,1,ARRAY['99100000-0000-4000-8000-000000000001']::uuid[],false);
+    RAISE EXCEPTION 'Unknown legacy map unexpectedly succeeded';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO public.pending_markers(map_name,marker_type,x,y,weight,contributor_ids,is_notified)
+    VALUES('Erangel','CustomVehicle',7800,7800,1,ARRAY['99100000-0000-4000-8000-000000000001']::uuid[],false);
+    RAISE EXCEPTION 'Inactive legacy category unexpectedly succeeded';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+  BEGIN
+    INSERT INTO public.pending_markers(map_name,marker_type,x,y,weight,contributor_ids,is_notified)
+    VALUES('Erangel','Garage',7901,7900,1,ARRAY['99100000-0000-4000-8000-000000000001']::uuid[],false);
+    RAISE EXCEPTION 'Nearby legacy report unexpectedly succeeded';
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
   BEGIN
     UPDATE public.pending_markers SET weight=999;
     RAISE EXCEPTION 'Authenticated direct update unexpectedly succeeded';
@@ -41,6 +61,8 @@ BEGIN
 END;
 $$;
 RESET ROLE;
+DELETE FROM public.map_settings WHERE map_id='Erangel';
+DELETE FROM public.categories WHERE id='CustomVehicle';
 SET LOCAL ROLE service_role;
 DO $$
 DECLARE created jsonb; nearby jsonb; voted jsonb; marker_id uuid;

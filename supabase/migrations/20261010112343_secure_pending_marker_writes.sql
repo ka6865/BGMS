@@ -24,6 +24,46 @@ FOR INSERT TO authenticated WITH CHECK (
 );
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.pending_markers TO service_role;
 
+-- API와 오래 열린 직접 등록 창이 같은 활성 종류 검사를 사용한다.
+CREATE OR REPLACE FUNCTION public.pending_marker_category_allowed(p_map_name text,p_marker_type text)
+RETURNS boolean LANGUAGE sql STABLE SECURITY INVOKER SET search_path='' AS $$
+  SELECT p_map_name IN ('Erangel','Miramar','Taego','Deston','Vikendi','Rondo')
+    AND p_marker_type = ANY(coalesce(
+      (SELECT categories FROM public.map_settings WHERE map_id=p_map_name),
+      CASE p_map_name
+        WHEN 'Erangel' THEN ARRAY['Garage','Esports','EsportsBoat','Glider','SecretRoom']
+        WHEN 'Miramar' THEN ARRAY['GoldenMirado','EsportsMirado','EsportsPickup','EsportsBoat','Glider','SecretRoom']
+        WHEN 'Taego' THEN ARRAY['Garage','Porter','Boat','SecretRoom']
+        WHEN 'Deston' THEN ARRAY['Garage','PoliceCar','Boat','Glider']
+        WHEN 'Vikendi' THEN ARRAY['Garage','Snowmobile','Esports','Boat','SecretRoom','BearCave']
+        WHEN 'Rondo' THEN ARRAY['Garage','Esports','Boat','Glider','SecretRoom','GasPump']
+      END))
+    AND coalesce((SELECT is_active FROM public.categories WHERE id=p_marker_type),
+      p_marker_type IN ('Garage','Esports','Boat','EsportsBoat','Glider','GoldenMirado','EsportsMirado','EsportsPickup','Porter','SecretRoom','PoliceCar','SecurityCard','GasPump','Snowmobile','BearCave'));
+$$;
+REVOKE ALL ON FUNCTION public.pending_marker_category_allowed(text,text) FROM PUBLIC,anon;
+GRANT EXECUTE ON FUNCTION public.pending_marker_category_allowed(text,text) TO authenticated,service_role;
+
+CREATE OR REPLACE FUNCTION public.validate_legacy_pending_marker_insert()
+RETURNS trigger LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS $$
+BEGIN
+  IF current_user <> 'authenticated' THEN RETURN NEW; END IF;
+  IF NOT coalesce(public.pending_marker_category_allowed(NEW.map_name,NEW.marker_type),false) THEN
+    RAISE EXCEPTION 'Inactive report category' USING ERRCODE='23514';
+  END IF;
+  PERFORM pg_advisory_xact_lock(hashtextextended('pending-marker:' || NEW.map_name || ':' || NEW.marker_type,0));
+  IF EXISTS(SELECT 1 FROM public.pending_markers WHERE map_name=NEW.map_name AND marker_type=NEW.marker_type
+    AND (x-NEW.x)^2 + (y-NEW.y)^2 <= (20.0*8192/8000)^2) THEN
+    RAISE EXCEPTION 'Nearby report already exists' USING ERRCODE='23505';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.validate_legacy_pending_marker_insert() FROM PUBLIC,anon,authenticated;
+DROP TRIGGER IF EXISTS validate_legacy_pending_marker_insert ON public.pending_markers;
+CREATE TRIGGER validate_legacy_pending_marker_insert BEFORE INSERT ON public.pending_markers
+FOR EACH ROW EXECUTE FUNCTION public.validate_legacy_pending_marker_insert();
+
 CREATE OR REPLACE FUNCTION public.vote_pending_marker(
   p_marker_id uuid, p_actor_user_id uuid, p_direction text
 ) RETURNS jsonb LANGUAGE plpgsql SECURITY INVOKER SET search_path='' AS $$
@@ -70,6 +110,9 @@ BEGIN
      OR length(p_map_name) NOT BETWEEN 1 AND 128 OR length(p_marker_type) NOT BETWEEN 1 AND 128
      OR p_x IS NULL OR p_y IS NULL OR NOT(p_x BETWEEN 0 AND 8192) OR NOT(p_y BETWEEN 0 AND 8192) THEN
     RAISE EXCEPTION 'Invalid report' USING ERRCODE='22023';
+  END IF;
+  IF NOT coalesce(public.pending_marker_category_allowed(p_map_name,p_marker_type),false) THEN
+    RAISE EXCEPTION 'Inactive report category' USING ERRCODE='22023';
   END IF;
   -- 같은 지도/종류의 근접 확인과 등록을 직렬화한다.
   PERFORM pg_advisory_xact_lock(hashtextextended('pending-marker:' || p_map_name || ':' || p_marker_type,0));

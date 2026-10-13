@@ -1,3 +1,4 @@
+BEGIN;
 DROP FUNCTION IF EXISTS public.upsert_hotdrop_counts(json);
 
 CREATE OR REPLACE FUNCTION public.upsert_hotdrop_counts(rows text)
@@ -70,3 +71,5 @@ $$;
 
 REVOKE ALL ON FUNCTION public.upsert_hotdrop_counts(text) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.upsert_hotdrop_counts(text) TO service_role;
+
+COMMIT;

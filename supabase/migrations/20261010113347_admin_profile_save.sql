@@ -1,3 +1,4 @@
+BEGIN;
 -- Service role도 profiles.role을 직접 바꿀 수 없으며, 아래 저장 RPC가
 -- set_profile_role을 통해 권한 검증과 프로필 필드 갱신을 한 트랜잭션으로 처리한다.
 CREATE OR REPLACE FUNCTION public.prevent_profile_role_escalation()
@@ -92,3 +93,5 @@ $$;
 
 REVOKE ALL ON FUNCTION public.save_admin_profile(uuid, jsonb) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.save_admin_profile(uuid, jsonb) TO service_role;
+
+COMMIT;

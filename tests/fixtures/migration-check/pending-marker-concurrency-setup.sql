@@ -13,3 +13,13 @@ $$;
 CREATE TRIGGER fixture_pause_pending_vote AFTER UPDATE ON public.pending_markers
 FOR EACH ROW WHEN (NEW.id='99200000-0000-4000-8000-000000000001'::uuid)
 EXECUTE FUNCTION public.fixture_pause_pending_vote();
+CREATE FUNCTION public.fixture_pause_pending_registration() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(20261010112344);
+  PERFORM pg_sleep(0.5);
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER fixture_pause_pending_registration AFTER INSERT ON public.pending_markers
+FOR EACH ROW WHEN (NEW.map_name='Erangel' AND NEW.marker_type='Garage' AND NEW.x=6500)
+EXECUTE FUNCTION public.fixture_pause_pending_registration();
