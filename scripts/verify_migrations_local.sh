@@ -81,6 +81,7 @@ MIGRATIONS=(
   "20261014090000_restrict_public_board_writes"
   "20261014100000_pin_legacy_function_search_path"
   "20261014110000_suggest_similar_players_trgm_index_scan"
+  "20261014120000_protect_board_post_views"
 )
 
 cleanup() {
@@ -320,6 +321,10 @@ fi
 # 이미 적용된 DB 에 다시 실행해도 권한 상태가 같아야 한다.
 "${PSQL[@]}" -f supabase/migrations/20261014090000_restrict_public_board_writes.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/board-public-write-boundaries.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/board-post-views-scenarios.sql
+# 이미 적용된 DB 에 다시 실행해도 조회수 경로 권한과 동작이 같아야 한다.
+"${PSQL[@]}" -f supabase/migrations/20261014120000_protect_board_post_views.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/board-post-views-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/legacy-function-search-path.sql
 # 이미 적용된 DB 에 다시 실행해도 설정과 권한이 같아야 한다.
 "${PSQL[@]}" -f supabase/migrations/20261014100000_pin_legacy_function_search_path.sql

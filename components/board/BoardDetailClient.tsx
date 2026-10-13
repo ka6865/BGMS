@@ -197,14 +197,24 @@ export default function BoardDetailClient({
     fetchProfile();
   }, [user]);
 
-  // 조회수 증가 및 동기화
+  // 조회수 증가 (서버 route로 IP 기반 중복 방지)
   useEffect(() => {
     const viewedKey = `viewed_post_${post.id}`;
     if (!sessionStorage.getItem(viewedKey)) {
-      supabase.rpc("increment_views", { row_id: post.id }).then(() => {
-        sessionStorage.setItem(viewedKey, "true");
-        setPost(prev => ({ ...prev, views: prev.views + 1 }));
-      });
+      fetch(`/api/board/posts/${post.id}/views`, { method: "POST" })
+        .then(res => {
+          if (!res.ok) return;
+          return res.json().catch(() => null);
+        })
+        .then(result => {
+          if (result && Number.isSafeInteger(result.views)) {
+            sessionStorage.setItem(viewedKey, "true");
+            setPost(prev => ({ ...prev, views: result.views }));
+          }
+        })
+        .catch(() => {
+          // 조회수 증가 실패는 조용히 처리 (화면에 영향 없음)
+        });
     }
   }, [post.id]);
 
