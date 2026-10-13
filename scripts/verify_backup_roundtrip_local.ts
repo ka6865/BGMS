@@ -45,15 +45,18 @@ const fixtureRows: Record<string, Record<string, unknown>[]> = {
 function makeFixtureReader() {
   return {
     from: (table: string) => {
-      let from = 0;
-      let to = -1;
+      // 백업 스크립트의 키셋 조회(eq/gt/order/limit)를 흉내 낸다. fixture 는 테이블당 1행 이하라 정렬은 생략한다.
+      const filters: Array<(row: Record<string, unknown>) => boolean> = [];
+      let limit = Number.POSITIVE_INFINITY;
       const chain = {
         select: () => chain,
         order: () => chain,
-        range: (start: number, end: number) => { from = start; to = end; return chain; },
+        eq: (column: string, value: unknown) => { filters.push(row => row[column] === value); return chain; },
+        gt: (column: string, value: unknown) => { filters.push(row => String(row[column]) > String(value)); return chain; },
+        limit: (count: number) => { limit = count; return chain; },
         abortSignal: () => chain,
         then: (resolve: (value: unknown) => unknown) => Promise.resolve({
-          data: (fixtureRows[table] ?? []).slice(from, to + 1), error: null,
+          data: (fixtureRows[table] ?? []).filter(row => filters.every(filter => filter(row))).slice(0, limit), error: null,
         }).then(resolve),
       };
       return chain;

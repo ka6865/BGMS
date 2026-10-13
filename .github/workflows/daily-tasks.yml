@@ -173,6 +173,8 @@ jobs:
       - name: Backup Core Tables
         id: core_backup
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
+        # 약 110만 행 전적을 기본키 순서로 읽는 데 운영 기준 8분 안팎이 걸린다. 뒤 단계 시간을 남기도록 상한을 둔다.
+        timeout-minutes: 20
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
