@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-export type BoardWriteScope = "post" | "comment";
+export type BoardWriteScope = "post" | "comment" | "post_delete" | "comment_delete";
 
 export type BoardWriteQuotaResult =
   | { ok: true }
@@ -21,6 +21,16 @@ const QUOTAS = {
     windowSeconds: 10,
     limit: 1,
     error: "댓글은 10초에 한 번만 작성할 수 있습니다.",
+  },
+  post_delete: {
+    windowSeconds: 60,
+    limit: 5,
+    error: "삭제 비밀번호를 여러 번 시도했습니다. 1분 후 다시 시도해 주세요.",
+  },
+  comment_delete: {
+    windowSeconds: 60,
+    limit: 5,
+    error: "삭제 비밀번호를 여러 번 시도했습니다. 1분 후 다시 시도해 주세요.",
   },
 } as const satisfies Record<
   BoardWriteScope,

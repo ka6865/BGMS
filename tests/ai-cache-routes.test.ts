@@ -5947,6 +5947,40 @@ describe("AI cache route stabilization", () => {
     if (cached) expect(mockGenerateContent).not.toHaveBeenCalled();
   });
 
+  it("ai-squad cache identity separates mixed calculation versions when only a match version changes", async () => {
+    const v2v3 = {
+      ...canonicalSquadAnalysis,
+      matchesSummary: canonicalSquadAnalysis.matchesSummary.map((match, index) => ({
+        ...match,
+        calculationVersion: index === 0 ? 2 : 3,
+      })),
+    };
+    const v3v3 = {
+      ...v2v3,
+      matchesSummary: v2v3.matchesSummary.map((match) => ({ ...match, calculationVersion: 3 })),
+    };
+    mockGetSquadAnalysisData.mockResolvedValueOnce(v2v3).mockResolvedValueOnce(v3v3);
+    mockSquadGeminiJson({
+      squadGrade: "A", summary: "대열을 유지하세요.", strength: "지원이 이어졌습니다.",
+      weakness: "간격을 줄이세요.", coaching: "함께 진입하세요.",
+      memberFeedbacks: [{ name: "Player_A", praise: "지원했습니다.", fault: "간격이 벌어졌습니다.", advice: "함께 움직이세요." }],
+      overallOpinion: "팀 단위 대응을 이어가세요.",
+    });
+    const squadCache = createQueryChain({ data: null, error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({ squad_ai_coaching_cache: squadCache }) });
+
+    for (let index = 0; index < 2; index += 1) {
+      const response = await aiSquadPOST(createRequest({ groupKey: "alpha,beta", nickname: "Player_A", platform: "steam" }));
+      expect(response.status).toBe(200);
+      await response.text();
+    }
+
+    const hashes = squadCache.upsert.mock.calls.map(([payload]: [any]) => payload.match_ids_hash);
+    expect(hashes).toHaveLength(2);
+    expect(hashes[0]).toMatch(/^[a-f0-9]{64}$/);
+    expect(hashes[1]).not.toBe(hashes[0]);
+  });
+
   it("ai-squad는 Gemini 실패 시 측정되지 않은 fallback 대신 503을 반환한다", async () => {
     mockGenerateContent.mockRejectedValue(new Error("Gemini unavailable"));
     mockGetSquadAnalysisData.mockResolvedValue(canonicalSquadAnalysis);

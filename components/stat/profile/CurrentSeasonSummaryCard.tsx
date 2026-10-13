@@ -293,7 +293,7 @@ export function CurrentSeasonSummaryCard({
                       type="button"
                       aria-pressed={selected}
                       onClick={() => onModeChange(option.value)}
-                      className={`min-h-8 rounded-md px-2.5 text-[10px] font-black transition-colors ${
+                      className={`min-h-11 min-w-11 rounded-md px-2.5 text-[10px] font-black transition-colors ${
                         selected ? "bg-amber-500 text-black" : "text-white/50 hover:bg-white/5 hover:text-white"
                       }`}
                     >
@@ -313,7 +313,7 @@ export function CurrentSeasonSummaryCard({
                       type="button"
                       aria-pressed={selected}
                       onClick={() => onPartySizeChange(option.value)}
-                      className={`min-h-8 rounded-md px-2.5 text-[10px] font-black transition-colors ${
+                      className={`min-h-11 min-w-11 rounded-md px-2.5 text-[10px] font-black transition-colors ${
                         selected ? "bg-amber-500 text-black" : "text-white/50 hover:bg-white/5 hover:text-white"
                       }`}
                     >

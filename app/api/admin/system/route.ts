@@ -55,6 +55,8 @@ export async function POST(req: Request) {
       if (nickname) query = query.eq("player_id", nickname.toLowerCase().trim());
       
       const { count, error } = await query;
+
+      if (error) throw error;
       
       // 2. [V12.6] 원본 데이터(Storage) 캐시 파일 삭제
       // 파일명 형식: telemetry/{matchId}.json
@@ -62,11 +64,13 @@ export async function POST(req: Request) {
         .from("telemetry")
         .remove([`${matchId}.json`]);
 
-      if (error) throw error;
       return NextResponse.json({ 
-        success: true, 
-        message: `매치 ${matchId}의 분석 결과(${count || 0}개) 및 원본 데이터 캐시가 삭제되었습니다.`,
-        storageCleared: !storageError
+        success: true,
+        message: storageError
+          ? `매치 ${matchId}의 분석 결과(${count || 0}개)는 삭제되었지만 원본 Storage 캐시 삭제에 실패했습니다. 다시 시도해 주세요.`
+          : `매치 ${matchId}의 분석 결과(${count || 0}개) 및 원본 데이터 캐시가 삭제되었습니다.`,
+        storageCleared: !storageError,
+        ...(storageError ? { partial: true, retryable: true } : {})
       });
     }
 

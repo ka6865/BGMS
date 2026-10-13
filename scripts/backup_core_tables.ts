@@ -46,6 +46,8 @@ export const BACKUP_TABLES = [
   // Past-patch samples can outlive recoverable source telemetry. Preserve them.
   "weapon_meta_match_samples",
   "weapon_meta_patches",
+  "board_post_delete_credentials",
+  "board_comment_delete_credentials",
 ] as const;
 
 /** Supabase 는 한 번에 1000행까지 반환하므로 범위로 나눠 읽습니다. */
@@ -53,9 +55,6 @@ export const PAGE_SIZE = 1_000;
 
 /** 한 테이블에서 읽을 최대 행수. 예상보다 큰 테이블을 만나면 중단합니다. */
 export const MAX_ROWS_PER_TABLE = 200_000;
-
-/** 보관 기간. 이보다 오래된 백업은 정리 대상으로 보고합니다. */
-export const BACKUP_RETENTION_DAYS = 30;
 
 export type TableBackupResult = {
   table: string;
@@ -90,7 +89,9 @@ export async function readTableRows(
   // Every listed table has a unique key. Pagination without ordering can
   // duplicate or omit rows even when each request succeeds.
   const orderColumn = table === "map_settings" ? "map_id"
-    : table === "weapon_meta_patches" ? "version" : "id";
+    : table === "weapon_meta_patches" ? "version"
+    : table === "board_post_delete_credentials" ? "post_id"
+    : table === "board_comment_delete_credentials" ? "comment_id" : "id";
   for (let from = 0; from <= MAX_ROWS_PER_TABLE; from += PAGE_SIZE) {
     let result;
     try {

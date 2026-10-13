@@ -318,10 +318,9 @@ describe("Hotdrop 수집 작업", () => {
     expect(db.rpc).not.toHaveBeenCalled();
   });
 
-  it("RPC와 fallback upsert가 모두 실패하면 작업을 실패시킨다", async () => {
+  it("RPC 실패 시 기존 count를 덮어쓰지 않고 작업을 실패시킨다", async () => {
     const db = createSupabaseMock();
     db.rpc.mockResolvedValue({ error: { message: "rpc failed" } });
-    db.upsert.mockResolvedValue({ error: { message: "row failed" } });
     const telemetry = jsonResponse([
       { _T: "LogParachuteLanding", character: { location: { x: 100, y: 100 } } },
     ]);
@@ -331,8 +330,8 @@ describe("Hotdrop 수집 작업", () => {
       supabase: db.adapter,
       sleep: vi.fn().mockResolvedValue(undefined),
       now: () => "2026-07-15T00:00:00.000Z",
-    })).rejects.toThrow("hotdrop-fallback-upsert-failed");
-    expect(db.upsert).toHaveBeenCalledTimes(1);
+    })).rejects.toThrow("hotdrop-counts-upsert-failed");
+    expect(db.upsert).not.toHaveBeenCalled();
   });
 
   it("시즌 정리 실패를 성공으로 숨기지 않는다", async () => {

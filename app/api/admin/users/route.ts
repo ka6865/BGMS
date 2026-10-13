@@ -159,14 +159,14 @@ function getPageName(path: string): string {
   return path || "메인";
 }
 
-export async function GET(request?: Request) {
+export async function GET(request: Request) {
   const adminContext = await verifyAdmin();
   if (!adminContext) {
     return NextResponse.json({ error: "🔒 관리자 권한이 없습니다." }, { status: 403 });
   }
 
   try {
-    const url = new URL(request?.url || "http://localhost/api/admin/users");
+    const url = new URL(request.url);
     const membershipWindowDays = normalizeMembershipWindowDays(url.searchParams.get("windowDays"));
     const membershipNow = new Date();
     const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -589,36 +589,20 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "수정 대상 유저 ID가 필요합니다." }, { status: 400 });
     }
 
-    const { data: existingProfile } = await adminContext.supabaseAdmin
-      .from("profiles")
-      .select("id")
-      .eq("id", id)
-      .single();
-
-    if (!existingProfile) {
-      const { error: insertErr } = await adminContext.supabaseAdmin
-        .from("profiles")
-        .insert({
-          id,
-          role: role || "user",
-          pubg_nickname: pubg_nickname || null,
-          pubg_platform: pubg_platform || null,
-          nickname: "User",
-          updated_at: new Date().toISOString()
-        });
-      if (insertErr) throw insertErr;
-    } else {
-      const { error: updateErr } = await adminContext.supabaseAdmin
-        .from("profiles")
-        .update({
-          role,
-          pubg_nickname: pubg_nickname || null,
-          pubg_platform: pubg_platform || null,
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", id);
-      if (updateErr) throw updateErr;
+    if (role !== undefined && role !== "user" && role !== "admin") {
+      return NextResponse.json({ error: "role 은 user 또는 admin 만 허용됩니다." }, { status: 400 });
     }
+
+    const profile: Record<string, unknown> = {};
+    if (role !== undefined) profile.role = role;
+    if (Object.hasOwn(body, "pubg_nickname")) profile.pubg_nickname = pubg_nickname || null;
+    if (Object.hasOwn(body, "pubg_platform")) profile.pubg_platform = pubg_platform || null;
+
+    const { error: saveError } = await adminContext.supabaseAdmin.rpc("save_admin_profile", {
+      p_user_id: id,
+      p_profile: profile
+    });
+    if (saveError) throw saveError;
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

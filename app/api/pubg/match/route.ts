@@ -1,3 +1,4 @@
+import { isRecentlyNotFound, rememberNotFound, forgetNotFound } from "@/lib/pubg/matchNotFoundCache";
 import { buildCalculationPendingMatch } from "@/lib/pubg-analysis/calculationAvailability";
 import { containsTelemetryAccountEvidence as containsRecoveryAccountIdentityEvidence, parseOrdinaryTelemetryUrl, relationshipBoundTelemetryAsset } from "@/lib/pubg-analysis/telemetrySource";
 import { sampleReplayPositions } from "@/lib/pubg-analysis/telemetryContract";
@@ -528,39 +529,6 @@ const MAP_IDS: Record<string, string> = {
   "Kiki_Main": "deston", "Neon_Main": "rondo", "DihorOtok_Main": "vikendi"
 };
 
-const MATCH_NOT_FOUND_CACHE_TTL_MS = 6 * 60 * 60 * 1_000;
-const MAX_MATCH_NOT_FOUND_CACHE_SIZE = 2_000;
-const matchNotFoundCache = new Map<string, number>();
-
-function matchNotFoundCacheKey(platform: string, matchId: string): string {
-  return `${platform}:${matchId}`;
-}
-
-function isRecentlyNotFound(platform: string, matchId: string): boolean {
-  const key = matchNotFoundCacheKey(platform, matchId);
-  const expiresAt = matchNotFoundCache.get(key);
-  if (!expiresAt) return false;
-  if (expiresAt <= Date.now()) {
-    matchNotFoundCache.delete(key);
-    return false;
-  }
-  return true;
-}
-
-function rememberNotFound(platform: string, matchId: string): void {
-  if (matchNotFoundCache.size >= MAX_MATCH_NOT_FOUND_CACHE_SIZE) {
-    const oldestKey = matchNotFoundCache.keys().next().value;
-    if (oldestKey) matchNotFoundCache.delete(oldestKey);
-  }
-  matchNotFoundCache.set(
-    matchNotFoundCacheKey(platform, matchId),
-    Date.now() + MATCH_NOT_FOUND_CACHE_TTL_MS,
-  );
-}
-
-export function clearMatchNotFoundCache(): void {
-  matchNotFoundCache.clear();
-}
 
 function matchNotFoundResponse() {
   return NextResponse.json(
@@ -1442,7 +1410,7 @@ export async function GET(request: NextRequest) {
       failureStage = "match_parse";
       matchData = await safeJsonParse(res);
     }
-    matchNotFoundCache.delete(matchNotFoundCacheKey(platform, matchId));
+    forgetNotFound(platform, matchId);
     failureStage = "match_parse";
     if (!hasMatchingUpstreamMatchId(matchData, matchId)) {
       return upstreamIdentityMismatchResponse();

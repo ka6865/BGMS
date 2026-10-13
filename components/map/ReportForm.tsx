@@ -15,16 +15,6 @@ interface ReportFormProps {
   onClose: () => void;
 }
 
-const calculateDistanceInMeters = (
-  x1: number,
-  y1: number,
-  x2: number,
-  y2: number
-) => {
-  const pxDistance = Math.sqrt(Math.pow(x1 - x2, 2) + Math.pow(y1 - y2, 2));
-  return pxDistance * (8000 / 8192);
-};
-
 const ReportForm = ({
   location,
   activeMapId,
@@ -56,74 +46,28 @@ const ReportForm = ({
     setIsSubmitting(true);
 
     try {
-      const clickX = location.lng;
-      const clickY = location.lat;
-
-      const { data: existingReports, error: fetchError } = await supabase
-        .from("pending_markers")
-        .select("*")
-        .eq("map_name", activeMapId)
-        .eq("marker_type", selectedType);
-
-      if (fetchError) {
-        console.error("조회 에러 원본:", fetchError);
-        throw new Error(
-          fetchError.message || "기존 데이터를 불러오는 데 실패했습니다."
-        );
-      }
-
-
-      const nearbyReport = existingReports?.find((report) => {
-        const distance = calculateDistanceInMeters(
-          clickX,
-          clickY,
-          report.x,
-          report.y
-        );
-        return distance <= 20;
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch("/api/report", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ mapName: activeMapId, markerType: selectedType, x: location.lng, y: location.lat }),
       });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error("제보 저장 실패");
 
-      if (nearbyReport) {
+      if (result.nearby) {
         toast.warning(
           "근처 20m 내에 동일한 차량 제보가 있습니다! 기존 마커의 교차 검증에 참여해 주세요.",
           { duration: 5000 }
         );
-        sessionStorage.setItem("showPendingReports", "true");
-        setTimeout(() => {
-          window.location.reload();
-        }, 1500);
-        return;
       } else {
-        // 주변 데이터 없음. 신규 제보(Insert) 진행
-
-        // 단일 객체 삽입 방식으로 변경하고 .select()를 붙입니다.
-        const { error: insertError } = await supabase
-          .from("pending_markers")
-          .insert({
-            map_name: activeMapId,
-            marker_type: selectedType,
-            x: clickX,
-            y: clickY,
-            weight: 1,
-            contributor_ids: [currentUser.id],
-            is_notified: false,
-          })
-          .select();
-
-        if (insertError) {
-          console.error("인서트 에러 원본:", insertError);
-          throw new Error(
-            insertError.message ||
-              "새로운 제보를 DB에 저장하는 데 실패했습니다."
-          );
-        }
-
         toast.success("새로운 제보가 접수되었습니다!");
-        sessionStorage.setItem("showPendingReports", "true");
-        setTimeout(() => {
-          window.location.reload();
-        }, 1000);
       }
+      sessionStorage.setItem("showPendingReports", "true");
+      setTimeout(() => window.location.reload(), result.nearby ? 1500 : 1000);
 
       onClose();
     } catch (error: any) {

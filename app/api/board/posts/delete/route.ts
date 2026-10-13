@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { consumeBoardWriteQuota } from "@/lib/board/writeQuota.server";
+import { extractClientIp } from "@/lib/board/ipUtils";
+import { readGuestDeleteHash } from "@/lib/board/guestDelete.server";
 
 /**
  * @fileoverview 비회원 게시글 삭제 API
@@ -13,14 +16,16 @@ const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 export async function POST(request: Request) {
   try {
-    const { postId, password } = await request.json();
-
-    if (!postId || !password) {
+    const body = await request.json().catch(() => null);
+    const { postId, password } = body ?? {};
+    const numericPostId = typeof postId === "number" || typeof postId === "string" ? Number(postId) : Number.NaN;
+    if (!Number.isSafeInteger(numericPostId) || numericPostId <= 0 || typeof password !== "string" || !password) {
       return NextResponse.json({ error: "필수 입력값이 누락되었습니다." }, { status: 400 });
     }
 
     const supabaseAdmin = createAdminClient(supabaseUrl, supabaseServiceKey);
-    const numericPostId = Number(postId);
+    const quota = await consumeBoardWriteQuota({ supabaseAdmin, scope: "post_delete", actor: extractClientIp(request) });
+    if (!quota.ok) return NextResponse.json({ error: quota.error }, { status: quota.status, headers: quota.status === 429 ? { "Retry-After": "60" } : undefined });
 
     // 1. 게시글 조회 (비회원 게시글 여부 및 password_hash 확인)
     const { data: post, error: fetchError } = await supabaseAdmin
@@ -38,20 +43,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "회원 게시글은 로그인 후 삭제해주세요." }, { status: 403 });
     }
 
-    if (!post.password_hash) {
+    const passwordHash = await readGuestDeleteHash({ supabaseAdmin, scope: "post", id: numericPostId, legacyHash: post.password_hash });
+    if (!passwordHash) {
       return NextResponse.json({ error: "비밀번호 정보가 없는 게시글입니다." }, { status: 400 });
     }
 
     // 2. 비밀번호 대조
-    const isMatch = await bcrypt.compare(password, post.password_hash);
+    const isMatch = await bcrypt.compare(password, passwordHash);
     if (!isMatch) {
       return NextResponse.json({ error: "비밀번호가 일치하지 않습니다." }, { status: 401 });
     }
 
-    // 3. 관련 데이터 순차 삭제 (외래키 제약조건 방지)
-    await supabaseAdmin.from("comments").delete().eq("post_id", numericPostId);
-    await supabaseAdmin.from("post_likes").delete().eq("post_id", numericPostId);
-
+    // 댓글·좋아요는 기존 ON DELETE CASCADE로 글과 함께 원자적으로 삭제한다.
     const { error: deleteError } = await supabaseAdmin
       .from("posts")
       .delete()

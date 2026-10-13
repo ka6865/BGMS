@@ -53,6 +53,9 @@ jobs:
       - name: Unit Tests
         run: npm run test:unit
 
+      - name: Jest Tests
+        run: npm test -- --runInBand
+
   verify-migrations:
     runs-on: ubuntu-latest
     timeout-minutes: 20

@@ -50,10 +50,6 @@ export interface HotdropSupabaseAdapter {
   rpc(name: string, params: Record<string, unknown>): PromiseLike<{ error: unknown }>;
   from(table: string): {
     delete(): { neq(column: string, value: string): PromiseLike<{ error: unknown }> };
-    upsert(
-      row: Record<string, unknown>,
-      options: { onConflict: string },
-    ): PromiseLike<{ error: unknown }>;
   };
 }
 
@@ -294,13 +290,7 @@ async function upsertHeatmap(
   const { error } = await supabase.rpc("upsert_hotdrop_counts", {
     rows: JSON.stringify(rows),
   });
-  if (!error) return;
-  for (const row of rows) {
-    const fallback = await supabase.from("hotdrop_heatmap").upsert(row, {
-      onConflict: "map_name,season,grid_x,grid_y",
-    });
-    if (fallback.error) throw new Error("hotdrop-fallback-upsert-failed");
-  }
+  if (error) throw new Error("hotdrop-counts-upsert-failed");
 }
 
 async function collectMatchIds(

@@ -11,7 +11,7 @@
 
 set -euo pipefail
 
-CONTAINER_NAME="bgms-mig-check"
+CONTAINER_ID=""
 PG_PORT="${BGMS_MIG_CHECK_PORT:-55433}"
 PG_BIN="${BGMS_PG_BIN:-}"
 FORCE_LOCAL_POSTGRES="${BGMS_USE_LOCAL_POSTGRES:-false}"
@@ -22,10 +22,12 @@ USE_LOCAL_POSTGRES=false
 export PGPASSWORD=pw
 
 MIGRATIONS=(
+  "20260718122322_board_turnstile_write_boundary"
   "20260730200100_weapon_patch_proposals"
   "20260730203000_tighten_service_data_write_policies"
   "20260730204500_discord_room_rate_limit"
   "20260730210000_pubg_response_cache"
+  "20260731100000_prevent_profile_role_escalation"
   "20260804000000_optimize_player_cache_compaction"
   "20260819115023_profile_linked_pubg_auto_sync"
   "20260901141209_pubg_analysis_population_provenance"
@@ -70,6 +72,11 @@ MIGRATIONS=(
   "20261010001000_bound_tier_ranking_candidates"
   "20261010031908_defer_ranking_scores_and_metadata"
   "20261010041817_pubg_ranking_safe_cache"
+  "20261010112340_protect_board_delete_credentials"
+  "20261010112343_secure_pending_marker_writes"
+  "20261010112345_repair_hotdrop_atomic_counts"
+  "20261010113347_admin_profile_save"
+  "20261010113427_activate_board_delete_credential_privacy"
 )
 
 cleanup() {
@@ -79,13 +86,13 @@ cleanup() {
   if [ "$USE_LOCAL_POSTGRES" = true ] && [ -n "$LOCAL_DATA_DIR" ]; then
     "$PG_BIN/pg_ctl" -D "$LOCAL_DATA_DIR" -m immediate stop >/dev/null 2>&1 || true
     rm -rf "$LOCAL_DATA_DIR" "$LOCAL_SOCKET_DIR"
-  else
-    docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+  elif [ -n "$CONTAINER_ID" ]; then
+    docker rm -f "$CONTAINER_ID" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
 
-if [ "$FORCE_LOCAL_POSTGRES" = true ] || ! docker info >/dev/null 2>&1; then
+if [ "$FORCE_LOCAL_POSTGRES" = true ] || ! command -v docker >/dev/null 2>&1 || ! docker info >/dev/null 2>&1; then
   if [ -z "$PG_BIN" ] && command -v brew >/dev/null 2>&1; then
     PG_BIN="$(brew --prefix postgresql@17 2>/dev/null)/bin"
   fi
@@ -105,8 +112,7 @@ if [ "$FORCE_LOCAL_POSTGRES" = true ] || ! docker info >/dev/null 2>&1; then
   PSQL=("$PG_BIN/psql" -h "$LOCAL_SOCKET_DIR" -p "$PG_PORT" -U postgres -d migcheck -v ON_ERROR_STOP=1 -q)
 else
   echo "▶ 일회용 PostgreSQL 17 컨테이너 기동"
-  cleanup
-  docker run -d --name "$CONTAINER_NAME" -e POSTGRES_PASSWORD=pw -p "${PG_PORT}:5432" postgres:17 >/dev/null
+  CONTAINER_ID="$(docker run -d --name "bgms-mig-check-$$-$RANDOM" -e POSTGRES_PASSWORD=pw -p "${PG_PORT}:5432" postgres:17)"
 
   postgres_ready=false
   for _ in $(seq 1 60); do
@@ -136,6 +142,9 @@ echo "▶ prerequisite 스키마 구성"
 
 echo "▶ 신규 migration 적용"
 for migration in "${MIGRATIONS[@]}"; do
+  if [ "$migration" = "20261010113427_activate_board_delete_credential_privacy" ]; then
+    "${PSQL[@]}" -f tests/fixtures/migration-check/board-credential-preparation.sql
+  fi
   if [ "$migration" = "20261005081214_pubg_collection_database_clock" ]; then
     # The hosted extensions are fixture interfaces here; all application SQL is
     # applied unchanged. Real extension install and delivery need live checks.
@@ -148,6 +157,48 @@ for migration in "${MIGRATIONS[@]}"; do
 done
 
 echo "▶ RPC 동작 시나리오 실행"
+"${PSQL[@]}" -f tests/fixtures/migration-check/board-credential-privacy.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/pending-marker-security.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/pending-marker-concurrency-setup.sql
+"${PSQL[@]}" -c "set role service_role; select public.vote_pending_marker('99200000-0000-4000-8000-000000000001','99200000-0000-4000-8000-000000000001','up');" &
+pending_vote_first_pid=$!
+pending_vote_started=false
+for _ in $(seq 1 50); do
+  if [ "$("${PSQL[@]}" -At -c "select exists(select 1 from pg_locks where locktype='advisory' and classid=(20261010112343::bigint>>32)::oid and objid=(20261010112343::bigint&4294967295)::oid and granted);")" = "t" ]; then
+    pending_vote_started=true
+    break
+  fi
+  sleep 0.02
+done
+if [ "$pending_vote_started" != true ]; then
+  echo "❌ 동시 투표 검증의 첫 투표 잠금 확보를 확인하지 못했습니다"
+  exit 1
+fi
+"${PSQL[@]}" -c "set role service_role; select public.vote_pending_marker('99200000-0000-4000-8000-000000000001','99200000-0000-4000-8000-000000000002','up');" &
+pending_vote_second_pid=$!
+wait "$pending_vote_first_pid"
+wait "$pending_vote_second_pid"
+"${PSQL[@]}" -c "set role authenticated; select set_config('request.jwt.claim.sub','99200000-0000-4000-8000-000000000001',false); select set_config('request.jwt.claim.role','authenticated',false); insert into public.pending_markers(map_name,marker_type,x,y,weight,contributor_ids,is_notified) values('Erangel','Garage',6500,6500,1,array['99200000-0000-4000-8000-000000000001']::uuid[],false);" &
+pending_registration_first_pid=$!
+pending_registration_started=false
+for _ in $(seq 1 50); do
+  if [ "$("${PSQL[@]}" -At -c "select exists(select 1 from pg_locks where locktype='advisory' and classid=(20261010112344::bigint>>32)::oid and objid=(20261010112344::bigint&4294967295)::oid and granted);")" = "t" ]; then
+    pending_registration_started=true
+    break
+  fi
+  sleep 0.02
+done
+if [ "$pending_registration_started" != true ]; then
+  echo "❌ 동시 제보 검증의 레거시 등록 잠금 확보를 확인하지 못했습니다"
+  exit 1
+fi
+"${PSQL[@]}" -c "set role service_role; select public.create_pending_marker('99200000-0000-4000-8000-000000000002','Erangel','Garage',6501,6500);" &
+pending_registration_second_pid=$!
+wait "$pending_registration_first_pid"
+wait "$pending_registration_second_pid"
+"${PSQL[@]}" -f tests/fixtures/migration-check/pending-marker-concurrency-checks.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/hotdrop-count-atomic.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/admin-profile-save.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/participant_match_retention_scope_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retention_legacy_binding_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retention_match_type_recovery_checks.sql

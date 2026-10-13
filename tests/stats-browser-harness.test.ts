@@ -289,4 +289,33 @@ describe("stats browser pure harness contracts", () => {
     expect(ledger.count({ pathname: "/api/pubg/player", state: "aborted" })).toBe(1);
     expect(ledger.records).toHaveLength(2);
   });
+
+  it("늦게 도착한 실제 fetch 취소 신호로 실패 이벤트의 출처를 보완한다", () => {
+    const ledger = createStatsRequestLedger();
+    const record = ledger.start({
+      method: "GET", url: "http://localhost/api/pubg/player?nickname=PlayerA",
+      pathname: "/api/pubg/player", query: { nickname: "PlayerA" },
+      semanticKey: "GET /api/pubg/player?nickname=PlayerA", category: "stats-api",
+    });
+    ledger.abort(record, "request-failed");
+    ledger.abort(record, "fetch-signal");
+    expect(record).toMatchObject({ state: "aborted", successful: false, terminalSource: "fetch-signal" });
+    expect(ledger.records).toHaveLength(1);
+  });
+
+  it.each(["response", "main-frame-navigation", "interception-cancelled"] as const)(
+    "실제 응답이나 다른 중단 출처는 늦은 신호로 바꾸지 않는다: %s", (source) => {
+      const ledger = createStatsRequestLedger();
+      const record = ledger.start({
+        method: "GET", url: "http://localhost/api/pubg/player?nickname=PlayerB",
+        pathname: "/api/pubg/player", query: { nickname: "PlayerB" },
+        semanticKey: "GET /api/pubg/player?nickname=PlayerB", category: "stats-api",
+      });
+      if (source === "response") ledger.complete(record, 200, true);
+      else ledger.abort(record, source);
+      ledger.abort(record, "fetch-signal");
+      expect(record.terminalSource).toBe(source);
+      expect(record.successful).toBe(source === "response");
+    },
+  );
 });
