@@ -107,14 +107,17 @@ create table if not exists auth.users (
   email text,
   raw_user_meta_data jsonb
 );
-create or replace function auth.uid() returns uuid language sql stable as $$ select null::uuid $$;
-create or replace function auth.role() returns text language sql stable as $$ select 'anon'::text $$;
+create or replace function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+create or replace function auth.role() returns text language sql stable as $$ select nullif(current_setting('request.jwt.claim.role', true), '') $$;
+grant usage on schema auth to anon, authenticated, service_role;
 
 create schema if not exists storage;
 create table if not exists storage.buckets (
   id text primary key,
   name text,
-  public boolean default false
+  public boolean default false,
+  file_size_limit bigint,
+  allowed_mime_types text[]
 );
 create table if not exists storage.objects (
   id uuid primary key default gen_random_uuid(),
@@ -202,11 +205,16 @@ SQL
 echo "  ✅ 응답 계약 확인"
 
 echo "▶ 최신 migration 재적용 (baseline 위)"
+# 플랫폼 전용 확장은 네트워크 호출 없는 기존 로컬 fixture로 대체한다.
+# baseline이 만든 빈 vault 스키마를 유지하고 CREATE SCHEMA만 중복 허용한다.
+sed 's/^create schema vault;/create schema if not exists vault;/' \
+  tests/fixtures/migration-check/pubg-cron-extension-stubs.sql | "${PSQL[@]}"
 RECENT_FAILED=0
 while IFS= read -r migration; do
   version="$(basename "$migration" .sql)"
   [[ "$version" < "$BASELINE_MIGRATION_CUTOFF" ]] && continue
-  if ! OUT=$("${PSQL[@]}" -f "$migration" 2>&1); then
+  # 호스트 확장 설치 두 줄만 제외하고 모든 애플리케이션 SQL을 그대로 적용한다.
+  if ! OUT=$(sed '/^create extension if not exists pg_cron with schema pg_catalog;$/d; /^create extension if not exists pg_net with schema extensions;$/d' "$migration" | "${PSQL[@]}" 2>&1); then
     echo "  ❌ $(basename "$migration")"
     echo "$OUT" | grep -E "ERROR:" | head -2
     RECENT_FAILED=1

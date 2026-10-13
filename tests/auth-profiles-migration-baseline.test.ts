@@ -33,7 +33,7 @@ describe("인증 프로필 마이그레이션 기준선", () => {
     expect(baseline).toContain("2026-08-01 실측");
     expect(verifier).toContain("202608");
     expect(verifier).not.toMatch(/202608\*\.sql\s+supabase\/migrations\/202609\*\.sql/);
-    expect(verifier).toMatch(/find .*supabase\/migrations/s);
+    expect(verifier).toMatch(/find [\s\S]*supabase\/migrations/);
     expect(verifier).toContain("sort)");
     expect(verifier).toMatch(/mktemp/);
     expect(verifier).toContain("postgresql@17");
