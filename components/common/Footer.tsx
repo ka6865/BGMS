@@ -63,8 +63,12 @@ const Footer = () => {
         <div
           style={{
             display: "flex",
-            gap: "20px",
+            flexWrap: "wrap",
+            justifyContent: "center",
+            gap: "10px 20px",
             alignItems: "center",
+            // 모바일 폭에서 링크 텍스트가 글자 단위로 줄바꿈되지 않도록 줄 단위로만 넘긴다.
+            whiteSpace: "nowrap",
           }}
         >
           <a
