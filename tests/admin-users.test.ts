@@ -196,7 +196,7 @@ describe("admin users API", () => {
         error: null
       });
 
-    const response = await GET();
+    const response = await GET(new Request("http://localhost/api/admin/users"));
 
     expect(response.status).toBe(200);
     expect(mockProfilesRange).toHaveBeenNthCalledWith(1, 0, 999);

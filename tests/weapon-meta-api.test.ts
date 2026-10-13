@@ -1,6 +1,6 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
 import { NextRequest } from "next/server";
-import { buildScopePickShares, isSafeWeaponMetaPopulationRow } from "../app/api/pubg/meta/route";
+import { buildScopePickShares, BURST_COMPARISON_MIN_MATCHES, isSafeWeaponMetaPopulationRow } from "../lib/pubg-analysis/weaponMetaReport";
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -18,8 +18,7 @@ describe("GET /api/pubg/meta", () => {
   });
 
   it("exports the minimum burst sample threshold used to withhold sparse comparisons", async () => {
-    const routeExports = await import("../app/api/pubg/meta/route");
-    expect(routeExports.BURST_COMPARISON_MIN_MATCHES).toBe(20);
+    expect(BURST_COMPARISON_MIN_MATCHES).toBe(20);
   });
 
   it.each([

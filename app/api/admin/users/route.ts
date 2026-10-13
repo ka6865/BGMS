@@ -159,14 +159,14 @@ function getPageName(path: string): string {
   return path || "메인";
 }
 
-export async function GET(request?: Request) {
+export async function GET(request: Request) {
   const adminContext = await verifyAdmin();
   if (!adminContext) {
     return NextResponse.json({ error: "🔒 관리자 권한이 없습니다." }, { status: 403 });
   }
 
   try {
-    const url = new URL(request?.url || "http://localhost/api/admin/users");
+    const url = new URL(request.url);
     const membershipWindowDays = normalizeMembershipWindowDays(url.searchParams.get("windowDays"));
     const membershipNow = new Date();
     const since7d = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();

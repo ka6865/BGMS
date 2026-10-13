@@ -247,6 +247,7 @@ vi.mock("@/lib/pubg/privatePlayerIdentity", () => ({
 }));
 
 import * as matchRoute from "../app/api/pubg/match/route";
+import { clearMatchNotFoundCache } from "../lib/pubg/matchNotFoundCache";
 import { GET as GET_TELEMETRY } from "../app/api/pubg/telemetry/route";
 
 const { GET } = matchRoute;
@@ -264,7 +265,7 @@ const DEFAULT_TELEMETRY_URL =
 
 afterEach(() => {
   noteDatabaseAvailable();
-  matchRoute.clearMatchNotFoundCache();
+  clearMatchNotFoundCache();
 });
 
 const matchAttr = {
