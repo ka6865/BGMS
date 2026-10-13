@@ -20,6 +20,14 @@ begin
   if not has_function_privilege('service_role','public.increment_likes(integer)','EXECUTE') then
     raise exception 'service role must keep increment_likes access';
   end if;
+
+  if has_function_privilege('anon','public.increment_views(integer)','EXECUTE')
+    or has_function_privilege('authenticated','public.increment_views(integer)','EXECUTE') then
+    raise exception 'increment_views must not be executable by anon or authenticated';
+  end if;
+  if not has_function_privilege('service_role','public.increment_views(integer)','EXECUTE') then
+    raise exception 'service role must keep increment_views access';
+  end if;
 end;
 $$;
 
