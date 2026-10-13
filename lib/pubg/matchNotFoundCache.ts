@@ -35,4 +35,3 @@ export function clearMatchNotFoundCache(): void {
 export function forgetNotFound(platform: string, matchId: string): void {
   matchNotFoundCache.delete(matchNotFoundCacheKey(platform, matchId));
 }
-
