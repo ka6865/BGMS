@@ -27,18 +27,95 @@ PC 첫 화면에 모든 전적 정보를 표시하도록 페이지를 재배치�
 
 ## 운영 전환 순서
 
-아래는 코드 검증과 구분된 운영 실행 절차다. 이 문서를 작성하는 동안 운영에 실행하지 않았다.
+아래는 코드 검증과 구분된 운영 실행 절차다. main 병합은 Vercel Production 배포를 바로 시작하므로
+1~3단계는 PR 병합 전에 끝낸다. migration은 병합으로 자동 적용되지 않는다.
 
-1. 현재 대상 프로젝트와 migration 이력을 확인하고 Supabase 관리 백업 또는 현재 배포 버전의 백업으로 전환 전 복구 지점을 확보한다. 이 시점의 기존 공개 비밀번호 해시도 포함돼야 한다. 새 백업 스크립트는 아직 실행하지 않는다. 백업 R2 경로의 공개 접근 차단도 확인한다.
-2. 준비 migration만 먼저 적용한다:
+`npm run db:backup`(R2 핵심 테이블 백업)은 2026-10-09부터 `pubg_player_matches` 20만 행 한도 초과와
+`pubg_match_performance` 조회 timeout으로 실패하고 있어 이번 전환의 백업 수단으로 쓰지 않는다(별도 PR에서 수정).
+대신 전환 대상 테이블만 논리 백업하고 격리 DB에서 복원까지 확인한다.
+
+### 백업 대상
+
+전환·배포 확인에서 바뀔 수 있는 테이블과, 그 행이 외래키로 참조하는 부모 테이블까지 포함한다.
+부분 덤프는 의존 객체가 빠질 수 있으므로 파일 생성이 아니라 격리 복원 성공으로 판단한다.
+
+- 직접 대상: `posts`, `comments`, `post_likes`, `pending_markers`, `profiles`, `board_write_rate_limits`, `hotdrop_heatmap`
+- `posts` 삭제 CASCADE 대상: `board_post_image_refs`, `notifications`
+- 외래키 부모: `board_image_objects`(`board_post_image_refs.image_id`), `support_messages`, `support_tickets`(`notifications`)
+- 준비 migration 이후 추가: `board_post_delete_credentials`, `board_comment_delete_credentials`
+
+`profiles`와 `board_image_objects`는 `auth.users`를 참조한다. auth 스키마는 Supabase가 관리하는 개인정보이므로
+덤프하지 않는다. 운영 DB에 대한 부분 복구에서는 기존 `auth.users`가 그대로 있으므로 문제가 없고,
+격리 검증에서는 ID만 가진 `auth.users` 행을 만들어 외래키를 검사한다.
+
+### 백업 명령
+
+백업 파일은 개인정보와 비밀번호 해시를 포함하므로 저장소에 넣지 않고 권한 700 폴더(예: `~/bgms-archive/<날짜>/`)에 둔다.
+`supabase db dump`는 Docker와 `supabase link`가 필요하며 운영 DB를 읽기만 한다.
+
+```bash
+# 스키마 전체(함수·트리거·정책·권한 포함)
+supabase db dump --linked -f "$BACKUP_DIR/prod-schema.sql"
+# 대상 테이블 데이터만: 백업 대상을 제외한 public 테이블을 모두 -x 로 뺀다
+supabase db dump --linked --data-only --use-copy -s public -x public.<제외 테이블> ... -f "$BACKUP_DIR/target-data.sql"
+```
+
+데이터 덤프는 `SET session_replication_role = replica`로 시작해 복원 중 외래키 검사를 끈다.
+그래서 복원 후 외래키 고아 행을 별도로 검사한다. 덤프에는 대상 밖 시퀀스의 `setval`도 섞일 수 있으므로
+운영 DB에 직접 되돌릴 때는 격리 DB에 먼저 복원한 뒤 필요한 행·시퀀스만 옮긴다.
+
+### 격리 복원 검증
+
+운영과 같은 Supabase Postgres 이미지로 일회용 컨테이너를 띄워(`127.0.0.1` 전용) 다음을 확인한다.
+
+1. 이미지 기본 권한(`ALTER DEFAULT PRIVILEGES`)을 비운 뒤 스키마를 적용한다. 비우지 않으면 복원된 테이블·함수에
+   anon/authenticated 권한이 덧붙어 운영보다 넓어진다. 새 Supabase 프로젝트로 재해 복구할 때도 같은 확인이 필요하다.
+2. 데이터를 복원하고 운영 PostgREST 읽기 결과와 테이블별 행 수·내용 해시를 대조한다. 값은 출력하지 않는다.
+   방문 중 바뀌는 `posts.views`는 해시에서 빼고 차이만 보고한다.
+3. 대상 테이블에 걸린 외래키 전체의 고아 행이 0인지, identity·serial 시퀀스가 최대 ID 이상인지 확인한다.
+4. 대상 테이블과 전환 관련 함수의 anon/authenticated/service_role 권한이 스키마 덤프와 같은지 확인한다.
+5. 복원본 위에서 준비 migration 4개와 활성화 migration을 리허설하고 아래 확인 항목을 실행한다.
+
+### 전환 순서
+
+1. **전환 전 백업**: 관리형 일일 물리 백업이 최근 날짜로 COMPLETED인지 확인하고(`supabase backups list`),
+   위 명령으로 대상 테이블 논리 백업을 만든 뒤 격리 복원 검증을 통과시킨다.
+2. **준비 migration 4개를 파일명 순서로 하나씩 적용**한다. `supabase db push`는 쓰지 않는다
+   (원격 이력 3개와 로컬 파일의 시간 식별자가 달라 중단되고, 일괄 적용하면 활성화 migration까지 먼저 들어간다).
+   SQL Editor 또는 `psql -v ON_ERROR_STOP=1 -f <파일>`로 적용하고, 적용 후 `supabase migration repair --status applied <버전> --linked`로 이력만 기록한다.
+   daily-tasks의 핫드롭 수집 시간(21:00~00:30 UTC)은 피한다.
    - 20261010112340_protect_board_delete_credentials.sql
    - 20261010112343_secure_pending_marker_writes.sql
    - 20261010112345_repair_hotdrop_atomic_counts.sql
    - 20261010113347_admin_profile_save.sql
-   준비 migration 직후 새 백업 스크립트를 실행해 두 비밀번호 전용 테이블을 포함한 완전한 백업을 확보한다. 이 백업을 확인한 다음 앱을 배포한다.
-3. 새 애플리케이션을 배포한다. 기존 글·댓글 삭제, 제보 등록·투표, 관리자 저장, 캐시 부분 실패 응답을 확인한다.
-4. 새 삭제 API가 배포된 것을 확인한 뒤에만 20261010113427_activate_board_delete_credential_privacy.sql을 적용한다.
-5. 공개 글·댓글의 password_hash가 NULL이고 서버 전용 해시가 보존됐는지 확인한다. 기존 비밀번호 삭제와 새 비회원 작성·삭제를 재확인한다.
+3. **준비 후 백업**: 비밀번호 전용 테이블 2개를 백업 대상에 더해 같은 방식으로 다시 백업하고 격리 복원 검증을 통과시킨다.
+   전용 테이블 행 수가 공개 `password_hash`가 있는 글·댓글 수와 같은지 확인한다. 이 백업을 확인한 다음 PR을 병합한다.
+4. **PR 병합 = 새 앱 Production 자동 배포.** 기존 글·댓글 삭제, 제보 등록·투표, 관리자 저장, 캐시 부분 실패 응답을 확인한다.
+   Preview와 Production이 같은 DB를 쓰므로 쓰기 확인은 정리 방법을 정한 테스트 데이터로만 한다.
+5. 새 삭제 API가 배포된 것을 확인한 뒤에만 20261010113427_activate_board_delete_credential_privacy.sql을 적용한다.
+6. 공개 글·댓글의 password_hash가 NULL이고 서버 전용 해시가 보존됐는지 확인한다. 기존 비밀번호 삭제와 새 비회원 작성·삭제를 재확인한다.
+
+### 준비 migration 적용 후 확인 항목
+
+| migration | 확인 |
+| --- | --- |
+| protect_board_delete_credentials | 전용 테이블 2개 RLS 활성, anon/authenticated SELECT 불가 / 전용 테이블 행 수 = 공개 해시가 있는 글·댓글 수, 해시 값 동일 / 공개 `password_hash` 그대로 유지 / 할당량 제약에 `post_delete`, `comment_delete` 포함 |
+| secure_pending_marker_writes | `pending_markers` UPDATE 정책 0개, INSERT 정책은 `pending_markers_safe_legacy_insert` 1개 / authenticated UPDATE 권한 없음 / `create_pending_marker`, `vote_pending_marker`는 service_role만 실행 / 종류 검사 보조 함수 `pending_marker_category_allowed`는 기존 제보 창을 위해 authenticated 실행 가능, anon 불가 |
+| repair_hotdrop_atomic_counts | `upsert_hotdrop_counts`는 `(rows text)` 하나만 남고 SECURITY DEFINER, service_role만 실행 / `hotdrop_heatmap` 행 수·count 합계 불변 |
+| admin_profile_save | `save_admin_profile`은 service_role만 실행 / 역할 변경 트리거 유지 / 관리자 수 불변 |
+| 공통 | `supabase migration list --linked`에 4개 추가, 활성화 migration 미적용 |
+
+운영 스키마 확인 결과 `upsert_hotdrop_counts`는 `(rows json)`과 `(rows text)` 두 overload가 모두 anon/authenticated에
+실행 권한을 갖고 있다(SECURITY DEFINER). repair_hotdrop_atomic_counts가 json overload를 제거하고 text overload의
+권한을 service_role로 좁히므로, 이 migration 적용 전까지 익명 호출로 핫드롭 수치를 쓸 수 있는 상태가 유지된다.
+
+### 2026-10-13 전환 전 백업 실적
+
+- 스키마 덤프와 대상 12개 테이블 데이터 덤프를 권한 700 로컬 보관 폴더에 저장했다(저장소 밖).
+- Supabase Postgres 17.6 일회용 컨테이너 복원: 12개 테이블 행 수·내용 해시가 운영과 일치(`posts.views` 2행만 덤프 후 조회로 증가),
+  외래키 28개 고아 행 0, 시퀀스 5개 정상, 테이블 권한 28쌍·함수 권한 7쌍이 덤프와 일치.
+- 같은 복원본에서 준비 migration 4개 → 기존 제보 창 INSERT(authenticated) → 활성화 migration → 전용 테이블 덤프·재복원까지 통과했다.
+- 관리형 일일 물리 백업은 최근 7개가 COMPLETED(최신 2026-10-12 17:16 UTC)이다. PITR 사용 여부는 확인하지 않았다.
 
 활성화 migration을 포함한 전체 migration을 새 앱보다 먼저 일괄 적용하면 예전 삭제 API가 비밀번호를 찾지 못한다.
 운영에서 2단계와 4단계를 분리해야 한다. 준비 단계는 기존 비밀번호 열을 유지하고 복사 저장하며,
