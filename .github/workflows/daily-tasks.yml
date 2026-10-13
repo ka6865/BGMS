@@ -184,6 +184,19 @@ jobs:
           CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
         run: npx tsx scripts/backup_core_tables.ts
 
+      # manifest 의 part 목록대로 내려받아 행 수까지 맞는지 확인한다. 부분 백업이면 누락 위치를 남긴다.
+      - name: Verify Core Backup Restore
+        id: core_backup_verify
+        if: ${{ !cancelled() && steps.core_backup.outputs.key != '' }}
+        timeout-minutes: 10
+        env:
+          CLOUDFLARE_R2_ENDPOINT: ${{ secrets.CLOUDFLARE_R2_ENDPOINT }}
+          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
+          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
+          BACKUP_KEY: ${{ steps.core_backup.outputs.key }}
+        run: npx tsx scripts/verify_core_backup.ts --key "$BACKUP_KEY"
+
       - name: Check Storage Before Maintenance
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
         env:
@@ -196,14 +209,14 @@ jobs:
         run: npx tsx scripts/monitor_storage.ts --label "BEFORE"
 
       - name: Preserve Long Term Match Performance
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' && steps.core_backup_verify.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/preserve_match_performance.ts --apply --limit 1000
 
       - name: Run Storage Cleanup
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' && steps.core_backup_verify.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -216,14 +229,14 @@ jobs:
         run: npx tsx scripts/cleanup_telemetry.ts
 
       - name: Run AI Cache Cleanup
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' && steps.core_backup_verify.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/cleanup_ai_cache.ts
 
       - name: Run Analytics Events Cleanup
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' && steps.core_backup_verify.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -234,7 +247,7 @@ jobs:
       # 계속 발생하므로 일일 정리로 편성한다. RPC 가 배치 삭제를 수행하고 멱등하다.
       # 물리 파일 축소가 필요한 경우에만 유지보수 창에서 VACUUM (FULL) 을 수동 실행한다.
       - name: Run Match Stats Raw Compaction
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' && steps.core_backup_verify.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -337,7 +350,7 @@ jobs:
             -H "Authorization: Bearer $SECRET"
 
       - name: Cleanup PUBG Cache And Quota Tables
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' && steps.core_backup_verify.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

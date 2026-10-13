@@ -30,6 +30,7 @@
  *   npx tsx scripts/backup_core_tables.ts --dry-run  # 대상만 확인
  */
 
+import { appendFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
@@ -403,7 +404,10 @@ async function runFromEnvironment(): Promise<void> {
       await uploadToR2(key, body, "application/json");
     };
 
-  assertBackupComplete(await backupCoreTables(supabase, upload, { dryRun }));
+  const result = await backupCoreTables(supabase, upload, { dryRun });
+  // GitHub Actions 다음 단계가 방금 올린 manifest 를 복원 검증할 수 있게 키를 넘긴다.
+  if (result.key && process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `key=${result.key}\n`);
+  assertBackupComplete(result);
 }
 
 const isDirectRun = Boolean(process.argv[1])
