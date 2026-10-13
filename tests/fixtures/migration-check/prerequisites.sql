@@ -560,3 +560,26 @@ create table if not exists public.pubg_player_matches (
 );
 alter table public.pubg_player_matches enable row level security;
 grant all on public.pubg_player_matches to service_role;
+
+-- baseline 시절 search_path 미고정 함수. 권한·설정 검증용이라 본문은 단순화했다.
+create or replace function public.get_db_size() returns bigint
+language plpgsql security definer as $$ begin return pg_database_size(current_database()); end; $$;
+create or replace function public.handle_new_user() returns trigger
+language plpgsql security definer as $$ begin return new; end; $$;
+create or replace function public.suggest_similar_players(search_name text, search_platform text, limit_val integer default 3)
+returns table(nickname text, platform text, similarity real)
+language plpgsql security definer as $$ begin return; end; $$;
+create or replace function public.delete_orphaned_stats() returns void
+language plpgsql as $$ begin return; end; $$;
+create or replace function public.delete_orphaned_stats_limited(limit_count integer) returns integer
+language plpgsql as $$ begin return 0; end; $$;
+create or replace function public.get_orphaned_match_ids() returns table(match_id text)
+language plpgsql as $$ begin return; end; $$;
+create or replace function public.increment_player_search_count(player_id text, player_nickname text, player_platform text) returns void
+language plpgsql as $$ begin return; end; $$;
+grant execute on function
+  public.get_db_size(), public.handle_new_user(),
+  public.suggest_similar_players(text,text,integer),
+  public.delete_orphaned_stats(), public.delete_orphaned_stats_limited(integer),
+  public.get_orphaned_match_ids(), public.increment_player_search_count(text,text,text)
+to anon, authenticated, service_role;
