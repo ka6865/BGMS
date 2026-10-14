@@ -38,11 +38,11 @@ function validMode(value: string): value is DailyMode {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { day, mode } = await params;
-  if (!validMode(mode)) return { title: "전날 경기 분석 | BGMS" };
+  if (!validMode(mode)) return { title: "전날 경기 분석" };
   const story = await getDailyRankerStory(day, mode);
-  if (!story) return { title: "전날 경기 분석 | BGMS" };
+  if (!story) return { title: "전날 경기 분석" };
   const walkthrough = story.scenes?.length ? buildDailyWalkthrough(story) : undefined;
-  return { title: `${walkthrough?.headline ?? story.headline} | ${MODE_NAMES[mode]} 경기 분석 | BGMS`, description: walkthrough?.summary ?? story.conclusion };
+  return { title: `${walkthrough?.headline ?? story.headline} | ${MODE_NAMES[mode]} 경기 분석`, description: walkthrough?.summary ?? story.conclusion };
 }
 
 export default async function DailyModePage({ params }: Props) {

@@ -2,7 +2,7 @@ import { Metadata } from "next";
 import WeaponMetaDashboard from "@/components/meta/WeaponMetaDashboard";
 
 export const metadata: Metadata = {
-  title: "실시간 총기 메타 동향 | BGMS",
+  title: "실시간 총기 메타 동향",
   description: "PUBG 실시간 패치 총기 픽률, K/D, 교전 효율성 및 LMG 메타 동향 리포트",
 };
 

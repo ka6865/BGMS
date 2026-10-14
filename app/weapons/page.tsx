@@ -1,14 +1,9 @@
-import { Metadata } from 'next';
-import { getTabSeo, getBreadcrumbJsonLd } from '@/lib/seo-config';
+import { getBreadcrumbJsonLd } from '@/lib/seo-config';
 import JsonLd from '@/components/seo/JsonLd';
 import WeaponsClient from './WeaponsClient';
 import { JsonLdProps } from '@/types/seo';
 
 const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://bgms.kr";
-
-export async function generateMetadata(): Promise<Metadata> {
-  return getTabSeo("Weapons");
-}
 
 export default async function WeaponsPage() {
   const jsonLd: JsonLdProps[] = [

@@ -6,7 +6,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const seo = await getTabSeo("Stats");
   return {
     ...seo,
-    title: "AI 전적 검색 | BGMS",
+    title: "AI 전적 검색",
   };
 }
 

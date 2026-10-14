@@ -5,7 +5,7 @@ import { listDailyRankerStories, listDailyRankerStoriesForDay } from "@/lib/lear
 import { ArchivedDailyStories, DailyModeCards, getKstYesterday } from "@/components/learn/DailyStoryList";
 
 export const metadata: Metadata = {
-  title: "날짜·모드별 우승 경기 | BGMS",
+  title: "날짜·모드별 우승 경기",
   description: "듀오·스쿼드 우승 경기를 날짜별로 살펴보고, 공개된 솔로 경기는 지난 경기에서 찾아보세요.",
 };
 export const dynamic = "force-dynamic";

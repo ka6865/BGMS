@@ -4,7 +4,7 @@ import { getUSDtoKRWRate } from "@/app/actions/exchange-rate";
 import CratesClient from "./CratesClient";
 
 export const metadata: Metadata = {
-  title: "배그 상자깡 시뮬레이터 & 배그 현질 시뮬 | BGMS",
+  title: "배그 상자깡 시뮬레이터 & 배그 현질 시뮬",
   description: "배틀그라운드(PUBG) 할리데이비슨 콜라보 상자 및 성장형 무기 밀수품 상자깡 시뮬레이터입니다. 배그 현질 시뮬을 통해 실시간 환율을 반영한 가상 소모 원화와 공식 획득 확률을 정밀하게 검증해 보세요.",
   keywords: [
     "배그 상자깡 시뮬",

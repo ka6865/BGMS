@@ -19,7 +19,7 @@ export async function generateMetadata({ params }: { params: Promise<{ postId: s
 
   if (!metadata) {
     return {
-      title: "존재하지 않는 게시글입니다 | BGMS",
+      title: "존재하지 않는 게시글입니다",
       description: "요청하신 게시글을 찾을 수 없습니다. 삭제되었거나 주소가 잘못되었을 수 있습니다.",
       robots: { index: false }
     };

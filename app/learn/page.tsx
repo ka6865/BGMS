@@ -5,7 +5,7 @@ import { listDailyRankerStories, listDailyRankerStoriesForDay } from "@/lib/lear
 import { ArchivedDailyStories, DailyModeCards, getKstYesterday } from "@/components/learn/DailyStoryList";
 
 export const metadata: Metadata = {
-  title: "랭커의 한 판 | BGMS",
+  title: "랭커의 한 판",
   description: "스팀 경쟁전 듀오·스쿼드 우승 경기를 지도와 해설로 살펴보고, 공개된 솔로 경기는 이력에서 찾아보세요.",
 };
 export const dynamic = "force-dynamic";

@@ -60,7 +60,7 @@ export async function getPostMetadata(postId: string): Promise<Metadata | null> 
   const imageUrl = post.image_url ? toBoardImageProxyUrl(post.image_url, baseUrl) : `${baseUrl}/logo.png`;
   
   return {
-    title: `${post.title} | ${post.category} - BGMS`,
+    title: `${post.title} | ${post.category}`,
     description: plainText,
     alternates: { canonical: canonicalUrl },
     openGraph: {
@@ -99,7 +99,7 @@ export function getTabSeo(tab: string): Metadata {
   const canonicalUrl = `${baseUrl}/${path}`;
 
   return {
-    title: `${currentMeta.title} | BGMS`,
+    title: currentMeta.title,
     description: currentMeta.desc,
     alternates: { canonical: canonicalUrl },
     openGraph: {
