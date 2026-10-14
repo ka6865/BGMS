@@ -6,7 +6,7 @@ export const USER_STATS_COMMAND_NAME = "전적 보기";
 /**
  * 서버 멤버 우클릭 메뉴(USER 명령)로 대상의 연동 계정 전적을 조회한다.
  * 대상이 직접 연동한 계정만 조회하며 서버 별명으로 추정하지 않는다.
- * 연동 정보는 `/연동`과 같이 호출자에게만 보이도록 route에서 개인 defer한다.
+ * 결과 공개 범위는 `/전적`과 같다. 성공 결과는 채널에 공개하고 미연동·오류 안내는 호출자에게만 보인다.
  */
 export async function handleUserStatsCommand(interaction: any, appUrl: string) {
   const targetId = interaction.data?.target_id;

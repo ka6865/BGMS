@@ -60,7 +60,7 @@ export function buildLinkSuccessEmbed(params: { nickname: string; platform: stri
     embeds: [
       {
         title: "배틀그라운드 계정 연동 완료",
-        description: `**${escapeDiscordMarkdown(params.nickname)}** (${params.platform.toUpperCase()}) 계정과 성공적으로 연동되었습니다.\n이제 닉네임 입력 없이 /전적 또는 /방금판 명령어를 바로 사용할 수 있습니다.`,
+        description: `**${escapeDiscordMarkdown(params.nickname)}** (${params.platform.toUpperCase()}) 계정과 성공적으로 연동되었습니다.\n이제 닉네임 입력 없이 /전적 또는 /방금판 명령어를 바로 사용할 수 있습니다.\n서버 멤버가 나를 우클릭해 \`전적 보기\`를 선택하면 연동 계정의 전적이 채널에 공개됩니다. 원하지 않으면 /연동해제로 해제할 수 있습니다.`,
         color: 0x22c55e, // Green
         footer: { text: "BGMS 전적 봇" },
         timestamp: new Date().toISOString(),

@@ -207,9 +207,9 @@ function isSupportedCommand(interaction: any): boolean {
     : SLASH_COMMANDS.has(commandName);
 }
 
-// 연동 정보를 다루는 명령은 처음부터 개인 defer라 original 갱신만으로 호출자에게만 보인다.
+// 연동 관리 명령은 처음부터 개인 defer라 original 갱신만으로 호출자에게만 보인다.
 function isPrivateCommand(commandName: unknown): boolean {
-  return isLinkCommand(commandName) || isUnlinkCommand(commandName) || commandName === USER_STATS_COMMAND_NAME;
+  return isLinkCommand(commandName) || isUnlinkCommand(commandName);
 }
 
 async function processSlashCommand(interaction: any, appUrl: string): Promise<void> {

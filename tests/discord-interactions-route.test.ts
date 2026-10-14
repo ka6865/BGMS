@@ -160,14 +160,22 @@ describe("discord interactions route", () => {
     expect(editedMessage()).toEqual({ embeds: [{ title: "비교" }], components: [{ type: 1 }], allowed_mentions: { parse: [] } });
   });
 
-  it("defers the user context menu privately even when stats would be public", async () => {
+  it("defers the user context menu publicly like /전적 and edits the original with the result", async () => {
     const res = await POST(commandRequest("전적 보기", { data: { type: 2, name: "전적 보기", target_id: "1486900099266248826" } }));
-    expect(await res.json()).toEqual({ type: 5, data: { flags: 64 } });
+    expect(await res.json()).toEqual({ type: 5, data: {} });
     await mocks.after.mock.calls[0][0]();
     expect(mocks.userStats).toHaveBeenCalledTimes(1);
     expect(mocks.stats).not.toHaveBeenCalled();
     expect(fetchMock.mock.calls.map(([, init]) => init.method)).toEqual(["PATCH"]);
     expect(editedMessage()).toEqual({ embeds: [{ title: "우클릭 전적" }], allowed_mentions: { parse: [] } });
+  });
+
+  it("keeps the context menu's unlinked-target notice private", async () => {
+    mocks.userStats.mockResolvedValue({ type: 4, data: { content: "이 사용자는 배틀그라운드 계정을 연동하지 않았습니다.", flags: 64 } });
+    await POST(commandRequest("전적 보기", { data: { type: 2, name: "전적 보기", target_id: "1486900099266248826" } }));
+    await mocks.after.mock.calls[0][0]();
+    expect(editedMessage()).toEqual({ content: "처리를 마쳤습니다.", allowed_mentions: { parse: [] } });
+    expect(privateMessage()).toMatchObject({ content: expect.stringContaining("연동하지 않았습니다"), flags: 64 });
   });
 
   it("does not accept the context menu name as a slash command or slash names as user commands", async () => {
