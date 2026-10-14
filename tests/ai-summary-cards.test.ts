@@ -441,6 +441,35 @@ describe("ai summary v2 card catalog", () => {
     expect(normalizeSummaryCardFinal(raw, cards, options)?.cacheable).toBe(false);
   });
 
+  it("ignores references to the card's own unobserved rows without admitting other invalid references", () => {
+    const cards = buildSummaryCards({
+      topics: ["화력", "1:1 결정력", "포지셔닝"],
+      context,
+      evidence: [
+        evidence({ metricId: "damage_average", label: "평균 화력", unit: "", userValue: "100", benchmarkValue: "90", sampleCount: 12 }),
+        evidence({ metricId: "duel_win_rate", label: "1:1 교전 승률", unit: "%", userValue: "0%", benchmarkValue: "46%", sampleCount: 12 }),
+        evidence({ metricId: "solo_kill_share", label: "솔로 킬 비중", unit: "%", sampleCount: 12 }),
+        evidence({ metricId: "isolation_average", label: "평균 고립 지수", unit: "", userValue: "1.0" }),
+      ],
+    });
+    const duel = cards[1];
+    expect(duel.evidence.map((row) => row.metricId)).toContain("solo_kill_share");
+    expect(duel.evidenceIds).toEqual(["ctx-v2:duel_win_rate"]);
+    const raw = providerFinal(cards);
+    const issue = (raw.debateIssues as Array<Record<string, unknown>>)[1];
+    const options = { sanitizeText: (value: string) => value, hasUnsupportedMode: () => false };
+
+    issue.evidenceIds = ["ctx-v2:duel_win_rate", "ctx-v2:solo_kill_share"];
+    const result = normalizeSummaryCardFinal(raw, cards, options);
+    expect(result?.cacheable).toBe(true);
+    expect(result?.final.cards[1]).toMatchObject({ analysisStatus: "ready", evidenceIds: ["ctx-v2:duel_win_rate"] });
+
+    issue.evidenceIds = ["ctx-v2:solo_kill_share"];
+    expect(normalizeSummaryCardFinal(raw, cards, options)?.rejectReasons).toEqual(["duel:evidence"]);
+    issue.evidenceIds = ["ctx-v2:duel_win_rate", "ctx-v2:damage_average"];
+    expect(normalizeSummaryCardFinal(raw, cards, options)?.rejectReasons).toEqual(["duel:evidence"]);
+  });
+
   it("keeps facts and marks only a card unavailable for invalid references", () => {
     const cards = buildSummaryCards({
       topics: ["화력", "1:1 결정력", "포지셔닝"],

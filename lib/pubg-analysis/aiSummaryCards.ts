@@ -791,7 +791,12 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     let referencesValid = true;
     // Repeating an allowed reference adds no evidence. Normalize provider
     // duplicates before checking ownership; unknown IDs still reject the card.
-    const referenceValues = [...new Set(evidenceIds)];
+    // 같은 카드의 미관측 근거 행은 서버가 계획에 함께 보여주는 행이라 모델이 참조할 수 있다.
+    // 근거로 쓸 수 없을 뿐 다른 카드나 위조 ID가 아니므로 참조 목록에서만 제외한다.
+    const unobservedOwnIds = new Set(serverCard.evidence
+      .filter((evidence) => !isObservedEvidence(evidence))
+      .map((evidence) => evidence.id));
+    const referenceValues = [...new Set(evidenceIds)].filter((id) => !unobservedOwnIds.has(id as string));
     if (referencesValid) {
       const uniqueReferences = new Set(referenceValues);
       referencesValid = referenceValues.every((id) => typeof id === "string" && id.trim() !== "")
