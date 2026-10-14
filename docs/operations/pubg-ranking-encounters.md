@@ -71,7 +71,7 @@ API는 실제 DB 집계 시각 `generatedAt`을 반환한다. 화면은 응답 �
 - `get_pubg_rankings`에 `p_from`, `p_to`가 추가됐다. 기간 없이 부르면 최근 7일 동작을 유지한다.
 - API 응답의 `period`(`start`, `end`, `finalized`)로 화면에 기간과 잠정/확정을 표시한다.
 
-## 모든 필터 미리 집계 (2026-10-14, `20261014200000_pubg_ranking_prebuild_all_filters`)
+## 모든 필터 미리 집계 (2026-10-14, `20261014220000_pubg_ranking_prebuild_all_filters`)
 
 - 처음 보는 필터 조합(탭 3 x 모드 12 x 경기 종류 3 = 108개)은 요청 안에서 지난주 전체를 집계하다 PostgREST 8초 제한에 걸려 503("일시적인 문제")이 났다.
 - 요청은 더 이상 집계하지 않는다. 저장 결과가 없으면 등록만 하고 `pending: true`로 바로 응답한다. API는 202, 화면은 "이번 주 랭킹을 준비하고 있습니다"를 보이고 10초 뒤 다시 조회한다.

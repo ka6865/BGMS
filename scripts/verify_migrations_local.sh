@@ -95,7 +95,7 @@ MIGRATIONS=(
   "20261014170000_bluezone_app_data_bucket"
   "20261014180000_pubg_team_benchmarks"
   "20261014190000_pubg_previous_week_rankings"
-  "20261014200000_pubg_ranking_prebuild_all_filters"
+  "20261014220000_pubg_ranking_prebuild_all_filters"
 )
 
 cleanup() {
