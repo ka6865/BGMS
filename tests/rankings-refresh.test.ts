@@ -30,7 +30,7 @@ describe('랭킹 조회', () => {
     fetchMock.mockResolvedValue(response([entry('NewResult')]));
     render(createElement(RankingsClient, props));
     await screen.findByText('NewResult');
-    fireEvent.click(screen.getByRole('button', { name: '최근 7일 킬' }));
+    fireEvent.click(screen.getByRole('button', { name: '지난주 킬' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     fireEvent.click(screen.getByRole('button', { name: '스쿼드' }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));

@@ -169,10 +169,11 @@ export default function RankingsClient({ updatedAt }: Props) {
   const [matchTypeFilter, setMatchTypeFilter] = useState<MatchTypeFilter>('all');
   
   const query = new URLSearchParams({ tab, mode: modeFilter, perspective: perspectiveFilter, matchType: matchTypeFilter }).toString();
-  const [result, setResult] = useState<{ query: string; data: RankingApiEntry[]; hasError: boolean; timedOut?: boolean } | null>(null);
+  const [result, setResult] = useState<{ query: string; data: RankingApiEntry[]; hasError: boolean; timedOut?: boolean; pending?: boolean } | null>(null);
   const [isFetching, setIsFetching] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [lastUpdated, setLastUpdated] = useState(updatedAt);
+  const [period, setPeriod] = useState<{ start: string; end: string; finalized: boolean } | null>(null);
   const isPending = isFetching || result?.query !== query;
   const handleRefresh = () => setRefreshVersion(version => version + 1);
 
@@ -195,8 +196,16 @@ export default function RankingsClient({ updatedAt }: Props) {
         if (!Array.isArray(body.entries)) throw new Error('Invalid ranking response');
         if (requestController.signal.aborted) throw new Error('Ranking request timed out');
         if (!active) return;
+        if (body.pending === true) {
+          // 예약 집계가 이번 주 결과를 준비 중이다. 오류로 보이지 않게 안내하고 잠시 뒤 다시 조회한다.
+          setResult({ query, data: [], hasError: false, pending: true });
+          window.clearTimeout(pendingRetry);
+          pendingRetry = window.setTimeout(() => { if (active) void load(); }, 10_000);
+          return;
+        }
         setResult({ query, data: body.entries, hasError: false });
         setLastUpdated(Number.isFinite(Date.parse(body.generatedAt)) ? body.generatedAt : new Date().toISOString());
+        setPeriod(body.period && Number.isFinite(Date.parse(body.period.start)) && Number.isFinite(Date.parse(body.period.end)) ? body.period : null);
       } catch {
         if (active) setResult({ query, data: [], hasError: true, timedOut: requestController.signal.aborted });
       } finally {
@@ -206,19 +215,20 @@ export default function RankingsClient({ updatedAt }: Props) {
         if (active) setIsFetching(false);
       }
     }
+    let pendingRetry: number | undefined;
     void load();
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') void load();
     }, 60_000);
-    return () => { active = false; controller.abort(); window.clearInterval(timer); };
+    return () => { active = false; controller.abort(); window.clearInterval(timer); window.clearTimeout(pendingRetry); };
   }, [query, refreshVersion]);
 
   const currentData = result?.query === query ? result.data : [];
   const currentHasError = result?.query === query && result.hasError;
 
   const tabs = [
-    { id: 'damage' as TabType, label: '최근 7일 딜량', icon: Flame, color: 'text-orange-400', activeBg: 'bg-orange-400/15 border-orange-400/30' },
-    { id: 'kills' as TabType, label: '최근 7일 킬', icon: Zap, color: 'text-yellow-400', activeBg: 'bg-yellow-400/15 border-yellow-400/30' },
+    { id: 'damage' as TabType, label: '지난주 딜량', icon: Flame, color: 'text-orange-400', activeBg: 'bg-orange-400/15 border-orange-400/30' },
+    { id: 'kills' as TabType, label: '지난주 킬', icon: Zap, color: 'text-yellow-400', activeBg: 'bg-yellow-400/15 border-yellow-400/30' },
     { id: 'tier' as TabType, label: 'BGMS 최고 경기', icon: Trophy, color: 'text-indigo-400', activeBg: 'bg-indigo-400/15 border-indigo-400/30' },
   ];
 
@@ -248,12 +258,12 @@ export default function RankingsClient({ updatedAt }: Props) {
             </button>
           </div>
           <p className="text-[10px] text-gray-700">
-            조회 기준: {isPending && currentData.length === 0 ? '조회 중' : currentHasError ? '조회 실패' : formatUpdatedAt(lastUpdated)}{isPending && currentData.length > 0 ? ' · 갱신 중' : ''}
+            {period && <>{formatRankingPeriod(period)} · </>}조회 기준: {isPending && currentData.length === 0 ? '조회 중' : currentHasError ? '조회 실패' : formatUpdatedAt(lastUpdated)}{isPending && currentData.length > 0 ? ' · 갱신 중' : ''}
           </p>
         </div>
       </div>
 
-      <p className="mx-auto max-w-2xl px-4 pb-4 text-xs leading-relaxed text-gray-400">최근 7일의 수집된 경기 중 개인 최고 기록입니다. 딜량·킬은 기본 전적, BGMS 최고 경기는 분석 완료 점수 기준이며 PUBG 공식 티어와 다릅니다.</p>
+      <p className="mx-auto max-w-2xl px-4 pb-4 text-xs leading-relaxed text-gray-400">지난주(월~일)에 수집된 경기 중 개인 최고 기록입니다. 매주 월요일 0시에 잠정 공개하고 화요일 오전 9시에 늦게 들어온 경기까지 반영해 확정합니다. 딜량·킬은 기본 전적, BGMS 최고 경기는 분석 완료 점수 기준이며 PUBG 공식 티어와 다릅니다.</p>
       {/* 탭 */}
       <div className="relative max-w-2xl mx-auto px-4">
         <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar pb-1">
@@ -338,9 +348,9 @@ export default function RankingsClient({ updatedAt }: Props) {
 
         {/* 탭 설명 */}
         <div className="mb-3 px-1">
-          {tab === 'damage' && <p className="text-[11px] text-gray-600">최근 7일 내 단일 경기 최고 딜량 TOP 30 · 플레이어당 최고 기록만 표시</p>}
-          {tab === 'kills' && <p className="text-[11px] text-gray-600">최근 7일 내 단일 경기 최고 킬 TOP 30 · 플레이어당 최고 기록만 표시</p>}
-          {tab === 'tier' && <p className="text-[11px] text-gray-600">최근 7일 내 BGMS 전술 분석 점수 TOP 30 · 플레이어당 최고 점수 기준</p>}
+          {tab === 'damage' && <p className="text-[11px] text-gray-600">지난주 단일 경기 최고 딜량 TOP 30 · 플레이어당 최고 기록만 표시</p>}
+          {tab === 'kills' && <p className="text-[11px] text-gray-600">지난주 단일 경기 최고 킬 TOP 30 · 플레이어당 최고 기록만 표시</p>}
+          {tab === 'tier' && <p className="text-[11px] text-gray-600">지난주 BGMS 전술 분석 점수 TOP 30 · 플레이어당 최고 점수 기준</p>}
         </div>
 
         <div className="mb-5 flex justify-center xl:hidden" aria-label="광고">
@@ -375,6 +385,12 @@ export default function RankingsClient({ updatedAt }: Props) {
                   <div className="h-5 w-16 bg-white/5 rounded animate-pulse" />
                 </div>
               ))}
+            </div>
+          ) : result?.query === query && result.pending ? (
+            <div role="status" className="py-16 text-center">
+              <RefreshCw size={22} className="mx-auto mb-3 animate-spin text-gray-400" />
+              <p className="text-gray-300 text-sm">이번 주 랭킹을 준비하고 있습니다.</p>
+              <p className="mt-1 text-xs text-gray-500">잠시 후 자동으로 다시 불러옵니다.</p>
             </div>
           ) : currentHasError ? (
             <div className="py-16 text-center">
@@ -439,4 +455,10 @@ export default function RankingsClient({ updatedAt }: Props) {
       </div>
     </div>
   );
+}
+
+// 기간 끝은 다음 월요일 0시(미포함)라 표시할 때 하루를 뺀다.
+function formatRankingPeriod(period: { start: string; end: string; finalized: boolean }): string {
+  const format = (value: number) => new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", month: "numeric", day: "numeric" }).format(value);
+  return `${format(Date.parse(period.start))}~${format(Date.parse(period.end) - 86_400_000)} ${period.finalized ? "확정" : "잠정(화 09:00 확정)"}`;
 }

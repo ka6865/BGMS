@@ -94,6 +94,8 @@ MIGRATIONS=(
   "20261014166000_pubg_match_performance_match_player_index"
   "20261014170000_bluezone_app_data_bucket"
   "20261014180000_pubg_team_benchmarks"
+  "20261014190000_pubg_previous_week_rankings"
+  "20261014200000_pubg_ranking_prebuild_all_filters"
 )
 
 cleanup() {
@@ -377,14 +379,24 @@ fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v3-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/support-center-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-cache-concurrency-setup.sql
-"${PSQL[@]}" -c "set role service_role; select public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73)->>'cache_hit';" &
+# 요청은 집계하지 않고 등록만 한다. 동시 요청 두 개가 등록 행 하나만 만든다.
+"${PSQL[@]}" -c "set role service_role; select public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73)->>'pending';" &
 ranking_first_pid=$!
-"${PSQL[@]}" -c "set role service_role; select public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73)->>'cache_hit';" &
+"${PSQL[@]}" -c "set role service_role; select public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73)->>'pending';" &
 ranking_second_pid=$!
 wait "$ranking_first_pid"
 wait "$ranking_second_pid"
-"${PSQL[@]}" -c "do \$\$ begin if (select count(*) from public.pubg_response_cache where cache_key like 'rankings:v1:%')<>1 then raise exception 'Shared cache missing'; end if; end \$\$; delete from public.pubg_response_cache where cache_key like 'rankings:v1:%';"
-"${PSQL[@]}" -c "set role service_role; select public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73)->>'cache_hit';" &
+"${PSQL[@]}" -c "do \$\$ begin if (select count(*) from public.pubg_response_cache where cache_key like 'rankings:v2:%')<>1 or exists(select 1 from public.ranking_cache_test_calls) then raise exception 'Request path queued twice or aggregated'; end if; end \$\$;"
+# 예약 집계 두 개가 동시에 돌아도 한 번만 집계한다.
+"${PSQL[@]}" -c "select public.refresh_pubg_rankings_cache();" &
+ranking_first_pid=$!
+"${PSQL[@]}" -c "select public.refresh_pubg_rankings_cache();" &
+ranking_second_pid=$!
+wait "$ranking_first_pid"
+wait "$ranking_second_pid"
+"${PSQL[@]}" -c "do \$\$ begin if (select count(*) from public.ranking_cache_test_calls)<>1 then raise exception 'Concurrent refresh aggregated more than once'; end if; end \$\$; delete from public.pubg_response_cache where cache_key like 'rankings:v2:%'; delete from public.ranking_cache_test_calls;"
+"${PSQL[@]}" -c "set role service_role; select public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73)->>'pending';"
+"${PSQL[@]}" -c "select public.refresh_pubg_rankings_cache();" &
 ranking_privacy_pid=$!
 ranking_aggregate_started=false
 for _ in $(seq 1 50); do
@@ -400,7 +412,7 @@ if [ "$ranking_aggregate_started" != true ]; then
 fi
 "${PSQL[@]}" -c "update public.system_settings set value='[{\"platform\":\"steam\",\"nickname\":\"concurrent-ranking\",\"account_id\":\"account.concurrentranking\"}]' where key='private_players_list';"
 if wait "$ranking_privacy_pid"; then
-  echo "❌ 집계 중 비공개 변경을 정상 결과로 반환했습니다"
+  echo "❌ 집계 중 비공개 변경을 정상 결과로 저장했습니다"
   exit 1
 fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-cache-concurrency-checks.sql
