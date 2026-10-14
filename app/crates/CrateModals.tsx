@@ -741,7 +741,7 @@ export function DetailModal({
                         !item.name.includes("토큰")
                       );
                     }
-                    // 블랙 마켓 화물 상자
+                    // 보급고(화물) 상자
                     return (
                       !item.name.includes("폴리머") && 
                       !item.name.includes("도면") && 

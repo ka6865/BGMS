@@ -5,23 +5,48 @@ import { parse } from "node-html-parser";
 import sharp from "sharp";
 import dotenv from "dotenv";
 import { S3Client, HeadObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
-import catalog from "../data/crates/pubg-43-1.json";
 import { normalizeCrateItemName } from "../lib/crates/assetMapping";
 
-type Item = (typeof catalog.crates)[number]["items"][number];
-export const itemKey = (item: Item) =>
+export interface CatalogItem {
+  name: string;
+  rarity: string;
+  quantity: number;
+  probability: number;
+  imageId: string;
+}
+
+export interface CrateCatalog {
+  sourceUrl: string;
+  patch: string;
+  images: Record<string, { url: string; sourceUrl: string }>;
+  crates: {
+    id: string;
+    name: string;
+    imageId: string;
+    type: string;
+    bonusCurrency: string;
+    bonusQuantity: number;
+    bonusCurrencyCode: string;
+    items: CatalogItem[];
+  }[];
+  // 공식 확률표에서 빠져 판매가 끝난 상자. 구성품은 보존하고 노출만 끈다.
+  retiredCrates?: { id: string; name: string }[];
+}
+
+export const itemKey = (item: CatalogItem) =>
   `pubgitems_${item.imageId}${item.name.endsWith(" 도안") ? "_imprint" : ""}_x${item.quantity}`;
 const imageKey = (id: string) => `crates/pubgitems-${id}.webp`;
 const imageUrl = (id: string) => `/api/images/crates/pubgitems-${id}.webp`;
 const sqlValue = (value: string | number | boolean | null) =>
   value === null ? "NULL" : typeof value === "string" ? `'${value.replaceAll("'", "''")}'` : String(value);
 
-export function validateCatalog() {
+export function validateCatalog(catalog: CrateCatalog) {
   const assets = new Map<string, string>();
   for (const crate of catalog.crates) {
     if (Math.abs(crate.items.reduce((sum, item) => sum + item.probability, 0) - 1) > 1e-10) {
       throw new Error(`${crate.name}: probability total must be 100%`);
     }
+    if (!(crate.imageId in catalog.images)) throw new Error(`Missing image: ${crate.name}`);
     const keys = new Set<string>();
     for (const item of crate.items) {
       if (!(item.probability > 0 && item.probability <= 1) || !Number.isInteger(item.quantity) || item.quantity < 1) {
@@ -36,10 +61,14 @@ export function validateCatalog() {
       assets.set(key, identity);
     }
   }
+  const activeIds = new Set(catalog.crates.map(crate => crate.id));
+  for (const retired of catalog.retiredCrates ?? []) {
+    if (activeIds.has(retired.id)) throw new Error(`Retired crate is still listed: ${retired.name}`);
+  }
 }
 
 /** Compare every row, including guaranteed rewards, against the supplied official HTML. */
-export function verifyOfficialHtml(html: string) {
+export function verifyOfficialHtml(catalog: CrateCatalog, html: string) {
   const root = parse(html);
   let heading = "";
   const tables = new Map<string, ReturnType<typeof parse>>();
@@ -47,30 +76,42 @@ export function verifyOfficialHtml(html: string) {
     if (element.tagName === "TABLE") tables.set(heading, element);
     else heading = element.text.trim();
   }
+  const rarities: Record<string, string> = { "얼티밋": "ULTIMATE", "레전더리": "LEGENDARY", "에픽": "EPIC", "엘리트": "ELITE", "레어": "RARE", "스페셜": "SPECIAL", "-": "COMMON" };
   for (const crate of catalog.crates) {
     const table = tables.get(crate.name);
     if (!table) throw new Error(`Missing official table: ${crate.name}`);
-    const rows = table.querySelectorAll("tr").slice(1, -1);
+    const [header, ...body] = table.querySelectorAll("tr");
+    // 43.2부터 "종류" 열이 추가되어 열 위치를 머리글로 찾는다.
+    const columns = header.querySelectorAll("th,td").map(cell => cell.text.trim());
+    const column = (label: string) => {
+      const index = columns.indexOf(label);
+      if (index < 0) throw new Error(`Missing official column: ${crate.name}/${label}`);
+      return index;
+    };
+    const [nameAt, rarityAt, quantityAt, probabilityAt] = ["아이템", "등급", "획득 수량", "확률"].map(column);
+    const rows = body.slice(0, -1);
     if (rows.length !== crate.items.length) throw new Error(`Official row count changed: ${crate.name}`);
     rows.forEach((row, index) => {
       const cells = row.querySelectorAll("td").map(cell =>
         cell.innerHTML.split(/<hr\b[^>]*>/i).map(part => parse(part).text.trim()),
       );
       const item = crate.items[index];
-      const rarities: Record<string, string> = { "얼티밋": "ULTIMATE", "레전더리": "LEGENDARY", "에픽": "EPIC", "엘리트": "ELITE", "레어": "RARE", "스페셜": "SPECIAL", "-": "COMMON" };
-      if (cells[0]?.[0] !== item.name || rarities[cells[1]?.[0]] !== item.rarity ||
-          Number(cells[2]?.[0]) !== item.quantity ||
-          Math.abs(parseFloat(cells[3]?.[0]) / 100 - item.probability) > 1e-12 ||
-          cells[0]?.[1] !== crate.bonusCurrency || Number(cells[2]?.[1]) !== crate.bonusQuantity) {
+      if (cells[nameAt]?.[0] !== item.name || rarities[cells[rarityAt]?.[0]] !== item.rarity ||
+          Number(cells[quantityAt]?.[0]) !== item.quantity ||
+          Math.abs(parseFloat(cells[probabilityAt]?.[0]) / 100 - item.probability) > 1e-12 ||
+          cells[nameAt]?.[1] !== crate.bonusCurrency || Number(cells[quantityAt]?.[1]) !== crate.bonusQuantity) {
         throw new Error(`Official row mismatch: ${crate.name}/${item.name}`);
       }
     });
   }
+  for (const retired of catalog.retiredCrates ?? []) {
+    if (tables.has(retired.name)) throw new Error(`Retired crate is still on the official page: ${retired.name}`);
+  }
 }
 
-export function buildCatalogSql() {
-  validateCatalog();
-  const assets = new Map<string, Item>();
+export function buildCatalogSql(catalog: CrateCatalog, catalogPath: string) {
+  validateCatalog(catalog);
+  const assets = new Map<string, CatalogItem>();
   catalog.crates.forEach(crate => crate.items.forEach(item => assets.set(itemKey(item), item)));
   const assetRows = [...assets].map(([key, item]) => {
     const name = item.quantity > 1 ? `${item.name} x${item.quantity}` : item.name;
@@ -79,19 +120,24 @@ export function buildCatalogSql() {
   // Existing templates retain their purchase settings. This import changes their content and rewards only.
   const templateRows = catalog.crates.map(crate => {
     const contraband = crate.type === "contraband";
-    const bonusCode = contraband ? "contraband_scrap" : crate.imageId === "14300064" ? "jujutsu_token" : "artisan_token";
     return `(${[crate.id, crate.name, crate.type, contraband ? 200 : 250, contraband ? 1800 : 2500,
       crate.imageId, normalizeCrateItemName(crate.name), imageKey(crate.imageId), imageUrl(crate.imageId),
-      `PUBG #43.1 공식 확률표 기준 · ${crate.items.length}종 · 개봉당 ${crate.bonusCurrency} ${crate.bonusQuantity}개`,
+      `PUBG #${catalog.patch} 공식 확률표 기준 · ${crate.items.length}종 · 개봉당 ${crate.bonusCurrency} ${crate.bonusQuantity}개`,
       true, contraband ? "contraband_coupon" : null, contraband ? 10 : null, contraband ? 100 : null,
-      bonusCode, crate.bonusQuantity, crate.bonusQuantity * 10].map(sqlValue).join(", ")})`;
+      crate.bonusCurrencyCode, crate.bonusQuantity, crate.bonusQuantity * 10].map(sqlValue).join(", ")})`;
   });
   const relationRows = catalog.crates.flatMap(crate => crate.items.map(item =>
     `(${sqlValue(crate.id)}::uuid, ${sqlValue(itemKey(item))}, ${item.probability.toFixed(6)})`,
   ));
-  return `-- PUBG #43.1: ${catalog.sourceUrl}
--- Images: https://pubgitems.info/ko (source URLs are recorded in data/crates/pubg-43-1.json).
--- Upload the verified images with scripts/sync_crates_43_1.ts --upload-images before applying.
+  const retired = catalog.retiredCrates ?? [];
+  const retireSql = retired.length === 0 ? "" : `
+-- Sales ended: hide the templates but keep their outcomes for history and statistics.
+UPDATE public.crate_templates SET active=false
+WHERE id IN (${retired.map(crate => `${sqlValue(crate.id)}::uuid`).join(", ")});
+`;
+  return `-- PUBG #${catalog.patch}: ${catalog.sourceUrl}
+-- Images: https://pubgitems.info/ko (source URLs are recorded in ${catalogPath}).
+-- Upload the verified images with scripts/sync_crates.ts --catalog ${catalogPath} --upload-images before applying.
 BEGIN;
 INSERT INTO public.crate_item_assets (asset_key, display_name, normalized_name, r2_key, image_url, rarity) VALUES
 ${assetRows.join(",\n")}
@@ -106,28 +152,28 @@ ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, asset_key=EXCLUDED.asset_key,
   normalized_name=EXCLUDED.normalized_name, r2_key=EXCLUDED.r2_key, image_url=EXCLUDED.image_url,
   description=EXCLUDED.description, bonus_currency_code=EXCLUDED.bonus_currency_code,
   bonus_amount_single=EXCLUDED.bonus_amount_single, bonus_amount_bundle=EXCLUDED.bonus_amount_bundle;
-
-CREATE TEMP TABLE crate_43_1_outcomes (crate_id uuid, asset_key text, probability numeric) ON COMMIT DROP;
-INSERT INTO crate_43_1_outcomes VALUES
+${retireSql}
+CREATE TEMP TABLE crate_catalog_outcomes (crate_id uuid, asset_key text, probability numeric) ON COMMIT DROP;
+INSERT INTO crate_catalog_outcomes VALUES
 ${relationRows.join(",\n")};
 
--- Replace only obsolete BASE mappings of the six specified templates; preserve other crates and bonus/prime pools.
+-- Replace only obsolete BASE mappings of the listed templates; preserve other crates and bonus/prime pools.
 DELETE FROM public.crate_item_relations r
-WHERE r.drop_type='base' AND r.crate_template_id IN (SELECT crate_id FROM crate_43_1_outcomes)
-AND NOT EXISTS (SELECT 1 FROM crate_43_1_outcomes o JOIN public.crate_item_assets a ON a.asset_key=o.asset_key
+WHERE r.drop_type='base' AND r.crate_template_id IN (SELECT crate_id FROM crate_catalog_outcomes)
+AND NOT EXISTS (SELECT 1 FROM crate_catalog_outcomes o JOIN public.crate_item_assets a ON a.asset_key=o.asset_key
   WHERE o.crate_id=r.crate_template_id AND a.id=r.asset_id);
 
 INSERT INTO public.crate_item_relations (crate_template_id, asset_id, drop_type, probability, token_count, is_prime_parcel, is_extra_crate)
 SELECT o.crate_id, a.id, 'base', o.probability, 0, false, false
-FROM crate_43_1_outcomes o JOIN public.crate_item_assets a ON a.asset_key=o.asset_key
+FROM crate_catalog_outcomes o JOIN public.crate_item_assets a ON a.asset_key=o.asset_key
 ON CONFLICT (crate_template_id, asset_id, drop_type) DO UPDATE SET probability=EXCLUDED.probability,
   token_count=0, is_prime_parcel=false, is_extra_crate=false;
 
 DO $$ BEGIN
-  IF EXISTS (SELECT o.crate_id FROM (SELECT DISTINCT crate_id FROM crate_43_1_outcomes) o
+  IF EXISTS (SELECT o.crate_id FROM (SELECT DISTINCT crate_id FROM crate_catalog_outcomes) o
     LEFT JOIN public.crate_item_relations r ON r.crate_template_id=o.crate_id AND r.drop_type='base'
     GROUP BY o.crate_id HAVING sum(r.probability) IS DISTINCT FROM 1::numeric
-    OR count(r.id) <> (SELECT count(*) FROM crate_43_1_outcomes e WHERE e.crate_id=o.crate_id)) THEN
+    OR count(r.id) <> (SELECT count(*) FROM crate_catalog_outcomes e WHERE e.crate_id=o.crate_id)) THEN
     RAISE EXCEPTION 'Crate import failed: invalid outcome count or probability total';
   END IF;
 END $$;
@@ -135,7 +181,7 @@ COMMIT;
 `;
 }
 
-async function uploadImages() {
+async function uploadImages(catalog: CrateCatalog) {
   dotenv.config({ path: ".env.local", quiet: true });
   for (const key of ["CLOUDFLARE_R2_ENDPOINT", "CLOUDFLARE_R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_BUCKET_NAME"]) {
     if (!process.env[key]) throw new Error(`Missing ${key}`);
@@ -167,13 +213,20 @@ async function uploadImages() {
 }
 
 async function main() {
-  validateCatalog();
   const args = process.argv.slice(2);
-  const officialIndex = args.indexOf("--verify-official");
-  if (officialIndex >= 0) verifyOfficialHtml(await fs.readFile(args[officialIndex + 1], "utf8"));
-  const sqlIndex = args.indexOf("--write-sql");
-  if (sqlIndex >= 0) await fs.writeFile(args[sqlIndex + 1], buildCatalogSql());
-  if (args.includes("--upload-images")) await uploadImages();
+  const option = (name: string) => {
+    const index = args.indexOf(name);
+    return index >= 0 ? args[index + 1] : undefined;
+  };
+  const catalogPath = option("--catalog");
+  if (!catalogPath) throw new Error("Usage: tsx scripts/sync_crates.ts --catalog data/crates/<patch>.json [--verify-official <html>] [--write-sql <file>] [--upload-images]");
+  const catalog = JSON.parse(await fs.readFile(catalogPath, "utf8")) as CrateCatalog;
+  validateCatalog(catalog);
+  const officialPath = option("--verify-official");
+  if (officialPath) verifyOfficialHtml(catalog, await fs.readFile(officialPath, "utf8"));
+  const sqlPath = option("--write-sql");
+  if (sqlPath) await fs.writeFile(sqlPath, buildCatalogSql(catalog, catalogPath));
+  if (args.includes("--upload-images")) await uploadImages(catalog);
   console.table(catalog.crates.map(crate => ({ name: crate.name, outcomes: crate.items.length,
     total: Number(crate.items.reduce((sum, item) => sum + item.probability, 0).toFixed(6)) })));
 }

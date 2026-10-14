@@ -503,7 +503,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                               ? "bg-pink-950 text-pink-400 border border-pink-900/30" 
                               : "bg-cyan-950 text-cyan-400 border border-cyan-900/30"
                           }`}>
-                            {crate.type === "loot_crate" ? "블랙 마켓 화물" : "성장형 무기 밀수품"}
+                            {crate.type === "loot_crate" ? "보급고" : "성장형 무기 밀수품"}
                           </span>
                           <h3 className="font-extrabold text-slate-200 mt-1.5 text-sm">{crate.name}</h3>
                         </div>
