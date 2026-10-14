@@ -1,3 +1,5 @@
+import { seasonLabel, type SeasonBucketSummary, type SeasonMode, type SeasonQueue } from "./seasonStats";
+
 export interface StatsEmbedInput {
   nickname: string;
   platform: string;
@@ -10,6 +12,21 @@ export interface StatsEmbedInput {
   scope: string;
   ranked: boolean;
   updatedAt?: string | null;
+}
+
+export interface ComparePlayer {
+  nickname: string;
+  platform: string;
+  seasonId: string | null;
+  summary: SeasonBucketSummary | null;
+  updatedAt: string | null;
+  stale: boolean;
+}
+
+export interface CompareEmbedInput {
+  players: [ComparePlayer, ComparePlayer];
+  queue: SeasonQueue;
+  mode: SeasonMode;
 }
 
 export interface RecentMatchEmbedInput {
@@ -149,6 +166,76 @@ export function buildRecentMatchEmbed(data: RecentMatchEmbedInput, appUrl: strin
             url: webUrl,
           },
         ],
+      },
+    ],
+  };
+}
+
+function statsPageUrl(appUrl: string, platform: string, nickname: string): string {
+  return `${appUrl.replace(/\/+$/, "")}/stats/${platform.toLowerCase()}/${encodeURIComponent(nickname)}`;
+}
+
+// 두 값이 모두 측정됐을 때 더 높은 쪽만 굵게 표시한다.
+function compareValues(values: [number | null, number | null], format: (value: number) => string): [string, string] {
+  const [a, b] = values;
+  const text = (value: number | null) => (value === null ? "기록 없음" : format(value));
+  if (a === null || b === null || a === b) return [text(a), text(b)];
+  return a > b ? [`**${text(a)}**`, text(b)] : [text(a), `**${text(b)}**`];
+}
+
+export function buildCompareEmbed(data: CompareEmbedInput, appUrl: string) {
+  const [first, second] = data.players;
+  const ranked = data.queue === "ranked";
+  const metric = (pick: (summary: SeasonBucketSummary) => number | null, format: (value: number) => string) => compareValues(
+    [first.summary ? pick(first.summary) : null, second.summary ? pick(second.summary) : null],
+    format,
+  );
+  const ratio = (summary: SeasonBucketSummary) => (summary.ratio === null ? null : Number(summary.ratio));
+  const rows: Array<[string, [string, string]]> = [
+    ["판수", metric((summary) => summary.matches, (value) => `${value}경기`)],
+    [ranked ? "KDA" : "K/D", metric(ratio, (value) => value.toFixed(2))],
+    ["승률", metric((summary) => Number.parseFloat(summary.winRate), (value) => `${value.toFixed(1)}%`)],
+    ["평균 딜량", metric((summary) => summary.avgDamage, (value) => String(value))],
+  ];
+  if (ranked) {
+    const tier = (player: ComparePlayer) => (player.summary?.tier ? `${player.summary.tier} (${player.summary.rp ?? "미측정"} RP)` : "미확인");
+    rows.push(["경쟁전 랭크", [tier(first), tier(second)]]);
+  }
+
+  const seasons = [...new Set(data.players.map((player) => player.seasonId).filter((id): id is string => Boolean(id)))];
+  const seasonText = seasons.length === 0 ? "시즌 미확인" : seasons.map(seasonLabel).join(" / ");
+  const notes = [
+    `🔵 **${escapeDiscordMarkdown(first.nickname)}** (${first.platform.toUpperCase()}) vs 🔴 **${escapeDiscordMarkdown(second.nickname)}** (${second.platform.toUpperCase()})`,
+    `${seasonText} · ${ranked ? "경쟁전" : "일반전"} · ${data.mode.toUpperCase()} 시즌 누적 비교`,
+    "저장 시즌 캐시 기준입니다. 시점(FPP/TPP)은 구분하지 않습니다.",
+  ];
+  if (seasons.length > 1) notes.push("두 플레이어의 저장 시즌이 달라 같은 시즌 비교가 아닙니다.");
+  if (data.players.some((player) => player.stale)) notes.push("최근 갱신에 실패한 이전 저장 통계가 포함되어 있습니다.");
+  if (data.players.some((player) => !player.summary)) notes.push("기록이 없는 플레이어는 웹 전적 페이지에서 갱신하면 비교할 수 있습니다.");
+
+  return {
+    embeds: [
+      {
+        title: `⚔️ ${escapeDiscordMarkdown(first.nickname)} vs ${escapeDiscordMarkdown(second.nickname)}`,
+        description: notes.join("\n"),
+        color: 0x8b5cf6, // Violet
+        fields: [
+          ...rows.map(([name, [a, b]]) => ({ name, value: `🔵 ${a}\n🔴 ${b}`, inline: true })),
+          { name: "통계 갱신 시각", value: `🔵 ${discordTime(first.updatedAt)}\n🔴 ${discordTime(second.updatedAt)}`, inline: true },
+        ],
+        footer: { text: "BGMS 전적 비교" },
+        timestamp: new Date().toISOString(),
+      },
+    ],
+    components: [
+      {
+        type: 1, // Action Row
+        components: data.players.map((player, index) => ({
+          type: 2, // Button
+          style: 5, // Link
+          label: `${index === 0 ? "🔵" : "🔴"} ${player.nickname} 전체 전적`.slice(0, 80),
+          url: statsPageUrl(appUrl, player.platform, player.nickname),
+        })),
       },
     ],
   };

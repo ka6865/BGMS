@@ -3,6 +3,9 @@ import { verifyDiscordSignature } from "@/lib/discord/verify";
 import { handleLinkCommand, handleUnlinkCommand } from "@/lib/discord/commands/link";
 import { handleStatsCommand } from "@/lib/discord/commands/stats";
 import { handleRecentMatchCommand } from "@/lib/discord/commands/recentMatch";
+import { handleCompareCommand } from "@/lib/discord/commands/compare";
+import { handleUserStatsCommand, USER_STATS_COMMAND_NAME } from "@/lib/discord/commands/userStats";
+import { handleNicknameAutocomplete } from "@/lib/discord/commands/autocomplete";
 import { decideDiscordReview, getReview, syncReviewDecisionNotification } from "@/lib/community-agent/reviews";
 import {
   isDiscordInteractionToken,
@@ -190,9 +193,23 @@ function isUnlinkCommand(commandName: unknown): boolean {
   return commandName === "연동해제" || commandName === "unlink";
 }
 
-// 연동 관리 명령은 처음부터 개인 defer라 original 갱신만으로 호출자에게만 보인다.
+function isCompareCommand(commandName: unknown): boolean {
+  return commandName === "비교" || commandName === "compare";
+}
+
+const SLASH_COMMANDS = new Set(["연동", "link", "연동해제", "unlink", "전적", "stats", "방금판", "recent", "비교", "compare"]);
+
+function isSupportedCommand(interaction: any): boolean {
+  const commandName = interaction?.data?.name;
+  // USER 명령(우클릭 메뉴)은 data.type 2, 슬래시 명령은 data.type 1(또는 생략)이다.
+  return interaction?.data?.type === 2
+    ? commandName === USER_STATS_COMMAND_NAME
+    : SLASH_COMMANDS.has(commandName);
+}
+
+// 연동 정보를 다루는 명령은 처음부터 개인 defer라 original 갱신만으로 호출자에게만 보인다.
 function isPrivateCommand(commandName: unknown): boolean {
-  return isLinkCommand(commandName) || isUnlinkCommand(commandName);
+  return isLinkCommand(commandName) || isUnlinkCommand(commandName) || commandName === USER_STATS_COMMAND_NAME;
 }
 
 async function processSlashCommand(interaction: any, appUrl: string): Promise<void> {
@@ -206,8 +223,10 @@ async function processSlashCommand(interaction: any, appUrl: string): Promise<vo
     const response = await Promise.race([
       isLinkCommand(commandName) ? handleLinkCommand(interaction)
         : isUnlinkCommand(commandName) ? handleUnlinkCommand(interaction)
-          : commandName === "전적" || commandName === "stats" ? handleStatsCommand(interaction, appUrl)
-            : handleRecentMatchCommand(interaction, appUrl),
+          : commandName === USER_STATS_COMMAND_NAME ? handleUserStatsCommand(interaction, appUrl)
+            : isCompareCommand(commandName) ? handleCompareCommand(interaction, appUrl)
+              : commandName === "전적" || commandName === "stats" ? handleStatsCommand(interaction, appUrl)
+                : handleRecentMatchCommand(interaction, appUrl),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("command_timeout")), COMMAND_TIMEOUT_MS);
       }),
@@ -319,7 +338,7 @@ export async function POST(request: Request) {
     const commandName = interaction.data?.name;
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://bgms.kr";
 
-    if (!["연동", "link", "연동해제", "unlink", "전적", "stats", "방금판", "recent"].includes(commandName)) {
+    if (!isSupportedCommand(interaction)) {
       return ephemeral("알 수 없는 명령어입니다.");
     }
     if (!interactionUserId(interaction) || !isDiscordSnowflake(interaction.application_id)
@@ -333,6 +352,12 @@ export async function POST(request: Request) {
     }
     // 연동 관리는 항상 호출자에게만 보인다. 전적 조회는 완료 전에는 전적을 담지 않고, 공개 확인을 통과한 성공 결과만 채널에 표시한다.
     return isPrivateCommand(commandName) ? deferredEphemeral() : NextResponse.json({ type: 5, data: {} });
+  }
+
+  // 닉네임 자동완성은 3초 안에 choices를 직접 응답해야 하므로 defer하지 않는다.
+  if (interaction.type === 4) {
+    if (!SLASH_COMMANDS.has(interaction.data?.name)) return NextResponse.json({ type: 8, data: { choices: [] } });
+    return NextResponse.json(await handleNicknameAutocomplete(interaction));
   }
 
   return NextResponse.json({ type: 4, data: { content: "지원하지 않는 상호작용 유형입니다.", flags: 64 } });

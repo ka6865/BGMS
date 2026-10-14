@@ -1,6 +1,7 @@
 import { deleteDiscordUserLink, setDiscordUserLink } from "../userLinkStore";
 import { buildLinkSuccessEmbed, escapeDiscordMarkdown } from "../embeds";
 import { resolveDiscordLinkTarget } from "../playerIdentity";
+import { parseNicknameOption } from "../nicknameOption";
 import { canonicalizeLinkedPlayerPlatform } from "@/lib/pubg/linkedPlayerSync";
 
 export async function handleLinkCommand(interaction: any) {
@@ -8,7 +9,7 @@ export async function handleLinkCommand(interaction: any) {
   const nicknameOption = options.find((opt: any) => opt.name === "nickname" || opt.name === "배그닉네임");
   const platformOption = options.find((opt: any) => opt.name === "platform" || opt.name === "플랫폼");
 
-  const nickname = String(nicknameOption?.value || "").trim();
+  const { nickname, platform: suggestedPlatform } = parseNicknameOption(nicknameOption?.value);
   const discordUserId = interaction.member?.user?.id || interaction.user?.id;
 
   if (!discordUserId) {
@@ -27,7 +28,7 @@ export async function handleLinkCommand(interaction: any) {
 
   let platform: string;
   try {
-    platform = canonicalizeLinkedPlayerPlatform(String(platformOption?.value || "steam"));
+    platform = canonicalizeLinkedPlayerPlatform(String(platformOption?.value || suggestedPlatform || "steam"));
   } catch {
     return { type: 4, data: { content: "지원하지 않는 플랫폼입니다. steam 또는 kakao를 선택해 주세요.", flags: 64 } };
   }

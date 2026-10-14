@@ -308,8 +308,8 @@ describe("/연동 and registration", () => {
 
   it("declares only supported choices without executing registration", () => {
     const source = readFileSync(new URL("../scripts/register_discord_commands.ts", import.meta.url), "utf8");
-    expect(source.match(/value: "steam"/g)).toHaveLength(3);
-    expect(source.match(/value: "kakao"/g)).toHaveLength(3);
+    expect(source.match(/value: "steam"/g)).toHaveLength(4);
+    expect(source.match(/value: "kakao"/g)).toHaveLength(4);
     expect(source).not.toMatch(/value: "(?:xbox|psn)"|최근 20경기 전적/);
     expect(source).toContain('name: "연동해제"');
   });

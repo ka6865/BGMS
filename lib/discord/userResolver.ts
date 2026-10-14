@@ -1,5 +1,6 @@
 import { getDiscordUserLink, type DiscordUserLink } from "./userLinkStore";
 import { canonicalizeLinkedPlayerPlatform } from "@/lib/pubg/linkedPlayerSync";
+import { parseNicknameOption } from "./nicknameOption";
 
 export interface ResolvePlayerNicknameParams {
   explicitNickname?: string | null;
@@ -18,7 +19,7 @@ export interface ResolvedPlayerIdentity {
 
 /**
  * Resolves the PUBG player nickname and platform using a 3-tier fallback strategy:
- * 1. Explicit command argument (highest priority)
+ * 1. Explicit command argument (highest priority, platform option > autocomplete prefix > steam)
  * 2. Database linked account (discord_user_links)
  * 3. Discord Guild Nickname or Global Username
  */
@@ -33,11 +34,11 @@ export async function resolvePlayerNickname({
   const platformOverride = explicitPlatform?.trim()
     ? canonicalizeLinkedPlayerPlatform(explicitPlatform)
     : null;
-  const trimmedExplicit = explicitNickname?.trim();
-  if (trimmedExplicit) {
+  const explicit = parseNicknameOption(explicitNickname);
+  if (explicit.nickname) {
     return {
-      nickname: trimmedExplicit,
-      platform: platformOverride ?? "steam",
+      nickname: explicit.nickname,
+      platform: platformOverride ?? explicit.platform ?? "steam",
       source: "explicit",
     };
   }

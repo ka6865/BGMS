@@ -1,22 +1,13 @@
 import { resolvePlayerNickname } from "../userResolver";
 import { buildEmptyRecordMessage, buildStatsEmbed, discordTime } from "../embeds";
 import { createClient } from "@supabase/supabase-js";
-import { validatedCachedBuckets } from "@/lib/pubg/playerPayload";
 import { isDiscordTargetPrivate } from "../playerIdentity";
+import { playedSeasonModes, seasonAvailability, seasonLabel, selectCachedSeason, summarizeSeasonBucket } from "../seasonStats";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co",
   process.env.SUPABASE_SERVICE_ROLE_KEY || "placeholder-key",
 );
-
-function isValidSeasonId(value: unknown): value is string {
-  return typeof value === "string" && value.trim() !== "" && value !== "null" && value !== "undefined";
-}
-
-// 웹 전적 화면과 같은 짧은 시즌 이름을 쓴다(예: division.bro.official.pc-2018-36 → 시즌 36).
-function seasonLabel(seasonId: string): string {
-  return `시즌 ${seasonId.split("-").pop()}`;
-}
 
 export async function handleStatsCommand(interaction: any, appUrl: string) {
   const options = interaction.data?.options || [];
@@ -74,45 +65,26 @@ export async function handleStatsCommand(interaction: any, appUrl: string) {
       .maybeSingle();
     if (cacheError) throw cacheError;
 
-    if (cacheRow && cacheRow.season_stats_data) {
-      // 웹 전적 API와 같이 마지막 시즌 캐시가 없으면 다른 유효 시즌 캐시로 대체한다.
-      const lastSeasonId = isValidSeasonId(cacheRow.last_season_id) && cacheRow.season_stats_data[cacheRow.last_season_id]
-        ? cacheRow.last_season_id
-        : null;
-      const seasonId = lastSeasonId
-        ?? Object.keys(cacheRow.season_stats_data).find((key) => isValidSeasonId(key) && cacheRow.season_stats_data[key]);
-      const currentSeasonStats = seasonId ? cacheRow.season_stats_data[seasonId] : null;
-
-      const pickMode = (statsObj: unknown) => {
-        const buckets = validatedCachedBuckets(statsObj);
-        if (!buckets) return null;
-        return Object.entries(buckets)
-          .filter((entry): entry is [string, NonNullable<typeof entry[1]>] => Boolean(entry[1] && entry[1].roundsPlayed > 0))
-          .sort((a, b) => b[1].roundsPlayed - a[1].roundsPlayed)[0] || null;
-      };
-
-      const activeRanked = pickMode(currentSeasonStats?.ranked);
-      const activeNormal = pickMode(currentSeasonStats?.normal);
+    const season = selectCachedSeason(cacheRow);
+    if (cacheRow && season) {
+      const activeRanked = playedSeasonModes(season.stats, "ranked")[0];
+      const activeNormal = playedSeasonModes(season.stats, "normal")[0];
       ranked = Boolean(activeRanked && activeRanked[1].roundsPlayed >= (activeNormal?.[1].roundsPlayed ?? 0));
       const selected = ranked ? activeRanked : activeNormal;
 
       if (selected) {
         const [mode, activeStats] = selected;
-        matches = activeStats.roundsPlayed;
-        const deaths = activeStats.deaths ?? activeStats.losses;
-        if (typeof deaths === "number" && Number.isFinite(deaths) && deaths >= 0) {
-          kda = ((activeStats.kills + (ranked ? activeStats.assists : 0)) / Math.max(1, deaths)).toFixed(2);
-        }
-        winRate = `${((activeStats.wins / matches) * 100).toFixed(1)}%`;
-        avgDamage = Math.round(activeStats.damageDealt / matches);
-        const availability = currentSeasonStats?.statsAvailability?.[ranked ? "ranked" : "normal"];
-        updatedAt = availability?.updatedAt || cacheRow.updated_at || null;
-        scope = `${seasonId ? seasonLabel(seasonId) : "시즌 미확인"} · ${ranked ? "경쟁전" : "일반전"} · ${mode.toUpperCase()}\n시즌 캐시에서 판수가 가장 많은 모드의 ${matches}경기 누적 통계입니다. 시점(FPP/TPP)은 저장 캐시에서 구분할 수 없습니다.`;
-        if (availability?.status === "stale") scope += "\n최근 갱신에 실패한 이전 저장 통계입니다.";
-        if (ranked && activeStats.currentTier?.tier) {
-          tier = `${activeStats.currentTier.tier} ${activeStats.currentTier.subTier ?? ""}`.trim();
-          rp = activeStats.currentRankPoint ?? null;
-        }
+        const summary = summarizeSeasonBucket(activeStats, ranked ? "ranked" : "normal");
+        matches = summary.matches;
+        if (summary.ratio) kda = summary.ratio;
+        winRate = summary.winRate;
+        avgDamage = summary.avgDamage;
+        tier = summary.tier;
+        rp = summary.rp;
+        const availability = seasonAvailability(season.stats, ranked ? "ranked" : "normal", cacheRow);
+        updatedAt = availability.updatedAt;
+        scope = `${seasonLabel(season.seasonId)} · ${ranked ? "경쟁전" : "일반전"} · ${mode.toUpperCase()}\n시즌 캐시에서 판수가 가장 많은 모드의 ${matches}경기 누적 통계입니다. 시점(FPP/TPP)은 저장 캐시에서 구분할 수 없습니다.`;
+        if (availability.stale) scope += "\n최근 갱신에 실패한 이전 저장 통계입니다.";
       }
     }
 

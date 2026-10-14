@@ -1,5 +1,5 @@
 /**
- * Discord API에 슬래시 커맨드(/연동, /연동해제, /전적, /방금판)를 글로벌 등록하는 일회성 CLI 스크립트입니다.
+ * Discord API에 슬래시 커맨드(/연동, /연동해제, /전적, /방금판, /비교)와 사용자 우클릭 메뉴(전적 보기)를 글로벌 등록하는 일회성 CLI 스크립트입니다.
  * 
  * 사용법:
  * DISCORD_APPLICATION_ID=xxx DISCORD_BOT_TOKEN=xxx npx tsx scripts/register_discord_commands.ts
@@ -15,9 +15,10 @@ const COMMANDS = [
     options: [
       {
         name: "nickname",
-        description: "배틀그라운드 인게임 닉네임",
+        description: "배틀그라운드 인게임 닉네임 (2글자 이상 입력 시 저장된 플레이어 추천)",
         type: 3, // STRING
         required: true,
+        autocomplete: true,
       },
       {
         name: "platform",
@@ -44,6 +45,7 @@ const COMMANDS = [
         description: "조회할 닉네임 (미입력 시 연동된 계정 또는 서버 별명으로 자동 조회)",
         type: 3, // STRING
         required: false,
+        autocomplete: true,
       },
       {
         name: "platform",
@@ -66,6 +68,7 @@ const COMMANDS = [
         description: "조회할 닉네임 (미입력 시 연동된 계정 또는 서버 별명으로 자동 조회)",
         type: 3, // STRING
         required: false,
+        autocomplete: true,
       },
       {
         name: "platform",
@@ -78,6 +81,62 @@ const COMMANDS = [
         ],
       },
     ],
+  },
+  {
+    name: "비교",
+    description: "두 플레이어의 저장 시즌 전적을 같은 모드로 비교해 채널에 공개합니다.",
+    options: [
+      {
+        name: "nickname1",
+        description: "첫 번째 플레이어 닉네임",
+        type: 3, // STRING
+        required: true,
+        autocomplete: true,
+      },
+      {
+        name: "nickname2",
+        description: "두 번째 플레이어 닉네임",
+        type: 3, // STRING
+        required: true,
+        autocomplete: true,
+      },
+      {
+        name: "mode",
+        description: "비교 모드 (기본값: squad)",
+        type: 3, // STRING
+        required: false,
+        choices: [
+          { name: "스쿼드", value: "squad" },
+          { name: "듀오", value: "duo" },
+          { name: "솔로", value: "solo" },
+        ],
+      },
+      {
+        name: "type",
+        description: "경기 유형 (기본값: 일반전)",
+        type: 3, // STRING
+        required: false,
+        choices: [
+          { name: "일반전", value: "normal" },
+          { name: "경쟁전", value: "ranked" },
+        ],
+      },
+      {
+        name: "platform",
+        description: "두 플레이어의 조회 플랫폼 (미입력 시 추천 선택값의 플랫폼 또는 steam)",
+        type: 3, // STRING
+        required: false,
+        choices: [
+          { name: "Steam (스팀)", value: "steam" },
+          { name: "Kakao (카카오)", value: "kakao" },
+        ],
+      },
+    ],
+  },
+  {
+    // USER 명령(서버 멤버 우클릭 → 앱)은 설명과 옵션 없이 이름만 등록한다.
+    name: "전적 보기",
+    type: 2,
   },
 ];
 

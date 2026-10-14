@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import nacl from "tweetnacl";
 
-const mocks = vi.hoisted(() => ({ after: vi.fn(), link: vi.fn(), unlink: vi.fn(), stats: vi.fn(), recent: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  after: vi.fn(), link: vi.fn(), unlink: vi.fn(), stats: vi.fn(), recent: vi.fn(), compare: vi.fn(), userStats: vi.fn(), autocomplete: vi.fn(),
+}));
 vi.mock("next/server", async (importOriginal) => ({ ...await importOriginal<typeof import("next/server")>(), after: mocks.after }));
 vi.mock("@/lib/discord/commands/link", () => ({ handleLinkCommand: mocks.link, handleUnlinkCommand: mocks.unlink }));
 vi.mock("@/lib/discord/commands/stats", () => ({ handleStatsCommand: mocks.stats }));
 vi.mock("@/lib/discord/commands/recentMatch", () => ({ handleRecentMatchCommand: mocks.recent }));
+vi.mock("@/lib/discord/commands/compare", () => ({ handleCompareCommand: mocks.compare }));
+vi.mock("@/lib/discord/commands/userStats", () => ({ handleUserStatsCommand: mocks.userStats, USER_STATS_COMMAND_NAME: "전적 보기" }));
+vi.mock("@/lib/discord/commands/autocomplete", () => ({ handleNicknameAutocomplete: mocks.autocomplete }));
 import { POST } from "@/app/api/discord/interactions/route";
 
 describe("discord interactions route", () => {
@@ -24,6 +29,9 @@ describe("discord interactions route", () => {
     mocks.unlink.mockResolvedValue({ type: 4, data: { content: "연동을 해제했습니다.", flags: 64 } });
     mocks.stats.mockResolvedValue({ type: 4, data: { embeds: [{ title: "저장 전적" }], components: [{ type: 1 }], flags: 0 } });
     mocks.recent.mockResolvedValue({ type: 4, data: { embeds: [{ title: "최신 저장 경기" }], flags: 0 } });
+    mocks.compare.mockResolvedValue({ type: 4, data: { embeds: [{ title: "비교" }], components: [{ type: 1 }], flags: 0 } });
+    mocks.userStats.mockResolvedValue({ type: 4, data: { embeds: [{ title: "우클릭 전적" }], flags: 0 } });
+    mocks.autocomplete.mockResolvedValue({ type: 8, data: { choices: [{ name: "Player (STEAM)", value: "steam:Player" }] } });
   });
 
   afterEach(() => {
@@ -142,6 +150,43 @@ describe("discord interactions route", () => {
     await mocks.after.mock.calls[0][0]();
     expect(fetchMock.mock.calls.map(([, init]) => init.method)).toEqual(["PATCH", "PATCH"]);
     expect(editedMessage(1)).toEqual({ content: expect.stringContaining("응답을 전달하지 못했습니다"), embeds: [], components: [], allowed_mentions: { parse: [] } });
+  });
+
+  it.each(["비교", "compare"])("defers /%s publicly and edits the original with the comparison", async (name) => {
+    expect(await (await POST(commandRequest(name))).json()).toEqual({ type: 5, data: {} });
+    await mocks.after.mock.calls[0][0]();
+    expect(mocks.compare).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls.map(([, init]) => init.method)).toEqual(["PATCH"]);
+    expect(editedMessage()).toEqual({ embeds: [{ title: "비교" }], components: [{ type: 1 }], allowed_mentions: { parse: [] } });
+  });
+
+  it("defers the user context menu privately even when stats would be public", async () => {
+    const res = await POST(commandRequest("전적 보기", { data: { type: 2, name: "전적 보기", target_id: "1486900099266248826" } }));
+    expect(await res.json()).toEqual({ type: 5, data: { flags: 64 } });
+    await mocks.after.mock.calls[0][0]();
+    expect(mocks.userStats).toHaveBeenCalledTimes(1);
+    expect(mocks.stats).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.map(([, init]) => init.method)).toEqual(["PATCH"]);
+    expect(editedMessage()).toEqual({ embeds: [{ title: "우클릭 전적" }], allowed_mentions: { parse: [] } });
+  });
+
+  it("does not accept the context menu name as a slash command or slash names as user commands", async () => {
+    expect(await (await POST(commandRequest("전적 보기"))).json()).toEqual({ type: 4, data: { content: "알 수 없는 명령어입니다.", flags: 64 } });
+    expect(await (await POST(commandRequest("전적", { data: { type: 2, name: "전적" } }))).json()).toEqual({ type: 4, data: { content: "알 수 없는 명령어입니다.", flags: 64 } });
+    expect(mocks.after).not.toHaveBeenCalled();
+  });
+
+  it("answers nickname autocomplete synchronously without deferring", async () => {
+    const res = await POST(createSignedRequest({ type: 4, application_id: applicationId, data: { name: "전적", options: [{ name: "nickname", value: "pl", focused: true }] } }));
+    expect(await res.json()).toEqual({ type: 8, data: { choices: [{ name: "Player (STEAM)", value: "steam:Player" }] } });
+    expect(mocks.after).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("returns empty autocomplete choices for unknown commands", async () => {
+    const res = await POST(createSignedRequest({ type: 4, application_id: applicationId, data: { name: "other", options: [] } }));
+    expect(await res.json()).toEqual({ type: 8, data: { choices: [] } });
+    expect(mocks.autocomplete).not.toHaveBeenCalled();
   });
 
   it("does not wait for slow privacy/database work before acknowledging the command", async () => {
