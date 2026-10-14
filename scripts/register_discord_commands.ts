@@ -11,7 +11,7 @@ const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const COMMANDS = [
   {
     name: "연동",
-    description: "디스코드 계정과 배틀그라운드 닉네임을 연동하고 나에게만 결과를 표시합니다.",
+    description: "디스코드 계정과 배틀그라운드 닉네임을 연동하고 성공 결과를 채널에 공개합니다.",
     options: [
       {
         name: "nickname",
@@ -33,7 +33,7 @@ const COMMANDS = [
   },
   {
     name: "전적",
-    description: "저장된 시즌 전적 또는 최근 저장 경기 요약을 나에게만 표시합니다.",
+    description: "저장된 시즌 전적 또는 최근 저장 경기 요약을 채널에 공개합니다.",
     options: [
       {
         name: "nickname",
@@ -55,7 +55,7 @@ const COMMANDS = [
   },
   {
     name: "방금판",
-    description: "최신 저장 경기 1건의 성적과 교전 지표를 나에게만 표시합니다.",
+    description: "최신 저장 경기 1건의 성적과 교전 지표를 채널에 공개합니다.",
     options: [
       {
         name: "nickname",

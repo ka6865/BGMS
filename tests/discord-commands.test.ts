@@ -89,7 +89,7 @@ describe("/방금판 saved records", () => {
     const telemetry = query(null);
     const result = await handleRecentMatchCommand(interaction, appUrl);
     const payload = result.data as any;
-    expect(payload.flags).toBe(64);
+    expect(payload.flags).toBe(0);
     expect(payload.embeds[0].title).toContain("#8위");
     expect(payload.embeds[0].fields).toContainEqual(expect.objectContaining({ name: "전투 성적", value: "0킬 / 딜량 0" }));
     expect(payload.embeds[0].fields).toContainEqual(expect.objectContaining({ name: "팀 딜량 비중", value: "미측정" }));
@@ -148,6 +148,7 @@ describe("/전적 aggregation", () => {
       normal: { squad: bucket }, ranked: { squad: { ...bucket, roundsPlayed: 10, currentTier: { tier: "Diamond", subTier: 2 }, currentRankPoint: 2450 } },
     } } });
     const payload = (await handleStatsCommand(interaction, appUrl)).data as any;
+    expect(payload.flags).toBe(0);
     expect(payload.embeds[0].description).toContain("시즌 season-42 · 일반전 · SQUAD");
     expect(payload.embeds[0].fields).toContainEqual(expect.objectContaining({ name: "집계 판수", value: "30경기" }));
     expect(payload.embeds[0].fields).toContainEqual(expect.objectContaining({ name: "승률", value: "0.0%" }));
@@ -192,9 +193,9 @@ describe("/전적 aggregation", () => {
 });
 
 describe("/연동 and registration", () => {
-  it("keeps linked identity confirmation ephemeral", async () => {
+  it("allows linked identity confirmation to be public", async () => {
     mocks.saveLink.mockResolvedValue({ pubg_nickname: "Player", pubg_platform: "steam" });
-    expect((await handleLinkCommand(interaction)).data).toMatchObject({ embeds: expect.any(Array), flags: 64 });
+    expect((await handleLinkCommand(interaction)).data).toMatchObject({ embeds: expect.any(Array), flags: 0 });
     expect(mocks.saveLink).toHaveBeenCalledWith(interaction.user.id, "Player", "steam");
   });
 

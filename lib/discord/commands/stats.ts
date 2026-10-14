@@ -137,7 +137,7 @@ export async function handleStatsCommand(interaction: any, appUrl: string) {
       appUrl,
     );
 
-    return { type: 4, data: { ...embedPayload, flags: 64 } };
+    return { type: 4, data: { ...embedPayload, flags: 0 } };
   } catch {
     return { type: 4, data: { content: "저장된 전적을 조회하지 못했습니다. 잠시 후 다시 시도해 주세요.", flags: 64 } };
   }

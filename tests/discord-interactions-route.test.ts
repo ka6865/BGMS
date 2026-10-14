@@ -20,9 +20,9 @@ describe("discord interactions route", () => {
     vi.stubEnv("DISCORD_PUBLIC_KEY", publicKeyHex);
     vi.stubGlobal("fetch", fetchMock);
     fetchMock.mockResolvedValue(new Response("{}", { status: 200 }));
-    mocks.link.mockResolvedValue({ type: 4, data: { embeds: [{ title: "연동 완료" }], flags: 64 } });
-    mocks.stats.mockResolvedValue({ type: 4, data: { embeds: [{ title: "저장 전적" }], components: [{ type: 1 }], flags: 64 } });
-    mocks.recent.mockResolvedValue({ type: 4, data: { embeds: [{ title: "최신 저장 경기" }], flags: 64 } });
+    mocks.link.mockResolvedValue({ type: 4, data: { embeds: [{ title: "연동 완료" }], flags: 0 } });
+    mocks.stats.mockResolvedValue({ type: 4, data: { embeds: [{ title: "저장 전적" }], components: [{ type: 1 }], flags: 0 } });
+    mocks.recent.mockResolvedValue({ type: 4, data: { embeds: [{ title: "최신 저장 경기" }], flags: 0 } });
   });
 
   afterEach(() => {
@@ -56,6 +56,11 @@ describe("discord interactions route", () => {
     return JSON.parse(fetchMock.mock.calls[index][1].body);
   }
 
+  function privateMessage() {
+    const call = fetchMock.mock.calls.find(([, init]) => init.method === "POST");
+    return call ? JSON.parse(call[1].body) : null;
+  }
+
   it("rejects unauthorized requests with invalid signature", async () => {
     vi.stubEnv("DISCORD_PUBLIC_KEY", publicKeyHex);
 
@@ -86,9 +91,9 @@ describe("discord interactions route", () => {
     expect(data).toEqual({ type: 1 });
   });
 
-  it.each(["연동", "link", "전적", "stats", "방금판", "recent"])("defers /%s before any handler work and edits the original ephemeral response", async (name) => {
+  it.each(["연동", "link", "전적", "stats", "방금판", "recent"])("defers /%s before any handler work and edits the original public response", async (name) => {
     const res = await POST(commandRequest(name));
-    expect(await res.json()).toEqual({ type: 5, data: { flags: 64 } });
+    expect(await res.json()).toEqual({ type: 5, data: {} });
     expect(mocks.link).not.toHaveBeenCalled();
     expect(mocks.stats).not.toHaveBeenCalled();
     expect(mocks.recent).not.toHaveBeenCalled();
@@ -105,27 +110,79 @@ describe("discord interactions route", () => {
   it("does not wait for slow privacy/database work before acknowledging the command", async () => {
     let resolve!: (value: unknown) => void;
     mocks.stats.mockReturnValue(new Promise((done) => { resolve = done; }));
-    expect(await (await POST(commandRequest())).json()).toEqual({ type: 5, data: { flags: 64 } });
+    expect(await (await POST(commandRequest())).json()).toEqual({ type: 5, data: {} });
     const completion = mocks.after.mock.calls[0][0]();
     expect(fetchMock).not.toHaveBeenCalled();
-    resolve({ type: 4, data: { embeds: [{ title: "slow result" }] } });
+    resolve({ type: 4, data: { embeds: [{ title: "slow result" }], flags: 0 } });
     await completion;
     expect(editedMessage().embeds[0].title).toBe("slow result");
   });
 
-  it("keeps a private-player refusal in the original ephemeral response without an embed or link", async () => {
+  it("keeps private-player refusals out of public responses and removes the public placeholder", async () => {
     mocks.stats.mockResolvedValue({ type: 4, data: { content: "비공개 플레이어의 전적은 Discord에서 제공하지 않습니다.", flags: 64 } });
-    expect(await (await POST(commandRequest())).json()).toEqual({ type: 5, data: { flags: 64 } });
+    expect(await (await POST(commandRequest())).json()).toEqual({ type: 5, data: {} });
     await mocks.after.mock.calls[0][0]();
-    expect(editedMessage()).toEqual({ content: expect.stringContaining("비공개"), allowed_mentions: { parse: [] } });
+    expect(editedMessage()).toEqual({ content: "처리를 마쳤습니다.", allowed_mentions: { parse: [] } });
+    expect(privateMessage()).toEqual({ content: expect.stringContaining("비공개"), flags: 64, allowed_mentions: { parse: [] } });
+    expect(fetchMock.mock.calls.map(([, init]) => init.method)).toEqual(["PATCH", "POST", "DELETE"]);
+    expect(fetchMock.mock.calls[1][0]).toBe(`https://discord.com/api/v10/webhooks/${applicationId}/${token}`);
+    expect(fetchMock.mock.calls[2][0]).toBe(`https://discord.com/api/v10/webhooks/${applicationId}/${token}/messages/@original`);
+    expect(fetchMock.mock.calls[2][1].body).toBeUndefined();
+  });
+
+  it("waits for the public original to finish before posting an ephemeral follow-up", async () => {
+    let resolve!: (value: Response) => void;
+    mocks.stats.mockResolvedValue({ type: 4, data: { content: "비공개 플레이어", flags: 64 } });
+    fetchMock.mockReturnValueOnce(new Promise<Response>((done) => { resolve = done; }));
+    await POST(commandRequest());
+    const completion = mocks.after.mock.calls[0][0]();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(privateMessage()).toBeNull();
+    resolve(new Response("{}", { status: 200 }));
+    await completion;
+    expect(privateMessage()).toMatchObject({ content: "비공개 플레이어", flags: 64 });
+    expect(fetchMock.mock.calls.map(([, init]) => init.method)).toEqual(["PATCH", "POST", "DELETE"]);
+  });
+
+  it("still removes the public placeholder when private delivery fails and does not retry message creation", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.stats.mockResolvedValue({ type: 4, data: { content: "비공개 플레이어", flags: 64 } });
+    fetchMock.mockResolvedValueOnce(new Response("{}", { status: 200 }))
+      .mockRejectedValueOnce(new Error("private delivery secret"));
+    await POST(commandRequest());
+    await mocks.after.mock.calls[0][0]();
+    expect(fetchMock.mock.calls.map(([, init]) => init.method)).toEqual(["PATCH", "POST", "DELETE"]);
+    expect(warn).toHaveBeenCalledWith("[DiscordInteractions] 비공개 안내 전달 실패");
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("secret");
+  });
+
+  it("keeps the refusal private when deleting the public placeholder fails", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.stats.mockResolvedValue({ type: 4, data: { content: "비공개 플레이어", flags: 64 } });
+    fetchMock.mockResolvedValueOnce(new Response("{}", { status: 200 }))
+      .mockResolvedValueOnce(new Response("{}", { status: 200 }))
+      .mockResolvedValueOnce(new Response("secret Discord body", { status: 500 }));
+    await POST(commandRequest());
+    await mocks.after.mock.calls[0][0]();
+    expect(privateMessage()).toMatchObject({ content: "비공개 플레이어", flags: 64 });
+    expect(editedMessage()).toEqual({ content: "처리를 마쳤습니다.", allowed_mentions: { parse: [] } });
+    expect(warn).toHaveBeenCalledWith("[DiscordInteractions] 공개 처리 표시 삭제 실패");
+  });
+
+  it("fails closed when a handler omits its public-success flag", async () => {
+    mocks.stats.mockResolvedValue({ type: 4, data: { content: "알 수 없는 상태" } });
+    await POST(commandRequest());
+    await mocks.after.mock.calls[0][0]();
+    expect(privateMessage()).toMatchObject({ content: "알 수 없는 상태", flags: 64 });
+    expect(editedMessage().content).toBe("처리를 마쳤습니다.");
   });
 
   it("hides unexpected internal handler errors", async () => {
     mocks.stats.mockRejectedValue(new Error("service role secret"));
     await POST(commandRequest());
     await mocks.after.mock.calls[0][0]();
-    expect(editedMessage().content).toContain("처리하지 못했습니다");
-    expect(JSON.stringify(editedMessage())).not.toContain("secret");
+    expect(privateMessage().content).toContain("처리하지 못했습니다");
+    expect(JSON.stringify(fetchMock.mock.calls)).not.toContain("secret");
   });
 
   it("completes a timed-out command with a visible failure and discards late results", async () => {
@@ -136,10 +193,10 @@ describe("discord interactions route", () => {
     const completion = mocks.after.mock.calls[0][0]();
     await vi.advanceTimersByTimeAsync(15_000);
     await completion;
-    expect(editedMessage().content).toContain("시간이 초과");
+    expect(privateMessage()).toMatchObject({ content: expect.stringContaining("시간이 초과"), flags: 64 });
     resolve({ type: 4, data: { embeds: [{ title: "late private result" }] } });
     await Promise.resolve();
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(vi.getTimerCount()).toBe(0);
   });
 
@@ -148,8 +205,9 @@ describe("discord interactions route", () => {
     fetchMock.mockResolvedValueOnce(new Response("secret Discord body", { status }));
     await POST(commandRequest());
     await mocks.after.mock.calls[0][0]();
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(editedMessage(1)).toEqual({ content: expect.stringContaining("응답을 전달하지 못했습니다"), embeds: [], components: [], allowed_mentions: { parse: [] } });
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(editedMessage(1)).toEqual({ content: "처리를 마쳤습니다.", allowed_mentions: { parse: [] } });
+    expect(privateMessage()).toEqual({ content: expect.stringContaining("응답을 전달하지 못했습니다"), flags: 64, allowed_mentions: { parse: [] } });
     expect(console.warn).toHaveBeenCalledWith("[DiscordInteractions] 명령어 응답 갱신 실패");
   });
 
@@ -224,13 +282,15 @@ describe("discord interactions route", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("keeps private-player refusals free of stats or links when retrying", async () => {
+  it("fails closed if the public placeholder cannot be completed before a private refusal", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     mocks.stats.mockResolvedValue({ type: 4, data: { content: "비공개 플레이어의 전적은 Discord에서 제공하지 않습니다.", flags: 64 } });
     fetchMock.mockRejectedValueOnce(new TypeError("network failure"));
-    expect(await (await POST(commandRequest())).json()).toEqual({ type: 5, data: { flags: 64 } });
+    expect(await (await POST(commandRequest())).json()).toEqual({ type: 5, data: {} });
     await mocks.after.mock.calls[0][0]();
-    expect(editedMessage(1)).toEqual({ content: expect.stringContaining("비공개"), allowed_mentions: { parse: [] } });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(editedMessage()).toEqual({ content: "처리를 마쳤습니다.", allowed_mentions: { parse: [] } });
+    expect(privateMessage()).toBeNull();
     expect(mocks.stats).toHaveBeenCalledTimes(1);
   });
 

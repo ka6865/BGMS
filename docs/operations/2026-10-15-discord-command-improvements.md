@@ -4,11 +4,11 @@
 
 ## 응답과 공개 범위
 
-- 서명 검증과 상호작용 대상 검증 후 `type: 5`, `flags: 64`로 즉시 defer한다. 세 명령의 성공·빈 기록·실패 안내는 모두 호출자에게만 보인다. 공개 채널 메시지는 만들지 않는다.
-- 기존 `after` 흐름에서 명령을 처리하고 `PATCH /webhooks/{application_id}/{token}/messages/@original`로 embed·버튼 또는 안내를 갱신한다. 공개 여부는 최초 defer에서 고정되므로 PATCH에 flags를 보내지 않는다. 멘션은 비활성화한다.
+- 서명 검증과 상호작용 대상 검증 후 `type: 5`, `data: {}`로 즉시 공개 defer한다. 조회 완료 전에는 전적이나 닉네임을 담지 않는다. 세 명령의 성공 결과는 채널 전체에 보이고, 빈 기록·비공개 차단·실패 안내는 호출자에게만 보인다. 명령 handler의 성공 표시는 `flags: 0`, 개인 안내는 `flags: 64`다.
+- 기존 `after` 흐름에서 명령을 처리하고 성공 결과는 `PATCH /webhooks/{application_id}/{token}/messages/@original`로 갱신한다. PATCH로 공개 여부를 바꿀 수 없으므로 flags를 보내지 않는다. 개인 안내는 먼저 공개 original을 개인 정보 없는 완료 표시로 갱신한 뒤, 별도 follow-up을 `flags: 64`로 보내고 공개 완료 표시를 삭제한다. defer 직후 follow-up을 바로 보내면 공개 original 갱신으로 취급되어 flags가 무시되므로 이 순서를 지킨다. 모든 메시지의 멘션은 비활성화한다.
 - `/전적`과 `/방금판`은 기존 PUBG 계정 ID 조회와 비공개 목록 검사를 통과해야 저장 전적을 읽는다. 확인 실패는 차단하며 비공개 대상에는 전적과 링크를 제공하지 않는다. 기존 검토 버튼의 서명 선택·승인자·채널·메시지·pending 상태 및 항목별 승인 gate는 유지한다.
-- 명령 처리 제한은 15초, 각 Discord PATCH 제한은 5초다. route의 `maxDuration=30` 안에서 결과 전달을 한 번 재시도한다. HTTP 4xx로 거절된 경우에는 embed·버튼을 제거한 실패 안내를 보낸다. timeout·네트워크 오류·HTTP 5xx는 이미 결과가 반영되었을 수 있으므로 같은 결과를 다시 보내며, 성공 결과를 실패 안내로 덮지 않는다. 명령 실행과 연동 저장은 재시도하지 않는다. 후속 응답의 토큰·오류 원문을 로그에 넣지 않으며, 사용자에게는 내부 오류 원문을 반환하지 않는다.
-- 두 PATCH가 모두 실패하면 응답 전달 여부를 확정할 수 없다. 결과가 이미 표시되었을 수도 있고 처리 중 상태가 남을 수도 있다. 명령 timeout도 이미 진행 중인 DB 저장을 취소하지 않으므로 `/연동` 결과는 저장되었을 수 있다. 실패 안내는 미저장을 단정하지 않고 다시 확인하도록 안내한다.
+- 명령 처리 제한은 15초, 각 Discord 요청 제한은 5초다. 공개 결과는 timeout·네트워크 오류·HTTP 5xx 때 같은 결과로 한 번 재시도해 기존 성공을 보존한다. 최초 공개 PATCH가 HTTP 4xx로 거절되면 개인 실패 안내로 전환한다. 개인 메시지 생성과 공개 완료 표시 삭제는 완료 PATCH가 확인된 뒤 병렬 처리한다. 공개 결과 거절 경로는 처리 15초 + 결과 PATCH 5초 + 완료 PATCH 5초 + 개인 안내/삭제 5초이므로 route의 `maxDuration=35`로 여유를 둔다. 명령 실행·연동 저장·개인 메시지 생성은 재시도하지 않는다. 토큰·오류 원문을 로그에 넣지 않으며 사용자에게 내부 오류 원문을 반환하지 않는다.
+- Discord 장애로 공개 완료 PATCH를 확인하지 못하면 flags가 무시되는 경로를 피하기 위해 개인 안내를 보내지 않는다. 안내 또는 삭제가 실패하면 안내가 전달되지 않거나 개인 정보 없는 공개 처리 표시가 남을 수 있다. 공개 결과 두 PATCH가 모두 실패하면 결과 전달 여부도 확정할 수 없다. 명령 timeout은 진행 중인 연동 저장을 취소하지 않는다.
 
 이 응답 방식은 [Discord 공식 interaction 계약](https://docs.discord.com/developers/interactions/receiving-and-responding)에 따른다.
 
@@ -27,5 +27,7 @@
 지원 선택지는 `steam`, `kakao`다. 명시적 platform 옵션이 연동 플랫폼보다 우선한다. 닉네임 우선순위는 직접 입력 → 연동 계정 → 서버 별명/사용자명이다. 닉네임 직접 입력 또는 별명 fallback에서 플랫폼을 지정하지 않으면 `steam`을 사용한다.
 
 `scripts/register_discord_commands.ts`는 정의만 수정했다. 이번 작업에서 실행하지 않았으므로 Discord에 이미 등록된 설명·선택지는 별도 운영 등록 전까지 유지된다.
+
+공개 응답 정책은 애플리케이션 코드에서 적용하며 명령 등록 설명의 변경과 별개다. 커뮤니티 승인 버튼은 기존처럼 ephemeral로 defer한다.
 
 검증은 Supabase·PUBG·Discord를 mock으로 대체한 Discord 회귀 테스트, `npm run verify:core`, `npm run verify:community`, `npm run verify:analysis`를 사용한다. 실제 Discord 전송·운영 DB 쓰기·Gemini 호출·모바일 및 실제 Discord 화면 검증은 포함하지 않는다.
