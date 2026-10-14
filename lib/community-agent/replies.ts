@@ -13,7 +13,6 @@ const MAX_POST_CONTENT = 20_000;
 const MAX_COMMENT_CONTENT = 5_000;
 const MAX_PARENT_CONTENT = 5_000;
 const MAX_TITLE = 500;
-const MAX_AUTHOR = 200;
 const MAX_REPLY_LENGTH = 1_000;
 const MAX_REASON_LENGTH = 200;
 const SCHEDULE_QUESTION_PATTERN = /언제|일정|점검.{0,12}(시간|날짜)|몇\s*시/;
@@ -71,7 +70,6 @@ type ReplyClaim = {
   targetPostId: number | null;
   targetCommentId: number | null;
   targetCommentContent: string;
-  targetCommentAuthor: string;
   postContent: string;
   parentContent: string | null;
 };
@@ -122,11 +120,6 @@ function requiredText(value: unknown): string | null {
   return value.trim() ? value : null;
 }
 
-function optionalStringValue(value: unknown, maximum: number): string | null {
-  if (value === null || value === undefined) return null;
-  return stringValue(value, maximum);
-}
-
 function numberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
@@ -166,7 +159,6 @@ function parseClaim(value: unknown): ReplyClaim | null {
   const id = stringValue(item.id, 100);
   const title = stringValue(item.title, MAX_TITLE);
   const targetCommentContent = requiredText(item.target_comment_content);
-  const targetCommentAuthor = optionalStringValue(item.target_comment_author, MAX_AUTHOR) ?? "사용자";
   const postContent = requiredText(item.post_content);
   const parentContent = item.parent_content === null || item.parent_content === undefined
     ? null
@@ -179,7 +171,6 @@ function parseClaim(value: unknown): ReplyClaim | null {
     targetPostId: numberValue(item.target_post_id),
     targetCommentId: numberValue(item.target_comment_id),
     targetCommentContent,
-    targetCommentAuthor,
     postContent,
     parentContent,
   };
@@ -193,11 +184,11 @@ function modelData(claim: ReplyClaim): Record<string, unknown> {
     MAX_PARENT_CONTENT,
   );
   const title = boundText(stripReplyHtml(claim.title), MAX_TITLE);
-  const author = boundText(stripReplyHtml(claim.targetCommentAuthor), MAX_AUTHOR);
 
   return {
     post: { title: title.text, titleTruncated: title.truncated, content: post.text, contentTruncated: post.truncated },
-    comment: { author: author.text, authorTruncated: author.truncated, content: comment.text, contentTruncated: comment.truncated },
+    // 작성자 닉네임은 답변 생성에 필요하지 않으므로 외부 모델에 보내지 않는다.
+    comment: { content: comment.text, contentTruncated: comment.truncated },
     parent: parent.text === null ? null : { content: parent.text, contentTruncated: parent.truncated },
   };
 }
