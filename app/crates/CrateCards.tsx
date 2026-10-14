@@ -19,6 +19,14 @@ export const getKoreanRarityName = (rarity: string) => {
 /**
  * 금색 카드 뒤집기 특수 인게임 연출을 재생할 핵심 성장형 무기 스킨 및 크로마 스킨 목록 판별 함수
  */
+// 카드 공개 연출 길이. 축하 화면은 이 연출이 끝난 뒤에 띄운다.
+export const CARD_REVEAL_EFFECT_MS = 1400;
+
+/** 축하 화면을 띄울 카드: 얼티밋 전체와 지정한 대표 구성품 */
+export function shouldShowcaseCard(card: { name: string; rarity: string }): boolean {
+  return card.rarity === "ULTIMATE" || isSpecialFlipEffectItem(card.name);
+}
+
 export function isSpecialFlipEffectItem(itemName: string): boolean {
   const targetItems = [
     // 벤틀리 화물 계열
@@ -89,11 +97,11 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
   
   const wasRevealed = useRef(isRevealed);
 
-  // 얼티밋은 인게임처럼 붉은 연출, 지정된 대표 구성품은 금색 연출을 쓴다.
+  // 얼티밋은 인게임처럼 붉은 연출, 레전더리와 지정된 대표 구성품은 금색 연출을 쓴다.
   const isUltimate = card.rarity === "ULTIMATE";
   const flipEffectTone: "red" | "gold" | null = isUltimate
     ? "red"
-    : isSpecialFlipEffectItem(card.name)
+    : card.rarity === "LEGENDARY" || isSpecialFlipEffectItem(card.name)
       ? "gold"
       : null;
 
@@ -103,7 +111,7 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
       setIsAnimating(true);
       
       // 약 15개의 골드 스파클 파티클의 방출 방향과 시간차 난수 계산
-      const newParticles = Array.from({ length: 15 }).map(() => {
+      const newParticles = Array.from({ length: 22 }).map(() => {
         const angle = Math.random() * Math.PI * 2;
         const velocity = 80 + Math.random() * 90; // 비산 거리 (px)
         const x = Math.cos(angle) * velocity;
@@ -116,7 +124,7 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
 
       const timer = setTimeout(() => {
         setIsAnimating(false);
-      }, 1400); // 1.4초 후 애니메이션 종료
+      }, CARD_REVEAL_EFFECT_MS);
 
       return () => clearTimeout(timer);
     }
@@ -138,8 +146,12 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
       }`}
     >
       {/* 2단계: 광원 충격파 고리. 얼티밋은 카드 뒤로 붉은 광채가 번진다. */}
-      {isAnimating && flipEffectTone === "red" && (
-        <div className="absolute top-1/2 left-1/2 w-72 h-72 rounded-full bg-[radial-gradient(circle,rgba(239,68,68,0.55)_0%,rgba(251,191,36,0.18)_45%,transparent_70%)] pointer-events-none animate-redHaze z-[101]" />
+      {isAnimating && (
+        <div className={`absolute top-1/2 left-1/2 w-72 h-72 rounded-full pointer-events-none animate-revealHaze z-[101] ${
+          flipEffectTone === "red"
+            ? "bg-[radial-gradient(circle,rgba(239,68,68,0.55)_0%,rgba(251,191,36,0.18)_45%,transparent_70%)]"
+            : "bg-[radial-gradient(circle,rgba(251,191,36,0.5)_0%,rgba(245,158,11,0.15)_45%,transparent_70%)]"
+        }`} />
       )}
       {isAnimating && (
         <div className={`absolute top-1/2 left-1/2 w-40 h-40 rounded-full border-4 pointer-events-none z-[102] ${
@@ -151,7 +163,7 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
       {isAnimating && particles.map((p, i) => (
         <div
           key={i}
-          className={`absolute w-1.5 h-1.5 rounded-full pointer-events-none animate-particleOut z-[102] bg-gradient-to-r ${
+          className={`absolute w-2 h-2 rounded-full pointer-events-none animate-particleOut z-[102] bg-gradient-to-r ${
             flipEffectTone === "red" ? "from-rose-300 via-red-500 to-red-700" : "from-amber-400 via-yellow-500 to-orange-500"
           }`}
           style={{
@@ -167,7 +179,7 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
 
       <div className={`relative w-full h-full preserve-3d ${
         isAnimating 
-          ? "z-[103] animate-goldBounceZoom" 
+          ? "z-[103] animate-cardRevealZoom" 
           : `transition-transform duration-500 ${isRevealed ? "" : "rotate-y-180"}`
       }`}>
         {/* 카드 앞면 (공개됨) */}

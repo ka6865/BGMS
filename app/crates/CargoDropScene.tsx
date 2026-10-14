@@ -6,7 +6,23 @@ interface CargoDropSceneProps {
   crateName: string;
   crateImageUrl?: string | null;
   hasBonusEffect: boolean;
+  // 이번 개봉의 최고 등급. 인게임 컨테이너처럼 등급 색으로 조명이 켜진다.
+  highlightRarity: "ULTIMATE" | "LEGENDARY" | null;
 }
+
+// 등급별 표시등·착지 섬광 색
+const HIGHLIGHT_TONES = {
+  ULTIMATE: {
+    led: "bg-red-400 shadow-[0_0_12px_rgba(248,113,113,1)]",
+    flare: "rgba(239,68,68,0.55)",
+    caption: "text-red-300",
+  },
+  LEGENDARY: {
+    led: "bg-amber-300 shadow-[0_0_12px_rgba(252,211,77,1)]",
+    flare: "rgba(251,191,36,0.45)",
+    caption: "text-amber-200",
+  },
+} as const;
 
 // 천장 조명과 선반 실루엣 배치. 화면 크기와 무관하게 비율 좌표를 쓴다.
 const CEILING_LIGHTS = [
@@ -32,9 +48,14 @@ const DUST = Array.from({ length: 12 }, (_, i) => {
  * 화물(loot_crate) 개봉 연출. 어두운 창고 한가운데로 검은 화물이 떨어지고
  * 착지 순간 바닥 조명과 먼지가 퍼진 뒤 화물 표시등이 켜진다.
  */
-export function CargoDropScene({ crateName, crateImageUrl, hasBonusEffect }: CargoDropSceneProps) {
+export function CargoDropScene({ crateName, crateImageUrl, hasBonusEffect, highlightRarity }: CargoDropSceneProps) {
   const [imageError, setImageError] = useState(false);
-  const ledColor = hasBonusEffect ? "bg-amber-300 shadow-[0_0_10px_rgba(252,211,77,0.95)]" : "bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)]";
+  const tone = highlightRarity ? HIGHLIGHT_TONES[highlightRarity] : null;
+  const ledColor = tone
+    ? tone.led
+    : hasBonusEffect
+      ? "bg-amber-300 shadow-[0_0_10px_rgba(252,211,77,0.95)]"
+      : "bg-white shadow-[0_0_8px_rgba(255,255,255,0.9)]";
 
   return (
     <div
@@ -81,6 +102,11 @@ export function CargoDropScene({ crateName, crateImageUrl, hasBonusEffect }: Car
           0%, 58% { opacity: 0.15; }
           62% { opacity: 1; } 66% { opacity: 0.35; } 70%, 100% { opacity: 1; }
         }
+        @keyframes cargoFlare {
+          0%, 42% { opacity: 0; transform: translate(-50%, 0) scale(0.4); }
+          50% { opacity: 1; transform: translate(-50%, 0) scale(1.1); }
+          70%, 100% { opacity: 0.7; transform: translate(-50%, 0) scale(1); }
+        }
         @keyframes cargoCaption {
           0%, 55% { opacity: 0; transform: translateY(6px); }
           70%, 100% { opacity: 1; transform: translateY(0); }
@@ -94,9 +120,10 @@ export function CargoDropScene({ crateName, crateImageUrl, hasBonusEffect }: Car
         .cargo-dust { animation: cargoDust var(--cargo-duration) ease-out both; }
         .cargo-led { animation: cargoLed var(--cargo-duration) linear both; }
         .cargo-caption { animation: cargoCaption var(--cargo-duration) ease-out both; }
+        .cargo-flare { animation: cargoFlare var(--cargo-duration) ease-out both; }
         @media (prefers-reduced-motion: reduce) {
           .cargo-scene, .cargo-stage, .cargo-light, .cargo-box, .cargo-shadow,
-          .cargo-spotlight, .cargo-dust, .cargo-led, .cargo-caption { animation: none; }
+          .cargo-spotlight, .cargo-dust, .cargo-led, .cargo-caption, .cargo-flare { animation: none; }
           .cargo-box { transform: translate(-50%, 0); }
           .cargo-shadow, .cargo-spotlight { transform: translateX(-50%); }
           .cargo-dust { opacity: 0; }
@@ -125,6 +152,14 @@ export function CargoDropScene({ crateName, crateImageUrl, hasBonusEffect }: Car
         <div className="absolute inset-x-0 bottom-0 h-[38%] bg-gradient-to-b from-[#141518] to-[#08090a] border-t border-slate-800/50" />
         <div className="cargo-spotlight absolute left-1/2 bottom-[9%] w-[70%] max-w-[420px] h-[16%] rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(255,255,255,0.32)_0%,rgba(255,255,255,0.08)_45%,transparent_70%)]" />
         <div className="cargo-shadow absolute left-1/2 bottom-[23%] w-[46%] max-w-[260px] h-6 rounded-[50%] bg-black/90 blur-md" />
+
+        {/* 좋은 등급이 나오면 착지 순간 등급 색 섬광이 화물 뒤로 퍼진다 */}
+        {tone && (
+          <div
+            className="cargo-flare absolute left-1/2 bottom-[14%] w-[90%] max-w-[520px] aspect-[1.6] rounded-[50%] blur-2xl"
+            style={{ background: `radial-gradient(ellipse at center, ${tone.flare} 0%, transparent 70%)` }}
+          />
+        )}
 
         {/* 착지 먼지 */}
         <div className="absolute left-1/2 bottom-[25%]">
@@ -173,7 +208,11 @@ export function CargoDropScene({ crateName, crateImageUrl, hasBonusEffect }: Car
       {/* 하단 안내 */}
       <div className="cargo-caption absolute inset-x-0 bottom-[5%] z-10 px-4 text-center">
         <p className="text-sm sm:text-base font-black tracking-wide text-slate-100">{crateName}</p>
-        {hasBonusEffect ? (
+        {tone ? (
+          <p className={`mt-1 inline-flex items-center justify-center gap-1 text-[11px] font-black ${tone.caption}`}>
+            <Sparkles className="h-3 w-3" /> 화물에서 빛이 새어 나옵니다
+          </p>
+        ) : hasBonusEffect ? (
           <p className="mt-1 inline-flex items-center justify-center gap-1 text-[11px] font-black text-amber-300">
             <Sparkles className="h-3 w-3" /> 보너스 전리품 당첨!
           </p>

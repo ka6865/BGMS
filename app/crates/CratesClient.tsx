@@ -15,8 +15,8 @@ import {
 } from "lucide-react";
 
 import type { CrateTemplate } from "@/types/crates";
-import type { CraftableItem } from "./types";
-import { CrateCard, getKoreanRarityName, isSpecialFlipEffectItem } from "./CrateCards";
+import type { CraftableItem, DrawnCard } from "./types";
+import { CARD_REVEAL_EFFECT_MS, CrateCard, getKoreanRarityName, shouldShowcaseCard } from "./CrateCards";
 import { 
   ChargeModal, 
   RefillModal, 
@@ -187,10 +187,16 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
   } = useCratesState({ initialCrates, selectedCrateId });
 
   // 카드 뒤집기 핸들러 래핑 (골드 스킨 감지 시 쇼케이스 큐에 적재)
+  // 축하 화면이 카드 공개 연출을 가리지 않도록 연출이 끝난 뒤 띄운다.
+  const queueShowcaseAfterReveal = (cards: DrawnCard[]) => {
+    if (cards.length === 0) return;
+    setTimeout(() => setShowcaseQueue((prev) => [...prev, ...cards]), CARD_REVEAL_EFFECT_MS);
+  };
+
   const handleCardClickWrapper = (index: number) => {
     const card = drawnCards[index];
-    if (card && !revealedCards[index] && isSpecialFlipEffectItem(card.name)) {
-      setShowcaseQueue((prev) => [...prev, card]);
+    if (card && !revealedCards[index] && shouldShowcaseCard(card)) {
+      queueShowcaseAfterReveal([card]);
     }
     handleCardClick(index);
   };
@@ -198,11 +204,9 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
   // 전체 뒤집기 핸들러 래핑
   const handleRevealAllWrapper = () => {
     const newShowcaseCards = drawnCards.filter(
-      (card, idx) => !revealedCards[idx] && isSpecialFlipEffectItem(card.name)
+      (card, idx) => !revealedCards[idx] && shouldShowcaseCard(card)
     );
-    if (newShowcaseCards.length > 0) {
-      setShowcaseQueue((prev) => [...prev, ...newShowcaseCards]);
-    }
+    queueShowcaseAfterReveal(newShowcaseCards);
     handleRevealAll();
   };
 
@@ -334,6 +338,16 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
           65% { transform: scale(1.06) rotateY(0deg) translateZ(15px); }
           100% { transform: scale(1) rotateY(0deg); }
         }
+        @keyframes cardRevealZoom {
+          0% { transform: scale(1) rotateY(180deg); }
+          15% { transform: scale(1.1) rotateY(120deg) translateZ(20px); }
+          40% { transform: scale(1.14) rotateY(0deg) translateZ(30px); }
+          65% { transform: scale(1.04) rotateY(0deg) translateZ(8px); }
+          100% { transform: scale(1) rotateY(0deg); }
+        }
+        .animate-cardRevealZoom {
+          animation: cardRevealZoom 1.3s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+        }
         @keyframes redShockwave {
           0% {
             transform: translate(-50%, -50%) scale(0.5);
@@ -348,7 +362,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
             box-shadow: 0 0 70px rgba(239, 68, 68, 0), inset 0 0 70px rgba(239, 68, 68, 0);
           }
         }
-        @keyframes redHaze {
+        @keyframes revealHaze {
           0% { transform: translate(-50%, -50%) scale(0.4); opacity: 0; }
           30% { opacity: 1; }
           100% { transform: translate(-50%, -50%) scale(1.25); opacity: 0; }
@@ -356,17 +370,14 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
         .animate-redShockwave {
           animation: redShockwave 0.9s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
         }
-        .animate-redHaze {
-          animation: redHaze 1.4s ease-out forwards;
+        .animate-revealHaze {
+          animation: revealHaze 1.4s ease-out forwards;
         }
         .animate-goldShockwave {
           animation: goldShockwave 0.8s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
         }
         .animate-particleOut {
           animation: particleOut var(--tw-particle-duration, 1.2s) cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
-        }
-        .animate-goldBounceZoom {
-          animation: goldBounceZoom 1.3s cubic-bezier(0.25, 1, 0.5, 1) forwards;
         }
         .anim-shake {
           animation: shake 1.2s ease-in-out infinite;
@@ -679,6 +690,13 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                 crateName={activeCrate.name}
                 crateImageUrl={activeCrate.image_url}
                 hasBonusEffect={hasBonusEffect}
+                highlightRarity={
+                  drawnCards.some((card) => card.rarity === "ULTIMATE")
+                    ? "ULTIMATE"
+                    : drawnCards.some((card) => card.rarity === "LEGENDARY")
+                      ? "LEGENDARY"
+                      : null
+                }
               />
             ) : isDrawing && activeCrate ? (
               <div className="bg-slate-900/30 border border-slate-800/80 rounded-3xl p-6 flex flex-col justify-between items-center relative overflow-hidden min-h-[550px] flex-1">
