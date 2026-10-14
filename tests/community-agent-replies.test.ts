@@ -187,6 +187,17 @@ describe("community reply draft processor", () => {
     expect(request.data.parent.contentTruncated).toBe(true);
   });
 
+  it("does not send the comment author nickname to the model", async () => {
+    const model = vi.fn().mockResolvedValue({ reply: null, reason: "보류합니다." });
+    const fixture = deps(claim({ target_comment_author: "고유닉네임123" }), model, { id: REVIEW_ID, status: "failed" });
+
+    await processReplyDraft(fixture);
+
+    const request = model.mock.calls[0][0] as { data: { comment: Record<string, unknown> } };
+    expect(request.data.comment).not.toHaveProperty("author");
+    expect(JSON.stringify(model.mock.calls[0][0])).not.toContain("고유닉네임123");
+  });
+
   it.each([
     "@플레이어 확인했습니다.",
     "공식 안내는 https://pubg.com/news/1 에서 확인하세요.",
