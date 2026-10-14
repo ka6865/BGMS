@@ -169,7 +169,7 @@ export default function RankingsClient({ updatedAt }: Props) {
   const [matchTypeFilter, setMatchTypeFilter] = useState<MatchTypeFilter>('all');
   
   const query = new URLSearchParams({ tab, mode: modeFilter, perspective: perspectiveFilter, matchType: matchTypeFilter }).toString();
-  const [result, setResult] = useState<{ query: string; data: RankingApiEntry[]; hasError: boolean; timedOut?: boolean } | null>(null);
+  const [result, setResult] = useState<{ query: string; data: RankingApiEntry[]; hasError: boolean; timedOut?: boolean; pending?: boolean } | null>(null);
   const [isFetching, setIsFetching] = useState(false);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [lastUpdated, setLastUpdated] = useState(updatedAt);
@@ -196,6 +196,13 @@ export default function RankingsClient({ updatedAt }: Props) {
         if (!Array.isArray(body.entries)) throw new Error('Invalid ranking response');
         if (requestController.signal.aborted) throw new Error('Ranking request timed out');
         if (!active) return;
+        if (body.pending === true) {
+          // 예약 집계가 이번 주 결과를 준비 중이다. 오류로 보이지 않게 안내하고 잠시 뒤 다시 조회한다.
+          setResult({ query, data: [], hasError: false, pending: true });
+          window.clearTimeout(pendingRetry);
+          pendingRetry = window.setTimeout(() => { if (active) void load(); }, 10_000);
+          return;
+        }
         setResult({ query, data: body.entries, hasError: false });
         setLastUpdated(Number.isFinite(Date.parse(body.generatedAt)) ? body.generatedAt : new Date().toISOString());
         setPeriod(body.period && Number.isFinite(Date.parse(body.period.start)) && Number.isFinite(Date.parse(body.period.end)) ? body.period : null);
@@ -208,11 +215,12 @@ export default function RankingsClient({ updatedAt }: Props) {
         if (active) setIsFetching(false);
       }
     }
+    let pendingRetry: number | undefined;
     void load();
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') void load();
     }, 60_000);
-    return () => { active = false; controller.abort(); window.clearInterval(timer); };
+    return () => { active = false; controller.abort(); window.clearInterval(timer); window.clearTimeout(pendingRetry); };
   }, [query, refreshVersion]);
 
   const currentData = result?.query === query ? result.data : [];
@@ -377,6 +385,12 @@ export default function RankingsClient({ updatedAt }: Props) {
                   <div className="h-5 w-16 bg-white/5 rounded animate-pulse" />
                 </div>
               ))}
+            </div>
+          ) : result?.query === query && result.pending ? (
+            <div role="status" className="py-16 text-center">
+              <RefreshCw size={22} className="mx-auto mb-3 animate-spin text-gray-400" />
+              <p className="text-gray-300 text-sm">이번 주 랭킹을 준비하고 있습니다.</p>
+              <p className="mt-1 text-xs text-gray-500">잠시 후 자동으로 다시 불러옵니다.</p>
             </div>
           ) : currentHasError ? (
             <div className="py-16 text-center">

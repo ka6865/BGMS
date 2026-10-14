@@ -53,6 +53,13 @@ export async function GET(request: NextRequest) {
               matchType as MatchTypeFilter
             );
 
+    if (rankingResult.pending) {
+      return NextResponse.json(
+        { pending: true, entries: [], query: { tab, mode, perspective, matchType }, period: rankingResult.period ?? null },
+        { status: 202, headers: { 'Cache-Control': 'private, no-store', 'X-Ranking-Cache': 'pending' } }
+      );
+    }
+
     if (rankingResult.hasError) {
       return NextResponse.json(
         { error: '랭킹 데이터를 불러오지 못했습니다.' },
