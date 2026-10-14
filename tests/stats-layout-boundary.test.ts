@@ -31,6 +31,8 @@ function jsonResponse(body: unknown) {
   });
 }
 
+// 전적 페이지의 검색 노출 판정은 DB를 조회하므로 레이아웃 시험에서는 수집만 된 닉네임으로 둔다.
+vi.mock("@/lib/stats/playerSeo.server", () => ({ getPlayerSeoState: vi.fn(async () => ({ status: "unknown" })) }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/stats",
   useRouter: () => ({ push: routerPush }),
