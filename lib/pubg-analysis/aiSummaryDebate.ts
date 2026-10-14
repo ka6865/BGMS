@@ -50,6 +50,8 @@ const METRIC_DEFINITIONS: Array<{
   ] },
   { key: "damage_average", dimension: "scalar", aliases: [
     "평균 화력", "평균 딜량", "평균 피해량", "평균 딜", "평균 데미지", "평균 대미지",
+    // 카드 주제명을 빌려 쓴 `화력 지표`는 같은 지표다. 단독 `화력`은 일반 표현이라 넣지 않는다.
+    "화력 지표",
     "상위권 평균 화력", "상위권 평균 딜량", "상위권 평균 피해량", "상위권 평균 딜", "상위권 평균 데미지", "상위권 평균 대미지",
     "동일 티어 평균 화력", "동일 티어 평균 딜량", "동일 티어 평균 피해량", "동일 티어 평균 딜", "동일 티어 평균 데미지", "동일 티어 평균 대미지",
     "상위권 화력", "상위권 딜량", "상위권 피해량", "상위권 딜", "동일 티어 화력", "동일 티어 딜량", "동일 티어 피해량", "동일 티어 딜",
@@ -63,6 +65,8 @@ const METRIC_DEFINITIONS: Array<{
   ] },
   { key: "duel_win_rate", dimension: "percentage", aliases: [
     "1:1 교전 승률", "1:1 승률", "평균 1:1 교전 승률", "평균 1:1 승률",
+    // 모델이 `1:1`을 `1대1`로 바꿔 쓰는 경우가 있어 같은 지표로 받는다.
+    "1대1 교전 승률", "1대1 승률",
     "상위권 1:1 승률", "동일 티어 1:1 승률", "상위권 1:1 교전 승률", "동일 티어 1:1 교전 승률",
     "상위권 평균 1:1 교전 승률", "동일 티어 평균 1:1 교전 승률",
     "상위권 평균 1:1 승률", "동일 티어 평균 1:1 승률",
@@ -77,6 +81,7 @@ const METRIC_DEFINITIONS: Array<{
   ] },
   { key: "pressure_index", dimension: "scalar", aliases: [
     "압박 지수", "평균 압박 지수", "상위권 압박 지수", "동일 티어 압박 지수",
+    "압박 지표", "평균 압박 지표",
     "상위권 평균 압박 지수", "동일 티어 평균 압박 지수",
   ] },
   { key: "reaction_latency", dimension: "duration", aliases: [
@@ -616,10 +621,15 @@ function metricNumberRanges(value: string): Array<{ start: number; end: number }
 function hasUnsafeUnattachedNumber(clause: string): boolean {
   const attachedRanges = metricNumberRanges(clause);
   const safeSampleRanges = safeSampleCountRanges(clause);
+  // `1대1`, `2 대 1` 같은 인원 구도 표기도 `1:1`처럼 측정값이 아닌 교전 이름이다.
+  const matchupRanges = Array.from(clause.matchAll(/(?<!\d)[1-4]\s*대\s*[1-4](?![\d.,%])/gu))
+    .map((match) => ({ start: match.index ?? 0, end: (match.index ?? 0) + match[0].length }));
   return numericTokenRanges(clause).some(({ start, end }) => {
     // Ratio-style metric labels such as `1:1` contain digits but are not
     // measured values.
     if (clause[start - 1] === ":" || clause[end] === ":") return false;
+    // 숫자 토큰은 뒤 공백까지 포함할 수 있으므로 시작 위치로 판정한다.
+    if (matchupRanges.some((range) => start >= range.start && start < range.end)) return false;
     const attached = attachedRanges.some((range) => start >= range.start && end <= range.end);
     if (attached) return false;
 
@@ -804,7 +814,7 @@ function parseUnquantifiedComparison(
   // for known metrics, benchmark markers, and numbers so a second unverified
   // condition cannot be hidden before the canonical subject; normalize then
   // drops the lead-in from the rendered sentence.
-  const subjectPattern = `^\\s*(?:(.*?(?:(?:\\s+)?(?:과|와|및|그리고))\\s+))?(${aliases})(?:\\s+${NUMERIC_VALUE_SOURCE})?\\s*(?:은|는|이|가)\\s*`;
+  const subjectPattern = `^\\s*(?:관측된\\s+)?(?:(.*?(?:(?:\\s+)?(?:과|와|및|그리고))\\s+))?(${aliases})(?:\\s*(?:지표|기록))?(?:\\s+${NUMERIC_VALUE_SOURCE})?\\s*(?:은|는|이|가)\\s*`;
   const trimmed = clause.trim();
 
   const equality = trimmed.match(new RegExp(
@@ -817,22 +827,26 @@ function parseUnquantifiedComparison(
     return { prefix: prefix.trim(), metricLabel: equality[2], predicate: "equal", connective: false, tail: "" };
   }
 
+  // `낮게 확인되었습니다`, `비교 평균에 미치지 못합니다`도 같은 관계 표현으로 받는다.
+  // 시간 지표에서 `미치지 못함`은 빠름·느림 어느 쪽인지 모호하므로 받지 않는다.
   const relation = trimmed.match(new RegExp(
-    `${subjectPattern}비교\\s*평균\\s*보다\\s*(높습니다|낮습니다|빠릅니다|느립니다|높으므로|낮으므로|빠르므로|느리므로)(?=\\s|[.!?。！？,;:]|$)`,
+    `${subjectPattern}비교\\s*평균\\s*(?:보다\\s*(높습니다|낮습니다|빠릅니다|느립니다|높으므로|낮으므로|빠르므로|느리므로|높으니|낮으니|빠르니|느리니|높지만|낮지만|빠르지만|느리지만|높으나|낮으나|빠르나|느리나|높아|낮아|빨라|느려|(?:높게|낮게|빠르게|느리게)\\s*(?:확인되었습니다|확인됩니다|나타났습니다|나타납니다))|에\\s*(미치지\\s*못(?:합니다|하므로|했으므로|해)))(?=\\s|[.!?。！？,;:]|$)`,
     "iu",
   ));
   if (!relation) return null;
+  if (relation[4] && metric.dimension === "duration") return null;
 
   const prefix = relation[1] || "";
   if (prefix && (metricKeysInText(prefix).length > 0 || BENCHMARK_LANGUAGE_PATTERN.test(prefix) || NUMERIC_VALUE_PATTERN.test(prefix))) return null;
 
-  const predicateWord = relation[3].toLocaleLowerCase();
-  const connective = predicateWord.endsWith("므로");
+  const predicateWord = relation[3] ? relation[3].toLocaleLowerCase() : "낮으므로";
+  const shortfallConnective = relation[4] ? !relation[4].endsWith("합니다") : null;
+  const connective = shortfallConnective ?? !predicateWord.endsWith("니다");
   const predicate = predicateWord.startsWith("높")
     ? "higher"
     : predicateWord.startsWith("낮")
       ? "lower"
-      : predicateWord.startsWith("빠")
+      : predicateWord.startsWith("빠") || predicateWord.startsWith("빨")
         ? "faster"
         : "slower";
   const tail = trimmed
@@ -899,6 +913,52 @@ function normalizeUnquantifiedComparison(
   return `${subject} 비교 평균보다 ${predicateWord}.${action}`.replace(/\s{2,}/g, " ").trim();
 }
 
+// 지표 여러 개를 한 주어로 묶은 비교(`주도권 성공률과 평균 압박 지수는 비교 평균보다
+// 낮습니다`)는 지표별 문장으로 나눠 각 관계를 서버 값으로 따로 검증한다. 주어가 지표
+// 이름과 정확히 일치하지 않거나 관계가 하나라도 맞지 않으면 문장 전체를 버린다.
+function normalizeGroupedUnquantifiedComparison(
+  clause: string,
+  metricKeys: readonly string[],
+  canonicalEvidence: CanonicalDebateEvidenceMap,
+): string | null {
+  const grouped = clause.trim().match(/^(.+?)\s*(?:은|는|이|가)\s+(비교\s*평균[\s\S]*)$/u);
+  if (!grouped) return null;
+  const subjects = grouped[1]
+    .split(/(?:과|와)\s+|\s*(?:,|및)\s*/u)
+    .map((subject) => subject.trim())
+    .filter(Boolean);
+  if (subjects.length !== metricKeys.length) return null;
+
+  const subjectKeys = subjects.map((subject) => {
+    const compact = compactLabel(subject);
+    const metric = METRIC_DEFINITIONS.find((definition) => definition.aliases
+      .some((alias) => compactLabel(alias) === compact));
+    return metric?.key ?? null;
+  });
+  if (new Set(subjectKeys).size !== metricKeys.length
+    || !subjectKeys.every((key) => key !== null && metricKeys.includes(key))) return null;
+
+  const sentences: string[] = [];
+  for (const [index, subject] of subjects.entries()) {
+    const key = subjectKeys[index] as string;
+    const canonical = canonicalEvidence[key];
+    const canonicalUser = canonical ? toStat(canonical.user) : null;
+    const canonicalBenchmark = canonical ? toStat(canonical.benchmark) : null;
+    if (!canonicalUser || !canonicalBenchmark) return null;
+    const normalized = normalizeUnquantifiedComparison(
+      `${subject}${metricSubjectParticle(subject)} ${grouped[2]}`,
+      key,
+      canonicalUser,
+      canonicalBenchmark,
+    );
+    if (!normalized) return null;
+    // 뒤따르는 행동 문장은 마지막 지표에서 한 번만 남긴다.
+    const isLast = index === subjects.length - 1;
+    sentences.push(isLast ? normalized : normalized.match(/^[^.]*\./u)?.[0] ?? normalized);
+  }
+  return sentences.join(" ");
+}
+
 /**
  * Remove benchmark comparison prose for metrics that have no server-owned
  * evidence. Provider stat arrays are canonicalized separately, but prose
@@ -923,7 +983,13 @@ export function sanitizeUnsupportedAiSummaryBenchmarkLanguage(
   // Reject that block before splitting so orphaned sample clauses cannot be
   // rewritten using evidence from the allowed mode.
   if (sourceHasForeignMode && TECHNICAL_AUDIT_PATTERN.test(value)) return NEUTRAL_BENCHMARK_SENTENCE;
-  const preparedValue = sourceHasForeignMode ? value : prepareAiSummaryBenchmarkProvenance(value);
+  // `A는 비교 평균보다 높고(높으나·높지만) B는 ...`처럼 이어 쓴 비교는 각 관계를 따로 검증할 수 있도록
+  // 지표별 문장으로 나눈다. 나눈 문장도 아래의 문장별 검증을 그대로 거친다.
+  const splitValue = value.replace(
+    /비교\s*평균\s*보다\s*(높|낮|빠르|느리)(?:고|으나|나|지만)(?=\s)/gu,
+    (_match, stem: string) => `비교 평균보다 ${{ 높: "높습니다.", 낮: "낮습니다.", 빠르: "빠릅니다.", 느리: "느립니다." }[stem]}`,
+  );
+  const preparedValue = sourceHasForeignMode ? splitValue : prepareAiSummaryBenchmarkProvenance(splitValue);
   const clauses = splitBenchmarkLanguageClauses(preparedValue);
   const retained: string[] = [];
 
@@ -965,6 +1031,9 @@ export function sanitizeUnsupportedAiSummaryBenchmarkLanguage(
     // summary output. If the provider gives an ambiguous metric comparison,
     // fail closed for that clause instead of guessing which side a number
     // belongs to.
+    // `1:1 교전 승률`처럼 이름에 숫자가 있는 지표는 숫자 경로에서 이미 비교 문장을
+    // 정규화한다. 정규화된 문장을 다시 파싱하면 행동 문장을 꼬리로 보고 버리므로 한 번만 처리한다.
+    let numericComparisonNormalized = false;
     if (hasNumericValue && keys.length > 0) {
       const supportedKeys = keys.filter((key) => supportedMetricKeys.has(key));
       for (const key of supportedKeys) {
@@ -981,6 +1050,19 @@ export function sanitizeUnsupportedAiSummaryBenchmarkLanguage(
       // the server pair. Reuse the strict subject/order parser after the
       // number has been replaced; reject ambiguous multi-metric comparisons.
       if (hasBenchmarkLanguage && /비교\s*평균/iu.test(clause)) {
+        // `1:1 교전 승률과 솔로 킬 비중은 ...`처럼 이름에 숫자가 있는 지표를 묶은 비교도
+        // 지표별 문장으로 나눠 검증한다.
+        const groupedNumericComparison = supportedKeys.length > 1 && supportedKeys.length === keys.length
+          && supportedKeys.every((key) => {
+            const metric = METRIC_BY_KEY.get(key);
+            return Boolean(metric && metricNumberOccurrences(clause, metric).length === 0);
+          })
+          ? normalizeGroupedUnquantifiedComparison(clause, supportedKeys, canonicalEvidence)
+          : null;
+        if (groupedNumericComparison) {
+          retained.push(groupedNumericComparison);
+          return;
+        }
         if (supportedKeys.length !== 1) return;
         const canonical = canonicalEvidence[supportedKeys[0]];
         const canonicalUser = canonical ? toStat(canonical.user) : null;
@@ -994,6 +1076,7 @@ export function sanitizeUnsupportedAiSummaryBenchmarkLanguage(
         );
         if (!normalizedComparison) return;
         clause = normalizedComparison;
+        numericComparisonNormalized = true;
       }
 
       const metricOccurrences = supportedKeys.flatMap((key) => {
@@ -1012,8 +1095,8 @@ export function sanitizeUnsupportedAiSummaryBenchmarkLanguage(
     // Benchmark language without an attached, route-owned metric value is a
     // qualitative claim rather than evidence (for example, "평균 화력은
     // 상위권 수준입니다"). Do not let it reach the UI.
-    let unquantifiedComparisonAccepted = false;
-    if (hasBenchmarkLanguage && keys.length > 0) {
+    let unquantifiedComparisonAccepted = numericComparisonNormalized;
+    if (!unquantifiedComparisonAccepted && hasBenchmarkLanguage && keys.length > 0) {
       const hasAttachedSupportedMetric = keys.some((key) => {
         const metric = METRIC_BY_KEY.get(key);
         return Boolean(metric && metricNumberOccurrences(clause, metric).length > 0);
@@ -1024,6 +1107,19 @@ export function sanitizeUnsupportedAiSummaryBenchmarkLanguage(
         // them. Permit exactly one recognized metric and a direction that agrees
         // with its canonical pair; generic benchmark praise remains rejected.
         const supportedKeys = keys.filter((key) => supportedMetricKeys.has(key));
+        // 쉼표 나열(`A, B와 C는 ...`)은 분리 단계에서 `A,` 조각이 먼저 남는다. 그 조각을
+        // 주어 목록에 다시 합쳐 함께 검증해야 검증되지 않은 지표가 비교 문장 앞에 붙지 않는다.
+        const previous = retained.at(-1);
+        const groupedSource = previous && /[,，]\s*$/u.test(previous) ? `${previous} ${clause}` : clause;
+        const groupedKeys = metricKeysInText(groupedSource);
+        const groupedComparison = groupedKeys.length > 1 && groupedKeys.every((key) => supportedMetricKeys.has(key))
+          ? normalizeGroupedUnquantifiedComparison(groupedSource, groupedKeys, canonicalEvidence)
+          : null;
+        if (groupedComparison) {
+          if (groupedSource !== clause) retained.pop();
+          retained.push(groupedComparison);
+          return;
+        }
         const key = supportedKeys.length === 1 ? supportedKeys[0] : null;
         const canonical = key ? canonicalEvidence[key] : null;
         const canonicalUser = canonical ? toStat(canonical.user) : null;

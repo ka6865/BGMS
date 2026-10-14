@@ -173,6 +173,132 @@ describe("readable AI coaching with verified evidence", () => {
     expect(sanitize(source, evidence)).toBe(neutral);
   });
 
+  const initiativeEvidence: CanonicalDebateEvidenceMap = {
+    initiative_rate: {
+      user: { label: "주도권 성공률", value: "0%" },
+      benchmark: { label: "동일 티어 평균 주도권 성공률", value: "37.7%" },
+    },
+    pressure_index: {
+      user: { label: "평균 압박 지수", value: "0.8" },
+      benchmark: { label: "동일 티어 평균 압박 지수", value: "1.47" },
+    },
+    reaction_latency: {
+      user: { label: "대응 사격 속도", value: "0.66s" },
+      benchmark: { label: "동일 티어 평균 대응 사격 속도", value: "2.33s" },
+    },
+  };
+
+  it.each([
+    ["주도권 성공률과 평균 압박 지수는 비교 평균보다 낮습니다.", "주도권 성공률은 비교 평균보다 낮습니다. 평균 압박 지수는 비교 평균보다 낮습니다."],
+    ["주도권 성공률, 평균 압박 지수는 비교 평균보다 낮습니다.", "주도권 성공률은 비교 평균보다 낮습니다. 평균 압박 지수는 비교 평균보다 낮습니다."],
+    [
+      "주도권 성공률과 평균 압박 지수는 비교 평균보다 낮으므로 먼저 사격을 시작할 위치를 점검하세요.",
+      "주도권 성공률은 비교 평균보다 낮습니다. 평균 압박 지수는 비교 평균보다 낮습니다. 먼저 사격을 시작할 위치를 점검하세요.",
+    ],
+  ])("splits a grouped comparison into verified per-metric sentences: %s", (source, expected) => {
+    expect(sanitize(source, initiativeEvidence)).toBe(expected);
+  });
+
+  it.each([
+    "주도권 성공률과 평균 압박 지수는 비교 평균보다 높습니다.",
+    "주도권 성공률, 평균 압박 지수는 비교 평균보다 높습니다.",
+    "주도권 성공률과 대응 사격 속도는 비교 평균보다 높습니다.",
+    "낮은 주도권 성공률과 평균 압박 지수는 비교 평균보다 낮습니다.",
+    "주도권 성공률과 복수 성공률은 비교 평균보다 낮습니다.",
+  ])("fails closed when any metric in a grouped comparison is unverified: %s", (source) => {
+    expect(sanitize(source, initiativeEvidence)).toBe(neutral);
+  });
+
+  const duelEvidence: CanonicalDebateEvidenceMap = {
+    ...initiativeEvidence,
+    duel_win_rate: {
+      user: { label: "1:1 교전 승률", value: "0%" },
+      benchmark: { label: "동일 티어 평균 1:1 교전 승률", value: "46%" },
+    },
+    solo_kill_share: {
+      user: { label: "솔로 킬 비중", value: "20%" },
+      benchmark: { label: "동일 티어 평균 솔로 킬 비중", value: "61%" },
+    },
+  };
+
+  it.each([
+    ["1:1 교전 승률이 비교 평균보다 낮으므로 교전 구도를 점검하세요.", "1:1 교전 승률은 비교 평균보다 낮습니다. 교전 구도를 점검하세요."],
+    ["1:1 교전 승률이 비교 평균에 미치지 못하므로 교전 구도를 점검하세요.", "1:1 교전 승률은 비교 평균보다 낮습니다. 교전 구도를 점검하세요."],
+    ["1:1 교전 승률 지표가 비교 평균에 미치지 못합니다.", "1:1 교전 승률 지표가 비교 평균에 미치지 못합니다."],
+    ["1:1 교전 승률 기록이 비교 평균보다 낮게 확인되었습니다.", "1:1 교전 승률 기록이 비교 평균보다 낮게 확인되었습니다."],
+    ["1대1 교전 승률은 비교 평균보다 낮습니다.", "1대1 교전 승률은 비교 평균보다 낮습니다."],
+    ["1:1 교전 승률은 비교 평균보다 낮으나 진입 각도를 점검하십시오.", "1:1 교전 승률은 비교 평균보다 낮습니다. 진입 각도를 점검하십시오."],
+    ["1:1 교전 승률과 솔로 킬 비중은 비교 평균보다 낮습니다.", "1:1 교전 승률은 비교 평균보다 낮습니다. 솔로 킬 비중은 비교 평균보다 낮습니다."],
+    ["1:1 교전 승률은 비교 평균보다 낮으나 솔로 킬 비중은 비교 평균보다 낮습니다.", "1:1 교전 승률은 비교 평균보다 낮습니다. 솔로 킬 비중은 비교 평균보다 낮습니다."],
+    ["관측된 1대1 교전 승률은 비교 평균보다 낮습니다.", "관측된 1대1 교전 승률은 비교 평균보다 낮습니다."],
+    ["1:1 교전 승률은 비교 평균보다 낮으니 진입 전 엄폐물을 점검하십시오.", "1:1 교전 승률은 비교 평균보다 낮습니다. 진입 전 엄폐물을 점검하십시오."],
+    ["1:1 교전 승률이 비교 평균에 미치지 못해 교전 구도 점검이 필요합니다.", "1:1 교전 승률은 비교 평균보다 낮습니다. 교전 구도 점검이 필요합니다."],
+    ["1대1 교전 진입 전 점검", "1대1 교전 진입 전 점검"],
+    ["2 대 1 상황에서는 엄폐물을 먼저 확인하세요.", "2 대 1 상황에서는 엄폐물을 먼저 확인하세요."],
+  ])("keeps verified shortfall wording and matchup labels: %s", (source, expected) => {
+    expect(sanitize(source, duelEvidence)).toBe(expected);
+  });
+
+  it.each([
+    "1:1 교전 승률이 비교 평균보다 높게 나타났습니다.",
+    "1:1 교전 승률이 비교 평균보다 높으므로 교전 구도를 점검하세요.",
+    "1:1 교전 승률이 비교 평균에 미치지 못하지 않습니다.",
+    "대응 사격 속도가 비교 평균에 미치지 못합니다.",
+    "주도권 성공률이 비교 평균에 미치지 못하므로 백업 속도도 개선해야 합니다.",
+    "1대1 교전 승률은 비교 평균보다 높습니다.",
+    "1:1 교전 승률과 솔로 킬 비중은 비교 평균보다 높습니다.",
+    "1:1 교전 승률 99%와 솔로 킬 비중은 비교 평균보다 낮습니다.",
+    "1:1 교전 승률은 비교 평균보다 높으니 진입 전 엄폐물을 점검하십시오.",
+    "대응 사격 속도와 평균 압박 지수는 비교 평균에 미치지 못해 초동 대처를 점검하세요.",
+    "1대1 교전에서 3킬을 기록했습니다.",
+  ])("still fails closed for reversed, negated, ambiguous, or invented claims: %s", (source) => {
+    expect(sanitize(source, duelEvidence)).toBe(neutral);
+  });
+
+  const strongInitiative: CanonicalDebateEvidenceMap = {
+    damage_average: {
+      user: { label: "평균 화력", value: "147" },
+      benchmark: { label: "동일 티어 평균 화력", value: "108" },
+    },
+    initiative_rate: {
+      user: { label: "주도권 성공률", value: "57%" },
+      benchmark: { label: "동일 티어 평균 주도권 성공률", value: "46.5%" },
+    },
+    pressure_index: {
+      user: { label: "평균 압박 지수", value: "1.7" },
+      benchmark: { label: "동일 티어 평균 압박 지수", value: "2.96" },
+    },
+    reaction_latency: {
+      user: { label: "대응 사격 속도", value: "0.66s" },
+      benchmark: { label: "동일 티어 평균 대응 사격 속도", value: "2.29s" },
+    },
+  };
+
+  it.each([
+    ["주도권 성공률은 비교 평균보다 높고 대응 사격 속도는 비교 평균보다 빠릅니다.", "주도권 성공률은 비교 평균보다 높습니다. 대응 사격 속도는 비교 평균보다 빠릅니다."],
+    ["평균 압박 지수는 비교 평균보다 낮아 지속적인 압박 방법을 고민해야 합니다.", "평균 압박 지수는 비교 평균보다 낮습니다. 지속적인 압박 방법을 고민해야 합니다."],
+    ["대응 사격 속도는 비교 평균보다 빨라 먼저 반격할 수 있습니다.", "대응 사격 속도는 비교 평균보다 빠릅니다. 먼저 반격할 수 있습니다."],
+    ["평균 압박 지표는 비교 평균보다 낮지만 먼저 교전을 여는 위치를 점검하세요.", "평균 압박 지표는 비교 평균보다 낮습니다. 먼저 교전을 여는 위치를 점검하세요."],
+    ["평균 화력은 비교 평균보다 높지만 더 공격적인 위치 선정을 점검하세요.", "평균 화력은 비교 평균보다 높습니다. 더 공격적인 위치 선정을 점검하세요."],
+    ["화력 지표는 비교 평균보다 높습니다.", "화력 지표는 비교 평균보다 높습니다."],
+  ])("splits joined comparisons and keeps each verified relation: %s", (source, expected) => {
+    expect(sanitize(source, strongInitiative)).toBe(expected);
+  });
+
+  it.each([
+    "주도권 성공률은 비교 평균보다 높고 평균 압박 지수는 비교 평균보다 높습니다.",
+    "대응 사격 속도는 비교 평균보다 느려 먼저 반격하기 어렵습니다.",
+    "화력 지표가 비교 평균에 미치지 못하므로 유효타를 늘려야 합니다.",
+  ])("drops only the unverified half of a joined comparison: %s", (source) => {
+    expect(sanitize(source, strongInitiative)).not.toMatch(/압박 지수는 비교 평균보다 높|느립|화력 지표/);
+  });
+
+  it("canonicalizes a provider number on the 1대1 alias exactly like the 1:1 label", () => {
+    expect(sanitize("1대1 교전 승률 99%를 유지하세요.", duelEvidence))
+      .toBe(sanitize("1:1 교전 승률 99%를 유지하세요.", duelEvidence));
+    expect(sanitize("1대1 교전 승률 99%를 유지하세요.", duelEvidence)).not.toContain("99");
+  });
+
   it("does not treat a zero observation or missing benchmark as a generic failure", () => {
     const zeroEvidence: CanonicalDebateEvidenceMap = {
       smoke_opportunity_rate: {
