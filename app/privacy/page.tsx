@@ -163,6 +163,7 @@ export default function PrivacyPage() {
             ["Cloudflare Inc.", "R2 스토리지 (텔레메트리 캐시 저장), 게시판 자동 등록 방지 (Turnstile)"],
             ["Google LLC", "Analytics(GA4) 이용 통계, AdSense 광고 제공, Gemini AI 분석"],
             ["KRAFTON Inc.", "PUBG 공식 API를 통한 전적 데이터 조회"],
+            ["Discord Inc.", "디스코드 봇 운영, 커뮤니티 자동 답변의 관리자 검토 알림"],
           ]}
         />
         <SubTitle>7-1. 개인정보의 국외 이전</SubTitle>
@@ -177,6 +178,7 @@ export default function PrivacyPage() {
             ["Vercel Inc. (미국)", "접속 기록, IP 주소", "웹 서비스 호스팅, 접속 통계", "사업자 정책에 따름"],
             ["Cloudflare Inc. (미국)", "PUBG 전적·텔레메트리 캐시, 자동 등록 방지 확인 정보", "분석 결과 저장, 스팸 방지", "4절의 보유 기간"],
             ["Google LLC (미국)", "서비스 이용 기록, 광고 쿠키·식별자, AI 분석 요청 내용 (7-2 참고)", "이용 통계, 광고 게재, AI 분석", "사업자 정책에 따름"],
+            ["Discord Inc. (미국)", "디스코드 사용자 ID, 자동 답변 대상 댓글의 작성자 닉네임·내용", "디스코드 봇 운영, 관리자 검토", "검토 완료 후 관리자가 삭제할 때까지"],
           ]}
         />
         <p>
