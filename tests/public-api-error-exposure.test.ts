@@ -13,7 +13,10 @@ const PUBLIC_ROUTES = [
   "app/api/pubg/ai-analyze/route.ts",
   "app/api/pubg/player/matches/route.ts",
   "app/api/report/notify/route.ts",
+  "app/api/pubg/battle/route.ts",
+  "app/api/auth/delete-account/route.ts",
 ];
+const RAW_ERROR_TEMPLATE = /error:\s*`[^`]*\$\{\w+\.message\}/;
 
 const RAW_ERROR_RESPONSE = /NextResponse\.json\(\s*\{\s*error:\s*(?:\w+\.message|message)\b/;
 const RAW_ERROR_MESSAGE_VARIABLE = /const message = \w+ instanceof Error \? \w+\.message/;
@@ -24,6 +27,7 @@ describe("공개 API 에러 응답 경계", () => {
       const source = readFileSync(resolve(route), "utf8");
       expect(source).not.toMatch(RAW_ERROR_RESPONSE);
       expect(source).not.toMatch(RAW_ERROR_MESSAGE_VARIABLE);
+      expect(source).not.toMatch(RAW_ERROR_TEMPLATE);
     });
   }
 });
