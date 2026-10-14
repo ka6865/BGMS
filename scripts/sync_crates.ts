@@ -31,7 +31,31 @@ export interface CrateCatalog {
   }[];
   // 공식 확률표에서 빠져 판매가 끝난 상자. 구성품은 보존하고 노출만 끈다.
   retiredCrates?: { id: string; name: string }[];
+  // 이벤트 토큰 특수 제작 목록. 시뮬레이터는 상자의 bonus_currency_code로 시즌을 찾는다.
+  crafting?: {
+    seasonKey: string;
+    tokenCode: string;
+    sourceUrl: string;
+    items: CraftingItem[];
+  };
 }
+
+export interface CraftingItem {
+  name: string;
+  tokenCost: number;
+  category: string;
+  rarity: string;
+  // 확인된 이미지가 없는 재화는 null로 두고 자산 없이 등록한다.
+  imageId: string | null;
+  quantity?: number;
+  craftOnly?: boolean;
+  grantsCrateTicket?: boolean;
+}
+
+const craftingAssetKey = (item: CraftingItem) =>
+  item.imageId === null ? null : itemKey({ ...item, imageId: item.imageId, quantity: item.quantity ?? 1, probability: 0 });
+const craftingDisplayName = (item: CraftingItem) =>
+  (item.quantity ?? 1) > 1 ? `${item.name} x${item.quantity}` : item.name;
 
 export const itemKey = (item: CatalogItem) =>
   `pubgitems_${item.imageId}${item.name.endsWith(" 도안") ? "_imprint" : ""}_x${item.quantity}`;
@@ -59,6 +83,18 @@ export function validateCatalog(catalog: CrateCatalog) {
       const identity = JSON.stringify([item.name, item.rarity, item.quantity]);
       if (assets.has(key) && assets.get(key) !== identity) throw new Error(`Conflicting asset: ${key}`);
       assets.set(key, identity);
+    }
+  }
+  const craftingNames = new Set<string>();
+  for (const item of catalog.crafting?.items ?? []) {
+    if (!(Number.isInteger(item.tokenCost) && item.tokenCost > 0)) throw new Error(`Invalid token cost: ${item.name}`);
+    if (item.imageId !== null && !(item.imageId in catalog.images)) throw new Error(`Missing image: ${item.name}`);
+    const displayName = craftingDisplayName(item);
+    if (craftingNames.has(displayName)) throw new Error(`Duplicate crafting item: ${displayName}`);
+    craftingNames.add(displayName);
+    const key = craftingAssetKey(item);
+    if (key && assets.has(key) && assets.get(key) !== JSON.stringify([item.name, item.rarity, item.quantity ?? 1])) {
+      throw new Error(`Conflicting asset: ${key}`);
     }
   }
   const activeIds = new Set(catalog.crates.map(crate => crate.id));
@@ -181,6 +217,49 @@ COMMIT;
 `;
 }
 
+/** 특수 제작 목록만 교체한다. 같은 시즌의 기존 행을 지우고 공식 목록으로 다시 넣는다. */
+export function buildCraftingSql(catalog: CrateCatalog, catalogPath: string) {
+  validateCatalog(catalog);
+  const crafting = catalog.crafting;
+  if (!crafting) throw new Error("Catalog has no crafting section");
+  const assetRows = new Map<string, string>();
+  for (const item of crafting.items) {
+    const key = craftingAssetKey(item);
+    if (!key || !item.imageId) continue;
+    const name = craftingDisplayName(item);
+    assetRows.set(key, `(${[key, name, normalizeCrateItemName(name), imageKey(item.imageId), imageUrl(item.imageId), item.rarity].map(sqlValue).join(", ")})`);
+  }
+  const itemRows = crafting.items.map(item =>
+    `(${[craftingDisplayName(item), item.tokenCost, item.category, craftingAssetKey(item)].map(sqlValue).join(", ")})`,
+  );
+  return `-- 특수 제작: ${crafting.sourceUrl}
+-- Images: source URLs are recorded in ${catalogPath}.
+BEGIN;
+INSERT INTO public.crate_item_assets (asset_key, display_name, normalized_name, r2_key, image_url, rarity) VALUES
+${[...assetRows.values()].join(",\n")}
+ON CONFLICT (asset_key) DO UPDATE SET display_name=EXCLUDED.display_name, normalized_name=EXCLUDED.normalized_name,
+  r2_key=EXCLUDED.r2_key, image_url=EXCLUDED.image_url, rarity=EXCLUDED.rarity;
+
+DELETE FROM public.craftable_items WHERE season_key=${sqlValue(crafting.seasonKey)};
+
+INSERT INTO public.craftable_items (season_key, display_name, token_cost, category, asset_id)
+SELECT ${sqlValue(crafting.seasonKey)}, v.display_name, v.token_cost, v.category, a.id
+FROM (VALUES
+${itemRows.join(",\n")}
+) AS v(display_name, token_cost, category, asset_key)
+LEFT JOIN public.crate_item_assets a ON a.asset_key=v.asset_key;
+
+DO $$ BEGIN
+  IF (SELECT count(*) FROM public.craftable_items WHERE season_key=${sqlValue(crafting.seasonKey)}) <> ${crafting.items.length}
+    OR EXISTS (SELECT 1 FROM public.craftable_items WHERE season_key=${sqlValue(crafting.seasonKey)}
+      AND asset_id IS NULL AND display_name NOT IN (${crafting.items.filter(item => !craftingAssetKey(item)).map(item => sqlValue(craftingDisplayName(item))).join(", ") || "NULL"})) THEN
+    RAISE EXCEPTION 'Crafting import failed: invalid item count or missing asset';
+  END IF;
+END $$;
+COMMIT;
+`;
+}
+
 async function uploadImages(catalog: CrateCatalog) {
   dotenv.config({ path: ".env.local", quiet: true });
   for (const key of ["CLOUDFLARE_R2_ENDPOINT", "CLOUDFLARE_R2_ACCESS_KEY_ID", "CLOUDFLARE_R2_SECRET_ACCESS_KEY", "CLOUDFLARE_R2_BUCKET_NAME"]) {
@@ -219,13 +298,15 @@ async function main() {
     return index >= 0 ? args[index + 1] : undefined;
   };
   const catalogPath = option("--catalog");
-  if (!catalogPath) throw new Error("Usage: tsx scripts/sync_crates.ts --catalog data/crates/<patch>.json [--verify-official <html>] [--write-sql <file>] [--upload-images]");
+  if (!catalogPath) throw new Error("Usage: tsx scripts/sync_crates.ts --catalog data/crates/<patch>.json [--verify-official <html>] [--write-sql <file>] [--write-crafting-sql <file>] [--upload-images]");
   const catalog = JSON.parse(await fs.readFile(catalogPath, "utf8")) as CrateCatalog;
   validateCatalog(catalog);
   const officialPath = option("--verify-official");
   if (officialPath) verifyOfficialHtml(catalog, await fs.readFile(officialPath, "utf8"));
   const sqlPath = option("--write-sql");
   if (sqlPath) await fs.writeFile(sqlPath, buildCatalogSql(catalog, catalogPath));
+  const craftingSqlPath = option("--write-crafting-sql");
+  if (craftingSqlPath) await fs.writeFile(craftingSqlPath, buildCraftingSql(catalog, catalogPath));
   if (args.includes("--upload-images")) await uploadImages(catalog);
   console.table(catalog.crates.map(crate => ({ name: crate.name, outcomes: crate.items.length,
     total: Number(crate.items.reduce((sum, item) => sum + item.probability, 0).toFixed(6)) })));

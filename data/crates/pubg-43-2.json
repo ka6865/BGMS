@@ -1216,6 +1216,46 @@
     "schematics": {
       "url": "https://cdn.pubgitems.info/currency/schematics/360.png",
       "sourceUrl": "https://pubgitems.info/ko"
+    },
+    "13001654": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001654.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001654-flying-spur-mulliner-luxe-set-amber-gold"
+    },
+    "13001655": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001655.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001655-flying-spur-mulliner-luxe-set-radiant-orange"
+    },
+    "13001660": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001660.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001660-continental-gtc-mulliner-set-evergreen-silver"
+    },
+    "13001661": {
+      "url": "https://cdn.pubgitems.info/i-icons/13001661.png",
+      "sourceUrl": "https://pubgitems.info/ko/boxes/sets/13001661-continental-gtc-mulliner-set-pale-blue-gloss-black"
+    },
+    "12022302": {
+      "url": "https://cdn.pubgitems.info/i-icons/12022302.png",
+      "sourceUrl": "https://pubgitems.info/ko/other/vehicle/12022302-flying-spur-mulliner-luxe-paint-ivory-white-deep-navy"
+    },
+    "12022303": {
+      "url": "https://cdn.pubgitems.info/i-icons/12022303.png",
+      "sourceUrl": "https://pubgitems.info/ko/other/vehicle/12022303-flying-spur-mulliner-luxe-paint-copper-brown-cream-beige"
+    },
+    "12022312": {
+      "url": "https://cdn.pubgitems.info/i-icons/12022312.png",
+      "sourceUrl": "https://pubgitems.info/ko/other/vehicle/12022312-flying-spur-mulliner-paint-pale-copper"
+    },
+    "12022313": {
+      "url": "https://cdn.pubgitems.info/i-icons/12022313.png",
+      "sourceUrl": "https://pubgitems.info/ko/other/vehicle/12022313-flying-spur-mulliner-paint-warm-grey"
+    },
+    "12022353": {
+      "url": "https://cdn.pubgitems.info/i-icons/12022353.png",
+      "sourceUrl": "https://pubgitems.info/ko/other/vehicle/12022353-flying-spur-mulliner-luxe-interior-basalt"
+    },
+    "12022354": {
+      "url": "https://cdn.pubgitems.info/i-icons/12022354.png",
+      "sourceUrl": "https://pubgitems.info/ko/other/vehicle/12022354-flying-spur-mulliner-luxe-interior-flare"
     }
   },
   "crates": [
@@ -3569,5 +3609,496 @@
       "id": "c6ef3fa9-53e4-444b-b840-02dcf423948b",
       "name": "주술회전 화물"
     }
-  ]
+  ],
+  "crafting": {
+    "seasonKey": "2026_bentley",
+    "tokenCode": "bentley_token",
+    "sourceUrl": "https://pubg.com/ko/news/11181",
+    "notes": [
+      "필요 토큰과 목록은 공식 PUBG x 벤틀리 공지의 특수 제작 표 기준.",
+      "craftOnly 항목은 확률표에 없어 같은 계열·필요 토큰을 기준으로 등급을 추정했다.",
+      "장인 토큰·열쇠·열쇠 조각은 확인된 이미지가 없어 이미지 없이 둔다."
+    ],
+    "items": [
+      {
+        "name": "\"플라잉 스퍼 뮬리너 (럭셔리)\" 세단 도안",
+        "tokenCost": 5000,
+        "category": "탈 것",
+        "rarity": "ULTIMATE",
+        "imageId": "12021026"
+      },
+      {
+        "name": "\"플라잉 스퍼 뮬리너\" 세단 도안",
+        "tokenCost": 3000,
+        "category": "탈 것",
+        "rarity": "LEGENDARY",
+        "imageId": "12021027"
+      },
+      {
+        "name": "\"컨티넨탈 GTC 뮬리너\" 스포츠카 도안",
+        "tokenCost": 3000,
+        "category": "탈 것",
+        "rarity": "LEGENDARY",
+        "imageId": "12021028"
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 (럭셔리) 풀 세트 (파우더 핑크) 도안",
+        "tokenCost": 4000,
+        "category": "세트",
+        "rarity": "ULTIMATE",
+        "imageId": "13001651"
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 (럭셔리) 세트 (오팔린 라벤더) 도안",
+        "tokenCost": 3200,
+        "category": "세트",
+        "rarity": "ULTIMATE",
+        "imageId": "13001652"
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 (럭셔리) 세트 (웜 아이보리 & 헌터 그린) 도안",
+        "tokenCost": 3000,
+        "category": "세트",
+        "rarity": "ULTIMATE",
+        "imageId": "13001653"
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 (럭셔리) 세트 (앰버 골드) 도안",
+        "tokenCost": 3000,
+        "category": "세트",
+        "rarity": "ULTIMATE",
+        "imageId": "13001654",
+        "craftOnly": true
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 (럭셔리) 세트 (래디언트 오렌지) 도안",
+        "tokenCost": 3000,
+        "category": "세트",
+        "rarity": "ULTIMATE",
+        "imageId": "13001655",
+        "craftOnly": true
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 세트 (플럼 퍼플) 도안",
+        "tokenCost": 2500,
+        "category": "세트",
+        "rarity": "LEGENDARY",
+        "imageId": "13001656"
+      },
+      {
+        "name": "컨티넨탈 GTC 뮬리너 세트 (골드 옴브레) 도안",
+        "tokenCost": 2500,
+        "category": "세트",
+        "rarity": "LEGENDARY",
+        "imageId": "13001658"
+      },
+      {
+        "name": "컨티넨탈 GTC 뮬리너 세트 (차콜 & 크림슨) 도안",
+        "tokenCost": 2500,
+        "category": "세트",
+        "rarity": "LEGENDARY",
+        "imageId": "13001659"
+      },
+      {
+        "name": "컨티넨탈 GTC 뮬리너 세트 (에버그린 & 실버) 도안",
+        "tokenCost": 2000,
+        "category": "세트",
+        "rarity": "LEGENDARY",
+        "imageId": "13001660",
+        "craftOnly": true
+      },
+      {
+        "name": "컨티넨탈 GTC 뮬리너 세트 (페일 블루 & 글로스 블랙) 도안",
+        "tokenCost": 2000,
+        "category": "세트",
+        "rarity": "LEGENDARY",
+        "imageId": "13001661",
+        "craftOnly": true
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 (럭셔리) 페인트 (아이보리 화이트 & 딥 네이비) 도안",
+        "tokenCost": 2000,
+        "category": "커스터마이즈",
+        "rarity": "ULTIMATE",
+        "imageId": "12022302",
+        "craftOnly": true
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 (럭셔리) 페인트 (코퍼 브라운 & 크림 베이지) 도안",
+        "tokenCost": 2000,
+        "category": "커스터마이즈",
+        "rarity": "ULTIMATE",
+        "imageId": "12022303",
+        "craftOnly": true
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 (럭셔리) 페인트 (래디언트 오렌지) 도안",
+        "tokenCost": 1500,
+        "category": "커스터마이즈",
+        "rarity": "LEGENDARY",
+        "imageId": "12022304"
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 페인트 (선릿 가넷) 도안",
+        "tokenCost": 1500,
+        "category": "커스터마이즈",
+        "rarity": "LEGENDARY",
+        "imageId": "12022307"
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 페인트 (글레이셔 블루) 도안",
+        "tokenCost": 1000,
+        "category": "커스터마이즈",
+        "rarity": "EPIC",
+        "imageId": "12022308"
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 페인트 (코발트 블루) 도안",
+        "tokenCost": 1000,
+        "category": "커스터마이즈",
+        "rarity": "EPIC",
+        "imageId": "12022309"
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 페인트 (버터 크림) 도안",
+        "tokenCost": 1000,
+        "category": "커스터마이즈",
+        "rarity": "EPIC",
+        "imageId": "12022310"
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 페인트 (딥 포레스트 그린) 도안",
+        "tokenCost": 1000,
+        "category": "커스터마이즈",
+        "rarity": "EPIC",
+        "imageId": "12022311"
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 페인트 (페일 코퍼) 도안",
+        "tokenCost": 1000,
+        "category": "커스터마이즈",
+        "rarity": "EPIC",
+        "imageId": "12022312",
+        "craftOnly": true
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 페인트 (웜 그레이) 도안",
+        "tokenCost": 1000,
+        "category": "커스터마이즈",
+        "rarity": "EPIC",
+        "imageId": "12022313",
+        "craftOnly": true
+      },
+      {
+        "name": "컨티넨탈 GTC 뮬리너 페인트 (리넨 화이트) 도안",
+        "tokenCost": 1000,
+        "category": "커스터마이즈",
+        "rarity": "EPIC",
+        "imageId": "12022321"
+      },
+      {
+        "name": "컨티넨탈 GTC 뮬리너 페인트 (루비 레드) 도안",
+        "tokenCost": 1000,
+        "category": "커스터마이즈",
+        "rarity": "EPIC",
+        "imageId": "12022322"
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 (럭셔리) 내장 (바살트) 도안",
+        "tokenCost": 1000,
+        "category": "커스터마이즈",
+        "rarity": "LEGENDARY",
+        "imageId": "12022353",
+        "craftOnly": true
+      },
+      {
+        "name": "플라잉 스퍼 뮬리너 (럭셔리) 내장 (플레어) 도안",
+        "tokenCost": 1000,
+        "category": "커스터마이즈",
+        "rarity": "LEGENDARY",
+        "imageId": "12022354",
+        "craftOnly": true
+      },
+      {
+        "name": "컨티넨탈 GTC 뮬리너 루프 (딥 브라운) 도안",
+        "tokenCost": 1000,
+        "category": "커스터마이즈",
+        "rarity": "LEGENDARY",
+        "imageId": "12022385"
+      },
+      {
+        "name": "컨티넨탈 GTC 뮬리너 루프 (카키 그레이) 도안",
+        "tokenCost": 1000,
+        "category": "커스터마이즈",
+        "rarity": "LEGENDARY",
+        "imageId": "12022386"
+      },
+      {
+        "name": "벤틀리 번호판 - VICTORY 1 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022357"
+      },
+      {
+        "name": "벤틀리 번호판 - JB 1 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022358"
+      },
+      {
+        "name": "벤틀리 번호판 - 1 WO 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022359"
+      },
+      {
+        "name": "벤틀리 번호판 - X14 BML 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022360"
+      },
+      {
+        "name": "벤틀리 번호판 - V55 BML 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022361"
+      },
+      {
+        "name": "벤틀리 번호판 - BT 99999 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022362"
+      },
+      {
+        "name": "벤틀리 번호판 - FS 13888 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022363"
+      },
+      {
+        "name": "벤틀리 번호판 - GT 12345 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022364"
+      },
+      {
+        "name": "벤틀리 번호판 - WW 11888 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022365"
+      },
+      {
+        "name": "벤틀리 번호판 - LX 99888 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022366"
+      },
+      {
+        "name": "벤틀리 번호판 - CR23 MUL 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022368"
+      },
+      {
+        "name": "벤틀리 번호판 - LM24 SPD 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022369"
+      },
+      {
+        "name": "벤틀리 번호판 - PG01 WNR 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022370"
+      },
+      {
+        "name": "벤틀리 번호판 - CK01 DNR 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022371"
+      },
+      {
+        "name": "벤틀리 번호판 - BM03 LMN 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022372"
+      },
+      {
+        "name": "벤틀리 번호판 - EZ22 BYE 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022373"
+      },
+      {
+        "name": "벤틀리 번호판 - GO00 OPS 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022374"
+      },
+      {
+        "name": "벤틀리 번호판 - 26 NO 0001 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022375"
+      },
+      {
+        "name": "벤틀리 번호판 - 01 DN 8282 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022376"
+      },
+      {
+        "name": "벤틀리 번호판 - 77 LK 7777 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022377"
+      },
+      {
+        "name": "벤틀리 번호판 - 12 GA 3456 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022378"
+      },
+      {
+        "name": "벤틀리 번호판 - LUXHB8 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022379"
+      },
+      {
+        "name": "벤틀리 번호판 - VIP001 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022380"
+      },
+      {
+        "name": "벤틀리 번호판 - FYSR05 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022381"
+      },
+      {
+        "name": "벤틀리 번호판 - CNGT06 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022382"
+      },
+      {
+        "name": "벤틀리 번호판 - MLNR59 도안",
+        "tokenCost": 300,
+        "category": "번호판",
+        "rarity": "ELITE",
+        "imageId": "12022383"
+      },
+      {
+        "name": "벤틀리 드라이버 세트 1 도안",
+        "tokenCost": 500,
+        "category": "세트",
+        "rarity": "LEGENDARY",
+        "imageId": "13001674"
+      },
+      {
+        "name": "벤틀리 드라이버 세트 2 도안",
+        "tokenCost": 500,
+        "category": "세트",
+        "rarity": "LEGENDARY",
+        "imageId": "13001675"
+      },
+      {
+        "name": "벤틀리 - 윙드 B 도안",
+        "tokenCost": 150,
+        "category": "네임플레이트·이모트·스프레이",
+        "rarity": "EPIC",
+        "imageId": "18020074"
+      },
+      {
+        "name": "벤틀리 - 퍼포먼스를 위해 도안",
+        "tokenCost": 150,
+        "category": "네임플레이트·이모트·스프레이",
+        "rarity": "EPIC",
+        "imageId": "16100614"
+      },
+      {
+        "name": "벤틀리 로고 도안",
+        "tokenCost": 100,
+        "category": "네임플레이트·이모트·스프레이",
+        "rarity": "EPIC",
+        "imageId": "18100468"
+      },
+      {
+        "name": "벤틀리 화물 티켓",
+        "tokenCost": 200,
+        "category": "재화",
+        "rarity": "COMMON",
+        "imageId": "14300065",
+        "quantity": 1,
+        "grantsCrateTicket": true
+      },
+      {
+        "name": "크레딧",
+        "tokenCost": 200,
+        "category": "재화",
+        "rarity": "COMMON",
+        "imageId": "credit",
+        "quantity": 6000
+      },
+      {
+        "name": "장인 토큰",
+        "tokenCost": 750,
+        "category": "재화",
+        "rarity": "COMMON",
+        "imageId": null,
+        "quantity": 100
+      },
+      {
+        "name": "열쇠",
+        "tokenCost": 180,
+        "category": "재화",
+        "rarity": "COMMON",
+        "imageId": null,
+        "quantity": 3
+      },
+      {
+        "name": "열쇠",
+        "tokenCost": 60,
+        "category": "재화",
+        "rarity": "COMMON",
+        "imageId": null,
+        "quantity": 1
+      },
+      {
+        "name": "열쇠 조각",
+        "tokenCost": 20,
+        "category": "재화",
+        "rarity": "COMMON",
+        "imageId": null,
+        "quantity": 1
+      }
+    ]
+  }
 }

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { Coins, Box, Award, Ticket, Sparkles, History, AlertTriangle, Layers, X } from "lucide-react";
 import type { CrateTemplate } from "@/types/crates";
-import { HistoryItem } from "./types";
+import { CraftableItem, HistoryItem } from "./types";
 import { VaultCard, HistoryCard, getKoreanRarityName } from "./CrateCards";
 import { AppModal } from "@/components/common/AppModal";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
@@ -98,8 +98,6 @@ export function ChargeModal({ isOpen, onClose, onCharge, exchangeRate = 1500 }: 
   );
 }
 
-// ----------------------------------------------------
-// QuantityModal Props & Component
 // ----------------------------------------------------
 interface QuantityModalProps {
   isOpen: boolean;
@@ -489,18 +487,23 @@ interface CraftingModalProps {
   onClose: () => void;
   tokens: number;
   obtainedSkins: Record<string, number>;
-  onCraft: (itemName: string, tokenCost: number) => boolean;
-  craftableItems: any[];
+  onCraft: (item: CraftableItem) => boolean;
+  craftableItems: CraftableItem[];
+  getRarityBadgeStyle: (rarity: string) => string;
 }
 
-export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft, craftableItems }: CraftingModalProps) {
+export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft, craftableItems, getRarityBadgeStyle }: CraftingModalProps) {
   const [activeSubTab, setActiveSubTab] = useState<string>("전체");
   
   const filteredItems = activeSubTab === "전체" 
     ? craftableItems 
     : craftableItems.filter(item => item.category === activeSubTab);
 
-  const categories = ["전체", ...Array.from(new Set(craftableItems.map(item => item.category)))];
+  // 재화는 꾸미기 아이템 뒤에 둔다.
+  const categories = [
+    "전체",
+    ...Array.from(new Set(craftableItems.map(item => item.category))).sort((a, b) => Number(a === "재화") - Number(b === "재화")),
+  ];
 
   return (
     <AppModal isOpen={isOpen} title="제작소 특수 제작" onClose={onClose} panelClassName="max-w-6xl">
@@ -571,13 +574,13 @@ export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft,
                   }`}
                 >
                   <div className="w-full flex justify-between items-start">
-                    <span className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded tracking-wide ${
-                      item.rarity === "ULTIMATE" 
-                        ? "bg-gradient-to-r from-red-600 to-amber-500 text-white" 
-                        : "bg-gradient-to-r from-purple-600 to-pink-500 text-white"
-                    }`}>
-                      {item.rarity}
-                    </span>
+                    {item.rarity !== "COMMON" ? (
+                      <span className={`shrink-0 whitespace-nowrap text-[8px] font-extrabold px-1.5 py-0.5 rounded tracking-wide ${getRarityBadgeStyle(item.rarity)}`}>
+                        {getKoreanRarityName(item.rarity)}
+                      </span>
+                    ) : (
+                      <span />
+                    )}
                     {ownedCount > 0 && (
                       <span className="text-[9px] bg-amber-500/10 border border-amber-500/30 text-amber-400 font-extrabold px-2 py-0.5 rounded-full">
                         보유 중 (x{ownedCount})
@@ -586,19 +589,23 @@ export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft,
                   </div>
 
                   <div className="w-32 h-32 bg-slate-900 rounded-xl p-2 border border-slate-800/60 flex items-center justify-center relative overflow-hidden group mt-3">
-                    <img
-                      src={item.image_url}
-                      alt={item.name}
-                      className="object-contain max-h-full max-w-full drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] group-hover:scale-105 transition-transform"
-                      onError={(e) => {
-                        (e.target as any).style.display = "none";
-                      }}
-                    />
+                    {/* 이미지가 확인되지 않은 재화는 기본 아이콘만 보여 준다 */}
+                    {!item.image_url && <Box className="w-10 h-10 text-slate-600" aria-hidden="true" />}
+                    {item.image_url && (
+                      <img
+                        src={item.image_url}
+                        alt={item.name}
+                        className="object-contain max-h-full max-w-full drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] group-hover:scale-105 transition-transform"
+                        onError={(e) => {
+                          (e.target as any).style.display = "none";
+                        }}
+                      />
+                    )}
                     <Box className="w-10 h-10 text-slate-850 absolute inset-0 m-auto -z-10" />
                   </div>
 
                   <div className="text-center w-full mt-4 space-y-1">
-                    <h4 className="font-extrabold text-xs text-slate-200 line-clamp-2 min-h-[32px] break-keep leading-tight px-1" title={item.name}>
+                    <h4 className="font-extrabold text-[11px] sm:text-xs text-slate-200 line-clamp-3 min-h-[42px] break-keep [overflow-wrap:anywhere] leading-tight px-1" title={item.name}>
                       {item.name}
                     </h4>
                     
@@ -610,7 +617,7 @@ export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft,
                   </div>
 
                   <button
-                    onClick={() => onCraft(item.name, item.tokenCost)}
+                    onClick={() => onCraft(item)}
                     disabled={!isAffordable}
                     className={`w-full py-2 mt-4 font-black rounded-xl text-xs shadow-md transition-all active:scale-95 flex items-center justify-center gap-1 cursor-pointer ${
                       isAffordable

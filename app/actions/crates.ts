@@ -207,9 +207,10 @@ export const getCraftableItems = unstable_cache(
         const asset = item.crate_item_assets as any;
         return {
           name: item.display_name,
+          asset_key: asset?.asset_key || null,
           tokenCost: item.token_cost,
           category: item.category,
-          rarity: asset?.rarity || "LEGENDARY",
+          rarity: asset?.rarity || "COMMON",
           image_url: asset?.image_url || "",
         };
       });

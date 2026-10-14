@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import catalog431 from "../data/crates/pubg-43-1.json";
 import catalog432 from "../data/crates/pubg-43-2.json";
-import { buildCatalogSql, itemKey, validateCatalog, verifyOfficialHtml, type CrateCatalog } from "../scripts/sync_crates";
+import { buildCatalogSql, buildCraftingSql, itemKey, validateCatalog, verifyOfficialHtml, type CrateCatalog } from "../scripts/sync_crates";
 import { drawSingleItem } from "../lib/crateUtils";
 import type { CrateItem } from "../types/crates";
 
@@ -87,5 +87,17 @@ describe("PUBG #43.2 crate catalog", () => {
     expect(item.rarity).toBe("EPIC");
     expect(() => verifyOfficialHtml(single, html(item.name))).not.toThrow();
     expect(() => verifyOfficialHtml(single, html("다른 아이템"))).toThrow("Official row mismatch");
+  });
+
+  it("builds the official Bentley crafting list as one replaceable season", () => {
+    const crafting = next.crafting!;
+    expect(crafting.items).toHaveLength(66);
+    expect(crafting.items.filter(item => item.category === "번호판")).toHaveLength(26);
+    expect(crafting.items.find(item => item.name === '"플라잉 스퍼 뮬리너 (럭셔리)" 세단 도안')?.tokenCost).toBe(5000);
+    const sql = buildCraftingSql(next, "data/crates/pubg-43-2.json");
+    expect(sql).toContain("DELETE FROM public.craftable_items WHERE season_key='2026_bentley';");
+    expect(sql).toContain("('크레딧 x6000', 200, '재화', 'pubgitems_credit_x6000')");
+    expect(sql).toContain("('장인 토큰 x100', 750, '재화', NULL)");
+    expect(() => validateCatalog({ ...next, crafting: { ...crafting, items: [...crafting.items, crafting.items[0]] } })).toThrow("Duplicate crafting item");
   });
 });
