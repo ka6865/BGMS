@@ -174,7 +174,8 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
     handleOpenContrabandWithCoupons,
     handleBuyCoupons,
     handleRefillAsset,
-    handleRefillInfinite,
+    isUnlimited,
+    toggleUnlimited,
     handleResetSimulator,
     collectRemainingCards,
     handleCraftItem,
@@ -308,10 +309,6 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
           from { opacity: 0; transform: scale(0.9); }
           to { opacity: 1; transform: scale(1); }
         }
-        @keyframes dimBg {
-          0% { background-color: rgba(0, 0, 0, 0); backdrop-filter: blur(0px); }
-          100% { background-color: rgba(0, 0, 0, 0.75); backdrop-filter: blur(6px); }
-        }
         @keyframes goldShockwave {
           0% { 
             transform: translate(-50%, -50%) scale(0.5); 
@@ -336,9 +333,6 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
           40% { transform: scale(1.28) rotateY(0deg) translateZ(80px); }
           65% { transform: scale(1.06) rotateY(0deg) translateZ(15px); }
           100% { transform: scale(1) rotateY(0deg); }
-        }
-        .animate-dimBg {
-          animation: dimBg 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
         @keyframes redShockwave {
           0% {
@@ -449,7 +443,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                   <span className="w-4 h-4 bg-indigo-900/50 text-indigo-400 font-black text-[9px] rounded flex items-center justify-center border border-indigo-850 shrink-0">BP</span>
                   <div className="min-w-0">
                     <div className="text-[9px] text-slate-500 leading-none">BP</div>
-                    <div className="font-extrabold text-indigo-400 tabular-nums leading-tight">{bp.toLocaleString()}</div>
+                    <div className="font-extrabold text-indigo-400 tabular-nums leading-tight">{isUnlimited ? "무제한" : bp.toLocaleString()}</div>
                   </div>
                 </div>
 
@@ -458,7 +452,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                   <Coins className="w-4 h-4 text-amber-400 shrink-0" />
                   <div className="min-w-0">
                     <div className="text-[9px] text-slate-500 leading-none">G코인</div>
-                    <div className="font-extrabold text-amber-400 tabular-nums leading-tight">{gcoin.toLocaleString()}</div>
+                    <div className="font-extrabold text-amber-400 tabular-nums leading-tight">{isUnlimited ? "무제한" : gcoin.toLocaleString()}</div>
                   </div>
                 </div>
 
@@ -490,13 +484,22 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                 </div>
               </div>
 
-              {/* 충전 및 보충 버튼 바 */}
+              {/* 무제한 모드·충전 버튼 바 */}
               <div className="grid grid-cols-2 gap-2 pt-2">
                 <button
-                  onClick={() => setIsRefillModalOpen(true)}
-                  className="py-2 bg-slate-950 hover:bg-slate-850 text-indigo-400 border border-indigo-900/40 hover:border-indigo-800/80 font-black rounded-lg text-[10px] active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1"
+                  onClick={toggleUnlimited}
+                  role="switch"
+                  aria-checked={isUnlimited}
+                  className={`py-2 px-2 font-black rounded-lg text-[10px] active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5 border ${
+                    isUnlimited
+                      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/60 shadow-[0_0_12px_rgba(16,185,129,0.25)]"
+                      : "bg-slate-950 hover:bg-slate-850 text-indigo-400 border-indigo-900/40 hover:border-indigo-800/80"
+                  }`}
                 >
-                  <InlineIconLabel icon="award">무제한 보충기</InlineIconLabel>
+                  <span className={`relative inline-flex h-3.5 w-6 shrink-0 rounded-full transition-colors ${isUnlimited ? "bg-emerald-500" : "bg-slate-700"}`}>
+                    <span className={`absolute top-0.5 h-2.5 w-2.5 rounded-full bg-white transition-all ${isUnlimited ? "left-3" : "left-0.5"}`} />
+                  </span>
+                  무제한 모드 {isUnlimited ? "ON" : "OFF"}
                 </button>
                 <button
                   onClick={() => setIsChargeModalOpen(true)}
@@ -506,14 +509,21 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                 </button>
               </div>
 
+              <button
+                onClick={() => setIsRefillModalOpen(true)}
+                className="w-full text-center text-[10px] font-bold text-slate-500 hover:text-slate-300 underline underline-offset-2 cursor-pointer"
+              >
+                재화 직접 보충하기
+              </button>
+
               {/* 밀수품 쿠폰 구매 슬롯 추가 */}
               <div className="pt-2">
                 <button
                   onClick={() => handleBuyCoupons(10)}
-                  disabled={couponWeeklyBuyCount >= 50}
+                  disabled={!isUnlimited && couponWeeklyBuyCount >= 50}
                   className="w-full py-2 bg-slate-950 hover:bg-slate-850 text-indigo-300 border border-indigo-900/40 hover:border-indigo-800/80 font-bold rounded-lg text-[10px] active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  밀수품 쿠폰 10장 구매 (8,000 BP) - ({couponWeeklyBuyCount}/50장)
+                  밀수품 쿠폰 10장 구매 (8,000 BP) - ({isUnlimited ? "한도 없음" : `${couponWeeklyBuyCount}/50장`})
                 </button>
                 {/* 보급고 화물 티켓 BP 구매 (선택한 보급고 기준) */}
                 {isTicketCrate && activeCrate && (
@@ -522,7 +532,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                       <button
                         key={count}
                         onClick={() => handleBuyCrateTickets(count)}
-                        disabled={timeLeft.isExpired || crateTicketsBought + count > CRATE_TICKET_BP_LIMIT}
+                        disabled={timeLeft.isExpired || (!isUnlimited && crateTicketsBought + count > CRATE_TICKET_BP_LIMIT)}
                         className="py-2 px-1 bg-slate-950 hover:bg-slate-850 text-pink-300 border border-pink-900/40 hover:border-pink-800/80 font-bold rounded-lg text-[10px] active:scale-95 transition-all cursor-pointer flex flex-col items-center justify-center leading-tight disabled:opacity-40 disabled:cursor-not-allowed"
                       >
                         <span>화물 티켓 {count}장 구매</span>
@@ -530,7 +540,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                       </button>
                     ))}
                     <p className="col-span-2 text-center text-[9px] text-slate-500">
-                      {activeCrate.name} 티켓 BP 구매 {crateTicketsBought}/{CRATE_TICKET_BP_LIMIT}장
+                      {activeCrate.name} 티켓 BP 구매 {isUnlimited ? "한도 없음 (무제한 모드)" : `${crateTicketsBought}/${CRATE_TICKET_BP_LIMIT}장`}
                     </p>
                   </div>
                 )}
@@ -1273,7 +1283,6 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
         refillAmount={refillAmount}
         setRefillAmount={setRefillAmount}
         onRefill={handleRefillAsset}
-        onRefillInfinite={handleRefillInfinite}
       />
 
       {/* 특수 제작소 (Crafting) 모달 */}
@@ -1285,6 +1294,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
         onCraft={handleCraftItemWrapper}
         craftableItems={craftableItems}
         getRarityBadgeStyle={getRarityBadgeStyle}
+        isUnlimited={isUnlimited}
       />
 
       {/* 상자 세부정보 (Vault, 히스토리, 확률표) 모달 */}

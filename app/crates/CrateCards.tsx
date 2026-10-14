@@ -137,11 +137,6 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
         isAnimating ? "relative z-[101]" : ""
       }`}
     >
-      {/* 1단계: 전체 화면 Spotlight 어두운 딤 배경 */}
-      {isAnimating && (
-        <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-[3px] z-[100] pointer-events-none animate-dimBg" />
-      )}
-
       {/* 2단계: 광원 충격파 고리. 얼티밋은 카드 뒤로 붉은 광채가 번진다. */}
       {isAnimating && flipEffectTone === "red" && (
         <div className="absolute top-1/2 left-1/2 w-72 h-72 rounded-full bg-[radial-gradient(circle,rgba(239,68,68,0.55)_0%,rgba(251,191,36,0.18)_45%,transparent_70%)] pointer-events-none animate-redHaze z-[101]" />

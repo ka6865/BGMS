@@ -11,6 +11,8 @@ export const CARGO_DROP_DURATION_MS = 2200;
 // 보급고 화물 티켓 BP 구매 규칙 (공식 공지: 1장 10,000 BP, 계정당 최대 50장)
 export const CRATE_TICKET_BP_PRICE = 10000;
 export const CRATE_TICKET_BP_LIMIT = 50;
+// 무제한 모드에서 G코인·BP·이벤트 토큰을 고정하는 잔액
+const UNLIMITED_BALANCE = 999_999_999;
 
 function getOpeningDuration(crate: Pick<CrateTemplate, "type">) {
   return crate.type === "loot_crate" ? CARGO_DROP_DURATION_MS : CRATE_SHAKE_DURATION_MS;
@@ -182,6 +184,34 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
   // 공용 획득 재화 상태
   const [primeParcels, setPrimeParcels] = useState<number>(0);
   const [tokens, setTokens] = useState<number>(0);
+
+  // 무제한 모드: 켜는 동안 재화 잔액을 고정하고 구매 한도를 무시한다. 끄면 켜기 전 잔액으로 돌아간다.
+  const [isUnlimited, setIsUnlimited] = useState<boolean>(false);
+  const balanceBeforeUnlimitedRef = useRef<{ bp: number; gcoin: number; tokens: number } | null>(null);
+  useEffect(() => {
+    if (!isUnlimited) return;
+    if (bp !== UNLIMITED_BALANCE) setBp(UNLIMITED_BALANCE);
+    if (gcoin !== UNLIMITED_BALANCE) setGcoin(UNLIMITED_BALANCE);
+    if (tokens !== UNLIMITED_BALANCE) setTokens(UNLIMITED_BALANCE);
+  }, [isUnlimited, bp, gcoin, tokens]);
+
+  const toggleUnlimited = () => {
+    if (isUnlimited) {
+      const saved = balanceBeforeUnlimitedRef.current;
+      if (saved) {
+        setBp(saved.bp);
+        setGcoin(saved.gcoin);
+        setTokens(saved.tokens);
+      }
+      balanceBeforeUnlimitedRef.current = null;
+      setIsUnlimited(false);
+      toast.success("무제한 모드를 껐습니다. 켜기 전 잔액으로 돌아갑니다.");
+    } else {
+      balanceBeforeUnlimitedRef.current = { bp, gcoin, tokens };
+      setIsUnlimited(true);
+      toast.success("무제한 모드를 켰습니다. 재화와 구매 한도 없이 열고 제작할 수 있습니다.");
+    }
+  };
   
   // 소모 및 결제 지표 트래킹
   const [spentUsd, setSpentUsd] = useState<number>(0);
@@ -406,7 +436,7 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
   const handleBuyCrateTickets = (count: number) => {
     if (!activeCrate || activeCrate.type !== "loot_crate") return;
     const bought = crateTicketBuyCounts[activeCrate.id] || 0;
-    if (bought + count > CRATE_TICKET_BP_LIMIT) {
+    if (!isUnlimited && bought + count > CRATE_TICKET_BP_LIMIT) {
       toast.warning(`BP 구매 한도(${CRATE_TICKET_BP_LIMIT}장)를 초과할 수 없습니다. (현재 구매: ${bought}/${CRATE_TICKET_BP_LIMIT}장)`);
       return;
     }
@@ -906,7 +936,7 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
       toast.error("보유 가상 BP가 부족합니다. 미션 수행 등으로 추가 BP를 확보하세요.");
       return;
     }
-    if (couponWeeklyBuyCount + count > 50) {
+    if (!isUnlimited && couponWeeklyBuyCount + count > 50) {
       toast.warning(`주간 밀수품 쿠폰 구매 한도(50장)를 초과할 수 없습니다. (현재 이번 주 구매 수량: ${couponWeeklyBuyCount}/50장)`);
       return;
     }
@@ -941,22 +971,7 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
     setIsRefillModalOpen(false);
   };
 
-  // 모든 재화 무제한 충전 핸들러
-  const handleRefillInfinite = () => {
-    setBp(999999999);
-    setGcoin(999999999);
-    setCoupons(999999999);
-    setTokens(999999999);
-    setPrimeParcels(999999999);
-    if (activeCrate) {
-      setInventoryCrates((prev) => ({
-        ...prev,
-        [activeCrate.id]: 999999999,
-      }));
-    }
-    setIsRefillModalOpen(false);
-    toast.success("모든 가상 재화가 무제한(999,999,999)으로 보충되었습니다!");
-  };
+
 
   // 시뮬레이터 완전 초기화 모달 트리거
   const handleResetSimulator = () => {
@@ -965,6 +980,8 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
 
   // 실제 시뮬레이터 초기화 동작
   const executeResetSimulator = () => {
+    setIsUnlimited(false);
+    balanceBeforeUnlimitedRef.current = null;
     // 대기 중인 모든 타이머 취소
     activeTimersRef.current.forEach((t) => clearTimeout(t.timer));
     activeTimersRef.current = [];
@@ -1056,7 +1073,7 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
       toast.error("보유 가상 BP가 부족합니다. 미션 수행 등으로 추가 BP를 확보하세요.");
       return;
     }
-    if (bpBuyCount + count > limit) {
+    if (!isUnlimited && bpBuyCount + count > limit) {
       toast.warning(`BP를 통한 구매 한도(${limit}회)를 초과할 수 없습니다. (현재 구매 횟수: ${bpBuyCount}/${limit}회)`);
       return;
     }
@@ -1270,7 +1287,8 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
     handleOpenContrabandWithCoupons,
     handleBuyCoupons,
     handleRefillAsset,
-    handleRefillInfinite,
+    isUnlimited,
+    toggleUnlimited,
     handleResetSimulator,
     collectRemainingCards,
     handleCraftItem,

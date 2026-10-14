@@ -4,7 +4,6 @@ import type { CrateTemplate } from "@/types/crates";
 import { CraftableItem, HistoryItem } from "./types";
 import { VaultCard, HistoryCard, getKoreanRarityName } from "./CrateCards";
 import { AppModal } from "@/components/common/AppModal";
-import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 function getOwnedCount(obtainedSkins: Record<string, number>, item: { name: string; asset_key?: string | null }) {
   return obtainedSkins[item.asset_key || item.name] || obtainedSkins[item.name] || 0;
@@ -224,7 +223,6 @@ interface RefillModalProps {
   refillAmount: number;
   setRefillAmount: React.Dispatch<React.SetStateAction<number>>;
   onRefill: () => void;
-  onRefillInfinite?: () => void;
 }
 
 export function RefillModal({
@@ -234,8 +232,7 @@ export function RefillModal({
   setRefillType,
   refillAmount,
   setRefillAmount,
-  onRefill,
-  onRefillInfinite
+  onRefill
 }: RefillModalProps) {
   return (
     <AppModal isOpen={isOpen} title="이벤트 재화 보충기" onClose={onClose} panelClassName="max-w-md">
@@ -256,7 +253,7 @@ export function RefillModal({
             이벤트 재화 보충기
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            시뮬레이션 전용 무제한 재화 보충 시스템입니다. 원하는 재화와 보충할 수량을 선택하세요.
+            원하는 재화와 보충할 수량을 선택하세요. 재화 걱정 없이 열려면 무제한 모드를 켜세요.
           </p>
         </div>
 
@@ -333,14 +330,6 @@ export function RefillModal({
             보충 완료
           </button>
           
-          {onRefillInfinite && (
-            <button
-              onClick={onRefillInfinite}
-              className="w-full py-3.5 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-600 hover:via-yellow-600 hover:to-amber-700 text-slate-950 font-black rounded-xl shadow-lg shadow-amber-500/10 transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer text-sm"
-            >
-              <InlineIconLabel icon="zap">모든 재화 무제한 충전 (999M)</InlineIconLabel>
-            </button>
-          )}
         </div>
       </div>
     </AppModal>
@@ -490,9 +479,10 @@ interface CraftingModalProps {
   onCraft: (item: CraftableItem) => boolean;
   craftableItems: CraftableItem[];
   getRarityBadgeStyle: (rarity: string) => string;
+  isUnlimited: boolean;
 }
 
-export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft, craftableItems, getRarityBadgeStyle }: CraftingModalProps) {
+export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft, craftableItems, getRarityBadgeStyle, isUnlimited }: CraftingModalProps) {
   const [activeSubTab, setActiveSubTab] = useState<string>("전체");
   
   const filteredItems = activeSubTab === "전체" 
@@ -526,7 +516,7 @@ export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft,
               <Box className="w-5 h-5 text-pink-500" />
               <div className="text-right">
                 <div className="text-[9px] text-slate-500 font-bold leading-none">내 보유 토큰</div>
-                <div className="text-sm sm:text-base font-black text-pink-500 tabular-nums whitespace-nowrap">{tokens.toLocaleString()}개</div>
+                <div className="text-sm sm:text-base font-black text-pink-500 tabular-nums whitespace-nowrap">{isUnlimited ? "무제한" : `${tokens.toLocaleString()}개`}</div>
               </div>
             </div>
             
