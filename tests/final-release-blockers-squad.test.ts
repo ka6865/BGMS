@@ -9,10 +9,13 @@ function queryChain(result:any){
   const chain:any={};for(const method of ["select","eq","order","limit","in"])chain[method]=vi.fn().mockReturnValue(chain);
   chain.then=(resolve:any,reject:any)=>Promise.resolve(result).then(resolve,reject);return chain;
 }
-function configureSquadClient(processed:any){
+function configureSquadClient(processed:any,teamBenchmarkRow:any=null){
   const benchmarkChains:any[]=[];
-  const from=vi.fn((table:string)=>{if(table==='processed_match_telemetry')return processed;benchmarkChains.push(table);throw new Error('Personal benchmark must not be queried for a squad');});
-  mockCreateClient.mockResolvedValue({from});return {from,benchmarkChains};
+  // 팀 관측 집계(pubg_team_benchmarks)만 허용하고 개인 benchmark 조회는 계속 막는다.
+  const teamChain:any={};for(const method of ["select","eq"])teamChain[method]=vi.fn().mockReturnValue(teamChain);
+  teamChain.maybeSingle=vi.fn().mockResolvedValue({data:teamBenchmarkRow,error:null});
+  const from=vi.fn((table:string)=>{if(table==='processed_match_telemetry')return processed;if(table==='pubg_team_benchmarks')return teamChain;benchmarkChains.push(table);throw new Error('Personal benchmark must not be queried for a squad');});
+  mockCreateClient.mockResolvedValue({from});return {from,benchmarkChains,teamChain};
 }
 const observation=(extra:Partial<SquadObservation>={}):SquadObservation=>({version:1,scope:'squad',teamAccountIds:['a','b'],status:'observed',issues:[],knocks:3,revives:1,smokeRescues:0,tradeKills:1,tradeLatencyTotalMs:6000,...extra});
 function canonicalRow(index: number, overrides: Record<string, any> = {}) {
@@ -118,7 +121,7 @@ describe("strict squad analysis population and scope",()=>{
     expect(a.stats).toEqual({avgIsolation:null,avgTradeLatency:null,totalSmokeRescues:null,totalRevives:null,avgCoverRate:null,totalTeamWipes:null,totalTeammateKnocks:null,totalTradeKills:null});
     expect(Object.values(a.scores)).toEqual([null,null,null,null,null]);expect(a.squadGrade).toBeNull();
     expect(Object.values(a.benchmarkStats).every(v=>v===null)).toBe(true);
-    expect(from).toHaveBeenCalledTimes(1);expect(a.roleProfiles).toHaveLength(2);
+    expect(from.mock.calls.map(([table]:[string])=>table).filter(table=>table!=='pubg_team_benchmarks')).toEqual(['processed_match_telemetry']);expect(a.roleProfiles).toHaveLength(2);
   });
   it('weights team trade events and uses the same team recovery denominator',async()=>{
     const rows=[canonicalRow(1,{squadObservation:observation({tradeLatencyTotalMs:2000})}),canonicalRow(2,{squadObservation:observation({knocks:5,revives:2,tradeKills:2,tradeLatencyTotalMs:12000})})];
@@ -184,6 +187,22 @@ describe("strict squad analysis population and scope",()=>{
     const {getSquadAnalysisData} = await import('@/lib/pubg-analysis/squadAnalysis');
     const result: any = await getSquadAnalysisData('Player_A', 'steam', 'Teammate_B');
     expect(result).toMatchObject({matchCount: 1, calculationPendingMatchCount: 1, stats: {totalRevives: 1}});
+  });
+  it('uses the team population benchmark of the same calculation and observation version',async()=>{
+    const rows=Array.from({length:5},(_,i)=>canonicalRow(i+1,{squadObservation:observation()}));
+    const {teamChain}=configureSquadClient(queryChain({data:rows,error:null}),{sample_team_matches:833,knocks:3801,revives:1379,trade_kills:679,trade_latency_total_ms:8327256,smoke_sample_team_matches:833,smoke_knocks:3801,smoke_rescues:120});
+    const {getSquadAnalysisData}=await import('@/lib/pubg-analysis/squadAnalysis');
+    const a:any=await getSquadAnalysisData('Player_A','steam','Teammate_B');
+    expect(a.benchmarkStats).toMatchObject({scope:'team_population',teamMode:'squad',sampleCount:833,avgReviveRate:36.3,avgTradeLatency:12300,tier:null});
+    expect(teamChain.eq.mock.calls).toEqual(expect.arrayContaining([['team_mode','squad'],['observation_version',1]]));
+  });
+  it('withholds the team benchmark when selected matches mix calculation versions',async()=>{
+    const rows=[canonicalRow(1,{squadObservation:observation()}),canonicalRow(2,{squadObservation:observation(),calculationVersion:2})];
+    const {teamChain}=configureSquadClient(queryChain({data:rows,error:null}),{sample_team_matches:833,knocks:3801,revives:1379,trade_kills:679,trade_latency_total_ms:8327256,smoke_sample_team_matches:833,smoke_knocks:3801,smoke_rescues:120});
+    const {getSquadAnalysisData}=await import('@/lib/pubg-analysis/squadAnalysis');
+    const a:any=await getSquadAnalysisData('Player_A','steam','Teammate_B');
+    expect(teamChain.maybeSingle).not.toHaveBeenCalled();
+    expect(a.benchmarkStats.avgReviveRate).toBeNull();
   });
   it('still fails when the canonical processed-record query fails' ,async()=>{
     configureSquadClient(queryChain({data:null,error:{message:'database unavailable'}}));

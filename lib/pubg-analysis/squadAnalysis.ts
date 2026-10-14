@@ -1,5 +1,6 @@
 import { buildCalculationPendingMatch } from "./calculationAvailability";
-import { aggregateSquadObservations } from './squadObservations';
+import { aggregateSquadObservations, SQUAD_OBSERVATION_VERSION } from './squadObservations';
+import { toTeamBenchmarkStats, type TeamBenchmarkRow } from "./teamBenchmark";
 import { aggregateSquadFocusFire } from "./squadFocusFire";
 import { createClient } from "@/utils/supabase/server";
 import {
@@ -210,6 +211,21 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   const analysisMatches = bestGroupMatches.get(normalizedGroupKey) || [];
   const matchCount = analysisMatches.length;
 
+  // 비교 기준은 선택 경기와 같은 계산 버전 하나일 때만 쓴다. 조회 실패는 비교 보류로 처리한다.
+  const calculationVersions = new Set(analysisMatches.map(match => match.data?.fullResult?.calculationVersion));
+  let teamBenchmark = null;
+  if (calculationVersions.size === 1) {
+    const [calculationVersion] = calculationVersions;
+    const { data: benchmarkRow, error: benchmarkError } = await supabase
+      .from("pubg_team_benchmarks")
+      .select("sample_team_matches, knocks, revives, trade_kills, trade_latency_total_ms, smoke_sample_team_matches, smoke_knocks, smoke_rescues")
+      .eq("team_mode", selectedGroup.teamMode)
+      .eq("calculation_version", calculationVersion)
+      .eq("observation_version", SQUAD_OBSERVATION_VERSION)
+      .maybeSingle();
+    if (benchmarkError) console.warn("[SQUAD-TEAM-BENCHMARK]", benchmarkError.message);
+    else teamBenchmark = toTeamBenchmarkStats(benchmarkRow as TeamBenchmarkRow | null, selectedGroup.teamMode);
+  }
   const squadObservation = aggregateSquadObservations(analysisMatches.map(match => ({
     matchId: match.match_id, observation: match.data?.fullResult?.squadObservation,
     expectedTeamAccountIds: (match.data?.fullResult?.team || []).map((member: any) =>
@@ -413,7 +429,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     squadGrade: squadGrade as string | null,
     roleProfiles,
     causeScenes,
-    benchmarkStats: {
+    benchmarkStats: teamBenchmark ?? {
       tier: null,
       avgIsolation: null,
       avgTradeLatency: null,

@@ -87,7 +87,7 @@ export function buildSquadAiCoachingPrompt(input: SquadAiPromptInput): SquadAiPr
   }).join("\n\n");
 
   const benchmarkContext = benchmarkStats ? `
-[Global Benchmark Context (Tier: ${typeof benchmarkStats.tier === "string" && benchmarkStats.tier.trim() ? benchmarkStats.tier : "측정 불가"})]
+[Global Benchmark Context (${benchmarkStats.scope === "team_population" && Number.isFinite(benchmarkStats.sampleCount) ? `전체 ${teamMode === "duo" ? "듀오" : "스쿼드"} 팀 ${benchmarkStats.sampleCount}경기 평균. 티어 구분 없음` : `Tier: ${typeof benchmarkStats.tier === "string" && benchmarkStats.tier.trim() ? benchmarkStats.tier : "측정 불가"}`})]
 - Global Avg Isolation Index (대열 이탈 고립도): ${formatObserved(benchmarkStats.avgIsolation)} (Our Squad Avg: ${formatObserved(isolationValue)})
 - Global Avg Backup Speed (백업 반응 속도): ${benchmarkTradeLatencySec} (Our Squad Avg: ${myTradeLatencySec})
 - Global Avg Revive Success Rate (부활 성공률): ${formatPercent(benchmarkStats.avgReviveRate)}
