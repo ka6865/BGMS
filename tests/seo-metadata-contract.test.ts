@@ -26,7 +26,14 @@ describe("SEO 메타데이터 계약", () => {
     const { default: sitemap } = await import("@/app/sitemap");
     const urls = (await sitemap()).map((entry) => new URL(entry.url).pathname);
     expect(urls).not.toContain("/");
-    expect(urls).toEqual(expect.arrayContaining(["/maps/erangel", "/rankings", "/meta", "/crates", "/board", "/stats"]));
+    expect(urls).toEqual(expect.arrayContaining(["/maps/erangel", "/rankings", "/crates", "/board", "/stats"]));
+    expect(urls).not.toContain("/meta");
+  });
+
+  it("정리한 /meta 시험 페이지는 무기도감으로 영구 이동한다", async () => {
+    const { default: nextConfig } = await import("@/next.config");
+    const redirects = await nextConfig.redirects?.();
+    expect(redirects).toContainEqual({ source: "/meta", destination: "/weapons", permanent: true });
   });
 
   it("루트는 영구 이동하고 개발·관리 화면은 검색에서 제외한다", () => {
