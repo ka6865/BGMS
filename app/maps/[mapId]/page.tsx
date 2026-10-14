@@ -14,7 +14,7 @@ export async function generateMetadata({ params }: { params: Promise<{ mapId: st
   // 지원 목록에 있는 지도만 SEO 메타데이터를 노출한다.
   const resolvedMapId = resolveMapIdFromSlug(mapId);
   if (!resolvedMapId) {
-    return { title: '지도를 찾을 수 없습니다 | BGMS', robots: { index: false, follow: false } };
+    return { title: '지도를 찾을 수 없습니다', robots: { index: false, follow: false } };
   }
   return getTabSeo(resolvedMapId);
 }

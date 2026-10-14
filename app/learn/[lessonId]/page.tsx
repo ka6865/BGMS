@@ -18,9 +18,9 @@ export async function generateMetadata({ params }: LessonPageProps): Promise<Met
   const { lessonId } = await params;
   const lesson = getRankerLesson(lessonId);
   return lesson ? {
-    title: `${lesson.title} | 경기 장면 해설 | BGMS`,
+    title: `${lesson.title} | 경기 장면 해설`,
     description: `스팀 경쟁전 ${lesson.mapLabel} ${lesson.gameMode === "solo" ? "솔로" : "스쿼드"} 경기의 기록된 장면과 해설을 살펴봅니다.`,
-  } : { title: "경기 해설 | BGMS" };
+  } : { title: "경기 해설" };
 }
 
 export default async function RankerBriefingPage({ params }: LessonPageProps) {

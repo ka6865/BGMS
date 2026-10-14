@@ -15,7 +15,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { nickname } = await params;
   const decodedNickname = decodeURIComponent(nickname);
   return {
-    title: `${decodedNickname} 무기 마스터리 분석 | BGMS`,
+    title: `${decodedNickname} 무기 마스터리 분석`,
     description: `${decodedNickname}님의 PUBG 주력 무기별 누적 킬수, 대미지, 평균 레벨 등 정밀 숙련도 통계 리포트`,
   };
 }

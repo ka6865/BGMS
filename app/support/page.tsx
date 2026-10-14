@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import SupportCenter from "@/components/support/SupportCenter";
 import { createClient } from "@/utils/supabase/server";
 
-export const metadata: Metadata = { title: "고객센터 | BGMS" };
+export const metadata: Metadata = { title: "고객센터" };
 
 export default async function SupportPage() {
   const supabase = await createClient();

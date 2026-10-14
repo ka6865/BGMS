@@ -8,7 +8,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const seo = await getTabSeo("MyPage");
   return {
     ...seo,
-    title: "마이페이지 | BGMS",
+    title: "마이페이지",
     robots: { index: false } // 개인정보 페이지이므로 SEO 수집 방지
   };
 }

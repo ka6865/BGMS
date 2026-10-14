@@ -82,7 +82,7 @@ describe("stats route layout boundary", () => {
 
   it("wrapper 제거 후에도 landing title과 dynamic canonical/OG metadata를 보존한다", async () => {
     const landingMetadata = await generateStatsMetadata();
-    expect(landingMetadata.title).toBe("AI 전적 검색 | BGMS");
+    expect(landingMetadata.title).toBe("AI 전적 검색");
 
     const dynamicMetadata = await generatePlayerStatsMetadata({
       params: Promise.resolve({ platform: "steam", nickname: "Fixture%20Player" }),

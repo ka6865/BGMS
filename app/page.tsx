@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation';
+import { permanentRedirect } from 'next/navigation';
 
 export default async function Home({ searchParams }: { searchParams: Promise<{ [key: string]: string | string[] | undefined }> }) {
   const s = await searchParams;
@@ -18,24 +18,24 @@ export default async function Home({ searchParams }: { searchParams: Promise<{ [
   if (tab) {
     if (tab === "Board") {
       if (postId) {
-        redirect(`/board/${postId}${queryString}`);
+        permanentRedirect(`/board/${postId}${queryString}`);
       }
-      redirect(`/board${queryString}`);
+      permanentRedirect(`/board${queryString}`);
     }
     if (tab === "Stats") {
-      redirect(`/stats${queryString}`);
+      permanentRedirect(`/stats${queryString}`);
     }
     // 맵 탭인 경우
     const maps = ["Erangel", "Miramar", "Taego", "Rondo", "Vikendi", "Deston"];
     if (maps.includes(tab)) {
-      redirect(`/maps/${tab.toLowerCase()}${queryString}`);
+      permanentRedirect(`/maps/${tab.toLowerCase()}${queryString}`);
     }
   }
 
-  //  [기본 동작] 루트 접속 시 에란겔 맵으로 리다이렉트 (Option 2 전략)
+  //  [기본 동작] 루트 접속 시 에란겔 맵으로 영구 이동한다. 검색엔진이 지도 주소를 대표 주소로 쓰게 한다.
   if (queryString) {
-    redirect(`/maps/erangel${queryString}`);
+    permanentRedirect(`/maps/erangel${queryString}`);
   }
-  redirect('/maps/erangel');
+  permanentRedirect('/maps/erangel');
 }
 
