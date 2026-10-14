@@ -23,6 +23,10 @@ describe('랭킹 데이터 원장',()=>{
   await getWeeklyTopDamage();
   expect(m.rpc).toHaveBeenCalledTimes(1);
  });
+ it('지난주 기간과 확정 여부를 전달한다',async()=>{
+  m.rpc.mockResolvedValue({error:null,data:{entries:[],generated_at:generatedAt,cache_hit:true,week_start:'2026-10-04T15:00:00Z',week_end:'2026-10-11T15:00:00Z',finalized:true}});
+  expect((await getWeeklyTopDamage()).period).toEqual({start:'2026-10-04T15:00:00Z',end:'2026-10-11T15:00:00Z',finalized:true});
+ });
  it('비공개 명단 오류를 빈 명단처럼 처리하지 않는다',async()=>{
   m.rpc.mockResolvedValue({data:null,error:{message:'Invalid ranking privacy settings'}});expect(await getTopTierRanking()).toEqual({data:[],hasError:true});
  });

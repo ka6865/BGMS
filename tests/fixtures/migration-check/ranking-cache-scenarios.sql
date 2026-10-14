@@ -2,7 +2,7 @@ begin;
 insert into public.system_settings(key,value) values('private_players_list','[]')
 on conflict(key) do update set value=excluded.value;
 insert into public.pubg_player_matches(player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,win_place,match_type,account_id,ranking_eligible)
-select 'cache-player-'||n,'steam','cache-match-'||n,now()-interval '1 hour','solo','Baltic_Main',n,1000+n,1,'official','account.cache'||n,true from generate_series(1,32)n;
+select 'cache-player-'||n,'steam','cache-match-'||n,(select week_start from public.pubg_ranking_week())+interval '1 day','solo','Baltic_Main',n,1000+n,1,'official','account.cache'||n,true from generate_series(1,32)n;
 do $$ declare a jsonb;b jsonb; begin
  a:=public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73);
  b:=public.get_pubg_rankings_cached('damage',array['solo','solo'],'all',3,8,1,73);
@@ -23,7 +23,7 @@ do $$ declare a jsonb; begin
 end $$;
 update public.system_settings set value='[]' where key='private_players_list';
 insert into public.pubg_player_matches(player_id,platform,match_id,played_at,game_mode,map_name,kills,damage,match_type,account_id,ranking_eligible)
-values('MiXeD-Privacy','steam','mixed-privacy-match',now(),'duo','Baltic_Main',10,2000,'official',null,true);
+values('MiXeD-Privacy','steam','mixed-privacy-match',(select week_start from public.pubg_ranking_week())+interval '1 day','duo','Baltic_Main',10,2000,'official',null,true);
 update public.system_settings set value='[{"platform":"steam","nickname":"MIXED-PRIVACY"}]' where key='private_players_list';
 do $$ begin
  if public.get_pubg_rankings_cached('damage',array['duo'],'all',3,8,1,73)->'entries'<>'[]'::jsonb
@@ -46,7 +46,7 @@ do $$ declare a jsonb;begin
  then raise exception 'Current cache identity privacy guard failed';end if;
 end $$;
 delete from public.pubg_player_cache where id='account.hidden-cache';
-update public.pubg_response_cache set expires_at=clock_timestamp()-interval '1 second' where cache_key like 'rankings:v1:%';
+update public.pubg_response_cache set expires_at=clock_timestamp()-interval '1 second' where cache_key like 'rankings:v2:%';
 select public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73) is not null;
 insert into public.pubg_player_match_discovery(platform,account_id,match_id,nickname_at_discovery,state)
 values('steam','account.hidden-cache','cache-match-32','other-private-name','saved');
@@ -56,7 +56,7 @@ do $$ declare a jsonb;begin
  then raise exception 'Current discovery privacy guard failed';end if;
 end $$;
 delete from public.pubg_player_match_discovery where match_id='cache-match-32';
-update public.pubg_response_cache set expires_at=clock_timestamp()-interval '1 second' where cache_key like 'rankings:v1:%';
+update public.pubg_response_cache set expires_at=clock_timestamp()-interval '1 second' where cache_key like 'rankings:v2:%';
 select public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73) is not null;
 update public.pubg_player_matches set account_id='account.hidden-cache' where player_id='cache-player-32';
 do $$ declare a jsonb;begin
@@ -65,7 +65,7 @@ do $$ declare a jsonb;begin
  then raise exception 'Current match account binding privacy guard failed';end if;
 end $$;
 update public.system_settings set value='[]' where key='private_players_list';
-update public.pubg_response_cache set expires_at=clock_timestamp()-interval '1 second' where cache_key like 'rankings:v1:%';
+update public.pubg_response_cache set expires_at=clock_timestamp()-interval '1 second' where cache_key like 'rankings:v2:%';
 do $$ begin
  if (public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73)->>'cache_hit')::boolean
  then raise exception 'Expired cache reused';end if;
