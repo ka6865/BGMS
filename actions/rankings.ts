@@ -98,12 +98,14 @@ function getModes(filter: GameModeFilter, perspective: PerspectiveFilter): strin
 
 /** The database selects each player's best match before applying TOP 30. */
 async function readRanking(tab: 'damage' | 'kills' | 'tier', mode: GameModeFilter, perspective: PerspectiveFilter, matchType: MatchTypeFilter): Promise<RankingQueryResult> {
+  const params = {
+    p_tab: tab, p_modes: getModes(mode, perspective), p_match_type: matchType,
+    p_calculation: ANALYSIS_CALCULATION_VERSION, p_filter: BENCHMARK_FILTER_VERSION,
+    p_population: BENCHMARK_POPULATION_EVIDENCE_VERSION, p_result: RESULT_VERSION,
+  };
   try {
-    const { data, error } = await supabase.rpc('get_pubg_rankings_cached', {
-      p_tab: tab, p_modes: getModes(mode, perspective), p_match_type: matchType,
-      p_calculation: ANALYSIS_CALCULATION_VERSION, p_filter: BENCHMARK_FILTER_VERSION,
-      p_population: BENCHMARK_POPULATION_EVIDENCE_VERSION, p_result: RESULT_VERSION,
-    }).abortSignal(AbortSignal.timeout(10_000));
+    const { data, error } = await supabase.rpc('get_pubg_rankings_cached', params).abortSignal(AbortSignal.timeout(10_000));
+    if (error) await queueRankingRefresh(params);
     if (error || !Array.isArray(data?.entries) || !Number.isFinite(Date.parse(data.generated_at))) {
       throw error || new Error('Missing ranking response');
     }
@@ -119,6 +121,12 @@ async function readRanking(tab: 'damage' | 'kills' | 'tier', mode: GameModeFilte
     logRankingError(tab, error);
     return { data: [], hasError: true };
   }
+}
+
+// 요청 집계가 시간 제한을 넘긴 조합은 예약 집계가 채우도록 등록한다. 등록 실패는 원래 오류 응답을 바꾸지 않는다.
+async function queueRankingRefresh(params: Record<string, unknown>) {
+  const { error } = await supabase.rpc('queue_pubg_ranking_refresh', params).abortSignal(AbortSignal.timeout(3_000));
+  logRankingError('queue', error);
 }
 
 export async function getWeeklyTopDamage(mode: GameModeFilter = 'all', perspective: PerspectiveFilter = 'all', matchType: MatchTypeFilter = 'all'): Promise<RankingQueryResult> {

@@ -84,6 +84,7 @@ MIGRATIONS=(
   "20261014130000_suggest_similar_players_trgm_index_scan"
   "20261014140000_reports_revoke_public_truncate"
   "20261014150000_pubg_ranking_background_refresh"
+  "20261014151000_pubg_ranking_refresh_queue"
 )
 
 cleanup() {
