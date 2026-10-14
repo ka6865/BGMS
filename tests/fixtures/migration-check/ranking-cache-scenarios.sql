@@ -6,7 +6,7 @@ declare a jsonb;
 begin
   a:=public.get_pubg_rankings_cached(p_tab,p_modes,p_match_type,p_calculation,p_filter,p_population,p_result);
   if not coalesce((a->>'pending')::boolean,false) then return a; end if;
-  while public.refresh_pubg_rankings_cache()>0 loop end loop;
+  perform public.refresh_pubg_rankings_cache(); while public.refresh_pubg_rankings_cache()>0 loop end loop;
   a:=public.get_pubg_rankings_cached(p_tab,p_modes,p_match_type,p_calculation,p_filter,p_population,p_result);
   return case when coalesce((a->>'pending')::boolean,false) then a else a||jsonb_build_object('cache_hit',false) end;
 end $$;

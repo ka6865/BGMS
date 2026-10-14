@@ -96,6 +96,7 @@ MIGRATIONS=(
   "20261014180000_pubg_team_benchmarks"
   "20261014190000_pubg_previous_week_rankings"
   "20261014220000_pubg_ranking_prebuild_all_filters"
+  "20261014230000_pubg_ranking_seed_commit_first"
 )
 
 cleanup() {
@@ -388,6 +389,8 @@ wait "$ranking_first_pid"
 wait "$ranking_second_pid"
 "${PSQL[@]}" -c "do \$\$ begin if (select count(*) from public.pubg_response_cache where cache_key like 'rankings:v2:%')<>1 or exists(select 1 from public.ranking_cache_test_calls) then raise exception 'Request path queued twice or aggregated'; end if; end \$\$;"
 # 예약 집계 두 개가 동시에 돌아도 한 번만 집계한다.
+# 첫 실행은 108개 조합 등록만 하고 커밋한다.
+"${PSQL[@]}" -c "select public.refresh_pubg_rankings_cache();"
 "${PSQL[@]}" -c "select public.refresh_pubg_rankings_cache();" &
 ranking_first_pid=$!
 "${PSQL[@]}" -c "select public.refresh_pubg_rankings_cache();" &
@@ -396,6 +399,7 @@ wait "$ranking_first_pid"
 wait "$ranking_second_pid"
 "${PSQL[@]}" -c "do \$\$ begin if (select count(*) from public.ranking_cache_test_calls)<>1 then raise exception 'Concurrent refresh aggregated more than once'; end if; end \$\$; delete from public.pubg_response_cache where cache_key like 'rankings:v2:%'; delete from public.ranking_cache_test_calls;"
 "${PSQL[@]}" -c "set role service_role; select public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73)->>'pending';"
+"${PSQL[@]}" -c "select public.refresh_pubg_rankings_cache();"
 "${PSQL[@]}" -c "select public.refresh_pubg_rankings_cache();" &
 ranking_privacy_pid=$!
 ranking_aggregate_started=false
