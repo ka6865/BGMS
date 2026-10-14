@@ -42,6 +42,7 @@ export interface HistoryItem {
 
 export interface CraftableItem {
   name: string;
+  asset_key: string | null;
   tokenCost: number;
   image_url: string;
   rarity: CrateRarity;

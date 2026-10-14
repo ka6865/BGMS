@@ -1,9 +1,22 @@
 import { useState, useEffect, useRef } from "react";
 import type { CrateTemplate } from "@/types/crates";
 import { drawSingleItem, drawSinglePrimeItem, tryDrawBonusItem } from "../../lib/crateUtils";
-import { DrawnCard, HistoryItem } from "./types";
+import { CraftableItem, DrawnCard, HistoryItem } from "./types";
 import { trackEvent } from "../../lib/analytics";
 import { toast } from "sonner";
+
+// 개봉 연출 길이. 화물(loot_crate)은 낙하·착지 장면이 있어 흔들림 연출보다 길다.
+const CRATE_SHAKE_DURATION_MS = 1500;
+export const CARGO_DROP_DURATION_MS = 2200;
+// 보급고 화물 티켓 BP 구매 규칙 (공식 공지: 1장 10,000 BP, 계정당 최대 50장)
+export const CRATE_TICKET_BP_PRICE = 10000;
+export const CRATE_TICKET_BP_LIMIT = 50;
+// 무제한 모드에서 G코인·BP·이벤트 토큰을 고정하는 잔액
+const UNLIMITED_BALANCE = 999_999_999;
+
+function getOpeningDuration(crate: Pick<CrateTemplate, "type">) {
+  return crate.type === "loot_crate" ? CARGO_DROP_DURATION_MS : CRATE_SHAKE_DURATION_MS;
+}
 
 function getRewardKey(item: { asset_key?: string | null; name: string }) {
   return item.asset_key || item.name;
@@ -171,6 +184,34 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
   // 공용 획득 재화 상태
   const [primeParcels, setPrimeParcels] = useState<number>(0);
   const [tokens, setTokens] = useState<number>(0);
+
+  // 무제한 모드: 켜는 동안 재화 잔액을 고정하고 구매 한도를 무시한다. 끄면 켜기 전 잔액으로 돌아간다.
+  const [isUnlimited, setIsUnlimited] = useState<boolean>(false);
+  const balanceBeforeUnlimitedRef = useRef<{ bp: number; gcoin: number; tokens: number } | null>(null);
+  useEffect(() => {
+    if (!isUnlimited) return;
+    if (bp !== UNLIMITED_BALANCE) setBp(UNLIMITED_BALANCE);
+    if (gcoin !== UNLIMITED_BALANCE) setGcoin(UNLIMITED_BALANCE);
+    if (tokens !== UNLIMITED_BALANCE) setTokens(UNLIMITED_BALANCE);
+  }, [isUnlimited, bp, gcoin, tokens]);
+
+  const toggleUnlimited = () => {
+    if (isUnlimited) {
+      const saved = balanceBeforeUnlimitedRef.current;
+      if (saved) {
+        setBp(saved.bp);
+        setGcoin(saved.gcoin);
+        setTokens(saved.tokens);
+      }
+      balanceBeforeUnlimitedRef.current = null;
+      setIsUnlimited(false);
+      toast.success("무제한 모드를 껐습니다. 켜기 전 잔액으로 돌아갑니다.");
+    } else {
+      balanceBeforeUnlimitedRef.current = { bp, gcoin, tokens };
+      setIsUnlimited(true);
+      toast.success("무제한 모드를 켰습니다. 재화와 구매 한도 없이 열고 제작할 수 있습니다.");
+    }
+  };
   
   // 소모 및 결제 지표 트래킹
   const [spentUsd, setSpentUsd] = useState<number>(0);
@@ -182,12 +223,11 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
   const [isChargeModalOpen, setIsChargeModalOpen] = useState<boolean>(false);
 
   // 단품 구매 수량 선택 모달 상태
-  const [isQuantityModalOpen, setIsQuantityModalOpen] = useState<boolean>(false);
-  const [quantityToBuy, setQuantityToBuy] = useState<number>(1);
-  const [quantityPaymentMethod, setQuantityPaymentMethod] = useState<"gcoin" | "bp">("gcoin");
 
   // BP 구매 평생 한도 (50회 제한)
   const [bpBuyCount, setBpBuyCount] = useState<number>(0);
+  // 보급고 화물 티켓은 상자별로 BP 구매 한도를 센다.
+  const [crateTicketBuyCounts, setCrateTicketBuyCounts] = useState<Record<string, number>>({});
   const [blackmarketTickets, setBlackmarketTickets] = useState<number>(0);
 
   // 이벤트 재화 보충기 모달 상태
@@ -373,20 +413,7 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
     setIsChargeModalOpen(false); // 충전 완료 후 자동으로 모달을 닫음
   };
 
-  // 상점에서 상자 팩 패키지 구매 (1개짜리 팩은 수량 선택 팝업 노출)
-  const handleBuyPackage = (packType: "X55" | "X27" | "X11" | "X1", paymentMethod: "gcoin" | "bp" = "gcoin") => {
-    if (!activeCrate) return;
 
-    if (packType === "X1") {
-      setQuantityToBuy(1);
-      setQuantityPaymentMethod(paymentMethod);
-      setIsQuantityModalOpen(true);
-      return;
-    }
-
-    // 대형 팩은 기존처럼 즉시 구매 처리
-    executeBuyPackage(packType, 1, paymentMethod);
-  };
 
   // UI 탭 제어 관련 콜백을 위한 상태 주입 레퍼런스
   const [drawSubTab, setDrawSubTab] = useState<"shop" | "inventory">("shop");
@@ -405,130 +432,34 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
     }
   }, [selectedCrateId]);
 
-  // 실제 결제 및 상품 지급 처리 엔진
-  const executeBuyPackage = (packType: "X55" | "X27" | "X11" | "X1", quantity: number, paymentMethod: "gcoin" | "bp") => {
-    if (!activeCrate) return;
-
-    let price = 0;
-    let crateReward = 0;
-    let parcelReward = 0;
-    let tokenReward = 0;
-
-    if (packType === "X55") {
-      price = 12500;
-      crateReward = 55;
-      parcelReward = 0;
-      tokenReward = 800;
-    } else if (packType === "X27") {
-      price = 6250;
-      crateReward = 27;
-      parcelReward = 0;
-      tokenReward = 400;
-    } else if (packType === "X11") {
-      price = 2500;
-      crateReward = 11;
-      parcelReward = 0;
-      tokenReward = 150;
-    } else if (packType === "X1") {
-      if (paymentMethod === "bp") {
-        price = 10000 * quantity;
-      } else {
-        price = 250 * quantity;
-      }
-      crateReward = 1 * quantity;
-      parcelReward = 0;
-      tokenReward = 15 * quantity;
-    }
-
-    // 결제 유효성 검사
-    if (paymentMethod === "bp") {
-      if (bp < price) {
-        toast.error("보유 가상 BP가 부족합니다. 미션 수행 등으로 추가 BP를 확보하세요.");
-        return;
-      }
-      if (bpBuyCount + quantity > 50) {
-        toast.warning(`BP를 통한 X1 팩 구매 평생 한도(50회)를 초과할 수 없습니다. (현재 구매 횟수: ${bpBuyCount}/50회)`);
-        return;
-      }
-      setBp((prev) => prev - price);
-      setSpentBp((prev) => prev + price);
-      setBpBuyCount((prev) => prev + quantity);
-    } else {
-      if (gcoin < price) {
-        toast.error("보유 가상 G-Coin이 부족합니다. 상단의 충전 버튼을 이용해주세요.");
-        return;
-      }
-      setGcoin((prev) => prev - price);
-      setSpentGcoin((prev) => prev + price);
-    }
-
-    // 수량 선택 모달 닫기
-    setIsQuantityModalOpen(false);
-
-    // 인벤토리에 보상 추가 및 개봉 로직 분기
-    if (activeCrate.type === "loot_crate") {
-      // 전리품 상자: 바로 개봉하지 않고 보관함으로 상자/꾸러미/토큰을 적립
-      setInventoryCrates((prev) => ({
-        ...prev,
-        [activeCrate.id]: (prev[activeCrate.id] || 0) + crateReward,
-      }));
-      setPrimeParcels((prev) => prev + parcelReward);
-      setTokens((prev) => prev + tokenReward);
-
-      toast.success(
-        `구매가 완료되었습니다! ${activeCrate.name} ${crateReward}개, 토큰 ${tokenReward}개가 내 보관함에 추가되었습니다.`
-      );
-
-      // 개봉 화면(Inventory)으로 즉시 강제 전환하여 직관적 피드백 제공 (가챠는 미실행)
-      setDrawSubTab("inventory");
-      setSelectedInventoryItem("loot_crate");
-    } else {
-      // 밀수품 상자(contraband)
-      if (paymentMethod === "bp") {
-        // BP로 쿠폰만 구매 시: 재화로 누적
-        const couponReward = crateReward * 10;
-        setCoupons((prev) => prev + couponReward);
-        setTokens((prev) => prev + tokenReward);
-
-        toast.success(
-          `구매가 완료되었습니다! 밀수품 쿠폰 ${couponReward}장, 토큰 ${tokenReward}개가 내 보관함에 추가되었습니다.`
-        );
-
-        setDrawSubTab("inventory");
-        setSelectedInventoryItem("coupon");
-      } else {
-        // G코인으로 구매 시: 즉시 개봉 실행 및 토큰 지급
-        setTokens((prev) => prev + tokenReward);
-        drawContrabandCratesDirect(crateReward);
-
-        toast.success(
-          `구매가 완료되었습니다! 즉시 ${crateReward}회 개봉 연출이 진행됩니다. (토큰 ${tokenReward}개 획득)`
-        );
-      }
-    }
-  };
-
-  const handleOpenInventoryCrates = (mode: "one" | "five" | "ten" | "fiftyfive" | "all") => {
-    if (!activeCrate) return;
-    const currentCrateCount = inventoryCrates[activeCrate.id] || 0;
-    
-    let countToOpen = 0;
-    if (mode === "one") {
-      countToOpen = 1;
-    } else if (mode === "five") {
-      countToOpen = 5;
-    } else if (mode === "ten") {
-      countToOpen = 10;
-    } else if (mode === "fiftyfive") {
-      countToOpen = 55;
-    } else if (mode === "all") {
-      countToOpen = currentCrateCount;
-    }
-
-    if (countToOpen <= 0) {
-      toast.warning("개봉할 상자가 없습니다. 상점에서 패키지를 먼저 구매해주세요.");
+  // 보급고 화물 티켓 BP 구매. 티켓은 상자별 보관 수량으로 쌓이고 상점에서 먼저 사용된다.
+  const handleBuyCrateTickets = (count: number) => {
+    if (!activeCrate || activeCrate.type !== "loot_crate") return;
+    const bought = crateTicketBuyCounts[activeCrate.id] || 0;
+    if (!isUnlimited && bought + count > CRATE_TICKET_BP_LIMIT) {
+      toast.warning(`BP 구매 한도(${CRATE_TICKET_BP_LIMIT}장)를 초과할 수 없습니다. (현재 구매: ${bought}/${CRATE_TICKET_BP_LIMIT}장)`);
       return;
     }
+    const price = CRATE_TICKET_BP_PRICE * count;
+    if (bp < price) {
+      toast.error("보유 가상 BP가 부족합니다. 미션 수행 등으로 추가 BP를 확보하세요.");
+      return;
+    }
+    setBp((prev) => prev - price);
+    setSpentBp((prev) => prev + price);
+    setCrateTicketBuyCounts((prev) => ({ ...prev, [activeCrate.id]: bought + count }));
+    setInventoryCrates((prev) => ({
+      ...prev,
+      [activeCrate.id]: (prev[activeCrate.id] || 0) + count,
+    }));
+    toast.success(`${activeCrate.name} 티켓 ${count}장 구매가 완료되었습니다. (보유: ${((inventoryCrates[activeCrate.id] || 0) + count).toLocaleString()}장)`);
+  };
+
+
+  const handleOpenInventoryCrates = (mode: "one" | "ten") => {
+    if (!activeCrate) return;
+    const currentCrateCount = inventoryCrates[activeCrate.id] || 0;
+    const countToOpen = mode === "ten" ? 10 : 1;
 
     if (currentCrateCount < countToOpen) {
       toast.error(`보유한 상자가 부족합니다. (현재 보유: ${currentCrateCount}개)`);
@@ -538,9 +469,10 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
     // 이전 뽑기 결과 중 뒤집히지 않은 카드 또는 타이머가 남아있는지 판별
     const needsCollect = hasPendingOrUnrevealedCards();
 
+    const openingDurationMs = getOpeningDuration(activeCrate);
     if (needsCollect) {
-      // 1.5초 지연 정산 실행 (새로운 흔들림 연출이 끝나는 1500ms 뒤로 예약)
-      collectRemainingCards(1500);
+      // 새 개봉 연출이 끝나는 시점으로 지연 정산 예약
+      collectRemainingCards(openingDurationMs);
     }
     
     const startDraw = () => {
@@ -560,6 +492,10 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
         ...prev,
         [activeCrate.id]: prev[activeCrate.id] - countToOpen
       }));
+      // 화물 티켓으로 열 때도 G코인 개봉과 같은 개봉당 이벤트 토큰을 지급한다.
+      if (activeCrate.type === "loot_crate") {
+        setTokens((prev) => prev + (activeCrate.bonus_amount_single || 0) * countToOpen);
+      }
 
       const results: DrawnCard[] = [];
       let hasBonusWon = false;
@@ -627,7 +563,7 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
           ...prev,
           totalOpens: prev.totalOpens + countToOpen,
         }));
-      }, 1500); // 연출 몰입을 위해 1.5초 흔들림 유지
+      }, openingDurationMs);
     };
 
     // 지연 정산 여부와 무관하게 흔들림 연출은 즉시 시작하여 조작감 유지
@@ -890,7 +826,7 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
   };
 
   // 밀수품 쿠폰 개봉 핸들러 (1회, 5회, 10회, 전체 지원)
-  const handleOpenContrabandWithCoupons = (mode: "one" | "five" | "ten" | "all") => {
+  const handleOpenContrabandWithCoupons = (mode: "one" | "ten") => {
     if (!activeCrate) return;
     
     if (activeCrate.type !== "contraband") {
@@ -898,24 +834,8 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
       return;
     }
     
-    let couponsNeeded = 10;
-    let countToOpen = 1;
-    
-    if (mode === "five") {
-      couponsNeeded = 50;
-      countToOpen = 5;
-    } else if (mode === "ten") {
-      couponsNeeded = 100;
-      countToOpen = 10;
-    } else if (mode === "all") {
-      countToOpen = Math.floor(coupons / 10);
-      couponsNeeded = countToOpen * 10;
-    }
-
-    if (countToOpen <= 0) {
-      toast.warning("개봉할 수 있는 밀수품 쿠폰이 부족합니다. (최소 10장 필요)");
-      return;
-    }
+    const countToOpen = mode === "ten" ? 10 : 1;
+    const couponsNeeded = countToOpen * 10;
 
     if (coupons < couponsNeeded) {
       toast.error(`밀수품 쿠폰이 부족합니다. (최소 ${couponsNeeded}장 필요, 현재 보유: ${coupons}장)`);
@@ -1016,7 +936,7 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
       toast.error("보유 가상 BP가 부족합니다. 미션 수행 등으로 추가 BP를 확보하세요.");
       return;
     }
-    if (couponWeeklyBuyCount + count > 50) {
+    if (!isUnlimited && couponWeeklyBuyCount + count > 50) {
       toast.warning(`주간 밀수품 쿠폰 구매 한도(50장)를 초과할 수 없습니다. (현재 이번 주 구매 수량: ${couponWeeklyBuyCount}/50장)`);
       return;
     }
@@ -1051,22 +971,7 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
     setIsRefillModalOpen(false);
   };
 
-  // 모든 재화 무제한 충전 핸들러
-  const handleRefillInfinite = () => {
-    setBp(999999999);
-    setGcoin(999999999);
-    setCoupons(999999999);
-    setTokens(999999999);
-    setPrimeParcels(999999999);
-    if (activeCrate) {
-      setInventoryCrates((prev) => ({
-        ...prev,
-        [activeCrate.id]: 999999999,
-      }));
-    }
-    setIsRefillModalOpen(false);
-    toast.success("모든 가상 재화가 무제한(999,999,999)으로 보충되었습니다!");
-  };
+
 
   // 시뮬레이터 완전 초기화 모달 트리거
   const handleResetSimulator = () => {
@@ -1075,6 +980,8 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
 
   // 실제 시뮬레이터 초기화 동작
   const executeResetSimulator = () => {
+    setIsUnlimited(false);
+    balanceBeforeUnlimitedRef.current = null;
     // 대기 중인 모든 타이머 취소
     activeTimersRef.current.forEach((t) => clearTimeout(t.timer));
     activeTimersRef.current = [];
@@ -1098,6 +1005,7 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
     setSpentBp(0);
     setChargeCount(0);
     setBpBuyCount(0);
+    setCrateTicketBuyCounts({});
     setBlackmarketTickets(0);
     setDrawnCards([]);
     setRevealedCards([]);
@@ -1118,27 +1026,33 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
   };
 
   // 특수 제작 처리 핸들러
-  const handleCraftItem = (itemName: string, tokenCost: number) => {
+  const handleCraftItem = (item: CraftableItem) => {
+    const { name: itemName, tokenCost } = item;
     if (tokens < tokenCost) {
-      toast.error(`보유한 이벤트 토큰이 부족합니다. (필요: ${tokenCost}개, 보유: ${tokens}개)`);
+      toast.error(`보유한 이벤트 토큰이 부족합니다. (필요: ${tokenCost.toLocaleString()}개, 보유: ${tokens.toLocaleString()}개)`);
       return false;
     }
-    const matchedPrime = activeCrate?.prime_parcel_items.find(p => p.name === itemName);
-    const matchedNormal = activeCrate?.items.find(i => i.name === itemName);
-    const rewardKey = matchedPrime?.asset_key || matchedNormal?.asset_key || itemName;
     setTokens((prev) => prev - tokenCost);
-    setObtainedSkins((prev) => ({
-      ...prev,
-      [rewardKey]: (prev[rewardKey] || 0) + 1,
-    }));
 
-    const imgUrl = matchedPrime?.image_url || matchedNormal?.image_url || "";
-    
+    // 화물 티켓 제작은 소장품이 아니라 현재 보급고의 티켓으로 지급한다.
+    if (itemName.endsWith("화물 티켓") && activeCrate?.type === "loot_crate") {
+      setInventoryCrates((prev) => ({
+        ...prev,
+        [activeCrate.id]: (prev[activeCrate.id] || 0) + 1,
+      }));
+    } else {
+      const rewardKey = item.asset_key || itemName;
+      setObtainedSkins((prev) => ({
+        ...prev,
+        [rewardKey]: (prev[rewardKey] || 0) + 1,
+      }));
+    }
+
     const craftHistory: HistoryItem = {
       id: crypto.randomUUID(),
       name: `${itemName} (특수 제작)`,
-      rarity: itemName.includes("리미티드") ? "ULTIMATE" : "LEGENDARY",
-      image_url: imgUrl,
+      rarity: item.rarity,
+      image_url: item.image_url,
       isFromPrimeParcel: false,
       isBonus: false,
       timestamp: new Date(),
@@ -1159,7 +1073,7 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
       toast.error("보유 가상 BP가 부족합니다. 미션 수행 등으로 추가 BP를 확보하세요.");
       return;
     }
-    if (bpBuyCount + count > limit) {
+    if (!isUnlimited && bpBuyCount + count > limit) {
       toast.warning(`BP를 통한 구매 한도(${limit}회)를 초과할 수 없습니다. (현재 구매 횟수: ${bpBuyCount}/${limit}회)`);
       return;
     }
@@ -1231,8 +1145,9 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
     if (!activeCrate) return;
 
     const needsCollect = hasPendingOrUnrevealedCards();
+    const openingDurationMs = getOpeningDuration(activeCrate);
     if (needsCollect) {
-      collectRemainingCards(1500);
+      collectRemainingCards(openingDurationMs);
     }
 
     const startDraw = () => {
@@ -1308,7 +1223,7 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
           ...prev,
           totalOpens: prev.totalOpens + countToOpen,
         }));
-      }, 1500);
+      }, openingDurationMs);
     };
 
     startDraw();
@@ -1349,14 +1264,8 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
     stats,
     isChargeModalOpen,
     setIsChargeModalOpen,
-    isQuantityModalOpen,
-    setIsQuantityModalOpen,
     isRefillModalOpen,
     setIsRefillModalOpen,
-    quantityToBuy,
-    setQuantityToBuy,
-    quantityPaymentMethod,
-    setQuantityPaymentMethod,
     refillType,
     setRefillType,
     refillAmount,
@@ -1368,8 +1277,8 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
     
     // 핸들러 함수 모음
     handleChargeGCoin,
-    handleBuyPackage,
-    executeBuyPackage,
+    handleBuyCrateTickets,
+    crateTicketBuyCounts,
     handleOpenInventoryCrates,
     handleOpenPrimeParcel,
     handleCardClick,
@@ -1378,7 +1287,8 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
     handleOpenContrabandWithCoupons,
     handleBuyCoupons,
     handleRefillAsset,
-    handleRefillInfinite,
+    isUnlimited,
+    toggleUnlimited,
     handleResetSimulator,
     collectRemainingCards,
     handleCraftItem,

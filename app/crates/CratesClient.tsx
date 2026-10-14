@@ -15,21 +15,22 @@ import {
 } from "lucide-react";
 
 import type { CrateTemplate } from "@/types/crates";
+import type { CraftableItem } from "./types";
 import { CrateCard, getKoreanRarityName, isSpecialFlipEffectItem } from "./CrateCards";
 import { 
   ChargeModal, 
-  QuantityModal, 
   RefillModal, 
   CraftingModal, 
   DetailModal 
 } from "./CrateModals";
-import { useCratesState } from "./useCratesState";
+import { CRATE_TICKET_BP_LIMIT, CRATE_TICKET_BP_PRICE, useCratesState } from "./useCratesState";
 import { getCraftableItems } from "../actions/crates";
 import { toast } from "sonner";
 import ConfirmModal from "@/components/common/ConfirmModal";
 import AdfitBanner from "@/components/ads/AdfitBanner";
 import AdSenseBanner from "@/components/ads/AdSenseBanner";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
+import { CargoDropScene } from "./CargoDropScene";
 
 interface CratesClientProps {
   initialCrates: CrateTemplate[];
@@ -39,10 +40,19 @@ interface CratesClientProps {
 // ----------------------------------------------------
 // Rarity & Style Helpers (Typesafe Badges)
 // ----------------------------------------------------
+// 이벤트 토큰 코드별 특수 제작 시즌 (craftable_items.season_key)
+const CRAFTING_SEASON_BY_TOKEN: Record<string, string> = {
+  blackmarket_token: "2026_blackmarket",
+  bentley_token: "2026_bentley",
+};
+
+// 좁은 배지에 들어가는 보유 개수는 "10억"처럼 줄여 표시한다.
+const compactCountFormatter = new Intl.NumberFormat("ko-KR", { notation: "compact", maximumFractionDigits: 1 });
+
 const getRarityBadgeStyle = (rarity: string) => {
   switch (rarity) {
     case "ULTIMATE":
-      return "bg-gradient-to-r from-red-600 to-amber-500 text-white shadow-lg shadow-red-500/30";
+      return "bg-gradient-to-r from-red-700 to-rose-500 text-white shadow-lg shadow-red-500/40";
     case "LEGENDARY":
       return "bg-gradient-to-r from-purple-600 to-pink-500 text-white shadow-lg shadow-purple-500/30";
     case "EPIC":
@@ -61,7 +71,7 @@ const getCardBorderGlow = (rarity: string, isBonus: boolean) => {
   }
   switch (rarity) {
     case "ULTIMATE":
-      return "border-amber-500 shadow-[0_0_15px_rgba(245,158,11,0.6)]";
+      return "border-red-500 shadow-[0_0_18px_rgba(239,68,68,0.7)]";
     case "LEGENDARY":
       return "border-pink-500 shadow-[0_0_15px_rgba(236,72,153,0.5)]";
     case "EPIC":
@@ -86,7 +96,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
   const [isLineupOpen, setIsLineupOpen] = useState(false);
 
   // 특수 제작소 아이템 데이터 상태
-  const [craftableItems, setCraftableItems] = useState<any[]>([]);
+  const [craftableItems, setCraftableItems] = useState<CraftableItem[]>([]);
 
   // 골드 스킨 단독 쇼케이스 모달 상태 및 큐
   const [showcaseQueue, setShowcaseQueue] = useState<any[]>([]);
@@ -141,13 +151,8 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
     history,
     isChargeModalOpen,
     setIsChargeModalOpen,
-    isQuantityModalOpen,
-    setIsQuantityModalOpen,
     isRefillModalOpen,
     setIsRefillModalOpen,
-    quantityToBuy,
-    setQuantityToBuy,
-    quantityPaymentMethod,
     refillType,
     setRefillType,
     refillAmount,
@@ -159,8 +164,8 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
 
     // 핸들러 바인딩
     handleChargeGCoin,
-    handleBuyPackage,
-    executeBuyPackage,
+    handleBuyCrateTickets,
+    crateTicketBuyCounts,
     handleOpenInventoryCrates,
     handleOpenPrimeParcel,
     handleCardClick,
@@ -169,7 +174,8 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
     handleOpenContrabandWithCoupons,
     handleBuyCoupons,
     handleRefillAsset,
-    handleRefillInfinite,
+    isUnlimited,
+    toggleUnlimited,
     handleResetSimulator,
     collectRemainingCards,
     handleCraftItem,
@@ -200,16 +206,30 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
     handleRevealAll();
   };
 
-  // 컴포넌트 마운트 시 특수 제작 아이템 로드
-  useEffect(() => {
-    const loadCraftableItems = async () => {
-      const items = await getCraftableItems("2026_blackmarket");
-      setCraftableItems(items);
-    };
-    loadCraftableItems();
-  }, []);
-
   const activeCrate = initialCrates.find((c) => c.id === selectedCrateId);
+  // 상자의 이벤트 토큰 종류로 특수 제작 시즌을 고른다. 시즌이 없는 상자는 특수 제작을 숨긴다.
+  const craftingSeasonKey = activeCrate?.bonus_currency_code
+    ? CRAFTING_SEASON_BY_TOKEN[activeCrate.bonus_currency_code]
+    : undefined;
+
+  // 선택한 상자의 특수 제작 아이템 로드
+  useEffect(() => {
+    if (!craftingSeasonKey) {
+      setCraftableItems([]);
+      return;
+    }
+    let cancelled = false;
+    getCraftableItems(craftingSeasonKey).then((items) => {
+      if (!cancelled) setCraftableItems(items);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [craftingSeasonKey]);
+  // 티켓 화폐가 따로 없는 보급고는 상자별 화물 티켓(보관 수량)으로 연다.
+  const isTicketCrate = activeCrate?.type === "loot_crate" && !activeCrate.ticket_currency_code;
+  const crateTickets = activeCrate ? inventoryCrates[activeCrate.id] || 0 : 0;
+  const crateTicketsBought = activeCrate ? crateTicketBuyCounts[activeCrate.id] || 0 : 0;
 
   // ----------------------------------------------------
   // D-Day 실시간 타이머 구현
@@ -253,8 +273,8 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
   }, [activeCrate?.end_date]);
 
   // 특수 제작 확정 처리 래퍼
-  const handleCraftItemWrapper = (itemName: string, tokenCost: number) => {
-    return handleCraftItem(itemName, tokenCost);
+  const handleCraftItemWrapper = (item: CraftableItem) => {
+    return handleCraftItem(item);
   };
 
   const isTenDrawCompleted = activeCrate ? (contrabandTenDrawCompleted[activeCrate.id] || false) : false;
@@ -289,10 +309,6 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
           from { opacity: 0; transform: scale(0.9); }
           to { opacity: 1; transform: scale(1); }
         }
-        @keyframes dimBg {
-          0% { background-color: rgba(0, 0, 0, 0); backdrop-filter: blur(0px); }
-          100% { background-color: rgba(0, 0, 0, 0.75); backdrop-filter: blur(6px); }
-        }
         @keyframes goldShockwave {
           0% { 
             transform: translate(-50%, -50%) scale(0.5); 
@@ -318,8 +334,30 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
           65% { transform: scale(1.06) rotateY(0deg) translateZ(15px); }
           100% { transform: scale(1) rotateY(0deg); }
         }
-        .animate-dimBg {
-          animation: dimBg 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        @keyframes redShockwave {
+          0% {
+            transform: translate(-50%, -50%) scale(0.5);
+            opacity: 1;
+            border-color: rgba(248, 113, 113, 0.95);
+            box-shadow: 0 0 18px rgba(239, 68, 68, 0.95), inset 0 0 18px rgba(239, 68, 68, 0.9);
+          }
+          100% {
+            transform: translate(-50%, -50%) scale(2.8);
+            opacity: 0;
+            border-color: rgba(239, 68, 68, 0);
+            box-shadow: 0 0 70px rgba(239, 68, 68, 0), inset 0 0 70px rgba(239, 68, 68, 0);
+          }
+        }
+        @keyframes redHaze {
+          0% { transform: translate(-50%, -50%) scale(0.4); opacity: 0; }
+          30% { opacity: 1; }
+          100% { transform: translate(-50%, -50%) scale(1.25); opacity: 0; }
+        }
+        .animate-redShockwave {
+          animation: redShockwave 0.9s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
+        }
+        .animate-redHaze {
+          animation: redHaze 1.4s ease-out forwards;
         }
         .animate-goldShockwave {
           animation: goldShockwave 0.8s cubic-bezier(0.1, 0.8, 0.3, 1) forwards;
@@ -379,8 +417,8 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
           </div>
         </details>
         <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-400">
-          <a href="https://pubg.com/ko/game-info/probability/pc/11077" target="_blank" rel="noopener noreferrer" className="py-2 underline underline-offset-4 hover:text-slate-200">
-            공식 확률표 #43.1
+          <a href="https://pubg.com/ko/game-info/probability/pc/11231" target="_blank" rel="noopener noreferrer" className="py-2 underline underline-offset-4 hover:text-slate-200">
+            공식 확률표 #43.2
           </a>
         </p>
         
@@ -405,7 +443,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                   <span className="w-4 h-4 bg-indigo-900/50 text-indigo-400 font-black text-[9px] rounded flex items-center justify-center border border-indigo-850 shrink-0">BP</span>
                   <div className="min-w-0">
                     <div className="text-[9px] text-slate-500 leading-none">BP</div>
-                    <div className="font-extrabold text-indigo-400 tabular-nums leading-tight">{bp.toLocaleString()}</div>
+                    <div className="font-extrabold text-indigo-400 tabular-nums leading-tight">{isUnlimited ? "무제한" : bp.toLocaleString()}</div>
                   </div>
                 </div>
 
@@ -414,18 +452,29 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                   <Coins className="w-4 h-4 text-amber-400 shrink-0" />
                   <div className="min-w-0">
                     <div className="text-[9px] text-slate-500 leading-none">G코인</div>
-                    <div className="font-extrabold text-amber-400 tabular-nums leading-tight">{gcoin.toLocaleString()}</div>
+                    <div className="font-extrabold text-amber-400 tabular-nums leading-tight">{isUnlimited ? "무제한" : gcoin.toLocaleString()}</div>
                   </div>
                 </div>
 
                 {/* 쿠폰 */}
-                <div className="col-span-2 flex min-w-0 items-center gap-2.5 p-2.5 bg-slate-950/80 rounded-xl border border-slate-850">
+                <div className={`${isTicketCrate ? "" : "col-span-2 "}flex min-w-0 items-center gap-2.5 p-2.5 bg-slate-950/80 rounded-xl border border-slate-850`}>
                   <Ticket className="w-4 h-4 text-purple-400 shrink-0" />
                   <div className="min-w-0 flex-1">
                     <div className="text-[9px] text-slate-500 leading-none">밀수품 쿠폰</div>
-                    <div className="font-extrabold text-purple-400 tabular-nums leading-tight">{coupons}장</div>
+                    <div className="font-extrabold text-purple-400 tabular-nums leading-tight truncate">{coupons.toLocaleString()}장</div>
                   </div>
                 </div>
+
+                {/* 선택한 보급고의 화물 티켓 */}
+                {isTicketCrate && activeCrate && (
+                  <div className="flex min-w-0 items-center gap-2.5 p-2.5 bg-slate-950/80 rounded-xl border border-slate-850">
+                    <Ticket className="w-4 h-4 text-pink-400 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[9px] text-slate-500 leading-none truncate">{activeCrate.name} 티켓</div>
+                      <div className="font-extrabold text-pink-400 tabular-nums leading-tight truncate">{crateTickets.toLocaleString()}장</div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* 누적 충전액 */}
@@ -435,13 +484,22 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                 </div>
               </div>
 
-              {/* 충전 및 보충 버튼 바 */}
+              {/* 무제한 모드·충전 버튼 바 */}
               <div className="grid grid-cols-2 gap-2 pt-2">
                 <button
-                  onClick={() => setIsRefillModalOpen(true)}
-                  className="py-2 bg-slate-950 hover:bg-slate-850 text-indigo-400 border border-indigo-900/40 hover:border-indigo-800/80 font-black rounded-lg text-[10px] active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1"
+                  onClick={toggleUnlimited}
+                  role="switch"
+                  aria-checked={isUnlimited}
+                  className={`py-2 px-2 font-black rounded-lg text-[10px] active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5 border ${
+                    isUnlimited
+                      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/60 shadow-[0_0_12px_rgba(16,185,129,0.25)]"
+                      : "bg-slate-950 hover:bg-slate-850 text-indigo-400 border-indigo-900/40 hover:border-indigo-800/80"
+                  }`}
                 >
-                  <InlineIconLabel icon="award">무제한 보충기</InlineIconLabel>
+                  <span className={`relative inline-flex h-3.5 w-6 shrink-0 rounded-full transition-colors ${isUnlimited ? "bg-emerald-500" : "bg-slate-700"}`}>
+                    <span className={`absolute top-0.5 h-2.5 w-2.5 rounded-full bg-white transition-all ${isUnlimited ? "left-3" : "left-0.5"}`} />
+                  </span>
+                  무제한 모드 {isUnlimited ? "ON" : "OFF"}
                 </button>
                 <button
                   onClick={() => setIsChargeModalOpen(true)}
@@ -451,15 +509,41 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                 </button>
               </div>
 
+              <button
+                onClick={() => setIsRefillModalOpen(true)}
+                className="w-full text-center text-[10px] font-bold text-slate-500 hover:text-slate-300 underline underline-offset-2 cursor-pointer"
+              >
+                재화 직접 보충하기
+              </button>
+
               {/* 밀수품 쿠폰 구매 슬롯 추가 */}
               <div className="pt-2">
                 <button
                   onClick={() => handleBuyCoupons(10)}
-                  disabled={couponWeeklyBuyCount >= 50}
+                  disabled={!isUnlimited && couponWeeklyBuyCount >= 50}
                   className="w-full py-2 bg-slate-950 hover:bg-slate-850 text-indigo-300 border border-indigo-900/40 hover:border-indigo-800/80 font-bold rounded-lg text-[10px] active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  밀수품 쿠폰 10장 구매 (8,000 BP) - ({couponWeeklyBuyCount}/50회)
+                  밀수품 쿠폰 10장 구매 (8,000 BP) - ({isUnlimited ? "한도 없음" : `${couponWeeklyBuyCount}/50장`})
                 </button>
+                {/* 보급고 화물 티켓 BP 구매 (선택한 보급고 기준) */}
+                {isTicketCrate && activeCrate && (
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    {[1, 10].map((count) => (
+                      <button
+                        key={count}
+                        onClick={() => handleBuyCrateTickets(count)}
+                        disabled={timeLeft.isExpired || (!isUnlimited && crateTicketsBought + count > CRATE_TICKET_BP_LIMIT)}
+                        className="py-2 px-1 bg-slate-950 hover:bg-slate-850 text-pink-300 border border-pink-900/40 hover:border-pink-800/80 font-bold rounded-lg text-[10px] active:scale-95 transition-all cursor-pointer flex flex-col items-center justify-center leading-tight disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <span>화물 티켓 {count}장 구매</span>
+                        <span className="text-[9px] text-slate-500">{(CRATE_TICKET_BP_PRICE * count).toLocaleString()} BP</span>
+                      </button>
+                    ))}
+                    <p className="col-span-2 text-center text-[9px] text-slate-500">
+                      {activeCrate.name} 티켓 BP 구매 {isUnlimited ? "한도 없음 (무제한 모드)" : `${crateTicketsBought}/${CRATE_TICKET_BP_LIMIT}장`}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -473,7 +557,11 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                   <Layers className="w-4 h-4 text-amber-500" />
                   상점 상자 라인업
                 </h2>
-                <button className="md:hidden text-slate-400 hover:text-slate-200 focus:outline-none cursor-pointer">
+                <button
+                  aria-label={isLineupOpen ? "상자 라인업 접기" : "상자 라인업 펼치기"}
+                  aria-expanded={isLineupOpen}
+                  className="md:hidden text-slate-400 hover:text-slate-200 focus:outline-none cursor-pointer"
+                >
                   {isLineupOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </button>
               </div>
@@ -517,7 +605,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
             {/* 3. 모달 호출 버튼 바 (세부 정보 및 특수 제작소) */}
             <div className="grid grid-cols-1 gap-3">
               {/* 특수 제작소 (Crafting) 버튼 - 보너스 토큰 재화가 있는 상자일 때 노출 */}
-              {activeCrate?.bonus_currency_code && (
+              {craftingSeasonKey && (
                 <button
                   onClick={() => setIsCraftingModalOpen(true)}
                   className="w-full py-3.5 bg-gradient-to-r from-pink-500 via-rose-500 to-red-500 hover:from-pink-600 hover:to-red-600 text-white font-black rounded-2xl shadow-xl shadow-pink-500/10 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer border border-pink-400/20 text-sm"
@@ -570,7 +658,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                   제작소 보관함
                   {(inventoryCrates[selectedCrateId] || 0) > 0 && (
                     <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-slate-950 text-[9px] font-black">
-                      {inventoryCrates[selectedCrateId]}
+                      {compactCountFormatter.format(inventoryCrates[selectedCrateId])}
                     </span>
                   )}
                 </button>
@@ -586,7 +674,13 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
             </div>
 
             {/* 1. 개봉 애니메이션 진행 및 카드 결과 노출은 탭에 상관없이 즉시 화면을 덮도록 설정 */}
-            {isDrawing && activeCrate ? (
+            {isDrawing && activeCrate && activeCrate.type === "loot_crate" && drawMode === "standard" ? (
+              <CargoDropScene
+                crateName={activeCrate.name}
+                crateImageUrl={activeCrate.image_url}
+                hasBonusEffect={hasBonusEffect}
+              />
+            ) : isDrawing && activeCrate ? (
               <div className="bg-slate-900/30 border border-slate-800/80 rounded-3xl p-6 flex flex-col justify-between items-center relative overflow-hidden min-h-[550px] flex-1">
                 {/* 배경 그라데이션 광 효과 */}
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(30,58,138,0.1)_0%,transparent_80%)] pointer-events-none" />
@@ -619,9 +713,9 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(30,58,138,0.1)_0%,transparent_80%)] pointer-events-none" />
                 {/* 가챠 결과 카드 리스트 노출 */}
                 <div className="flex-1 flex flex-col justify-start space-y-6 my-4 z-10 w-full overflow-hidden">
-                  <div className="flex justify-between items-center border-b border-slate-800 pb-2 gap-4">
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center border-b border-slate-800 pb-2 gap-2 sm:gap-4">
                     <span className="text-[10px] sm:text-xs text-slate-400 font-bold whitespace-nowrap shrink-0">개봉 결과 목록</span>
-                    <div className="flex gap-2 flex-wrap justify-end">
+                    <div className="flex gap-2 flex-wrap sm:justify-end">
                       <button
                         onClick={handleRevealAllWrapper}
                         className="text-[10px] font-black text-amber-400 hover:text-amber-300 border border-amber-950 px-2.5 py-1 rounded bg-amber-950/10 transition-all cursor-pointer"
@@ -666,9 +760,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                         <button
                           onClick={() => {
                             const count = inventoryCrates[activeCrate.id] || 0;
-                            let mode: "one" | "five" | "ten" = "one";
-                            if (count >= 10) mode = "ten";
-                            else if (count >= 5) mode = "five";
+                            const mode: "one" | "ten" = count >= 10 ? "ten" : "one";
                             
                             collectRemainingCards();
                             setDrawnCards([]);
@@ -680,9 +772,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                           <Package className="w-3 h-3 text-pink-400" />
                           {(() => {
                             const count = inventoryCrates[activeCrate.id] || 0;
-                            if (count >= 10) return `이어서 10개 열기 (보유: ${count}개)`;
-                            if (count >= 5) return `이어서 5개 열기 (보유: ${count}개)`;
-                            return `이어서 1개 열기 (보유: ${count}개)`;
+                            return `이어서 ${count >= 10 ? 10 : 1}개 열기 (보유: ${count.toLocaleString()}개)`;
                           })()}
                         </button>
                       )}
@@ -735,11 +825,11 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                     </div>
                   </div>
 
-                  <div className="flex-1 overflow-y-auto w-full pr-1 max-h-[440px] sm:max-h-[480px] scrollbar-thin">
+                  <div className="flex-1 overflow-y-auto w-full px-2 py-6 max-h-[480px] sm:max-h-[520px] scrollbar-thin">
                     <div className={`grid gap-3 justify-center mt-2 ${
                       drawnCards.length === 1 
                         ? "grid-cols-1 max-w-[160px] mx-auto" 
-                        : "grid-cols-2 sm:grid-cols-5"
+                        : "grid-cols-2 sm:grid-cols-4 2xl:grid-cols-5"
                     }`}>
                       {drawnCards.map((card, idx) => (
                         <CrateCard
@@ -795,53 +885,66 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                     <div className="w-full max-w-xl z-10 border-t border-slate-800/80 pt-5 space-y-4">
                       
                       {activeCrate.type === "contraband" ? (
-                        /* [사진 1] 밀수품 상자용 버튼 세트 */
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                          
-                          {/* 1회 열기 (200 G코인) */}
-                          <button
-                            onClick={() => handleOpenContrabandCrateWithGCoin("one")}
-                            disabled={timeLeft.isExpired}
-                            className="py-3.5 bg-slate-850 hover:bg-slate-800 text-white font-extrabold rounded-xl border border-slate-700 active:scale-95 shadow-lg flex flex-col items-center justify-center gap-1 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                          >
-                            <span className="text-slate-400 text-[10px] font-bold">1회 열기</span>
-                            <div className="flex items-center gap-1 text-xs">
-                              <Coins className="w-4 h-4 text-amber-500" />
-                              <span>200 G코인</span>
+                        /* 밀수품: 쿠폰이 있으면 쿠폰 열기를 먼저, 기본은 G코인 열기 */
+                        <div className="space-y-3">
+                          {coupons >= 10 && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <button
+                                onClick={() => handleOpenContrabandWithCoupons("one")}
+                                disabled={timeLeft.isExpired}
+                                className="py-3.5 bg-indigo-950/80 hover:bg-indigo-900/90 text-indigo-200 font-extrabold rounded-xl border border-indigo-700/60 active:scale-95 shadow-lg flex flex-col items-center justify-center gap-1 cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                <span className="text-indigo-400 text-[10px] font-bold">쿠폰으로 1회 열기</span>
+                                <div className="flex items-center gap-1 text-xs text-indigo-300">
+                                  <Ticket className="w-4 h-4 text-indigo-400" />
+                                  <span>쿠폰 10장 (보유 {coupons.toLocaleString()}장)</span>
+                                </div>
+                              </button>
+                              <button
+                                onClick={() => handleOpenContrabandWithCoupons("ten")}
+                                disabled={timeLeft.isExpired || coupons < 100}
+                                className="py-3.5 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-black rounded-xl active:scale-95 shadow-xl shadow-indigo-500/10 flex flex-col items-center justify-center gap-1 cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                              >
+                                <span className="text-[10px] font-black">쿠폰으로 10회 열기</span>
+                                <div className="flex items-center gap-1 text-xs">
+                                  <Ticket className="w-4 h-4" />
+                                  <span>쿠폰 100장</span>
+                                </div>
+                              </button>
                             </div>
-                          </button>
+                          )}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            {/* 1회 열기 (200 G코인) */}
+                            <button
+                              onClick={() => handleOpenContrabandCrateWithGCoin("one")}
+                              disabled={timeLeft.isExpired}
+                              className="py-3.5 bg-slate-850 hover:bg-slate-800 text-white font-extrabold rounded-xl border border-slate-700 active:scale-95 shadow-lg flex flex-col items-center justify-center gap-1 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <span className="text-slate-400 text-[10px] font-bold">1회 열기</span>
+                              <div className="flex items-center gap-1 text-xs">
+                                <Coins className="w-4 h-4 text-amber-500" />
+                                <span>200 G코인</span>
+                              </div>
+                            </button>
 
-                          {/* 10회 열기 (할인 노출) */}
-                          <button
-                            onClick={() => handleOpenContrabandCrateWithGCoin("ten")}
-                            disabled={timeLeft.isExpired}
-                            className="py-3.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-slate-950 font-black rounded-xl active:scale-95 shadow-xl shadow-orange-500/10 flex flex-col items-center justify-center gap-1 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden"
-                          >
-                            {/* 10% 또는 50% 할인 동적 뱃지 */}
-                            <div className="absolute top-1 right-1 text-[8px] font-black bg-red-600 text-white px-1 py-0.2 rounded uppercase">
-                              {isTenDrawCompleted ? "10% 할인" : "50% 할인"}
-                            </div>
-                            <span className="text-slate-950 text-[10px] font-black">10회 열기</span>
-                            <div className="flex items-center gap-1 text-xs">
-                              <Coins className="w-4 h-4 text-slate-950" />
-                              <span className="line-through text-slate-950/50 text-[9px]">2,000 G코인</span>
-                              <span className="font-black">{isTenDrawCompleted ? "1,800" : "1,000"} G코인</span>
-                            </div>
-                          </button>
-
-                          {/* 쿠폰으로 열기 */}
-                          <button
-                            onClick={() => handleOpenContrabandWithCoupons("one")}
-                            disabled={timeLeft.isExpired || coupons < 10}
-                            className={`py-3.5 bg-indigo-950/80 hover:bg-indigo-900/90 text-indigo-200 font-extrabold rounded-xl border border-indigo-700/60 active:scale-95 shadow-lg flex flex-col items-center justify-center gap-1 cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed`}
-                          >
-                            <span className="text-indigo-400 text-[10px] font-bold">쿠폰으로 열기</span>
-                            <div className="flex items-center gap-1 text-xs text-indigo-300">
-                              <Ticket className="w-4 h-4 text-indigo-400" />
-                              <span>10장 보유: {coupons}/10</span>
-                            </div>
-                          </button>
-
+                            {/* 10회 열기 (할인 노출) */}
+                            <button
+                              onClick={() => handleOpenContrabandCrateWithGCoin("ten")}
+                              disabled={timeLeft.isExpired}
+                              className="py-3.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-slate-950 font-black rounded-xl active:scale-95 shadow-xl shadow-orange-500/10 flex flex-col items-center justify-center gap-1 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed relative overflow-hidden"
+                            >
+                              {/* 10% 또는 50% 할인 동적 뱃지 */}
+                              <div className="absolute top-1 right-1 text-[8px] font-black bg-red-600 text-white px-1 py-0.2 rounded uppercase">
+                                {isTenDrawCompleted ? "10% 할인" : "50% 할인"}
+                              </div>
+                              <span className="text-slate-950 text-[10px] font-black">10회 열기</span>
+                              <div className="flex items-center gap-1 text-xs">
+                                <Coins className="w-4 h-4 text-slate-950" />
+                                <span className="line-through text-slate-950/50 text-[9px]">2,000 G코인</span>
+                                <span className="font-black">{isTenDrawCompleted ? "1,800" : "1,000"} G코인</span>
+                              </div>
+                            </button>
+                          </div>
                         </div>
                       ) : (
                         /* 전리품 상자용 제어부 */
@@ -921,64 +1024,66 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                             )}
                           </div>
                         ) : (
-                          /* 레거시 패키지 구매 버튼바 (하위 호환성) */
-                          <div className="space-y-4">
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                              {/* X55 */}
+                          /* 보급고: 화물 티켓이 있으면 티켓 열기를 먼저, 기본은 G코인 열기 */
+                          <div className="space-y-3">
+                            {crateTickets > 0 && (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                <button
+                                  onClick={() => handleOpenInventoryCrates("one")}
+                                  disabled={timeLeft.isExpired}
+                                  className="py-3.5 bg-pink-950/40 hover:bg-pink-900/50 text-pink-100 font-extrabold rounded-xl border border-pink-700/60 active:scale-95 shadow-lg flex flex-col items-center justify-center gap-1 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <span className="text-pink-300 text-[10px] font-bold">티켓으로 1회 열기</span>
+                                  <div className="flex items-center gap-1 text-xs">
+                                    <Ticket className="w-4 h-4 text-pink-400" />
+                                    <span>화물 티켓 1장 (보유 {crateTickets.toLocaleString()}장)</span>
+                                  </div>
+                                  <span className="text-[8px] text-pink-400 font-bold leading-none mt-0.5">보너스: 토큰 x{(activeCrate.bonus_amount_single || 10)}</span>
+                                </button>
+                                <button
+                                  onClick={() => handleOpenInventoryCrates("ten")}
+                                  disabled={timeLeft.isExpired || crateTickets < 10}
+                                  className="py-3.5 bg-gradient-to-r from-pink-500 to-rose-600 hover:from-pink-600 hover:to-rose-700 text-white font-black rounded-xl active:scale-95 shadow-xl shadow-pink-500/10 flex flex-col items-center justify-center gap-1 cursor-pointer transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                >
+                                  <span className="text-[10px] font-black">티켓으로 10회 열기</span>
+                                  <div className="flex items-center gap-1 text-xs">
+                                    <Ticket className="w-4 h-4" />
+                                    <span>화물 티켓 10장</span>
+                                  </div>
+                                  <span className="text-[8px] text-pink-100 font-bold leading-none mt-0.5">보너스: 토큰 x{(activeCrate.bonus_amount_bundle || 100)}</span>
+                                </button>
+                              </div>
+                            )}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              {/* G-Coin 1회 열기 */}
                               <button
-                                onClick={() => handleBuyPackage("X55")}
+                                onClick={() => handleOpenLootCrateDirect("one", "gcoin")}
                                 disabled={timeLeft.isExpired}
-                                className="p-3 bg-slate-950 hover:bg-slate-850 border border-slate-800 hover:border-amber-500/50 rounded-xl text-center active:scale-95 transition-all cursor-pointer flex flex-col items-center justify-between min-h-[90px] disabled:opacity-50"
+                                className="py-3.5 bg-slate-850 hover:bg-slate-800 text-white font-extrabold rounded-xl border border-slate-700 active:scale-95 shadow-lg flex flex-col items-center justify-center gap-1 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                               >
-                                <span className="text-[10px] font-black text-amber-500">화물 상자 55개</span>
-                                <div className="text-[8px] text-slate-500 mt-1 leading-tight">상자55+토큰800</div>
-                                <span className="text-xs font-black text-slate-300 mt-2">12,500 G코인</span>
+                                <span className="text-slate-400 text-[10px] font-bold">1회 열기</span>
+                                <div className="flex items-center gap-1 text-xs">
+                                  <Coins className="w-4 h-4 text-amber-500" />
+                                  <span>{(activeCrate.price_gcoin || 250).toLocaleString()} G코인</span>
+                                </div>
+                                <span className="text-[8px] text-pink-500 font-bold leading-none mt-0.5">보너스: 토큰 x{(activeCrate.bonus_amount_single || 10)}</span>
                               </button>
 
-                              {/* X27 */}
+                              {/* G-Coin 10회 열기 */}
                               <button
-                                onClick={() => handleBuyPackage("X27")}
+                                onClick={() => handleOpenLootCrateDirect("ten", "gcoin")}
                                 disabled={timeLeft.isExpired}
-                                className="p-3 bg-slate-950 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 rounded-xl text-center active:scale-95 transition-all cursor-pointer flex flex-col items-center justify-between min-h-[90px] disabled:opacity-50"
+                                className="py-3.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-slate-950 font-black rounded-xl active:scale-95 shadow-xl shadow-orange-500/10 flex flex-col items-center justify-center gap-1 cursor-pointer transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                               >
-                                <span className="text-[10px] font-black text-slate-200">화물 상자 27개</span>
-                                <div className="text-[8px] text-slate-500 mt-1 leading-tight">상자27+토큰400</div>
-                                <span className="text-xs font-black text-slate-355 mt-2">6,250 G코인</span>
-                              </button>
-
-                              {/* X11 */}
-                              <button
-                                onClick={() => handleBuyPackage("X11")}
-                                disabled={timeLeft.isExpired}
-                                className="p-3 bg-slate-950 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 rounded-xl text-center active:scale-95 transition-all cursor-pointer flex flex-col items-center justify-between min-h-[90px] disabled:opacity-50"
-                              >
-                                <span className="text-[10px] font-black text-slate-200">화물 상자 11개</span>
-                                <div className="text-[8px] text-slate-500 mt-1 leading-tight">상자11+토큰150</div>
-                                <span className="text-xs font-black text-slate-355 mt-2">2,500 G코인</span>
-                              </button>
-
-                              {/* X1 */}
-                              <button
-                                onClick={() => handleBuyPackage("X1", "gcoin")}
-                                disabled={timeLeft.isExpired}
-                                className="p-3 bg-slate-950 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 rounded-xl text-center active:scale-95 transition-all cursor-pointer flex flex-col items-center justify-between min-h-[90px] disabled:opacity-50"
-                              >
-                                <span className="text-[10px] font-black text-slate-200">화물 상자 1개</span>
-                                <div className="text-[8px] text-slate-500 mt-1 leading-tight">상자1+토큰15</div>
-                                <span className="text-xs font-black text-slate-355 mt-2">250 G코인</span>
+                                <span className="text-slate-950 text-[10px] font-black">10회 열기</span>
+                                <div className="flex items-center gap-1 text-xs">
+                                  <Coins className="w-4 h-4 text-slate-950" />
+                                  <span className="font-black">{(activeCrate.bundle_price_gcoin || 2500).toLocaleString()} G코인</span>
+                                </div>
+                                <span className="text-[8px] text-red-950 font-bold leading-none mt-0.5">보너스: 토큰 x{(activeCrate.bonus_amount_bundle || 100)}</span>
                               </button>
                             </div>
 
-                            {/* BP로 X1 전리품 상자 구매 추가 슬롯 */}
-                            <div className="pt-1">
-                              <button
-                                onClick={() => handleBuyPackage("X1", "bp")}
-                                disabled={timeLeft.isExpired || bpBuyCount >= 50}
-                                className="w-full py-2.5 bg-indigo-950/30 hover:bg-indigo-950/60 border border-indigo-900/40 text-indigo-300 font-extrabold rounded-lg flex items-center justify-center gap-1 active:scale-95 transition-all cursor-pointer disabled:opacity-40 text-xs"
-                              >
-                                상자 1개 구매 (10,000 BP) - ({bpBuyCount}/50회)
-                              </button>
-                            </div>
                           </div>
                         )
                       )}
@@ -1032,7 +1137,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                           <div className="min-w-0">
                             <h4 className="text-[11px] font-black text-slate-200 truncate">밀수품 쿠폰</h4>
                             <p className="text-[9px] text-slate-500 mt-0.5">
-                              보유: <span className="font-extrabold text-indigo-400">{coupons}</span> 장
+                              보유: <span className="font-extrabold text-indigo-400">{coupons.toLocaleString()}</span> 장
                             </p>
                           </div>
                         </div>
@@ -1065,9 +1170,9 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                         <p className="text-[10px] text-slate-400 mt-1">
                           보유량:{" "}
                           <span className="font-extrabold text-amber-500">
-                            {selectedInventoryItem === "coupon" 
+                            {(selectedInventoryItem === "coupon" 
                               ? coupons 
-                              : (inventoryCrates[activeCrate.id] || 0)}
+                              : (inventoryCrates[activeCrate.id] || 0)).toLocaleString()}
                           </span>
                           {selectedInventoryItem === "coupon" ? "장" : "개"}
                         </p>
@@ -1088,31 +1193,13 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                           >
                             1개 열기 (10장)
                           </button>
-                          {coupons >= 50 && coupons < 100 && (
-                            <button
-                              onClick={() => handleOpenContrabandWithCoupons("five")}
-                              disabled={isDrawing}
-                              className="flex-1 min-w-[100px] py-3 bg-slate-850 hover:bg-slate-800 text-white font-extrabold rounded-xl border border-slate-700 active:scale-95 transition-all text-xs cursor-pointer text-center"
-                            >
-                              5개 열기 (50장)
-                            </button>
-                          )}
                           {coupons >= 100 && (
                             <button
                               onClick={() => handleOpenContrabandWithCoupons("ten")}
                               disabled={isDrawing}
-                              className="flex-1 min-w-[100px] py-3 bg-slate-850 hover:bg-slate-800 text-white font-extrabold rounded-xl border border-slate-700 active:scale-95 transition-all text-xs cursor-pointer text-center"
+                              className="flex-1 min-w-[100px] py-3 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-slate-950 font-black rounded-xl active:scale-95 transition-all text-xs cursor-pointer text-center"
                             >
                               10개 열기 (100장)
-                            </button>
-                          )}
-                          {coupons >= 20 && (
-                            <button
-                              onClick={() => handleOpenContrabandWithCoupons("all")}
-                              disabled={isDrawing}
-                              className="flex-1 min-w-[120px] py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-black rounded-xl active:scale-95 transition-all text-xs cursor-pointer text-center"
-                            >
-                              전체 열기 ({Math.floor(coupons / 10)}개)
                             </button>
                           )}
                         </div>
@@ -1125,40 +1212,13 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                           >
                             1개 열기 (1개)
                           </button>
-                          {(inventoryCrates[activeCrate.id] || 0) >= 5 && (inventoryCrates[activeCrate.id] || 0) < 10 && (
-                            <button
-                              onClick={() => handleOpenInventoryCrates("five")}
-                              disabled={isDrawing}
-                              className="flex-1 min-w-[100px] py-3 bg-slate-850 hover:bg-slate-800 text-white font-extrabold rounded-xl border border-slate-700 active:scale-95 transition-all text-xs cursor-pointer text-center"
-                            >
-                              5개 열기 (5개)
-                            </button>
-                          )}
                           {(inventoryCrates[activeCrate.id] || 0) >= 10 && (
                             <button
                               onClick={() => handleOpenInventoryCrates("ten")}
                               disabled={isDrawing}
-                              className="flex-1 min-w-[100px] py-3 bg-slate-850 hover:bg-slate-800 text-white font-extrabold rounded-xl border border-slate-700 active:scale-95 transition-all text-xs cursor-pointer text-center"
+                              className="flex-1 min-w-[100px] py-3 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-slate-950 font-black rounded-xl active:scale-95 transition-all text-xs cursor-pointer text-center"
                             >
                               10개 열기 (10개)
-                            </button>
-                          )}
-                          {(inventoryCrates[activeCrate.id] || 0) >= 55 && (
-                            <button
-                              onClick={() => handleOpenInventoryCrates("fiftyfive")}
-                              disabled={isDrawing}
-                              className="flex-1 min-w-[100px] py-3 bg-slate-850 hover:bg-slate-800 text-white font-extrabold rounded-xl border border-slate-700 active:scale-95 transition-all text-xs cursor-pointer text-center"
-                            >
-                              55개 열기 (55개)
-                            </button>
-                          )}
-                          {(inventoryCrates[activeCrate.id] || 0) >= 2 && (
-                            <button
-                              onClick={() => handleOpenInventoryCrates("all")}
-                              disabled={isDrawing}
-                              className="flex-1 min-w-[120px] py-3 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-slate-950 font-black rounded-xl active:scale-95 transition-all text-xs cursor-pointer text-center"
-                            >
-                              전체 열기 ({(inventoryCrates[activeCrate.id] || 0)}개)
                             </button>
                           )}
                         </div>
@@ -1214,17 +1274,6 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
         exchangeRate={exchangeRate}
       />
 
-      {/* 구매 수량 선택 모달 */}
-      <QuantityModal
-        isOpen={isQuantityModalOpen}
-        onClose={() => setIsQuantityModalOpen(false)}
-        crateName={activeCrate?.name}
-        quantity={quantityToBuy}
-        setQuantity={setQuantityToBuy}
-        paymentMethod={quantityPaymentMethod}
-        onConfirm={executeBuyPackage}
-      />
-
       {/* 이벤트 재화 보충기 모달 */}
       <RefillModal
         isOpen={isRefillModalOpen}
@@ -1234,7 +1283,6 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
         refillAmount={refillAmount}
         setRefillAmount={setRefillAmount}
         onRefill={handleRefillAsset}
-        onRefillInfinite={handleRefillInfinite}
       />
 
       {/* 특수 제작소 (Crafting) 모달 */}
@@ -1245,6 +1293,8 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
         obtainedSkins={obtainedSkins}
         onCraft={handleCraftItemWrapper}
         craftableItems={craftableItems}
+        getRarityBadgeStyle={getRarityBadgeStyle}
+        isUnlimited={isUnlimited}
       />
 
       {/* 상자 세부정보 (Vault, 히스토리, 확률표) 모달 */}
@@ -1276,6 +1326,10 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
           {/* 뒷배경 황금색 원형 글로우 */}
           <div className="absolute w-[600px] h-[600px] rounded-full bg-amber-500/10 blur-[120px] pointer-events-none animate-pulse" />
           <div className="absolute w-[300px] h-[300px] rounded-full bg-yellow-500/15 blur-[60px] pointer-events-none animate-[ping_4s_infinite]" />
+          {/* 얼티밋은 인게임처럼 금빛 안개 가운데에 붉은 광채를 더한다 */}
+          {currentShowcaseCard.rarity === "ULTIMATE" && (
+            <div className="absolute w-[340px] h-[340px] rounded-full bg-red-600/25 blur-[70px] pointer-events-none" />
+          )}
 
           {/* 상단 텍스트 */}
           <h1 className="text-3xl sm:text-4xl font-black text-slate-100 tracking-wider mb-12 animate-[fadeIn_0.5s_ease-out] drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]">
@@ -1298,7 +1352,11 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
             </div>
 
             {/* 중앙 웅장한 카드 쇼케이스 박스 */}
-            <div className="relative z-10 w-64 h-84 sm:w-80 sm:h-[420px] rounded-3xl bg-slate-900 border-[3px] border-amber-500 p-6 flex flex-col justify-between items-center shadow-[0_0_50px_rgba(245,158,11,0.4)] animate-[goldBounceZoom_1.3s_cubic-bezier(0.25,1,0.5,1)]">
+            <div className={`relative z-10 w-64 min-h-84 sm:w-80 sm:min-h-[420px] rounded-3xl border-[3px] p-6 flex flex-col justify-between items-center gap-3 animate-[goldBounceZoom_1.3s_cubic-bezier(0.25,1,0.5,1)] ${
+              currentShowcaseCard.rarity === "ULTIMATE"
+                ? "bg-gradient-to-b from-red-950 via-[#2a0d10] to-slate-900 border-red-500 shadow-[0_0_60px_rgba(239,68,68,0.5)]"
+                : "bg-slate-900 border-amber-500 shadow-[0_0_50px_rgba(245,158,11,0.4)]"
+            }`}>
               
               {/* 골드 뱃지 */}
               <div className="flex justify-center w-full">
@@ -1321,9 +1379,12 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
                 <div className={`text-xs font-black tracking-widest ${
                   currentShowcaseCard.rarity === "ULTIMATE" ? "text-red-500" : "text-purple-400"
                 }`}>
-                  {currentShowcaseCard.rarity === "ULTIMATE" ? "얼티밋 크로마" : "레전더리 성장"}
+                  {/* 도안은 무기 크로마·성장형과 구분해 등급만 표시한다 */}
+                  {currentShowcaseCard.name.endsWith(" 도안")
+                    ? `${getKoreanRarityName(currentShowcaseCard.rarity)} 도안`
+                    : currentShowcaseCard.rarity === "ULTIMATE" ? "얼티밋 크로마" : "레전더리 성장"}
                 </div>
-                <h2 className="font-extrabold text-base sm:text-lg text-slate-100 line-clamp-1 break-keep leading-tight px-1" title={currentShowcaseCard.name}>
+                <h2 className="font-extrabold text-base sm:text-lg text-slate-100 line-clamp-2 break-keep leading-tight px-1" title={currentShowcaseCard.name}>
                   {currentShowcaseCard.name}
                 </h2>
               </div>

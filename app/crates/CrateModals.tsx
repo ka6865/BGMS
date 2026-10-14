@@ -1,10 +1,9 @@
 import React, { useState } from "react";
 import { Coins, Box, Award, Ticket, Sparkles, History, AlertTriangle, Layers, X } from "lucide-react";
 import type { CrateTemplate } from "@/types/crates";
-import { HistoryItem } from "./types";
+import { CraftableItem, HistoryItem } from "./types";
 import { VaultCard, HistoryCard, getKoreanRarityName } from "./CrateCards";
 import { AppModal } from "@/components/common/AppModal";
-import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
 function getOwnedCount(obtainedSkins: Record<string, number>, item: { name: string; asset_key?: string | null }) {
   return obtainedSkins[item.asset_key || item.name] || obtainedSkins[item.name] || 0;
@@ -20,6 +19,11 @@ interface ChargeModalProps {
   exchangeRate: number;
 }
 
+
+// 컬렉션 정렬용 등급 순위
+const RARITY_ORDER: Record<string, number> = {
+  ULTIMATE: 6, LEGENDARY: 5, EPIC: 4, ELITE: 3, RARE: 2, SPECIAL: 1, COMMON: 0,
+};
 export function ChargeModal({ isOpen, onClose, onCharge, exchangeRate = 1500 }: ChargeModalProps) {
   return (
     <AppModal isOpen={isOpen} title="가상 G코인 충전소" onClose={onClose} panelClassName="max-w-xl">
@@ -93,8 +97,6 @@ export function ChargeModal({ isOpen, onClose, onCharge, exchangeRate = 1500 }: 
   );
 }
 
-// ----------------------------------------------------
-// QuantityModal Props & Component
 // ----------------------------------------------------
 interface QuantityModalProps {
   isOpen: boolean;
@@ -221,7 +223,6 @@ interface RefillModalProps {
   refillAmount: number;
   setRefillAmount: React.Dispatch<React.SetStateAction<number>>;
   onRefill: () => void;
-  onRefillInfinite?: () => void;
 }
 
 export function RefillModal({
@@ -231,8 +232,7 @@ export function RefillModal({
   setRefillType,
   refillAmount,
   setRefillAmount,
-  onRefill,
-  onRefillInfinite
+  onRefill
 }: RefillModalProps) {
   return (
     <AppModal isOpen={isOpen} title="이벤트 재화 보충기" onClose={onClose} panelClassName="max-w-md">
@@ -253,7 +253,7 @@ export function RefillModal({
             이벤트 재화 보충기
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            시뮬레이션 전용 무제한 재화 보충 시스템입니다. 원하는 재화와 보충할 수량을 선택하세요.
+            원하는 재화와 보충할 수량을 선택하세요. 재화 걱정 없이 열려면 무제한 모드를 켜세요.
           </p>
         </div>
 
@@ -330,14 +330,6 @@ export function RefillModal({
             보충 완료
           </button>
           
-          {onRefillInfinite && (
-            <button
-              onClick={onRefillInfinite}
-              className="w-full py-3.5 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-600 hover:via-yellow-600 hover:to-amber-700 text-slate-950 font-black rounded-xl shadow-lg shadow-amber-500/10 transition-all active:scale-95 flex items-center justify-center gap-2 cursor-pointer text-sm"
-            >
-              <InlineIconLabel icon="zap">모든 재화 무제한 충전 (999M)</InlineIconLabel>
-            </button>
-          )}
         </div>
       </div>
     </AppModal>
@@ -484,48 +476,54 @@ interface CraftingModalProps {
   onClose: () => void;
   tokens: number;
   obtainedSkins: Record<string, number>;
-  onCraft: (itemName: string, tokenCost: number) => boolean;
-  craftableItems: any[];
+  onCraft: (item: CraftableItem) => boolean;
+  craftableItems: CraftableItem[];
+  getRarityBadgeStyle: (rarity: string) => string;
+  isUnlimited: boolean;
 }
 
-export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft, craftableItems }: CraftingModalProps) {
+export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft, craftableItems, getRarityBadgeStyle, isUnlimited }: CraftingModalProps) {
   const [activeSubTab, setActiveSubTab] = useState<string>("전체");
   
   const filteredItems = activeSubTab === "전체" 
     ? craftableItems 
     : craftableItems.filter(item => item.category === activeSubTab);
 
-  const categories = ["전체", ...Array.from(new Set(craftableItems.map(item => item.category)))];
+  // 재화는 꾸미기 아이템 뒤에 둔다.
+  const categories = [
+    "전체",
+    ...Array.from(new Set(craftableItems.map(item => item.category))).sort((a, b) => Number(a === "재화") - Number(b === "재화")),
+  ];
 
   return (
     <AppModal isOpen={isOpen} title="제작소 특수 제작" onClose={onClose} panelClassName="max-w-6xl">
       <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full h-[90dvh] flex flex-col shadow-2xl relative overflow-hidden">
         
         {/* 헤더 */}
-        <header className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/60 shrink-0">
-          <div>
-            <h2 className="text-xl font-black text-amber-400 flex items-center gap-2">
-              <Sparkles className="w-6 h-6 text-amber-500 animate-pulse" />
+        <header className="p-4 sm:p-6 border-b border-slate-800 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 bg-slate-900/60 shrink-0">
+          <div className="min-w-0">
+            <h2 className="text-base sm:text-xl font-black text-amber-400 flex items-center gap-2 break-keep">
+              <Sparkles className="w-5 h-5 sm:w-6 sm:h-6 text-amber-500 animate-pulse shrink-0" />
               제작소 &gt; 특수 제작
             </h2>
-            <p className="text-xs text-slate-400 mt-1">
+            <p className="text-xs text-slate-400 mt-1 break-keep">
               획득한 이벤트 토큰을 소모하여 당신만의 특별한 도안 아이템을 제작해 보세요.
             </p>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center justify-between sm:justify-end gap-3 sm:gap-4">
             {/* 토큰 표시 */}
-            <div className="flex items-center gap-2 px-4 py-2 bg-slate-950 border border-slate-800 rounded-xl">
+            <div className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-slate-950 border border-slate-800 rounded-xl min-w-0">
               <Box className="w-5 h-5 text-pink-500" />
               <div className="text-right">
                 <div className="text-[9px] text-slate-500 font-bold leading-none">내 보유 토큰</div>
-                <div className="text-base font-black text-pink-500">{tokens}개</div>
+                <div className="text-sm sm:text-base font-black text-pink-500 tabular-nums whitespace-nowrap">{isUnlimited ? "무제한" : `${tokens.toLocaleString()}개`}</div>
               </div>
             </div>
             
             <button
               onClick={onClose}
               aria-label="닫기"
-              className="text-slate-400 hover:text-white font-bold text-lg px-3 py-2 rounded-lg hover:bg-slate-800 transition-all cursor-pointer"
+              className="shrink-0 inline-flex items-center gap-1 whitespace-nowrap text-slate-400 hover:text-white font-bold text-sm px-3 py-2 rounded-lg hover:bg-slate-800 transition-all cursor-pointer"
             >
               <X className="h-4 w-4" aria-hidden="true" />
               닫기
@@ -551,7 +549,7 @@ export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft,
         </div>
 
         {/* 컨텐츠 그리드 */}
-        <div className="flex-1 overflow-y-auto p-6 bg-slate-950/40">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-950/40">
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-6">
             {filteredItems.map((item) => {
               const ownedCount = getOwnedCount(obtainedSkins, item);
@@ -566,13 +564,13 @@ export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft,
                   }`}
                 >
                   <div className="w-full flex justify-between items-start">
-                    <span className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded tracking-wide ${
-                      item.rarity === "ULTIMATE" 
-                        ? "bg-gradient-to-r from-red-600 to-amber-500 text-white" 
-                        : "bg-gradient-to-r from-purple-600 to-pink-500 text-white"
-                    }`}>
-                      {item.rarity}
-                    </span>
+                    {item.rarity !== "COMMON" ? (
+                      <span className={`shrink-0 whitespace-nowrap text-[8px] font-extrabold px-1.5 py-0.5 rounded tracking-wide ${getRarityBadgeStyle(item.rarity)}`}>
+                        {getKoreanRarityName(item.rarity)}
+                      </span>
+                    ) : (
+                      <span />
+                    )}
                     {ownedCount > 0 && (
                       <span className="text-[9px] bg-amber-500/10 border border-amber-500/30 text-amber-400 font-extrabold px-2 py-0.5 rounded-full">
                         보유 중 (x{ownedCount})
@@ -581,19 +579,23 @@ export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft,
                   </div>
 
                   <div className="w-32 h-32 bg-slate-900 rounded-xl p-2 border border-slate-800/60 flex items-center justify-center relative overflow-hidden group mt-3">
-                    <img
-                      src={item.image_url}
-                      alt={item.name}
-                      className="object-contain max-h-full max-w-full drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] group-hover:scale-105 transition-transform"
-                      onError={(e) => {
-                        (e.target as any).style.display = "none";
-                      }}
-                    />
+                    {/* 이미지가 확인되지 않은 재화는 기본 아이콘만 보여 준다 */}
+                    {!item.image_url && <Box className="w-10 h-10 text-slate-600" aria-hidden="true" />}
+                    {item.image_url && (
+                      <img
+                        src={item.image_url}
+                        alt={item.name}
+                        className="object-contain max-h-full max-w-full drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] group-hover:scale-105 transition-transform"
+                        onError={(e) => {
+                          (e.target as any).style.display = "none";
+                        }}
+                      />
+                    )}
                     <Box className="w-10 h-10 text-slate-850 absolute inset-0 m-auto -z-10" />
                   </div>
 
                   <div className="text-center w-full mt-4 space-y-1">
-                    <h4 className="font-extrabold text-xs text-slate-200 line-clamp-2 min-h-[32px] break-keep leading-tight px-1" title={item.name}>
+                    <h4 className="font-extrabold text-[11px] sm:text-xs text-slate-200 line-clamp-3 min-h-[42px] break-keep [overflow-wrap:anywhere] leading-tight px-1" title={item.name}>
                       {item.name}
                     </h4>
                     
@@ -605,7 +607,7 @@ export function CraftingModal({ isOpen, onClose, tokens, obtainedSkins, onCraft,
                   </div>
 
                   <button
-                    onClick={() => onCraft(item.name, item.tokenCost)}
+                    onClick={() => onCraft(item)}
                     disabled={!isAffordable}
                     className={`w-full py-2 mt-4 font-black rounded-xl text-xs shadow-md transition-all active:scale-95 flex items-center justify-center gap-1 cursor-pointer ${
                       isAffordable
@@ -663,10 +665,10 @@ export function DetailModal({
       <div className="bg-slate-900 border border-slate-800 rounded-3xl w-full h-[92dvh] sm:h-[85dvh] flex flex-col shadow-2xl relative overflow-hidden">
         
         {/* 헤더 */}
-        <header className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/60 shrink-0">
-          <div>
-            <h2 className="text-xl font-black text-amber-400 flex items-center gap-2">
-              <Layers className="w-6 h-6 text-amber-500" />
+        <header className="p-4 sm:p-6 border-b border-slate-800 flex justify-between items-start gap-3 bg-slate-900/60 shrink-0">
+          <div className="min-w-0">
+            <h2 className="text-base sm:text-xl font-black text-amber-400 flex items-start gap-2 break-keep">
+              <Layers className="w-5 h-5 sm:w-6 sm:h-6 text-amber-500 shrink-0 mt-0.5" />
               {activeCrate.name} 세부 정보 (소장품 &amp; 확률표)
             </h2>
             <p className="text-xs text-slate-400 mt-1">
@@ -676,7 +678,7 @@ export function DetailModal({
           <button
             onClick={onClose}
             aria-label="닫기"
-            className="text-slate-400 hover:text-white font-bold text-lg px-3 py-2 rounded-lg hover:bg-slate-800 transition-all cursor-pointer"
+            className="shrink-0 inline-flex items-center gap-1 whitespace-nowrap text-slate-400 hover:text-white font-bold text-sm px-3 py-2 rounded-lg hover:bg-slate-800 transition-all cursor-pointer"
           >
             <X className="h-4 w-4" aria-hidden="true" />
             닫기
@@ -687,7 +689,7 @@ export function DetailModal({
         <div className="flex border-b border-slate-800 gap-1 overflow-x-auto bg-slate-950/60 p-2 shrink-0">
           <button
             onClick={() => setActiveTab("vault")}
-            className={`min-w-[128px] flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`min-w-0 flex-1 py-3 px-2 sm:px-4 whitespace-nowrap rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === "vault"
                 ? "bg-amber-500 text-slate-950 shadow-md font-bold"
                 : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
@@ -698,7 +700,7 @@ export function DetailModal({
           </button>
           <button
             onClick={() => setActiveTab("history")}
-            className={`min-w-[112px] flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`min-w-0 flex-1 py-3 px-2 sm:px-4 whitespace-nowrap rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === "history"
                 ? "bg-amber-500 text-slate-950 shadow-md font-bold"
                 : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
@@ -709,7 +711,7 @@ export function DetailModal({
           </button>
           <button
             onClick={() => setActiveTab("stats")}
-            className={`min-w-[112px] flex-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`min-w-0 flex-1 py-3 px-2 sm:px-4 whitespace-nowrap rounded-xl text-xs sm:text-sm font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === "stats"
                 ? "bg-amber-500 text-slate-950 shadow-md font-bold"
                 : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/40"
@@ -721,7 +723,7 @@ export function DetailModal({
         </div>
 
         {/* 컨텐츠 바디 */}
-        <div className="flex-1 overflow-y-auto p-6 bg-slate-950/40">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-slate-950/40">
           
           {/* 1. Vault 탭 */}
           {activeTab === "vault" && (
@@ -749,6 +751,8 @@ export function DetailModal({
                       !item.name.includes("크레딧")
                     );
                   })
+                  // 높은 등급부터 보여 준다. 같은 등급은 기존 확률 순서를 유지한다.
+                  .sort((a, b) => (RARITY_ORDER[b.rarity] ?? 0) - (RARITY_ORDER[a.rarity] ?? 0))
                   .map((item) => {
                     const count = getOwnedCount(obtainedSkins, item);
                     const hasObtained = count > 0;
@@ -820,12 +824,12 @@ export function DetailModal({
               )}
 
               <div className="overflow-x-auto border border-slate-850 rounded-xl bg-slate-950/60">
-                <table className="min-w-[560px] w-full divide-y divide-slate-850">
+                <table className="w-full table-fixed divide-y divide-slate-850">
                   <thead className="bg-slate-900/60">
                     <tr>
-                      <th className="px-4 py-3 text-left text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">아이템 이름</th>
-                      <th className="px-4 py-3 text-center text-[11px] font-extrabold text-slate-400 uppercase tracking-wider w-24">등급</th>
-                      <th className="px-4 py-3 text-right text-[11px] font-extrabold text-slate-400 uppercase tracking-wider w-28">공식 확률 (%)</th>
+                      <th className="px-3 sm:px-4 py-3 text-left text-[11px] font-extrabold text-slate-400 uppercase tracking-wider">아이템 이름</th>
+                      <th className="px-1 sm:px-4 py-3 text-center text-[11px] font-extrabold text-slate-400 uppercase tracking-wider w-16 sm:w-24">등급</th>
+                      <th className="px-3 sm:px-4 py-3 text-right text-[11px] font-extrabold text-slate-400 uppercase tracking-wider w-20 sm:w-28">확률</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-850 text-xs">
@@ -861,13 +865,13 @@ export function DetailModal({
 
                         return (
                           <tr key={item.id || idx} className="hover:bg-slate-900/20 transition-colors">
-                            <td className="px-4 py-2.5 font-bold text-slate-300">{item.name}</td>
-                            <td className="px-4 py-2.5 text-center">
+                            <td className="px-3 sm:px-4 py-2.5 font-bold text-slate-300 break-keep [overflow-wrap:anywhere]">{item.name}</td>
+                            <td className="px-1 sm:px-4 py-2.5 text-center">
                               <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded ${getRarityBadgeStyle(item.rarity)}`}>
                                 {getKoreanRarityName(item.rarity)}
                               </span>
                             </td>
-                            <td className="px-4 py-2.5 text-right font-black text-amber-500 tabular-nums">
+                            <td className="px-3 sm:px-4 py-2.5 text-right font-black text-amber-500 tabular-nums text-[11px] sm:text-xs">
                               {displayProb}
                             </td>
                           </tr>
