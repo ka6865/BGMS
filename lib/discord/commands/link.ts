@@ -33,7 +33,7 @@ export async function handleLinkCommand(interaction: any) {
 
     return {
       type: 4, // ChannelMessageWithSource
-      data: { ...embedPayload, flags: 0 },
+      data: { ...embedPayload, flags: 64 },
     };
   } catch {
     return {

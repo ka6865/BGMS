@@ -11,7 +11,7 @@ const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const COMMANDS = [
   {
     name: "연동",
-    description: "디스코드 계정과 배틀그라운드 닉네임을 연동하고 성공 결과를 채널에 공개합니다.",
+    description: "디스코드 계정과 배틀그라운드 닉네임을 연동하고 나에게만 결과를 표시합니다.",
     options: [
       {
         name: "nickname",

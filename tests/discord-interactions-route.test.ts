@@ -20,7 +20,7 @@ describe("discord interactions route", () => {
     vi.stubEnv("DISCORD_PUBLIC_KEY", publicKeyHex);
     vi.stubGlobal("fetch", fetchMock);
     fetchMock.mockResolvedValue(new Response("{}", { status: 200 }));
-    mocks.link.mockResolvedValue({ type: 4, data: { embeds: [{ title: "연동 완료" }], flags: 0 } });
+    mocks.link.mockResolvedValue({ type: 4, data: { embeds: [{ title: "연동 완료" }], flags: 64 } });
     mocks.stats.mockResolvedValue({ type: 4, data: { embeds: [{ title: "저장 전적" }], components: [{ type: 1 }], flags: 0 } });
     mocks.recent.mockResolvedValue({ type: 4, data: { embeds: [{ title: "최신 저장 경기" }], flags: 0 } });
   });
@@ -91,7 +91,7 @@ describe("discord interactions route", () => {
     expect(data).toEqual({ type: 1 });
   });
 
-  it.each(["연동", "link", "전적", "stats", "방금판", "recent"])("defers /%s before any handler work and edits the original public response", async (name) => {
+  it.each(["전적", "stats", "방금판", "recent"])("defers /%s before any handler work and edits the original public response", async (name) => {
     const res = await POST(commandRequest(name));
     expect(await res.json()).toEqual({ type: 5, data: {} });
     expect(mocks.link).not.toHaveBeenCalled();
@@ -99,12 +99,39 @@ describe("discord interactions route", () => {
     expect(mocks.recent).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
     await mocks.after.mock.calls[0][0]();
-    const handler = ["연동", "link"].includes(name) ? mocks.link : ["전적", "stats"].includes(name) ? mocks.stats : mocks.recent;
+    const handler = ["전적", "stats"].includes(name) ? mocks.stats : mocks.recent;
     expect(handler).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledExactlyOnceWith(`https://discord.com/api/v10/webhooks/${applicationId}/${token}/messages/@original`, expect.objectContaining({ method: "PATCH", redirect: "error", signal: expect.any(AbortSignal) }));
     expect(editedMessage()).toMatchObject({ embeds: expect.any(Array), allowed_mentions: { parse: [] } });
     expect(editedMessage()).not.toHaveProperty("flags");
     if (["전적", "stats"].includes(name)) expect(editedMessage()).toHaveProperty("components");
+  });
+
+  it.each(["연동", "link"])("defers /%s privately and edits only the ephemeral original", async (name) => {
+    const res = await POST(commandRequest(name));
+    expect(await res.json()).toEqual({ type: 5, data: { flags: 64 } });
+    expect(mocks.link).not.toHaveBeenCalled();
+    await mocks.after.mock.calls[0][0]();
+    expect(mocks.link).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(`https://discord.com/api/v10/webhooks/${applicationId}/${token}/messages/@original`, expect.objectContaining({ method: "PATCH" }));
+    expect(editedMessage()).toEqual({ embeds: [{ title: "연동 완료" }], allowed_mentions: { parse: [] } });
+  });
+
+  it("keeps link failures on the ephemeral original without a placeholder or follow-up", async () => {
+    mocks.link.mockResolvedValue({ type: 4, data: { content: "계정을 연동하지 못했습니다.", flags: 64 } });
+    await POST(commandRequest("연동"));
+    await mocks.after.mock.calls[0][0]();
+    expect(fetchMock.mock.calls.map(([, init]) => init.method)).toEqual(["PATCH"]);
+    expect(editedMessage()).toEqual({ content: "계정을 연동하지 못했습니다.", allowed_mentions: { parse: [] } });
+  });
+
+  it("replaces a rejected link result on the ephemeral original with a safe failure", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    fetchMock.mockResolvedValueOnce(new Response("secret Discord body", { status: 400 }));
+    await POST(commandRequest("연동"));
+    await mocks.after.mock.calls[0][0]();
+    expect(fetchMock.mock.calls.map(([, init]) => init.method)).toEqual(["PATCH", "PATCH"]);
+    expect(editedMessage(1)).toEqual({ content: expect.stringContaining("응답을 전달하지 못했습니다"), embeds: [], components: [], allowed_mentions: { parse: [] } });
   });
 
   it("does not wait for slow privacy/database work before acknowledging the command", async () => {

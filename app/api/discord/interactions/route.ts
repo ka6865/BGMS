@@ -182,14 +182,20 @@ async function processReviewComponent(
   }
 }
 
+function isLinkCommand(commandName: unknown): boolean {
+  return commandName === "연동" || commandName === "link";
+}
+
 async function processSlashCommand(interaction: any, appUrl: string): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let data: InteractionMessage;
+  // 연동은 처음부터 개인 defer라 original 갱신만으로 호출자에게만 보인다.
+  const deferredPrivately = isLinkCommand(interaction.data.name);
   let privateResponse = true;
   try {
     // shortcut: 시간 제한은 진행 중인 저장을 취소하지 않는다. 저장 취소가 필요해지면 DB 요청에 AbortSignal을 전달한다.
     const response = await Promise.race([
-      interaction.data.name === "연동" || interaction.data.name === "link"
+      deferredPrivately
         ? handleLinkCommand(interaction)
         : interaction.data.name === "전적" || interaction.data.name === "stats"
           ? handleStatsCommand(interaction, appUrl)
@@ -210,7 +216,7 @@ async function processSlashCommand(interaction: any, appUrl: string): Promise<vo
     clearTimeout(timer);
   }
 
-  if (privateResponse) {
+  if (privateResponse && !deferredPrivately) {
     await completePrivateCommandResponse(interaction, data);
     return;
   }
@@ -221,9 +227,16 @@ async function processSlashCommand(interaction: any, appUrl: string): Promise<vo
     console.warn("[DiscordInteractions] 명령어 응답 갱신 실패");
     const status = error instanceof Error ? error.cause : null;
     if (typeof status === "number" && status >= 400 && status < 500) {
-      await completePrivateCommandResponse(interaction, {
-        content: "결과 응답을 전달하지 못했습니다. 연동 여부나 전적을 잠시 후 다시 확인해 주세요.",
-      });
+      const failure = "결과 응답을 전달하지 못했습니다. 연동 여부나 전적을 잠시 후 다시 확인해 주세요.";
+      if (!deferredPrivately) {
+        await completePrivateCommandResponse(interaction, { content: failure });
+        return;
+      }
+      try {
+        await completeInteractionResponse(interaction, { content: failure, embeds: [], components: [] });
+      } catch {
+        console.warn("[DiscordInteractions] 실패 안내 전달 실패");
+      }
       return;
     }
     // 반영 여부가 불확실한 실패는 동일 결과를 재전송해 이미 보이는 성공을 보존한다.
@@ -310,8 +323,8 @@ export async function POST(request: Request) {
     } catch {
       return ephemeral("명령어 처리를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     }
-    // 조회 완료 전에는 전적을 담지 않고, 공개 확인을 통과한 성공 결과만 채널에 표시한다.
-    return NextResponse.json({ type: 5, data: {} });
+    // 연동은 항상 호출자에게만 보인다. 전적 조회는 완료 전에는 전적을 담지 않고, 공개 확인을 통과한 성공 결과만 채널에 표시한다.
+    return isLinkCommand(commandName) ? deferredEphemeral() : NextResponse.json({ type: 5, data: {} });
   }
 
   return NextResponse.json({ type: 4, data: { content: "지원하지 않는 상호작용 유형입니다.", flags: 64 } });
