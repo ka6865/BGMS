@@ -1,3 +1,4 @@
+import { createHash, createHmac } from "node:crypto";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
@@ -44,6 +45,14 @@ describe("board post views API", () => {
       p_post_id: 10,
       p_ip_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
+  });
+
+  it("stores a keyed IP hash that plain SHA-256 cannot reproduce", async () => {
+    await request("10", "203.0.113.7");
+
+    const { p_ip_hash: ipHash } = mocks.rpc.mock.calls[0][1] as { p_ip_hash: string };
+    expect(ipHash).toBe(createHmac("sha256", "test-key").update("203.0.113.7").digest("hex"));
+    expect(ipHash).not.toBe(createHash("sha256").update("203.0.113.7").digest("hex"));
   });
 
   it("returns the current count without error when the view was already counted", async () => {
