@@ -133,7 +133,7 @@ export default function PrivacyPage() {
         <Table
           headers={["수탁자", "위탁 업무 내용"]}
           rows={[
-            ["Supabase Inc.", "회원 인증, 데이터베이스 운영 및 저장"],
+            ["Supabase Inc.", "회원 인증, 데이터베이스 운영 및 저장 (저장 위치: 대한민국 서울 리전)"],
             ["Vercel Inc.", "웹 서비스 호스팅 및 CDN"],
             ["Cloudflare Inc.", "R2 스토리지 (텔레메트리 캐시 저장)"],
             ["Google LLC", "Analytics(GA4) 이용 통계, AdSense 광고 제공, Gemini AI 분석"],
@@ -143,12 +143,12 @@ export default function PrivacyPage() {
         <SubTitle>7-1. 개인정보의 국외 이전</SubTitle>
         <p>
           위 수탁자 중 아래 사업자는 국외에 소재하며, 서비스 이용 시점에 네트워크를 통해 정보가 전송됩니다.
+          회원 정보와 이용 로그를 저장하는 Supabase 데이터베이스는 대한민국(서울) 리전에 있습니다.
           실제 저장·처리 위치는 각 사업자의 데이터센터 운영 정책에 따릅니다.
         </p>
         <Table
           headers={["이전받는 자 (소재국)", "이전 항목", "이용 목적", "보유 기간"]}
           rows={[
-            ["Supabase Inc. (미국)", "이메일, 닉네임, 서비스 이용 로그, IP 주소", "회원 인증, 데이터 저장", "4절의 보유 기간"],
             ["Vercel Inc. (미국)", "접속 기록, IP 주소", "웹 서비스 호스팅, 접속 통계", "사업자 정책에 따름"],
             ["Cloudflare Inc. (미국)", "PUBG 전적·텔레메트리 캐시", "분석 결과 저장", "4절의 보유 기간"],
             ["Google LLC (미국)", "서비스 이용 기록, 광고 쿠키·식별자, AI 분석 요청 내용", "이용 통계, 광고 게재, AI 분석", "사업자 정책에 따름"],
