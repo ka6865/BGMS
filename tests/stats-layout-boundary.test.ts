@@ -31,6 +31,8 @@ function jsonResponse(body: unknown) {
   });
 }
 
+// 전적 페이지의 검색 노출 판정은 DB를 조회하므로 레이아웃 시험에서는 수집만 된 닉네임으로 둔다.
+vi.mock("@/lib/stats/playerSeo.server", () => ({ getPlayerSeoState: vi.fn(async () => ({ status: "unknown" })) }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/stats",
   useRouter: () => ({ push: routerPush }),
@@ -88,8 +90,9 @@ describe("stats route layout boundary", () => {
       params: Promise.resolve({ platform: "steam", nickname: "Fixture%20Player" }),
       searchParams: Promise.resolve({ tab: "squad", groupKey: "g2" }),
     });
+    // 탭 주소는 같은 플레이어의 다른 보기라 정식 주소는 플레이어 주소이고, 공유 주소는 탭을 유지한다.
     expect(dynamicMetadata.alternates?.canonical)
-      .toBe("https://bgms.kr/stats/steam/Fixture%20Player?tab=squad&groupKey=g2");
+      .toBe("https://bgms.kr/stats/steam/Fixture%20Player");
     expect(dynamicMetadata.openGraph?.url)
       .toBe("https://bgms.kr/stats/steam/Fixture%20Player?tab=squad&groupKey=g2");
     expect(JSON.stringify(dynamicMetadata.openGraph?.images))
