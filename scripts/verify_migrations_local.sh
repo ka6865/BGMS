@@ -91,6 +91,7 @@ MIGRATIONS=(
   "20261014163000_pubg_player_cache_autovacuum"
   "20261014164000_drop_redundant_player_cache_retention_index"
   "20261014165000_player_cache_compaction_index_friendly"
+  "20261014166000_pubg_match_performance_match_player_index"
 )
 
 cleanup() {

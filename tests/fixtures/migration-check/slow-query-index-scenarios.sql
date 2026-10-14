@@ -39,6 +39,11 @@ begin
   if exists(select 1 from pg_indexes where indexname='pubg_player_cache_retention_idx') then
     raise exception 'FAIL: redundant player cache retention index remains';
   end if;
+  execute 'explain (format json) select 1 from public.pubg_match_performance p
+    where p.match_id = ''m'' and p.platform = ''steam'' and p.player_id = ''p''' into plan;
+  if plan not like '%pubg_match_performance_match_player_idx%' then
+    raise exception 'FAIL: legacy recovery performance lookup plan %', plan;
+  end if;
   raise notice 'PASS: slow query indexes are usable';
 end $$;
 rollback;
