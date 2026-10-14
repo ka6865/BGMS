@@ -1,14 +1,15 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { extractClientIp } from "@/lib/board/ipUtils";
-import crypto from "crypto";
+import { createHmac } from "node:crypto";
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
 }
 
-function hashIp(ip: string): string {
-  return crypto.createHash("sha256").update(ip).digest("hex");
+// IPv4는 전수 대입으로 일반 해시를 되돌릴 수 있어, 서버 전용 비밀값을 키로 쓴다.
+function hashIp(ip: string, secret: string): string {
+  return createHmac("sha256", secret).update(ip).digest("hex");
 }
 
 export async function POST(
@@ -31,7 +32,7 @@ export async function POST(
   const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
 
   const clientIp = extractClientIp(request);
-  const ipHash = hashIp(clientIp);
+  const ipHash = hashIp(clientIp, supabaseServiceRoleKey);
 
   // 조회수 증가는 원자 RPC로 처리하여 중복 방지와 카운트 증가를 한 번에 수행한다.
   let rpcResult: { data: unknown; error: unknown };

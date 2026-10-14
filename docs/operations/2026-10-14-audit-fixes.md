@@ -96,3 +96,13 @@
 - `suggest_similar_players`: 인덱스 조건으로 바꾼 뒤에도 콜드 캐시 기준 약 3초(운영 EXPLAIN). service role 호출이라 timeout은 피하지만, 더 줄이려면 후보 수를 줄이는 별도 설계가 필요.
 - RLS 성능 advisor(`auth.uid()` 행별 재평가 38건, 중복 permissive 정책 86건, 인덱스 없는 FK 36건), Auth 유출 비밀번호 보호 비활성.
 - 하드코딩 색상 82개 파일 1,112건 남음(공통 컴포넌트 일부만 교체). 푸터 링크 등 텍스트 링크 터치 영역 18px 높이.
+
+## 5차 보완 (조회 기록 개인정보)
+
+| 항목 | 조치 |
+| --- | --- |
+| 조회 기록의 IP 해시가 비밀값 없는 SHA-256이라 IPv4 전수 대입으로 원래 IP 복원 가능 | 서버 전용 `SUPABASE_SERVICE_ROLE_KEY`를 키로 쓰는 HMAC-SHA256으로 변경. 새 환경 변수는 없다. 배포 직후 1시간 안에 다시 본 방문자는 한 번 더 집계될 수 있다 |
+| 하루 지난 조회 기록이 그 게시글이 다시 집계될 때만 삭제됨 | daily-tasks의 `board-write-quota-cleanup` job에서 `scripts/cleanup_board_post_view_tracking.ts`로 24시간 지난 기록 전체 삭제. migration 변경 없음(service role DELETE 권한 기존 부여) |
+
+- 배포 전 남은 비밀값 없는 해시 기록은 다음 정기 정리에서 24시간 기준으로 삭제된다.
+- 2026-10-14 운영에서 정리 스크립트를 실행해 권한과 경로를 확인했다. 당시 16행 중 24시간 지난 행이 0행이라 삭제는 0행이었다.
