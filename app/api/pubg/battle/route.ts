@@ -53,13 +53,22 @@ type ResolvedBattlePlayer = {
   accountId?: string;
 };
 
+// 사용자에게 그대로 보여줘도 되는 입력 오류만 이 클래스로 던진다.
+class BattleInputError extends Error {
+  readonly publicMessage: string;
+  constructor(publicMessage: string) {
+    super(publicMessage);
+    this.publicMessage = publicMessage;
+  }
+}
+
 async function resolveBattlePlayer(input: string, requestedPlatform?: string | null): Promise<ResolvedBattlePlayer> {
   const normalizedRequestedPlatform = requestedPlatform ? normalizePlatform(requestedPlatform) : "";
   const normalizedInput = normalizeName(input);
 
   if (normalizedRequestedPlatform) {
     if (!VALID_BATTLE_PLATFORMS.has(normalizedRequestedPlatform)) {
-      throw new Error(`지원하지 않는 플랫폼입니다: ${requestedPlatform}`);
+      throw new BattleInputError(`지원하지 않는 플랫폼입니다: ${requestedPlatform}`);
     }
 
     const { data } = await supabase
@@ -98,10 +107,10 @@ async function resolveBattlePlayer(input: string, requestedPlatform?: string | n
   }
 
   if (platforms.length > 1) {
-    throw new Error(`'${input}' 닉네임은 여러 플랫폼에 존재합니다. 플랫폼을 선택해 주세요.`);
+    throw new BattleInputError(`'${input}' 닉네임은 여러 플랫폼에 존재합니다. 플랫폼을 선택해 주세요.`);
   }
 
-  throw new Error(`'${input}' 플랫폼을 확인할 수 없습니다. 전적 검색에서 플랫폼을 먼저 선택해 주세요.`);
+  throw new BattleInputError(`'${input}' 플랫폼을 확인할 수 없습니다. 전적 검색에서 플랫폼을 먼저 선택해 주세요.`);
 }
 
 export async function GET(request: Request) {
@@ -124,8 +133,12 @@ export async function GET(request: Request) {
       resolveBattlePlayer(rawNick1, platform1),
       resolveBattlePlayer(rawNick2, platform2)
     ]);
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 400 });
+  } catch (error) {
+    if (error instanceof BattleInputError) {
+      return NextResponse.json({ error: error.publicMessage }, { status: 400 });
+    }
+    console.error("[battle] 플레이어 확인 실패:", error);
+    return NextResponse.json({ error: "플레이어 정보를 확인하지 못했습니다." }, { status: 500 });
   }
 
   const privateResponses = await Promise.all([

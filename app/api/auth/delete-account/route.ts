@@ -61,8 +61,9 @@ export async function POST() {
     const { error: deleteError } = await adminClient.auth.admin.deleteUser(user.id);
 
     if (deleteError) {
+      console.error("[delete-account] 계정 삭제 실패:", deleteError);
       return NextResponse.json(
-        { error: `계정 삭제에 실패했습니다: ${deleteError.message}` },
+        { error: "계정 삭제에 실패했습니다. 잠시 후 다시 시도해 주세요." },
         { status: 500 }
       );
     }
@@ -76,9 +77,10 @@ export async function POST() {
       { success: true, message: '회원탈퇴가 성공적으로 완료되었습니다. 데이터가 익명화 처리되었습니다.' },
       { status: 200 }
     );
-  } catch (error: any) {
+  } catch (error) {
+    console.error("[delete-account] 처리 실패:", error);
     return NextResponse.json(
-      { error: `서버 내부 오류가 발생했습니다: ${error.message}` },
+      { error: "서버 내부 오류가 발생했습니다." },
       { status: 500 }
     );
   }
