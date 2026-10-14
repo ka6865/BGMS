@@ -14,6 +14,15 @@ describe('랭킹 데이터 원장',()=>{
   expect(await getWeeklyTopDamage('squad','fpp','official')).toMatchObject({hasError:false,generatedAt,cacheStatus:'hit',data:[{platform:'kakao',nickname:'same',created_at:'2026-09-12T00:00:00Z',match_count:600,map_name:'데스턴'}]});
   expect(m.rpc).toHaveBeenCalledWith('get_pubg_rankings_cached',expect.objectContaining({p_tab:'damage',p_modes:['squad-fpp'],p_match_type:'official'}));
  });
+ it('집계가 실패한 조합을 예약 집계에 등록하고 오류로 응답한다',async()=>{
+  m.rpc.mockResolvedValueOnce({data:null,error:{message:'canceling statement due to statement timeout'}}).mockResolvedValueOnce({data:null,error:null});
+  expect(await getWeeklyTopDamage('all','all','all')).toEqual({data:[],hasError:true});
+  expect(m.rpc).toHaveBeenNthCalledWith(2,'queue_pubg_ranking_refresh',m.rpc.mock.calls[0][1]);
+ });
+ it('조회가 성공하면 예약 집계에 등록하지 않는다',async()=>{
+  await getWeeklyTopDamage();
+  expect(m.rpc).toHaveBeenCalledTimes(1);
+ });
  it('비공개 명단 오류를 빈 명단처럼 처리하지 않는다',async()=>{
   m.rpc.mockResolvedValue({data:null,error:{message:'Invalid ranking privacy settings'}});expect(await getTopTierRanking()).toEqual({data:[],hasError:true});
  });

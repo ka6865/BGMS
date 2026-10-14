@@ -88,6 +88,27 @@ begin
   if (select count(*) from cron.job_run_details d join cron.job j using(jobid) where j.jobname='bgms-pubg-rankings-refresh')<>1 then
     raise exception 'FAIL: ranking refresh logs retention';
   end if;
+  -- 요청 집계가 실패한 조합은 등록만 하고, 등록 행은 요청에 내보내지 않으며, 예약 집계가 먼저 채운다.
+  update public.system_settings set value='[]' where key='private_players_list';
+  delete from public.pubg_response_cache where cache_key like 'rankings:v1:%';
+  if has_function_privilege('anon','public.queue_pubg_ranking_refresh(text,text[],text,integer,integer,integer,integer)','execute')
+    or not has_function_privilege('service_role','public.queue_pubg_ranking_refresh(text,text[],text,integer,integer,integer,integer)','execute')
+  then raise exception 'FAIL: ranking queue ACL'; end if;
+  perform public.queue_pubg_ranking_refresh('kills',array['squad','squad'],'all',3,8,1,73);
+  select payload into row_payload from public.pubg_response_cache where cache_key like 'rankings:v1:%';
+  if row_payload->'params'->'modes'<>'["squad"]'::jsonb or row_payload->>'requested_at' is null then
+    raise exception 'FAIL: queued ranking payload %', row_payload;
+  end if;
+  if public.refresh_pubg_rankings_cache()<>1 then raise exception 'FAIL: queued ranking not built'; end if;
+  a:=public.get_pubg_rankings_cached('kills',array['squad'],'all',3,8,1,73);
+  if not (a->>'cache_hit')::boolean or jsonb_array_length(a->'entries')=0 then
+    raise exception 'FAIL: queued ranking not served %', a;
+  end if;
+  -- 이미 있는 결과를 다시 등록해도 결과는 그대로 두고 조회 시각만 갱신한다.
+  perform public.queue_pubg_ranking_refresh('kills',array['squad'],'all',3,8,1,73);
+  if not (public.get_pubg_rankings_cached('kills',array['squad'],'all',3,8,1,73)->>'cache_hit')::boolean then
+    raise exception 'FAIL: queue overwrote stored ranking';
+  end if;
   raise notice 'PASS: ranking background refresh, request tracking, privacy and ACL';
 end $$;
 rollback;
