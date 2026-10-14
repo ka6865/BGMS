@@ -85,6 +85,13 @@ MIGRATIONS=(
   "20261014140000_reports_revoke_public_truncate"
   "20261014150000_pubg_ranking_background_refresh"
   "20261014151000_pubg_ranking_refresh_queue"
+  "20261014160000_pubg_player_matches_unknown_type_index"
+  "20261014161000_pubg_player_cache_keep_recent_index"
+  "20261014162000_pubg_player_cache_compaction_candidates_index"
+  "20261014163000_pubg_player_cache_autovacuum"
+  "20261014164000_drop_redundant_player_cache_retention_index"
+  "20261014165000_player_cache_compaction_index_friendly"
+  "20261014166000_pubg_match_performance_match_player_index"
 )
 
 cleanup() {
@@ -322,6 +329,7 @@ fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-cache-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-background-refresh-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/slow-query-index-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-coexistence-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retained-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/encounter-page-scenarios.sql
