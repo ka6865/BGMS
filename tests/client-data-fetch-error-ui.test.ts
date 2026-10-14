@@ -79,6 +79,6 @@ describe('클라이언트 데이터 조회 오류 UI', () => {
     }));
 
     expect(await screen.findByText('일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.')).not.toBeNull();
-    expect(screen.queryByText(/분석할 수 있는 스쿼드 모드 파티 게임 기록이 없습니다/)).toBeNull();
+    expect(screen.queryByText(/분석할 수 있는 듀오·스쿼드 파티 게임 기록이 없습니다/)).toBeNull();
   });
 });

@@ -600,7 +600,7 @@ async function controlEvidence(page: Page, state: ControlState) {
       add("replay-control", query('button[aria-label="3D 전술 리플레이"], button[aria-label="2D 맵 리플레이"], button[aria-label="고정밀 리플레이"]'));
     }
     if (currentState === "squad") {
-      const selector = document.querySelector('select[aria-label="스쿼드 그룹"]');
+      const selector = document.querySelector('select[aria-label="팀 그룹"]');
       const squadRoot = selector?.closest("div.space-y-6") ?? selector?.parentElement?.parentElement?.parentElement;
       add("squad-group", selector ? [selector] : []);
       add("squad-control", squadRoot ? query("button", squadRoot) : []);
@@ -1352,9 +1352,9 @@ describeBrowser("stats browser smoke", () => {
         await waitForPlayerSuccess(dispatcher, "FixturePlayer", "steam");
         await dispatcher.waitForTerminal({ selector: { pathname: "/api/pubg/squad-analyze", method: "GET", query: { nickname: "FixturePlayer", platform: "steam" }, state: "completed", successful: true }, count: 1 });
         await dispatcher.waitForTerminal({ selector: { pathname: "/api/pubg/squad-analyze", method: "GET", query: { nickname: "FixturePlayer", platform: "steam", groupKey: "g2" }, state: "completed", successful: true }, count: 1 });
-        await waitForStatsSelector({ dispatcher, page, selector: 'select[aria-label="스쿼드 그룹"]' });
-        expect(await page.$eval('select[aria-label="스쿼드 그룹"]', (node) => (node as HTMLSelectElement).value)).toBe("g2");
-        await page.select('select[aria-label="스쿼드 그룹"]', "g1");
+        await waitForStatsSelector({ dispatcher, page, selector: 'select[aria-label="팀 그룹"]' });
+        expect(await page.$eval('select[aria-label="팀 그룹"]', (node) => (node as HTMLSelectElement).value)).toBe("g2");
+        await page.select('select[aria-label="팀 그룹"]', "g1");
         await dispatcher.waitForTerminal({ selector: { pathname: "/api/pubg/squad-analyze", method: "GET", query: { nickname: "FixturePlayer", platform: "steam", groupKey: "g1" }, state: "completed", successful: true }, count: 1 });
         expect(dispatcher.ledger.count({ pathname: "/api/pubg/squad-analyze", query: { nickname: "FixturePlayer", platform: "steam" } })).toBeGreaterThanOrEqual(1);
         const squadControls = await controlEvidence(page, "squad");
@@ -1374,7 +1374,7 @@ describeBrowser("stats browser smoke", () => {
         await clickButtonText(page, "개인 분석 개요");
         await waitForStatsSelector({ dispatcher, page, selector: '[aria-label="최근 매치"]' });
         await clickButtonText(page, "스쿼드 시너지");
-        await waitForStatsSelector({ dispatcher, page, selector: 'select[aria-label="스쿼드 그룹"]' });
+        await waitForStatsSelector({ dispatcher, page, selector: 'select[aria-label="팀 그룹"]' });
         dispatcher.ledger.assertNoUnauthenticatedAi();
         await recordScenarioEvidence("squad", viewport, dispatcher, log);
       },

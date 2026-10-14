@@ -73,9 +73,14 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       }];
     }) as any[];
 
-  const squadMatches = validMatchData.filter((m) => (
-    m.__eligibility?.mode === "squad" || m.__eligibility?.mode === "squad-fpp"
-  ));
+  // 듀오와 스쿼드는 같은 팀원이어도 협동 조건이 달라 따로 묶는다.
+  const teamModeOf = (m: any): "duo" | "squad" | null => {
+    const mode = m.__eligibility?.mode;
+    if (mode === "squad" || mode === "squad-fpp") return "squad";
+    if (mode === "duo" || mode === "duo-fpp") return "duo";
+    return null;
+  };
+  const squadMatches = validMatchData.filter((m) => teamModeOf(m) !== null);
 
   if (validMatchData.length === 0) {
     return {
@@ -85,6 +90,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   }
 
   const groupMap = new Map<string, {
+    teamMode: "duo" | "squad";
     matches: any[];
     memberNamesByKey: Map<string, string>;
   }>();
@@ -105,7 +111,9 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
 
     if (teammates.length === 0) return;
 
-    const normalizedKey = Array.from(teammateNameMap.keys()).sort().join(",");
+    const teamMode = teamModeOf(m)!;
+    // 기존 스쿼드 그룹 키는 그대로 두고 듀오만 접두어로 구분한다.
+    const normalizedKey = `${teamMode === "duo" ? "duo|" : ""}${Array.from(teammateNameMap.keys()).sort().join(",")}`;
     const existing = groupMap.get(normalizedKey);
     if (existing) {
       existing.matches.push(m);
@@ -116,6 +124,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
       });
     } else {
       groupMap.set(normalizedKey, {
+        teamMode,
         matches: [m],
         memberNamesByKey: teammateNameMap
       });
@@ -151,6 +160,13 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
 
   const selectedGroupMatches = new Map<string, any[]>();
   const bestGroupMatches = new Map<string, any[]>();
+  const displayGroupKey = (value: { teamMode: "duo" | "squad"; memberNamesByKey: Map<string, string> }) => {
+    const names = Array.from(value.memberNamesByKey.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, displayName]) => displayName)
+      .join(", ");
+    return value.teamMode === "duo" ? `듀오 · ${names}` : names;
+  };
   const groups = Array.from(groupMap.entries()).map(([normalizedKey, value]) => {
     const latestSelection = selectRecentMatches(selectCandidates(value.matches), { limit: 10 });
     const latestMatches = latestSelection.selected.map((candidate) => candidate.value);
@@ -158,10 +174,8 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     selectedGroupMatches.set(normalizedKey, latestMatches);
     bestGroupMatches.set(normalizedKey, bestMatches);
     return {
-    groupKey: Array.from(value.memberNamesByKey.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, displayName]) => displayName)
-      .join(", "),
+    groupKey: displayGroupKey(value),
+    teamMode: value.teamMode,
     matchCount: latestMatches.length,
     calculationPendingMatchCount: latestMatches.filter(match => match.__calculationPending).length,
     matchIds: latestMatches.map((match) => match.match_id),
@@ -181,10 +195,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   }
 
   const normalizedGroupKey = Array.from(groupMap.entries())
-    .find(([, value]) => Array.from(value.memberNamesByKey.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, displayName]) => displayName)
-      .join(", ") === groupKey)?.[0];
+    .find(([, value]) => displayGroupKey(value) === groupKey)?.[0];
   if (!normalizedGroupKey) throw new Error("Selected squad group not found.");
   const allTargetMatches = selectedGroupMatches.get(normalizedGroupKey) || [];
   const targetMatches = allTargetMatches.filter(match => !match.__calculationPending);
@@ -374,6 +385,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
 
   return {
     groupKey,
+    teamMode: selectedGroup.teamMode,
     // `matchCount` is the population used by the AI/role/potential metrics
     // (best five within the latest ten). Keep both counts explicit so UI
     // callers can still label the complete latest-ten window accurately.

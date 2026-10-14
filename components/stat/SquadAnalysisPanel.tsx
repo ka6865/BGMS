@@ -56,6 +56,7 @@ interface MatchSummaryItem {
 interface SquadAnalysisData {
   calculationPendingMatchCount?: number;
   groupKey: string;
+  teamMode?: "duo" | "squad";
   matchCount: number;
   matchesSummary: MatchSummaryItem[];
   stats: {
@@ -180,6 +181,7 @@ export default function SquadAnalysisPanel({
   const [detailError, setDetailError] = useState<boolean>(false);
   const [detailUpgradePending, setDetailUpgradePending] = useState<boolean>(false);
   const [analysisData, setAnalysisData] = useState<SquadAnalysisData | null>(null);
+  const teamLabel = analysisData?.teamMode === "duo" ? "듀오" : "스쿼드";
   const [basicMatches, setBasicMatches] = useState<Array<{matchId: string; stats: {kills: number | null; damageDealt: number | null; winPlace: number | null}}>>([]);
   
   // AI Coaching States
@@ -613,8 +615,8 @@ export default function SquadAnalysisPanel({
     return (
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-8 text-center">
         <ShieldAlert className="mx-auto h-12 w-12 text-zinc-600 mb-2" />
-        <p className="text-zinc-400">저장된 전적 중 분석할 수 있는 스쿼드 모드 파티 게임 기록이 없습니다.</p>
-        <p className="text-zinc-500 text-sm mt-1">솔로나 듀오 모드를 제외하고, 스쿼드 매치 데이터를 추가로 검색해 주세요.</p>
+        <p className="text-zinc-400">저장된 전적 중 분석할 수 있는 듀오·스쿼드 파티 게임 기록이 없습니다.</p>
+        <p className="text-zinc-500 text-sm mt-1">솔로 경기는 제외됩니다. 팀원과 함께한 듀오·스쿼드 경기를 추가로 검색해 주세요.</p>
       </div>
     );
   }
@@ -624,19 +626,19 @@ export default function SquadAnalysisPanel({
       {/* Squad Selector Dropdown */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 rounded-xl border border-zinc-800/80 bg-zinc-900/30 p-4 backdrop-blur-md">
         <div>
-          <h3 className="font-semibold text-zinc-200">스쿼드 시너지 분석</h3>
-          <p className="text-xs text-zinc-500">저장된 스쿼드 전적에서 같은 팀원과 함께한 최근 경기의 분석입니다.</p>
+          <h3 className="font-semibold text-zinc-200">팀 시너지 분석</h3>
+          <p className="text-xs text-zinc-500">저장된 듀오·스쿼드 전적에서 같은 팀원과 함께한 최근 경기의 분석입니다. 듀오와 스쿼드는 따로 묶습니다.</p>
         </div>
         <div className="relative">
           <select
-            aria-label="스쿼드 그룹"
+            aria-label="팀 그룹"
             value={groupKey ?? ""}
             onChange={(e) => onGroupKeyChange(e.target.value)}
             className="w-full sm:w-72 appearance-none rounded-lg border border-zinc-800 bg-zinc-955 px-4 py-2 pr-10 text-sm text-zinc-300 focus:outline-none focus:ring-1 focus:ring-purple-500"
           >
             {groups.map((g) => (
               <option key={g.groupKey} value={g.groupKey}>
-                {g.members.length + 1}인 파티 ({g.matchCount}경기) - {g.groupKey.slice(0, 30)}...
+                {g.teamMode === "duo" ? "듀오" : `${g.members.length + 1}인 파티`} ({g.matchCount}경기) - {g.groupKey.slice(0, 30)}...
               </option>
             ))}
           </select>
@@ -803,7 +805,7 @@ export default function SquadAnalysisPanel({
                   <>
                     <div className="flex justify-between border-b border-zinc-900 pb-2">
                       <span className="text-zinc-400 font-medium flex items-center gap-1.5">
-                        <InlineIconLabel icon="rank">스쿼드 협동 등급</InlineIconLabel>
+                        <InlineIconLabel icon="rank">{teamLabel} 협동 등급</InlineIconLabel>
                       </span>
                       <span className="text-purple-400 font-black text-sm tracking-wide bg-purple-500/10 px-2 py-0.5 rounded border border-purple-500/15">
                         {analysisData.squadGrade ? `${analysisData.squadGrade} Grade` : "등급 보류"}
@@ -818,7 +820,7 @@ export default function SquadAnalysisPanel({
                       </span>
                     </div>
                     <div className="flex justify-between border-b border-zinc-900 pb-2">
-                      <span className="text-zinc-400 font-medium">스쿼드 평균 딜량 / 킬</span>
+                      <span className="text-zinc-400 font-medium">{teamLabel} 평균 딜량 / 킬</span>
                       <span className="text-zinc-100 font-bold">{formatObservedMetric(squadAvgDamage === null ? null : Math.round(squadAvgDamage), "딜")} / {squadAvgKillsText}</span>
                     </div>
                   </>
@@ -899,7 +901,7 @@ export default function SquadAnalysisPanel({
  
           {/* Right Panel: Squad Teammate Cards & Role Profiles */}
           <div className="lg:col-span-7 space-y-4">
-            <h5 className="font-bold text-zinc-200 text-sm">스쿼드원 역할 분담 프로필</h5>
+            <h5 className="font-bold text-zinc-200 text-sm">팀원 역할 분담 프로필</h5>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {analysisData.roleProfiles.map((p) => (
                 <div key={p.name} className="rounded-xl border border-zinc-800/50 bg-zinc-900/10 p-4 space-y-3">
@@ -960,8 +962,8 @@ export default function SquadAnalysisPanel({
                 <Flame className="h-5 w-5" />
               </div>
               <div>
-                <h4 className="font-bold text-zinc-200">AI 스쿼드 분석 피드백</h4>
-                <p className="text-xs text-zinc-400">현재 스쿼드 지표를 토대로 분석한 Gemini의 협동 보고서입니다.</p>
+                <h4 className="font-bold text-zinc-200">AI {teamLabel} 분석 피드백</h4>
+                <p className="text-xs text-zinc-400">현재 {teamLabel} 지표를 토대로 분석한 Gemini의 협동 보고서입니다.</p>
               </div>
             </div>
             
@@ -1042,14 +1044,14 @@ export default function SquadAnalysisPanel({
                       <div className="rounded-lg bg-zinc-950/40 p-4 border border-zinc-800/40">
                         <h5 className="text-xs font-bold text-green-400 mb-1 flex items-center gap-1.5">
                           <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-                          스쿼드 협동 강점
+                          {teamLabel} 협동 강점
                         </h5>
                         <p className="text-xs text-zinc-200 leading-relaxed font-medium">{aiFeedback.strength}</p>
                       </div>
                       <div className="rounded-lg bg-zinc-950/40 p-4 border border-zinc-800/40">
                         <h5 className="text-xs font-bold text-red-400 mb-1 flex items-center gap-1.5">
                           <span className="h-1.5 w-1.5 rounded-full bg-red-400" />
-                          스쿼드 취약점
+                          {teamLabel} 취약점
                         </h5>
                         <p className="text-xs text-zinc-200 leading-relaxed font-medium">{aiFeedback.weakness}</p>
                       </div>

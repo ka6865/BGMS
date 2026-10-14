@@ -67,6 +67,13 @@ describe("squad same-target gun focus fire", () => {
     collector.observe({ _T: "LogMatchEnd" }, 2000);
     expect(collector.result()).toMatchObject({ status: "observed", denominator: 1, rate: 0 });
   });
+  it("observes duo teams", () => {
+    const collector = new SquadFocusFireCollector(team, "duo");
+    collector.observe({ _T: "LogMatchStart" }, 0);
+    collector.observe(hit(), 1000);
+    collector.observe({ _T: "LogMatchEnd" }, 2000);
+    expect(collector.result()).toMatchObject({ status: "observed", denominator: 1 });
+  });
   it("marks unsupported modes without assigning a score", () => {
     expect(new SquadFocusFireCollector(team, "solo").result().status).toBe("unsupported");
   });

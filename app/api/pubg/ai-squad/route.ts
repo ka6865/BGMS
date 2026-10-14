@@ -106,6 +106,7 @@ function canonicalSquadIdentity(data: any): unknown {
     roleProfiles: data.roleProfiles,
     squadGrade: data.squadGrade,
     benchmarkStats: data.benchmarkStats,
+    teamMode: data.teamMode,
   };
 }
 
@@ -228,6 +229,7 @@ export async function POST(request: Request) {
       squadGrade: canonicalGrade,
       benchmarkStats: canonicalBenchmarkStats,
       matchCount: canonicalMatchCount,
+      teamMode: squadData.teamMode,
     });
 
     // 3. Try multiple Gemini models sequentially

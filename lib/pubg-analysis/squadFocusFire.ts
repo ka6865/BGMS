@@ -1,6 +1,7 @@
 /** Experimental observation, not a calibrated score or proof of cover intent. */
 export const SQUAD_FOCUS_FIRE_VERSION = 1;
 export const SQUAD_FOCUS_FIRE_WINDOW_MS = 5_000;
+const TEAM_MODES = new Set(["squad", "squad-fpp", "duo", "duo-fpp"]);
 
 export type SquadFocusFireObservation = {
   version: number;
@@ -44,7 +45,7 @@ export class SquadFocusFireCollector {
   }
 
   observe(event: Event, ts: number): void {
-    if (this.mode !== "squad" && this.mode !== "squad-fpp") return;
+    if (!TEAM_MODES.has(this.mode)) return;
     if (!relevant.has(event?._T)) return;
     if (!finite(ts)) { this.issues.add("invalid_timestamp"); return; }
     if (ts < this.previousTime) this.issues.add("out_of_order_events");
@@ -119,7 +120,7 @@ export class SquadFocusFireCollector {
   }
 
   result(): SquadFocusFireObservation {
-    const supported = this.mode === "squad" || this.mode === "squad-fpp";
+    const supported = TEAM_MODES.has(this.mode);
     const issues = new Set(this.issues);
     if (!this.started || !this.ended) issues.add("incomplete_match_events");
     if (!this.team.size) issues.add("missing_team_identity");

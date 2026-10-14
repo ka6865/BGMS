@@ -26,7 +26,7 @@ export function StatsLandingState({
     <section className="mx-auto max-w-3xl rounded-2xl border border-white/5 bg-white/[0.02] p-5 md:p-7">
       <div className="mb-5 text-center">
         <h2 className="text-xl font-black text-white">내 PUBG 전적을 빠르게 확인하세요</h2>
-        <p className="mt-2 text-sm text-gray-500">닉네임 검색으로 전적 요약부터 AI 스쿼드 분석까지 이어집니다.</p>
+        <p className="mt-2 text-sm text-gray-500">닉네임 검색으로 전적 요약부터 AI 듀오·스쿼드 팀 분석까지 이어집니다.</p>
       </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {FEATURES.map((feature) => (

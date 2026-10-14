@@ -135,7 +135,7 @@ export class SquadObservationCollector {
     const issues = [...this.issues];
     if (!this.started || !this.ended) issues.push('incomplete_match_events');
     if (this.team.size<2) issues.push('missing_team_identity');
-    const supported = ['squad','squad-fpp'].includes(this.mode);
+    const supported = ['squad','squad-fpp','duo','duo-fpp'].includes(this.mode);
     const status = !supported ? 'unsupported' : issues.length ? 'missing' : 'observed';
     const observed = status==='observed';
     return { version:SQUAD_OBSERVATION_VERSION,scope:'squad',teamAccountIds:[...this.team].sort(),status,issues,
