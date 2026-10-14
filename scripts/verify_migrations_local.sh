@@ -83,6 +83,7 @@ MIGRATIONS=(
   "20261014120000_protect_board_post_views"
   "20261014130000_suggest_similar_players_trgm_index_scan"
   "20261014140000_reports_revoke_public_truncate"
+  "20261014150000_pubg_ranking_background_refresh"
 )
 
 cleanup() {
@@ -319,6 +320,7 @@ fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/suggest-similar-players-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-cache-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/ranking-background-refresh-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-coexistence-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retained-performance-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/encounter-page-scenarios.sql
