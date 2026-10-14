@@ -108,6 +108,13 @@ describe("/방금판 saved records", () => {
     expect(payload.embeds[0].fields).toContainEqual(expect.objectContaining({ name: "평균 복수 처치 시간", value: `${value === 0 ? "0.0초" : "미측정"}\n아군 기절 → 복수 처치` }));
   });
 
+  it.each([[2 / 3 * 100, "66.7%"], [1 / 3 * 100, "33.3%"]])("rounds measured duel win rates to one decimal (%s)", async (duelWinRate, expected) => {
+    query(match);
+    query({ data: { fullResult: { stats: { name: "Player" }, duelStats: { duelWinRate } } } });
+    const payload = (await handleRecentMatchCommand(interaction, appUrl)).data as any;
+    expect(payload.embeds[0].fields).toContainEqual(expect.objectContaining({ name: "1:1 교전 승률", value: expected }));
+  });
+
   it("does not show copied telemetry for another player", async () => {
     query(match);
     query({ data: { fullResult: { stats: { name: "OtherPlayer" }, teamImpact: { teamDamageShare: 99 } } } });

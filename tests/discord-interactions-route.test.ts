@@ -143,9 +143,9 @@ describe("discord interactions route", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("checks follow-up HTTP errors and replaces content, embeds and links with a failure message", async () => {
+  it.each([400, 401, 403, 404, 429])("shows a safe failure for a rejected follow-up HTTP %s", async (status) => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    fetchMock.mockResolvedValueOnce(new Response("secret Discord body", { status: 500 }));
+    fetchMock.mockResolvedValueOnce(new Response("secret Discord body", { status }));
     await POST(commandRequest());
     await mocks.after.mock.calls[0][0]();
     expect(fetchMock).toHaveBeenCalledTimes(2);
@@ -153,7 +153,7 @@ describe("discord interactions route", () => {
     expect(console.warn).toHaveBeenCalledWith("[DiscordInteractions] 명령어 응답 갱신 실패");
   });
 
-  it("aborts a stalled follow-up request and attempts a visible failure once", async () => {
+  it("aborts a stalled follow-up request and retries the same result once", async () => {
     vi.useFakeTimers();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     let signal!: AbortSignal;
@@ -167,17 +167,80 @@ describe("discord interactions route", () => {
     await completion;
     expect(signal.aborted).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(editedMessage(1).content).toContain("응답을 전달하지 못했습니다");
+    expect(editedMessage(1)).toEqual(editedMessage(0));
+    expect(mocks.stats).toHaveBeenCalledTimes(1);
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it("bounds failure-message delivery and logs no token or raw error when Discord remains unavailable", async () => {
+  it.each([500, 502, 503, 504])("retries the same result after an ambiguous follow-up HTTP %s", async (status) => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    fetchMock.mockResolvedValueOnce(new Response("secret Discord body", { status }));
+    await POST(commandRequest());
+    await mocks.after.mock.calls[0][0]();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(editedMessage(1)).toEqual(editedMessage(0));
+    expect(mocks.stats).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries the same result after a network failure without rerunning the command", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    fetchMock.mockRejectedValueOnce(new TypeError("secret network failure"));
+    await POST(commandRequest());
+    await mocks.after.mock.calls[0][0]();
+    expect(editedMessage(1)).toEqual(editedMessage(0));
+    expect(mocks.stats).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves an already-applied success when its acknowledgement times out and the retry fails", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let visibleMessage: unknown;
+    fetchMock.mockImplementationOnce((_url, init) => new Promise((_, reject) => {
+      visibleMessage = JSON.parse(init.body);
+      init.signal.addEventListener("abort", () => reject(new Error("acknowledgement timeout")), { once: true });
+    })).mockRejectedValueOnce(new TypeError("retry unavailable"));
+    await POST(commandRequest());
+    const completion = mocks.after.mock.calls[0][0]();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await completion;
+    expect(visibleMessage).toMatchObject({ embeds: [{ title: "저장 전적" }] });
+    expect(editedMessage(1)).toEqual(visibleMessage);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("bounds both stalled result deliveries to five seconds each", async () => {
+    vi.useFakeTimers();
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    fetchMock.mockImplementation((_url, init) => new Promise((_, reject) => {
+      init.signal.addEventListener("abort", () => reject(new Error("timeout")), { once: true });
+    }));
+    await POST(commandRequest());
+    const completion = mocks.after.mock.calls[0][0]();
+    await vi.advanceTimersByTimeAsync(10_000);
+    await completion;
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(editedMessage(1)).toEqual(editedMessage(0));
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps private-player refusals free of stats or links when retrying", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    mocks.stats.mockResolvedValue({ type: 4, data: { content: "비공개 플레이어의 전적은 Discord에서 제공하지 않습니다.", flags: 64 } });
+    fetchMock.mockRejectedValueOnce(new TypeError("network failure"));
+    expect(await (await POST(commandRequest())).json()).toEqual({ type: 5, data: { flags: 64 } });
+    await mocks.after.mock.calls[0][0]();
+    expect(editedMessage(1)).toEqual({ content: expect.stringContaining("비공개"), allowed_mentions: { parse: [] } });
+    expect(mocks.stats).toHaveBeenCalledTimes(1);
+  });
+
+  it("bounds result retries and logs no token or raw error when Discord remains unavailable", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     fetchMock.mockRejectedValue(new Error(`network secret ${token}`));
     await POST(commandRequest());
     await expect(mocks.after.mock.calls[0][0]()).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(warn).toHaveBeenCalledWith("[DiscordInteractions] 실패 안내 전달 실패");
+    expect(warn).toHaveBeenCalledWith("[DiscordInteractions] 재시도 응답 전달 실패");
     expect(JSON.stringify(warn.mock.calls)).not.toContain(token);
   });
 

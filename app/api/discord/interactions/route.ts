@@ -109,7 +109,7 @@ async function completeInteractionResponse(interaction: any, data: InteractionMe
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ...data, allowed_mentions: { parse: [] } }),
     });
-    if (!response.ok) throw new Error(`discord_response_http_${response.status}`);
+    if (!response.ok) throw new Error("discord_response_http", { cause: response.status });
   } finally {
     clearTimeout(timer);
   }
@@ -189,16 +189,21 @@ async function processSlashCommand(interaction: any, appUrl: string): Promise<vo
 
   try {
     await completeInteractionResponse(interaction, data);
-  } catch {
+  } catch (error) {
     console.warn("[DiscordInteractions] 명령어 응답 갱신 실패");
-    try {
-      await completeInteractionResponse(interaction, {
+    const status = error instanceof Error ? error.cause : null;
+    // 반영 여부가 불확실한 실패는 동일 결과를 재전송해 이미 보이는 성공을 보존한다.
+    const retryData = typeof status === "number" && status >= 400 && status < 500
+      ? {
         content: "결과 응답을 전달하지 못했습니다. 연동 여부나 전적을 잠시 후 다시 확인해 주세요.",
         embeds: [],
         components: [],
-      });
+      }
+      : data;
+    try {
+      await completeInteractionResponse(interaction, retryData);
     } catch {
-      console.warn("[DiscordInteractions] 실패 안내 전달 실패");
+      console.warn("[DiscordInteractions] 재시도 응답 전달 실패");
     }
   }
 }

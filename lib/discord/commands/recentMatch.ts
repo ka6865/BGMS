@@ -96,7 +96,7 @@ export async function handleRecentMatchCommand(interaction: any, appUrl: string)
         analysisUpdatedAt: analysis ? telemetryRow?.updated_at : null,
         damageShare: measured(share) && share <= 100 ? `${share}%` : null,
         tradeLatency: measured(latency) ? `${(latency / 1000).toFixed(1)}초` : null,
-        duelWinRate: measured(duel) && duel <= 100 ? `${duel}%` : null,
+        duelWinRate: measured(duel) && duel <= 100 ? `${Math.round(duel * 10) / 10}%` : null,
       },
       appUrl,
     );
