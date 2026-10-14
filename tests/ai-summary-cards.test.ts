@@ -136,6 +136,21 @@ describe("ai summary v2 card catalog", () => {
     expect(result?.final.finalVerdict).not.toContain(issues[0].kindOpinion);
   });
 
+  it("reports which rule rejected the interpretation", () => {
+    const cards = buildFixture();
+    const valid = normalizeSummaryCardFinal(providerFinal(cards), cards, { sanitizeText: (text) => text, hasUnsupportedMode: () => false });
+    expect(valid?.rejectReasons).toEqual([]);
+
+    const issues = cards.map((card) => providerIssue(card));
+    issues[0].winner = "balanced";
+    const fields = normalizeSummaryCardFinal(providerFinal(cards, { debateIssues: issues }), cards, { sanitizeText: (text) => text, hasUnsupportedMode: () => false });
+    expect(fields?.cacheable).toBe(false);
+    expect(fields?.rejectReasons).toEqual([`${cards[0].topicId}:fields`]);
+
+    const mode = normalizeSummaryCardFinal(providerFinal(cards), cards, { sanitizeText: (text) => text, hasUnsupportedMode: () => true });
+    expect(mode?.rejectReasons).toEqual(expect.arrayContaining(["top_level_mode", `${cards[0].topicId}:mode`]));
+  });
+
   it.each([undefined, "balanced", 0, false])("rejects an invalid conclusion %s without hiding server evidence", (winner) => {
     const cards = buildFixture();
     const issues = cards.map((card) => providerIssue(card));

@@ -2653,7 +2653,7 @@ export async function POST(request: Request) {
 
             // Keep the server facts and any validated card interpretation, but
             // never cache a rejected interpretation as a successful summary.
-            if (useIdCards && !idResult?.cacheable) throw new Error("AI card interpretation did not pass validation");
+            if (useIdCards && !idResult?.cacheable) throw new Error(`AI card interpretation did not pass validation: ${idResult?.rejectReasons.join(",") || "malformed"}`);
 
             // 3. Write to DB Cache
             if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
