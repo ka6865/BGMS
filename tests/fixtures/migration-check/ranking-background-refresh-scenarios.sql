@@ -24,13 +24,23 @@ begin
     or has_function_privilege('anon','public.get_pubg_rankings_cached(text,text[],text,integer,integer,integer,integer)','execute')
     or not has_function_privilege('service_role','public.get_pubg_rankings_cached(text,text[],text,integer,integer,integer,integer)','execute')
   then raise exception 'FAIL: ranking ACL'; end if;
-  if not exists(select 1 from cron.job where jobname='bgms-pubg-rankings-refresh' and schedule='30 seconds') then
+  if not exists(select 1 from cron.job where jobname='bgms-pubg-rankings-refresh' and schedule='10 seconds') then
     raise exception 'FAIL: ranking refresh cron schedule';
   end if;
 
-  -- 첫 요청은 지난주 경기만 집계하고 기간·확정 여부를 돌려준다.
+  -- 첫 요청은 집계하지 않고 등록만 한 뒤 준비 중으로 응답한다.
   a:=public.get_pubg_rankings_cached('damage',array['squad'],'all',3,8,1,73);
-  if (a->>'cache_hit')::boolean or a ? 'params' or a ? 'requested_at'
+  if not (a->>'pending')::boolean or a->'entries'<>'[]'::jsonb or (a->>'week_start')::timestamptz<>w.week_start then
+    raise exception 'FAIL: first request should be pending %', a;
+  end if;
+  -- 예약 집계는 실제로 조회된 버전의 108개 조합을 모두 채운다.
+  while public.refresh_pubg_rankings_cache()>0 loop end loop;
+  if (select count(*) from public.pubg_response_cache where cache_key like 'rankings:v2:%' and updated_at>'-infinity'::timestamptz
+      and expires_at>clock_timestamp())<>108 then
+    raise exception 'FAIL: all filter combinations prebuilt';
+  end if;
+  a:=public.get_pubg_rankings_cached('damage',array['squad'],'all',3,8,1,73);
+  if not (a->>'cache_hit')::boolean or (a->>'pending')::boolean or a ? 'params' or a ? 'requested_at'
     or a->'entries'->0->>'player_id'<>'week-player-5' or jsonb_array_length(a->'entries')<>5
     or (a->>'week_start')::timestamptz<>w.week_start or (a->>'week_end')::timestamptz<>w.week_end
     or (a->>'finalized')::boolean<>past_finalize then
@@ -40,20 +50,22 @@ begin
   if not exists(select 1 from public.get_pubg_rankings('damage',array['squad'],'all',3,8,1,73) r where r.player_id='this-week-player') then
     raise exception 'FAIL: default seven day window';
   end if;
-  if not (public.get_pubg_rankings_cached('damage',array['squad'],'all',3,8,1,73)->>'cache_hit')::boolean then
-    raise exception 'FAIL: second request should hit';
+  if not (public.get_pubg_rankings_cached('damage',array['squad','squad-fpp'],'competitive',3,8,1,73)->>'cache_hit')::boolean then
+    raise exception 'FAIL: a never-requested filter should already be served';
   end if;
 
   -- 이번 주 결과가 이미 있으면 다시 집계하지 않는다(확정 전이거나 이미 확정본).
   if public.refresh_pubg_rankings_cache()<>0 then raise exception 'FAIL: fresh ranking refreshed'; end if;
   -- 확정 시각이 지났는데 잠정 결과면 확정본으로 다시 집계한다.
-  update public.pubg_response_cache set payload=jsonb_set(payload,'{finalized}','false') where cache_key like 'rankings:v2:%';
+  update public.pubg_response_cache set payload=jsonb_set(payload,'{finalized}','false')
+  where cache_key=(select cache_key from public.pubg_response_cache where payload->'params'->>'tab'='damage' and payload->'params'->'modes'='["squad"]'::jsonb and payload->'params'->>'match_type'='all');
   if public.refresh_pubg_rankings_cache()<>(case when past_finalize then 1 else 0 end) then
     raise exception 'FAIL: finalize refresh';
   end if;
 
   -- 월요일에는 지난 2주 안에 조회된 조합을 이번 주 키로 미리 채운다.
-  select cache_key,payload into key,row_payload from public.pubg_response_cache where cache_key like 'rankings:v2:%';
+  select cache_key,payload into key,row_payload from public.pubg_response_cache
+  where payload->'params'->>'tab'='damage' and payload->'params'->'modes'='["squad"]'::jsonb and payload->'params'->>'match_type'='all';
   delete from public.pubg_response_cache where cache_key=key;
   insert into public.pubg_response_cache(cache_key,payload,expires_at,updated_at)
   values('rankings:v2:previous-week-fixture',jsonb_set(row_payload,'{requested_at}',to_jsonb(clock_timestamp()-interval '3 days')),clock_timestamp()+interval '1 day',clock_timestamp()-interval '7 days');
@@ -78,13 +90,16 @@ begin
   -- 요청 집계가 실패한 조합은 등록만 하고 내보내지 않으며 예약 집계가 먼저 채운다.
   perform public.queue_pubg_ranking_refresh('kills',array['squad','squad'],'all',3,8,1,73);
   if public.refresh_pubg_rankings_cache()<>1 then raise exception 'FAIL: queued ranking not built'; end if;
+  while public.refresh_pubg_rankings_cache()>0 loop end loop;
   a:=public.get_pubg_rankings_cached('kills',array['squad'],'all',3,8,1,73);
   if not (a->>'cache_hit')::boolean or a->'entries'->0->>'player_id'<>'queue-player-3' then
     raise exception 'FAIL: queued ranking not served %', a;
   end if;
   -- 비공개 목록이 바뀌면 새 키로 다시 집계하고 요청은 비공개 대상이 빠진 결과를 읽는다.
   update public.system_settings set value='[{"platform":"steam","nickname":"queue-player-3","account_id":"account.queue3"}]' where key='private_players_list';
-  if public.refresh_pubg_rankings_cache()<>1 then raise exception 'FAIL: privacy change not refreshed'; end if;
+  a:=public.get_pubg_rankings_cached('kills',array['squad'],'all',3,8,1,73);
+  if not (a->>'pending')::boolean then raise exception 'FAIL: privacy change should not serve the old key %', a; end if;
+  while public.refresh_pubg_rankings_cache()>0 loop end loop;
   a:=public.get_pubg_rankings_cached('kills',array['squad'],'all',3,8,1,73);
   if not (a->>'cache_hit')::boolean or a->'entries'->0->>'player_id'<>'queue-player-2' then
     raise exception 'FAIL: private player in refreshed ranking %', a;

@@ -38,6 +38,8 @@ export type RankingQueryResult = {
   hasError: boolean;
   generatedAt?: string;
   period?: RankingPeriod;
+  /** 이번 주 결과를 예약 집계가 준비 중이다. 오류가 아니다. */
+  pending?: boolean;
   cacheStatus?: 'hit' | 'miss';
   databaseMs?: number;
   aggregationMs?: number;
@@ -110,11 +112,12 @@ async function readRanking(tab: 'damage' | 'kills' | 'tier', mode: GameModeFilte
   try {
     const { data, error } = await supabase.rpc('get_pubg_rankings_cached', params).abortSignal(AbortSignal.timeout(10_000));
     if (error) await queueRankingRefresh(params);
+    const period = Number.isFinite(Date.parse(data?.week_start)) && Number.isFinite(Date.parse(data?.week_end))
+      ? { start: data.week_start, end: data.week_end, finalized: data.finalized === true } : undefined;
+    if (!error && data?.pending === true) return { hasError: false, pending: true, period, data: [] };
     if (error || !Array.isArray(data?.entries) || !Number.isFinite(Date.parse(data.generated_at))) {
       throw error || new Error('Missing ranking response');
     }
-    const period = Number.isFinite(Date.parse(data.week_start)) && Number.isFinite(Date.parse(data.week_end))
-      ? { start: data.week_start, end: data.week_end, finalized: data.finalized === true } : undefined;
     return { hasError: false, generatedAt: data.generated_at, period, cacheStatus: data.cache_hit ? 'hit' : 'miss',
       databaseMs: data.database_ms, aggregationMs: data.aggregation_ms, data: data.entries.map((row: any, index: number) => ({
       rank: index + 1, platform: row.platform, player_id: row.player_id, nickname: row.player_id,
