@@ -275,7 +275,11 @@ export async function extractSimulatorData(options: BluezoneOptions = {}) {
       contentType: "application/json",
       upsert: true,
     });
-    if (uploadError) throw new Error("bluezone-storage-upload-failed");
+    if (uploadError) {
+      // 코드만 남기면 버킷 누락·크기 제한 같은 원인을 구분할 수 없다.
+      console.error(`자기장 데이터 업로드 실패: ${uploadError.message}`);
+      throw new Error("bluezone-storage-upload-failed");
+    }
     fs.writeFileSync(outputPath, JSON.stringify(finalMatches, null, 2));
   }
   console.log(`자기장 추출: 시도 ${attemptedCount} · 처리 ${processedCount} · 조회 실패 ${failedCount} (최종 데이터: ${finalMatches.length}건)`);

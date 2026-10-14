@@ -55,7 +55,8 @@ const QUERY_PAGE_SIZE = 500;
 const DELETE_BATCH_SIZE = 50;
 
 // 정기 정리는 타임아웃과 한 번의 삭제 규모를 제한하도록 500개씩 최대 30회 처리한다.
-const PLAYER_CACHE_BATCH_LIMIT = 500;
+// 2026-10-14 밀린 19만 행을 줄이도록 늘렸다. 한 실행 3만 행(1,000 × 30) 상한은 유지한다.
+const PLAYER_CACHE_BATCH_LIMIT = 1000;
 const PLAYER_CACHE_MAX_BATCHES = 30;
 
 export async function fetchAllRowsByRange<T>(
