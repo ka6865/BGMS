@@ -7,29 +7,22 @@ import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { adfitMount, adfitRender, adfitUnmount, adsenseRender } = vi.hoisted(() => ({
-  adfitMount: vi.fn(),
-  adfitRender: vi.fn(),
-  adfitUnmount: vi.fn(),
+const { adsenseMount, adsenseRender, adsenseUnmount } = vi.hoisted(() => ({
+  adsenseMount: vi.fn(),
   adsenseRender: vi.fn(),
+  adsenseUnmount: vi.fn(),
 }));
 
-vi.mock("@/components/ads/AdfitBanner", () => ({
-  default: function MockAdfitBanner(props: Record<string, unknown>) {
-    adfitRender(props);
+vi.mock("@/components/ads/AdSenseBanner", () => ({
+  default: function MockAdSenseBanner(props: Record<string, unknown>) {
+    adsenseRender(props);
     const initialProps = useRef(props);
     useEffect(() => {
       const mountedProps = initialProps.current;
-      adfitMount(mountedProps);
-      return () => adfitUnmount(mountedProps);
+      adsenseMount(mountedProps);
+      return () => adsenseUnmount(mountedProps);
     }, []);
-    return createElement("div", { "data-testid": "adfit-creative", "data-width": props.adWidth });
-  },
-}));
-vi.mock("@/components/ads/AdSenseBanner", () => ({
-  default: (props: Record<string, unknown>) => {
-    adsenseRender(props);
-    return createElement("div", { "data-testid": "adsense-creative" });
+    return createElement("div", { "data-testid": "adsense-creative", "data-width": props.width });
   },
 }));
 
@@ -66,11 +59,9 @@ function HookedTopSlot() {
 
 describe("ResponsiveAdSlot", () => {
   beforeEach(() => {
-    adfitMount.mockReset();
-    adfitRender.mockReset();
-    adfitUnmount.mockReset();
+    adsenseMount.mockReset();
     adsenseRender.mockReset();
-    delete process.env.NEXT_PUBLIC_ADFIT_STATS_FEED_UNIT;
+    adsenseUnmount.mockReset();
   });
 
   afterEach(() => {
@@ -93,7 +84,6 @@ describe("ResponsiveAdSlot", () => {
     expect(slot).toHaveAttribute("data-ad-visibility", "mobile-only");
     expect(slot).toHaveClass("stats-ad-slot--mobile-only");
     expect(slot.closest(".stats-page")).not.toBeNull();
-    expect(adfitRender).not.toHaveBeenCalled();
     expect(adsenseRender).not.toHaveBeenCalled();
   });
 
@@ -104,20 +94,19 @@ describe("ResponsiveAdSlot", () => {
     }));
 
     expect(screen.getByLabelText("광고")).toHaveAttribute("data-ad-state", "mounted");
-    expect(adfitRender).toHaveBeenCalledTimes(1);
-    expect(adfitRender).toHaveBeenLastCalledWith(expect.objectContaining({ adWidth: 320, adHeight: 100 }));
+    expect(adsenseRender).toHaveBeenCalledTimes(1);
+    expect(adsenseRender).toHaveBeenLastCalledWith(expect.objectContaining({ slot: "9810524879", width: 320, height: 100 }));
 
     view.rerender(createElement(ResponsiveAdSlot, {
       placement: "stats-top",
       viewportClass: "tablet",
     }));
-    expect(adfitRender).toHaveBeenCalledTimes(2);
-    expect(adfitRender).toHaveBeenLastCalledWith(expect.objectContaining({ adWidth: 728, adHeight: 90 }));
-    expect(screen.getAllByTestId("adfit-creative")).toHaveLength(1);
-    expect(adfitMount).toHaveBeenCalledTimes(2);
-    expect(adfitUnmount).toHaveBeenCalledTimes(1);
+    expect(adsenseRender).toHaveBeenCalledTimes(2);
+    expect(adsenseRender).toHaveBeenLastCalledWith(expect.objectContaining({ slot: "9810524879", width: 728, height: 90 }));
+    expect(screen.getAllByTestId("adsense-creative")).toHaveLength(1);
+    expect(adsenseMount).toHaveBeenCalledTimes(2);
+    expect(adsenseUnmount).toHaveBeenCalledTimes(1);
     expect(document.querySelectorAll('[data-ad-placement="stats-top"]')).toHaveLength(1);
-    expect(adsenseRender).not.toHaveBeenCalled();
   });
 
   it("tablet after-5는 AdSense adapter 계약을 그대로 전달한다", () => {
@@ -136,29 +125,13 @@ describe("ResponsiveAdSlot", () => {
       format: "fluid",
       layoutKey: "-fb+5w+4e-db+86",
     }));
-    expect(adfitRender).not.toHaveBeenCalled();
-  });
-
-  it("feed unit이 없으면 resolved after-10 container도 만들지 않는다", async () => {
-    vi.stubEnv("NEXT_PUBLIC_ADFIT_STATS_FEED_UNIT", "   ");
-    vi.resetModules();
-    const { ResponsiveAdSlot: MissingFeedSlot } = await import("@/components/ads/ResponsiveAdSlot");
-    const { container } = render(createElement(MissingFeedSlot, {
-      placement: "stats-after-10",
-      viewportClass: "tablet",
-      renderableMatchCount: 16,
-    }));
-
-    expect(container).toBeEmptyDOMElement();
-    expect(adfitRender).not.toHaveBeenCalled();
-    expect(adsenseRender).not.toHaveBeenCalled();
   });
 
   it("server unknown markup을 hydration한 뒤 mobile creative 하나로 해소한다", async () => {
     const mediaQueries = installMatchMedia(375);
     const serverMarkup = renderToString(createElement(HookedTopSlot));
     expect(serverMarkup).toContain('data-ad-state="reserved"');
-    expect(adfitRender).not.toHaveBeenCalled();
+    expect(adsenseRender).not.toHaveBeenCalled();
 
     const container = document.createElement("div");
     container.innerHTML = serverMarkup;
@@ -169,8 +142,8 @@ describe("ResponsiveAdSlot", () => {
       onRecoverableError,
     });
 
-    await waitFor(() => expect(container.querySelectorAll('[data-testid="adfit-creative"]')).toHaveLength(1));
-    expect(container.querySelectorAll('[data-testid="adfit-creative"]')).toHaveLength(1);
+    await waitFor(() => expect(container.querySelectorAll('[data-testid="adsense-creative"]')).toHaveLength(1));
+    expect(container.querySelectorAll('[data-testid="adsense-creative"]')).toHaveLength(1);
     expect(consoleError.mock.calls.flat().join(" ")).not.toMatch(/hydration|did not match/i);
     expect(onRecoverableError).not.toHaveBeenCalled();
 

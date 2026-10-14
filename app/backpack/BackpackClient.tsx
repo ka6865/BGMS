@@ -9,13 +9,10 @@ import {
 } from "../../lib/backpackUtils";
 import { trackEvent } from "../../lib/analytics";
 import { toast } from "sonner";
-import AdfitBanner from "../../components/ads/AdfitBanner";
 import { BgmsIcon } from "@/components/common/BgmsIcon";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
-
-const BACKPACK_MOBILE_AD_UNIT = "DAN-tQGcqmddMC8tPpXA";
-const BACKPACK_LEADERBOARD_AD_UNIT = "DAN-dPiCxgIGtXKjLPP3";
-const BACKPACK_DESKTOP_AD_UNIT = "DAN-RjyosR2uf8eSsVIC";
+import AdSenseBanner from "@/components/ads/AdSenseBanner";
+import { ADSENSE_SLOTS } from "@/lib/ads/adsenseUnits";
 
 interface InventoryItem {
   id: string;
@@ -599,29 +596,27 @@ export default function BackpackSimulator() {
         </div>
 
         <div className="mt-8 flex justify-center md:hidden" aria-label="광고">
-          <AdfitBanner
-            adUnit={BACKPACK_MOBILE_AD_UNIT}
-            adWidth={320}
-            adHeight={100}
+          <AdSenseBanner
+            slot={ADSENSE_SLOTS.backpackBottom}
+            width={320}
+            height={100}
             className="max-w-full"
           />
         </div>
 
         <div className="mt-8 hidden justify-center md:flex min-[1880px]:hidden" aria-label="광고">
-          <AdfitBanner
-            adUnit={BACKPACK_LEADERBOARD_AD_UNIT}
-            adWidth={728}
-            adHeight={90}
+          <AdSenseBanner
+            slot={ADSENSE_SLOTS.backpackBottom}
+            width={728}
+            height={90}
             className="max-w-full"
           />
         </div>
 
         <aside className="hidden min-[1880px]:block absolute left-[calc(100%+24px)] top-0 w-[160px] h-full" aria-label="광고">
           <div className="sticky top-24">
-            <AdfitBanner
-              adUnit={BACKPACK_DESKTOP_AD_UNIT}
-              adWidth={160}
-              adHeight={600}
+            <AdSenseBanner
+              slot={ADSENSE_SLOTS.backpackRailRight}
             />
           </div>
         </aside>

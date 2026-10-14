@@ -27,10 +27,10 @@ import { CRATE_TICKET_BP_LIMIT, CRATE_TICKET_BP_PRICE, useCratesState } from "./
 import { getCraftableItems } from "../actions/crates";
 import { toast } from "sonner";
 import ConfirmModal from "@/components/common/ConfirmModal";
-import AdfitBanner from "@/components/ads/AdfitBanner";
 import AdSenseBanner from "@/components/ads/AdSenseBanner";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { CargoDropScene } from "./CargoDropScene";
+import { ADSENSE_SLOTS } from "@/lib/ads/adsenseUnits";
 
 interface CratesClientProps {
   initialCrates: CrateTemplate[];
@@ -1256,10 +1256,10 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
 
         {/* 모바일/일반 화면 하단 광고 — xl 미만에서만 표시, 320x100 가로 배너 */}
         <div className="my-6 flex justify-center xl:hidden">
-          <AdfitBanner
-            adUnit="DAN-tQGcqmddMC8tPpXA"
-            adWidth={320}
-            adHeight={100}
+          <AdSenseBanner
+            slot={ADSENSE_SLOTS.cratesBottom}
+            width={320}
+            height={100}
           />
         </div>
 
@@ -1269,7 +1269,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
           aria-label="광고"
         >
           <div className="h-[600px] w-[160px]">
-            <AdfitBanner adUnit="DAN-RjyosR2uf8eSsVIC" adWidth={160} adHeight={600} />
+            <AdSenseBanner slot={ADSENSE_SLOTS.cratesRailLeft} />
           </div>
         </aside>
         {/* 뷰포트 고정 광고는 우측 한 곳만 유지한다. self-start를 제거해 컬럼 전체 높이를 확보한다. */}
@@ -1278,7 +1278,7 @@ export default function CratesClient({ initialCrates, exchangeRate = 1500 }: Cra
           aria-label="광고"
         >
           <div className="sticky top-20 h-[600px] w-[160px]">
-            <AdSenseBanner client="ca-pub-3993032200487955" slot="1650598365" />
+            <AdSenseBanner slot={ADSENSE_SLOTS.cratesRailRight} />
           </div>
         </aside>
 

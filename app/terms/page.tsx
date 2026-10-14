@@ -128,7 +128,7 @@ export default function TermsPage() {
 
       <Section title="제8조 (광고 게재)">
         <p>
-          서비스는 운영 비용 충당을 위해 Google AdSense 및 카카오 애드핏 광고를 게재합니다.
+          서비스는 운영 비용 충당을 위해 Google AdSense 광고를 게재합니다.
           이용자는 서비스 이용 시 광고가 표시됨에 동의합니다.
           광고 콘텐츠는 각 광고 플랫폼의 정책에 따라 제공되며,
           서비스는 광고 내용의 정확성에 대한 책임을 지지 않습니다.

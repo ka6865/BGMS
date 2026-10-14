@@ -62,7 +62,6 @@ vi.mock("@/components/stat/SquadAnalysisPanel", () => ({
   ),
 }));
 vi.mock("@/components/ads/AdSenseBanner", () => ({ default: () => null }));
-vi.mock("@/components/ads/AdfitBanner", () => ({ default: () => null }));
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {

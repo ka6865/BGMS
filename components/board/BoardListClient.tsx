@@ -11,13 +11,12 @@ import BoardSearch from "./BoardSearch";
 import BoardPagination from "./BoardPagination";
 import { useAuth } from "@/components/AuthProvider";
 import { supabase } from "@/lib/supabase";
-import AdfitBanner from "@/components/ads/AdfitBanner";
 import AdSenseBanner from "@/components/ads/AdSenseBanner";
+import { ADSENSE_SLOTS } from "@/lib/ads/adsenseUnits";
 
 const BOARD_CATEGORIES = ["배그 소식", "자유", "듀오/스쿼드 모집", "클랜홍보", "제보/문의"];
 const POSTS_PER_PAGE = 10;
 const MAX_VISIBLE_PAGES = 5;
-
 
 interface BoardListClientProps {
   posts: Post[];
@@ -250,7 +249,7 @@ export default function BoardListClient({
           aria-label="광고"
         >
           <div className="sticky top-20 h-[600px] w-[160px]">
-            <AdSenseBanner client="ca-pub-3993032200487955" slot="7728921550" />
+            <AdSenseBanner slot={ADSENSE_SLOTS.boardRailLeft} />
           </div>
         </aside>
         <aside
@@ -258,7 +257,7 @@ export default function BoardListClient({
           aria-label="광고"
         >
           <div className="sticky top-20 h-[600px] w-[160px]">
-            <AdfitBanner adUnit="DAN-RjyosR2uf8eSsVIC" adWidth={160} adHeight={600} />
+            <AdSenseBanner slot={ADSENSE_SLOTS.boardRailRight} />
           </div>
         </aside>
       </div>

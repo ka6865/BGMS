@@ -31,7 +31,6 @@ vi.mock("@/components/stat/MatchCard", () => ({ MatchCard: () => null }));
 vi.mock("@/components/stat/RecentAISummary", () => ({ RecentAISummary: () => null }));
 vi.mock("@/components/stat/SquadAnalysisPanel", () => ({ default: () => null }));
 vi.mock("@/components/ads/AdSenseBanner", () => ({ default: () => null }));
-vi.mock("@/components/ads/AdfitBanner", () => ({ default: () => null }));
 
 import { PlayerProfileHeader } from "@/components/stat/profile/PlayerProfileHeader";
 import { StatSummaryPanel } from "@/components/stat/StatSummaryPanel";

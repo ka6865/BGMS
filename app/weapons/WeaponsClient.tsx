@@ -17,14 +17,9 @@ import {
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { trackEvent } from "../../lib/analytics";
-import AdfitBanner from "../../components/ads/AdfitBanner";
 import AdSenseBanner from "../../components/ads/AdSenseBanner";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
-
-const WEAPONS_MOBILE_AD_UNIT = "DAN-tQGcqmddMC8tPpXA";
-const WEAPONS_LEADERBOARD_AD_UNIT = "DAN-dPiCxgIGtXKjLPP3";
-const WEAPONS_DESKTOP_AD_UNIT = "DAN-RjyosR2uf8eSsVIC";
-const WEAPONS_ADSENSE_SLOT = "7728921550";
+import { ADSENSE_SLOTS } from "@/lib/ads/adsenseUnits";
 
 // ----------------------------------------------------
 // 1. 파츠 DB 인터페이스 (Supabase attachments 테이블 기반)
@@ -943,19 +938,19 @@ export default function WeaponsPage() {
         )}
 
         <div className="flex justify-center md:hidden" aria-label="광고">
-          <AdfitBanner
-            adUnit={WEAPONS_MOBILE_AD_UNIT}
-            adWidth={320}
-            adHeight={100}
+          <AdSenseBanner
+            slot={ADSENSE_SLOTS.weaponsBottom}
+            width={320}
+            height={100}
             className="max-w-full"
           />
         </div>
 
         <div className="hidden justify-center md:flex 2xl:hidden" aria-label="광고">
-          <AdfitBanner
-            adUnit={WEAPONS_LEADERBOARD_AD_UNIT}
-            adWidth={728}
-            adHeight={90}
+          <AdSenseBanner
+            slot={ADSENSE_SLOTS.weaponsBottom}
+            width={728}
+            height={90}
             className="max-w-full"
           />
         </div>
@@ -964,18 +959,15 @@ export default function WeaponsPage() {
           <div className="sticky top-20 h-[600px] w-[160px]">
             <AdSenseBanner
               placementId="weapons-rail-left"
-              client="ca-pub-3993032200487955"
-              slot={WEAPONS_ADSENSE_SLOT}
+              slot={ADSENSE_SLOTS.weaponsRailLeft}
             />
           </div>
         </aside>
         <aside className="hidden min-[1880px]:block absolute left-[calc(100%+24px)] top-0 bottom-0 w-[160px] h-auto" aria-label="오른쪽 광고">
           <div className="sticky top-20 h-[600px] w-[160px]">
-            <AdfitBanner
+            <AdSenseBanner
               placementId="weapons-rail-right"
-              adUnit={WEAPONS_DESKTOP_AD_UNIT}
-              adWidth={160}
-              adHeight={600}
+              slot={ADSENSE_SLOTS.weaponsRailRight}
             />
           </div>
         </aside>

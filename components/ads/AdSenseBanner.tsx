@@ -3,16 +3,19 @@
 import { useEffect, useRef } from 'react';
 import { BgmsIcon } from '@/components/common/BgmsIcon';
 import { shouldLoadExternalAdScripts } from '@/lib/ads/statsAdPlacements';
+import { ADSENSE_CLIENT } from '@/lib/ads/adsenseUnits';
 
 interface AdSenseBannerProps {
   placementId?: string;
-  client: string;
+  client?: string;
   slot: string;
   className?: string;
   format?: string;       // 기본값 'auto'
   layoutKey?: string;    // 인피드 광고 등에 필요한 layout-key
   responsive?: string;   // 'true' | 'false', 기본값 'true'
   minHeight?: number;
+  width?: number;        // width·height를 함께 주면 고정 규격 배너로 게재한다.
+  height?: number;
 }
 
 /**
@@ -20,21 +23,27 @@ interface AdSenseBannerProps {
  * - 개발 환경(localhost)에서는 광고 자리를 시각적 플레이스홀더로 표시합니다.
  * - 프로덕션 환경에서는 실제 ins 태그로 구글 애드센스 광고를 노출합니다.
  * - SPA 전환 시에도 ins 태그를 재마운트하여 광고를 재초기화합니다.
+ * - width·height가 없으면 기존처럼 160x600 세로 영역 안의 반응형 광고로 게재합니다.
  */
 export default function AdSenseBanner({
   placementId,
-  client,
+  client = ADSENSE_CLIENT,
   slot,
   className,
   format = 'auto',
   layoutKey,
   responsive = 'true',
   minHeight = 130,
+  width,
+  height,
 }: AdSenseBannerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const loadExternalAds = shouldLoadExternalAdScripts(process.env.NODE_ENV);
   const isFluid = format === 'fluid';
-  const ownerKey = `${placementId ?? 'adsense'}:${client}:${slot}:${format}`;
+  const isFixedSize = !isFluid && Boolean(width && height);
+  const boxWidth = isFixedSize ? width! : 160;
+  const boxHeight = isFixedSize ? height! : 600;
+  const ownerKey = `${placementId ?? 'adsense'}:${client}:${slot}:${isFixedSize ? `${boxWidth}x${boxHeight}` : format}`;
 
   useEffect(() => {
     if (!loadExternalAds) return;
@@ -46,13 +55,20 @@ export default function AdSenseBanner({
       container.innerHTML = '';
       const ins = document.createElement('ins');
       ins.className = 'adsbygoogle';
-      ins.style.display = 'block';
       ins.setAttribute('data-ad-client', client);
       ins.setAttribute('data-ad-slot', slot);
-      ins.setAttribute('data-ad-format', format);
       ins.setAttribute('data-ad-owner-key', ownerKey);
-      if (layoutKey) ins.setAttribute('data-ad-layout-key', layoutKey);
-      if (!isFluid) ins.setAttribute('data-full-width-responsive', responsive);
+      if (isFixedSize) {
+        // 고정 규격은 data-ad-format 없이 ins 크기만 지정한다.
+        ins.style.display = 'inline-block';
+        ins.style.width = `${boxWidth}px`;
+        ins.style.height = `${boxHeight}px`;
+      } else {
+        ins.style.display = 'block';
+        ins.setAttribute('data-ad-format', format);
+        if (layoutKey) ins.setAttribute('data-ad-layout-key', layoutKey);
+        if (!isFluid) ins.setAttribute('data-full-width-responsive', responsive);
+      }
 
       container.appendChild(ins);
       const adWindow = window as typeof window & {
@@ -76,7 +92,7 @@ export default function AdSenseBanner({
         // cleanup 실패도 provider 경계 내부에서 끝낸다.
       }
     };
-  }, [client, slot, format, layoutKey, responsive, loadExternalAds, isFluid, ownerKey]);
+  }, [client, slot, format, layoutKey, responsive, loadExternalAds, isFluid, ownerKey, isFixedSize, boxWidth, boxHeight]);
 
   // 개발 환경: 광고 위치 시각적 플레이스홀더 (네이티브/스켈레톤 테마 적용)
   if (!loadExternalAds) {
@@ -166,14 +182,14 @@ export default function AdSenseBanner({
       );
     }
 
-    // 디스플레이 배너(세로형 등) 플레이스홀더
+    // 디스플레이 배너 플레이스홀더
     return (
       <div
         className={className}
         data-ad-owner-key={ownerKey}
         style={{
-          width: '160px',
-          height: '600px',
+          width: `${boxWidth}px`,
+          height: `${boxHeight}px`,
           maxWidth: '100%',
           margin: '0 auto',
           border: '2px dashed rgba(66, 133, 244, 0.4)',
@@ -193,7 +209,7 @@ export default function AdSenseBanner({
           GOOGLE ADSENSE
         </span>
         <span style={{ fontSize: 10, color: 'rgba(255, 255, 255, 0.3)' }}>
-          160 × 600
+          {boxWidth} × {boxHeight}
         </span>
         <span style={{ fontSize: 9, color: 'rgba(255, 255, 255, 0.15)', fontFamily: 'monospace', wordBreak: 'break-all' }}>
           Slot: {slot}
@@ -210,8 +226,8 @@ export default function AdSenseBanner({
       ref={containerRef}
       className={className}
       style={{
-        width: isFluid ? '100%' : '160px',
-        height: isFluid ? undefined : '600px',
+        width: isFluid ? '100%' : `${boxWidth}px`,
+        height: isFluid ? undefined : `${boxHeight}px`,
         minHeight: isFluid ? `${minHeight}px` : undefined,
         maxWidth: '100%',
         margin: '0 auto',

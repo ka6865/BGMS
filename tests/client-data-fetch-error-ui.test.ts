@@ -32,7 +32,7 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('next/dynamic', () => ({ default: () => () => null }));
 vi.mock('@/components/AuthProvider', () => ({ useAuth: () => ({ user: null }) }));
-vi.mock('@/components/ads/AdfitBanner', () => ({ default: () => null }));
+vi.mock('@/components/ads/AdSenseBanner', () => ({ default: () => null }));
 vi.mock('@/components/stat/SquadCauseScenes', () => ({ default: () => null }));
 vi.mock('@/lib/analytics', () => ({ trackEvent: vi.fn() }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), warning: vi.fn() } }));

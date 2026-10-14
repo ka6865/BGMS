@@ -5,7 +5,6 @@ import L from "leaflet";
 import Sidebar from "../Sidebar";
 import MobileBottomSheet from "./MobileBottomSheet";
 import MapView from "./MapView";
-import AdfitBanner from "../ads/AdfitBanner";
 import { X, Hammer, Map as MapIcon, Crosshair, AlertCircle, SlidersHorizontal, Menu, Flame, MapPin, Target } from 'lucide-react';
 import type { MapTab, MapMarker, AuthUser, PendingVehicle } from "../../types/map";
 import { useTelemetry } from "../../hooks/useTelemetry";
@@ -21,6 +20,8 @@ import type { TelemetryMode, TelemetryPlatform } from "../../lib/pubg-analysis/t
 import { parseReplayStartMs } from "../../lib/pubg-analysis/replay3dRequest";
 import { getRankerLesson, lessonMatchesReplay, type RankerScene } from "../../lib/learn/lessons";
 import RankerReplayGuide from "../learn/RankerReplayGuide";
+import AdSenseBanner from "@/components/ads/AdSenseBanner";
+import { ADSENSE_SLOTS } from "@/lib/ads/adsenseUnits";
 
 interface MapShellProps {
   activeMapId: string;
@@ -470,16 +471,16 @@ const MapShell = memo(({
             </div>
 
             {/*
-              데스크톱 전용 하단 카카오 애드핏 광고.
+              데스크톱 전용 하단 구글 애드센스 광고.
               지도 캔버스 위 오버레이는 광고 정책 위반이며 히트맵 범례와 위치가 겹치므로
               캔버스 바깥 하단 고정 높이 영역에 배치한다. 리플레이 재생 중에는 숨긴다.
             */}
             {!isMobile && !playbackId && (
               <div className="shrink-0 h-[100px] w-full flex items-center justify-center border-t border-white/5 bg-[#0b0f19]" aria-label="광고">
-                <AdfitBanner
-                  adUnit="DAN-tQGcqmddMC8tPpXA"
-                  adWidth={320}
-                  adHeight={100}
+                <AdSenseBanner
+                  slot={ADSENSE_SLOTS.mapBottom}
+                  width={728}
+                  height={90}
                 />
               </div>
             )}

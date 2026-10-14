@@ -66,9 +66,6 @@ vi.mock("@/components/ads/AdSenseBanner", () => ({
   default: () => null,
 }));
 
-vi.mock("@/components/ads/AdfitBanner", () => ({
-  default: () => null,
-}));
 
 function jsonResponse(body: unknown) {
   return new Response(JSON.stringify(body), {
