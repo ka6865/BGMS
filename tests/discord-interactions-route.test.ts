@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import nacl from "tweetnacl";
 
-const mocks = vi.hoisted(() => ({ after: vi.fn(), link: vi.fn(), stats: vi.fn(), recent: vi.fn() }));
+const mocks = vi.hoisted(() => ({ after: vi.fn(), link: vi.fn(), unlink: vi.fn(), stats: vi.fn(), recent: vi.fn() }));
 vi.mock("next/server", async (importOriginal) => ({ ...await importOriginal<typeof import("next/server")>(), after: mocks.after }));
-vi.mock("@/lib/discord/commands/link", () => ({ handleLinkCommand: mocks.link }));
+vi.mock("@/lib/discord/commands/link", () => ({ handleLinkCommand: mocks.link, handleUnlinkCommand: mocks.unlink }));
 vi.mock("@/lib/discord/commands/stats", () => ({ handleStatsCommand: mocks.stats }));
 vi.mock("@/lib/discord/commands/recentMatch", () => ({ handleRecentMatchCommand: mocks.recent }));
 import { POST } from "@/app/api/discord/interactions/route";
@@ -21,6 +21,7 @@ describe("discord interactions route", () => {
     vi.stubGlobal("fetch", fetchMock);
     fetchMock.mockResolvedValue(new Response("{}", { status: 200 }));
     mocks.link.mockResolvedValue({ type: 4, data: { embeds: [{ title: "연동 완료" }], flags: 64 } });
+    mocks.unlink.mockResolvedValue({ type: 4, data: { content: "연동을 해제했습니다.", flags: 64 } });
     mocks.stats.mockResolvedValue({ type: 4, data: { embeds: [{ title: "저장 전적" }], components: [{ type: 1 }], flags: 0 } });
     mocks.recent.mockResolvedValue({ type: 4, data: { embeds: [{ title: "최신 저장 경기" }], flags: 0 } });
   });
@@ -115,6 +116,15 @@ describe("discord interactions route", () => {
     expect(mocks.link).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledExactlyOnceWith(`https://discord.com/api/v10/webhooks/${applicationId}/${token}/messages/@original`, expect.objectContaining({ method: "PATCH" }));
     expect(editedMessage()).toEqual({ embeds: [{ title: "연동 완료" }], allowed_mentions: { parse: [] } });
+  });
+
+  it.each(["연동해제", "unlink"])("defers /%s privately and edits only the ephemeral original", async (name) => {
+    expect(await (await POST(commandRequest(name))).json()).toEqual({ type: 5, data: { flags: 64 } });
+    await mocks.after.mock.calls[0][0]();
+    expect(mocks.unlink).toHaveBeenCalledTimes(1);
+    expect(mocks.link).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.map(([, init]) => init.method)).toEqual(["PATCH"]);
+    expect(editedMessage()).toEqual({ content: "연동을 해제했습니다.", allowed_mentions: { parse: [] } });
   });
 
   it("keeps link failures on the ephemeral original without a placeholder or follow-up", async () => {

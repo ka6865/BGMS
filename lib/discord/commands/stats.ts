@@ -1,8 +1,8 @@
 import { resolvePlayerNickname } from "../userResolver";
-import { buildStatsEmbed, discordTime } from "../embeds";
+import { buildEmptyRecordMessage, buildStatsEmbed, discordTime } from "../embeds";
 import { createClient } from "@supabase/supabase-js";
 import { validatedCachedBuckets } from "@/lib/pubg/playerPayload";
-import { isDiscordTargetPrivate } from "../playerPrivacy";
+import { isDiscordTargetPrivate } from "../playerIdentity";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co",
@@ -142,7 +142,13 @@ export async function handleStatsCommand(interaction: any, appUrl: string) {
     }
 
     if (matches === 0) {
-      return { type: 4, data: { content: "저장된 시즌 전적이나 경기 기록이 없습니다. 웹 전적 페이지에서 기록을 갱신한 뒤 다시 확인해 주세요.", flags: 64 } };
+      return {
+        type: 4,
+        data: {
+          ...buildEmptyRecordMessage("저장된 시즌 전적이나 경기 기록이 없습니다. 웹 전적 페이지에서 기록을 갱신한 뒤 다시 확인해 주세요.", nickname, platform, appUrl),
+          flags: 64,
+        },
+      };
     }
     const embedPayload = buildStatsEmbed(
       { nickname, platform, tier, rp, kda, winRate, avgDamage, matches, scope, ranked, updatedAt },

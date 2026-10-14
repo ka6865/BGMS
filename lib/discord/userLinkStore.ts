@@ -21,6 +21,11 @@ export type SupabaseLikeClient = {
         single(): Promise<{ data: any; error: any }>;
       };
     };
+    delete(): {
+      eq(column: string, value: unknown): {
+        select(columns?: string): Promise<{ data: any; error: any }>;
+      };
+    };
   };
 };
 
@@ -84,3 +89,21 @@ export async function setDiscordUserLink(
   return data;
 }
 
+
+/** 연동을 삭제하고 삭제된 연동을 돌려준다. 연동이 없으면 null이다. */
+export async function deleteDiscordUserLink(
+  discordUserId: string,
+  client?: SupabaseLikeClient,
+): Promise<Pick<DiscordUserLink, "pubg_nickname" | "pubg_platform"> | null> {
+  const supabase = client ?? getServiceClient();
+  const { data, error } = await supabase
+    .from("discord_user_links")
+    .delete()
+    .eq("discord_user_id", discordUserId)
+    .select("pubg_nickname, pubg_platform");
+
+  if (error) {
+    throw new Error(`discord-user-link-delete-failed: ${error.message || error}`);
+  }
+  return Array.isArray(data) && data.length > 0 ? data[0] : null;
+}

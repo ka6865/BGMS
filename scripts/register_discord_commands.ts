@@ -1,5 +1,5 @@
 /**
- * Discord API에 슬래시 커맨드(/연동, /전적, /방금판)를 글로벌 등록하는 일회성 CLI 스크립트입니다.
+ * Discord API에 슬래시 커맨드(/연동, /연동해제, /전적, /방금판)를 글로벌 등록하는 일회성 CLI 스크립트입니다.
  * 
  * 사용법:
  * DISCORD_APPLICATION_ID=xxx DISCORD_BOT_TOKEN=xxx npx tsx scripts/register_discord_commands.ts
@@ -30,6 +30,10 @@ const COMMANDS = [
         ],
       },
     ],
+  },
+  {
+    name: "연동해제",
+    description: "디스코드 계정과 배틀그라운드 닉네임의 연동을 해제하고 나에게만 결과를 표시합니다.",
   },
   {
     name: "전적",

@@ -8,18 +8,19 @@ const mocks = vi.hoisted(() => ({
   cachedAccountId: vi.fn(),
   private: vi.fn(),
   saveLink: vi.fn(),
+  deleteLink: vi.fn(),
 }));
 vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ from: mocks.from }) }));
 vi.mock("@/lib/discord/userResolver", () => ({ resolvePlayerNickname: mocks.resolve }));
-vi.mock("@/lib/pubg/privatePlayerIdentity", () => ({ resolvePrivatePlayerAccountId: mocks.accountId }));
+vi.mock("@/lib/pubg/privatePlayerIdentity", () => ({ resolvePubgPlayerIdentity: mocks.accountId }));
 vi.mock("@/lib/pubg/privatePlayers", () => ({ isPlayerPrivate: mocks.private }));
 vi.mock("@/lib/pubg/privatePlayerCache", () => ({ resolveCachedPlayerAccountId: mocks.cachedAccountId }));
-vi.mock("@/lib/discord/userLinkStore", () => ({ setDiscordUserLink: mocks.saveLink }));
+vi.mock("@/lib/discord/userLinkStore", () => ({ setDiscordUserLink: mocks.saveLink, deleteDiscordUserLink: mocks.deleteLink }));
 
 import { handleStatsCommand } from "@/lib/discord/commands/stats";
 import { handleRecentMatchCommand } from "@/lib/discord/commands/recentMatch";
-import { handleLinkCommand } from "@/lib/discord/commands/link";
-import { clearDiscordPlayerPrivacyCache } from "@/lib/discord/playerPrivacy";
+import { handleLinkCommand, handleUnlinkCommand } from "@/lib/discord/commands/link";
+import { clearDiscordPlayerIdentityCache } from "@/lib/discord/playerIdentity";
 
 const appUrl = "https://bgms.kr";
 const interaction = { data: { options: [{ name: "nickname", value: "Player" }] }, user: { id: "1486900099266248825" } };
@@ -41,10 +42,10 @@ function query(data: unknown, error: unknown = null) {
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.resolve.mockResolvedValue({ nickname: "Player", platform: "steam" });
-  mocks.accountId.mockResolvedValue("account.player");
+  mocks.accountId.mockResolvedValue({ accountId: "account.player", nickname: "Player" });
   mocks.cachedAccountId.mockResolvedValue(null);
   mocks.private.mockResolvedValue(false);
-  clearDiscordPlayerPrivacyCache();
+  clearDiscordPlayerIdentityCache();
 });
 
 describe.each([
@@ -88,7 +89,8 @@ describe("/방금판 saved records", () => {
   it("returns no record without inventing a match or falling back to an ID without stats", async () => {
     query(null);
     const result = await handleRecentMatchCommand(interaction, appUrl);
-    expect(result.data).toEqual({ content: expect.stringContaining("저장된 경기 기록이 없습니다"), flags: 64 });
+    expect(result.data).toEqual({ content: expect.stringContaining("저장된 경기 기록이 없습니다"), components: [expect.anything()], flags: 64 });
+    expect((result.data as any).components[0].components[0]).toMatchObject({ style: 5, url: "https://bgms.kr/stats/steam/Player" });
     expect(mocks.from).toHaveBeenCalledExactlyOnceWith("pubg_player_matches");
     expect(JSON.stringify(result)).not.toMatch(/에란겔|latest|0킬/);
   });
@@ -154,7 +156,9 @@ describe("/방금판 saved records", () => {
 describe("/전적 aggregation", () => {
   it("does not invent 20 matches for empty cache and history", async () => {
     query(null); query([]);
-    expect((await handleStatsCommand(interaction, appUrl)).data).toEqual({ content: expect.stringContaining("기록이 없습니다"), flags: 64 });
+    const data = (await handleStatsCommand(interaction, appUrl)).data as any;
+    expect(data).toEqual({ content: expect.stringContaining("기록이 없습니다"), components: [expect.anything()], flags: 64 });
+    expect(data.components[0].components[0]).toMatchObject({ style: 5, url: "https://bgms.kr/stats/steam/Player" });
   });
 
   it.each(["cache", "history"])("checks %s Supabase errors without exposing their messages", async (stage) => {
@@ -232,16 +236,73 @@ describe("/전적 aggregation", () => {
 });
 
 describe("/연동 and registration", () => {
-  it("allows linked identity confirmation to be public", async () => {
-    mocks.saveLink.mockResolvedValue({ pubg_nickname: "Player", pubg_platform: "steam" });
+  it("links the exact cached nickname without calling the PUBG API", async () => {
+    const lookup = query({ nickname: "PlayerCase" });
+    mocks.saveLink.mockResolvedValue({ pubg_nickname: "PlayerCase", pubg_platform: "steam" });
     expect((await handleLinkCommand(interaction)).data).toMatchObject({ embeds: expect.any(Array), flags: 64 });
-    expect(mocks.saveLink).toHaveBeenCalledWith(interaction.user.id, "Player", "steam");
+    expect(lookup.eq).toHaveBeenCalledWith("lower_nickname", "player");
+    expect(mocks.accountId).not.toHaveBeenCalled();
+    expect(mocks.saveLink).toHaveBeenCalledWith(interaction.user.id, "PlayerCase", "steam");
+  });
+
+  it("links the exact PUBG nickname when the player is not cached", async () => {
+    query(null);
+    mocks.accountId.mockResolvedValue({ accountId: "account.player", nickname: "PLAYER" });
+    mocks.saveLink.mockResolvedValue({ pubg_nickname: "PLAYER", pubg_platform: "kakao" });
+    const kakao = { ...interaction, data: { options: [{ name: "nickname", value: "player" }, { name: "platform", value: "kakao" }] } };
+    await handleLinkCommand(kakao);
+    expect(mocks.accountId).toHaveBeenCalledWith("kakao", "player");
+    expect(mocks.saveLink).toHaveBeenCalledWith(interaction.user.id, "PLAYER", "kakao");
+  });
+
+  it("does not link a nickname that PUBG cannot find", async () => {
+    query(null);
+    mocks.accountId.mockResolvedValue(null);
+    const result = await handleLinkCommand(interaction);
+    expect(result.data).toEqual({ content: expect.stringContaining("찾지 못해 연동하지 않았습니다"), flags: 64 });
+    expect(mocks.saveLink).not.toHaveBeenCalled();
+  });
+
+  it.each(["api", "cache"])("blocks linking when the %s lookup fails", async (stage) => {
+    query(null, stage === "cache" ? { message: "db secret" } : null);
+    if (stage === "api") mocks.accountId.mockRejectedValue(new Error("rate limit secret"));
+    const result = await handleLinkCommand(interaction);
+    expect(result.data).toEqual({ content: expect.stringContaining("확인하지 못해 연동하지 않았습니다"), flags: 64 });
+    expect(mocks.saveLink).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).not.toContain("secret");
+  });
+
+  it("rejects an unsupported platform before any lookup", async () => {
+    const xbox = { ...interaction, data: { options: [{ name: "nickname", value: "Player" }, { name: "platform", value: "xbox" }] } };
+    expect((await handleLinkCommand(xbox)).data).toEqual({ content: expect.stringContaining("지원하지 않는 플랫폼"), flags: 64 });
+    expect(mocks.from).not.toHaveBeenCalled();
+    expect(mocks.accountId).not.toHaveBeenCalled();
   });
 
   it("does not expose a link storage error", async () => {
+    query({ nickname: "Player" });
     mocks.saveLink.mockRejectedValue(new Error("service role secret"));
     const result = await handleLinkCommand(interaction);
     expect(result.data).toMatchObject({ content: expect.stringContaining("연동하지 못했습니다"), flags: 64 });
+    expect(JSON.stringify(result)).not.toContain("secret");
+  });
+
+  it("unlinks the caller and reports the removed account privately", async () => {
+    mocks.deleteLink.mockResolvedValue({ pubg_nickname: "Player_1", pubg_platform: "steam" });
+    const result = await handleUnlinkCommand(interaction);
+    expect(mocks.deleteLink).toHaveBeenCalledWith(interaction.user.id);
+    expect(result.data).toEqual({ content: expect.stringContaining("Player\\_1** (STEAM) 계정 연동을 해제했습니다"), flags: 64 });
+  });
+
+  it("reports when there is no link to remove", async () => {
+    mocks.deleteLink.mockResolvedValue(null);
+    expect((await handleUnlinkCommand(interaction)).data).toEqual({ content: "연동된 배틀그라운드 계정이 없습니다.", flags: 64 });
+  });
+
+  it("does not expose an unlink storage error", async () => {
+    mocks.deleteLink.mockRejectedValue(new Error("service role secret"));
+    const result = await handleUnlinkCommand(interaction);
+    expect(result.data).toEqual({ content: expect.stringContaining("해제하지 못했습니다"), flags: 64 });
     expect(JSON.stringify(result)).not.toContain("secret");
   });
 
@@ -250,5 +311,6 @@ describe("/연동 and registration", () => {
     expect(source.match(/value: "steam"/g)).toHaveLength(3);
     expect(source.match(/value: "kakao"/g)).toHaveLength(3);
     expect(source).not.toMatch(/value: "(?:xbox|psn)"|최근 20경기 전적/);
+    expect(source).toContain('name: "연동해제"');
   });
 });

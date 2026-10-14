@@ -94,6 +94,20 @@ export function buildStatsEmbed(data: StatsEmbedInput, appUrl: string) {
   };
 }
 
+/** 저장 기록이 없을 때 웹 전적 페이지에서 갱신하도록 안내한다. 공개 확인을 통과한 대상에만 쓴다. */
+export function buildEmptyRecordMessage(content: string, nickname: string, platform: string, appUrl: string) {
+  const webUrl = `${appUrl.replace(/\/+$/, "")}/stats/${platform.toLowerCase()}/${encodeURIComponent(nickname)}`;
+  return {
+    content,
+    components: [
+      {
+        type: 1, // Action Row
+        components: [{ type: 2, style: 5, label: "🌐 웹에서 전적 갱신하기", url: webUrl }],
+      },
+    ],
+  };
+}
+
 export function buildRecentMatchEmbed(data: RecentMatchEmbedInput, appUrl: string) {
   const encodedNick = encodeURIComponent(data.nickname);
   const platform = data.platform.toLowerCase();

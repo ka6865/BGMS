@@ -13,6 +13,7 @@ vi.mock("@/lib/pubg/playerApiClient", () => ({
 }));
 
 import { isPlayerPrivate, resolvePrivatePlayerAccountId } from "@/lib/pubg/privatePlayers";
+import { resolvePubgPlayerIdentity } from "@/lib/pubg/privatePlayerIdentity";
 
 function valueQuery(result: unknown) {
   const query: any = {
@@ -85,5 +86,14 @@ describe("private player stable identity matching", () => {
       expect.stringContaining("filter[playerNames]=ApiPlayer"),
       expect.objectContaining({ stage: "private-player-identity" }),
     );
+  });
+
+  it("returns PUBG's exact nickname casing with the account id", async () => {
+    mocks.playerRead.mockResolvedValue({ data: [{
+      id: "account.exact",
+      attributes: { name: "ExactCase" },
+      relationships: { matches: { data: [] } },
+    }] });
+    await expect(resolvePubgPlayerIdentity("steam", "exactcase")).resolves.toEqual({ accountId: "account.exact", nickname: "ExactCase" });
   });
 });

@@ -1,6 +1,6 @@
 import { after, NextResponse } from "next/server";
 import { verifyDiscordSignature } from "@/lib/discord/verify";
-import { handleLinkCommand } from "@/lib/discord/commands/link";
+import { handleLinkCommand, handleUnlinkCommand } from "@/lib/discord/commands/link";
 import { handleStatsCommand } from "@/lib/discord/commands/stats";
 import { handleRecentMatchCommand } from "@/lib/discord/commands/recentMatch";
 import { decideDiscordReview, getReview, syncReviewDecisionNotification } from "@/lib/community-agent/reviews";
@@ -186,20 +186,28 @@ function isLinkCommand(commandName: unknown): boolean {
   return commandName === "연동" || commandName === "link";
 }
 
+function isUnlinkCommand(commandName: unknown): boolean {
+  return commandName === "연동해제" || commandName === "unlink";
+}
+
+// 연동 관리 명령은 처음부터 개인 defer라 original 갱신만으로 호출자에게만 보인다.
+function isPrivateCommand(commandName: unknown): boolean {
+  return isLinkCommand(commandName) || isUnlinkCommand(commandName);
+}
+
 async function processSlashCommand(interaction: any, appUrl: string): Promise<void> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   let data: InteractionMessage;
-  // 연동은 처음부터 개인 defer라 original 갱신만으로 호출자에게만 보인다.
-  const deferredPrivately = isLinkCommand(interaction.data.name);
+  const deferredPrivately = isPrivateCommand(interaction.data.name);
   let privateResponse = true;
   try {
     // shortcut: 시간 제한은 진행 중인 저장을 취소하지 않는다. 저장 취소가 필요해지면 DB 요청에 AbortSignal을 전달한다.
+    const commandName = interaction.data.name;
     const response = await Promise.race([
-      deferredPrivately
-        ? handleLinkCommand(interaction)
-        : interaction.data.name === "전적" || interaction.data.name === "stats"
-          ? handleStatsCommand(interaction, appUrl)
-          : handleRecentMatchCommand(interaction, appUrl),
+      isLinkCommand(commandName) ? handleLinkCommand(interaction)
+        : isUnlinkCommand(commandName) ? handleUnlinkCommand(interaction)
+          : commandName === "전적" || commandName === "stats" ? handleStatsCommand(interaction, appUrl)
+            : handleRecentMatchCommand(interaction, appUrl),
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error("command_timeout")), COMMAND_TIMEOUT_MS);
       }),
@@ -311,7 +319,7 @@ export async function POST(request: Request) {
     const commandName = interaction.data?.name;
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://bgms.kr";
 
-    if (!["연동", "link", "전적", "stats", "방금판", "recent"].includes(commandName)) {
+    if (!["연동", "link", "연동해제", "unlink", "전적", "stats", "방금판", "recent"].includes(commandName)) {
       return ephemeral("알 수 없는 명령어입니다.");
     }
     if (!interactionUserId(interaction) || !isDiscordSnowflake(interaction.application_id)
@@ -323,8 +331,8 @@ export async function POST(request: Request) {
     } catch {
       return ephemeral("명령어 처리를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
     }
-    // 연동은 항상 호출자에게만 보인다. 전적 조회는 완료 전에는 전적을 담지 않고, 공개 확인을 통과한 성공 결과만 채널에 표시한다.
-    return isLinkCommand(commandName) ? deferredEphemeral() : NextResponse.json({ type: 5, data: {} });
+    // 연동 관리는 항상 호출자에게만 보인다. 전적 조회는 완료 전에는 전적을 담지 않고, 공개 확인을 통과한 성공 결과만 채널에 표시한다.
+    return isPrivateCommand(commandName) ? deferredEphemeral() : NextResponse.json({ type: 5, data: {} });
   }
 
   return NextResponse.json({ type: 4, data: { content: "지원하지 않는 상호작용 유형입니다.", flags: 64 } });

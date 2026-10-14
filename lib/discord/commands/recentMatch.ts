@@ -1,8 +1,8 @@
 import { resolvePlayerNickname } from "../userResolver";
-import { buildRecentMatchEmbed } from "../embeds";
+import { buildEmptyRecordMessage, buildRecentMatchEmbed } from "../embeds";
 import { createClient } from "@supabase/supabase-js";
 import { MAP_NAMES } from "@/lib/pubg-analysis/constants";
-import { isDiscordTargetPrivate } from "../playerPrivacy";
+import { isDiscordTargetPrivate } from "../playerIdentity";
 import { getLegacyFullResultForHistory } from "@/lib/pubg-analysis/cacheIdentity";
 
 const supabaseAdmin = createClient(
@@ -58,7 +58,13 @@ export async function handleRecentMatchCommand(interaction: any, appUrl: string)
       .maybeSingle();
     if (matchError) throw matchError;
     if (!latestMatch) {
-      return { type: 4, data: { content: "저장된 경기 기록이 없습니다. 웹 전적 페이지에서 기록을 갱신한 뒤 다시 확인해 주세요.", flags: 64 } };
+      return {
+        type: 4,
+        data: {
+          ...buildEmptyRecordMessage("저장된 경기 기록이 없습니다. 웹 전적 페이지에서 기록을 갱신한 뒤 다시 확인해 주세요.", nickname, platform, appUrl),
+          flags: 64,
+        },
+      };
     }
     const matchId = latestMatch.match_id;
     if (typeof matchId !== "string" || !/^[A-Za-z0-9_.-]{1,128}$/.test(matchId) || ["latest", ".", ".."].includes(matchId)) {
