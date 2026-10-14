@@ -21,6 +21,11 @@ export const getKoreanRarityName = (rarity: string) => {
  */
 export function isSpecialFlipEffectItem(itemName: string): boolean {
   const targetItems = [
+    // 벤틀리 화물 계열
+    "\"플라잉 스퍼 뮬리너 (럭셔리)\" 세단 도안",
+    "\"플라잉 스퍼 뮬리너\" 세단 도안",
+    "\"컨티넨탈 GTC 뮬리너\" 스포츠카 도안",
+    "플라잉 스퍼 뮬리너 (럭셔리) 풀 세트 (파우더 핑크) 도안",
     // 양면 스쿠나 / 주술회전 계열
     "양면 스쿠나 - 베릴 M762",
     "고죠 사토루 - M24 도안",
