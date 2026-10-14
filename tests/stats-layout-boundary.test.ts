@@ -88,8 +88,9 @@ describe("stats route layout boundary", () => {
       params: Promise.resolve({ platform: "steam", nickname: "Fixture%20Player" }),
       searchParams: Promise.resolve({ tab: "squad", groupKey: "g2" }),
     });
+    // 탭 주소는 같은 플레이어의 다른 보기라 정식 주소는 플레이어 주소이고, 공유 주소는 탭을 유지한다.
     expect(dynamicMetadata.alternates?.canonical)
-      .toBe("https://bgms.kr/stats/steam/Fixture%20Player?tab=squad&groupKey=g2");
+      .toBe("https://bgms.kr/stats/steam/Fixture%20Player");
     expect(dynamicMetadata.openGraph?.url)
       .toBe("https://bgms.kr/stats/steam/Fixture%20Player?tab=squad&groupKey=g2");
     expect(JSON.stringify(dynamicMetadata.openGraph?.images))
