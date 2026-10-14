@@ -1730,7 +1730,8 @@
           "probability": 0.0524,
           "imageId": "polymers"
         }
-      ]
+      ],
+      "bonusCurrencyCode": "contraband_scrap"
     },
     {
       "id": "c6ef3fa9-53e4-444b-b840-02dcf423948b",
@@ -2391,7 +2392,8 @@
           "probability": 0.016,
           "imageId": "credit"
         }
-      ]
+      ],
+      "bonusCurrencyCode": "jujutsu_token"
     },
     {
       "id": "21f1795d-a69b-401d-a648-978a161bc949",
@@ -2786,7 +2788,8 @@
           "probability": 0.083,
           "imageId": "polymers"
         }
-      ]
+      ],
+      "bonusCurrencyCode": "contraband_scrap"
     },
     {
       "id": "c7a312f1-9b4f-4a32-9c12-32a2223a4b01",
@@ -3167,7 +3170,8 @@
           "probability": 0.07629999999999999,
           "imageId": "polymers"
         }
-      ]
+      ],
+      "bonusCurrencyCode": "contraband_scrap"
     },
     {
       "id": "c7a312f1-9b4f-4a32-9c12-32a2223a4b02",
@@ -3814,7 +3818,8 @@
           "probability": 0.016,
           "imageId": "credit"
         }
-      ]
+      ],
+      "bonusCurrencyCode": "artisan_token"
     },
     {
       "id": "d6b412a8-0a1b-43fe-a521-71fb342bcf32",
@@ -4195,7 +4200,8 @@
           "probability": 0.07629999999999999,
           "imageId": "polymers"
         }
-      ]
+      ],
+      "bonusCurrencyCode": "contraband_scrap"
     }
   ]
 }
