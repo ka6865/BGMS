@@ -29,7 +29,6 @@ vi.mock("@/lib/supabase", () => ({
   },
 }));
 
-vi.mock("@/components/ads/AdfitBanner", () => ({ default: () => null }));
 vi.mock("@/components/ads/AdSenseBanner", () => ({ default: () => null }));
 
 const originalTimeZone = process.env.TZ;

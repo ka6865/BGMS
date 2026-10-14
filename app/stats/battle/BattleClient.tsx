@@ -8,9 +8,10 @@ import { useStatsSearchHistory, statsSearchKey, type StatsSearchEntry } from "@/
 import { parseStatsPlatform } from "@/lib/stats/statsPageModel";
 import type { StatsPlatform } from "@/types/stats-page";
 import { trackEvent } from "@/lib/analytics";
-import AdfitBanner from "@/components/ads/AdfitBanner";
 import { BgmsIcon } from "@/components/common/BgmsIcon";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
+import AdSenseBanner from "@/components/ads/AdSenseBanner";
+import { ADSENSE_SLOTS } from "@/lib/ads/adsenseUnits";
 
 interface Comparison {
   key: string;
@@ -42,9 +43,6 @@ interface BattleResult {
 }
 
 type PlayerSuggestion = { nickname: string; platform: string };
-
-const BATTLE_MOBILE_AD_UNIT = "DAN-tQGcqmddMC8tPpXA";
-const BATTLE_DESKTOP_AD_UNIT = "DAN-RjyosR2uf8eSsVIC";
 
 const normalizeBattlePlatform = (platform?: string | null) => {
   const value = String(platform || "").trim().toLowerCase();
@@ -639,10 +637,10 @@ function BattleContent() {
         </div>
 
         <div className="flex justify-center xl:hidden" aria-label="광고">
-          <AdfitBanner
-            adUnit={BATTLE_MOBILE_AD_UNIT}
-            adWidth={320}
-            adHeight={100}
+          <AdSenseBanner
+            slot={ADSENSE_SLOTS.battleTop}
+            width={320}
+            height={100}
             className="max-w-full"
           />
         </div>
@@ -817,10 +815,8 @@ function BattleContent() {
 
         <aside className="hidden xl:block absolute left-[calc(100%+24px)] top-0 w-[160px] h-full" aria-label="광고">
           <div className="sticky top-24">
-            <AdfitBanner
-              adUnit={BATTLE_DESKTOP_AD_UNIT}
-              adWidth={160}
-              adHeight={600}
+            <AdSenseBanner
+              slot={ADSENSE_SLOTS.battleRailRight}
             />
           </div>
         </aside>

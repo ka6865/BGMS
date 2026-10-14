@@ -1,26 +1,13 @@
 "use client";
 
-import AdfitBanner from "./AdfitBanner";
 import AdSenseBanner from "./AdSenseBanner";
 
-type SharedProps = {
+export type ManualAdRailProps = {
   side: "left" | "right";
   placementId: string;
+  slot: string;
   className?: string;
 };
-
-type AdfitRailProps = SharedProps & {
-  provider: "adfit";
-  adUnit: string;
-};
-
-type AdSenseRailProps = SharedProps & {
-  provider: "adsense";
-  client: string;
-  slot: string;
-};
-
-export type ManualAdRailProps = AdfitRailProps | AdSenseRailProps;
 
 /**
  * Fixed-size manual display rail. The parent controls the breakpoint and
@@ -28,7 +15,7 @@ export type ManualAdRailProps = AdfitRailProps | AdSenseRailProps;
  * ownership consistent across long-form pages.
  */
 export function ManualAdRail(props: ManualAdRailProps) {
-  const { side, placementId, className = "" } = props;
+  const { side, placementId, slot, className = "" } = props;
 
   return (
     <aside
@@ -38,20 +25,7 @@ export function ManualAdRail(props: ManualAdRailProps) {
       className={`manual-ad-rail manual-ad-rail--${side} ${className}`.trim()}
     >
       <div className="manual-ad-rail__inner">
-        {props.provider === "adfit" ? (
-          <AdfitBanner
-            placementId={placementId}
-            adUnit={props.adUnit}
-            adWidth={160}
-            adHeight={600}
-          />
-        ) : (
-          <AdSenseBanner
-            placementId={placementId}
-            client={props.client}
-            slot={props.slot}
-          />
-        )}
+        <AdSenseBanner placementId={placementId} slot={slot} />
       </div>
     </aside>
   );

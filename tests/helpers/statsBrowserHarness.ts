@@ -577,7 +577,6 @@ export async function startOwnedStatsDevServer(): Promise<OwnedStatsDevServer> {
       ...process.env,
       NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:59999",
       NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "local-browser-qa-anon-key",
-      NEXT_PUBLIC_ADFIT_STATS_FEED_UNIT: "DAN-fixture-stats-feed-728",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });

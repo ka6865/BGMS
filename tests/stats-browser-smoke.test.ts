@@ -778,18 +778,15 @@ function assertMountedCreativeEvidence(
 ): void {
   const expected = width < 768
     ? [
-        ["stats-top", "adfit"],
+        ["stats-top", "adsense"],
         ["stats-mobile-after-6", "adsense"],
       ]
     : [
-        ["stats-top", "adfit"],
+        ["stats-top", "adsense"],
         ["stats-after-5", "adsense"],
-        ...(process.env.NEXT_PUBLIC_ADFIT_STATS_FEED_UNIT?.trim() ? [["stats-after-10", "adfit"]] : []),
         ["stats-after-15", "adsense"],
       ];
-  expect(evidence.adEvidence.map(({ placement, provider }) => [placement, provider]),
-    "광고 목록/설정 불일치: 기존 서버의 NEXT_PUBLIC_ADFIT_STATS_FEED_UNIT과 테스트 환경 값을 동일하게 설정하세요.",
-  ).toEqual(expected);
+  expect(evidence.adEvidence.map(({ placement, provider }) => [placement, provider]), "광고 목록 불일치").toEqual(expected);
   for (const creative of evidence.adEvidence) {
     expect(creative.state, `${creative.placement} mounted state`).toBe("mounted");
     expect(creative.display, `${creative.placement} active display`).not.toBe("none");
@@ -852,9 +849,7 @@ async function setStatsViewportAndWait(
   await page.setViewport(viewport);
   const expectedPlacements = viewport.width < 768
     ? ["stats-top", "stats-mobile-after-6"]
-    : ["stats-top", "stats-after-5",
-        ...(process.env.NEXT_PUBLIC_ADFIT_STATS_FEED_UNIT?.trim() ? ["stats-after-10"] : []),
-        "stats-after-15"];
+    : ["stats-top", "stats-after-5", "stats-after-15"];
   await dispatcher.withFatal(page.waitForFunction((expected) => {
     const grid = document.querySelector<HTMLElement>(".stats-result-grid");
     const top = document.querySelector<HTMLElement>('[data-ad-placement="stats-top"]');
@@ -888,7 +883,6 @@ describeBrowser("stats browser smoke", () => {
     if (process.env.STATS_BASE_URL) {
       baseUrl = process.env.STATS_BASE_URL.replace(/\/$/, "");
     } else {
-      vi.stubEnv("NEXT_PUBLIC_ADFIT_STATS_FEED_UNIT", "DAN-fixture-stats-feed-728");
       ownedServer = await startOwnedStatsDevServer();
       baseUrl = ownedServer.baseUrl;
     }
@@ -1773,9 +1767,6 @@ describeBrowser("stats browser smoke", () => {
         if (from.width === 767) {
           expect(before.adEvidence.some((creative) => creative.placement === "stats-mobile-after-6")).toBe(true);
           expect(after.adEvidence.some((creative) => creative.placement === "stats-mobile-after-6")).toBe(false);
-          expect(after.adEvidence.some((creative) => creative.placement === "stats-after-10" && creative.provider === "adfit"))
-            .toBe(Boolean(process.env.NEXT_PUBLIC_ADFIT_STATS_FEED_UNIT?.trim()));
-          expect(returned.adEvidence.some((creative) => creative.placement === "stats-after-10")).toBe(false);
         } else {
           expect(after.adEvidence).toEqual(before.adEvidence);
           expect(before.gridColumnCount).toBe(1);

@@ -2,7 +2,6 @@
 import { act, createElement } from 'react';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-vi.mock('@/components/ads/AdfitBanner', () => ({ default: () => null }));
 vi.mock('@/components/ads/AdSenseBanner', () => ({ default: () => null }));
 import RankingsClient from '@/app/rankings/RankingsClient';
 

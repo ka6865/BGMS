@@ -1,7 +1,6 @@
 "use client";
 
 import AdSenseBanner from "@/components/ads/AdSenseBanner";
-import AdfitBanner from "@/components/ads/AdfitBanner";
 import {
   selectStatsAdCreative,
   statsAdPlacements,
@@ -49,16 +48,17 @@ export function ResponsiveAdSlot({
       data-ad-visibility={registeredPlacement.reservationVisibility}
       data-ad-state={viewportClass === "unknown" ? "reserved" : "mounted"}
     >
-      {creative?.provider === "adfit" && (
-        <AdfitBanner
-          key={`${placement}:${creative.adUnit}:${creative.width}x${creative.height}`}
+      {creative?.format === "fixed" && (
+        <AdSenseBanner
+          key={`${placement}:${creative.slot}:${creative.width}x${creative.height}`}
           placementId={placement}
-          adUnit={creative.adUnit}
-          adWidth={creative.width}
-          adHeight={creative.height}
+          client={creative.client}
+          slot={creative.slot}
+          width={creative.width}
+          height={creative.height}
         />
       )}
-      {creative?.provider === "adsense" && (
+      {creative?.format === "fluid" && (
         <AdSenseBanner
           key={`${placement}:${creative.slot}:${creative.format}`}
           placementId={placement}

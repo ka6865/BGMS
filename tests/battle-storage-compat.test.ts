@@ -33,7 +33,7 @@ vi.mock("next/link", () => ({
 }));
 
 vi.mock("@/lib/analytics", () => ({ trackEvent: vi.fn() }));
-vi.mock("@/components/ads/AdfitBanner", () => ({ default: () => null }));
+vi.mock("@/components/ads/AdSenseBanner", () => ({ default: () => null }));
 vi.mock("@/components/common/BgmsIcon", () => ({ BgmsIcon: () => null }));
 
 describe("전적 검색과 배틀의 localStorage 호환성", () => {

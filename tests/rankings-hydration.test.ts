@@ -12,7 +12,6 @@ vi.mock("next/navigation", () => ({
 
 const originalTimeZone = process.env.TZ;
 const roots: Root[] = [];
-vi.mock('@/components/ads/AdfitBanner', () => ({ default: () => null }));
 vi.mock('@/components/ads/AdSenseBanner', () => ({ default: () => null }));
 
 afterEach(async () => {

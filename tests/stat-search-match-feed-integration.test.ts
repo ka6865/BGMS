@@ -34,7 +34,6 @@ vi.mock("@/components/stat/StatSummaryPanel", () => ({ StatSummaryPanel: () => n
 vi.mock("@/components/stat/RecentAISummary", () => ({ RecentAISummary: () => null }));
 vi.mock("@/components/stat/SquadAnalysisPanel", () => ({ default: () => null }));
 vi.mock("@/components/ads/AdSenseBanner", () => ({ default: () => null }));
-vi.mock("@/components/ads/AdfitBanner", () => ({ default: () => null }));
 
 import StatSearch from "@/components/stat/StatSearch";
 

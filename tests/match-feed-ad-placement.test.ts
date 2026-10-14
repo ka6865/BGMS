@@ -29,9 +29,7 @@ vi.mock("@/components/ads/ResponsiveAdSlot", () => ({
     : createElement("span", { "data-provider-child": true }),
 }));
 
-const fixturePlacements = createStatsAdPlacements({
-  feedAdfitUnit: "DAN-fixture-stats-feed-728",
-});
+const fixturePlacements = createStatsAdPlacements();
 
 function summary(matchId: string, overrides: Partial<MatchSummaryData> = {}): MatchSummaryData {
   const base = summaryReady.summaries["match-fixture-1"];
@@ -133,9 +131,9 @@ describe("MatchFeed renderable order and ads", () => {
     ]);
   });
 
-  it("tablet fixture registry는 16개에서 5·10·15 뒤, 5개에서는 광고 0개다", async () => {
+  it("tablet registry는 16개에서 5·15 뒤, 5개에서는 광고 0개다", async () => {
     const full = await renderFeed({ viewportClass: "tablet", matchCount: 16 });
-    expect(full.adAfterCounts()).toEqual([5, 10, 15]);
+    expect(full.adAfterCounts()).toEqual([5, 15]);
     full.unmount();
 
     const short = await renderFeed({ viewportClass: "tablet", matchCount: 5 });
@@ -145,14 +143,14 @@ describe("MatchFeed renderable order and ads", () => {
   it("unknown은 viewport별 예약만 원래 match 사이에 두고 provider를 선택하지 않는다", async () => {
     const feed = await renderFeed({ viewportClass: "unknown", matchCount: 16 });
 
-    expect(feed.adAfterCounts()).toEqual([5, 6, 10, 15]);
+    expect(feed.adAfterCounts()).toEqual([5, 6, 15]);
     expect(feed.sequence().at(-1)).toBe("match-16");
     expect(feed.container.querySelectorAll("[data-provider-child]")).toHaveLength(0);
     expect(feed.container.querySelector("[data-feed-ad-visibility='mobile-only']")).toHaveClass("stats-ad-slot--mobile-only");
     expect(feed.container.querySelector("[data-feed-ad-visibility='tablet-up']")).toHaveClass("stats-ad-slot--tablet-up");
   });
 
-  it("feed env가 없는 registry는 after-10과 top-unit fallback을 만들지 않는다", async () => {
+  it("기본 registry는 after-10과 top-unit fallback을 만들지 않는다", async () => {
     const feed = await renderFeed({
       viewportClass: "tablet",
       matchCount: 16,

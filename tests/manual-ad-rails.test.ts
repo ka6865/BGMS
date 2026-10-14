@@ -21,7 +21,7 @@ describe("manual desktop ad rails", () => {
       expect(source).toContain("600");
     }
     expect(rail).toContain("manual-ad-rail__inner");
-    expect(rail).toContain("adHeight={600}");
+    expect(rail).toContain("<AdSenseBanner placementId={placementId} slot={slot} />");
 
     expect(shell).toContain("StatsManualAdRails");
     expect(statsRails).toContain('side="left"');

@@ -32,7 +32,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn() }),
 }));
 
-vi.mock("@/components/ads/AdfitBanner", () => ({
+vi.mock("@/components/ads/AdSenseBanner", () => ({
   default: () => null,
 }));
 

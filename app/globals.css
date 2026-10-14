@@ -308,10 +308,6 @@ input, textarea, select {
   min-height: 130px;
 }
 
-.stats-page .stats-ad-slot--tablet-horizontal {
-  min-height: 90px;
-}
-
 .stats-page .stats-ad-slot--mobile-only {
   display: flex;
 }

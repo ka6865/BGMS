@@ -16,10 +16,10 @@ import { trackEvent } from "@/lib/analytics";
 import ConfirmModal from "../common/ConfirmModal";
 import TurnstileWidget from "./TurnstileWidget";
 import { TURNSTILE_ACTIONS } from "@/lib/board/turnstileContract";
-import AdfitBanner from "@/components/ads/AdfitBanner";
 import AdSenseBanner from "@/components/ads/AdSenseBanner";
 import { rewriteBoardImageUrls, toBoardImageProxyUrl } from "@/lib/board-image-proxy";
 import { AppModal } from "@/components/common/AppModal";
+import { ADSENSE_SLOTS } from "@/lib/ads/adsenseUnits";
 
 interface BoardDetailClientProps {
   initialPost: Post;
@@ -182,7 +182,6 @@ export default function BoardDetailClient({
     void handleSaveComment(token);
   };
 
-
   useEffect(() => {
     if (!user) {
       setIsAdmin(false);
@@ -341,7 +340,6 @@ export default function BoardDetailClient({
       setIsSubmittingComment(false);
     }
   };
-
 
   const handleDeleteComment = (commentId: number) => {
     const targetComment = comments.find((c) => c.id === commentId);
@@ -685,10 +683,10 @@ export default function BoardDetailClient({
 
           {/* 광고 — 댓글 섹션 위 (데스크톱 xl 크기 이상에서는 숨김) */}
           <div className="my-5 flex justify-center xl:hidden">
-            <AdfitBanner
-              adUnit="DAN-tQGcqmddMC8tPpXA"
-              adWidth={320}
-              adHeight={100}
+            <AdSenseBanner
+              slot={ADSENSE_SLOTS.boardPostMiddle}
+              width={320}
+              height={100}
             />
           </div>
 
@@ -870,7 +868,7 @@ export default function BoardDetailClient({
         aria-label="광고"
       >
         <div className="sticky top-20 h-[600px] w-[160px]">
-          <AdSenseBanner client="ca-pub-3993032200487955" slot="7728921550" />
+          <AdSenseBanner slot={ADSENSE_SLOTS.boardRailLeft} />
         </div>
       </aside>
       <aside
@@ -878,7 +876,7 @@ export default function BoardDetailClient({
         aria-label="광고"
       >
         <div className="sticky top-20 h-[600px] w-[160px]">
-          <AdfitBanner adUnit="DAN-RjyosR2uf8eSsVIC" adWidth={160} adHeight={600} />
+          <AdSenseBanner slot={ADSENSE_SLOTS.boardRailRight} />
         </div>
       </aside>
     </div>

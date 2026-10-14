@@ -1,14 +1,13 @@
 'use client';
 
 import React from 'react';
-import AdfitBanner from "../ads/AdfitBanner";
-
 
 import { X, ChevronUp, Map as MapIcon } from 'lucide-react';
 import { Drawer } from 'vaul';
 import { useMapSettings } from '@/hooks/useMapSettings';
 import { BgmsIcon } from '@/components/common/BgmsIcon';
-
+import AdSenseBanner from "@/components/ads/AdSenseBanner";
+import { ADSENSE_SLOTS } from "@/lib/ads/adsenseUnits";
 
 interface MobileBottomSheetProps {
   isOpen: boolean;
@@ -31,7 +30,6 @@ export default function MobileBottomSheet({
 }: MobileBottomSheetProps) {
   // DB 기반 동적 취든 및 카테고리 정보 로드
   const { activeCategories: currentCategories, categoryInfoMap } = useMapSettings(activeMapId);
-
 
   return (
     <Drawer.Root open={isOpen} onOpenChange={setIsOpen}>
@@ -134,10 +132,10 @@ export default function MobileBottomSheet({
                 
                 {/* 모바일 화면 하단 광고 — 심사 통과 및 규격에 맞춰 320x100 탑재 */}
                 <div className="my-4 flex justify-center">
-                  <AdfitBanner
-                    adUnit="DAN-tQGcqmddMC8tPpXA"
-                    adWidth={320}
-                    adHeight={100}
+                  <AdSenseBanner
+                    slot={ADSENSE_SLOTS.mapMobileSheet}
+                    width={320}
+                    height={100}
                   />
                 </div>
 
