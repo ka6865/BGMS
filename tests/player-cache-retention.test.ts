@@ -33,7 +33,7 @@ describe("pubg_player_cache 보존 정책", () => {
     expect(rpc).toHaveBeenCalledWith("compact_pubg_player_cache", {
       p_retention_days: 90,
       p_apply: true,
-      p_batch_limit: 500,
+      p_batch_limit: 1000,
       p_keep_recent: 150_000,
     });
   });
