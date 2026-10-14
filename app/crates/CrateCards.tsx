@@ -89,9 +89,17 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
   
   const wasRevealed = useRef(isRevealed);
 
+  // 얼티밋은 인게임처럼 붉은 연출, 지정된 대표 구성품은 금색 연출을 쓴다.
+  const isUltimate = card.rarity === "ULTIMATE";
+  const flipEffectTone: "red" | "gold" | null = isUltimate
+    ? "red"
+    : isSpecialFlipEffectItem(card.name)
+      ? "gold"
+      : null;
+
   useEffect(() => {
-    // 카드가 뒤집히기 시작하고, 대상 특수 무기/크로마인 경우에만 이펙트 구동
-    if (isRevealed && !wasRevealed.current && isSpecialFlipEffectItem(card.name)) {
+    // 카드가 뒤집히기 시작하고, 연출 대상인 경우에만 이펙트 구동
+    if (isRevealed && !wasRevealed.current && flipEffectTone) {
       setIsAnimating(true);
       
       // 약 15개의 골드 스파클 파티클의 방출 방향과 시간차 난수 계산
@@ -113,7 +121,7 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
       return () => clearTimeout(timer);
     }
     wasRevealed.current = isRevealed;
-  }, [isRevealed, card.name]);
+  }, [isRevealed, flipEffectTone]);
 
   // Prevent spoiler: only show rarity glowing border/shadow when revealed
   const borderGlow = isRevealed 
@@ -134,16 +142,23 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-[3px] z-[100] pointer-events-none animate-dimBg" />
       )}
 
-      {/* 2단계: 금색 광원 충격파 고리 */}
+      {/* 2단계: 광원 충격파 고리. 얼티밋은 카드 뒤로 붉은 광채가 번진다. */}
+      {isAnimating && flipEffectTone === "red" && (
+        <div className="absolute top-1/2 left-1/2 w-72 h-72 rounded-full bg-[radial-gradient(circle,rgba(239,68,68,0.55)_0%,rgba(251,191,36,0.18)_45%,transparent_70%)] pointer-events-none animate-redHaze z-[101]" />
+      )}
       {isAnimating && (
-        <div className="absolute top-1/2 left-1/2 w-40 h-40 rounded-full border-4 border-amber-400/80 pointer-events-none animate-goldShockwave z-[102]" />
+        <div className={`absolute top-1/2 left-1/2 w-40 h-40 rounded-full border-4 pointer-events-none z-[102] ${
+          flipEffectTone === "red" ? "border-red-400/80 animate-redShockwave" : "border-amber-400/80 animate-goldShockwave"
+        }`} />
       )}
 
-      {/* 3단계: 카드 뒤쪽에서 퍼지는 금색 스파클 파티클 */}
+      {/* 3단계: 카드 뒤쪽에서 퍼지는 스파클 파티클 */}
       {isAnimating && particles.map((p, i) => (
         <div
           key={i}
-          className="absolute w-1.5 h-1.5 rounded-full bg-gradient-to-r from-amber-400 via-yellow-500 to-orange-500 pointer-events-none animate-particleOut z-[102]"
+          className={`absolute w-1.5 h-1.5 rounded-full pointer-events-none animate-particleOut z-[102] bg-gradient-to-r ${
+            flipEffectTone === "red" ? "from-rose-300 via-red-500 to-red-700" : "from-amber-400 via-yellow-500 to-orange-500"
+          }`}
           style={{
             left: "50%",
             top: "50%",
@@ -157,21 +172,23 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
 
       <div className={`relative w-full h-full preserve-3d ${
         isAnimating 
-          ? "animate-goldBounceZoom" 
+          ? "z-[103] animate-goldBounceZoom" 
           : `transition-transform duration-500 ${isRevealed ? "" : "rotate-y-180"}`
       }`}>
         {/* 카드 앞면 (공개됨) */}
-        <div className={`absolute inset-0 rounded-xl bg-slate-900 border-2 p-2 sm:p-2.5 flex flex-col justify-between items-center backface-hidden overflow-hidden ${borderGlow}`}>
-          <div className="flex justify-between w-full items-center">
+        <div className={`absolute inset-0 rounded-xl border-2 p-2 sm:p-2.5 flex flex-col justify-between items-center backface-hidden overflow-hidden ${
+          isUltimate && isRevealed ? "bg-gradient-to-b from-red-950 via-[#2a0d10] to-slate-900" : "bg-slate-900"
+        } ${borderGlow}`}>
+          <div className="flex justify-between w-full items-center gap-1">
             {card.rarity !== "COMMON" ? (
-              <span className={`text-[8px] font-extrabold px-1.5 py-0.5 rounded tracking-wide ${getRarityBadgeStyle(card.rarity)}`}>
+              <span className={`shrink-0 whitespace-nowrap text-[8px] font-extrabold px-1.5 py-0.5 rounded tracking-wide ${getRarityBadgeStyle(card.rarity)}`}>
                 {getKoreanRarityName(card.rarity)}
               </span>
             ) : (
               <div />
             )}
             {card.probability !== undefined && card.probability > 0 && isRevealed && (
-              <span className="text-[8px] text-slate-400 font-extrabold bg-slate-950/60 px-1.5 py-0.5 rounded border border-slate-800/40 z-10 select-none">
+              <span className="min-w-0 truncate text-[8px] text-slate-400 font-extrabold bg-slate-950/60 px-1.5 py-0.5 rounded border border-slate-800/40 z-10 select-none">
                 {parseFloat((card.probability * 100).toFixed(4))}%
               </span>
             )}
@@ -248,7 +265,7 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
                   보너스
                 </span>
                 {card.bonus.rarity !== "COMMON" && (
-                  <span className={`text-[7px] font-extrabold px-1 py-0.5 rounded ${getRarityBadgeStyle(card.bonus.rarity)}`}>
+                  <span className={`shrink-0 whitespace-nowrap text-[7px] font-extrabold px-1 py-0.5 rounded ${getRarityBadgeStyle(card.bonus.rarity)}`}>
                     {getKoreanRarityName(card.bonus.rarity)}
                   </span>
                 )}
@@ -354,21 +371,25 @@ export function CrateCard({ card, isRevealed, onClick, getRarityBadgeStyle, getC
 
         {/* 카드 뒷면 (가려짐) */}
         <div className={`absolute inset-0 rounded-xl flex flex-col items-center justify-center backface-hidden rotate-y-180 border ${
-          isHighRarity
-            ? "bg-gradient-to-br from-amber-950 via-slate-950 to-amber-950 border-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.6)] animate-pulse"
-            : "bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 border-slate-800 shadow-md"
+          isUltimate
+            ? "bg-gradient-to-br from-red-950 via-slate-950 to-red-950 border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.6)] animate-pulse"
+            : isHighRarity
+              ? "bg-gradient-to-br from-amber-950 via-slate-950 to-amber-950 border-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.6)] animate-pulse"
+              : "bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 border-slate-800 shadow-md"
         }`}>
           <div className={`w-10 h-10 rounded-full border flex items-center justify-center group-hover:scale-110 transition-transform ${
-            isHighRarity
+            isUltimate
+              ? "bg-red-950/60 border-red-400/50 shadow-[0_0_10px_rgba(239,68,68,0.45)]"
+              : isHighRarity
               ? "bg-amber-950/60 border-amber-400/50 shadow-[0_0_10px_rgba(245,158,11,0.4)]"
               : "bg-slate-900 border-slate-800 shadow-[inset_0_0_10px_rgba(0,0,0,0.8)]"
           }`}>
             <Box className={`w-5 h-5 ${
-              isHighRarity ? "text-amber-400 drop-shadow-[0_0_5px_rgba(245,158,11,0.8)]" : "text-amber-500"
+              isUltimate ? "text-red-400 drop-shadow-[0_0_5px_rgba(239,68,68,0.8)]" : isHighRarity ? "text-amber-400 drop-shadow-[0_0_5px_rgba(245,158,11,0.8)]" : "text-amber-500"
             }`} />
           </div>
           <span className={`text-[9px] uppercase mt-2 tracking-widest ${
-            isHighRarity ? "text-amber-400 font-black" : "text-slate-500 font-bold"
+            isUltimate ? "text-red-400 font-black" : isHighRarity ? "text-amber-400 font-black" : "text-slate-500 font-bold"
           }`}>
             뒤집기
           </span>

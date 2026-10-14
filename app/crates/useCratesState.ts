@@ -5,6 +5,14 @@ import { DrawnCard, HistoryItem } from "./types";
 import { trackEvent } from "../../lib/analytics";
 import { toast } from "sonner";
 
+// 개봉 연출 길이. 화물(loot_crate)은 낙하·착지 장면이 있어 흔들림 연출보다 길다.
+const CRATE_SHAKE_DURATION_MS = 1500;
+export const CARGO_DROP_DURATION_MS = 2200;
+
+function getOpeningDuration(crate: Pick<CrateTemplate, "type">) {
+  return crate.type === "loot_crate" ? CARGO_DROP_DURATION_MS : CRATE_SHAKE_DURATION_MS;
+}
+
 function getRewardKey(item: { asset_key?: string | null; name: string }) {
   return item.asset_key || item.name;
 }
@@ -373,19 +381,12 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
     setIsChargeModalOpen(false); // 충전 완료 후 자동으로 모달을 닫음
   };
 
-  // 상점에서 상자 팩 패키지 구매 (1개짜리 팩은 수량 선택 팝업 노출)
-  const handleBuyPackage = (packType: "X55" | "X27" | "X11" | "X1", paymentMethod: "gcoin" | "bp" = "gcoin") => {
+  // 상점에서 상자 1개 단위 구매 (수량 선택 팝업 노출)
+  const handleBuyPackage = (paymentMethod: "gcoin" | "bp" = "gcoin") => {
     if (!activeCrate) return;
-
-    if (packType === "X1") {
-      setQuantityToBuy(1);
-      setQuantityPaymentMethod(paymentMethod);
-      setIsQuantityModalOpen(true);
-      return;
-    }
-
-    // 대형 팩은 기존처럼 즉시 구매 처리
-    executeBuyPackage(packType, 1, paymentMethod);
+    setQuantityToBuy(1);
+    setQuantityPaymentMethod(paymentMethod);
+    setIsQuantityModalOpen(true);
   };
 
   // UI 탭 제어 관련 콜백을 위한 상태 주입 레퍼런스
@@ -406,39 +407,13 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
   }, [selectedCrateId]);
 
   // 실제 결제 및 상품 지급 처리 엔진
-  const executeBuyPackage = (packType: "X55" | "X27" | "X11" | "X1", quantity: number, paymentMethod: "gcoin" | "bp") => {
+  const executeBuyPackage = (_packType: "X1", quantity: number, paymentMethod: "gcoin" | "bp") => {
     if (!activeCrate) return;
 
-    let price = 0;
-    let crateReward = 0;
-    let parcelReward = 0;
-    let tokenReward = 0;
-
-    if (packType === "X55") {
-      price = 12500;
-      crateReward = 55;
-      parcelReward = 0;
-      tokenReward = 800;
-    } else if (packType === "X27") {
-      price = 6250;
-      crateReward = 27;
-      parcelReward = 0;
-      tokenReward = 400;
-    } else if (packType === "X11") {
-      price = 2500;
-      crateReward = 11;
-      parcelReward = 0;
-      tokenReward = 150;
-    } else if (packType === "X1") {
-      if (paymentMethod === "bp") {
-        price = 10000 * quantity;
-      } else {
-        price = 250 * quantity;
-      }
-      crateReward = 1 * quantity;
-      parcelReward = 0;
-      tokenReward = 15 * quantity;
-    }
+    const price = (paymentMethod === "bp" ? 10000 : 250) * quantity;
+    const crateReward = quantity;
+    const parcelReward = 0;
+    const tokenReward = 15 * quantity;
 
     // 결제 유효성 검사
     if (paymentMethod === "bp") {
@@ -508,27 +483,10 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
     }
   };
 
-  const handleOpenInventoryCrates = (mode: "one" | "five" | "ten" | "fiftyfive" | "all") => {
+  const handleOpenInventoryCrates = (mode: "one" | "ten") => {
     if (!activeCrate) return;
     const currentCrateCount = inventoryCrates[activeCrate.id] || 0;
-    
-    let countToOpen = 0;
-    if (mode === "one") {
-      countToOpen = 1;
-    } else if (mode === "five") {
-      countToOpen = 5;
-    } else if (mode === "ten") {
-      countToOpen = 10;
-    } else if (mode === "fiftyfive") {
-      countToOpen = 55;
-    } else if (mode === "all") {
-      countToOpen = currentCrateCount;
-    }
-
-    if (countToOpen <= 0) {
-      toast.warning("개봉할 상자가 없습니다. 상점에서 패키지를 먼저 구매해주세요.");
-      return;
-    }
+    const countToOpen = mode === "ten" ? 10 : 1;
 
     if (currentCrateCount < countToOpen) {
       toast.error(`보유한 상자가 부족합니다. (현재 보유: ${currentCrateCount}개)`);
@@ -538,9 +496,10 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
     // 이전 뽑기 결과 중 뒤집히지 않은 카드 또는 타이머가 남아있는지 판별
     const needsCollect = hasPendingOrUnrevealedCards();
 
+    const openingDurationMs = getOpeningDuration(activeCrate);
     if (needsCollect) {
-      // 1.5초 지연 정산 실행 (새로운 흔들림 연출이 끝나는 1500ms 뒤로 예약)
-      collectRemainingCards(1500);
+      // 새 개봉 연출이 끝나는 시점으로 지연 정산 예약
+      collectRemainingCards(openingDurationMs);
     }
     
     const startDraw = () => {
@@ -627,7 +586,7 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
           ...prev,
           totalOpens: prev.totalOpens + countToOpen,
         }));
-      }, 1500); // 연출 몰입을 위해 1.5초 흔들림 유지
+      }, openingDurationMs);
     };
 
     // 지연 정산 여부와 무관하게 흔들림 연출은 즉시 시작하여 조작감 유지
@@ -890,7 +849,7 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
   };
 
   // 밀수품 쿠폰 개봉 핸들러 (1회, 5회, 10회, 전체 지원)
-  const handleOpenContrabandWithCoupons = (mode: "one" | "five" | "ten" | "all") => {
+  const handleOpenContrabandWithCoupons = (mode: "one" | "ten") => {
     if (!activeCrate) return;
     
     if (activeCrate.type !== "contraband") {
@@ -898,24 +857,8 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
       return;
     }
     
-    let couponsNeeded = 10;
-    let countToOpen = 1;
-    
-    if (mode === "five") {
-      couponsNeeded = 50;
-      countToOpen = 5;
-    } else if (mode === "ten") {
-      couponsNeeded = 100;
-      countToOpen = 10;
-    } else if (mode === "all") {
-      countToOpen = Math.floor(coupons / 10);
-      couponsNeeded = countToOpen * 10;
-    }
-
-    if (countToOpen <= 0) {
-      toast.warning("개봉할 수 있는 밀수품 쿠폰이 부족합니다. (최소 10장 필요)");
-      return;
-    }
+    const countToOpen = mode === "ten" ? 10 : 1;
+    const couponsNeeded = countToOpen * 10;
 
     if (coupons < couponsNeeded) {
       toast.error(`밀수품 쿠폰이 부족합니다. (최소 ${couponsNeeded}장 필요, 현재 보유: ${coupons}장)`);
@@ -1231,8 +1174,9 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
     if (!activeCrate) return;
 
     const needsCollect = hasPendingOrUnrevealedCards();
+    const openingDurationMs = getOpeningDuration(activeCrate);
     if (needsCollect) {
-      collectRemainingCards(1500);
+      collectRemainingCards(openingDurationMs);
     }
 
     const startDraw = () => {
@@ -1308,7 +1252,7 @@ export function useCratesState({ initialCrates, selectedCrateId }: UseCratesStat
           ...prev,
           totalOpens: prev.totalOpens + countToOpen,
         }));
-      }, 1500);
+      }, openingDurationMs);
     };
 
     startDraw();
