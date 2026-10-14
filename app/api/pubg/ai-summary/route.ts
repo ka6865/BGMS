@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
+import { streamText, Output } from "ai";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { AI_SUMMARY_CACHE_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
 import { estimateUserTier } from "@/lib/pubg-analysis/benchmarkScore";
 import { classifyRole } from "@/lib/pubg-analysis/roleClassifier";
@@ -2424,17 +2425,20 @@ export async function POST(request: Request) {
       return useIdCards ? factsOnlyResponse() : NextResponse.json({ error: "No API Key" }, { status: 500 });
     }
 
-    const genAI = new GoogleGenerativeAI(geminiApiKey);
+    // 기본 provider는 GOOGLE_GENERATIVE_AI_API_KEY를 읽으므로 이 route의 키를 명시적으로 넘긴다.
+    const googleProvider = createGoogleGenerativeAI({ apiKey: geminiApiKey });
     const modelsToTry = GEMINI_MODELS_TO_TRY;
     let streamResult: any = null;
+    let fullStreamIterator: AsyncIterator<any> | null = null;
+    let prefixText = "";
     let selectedModelName = "";
     let selectedModelAttemptSignalCleanup: (() => void) | null = null;
 
     const safetySettings = [
-      { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-      { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-      { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-      { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }
+      { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
     ];
 
     const generationStartedAt = Date.now();
@@ -2493,49 +2497,70 @@ export async function POST(request: Request) {
       };
       let preserveModelAttemptSignal = false;
       try {
-        const model = genAI.getGenerativeModel({
-          model: modelName,
-          systemInstruction: promptLines.join("\n"),
-          generationConfig: { responseMimeType: "application/json", temperature: 0.75, maxOutputTokens: 2500 },
-          safetySettings
+        const aiSdkResult = streamText({
+          model: googleProvider(modelName),
+          system: promptLines.join("\n"),
+          prompt: userPrompt,
+          temperature: 0.75,
+          maxOutputTokens: 2500,
+          output: Output.json(),
+          // 실패 시 같은 모델을 재시도하지 않고 기존처럼 바로 다음 모델로 넘긴다.
+          maxRetries: 0,
+          // 숫자 timeout은 호출 전체 시간이라 긴 생성을 끊는다. 모델별 제한은 응답 시작까지만
+          // modelAttemptSignal로 적용하고, 이후는 전체 생성 예산이 관리한다.
+          abortSignal: modelAttemptSignal.signal,
+          providerOptions: { google: { safetySettings } },
         });
-
         modelAttemptController.signal.addEventListener("abort", markModelAttemptTimeout, { once: true });
-        streamResult = await awaitWithAbort(model.generateContentStream(userPrompt, {
-          signal: modelAttemptSignal.signal,
-        }), modelAttemptSignal.signal);
 
-        if (overallSignal.aborted || request.signal.aborted) {
-          generationTimedOut = true;
-          streamResult = null;
-          break;
-        }
-        if (modelAttemptTimedOut) {
-          streamResult = null;
-          console.warn(`[AI-SUMMARY] Model ${modelName} timed out; trying next...`);
-          continue;
-        }
-
-        if (streamResult) {
-          selectedModelName = modelName;
-          preserveModelAttemptSignal = true;
-          selectedModelAttemptSignalCleanup = modelAttemptSignal.cleanup;
-          if (streamResult.response && typeof streamResult.response.then === "function") {
-            streamResult.response.then((res: any) => {
-              if (res?.usageMetadata && !isRouteAborted()) {
-                trackAiUsage(
-                  auth.user?.id,
-                  selectedModelName,
-                  res.usageMetadata.promptTokenCount,
-                  res.usageMetadata.candidatesTokenCount,
-                  "summary",
-                  { durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform },
-                );
-              }
-            }).catch((err: any) => console.error("[AI-SUMMARY] Usage fetch error:", err));
+        // streamText는 provider 오류를 던지지 않고 fullStream의 error part로 전달한다.
+        // 응답 시작(start-step) 전 오류·시간 초과는 기존 SDK의 스트림 생성 실패처럼 다음 모델로 넘기고,
+        // 응답이 시작되면 이 모델로 확정해 나머지 part는 응답 스트림에서 읽는다.
+        const iterator = aiSdkResult.fullStream[Symbol.asyncIterator]();
+        let started = false;
+        let startedText = "";
+        while (!started) {
+          const nextPromise = iterator.next();
+          nextPromise.catch(() => undefined);
+          const abortPromise = createAbortPromise(modelAttemptSignal.signal);
+          let nextResult: IteratorResult<any>;
+          try {
+            nextResult = await Promise.race([nextPromise, abortPromise.promise]) as IteratorResult<any>;
+          } finally {
+            abortPromise.cleanup();
           }
-          break;
+          if (modelAttemptSignal.signal.aborted) {
+            iterator.return?.()?.catch(() => undefined);
+            throw new Error("AI summary model attempt aborted");
+          }
+          if (nextResult.done) throw new Error("AI summary provider stream ended before a response");
+          const part = nextResult.value;
+          if (part?.type === "error") throw part.error ?? new Error("AI summary provider stream failed");
+          if (part?.type === "start-step" || part?.type === "text-delta") {
+            if (part.type === "text-delta") startedText = String(part.text ?? "");
+            started = true;
+          }
         }
+
+        streamResult = aiSdkResult;
+        fullStreamIterator = iterator;
+        prefixText = startedText;
+        selectedModelName = modelName;
+        preserveModelAttemptSignal = true;
+        selectedModelAttemptSignalCleanup = modelAttemptSignal.cleanup;
+        Promise.resolve(aiSdkResult.usage).then((usage: { inputTokens?: number; outputTokens?: number }) => {
+          if (usage.inputTokens === undefined && usage.outputTokens === undefined) return;
+          if (isRouteAborted()) return;
+          trackAiUsage(
+            auth.user?.id,
+            selectedModelName,
+            usage.inputTokens ?? 0,
+            usage.outputTokens ?? 0,
+            "summary",
+            { durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform },
+          );
+        }).catch((err: any) => console.error("[AI-SUMMARY] Usage fetch error:", err));
+        break;
       } catch (err: any) {
         const errorMessage = String(err?.message || "");
         const providerTimedOut = err?.name === "TimeoutError"
@@ -2597,9 +2622,11 @@ export async function POST(request: Request) {
           controller.enqueue(encoder.encode(JSON.stringify({ type: "visuals", data: precomputedVisuals }) + "\n"));
           if (useIdCards) controller.enqueue(encoder.encode(JSON.stringify({ type: "cards", data: serverCards }) + "\n"));
 
-          // 4. Gemini 스트리밍 결과 처리
-          if (streamResult) {
-            const iterator = streamResult.stream[Symbol.asyncIterator]();
+          // 4. Gemini 스트리밍 결과 처리 (모델 확정 단계에서 먼저 읽은 텍스트부터 이어 붙인다)
+          if (streamResult && fullStreamIterator) {
+            const iterator = fullStreamIterator;
+            aiResponseText = prefixText;
+
             try {
               while (true) {
                 if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
@@ -2618,8 +2645,10 @@ export async function POST(request: Request) {
                   throw new Error("AI summary request was aborted");
                 }
                 if (nextResult.done) break;
-                const chunkText = nextResult.value?.text?.();
-                if (typeof chunkText === "string") aiResponseText += chunkText;
+                const part = nextResult.value;
+                // 응답 도중의 provider 오류는 기존 스트림 오류 경로(error/done record)로 보낸다.
+                if (part?.type === "error") throw part.error ?? new Error("AI summary provider stream failed");
+                if (part?.type === "text-delta" && typeof part.text === "string") aiResponseText += part.text;
               }
             } finally {
               if (generationSignal.signal.aborted || isRouteAborted()) {
@@ -2631,7 +2660,6 @@ export async function POST(request: Request) {
                 }
               }
             }
-
           }
 
           if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");

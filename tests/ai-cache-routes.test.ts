@@ -20,6 +20,8 @@ const {
   mockGenerateContentStream,
   mockGenerateContent,
   MockGoogleGenerativeAI,
+  mockCreateGoogleGenerativeAI,
+  mockStreamText,
 } = vi.hoisted(() => {
   const mockWithAuthGuard = vi.fn();
   const mockTrackAiUsage = vi.fn();
@@ -42,6 +44,65 @@ const {
     getGenerativeModel = mockGetGenerativeModel;
   }
 
+  // ai-summary는 AI SDK를 쓰고 다른 route는 구형 SDK를 쓴다. 기존 Gemini 목 시나리오를 그대로
+  // 재사용하도록 AI SDK 호출을 구형 SDK 호출 형태로 번역해 같은 목에 전달한다.
+  const mockCreateGoogleGenerativeAI = vi.fn((options: { apiKey?: string } = {}) =>
+    (modelName: string) => ({ modelName, apiKey: options.apiKey }));
+  const mockStreamText = vi.fn((options: any): any => {
+    const model = (mockGetGenerativeModel as any)({
+      model: options.model.modelName,
+      systemInstruction: options.system,
+      generationConfig: {
+        responseMimeType: options.output ? "application/json" : undefined,
+        temperature: options.temperature,
+        maxOutputTokens: options.maxOutputTokens,
+      },
+      safetySettings: options.providerOptions?.google?.safetySettings,
+    });
+    let resolveUsage: (usage: { inputTokens?: number; outputTokens?: number }) => void = () => undefined;
+    const usage = new Promise<{ inputTokens?: number; outputTokens?: number }>((resolve) => { resolveUsage = resolve; });
+    let providerIterator: any = null;
+    async function* parts() {
+      let result: any;
+      try {
+        result = await model.generateContentStream(options.prompt, { signal: options.abortSignal });
+      } catch (error) {
+        resolveUsage({});
+        yield { type: "error", error };
+        return;
+      }
+      Promise.resolve(result?.response)
+        .then((response: any) => resolveUsage({
+          inputTokens: response?.usageMetadata?.promptTokenCount,
+          outputTokens: response?.usageMetadata?.candidatesTokenCount,
+        }))
+        .catch(() => resolveUsage({}));
+      yield { type: "start-step" };
+      providerIterator = result.stream[Symbol.asyncIterator]();
+      while (true) {
+        const next = await providerIterator.next();
+        if (next.done) return;
+        const text = next.value?.text?.();
+        if (typeof text === "string") yield { type: "text-delta", text };
+      }
+    }
+    const generator = parts();
+    // 대기 중인 제너레이터의 return은 안쪽 스트림에 전달되지 않으므로 provider iterator를 직접 닫는다.
+    const fullStream = {
+      [Symbol.asyncIterator]() {
+        return {
+          next: () => generator.next(),
+          return: async (value?: unknown) => {
+            providerIterator?.return?.();
+            generator.return(undefined).catch(() => undefined);
+            return { done: true, value };
+          },
+        };
+      },
+    };
+    return { fullStream, usage };
+  });
+
   return {
     mockWithAuthGuard,
     mockTrackAiUsage,
@@ -50,8 +111,19 @@ const {
     mockGenerateContentStream,
     mockGenerateContent,
     MockGoogleGenerativeAI,
+    mockCreateGoogleGenerativeAI,
+    mockStreamText,
   };
 });
+
+vi.mock("ai", () => ({
+  streamText: mockStreamText,
+  Output: { json: () => ({ type: "json" }) },
+}));
+
+vi.mock("@ai-sdk/google", () => ({
+  createGoogleGenerativeAI: mockCreateGoogleGenerativeAI,
+}));
 
 vi.mock("@/utils/supabase/guard", () => ({
   withAuthGuard: mockWithAuthGuard,
@@ -1367,6 +1439,112 @@ describe("AI cache route stabilization", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe("ai-summary AI SDK stream contract", () => {
+    function setupSummary(matchId: string) {
+      const summaryCache = createQueryChain({ data: null, error: null });
+      const telemetry = createQueryChain({
+        data: [{ match_id: matchId, player_id: "player_a", platform: "kakao", data: { fullResult: createSummaryMatch(matchId) } }],
+        error: null,
+      });
+      const supabase = createSupabaseMock({
+        player_ai_summary_cache: summaryCache,
+        processed_match_telemetry: telemetry,
+        global_benchmarks: createQueryChain({ data: [], error: null }),
+        benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+      });
+      mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+      return summaryCache;
+    }
+
+    function sdkResult(parts: unknown[], usage: { inputTokens?: number; outputTokens?: number } = {}) {
+      return {
+        fullStream: (async function* () {
+          yield* parts;
+        })(),
+        usage: Promise.resolve(usage),
+      };
+    }
+
+    it("응답 시작 전 error part면 다음 모델로 넘어가고 그 모델의 사용량을 기록한다", async () => {
+      const summaryCache = setupSummary("sdk-error-before-start");
+      const validFinal = JSON.stringify(createValidSummaryFinal({ finalVerdict: "fallback model summary" }));
+      mockStreamText
+        .mockImplementationOnce(() => sdkResult([{ type: "start" }, { type: "error", error: new Error("429 quota") }]))
+        .mockImplementationOnce(() => sdkResult(
+          [{ type: "start" }, { type: "start-step" }, { type: "text-delta", text: validFinal.slice(0, 20) }, { type: "text-delta", text: validFinal.slice(20) }],
+          { inputTokens: 11, outputTokens: 22 },
+        ));
+
+      const response = await aiSummaryPOST(createRequest({ matchIds: ["sdk-error-before-start"], nickname: "Player_A", platform: "kakao", force: true }));
+      const records = parseSummaryNdjson(await response.text());
+
+      expect(mockStreamText).toHaveBeenCalledTimes(2);
+      expect(mockStreamText.mock.calls[0][0].model.modelName).not.toBe(mockStreamText.mock.calls[1][0].model.modelName);
+      expect(records.map((record) => record.type)).toEqual(["visuals", "final", "done"]);
+      expect(records.find((record) => record.type === "final")?.data).toContain("fallback model summary");
+      expect(summaryCache.upsert).toHaveBeenCalledTimes(1);
+      await vi.waitFor(() => expect(mockTrackAiUsage).toHaveBeenCalledWith(
+        "user-1",
+        mockStreamText.mock.calls[1][0].model.modelName,
+        11,
+        22,
+        "summary",
+        expect.any(Object),
+      ));
+    });
+
+    it("응답 도중 error part면 다음 모델로 넘기지 않고 오류 record로 끝내며 캐시하지 않는다", async () => {
+      const summaryCache = setupSummary("sdk-error-after-text");
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      mockStreamText.mockImplementationOnce(() => sdkResult([
+        { type: "start-step" },
+        { type: "text-delta", text: "{\"signature\":" },
+        { type: "error", error: new Error("stream reset") },
+      ]));
+
+      const response = await aiSummaryPOST(createRequest({ matchIds: ["sdk-error-after-text"], nickname: "Player_A", platform: "kakao", force: true }));
+      const records = parseSummaryNdjson(await response.text());
+
+      expect(mockStreamText).toHaveBeenCalledTimes(1);
+      expect(records.find((record) => record.type === "done")).toMatchObject({ valid: false, errorCode: "PUBG_AI_PROVIDER_ERROR" });
+      expect(records.some((record) => record.type === "final")).toBe(false);
+      expect(summaryCache.upsert).not.toHaveBeenCalled();
+    });
+
+    it("route의 Gemini 키와 기존 생성 설정을 AI SDK에 그대로 전달한다", async () => {
+      setupSummary("sdk-options");
+      const validFinal = JSON.stringify(createValidSummaryFinal());
+      mockStreamText.mockImplementationOnce(() => sdkResult([{ type: "start-step" }, { type: "text-delta", text: validFinal }]));
+
+      const response = await aiSummaryPOST(createRequest({ matchIds: ["sdk-options"], nickname: "Player_A", platform: "kakao", force: true }));
+      await response.text();
+
+      expect(mockCreateGoogleGenerativeAI).toHaveBeenCalledWith({ apiKey: "test-gemini-key" });
+      const options = mockStreamText.mock.calls[0][0];
+      expect(options).toMatchObject({ temperature: 0.75, maxOutputTokens: 2500, maxRetries: 0, output: { type: "json" } });
+      expect(options.timeout).toBeUndefined();
+      expect(options.abortSignal).toBeInstanceOf(AbortSignal);
+      expect(options.providerOptions.google.safetySettings).toEqual([
+        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
+      ]);
+    });
+
+    it("provider 사용량이 없으면 0으로 기록하지 않는다", async () => {
+      setupSummary("sdk-no-usage");
+      const validFinal = JSON.stringify(createValidSummaryFinal());
+      mockStreamText.mockImplementationOnce(() => sdkResult([{ type: "start-step" }, { type: "text-delta", text: validFinal }]));
+
+      const response = await aiSummaryPOST(createRequest({ matchIds: ["sdk-no-usage"], nickname: "Player_A", platform: "kakao", force: true }));
+      await response.text();
+      await Promise.resolve();
+
+      expect(mockTrackAiUsage).not.toHaveBeenCalled();
+    });
   });
 
   it.each([
