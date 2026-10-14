@@ -28,9 +28,14 @@ export interface RecentMatchEmbedInput {
   analysisUpdatedAt?: string | null;
 }
 
-function discordTime(value?: string | null): string {
+export function discordTime(value?: string | null): string {
   const ms = value ? Date.parse(value) : NaN;
   return Number.isFinite(ms) ? `<t:${Math.floor(ms / 1000)}:f>` : "미확인";
+}
+
+// 닉네임의 _ * ~ 등이 Discord 마크다운으로 해석되지 않도록 이스케이프한다.
+export function escapeDiscordMarkdown(value: string): string {
+  return value.replace(/([\\*_~`|>])/g, "\\$1");
 }
 
 export function buildLinkSuccessEmbed(params: { nickname: string; platform: string }) {
@@ -38,7 +43,7 @@ export function buildLinkSuccessEmbed(params: { nickname: string; platform: stri
     embeds: [
       {
         title: "배틀그라운드 계정 연동 완료",
-        description: `**${params.nickname}** (${params.platform.toUpperCase()}) 계정과 성공적으로 연동되었습니다.\n이제 닉네임 입력 없이 /전적 또는 /방금판 명령어를 바로 사용할 수 있습니다.`,
+        description: `**${escapeDiscordMarkdown(params.nickname)}** (${params.platform.toUpperCase()}) 계정과 성공적으로 연동되었습니다.\n이제 닉네임 입력 없이 /전적 또는 /방금판 명령어를 바로 사용할 수 있습니다.`,
         color: 0x22c55e, // Green
         footer: { text: "BGMS 전적 봇" },
         timestamp: new Date().toISOString(),
@@ -65,7 +70,7 @@ export function buildStatsEmbed(data: StatsEmbedInput, appUrl: string) {
   return {
     embeds: [
       {
-        title: `🎮 ${data.nickname}님의 저장 전적 요약`,
+        title: `🎮 ${escapeDiscordMarkdown(data.nickname)}님의 저장 전적 요약`,
         description: data.scope,
         color: 0x3b82f6, // Blue
         fields,
@@ -111,7 +116,7 @@ export function buildRecentMatchEmbed(data: RecentMatchEmbedInput, appUrl: strin
   return {
     embeds: [
       {
-        title: `🔥 ${data.nickname}님의 최신 저장 경기 (${rankText} · ${mapText})`,
+        title: `🔥 ${escapeDiscordMarkdown(data.nickname)}님의 최신 저장 경기 (${rankText} · ${mapText})`,
         description: "저장된 기록 중 경기 시각이 가장 최신인 1건입니다. 방금 종료한 경기나 전체 플레이 기록과 다를 수 있습니다.\n상세 페이지에서 분석 및 AI 코칭의 제공 여부를 확인해 주세요.",
         color: data.winPlace === 1 ? 0xf59e0b : 0xef4444, // Gold or Red
         fields,

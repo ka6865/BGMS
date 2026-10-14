@@ -1,14 +1,22 @@
 import { resolvePlayerNickname } from "../userResolver";
-import { buildStatsEmbed } from "../embeds";
+import { buildStatsEmbed, discordTime } from "../embeds";
 import { createClient } from "@supabase/supabase-js";
 import { validatedCachedBuckets } from "@/lib/pubg/playerPayload";
-import { isPlayerPrivate } from "@/lib/pubg/privatePlayers";
-import { resolvePrivatePlayerAccountId } from "@/lib/pubg/privatePlayerIdentity";
+import { isDiscordTargetPrivate } from "../playerPrivacy";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co",
   process.env.SUPABASE_SERVICE_ROLE_KEY || "placeholder-key",
 );
+
+function isValidSeasonId(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "" && value !== "null" && value !== "undefined";
+}
+
+// 웹 전적 화면과 같은 짧은 시즌 이름을 쓴다(예: division.bro.official.pc-2018-36 → 시즌 36).
+function seasonLabel(seasonId: string): string {
+  return `시즌 ${seasonId.split("-").pop()}`;
+}
 
 export async function handleStatsCommand(interaction: any, appUrl: string) {
   const options = interaction.data?.options || [];
@@ -39,8 +47,7 @@ export async function handleStatsCommand(interaction: any, appUrl: string) {
 
   const { nickname, platform } = resolved;
   try {
-    const accountId = await resolvePrivatePlayerAccountId(platform, nickname);
-    if (await isPlayerPrivate(platform, nickname, accountId ?? undefined)) {
+    if (await isDiscordTargetPrivate(platform, nickname)) {
       return { type: 4, data: { content: "비공개 플레이어의 전적은 Discord에서 제공하지 않습니다.", flags: 64 } };
     }
   } catch {
@@ -68,8 +75,13 @@ export async function handleStatsCommand(interaction: any, appUrl: string) {
     if (cacheError) throw cacheError;
 
     if (cacheRow && cacheRow.season_stats_data) {
-      const seasonId = cacheRow.last_season_id || Object.keys(cacheRow.season_stats_data)[0];
-      const currentSeasonStats = cacheRow.season_stats_data[seasonId];
+      // 웹 전적 API와 같이 마지막 시즌 캐시가 없으면 다른 유효 시즌 캐시로 대체한다.
+      const lastSeasonId = isValidSeasonId(cacheRow.last_season_id) && cacheRow.season_stats_data[cacheRow.last_season_id]
+        ? cacheRow.last_season_id
+        : null;
+      const seasonId = lastSeasonId
+        ?? Object.keys(cacheRow.season_stats_data).find((key) => isValidSeasonId(key) && cacheRow.season_stats_data[key]);
+      const currentSeasonStats = seasonId ? cacheRow.season_stats_data[seasonId] : null;
 
       const pickMode = (statsObj: unknown) => {
         const buckets = validatedCachedBuckets(statsObj);
@@ -95,7 +107,7 @@ export async function handleStatsCommand(interaction: any, appUrl: string) {
         avgDamage = Math.round(activeStats.damageDealt / matches);
         const availability = currentSeasonStats?.statsAvailability?.[ranked ? "ranked" : "normal"];
         updatedAt = availability?.updatedAt || cacheRow.updated_at || null;
-        scope = `시즌 ${seasonId} · ${ranked ? "경쟁전" : "일반전"} · ${mode.toUpperCase()}\n시즌 캐시에서 판수가 가장 많은 모드의 ${matches}경기 누적 통계입니다. 시점(FPP/TPP)은 저장 캐시에서 구분할 수 없습니다.`;
+        scope = `${seasonId ? seasonLabel(seasonId) : "시즌 미확인"} · ${ranked ? "경쟁전" : "일반전"} · ${mode.toUpperCase()}\n시즌 캐시에서 판수가 가장 많은 모드의 ${matches}경기 누적 통계입니다. 시점(FPP/TPP)은 저장 캐시에서 구분할 수 없습니다.`;
         if (availability?.status === "stale") scope += "\n최근 갱신에 실패한 이전 저장 통계입니다.";
         if (ranked && activeStats.currentTier?.tier) {
           tier = `${activeStats.currentTier.tier} ${activeStats.currentTier.subTier ?? ""}`.trim();
@@ -125,7 +137,7 @@ export async function handleStatsCommand(interaction: any, appUrl: string) {
         avgDamage = Math.round(totalDamage / matches);
         const modes = [...new Set(matchRows.map((m) => m.game_mode || "미확인"))].join(", ");
         const types = [...new Set(matchRows.map((m) => m.match_type || "미확인"))].join(", ");
-        scope = `시즌 통계 대신 최근 저장 ${matches}경기(최대 20건)를 집계했습니다.\n모드: ${modes} · 경기 유형: ${types}\n경기 시각: ${matchRows.at(-1)?.played_at || "미확인"} ~ ${matchRows[0].played_at || "미확인"}\n저장 기록만 포함하며 시즌·일반전·경쟁전을 분리한 통계가 아닙니다. K/D는 킬 ÷ (경기 수 − 1위 경기 수), 최소 분모 1로 계산한 근사값입니다.`;
+        scope = `시즌 통계 대신 최근 저장 ${matches}경기(최대 20건)를 집계했습니다.\n모드: ${modes} · 경기 유형: ${types}\n경기 시각: ${discordTime(matchRows.at(-1)?.played_at)} ~ ${discordTime(matchRows[0].played_at)}\n저장 기록만 포함하며 시즌·일반전·경쟁전을 분리한 통계가 아닙니다. K/D는 킬 ÷ (경기 수 − 1위 경기 수), 최소 분모 1로 계산한 근사값입니다.`;
       }
     }
 

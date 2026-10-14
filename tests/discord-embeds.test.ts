@@ -3,6 +3,7 @@ import {
   buildLinkSuccessEmbed,
   buildStatsEmbed,
   buildRecentMatchEmbed,
+  escapeDiscordMarkdown,
 } from "@/lib/discord/embeds";
 
 describe("discord embeds builder", () => {
@@ -15,7 +16,7 @@ describe("discord embeds builder", () => {
     });
 
     expect(payload.embeds[0].title).toContain("연동 완료");
-    expect(payload.embeds[0].description).toContain("KangHeeSung_");
+    expect(payload.embeds[0].description).toContain("KangHeeSung\\_");
   });
 
   it("builds stats summary embed with web funnel link button", () => {
@@ -33,7 +34,7 @@ describe("discord embeds builder", () => {
     };
 
     const payload = buildStatsEmbed(statsData, appUrl);
-    expect(payload.embeds[0].title).toContain("KangHeeSung_");
+    expect(payload.embeds[0].title).toContain("KangHeeSung\\_");
     expect(payload.embeds[0].fields).toBeDefined();
     expect(payload.components[0].components[0].type).toBe(2); // Button
     expect(payload.components[0].components[0].url).toBe("https://bgms.kr/stats/steam/KangHeeSung_");
@@ -80,5 +81,12 @@ describe("discord embeds builder", () => {
 
   it.each(["", "latest", ".", "..", "../other", "match/id", "id?secret", "a".repeat(129)])("rejects invalid or placeholder match id %s", (matchId) => {
     expect(() => buildRecentMatchEmbed({ nickname: "Player", platform: "steam", matchId }, appUrl)).toThrow("invalid_match_id");
+  });
+
+  it("escapes Discord markdown in player nicknames", () => {
+    expect(escapeDiscordMarkdown("a_b*c~d`e|f>g\\h")).toBe("a\\_b\\*c\\~d\\`e\\|f\\>g\\\\h");
+    const payload = buildRecentMatchEmbed({ nickname: "__Bold__", platform: "steam", matchId: "match-1" }, "https://bgms.kr");
+    expect(payload.embeds[0].title).toContain("\\_\\_Bold\\_\\_");
+    expect(payload.components[0].components[0].url).toBe("https://bgms.kr/stats/steam/__Bold__/matches/match-1");
   });
 });

@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   from: vi.fn(),
   resolve: vi.fn(),
   accountId: vi.fn(),
+  cachedAccountId: vi.fn(),
   private: vi.fn(),
   saveLink: vi.fn(),
 }));
@@ -12,11 +13,13 @@ vi.mock("@supabase/supabase-js", () => ({ createClient: () => ({ from: mocks.fro
 vi.mock("@/lib/discord/userResolver", () => ({ resolvePlayerNickname: mocks.resolve }));
 vi.mock("@/lib/pubg/privatePlayerIdentity", () => ({ resolvePrivatePlayerAccountId: mocks.accountId }));
 vi.mock("@/lib/pubg/privatePlayers", () => ({ isPlayerPrivate: mocks.private }));
+vi.mock("@/lib/pubg/privatePlayerCache", () => ({ resolveCachedPlayerAccountId: mocks.cachedAccountId }));
 vi.mock("@/lib/discord/userLinkStore", () => ({ setDiscordUserLink: mocks.saveLink }));
 
 import { handleStatsCommand } from "@/lib/discord/commands/stats";
 import { handleRecentMatchCommand } from "@/lib/discord/commands/recentMatch";
 import { handleLinkCommand } from "@/lib/discord/commands/link";
+import { clearDiscordPlayerPrivacyCache } from "@/lib/discord/playerPrivacy";
 
 const appUrl = "https://bgms.kr";
 const interaction = { data: { options: [{ name: "nickname", value: "Player" }] }, user: { id: "1486900099266248825" } };
@@ -39,18 +42,37 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.resolve.mockResolvedValue({ nickname: "Player", platform: "steam" });
   mocks.accountId.mockResolvedValue("account.player");
+  mocks.cachedAccountId.mockResolvedValue(null);
   mocks.private.mockResolvedValue(false);
+  clearDiscordPlayerPrivacyCache();
 });
 
 describe.each([
   ["전적", handleStatsCommand], ["방금판", handleRecentMatchCommand],
 ] as const)("/%s privacy", (_name, handler) => {
   it("does not read stats or emit a link for private players, including a renamed account", async () => {
-    mocks.private.mockResolvedValue(true);
+    mocks.private.mockImplementation(async (_platform: string, _nickname: string, accountId?: string) => accountId === "account.player");
     const result = await handler(interaction, appUrl);
     expect(mocks.private).toHaveBeenCalledWith("steam", "Player", "account.player");
     expect(result.data).toEqual({ content: expect.stringContaining("비공개"), flags: 64 });
     expect(mocks.from).not.toHaveBeenCalled();
+  });
+
+  it("uses the cached account id without calling the PUBG API", async () => {
+    mocks.cachedAccountId.mockResolvedValue("account.cached");
+    mocks.private.mockImplementation(async (_platform: string, _nickname: string, accountId?: string) => accountId === "account.cached");
+    const result = await handler(interaction, appUrl);
+    expect(mocks.accountId).not.toHaveBeenCalled();
+    expect(result.data).toEqual({ content: expect.stringContaining("비공개"), flags: 64 });
+  });
+
+  it("reuses an uncached PUBG account lookup for repeated commands but rechecks the registry", async () => {
+    query(null); query(null);
+    await handler(interaction, appUrl);
+    mocks.private.mockImplementation(async (_platform: string, _nickname: string, accountId?: string) => accountId === "account.player");
+    const result = await handler(interaction, appUrl);
+    expect(mocks.accountId).toHaveBeenCalledTimes(1);
+    expect(result.data).toEqual({ content: expect.stringContaining("비공개"), flags: 64 });
   });
 
   it.each(["identity", "privacy"])("fails closed when %s lookup fails", async (stage) => {
@@ -149,7 +171,7 @@ describe("/전적 aggregation", () => {
     } } });
     const payload = (await handleStatsCommand(interaction, appUrl)).data as any;
     expect(payload.flags).toBe(0);
-    expect(payload.embeds[0].description).toContain("시즌 season-42 · 일반전 · SQUAD");
+    expect(payload.embeds[0].description).toContain("시즌 42 · 일반전 · SQUAD");
     expect(payload.embeds[0].fields).toContainEqual(expect.objectContaining({ name: "집계 판수", value: "30경기" }));
     expect(payload.embeds[0].fields).toContainEqual(expect.objectContaining({ name: "승률", value: "0.0%" }));
     expect(JSON.stringify(payload)).not.toMatch(/최근 20|Diamond|경쟁전 랭크/);
@@ -162,7 +184,7 @@ describe("/전적 aggregation", () => {
       statsAvailability: { ranked: { status: "stale", updatedAt: "2026-10-13T01:00:00Z" } },
     } } });
     const payload = (await handleStatsCommand(interaction, appUrl)).data as any;
-    expect(payload.embeds[0].description).toContain("시즌 season-42 · 경쟁전 · DUO");
+    expect(payload.embeds[0].description).toContain("시즌 42 · 경쟁전 · DUO");
     expect(payload.embeds[0].description).toContain("이전 저장 통계");
     expect(payload.embeds[0].fields).toContainEqual(expect.objectContaining({ name: "경쟁전 랭크 (집계 모드)", value: "Gold 0 (0 RP)" }));
     expect(payload.embeds[0].fields).toContainEqual(expect.objectContaining({ name: "경쟁전 KDA", value: "2.33" }));
@@ -170,7 +192,24 @@ describe("/전적 aggregation", () => {
 
   it("uses the actual season key when last_season_id is missing", async () => {
     query({ season_stats_data: { "season-41": { normal: { solo: bucket } } } });
-    expect(((await handleStatsCommand(interaction, appUrl)).data as any).embeds[0].description).toContain("시즌 season-41 · 일반전 · SOLO");
+    expect(((await handleStatsCommand(interaction, appUrl)).data as any).embeds[0].description).toContain("시즌 41 · 일반전 · SOLO");
+  });
+
+  it("falls back to another cached season when last_season_id has no cached stats", async () => {
+    query({ last_season_id: "season-43", season_stats_data: { "season-42": { normal: { solo: bucket } } } });
+    expect(((await handleStatsCommand(interaction, appUrl)).data as any).embeds[0].description).toContain("시즌 42 · 일반전 · SOLO");
+    expect(mocks.from).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the saved-match fallback time range as Discord timestamps", async () => {
+    query(null);
+    query([
+      { kills: 2, damage: 200, win_place: 3, played_at: "2026-10-14T01:00:00Z", game_mode: "squad", match_type: "official" },
+      { kills: 1, damage: 100, win_place: 1, played_at: "2026-10-13T01:00:00Z", game_mode: "squad", match_type: "official" },
+    ]);
+    const description = ((await handleStatsCommand(interaction, appUrl)).data as any).embeds[0].description;
+    expect(description).toContain("경기 시각: <t:1791853200:f> ~ <t:1791939600:f>");
+    expect(description).not.toContain("2026-10-14T01:00:00Z");
   });
 
   it("does not invent a ratio when season death counts are unmeasured", async () => {
@@ -195,7 +234,7 @@ describe("/전적 aggregation", () => {
 describe("/연동 and registration", () => {
   it("allows linked identity confirmation to be public", async () => {
     mocks.saveLink.mockResolvedValue({ pubg_nickname: "Player", pubg_platform: "steam" });
-    expect((await handleLinkCommand(interaction)).data).toMatchObject({ embeds: expect.any(Array), flags: 0 });
+    expect((await handleLinkCommand(interaction)).data).toMatchObject({ embeds: expect.any(Array), flags: 64 });
     expect(mocks.saveLink).toHaveBeenCalledWith(interaction.user.id, "Player", "steam");
   });
 
