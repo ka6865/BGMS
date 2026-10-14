@@ -168,7 +168,7 @@ describe.skipIf(!enabled)('점검 7·8 격리 브라우저 검증', () => {
       holdRankings = false;
       for (const send of heldRankings.splice(0)) send();
       await waitText(page, 'KeyboardPlayer');
-      await clickButton('최근 7일 킬');
+      await clickButton('지난주 킬');
       await vi.waitFor(() => expect(rankingCalls.length).toBe(firstCall + 2), { timeout: 20000 });
       await waitText(page, 'KeyboardPlayer');
       await clickButton('스쿼드');

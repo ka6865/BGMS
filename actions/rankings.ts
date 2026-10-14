@@ -30,10 +30,14 @@ export type RankingEntry = {
   match_count?: number;
 };
 
+// 지난주(한국시간 월~일) 기간. end는 다음 월요일 0시(미포함)이고, 화요일 09:00 KST 이후 확정된다.
+export type RankingPeriod = { start: string; end: string; finalized: boolean };
+
 export type RankingQueryResult = {
   data: RankingEntry[];
   hasError: boolean;
   generatedAt?: string;
+  period?: RankingPeriod;
   cacheStatus?: 'hit' | 'miss';
   databaseMs?: number;
   aggregationMs?: number;
@@ -109,7 +113,9 @@ async function readRanking(tab: 'damage' | 'kills' | 'tier', mode: GameModeFilte
     if (error || !Array.isArray(data?.entries) || !Number.isFinite(Date.parse(data.generated_at))) {
       throw error || new Error('Missing ranking response');
     }
-    return { hasError: false, generatedAt: data.generated_at, cacheStatus: data.cache_hit ? 'hit' : 'miss',
+    const period = Number.isFinite(Date.parse(data.week_start)) && Number.isFinite(Date.parse(data.week_end))
+      ? { start: data.week_start, end: data.week_end, finalized: data.finalized === true } : undefined;
+    return { hasError: false, generatedAt: data.generated_at, period, cacheStatus: data.cache_hit ? 'hit' : 'miss',
       databaseMs: data.database_ms, aggregationMs: data.aggregation_ms, data: data.entries.map((row: any, index: number) => ({
       rank: index + 1, platform: row.platform, player_id: row.player_id, nickname: row.player_id,
       value: Math.round(row.value), secondary: Math.round(row.secondary), tier: row.tier || undefined,

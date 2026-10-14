@@ -78,6 +78,7 @@ export async function GET(request: NextRequest) {
         } satisfies RankingApiEntry)),
         query: { tab, mode, perspective, matchType },
         generatedAt: rankingResult.generatedAt,
+        period: rankingResult.period ?? null,
       },
       {
         headers: {

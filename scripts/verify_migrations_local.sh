@@ -94,6 +94,7 @@ MIGRATIONS=(
   "20261014166000_pubg_match_performance_match_player_index"
   "20261014170000_bluezone_app_data_bucket"
   "20261014180000_pubg_team_benchmarks"
+  "20261014190000_pubg_previous_week_rankings"
 )
 
 cleanup() {
@@ -383,7 +384,7 @@ ranking_first_pid=$!
 ranking_second_pid=$!
 wait "$ranking_first_pid"
 wait "$ranking_second_pid"
-"${PSQL[@]}" -c "do \$\$ begin if (select count(*) from public.pubg_response_cache where cache_key like 'rankings:v1:%')<>1 then raise exception 'Shared cache missing'; end if; end \$\$; delete from public.pubg_response_cache where cache_key like 'rankings:v1:%';"
+"${PSQL[@]}" -c "do \$\$ begin if (select count(*) from public.pubg_response_cache where cache_key like 'rankings:v2:%')<>1 then raise exception 'Shared cache missing'; end if; end \$\$; delete from public.pubg_response_cache where cache_key like 'rankings:v2:%';"
 "${PSQL[@]}" -c "set role service_role; select public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73)->>'cache_hit';" &
 ranking_privacy_pid=$!
 ranking_aggregate_started=false
