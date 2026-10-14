@@ -33,8 +33,13 @@ begin
   if not (a->>'pending')::boolean or a->'entries'<>'[]'::jsonb or (a->>'week_start')::timestamptz<>w.week_start then
     raise exception 'FAIL: first request should be pending %', a;
   end if;
-  -- 예약 집계는 실제로 조회된 버전의 108개 조합을 모두 채운다.
-  while public.refresh_pubg_rankings_cache()>0 loop end loop;
+  -- 예약 집계는 먼저 108개 조합을 등록만 하고(집계 0) 다음 실행부터 하나씩 채운다.
+  refreshed:=public.refresh_pubg_rankings_cache();
+  if refreshed<>0
+    or (select count(*) from public.pubg_response_cache where cache_key like 'rankings:v2:%' and updated_at='-infinity'::timestamptz)<>108 then
+    raise exception 'FAIL: seeding should register combinations without aggregating';
+  end if;
+  perform public.refresh_pubg_rankings_cache(); while public.refresh_pubg_rankings_cache()>0 loop end loop;
   if (select count(*) from public.pubg_response_cache where cache_key like 'rankings:v2:%' and updated_at>'-infinity'::timestamptz
       and expires_at>clock_timestamp())<>108 then
     raise exception 'FAIL: all filter combinations prebuilt';
@@ -69,9 +74,10 @@ begin
   delete from public.pubg_response_cache where cache_key=key;
   insert into public.pubg_response_cache(cache_key,payload,expires_at,updated_at)
   values('rankings:v2:previous-week-fixture',jsonb_set(row_payload,'{requested_at}',to_jsonb(clock_timestamp()-interval '3 days')),clock_timestamp()+interval '1 day',clock_timestamp()-interval '7 days');
+  perform public.refresh_pubg_rankings_cache();
   refreshed:=public.refresh_pubg_rankings_cache();
   if refreshed<>1 or not exists(select 1 from public.pubg_response_cache where cache_key=key) then
-    raise exception 'FAIL: prewarm current week from previous week request % % %', refreshed, key, (select jsonb_agg(jsonb_build_object('k',cache_key,'u',updated_at,'p',payload-'entries')) from public.pubg_response_cache where cache_key like 'rankings:%');
+    raise exception 'FAIL: prewarm current week from previous week request % %', refreshed, key;
   end if;
   raise notice 'PASS: previous week window, finalize and prewarm';
 end $$;
@@ -89,8 +95,9 @@ declare a jsonb;
 begin
   -- 요청 집계가 실패한 조합은 등록만 하고 내보내지 않으며 예약 집계가 먼저 채운다.
   perform public.queue_pubg_ranking_refresh('kills',array['squad','squad'],'all',3,8,1,73);
+  perform public.refresh_pubg_rankings_cache();
   if public.refresh_pubg_rankings_cache()<>1 then raise exception 'FAIL: queued ranking not built'; end if;
-  while public.refresh_pubg_rankings_cache()>0 loop end loop;
+  perform public.refresh_pubg_rankings_cache(); while public.refresh_pubg_rankings_cache()>0 loop end loop;
   a:=public.get_pubg_rankings_cached('kills',array['squad'],'all',3,8,1,73);
   if not (a->>'cache_hit')::boolean or a->'entries'->0->>'player_id'<>'queue-player-3' then
     raise exception 'FAIL: queued ranking not served %', a;
@@ -99,7 +106,7 @@ begin
   update public.system_settings set value='[{"platform":"steam","nickname":"queue-player-3","account_id":"account.queue3"}]' where key='private_players_list';
   a:=public.get_pubg_rankings_cached('kills',array['squad'],'all',3,8,1,73);
   if not (a->>'pending')::boolean then raise exception 'FAIL: privacy change should not serve the old key %', a; end if;
-  while public.refresh_pubg_rankings_cache()>0 loop end loop;
+  perform public.refresh_pubg_rankings_cache(); while public.refresh_pubg_rankings_cache()>0 loop end loop;
   a:=public.get_pubg_rankings_cached('kills',array['squad'],'all',3,8,1,73);
   if not (a->>'cache_hit')::boolean or a->'entries'->0->>'player_id'<>'queue-player-2' then
     raise exception 'FAIL: private player in refreshed ranking %', a;
