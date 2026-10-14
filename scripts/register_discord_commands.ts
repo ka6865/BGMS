@@ -11,7 +11,7 @@ const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const COMMANDS = [
   {
     name: "연동",
-    description: "디스코드 계정과 배틀그라운드 닉네임을 1회 연동합니다.",
+    description: "디스코드 계정과 배틀그라운드 닉네임을 연동하고 나에게만 결과를 표시합니다.",
     options: [
       {
         name: "nickname",
@@ -27,15 +27,13 @@ const COMMANDS = [
         choices: [
           { name: "Steam (스팀)", value: "steam" },
           { name: "Kakao (카카오)", value: "kakao" },
-          { name: "Xbox (엑스박스)", value: "xbox" },
-          { name: "PlayStation (플스)", value: "psn" },
         ],
       },
     ],
   },
   {
     name: "전적",
-    description: "배틀그라운드 최근 20경기 전적 요약을 조회합니다.",
+    description: "저장된 시즌 전적 또는 최근 저장 경기 요약을 나에게만 표시합니다.",
     options: [
       {
         name: "nickname",
@@ -45,21 +43,19 @@ const COMMANDS = [
       },
       {
         name: "platform",
-        description: "플랫폼 (기본값: steam)",
+        description: "조회 플랫폼 (직접 지정 우선, 미입력 시 연동 플랫폼 또는 steam)",
         type: 3, // STRING
         required: false,
         choices: [
           { name: "Steam (스팀)", value: "steam" },
           { name: "Kakao (카카오)", value: "kakao" },
-          { name: "Xbox (엑스박스)", value: "xbox" },
-          { name: "PlayStation (플스)", value: "psn" },
         ],
       },
     ],
   },
   {
     name: "방금판",
-    description: "가장 최근 1경기의 전투 성적 및 백업/교전 팩트를 조회합니다.",
+    description: "최신 저장 경기 1건의 성적과 교전 지표를 나에게만 표시합니다.",
     options: [
       {
         name: "nickname",
@@ -69,14 +65,12 @@ const COMMANDS = [
       },
       {
         name: "platform",
-        description: "플랫폼 (기본값: steam)",
+        description: "조회 플랫폼 (직접 지정 우선, 미입력 시 연동 플랫폼 또는 steam)",
         type: 3, // STRING
         required: false,
         choices: [
           { name: "Steam (스팀)", value: "steam" },
           { name: "Kakao (카카오)", value: "kakao" },
-          { name: "Xbox (엑스박스)", value: "xbox" },
-          { name: "PlayStation (플스)", value: "psn" },
         ],
       },
     ],

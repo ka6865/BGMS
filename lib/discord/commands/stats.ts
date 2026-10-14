@@ -1,7 +1,7 @@
 import { resolvePlayerNickname } from "../userResolver";
 import { buildStatsEmbed } from "../embeds";
 import { createClient } from "@supabase/supabase-js";
-import { MAP_NAMES } from "@/lib/pubg-analysis/constants";
+import { validatedCachedBuckets } from "@/lib/pubg/playerPayload";
 import { isPlayerPrivate } from "@/lib/pubg/privatePlayers";
 import { resolvePrivatePlayerAccountId } from "@/lib/pubg/privatePlayerIdentity";
 
@@ -48,102 +48,97 @@ export async function handleStatsCommand(interaction: any, appUrl: string) {
   }
   const lowerNick = nickname.toLowerCase();
 
-  let tier = "언랭크";
-  let rp = 0;
+  let tier: string | null = null;
+  let rp: number | null = null;
   let kda = "—";
   let winRate = "—";
   let avgDamage: string | number = "—";
   let matches = 0;
+  let scope = "";
+  let ranked = false;
+  let updatedAt: string | null = null;
 
   try {
-    const { data: cacheRow } = await supabaseAdmin
+    const { data: cacheRow, error: cacheError } = await supabaseAdmin
       .from("pubg_player_cache")
-      .select("nickname, platform, season_stats_data, last_season_id")
+      .select("season_stats_data, last_season_id, updated_at")
       .eq("lower_nickname", lowerNick)
       .eq("platform", platform)
       .maybeSingle();
+    if (cacheError) throw cacheError;
 
     if (cacheRow && cacheRow.season_stats_data) {
-      const seasonId = cacheRow.last_season_id;
-      const currentSeasonStats = seasonId ? cacheRow.season_stats_data[seasonId] : (Object.values(cacheRow.season_stats_data)[0] as any);
-      const ranked = currentSeasonStats?.ranked;
-      const normal = currentSeasonStats?.normal;
+      const seasonId = cacheRow.last_season_id || Object.keys(cacheRow.season_stats_data)[0];
+      const currentSeasonStats = cacheRow.season_stats_data[seasonId];
 
-      const pickMode = (statsObj: any) => {
-        if (!statsObj) return null;
-        const modes = [statsObj.squad, statsObj.duo, statsObj.solo].filter(Boolean);
-        return modes.sort((a, b) => (b.roundsPlayed || 0) - (a.roundsPlayed || 0))[0] || null;
+      const pickMode = (statsObj: unknown) => {
+        const buckets = validatedCachedBuckets(statsObj);
+        if (!buckets) return null;
+        return Object.entries(buckets)
+          .filter((entry): entry is [string, NonNullable<typeof entry[1]>] => Boolean(entry[1] && entry[1].roundsPlayed > 0))
+          .sort((a, b) => b[1].roundsPlayed - a[1].roundsPlayed)[0] || null;
       };
 
-      const activeRanked = pickMode(ranked);
-      const activeNormal = pickMode(normal);
-      const activeStats = (activeRanked?.roundsPlayed || 0) >= (activeNormal?.roundsPlayed || 0) && activeRanked?.roundsPlayed
-        ? activeRanked
-        : activeNormal;
+      const activeRanked = pickMode(currentSeasonStats?.ranked);
+      const activeNormal = pickMode(currentSeasonStats?.normal);
+      ranked = Boolean(activeRanked && activeRanked[1].roundsPlayed >= (activeNormal?.[1].roundsPlayed ?? 0));
+      const selected = ranked ? activeRanked : activeNormal;
 
-      if (activeStats && activeStats.roundsPlayed > 0) {
+      if (selected) {
+        const [mode, activeStats] = selected;
         matches = activeStats.roundsPlayed;
-        if (activeStats.kda) {
-          kda = Number(activeStats.kda).toFixed(2);
-        } else if (typeof activeStats.kills === "number") {
-          const deaths = activeStats.losses ?? activeStats.deaths ?? Math.max(1, activeStats.roundsPlayed - (activeStats.wins || 0));
-          kda = (activeStats.kills / Math.max(1, deaths)).toFixed(2);
+        const deaths = activeStats.deaths ?? activeStats.losses;
+        if (typeof deaths === "number" && Number.isFinite(deaths) && deaths >= 0) {
+          kda = ((activeStats.kills + (ranked ? activeStats.assists : 0)) / Math.max(1, deaths)).toFixed(2);
         }
-        if (typeof activeStats.wins === "number") {
-          winRate = `${((activeStats.wins / activeStats.roundsPlayed) * 100).toFixed(1)}%`;
+        winRate = `${((activeStats.wins / matches) * 100).toFixed(1)}%`;
+        avgDamage = Math.round(activeStats.damageDealt / matches);
+        const availability = currentSeasonStats?.statsAvailability?.[ranked ? "ranked" : "normal"];
+        updatedAt = availability?.updatedAt || cacheRow.updated_at || null;
+        scope = `시즌 ${seasonId} · ${ranked ? "경쟁전" : "일반전"} · ${mode.toUpperCase()}\n시즌 캐시에서 판수가 가장 많은 모드의 ${matches}경기 누적 통계입니다. 시점(FPP/TPP)은 저장 캐시에서 구분할 수 없습니다.`;
+        if (availability?.status === "stale") scope += "\n최근 갱신에 실패한 이전 저장 통계입니다.";
+        if (ranked && activeStats.currentTier?.tier) {
+          tier = `${activeStats.currentTier.tier} ${activeStats.currentTier.subTier ?? ""}`.trim();
+          rp = activeStats.currentRankPoint ?? null;
         }
-        if (typeof activeStats.damageDealt === "number") {
-          avgDamage = Math.round(activeStats.damageDealt / activeStats.roundsPlayed);
-        }
-      }
-
-      if (activeRanked?.currentTier?.tier) {
-        tier = `${activeRanked.currentTier.tier} ${activeRanked.currentTier.subTier || ""}`.trim();
-        rp = activeRanked.currentRankPoint ?? 0;
       }
     }
 
-    // If cache was missing or empty, compute fallback aggregates from pubg_player_matches
     if (matches === 0) {
-      const { data: matchRows } = await supabaseAdmin
+      const { data: matchRows, error: matchError } = await supabaseAdmin
         .from("pubg_player_matches")
-        .select("kills, damage, win_place")
+        .select("kills, damage, win_place, played_at, game_mode, match_type")
         .eq("player_id", lowerNick)
         .eq("platform", platform)
         .order("played_at", { ascending: false })
         .limit(20);
+      if (matchError) throw matchError;
 
       if (Array.isArray(matchRows) && matchRows.length > 0) {
         matches = matchRows.length;
-        const totalKills = matchRows.reduce((acc, m) => acc + (m.kills || 0), 0);
-        const totalDamage = matchRows.reduce((acc, m) => acc + (m.damage || 0), 0);
+        const totalKills = matchRows.reduce((acc, m) => acc + m.kills, 0);
+        const totalDamage = matchRows.reduce((acc, m) => acc + m.damage, 0);
         const totalWins = matchRows.filter((m) => m.win_place === 1).length;
 
         kda = (totalKills / Math.max(1, matches - totalWins)).toFixed(2);
         winRate = `${((totalWins / matches) * 100).toFixed(1)}%`;
         avgDamage = Math.round(totalDamage / matches);
+        const modes = [...new Set(matchRows.map((m) => m.game_mode || "미확인"))].join(", ");
+        const types = [...new Set(matchRows.map((m) => m.match_type || "미확인"))].join(", ");
+        scope = `시즌 통계 대신 최근 저장 ${matches}경기(최대 20건)를 집계했습니다.\n모드: ${modes} · 경기 유형: ${types}\n경기 시각: ${matchRows.at(-1)?.played_at || "미확인"} ~ ${matchRows[0].played_at || "미확인"}\n저장 기록만 포함하며 시즌·일반전·경쟁전을 분리한 통계가 아닙니다. K/D는 킬 ÷ (경기 수 − 1위 경기 수), 최소 분모 1로 계산한 근사값입니다.`;
       }
     }
-  } catch (err) {
-    console.warn("[DiscordStatsCmd] Stats calculation failed:", err);
+
+    if (matches === 0) {
+      return { type: 4, data: { content: "저장된 시즌 전적이나 경기 기록이 없습니다. 웹 전적 페이지에서 기록을 갱신한 뒤 다시 확인해 주세요.", flags: 64 } };
+    }
+    const embedPayload = buildStatsEmbed(
+      { nickname, platform, tier, rp, kda, winRate, avgDamage, matches, scope, ranked, updatedAt },
+      appUrl,
+    );
+
+    return { type: 4, data: { ...embedPayload, flags: 64 } };
+  } catch {
+    return { type: 4, data: { content: "저장된 전적을 조회하지 못했습니다. 잠시 후 다시 시도해 주세요.", flags: 64 } };
   }
-
-  const embedPayload = buildStatsEmbed(
-    {
-      nickname,
-      platform,
-      tier: tier !== "언랭크" ? tier : null,
-      rp,
-      kda,
-      winRate,
-      avgDamage,
-      matches: matches || 20,
-    },
-    appUrl,
-  );
-
-  return {
-    type: 4,
-    data: embedPayload,
-  };
 }

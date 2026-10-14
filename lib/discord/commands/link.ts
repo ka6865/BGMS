@@ -33,12 +33,12 @@ export async function handleLinkCommand(interaction: any) {
 
     return {
       type: 4, // ChannelMessageWithSource
-      data: embedPayload,
+      data: { ...embedPayload, flags: 64 },
     };
-  } catch (err: any) {
+  } catch {
     return {
       type: 4,
-      data: { content: `계정 연동 중 오류가 발생했습니다: ${err?.message || err}`, flags: 64 },
+      data: { content: "계정을 연동하지 못했습니다. steam 또는 kakao 플랫폼과 닉네임을 확인하고 잠시 후 다시 시도해 주세요.", flags: 64 },
     };
   }
 }

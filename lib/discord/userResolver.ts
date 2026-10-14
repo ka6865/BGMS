@@ -30,11 +30,14 @@ export async function resolvePlayerNickname({
   discordUsername,
   getLinkFn = getDiscordUserLink,
 }: ResolvePlayerNicknameParams): Promise<ResolvedPlayerIdentity | null> {
+  const platformOverride = explicitPlatform?.trim()
+    ? canonicalizeLinkedPlayerPlatform(explicitPlatform)
+    : null;
   const trimmedExplicit = explicitNickname?.trim();
   if (trimmedExplicit) {
     return {
       nickname: trimmedExplicit,
-      platform: canonicalizeLinkedPlayerPlatform(explicitPlatform || "steam"),
+      platform: platformOverride ?? "steam",
       source: "explicit",
     };
   }
@@ -45,7 +48,7 @@ export async function resolvePlayerNickname({
     if (link && link.pubg_nickname) {
       return {
         nickname: link.pubg_nickname,
-        platform: canonicalizeLinkedPlayerPlatform(link.pubg_platform || "steam"),
+        platform: platformOverride ?? canonicalizeLinkedPlayerPlatform(link.pubg_platform || "steam"),
         source: "link",
       };
     }
@@ -58,7 +61,7 @@ export async function resolvePlayerNickname({
   if (fallbackNick) {
     return {
       nickname: fallbackNick,
-      platform: canonicalizeLinkedPlayerPlatform(explicitPlatform || "steam"),
+      platform: platformOverride ?? "steam",
       source: "guild_nickname",
     };
   }

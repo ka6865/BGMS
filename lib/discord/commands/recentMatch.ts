@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { MAP_NAMES } from "@/lib/pubg-analysis/constants";
 import { isPlayerPrivate } from "@/lib/pubg/privatePlayers";
 import { resolvePrivatePlayerAccountId } from "@/lib/pubg/privatePlayerIdentity";
+import { getLegacyFullResultForHistory } from "@/lib/pubg-analysis/cacheIdentity";
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co",
@@ -48,89 +49,60 @@ export async function handleRecentMatchCommand(interaction: any, appUrl: string)
   }
   const lowerNick = nickname.toLowerCase();
 
-  let matchId = "";
-  let mapName = "에란겔";
-  let winPlace = 1;
-  let kills = 0;
-  let damage = 0;
-  let damageShare: string | null = null;
-  let backupLatency: string | null = null;
-  let duelWinRate: string | null = null;
-
   try {
-    // 1. Fetch the latest match from pubg_player_matches
-    const { data: latestMatch } = await supabaseAdmin
+    const { data: latestMatch, error: matchError } = await supabaseAdmin
       .from("pubg_player_matches")
-      .select("match_id, map_name, kills, damage, win_place")
+      .select("match_id, map_name, kills, damage, win_place, played_at, created_at")
       .eq("player_id", lowerNick)
       .eq("platform", platform)
       .order("played_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-
-    if (latestMatch) {
-      matchId = latestMatch.match_id;
-      mapName = MAP_NAMES[latestMatch.map_name] || latestMatch.map_name || "에란겔";
-      winPlace = latestMatch.win_place;
-      kills = latestMatch.kills ?? 0;
-      damage = latestMatch.damage ?? 0;
-    } else {
-      // Fallback to pubg_player_cache recent_match_ids
-      const { data: cacheRow } = await supabaseAdmin
-        .from("pubg_player_cache")
-        .select("recent_match_ids")
-        .eq("lower_nickname", lowerNick)
-        .eq("platform", platform)
-        .maybeSingle();
-
-      if (Array.isArray(cacheRow?.recent_match_ids) && cacheRow.recent_match_ids.length > 0) {
-        matchId = String(cacheRow.recent_match_ids[0]);
-      }
+    if (matchError) throw matchError;
+    if (!latestMatch) {
+      return { type: 4, data: { content: "저장된 경기 기록이 없습니다. 웹 전적 페이지에서 기록을 갱신한 뒤 다시 확인해 주세요.", flags: 64 } };
+    }
+    const matchId = latestMatch.match_id;
+    if (typeof matchId !== "string" || !/^[A-Za-z0-9_.-]{1,128}$/.test(matchId) || ["latest", ".", ".."].includes(matchId)) {
+      throw new Error("invalid_stored_match_id");
     }
 
-    // 2. Fetch detailed processed telemetry stats if available
-    if (matchId) {
-      const { data: telemetryRow } = await supabaseAdmin
-        .from("processed_match_telemetry")
-        .select("data")
-        .eq("match_id", matchId)
-        .eq("platform", platform)
-        .eq("player_id", lowerNick)
-        .maybeSingle();
+    const { data: telemetryRow, error: telemetryError } = await supabaseAdmin
+      .from("processed_match_telemetry")
+      .select("data, updated_at")
+      .eq("match_id", matchId)
+      .eq("platform", platform)
+      .eq("player_id", lowerNick)
+      .maybeSingle();
+    if (telemetryError) throw telemetryError;
 
-      const analysis = telemetryRow?.data?.fullResult || telemetryRow?.data || {};
-      if (analysis.teamImpact?.teamDamageShare) {
-        damageShare = `${analysis.teamImpact.teamDamageShare}%`;
-      }
-      if (analysis.tradeStats?.tradeLatencyMs) {
-        backupLatency = `${(analysis.tradeStats.tradeLatencyMs / 1000).toFixed(1)}s`;
-      }
-      if (analysis.duelStats?.duelWinRate) {
-        duelWinRate = `${analysis.duelStats.duelWinRate}%`;
-      }
-    }
-  } catch (err) {
-    console.warn("[DiscordRecentMatchCmd] Recent match lookup failed:", err);
+    const analysis = getLegacyFullResultForHistory(telemetryRow, lowerNick, platform);
+    const measured = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
+    const share = analysis?.teamImpact?.teamDamageShare;
+    const latency = analysis?.tradeStats?.tradeLatencyMs;
+    const duel = analysis?.duelStats?.duelWinRate;
+
+    const embedPayload = buildRecentMatchEmbed(
+      {
+        nickname,
+        platform,
+        matchId,
+        mapName: MAP_NAMES[latestMatch.map_name] || latestMatch.map_name || null,
+        winPlace: latestMatch.win_place,
+        kills: latestMatch.kills,
+        damage: latestMatch.damage,
+        playedAt: latestMatch.played_at,
+        storedAt: latestMatch.created_at,
+        analysisUpdatedAt: analysis ? telemetryRow?.updated_at : null,
+        damageShare: measured(share) && share <= 100 ? `${share}%` : null,
+        tradeLatency: measured(latency) ? `${(latency / 1000).toFixed(1)}초` : null,
+        duelWinRate: measured(duel) && duel <= 100 ? `${duel}%` : null,
+      },
+      appUrl,
+    );
+
+    return { type: 4, data: { ...embedPayload, flags: 64 } };
+  } catch {
+    return { type: 4, data: { content: "저장된 경기 기록을 조회하지 못했습니다. 잠시 후 다시 시도해 주세요.", flags: 64 } };
   }
-
-  const embedPayload = buildRecentMatchEmbed(
-    {
-      nickname,
-      platform,
-      matchId: matchId || "latest",
-      mapName,
-      winPlace,
-      kills,
-      damage,
-      damageShare,
-      backupLatency,
-      duelWinRate,
-    },
-    appUrl,
-  );
-
-  return {
-    type: 4,
-    data: embedPayload,
-  };
 }

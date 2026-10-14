@@ -86,5 +86,20 @@ describe("discord player nickname resolver", () => {
 
     expect(result).toBeNull();
   });
+
+  it("uses an explicit platform with the linked nickname before the linked platform", async () => {
+    const getLinkFn = vi.fn().mockResolvedValue({ pubg_nickname: "LinkedPlayer", pubg_platform: "kakao" });
+    expect(await resolvePlayerNickname({ discordUserId: "user_123", explicitPlatform: " STEAM ", getLinkFn })).toEqual({ nickname: "LinkedPlayer", platform: "steam", source: "link" });
+  });
+
+  it("uses an explicit platform for the guild nickname fallback", async () => {
+    expect(await resolvePlayerNickname({ discordUserId: "user_123", explicitPlatform: "kakao", guildNickname: "GuildPlayer", getLinkFn: vi.fn().mockResolvedValue(null) })).toMatchObject({ platform: "kakao", source: "guild_nickname" });
+  });
+
+  it.each(["xbox", "psn"])("rejects unsupported platform %s before reading a linked account", async (explicitPlatform) => {
+    const getLinkFn = vi.fn();
+    await expect(resolvePlayerNickname({ discordUserId: "user_123", explicitPlatform, getLinkFn })).rejects.toThrow();
+    expect(getLinkFn).not.toHaveBeenCalled();
+  });
 });
 
