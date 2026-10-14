@@ -10,6 +10,9 @@ export default function PrivacyPage() {
   return (
     <div
       style={{
+        // flex 부모 안에서 넓은 표가 페이지 폭을 늘리지 않도록 폭을 고정하고 표 영역만 가로 스크롤한다.
+        width: "100%",
+        minWidth: 0,
         maxWidth: "800px",
         margin: "0 auto",
         padding: "48px 24px 80px",
@@ -30,7 +33,7 @@ export default function PrivacyPage() {
         개인정보처리방침
       </h1>
       <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.35)", marginBottom: "40px" }}>
-        최종 업데이트: 2026년 9월 21일
+        최종 업데이트: 2026년 10월 15일
       </p>
 
       <Section title="1. 개요">
@@ -58,7 +61,9 @@ export default function PrivacyPage() {
           <li>방문 페이지 경로 및 페이지 제목</li>
           <li>서비스 접속 환경 (production / development 구분)</li>
           <li>서비스 이용 시간 및 이벤트 발생 시각</li>
+          <li>유입 경로 (처음 방문한 페이지의 이전 사이트 도메인과 utm 캠페인 값, 경로·검색어는 저장하지 않음)</li>
           <li>IP 주소 (Supabase 서버 로그 자동 수집)</li>
+          <li>광고 쿠키·광고 식별자와 웹 방문 기록 (Google이 광고 게재를 위해 수집, 9절 참고)</li>
         </ul>
         <SubTitle>2-3. PUBG 전적 검색 시 처리 항목</SubTitle>
         <ul>
@@ -135,6 +140,24 @@ export default function PrivacyPage() {
             ["KRAFTON Inc.", "PUBG 공식 API를 통한 전적 데이터 조회"],
           ]}
         />
+        <SubTitle>7-1. 개인정보의 국외 이전</SubTitle>
+        <p>
+          위 수탁자 중 아래 사업자는 국외에 소재하며, 서비스 이용 시점에 네트워크를 통해 정보가 전송됩니다.
+          실제 저장·처리 위치는 각 사업자의 데이터센터 운영 정책에 따릅니다.
+        </p>
+        <Table
+          headers={["이전받는 자 (소재국)", "이전 항목", "이용 목적", "보유 기간"]}
+          rows={[
+            ["Supabase Inc. (미국)", "이메일, 닉네임, 서비스 이용 로그, IP 주소", "회원 인증, 데이터 저장", "4절의 보유 기간"],
+            ["Vercel Inc. (미국)", "접속 기록, IP 주소", "웹 서비스 호스팅, 접속 통계", "사업자 정책에 따름"],
+            ["Cloudflare Inc. (미국)", "PUBG 전적·텔레메트리 캐시", "분석 결과 저장", "4절의 보유 기간"],
+            ["Google LLC (미국)", "서비스 이용 기록, 광고 쿠키·식별자, AI 분석 요청 내용", "이용 통계, 광고 게재, AI 분석", "사업자 정책에 따름"],
+          ]}
+        />
+        <p>
+          국외 이전을 원하지 않는 경우 회원 탈퇴와 서비스 이용 중단으로 거부할 수 있으며,
+          광고 쿠키는 9절의 방법으로 거부할 수 있습니다. 다만 이전을 거부하면 서비스를 이용할 수 없습니다.
+        </p>
       </Section>
 
       <Section title="8. 쿠키(Cookie) 및 유사 기술 사용">
@@ -154,26 +177,76 @@ export default function PrivacyPage() {
         </p>
       </Section>
 
-      <Section title="9. 광고 서비스 관련 안내">
+      <Section title="9. 광고 서비스와 맞춤형 광고(행태정보)">
         <p>
-          서비스는 운영 비용 충당을 위해 아래 광고 플랫폼을 이용합니다.
-          각 플랫폼은 이용자의 브라우저 정보와 쿠키를 기반으로 맞춤형 광고를 제공할 수 있습니다.
+          서비스는 운영 비용 충당을 위해 Google AdSense 광고를 게재합니다.
         </p>
         <ul>
           <li>
-            <strong>Google AdSense</strong>: Google의 광고 쿠키를 사용합니다.
-            관심 기반 광고를 비활성화하려면{" "}
+            Google을 포함한 제3자 공급업체는 쿠키를 사용하여 이용자가 이 서비스 또는 다른 웹사이트를
+            이전에 방문한 기록을 바탕으로 광고를 게재합니다.
+          </li>
+          <li>
+            Google은 광고 쿠키를 사용하여 Google과 파트너가 이 서비스 및 다른 웹사이트 방문 기록을
+            바탕으로 이용자에게 광고를 게재할 수 있도록 합니다.
+          </li>
+          <li>
+            Google이 파트너 사이트의 정보를 사용하는 방법은{" "}
             <a
-              href="https://www.google.com/settings/ads"
+              href="https://policies.google.com/technologies/partner-sites"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "var(--color-accent, #F2A900)" }}
+            >
+              Google 파트너 사이트 정보 사용 안내
+            </a>
+            에서 확인할 수 있습니다.
+          </li>
+        </ul>
+        <SubTitle>행태정보 수집·이용 안내</SubTitle>
+        <Table
+          headers={["항목", "내용"]}
+          rows={[
+            ["수집하는 행태정보", "웹 방문 기록, 광고 쿠키, 광고 식별자, 브라우저·기기 정보"],
+            ["수집 방법", "이용자가 서비스에 접속할 때 Google 광고 스크립트가 자동 수집"],
+            ["수집 목적", "이용자의 관심사에 맞춘 광고 게재와 광고 성과 측정"],
+            ["수집·처리하는 자", "Google LLC (서비스 운영자는 광고 쿠키 정보를 직접 저장하지 않음)"],
+            ["보유·이용 기간", "Google의 광고 쿠키 정책에 따름"],
+          ]}
+        />
+        <p>
+          서비스는 만 14세 미만으로 알고 있는 이용자를 대상으로 맞춤형 광고를 제공하지 않습니다.
+        </p>
+        <SubTitle>맞춤형 광고 거부 방법</SubTitle>
+        <ul>
+          <li>
+            <a
+              href="https://adssettings.google.com"
               target="_blank"
               rel="noopener noreferrer"
               style={{ color: "var(--color-accent, #F2A900)" }}
             >
               Google 광고 설정
             </a>
-            에서 변경하세요.
+            에서 맞춤 광고를 사용 중지할 수 있습니다.
           </li>
+          <li>
+            제3자 공급업체의 맞춤형 광고 쿠키는{" "}
+            <a
+              href="https://www.aboutads.info/choices"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: "var(--color-accent, #F2A900)" }}
+            >
+              www.aboutads.info
+            </a>
+            에서 거부할 수 있습니다.
+          </li>
+          <li>브라우저 설정에서 쿠키를 차단하거나 삭제할 수 있습니다 (8절 참고).</li>
         </ul>
+        <p>
+          행태정보와 관련한 문의·고충은 11절의 개인정보 보호책임자에게 접수하실 수 있습니다.
+        </p>
       </Section>
 
       <Section title="10. 이용자의 권리와 행사 방법">
@@ -212,7 +285,7 @@ export default function PrivacyPage() {
           변경 시 서비스 내 공지사항 또는 본 페이지를 통해 사전 고지합니다.
         </p>
         <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.4)" }}>
-          시행일: 2026년 9월 21일
+          시행일: 2026년 10월 15일
         </p>
       </Section>
 
