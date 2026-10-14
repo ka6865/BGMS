@@ -696,7 +696,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   sanitizeText: (value: string) => string;
   sanitizeCardText?: (value: string, card: SummaryCard) => string;
   hasUnsupportedMode: (value: unknown) => boolean;
-}): { final: Record<string, unknown> & { schemaVersion: 2; cards: SummaryCard[] }; cacheable: boolean } | null {
+}): { final: Record<string, unknown> & { schemaVersion: 2; cards: SummaryCard[] }; cacheable: boolean; rejectReasons: string[] } | null {
   const serverCards = validateCardCatalog(cards);
   if (!serverCards || !isRecord(input) || !options || typeof options.sanitizeText !== "function" || typeof options.hasUnsupportedMode !== "function") {
     return null;
@@ -712,11 +712,18 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   const actionItems = safeActionItems(input.actionItems, options.sanitizeText, options.hasUnsupportedMode);
   if (!actionItems) return null;
 
-  let cacheable = !actionItems.rejected;
+  let cacheable = true;
+  // 어떤 규칙에서 탈락했는지 운영 로그로 구분할 수 있게 사유 코드를 모은다.
+  const rejectReasons: string[] = [];
+  const reject = (code: string) => {
+    cacheable = false;
+    if (!rejectReasons.includes(code)) rejectReasons.push(code);
+  };
+  if (actionItems.rejected) reject("action_items");
   const normalizedSignature = sanitizeRequiredText(signature, options.sanitizeText);
   const normalizedSignatureSub = sanitizeRequiredText(signatureSub, options.sanitizeText);
   const normalizedVerdict = sanitizeRequiredText(finalVerdict, options.sanitizeText);
-  if (normalizedSignature.empty || normalizedSignatureSub.empty || normalizedVerdict.empty) cacheable = false;
+  if (normalizedSignature.empty || normalizedSignatureSub.empty || normalizedVerdict.empty) reject("top_level_text");
 
   const safeSignature = normalizedSignature.value || SAFE_SIGNATURE;
   const safeSignatureSub = normalizedSignatureSub.value || SAFE_SIGNATURE_SUB;
@@ -746,7 +753,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   } catch {
     globalModeRejected = true;
   }
-  if (globalModeRejected) cacheable = false;
+  if (globalModeRejected) reject("top_level_mode");
 
   const normalizedCards = serverCards.map((serverCard) => {
     const issue = providerByTopic.get(serverCard.topicId);
@@ -758,7 +765,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     const evaluation = nonEmptyString(issue.evaluation);
     if (!kindOpinion || !spicyOpinion || !reason || !evaluation
       || (providerWinner !== "kind" && providerWinner !== "spicy" && providerWinner !== "draw" && providerWinner !== null)) {
-      cacheable = false;
+      reject(`${serverCard.topicId}:fields`);
       return unavailableCard(serverCard, "AI 응답의 필수 해석 필드가 유효하지 않습니다.");
     }
 
@@ -804,7 +811,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       .some((text) => hasUnsupportedCardConclusion(text, serverCard));
     const rejected = issueHasForeignMode || !referencesValid || proseRejected || opinionNeutral || unsupportedConclusion;
     if (rejected) {
-      cacheable = false;
+      reject(`${serverCard.topicId}:${issueHasForeignMode ? "mode" : !referencesValid ? "evidence" : proseRejected ? "prose" : opinionNeutral ? "neutral" : "conclusion"}`);
       return unavailableCard(serverCard, issueHasForeignMode ? "허용되지 않은 게임 모드가 포함되어 AI 해석을 보류했습니다." : unsupportedConclusion ? "경기 범위나 투척 기록으로 확인되지 않는 해석이 있어 판정을 보류했습니다." : opinionNeutral ? "두 코치의 의견을 모두 확인할 수 없어 승리 판정을 보류했습니다." : UNAVAILABLE_REASON);
     }
     if (serverCard.dataStatus === "unavailable") {
@@ -849,7 +856,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       .filter((text) => !isNeutralText(text));
     safeVerdict = [...new Set(interpretations)].slice(0, 2).join(" ") || "코치 의견을 확인하지 못했습니다. 아래 경기 기록을 확인해 주세요.";
   }
-  if (finalCards.every((card) => card.dataStatus === "unavailable")) cacheable = false;
+  if (finalCards.every((card) => card.dataStatus === "unavailable")) reject("all_unavailable");
   const legacyIssues = finalCards.map((card) => {
     const comparableEvidence = card.evidence.filter((evidence) => evidence.status === "comparable" && evidence.userValue !== null && evidence.benchmarkValue !== null);
     return {
@@ -874,7 +881,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     debateIssues: legacyIssues,
     actionItems: normalizedActionItems,
   } as Record<string, unknown> & { schemaVersion: 2; cards: SummaryCard[] };
-  return { final, cacheable };
+  return { final, cacheable, rejectReasons };
 }
 
 export function parseSummaryCards(input: unknown): SummaryCard[] | null {
