@@ -77,7 +77,7 @@ export default function PrivacyPage() {
           <li>PUBG 전적 검색, AI 코칭 분석 서비스 제공</li>
           <li>서비스 품질 개선을 위한 이용 통계 분석</li>
           <li>서비스 장애 탐지 및 보안 사고 대응</li>
-          <li>맞춤형 광고 제공 (Google AdSense, 카카오 애드핏)</li>
+          <li>맞춤형 광고 제공 (Google AdSense)</li>
         </ul>
       </Section>
 
@@ -132,7 +132,6 @@ export default function PrivacyPage() {
             ["Vercel Inc.", "웹 서비스 호스팅 및 CDN"],
             ["Cloudflare Inc.", "R2 스토리지 (텔레메트리 캐시 저장)"],
             ["Google LLC", "Analytics(GA4) 이용 통계, AdSense 광고 제공, Gemini AI 분석"],
-            ["Kakao Corp.", "애드핏 광고 제공"],
             ["KRAFTON Inc.", "PUBG 공식 API를 통한 전적 데이터 조회"],
           ]}
         />
@@ -146,7 +145,7 @@ export default function PrivacyPage() {
         <ul>
           <li>로그인 세션 유지</li>
           <li>서비스 이용 통계 수집 (Google Analytics 4)</li>
-          <li>맞춤형 광고 제공 (Google AdSense, 카카오 애드핏)</li>
+          <li>맞춤형 광고 제공 (Google AdSense)</li>
         </ul>
         <SubTitle>브라우저 설정을 통한 쿠키 거부</SubTitle>
         <p>
@@ -173,10 +172,6 @@ export default function PrivacyPage() {
               Google 광고 설정
             </a>
             에서 변경하세요.
-          </li>
-          <li>
-            <strong>카카오 애드핏</strong>: 카카오의 광고 쿠키를 사용합니다.
-            맞춤형 광고를 거부하려면 카카오 계정 설정에서 변경하세요.
           </li>
         </ul>
       </Section>
