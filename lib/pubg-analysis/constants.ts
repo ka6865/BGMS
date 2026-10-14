@@ -21,7 +21,7 @@ export function isSupportedAnalysisCalculationVersion(value: unknown): value is 
 export const RESULT_VERSION = 73.0; // [V73.0] PUBG AI 분석 정확도 감사 기준 결과 버전
 export const TELEMETRY_VERSION = 62.0; // [V62.0] Full projection analysis and corrected coordinate/lifecycle replay cache
 export const AI_CACHE_VERSION = "2026-09-07.coaching-judgment-v4"; // Preserve population identity; reject prose from the former blame-replacement policy
-export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-scope-calc${ANALYSIS_CALCULATION_VERSION}-v4`;
+export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-scope-calc${ANALYSIS_CALCULATION_VERSION}-v5`; // 듀오 팀 분석 추가로 프롬프트에 팀 모드를 넣었다
 export const AI_SUMMARY_CACHE_VERSION = "2026-09-08.debate-verdict-consistency-v18"; // Summary conclusions grounded in measured outcomes; mixed/withheld judgments
 // Evidence marker for canonical rows written after the human BR population
 // boundary. This is deliberately independent of RESULT/telemetry/cache

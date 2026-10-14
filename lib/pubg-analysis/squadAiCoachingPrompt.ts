@@ -8,6 +8,7 @@ export interface SquadAiPromptInput {
   squadGrade?: string | null;
   benchmarkStats?: any;
   matchCount?: number;
+  teamMode?: "duo" | "squad";
 }
 
 export interface SquadAiPromptResult {
@@ -29,6 +30,7 @@ export function buildSquadAiCoachingPrompt(input: SquadAiPromptInput): SquadAiPr
     squadGrade = null,
     benchmarkStats,
     matchCount = 1,
+    teamMode = "squad",
   } = input;
   const isMild = coachingStyle === "mild";
   const finiteNumber = (value: unknown): number | null => {
@@ -101,6 +103,7 @@ export function buildSquadAiCoachingPrompt(input: SquadAiPromptInput): SquadAiPr
 
   const squadReportSummary = `
 [Squad Teammates]
+- Team Mode: ${teamMode === "duo" ? "듀오(2인 팀). 팀원은 대상 플레이어 외 1명뿐이다" : "스쿼드(최대 4인 팀)"}
 - Target Player: ${nickname}
 - Teammates: ${groupKey}
 - Match Count Together: ${formatObserved(matchCount)} matches
@@ -198,6 +201,7 @@ Use measured statistics and available benchmarks to provide concrete, quantitati
 - Only discuss measured metrics. If no supported weakness is evident, state that further observation is needed instead of inventing a fault.
 - Do not infer player intent, communication, safety, or actions from absent evidence.
 - Squad isolation, backup and recovery metrics describe the entire team. roleProfiles contain NO individual position, isolation, backup, smoke or revive evidence. Never blame an individual for a team metric, infer front/back positioning, or infer kill-stealing intent from kill/assist shares.
+- ${teamMode === "duo" ? 'This is a DUO team of exactly two players. Call it 듀오, never 스쿼드 or 4인. Do not mention third or fourth members, and do not compare against squad-sized teams.' : 'This is a SQUAD team.'}
 - ${gradeOutput === "null" ? 'Overall grade is withheld. Output JSON null for squadGrade. Do not assign a grade in any prose field.' : `Output exactly "${displaySquadGrade}" as squadGrade.`}
 `;
   return { prompt, systemInstruction: `${systemInstruction}\n${evidenceRules}`, squadReportSummary };

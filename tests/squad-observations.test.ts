@@ -10,6 +10,11 @@ function collect(events:Array<[number,Record<string,unknown>]>){
   events.forEach(([ts,e])=>c.observe(e,ts));c.observe(event('LogMatchEnd'),100000);return c.result();
 }
 describe('team observations independent of requester',()=>{
+  it('observes a duo team with the same rules',()=>{
+    const c=new SquadObservationCollector(new Set(['a','b']),'duo');c.observe(event('LogMatchStart'),0);
+    c.observe(knock(),1000);c.observe(kill(),3000);c.observe(event('LogMatchEnd'),100000);
+    expect(c.result()).toMatchObject({status:'observed',knocks:1,tradeKills:1,tradeLatencyTotalMs:2000});
+  });
   it('counts all team knocks and only trades against the same knocker, once per life',()=>{
     const result=collect([[1000,knock()],[1001,knock()],[2000,kill('other')],[3000,kill()],[3001,{...kill(),_T:'LogPlayerKill'}]]);
     expect(result).toMatchObject({scope:'squad',status:'observed',knocks:1,tradeKills:1,tradeLatencyTotalMs:2000});

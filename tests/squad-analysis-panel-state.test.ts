@@ -342,7 +342,7 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
     const onGroupKeyChange = vi.fn();
     const { rerender } = renderPanel("g2", onGroupKeyChange);
 
-    const selector = await screen.findByRole("combobox", { name: "스쿼드 그룹" });
+    const selector = await screen.findByRole("combobox", { name: "팀 그룹" });
     expect(selector).toHaveValue("g2");
     await waitFor(() => expect(detailRequests("g2")).toHaveLength(1));
     expect(listRequests()).toHaveLength(1);

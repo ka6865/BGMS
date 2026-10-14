@@ -32,7 +32,7 @@ const RecentAISummary = dynamic(
   { loading: () => <p role="status" className="min-h-28 rounded-2xl bg-white/5 p-5 text-sm text-white/60">AI 분석 화면을 준비하고 있습니다.</p> },
 );
 const SquadAnalysisPanel = dynamic(() => import("@/components/stat/SquadAnalysisPanel"), {
-  loading: () => <p role="status" className="min-h-40 rounded-2xl bg-white/5 p-5 text-sm text-white/60">스쿼드 분석 화면을 준비하고 있습니다.</p>,
+  loading: () => <p role="status" className="min-h-40 rounded-2xl bg-white/5 p-5 text-sm text-white/60">팀 분석 화면을 준비하고 있습니다.</p>,
 });
 
 const NAVIGATION_PENDING_TIMEOUT_MS = 1_000;

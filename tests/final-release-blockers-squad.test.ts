@@ -161,10 +161,15 @@ describe("strict squad analysis population and scope",()=>{
     const {getSquadAnalysisData}=await import('@/lib/pubg-analysis/squadAnalysis');
     expect(await getSquadAnalysisData('Player_A','steam')).toMatchObject({groups: [{groupKey: 'Teammate_B', matchCount: 1, calculationPendingMatchCount: 1}]});
   });
-  it('reports pending squad history even when a current duo result is available',async()=>{
+  it('keeps pending squad history separate from a current duo result',async()=>{
     configureSquadClient(queryChain({data:[canonicalRow(1,{calculationVersion:1}),canonicalRow(2,{gameMode:'duo'})],error:null}));
     const {getSquadAnalysisData}=await import('@/lib/pubg-analysis/squadAnalysis');
-    expect(await getSquadAnalysisData('Player_A','steam')).toMatchObject({groups: [{groupKey: 'Teammate_B', matchCount: 1, calculationPendingMatchCount: 1}]});
+    const result: any = await getSquadAnalysisData('Player_A','steam');
+    expect(result.groups).toHaveLength(2);
+    expect(result.groups).toEqual(expect.arrayContaining([
+      expect.objectContaining({groupKey: 'Teammate_B', teamMode: 'squad', matchCount: 1, calculationPendingMatchCount: 1}),
+      expect.objectContaining({groupKey: '듀오 · Teammate_B', teamMode: 'duo', matchCount: 1, calculationPendingMatchCount: 0}),
+    ]));
   });
   it('returns basic squad history while excluding old tactical values from the selected group', async () => {
     configureSquadClient(queryChain({data: [canonicalRow(1, {calculationVersion: undefined})], error: null}));
