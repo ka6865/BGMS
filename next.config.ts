@@ -30,6 +30,12 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  async redirects() {
+    return [
+      // 총기 메타 시험 페이지는 무기도감 안의 대시보드로 통합했다.
+      { source: '/meta', destination: '/weapons', permanent: true },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
-import { trackEvent } from "@/lib/analytics";
+import { consumeLandingAttribution, trackEvent } from "@/lib/analytics";
 
 const PAGE_VIEW_DEDUPE_MS = 5_000;
 
@@ -21,7 +21,8 @@ export default function PageViewTracker() {
       name: "page_view",
       params: {
         path: pathname,
-        title: typeof document !== "undefined" ? document.title : undefined
+        title: typeof document !== "undefined" ? document.title : undefined,
+        ...consumeLandingAttribution()
       }
     });
   }, [pathname]);

@@ -25,6 +25,21 @@ export const ANALYTICS_EVENT_NAMES = [
   "post_action"
 ] as const;
 
+/**
+ * 문서를 처음 연 페이지뷰의 유입 출처.
+ * referrer_host는 외부 도메인, 'direct'(리퍼러 없음), 'internal'(같은 사이트) 중 하나이며 경로·검색어는 남기지 않는다.
+ */
+export type LandingAttribution = {
+  landing: true;
+  referrer_host: string;
+  utm_source?: string;
+  utm_medium?: string;
+  utm_campaign?: string;
+};
+
+const UTM_KEYS = ["utm_source", "utm_medium", "utm_campaign"] as const;
+const UTM_MAX_LENGTH = 100;
+
 const MIRRORED_EVENTS = new Set<string>(ANALYTICS_EVENT_NAMES);
 const SESSION_STORAGE_KEY = "bgms_analytics_session_id";
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
@@ -35,7 +50,7 @@ export type BgmsEvent =
       params: {
         path: string;
         title?: string;
-      };
+      } & Partial<LandingAttribution>;
     }
   | {
       name: "stats_searched";
@@ -166,6 +181,38 @@ let isListenerBound = false;
 const BATCH_INTERVAL_MS = 15000; // 15초 배치 주기
 let cachedAccessToken: string | null = null;
 let isAuthSubscribed = false;
+let isLandingAttributionConsumed = false;
+
+/**
+ * 문서 로드 뒤 첫 호출에만 유입 출처를 돌려준다.
+ * 이후 클라이언트 이동에서도 document.referrer가 그대로 남으므로 두 번째 호출부터는 null을 반환한다.
+ */
+export function consumeLandingAttribution(): LandingAttribution | null {
+  if (typeof window === "undefined" || isLandingAttributionConsumed) return null;
+  isLandingAttributionConsumed = true;
+
+  const attribution: LandingAttribution = {
+    landing: true,
+    referrer_host: getReferrerHost(document.referrer, window.location.hostname)
+  };
+  const searchParams = new URLSearchParams(window.location.search);
+  for (const key of UTM_KEYS) {
+    const value = searchParams.get(key)?.trim();
+    if (value) attribution[key] = value.slice(0, UTM_MAX_LENGTH);
+  }
+  return attribution;
+}
+
+function getReferrerHost(referrer: string, currentHost: string) {
+  if (!referrer) return "direct";
+  try {
+    const host = new URL(referrer).hostname.toLowerCase();
+    if (!host) return "direct";
+    return host === currentHost.toLowerCase() ? "internal" : host;
+  } catch {
+    return "direct";
+  }
+}
 
 
 // ─── 발송 함수 ──────────────────────────────────────────────────────────────
