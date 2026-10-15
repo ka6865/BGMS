@@ -99,6 +99,7 @@ MIGRATIONS=(
   "20261014230000_pubg_ranking_seed_commit_first"
   "20261015010000_suggest_similar_players_two_stage"
   "20261015120000_player_match_row_extras"
+  "20261016010000_performance_jobs_newest_first"
 )
 
 cleanup() {
@@ -349,6 +350,7 @@ fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/team-benchmark-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-coexistence-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retained-performance-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/performance-jobs-newest-first-checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/encounter-page-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/match-discovery-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/scoped-match-discovery-scenarios.sql

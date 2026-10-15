@@ -17,6 +17,7 @@ import {
   type RecentMatchCandidate,
 } from "@/lib/pubg-analysis/recentMatchSelection";
 import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
+import { getMatchDetailRetention } from "@/lib/pubg-analysis/matchRetention";
 // Invalid/legacy rows are filtered after hydration. Fetch a bounded window
 // larger than the ten rows we ultimately expose so stale, custom, or
 // unmarked entries cannot crowd newer valid matches out of the population.
@@ -24,7 +25,7 @@ const SQUAD_ANALYSIS_SOURCE_LIMIT = 100;
 
 type SquadObservationSource = {
   match_id?: string;
-  data?: { fullResult?: { squadObservation?: unknown; team?: unknown } };
+  data?: { fullResult?: { squadObservation?: unknown; team?: unknown; createdAt?: unknown } };
 };
 
 function squadObservationInput(match: SquadObservationSource) {
@@ -43,12 +44,15 @@ export function hasObservedSquadMatch(match: SquadObservationSource): boolean {
 }
 
 /**
- * 팀 지표·AI 코칭에 쓸 후보를 고른다. 관측된 경기가 하나라도 있으면 관측된 경기만 쓴다.
- * 듀오·스쿼드 팀 관측이 생기기 전에 분석된 경기가 섞이면 팀 지표가 모두 비기 때문이다.
+ * 팀 지표·AI 코칭에 쓸 후보를 고른다.
+ * 1. 상세 보관 기간(14일)이 남은 경기가 있으면 그 경기만 쓴다. 만료된 경기가 하나라도 섞이면 AI 코칭이 막힌다.
+ * 2. 그중 팀 관측이 있는 경기가 있으면 관측된 경기만 쓴다. 관측 이전에 분석된 경기가 섞이면 팀 지표가 모두 빈다.
  */
-export function selectSquadAnalysisCandidates<T extends { value: SquadObservationSource }>(candidates: readonly T[]): T[] {
-  const observed = candidates.filter((candidate) => hasObservedSquadMatch(candidate.value));
-  return observed.length > 0 ? observed : [...candidates];
+export function selectSquadAnalysisCandidates<T extends { value: SquadObservationSource }>(candidates: readonly T[], now = Date.now()): T[] {
+  const fresh = candidates.filter((candidate) => getMatchDetailRetention(candidate.value.data?.fullResult?.createdAt, now).status !== "expired");
+  const pool = fresh.length > 0 ? fresh : [...candidates];
+  const observed = pool.filter((candidate) => hasObservedSquadMatch(candidate.value));
+  return observed.length > 0 ? observed : pool;
 }
 
 export async function getSquadAnalysisData(nickname: string, platform: string = "steam", groupKey?: string | null) {
