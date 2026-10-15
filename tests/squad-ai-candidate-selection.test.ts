@@ -55,7 +55,7 @@ describe("최근 팀 경기 상세 분석 채우기", () => {
   it("상세 분석이 없는 최근 팀 경기만 최신순으로 최대 4경기 분석하고, 같은 플레이어는 잠시 다시 하지 않는다", async () => {
     const recent = ["m1", "m2", "m3", "m4", "m5", "m6"].map(match_id => ({ match_id }));
     const { supabase, calls } = db(recent, [{ match_id: "m2" }]);
-    const analyzeMatch = vi.fn(async () => true);
+    const analyzeMatch = vi.fn(async (_matchId: string, _signal: AbortSignal) => true);
     const result = await prefetchRecentTeamMatchDetails({ supabase, nickname: "KangHeeSung_", platform: "steam", analyzeMatch });
     expect(result).toEqual({ status: "done", attempted: SQUAD_DETAIL_PREFETCH_MAX_MATCHES, analyzed: SQUAD_DETAIL_PREFETCH_MAX_MATCHES });
     expect(analyzeMatch.mock.calls.map(([id]) => id).sort()).toEqual(["m1", "m3", "m4", "m5"]);
