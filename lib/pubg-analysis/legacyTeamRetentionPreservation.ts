@@ -111,8 +111,23 @@ export function planLegacyTeamRetentionRecovery(input: {
   return result;
 }
 
+// 복구 RPC는 6개 테이블을 NOWAIT로 잠가 수집 작업의 짧은 쓰기와 겹치면 즉시 거절된다.
+// 잠금 단계의 거절은 아무것도 쓰지 않으므로 앱 쓰기를 막지 않고 잠시 뒤 같은 packet으로 다시 시도한다.
+const LOCK_RETRY_DELAYS_MS = [2_000, 5_000, 10_000] as const;
+
+type LegacyTeamRetentionWriteOptions = {
+  lockRetryDelaysMs?: readonly number[];
+  sleep?: (ms: number) => Promise<void>;
+};
+
 /** No upsert: the service-only RPC checks snapshots and commits basic + compact together. */
-export async function preserveLegacyTeamRetentionPackets(db: SupabaseClient, packets: LegacyTeamRetentionPacket[]): Promise<number> {
+export async function preserveLegacyTeamRetentionPackets(
+  db: SupabaseClient,
+  packets: LegacyTeamRetentionPacket[],
+  options: LegacyTeamRetentionWriteOptions = {},
+): Promise<number> {
+  const lockRetryDelaysMs = options.lockRetryDelaysMs ?? LOCK_RETRY_DELAYS_MS;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>(done => setTimeout(done, ms)));
   if (packets.length > 5) throw new Error('retention-legacy-team-limit-invalid');
   let saved = 0;
   for (const original of packets) {
@@ -122,8 +137,15 @@ export async function preserveLegacyTeamRetentionPackets(db: SupabaseClient, pac
       sourceBasic: { retention_scope: 'legacy', ...original.sourceBasic },
       expectedBasic: { retention_scope: 'legacy', ...original.expectedBasic },
     };
-    const { data, error, status } = await db.rpc('recover_retention_legacy_team', { p_packet: packet })
+    const recover = () => db.rpc('recover_retention_legacy_team', { p_packet: packet })
       .abortSignal(AbortSignal.timeout(15_000));
+    let response = await recover();
+    for (const delay of lockRetryDelaysMs) {
+      if (response.status !== 400 || response.error?.details !== 'lock-unavailable') break;
+      await sleep(delay);
+      response = await recover();
+    }
+    const { data, error, status } = response;
     // 응답 유실 뒤에는 쓰기를 반복하지 않고 실제 저장된 두 행을 대조한다.
     const responseLost = error && (status === 0 || (status >= 500 && status <= 599));
     if (!responseLost && (error || data?.saved !== true
