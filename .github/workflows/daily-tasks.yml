@@ -107,6 +107,12 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/cleanup_board_post_view_tracking.ts
 
+      - name: Run PUBG API Error Cleanup
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npx tsx scripts/cleanup_pubg_api_errors.ts
+
   maintenance:
     needs: board-write-quota-cleanup
     if: ${{ always() && !cancelled() }}
