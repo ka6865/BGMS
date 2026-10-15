@@ -184,16 +184,27 @@ function projectRefFromUrl(url: string): string {
   catch { throw new Error("supabase-url-invalid"); }
 }
 
-async function rows<T>(db: SupabaseClient, table: string, columns: string, matchId: string, platform: Platform): Promise<T[]> {
-  let query = db.from(table).select(columns).eq("match_id", matchId);
-  // This legacy shared table is keyed by match_id and has no platform column.
-  // Exact platform/account storage paths are still checked before deletion.
-  if (table !== "match_master_telemetry") query = query.eq("platform", platform);
-  const { data, error } = await query.limit(ROW_LIMIT)
-    .abortSignal(AbortSignal.timeout(15_000));
-  if (error) throw new Error(`retention-query-failed:${table}:${error.code ?? "unknown"}`);
-  if ((data ?? []).length >= ROW_LIMIT) throw new Error(`retention-reference-limit:${table}`);
-  return (data ?? []) as T[];
+// 참조 조회는 읽기만 한다. 응답을 받지 못한 실패(오류 코드 없음: 네트워크 단절·시간 초과)는
+// 잠시 뒤 다시 읽고, DB가 거절한 오류는 기존처럼 즉시 정리를 멈춘다.
+const READ_RETRY_DELAYS_MS = [1_000, 3_000] as const;
+
+export async function rows<T>(db: SupabaseClient, table: string, columns: string, matchId: string, platform: Platform,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((done) => setTimeout(done, ms))): Promise<T[]> {
+  for (let attempt = 0; ; attempt++) {
+    let query = db.from(table).select(columns).eq("match_id", matchId);
+    // This legacy shared table is keyed by match_id and has no platform column.
+    // Exact platform/account storage paths are still checked before deletion.
+    if (table !== "match_master_telemetry") query = query.eq("platform", platform);
+    const { data, error } = await query.limit(ROW_LIMIT)
+      .abortSignal(AbortSignal.timeout(15_000));
+    if (error && !error.code && attempt < READ_RETRY_DELAYS_MS.length) {
+      await sleep(READ_RETRY_DELAYS_MS[attempt]);
+      continue;
+    }
+    if (error) throw new Error(`retention-query-failed:${table}:${error.code || "unknown"}`);
+    if ((data ?? []).length >= ROW_LIMIT) throw new Error(`retention-reference-limit:${table}`);
+    return (data ?? []) as T[];
+  }
 }
 
 function normalized(value: unknown): string { return typeof value === "string" ? value.trim().toLowerCase() : ""; }
