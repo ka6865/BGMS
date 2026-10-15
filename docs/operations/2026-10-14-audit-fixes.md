@@ -94,11 +94,11 @@
 2026-10-15 재확인 기준이다.
 
 - Daily BGMS Maintenance: 6·7차 보완 후 [2026-10-14 21:27 UTC 실행](https://github.com/ka6865/BGMS/actions/runs/38640356723)에서 모든 단계가 성공했다(2026-10-13 22:27 UTC 실행은 Run Storage Cleanup, Extract Bluezone Statistics, Backfill Unknown Match Types 실패). 해소.
-- PUBG Archive Backlog·Detail Archive Retention: 6차 인덱스 이후 중단 사유가 `lock-budget-exceeded`에서 `retention-legacy-team-write-unverified:400:lock-unavailable`(잠금 획득 실패)로 바뀌었다. [2026-10-14 21:48 UTC 실행](https://github.com/ka6865/BGMS/actions/runs/38643016383)은 5개 배치에서 43개 객체(7,289,423바이트)를 정리한 뒤 6번째 배치에서 삭제 전 안전 중단했다. 정리는 진행되지만 실행마다 실패로 끝나므로, 잠금 경합 상대를 확인해야 한다.
-- `suggest_similar_players`: 인덱스 조건으로 바꾼 뒤에도 콜드 캐시 기준 약 3초(운영 EXPLAIN). service role 호출이라 timeout은 피하지만, 더 줄이려면 후보 수를 줄이는 별도 설계가 필요.
+- PUBG Archive Backlog·Detail Archive Retention(9차에서 재시도 추가, 병합 후 정기 실행으로 확인 필요): 6차 인덱스 이후 중단 사유가 `lock-budget-exceeded`에서 `retention-legacy-team-write-unverified:400:lock-unavailable`(잠금 획득 실패)로 바뀌었다. [2026-10-14 21:48 UTC 실행](https://github.com/ka6865/BGMS/actions/runs/38643016383)은 5개 배치에서 43개 객체(7,289,423바이트)를 정리한 뒤 6번째 배치에서 삭제 전 안전 중단했다. 정리는 진행되지만 실행마다 실패로 끝나므로, 잠금 경합 상대를 확인해야 한다.
+- `suggest_similar_players`: 9차에서 두 단계 검색으로 줄였다(해소). 0.3 이상 결과가 limit 개 미만이라 0.2로 다시 찾는 검색은 콜드 캐시에서 약 0.7초가 남는다.
 - RLS 성능 advisor(`auth.uid()` 행별 재평가 38건, 중복 permissive 정책 80건(이전 86건), 인덱스 없는 FK 36건), Auth 유출 비밀번호 보호 비활성. 2026-10-15 advisor 재조회 기준.
 - 하드코딩 색상 82개 파일 1,112건 남음(공통 컴포넌트 일부만 교체). 푸터 링크 등 텍스트 링크 터치 영역 18px 높이.
-- `pubg_api_errors` 정리 작업 없음: 개인정보처리방침은 30일 보관으로 고지하지만 2026-06-06 기록부터 6,252행이 남아 있다(2026-10-15 조회). 30일 정리 작업을 추가해야 한다(8차 참고).
+- `pubg_api_errors` 정리 작업 없음: 9차에서 일일 정리 추가(해소). 병합 후 첫 일일 실행에서 30일 지난 약 5,600행이 삭제된다.
 
 ## 5차 보완 (조회 기록 개인정보)
 
@@ -171,3 +171,25 @@ group by 1 order by 2 desc;
 
 - Gemini를 유료로 전환하면 개인정보처리방침 7-2를 갱신한다.
 - `pubg_api_errors` 30일 정리 작업 추가(남은 항목).
+
+## 9차 보완 (남은 항목 1·2·5)
+
+| 항목 | 원인 | 조치 |
+| --- | --- | --- |
+| `pubg_api_errors` 정리 작업 없음 | 개인정보처리방침은 30일 보관인데 삭제 작업이 없어 6,257행 중 5,587행이 30일 초과(2026-10-15) | `scripts/cleanup_pubg_api_errors.ts`를 daily-tasks의 `board-write-quota-cleanup` job에 추가. 읽는 코드는 모두 최근 7일 이내라 영향 없음. service role DELETE 권한과 `created_at` 인덱스 확인 (PR #287) |
+| Archive 정리 `lock-unavailable` 반복 | `recover_retention_legacy_team`이 6개 테이블을 `NOWAIT`로 잠가, 5분 주기 수집(`bgms-pubg-collection`)의 쓰기와 겹치면 즉시 거절. 2026-10-14 실행은 22:00 수집 시작 직후 22:01:29에 중단. 호출부는 재시도 없이 실행 전체를 멈춤 | `lock-unavailable`(HTTP 400)일 때만 2·5·10초 뒤 같은 packet으로 최대 3번 재시도. 잠금 단계 거절은 쓰기가 없어 안전하고, 응답 유실·다른 사유는 기존처럼 중단. 서버 `NOWAIT`는 앱 쓰기를 막지 않도록 유지 (PR #289) |
+| `suggest_similar_players` 콜드 캐시 지연 | 임계값 0.2에서 GIN 후보 1,040개를 재확인하려고 본 테이블 블록 976개를 디스크에서 읽음(1.1초) | 임계값 0.3으로 먼저 찾고 limit 개 미만일 때만 0.2로 다시 찾음. 0.3 이상은 항상 0.3 미만보다 앞서 결과가 같음. 본 테이블 블록 976→306, 560→275. GiST 거리순(KNN)은 인덱스 대부분(약 2,500페이지)을 읽어 제외 (PR #288) |
+
+### 운영 migration 적용 실적
+
+- 대상: `20261015010000_suggest_similar_players_two_stage`. 적용 시각 2026-10-15 01:29:27 UTC.
+- 방법: 임시 작업 폴더에 원격 이력 160개의 빈 자리표시 파일과 대상 파일 하나를 두고 `supabase db push --linked --workdir <임시 폴더>`. 적용 직전 `--dry-run` 대상이 그 파일 하나임을 확인했다.
+- 적용 후: 함수는 plpgsql·SECURITY INVOKER, 설정 `search_path=public`·`pg_trgm.similarity_threshold=0.3`, anon·authenticated 실행 false, service role true, 이력 최신 버전 `20261015010000`.
+- service role PostgREST 호출로 확인: 검색어 5개의 상위 유사도가 적용 전 측정과 같다. 네트워크 왕복 약 70~90ms 기준으로 처음 찾는 steam 검색어는 410ms, 0.2로 다시 찾은 kakao 검색어는 701ms였다.
+
+### 검증
+
+- PR #287: 새 테스트와 `daily-tasks-workflow` 15개 통과.
+- PR #288: 로컬 실험 DB(31만 행)에서 검색어 600개의 결과가 기존 함수와 모두 같음(0.2 대체 검색 56건 포함). `verify:migrations` 통과(NOSUPERUSER 두 번 적용, 0.2 대체 검색 시나리오, 세션 임계값 유지). 관련 Vitest 44개 통과.
+- PR #289: 재시도·중단 조건 테스트 포함 82개 통과.
+- 네 PR(#286~#289) 모두 CI 통과 후 병합. Archive 재시도와 오류 로그 삭제는 병합 후 정기 실행에서 확인한다.
