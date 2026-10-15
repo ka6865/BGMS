@@ -250,7 +250,9 @@ export async function fetchAndIngestBasicMatchSummaryOutcome(
     }
     let persisted = false;
     try {
-      persisted = await upsertPlayerMatches(supabase, records.filter(row => row.win_place > 0), { atomic: true });
+      // 검색·연동 대상 플레이어의 기록만 저장한다. 같은 경기 참가자 전원 저장은 DB 증가량 때문에 중단했다.
+      // 참가자 전원은 위에서 닉네임·계정 중복과 비공개 여부를 판단하는 데만 쓴다.
+      persisted = await upsertPlayerMatches(supabase, [record], { atomic: true });
     } catch (error) {
       return {
         status: "upstream_error",

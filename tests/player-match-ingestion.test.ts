@@ -118,7 +118,7 @@ describe("official participant basic histories", () => {
     db, "cohort", "Target", "steam", "fixture-key", { expectedAccountId: "account.target", fetchImpl },
   );
 
-  it("uses one official fetch and one privacy read for all human basic rows", async () => {
+  it("uses one official fetch and one privacy read and stores only the target row", async () => {
     const h = matchDatabase();
     const fetchImpl = fetchPayload(payload([participant("Target"), participant("Peer"), participant("Bot", "ai.bot")]));
     expect(await collect(h.db, fetchImpl)).toMatchObject({ status: "saved", record: { account_id: "account.target", retention_scope: "basic_only" } });
@@ -126,14 +126,13 @@ describe("official participant basic histories", () => {
     expect(h.settingsRead).toHaveBeenCalledTimes(1);
     expect(h.upsert).toHaveBeenCalledWith([
       expect.objectContaining({ account_id: "account.target", retention_scope: "basic_only" }),
-      expect.objectContaining({ account_id: "account.peer", retention_scope: "basic_only", kills: 0, damage: 0 }),
     ], expect.anything());
     expect(h.from.mock.calls.map(([table]) => table)).toEqual(["system_settings"]);
     expect(h.rpc).toHaveBeenCalledOnce();
     expect(h.rpc).toHaveBeenCalledWith("upsert_pubg_participant_matches", { p_records: h.upsert.mock.calls[0][0] });
   });
 
-  it("honors stable account aliases, all-platform entries and legacy nicknames without peer cache lookups", async () => {
+  it("reads privacy aliases once without peer cache lookups and still stores only the target", async () => {
     const privacy = [
       { platform: "steam", nickname: "OldAlias", lower_nickname: "oldalias", account_id: "account.hidden" },
       { platform: "all", nickname: "OldGlobal", lower_nickname: "oldglobal", account_id: "account.global" },
@@ -145,7 +144,7 @@ describe("official participant basic histories", () => {
       participant("NewGlobal", "account.global"), participant("Legacy"), participant("OldAlias", "account.public"), participant("Elsewhere")]));
     expect((await collect(h.db, fetchImpl)).status).toBe("saved");
     const rows = h.upsert.mock.calls[0][0];
-    expect(rows.map((row: { account_id: string }) => row.account_id)).toEqual(["account.target", "account.public", "account.elsewhere"]);
+    expect(rows.map((row: { account_id: string }) => row.account_id)).toEqual(["account.target"]);
     expect(h.settingsRead).toHaveBeenCalledTimes(1);
   });
 
@@ -166,7 +165,7 @@ describe("official participant basic histories", () => {
       participant("Duplicate", "account.one"), participant("DUPLICATE", "account.two"),
       participant("AliasOne", "account.same"), participant("AliasTwo", "account.same"), participant("Invalid", "account-legacy")];
     expect((await collect(h.db, fetchPayload(payload(included)))).status).toBe("saved");
-    expect(h.upsert.mock.calls[0][0].map((row: { player_id: string }) => row.player_id)).toEqual(["target", "good"]);
+    expect(h.upsert.mock.calls[0][0].map((row: { player_id: string }) => row.player_id)).toEqual(["target"]);
   });
 
   it("skips a malformed peer name when the caller resolves the target by nickname", async () => {
@@ -197,20 +196,20 @@ describe("official participant basic histories", () => {
     expect(h.upsert).not.toHaveBeenCalled();
   });
 
-  it("submits mixed optional participant columns together in one atomic call", async () => {
+  it("submits the target row through one atomic call without unobserved counters", async () => {
     const h = matchDatabase();
     expect(await collect(h.db, fetchPayload(payload([participant("Target"), participant("Peer", "account.peer", { DBNOs: 0 })]))))
       .toMatchObject({ status: "saved" });
     expect(h.rpc).toHaveBeenCalledOnce();
     expect(h.upsert).toHaveBeenCalledOnce();
     const rows = h.rpc.mock.calls[0][1].p_records;
+    expect(rows).toHaveLength(1);
     expect(rows[0]).not.toHaveProperty("knocks");
-    expect(rows[1]).toMatchObject({ account_id: "account.peer", knocks: 0 });
   });
 
   it.each([
     { data: null, error: { message: "peer write failed" } },
-    { data: 1, error: null },
+    { data: 0, error: null },
   ])("never reports saved or falls back to split writes after an atomic RPC failure", async result => {
     const h = matchDatabase();
     h.rpc.mockResolvedValueOnce(result);

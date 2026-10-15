@@ -506,8 +506,9 @@ async function persistPlayerMatches(
     if (!target) throw new Error("analysis-participant-basic-values-missing");
     target.retention_scope = "detail";
     const rankingEligible = evaluateMatchEligibility(benchmarkEligibilityInput(input), "benchmark").eligible;
-    for (const row of rows) row.ranking_eligible = row.ranking_eligible === true && rankingEligible;
-    if (!await upsertPlayerMatches(supabase, rows, { atomic: true, throwOnError: true })) throw new Error("player-match-upsert-failed");
+    target.ranking_eligible = target.ranking_eligible === true && rankingEligible;
+    // 분석 대상 플레이어의 기록만 저장한다. 참가자 목록은 중복·비공개 판정에만 쓴다.
+    if (!await upsertPlayerMatches(supabase, [target], { atomic: true, throwOnError: true })) throw new Error("player-match-upsert-failed");
     return { error: null };
   });
   if (succeeded) result.succeeded.push("pubg_player_matches");
