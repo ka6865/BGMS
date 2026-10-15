@@ -105,6 +105,44 @@ describe('legacy-team compact write verification', () => {
     }) };
     return { client, calls };
   }
+  it('잠금 거절(lock-unavailable)은 기다렸다가 같은 packet으로 다시 시도한다', async () => {
+    const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+    const { client, calls } = db(packet);
+    const lockRejected = { data: null, error: { code: 'P0001', details: 'lock-unavailable' }, status: 400 };
+    client.rpc
+      .mockImplementationOnce(() => ({ abortSignal: async () => lockRejected }) as any)
+      .mockImplementationOnce(() => ({ abortSignal: async () => lockRejected }) as any);
+    const sleep = vi.fn(async () => {});
+    expect(await preserveLegacyTeamRetentionPackets(client as any, [packet], { sleep })).toBe(1);
+    expect(client.rpc).toHaveBeenCalledTimes(3);
+    expect(sleep.mock.calls).toEqual([[2_000], [5_000]]);
+    for (const call of client.rpc.mock.calls) expect(call).toEqual(client.rpc.mock.calls[0]);
+    expect(calls).toEqual(['atomic-rpc', 'pubg_player_matches', 'pubg_match_performance']);
+  });
+  it('잠금 거절이 계속되면 재시도 후 기존 사유로 정리를 멈춘다', async () => {
+    const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+    const { client, calls } = db(packet);
+    client.rpc.mockImplementation(() => ({ abortSignal: async () => ({
+      data: null, error: { code: 'P0001', details: 'lock-unavailable' }, status: 400,
+    }) }) as any);
+    const sleep = vi.fn(async () => {});
+    await expect(preserveLegacyTeamRetentionPackets(client as any, [packet], { sleep }))
+      .rejects.toThrow('retention-legacy-team-write-unverified:400:lock-unavailable');
+    expect(client.rpc).toHaveBeenCalledTimes(4);
+    expect(calls).toEqual([]);
+  });
+  it.each(['lock-budget-exceeded', 'snapshot-changed'])('%s는 재시도하지 않는다', async details => {
+    const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
+    const { client } = db(packet);
+    client.rpc.mockImplementation(() => ({ abortSignal: async () => ({
+      data: null, error: { code: 'P0001', details }, status: 400,
+    }) }) as any);
+    const sleep = vi.fn(async () => {});
+    await expect(preserveLegacyTeamRetentionPackets(client as any, [packet], { sleep }))
+      .rejects.toThrow(`retention-legacy-team-write-unverified:400:${details}`);
+    expect(client.rpc).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
   it('checks the actual basic and compact rows after the atomic RPC', async () => {
     const packet = planLegacyTeamRetentionRecovery(input()).packets[0];
     const { client, calls } = db(packet);
@@ -221,7 +259,7 @@ describe('legacy-team compact write verification', () => {
       const client = { rpc: () => ({ abortSignal: async () => ({
         error: { message: 'PRIVATE_SENTINEL', details }, status: 400,
       }) }) };
-      await expect(preserveLegacyTeamRetentionPackets(client as any, [packet]))
+      await expect(preserveLegacyTeamRetentionPackets(client as any, [packet], { sleep: async () => {} }))
         .rejects.toThrow(`retention-legacy-team-write-unverified:400:${details}`);
     });
   it('redacts database details outside the fixed rejection reasons', async () => {
