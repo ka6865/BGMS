@@ -1,8 +1,11 @@
 import { after, NextResponse } from "next/server";
 import { verifyDiscordSignature } from "@/lib/discord/verify";
-import { handleLinkCommand } from "@/lib/discord/commands/link";
+import { handleLinkCommand, handleUnlinkCommand } from "@/lib/discord/commands/link";
 import { handleStatsCommand } from "@/lib/discord/commands/stats";
 import { handleRecentMatchCommand } from "@/lib/discord/commands/recentMatch";
+import { handleCompareCommand } from "@/lib/discord/commands/compare";
+import { handleUserStatsCommand, USER_STATS_COMMAND_NAME } from "@/lib/discord/commands/userStats";
+import { handleNicknameAutocomplete } from "@/lib/discord/commands/autocomplete";
 import { decideDiscordReview, getReview, syncReviewDecisionNotification } from "@/lib/community-agent/reviews";
 import {
   isDiscordInteractionToken,
@@ -11,13 +14,15 @@ import {
   resolveReviewChannelId,
 } from "@/lib/community-agent/discord-review";
 
-export const maxDuration = 15;
+export const maxDuration = 35;
 
 const COMPONENT_ID = /^community:(approve|reject):([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i;
 const MAX_COMPONENT_AGE_SECONDS = 300;
 const FOLLOWUP_TIMEOUT_MS = 5_000;
+const COMMAND_TIMEOUT_MS = 15_000;
 
 type ReviewDecision = "approve" | "reject";
+type InteractionMessage = { content?: string; embeds?: unknown[]; components?: unknown[]; flags?: number };
 
 function ephemeral(content: string): NextResponse {
   return NextResponse.json({ type: 4, data: { content, flags: 64 } });
@@ -92,26 +97,46 @@ function decisionMessage(code: unknown): string {
   }
 }
 
-async function completeInteractionResponse(interaction: any, content: string): Promise<void> {
+async function completeInteractionResponse(
+  interaction: any,
+  data: InteractionMessage,
+  method: "PATCH" | "POST" | "DELETE" = "PATCH",
+): Promise<void> {
   const applicationId = interaction?.application_id;
   const token = interaction?.token;
-  if (!isDiscordSnowflake(applicationId) || !isDiscordInteractionToken(token)) return;
-  const url = `https://discord.com/api/v10/webhooks/${applicationId}/${token}/messages/@original`;
+  if (!isDiscordSnowflake(applicationId) || !isDiscordInteractionToken(token)) throw new Error("invalid_interaction_response_target");
+  const webhookUrl = `https://discord.com/api/v10/webhooks/${applicationId}/${token}`;
+  const url = method === "POST" ? webhookUrl : `${webhookUrl}/messages/@original`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FOLLOWUP_TIMEOUT_MS);
   try {
-    await fetch(url, {
-      method: "PATCH",
+    const response = await fetch(url, {
+      method,
       redirect: "error",
       signal: controller.signal,
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content, allowed_mentions: { parse: [] } }),
+      body: method === "DELETE" ? undefined : JSON.stringify({ ...data, allowed_mentions: { parse: [] } }),
     });
-  } catch {
-    // The decision and review-message update are independent of this UX edit.
+    if (!response.ok) throw new Error("discord_response_http", { cause: response.status });
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function completePrivateCommandResponse(interaction: any, data: InteractionMessage): Promise<void> {
+  try {
+    // defer 직후 POST는 공개 original 갱신이므로, 개인 정보 없이 먼저 완료한다.
+    await completeInteractionResponse(interaction, { content: "처리를 마쳤습니다." });
+  } catch {
+    console.warn("[DiscordInteractions] 공개 처리 표시 완료 실패");
+    return;
+  }
+  const results = await Promise.allSettled([
+    completeInteractionResponse(interaction, { ...data, flags: 64 }, "POST"),
+    completeInteractionResponse(interaction, {}, "DELETE"),
+  ]);
+  if (results[0].status === "rejected") console.warn("[DiscordInteractions] 비공개 안내 전달 실패");
+  if (results[1].status === "rejected") console.warn("[DiscordInteractions] 공개 처리 표시 삭제 실패");
 }
 
 async function processReviewComponent(
@@ -153,7 +178,101 @@ async function processReviewComponent(
   } catch {
     content = "검토 상태를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요.";
   }
-  await completeInteractionResponse(interaction, content);
+  try {
+    await completeInteractionResponse(interaction, { content });
+  } catch {
+    console.warn("[DiscordInteractions] 검토 응답 갱신 실패");
+  }
+}
+
+function isLinkCommand(commandName: unknown): boolean {
+  return commandName === "연동" || commandName === "link";
+}
+
+function isUnlinkCommand(commandName: unknown): boolean {
+  return commandName === "연동해제" || commandName === "unlink";
+}
+
+function isCompareCommand(commandName: unknown): boolean {
+  return commandName === "비교" || commandName === "compare";
+}
+
+const SLASH_COMMANDS = new Set(["연동", "link", "연동해제", "unlink", "전적", "stats", "방금판", "recent", "비교", "compare"]);
+
+function isSupportedCommand(interaction: any): boolean {
+  const commandName = interaction?.data?.name;
+  // USER 명령(우클릭 메뉴)은 data.type 2, 슬래시 명령은 data.type 1(또는 생략)이다.
+  return interaction?.data?.type === 2
+    ? commandName === USER_STATS_COMMAND_NAME
+    : SLASH_COMMANDS.has(commandName);
+}
+
+// 연동 관리 명령은 처음부터 개인 defer라 original 갱신만으로 호출자에게만 보인다.
+function isPrivateCommand(commandName: unknown): boolean {
+  return isLinkCommand(commandName) || isUnlinkCommand(commandName);
+}
+
+async function processSlashCommand(interaction: any, appUrl: string): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let data: InteractionMessage;
+  const deferredPrivately = isPrivateCommand(interaction.data.name);
+  let privateResponse = true;
+  try {
+    // shortcut: 시간 제한은 진행 중인 저장을 취소하지 않는다. 저장 취소가 필요해지면 DB 요청에 AbortSignal을 전달한다.
+    const commandName = interaction.data.name;
+    const response = await Promise.race([
+      isLinkCommand(commandName) ? handleLinkCommand(interaction)
+        : isUnlinkCommand(commandName) ? handleUnlinkCommand(interaction)
+          : commandName === USER_STATS_COMMAND_NAME ? handleUserStatsCommand(interaction, appUrl)
+            : isCompareCommand(commandName) ? handleCompareCommand(interaction, appUrl)
+              : commandName === "전적" || commandName === "stats" ? handleStatsCommand(interaction, appUrl)
+                : handleRecentMatchCommand(interaction, appUrl),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("command_timeout")), COMMAND_TIMEOUT_MS);
+      }),
+    ]);
+    // 공개 여부는 최초 defer에서 확정하므로 PATCH에는 flags를 보내지 않는다.
+    const { content, embeds, components } = response.data as InteractionMessage;
+    data = { content, embeds, components };
+    privateResponse = response.data.flags !== 0;
+  } catch (error) {
+    data = { content: error instanceof Error && error.message === "command_timeout"
+      ? "처리 시간이 초과되어 결과를 확인하지 못했습니다. 잠시 후 다시 확인해 주세요."
+      : "명령어를 처리하지 못했습니다. 플랫폼과 닉네임을 확인하고 잠시 후 다시 시도해 주세요." };
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (privateResponse && !deferredPrivately) {
+    await completePrivateCommandResponse(interaction, data);
+    return;
+  }
+
+  try {
+    await completeInteractionResponse(interaction, data);
+  } catch (error) {
+    console.warn("[DiscordInteractions] 명령어 응답 갱신 실패");
+    const status = error instanceof Error ? error.cause : null;
+    if (typeof status === "number" && status >= 400 && status < 500) {
+      const failure = "결과 응답을 전달하지 못했습니다. 연동 여부나 전적을 잠시 후 다시 확인해 주세요.";
+      if (!deferredPrivately) {
+        await completePrivateCommandResponse(interaction, { content: failure });
+        return;
+      }
+      try {
+        await completeInteractionResponse(interaction, { content: failure, embeds: [], components: [] });
+      } catch {
+        console.warn("[DiscordInteractions] 실패 안내 전달 실패");
+      }
+      return;
+    }
+    // 반영 여부가 불확실한 실패는 동일 결과를 재전송해 이미 보이는 성공을 보존한다.
+    try {
+      await completeInteractionResponse(interaction, data);
+    } catch {
+      console.warn("[DiscordInteractions] 재시도 응답 전달 실패");
+    }
+  }
 }
 
 async function handleReviewComponent(interaction: any, timestamp: string | null): Promise<NextResponse> {
@@ -219,33 +338,26 @@ export async function POST(request: Request) {
     const commandName = interaction.data?.name;
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://bgms.kr";
 
-    try {
-      if (commandName === "연동" || commandName === "link") {
-        const response = await handleLinkCommand(interaction);
-        return NextResponse.json(response);
-      }
-
-      if (commandName === "전적" || commandName === "stats") {
-        const response = await handleStatsCommand(interaction, appUrl);
-        return NextResponse.json(response);
-      }
-
-      if (commandName === "방금판" || commandName === "recent") {
-        const response = await handleRecentMatchCommand(interaction, appUrl);
-        return NextResponse.json(response);
-      }
-
-      return NextResponse.json({
-        type: 4,
-        data: { content: "알 수 없는 명령어입니다.", flags: 64 },
-      });
-    } catch (err: any) {
-      console.error("[DiscordInteractions] Command handler error:", err);
-      return NextResponse.json({
-        type: 4,
-        data: { content: `명령어 처리 중 오류가 발생했습니다: ${err?.message || err}`, flags: 64 },
-      });
+    if (!isSupportedCommand(interaction)) {
+      return ephemeral("알 수 없는 명령어입니다.");
     }
+    if (!interactionUserId(interaction) || !isDiscordSnowflake(interaction.application_id)
+      || !isDiscordInteractionToken(interaction.token)) {
+      return ephemeral("유효하지 않은 Discord 상호작용입니다.");
+    }
+    try {
+      after(() => processSlashCommand(interaction, appUrl));
+    } catch {
+      return ephemeral("명령어 처리를 시작하지 못했습니다. 잠시 후 다시 시도해 주세요.");
+    }
+    // 연동 관리는 항상 호출자에게만 보인다. 전적 조회는 완료 전에는 전적을 담지 않고, 공개 확인을 통과한 성공 결과만 채널에 표시한다.
+    return isPrivateCommand(commandName) ? deferredEphemeral() : NextResponse.json({ type: 5, data: {} });
+  }
+
+  // 닉네임 자동완성은 3초 안에 choices를 직접 응답해야 하므로 defer하지 않는다.
+  if (interaction.type === 4) {
+    if (!SLASH_COMMANDS.has(interaction.data?.name)) return NextResponse.json({ type: 8, data: { choices: [] } });
+    return NextResponse.json(await handleNicknameAutocomplete(interaction));
   }
 
   return NextResponse.json({ type: 4, data: { content: "지원하지 않는 상호작용 유형입니다.", flags: 64 } });

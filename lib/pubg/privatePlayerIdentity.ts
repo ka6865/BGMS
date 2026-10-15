@@ -1,12 +1,25 @@
 const ACCOUNT_ID_PATTERN = /^account\.[A-Za-z0-9_-]+$/;
 const VALID_PLATFORMS = new Set(["steam", "kakao"]);
 
+export interface PubgPlayerIdentity {
+  accountId: string;
+  nickname: string;
+}
+
 /**
  * Resolve a nickname to PUBG's stable account ID for a route that is about to
  * expose private-player data. This is deliberately opt-in; ordinary cache and
  * autocomplete requests must not turn every nickname into an upstream call.
  */
 export async function resolvePrivatePlayerAccountId(platform: string, nickname: string): Promise<string | null> {
+  return (await resolvePubgPlayerIdentity(platform, nickname))?.accountId ?? null;
+}
+
+/**
+ * 계정 ID와 PUBG가 반환한 정확한 닉네임 표기를 함께 조회한다.
+ * 미발견은 null이고 네트워크·한도·형식 오류는 예외로 전파한다.
+ */
+export async function resolvePubgPlayerIdentity(platform: string, nickname: string): Promise<PubgPlayerIdentity | null> {
   const targetPlatform = platform.trim().toLowerCase();
   const targetNickname = nickname.trim();
   if (!VALID_PLATFORMS.has(targetPlatform)) throw new Error("private_player_identity_platform_invalid");
@@ -34,7 +47,9 @@ export async function resolvePrivatePlayerAccountId(platform: string, nickname: 
     const player = payload.data.find((candidate) => (
       candidate.attributes.name.trim().toLowerCase() === targetNickname.toLowerCase()
     ));
-    return player && ACCOUNT_ID_PATTERN.test(player.id.trim()) ? player.id.trim() : null;
+    return player && ACCOUNT_ID_PATTERN.test(player.id.trim())
+      ? { accountId: player.id.trim(), nickname: player.attributes.name.trim() }
+      : null;
   } catch (error) {
     // A missing player is a valid negative lookup. Network, rate-limit, and
     // malformed responses must propagate so strict routes fail closed.

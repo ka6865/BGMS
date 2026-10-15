@@ -1,5 +1,6 @@
 import { getDiscordUserLink, type DiscordUserLink } from "./userLinkStore";
 import { canonicalizeLinkedPlayerPlatform } from "@/lib/pubg/linkedPlayerSync";
+import { parseNicknameOption } from "./nicknameOption";
 
 export interface ResolvePlayerNicknameParams {
   explicitNickname?: string | null;
@@ -18,7 +19,7 @@ export interface ResolvedPlayerIdentity {
 
 /**
  * Resolves the PUBG player nickname and platform using a 3-tier fallback strategy:
- * 1. Explicit command argument (highest priority)
+ * 1. Explicit command argument (highest priority, platform option > autocomplete prefix > steam)
  * 2. Database linked account (discord_user_links)
  * 3. Discord Guild Nickname or Global Username
  */
@@ -30,11 +31,14 @@ export async function resolvePlayerNickname({
   discordUsername,
   getLinkFn = getDiscordUserLink,
 }: ResolvePlayerNicknameParams): Promise<ResolvedPlayerIdentity | null> {
-  const trimmedExplicit = explicitNickname?.trim();
-  if (trimmedExplicit) {
+  const platformOverride = explicitPlatform?.trim()
+    ? canonicalizeLinkedPlayerPlatform(explicitPlatform)
+    : null;
+  const explicit = parseNicknameOption(explicitNickname);
+  if (explicit.nickname) {
     return {
-      nickname: trimmedExplicit,
-      platform: canonicalizeLinkedPlayerPlatform(explicitPlatform || "steam"),
+      nickname: explicit.nickname,
+      platform: platformOverride ?? explicit.platform ?? "steam",
       source: "explicit",
     };
   }
@@ -45,7 +49,7 @@ export async function resolvePlayerNickname({
     if (link && link.pubg_nickname) {
       return {
         nickname: link.pubg_nickname,
-        platform: canonicalizeLinkedPlayerPlatform(link.pubg_platform || "steam"),
+        platform: platformOverride ?? canonicalizeLinkedPlayerPlatform(link.pubg_platform || "steam"),
         source: "link",
       };
     }
@@ -58,7 +62,7 @@ export async function resolvePlayerNickname({
   if (fallbackNick) {
     return {
       nickname: fallbackNick,
-      platform: canonicalizeLinkedPlayerPlatform(explicitPlatform || "steam"),
+      platform: platformOverride ?? "steam",
       source: "guild_nickname",
     };
   }
