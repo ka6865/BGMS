@@ -37,6 +37,7 @@ import {
   type ReplayZoneEvent,
   type TerrainGrid,
 } from "@/lib/replay/replay3dHelpers";
+import { threeToHeightmapPixel } from "@/lib/heightmapCoords";
 
 // PUBG 맵 크기 상수 (cm)
 const THREE_MAP_SIZE = 100; // Three.js 공간 상의 가로세로 크기
@@ -615,19 +616,8 @@ function Replay3DContent() {
     const data = heightmapDataRef.current;
     if (!data) return 0.05;
 
-    // Three.js 월드 좌표 (-50 ~ 50)를 Leaflet 좌표 (0 ~ 8192)로 변환
-    const leafletX = (threeX + THREE_MAP_SIZE / 2) * (8192 / THREE_MAP_SIZE);
-    // 3D 지형의 X축 -90도 회전(Local Y -> World -Z)에 맞춘 세로축 Z축 반전 보정
-    const leafletY = (THREE_MAP_SIZE / 2 - threeZ) * (8192 / THREE_MAP_SIZE);
-
-    // Leaflet 좌표를 이미지 픽셀 인덱스 좌표로 변환 (Y축 반전 없이 동일 방향 매핑)
-    const px_x = Math.round((leafletX / 8192) * data.width);
-    const px_y = Math.round((leafletY / 8192) * data.height);
-
-    const clampedX = Math.max(0, Math.min(data.width - 1, px_x));
-    const clampedY = Math.max(0, Math.min(data.height - 1, px_y));
-
-    const pixelIdx = (clampedY * data.width + clampedX) * 4;
+    const pixel = threeToHeightmapPixel(threeX, threeZ, THREE_MAP_SIZE, data.width, data.height);
+    const pixelIdx = (pixel.y * data.width + pixel.x) * 4;
     const R = data.pixels[pixelIdx];
     // PUBG 인게임 표준 8비트 고도 변환 공식: R=128 기준 ±262m 범위
     const elevation = (R - 128) * 2.048;
@@ -909,18 +899,9 @@ function Replay3DContent() {
               const x = posAttr.getX(i); // Local X coordinate (-50 to 50)
               const y = posAttr.getY(i); // Local Y coordinate (-50 to 50)
 
-              // Restore back to Leaflet coordinate system (0 to 8192)
-              const leafletX = (x + THREE_MAP_SIZE / 2) * (8192 / THREE_MAP_SIZE);
-              const leafletY = (y + THREE_MAP_SIZE / 2) * (8192 / THREE_MAP_SIZE);
-
-              // 하이트맵 Y축은 반전 없이 Leaflet Y와 동일 방향으로 매핑
-              const px_x = Math.round((leafletX / 8192) * heightmapImg.width);
-              const px_y = Math.round((leafletY / 8192) * heightmapImg.height);
-
-              const clampedX = Math.max(0, Math.min(heightmapImg.width - 1, px_x));
-              const clampedY = Math.max(0, Math.min(heightmapImg.height - 1, px_y));
-
-              const pixelIdx = (clampedY * heightmapImg.width + clampedX) * 4;
+              // rotation.x = -PI/2 이후 로컬 +Y는 월드 -Z(북쪽)가 된다.
+              const pixel = threeToHeightmapPixel(x, -y, THREE_MAP_SIZE, heightmapImg.width, heightmapImg.height);
+              const pixelIdx = (pixel.y * heightmapImg.width + pixel.x) * 4;
               let finalElevation = 0;
               if (pixels[pixelIdx + 3] !== 0) { // Skip transparent pixels if any
                 const R = pixels[pixelIdx];

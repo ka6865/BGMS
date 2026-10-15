@@ -17,11 +17,11 @@ describe("3D replay helpers", () => {
       size: 2,
     } as const;
 
-    // Plane local -Y becomes world +Z after rotation.x = -PI / 2.
-    expect(sampleTerrainHeight(terrain, -50, 50)).toBe(10);
-    expect(sampleTerrainHeight(terrain, 50, 50)).toBe(20);
-    expect(sampleTerrainHeight(terrain, -50, -50)).toBe(30);
-    expect(sampleTerrainHeight(terrain, 50, -50)).toBe(40);
+    // Grid row 0 is the plane's local +Y edge, which becomes world -Z after rotation.x = -PI / 2.
+    expect(sampleTerrainHeight(terrain, -50, -50)).toBe(10);
+    expect(sampleTerrainHeight(terrain, 50, -50)).toBe(20);
+    expect(sampleTerrainHeight(terrain, -50, 50)).toBe(30);
+    expect(sampleTerrainHeight(terrain, 50, 50)).toBe(40);
     expect(sampleTerrainHeight(terrain, 0, 0)).toBe(25);
   });
 
