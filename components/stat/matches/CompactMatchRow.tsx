@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, X } from "lucide-react";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import { classifyMatchMode } from "@/lib/stats/statsPageModel";
+import { getMapDisplayName } from "@/lib/stats/mapDisplayName";
 import { estimateUserTier } from "@/lib/pubg-analysis/benchmarkScore";
 import { MatchPerformancePanel } from "@/components/stat/matches/MatchPerformancePanel";
 
@@ -21,20 +22,6 @@ interface TierPopoverLayout {
   maxHeight: number;
 }
 
-const MAP_NAMES: Record<string, string> = {
-  Baltic_Main: "에란겔",
-  Desert_Main: "미라마",
-  Savage_Main: "사녹",
-  Summerland_Main: "카라킨",
-  Chimera_Main: "파라모",
-  Tiger_Main: "태이고",
-  Kiki_Main: "데스턴",
-  Neon_Main: "론도",
-  DihorOtok_Main: "비켄디",
-  PillarCompound_Main: "필라 기지 (TDM)",
-  Italy_TDM_Main: "리틀 이탈리아 (TDM)",
-};
-
 const MODE_LABELS = {
   ranked: "경쟁전",
   normal: "일반전",
@@ -44,21 +31,24 @@ const MODE_LABELS = {
   unavailable: "확인 불가",
 } as const;
 
-function getStatus(summary: MatchSummaryData): { label: string; border: string } {
+// 치킨·상위권·데스매치 승리 행은 #161616 위에 강조색을 6% 섞은 불투명 배경으로 표시한다.
+// 불투명 값을 써야 행 안의 white/50 이상 작은 글자가 4.5:1 대비를 유지한다.
+export function getMatchRowStatus(summary: MatchSummaryData): { label: string; border: string; background: string } {
   const mode = classifyMatchMode(summary);
   if (mode === "tdm") {
     return summary.stats.winPlace === 1
-      ? { label: "승리", border: "border-l-rose-400" }
-      : { label: "패배", border: "border-l-red-400" };
+      ? { label: "승리", border: "border-l-rose-400", background: "bg-[#241b1d]" }
+      : { label: "패배", border: "border-l-red-400", background: "bg-[#161616]" };
   }
-  if (summary.stats.winPlace === 1) return { label: "승리", border: "border-l-amber-400" };
-  if (summary.stats.winPlace <= 10) return { label: "상위권", border: "border-l-teal-400" };
+  if (summary.stats.winPlace === 1) return { label: "승리", border: "border-l-amber-400", background: "bg-[#242017]" };
+  // 기본 전적에서 순위가 null이면 null <= 10이 참이 되므로 관측된 순위만 상위권으로 본다.
+  const winPlace = summary.stats.winPlace;
+  if (typeof winPlace === "number" && winPlace >= 1 && winPlace <= 10) return { label: "상위권", border: "border-l-teal-400", background: "bg-[#172120]" };
   if (summary.stats.kills === 0 && summary.stats.damageDealt < 100) {
-    return { label: "저성과", border: "border-l-red-400" };
+    return { label: "저성과", border: "border-l-red-400", background: "bg-[#161616]" };
   }
-  return { label: "일반", border: "border-l-white/20" };
+  return { label: "일반", border: "border-l-white/20", background: "bg-[#161616]" };
 }
-
 
 function formatRelativeTime(dateString?: string): string {
   if (!dateString) return "";
@@ -89,7 +79,7 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
   const knocks = getObservedBasicMatchStat(summary, "DBNOs");
   const survivalSeconds = getObservedBasicMatchStat(summary, "timeSurvived");
   const survivalMinutes = survivalSeconds === null ? null : Math.floor(survivalSeconds / 60);
-  const status = getStatus(summary);
+  const status = getMatchRowStatus(summary);
   const tier = summary.benchmark ? estimateUserTier(summary.benchmark.score) : null;
   const performanceLabel = ({ pending: "성과 계산 대기", running: "성과 계산 중", retry: "성과 재시도 대기", unavailable: "성과 계산 불가", excluded: "성과 산정 제외", done: "성과 불러오는 중" } as const)[summary.performanceState ?? "done"];
   const total = summary.totalTeams || summary.totalPlayers || 0;
@@ -186,7 +176,7 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
 
   return (
     <article
-      className={`relative border border-white/10 border-l-4 bg-[#161616] ${status.border} ${
+      className={`relative border border-white/10 border-l-4 ${status.background} ${status.border} ${
         isExpanded ? "rounded-t-2xl rounded-b-none border-b-0" : "rounded-2xl"
       } ${showTierPopover ? "z-[1200] overflow-visible" : "overflow-hidden"}`}
       data-compact-match-id={summary.matchId}
@@ -211,7 +201,7 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <strong className="truncate text-sm text-white md:text-base">
-              {MAP_NAMES[summary.mapName] ?? summary.mapName ?? "맵 정보 없음"}
+              {getMapDisplayName(summary.mapName) ?? "맵 정보 없음"}
             </strong>
             <span className={`shrink-0 rounded-md border px-2 py-0.5 text-[10px] font-black ${
               mode === "unknown" || mode === "unavailable"
@@ -224,7 +214,7 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
             }`}>
               {MODE_LABELS[mode]}
             </span>
-            <span className="hidden text-[10px] font-bold text-white/35 sm:inline">{formatMode(summary.gameMode || "")}</span>
+            <span className="hidden text-[10px] font-bold text-white/50 sm:inline">{formatMode(summary.gameMode || "")}</span>
             {playedAtAgo && (
               <time
                 dateTime={matchDate}
@@ -241,7 +231,7 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
             <span aria-label={survivalMinutes === null ? "생존 시간 정보 없음" : `생존 시간 ${survivalMinutes}분`}><strong className="text-white">{survivalMinutes ?? "—"}</strong>{survivalMinutes === null ? " 생존" : "분 생존"}</span>
           </div>
           {(knocks === null || survivalMinutes === null) && (
-            <p className="mt-1 text-[10px] leading-relaxed text-white/45">일부 기본 기록이 저장되지 않은 경기입니다.</p>
+            <p className="mt-1 text-[10px] leading-relaxed text-white/50">일부 기본 기록이 저장되지 않은 경기입니다.</p>
           )}
         </div>
 
