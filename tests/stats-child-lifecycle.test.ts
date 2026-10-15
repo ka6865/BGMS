@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { terminateOwnedChild } from "./helpers/statsBrowserHarness";
 
 class FakeChild extends EventEmitter {
@@ -20,13 +20,28 @@ class FakeChild extends EventEmitter {
   }
 }
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe("owned child lifecycle", () => {
   it("awaits the real child exit after SIGKILL fallback", async () => {
+    vi.useFakeTimers();
     const child = new FakeChild();
+    let settled = false;
 
-    await terminateOwnedChild(child as never, 12345);
+    const termination = terminateOwnedChild(child as never, 12345).then(() => { settled = true; });
 
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(child.signals).toEqual(["SIGTERM"]);
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
     expect(child.signals).toEqual(["SIGTERM", "SIGKILL"]);
+    expect(settled).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(10);
+    await termination;
     expect(child.exitCode).toBe(137);
-  }, 7_000);
+  });
 });

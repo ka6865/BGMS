@@ -267,6 +267,7 @@ describe("mobile board API", () => {
     expect(response.status).toBe(400);
     expect(body.error).toContain("부모 댓글");
     expect(mockCommentsInsert).not.toHaveBeenCalled();
+    expect(mockCreatePublishedPostComment).not.toHaveBeenCalled();
   });
 
   it("게시글·댓글 생성은 JSON 객체가 아닌 본문을 저장 경로 전에 거절한다", async () => {

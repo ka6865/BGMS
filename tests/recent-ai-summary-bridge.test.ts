@@ -644,19 +644,17 @@ describe("RecentAISummary callback bridge", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("done(valid:true)의 malformed/missing final payload는 partial 상태를 지우고 자동 재호출하지 않는다", async () => {
+  it.each([
+    ["malformed", "not-json"],
+    ["missing", "{}"],
+  ])("done(valid:true)의 %s final payload는 partial 상태를 지우고 자동 재호출하지 않는다", async (label, finalData) => {
     vi.useFakeTimers();
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(ndjsonResponse([
-        { type: "visuals", data: { roleInfo: { title: "Partial malformed visual" } } },
-        { type: "final", data: "not-json" },
-        { type: "done", valid: true },
-      ]))
-      .mockResolvedValueOnce(ndjsonResponse([
-        { type: "visuals", data: { roleInfo: { title: "Partial missing visual" } } },
-        { type: "final", data: "{}" },
-        { type: "done", valid: true },
-      ]));
+    const visualTitle = `Partial ${label} visual`;
+    const fetchMock = vi.fn().mockResolvedValueOnce(ndjsonResponse([
+      { type: "visuals", data: { roleInfo: { title: visualTitle } } },
+      { type: "final", data: finalData },
+      { type: "done", valid: true },
+    ]));
     vi.stubGlobal("fetch", fetchMock);
     const onSummaryChange = vi.fn();
     render(createElement(RecentAISummary, { ...baseProps, onSummaryChange }));
@@ -664,7 +662,7 @@ describe("RecentAISummary callback bridge", () => {
 
     for (let index = 0; index < 10; index += 1) await act(async () => { await Promise.resolve(); });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(screen.queryByText("Partial malformed visual")).not.toBeInTheDocument();
+    expect(screen.queryByText(visualTitle)).not.toBeInTheDocument();
     expect(onSummaryChange.mock.calls.every(([summary]) => summary === null)).toBe(true);
 
     await act(async () => {
@@ -674,7 +672,6 @@ describe("RecentAISummary callback bridge", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "다시 시도하기" })).toBeInTheDocument();
-    expect(screen.queryByText("Partial missing visual")).not.toBeInTheDocument();
     expect(onSummaryChange.mock.calls.every(([summary]) => summary === null)).toBe(true);
   });
 

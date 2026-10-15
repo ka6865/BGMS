@@ -1,247 +1,119 @@
-import { describe, it, expect } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ANALYSIS_CALCULATION_VERSION, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 
-// Nickname normalization helper
-function normalizeName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9_]/g, "").toLowerCase();
-}
+const { mockCreateClient } = vi.hoisted(() => ({ mockCreateClient: vi.fn() }));
+vi.mock("@/utils/supabase/server", () => ({ createClient: mockCreateClient }));
 
-// 1. Party Group Detection Logic
-function groupSquadMatches(matches: any[], lowerNickname: string) {
-  const groupMap = new Map<string, { matchIds: string[]; memberNamesByKey: Map<string, string> }>();
+type TeamMember = { name: string; damageDealt?: number; kills?: number; assists?: number; DBNOs?: number };
 
-  matches.forEach(m => {
-    const fullResult = m.data?.fullResult;
-    if (!fullResult) return;
-    const mode = fullResult.gameMode || "";
-    if (!mode.includes("squad")) return;
-
-    const team = fullResult.team || [];
-    const memberNamesByKey = new Map<string, string>();
-    team.forEach((t: any) => {
-      const name = String(t.name || "").trim();
-      const normalized = normalizeName(name);
-      if (!name || !normalized || normalized === lowerNickname) return;
-      if (!memberNamesByKey.has(normalized)) {
-        memberNamesByKey.set(normalized, name);
-      }
-    });
-    const members = Array.from(memberNamesByKey.values()).sort((a: string, b: string) => a.localeCompare(b));
-
-    if (members.length === 0) return;
-
-    const key = Array.from(memberNamesByKey.keys()).sort().join(",");
-    const existing = groupMap.get(key);
-    if (existing) {
-      existing.matchIds.push(m.match_id);
-      memberNamesByKey.forEach((displayName, normalized) => {
-        if (!existing.memberNamesByKey.has(normalized)) {
-          existing.memberNamesByKey.set(normalized, displayName);
-        }
-      });
-    } else {
-      groupMap.set(key, {
-        matchIds: [m.match_id],
-        memberNamesByKey
-      });
-    }
-  });
-
-  return Array.from(groupMap.values()).map((value) => ({
-    groupKey: Array.from(value.memberNamesByKey.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, displayName]) => displayName)
-      .join(", "),
-    matchCount: value.matchIds.length,
-    matchIds: value.matchIds,
-    members: Array.from(value.memberNamesByKey.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, displayName]) => displayName)
-  })).sort((a, b) => b.matchCount - a.matchCount);
-}
-
-// 2. Individual Role Assignment Logic
-function computeRoleProfiles(squadMembers: string[], playerAccumStats: Record<string, any>) {
-  return squadMembers.map(name => {
-    const stats = playerAccumStats[name];
-    
-    const getShare = (field: "damage" | "kills" | "assists" | "dbnos") => {
-      const total = squadMembers.reduce((sum, n) => sum + playerAccumStats[n][field], 0);
-      return total > 0 ? (stats[field] / total) : 0.25;
-    };
-
-    const shares = {
-      damage: getShare("damage"),
-      kill: getShare("kills"),
-      assist: getShare("assists"),
-      dbno: getShare("dbnos")
-    };
-
-    let role = "전술가";
-    const maxShare = Math.max(shares.damage, shares.kill, shares.assist, shares.dbno);
-    if (maxShare === shares.damage) {
-      role = "메인 딜러";
-    } else if (maxShare === shares.dbno) {
-      role = "선봉장";
-    } else if (maxShare === shares.kill) {
-      role = "해결사";
-    } else if (maxShare === shares.assist) {
-      role = "지원가";
-    }
-
-    return { name, role, shares };
-  });
-}
-
-// 3. Synergy Score Normalization Logic (Relative benchmarking formula)
-interface BenchmarkStats {
-  avgIsolation: number;
-  avgTradeLatency: number;
-  avgReviveRate: number;
-  avgSmokeRate: number;
-  avgTeamWipes: number;
-}
-
-function computeScores(
-  avgIsolation: number,
-  avgTradeLatency: number,
-  totalSmokeRescues: number,
-  totalRevives: number,
-  avgCoverRate: number,
-  totalTeamWipes: number,
-  matchCount: number,
-  accumTeammateKnocks: number,
-  benchmark: BenchmarkStats
-) {
-  const userReviveRate = (totalRevives / Math.max(1, accumTeammateKnocks)) * 105;
-  const userSmokeRate = (totalSmokeRescues / Math.max(1, accumTeammateKnocks)) * 105;
-  const userWipes = totalTeamWipes / matchCount;
-
+function matchRow(index: number, team: TeamMember[]) {
+  const matchId = `match-${index}`;
+  const createdAt = new Date(Date.UTC(2026, 8, 1, 0, 0, 30 - index)).toISOString();
   return {
-    formation: Math.max(10, Math.min(100, Math.round(70 + (benchmark.avgIsolation - avgIsolation) * 40))),
-    backupSpeed: Math.max(10, Math.min(100, Math.round(70 + (benchmark.avgTradeLatency - avgTradeLatency) / 150))),
-    survivalCare: Math.max(10, Math.min(100, Math.round(70 + (userReviveRate - benchmark.avgReviveRate) * 1.5 + (userSmokeRate - benchmark.avgSmokeRate) * 5))),
-    focusFire: Math.max(10, Math.min(100, Math.round(70 + (avgCoverRate - 0.30) * 100))),
-    teamWipe: Math.max(10, Math.min(100, Math.round(70 + (userWipes - benchmark.avgTeamWipes) * 6)))
+    match_id: matchId,
+    player_id: "player_a",
+    platform: "steam",
+    updated_at: createdAt,
+    data: {
+      fullResult: {
+        matchId,
+        player_id: "player_a",
+        platform: "steam",
+        v: RESULT_VERSION,
+        calculationVersion: ANALYSIS_CALCULATION_VERSION,
+        populationEvidenceVersion: POPULATION_EVIDENCE_VERSION,
+        createdAt,
+        gameMode: "squad-fpp",
+        matchType: "official",
+        mapName: "Baltic_Main",
+        benchmark: { tier: "B", score: 50 },
+        stats: { name: "Player_A", winPlace: 3, damageDealt: 100 },
+        team: [{ name: "Player_A", damageDealt: 100, kills: 1, assists: 0, DBNOs: 0 }, ...team],
+      },
+    },
   };
 }
 
+// 실제 getSquadAnalysisData가 읽는 processed_match_telemetry와 팀 비교 기준 조회만 제공한다
+function configureRows(rows: unknown[]) {
+  const processed: any = {};
+  for (const method of ["select", "eq", "order", "limit", "in"]) processed[method] = vi.fn().mockReturnValue(processed);
+  processed.then = (resolve: any, reject: any) => Promise.resolve({ data: rows, error: null }).then(resolve, reject);
+  const teamBenchmark: any = {};
+  for (const method of ["select", "eq"]) teamBenchmark[method] = vi.fn().mockReturnValue(teamBenchmark);
+  teamBenchmark.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+  mockCreateClient.mockResolvedValue({
+    from: vi.fn((table: string) => {
+      if (table === "processed_match_telemetry") return processed;
+      if (table === "pubg_team_benchmarks") return teamBenchmark;
+      throw new Error(`unexpected table ${table}`);
+    }),
+  });
+}
+
+async function loadSquadAnalysis() {
+  const { getSquadAnalysisData } = await import("@/lib/pubg-analysis/squadAnalysis");
+  return getSquadAnalysisData;
+}
+
+beforeEach(() => {
+  vi.resetModules();
+  mockCreateClient.mockReset();
+});
+
 describe("PUBG Squad Synergy Analysis Tests", () => {
-  it("should correctly group squad matches by teammate composition while maintaining nickname casing", () => {
-    const mockMatches = [
-      {
-        match_id: "match-1",
-        data: {
-          fullResult: {
-            gameMode: "squad-fpp",
-            team: [
-              { name: "Player_A" },
-              { name: "MiaeQ_Q" },
-              { name: "PlayerC" },
-              { name: "PlayerD" }
-            ]
-          }
-        }
-      },
-      {
-        match_id: "match-2",
-        data: {
-          fullResult: {
-            gameMode: "squad-fpp",
-            team: [
-              { name: "Player_A" },
-              { name: "MiaeQ_Q" },
-              { name: "PlayerC" },
-              { name: "PlayerD" }
-            ]
-          }
-        }
-      }
-    ];
+  it("groups squad matches by teammate composition and keeps the first-seen nickname casing", async () => {
+    configureRows([
+      matchRow(1, [{ name: "MiaeQ_Q" }, { name: "PlayerC" }, { name: "PlayerD" }]),
+      matchRow(2, [{ name: "miaeq_q" }, { name: "PlayerC" }, { name: "PlayerD" }]),
+    ]);
+    const getSquadAnalysisData = await loadSquadAnalysis();
 
-    const result = groupSquadMatches(mockMatches, "player_a"); // normalized name matching
-    expect(result.length).toBe(1);
-    // Verified casing preserved key
-    expect(result[0].groupKey).toBe("MiaeQ_Q, PlayerC, PlayerD");
-    expect(result[0].matchCount).toBe(2);
+    const result: any = await getSquadAnalysisData("Player_A", "steam");
+
+    expect(result.groups).toHaveLength(1);
+    expect(result.groups[0]).toMatchObject({
+      groupKey: "MiaeQ_Q, PlayerC, PlayerD",
+      members: ["MiaeQ_Q", "PlayerC", "PlayerD"],
+      matchCount: 2,
+    });
   });
 
-  it("should merge teammate casing variants into one squad member", () => {
-    const mockMatches = [
-      {
-        match_id: "match-1",
-        data: {
-          fullResult: {
-            gameMode: "squad-fpp",
-            team: [
-              { name: "Player_A" },
-              { name: "MiaeQ_Q" },
-              { name: "PlayerC" },
-              { name: "PlayerD" }
-            ]
-          }
-        }
-      },
-      {
-        match_id: "match-2",
-        data: {
-          fullResult: {
-            gameMode: "squad-fpp",
-            team: [
-              { name: "Player_A" },
-              { name: "miaeq_q" },
-              { name: "PlayerC" },
-              { name: "PlayerD" }
-            ]
-          }
-        }
-      }
-    ];
+  it("keeps nicknames that differ only by special characters as different teammates", async () => {
+    configureRows([
+      matchRow(1, [{ name: "Mia.Q" }, { name: "PlayerC" }, { name: "PlayerD" }]),
+      matchRow(2, [{ name: "MiaQ" }, { name: "PlayerC" }, { name: "PlayerD" }]),
+    ]);
+    const getSquadAnalysisData = await loadSquadAnalysis();
 
-    const result = groupSquadMatches(mockMatches, "player_a");
-    expect(result).toHaveLength(1);
-    expect(result[0].members).toEqual(["MiaeQ_Q", "PlayerC", "PlayerD"]);
-    expect(result[0].matchCount).toBe(2);
+    const result: any = await getSquadAnalysisData("Player_A", "steam");
+
+    expect(result.groups.map((group: any) => group.groupKey).sort()).toEqual([
+      "Mia.Q, PlayerC, PlayerD",
+      "MiaQ, PlayerC, PlayerD",
+    ]);
   });
 
-  it("should assign correct roles based on individual share thresholds", () => {
-    const members = ["Player_A", "Teammate_B", "Teammate_C", "Teammate_D"];
-    const stats = {
-      "Player_A": { damage: 800, kills: 2, assists: 1, dbnos: 2 },    // High damage share
-      "Teammate_B": { damage: 200, kills: 1, assists: 0, dbnos: 5 },   // High knockdown share
-      "Teammate_C": { damage: 300, kills: 5, assists: 0, dbnos: 1 },   // High kill share
-      "Teammate_D": { damage: 150, kills: 0, assists: 8, dbnos: 0 }    // High assist share
-    };
+  it("assigns each member the role where they lead the squad share", async () => {
+    // Player_A 행은 matchRow 기본값(딜량 100)이므로 딜량 1위가 되도록 덮어쓴다
+    const rows = [matchRow(1, [
+      { name: "Teammate_B", damageDealt: 200, kills: 1, assists: 0, DBNOs: 5 },
+      { name: "Teammate_C", damageDealt: 300, kills: 5, assists: 0, DBNOs: 1 },
+      { name: "Teammate_D", damageDealt: 150, kills: 0, assists: 8, DBNOs: 0 },
+    ])];
+    rows[0].data.fullResult.team[0] = { name: "Player_A", damageDealt: 800, kills: 2, assists: 1, DBNOs: 2 };
+    configureRows(rows);
+    const getSquadAnalysisData = await loadSquadAnalysis();
 
-    const roles = computeRoleProfiles(members, stats);
-    expect(roles.find(r => r.name === "Player_A")?.role).toBe("메인 딜러");
-    expect(roles.find(r => r.name === "Teammate_B")?.role).toBe("선봉장");
-    expect(roles.find(r => r.name === "Teammate_C")?.role).toBe("해결사");
-    expect(roles.find(r => r.name === "Teammate_D")?.role).toBe("지원가");
-  });
+    const result: any = await getSquadAnalysisData("Player_A", "steam", "Teammate_B, Teammate_C, Teammate_D");
+    const roleOf = (name: string) => result.roleProfiles.find((profile: any) => profile.name === name)?.role;
 
-  it("should normalize and scale synergy scores into 10 - 100 range correctly based on benchmarks", () => {
-    const mockBenchmark = {
-      avgIsolation: 1.36,
-      avgTradeLatency: 12143,
-      avgReviveRate: 17.0,
-      avgSmokeRate: 3.58,
-      avgTeamWipes: 5.33
-    };
-
-    // Top performance scenario (low isolation, extremely fast backup, high smoke/revive, high cover, high wipes)
-    const topScores = computeScores(0.8, 1500, 10, 10, 0.70, 40, 4, 10, mockBenchmark);
-    expect(topScores.formation).toBe(92); // 70 + (1.36 - 0.8) * 40 = 70 + 22.4 = 92
-    expect(topScores.backupSpeed).toBe(100); // 70 + (12143 - 1500)/150 = 70 + 70.9 = 140.9 -> 100 (clamp)
-    expect(topScores.survivalCare).toBe(100); // clamped to 100 (clamp)
-    expect(topScores.focusFire).toBe(100); // 70 + (0.70 - 0.30)*100 = 110 -> 100 (clamp)
-    expect(topScores.teamWipe).toBe(98); // 70 + (10 - 5.33)*6 = 70 + 28 = 98
-
-    // Extreme poor performance scenario (scores clamped to min boundaries)
-    const poorScores = computeScores(5.0, 30000, 0, 0, 0.05, 0, 4, 10, mockBenchmark);
-    expect(poorScores.formation).toBe(10); // clamped to min 10
-    expect(poorScores.backupSpeed).toBe(10); // clamped to min 10
-    expect(poorScores.survivalCare).toBe(27); // 70 + (0 - 17.0)*1.5 + (0 - 3.58)*5 = 70 - 25.5 - 17.9 = 26.6 -> 27
-    expect(poorScores.focusFire).toBe(45); // 70 + (0.05 - 0.30)*100 = 45
-    expect(poorScores.teamWipe).toBe(38); // 70 + (0 - 5.33)*6 = 70 - 32 = 38
+    expect(roleOf("Player_A")).toBe("메인 딜러");
+    expect(roleOf("Teammate_B")).toBe("선봉장");
+    expect(roleOf("Teammate_C")).toBe("해결사");
+    expect(roleOf("Teammate_D")).toBe("지원가");
+    expect(result.roleProfiles.find((profile: any) => profile.name === "Player_A")?.shares).toEqual({
+      damage: 55, kill: 25, assist: 11, dbno: 25,
+    });
   });
 });

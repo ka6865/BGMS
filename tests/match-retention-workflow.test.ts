@@ -80,14 +80,17 @@ describe("PUBG archive retention workflow contract", () => {
   });
 
   it("propagates command and backup-comparison failures through every composite shell", () => {
-    for (const step of action.runs.steps.filter((s: any) => s.run)) {
+    const shellSteps = action.runs.steps.filter((s: any) => s.run);
+    expect(shellSteps.length).toBeGreaterThan(0);
+    for (const step of shellSteps) {
       expect(step.shell).toBe("bash --noprofile --norc -eo pipefail {0}");
-      for (const failure of ["(exit 23) | tee /dev/null", "cmp /dev/null /missing-backup"]) {
-        const result = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c",
-          failure + "\nprintf 'UNSAFE_APPLY'"], { encoding: "utf8" });
-        expect(result.status).not.toBe(0);
-        expect(result.stdout).not.toContain("UNSAFE_APPLY");
-      }
+    }
+    // 모든 step이 같은 shell 선언을 쓰므로 그 shell의 실패 전파는 한 번만 확인한다
+    for (const failure of ["(exit 23) | tee /dev/null", "cmp /dev/null /missing-backup"]) {
+      const result = spawnSync("bash", ["--noprofile", "--norc", "-eo", "pipefail", "-c",
+        failure + "\nprintf 'UNSAFE_APPLY'"], { encoding: "utf8" });
+      expect(result.status).not.toBe(0);
+      expect(result.stdout).not.toContain("UNSAFE_APPLY");
     }
   });
 });
