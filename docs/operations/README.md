@@ -25,7 +25,7 @@
 | [2026-10-14-telemetry-lease-sqlstate.md](2026-10-14-telemetry-lease-sqlstate.md) | RPC에서 SQLSTATE `40001`을 던지지 않는 규칙(PostgREST 14 재시도) |
 | [2026-10-14-audit-fixes.md](2026-10-14-audit-fixes.md) | 2026-10-14 점검 후속 조치. 남은 확인 항목이 있어 진행 중 |
 | [2026-10-15-discord-command-improvements.md](2026-10-15-discord-command-improvements.md) | Discord 전적 명령의 응답·공개 범위 계약 |
-| [2026-10-15-match-row-extras.md](2026-10-15-match-row-extras.md) | 전적 목록 보조 값(이동 거리·최장 킬·팀원) 저장 계약과 배포 순서 |
+| [2026-10-15-match-row-extras.md](2026-10-15-match-row-extras.md) | 전적 목록 보조 값(이동 거리·최장 킬·팀원 목록) 저장 계약, 비공개 필터, 배포 순서 |
 
 ## 작업 기록
 

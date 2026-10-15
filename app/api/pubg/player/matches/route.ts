@@ -130,7 +130,7 @@ async function readDiscoveredAccountIds(supabase: ReturnType<typeof getAdminClie
     let accountId = await readCachedAccountId(supabase, platform, nickname);
     let result;
     if (matchId) {
-      let query = supabase.from("pubg_player_matches").select("player_id, platform, account_id, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time, team_id, travel_distance, longest_kill, retention_scope");
+      let query = supabase.from("pubg_player_matches").select("player_id, platform, account_id, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time, teammates, travel_distance, longest_kill, retention_scope");
       const identityFilter = buildPlayerMatchIdentityFilter(nickname, accountId);
       query = identityFilter ? query.or(identityFilter) : query.eq("player_id", nickname.trim().toLowerCase());
       const { data, error } = await query.eq("platform", platform).eq("match_id", matchId).limit(1);
@@ -167,8 +167,11 @@ async function readDiscoveredAccountIds(supabase: ReturnType<typeof getAdminClie
     const performanceStates = await readPerformanceStates(supabase, platform, nickname, result.matches.map(m => m.match_id), accountId);
     const historyIngest = accountId ? await readHistoryIngest(supabase, platform, accountId) : null;
     const teammates = await readTeammateNames(supabase, platform, result.matches);
-    result = { ...result, matches: result.matches.map(match => teammates.has(match.match_id)
-      ? { ...match, teammate_names: teammates.get(match.match_id) } : match) };
+    // 저장된 팀원 원본(계정 ID 포함)은 응답에 싣지 않고, 비공개를 거른 닉네임만 보낸다.
+    result = { ...result, matches: result.matches.map(({ teammates: _stored, ...match }) => {
+      void _stored;
+      return teammates.has(match.match_id) ? { ...match, teammate_names: teammates.get(match.match_id) } : match;
+    }) };
     return NextResponse.json({ ...result, performances, performanceSummaries, performanceStates, historyIngest }, { headers: { 'Cache-Control': 'no-store' } });
    } catch (error: unknown) {
      console.error("[PLAYER-MATCHES] request failed", error);

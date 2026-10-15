@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
     {
       let query = supabase
         .from("pubg_player_matches")
-        .select("match_id, player_id, platform, account_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time, team_id, travel_distance, longest_kill")
+        .select("match_id, player_id, platform, account_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time, teammates, travel_distance, longest_kill")
         .eq("platform", platform);
       const identityFilter = buildPlayerMatchIdentityFilter(playerId, accountId);
       query = identityFilter ? query.or(identityFilter) : query.eq("player_id", playerId);
@@ -227,7 +227,9 @@ export async function POST(request: NextRequest) {
           if (record && matchId && matchIds.includes(matchId)) {
             storedIds.add(matchId);
             ingestedMatchIds.push(matchId);
-            if (!summaries[matchId]) summaries[matchId] = buildBasicMatchSummary({ ...record, match_id: matchId });
+            // 방금 수집한 기록의 팀원은 수집 시점에 비공개를 이미 걸렀다.
+            if (!summaries[matchId]) summaries[matchId] = buildBasicMatchSummary({ ...record, match_id: matchId,
+              teammate_names: record.teammates?.map(teammate => teammate.name).slice(0, 4) });
           }
         }
         collectionStopped = outcomes.some((outcome) => outcome.status === "rate_limited" || outcome.httpStatus === 401 || outcome.httpStatus === 403)

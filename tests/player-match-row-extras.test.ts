@@ -54,26 +54,39 @@ describe("기본 전적 보조 값 관측", () => {
     expect(teams.has("p4")).toBe(false);
   });
 
-  it("참가자 기록에 팀 번호·이동 거리·최장 킬을 넣고, roster 가 없으면 팀 번호를 비운다", () => {
-    const participants = [participant("p1", "Alpha"), participant("p2", "Bravo", { walkDistance: undefined })];
+  it("참가자 기록에 같은 팀 공개 참가자 목록·이동 거리·최장 킬을 넣고, roster 가 없으면 팀원을 비운다", () => {
+    const participants = [
+      participant("p1", "Alpha"), participant("p2", "Bravo", { walkDistance: undefined }), participant("p3", "Hidden"),
+      participant("p4", "Enemy"), { type: "participant", id: "p5", attributes: { stats: { name: "ai_bot", playerId: "ai.123", kills: 0, damageDealt: 0, winPlace: 3 } } },
+    ];
+    const privatePlayers = [{ platform: "steam", nickname: "Hidden", lower_nickname: "hidden", created_at: "2026-10-01" }];
     const records = buildOfficialParticipantMatchRecords({
-      matchId: "match-1", platform: "steam", matchAttr, participants, privatePlayers: [], rosters: [roster(7, ["p1", "p2"])],
+      matchId: "match-1", platform: "steam", matchAttr, participants, privatePlayers,
+      rosters: [roster(7, ["p1", "p2", "p3", "p5"]), roster(8, ["p4"])],
     });
-    expect(records.find(row => row.player_id === "alpha")).toMatchObject({ team_id: 7, travel_distance: 2401, longest_kill: 64 });
-    expect(records.find(row => row.player_id === "bravo")).toMatchObject({ team_id: 7, travel_distance: null, longest_kill: 64 });
+    expect(records.find(row => row.player_id === "alpha")).toMatchObject({
+      teammates: [{ name: "Bravo", account_id: "account.bravo" }], travel_distance: 2401, longest_kill: 64,
+    });
+    expect(records.find(row => row.player_id === "bravo")).toMatchObject({
+      teammates: [{ name: "Alpha", account_id: "account.alpha" }], travel_distance: null,
+    });
+    expect(records.find(row => row.player_id === "enemy")?.teammates).toEqual([]);
 
     const withoutRoster = buildOfficialParticipantMatchRecords({ matchId: "match-1", platform: "steam", matchAttr, participants, privatePlayers: [] });
-    expect(withoutRoster.every(row => row.team_id === null)).toBe(true);
+    expect(withoutRoster.every(row => row.teammates === null)).toBe(true);
   });
 
-  it("저장 레코드는 관측된 보조 값만 보내고 조회용 팀원 이름은 보내지 않는다", () => {
+  it("저장 레코드는 형식이 맞는 팀원 목록만 보내고 조회용 팀원 이름은 보내지 않는다", () => {
     const base: PlayerMatchRecord = {
       player_id: "alpha", platform: "steam", match_id: "m", played_at: matchAttr.createdAt, game_mode: "squad",
       map_name: "Tiger_Main", kills: 1, damage: 120, win_place: 3, match_type: "official",
     };
-    expect(toPlayerMatchWriteRecord({ ...base, team_id: 7, travel_distance: 2401, longest_kill: 0, teammate_names: ["bravo"] }))
-      .toEqual({ ...base, team_id: 7, travel_distance: 2401, longest_kill: 0 });
-    expect(toPlayerMatchWriteRecord({ ...base, team_id: null, travel_distance: null, longest_kill: -1 })).toEqual(base);
+    const teammates = [{ name: "Bravo", account_id: "account.bravo" }];
+    expect(toPlayerMatchWriteRecord({ ...base, teammates, travel_distance: 2401, longest_kill: 0, teammate_names: ["Bravo"] }))
+      .toEqual({ ...base, teammates, travel_distance: 2401, longest_kill: 0 });
+    expect(toPlayerMatchWriteRecord({ ...base, teammates: [], travel_distance: null })).toEqual({ ...base, teammates: [] });
+    expect(toPlayerMatchWriteRecord({ ...base, teammates: null, travel_distance: null, longest_kill: -1 })).toEqual(base);
+    expect(toPlayerMatchWriteRecord({ ...base, teammates: [{ name: "Bot", account_id: "ai.1" }] })).toEqual(base);
   });
 });
 
@@ -107,46 +120,39 @@ describe("전적 요약의 보조 값", () => {
   });
 });
 
-describe("팀원 조회", () => {
-  function teammateDb(rows: unknown[], privacy: unknown[] = [], error: unknown = null) {
-    const calls: { or?: string } = {};
-    const matchQuery = {
-      select: () => matchQuery, eq: () => matchQuery,
-      or: (filter: string) => { calls.or = filter; return matchQuery; },
-      limit: async () => ({ data: error ? null : rows, error }),
-    };
+describe("팀원 이름 고르기", () => {
+  function privacyDb(privacy: unknown[] | null) {
     const settingsQuery = { select: () => settingsQuery, eq: () => settingsQuery,
-      maybeSingle: async () => ({ data: { value: JSON.stringify(privacy) }, error: null }) };
-    const from = vi.fn((table: string) => table === "system_settings" ? settingsQuery : matchQuery);
-    return { db: { from } as never, calls, from };
+      maybeSingle: async () => privacy ? ({ data: { value: JSON.stringify(privacy) }, error: null }) : ({ data: null, error: { message: "down" } }) };
+    const from = vi.fn(() => settingsQuery);
+    return { db: { from } as never, from };
   }
 
-  it("같은 경기·같은 팀의 다른 참가자만 이름순으로 돌려주고 비공개 플레이어는 뺀다", async () => {
-    const { db, calls } = teammateDb([
-      { match_id: "m1", team_id: 7, player_id: "alpha", account_id: "account.alpha" },
-      { match_id: "m1", team_id: 7, player_id: "charlie", account_id: "account.charlie" },
-      { match_id: "m1", team_id: 7, player_id: "bravo", account_id: "account.bravo" },
-      { match_id: "m1", team_id: 7, player_id: "hidden", account_id: "account.hidden" },
-      { match_id: "m1", team_id: 8, player_id: "enemy", account_id: "account.enemy" },
-    ], [{ nickname: "hidden", platform: "steam" }]);
-    const result = await readTeammateNames(db, "steam", [
-      { match_id: "m1", team_id: 7, player_id: "alpha", account_id: "account.alpha" },
-      { match_id: "m2", team_id: null, player_id: "alpha", account_id: "account.alpha" },
+  it("저장된 팀원 중 지금 비공개인 사람(닉네임·계정 ID)을 빼고 최대 4명을 돌려준다", async () => {
+    const { db } = privacyDb([
+      { platform: "steam", nickname: "Renamed", lower_nickname: "renamed", account_id: "account.hidden", created_at: "2026-10-01" },
+      { platform: "all", nickname: "Gone", lower_nickname: "gone", created_at: "2026-10-01" },
     ]);
-    expect(calls.or).toBe("and(match_id.eq.m1,team_id.eq.7)");
-    expect(result.get("m1")).toEqual(["bravo", "charlie"]);
+    const result = await readTeammateNames(db, "steam", [
+      { match_id: "m1", teammates: [
+        { name: "Bravo", account_id: "account.bravo" }, { name: "OldName", account_id: "account.hidden" },
+        { name: "Gone", account_id: "account.gone" }, { name: "Charlie", account_id: "account.charlie" },
+      ] },
+      { match_id: "m2", teammates: [] },
+      { match_id: "m3", teammates: null },
+    ]);
+    expect(result.get("m1")).toEqual(["Bravo", "Charlie"]);
     expect(result.has("m2")).toBe(false);
+    expect(result.has("m3")).toBe(false);
   });
 
-  it("팀 번호가 없으면 조회하지 않고, 조회 실패는 빈 결과로 끝낸다", async () => {
-    const empty = teammateDb([]);
-    expect((await readTeammateNames(empty.db, "steam", [{ match_id: "m1", player_id: "alpha" }])).size).toBe(0);
+  it("팀원이 없으면 비공개 목록을 읽지 않고, 읽기 실패는 팀원 표시만 생략한다", async () => {
+    const empty = privacyDb([]);
+    expect((await readTeammateNames(empty.db, "steam", [{ match_id: "m1" }])).size).toBe(0);
     expect(empty.from).not.toHaveBeenCalled();
 
-    const failed = teammateDb([], [], { message: "timeout" });
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    expect((await readTeammateNames(failed.db, "steam", [{ match_id: "m1", team_id: 1, player_id: "alpha" }])).size).toBe(0);
-    errorSpy.mockRestore();
+    const failed = privacyDb(null);
+    expect((await readTeammateNames(failed.db, "steam", [{ match_id: "m1", teammates: [{ name: "Bravo", account_id: "account.bravo" }] }])).size).toBe(0);
   });
 });
 

@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { hasObservedPlayerMatchValues, normalizeBasicMatchStat, upsertPlayerMatches, type PlayerMatchRecord } from "./playerMatches";
+import type { PlayerMatchTeammate } from "./playerMatchTeammateList";
 import { getPrivatePlayersList, matchesPrivatePlayer, type PrivatePlayer } from "./privatePlayers";
 
 export interface IngestParticipantInput {
@@ -49,6 +50,8 @@ export function observedLongestKill(stats: Record<string, unknown>): number | nu
   const value = stats.longestKill;
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? normalizeBasicMatchStat(Math.round(value)) : null;
 }
+
+const MAX_STORED_TEAMMATES = 8;
 
 /** roster 의 참가자 id → teamId. 한 참가자가 여러 roster 에 있거나 teamId 가 범위를 벗어나면 제외한다. */
 export function buildParticipantTeamIds(rosters: readonly unknown[]): Map<string, number> {
@@ -102,6 +105,31 @@ export function buildOfficialParticipantMatchRecords(input: {
       accounts.set(stats.playerId, (accounts.get(stats.playerId) ?? 0) + 1);
     }
   }
+  // 팀원으로 적을 수 있는 참가자: 공식 계정 ID·닉네임이 경기 안에서 유일하고 비공개가 아닌 사람.
+  const listable = participants.map((stats) => {
+    if (!stats || typeof stats.name !== "string" || typeof stats.playerId !== "string"
+      || !/^account\.[A-Za-z0-9_-]+$/.test(stats.playerId)) return null;
+    const name = stats.name.trim();
+    if (!name || name.length > 64 || names.get(normalizeName(name)) !== 1 || accounts.get(stats.playerId) !== 1
+      || matchesPrivatePlayer(privatePlayers, platform, name, stats.playerId)) return null;
+    return { name, account_id: stats.playerId };
+  });
+  const teamMembers = new Map<number, number[]>();
+  participantIds.forEach((id, index) => {
+    const teamId = id ? teamIds.get(id) : undefined;
+    if (teamId === undefined) return;
+    teamMembers.set(teamId, [...(teamMembers.get(teamId) ?? []), index]);
+  });
+  // roster 로 팀을 확인하지 못하면 관측하지 못한 값(null)이다. 팀은 확인했지만 적을 팀원이 없으면 빈 목록이다.
+  const teammatesFor = (index: number): PlayerMatchTeammate[] | null => {
+    const id = participantIds[index];
+    const teamId = id ? teamIds.get(id) : undefined;
+    if (teamId === undefined) return null;
+    return (teamMembers.get(teamId) ?? []).flatMap((member) => {
+      const teammate = member === index ? null : listable[member];
+      return teammate ? [teammate] : [];
+    }).slice(0, MAX_STORED_TEAMMATES);
+  };
   const records: PlayerMatchRecord[] = [];
   for (const [index, stats] of participants.entries()) {
     if (!stats || typeof stats.name !== "string" || typeof stats.playerId !== "string"
@@ -117,7 +145,7 @@ export function buildOfficialParticipantMatchRecords(input: {
       kills: stats.kills, damage: stats.damageDealt, win_place: stats.winPlace,
       knocks: normalizeBasicMatchStat(stats.DBNOs), survival_time: normalizeBasicMatchStat(stats.timeSurvived),
       match_type: typeof matchAttr.matchType === "string" ? matchAttr.matchType.trim().toLowerCase() : "unknown",
-      team_id: participantIds[index] ? teamIds.get(participantIds[index]!) ?? null : null,
+      teammates: teammatesFor(index),
       travel_distance: observedTravelDistance(stats),
       longest_kill: observedLongestKill(stats),
     };
