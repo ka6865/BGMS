@@ -2,11 +2,15 @@
  * Discord API에 슬래시 커맨드(/연동, /연동해제, /전적, /방금판, /비교)와 사용자 우클릭 메뉴(전적 보기)를 글로벌 등록하는 일회성 CLI 스크립트입니다.
  * 
  * 사용법:
- * DISCORD_APPLICATION_ID=xxx DISCORD_BOT_TOKEN=xxx npx tsx scripts/register_discord_commands.ts
+ * npx tsx --env-file=.env.local scripts/register_discord_commands.ts
+ *
+ * 슬래시 명령 앱은 커뮤니티 검토·웹훅용 앱과 다르다. Vercel의 DISCORD_BOT_TOKEN은 검토용 앱 토큰이므로
+ * 명령 앱 값은 DISCORD_COMMAND_APPLICATION_ID / DISCORD_COMMAND_BOT_TOKEN으로 따로 둔다.
+ * 기존 이름(DISCORD_APPLICATION_ID / DISCORD_BOT_TOKEN)은 fallback으로만 읽는다.
  */
 
-const APPLICATION_ID = process.env.DISCORD_APPLICATION_ID;
-const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
+const APPLICATION_ID = process.env.DISCORD_COMMAND_APPLICATION_ID || process.env.DISCORD_APPLICATION_ID;
+const BOT_TOKEN = process.env.DISCORD_COMMAND_BOT_TOKEN || process.env.DISCORD_BOT_TOKEN;
 
 const COMMANDS = [
   {
@@ -142,9 +146,27 @@ const COMMANDS = [
 
 async function registerCommands() {
   if (!APPLICATION_ID || !BOT_TOKEN) {
-    console.error("오류: DISCORD_APPLICATION_ID 및 DISCORD_BOT_TOKEN 환경변수가 필요합니다.");
+    console.error("오류: DISCORD_COMMAND_APPLICATION_ID 및 DISCORD_COMMAND_BOT_TOKEN 환경변수가 필요합니다.");
     process.exit(1);
   }
+
+  // PUT은 앱의 전역 명령 전체를 덮어쓰므로, 토큰의 앱이 지정한 앱인지 먼저 확인한다.
+  const appResponse = await fetch("https://discord.com/api/v10/oauth2/applications/@me", {
+    headers: { Authorization: `Bot ${BOT_TOKEN}` },
+  });
+  if (!appResponse.ok) {
+    console.error(`토큰의 앱 정보를 확인하지 못했습니다 (${appResponse.status}).`);
+    process.exit(1);
+  }
+  const app = await appResponse.json();
+  if (app.id !== APPLICATION_ID) {
+    console.error(`오류: 토큰의 앱(${app.id})이 지정한 앱 ID(${APPLICATION_ID})와 다릅니다. 등록하지 않았습니다.`);
+    process.exit(1);
+  }
+  if (!app.interactions_endpoint_url) {
+    console.warn("경고: 이 앱에는 Interactions Endpoint URL이 없어 등록해도 명령이 응답하지 않습니다.");
+  }
+  console.log(`대상 앱: ${app.name} (${app.id}), endpoint: ${app.interactions_endpoint_url ?? "미설정"}`);
 
   const url = `https://discord.com/api/v10/applications/${APPLICATION_ID}/commands`;
 
