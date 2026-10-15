@@ -150,7 +150,7 @@ function getDisplayStats(item: any, mode: MasteryMode) {
 function StatCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="hidden md:block">
-      <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">{label}</div>
+      <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">{label}</div>
       <div className="text-sm font-black text-gray-200 tabular-nums mt-0.5">{value}</div>
     </div>
   );
@@ -417,28 +417,28 @@ export default function WeaponsClient({ nickname, platform, cacheData }: Weapons
                       {/* 주요 스탯 리스트 (md에서 고정너비 지정으로 자릿수가 제각각이어도 수직 열이 완벽히 맞춰지게 수정) */}
                       <div className="grid grid-cols-2 md:flex md:items-center md:gap-0 w-full md:w-auto border-t md:border-t-0 border-white/5 pt-4 md:pt-0">
                         <div className="md:w-28 text-left md:text-center">
-                          <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">누적 킬</div>
+                          <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">누적 킬</div>
                           <div className="text-base md:text-lg font-black text-white tracking-tight mt-0.5 tabular-nums">
                             {stats.kills.toLocaleString()}
                           </div>
                         </div>
 
                         <div className="md:w-32 text-left md:text-center">
-                          <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">누적 대미지</div>
+                          <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">누적 대미지</div>
                           <div className="text-base md:text-lg font-black text-white tracking-tight mt-0.5 tabular-nums">
                             {stats.damage.toLocaleString()}
                           </div>
                         </div>
 
                         <div className="md:w-28 text-left md:text-center">
-                          <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">최대 헤드샷</div>
+                          <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">최대 헤드샷</div>
                           <div className="text-base md:text-lg font-black text-gray-400 tracking-tight mt-0.5 tabular-nums">
                             {stats.headshots.toLocaleString()}
                           </div>
                         </div>
 
                         <div className="md:w-28 text-left md:text-center">
-                          <div className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">최장 킬</div>
+                          <div className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">최장 킬</div>
                           <div className="text-base md:text-lg font-black text-gray-400 tracking-tight mt-0.5 tabular-nums">
                             {stats.longest ? `${Math.round(stats.longest)}m` : "-"}
                           </div>
@@ -506,7 +506,7 @@ export default function WeaponsClient({ nickname, platform, cacheData }: Weapons
                           </div>
                           <div className="min-w-0">
                             <div className="text-sm font-black text-white truncate">{getWeaponLabel(item.weaponId)}</div>
-                            <div className="text-[10px] font-bold text-gray-500">Lv.{item.level} · {item.category || '기타'}</div>
+                            <div className="text-[10px] font-bold text-gray-400">Lv.{item.level} · {item.category || '기타'}</div>
                           </div>
                         </div>
                         <StatCell label="킬" value={stats.kills.toLocaleString()} />

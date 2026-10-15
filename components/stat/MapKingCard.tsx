@@ -68,7 +68,7 @@ export const MapKingCard = ({ mapStats }: { mapStats: MapStatsData }) => {
           {diffPct > 0 && (
             <div className="shrink-0 text-right">
               <div className="text-2xl font-black text-yellow-400">+{diffPct}%</div>
-              <div className="text-[10px] text-gray-500 font-bold uppercase">평균 대비</div>
+              <div className="text-[10px] text-gray-400 font-bold uppercase">평균 대비</div>
             </div>
           )}
         </div>
@@ -103,7 +103,7 @@ export const MapKingCard = ({ mapStats }: { mapStats: MapStatsData }) => {
               }`}>
                 {m.avgDamage}딜
               </div>
-              <div className="text-[10px] text-gray-600 w-8 text-right shrink-0">
+              <div className="text-[10px] text-gray-400 w-8 text-right shrink-0">
                 {m.matchCount}판
               </div>
             </div>

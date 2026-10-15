@@ -328,7 +328,7 @@ const TierEvidenceList = ({ section }: { section: TierEvidenceSection }) => (
           <span className="text-gray-500 font-bold shrink-0">{item.label}</span>
           <span className="text-right">
             <span className="block text-white font-black">{item.value}</span>
-            {item.note && <span className="block text-[9px] text-gray-500 font-medium mt-0.5">{item.note}</span>}
+            {item.note && <span className="block text-[9px] text-gray-400 font-medium mt-0.5">{item.note}</span>}
           </span>
         </div>
       ))}

@@ -201,11 +201,11 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
 
       <div className="pointer-events-none relative z-10 flex min-h-11 w-full items-center gap-3 p-3 text-left md:gap-4 md:p-4">
         <div className="flex h-12 min-w-[3.5rem] shrink-0 flex-col items-center justify-center rounded-lg border border-white/5 bg-white/5 px-2.5">
-          <span className="text-[9px] font-black text-white/40">{mode === "tdm" ? "결과" : "순위"}</span>
+          <span className="text-[9px] font-black text-white/50">{mode === "tdm" ? "결과" : "순위"}</span>
           <strong className="my-0.5 text-base font-black leading-none text-white md:text-lg">
             {mode === "tdm" ? status.label : `#${summary.stats.winPlace}`}
           </strong>
-          {mode !== "tdm" && total > 0 && <span className="text-[9px] text-white/30">/ {total}</span>}
+          {mode !== "tdm" && total > 0 && <span className="text-[9px] text-white/50">/ {total}</span>}
         </div>
 
         <div className="min-w-0 flex-1">
@@ -334,7 +334,7 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
           ) : (
             <span
               aria-label={summary.performanceState ? performanceLabel : "티어 미산정"}
-              className="whitespace-nowrap text-[10px] font-bold text-white/30"
+              className="whitespace-nowrap text-[10px] font-bold text-white/50"
             >
               {summary.performanceState ? performanceLabel : "티어 미산정"}
             </span>
