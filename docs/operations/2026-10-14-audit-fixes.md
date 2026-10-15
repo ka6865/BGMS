@@ -193,3 +193,13 @@ group by 1 order by 2 desc;
 - PR #288: 로컬 실험 DB(31만 행)에서 검색어 600개의 결과가 기존 함수와 모두 같음(0.2 대체 검색 56건 포함). `verify:migrations` 통과(NOSUPERUSER 두 번 적용, 0.2 대체 검색 시나리오, 세션 임계값 유지). 관련 Vitest 44개 통과.
 - PR #289: 재시도·중단 조건 테스트 포함 82개 통과.
 - 네 PR(#286~#289) 모두 CI 통과 후 병합. Archive 재시도와 오류 로그 삭제는 병합 후 정기 실행에서 확인한다.
+
+## 10차 보완 (문서 정리: SEC-06, DOC-02)
+
+| 항목 | 조치 |
+| --- | --- |
+| RLS 정책 없는 테이블의 의도 미기록(SEC-06) | 운영 DB 읽기 전용 조회로 54개를 확인해 [service role 전용 테이블](service-role-only-tables.md)에 영역별로 기록. 정책은 없지만 anon·authenticated 테이블 권한이 남은 13개를 따로 표시. 모두 서버 경로에서만 조회해 현재 노출은 없음. 권한 회수는 별도 migration으로 남김 |
+| 운영 문서 완료 여부 표시 없음(DOC-02) | [운영 문서 색인](README.md)에 현재 계약·절차 15개와 작업 기록 12개를 구분. 날짜형 문서는 상호·`project-map.md`·`CLAUDE.md` 상대 링크가 있어 보관 폴더로 옮기지 않음 |
+| `CLAUDE.md` 텔레메트리 설명의 경로 생략(DOC-02) | 캐시 식별성·텔레메트리 저장 줄에 `lib/pubg-analysis/` 경로 추가 |
+
+`package.json` `engines`(CI-01)는 Vercel 프로젝트의 Node 버전 설정을 확인하지 못해 보류했다. `engines`가 프로젝트 설정보다 우선해 운영 빌드 Node가 바뀔 수 있다.
