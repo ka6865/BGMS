@@ -19,7 +19,7 @@
 | [2026-10-05-maintenance-archive-verification.md](2026-10-05-maintenance-archive-verification.md) | Bluezone 수집 원본 우선순위, 수집 관측, Archive Verification 워크플로 |
 | [2026-10-06-match-detail-retention.md](2026-10-06-match-detail-retention.md) | 경기 상세 14일 보관, 410·404·503 응답 구분과 장기 성과 보존 |
 | [2026-10-08-discovery-expiry-audit.md](2026-10-08-discovery-expiry-audit.md) | 수집 불가 전적의 만료 사유 코드(`discovery_window_elapsed` 등) |
-| [2026-10-09-participant-history-collection.md](2026-10-09-participant-history-collection.md) | 같은 경기 참가자 기본 전적 저장과 `retention_scope` 의미 |
+| [2026-10-09-participant-history-collection.md](2026-10-09-participant-history-collection.md) | 같은 경기 참가자 기본 전적 저장과 `retention_scope` 의미. 2026-10-16부터 참가자 저장 중단, 대상 플레이어만 저장 |
 | [2026-10-10-calculation-coexistence-results.md](2026-10-10-calculation-coexistence-results.md) | 계산 2 보존·신규 계산 3 저장의 공존 계약과 운영 검증 |
 | [2026-10-10-remaining-review-fixes.md](2026-10-10-remaining-review-fixes.md) | 운영 migration을 파일 하나씩 적용하는 절차("준비 migration 적용 실적") |
 | [2026-10-14-telemetry-lease-sqlstate.md](2026-10-14-telemetry-lease-sqlstate.md) | RPC에서 SQLSTATE `40001`을 던지지 않는 규칙(PostgREST 14 재시도) |
