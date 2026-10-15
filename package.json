@@ -2,6 +2,9 @@
   "name": "bgms",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "22.x || 24.x"
+  },
   "type": "module",
   "scripts": {
     "dev": "next dev",
