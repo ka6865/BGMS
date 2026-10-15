@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { resolveStatsRailLayout } from "@/components/ads/StatsManualAdRails";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -43,6 +44,17 @@ describe("manual desktop ad rails", () => {
     const css = read("app/globals.css");
     expect(css).toContain("stats-manual-ad-rail");
     expect(css).toContain("position: sticky");
-    expect(css).toContain("min-width: 1880px");
+  });
+
+  it("전적 레일은 화면 크기에 맞는 구성 하나만 고른다", () => {
+    expect(resolveStatsRailLayout({ min1600: false, min1880: false, minHeight940: true })).toBe("none");
+    expect(resolveStatsRailLayout({ min1600: true, min1880: false, minHeight940: true })).toBe("narrow");
+    expect(resolveStatsRailLayout({ min1600: true, min1880: true, minHeight940: false })).toBe("tall");
+    expect(resolveStatsRailLayout({ min1600: true, min1880: true, minHeight940: true })).toBe("stack");
+
+    const statsRails = read("components/ads/StatsManualAdRails.tsx");
+    expect(statsRails).toContain("width={300} height={250}");
+    expect(statsRails).toContain("width={300} height={600}");
+    expect(statsRails).toContain('if (layout === "none") return null;');
   });
 });
