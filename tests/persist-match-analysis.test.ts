@@ -159,20 +159,18 @@ describe("persistMatchAnalysis", () => {
     expect(rows[0]).not.toHaveProperty('survival_time');
   });
 
-  it('fans out official basic histories while only the analyzed account receives detail and player cache', async () => {
+  it('stores only the analyzed account history even when official peers are present', async () => {
     const peers = createParticipants(3);
     Object.assign(peers[0].attributes.stats, { DBNOs: 0 });
     const result = await persistMatchAnalysis(supabase, {...input, rawParticipants: [input.rawParticipants[0], ...peers]});
     expect(result.failures).toEqual([]);
     expect(settingsRead).toHaveBeenCalledTimes(1);
     const rows = upserts.get('pubg_player_matches')!.mock.calls[0][0] as Array<Record<string, unknown>>;
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({account_id: 'account.target', retention_scope: 'detail', played_at: input.matchAttr.createdAt});
-    expect(rows.slice(1).every(row => row.retention_scope === 'basic_only')).toBe(true);
     expect(participantRpc).toHaveBeenCalledOnce();
     expect(participantRpc).toHaveBeenCalledWith('upsert_pubg_participant_matches', { p_records: rows });
     expect(rows[0]).not.toHaveProperty('knocks');
-    expect(rows[1]).toMatchObject({ knocks: 0 });
     expect(supabase.from).not.toHaveBeenCalledWith('pubg_player_matches');
     expect(upserts.get('pubg_player_cache')!.mock.calls[0][0]).toHaveLength(1);
     expect(upserts.get('processed_match_telemetry')).not.toHaveBeenCalled();
@@ -203,11 +201,11 @@ describe("persistMatchAnalysis", () => {
     expect(result.succeeded).not.toContain('pubg_player_matches');
   });
 
-  it('uses the same privacy identity rules for analysis peers and fails closed on privacy read errors', async () => {
+  it('reads the privacy list once for peer checks and fails closed on privacy read errors', async () => {
     const peers = createParticipants(2);
     settingsRead.mockResolvedValue({data: {value: JSON.stringify([{platform: 'all', nickname: 'OldName', lower_nickname: 'oldname', account_id: 'account.peer_0'}])}, error: null});
     await persistMatchAnalysis(supabase, {...input, rawParticipants: [input.rawParticipants[0], ...peers]});
-    expect(upserts.get('pubg_player_matches')!.mock.calls[0][0]).toHaveLength(2);
+    expect(upserts.get('pubg_player_matches')!.mock.calls[0][0]).toHaveLength(1);
     upserts.get('pubg_player_matches')!.mockClear();
     settingsRead.mockResolvedValue({data: null, error: {message: 'privacy unavailable'}});
     const result = await persistMatchAnalysis(supabase, input);
@@ -215,7 +213,7 @@ describe("persistMatchAnalysis", () => {
     expect(result.failures).toContainEqual({taskName: 'pubg_player_matches', message: 'privacy unavailable'});
   });
 
-  it('keeps analysis exclusion evidence in every participant history ranking flag', async () => {
+  it('keeps analysis exclusion evidence in the stored history ranking flag', async () => {
     const result = await persistMatchAnalysis(supabase, {
       ...input,
       rawParticipants: [input.rawParticipants[0], ...createParticipants(2)],
@@ -223,8 +221,8 @@ describe("persistMatchAnalysis", () => {
     });
     expect(result.failures).toEqual([]);
     const rows = upserts.get('pubg_player_matches')!.mock.calls[0][0] as Array<Record<string, unknown>>;
-    expect(rows).toHaveLength(3);
-    expect(rows.every(row => row.ranking_eligible === false)).toBe(true);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].ranking_eligible).toBe(false);
   });
 
   it('persists official basic counters independently of calculated result placeholders', async () => {

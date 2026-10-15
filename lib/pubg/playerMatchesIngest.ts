@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { hasObservedPlayerMatchValues, normalizeBasicMatchStat, upsertPlayerMatches, type PlayerMatchRecord } from "./playerMatches";
+import type { PlayerMatchTeammate } from "./playerMatchTeammateList";
 import { getPrivatePlayersList, matchesPrivatePlayer, type PrivatePlayer } from "./privatePlayers";
 
 export interface IngestParticipantInput {
@@ -37,14 +38,57 @@ export function buildPlayerMatchRecordFromParticipant(input: IngestParticipantIn
   };
 }
 
+/** 이동 거리는 도보·차량·수영 거리의 합을 m 단위 정수로 저장한다. 하나라도 관측되지 않으면 저장하지 않는다. */
+export function observedTravelDistance(stats: Record<string, unknown>): number | null {
+  const parts = [stats.walkDistance, stats.rideDistance, stats.swimDistance];
+  if (!parts.every(value => typeof value === "number" && Number.isFinite(value) && value >= 0)) return null;
+  return normalizeBasicMatchStat(Math.round((parts as number[]).reduce((sum, value) => sum + value, 0)));
+}
+
+/** 최장 킬 거리(m). 킬이 없으면 공식 응답의 0 을 그대로 저장한다. */
+export function observedLongestKill(stats: Record<string, unknown>): number | null {
+  const value = stats.longestKill;
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? normalizeBasicMatchStat(Math.round(value)) : null;
+}
+
+const MAX_STORED_TEAMMATES = 8;
+
+/** roster 의 참가자 id → teamId. 한 참가자가 여러 roster 에 있거나 teamId 가 범위를 벗어나면 제외한다. */
+export function buildParticipantTeamIds(rosters: readonly unknown[]): Map<string, number> {
+  const teams = new Map<string, number>();
+  const duplicated = new Set<string>();
+  for (const roster of rosters) {
+    const value = roster as { type?: unknown; attributes?: { stats?: { teamId?: unknown } };
+      relationships?: { participants?: { data?: unknown } } } | null;
+    const teamId = value?.attributes?.stats?.teamId;
+    const members = value?.relationships?.participants?.data;
+    if (value?.type !== "roster" || typeof teamId !== "number" || !Number.isSafeInteger(teamId)
+      || teamId < 0 || teamId > 32767 || !Array.isArray(members)) continue;
+    for (const member of members) {
+      const id = (member as { id?: unknown } | null)?.id;
+      if (typeof id !== "string" || !id) continue;
+      if (teams.has(id)) duplicated.add(id);
+      teams.set(id, teamId);
+    }
+  }
+  for (const id of duplicated) teams.delete(id);
+  return teams;
+}
+
 /** Official response observations only; ambiguous identities never become history. */
 export function buildOfficialParticipantMatchRecords(input: {
   matchId: string; platform: string; matchAttr: Record<string, unknown>;
   participants: readonly unknown[]; privatePlayers: readonly PrivatePlayer[];
+  rosters?: readonly unknown[];
 }): PlayerMatchRecord[] {
   const { matchId, platform, matchAttr, privatePlayers } = input;
+  const teamIds = buildParticipantTeamIds(input.rosters ?? []);
   if (!matchId || !["steam", "kakao"].includes(platform)
     || (matchAttr.shardId !== undefined && matchAttr.shardId !== platform)) return [];
+  const participantIds = input.participants.map(participant => {
+    const id = (participant as { id?: unknown } | null)?.id;
+    return typeof id === "string" ? id : null;
+  });
   const participants = input.participants.map(participant => {
     const stats = (participant as { attributes?: { stats?: Record<string, unknown> } } | null)?.attributes?.stats;
     return stats && typeof stats === "object" && !Array.isArray(stats) ? stats : null;
@@ -61,8 +105,33 @@ export function buildOfficialParticipantMatchRecords(input: {
       accounts.set(stats.playerId, (accounts.get(stats.playerId) ?? 0) + 1);
     }
   }
+  // 팀원으로 적을 수 있는 참가자: 공식 계정 ID·닉네임이 경기 안에서 유일하고 비공개가 아닌 사람.
+  const listable = participants.map((stats) => {
+    if (!stats || typeof stats.name !== "string" || typeof stats.playerId !== "string"
+      || !/^account\.[A-Za-z0-9_-]+$/.test(stats.playerId)) return null;
+    const name = stats.name.trim();
+    if (!name || name.length > 64 || names.get(normalizeName(name)) !== 1 || accounts.get(stats.playerId) !== 1
+      || matchesPrivatePlayer(privatePlayers, platform, name, stats.playerId)) return null;
+    return { name, account_id: stats.playerId };
+  });
+  const teamMembers = new Map<number, number[]>();
+  participantIds.forEach((id, index) => {
+    const teamId = id ? teamIds.get(id) : undefined;
+    if (teamId === undefined) return;
+    teamMembers.set(teamId, [...(teamMembers.get(teamId) ?? []), index]);
+  });
+  // roster 로 팀을 확인하지 못하면 관측하지 못한 값(null)이다. 팀은 확인했지만 적을 팀원이 없으면 빈 목록이다.
+  const teammatesFor = (index: number): PlayerMatchTeammate[] | null => {
+    const id = participantIds[index];
+    const teamId = id ? teamIds.get(id) : undefined;
+    if (teamId === undefined) return null;
+    return (teamMembers.get(teamId) ?? []).flatMap((member) => {
+      const teammate = member === index ? null : listable[member];
+      return teammate ? [teammate] : [];
+    }).slice(0, MAX_STORED_TEAMMATES);
+  };
   const records: PlayerMatchRecord[] = [];
-  for (const stats of participants) {
+  for (const [index, stats] of participants.entries()) {
     if (!stats || typeof stats.name !== "string" || typeof stats.playerId !== "string"
       || !/^account\.[A-Za-z0-9_-]+$/.test(stats.playerId)) continue;
     const playerId = normalizeName(stats.name);
@@ -76,6 +145,9 @@ export function buildOfficialParticipantMatchRecords(input: {
       kills: stats.kills, damage: stats.damageDealt, win_place: stats.winPlace,
       knocks: normalizeBasicMatchStat(stats.DBNOs), survival_time: normalizeBasicMatchStat(stats.timeSurvived),
       match_type: typeof matchAttr.matchType === "string" ? matchAttr.matchType.trim().toLowerCase() : "unknown",
+      teammates: teammatesFor(index),
+      travel_distance: observedTravelDistance(stats),
+      longest_kill: observedLongestKill(stats),
     };
     const noPlacement = record.win_place === 0 && (record.match_type === "tutorialatoz" || record.game_mode === "tdm");
     if (!hasObservedPlayerMatchValues(record, { allowZeroPlacement: noPlacement })) continue;
@@ -239,7 +311,8 @@ export async function fetchAndIngestBasicMatchSummaryOutcome(
     let privatePlayers: PrivatePlayer[];
     try { privatePlayers = await getPrivatePlayersList(supabase); }
     catch { return { status: "upstream_error", record: null, httpStatus: res.status, rateLimitHeaders, error: "player-privacy-check-failed" }; }
-    const records = buildOfficialParticipantMatchRecords({ matchId, platform: normPlatform, matchAttr, participants, privatePlayers });
+    const rosters = (Array.isArray(data.included) ? data.included : []).filter((it: any) => it?.type === "roster");
+    const records = buildOfficialParticipantMatchRecords({ matchId, platform: normPlatform, matchAttr, participants, privatePlayers, rosters });
     const record = records.find(row => row.account_id === stats.playerId && row.player_id === normalizeName(stats.name));
     if (!record) {
       return { status: "upstream_error", record: null, httpStatus: res.status, rateLimitHeaders, error: "match-basic-values-missing" };
@@ -250,7 +323,9 @@ export async function fetchAndIngestBasicMatchSummaryOutcome(
     }
     let persisted = false;
     try {
-      persisted = await upsertPlayerMatches(supabase, records.filter(row => row.win_place > 0), { atomic: true });
+      // 검색·연동 대상 플레이어의 기록만 저장한다. 같은 경기 참가자 전원 저장은 DB 증가량 때문에 중단했다.
+      // 참가자 전원은 위에서 닉네임·계정 중복과 비공개 여부를 판단하는 데만 쓴다.
+      persisted = await upsertPlayerMatches(supabase, [record], { atomic: true });
     } catch (error) {
       return {
         status: "upstream_error",
