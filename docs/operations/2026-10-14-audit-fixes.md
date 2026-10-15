@@ -91,11 +91,14 @@
 
 ## 남은 항목
 
-- Daily BGMS Maintenance: [2026-10-13 22:27 UTC 실행](https://github.com/ka6865/BGMS/actions/runs/38477924938)에서 핵심 백업과 복구 검증은 성공했다. 전체 실행은 Run Storage Cleanup, Extract Bluezone Statistics, Backfill Unknown Match Types 실패로 종료돼 해당 단계의 후속 조치가 필요하다.
-- PUBG Archive Backlog·Detail Archive Retention: `retention-legacy-team-write-unverified:400:lock-budget-exceeded`로 반복 중단. 삭제 전 안전 중단이라 손실은 없으나 정리가 진행되지 않음.
+2026-10-15 재확인 기준이다.
+
+- Daily BGMS Maintenance: 6·7차 보완 후 [2026-10-14 21:27 UTC 실행](https://github.com/ka6865/BGMS/actions/runs/38640356723)에서 모든 단계가 성공했다(2026-10-13 22:27 UTC 실행은 Run Storage Cleanup, Extract Bluezone Statistics, Backfill Unknown Match Types 실패). 해소.
+- PUBG Archive Backlog·Detail Archive Retention: 6차 인덱스 이후 중단 사유가 `lock-budget-exceeded`에서 `retention-legacy-team-write-unverified:400:lock-unavailable`(잠금 획득 실패)로 바뀌었다. [2026-10-14 21:48 UTC 실행](https://github.com/ka6865/BGMS/actions/runs/38643016383)은 5개 배치에서 43개 객체(7,289,423바이트)를 정리한 뒤 6번째 배치에서 삭제 전 안전 중단했다. 정리는 진행되지만 실행마다 실패로 끝나므로, 잠금 경합 상대를 확인해야 한다.
 - `suggest_similar_players`: 인덱스 조건으로 바꾼 뒤에도 콜드 캐시 기준 약 3초(운영 EXPLAIN). service role 호출이라 timeout은 피하지만, 더 줄이려면 후보 수를 줄이는 별도 설계가 필요.
-- RLS 성능 advisor(`auth.uid()` 행별 재평가 38건, 중복 permissive 정책 86건, 인덱스 없는 FK 36건), Auth 유출 비밀번호 보호 비활성.
+- RLS 성능 advisor(`auth.uid()` 행별 재평가 38건, 중복 permissive 정책 80건(이전 86건), 인덱스 없는 FK 36건), Auth 유출 비밀번호 보호 비활성. 2026-10-15 advisor 재조회 기준.
 - 하드코딩 색상 82개 파일 1,112건 남음(공통 컴포넌트 일부만 교체). 푸터 링크 등 텍스트 링크 터치 영역 18px 높이.
+- `pubg_api_errors` 정리 작업 없음: 개인정보처리방침은 30일 보관으로 고지하지만 2026-06-06 기록부터 6,252행이 남아 있다(2026-10-15 조회). 30일 정리 작업을 추가해야 한다(8차 참고).
 
 ## 5차 보완 (조회 기록 개인정보)
 
@@ -127,3 +130,44 @@
 
 - 원인: 운영 Supabase Storage에 `app-data` 버킷이 없었다. 기존 데이터 읽기는 404를 허용해 저장소의 `public/bluezone_data_v2.json`(1,989건)으로 대신했고, 새 경기가 생겨 업로드를 시도한 2026-10-04부터 `bluezone-storage-upload-failed`로 실패했다. `/api/bluezone`도 같은 파일로 응답해 화면 데이터 손실은 없었다.
 - 조치: `20261014170000_bluezone_app_data_bucket`으로 비공개 버킷(JSON만, 20MB) 생성. 운영에서 현재 1,989건 파일을 올리고 다시 읽어 확인했다. 업로드 실패 시 원인 메시지를 로그에 남긴다.
+
+## 8차 보완 (유입 측정·광고·개인정보처리방침)
+
+| 항목 | 조치 |
+| --- | --- |
+| `analytics_events.referrer_path`에 경로만 저장돼 외부 유입(검색·커뮤니티)을 구분할 수 없음 | 문서 로드 후 첫 `page_view`의 `params`에 `landing`, `referrer_host`(외부 도메인·`direct`·`internal`), `utm_source`·`utm_medium`·`utm_campaign`(100자)을 기록. 리퍼러 경로·검색어는 저장하지 않으며 migration 없음 (PR #279) |
+| `/meta` 시험 페이지가 사이트맵에 남음(최근 30일 방문 0회) | 페이지 삭제, `/weapons`로 308 영구 이동, 사이트맵 제외. 대시보드 컴포넌트는 `/weapons`에서 계속 사용 (PR #279) |
+| 카카오 애드핏 최근 28일 적립 49원(누적 4,917원, 지급 기준 5만원)인데 전적 상단·지도 하단 등 노출이 좋은 자리를 차지. 애드센스 `게시판 세로` 단위 하나를 게시판·랭킹·무기도감·전적 레일 5곳이 함께 써서 위치별 수익을 구분할 수 없음 | 애드핏 13곳을 위치별 애드센스 단위로 교체하고 `AdfitBanner` 삭제. 단위 ID 24개를 `lib/ads/adsenseUnits.ts`에 모으고 콘솔 이름을 주석으로 남김. `AdSenseBanner`에 고정 규격(`width`·`height`) 추가. 환경 변수로만 켜지던 `stats-after-10` 자리와 `NEXT_PUBLIC_ADFIT_STATS_FEED_UNIT` 제거. 지도 데스크톱 하단은 728x90 (PR #280) |
+| 개인정보처리방침이 실제와 다름(이용 로그 1년→실제 30일, AI 캐시 90일→실제 30일). 파기 절차·안전성 확보 조치 절 없음. 애드센스 필수 고지·행태정보·국외 이전 미기재 | 2025-04 개정 작성지침과 법 제30조 항목으로 대조해 보완. 보유 기간을 정리 작업 기준으로 수정, 파기 절차(4-1)·국외 이전(7-1)·AI 분석 처리(7-2)·안전성 확보 조치(11절) 신설, 커뮤니티·디스코드 처리 항목, 법정대리인, 구제 기관 추가, 애드핏 안내 제거. 시행일 2026-10-15 (PR #280) |
+| Gemini API를 무료 이용 조건으로 쓰는데 커뮤니티 자동 답변이 댓글 작성자 닉네임을 모델에 전송 | 모델 입력에서 작성자 닉네임 제외. 관리자 검토용 Discord 알림 표시는 유지. 방침 7-2에 무료 이용 조건(서비스 개선 사용, 검토자 확인 가능) 고지 (PR #282) |
+| 개인정보처리방침의 4열 표가 375·390px에서 페이지 폭을 21·6px 늘림 | 페이지 폭을 고정하고 표 영역만 가로 스크롤 (PR #280) |
+
+### 운영 콘솔 변경
+
+- 애드센스(2026-10-15 03:47~03:51 KST): 디스플레이 광고 단위 21개 생성, 기존 3개 이름 변경(`전적피드`→`전적_목록중간_인피드`, `상자까 시뮬`→`상자깡_우측레일_세로`, `게시판 세로`→`게시판_좌측레일_세로`). 이름 규칙은 `페이지_위치_모양`. 단위는 총 24개다.
+- 애드핏: 계정과 적립금은 그대로 두고 사이트 게재만 중단했다.
+- 개인정보처리방침의 사실 확인: Supabase 프로젝트 리전 Northeast Asia(Seoul)(`supabase projects list`), 공개 테이블 96개 모두 RLS 사용, 탈퇴 시 게시글·댓글 `user_id`는 `SET NULL`, 정리 작업 보존 기간(이용 로그 30일, 수집 제한 기록 7일, 조회 IP 해시·작성 기록 24시간, AI 캐시 30일, 플레이어 캐시 90일).
+
+### 검증
+
+- PR #279: `verify:core`, 전체 Vitest 4,155개 통과. 로컬 `next dev --webpack`에서 `/meta` 308, 사이트맵 제외 확인.
+- PR #280: `verify:core`(에러 0), 전체 Vitest 4,148개 통과, 새 `tests/adsense-units.test.ts`(단위 ID 중복 없음, 화면 코드에 애드핏·하드코딩 단위 ID 없음). 375·390·430·1440·1920px에서 상자깡·랭킹·무기도감·가방·게시판·지도의 광고 자리 규격과 가로 넘침 0, 개인정보처리방침 375·390·430·1440px 넘침 0. 개발 환경 자리표시자 기준이며 실제 광고 게재와 전적 화면 브라우저 하네스는 확인하지 않았다.
+- PR #282: `verify:community` 264개 통과.
+- 세 PR 모두 CI(verify, verify-migrations, 운영 의존성 audit, Vercel) 통과 후 병합했다.
+
+### 이후 확인
+
+- 애드센스 보고서의 광고 단위별 수익에 새 이름이 집계되는지 확인한다. 2026-10-15 조회 시점의 최근 30일 애드센스 수익은 $4.61, 페이지 RPM $0.66이며, 자동 광고(전면 50.8%, 앵커 19.1%, 페이지 내 15.6%)가 약 88%였다.
+- 애드센스 지급 보류: 주소 확인 PIN 미입력, 은행 정보 미등록.
+- 외부 유입 기록은 배포 후 아래 조회로 확인한다.
+
+```sql
+select params->>'referrer_host' as source, count(*) as sessions
+from analytics_events
+where event_name = 'page_view' and params->>'landing' = 'true'
+  and created_at > now() - interval '7 days'
+group by 1 order by 2 desc;
+```
+
+- Gemini를 유료로 전환하면 개인정보처리방침 7-2를 갱신한다.
+- `pubg_api_errors` 30일 정리 작업 추가(남은 항목).
