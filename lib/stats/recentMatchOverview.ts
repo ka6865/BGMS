@@ -9,7 +9,7 @@ export interface RecentMatchOverviewInput {
   summaryStatus: "idle" | "loading" | "ready" | "error";
 }
 
-export function buildRecentMatchOverview({ matchIds, summaries, matchModeMeta = {} }: RecentMatchOverviewInput) {
+export function selectRecentMatches({ matchIds, summaries, matchModeMeta = {} }: RecentMatchOverviewInput) {
   // Anchor to the player's latest IDs, independently of history pagination and season filters.
   const ids = [...new Set(matchIds)].slice(0, 20);
   const loaded = ids.flatMap((id) => {
@@ -20,6 +20,11 @@ export function buildRecentMatchOverview({ matchIds, summaries, matchModeMeta = 
       matchType: meta?.matchType || match.matchType, mapName: meta?.mapName || match.mapName }];
   });
   const matches = loaded.filter((match) => ["ranked", "normal", "casual"].includes(classifyMatchMode(match)));
+  return { ids, loaded, matches };
+}
+
+export function buildRecentMatchOverview(input: RecentMatchOverviewInput) {
+  const { ids, loaded, matches } = selectRecentMatches(input);
   const counts = { ranked: 0, normal: 0, casual: 0 };
   for (const match of matches) counts[classifyMatchMode(match) as keyof typeof counts] += 1;
 

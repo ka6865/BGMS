@@ -27,14 +27,42 @@ export type MatchSummaryData = MatchData & {
   performanceHistorical?: boolean;
   performanceState?: import("../pubg/performanceCache").PerformanceState;
   // Separate observed basic values from legacy MatchData placeholder zeroes.
-  basicStats?: { DBNOs: number | null; timeSurvived: number | null };
+  basicStats?: { DBNOs: number | null; timeSurvived: number | null; travelDistance?: number | null; longestKill?: number | null };
   summarySource?: "processed_match_telemetry" | "pubg_player_matches" | "pubg_match_performance";
+  /** 같은 팀의 공개 참가자 닉네임. 관측하지 못하면 없다. */
+  teammateNames?: string[];
 };
 
 
 export function getObservedBasicMatchStat(summary: MatchSummaryData, key: "DBNOs" | "timeSurvived"): number | null {
   const isBasic = summary.summarySource === "pubg_player_matches" && summary.isSummary !== false;
   return normalizeBasicMatchStat(isBasic ? summary.basicStats?.[key] : summary.stats?.[key]);
+}
+
+/** 이동 거리(m)·최장 킬 거리(m). 기본 전적은 저장된 관측값만, 분석 결과는 공식 참가자 통계를 쓴다. */
+export function getObservedMovementStat(summary: MatchSummaryData, key: "travelDistance" | "longestKill"): number | null {
+  const isBasic = summary.summarySource === "pubg_player_matches" && summary.isSummary !== false;
+  if (isBasic) return normalizeBasicMatchStat(summary.basicStats?.[key] ?? null);
+  if (summary.summarySource !== "processed_match_telemetry") return null;
+  const stats = summary.stats as unknown as Record<string, unknown> | undefined;
+  if (!stats) return null;
+  if (key === "longestKill") {
+    const value = stats.longestKill;
+    return typeof value === "number" && Number.isFinite(value) && value >= 0 ? normalizeBasicMatchStat(Math.round(value)) : null;
+  }
+  const parts = [stats.walkDistance, stats.rideDistance, stats.swimDistance];
+  return parts.every(value => typeof value === "number" && Number.isFinite(value) && value >= 0)
+    ? normalizeBasicMatchStat(Math.round((parts as number[]).reduce((sum, value) => sum + value, 0))) : null;
+}
+
+function teammateNamesFromTeam(team: unknown, selfName: unknown): string[] | undefined {
+  if (!Array.isArray(team)) return undefined;
+  const self = typeof selfName === "string" ? selfName.trim().toLowerCase() : "";
+  const names = team.flatMap(member => {
+    const name = (member as { name?: unknown } | null)?.name;
+    return typeof name === "string" && name.trim() && name.trim().toLowerCase() !== self ? [name.trim()] : [];
+  });
+  return names.length ? [...new Set(names)].slice(0, 4) : undefined;
 }
 
 export function buildBasicMatchSummary(row: {
@@ -51,6 +79,9 @@ export function buildBasicMatchSummary(row: {
   match_type?: string;
   knocks?: number | null;
   survival_time?: number | null;
+  travel_distance?: number | null;
+  longest_kill?: number | null;
+  teammate_names?: readonly string[];
 }): MatchSummaryData {
   // MatchData is also the legacy full-analysis UI type. Missing basic values
   // are null on the wire rather than invented numeric observations.
@@ -62,7 +93,13 @@ export function buildBasicMatchSummary(row: {
 
   return {
     matchId: row.match_id,
-    basicStats: { DBNOs: normalizeBasicMatchStat(row.knocks), timeSurvived: normalizeBasicMatchStat(row.survival_time) },
+    basicStats: {
+      DBNOs: normalizeBasicMatchStat(row.knocks),
+      timeSurvived: normalizeBasicMatchStat(row.survival_time),
+      travelDistance: normalizeBasicMatchStat(row.travel_distance),
+      longestKill: normalizeBasicMatchStat(row.longest_kill),
+    },
+    ...(row.teammate_names?.length ? { teammateNames: row.teammate_names.filter(name => typeof name === "string" && name).slice(0, 4) } : {}),
     stats: {
       ...EMPTY_STATS,
       winPlace,
@@ -147,6 +184,7 @@ export function buildMatchSummary(fullResult: any): MatchSummaryData | null {
     ridingShotKnocks: fullResult.ridingShotKnocks,
     roadKills: fullResult.roadKills,
     roadKnocks: fullResult.roadKnocks,
+    teammateNames: teammateNamesFromTeam(fullResult.team, stats.name),
     isSummary: true,
     summarySource: "processed_match_telemetry"
   };
