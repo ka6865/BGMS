@@ -1,5 +1,7 @@
 -- 전체 migration 적용 직후 같은 새 연결에서 소유권·ACL·실제 service_role 호출을 검증한다.
 reset role;
+-- psql 변수는 DO 본문에 치환되지 않으므로 세션 설정으로 넘긴다.
+select set_config('bgms.expected_threshold', :'expected_threshold', false);
 begin;
 do $$
 begin
@@ -12,7 +14,7 @@ begin
       and proowner='bgms_migration_check'::regrole
       and not prosecdef
       and array_position(proconfig,'search_path=public') is not null
-      and array_position(proconfig,'pg_trgm.similarity_threshold=0.2') is not null
+      and array_position(proconfig,'pg_trgm.similarity_threshold=' || current_setting('bgms.expected_threshold')) is not null
   ) then
     raise exception 'non-superuser migration must preserve owner and invoker settings';
   end if;

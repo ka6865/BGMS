@@ -97,6 +97,7 @@ MIGRATIONS=(
   "20261014190000_pubg_previous_week_rankings"
   "20261014220000_pubg_ranking_prebuild_all_filters"
   "20261014230000_pubg_ranking_seed_commit_first"
+  "20261015010000_suggest_similar_players_two_stage"
 )
 
 cleanup() {
@@ -170,10 +171,17 @@ for migration in "${MIGRATIONS[@]}"; do
     # applied unchanged. Real extension install and delivery need live checks.
     sed '/^create extension if not exists pg_cron /d; /^create extension if not exists pg_net /d' \
       "supabase/migrations/${migration}.sql" | "${PSQL[@]}"
-  elif [ "$migration" = "20261014130000_suggest_similar_players_trgm_index_scan" ]; then
+  elif [ "$migration" = "20261014130000_suggest_similar_players_trgm_index_scan" ] \
+    || [ "$migration" = "20261015010000_suggest_similar_players_two_stage" ]; then
     # 각 psql 은 새 연결이다. 슈퍼유저 세션의 pg_trgm 로드 상태를 재사용하지 않는다.
+    # 함수 설정의 임계값은 migration 마다 다르다(0.2 → 두 단계 검색의 0.3).
+    expected_threshold=0.2
+    if [ "$migration" = "20261015010000_suggest_similar_players_two_stage" ]; then
+      expected_threshold=0.3
+    fi
     for _ in 1 2; do
-      "${PSQL[@]}" -c "set role bgms_migration_check;" \
+      "${PSQL[@]}" -v expected_threshold="$expected_threshold" \
+        -c "set role bgms_migration_check;" \
         -f "supabase/migrations/${migration}.sql" \
         -f tests/fixtures/migration-check/suggest-similar-players-migration-role.sql
     done
