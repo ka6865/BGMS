@@ -72,7 +72,7 @@ export const StatSummaryCard = ({ title, data, isRanked, isMobile }: { title: st
             {isRanked && (
               <div className="text-right shrink-0">
                 <div className="text-amber-500 font-black text-xl leading-none">{data.currentRankPoint || 0} <span className="text-xs">RP</span></div>
-                <div className="text-[10px] text-white/30 font-bold uppercase tracking-widest">{data.currentTier?.subTier || ""} 티어</div>
+                <div className="text-[10px] text-white/50 font-bold uppercase tracking-widest">{data.currentTier?.subTier || ""} 티어</div>
               </div>
             )}
           </div>

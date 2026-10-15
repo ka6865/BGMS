@@ -86,12 +86,12 @@ const CollapsibleDetailSection = ({
         </div>
         <div className="min-w-0">
           <div className="truncate text-sm font-black text-white">{title}</div>
-          <div className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-widest text-gray-500">{eyebrow}</div>
+          <div className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-widest text-gray-400">{eyebrow}</div>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {summary && (
-          <div className="hidden max-w-[12rem] truncate text-right text-[10px] font-black text-white/40 sm:block">
+          <div className="hidden max-w-[12rem] truncate text-right text-[10px] font-black text-white/50 sm:block">
             {summary}
           </div>
         )}
@@ -1155,7 +1155,7 @@ export const ExpandedMatchDetails = ({
                         <span className={tagColorStyle}>
                           전술 업적
                         </span>
-                        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+                        <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
                           {badgeTitle}
                         </span>
                       </div>
@@ -1173,7 +1173,7 @@ export const ExpandedMatchDetails = ({
                           <Crosshair size={16} />
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-[9px] text-gray-500 font-bold uppercase">리드샷 (표적 사격)</span>
+                          <span className="text-[9px] text-gray-400 font-bold uppercase">리드샷 (표적 사격)</span>
                           <span className="text-[13px] text-white font-black leading-tight mt-0.5">
                             기절 <span className="text-amber-400">{leadKnocks}</span> · 킬 <span className="text-red-400">{leadKills}</span>
                           </span>
@@ -1187,7 +1187,7 @@ export const ExpandedMatchDetails = ({
                           <Swords size={16} />
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-[9px] text-gray-500 font-bold uppercase">라이딩샷 (탑승 사격)</span>
+                          <span className="text-[9px] text-gray-400 font-bold uppercase">라이딩샷 (탑승 사격)</span>
                           <span className="text-[13px] text-white font-black leading-tight mt-0.5">
                             기절 <span className="text-indigo-400">{ridingKnocks}</span> · 킬 <span className="text-red-400">{ridingKills}</span>
                           </span>
@@ -1201,7 +1201,7 @@ export const ExpandedMatchDetails = ({
                           <Car size={16} />
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-[9px] text-gray-500 font-bold uppercase">로드킬 (차량 충돌)</span>
+                          <span className="text-[9px] text-gray-400 font-bold uppercase">로드킬 (차량 충돌)</span>
                           <span className="text-[13px] text-white font-black leading-tight mt-0.5">
                             기절 <span className="text-rose-400">{roadKnocks}</span> · 킬 <span className="text-rose-400">{roadKills}</span>
                           </span>
@@ -1230,7 +1230,7 @@ export const ExpandedMatchDetails = ({
                 {matchData.weaponStats && Object.keys(matchData.weaponStats).length > 0 ? (
                   <div className="lg:col-span-7 bg-white/2 border border-white/5 rounded-[2.5rem] p-6 flex flex-col gap-4">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">내 무기 상세 스탯</span>
+                      <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">내 무기 상세 스탯</span>
                       <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded-full">공식 PUBG 통계 보정</span>
                     </div>
 
@@ -1262,13 +1262,13 @@ export const ExpandedMatchDetails = ({
                             <div className="flex justify-between items-start mb-3 relative z-10">
                               <div>
                                 <h5 className="text-white font-black text-[15px] tracking-tight">{getTranslatedWeaponName(wName)}</h5>
-                                <span className="text-[9px] text-gray-500 font-bold uppercase">
+                                <span className="text-[9px] text-gray-400 font-bold uppercase">
                                   {wStat.holdingTime ? `파지 ${Math.round(wStat.holdingTime)}초` : '주무기'}
                                 </span>
                               </div>
                               <div className="flex flex-col items-end">
                                 <span className="text-white font-black text-[14px]">
-                                  {Math.round(wStat.damage)} <span className="text-[10px] text-gray-500 font-medium">딜</span>
+                                  {Math.round(wStat.damage)} <span className="text-[10px] text-gray-400 font-medium">딜</span>
                                 </span>
                                 <span className="text-[10px] text-gray-400 font-bold">
                                   기절 {wStat.dbnos} · {wStat.kills}킬
@@ -1335,7 +1335,7 @@ export const ExpandedMatchDetails = ({
                 {Object.keys(normalizedSquadWeaponStats).length > 0 ? (
                   <div className="lg:col-span-5 bg-white/2 border border-white/5 rounded-[2.5rem] p-6 flex flex-col gap-4">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">아군 무기 상세 스탯</span>
+                      <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">아군 무기 상세 스탯</span>
                       <span className="text-[10px] text-indigo-400 font-bold bg-indigo-500/10 px-2 py-0.5 rounded-full">팀원 화력 기여</span>
                     </div>
 
@@ -1418,7 +1418,7 @@ export const ExpandedMatchDetails = ({
                             <MousePointer2 size={20} className="text-blue-400 animate-bounce" />
                           </div>
                           <span className="text-[11px] text-white font-black tracking-tight">이벤트를 클릭하여 위치 확인</span>
-                          <span className="text-[9px] text-gray-500 font-bold">지도에 교전 지점이 표시됩니다</span>
+                          <span className="text-[9px] text-gray-400 font-bold">지도에 교전 지점이 표시됩니다</span>
                         </div>
                       </div>
                     )}
@@ -1427,7 +1427,7 @@ export const ExpandedMatchDetails = ({
                   {/* Right: Timeline */}
                   <div className="lg:col-span-7 xl:col-span-8 bg-white/2 border border-white/5 rounded-[1.5rem] p-3 md:p-4 lg:h-[360px] flex flex-col">
                     <div className="flex items-center justify-between mb-3 shrink-0">
-                      <div className="text-[10px] text-gray-500 font-black uppercase tracking-widest">매치 타임라인</div>
+                      <div className="text-[10px] text-gray-400 font-black uppercase tracking-widest">매치 타임라인</div>
                       <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-full border border-white/10 text-[10px] text-gray-400 font-bold">
                         <Clock size={10} />
                         <span>{Math.floor(matchData!.stats.timeSurvived / 60)}분 {matchData!.stats.timeSurvived % 60}초 생존</span>
@@ -1554,7 +1554,7 @@ export const ExpandedMatchDetails = ({
                                   {data.coach || (isMildTheme ? "KIND COACH" : "SPICY BOMBER")}
                                 </span>
                                 <div className={`h-1 w-1 rounded-full bg-${accentColor}-500`} />
-                                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">전술 매치 보고서</span>
+                                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">전술 매치 보고서</span>
                               </div>
                               <h3 className="text-3xl font-black text-white mb-2 leading-tight">{data.signature}</h3>
                               <p className="text-gray-400 text-sm font-medium">{data.signatureSub}</p>
@@ -1697,25 +1697,25 @@ export const ExpandedMatchDetails = ({
                         <span className={`text-sm font-black truncate ${isMe ? 'text-white' : 'text-gray-300'}`}>
                           {member.name}
                         </span>
-                        <span className="text-[10px] text-gray-500 font-bold">Player No.{idx + 1}</span>
+                        <span className="text-[10px] text-gray-400 font-bold">Player No.{idx + 1}</span>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
                       <div className="bg-black/20 p-2 rounded-xl flex flex-col items-center">
-                        <span className="text-[9px] text-gray-500 font-bold uppercase">Kills</span>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase">Kills</span>
                         <span className="text-sm font-black text-red-400">{Number(member.kills) || 0}</span>
                       </div>
                       <div className="bg-black/20 p-2 rounded-xl flex flex-col items-center">
-                        <span className="text-[9px] text-gray-500 font-bold uppercase">Assists</span>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase">Assists</span>
                         <span className="text-sm font-black text-indigo-400">{Number(member.assists) || 0}</span>
                       </div>
                       <div className="bg-black/20 p-2 rounded-xl flex flex-col items-center">
-                        <span className="text-[9px] text-gray-500 font-bold uppercase">DBNOs</span>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase">DBNOs</span>
                         <span className="text-sm font-black text-yellow-500">{Number(member.DBNOs) || 0}</span>
                       </div>
                       <div className="bg-black/20 p-2 rounded-xl flex flex-col items-center">
-                        <span className="text-[9px] text-gray-500 font-bold uppercase">Damage</span>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase">Damage</span>
                         <span className="text-sm font-black text-white">{Math.floor(Number(member.damageDealt) || 0)}</span>
                       </div>
                     </div>
@@ -1859,7 +1859,7 @@ export const ExpandedMatchDetails = ({
 const StatBox = ({ icon, label, value, color }: { icon: React.ReactNode, label: string, value: string | number, color: string }) => (
   <div className="bg-black/40 p-4 rounded-2xl border border-white/5 flex flex-col items-center gap-1 group hover:border-white/10 transition-colors">
     <div className={`${color} mb-1 opacity-70 group-hover:scale-110 transition-transform`}>{icon}</div>
-    <span className="text-[10px] text-gray-500 font-black uppercase tracking-tighter">{label}</span>
+    <span className="text-[10px] text-gray-400 font-black uppercase tracking-tighter">{label}</span>
     <span className="text-lg font-black text-white">{value}</span>
   </div>
 );

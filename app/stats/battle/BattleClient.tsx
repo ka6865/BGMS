@@ -524,8 +524,8 @@ function BattleContent() {
           <h1 className="text-3xl font-black tracking-tight mb-2">전적 비교 배틀</h1>
           <p className="text-gray-500 text-sm">두 플레이어의 BGMS 분석 데이터를 항목별로 대결시킵니다</p>
           <div className="mt-2 flex flex-col gap-0.5">
-            <p className="text-gray-600 text-[10px]">※ 최근 최대 20경기 중 더 적은 플레이어의 경기 수에 맞춰 비교합니다</p>
-            <p className="text-gray-600 text-[10px]">※ 벤치마커 수집 조건: 5분 이상 생존한 경기만 포함됩니다</p>
+            <p className="text-gray-400 text-[10px]">※ 최근 최대 20경기 중 더 적은 플레이어의 경기 수에 맞춰 비교합니다</p>
+            <p className="text-gray-400 text-[10px]">※ 벤치마커 수집 조건: 5분 이상 생존한 경기만 포함됩니다</p>
           </div>
         </div>
 
@@ -586,7 +586,7 @@ function BattleContent() {
               )}
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-2 md:gap-4 text-[10px] font-bold uppercase tracking-wide text-gray-500">
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-2 md:gap-4 text-[10px] font-bold uppercase tracking-wide text-gray-400">
             <div className="text-center md:text-left">
               플랫폼: {platform1 ? platform1.toUpperCase() : "자동 확인"}
             </div>
@@ -671,7 +671,7 @@ function BattleContent() {
                     <div className="font-black text-base md:text-xl text-indigo-300 truncate w-full max-w-[80px] xs:max-w-[120px] md:max-w-none px-1" title={result.nick1}>
                       {result.nick1}
                     </div>
-                    <div className="text-[9px] md:text-[10px] text-gray-600 font-medium shrink-0">{result.matchCount1}경기 비교</div>
+                    <div className="text-[9px] md:text-[10px] text-gray-400 font-medium shrink-0">{result.matchCount1}경기 비교</div>
                   </div>
 
                   {/* 스코어 */}
@@ -690,7 +690,7 @@ function BattleContent() {
                     <div className="font-black text-base md:text-xl text-rose-300 truncate w-full max-w-[80px] xs:max-w-[120px] md:max-w-none px-1" title={result.nick2}>
                       {result.nick2}
                     </div>
-                    <div className="text-[9px] md:text-[10px] text-gray-600 font-medium shrink-0">{result.matchCount2}경기 비교</div>
+                    <div className="text-[9px] md:text-[10px] text-gray-400 font-medium shrink-0">{result.matchCount2}경기 비교</div>
                   </div>
                 </div>
 
@@ -705,7 +705,7 @@ function BattleContent() {
                     : `${result.overallWinner} 승리! (${Math.max(result.score.nick1, result.score.nick2)}항목 우세)`}
                 </div>
                 {(result.availableMatchCount1 !== result.comparisonMatchCount || result.availableMatchCount2 !== result.comparisonMatchCount) && (
-                  <div className="mt-3 text-center text-[10px] text-gray-600 font-bold">
+                  <div className="mt-3 text-center text-[10px] text-gray-400 font-bold">
                     보유 데이터: {result.nick1} {result.availableMatchCount1}경기 / {result.nick2} {result.availableMatchCount2}경기 → 최근 {result.comparisonMatchCount}경기 기준 비교
                   </div>
                 )}
@@ -731,7 +731,7 @@ function BattleContent() {
                       </div>
 
                       <div className="w-20 md:w-32 text-center shrink-0">
-                        <div className="text-[9px] md:text-[10px] text-gray-500 font-black uppercase tracking-widest mb-1">{c.label}</div>
+                        <div className="text-[9px] md:text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">{c.label}</div>
                         <div className="flex items-center justify-center gap-1 md:gap-2 mt-1">
                           <div className={`w-1.5 h-1.5 md:w-2.5 md:h-2.5 rounded-full transition-all ${n1Wins ? "bg-indigo-400 shadow-[0_0_10px_rgba(99,102,241,1)] scale-110" : "bg-white/10"}`} />
                           <div className={`text-[10px] md:text-xs font-black transition-colors ${
@@ -879,7 +879,7 @@ function NicknameDropdown({
                         <span className="px-1 py-0.5 bg-blue-500/20 text-blue-400 text-[8px] font-black rounded uppercase tracking-tighter border border-blue-500/30">최근</span>
                       )}
                     </div>
-                    <span className="text-[10px] text-gray-500 uppercase">{s.platform}</span>
+                    <span className="text-[10px] text-gray-400 uppercase">{s.platform}</span>
                   </div>
                   <div className="ml-auto flex items-center gap-2">
                     <button
@@ -918,7 +918,7 @@ function NicknameDropdown({
                     <Clock size={14} className="text-gray-500 shrink-0" />
                   )}
                   <span className="text-sm font-bold text-gray-300 group-hover:text-white truncate">{item.nickname}</span>
-                  <span className="text-[10px] text-gray-500 uppercase">{item.platform}</span>
+                  <span className="text-[10px] text-gray-400 uppercase">{item.platform}</span>
                   
                   <div className="ml-auto flex items-center gap-2">
                     <button
