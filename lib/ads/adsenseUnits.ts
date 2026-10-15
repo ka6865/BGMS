@@ -10,6 +10,10 @@ export const ADSENSE_SLOTS = {
   statsFeed: "4661728917", // 전적_목록중간_인피드
   statsRailLeft: "1065675747", // 전적_좌측레일_세로
   statsRailRight: "7184361536", // 전적_우측레일_세로
+  statsRailLeftTop: "9345679922", // 전적_좌측레일_상단사각
+  statsRailRightTop: "4093353248", // 전적_우측레일_상단사각
+  statsRailLeftHalf: "3383651661", // 전적_좌측레일_하프
+  statsRailRightHalf: "2070569998", // 전적_우측레일_하프
   mapBottom: "9597017865", // 지도_하단_가로
   mapMobileSheet: "5871279864", // 지도_모바일시트_가로
   backpackBottom: "5467210328", // 가방_하단_가로
