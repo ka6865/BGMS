@@ -140,10 +140,27 @@ describe("strict squad analysis population and scope",()=>{
       expect(a.stats.avgTradeLatency).toBe(tradeKills?0:null);expect(a.stats.totalRevives).toBe(0);
     }
   });
-  it.each([undefined,observation({version:0}),observation({status:'missing',issues:['incomplete_match_events']}),observation({teamAccountIds:['a','wrong']})])('withholds mixed or incompatible team observations (%j)',async bad=>{
+  it.each([undefined,observation({version:0}),observation({status:'missing',issues:['incomplete_match_events']}),observation({teamAccountIds:['a','wrong']})])('never mixes incompatible team observations and analyzes only observed matches (%j)',async bad=>{
     configureSquadClient(queryChain({data:[canonicalRow(1,{squadObservation:observation()}),canonicalRow(2,{squadObservation:bad})],error:null}));
     const {getSquadAnalysisData}=await import('@/lib/pubg-analysis/squadAnalysis');const a:any=await getSquadAnalysisData('Player_A','steam','Teammate_B');
+    expect(a.selectedMatchIds).toEqual([canonicalRow(1).match_id]);
+    expect(a.stats.totalRevives).toBe(1);expect(a.squadObservation.matchCount).toBe(1);
+  });
+  it('withholds team facts when no selected match has a valid team observation',async()=>{
+    configureSquadClient(queryChain({data:[canonicalRow(1,{squadObservation:observation({version:0})}),canonicalRow(2,{squadObservation:undefined})],error:null}));
+    const {getSquadAnalysisData}=await import('@/lib/pubg-analysis/squadAnalysis');const a:any=await getSquadAnalysisData('Player_A','steam','Teammate_B');
+    expect(a.selectedMatchIds).toHaveLength(2);
     expect(a.stats.totalRevives).toBeNull();expect(a.stats.avgTradeLatency).toBeNull();
+  });
+  it('prefers observed matches over higher-scored matches analyzed before team observation existed',async()=>{
+    const rows=[
+      canonicalRow(1,{benchmark:{score:20,tier:'C'},squadObservation:observation()}),
+      ...[2,3,4,5,6].map(i=>canonicalRow(i,{benchmark:{score:90-i,tier:'A'},squadObservation:observation({status:'unsupported',issues:[]})})),
+    ];
+    configureSquadClient(queryChain({data:rows,error:null}));
+    const {getSquadAnalysisData}=await import('@/lib/pubg-analysis/squadAnalysis');const a:any=await getSquadAnalysisData('Player_A','steam','Teammate_B');
+    expect(a.selectedMatchIds).toEqual([canonicalRow(1).match_id]);
+    expect(a.stats.totalRevives).toBe(1);
   });
   it('does not need an individual tier to show observed team facts',async()=>{
     configureSquadClient(queryChain({data:[canonicalRow(1,{benchmark:{score:50,tier:'BLAH'},squadObservation:observation()})],error:null}));

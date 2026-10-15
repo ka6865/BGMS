@@ -6068,6 +6068,9 @@ describe("AI cache route stabilization", () => {
     expect(await response.json()).toMatchObject({ errorCode: "PUBG_AI_SQUAD_CANONICAL_NOT_READY", retryable: false });
     expect(mockGenerateContent).not.toHaveBeenCalled();
     expect(squadCache.upsert).not.toHaveBeenCalled();
+    // AI 호출 전에 막혀도 원인이 사용 기록에 남아야 운영에서 추적할 수 있다.
+    expect(mockTrackAiFailure).toHaveBeenCalledWith("user-1", "squad", "no squad team observations in selected matches",
+      expect.objectContaining({ errorCode: "squad_not_ready" }));
   });
 
   it.each([false, true])("ai-squad는 엄호 미측정 상태에서도 코칭하고 등급은 보류한다 (cache=%s)", async (cached) => {
