@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import type { PersistedFinalResult } from '../lib/pubg-analysis/persistMatchAnalysis';
 import type { PerformanceJob } from '../lib/pubg/performanceCalculation';
 
-const MAX_JOBS_PER_RUN = 5;
+const MAX_JOBS_PER_RUN = 30;
 
 export function performanceSettlement(result: any) {
   const state = result?.rankingEligible === true ? 'done' : 'excluded';
@@ -37,7 +37,7 @@ async function readJson(url:string, headers:Record<string,string> = {}, maxBytes
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 async function main() {
-  if(!process.argv.includes('--apply') && !process.argv.includes('--calculate')){console.log(JSON.stringify({mode:'dry-run',concurrency:1,maxJobs:MAX_JOBS_PER_RUN,dailyLimit:30,childMemoryMB:512,childTimeoutSeconds:110}));return;}
+  if(!process.argv.includes('--apply') && !process.argv.includes('--calculate')){console.log(JSON.stringify({mode:'dry-run',concurrency:1,maxJobs:MAX_JOBS_PER_RUN,dailyLimit:150,childMemoryMB:512,childTimeoutSeconds:110}));return;}
   const {default:dotenv}=await import('dotenv');dotenv.config({path:'.env.local',quiet:true});
   const {createClient}=await import('@supabase/supabase-js');
   const {ANALYSIS_CALCULATION_VERSION,RESULT_VERSION}=await import('../lib/pubg-analysis/constants');
@@ -76,7 +76,7 @@ async function main() {
   await call('cleanup_pubg_performance_retention',{p_keep_days:90});
   await call('seed_pubg_performance_jobs',{p_calculation:ANALYSIS_CALCULATION_VERSION,p_result:RESULT_VERSION});
   for(let i=0;i<MAX_JOBS_PER_RUN && Date.now()-started<240_000;i++){
-    const jobs=await call('claim_pubg_performance_job',{p_daily_limit:30});const job=jobs?.[0] as PerformanceJob|undefined;if(!job)break;
+    const jobs=await call('claim_pubg_performance_job',{p_daily_limit:150});const job=jobs?.[0] as PerformanceJob|undefined;if(!job)break;
     try{
       const result=await runLimitedChild(job,Math.min(110_000,240_000-(Date.now()-started)));
       const settlement=performanceSettlement(result);
