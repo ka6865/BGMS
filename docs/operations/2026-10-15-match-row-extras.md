@@ -37,3 +37,12 @@
 ## 보존 작업과의 관계
 
 과거 복구 RPC는 행 전체를 `jsonb_populate_record` 스냅샷과 비교한다. 새 컬럼이 없는 기존 스냅샷은 NULL로 채워지므로 기존 행과 일치한다. 복구 대기 중인 legacy 행에 재수집으로 새 값이 들어가면 그 복구는 스냅샷 불일치로 중단되며 데이터는 바뀌지 않는다.
+
+## 운영 적용 실적 (2026-10-15 UTC)
+
+- 적용 전 기준: `pubg_player_matches` 컬럼 16개, 새 컬럼 없음, `upsert_pubg_participant_matches` 본문 md5 `6d50579a…`, `SECURITY INVOKER`·`search_path=""`.
+- 방법: 임시 작업 폴더에 원격 이력 161개의 빈 자리표시 파일과 대상 파일 하나를 두고 `supabase db push --linked --workdir <임시 폴더>`. 먼저 `--dry-run`으로 대상이 `20261015120000_player_match_row_extras.sql` 하나임을 확인했다.
+- 적용: 18:12:29~18:12:32 UTC.
+- 적용 후: 컬럼 19개(`teammates` jsonb, `travel_distance`·`longest_kill` integer), 함수 본문 md5 `337194a0…`, `SECURITY INVOKER`·`search_path=""` 유지, anon·authenticated 실행 불가·service_role 실행 가능, CHECK 제약 `NOT VALID`, 이력 162개·최신 `20261015120000`.
+- 배포 순서: migration 적용 → #298(참가자 저장 중단) 병합 → #297 병합 → Production `b0d29fb9` 배포(18:17 UTC).
+- 배포 후 확인: 운영 `/api/pubg/player/matches` 200·20경기, 응답에 새 컬럼 포함·원본 `teammates` 미포함. `/api/pubg/matches-summary`(`collect:false`) 200, 분석된 경기는 팀원 이름 표시. 새로 수집되는 경기의 값 채움은 다음 검색 이후 확인한다.
