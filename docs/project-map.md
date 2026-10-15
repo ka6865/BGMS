@@ -23,6 +23,8 @@
 
 | 문서 | 사용 목적 |
 | --- | --- |
+| [운영 문서 색인](operations/README.md) | `docs/operations/` 문서별 현재 계약·작업 기록 구분 |
+| [service role 전용 테이블](operations/service-role-only-tables.md) | RLS 정책 없이 서버만 접근하는 테이블과 변경 규칙 |
 | [1~8번 최종 배포 검토](operations/2026-10-10-audit-final-release-review.md) | 최신 main 통합 검증과 계산 3 데이터 전환으로 인한 배포 보류 조건 |
 | [점검 후속 수정·운영 반영 준비](operations/2026-10-10-audit-followup.md) | 이번 브랜치의 변경점, 실제 DB 조회 결과, 적용 순서와 남은 확인 |
 | [점검 4~8번 수정](operations/2026-10-10-audit-fixes-4-8.md) | 지표 집계·이벤트 요청·매치 임팩트·키보드 이동·고객센터 수정과 계산 버전 3 적용 조건 |
