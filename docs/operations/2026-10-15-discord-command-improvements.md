@@ -42,7 +42,22 @@
 
 지원 선택지는 `steam`, `kakao`다. 명시적 platform 옵션이 연동 플랫폼보다 우선한다. 닉네임 우선순위는 직접 입력 → 연동 계정 → 서버 별명/사용자명이다. 닉네임 직접 입력 또는 별명 fallback에서 플랫폼을 지정하지 않으면 `steam`을 사용한다.
 
-`scripts/register_discord_commands.ts`는 정의만 수정했다(`/연동해제` 추가 포함). 이번 작업에서 실행하지 않았으므로 Discord에 이미 등록된 설명·선택지는 별도 운영 등록 전까지 유지된다.
+### Discord 앱 구분
+
+BGMS에는 이름이 같은("BGMS") Discord 앱이 두 개 있다.
+
+| 용도 | Application ID | 값 위치 |
+| --- | --- | --- |
+| 슬래시 명령·자동완성·우클릭 메뉴 | `1539746108199407696` | Interactions Endpoint `https://bgms.kr/api/discord/interactions`, 서명 키는 `DISCORD_PUBLIC_KEY`. 등록용 ID·토큰은 로컬 `.env.local`의 `DISCORD_COMMAND_APPLICATION_ID`·`DISCORD_COMMAND_BOT_TOKEN`에만 둔다. |
+| 커뮤니티 검토·웹훅·방 생성 | `1490545661702307840` | Vercel `DISCORD_BOT_TOKEN`. Interactions Endpoint와 명령 없음. |
+
+명령 앱의 ID·토큰은 런타임에 쓰지 않아 Vercel·GitHub에 없다. Vercel의 `DISCORD_BOT_TOKEN`으로 명령을 등록하지 않는다.
+
+### 명령 등록
+
+`npx tsx --env-file=.env.local scripts/register_discord_commands.ts`로 실행한다. 스크립트는 `DISCORD_COMMAND_*`를 우선 읽고, PUT 전에 토큰의 앱 ID가 지정한 ID와 같은지 확인하며 다르면 등록하지 않는다. PUT은 앱의 전역 명령 전체를 덮어쓴다.
+
+2026-10-15에 명령 앱에 6개 명령(`/연동`, `/연동해제`, `/전적`, `/방금판`, `/비교`, 우클릭 `전적 보기`)을 등록했다. 등록 전에는 2026-08-20 등록분(`연동`, `전적`, `방금판`)이 있었다.
 
 공개 응답 정책은 애플리케이션 코드에서 적용하며 명령 등록 설명의 변경과 별개다. 커뮤니티 승인 버튼은 기존처럼 ephemeral로 defer한다.
 
