@@ -333,7 +333,7 @@ function getMatchStatusBorder(summary?: MatchSummaryData | MatchData | null): st
     return winPlace === 1 ? "border-l-rose-400" : "border-l-red-400";
   }
   if (winPlace === 1) return "border-l-amber-400";
-  if (winPlace <= 10) return "border-l-teal-400";
+  if (winPlace <= 10) return "border-l-blue-400";
   if (kills === 0 && damageDealt < 100) return "border-l-red-400";
   return "border-l-white/20";
 }

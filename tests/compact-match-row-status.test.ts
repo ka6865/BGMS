@@ -18,8 +18,8 @@ describe("전적 목록 행 강조 배경", () => {
   afterEach(cleanup);
 
   it("치킨·상위권·데스매치 승리 행만 옅은 강조 배경을 쓴다", () => {
-    expect(getMatchRowStatus(summary({ place: 1 }))).toEqual({ label: "승리", border: "border-l-amber-400", background: "bg-[#242017]" });
-    expect(getMatchRowStatus(summary({ place: 10 }))).toEqual({ label: "상위권", border: "border-l-teal-400", background: "bg-[#172120]" });
+    expect(getMatchRowStatus(summary({ place: 1 }))).toEqual({ label: "승리", border: "border-l-amber-400", background: "bg-[#2a2414]" });
+    expect(getMatchRowStatus(summary({ place: 10 }))).toEqual({ label: "상위권", border: "border-l-blue-400", background: "bg-[#18202e]" });
     expect(getMatchRowStatus(summary({ place: 1, mode: "tdm" })).background).toBe("bg-[#241b1d]");
     expect(getMatchRowStatus(summary({ place: 2, mode: "tdm" })).background).toBe("bg-[#161616]");
     expect(getMatchRowStatus(summary({ place: 11 })).background).toBe("bg-[#161616]");
@@ -33,10 +33,10 @@ describe("전적 목록 행 강조 배경", () => {
   it("펼침 상태에서도 강조 배경과 모서리 처리가 함께 적용된다", () => {
     const { container, rerender } = render(createElement(CompactMatchRow, { summary: summary({ place: 1 }), isExpanded: false, isMobile: false, onToggle: () => {} }));
     const article = () => container.querySelector("article")!;
-    expect(article()).toHaveClass("bg-[#242017]", "border-l-amber-400", "rounded-2xl");
+    expect(article()).toHaveClass("bg-[#2a2414]", "border-l-amber-400", "rounded-2xl");
     expect(article()).not.toHaveClass("bg-[#161616]");
     rerender(createElement(CompactMatchRow, { summary: summary({ place: 1 }), isExpanded: true, isMobile: false, onToggle: () => {} }));
-    expect(article()).toHaveClass("bg-[#242017]", "rounded-t-2xl", "border-b-0");
+    expect(article()).toHaveClass("bg-[#2a2414]", "rounded-t-2xl", "border-b-0");
     expect(container).toHaveTextContent("에란겔");
   });
 });

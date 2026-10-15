@@ -31,8 +31,8 @@ const MODE_LABELS = {
   unavailable: "확인 불가",
 } as const;
 
-// 치킨·상위권·데스매치 승리 행은 #161616 위에 강조색을 6% 섞은 불투명 배경으로 표시한다.
-// 불투명 값을 써야 행 안의 white/50 이상 작은 글자가 4.5:1 대비를 유지한다.
+// 치킨은 금색(#2a2414), 상위권은 남색(#18202e), 데스매치 승리는 장미색 불투명 배경으로 표시한다.
+// 불투명 값을 써야 행 안의 white/50 이상 작은 글자가 4.5:1 대비를 유지한다(치킨 4.95:1, 상위권 5.09:1).
 export function getMatchRowStatus(summary: MatchSummaryData): { label: string; border: string; background: string } {
   const mode = classifyMatchMode(summary);
   if (mode === "tdm") {
@@ -40,10 +40,10 @@ export function getMatchRowStatus(summary: MatchSummaryData): { label: string; b
       ? { label: "승리", border: "border-l-rose-400", background: "bg-[#241b1d]" }
       : { label: "패배", border: "border-l-red-400", background: "bg-[#161616]" };
   }
-  if (summary.stats.winPlace === 1) return { label: "승리", border: "border-l-amber-400", background: "bg-[#242017]" };
+  if (summary.stats.winPlace === 1) return { label: "승리", border: "border-l-amber-400", background: "bg-[#2a2414]" };
   // 기본 전적에서 순위가 null이면 null <= 10이 참이 되므로 관측된 순위만 상위권으로 본다.
   const winPlace = summary.stats.winPlace;
-  if (typeof winPlace === "number" && winPlace >= 1 && winPlace <= 10) return { label: "상위권", border: "border-l-teal-400", background: "bg-[#172120]" };
+  if (typeof winPlace === "number" && winPlace >= 1 && winPlace <= 10) return { label: "상위권", border: "border-l-blue-400", background: "bg-[#18202e]" };
   if (summary.stats.kills === 0 && summary.stats.damageDealt < 100) {
     return { label: "저성과", border: "border-l-red-400", background: "bg-[#161616]" };
   }
