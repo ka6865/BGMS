@@ -4,6 +4,7 @@ import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { buildPlayerMatchIdentityFilter, fetchPlayerMatchesPaginated, normalizePlayerMatchesPage, normalizePlayerMatchHistoryFilter } from "@/lib/pubg/playerMatches";
+import { readTeammateNames } from "@/lib/pubg/playerMatchTeammates";
  
 import { readHistoryIngest } from "@/lib/pubg/matchDiscovery.server";
 import { collectDiscoveredMatches } from "@/lib/pubg/discoveryBatch.server";
@@ -129,7 +130,7 @@ async function readDiscoveredAccountIds(supabase: ReturnType<typeof getAdminClie
     let accountId = await readCachedAccountId(supabase, platform, nickname);
     let result;
     if (matchId) {
-      let query = supabase.from("pubg_player_matches").select("player_id, platform, account_id, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time, retention_scope");
+      let query = supabase.from("pubg_player_matches").select("player_id, platform, account_id, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time, team_id, travel_distance, longest_kill, retention_scope");
       const identityFilter = buildPlayerMatchIdentityFilter(nickname, accountId);
       query = identityFilter ? query.or(identityFilter) : query.eq("player_id", nickname.trim().toLowerCase());
       const { data, error } = await query.eq("platform", platform).eq("match_id", matchId).limit(1);
@@ -165,6 +166,9 @@ async function readDiscoveredAccountIds(supabase: ReturnType<typeof getAdminClie
     const performanceSummaries = await readRetainedPerformance(supabase, platform, nickname, result.matches.map(m => m.match_id), accountId);
     const performanceStates = await readPerformanceStates(supabase, platform, nickname, result.matches.map(m => m.match_id), accountId);
     const historyIngest = accountId ? await readHistoryIngest(supabase, platform, accountId) : null;
+    const teammates = await readTeammateNames(supabase, platform, result.matches);
+    result = { ...result, matches: result.matches.map(match => teammates.has(match.match_id)
+      ? { ...match, teammate_names: teammates.get(match.match_id) } : match) };
     return NextResponse.json({ ...result, performances, performanceSummaries, performanceStates, historyIngest }, { headers: { 'Cache-Control': 'no-store' } });
    } catch (error: unknown) {
      console.error("[PLAYER-MATCHES] request failed", error);

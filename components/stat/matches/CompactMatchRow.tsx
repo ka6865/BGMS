@@ -1,6 +1,6 @@
 "use client";
 
-import { getObservedBasicMatchStat } from "@/lib/pubg-analysis/matchSummary";
+import { getObservedBasicMatchStat, getObservedMovementStat } from "@/lib/pubg-analysis/matchSummary";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, X } from "lucide-react";
@@ -79,6 +79,9 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
   const knocks = getObservedBasicMatchStat(summary, "DBNOs");
   const survivalSeconds = getObservedBasicMatchStat(summary, "timeSurvived");
   const survivalMinutes = survivalSeconds === null ? null : Math.floor(survivalSeconds / 60);
+  const travelDistance = getObservedMovementStat(summary, "travelDistance");
+  const longestKill = getObservedMovementStat(summary, "longestKill");
+  const teammates = summary.teammateNames ?? [];
   const status = getMatchRowStatus(summary);
   const tier = summary.benchmark ? estimateUserTier(summary.benchmark.score) : null;
   const performanceLabel = ({ pending: "성과 계산 대기", running: "성과 계산 중", retry: "성과 재시도 대기", unavailable: "성과 계산 불가", excluded: "성과 산정 제외", done: "성과 불러오는 중" } as const)[summary.performanceState ?? "done"];
@@ -229,11 +232,31 @@ export function CompactMatchRow({ summary, isExpanded, isMobile, onToggle }: Com
             <span><strong className="text-white">{Math.floor(summary.stats.damageDealt || 0)}</strong> 피해</span>
             <span aria-label={knocks === null ? "기절 정보 없음" : `기절 ${knocks}회`}><strong className="text-white">{knocks ?? "—"}</strong> 기절</span>
             <span aria-label={survivalMinutes === null ? "생존 시간 정보 없음" : `생존 시간 ${survivalMinutes}분`}><strong className="text-white">{survivalMinutes ?? "—"}</strong>{survivalMinutes === null ? " 생존" : "분 생존"}</span>
+            {/* 이동 거리·최장 킬은 저장된 경기에서만 표시한다. 좁은 화면은 행 높이를 지키려고 최장 킬을 생략한다. */}
+            {travelDistance !== null && (
+              <span aria-label={`이동 거리 ${(travelDistance / 1000).toFixed(1)}킬로미터`}><strong className="text-white">{(travelDistance / 1000).toFixed(1)}</strong>km 이동</span>
+            )}
+            {longestKill !== null && longestKill > 0 && (
+              <span className="hidden sm:inline" aria-label={`최장 킬 거리 ${longestKill}미터`}><strong className="text-white">{longestKill}</strong>m 최장 킬</span>
+            )}
           </div>
+          {teammates.length > 0 && (
+            <p className="mt-1 truncate text-[10px] font-bold text-white/50 md:hidden" data-testid="match-row-teammates-inline">
+              팀원 {teammates.join(" · ")}
+            </p>
+          )}
           {(knocks === null || survivalMinutes === null) && (
             <p className="mt-1 text-[10px] leading-relaxed text-white/50">일부 기본 기록이 저장되지 않은 경기입니다.</p>
           )}
         </div>
+
+        {teammates.length > 0 && (
+          <ul className="hidden w-36 shrink-0 flex-col gap-0.5 self-center md:flex" aria-label="함께한 팀원" data-testid="match-row-teammates">
+            {teammates.map((name) => (
+              <li key={name} className="truncate text-[11px] font-bold text-white/60">{name}</li>
+            ))}
+          </ul>
+        )}
 
         <div className="flex shrink-0 flex-col items-end gap-1">
           <span className="text-[10px] font-black text-white/50">{status.label}</span>

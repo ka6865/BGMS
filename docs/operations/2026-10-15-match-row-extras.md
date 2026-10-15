@@ -1,0 +1,32 @@
+# 전적 목록 보조 값(이동 거리·최장 킬·팀원)
+
+전적 목록 행과 왼쪽 열 카드에 이동 거리, 최장 킬 거리, 함께한 팀원을 표시한다. 텔레메트리를 받지 않고 기본 전적 수집이 이미 받는 공식 경기 응답(참가자 통계와 roster)만 쓴다.
+
+## 저장 계약
+
+`20261015120000_player_match_row_extras`가 `pubg_player_matches`에 NULL 허용 컬럼 세 개를 추가한다.
+
+| 컬럼 | 의미 | 원본 |
+| --- | --- | --- |
+| `team_id` | 같은 경기 안의 팀 번호(0~32767) | roster `stats.teamId`와 참가자 연결 |
+| `travel_distance` | 도보·차량·수영 거리 합(m, 정수) | 참가자 `walkDistance + rideDistance + swimDistance`, 하나라도 없으면 NULL |
+| `longest_kill` | 최장 킬 거리(m, 정수). 킬이 없으면 공식 0 | 참가자 `longestKill` |
+
+- 기존 행은 모두 NULL이다. 원본 경기 응답은 14일 뒤 사라지므로 과거 경기를 소급해서 채우지 않는다.
+- `upsert_pubg_participant_matches`는 세 값을 선택 입력으로 받는다. 관측하지 못한 값은 기존 값을 지우지 않는다(`coalesce`). 기존 검증·원자 저장·계정 충돌 시 전체 취소 계약은 그대로다.
+- CHECK 제약 `pubg_player_matches_row_extras_check`는 `NOT VALID`로 추가해 기존 행 전체 검증 스캔을 생략한다.
+- 팀원 이름은 행에 복제하지 않는다. 같은 `platform`·`match_id`·`team_id`의 다른 참가자 행을 조회한다(`lib/pubg/playerMatchTeammates.ts`). 비공개 플레이어는 저장 시점에 이미 제외되고, 조회 시점의 비공개 목록으로 한 번 더 거른다. 조회가 실패하면 팀원 표시만 생략한다.
+- 표시 닉네임은 저장된 정규화 이름(소문자)이다. 상세 분석이 있는 경기는 분석 결과의 팀 구성 이름을 쓴다.
+
+## 배포 순서
+
+새 코드는 목록 조회에서 세 컬럼을 select한다. **운영 DB에 migration을 먼저 적용한 뒤 앱을 배포한다.** 순서가 바뀌면 전적 목록 API가 존재하지 않는 컬럼 오류로 실패한다.
+
+1. `npm run verify:migrations`로 격리 검증한다(시나리오: `tests/fixtures/migration-check/player-match-row-extras-checks.sql`).
+2. 운영에 이 migration 하나만 적용한다(`2026-10-10-remaining-review-fixes.md`의 파일 단위 적용 절차).
+3. 적용 확인: 컬럼 세 개 존재, 함수가 `SECURITY INVOKER`·빈 `search_path`·service role 전용 실행 권한 유지.
+4. 앱을 배포한 뒤 새로 수집된 경기에서 값이 채워지는지 확인한다.
+
+## 보존 작업과의 관계
+
+과거 복구 RPC는 행 전체를 `jsonb_populate_record` 스냅샷과 비교한다. 새 컬럼이 없는 기존 스냅샷은 NULL로 채워지므로 기존 행과 일치한다. 복구 대기 중인 legacy 행에 재수집으로 새 값이 들어가면 그 복구는 스냅샷 불일치로 중단되며 데이터는 바뀌지 않는다.

@@ -9,7 +9,7 @@ export interface StatsMapOverviewCardProps {
 export function StatsMapOverviewCard({ rows }: StatsMapOverviewCardProps) {
   if (!rows.length) return null;
   return (
-    <section className="rounded-2xl border border-white/10 bg-[#161616] p-4 md:p-5 lg:w-[320px] lg:shrink-0" aria-label="맵별 성적">
+    <section className="hidden rounded-2xl border border-white/10 bg-[#161616] p-5 lg:block lg:w-[320px] lg:shrink-0" aria-label="맵별 성적">
       <h2 className="text-base font-black text-white">맵별 성적</h2>
       <p className="mt-1 text-[11px] leading-5 text-white/50">최근 20경기 요약과 같은 배틀로얄 기록 기준입니다.</p>
       <table className="mt-3 w-full table-fixed border-t border-white/10 text-right text-xs">

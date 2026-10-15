@@ -37,14 +37,55 @@ export function buildPlayerMatchRecordFromParticipant(input: IngestParticipantIn
   };
 }
 
+/** 이동 거리는 도보·차량·수영 거리의 합을 m 단위 정수로 저장한다. 하나라도 관측되지 않으면 저장하지 않는다. */
+export function observedTravelDistance(stats: Record<string, unknown>): number | null {
+  const parts = [stats.walkDistance, stats.rideDistance, stats.swimDistance];
+  if (!parts.every(value => typeof value === "number" && Number.isFinite(value) && value >= 0)) return null;
+  return normalizeBasicMatchStat(Math.round((parts as number[]).reduce((sum, value) => sum + value, 0)));
+}
+
+/** 최장 킬 거리(m). 킬이 없으면 공식 응답의 0 을 그대로 저장한다. */
+export function observedLongestKill(stats: Record<string, unknown>): number | null {
+  const value = stats.longestKill;
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? normalizeBasicMatchStat(Math.round(value)) : null;
+}
+
+/** roster 의 참가자 id → teamId. 한 참가자가 여러 roster 에 있거나 teamId 가 범위를 벗어나면 제외한다. */
+export function buildParticipantTeamIds(rosters: readonly unknown[]): Map<string, number> {
+  const teams = new Map<string, number>();
+  const duplicated = new Set<string>();
+  for (const roster of rosters) {
+    const value = roster as { type?: unknown; attributes?: { stats?: { teamId?: unknown } };
+      relationships?: { participants?: { data?: unknown } } } | null;
+    const teamId = value?.attributes?.stats?.teamId;
+    const members = value?.relationships?.participants?.data;
+    if (value?.type !== "roster" || typeof teamId !== "number" || !Number.isSafeInteger(teamId)
+      || teamId < 0 || teamId > 32767 || !Array.isArray(members)) continue;
+    for (const member of members) {
+      const id = (member as { id?: unknown } | null)?.id;
+      if (typeof id !== "string" || !id) continue;
+      if (teams.has(id)) duplicated.add(id);
+      teams.set(id, teamId);
+    }
+  }
+  for (const id of duplicated) teams.delete(id);
+  return teams;
+}
+
 /** Official response observations only; ambiguous identities never become history. */
 export function buildOfficialParticipantMatchRecords(input: {
   matchId: string; platform: string; matchAttr: Record<string, unknown>;
   participants: readonly unknown[]; privatePlayers: readonly PrivatePlayer[];
+  rosters?: readonly unknown[];
 }): PlayerMatchRecord[] {
   const { matchId, platform, matchAttr, privatePlayers } = input;
+  const teamIds = buildParticipantTeamIds(input.rosters ?? []);
   if (!matchId || !["steam", "kakao"].includes(platform)
     || (matchAttr.shardId !== undefined && matchAttr.shardId !== platform)) return [];
+  const participantIds = input.participants.map(participant => {
+    const id = (participant as { id?: unknown } | null)?.id;
+    return typeof id === "string" ? id : null;
+  });
   const participants = input.participants.map(participant => {
     const stats = (participant as { attributes?: { stats?: Record<string, unknown> } } | null)?.attributes?.stats;
     return stats && typeof stats === "object" && !Array.isArray(stats) ? stats : null;
@@ -62,7 +103,7 @@ export function buildOfficialParticipantMatchRecords(input: {
     }
   }
   const records: PlayerMatchRecord[] = [];
-  for (const stats of participants) {
+  for (const [index, stats] of participants.entries()) {
     if (!stats || typeof stats.name !== "string" || typeof stats.playerId !== "string"
       || !/^account\.[A-Za-z0-9_-]+$/.test(stats.playerId)) continue;
     const playerId = normalizeName(stats.name);
@@ -76,6 +117,9 @@ export function buildOfficialParticipantMatchRecords(input: {
       kills: stats.kills, damage: stats.damageDealt, win_place: stats.winPlace,
       knocks: normalizeBasicMatchStat(stats.DBNOs), survival_time: normalizeBasicMatchStat(stats.timeSurvived),
       match_type: typeof matchAttr.matchType === "string" ? matchAttr.matchType.trim().toLowerCase() : "unknown",
+      team_id: participantIds[index] ? teamIds.get(participantIds[index]!) ?? null : null,
+      travel_distance: observedTravelDistance(stats),
+      longest_kill: observedLongestKill(stats),
     };
     const noPlacement = record.win_place === 0 && (record.match_type === "tutorialatoz" || record.game_mode === "tdm");
     if (!hasObservedPlayerMatchValues(record, { allowZeroPlacement: noPlacement })) continue;
@@ -239,7 +283,8 @@ export async function fetchAndIngestBasicMatchSummaryOutcome(
     let privatePlayers: PrivatePlayer[];
     try { privatePlayers = await getPrivatePlayersList(supabase); }
     catch { return { status: "upstream_error", record: null, httpStatus: res.status, rateLimitHeaders, error: "player-privacy-check-failed" }; }
-    const records = buildOfficialParticipantMatchRecords({ matchId, platform: normPlatform, matchAttr, participants, privatePlayers });
+    const rosters = (Array.isArray(data.included) ? data.included : []).filter((it: any) => it?.type === "roster");
+    const records = buildOfficialParticipantMatchRecords({ matchId, platform: normPlatform, matchAttr, participants, privatePlayers, rosters });
     const record = records.find(row => row.account_id === stats.playerId && row.player_id === normalizeName(stats.name));
     if (!record) {
       return { status: "upstream_error", record: null, httpStatus: res.status, rateLimitHeaders, error: "match-basic-values-missing" };

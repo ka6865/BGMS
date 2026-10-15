@@ -18,6 +18,11 @@ export interface PlayerMatchRecord {
   match_type: string;
   knocks?: number | null;
   survival_time?: number | null;
+  team_id?: number | null;
+  travel_distance?: number | null;
+  longest_kill?: number | null;
+  /** 같은 경기·같은 팀의 공개 참가자 닉네임(서버 조회 결과, DB 컬럼 아님). */
+  teammate_names?: string[];
 }
 
 export interface PlayerMatchesPage {
@@ -73,13 +78,21 @@ export function hasObservedPlayerMatchValues(value: unknown, options: { allowZer
 
 /** Omit unobserved counters from conflict updates; inserts use nullable DB defaults. */
 export function toPlayerMatchWriteRecord(record: PlayerMatchRecord): PlayerMatchRecord {
-  const { knocks, survival_time, ...base } = record;
+  // teammate_names 는 조회 결과라 저장하지 않는다.
+  const { knocks, survival_time, team_id, travel_distance, longest_kill, teammate_names: _teammates, ...base } = record;
+  void _teammates;
   const observedKnocks = normalizeBasicMatchStat(knocks);
   const observedSurvival = normalizeBasicMatchStat(survival_time);
+  const observedTeam = typeof team_id === "number" && Number.isSafeInteger(team_id) && team_id >= 0 && team_id <= 32767 ? team_id : null;
+  const observedTravel = normalizeBasicMatchStat(travel_distance);
+  const observedLongest = normalizeBasicMatchStat(longest_kill);
   return {
     ...base,
     ...(observedKnocks !== null ? { knocks: observedKnocks } : {}),
     ...(observedSurvival !== null ? { survival_time: observedSurvival } : {}),
+    ...(observedTeam !== null ? { team_id: observedTeam } : {}),
+    ...(observedTravel !== null ? { travel_distance: observedTravel } : {}),
+    ...(observedLongest !== null ? { longest_kill: observedLongest } : {}),
   };
 }
 
@@ -172,7 +185,7 @@ export async function fetchPlayerMatchesPaginated(
 
   let query = supabase
     .from("pubg_player_matches")
-    .select("player_id, platform, account_id, retention_scope, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time", { count: "exact" })
+    .select("player_id, platform, account_id, retention_scope, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time, team_id, travel_distance, longest_kill", { count: "exact" })
     .eq("platform", normPlatform);
   const identityFilter = buildPlayerMatchIdentityFilter(nickname, accountId);
   query = identityFilter ? query.or(identityFilter) : query.eq("player_id", playerId);
