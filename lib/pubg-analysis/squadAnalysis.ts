@@ -22,6 +22,35 @@ import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 // unmarked entries cannot crowd newer valid matches out of the population.
 const SQUAD_ANALYSIS_SOURCE_LIMIT = 100;
 
+type SquadObservationSource = {
+  match_id?: string;
+  data?: { fullResult?: { squadObservation?: unknown; team?: unknown } };
+};
+
+function squadObservationInput(match: SquadObservationSource) {
+  const team = Array.isArray(match.data?.fullResult?.team) ? match.data!.fullResult!.team as Array<Record<string, unknown>> : [];
+  return {
+    matchId: match.match_id ?? "",
+    observation: match.data?.fullResult?.squadObservation as Parameters<typeof aggregateSquadObservations>[0][number]["observation"],
+    expectedTeamAccountIds: team.map((member) =>
+      [member.accountId, member.playerId].find((value): value is string => typeof value === "string" && Boolean(value.trim())) as string),
+  };
+}
+
+/** 팀 관측값이 이 경기 하나만으로 유효한지. 팀 지표 집계는 고른 경기가 모두 관측돼야 값을 낸다. */
+export function hasObservedSquadMatch(match: SquadObservationSource): boolean {
+  return aggregateSquadObservations([squadObservationInput(match)]).status === "observed";
+}
+
+/**
+ * 팀 지표·AI 코칭에 쓸 후보를 고른다. 관측된 경기가 하나라도 있으면 관측된 경기만 쓴다.
+ * 듀오·스쿼드 팀 관측이 생기기 전에 분석된 경기가 섞이면 팀 지표가 모두 비기 때문이다.
+ */
+export function selectSquadAnalysisCandidates<T extends { value: SquadObservationSource }>(candidates: readonly T[]): T[] {
+  const observed = candidates.filter((candidate) => hasObservedSquadMatch(candidate.value));
+  return observed.length > 0 ? observed : [...candidates];
+}
+
 export async function getSquadAnalysisData(nickname: string, platform: string = "steam", groupKey?: string | null) {
   // normalizeName: 소문자 + trim만 수행, 특수문자(-. 등) 제거 없음 → DB player_id와 정합성 보장
   const lowerNickname = normalizeName(nickname);
@@ -171,7 +200,8 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   const groups = Array.from(groupMap.entries()).map(([normalizedKey, value]) => {
     const latestSelection = selectRecentMatches(selectCandidates(value.matches), { limit: 10 });
     const latestMatches = latestSelection.selected.map((candidate) => candidate.value);
-    const bestMatches = selectBestMatches(latestSelection.selected.filter(candidate => !candidate.value.__calculationPending), { limit: 5 }).map((candidate) => candidate.value);
+    const supportedCandidates = latestSelection.selected.filter(candidate => !candidate.value.__calculationPending);
+    const bestMatches = selectBestMatches(selectSquadAnalysisCandidates(supportedCandidates), { limit: 5 }).map((candidate) => candidate.value);
     selectedGroupMatches.set(normalizedKey, latestMatches);
     bestGroupMatches.set(normalizedKey, bestMatches);
     return {
@@ -226,11 +256,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     if (benchmarkError) console.warn("[SQUAD-TEAM-BENCHMARK]", benchmarkError.message);
     else teamBenchmark = toTeamBenchmarkStats(benchmarkRow as TeamBenchmarkRow | null, selectedGroup.teamMode);
   }
-  const squadObservation = aggregateSquadObservations(analysisMatches.map(match => ({
-    matchId: match.match_id, observation: match.data?.fullResult?.squadObservation,
-    expectedTeamAccountIds: (match.data?.fullResult?.team || []).map((member: any) =>
-      [member.accountId, member.playerId].find(value => typeof value === "string" && value.trim())),
-  })));
+  const squadObservation = aggregateSquadObservations(analysisMatches.map(squadObservationInput));
 
   const memberNameByKey = new Map<string, string>();
   const addSquadMember = (name: string) => {
