@@ -1,4 +1,4 @@
-import React, { memo, useState, useEffect, useMemo, useCallback } from "react";
+import React, { memo, useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import L from "leaflet";
@@ -9,6 +9,8 @@ import { X, Hammer, Map as MapIcon, Crosshair, SlidersHorizontal, Menu, Flame, M
 import type { MapTab, MapMarker, AuthUser, PendingVehicle } from "../../types/map";
 import { useTelemetry } from "../../hooks/useTelemetry";
 import { collectTeamEngagements, findFightStarts, nextFightSeekMs, recentOpponents } from "../../lib/replay/replayEngagements";
+import { findSquadWipeMs, liteReplayEndMs, shouldOfferFullMatch, shouldWarmFullMatch } from "../../lib/replay/replayContinuation";
+import getApiUrl from "../../lib/api-config";
 import TelemetryPlayer from "./TelemetryPlayer";
 import KillFeed from "./KillFeed";
 import HomeNotice from "./HomeNotice";
@@ -153,6 +155,43 @@ const MapShell = memo(({
     );
     const fightStarts = useMemo(() => findFightStarts(teamEngagements), [teamEngagements]);
     const nextFightMs = nextFightSeekMs(fightStarts, currentTimeMs);
+
+    // lite는 아군 전멸 30초 뒤에서 끝난다. 끝까지 오면 같은 시각부터 full로 경기 끝까지 이어 본다.
+    const squadWipeMs = useMemo(
+      () => (playbackMode === "lite" ? findSquadWipeMs(safeTelemetryEvents, safeTeamNames) : null),
+      [playbackMode, safeTelemetryEvents, safeTeamNames],
+    );
+    // 전멸 뒤 lite에는 다른 선수의 부활 이벤트만 드문드문 남으므로 타임라인은 "전멸 + 30초"에서 끝낸다.
+    const replayEndMs = liteReplayEndMs(playbackMode, squadWipeMs, maxTimeMs);
+    const reachedLiteEnd = !rankerLesson && shouldOfferFullMatch({ mode: playbackMode, squadWipeMs, currentTimeMs, maxTimeMs });
+    useEffect(() => {
+      if (!reachedLiteEnd) return;
+      if (isPlaying) setIsPlaying(false);
+      // 링크의 t나 고배속 재생으로 lite 끝을 넘으면 끝 시각으로 맞춘다.
+      if (currentTimeMs > replayEndMs) setCurrentTimeMs(replayEndMs);
+    }, [reachedLiteEnd, isPlaying, setIsPlaying, currentTimeMs, replayEndMs, setCurrentTimeMs]);
+    const [isFullMatchOfferDismissed, setIsFullMatchOfferDismissed] = useState(false);
+    const offerFullMatch = reachedLiteEnd && !isPlaying && !isFullMatchOfferDismissed;
+    const warmedFullMatchRef = useRef<string | null>(null);
+    useEffect(() => {
+      if (!playbackId || !playbackNickname || !playbackPlatform) return;
+      if (!shouldWarmFullMatch({ mode: playbackMode, squadWipeMs, currentTimeMs, maxTimeMs })) return;
+      const key = `${playbackPlatform}:${playbackId}:${playbackNickname}`;
+      if (warmedFullMatchRef.current === key) return;
+      warmedFullMatchRef.current = key;
+      // 응답 본문은 쓰지 않는다. 서버가 full 리플레이를 미리 만들어 두게 하는 요청이다.
+      const query = new URLSearchParams({ matchId: playbackId, nickname: playbackNickname, platform: playbackPlatform, mode: "full" });
+      void fetch(getApiUrl(`/api/pubg/telemetry?${query.toString()}`), { cache: "no-store" }).catch(() => undefined);
+    }, [playbackId, playbackNickname, playbackPlatform, playbackMode, squadWipeMs, currentTimeMs, maxTimeMs]);
+    useEffect(() => {
+      setIsFullMatchOfferDismissed(false);
+    }, [playbackId, playbackNickname, playbackMode]);
+    const continueFullMatch = () => {
+      const query = new URLSearchParams(searchParams?.toString() || "");
+      query.set("mode", "full");
+      query.set("t", String(Math.floor(Math.min(currentTimeMs, replayEndMs) / 1000)));
+      router.replace(`/maps/${activeMapId.toLowerCase()}?${query.toString()}`, { scroll: false });
+    };
     const engagedOpponents = useMemo(() => recentOpponents(teamEngagements, currentTimeMs), [teamEngagements, currentTimeMs]);
     const alivePlayers = Object.values(safeCurrentStates).filter((p: any) => !p.isDead);
     const aliveTeams = new Set(alivePlayers.map((p: any) => p.teamId)).size;
@@ -517,7 +556,7 @@ const MapShell = memo(({
                       </div>
                     </div>
                     <h3 className="mt-6 text-white font-black text-xl tracking-tighter uppercase px-4 text-center">
-                      {isFullMode ? "초정밀 데이터 분석 중..." : "전투 데이터 복기 중..."}
+                      {isFullMode ? "경기 끝까지 불러오는 중..." : "전투 데이터 복기 중..."}
                     </h3>
                   </div>
                 )}
@@ -538,12 +577,29 @@ const MapShell = memo(({
                   <Link href="/learn" className="absolute left-3 top-4 z-[2000] flex h-11 items-center rounded-xl border border-white/10 bg-black/80 px-3 text-xs text-emerald-300">경기 목록</Link>
                 )}
 
+                {offerFullMatch && (
+                  <div className="absolute inset-x-0 top-1/3 z-[5100] flex justify-center px-4 pointer-events-none">
+                    <div role="dialog" aria-label="경기 끝까지 이어 보기" className="pointer-events-auto max-w-sm rounded-2xl border border-white/10 bg-[#111]/95 px-5 py-4 text-center shadow-2xl backdrop-blur">
+                      <p className="text-sm font-bold text-white">아군 전멸</p>
+                      <p className="mt-1 text-xs text-gray-400">이 리플레이는 아군 전멸 30초 뒤까지입니다. 남은 경기도 이어서 볼 수 있습니다.</p>
+                      <div className="mt-3 flex justify-center gap-2">
+                        <button type="button" onClick={continueFullMatch} className="h-9 rounded-lg bg-[#F2A900] px-4 text-xs font-bold text-black hover:bg-yellow-400">
+                          경기 끝까지 이어 보기
+                        </button>
+                        <button type="button" onClick={() => setIsFullMatchOfferDismissed(true)} className="h-9 rounded-lg border border-white/10 px-3 text-xs font-bold text-gray-300 hover:text-white">
+                          닫기
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* 하단 플레이어 컨트롤러 */}
                 <div className={`absolute ${isMobile ? 'bottom-20' : 'bottom-6'} left-1/2 -translate-x-1/2 z-[1000] w-full max-w-2xl px-4`}>
                   <TelemetryPlayer
                     events={safeTelemetryEvents} teamNames={safeTeamNames} isPlaying={isPlaying} setIsPlaying={setIsPlaying} playbackSpeed={playbackSpeed}
                     setPlaybackSpeed={setPlaybackSpeed} currentTimeMs={currentTimeMs} setCurrentTimeMs={setCurrentTimeMs}
-                    maxTimeMs={maxTimeMs} loading={telemetryLoading} error={playbackIdentityError || telemetryError} showZone={showZone}
+                    maxTimeMs={replayEndMs} loading={telemetryLoading} error={playbackIdentityError || telemetryError} showZone={showZone}
                     onToggleZone={() => setShowZone(!showZone)} showCombatDots={showCombatDots}
                     onToggleCombatDots={() => setShowCombatDots(!showCombatDots)} showShotDots={showShotDots}
                     onToggleShotDots={() => setShowShotDots(!showShotDots)} hiddenPlayers={hiddenPlayers}

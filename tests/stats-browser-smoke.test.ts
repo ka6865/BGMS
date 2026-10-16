@@ -597,7 +597,7 @@ async function controlEvidence(page: Page, state: ControlState) {
     if (currentState === "detail-expanded") {
       const detail = document.querySelector('[data-testid="expanded-match-details"]');
       add("detail-control", detail ? query("button", detail) : []);
-      add("replay-control", query('button[aria-label="3D 전술 리플레이"], button[aria-label="2D 맵 리플레이"], button[aria-label="고정밀 리플레이"]'));
+      add("replay-control", query('button[aria-label="3D 전술 리플레이"], button[aria-label="2D 맵 리플레이"]'));
     }
     if (currentState === "squad") {
       const selector = document.querySelector('select[aria-label="팀 그룹"]');
@@ -1488,7 +1488,8 @@ describeBrowser("stats browser smoke", () => {
         expect(replayControls).toEqual([
           { label: "3D 전술 리플레이", present: true, disabled: false },
           { label: "2D 맵 리플레이", present: true, disabled: false },
-          { label: "고정밀 리플레이", present: true, disabled: false },
+          // 2D 진입점은 하나로 합쳤다. 아군 전멸 뒤는 재생 화면에서 full로 이어 본다.
+          { label: "고정밀 리플레이", present: false, disabled: false },
         ]);
         const detailControls = await controlEvidence(page, "detail-expanded");
         assertControlEvidence({
@@ -1502,7 +1503,6 @@ describeBrowser("stats browser smoke", () => {
           "리플레이 분석",
           "3D 전술 리플레이",
           "2D 맵 리플레이",
-          "고정밀 리플레이",
         ]) {
           expect(detailControls.records.some((record) => record.visible && record.label.includes(label)), label).toBe(true);
         }
