@@ -31,13 +31,13 @@ afterEach(()=>{cleanup();pane.remove();vi.restoreAllMocks();vi.unstubAllGlobals(
 describe('live telemetry canvas state',()=>{
   it('draws players when blue-zone coordinates are missing and updates labels/map without remounting',()=>{
     const view=render(React.createElement(TelemetryCanvasLayer,{telemetryData:data()})); frame();
-    expect(context.fillText).toHaveBeenCalledWith('Player',0,-21);
+    expect(context.fillText).toHaveBeenCalledWith('Player',0,179);
     const canvas=pane.querySelector('canvas');
     context.fillText.mockClear();
     // 이름 자동 표시: 아군은 남고, 아군과 교전 기록이 없는 적은 숨긴다.
     view.rerender(React.createElement(TelemetryCanvasLayer,{telemetryData:data({showPlayerNames:false,mapName:'Desert_Main'})})); frame();
     expect(pane.querySelector('canvas')).toBe(canvas);
-    expect(context.fillText).toHaveBeenCalledWith('Player',0,-21);
+    expect(context.fillText).toHaveBeenCalledWith('Player',0,179);
     context.fillText.mockClear();
     view.rerender(React.createElement(TelemetryCanvasLayer,{telemetryData:data({showPlayerNames:false,mapName:'Desert_Main',currentStates:{Player:{...player,isEnemy:true}}})})); frame();
     expect(context.fillText).not.toHaveBeenCalled();
@@ -51,7 +51,7 @@ describe('live telemetry canvas state',()=>{
     const fought = data({ showPlayerNames:false, teamNames:['Mate'], currentStates:{Enemy:enemy},
       events:[{ type:'damage', relativeTimeMs:900, attackerName:'Enemy', victimName:'Mate' }] });
     render(React.createElement(TelemetryCanvasLayer,{telemetryData:fought})); frame();
-    expect(context.fillText).toHaveBeenCalledWith('Enemy',0,-21);
+    expect(context.fillText).toHaveBeenCalledWith('Enemy',0,179);
   });
   it('zooms to the followed player, keeps it centered, and cancels following on drag',()=>{
     const onFollowCancel = vi.fn();
@@ -87,6 +87,12 @@ describe('live telemetry canvas state',()=>{
     expect(context.moveTo).not.toHaveBeenCalledWith(92,92);
     // 예전 데이터의 추정 연막(500,500)은 그리지 않는다.
     expect(context.arc.mock.calls.some(([x,y]:number[]) => x === 500 && y === 500)).toBe(false);
+  });
+  it('moves an overlapping name label up instead of drawing it on top of another one',()=>{
+    const mate = { name:'Mate', x:0, y:200, health:100, isEnemy:false };
+    render(React.createElement(TelemetryCanvasLayer,{telemetryData:data({ currentStates:{ Player:player, Mate:mate } })})); frame();
+    const labelYs = context.fillText.mock.calls.filter(([text]:[string]) => text === 'Player' || text === 'Mate').map(([, , y]:number[]) => y);
+    expect(labelYs.sort((a:number, b:number) => a - b)).toEqual([164, 179]);
   });
   it('applies combat and shot switches immediately and does not draw future effects',()=>{
     const events=[{type:'kill',x:0,y:100,relativeTimeMs:900},{type:'shot',x:0,y:100,relativeTimeMs:900}];

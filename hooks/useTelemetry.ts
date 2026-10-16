@@ -5,6 +5,7 @@ import type { TelemetryMode, TelemetryPlatform } from "../lib/pubg-analysis/tele
 import { getMatchDetailRetention, MATCH_DETAIL_EXPIRED_CODE, MATCH_DETAIL_EXPIRED_MESSAGE, MATCH_DETAIL_UNAVAILABLE_CODE } from "../lib/pubg-analysis/matchRetention";
 import { MAX_POSITION_INTERPOLATION_GAP_MS } from "../lib/pubg-analysis/telemetryContract";
 import { enemyTeamColor, squadColor } from "../lib/replay/squadColors";
+import { restoreNameCase } from "../lib/replay/displayNames";
 
 export interface TelemetryEvent {
   type: "position" | "enemy_position" | "ride" | "leave" | "kill" | "groggy" | "took_damage" | "shot" | "revive" | "create" | "throw" | "throw_explode" | "grenade" | "smoke" | "damage";
@@ -185,7 +186,7 @@ export function useTelemetry(
       const evs = data.events as TelemetryEvent[];
       setEvents(evs);
       setTeammates(data.teammates || []);
-      setTeamNames(data.teamNames || []);
+      setTeamNames(restoreNameCase(data.teamNames || [], evs));
       setZoneEvents(data.zoneEvents || []);
       setIsFullMode(full);
 
