@@ -3,6 +3,7 @@ import {
   telemetryPublicIdentityEquals,
   type TelemetryPublicIdentity,
 } from "./telemetryIdentity";
+import { decodeReplayEvents, encodeReplayEvents } from "./replayTrackEncoding";
 
 export type TelemetryPayload = {
   identity: TelemetryPublicIdentity;
@@ -87,6 +88,12 @@ export function createTelemetryPayload(input: TelemetryPayload): TelemetryPayloa
   return parseTelemetryPayload(input);
 }
 
+/** R2 저장용 JSON. 좌표를 선수별 track으로 묶고, 원본과 같게 복원할 수 없으면 기존 형식을 쓴다. */
+export function serializeTelemetryPayload(payload: TelemetryPayload): string {
+  const encoded = encodeReplayEvents(payload.events);
+  return JSON.stringify(encoded ? { ...payload, ...encoded } : payload);
+}
+
 export function parseTelemetryPayload(
   value: unknown,
   expectedIdentity?: TelemetryPublicIdentity,
@@ -104,7 +111,10 @@ export function parseTelemetryPayload(
   if (!teammates.every((playerKey) => PUBLIC_PLAYER_KEY.test(playerKey))) {
     throw new Error("텔레메트리 teammate accountId는 공개 키여야 합니다.");
   }
-  const events = parseArray(payload.events, "events");
+  // encoding이 있으면 track 형식(serializeTelemetryPayload), 없으면 기존 이벤트 배열 형식이다.
+  const events = payload.encoding === undefined
+    ? parseArray(payload.events, "events")
+    : decodeReplayEvents(payload.encoding, payload.events, payload.tracks);
   const zoneEvents = parseArray(payload.zoneEvents, "zoneEvents");
   assertPublicAccountIds(events);
   assertPublicAccountIds(zoneEvents);
