@@ -94,3 +94,15 @@ export function sampleHealth(track: readonly PositionSample[] | undefined, timeM
   }
   return null;
 }
+
+/**
+ * 경기 시작 뒤 위치 기록이 있는 실제 참가자 이름(소문자). 대기실에서 나간 선수나
+ * 분석기가 만든 가상 이름("Unknown", "환경/자연사" 등)은 위치가 없어 빠진다.
+ */
+export function collectMatchPlayerNames(events: readonly unknown[]): Set<string> {
+  const names = new Set<string>();
+  buildPositionTracks(events).forEach((track, name) => {
+    if (track.some((sample) => sample.t >= 0)) names.add(name);
+  });
+  return names;
+}

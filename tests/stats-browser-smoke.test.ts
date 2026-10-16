@@ -723,6 +723,13 @@ async function layoutEvidence(page: Page) {
         inFirstViewport: rect.top < window.innerHeight && rect.bottom > 0,
       }];
     });
+    // 수동 광고 레일은 콘텐츠 영역 바깥 여백에 두는 설계라 따로 모은다.
+    const adRails = [...document.querySelectorAll<HTMLElement>('[data-ad-rail="manual"]')]
+      .filter(visible)
+      .map((rail) => {
+        const rect = rail.getBoundingClientRect();
+        return { side: rail.dataset.adRailSide ?? null, left: rect.left, right: rect.right };
+      });
     const bottomPadding = shell ? Number.parseFloat(getComputedStyle(shell).paddingBottom) : 0;
     const navRect = nav?.getBoundingClientRect();
     const gridColumns = grid ? getComputedStyle(grid).gridTemplateColumns : "missing";
@@ -731,6 +738,9 @@ async function layoutEvidence(page: Page) {
       scrollY: window.scrollY,
       globalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       internalOverflow,
+      adRails,
+      shellLeft: shellRect?.left ?? 0,
+      shellRight: shellRect?.right ?? 0,
       shellWidth: shellRect?.width ?? 0,
       shellCapOk: (shellRect?.width ?? 0) <= 1200.5,
       gridColumns,
@@ -802,14 +812,22 @@ function assertNoUnexpectedViewportOverflow(
   evidence: Awaited<ReturnType<typeof layoutEvidence>>,
   width: number,
 ): void {
-  const unexpectedOverflow = evidence.internalOverflow.filter((item) => {
-    const isIntentional1920AdRail = width === 1920
-      && ((item.adRailSide === "left" && item.left >= 160 && item.right <= 360)
-        || (item.adRailSide === "right" && item.left >= 1560 && item.right <= 1760));
-    return !isIntentional1920AdRail;
-  });
+  // 광고 레일 안의 요소는 레일이 화면 안에 있고 콘텐츠와 겹치지 않으면 의도한 배치다.
+  const isInsideAllowedRail = (item: { adRailSide: string | null; left: number; right: number }) =>
+    item.adRailSide === "right"
+      ? item.left >= evidence.shellRight - 0.5 && item.right <= width + 0.5
+      : item.adRailSide === "left"
+        ? item.left >= -0.5 && item.right <= evidence.shellLeft + 0.5
+        : false;
+  const unexpectedOverflow = evidence.internalOverflow.filter((item) => !isInsideAllowedRail(item));
   expect(unexpectedOverflow).toEqual([]);
   expect(evidence.globalOverflow).toBe(0);
+  for (const rail of evidence.adRails) {
+    expect(rail.left, `${rail.side} rail left`).toBeGreaterThanOrEqual(-0.5);
+    expect(rail.right, `${rail.side} rail right`).toBeLessThanOrEqual(width + 0.5);
+    if (rail.side === "right") expect(rail.left).toBeGreaterThanOrEqual(evidence.shellRight - 0.5);
+    if (rail.side === "left") expect(rail.right).toBeLessThanOrEqual(evidence.shellLeft + 0.5);
+  }
 }
 
 function assertLayoutContract(

@@ -11,6 +11,7 @@ import { useTelemetry } from "../../hooks/useTelemetry";
 import { collectTeamEngagements, findFightStarts, nextFightSeekMs, recentOpponents } from "../../lib/replay/replayEngagements";
 import { findSquadWipeMs, liteReplayEndMs, shouldOfferFullMatch, shouldWarmFullMatch } from "../../lib/replay/replayContinuation";
 import getApiUrl from "../../lib/api-config";
+import { collectMatchPlayerNames } from "../../lib/replay/replayInterpolation";
 import TelemetryPlayer from "./TelemetryPlayer";
 import KillFeed from "./KillFeed";
 import HomeNotice from "./HomeNotice";
@@ -193,7 +194,11 @@ const MapShell = memo(({
       router.replace(`/maps/${activeMapId.toLowerCase()}?${query.toString()}`, { scroll: false });
     };
     const engagedOpponents = useMemo(() => recentOpponents(teamEngagements, currentTimeMs), [teamEngagements, currentTimeMs]);
-    const alivePlayers = Object.values(safeCurrentStates).filter((p: any) => !p.isDead);
+    // 생존 수는 경기 시작 뒤 위치가 있는 실제 참가자만 센다(대기실 이탈자·가상 이름 제외).
+    const matchPlayerNames = useMemo(() => collectMatchPlayerNames(safeTelemetryEvents), [safeTelemetryEvents]);
+    const matchStates = useMemo(() => Object.fromEntries(Object.entries(safeCurrentStates)
+      .filter(([, p]: [string, any]) => matchPlayerNames.has(String(p.name || "").trim().toLowerCase()))), [safeCurrentStates, matchPlayerNames]);
+    const alivePlayers = Object.values(matchStates).filter((p: any) => !p.isDead);
     const aliveTeams = new Set(alivePlayers.map((p: any) => p.teamId)).size;
     const [isInstructionDismissed, setIsInstructionDismissed] = useState(false);
 
@@ -653,7 +658,7 @@ const MapShell = memo(({
                   onSelect={selectLessonScene} onClose={() => setIsMenuOpen(false)}
                   onRetry={() => window.location.reload()}
                 />
-              ) : <TelemetrySidebar currentStates={safeCurrentStates} engagedOpponents={engagedOpponents} followPlayer={followPlayer} />}
+              ) : <TelemetrySidebar currentStates={matchStates} engagedOpponents={engagedOpponents} followPlayer={followPlayer} />}
             </div>
           )}
         </div>
