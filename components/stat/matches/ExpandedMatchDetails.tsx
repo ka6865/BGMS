@@ -32,6 +32,7 @@ import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import { getTranslatedWeaponName } from "@/lib/pubg-analysis/constants";
 export { MatchPerformancePanel } from "./MatchPerformancePanel";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
+import { BOT_SHARE_LEVEL_LABELS, buildBotShare } from "@/lib/pubg-analysis/botShare";
 import { normalizeSquadWeaponStats } from "@/lib/pubg-analysis/squadWeaponStats";
 import { useAIStatus, aiManager } from "@/lib/ai-management";
 import { useAuth } from "@/components/AuthProvider";
@@ -411,6 +412,7 @@ export const ExpandedMatchDetails = ({
   const roadKnocks = matchData ? (matchData.stats?.roadKnocks ?? matchData.roadKnocks ?? 0) : 0;
   const vehicleCombatTotal = leadKills + leadKnocks + ridingKills + ridingKnocks + roadKills + roadKnocks;
   const hasVehicleCombat = vehicleCombatTotal > 0;
+  const botShare = matchData ? buildBotShare(matchData.totalPlayers, matchData.botCount) : null;
   const normalizedNickname = normalizeName(nickname);
   const normalizedTeamMembers = useMemo(() => {
     const memberMap = new Map<string, MatchTeamMember>();
@@ -1109,6 +1111,19 @@ export const ExpandedMatchDetails = ({
             <StatBox icon={<Shield size={16} />} label="기절시킴" value={Number(matchData!.stats.DBNOs) || 0} color="text-yellow-400" />
             <StatBox icon={<Clock size={16} />} label="생존시간" value={`${Math.floor((Number(matchData!.stats.timeSurvived) || 0) / 60)}분`} color="text-green-400" />
           </div>
+
+          {botShare && (
+            <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-400" aria-label="참가자 구성">
+              <span>참가자 {botShare.botCount + botShare.humanCount}명</span>
+              <span className="text-gray-600">·</span>
+              <span>사람 {botShare.humanCount}</span>
+              <span className="text-gray-600">·</span>
+              <span>봇 {botShare.botCount} ({botShare.percent}%)</span>
+              {botShare.level !== "none" && (
+                <span className="rounded bg-white/5 px-1.5 py-0.5 font-bold text-gray-300">{BOT_SHARE_LEVEL_LABELS[botShare.level]}</span>
+              )}
+            </p>
+          )}
 
           {/* Premium Vehicle Combat Banner */}
           {hasVehicleCombat && (() => {
