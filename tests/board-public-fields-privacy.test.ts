@@ -16,6 +16,8 @@ describe("게시판 공개 조회 칸", () => {
     const source = readFileSync("app/board/page.tsx", "utf8");
     expect(source).toContain("ip_address:ip_masked");
     expect(source).not.toMatch(/parent_id, ip_address,/);
+    // 칸 단위 권한만으로는 comments(count) 집계가 권한 오류를 낸다.
+    expect(source).not.toContain("comments(count)");
   });
 
   it("본인 프로필 전체 조회는 get_my_profile을 쓰고 profiles 전체 칸을 직접 읽지 않는다", () => {
