@@ -21,6 +21,13 @@
    - `posts`, `comments`, `profiles`의 표 단위 SELECT를 `anon`, `authenticated`에서 회수하고 공개 칸만 칸 단위로 다시 준다.
    - `profiles`의 `anon` 쓰기 권한을 없애고, `authenticated`는 `nickname`, `avatar_url`, `pubg_nickname`, `pubg_platform`, `updated_at`, `last_active_at`만 수정할 수 있다(`role`은 트리거도 막는다).
 
+## 2026-10-17 장애와 후속
+
+- `20261017020000` 적용 직후 웹 게시판 목록이 비었다. `comments(count)` 같은 embed 집계는 PostgreSQL에서 표 단위 SELECT 권한이 필요해 칸 단위 권한만 있는 공개 키 조회가 `42501`로 실패했다. `count: 'exact'`(HEAD) 조회는 영향이 없었다.
+- `20261017030000_comments_count_hotfix`로 `comments` 표 단위 SELECT를 임시로 되돌려 복구했다(당시 IP 보유 댓글 0건).
+- 게시판 목록은 `comments(id)` 목록 길이로 댓글 수를 센다. 배포 후 `20261017040000_comments_column_privacy_reapply`로 다시 칸 단위로 줄인다.
+- 공개 키로 `posts`·`comments`·`profiles`에 `(count)` embed 집계를 쓰지 않는다. 필요하면 서버 권한 조회나 전용 함수를 쓴다.
+
 ## 주의
 
 - 세 표에 새 칸을 추가하면 기본은 비공개다. 공개가 필요하면 migration에서 칸 단위로 grant 한다.
@@ -32,7 +39,7 @@
 
 1. 준비 migration 적용(운영, 개별 적용 절차는 `2026-10-10-remaining-review-fixes.md`).
 2. 앱 배포.
-3. 회수 migration 적용. 적용 후 공개 키로 `profiles?select=pubg_nickname`, `posts?select=ip_address`가 401/403(권한 오류)인지, 게시판·마이페이지·헤더가 정상인지 확인한다.
+3. 회수 migration 적용(`20261017020000`, 장애 후속 `20261017040000`). 적용 후 공개 키로 `profiles?select=pubg_nickname`, `posts?select=ip_address`가 401/403(권한 오류)인지, 게시판·마이페이지·헤더가 정상인지 확인한다.
 
 ## 검증
 

@@ -102,6 +102,8 @@ MIGRATIONS=(
   "20261016010000_performance_jobs_newest_first"
   "20261017010000_public_column_privacy_prepare"
   "20261017020000_public_column_privacy_revoke"
+  "20261017030000_comments_count_hotfix"
+  "20261017040000_comments_column_privacy_reapply"
 )
 
 cleanup() {
