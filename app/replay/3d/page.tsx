@@ -39,6 +39,8 @@ import {
 } from "@/lib/replay/replay3dHelpers";
 import { threeToHeightmapPixel } from "@/lib/heightmapCoords";
 import { MAX_POSITION_INTERPOLATION_GAP_MS } from "@/lib/pubg-analysis/telemetryContract";
+import { isCombatDamageCause } from "@/lib/pubg-analysis/replayEventKinds";
+import { SQUAD_COLORS, enemyTeamColor } from "@/lib/replay/squadColors";
 
 // PUBG 맵 크기 상수 (cm)
 const THREE_MAP_SIZE = 100; // Three.js 공간 상의 가로세로 크기
@@ -218,21 +220,6 @@ const getSeatOffset = (index: number, isPlane: boolean): THREE.Vector3 => {
 
 
 
-const COLORS = ["#34A853", "#a855f7", "#ff9f0a", "#3b82f6", "#ef4444", "#06b6d4", "#eab308", "#ec4899"];
-const ENEMY_TEAM_COLORS = [
-  "#ff4a4a", // 네온 레드
-  "#00f0ff", // 네온 시안
-  "#ff2a85", // 네온 핫핑크
-  "#39ff14", // 네온 라임그린
-  "#ffff33", // 네온 옐로우
-  "#bf00ff", // 딥 네온퍼플
-  "#ff8c00", // 네온 다크오렌지
-  "#00ff87", // 네온 민트그린
-  "#ff5e00", // 일렉트릭 오렌지
-  "#9d4edd", // 네온 바이올렛
-  "#0077b6", // 딥 오션블루
-  "#e0aaff"  // 라이트 라벤더
-];
 
 function Replay3DContent() {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -488,15 +475,16 @@ function Replay3DContent() {
           .filter((wp: any) => wp.x !== 0 || wp.y !== 0)
           .sort((a: any, b: any) => a.t - b.t);
 
-          if (waypoints.length > 0) {
+          // 대기실에서 나간 선수는 경기 시작 뒤 위치가 없으므로 선수로 세지 않는다(2D와 같은 기준).
+          if (waypoints.some((wp: any) => wp.t >= 0)) {
             const teamId = posEvs[0]?.teamId ?? posEvs[0]?.character?.teamId ?? 999;
             let color = "#ff4a4a"; // 기본값
             if (isTeam) {
               const teamIdx = Array.from(teamNames).findIndex((n: any) => n.trim().toLowerCase() === lowerName);
-              color = COLORS[teamIdx >= 0 ? teamIdx % COLORS.length : 0];
+              color = SQUAD_COLORS[teamIdx >= 0 ? teamIdx % SQUAD_COLORS.length : 0];
             } else {
               // 적군은 스쿼드 teamId별로 고유 색상 매핑
-              color = ENEMY_TEAM_COLORS[teamId % ENEMY_TEAM_COLORS.length];
+              color = enemyTeamColor(teamId);
             }
 
             const dTimes = playerDeathTimes[lowerName] || [];
@@ -523,7 +511,9 @@ function Replay3DContent() {
       // 3) 전체 재생 시간 산출
       // 3) 총탄 트레이서용 데미지 공격/피해 및 전투 이벤트 필터링
       const parsedDamageEvs = events.filter((ev: any) => 
-        (ev.type === "damage" && ev.attackerX != null) ||
+        // 트레이서는 실제 총격 등 교전 피해만 그린다. 자기 피해·출혈·자기장, 폭발·화염(탄도가 아님)은 제외한다.
+        (ev.type === "damage" && ev.attackerX != null && ev.attackerName !== ev.victimName
+          && isCombatDamageCause(ev.cause) && !["grenade", "explosion", "fire"].includes(ev.cause)) ||
         ev.type === "kill" ||
         ev.type === "groggy" ||
         ev.type === "revive"

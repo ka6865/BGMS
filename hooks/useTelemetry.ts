@@ -4,7 +4,7 @@ import { fetchTelemetryPayload, TelemetryFetchError } from "../lib/pubg-analysis
 import type { TelemetryMode, TelemetryPlatform } from "../lib/pubg-analysis/telemetryIdentity";
 import { getMatchDetailRetention, MATCH_DETAIL_EXPIRED_CODE, MATCH_DETAIL_EXPIRED_MESSAGE, MATCH_DETAIL_UNAVAILABLE_CODE } from "../lib/pubg-analysis/matchRetention";
 import { MAX_POSITION_INTERPOLATION_GAP_MS } from "../lib/pubg-analysis/telemetryContract";
-import { squadColor } from "../lib/replay/squadColors";
+import { enemyTeamColor, squadColor } from "../lib/replay/squadColors";
 
 export interface TelemetryEvent {
   type: "position" | "enemy_position" | "ride" | "leave" | "kill" | "groggy" | "took_damage" | "shot" | "revive" | "create" | "throw" | "throw_explode" | "grenade" | "smoke" | "damage";
@@ -58,10 +58,6 @@ export interface PlayerState {
   deathY?: number; 
 }
 
-const TEAM_COLORS = [
-  "#F2A900", "#34A853", "#3b82f6", "#ef4444", "#a855f7", "#ec4899", "#06b6d4", "#8b5cf6",
-  "#f97316", "#10b981", "#3b82f6", "#f43f5e", "#fbbf24", "#22c55e", "#6366f1", "#d946ef"
-];
 
 const UNKNOWN_ENEMY_TEAM_ID = 0;
 // 재생 중 시간 표시·사이드바 같은 React UI 갱신 간격. 지도 Canvas는 매 프레임 playheadRef를 읽는다.
@@ -118,7 +114,6 @@ export function useTelemetry(
   const [currentTimeMs, setUiTimeMs] = useState(0);
   const [maxTimeMs, setMaxTimeMs] = useState(0);
   const [isFullMode, setIsFullMode] = useState(false);
-  const teamColorMapRef = useRef<Record<number, string>>({});
   const lastUpdateRef = useRef<number>(0);
   const timerRef = useRef<number | null>(null);
   const statesRef = useRef<Record<string, PlayerState>>({});
@@ -162,7 +157,6 @@ export function useTelemetry(
     setMaxTimeMs(0);
     setIsFullMode(false);
     setCurrentStates({});
-    teamColorMapRef.current = {};
     statesRef.current = {};
     lastProcessedTimeRef.current = -1;
     lastEventIndexRef.current = 0;
@@ -195,19 +189,6 @@ export function useTelemetry(
       setZoneEvents(data.zoneEvents || []);
       setIsFullMode(full);
 
-      const teamColorMap: Record<number, string> = {};
-      let colorIdx = 0;
-      evs.forEach((ev: any) => {
-        if (ev.teamId != null && !teamColorMap[ev.teamId]) {
-          if ((data.teammates || []).includes(ev.accountId) || (data.teamNames || []).includes(ev.name)) {
-             teamColorMap[ev.teamId] = "#F2A900"; 
-          } else {
-             teamColorMap[ev.teamId] = TEAM_COLORS[colorIdx % TEAM_COLORS.length];
-             colorIdx++;
-          }
-        }
-      });
-      teamColorMapRef.current = teamColorMap;
 
       if (evs.length > 0) {
         // 배열이 완벽히 정렬되지 않았을 수 있으므로 reduce로 안전하게 최대값 탐색
@@ -364,7 +345,7 @@ export function useTelemetry(
             accountId: ev.character?.accountId || ev.accountId,
             x: -9999, y: -9999, isDead: false, isGroggy: false, isInVehicle: false, 
             health: 100, kills: 0, assists: 0, teamId: teamId ?? (isEnemy ? UNKNOWN_ENEMY_TEAM_ID : 999),
-            color: isEnemy ? (teamColorMapRef.current[teamId ?? UNKNOWN_ENEMY_TEAM_ID] || "#ffffff") : squadColor(teamNames, rawName),
+            color: isEnemy ? enemyTeamColor(teamId ?? UNKNOWN_ENEMY_TEAM_ID) : squadColor(teamNames, rawName),
             isEnemy: isEnemy
           };
         }
