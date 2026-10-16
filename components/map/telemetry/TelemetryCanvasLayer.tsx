@@ -48,10 +48,12 @@ export const TelemetryCanvasLayer = ({
   const effectEventsRef = useRef<any[]>([]);
   const posLogsRef = useRef<Record<string, { x: number, y: number, t: number, rotation: number }[]>>({});
   const flightPathRef = useRef<{ start: {x: number, y: number}, end: {x: number, y: number} } | null>(null);
+  const requestDrawRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     dataRef.current = telemetryData;
     optionsRef.current = { showZones, showFlightPath };
+    requestDrawRef.current();
   }, [telemetryData, showZones, showFlightPath]);
 
   useEffect(() => {
@@ -100,6 +102,7 @@ export const TelemetryCanvasLayer = ({
     } else {
       flightPathRef.current = null;
     }
+    requestDrawRef.current();
   }, [telemetryData.events]);
 
   useEffect(() => {
@@ -147,17 +150,24 @@ export const TelemetryCanvasLayer = ({
       }
     };
 
+    // 재생 중에만 매 프레임 그리고, 멈춘 상태에서는 지도 이동이나 데이터 변경 때만 다시 그린다.
+    const requestDraw = () => {
+      if (animationRef.current === null) animationRef.current = requestAnimationFrame(draw);
+    };
+
     const draw = () => {
+      animationRef.current = null;
       if (!canvas || !map) return;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      const { currentStates: states, currentTimeMs, zoneEvents, showZone } = dataRef.current || {};
+      // 재생 시각과 선수 상태는 React 렌더를 거치지 않는 playheadRef에서 매 프레임 읽는다.
+      const playhead = dataRef.current?.playheadRef?.current;
+      const states = playhead?.states ?? dataRef.current?.currentStates;
+      const currentTimeMs = playhead?.timeMs ?? dataRef.current?.currentTimeMs;
+      const { zoneEvents, showZone } = dataRef.current || {};
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (!states || dataRef.current?.isActive === false) {
-        animationRef.current = requestAnimationFrame(draw); 
-        return; 
-      }
+      if (!states || dataRef.current?.isActive === false) return;
 
       const size = map.getSize(), dpr = window.devicePixelRatio || 1;
       // 크기를 다시 대입하면 매 프레임 백버퍼가 재할당되므로 실제로 바뀐 경우에만 설정한다.
@@ -555,15 +565,17 @@ export const TelemetryCanvasLayer = ({
       });
 
       ctx.restore();
-      animationRef.current = requestAnimationFrame(draw);
+      if (dataRef.current?.isPlaying) requestDraw();
     };
 
-    const reset = () => { if (animationRef.current) cancelAnimationFrame(animationRef.current); animationRef.current = requestAnimationFrame(draw); };
-    map.on("viewreset move moveend zoomend", reset);
-    reset();
+    requestDrawRef.current = requestDraw;
+    map.on("viewreset move moveend zoom zoomend resize", requestDraw);
+    requestDraw();
     return () => {
-      map.off("viewreset move moveend zoomend", reset);
+      map.off("viewreset move moveend zoom zoomend resize", requestDraw);
+      requestDrawRef.current = () => {};
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
       if (pane && canvas) try { pane.removeChild(canvas); } catch (e) {}
     };
   }, [map, isHighPrecision]);

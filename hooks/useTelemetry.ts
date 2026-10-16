@@ -1,5 +1,5 @@
 // BGMS Refreshed V2
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type SetStateAction } from "react";
 import { fetchTelemetryPayload, TelemetryFetchError } from "../lib/pubg-analysis/fetchTelemetryPayload";
 import type { TelemetryMode, TelemetryPlatform } from "../lib/pubg-analysis/telemetryIdentity";
 import { getMatchDetailRetention, MATCH_DETAIL_EXPIRED_CODE, MATCH_DETAIL_EXPIRED_MESSAGE, MATCH_DETAIL_UNAVAILABLE_CODE } from "../lib/pubg-analysis/matchRetention";
@@ -63,6 +63,8 @@ const TEAM_COLORS = [
 ];
 
 const UNKNOWN_ENEMY_TEAM_ID = 0;
+// 재생 중 시간 표시·사이드바 같은 React UI 갱신 간격. 지도 Canvas는 매 프레임 playheadRef를 읽는다.
+const PLAYBACK_UI_INTERVAL_MS = 250;
 
 function normalizePlayerName(name: string): string {
   return name.trim().toLowerCase();
@@ -112,7 +114,7 @@ export function useTelemetry(
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
-  const [currentTimeMs, setCurrentTimeMs] = useState(0); 
+  const [currentTimeMs, setUiTimeMs] = useState(0);
   const [maxTimeMs, setMaxTimeMs] = useState(0);
   const [isFullMode, setIsFullMode] = useState(false);
   const teamColorMapRef = useRef<Record<number, string>>({});
@@ -125,6 +127,21 @@ export function useTelemetry(
   const futurePosRef = useRef<Record<string, { x: number, y: number, time: number } | null>>({});
   const [currentStates, setCurrentStates] = useState<Record<string, PlayerState>>({});
   const telemetryRequestRef = useRef<AbortController | null>(null);
+  // 실제 재생 시각과 그 시각의 선수 상태. 매 프레임 갱신되며 React 렌더를 일으키지 않는다.
+  const playheadRef = useRef<{ timeMs: number; states: Record<string, PlayerState> }>({ timeMs: 0, states: {} });
+  const advanceRef = useRef<(timeMs: number) => Record<string, PlayerState>>(() => ({}));
+  const lastUiCommitRef = useRef(0);
+
+  const commitPlayhead = useCallback((timeMs: number) => {
+    const states = advanceRef.current(timeMs);
+    playheadRef.current = { timeMs, states };
+    setUiTimeMs(timeMs);
+    setCurrentStates(states);
+  }, []);
+
+  const setCurrentTimeMs = useCallback((value: SetStateAction<number>) => {
+    commitPlayhead(typeof value === "function" ? value(playheadRef.current.timeMs) : value);
+  }, [commitPlayhead]);
 
   const resetTelemetryState = useCallback(() => {
     if (timerRef.current !== null) cancelAnimationFrame(timerRef.current);
@@ -139,7 +156,8 @@ export function useTelemetry(
     setErrorKind(null);
     setExpiresAt(null);
     setIsPlaying(false);
-    setCurrentTimeMs(0);
+    setUiTimeMs(0);
+    playheadRef.current = { timeMs: 0, states: {} };
     setMaxTimeMs(0);
     setIsFullMode(false);
     setCurrentStates({});
@@ -220,7 +238,7 @@ export function useTelemetry(
     if (!events.length || maxTimeMs <= 0 || startTimeMs === null || !Number.isFinite(startTimeMs)) return;
     setCurrentTimeMs(Math.max(0, Math.min(startTimeMs, maxTimeMs)));
     setIsPlaying(false);
-  }, [events, maxTimeMs, startTimeMs]);
+  }, [events, maxTimeMs, startTimeMs, setCurrentTimeMs]);
 
   useEffect(() => {
     const retention = getMatchDetailRetention(activePlayedAt);
@@ -273,22 +291,31 @@ export function useTelemetry(
       const now = Date.now();
       const deltaMs = now - lastUpdateRef.current;
       lastUpdateRef.current = now;
-      setCurrentTimeMs((prev) => {
-        const nextTime = Math.min(prev + deltaMs * playbackSpeed, maxTimeMs);
-        if (nextTime >= maxTimeMs) setIsPlaying(false);
-        return nextTime;
-      });
+      const nextTime = Math.min(playheadRef.current.timeMs + deltaMs * playbackSpeed, maxTimeMs);
+      const reachedEnd = nextTime >= maxTimeMs;
+      playheadRef.current = { timeMs: nextTime, states: advanceRef.current(nextTime) };
+      if (reachedEnd || now - lastUiCommitRef.current >= PLAYBACK_UI_INTERVAL_MS) {
+        lastUiCommitRef.current = now;
+        setUiTimeMs(nextTime);
+        setCurrentStates(playheadRef.current.states);
+      }
+      if (reachedEnd) {
+        setIsPlaying(false);
+        return;
+      }
       timerRef.current = requestAnimationFrame(loop);
     };
     timerRef.current = requestAnimationFrame(loop);
-    return () => { if (timerRef.current) cancelAnimationFrame(timerRef.current); };
+    return () => {
+      if (timerRef.current) cancelAnimationFrame(timerRef.current);
+      // 멈추거나 배속이 바뀔 때 마지막 재생 시각을 UI에 그대로 반영한다.
+      setUiTimeMs(playheadRef.current.timeMs);
+      setCurrentStates(playheadRef.current.states);
+    };
   }, [isPlaying, playbackSpeed, maxTimeMs]);
 
-  useEffect(() => {
-    if (events.length === 0) {
-      setCurrentStates({});
-      return;
-    }
+  const advancePlayhead = useCallback((currentTimeMs: number): Record<string, PlayerState> => {
+    if (events.length === 0) return {};
 
     const isJump = Math.abs(currentTimeMs - lastProcessedTimeRef.current) > 2000 || currentTimeMs < lastProcessedTimeRef.current;
     
@@ -414,8 +441,13 @@ export function useTelemetry(
       interpolatedStates[pname] = s;
     }
 
-    setCurrentStates(interpolatedStates);
-  }, [currentTimeMs, events, teamNames, nickname, teammates]);
+    return interpolatedStates;
+  }, [events, teamNames]);
+
+  useEffect(() => {
+    advanceRef.current = advancePlayhead;
+    commitPlayhead(playheadRef.current.timeMs);
+  }, [advancePlayhead, commitPlayhead]);
 
   return {
     events,
@@ -435,6 +467,7 @@ export function useTelemetry(
     setCurrentTimeMs,
     maxTimeMs,
     currentStates,
+    playheadRef,
     isFullMode,
   };
 }

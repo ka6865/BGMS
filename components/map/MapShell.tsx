@@ -1,4 +1,4 @@
-import React, { memo, useState, useEffect } from "react";
+import React, { memo, useState, useEffect, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import L from "leaflet";
@@ -54,6 +54,10 @@ const getDistanceToLineSegment = (px: number, py: number, x1: number, y1: number
   return Math.sqrt(dx * dx + dy * dy);
 };
 
+// 재생 식별 오류 시 넘기는 빈 값. 매 렌더 새 객체를 만들지 않도록 고정한다.
+const NO_ITEMS: never[] = [];
+const NO_STATES: Record<string, never> = {};
+
 const formatTime = (ms: number) => {
   const s = Math.floor(ms / 1000);
   const m = Math.floor(s / 60);
@@ -100,13 +104,13 @@ const MapShell = memo(({
     const {
       events: telemetryEvents, loading: telemetryLoading, error: telemetryError,
       isPlaying, setIsPlaying, playbackSpeed, setPlaybackSpeed,
-      currentTimeMs, setCurrentTimeMs, maxTimeMs, currentStates, teamNames, zoneEvents,
+      currentTimeMs, setCurrentTimeMs, maxTimeMs, currentStates, playheadRef, teamNames, zoneEvents,
       isFullMode
     } = useTelemetry(playbackId, playbackNickname, playbackPlatform, playbackMode, activeMapId, requestedStartMs, lessonId);
-    const safeTelemetryEvents = playbackIdentityError ? [] : telemetryEvents;
-    const safeCurrentStates = playbackIdentityError ? {} : currentStates;
-    const safeTeamNames = playbackIdentityError ? [] : teamNames;
-    const safeZoneEvents = playbackIdentityError ? [] : zoneEvents;
+    const safeTelemetryEvents = playbackIdentityError ? NO_ITEMS : telemetryEvents;
+    const safeCurrentStates = playbackIdentityError ? NO_STATES : currentStates;
+    const safeTeamNames = playbackIdentityError ? NO_ITEMS : teamNames;
+    const safeZoneEvents = playbackIdentityError ? NO_ITEMS : zoneEvents;
 
     const [activeMode, setActiveMode] = useState<"none" | "mortar" | "flight" | "report" | "simulate">("none");
     const [isMortarDisclaimerOpen, setIsMortarDisclaimerOpen] = useState(false);
@@ -127,6 +131,16 @@ const MapShell = memo(({
     const [hiddenPlayers, setHiddenPlayers] = useState<string[]>([]);
     const [showPlayerNames, setShowPlayerNames] = useState(!lessonId);
     const [showFlightPath, setShowFlightPath] = useState(true);
+    // Canvas는 playheadRef로 매 프레임 그리므로, 이 객체는 UI 갱신 주기(약 250ms)에만 바뀌게 고정한다.
+    const isTelemetryActive = !!playbackId && !playbackIdentityError;
+    const telemetryData = useMemo(() => ({
+      isActive: isTelemetryActive, isPlaying, playheadRef: isTelemetryActive ? playheadRef : undefined,
+      mapName: activeMapId || "Erangel", events: safeTelemetryEvents, currentTimeMs, currentStates: safeCurrentStates,
+      teamNames: safeTeamNames, zoneEvents: safeZoneEvents, showZone, showCombatDots, showShotDots, hiddenPlayers, showPlayerNames, showFlightPath,
+    }), [
+      isTelemetryActive, isPlaying, playheadRef, activeMapId, safeTelemetryEvents, currentTimeMs, safeCurrentStates,
+      safeTeamNames, safeZoneEvents, showZone, showCombatDots, showShotDots, hiddenPlayers, showPlayerNames, showFlightPath,
+    ]);
     const [showSmokeNotice, setShowSmokeNotice] = useState(false); //  연막탄 공지 상태
     const [isInstructionDismissed, setIsInstructionDismissed] = useState(false);
 
@@ -453,10 +467,7 @@ const MapShell = memo(({
               setReportLocation={setReportLocation} reportLocation={reportLocation} currentUser={currentUser} isAdmin={isAdmin}
               pendingVehicles={playbackId ? [] : pendingVehicles} filters={filters} isHotDropOn={isHotDropOn}
               isHighPrecision={isFullMode}
-              telemetryData={{
-                isActive: !!playbackId && !playbackIdentityError, mapName: activeMapId || "Erangel", events: safeTelemetryEvents, currentTimeMs, currentStates: safeCurrentStates,
-                teamNames: safeTeamNames, zoneEvents: safeZoneEvents, showZone, showCombatDots, showShotDots, hiddenPlayers, showPlayerNames, showFlightPath,
-              }}
+              telemetryData={telemetryData}
               simulatorStep={simulatorStep}
               simulatorPhases={simulatorPhases}
               setSimulatorStep={setSimulatorStep}

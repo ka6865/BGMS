@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { fetchTelemetryPayloadMock, TelemetryFetchErrorMock } = vi.hoisted(() => ({
   fetchTelemetryPayloadMock: vi.fn(),
@@ -294,5 +294,84 @@ describe("useTelemetry 긴 좌표 공백", () => {
 
     await waitFor(() => expect(result.current.currentStates.me).toBeDefined());
     expect(result.current.currentStates.me.x).toBe(100);
+  });
+});
+
+describe("useTelemetry 재생 루프", () => {
+  let frames: FrameRequestCallback[] = [];
+  let now = 1_000_000;
+
+  beforeEach(() => {
+    fetchTelemetryPayloadMock.mockReset();
+    frames = [];
+    now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function runFrame(elapsedMs: number) {
+    now += elapsedMs;
+    const pending = frames;
+    frames = [];
+    act(() => pending.forEach((callback) => callback(now)));
+  }
+
+  it("매 프레임 playheadRef만 진행하고 React 시간은 250ms 간격과 정지 시점에만 반영한다", async () => {
+    fetchTelemetryPayloadMock.mockResolvedValue({
+      ...telemetryPayload("match-1", "Me"),
+      events: [
+        { type: "position", time: "2026-07-18T00:00:00.000Z", name: "Me", x: 100, y: 200, health: 100, relativeTimeMs: 0 },
+        { type: "position", time: "2026-07-18T00:01:00.000Z", name: "Me", x: 700, y: 200, health: 100, relativeTimeMs: 60_000 },
+      ],
+    });
+
+    const { result } = renderHook(() => useTelemetry("match-1", "Me", "steam", "lite", "miramar"));
+    await waitFor(() => expect(result.current.events).toHaveLength(2));
+
+    act(() => result.current.setIsPlaying(true));
+    runFrame(100);
+    const committed = result.current.currentTimeMs;
+    expect(committed).toBe(100);
+
+    runFrame(100);
+    runFrame(100);
+    expect(result.current.playheadRef.current.timeMs).toBe(300);
+    expect(result.current.currentTimeMs).toBe(committed);
+    expect(result.current.playheadRef.current.states.me.x).toBe(103);
+
+    runFrame(100);
+    expect(result.current.currentTimeMs).toBe(400);
+
+    runFrame(50);
+    act(() => result.current.setIsPlaying(false));
+    expect(result.current.currentTimeMs).toBe(450);
+    expect(result.current.currentStates.me.x).toBe(104.5);
+  });
+
+  it("탐색하면 playheadRef와 React 시간을 함께 옮긴다", async () => {
+    fetchTelemetryPayloadMock.mockResolvedValue({
+      ...telemetryPayload("match-1", "Me"),
+      events: [
+        { type: "position", time: "2026-07-18T00:00:00.000Z", name: "Me", x: 100, y: 200, health: 100, relativeTimeMs: 0 },
+        { type: "position", time: "2026-07-18T00:01:00.000Z", name: "Me", x: 700, y: 200, health: 100, relativeTimeMs: 60_000 },
+      ],
+    });
+
+    const { result } = renderHook(() => useTelemetry("match-1", "Me", "steam", "lite", "miramar"));
+    await waitFor(() => expect(result.current.events).toHaveLength(2));
+
+    act(() => result.current.setCurrentTimeMs(30_000));
+    expect(result.current.currentTimeMs).toBe(30_000);
+    expect(result.current.playheadRef.current.timeMs).toBe(30_000);
+    expect(result.current.playheadRef.current.states.me.x).toBe(400);
   });
 });
