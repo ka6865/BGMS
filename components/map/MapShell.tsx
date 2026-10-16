@@ -613,7 +613,6 @@ const MapShell = memo(({
                     showFlightPath={showFlightPath} onToggleFlightPath={() => setShowFlightPath(!showFlightPath)}
                     followPlayer={followPlayer} onFollowPlayerChange={setFollowPlayer}
                     nextFightMs={nextFightMs} onNextFight={() => { if (nextFightMs !== null) setCurrentTimeMs(nextFightMs); }}
-                    defaultExpanded={!isMobile}
                     onClose={() => {
                       if (rankerLesson) { router.push("/learn"); return; }
                       const p = new URLSearchParams(searchParams?.toString() || "");

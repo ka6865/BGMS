@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { TelemetryEvent } from "../../hooks/useTelemetry";
 import { SQUAD_COLORS } from "../../lib/replay/squadColors";
@@ -31,7 +31,6 @@ interface TelemetryPlayerProps {
   onFollowPlayerChange: (name: string | null) => void;
   nextFightMs: number | null;
   onNextFight: () => void;
-  defaultExpanded: boolean;
   onClose: () => void;
 }
 
@@ -63,7 +62,6 @@ export default function TelemetryPlayer({
   onFollowPlayerChange,
   nextFightMs,
   onNextFight,
-  defaultExpanded,
   onClose,
 }: TelemetryPlayerProps) {
   // 타임라인 마커 필터 상태 (기본값: 킬만 활성화)
@@ -72,9 +70,8 @@ export default function TelemetryPlayer({
   const [showTeamDown, setShowTeamDown] = useState(true);
   const [showOnlyTeam, setShowOnlyTeam] = useState(true); // 아군 이벤트만 보기 추가 (Timeline 전용)
   const [isMinimized, setIsMinimized] = useState(false); // 패널 숨기기 상태
-  // 선수·필터·레이어 설정은 접어 두고 재생 줄만 보인다. 모바일은 접힌 채로 시작한다.
-  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
-  useEffect(() => setIsExpanded(defaultExpanded), [defaultExpanded]);
+  // 선수·필터·레이어 설정은 접어 두고 재생 줄만 보여 지도를 가리지 않는다.
+  const [isExpanded, setIsExpanded] = useState(false);
 
   // 경과 시간 포맷팅 (mm:ss)
   const formatTime = (ms: number) => {
