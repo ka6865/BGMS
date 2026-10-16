@@ -122,6 +122,15 @@ describe('analysis cache projection contract',()=>{
     const team=Array.from({length:20},()=>({type:'position',isTeam:true}));
     expect(sampleReplayPositions([...enemy,...team,{type:'kill',isTeam:false}], 'lite')).toHaveLength(31);
   });
+  it('samples enemy positions per player so every enemy keeps a trajectory',()=>{
+    // 위치 로그는 매 틱 같은 순서로 들어온다. 전체 순번으로 줄이면 한 선수만 남는다.
+    const ticks=Array.from({length:30},(_,tick)=>Array.from({length:10},(_,player)=>({type:'position',isTeam:false,name:`Enemy${player}`,relativeTimeMs:tick*10_000})));
+    const kept=sampleReplayPositions(ticks.flat(),'lite');
+    const byPlayer=new Map<string,number>();
+    kept.forEach(event=>byPlayer.set(event.name,(byPlayer.get(event.name)??0)+1));
+    expect(kept).toHaveLength(30);
+    expect([...byPlayer.values()]).toEqual(Array(10).fill(3));
+  });
   it('keeps supported throwable identity aliases through field projection',()=>{
     const [event]=filterTelemetryEvents([{_T:'LogPlayerUseThrowable',attack_id:7,projectileId:'p7'}],context);
     expect(event).toMatchObject({attack_id:7,projectileId:'p7'});

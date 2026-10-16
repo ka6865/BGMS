@@ -49,13 +49,13 @@ describe("route and handler telemetry boundary", () => {
     expect(matchRoute).not.toContain("const keepFields");
   });
 
-  it("lite 적 위치는 두 번째 sampling 없이 2개, full은 20개다", () => {
+  it("lite 적 위치는 두 번째 sampling 없이 선수별 2개, full은 20개다", () => {
     const events = Array.from({ length: 20 }, (_, index) => ({
       _T: "LogPlayerPosition",
       _D: "2026-08-27T00:00:00.000Z",
       character: {
-        accountId: "enemy-" + index,
-        name: "Enemy" + index,
+        accountId: "enemy-" + (index % 2),
+        name: "Enemy" + (index % 2),
         location: { x: index, y: 1 },
       },
     }));

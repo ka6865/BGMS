@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { fetchTelemetryPayload, TelemetryFetchError } from "../lib/pubg-analysis/fetchTelemetryPayload";
 import type { TelemetryMode, TelemetryPlatform } from "../lib/pubg-analysis/telemetryIdentity";
 import { getMatchDetailRetention, MATCH_DETAIL_EXPIRED_CODE, MATCH_DETAIL_EXPIRED_MESSAGE, MATCH_DETAIL_UNAVAILABLE_CODE } from "../lib/pubg-analysis/matchRetention";
+import { MAX_POSITION_INTERPOLATION_GAP_MS } from "../lib/pubg-analysis/telemetryContract";
 
 export interface TelemetryEvent {
   type: "position" | "enemy_position" | "ride" | "leave" | "kill" | "groggy" | "took_damage" | "shot" | "revive" | "create" | "throw" | "throw_explode" | "grenade" | "smoke" | "damage";
@@ -120,8 +121,8 @@ export function useTelemetry(
   const statesRef = useRef<Record<string, PlayerState>>({});
   const lastProcessedTimeRef = useRef<number>(-1);
   const lastEventIndexRef = useRef<number>(0);
-  const historyPosRef = useRef<Record<string, { x: number, y: number, time: number, health: number }>>({});
-  const futurePosRef = useRef<Record<string, { x: number, y: number, time: number, health: number } | null>>({});
+  const historyPosRef = useRef<Record<string, { x: number, y: number, time: number }>>({});
+  const futurePosRef = useRef<Record<string, { x: number, y: number, time: number } | null>>({});
   const [currentStates, setCurrentStates] = useState<Record<string, PlayerState>>({});
   const telemetryRequestRef = useRef<AbortController | null>(null);
 
@@ -342,7 +343,7 @@ export function useTelemetry(
         if (!s) return;
         if (ev.type === "position" && ev.name === rawName) {
           s.x = ev.x; s.y = ev.y; s.health = ev.health ?? s.health; s.lastUpdateMs = ev.relativeTimeMs;
-          historyPosRef.current[pname] = { x: ev.x, y: ev.y, time: ev.relativeTimeMs, health: s.health };
+          historyPosRef.current[pname] = { x: ev.x, y: ev.y, time: ev.relativeTimeMs };
           futurePosRef.current[pname] = null;
 
           // 🎯 차량 동승 유령 버그 해결: LogPlayerPosition 이벤트의 vehicleId 존재 여부에 맞춰 실시간 상태 보정
@@ -396,18 +397,18 @@ export function useTelemetry(
           for (let j = i; j < evs.length; j++) {
             const nextEv = evs[j];
             if (nextEv.type === "position" && (nextEv.name || "").trim().toLowerCase() === pname) {
-              futurePosRef.current[pname] = { x: nextEv.x, y: nextEv.y, time: nextEv.relativeTimeMs, health: nextEv.health || 100 };
+              futurePosRef.current[pname] = { x: nextEv.x, y: nextEv.y, time: nextEv.relativeTimeMs };
               break;
             }
           }
         }
         const p = historyPosRef.current[pname];
         const n = futurePosRef.current[pname];
-        if (p && n && p.time < n.time && p.time <= currentTimeMs && n.time > currentTimeMs) {
+        if (p && n && p.time < n.time && n.time - p.time <= MAX_POSITION_INTERPOLATION_GAP_MS && p.time <= currentTimeMs && n.time > currentTimeMs) {
           const ratio = (currentTimeMs - p.time) / (n.time - p.time);
           s.x = p.x + (n.x - p.x) * ratio;
           s.y = p.y + (n.y - p.y) * ratio;
-          s.health = p.health + (n.health - p.health) * ratio;
+          // 체력은 피격 시점 이전에 줄어 보이지 않도록 보간하지 않고 마지막 관측값을 유지한다.
         }
       }
       interpolatedStates[pname] = s;

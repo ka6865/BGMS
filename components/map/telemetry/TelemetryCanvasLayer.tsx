@@ -4,6 +4,7 @@ import React, { useEffect, useRef } from "react";
 import { useMap } from "react-leaflet";
 import L from "leaflet";
 import { toCalibratedCoords } from "../../../utils/coordinate";
+import { MAX_POSITION_INTERPOLATION_GAP_MS } from "../../../lib/pubg-analysis/telemetryContract";
 
 interface TelemetryCanvasLayerProps {
   telemetryData: any;
@@ -128,6 +129,7 @@ export const TelemetryCanvasLayer = ({
       }
       const p1 = logs[Math.max(0, low - 1)], p2 = logs[low];
       if (!p1 || !p2 || p1.t === p2.t) return p1 || p2;
+      if (p2.t - p1.t > MAX_POSITION_INTERPOLATION_GAP_MS) return p1;
       const r = (time - p1.t) / (p2.t - p1.t);
       return { x: p1.x + (p2.x - p1.x) * r, y: p1.y + (p2.y - p1.y) * r, rotation: p1.rotation + (p2.rotation - p1.rotation) * r };
     };
@@ -158,8 +160,12 @@ export const TelemetryCanvasLayer = ({
       }
 
       const size = map.getSize(), dpr = window.devicePixelRatio || 1;
-      canvas.width = size.x * dpr; canvas.height = size.y * dpr;
-      canvas.style.width = `${size.x}px`; canvas.style.height = `${size.y}px`;
+      // 크기를 다시 대입하면 매 프레임 백버퍼가 재할당되므로 실제로 바뀐 경우에만 설정한다.
+      const backingWidth = Math.round(size.x * dpr), backingHeight = Math.round(size.y * dpr);
+      if (canvas.width !== backingWidth || canvas.height !== backingHeight) {
+        canvas.width = backingWidth; canvas.height = backingHeight;
+        canvas.style.width = `${size.x}px`; canvas.style.height = `${size.y}px`;
+      }
       L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([0, 0]));
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);

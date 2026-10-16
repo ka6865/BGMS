@@ -224,3 +224,75 @@ describe("useTelemetry 팀 식별", () => {
     expect(result.current.currentStates.mateone.teamId).toBe(999);
   });
 });
+
+describe("useTelemetry 재생 상태 보간", () => {
+  beforeEach(() => {
+    fetchTelemetryPayloadMock.mockReset();
+  });
+
+  function positionAt(relativeTimeMs: number, x: number, health: number) {
+    return {
+      type: "position",
+      time: "2026-07-18T00:00:00.000Z",
+      name: "Me",
+      x,
+      y: 200,
+      health,
+      relativeTimeMs,
+    };
+  }
+
+  it("위치는 보간하고 체력은 다음 관측 전까지 마지막 관측값을 유지한다", async () => {
+    fetchTelemetryPayloadMock.mockResolvedValue({
+      ...telemetryPayload("match-1", "Me"),
+      events: [positionAt(0, 100, 100), positionAt(10_000, 300, 40)],
+    });
+
+    const { result } = renderHook(() => useTelemetry("match-1", "Me", "steam", "lite", "miramar"));
+    await waitFor(() => expect(result.current.events).toHaveLength(2));
+
+    act(() => result.current.setCurrentTimeMs(5_000));
+
+    await waitFor(() => expect(result.current.currentStates.me?.x).toBe(200));
+    expect(result.current.currentStates.me.health).toBe(100);
+  });
+
+  it("다음 관측 체력이 0이어도 100으로 바꿔 보간하지 않는다", async () => {
+    fetchTelemetryPayloadMock.mockResolvedValue({
+      ...telemetryPayload("match-1", "Me"),
+      events: [positionAt(0, 100, 20), positionAt(10_000, 300, 0)],
+    });
+
+    const { result } = renderHook(() => useTelemetry("match-1", "Me", "steam", "lite", "miramar"));
+    await waitFor(() => expect(result.current.events).toHaveLength(2));
+
+    act(() => result.current.setCurrentTimeMs(5_000));
+
+    await waitFor(() => expect(result.current.currentStates.me?.x).toBe(200));
+    expect(result.current.currentStates.me.health).toBe(20);
+  });
+});
+
+describe("useTelemetry 긴 좌표 공백", () => {
+  beforeEach(() => {
+    fetchTelemetryPayloadMock.mockReset();
+  });
+
+  it("재배치처럼 긴 공백 사이는 보간하지 않고 마지막 위치를 유지한다", async () => {
+    fetchTelemetryPayloadMock.mockResolvedValue({
+      ...telemetryPayload("match-1", "Me"),
+      events: [
+        { type: "position", time: "2026-07-18T00:00:00.000Z", name: "Me", x: 100, y: 200, health: 100, relativeTimeMs: 0 },
+        { type: "position", time: "2026-07-18T00:07:00.000Z", name: "Me", x: 7000, y: 200, health: 100, relativeTimeMs: 420_000 },
+      ],
+    });
+
+    const { result } = renderHook(() => useTelemetry("match-1", "Me", "steam", "lite", "miramar"));
+    await waitFor(() => expect(result.current.events).toHaveLength(2));
+
+    act(() => result.current.setCurrentTimeMs(210_000));
+
+    await waitFor(() => expect(result.current.currentStates.me).toBeDefined());
+    expect(result.current.currentStates.me.x).toBe(100);
+  });
+});
