@@ -36,9 +36,16 @@ describe("텔레메트리 소비자 계약", () => {
     expect(replay3dSource).not.toMatch(/platform\s*\|\|\s*["']steam["']/);
   });
 
-  it("ExpandedMatchDetails의 두 2D URL이 platform을 인코딩해 전달한다", () => {
+  it("ExpandedMatchDetails의 2D 진입점은 하나이고 platform을 인코딩해 lite로 연다", () => {
     expect(expandedMatchDetailsSource).toContain("new URLSearchParams({ playback: matchId, nickname, platform, playedAt: matchDate })");
-    expect(expandedMatchDetailsSource).toContain("new URLSearchParams({ playback: matchId, nickname, platform, mode: \"full\", playedAt: matchDate })");
+    expect(expandedMatchDetailsSource).not.toContain("mode: \"full\"");
+    expect(expandedMatchDetailsSource).not.toContain("고정밀 리플레이");
+  });
+
+  it("MapShell은 lite가 전멸로 끝나면 같은 시각부터 full로 이어 보게 한다", () => {
+    expect(mapShellSource).toContain('query.set("mode", "full")');
+    expect(mapShellSource).toContain('query.set("t", String(Math.floor(Math.min(currentTimeMs, replayEndMs) / 1000)))');
+    expect(mapShellSource).toContain("shouldOfferFullMatch");
   });
 
   it("MapShell이 완전한 playback identity를 fail-closed 검증하고 hook에 전달한다", () => {
