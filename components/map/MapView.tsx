@@ -19,6 +19,7 @@ import ReportForm from "./ReportForm";
 import HotDropLayer from "./HotDropLayer";
 import { supabase } from "../../lib/supabase";
 import { MAP_DIMENSIONS } from "../../lib/map_config";
+import { leafletToHeightmapPixel } from "../../lib/heightmapCoords";
 import { toast } from "sonner";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
@@ -337,13 +338,10 @@ const MapView = memo(
         const ctx = canvas.getContext("2d");
         if (!ctx) return 0;
 
-        const pxX = Math.round((latlng.lng / 8192) * width);
-        const pxY = Math.round((latlng.lat / 8192) * height);
-        const clampedX = Math.max(0, Math.min(width - 1, pxX));
-        const clampedY = Math.max(0, Math.min(height - 1, pxY));
+        const pixel = leafletToHeightmapPixel(latlng.lat, latlng.lng, width, height);
 
         try {
-          const imgData = ctx.getImageData(clampedX, clampedY, 1, 1).data;
+          const imgData = ctx.getImageData(pixel.x, pixel.y, 1, 1).data;
           if (imgData[3] === 0) return 0;
           return (imgData[0] - 128) * 2.048;
         } catch (e) {
