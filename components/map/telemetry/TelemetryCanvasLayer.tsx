@@ -63,6 +63,29 @@ const THROWABLE_STYLES: Record<ReplayThrowableKind, { color: string; label: stri
 // 효과 라벨은 선수 이름표에 가려지지 않도록 모아 두었다가 선수를 그린 뒤 맨 위에 그린다.
 type OverlayLabel = { text: string; x: number; y: number; color: string; alpha: number };
 
+// 선수 이름표. 중요도가 높은 것(나 → 따라가는 선수 → 아군 → 적)부터 놓고, 겹치면 위로 비켜 놓는다.
+type NameLabel = { text: string; x: number; y: number; color: string; font: string; priority: number };
+const LABEL_HEIGHT = 14;
+const LABEL_STEP = 15;
+const MAX_LABEL_SHIFTS = 4;
+
+function drawNameLabels(ctx: CanvasRenderingContext2D, labels: NameLabel[]) {
+  const placed: { left: number; right: number; top: number; bottom: number }[] = [];
+  [...labels].sort((a, b) => a.priority - b.priority).forEach((label) => {
+    ctx.font = label.font;
+    const width = (ctx.measureText(label.text)?.width ?? label.text.length * 6) + 8;
+    let y = label.y;
+    for (let shift = 0; shift < MAX_LABEL_SHIFTS; shift++) {
+      const top = y - LABEL_HEIGHT / 2, bottom = y + LABEL_HEIGHT / 2;
+      const left = label.x - width / 2, right = label.x + width / 2;
+      if (!placed.some((r) => left < r.right && right > r.left && top < r.bottom && bottom > r.top)) break;
+      y -= LABEL_STEP;
+    }
+    placed.push({ left: label.x - width / 2, right: label.x + width / 2, top: y - LABEL_HEIGHT / 2, bottom: y + LABEL_HEIGHT / 2 });
+    drawNameLabel(ctx, label.text, label.x, y, label.color, label.font);
+  });
+}
+
 // 던진 사람 위치에 투척물 종류를 짧게 표시한다. 착탄 지점은 텔레메트리에 없어 그리지 않는다.
 // 라벨은 선수 이름표(마커 위)와 겹치지 않게 마커 아래에 둔다.
 function drawThrowMarker(ctx: CanvasRenderingContext2D, x: number, y: number, kind: ReplayThrowableKind, progress: number, labels: OverlayLabel[]) {
@@ -441,6 +464,13 @@ export const TelemetryCanvasLayer = ({
         return name === followed || opponents.has(name);
       };
       const handledVehicles = new Set();
+      const nameLabels: NameLabel[] = [];
+      const labelPriority = (player: any) => {
+        const name = String(player.name || "").trim().toLowerCase();
+        if (player.name === dataRef.current.nickname) return 0;
+        if (followed && name === followed) return 1;
+        return player.isEnemy ? 3 : 2;
+      };
       Object.values(states).forEach((p: any) => {
         if (p.isDead || hidden(p.name)) return;
         const pos = getInterpolatedPos(p.name, currentTimeMs) || { x: p.x, y: p.y };
@@ -477,6 +507,14 @@ export const TelemetryCanvasLayer = ({
               else ctx.rect(-18, -13, 36, 26);
               ctx.strokeStyle = "#38bdf8"; ctx.lineWidth = 2.5; ctx.stroke();
             }
+            // 아이콘 아래에 탑승자 색 점을 찍어 누가 타고 있는지 보이게 한다(기절은 빨강).
+            occupants.forEach((m, i) => {
+              ctx.beginPath();
+              ctx.arc(-((occupants.length - 1) * 8) / 2 + i * 8, 13, 3.5, 0, Math.PI * 2);
+              ctx.fillStyle = m.isGroggy ? "#ff0000" : (m.color || "#ffffff");
+              ctx.fill();
+              ctx.strokeStyle = "#000000"; ctx.lineWidth = 1; ctx.stroke();
+            });
             ctx.fillStyle = "#ffffff";
             ctx.scale(0.65, 0.65);
             drawVehicleGlyph(ctx);
@@ -484,9 +522,9 @@ export const TelemetryCanvasLayer = ({
           ctx.restore();
 
           if (!isAirplane) {
-            occupants.forEach((m, i) => {
+            occupants.forEach((m) => {
               if (showName(m)) {
-                drawNameLabel(ctx, m.name, pt.x, pt.y - 18 - (i * 16), m.isGroggy ? "#ff4444" : "#ffffff", "bold 10px Pretendard");
+                nameLabels.push({ text: m.name, x: pt.x, y: pt.y - 18, color: m.isGroggy ? "#ff4444" : "#ffffff", font: "bold 10px Pretendard", priority: labelPriority(m) });
               }
             });
           }
@@ -523,11 +561,12 @@ export const TelemetryCanvasLayer = ({
           ctx.fillText(p.teamId.toString(), 0, 0);
         }
 
-        if (showName(p)) {
-          drawNameLabel(ctx, p.name, 0, -radius - 12, isGroggy ? "#ff4444" : "#ffffff", isMe ? "bold 12px Pretendard" : "bold 10px Pretendard");
-        }
         ctx.restore();
+        if (showName(p)) {
+          nameLabels.push({ text: p.name, x: pt.x, y: pt.y - radius - 12, color: isGroggy ? "#ff4444" : "#ffffff", font: isMe ? "bold 12px Pretendard" : "bold 10px Pretendard", priority: labelPriority(p) });
+        }
       });
+      drawNameLabels(ctx, nameLabels);
 
       overlayLabels.forEach((label) => {
         ctx.save();
