@@ -3,8 +3,12 @@ import { PlayCircle } from "lucide-react";
 import type { MatchReport } from "@/lib/pubg-analysis/matchReport";
 import { getTranslatedWeaponName } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
+import type { MatchDamageSource, MatchMyKill, MatchVersusCounts } from "@/lib/pubg-analysis/matchReport";
 import {
+  BODY_PART_LABELS,
   CARE_PACKAGE_LABELS,
+  DAMAGE_CAUSE_LABELS,
+  KNOCKED_BY_LABELS,
   FIGHT_OUTCOME_LABELS,
   buildKillTree,
   describeDeath,
@@ -17,6 +21,27 @@ const TEAM_PREVIEW = 10;
 const BOT_PREVIEW = 12;
 
 const weaponLabel = (weapon: string | null) => (weapon ? getTranslatedWeaponName(weapon) : null);
+const partLabel = (part: string | null) => (part ? BODY_PART_LABELS[part] ?? null : null);
+
+function versusText(counts: MatchVersusCounts) {
+  return `처치 ${counts.kills} · 기절 ${counts.knocks} · 피해 ${counts.damage}`;
+}
+
+function killDetail(kill: MatchMyKill) {
+  const parts = [
+    [weaponLabel(kill.weapon), partLabel(kill.part)].filter(Boolean).join(" "),
+    kill.distanceM !== null ? `${kill.distanceM}m` : null,
+    kill.throughWall ? "벽 관통" : null,
+    kill.knockedBy && kill.knockedBy !== "me" ? KNOCKED_BY_LABELS[kill.knockedBy] : null,
+  ];
+  return parts.filter(Boolean).join(" · ");
+}
+
+function sourceLabel(source: MatchDamageSource) {
+  if (!source.attacker) return DAMAGE_CAUSE_LABELS[source.cause];
+  const team = source.attackerTeamId !== null ? ` (팀${source.attackerTeamId})` : "";
+  return `${source.attacker}${source.isBot ? " (봇)" : ""}${team}`;
+}
 
 /** 기본 지표 아래 사망 한 줄 요약. 우승했거나 사망 기록이 없으면 그리지 않는다. */
 export function MatchDeathLine({ report }: { report: MatchReport }) {
@@ -52,8 +77,10 @@ export function MatchFlowContent({
   canReplay: boolean;
   onReplayAt: (seconds: number) => void;
 }) {
-  const { landing, fights, circles, heal } = report;
+  const { landing, fights, circles, heal, versus, damageTaken, myKills } = report;
   const outsideCircles = circles.filter((circle) => circle.status === "outside");
+  const [showHits, setShowHits] = useState(false);
+  const hasBotWork = !!versus && (versus.bot.kills > 0 || versus.bot.knocks > 0 || versus.bot.damage > 0);
   return (
     <ul aria-label="경기 흐름">
       {landing && (
@@ -94,6 +121,65 @@ export function MatchFlowContent({
           </FlowRow>
         );
       })}
+      {myKills && myKills.length > 0 && (
+        <FlowRow label="내 처치">
+          <ul className="flex flex-col gap-1.5" aria-label="내 처치">
+            {myKills.map((kill, index) => (
+              <li key={`${kill.timeMs}-${index}`} className="flex flex-wrap items-baseline gap-x-2">
+                <span className="font-mono text-gray-400">{formatMatchClock(kill.timeMs)}</span>
+                <span className="font-bold text-white">{kill.victim}{kill.victimIsBot ? " (봇)" : ""}</span>
+                <span className="text-gray-300">{killDetail(kill)}</span>
+                <span className="text-gray-500">
+                  {kill.victimWeapon ? `상대 무기 ${weaponLabel(kill.victimWeapon)}` : "상대 무기 없음"}
+                  {kill.victimRank ? ` · 상대 최종 #${kill.victimRank}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </FlowRow>
+      )}
+      {versus && (
+        <FlowRow label="상대">
+          사람 {versusText(versus.human)}
+          {hasBotWork ? <span className="text-gray-400"> · 봇 {versusText(versus.bot)}</span> : null}
+        </FlowRow>
+      )}
+      {damageTaken && damageTaken.sources.length > 0 && (
+        <FlowRow label="피격">
+          <ul className="flex flex-col gap-1" aria-label="나를 맞힌 것">
+            {damageTaken.sources.map((source, index) => (
+              <li key={`${source.attacker ?? source.cause}-${index}`} className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-white">{sourceLabel(source)}</span>
+                {source.weapon && source.attacker && <span className="text-gray-400">{weaponLabel(source.weapon)}</span>}
+                <span className="text-gray-300">{source.damage} ({source.hits}번)</span>
+              </li>
+            ))}
+          </ul>
+          {damageTaken.hits.length > 0 && (
+            <button
+              type="button"
+              onClick={(event) => { event.stopPropagation(); setShowHits((value) => !value); }}
+              aria-expanded={showHits}
+              className="mt-1.5 min-h-8 text-[11px] font-bold text-gray-400 hover:text-white"
+            >
+              {showHits ? "피격 기록 접기" : `피격 기록 ${damageTaken.hits.length}건 보기`}
+            </button>
+          )}
+          {showHits && (
+            <ol className="mt-1 flex flex-col gap-0.5 text-[11px] text-gray-400" aria-label="피격 기록">
+              {damageTaken.hits.map((hit, index) => (
+                <li key={`${hit.timeMs}-${index}`}>
+                  <span className="font-mono">{formatMatchClock(hit.timeMs)}</span>
+                  {" · "}{hit.attacker ? `${hit.attacker}${hit.isBot ? " (봇)" : ""}` : DAMAGE_CAUSE_LABELS[hit.cause]}
+                  {hit.attacker && hit.weapon ? ` · ${weaponLabel(hit.weapon)}` : ""}
+                  {partLabel(hit.part) ? ` · ${partLabel(hit.part)}` : ""}
+                  {` · ${hit.damage}`}
+                </li>
+              ))}
+            </ol>
+          )}
+        </FlowRow>
+      )}
       {circles.length > 0 && (
         <FlowRow label="자기장">
           {outsideCircles.length === 0
@@ -125,6 +211,7 @@ function KillTreeList({ nodes, myTeam, depth = 0 }: { nodes: KillTreeNode[]; myT
             {node.timeMs !== null && (
               <span className="ml-2 text-[10px] text-gray-500">
                 {formatMatchClock(node.timeMs)}{node.weapon ? ` · ${weaponLabel(node.weapon)}` : ""}
+                {node.diedKnocked ? " · 기절 후 사망" : ""}
               </span>
             )}
             {node.children.length > 0 && <KillTreeList nodes={node.children} myTeam={myTeam} depth={depth + 1} />}
@@ -181,7 +268,10 @@ export function MatchOverviewContent({ report }: { report: MatchReport }) {
       {tree.length > 0 && (
         <div>
           <div className="mb-2 flex items-center justify-between">
-            <h4 className="text-[11px] font-black text-gray-400">킬 트리 · 마지막 생존자부터</h4>
+            <div className="min-w-0">
+              <h4 className="text-[11px] font-black text-gray-400">킬 트리 · 마지막 생존자부터</h4>
+              <p className="text-[10px] text-gray-500">들여쓴 선수는 바로 위 선수가 처치했습니다. 기절한 채 죽으면 기절시킨 선수의 처치로 기록됩니다.</p>
+            </div>
             <button
               type="button"
               onClick={(event) => { event.stopPropagation(); setShowTree((value) => !value); }}

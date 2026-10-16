@@ -1485,6 +1485,9 @@ describeBrowser("stats browser smoke", () => {
         await waitForStatsText({ dispatcher, page, text: "써드파티 · 최근 1분간 2팀 교전" });
         await clickButtonText(page, "경기 흐름");
         await waitForStatsSelector({ dispatcher, page, selector: 'button[aria-label="교전1 리플레이에서 보기"]' });
+        await waitForStatsSelector({ dispatcher, page, selector: 'ul[aria-label="내 처치"]' });
+        await waitForStatsSelector({ dispatcher, page, selector: 'ul[aria-label="나를 맞힌 것"]' });
+        await waitForStatsText({ dispatcher, page, text: "사람 팀 기준 #2" });
         await clickButtonText(page, "경기 전체");
         await waitForStatsSelector({ dispatcher, page, selector: 'ol[aria-label="팀 순위"]' });
         const tierButtonSelector = '[data-compact-match-id="match-fixture-1"] button[aria-haspopup="dialog"]';

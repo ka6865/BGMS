@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MatchReportCollector, type MatchReport } from "@/lib/pubg-analysis/matchReport";
-import { buildKillTree, describeDeath, fightReplaySeconds, hasMatchFlow, hasMatchOverview } from "@/lib/pubg-analysis/matchReportView";
+import { buildKillTree, describeDeath, fightReplaySeconds, hasMatchFlow, hasMatchOverview, humanTeamPlace } from "@/lib/pubg-analysis/matchReportView";
 
 const START = Date.parse("2026-10-15T15:00:00.000Z");
 const at = (seconds: number) => new Date(START + seconds * 1000).toISOString();
@@ -202,5 +202,85 @@ describe("경기 전체", () => {
     expect(hasMatchOverview(run([], participants, rosters))).toBe(true);
     expect(fightReplaySeconds(100_000)).toBe(97);
     expect(fightReplaySeconds(1_000)).toBe(0);
+  });
+});
+
+describe("상대 구성과 피격, 내 처치", () => {
+  const BOT: Who = { name: "Bot_7", teamId: 4, accountId: "ai.7" };
+
+  it("사람과 봇에게 낸 처치·기절·피해를 나눈다", () => {
+    const report = run([
+      damage(100, ME, A1, 80), groggy(101, ME, A1), kill(102, ME, A1),
+      damage(200, ME, BOT, 40), kill(201, ME, BOT),
+      damage(300, MATE, A2, 50),
+      { ...damage(310, ME, ME, 10, "Damage_Explosion_Grenade") },
+    ]);
+    expect(report.versus).toEqual({ human: { kills: 1, knocks: 1, damage: 80 }, bot: { kills: 1, knocks: 0, damage: 40 } });
+  });
+
+  it("나를 맞힌 피해를 상대·원인별로 모으고 피격 기록을 남긴다", () => {
+    const hit = (s: number, attacker: Who | null, amount: number, category: string, causer: string, reason: string) => ({
+      _T: "LogPlayerTakeDamage", _D: at(s), attacker: attacker ? actor(attacker) : null, victim: actor(ME),
+      damage: amount, damageTypeCategory: category, damageCauserName: causer, damageReason: reason,
+    });
+    const report = run([
+      hit(100, A1, 30, "Damage_Gun", "WeapM416_C", "TorsoShot"),
+      hit(101, A1, 45, "Damage_Gun", "WeapKar98k_C", "HeadShot"),
+      hit(102, A1, 20, "Damage_Gun", "WeapKar98k_C", "ArmShot"),
+      hit(200, null, 12, "Damage_BlueZone", "None", "NonSpecific"),
+      hit(300, B1, 50, "Damage_Gun", "WeapAK47_C", "LegShot"),
+    ]);
+    expect(report.damageTaken?.sources).toEqual([
+      { attacker: "EnemyA1", attackerTeamId: 2, isBot: false, cause: "gun", weapon: "WeapKar98k_C", damage: 95, hits: 3 },
+      { attacker: "EnemyB1", attackerTeamId: 3, isBot: false, cause: "gun", weapon: "WeapAK47_C", damage: 50, hits: 1 },
+      { attacker: null, attackerTeamId: null, isBot: false, cause: "zone", weapon: null, damage: 12, hits: 1 },
+    ]);
+    expect(report.damageTaken?.hits[1]).toEqual({ timeMs: 101_000, attacker: "EnemyA1", isBot: false, cause: "gun", weapon: "WeapKar98k_C", part: "HeadShot", damage: 45 });
+    expect(report.damageTaken?.hits[3].part).toBeNull();
+  });
+
+  it("내 처치에 상대 무기·최종 순위·부위·벽 관통·기절시킨 쪽을 붙인다", () => {
+    const participants = [{ id: "a1", attributes: { stats: { name: "EnemyA1", playerId: "account.EnemyA1" } } }];
+    const rosters = [{ id: "r", attributes: { stats: { rank: 4, teamId: 2 } }, relationships: { participants: { data: [{ id: "a1" }] } } }];
+    const report = run([
+      groggy(100, B1, A1),
+      {
+        _T: "LogPlayerKillV2", _D: at(110), victim: actor(A1), killer: actor(ME), victimWeapon: "WeapACE32_C_9",
+        killerDamageInfo: { damageTypeCategory: "Damage_Gun", damageCauserName: "WeapM24_C", damageReason: "HeadShot", distance: 12_345, isThroughPenetrableWall: true },
+      },
+    ], participants, rosters);
+    expect(report.myKills).toEqual([{
+      timeMs: 110_000, victim: "EnemyA1", victimTeamId: 2, victimIsBot: false, victimRank: 4, victimWeapon: "WeapACE32_C",
+      weapon: "WeapM24_C", part: "HeadShot", distanceM: 123, throughWall: true, knockedBy: "other",
+    }]);
+  });
+
+  it("봇만 있는 팀이 우리보다 위에 있으면 사람 팀 기준 순위를 따로 계산한다", () => {
+    const team = (rank: number, isMine: boolean, bots: boolean[]) => ({
+      teamId: rank, rank, kills: 0, damage: 0, isMine,
+      players: bots.map((isBot, index) => ({ name: `P${rank}-${index}`, kills: 0, damage: 0, isBot })),
+    });
+    const base = run([]);
+    expect(humanTeamPlace({ ...base, teams: [team(1, false, [false]), team(2, false, [true, true]), team(3, false, [true, false]), team(4, true, [false])] })).toBe(3);
+    expect(humanTeamPlace({ ...base, teams: [team(1, false, [false]), team(2, true, [false])] })).toBeNull();
+  });
+});
+
+describe("기절 후 사망", () => {
+  it("마무리 피해가 기절 출혈이면 킬 트리에 기절 후 사망으로 남긴다", () => {
+    const report = run([
+      groggy(100, A1, MATE),
+      kill(150, ME, A1),
+      {
+        _T: "LogPlayerKillV2", _D: at(160), victim: actor(MATE), killer: actor(A1),
+        killerDamageInfo: { damageTypeCategory: "Damage_Gun", damageCauserName: "WeapACE32_C", distance: 1_000 },
+        finishDamageInfo: { damageTypeCategory: "Damage_DBNO", damageCauserName: "PlayerMale_A_C", distance: -1 },
+      },
+    ]);
+    expect(report.kills.find((item) => item.victim === "Mate")).toMatchObject({ killer: "EnemyA1", weapon: "WeapACE32_C", diedKnocked: true });
+    const tree = buildKillTree(report.kills);
+    expect(tree[0].name).toBe("Me");
+    expect(tree[0].children[0]).toMatchObject({ name: "EnemyA1", diedKnocked: false });
+    expect(tree[0].children[0].children[0]).toMatchObject({ name: "Mate", diedKnocked: true });
   });
 });

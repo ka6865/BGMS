@@ -35,7 +35,7 @@ import { getTranslatedWeaponName } from "@/lib/pubg-analysis/constants";
 export { MatchPerformancePanel } from "./MatchPerformancePanel";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { BOT_SHARE_LEVEL_LABELS, buildBotShare } from "@/lib/pubg-analysis/botShare";
-import { hasMatchFlow, hasMatchOverview } from "@/lib/pubg-analysis/matchReportView";
+import { hasMatchFlow, hasMatchOverview, humanTeamPlace } from "@/lib/pubg-analysis/matchReportView";
 import { MatchDeathLine, MatchFlowContent, MatchOverviewContent } from "./MatchReportSections";
 import { normalizeSquadWeaponStats } from "@/lib/pubg-analysis/squadWeaponStats";
 import { useAIStatus, aiManager } from "@/lib/ai-management";
@@ -420,6 +420,7 @@ export const ExpandedMatchDetails = ({
   const hasVehicleCombat = vehicleCombatTotal > 0;
   const botShare = matchData ? buildBotShare(matchData.totalPlayers, matchData.botCount) : null;
   const matchReport = matchData?.matchReport ?? null;
+  const humanPlace = matchReport ? humanTeamPlace(matchReport) : null;
   const normalizedNickname = normalizeName(nickname);
   const normalizedTeamMembers = useMemo(() => {
     const memberMap = new Map<string, MatchTeamMember>();
@@ -1136,6 +1137,9 @@ export const ExpandedMatchDetails = ({
               <span>봇 {botShare.botCount} ({botShare.percent}%)</span>
               {botShare.level !== "none" && (
                 <span className="rounded bg-white/5 px-1.5 py-0.5 font-bold text-gray-300">{BOT_SHARE_LEVEL_LABELS[botShare.level]}</span>
+              )}
+              {humanPlace !== null && (
+                <span className="text-gray-300" title="봇만 있는 팀을 빼고 센 순위">사람 팀 기준 #{humanPlace}</span>
               )}
             </p>
           )}
