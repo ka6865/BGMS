@@ -5,6 +5,10 @@ import { useMap } from "react-leaflet";
 import L from "leaflet";
 import { toCalibratedCoords } from "../../../utils/coordinate";
 import { MAX_POSITION_INTERPOLATION_GAP_MS } from "../../../lib/pubg-analysis/telemetryContract";
+import { collectTeamEngagements, recentOpponents, type ReplayEngagement } from "../../../lib/replay/replayEngagements";
+
+// 따라가기를 시작할 때 맞추는 최소 줌(CRS.Simple, 0이 원본 해상도). 기본 화면(-3)보다 8배 확대다.
+const FOLLOW_MIN_ZOOM = 0;
 
 interface TelemetryCanvasLayerProps {
   telemetryData: any;
@@ -49,6 +53,8 @@ export const TelemetryCanvasLayer = ({
   const posLogsRef = useRef<Record<string, { x: number, y: number, t: number, rotation: number }[]>>({});
   const flightPathRef = useRef<{ start: {x: number, y: number}, end: {x: number, y: number} } | null>(null);
   const requestDrawRef = useRef<() => void>(() => {});
+  const engagementsRef = useRef<ReplayEngagement[]>([]);
+  const followStartRef = useRef<(name: string) => void>(() => {});
 
   useEffect(() => {
     dataRef.current = telemetryData;
@@ -106,6 +112,11 @@ export const TelemetryCanvasLayer = ({
   }, [telemetryData.events]);
 
   useEffect(() => {
+    engagementsRef.current = collectTeamEngagements(telemetryData.events || [], telemetryData.teamNames || []);
+    requestDrawRef.current();
+  }, [telemetryData.events, telemetryData.teamNames]);
+
+  useEffect(() => {
     if (!map) return;
     let pane = map.getPane("telemetry-pane");
     if (!pane) {
@@ -136,6 +147,37 @@ export const TelemetryCanvasLayer = ({
       const r = (time - p1.t) / (p2.t - p1.t);
       return { x: p1.x + (p2.x - p1.x) * r, y: p1.y + (p2.y - p1.y) * r, rotation: p1.rotation + (p2.rotation - p1.rotation) * r };
     };
+
+    const findLivePlayer = (name: string) => {
+      const playhead = dataRef.current?.playheadRef?.current;
+      const states = playhead?.states ?? dataRef.current?.currentStates ?? {};
+      const timeMs = playhead?.timeMs ?? dataRef.current?.currentTimeMs ?? 0;
+      const target = name.trim().toLowerCase();
+      const state = Object.values(states).find((p: any) => typeof p?.name === "string" && p.name.trim().toLowerCase() === target) as any;
+      if (!state || state.isDead) return null;
+      const pos = getInterpolatedPos(state.name, timeMs) || { x: state.x, y: state.y };
+      if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y) || pos.x < 0 || pos.y < 0) return null;
+      return toCalibratedCoords(pos.x, pos.y, dataRef.current.mapName);
+    };
+
+    // 따라가는 선수를 화면 가운데에 둔다. 1px 미만 차이는 무시해 멈춘 상태에서 다시 그리기가 반복되지 않게 한다.
+    const keepFollowedPlayerCentered = () => {
+      const name = dataRef.current?.followPlayer;
+      if (!name || dataRef.current?.isActive === false) return;
+      const target = findLivePlayer(name);
+      if (!target) return;
+      const point = map.latLngToContainerPoint(target);
+      const center = map.getSize().divideBy(2);
+      if (Math.abs(point.x - center.x) >= 1 || Math.abs(point.y - center.y) >= 1) {
+        map.panTo(target, { animate: false });
+      }
+    };
+
+    followStartRef.current = (name: string) => {
+      const target = findLivePlayer(name);
+      if (target) map.setView(target, Math.max(map.getZoom(), FOLLOW_MIN_ZOOM), { animate: true });
+    };
+    const cancelFollowOnDrag = () => dataRef.current?.onFollowCancel?.();
 
     const getPoint = (lat: number, lng: number) => {
       if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -169,6 +211,7 @@ export const TelemetryCanvasLayer = ({
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       if (!states || dataRef.current?.isActive === false) return;
 
+      keepFollowedPlayerCentered();
       const size = map.getSize(), dpr = window.devicePixelRatio || 1;
       // 크기를 다시 대입하면 매 프레임 백버퍼가 재할당되므로 실제로 바뀐 경우에만 설정한다.
       const backingWidth = Math.round(size.x * dpr), backingHeight = Math.round(size.y * dpr);
@@ -478,6 +521,14 @@ export const TelemetryCanvasLayer = ({
 
       // [C] 플레이어 & 차량 (기존 로직 유지)
       const hidden = (name:string) => (dataRef.current.hiddenPlayers || []).some((value:string) => value.trim().toLowerCase() === name.trim().toLowerCase());
+      // 이름 자동 표시: 아군, 따라가는 선수, 최근 아군과 교전한 상대. "전체"면 모두 표시한다.
+      const opponents = recentOpponents(engagementsRef.current, currentTimeMs);
+      const followed = (dataRef.current.followPlayer || "").trim().toLowerCase();
+      const showName = (player: any) => {
+        if (dataRef.current.showPlayerNames || player.name === dataRef.current.nickname || !player.isEnemy) return true;
+        const name = String(player.name || "").trim().toLowerCase();
+        return name === followed || opponents.has(name);
+      };
       const handledVehicles = new Set();
       Object.values(states).forEach((p: any) => {
         if (p.isDead || hidden(p.name)) return;
@@ -485,7 +536,6 @@ export const TelemetryCanvasLayer = ({
         const pt = getPoint(pos.y, pos.x);
         const isMe = p.name === dataRef.current.nickname;
         const isGroggy = p.isGroggy;
-        const isTeam = !p.isEnemy;
         const radius = isMe ? 12 : 9;
 
         if (p.isInVehicle && p.vehicleId) {
@@ -517,7 +567,7 @@ export const TelemetryCanvasLayer = ({
 
           if (!isAirplane) {
             occupants.forEach((m, i) => {
-              if (dataRef.current.showPlayerNames || m.name === dataRef.current.nickname) {
+              if (showName(m)) {
                 ctx.font = "bold 10px Pretendard";
                 ctx.fillStyle = m.isGroggy ? "#ff4444" : "#ffffff";
                 ctx.textAlign = "center";
@@ -554,7 +604,7 @@ export const TelemetryCanvasLayer = ({
           ctx.fillText(p.teamId.toString(), 0, 0);
         }
 
-        if (dataRef.current.showPlayerNames || isMe || (isTeam && isGroggy)) {
+        if (showName(p)) {
           ctx.font = isMe ? "bold 12px Pretendard" : "bold 10px Pretendard";
           ctx.fillStyle = isGroggy ? "#ff4444" : "#ffffff"; ctx.textAlign = "center";
           ctx.shadowColor = "black"; ctx.shadowBlur = 4;
@@ -570,15 +620,24 @@ export const TelemetryCanvasLayer = ({
 
     requestDrawRef.current = requestDraw;
     map.on("viewreset move moveend zoom zoomend resize", requestDraw);
+    map.on("dragstart", cancelFollowOnDrag);
     requestDraw();
     return () => {
       map.off("viewreset move moveend zoom zoomend resize", requestDraw);
+      map.off("dragstart", cancelFollowOnDrag);
       requestDrawRef.current = () => {};
+      followStartRef.current = () => {};
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
       animationRef.current = null;
       if (pane && canvas) try { pane.removeChild(canvas); } catch (e) {}
     };
   }, [map, isHighPrecision]);
+
+  // 지도 effect가 followStartRef를 연결한 뒤에 실행되도록 그 아래에 둔다.
+  const followPlayer: string | null = telemetryData.followPlayer ?? null;
+  useEffect(() => {
+    if (followPlayer) followStartRef.current(followPlayer);
+  }, [followPlayer]);
 
   return null;
 };

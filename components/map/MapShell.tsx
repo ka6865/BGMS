@@ -1,4 +1,4 @@
-import React, { memo, useState, useEffect, useMemo } from "react";
+import React, { memo, useState, useEffect, useMemo, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import L from "leaflet";
@@ -8,6 +8,7 @@ import MapView from "./MapView";
 import { X, Hammer, Map as MapIcon, Crosshair, AlertCircle, SlidersHorizontal, Menu, Flame, MapPin, Target } from 'lucide-react';
 import type { MapTab, MapMarker, AuthUser, PendingVehicle } from "../../types/map";
 import { useTelemetry } from "../../hooks/useTelemetry";
+import { collectTeamEngagements, findFightStarts, nextFightSeekMs } from "../../lib/replay/replayEngagements";
 import TelemetryPlayer from "./TelemetryPlayer";
 import KillFeed from "./KillFeed";
 import HomeNotice from "./HomeNotice";
@@ -129,18 +130,28 @@ const MapShell = memo(({
     const [showCombatDots, setShowCombatDots] = useState(false);
     const [showShotDots, setShowShotDots] = useState(true);
     const [hiddenPlayers, setHiddenPlayers] = useState<string[]>([]);
-    const [showPlayerNames, setShowPlayerNames] = useState(!lessonId);
+    // false는 자동 표시(아군·따라가는 선수·최근 교전 상대), true는 전원 표시다.
+    const [showPlayerNames, setShowPlayerNames] = useState(false);
     const [showFlightPath, setShowFlightPath] = useState(true);
+    const [followPlayer, setFollowPlayer] = useState<string | null>(null);
+    const cancelFollow = useCallback(() => setFollowPlayer(null), []);
     // Canvas는 playheadRef로 매 프레임 그리므로, 이 객체는 UI 갱신 주기(약 250ms)에만 바뀌게 고정한다.
     const isTelemetryActive = !!playbackId && !playbackIdentityError;
     const telemetryData = useMemo(() => ({
       isActive: isTelemetryActive, isPlaying, playheadRef: isTelemetryActive ? playheadRef : undefined,
       mapName: activeMapId || "Erangel", events: safeTelemetryEvents, currentTimeMs, currentStates: safeCurrentStates,
       teamNames: safeTeamNames, zoneEvents: safeZoneEvents, showZone, showCombatDots, showShotDots, hiddenPlayers, showPlayerNames, showFlightPath,
+      nickname: playbackNickname, followPlayer, onFollowCancel: cancelFollow,
     }), [
       isTelemetryActive, isPlaying, playheadRef, activeMapId, safeTelemetryEvents, currentTimeMs, safeCurrentStates,
       safeTeamNames, safeZoneEvents, showZone, showCombatDots, showShotDots, hiddenPlayers, showPlayerNames, showFlightPath,
+      playbackNickname, followPlayer, cancelFollow,
     ]);
+    const fightStarts = useMemo(
+      () => findFightStarts(collectTeamEngagements(safeTelemetryEvents, safeTeamNames)),
+      [safeTelemetryEvents, safeTeamNames],
+    );
+    const nextFightMs = nextFightSeekMs(fightStarts, currentTimeMs);
     const [showSmokeNotice, setShowSmokeNotice] = useState(false); //  연막탄 공지 상태
     const [isInstructionDismissed, setIsInstructionDismissed] = useState(false);
 
@@ -159,9 +170,10 @@ const MapShell = memo(({
       setIsInstructionDismissed(false);
     }, [activeMode]);
 
+    // 다른 경기나 선수로 바뀌면 따라가기를 해제한다.
     useEffect(() => {
-      setShowPlayerNames(!lessonId);
-    }, [lessonId]);
+      setFollowPlayer(null);
+    }, [playbackId, playbackNickname]);
 
     //  "오늘 하루 보지 않기" 체크 로직
     useEffect(() => {
@@ -580,6 +592,9 @@ const MapShell = memo(({
                     onTogglePlayer={(n) => setHiddenPlayers(prev => prev.includes(n) ? prev.filter(x => x !== n) : [...prev, n])}
                     showPlayerNames={showPlayerNames} onTogglePlayerNames={() => setShowPlayerNames(!showPlayerNames)}
                     showFlightPath={showFlightPath} onToggleFlightPath={() => setShowFlightPath(!showFlightPath)}
+                    followPlayer={followPlayer} onFollowPlayerChange={setFollowPlayer}
+                    nextFightMs={nextFightMs} onNextFight={() => { if (nextFightMs !== null) setCurrentTimeMs(nextFightMs); }}
+                    defaultExpanded={!isMobile}
                     onClose={() => {
                       if (rankerLesson) { router.push("/learn"); return; }
                       const p = new URLSearchParams(searchParams?.toString() || "");
