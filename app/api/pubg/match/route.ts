@@ -1,6 +1,6 @@
 import { isRecentlyNotFound, rememberNotFound, forgetNotFound } from "@/lib/pubg/matchNotFoundCache";
 import { buildCalculationPendingMatch } from "@/lib/pubg-analysis/calculationAvailability";
-import { countBotParticipants } from "@/lib/pubg-analysis/botShare";
+import { countBotParticipants, humanDamageRankPct } from "@/lib/pubg-analysis/botShare";
 import { containsTelemetryAccountEvidence as containsRecoveryAccountIdentityEvidence, parseOrdinaryTelemetryUrl, relationshipBoundTelemetryAsset } from "@/lib/pubg-analysis/telemetrySource";
 import { readSharedTelemetrySource, writeSharedTelemetrySource, type SharedTelemetrySource } from "@/lib/pubg-analysis/sharedTelemetrySource";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -1465,11 +1465,9 @@ export async function GET(request: NextRequest) {
         || participant.attributes?.accountId)
       .filter((id: unknown): id is string => typeof id === "string" && id.length > 0));
 
-    const humanParticipants = participants.filter((p: any) => !p.attributes.accountId?.startsWith("ai."));
     const botCount = countBotParticipants(participants);
-    const sortedByDamage = [...humanParticipants].map(p => p.attributes.stats).sort((a, b) => b.damageDealt - a.damageDealt);
-    const myDamageRank = sortedByDamage.findIndex((s: any) => normalizeName(s.name) === lowerNickname) + 1;
-    const rankPct = humanParticipants.length > 0 ? myDamageRank / humanParticipants.length : 1;
+    // 봇은 stats.playerId가 ai.로 시작한다. 봇을 빼야 봇이 섞인 경기에서 등급이 부풀지 않는다.
+    const rankPct = humanDamageRankPct(participants, lowerNickname);
 
     if (!shouldForce && cachedFullResult) {
       const cachedVersion = cachedFullResult.v || 0;

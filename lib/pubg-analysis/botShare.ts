@@ -1,4 +1,5 @@
 // 경기 참가자 중 봇(AI) 비율 계산. PUBG는 봇 참가자의 playerId를 "ai."로 시작하게 기록한다.
+import { normalizeName } from "./utils";
 
 export type BotShareLevel = "none" | "few" | "some" | "many" | "mostly";
 
@@ -18,6 +19,27 @@ type ParticipantLike = {
 export function isBotParticipant(participant: ParticipantLike): boolean {
   const id = participant?.attributes?.stats?.playerId ?? participant?.attributes?.accountId;
   return typeof id === "string" && id.startsWith("ai.");
+}
+
+type DamageParticipant = ParticipantLike & { attributes?: { stats?: { name?: unknown; damageDealt?: unknown } | null } | null };
+
+/**
+ * 봇을 뺀 참가자 중 내 딜량 순위 비율(1/사람 수 ~ 1). 경기 등급과 "딜량 상위 %"에 쓴다.
+ * 내 기록을 찾지 못하면 가장 낮은 비율(1)로 둔다.
+ */
+export function humanDamageRankPct(participants: readonly DamageParticipant[] | null | undefined, lowerNickname: string): number {
+  const humans = (Array.isArray(participants) ? participants : []).filter((participant) => !isBotParticipant(participant));
+  if (humans.length === 0) return 1;
+  const damage = (participant: DamageParticipant) => {
+    const value = participant?.attributes?.stats?.damageDealt;
+    return typeof value === "number" && Number.isFinite(value) ? value : 0;
+  };
+  const sorted = [...humans].sort((a, b) => damage(b) - damage(a));
+  const rank = sorted.findIndex((participant) => {
+    const name = participant?.attributes?.stats?.name;
+    return typeof name === "string" && normalizeName(name) === lowerNickname;
+  }) + 1;
+  return rank > 0 ? rank / humans.length : 1;
 }
 
 export function countBotParticipants(participants: readonly ParticipantLike[] | null | undefined): number {
