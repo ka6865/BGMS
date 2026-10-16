@@ -1,4 +1,4 @@
-import React, { memo, useState, useEffect } from "react";
+import React, { memo, useState, useEffect, useMemo, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import L from "leaflet";
@@ -8,6 +8,7 @@ import MapView from "./MapView";
 import { X, Hammer, Map as MapIcon, Crosshair, AlertCircle, SlidersHorizontal, Menu, Flame, MapPin, Target } from 'lucide-react';
 import type { MapTab, MapMarker, AuthUser, PendingVehicle } from "../../types/map";
 import { useTelemetry } from "../../hooks/useTelemetry";
+import { collectTeamEngagements, findFightStarts, nextFightSeekMs, recentOpponents } from "../../lib/replay/replayEngagements";
 import TelemetryPlayer from "./TelemetryPlayer";
 import KillFeed from "./KillFeed";
 import HomeNotice from "./HomeNotice";
@@ -53,6 +54,10 @@ const getDistanceToLineSegment = (px: number, py: number, x1: number, y1: number
   const dx = px - xx; const dy = py - yy;
   return Math.sqrt(dx * dx + dy * dy);
 };
+
+// 재생 식별 오류 시 넘기는 빈 값. 매 렌더 새 객체를 만들지 않도록 고정한다.
+const NO_ITEMS: never[] = [];
+const NO_STATES: Record<string, never> = {};
 
 const formatTime = (ms: number) => {
   const s = Math.floor(ms / 1000);
@@ -100,13 +105,13 @@ const MapShell = memo(({
     const {
       events: telemetryEvents, loading: telemetryLoading, error: telemetryError,
       isPlaying, setIsPlaying, playbackSpeed, setPlaybackSpeed,
-      currentTimeMs, setCurrentTimeMs, maxTimeMs, currentStates, teamNames, zoneEvents,
+      currentTimeMs, setCurrentTimeMs, maxTimeMs, currentStates, playheadRef, teamNames, zoneEvents,
       isFullMode
     } = useTelemetry(playbackId, playbackNickname, playbackPlatform, playbackMode, activeMapId, requestedStartMs, lessonId);
-    const safeTelemetryEvents = playbackIdentityError ? [] : telemetryEvents;
-    const safeCurrentStates = playbackIdentityError ? {} : currentStates;
-    const safeTeamNames = playbackIdentityError ? [] : teamNames;
-    const safeZoneEvents = playbackIdentityError ? [] : zoneEvents;
+    const safeTelemetryEvents = playbackIdentityError ? NO_ITEMS : telemetryEvents;
+    const safeCurrentStates = playbackIdentityError ? NO_STATES : currentStates;
+    const safeTeamNames = playbackIdentityError ? NO_ITEMS : teamNames;
+    const safeZoneEvents = playbackIdentityError ? NO_ITEMS : zoneEvents;
 
     const [activeMode, setActiveMode] = useState<"none" | "mortar" | "flight" | "report" | "simulate">("none");
     const [isMortarDisclaimerOpen, setIsMortarDisclaimerOpen] = useState(false);
@@ -125,8 +130,32 @@ const MapShell = memo(({
     const [showCombatDots, setShowCombatDots] = useState(false);
     const [showShotDots, setShowShotDots] = useState(true);
     const [hiddenPlayers, setHiddenPlayers] = useState<string[]>([]);
-    const [showPlayerNames, setShowPlayerNames] = useState(!lessonId);
+    // false는 자동 표시(아군·따라가는 선수·최근 교전 상대), true는 전원 표시다.
+    const [showPlayerNames, setShowPlayerNames] = useState(false);
     const [showFlightPath, setShowFlightPath] = useState(true);
+    const [followPlayer, setFollowPlayer] = useState<string | null>(null);
+    const cancelFollow = useCallback(() => setFollowPlayer(null), []);
+    // Canvas는 playheadRef로 매 프레임 그리므로, 이 객체는 UI 갱신 주기(약 250ms)에만 바뀌게 고정한다.
+    const isTelemetryActive = !!playbackId && !playbackIdentityError;
+    const telemetryData = useMemo(() => ({
+      isActive: isTelemetryActive, isPlaying, playheadRef: isTelemetryActive ? playheadRef : undefined,
+      mapName: activeMapId || "Erangel", events: safeTelemetryEvents, currentTimeMs, currentStates: safeCurrentStates,
+      teamNames: safeTeamNames, zoneEvents: safeZoneEvents, showZone, showCombatDots, showShotDots, hiddenPlayers, showPlayerNames, showFlightPath,
+      nickname: playbackNickname, followPlayer, onFollowCancel: cancelFollow,
+    }), [
+      isTelemetryActive, isPlaying, playheadRef, activeMapId, safeTelemetryEvents, currentTimeMs, safeCurrentStates,
+      safeTeamNames, safeZoneEvents, showZone, showCombatDots, showShotDots, hiddenPlayers, showPlayerNames, showFlightPath,
+      playbackNickname, followPlayer, cancelFollow,
+    ]);
+    const teamEngagements = useMemo(
+      () => collectTeamEngagements(safeTelemetryEvents, safeTeamNames),
+      [safeTelemetryEvents, safeTeamNames],
+    );
+    const fightStarts = useMemo(() => findFightStarts(teamEngagements), [teamEngagements]);
+    const nextFightMs = nextFightSeekMs(fightStarts, currentTimeMs);
+    const engagedOpponents = useMemo(() => recentOpponents(teamEngagements, currentTimeMs), [teamEngagements, currentTimeMs]);
+    const alivePlayers = Object.values(safeCurrentStates).filter((p: any) => !p.isDead);
+    const aliveTeams = new Set(alivePlayers.map((p: any) => p.teamId)).size;
     const [showSmokeNotice, setShowSmokeNotice] = useState(false); //  연막탄 공지 상태
     const [isInstructionDismissed, setIsInstructionDismissed] = useState(false);
 
@@ -145,9 +174,10 @@ const MapShell = memo(({
       setIsInstructionDismissed(false);
     }, [activeMode]);
 
+    // 다른 경기나 선수로 바뀌면 따라가기를 해제한다.
     useEffect(() => {
-      setShowPlayerNames(!lessonId);
-    }, [lessonId]);
+      setFollowPlayer(null);
+    }, [playbackId, playbackNickname]);
 
     //  "오늘 하루 보지 않기" 체크 로직
     useEffect(() => {
@@ -229,7 +259,8 @@ const MapShell = memo(({
 
     return (
       <div className="flex w-full h-full overflow-hidden">
-        {!isMobile ? (
+        {/* 리플레이 중에는 고젠 지도용 카테고리 필터를 숨겨 지도 폭을 넓힌다. */}
+        {!isMobile ? (!playbackId &&
           <Sidebar isOpen={isSidebarOpen} setIsOpen={onSetSidebarOpen} mapLabel={currentMap?.label || "지도"} activeMapId={activeMapId} filters={filters} toggleFilter={onToggleFilter} getCount={onGetCount} />
         ) : (
           <MobileBottomSheet isOpen={isSidebarOpen} setIsOpen={onSetSidebarOpen} mapLabel={currentMap?.label || "지도"} activeMapId={activeMapId} filters={filters} toggleFilter={onToggleFilter} getCount={onGetCount} />
@@ -453,10 +484,7 @@ const MapShell = memo(({
               setReportLocation={setReportLocation} reportLocation={reportLocation} currentUser={currentUser} isAdmin={isAdmin}
               pendingVehicles={playbackId ? [] : pendingVehicles} filters={filters} isHotDropOn={isHotDropOn}
               isHighPrecision={isFullMode}
-              telemetryData={{
-                isActive: !!playbackId && !playbackIdentityError, mapName: activeMapId || "Erangel", events: safeTelemetryEvents, currentTimeMs, currentStates: safeCurrentStates,
-                teamNames: safeTeamNames, zoneEvents: safeZoneEvents, showZone, showCombatDots, showShotDots, hiddenPlayers, showPlayerNames, showFlightPath,
-              }}
+              telemetryData={telemetryData}
               simulatorStep={simulatorStep}
               simulatorPhases={simulatorPhases}
               setSimulatorStep={setSimulatorStep}
@@ -488,7 +516,7 @@ const MapShell = memo(({
             {playbackId && (
               <>
                 {/*  고도화된 통합 상단 상태바 (모바일 최적화) */}
-                <div className={`absolute ${isMobile ? 'top-2' : 'top-6'} left-1/2 -translate-x-1/2 z-[1000] flex flex-col items-center gap-2 w-full max-w-xl pointer-events-none`}>
+                <div className={`absolute ${isMobile ? 'top-2 pl-2 pr-16' : 'top-6'} left-1/2 -translate-x-1/2 z-[1000] flex flex-col items-center gap-2 w-full max-w-xl pointer-events-none`}>
                   {/* ℹ️ 연막탄 위치 추론 안내 공지 (모바일에서는 더 작게) */}
                   {showSmokeNotice && !rankerLesson && (
                     <div className={`pointer-events-auto bg-black/90 backdrop-blur-xl ${isMobile ? 'px-3 py-1.5 mx-4' : 'px-4 py-2'} rounded-xl border border-orange-500/30 shadow-[0_10px_30px_rgba(0,0,0,0.5)] flex items-center gap-3 mb-2 animate-in fade-in slide-in-from-top-2 duration-500`}>
@@ -505,24 +533,17 @@ const MapShell = memo(({
                     </div>
                   )}
 
-                  {safeZoneEvents.length > 0 && (
-                    <div className={`bg-black/80 backdrop-blur-md ${isMobile ? 'px-3 py-0.5' : 'px-4 py-1'} rounded-full border border-white/10 shadow-2xl flex items-center gap-3 animate-fade-in`}>
-                       <ZoneStatus currentTimeMs={currentTimeMs} zoneEvents={safeZoneEvents} />
-                    </div>
-                  )}
-                  
-                  <div className={`bg-[#111]/90 backdrop-blur-xl ${isMobile ? 'px-5 py-2' : 'px-8 py-3'} rounded-[2rem] border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center ${isMobile ? 'gap-4' : 'gap-8'}`}>
-                    <div className="flex flex-col items-center">
-                      <span className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">Time</span>
-                      <span className={`${isMobile ? 'text-lg' : 'text-2xl'} font-mono font-bold text-white leading-none`}>{formatTime(currentTimeMs)}</span>
-                    </div>
-                    <div className="w-px h-6 bg-white/10" />
-                    <div className="flex flex-col items-center">
-                      <span className="text-[9px] text-[#F2A900] font-bold uppercase tracking-widest">Alive</span>
-                      <span className={`${isMobile ? 'text-lg' : 'text-2xl'} font-mono font-bold text-[#F2A900] leading-none`}>
-                        {Object.values(safeCurrentStates).filter((p: any) => !p.isDead).length}
-                      </span>
-                    </div>
+                  {/* 재생 시각·생존·자기장을 한 줄 칩으로 묶는다. */}
+                  <div className="bg-black/80 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 shadow-2xl flex items-center gap-2.5 text-[11px] font-bold whitespace-nowrap">
+                    <span className="font-mono text-white">{formatTime(currentTimeMs)}</span>
+                    <span className="w-px h-3 bg-white/15" />
+                    <span className="text-[#F2A900]">생존 {alivePlayers.length}<span className="text-gray-400 font-medium"> · {aliveTeams}팀</span></span>
+                    {safeZoneEvents.length > 0 && (
+                      <>
+                        <span className="w-px h-3 bg-white/15" />
+                        <ZoneStatus currentTimeMs={currentTimeMs} zoneEvents={safeZoneEvents} />
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -569,6 +590,9 @@ const MapShell = memo(({
                     onTogglePlayer={(n) => setHiddenPlayers(prev => prev.includes(n) ? prev.filter(x => x !== n) : [...prev, n])}
                     showPlayerNames={showPlayerNames} onTogglePlayerNames={() => setShowPlayerNames(!showPlayerNames)}
                     showFlightPath={showFlightPath} onToggleFlightPath={() => setShowFlightPath(!showFlightPath)}
+                    followPlayer={followPlayer} onFollowPlayerChange={setFollowPlayer}
+                    nextFightMs={nextFightMs} onNextFight={() => { if (nextFightMs !== null) setCurrentTimeMs(nextFightMs); }}
+                    defaultExpanded={!isMobile}
                     onClose={() => {
                       if (rankerLesson) { router.push("/learn"); return; }
                       const p = new URLSearchParams(searchParams?.toString() || "");
@@ -613,7 +637,7 @@ const MapShell = memo(({
                   onSelect={selectLessonScene} onClose={() => setIsMenuOpen(false)}
                   onRetry={() => window.location.reload()}
                 />
-              ) : <TelemetrySidebar currentStates={safeCurrentStates} />}
+              ) : <TelemetrySidebar currentStates={safeCurrentStates} engagedOpponents={engagedOpponents} followPlayer={followPlayer} />}
             </div>
           )}
         </div>

@@ -371,8 +371,8 @@ export function projectTelemetryEvent(event: unknown): TelemetryEventRecord | nu
 
 const ENEMY_POSITION_SAMPLE_INTERVAL = 10;
 
-// 위치 로그는 약 10초 간격이라 lite 적 좌표는 약 100초 간격이 된다. 이보다 긴 공백은
-// 사망 후 재배치 같은 순간이동이므로 두 좌표 사이를 보간하지 않는다.
+// 리플레이 좌표는 선수별 약 10초 간격이고, 적 좌표를 1/10로 줄여 저장한 기존 lite 캐시는
+// 약 100초 간격이다. 이보다 긴 공백은 사망 후 재배치 같은 순간이동이므로 보간하지 않는다.
 export const MAX_POSITION_INTERPOLATION_GAP_MS = 150_000;
 
 // 적 좌표는 선수별 순번으로 줄인다. 전체 순번을 쓰면 위치 로그가 매 틱 같은 순서로
@@ -412,13 +412,3 @@ export function filterTelemetryEvents(
   });
 }
 
-
-/** Sample only rendered enemy positions, after all analysis calculations are complete. */
-export function sampleReplayPositions<T extends { type?: string; isTeam?: boolean; name?: unknown }>(events: T[], mode: TelemetryFilterMode): T[] {
-  if (mode === "full") return events;
-  const keepEnemyPosition = createEnemyPositionSampler();
-  return events.filter((event) => {
-    if (event.type !== "position" || event.isTeam !== false) return true;
-    return keepEnemyPosition(typeof event.name === "string" ? normalizeName(event.name) : "");
-  });
-}

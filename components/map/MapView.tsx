@@ -501,17 +501,6 @@ const MapView = memo(
             animation: groggy-pulse 1.2s infinite ease-out;
             box-shadow: 0 0 12px rgba(255, 0, 255, 0.7);
           }
-          /* 텔레메트리 마커 부드러운 이동을 위한 트랜지션 */
-          .leaflet-marker-icon, .leaflet-marker-shadow {
-            transition: transform 0.15s linear !important;
-          }
-          .leaflet-interactive {
-            transition: all 0.15s linear !important;
-          }
-          /* 궤적(Polyline)은 트랜지션 제외 (깜빡임 방지) */
-          .leaflet-pane path.leaflet-interactive[stroke-dasharray] {
-            transition: none !important;
-          }
           /* Leaflet 툴팁 기본 오버라이드 */
           .custom-mortar-tooltip {
             background: transparent !important;

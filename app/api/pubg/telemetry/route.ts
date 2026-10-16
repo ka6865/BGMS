@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { TELEMETRY_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
-import { filterTelemetryEvents, sampleReplayPositions } from "@/lib/pubg-analysis/telemetryContract";
+import { filterTelemetryEvents } from "@/lib/pubg-analysis/telemetryContract";
 import {
   containsTelemetryAccountEvidence,
   hasMatchingTelemetryDefinition,
@@ -420,7 +420,7 @@ export async function GET(request: Request) {
         startTime: matchData.data.attributes.createdAt,
         teammates: pseudonymizeTelemetryTeammates(result.mapData?.teammates || []),
         teamNames: result.mapData?.teamNames || [canonicalNickname],
-        events: pseudonymizeTelemetryAccountIds(sampleReplayPositions(result.mapData?.events || [], mode)),
+        events: pseudonymizeTelemetryAccountIds(result.mapData?.events || []),
         zoneEvents: pseudonymizeTelemetryAccountIds(result.mapData?.zoneEvents || []),
         mapName: result.mapName || matchData.data.attributes.mapName || mapName,
       });

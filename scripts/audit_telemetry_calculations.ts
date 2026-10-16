@@ -3,7 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { gzipSync } from 'node:zlib';
 import { parseArgs } from 'node:util';
 import { AnalysisEngine } from '../lib/pubg-analysis/AnalysisEngine';
-import { filterTelemetryEvents, sampleReplayPositions } from '../lib/pubg-analysis/telemetryContract';
+import { filterTelemetryEvents } from '../lib/pubg-analysis/telemetryContract';
 import { createTelemetryAnalyzeCacheEnvelope, parseTelemetryAnalyzeCacheEnvelope } from '../lib/pubg-analysis/telemetryCacheKey';
 import { hasMatchingTelemetryDefinition } from '../lib/pubg-analysis/telemetrySource';
 import { ANALYSIS_CALCULATION_VERSION, TELEMETRY_VERSION } from '../lib/pubg-analysis/constants';
@@ -52,7 +52,7 @@ for(const member of values['all-team']?members:[requester]){
     for(const event of raw) collector.observe(event,Date.parse(event._D));
     return collector.result();
   });
-  results.push({squadObservation:result.squadObservation,nickname:stats.name,differences,engineMs:times,score:result.benchmark.score,isolation:result.isolationData.isolationIndex,personalThrows:result.itemUseStats?.throwCount ?? result.combatPressure.utilityStats.throwCount,teamRevives:{raw:rawRevives,timeline:recovery.squadRevives},teamSmokeRescues:recovery.squadSmokeRescues,focusFire:windows,liteMapSize:size(sampleReplayPositions(result.mapData.events,'lite')),fullMapSize:size(result.mapData.events)});
+  results.push({squadObservation:result.squadObservation,nickname:stats.name,differences,engineMs:times,score:result.benchmark.score,isolation:result.isolationData.isolationIndex,personalThrows:result.itemUseStats?.throwCount ?? result.combatPressure.utilityStats.throwCount,teamRevives:{raw:rawRevives,timeline:recovery.squadRevives},teamSmokeRescues:recovery.squadSmokeRescues,focusFire:windows,liteMapSize:size(result.mapData.events),fullMapSize:size(result.mapData.events)});
 }
 if(values['all-team'] && results.some(row=>JSON.stringify(row.squadObservation)!==JSON.stringify(results[0].squadObservation))) throw new Error('Requester-dependent team observations');
 const report={matchId:match.data.id,platform,calculationVersion:ANALYSIS_CALCULATION_VERSION,events:{raw:raw.length,projected:projected.length},size:{raw:size(raw),fullProjection:size(projected)},results,limitations:['Only these local matches were replayed; no live collection or provider call.', 'Agreement does not prove a heuristic is calibrated or establishes intent.', 'Legacy processed results and benchmarks are unchanged; rollout requires a bounded version migration.']};

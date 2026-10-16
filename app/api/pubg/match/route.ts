@@ -1,7 +1,6 @@
 import { isRecentlyNotFound, rememberNotFound, forgetNotFound } from "@/lib/pubg/matchNotFoundCache";
 import { buildCalculationPendingMatch } from "@/lib/pubg-analysis/calculationAvailability";
 import { containsTelemetryAccountEvidence as containsRecoveryAccountIdentityEvidence, parseOrdinaryTelemetryUrl, relationshipBoundTelemetryAsset } from "@/lib/pubg-analysis/telemetrySource";
-import { sampleReplayPositions } from "@/lib/pubg-analysis/telemetryContract";
 import { readSharedTelemetrySource, writeSharedTelemetrySource, type SharedTelemetrySource } from "@/lib/pubg-analysis/sharedTelemetrySource";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { after, NextRequest, NextResponse } from "next/server";
@@ -2071,7 +2070,7 @@ async function reanalyzeAndSave(
     startTime: matchAttr.createdAt,
     teammates: pseudonymizeTelemetryTeammates(mapData?.teammates || []),
     teamNames: mapData?.teamNames || [myParticipant.attributes.stats.name],
-    events: pseudonymizeTelemetryAccountIds(sampleReplayPositions(mapData?.events || [], "lite")),
+    events: pseudonymizeTelemetryAccountIds(mapData?.events || []),
     zoneEvents: pseudonymizeTelemetryAccountIds(mapData?.zoneEvents || []),
     mapName: result.mapName || matchAttr.mapName || matchAttr.mapId,
   });
