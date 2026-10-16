@@ -72,7 +72,7 @@ export const TelemetrySidebar: React.FC<TelemetrySidebarProps> = ({ currentState
             >
               <div className="px-3 py-1.5 bg-black/20 flex justify-between items-center border-b border-white/5">
                 <span className={`text-[10px] font-black ${isUserTeam ? "text-[#F2A900]" : "text-gray-500"}`}>
-                  {tid === 0 ? "팀 ?" : `팀 ${tid}`}
+                  {tid === 0 || tid === 999 ? (isUserTeam ? "우리 팀" : "팀 ?") : `팀 ${tid}`}
                 </span>
                 {isUserTeam && <span className="text-[10px] bg-[#F2A900] text-black px-1 rounded font-bold">내 스쿼드</span>}
                 {rank === 1 && <span className="text-[10px] bg-red-500 text-white px-1 rounded font-bold">교전 중</span>}

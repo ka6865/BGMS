@@ -21,6 +21,7 @@ import { getBenchmarkTier } from './benchmarkScore';
 import { MAP_SIZES } from './constants';
 import { hasObservedBenchmarkMetric, type ObservedBenchmark } from './benchmarkAdapter';
 import { isBotParticipant } from './botShare';
+import { MatchReportCollector } from './matchReport';
 
 export class AnalysisEngine {
   private state: AnalysisState;
@@ -182,6 +183,12 @@ export class AnalysisEngine {
     this.buildMappings(rosters, participants);
     const focusFire = new SquadFocusFireCollector(this.state.teamAccountIds, this.state.gameMode);
     const squadObservation = new SquadObservationCollector(this.state.teamAccountIds, this.state.gameMode);
+    const matchReport = new MatchReportCollector({
+      lowerNickname: this.state.lowerNickname,
+      myAccountId: this.state.myAccountId,
+      teamNames: this.state.teamNames,
+      teamAccountIds: this.state.teamAccountIds,
+    });
 
     // 2. 정확한 시작 시점 (LogMatchStart) 찾기
     const matchStartEv = telemetry.find(e => e._T === "LogMatchStart");
@@ -195,6 +202,7 @@ export class AnalysisEngine {
       const elapsed = ts - startTime;
       focusFire.observe(e, ts);
       squadObservation.observe(e, ts);
+      matchReport.observe(e, ts);
 
       // 타임라인 기록 제한: 나 또는 아군 중 한 명이라도 살아있으면 계속 기록
       const isMyTeamAlive = Array.from(this.state.teamNames).some(name => this.state.playerAliveStatus.get(name) !== false);
@@ -254,6 +262,7 @@ export class AnalysisEngine {
       ...this.assembleResult(matchAttr, rosters, participants, myStats, teamStats, eliteBenchmark, matchStartEv),
       squadFocusFire: focusFire.result(),
       squadObservation: squadObservation.result(),
+      matchReport: matchReport.result(participants, rosters),
     };
   }
 

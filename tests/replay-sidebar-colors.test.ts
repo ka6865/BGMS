@@ -45,3 +45,16 @@ describe("리플레이 선수 목록", () => {
     expect(screen.getByText("Dead1").closest("div.px-3")?.querySelector('[aria-hidden="true"]')).toBeNull();
   });
 });
+
+describe("팀 번호가 없는 선수", () => {
+  it("우리 팀은 '우리 팀', 다른 팀은 '팀 ?'로 보여 준다", () => {
+    const states = {
+      me: player("Me", undefined as unknown as number, { isEnemy: false }),
+      foe: player("Foe", 0),
+    };
+    render(React.createElement(TelemetrySidebar, { currentStates: states }));
+    expect(screen.getByText("우리 팀")).toBeTruthy();
+    expect(screen.getByText("팀 ?")).toBeTruthy();
+    expect(screen.queryByText("팀 999")).toBeNull();
+  });
+});

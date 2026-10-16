@@ -20,7 +20,9 @@ import {
   X,
   Car,
   Video,
-  Map as MapIcon
+  Map as MapIcon,
+  Activity,
+  ListTree
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { BgmsIcon } from "@/components/common/BgmsIcon";
@@ -33,6 +35,8 @@ import { getTranslatedWeaponName } from "@/lib/pubg-analysis/constants";
 export { MatchPerformancePanel } from "./MatchPerformancePanel";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { BOT_SHARE_LEVEL_LABELS, buildBotShare } from "@/lib/pubg-analysis/botShare";
+import { hasMatchFlow, hasMatchOverview } from "@/lib/pubg-analysis/matchReportView";
+import { MatchDeathLine, MatchFlowContent, MatchOverviewContent } from "./MatchReportSections";
 import { normalizeSquadWeaponStats } from "@/lib/pubg-analysis/squadWeaponStats";
 import { useAIStatus, aiManager } from "@/lib/ai-management";
 import { useAuth } from "@/components/AuthProvider";
@@ -359,7 +363,9 @@ export const ExpandedMatchDetails = ({
     weapons: false,
     tactical: false,
     ai: false,
-    team: false
+    team: false,
+    flow: false,
+    overview: false
   });
   const [showReplayModal, setShowReplayModal] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -413,6 +419,7 @@ export const ExpandedMatchDetails = ({
   const vehicleCombatTotal = leadKills + leadKnocks + ridingKills + ridingKnocks + roadKills + roadKnocks;
   const hasVehicleCombat = vehicleCombatTotal > 0;
   const botShare = matchData ? buildBotShare(matchData.totalPlayers, matchData.botCount) : null;
+  const matchReport = matchData?.matchReport ?? null;
   const normalizedNickname = normalizeName(nickname);
   const normalizedTeamMembers = useMemo(() => {
     const memberMap = new Map<string, MatchTeamMember>();
@@ -526,6 +533,14 @@ export const ExpandedMatchDetails = ({
       }
     });
     const query = new URLSearchParams({ playback: matchId, nickname, platform, playedAt: matchDate });
+    router.push(`/maps/${mapId}?${query.toString()}`);
+  };
+
+  // 경기 흐름의 교전 줄에서 그 교전 직전부터 2D 리플레이를 연다.
+  const openReplayAt = (seconds: number) => {
+    if (getMatchDetailRetention(matchDate).status !== "available") return;
+    trackEvent({ name: "feature_consumption", params: { feature_name: "2d-replay", status: "start" } });
+    const query = new URLSearchParams({ playback: matchId, nickname, platform, playedAt: matchDate, t: String(seconds) });
     router.push(`/maps/${mapId}?${query.toString()}`);
   };
 
@@ -1123,6 +1138,24 @@ export const ExpandedMatchDetails = ({
                 <span className="rounded bg-white/5 px-1.5 py-0.5 font-bold text-gray-300">{BOT_SHARE_LEVEL_LABELS[botShare.level]}</span>
               )}
             </p>
+          )}
+          {matchReport && <MatchDeathLine report={matchReport} />}
+
+          {hasMatchFlow(matchReport) && (
+            <CollapsibleDetailSection
+              title="경기 흐름"
+              eyebrow="착지 · 교전 · 자기장 · 회복"
+              icon={<Activity size={16} className="text-sky-400" />}
+              isOpen={openDetailSections.flow}
+              onToggle={() => toggleDetailSection("flow")}
+              summary={`교전 ${matchReport.fights.length}번`}
+            >
+              <MatchFlowContent
+                report={matchReport}
+                canReplay={getMatchDetailRetention(matchDate).status === "available"}
+                onReplayAt={openReplayAt}
+              />
+            </CollapsibleDetailSection>
           )}
 
           {/* Premium Vehicle Combat Banner */}
@@ -1739,6 +1772,19 @@ export const ExpandedMatchDetails = ({
               })}
             </div>
           </CollapsibleDetailSection>
+
+          {hasMatchOverview(matchReport) && (
+            <CollapsibleDetailSection
+              title="경기 전체"
+              eyebrow="팀 순위 · 킬 트리 · 보급 · 봇"
+              icon={<ListTree size={16} className="text-violet-300" />}
+              isOpen={openDetailSections.overview}
+              onToggle={() => toggleDetailSection("overview")}
+              summary={`${matchReport.teams.length}팀 · ${matchReport.kills.length}킬`}
+            >
+              <MatchOverviewContent report={matchReport} />
+            </CollapsibleDetailSection>
+          )}
       </div>
 
       {/* ── 리플레이 분석 모드 선택 모달 ── */}

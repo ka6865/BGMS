@@ -1,7 +1,9 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { TelemetryEvent } from "../../hooks/useTelemetry";
 import { SQUAD_COLORS } from "../../lib/replay/squadColors";
+import { buildReplayShareUrl, isActivationTarget, isTypingTarget, replayKeyAction } from "../../lib/replay/replayShortcuts";
 
 interface TelemetryPlayerProps {
   events: TelemetryEvent[];
@@ -82,6 +84,39 @@ export default function TelemetryPlayer({
   };
 
   const progressPercent = maxTimeMs > 0 ? (currentTimeMs / maxTimeMs) * 100 : 0;
+
+  // 키보드 조작은 최신 재생 상태를 ref로 읽어 리스너를 한 번만 등록한다.
+  const keyStateRef = useRef({ isPlaying, currentTimeMs, maxTimeMs, setIsPlaying, setCurrentTimeMs });
+  useEffect(() => {
+    keyStateRef.current = { isPlaying, currentTimeMs, maxTimeMs, setIsPlaying, setCurrentTimeMs };
+  });
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target)) return;
+      const action = replayKeyAction(event.key, event.shiftKey);
+      if (!action || (action.kind === "toggle" && isActivationTarget(event.target))) return;
+      event.preventDefault();
+      const state = keyStateRef.current;
+      if (action.kind === "toggle") {
+        if (!state.isPlaying && state.currentTimeMs >= state.maxTimeMs && state.maxTimeMs > 0) state.setCurrentTimeMs(0);
+        state.setIsPlaying(!state.isPlaying);
+        return;
+      }
+      state.setCurrentTimeMs(Math.min(state.maxTimeMs, Math.max(0, state.currentTimeMs + action.deltaMs)));
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const copyMomentLink = async () => {
+    const url = buildReplayShareUrl(window.location.href, currentTimeMs);
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success(`${formatTime(currentTimeMs)} 장면 링크를 복사했습니다`);
+    } catch {
+      toast.error("링크를 복사하지 못했습니다");
+    }
+  };
 
   if (error) {
     return (
@@ -246,6 +281,16 @@ export default function TelemetryPlayer({
             <InlineIconLabel icon="battle" iconSize={11}>다음 교전</InlineIconLabel>
           </button>
 
+          <button
+            type="button"
+            onClick={copyMomentLink}
+            aria-label="이 장면 링크 복사"
+            title="지금 시각부터 재생되는 링크를 복사합니다"
+            className="hidden sm:flex items-center h-8 px-2 rounded border border-[#444] text-[11px] font-bold text-gray-300 hover:text-white whitespace-nowrap"
+          >
+            링크
+          </button>
+
           {teamNames.length > 0 && (
             <select
               aria-label="따라갈 선수"
@@ -298,6 +343,17 @@ export default function TelemetryPlayer({
 
       {isExpanded && (
         <div className="border-t border-[#333]">
+          {/* 좁은 화면은 재생 줄 대신 설정 안에서 장면 링크를 복사한다. */}
+          <div className="sm:hidden px-4 py-2 bg-[#161616] border-b border-[#333]">
+            <button
+              type="button"
+              onClick={copyMomentLink}
+              aria-label="이 장면 링크 복사"
+              className="h-8 px-3 rounded border border-[#444] text-[11px] font-bold text-gray-300"
+            >
+              {formatTime(currentTimeMs)} 장면 링크 복사
+            </button>
+          </div>
           {/* 지도 표시 범례 */}
           <ul aria-label="지도 표시 범례" className="px-4 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 bg-[#161616] border-b border-[#333] text-[10px] text-gray-400">
             <li className="flex items-center gap-1">
@@ -318,6 +374,8 @@ export default function TelemetryPlayer({
               <span className="w-2.5 h-2.5 rounded-full bg-[#f97316]/50 border border-[#f97316]" />폭발 피해 위치
             </li>
             <li className="flex items-center gap-1"><span className="w-3 h-0.5 bg-[#ff5050]" />명중</li>
+            <li className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-[#ef4444] border border-white" />보급 상자</li>
+            <li className="text-gray-500">단축키 · 스페이스 재생/정지 · ←→ 5초 · Shift+←→ 30초</li>
           </ul>
       {/* 플레이어 컴러 레전드 + 개별 토글 바 */}
       {teamNames.length > 0 && (

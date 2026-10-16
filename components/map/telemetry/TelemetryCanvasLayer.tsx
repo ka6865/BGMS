@@ -46,6 +46,8 @@ function drawNameLabel(ctx: CanvasRenderingContext2D, text: string, x: number, y
 
 const THROW_MARKER_MS = 3_000;
 const BLAST_MARKER_MS = 1_500;
+/** 보급 상자는 착지 뒤 계속 표시하고, 착지 직후 이 시간 동안만 이름표를 붙인다. */
+const CARE_PACKAGE_LABEL_MS = 20_000;
 const HIT_LINE_MS = 600;
 
 const THROWABLE_STYLES: Record<ReplayThrowableKind, { color: string; label: string }> = {
@@ -101,6 +103,19 @@ function drawThrowMarker(ctx: CanvasRenderingContext2D, x: number, y: number, ki
   labels.push({ text: style.label, x, y: y + 26, color: style.color, alpha: Math.min(1, 2 * (1 - progress)) });
 }
 
+// 보급 상자 착지 위치. 내용물은 리플레이 데이터에 없어 위치와 착지 시각만 그린다.
+function drawCarePackage(ctx: CanvasRenderingContext2D, x: number, y: number, fresh: boolean, labels: OverlayLabel[]) {
+  ctx.save();
+  ctx.fillStyle = "#ef4444";
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 1.5;
+  ctx.fillRect(x - 6, y - 6, 12, 12);
+  ctx.strokeRect(x - 6, y - 6, 12, 12);
+  ctx.beginPath(); ctx.moveTo(x - 6, y); ctx.lineTo(x + 6, y); ctx.stroke();
+  ctx.restore();
+  if (fresh) labels.push({ text: "보급", x, y: y + 22, color: "#fca5a5", alpha: 1 });
+}
+
 // 폭발·화염 피해를 받은 사람 위치에 표시한다(폭발 지점이 아니라 피해 위치 기준).
 function drawBlastMarker(ctx: CanvasRenderingContext2D, x: number, y: number, cause: string, progress: number, labels: OverlayLabel[]) {
   const color = cause === "fire" ? "239, 68, 68" : "249, 115, 22";
@@ -134,6 +149,7 @@ export const TelemetryCanvasLayer = ({
   const dataRef = useRef(telemetryData);
   const optionsRef = useRef({ showZones, showFlightPath });
   const effectEventsRef = useRef<any[]>([]);
+  const carePackagesRef = useRef<any[]>([]);
   const tracksRef = useRef<Map<string, PositionSample[]>>(new Map());
   const flightPathRef = useRef<{ start: {x: number, y: number}, end: {x: number, y: number} } | null>(null);
   const requestDrawRef = useRef<() => void>(() => {});
@@ -150,6 +166,8 @@ export const TelemetryCanvasLayer = ({
     const evs = telemetryData.events;
     effectEventsRef.current = (evs || []).filter((ev: any) =>
       ["groggy", "kill", "throw", "damage", "shot"].includes(String(ev.type || "")));
+    carePackagesRef.current = (evs || []).filter((ev: any) =>
+      ev.type === "carepackage_land" && Number.isFinite(ev.x) && Number.isFinite(ev.y) && Number.isFinite(ev.relativeTimeMs));
     if (!evs) { tracksRef.current = new Map(); flightPathRef.current = null; return; }
     tracksRef.current = buildPositionTracks(evs);
 
@@ -385,6 +403,13 @@ export const TelemetryCanvasLayer = ({
       // [B] 전투 이펙트. 텔레메트리에 투척물 착탄·폭발 좌표와 방향이 없으므로
       // 던진 사람 위치·피해자 위치·피해 이벤트의 공격자 좌표처럼 실제 기록된 좌표만 그린다.
       const overlayLabels: OverlayLabel[] = [];
+      carePackagesRef.current.forEach((ev: any) => {
+        const ageMs = currentTimeMs - ev.relativeTimeMs;
+        if (ageMs < 0) return;
+        const pt = getPoint(ev.y, ev.x);
+        if (pt.x === -9999) return;
+        drawCarePackage(ctx, pt.x, pt.y, ageMs < CARE_PACKAGE_LABEL_MS, overlayLabels);
+      });
       if (effectEventsRef.current.length) {
         effectEventsRef.current.forEach((ev: any) => {
           const type = String(ev.type || "");
