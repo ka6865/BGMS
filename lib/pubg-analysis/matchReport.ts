@@ -5,7 +5,7 @@ import { classifyDamageCause, isCombatDamageCause, type ReplayDamageCause } from
 import { FIGHT_GAP_MS } from "@/lib/replay/replayEngagements";
 import { normalizeName } from "./utils";
 
-export const MATCH_REPORT_VERSION = 1;
+export const MATCH_REPORT_VERSION = 2;
 
 /** 사망 직전 이 시간 안에 우리 팀과 싸운 적 팀이 둘 이상이면 써드파티로 본다. */
 export const THIRD_PARTY_WINDOW_MS = 60_000;
@@ -20,6 +20,8 @@ export const LANDING_NEAR_M = 300;
 export const LANDING_FAR_M = 600;
 const MAX_FIGHTS = 20;
 const MAX_OPPONENT_NAMES = 6;
+const MAX_DAMAGE_SOURCES = 8;
+const MAX_DAMAGE_HITS = 60;
 const TEAMMATE_POSITION_MAX_AGE_MS = 30_000;
 
 export type MatchFightOutcome = "won" | "traded" | "lost" | "brokeOff";
@@ -97,6 +99,8 @@ export type MatchKill = {
   victimIsBot: boolean;
   weapon: string | null;
   cause: ReplayDamageCause;
+  /** 기절한 채 출혈·팀 전멸로 사망. 처치자는 기절시킨 선수로 기록된다. */
+  diedKnocked?: boolean;
 };
 
 export type MatchTeamRow = {
@@ -114,6 +118,51 @@ export type MatchCarePackage = {
   kind: "redBox" | "blueChip" | "small" | "flare" | "other";
 };
 
+export type MatchVersusCounts = { kills: number; knocks: number; damage: number };
+
+/** 내가 사람과 봇에게 각각 낸 처치·기절·피해. */
+export type MatchVersusSplit = { human: MatchVersusCounts; bot: MatchVersusCounts };
+
+export type MatchDamageSource = {
+  /** 공격자 이름. 자기장·낙하처럼 공격자가 없으면 null. */
+  attacker: string | null;
+  attackerTeamId: number | null;
+  isBot: boolean;
+  cause: ReplayDamageCause;
+  /** 가장 많이 맞은 무기 클래스 이름. */
+  weapon: string | null;
+  damage: number;
+  hits: number;
+};
+
+export type MatchDamageHit = {
+  timeMs: number;
+  attacker: string | null;
+  isBot: boolean;
+  cause: ReplayDamageCause;
+  weapon: string | null;
+  /** damageReason(HeadShot·TorsoShot 등). 부위가 없으면 null. */
+  part: string | null;
+  damage: number;
+};
+
+export type MatchMyKill = {
+  timeMs: number;
+  victim: string;
+  victimTeamId: number | null;
+  victimIsBot: boolean;
+  /** 상대 최종 순위(팀 순위). */
+  victimRank: number | null;
+  /** 상대가 들고 있던 무기 클래스 이름. */
+  victimWeapon: string | null;
+  weapon: string | null;
+  part: string | null;
+  distanceM: number | null;
+  throughWall: boolean;
+  /** 그 상대를 기절시킨 쪽. 기절 없이 바로 처치했으면 null. */
+  knockedBy: "me" | "team" | "other" | null;
+};
+
 export type MatchReport = {
   version: number;
   landing: MatchLandingReport | null;
@@ -125,6 +174,10 @@ export type MatchReport = {
   teams: MatchTeamRow[];
   carePackages: MatchCarePackage[];
   bots: string[];
+  /** 버전 2부터 있다. */
+  versus?: MatchVersusSplit;
+  damageTaken?: { sources: MatchDamageSource[]; hits: MatchDamageHit[] };
+  myKills?: MatchMyKill[];
 };
 
 type Actor = Record<string, any> | null | undefined;
@@ -154,6 +207,14 @@ const actorName = (actor: Actor) => normalizeName(typeof actor?.name === "string
 const displayName = (actor: Actor) => (typeof actor?.name === "string" ? actor.name.trim() : "");
 const actorTeam = (actor: Actor): number | null => (finite(actor?.teamId) ? actor!.teamId : null);
 const isBotActor = (actor: Actor) => typeof actor?.accountId === "string" && actor.accountId.startsWith("ai.");
+const causerName = (value: unknown): string | null => (typeof value === "string" && value && value !== "None" ? value : null);
+/** victimWeapon은 WeapACE32_C_9처럼 인스턴스 번호가 붙으므로 클래스 이름만 남긴다. */
+const weaponClass = (value: unknown): string | null => {
+  const name = causerName(value);
+  return name ? name.replace(/_C_\d+$/, "_C") : null;
+};
+const bodyPart = (value: unknown): string | null => (typeof value === "string" && value.endsWith("Shot") ? value : null);
+const emptyCounts = (): MatchVersusCounts => ({ kills: 0, knocks: 0, damage: 0 });
 const phaseOf = (event: Record<string, any>) => {
   const raw = event.common?.isGame ?? event.Common?.IsGame;
   return finite(raw) ? Math.max(0, Math.floor(raw)) : 0;
@@ -187,6 +248,11 @@ export class MatchReportCollector {
   private readonly reviveTimes: number[] = [];
   private readonly healUses: number[] = [];
   private boosts = 0;
+  private readonly versus: MatchVersusSplit = { human: emptyCounts(), bot: emptyCounts() };
+  private readonly takenHits: MatchDamageHit[] = [];
+  private readonly takenSources = new Map<string, MatchDamageSource & { weapons: Map<string, number> }>();
+  private readonly myKills: (Omit<MatchMyKill, "victimRank"> & { victimKey: string })[] = [];
+  private readonly knockers = new Map<string, "me" | "team" | "other">();
   private damageTaken = 0;
 
   constructor(private readonly identity: MatchReportIdentity) {}
@@ -314,9 +380,12 @@ export class MatchReportCollector {
 
   private observeDamage(event: Record<string, any>, ts: number) {
     const damage = finite(event.damage) ? event.damage : 0;
-    if (this.isMe(event.victim) && this.myAlive && damage > 0) this.damageTaken += damage;
     if (damage <= 0) return;
     const cause = classifyDamageCause(event.damageTypeCategory, event.damageCauserName);
+    if (this.isMe(event.victim) && this.myAlive) this.recordTaken(event, ts, damage, cause);
+    if (this.isMe(event.attacker) && !this.isTeam(event.victim) && isCombatDamageCause(cause)) {
+      this.versus[isBotActor(event.victim) ? "bot" : "human"].damage += damage;
+    }
     if (!isCombatDamageCause(cause)) return;
     const sides = this.engagementSides(event.attacker, event.victim);
     if (!sides) return;
@@ -334,6 +403,10 @@ export class MatchReportCollector {
   private observeGroggy(event: Record<string, any>, ts: number) {
     const victim = event.victim;
     if (this.isTeam(victim)) this.knockedAt.set(actorName(victim), this.rel(ts));
+    if (!this.isTeam(victim)) {
+      this.knockers.set(actorName(victim), this.isMe(event.attacker) ? "me" : this.isTeam(event.attacker) ? "team" : "other");
+      if (this.isMe(event.attacker)) this.versus[isBotActor(victim) ? "bot" : "human"].knocks += 1;
+    }
     const sides = this.engagementSides(event.attacker, victim);
     if (!sides) return;
     this.engagements.push({
@@ -363,8 +436,10 @@ export class MatchReportCollector {
         victimIsBot: isBotActor(victim),
         weapon: typeof info?.damageCauserName === "string" && info.damageCauserName !== "None" ? info.damageCauserName : null,
         cause: classifyDamageCause(info?.damageTypeCategory, info?.damageCauserName),
+        diedKnocked: classifyDamageCause(event.finishDamageInfo?.damageTypeCategory, event.finishDamageInfo?.damageCauserName) === "bleed",
       });
     }
+    if (this.isMe(event.killer) && victimName && !this.isTeam(victim)) this.recordMyKill(event, t);
     if (this.isTeam(victim)) this.teamDead.add(actorName(victim));
     if (this.isMe(victim)) {
       this.myAlive = false;
@@ -403,6 +478,72 @@ export class MatchReportCollector {
     const sub = typeof event.item?.subCategory === "string" ? event.item.subCategory.toLowerCase() : "";
     if (sub === "heal") this.healUses.push(this.rel(ts));
     else if (sub === "boost") this.boosts += 1;
+  }
+
+  private recordTaken(event: Record<string, any>, ts: number, damage: number, cause: ReplayDamageCause) {
+    this.damageTaken += damage;
+    const attacker = event.attacker && !this.isMe(event.attacker) ? event.attacker : null;
+    const name = attacker ? displayName(attacker) || null : null;
+    const weapon = causerName(event.damageCauserName);
+    const isBot = isBotActor(attacker);
+    if (this.takenHits.length < MAX_DAMAGE_HITS) {
+      this.takenHits.push({ timeMs: this.rel(ts), attacker: name, isBot, cause, weapon, part: bodyPart(event.damageReason), damage: round(damage) });
+    }
+    const key = name ? `p:${name.toLowerCase()}` : `c:${cause}`;
+    const source = this.takenSources.get(key) ?? {
+      attacker: name, attackerTeamId: actorTeam(attacker), isBot, cause, weapon: null, damage: 0, hits: 0, weapons: new Map<string, number>(),
+    };
+    source.damage += damage;
+    source.hits += 1;
+    if (weapon) source.weapons.set(weapon, (source.weapons.get(weapon) ?? 0) + damage);
+    this.takenSources.set(key, source);
+  }
+
+  private recordMyKill(event: Record<string, any>, t: number) {
+    const victim = event.victim;
+    const info = event.killerDamageInfo ?? event.finishDamageInfo;
+    const victimKey = actorName(victim);
+    const isBot = isBotActor(victim);
+    this.versus[isBot ? "bot" : "human"].kills += 1;
+    this.myKills.push({
+      timeMs: t,
+      victim: displayName(victim),
+      victimKey,
+      victimTeamId: actorTeam(victim),
+      victimIsBot: isBot,
+      victimWeapon: weaponClass(event.victimWeapon),
+      weapon: causerName(info?.damageCauserName),
+      part: bodyPart(info?.damageReason),
+      distanceM: finite(info?.distance) && info.distance >= 0 ? round(info.distance / 100) : null,
+      throughWall: info?.isThroughPenetrableWall === true,
+      knockedBy: this.knockers.get(victimKey) ?? null,
+    });
+  }
+
+  private buildDamageTaken(): NonNullable<MatchReport["damageTaken"]> {
+    const sources = [...this.takenSources.values()]
+      .sort((a, b) => b.damage - a.damage)
+      .slice(0, MAX_DAMAGE_SOURCES)
+      .map(({ weapons, ...source }) => ({
+        ...source,
+        damage: round(source.damage),
+        weapon: [...weapons.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null,
+      }));
+    return { sources, hits: this.takenHits };
+  }
+
+  private buildMyKills(participants: readonly any[], rosters: readonly any[]): MatchMyKill[] {
+    const rankByName = new Map<string, number>();
+    const byId = new Map(participants.map((participant) => [participant?.id, participant]));
+    for (const roster of rosters) {
+      const rank = roster?.attributes?.stats?.rank;
+      if (!finite(rank)) continue;
+      for (const ref of roster?.relationships?.participants?.data ?? []) {
+        const name = byId.get(ref?.id)?.attributes?.stats?.name;
+        if (typeof name === "string") rankByName.set(normalizeName(name), rank);
+      }
+    }
+    return this.myKills.map(({ victimKey, ...kill }) => ({ ...kill, victimRank: rankByName.get(victimKey) ?? null }));
   }
 
   private buildFights(): MatchFight[] {
@@ -586,6 +727,12 @@ export class MatchReportCollector {
       teams: this.buildTeams(participants, rosters),
       carePackages: this.carePackages,
       bots,
+      versus: {
+        human: { ...this.versus.human, damage: round(this.versus.human.damage) },
+        bot: { ...this.versus.bot, damage: round(this.versus.bot.damage) },
+      },
+      damageTaken: this.buildDamageTaken(),
+      myKills: this.buildMyKills(participants, rosters),
     };
   }
 }

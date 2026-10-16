@@ -5,8 +5,10 @@ import type {
   MatchDeathType,
   MatchFightOutcome,
   MatchKill,
+  MatchMyKill,
   MatchReport,
 } from "./matchReport";
+import type { ReplayDamageCause } from "./replayEventKinds";
 import { FIGHT_LEAD_IN_MS } from "@/lib/replay/replayEngagements";
 
 export const DEATH_TYPE_LABELS: Record<MatchDeathType, string> = {
@@ -34,6 +36,42 @@ export const CARE_PACKAGE_LABELS: Record<MatchCarePackage["kind"], string> = {
   small: "소형 보급",
   other: "보급",
 };
+
+export const BODY_PART_LABELS: Record<string, string> = {
+  HeadShot: "머리",
+  TorsoShot: "몸통",
+  PelvisShot: "골반",
+  ArmShot: "팔",
+  LegShot: "다리",
+};
+
+export const DAMAGE_CAUSE_LABELS: Record<ReplayDamageCause, string> = {
+  gun: "총기",
+  grenade: "수류탄",
+  explosion: "폭발",
+  fire: "화염",
+  zone: "자기장",
+  bleed: "출혈",
+  fall: "낙하",
+  vehicle: "차량",
+  melee: "근접",
+  drown: "익사",
+  other: "기타",
+};
+
+export const KNOCKED_BY_LABELS: Record<NonNullable<MatchMyKill["knockedBy"]>, string> = {
+  me: "내가 기절시킨 상대",
+  team: "팀원이 기절시킨 상대",
+  other: "다른 팀이 기절시킨 상대",
+};
+
+/** 봇만 있는 팀을 빼고 센 우리 팀 순위. 봇 팀이 우리보다 위에 없으면 null. */
+export function humanTeamPlace(report: MatchReport): number | null {
+  const mine = report.teams.find((team) => team.isMine);
+  if (!mine || mine.rank < 1) return null;
+  const botOnlyAbove = report.teams.filter((team) => team.rank >= 1 && team.rank < mine.rank && team.players.every((player) => player.isBot)).length;
+  return botOnlyAbove > 0 ? mine.rank - botOnlyAbove : null;
+}
 
 export function formatMatchClock(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
@@ -72,6 +110,8 @@ export type KillTreeNode = {
   timeMs: number | null;
   weapon: string | null;
   isBot: boolean;
+  /** 기절한 채 사망해 처치가 기절시킨 선수에게 기록된 경우. */
+  diedKnocked: boolean;
   children: KillTreeNode[];
 };
 
@@ -113,6 +153,7 @@ export function buildKillTree(kills: readonly MatchKill[]): KillTreeNode[] {
           timeMs: kill.timeMs,
           weapon: kill.weapon,
           isBot: kill.victimIsBot,
+          diedKnocked: kill.diedKnocked === true,
           children: childrenOf(victimKey),
         }];
       });
@@ -122,17 +163,17 @@ export function buildKillTree(kills: readonly MatchKill[]): KillTreeNode[] {
     .sort((a, b) => (byKiller.get(b)?.length ?? 0) - (byKiller.get(a)?.length ?? 0))
     .map((key) => {
       visited.add(key);
-      return { name: displayOf.get(key) ?? key, teamId: teamOf.get(key) ?? null, timeMs: null, weapon: null, isBot: false, children: childrenOf(key) };
+      return { name: displayOf.get(key) ?? key, teamId: teamOf.get(key) ?? null, timeMs: null, weapon: null, isBot: false, diedKnocked: false, children: childrenOf(key) };
     });
   // 처치자가 부활 뒤 다시 죽어 루트가 끊긴 경우에도 모든 처치가 한 번은 보이도록 남은 처치자를 붙인다.
   for (const key of byKiller.keys()) {
     if (!key || visited.has(key)) continue;
     visited.add(key);
-    roots.push({ name: displayOf.get(key) ?? key, teamId: teamOf.get(key) ?? null, timeMs: null, weapon: null, isBot: false, children: childrenOf(key) });
+    roots.push({ name: displayOf.get(key) ?? key, teamId: teamOf.get(key) ?? null, timeMs: null, weapon: null, isBot: false, diedKnocked: false, children: childrenOf(key) });
   }
   const environment = childrenOf("");
   if (environment.length > 0) {
-    roots.push({ name: "환경 (자기장·사고)", teamId: null, timeMs: null, weapon: null, isBot: false, children: environment });
+    roots.push({ name: "환경 (자기장·사고)", teamId: null, timeMs: null, weapon: null, isBot: false, diedKnocked: false, children: environment });
   }
   return roots;
 }
