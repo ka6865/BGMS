@@ -140,6 +140,8 @@ export interface AnalysisResult {
   telemetryFlags?: Record<string, unknown>;
   totalTeams: number;
   totalPlayers: number;
+  /** 참가자 중 봇(AI) 수. 이 필드가 생기기 전 분석 결과에는 없다. */
+  botCount?: number;
   teamImpact: {
     damageImpact: number | null;
     killImpact: number | null;
@@ -356,9 +358,7 @@ export interface AnalysisState {
   mapEvents: any[];
   mapZoneEvents: any[];
   lastPosByPlayer: Map<string, { x: number, y: number }>;
-  lastRotByPlayer: Map<string, number>;
   groggyMap: Map<string, { attackerAccountId: string, attackerName: string }>;
-  hasRealExplosions: boolean;
   positionEventCount: number;
   matchEndRelativeTime: number | null; // [V12.5] 승리 이벤트의 정확한 기록을 위한 매치 종료 상대 시간
   leadShotKills: number;

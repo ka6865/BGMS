@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { act, renderHook, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { fetchTelemetryPayloadMock, TelemetryFetchErrorMock } = vi.hoisted(() => ({
   fetchTelemetryPayloadMock: vi.fn(),
@@ -222,5 +222,156 @@ describe("useTelemetry 팀 식별", () => {
     await waitFor(() => expect(result.current.currentStates.enemyone).toBeDefined());
     expect(result.current.currentStates.enemyone.teamId).not.toBe(999);
     expect(result.current.currentStates.mateone.teamId).toBe(999);
+  });
+});
+
+describe("useTelemetry 재생 상태 보간", () => {
+  beforeEach(() => {
+    fetchTelemetryPayloadMock.mockReset();
+  });
+
+  function positionAt(relativeTimeMs: number, x: number, health: number) {
+    return {
+      type: "position",
+      time: "2026-07-18T00:00:00.000Z",
+      name: "Me",
+      x,
+      y: 200,
+      health,
+      relativeTimeMs,
+    };
+  }
+
+  it("위치는 보간하고 체력은 다음 관측 전까지 마지막 관측값을 유지한다", async () => {
+    fetchTelemetryPayloadMock.mockResolvedValue({
+      ...telemetryPayload("match-1", "Me"),
+      events: [positionAt(0, 100, 100), positionAt(10_000, 300, 40)],
+    });
+
+    const { result } = renderHook(() => useTelemetry("match-1", "Me", "steam", "lite", "miramar"));
+    await waitFor(() => expect(result.current.events).toHaveLength(2));
+
+    act(() => result.current.setCurrentTimeMs(5_000));
+
+    await waitFor(() => expect(result.current.currentStates.me?.x).toBe(200));
+    expect(result.current.currentStates.me.health).toBe(100);
+  });
+
+  it("다음 관측 체력이 0이어도 100으로 바꿔 보간하지 않는다", async () => {
+    fetchTelemetryPayloadMock.mockResolvedValue({
+      ...telemetryPayload("match-1", "Me"),
+      events: [positionAt(0, 100, 20), positionAt(10_000, 300, 0)],
+    });
+
+    const { result } = renderHook(() => useTelemetry("match-1", "Me", "steam", "lite", "miramar"));
+    await waitFor(() => expect(result.current.events).toHaveLength(2));
+
+    act(() => result.current.setCurrentTimeMs(5_000));
+
+    await waitFor(() => expect(result.current.currentStates.me?.x).toBe(200));
+    expect(result.current.currentStates.me.health).toBe(20);
+  });
+});
+
+describe("useTelemetry 긴 좌표 공백", () => {
+  beforeEach(() => {
+    fetchTelemetryPayloadMock.mockReset();
+  });
+
+  it("재배치처럼 긴 공백 사이는 보간하지 않고 마지막 위치를 유지한다", async () => {
+    fetchTelemetryPayloadMock.mockResolvedValue({
+      ...telemetryPayload("match-1", "Me"),
+      events: [
+        { type: "position", time: "2026-07-18T00:00:00.000Z", name: "Me", x: 100, y: 200, health: 100, relativeTimeMs: 0 },
+        { type: "position", time: "2026-07-18T00:07:00.000Z", name: "Me", x: 7000, y: 200, health: 100, relativeTimeMs: 420_000 },
+      ],
+    });
+
+    const { result } = renderHook(() => useTelemetry("match-1", "Me", "steam", "lite", "miramar"));
+    await waitFor(() => expect(result.current.events).toHaveLength(2));
+
+    act(() => result.current.setCurrentTimeMs(210_000));
+
+    await waitFor(() => expect(result.current.currentStates.me).toBeDefined());
+    expect(result.current.currentStates.me.x).toBe(100);
+  });
+});
+
+describe("useTelemetry 재생 루프", () => {
+  let frames: FrameRequestCallback[] = [];
+  let now = 1_000_000;
+
+  beforeEach(() => {
+    fetchTelemetryPayloadMock.mockReset();
+    frames = [];
+    now = 1_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      frames.push(callback);
+      return frames.length;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function runFrame(elapsedMs: number) {
+    now += elapsedMs;
+    const pending = frames;
+    frames = [];
+    act(() => pending.forEach((callback) => callback(now)));
+  }
+
+  it("매 프레임 playheadRef만 진행하고 React 시간은 250ms 간격과 정지 시점에만 반영한다", async () => {
+    fetchTelemetryPayloadMock.mockResolvedValue({
+      ...telemetryPayload("match-1", "Me"),
+      events: [
+        { type: "position", time: "2026-07-18T00:00:00.000Z", name: "Me", x: 100, y: 200, health: 100, relativeTimeMs: 0 },
+        { type: "position", time: "2026-07-18T00:01:00.000Z", name: "Me", x: 700, y: 200, health: 100, relativeTimeMs: 60_000 },
+      ],
+    });
+
+    const { result } = renderHook(() => useTelemetry("match-1", "Me", "steam", "lite", "miramar"));
+    await waitFor(() => expect(result.current.events).toHaveLength(2));
+
+    act(() => result.current.setIsPlaying(true));
+    runFrame(100);
+    const committed = result.current.currentTimeMs;
+    expect(committed).toBe(100);
+
+    runFrame(100);
+    runFrame(100);
+    expect(result.current.playheadRef.current.timeMs).toBe(300);
+    expect(result.current.currentTimeMs).toBe(committed);
+    expect(result.current.playheadRef.current.states.me.x).toBe(103);
+
+    runFrame(100);
+    expect(result.current.currentTimeMs).toBe(400);
+
+    runFrame(50);
+    act(() => result.current.setIsPlaying(false));
+    expect(result.current.currentTimeMs).toBe(450);
+    expect(result.current.currentStates.me.x).toBe(104.5);
+  });
+
+  it("탐색하면 playheadRef와 React 시간을 함께 옮긴다", async () => {
+    fetchTelemetryPayloadMock.mockResolvedValue({
+      ...telemetryPayload("match-1", "Me"),
+      events: [
+        { type: "position", time: "2026-07-18T00:00:00.000Z", name: "Me", x: 100, y: 200, health: 100, relativeTimeMs: 0 },
+        { type: "position", time: "2026-07-18T00:01:00.000Z", name: "Me", x: 700, y: 200, health: 100, relativeTimeMs: 60_000 },
+      ],
+    });
+
+    const { result } = renderHook(() => useTelemetry("match-1", "Me", "steam", "lite", "miramar"));
+    await waitFor(() => expect(result.current.events).toHaveLength(2));
+
+    act(() => result.current.setCurrentTimeMs(30_000));
+    expect(result.current.currentTimeMs).toBe(30_000);
+    expect(result.current.playheadRef.current.timeMs).toBe(30_000);
+    expect(result.current.playheadRef.current.states.me.x).toBe(400);
   });
 });

@@ -8,7 +8,7 @@ import { isDeepStrictEqual } from "node:util";
 import { AnalysisEngine } from "../lib/pubg-analysis/AnalysisEngine";
 import { buildSharedTelemetrySourceKey, createSharedTelemetrySource, parseSharedTelemetrySource, type SharedTelemetrySource } from "../lib/pubg-analysis/sharedTelemetrySourceContract";
 import { buildTelemetryAnalyzeCacheKey, buildTelemetryCacheKey, buildTelemetryPlayerKey, buildTelemetryPublicIdentity, pseudonymizeTelemetryAccountIds, pseudonymizeTelemetryTeammates } from "../lib/pubg-analysis/telemetryCacheKey";
-import { filterTelemetryEvents, sampleReplayPositions } from "../lib/pubg-analysis/telemetryContract";
+import { filterTelemetryEvents } from "../lib/pubg-analysis/telemetryContract";
 import { hasMatchingTelemetryDefinition, parseOrdinaryTelemetryUrl, relationshipBoundTelemetryAsset } from "../lib/pubg-analysis/telemetrySource";
 import { createTelemetryPayload, parseTelemetryPayload, type TelemetryPayload } from "../lib/pubg-analysis/telemetryPayload";
 import { readObjectForVerification, uploadRecoveryObjectToR2 } from "../lib/pubg-analysis/r2Service";
@@ -64,7 +64,7 @@ export function recalculateReplayPayload(source: SharedTelemetrySource, accountI
     startTime: source.matchData.data.attributes.createdAt,
     teammates: pseudonymizeTelemetryTeammates(result.mapData!.teammates),
     teamNames: result.mapData!.teamNames,
-    events: pseudonymizeTelemetryAccountIds(sampleReplayPositions(result.mapData!.events, "lite")),
+    events: pseudonymizeTelemetryAccountIds(result.mapData!.events),
     zoneEvents: pseudonymizeTelemetryAccountIds(result.mapData!.zoneEvents),
     mapName: result.mapName || source.matchData.data.attributes.mapName || "Erangel",
   });

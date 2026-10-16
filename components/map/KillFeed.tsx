@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
+import { SQUAD_COLORS } from "@/lib/replay/squadColors";
 import { BgmsIcon } from "@/components/common/BgmsIcon";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import type { TelemetryEvent } from "../../hooks/useTelemetry";
@@ -12,7 +13,7 @@ interface KillFeedProps {
   playbackSpeed: number;
 }
 
-export const TEAM_COLORS = ["#F2A900", "#34A853", "#3b82f6", "#ef4444"];
+const TEAM_COLORS = SQUAD_COLORS;
 
 // PUBG 내부 무기코드 → 한국어 이름 변환
 const WEAPON_MAP: Record<string, string> = {
@@ -162,13 +163,13 @@ export default function KillFeed({ events, currentTimeMs, teamNames, playbackSpe
           onClick={() => setShowOnlyTeam(false)}
           className={`px-2 py-0.5 text-[9px] font-bold rounded transition-colors ${!showOnlyTeam ? 'bg-[#F2A900] text-black' : 'bg-black/60 text-white/40 hover:text-white/60'}`}
         >
-          ALL
+          전체
         </button>
         <button
           onClick={() => setShowOnlyTeam(true)}
           className={`px-2 py-0.5 text-[9px] font-bold rounded transition-colors ${showOnlyTeam ? 'bg-blue-600 text-white' : 'bg-black/60 text-white/40 hover:text-white/60'}`}
         >
-          TEAM ONLY
+          아군만
         </button>
       </div>
 

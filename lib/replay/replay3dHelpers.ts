@@ -22,7 +22,8 @@ const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
 
 /**
  * Samples the height grid in the same orientation as the rotated PlaneGeometry.
- * The plane's local Y axis becomes world -Z after rotation.x = -PI / 2.
+ * Grid row 0 is the plane's local +Y edge, which becomes world -Z (north)
+ * after rotation.x = -PI / 2.
  */
 export function sampleTerrainHeight(
   terrain: TerrainGrid,
@@ -37,8 +38,8 @@ export function sampleTerrainHeight(
 
   const maxIndex = size - 1;
   const percentX = clamp01((threeX + mapSize / 2) / mapSize);
-  // World +Z maps to the plane's local -Y after the -90 degree X rotation.
-  const percentZ = clamp01((mapSize / 2 - threeZ) / mapSize);
+  // World -Z (north) is grid row 0; world +Z is the last row.
+  const percentZ = clamp01((threeZ + mapSize / 2) / mapSize);
   const ixFloat = percentX * maxIndex;
   const iyFloat = percentZ * maxIndex;
 

@@ -1,7 +1,7 @@
 import { isRecentlyNotFound, rememberNotFound, forgetNotFound } from "@/lib/pubg/matchNotFoundCache";
 import { buildCalculationPendingMatch } from "@/lib/pubg-analysis/calculationAvailability";
+import { countBotParticipants } from "@/lib/pubg-analysis/botShare";
 import { containsTelemetryAccountEvidence as containsRecoveryAccountIdentityEvidence, parseOrdinaryTelemetryUrl, relationshipBoundTelemetryAsset } from "@/lib/pubg-analysis/telemetrySource";
-import { sampleReplayPositions } from "@/lib/pubg-analysis/telemetryContract";
 import { readSharedTelemetrySource, writeSharedTelemetrySource, type SharedTelemetrySource } from "@/lib/pubg-analysis/sharedTelemetrySource";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { after, NextRequest, NextResponse } from "next/server";
@@ -1466,6 +1466,7 @@ export async function GET(request: NextRequest) {
       .filter((id: unknown): id is string => typeof id === "string" && id.length > 0));
 
     const humanParticipants = participants.filter((p: any) => !p.attributes.accountId?.startsWith("ai."));
+    const botCount = countBotParticipants(participants);
     const sortedByDamage = [...humanParticipants].map(p => p.attributes.stats).sort((a, b) => b.damageDealt - a.damageDealt);
     const myDamageRank = sortedByDamage.findIndex((s: any) => normalizeName(s.name) === lowerNickname) + 1;
     const rankPct = humanParticipants.length > 0 ? myDamageRank / humanParticipants.length : 1;
@@ -1516,6 +1517,7 @@ export async function GET(request: NextRequest) {
           // mistaken for an observed benchmark.
           return NextResponse.json({
             ...createTacticalResponse(sanitizeStaleCachedResult(cachedFullResult)),
+            botCount,
             sampleParticipants,
           });
         }
@@ -1533,6 +1535,7 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({
           ...createTacticalResponse(cachedFullResult),
+          botCount,
           sampleParticipants
         });
       }
@@ -1920,6 +1923,7 @@ async function reanalyzeAndSave(
         .slice(0, 5);
       return {
         ...createTacticalResponse(cachedFullResult),
+        botCount: countBotParticipants(participants),
         sampleParticipants,
       };
     }
@@ -2071,7 +2075,7 @@ async function reanalyzeAndSave(
     startTime: matchAttr.createdAt,
     teammates: pseudonymizeTelemetryTeammates(mapData?.teammates || []),
     teamNames: mapData?.teamNames || [myParticipant.attributes.stats.name],
-    events: pseudonymizeTelemetryAccountIds(sampleReplayPositions(mapData?.events || [], "lite")),
+    events: pseudonymizeTelemetryAccountIds(mapData?.events || []),
     zoneEvents: pseudonymizeTelemetryAccountIds(mapData?.zoneEvents || []),
     mapName: result.mapName || matchAttr.mapName || matchAttr.mapId,
   });

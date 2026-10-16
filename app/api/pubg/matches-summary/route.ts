@@ -8,6 +8,7 @@ import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { buildMatchSummary, buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
 import { buildPlayerMatchRecordFromParticipant, fetchAndIngestBasicMatchSummaryOutcome } from "@/lib/pubg/playerMatchesIngest";
 import { buildPlayerMatchIdentityFilter, hasObservedPlayerMatchValues, upsertPlayerMatches } from "@/lib/pubg/playerMatches";
+import { readTeammateNames } from "@/lib/pubg/playerMatchTeammates";
 import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
 import { normalizeRecentMatchIds } from "@/lib/pubg/recentMatches";
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
@@ -109,7 +110,7 @@ export async function POST(request: NextRequest) {
     {
       let query = supabase
         .from("pubg_player_matches")
-        .select("match_id, player_id, platform, account_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time")
+        .select("match_id, player_id, platform, account_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time, teammates, travel_distance, longest_kill")
         .eq("platform", platform);
       const identityFilter = buildPlayerMatchIdentityFilter(playerId, accountId);
       query = identityFilter ? query.or(identityFilter) : query.eq("player_id", playerId);
@@ -119,6 +120,10 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "최근 매치 요약을 불러오지 못했습니다." }, { status: 503 });
       }
 
+      const teammates = await readTeammateNames(supabase, platform, (playerMatchesData || []).flatMap(row => {
+        const matchId = normalizeMatchId(row.match_id);
+        return matchId ? [{ ...row, match_id: matchId }] : [];
+      }));
       for (const row of playerMatchesData || []) {
         const matchId = normalizeMatchId(row.match_id);
         if (!matchId || !matchIds.includes(matchId)) continue;
@@ -130,7 +135,7 @@ export async function POST(request: NextRequest) {
         existingMatchIds.add(matchId);
         if (hasObservedPlayerMatchValues(row)) storedIds.add(matchId);
         if (!summaries[matchId]) {
-          const summary = buildBasicMatchSummary({ ...row, match_id: matchId });
+          const summary = buildBasicMatchSummary({ ...row, match_id: matchId, teammate_names: teammates.get(matchId) });
           if (hasRenderableBasicSummary(summary)) summaries[matchId] = summary;
         }
       }
@@ -222,7 +227,9 @@ export async function POST(request: NextRequest) {
           if (record && matchId && matchIds.includes(matchId)) {
             storedIds.add(matchId);
             ingestedMatchIds.push(matchId);
-            if (!summaries[matchId]) summaries[matchId] = buildBasicMatchSummary({ ...record, match_id: matchId });
+            // 방금 수집한 기록의 팀원은 수집 시점에 비공개를 이미 걸렀다.
+            if (!summaries[matchId]) summaries[matchId] = buildBasicMatchSummary({ ...record, match_id: matchId,
+              teammate_names: record.teammates?.map(teammate => teammate.name).slice(0, 4) });
           }
         }
         collectionStopped = outcomes.some((outcome) => outcome.status === "rate_limited" || outcome.httpStatus === 401 || outcome.httpStatus === 403)

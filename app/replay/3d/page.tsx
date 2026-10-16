@@ -37,6 +37,10 @@ import {
   type ReplayZoneEvent,
   type TerrainGrid,
 } from "@/lib/replay/replay3dHelpers";
+import { threeToHeightmapPixel } from "@/lib/heightmapCoords";
+import { MAX_POSITION_INTERPOLATION_GAP_MS } from "@/lib/pubg-analysis/telemetryContract";
+import { isCombatDamageCause } from "@/lib/pubg-analysis/replayEventKinds";
+import { SQUAD_COLORS, enemyTeamColor } from "@/lib/replay/squadColors";
 
 // PUBG 맵 크기 상수 (cm)
 const THREE_MAP_SIZE = 100; // Three.js 공간 상의 가로세로 크기
@@ -216,21 +220,6 @@ const getSeatOffset = (index: number, isPlane: boolean): THREE.Vector3 => {
 
 
 
-const COLORS = ["#34A853", "#a855f7", "#ff9f0a", "#3b82f6", "#ef4444", "#06b6d4", "#eab308", "#ec4899"];
-const ENEMY_TEAM_COLORS = [
-  "#ff4a4a", // 네온 레드
-  "#00f0ff", // 네온 시안
-  "#ff2a85", // 네온 핫핑크
-  "#39ff14", // 네온 라임그린
-  "#ffff33", // 네온 옐로우
-  "#bf00ff", // 딥 네온퍼플
-  "#ff8c00", // 네온 다크오렌지
-  "#00ff87", // 네온 민트그린
-  "#ff5e00", // 일렉트릭 오렌지
-  "#9d4edd", // 네온 바이올렛
-  "#0077b6", // 딥 오션블루
-  "#e0aaff"  // 라이트 라벤더
-];
 
 function Replay3DContent() {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -486,15 +475,16 @@ function Replay3DContent() {
           .filter((wp: any) => wp.x !== 0 || wp.y !== 0)
           .sort((a: any, b: any) => a.t - b.t);
 
-          if (waypoints.length > 0) {
+          // 대기실에서 나간 선수는 경기 시작 뒤 위치가 없으므로 선수로 세지 않는다(2D와 같은 기준).
+          if (waypoints.some((wp: any) => wp.t >= 0)) {
             const teamId = posEvs[0]?.teamId ?? posEvs[0]?.character?.teamId ?? 999;
             let color = "#ff4a4a"; // 기본값
             if (isTeam) {
               const teamIdx = Array.from(teamNames).findIndex((n: any) => n.trim().toLowerCase() === lowerName);
-              color = COLORS[teamIdx >= 0 ? teamIdx % COLORS.length : 0];
+              color = SQUAD_COLORS[teamIdx >= 0 ? teamIdx % SQUAD_COLORS.length : 0];
             } else {
               // 적군은 스쿼드 teamId별로 고유 색상 매핑
-              color = ENEMY_TEAM_COLORS[teamId % ENEMY_TEAM_COLORS.length];
+              color = enemyTeamColor(teamId);
             }
 
             const dTimes = playerDeathTimes[lowerName] || [];
@@ -521,7 +511,9 @@ function Replay3DContent() {
       // 3) 전체 재생 시간 산출
       // 3) 총탄 트레이서용 데미지 공격/피해 및 전투 이벤트 필터링
       const parsedDamageEvs = events.filter((ev: any) => 
-        (ev.type === "damage" && ev.attackerX != null) ||
+        // 트레이서는 실제 총격 등 교전 피해만 그린다. 자기 피해·출혈·자기장, 폭발·화염(탄도가 아님)은 제외한다.
+        (ev.type === "damage" && ev.attackerX != null && ev.attackerName !== ev.victimName
+          && isCombatDamageCause(ev.cause) && !["grenade", "explosion", "fire"].includes(ev.cause)) ||
         ev.type === "kill" ||
         ev.type === "groggy" ||
         ev.type === "revive"
@@ -615,19 +607,8 @@ function Replay3DContent() {
     const data = heightmapDataRef.current;
     if (!data) return 0.05;
 
-    // Three.js 월드 좌표 (-50 ~ 50)를 Leaflet 좌표 (0 ~ 8192)로 변환
-    const leafletX = (threeX + THREE_MAP_SIZE / 2) * (8192 / THREE_MAP_SIZE);
-    // 3D 지형의 X축 -90도 회전(Local Y -> World -Z)에 맞춘 세로축 Z축 반전 보정
-    const leafletY = (THREE_MAP_SIZE / 2 - threeZ) * (8192 / THREE_MAP_SIZE);
-
-    // Leaflet 좌표를 이미지 픽셀 인덱스 좌표로 변환 (Y축 반전 없이 동일 방향 매핑)
-    const px_x = Math.round((leafletX / 8192) * data.width);
-    const px_y = Math.round((leafletY / 8192) * data.height);
-
-    const clampedX = Math.max(0, Math.min(data.width - 1, px_x));
-    const clampedY = Math.max(0, Math.min(data.height - 1, px_y));
-
-    const pixelIdx = (clampedY * data.width + clampedX) * 4;
+    const pixel = threeToHeightmapPixel(threeX, threeZ, THREE_MAP_SIZE, data.width, data.height);
+    const pixelIdx = (pixel.y * data.width + pixel.x) * 4;
     const R = data.pixels[pixelIdx];
     // PUBG 인게임 표준 8비트 고도 변환 공식: R=128 기준 ±262m 범위
     const elevation = (R - 128) * 2.048;
@@ -674,7 +655,8 @@ function Replay3DContent() {
       const p1 = pts[i];
       const p2 = pts[i + 1];
       if (time >= p1.t && time <= p2.t) {
-        const ratio = (time - p1.t) / (p2.t - p1.t);
+        // 재배치 같은 긴 공백은 2D 리플레이와 같은 기준으로 잇지 않고 이전 위치에 머문다.
+        const ratio = p2.t - p1.t > MAX_POSITION_INTERPOLATION_GAP_MS && time < p2.t ? 0 : (time - p1.t) / (p2.t - p1.t);
         const x = p1.x + (p2.x - p1.x) * ratio;
         const y = p1.y + (p2.y - p1.y) * ratio;
         const z = p1.z + (p2.z - p1.z) * ratio;
@@ -909,18 +891,9 @@ function Replay3DContent() {
               const x = posAttr.getX(i); // Local X coordinate (-50 to 50)
               const y = posAttr.getY(i); // Local Y coordinate (-50 to 50)
 
-              // Restore back to Leaflet coordinate system (0 to 8192)
-              const leafletX = (x + THREE_MAP_SIZE / 2) * (8192 / THREE_MAP_SIZE);
-              const leafletY = (y + THREE_MAP_SIZE / 2) * (8192 / THREE_MAP_SIZE);
-
-              // 하이트맵 Y축은 반전 없이 Leaflet Y와 동일 방향으로 매핑
-              const px_x = Math.round((leafletX / 8192) * heightmapImg.width);
-              const px_y = Math.round((leafletY / 8192) * heightmapImg.height);
-
-              const clampedX = Math.max(0, Math.min(heightmapImg.width - 1, px_x));
-              const clampedY = Math.max(0, Math.min(heightmapImg.height - 1, px_y));
-
-              const pixelIdx = (clampedY * heightmapImg.width + clampedX) * 4;
+              // rotation.x = -PI/2 이후 로컬 +Y는 월드 -Z(북쪽)가 된다.
+              const pixel = threeToHeightmapPixel(x, -y, THREE_MAP_SIZE, heightmapImg.width, heightmapImg.height);
+              const pixelIdx = (pixel.y * heightmapImg.width + pixel.x) * 4;
               let finalElevation = 0;
               if (pixels[pixelIdx + 3] !== 0) { // Skip transparent pixels if any
                 const R = pixels[pixelIdx];

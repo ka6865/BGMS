@@ -156,22 +156,34 @@ export async function POST(request: Request) {
     // intentionally ignored rather than compared or merged.
     const squadData = await getSquadAnalysisData(nickname, cachePlatform, groupKey);
     if (request.signal.aborted) throw new SquadRequestAbortedError();
+    // AI 호출 전에 막는 경우도 원인을 사용 기록에 남긴다. 기록이 없으면 운영에서 실패 이유를 찾을 수 없다.
+    const trackBlocked = (reason: string, errorCode: string) => trackAiFailure(authenticatedUserId, "squad", reason, {
+      errorCode, durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform,
+    });
     if (squadData && "analysisAvailability" in squadData && squadData.analysisAvailability === "basic_only") {
+      trackBlocked("squad calculation upgrade required", "calculation_upgrade");
       return NextResponse.json({error: "전술 지표를 다시 계산한 뒤 AI 코칭을 이용할 수 있습니다.", errorCode: "PUBG_CALCULATION_UPGRADE_REQUIRED", retryable: false}, {status: 409});
     }
-    if (squadData && "errorCode" in squadData && squadData.errorCode === "PUBG_CALCULATION_UPGRADE_REQUIRED") return NextResponse.json(squadData, { status: 409 });
+    if (squadData && "errorCode" in squadData && squadData.errorCode === "PUBG_CALCULATION_UPGRADE_REQUIRED") {
+      trackBlocked("squad calculation upgrade required", "calculation_upgrade");
+      return NextResponse.json(squadData, { status: 409 });
+    }
     if (squadData && Array.isArray(squadData.selectedMatchIds) && Array.isArray(squadData.matchesSummary)) {
       const selectedIds = new Set(squadData.selectedMatchIds);
       const expiredSelected = squadData.matchesSummary.filter((match: any) => selectedIds.has(match?.matchId)
         && isMatchDetailExpired(match?.createdAt));
-      if (expiredSelected.length > 0) return expiredMatchDetailResponse(expiredSelected[0].createdAt);
+      if (expiredSelected.length > 0) {
+        trackBlocked("selected squad match detail expired", "detail_expired");
+        return expiredMatchDetailResponse(expiredSelected[0].createdAt);
+      }
     }
     if (!squadData || !("matchesSummary" in squadData) || !Array.isArray(squadData.matchesSummary)
       || !squadData.stats || !squadData.scores || !Array.isArray(squadData.roleProfiles)
       || !squadData.benchmarkStats || !Number.isInteger(squadData.matchCount) || squadData.matchCount <= 0
       || !hasSquadObservations(squadData.stats)) {
+      trackBlocked("no squad team observations in selected matches", "squad_not_ready");
       return NextResponse.json({
-        error: "코칭에 필요한 경기 지표가 아직 없습니다. 전적 분석이 완료된 뒤 다시 확인해 주세요.",
+        error: "팀 분석 데이터가 있는 최근 경기가 없습니다. 이 팀과 함께한 최근 경기를 상세 분석하면 AI 코칭을 이용할 수 있습니다.",
         errorCode: "PUBG_AI_SQUAD_CANONICAL_NOT_READY",
         retryable: false,
       }, { status: 409 });

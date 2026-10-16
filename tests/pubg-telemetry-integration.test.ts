@@ -49,13 +49,13 @@ describe("route and handler telemetry boundary", () => {
     expect(matchRoute).not.toContain("const keepFields");
   });
 
-  it("lite 적 위치는 두 번째 sampling 없이 2개, full은 20개다", () => {
+  it("lite 적 위치는 두 번째 sampling 없이 선수별 2개, full은 20개다", () => {
     const events = Array.from({ length: 20 }, (_, index) => ({
       _T: "LogPlayerPosition",
       _D: "2026-08-27T00:00:00.000Z",
       character: {
-        accountId: "enemy-" + index,
-        name: "Enemy" + index,
+        accountId: "enemy-" + (index % 2),
+        name: "Enemy" + (index % 2),
         location: { x: index, y: 1 },
       },
     }));
@@ -187,27 +187,37 @@ describe("route and handler telemetry boundary", () => {
     expect(result.squadWeaponStats).toEqual({});
   });
 
-  it("LogExplosiveExplode의 projected item/id로 smoke와 flash map event를 보존한다", () => {
+  it("투척 1회는 던진 위치의 throw 이벤트 1건만 남기고 착탄 위치를 추정하지 않는다", () => {
+    const thrower = { name: "Enemy", teamId: 2, accountId: "account.enemy", location: { x: 81600, y: 163200, z: 100 } };
+    const throwEvent = (type: string, itemId: string, second: number) => ({
+      _T: type, _D: `2026-08-27T00:00:0${second}.000Z`, attackId: second, attacker: thrower, weapon: { itemId },
+    });
     const result = runFixture([
-      {
-        _T: "LogExplosiveExplode",
-        _D: "2026-08-27T00:00:01.000Z",
-        explosiveItem: { itemId: "Item_SmokeGrenade" },
-        explosiveId: "SmokeGrenade",
-        location: { x: 100, y: 200 },
-      },
-      {
-        _T: "LogExplosiveExplode",
-        _D: "2026-08-27T00:00:02.000Z",
-        explosiveItem: { itemId: "Item_FlashBang" },
-        explosiveId: "FlashBang",
-        location: { x: 300, y: 400 },
-      },
+      throwEvent("LogPlayerAttack", "Item_Weapon_SmokeBomb_C", 1),
+      throwEvent("LogPlayerUseThrowable", "Item_Weapon_SmokeBomb_C", 1),
+      throwEvent("LogPlayerAttack", "Item_Weapon_Molotov_C", 2),
+      throwEvent("LogPlayerUseThrowable", "Item_Weapon_Molotov_C", 2),
+      throwEvent("LogPlayerAttack", "Item_Weapon_HK416_C", 3),
+    ], "full");
+    const events = result.mapData?.events ?? [];
+
+    expect(events.filter((event: any) => event.type === "throw")).toEqual([
+      expect.objectContaining({ throwable: "smoke", x: 816, y: 1632 }),
+      expect.objectContaining({ throwable: "molotov", x: 816, y: 1632 }),
+    ]);
+    expect(events.filter((event: any) => event.type === "shot")).toHaveLength(1);
+    expect(events.some((event: any) => ["smoke", "grenade", "flash", "molotov"].includes(event.type))).toBe(false);
+  });
+
+  it("피해 이벤트에 화면용 원인 코드를 남긴다", () => {
+    const actor = (name: string) => ({ name, teamId: name === "Player" ? 1 : 2, accountId: `account.${name.toLowerCase()}`, location: { x: 8160, y: 8160, z: 0 } });
+    const result = runFixture([
+      { _T: "LogPlayerTakeDamage", _D: "2026-08-27T00:00:01.000Z", attacker: actor("Enemy"), victim: actor("Player"), damage: 20, damageTypeCategory: "Damage_Gun", damageCauserName: "WeapHK416_C" },
+      { _T: "LogPlayerTakeDamage", _D: "2026-08-27T00:00:02.000Z", attacker: actor("Enemy"), victim: actor("Player"), damage: 40, damageTypeCategory: "Damage_Explosion_Grenade", damageCauserName: "ProjGrenade_C" },
+      { _T: "LogPlayerTakeDamage", _D: "2026-08-27T00:00:03.000Z", attacker: actor("Player"), victim: actor("Player"), damage: 1, damageTypeCategory: "Damage_BlueZone", damageCauserName: "" },
     ], "full");
 
-    expect(result.mapData?.events).toEqual(expect.arrayContaining([
-      expect.objectContaining({ type: "smoke", weapon: "item_smokegrenade", isRealExplosion: true }),
-      expect.objectContaining({ type: "flash", weapon: "item_flashbang", isRealExplosion: true }),
-    ]));
+    expect((result.mapData?.events ?? []).filter((event: any) => event.type === "damage").map((event: any) => event.cause))
+      .toEqual(["gun", "grenade", "zone"]);
   });
 });

@@ -17,10 +17,43 @@ import {
   type RecentMatchCandidate,
 } from "@/lib/pubg-analysis/recentMatchSelection";
 import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
+import { getMatchDetailRetention } from "@/lib/pubg-analysis/matchRetention";
 // Invalid/legacy rows are filtered after hydration. Fetch a bounded window
 // larger than the ten rows we ultimately expose so stale, custom, or
 // unmarked entries cannot crowd newer valid matches out of the population.
 const SQUAD_ANALYSIS_SOURCE_LIMIT = 100;
+
+type SquadObservationSource = {
+  match_id?: string;
+  data?: { fullResult?: { squadObservation?: unknown; team?: unknown; createdAt?: unknown } };
+};
+
+function squadObservationInput(match: SquadObservationSource) {
+  const team = Array.isArray(match.data?.fullResult?.team) ? match.data!.fullResult!.team as Array<Record<string, unknown>> : [];
+  return {
+    matchId: match.match_id ?? "",
+    observation: match.data?.fullResult?.squadObservation as Parameters<typeof aggregateSquadObservations>[0][number]["observation"],
+    expectedTeamAccountIds: team.map((member) =>
+      [member.accountId, member.playerId].find((value): value is string => typeof value === "string" && Boolean(value.trim())) as string),
+  };
+}
+
+/** 팀 관측값이 이 경기 하나만으로 유효한지. 팀 지표 집계는 고른 경기가 모두 관측돼야 값을 낸다. */
+export function hasObservedSquadMatch(match: SquadObservationSource): boolean {
+  return aggregateSquadObservations([squadObservationInput(match)]).status === "observed";
+}
+
+/**
+ * 팀 지표·AI 코칭에 쓸 후보를 고른다.
+ * 1. 상세 보관 기간(14일)이 남은 경기가 있으면 그 경기만 쓴다. 만료된 경기가 하나라도 섞이면 AI 코칭이 막힌다.
+ * 2. 그중 팀 관측이 있는 경기가 있으면 관측된 경기만 쓴다. 관측 이전에 분석된 경기가 섞이면 팀 지표가 모두 빈다.
+ */
+export function selectSquadAnalysisCandidates<T extends { value: SquadObservationSource }>(candidates: readonly T[], now = Date.now()): T[] {
+  const fresh = candidates.filter((candidate) => getMatchDetailRetention(candidate.value.data?.fullResult?.createdAt, now).status !== "expired");
+  const pool = fresh.length > 0 ? fresh : [...candidates];
+  const observed = pool.filter((candidate) => hasObservedSquadMatch(candidate.value));
+  return observed.length > 0 ? observed : pool;
+}
 
 export async function getSquadAnalysisData(nickname: string, platform: string = "steam", groupKey?: string | null) {
   // normalizeName: 소문자 + trim만 수행, 특수문자(-. 등) 제거 없음 → DB player_id와 정합성 보장
@@ -171,7 +204,8 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   const groups = Array.from(groupMap.entries()).map(([normalizedKey, value]) => {
     const latestSelection = selectRecentMatches(selectCandidates(value.matches), { limit: 10 });
     const latestMatches = latestSelection.selected.map((candidate) => candidate.value);
-    const bestMatches = selectBestMatches(latestSelection.selected.filter(candidate => !candidate.value.__calculationPending), { limit: 5 }).map((candidate) => candidate.value);
+    const supportedCandidates = latestSelection.selected.filter(candidate => !candidate.value.__calculationPending);
+    const bestMatches = selectBestMatches(selectSquadAnalysisCandidates(supportedCandidates), { limit: 5 }).map((candidate) => candidate.value);
     selectedGroupMatches.set(normalizedKey, latestMatches);
     bestGroupMatches.set(normalizedKey, bestMatches);
     return {
@@ -226,11 +260,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
     if (benchmarkError) console.warn("[SQUAD-TEAM-BENCHMARK]", benchmarkError.message);
     else teamBenchmark = toTeamBenchmarkStats(benchmarkRow as TeamBenchmarkRow | null, selectedGroup.teamMode);
   }
-  const squadObservation = aggregateSquadObservations(analysisMatches.map(match => ({
-    matchId: match.match_id, observation: match.data?.fullResult?.squadObservation,
-    expectedTeamAccountIds: (match.data?.fullResult?.team || []).map((member: any) =>
-      [member.accountId, member.playerId].find(value => typeof value === "string" && value.trim())),
-  })));
+  const squadObservation = aggregateSquadObservations(analysisMatches.map(squadObservationInput));
 
   const memberNameByKey = new Map<string, string>();
   const addSquadMember = (name: string) => {

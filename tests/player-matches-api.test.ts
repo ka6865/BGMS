@@ -25,7 +25,7 @@ describe("buildBasicMatchSummary helper", () => {
   });
   it.each([[0, 0], [3, 1674], [null, null], [undefined, undefined]])("keeps observed basic stats distinct from missing (%s, %s)", (knocks, survival_time) => {
     const summary = buildBasicMatchSummary({ match_id: 'basic', player_id: 'player', platform: 'steam', knocks, survival_time });
-    expect(summary.basicStats).toEqual({ DBNOs: knocks ?? null, timeSurvived: survival_time ?? null });
+    expect(summary.basicStats).toEqual({ DBNOs: knocks ?? null, timeSurvived: survival_time ?? null, travelDistance: null, longestKill: null });
   });
   it("constructs valid summary data from pubg_player_matches row", () => {
     const summary = buildBasicMatchSummary({

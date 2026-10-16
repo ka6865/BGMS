@@ -6,6 +6,7 @@ import {
 } from "./telemetryCacheKey.server";
 import {
   parseTelemetryPayload,
+  serializeTelemetryPayload,
   type TelemetryPayload,
 } from "./telemetryPayload";
 import type { TelemetryIdentity } from "./telemetryIdentity";
@@ -212,7 +213,7 @@ export async function writeTelemetryMapCache(
     throw new TelemetryMapCacheBusyError();
   }
   const storagePath = reservedRow.storage_path;
-  await deps.upload(storagePath, JSON.stringify(payload), "application/json");
+  await deps.upload(storagePath, serializeTelemetryPayload(payload), "application/json");
   await retryTelemetryRegistryWrite(
     () => deps.finalize({
       ...reservedRow,

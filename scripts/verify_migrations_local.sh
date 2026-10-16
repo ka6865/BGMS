@@ -98,6 +98,8 @@ MIGRATIONS=(
   "20261014220000_pubg_ranking_prebuild_all_filters"
   "20261014230000_pubg_ranking_seed_commit_first"
   "20261015010000_suggest_similar_players_two_stage"
+  "20261015120000_player_match_row_extras"
+  "20261016010000_performance_jobs_newest_first"
 )
 
 cleanup() {
@@ -239,6 +241,7 @@ wait "$pending_registration_second_pid"
 "${PSQL[@]}" -f tests/fixtures/migration-check/hotdrop-count-atomic.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/admin-profile-save.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/participant_match_retention_scope_checks.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/player-match-row-extras-checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retention_legacy_binding_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retention_match_type_recovery_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/legacy_team_retention_recovery_checks.sql
@@ -347,6 +350,7 @@ fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/team-benchmark-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-coexistence-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retained-performance-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/performance-jobs-newest-first-checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/encounter-page-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/match-discovery-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/scoped-match-discovery-scenarios.sql

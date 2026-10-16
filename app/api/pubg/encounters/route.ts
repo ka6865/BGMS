@@ -20,7 +20,8 @@ export async function GET(request:NextRequest){try{
   const {data,error,count}=await query.range((page-1)*10,page*10-1);
   if(error)throw error;
   const matches=[];
-  for(const m of data||[]){if(m.account_id&&m.account_id!==c.accountId)continue;matches.push({...m,encounter:await readEncounter(c,m.match_id)});}
+  // 저장된 팀원 원본(계정 ID 포함)은 응답에 싣지 않는다.
+  for(const {teammates:_stored,...m} of data||[]){void _stored;if(m.account_id&&m.account_id!==c.accountId)continue;matches.push({...m,encounter:await readEncounter(c,m.match_id)});}
   return json({matches,page,totalPages:Math.ceil((count||0)/10),accountId:c.accountId,nickname:c.nickname});
 }catch(error){return failed(error);}}
 export async function POST(request:NextRequest){let release:(()=>void)|undefined;try{
