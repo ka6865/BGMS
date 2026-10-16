@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { TelemetryEvent } from "../../hooks/useTelemetry";
+import { SQUAD_COLORS } from "../../lib/replay/squadColors";
 
 interface TelemetryPlayerProps {
   events: TelemetryEvent[];
@@ -193,8 +194,7 @@ export default function TelemetryPlayer({
           } else if (ev.attacker) {
             const idx = teamNames.indexOf(ev.attacker);
             if (idx !== -1) {
-              const teamColors = ["#F2A900", "#34A853", "#3b82f6", "#ef4444"];
-              markerColor = teamColors[idx % teamColors.length];
+              markerColor = SQUAD_COLORS[idx % SQUAD_COLORS.length];
             }
           }
 
@@ -301,13 +301,26 @@ export default function TelemetryPlayer({
 
       {isExpanded && (
         <div className="border-t border-[#333]">
+          {/* 지도 표시 범례 */}
+          <ul aria-label="지도 표시 범례" className="px-4 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 bg-[#161616] border-b border-[#333] text-[10px] text-gray-400">
+            <li className="flex items-center gap-1">
+              {SQUAD_COLORS.map((color) => <span key={color} className="w-2 h-2 rounded-full" style={{ backgroundColor: color }} />)}
+              <span className="ml-0.5">아군(선수 칩 색)</span>
+            </li>
+            <li className="flex items-center gap-1">
+              <span className="w-3.5 h-3.5 rounded-full bg-[#06b6d4] text-[8px] leading-[14px] text-center font-bold text-white">7</span>
+              적 · 숫자는 팀 번호
+            </li>
+            <li className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#ff0000] ring-2 ring-[#ff0000]/40" />기절</li>
+            <li className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full border-2 border-[#38bdf8]" />따라가는 선수</li>
+            <li className="flex items-center gap-1"><span className="w-3 h-2 rounded-sm bg-[#282828] border border-white" />차량</li>
+          </ul>
       {/* 플레이어 컴러 레전드 + 개별 토글 바 */}
       {teamNames.length > 0 && (
         <div className="px-4 py-1.5 flex items-center gap-2 bg-[#1e1e1e] border-b border-[#333] flex-wrap">
-          <span className="text-[9px] font-bold text-gray-600 uppercase tracking-tighter shrink-0">Players:</span>
+          <span className="text-[10px] font-bold text-gray-500 shrink-0">선수</span>
           {teamNames.map((name, ni) => {
-            const COLORS = ["#F2A900", "#34A853", "#3b82f6", "#ef4444"];
-            const color = COLORS[ni % COLORS.length];
+            const color = SQUAD_COLORS[ni % SQUAD_COLORS.length];
             const isHidden = hiddenPlayers.includes(name);
             return (
               <button
@@ -339,25 +352,25 @@ export default function TelemetryPlayer({
 
       {/* 타임라인 필터 컨트롤 바 */}
       <div className="px-4 py-1 flex flex-wrap items-center gap-x-4 gap-y-1 bg-[#252525] border-b border-[#333]">
-        <span className="text-[10px] font-bold text-gray-500 uppercase tracking-tighter">Timeline Filters:</span>
+        <span className="text-[10px] font-bold text-gray-500">타임라인</span>
         <div className="flex gap-2">
           <button 
             onClick={() => setShowKills(!showKills)}
             className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-all ${showKills ? 'bg-red-500 text-white' : 'bg-[#333] text-gray-500'}`}
           >
-            <InlineIconLabel icon="skull" iconSize={10}>Kills</InlineIconLabel>
+            <InlineIconLabel icon="skull" iconSize={10}>처치</InlineIconLabel>
           </button>
           <button 
             onClick={() => setShowGroggy(!showGroggy)}
             className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-all ${showGroggy ? 'bg-orange-500 text-white' : 'bg-[#333] text-gray-500'}`}
           >
-            <InlineIconLabel icon="battle" iconSize={10}>Knock</InlineIconLabel>
+            <InlineIconLabel icon="battle" iconSize={10}>기절</InlineIconLabel>
           </button>
           <button 
             onClick={() => setShowTeamDown(!showTeamDown)}
             className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-all ${showTeamDown ? 'bg-[#a855f7] text-white' : 'bg-[#333] text-gray-500'}`}
           >
-            <InlineIconLabel icon="alert" iconSize={10}>Team Down</InlineIconLabel>
+            <InlineIconLabel icon="alert" iconSize={10}>아군 기절</InlineIconLabel>
           </button>
         </div>
         <div className="h-3 w-px bg-white/10 mx-1" />
@@ -366,7 +379,7 @@ export default function TelemetryPlayer({
           className={`text-[9px] font-bold px-1.5 py-0.5 rounded transition-all border ${showOnlyTeam ? 'bg-blue-600 text-white border-blue-400' : 'bg-[#333] text-gray-500 border-transparent hover:border-gray-500'}`}
         >
           <InlineIconLabel icon={showOnlyTeam ? "team" : "activity"} iconSize={10}>
-            {showOnlyTeam ? "TEAM ONLY" : "ALL EVENTS"}
+            {showOnlyTeam ? "아군 사건만" : "전체 사건"}
           </InlineIconLabel>
         </button>
       </div>

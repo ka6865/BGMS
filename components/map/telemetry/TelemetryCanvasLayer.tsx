@@ -29,6 +29,21 @@ function drawPlaneGlyph(ctx: CanvasRenderingContext2D, scale: number) {
   ctx.fill();
 }
 
+// 위성 지도 위에서도 읽히도록 이름 뒤에 어두운 칩을 깐다. (x, y)는 글자 가운데다.
+function drawNameLabel(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, font: string) {
+  ctx.font = font;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const width = ctx.measureText(text)?.width ?? text.length * 6;
+  ctx.fillStyle = "rgba(0,0,0,0.72)";
+  ctx.beginPath();
+  if ((ctx as any).roundRect) (ctx as any).roundRect(x - width / 2 - 4, y - 7, width + 8, 14, 4);
+  else ctx.rect(x - width / 2 - 4, y - 7, width + 8, 14);
+  ctx.fill();
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+}
+
 function drawVehicleGlyph(ctx: CanvasRenderingContext2D) {
   ctx.fillRect(-9, -4, 18, 8);
   ctx.fillRect(-6, -8, 12, 5);
@@ -553,14 +568,22 @@ export const TelemetryCanvasLayer = ({
              ctx.fillStyle = "#e5e7eb";
              drawPlaneGlyph(ctx, zoomScale);
           } else {
+            // 차량은 선수 점보다 눈에 띄지 않게 작게 그린다.
             ctx.fillStyle = "rgba(40,40,40,0.9)";
             ctx.strokeStyle = "#ffffff";
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 1.5;
             ctx.beginPath();
-            if ((ctx as any).roundRect) (ctx as any).roundRect(-22, -14, 44, 28, 6);
-            else ctx.rect(-22, -14, 44, 28);
+            if ((ctx as any).roundRect) (ctx as any).roundRect(-14, -9, 28, 18, 4);
+            else ctx.rect(-14, -9, 28, 18);
             ctx.fill(); ctx.stroke();
+            if (followed && occupants.some((m) => String(m.name).trim().toLowerCase() === followed)) {
+              ctx.beginPath();
+              if ((ctx as any).roundRect) (ctx as any).roundRect(-18, -13, 36, 26, 6);
+              else ctx.rect(-18, -13, 36, 26);
+              ctx.strokeStyle = "#38bdf8"; ctx.lineWidth = 2.5; ctx.stroke();
+            }
             ctx.fillStyle = "#ffffff";
+            ctx.scale(0.65, 0.65);
             drawVehicleGlyph(ctx);
           }
           ctx.restore();
@@ -568,10 +591,7 @@ export const TelemetryCanvasLayer = ({
           if (!isAirplane) {
             occupants.forEach((m, i) => {
               if (showName(m)) {
-                ctx.font = "bold 10px Pretendard";
-                ctx.fillStyle = m.isGroggy ? "#ff4444" : "#ffffff";
-                ctx.textAlign = "center";
-                ctx.fillText(m.name, pt.x, pt.y - 20 - (i * 12));
+                drawNameLabel(ctx, m.name, pt.x, pt.y - 18 - (i * 16), m.isGroggy ? "#ff4444" : "#ffffff", "bold 10px Pretendard");
               }
             });
           }
@@ -591,6 +611,10 @@ export const TelemetryCanvasLayer = ({
         ctx.strokeStyle = isGroggy ? "#ffffff" : (isMe ? "#ffffff" : "#000000");
         ctx.lineWidth = isGroggy ? 3 : (isMe ? 2.5 : 1.5);
         ctx.stroke();
+        if (followed && String(p.name).trim().toLowerCase() === followed) {
+          ctx.beginPath(); ctx.arc(0, 0, radius + 4, 0, Math.PI * 2);
+          ctx.strokeStyle = "#38bdf8"; ctx.lineWidth = 2.5; ctx.stroke();
+        }
 
         const hpPct = Math.max(0, p.health / 100);
         const barWidth = radius * 2.5;
@@ -605,11 +629,7 @@ export const TelemetryCanvasLayer = ({
         }
 
         if (showName(p)) {
-          ctx.font = isMe ? "bold 12px Pretendard" : "bold 10px Pretendard";
-          ctx.fillStyle = isGroggy ? "#ff4444" : "#ffffff"; ctx.textAlign = "center";
-          ctx.shadowColor = "black"; ctx.shadowBlur = 4;
-          ctx.fillText(p.name, 0, -radius - 12);
-          ctx.shadowBlur = 0;
+          drawNameLabel(ctx, p.name, 0, -radius - 12, isGroggy ? "#ff4444" : "#ffffff", isMe ? "bold 12px Pretendard" : "bold 10px Pretendard");
         }
         ctx.restore();
       });

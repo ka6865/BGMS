@@ -4,6 +4,7 @@ import { fetchTelemetryPayload, TelemetryFetchError } from "../lib/pubg-analysis
 import type { TelemetryMode, TelemetryPlatform } from "../lib/pubg-analysis/telemetryIdentity";
 import { getMatchDetailRetention, MATCH_DETAIL_EXPIRED_CODE, MATCH_DETAIL_EXPIRED_MESSAGE, MATCH_DETAIL_UNAVAILABLE_CODE } from "../lib/pubg-analysis/matchRetention";
 import { MAX_POSITION_INTERPOLATION_GAP_MS } from "../lib/pubg-analysis/telemetryContract";
+import { squadColor } from "../lib/replay/squadColors";
 
 export interface TelemetryEvent {
   type: "position" | "enemy_position" | "ride" | "leave" | "kill" | "groggy" | "took_damage" | "shot" | "revive" | "create" | "throw" | "throw_explode" | "grenade" | "smoke" | "damage";
@@ -324,7 +325,8 @@ export function useTelemetry(
       teamNames.forEach(name => {
         const pname = normalizePlayerName(name);
         statesRef.current[pname] = {
-          name, x: -9999, y: -9999, isDead: false, isGroggy: false, isInVehicle: false, health: 100, kills: 0, assists: 0, isEnemy: false
+          name, x: -9999, y: -9999, isDead: false, isGroggy: false, isInVehicle: false, health: 100, kills: 0, assists: 0, isEnemy: false,
+          color: squadColor(teamNames, name)
         };
       });
       lastEventIndexRef.current = 0;
@@ -362,7 +364,7 @@ export function useTelemetry(
             accountId: ev.character?.accountId || ev.accountId,
             x: -9999, y: -9999, isDead: false, isGroggy: false, isInVehicle: false, 
             health: 100, kills: 0, assists: 0, teamId: teamId ?? (isEnemy ? UNKNOWN_ENEMY_TEAM_ID : 999),
-            color: isEnemy ? (teamColorMapRef.current[teamId ?? UNKNOWN_ENEMY_TEAM_ID] || "#ffffff") : "#F2A900",
+            color: isEnemy ? (teamColorMapRef.current[teamId ?? UNKNOWN_ENEMY_TEAM_ID] || "#ffffff") : squadColor(teamNames, rawName),
             isEnemy: isEnemy
           };
         }

@@ -8,7 +8,7 @@ import MapView from "./MapView";
 import { X, Hammer, Map as MapIcon, Crosshair, AlertCircle, SlidersHorizontal, Menu, Flame, MapPin, Target } from 'lucide-react';
 import type { MapTab, MapMarker, AuthUser, PendingVehicle } from "../../types/map";
 import { useTelemetry } from "../../hooks/useTelemetry";
-import { collectTeamEngagements, findFightStarts, nextFightSeekMs } from "../../lib/replay/replayEngagements";
+import { collectTeamEngagements, findFightStarts, nextFightSeekMs, recentOpponents } from "../../lib/replay/replayEngagements";
 import TelemetryPlayer from "./TelemetryPlayer";
 import KillFeed from "./KillFeed";
 import HomeNotice from "./HomeNotice";
@@ -147,11 +147,15 @@ const MapShell = memo(({
       safeTeamNames, safeZoneEvents, showZone, showCombatDots, showShotDots, hiddenPlayers, showPlayerNames, showFlightPath,
       playbackNickname, followPlayer, cancelFollow,
     ]);
-    const fightStarts = useMemo(
-      () => findFightStarts(collectTeamEngagements(safeTelemetryEvents, safeTeamNames)),
+    const teamEngagements = useMemo(
+      () => collectTeamEngagements(safeTelemetryEvents, safeTeamNames),
       [safeTelemetryEvents, safeTeamNames],
     );
+    const fightStarts = useMemo(() => findFightStarts(teamEngagements), [teamEngagements]);
     const nextFightMs = nextFightSeekMs(fightStarts, currentTimeMs);
+    const engagedOpponents = useMemo(() => recentOpponents(teamEngagements, currentTimeMs), [teamEngagements, currentTimeMs]);
+    const alivePlayers = Object.values(safeCurrentStates).filter((p: any) => !p.isDead);
+    const aliveTeams = new Set(alivePlayers.map((p: any) => p.teamId)).size;
     const [showSmokeNotice, setShowSmokeNotice] = useState(false); //  연막탄 공지 상태
     const [isInstructionDismissed, setIsInstructionDismissed] = useState(false);
 
@@ -255,7 +259,8 @@ const MapShell = memo(({
 
     return (
       <div className="flex w-full h-full overflow-hidden">
-        {!isMobile ? (
+        {/* 리플레이 중에는 고젠 지도용 카테고리 필터를 숨겨 지도 폭을 넓힌다. */}
+        {!isMobile ? (!playbackId &&
           <Sidebar isOpen={isSidebarOpen} setIsOpen={onSetSidebarOpen} mapLabel={currentMap?.label || "지도"} activeMapId={activeMapId} filters={filters} toggleFilter={onToggleFilter} getCount={onGetCount} />
         ) : (
           <MobileBottomSheet isOpen={isSidebarOpen} setIsOpen={onSetSidebarOpen} mapLabel={currentMap?.label || "지도"} activeMapId={activeMapId} filters={filters} toggleFilter={onToggleFilter} getCount={onGetCount} />
@@ -511,7 +516,7 @@ const MapShell = memo(({
             {playbackId && (
               <>
                 {/*  고도화된 통합 상단 상태바 (모바일 최적화) */}
-                <div className={`absolute ${isMobile ? 'top-2' : 'top-6'} left-1/2 -translate-x-1/2 z-[1000] flex flex-col items-center gap-2 w-full max-w-xl pointer-events-none`}>
+                <div className={`absolute ${isMobile ? 'top-2 pl-2 pr-16' : 'top-6'} left-1/2 -translate-x-1/2 z-[1000] flex flex-col items-center gap-2 w-full max-w-xl pointer-events-none`}>
                   {/* ℹ️ 연막탄 위치 추론 안내 공지 (모바일에서는 더 작게) */}
                   {showSmokeNotice && !rankerLesson && (
                     <div className={`pointer-events-auto bg-black/90 backdrop-blur-xl ${isMobile ? 'px-3 py-1.5 mx-4' : 'px-4 py-2'} rounded-xl border border-orange-500/30 shadow-[0_10px_30px_rgba(0,0,0,0.5)] flex items-center gap-3 mb-2 animate-in fade-in slide-in-from-top-2 duration-500`}>
@@ -528,24 +533,17 @@ const MapShell = memo(({
                     </div>
                   )}
 
-                  {safeZoneEvents.length > 0 && (
-                    <div className={`bg-black/80 backdrop-blur-md ${isMobile ? 'px-3 py-0.5' : 'px-4 py-1'} rounded-full border border-white/10 shadow-2xl flex items-center gap-3 animate-fade-in`}>
-                       <ZoneStatus currentTimeMs={currentTimeMs} zoneEvents={safeZoneEvents} />
-                    </div>
-                  )}
-                  
-                  <div className={`bg-[#111]/90 backdrop-blur-xl ${isMobile ? 'px-5 py-2' : 'px-8 py-3'} rounded-[2rem] border border-white/10 shadow-[0_20px_50px_rgba(0,0,0,0.5)] flex items-center ${isMobile ? 'gap-4' : 'gap-8'}`}>
-                    <div className="flex flex-col items-center">
-                      <span className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">Time</span>
-                      <span className={`${isMobile ? 'text-lg' : 'text-2xl'} font-mono font-bold text-white leading-none`}>{formatTime(currentTimeMs)}</span>
-                    </div>
-                    <div className="w-px h-6 bg-white/10" />
-                    <div className="flex flex-col items-center">
-                      <span className="text-[9px] text-[#F2A900] font-bold uppercase tracking-widest">Alive</span>
-                      <span className={`${isMobile ? 'text-lg' : 'text-2xl'} font-mono font-bold text-[#F2A900] leading-none`}>
-                        {Object.values(safeCurrentStates).filter((p: any) => !p.isDead).length}
-                      </span>
-                    </div>
+                  {/* 재생 시각·생존·자기장을 한 줄 칩으로 묶는다. */}
+                  <div className="bg-black/80 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 shadow-2xl flex items-center gap-2.5 text-[11px] font-bold whitespace-nowrap">
+                    <span className="font-mono text-white">{formatTime(currentTimeMs)}</span>
+                    <span className="w-px h-3 bg-white/15" />
+                    <span className="text-[#F2A900]">생존 {alivePlayers.length}<span className="text-gray-400 font-medium"> · {aliveTeams}팀</span></span>
+                    {safeZoneEvents.length > 0 && (
+                      <>
+                        <span className="w-px h-3 bg-white/15" />
+                        <ZoneStatus currentTimeMs={currentTimeMs} zoneEvents={safeZoneEvents} />
+                      </>
+                    )}
                   </div>
                 </div>
 
@@ -639,7 +637,7 @@ const MapShell = memo(({
                   onSelect={selectLessonScene} onClose={() => setIsMenuOpen(false)}
                   onRetry={() => window.location.reload()}
                 />
-              ) : <TelemetrySidebar currentStates={safeCurrentStates} />}
+              ) : <TelemetrySidebar currentStates={safeCurrentStates} engagedOpponents={engagedOpponents} followPlayer={followPlayer} />}
             </div>
           )}
         </div>
