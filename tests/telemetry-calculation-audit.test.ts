@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { sampleReplayPositions, filterTelemetryEvents } from '@/lib/pubg-analysis/telemetryContract';
+import { filterTelemetryEvents } from '@/lib/pubg-analysis/telemetryContract';
 import { createTelemetryAnalyzeCacheEnvelope, parseTelemetryAnalyzeCacheEnvelope } from '@/lib/pubg-analysis/telemetryCacheKey';
 import { AnalysisEngine } from '@/lib/pubg-analysis/AnalysisEngine';
 import { UtilityHandler } from '@/lib/pubg-analysis/handlers/UtilityHandler';
@@ -116,11 +116,6 @@ describe('analysis cache projection contract',()=>{
     expect(restored).toEqual(full);
     expect(restored).toHaveLength(100);
     expect(filterTelemetryEvents(restored,{...context,mode:'lite'})).toHaveLength(10);
-  });
-  it('samples only rendered enemy positions after calculations',()=>{
-    const enemy=Array.from({length:100},()=>({type:'position',isTeam:false}));
-    const team=Array.from({length:20},()=>({type:'position',isTeam:true}));
-    expect(sampleReplayPositions([...enemy,...team,{type:'kill',isTeam:false}], 'lite')).toHaveLength(31);
   });
   it('keeps supported throwable identity aliases through field projection',()=>{
     const [event]=filterTelemetryEvents([{_T:'LogPlayerUseThrowable',attack_id:7,projectileId:'p7'}],context);

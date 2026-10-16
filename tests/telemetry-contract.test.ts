@@ -71,13 +71,13 @@ describe("telemetry contract", () => {
     expect(input.attacker).toEqual({ accountId: "account.a", loc: { x: 1, y: 2 } });
   });
 
-  it("입력 순서를 유지하고 lite는 비팀 위치만 한 번 1/10 샘플링한다", () => {
+  it("입력 순서를 유지하고 lite는 비팀 위치만 선수별로 한 번 1/10 샘플링한다", () => {
     const positions = Array.from({ length: 20 }, (_, index) => ({
       _T: "LogPlayerPosition",
       _D: "2026-08-27T00:00:00.000Z",
       character: {
-        accountId: "enemy-" + index,
-        name: "Enemy" + index,
+        accountId: "enemy-" + (index % 2),
+        name: "Enemy" + (index % 2),
         location: { x: index, y: 0 },
       },
     }));
@@ -265,8 +265,8 @@ describe("telemetry contract", () => {
       character: index === 0
         ? { location: { x: index, y: index } }
         : {
-          accountId: `enemy-${index}`,
-          name: `Enemy${index}`,
+          accountId: `enemy-${index % 2}`,
+          name: `Enemy${index % 2}`,
           location: { x: index, y: index },
         },
     }));
@@ -294,14 +294,16 @@ describe("telemetry contract", () => {
       return actor?.accountId ?? actor?.name ?? actor?.location;
     });
 
+    // 식별자가 없는 적, enemy-1, enemy-0이 각자 첫 좌표를 남긴다.
     expect(names(first)).toEqual([
       "account.team",
       "  TeAm MaTe  ",
-      "enemy-9",
-      "enemy-19",
+      { x: 0, y: 0, z: 0 },
+      "enemy-1",
+      "enemy-0",
     ]);
     expect(second).toEqual(first);
-    expect(first).toHaveLength(4);
+    expect(first).toHaveLength(5);
   });
 
   it("common/Common과 actor/item/vehicle/scalar를 깊이 복사해 입력을 mutate하지 않는다", () => {

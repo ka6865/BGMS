@@ -64,6 +64,8 @@ export interface MatchData {
   matchType?: string;
   totalTeams?: number;
   totalPlayers?: number;
+  /** 참가자 중 봇(AI) 수. */
+  botCount?: number;
   team: MatchTeamMember[];
   totalTeamKills: number;
   totalTeamDamage: number;

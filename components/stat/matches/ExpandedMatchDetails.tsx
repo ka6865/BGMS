@@ -32,6 +32,7 @@ import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import { getTranslatedWeaponName } from "@/lib/pubg-analysis/constants";
 export { MatchPerformancePanel } from "./MatchPerformancePanel";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
+import { BOT_SHARE_LEVEL_LABELS, buildBotShare } from "@/lib/pubg-analysis/botShare";
 import { normalizeSquadWeaponStats } from "@/lib/pubg-analysis/squadWeaponStats";
 import { useAIStatus, aiManager } from "@/lib/ai-management";
 import { useAuth } from "@/components/AuthProvider";
@@ -411,6 +412,7 @@ export const ExpandedMatchDetails = ({
   const roadKnocks = matchData ? (matchData.stats?.roadKnocks ?? matchData.roadKnocks ?? 0) : 0;
   const vehicleCombatTotal = leadKills + leadKnocks + ridingKills + ridingKnocks + roadKills + roadKnocks;
   const hasVehicleCombat = vehicleCombatTotal > 0;
+  const botShare = matchData ? buildBotShare(matchData.totalPlayers, matchData.botCount) : null;
   const normalizedNickname = normalizeName(nickname);
   const normalizedTeamMembers = useMemo(() => {
     const memberMap = new Map<string, MatchTeamMember>();
@@ -1110,6 +1112,19 @@ export const ExpandedMatchDetails = ({
             <StatBox icon={<Clock size={16} />} label="생존시간" value={`${Math.floor((Number(matchData!.stats.timeSurvived) || 0) / 60)}분`} color="text-green-400" />
           </div>
 
+          {botShare && (
+            <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-400" aria-label="참가자 구성">
+              <span>참가자 {botShare.botCount + botShare.humanCount}명</span>
+              <span className="text-gray-600">·</span>
+              <span>사람 {botShare.humanCount}</span>
+              <span className="text-gray-600">·</span>
+              <span>봇 {botShare.botCount} ({botShare.percent}%)</span>
+              {botShare.level !== "none" && (
+                <span className="rounded bg-white/5 px-1.5 py-0.5 font-bold text-gray-300">{BOT_SHARE_LEVEL_LABELS[botShare.level]}</span>
+              )}
+            </p>
+          )}
+
           {/* Premium Vehicle Combat Banner */}
           {hasVehicleCombat && (() => {
             const isMaster = vehicleCombatTotal >= 2;
@@ -1796,7 +1811,7 @@ export const ExpandedMatchDetails = ({
                 </div>
               </button>
 
-              {/* 2) 2D 미니 리플레이 */}
+              {/* 2) 2D 리플레이: 바로 열리는 lite로 시작하고, 아군 전멸 뒤는 재생 화면에서 경기 끝까지 이어 본다. */}
               <button
                 type="button"
                 aria-label="2D 맵 리플레이"
@@ -1811,42 +1826,13 @@ export const ExpandedMatchDetails = ({
                   <MapIcon size={20} className="group-hover:scale-110 transition-transform" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <span className="text-white font-black text-sm font-sans">2D 맵 리플레이 (간이)</span>
+                  <span className="text-white font-black text-sm font-sans">2D 리플레이</span>
                   <p className="text-[10px] text-gray-400 mt-1 leading-normal font-medium font-sans">
-                    지도가 아래로 확장되며 타임라인을 통해 가볍고 빠르게 이동 경로와 안전구역 수축을 요약 복기합니다.
+                    모든 선수의 이동·교전·자기장을 지도에서 재생합니다. 아군이 전멸한 경기는 재생 화면에서 경기 끝까지 이어 볼 수 있습니다.
                   </p>
                 </div>
               </button>
 
-              {/* 3) 고정밀 리플레이 (원본) */}
-              <button
-                type="button"
-                aria-label="고정밀 리플레이"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowReplayModal(false);
-                  trackEvent({
-                    name: "feature_consumption",
-                    params: {
-                      feature_name: "2d-replay",
-                      status: "start"
-                    }
-                  });
-                  const query = new URLSearchParams({ playback: matchId, nickname, platform, mode: "full", playedAt: matchDate });
-                  router.push(`/maps/${mapId}?${query.toString()}`);
-                }}
-                className="w-full text-left p-4 bg-white/3 hover:bg-white/5 border border-white/5 hover:border-white/10 rounded-2xl transition-all flex gap-3.5 items-center cursor-pointer group hover:scale-[1.01]"
-              >
-                <div className="w-10 h-10 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-400 shrink-0">
-                  <PlayCircle size={20} className="group-hover:scale-110 transition-transform" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <span className="text-white font-black text-sm font-sans">고정밀 리플레이 (원본 데이터)</span>
-                  <p className="text-[10px] text-gray-400 mt-1 leading-normal font-medium font-sans">
-                    전체 맵 스케일에서 모든 플레이어들의 원본 동선 데이터와 세부 교전 상황을 풀스크린으로 세밀하게 관전합니다.
-                  </p>
-                </div>
-              </button>
             </div>
           </div>
         </div>,

@@ -20,6 +20,7 @@ import { MapReplayHandler } from './handlers/MapReplayHandler';
 import { getBenchmarkTier } from './benchmarkScore';
 import { MAP_SIZES } from './constants';
 import { hasObservedBenchmarkMetric, type ObservedBenchmark } from './benchmarkAdapter';
+import { isBotParticipant } from './botShare';
 
 export class AnalysisEngine {
   private state: AnalysisState;
@@ -140,9 +141,7 @@ export class AnalysisEngine {
       mapEvents: [],
       mapZoneEvents: [],
       lastPosByPlayer: new Map(),
-      lastRotByPlayer: new Map(),
       groggyMap: new Map(),
-      hasRealExplosions: false,
       positionEventCount: 0,
       matchEndRelativeTime: null,
       leadShotKills: 0,
@@ -324,10 +323,7 @@ export class AnalysisEngine {
     const totalTeamDamage = stats.reduce((sum, s) => sum + (s?.damageDealt || 0), 0);
     const totalTeamKills = stats.reduce((sum, s) => sum + (s?.kills || 0), 0);
 
-    const humanParticipants = participants.filter((p: any) => {
-      const accountId = p.attributes?.stats?.playerId || p.attributes?.accountId || "";
-      return !String(accountId).startsWith("ai.");
-    });
+    const humanParticipants = participants.filter((p: any) => !isBotParticipant(p));
     const sortedByDamage = [...humanParticipants].map(p => p.attributes?.stats).filter(Boolean).sort((a, b) => b.damageDealt - a.damageDealt);
     const damageRank = sortedByDamage.findIndex((s: any) => normalizeName(s.name) === this.state.lowerNickname) + 1 || 1;
 
@@ -453,6 +449,7 @@ export class AnalysisEngine {
       ...(Object.keys(telemetryFlags).length > 0 ? { telemetryFlags } : {}),
       totalTeams: rosters.filter(r => r.relationships?.participants?.data?.length > 0).length,
       totalPlayers: participants.length,
+      botCount: participants.length - humanParticipants.length,
       teamImpact: { damageImpact, killImpact, teamDamageShare, teamKillShare, totalTeamDamage, totalTeamKills },
       badges,
       weaponStats: Object.fromEntries(this.state.weaponStats),
