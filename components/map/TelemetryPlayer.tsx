@@ -29,6 +29,10 @@ interface TelemetryPlayerProps {
   onTogglePlayerNames: () => void;
   showFlightPath: boolean;
   onToggleFlightPath: () => void;
+  showVision: boolean;
+  onToggleVision: () => void;
+  autoZoom: boolean;
+  onToggleAutoZoom: () => void;
   followPlayer: string | null;
   onFollowPlayerChange: (name: string | null) => void;
   nextFightMs: number | null;
@@ -60,6 +64,10 @@ export default function TelemetryPlayer({
   onTogglePlayerNames,
   showFlightPath,
   onToggleFlightPath,
+  showVision,
+  onToggleVision,
+  autoZoom,
+  onToggleAutoZoom,
   followPlayer,
   onFollowPlayerChange,
   nextFightMs,
@@ -375,6 +383,9 @@ export default function TelemetryPlayer({
             </li>
             <li className="flex items-center gap-1"><span className="w-3 h-0.5 bg-[#ff5050]" />명중</li>
             <li className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-[#ef4444] border border-white" />보급 상자</li>
+            {showVision && followPlayer && (
+              <li className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#06b6d4] opacity-25" />흐린 적 · 인지 범위 밖(추정)</li>
+            )}
             <li className="text-gray-500">단축키 · 스페이스 재생/정지 · ←→ 5초 · Shift+←→ 30초</li>
           </ul>
       {/* 플레이어 컴러 레전드 + 개별 토글 바 */}
@@ -518,7 +529,31 @@ export default function TelemetryPlayer({
             <InlineIconLabel icon="plane" iconSize={11}>비행경로 {showFlightPath ? "ON" : "OFF"}</InlineIconLabel>
           </button>
 
-          {/* 이동 경로 토글 기능 제거됨 */}
+          {/* 따라가기 전용: 인지 범위(추정)와 이동 속도 자동 줌 */}
+          {[
+            { key: "vision", on: showVision, onClick: onToggleVision, label: `인지 범위 ${showVision ? "ON" : "OFF"}`,
+              title: "따라가는 선수에게서 150m 밖이고 최근 교전도 없는 적을 흐리게 표시합니다. 시야 정보가 없어 거리로 추정합니다." },
+            { key: "zoom", on: autoZoom, onClick: onToggleAutoZoom, label: `자동 줌 ${autoZoom ? "ON" : "OFF"}`,
+              title: "따라가는 선수가 멈추면 가깝게, 차량으로 달리면 멀리 보도록 줌을 맞춥니다. 직접 확대·축소하면 꺼집니다." },
+          ].map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={item.onClick}
+              disabled={!followPlayer}
+              aria-pressed={item.on}
+              title={followPlayer ? item.title : "따라갈 선수를 고르면 쓸 수 있습니다"}
+              className="flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded border transition-all whitespace-nowrap disabled:opacity-40"
+              style={{
+                backgroundColor: item.on && followPlayer ? "rgba(56,189,248,0.15)" : "rgba(40,40,40,0.8)",
+                borderColor: item.on && followPlayer ? "#38bdf8" : "#444",
+                color: item.on && followPlayer ? "#e0f2fe" : "#666",
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+
 
           <button 
             onClick={() => setIsMinimized(true)}

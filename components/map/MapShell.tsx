@@ -136,6 +136,10 @@ const MapShell = memo(({
     // false는 자동 표시(아군·따라가는 선수·최근 교전 상대), true는 전원 표시다.
     const [showPlayerNames, setShowPlayerNames] = useState(false);
     const [showFlightPath, setShowFlightPath] = useState(true);
+    // 인지 범위는 추정 표시라 기본으로 끄고, 자동 줌은 따라가기를 켰을 때만 동작하므로 기본으로 켠다.
+    const [showVision, setShowVision] = useState(false);
+    const [autoZoom, setAutoZoom] = useState(true);
+    const cancelAutoZoom = useCallback(() => setAutoZoom(false), []);
     const [followPlayer, setFollowPlayer] = useState<string | null>(null);
     const cancelFollow = useCallback(() => setFollowPlayer(null), []);
     // Canvas는 playheadRef로 매 프레임 그리므로, 이 객체는 UI 갱신 주기(약 250ms)에만 바뀌게 고정한다.
@@ -144,11 +148,11 @@ const MapShell = memo(({
       isActive: isTelemetryActive, isPlaying, playheadRef: isTelemetryActive ? playheadRef : undefined,
       mapName: activeMapId || "Erangel", events: safeTelemetryEvents, currentTimeMs, currentStates: safeCurrentStates,
       teamNames: safeTeamNames, zoneEvents: safeZoneEvents, showZone, showCombatDots, showShotDots, hiddenPlayers, showPlayerNames, showFlightPath,
-      nickname: playbackNickname, followPlayer, onFollowCancel: cancelFollow,
+      nickname: playbackNickname, followPlayer, onFollowCancel: cancelFollow, showVision, autoZoom, onAutoZoomCancel: cancelAutoZoom,
     }), [
       isTelemetryActive, isPlaying, playheadRef, activeMapId, safeTelemetryEvents, currentTimeMs, safeCurrentStates,
       safeTeamNames, safeZoneEvents, showZone, showCombatDots, showShotDots, hiddenPlayers, showPlayerNames, showFlightPath,
-      playbackNickname, followPlayer, cancelFollow,
+      playbackNickname, followPlayer, cancelFollow, showVision, autoZoom, cancelAutoZoom,
     ]);
     const teamEngagements = useMemo(
       () => collectTeamEngagements(safeTelemetryEvents, safeTeamNames),
@@ -611,6 +615,8 @@ const MapShell = memo(({
                     onTogglePlayer={(n) => setHiddenPlayers(prev => prev.includes(n) ? prev.filter(x => x !== n) : [...prev, n])}
                     showPlayerNames={showPlayerNames} onTogglePlayerNames={() => setShowPlayerNames(!showPlayerNames)}
                     showFlightPath={showFlightPath} onToggleFlightPath={() => setShowFlightPath(!showFlightPath)}
+                    showVision={showVision} onToggleVision={() => setShowVision(!showVision)}
+                    autoZoom={autoZoom} onToggleAutoZoom={() => setAutoZoom(!autoZoom)}
                     followPlayer={followPlayer} onFollowPlayerChange={setFollowPlayer}
                     nextFightMs={nextFightMs} onNextFight={() => { if (nextFightMs !== null) setCurrentTimeMs(nextFightMs); }}
                     onClose={() => {

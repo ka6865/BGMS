@@ -24,7 +24,8 @@ beforeEach(() => {
   vi.stubGlobal('requestAnimationFrame',(cb:FrameRequestCallback)=>{callbacks.set(++id,cb);return id;});
   vi.stubGlobal('cancelAnimationFrame',(key:number)=>callbacks.delete(key));
   Object.assign(map,{getPane:()=>pane,getSize:()=>({x:400,y:300}),getZoom:()=>1,
-    containerPointToLayerPoint:(p:any)=>p,latLngToContainerPoint:([y,x]:number[])=>({x,y}),on:vi.fn(),off:vi.fn()});
+    containerPointToLayerPoint:(p:any)=>p,latLngToContainerPoint:([y,x]:number[])=>({x,y}),on:vi.fn(),off:vi.fn(),
+    getContainer:()=>pane});
   calibrate.mockClear();
 });
 afterEach(()=>{cleanup();pane.remove();vi.restoreAllMocks();vi.unstubAllGlobals();});
@@ -62,6 +63,30 @@ describe('live telemetry canvas state',()=>{
     const dragStart = map.on.mock.calls.find(([name]:[string]) => name === 'dragstart')?.[1];
     dragStart();
     expect(onFollowCancel).toHaveBeenCalledOnce();
+  });
+  it('zooms out while the followed player drives and stops when the user zooms by hand',()=>{
+    vi.spyOn(performance,'now').mockReturnValue(10_000);
+    const onAutoZoomCancel = vi.fn();
+    Object.assign(map,{ panTo:vi.fn(), setView:vi.fn(), getSize:()=>({x:400,y:300,divideBy:(n:number)=>({x:400/n,y:300/n})}) });
+    // 4초에 120m(30m/s): 화면 폭 400px에 2km를 담는 줌 log2(400/2000)≈-2.3 → -2
+    const events = [
+      { type:'position', name:'Player', relativeTimeMs:0, x:0, y:200 },
+      { type:'position', name:'Player', relativeTimeMs:4000, x:120, y:200 },
+    ];
+    render(React.createElement(TelemetryCanvasLayer,{telemetryData:data({ events, currentTimeMs:4000, currentStates:{Player:{...player,x:120}},
+      followPlayer:'player', autoZoom:true, onAutoZoomCancel })})); frame();
+    expect(map.setView).toHaveBeenCalledWith(expect.anything(),-2,{animate:true});
+    pane.dispatchEvent(new Event('wheel'));
+    expect(onAutoZoomCancel).toHaveBeenCalledOnce();
+  });
+  it('dims enemies outside the estimated vision range of the followed player and hides their names',()=>{
+    const near = { name:'Near', x:100, y:200, health:100, isEnemy:true };
+    const far = { name:'Far', x:400, y:200, health:100, isEnemy:true };
+    const states = { Player:player, Near:near, Far:far };
+    Object.assign(map,{ panTo:vi.fn(), setView:vi.fn(), getSize:()=>({x:400,y:300,divideBy:(n:number)=>({x:400/n,y:300/n})}) });
+    render(React.createElement(TelemetryCanvasLayer,{telemetryData:data({ currentStates:states, followPlayer:'player', showVision:true })})); frame();
+    expect(context.fillText).toHaveBeenCalledWith('Near',100,179);
+    expect(context.fillText).not.toHaveBeenCalledWith('Far',400,179);
   });
   it('draws throws at the thrower, blasts at the victim, and hit lines from exact damage coordinates',()=>{
     const events = [

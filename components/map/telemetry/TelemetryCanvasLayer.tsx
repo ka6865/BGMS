@@ -7,9 +7,12 @@ import { toCalibratedCoords } from "../../../utils/coordinate";
 import { buildPositionTracks, samplePosition, type PositionSample } from "../../../lib/replay/replayInterpolation";
 import { classifyThrowable, isCombatDamageCause, type ReplayThrowableKind } from "../../../lib/pubg-analysis/replayEventKinds";
 import { collectTeamEngagements, recentOpponents, type ReplayEngagement } from "../../../lib/replay/replayEngagements";
+import { AUTO_ZOOM_HOLD_MS, SPEED_WINDOW_MS, autoZoomFor, isKnownEnemy, metersPerUnit, nextAutoZoom, speedMetersPerSecond } from "../../../lib/replay/replayCamera";
 
 // 따라가기를 시작할 때 맞추는 최소 줌(CRS.Simple, 0이 원본 해상도). 기본 화면(-3)보다 8배 확대다.
 const FOLLOW_MIN_ZOOM = 0;
+/** 인지 범위 밖 적의 투명도. */
+const DIM_ALPHA = 0.25;
 
 interface TelemetryCanvasLayerProps {
   telemetryData: any;
@@ -150,6 +153,7 @@ export const TelemetryCanvasLayer = ({
   const optionsRef = useRef({ showZones, showFlightPath });
   const effectEventsRef = useRef<any[]>([]);
   const carePackagesRef = useRef<any[]>([]);
+  const lastAutoZoomAtRef = useRef(0);
   const tracksRef = useRef<Map<string, PositionSample[]>>(new Map());
   const flightPathRef = useRef<{ start: {x: number, y: number}, end: {x: number, y: number} } | null>(null);
   const requestDrawRef = useRef<() => void>(() => {});
@@ -227,12 +231,32 @@ export const TelemetryCanvasLayer = ({
       return toCalibratedCoords(pos.x, pos.y, dataRef.current.mapName);
     };
 
+    // 따라가는 선수의 최근 이동 속도로 화면에 담을 거리를 정한다. 멈추면 가깝게, 차량은 멀리 본다.
+    const applyAutoZoom = (name: string, target: L.LatLngExpression) => {
+      const playhead = dataRef.current?.playheadRef?.current;
+      const timeMs = playhead?.timeMs ?? dataRef.current?.currentTimeMs ?? 0;
+      const now = performance.now();
+      if (now - lastAutoZoomAtRef.current < AUTO_ZOOM_HOLD_MS) return;
+      const unitMeters = metersPerUnit(dataRef.current?.mapName);
+      const speed = speedMetersPerSecond(
+        getInterpolatedPos(name, timeMs),
+        getInterpolatedPos(name, Math.max(0, timeMs - SPEED_WINDOW_MS)),
+        Math.min(SPEED_WINDOW_MS, timeMs),
+        unitMeters,
+      );
+      const next = nextAutoZoom(map.getZoom(), autoZoomFor(speed, map.getSize().x, unitMeters));
+      if (next === null) return;
+      lastAutoZoomAtRef.current = now;
+      map.setView(target, next, { animate: true });
+    };
+
     // 따라가는 선수를 화면 가운데에 둔다. 1px 미만 차이는 무시해 멈춘 상태에서 다시 그리기가 반복되지 않게 한다.
     const keepFollowedPlayerCentered = () => {
       const name = dataRef.current?.followPlayer;
       if (!name || dataRef.current?.isActive === false) return;
       const target = findLivePlayer(name);
       if (!target) return;
+      if (dataRef.current?.autoZoom) applyAutoZoom(name, target);
       const point = map.latLngToContainerPoint(target);
       const center = map.getSize().divideBy(2);
       if (Math.abs(point.x - center.x) >= 1 || Math.abs(point.y - center.y) >= 1) {
@@ -242,9 +266,18 @@ export const TelemetryCanvasLayer = ({
 
     followStartRef.current = (name: string) => {
       const target = findLivePlayer(name);
-      if (target) map.setView(target, Math.max(map.getZoom(), FOLLOW_MIN_ZOOM), { animate: true });
+      if (!target) return;
+      map.setView(target, Math.max(map.getZoom(), FOLLOW_MIN_ZOOM), { animate: true });
     };
     const cancelFollowOnDrag = () => dataRef.current?.onFollowCancel?.();
+    // 사용자가 직접 확대·축소하면 자동 줌을 끈다. Leaflet 줌 이벤트로는 코드가 바꾼 줌과 구분되지 않아 입력 자체를 본다.
+    const cancelAutoZoomOnUserZoom = () => {
+      if (dataRef.current?.autoZoom && dataRef.current?.followPlayer) dataRef.current?.onAutoZoomCancel?.();
+    };
+    const onPinch = (event: TouchEvent) => { if (event.touches.length >= 2) cancelAutoZoomOnUserZoom(); };
+    const onZoomControl = (event: MouseEvent) => {
+      if ((event.target as HTMLElement | null)?.closest?.(".leaflet-control-zoom")) cancelAutoZoomOnUserZoom();
+    };
 
     const getPoint = (lat: number, lng: number) => {
       if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -490,6 +523,19 @@ export const TelemetryCanvasLayer = ({
       };
       const handledVehicles = new Set();
       const nameLabels: NameLabel[] = [];
+      // 인지 범위: 따라가는 선수에게서 멀고 최근 교전도 없는 적은 흐리게 그리고 이름을 숨긴다(거리 기준 추정).
+      const unitMeters = metersPerUnit(dataRef.current.mapName);
+      const followedState = followed
+        ? Object.values(states).find((p: any) => String(p?.name || "").trim().toLowerCase() === followed) as any
+        : null;
+      const followedPos = dataRef.current.showVision && followedState && !followedState.isDead
+        ? getInterpolatedPos(followed, currentTimeMs) || { x: followedState.x, y: followedState.y }
+        : null;
+      const isUnknown = (player: any) => {
+        if (!followedPos || !player.isEnemy) return false;
+        const pos = getInterpolatedPos(player.name, currentTimeMs) || { x: player.x, y: player.y };
+        return !isKnownEnemy({ followed: followedPos, enemy: pos, enemyName: String(player.name || ""), recentContacts: opponents, unitMeters });
+      };
       const labelPriority = (player: any) => {
         const name = String(player.name || "").trim().toLowerCase();
         if (player.name === dataRef.current.nickname) return 0;
@@ -510,8 +556,10 @@ export const TelemetryCanvasLayer = ({
           const occupants = Object.values(states).filter((o: any) => !o.isDead && !hidden(o.name) && o.vehicleId === p.vehicleId) as any[];
           
           const isAirplane = p.vehicleId.toLowerCase().includes("aircraft") || p.vehicleId.toLowerCase().includes("c130");
+          const vehicleUnknown = occupants.length > 0 && occupants.every(isUnknown);
 
           ctx.save();
+          if (vehicleUnknown) ctx.globalAlpha = DIM_ALPHA;
           ctx.translate(pt.x, pt.y);
           
           if (isAirplane) {
@@ -548,7 +596,7 @@ export const TelemetryCanvasLayer = ({
 
           if (!isAirplane) {
             occupants.forEach((m) => {
-              if (showName(m)) {
+              if (!vehicleUnknown && showName(m)) {
                 nameLabels.push({ text: m.name, x: pt.x, y: pt.y - 18, color: m.isGroggy ? "#ff4444" : "#ffffff", font: "bold 10px Pretendard", priority: labelPriority(m) });
               }
             });
@@ -556,7 +604,9 @@ export const TelemetryCanvasLayer = ({
           return;
         }
 
+        const unknown = isUnknown(p);
         ctx.save();
+        if (unknown) ctx.globalAlpha = DIM_ALPHA;
         ctx.translate(pt.x, pt.y);
         if (isGroggy) {
           const pulse = 0.5 + Math.sin(currentTimeMs / 150) * 0.4;
@@ -587,7 +637,7 @@ export const TelemetryCanvasLayer = ({
         }
 
         ctx.restore();
-        if (showName(p)) {
+        if (!unknown && showName(p)) {
           nameLabels.push({ text: p.name, x: pt.x, y: pt.y - radius - 12, color: isGroggy ? "#ff4444" : "#ffffff", font: isMe ? "bold 12px Pretendard" : "bold 10px Pretendard", priority: labelPriority(p) });
         }
       });
@@ -607,10 +657,19 @@ export const TelemetryCanvasLayer = ({
     requestDrawRef.current = requestDraw;
     map.on("viewreset move moveend zoom zoomend resize", requestDraw);
     map.on("dragstart", cancelFollowOnDrag);
+    const container = map.getContainer();
+    container.addEventListener("wheel", cancelAutoZoomOnUserZoom, { passive: true });
+    container.addEventListener("dblclick", cancelAutoZoomOnUserZoom);
+    container.addEventListener("touchstart", onPinch, { passive: true });
+    container.addEventListener("click", onZoomControl);
     requestDraw();
     return () => {
       map.off("viewreset move moveend zoom zoomend resize", requestDraw);
       map.off("dragstart", cancelFollowOnDrag);
+      container.removeEventListener("wheel", cancelAutoZoomOnUserZoom);
+      container.removeEventListener("dblclick", cancelAutoZoomOnUserZoom);
+      container.removeEventListener("touchstart", onPinch);
+      container.removeEventListener("click", onZoomControl);
       requestDrawRef.current = () => {};
       followStartRef.current = () => {};
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
