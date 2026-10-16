@@ -4,7 +4,7 @@ import { POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "@/lib/pubg-analysis
 import { buildSquadAiCoachingPrompt } from "@/lib/pubg-analysis/squadAiCoachingPrompt";
 import type { SquadObservation } from "@/lib/pubg-analysis/squadObservations";
 const { mockCreateClient }=vi.hoisted(()=>({mockCreateClient:vi.fn()}));
-vi.mock("@/utils/supabase/server",()=>({createClient:mockCreateClient}));
+vi.mock("@/lib/server/serviceRoleSupabase.server",()=>({createServiceRoleSupabase:mockCreateClient}));
 function queryChain(result:any){
   const chain:any={};for(const method of ["select","eq","order","limit","in"])chain[method]=vi.fn().mockReturnValue(chain);
   chain.then=(resolve:any,reject:any)=>Promise.resolve(result).then(resolve,reject);return chain;
@@ -15,7 +15,7 @@ function configureSquadClient(processed:any,teamBenchmarkRow:any=null){
   const teamChain:any={};for(const method of ["select","eq"])teamChain[method]=vi.fn().mockReturnValue(teamChain);
   teamChain.maybeSingle=vi.fn().mockResolvedValue({data:teamBenchmarkRow,error:null});
   const from=vi.fn((table:string)=>{if(table==='processed_match_telemetry')return processed;if(table==='pubg_team_benchmarks')return teamChain;benchmarkChains.push(table);throw new Error('Personal benchmark must not be queried for a squad');});
-  mockCreateClient.mockResolvedValue({from});return {from,benchmarkChains,teamChain};
+  mockCreateClient.mockReturnValue({from});return {from,benchmarkChains,teamChain};
 }
 const observation=(extra:Partial<SquadObservation>={}):SquadObservation=>({version:1,scope:'squad',teamAccountIds:['a','b'],status:'observed',issues:[],knocks:3,revives:1,smokeRescues:0,tradeKills:1,tradeLatencyTotalMs:6000,...extra});
 function canonicalRow(index: number, overrides: Record<string, any> = {}) {

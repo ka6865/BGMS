@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
+import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import {
   isDatabaseCircuitOpen,
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
     return databaseUnavailableResponse();
   }
 
-  const supabase = await createClient();
+  const supabase = createServiceRoleSupabase();
 
   try {
     // lower_nickname은 저장 시 정규화되므로 LIKE + text_pattern_ops 인덱스를 사용한다.

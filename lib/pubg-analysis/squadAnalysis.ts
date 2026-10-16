@@ -2,7 +2,7 @@ import { buildCalculationPendingMatch } from "./calculationAvailability";
 import { aggregateSquadObservations, SQUAD_OBSERVATION_VERSION } from './squadObservations';
 import { toTeamBenchmarkStats, type TeamBenchmarkRow } from "./teamBenchmark";
 import { aggregateSquadFocusFire } from "./squadFocusFire";
-import { createClient } from "@/utils/supabase/server";
+import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import {
   extractSquadCauseScenes,
   SquadCauseScene,
@@ -59,7 +59,7 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   // normalizeName: 소문자 + trim만 수행, 특수문자(-. 등) 제거 없음 → DB player_id와 정합성 보장
   const lowerNickname = normalizeName(nickname);
   const cachePlatform = normalizePlatform(platform);
-  const supabase = await createClient();
+  const supabase = createServiceRoleSupabase();
 
   const { data: matchData, error: dbError } = await supabase
     .from("processed_match_telemetry")

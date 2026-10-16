@@ -31,8 +31,8 @@ vi.mock("@/lib/pubg/banWatch.server", () => ({
   readPlayerBanStatus: mockReadBanStatus,
 }));
 
-vi.mock("@/utils/supabase/server", () => ({
-  createClient: mockCreateServerClient,
+vi.mock("@/lib/server/serviceRoleSupabase.server", () => ({
+  createServiceRoleSupabase: mockCreateServerClient,
 }));
 
 vi.mock("@supabase/supabase-js", () => ({
@@ -106,7 +106,7 @@ function configureSupabase(cacheRow: unknown = null) {
     }),
     rpc,
   };
-  mockCreateServerClient.mockResolvedValue(supabase);
+  mockCreateServerClient.mockReturnValue(supabase);
 
   const adminUpsert = vi.fn().mockResolvedValue({ data: null, error: null });
   const partialQuery = queryChain({ data: [{ id: 'account.fixture1' }], error: null });
