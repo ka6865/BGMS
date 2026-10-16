@@ -23,12 +23,16 @@ begin
   if not has_table_privilege('service_role','public.reports','TRUNCATE') then
     raise exception 'service role must keep report truncate access';
   end if;
+  -- 관리자 처리(authenticated + 관리자 정책)와 서버 권한은 유지하고, anon 쓰기는 20261017060000에서 회수한다.
   if exists (
-    select from unnest(array['anon','authenticated','service_role']) as r(role_name)
+    select from unnest(array['authenticated','service_role']) as r(role_name)
     cross join unnest(array['SELECT','UPDATE','DELETE']) as p(privilege)
     where not has_table_privilege(role_name,'public.reports',privilege)
-  ) then
+  ) or not has_table_privilege('anon','public.reports','SELECT') then
     raise exception 'reports SELECT/UPDATE/DELETE grants must be preserved';
+  end if;
+  if has_table_privilege('anon','public.reports','UPDATE') or has_table_privilege('anon','public.reports','DELETE') then
+    raise exception 'anon must not update or delete reports';
   end if;
 
   if has_function_privilege('anon','public.increment_likes(integer)','EXECUTE')

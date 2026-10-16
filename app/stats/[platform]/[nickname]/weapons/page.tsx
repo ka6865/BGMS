@@ -1,5 +1,5 @@
 import { Metadata } from 'next';
-import { createClient } from '@/utils/supabase/server';
+import { createServiceRoleSupabase } from '@/lib/server/serviceRoleSupabase.server';
 import { isPlayerPrivate } from '@/lib/pubg/privatePlayers';
 import { notFound } from 'next/navigation';
 import WeaponsClient from './WeaponsClient';
@@ -23,7 +23,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function PlayerWeaponsPage({ params }: Props) {
   const { platform, nickname } = await params;
   const decodedNickname = decodeURIComponent(nickname);
-  const supabase = await createClient();
+  const supabase = createServiceRoleSupabase();
 
   const { data: cacheData } = await supabase
     .from('pubg_player_cache')
