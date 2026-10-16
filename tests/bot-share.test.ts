@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildBotShare, countBotParticipants, isBotParticipant } from "@/lib/pubg-analysis/botShare";
+import { buildBotShare, countBotParticipants, humanDamageRankPct, isBotParticipant } from "@/lib/pubg-analysis/botShare";
 import { AnalysisEngine } from "@/lib/pubg-analysis/AnalysisEngine";
 
 describe("봇 비율", () => {
@@ -49,5 +49,28 @@ describe("분석 결과의 봇 수", () => {
       .run([], { gameMode: "squad" }, [], participants, { name: "Me", damageDealt: 100, timeSurvived: 1200, winPlace: 10 }, [], {});
     expect(result.totalPlayers).toBe(4);
     expect(result.botCount).toBe(2);
+  });
+});
+
+describe("봇을 뺀 딜량 순위 비율", () => {
+  const p = (name: string, playerId: string, damageDealt: number) => ({ attributes: { stats: { name, playerId, damageDealt } } });
+  const participants = [
+    p("Top", "account.1", 900),
+    p("BotHigh", "ai.1", 500),
+    p("Me", "account.me", 300),
+    p("Mid", "account.2", 200),
+    p("BotLow1", "ai.2", 20),
+    p("BotLow2", "ai.3", 10),
+  ];
+
+  it("봇은 순위와 분모에서 모두 빠진다", () => {
+    expect(humanDamageRankPct(participants, "me")).toBeCloseTo(2 / 3);
+    expect(humanDamageRankPct(participants, "top")).toBeCloseTo(1 / 3);
+  });
+
+  it("내 기록이 없거나 사람이 없으면 가장 낮은 비율로 둔다", () => {
+    expect(humanDamageRankPct(participants, "ghost")).toBe(1);
+    expect(humanDamageRankPct([p("Bot", "ai.9", 10)], "me")).toBe(1);
+    expect(humanDamageRankPct(undefined, "me")).toBe(1);
   });
 });
