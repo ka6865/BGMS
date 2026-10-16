@@ -114,6 +114,9 @@ create table if not exists public.post_likes (
   user_id uuid not null references public.profiles(id) on delete cascade,
   constraint post_likes_post_id_user_id_key unique (post_id, user_id)
 );
+alter table public.posts add column if not exists author text, add column if not exists created_at timestamptz default now(), add column if not exists ip_address text;
+alter table public.comments add column if not exists ip_address text;
+alter table public.profiles add column if not exists avatar_url text;
 grant select on table public.posts, public.comments to anon, authenticated;
 grant select, insert, update, delete on table public.posts, public.comments to service_role;
 grant usage, select on sequence public.posts_id_seq, public.comments_id_seq to service_role;

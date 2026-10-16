@@ -100,6 +100,8 @@ MIGRATIONS=(
   "20261015010000_suggest_similar_players_two_stage"
   "20261015120000_player_match_row_extras"
   "20261016010000_performance_jobs_newest_first"
+  "20261017010000_public_column_privacy_prepare"
+  "20261017020000_public_column_privacy_revoke"
 )
 
 cleanup() {
@@ -391,6 +393,7 @@ fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v3-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/support-center-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/public-column-privacy-checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-cache-concurrency-setup.sql
 # 요청은 집계하지 않고 등록만 한다. 동시 요청 두 개가 등록 행 하나만 만든다.
 "${PSQL[@]}" -c "set role service_role; select public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73)->>'pending';" &

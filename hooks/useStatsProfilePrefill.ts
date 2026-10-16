@@ -22,16 +22,15 @@ export function useStatsProfilePrefill(userId?: string): StatsProfilePrefill {
     if (!userId) return;
     let current = true;
     void supabase
-      .from("profiles")
+      .rpc("get_my_profile")
       .select("pubg_nickname, pubg_platform")
-      .eq("id", userId)
-      .single()
+      .single<{ pubg_nickname: string | null; pubg_platform: string | null }>()
       .then(({ data }) => {
         if (!current) return;
         const nickname = typeof data?.pubg_nickname === "string"
           ? data.pubg_nickname.trim()
           : "";
-        const platform = parseStatsPlatform(data?.pubg_platform) ?? "steam";
+        const platform = parseStatsPlatform(data?.pubg_platform ?? undefined) ?? "steam";
         setPrefill({
           userId,
           nickname: nickname || undefined,

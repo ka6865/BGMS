@@ -30,7 +30,7 @@ export default async function BoardPage({
   let query = supabase
     .from("posts")
     .select(
-      "id, title, author, user_id, category, image_url, discord_url, discord_channel_id, is_notice, created_at, views, likes, status, parent_id, ip_address, comments(count), profiles(nickname, role)",
+      "id, title, author, user_id, category, image_url, discord_url, discord_channel_id, is_notice, created_at, views, likes, status, parent_id, ip_address:ip_masked, comments(count), profiles(nickname, role)",
       { count: "exact" }
     );
 

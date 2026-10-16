@@ -53,7 +53,7 @@ export default function BoardWriteClient() {
 
   useEffect(() => {
     if (user) {
-      supabase.from("profiles").select("*").eq("id", user.id).single().then(({ data }) => {
+      supabase.from("profiles").select("role, nickname").eq("id", user.id).single().then(({ data }) => {
         if (data) {
           setIsAdmin(data.role === "admin");
           setDisplayName(data.nickname || "익명");

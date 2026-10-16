@@ -22,10 +22,17 @@ BEGIN
     RAISE EXCEPTION 'Anonymous credential read unexpectedly succeeded';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
-  IF EXISTS(SELECT 1 FROM public.posts WHERE password_hash IS NOT NULL)
-     OR EXISTS(SELECT 1 FROM public.comments WHERE password_hash IS NOT NULL) THEN
-    RAISE EXCEPTION 'Legacy public SELECT still exposes credentials';
-  END IF;
+  -- 20261017020000 이후 공개 키는 게시판 password_hash 칸 자체를 읽을 수 없다.
+  BEGIN
+    PERFORM 1 FROM public.posts WHERE password_hash IS NOT NULL;
+    RAISE EXCEPTION 'Legacy public SELECT still exposes post credentials';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    PERFORM 1 FROM public.comments WHERE password_hash IS NOT NULL;
+    RAISE EXCEPTION 'Legacy public SELECT still exposes comment credentials';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
 END;
 $$;
 RESET ROLE;

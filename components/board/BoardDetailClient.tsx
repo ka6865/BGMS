@@ -188,7 +188,7 @@ export default function BoardDetailClient({
       return;
     }
     const fetchProfile = async () => {
-      const { data } = await supabase.from("profiles").select("*").eq("id", user.id).single();
+      const { data } = await supabase.from("profiles").select("role").eq("id", user.id).single();
       if (data) {
         setIsAdmin(data.role === "admin");
       }

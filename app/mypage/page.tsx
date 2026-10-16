@@ -2,6 +2,7 @@ import { Metadata } from 'next';
 import { getTabSeo } from '@/lib/seo-config';
 import MyPageClient from '@/components/mypage/MyPage';
 import { createClient } from '@/utils/supabase/server';
+import type { UserProfile } from '@/types/map';
 import { redirect } from 'next/navigation';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -30,9 +31,9 @@ export default async function MyPagePage() {
     { count: commentCount },
     { data: myPosts }
   ] = await Promise.all([
-    supabase.from('profiles').select('*').eq('id', user.id).single(),
-    supabase.from('posts').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-    supabase.from('comments').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+    supabase.rpc('get_my_profile').single<UserProfile>(),
+    supabase.from('posts').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
+    supabase.from('comments').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
     supabase.from('posts').select('id').eq('user_id', user.id)
   ]);
 

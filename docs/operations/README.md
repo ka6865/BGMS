@@ -27,6 +27,7 @@
 | [2026-10-15-discord-command-improvements.md](2026-10-15-discord-command-improvements.md) | Discord 전적 명령의 응답·공개 범위 계약 |
 | [2026-10-15-match-row-extras.md](2026-10-15-match-row-extras.md) | 전적 목록 보조 값(이동 거리·최장 킬·팀원 목록) 저장 계약, 비공개 필터, 배포 순서 |
 | [2026-10-16-squad-auto-detail.md](2026-10-16-squad-auto-detail.md) | 스쿼드 분석 최근 팀 경기 자동 상세 분석, 만료 경기 제외, 성과 작업 처리량·순서 |
+| [2026-10-17-public-column-privacy.md](2026-10-17-public-column-privacy.md) | 공개 키로 읽히는 게시판 IP·프로필 비공개 칸 축소, 단계별 배포 순서 |
 
 ## 작업 기록
 

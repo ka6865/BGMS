@@ -74,6 +74,12 @@ vi.mock("vaul", () => {
 
 vi.mock("@/lib/supabase", () => ({
   supabase: {
+    rpc: (fn: string) => ({
+      single: async () => ({
+        data: fn === "get_my_profile" ? { id: "admin-user", nickname: "관리자", role: "admin" } : null,
+        error: null,
+      }),
+    }),
     from: (table: string) => ({
       select: () => ({
         eq: () => ({
