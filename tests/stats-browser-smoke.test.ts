@@ -1481,6 +1481,12 @@ describeBrowser("stats browser smoke", () => {
         await waitForDetailSuccess(dispatcher, "FixturePlayer", "steam");
         // 봇 수가 있는 분석 결과는 참가자 구성 줄을 함께 보여 준다.
         await waitForStatsText({ dispatcher, page, text: "봇 12 (19%)" });
+        // 경기 흐름·경기 전체 섹션은 분석 결과의 matchReport로 그린다.
+        await waitForStatsText({ dispatcher, page, text: "써드파티 · 최근 1분간 2팀 교전" });
+        await clickButtonText(page, "경기 흐름");
+        await waitForStatsSelector({ dispatcher, page, selector: 'button[aria-label="교전1 리플레이에서 보기"]' });
+        await clickButtonText(page, "경기 전체");
+        await waitForStatsSelector({ dispatcher, page, selector: 'ol[aria-label="팀 순위"]' });
         const tierButtonSelector = '[data-compact-match-id="match-fixture-1"] button[aria-haspopup="dialog"]';
         await page.click(tierButtonSelector);
         await waitForStatsSelector({ dispatcher, page, selector: 'section[aria-label="매치 성과 및 티어 근거"]' });

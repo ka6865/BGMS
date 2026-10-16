@@ -66,6 +66,8 @@ export interface MatchData {
   totalPlayers?: number;
   /** 참가자 중 봇(AI) 수. */
   botCount?: number;
+  /** 경기 흐름·경기 전체 섹션 판정. */
+  matchReport?: import("@/lib/pubg-analysis/matchReport").MatchReport;
   team: MatchTeamMember[];
   totalTeamKills: number;
   totalTeamDamage: number;

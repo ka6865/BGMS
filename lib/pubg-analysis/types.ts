@@ -1,5 +1,6 @@
 import type { SquadObservation } from './squadObservations';
 import type { SquadFocusFireObservation } from "./squadFocusFire";
+import type { MatchReport } from "./matchReport";
 /**
  * PUBG 전술 분석 엔진 공용 타입 정의
  */
@@ -124,6 +125,8 @@ export interface AnalysisResult {
   /** Same-target gun participation; never substitutes for calibrated cover scores. */
   squadFocusFire?: SquadFocusFireObservation;
   squadObservation?: SquadObservation;
+  /** 경기 흐름·경기 전체 섹션 판정. 이 필드가 생기기 전 분석 결과에는 없다. */
+  matchReport?: MatchReport;
   matchId: string;
   v: number;
   populationEvidenceVersion?: number;
