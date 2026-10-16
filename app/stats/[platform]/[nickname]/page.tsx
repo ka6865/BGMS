@@ -3,7 +3,7 @@ import { getTabSeo } from '@/lib/seo-config';
 import StatSearch from '@/components/stat/StatSearch';
 import { redirect } from 'next/navigation';
 import { parseStatsPlatform, parseStatsSectionTab } from '@/lib/stats/statsPageModel';
-import { getPlayerSeoState, type PlayerSeoSummary } from '@/lib/stats/playerSeo.server';
+import { getPlayerSeoState } from '@/lib/stats/playerSeo.server';
 
 interface Props {
   params: Promise<{
@@ -61,7 +61,7 @@ export async function generateMetadata({ params, searchParams }: Props): Promise
     description: isSquad
       ? `${decodedNickname}님의 PUBG AI 팀 협동 분석 리포트를 확인하세요. 팀 기절 후 복수 시간, 소생 기록과 Gemini 코칭을 확인하세요.`
       : summary
-        ? `${decodedNickname}님의 배그 최근 시즌 ${summary.rounds}경기 평균 딜량 ${summary.avgDamage}, 경기당 ${summary.killsPerRound}킬, 우승 ${summary.wins}회. AI 전술 분석과 티어를 BGMS에서 확인하세요.`
+        ? `${decodedNickname}님의 배그 최근 시즌 전체 모드 ${summary.rounds}경기 평균 딜량 ${summary.avgDamage}, 경기당 ${summary.killsPerRound}킬, 우승 ${summary.wins}회. AI 전술 분석과 티어를 BGMS에서 확인하세요.`
         : `${decodedNickname}님의 PUBG AI 정밀 전술 분석 리포트를 확인하세요. KDA, 평균 딜량, 생존 시간, 전술 티어를 BGMS에서 분석합니다.`,
     alternates: {
       canonical: canonicalUrl,
@@ -106,28 +106,14 @@ export default async function PlayerStatsPage({ params, searchParams }: Props) {
   const seoState = validPlatform ? await getPlayerSeoState(validPlatform, decodedNickname) : null;
   const summary = seoState?.status === "public" ? seoState.summary : null;
 
-  const search = (
+  // 저장된 시즌 합계는 설명 문구에 쓰고, 화면에서는 최근 20경기 요약 위 카드로 보여준다.
+  return (
     <StatSearch
       initialPlatform={validPlatform}
       initialNickname={decodedNickname}
       initialTab={parseStatsSectionTab(tab)}
       initialGroupKey={groupKey}
+      initialSeasonSummary={summary && seoState?.status === "public" ? { nickname: seoState.nickname, ...summary } : undefined}
     />
-  );
-  if (!summary || seoState?.status !== "public") return search;
-  return (
-    <>
-      <PlayerSeasonSummary nickname={seoState.nickname} summary={summary} />
-      {search}
-    </>
-  );
-}
-
-// 검색엔진과 사용자가 같은 내용을 보도록 저장된 시즌 요약을 서버에서 그린다.
-function PlayerSeasonSummary({ nickname, summary }: { nickname: string; summary: PlayerSeoSummary }) {
-  return (
-    <p className="mx-auto max-w-3xl px-4 pt-4 text-center text-xs text-white/65">
-      {nickname} 최근 시즌 {summary.rounds}경기 · 평균 딜량 {summary.avgDamage} · 경기당 {summary.killsPerRound}킬 · 우승 {summary.wins}회
-    </p>
   );
 }

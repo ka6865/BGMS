@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { createSquadRequestCache } from "@/lib/stats/squadRequestCache";
 import { StatSummaryPanel } from "@/components/stat/StatSummaryPanel";
+import { seasonOverviewForResult } from "@/components/stat/overview/StatsSeasonOverviewCard";
 import dynamic from "next/dynamic";
 import { Shield, ChevronDown } from "lucide-react";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
@@ -22,7 +23,7 @@ import { MatchFeed } from "@/components/stat/matches/MatchFeed";
 import { ResponsiveAdSlot } from "@/components/ads/ResponsiveAdSlot";
 import { StatsPageStates } from "./StatsPageStates";
 import { buildStatsCompareUrl, buildStatsWeaponsUrl } from "@/lib/stats/statsPageModel";
-import type { StatsPlatform, StatsSectionTab } from "@/types/stats-page";
+import type { StatsPlatform, StatsSectionTab, StatsStoredSeasonSummary } from "@/types/stats-page";
 import { useAdViewportClass } from "@/hooks/useAdViewportClass";
 import { StatsManualAdRails } from "@/components/ads/StatsManualAdRails";
 // import CompanionEntryCard from "@/components/overwolf/CompanionEntryCard";
@@ -43,6 +44,8 @@ export interface StatsPageShellProps {
   initialNickname?: string;
   initialTab?: StatsSectionTab;
   initialGroupKey?: string;
+  /** URL 플레이어의 저장된 시즌 합계. 다른 플레이어 결과에는 쓰지 않는다. */
+  initialSeasonSummary?: StatsStoredSeasonSummary;
 }
 
 interface StatsSearchIntent {
@@ -58,6 +61,7 @@ export function StatsPageShell({
   initialNickname,
   initialTab,
   initialGroupKey,
+  initialSeasonSummary,
 }: StatsPageShellProps) {
   const router = useRouter();
   const controller = useStatsPageController({
@@ -396,6 +400,7 @@ export function StatsPageShell({
                     summaries={matchSummaries}
                     matchModeMeta={matchModeMeta}
                     summaryStatus={summaryStatus}
+                    seasonSummary={seasonOverviewForResult(initialSeasonSummary, result)}
                   />
                 </aside>
                 <div className="stats-match-column">
