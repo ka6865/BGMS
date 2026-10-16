@@ -18,6 +18,16 @@ export type StatsPartialReason =
 export type StatsErrorType = "not_found" | "rate_limit" | "server" | "private";
 export type StatsAvailabilityStatus = "ready" | "stale" | "unavailable";
 
+/** 서버가 저장된 시즌 전적에서 가장 최근 시즌의 모든 모드를 합친 요약. */
+export interface StatsStoredSeasonSummary {
+  nickname: string;
+  seasonId: string;
+  rounds: number;
+  wins: number;
+  avgDamage: number;
+  killsPerRound: number;
+}
+
 export interface StatsModeAvailability {
   status: StatsAvailabilityStatus;
   updatedAt?: string;
