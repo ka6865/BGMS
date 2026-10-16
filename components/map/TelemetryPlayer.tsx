@@ -314,6 +314,13 @@ export default function TelemetryPlayer({
             <li className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#ff0000] ring-2 ring-[#ff0000]/40" />기절</li>
             <li className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full border-2 border-[#38bdf8]" />따라가는 선수</li>
             <li className="flex items-center gap-1"><span className="w-3 h-2 rounded-sm bg-[#282828] border border-white" />차량</li>
+            <li className="flex items-center gap-1" title="착탄 지점은 텔레메트리에 없어 던진 사람 위치에 표시합니다">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#cbd5e1] ring-2 ring-[#cbd5e1]/40" />투척(던진 위치)
+            </li>
+            <li className="flex items-center gap-1" title="폭발 지점이 아니라 피해를 받은 사람 위치입니다">
+              <span className="w-2.5 h-2.5 rounded-full bg-[#f97316]/50 border border-[#f97316]" />폭발 피해 위치
+            </li>
+            <li className="flex items-center gap-1"><span className="w-3 h-0.5 bg-[#ff5050]" />명중</li>
           </ul>
       {/* 플레이어 컴러 레전드 + 개별 토글 바 */}
       {teamNames.length > 0 && (

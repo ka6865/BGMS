@@ -1,5 +1,7 @@
 // 2D 리플레이의 아군 교전 묶음과 최근 교전 상대 계산.
 // 아군이 공격자나 피해자인 피해·기절·처치 이벤트만 쓰고, 30초 넘게 끊기면 다른 교전으로 본다.
+// 자기장·출혈·낙하처럼 상대가 없는 피해(공격자=피해자 또는 비교전 원인)는 교전으로 보지 않는다.
+import { isCombatDamageCause } from "@/lib/pubg-analysis/replayEventKinds";
 
 export const FIGHT_GAP_MS = 30_000;
 /** 다음 교전으로 이동할 때 교전 시작보다 이만큼 앞에서 재생한다. */
@@ -20,6 +22,7 @@ type CombatEvent = {
   victim?: unknown;
   attackerName?: unknown;
   victimName?: unknown;
+  cause?: unknown;
 };
 
 const normalize = (value: unknown): string =>
@@ -36,6 +39,7 @@ export function collectTeamEngagements(events: readonly unknown[], teamNames: re
     let attacker: string;
     let victim: string;
     if (event.type === "damage") {
+      if (!isCombatDamageCause(event.cause)) continue;
       attacker = normalize(event.attackerName);
       victim = normalize(event.victimName);
     } else if (event.type === "groggy" || event.type === "kill") {
@@ -44,6 +48,7 @@ export function collectTeamEngagements(events: readonly unknown[], teamNames: re
     } else {
       continue;
     }
+    if (!attacker || attacker === victim) continue;
     const attackerIsTeam = team.has(attacker);
     const victimIsTeam = team.has(victim);
     if (!attackerIsTeam && !victimIsTeam) continue;

@@ -5,7 +5,7 @@ import L from "leaflet";
 import Sidebar from "../Sidebar";
 import MobileBottomSheet from "./MobileBottomSheet";
 import MapView from "./MapView";
-import { X, Hammer, Map as MapIcon, Crosshair, AlertCircle, SlidersHorizontal, Menu, Flame, MapPin, Target } from 'lucide-react';
+import { X, Hammer, Map as MapIcon, Crosshair, SlidersHorizontal, Menu, Flame, MapPin, Target } from 'lucide-react';
 import type { MapTab, MapMarker, AuthUser, PendingVehicle } from "../../types/map";
 import { useTelemetry } from "../../hooks/useTelemetry";
 import { collectTeamEngagements, findFightStarts, nextFightSeekMs, recentOpponents } from "../../lib/replay/replayEngagements";
@@ -156,7 +156,6 @@ const MapShell = memo(({
     const engagedOpponents = useMemo(() => recentOpponents(teamEngagements, currentTimeMs), [teamEngagements, currentTimeMs]);
     const alivePlayers = Object.values(safeCurrentStates).filter((p: any) => !p.isDead);
     const aliveTeams = new Set(alivePlayers.map((p: any) => p.teamId)).size;
-    const [showSmokeNotice, setShowSmokeNotice] = useState(false); //  연막탄 공지 상태
     const [isInstructionDismissed, setIsInstructionDismissed] = useState(false);
 
     const selectLessonScene = (scene: RankerScene) => {
@@ -178,28 +177,6 @@ const MapShell = memo(({
     useEffect(() => {
       setFollowPlayer(null);
     }, [playbackId, playbackNickname]);
-
-    //  "오늘 하루 보지 않기" 체크 로직
-    useEffect(() => {
-      let isMounted = true;
-      if (playbackId && isFullMode) {
-        const dismissed = localStorage.getItem("smoke_notice_dismissed");
-        const today = new Date().toDateString();
-        if (dismissed !== today && isMounted) {
-          setTimeout(() => setShowSmokeNotice(true), 0);
-        }
-      } else {
-        if (isMounted) setTimeout(() => setShowSmokeNotice(false), 0);
-      }
-      return () => { isMounted = false; };
-    }, [playbackId, isFullMode]);
-
-    const handleDismissNotice = (dontShowToday: boolean) => {
-      if (dontShowToday) {
-        localStorage.setItem("smoke_notice_dismissed", new Date().toDateString());
-      }
-      setShowSmokeNotice(false);
-    };
 
     const mapScale = 8192 / imageWidth;
     const pxPerMeter = imageWidth / 8192;
@@ -483,7 +460,6 @@ const MapShell = memo(({
               setFlightPoints={setFlightPoints} setIsVehicleFilterOn={setIsVehicleFilterOn} setActiveMode={setActiveMode}
               setReportLocation={setReportLocation} reportLocation={reportLocation} currentUser={currentUser} isAdmin={isAdmin}
               pendingVehicles={playbackId ? [] : pendingVehicles} filters={filters} isHotDropOn={isHotDropOn}
-              isHighPrecision={isFullMode}
               telemetryData={telemetryData}
               simulatorStep={simulatorStep}
               simulatorPhases={simulatorPhases}
@@ -517,22 +493,6 @@ const MapShell = memo(({
               <>
                 {/*  고도화된 통합 상단 상태바 (모바일 최적화) */}
                 <div className={`absolute ${isMobile ? 'top-2 pl-2 pr-16' : 'top-6'} left-1/2 -translate-x-1/2 z-[1000] flex flex-col items-center gap-2 w-full max-w-xl pointer-events-none`}>
-                  {/* ℹ️ 연막탄 위치 추론 안내 공지 (모바일에서는 더 작게) */}
-                  {showSmokeNotice && !rankerLesson && (
-                    <div className={`pointer-events-auto bg-black/90 backdrop-blur-xl ${isMobile ? 'px-3 py-1.5 mx-4' : 'px-4 py-2'} rounded-xl border border-orange-500/30 shadow-[0_10px_30px_rgba(0,0,0,0.5)] flex items-center gap-3 mb-2 animate-in fade-in slide-in-from-top-2 duration-500`}>
-                      <AlertCircle size={isMobile ? 12 : 14} className="text-orange-500 shrink-0" />
-                      <div className="flex flex-col">
-                        <span className={`${isMobile ? 'text-[9px]' : 'text-[11px]'} text-white font-bold tracking-tight`}>
-                          고정밀 분석: 연막탄 위치는 투척 궤적 기반의 추론 데이터입니다.
-                        </span>
-                        <div className="flex gap-3 mt-1">
-                          <button onClick={() => handleDismissNotice(false)} className="text-[10px] text-gray-400">닫기</button>
-                          <button onClick={() => handleDismissNotice(true)} className="text-[10px] text-orange-500/80 font-bold">오늘 안보기</button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
                   {/* 재생 시각·생존·자기장을 한 줄 칩으로 묶는다. */}
                   <div className="bg-black/80 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 shadow-2xl flex items-center gap-2.5 text-[11px] font-bold whitespace-nowrap">
                     <span className="font-mono text-white">{formatTime(currentTimeMs)}</span>

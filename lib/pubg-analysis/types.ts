@@ -356,9 +356,7 @@ export interface AnalysisState {
   mapEvents: any[];
   mapZoneEvents: any[];
   lastPosByPlayer: Map<string, { x: number, y: number }>;
-  lastRotByPlayer: Map<string, number>;
   groggyMap: Map<string, { attackerAccountId: string, attackerName: string }>;
-  hasRealExplosions: boolean;
   positionEventCount: number;
   matchEndRelativeTime: number | null; // [V12.5] 승리 이벤트의 정확한 기록을 위한 매치 종료 상대 시간
   leadShotKills: number;

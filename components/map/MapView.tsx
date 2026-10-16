@@ -227,7 +227,6 @@ interface MapViewProps {
   filters: Record<string, boolean>;
   telemetryData?: any;
   isHotDropOn?: boolean;
-  isHighPrecision?: boolean;
   simulatorStep?: number;
   simulatorPhases?: L.LatLng[];
   setSimulatorStep?: React.Dispatch<React.SetStateAction<number>>;
@@ -265,7 +264,6 @@ const MapView = memo(
     filters,
     telemetryData,
     isHotDropOn = false,
-    isHighPrecision = false,
     simulatorStep = 0,
     simulatorPhases = [],
     setSimulatorStep,
@@ -725,7 +723,6 @@ const MapView = memo(
             <TelemetryCanvasLayer 
               telemetryData={telemetryData} 
               showZones={telemetryData.showZone}
-              isHighPrecision={isHighPrecision}
             />
           </>
         )}

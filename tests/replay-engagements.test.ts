@@ -19,13 +19,18 @@ describe("리플레이 아군 교전", () => {
       { type: "groggy", relativeTimeMs: 6_000, attacker: "Me", victim: "Enemy2" },
       { type: "kill", relativeTimeMs: 7_000, attacker: "", victim: "Mate" },
       { type: "shot", relativeTimeMs: 8_000, name: "Me" },
+      { type: "damage", relativeTimeMs: 9_000, attackerName: "Mate", victimName: "Mate", cause: "zone" },
+      { type: "damage", relativeTimeMs: 9_500, attackerName: "Enemy", victimName: "Me", cause: "bleed" },
+      { type: "damage", relativeTimeMs: 9_800, attackerName: "Enemy", victimName: "Me", cause: "fall" },
+      { type: "damage", relativeTimeMs: 10_000, attackerName: "Enemy3", victimName: "Me", cause: "grenade" },
     ], team);
 
+    // 공격자 없는 처치, 자기 피해, 자기장·출혈·낙하는 교전이 아니다.
     expect(engagements).toEqual([
       { timeMs: 1_000, opponent: "enemy" },
       { timeMs: 5_000, opponent: "enemy" },
       { timeMs: 6_000, opponent: "enemy2" },
-      { timeMs: 7_000, opponent: null },
+      { timeMs: 10_000, opponent: "enemy3" },
     ]);
   });
 
