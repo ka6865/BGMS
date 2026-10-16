@@ -1479,6 +1479,8 @@ describeBrowser("stats browser smoke", () => {
         await waitForSummarySuccess(dispatcher, "FixturePlayer", "steam");
         await page.click('[data-compact-match-id="match-fixture-1"] button[aria-label="매치 상세 펼치기"]');
         await waitForDetailSuccess(dispatcher, "FixturePlayer", "steam");
+        // 봇 수가 있는 분석 결과는 참가자 구성 줄을 함께 보여 준다.
+        await waitForStatsText({ dispatcher, page, text: "봇 12 (19%)" });
         const tierButtonSelector = '[data-compact-match-id="match-fixture-1"] button[aria-haspopup="dialog"]';
         await page.click(tierButtonSelector);
         await waitForStatsSelector({ dispatcher, page, selector: 'section[aria-label="매치 성과 및 티어 근거"]' });

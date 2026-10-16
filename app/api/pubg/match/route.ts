@@ -1,5 +1,6 @@
 import { isRecentlyNotFound, rememberNotFound, forgetNotFound } from "@/lib/pubg/matchNotFoundCache";
 import { buildCalculationPendingMatch } from "@/lib/pubg-analysis/calculationAvailability";
+import { countBotParticipants } from "@/lib/pubg-analysis/botShare";
 import { containsTelemetryAccountEvidence as containsRecoveryAccountIdentityEvidence, parseOrdinaryTelemetryUrl, relationshipBoundTelemetryAsset } from "@/lib/pubg-analysis/telemetrySource";
 import { readSharedTelemetrySource, writeSharedTelemetrySource, type SharedTelemetrySource } from "@/lib/pubg-analysis/sharedTelemetrySource";
 import { createHash, timingSafeEqual } from "node:crypto";
@@ -1465,6 +1466,7 @@ export async function GET(request: NextRequest) {
       .filter((id: unknown): id is string => typeof id === "string" && id.length > 0));
 
     const humanParticipants = participants.filter((p: any) => !p.attributes.accountId?.startsWith("ai."));
+    const botCount = countBotParticipants(participants);
     const sortedByDamage = [...humanParticipants].map(p => p.attributes.stats).sort((a, b) => b.damageDealt - a.damageDealt);
     const myDamageRank = sortedByDamage.findIndex((s: any) => normalizeName(s.name) === lowerNickname) + 1;
     const rankPct = humanParticipants.length > 0 ? myDamageRank / humanParticipants.length : 1;
@@ -1515,6 +1517,7 @@ export async function GET(request: NextRequest) {
           // mistaken for an observed benchmark.
           return NextResponse.json({
             ...createTacticalResponse(sanitizeStaleCachedResult(cachedFullResult)),
+            botCount,
             sampleParticipants,
           });
         }
@@ -1532,6 +1535,7 @@ export async function GET(request: NextRequest) {
 
         return NextResponse.json({
           ...createTacticalResponse(cachedFullResult),
+          botCount,
           sampleParticipants
         });
       }
@@ -1919,6 +1923,7 @@ async function reanalyzeAndSave(
         .slice(0, 5);
       return {
         ...createTacticalResponse(cachedFullResult),
+        botCount: countBotParticipants(participants),
         sampleParticipants,
       };
     }
