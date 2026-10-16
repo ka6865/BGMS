@@ -52,7 +52,9 @@ describe("텔레메트리 소비자 계약", () => {
     expect(mapShellSource).toContain('searchParams?.get("mode") ?? null');
     expect(mapShellSource).not.toContain('searchParams?.get("mode") || null');
     expect(mapShellSource).toContain("error={playbackIdentityError || telemetryError}");
-    expect(mapShellSource).toContain("isActive: !!playbackId && !playbackIdentityError");
+    expect(mapShellSource).toContain("const isTelemetryActive = !!playbackId && !playbackIdentityError");
+    expect(mapShellSource).toContain("isActive: isTelemetryActive");
+    expect(mapShellSource).toContain("playheadRef: isTelemetryActive ? playheadRef : undefined");
     expect(mapShellSource).toContain("safeTelemetryEvents");
     expect(mapShellSource).toContain("safeCurrentStates");
     expect(mapShellSource).toContain("safeTeamNames");

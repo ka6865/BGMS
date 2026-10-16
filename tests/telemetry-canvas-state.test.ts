@@ -34,13 +34,34 @@ describe('live telemetry canvas state',()=>{
     expect(context.fillText).toHaveBeenCalledWith('Player',0,-21);
     const canvas=pane.querySelector('canvas');
     context.fillText.mockClear();
+    // 이름 자동 표시: 아군은 남고, 아군과 교전 기록이 없는 적은 숨긴다.
     view.rerender(React.createElement(TelemetryCanvasLayer,{telemetryData:data({showPlayerNames:false,mapName:'Desert_Main'})})); frame();
     expect(pane.querySelector('canvas')).toBe(canvas);
+    expect(context.fillText).toHaveBeenCalledWith('Player',0,-21);
+    context.fillText.mockClear();
+    view.rerender(React.createElement(TelemetryCanvasLayer,{telemetryData:data({showPlayerNames:false,mapName:'Desert_Main',currentStates:{Player:{...player,isEnemy:true}}})})); frame();
     expect(context.fillText).not.toHaveBeenCalled();
     expect(calibrate).toHaveBeenLastCalledWith(0,200,'Desert_Main');
     view.rerender(React.createElement(TelemetryCanvasLayer,{telemetryData:data({hiddenPlayers:[' PLAYER ']})}));
     context.arc.mockClear(); frame(); expect(context.arc).not.toHaveBeenCalled();
     view.unmount(); expect(pane.querySelector('canvas')).toBeNull(); expect(callbacks.size).toBe(0);
+  });
+  it('labels enemies that fought the squad within the last 20 seconds in auto name mode',()=>{
+    const enemy = { name:'Enemy', x:0, y:200, health:100, isEnemy:true };
+    const fought = data({ showPlayerNames:false, teamNames:['Mate'], currentStates:{Enemy:enemy},
+      events:[{ type:'damage', relativeTimeMs:900, attackerName:'Enemy', victimName:'Mate' }] });
+    render(React.createElement(TelemetryCanvasLayer,{telemetryData:fought})); frame();
+    expect(context.fillText).toHaveBeenCalledWith('Enemy',0,-21);
+  });
+  it('zooms to the followed player, keeps it centered, and cancels following on drag',()=>{
+    const onFollowCancel = vi.fn();
+    Object.assign(map,{ panTo:vi.fn(), setView:vi.fn(), getSize:()=>({x:400,y:300,divideBy:(n:number)=>({x:400/n,y:300/n})}) });
+    render(React.createElement(TelemetryCanvasLayer,{telemetryData:data({ followPlayer:'player', onFollowCancel })})); frame();
+    expect(map.setView).toHaveBeenCalledWith([200,0],1,{animate:true});
+    expect(map.panTo).toHaveBeenCalledWith([200,0],{animate:false});
+    const dragStart = map.on.mock.calls.find(([name]:[string]) => name === 'dragstart')?.[1];
+    dragStart();
+    expect(onFollowCancel).toHaveBeenCalledOnce();
   });
   it('applies combat and shot switches immediately and does not draw future effects',()=>{
     const events=[{type:'kill',x:0,y:100,relativeTimeMs:900},{type:'shot',x:0,y:100,relativeTimeMs:900}];

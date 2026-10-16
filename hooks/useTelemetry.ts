@@ -1,8 +1,10 @@
 // BGMS Refreshed V2
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, type SetStateAction } from "react";
 import { fetchTelemetryPayload, TelemetryFetchError } from "../lib/pubg-analysis/fetchTelemetryPayload";
 import type { TelemetryMode, TelemetryPlatform } from "../lib/pubg-analysis/telemetryIdentity";
 import { getMatchDetailRetention, MATCH_DETAIL_EXPIRED_CODE, MATCH_DETAIL_EXPIRED_MESSAGE, MATCH_DETAIL_UNAVAILABLE_CODE } from "../lib/pubg-analysis/matchRetention";
+import { MAX_POSITION_INTERPOLATION_GAP_MS } from "../lib/pubg-analysis/telemetryContract";
+import { squadColor } from "../lib/replay/squadColors";
 
 export interface TelemetryEvent {
   type: "position" | "enemy_position" | "ride" | "leave" | "kill" | "groggy" | "took_damage" | "shot" | "revive" | "create" | "throw" | "throw_explode" | "grenade" | "smoke" | "damage";
@@ -62,6 +64,8 @@ const TEAM_COLORS = [
 ];
 
 const UNKNOWN_ENEMY_TEAM_ID = 0;
+// 재생 중 시간 표시·사이드바 같은 React UI 갱신 간격. 지도 Canvas는 매 프레임 playheadRef를 읽는다.
+const PLAYBACK_UI_INTERVAL_MS = 250;
 
 function normalizePlayerName(name: string): string {
   return name.trim().toLowerCase();
@@ -111,7 +115,7 @@ export function useTelemetry(
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
-  const [currentTimeMs, setCurrentTimeMs] = useState(0); 
+  const [currentTimeMs, setUiTimeMs] = useState(0);
   const [maxTimeMs, setMaxTimeMs] = useState(0);
   const [isFullMode, setIsFullMode] = useState(false);
   const teamColorMapRef = useRef<Record<number, string>>({});
@@ -120,10 +124,25 @@ export function useTelemetry(
   const statesRef = useRef<Record<string, PlayerState>>({});
   const lastProcessedTimeRef = useRef<number>(-1);
   const lastEventIndexRef = useRef<number>(0);
-  const historyPosRef = useRef<Record<string, { x: number, y: number, time: number, health: number }>>({});
-  const futurePosRef = useRef<Record<string, { x: number, y: number, time: number, health: number } | null>>({});
+  const historyPosRef = useRef<Record<string, { x: number, y: number, time: number }>>({});
+  const futurePosRef = useRef<Record<string, { x: number, y: number, time: number } | null>>({});
   const [currentStates, setCurrentStates] = useState<Record<string, PlayerState>>({});
   const telemetryRequestRef = useRef<AbortController | null>(null);
+  // 실제 재생 시각과 그 시각의 선수 상태. 매 프레임 갱신되며 React 렌더를 일으키지 않는다.
+  const playheadRef = useRef<{ timeMs: number; states: Record<string, PlayerState> }>({ timeMs: 0, states: {} });
+  const advanceRef = useRef<(timeMs: number) => Record<string, PlayerState>>(() => ({}));
+  const lastUiCommitRef = useRef(0);
+
+  const commitPlayhead = useCallback((timeMs: number) => {
+    const states = advanceRef.current(timeMs);
+    playheadRef.current = { timeMs, states };
+    setUiTimeMs(timeMs);
+    setCurrentStates(states);
+  }, []);
+
+  const setCurrentTimeMs = useCallback((value: SetStateAction<number>) => {
+    commitPlayhead(typeof value === "function" ? value(playheadRef.current.timeMs) : value);
+  }, [commitPlayhead]);
 
   const resetTelemetryState = useCallback(() => {
     if (timerRef.current !== null) cancelAnimationFrame(timerRef.current);
@@ -138,7 +157,8 @@ export function useTelemetry(
     setErrorKind(null);
     setExpiresAt(null);
     setIsPlaying(false);
-    setCurrentTimeMs(0);
+    setUiTimeMs(0);
+    playheadRef.current = { timeMs: 0, states: {} };
     setMaxTimeMs(0);
     setIsFullMode(false);
     setCurrentStates({});
@@ -219,7 +239,7 @@ export function useTelemetry(
     if (!events.length || maxTimeMs <= 0 || startTimeMs === null || !Number.isFinite(startTimeMs)) return;
     setCurrentTimeMs(Math.max(0, Math.min(startTimeMs, maxTimeMs)));
     setIsPlaying(false);
-  }, [events, maxTimeMs, startTimeMs]);
+  }, [events, maxTimeMs, startTimeMs, setCurrentTimeMs]);
 
   useEffect(() => {
     const retention = getMatchDetailRetention(activePlayedAt);
@@ -272,22 +292,31 @@ export function useTelemetry(
       const now = Date.now();
       const deltaMs = now - lastUpdateRef.current;
       lastUpdateRef.current = now;
-      setCurrentTimeMs((prev) => {
-        const nextTime = Math.min(prev + deltaMs * playbackSpeed, maxTimeMs);
-        if (nextTime >= maxTimeMs) setIsPlaying(false);
-        return nextTime;
-      });
+      const nextTime = Math.min(playheadRef.current.timeMs + deltaMs * playbackSpeed, maxTimeMs);
+      const reachedEnd = nextTime >= maxTimeMs;
+      playheadRef.current = { timeMs: nextTime, states: advanceRef.current(nextTime) };
+      if (reachedEnd || now - lastUiCommitRef.current >= PLAYBACK_UI_INTERVAL_MS) {
+        lastUiCommitRef.current = now;
+        setUiTimeMs(nextTime);
+        setCurrentStates(playheadRef.current.states);
+      }
+      if (reachedEnd) {
+        setIsPlaying(false);
+        return;
+      }
       timerRef.current = requestAnimationFrame(loop);
     };
     timerRef.current = requestAnimationFrame(loop);
-    return () => { if (timerRef.current) cancelAnimationFrame(timerRef.current); };
+    return () => {
+      if (timerRef.current) cancelAnimationFrame(timerRef.current);
+      // 멈추거나 배속이 바뀔 때 마지막 재생 시각을 UI에 그대로 반영한다.
+      setUiTimeMs(playheadRef.current.timeMs);
+      setCurrentStates(playheadRef.current.states);
+    };
   }, [isPlaying, playbackSpeed, maxTimeMs]);
 
-  useEffect(() => {
-    if (events.length === 0) {
-      setCurrentStates({});
-      return;
-    }
+  const advancePlayhead = useCallback((currentTimeMs: number): Record<string, PlayerState> => {
+    if (events.length === 0) return {};
 
     const isJump = Math.abs(currentTimeMs - lastProcessedTimeRef.current) > 2000 || currentTimeMs < lastProcessedTimeRef.current;
     
@@ -296,7 +325,8 @@ export function useTelemetry(
       teamNames.forEach(name => {
         const pname = normalizePlayerName(name);
         statesRef.current[pname] = {
-          name, x: -9999, y: -9999, isDead: false, isGroggy: false, isInVehicle: false, health: 100, kills: 0, assists: 0, isEnemy: false
+          name, x: -9999, y: -9999, isDead: false, isGroggy: false, isInVehicle: false, health: 100, kills: 0, assists: 0, isEnemy: false,
+          color: squadColor(teamNames, name)
         };
       });
       lastEventIndexRef.current = 0;
@@ -334,7 +364,7 @@ export function useTelemetry(
             accountId: ev.character?.accountId || ev.accountId,
             x: -9999, y: -9999, isDead: false, isGroggy: false, isInVehicle: false, 
             health: 100, kills: 0, assists: 0, teamId: teamId ?? (isEnemy ? UNKNOWN_ENEMY_TEAM_ID : 999),
-            color: isEnemy ? (teamColorMapRef.current[teamId ?? UNKNOWN_ENEMY_TEAM_ID] || "#ffffff") : "#F2A900",
+            color: isEnemy ? (teamColorMapRef.current[teamId ?? UNKNOWN_ENEMY_TEAM_ID] || "#ffffff") : squadColor(teamNames, rawName),
             isEnemy: isEnemy
           };
         }
@@ -342,7 +372,7 @@ export function useTelemetry(
         if (!s) return;
         if (ev.type === "position" && ev.name === rawName) {
           s.x = ev.x; s.y = ev.y; s.health = ev.health ?? s.health; s.lastUpdateMs = ev.relativeTimeMs;
-          historyPosRef.current[pname] = { x: ev.x, y: ev.y, time: ev.relativeTimeMs, health: s.health };
+          historyPosRef.current[pname] = { x: ev.x, y: ev.y, time: ev.relativeTimeMs };
           futurePosRef.current[pname] = null;
 
           // 🎯 차량 동승 유령 버그 해결: LogPlayerPosition 이벤트의 vehicleId 존재 여부에 맞춰 실시간 상태 보정
@@ -396,25 +426,30 @@ export function useTelemetry(
           for (let j = i; j < evs.length; j++) {
             const nextEv = evs[j];
             if (nextEv.type === "position" && (nextEv.name || "").trim().toLowerCase() === pname) {
-              futurePosRef.current[pname] = { x: nextEv.x, y: nextEv.y, time: nextEv.relativeTimeMs, health: nextEv.health || 100 };
+              futurePosRef.current[pname] = { x: nextEv.x, y: nextEv.y, time: nextEv.relativeTimeMs };
               break;
             }
           }
         }
         const p = historyPosRef.current[pname];
         const n = futurePosRef.current[pname];
-        if (p && n && p.time < n.time && p.time <= currentTimeMs && n.time > currentTimeMs) {
+        if (p && n && p.time < n.time && n.time - p.time <= MAX_POSITION_INTERPOLATION_GAP_MS && p.time <= currentTimeMs && n.time > currentTimeMs) {
           const ratio = (currentTimeMs - p.time) / (n.time - p.time);
           s.x = p.x + (n.x - p.x) * ratio;
           s.y = p.y + (n.y - p.y) * ratio;
-          s.health = p.health + (n.health - p.health) * ratio;
+          // 체력은 피격 시점 이전에 줄어 보이지 않도록 보간하지 않고 마지막 관측값을 유지한다.
         }
       }
       interpolatedStates[pname] = s;
     }
 
-    setCurrentStates(interpolatedStates);
-  }, [currentTimeMs, events, teamNames, nickname, teammates]);
+    return interpolatedStates;
+  }, [events, teamNames]);
+
+  useEffect(() => {
+    advanceRef.current = advancePlayhead;
+    commitPlayhead(playheadRef.current.timeMs);
+  }, [advancePlayhead, commitPlayhead]);
 
   return {
     events,
@@ -434,6 +469,7 @@ export function useTelemetry(
     setCurrentTimeMs,
     maxTimeMs,
     currentStates,
+    playheadRef,
     isFullMode,
   };
 }
