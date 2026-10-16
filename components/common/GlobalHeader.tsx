@@ -62,9 +62,7 @@ export default function GlobalHeader() {
     const fetchUserData = async () => {
       // 1. 프로필
       const { data: profile } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
+        .rpc("get_my_profile")
         .single();
       
       startTransition(() => {
