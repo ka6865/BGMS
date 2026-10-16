@@ -38,6 +38,7 @@ import {
   type TerrainGrid,
 } from "@/lib/replay/replay3dHelpers";
 import { threeToHeightmapPixel } from "@/lib/heightmapCoords";
+import { MAX_POSITION_INTERPOLATION_GAP_MS } from "@/lib/pubg-analysis/telemetryContract";
 
 // PUBG 맵 크기 상수 (cm)
 const THREE_MAP_SIZE = 100; // Three.js 공간 상의 가로세로 크기
@@ -664,7 +665,8 @@ function Replay3DContent() {
       const p1 = pts[i];
       const p2 = pts[i + 1];
       if (time >= p1.t && time <= p2.t) {
-        const ratio = (time - p1.t) / (p2.t - p1.t);
+        // 재배치 같은 긴 공백은 2D 리플레이와 같은 기준으로 잇지 않고 이전 위치에 머문다.
+        const ratio = p2.t - p1.t > MAX_POSITION_INTERPOLATION_GAP_MS && time < p2.t ? 0 : (time - p1.t) / (p2.t - p1.t);
         const x = p1.x + (p2.x - p1.x) * ratio;
         const y = p1.y + (p2.y - p1.y) * ratio;
         const z = p1.z + (p2.z - p1.z) * ratio;

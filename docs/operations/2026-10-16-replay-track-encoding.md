@@ -35,3 +35,12 @@
 ## 운영 확인 시 주의
 
 `scripts/verify_archived_match_reads.ts`와 `scripts/verify_legacy_match_copies.ts`는 다시 계산한 리플레이와 저장된 리플레이를 엄격하게 비교한다. 이 변경 **전에** 저장된 리플레이는 적 좌표가 축소돼 있으므로 `archive-verification-replay-content-mismatch`가 나는 것이 정상이다. 배포 뒤 새로 생성된 리플레이로 확인한다.
+
+## 추가 변경: 투척물·피해 이벤트 (2026-10-16)
+
+PUBG 공식 텔레메트리에는 투척물 착탄·폭발 좌표와 캐릭터·시선 방향이 없다(`Character`에 rotation 없음, 폭발 이벤트 없음). 2026-10-15 실제 경기 원본에서도 확인했다. 그런데도 기존 핸들러는 `rotation`(항상 0)으로 "20m 앞"을 추정해서, 모든 연막·수류탄·섬광을 던진 사람의 정북 20m에 그렸다.
+
+- `throw` 이벤트: 던진 사람 위치와 `throwable`(smoke·grenade·molotov·flash·bluezone·sticky·c4·cover·flare)을 기록한다. 투척 1회에 `LogPlayerAttack`과 `LogPlayerUseThrowable`이 함께 남으므로 후자에서만 기록한다(중복과 화염병·섬광의 사격 오분류 제거).
+- 추정 투척물 이벤트(`grenade`·`smoke`·`flash`, `isEstimated`)는 더 이상 만들지 않는다. 화면도 예전 리플레이의 추정 이벤트를 그리지 않는다.
+- `damage` 이벤트에 `cause`(gun·grenade·explosion·fire·zone·bleed·fall·vehicle·melee·drown·other)를 추가한다. 원인 필드는 분석용 투영에 이미 있던 값이라 분석 캐시와 `TELEMETRY_VERSION`은 바뀌지 않는다.
+- 화면은 투척을 던진 위치에, 폭발·화염 피해를 피해자 위치에, 명중선을 피해 이벤트의 실제 공격자·피해자 좌표로 그린다. 자기장·출혈·낙하 피해는 명중선과 "다음 교전"에서 제외한다.

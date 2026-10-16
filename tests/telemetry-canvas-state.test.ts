@@ -63,6 +63,31 @@ describe('live telemetry canvas state',()=>{
     dragStart();
     expect(onFollowCancel).toHaveBeenCalledOnce();
   });
+  it('draws throws at the thrower, blasts at the victim, and hit lines from exact damage coordinates',()=>{
+    const events = [
+      { type:'throw', relativeTimeMs:900, name:'Enemy', throwable:'smoke', weapon:'item_weapon_smokebomb_c', x:10, y:20 },
+      { type:'damage', relativeTimeMs:950, attackerName:'Enemy', victimName:'Player', cause:'grenade', x:30, y:40, attackerX:1, attackerY:2 },
+      { type:'damage', relativeTimeMs:990, attackerName:'Enemy', victimName:'Player', cause:'gun', x:50, y:60, attackerX:70, attackerY:80 },
+      { type:'damage', relativeTimeMs:995, attackerName:'Player', victimName:'Player', cause:'zone', x:90, y:90, attackerX:90, attackerY:90 },
+      { type:'damage', relativeTimeMs:996, attackerName:'Enemy', victimName:'Player', cause:'bleed', x:91, y:91, attackerX:92, attackerY:92 },
+      { type:'smoke', relativeTimeMs:990, name:'Enemy', x:500, y:500, isEstimated:true },
+      { type:'damage', relativeTimeMs:980, attackerName:'Self', victimName:'Self', cause:'grenade', x:300, y:310, attackerX:300, attackerY:310 },
+    ];
+    render(React.createElement(TelemetryCanvasLayer,{telemetryData:data({ events, showPlayerNames:false })})); frame();
+    // 투척: 던진 위치(10,20)에 종류 라벨. 착탄 추정 위치는 그리지 않는다.
+    expect(context.fillText).toHaveBeenCalledWith('연막',10,46);
+    expect(context.fillText).toHaveBeenCalledWith('수류탄 피해',30,68);
+    // 자기 수류탄에 맞은 피해도 실제 폭발 피해 위치로 표시한다.
+    expect(context.fillText).toHaveBeenCalledWith('수류탄 피해',300,338);
+    // 명중선: 피해 이벤트의 공격자 좌표(70,80) → 피해자 좌표(50,60)
+    expect(context.moveTo).toHaveBeenCalledWith(70,80);
+    expect(context.lineTo).toHaveBeenCalledWith(50,60);
+    // 자기 피해·출혈은 선을 그리지 않는다.
+    expect(context.moveTo).not.toHaveBeenCalledWith(90,90);
+    expect(context.moveTo).not.toHaveBeenCalledWith(92,92);
+    // 예전 데이터의 추정 연막(500,500)은 그리지 않는다.
+    expect(context.arc.mock.calls.some(([x,y]:number[]) => x === 500 && y === 500)).toBe(false);
+  });
   it('applies combat and shot switches immediately and does not draw future effects',()=>{
     const events=[{type:'kill',x:0,y:100,relativeTimeMs:900},{type:'shot',x:0,y:100,relativeTimeMs:900}];
     const view=render(React.createElement(TelemetryCanvasLayer,{telemetryData:data({currentStates:{},events})})); frame();

@@ -17,6 +17,8 @@ import { getTranslatedWeaponName } from "@/lib/pubg-analysis/constants";
 import { fetchTelemetryPayload } from "@/lib/pubg-analysis/fetchTelemetryPayload";
 import { parseTelemetryPlatform } from "@/lib/pubg-analysis/telemetryIdentity";
 import { svgIcon } from "@/lib/ui/icon-svg";
+import { samplePosition, sampleHealth, toPositionTrack } from "@/lib/replay/replayInterpolation";
+import { SQUAD_COLORS } from "@/lib/replay/squadColors";
 
 const skullMarkerSvg = svgIcon("skull", { color: "currentColor", size: 13 });
 const targetMarkerSvg = svgIcon("target", { color: "currentColor", size: 12 });
@@ -38,7 +40,6 @@ const groggyIcon = L.divIcon({
 });
 
 
-const COLORS = ["#34A853", "#a855f7", "#ff9f0a", "#3b82f6"];
 
 // PUBG API Map name to tile directory mapping
 const TILE_MAP_NAMES: Record<string, string> = {
@@ -76,71 +77,22 @@ const normalizeName = (name: string): string => {
 
 import { toCalibratedCoords as toLeafletCoords } from "@/utils/coordinate";
 
-// 시간 기반 2D 평면 선형 보간 함수
+// 위치 보간은 지도 리플레이와 같은 규칙(긴 공백은 잇지 않음)을 쓴다.
 const interpolatePosition = (
   posEvs: { relativeTimeMs: number; x: number; y: number }[],
   timeMs: number,
   mapName?: string
 ): [number, number] | null => {
-  if (!posEvs || posEvs.length === 0) return null;
-  
-  if (timeMs <= posEvs[0].relativeTimeMs) {
-    return toLeafletCoords(posEvs[0].x, posEvs[0].y, mapName);
-  }
-  
-  if (timeMs >= posEvs[posEvs.length - 1].relativeTimeMs) {
-    return toLeafletCoords(posEvs[posEvs.length - 1].x, posEvs[posEvs.length - 1].y, mapName);
-  }
-  
-  for (let i = 0; i < posEvs.length - 1; i++) {
-    const ev1 = posEvs[i];
-    const ev2 = posEvs[i + 1];
-    
-    if (timeMs >= ev1.relativeTimeMs && timeMs <= ev2.relativeTimeMs) {
-      const duration = ev2.relativeTimeMs - ev1.relativeTimeMs;
-      if (duration === 0) return toLeafletCoords(ev1.x, ev1.y, mapName);
-      
-      const ratio = (timeMs - ev1.relativeTimeMs) / duration;
-      const x = ev1.x + (ev2.x - ev1.x) * ratio;
-      const y = ev1.y + (ev2.y - ev1.y) * ratio;
-      return toLeafletCoords(x, y, mapName);
-    }
-  }
-  
-  return toLeafletCoords(posEvs[posEvs.length - 1].x, posEvs[posEvs.length - 1].y, mapName);
+  const pos = samplePosition(toPositionTrack(posEvs), timeMs);
+  return pos ? toLeafletCoords(pos.x, pos.y, mapName) : null;
 };
 
-// 시간 기반 raw coordinate 선형 보간 함수
 const interpolateRawPosition = (
   posEvs: { relativeTimeMs: number; x: number; y: number }[],
   timeMs: number
 ): { x: number; y: number } | null => {
-  if (!posEvs || posEvs.length === 0) return null;
-  
-  if (timeMs <= posEvs[0].relativeTimeMs) {
-    return { x: posEvs[0].x, y: posEvs[0].y };
-  }
-  
-  if (timeMs >= posEvs[posEvs.length - 1].relativeTimeMs) {
-    return { x: posEvs[posEvs.length - 1].x, y: posEvs[posEvs.length - 1].y };
-  }
-  
-  for (let i = 0; i < posEvs.length - 1; i++) {
-    const ev1 = posEvs[i];
-    const ev2 = posEvs[i + 1];
-    
-    if (timeMs >= ev1.relativeTimeMs && timeMs <= ev2.relativeTimeMs) {
-      const duration = ev2.relativeTimeMs - ev1.relativeTimeMs;
-      if (duration === 0) return { x: ev1.x, y: ev1.y };
-      
-      const ratio = (timeMs - ev1.relativeTimeMs) / duration;
-      const x = ev1.x + (ev2.x - ev1.x) * ratio;
-      const y = ev1.y + (ev2.y - ev1.y) * ratio;
-      return { x, y };
-    }
-  }
-  
-  return { x: posEvs[posEvs.length - 1].x, y: posEvs[posEvs.length - 1].y };
+  const pos = samplePosition(toPositionTrack(posEvs), timeMs);
+  return pos ? { x: pos.x, y: pos.y } : null;
 };
 
 // 특정 시점의 플레이어 상태를 반환하는 함수
@@ -249,7 +201,8 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
           nickname,
           platform: telemetryPlatform,
           mapName,
-          mode: "full",
+          // 장면은 모두 아군 생존 구간이라 경기 분석 때 미리 만든 lite 리플레이로 충분하다.
+          mode: "lite",
         }, { signal: controller.signal });
         if (active) {
           setTelemetry(data);
@@ -516,7 +469,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
 
       return {
         name,
-        color: COLORS[idx % COLORS.length],
+        color: SQUAD_COLORS[idx % SQUAD_COLORS.length],
         coords,
         posEvs,
       };
@@ -556,7 +509,7 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
         return {
           name,
           posEvs: sortedEvs,
-          health: lastEv.health || 100,
+          health: lastEv.health ?? 100,
           isSameSquad,
         };
       });
@@ -892,6 +845,8 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
     const vehicleId = getVehicleIdAtTime(e.posEvs, playbackTimeMs);
     return {
       ...e,
+      // 체력은 보간하지 않고 재생 시각까지 마지막으로 관측된 값을 쓴다.
+      health: sampleHealth(toPositionTrack(e.posEvs), playbackTimeMs) ?? e.health,
       currentPos: pos,
       status,
       vehicleId,
@@ -1201,15 +1156,6 @@ export default function Squad2DMap({ matchId, nickname, platform, mapName, focus
 
   return (
     <div className="w-full rounded-xl overflow-hidden border border-zinc-800/80 bg-zinc-950 shadow-inner">
-      <style>{`
-        .custom-player-marker,
-        .custom-enemy-marker,
-        .custom-other-enemy-marker,
-        .custom-enemy-marker-alert {
-          transition: transform 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94) !important;
-          will-change: transform;
-        }
-      `}</style>
       {/* Groggy Event Selector Tab */}
       {knocks && knocks.length > 1 && (
         <div className="px-4 pt-4 pb-2 bg-zinc-900/40 border-b border-zinc-800/80 flex flex-col gap-2">
