@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { TelemetryEvent } from "../../hooks/useTelemetry";
 import { SQUAD_COLORS } from "../../lib/replay/squadColors";
-import { buildReplayShareUrl, isActivationTarget, isTypingTarget, replayKeyAction } from "../../lib/replay/replayShortcuts";
+import { REPLAY_HELP_SEEN_KEY, buildReplayShareUrl, isActivationTarget, isHelpKey, isTypingTarget, replayKeyAction } from "../../lib/replay/replayShortcuts";
+import { ReplayHelpDialog } from "./telemetry/ReplayHelpDialog";
 
 interface TelemetryPlayerProps {
   events: TelemetryEvent[];
@@ -40,7 +41,52 @@ interface TelemetryPlayerProps {
   onClose: () => void;
 }
 
-export default function TelemetryPlayer({
+type TelemetryPlayerPanelProps = TelemetryPlayerProps & { onOpenHelp: () => void; showHelpHint: boolean };
+
+const HELP_HINT_MS = 10_000;
+
+// 사용법 창은 포털로 띄우고, 패널이 접혀 있어도 ? 키로 열 수 있게 상태를 패널 밖에 둔다.
+export default function TelemetryPlayer(props: TelemetryPlayerProps) {
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [showHint, setShowHint] = useState(false);
+  const ready = !props.loading && !props.error;
+
+  const markSeen = useCallback(() => {
+    setShowHint(false);
+    try { localStorage.setItem(REPLAY_HELP_SEEN_KEY, "1"); } catch { /* 저장소를 못 써도 안내만 다시 보인다 */ }
+  }, []);
+  const openHelp = useCallback(() => { setHelpOpen(true); markSeen(); }, [markSeen]);
+  const closeHelp = useCallback(() => setHelpOpen(false), []);
+
+  useEffect(() => {
+    if (!ready) return;
+    let seen = false;
+    try { seen = localStorage.getItem(REPLAY_HELP_SEEN_KEY) === "1"; } catch { seen = false; }
+    if (seen) return;
+    const show = window.setTimeout(() => setShowHint(true), 0);
+    const hide = window.setTimeout(() => setShowHint(false), HELP_HINT_MS);
+    return () => { window.clearTimeout(show); window.clearTimeout(hide); };
+  }, [ready]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target) || !isHelpKey(event.key)) return;
+      event.preventDefault();
+      openHelp();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [openHelp]);
+
+  return (
+    <>
+      <TelemetryPlayerPanel {...props} onOpenHelp={openHelp} showHelpHint={showHint && ready && !helpOpen} />
+      <ReplayHelpDialog open={helpOpen} onClose={closeHelp} />
+    </>
+  );
+}
+
+function TelemetryPlayerPanel({
   events,
   teamNames,
   isPlaying,
@@ -73,7 +119,9 @@ export default function TelemetryPlayer({
   nextFightMs,
   onNextFight,
   onClose,
-}: TelemetryPlayerProps) {
+  onOpenHelp,
+  showHelpHint,
+}: TelemetryPlayerPanelProps) {
   // 타임라인 마커 필터 상태 (기본값: 킬만 활성화)
   const [showKills, setShowKills] = useState(true);
   const [showGroggy, setShowGroggy] = useState(true);
@@ -197,6 +245,17 @@ export default function TelemetryPlayer({
   return (
     <div className="absolute bottom-4 sm:bottom-8 left-1/2 transform -translate-x-1/2 w-[95%] sm:w-[560px] bg-[#1a1a1a]/95 backdrop-blur shadow-2xl rounded-2xl border border-[#333] z-[5000] flex flex-col overflow-hidden text-white font-sans">
       
+      {/* 처음 방문한 사람에게만 한 번 보이는 사용법 안내 */}
+      {showHelpHint && (
+        <button
+          type="button"
+          onClick={onOpenHelp}
+          className="flex w-full items-center justify-center gap-1 bg-[#F2A900]/15 px-3 py-1.5 text-[11px] font-bold text-[#F2A900] hover:bg-[#F2A900]/25"
+        >
+          <span className="hidden sm:inline">처음이라면 ? 키나 여기를 눌러 사용법을 보세요</span>
+          <span className="sm:hidden">여기를 눌러 리플레이 사용법 보기</span>
+        </button>
+      )}
       {/* 타임라인 슬라이더 영역 */}
       <div className="relative w-full h-6 sm:h-8 bg-[#111] cursor-pointer group" onClick={(e) => {
         const rect = e.currentTarget.getBoundingClientRect();
@@ -299,6 +358,16 @@ export default function TelemetryPlayer({
             링크
           </button>
 
+          <button
+            type="button"
+            onClick={onOpenHelp}
+            aria-label="리플레이 사용법"
+            title="사용법 (? 키)"
+            className="hidden sm:flex items-center justify-center w-8 h-8 rounded border border-[#444] text-xs font-black text-gray-300 hover:text-white"
+          >
+            ?
+          </button>
+
           {teamNames.length > 0 && (
             <select
               aria-label="따라갈 선수"
@@ -360,6 +429,14 @@ export default function TelemetryPlayer({
               className="h-8 px-3 rounded border border-[#444] text-[11px] font-bold text-gray-300"
             >
               {formatTime(currentTimeMs)} 장면 링크 복사
+            </button>
+            <button
+              type="button"
+              onClick={onOpenHelp}
+              aria-label="리플레이 사용법"
+              className="ml-2 h-8 px-3 rounded border border-[#444] text-[11px] font-bold text-gray-300"
+            >
+              사용법
             </button>
           </div>
           {/* 지도 표시 범례 */}
