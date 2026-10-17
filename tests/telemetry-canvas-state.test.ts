@@ -24,7 +24,8 @@ beforeEach(() => {
   vi.stubGlobal('requestAnimationFrame',(cb:FrameRequestCallback)=>{callbacks.set(++id,cb);return id;});
   vi.stubGlobal('cancelAnimationFrame',(key:number)=>callbacks.delete(key));
   Object.assign(map,{getPane:()=>pane,getSize:()=>({x:400,y:300}),getZoom:()=>1,
-    containerPointToLayerPoint:(p:any)=>p,latLngToContainerPoint:([y,x]:number[])=>({x,y}),on:vi.fn(),off:vi.fn()});
+    containerPointToLayerPoint:(p:any)=>p,latLngToContainerPoint:([y,x]:number[])=>({x,y}),on:vi.fn(),off:vi.fn(),
+    getContainer:()=>pane});
   calibrate.mockClear();
 });
 afterEach(()=>{cleanup();pane.remove();vi.restoreAllMocks();vi.unstubAllGlobals();});
@@ -62,6 +63,83 @@ describe('live telemetry canvas state',()=>{
     const dragStart = map.on.mock.calls.find(([name]:[string]) => name === 'dragstart')?.[1];
     dragStart();
     expect(onFollowCancel).toHaveBeenCalledOnce();
+  });
+  it('zooms out while the followed player drives and stops when the user zooms by hand',()=>{
+    vi.spyOn(performance,'now').mockReturnValue(10_000);
+    const onAutoZoomCancel = vi.fn();
+    Object.assign(map,{ panTo:vi.fn(), setView:vi.fn(), getSize:()=>({x:400,y:300,divideBy:(n:number)=>({x:400/n,y:300/n})}) });
+    // 4초에 120m(30m/s): 화면 폭 400px에 2km를 담는 줌 log2(400/2000)≈-2.3 → -2
+    const events = [
+      { type:'position', name:'Player', relativeTimeMs:0, x:0, y:200 },
+      { type:'position', name:'Player', relativeTimeMs:4000, x:120, y:200 },
+    ];
+    render(React.createElement(TelemetryCanvasLayer,{telemetryData:data({ events, currentTimeMs:4000, currentStates:{Player:{...player,x:120}},
+      followPlayer:'player', autoZoom:true, onAutoZoomCancel })})); frame();
+    expect(map.setView).toHaveBeenCalledWith(expect.anything(),-2,{animate:true});
+    pane.dispatchEvent(new Event('wheel'));
+    expect(onAutoZoomCancel).toHaveBeenCalledOnce();
+  });
+  it('dims enemies outside the estimated vision range of the followed player and hides their names',()=>{
+    const near = { name:'Near', x:100, y:200, health:100, isEnemy:true };
+    const far = { name:'Far', x:400, y:200, health:100, isEnemy:true };
+    const states = { Player:player, Near:near, Far:far };
+    Object.assign(map,{ panTo:vi.fn(), setView:vi.fn(), getSize:()=>({x:400,y:300,divideBy:(n:number)=>({x:400/n,y:300/n})}) });
+    render(React.createElement(TelemetryCanvasLayer,{telemetryData:data({ currentStates:states, followPlayer:'player', showVision:true })})); frame();
+    expect(context.fillText).toHaveBeenCalledWith('Near',100,179);
+    expect(context.fillText).not.toHaveBeenCalledWith('Far',400,179);
+  });
+  it('turns auto zoom off for keyboard, box, double-click and pinch zoom but not for plain clicks',()=>{
+    const onAutoZoomCancel = vi.fn();
+    Object.assign(map,{ panTo:vi.fn(), setView:vi.fn(), getSize:()=>({x:400,y:300,divideBy:(n:number)=>({x:400/n,y:300/n})}) });
+    render(React.createElement(TelemetryCanvasLayer,{telemetryData:data({ followPlayer:'player', autoZoom:true, onAutoZoomCancel })})); frame();
+    pane.dispatchEvent(new MouseEvent('mousedown',{ shiftKey:false }));
+    pane.dispatchEvent(new KeyboardEvent('keydown',{ key:'a' }));
+    expect(onAutoZoomCancel).not.toHaveBeenCalled();
+    pane.dispatchEvent(new KeyboardEvent('keydown',{ key:'+' }));
+    pane.dispatchEvent(new MouseEvent('mousedown',{ shiftKey:true }));
+    pane.dispatchEvent(new MouseEvent('dblclick'));
+    const pinch = new Event('touchstart') as any; pinch.touches = [{},{}]; pane.dispatchEvent(pinch);
+    const tap = new Event('touchstart') as any; tap.touches = [{}]; pane.dispatchEvent(tap);
+    expect(onAutoZoomCancel).toHaveBeenCalledTimes(4);
+  });
+  it('waits for a running zoom animation and holds a new auto zoom for 1.5 seconds',()=>{
+    const now = vi.spyOn(performance,'now').mockReturnValue(10_000);
+    Object.assign(map,{ panTo:vi.fn(), setView:vi.fn(), getSize:()=>({x:400,y:300,divideBy:(n:number)=>({x:400/n,y:300/n})}) });
+    const events = [
+      { type:'position', name:'Player', relativeTimeMs:0, x:0, y:200 },
+      { type:'position', name:'Player', relativeTimeMs:4000, x:120, y:200 },
+    ];
+    const view = render(React.createElement(TelemetryCanvasLayer,{telemetryData:data({ events, currentTimeMs:4000, currentStates:{Player:{...player,x:120}}, followPlayer:'player', autoZoom:true })}));
+    const handler = (name:string) => map.on.mock.calls.find(([key]:[string]) => key === name)?.[1];
+    handler('zoomstart')();
+    frame();
+    // 애니메이션 중에는 자동 줌을 요청하지 않는다(따라가기 시작 setView만 있음).
+    expect(map.setView.mock.calls.filter((call:any[]) => call[1] === -2)).toHaveLength(0);
+    handler('zoomend')();
+    view.rerender(React.createElement(TelemetryCanvasLayer,{telemetryData:data({ events, currentTimeMs:4001, currentStates:{Player:{...player,x:120}}, followPlayer:'player', autoZoom:true })})); frame();
+    expect(map.setView.mock.calls.filter((call:any[]) => call[1] === -2)).toHaveLength(1);
+    // 줌이 그대로(1)라 다음 프레임도 목표 -2지만, 1.5초 안에는 다시 바꾸지 않는다.
+    now.mockReturnValue(11_000);
+    view.rerender(React.createElement(TelemetryCanvasLayer,{telemetryData:data({ events, currentTimeMs:4002, currentStates:{Player:{...player,x:120}}, followPlayer:'player', autoZoom:true })})); frame();
+    expect(map.setView.mock.calls.filter((call:any[]) => call[1] === -2)).toHaveLength(1);
+    now.mockReturnValue(11_600);
+    view.rerender(React.createElement(TelemetryCanvasLayer,{telemetryData:data({ events, currentTimeMs:4003, currentStates:{Player:{...player,x:120}}, followPlayer:'player', autoZoom:true })})); frame();
+    expect(map.setView.mock.calls.filter((call:any[]) => call[1] === -2)).toHaveLength(2);
+  });
+  it('hides names in a vehicle full of unknown enemies and dims effects between unknown enemies',()=>{
+    Object.assign(map,{ panTo:vi.fn(), setView:vi.fn(), getSize:()=>({x:400,y:300,divideBy:(n:number)=>({x:400/n,y:300/n})}) });
+    const farA = { name:'FarA', x:400, y:200, health:100, isEnemy:true, isInVehicle:true, vehicleId:'uaz-1' };
+    const farB = { name:'FarB', x:400, y:200, health:100, isEnemy:true, isInVehicle:true, vehicleId:'uaz-1' };
+    const farC = { name:'FarC', x:420, y:210, health:100, isEnemy:true };
+    const events = [{ type:'throw', relativeTimeMs:900, name:'FarC', throwable:'smoke', x:420, y:210 }];
+    const states = { Player:player, FarA:farA, FarB:farB, FarC:farC };
+    const view = render(React.createElement(TelemetryCanvasLayer,{telemetryData:data({ events, currentStates:states, followPlayer:'player', showVision:true })})); frame();
+    expect(context.fillText).not.toHaveBeenCalledWith('FarA',expect.anything(),expect.anything());
+    expect(context.fillText).not.toHaveBeenCalledWith('연막',expect.anything(),expect.anything());
+    context.fillText.mockClear();
+    view.rerender(React.createElement(TelemetryCanvasLayer,{telemetryData:data({ events, currentStates:states, followPlayer:'player', showVision:false })})); frame();
+    expect(context.fillText).toHaveBeenCalledWith('FarA',expect.anything(),expect.anything());
+    expect(context.fillText).toHaveBeenCalledWith('연막',420,236);
   });
   it('draws throws at the thrower, blasts at the victim, and hit lines from exact damage coordinates',()=>{
     const events = [

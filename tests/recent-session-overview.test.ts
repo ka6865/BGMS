@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildRecentSessionOverview } from "@/lib/stats/recentSessionOverview";
-import { buildReplayShareUrl, isActivationTarget, isTypingTarget, replayKeyAction } from "@/lib/replay/replayShortcuts";
+import { buildReplayShareUrl, isActivationTarget, isHelpKey, isTypingTarget, replayKeyAction } from "@/lib/replay/replayShortcuts";
 import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 
 const summary = (id: string, createdAt: string, kills: number, winPlace: number, damageDealt: number, teammateNames: string[] = []) => ({
@@ -55,6 +55,9 @@ describe("리플레이 단축키와 공유 링크", () => {
     expect(replayKeyAction("ArrowRight", false)).toEqual({ kind: "seek", deltaMs: 5_000 });
     expect(replayKeyAction("ArrowLeft", true)).toEqual({ kind: "seek", deltaMs: -30_000 });
     expect(replayKeyAction("a", false)).toBeNull();
+    expect(replayKeyAction("?", true)).toBeNull();
+    expect(isHelpKey("?")).toBe(true);
+    expect(isHelpKey("/")).toBe(false);
   });
 
   it("입력 칸과 버튼에서는 단축키가 기본 동작을 막지 않는다", () => {

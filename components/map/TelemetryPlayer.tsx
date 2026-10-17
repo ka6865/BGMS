@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { TelemetryEvent } from "../../hooks/useTelemetry";
 import { SQUAD_COLORS } from "../../lib/replay/squadColors";
-import { buildReplayShareUrl, isActivationTarget, isTypingTarget, replayKeyAction } from "../../lib/replay/replayShortcuts";
+import { REPLAY_HELP_SEEN_KEY, buildReplayShareUrl, isActivationTarget, isHelpKey, isTypingTarget, replayKeyAction } from "../../lib/replay/replayShortcuts";
+import { ReplayHelpDialog } from "./telemetry/ReplayHelpDialog";
 
 interface TelemetryPlayerProps {
   events: TelemetryEvent[];
@@ -29,6 +30,10 @@ interface TelemetryPlayerProps {
   onTogglePlayerNames: () => void;
   showFlightPath: boolean;
   onToggleFlightPath: () => void;
+  showVision: boolean;
+  onToggleVision: () => void;
+  autoZoom: boolean;
+  onToggleAutoZoom: () => void;
   followPlayer: string | null;
   onFollowPlayerChange: (name: string | null) => void;
   nextFightMs: number | null;
@@ -36,7 +41,52 @@ interface TelemetryPlayerProps {
   onClose: () => void;
 }
 
-export default function TelemetryPlayer({
+type TelemetryPlayerPanelProps = TelemetryPlayerProps & { onOpenHelp: () => void; showHelpHint: boolean };
+
+const HELP_HINT_MS = 10_000;
+
+// 사용법 창은 포털로 띄우고, 패널이 접혀 있어도 ? 키로 열 수 있게 상태를 패널 밖에 둔다.
+export default function TelemetryPlayer(props: TelemetryPlayerProps) {
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [showHint, setShowHint] = useState(false);
+  const ready = !props.loading && !props.error;
+
+  const markSeen = useCallback(() => {
+    setShowHint(false);
+    try { localStorage.setItem(REPLAY_HELP_SEEN_KEY, "1"); } catch { /* 저장소를 못 써도 안내만 다시 보인다 */ }
+  }, []);
+  const openHelp = useCallback(() => { setHelpOpen(true); markSeen(); }, [markSeen]);
+  const closeHelp = useCallback(() => setHelpOpen(false), []);
+
+  useEffect(() => {
+    if (!ready) return;
+    let seen = false;
+    try { seen = localStorage.getItem(REPLAY_HELP_SEEN_KEY) === "1"; } catch { seen = false; }
+    if (seen) return;
+    const show = window.setTimeout(() => setShowHint(true), 0);
+    const hide = window.setTimeout(() => setShowHint(false), HELP_HINT_MS);
+    return () => { window.clearTimeout(show); window.clearTimeout(hide); };
+  }, [ready]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || isTypingTarget(event.target) || !isHelpKey(event.key)) return;
+      event.preventDefault();
+      openHelp();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [openHelp]);
+
+  return (
+    <>
+      <TelemetryPlayerPanel {...props} onOpenHelp={openHelp} showHelpHint={showHint && ready && !helpOpen} />
+      <ReplayHelpDialog open={helpOpen} onClose={closeHelp} />
+    </>
+  );
+}
+
+function TelemetryPlayerPanel({
   events,
   teamNames,
   isPlaying,
@@ -60,12 +110,18 @@ export default function TelemetryPlayer({
   onTogglePlayerNames,
   showFlightPath,
   onToggleFlightPath,
+  showVision,
+  onToggleVision,
+  autoZoom,
+  onToggleAutoZoom,
   followPlayer,
   onFollowPlayerChange,
   nextFightMs,
   onNextFight,
   onClose,
-}: TelemetryPlayerProps) {
+  onOpenHelp,
+  showHelpHint,
+}: TelemetryPlayerPanelProps) {
   // 타임라인 마커 필터 상태 (기본값: 킬만 활성화)
   const [showKills, setShowKills] = useState(true);
   const [showGroggy, setShowGroggy] = useState(true);
@@ -189,6 +245,17 @@ export default function TelemetryPlayer({
   return (
     <div className="absolute bottom-4 sm:bottom-8 left-1/2 transform -translate-x-1/2 w-[95%] sm:w-[560px] bg-[#1a1a1a]/95 backdrop-blur shadow-2xl rounded-2xl border border-[#333] z-[5000] flex flex-col overflow-hidden text-white font-sans">
       
+      {/* 처음 방문한 사람에게만 한 번 보이는 사용법 안내 */}
+      {showHelpHint && (
+        <button
+          type="button"
+          onClick={onOpenHelp}
+          className="flex w-full items-center justify-center gap-1 bg-[#F2A900]/15 px-3 py-1.5 text-[11px] font-bold text-[#F2A900] hover:bg-[#F2A900]/25"
+        >
+          <span className="hidden sm:inline">처음이라면 ? 키나 여기를 눌러 사용법을 보세요</span>
+          <span className="sm:hidden">여기를 눌러 리플레이 사용법 보기</span>
+        </button>
+      )}
       {/* 타임라인 슬라이더 영역 */}
       <div className="relative w-full h-6 sm:h-8 bg-[#111] cursor-pointer group" onClick={(e) => {
         const rect = e.currentTarget.getBoundingClientRect();
@@ -291,6 +358,16 @@ export default function TelemetryPlayer({
             링크
           </button>
 
+          <button
+            type="button"
+            onClick={onOpenHelp}
+            aria-label="리플레이 사용법"
+            title="사용법 (? 키)"
+            className="hidden sm:flex items-center justify-center w-8 h-8 rounded border border-[#444] text-xs font-black text-gray-300 hover:text-white"
+          >
+            ?
+          </button>
+
           {teamNames.length > 0 && (
             <select
               aria-label="따라갈 선수"
@@ -353,6 +430,14 @@ export default function TelemetryPlayer({
             >
               {formatTime(currentTimeMs)} 장면 링크 복사
             </button>
+            <button
+              type="button"
+              onClick={onOpenHelp}
+              aria-label="리플레이 사용법"
+              className="ml-2 h-8 px-3 rounded border border-[#444] text-[11px] font-bold text-gray-300"
+            >
+              사용법
+            </button>
           </div>
           {/* 지도 표시 범례 */}
           <ul aria-label="지도 표시 범례" className="px-4 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 bg-[#161616] border-b border-[#333] text-[10px] text-gray-400">
@@ -375,6 +460,9 @@ export default function TelemetryPlayer({
             </li>
             <li className="flex items-center gap-1"><span className="w-3 h-0.5 bg-[#ff5050]" />명중</li>
             <li className="flex items-center gap-1"><span className="w-2.5 h-2.5 bg-[#ef4444] border border-white" />보급 상자</li>
+            {showVision && followPlayer && (
+              <li className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-[#06b6d4] opacity-25" />흐린 적 · 인지 범위 밖(추정)</li>
+            )}
             <li className="text-gray-500">단축키 · 스페이스 재생/정지 · ←→ 5초 · Shift+←→ 30초</li>
           </ul>
       {/* 플레이어 컴러 레전드 + 개별 토글 바 */}
@@ -518,7 +606,31 @@ export default function TelemetryPlayer({
             <InlineIconLabel icon="plane" iconSize={11}>비행경로 {showFlightPath ? "ON" : "OFF"}</InlineIconLabel>
           </button>
 
-          {/* 이동 경로 토글 기능 제거됨 */}
+          {/* 따라가기 전용: 인지 범위(추정)와 이동 속도 자동 줌 */}
+          {[
+            { key: "vision", on: showVision, onClick: onToggleVision, label: `인지 범위 ${showVision ? "ON" : "OFF"}`,
+              title: "따라가는 선수에게서 150m 밖이고 최근 교전도 없는 적과 그 적의 사격·피격·투척 표시를 흐리게 그리고 이름을 숨깁니다(이름 전체 표시보다 우선). 시야 정보가 없어 거리로 추정합니다." },
+            { key: "zoom", on: autoZoom, onClick: onToggleAutoZoom, label: `자동 줌 ${autoZoom ? "ON" : "OFF"}`,
+              title: "따라가는 선수가 멈추면 가깝게, 차량으로 달리면 멀리 보도록 줌을 맞춥니다. 휠·핀치·더블클릭·+/- 키·Shift 드래그로 직접 줌하면 꺼지고, 다른 선수를 고르면 다시 켜집니다." },
+          ].map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              onClick={item.onClick}
+              disabled={!followPlayer}
+              aria-pressed={item.on}
+              title={followPlayer ? item.title : "따라갈 선수를 고르면 쓸 수 있습니다"}
+              className="flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded border transition-all whitespace-nowrap disabled:opacity-40"
+              style={{
+                backgroundColor: item.on && followPlayer ? "rgba(56,189,248,0.15)" : "rgba(40,40,40,0.8)",
+                borderColor: item.on && followPlayer ? "#38bdf8" : "#444",
+                color: item.on && followPlayer ? "#e0f2fe" : "#666",
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+
 
           <button 
             onClick={() => setIsMinimized(true)}

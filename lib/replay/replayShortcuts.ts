@@ -35,3 +35,10 @@ export function buildReplayShareUrl(href: string, currentTimeMs: number): string
   url.searchParams.set("t", String(Math.max(0, Math.floor(currentTimeMs / 1000))));
   return url.toString();
 }
+
+/** ? 키(Shift+/)는 사용법을 연다. */
+export function isHelpKey(key: string): boolean {
+  return key === "?";
+}
+
+export const REPLAY_HELP_SEEN_KEY = "bgms.replay.helpSeen";
