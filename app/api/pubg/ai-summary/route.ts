@@ -517,6 +517,7 @@ function aggregateMatches(matches: any[]) {
   const inputMatches = Array.isArray(matches) ? matches : [];
   let totalKills = 0, totalDamage = 0, totalDamageImpact = 0, totalTeamDamageShare = 0, totalTeamKillShare = 0;
   let damageImpactCount = 0, teamDamageShareCount = 0, teamKillShareCount = 0;
+  let totalPlacementPct = 0, placementCount = 0;
   let totalTeammateKnocks = 0, totalSuppCount = 0, totalTradeKills = 0, totalRescueSmokes = 0;
   let totalRevCount = 0, totalBaitCount = 0;
   let totalSmokes = 0;
@@ -742,6 +743,14 @@ function aggregateMatches(matches: any[]) {
     }
     if (m.badges) allBadges.push(...m.badges);
 
+    // 순위를 참가 팀 수 대비 백분위로 바꾼다(1위 100, 꼴찌 0). 칭호의 전장 통제자 판정에 쓴다.
+    const winPlace = readObservedNonNegative(m.stats?.winPlace);
+    const totalTeams = readObservedNonNegative(m.totalTeams);
+    if (winPlace !== null && winPlace >= 1 && totalTeams !== null && totalTeams > 1) {
+      totalPlacementPct += 100 * (1 - Math.min(1, (winPlace - 1) / (totalTeams - 1)));
+      placementCount++;
+    }
+
     const observedDeathPhase = readObservedNonNegative(m.deathPhase);
     if (observedDeathPhase !== null) {
       totalDeathPhase += observedDeathPhase;
@@ -807,6 +816,7 @@ function aggregateMatches(matches: any[]) {
   const avgDamageImpact = damageImpactCount > 0
     ? Number(Math.max(0, totalDamageImpact / damageImpactCount).toFixed(1))
     : null;
+  const avgPlacementPct = placementCount > 0 ? Number((totalPlacementPct / placementCount).toFixed(1)) : null;
   const avgTeamDamageShare = teamDamageShareCount > 0
     ? Number(Math.max(0, Math.min(100, totalTeamDamageShare / teamDamageShareCount)).toFixed(1))
     : null;
@@ -897,7 +907,7 @@ function aggregateMatches(matches: any[]) {
 
   return {
     metricMatchCounts,
-    mLen, avgDamage, avgKills, avgDamageImpact, avgTeamDamageShare, avgTeamKillShare, topBadges,
+    mLen, avgDamage, avgKills, avgDamageImpact, avgTeamDamageShare, avgTeamKillShare, avgPlacementPct, topBadges,
     userInitiativeRate, userReversalRate, avgBackupLatency, avgReactionLatency, avgCoverRate, avgDuelWinRate,
     totalDuelWins, totalDuelLosses, totalReversalWins, totalReversalAttempts, avgDeathPhase,
     avgPressureIndex, totalLethalThrows, totalUtilityThrows, avgUtilityEfficiency, avgMinDistStr, avgHeightDiffStr,

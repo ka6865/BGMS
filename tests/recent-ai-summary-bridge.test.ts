@@ -257,6 +257,28 @@ describe("RecentAISummary callback bridge", () => {
     });
     expect(normalizeRouteOwnedVisuals({ tierScope: "solo", tierMatchCount: 2 })).toMatchObject({ tierScope: "solo", tierMatchCount: 2 });
     expect(normalizeRouteOwnedVisuals({ tierScope: "duo" })?.tierScope).toBeUndefined();
+    expect(normalizeRouteOwnedVisuals({ roleInfo: { title: "결투의 제왕", evidence: ["1:1 승률 상위 3%", 7, "a", "b", "c"], badges: "차량 교전" } })?.roleInfo)
+      .toEqual({ title: "결투의 제왕", evidence: ["1:1 승률 상위 3%", "a", "b", "c"] });
+  });
+
+  it("칭호 아래에 근거 한 줄과 배지를 표시한다", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "A", roleInfo: {
+        primaryRole: "executor", secondaryRole: null, title: "결투의 제왕", roleLabel: "처형자 (Executor)",
+        description: "1:1 교전을 끝까지 이겨 냅니다.", evidence: ["1:1 승률 상위 3%", "역전 승률 상위 5%"], badges: ["차량 교전", "M416 주력"],
+        signatureWeapon: "M416", scores: { executor: 97.5 },
+      } } },
+      { type: "final", data: JSON.stringify(aiReady) },
+      { type: "done", valid: true },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, baseProps));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await screen.findAllByText("결투의 제왕");
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+    expect(screen.getByLabelText("칭호 근거")).toHaveTextContent("1:1 승률 상위 3% · 역전 승률 상위 5%");
+    expect(screen.getByText("차량 교전")).toBeInTheDocument();
+    expect(screen.getByText("M416 주력")).toBeInTheDocument();
   });
 
   it("잠재 티어는 평균에 쓴 경기 수와 솔로 기준 여부를 표시한다", async () => {

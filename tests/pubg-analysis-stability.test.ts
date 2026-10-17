@@ -668,7 +668,7 @@ describe("PUBG derived value semantics", () => {
     weaponMatchCount: {}
   };
 
-  it("팀의 방패 역할 점수는 연막 시도보다 실제 연막 구출 성공을 더 크게 본다", () => {
+  it("구조대 역할 점수는 연막 시도보다 실제 연막 구출 성공을 더 크게 본다", () => {
     const failedAttempts = classifyRole({
       ...baseRoleStats,
       totalTeammateKnocks: 3,
@@ -687,7 +687,8 @@ describe("PUBG derived value semantics", () => {
       totalTradeKills: 0
     }, {}, "B");
 
-    expect(failedAttempts.scores.shield).toBeLessThan(15);
-    expect(successfulRescues.scores.shield).toBeGreaterThan(failedAttempts.scores.shield + 35);
+    expect(failedAttempts.scores.shield).not.toBeNull();
+    expect(failedAttempts.scores.shield!).toBeLessThan(15);
+    expect(successfulRescues.scores.shield!).toBeGreaterThan(failedAttempts.scores.shield! + 35);
   });
 });

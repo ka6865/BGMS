@@ -1,32 +1,31 @@
 import { WEAPON_NAMES, IGNORE_WEAPONS } from "./constants";
-import { getBaseTier } from "./benchmarkScore";
+import { referencePercentile, roleScorePercentile, type RoleMetricKey } from "./roleReference";
 
 /**
  * PUBG 전술 직업군 분류기 (Role Classifier)
- * 유저의 10경기 집계 데이터와 벤치마크를 기반으로 8종의 직업군 및 무기 시그니처를 판정합니다.
+ * 최근 상위 경기 집계를 지표별로 기준 분포(roleReference)의 백분위로 바꾸고,
+ * 다른 플레이어보다 두드러지는 역할을 칭호로 정한다. 티어는 칭호에 넣지 않는다.
  */
 
-export interface RoleScore {
-  pointMan: number;         // 선봉대
-  phantomOverwatch: number; // 저격 유령
-  executor: number;         // 처형자
-  shield: number;           // 팀의 방패
-  zoneController: number;   // 전장 통제자
-  dropPredator: number;     // 핫드랍 약탈자
-  decoy: number;            // 미끼 전술가
-  fieldCommander: number;   // 전장의 지휘관
-}
+export type RoleKey =
+  | "pointMan" | "phantomOverwatch" | "executor" | "shield" | "avenger" | "zoneController" | "dropPredator"
+  | "decoy" | "grenadier" | "brawler" | "mainGun" | "crossfire" | "fieldCommander";
+
+// 역할별 백분위(0~100). 근거가 부족한 역할은 null이다.
+export type RoleScore = Record<RoleKey, number | null>;
 
 export interface RoleInfo {
-  primaryRole: keyof RoleScore;
-  secondaryRole: keyof RoleScore | null;
+  primaryRole: RoleKey | "balanced" | "insufficient";
+  secondaryRole: RoleKey | null;
   overallTier: string;
   title: string;
   roleLabel: string;
   description: string;
+  evidence: string[];
+  badges: string[];
   signatureWeapon: string;
-  signatureWeaponStats?: { 
-    kills: number; 
+  signatureWeaponStats?: {
+    kills: number;
     dbnos: number;
     consistency?: number;
     isReliable?: boolean;
@@ -35,79 +34,116 @@ export interface RoleInfo {
   scores: RoleScore;
 }
 
-const ROLE_LABELS: Record<keyof RoleScore, string> = {
-  pointMan: "선봉대 (Point Man)",
-  phantomOverwatch: "저격 유령 (Phantom Overwatch)",
-  executor: "처형자 (Executor)",
-  shield: "팀의 방패 (Shield)",
-  zoneController: "전장 통제자 (Zone Controller)",
-  dropPredator: "핫드랍 약탈자 (Drop Predator)",
-  decoy: "미끼 전술가 (Decoy)",
-  fieldCommander: "전장의 지휘관 (Field Commander)"
+interface RoleDefinition {
+  label: string;
+  title: string;
+  description: string;
+  metrics: RoleMetricKey[];
+  teamOnly?: boolean;
+}
+
+const ROLE_DEFINITIONS: Record<Exclude<RoleKey, "fieldCommander">, RoleDefinition> = {
+  pointMan: {
+    label: "선봉대 (Point Man)", title: "첫 총성의 화신", metrics: ["initiative", "reactionSec"],
+    description: "교전에서 먼저 쏘고, 피격되면 빠르게 반격합니다.",
+  },
+  phantomOverwatch: {
+    label: "저격 유령 (Phantom Overwatch)", title: "침묵의 감시자", metrics: ["longShare", "maxHitDist"],
+    description: "200m 밖 원거리에서 넣는 피해 비중이 높고 먼 거리까지 명중시킵니다.",
+  },
+  executor: {
+    label: "처형자 (Executor)", title: "결투의 제왕", metrics: ["duelWin", "reversal"],
+    description: "1:1 교전을 끝까지 이겨 내고, 불리한 교전도 뒤집습니다.",
+  },
+  shield: {
+    label: "구조대 (Shield)", title: "전우의 수호신", metrics: ["rescueRate"], teamOnly: true,
+    description: "기절한 아군을 소생하거나 연막으로 구출하는 비율이 높습니다.",
+  },
+  avenger: {
+    label: "복수자 (Avenger)", title: "복수의 추적자", metrics: ["tradeRate", "tradeSec"], teamOnly: true,
+    description: "아군을 기절시킨 적을 빠르게 찾아 처치합니다.",
+  },
+  zoneController: {
+    label: "전장 통제자 (Zone Controller)", title: "자기장의 주인", metrics: ["pressure", "placement", "edgePerMatch"],
+    description: "자기장 가장자리를 타며 적을 압박하고 높은 순위까지 살아남습니다.",
+  },
+  dropPredator: {
+    label: "핫드랍 약탈자 (Drop Predator)", title: "핫존의 포식자", metrics: ["earlyShare"],
+    description: "경기 초반에 넣는 피해 비중이 높습니다. 착지 직후 교전을 주도합니다.",
+  },
+  decoy: {
+    label: "미끼 전술가 (Decoy)", title: "희생의 전략가", metrics: ["baitPerMatch", "supportPerMatch"], teamOnly: true,
+    description: "적의 시선을 끌고, 팀원이 처치하도록 지원합니다.",
+  },
+  grenadier: {
+    label: "투척 전문가 (Grenadier)", title: "폭발의 설계자", metrics: ["utilityHitsPerMatch", "lethalPerMatch"],
+    description: "수류탄·화염병 같은 피해형 투척물을 자주 쓰고 적중시킵니다.",
+  },
+  brawler: {
+    label: "근접 난전가 (Brawler)", title: "난전의 지배자", metrics: ["shortShare"],
+    description: "50m 안쪽 근거리에서 넣는 피해 비중이 높습니다.",
+  },
+  mainGun: {
+    label: "팀의 주포 (Main Gun)", title: "화력의 중심", metrics: ["teamDamageShare"], teamOnly: true,
+    description: "팀 전체 피해 중 큰 몫을 직접 넣습니다.",
+  },
+  crossfire: {
+    label: "협공 설계자 (Crossfire)", title: "십자포화의 지휘자", metrics: ["focusFirePerMatch", "assistShare"], teamOnly: true,
+    description: "팀원과 같은 적을 동시에 공격해 함께 처치합니다.",
+  },
 };
 
-const ROLE_DESCRIPTIONS: Record<keyof RoleScore, string> = {
-  pointMan: "항상 팀의 가장 앞에 서서 첫 총성을 울립니다. 빠른 반응 속도와 두려움 없는 진입이 특징입니다.",
-  phantomOverwatch: "팀원과 거리를 유지하며 외곽에서 적의 허를 찌릅니다. 보이지 않는 곳에서 전장을 감시하는 망령입니다.",
-  executor: "압도적인 1:1 무력으로 교전을 종결시킵니다. 불리한 상황에서도 역전승을 만들어내는 심판자입니다.",
-  shield: "아군이 기절했을 때 가장 먼저 연막을 뿌리고 달려갑니다. 팀의 생존을 책임지는 든든한 수호신입니다.",
-  zoneController: "자기장 경계선을 타고 움직이며 구역을 장악합니다. 적의 진입을 차단하고 유리한 위치를 절대 놓치지 않습니다.",
-  dropPredator: "초반 핫드랍 지역에서 가장 먼저 킬을 올립니다. 혼돈 속에서도 냉정하게 적을 사냥하는 약탈자입니다.",
-  decoy: "자신을 미끼로 던져 적의 위치를 노출시키고 양각을 만듭니다. 팀의 승리를 위해 희생을 두려워하지 않는 전략가입니다.",
-  fieldCommander: "모든 지표가 균형 있게 높으며 팀을 승리로 이끕니다. 전장의 흐름을 완벽하게 읽고 통제하는 지휘관입니다."
+const FIELD_COMMANDER = {
+  label: "전장의 지휘관 (Field Commander)", title: "육각형 플레이어",
+  description: "여러 역할에서 고르게 상위권입니다. 한 가지에 치우치지 않고 상황에 맞게 움직입니다.",
+};
+const BALANCED = {
+  label: "균형형", title: "균형형 전술가",
+  description: "특정 역할이 다른 플레이어보다 두드러지지 않습니다. 여러 상황을 고르게 경험하고 있습니다.",
+};
+const INSUFFICIENT = {
+  label: "근거 수집 중", title: "전술 분석 중",
+  description: "역할을 판정할 만큼 교전·팀 기록이 쌓이지 않았습니다.",
 };
 
-const TIER_PREFIX: Record<string, string> = {
-  S: "전설의",
-  A: "숙련된",
-  B: "성장하는",
-  C: "잠재된"
+// 두 역할이 모두 강할 때만 쓰는 조합 칭호. 순서와 무관하게 찾는다.
+const COMBO_TITLES: Array<[RoleKey, RoleKey, string]> = [
+  ["executor", "pointMan", "선봉의 심판자"],
+  ["executor", "zoneController", "전장의 사신"],
+  ["executor", "phantomOverwatch", "그림자 처형자"],
+  ["executor", "mainGun", "전장의 군주"],
+  ["shield", "avenger", "최후의 방어선"],
+  ["shield", "decoy", "희생의 수호자"],
+  ["pointMan", "brawler", "돌파의 선봉"],
+  ["phantomOverwatch", "zoneController", "외곽의 지배자"],
+  ["grenadier", "brawler", "폭풍 진입조"],
+  ["dropPredator", "brawler", "핫존 난투왕"],
+  ["crossfire", "avenger", "연계 사냥꾼"],
+  ["mainGun", "crossfire", "화력 연계의 축"],
+];
+
+const METRIC_LABELS: Record<RoleMetricKey, string> = {
+  initiative: "선제공격률", reactionSec: "반격 속도", duelWin: "1:1 승률", reversal: "역전 승률",
+  longShare: "원거리 피해 비중", shortShare: "근거리 피해 비중", maxHitDist: "최대 명중 거리",
+  rescueRate: "기절 아군 구조율", tradeRate: "복수 처치율", tradeSec: "복수 속도", pressure: "압박 지수",
+  placement: "평균 순위", edgePerMatch: "자기장 가장자리 운영", earlyShare: "초반 피해 비중",
+  baitPerMatch: "미끼 플레이", supportPerMatch: "처치 지원", utilityHitsPerMatch: "투척물 적중",
+  lethalPerMatch: "피해형 투척", teamDamageShare: "팀 내 피해 비중", focusFirePerMatch: "협공 타격",
+  assistShare: "협공 처치 비중",
 };
 
-const ROLE_TITLES: Record<keyof RoleScore, string[]> = {
-  pointMan:        ["총구의 시계추", "첫 총성의 화신", "돌격의 화신"],
-  phantomOverwatch: ["전장의 망령",   "침묵의 감시자",  "보이지 않는 손"],
-  executor:        ["심판자",        "결투의 제왕",    "역전의 귀재"],
-  shield:          ["전우의 수호신", "마지막 방패",    "연막의 천사"],
-  zoneController:  ["구역의 지배자", "자기장의 주인",  "압박의 화신"],
-  dropPredator:    ["착지의 악마",   "핫존의 포식자",  "혼돈의 사냥꾼"],
-  decoy:           ["고의적 피탄자", "희생의 전략가",  "미끼의 달인"],
-  fieldCommander:  ["전장의 지휘관", "완전체",         "육각형 플레이어"]
-};
+// 값이 낮을수록 좋은 지표(초 단위 지연)는 백분위를 뒤집는다.
+const LOWER_IS_BETTER = new Set<RoleMetricKey>(["reactionSec", "tradeSec"]);
 
-// [V16.0] 복합 칭호 시스템
-const COMBO_TITLES: Record<string, string> = {
-  "zoneController+executor": "전장의 사신",
-  "zoneController+pointMan": "돌격하는 지배자",
-  "executor+pointMan": "선봉의 심판자",
-  "shield+decoy": "고의적 수호신",
-  "phantomOverwatch+executor": "그림자 처형자",
-  "dropPredator+pointMan": "착지의 선봉대",
-  "fieldCommander+executor": "전장의 군주"
-};
+// 역할 백분위 기준. 운영 표본(2026-10-17)에서 역할별 3~9%, 지휘관 약 2%, 균형형 약 25%가 되도록 정했다.
+const PRIMARY_MIN_PERCENTILE = 85;
+const SECONDARY_MIN_PERCENTILE = 85;
+const COMMANDER_ROLE_PERCENTILE = 75;
+const COMMANDER_MIN_ROLES = 6;
+const COMMANDER_MAX_TOP = 95;
+const WEAKNESS_MAX_PERCENTILE = 20;
+const MIN_DISTANCE_DAMAGE = 300;
 
-// [V16.0] 직업별 취약점 진단 로직
-const ROLE_WEAKNESSES: Partial<Record<keyof RoleScore, (s: any) => string | null>> = {
-  zoneController: (s) => 
-    (s.avgDuelWinRate || 0) < 45 ? "외곽 운영은 탁월하지만 1:1 교전 결정력이 부족합니다." : null,
-  
-  executor: (s) => 
-    s.totalTeammateKnocks > 0 && ((s.totalRevCount || 0) / s.totalTeammateKnocks) < 0.3 
-      ? "개인 무력은 강하지만 팀원 케어가 부족합니다." : null,
-  
-  dropPredator: (s) => 
-    (s.avgDeathPhase || 0) < 4 ? "초반 교전 후 생존 단계로의 전환이 다소 미흡합니다." : null,
-  
-  shield: (s) => 
-    (s.avgDamage || 0) < 200 ? "팀 기여는 높지만 절대적인 화력이 부족하여 교전에서 밀릴 수 있습니다." : null,
-  
-  pointMan: (s) => 
-    parseFloat(s.avgIsolationStr || "0") > 2.0 ? "돌격 시 팀원과 거리가 너무 벌어져 고립되는 경향이 있습니다." : null,
-      
-  phantomOverwatch: (s) =>
-    s.totalTeammateKnocks > 0 && ((s.totalTradeKills || 0) / s.totalTeammateKnocks) < 0.2
-      ? "외곽 지원 능력은 좋으나 팀원의 위기 시 백업 속도가 늦는 편입니다." : null,
-};
 
 /**
  * 시그니처 무기 및 상세 스탯 추출
@@ -174,171 +210,173 @@ function getSignatureWeapon(weaponStats: Record<string, any>, matchCountStats: R
   };
 }
 
-/**
- * 안전한 반응 속도 파싱 (ms 단위 변환)
- */
-const parseLatency = (val: string | null | undefined) => {
-  if (!val || val === "N/A" || val === "측정 불가") return null;
-  const n = parseFloat(val);
-  return isNaN(n) ? null : n;
+const finiteOrNull = (value: unknown): number | null => {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = typeof value === "number" ? value : Number.parseFloat(String(value));
+  return Number.isFinite(parsed) ? parsed : null;
 };
 
-// Route-owned aggregate fields may intentionally use the unavailable marker
-// (for example, when no position samples were observed).  Role scores must
-// stay finite without turning that missing measurement into an observed value.
-const parseFiniteMetric = (value: unknown, fallback = 0): number => {
-  const parsed = typeof value === "number" ? value : Number.parseFloat(String(value ?? ""));
-  return Number.isFinite(parsed) ? parsed : fallback;
-};
+const ratio = (numerator: number, denominator: number): number | null =>
+  denominator > 0 ? (100 * numerator) / denominator : null;
 
 /**
- * 8종 직업군 판정 로직
+ * ai-summary aggregateMatches 결과에서 역할 지표를 뽑는다. 기회가 부족한 지표는 null이다.
+ * 기준 분포(roleReference)와 같은 정의와 최소 기회 수를 쓴다.
  */
-export function classifyRole(stats: any, bench: any, overallTier: string): RoleInfo {
-  const scores: RoleScore = {
-    pointMan: 0,
-    phantomOverwatch: 0,
-    executor: 0,
-    shield: 0,
-    zoneController: 0,
-    dropPredator: 0,
-    decoy: 0,
-    fieldCommander: 0
+export function extractRoleMetrics(stats: any): Record<RoleMetricKey, number | null> {
+  const mLen = Math.max(1, finiteOrNull(stats?.mLen) ?? 1);
+  const perMatch = (value: unknown) => {
+    const total = finiteOrNull(value);
+    return total === null ? null : total / mLen;
   };
+  const distance = stats?.totalDistanceDamage ?? {};
+  const short = Math.max(0, finiteOrNull(distance.short) ?? 0);
+  const mid = Math.max(0, finiteOrNull(distance.mid) ?? 0);
+  const long = Math.max(0, finiteOrNull(distance.long) ?? 0);
+  const distanceTotal = short + mid + long;
+  const golden = stats?.goldenTimeAvg ?? {};
+  const goldenParts = ["early", "mid1", "mid2", "late"].map((key) => Math.max(0, finiteOrNull(golden[key]) ?? 0));
+  const goldenTotal = goldenParts.reduce((sum, value) => sum + value, 0);
+  const teammateKnocks = Math.max(0, finiteOrNull(stats?.totalTeammateKnocks) ?? 0);
+  const duels = Math.max(0, finiteOrNull(stats?.totalDuelWins) ?? 0) + Math.max(0, finiteOrNull(stats?.totalDuelLosses) ?? 0);
+  const contrib = stats?.killContribFinal ?? {};
+  const assist = Math.max(0, finiteOrNull(contrib.assist) ?? 0);
+  const killTotal = assist + Math.max(0, finiteOrNull(contrib.solo) ?? 0) + Math.max(0, finiteOrNull(contrib.cleanup) ?? 0);
 
-  const mLen = stats.mLen || 1;
-  const isSoloMode = stats.modeDistribution?.main === 'solo';
+  return {
+    initiative: (finiteOrNull(stats?.totalInitiativeAttempts) ?? 0) >= 3 ? finiteOrNull(stats?.userInitiativeRate) : null,
+    reactionSec: finiteOrNull(stats?.avgReactionLatency),
+    duelWin: duels >= 3 ? finiteOrNull(stats?.avgDuelWinRate) : null,
+    reversal: (finiteOrNull(stats?.totalReversalAttempts) ?? 0) >= 2 ? finiteOrNull(stats?.userReversalRate) : null,
+    longShare: distanceTotal >= MIN_DISTANCE_DAMAGE ? ratio(long, distanceTotal) : null,
+    shortShare: distanceTotal >= MIN_DISTANCE_DAMAGE ? ratio(short, distanceTotal) : null,
+    maxHitDist: finiteOrNull(stats?.totalMaxHitDist),
+    rescueRate: teammateKnocks >= 3
+      ? ratio(Math.max(0, finiteOrNull(stats?.totalRevCount) ?? 0) + Math.max(0, finiteOrNull(stats?.totalSmokeRescues) ?? 0), teammateKnocks)
+      : null,
+    tradeRate: teammateKnocks >= 3 ? ratio(Math.max(0, finiteOrNull(stats?.totalTradeKills) ?? 0), teammateKnocks) : null,
+    tradeSec: finiteOrNull(stats?.avgBackupLatency),
+    pressure: finiteOrNull(stats?.avgPressureIndex),
+    placement: finiteOrNull(stats?.avgPlacementPct),
+    edgePerMatch: perMatch(stats?.totalEdgePlay),
+    earlyShare: goldenTotal * mLen >= MIN_DISTANCE_DAMAGE ? ratio(goldenParts[0], goldenTotal) : null,
+    baitPerMatch: perMatch(stats?.totalBaitCount),
+    supportPerMatch: perMatch(stats?.totalSuppCount),
+    utilityHitsPerMatch: perMatch(stats?.totalUtilityHits),
+    lethalPerMatch: perMatch(stats?.totalLethalThrows),
+    teamDamageShare: finiteOrNull(stats?.avgTeamDamageShare),
+    focusFirePerMatch: perMatch(stats?.totalFocusFireCount),
+    assistShare: killTotal >= 3 ? ratio(assist, killTotal) : null,
+  };
+}
 
-  // 1. 선봉대 (Point Man)
-  const reactionMs = parseLatency(stats.avgReactionLatency);
-  const reactionScore = reactionMs !== null ? Math.max(0, 40 - reactionMs * 20) : 0;
-  const isCloseRange = parseFloat(stats.avgMinDistStr || "999") < 20;
-  
-  scores.pointMan = (stats.userInitiativeRate || 0) * 0.5 
-    + reactionScore 
-    + (parseFloat(stats.avgMinDistStr) < 15 ? 10 : 5)
-    + (isCloseRange ? 15 : 0)
-    + (stats.totalRidingShotKnocks || 0) * 8; // [V58.4] 라이딩샷 기절 가중치
+function metricPercentile(key: RoleMetricKey, value: number | null): number | null {
+  if (value === null) return null;
+  const percentile = referencePercentile(key, value);
+  return LOWER_IS_BETTER.has(key) ? 100 - percentile : percentile;
+}
 
-  // 2. 저격 유령 (Phantom Overwatch)
-  const isolationIndex = parseFiniteMetric(stats.avgIsolationStr);
-  scores.phantomOverwatch = Math.max(0, 
-    Math.min(40, (stats.totalMaxHitDist / 10)) + 
-    (stats.userInitiativeRate || 0) * 0.3 + 
-    Math.min(30, isolationIndex * 10) +
-    (isCloseRange ? -10 : 10) +
-    (stats.totalLeadShotKnocks || 0) * 8 // [V58.4] 리드샷 기절 가중치
-  );
+function formatTopShare(percentile: number): string {
+  return `상위 ${Math.max(1, Math.round(100 - percentile))}%`;
+}
 
-  // 3. 처형자 (Executor)
-  scores.executor = (stats.avgDuelWinRate || 0) * 0.7 + 
-                    Math.min(30, (stats.totalReversalWins / mLen) * 15) + 
-                    Math.min(20, (stats.totalTeamWipes / mLen) * 15) +
-                    (stats.totalRidingShotKills || 0) * 5; // [V58.4] 라이딩샷 킬 가중치
+function comboTitle(first: RoleKey, second: RoleKey): string | null {
+  const found = COMBO_TITLES.find(([a, b]) => (a === first && b === second) || (a === second && b === first));
+  return found ? found[2] : null;
+}
 
-  // 4. 팀의 방패 (Shield)
-  const knockBase = Math.max(stats.totalTeammateKnocks, 3 * mLen);
-  const smokeRescueScore = ((stats.totalSmokeRescues || 0) / knockBase) * 40;
-  const smokeAttemptSupport = ((stats.totalSmokeCount || 0) / knockBase) * 10;
-  const rescueRate = ((stats.totalRevCount + stats.totalTradeKills) / knockBase) * 50;
-  
-  scores.shield = isSoloMode ? 0 
-    : Math.min(50, rescueRate) + Math.min(50, smokeRescueScore + smokeAttemptSupport);
+/**
+ * 역할 판정. bench는 기존 호출 계약을 위해 받지만 쓰지 않는다(기준은 roleReference).
+ */
+export function classifyRole(stats: any, _bench: any, overallTier: string): RoleInfo {
+  const isSoloMode = String(stats?.modeDistribution?.main ?? "").includes("solo");
+  const metrics = extractRoleMetrics(stats);
+  const metricPercentiles = Object.fromEntries(
+    (Object.keys(metrics) as RoleMetricKey[]).map((key) => [key, metricPercentile(key, metrics[key])]),
+  ) as Record<RoleMetricKey, number | null>;
 
-  // 5. 전장 통제자 (Zone Controller)
-  const edgePlayPerMatch = stats.totalEdgePlay / mLen;
-  scores.zoneController = Math.min(35, edgePlayPerMatch * 8) + 
-                         Math.min(10, (100 - Math.min(100, stats.totalBluezoneWaste / mLen)) * 0.1) + 
-                         Math.min(40, stats.avgPressureIndex * 8) +
-                         Math.min(15, (stats.avgDeathPhase / 9) * 15) +
-                         (stats.totalLeadShotKills || 0) * 5; // [V58.4] 리드샷 킬 가중치
-
-  // 6. 핫드랍 약탈자 (Drop Predator)
-  const totalGoldenTime = (stats.goldenTimeAvg?.early || 0) + 
-                         (stats.goldenTimeAvg?.mid1 || 0) + 
-                         (stats.goldenTimeAvg?.mid2 || 0) + 
-                         (stats.goldenTimeAvg?.late || 0);
-  const earlyRatio = totalGoldenTime > 0 ? (stats.goldenTimeAvg?.early || 0) / totalGoldenTime : 0;
-  scores.dropPredator = Math.min(100, earlyRatio * 150);
-
-  // 7. 미끼 전술가 (Decoy)
-  scores.decoy = Math.min(70, (stats.totalBaitCount / mLen) * 35) + 
-                 Math.min(30, (stats.totalSuppCount / mLen) * 6);
-
-  // 8. 전장의 지휘관 (Field Commander)
-  const activeRoles = (Object.entries(scores) as [keyof RoleScore, number][])
-    .filter(([k]) => k !== 'fieldCommander')
-    .filter(([, v]) => v >= 30).length;
-
-  scores.fieldCommander = activeRoles >= 5
-    ? (Object.entries(scores) as [keyof RoleScore, number][])
-        .filter(([k]) => k !== 'fieldCommander')
-        .reduce((acc, [, v]) => acc + v, 0) / 7
-    : 0;
-
-  // 최고 점수 직업 선정
-  const sortedRoles = (Object.entries(scores) as [keyof RoleScore, number][])
-    .sort((a, b) => b[1] - a[1]);
-
-  const primaryRole = sortedRoles[0][0];
-  const secondaryRole = (sortedRoles[1] && sortedRoles[1][1] >= (sortedRoles[0][1] * 0.65)) ? sortedRoles[1][0] : null;
-
-  // [V16.0] 시그니처 무기 추출 (사용 일관성 반영)
-  const weapon = getSignatureWeapon(stats.weaponStatsFinal || {}, stats.weaponMatchCount || {}, mLen);
-
-  // [V16.0] 칭호 생성 로직 고도화
-  // 호출부는 13단계 세부 티어(S+, A- 등)를 넘기므로 칭호는 기본 등급으로 판정한다.
-  const baseTier = getBaseTier(overallTier);
-  const tierIndex = baseTier === 'S' ? 0 : baseTier === 'A' ? 1 : 2;
-  const roleTitle = ROLE_TITLES[primaryRole][tierIndex];
-  const prefix = TIER_PREFIX[baseTier] || "잠재된";
-
-  let title = "";
-  const comboKey = secondaryRole ? `${primaryRole}+${secondaryRole}` : null;
-  const comboTitle = comboKey ? COMBO_TITLES[comboKey] : null;
-
-  // [V58.4] 차량 전투 스페셜 전설 칭호 우선 판정
-  const ridingShotSum = (stats.totalRidingShotKnocks || 0) + (stats.totalRidingShotKills || 0);
-  const leadShotSum = (stats.totalLeadShotKnocks || 0) + (stats.totalLeadShotKills || 0);
-  const vehicleCombatSum = ridingShotSum + leadShotSum;
-  const vehicleCombatMatchCount = stats.vehicleCombatMatchCount || 0;
-  
-  if (vehicleCombatMatchCount >= 5) {
-    title = `${prefix} 차량 전술 교전 마스터`;
-  } else if (vehicleCombatSum >= 3) {
-    title = `${prefix} 아스팔트의 지배자`;
-  } else if (ridingShotSum >= 2) {
-    title = `${prefix} 도로 위의 저승사자`;
-  } else if (leadShotSum >= 2) {
-    title = `${prefix} 고속도로 저격수`;
-  } else if (comboTitle) {
-    title = `${prefix} ${comboTitle}`;
-  } else if (weapon.isSpecial) {
-    title = `${weapon.name}, ${roleTitle}`;
-  } else if (weapon.stats.isReliable) {
-    title = `${prefix} ${roleTitle} (${weapon.name})`;
-  } else {
-    title = `${prefix} ${roleTitle}`;
+  const scores = { fieldCommander: null } as RoleScore;
+  for (const [role, definition] of Object.entries(ROLE_DEFINITIONS) as Array<[Exclude<RoleKey, "fieldCommander">, RoleDefinition]>) {
+    const observed = definition.metrics.map((key) => metricPercentiles[key]).filter((value): value is number => value !== null);
+    const enough = observed.length >= Math.ceil(definition.metrics.length / 2);
+    // 지표 백분위의 평균을 다시 역할 점수 분포의 백분위로 바꾼다.
+    scores[role] = (definition.teamOnly && isSoloMode) || !enough
+      ? null
+      : Number(roleScorePercentile(role, observed.reduce((sum, value) => sum + value, 0) / observed.length).toFixed(1));
   }
 
-  // [V16.0] 취약점 진단
-  const weakness = ROLE_WEAKNESSES[primaryRole]?.(stats) || null;
+  const ranked = (Object.entries(scores) as Array<[RoleKey, number | null]>)
+    .filter((entry): entry is [RoleKey, number] => entry[1] !== null)
+    .sort((a, b) => b[1] - a[1]);
+  const strongRoles = ranked.filter(([, value]) => value >= COMMANDER_ROLE_PERCENTILE);
+  if (strongRoles.length >= COMMANDER_MIN_ROLES && ranked[0][1] < COMMANDER_MAX_TOP) {
+    scores.fieldCommander = Number((strongRoles.slice(0, COMMANDER_MIN_ROLES).reduce((sum, [, value]) => sum + value, 0) / COMMANDER_MIN_ROLES).toFixed(1));
+  }
+
+  let primaryRole: RoleInfo["primaryRole"];
+  let secondaryRole: RoleKey | null = null;
+  if (ranked.length === 0) primaryRole = "insufficient";
+  else if (scores.fieldCommander !== null) primaryRole = "fieldCommander";
+  else if (ranked[0][1] >= PRIMARY_MIN_PERCENTILE) {
+    primaryRole = ranked[0][0];
+    if (ranked[1] && ranked[1][1] >= SECONDARY_MIN_PERCENTILE) secondaryRole = ranked[1][0];
+  } else primaryRole = "balanced";
+
+  const display = primaryRole === "insufficient" ? INSUFFICIENT
+    : primaryRole === "balanced" ? BALANCED
+      : primaryRole === "fieldCommander" ? FIELD_COMMANDER
+        : ROLE_DEFINITIONS[primaryRole];
+  const combo = secondaryRole && primaryRole !== "fieldCommander" && primaryRole !== "balanced" && primaryRole !== "insufficient"
+    ? comboTitle(primaryRole, secondaryRole) : null;
+  const roleLabel = secondaryRole
+    ? `${display.label} · 보조: ${ROLE_DEFINITIONS[secondaryRole as Exclude<RoleKey, "fieldCommander">].label.split(" (")[0]}`
+    : display.label;
+
+  // 근거: 대표 역할(지휘관이면 상위 역할들)의 지표 중 백분위가 높은 것 두 개.
+  const evidenceKeys: RoleMetricKey[] = primaryRole === "fieldCommander"
+    ? strongRoles.slice(0, COMMANDER_MIN_ROLES).flatMap(([role]) => ROLE_DEFINITIONS[role as Exclude<RoleKey, "fieldCommander">].metrics)
+    : primaryRole in ROLE_DEFINITIONS ? ROLE_DEFINITIONS[primaryRole as Exclude<RoleKey, "fieldCommander">].metrics : [];
+  const evidence = evidenceKeys
+    .filter((key, index, keys) => keys.indexOf(key) === index && metricPercentiles[key] !== null)
+    .sort((a, b) => (metricPercentiles[b] ?? 0) - (metricPercentiles[a] ?? 0))
+    .slice(0, 2)
+    .map((key) => `${METRIC_LABELS[key]} ${formatTopShare(metricPercentiles[key]!)}`);
+
+  // 약점: 판정 가능한 지표 중 하위 20% 이하인 가장 낮은 것. 솔로에서는 팀 지표를 보지 않는다.
+  const teamOnlyMetrics = new Set(Object.values(ROLE_DEFINITIONS).filter((definition) => definition.teamOnly).flatMap((definition) => definition.metrics));
+  const weakest = (Object.entries(metricPercentiles) as Array<[RoleMetricKey, number | null]>)
+    .filter((entry): entry is [RoleMetricKey, number] => entry[1] !== null && !(isSoloMode && teamOnlyMetrics.has(entry[0])))
+    .sort((a, b) => a[1] - b[1])[0];
+  const weakness = weakest && weakest[1] <= WEAKNESS_MAX_PERCENTILE
+    ? `${METRIC_LABELS[weakest[0]]}이(가) 다른 플레이어 대비 하위 ${Math.max(1, Math.round(weakest[1]))}%입니다.`
+    : null;
+
+  const mLen = Math.max(1, finiteOrNull(stats?.mLen) ?? 1);
+  const weapon = getSignatureWeapon(stats?.weaponStatsFinal || {}, stats?.weaponMatchCount || {}, mLen);
+  const badges: string[] = [];
+  const vehicleCombatSum = ["totalRidingShotKnocks", "totalRidingShotKills", "totalLeadShotKnocks", "totalLeadShotKills"]
+    .reduce((sum, key) => sum + Math.max(0, finiteOrNull(stats?.[key]) ?? 0), 0);
+  if (vehicleCombatSum >= 3 && (finiteOrNull(stats?.vehicleCombatMatchCount) ?? 0) >= 2) badges.push("차량 교전");
+  if (weapon.isSpecial && weapon.stats.isReliable) badges.push(weapon.name);
+  else if (weapon.stats.isReliable) badges.push(`${weapon.name} 주력`);
 
   return {
     primaryRole,
     secondaryRole,
     overallTier,
-    title,
-    roleLabel: ROLE_LABELS[primaryRole],
-    description: ROLE_DESCRIPTIONS[primaryRole],
+    title: combo ?? display.title,
+    roleLabel,
+    description: display.description,
+    evidence,
+    badges,
     signatureWeapon: weapon.name,
     signatureWeaponStats: {
       kills: weapon.stats.kills,
       dbnos: weapon.stats.dbnos,
       consistency: weapon.stats.consistency,
-      isReliable: weapon.stats.isReliable
+      isReliable: weapon.stats.isReliable,
     },
     weakness,
-    scores
+    scores,
   };
 }

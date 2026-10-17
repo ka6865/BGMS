@@ -134,4 +134,50 @@ async function clickText(page: Page, text: string) {
       await page.close();
     }
   }, 30_000);
+
+  it.each([{ width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }, { width: 1440, height: 900 }])("role identity evidence and badges fit at $width", async (viewport) => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(String(error)));
+    await page.setViewport(viewport);
+    await page.setRequestInterception(true);
+    page.on("request", async (request) => {
+      if (!request.url().endsWith("/api/pubg/ai-summary")) {
+        await request.continue();
+        return;
+      }
+      const roleInfo = {
+        primaryRole: "executor", secondaryRole: "pointMan", title: "선봉의 심판자", roleLabel: "처형자 (Executor) · 보조: 선봉대",
+        description: "1:1 교전을 끝까지 이겨 내고, 불리한 교전도 뒤집습니다.",
+        evidence: ["1:1 승률 상위 3%", "역전 승률 상위 12%"], badges: ["차량 교전", "Mk14 EBR 주력"],
+        signatureWeapon: "Mk14 EBR", signatureWeaponStats: { kills: 12, dbnos: 9 }, scores: { executor: 97.5 },
+      };
+      const lines = [
+        { type: "visuals", data: { overallTier: "A", roleInfo } },
+        { type: "cards", data: cards },
+        { type: "final", data: JSON.stringify({ schemaVersion: 2, analysisStatus: "partial", cards: finalCards, retryAfterSeconds: 300, signature: null, actionItems: null, finalVerdict: "확인된 항목만 평가했습니다." }) },
+        { type: "done", valid: true, partial: true, retryAfterSeconds: 300 },
+      ];
+      await request.respond({ status: 200, contentType: "application/x-ndjson", body: lines.map((line) => JSON.stringify(line)).join("\n") });
+    });
+    try {
+      await page.goto(baseUrl, { waitUntil: "networkidle0" });
+      await clickText(page, "최근 최대 10경기 AI 끝장 토론 시작");
+      await page.waitForFunction((text) => document.body.innerText.includes(text), {}, message);
+      await clickText(page, "상세 분석 리포트 펼치기");
+      // 상세 리포트는 펼침 애니메이션이 끝나야 보인다.
+      await page.waitForSelector('[aria-label="칭호 근거"]', { visible: true });
+      const text = await page.evaluate(() => document.body.innerText);
+      expect(text).toContain("1:1 승률 상위 3% · 역전 승률 상위 12%");
+      expect(text).toContain("Mk14 EBR 주력");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+      if (process.env.SUMMARY_BROWSER_SCREENSHOT_DIR) {
+        await page.$eval('[aria-label="칭호 근거"]', (element) => element.scrollIntoView({ block: "center" }));
+        await page.screenshot({ path: join(process.env.SUMMARY_BROWSER_SCREENSHOT_DIR, `role-identity-${viewport.width}.png`) });
+      }
+      expect(errors).toEqual([]);
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
 });

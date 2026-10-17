@@ -3320,6 +3320,10 @@ describe("AI cache route stabilization", () => {
     expect(visuals).toMatchObject({ tierScope: "team", tierMatchCount: 5 });
     expect(visuals.roleInfo.overallTier).toBe(visuals.overallTier);
     expect(visuals.roleInfo.signatureWeapon).toBe("M416");
+    // 칭호는 티어 접두어 없이 역할만 표시하고 근거·배지 목록을 함께 보낸다.
+    expect(visuals.roleInfo.title).not.toMatch(/^(전설의|숙련된|성장하는|잠재된) /);
+    expect(Array.isArray(visuals.roleInfo.evidence)).toBe(true);
+    expect(Array.isArray(visuals.roleInfo.badges)).toBe(true);
     expect(visuals.roleInfo.signatureWeaponStats.kills).toBe(2);
   });
 
