@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { streamText, Output } from "ai";
+import { APICallError, streamText, Output } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { AI_SUMMARY_CACHE_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
 import { estimateUserTier } from "@/lib/pubg-analysis/benchmarkScore";
@@ -38,7 +38,7 @@ import {
   type RecentMatchCandidate,
 } from "@/lib/pubg-analysis/recentMatchSelection";
 import crypto from "crypto";
-import { buildSummaryCards, normalizeSummaryCardFinal, type SummaryCard } from "@/lib/pubg-analysis/aiSummaryCards";
+import { buildSummaryCardComparisonText, buildSummaryCards, normalizeSummaryCardFinal, type SummaryCard } from "@/lib/pubg-analysis/aiSummaryCards";
 import { buildSummaryCardEvidence } from "@/lib/pubg-analysis/aiSummaryCardEvidence";
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 
@@ -57,6 +57,18 @@ const AI_SUMMARY_FALLBACK_TOTAL_TIMEOUT_MS = 24000;
 const AI_SUMMARY_FALLBACK_FETCH_TIMEOUT_MS = 8000;
 const AI_SUMMARY_FALLBACK_CONCURRENCY = 2;
 const AI_SUMMARY_PROVIDER_ERROR_MESSAGE = "AI summary provider is temporarily unavailable.";
+// 부분 완료는 캐시에 저장하지 않고, 같은 선택으로 다시 생성하기 전 대기 시간만 안내한다.
+const AI_SUMMARY_PARTIAL_RETRY_AFTER_SECONDS = 5 * 60;
+const AI_SUMMARY_RETRY_AFTER_SECONDS = 30;
+const AI_SUMMARY_RATE_LIMIT_RETRY_AFTER_SECONDS = 60;
+
+// provider 호출이 HTTP 429(Gemini RESOURCE_EXHAUSTED)로 거절됐는지 판정한다.
+// AI SDK는 maxRetries 0에서 APICallError를 그대로 전달하며 statusCode에 HTTP 상태를 담는다.
+function isProviderRateLimited(error: unknown): boolean {
+  if (APICallError.isInstance(error)) return error.statusCode === 429;
+  const record = error as { status?: unknown; message?: unknown } | null;
+  return record?.status === 429 || /RESOURCE_EXHAUSTED/.test(String(record?.message ?? ""));
+}
 
 type ComposedAbortSignal = {
   signal: AbortSignal;
@@ -961,6 +973,7 @@ export async function POST(request: Request) {
     error: input.error,
     errorCode: input.errorCode,
     retryable: true,
+    retryAfterSeconds: AI_SUMMARY_RETRY_AFTER_SECONDS,
   }, { status: input.status });
   const abortResponse = () => request.signal.aborted
     ? retryableAbortResponse({
@@ -2088,6 +2101,7 @@ export async function POST(request: Request) {
         "카드에 없는 소생 기여, 교전 주도권, 팀원의 화력 분담, 투척물 보유량은 판단하지 마세요. 평균 화력이 높다는 사실만으로 교전을 주도했다거나 팀원의 지원이 부족했다고 추론하지 마세요. 투척 횟수는 사용 기록이며 보유량이 아닙니다. 백업 시간만으로 복구 성공이나 실패를 단정하지 마세요.",
         "[측정 의미] 이 요약의 백업 속도는 아군을 기절시킨 적을 30초 안에 처치한 사례에서 기절부터 처치까지 걸린 평균 시간입니다. 성공한 복수 처치 사례만의 시간이며 이동·첫 대응 시간이나 모든 구조 기회의 시간이 아닙니다. 실제 이동 속도·기동력·합류 경로·집중력·판단력·소통 능력을 측정한 값이 아닙니다. 1:1 승률도 집중력이나 교전 주도권을 입증하지 않습니다. 기록에 없는 능력 평가를 붙이지 말고 비교 결과 자체를 짧게 설명하세요.",
         "[비교 문장] 한 문장에는 지표 하나와 방향 하나만 쓰세요. '복수 성공률은 비교 평균보다 높습니다. 백업 속도는 비교 평균보다 빠릅니다.'처럼 분리하세요. '둘 다 우수합니다/높거나 빠릅니다/평균을 웃돕니다' 같은 복합·모호한 비교를 쓰지 마세요. 두 지표 모두 유리한 방향이면 단순한 연습 제안을 약점 근거로 삼아 draw로 판정하지 마세요.",
+        "[서버 비교] serverComparison은 서버가 계산한 비교 결과입니다. 비교가 필요하면 이 문장을 그대로 사용하고 높지만·월등히·유사한 수준 등으로 바꾸지 마세요. AI는 비교 수치나 기준을 새로 만들지 말고 관측 범위 설명과 다음 경기의 조건부 점검을 작성하세요. 두 코치가 같은 비교 결과에 동의해도 됩니다. 비교가 없으면 확인된 사용 기록과 판단 한계만 설명하세요. 고립 지수에 임의의 정상 기준이나 거리 목표를 붙이지 마세요.",
         "[경기별 일관성] 평균·합계만으로 매 경기의 일관성이나 습관을 알 수 없습니다. 꾸준히 높은 피해량을 기록했다거나 꾸준한 딜링 능력을 증명했다고 쓰지 마세요. 관측 기간의 평균을 설명하고 이후 행동은 조건부 점검으로 제안하세요. [작은 표본] context.userMatchCount는 카드에 선택된 경기 수이고 evidence.userMatchCount는 해당 지표의 기록이 확인된 경기 수입니다. 서로 다르면 지표의 실제 확인 경기 수로 설명하세요. 누락 기록과 발생 기회가 없었던 기록을 0% 실패로 해석하지 마세요. 최근 10경기 전체의 일관된 습관·능력으로 확대하지 마세요. 관측된 구출/복수 기회가 적으면 그 한계를 밝히고, 실패 원인이나 연막 타이밍을 단정하지 마세요. 행동 제안은 다음 경기에서 확인할 구체적인 조건부 점검으로 쓰세요.",
         "[행동 제안] 솔로 킬 비중은 처치 기여의 구성이지 혼자 싸워야 할 목표가 아닙니다. 솔로 킬 비중이 낮다고 독립적인 교전을 늘리거나, 화력이 낮다고 교전 참여 빈도를 무조건 높이라고 권하지 마세요. 다음 경기의 구체적인 상황 하나와 확인할 행동을 제안하세요. 예: 교전 전 상대 위치와 빠져나올 경로 확인, 교전 후 피해를 주기 어려웠던 구간 확인. 팀 모드에서는 팀원이 같은 적에게 함께 대응할 수 있는지도 점검하도록 제안할 수 있습니다. 지형·시야·팀원 위치를 실제로 관측했다고 단정하지 마세요. '집중력 유지/더 잘하세요'만으로 행동 제안을 끝내지 마세요.",
         "finalVerdict는 각 카드의 evaluation과 결론을 존중해 아래 카드에서 확인된 강점과 다음 행동을 함께 정리하세요. draw 또는 null인 카드를 한쪽 코치의 승리나 확정된 약점으로 바꾸지 마세요. 약점을 반드시 만들 필요는 없습니다. 비교가 가능한 의견은 '지표는 비교 평균보다 높습니다/낮습니다/빠릅니다/느립니다'처럼 완결된 문장으로 쓴 뒤 실천 행동을 별도 문장으로 제안하세요.",
@@ -2096,15 +2110,27 @@ export async function POST(request: Request) {
       // The ID contract must have one factual population. The legacy prompt
       // includes latest-ten and best-five/minority-mode aggregates which are
       // useful for visual panels, but are not evidence for these cards.
-      userPrompt = `\n### [SERVER_CARD_PLAN_V2]\n${JSON.stringify(serverCards.map(({ topicId, topic, question, evidenceIds, evidence: rows, context }) => ({ topicId, topic, question, evidenceIds, evidence: rows, context })))}\n### [END_SERVER_CARD_PLAN_V2]\n`;
+      userPrompt = `\n### [SERVER_CARD_PLAN_V2]\n${JSON.stringify(serverCards.map((card) => ({
+        topicId: card.topicId, topic: card.topic, question: card.question,
+        evidenceIds: card.evidenceIds,
+        evidence: card.evidence.filter((row) => card.evidenceIds.includes(row.id)),
+        context: card.context, serverComparison: buildSummaryCardComparisonText(card),
+      })))}\n### [END_SERVER_CARD_PLAN_V2]\n`;
     }
     const unavailableCards = () => serverCards.map((card) => ({ ...card, analysisStatus: "unavailable" as const, analysisReason: "AI 해석을 표시할 수 없습니다.", winner: null }));
-    const factsOnlyResponse = () => {
+    // tracked는 사용자 응답과 다른 내부 사유를 실패 기록에 남길 때 쓴다.
+    const factsOnlyResponse = (
+      errorCode = "PUBG_AI_PROVIDER_ERROR",
+      error = AI_SUMMARY_PROVIDER_ERROR_MESSAGE,
+      retryAfterSeconds = AI_SUMMARY_RETRY_AFTER_SECONDS,
+      tracked: { error?: string; errorCode?: string } = {},
+    ) => {
+      trackAiFailure(authenticatedUserId, "summary", tracked.error ?? error, { errorCode: tracked.errorCode ?? errorCode, durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
       const records = [
         { type: "visuals", data: precomputedVisuals },
         { type: "cards", data: unavailableCards() },
-        { type: "error", error: AI_SUMMARY_PROVIDER_ERROR_MESSAGE, errorCode: "PUBG_AI_PROVIDER_ERROR", retryable: true },
-        { type: "done", valid: false, error: AI_SUMMARY_PROVIDER_ERROR_MESSAGE, errorCode: "PUBG_AI_PROVIDER_ERROR", retryable: true },
+        { type: "error", error, errorCode, retryable: true, retryAfterSeconds },
+        { type: "done", valid: false, error, errorCode, retryable: true, retryAfterSeconds },
       ];
       return new Response(records.map((record) => JSON.stringify(record)).join("\n") + "\n", { headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-cache" } });
     };
@@ -2421,8 +2447,9 @@ export async function POST(request: Request) {
     if (isRouteAborted()) return abortResponse();
     const geminiApiKey = process.env.GOOGLE_GEMINI_API_KEY;
     if (!geminiApiKey) {
+      if (useIdCards) return factsOnlyResponse(undefined, undefined, undefined, { error: "No API Key", errorCode: "configuration" });
       trackAiFailure(authenticatedUserId, "summary", "No API Key", { errorCode: "configuration", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
-      return useIdCards ? factsOnlyResponse() : NextResponse.json({ error: "No API Key" }, { status: 500 });
+      return NextResponse.json({ error: "No API Key" }, { status: 500 });
     }
 
     // 기본 provider는 GOOGLE_GENERATIVE_AI_API_KEY를 읽으므로 이 route의 키를 명시적으로 넘긴다.
@@ -2470,6 +2497,7 @@ export async function POST(request: Request) {
     };
     let generationTimedOut = false;
     let modelTimeoutObserved = false;
+    let providerRateLimited = false;
     for (const modelName of modelsToTry) {
       const remainingGenerationMs = generationDeadlineAt - Date.now();
       if (remainingGenerationMs <= 0 || overallSignal.aborted || request.signal.aborted) {
@@ -2563,6 +2591,7 @@ export async function POST(request: Request) {
         break;
       } catch (err: any) {
         const errorMessage = String(err?.message || "");
+        providerRateLimited ||= isProviderRateLimited(err);
         const providerTimedOut = err?.name === "TimeoutError"
           || /timeout|timed out/i.test(errorMessage);
         const providerAborted = err?.name === "AbortError"
@@ -2594,8 +2623,12 @@ export async function POST(request: Request) {
 
     if (generationTimedOut || isRouteAborted() || (modelTimeoutObserved && !streamResult)) {
       cleanupGeneration();
-      if (useIdCards && !isRouteAborted()) return factsOnlyResponse();
+      if (useIdCards && !isRouteAborted()) return factsOnlyResponse("PUBG_AI_ROUTE_TIMEOUT", "AI 요약 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요.");
       return abortResponse();
+    }
+    if (!streamResult && providerRateLimited && useIdCards) {
+      cleanupGeneration();
+      return factsOnlyResponse("PUBG_AI_RATE_LIMITED", "AI 요청이 잠시 몰렸습니다. 1분 후 다시 시도해 주세요.", AI_SUMMARY_RATE_LIMIT_RETRY_AFTER_SECONDS);
     }
     if (!streamResult) cleanupGeneration();
 
@@ -2606,6 +2639,8 @@ export async function POST(request: Request) {
       },
       async start(controller) {
         let aiResponseText = "";
+        let finishReason: string | null = null;
+        let validationFailed = false;
         try {
           if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
 
@@ -2649,6 +2684,7 @@ export async function POST(request: Request) {
                 // 응답 도중의 provider 오류는 기존 스트림 오류 경로(error/done record)로 보낸다.
                 if (part?.type === "error") throw part.error ?? new Error("AI summary provider stream failed");
                 if (part?.type === "text-delta" && typeof part.text === "string") aiResponseText += part.text;
+                if (part?.type === "finish" && typeof part.finishReason === "string") finishReason = part.finishReason;
               }
             } finally {
               if (generationSignal.signal.aborted || isRouteAborted()) {
@@ -2679,14 +2715,19 @@ export async function POST(request: Request) {
               data: validJsonString
             }) + "\n"));
 
-            // Keep the server facts and any validated card interpretation, but
-            // never cache a rejected interpretation as a successful summary.
-            if (useIdCards && !idResult?.cacheable) throw new Error(`AI card interpretation did not pass validation: ${idResult?.rejectReasons.join(",") || "malformed"}`);
+            // 검증된 카드만 부분 완료로 제공하며, 해석이 하나도 없으면 실패한다.
+            if (useIdCards && !idResult?.usable) {
+              validationFailed = true;
+              throw new Error(`AI card interpretation did not pass validation: ${idResult?.rejectReasons.join(",") || "malformed"}`);
+            }
+            const partial = useIdCards && !idResult?.cacheable;
+            if (partial) console.warn("[AI-SUMMARY] Partial interpretation:", idResult?.rejectReasons.join(","));
 
             // 3. Write to DB Cache
             if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
             const persistenceSignal = streamResult ? generationSignal.signal : routeSignal.signal;
-            try {
+            // 부분 완료는 같은 키의 완성본 캐시를 덮어쓰지 않도록 저장하지 않는다.
+            if (!partial) try {
               const savePromise = supabase
                 .from("player_ai_summary_cache")
                 .upsert({
@@ -2697,7 +2738,7 @@ export async function POST(request: Request) {
                     ai_result: {
                       visuals: precomputedVisuals,
                       final: validJsonString,
-                      ...(useIdCards ? { schemaVersion: 2, providerFinal: finalResult } : {})
+                      ...(useIdCards ? { schemaVersion: 2, providerFinal: finalResult } : {}),
                     },
                     updated_at: new Date().toISOString()
                   }, { onConflict: "player_id,platform,match_ids_hash,prompt_version" })
@@ -2719,9 +2760,13 @@ export async function POST(request: Request) {
 
             // 3. 완료 신호
             if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
-            controller.enqueue(encoder.encode(JSON.stringify({ type: "done", valid: true }) + "\n"));
+            controller.enqueue(encoder.encode(JSON.stringify({ type: "done", valid: true,
+              ...(partial ? { partial: true, retryAfterSeconds: AI_SUMMARY_PARTIAL_RETRY_AFTER_SECONDS } : {}),
+            }) + "\n"));
           } else {
-            throw new Error("No valid JSON extracted from AI response");
+            validationFailed = useIdCards && Boolean(streamResult);
+            // 출력 한도에서 잘린 응답인지 구분할 수 있도록 길이와 종료 사유를 함께 남긴다.
+            throw new Error(`No valid JSON extracted from AI response (length=${aiResponseText.length}, finishReason=${finishReason ?? "unknown"})`);
           }
         } catch (e: any) {
           // Consumer cancellation already closes the Web Stream. It is normal
@@ -2733,8 +2778,22 @@ export async function POST(request: Request) {
           } catch {
             // Logging is best effort and must never prevent the terminal record.
           }
+          const isAbortFailure = isRouteAborted() || generationSignal.signal.aborted || e?.name === "AbortError";
+          const isRateLimited = !isAbortFailure && isProviderRateLimited(e);
+          const errorCode = isAbortFailure
+            ? request.signal.aborted
+              ? "PUBG_AI_CANONICAL_NOT_READY"
+              : "PUBG_AI_ROUTE_TIMEOUT"
+            : validationFailed ? "PUBG_AI_VALIDATION_FAILED" : isRateLimited ? "PUBG_AI_RATE_LIMITED" : "PUBG_AI_PROVIDER_ERROR";
+          const errorMessage = isAbortFailure
+            ? request.signal.aborted
+              ? "canonical match analysis is not ready"
+              : "AI summary request timed out"
+            : validationFailed ? "AI 해석의 근거를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요."
+              : isRateLimited ? "AI 요청이 잠시 몰렸습니다. 1분 후 다시 시도해 주세요." : AI_SUMMARY_PROVIDER_ERROR_MESSAGE;
           try {
             trackAiFailure(authenticatedUserId, "summary", e, {
+              errorCode,
               durationMs: Date.now() - startedAt,
               requestId,
               platform: requestedPlatform,
@@ -2747,22 +2806,13 @@ export async function POST(request: Request) {
             }
           }
 
-          const isAbortFailure = isRouteAborted() || generationSignal.signal.aborted || e?.name === "AbortError";
-          const errorCode = isAbortFailure
-            ? request.signal.aborted
-              ? "PUBG_AI_CANONICAL_NOT_READY"
-              : "PUBG_AI_ROUTE_TIMEOUT"
-            : "PUBG_AI_PROVIDER_ERROR";
-          const errorMessage = isAbortFailure
-            ? request.signal.aborted
-              ? "canonical match analysis is not ready"
-              : "AI summary request timed out"
-            : AI_SUMMARY_PROVIDER_ERROR_MESSAGE;
           const errorRecord = {
             type: "error",
             error: errorMessage,
             errorCode,
+            // 검증 탈락은 생성 결과에 따라 달라지므로 대기 후 다시 생성할 수 있다.
             retryable: true,
+            retryAfterSeconds: isRateLimited ? AI_SUMMARY_RATE_LIMIT_RETRY_AFTER_SECONDS : AI_SUMMARY_RETRY_AFTER_SECONDS,
           };
           const doneRecord = {
             type: "done",
@@ -2770,6 +2820,7 @@ export async function POST(request: Request) {
             error: errorMessage,
             errorCode,
             retryable: true,
+            retryAfterSeconds: isRateLimited ? AI_SUMMARY_RATE_LIMIT_RETRY_AFTER_SECONDS : AI_SUMMARY_RETRY_AFTER_SECONDS,
           };
           const enqueueRecord = (record: Record<string, unknown>) => {
             try {

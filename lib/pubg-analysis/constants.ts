@@ -22,7 +22,7 @@ export const RESULT_VERSION = 73.0; // [V73.0] PUBG AI 분석 정확도 감사 �
 export const TELEMETRY_VERSION = 62.0; // [V62.0] Full projection analysis and corrected coordinate/lifecycle replay cache
 export const AI_CACHE_VERSION = "2026-09-07.coaching-judgment-v4"; // Preserve population identity; reject prose from the former blame-replacement policy
 export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-scope-calc${ANALYSIS_CALCULATION_VERSION}-v6`; // 팀 관측 비교 기준(전체 팀 평균)을 프롬프트에 넣었다
-export const AI_SUMMARY_CACHE_VERSION = "2026-09-08.debate-verdict-consistency-v18"; // Summary conclusions grounded in measured outcomes; mixed/withheld judgments
+export const AI_SUMMARY_CACHE_VERSION = "2026-10-17.card-partial-comparison-v19"; // 서버 비교문과 카드별 검증·부분 완료 계약
 // Evidence marker for canonical rows written after the human BR population
 // boundary. This is deliberately independent of RESULT/telemetry/cache
 // versions so old v73/R2 rows can fail closed without a broad cache bump.

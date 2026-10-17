@@ -6,7 +6,8 @@ import { createElement, useLayoutEffect, useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import aiReady from "./fixtures/stats/ai-ready.json";
 
-const { aiState, startAnalysis, stopAnalysis, spiderChartProps } = vi.hoisted(() => ({
+const { aiState, startAnalysis, stopAnalysis, spiderChartProps, authState } = vi.hoisted(() => ({
+  authState: { user: { id: "fixture-user" } as { id: string } | null },
   aiState: { active: false },
   startAnalysis: vi.fn(() => {
     if (aiState.active) return false;
@@ -18,7 +19,7 @@ const { aiState, startAnalysis, stopAnalysis, spiderChartProps } = vi.hoisted(()
 }));
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
-vi.mock("@/components/AuthProvider", () => ({ useAuth: () => ({ user: { id: "fixture-user" } }) }));
+vi.mock("@/components/AuthProvider", () => ({ useAuth: () => authState }));
 vi.mock("@/lib/supabase", () => ({ supabase: { auth: { getSession: vi.fn().mockResolvedValue({ data: {} }) } } }));
 vi.mock("@/lib/analytics", () => ({ trackEvent: vi.fn() }));
 vi.mock("@/lib/ai-management", () => ({
@@ -213,6 +214,7 @@ describe("RecentAISummary callback bridge", () => {
   });
 
   beforeEach(() => {
+    authState.user = { id: "fixture-user" };
     aiState.active = false;
     startAnalysis.mockClear();
     stopAnalysis.mockClear();
@@ -673,7 +675,7 @@ describe("RecentAISummary callback bridge", () => {
     for (let index = 0; index < 10; index += 1) await act(async () => { await Promise.resolve(); });
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "다시 시도하기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /초 후 다시 시도하기/ })).toBeDisabled();
     expect(screen.queryByText("Partial missing visual")).not.toBeInTheDocument();
     expect(onSummaryChange.mock.calls.every(([summary]) => summary === null)).toBe(true);
   });
@@ -702,7 +704,7 @@ describe("RecentAISummary callback bridge", () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(2_500); });
     for (let index = 0; index < 10; index += 1) await act(async () => { await Promise.resolve(); });
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "다시 시도하기" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /초 후 다시 시도하기/ })).toBeDisabled();
   });
 
   it("strict final이 유효해도 route-owned visuals가 없으면 성공 UI로 전환하지 않는다", async () => {
@@ -1214,4 +1216,196 @@ describe("RecentAISummary callback bridge", () => {
     expect(beforePassiveReset).not.toContain("화력은 비슷한 조건 평균과 비교해 어떤가?");
     expect(screen.queryByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ })).not.toBeInTheDocument();
   });
+  async function flushStream() {
+    for (let index = 0; index < 15; index += 1) await act(async () => { await Promise.resolve(); });
+  }
+
+  function partialResponse(remaining = 300, cards = readyV2Cards()) {
+    return ndjsonResponse([
+      { type: "visuals", data: { overallTier: "A" } },
+      { type: "cards", data: buildV2Cards() },
+      { type: "final", data: JSON.stringify({ schemaVersion: 2, analysisStatus: "partial", cards,
+        retryAfterSeconds: 300, finalVerdict: "확인된 항목만 평가했습니다.", signature: null,
+        signatureSub: null, weaknessDiagnostic: null, actionItems: null }) },
+      { type: "done", valid: true, partial: true, retryAfterSeconds: remaining },
+    ]);
+  }
+
+  it("부분 성공은 정상 카드를 보존하고 남은 대기 시간 후 수동 요청만 허용한다", async () => {
+    vi.useFakeTimers();
+    const stream = controlledStreamResponse();
+    const fetchMock = vi.fn().mockResolvedValueOnce(partialResponse(23)).mockResolvedValueOnce(stream.response);
+    vi.stubGlobal("fetch", fetchMock);
+    const onSummaryChange = vi.fn();
+    render(createElement(RecentAISummary, { ...baseProps, onSummaryChange }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await flushStream();
+    expect(screen.getByRole("status")).toHaveTextContent("일부 해석을 보류했습니다. 확인된 경기 기록과 분석을 표시합니다.");
+    expect(screen.getByText(/확인된 항목만 평가했습니다/)).toBeInTheDocument();
+    const retry = screen.getByRole("button", { name: "23초 후 다시 시도하기" });
+    expect(retry).toBeDisabled();
+    fireEvent.click(retry);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+    fireEvent.click(screen.getByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ }));
+    expect(screen.getByText(/화력 근거를 확인했습니다/)).toBeInTheDocument();
+    expect(screen.getByText("착한맛 지지 항목")).toBeInTheDocument();
+    expect(screen.getByText("300")).toBeInTheDocument();
+    expect(screen.getByText("250")).toBeInTheDocument();
+    expect(onSummaryChange).toHaveBeenLastCalledWith({ verdict: "확인된 항목만 평가했습니다.", tier: "A", analysisMatchCount: 5, analysisScope: "스쿼드 · 경쟁전" });
+    await act(async () => { await vi.advanceTimersByTimeAsync(23_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "다시 시도하기" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도하기" }));
+    await flushStream();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    stream.push({ type: "cards", data: buildV2Cards() });
+    await flushStream();
+    expect(screen.getByText(/화력 근거를 확인했습니다/)).toBeInTheDocument();
+    // 재시도 중에는 이전 시도의 부분 완료 안내와 결론을 남기지 않는다.
+    expect(screen.queryByText(/일부 해석을 보류했습니다/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/확인된 항목만 평가했습니다/)).not.toBeInTheDocument();
+    stream.close();
+    await flushStream();
+  });
+
+  it("부분 성공 뒤 재시도가 검증에 실패하면 이전 결론을 남기지 않는다", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValueOnce(partialResponse(0)).mockResolvedValueOnce(ndjsonResponse([
+      { type: "cards", data: buildV2Cards() },
+      { type: "done", valid: false, errorCode: "PUBG_AI_VALIDATION_FAILED", retryable: true, retryAfterSeconds: 30 },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, baseProps));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await flushStream();
+    expect(screen.getByText(/확인된 항목만 평가했습니다/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도하기" }));
+    await flushStream();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(/확인된 항목만 평가했습니다/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/일부 해석을 보류했습니다/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "30초 후 다시 시도하기" })).toBeDisabled();
+  });
+
+  it.each(["evidence", "context"])("재시도 카드의 %s가 바뀌면 이전 해석을 재사용하지 않는다", async (changedField) => {
+    vi.useFakeTimers();
+    const stream = controlledStreamResponse();
+    const fetchMock = vi.fn().mockResolvedValueOnce(partialResponse(0)).mockResolvedValueOnce(stream.response);
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, baseProps));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await flushStream();
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+    fireEvent.click(screen.getByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ }));
+    expect(screen.getByText(/화력 근거를 확인했습니다/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도하기" }));
+    await flushStream();
+    const changed = buildV2Cards();
+    if (changedField === "evidence") changed[0].evidence[0].userValue = "310";
+    if (changedField === "context") changed.forEach((card) => { card.context = { ...card.context, userMatchCount: 6 }; });
+    stream.push({ type: "cards", data: changed });
+    await flushStream();
+    expect(screen.queryByText(/화력 근거를 확인했습니다/)).not.toBeInTheDocument();
+    if (changedField === "evidence") expect(screen.getByText("310")).toBeInTheDocument();
+    expect(screen.getAllByText("AI 해석 준비 중").length).toBeGreaterThan(0);
+    stream.close();
+    await flushStream();
+  });
+
+  it.each(["nickname", "platform", "matchIds", "user"])("%s 변경은 부분 성공 카드와 대기 상태를 초기화한다", async (changed) => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(partialResponse()));
+    const view = render(createElement(RecentAISummary, baseProps));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await flushStream();
+    expect(screen.getByRole("button", { name: "300초 후 다시 시도하기" })).toBeDisabled();
+    if (changed === "user") authState.user = { id: "another-user" };
+    view.rerender(createElement(RecentAISummary, {
+      ...baseProps,
+      ...(changed === "nickname" ? { nickname: "OtherPlayer" } : {}),
+      ...(changed === "platform" ? { platform: "kakao" } : {}),
+      ...(changed === "matchIds" ? { matchIds: ["different-match"] } : {}),
+    }));
+    expect(screen.queryByText(/일부 해석을 보류했습니다/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ })).toBeEnabled();
+  });
+
+  it.each(["http", "stream"])("%s 요청 제한은 60초 동안 수동 재시도도 막고 자동 요청을 하지 않는다", async (transport) => {
+    vi.useFakeTimers();
+    const failure = { error: "quota", errorCode: "PUBG_AI_RATE_LIMITED", retryable: true, retryAfterSeconds: 60 };
+    const fetchMock = vi.fn().mockResolvedValue(transport === "http"
+      ? new Response(JSON.stringify(failure), { status: 429 })
+      : ndjsonResponse([{ type: "cards", data: buildV2Cards() }, { type: "error", ...failure }, { type: "done", valid: false }]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, baseProps));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await flushStream();
+    const retry = screen.getByRole("button", { name: "60초 후 다시 시도하기" });
+    expect(retry).toBeDisabled();
+    fireEvent.click(retry);
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "다시 시도하기" })).toBeEnabled();
+  });
+
+  it("서버 시간 초과의 대기 시간 30초를 적용한다", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "cards", data: buildV2Cards() },
+      { type: "done", valid: false, errorCode: "PUBG_AI_ROUTE_TIMEOUT", retryable: true, retryAfterSeconds: 30 },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, baseProps));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await flushStream();
+    expect(screen.getByRole("button", { name: "30초 후 다시 시도하기" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ })).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "다시 시도하기" })).toBeEnabled();
+  });
+
+  it.each(["no-ready", "null-cards", "bad-delay"])("부분 성공 %s 응답을 검증 실패로 표시하고 대기 후에만 다시 요청한다", async (invalid) => {
+    vi.useFakeTimers();
+    const cards = invalid === "null-cards" ? null : invalid === "no-ready"
+      ? readyV2Cards().map((card) => ({ ...card, analysisStatus: "unavailable", winner: null })) : readyV2Cards();
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "A" } },
+      { type: "cards", data: buildV2Cards() },
+      // 카드 검증과 대기 시간 검증이 서로를 가리지 않도록 bad-delay만 대기 시간을 비운다.
+      { type: "final", data: JSON.stringify({ schemaVersion: 2, analysisStatus: "partial", cards, retryAfterSeconds: invalid === "bad-delay" ? null : 300 }) },
+      { type: "done", valid: true, partial: true },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, baseProps));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await flushStream();
+    expect(screen.queryByText(/일부 해석을 보류했습니다/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "30초 후 다시 시도하기" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "30초 후 다시 시도하기" }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(screen.getByRole("button", { name: "다시 시도하기" })).toBeEnabled();
+  });
+
+  it("서버의 검증 실패도 경기 기록을 보존하고 대기 시간 동안 재시도를 막는다", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "cards", data: buildV2Cards() },
+      { type: "done", valid: false, errorCode: "PUBG_AI_VALIDATION_FAILED", retryable: true, retryAfterSeconds: 30 },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, baseProps));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await flushStream();
+    expect(screen.getByRole("button", { name: "30초 후 다시 시도하기" })).toBeDisabled();
+    expect(screen.getByText(/분석 근거를 확인하지 못했습니다/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+    fireEvent.click(screen.getByRole("button", { name: /화력은 비슷한 조건 평균과 비교해 어떤가/ }));
+    expect(screen.getByText("300")).toBeInTheDocument();
+    expect(screen.getByText("250")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
 });

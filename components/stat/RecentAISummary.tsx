@@ -53,6 +53,7 @@ interface BenchmarkScope {
 }
 
 interface DebateData {
+  analysisStatus?: "complete" | "partial";
   debateIssues?: DebateIssue[];
   finalVerdict?: string;
   weaknessDiagnostic?: string;
@@ -512,19 +513,27 @@ class AiSummaryRequestError extends Error {
   readonly status: number;
   readonly errorCode: string | null;
   readonly retryable: boolean;
+  readonly retryAfterSeconds: number;
 
   constructor(
     message: string,
-    details: { status?: number; errorCode?: string | null; retryable?: boolean } = {},
+    details: { status?: number; errorCode?: string | null; retryable?: boolean; retryAfterSeconds?: unknown } = {},
   ) {
     super(message);
     this.name = "AiSummaryRequestError";
     this.status = details.status ?? 0;
     this.errorCode = details.errorCode ?? null;
     this.retryable = details.retryable ?? false;
+    this.retryAfterSeconds = validRetrySeconds(details.retryAfterSeconds) ?? 0;
   }
 }
 
+function validRetrySeconds(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 300
+    ? Math.ceil(value) : null;
+}
+
+const PARTIAL_SUMMARY_MESSAGE = "일부 해석을 보류했습니다. 확인된 경기 기록과 분석을 표시합니다.";
 const CALCULATION_UPGRADE_ERROR_CODE = "PUBG_CALCULATION_UPGRADE_REQUIRED";
 const CALCULATION_UPGRADE_MESSAGE = "새 계산 기준 확인이 필요한 전적입니다";
 const CALCULATION_UPGRADE_DETAIL = "기본 전적은 계속 확인할 수 있습니다. 이 화면에서는 원본 보관 여부나 갱신 진행 상태를 확인할 수 없습니다.";
@@ -541,6 +550,9 @@ export const RecentAISummary = ({
   const [summaryContractVersion, setSummaryContractVersion] = useState<2 | null>(null);
   const [loading, setLoading] = useState(false);
   const [streamingText, setStreamingText] = useState("");
+  const [retryAfterSeconds, setRetryAfterSeconds] = useState(0);
+  const retryAvailableAtRef = useRef(0);
+  const { user } = useAuth();
   const [error, setError] = useState<AiSummaryRequestError | null>(null);
   const [openIssueIdx, setOpenIssueIdx] = useState<number | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -558,7 +570,7 @@ export const RecentAISummary = ({
   const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
   const isLoadingRef = useRef(false);
   const matchIdsIdentity = matchIds.join("\u001f");
-  const identity = `${platform}\u001e${nickname}\u001e${matchIdsIdentity}`;
+  const identity = `${user?.id ?? ""}\u001e${platform}\u001e${nickname}\u001e${matchIdsIdentity}`;
   const [renderIdentity, setRenderIdentity] = useState(identity);
   const identityRef = useRef(identity);
   const generationRef = useRef(0);
@@ -570,8 +582,22 @@ export const RecentAISummary = ({
   const emittedSummaryRef = useRef<string | null>(null);
   const AI_SUMMARY_CLIENT_SAFETY_TIMEOUT_MS = 55_000;
   const { isAnalyzing: isGlobalAnalyzing } = useAIStatus();
-  const { user } = useAuth();
   const router = useRouter();
+
+  const startRetryCooldown = (value: unknown) => {
+    const seconds = validRetrySeconds(value);
+    if (seconds === null) return;
+    retryAvailableAtRef.current = Date.now() + seconds * 1000;
+    setRetryAfterSeconds(seconds);
+  };
+
+  useEffect(() => {
+    if (retryAfterSeconds <= 0) return;
+    const interval = setInterval(() => {
+      setRetryAfterSeconds(Math.max(0, Math.ceil((retryAvailableAtRef.current - Date.now()) / 1000)));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [retryAfterSeconds]);
 
   const writeSummaryCards = (cards: SummaryCard[] | null) => {
     summaryCardsRef.current = cards;
@@ -598,6 +624,7 @@ export const RecentAISummary = ({
   }, [onSummaryChange]);
 
   const handleFetchSummary = async (force = false) => {
+    if (Date.now() < retryAvailableAtRef.current) return;
     const requestedIdentity = identity;
     const requestedGeneration = generationRef.current;
     const identityIsCurrent = () => (
@@ -620,7 +647,7 @@ export const RecentAISummary = ({
     } catch (e) {
       console.warn("[AI-SUMMARY] Session refresh failed (ignored):", e);
     }
-    if (!identityIsCurrent()) return;
+    if (!identityIsCurrent() || Date.now() < retryAvailableAtRef.current) return;
 
     // [V46.1] 전역 락 체크 및 중복 실행 방지
     if (isGlobalAnalyzing || loading || isLoadingRef.current || (!force && debateData)) return;
@@ -637,7 +664,9 @@ export const RecentAISummary = ({
       // A v2 retry may still have server-assembled facts available. Keep the
       // facts visible until the replacement cards arrive (or the request is
       // reset by an identity change), while preserving the v1 reset behavior.
+      // 이전 시도의 결론·행동 제안은 새 결과가 실패하면 카드와 어긋나므로 기록만 남긴다.
       if (summaryContractVersionRef.current !== 2) setDebateData(null);
+      else setDebateData((previous) => previous ? { visuals: previous.visuals } : previous);
       textBufferRef.current = "";
       lineBufferRef.current = "";
     }
@@ -694,6 +723,7 @@ export const RecentAISummary = ({
           error?: string;
           errorCode?: string;
           retryable?: boolean;
+          retryAfterSeconds?: unknown;
         };
         if (!canWriteRequest()) return;
         throw new AiSummaryRequestError(
@@ -702,6 +732,7 @@ export const RecentAISummary = ({
             status: response.status,
             errorCode: errorData.errorCode,
             retryable: errorData.retryable === true,
+            retryAfterSeconds: errorData.retryAfterSeconds,
           },
         );
       }
@@ -725,6 +756,7 @@ export const RecentAISummary = ({
         error?: string;
         errorCode?: string;
         retryable?: boolean;
+        retryAfterSeconds?: unknown;
       } | null = null;
       // [V45.3] UI 업데이트를 위한 인터벌 (스트리밍 시각화용)
       const updateInterval = setInterval(() => {
@@ -780,6 +812,8 @@ export const RecentAISummary = ({
                   error?: string;
                   errorCode?: string;
                   retryable?: boolean;
+                  partial?: boolean;
+                  retryAfterSeconds?: unknown;
                 };
 
                 if (sawTerminalRecord) continue;
@@ -808,7 +842,15 @@ export const RecentAISummary = ({
                   markSummaryContractV2();
                   setLoading(true);
                   const cards = parseSummaryCards(parsed.data);
-                  if (cards) writeSummaryCards(cards);
+                  if (cards) writeSummaryCards(cards.map((card) => {
+                    const previous = summaryCardsRef.current?.find((entry) => entry.topicId === card.topicId
+                      && entry.context.contextId === card.context.contextId
+                      && JSON.stringify(entry.context) === JSON.stringify(card.context)
+                      && JSON.stringify(entry.evidenceIds) === JSON.stringify(card.evidenceIds)
+                      && JSON.stringify(entry.evidence) === JSON.stringify(card.evidence));
+                    return card.analysisStatus === "pending" && previous?.analysisStatus === "ready"
+                      ? previous : card;
+                  }));
                 } else if (parsed.type === "final") {
                   // [V54.3] 서버에서 보내준 최종 정제된 JSON으로 교체 (중복 방지)
                   fullText = typeof parsed.data === "string" ? parsed.data : JSON.stringify(parsed.data ?? {});
@@ -819,6 +861,7 @@ export const RecentAISummary = ({
                     error: parsed.error,
                     errorCode: parsed.errorCode,
                     retryable: parsed.retryable === true,
+                    retryAfterSeconds: parsed.retryAfterSeconds,
                   };
                   console.error("[AI-SUMMARY] Server reported failure:", parsed.error || parsed.errorCode || "unknown");
                 } else if (parsed.type === "done") {
@@ -848,7 +891,9 @@ export const RecentAISummary = ({
                         : errorCode === "PUBG_AI_ROUTE_TIMEOUT" ? 504 : 200,
                       errorCode,
                       retryable,
+                      retryAfterSeconds: failure.retryAfterSeconds,
                     });
+                    startRetryCooldown(requestError.retryAfterSeconds);
                     // Do not leave a failed stream's visual/text prefix in the
                     // successful analysis surface while a retry/CTA is shown.
                     clearPartialStreamState();
@@ -878,6 +923,18 @@ export const RecentAISummary = ({
                           || finalCards.every((card) => card.analysisStatus !== "ready")) {
                           throw new Error("Final AI summary cards contain no usable interpretation.");
                         }
+                        if (finalRecord.analysisStatus !== undefined
+                          && finalRecord.analysisStatus !== "complete" && finalRecord.analysisStatus !== "partial") {
+                          throw new Error("Final AI summary analysis status is invalid.");
+                        }
+                        if (parsed.partial === true && finalRecord.analysisStatus !== "partial") {
+                          throw new Error("Partial AI summary status is inconsistent.");
+                        }
+                        if (finalRecord.analysisStatus === "partial") {
+                          const retrySeconds = validRetrySeconds(parsed.retryAfterSeconds ?? finalRecord.retryAfterSeconds);
+                          if (retrySeconds === null) throw new Error("Partial AI summary retry delay is invalid.");
+                          startRetryCooldown(retrySeconds);
+                        }
                         markSummaryContractV2();
                         writeSummaryCards(finalCards);
                         decoded = finalRecord;
@@ -887,9 +944,13 @@ export const RecentAISummary = ({
                         decoded = JSON.parse(normalizedJson) as Record<string, unknown>;
                       }
                       const finalData: DebateData = {
+                        analysisStatus: decoded.analysisStatus === "partial" ? "partial" : "complete",
                         debateIssues: Array.isArray(decoded.debateIssues) ? decoded.debateIssues as DebateIssue[] : undefined,
                         finalVerdict: typeof decoded.finalVerdict === "string" ? decoded.finalVerdict : undefined,
-                        actionItems: Array.isArray(decoded.actionItems) ? decoded.actionItems as ActionItem[] : undefined,
+                        actionItems: Array.isArray(decoded.actionItems) ? decoded.actionItems.filter((item): item is ActionItem => (
+                          !!item && typeof item === "object" && typeof item.icon === "string"
+                          && typeof item.title === "string" && typeof item.desc === "string"
+                        )) : undefined,
                         weaknessDiagnostic: typeof decoded.weaknessDiagnostic === "string" ? decoded.weaknessDiagnostic : undefined,
                         signature: typeof decoded.signature === "string" ? decoded.signature : undefined,
                         signatureSub: typeof decoded.signatureSub === "string" ? decoded.signatureSub : undefined,
@@ -917,8 +978,10 @@ export const RecentAISummary = ({
                       const parseRequestError = new AiSummaryRequestError("분석 결과 데이터 처리에 실패했습니다.", {
                         errorCode: "PUBG_AI_INVALID_FINAL",
                         retryable: true,
+                        retryAfterSeconds: 30,
                       });
                       setError(parseRequestError);
+                      startRetryCooldown(parseRequestError.retryAfterSeconds);
 
                       // GA4 이벤트 트래킹: 10경기 요약 파싱 실패
                       trackEvent({
@@ -986,6 +1049,7 @@ export const RecentAISummary = ({
         });
 
         const requestError = err instanceof AiSummaryRequestError ? err : null;
+        if (requestError) startRetryCooldown(requestError.retryAfterSeconds);
         setError(requestError ?? new AiSummaryRequestError("AI 분석 중 오류가 발생했어요. 다시 시도해주세요."));
       }
     } finally {
@@ -1076,6 +1140,8 @@ export const RecentAISummary = ({
     setStreamingText("");
     setLoading(false);
     setError(null);
+    retryAvailableAtRef.current = 0;
+    setRetryAfterSeconds(0);
     isLoadingRef.current = false;
     textBufferRef.current = "";
     lineBufferRef.current = "";
@@ -1098,6 +1164,7 @@ export const RecentAISummary = ({
     };
   }, [identity]);
 
+  const partialSummary = debateData?.analysisStatus === "partial";
   const summaryVerdict = typeof debateData?.finalVerdict === "string"
     ? debateData.finalVerdict.trim()
     : "";
@@ -1128,7 +1195,10 @@ export const RecentAISummary = ({
   // Hide the previous selection during the render before its reset effect.
   if (renderIdentity !== identity) return null;
 
+  const retryDisabled = retryAfterSeconds > 0 || loading || isGlobalAnalyzing;
+  const retryLabel = retryAfterSeconds > 0 ? `${retryAfterSeconds}초 후 다시 시도하기` : "다시 시도하기";
   const retrySummary = () => {
+    if (retryDisabled || Date.now() < retryAvailableAtRef.current) return;
     dataIdentityRef.current = null;
     setError(null);
     if (summaryContractVersionRef.current !== 2) setDebateData(null);
@@ -1143,17 +1213,18 @@ export const RecentAISummary = ({
       <div className="p-6 bg-white/5 border border-white/10 rounded-2xl text-center">
         <BgmsIcon name="info" size={28} className="mx-auto mb-3 text-indigo-300" />
         <p className="text-gray-300 text-sm mb-1">
-          {calculationUpgradePending ? CALCULATION_UPGRADE_MESSAGE : "AI 분석이 잠깐 막혔어요."}
+          {calculationUpgradePending ? CALCULATION_UPGRADE_MESSAGE : error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "AI 해석을 확인할 수 없습니다." : "AI 분석이 잠깐 막혔어요."}
         </p>
         <p className="text-gray-500 text-xs mb-4">
-          {calculationUpgradePending ? CALCULATION_UPGRADE_DETAIL : "서버가 바쁘거나 네트워크가 불안정할 때 가끔 생겨요."}
+          {calculationUpgradePending ? CALCULATION_UPGRADE_DETAIL : error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "분석 근거를 확인하지 못했습니다. 잠시 후 다시 시도할 수 있어요." : "서버가 바쁘거나 네트워크가 불안정할 때 가끔 생겨요."}
         </p>
         {!calculationUpgradePending && (
           <button
             onClick={retrySummary}
-            className="px-5 py-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-sm hover:bg-indigo-500/30 transition-colors"
+            disabled={retryDisabled}
+            className="px-5 py-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-sm hover:bg-indigo-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            다시 시도하기
+            {retryLabel}
           </button>
         )}
       </div>
@@ -1258,17 +1329,17 @@ export const RecentAISummary = ({
           <div key={row.id || rowIdx} className="grid grid-cols-11 items-center gap-2 p-4 bg-white/5 rounded-xl border border-white/5 group hover:bg-white/10 transition-colors">
             <div className="col-span-4 text-right">
               <div className="text-lg md:text-xl font-black text-indigo-400">{row.userValue}</div>
-              <div className="text-[9px] text-gray-500 font-bold uppercase">{row.label}</div>
+              <div className="text-[9px] text-gray-400 font-bold uppercase">{row.label}</div>
             </div>
             <div className="col-span-3 flex flex-col items-center justify-center gap-1">
               <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center text-[10px] font-black text-white/20 group-hover:text-white/40 border border-white/10">VS</div>
             </div>
             <div className="col-span-4 text-left">
               <div className="text-lg md:text-xl font-black text-gray-400">{row.benchmarkValue}</div>
-              <div className="text-[9px] text-gray-500 font-bold uppercase">{neutralBenchmarkLabel(row.benchmarkLabel, {
+              <div className="text-[9px] text-gray-400 font-bold uppercase">{neutralBenchmarkLabel(row.benchmarkLabel, {
                 gameMode: card.context.gameMode, matchType: card.context.matchType, tier: card.context.tier ?? undefined,
               })}</div>
-              <div className="text-[9px] text-gray-500">{observationScope} · 비교 표본 {row.sampleCount}건</div>
+              <div className="text-[9px] text-gray-400">{observationScope} · 비교 표본 {row.sampleCount}건</div>
             </div>
             {row.metricId === "smoke_opportunity_rate" && row.denominator !== undefined && row.numerator !== undefined && (
               <p className="col-span-11 border-t border-white/5 pt-3 text-xs leading-5 text-gray-400">
@@ -1364,7 +1435,7 @@ export const RecentAISummary = ({
 
             <div className="mt-8 p-6 bg-black/40 rounded-2xl border border-white/5">
               <div className="flex flex-col gap-1 text-center md:text-left mb-8">
-                <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">분석에 사용한 기록</span>
+                <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">분석에 사용한 기록</span>
                 <span className="text-lg font-black text-white">{card.topic || "데이터"} 기록과 비교</span>
                 <p className="mt-2 text-xs leading-5 text-gray-400">
                   {debateData?.visuals?.latestMatchCount !== undefined && debateData?.visuals?.bestMatchCount !== undefined
@@ -1386,6 +1457,15 @@ export const RecentAISummary = ({
 
   return (
     <div className="w-full flex flex-col gap-6">
+      {partialSummary && !error && (
+        <div role="status" className="p-5 bg-white/5 border border-white/10 rounded-2xl text-center">
+          <p className="text-gray-300 text-sm mb-4">{PARTIAL_SUMMARY_MESSAGE}</p>
+          <button onClick={retrySummary} disabled={retryDisabled}
+            className="px-5 py-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-sm hover:bg-indigo-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            {retryLabel}
+          </button>
+        </div>
+      )}
       {summaryCards && error && (
         <div role="alert" className="p-5 bg-white/5 border border-white/10 rounded-2xl text-center">
           {error.errorCode === CALCULATION_UPGRADE_ERROR_CODE ? (
@@ -1396,12 +1476,13 @@ export const RecentAISummary = ({
           ) : (
             <>
               <p className="text-gray-300 text-sm mb-1">AI 해석을 표시할 수 없습니다.</p>
-              <p className="text-gray-500 text-xs mb-4">확인된 데이터는 아래에 표시됩니다. 잠시 후 다시 시도해주세요.</p>
+              <p className="text-gray-500 text-xs mb-4">{error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "분석 근거를 확인하지 못했습니다. 확인된 기록은 아래에 표시되며 잠시 후 다시 시도할 수 있어요." : "확인된 데이터는 아래에 표시됩니다. 잠시 후 다시 시도해주세요."}</p>
               <button
                 onClick={retrySummary}
-                className="px-5 py-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-sm hover:bg-indigo-500/30 transition-colors"
+                disabled={retryDisabled}
+                className="px-5 py-2 bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 rounded-xl text-sm hover:bg-indigo-500/30 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                다시 시도하기
+                {retryLabel}
               </button>
             </>
           )}
@@ -1423,14 +1504,14 @@ export const RecentAISummary = ({
                     최근 유효 {latestMatchRangeLabel} 중 점수 상위 {bestMatchRangeLabel} 잠재력
                   </span>
                   {debateData?.visuals?.latestMatchTime && (
-                    <span className="text-[10px] text-white/40 font-bold">{getRelativeTime(debateData.visuals.latestMatchTime)}</span>
+                    <span className="text-[10px] text-white/50 font-bold">{getRelativeTime(debateData.visuals.latestMatchTime)}</span>
                   )}
                 </div>
                 <h3 className="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-white/60 tracking-tight">
-                  {debateData?.visuals?.roleInfo?.title || "전술 분석 결과"}
+                  {partialSummary ? "확인된 경기 분석" : debateData?.visuals?.roleInfo?.title || "전술 분석 결과"}
                 </h3>
                 <p className="text-xs md:text-sm text-indigo-300/80 font-bold leading-relaxed max-w-md break-words">
-                  {debateData?.visuals?.roleInfo?.description || "데이터를 분석하여 당신의 플레이 스타일을 정의했습니다."}
+                  {partialSummary ? "확인된 항목을 먼저 표시합니다." : debateData?.visuals?.roleInfo?.description || "데이터를 분석하여 당신의 플레이 스타일을 정의했습니다."}
                 </p>
                 {calculationPendingCount > 0 && (
                   <p role="status" className="text-xs font-semibold leading-relaxed text-sky-200/80">
@@ -1443,7 +1524,7 @@ export const RecentAISummary = ({
             {/* Right: Tier Badge */}
             <div className="flex items-center justify-center bg-white/5 border border-white/10 rounded-2xl p-4 md:px-8 md:py-6 shadow-xl backdrop-blur-sm self-center md:self-auto min-w-[140px]">
               <div className="flex flex-col items-center">
-                <span className="text-[10px] text-white/30 font-black uppercase tracking-[0.2em] mb-1">점수 상위 {bestMatchRangeLabel} 잠재 티어</span>
+                <span className="text-[10px] text-white/50 font-black uppercase tracking-[0.2em] mb-1">점수 상위 {bestMatchRangeLabel} 잠재 티어</span>
                 <div className="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-white/40 drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
                   {debateData?.visuals?.overallTier || "N/A"}
                 </div>
@@ -1456,7 +1537,7 @@ export const RecentAISummary = ({
             <div className="flex-1 text-center md:text-left min-w-0">
               <p className="text-sm md:text-base text-gray-300/90 font-medium leading-relaxed italic whitespace-pre-wrap break-words">
                 &quot;{debateData?.finalVerdict || (summaryCards
-                  ? loading ? "AI 해석 준비 중" : "AI 해석을 표시할 수 없습니다."
+                  ? loading ? "AI 해석 준비 중" : partialSummary ? "확인된 카드에서 경기 기록과 분석을 확인하세요." : "AI 해석을 표시할 수 없습니다."
                   : "분석 결과를 생성 중입니다...")}&quot;
               </p>
             </div>
@@ -1572,7 +1653,7 @@ export const RecentAISummary = ({
             ].map((item, idx) => (
               <div key={idx} className="bg-white/5 border border-white/10 rounded-2xl p-5 flex flex-col gap-3 relative overflow-hidden group">
                 <div className="flex justify-between items-start">
-                  <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">{item.label}</span>
+                  <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">{item.label}</span>
                   <item.icon size={16} className="text-white/20 group-hover:text-indigo-400 transition-colors" />
                 </div>
                 <div className="flex items-end justify-between">
@@ -1602,14 +1683,14 @@ export const RecentAISummary = ({
           <div className="text-center group">
             <div className="text-3xl font-black text-green-400 mb-1">{score.kind}</div>
             <div className="text-[10px] text-green-400/60 font-bold uppercase tracking-wider group-hover:scale-110 transition-transform">
-              <InlineIconLabel icon="shield" iconSize={11}>착한맛 승</InlineIconLabel>
+              <InlineIconLabel icon="shield" iconSize={11}>{partialSummary ? "착한맛 지지 항목" : "착한맛 승"}</InlineIconLabel>
             </div>
           </div>
           <div className="h-12 w-px bg-white/10" />
           <div className="text-center group">
             <div className="text-3xl font-black text-red-400 mb-1">{score.spicy}</div>
             <div className="text-[10px] text-red-400/60 font-bold uppercase tracking-wider group-hover:scale-110 transition-transform">
-              <InlineIconLabel icon="zap" iconSize={11}>매운맛 승</InlineIconLabel>
+              <InlineIconLabel icon="zap" iconSize={11}>{partialSummary ? "매운맛 지지 항목" : "매운맛 승"}</InlineIconLabel>
             </div>
           </div>
           <div className="h-12 w-px bg-white/10" />
@@ -1764,7 +1845,7 @@ export const RecentAISummary = ({
                             </div>
                           </div>
 
-                          <div className="mt-3 text-[9px] text-gray-500 leading-tight">
+                          <div className="mt-3 text-[9px] text-gray-400 leading-tight">
                             * S(85), A+(78), A(71), B+(56), B(48) 등 13단계 세분화
                           </div>
                           {!isMobile && <div className="absolute left-[-6px] top-1/2 -translate-y-1/2 w-0 h-0 border-t-[6px] border-t-transparent border-r-[6px] border-r-white/20 border-b-[6px] border-b-transparent" />}
@@ -1800,7 +1881,7 @@ export const RecentAISummary = ({
 
                 <div className="relative z-10 space-y-4">
                   <div className="flex flex-col gap-1">
-                    <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">시그니처 무기</span>
+                    <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">시그니처 무기</span>
                     <div className="text-xl font-black text-white flex items-center gap-2">
                       <Flame size={18} className="text-orange-500 animate-pulse" />
                       {debateData.visuals.roleInfo.signatureWeapon}
@@ -1810,11 +1891,11 @@ export const RecentAISummary = ({
                   <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/10">
                     <div className="flex flex-col">
                       <span className="text-[18px] font-black text-white">{debateData.visuals.roleInfo.signatureWeaponStats?.kills || 0}</span>
-                      <span className="text-[9px] text-gray-500 font-black uppercase tracking-tighter">킬 수 (Kills)</span>
+                      <span className="text-[9px] text-gray-400 font-black uppercase tracking-tighter">킬 수 (Kills)</span>
                     </div>
                     <div className="flex flex-col">
                       <span className="text-[18px] font-black text-indigo-400">{debateData.visuals.roleInfo.signatureWeaponStats?.dbnos || 0}</span>
-                      <span className="text-[9px] text-gray-500 font-black uppercase tracking-tighter">기절 횟수 (DBNO)</span>
+                      <span className="text-[9px] text-gray-400 font-black uppercase tracking-tighter">기절 횟수 (DBNO)</span>
                     </div>
                   </div>
                 </div>
@@ -1877,7 +1958,7 @@ export const RecentAISummary = ({
                             <div className="text-[10px] md:text-[14px] font-black text-white drop-shadow-md group-hover:scale-110 transition-transform">
                               {Math.round(item.val).toLocaleString()}
                             </div>
-                            <div className="text-[7px] md:text-[9px] font-black text-white/40 uppercase">피해량</div>
+                            <div className="text-[7px] md:text-[9px] font-black text-white/50 uppercase">피해량</div>
                           </div>
                           <div
                             className={`w-full bg-gradient-to-t ${item.color} transition-all duration-1000 ease-out shadow-[0_-4px_20px_rgba(0,0,0,0.5)] relative z-10`}
@@ -1888,7 +1969,7 @@ export const RecentAISummary = ({
                         </div>
                         <div className="flex flex-col items-center gap-0.5 md:gap-1">
                           <div className="text-[10px] md:text-[14px] text-white font-black tracking-tighter md:tracking-tight whitespace-nowrap">{item.label}</div>
-                          <div className="text-[8px] md:text-[10px] text-white/40 font-black uppercase tracking-tighter whitespace-nowrap">{item.desc}</div>
+                          <div className="text-[8px] md:text-[10px] text-white/50 font-black uppercase tracking-tighter whitespace-nowrap">{item.desc}</div>
                         </div>
                       </div>
                     );
@@ -1917,7 +1998,7 @@ export const RecentAISummary = ({
                       }}
                     />
                   </div>
-                  <div className="text-[10px] md:text-[11px] text-white/40 font-bold leading-relaxed">
+                  <div className="text-[10px] md:text-[11px] text-white/50 font-bold leading-relaxed">
                     내 딜 비중 70% 이상의 <span className="text-white/70">순수 무력 솔로 킬</span>
                   </div>
                 </div>
@@ -1942,7 +2023,7 @@ export const RecentAISummary = ({
                       }}
                     />
                   </div>
-                  <div className="text-[10px] md:text-[11px] text-white/40 font-bold leading-relaxed">
+                  <div className="text-[10px] md:text-[11px] text-white/50 font-bold leading-relaxed">
                     팀원이 깎아둔 적을 <span className="text-white/70">확실히 마무리한 해결사 킬</span>
                   </div>
                 </div>
@@ -1965,19 +2046,19 @@ export const RecentAISummary = ({
                 (성공 {debateData.visuals.tactical.counts.initiative.success} / 시도 {debateData.visuals.tactical.counts.initiative.attempts})
               </div>
             )}
-            <div className="text-[9px] text-gray-500 font-medium">먼저 쐈을 때 킬 성공 비율</div>
+            <div className="text-[9px] text-gray-400 font-medium">먼저 쐈을 때 킬 성공 비율</div>
           </div>
 
           <div className="relative group p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-[28px] text-center transition-all hover:bg-emerald-500/15">
             <div className="text-[10px] text-emerald-400 font-black uppercase mb-1 tracking-widest">교전 결정력</div>
             <div className="text-3xl font-black text-white mb-1">{debateData?.visuals?.duelStats?.winRate || "0%"}</div>
-            <div className="text-[9px] text-gray-500 font-medium">1:1 교전 최종 승리 확률</div>
+            <div className="text-[9px] text-gray-400 font-medium">1:1 교전 최종 승리 확률</div>
           </div>
 
           <div className="relative group p-6 bg-pink-500/10 border border-pink-500/20 rounded-[28px] text-center transition-all hover:bg-pink-500/15">
             <div className="text-[10px] text-pink-400 font-black uppercase mb-1 tracking-widest">역전의 명수</div>
             <div className="text-3xl font-black text-white mb-1">{debateData?.visuals?.duelStats?.reversals || 0}회</div>
-            <div className="text-[9px] text-gray-500 font-medium">총 {debateData?.visuals?.duelStats?.reversalAttempts || 0}회 기습 중 승리</div>
+            <div className="text-[9px] text-gray-400 font-medium">총 {debateData?.visuals?.duelStats?.reversalAttempts || 0}회 기습 중 승리</div>
           </div>
 
           <div className="relative group p-6 bg-orange-500/10 border border-orange-500/20 rounded-[28px] text-center transition-all hover:bg-orange-500/15">
@@ -2011,7 +2092,7 @@ export const RecentAISummary = ({
                 </div>
               )}
             </div>
-            <div className="text-[9px] text-gray-500 font-medium">피격 시 교전 대응(반응) 시간</div>
+            <div className="text-[9px] text-gray-400 font-medium">피격 시 교전 대응(반응) 시간</div>
           </div>
 
           <div className="relative p-6 bg-cyan-500/10 border border-cyan-500/20 rounded-[28px] text-center transition-all hover:bg-cyan-500/15">
@@ -2045,13 +2126,13 @@ export const RecentAISummary = ({
                 </div>
               )}
             </div>
-            <div className="text-[9px] text-gray-500 font-medium">아군 피격 시 커버 소요 시간</div>
+            <div className="text-[9px] text-gray-400 font-medium">아군 피격 시 커버 소요 시간</div>
           </div>
 
           <div className="relative group p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-[28px] text-center transition-all hover:bg-emerald-500/15">
             <div className="text-[10px] text-emerald-400 font-black uppercase mb-1 tracking-widest">평균 생존 페이즈</div>
             <div className="text-3xl font-black text-white mb-1">{debateData?.visuals?.deathPhase || 0} Ph</div>
-            <div className="text-[9px] text-gray-500 font-medium">최근 {latestMatchCount}경기 평균 생존 구간</div>
+            <div className="text-[9px] text-gray-400 font-medium">최근 {latestMatchCount}경기 평균 생존 구간</div>
           </div>
         </div>
 
@@ -2071,7 +2152,7 @@ export const RecentAISummary = ({
                 {debateData?.visuals?.latestMatchTime && (
                   <div className="flex items-center gap-1.5 ml-2">
                     <div className="w-1 h-1 bg-white/20 rounded-full" />
-                    <span className="text-[10px] text-white/40 font-bold">{getRelativeTime(debateData?.visuals?.latestMatchTime || "")}</span>
+                    <span className="text-[10px] text-white/50 font-bold">{getRelativeTime(debateData?.visuals?.latestMatchTime || "")}</span>
                   </div>
                 )}
                 {debateData?.visuals?.modeDistribution && (
@@ -2079,7 +2160,7 @@ export const RecentAISummary = ({
                     <span className="px-2 py-0.5 bg-indigo-500/20 border border-indigo-500/30 rounded text-[9px] text-indigo-300 font-black tracking-tighter uppercase">
                       경쟁전 {debateData?.visuals?.modeDistribution?.ranked || 0}회
                     </span>
-                    <span className="px-2 py-0.5 bg-white/5 border border-white/10 rounded text-[9px] text-white/40 font-black tracking-tighter uppercase">
+                    <span className="px-2 py-0.5 bg-white/5 border border-white/10 rounded text-[9px] text-white/50 font-black tracking-tighter uppercase">
                       일반전 {debateData?.visuals?.modeDistribution?.normal || 0}회
                     </span>
                   </div>
@@ -2132,12 +2213,12 @@ export const RecentAISummary = ({
                 <div className="flex flex-col gap-1">
                   <span className="text-[10px] text-emerald-400 font-black uppercase">팀 전멸 (Wipes)</span>
                   <span className="text-2xl font-black text-white">{debateData?.visuals?.tactical?.counts?.enemyTeamWipes || 0}회</span>
-                  <div className="text-[9px] text-gray-500 font-bold mt-1">교전 중 적 스쿼드 전멸 기여</div>
+                  <div className="text-[9px] text-gray-400 font-bold mt-1">교전 중 적 스쿼드 전멸 기여</div>
                 </div>
                 <div className="flex flex-col gap-1">
                   <span className="text-[10px] text-purple-400 font-black uppercase">전술 대응력 (복수)</span>
                   <span className="text-2xl font-black text-white">{debateData?.visuals?.tactical?.baitCount || 0}회</span>
-                  <div className="text-[9px] text-gray-500 font-bold mt-1">{latestMatchCount}경기 합계</div>
+                  <div className="text-[9px] text-gray-400 font-bold mt-1">{latestMatchCount}경기 합계</div>
                 </div>
               </div>
             </div>
@@ -2196,7 +2277,7 @@ export const RecentAISummary = ({
 
                   <div className="mt-8 p-6 bg-black/40 rounded-2xl border border-white/5">
                     <div className="flex flex-col gap-1 text-center md:text-left mb-8">
-                      <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">데이터 증거 (전술적 증거)</span>
+                      <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">데이터 증거 (전술적 증거)</span>
                       <span className="text-lg font-black text-white">{issue?.topic || "데이터"} 상세 비교</span>
                     </div>
 
@@ -2206,7 +2287,7 @@ export const RecentAISummary = ({
                           <div key={sIdx} className="grid grid-cols-11 items-center gap-2 p-4 bg-white/5 rounded-xl border border-white/5 group hover:bg-white/10 transition-colors">
                             <div className="col-span-4 text-right">
                               <div className="text-lg md:text-xl font-black text-indigo-400">{uStat.value}</div>
-                              <div className="text-[9px] text-gray-500 font-bold uppercase">{uStat.label}</div>
+                              <div className="text-[9px] text-gray-400 font-bold uppercase">{uStat.label}</div>
                             </div>
 
                             <div className="col-span-3 flex flex-col items-center justify-center gap-1">
@@ -2215,7 +2296,7 @@ export const RecentAISummary = ({
 
                             <div className="col-span-4 text-left">
                               <div className="text-lg md:text-xl font-black text-gray-400">{bStat?.value || "N/A"}</div>
-                              <div className="text-[9px] text-gray-500 font-bold uppercase">{neutralBenchmarkLabel(bStat?.label || uStat.label, debateData?.visuals?.benchmarkScope)}</div>
+                              <div className="text-[9px] text-gray-400 font-bold uppercase">{neutralBenchmarkLabel(bStat?.label || uStat.label, debateData?.visuals?.benchmarkScope)}</div>
                             </div>
                           </div>
                         );
