@@ -121,6 +121,46 @@ describe("경기 흐름 판정", () => {
     ]);
     expect(report.heal.healthRestored).toBe(0);
   });
+
+  it("리콜·재배치로 생긴 체력은 회복으로 세지 않는다", () => {
+    const report = run([
+      damage(90, A1, ME, 60), position(100, { ...ME, health: 40 }), kill(105, A1, ME),
+      { _T: "LogPlayerRecall", _D: at(200), recalledPlayer: actor(ME) },
+      position(210, { ...ME, health: 100 }),
+      damage(300, A1, ME, 30), position(301, { ...ME, health: 70 }),
+      { _T: "LogHeal", _D: at(310), character: actor({ ...ME, health: 90 }) },
+    ]);
+    expect(report.heal).toMatchObject({ damageTaken: 90, healthRestored: 20 });
+  });
+
+  it.each([
+    { type: "LogPlayerRedeployBRStart", actors: { characters: [{ character: actor(ME) }] } },
+    { type: "LogPlayerRedeployBrStart", actors: { characters: [actor(ME)] } },
+    { type: "LogPlayerRecallShip", actors: { recalledPlayers: [{ character: actor(ME) }] } },
+    { type: "LogPlayerRedeploy", actors: { character: actor(ME) } },
+    { type: "LogPlayerCreate", actors: { character: actor(ME) } },
+  ])("$type의 복귀 참가자는 사망과 체력 초기화에 반영한다", ({ type, actors }) => {
+    const report = run([
+      position(100, { ...ME, health: 40 }), kill(105, A1, ME),
+      { _T: type, _D: at(200), ...actors }, position(210, ME),
+      damage(300, A1, ME, 30), position(301, { ...ME, health: 70 }),
+      { _T: "LogHeal", _D: at(310), character: actor({ ...ME, health: 90 }) },
+    ]);
+    expect(report.death).toBeNull();
+    expect(report.heal.healthRestored).toBe(20);
+  });
+
+  it("21번째 이후 교전의 치료도 교전 중 치료로 센다", () => {
+    const earlier = Array.from({ length: 20 }, (_, i) => damage(100 + i * 100, ME, B1, 10));
+    const report = run([
+      ...earlier,
+      damage(5_000, A1, ME, 30),
+      { _T: "LogItemUse", _D: at(5_005), character: actor(ME), item: { itemId: "Item", subCategory: "Heal" } },
+      damage(5_010, ME, A1, 30),
+    ]);
+    expect(report.fights).toHaveLength(20);
+    expect(report.heal.midFightHeals).toBe(1);
+  });
 });
 
 describe("사망 유형", () => {
@@ -148,6 +188,29 @@ describe("사망 유형", () => {
       damage(100, ME, A1, 150), damage(101, A1, ME), kill(102, A1, ME),
     ]);
     expect(report.death).toMatchObject({ type: "isolated", nearestTeammateM: 300 });
+  });
+
+  it("사망 이후 팀원의 이동·사망은 고립 판정을 바꾸지 않는다", () => {
+    const base = [
+      position(95, { ...MATE, x: 30_000 }), position(96, { ...ME, x: 0 }),
+      damage(100, ME, A1, 150), damage(101, A1, ME), kill(102, A1, ME),
+    ];
+    expect(run([...base, position(110, { ...MATE, x: 0 })]).death).toMatchObject({ type: "isolated", nearestTeammateM: 300 });
+    expect(run([...base, kill(120, B1, MATE)]).death).toMatchObject({ type: "isolated", nearestTeammateM: 300 });
+  });
+
+  it("앞선 교전이 20개를 넘어도 마지막 교전으로 사망 유형을 판정한다", () => {
+    const last = [
+      position(3_990, { ...ME, x: 0 }), position(3_995, { ...MATE, x: 0 }),
+      damage(4_000, ME, A1, 150), damage(4_001, A1, ME, 30),
+      position(4_005, { ...ME, x: 10_000 }), position(4_010, { ...ME, x: 20_000 }),
+      damage(4_011, ME, A1, 150), kill(4_015, A1, ME),
+    ];
+    const earlier = Array.from({ length: 20 }, (_, i) => damage(100 + i * 100, ME, B1, 10));
+    const alone = run(last).death;
+    const afterMany = run([...earlier, ...last]).death;
+    expect(alone).toMatchObject({ type: "isolated", openedBy: "us", movedBeforeFightM: null });
+    expect(afterMany).toEqual(alone);
   });
 
   it("자기장 피해로 죽으면 자기장, 기절 뒤 출혈이면 출혈사", () => {
