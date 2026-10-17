@@ -35,7 +35,7 @@ const {
 
   return {
     mockAbortSignal,
-    mockCreateClient: vi.fn(async () => ({ from: vi.fn(() => chain) })),
+    mockCreateClient: vi.fn(() => ({ from: vi.fn(() => chain) })),
     mockIlike,
     mockLike,
     mockLimit,
@@ -44,8 +44,8 @@ const {
   };
 });
 
-vi.mock("@/utils/supabase/server", () => ({
-  createClient: mockCreateClient,
+vi.mock("@/lib/server/serviceRoleSupabase.server", () => ({
+  createServiceRoleSupabase: mockCreateClient,
 }));
 vi.mock("@/lib/pubg/privatePlayers", () => ({
   isPlayerPrivate: vi.fn().mockResolvedValue(false),

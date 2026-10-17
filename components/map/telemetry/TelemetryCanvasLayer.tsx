@@ -4,11 +4,16 @@ import React, { useEffect, useRef } from "react";
 import { useMap } from "react-leaflet";
 import L from "leaflet";
 import { toCalibratedCoords } from "../../../utils/coordinate";
+import { buildPositionTracks, samplePosition, type PositionSample } from "../../../lib/replay/replayInterpolation";
+import { classifyThrowable, isCombatDamageCause, type ReplayThrowableKind } from "../../../lib/pubg-analysis/replayEventKinds";
+import { collectTeamEngagements, recentOpponents, type ReplayEngagement } from "../../../lib/replay/replayEngagements";
+
+// 따라가기를 시작할 때 맞추는 최소 줌(CRS.Simple, 0이 원본 해상도). 기본 화면(-3)보다 8배 확대다.
+const FOLLOW_MIN_ZOOM = 0;
 
 interface TelemetryCanvasLayerProps {
   telemetryData: any;
   showZones?: boolean;
-  isHighPrecision?: boolean;
   showPlayerNames?: boolean;
   showFlightPath?: boolean;
 }
@@ -24,6 +29,106 @@ function drawPlaneGlyph(ctx: CanvasRenderingContext2D, scale: number) {
   ctx.fill();
 }
 
+// 위성 지도 위에서도 읽히도록 이름 뒤에 어두운 칩을 깐다. (x, y)는 글자 가운데다.
+function drawNameLabel(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, color: string, font: string) {
+  ctx.font = font;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const width = ctx.measureText(text)?.width ?? text.length * 6;
+  ctx.fillStyle = "rgba(0,0,0,0.72)";
+  ctx.beginPath();
+  if ((ctx as any).roundRect) (ctx as any).roundRect(x - width / 2 - 4, y - 7, width + 8, 14, 4);
+  else ctx.rect(x - width / 2 - 4, y - 7, width + 8, 14);
+  ctx.fill();
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+}
+
+const THROW_MARKER_MS = 3_000;
+const BLAST_MARKER_MS = 1_500;
+/** 보급 상자는 착지 뒤 계속 표시하고, 착지 직후 이 시간 동안만 이름표를 붙인다. */
+const CARE_PACKAGE_LABEL_MS = 20_000;
+const HIT_LINE_MS = 600;
+
+const THROWABLE_STYLES: Record<ReplayThrowableKind, { color: string; label: string }> = {
+  smoke: { color: "#cbd5e1", label: "연막" },
+  grenade: { color: "#f97316", label: "수류탄" },
+  molotov: { color: "#ef4444", label: "화염병" },
+  flash: { color: "#fde047", label: "섬광" },
+  bluezone: { color: "#3b82f6", label: "블루존 수류탄" },
+  sticky: { color: "#f97316", label: "점착 폭탄" },
+  c4: { color: "#f97316", label: "C4" },
+  cover: { color: "#a3e635", label: "엄폐 신호탄" },
+  flare: { color: "#f43f5e", label: "신호탄" },
+};
+
+// 효과 라벨은 선수 이름표에 가려지지 않도록 모아 두었다가 선수를 그린 뒤 맨 위에 그린다.
+type OverlayLabel = { text: string; x: number; y: number; color: string; alpha: number };
+
+// 선수 이름표. 중요도가 높은 것(나 → 따라가는 선수 → 아군 → 적)부터 놓고, 겹치면 위로 비켜 놓는다.
+type NameLabel = { text: string; x: number; y: number; color: string; font: string; priority: number };
+const LABEL_HEIGHT = 14;
+const LABEL_STEP = 15;
+const MAX_LABEL_SHIFTS = 4;
+
+function drawNameLabels(ctx: CanvasRenderingContext2D, labels: NameLabel[]) {
+  const placed: { left: number; right: number; top: number; bottom: number }[] = [];
+  [...labels].sort((a, b) => a.priority - b.priority).forEach((label) => {
+    ctx.font = label.font;
+    const width = (ctx.measureText(label.text)?.width ?? label.text.length * 6) + 8;
+    let y = label.y;
+    for (let shift = 0; shift < MAX_LABEL_SHIFTS; shift++) {
+      const top = y - LABEL_HEIGHT / 2, bottom = y + LABEL_HEIGHT / 2;
+      const left = label.x - width / 2, right = label.x + width / 2;
+      if (!placed.some((r) => left < r.right && right > r.left && top < r.bottom && bottom > r.top)) break;
+      y -= LABEL_STEP;
+    }
+    placed.push({ left: label.x - width / 2, right: label.x + width / 2, top: y - LABEL_HEIGHT / 2, bottom: y + LABEL_HEIGHT / 2 });
+    drawNameLabel(ctx, label.text, label.x, y, label.color, label.font);
+  });
+}
+
+// 던진 사람 위치에 투척물 종류를 짧게 표시한다. 착탄 지점은 텔레메트리에 없어 그리지 않는다.
+// 라벨은 선수 이름표(마커 위)와 겹치지 않게 마커 아래에 둔다.
+function drawThrowMarker(ctx: CanvasRenderingContext2D, x: number, y: number, kind: ReplayThrowableKind, progress: number, labels: OverlayLabel[]) {
+  const style = THROWABLE_STYLES[kind];
+  ctx.save();
+  ctx.globalAlpha = 1 - progress;
+  ctx.beginPath(); ctx.arc(x, y, 8 + progress * 16, 0, Math.PI * 2);
+  ctx.strokeStyle = style.color; ctx.lineWidth = 2; ctx.stroke();
+  ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2);
+  ctx.fillStyle = style.color; ctx.fill();
+  ctx.strokeStyle = "#000000"; ctx.lineWidth = 1; ctx.stroke();
+  ctx.restore();
+  labels.push({ text: style.label, x, y: y + 26, color: style.color, alpha: Math.min(1, 2 * (1 - progress)) });
+}
+
+// 보급 상자 착지 위치. 내용물은 리플레이 데이터에 없어 위치와 착지 시각만 그린다.
+function drawCarePackage(ctx: CanvasRenderingContext2D, x: number, y: number, fresh: boolean, labels: OverlayLabel[]) {
+  ctx.save();
+  ctx.fillStyle = "#ef4444";
+  ctx.strokeStyle = "#ffffff";
+  ctx.lineWidth = 1.5;
+  ctx.fillRect(x - 6, y - 6, 12, 12);
+  ctx.strokeRect(x - 6, y - 6, 12, 12);
+  ctx.beginPath(); ctx.moveTo(x - 6, y); ctx.lineTo(x + 6, y); ctx.stroke();
+  ctx.restore();
+  if (fresh) labels.push({ text: "보급", x, y: y + 22, color: "#fca5a5", alpha: 1 });
+}
+
+// 폭발·화염 피해를 받은 사람 위치에 표시한다(폭발 지점이 아니라 피해 위치 기준).
+function drawBlastMarker(ctx: CanvasRenderingContext2D, x: number, y: number, cause: string, progress: number, labels: OverlayLabel[]) {
+  const color = cause === "fire" ? "239, 68, 68" : "249, 115, 22";
+  ctx.save();
+  ctx.beginPath(); ctx.arc(x, y, 10 + progress * 14, 0, Math.PI * 2);
+  ctx.fillStyle = `rgba(${color}, ${0.45 * (1 - progress)})`; ctx.fill();
+  ctx.strokeStyle = `rgba(${color}, ${1 - progress})`; ctx.lineWidth = 2; ctx.stroke();
+  ctx.restore();
+  if (cause !== "fire") {
+    labels.push({ text: cause === "grenade" ? "수류탄 피해" : "폭발 피해", x, y: y + 28, color: "#fdba74", alpha: 1 - progress });
+  }
+}
+
 function drawVehicleGlyph(ctx: CanvasRenderingContext2D) {
   ctx.fillRect(-9, -4, 18, 8);
   ctx.fillRect(-6, -8, 12, 5);
@@ -36,7 +141,6 @@ function drawVehicleGlyph(ctx: CanvasRenderingContext2D) {
 export const TelemetryCanvasLayer = ({ 
   telemetryData, 
   showZones = true, 
-  isHighPrecision = false,
   showFlightPath = true
 }: TelemetryCanvasLayerProps): React.ReactElement | null => {
   const map = useMap();
@@ -45,39 +149,27 @@ export const TelemetryCanvasLayer = ({
   const dataRef = useRef(telemetryData);
   const optionsRef = useRef({ showZones, showFlightPath });
   const effectEventsRef = useRef<any[]>([]);
-  const posLogsRef = useRef<Record<string, { x: number, y: number, t: number, rotation: number }[]>>({});
+  const carePackagesRef = useRef<any[]>([]);
+  const tracksRef = useRef<Map<string, PositionSample[]>>(new Map());
   const flightPathRef = useRef<{ start: {x: number, y: number}, end: {x: number, y: number} } | null>(null);
+  const requestDrawRef = useRef<() => void>(() => {});
+  const engagementsRef = useRef<ReplayEngagement[]>([]);
+  const followStartRef = useRef<(name: string) => void>(() => {});
 
   useEffect(() => {
     dataRef.current = telemetryData;
     optionsRef.current = { showZones, showFlightPath };
+    requestDrawRef.current();
   }, [telemetryData, showZones, showFlightPath]);
 
   useEffect(() => {
     const evs = telemetryData.events;
-    effectEventsRef.current = (evs || []).filter((ev:any) => {
-      const type = String(ev._T || ev.type || "");
-      return ["groggy","kill","grenade","smoke","flash","molotov","bluezone","shield","damage","shot"].includes(type) || type.includes("Attack");
-    });
-    if (!evs) { posLogsRef.current = {}; flightPathRef.current = null; return; }
-    const newLogs: Record<string, any[]> = {};
-    evs.forEach((ev: any) => {
-      const type = (ev._T || ev.type || "").toString();
-      if (type === "position" || type === "enemy_position" || type === "LogPlayerPosition") {
-        const name = (ev.name || ev.character?.name || "").trim().toLowerCase();
-        if (!name) return;
-        if (!newLogs[name]) newLogs[name] = [];
-        const loc = ev.location || ev;
-        newLogs[name].push({ 
-          t: ev.relativeTimeMs, 
-          x: loc.x, 
-          y: loc.y, 
-          rotation: ev.rotation || ev.character?.rotation || 0 
-        });
-      }
-    });
-    Object.keys(newLogs).forEach(name => newLogs[name].sort((a, b) => a.t - b.t));
-    posLogsRef.current = newLogs;
+    effectEventsRef.current = (evs || []).filter((ev: any) =>
+      ["groggy", "kill", "throw", "damage", "shot"].includes(String(ev.type || "")));
+    carePackagesRef.current = (evs || []).filter((ev: any) =>
+      ev.type === "carepackage_land" && Number.isFinite(ev.x) && Number.isFinite(ev.y) && Number.isFinite(ev.relativeTimeMs));
+    if (!evs) { tracksRef.current = new Map(); flightPathRef.current = null; return; }
+    tracksRef.current = buildPositionTracks(evs);
 
     let startPt: {x: number, y: number} | null = null;
     let endPt: {x: number, y: number} | null = null;
@@ -99,7 +191,13 @@ export const TelemetryCanvasLayer = ({
     } else {
       flightPathRef.current = null;
     }
+    requestDrawRef.current();
   }, [telemetryData.events]);
+
+  useEffect(() => {
+    engagementsRef.current = collectTeamEngagements(telemetryData.events || [], telemetryData.teamNames || []);
+    requestDrawRef.current();
+  }, [telemetryData.events, telemetryData.teamNames]);
 
   useEffect(() => {
     if (!map) return;
@@ -114,23 +212,39 @@ export const TelemetryCanvasLayer = ({
     pane.appendChild(canvas);
     canvasRef.current = canvas;
 
-    const getInterpolatedPos = (rawName: string, time: number) => {
-      const name = (rawName || "").trim().toLowerCase();
-      const logs = posLogsRef.current[name];
-      if (!logs || logs.length === 0) return null;
-      if (time <= logs[0].t) return logs[0];
-      if (time >= logs[logs.length - 1].t) return logs[logs.length - 1];
-      let low = 0, high = logs.length - 1;
-      while (low <= high) {
-        const mid = Math.floor((low + high) / 2);
-        if (logs[mid].t < time) low = mid + 1;
-        else high = mid - 1;
-      }
-      const p1 = logs[Math.max(0, low - 1)], p2 = logs[low];
-      if (!p1 || !p2 || p1.t === p2.t) return p1 || p2;
-      const r = (time - p1.t) / (p2.t - p1.t);
-      return { x: p1.x + (p2.x - p1.x) * r, y: p1.y + (p2.y - p1.y) * r, rotation: p1.rotation + (p2.rotation - p1.rotation) * r };
+    const getInterpolatedPos = (rawName: string, time: number) =>
+      samplePosition(tracksRef.current.get((rawName || "").trim().toLowerCase()), time);
+
+    const findLivePlayer = (name: string) => {
+      const playhead = dataRef.current?.playheadRef?.current;
+      const states = playhead?.states ?? dataRef.current?.currentStates ?? {};
+      const timeMs = playhead?.timeMs ?? dataRef.current?.currentTimeMs ?? 0;
+      const target = name.trim().toLowerCase();
+      const state = Object.values(states).find((p: any) => typeof p?.name === "string" && p.name.trim().toLowerCase() === target) as any;
+      if (!state || state.isDead) return null;
+      const pos = getInterpolatedPos(state.name, timeMs) || { x: state.x, y: state.y };
+      if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y) || pos.x < 0 || pos.y < 0) return null;
+      return toCalibratedCoords(pos.x, pos.y, dataRef.current.mapName);
     };
+
+    // 따라가는 선수를 화면 가운데에 둔다. 1px 미만 차이는 무시해 멈춘 상태에서 다시 그리기가 반복되지 않게 한다.
+    const keepFollowedPlayerCentered = () => {
+      const name = dataRef.current?.followPlayer;
+      if (!name || dataRef.current?.isActive === false) return;
+      const target = findLivePlayer(name);
+      if (!target) return;
+      const point = map.latLngToContainerPoint(target);
+      const center = map.getSize().divideBy(2);
+      if (Math.abs(point.x - center.x) >= 1 || Math.abs(point.y - center.y) >= 1) {
+        map.panTo(target, { animate: false });
+      }
+    };
+
+    followStartRef.current = (name: string) => {
+      const target = findLivePlayer(name);
+      if (target) map.setView(target, Math.max(map.getZoom(), FOLLOW_MIN_ZOOM), { animate: true });
+    };
+    const cancelFollowOnDrag = () => dataRef.current?.onFollowCancel?.();
 
     const getPoint = (lat: number, lng: number) => {
       if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -145,21 +259,33 @@ export const TelemetryCanvasLayer = ({
       }
     };
 
+    // 재생 중에만 매 프레임 그리고, 멈춘 상태에서는 지도 이동이나 데이터 변경 때만 다시 그린다.
+    const requestDraw = () => {
+      if (animationRef.current === null) animationRef.current = requestAnimationFrame(draw);
+    };
+
     const draw = () => {
+      animationRef.current = null;
       if (!canvas || !map) return;
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
 
-      const { currentStates: states, currentTimeMs, zoneEvents, showZone } = dataRef.current || {};
+      // 재생 시각과 선수 상태는 React 렌더를 거치지 않는 playheadRef에서 매 프레임 읽는다.
+      const playhead = dataRef.current?.playheadRef?.current;
+      const states = playhead?.states ?? dataRef.current?.currentStates;
+      const currentTimeMs = playhead?.timeMs ?? dataRef.current?.currentTimeMs;
+      const { zoneEvents, showZone } = dataRef.current || {};
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      if (!states || dataRef.current?.isActive === false) {
-        animationRef.current = requestAnimationFrame(draw); 
-        return; 
-      }
+      if (!states || dataRef.current?.isActive === false) return;
 
+      keepFollowedPlayerCentered();
       const size = map.getSize(), dpr = window.devicePixelRatio || 1;
-      canvas.width = size.x * dpr; canvas.height = size.y * dpr;
-      canvas.style.width = `${size.x}px`; canvas.style.height = `${size.y}px`;
+      // 크기를 다시 대입하면 매 프레임 백버퍼가 재할당되므로 실제로 바뀐 경우에만 설정한다.
+      const backingWidth = Math.round(size.x * dpr), backingHeight = Math.round(size.y * dpr);
+      if (canvas.width !== backingWidth || canvas.height !== backingHeight) {
+        canvas.width = backingWidth; canvas.height = backingHeight;
+        canvas.style.width = `${size.x}px`; canvas.style.height = `${size.y}px`;
+      }
       L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([0, 0]));
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -274,202 +400,108 @@ export const TelemetryCanvasLayer = ({
         }
       }
 
-      // [B] 전투 이펙트
+      // [B] 전투 이펙트. 텔레메트리에 투척물 착탄·폭발 좌표와 방향이 없으므로
+      // 던진 사람 위치·피해자 위치·피해 이벤트의 공격자 좌표처럼 실제 기록된 좌표만 그린다.
+      const overlayLabels: OverlayLabel[] = [];
+      carePackagesRef.current.forEach((ev: any) => {
+        const ageMs = currentTimeMs - ev.relativeTimeMs;
+        if (ageMs < 0) return;
+        const pt = getPoint(ev.y, ev.x);
+        if (pt.x === -9999) return;
+        drawCarePackage(ctx, pt.x, pt.y, ageMs < CARE_PACKAGE_LABEL_MS, overlayLabels);
+      });
       if (effectEventsRef.current.length) {
         effectEventsRef.current.forEach((ev: any) => {
-          const type = (ev._T || ev.type || "").toString();
+          const type = String(ev.type || "");
           const ageMs = currentTimeMs - (ev.relativeTimeMs || 0);
-          
-          if (ageMs < 0 || ageMs > 40000) return;
-          if (["groggy","kill"].includes(type) && dataRef.current.showCombatDots === false) return;
-          if ((["shot","damage"].includes(type) || type.includes("Attack")) && dataRef.current.showShotDots === false) return;
-          if (typeof ev.x !== "number" || typeof ev.y !== "number" || isNaN(ev.x) || isNaN(ev.y)) return;
-          
+          if (ageMs < 0 || ageMs > THROW_MARKER_MS) return;
+          if ((type === "groggy" || type === "kill") && dataRef.current.showCombatDots === false) return;
+          if ((type === "shot" || type === "damage") && dataRef.current.showShotDots === false) return;
+          if (!Number.isFinite(ev.x) || !Number.isFinite(ev.y)) return;
           const pt = getPoint(ev.y, ev.x);
           if (pt.x === -9999) return;
-          let rendered = false;
 
-          // 1. 기절 효과
-          if ((type === "groggy" || type === "kill") && ageMs >= 0 && ageMs < 2500) {
+          if (type === "groggy" || type === "kill") {
+            if (ageMs >= 2500) return;
             const t = ageMs / 2500;
             ctx.beginPath();
             ctx.arc(pt.x, pt.y, Math.max(0, 100 * t * zoomScale), 0, Math.PI * 2);
             ctx.strokeStyle = `rgba(251, 191, 36, ${1 - t})`;
             ctx.lineWidth = 6 * (1 - t);
             ctx.stroke();
-            rendered = true;
-          } 
-          
-          if (!rendered) {
-            // [VFX 1] 수류탄 폭발
-            if (type === "grenade" && ageMs >= 0 && ageMs < 3000) {
-              const t = ageMs / 3000;
-              const rad = 80 * zoomScale;
-              ctx.beginPath();
-              ctx.arc(pt.x, pt.y, Math.max(0, rad * t), 0, Math.PI * 2); 
-              ctx.strokeStyle = `rgba(255, 255, 255, ${0.9 * (1 - t)})`;
-              ctx.lineWidth = 6 * (1 - t);
-              ctx.stroke();
-              
-              ctx.beginPath();
-              ctx.arc(pt.x, pt.y, Math.max(0, (rad * 0.5) * (1 - t)), 0, Math.PI * 2);
-              ctx.fillStyle = `rgba(255, 80, 0, ${0.9 * (1 - t)})`;
-              ctx.fill();
-
-              if (ev.name && ageMs < 5000) {
-                ctx.fillStyle = "white";
-                ctx.font = `bold ${Math.max(9, 11 * zoomScale)}px Pretendard`;
-                ctx.textAlign = "center";
-                ctx.fillText(ev.isEstimated ? `${ev.name}의 수류탄 (예측)` : `${ev.name}의 수류탄`, pt.x, pt.y - (rad * 0.6));
-              }
-              rendered = true;
-            } 
-            // [VFX 2] 연막탄 구름
-            else if (type === "smoke" && ageMs >= 0 && ageMs < 40000) {
-              let op = 0.75, sc = 1.0;
-              if (ageMs < 4000) { op = (ageMs / 4000) * 0.75; sc = 0.4 + (ageMs / 4000) * 0.6; }
-              else if (ageMs > 30000) { op = (1 - (ageMs - 30000) / 10000) * 0.75; }
-              
-              const rad = 45 * sc * zoomScale;
-              ctx.save();
-              ctx.globalAlpha = Math.max(0, Math.min(op, 1));
-              
-              if (ev.isEstimated) {
-                ctx.setLineDash([5, 5]);
-                ctx.strokeStyle = "rgba(255,255,255,0.5)";
-                ctx.lineWidth = 1;
-                ctx.strokeRect(pt.x - rad, pt.y - rad, rad*2, rad*2);
-              }
-
-              ctx.beginPath();
-              for (let a = 0; a < Math.PI * 2; a += Math.PI / 4) {
-                const ox = Math.cos(a) * rad * 0.5;
-                const oy = Math.sin(a) * rad * 0.5;
-                ctx.moveTo(pt.x + ox, pt.y + oy);
-                ctx.arc(pt.x + ox, pt.y + oy, Math.max(0, rad * 0.8), 0, Math.PI * 2);
-              }
-              ctx.fillStyle = "#ffffff";
-              ctx.fill();
-
-              if (ev.name && ageMs < 5000) {
-                ctx.fillStyle = "white";
-                ctx.font = `bold ${Math.max(9, 11 * zoomScale)}px Pretendard`;
-                ctx.textAlign = "center";
-                ctx.fillText(ev.isEstimated ? `${ev.name}의 연막 (예측)` : `${ev.name}의 연막`, pt.x, pt.y - (rad + 10));
-              }
-              ctx.restore();
-              rendered = true;
-            }
-            // [VFX 3] 섬광탄
-            else if (type === "flash" && ageMs >= 0 && ageMs < 2000) {
-              const t = ageMs / 2000;
-              const rad = 150 * zoomScale;
-              ctx.beginPath();
-              ctx.arc(pt.x, pt.y, rad * (1 - t), 0, Math.PI * 2);
-              ctx.fillStyle = `rgba(255, 255, 255, ${0.8 * (1 - t)})`;
-              ctx.fill();
-              rendered = true;
-            }
-            // [VFX 4] 화염병
-            else if (type === "molotov" && ageMs >= 0 && ageMs < 10000) {
-              const t = ageMs / 10000;
-              const rad = (40 + Math.sin(ageMs / 100) * 5) * zoomScale;
-              ctx.beginPath();
-              ctx.arc(pt.x, pt.y, rad, 0, Math.PI * 2);
-              ctx.fillStyle = `rgba(255, 60, 0, ${0.6 * (1 - t)})`;
-              ctx.fill();
-              rendered = true;
-            }
-            // [VFX 5] 블루존 수류탄
-            else if (type === "bluezone" && ageMs >= 0 && ageMs < 10000) {
-              const t = ageMs / 10000;
-              const rad = 100 * zoomScale;
-              ctx.beginPath();
-              ctx.arc(pt.x, pt.y, rad, 0, Math.PI * 2);
-              ctx.strokeStyle = `rgba(0, 150, 255, ${0.8 * (1 - t)})`;
-              ctx.lineWidth = 4;
-              ctx.stroke();
-              ctx.fillStyle = `rgba(0, 100, 255, ${0.2 * (1 - t)})`;
-              ctx.fill();
-              rendered = true;
-            }
-            // [VFX 6] 긴급 엄폐 (Shield)
-            else if (type === "shield" && ageMs >= 0 && ageMs < 40000) {
-              const op = ageMs > 35000 ? (1 - (ageMs - 35000) / 5000) : 1;
-              const w = 30 * zoomScale, h = 16 * zoomScale;
-              ctx.save();
-              ctx.globalAlpha = Math.max(0, op);
-              ctx.fillStyle = "#707070";
-              ctx.fillRect(pt.x - w/2, pt.y - h/2, w, h);
-              ctx.strokeStyle = "#ffffff";
-              ctx.lineWidth = 1;
-              ctx.strokeRect(pt.x - w/2, pt.y - h/2, w, h);
-
-              if (ev.name && ageMs < 5000) {
-                ctx.fillStyle = "white";
-                ctx.font = `bold ${Math.max(9, 11 * zoomScale)}px Pretendard`;
-                ctx.textAlign = "center";
-                ctx.fillText(ev.isEstimated ? `${ev.name}의 엄폐 (예측)` : `${ev.name}의 엄폐`, pt.x, pt.y - h/2 - 10);
-              }
-              ctx.restore();
-              rendered = true;
-            }
-            // [고정밀 전용] 사격 궤적
-            else if (isHighPrecision && type === "damage" && ageMs >= 0 && ageMs < 600) {
-              const op = 1 - (ageMs / 600);
-              const attacker = getInterpolatedPos(ev.attackerName, currentTimeMs);
-              const victim = getInterpolatedPos(ev.victimName, currentTimeMs);
-              if (attacker && victim) {
-                const aPt = getPoint(attacker.y, attacker.x), vPt = getPoint(victim.y, victim.x);
-                ctx.beginPath();
-                ctx.moveTo(aPt.x, aPt.y);
-                ctx.lineTo(vPt.x, vPt.y);
-                ctx.strokeStyle = `rgba(255, 50, 50, ${op})`;
-                ctx.lineWidth = 3.5 * op;
-                ctx.stroke();
-              }
-              rendered = true;
-            }
+            return;
           }
-          
-          // 3. 총구 화염 (Muzzle Flash)
-          if (!rendered && (type === "shot" || type.includes("Attack")) && ageMs >= 0 && ageMs < 400) {
-            const op = 1 - (ageMs / 400);
-            const rot = (ev.rotation || 0) * (Math.PI / 180);
-            
-            ctx.save();
-            ctx.translate(pt.x, pt.y);
-            if (ev.vX != null && ev.vY != null) {
-              const angle = Math.atan2(ev.vY, ev.vX);
-              ctx.rotate(angle);
-            } else {
-              ctx.rotate(rot - Math.PI / 2);
-            }
 
+          if (type === "throw") {
+            const kind = (ev.throwable as ReplayThrowableKind | undefined) ?? classifyThrowable(ev.weapon);
+            if (kind && THROWABLE_STYLES[kind]) drawThrowMarker(ctx, pt.x, pt.y, kind, ageMs / THROW_MARKER_MS, overlayLabels);
+            return;
+          }
+
+          if (type === "damage") {
+            // 폭발·화염은 자기 투척물에 맞은 경우도 실제 피해 위치이므로 그린다.
+            if (ev.cause === "grenade" || ev.cause === "explosion" || ev.cause === "fire") {
+              if (ageMs < BLAST_MARKER_MS) drawBlastMarker(ctx, pt.x, pt.y, ev.cause, ageMs / BLAST_MARKER_MS, overlayLabels);
+              return;
+            }
+            // 자기장·낙하처럼 공격자와 피해자가 같은 피해는 명중선을 그리지 않는다.
+            if (!ev.attackerName || ev.attackerName === ev.victimName) return;
+            if (!isCombatDamageCause(ev.cause) || ageMs >= HIT_LINE_MS) return;
+            if (!Number.isFinite(ev.attackerX) || !Number.isFinite(ev.attackerY)) return;
+            const from = getPoint(ev.attackerY, ev.attackerX);
+            const op = 1 - ageMs / HIT_LINE_MS;
             ctx.beginPath();
-            ctx.arc(0, 0, 24 * op * zoomScale, 0, Math.PI * 2);
+            ctx.moveTo(from.x, from.y);
+            ctx.lineTo(pt.x, pt.y);
+            ctx.strokeStyle = `rgba(255, 80, 80, ${op * 0.9})`;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, 3.5, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255, 120, 120, ${op})`;
+            ctx.fill();
+            return;
+          }
+
+          // 총구 화염: 사격 방향 값이 없으므로 방향 없는 원으로만 표시한다.
+          if (type === "shot" && ageMs < 400) {
+            const op = 1 - ageMs / 400;
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, 24 * op * zoomScale, 0, Math.PI * 2);
             ctx.fillStyle = `rgba(255, 230, 100, ${op})`;
             ctx.fill();
-            
             ctx.beginPath();
-            ctx.arc(0, 0, 12 * op * zoomScale, 0, Math.PI * 2);
-            ctx.fillStyle = `white`;
+            ctx.arc(pt.x, pt.y, 12 * op * zoomScale, 0, Math.PI * 2);
+            ctx.fillStyle = "white";
             ctx.fill();
-            ctx.restore();
           }
         });
       }
 
       // [C] 플레이어 & 차량 (기존 로직 유지)
       const hidden = (name:string) => (dataRef.current.hiddenPlayers || []).some((value:string) => value.trim().toLowerCase() === name.trim().toLowerCase());
+      // 이름 자동 표시: 아군, 따라가는 선수, 최근 아군과 교전한 상대. "전체"면 모두 표시한다.
+      const opponents = recentOpponents(engagementsRef.current, currentTimeMs);
+      const followed = (dataRef.current.followPlayer || "").trim().toLowerCase();
+      const showName = (player: any) => {
+        if (dataRef.current.showPlayerNames || player.name === dataRef.current.nickname || !player.isEnemy) return true;
+        const name = String(player.name || "").trim().toLowerCase();
+        return name === followed || opponents.has(name);
+      };
       const handledVehicles = new Set();
+      const nameLabels: NameLabel[] = [];
+      const labelPriority = (player: any) => {
+        const name = String(player.name || "").trim().toLowerCase();
+        if (player.name === dataRef.current.nickname) return 0;
+        if (followed && name === followed) return 1;
+        return player.isEnemy ? 3 : 2;
+      };
       Object.values(states).forEach((p: any) => {
         if (p.isDead || hidden(p.name)) return;
-        const pos = getInterpolatedPos(p.name, currentTimeMs) || { x: p.x, y: p.y, rotation: 0 };
+        const pos = getInterpolatedPos(p.name, currentTimeMs) || { x: p.x, y: p.y };
         const pt = getPoint(pos.y, pos.x);
         const isMe = p.name === dataRef.current.nickname;
         const isGroggy = p.isGroggy;
-        const isTeam = !p.isEnemy;
         const radius = isMe ? 12 : 9;
 
         if (p.isInVehicle && p.vehicleId) {
@@ -481,31 +513,43 @@ export const TelemetryCanvasLayer = ({
 
           ctx.save();
           ctx.translate(pt.x, pt.y);
-          if (pos.rotation) ctx.rotate((pos.rotation * Math.PI) / 180);
           
           if (isAirplane) {
              ctx.fillStyle = "#e5e7eb";
              drawPlaneGlyph(ctx, zoomScale);
           } else {
+            // 차량은 선수 점보다 눈에 띄지 않게 작게 그린다.
             ctx.fillStyle = "rgba(40,40,40,0.9)";
             ctx.strokeStyle = "#ffffff";
-            ctx.lineWidth = 2;
+            ctx.lineWidth = 1.5;
             ctx.beginPath();
-            if ((ctx as any).roundRect) (ctx as any).roundRect(-22, -14, 44, 28, 6);
-            else ctx.rect(-22, -14, 44, 28);
+            if ((ctx as any).roundRect) (ctx as any).roundRect(-14, -9, 28, 18, 4);
+            else ctx.rect(-14, -9, 28, 18);
             ctx.fill(); ctx.stroke();
+            if (followed && occupants.some((m) => String(m.name).trim().toLowerCase() === followed)) {
+              ctx.beginPath();
+              if ((ctx as any).roundRect) (ctx as any).roundRect(-18, -13, 36, 26, 6);
+              else ctx.rect(-18, -13, 36, 26);
+              ctx.strokeStyle = "#38bdf8"; ctx.lineWidth = 2.5; ctx.stroke();
+            }
+            // 아이콘 아래에 탑승자 색 점을 찍어 누가 타고 있는지 보이게 한다(기절은 빨강).
+            occupants.forEach((m, i) => {
+              ctx.beginPath();
+              ctx.arc(-((occupants.length - 1) * 8) / 2 + i * 8, 13, 3.5, 0, Math.PI * 2);
+              ctx.fillStyle = m.isGroggy ? "#ff0000" : (m.color || "#ffffff");
+              ctx.fill();
+              ctx.strokeStyle = "#000000"; ctx.lineWidth = 1; ctx.stroke();
+            });
             ctx.fillStyle = "#ffffff";
+            ctx.scale(0.65, 0.65);
             drawVehicleGlyph(ctx);
           }
           ctx.restore();
 
           if (!isAirplane) {
-            occupants.forEach((m, i) => {
-              if (dataRef.current.showPlayerNames || m.name === dataRef.current.nickname) {
-                ctx.font = "bold 10px Pretendard";
-                ctx.fillStyle = m.isGroggy ? "#ff4444" : "#ffffff";
-                ctx.textAlign = "center";
-                ctx.fillText(m.name, pt.x, pt.y - 20 - (i * 12));
+            occupants.forEach((m) => {
+              if (showName(m)) {
+                nameLabels.push({ text: m.name, x: pt.x, y: pt.y - 18, color: m.isGroggy ? "#ff4444" : "#ffffff", font: "bold 10px Pretendard", priority: labelPriority(m) });
               }
             });
           }
@@ -525,6 +569,10 @@ export const TelemetryCanvasLayer = ({
         ctx.strokeStyle = isGroggy ? "#ffffff" : (isMe ? "#ffffff" : "#000000");
         ctx.lineWidth = isGroggy ? 3 : (isMe ? 2.5 : 1.5);
         ctx.stroke();
+        if (followed && String(p.name).trim().toLowerCase() === followed) {
+          ctx.beginPath(); ctx.arc(0, 0, radius + 4, 0, Math.PI * 2);
+          ctx.strokeStyle = "#38bdf8"; ctx.lineWidth = 2.5; ctx.stroke();
+        }
 
         const hpPct = Math.max(0, p.health / 100);
         const barWidth = radius * 2.5;
@@ -538,29 +586,44 @@ export const TelemetryCanvasLayer = ({
           ctx.fillText(p.teamId.toString(), 0, 0);
         }
 
-        if (dataRef.current.showPlayerNames || isMe || (isTeam && isGroggy)) {
-          ctx.font = isMe ? "bold 12px Pretendard" : "bold 10px Pretendard";
-          ctx.fillStyle = isGroggy ? "#ff4444" : "#ffffff"; ctx.textAlign = "center";
-          ctx.shadowColor = "black"; ctx.shadowBlur = 4;
-          ctx.fillText(p.name, 0, -radius - 12);
-          ctx.shadowBlur = 0;
+        ctx.restore();
+        if (showName(p)) {
+          nameLabels.push({ text: p.name, x: pt.x, y: pt.y - radius - 12, color: isGroggy ? "#ff4444" : "#ffffff", font: isMe ? "bold 12px Pretendard" : "bold 10px Pretendard", priority: labelPriority(p) });
         }
+      });
+      drawNameLabels(ctx, nameLabels);
+
+      overlayLabels.forEach((label) => {
+        ctx.save();
+        ctx.globalAlpha = label.alpha;
+        drawNameLabel(ctx, label.text, label.x, label.y, label.color, "bold 10px Pretendard");
         ctx.restore();
       });
 
       ctx.restore();
-      animationRef.current = requestAnimationFrame(draw);
+      if (dataRef.current?.isPlaying) requestDraw();
     };
 
-    const reset = () => { if (animationRef.current) cancelAnimationFrame(animationRef.current); animationRef.current = requestAnimationFrame(draw); };
-    map.on("viewreset move moveend zoomend", reset);
-    reset();
+    requestDrawRef.current = requestDraw;
+    map.on("viewreset move moveend zoom zoomend resize", requestDraw);
+    map.on("dragstart", cancelFollowOnDrag);
+    requestDraw();
     return () => {
-      map.off("viewreset move moveend zoomend", reset);
+      map.off("viewreset move moveend zoom zoomend resize", requestDraw);
+      map.off("dragstart", cancelFollowOnDrag);
+      requestDrawRef.current = () => {};
+      followStartRef.current = () => {};
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
       if (pane && canvas) try { pane.removeChild(canvas); } catch (e) {}
     };
-  }, [map, isHighPrecision]);
+  }, [map]);
+
+  // 지도 effect가 followStartRef를 연결한 뒤에 실행되도록 그 아래에 둔다.
+  const followPlayer: string | null = telemetryData.followPlayer ?? null;
+  useEffect(() => {
+    if (followPlayer) followStartRef.current(followPlayer);
+  }, [followPlayer]);
 
   return null;
 };

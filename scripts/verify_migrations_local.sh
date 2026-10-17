@@ -98,6 +98,14 @@ MIGRATIONS=(
   "20261014220000_pubg_ranking_prebuild_all_filters"
   "20261014230000_pubg_ranking_seed_commit_first"
   "20261015010000_suggest_similar_players_two_stage"
+  "20261015120000_player_match_row_extras"
+  "20261016010000_performance_jobs_newest_first"
+  "20261017010000_public_column_privacy_prepare"
+  "20261017020000_public_column_privacy_revoke"
+  "20261017030000_comments_count_hotfix"
+  "20261017040000_comments_column_privacy_reapply"
+  "20261017050000_close_player_data_tables"
+  "20261017060000_revoke_unused_client_write_grants"
 )
 
 cleanup() {
@@ -239,6 +247,7 @@ wait "$pending_registration_second_pid"
 "${PSQL[@]}" -f tests/fixtures/migration-check/hotdrop-count-atomic.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/admin-profile-save.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/participant_match_retention_scope_checks.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/player-match-row-extras-checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retention_legacy_binding_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retention_match_type_recovery_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/legacy_team_retention_recovery_checks.sql
@@ -347,6 +356,7 @@ fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/team-benchmark-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-coexistence-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retained-performance-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/performance-jobs-newest-first-checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/encounter-page-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/match-discovery-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/scoped-match-discovery-scenarios.sql
@@ -387,6 +397,8 @@ fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v3-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/support-center-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/public-column-privacy-checks.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/client-grant-hardening-checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-cache-concurrency-setup.sql
 # 요청은 집계하지 않고 등록만 한다. 동시 요청 두 개가 등록 행 하나만 만든다.
 "${PSQL[@]}" -c "set role service_role; select public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73)->>'pending';" &

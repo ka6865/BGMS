@@ -26,6 +26,1721 @@
   "matchType": "competitive",
   "totalTeams": 16,
   "totalPlayers": 64,
+  "botCount": 12,
+  "matchReport": {
+    "version": 2,
+    "landing": {
+      "timeMs": 54941,
+      "enemiesNear": 0,
+      "enemiesFar": 10,
+      "teamsNear": 0
+    },
+    "fights": [
+      {
+        "startMs": 605107,
+        "endMs": 606328,
+        "opponentTeamIds": [
+          14
+        ],
+        "opponents": [
+          "Enemy01",
+          "Enemy02"
+        ],
+        "dealt": 84,
+        "taken": 0,
+        "enemyDowns": 0,
+        "teamDowns": 0,
+        "openedBy": "us",
+        "outcome": "brokeOff"
+      },
+      {
+        "startMs": 830078,
+        "endMs": 865174,
+        "opponentTeamIds": [
+          8,
+          29
+        ],
+        "opponents": [
+          "Enemy27",
+          "Enemy09"
+        ],
+        "dealt": 141,
+        "taken": 63,
+        "enemyDowns": 1,
+        "teamDowns": 0,
+        "openedBy": "us",
+        "outcome": "won"
+      },
+      {
+        "startMs": 1001223,
+        "endMs": 1001223,
+        "opponentTeamIds": [
+          20
+        ],
+        "opponents": [
+          "Enemy10"
+        ],
+        "dealt": 0,
+        "taken": 0,
+        "enemyDowns": 1,
+        "teamDowns": 0,
+        "openedBy": "us",
+        "outcome": "won"
+      },
+      {
+        "startMs": 1046650,
+        "endMs": 1072279,
+        "opponentTeamIds": [
+          3,
+          23
+        ],
+        "opponents": [
+          "Enemy35",
+          "Enemy38"
+        ],
+        "dealt": 74,
+        "taken": 57,
+        "enemyDowns": 2,
+        "teamDowns": 0,
+        "openedBy": "us",
+        "outcome": "won"
+      },
+      {
+        "startMs": 1131573,
+        "endMs": 1131573,
+        "opponentTeamIds": [
+          19
+        ],
+        "opponents": [
+          "Enemy59"
+        ],
+        "dealt": 0,
+        "taken": 11,
+        "enemyDowns": 0,
+        "teamDowns": 0,
+        "openedBy": "them",
+        "outcome": "brokeOff"
+      },
+      {
+        "startMs": 1164995,
+        "endMs": 1194815,
+        "opponentTeamIds": [
+          28
+        ],
+        "opponents": [
+          "Enemy15"
+        ],
+        "dealt": 48,
+        "taken": 45,
+        "enemyDowns": 0,
+        "teamDowns": 0,
+        "openedBy": "them",
+        "outcome": "brokeOff"
+      },
+      {
+        "startMs": 1237654,
+        "endMs": 1237654,
+        "opponentTeamIds": [
+          28
+        ],
+        "opponents": [
+          "Enemy15"
+        ],
+        "dealt": 48,
+        "taken": 0,
+        "enemyDowns": 0,
+        "teamDowns": 0,
+        "openedBy": "us",
+        "outcome": "brokeOff"
+      },
+      {
+        "startMs": 1382000,
+        "endMs": 1405000,
+        "opponentTeamIds": [
+          19,
+          28
+        ],
+        "opponents": [
+          "Enemy07",
+          "Enemy12"
+        ],
+        "dealt": 96,
+        "taken": 210,
+        "enemyDowns": 0,
+        "teamDowns": 2,
+        "openedBy": "them",
+        "outcome": "lost"
+      }
+    ],
+    "death": {
+      "timeMs": 1405000,
+      "phase": 7,
+      "type": "thirdParty",
+      "killer": "Enemy07",
+      "killerTeamId": 19,
+      "killerIsBot": false,
+      "weapon": "WeapBerylM762_C",
+      "cause": "gun",
+      "distanceM": 64,
+      "knockedAtMs": 1398000,
+      "teamsInLastMinute": 2,
+      "movedBeforeFightM": 40,
+      "inVehicle": false,
+      "nearestTeammateM": 18,
+      "openedBy": "them"
+    },
+    "circles": [
+      {
+        "index": 1,
+        "phase": 1,
+        "timeMs": 100281,
+        "status": "outside",
+        "outsideByM": 694
+      },
+      {
+        "index": 2,
+        "phase": 2,
+        "timeMs": 520278,
+        "status": "inside",
+        "outsideByM": null
+      },
+      {
+        "index": 3,
+        "phase": 3,
+        "timeMs": 700263,
+        "status": "inside",
+        "outsideByM": null
+      },
+      {
+        "index": 4,
+        "phase": 4,
+        "timeMs": 880259,
+        "status": "outside",
+        "outsideByM": 121
+      },
+      {
+        "index": 5,
+        "phase": 5,
+        "timeMs": 1060283,
+        "status": "outside",
+        "outsideByM": 98
+      },
+      {
+        "index": 6,
+        "phase": 6,
+        "timeMs": 1240267,
+        "status": "outside",
+        "outsideByM": 27
+      }
+    ],
+    "heal": {
+      "damageTaken": 262,
+      "healthRestored": 230,
+      "heals": 3,
+      "boosts": 7,
+      "midFightHeals": 0
+    },
+    "kills": [
+      {
+        "timeMs": 73360,
+        "killer": "Enemy21",
+        "killerTeamId": 11,
+        "victim": "Enemy54",
+        "victimTeamId": 27,
+        "victimIsBot": false,
+        "weapon": "WeapAK47_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 73362,
+        "killer": "Enemy21",
+        "killerTeamId": 11,
+        "victim": "Enemy58",
+        "victimTeamId": 27,
+        "victimIsBot": false,
+        "weapon": "WeapAK47_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 87482,
+        "killer": "Enemy13",
+        "killerTeamId": 32,
+        "victim": "Enemy46",
+        "victimTeamId": 6,
+        "victimIsBot": false,
+        "weapon": "WeapAK47_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 96274,
+        "killer": "Enemy59",
+        "killerTeamId": 19,
+        "victim": "Enemy36",
+        "victimTeamId": 18,
+        "victimIsBot": false,
+        "weapon": "WeapMini14_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 99689,
+        "killer": "Enemy53",
+        "killerTeamId": 15,
+        "victim": "Enemy39",
+        "victimTeamId": 11,
+        "victimIsBot": false,
+        "weapon": "WeapThompson_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 104970,
+        "killer": "Enemy26",
+        "killerTeamId": 30,
+        "victim": "Enemy42",
+        "victimTeamId": 31,
+        "victimIsBot": false,
+        "weapon": "WeapUZI_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 113289,
+        "killer": "Enemy33",
+        "killerTeamId": 32,
+        "victim": "Enemy41",
+        "victimTeamId": 6,
+        "victimIsBot": false,
+        "weapon": "WeapWinchester_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 122884,
+        "killer": "Enemy03",
+        "killerTeamId": 30,
+        "victim": "Enemy04",
+        "victimTeamId": 31,
+        "victimIsBot": false,
+        "weapon": "WeapAK47_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 129839,
+        "killer": "Enemy04",
+        "killerTeamId": 31,
+        "victim": "Enemy26",
+        "victimTeamId": 30,
+        "victimIsBot": false,
+        "weapon": "WeapAK47_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 129842,
+        "killer": "Enemy28",
+        "killerTeamId": 23,
+        "victim": "Enemy03",
+        "victimTeamId": 30,
+        "victimIsBot": false,
+        "weapon": "WeapHK416_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 135626,
+        "killer": "Enemy53",
+        "killerTeamId": 15,
+        "victim": "Enemy21",
+        "victimTeamId": 11,
+        "victimIsBot": false,
+        "weapon": "WeapThompson_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 253026,
+        "killer": "Enemy53",
+        "killerTeamId": 15,
+        "victim": "Enemy47",
+        "victimTeamId": 17,
+        "victimIsBot": false,
+        "weapon": "WeapMP5K_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 253233,
+        "killer": "Enemy53",
+        "killerTeamId": 15,
+        "victim": "Enemy14",
+        "victimTeamId": 17,
+        "victimIsBot": false,
+        "weapon": "WeapMP5K_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 276821,
+        "killer": "Enemy37",
+        "killerTeamId": 25,
+        "victim": "Enemy11",
+        "victimTeamId": 5,
+        "victimIsBot": false,
+        "weapon": "WeapKar98k_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 276825,
+        "killer": "Enemy37",
+        "killerTeamId": 25,
+        "victim": "Enemy31",
+        "victimTeamId": 5,
+        "victimIsBot": false,
+        "weapon": "WeapKar98k_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 290437,
+        "killer": "Enemy48",
+        "killerTeamId": 19,
+        "victim": "Enemy40",
+        "victimTeamId": 18,
+        "victimIsBot": false,
+        "weapon": "WeapAUG_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 407756,
+        "killer": "Enemy53",
+        "killerTeamId": 15,
+        "victim": "Enemy50",
+        "victimTeamId": 4,
+        "victimIsBot": false,
+        "weapon": "WeapAK47_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 450905,
+        "killer": "Enemy49",
+        "killerTeamId": 20,
+        "victim": "Enemy08",
+        "victimTeamId": 24,
+        "victimIsBot": false,
+        "weapon": "WeapAK47_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 489386,
+        "killer": "Enemy57",
+        "killerTeamId": 28,
+        "victim": "Enemy25",
+        "victimTeamId": 9,
+        "victimIsBot": false,
+        "weapon": "WeapHK416_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 489390,
+        "killer": "Enemy57",
+        "killerTeamId": 28,
+        "victim": "Enemy12",
+        "victimTeamId": 9,
+        "victimIsBot": false,
+        "weapon": "WeapHK416_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 497280,
+        "killer": "Enemy10",
+        "killerTeamId": 20,
+        "victim": "Enemy20",
+        "victimTeamId": 24,
+        "victimIsBot": false,
+        "weapon": "WeapDragunov_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 577953,
+        "killer": "Enemy15",
+        "killerTeamId": 28,
+        "victim": "Enemy30",
+        "victimTeamId": 21,
+        "victimIsBot": false,
+        "weapon": "WeapKar98k_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 676329,
+        "killer": "Enemy52",
+        "killerTeamId": 26,
+        "victim": "Enemy56",
+        "victimTeamId": 21,
+        "victimIsBot": false,
+        "weapon": "WeapAUG_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 699282,
+        "killer": "Enemy53",
+        "killerTeamId": 15,
+        "victim": "Enemy22",
+        "victimTeamId": 4,
+        "victimIsBot": false,
+        "weapon": "WeapAUG_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 722790,
+        "killer": "Enemy23",
+        "killerTeamId": 7,
+        "victim": "Enemy51",
+        "victimTeamId": 25,
+        "victimIsBot": false,
+        "weapon": "WeapSCAR-L_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 789937,
+        "killer": "Enemy13",
+        "killerTeamId": 32,
+        "victim": "Enemy19",
+        "victimTeamId": 2,
+        "victimIsBot": false,
+        "weapon": "WeapBerylM762_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 789942,
+        "killer": "Enemy13",
+        "killerTeamId": 32,
+        "victim": "Enemy60",
+        "victimTeamId": 2,
+        "victimIsBot": false,
+        "weapon": "WeapBerylM762_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 824346,
+        "killer": "Enemy57",
+        "killerTeamId": 28,
+        "victim": "Enemy45",
+        "victimTeamId": 8,
+        "victimIsBot": false,
+        "weapon": "WeapKar98k_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 853297,
+        "killer": "Enemy32",
+        "killerTeamId": 3,
+        "victim": "Enemy01",
+        "victimTeamId": 14,
+        "victimIsBot": false,
+        "weapon": "WeapSKS_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 853301,
+        "killer": "Enemy43",
+        "killerTeamId": 7,
+        "victim": "Enemy02",
+        "victimTeamId": 14,
+        "victimIsBot": false,
+        "weapon": "WeapAUG_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 858287,
+        "killer": "Enemy35",
+        "killerTeamId": 3,
+        "victim": "Enemy43",
+        "victimTeamId": 7,
+        "victimIsBot": false,
+        "weapon": "WeapKar98k_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 881268,
+        "killer": null,
+        "killerTeamId": null,
+        "victim": "Enemy37",
+        "victimTeamId": 25,
+        "victimIsBot": false,
+        "weapon": "",
+        "cause": "other"
+      },
+      {
+        "timeMs": 890907,
+        "killer": "Enemy49",
+        "killerTeamId": 20,
+        "victim": "Enemy24",
+        "victimTeamId": 29,
+        "victimIsBot": false,
+        "weapon": "WeapM24_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 913328,
+        "killer": "Enemy10",
+        "killerTeamId": 20,
+        "victim": "Enemy23",
+        "victimTeamId": 7,
+        "victimIsBot": false,
+        "weapon": "WeapACE32_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 946177,
+        "killer": "Enemy53",
+        "killerTeamId": 15,
+        "victim": "Enemy55",
+        "victimTeamId": 16,
+        "victimIsBot": false,
+        "weapon": "WeapAUG_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 946254,
+        "killer": null,
+        "killerTeamId": null,
+        "victim": "Enemy32",
+        "victimTeamId": 3,
+        "victimIsBot": false,
+        "weapon": "",
+        "cause": "other"
+      },
+      {
+        "timeMs": 970479,
+        "killer": "Enemy13",
+        "killerTeamId": 32,
+        "victim": "Enemy57",
+        "victimTeamId": 28,
+        "victimIsBot": false,
+        "weapon": "WeapBerylM762_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 980896,
+        "killer": "Enemy53",
+        "killerTeamId": 15,
+        "victim": "Enemy29",
+        "victimTeamId": 16,
+        "victimIsBot": false,
+        "weapon": "WeapAUG_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 981963,
+        "killer": "Enemy34",
+        "killerTeamId": 15,
+        "victim": "Enemy53",
+        "victimTeamId": 15,
+        "victimIsBot": false,
+        "weapon": "",
+        "cause": "other"
+      },
+      {
+        "timeMs": 981968,
+        "killer": "Enemy35",
+        "killerTeamId": 3,
+        "victim": "Enemy34",
+        "victimTeamId": 15,
+        "victimIsBot": false,
+        "weapon": "WeapKar98k_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1001223,
+        "killer": "PlayerOne",
+        "killerTeamId": 1,
+        "victim": "Enemy10",
+        "victimTeamId": 20,
+        "victimIsBot": false,
+        "weapon": "WeapM24_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1003436,
+        "killer": "Enemy49",
+        "killerTeamId": 20,
+        "victim": "Enemy09",
+        "victimTeamId": 8,
+        "victimIsBot": false,
+        "weapon": "WeapM24_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1041133,
+        "killer": "Enemy13",
+        "killerTeamId": 32,
+        "victim": "Enemy18",
+        "victimTeamId": 12,
+        "victimIsBot": false,
+        "weapon": "WeapKar98k_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1046850,
+        "killer": "PlayerOne",
+        "killerTeamId": 1,
+        "victim": "Enemy35",
+        "victimTeamId": 3,
+        "victimIsBot": false,
+        "weapon": "WeapMG3_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1064016,
+        "killer": "Enemy38",
+        "killerTeamId": 23,
+        "victim": "Enemy49",
+        "victimTeamId": 20,
+        "victimIsBot": false,
+        "weapon": "WeapM249_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1072274,
+        "killer": "Enemy49",
+        "killerTeamId": 20,
+        "victim": "Enemy28",
+        "victimTeamId": 23,
+        "victimIsBot": false,
+        "weapon": "WeapBerylM762_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1072279,
+        "killer": "SquadMate",
+        "killerTeamId": 1,
+        "victim": "Enemy38",
+        "victimTeamId": 23,
+        "victimIsBot": false,
+        "weapon": "WeapMP5K_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1091046,
+        "killer": "Enemy13",
+        "killerTeamId": 32,
+        "victim": "Enemy44",
+        "victimTeamId": 10,
+        "victimIsBot": false,
+        "weapon": "WeapBerylM762_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1120550,
+        "killer": "Enemy05",
+        "killerTeamId": 10,
+        "victim": "Enemy13",
+        "victimTeamId": 32,
+        "victimIsBot": false,
+        "weapon": "WeapRPD_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1120554,
+        "killer": "Enemy05",
+        "killerTeamId": 10,
+        "victim": "Enemy33",
+        "victimTeamId": 32,
+        "victimIsBot": false,
+        "weapon": "WeapRPD_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1144970,
+        "killer": "Enemy15",
+        "killerTeamId": 28,
+        "victim": "Enemy06",
+        "victimTeamId": 26,
+        "victimIsBot": false,
+        "weapon": "WeapKar98k_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1179416,
+        "killer": "Enemy15",
+        "killerTeamId": 28,
+        "victim": "Enemy52",
+        "victimTeamId": 26,
+        "victimIsBot": false,
+        "weapon": "WeapMG3_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1272148,
+        "killer": "Enemy17",
+        "killerTeamId": 13,
+        "victim": "Enemy07",
+        "victimTeamId": 12,
+        "victimIsBot": false,
+        "weapon": "WeapHK416_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1373899,
+        "killer": "Enemy15",
+        "killerTeamId": 28,
+        "victim": "Enemy27",
+        "victimTeamId": 29,
+        "victimIsBot": false,
+        "weapon": "WeapMG3_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1401000,
+        "killer": "Enemy12",
+        "killerTeamId": 28,
+        "victim": "SquadMate",
+        "victimTeamId": 1,
+        "victimIsBot": false,
+        "weapon": "WeapM416_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1405000,
+        "killer": "Enemy07",
+        "killerTeamId": 19,
+        "victim": "PlayerOne",
+        "victimTeamId": 1,
+        "victimIsBot": false,
+        "weapon": "WeapBerylM762_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1493991,
+        "killer": "Enemy48",
+        "killerTeamId": 19,
+        "victim": "Enemy16",
+        "victimTeamId": 13,
+        "victimIsBot": false,
+        "weapon": "WeapBerylM762_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1498660,
+        "killer": "Enemy59",
+        "killerTeamId": 19,
+        "victim": "Enemy17",
+        "victimTeamId": 13,
+        "victimIsBot": false,
+        "weapon": "WeapAUG_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1675792,
+        "killer": "Enemy05",
+        "killerTeamId": 10,
+        "victim": "Enemy15",
+        "victimTeamId": 28,
+        "victimIsBot": false,
+        "weapon": "WeapRPD_C",
+        "cause": "gun"
+      },
+      {
+        "timeMs": 1690415,
+        "killer": "Enemy59",
+        "killerTeamId": 19,
+        "victim": "Enemy05",
+        "victimTeamId": 10,
+        "victimIsBot": false,
+        "weapon": "ProjGrenade_C",
+        "cause": "grenade"
+      }
+    ],
+    "teams": [
+      {
+        "teamId": 10,
+        "rank": 1,
+        "kills": 3,
+        "damage": 297,
+        "players": [
+          {
+            "name": "Enemy05",
+            "kills": 3,
+            "damage": 279,
+            "isBot": false
+          },
+          {
+            "name": "Enemy44",
+            "kills": 0,
+            "damage": 18,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 19,
+        "rank": 2,
+        "kills": 5,
+        "damage": 620,
+        "players": [
+          {
+            "name": "Enemy59",
+            "kills": 3,
+            "damage": 246,
+            "isBot": true
+          },
+          {
+            "name": "Enemy48",
+            "kills": 2,
+            "damage": 374,
+            "isBot": true
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 1,
+        "rank": 3,
+        "kills": 5,
+        "damage": 639,
+        "players": [
+          {
+            "name": "SquadMate",
+            "kills": 1,
+            "damage": 41,
+            "isBot": false
+          },
+          {
+            "name": "PlayerOne",
+            "kills": 4,
+            "damage": 598,
+            "isBot": false
+          }
+        ],
+        "isMine": true
+      },
+      {
+        "teamId": 28,
+        "rank": 4,
+        "kills": 7,
+        "damage": 1092,
+        "players": [
+          {
+            "name": "Enemy57",
+            "kills": 3,
+            "damage": 181,
+            "isBot": false
+          },
+          {
+            "name": "Enemy15",
+            "kills": 4,
+            "damage": 911,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 13,
+        "rank": 5,
+        "kills": 1,
+        "damage": 266,
+        "players": [
+          {
+            "name": "Enemy16",
+            "kills": 0,
+            "damage": 138,
+            "isBot": false
+          },
+          {
+            "name": "Enemy17",
+            "kills": 1,
+            "damage": 128,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 29,
+        "rank": 6,
+        "kills": 0,
+        "damage": 150,
+        "players": [
+          {
+            "name": "Enemy27",
+            "kills": 0,
+            "damage": 87,
+            "isBot": false
+          },
+          {
+            "name": "Enemy24",
+            "kills": 0,
+            "damage": 63,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 12,
+        "rank": 7,
+        "kills": 0,
+        "damage": 74,
+        "players": [
+          {
+            "name": "Enemy18",
+            "kills": 0,
+            "damage": 0,
+            "isBot": false
+          },
+          {
+            "name": "Enemy07",
+            "kills": 0,
+            "damage": 74,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 26,
+        "rank": 8,
+        "kills": 1,
+        "damage": 363,
+        "players": [
+          {
+            "name": "Enemy06",
+            "kills": 0,
+            "damage": 88,
+            "isBot": false
+          },
+          {
+            "name": "Enemy52",
+            "kills": 1,
+            "damage": 275,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 32,
+        "rank": 9,
+        "kills": 7,
+        "damage": 865,
+        "players": [
+          {
+            "name": "Enemy33",
+            "kills": 1,
+            "damage": 143,
+            "isBot": false
+          },
+          {
+            "name": "Enemy13",
+            "kills": 6,
+            "damage": 722,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 23,
+        "rank": 10,
+        "kills": 2,
+        "damage": 368,
+        "players": [
+          {
+            "name": "Enemy28",
+            "kills": 1,
+            "damage": 111,
+            "isBot": false
+          },
+          {
+            "name": "Enemy38",
+            "kills": 1,
+            "damage": 257,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 20,
+        "rank": 11,
+        "kills": 6,
+        "damage": 562,
+        "players": [
+          {
+            "name": "Enemy10",
+            "kills": 2,
+            "damage": 131,
+            "isBot": false
+          },
+          {
+            "name": "Enemy49",
+            "kills": 4,
+            "damage": 431,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 3,
+        "rank": 12,
+        "kills": 3,
+        "damage": 486,
+        "players": [
+          {
+            "name": "Enemy35",
+            "kills": 2,
+            "damage": 386,
+            "isBot": false
+          },
+          {
+            "name": "Enemy32",
+            "kills": 1,
+            "damage": 100,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 8,
+        "rank": 13,
+        "kills": 0,
+        "damage": 226,
+        "players": [
+          {
+            "name": "Enemy09",
+            "kills": 0,
+            "damage": 226,
+            "isBot": false
+          },
+          {
+            "name": "Enemy45",
+            "kills": 0,
+            "damage": 0,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 15,
+        "rank": 14,
+        "kills": 8,
+        "damage": 773,
+        "players": [
+          {
+            "name": "Enemy34",
+            "kills": 0,
+            "damage": 48,
+            "isBot": false
+          },
+          {
+            "name": "Enemy53",
+            "kills": 8,
+            "damage": 725,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 16,
+        "rank": 15,
+        "kills": 0,
+        "damage": 361,
+        "players": [
+          {
+            "name": "Enemy29",
+            "kills": 0,
+            "damage": 240,
+            "isBot": false
+          },
+          {
+            "name": "Enemy55",
+            "kills": 0,
+            "damage": 121,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 7,
+        "rank": 16,
+        "kills": 2,
+        "damage": 242,
+        "players": [
+          {
+            "name": "Enemy23",
+            "kills": 1,
+            "damage": 131,
+            "isBot": false
+          },
+          {
+            "name": "Enemy43",
+            "kills": 1,
+            "damage": 111,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 25,
+        "rank": 18,
+        "kills": 2,
+        "damage": 255,
+        "players": [
+          {
+            "name": "Enemy51",
+            "kills": 0,
+            "damage": 0,
+            "isBot": false
+          },
+          {
+            "name": "Enemy37",
+            "kills": 2,
+            "damage": 255,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 14,
+        "rank": 18,
+        "kills": 0,
+        "damage": 125,
+        "players": [
+          {
+            "name": "Enemy01",
+            "kills": 0,
+            "damage": 125,
+            "isBot": false
+          },
+          {
+            "name": "Enemy02",
+            "kills": 0,
+            "damage": 0,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 2,
+        "rank": 19,
+        "kills": 0,
+        "damage": 88,
+        "players": [
+          {
+            "name": "Enemy60",
+            "kills": 0,
+            "damage": 88,
+            "isBot": false
+          },
+          {
+            "name": "Enemy19",
+            "kills": 0,
+            "damage": 0,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 4,
+        "rank": 20,
+        "kills": 0,
+        "damage": 307,
+        "players": [
+          {
+            "name": "Enemy22",
+            "kills": 0,
+            "damage": 103,
+            "isBot": false
+          },
+          {
+            "name": "Enemy50",
+            "kills": 0,
+            "damage": 204,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 21,
+        "rank": 21,
+        "kills": 0,
+        "damage": 0,
+        "players": [
+          {
+            "name": "Enemy56",
+            "kills": 0,
+            "damage": 0,
+            "isBot": false
+          },
+          {
+            "name": "Enemy30",
+            "kills": 0,
+            "damage": 0,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 24,
+        "rank": 22,
+        "kills": 0,
+        "damage": 64,
+        "players": [
+          {
+            "name": "Enemy20",
+            "kills": 0,
+            "damage": 64,
+            "isBot": false
+          },
+          {
+            "name": "Enemy08",
+            "kills": 0,
+            "damage": 0,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 9,
+        "rank": 23,
+        "kills": 0,
+        "damage": 71,
+        "players": [
+          {
+            "name": "Enemy12",
+            "kills": 0,
+            "damage": 71,
+            "isBot": false
+          },
+          {
+            "name": "Enemy25",
+            "kills": 0,
+            "damage": 0,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 18,
+        "rank": 24,
+        "kills": 0,
+        "damage": 174,
+        "players": [
+          {
+            "name": "Enemy40",
+            "kills": 0,
+            "damage": 153,
+            "isBot": false
+          },
+          {
+            "name": "Enemy36",
+            "kills": 0,
+            "damage": 21,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 5,
+        "rank": 25,
+        "kills": 0,
+        "damage": 0,
+        "players": [
+          {
+            "name": "Enemy11",
+            "kills": 0,
+            "damage": 0,
+            "isBot": false
+          },
+          {
+            "name": "Enemy31",
+            "kills": 0,
+            "damage": 0,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 17,
+        "rank": 26,
+        "kills": 0,
+        "damage": 45,
+        "players": [
+          {
+            "name": "Enemy14",
+            "kills": 0,
+            "damage": 19,
+            "isBot": false
+          },
+          {
+            "name": "Enemy47",
+            "kills": 0,
+            "damage": 26,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 11,
+        "rank": 27,
+        "kills": 2,
+        "damage": 289,
+        "players": [
+          {
+            "name": "Enemy39",
+            "kills": 0,
+            "damage": 0,
+            "isBot": false
+          },
+          {
+            "name": "Enemy21",
+            "kills": 2,
+            "damage": 289,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 30,
+        "rank": 28,
+        "kills": 2,
+        "damage": 200,
+        "players": [
+          {
+            "name": "Enemy03",
+            "kills": 1,
+            "damage": 100,
+            "isBot": false
+          },
+          {
+            "name": "Enemy26",
+            "kills": 1,
+            "damage": 100,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 31,
+        "rank": 29,
+        "kills": 1,
+        "damage": 157,
+        "players": [
+          {
+            "name": "Enemy04",
+            "kills": 1,
+            "damage": 69,
+            "isBot": false
+          },
+          {
+            "name": "Enemy42",
+            "kills": 0,
+            "damage": 88,
+            "isBot": false
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 6,
+        "rank": 30,
+        "kills": 0,
+        "damage": 129,
+        "players": [
+          {
+            "name": "Enemy46",
+            "kills": 0,
+            "damage": 0,
+            "isBot": true
+          },
+          {
+            "name": "Enemy41",
+            "kills": 0,
+            "damage": 129,
+            "isBot": true
+          }
+        ],
+        "isMine": false
+      },
+      {
+        "teamId": 27,
+        "rank": 31,
+        "kills": 0,
+        "damage": 0,
+        "players": [
+          {
+            "name": "Enemy58",
+            "kills": 0,
+            "damage": 0,
+            "isBot": true
+          },
+          {
+            "name": "Enemy54",
+            "kills": 0,
+            "damage": 0,
+            "isBot": true
+          }
+        ],
+        "isMine": false
+      }
+    ],
+    "carePackages": [
+      {
+        "timeMs": 389129,
+        "phase": 1,
+        "kind": "redBox"
+      },
+      {
+        "timeMs": 422939,
+        "phase": 1,
+        "kind": "blueChip"
+      },
+      {
+        "timeMs": 441123,
+        "phase": 1,
+        "kind": "blueChip"
+      },
+      {
+        "timeMs": 465818,
+        "phase": 1,
+        "kind": "small"
+      },
+      {
+        "timeMs": 473886,
+        "phase": 1,
+        "kind": "blueChip"
+      },
+      {
+        "timeMs": 518767,
+        "phase": 2,
+        "kind": "small"
+      },
+      {
+        "timeMs": 679986,
+        "phase": 2,
+        "kind": "redBox"
+      },
+      {
+        "timeMs": 681532,
+        "phase": 2,
+        "kind": "blueChip"
+      },
+      {
+        "timeMs": 892226,
+        "phase": 4,
+        "kind": "redBox"
+      },
+      {
+        "timeMs": 1466956,
+        "phase": 7,
+        "kind": "redBox"
+      },
+      {
+        "timeMs": 1691546,
+        "phase": 9,
+        "kind": "small"
+      }
+    ],
+    "bots": [
+      "Enemy41",
+      "Enemy46",
+      "Enemy48",
+      "Enemy54",
+      "Enemy58",
+      "Enemy59"
+    ],
+    "versus": {
+      "human": {
+        "kills": 3,
+        "knocks": 2,
+        "damage": 472
+      },
+      "bot": {
+        "kills": 1,
+        "knocks": 1,
+        "damage": 40
+      }
+    },
+    "damageTaken": {
+      "sources": [
+        {
+          "attacker": "Enemy07",
+          "attackerTeamId": 19,
+          "isBot": false,
+          "cause": "gun",
+          "weapon": "WeapBerylM762_C",
+          "damage": 64,
+          "hits": 1
+        },
+        {
+          "attacker": "Enemy09",
+          "attackerTeamId": 8,
+          "isBot": false,
+          "cause": "gun",
+          "weapon": "WeapM24_C",
+          "damage": 63,
+          "hits": 1
+        },
+        {
+          "attacker": "Enemy12",
+          "attackerTeamId": 28,
+          "isBot": false,
+          "cause": "gun",
+          "weapon": "WeapM416_C",
+          "damage": 58,
+          "hits": 1
+        },
+        {
+          "attacker": "Enemy38",
+          "attackerTeamId": 23,
+          "isBot": false,
+          "cause": "gun",
+          "weapon": "WeapM249_C",
+          "damage": 57,
+          "hits": 1
+        },
+        {
+          "attacker": "Enemy59",
+          "attackerTeamId": 19,
+          "isBot": true,
+          "cause": "gun",
+          "weapon": "WeapAUG_C",
+          "damage": 11,
+          "hits": 1
+        },
+        {
+          "attacker": null,
+          "attackerTeamId": null,
+          "isBot": false,
+          "cause": "bleed",
+          "weapon": null,
+          "damage": 9,
+          "hits": 1
+        }
+      ],
+      "hits": [
+        {
+          "timeMs": 851644,
+          "attacker": "Enemy09",
+          "isBot": false,
+          "cause": "gun",
+          "weapon": "WeapM24_C",
+          "part": "TorsoShot",
+          "damage": 63
+        },
+        {
+          "timeMs": 1071568,
+          "attacker": "Enemy38",
+          "isBot": false,
+          "cause": "gun",
+          "weapon": "WeapM249_C",
+          "part": "HeadShot",
+          "damage": 57
+        },
+        {
+          "timeMs": 1131573,
+          "attacker": "Enemy59",
+          "isBot": true,
+          "cause": "gun",
+          "weapon": "WeapAUG_C",
+          "part": "ArmShot",
+          "damage": 11
+        },
+        {
+          "timeMs": 1398000,
+          "attacker": "Enemy12",
+          "isBot": false,
+          "cause": "gun",
+          "weapon": "WeapM416_C",
+          "part": "TorsoShot",
+          "damage": 58
+        },
+        {
+          "timeMs": 1399000,
+          "attacker": null,
+          "isBot": false,
+          "cause": "bleed",
+          "weapon": null,
+          "part": null,
+          "damage": 9
+        },
+        {
+          "timeMs": 1405000,
+          "attacker": "Enemy07",
+          "isBot": false,
+          "cause": "gun",
+          "weapon": "WeapBerylM762_C",
+          "part": "HeadShot",
+          "damage": 64
+        }
+      ]
+    },
+    "myKills": [
+      {
+        "timeMs": 640500,
+        "victim": "Enemy41",
+        "victimTeamId": null,
+        "victimIsBot": true,
+        "victimRank": 30,
+        "victimWeapon": "WeapUMP_C",
+        "weapon": "WeapM416_C",
+        "part": "TorsoShot",
+        "distanceM": 38,
+        "throughWall": false,
+        "knockedBy": "me"
+      },
+      {
+        "timeMs": 1001223,
+        "victim": "Enemy10",
+        "victimTeamId": 20,
+        "victimIsBot": false,
+        "victimWeapon": "WeapACE32_C",
+        "weapon": "WeapM24_C",
+        "part": "TorsoShot",
+        "distanceM": 124,
+        "throughWall": false,
+        "knockedBy": "other",
+        "victimRank": 11
+      },
+      {
+        "timeMs": 1046850,
+        "victim": "Enemy35",
+        "victimTeamId": 3,
+        "victimIsBot": false,
+        "victimWeapon": "WeapMP5K_C",
+        "weapon": "WeapMG3_C",
+        "part": "PelvisShot",
+        "distanceM": 6,
+        "throughWall": false,
+        "knockedBy": null,
+        "victimRank": 12
+      },
+      {
+        "timeMs": 1393000,
+        "victim": "Enemy12",
+        "victimTeamId": 28,
+        "victimIsBot": false,
+        "victimRank": 7,
+        "victimWeapon": "WeapM416_C",
+        "weapon": "WeapM24_C",
+        "part": "HeadShot",
+        "distanceM": 91,
+        "throughWall": true,
+        "knockedBy": "me"
+      }
+    ]
+  },
   "team": [
     {
       "name": "PlayerOne",

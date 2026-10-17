@@ -243,9 +243,8 @@ input, textarea, select {
   overflow: visible;
 }
 
-/* 수동 좌우 레일: 넓은 데스크톱에서만 표시하고 양쪽 모두 같은 sticky 기준을 사용한다. */
+/* 수동 좌우 레일: 표시 여부와 구성은 StatsManualAdRails가 화면 크기로 정하고, 여기서는 위치와 sticky 기준만 정한다. */
 .stats-page .stats-manual-ad-rail {
-  display: none;
   position: absolute;
   top: 0;
   bottom: 0;
@@ -270,10 +269,24 @@ input, textarea, select {
   height: 600px;
 }
 
-@media (min-width: 1880px) {
-  .stats-page .stats-manual-ad-rail {
-    display: block;
-  }
+.stats-page .stats-manual-ad-rail--wide {
+  width: 300px;
+}
+
+.stats-page .stats-manual-ad-rail--wide.stats-manual-ad-rail--left {
+  left: -320px;
+}
+
+.stats-page .stats-manual-ad-rail--wide.stats-manual-ad-rail--right {
+  right: -320px;
+}
+
+.stats-page .stats-manual-ad-rail--wide .manual-ad-rail__inner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 300px;
+  height: auto;
 }
 
 .stats-page.pb-safe-nav {

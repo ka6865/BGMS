@@ -24,6 +24,7 @@ vi.mock("@/components/map/NotificationDropdown", () => ({
 }));
 vi.mock("@/lib/supabase", () => ({
   supabase: {
+    rpc: (fn: string) => ({ single: async () => ({ data: fn === "get_my_profile" ? { id: "user-1", nickname: "사용자", role: profileRole } : null, error: null }) }),
     from: (table: string) => table === "profiles"
       ? { select: () => ({ eq: () => ({ single: async () => ({ data: { id: "user-1", nickname: "사용자", role: profileRole }, error: null }) }) }) }
       : { select: () => ({ eq: () => ({ order: async () => ({ data: notifications, error: null }) }) }), update: () => ({ eq: async () => ({ data: null, error: null }) }) },

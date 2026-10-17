@@ -118,7 +118,7 @@ export function StatsSearchBar({
                       >
                         <User size={14} className="text-amber-500 shrink-0" />
                         <span className="text-sm font-bold text-gray-200 truncate">{suggestion.nickname}</span>
-                        <span className="ml-auto text-[10px] text-gray-500 uppercase">{suggestion.platform}</span>
+                        <span className="ml-auto text-[10px] text-gray-400 uppercase">{suggestion.platform}</span>
                       </button>
                     );
                   })}
@@ -146,7 +146,7 @@ export function StatsSearchBar({
                         ? <Star size={14} className="text-yellow-400 fill-yellow-400 shrink-0" />
                         : <Clock size={14} className="text-gray-500 shrink-0" />}
                       <span className="truncate text-sm font-bold text-gray-300">{item.nickname}</span>
-                      <span aria-hidden="true" className="text-[10px] text-gray-500">{item.platform === "kakao" ? "카카오" : "스팀"}</span>
+                      <span aria-hidden="true" className="text-[10px] text-gray-400">{item.platform === "kakao" ? "카카오" : "스팀"}</span>
                     </button>
                     <button
                       type="button"

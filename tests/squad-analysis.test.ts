@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ANALYSIS_CALCULATION_VERSION, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 
 const { mockCreateClient } = vi.hoisted(() => ({ mockCreateClient: vi.fn() }));
-vi.mock("@/utils/supabase/server", () => ({ createClient: mockCreateClient }));
+// squadAnalysis는 플레이어 테이블을 service role 클라이언트로 읽는다(동기 생성).
+vi.mock("@/lib/server/serviceRoleSupabase.server", () => ({ createServiceRoleSupabase: mockCreateClient }));
 
 type TeamMember = { name: string; damageDealt?: number; kills?: number; assists?: number; DBNOs?: number };
 
@@ -42,7 +43,7 @@ function configureRows(rows: unknown[]) {
   const teamBenchmark: any = {};
   for (const method of ["select", "eq"]) teamBenchmark[method] = vi.fn().mockReturnValue(teamBenchmark);
   teamBenchmark.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
-  mockCreateClient.mockResolvedValue({
+  mockCreateClient.mockReturnValue({
     from: vi.fn((table: string) => {
       if (table === "processed_match_telemetry") return processed;
       if (table === "pubg_team_benchmarks") return teamBenchmark;

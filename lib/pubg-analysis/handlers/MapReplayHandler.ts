@@ -1,4 +1,5 @@
 import { BaseHandler } from './BaseHandler';
+import { classifyDamageCause, classifyThrowable } from '../replayEventKinds';
 
 const actorLocation = (actor: any) => actor?.location ?? actor?.loc;
 
@@ -83,14 +84,9 @@ export class MapReplayHandler extends BaseHandler {
       return;
     }
 
-    // 6. 투척물 및 폭발
+    // 6. 투척물: 텔레메트리에는 착탄·폭발 좌표가 없어 던진 위치만 기록한다.
     if (lowerType === "logplayerusethrowable") {
       this.handleThrowable(e, elapsed);
-      return;
-    }
-
-    if (lowerType === "logexplosiveexplode") {
-      this.handleExplosion(e, elapsed);
       return;
     }
   }
@@ -150,7 +146,6 @@ export class MapReplayHandler extends BaseHandler {
     const loc = actorLocation(char);
 
     this.state.lastPosByPlayer.set(char.name, { x: loc?.x ?? 0, y: loc?.y ?? 0 });
-    this.state.lastRotByPlayer.set(char.name, char.rotation || 0);
 
     // 🎯 차량 동승 유령 버그 해결: LogPlayerPosition 시점에 최상위 vehicle 정보 또는 캐릭터 내의 vehicle 정보를 매치
     const vehicleId = e.vehicle?.vehicleId || char.vehicle?.vehicleId || null;
@@ -239,12 +234,11 @@ export class MapReplayHandler extends BaseHandler {
   private handleAttack(e: any, elapsed: number) {
     const attacker = e.attacker;
     if (!attacker) return;
+    // 투척 한 번에 LogPlayerAttack과 LogPlayerUseThrowable이 함께 남는다. 투척은 후자에서만 기록한다.
+    if (classifyThrowable(e.weapon?.itemId)) return;
 
-    const weapon = (e.weapon?.itemId || e.attackType || "").toLowerCase();
-    const isThrowable = weapon.includes("throw") || weapon.includes("smoke") || weapon.includes("grenade");
-    
     this.state.mapEvents.push({
-      type: isThrowable ? "throw" : "shot",
+      type: "shot",
       time: e._D,
       relativeTimeMs: elapsed,
       name: attacker.name,
@@ -253,9 +247,6 @@ export class MapReplayHandler extends BaseHandler {
       isTeam: this.isTeammate(attacker),
       x: this.scaleX(actorLocation(attacker)?.x ?? 0),
       y: this.scaleY(actorLocation(attacker)?.y ?? 0),
-      rotation: attacker.rotation || this.state.lastRotByPlayer.get(attacker.name) || 0,
-      vX: isThrowable ? null : attacker?.viewDir?.x,
-      vY: isThrowable ? null : attacker?.viewDir?.y,
       weapon: e.weapon?.itemId || e.attackType || "",
     });
   }
@@ -277,6 +268,7 @@ export class MapReplayHandler extends BaseHandler {
         attackerX: this.scaleX(actorLocation(e.attacker)?.x ?? 0),
         attackerY: this.scaleY(actorLocation(e.attacker)?.y ?? 0),
         attackerZ: (actorLocation(e.attacker)?.z ?? 0) / 100,
+        cause: classifyDamageCause(e.damageTypeCategory, e.damageCauserName),
       });
     }
   }
@@ -302,68 +294,20 @@ export class MapReplayHandler extends BaseHandler {
   private handleThrowable(e: any, elapsed: number) {
     const char = e.character || e.attacker;
     if (!char) return;
+    const itemId = e.item?.itemId || e.weapon?.itemId || "";
+    const throwable = classifyThrowable(itemId);
+    if (!throwable) return;
 
-    const itemId = (e.item?.itemId || e.weapon?.itemId || "").toLowerCase();
-    const throwableKeywords = ["smokebomb", "grenade", "flashbang", "molotov", "bluezone", "shield", "c4", "m79"];
-    
-    if (throwableKeywords.some(k => itemId.includes(k))) {
-      // 폭발 이벤트가 따로 없는 경우를 위한 예측 위치 계산 로직 (기존 telemetry/route.ts 준수)
-      if (!this.state.hasRealExplosions) {
-        const rotDegree = char.rotation || this.state.lastRotByPlayer.get(char.name) || 0;
-        const rot = rotDegree * (Math.PI / 180);
-        const charLoc = actorLocation(char);
-        const estX = (charLoc?.x ?? 0) + Math.sin(rot) * 2000;
-        const estY = (charLoc?.y ?? 0) - Math.cos(rot) * 2000;
-
-        let vfxType = "grenade";
-        if (itemId.includes("smokebomb") || itemId.includes("smoke") || itemId.includes("m79")) vfxType = "smoke";
-        else if (itemId.includes("flashbang")) vfxType = "flash";
-
-        this.state.mapEvents.push({
-          type: vfxType,
-          time: e._D,
-          relativeTimeMs: elapsed + 2500, 
-          name: char.name,
-          weapon: itemId,
-          x: this.scaleX(estX),
-          y: this.scaleY(estY),
-          isEstimated: true
-        });
-      }
-      
-      this.state.mapEvents.push({
-        type: "throw",
-        time: e._D,
-        relativeTimeMs: elapsed,
-        name: char.name,
-        weapon: itemId,
-        x: this.scaleX(actorLocation(char)?.x ?? 0),
-        y: this.scaleY(actorLocation(char)?.y ?? 0),
-      });
-    }
-  }
-
-  private handleExplosion(e: any, elapsed: number) {
-    const loc = e.location ?? e.loc ?? actorLocation(e.character) ?? actorLocation(e.attacker);
-    if (loc) {
-      this.state.hasRealExplosions = true;
-      const explosiveId = (e.explosiveItem?.itemId || e.explosiveId || "").toLowerCase();
-      
-      let vfxType = "grenade";
-      if (explosiveId.includes("smoke") || explosiveId.includes("m79")) vfxType = "smoke";
-      else if (explosiveId.includes("flash")) vfxType = "flash";
-
-      this.state.mapEvents.push({
-        type: vfxType,
-        time: e._D,
-        relativeTimeMs: elapsed,
-        name: e.character?.name || e.attacker?.name || "",
-        weapon: explosiveId,
-        x: this.scaleX(loc.x),
-        y: this.scaleY(loc.y),
-        isRealExplosion: true
-      });
-    }
+    this.state.mapEvents.push({
+      type: "throw",
+      time: e._D,
+      relativeTimeMs: elapsed,
+      name: char.name,
+      weapon: itemId.toLowerCase(),
+      throwable,
+      x: this.scaleX(actorLocation(char)?.x ?? 0),
+      y: this.scaleY(actorLocation(char)?.y ?? 0),
+    });
   }
 
   private handleCarePackageSpawn(e: any, elapsed: number) {

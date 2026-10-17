@@ -1,6 +1,9 @@
  import type { SupabaseClient } from "@supabase/supabase-js";
  import { normalizeName } from "@/lib/pubg-analysis/utils";
  import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
+import { isPlayerMatchTeammateList, type PlayerMatchTeammate } from "./playerMatchTeammateList";
+
+export type { PlayerMatchTeammate } from "./playerMatchTeammateList";
  
 export interface PlayerMatchRecord {
   account_id?: string;
@@ -18,7 +21,14 @@ export interface PlayerMatchRecord {
   match_type: string;
   knocks?: number | null;
   survival_time?: number | null;
+  /** 같은 팀 참가자의 이름·계정 ID. roster 로 팀을 확인하지 못하면 null. */
+  teammates?: PlayerMatchTeammate[] | null;
+  travel_distance?: number | null;
+  longest_kill?: number | null;
+  /** 화면에 보여 줄 팀원 닉네임. 조회 시 비공개 플레이어를 거른 결과이며 DB 컬럼이 아니다. */
+  teammate_names?: string[];
 }
+
 
 export interface PlayerMatchesPage {
   matches: PlayerMatchRecord[];
@@ -73,13 +83,21 @@ export function hasObservedPlayerMatchValues(value: unknown, options: { allowZer
 
 /** Omit unobserved counters from conflict updates; inserts use nullable DB defaults. */
 export function toPlayerMatchWriteRecord(record: PlayerMatchRecord): PlayerMatchRecord {
-  const { knocks, survival_time, ...base } = record;
+  // teammate_names 는 조회 결과라 저장하지 않는다.
+  const { knocks, survival_time, teammates, travel_distance, longest_kill, teammate_names: _names, ...base } = record;
+  void _names;
   const observedKnocks = normalizeBasicMatchStat(knocks);
   const observedSurvival = normalizeBasicMatchStat(survival_time);
+  const observedTeammates = isPlayerMatchTeammateList(teammates) ? teammates : null;
+  const observedTravel = normalizeBasicMatchStat(travel_distance);
+  const observedLongest = normalizeBasicMatchStat(longest_kill);
   return {
     ...base,
     ...(observedKnocks !== null ? { knocks: observedKnocks } : {}),
     ...(observedSurvival !== null ? { survival_time: observedSurvival } : {}),
+    ...(observedTeammates !== null ? { teammates: observedTeammates } : {}),
+    ...(observedTravel !== null ? { travel_distance: observedTravel } : {}),
+    ...(observedLongest !== null ? { longest_kill: observedLongest } : {}),
   };
 }
 
@@ -172,7 +190,7 @@ export async function fetchPlayerMatchesPaginated(
 
   let query = supabase
     .from("pubg_player_matches")
-    .select("player_id, platform, account_id, retention_scope, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time", { count: "exact" })
+    .select("player_id, platform, account_id, retention_scope, match_id, played_at, game_mode, map_name, kills, damage, win_place, match_type, knocks, survival_time, teammates, travel_distance, longest_kill", { count: "exact" })
     .eq("platform", normPlatform);
   const identityFilter = buildPlayerMatchIdentityFilter(nickname, accountId);
   query = identityFilter ? query.or(identityFilter) : query.eq("player_id", playerId);

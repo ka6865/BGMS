@@ -20,7 +20,9 @@ import {
   X,
   Car,
   Video,
-  Map as MapIcon
+  Map as MapIcon,
+  Activity,
+  ListTree
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { BgmsIcon } from "@/components/common/BgmsIcon";
@@ -32,6 +34,9 @@ import type { MatchSummaryData } from "@/lib/pubg-analysis/matchSummary";
 import { getTranslatedWeaponName } from "@/lib/pubg-analysis/constants";
 export { MatchPerformancePanel } from "./MatchPerformancePanel";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
+import { BOT_SHARE_LEVEL_LABELS, buildBotShare } from "@/lib/pubg-analysis/botShare";
+import { hasMatchFlow, hasMatchOverview, humanTeamPlace } from "@/lib/pubg-analysis/matchReportView";
+import { MatchDeathLine, MatchFlowContent, MatchOverviewContent } from "./MatchReportSections";
 import { normalizeSquadWeaponStats } from "@/lib/pubg-analysis/squadWeaponStats";
 import { useAIStatus, aiManager } from "@/lib/ai-management";
 import { useAuth } from "@/components/AuthProvider";
@@ -86,12 +91,12 @@ const CollapsibleDetailSection = ({
         </div>
         <div className="min-w-0">
           <div className="truncate text-sm font-black text-white">{title}</div>
-          <div className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-widest text-gray-500">{eyebrow}</div>
+          <div className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-widest text-gray-400">{eyebrow}</div>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {summary && (
-          <div className="hidden max-w-[12rem] truncate text-right text-[10px] font-black text-white/40 sm:block">
+          <div className="hidden max-w-[12rem] truncate text-right text-[10px] font-black text-white/50 sm:block">
             {summary}
           </div>
         )}
@@ -333,7 +338,7 @@ function getMatchStatusBorder(summary?: MatchSummaryData | MatchData | null): st
     return winPlace === 1 ? "border-l-rose-400" : "border-l-red-400";
   }
   if (winPlace === 1) return "border-l-amber-400";
-  if (winPlace <= 10) return "border-l-teal-400";
+  if (winPlace <= 10) return "border-l-blue-400";
   if (kills === 0 && damageDealt < 100) return "border-l-red-400";
   return "border-l-white/20";
 }
@@ -358,7 +363,9 @@ export const ExpandedMatchDetails = ({
     weapons: false,
     tactical: false,
     ai: false,
-    team: false
+    team: false,
+    flow: false,
+    overview: false
   });
   const [showReplayModal, setShowReplayModal] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -411,6 +418,9 @@ export const ExpandedMatchDetails = ({
   const roadKnocks = matchData ? (matchData.stats?.roadKnocks ?? matchData.roadKnocks ?? 0) : 0;
   const vehicleCombatTotal = leadKills + leadKnocks + ridingKills + ridingKnocks + roadKills + roadKnocks;
   const hasVehicleCombat = vehicleCombatTotal > 0;
+  const botShare = matchData ? buildBotShare(matchData.totalPlayers, matchData.botCount) : null;
+  const matchReport = matchData?.matchReport ?? null;
+  const humanPlace = matchReport ? humanTeamPlace(matchReport) : null;
   const normalizedNickname = normalizeName(nickname);
   const normalizedTeamMembers = useMemo(() => {
     const memberMap = new Map<string, MatchTeamMember>();
@@ -524,6 +534,14 @@ export const ExpandedMatchDetails = ({
       }
     });
     const query = new URLSearchParams({ playback: matchId, nickname, platform, playedAt: matchDate });
+    router.push(`/maps/${mapId}?${query.toString()}`);
+  };
+
+  // 경기 흐름의 교전 줄에서 그 교전 직전부터 2D 리플레이를 연다.
+  const openReplayAt = (seconds: number) => {
+    if (getMatchDetailRetention(matchDate).status !== "available") return;
+    trackEvent({ name: "feature_consumption", params: { feature_name: "2d-replay", status: "start" } });
+    const query = new URLSearchParams({ playback: matchId, nickname, platform, playedAt: matchDate, t: String(seconds) });
     router.push(`/maps/${mapId}?${query.toString()}`);
   };
 
@@ -1110,6 +1128,40 @@ export const ExpandedMatchDetails = ({
             <StatBox icon={<Clock size={16} />} label="생존시간" value={`${Math.floor((Number(matchData!.stats.timeSurvived) || 0) / 60)}분`} color="text-green-400" />
           </div>
 
+          {botShare && (
+            <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-400" aria-label="참가자 구성">
+              <span>참가자 {botShare.botCount + botShare.humanCount}명</span>
+              <span className="text-gray-600">·</span>
+              <span>사람 {botShare.humanCount}</span>
+              <span className="text-gray-600">·</span>
+              <span>봇 {botShare.botCount} ({botShare.percent}%)</span>
+              {botShare.level !== "none" && (
+                <span className="rounded bg-white/5 px-1.5 py-0.5 font-bold text-gray-300">{BOT_SHARE_LEVEL_LABELS[botShare.level]}</span>
+              )}
+              {humanPlace !== null && (
+                <span className="text-gray-300" title="봇만 있는 팀을 빼고 센 순위">사람 팀 기준 #{humanPlace}</span>
+              )}
+            </p>
+          )}
+          {matchReport && <MatchDeathLine report={matchReport} />}
+
+          {hasMatchFlow(matchReport) && (
+            <CollapsibleDetailSection
+              title="경기 흐름"
+              eyebrow="착지 · 교전 · 자기장 · 회복"
+              icon={<Activity size={16} className="text-sky-400" />}
+              isOpen={openDetailSections.flow}
+              onToggle={() => toggleDetailSection("flow")}
+              summary={`교전 ${matchReport.fights.length}번`}
+            >
+              <MatchFlowContent
+                report={matchReport}
+                canReplay={getMatchDetailRetention(matchDate).status === "available"}
+                onReplayAt={openReplayAt}
+              />
+            </CollapsibleDetailSection>
+          )}
+
           {/* Premium Vehicle Combat Banner */}
           {hasVehicleCombat && (() => {
             const isMaster = vehicleCombatTotal >= 2;
@@ -1155,7 +1207,7 @@ export const ExpandedMatchDetails = ({
                         <span className={tagColorStyle}>
                           전술 업적
                         </span>
-                        <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">
+                        <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">
                           {badgeTitle}
                         </span>
                       </div>
@@ -1173,7 +1225,7 @@ export const ExpandedMatchDetails = ({
                           <Crosshair size={16} />
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-[9px] text-gray-500 font-bold uppercase">리드샷 (표적 사격)</span>
+                          <span className="text-[9px] text-gray-400 font-bold uppercase">리드샷 (표적 사격)</span>
                           <span className="text-[13px] text-white font-black leading-tight mt-0.5">
                             기절 <span className="text-amber-400">{leadKnocks}</span> · 킬 <span className="text-red-400">{leadKills}</span>
                           </span>
@@ -1187,7 +1239,7 @@ export const ExpandedMatchDetails = ({
                           <Swords size={16} />
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-[9px] text-gray-500 font-bold uppercase">라이딩샷 (탑승 사격)</span>
+                          <span className="text-[9px] text-gray-400 font-bold uppercase">라이딩샷 (탑승 사격)</span>
                           <span className="text-[13px] text-white font-black leading-tight mt-0.5">
                             기절 <span className="text-indigo-400">{ridingKnocks}</span> · 킬 <span className="text-red-400">{ridingKills}</span>
                           </span>
@@ -1201,7 +1253,7 @@ export const ExpandedMatchDetails = ({
                           <Car size={16} />
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-[9px] text-gray-500 font-bold uppercase">로드킬 (차량 충돌)</span>
+                          <span className="text-[9px] text-gray-400 font-bold uppercase">로드킬 (차량 충돌)</span>
                           <span className="text-[13px] text-white font-black leading-tight mt-0.5">
                             기절 <span className="text-rose-400">{roadKnocks}</span> · 킬 <span className="text-rose-400">{roadKills}</span>
                           </span>
@@ -1230,7 +1282,7 @@ export const ExpandedMatchDetails = ({
                 {matchData.weaponStats && Object.keys(matchData.weaponStats).length > 0 ? (
                   <div className="lg:col-span-7 bg-white/2 border border-white/5 rounded-[2.5rem] p-6 flex flex-col gap-4">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">내 무기 상세 스탯</span>
+                      <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">내 무기 상세 스탯</span>
                       <span className="text-[10px] text-amber-400 font-bold bg-amber-500/10 px-2 py-0.5 rounded-full">공식 PUBG 통계 보정</span>
                     </div>
 
@@ -1262,13 +1314,13 @@ export const ExpandedMatchDetails = ({
                             <div className="flex justify-between items-start mb-3 relative z-10">
                               <div>
                                 <h5 className="text-white font-black text-[15px] tracking-tight">{getTranslatedWeaponName(wName)}</h5>
-                                <span className="text-[9px] text-gray-500 font-bold uppercase">
+                                <span className="text-[9px] text-gray-400 font-bold uppercase">
                                   {wStat.holdingTime ? `파지 ${Math.round(wStat.holdingTime)}초` : '주무기'}
                                 </span>
                               </div>
                               <div className="flex flex-col items-end">
                                 <span className="text-white font-black text-[14px]">
-                                  {Math.round(wStat.damage)} <span className="text-[10px] text-gray-500 font-medium">딜</span>
+                                  {Math.round(wStat.damage)} <span className="text-[10px] text-gray-400 font-medium">딜</span>
                                 </span>
                                 <span className="text-[10px] text-gray-400 font-bold">
                                   기절 {wStat.dbnos} · {wStat.kills}킬
@@ -1335,7 +1387,7 @@ export const ExpandedMatchDetails = ({
                 {Object.keys(normalizedSquadWeaponStats).length > 0 ? (
                   <div className="lg:col-span-5 bg-white/2 border border-white/5 rounded-[2.5rem] p-6 flex flex-col gap-4">
                     <div className="flex justify-between items-center mb-2">
-                      <span className="text-[10px] text-gray-500 font-black uppercase tracking-widest">아군 무기 상세 스탯</span>
+                      <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest">아군 무기 상세 스탯</span>
                       <span className="text-[10px] text-indigo-400 font-bold bg-indigo-500/10 px-2 py-0.5 rounded-full">팀원 화력 기여</span>
                     </div>
 
@@ -1418,7 +1470,7 @@ export const ExpandedMatchDetails = ({
                             <MousePointer2 size={20} className="text-blue-400 animate-bounce" />
                           </div>
                           <span className="text-[11px] text-white font-black tracking-tight">이벤트를 클릭하여 위치 확인</span>
-                          <span className="text-[9px] text-gray-500 font-bold">지도에 교전 지점이 표시됩니다</span>
+                          <span className="text-[9px] text-gray-400 font-bold">지도에 교전 지점이 표시됩니다</span>
                         </div>
                       </div>
                     )}
@@ -1427,7 +1479,7 @@ export const ExpandedMatchDetails = ({
                   {/* Right: Timeline */}
                   <div className="lg:col-span-7 xl:col-span-8 bg-white/2 border border-white/5 rounded-[1.5rem] p-3 md:p-4 lg:h-[360px] flex flex-col">
                     <div className="flex items-center justify-between mb-3 shrink-0">
-                      <div className="text-[10px] text-gray-500 font-black uppercase tracking-widest">매치 타임라인</div>
+                      <div className="text-[10px] text-gray-400 font-black uppercase tracking-widest">매치 타임라인</div>
                       <div className="flex items-center gap-1.5 px-3 py-1 bg-white/5 rounded-full border border-white/10 text-[10px] text-gray-400 font-bold">
                         <Clock size={10} />
                         <span>{Math.floor(matchData!.stats.timeSurvived / 60)}분 {matchData!.stats.timeSurvived % 60}초 생존</span>
@@ -1554,7 +1606,7 @@ export const ExpandedMatchDetails = ({
                                   {data.coach || (isMildTheme ? "KIND COACH" : "SPICY BOMBER")}
                                 </span>
                                 <div className={`h-1 w-1 rounded-full bg-${accentColor}-500`} />
-                                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">전술 매치 보고서</span>
+                                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">전술 매치 보고서</span>
                               </div>
                               <h3 className="text-3xl font-black text-white mb-2 leading-tight">{data.signature}</h3>
                               <p className="text-gray-400 text-sm font-medium">{data.signatureSub}</p>
@@ -1697,25 +1749,25 @@ export const ExpandedMatchDetails = ({
                         <span className={`text-sm font-black truncate ${isMe ? 'text-white' : 'text-gray-300'}`}>
                           {member.name}
                         </span>
-                        <span className="text-[10px] text-gray-500 font-bold">Player No.{idx + 1}</span>
+                        <span className="text-[10px] text-gray-400 font-bold">Player No.{idx + 1}</span>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3">
                       <div className="bg-black/20 p-2 rounded-xl flex flex-col items-center">
-                        <span className="text-[9px] text-gray-500 font-bold uppercase">Kills</span>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase">Kills</span>
                         <span className="text-sm font-black text-red-400">{Number(member.kills) || 0}</span>
                       </div>
                       <div className="bg-black/20 p-2 rounded-xl flex flex-col items-center">
-                        <span className="text-[9px] text-gray-500 font-bold uppercase">Assists</span>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase">Assists</span>
                         <span className="text-sm font-black text-indigo-400">{Number(member.assists) || 0}</span>
                       </div>
                       <div className="bg-black/20 p-2 rounded-xl flex flex-col items-center">
-                        <span className="text-[9px] text-gray-500 font-bold uppercase">DBNOs</span>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase">DBNOs</span>
                         <span className="text-sm font-black text-yellow-500">{Number(member.DBNOs) || 0}</span>
                       </div>
                       <div className="bg-black/20 p-2 rounded-xl flex flex-col items-center">
-                        <span className="text-[9px] text-gray-500 font-bold uppercase">Damage</span>
+                        <span className="text-[9px] text-gray-400 font-bold uppercase">Damage</span>
                         <span className="text-sm font-black text-white">{Math.floor(Number(member.damageDealt) || 0)}</span>
                       </div>
                     </div>
@@ -1724,6 +1776,19 @@ export const ExpandedMatchDetails = ({
               })}
             </div>
           </CollapsibleDetailSection>
+
+          {hasMatchOverview(matchReport) && (
+            <CollapsibleDetailSection
+              title="경기 전체"
+              eyebrow="팀 순위 · 킬 트리 · 보급 · 봇"
+              icon={<ListTree size={16} className="text-violet-300" />}
+              isOpen={openDetailSections.overview}
+              onToggle={() => toggleDetailSection("overview")}
+              summary={`${matchReport.teams.length}팀 · ${matchReport.kills.length}킬`}
+            >
+              <MatchOverviewContent report={matchReport} />
+            </CollapsibleDetailSection>
+          )}
       </div>
 
       {/* ── 리플레이 분석 모드 선택 모달 ── */}
@@ -1796,7 +1861,7 @@ export const ExpandedMatchDetails = ({
                 </div>
               </button>
 
-              {/* 2) 2D 미니 리플레이 */}
+              {/* 2) 2D 리플레이: 바로 열리는 lite로 시작하고, 아군 전멸 뒤는 재생 화면에서 경기 끝까지 이어 본다. */}
               <button
                 type="button"
                 aria-label="2D 맵 리플레이"
@@ -1811,42 +1876,13 @@ export const ExpandedMatchDetails = ({
                   <MapIcon size={20} className="group-hover:scale-110 transition-transform" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <span className="text-white font-black text-sm font-sans">2D 맵 리플레이 (간이)</span>
+                  <span className="text-white font-black text-sm font-sans">2D 리플레이</span>
                   <p className="text-[10px] text-gray-400 mt-1 leading-normal font-medium font-sans">
-                    지도가 아래로 확장되며 타임라인을 통해 가볍고 빠르게 이동 경로와 안전구역 수축을 요약 복기합니다.
+                    모든 선수의 이동·교전·자기장을 지도에서 재생합니다. 아군이 전멸한 경기는 재생 화면에서 경기 끝까지 이어 볼 수 있습니다.
                   </p>
                 </div>
               </button>
 
-              {/* 3) 고정밀 리플레이 (원본) */}
-              <button
-                type="button"
-                aria-label="고정밀 리플레이"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowReplayModal(false);
-                  trackEvent({
-                    name: "feature_consumption",
-                    params: {
-                      feature_name: "2d-replay",
-                      status: "start"
-                    }
-                  });
-                  const query = new URLSearchParams({ playback: matchId, nickname, platform, mode: "full", playedAt: matchDate });
-                  router.push(`/maps/${mapId}?${query.toString()}`);
-                }}
-                className="w-full text-left p-4 bg-white/3 hover:bg-white/5 border border-white/5 hover:border-white/10 rounded-2xl transition-all flex gap-3.5 items-center cursor-pointer group hover:scale-[1.01]"
-              >
-                <div className="w-10 h-10 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-400 shrink-0">
-                  <PlayCircle size={20} className="group-hover:scale-110 transition-transform" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <span className="text-white font-black text-sm font-sans">고정밀 리플레이 (원본 데이터)</span>
-                  <p className="text-[10px] text-gray-400 mt-1 leading-normal font-medium font-sans">
-                    전체 맵 스케일에서 모든 플레이어들의 원본 동선 데이터와 세부 교전 상황을 풀스크린으로 세밀하게 관전합니다.
-                  </p>
-                </div>
-              </button>
             </div>
           </div>
         </div>,
@@ -1859,7 +1895,7 @@ export const ExpandedMatchDetails = ({
 const StatBox = ({ icon, label, value, color }: { icon: React.ReactNode, label: string, value: string | number, color: string }) => (
   <div className="bg-black/40 p-4 rounded-2xl border border-white/5 flex flex-col items-center gap-1 group hover:border-white/10 transition-colors">
     <div className={`${color} mb-1 opacity-70 group-hover:scale-110 transition-transform`}>{icon}</div>
-    <span className="text-[10px] text-gray-500 font-black uppercase tracking-tighter">{label}</span>
+    <span className="text-[10px] text-gray-400 font-black uppercase tracking-tighter">{label}</span>
     <span className="text-lg font-black text-white">{value}</span>
   </div>
 );

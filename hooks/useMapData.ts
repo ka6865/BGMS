@@ -19,10 +19,8 @@ export function useMapData(activeMapId: string, injectedUser: AuthUser | null) {
   // 사용자 프로필 조회
   const fetchUserProfile = async (user: AuthUser) => {
     const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", user.id)
-      .single();
+      .rpc("get_my_profile")
+      .single<UserProfile>();
 
     if (!error && data) {
       setUserProfile(data as UserProfile);

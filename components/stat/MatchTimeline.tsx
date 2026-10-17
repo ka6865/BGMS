@@ -136,7 +136,7 @@ export const MatchTimeline = ({ events, nickname, onEventClick }: MatchTimelineP
                   </div>
 
                   <div className="w-8 md:w-16 shrink-0 text-center md:text-left">
-                    <span className="text-[10px] md:text-[11px] font-bold text-gray-500 tabular-nums tracking-tighter">
+                    <span className="text-[10px] md:text-[11px] font-bold text-gray-400 tabular-nums tracking-tighter">
                       {formatTime(event.ts)}
                     </span>
                   </div>
@@ -197,7 +197,7 @@ const renderEventText = (event: TimelineEvent, lowerNickname: string) => {
       return (
         <div className="flex items-center gap-1 min-w-0">
           <Nickname name={event.victim || ""} isMe={isVictimMe} className="text-white" />
-          <span className="text-[9px] md:text-[10px] text-gray-500 truncate ml-1 shrink-0">
+          <span className="text-[9px] md:text-[10px] text-gray-400 truncate ml-1 shrink-0">
             (킬 주인: {isAttackerMe ? '나' : event.attacker}{weaponStr})
           </span>
         </div>
@@ -206,7 +206,7 @@ const renderEventText = (event: TimelineEvent, lowerNickname: string) => {
       return (
         <div className="flex flex-wrap items-center gap-0.5 md:gap-1 min-w-0">
           <Nickname name="나" isMe={true} />
-          <span className="text-[8px] md:text-[10px] text-gray-500 truncate shrink min-w-0 max-w-[20px] xs:max-w-[40px] md:max-w-none opacity-60">{weaponStr}</span>
+          <span className="text-[8px] md:text-[10px] text-gray-400 truncate shrink min-w-0 max-w-[20px] xs:max-w-[40px] md:max-w-none opacity-60">{weaponStr}</span>
           <ArrowRight size={10} className="text-gray-600 shrink-0 mx-0.5" />
           <Nickname name={event.victim || ""} isMe={isVictimMe} className="text-white font-black" />
           {distStr && <span className="text-[9px] md:text-[10px] text-blue-400/80 ml-1 shrink-0 font-bold whitespace-nowrap tracking-tighter">{distStr}</span>}
@@ -216,7 +216,7 @@ const renderEventText = (event: TimelineEvent, lowerNickname: string) => {
       return (
         <div className="flex flex-wrap items-center gap-0.5 md:gap-1 min-w-0">
           <Nickname name="나" isMe={true} />
-          <span className="text-[8px] md:text-[10px] text-gray-500 truncate shrink min-w-0 max-w-[20px] xs:max-w-[40px] md:max-w-none opacity-60">{weaponStr}</span>
+          <span className="text-[8px] md:text-[10px] text-gray-400 truncate shrink min-w-0 max-w-[20px] xs:max-w-[40px] md:max-w-none opacity-60">{weaponStr}</span>
           <ArrowRight size={10} className="text-gray-600 shrink-0 mx-0.5" />
           <Nickname name={event.victim || ""} isMe={isVictimMe} className="text-white" />
           {distStr && <span className="text-[9px] md:text-[10px] text-orange-400/80 ml-1 shrink-0 font-bold whitespace-nowrap tracking-tighter">{distStr}</span>}
@@ -226,7 +226,7 @@ const renderEventText = (event: TimelineEvent, lowerNickname: string) => {
       return (
         <div className="flex flex-wrap items-center gap-0.5 md:gap-1 min-w-0">
           <Nickname name={event.attacker || ""} isMe={isAttackerMe} className="text-orange-300 font-bold" />
-          <span className="text-[8px] md:text-[10px] text-gray-500 truncate shrink min-w-0 max-w-[20px] xs:max-w-[40px] md:max-w-none opacity-60">{weaponStr}</span>
+          <span className="text-[8px] md:text-[10px] text-gray-400 truncate shrink min-w-0 max-w-[20px] xs:max-w-[40px] md:max-w-none opacity-60">{weaponStr}</span>
           <ArrowRight size={10} className="text-gray-600 shrink-0 mx-0.5" />
           <Nickname name={event.victim || ""} isMe={isVictimMe} className="text-white/90" />
         </div>
@@ -235,7 +235,7 @@ const renderEventText = (event: TimelineEvent, lowerNickname: string) => {
       return (
         <div className="flex flex-wrap items-center gap-0.5 md:gap-1 min-w-0">
           <Nickname name={event.attacker || ""} isMe={isAttackerMe} className="text-orange-400 font-bold" />
-          <span className="text-[8px] md:text-[10px] text-gray-500 truncate shrink min-w-0 max-w-[20px] xs:max-w-[40px] md:max-w-none opacity-60">{weaponStr}</span>
+          <span className="text-[8px] md:text-[10px] text-gray-400 truncate shrink min-w-0 max-w-[20px] xs:max-w-[40px] md:max-w-none opacity-60">{weaponStr}</span>
           <ArrowRight size={10} className="text-gray-600 shrink-0 mx-0.5" />
           <Nickname name={event.victim || ""} isMe={isVictimMe} className="text-white/80" />
         </div>
@@ -309,7 +309,7 @@ const renderEventText = (event: TimelineEvent, lowerNickname: string) => {
       return (
         <div className="flex items-center gap-1 min-w-0">
           <Nickname name={event.attacker || ""} isMe={isAttackerMe} className="text-rose-400 font-medium" />
-          <span className="text-[9px] md:text-[10px] text-gray-500 truncate shrink min-w-0 max-w-[50px] md:max-w-none">{weaponStr}</span>
+          <span className="text-[9px] md:text-[10px] text-gray-400 truncate shrink min-w-0 max-w-[50px] md:max-w-none">{weaponStr}</span>
           <ArrowRight size={10} className="text-gray-600 shrink-0" />
           <Nickname name={event.victim || ""} isMe={isVictimMe} className="text-rose-500 font-bold" />
           <span className="text-rose-500 font-bold ml-1 shrink-0">사망</span>
@@ -319,7 +319,7 @@ const renderEventText = (event: TimelineEvent, lowerNickname: string) => {
       return (
         <div className="flex flex-wrap items-center gap-0.5 md:gap-1 min-w-0">
           <Nickname name={event.attacker || ""} isMe={isAttackerMe} className="text-red-400 font-medium" />
-          <span className="text-[8px] md:text-[10px] text-gray-500 truncate shrink min-w-0 max-w-[20px] xs:max-w-[40px] md:max-w-none opacity-60">{weaponStr}</span>
+          <span className="text-[8px] md:text-[10px] text-gray-400 truncate shrink min-w-0 max-w-[20px] xs:max-w-[40px] md:max-w-none opacity-60">{weaponStr}</span>
           <ArrowRight size={10} className="text-gray-600 shrink-0 mx-0.5" />
           <Nickname name="나" isMe={true} />
           <span className="text-blue-400 font-black ml-1 shrink-0">기절</span>
@@ -330,7 +330,7 @@ const renderEventText = (event: TimelineEvent, lowerNickname: string) => {
       return (
         <div className="flex items-center gap-1 min-w-0">
           <Nickname name={event.attacker || ""} isMe={isAttackerMe} className="text-red-600 font-black" />
-          <span className="text-[9px] md:text-[10px] text-gray-500 truncate shrink min-w-0 max-w-[50px] md:max-w-none">{weaponStr}</span>
+          <span className="text-[9px] md:text-[10px] text-gray-400 truncate shrink min-w-0 max-w-[50px] md:max-w-none">{weaponStr}</span>
           <ArrowRight size={10} className="text-gray-600 shrink-0" />
           <Nickname name="나" isMe={true} />
           <span className="text-blue-600 font-black ml-1 shrink-0">사망</span>

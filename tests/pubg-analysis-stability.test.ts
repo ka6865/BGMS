@@ -625,6 +625,13 @@ describe("PUBG benchmark and tier stabilization", () => {
       { tier: "S" }
     ])).toBe("S+");
   });
+
+  it("score가 없는 기록의 fallback은 각 티어를 그대로 유지한다", () => {
+    for (const tier of ["S+", "S", "A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D+", "D", "D-"]) {
+      expect(estimateAverageTierFromRows([{ tier }, { tier, score: null }])).toBe(tier);
+    }
+    expect(estimateAverageTierFromRows([{ tier: "A" }, { tier: "B" }])).toBe("B+");
+  });
 });
 
 describe("PUBG derived value semantics", () => {

@@ -66,7 +66,7 @@ function Metric({
 }) {
   return (
     <div className="min-w-0 rounded-xl bg-white/[0.035] px-3 py-2.5">
-      <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-white/40">
+      <div className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wider text-white/50">
         {icon}
         <span className="truncate">{label}</span>
       </div>
@@ -237,7 +237,7 @@ export function CurrentSeasonSummaryCard({
                   </div>
                 )}
                 <div className="min-w-0">
-                  <div className="text-[10px] font-black uppercase tracking-wider text-white/40">현재 랭크</div>
+                  <div className="text-[10px] font-black uppercase tracking-wider text-white/50">현재 랭크</div>
                   <div className="mt-1 truncate text-xl font-black text-amber-300">{rankLabel(summary)}</div>
                   <div className="mt-1 text-sm font-black tabular-nums text-white/80">
                     {summary.rankPoint != null ? `${summary.rankPoint} RP` : "RP —"}
@@ -256,7 +256,7 @@ export function CurrentSeasonSummaryCard({
                   <BarChart3 size={28} aria-hidden="true" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-[10px] font-black uppercase tracking-wider text-white/40">일반전 성적</div>
+                  <div className="text-[10px] font-black uppercase tracking-wider text-white/50">일반전 성적</div>
                   <div className="mt-1 text-xl font-black text-sky-200">{summary.roundsPlayed}경기</div>
                   <div className="mt-1 text-[10px] font-bold text-white/45">랭크 티어 미적용</div>
                 </div>

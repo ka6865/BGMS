@@ -5,7 +5,7 @@ import { normalizeDiscoveredMatchIds } from "@/lib/pubg/matchDiscovery";
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
-import { createClient } from "@/utils/supabase/server";
+import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import { reportPubgApiError } from "@/lib/pubg/apiHelper";
 import { normalizeRecentMatchIds } from "@/lib/pubg/recentMatches";
 import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
@@ -36,7 +36,7 @@ const PLAYER_REFRESH_LOCK_RETRY_SECONDS = 60;
 
 /**
  * pubg_player_cache 쓰기 전용 service_role 클라이언트입니다.
- * 이 라우트의 기본 클라이언트는 anon 키를 사용하므로 서버 전용 테이블에 쓸 수 없습니다.
+ * 조회도 공개 키로는 할 수 없어 createServiceRoleSupabase를 씁니다.
  */
 function createServiceRoleClient() {
   return createSupabaseClient(
@@ -249,7 +249,7 @@ export async function GET(request: Request) {
     Accept: "application/vnd.api+json",
   };
 
-  const supabase = await createClient();
+  const supabase = createServiceRoleSupabase();
 
   // 1. 캐시에서 정확한 닉네임 조회 시도 (소문자 기반)
   let targetNickname = nickname;

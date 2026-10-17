@@ -33,9 +33,9 @@ describe("anonymous PUBG AI accuracy audit", () => {
     expect(report.recentSelection.nextExcluded.match_type_excluded).toBe(1);
     expect(report.recentSelection.nextExcluded.mode_excluded).toBe(1);
     expect(report.recentSelection.nextExcluded.over_limit).toBe(2);
-    expect(report.telemetry.next.positionEvents).toBe(3);
+    expect(report.telemetry.next.positionEvents).toBe(21);
     expect(report.telemetry.next.teamPositionEvents).toBe(1);
-    expect(report.telemetry.next.enemyPositionEvents).toBe(2);
+    expect(report.telemetry.next.enemyPositionEvents).toBe(20);
     expect(report.singleMatchMetrics.legacy.damage).toBe(280);
     expect(report.singleMatchMetrics.next.damage).toBe(280);
     expect(report.singleMatchMetrics.legacy.kills).toBe(2);
@@ -332,9 +332,9 @@ describe("anonymous PUBG AI accuracy audit", () => {
     expect(report.telemetry.legacy.positionEvents).toBe(2);
     expect(report.telemetry.legacy.teamPositionEvents).toBe(0);
     expect(report.telemetry.legacy.enemyPositionEvents).toBe(2);
-    expect(report.telemetry.next.positionEvents).toBe(3);
+    expect(report.telemetry.next.positionEvents).toBe(21);
     expect(report.telemetry.next.teamPositionEvents).toBe(1);
-    expect(report.telemetry.next.enemyPositionEvents).toBe(2);
+    expect(report.telemetry.next.enemyPositionEvents).toBe(20);
   });
 
   it("legacy recent pool은 입력 순서가 아니라 createdAt 내림차순을 따른다", async () => {
@@ -373,6 +373,6 @@ describe("anonymous PUBG AI accuracy audit", () => {
     expect(RESULT_VERSION).toBe(73.0);
     expect(TELEMETRY_VERSION).toBe(62.0);
     expect(AI_CACHE_VERSION).toBe("2026-09-07.coaching-judgment-v4");
-    expect(AI_SUMMARY_CACHE_VERSION).toBe("2026-09-08.debate-verdict-consistency-v18");
+    expect(AI_SUMMARY_CACHE_VERSION).toBe("2026-10-17.card-partial-comparison-v19");
   });
 });

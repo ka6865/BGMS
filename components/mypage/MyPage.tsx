@@ -124,7 +124,7 @@ export default function MyPage({ initialCurrentUser, initialUserProfile, initial
       toast.success("프로필이 성공적으로 저장되었습니다.");
       
       // 재조회 로직 교체
-      const { data } = await supabase.from("profiles").select("*").eq("id", currentUser.id).single();
+      const { data } = await supabase.rpc("get_my_profile").single();
       if (data) {
         setUserProfile(data as UserProfile);
       }

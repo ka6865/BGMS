@@ -229,18 +229,93 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
     expect(aiRequests()).toHaveLength(1);
   });
 
-  it("지표 준비 전 409는 이유를 안내하고 즉시 재시도 버튼을 제공하지 않는다", async () => {
+  it.each([false, true, undefined])("지표 준비 전 409는 준비 상태로 안내하고 맛 변경에도 재시도하지 않는다 (retryable=%s)", async (retryable) => {
     const normalFetch = fetchMock.getMockImplementation() as (input: RequestInfo | URL) => Promise<Response>;
     fetchMock.mockImplementation((input) => String(input) === "/api/pubg/ai-squad"
-      ? Promise.resolve(jsonResponse({ errorCode: "PUBG_AI_SQUAD_CANONICAL_NOT_READY", retryable: false }, 409))
+      ? Promise.resolve(jsonResponse({ errorCode: "PUBG_AI_SQUAD_CANONICAL_NOT_READY", retryable }, 409))
       : normalFetch(input));
     renderPanel("g1");
     await screen.findByText("협동 시너지 밸런스");
     fireEvent.click(screen.getByRole("button", { name: "AI 코칭 보고서 생성" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("경기 지표가 아직 없습니다");
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("팀 분석 데이터 준비 필요");
+    expect(status).toHaveTextContent("팀 분석 데이터가 있는 최근 경기가 없습니다");
+    expect(status).toHaveClass("border-sky-500/20");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText("새 계산 기준 확인이 필요한 전적입니다")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "AI 코칭 보고서 생성" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "다정한맛 (Mild)" }));
+    expect(screen.getByRole("status")).toHaveTextContent("팀 분석 데이터 준비 필요");
+    fireEvent.click(screen.getByRole("button", { name: "AI 코칭 보고서 생성" }));
     expect(aiRequests()).toHaveLength(1);
+  });
+
+  it("지표 준비 전 409는 서버가 보낸 안내 문구를 그대로 보여준다", async () => {
+    const normalFetch = fetchMock.getMockImplementation() as (input: RequestInfo | URL) => Promise<Response>;
+    fetchMock.mockImplementation((input) => String(input) === "/api/pubg/ai-squad"
+      ? Promise.resolve(jsonResponse({ error: "서버가 정한 준비 안내", errorCode: "PUBG_AI_SQUAD_CANONICAL_NOT_READY", retryable: false }, 409))
+      : normalFetch(input));
+    renderPanel("g1");
+    await screen.findByText("협동 시너지 밸런스");
+    fireEvent.click(screen.getByRole("button", { name: "AI 코칭 보고서 생성" }));
+    const status = await screen.findByRole("status");
+    expect(status).toHaveTextContent("서버가 정한 준비 안내");
+    expect(status).not.toHaveTextContent("팀 분석 데이터가 있는 최근 경기가 없습니다");
+  });
+
+  it("갱신된 팀 요청 캐시는 준비 안내를 해제하고 관측된 듀오 지표로 코칭을 요청한다", async () => {
+    const normalFetch = fetchMock.getMockImplementation() as (input: RequestInfo | URL) => Promise<Response>;
+    let ready = false;
+    fetchMock.mockImplementation((input) => {
+      if (String(input) === "/api/pubg/ai-squad" && !ready) {
+        return Promise.resolve(jsonResponse({ errorCode: "PUBG_AI_SQUAD_CANONICAL_NOT_READY", retryable: false }, 409));
+      }
+      if (String(input).includes("groupKey=g1")) {
+        return Promise.resolve(jsonResponse({ ...detail("g1"), teamMode: "duo" }));
+      }
+      return normalFetch(input);
+    });
+    const props = { nickname: "FixturePlayer", platform: "steam" as StatsPlatform, groupKey: "g1", onGroupKeyChange: vi.fn(), requestCache: createSquadRequestCache() };
+    const view = render(createElement(SquadAnalysisPanel, props));
+    await screen.findByText("AI 듀오 분석 피드백");
+    fireEvent.click(screen.getByRole("button", { name: "AI 코칭 보고서 생성" }));
+    await screen.findByRole("status");
+    ready = true;
+    view.rerender(createElement(SquadAnalysisPanel, { ...props, requestCache: createSquadRequestCache() }));
+    await screen.findByText("AI 듀오 분석 피드백");
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "AI 코칭 보고서 생성" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "AI 코칭 보고서 생성" }));
+    await screen.findByText("fixture summary");
+    expect(aiRequests()).toHaveLength(2);
+    expect(JSON.parse(String((aiRequests()[1][1] as RequestInit).body))).toEqual({ groupKey: "g1", nickname: "FixturePlayer", platform: "steam", coachingStyle: "spicy" });
+  });
+
+  it("서버 일시 장애는 빨간 오류 안내와 수동 재시도를 유지한다", async () => {
+    const normalFetch = fetchMock.getMockImplementation() as (input: RequestInfo | URL) => Promise<Response>;
+    let fail = true;
+    fetchMock.mockImplementation((input) => String(input) === "/api/pubg/ai-squad" && fail
+      ? Promise.resolve(jsonResponse({ error: "temporary failure" }, 503)) : normalFetch(input));
+    renderPanel("g1");
+    await screen.findByText("협동 시너지 밸런스");
+    fireEvent.click(screen.getByRole("button", { name: "AI 코칭 보고서 생성" }));
+    expect(await screen.findByRole("alert")).toHaveClass("border-red-500/20");
+    fail = false;
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도" }));
+    await screen.findByText("fixture summary");
+    expect(aiRequests()).toHaveLength(2);
+  });
+
+  it("비로그인 사용자는 듀오 코칭도 서버에 요청하지 않는다", async () => {
+    authState.user = null;
+    const normalFetch = fetchMock.getMockImplementation() as (input: RequestInfo | URL) => Promise<Response>;
+    fetchMock.mockImplementation((input) => String(input).includes("groupKey=g1")
+      ? Promise.resolve(jsonResponse({ ...detail("g1"), teamMode: "duo" })) : normalFetch(input));
+    renderPanel("g1");
+    await screen.findByText("AI 듀오 분석 피드백");
+    fireEvent.click(screen.getByRole("button", { name: "AI 코칭 보고서 생성" }));
+    expect(aiRequests()).toHaveLength(0);
   });
 
   it("스쿼드 요청 캐시는 계산 지표 업데이트 대기 응답의 오류 메타데이터를 보존한다", async () => {
@@ -322,6 +397,10 @@ describe("SquadAnalysisPanel controlled groupKey", () => {
     expect(screen.getByRole("button", { name: "AI 코칭 보고서 생성" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();
     expect(aiRequests()).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "다정한맛 (Mild)" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("새 계산 기준 확인이 필요한 전적입니다");
+    expect(screen.queryByText("팀 분석 데이터 준비 필요")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "AI 코칭 보고서 생성" })).toBeDisabled();
   });
 
   it("상세 요청 실패는 오류 안내 후 성공적으로 재시도할 수 있다", async () => {

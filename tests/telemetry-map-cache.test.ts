@@ -181,6 +181,22 @@ describe("telemetry map cache", () => {
     expect(deps.sign).toHaveBeenCalledOnce();
   });
 
+  it("write는 좌표를 track 형식으로 올리고, 같은 본문을 읽으면 원래 페이로드로 복원한다", async () => {
+    const position = (relativeTimeMs: number, x: number) => ({
+      type: "position", time: new Date(Date.parse("2026-07-18T00:00:00.000Z") + relativeTimeMs).toISOString(),
+      relativeTimeMs, name: "Enemy", teamId: 2, isTeam: false, x, y: 10, z: 1, health: 100, vehicleId: null,
+    });
+    const withPositions = createTelemetryPayload({ ...payload, events: [position(0, 1), position(10_000, 2)] });
+    const deps = createDeps();
+
+    await writeTelemetryMapCache(identity, withPositions, deps);
+    const body = (deps.upload as ReturnType<typeof vi.fn>).mock.calls[0][1] as string;
+    expect(JSON.parse(body)).toMatchObject({ encoding: { version: 1 }, events: [0, 0] });
+
+    const readDeps = createDeps({ download: vi.fn().mockResolvedValue(body) });
+    await expect(readTelemetryMapCache(identity, readDeps)).resolves.toMatchObject({ payload: withPositions });
+  });
+
   it("동시 요청 두 건 중 하나만 writer claim을 받고 다른 요청은 ready cache를 반환한다", async () => {
     let active = false;
     let body: string | null = null;

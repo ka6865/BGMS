@@ -597,7 +597,7 @@ async function controlEvidence(page: Page, state: ControlState) {
     if (currentState === "detail-expanded") {
       const detail = document.querySelector('[data-testid="expanded-match-details"]');
       add("detail-control", detail ? query("button", detail) : []);
-      add("replay-control", query('button[aria-label="3D 전술 리플레이"], button[aria-label="2D 맵 리플레이"], button[aria-label="고정밀 리플레이"]'));
+      add("replay-control", query('button[aria-label="3D 전술 리플레이"], button[aria-label="2D 맵 리플레이"]'));
     }
     if (currentState === "squad") {
       const selector = document.querySelector('select[aria-label="팀 그룹"]');
@@ -723,6 +723,13 @@ async function layoutEvidence(page: Page) {
         inFirstViewport: rect.top < window.innerHeight && rect.bottom > 0,
       }];
     });
+    // 수동 광고 레일은 콘텐츠 영역 바깥 여백에 두는 설계라 따로 모은다.
+    const adRails = [...document.querySelectorAll<HTMLElement>('[data-ad-rail="manual"]')]
+      .filter(visible)
+      .map((rail) => {
+        const rect = rail.getBoundingClientRect();
+        return { side: rail.dataset.adRailSide ?? null, left: rect.left, right: rect.right };
+      });
     const bottomPadding = shell ? Number.parseFloat(getComputedStyle(shell).paddingBottom) : 0;
     const navRect = nav?.getBoundingClientRect();
     const gridColumns = grid ? getComputedStyle(grid).gridTemplateColumns : "missing";
@@ -731,6 +738,9 @@ async function layoutEvidence(page: Page) {
       scrollY: window.scrollY,
       globalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       internalOverflow,
+      adRails,
+      shellLeft: shellRect?.left ?? 0,
+      shellRight: shellRect?.right ?? 0,
       shellWidth: shellRect?.width ?? 0,
       shellCapOk: (shellRect?.width ?? 0) <= 1200.5,
       gridColumns,
@@ -802,14 +812,22 @@ function assertNoUnexpectedViewportOverflow(
   evidence: Awaited<ReturnType<typeof layoutEvidence>>,
   width: number,
 ): void {
-  const unexpectedOverflow = evidence.internalOverflow.filter((item) => {
-    const isIntentional1920AdRail = width === 1920
-      && ((item.adRailSide === "left" && item.left >= 160 && item.right <= 360)
-        || (item.adRailSide === "right" && item.left >= 1560 && item.right <= 1760));
-    return !isIntentional1920AdRail;
-  });
+  // 광고 레일 안의 요소는 레일이 화면 안에 있고 콘텐츠와 겹치지 않으면 의도한 배치다.
+  const isInsideAllowedRail = (item: { adRailSide: string | null; left: number; right: number }) =>
+    item.adRailSide === "right"
+      ? item.left >= evidence.shellRight - 0.5 && item.right <= width + 0.5
+      : item.adRailSide === "left"
+        ? item.left >= -0.5 && item.right <= evidence.shellLeft + 0.5
+        : false;
+  const unexpectedOverflow = evidence.internalOverflow.filter((item) => !isInsideAllowedRail(item));
   expect(unexpectedOverflow).toEqual([]);
   expect(evidence.globalOverflow).toBe(0);
+  for (const rail of evidence.adRails) {
+    expect(rail.left, `${rail.side} rail left`).toBeGreaterThanOrEqual(-0.5);
+    expect(rail.right, `${rail.side} rail right`).toBeLessThanOrEqual(width + 0.5);
+    if (rail.side === "right") expect(rail.left).toBeGreaterThanOrEqual(evidence.shellRight - 0.5);
+    if (rail.side === "left") expect(rail.right).toBeLessThanOrEqual(evidence.shellLeft + 0.5);
+  }
 }
 
 function assertLayoutContract(
@@ -1461,6 +1479,17 @@ describeBrowser("stats browser smoke", () => {
         await waitForSummarySuccess(dispatcher, "FixturePlayer", "steam");
         await page.click('[data-compact-match-id="match-fixture-1"] button[aria-label="매치 상세 펼치기"]');
         await waitForDetailSuccess(dispatcher, "FixturePlayer", "steam");
+        // 봇 수가 있는 분석 결과는 참가자 구성 줄을 함께 보여 준다.
+        await waitForStatsText({ dispatcher, page, text: "봇 12 (19%)" });
+        // 경기 흐름·경기 전체 섹션은 분석 결과의 matchReport로 그린다.
+        await waitForStatsText({ dispatcher, page, text: "써드파티 · 최근 1분간 2팀 교전" });
+        await clickButtonText(page, "경기 흐름");
+        await waitForStatsSelector({ dispatcher, page, selector: 'button[aria-label="교전1 리플레이에서 보기"]' });
+        await waitForStatsSelector({ dispatcher, page, selector: 'ul[aria-label="내 처치"]' });
+        await waitForStatsSelector({ dispatcher, page, selector: 'ul[aria-label="나를 맞힌 것"]' });
+        await waitForStatsText({ dispatcher, page, text: "사람 팀 기준 #2" });
+        await clickButtonText(page, "경기 전체");
+        await waitForStatsSelector({ dispatcher, page, selector: 'ol[aria-label="팀 순위"]' });
         const tierButtonSelector = '[data-compact-match-id="match-fixture-1"] button[aria-haspopup="dialog"]';
         await page.click(tierButtonSelector);
         await waitForStatsSelector({ dispatcher, page, selector: 'section[aria-label="매치 성과 및 티어 근거"]' });
@@ -1488,7 +1517,8 @@ describeBrowser("stats browser smoke", () => {
         expect(replayControls).toEqual([
           { label: "3D 전술 리플레이", present: true, disabled: false },
           { label: "2D 맵 리플레이", present: true, disabled: false },
-          { label: "고정밀 리플레이", present: true, disabled: false },
+          // 2D 진입점은 하나로 합쳤다. 아군 전멸 뒤는 재생 화면에서 full로 이어 본다.
+          { label: "고정밀 리플레이", present: false, disabled: false },
         ]);
         const detailControls = await controlEvidence(page, "detail-expanded");
         assertControlEvidence({
@@ -1502,7 +1532,6 @@ describeBrowser("stats browser smoke", () => {
           "리플레이 분석",
           "3D 전술 리플레이",
           "2D 맵 리플레이",
-          "고정밀 리플레이",
         ]) {
           expect(detailControls.records.some((record) => record.visible && record.label.includes(label)), label).toBe(true);
         }

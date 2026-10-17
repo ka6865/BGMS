@@ -62,9 +62,7 @@ export default function GlobalHeader() {
     const fetchUserData = async () => {
       // 1. 프로필
       const { data: profile } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("id", user.id)
+        .rpc("get_my_profile")
         .single();
       
       startTransition(() => {
@@ -196,113 +194,98 @@ export default function GlobalHeader() {
             {MAP_LIST.map((m) => {
               const isActive = activeMapId.toLowerCase() === m.id.toLowerCase() || (pathname === '/' && m.id === 'Erangel');
               return (
-                <Link key={m.id} href={`/?tab=${m.id}`} className="shrink-0">
-                  <button
-                    className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
-                      isActive
-                        ? "bg-black/90 text-white shadow-sm"
-                        : "text-black/60 hover:bg-black/10 hover:text-black/80"
-                    }`}
-                  >
-                    {m.label}
-                    {isActive && (
-                      <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
-                    )}
-                  </button>
+                <Link
+                  key={m.id}
+                  href={`/?tab=${m.id}`}
+                  aria-current={isActive ? "page" : undefined}
+                  className={`shrink-0 relative inline-flex items-center h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
+                    isActive ? "bg-black/90 text-white shadow-sm" : "text-black/60 hover:bg-black/10 hover:text-black/80"
+                  }`}
+                >
+                  {m.label}
+                  {isActive && <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />}
                 </Link>
               );
             })}
             <div className="w-[1.5px] h-3.5 bg-black/15 mx-2 rounded-full shrink-0" />
-            
-            <Link href="/stats" className="shrink-0">
-              <button
-                className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
-                  isStatsActive
-                    ? "bg-black/90 text-accent shadow-sm"
-                    : "text-black/60 hover:bg-black/10 hover:text-black/80"
-                }`}
-              >
-                AI 전적 검색
-                {isStatsActive && (
-                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
-                )}
-              </button>
+
+            <Link
+              href="/stats"
+              aria-current={isStatsActive ? "page" : undefined}
+              className={`shrink-0 relative inline-flex items-center h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
+                isStatsActive ? "bg-black/90 text-accent shadow-sm" : "text-black/60 hover:bg-black/10 hover:text-black/80"
+              }`}
+            >
+              AI 전적 검색
+              {isStatsActive && <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />}
             </Link>
 
-            <Link href="/board" className="shrink-0">
-              <button
-                className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
-                  isBoardActive
-                    ? "bg-black/90 text-accent shadow-sm"
-                    : "text-black/60 hover:bg-black/10 hover:text-black/80"
-                }`}
-              >
-                커뮤니티
-                {isBoardActive && (
-                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
-                )}
-              </button>
+            <Link
+              href="/board"
+              aria-current={isBoardActive ? "page" : undefined}
+              className={`shrink-0 relative inline-flex items-center h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
+                isBoardActive ? "bg-black/90 text-accent shadow-sm" : "text-black/60 hover:bg-black/10 hover:text-black/80"
+              }`}
+            >
+              커뮤니티
+              {isBoardActive && <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />}
             </Link>
 
-            <Link href="/rankings" className="shrink-0">
-              <button
-                className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
-                  isRankingsActive
-                    ? "bg-black/90 text-accent shadow-sm"
-                    : "text-black/60 hover:bg-black/10 hover:text-black/80"
-                }`}
-              >
-                랭킹
-                {isRankingsActive && (
-                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
-                )}
-              </button>
+            <Link
+              href="/rankings"
+              aria-current={isRankingsActive ? "page" : undefined}
+              className={`shrink-0 relative inline-flex items-center h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
+                isRankingsActive ? "bg-black/90 text-accent shadow-sm" : "text-black/60 hover:bg-black/10 hover:text-black/80"
+              }`}
+            >
+              랭킹
+              {isRankingsActive && <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />}
             </Link>
 
-            <Link href="/weapons" className="shrink-0">
-              <button className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
+            <Link
+              href="/weapons"
+              aria-current={isWeaponsActive ? "page" : undefined}
+              className={`shrink-0 relative inline-flex items-center h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
                 isWeaponsActive ? "bg-black/90 text-accent shadow-sm" : "text-black/60 hover:bg-black/10 hover:text-black/80"
-              }`}>
-                무기 도감
-                {isWeaponsActive && (
-                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
-                )}
-              </button>
+              }`}
+            >
+              무기 도감
+              {isWeaponsActive && <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />}
             </Link>
 
-            <Link href="/backpack" className="shrink-0">
-              <button className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
+            <Link
+              href="/backpack"
+              aria-current={isBackpackActive ? "page" : undefined}
+              className={`shrink-0 relative inline-flex items-center h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
                 isBackpackActive ? "bg-black/90 text-accent shadow-sm" : "text-black/60 hover:bg-black/10 hover:text-black/80"
-              }`}>
-                가방 시뮬
-                {isBackpackActive && (
-                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
-                )}
-              </button>
+              }`}
+            >
+              가방 시뮬
+              {isBackpackActive && <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />}
             </Link>
 
-            <Link href="/crates" className="shrink-0">
-              <button className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
+            <Link
+              href="/crates"
+              aria-current={isCratesActive ? "page" : undefined}
+              className={`shrink-0 relative inline-flex items-center h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
                 isCratesActive ? "bg-black/90 text-accent shadow-sm" : "text-black/60 hover:bg-black/10 hover:text-black/80"
-              }`}>
-                상자 시뮬
-                {isCratesActive && (
-                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
-                )}
-              </button>
+              }`}
+            >
+              상자 시뮬
+              {isCratesActive && <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />}
             </Link>
 
             <div className="w-[1.5px] h-3.5 bg-black/15 mx-2 rounded-full shrink-0" />
 
-            <Link href="/support" className="shrink-0">
-              <button className={`relative h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
+            <Link
+              href="/support"
+              aria-current={isSupportActive ? "page" : undefined}
+              className={`shrink-0 relative inline-flex items-center h-8 px-3 rounded-lg font-extrabold text-[11px] uppercase whitespace-nowrap transition-all tracking-wide ${
                 isSupportActive ? "bg-black/90 text-accent" : "text-black/60 hover:bg-black/10 hover:text-black/80"
-              }`}>
-                고객센터
-                {isSupportActive && (
-                  <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />
-                )}
-              </button>
+              }`}
+            >
+              고객센터
+              {isSupportActive && <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-accent" />}
             </Link>
           </nav>
         )}
@@ -319,35 +302,25 @@ export default function GlobalHeader() {
           <>
             {isAdmin && !isMobile && (
               <div className="flex gap-2 mr-2">
-                <Link href="/map-editor">
-                  <button className="flex items-center gap-1.5 px-3 py-1.5 bg-black text-accent border border-black/10 rounded-lg font-black text-[10px] uppercase">
-                    <Hammer size={12} />
-                    <span>맵 에디터</span>
-                  </button>
+                <Link href="/map-editor" className="flex items-center gap-1.5 px-3 py-1.5 bg-black text-accent border border-black/10 rounded-lg font-black text-[10px] uppercase">
+                  <Hammer size={12} />
+                  <span>맵 에디터</span>
                 </Link>
-                <Link href="/admin/game-data">
-                  <button className="flex items-center gap-1.5 px-3 py-1.5 bg-[#34A853] text-white rounded-lg font-black text-[10px] uppercase shadow-sm">
-                    <Database size={12} />
-                    <span>데이터 관리</span>
-                  </button>
+                <Link href="/admin/game-data" className="flex items-center gap-1.5 px-3 py-1.5 bg-[#34A853] text-white rounded-lg font-black text-[10px] uppercase shadow-sm">
+                  <Database size={12} />
+                  <span>데이터 관리</span>
                 </Link>
-                <Link href="/admin/support">
-                  <button className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white rounded-lg font-black text-[10px] uppercase shadow-sm">
-                    <MessageSquare size={12} />
-                    <span>고객센터 관리</span>
-                  </button>
+                <Link href="/admin/support" className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-600 text-white rounded-lg font-black text-[10px] uppercase shadow-sm">
+                  <MessageSquare size={12} />
+                  <span>고객센터 관리</span>
                 </Link>
-                <Link href="/admin/map-settings">
-                  <button className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase shadow-sm">
-                    <Settings size={12} />
-                    <span>맵 설정</span>
-                  </button>
+                <Link href="/admin/map-settings" className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg font-black text-[10px] uppercase shadow-sm">
+                  <Settings size={12} />
+                  <span>맵 설정</span>
                 </Link>
-                <Link href="/admin/bot">
-                  <button className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-zinc-950 rounded-lg font-black text-[10px] uppercase shadow-sm">
-                    <Bot size={12} />
-                    <span>AI 비서</span>
-                  </button>
+                <Link href="/admin/bot" className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500 text-zinc-950 rounded-lg font-black text-[10px] uppercase shadow-sm">
+                  <Bot size={12} />
+                  <span>AI 비서</span>
                 </Link>
               </div>
             )}
@@ -393,11 +366,9 @@ export default function GlobalHeader() {
             </Link>
           </>
         ) : (
-          <Link href="/login">
-            <button className="flex items-center gap-2 px-4 py-2 bg-white text-black font-black text-xs rounded-xl shadow-sm border border-black/5 active:scale-95 transition-transform">
-              <LogIn size={14} strokeWidth={3} />
-              <span>로그인</span>
-            </button>
+          <Link href="/login" className="flex items-center gap-2 min-h-11 px-4 bg-white text-black font-black text-xs rounded-xl shadow-sm border border-black/5 active:scale-95 transition-transform">
+            <LogIn size={14} strokeWidth={3} />
+            <span>로그인</span>
           </Link>
         )}
       </div>

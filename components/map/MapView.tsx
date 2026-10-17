@@ -19,6 +19,7 @@ import ReportForm from "./ReportForm";
 import HotDropLayer from "./HotDropLayer";
 import { supabase } from "../../lib/supabase";
 import { MAP_DIMENSIONS } from "../../lib/map_config";
+import { leafletToHeightmapPixel } from "../../lib/heightmapCoords";
 import { toast } from "sonner";
 import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 
@@ -226,7 +227,6 @@ interface MapViewProps {
   filters: Record<string, boolean>;
   telemetryData?: any;
   isHotDropOn?: boolean;
-  isHighPrecision?: boolean;
   simulatorStep?: number;
   simulatorPhases?: L.LatLng[];
   setSimulatorStep?: React.Dispatch<React.SetStateAction<number>>;
@@ -264,7 +264,6 @@ const MapView = memo(
     filters,
     telemetryData,
     isHotDropOn = false,
-    isHighPrecision = false,
     simulatorStep = 0,
     simulatorPhases = [],
     setSimulatorStep,
@@ -337,13 +336,10 @@ const MapView = memo(
         const ctx = canvas.getContext("2d");
         if (!ctx) return 0;
 
-        const pxX = Math.round((latlng.lng / 8192) * width);
-        const pxY = Math.round((latlng.lat / 8192) * height);
-        const clampedX = Math.max(0, Math.min(width - 1, pxX));
-        const clampedY = Math.max(0, Math.min(height - 1, pxY));
+        const pixel = leafletToHeightmapPixel(latlng.lat, latlng.lng, width, height);
 
         try {
-          const imgData = ctx.getImageData(clampedX, clampedY, 1, 1).data;
+          const imgData = ctx.getImageData(pixel.x, pixel.y, 1, 1).data;
           if (imgData[3] === 0) return 0;
           return (imgData[0] - 128) * 2.048;
         } catch (e) {
@@ -500,17 +496,6 @@ const MapView = memo(
             border-radius: 50%;
             animation: groggy-pulse 1.2s infinite ease-out;
             box-shadow: 0 0 12px rgba(255, 0, 255, 0.7);
-          }
-          /* 텔레메트리 마커 부드러운 이동을 위한 트랜지션 */
-          .leaflet-marker-icon, .leaflet-marker-shadow {
-            transition: transform 0.15s linear !important;
-          }
-          .leaflet-interactive {
-            transition: all 0.15s linear !important;
-          }
-          /* 궤적(Polyline)은 트랜지션 제외 (깜빡임 방지) */
-          .leaflet-pane path.leaflet-interactive[stroke-dasharray] {
-            transition: none !important;
           }
           /* Leaflet 툴팁 기본 오버라이드 */
           .custom-mortar-tooltip {
@@ -738,7 +723,6 @@ const MapView = memo(
             <TelemetryCanvasLayer 
               telemetryData={telemetryData} 
               showZones={telemetryData.showZone}
-              isHighPrecision={isHighPrecision}
             />
           </>
         )}

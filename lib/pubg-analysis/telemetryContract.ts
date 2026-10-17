@@ -369,11 +369,28 @@ export function projectTelemetryEvent(event: unknown): TelemetryEventRecord | nu
   return result;
 }
 
+const ENEMY_POSITION_SAMPLE_INTERVAL = 10;
+
+// 리플레이 좌표는 선수별 약 10초 간격이고, 적 좌표를 1/10로 줄여 저장한 기존 lite 캐시는
+// 약 100초 간격이다. 이보다 긴 공백은 사망 후 재배치 같은 순간이동이므로 보간하지 않는다.
+export const MAX_POSITION_INTERPOLATION_GAP_MS = 150_000;
+
+// 적 좌표는 선수별 순번으로 줄인다. 전체 순번을 쓰면 위치 로그가 매 틱 같은 순서로
+// 들어올 때 특정 선수만 남고 나머지는 경기 내내 좌표가 사라진다.
+function createEnemyPositionSampler(): (playerKey: string) => boolean {
+  const ordinals = new Map<string, number>();
+  return (playerKey) => {
+    const ordinal = (ordinals.get(playerKey) ?? 0) + 1;
+    ordinals.set(playerKey, ordinal);
+    return ordinal % ENEMY_POSITION_SAMPLE_INTERVAL === 1;
+  };
+}
+
 export function filterTelemetryEvents(
   events: readonly unknown[],
   context: TelemetryFilterContext,
 ): TelemetryEventRecord[] {
-  let enemyPositionOrdinal = 0;
+  const keepEnemyPosition = createEnemyPositionSampler();
   return events.flatMap((event) => {
     const projected = projectTelemetryEvent(event);
     if (!projected) return [];
@@ -391,18 +408,7 @@ export function filterTelemetryEvents(
       (normalizedName.length > 0 && context.teamNames.has(normalizedName));
     if (isTeam) return [projected];
 
-    enemyPositionOrdinal += 1;
-    return enemyPositionOrdinal % 10 === 0 ? [projected] : [];
+    return keepEnemyPosition(accountIds[0] ?? normalizedName) ? [projected] : [];
   });
 }
 
-
-/** Sample only rendered enemy positions, after all analysis calculations are complete. */
-export function sampleReplayPositions<T extends { type?: string; isTeam?: boolean }>(events: T[], mode: TelemetryFilterMode): T[] {
-  if (mode === "full") return events;
-  let ordinal = 0;
-  return events.filter((event) => {
-    if (event.type !== "position" || event.isTeam !== false) return true;
-    return ++ordinal % 10 === 0;
-  });
-}

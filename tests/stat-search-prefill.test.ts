@@ -13,10 +13,8 @@ const { profileSingleMock } = vi.hoisted(() => ({
 
 vi.mock("@/lib/supabase", () => ({
   supabase: {
-    from: () => ({
-      select: () => ({
-        eq: () => ({ single: profileSingleMock }),
-      }),
+    rpc: () => ({
+      select: () => ({ single: profileSingleMock }),
     }),
   },
 }));
