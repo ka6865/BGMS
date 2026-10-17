@@ -5,7 +5,7 @@ import { classifyDamageCause, isCombatDamageCause, type ReplayDamageCause } from
 import { FIGHT_GAP_MS } from "@/lib/replay/replayEngagements";
 import { normalizeName } from "./utils";
 
-export const MATCH_REPORT_VERSION = 2;
+export const MATCH_REPORT_VERSION = 3;
 
 /** 사망 직전 이 시간 안에 우리 팀과 싸운 적 팀이 둘 이상이면 써드파티로 본다. */
 export const THIRD_PARTY_WINDOW_MS = 60_000;
@@ -243,9 +243,11 @@ export class MatchReportCollector {
   private readonly circles: MatchCircleStatus[] = [];
   private lastWarningRadius: number | null = null;
   private myAlive = true;
-  private myLastDeath: { event: Record<string, any>; t: number } | null = null;
+  // 사망 판정에 쓰는 팀원 거리는 사망 순간의 값이어야 한다. 이후 팀원 이동·사망이 판정을 바꾸지 않게 그때 저장한다.
+  private myLastDeath: { event: Record<string, any>; t: number; nearestTeammateM: number | null } | null = null;
   private readonly healthTrace: { t: number; health: number }[] = [];
-  private readonly reviveTimes: number[] = [];
+  // 소생·리콜·재배치로 체력이 다시 생긴 시각. 이 구간의 체력 상승은 회복으로 세지 않는다.
+  private readonly healthResetTimes: number[] = [];
   private readonly healUses: number[] = [];
   private boosts = 0;
   private readonly versus: MatchVersusSplit = { human: emptyCounts(), bot: emptyCounts() };
@@ -299,13 +301,13 @@ export class MatchReportCollector {
         this.observeKill(event, ts);
         return;
       case "LogPlayerRevive":
-        if (this.isMe(event.victim)) this.reviveTimes.push(this.rel(ts));
+        if (this.isMe(event.victim)) this.healthResetTimes.push(this.rel(ts));
         if (this.isTeam(event.victim)) this.knockedAt.delete(actorName(event.victim));
         return;
       case "LogPlayerRecall":
       case "LogPlayerRedeploy":
       case "LogPlayerRedeployBRStart":
-        this.observeRecall(event);
+        this.observeRecall(event, ts);
         return;
       case "LogHeal":
         if (this.isMe(event.character) && this.myAlive && finite(event.character?.health)) {
@@ -443,7 +445,7 @@ export class MatchReportCollector {
     if (this.isTeam(victim)) this.teamDead.add(actorName(victim));
     if (this.isMe(victim)) {
       this.myAlive = false;
-      this.myLastDeath = { event, t };
+      this.myLastDeath = { event, t, nearestTeammateM: this.nearestLivingTeammateM(t) };
     }
     // 기절 뒤 확킬은 교전별 이름 집합에서 한 번으로 합쳐진다.
     const victimKey = actorName(victim);
@@ -460,7 +462,21 @@ export class MatchReportCollector {
     });
   }
 
-  private observeRecall(event: Record<string, any>) {
+  // 내 마지막 위치에서 살아 있는 팀원까지의 최단 거리. 30초보다 오래된 위치는 쓰지 않는다.
+  private nearestLivingTeammateM(t: number): number | null {
+    const me = this.myTrack[this.myTrack.length - 1];
+    if (!me) return null;
+    let nearest: number | null = null;
+    for (const [name, point] of this.teamLast) {
+      if (name === this.identity.lowerNickname || this.teamDead.has(name)) continue;
+      if (point.t > t || t - point.t > TEAMMATE_POSITION_MAX_AGE_MS) continue;
+      const gap = round(distanceM(me, point));
+      nearest = nearest === null ? gap : Math.min(nearest, gap);
+    }
+    return nearest;
+  }
+
+  private observeRecall(event: Record<string, any>, ts: number) {
     const actors = [event.character, event.recalledPlayer, ...(Array.isArray(event.recalledPlayers) ? event.recalledPlayers : [])]
       .map((item: any) => (item && typeof item === "object" && "character" in item ? item.character : item));
     for (const actor of actors) {
@@ -469,6 +485,7 @@ export class MatchReportCollector {
       if (this.isMe(actor)) {
         this.myAlive = true;
         this.myLastDeath = null;
+        this.healthResetTimes.push(this.rel(ts));
       }
     }
   }
@@ -554,7 +571,7 @@ export class MatchReportCollector {
       if (current && item.t - current[current.length - 1].t <= FIGHT_GAP_MS) current.push(item);
       else groups.push([item]);
     }
-    return groups.slice(0, MAX_FIGHTS).map((group) => {
+    return groups.map((group) => {
       const enemyDowns = new Set(group.map((item) => item.enemyDown).filter((name): name is string => !!name));
       const teamDowns = new Set(group.map((item) => item.teamDown).filter((name): name is string => !!name));
       const opponents = [...new Set(group.map((item) => item.enemyName).filter(Boolean))].slice(0, MAX_OPPONENT_NAMES);
@@ -578,7 +595,7 @@ export class MatchReportCollector {
 
   private buildDeath(fights: MatchFight[]): MatchDeath | null {
     if (!this.myLastDeath) return null;
-    const { event, t } = this.myLastDeath;
+    const { event, t, nearestTeammateM } = this.myLastDeath;
     const killer = event.killer ?? event.finisher;
     const info = event.killerDamageInfo ?? event.finishDamageInfo;
     const finishInfo = event.finishDamageInfo ?? info;
@@ -601,17 +618,6 @@ export class MatchReportCollector {
       moved = round(moved);
     }
     const inVehicle = window.length > 0 && window[window.length - 1].inVehicle;
-
-    const me = this.myTrack[this.myTrack.length - 1];
-    let nearestTeammateM: number | null = null;
-    if (me) {
-      for (const [name, point] of this.teamLast) {
-        if (name === this.identity.lowerNickname || this.teamDead.has(name)) continue;
-        if (t - point.t > TEAMMATE_POSITION_MAX_AGE_MS) continue;
-        const gap = round(distanceM(me, point));
-        nearestTeammateM = nearestTeammateM === null ? gap : Math.min(nearestTeammateM, gap);
-      }
-    }
 
     const dealtToKiller = killerTeamId === null ? 0 : this.engagements
       .filter((item) => item.byUs && item.enemyTeamId === killerTeamId && item.t >= fightStart && item.t <= t)
@@ -653,8 +659,8 @@ export class MatchReportCollector {
     for (let i = 1; i < trace.length; i++) {
       const gain = trace[i].health - trace[i - 1].health;
       if (gain <= 0) continue;
-      // 부활로 체력이 다시 생긴 구간은 회복으로 세지 않는다.
-      if (this.reviveTimes.some((time) => time > trace[i - 1].t - 1_000 && time <= trace[i].t + 1_000)) continue;
+      // 소생·리콜·재배치로 체력이 다시 생긴 구간은 회복으로 세지 않는다.
+      if (this.healthResetTimes.some((time) => time > trace[i - 1].t - 1_000 && time <= trace[i].t + 1_000)) continue;
       restored += gain;
     }
     const midFightHeals = this.healUses.filter((time) => fights.some((fight) => time >= fight.startMs && time <= fight.endMs)).length;
@@ -709,7 +715,8 @@ export class MatchReportCollector {
   }
 
   result(participants: readonly any[] = [], rosters: readonly any[] = []): MatchReport {
-    const fights = this.buildFights();
+    // 사망 판정과 교전 중 치료는 전체 교전으로 계산하고, 화면에 보낼 목록만 줄인다.
+    const allFights = this.buildFights();
     const bots = participants
       .map((participant) => participant?.attributes?.stats)
       .filter((stats: any) => typeof stats?.playerId === "string" && stats.playerId.startsWith("ai."))
@@ -719,10 +726,10 @@ export class MatchReportCollector {
     return {
       version: MATCH_REPORT_VERSION,
       landing: this.buildLanding(),
-      fights,
-      death: this.buildDeath(fights),
+      fights: allFights.slice(0, MAX_FIGHTS),
+      death: this.buildDeath(allFights),
       circles: this.circles,
-      heal: this.buildHeal(fights),
+      heal: this.buildHeal(allFights),
       kills: [...this.kills].sort((a, b) => a.timeMs - b.timeMs),
       teams: this.buildTeams(participants, rosters),
       carePackages: this.carePackages,
