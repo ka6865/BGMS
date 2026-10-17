@@ -78,6 +78,8 @@ interface DebateData {
     reactionTier?: string;
     backupTier?: string;
     overallTier?: string;
+    tierScope?: "solo" | "team";
+    tierMatchCount?: number;
     benchmarkScope?: BenchmarkScope;
     roleInfo?: {
       primaryRole: string;
@@ -224,7 +226,8 @@ export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | 
   if (counterLatency !== null) normalized.counterLatency = counterLatency;
   const reactionLatency = safeVisualDuration(source.reactionLatency);
   if (reactionLatency !== null) normalized.reactionLatency = reactionLatency;
-  ["latestMatchCount", "bestMatchCount", "calculationPendingCount"].forEach((key) => {
+  if (source.tierScope === "solo" || source.tierScope === "team") normalized.tierScope = source.tierScope;
+  ["latestMatchCount", "bestMatchCount", "calculationPendingCount", "tierMatchCount"].forEach((key) => {
     const count = finiteVisualNumber(source[key], 0, 100);
     if (count !== null) normalized[key] = Math.floor(count);
   });
@@ -618,6 +621,9 @@ export const RecentAISummary = ({
   const bestMatchRangeLabel = debateData?.visuals?.bestMatchCount === undefined
     ? "최대 5판"
     : `${bestMatchCount}판`;
+  // 잠재 티어는 배점이 같은 범위(솔로 또는 팀)의 경기만 평균한다. 솔로 기준이면 함께 밝힌다.
+  const tierMatchCount = debateData?.visuals?.tierMatchCount;
+  const potentialTierRangeLabel = `${tierMatchCount === undefined ? bestMatchRangeLabel : `${tierMatchCount}판`}${debateData?.visuals?.tierScope === "solo" ? " · 솔로 기준" : ""}`;
 
   useEffect(() => {
     onSummaryChangeRef.current = onSummaryChange;
@@ -1524,7 +1530,7 @@ export const RecentAISummary = ({
             {/* Right: Tier Badge */}
             <div className="flex items-center justify-center bg-white/5 border border-white/10 rounded-2xl p-4 md:px-8 md:py-6 shadow-xl backdrop-blur-sm self-center md:self-auto min-w-[140px]">
               <div className="flex flex-col items-center">
-                <span className="text-[10px] text-white/50 font-black uppercase tracking-[0.2em] mb-1">점수 상위 {bestMatchRangeLabel} 잠재 티어</span>
+                <span className="text-[10px] text-white/50 font-black uppercase tracking-[0.2em] mb-1">점수 상위 {potentialTierRangeLabel} 잠재 티어</span>
                 <div className="text-4xl md:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-b from-white to-white/40 drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]">
                   {debateData?.visuals?.overallTier || "N/A"}
                 </div>
@@ -1729,7 +1735,7 @@ export const RecentAISummary = ({
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="px-4 py-1.5 bg-white/10 rounded-full border border-white/10">
-                    <span className="text-[12px] font-black text-white tracking-widest uppercase">점수 상위 {bestMatchRangeLabel} {(debateData.visuals.overallTier || 'B')} 잠재 티어</span>
+                    <span className="text-[12px] font-black text-white tracking-widest uppercase">점수 상위 {potentialTierRangeLabel} {(debateData.visuals.overallTier || 'B')} 잠재 티어</span>
                   </div>
 
                   {/* [V38.2] 티어 세부 점수 툴팁 */}
@@ -1743,7 +1749,7 @@ export const RecentAISummary = ({
                       <button
                         type="button"
                         ref={tierTriggerRef}
-                        aria-label={`점수 상위 ${bestMatchRangeLabel} 잠재 티어 산정 방법 보기`}
+                        aria-label={`점수 상위 ${potentialTierRangeLabel} 잠재 티어 산정 방법 보기`}
                         aria-expanded={showTierTooltip}
                         aria-controls={TIER_TOOLTIP_ID}
                         aria-describedby={showTierTooltip ? TIER_TOOLTIP_ID : undefined}
@@ -1786,7 +1792,7 @@ export const RecentAISummary = ({
                             } p-4 bg-black/95 border border-white/20 rounded-2xl backdrop-blur-xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] z-[100] duration-200`}
                         >
                           <div className="flex justify-between items-center mb-3 pb-2 border-b border-white/10">
-                            <div className="text-[11px] text-white/50 font-black uppercase tracking-wider">점수 상위 {bestMatchRangeLabel} 잠재 티어 분석</div>
+                            <div className="text-[11px] text-white/50 font-black uppercase tracking-wider">점수 상위 {potentialTierRangeLabel} 잠재 티어 분석</div>
                             {isMobile && (
                               <button
                                 type="button"

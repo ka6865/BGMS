@@ -2,7 +2,7 @@ import { isSupportedAnalysisCalculationVersion } from "@/lib/pubg-analysis/const
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
-import { estimateAverageTierFromRows } from "@/lib/pubg-analysis/tierAveraging";
+import { estimateScopedTierFromRows } from "@/lib/pubg-analysis/tierAveraging";
 import { normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import {
   BENCHMARK_FILTER_VERSION,
@@ -237,8 +237,12 @@ export async function GET(request: Request) {
     return { ...m, v1, v2, winner, comparable: v1 !== null && v2 !== null };
   });
 
-  const tier1 = tacticalComparable ? estimateAverageTierFromRows(rows1) : null;
-  const tier2 = tacticalComparable ? estimateAverageTierFromRows(rows2) : null;
+  // 솔로와 팀은 배점이 달라 각자 경기가 많은 범위로 티어를 내고, 범위가 다르면 비교를 보류한다.
+  const scopedTier1 = tacticalComparable ? estimateScopedTierFromRows(rows1) : null;
+  const scopedTier2 = tacticalComparable ? estimateScopedTierFromRows(rows2) : null;
+  const tierScopeMismatch = Boolean(scopedTier1?.scope && scopedTier2?.scope && scopedTier1.scope !== scopedTier2.scope);
+  const tier1 = tierScopeMismatch ? null : scopedTier1?.tier ?? null;
+  const tier2 = tierScopeMismatch ? null : scopedTier2?.tier ?? null;
 
   const score = {
     nick1: comparisons.filter((c) => c.winner === "nick1").length,
@@ -256,6 +260,11 @@ export async function GET(request: Request) {
     platform1: player1.platform,
     platform2: player2.platform,
     tier1, tier2,
+    tierScope1: scopedTier1?.scope ?? null,
+    tierScope2: scopedTier2?.scope ?? null,
+    tierMatchCount1: scopedTier1?.matchCount ?? 0,
+    tierMatchCount2: scopedTier2?.matchCount ?? 0,
+    tierScopeMismatch,
     matchCount1: rows1.length,
     matchCount2: rows2.length,
     availableMatchCount1: availableRows1.length,

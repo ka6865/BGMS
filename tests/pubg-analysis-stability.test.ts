@@ -19,7 +19,7 @@ import {
   adaptObservedBenchmark,
   formatBenchmarkProvenance,
 } from "../lib/pubg-analysis/benchmarkAdapter";
-import { estimateAverageTierFromRows } from "../lib/pubg-analysis/tierAveraging";
+import { estimateAverageTierFromRows, estimateScopedTierFromRows, tierScopeOfMode } from "../lib/pubg-analysis/tierAveraging";
 import { classifyRole } from "../lib/pubg-analysis/roleClassifier";
 
 describe("PUBG analysis identity stabilization", () => {
@@ -624,6 +624,14 @@ describe("PUBG benchmark and tier stabilization", () => {
       { tier: "S+" },
       { tier: "S" }
     ])).toBe("S+");
+  });
+
+  it("티어 범위는 솔로 배점 기준(gameMode에 solo 포함)으로 나누고 동률이면 팀을 쓴다", () => {
+    expect(["solo", "solo-fpp", "solo-squad"].map(tierScopeOfMode)).toEqual(["solo", "solo", "solo"]);
+    expect(["duo", "squad-fpp", "", null].map(tierScopeOfMode)).toEqual(["team", "team", "team", "team"]);
+    expect(estimateScopedTierFromRows([{ game_mode: "solo", score: 95 }, { game_mode: "squad", score: 50 }]))
+      .toEqual({ tier: "B", scope: "team", matchCount: 1 });
+    expect(estimateScopedTierFromRows([])).toEqual({ tier: null, scope: null, matchCount: 0 });
   });
 
   it("score가 없는 기록의 fallback은 각 티어를 그대로 유지한다", () => {

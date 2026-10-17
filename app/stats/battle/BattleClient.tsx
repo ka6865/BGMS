@@ -30,6 +30,11 @@ interface BattleResult {
   platform2: string;
   tier1: string | null;
   tier2: string | null;
+  tierScope1?: "solo" | "team" | null;
+  tierScope2?: "solo" | "team" | null;
+  tierMatchCount1?: number;
+  tierMatchCount2?: number;
+  tierScopeMismatch?: boolean;
   matchCount1: number;
   matchCount2: number;
   availableMatchCount1: number;
@@ -43,6 +48,12 @@ interface BattleResult {
 }
 
 type PlayerSuggestion = { nickname: string; platform: string };
+
+// 솔로와 팀은 배점이 달라 등급을 어느 경기로 냈는지 함께 보여준다.
+function tierBasisLabel(tier: string | null, scope: "solo" | "team" | null | undefined, count: number | undefined): string | null {
+  if (!tier || !scope || !count) return null;
+  return `${scope === "solo" ? "솔로" : "팀"} ${count}경기 기준 등급`;
+}
 
 const normalizeBattlePlatform = (platform?: string | null) => {
   const value = String(platform || "").trim().toLowerCase();
@@ -672,6 +683,9 @@ function BattleContent() {
                       {result.nick1}
                     </div>
                     <div className="text-[9px] md:text-[10px] text-gray-400 font-medium shrink-0">{result.matchCount1}경기 비교</div>
+                    {tierBasisLabel(result.tier1, result.tierScope1, result.tierMatchCount1) && (
+                      <div className="text-[9px] md:text-[10px] text-gray-400 font-medium shrink-0">{tierBasisLabel(result.tier1, result.tierScope1, result.tierMatchCount1)}</div>
+                    )}
                   </div>
 
                   {/* 스코어 */}
@@ -691,6 +705,9 @@ function BattleContent() {
                       {result.nick2}
                     </div>
                     <div className="text-[9px] md:text-[10px] text-gray-400 font-medium shrink-0">{result.matchCount2}경기 비교</div>
+                    {tierBasisLabel(result.tier2, result.tierScope2, result.tierMatchCount2) && (
+                      <div className="text-[9px] md:text-[10px] text-gray-400 font-medium shrink-0">{tierBasisLabel(result.tier2, result.tierScope2, result.tierMatchCount2)}</div>
+                    )}
                   </div>
                 </div>
 
@@ -711,6 +728,7 @@ function BattleContent() {
                 )}
               </div>
 
+              {result.tierScopeMismatch && <p className="px-4 pb-4 text-center text-xs leading-relaxed text-sky-200">한 명은 솔로, 다른 한 명은 팀 경기 위주라 점수 배점이 달라 등급 비교는 보류합니다.</p>}
               {result.tacticalComparable === false && <p className="px-4 pb-4 text-center text-xs leading-relaxed text-sky-200">재계산이 필요한 경기가 포함되어 킬·피해량으로 비교합니다. 전술 지표와 등급은 보류합니다.</p>}
               {/* 항목별 비교 */}
               <div className="flex flex-col gap-3 px-2 pb-2">
