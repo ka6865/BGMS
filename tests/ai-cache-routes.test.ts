@@ -2936,8 +2936,10 @@ describe("AI cache route stabilization", () => {
     const records = parseSummaryNdjson(await response.text());
     const visuals = records.find((record) => record.type === "visuals")?.data;
     const cachedVisuals = summaryCache.upsert.mock.calls[0]?.[0]?.ai_result?.visuals;
+    let numberCount = 0;
     const assertFiniteNumbers = (value: unknown): void => {
       if (typeof value === "number") {
+        numberCount += 1;
         expect(Number.isFinite(value)).toBe(true);
         return;
       }
@@ -2951,8 +2953,15 @@ describe("AI cache route stabilization", () => {
     };
 
     expect(response.status).toBe(200);
+    // visuals가 누락되면 재귀 검사가 아무것도 확인하지 않으므로 존재와 캐시 일치를 먼저 고정한다
+    expect(visuals).toEqual(expect.objectContaining({ tactical: expect.any(Object), utility: expect.any(Object) }));
+    expect(cachedVisuals).toEqual(visuals);
     assertFiniteNumbers(visuals);
-    assertFiniteNumbers(cachedVisuals);
+    expect(numberCount).toBeGreaterThan(0);
+    // 비유한 원본 값은 0 같은 가짜 수치가 아니라 미측정으로 정규화한다
+    expect(visuals.pressureIndex).toBeNull();
+    expect(visuals.maxHitDistance).toBe("측정 불가");
+    expect(visuals.utility).toMatchObject({ totalThrows: "측정 불가", hits: "측정 불가", damage: "측정 불가" });
     expect(JSON.stringify(records)).not.toMatch(/NaN|Infinity|undefined/);
   });
 
@@ -3725,13 +3734,29 @@ describe("AI cache route stabilization", () => {
     expect(errorSpy.mock.calls.flat().join(" ")).not.toContain("AI-SUMMARY-STREAM-ERROR");
   });
 
-  it("ai-summary는 streamResult.response rejection을 iterator abort 전에 처리한다", async () => {
-    vi.useFakeTimers();
+  it("ai-summary는 AI SDK usage rejection을 소비하고 요약 응답을 유지한다", async () => {
+    mockSummaryGeminiResponse();
+    // 테스트 shim은 provider response 실패를 usage={}로 바꾸므로, route가 직접 받는 usage를 rejection으로 대체한다.
+    // rejection은 route가 usage에 접근할 때 만들어 미리 unhandled로 판정되지 않게 하고, 스스로 catch하지 않는다.
+    const usageRejection = new Error("usage rejected");
+    const defaultStreamText = mockStreamText.getMockImplementation()!;
+    mockStreamText.mockImplementationOnce((options: any) => {
+      const result = defaultStreamText(options);
+      let usage: Promise<never> | undefined;
+      return {
+        fullStream: result.fullStream,
+        get usage() {
+          usage ??= Promise.reject(usageRejection);
+          return usage;
+        },
+      };
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     try {
       const summaryCache = createQueryChain({ data: null, error: null });
       const telemetry = createQueryChain({
-        data: [{ match_id: "response-rejection", player_id: "player_a", platform: "kakao", data: { fullResult: createSummaryMatch("response-rejection") } }],
+        data: [{ match_id: "usage-rejection", player_id: "player_a", platform: "kakao", data: { fullResult: createSummaryMatch("usage-rejection") } }],
         error: null,
       });
       const supabase = createSupabaseMock({
@@ -3742,47 +3767,21 @@ describe("AI cache route stabilization", () => {
       });
       mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
-      let requestOptions: { signal?: AbortSignal; timeout?: number } | undefined;
-      const responseThen = vi.fn((onFulfilled?: (value: unknown) => unknown) => {
-        const rejected = Promise.reject(new Error("stream response rejected"));
-        return rejected.then(onFulfilled).catch(() => undefined);
-      });
-      const streamResponse = { then: responseThen };
-      let iterator: any;
-      mockGenerateContentStream.mockImplementation(async (_prompt: string, options?: { signal?: AbortSignal; timeout?: number }) => {
-        requestOptions = options;
-        iterator = {
-          next: vi.fn(() => new Promise((resolve) => {
-            options?.signal?.addEventListener("abort", () => resolve({ done: true, value: undefined }), { once: true });
-          })),
-          return: vi.fn(async () => ({ done: true, value: undefined })),
-          [Symbol.asyncIterator]() {
-            return this;
-          },
-        };
-        return { stream: iterator, response: streamResponse };
-      });
-
       const response = await aiSummaryPOST(createRequest({
-        matchIds: ["response-rejection"],
+        matchIds: ["usage-rejection"],
         nickname: "Player_A",
         platform: "kakao",
         force: true,
       }));
-      const bodyPromise = response.text();
-
+      const records = parseSummaryNdjson(await response.text());
       for (let index = 0; index < 10; index += 1) await Promise.resolve();
-      expect(responseThen).toHaveBeenCalled();
-      expect(iterator.next).toHaveBeenCalledTimes(1);
 
-      await vi.advanceTimersByTimeAsync(18_100);
-      const body = await bodyPromise;
-
-      expect(requestOptions?.signal?.aborted).toBe(true);
-      expect(body).toContain("PUBG_AI_ROUTE_TIMEOUT");
-      expect(summaryCache.upsert).not.toHaveBeenCalled();
+      expect(response.status).toBe(200);
+      expect(records.find((record) => record.type === "done")).toMatchObject({ valid: true });
+      expect(errorSpy).toHaveBeenCalledWith("[AI-SUMMARY] Usage fetch error:", usageRejection);
+      expect(mockTrackAiUsage).not.toHaveBeenCalled();
     } finally {
-      vi.useRealTimers();
+      errorSpy.mockRestore();
     }
   });
 
@@ -5847,12 +5846,15 @@ describe("AI cache route stabilization", () => {
       capturedPrompt = prompt;
     });
 
+    // 신뢰 marker와 조회 tier·계산 버전을 partial-NULL 대조군과 맞춰 NULL 지표 처리 경로까지 도달하게 한다
     const tierBenchmarks = createQueryChain({
       data: {
         game_mode: "squad",
         match_type: "competitive",
-        tier: "B",
+        tier: "A+",
         match_count: 5,
+        filter_version: 8,
+        population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
         avg_damage: null,
         avg_duel_win_rate: null,
         avg_initiative_rate: null,

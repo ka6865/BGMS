@@ -9,11 +9,6 @@ vi.mock("@/components/admin/AdminPrivatePlayersSection", () => ({ AdminPrivatePl
 afterEach(cleanup);
 
 describe("AdminUserCommandCenter UI Component", () => {
-  it("exports AdminUserCommandCenter component", async () => {
-    const mod = await import("@/components/admin/AdminUserCommandCenter");
-    expect(mod.AdminUserCommandCenter).toBeDefined();
-  });
-
   it("기간을 바꾸면 해당 기간의 상위 AI 사용자로 바뀐다", () => {
     const now = Date.parse("2026-09-10T12:00:00Z");
     const { windows, pubgApi } = buildAiObservability([

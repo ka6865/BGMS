@@ -215,7 +215,10 @@ describe("support attachment storage", () => {
     expect(attachmentQuery.update).toHaveBeenCalledWith({ status: "ready" });
   });
 
-  it("rejects a storage object whose actual size or MIME differs from the reservation", async () => {
+  it.each([
+    ["MIME only", { mimetype: "image/jpeg", size: 100 }],
+    ["size only", { mimetype: "image/png", size: 101 }],
+  ])("rejects a storage object whose actual %s differs from the reservation", async (_label, objectMetadata) => {
     const attachmentId = "11111111-1111-4111-8111-111111111111";
     const attachmentQuery = resolvedQuery({
       data: {
@@ -231,7 +234,7 @@ describe("support attachment storage", () => {
     });
     const storage = storageFake({
       objectName: attachmentId,
-      objectMetadata: { mimetype: "image/jpeg", size: 101 },
+      objectMetadata,
     });
     const db = { from: vi.fn(() => attachmentQuery), ...storage } as unknown as SupportDb;
 

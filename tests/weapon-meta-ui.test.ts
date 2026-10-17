@@ -11,12 +11,15 @@ describe("WeaponMetaDashboard component code quality", () => {
 
   it("shows the collection notice only for sustained-burst data", () => {
     const code = readFileSync("components/meta/WeaponMetaDashboard.tsx", "utf8");
-    const averageDamageCell = code.slice(
-      code.indexOf('<th className="p-3">\n                <div>경기당 평균 딜량'),
-      code.indexOf('<th className="p-3">\n                <div>지속 연사 명중'),
-    );
+    const damageStart = code.indexOf("w.pre_patch.avg_damage");
+    const burstStart = code.indexOf("w.pre_patch.burst_available", damageStart);
+    const burstEnd = code.indexOf("</td>", burstStart);
 
-    expect(averageDamageCell).not.toContain("수집 중");
+    expect(damageStart).toBeGreaterThan(-1);
+    expect(burstStart).toBeGreaterThan(damageStart);
+    expect(burstEnd).toBeGreaterThan(burstStart);
+    expect(code.slice(damageStart, burstStart)).not.toContain("수집 중");
+    expect(code.slice(burstStart, burstEnd)).toContain("수집 중");
   });
 
   it("shows pre and post sample counts beside every weapon comparison", () => {

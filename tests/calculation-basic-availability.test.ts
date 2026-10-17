@@ -2,21 +2,22 @@ import { ANALYSIS_CALCULATION_VERSION } from '../lib/pubg-analysis/constants';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { buildCalculationPendingMatch } from '@/lib/pubg-analysis/calculationAvailability';
 
-const { rows, filters, rankingCalls } = vi.hoisted(() => ({ rows: [] as any[], filters: [] as [string, unknown][], rankingCalls: [] as any[] }));
+const { rows, filters, rankingCalls, rankingEntries } = vi.hoisted(() => ({
+  rows: [] as any[], filters: [] as [string, unknown][], rankingCalls: [] as any[],
+  rankingEntries: {} as Record<string, any[]>,
+}));
 vi.mock('next/cache',()=>({unstable_cache:(fn:unknown)=>fn}));
 vi.mock('@/lib/pubg/privatePlayers', () => ({ isPlayerPrivate: vi.fn().mockResolvedValue(false) }));
 vi.mock('@/lib/pubg/privatePlayerIdentity', () => ({ resolvePrivatePlayerAccountId: vi.fn().mockResolvedValue(null) }));
 vi.mock('@supabase/supabase-js', () => ({ createClient: () => ({
+  // 구계산 기록의 티어 제외는 SQL(get_pubg_rankings)이 담당하며 calculation-coexistence-scenarios.sql에서 검증한다.
+  // 여기서는 RPC가 돌려준 행을 action이 그대로 매핑하는지만 확인한다.
   rpc: (_name: string, args: any) => {
     rankingCalls.push(args);
-    const data = args.p_tab === 'tier' ? rows.filter(row => row.calculation_version === args.p_calculation) : rows;
-    return { abortSignal: () => Promise.resolve({ data: { entries: data.map(row => ({
-      platform: row.platform, player_id: row.player_id, account_id: null,
-      value: args.p_tab === 'damage' ? row.damage : args.p_tab === 'kills' ? row.kills : row.score,
-      secondary: args.p_tab === 'damage' ? row.kills : row.damage,
-      tier: row.calculation_version === args.p_calculation ? row.tier : null,
-      game_mode: row.game_mode, map_name: row.map_name, played_at: row.created_at, match_count: 1,
-    })), generated_at: new Date().toISOString(), cache_hit: false, database_ms: 1 }, error: null }) };
+    return { abortSignal: () => Promise.resolve({ data: {
+      entries: rankingEntries[args.p_tab] ?? [],
+      generated_at: new Date().toISOString(), cache_hit: false, database_ms: 1,
+    }, error: null }) };
   },
   from: (table: string) => {
     const predicates: ((row: any) => boolean)[] = [];
@@ -41,7 +42,10 @@ const row = (player: string, calculation: number | null) => ({
   created_at: new Date().toISOString(), map_name: 'Baltic_Main',
 });
 
-beforeEach(() => { rows.length = 0; filters.length = 0; rankingCalls.length = 0; });
+beforeEach(() => {
+  rows.length = 0; filters.length = 0; rankingCalls.length = 0;
+  for (const tab of Object.keys(rankingEntries)) delete rankingEntries[tab];
+});
 
 describe('calculation rollout preserves official basic records', () => {
   it('does not copy processed damage, grades, prose or nested calculated fields', () => {
@@ -56,11 +60,17 @@ describe('calculation rollout preserves official basic records', () => {
     expect(original.stats.processedDamageDealt).toBe(999);
   });
 
-  it('retains old official damage and kill ranking entries but withholds their grade', async () => {
-    rows.push(row('player', null));
+  it('maps ungraded official damage and kill entries without inventing a grade', async () => {
+    const entry = (value: number, secondary: number) => ({
+      platform: 'steam', player_id: 'player', account_id: null, value, secondary, tier: null,
+      game_mode: 'squad', map_name: 'Baltic_Main', played_at: new Date().toISOString(), match_count: 1,
+    });
+    rankingEntries.damage = [entry(400, 3)];
+    rankingEntries.kills = [entry(3, 400)];
+    rankingEntries.tier = [];
     const { getWeeklyTopDamage, getWeeklyTopKills, getTopTierRanking } = await import('@/actions/rankings');
-    expect((await getWeeklyTopDamage()).data[0]).toMatchObject({value: 400, tier: undefined});
-    expect((await getWeeklyTopKills()).data[0]).toMatchObject({value: 3, tier: undefined});
+    expect((await getWeeklyTopDamage()).data[0]).toMatchObject({value: 400, secondary: 3, tier: undefined});
+    expect((await getWeeklyTopKills()).data[0]).toMatchObject({value: 3, secondary: 400, tier: undefined});
     expect((await getTopTierRanking()).data).toEqual([]);
     expect(rankingCalls).toEqual(expect.arrayContaining([
       expect.objectContaining({ p_tab: 'damage', p_calculation: ANALYSIS_CALCULATION_VERSION }),

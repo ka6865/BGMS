@@ -58,15 +58,32 @@ describe("support attachment cleanup", () => {
 
   it("inspects candidates without mutating in dry-run mode", async () => {
     const writes: string[] = [];
+    const remove = vi.fn().mockResolvedValue({ error: null });
+    const db = makeDb(remove);
+    // 테이블·스토리지 쓰기 메서드 접근을 모두 기록해 dry-run 무쓰기를 직접 확인한다
+    const mutations: string[] = [];
+    const readFrom = db.from.bind(db);
+    db.from = (table: string) => new Proxy(readFrom(table), {
+      get(target, property) {
+        if (typeof property === "string" && ["insert", "update", "upsert", "delete"].includes(property)) {
+          mutations.push(`${table}.${property}`);
+        }
+        return target[property];
+      },
+    });
+    db.storage = { from: (bucket: string) => ({ remove: (...args: unknown[]) => { mutations.push(`storage:${bucket}.remove`); return remove(...args); } }) };
+
     const result = await runSupportAttachmentCleanup({
       dryRun: true,
       env: { NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "service-role" },
-      createServiceClient: () => makeDb(vi.fn()) as any,
+      createServiceClient: () => db,
       now: () => new Date("2026-09-21T00:00:00.000Z"),
       write: (message) => writes.push(message),
     });
     expect(result).toEqual({ candidates: 2, pending: 1, terminal: 1 });
     expect(writes[0]).toContain("mode=dry-run");
+    expect(mutations).toEqual([]);
+    expect(remove).not.toHaveBeenCalled();
   });
 
   it("removes expired unlinked and old terminal objects, then marks rows deleted", async () => {

@@ -218,16 +218,30 @@ describe("support user APIs", () => {
     expect(mocks.createTicket).not.toHaveBeenCalled();
   });
 
-  it("rejects a foreign or already-linked attachment", async () => {
+  const postWithAttachment = (row: Record<string, unknown>) => {
     const countQuery = queryResult({ data: null, count: 0, error: null });
-    const attachmentQuery = queryResult({ data: [{ id: attachmentId, uploader_id: "user-b", ticket_id: null, status: "ready", byte_size: 100 }], error: null });
+    const attachmentQuery = queryResult({ data: [{ id: attachmentId, status: "ready", byte_size: 100, ...row }], error: null });
     mocks.from.mockReturnValueOnce(countQuery).mockReturnValueOnce(attachmentQuery);
-    const response = await ticketsPOST(request("/api/support/tickets", {
+    return ticketsPOST(request("/api/support/tickets", {
       category: "account",
       subject: "문의",
       body: "본문",
       attachmentIds: [attachmentId],
     }));
+  };
+
+  it("accepts the requester's own unlinked ready attachment", async () => {
+    const response = await postWithAttachment({ uploader_id: "user-a", ticket_id: null });
+    expect(response.status).not.toBe(400);
+    expect(mocks.createTicket).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["another user's unlinked attachment", { uploader_id: "user-b", ticket_id: null }],
+    ["the requester's attachment already linked to another ticket", { uploader_id: "user-a", ticket_id: "33333333-3333-4333-8333-333333333333" }],
+    ["the requester's attachment that is not ready", { uploader_id: "user-a", ticket_id: null, status: "pending" }],
+  ])("rejects %s", async (_label, row) => {
+    const response = await postWithAttachment(row);
     expect(response.status).toBe(400);
     expect(mocks.createTicket).not.toHaveBeenCalled();
   });
