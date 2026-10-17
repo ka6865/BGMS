@@ -7,7 +7,7 @@ import { toCalibratedCoords } from "../../../utils/coordinate";
 import { buildPositionTracks, samplePosition, type PositionSample } from "../../../lib/replay/replayInterpolation";
 import { classifyThrowable, isCombatDamageCause, type ReplayThrowableKind } from "../../../lib/pubg-analysis/replayEventKinds";
 import { collectTeamEngagements, recentOpponents, type ReplayEngagement } from "../../../lib/replay/replayEngagements";
-import { AUTO_ZOOM_HOLD_MS, SPEED_WINDOW_MS, autoZoomFor, isKnownEnemy, metersPerUnit, nextAutoZoom, speedMetersPerSecond } from "../../../lib/replay/replayCamera";
+import { AUTO_ZOOM_HOLD_MS, SPEED_WINDOW_MS, autoZoomFor, isKnownEnemy, isZoomKey, metersPerUnit, nextAutoZoom, speedMetersPerSecond } from "../../../lib/replay/replayCamera";
 
 // 따라가기를 시작할 때 맞추는 최소 줌(CRS.Simple, 0이 원본 해상도). 기본 화면(-3)보다 8배 확대다.
 const FOLLOW_MIN_ZOOM = 0;
@@ -154,6 +154,7 @@ export const TelemetryCanvasLayer = ({
   const effectEventsRef = useRef<any[]>([]);
   const carePackagesRef = useRef<any[]>([]);
   const lastAutoZoomAtRef = useRef(0);
+  const zoomingRef = useRef(false);
   const tracksRef = useRef<Map<string, PositionSample[]>>(new Map());
   const flightPathRef = useRef<{ start: {x: number, y: number}, end: {x: number, y: number} } | null>(null);
   const requestDrawRef = useRef<() => void>(() => {});
@@ -236,7 +237,8 @@ export const TelemetryCanvasLayer = ({
       const playhead = dataRef.current?.playheadRef?.current;
       const timeMs = playhead?.timeMs ?? dataRef.current?.currentTimeMs ?? 0;
       const now = performance.now();
-      if (now - lastAutoZoomAtRef.current < AUTO_ZOOM_HOLD_MS) return;
+      // 줌 애니메이션 중 setView는 Leaflet이 무시하므로, 끝난 뒤에 다시 판단한다.
+      if (zoomingRef.current || now - lastAutoZoomAtRef.current < AUTO_ZOOM_HOLD_MS) return;
       const unitMeters = metersPerUnit(dataRef.current?.mapName);
       const speed = speedMetersPerSecond(
         getInterpolatedPos(name, timeMs),
@@ -275,9 +277,10 @@ export const TelemetryCanvasLayer = ({
       if (dataRef.current?.autoZoom && dataRef.current?.followPlayer) dataRef.current?.onAutoZoomCancel?.();
     };
     const onPinch = (event: TouchEvent) => { if (event.touches.length >= 2) cancelAutoZoomOnUserZoom(); };
-    const onZoomControl = (event: MouseEvent) => {
-      if ((event.target as HTMLElement | null)?.closest?.(".leaflet-control-zoom")) cancelAutoZoomOnUserZoom();
-    };
+    const onZoomKey = (event: KeyboardEvent) => { if (isZoomKey(event.key)) cancelAutoZoomOnUserZoom(); };
+    const onBoxZoom = (event: MouseEvent) => { if (event.shiftKey) cancelAutoZoomOnUserZoom(); };
+    const onZoomStart = () => { zoomingRef.current = true; };
+    const onZoomEnd = () => { zoomingRef.current = false; };
 
     const getPoint = (lat: number, lng: number) => {
       if (typeof lat !== "number" || typeof lng !== "number" || !Number.isFinite(lat) || !Number.isFinite(lng)) {
@@ -433,6 +436,39 @@ export const TelemetryCanvasLayer = ({
         }
       }
 
+      const hidden = (name:string) => (dataRef.current.hiddenPlayers || []).some((value:string) => value.trim().toLowerCase() === name.trim().toLowerCase());
+      // 이름 자동 표시: 아군, 따라가는 선수, 최근 아군과 교전한 상대. "전체"면 모두 표시한다.
+      const opponents = recentOpponents(engagementsRef.current, currentTimeMs);
+      const followed = (dataRef.current.followPlayer || "").trim().toLowerCase();
+      const showName = (player: any) => {
+        if (dataRef.current.showPlayerNames || player.name === dataRef.current.nickname || !player.isEnemy) return true;
+        const name = String(player.name || "").trim().toLowerCase();
+        return name === followed || opponents.has(name);
+      };
+      // 인지 범위: 따라가는 선수에게서 멀고 최근 교전도 없는 적은 흐리게 그리고 이름을 숨긴다(거리 기준 추정).
+      const unitMeters = metersPerUnit(dataRef.current.mapName);
+      const followedState = followed
+        ? Object.values(states).find((p: any) => String(p?.name || "").trim().toLowerCase() === followed) as any
+        : null;
+      const followedPos = dataRef.current.showVision && followedState && !followedState.isDead
+        ? getInterpolatedPos(followed, currentTimeMs) || { x: followedState.x, y: followedState.y }
+        : null;
+      const isUnknown = (player: any) => {
+        if (!followedPos || !player.isEnemy) return false;
+        const pos = getInterpolatedPos(player.name, currentTimeMs) || { x: player.x, y: player.y };
+        return !isKnownEnemy({ followed: followedPos, enemy: pos, enemyName: String(player.name || ""), recentContacts: opponents, unitMeters });
+      };
+      const statesByName = new Map<string, any>(
+        Object.values(states).map((p: any) => [String(p?.name || "").trim().toLowerCase(), p]),
+      );
+      // 효과에 등장한 선수가 모두 인지 범위 밖 적이면 효과도 흐리게 그려 위치를 드러내지 않는다.
+      const isUnknownEffect = (ev: any) => {
+        if (!followedPos) return false;
+        const names = [ev.name, ev.attackerName, ev.victimName, ev.attacker, ev.victim]
+          .filter((name): name is string => typeof name === "string" && name.trim().length > 0)
+          .map((name) => statesByName.get(name.trim().toLowerCase()));
+        return names.length > 0 && names.every((player) => player && isUnknown(player));
+      };
       // [B] 전투 이펙트. 텔레메트리에 투척물 착탄·폭발 좌표와 방향이 없으므로
       // 던진 사람 위치·피해자 위치·피해 이벤트의 공격자 좌표처럼 실제 기록된 좌표만 그린다.
       const overlayLabels: OverlayLabel[] = [];
@@ -443,17 +479,7 @@ export const TelemetryCanvasLayer = ({
         if (pt.x === -9999) return;
         drawCarePackage(ctx, pt.x, pt.y, ageMs < CARE_PACKAGE_LABEL_MS, overlayLabels);
       });
-      if (effectEventsRef.current.length) {
-        effectEventsRef.current.forEach((ev: any) => {
-          const type = String(ev.type || "");
-          const ageMs = currentTimeMs - (ev.relativeTimeMs || 0);
-          if (ageMs < 0 || ageMs > THROW_MARKER_MS) return;
-          if ((type === "groggy" || type === "kill") && dataRef.current.showCombatDots === false) return;
-          if ((type === "shot" || type === "damage") && dataRef.current.showShotDots === false) return;
-          if (!Number.isFinite(ev.x) || !Number.isFinite(ev.y)) return;
-          const pt = getPoint(ev.y, ev.x);
-          if (pt.x === -9999) return;
-
+      const drawEffect = (ev: any, type: string, ageMs: number, pt: { x: number; y: number }, labels: OverlayLabel[]) => {
           if (type === "groggy" || type === "kill") {
             if (ageMs >= 2500) return;
             const t = ageMs / 2500;
@@ -467,14 +493,14 @@ export const TelemetryCanvasLayer = ({
 
           if (type === "throw") {
             const kind = (ev.throwable as ReplayThrowableKind | undefined) ?? classifyThrowable(ev.weapon);
-            if (kind && THROWABLE_STYLES[kind]) drawThrowMarker(ctx, pt.x, pt.y, kind, ageMs / THROW_MARKER_MS, overlayLabels);
+            if (kind && THROWABLE_STYLES[kind]) drawThrowMarker(ctx, pt.x, pt.y, kind, ageMs / THROW_MARKER_MS, labels);
             return;
           }
 
           if (type === "damage") {
             // 폭발·화염은 자기 투척물에 맞은 경우도 실제 피해 위치이므로 그린다.
             if (ev.cause === "grenade" || ev.cause === "explosion" || ev.cause === "fire") {
-              if (ageMs < BLAST_MARKER_MS) drawBlastMarker(ctx, pt.x, pt.y, ev.cause, ageMs / BLAST_MARKER_MS, overlayLabels);
+              if (ageMs < BLAST_MARKER_MS) drawBlastMarker(ctx, pt.x, pt.y, ev.cause, ageMs / BLAST_MARKER_MS, labels);
               return;
             }
             // 자기장·낙하처럼 공격자와 피해자가 같은 피해는 명중선을 그리지 않는다.
@@ -508,34 +534,31 @@ export const TelemetryCanvasLayer = ({
             ctx.fillStyle = "white";
             ctx.fill();
           }
+      };
+      if (effectEventsRef.current.length) {
+        effectEventsRef.current.forEach((ev: any) => {
+          const type = String(ev.type || "");
+          const ageMs = currentTimeMs - (ev.relativeTimeMs || 0);
+          if (ageMs < 0 || ageMs > THROW_MARKER_MS) return;
+          if ((type === "groggy" || type === "kill") && dataRef.current.showCombatDots === false) return;
+          if ((type === "shot" || type === "damage") && dataRef.current.showShotDots === false) return;
+          if (!Number.isFinite(ev.x) || !Number.isFinite(ev.y)) return;
+          const pt = getPoint(ev.y, ev.x);
+          if (pt.x === -9999) return;
+          const dimmed = isUnknownEffect(ev);
+          ctx.save();
+          if (dimmed) ctx.globalAlpha = DIM_ALPHA;
+          try {
+            drawEffect(ev, type, ageMs, pt, dimmed ? [] : overlayLabels);
+          } finally {
+            ctx.restore();
+          }
         });
       }
 
       // [C] 플레이어 & 차량 (기존 로직 유지)
-      const hidden = (name:string) => (dataRef.current.hiddenPlayers || []).some((value:string) => value.trim().toLowerCase() === name.trim().toLowerCase());
-      // 이름 자동 표시: 아군, 따라가는 선수, 최근 아군과 교전한 상대. "전체"면 모두 표시한다.
-      const opponents = recentOpponents(engagementsRef.current, currentTimeMs);
-      const followed = (dataRef.current.followPlayer || "").trim().toLowerCase();
-      const showName = (player: any) => {
-        if (dataRef.current.showPlayerNames || player.name === dataRef.current.nickname || !player.isEnemy) return true;
-        const name = String(player.name || "").trim().toLowerCase();
-        return name === followed || opponents.has(name);
-      };
       const handledVehicles = new Set();
       const nameLabels: NameLabel[] = [];
-      // 인지 범위: 따라가는 선수에게서 멀고 최근 교전도 없는 적은 흐리게 그리고 이름을 숨긴다(거리 기준 추정).
-      const unitMeters = metersPerUnit(dataRef.current.mapName);
-      const followedState = followed
-        ? Object.values(states).find((p: any) => String(p?.name || "").trim().toLowerCase() === followed) as any
-        : null;
-      const followedPos = dataRef.current.showVision && followedState && !followedState.isDead
-        ? getInterpolatedPos(followed, currentTimeMs) || { x: followedState.x, y: followedState.y }
-        : null;
-      const isUnknown = (player: any) => {
-        if (!followedPos || !player.isEnemy) return false;
-        const pos = getInterpolatedPos(player.name, currentTimeMs) || { x: player.x, y: player.y };
-        return !isKnownEnemy({ followed: followedPos, enemy: pos, enemyName: String(player.name || ""), recentContacts: opponents, unitMeters });
-      };
       const labelPriority = (player: any) => {
         const name = String(player.name || "").trim().toLowerCase();
         if (player.name === dataRef.current.nickname) return 0;
@@ -661,7 +684,10 @@ export const TelemetryCanvasLayer = ({
     container.addEventListener("wheel", cancelAutoZoomOnUserZoom, { passive: true });
     container.addEventListener("dblclick", cancelAutoZoomOnUserZoom);
     container.addEventListener("touchstart", onPinch, { passive: true });
-    container.addEventListener("click", onZoomControl);
+    container.addEventListener("keydown", onZoomKey);
+    container.addEventListener("mousedown", onBoxZoom);
+    map.on("zoomstart", onZoomStart);
+    map.on("zoomend", onZoomEnd);
     requestDraw();
     return () => {
       map.off("viewreset move moveend zoom zoomend resize", requestDraw);
@@ -669,7 +695,10 @@ export const TelemetryCanvasLayer = ({
       container.removeEventListener("wheel", cancelAutoZoomOnUserZoom);
       container.removeEventListener("dblclick", cancelAutoZoomOnUserZoom);
       container.removeEventListener("touchstart", onPinch);
-      container.removeEventListener("click", onZoomControl);
+      container.removeEventListener("keydown", onZoomKey);
+      container.removeEventListener("mousedown", onBoxZoom);
+      map.off("zoomstart", onZoomStart);
+      map.off("zoomend", onZoomEnd);
       requestDrawRef.current = () => {};
       followStartRef.current = () => {};
       if (animationRef.current) cancelAnimationFrame(animationRef.current);

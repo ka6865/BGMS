@@ -66,3 +66,8 @@ export function nextAutoZoom(currentZoom: number, targetZoom: number): number | 
   const next = Math.round(targetZoom);
   return next === currentZoom ? null : next;
 }
+
+/** Leaflet 키보드 줌 키(+, -, =, _ 와 숫자패드). 사용자가 직접 줌한 것으로 보고 자동 줌을 끈다. */
+export function isZoomKey(key: string): boolean {
+  return key === "+" || key === "-" || key === "=" || key === "_" || key === "Add" || key === "Subtract";
+}

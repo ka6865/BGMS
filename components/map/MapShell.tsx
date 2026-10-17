@@ -142,6 +142,11 @@ const MapShell = memo(({
     const cancelAutoZoom = useCallback(() => setAutoZoom(false), []);
     const [followPlayer, setFollowPlayer] = useState<string | null>(null);
     const cancelFollow = useCallback(() => setFollowPlayer(null), []);
+    // 다른 선수를 고르면 직접 줌으로 꺼졌던 자동 줌을 다시 켠다.
+    const changeFollowPlayer = useCallback((name: string | null) => {
+      setFollowPlayer(name);
+      if (name) setAutoZoom(true);
+    }, []);
     // Canvas는 playheadRef로 매 프레임 그리므로, 이 객체는 UI 갱신 주기(약 250ms)에만 바뀌게 고정한다.
     const isTelemetryActive = !!playbackId && !playbackIdentityError;
     const telemetryData = useMemo(() => ({
@@ -617,7 +622,7 @@ const MapShell = memo(({
                     showFlightPath={showFlightPath} onToggleFlightPath={() => setShowFlightPath(!showFlightPath)}
                     showVision={showVision} onToggleVision={() => setShowVision(!showVision)}
                     autoZoom={autoZoom} onToggleAutoZoom={() => setAutoZoom(!autoZoom)}
-                    followPlayer={followPlayer} onFollowPlayerChange={setFollowPlayer}
+                    followPlayer={followPlayer} onFollowPlayerChange={changeFollowPlayer}
                     nextFightMs={nextFightMs} onNextFight={() => { if (nextFightMs !== null) setCurrentTimeMs(nextFightMs); }}
                     onClose={() => {
                       if (rankerLesson) { router.push("/learn"); return; }

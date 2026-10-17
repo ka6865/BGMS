@@ -3,6 +3,7 @@ import {
   VISION_RANGE_M,
   autoZoomFor,
   isKnownEnemy,
+  isZoomKey,
   metersPerUnit,
   nextAutoZoom,
   speedMetersPerSecond,
@@ -56,5 +57,12 @@ describe("자동 줌", () => {
     expect(nextAutoZoom(0, 0.5)).toBeNull();
     expect(nextAutoZoom(0, -1.2)).toBe(-1);
     expect(nextAutoZoom(-1, 1.6)).toBe(2);
+  });
+});
+
+describe("직접 줌 키", () => {
+  it("Leaflet 키보드 줌 키만 직접 줌으로 본다", () => {
+    for (const key of ["+", "-", "=", "_", "Add", "Subtract"]) expect(isZoomKey(key)).toBe(true);
+    for (const key of ["a", " ", "ArrowLeft", "Enter"]) expect(isZoomKey(key)).toBe(false);
   });
 });

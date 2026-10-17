@@ -532,9 +532,9 @@ export default function TelemetryPlayer({
           {/* 따라가기 전용: 인지 범위(추정)와 이동 속도 자동 줌 */}
           {[
             { key: "vision", on: showVision, onClick: onToggleVision, label: `인지 범위 ${showVision ? "ON" : "OFF"}`,
-              title: "따라가는 선수에게서 150m 밖이고 최근 교전도 없는 적을 흐리게 표시합니다. 시야 정보가 없어 거리로 추정합니다." },
+              title: "따라가는 선수에게서 150m 밖이고 최근 교전도 없는 적과 그 적의 사격·피격·투척 표시를 흐리게 그리고 이름을 숨깁니다(이름 전체 표시보다 우선). 시야 정보가 없어 거리로 추정합니다." },
             { key: "zoom", on: autoZoom, onClick: onToggleAutoZoom, label: `자동 줌 ${autoZoom ? "ON" : "OFF"}`,
-              title: "따라가는 선수가 멈추면 가깝게, 차량으로 달리면 멀리 보도록 줌을 맞춥니다. 직접 확대·축소하면 꺼집니다." },
+              title: "따라가는 선수가 멈추면 가깝게, 차량으로 달리면 멀리 보도록 줌을 맞춥니다. 휠·핀치·더블클릭·+/- 키·Shift 드래그로 직접 줌하면 꺼지고, 다른 선수를 고르면 다시 켜집니다." },
           ].map((item) => (
             <button
               key={item.key}
