@@ -1,248 +1,184 @@
 import { describe, expect, it } from "vitest";
-import { classifyRole } from "@/lib/pubg-analysis/roleClassifier";
+import { classifyRole, extractRoleMetrics } from "@/lib/pubg-analysis/roleClassifier";
+import { referencePercentile, roleScorePercentile } from "@/lib/pubg-analysis/roleReference";
 
 // ai-summary route의 aggregateMatches 결과 형식을 따른다(측정 불가 값은 "측정 불가" 문자열 또는 null).
-// 기본 입력은 모든 역할 점수를 최소로 둔다:
-// 선봉대 5(근접 거리 미측정 기본점), 저격 유령 10(근접 아님 보정), 나머지 0
+// 기본 입력은 아무 지표도 판정할 수 없는 상태다.
 const BASE = {
   mLen: 1,
   modeDistribution: { main: "squad" },
   avgReactionLatency: "측정 불가",
-  avgMinDistStr: "측정 불가",
-  avgIsolationStr: "측정 불가",
+  avgBackupLatency: "측정 불가",
   userInitiativeRate: null,
+  totalInitiativeAttempts: 0,
+  avgDuelWinRate: null,
+  totalDuelWins: 0,
+  totalDuelLosses: 0,
+  userReversalRate: null,
+  totalReversalAttempts: 0,
+  totalDistanceDamage: { short: 0, mid: 0, long: 0 },
+  totalMaxHitDist: null,
+  totalTeammateKnocks: 0,
+  totalRevCount: 0,
+  totalSmokeRescues: 0,
+  totalTradeKills: 0,
+  avgPressureIndex: null,
+  avgPlacementPct: null,
+  totalEdgePlay: null,
+  goldenTimeAvg: { early: 0, mid1: 0, mid2: 0, late: 0 },
+  totalBaitCount: null,
+  totalSuppCount: null,
+  totalUtilityHits: null,
+  totalLethalThrows: null,
+  avgTeamDamageShare: null,
+  totalFocusFireCount: null,
+  killContribFinal: { solo: 0, cleanup: 0, assist: 0 },
   totalRidingShotKnocks: 0,
   totalRidingShotKills: 0,
   totalLeadShotKnocks: 0,
   totalLeadShotKills: 0,
-  totalMaxHitDist: null,
-  avgDuelWinRate: null,
-  totalReversalWins: 0,
-  totalTeamWipes: 0,
-  totalTeammateKnocks: 0,
-  totalSmokeRescues: 0,
-  totalSmokeCount: 0,
-  totalRevCount: 0,
-  totalTradeKills: 0,
-  totalEdgePlay: 0,
-  totalBluezoneWaste: 100,
-  avgPressureIndex: null,
-  avgDeathPhase: null,
-  goldenTimeAvg: { early: 0, mid1: 0, mid2: 0, late: 0 },
-  totalBaitCount: 0,
-  totalSuppCount: 0,
+  vehicleCombatMatchCount: 0,
   weaponStatsFinal: {},
   weaponMatchCount: {},
 };
 
 const classify = (overrides: Record<string, unknown> = {}, tier = "B") => classifyRole({ ...BASE, ...overrides }, {}, tier);
-const scoresOf = (overrides: Record<string, unknown> = {}) => classify(overrides).scores;
 
-describe("role classifier base fixture", () => {
-  it("starts from the minimum role scores", () => {
-    expect(scoresOf()).toEqual({
-      pointMan: 5,
-      phantomOverwatch: 10,
-      executor: 0,
-      shield: 0,
-      zoneController: 0,
-      dropPredator: 0,
-      decoy: 0,
-      fieldCommander: 0,
+// 기준 분포 95백분위를 넘는 값(백분위 97.5).
+const STRONG_EXECUTOR = { avgDuelWinRate: 95, totalDuelWins: 19, totalDuelLosses: 1, userReversalRate: 50, totalReversalAttempts: 4 };
+const STRONG_POINT_MAN = { userInitiativeRate: 80, totalInitiativeAttempts: 10, avgReactionLatency: "0.90s" };
+// 기준 분포 중앙값(백분위 50).
+const MEDIAN_EXECUTOR = { avgDuelWinRate: 70, totalDuelWins: 7, totalDuelLosses: 3, userReversalRate: 12.5, totalReversalAttempts: 8 };
+
+describe("reference percentile", () => {
+  it("interpolates between quantiles and clamps outside the observed range", () => {
+    expect(referencePercentile("duelWin", 70)).toBe(50);
+    expect(referencePercentile("duelWin", 72)).toBeCloseTo(50 + (2 / 3.684) * 10, 5);
+    expect(referencePercentile("duelWin", 10)).toBe(2.5);
+    expect(referencePercentile("duelWin", 99)).toBe(97.5);
+  });
+
+  it("uses the middle of a tied block such as many zero values", () => {
+    // reversal 0은 5·10·20백분위에 걸쳐 있다.
+    expect(referencePercentile("reversal", 0)).toBe(10);
+    // reactionSec 3초는 90·95백분위에 걸쳐 있다(측정 상한).
+    expect(referencePercentile("reactionSec", 3)).toBe(95);
+    // 복수자 역할 점수 17.84는 5~30백분위에 걸쳐 있다.
+    expect(roleScorePercentile("avenger", 17.84)).toBe(15);
+  });
+});
+
+describe("role metric extraction", () => {
+  it("withholds metrics below their minimum opportunities", () => {
+    const metrics = extractRoleMetrics({
+      ...BASE,
+      avgDuelWinRate: 100, totalDuelWins: 2, totalDuelLosses: 0,
+      userInitiativeRate: 100, totalInitiativeAttempts: 2,
+      totalTeammateKnocks: 2, totalRevCount: 2,
+      totalDistanceDamage: { short: 200, mid: 0, long: 0 },
+      killContribFinal: { solo: 1, cleanup: 0, assist: 1 },
+    });
+    expect(metrics).toMatchObject({ duelWin: null, initiative: null, rescueRate: null, tradeRate: null, shortShare: null, longShare: null, assistShare: null });
+  });
+
+  it("converts totals into shares and per-match rates", () => {
+    const metrics = extractRoleMetrics({
+      ...BASE,
+      mLen: 4,
+      totalTeammateKnocks: 4, totalRevCount: 1, totalSmokeRescues: 1, totalTradeKills: 1,
+      totalDistanceDamage: { short: 300, mid: 100, long: 100 },
+      totalEdgePlay: 8, totalUtilityHits: 2, avgBackupLatency: "12.50s",
+      goldenTimeAvg: { early: 50, mid1: 25, mid2: 25, late: 0 },
+      killContribFinal: { solo: 3, cleanup: 0, assist: 1 },
+    });
+    expect(metrics).toMatchObject({
+      rescueRate: 50, tradeRate: 25, shortShare: 60, longShare: 20, edgePerMatch: 2,
+      utilityHitsPerMatch: 0.5, tradeSec: 12.5, earlyShare: 50, assistShare: 25,
     });
   });
 });
 
-describe("point man score", () => {
-  it("adds half of the initiative rate", () => {
-    expect(scoresOf({ userInitiativeRate: 40 }).pointMan).toBe(5 + 20);
+describe("role selection", () => {
+  it("reports insufficient evidence when no metric can be judged", () => {
+    const result = classify();
+    expect(result).toMatchObject({ primaryRole: "insufficient", secondaryRole: null, title: "전술 분석 중", evidence: [], badges: [] });
   });
 
-  it.each([
-    ["0.5s", 30],
-    ["0.25s", 35],
-    ["2.0s", 0],
-    ["2.5s", 0],
-    ["측정 불가", 0],
-    ["N/A", 0],
-    [null, 0],
-    ["fast", 0],
-  ])("reaction latency %s adds %s", (avgReactionLatency, points) => {
-    expect(scoresOf({ avgReactionLatency }).pointMan).toBe(5 + points);
+  it("picks the role that stands out against other players and explains it", () => {
+    const result = classify(STRONG_EXECUTOR);
+    expect(result).toMatchObject({ primaryRole: "executor", secondaryRole: null, title: "결투의 제왕", roleLabel: "처형자 (Executor)" });
+    expect(result.scores.executor).toBe(97.5);
+    expect(result.scores.pointMan).toBeNull();
+    expect(result.evidence).toEqual(["1:1 승률 상위 3%", "역전 승률 상위 3%"]);
   });
 
-  it.each([
-    ["14.9m", 10 + 15],
-    ["15.0m", 5 + 15],
-    ["19.9m", 5 + 15],
-    ["20.0m", 5],
-    ["측정 불가", 5],
-  ])("closest distance %s gives %s distance points", (avgMinDistStr, points) => {
-    expect(scoresOf({ avgMinDistStr }).pointMan).toBe(points);
+  it("does not put the tier into the title", () => {
+    expect(classify(STRONG_EXECUTOR, "S+").title).toBe(classify(STRONG_EXECUTOR, "C").title);
+    expect(classify(STRONG_EXECUTOR, "S+").overallTier).toBe("S+");
   });
 
-  it("adds 8 per riding-shot knock", () => {
-    expect(scoresOf({ totalRidingShotKnocks: 2 }).pointMan).toBe(5 + 16);
-  });
-});
-
-describe("phantom overwatch score", () => {
-  it.each([
-    [250, 25],
-    [400, 40],
-    [800, 40],
-  ])("max hit distance %s adds %s up to 40", (totalMaxHitDist, points) => {
-    expect(scoresOf({ totalMaxHitDist }).phantomOverwatch).toBe(10 + points);
+  it("treats a faster reaction as better", () => {
+    expect(classify({ ...STRONG_POINT_MAN, userInitiativeRate: null, totalInitiativeAttempts: 0 }).scores.pointMan).toBe(97.5);
+    // 지표 백분위 5는 선봉대 역할 점수 분포의 5백분위(12.13)보다 낮다.
+    expect(classify({ avgReactionLatency: "3.00s" }).scores.pointMan).toBe(2.5);
   });
 
-  it("adds 30% of the initiative rate", () => {
-    expect(scoresOf({ userInitiativeRate: 40 }).phantomOverwatch).toBe(10 + 12);
+  it("uses a combo title only when both roles are strong, regardless of order", () => {
+    const combo = classify({ ...STRONG_EXECUTOR, ...STRONG_POINT_MAN });
+    expect(combo.title).toBe("선봉의 심판자");
+    expect(combo.secondaryRole).not.toBeNull();
+    expect(combo.roleLabel).toContain("보조:");
+
+    const single = classify({ ...STRONG_EXECUTOR, userInitiativeRate: 50, totalInitiativeAttempts: 10, avgReactionLatency: "2.196s" });
+    expect(single).toMatchObject({ primaryRole: "executor", secondaryRole: null, title: "결투의 제왕" });
   });
 
-  it.each([
-    ["2.0", 20],
-    ["3.0", 30],
-    ["4.5", 30],
-    ["측정 불가", 0],
-  ])("isolation %s adds %s up to 30", (avgIsolationStr, points) => {
-    expect(scoresOf({ avgIsolationStr }).phantomOverwatch).toBe(10 + points);
+  it("falls back to balanced when no role reaches the 70th percentile", () => {
+    const result = classify(MEDIAN_EXECUTOR);
+    expect(result).toMatchObject({ primaryRole: "balanced", title: "균형형 전술가", secondaryRole: null, evidence: [] });
   });
 
-  it("swaps the +10 long-range bonus for -10 at close range and never goes negative", () => {
-    expect(scoresOf({ avgMinDistStr: "19.9m" }).phantomOverwatch).toBe(0);
-    expect(scoresOf({ avgMinDistStr: "19.9m", totalMaxHitDist: 300 }).phantomOverwatch).toBe(20);
+  it("names a field commander when six roles are strong but none dominates", () => {
+    // 각 지표를 기준 분포 80백분위 값으로 맞춘다.
+    const result = classify({
+      avgDuelWinRate: 82.353, totalDuelWins: 8, totalDuelLosses: 2, userReversalRate: 25, totalReversalAttempts: 4,
+      userInitiativeRate: 62.5, totalInitiativeAttempts: 10, avgReactionLatency: "1.611s",
+      avgPressureIndex: 4.91, avgPlacementPct: 84.853, totalEdgePlay: 13,
+      totalUtilityHits: 1.6, totalLethalThrows: 3.333,
+      totalDistanceDamage: { short: 681.95, mid: 318.05, long: 0 },
+      avgTeamDamageShare: 46.18,
+    });
+    expect(result).toMatchObject({ primaryRole: "fieldCommander", title: "육각형 플레이어", secondaryRole: null });
+    expect(result.scores.fieldCommander!).toBeGreaterThan(75);
+    expect(result.scores.fieldCommander!).toBeLessThan(95);
+    expect(result.evidence).toHaveLength(2);
   });
 
-  it("adds 8 per lead-shot knock", () => {
-    expect(scoresOf({ totalLeadShotKnocks: 1 }).phantomOverwatch).toBe(10 + 8);
-  });
-});
-
-describe("executor score", () => {
-  it("adds 70% of the duel win rate", () => {
-    expect(scoresOf({ avgDuelWinRate: 50 }).executor).toBe(35);
-  });
-
-  it("scores reversal wins per match up to 30", () => {
-    expect(scoresOf({ mLen: 2, totalReversalWins: 2 }).executor).toBe(15);
-    expect(scoresOf({ mLen: 2, totalReversalWins: 6 }).executor).toBe(30);
-  });
-
-  it("scores team wipes per match up to 20", () => {
-    expect(scoresOf({ mLen: 2, totalTeamWipes: 2 }).executor).toBe(15);
-    expect(scoresOf({ mLen: 2, totalTeamWipes: 4 }).executor).toBe(20);
-  });
-
-  it("adds 5 per riding-shot kill", () => {
-    expect(scoresOf({ totalRidingShotKills: 1 }).executor).toBe(5);
-  });
-
-  it("treats a missing match count as one match", () => {
-    expect(scoresOf({ mLen: 0, totalTeamWipes: 1 }).executor).toBe(15);
+  it("does not judge team-only roles in solo mode", () => {
+    const rescues = { totalTeammateKnocks: 6, totalRevCount: 6, totalTradeKills: 3, avgTeamDamageShare: 80 };
+    expect(classify(rescues).scores).toMatchObject({ shield: 97.5, mainGun: 97.5 });
+    const solo = classify({ ...rescues, modeDistribution: { main: "solo" } });
+    expect(solo.scores).toMatchObject({ shield: null, avenger: null, mainGun: null, decoy: null, crossfire: null });
+    expect(solo.primaryRole).toBe("insufficient");
   });
 });
 
-describe("shield score", () => {
-  it("uses at least three knocks per match as the denominator", () => {
-    expect(scoresOf({ totalTeammateKnocks: 1, totalRevCount: 1 }).shield).toBeCloseTo(50 / 3, 10);
-    expect(scoresOf({ mLen: 2, totalTeammateKnocks: 4, totalRevCount: 3 }).shield).toBe(25);
-    expect(scoresOf({ totalTeammateKnocks: 10, totalRevCount: 2, totalTradeKills: 3 }).shield).toBe(25);
+describe("weakness and badges", () => {
+  it("reports the weakest metric only when it is in the bottom 20%", () => {
+    expect(classify({ ...STRONG_POINT_MAN, avgDuelWinRate: 30, totalDuelWins: 3, totalDuelLosses: 7 }).weakness)
+      .toBe("1:1 승률이(가) 다른 플레이어 대비 하위 3%입니다.");
+    expect(classify({ ...STRONG_POINT_MAN, ...MEDIAN_EXECUTOR }).weakness).toBeNull();
   });
 
-  it("caps rescue rate at 50", () => {
-    expect(scoresOf({ totalTeammateKnocks: 4, totalRevCount: 4, totalTradeKills: 4 }).shield).toBe(50);
-  });
-
-  it("weights successful smoke rescues over smoke attempts and caps them at 50", () => {
-    expect(scoresOf({ totalTeammateKnocks: 10, totalSmokeRescues: 5 }).shield).toBe(20);
-    expect(scoresOf({ totalTeammateKnocks: 10, totalSmokeCount: 10 }).shield).toBe(10);
-    expect(scoresOf({ totalTeammateKnocks: 10, totalSmokeRescues: 20 }).shield).toBe(50);
-  });
-
-  it("is zero in solo mode", () => {
-    expect(scoresOf({ modeDistribution: { main: "solo" }, totalTeammateKnocks: 3, totalRevCount: 3 }).shield).toBe(0);
-  });
-});
-
-describe("zone controller score", () => {
-  it("scores edge play per match up to 35", () => {
-    expect(scoresOf({ totalEdgePlay: 2 }).zoneController).toBe(16);
-    expect(scoresOf({ totalEdgePlay: 5 }).zoneController).toBe(35);
-    expect(scoresOf({ mLen: 2, totalEdgePlay: 4, totalBluezoneWaste: 200 }).zoneController).toBe(16);
-  });
-
-  it("rewards low blue-zone damage per match up to 10", () => {
-    expect(scoresOf({ totalBluezoneWaste: 0 }).zoneController).toBe(10);
-    expect(scoresOf({ totalBluezoneWaste: 50 }).zoneController).toBe(5);
-    expect(scoresOf({ totalBluezoneWaste: 300 }).zoneController).toBe(0);
-    expect(scoresOf({ mLen: 2, totalBluezoneWaste: 100 }).zoneController).toBe(5);
-  });
-
-  it("scores pressure up to 40, death phase up to 15 and lead-shot kills", () => {
-    expect(scoresOf({ avgPressureIndex: 3 }).zoneController).toBe(24);
-    expect(scoresOf({ avgPressureIndex: 6 }).zoneController).toBe(40);
-    expect(scoresOf({ avgDeathPhase: 4.5 }).zoneController).toBe(7.5);
-    expect(scoresOf({ avgDeathPhase: 9 }).zoneController).toBe(15);
-    expect(scoresOf({ totalLeadShotKills: 1 }).zoneController).toBe(5);
-  });
-});
-
-describe("drop predator score", () => {
-  it("scales the early golden-time share by 1.5 up to 100", () => {
-    expect(scoresOf({ goldenTimeAvg: { early: 50, mid1: 50, mid2: 0, late: 0 } }).dropPredator).toBe(75);
-    expect(scoresOf({ goldenTimeAvg: { early: 20, mid1: 30, mid2: 30, late: 20 } }).dropPredator).toBe(30);
-    expect(scoresOf({ goldenTimeAvg: { early: 10, mid1: 0, mid2: 0, late: 0 } }).dropPredator).toBe(100);
-    expect(scoresOf({ goldenTimeAvg: undefined }).dropPredator).toBe(0);
-  });
-});
-
-describe("decoy score", () => {
-  it("scores bait per match up to 70 and suppression per match up to 30", () => {
-    expect(scoresOf({ mLen: 2, totalBaitCount: 2 }).decoy).toBe(35);
-    expect(scoresOf({ mLen: 2, totalBaitCount: 6 }).decoy).toBe(70);
-    expect(scoresOf({ mLen: 2, totalSuppCount: 6 }).decoy).toBe(18);
-    expect(scoresOf({ mLen: 2, totalSuppCount: 20 }).decoy).toBe(30);
-  });
-});
-
-describe("field commander and role selection", () => {
-  // 선봉대 30, 저격 유령 30, 처형자 35, 방패 30, 통제자 35를 만든다
-  const fiveActive = {
-    userInitiativeRate: 50,
-    totalMaxHitDist: 50,
-    avgDuelWinRate: 50,
-    totalTeammateKnocks: 3,
-    totalRevCount: 1,
-    totalTradeKills: 0.8,
-    totalEdgePlay: 5,
-  };
-
-  it("averages the other seven roles when at least five reach 30", () => {
-    const scores = scoresOf(fiveActive);
-    expect(scores.pointMan).toBe(30);
-    expect(scores.phantomOverwatch).toBe(30);
-    expect(scores.executor).toBe(35);
-    expect(scores.shield).toBe(30);
-    expect(scores.zoneController).toBe(35);
-    expect(scores.fieldCommander).toBeCloseTo((30 + 30 + 35 + 30 + 35) / 7, 10);
-  });
-
-  it("stays zero when only four roles reach 30", () => {
-    expect(scoresOf({ ...fiveActive, totalEdgePlay: 0 }).fieldCommander).toBe(0);
-    expect(scoresOf({ ...fiveActive, userInitiativeRate: 49.8 }).fieldCommander).toBe(0);
-  });
-
-  it("picks the highest score as the primary role", () => {
-    const result = classify({ avgDuelWinRate: 50 });
-    expect(result.primaryRole).toBe("executor");
-    expect(result.roleLabel).toBe("처형자 (Executor)");
-    expect(result.description).toContain("1:1 무력");
-  });
-
-  it("adds a secondary role only at 65% of the primary score", () => {
-    // 처형자 20 / 저격 유령 13 = 65%
-    expect(classify({ avgDuelWinRate: 20 / 0.7, totalLeadShotKnocks: 3 / 8 }).secondaryRole).toBe("phantomOverwatch");
-    expect(classify({ avgDuelWinRate: 20 / 0.7, totalLeadShotKnocks: 2.9 / 8 }).secondaryRole).toBeNull();
+  it("adds vehicle and signature weapon badges without replacing the role title", () => {
+    const result = classify({
+      ...STRONG_EXECUTOR,
+      totalRidingShotKnocks: 2, totalLeadShotKills: 1, vehicleCombatMatchCount: 2,
+      mLen: 4, weaponStatsFinal: { WeapM416_C: { kills: 4, dbnos: 0 } }, weaponMatchCount: { WeapM416_C: 3 },
+    });
+    expect(result.title).toBe("결투의 제왕");
+    expect(result.badges).toEqual(["차량 교전", "M416 주력"]);
+    expect(classify({ ...STRONG_EXECUTOR, totalRidingShotKnocks: 3, vehicleCombatMatchCount: 1 }).badges).toEqual([]);
   });
 });
 
@@ -256,8 +192,8 @@ describe("signature weapon", () => {
     const ignored = weaponOf({ WeapSmokeBomb_C: { kills: 5 }, None: { kills: 9 } });
     expect(ignored.signatureWeapon).toBe("전술가");
     expect(ignored.signatureWeaponStats).toEqual({ kills: 0, dbnos: 0, consistency: 0, isReliable: false });
-    // 대체 이름은 특수 무기 칭호로 쓰지 않는다
-    expect(classify({ avgDuelWinRate: 50, weaponStatsFinal: { None: { kills: 9 } } }).title).toBe("성장하는 역전의 귀재");
+    // 대체 이름은 배지로 쓰지 않는다
+    expect(ignored.badges).toEqual([]);
   });
 
   it("orders three weapons by kills x2 plus knocks", () => {
@@ -318,140 +254,3 @@ describe("signature weapon", () => {
   });
 });
 
-describe("title", () => {
-  it("uses the tier prefix and tier-indexed role title", () => {
-    expect(classify({ avgDuelWinRate: 50 }, "S").title).toBe("전설의 심판자");
-    expect(classify({ avgDuelWinRate: 50 }, "A").title).toBe("숙련된 결투의 제왕");
-    expect(classify({ avgDuelWinRate: 50 }, "B").title).toBe("성장하는 역전의 귀재");
-    expect(classify({ avgDuelWinRate: 50 }, "C").title).toBe("잠재된 역전의 귀재");
-  });
-
-  it("maps detailed 13-step tiers to their base tier", () => {
-    for (const tier of ["S+", "S"]) expect(classify({ avgDuelWinRate: 50 }, tier).title).toBe("전설의 심판자");
-    for (const tier of ["A+", "A", "A-"]) expect(classify({ avgDuelWinRate: 50 }, tier).title).toBe("숙련된 결투의 제왕");
-    for (const tier of ["B+", "B", "B-"]) expect(classify({ avgDuelWinRate: 50 }, tier).title).toBe("성장하는 역전의 귀재");
-    for (const tier of ["C+", "C-", "D+", "D-"]) expect(classify({ avgDuelWinRate: 50 }, tier).title).toBe("잠재된 역전의 귀재");
-    expect(classify({ avgDuelWinRate: 50 }, "S+").overallTier).toBe("S+");
-  });
-
-  it("uses a combo title for a known primary and secondary pair", () => {
-    // 통제자 35 > 처형자 35 * 0.65 이상
-    const result = classify({ totalEdgePlay: 5, avgDuelWinRate: 40 }, "A");
-    expect(result.primaryRole).toBe("zoneController");
-    expect(result.secondaryRole).toBe("executor");
-    expect(result.title).toBe("숙련된 전장의 사신");
-  });
-
-  it.each([
-    [{ vehicleCombatMatchCount: 5 }, "성장하는 차량 전술 교전 마스터"],
-    [{ totalRidingShotKnocks: 1, totalRidingShotKills: 1, totalLeadShotKills: 1 }, "성장하는 아스팔트의 지배자"],
-    [{ totalRidingShotKnocks: 1, totalRidingShotKills: 1 }, "성장하는 도로 위의 저승사자"],
-    [{ totalLeadShotKnocks: 1, totalLeadShotKills: 1 }, "성장하는 고속도로 저격수"],
-  ])("prefers vehicle combat titles %o", (vehicle, title) => {
-    expect(classify(vehicle).title).toBe(title);
-  });
-
-  it("uses a special weapon name or a reliable signature weapon in the title", () => {
-    expect(classify({ avgDuelWinRate: 50, weaponStatsFinal: { Unknown: { kills: 1 } } }).title).toBe("어둠의 암살자, 역전의 귀재");
-    expect(classify({ avgDuelWinRate: 50, weaponStatsFinal: { Uaz_A_01_C: { kills: 1 } } }).title).toBe("고라니 사냥꾼, 역전의 귀재");
-    expect(classify({ avgDuelWinRate: 50, weaponStatsFinal: { ProjGrenade_C: { kills: 1 } } }).title).toBe("폭파 전문가, 역전의 귀재");
-    expect(classify({ avgDuelWinRate: 50, weaponStatsFinal: { WeapM416_C: { kills: 3 } }, weaponMatchCount: { WeapM416_C: 1 } }).title)
-      .toBe("성장하는 역전의 귀재 (M416)");
-    expect(classify({ avgDuelWinRate: 50, weaponStatsFinal: { WeapM416_C: { kills: 2 } }, weaponMatchCount: { WeapM416_C: 1 } }).title)
-      .toBe("성장하는 역전의 귀재");
-  });
-});
-
-describe("role text", () => {
-  // 각 역할이 단독 1순위가 되는 입력(2순위는 65% 미만)
-  const primaryInputs: Array<[string, Record<string, unknown>]> = [
-    ["pointMan", { userInitiativeRate: 100, avgMinDistStr: "10m" }],
-    ["phantomOverwatch", { totalMaxHitDist: 400 }],
-    ["executor", { avgDuelWinRate: 50 }],
-    ["shield", { totalTeammateKnocks: 3, totalRevCount: 3 }],
-    ["zoneController", { totalEdgePlay: 5 }],
-    ["dropPredator", { goldenTimeAvg: { early: 10, mid1: 0, mid2: 0, late: 0 } }],
-    ["decoy", { totalBaitCount: 2 }],
-  ];
-  const expected: Record<string, { label: string; titles: [string, string, string]; description: string }> = {
-    pointMan: { label: "선봉대 (Point Man)", titles: ["총구의 시계추", "첫 총성의 화신", "돌격의 화신"], description: "첫 총성" },
-    phantomOverwatch: { label: "저격 유령 (Phantom Overwatch)", titles: ["전장의 망령", "침묵의 감시자", "보이지 않는 손"], description: "외곽" },
-    executor: { label: "처형자 (Executor)", titles: ["심판자", "결투의 제왕", "역전의 귀재"], description: "1:1 무력" },
-    shield: { label: "팀의 방패 (Shield)", titles: ["전우의 수호신", "마지막 방패", "연막의 천사"], description: "연막" },
-    zoneController: { label: "전장 통제자 (Zone Controller)", titles: ["구역의 지배자", "자기장의 주인", "압박의 화신"], description: "자기장 경계선" },
-    dropPredator: { label: "핫드랍 약탈자 (Drop Predator)", titles: ["착지의 악마", "핫존의 포식자", "혼돈의 사냥꾼"], description: "핫드랍" },
-    decoy: { label: "미끼 전술가 (Decoy)", titles: ["고의적 피탄자", "희생의 전략가", "미끼의 달인"], description: "미끼" },
-  };
-
-  it.each(primaryInputs)("%s has its label, description and tier titles", (role, input) => {
-    const { label, titles, description } = expected[role];
-    const s = classify(input, "S");
-    expect(s.primaryRole).toBe(role);
-    expect(s.secondaryRole).toBeNull();
-    expect(s.roleLabel).toBe(label);
-    expect(s.description).toContain(description);
-    expect(s.title).toBe(`전설의 ${titles[0]}`);
-    expect(classify(input, "A").title).toBe(`숙련된 ${titles[1]}`);
-    expect(classify(input, "C").title).toBe(`잠재된 ${titles[2]}`);
-  });
-
-  it("keeps every role description distinct", () => {
-    const descriptions = primaryInputs.map(([, input]) => classify(input).description);
-    expect(new Set(descriptions).size).toBe(primaryInputs.length);
-  });
-
-  it.each([
-    [{ totalEdgePlay: 5, userInitiativeRate: 40 }, "zoneController", "pointMan", "돌격하는 지배자"],
-    [{ avgDuelWinRate: 50, userInitiativeRate: 40 }, "executor", "pointMan", "선봉의 심판자"],
-    [{ totalTeammateKnocks: 3, totalRevCount: 3, totalBaitCount: 1 }, "shield", "decoy", "고의적 수호신"],
-    [{ totalMaxHitDist: 400, avgDuelWinRate: 50 }, "phantomOverwatch", "executor", "그림자 처형자"],
-    [{ goldenTimeAvg: { early: 10, mid1: 0, mid2: 0, late: 0 }, userInitiativeRate: 90, avgMinDistStr: "10m" }, "dropPredator", "pointMan", "착지의 선봉대"],
-  ] as const)("combo %#: %s + %s", (input, primary, secondary, combo) => {
-    const result = classify(input as Record<string, unknown>, "A");
-    expect(result.primaryRole).toBe(primary);
-    expect(result.secondaryRole).toBe(secondary);
-    expect(result.title).toBe(`숙련된 ${combo}`);
-  });
-});
-
-describe("weakness", () => {
-  it("flags a zone controller below 45% duel win rate", () => {
-    expect(classify({ totalEdgePlay: 5, avgDuelWinRate: 44 }).weakness).toContain("1:1 교전 결정력");
-    expect(classify({ totalEdgePlay: 5, avgDuelWinRate: 45 }).weakness).toBeNull();
-  });
-
-  it("flags an executor whose revive rate is below 30% of teammate knocks", () => {
-    const executor = { avgDuelWinRate: 90 };
-    expect(classify({ ...executor, totalTeammateKnocks: 10, totalRevCount: 2 }).weakness).toContain("팀원 케어");
-    expect(classify({ ...executor, totalTeammateKnocks: 10, totalRevCount: 3 }).weakness).toBeNull();
-    expect(classify({ ...executor, totalTeammateKnocks: 0 }).weakness).toBeNull();
-  });
-
-  it("flags a drop predator dying before phase 4", () => {
-    const drop = { goldenTimeAvg: { early: 10, mid1: 0, mid2: 0, late: 0 } };
-    expect(classify({ ...drop, avgDeathPhase: 3.9 }).weakness).toContain("생존 단계");
-    expect(classify({ ...drop, avgDeathPhase: 4 }).weakness).toBeNull();
-  });
-
-  it("flags a shield below 200 average damage", () => {
-    const shield = { totalTeammateKnocks: 3, totalRevCount: 3 };
-    expect(classify({ ...shield, avgDamage: 199 }).weakness).toContain("화력");
-    expect(classify({ ...shield, avgDamage: 200 }).weakness).toBeNull();
-  });
-
-  it("flags a point man whose isolation is above 2.0", () => {
-    const pointMan = { userInitiativeRate: 100, avgMinDistStr: "10m" };
-    expect(classify({ ...pointMan, avgIsolationStr: "2.1" }).weakness).toContain("고립");
-    expect(classify({ ...pointMan, avgIsolationStr: "2.0" }).weakness).toBeNull();
-  });
-
-  it("flags a phantom whose trade rate is below 20% of teammate knocks", () => {
-    const phantom = { totalMaxHitDist: 400 };
-    expect(classify({ ...phantom, totalTeammateKnocks: 10, totalTradeKills: 1 }).weakness).toContain("백업 속도");
-    expect(classify({ ...phantom, totalTeammateKnocks: 10, totalTradeKills: 2 }).weakness).toBeNull();
-  });
-
-  it("has no weakness rule for decoy", () => {
-    expect(classify({ mLen: 1, totalBaitCount: 2 }).weakness).toBeNull();
-  });
-});

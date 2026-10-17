@@ -87,6 +87,8 @@ interface DebateData {
       title: string;
       roleLabel: string;
       description: string;
+      evidence?: string[];
+      badges?: string[];
       signatureWeapon: string;
       signatureWeaponStats?: { kills: number; dbnos: number; consistency?: number; isReliable?: boolean };
       weakness?: string | null;
@@ -280,6 +282,12 @@ export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | 
     ["primaryRole", "title", "roleLabel", "description", "signatureWeapon", "weakness"].forEach((key) => {
       const text = safeVisualText(roleSource[key]);
       if (text !== null) role[key] = text;
+    });
+    // 칭호 근거와 배지는 서버가 만든 짧은 문구 목록이다. 문자열만 최대 4개까지 받는다.
+    (["evidence", "badges"] as const).forEach((key) => {
+      const list = roleSource[key];
+      if (!Array.isArray(list)) return;
+      role[key] = list.map((item) => safeVisualText(item)).filter((item): item is string => item !== null).slice(0, 4);
     });
     if (roleSource.secondaryRole === null) role.secondaryRole = null;
     else {
@@ -1874,6 +1882,18 @@ export const RecentAISummary = ({
                   <Target size={14} className="text-indigo-400" />
                   <span className="text-xs font-black text-indigo-300 uppercase tracking-wider">{debateData.visuals.roleInfo.roleLabel}</span>
                 </div>
+                {(debateData.visuals.roleInfo.evidence?.length ?? 0) > 0 && (
+                  <p className="text-xs font-bold text-indigo-200/80 break-keep" aria-label="칭호 근거">
+                    {debateData.visuals.roleInfo.evidence!.join(" · ")}
+                  </p>
+                )}
+                {(debateData.visuals.roleInfo.badges?.length ?? 0) > 0 && (
+                  <div className="flex flex-wrap justify-center md:justify-start gap-1.5">
+                    {debateData.visuals.roleInfo.badges!.map((badge) => (
+                      <span key={badge} className="px-2 py-0.5 rounded-md border border-amber-400/30 bg-amber-400/10 text-[11px] font-black text-amber-200">{badge}</span>
+                    ))}
+                  </div>
+                )}
                 <p className="text-[13px] text-gray-400 font-bold leading-relaxed max-w-xl">
                   {debateData.visuals.roleInfo.description}
                 </p>
