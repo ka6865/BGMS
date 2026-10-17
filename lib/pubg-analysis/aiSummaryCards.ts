@@ -572,6 +572,17 @@ function hasUnsupportedCardConclusion(text: string, card: Pick<SummaryCard, "top
   // A card's match population is server-owned, just like its metric values.
   const populations = Array.from(text.matchAll(/최근\s*(\d+)\s*(?:개\s*)?(?:판|경기)/gu));
   if (populations.some((match) => Number(match[1]) !== card.context.userMatchCount)) return true;
+  if (card.topicId === "positioning"
+    && !card.evidence.some((row) => row.metricId === "isolation_average" && row.status === "comparable")) {
+    for (const sentence of text.split(/(?<=[.!?。！？])\s+|\n+/u)) {
+      const conclusions = sentence.matchAll(/고립\s*지수(?:은|는|이|가)?\s*(?:다소\s*)?(?:높(?:게|아|은|습니다|다)|낮(?:게|아|은|습니다|다))|(?:높은|낮은)\s*고립\s*지수|대열[^.!?\n]{0,20}안정적으로\s*유지(?:하고|했|되)|안정적인\s*대열[^.!?\n]{0,25}(?:형성|유지)[^.!?\n]{0,25}(?:노력|엿보|있습니다)/gu);
+      for (const conclusion of conclusions) {
+        const tail = sentence.slice(conclusion.index + conclusion[0].length);
+        if (/^(?:고|는|다고|다는)?\s*(?:(?:단정|판단|평가)할\s*수(?:는)?\s*없(?:습니다|다|어요|음)|(?:(?:단정|판단|평가)할\s*)?비교\s*근거(?:가|는)?\s*없(?:습니다|다|어요|음))[.!?。！？]?\s*$/u.test(tail)) continue;
+        return true;
+      }
+    }
+  }
   if (card.topicId !== "utility") return false;
   if (requiresRescueOpportunityEvidence(text)
     && !card.evidence.some((row) => row.metricId === "smoke_opportunity_rate" && row.userValue !== null && row.status !== "unavailable")) return true;
@@ -607,30 +618,45 @@ function safeActionItems(
   const rejected = { value: false };
   const items: Array<{ icon: string; title: string; desc: string }> = [];
   for (const rawItem of value) {
-    if (!isRecord(rawItem)) return null;
+    if (!isRecord(rawItem)) {
+      rejected.value = true;
+      continue;
+    }
     const icon = nonEmptyString(rawItem.icon);
     const title = nonEmptyString(rawItem.title);
     const desc = nonEmptyString(rawItem.desc);
-    if (!icon || !title || !desc) return null;
-    if (isNeutralText(title) || isNeutralText(desc)) rejected.value = true;
+    if (!icon || !title || !desc) {
+      rejected.value = true;
+      continue;
+    }
+    let itemRejected = isNeutralText(title) || isNeutralText(desc);
     try {
       // Check the provider's original action text as well as the sanitized
       // copy. A sanitizer must not make a foreign-mode action cacheable just
       // because it removed the marker before this validation.
-      if (hasUnsupportedMode(title) || hasUnsupportedMode(desc)) rejected.value = true;
+      if (hasUnsupportedMode(title) || hasUnsupportedMode(desc)) itemRejected = true;
     } catch {
-      rejected.value = true;
+      itemRejected = true;
     }
     const sanitizedTitle = sanitizeRequiredText(title, sanitizeText);
     const sanitizedDesc = sanitizeRequiredText(desc, sanitizeText);
     if (sanitizedTitle.empty || sanitizedDesc.empty
       || isNeutralText(sanitizedTitle.value) || isNeutralText(sanitizedDesc.value)) {
+      itemRejected = true;
+    }
+    try {
+      if (hasUnsupportedMode(sanitizedTitle.value) || hasUnsupportedMode(sanitizedDesc.value)) itemRejected = true;
+    } catch {
+      itemRejected = true;
+    }
+    if (itemRejected) {
       rejected.value = true;
+      continue;
     }
     items.push({
       icon,
-      title: sanitizedTitle.value || SAFE_SIGNATURE_SUB,
-      desc: sanitizedDesc.value || SAFE_SIGNATURE_SUB,
+      title: sanitizedTitle.value,
+      desc: sanitizedDesc.value,
     });
   }
   return { items, rejected: rejected.value };
@@ -692,11 +718,24 @@ export function buildSummaryCards(input: {
   });
 }
 
+export function buildSummaryCardComparisonText(card: SummaryCard): string {
+  return card.evidence.flatMap((row) => {
+    if (row.status !== "comparable" || row.userValue === null || row.benchmarkValue === null || !row.sampleCount) return [];
+    const user = parseDisplayValue(row.userValue, row.unit);
+    const benchmark = parseDisplayValue(row.benchmarkValue, row.unit);
+    if (user === null || benchmark === null) return [];
+    const lastCharacter = row.label.charCodeAt(row.label.length - 1);
+    const particle = lastCharacter >= 0xac00 && lastCharacter <= 0xd7a3 && (lastCharacter - 0xac00) % 28 === 0 ? "는" : "은";
+    const relation = row.unit === "s" ? user < benchmark ? "빠릅니다" : "느립니다" : user > benchmark ? "높습니다" : "낮습니다";
+    return [`${row.label}${particle} 비교 평균${user === benchmark ? "과 같습니다" : `보다 ${relation}`}.`];
+  }).join(" ");
+}
+
 export function normalizeSummaryCardFinal(input: unknown, cards: readonly SummaryCard[], options: {
   sanitizeText: (value: string) => string;
   sanitizeCardText?: (value: string, card: SummaryCard) => string;
   hasUnsupportedMode: (value: unknown) => boolean;
-}): { final: Record<string, unknown> & { schemaVersion: 2; cards: SummaryCard[] }; cacheable: boolean; rejectReasons: string[] } | null {
+}): { final: Record<string, unknown> & { schemaVersion: 2; cards: SummaryCard[]; analysisStatus: "complete" | "partial" }; cacheable: boolean; usable: boolean; rejectReasons: string[] } | null {
   const serverCards = validateCardCatalog(cards);
   if (!serverCards || !isRecord(input) || !options || typeof options.sanitizeText !== "function" || typeof options.hasUnsupportedMode !== "function") {
     return null;
@@ -725,8 +764,8 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   const normalizedVerdict = sanitizeRequiredText(finalVerdict, options.sanitizeText);
   if (normalizedSignature.empty || normalizedSignatureSub.empty || normalizedVerdict.empty) reject("top_level_text");
 
-  const safeSignature = normalizedSignature.value || SAFE_SIGNATURE;
-  const safeSignatureSub = normalizedSignatureSub.value || SAFE_SIGNATURE_SUB;
+  let safeSignature = normalizedSignature.value || SAFE_SIGNATURE;
+  let safeSignatureSub = normalizedSignatureSub.value || SAFE_SIGNATURE_SUB;
   let safeVerdict = normalizedVerdict.value || SAFE_VERDICT;
 
   const providerByTopic = new Map<SummaryTopicId, Record<string, unknown>>();
@@ -748,12 +787,18 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     // A foreign-mode sentence in one card invalidates that card's
     // interpretation.  Keep unrelated cards usable; top-level prose has no
     // card owner, so it only makes the final non-cacheable.
-    const topLevelProse = [signature, signatureSub, finalVerdict, ...actionItems.items.flatMap((item) => [item.title, item.desc])];
+    const topLevelProse = [signature, signatureSub, finalVerdict, safeSignature, safeSignatureSub, safeVerdict,
+      ...(input.actionItems as unknown[]).flatMap((item) => isRecord(item) ? [item.title, item.desc] : [])];
     globalModeRejected = topLevelProse.some((text) => options.hasUnsupportedMode(text));
   } catch {
     globalModeRejected = true;
   }
-  if (globalModeRejected) reject("top_level_mode");
+  if (globalModeRejected) {
+    reject("top_level_mode");
+    safeSignature = SAFE_SIGNATURE;
+    safeSignatureSub = SAFE_SIGNATURE_SUB;
+    safeVerdict = SAFE_VERDICT;
+  }
 
   const normalizedCards = serverCards.map((serverCard) => {
     const issue = providerByTopic.get(serverCard.topicId);
@@ -781,7 +826,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       // Inspect prose only. Topic/metric IDs are structured server
       // references; a key such as `solo_kill_share` must never be mistaken
       // for a foreign SOLO queue marker by the legacy prose guard.
-      issueHasForeignMode = [kindOpinion, spicyOpinion, reason, evaluation]
+      issueHasForeignMode = [kindOpinion, spicyOpinion, reason, evaluation, ...sanitized.map((item) => item.value)]
         .some((text) => options.hasUnsupportedMode(text));
     } catch {
       issueHasForeignMode = true;
@@ -828,6 +873,8 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     }
 
     const sanitizedTexts = sanitized.map((item) => item.value);
+    const comparison = buildSummaryCardComparisonText(serverCard);
+    if (comparison) sanitizedTexts[2] = comparison;
     const unsupportedMixedWinner = hasUnsupportedMixedWinner(providerWinner as SummaryCard["winner"], serverCard.evidence);
     if (unsupportedMixedWinner) {
       sanitizedTexts[2] = "비교 가능한 지표는 모두 평균보다 유리한 방향입니다.";
@@ -850,7 +897,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   // Removing any part of a verdict can change its balance, even without a
   // leftover "다만". Reuse a strength and an improvement when those decisions
   // exist; do not manufacture a negative verdict when all cards favor kind.
-  if (isNeutralText(safeVerdict) || normalizedVerdict.changed
+  if (isNeutralText(safeVerdict) || /^(?:kind|spicy|draw)$/iu.test(safeVerdict) || normalizedVerdict.changed
     || finalCards.some(card => card.winner === null || card.winner === "draw")) {
     const ready = finalCards.filter((card) => card.analysisStatus === "ready");
     const first = ready.find((card) => card.winner === "kind") ?? ready[0];
@@ -862,6 +909,12 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     safeVerdict = [...new Set(interpretations)].slice(0, 2).join(" ") || "코치 의견을 확인하지 못했습니다. 아래 경기 기록을 확인해 주세요.";
   }
   if (finalCards.every((card) => card.dataStatus === "unavailable")) reject("all_unavailable");
+  const usable = finalCards.some((card) => card.analysisStatus === "ready");
+  if (!usable && cacheable) reject("all_unavailable");
+  if (!cacheable) {
+    safeSignature = SAFE_SIGNATURE;
+    safeSignatureSub = SAFE_SIGNATURE_SUB;
+  }
   const legacyIssues = finalCards.map((card) => {
     const comparableEvidence = card.evidence.filter((evidence) => evidence.status === "comparable" && evidence.userValue !== null && evidence.benchmarkValue !== null);
     return {
@@ -879,14 +932,15 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
 
   const final = {
     schemaVersion: AI_SUMMARY_CARD_VERSION,
+    analysisStatus: cacheable ? "complete" : "partial",
     signature: safeSignature,
     signatureSub: safeSignatureSub,
     finalVerdict: safeVerdict,
     cards: finalCards,
     debateIssues: legacyIssues,
     actionItems: normalizedActionItems,
-  } as Record<string, unknown> & { schemaVersion: 2; cards: SummaryCard[] };
-  return { final, cacheable, rejectReasons };
+  } as Record<string, unknown> & { schemaVersion: 2; cards: SummaryCard[]; analysisStatus: "complete" | "partial" };
+  return { final, cacheable, usable, rejectReasons };
 }
 
 export function parseSummaryCards(input: unknown): SummaryCard[] | null {
