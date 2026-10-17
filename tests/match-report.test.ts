@@ -133,6 +133,23 @@ describe("경기 흐름 판정", () => {
     expect(report.heal).toMatchObject({ damageTaken: 90, healthRestored: 20 });
   });
 
+  it.each([
+    { type: "LogPlayerRedeployBRStart", actors: { characters: [{ character: actor(ME) }] } },
+    { type: "LogPlayerRedeployBrStart", actors: { characters: [actor(ME)] } },
+    { type: "LogPlayerRecallShip", actors: { recalledPlayers: [{ character: actor(ME) }] } },
+    { type: "LogPlayerRedeploy", actors: { character: actor(ME) } },
+    { type: "LogPlayerCreate", actors: { character: actor(ME) } },
+  ])("$type의 복귀 참가자는 사망과 체력 초기화에 반영한다", ({ type, actors }) => {
+    const report = run([
+      position(100, { ...ME, health: 40 }), kill(105, A1, ME),
+      { _T: type, _D: at(200), ...actors }, position(210, ME),
+      damage(300, A1, ME, 30), position(301, { ...ME, health: 70 }),
+      { _T: "LogHeal", _D: at(310), character: actor({ ...ME, health: 90 }) },
+    ]);
+    expect(report.death).toBeNull();
+    expect(report.heal.healthRestored).toBe(20);
+  });
+
   it("21번째 이후 교전의 치료도 교전 중 치료로 센다", () => {
     const earlier = Array.from({ length: 20 }, (_, i) => damage(100 + i * 100, ME, B1, 10));
     const report = run([

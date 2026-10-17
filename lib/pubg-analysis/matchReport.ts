@@ -304,9 +304,12 @@ export class MatchReportCollector {
         if (this.isMe(event.victim)) this.healthResetTimes.push(this.rel(ts));
         if (this.isTeam(event.victim)) this.knockedAt.delete(actorName(event.victim));
         return;
+      case "LogPlayerCreate":
       case "LogPlayerRecall":
+      case "LogPlayerRecallShip":
       case "LogPlayerRedeploy":
       case "LogPlayerRedeployBRStart":
+      case "LogPlayerRedeployBrStart":
         this.observeRecall(event, ts);
         return;
       case "LogHeal":
@@ -477,7 +480,9 @@ export class MatchReportCollector {
   }
 
   private observeRecall(event: Record<string, any>, ts: number) {
-    const actors = [event.character, event.recalledPlayer, ...(Array.isArray(event.recalledPlayers) ? event.recalledPlayers : [])]
+    const actors = [event.character, event.recalledPlayer,
+      ...(Array.isArray(event.characters) ? event.characters : []),
+      ...(Array.isArray(event.recalledPlayers) ? event.recalledPlayers : [])]
       .map((item: any) => (item && typeof item === "object" && "character" in item ? item.character : item));
     for (const actor of actors) {
       if (!this.isTeam(actor)) continue;
