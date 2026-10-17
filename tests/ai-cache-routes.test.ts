@@ -1,4 +1,5 @@
 import { afterEach, describe, it, expect, vi, beforeEach } from "vitest";
+import { APICallError } from "ai";
 import { POST as aiAnalyzePOST } from "../app/api/pubg/ai-analyze/route";
 import { POST as aiSummaryPOST } from "../app/api/pubg/ai-summary/route";
 import { POST as aiSquadPOST } from "../app/api/pubg/ai-squad/route";
@@ -116,7 +117,8 @@ const {
   };
 });
 
-vi.mock("ai", () => ({
+vi.mock("ai", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("ai")>()),
   streamText: mockStreamText,
   Output: { json: () => ({ type: "json" }) },
 }));
@@ -1511,6 +1513,22 @@ describe("AI cache route stabilization", () => {
       expect(records.find((record) => record.type === "done")).toMatchObject({ valid: false, errorCode: "PUBG_AI_PROVIDER_ERROR" });
       expect(records.some((record) => record.type === "final")).toBe(false);
       expect(summaryCache.upsert).not.toHaveBeenCalled();
+    });
+
+    it("출력 한도에서 잘린 응답은 길이와 종료 사유를 실패 기록에 남긴다", async () => {
+      setupSummary("sdk-truncated");
+      vi.spyOn(console, "error").mockImplementation(() => undefined);
+      mockStreamText.mockImplementationOnce(() => sdkResult([
+        { type: "start-step" },
+        { type: "text-delta", text: "{\"signature\":\"잘린" },
+        { type: "finish", finishReason: "length" },
+      ]));
+
+      const response = await aiSummaryPOST(createRequest({ matchIds: ["sdk-truncated"], nickname: "Player_A", platform: "kakao", force: true }));
+      await response.text();
+
+      const failure = mockTrackAiFailure.mock.calls.find(([, type]) => type === "summary")?.[2] as Error | undefined;
+      expect(failure?.message).toMatch(/No valid JSON extracted from AI response \(length=\d+, finishReason=length\)/);
     });
 
     it("route의 Gemini 키와 기존 생성 설정을 AI SDK에 그대로 전달한다", async () => {
@@ -2918,8 +2936,10 @@ describe("AI cache route stabilization", () => {
     const records = parseSummaryNdjson(await response.text());
     const visuals = records.find((record) => record.type === "visuals")?.data;
     const cachedVisuals = summaryCache.upsert.mock.calls[0]?.[0]?.ai_result?.visuals;
+    let numberCount = 0;
     const assertFiniteNumbers = (value: unknown): void => {
       if (typeof value === "number") {
+        numberCount += 1;
         expect(Number.isFinite(value)).toBe(true);
         return;
       }
@@ -2933,8 +2953,15 @@ describe("AI cache route stabilization", () => {
     };
 
     expect(response.status).toBe(200);
+    // visuals가 누락되면 재귀 검사가 아무것도 확인하지 않으므로 존재와 캐시 일치를 먼저 고정한다
+    expect(visuals).toEqual(expect.objectContaining({ tactical: expect.any(Object), utility: expect.any(Object) }));
+    expect(cachedVisuals).toEqual(visuals);
     assertFiniteNumbers(visuals);
-    assertFiniteNumbers(cachedVisuals);
+    expect(numberCount).toBeGreaterThan(0);
+    // 비유한 원본 값은 0 같은 가짜 수치가 아니라 미측정으로 정규화한다
+    expect(visuals.pressureIndex).toBeNull();
+    expect(visuals.maxHitDistance).toBe("측정 불가");
+    expect(visuals.utility).toMatchObject({ totalThrows: "측정 불가", hits: "측정 불가", damage: "측정 불가" });
     expect(JSON.stringify(records)).not.toMatch(/NaN|Infinity|undefined/);
   });
 
@@ -3707,13 +3734,29 @@ describe("AI cache route stabilization", () => {
     expect(errorSpy.mock.calls.flat().join(" ")).not.toContain("AI-SUMMARY-STREAM-ERROR");
   });
 
-  it("ai-summary는 streamResult.response rejection을 iterator abort 전에 처리한다", async () => {
-    vi.useFakeTimers();
+  it("ai-summary는 AI SDK usage rejection을 소비하고 요약 응답을 유지한다", async () => {
+    mockSummaryGeminiResponse();
+    // 테스트 shim은 provider response 실패를 usage={}로 바꾸므로, route가 직접 받는 usage를 rejection으로 대체한다.
+    // rejection은 route가 usage에 접근할 때 만들어 미리 unhandled로 판정되지 않게 하고, 스스로 catch하지 않는다.
+    const usageRejection = new Error("usage rejected");
+    const defaultStreamText = mockStreamText.getMockImplementation()!;
+    mockStreamText.mockImplementationOnce((options: any) => {
+      const result = defaultStreamText(options);
+      let usage: Promise<never> | undefined;
+      return {
+        fullStream: result.fullStream,
+        get usage() {
+          usage ??= Promise.reject(usageRejection);
+          return usage;
+        },
+      };
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     try {
       const summaryCache = createQueryChain({ data: null, error: null });
       const telemetry = createQueryChain({
-        data: [{ match_id: "response-rejection", player_id: "player_a", platform: "kakao", data: { fullResult: createSummaryMatch("response-rejection") } }],
+        data: [{ match_id: "usage-rejection", player_id: "player_a", platform: "kakao", data: { fullResult: createSummaryMatch("usage-rejection") } }],
         error: null,
       });
       const supabase = createSupabaseMock({
@@ -3724,47 +3767,21 @@ describe("AI cache route stabilization", () => {
       });
       mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
 
-      let requestOptions: { signal?: AbortSignal; timeout?: number } | undefined;
-      const responseThen = vi.fn((onFulfilled?: (value: unknown) => unknown) => {
-        const rejected = Promise.reject(new Error("stream response rejected"));
-        return rejected.then(onFulfilled).catch(() => undefined);
-      });
-      const streamResponse = { then: responseThen };
-      let iterator: any;
-      mockGenerateContentStream.mockImplementation(async (_prompt: string, options?: { signal?: AbortSignal; timeout?: number }) => {
-        requestOptions = options;
-        iterator = {
-          next: vi.fn(() => new Promise((resolve) => {
-            options?.signal?.addEventListener("abort", () => resolve({ done: true, value: undefined }), { once: true });
-          })),
-          return: vi.fn(async () => ({ done: true, value: undefined })),
-          [Symbol.asyncIterator]() {
-            return this;
-          },
-        };
-        return { stream: iterator, response: streamResponse };
-      });
-
       const response = await aiSummaryPOST(createRequest({
-        matchIds: ["response-rejection"],
+        matchIds: ["usage-rejection"],
         nickname: "Player_A",
         platform: "kakao",
         force: true,
       }));
-      const bodyPromise = response.text();
-
+      const records = parseSummaryNdjson(await response.text());
       for (let index = 0; index < 10; index += 1) await Promise.resolve();
-      expect(responseThen).toHaveBeenCalled();
-      expect(iterator.next).toHaveBeenCalledTimes(1);
 
-      await vi.advanceTimersByTimeAsync(18_100);
-      const body = await bodyPromise;
-
-      expect(requestOptions?.signal?.aborted).toBe(true);
-      expect(body).toContain("PUBG_AI_ROUTE_TIMEOUT");
-      expect(summaryCache.upsert).not.toHaveBeenCalled();
+      expect(response.status).toBe(200);
+      expect(records.find((record) => record.type === "done")).toMatchObject({ valid: true });
+      expect(errorSpy).toHaveBeenCalledWith("[AI-SUMMARY] Usage fetch error:", usageRejection);
+      expect(mockTrackAiUsage).not.toHaveBeenCalled();
     } finally {
-      vi.useRealTimers();
+      errorSpy.mockRestore();
     }
   });
 
@@ -5829,12 +5846,15 @@ describe("AI cache route stabilization", () => {
       capturedPrompt = prompt;
     });
 
+    // 신뢰 marker와 조회 tier·계산 버전을 partial-NULL 대조군과 맞춰 NULL 지표 처리 경로까지 도달하게 한다
     const tierBenchmarks = createQueryChain({
       data: {
         game_mode: "squad",
         match_type: "competitive",
-        tier: "B",
+        tier: "A+",
         match_count: 5,
+        filter_version: 8,
+        population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION,
         avg_damage: null,
         avg_duel_win_rate: null,
         avg_initiative_rate: null,
@@ -6464,7 +6484,7 @@ describe("AI cache route stabilization", () => {
     expect(rows.find((row: any) => row.metricId === 'solo_kill_share')).toMatchObject({ userValue: '50%', userMatchCount: 1 });
     expect(rows.find((row: any) => row.metricId === 'damage_average')).toMatchObject({ userValue: '320', userMatchCount: 1 });
   });
-  it.each(['valid', 'unsafe-advice', 'balanced', 'withheld', 'shuffled', 'technical-provenance', 'wrong-reference', 'missing-reference', 'foreign-mode', 'cross-card-prose', 'neutral-opinion', 'invented-match-count', 'duplicate-topic', 'unknown-topic', 'two-cards', 'non-json'])(
+  it.each(['valid', 'unsafe-advice', 'balanced', 'withheld', 'shuffled', 'technical-provenance', 'wrong-reference', 'missing-reference', 'foreign-mode', 'cross-card-prose', 'neutral-opinion', 'invented-match-count', 'malformed-action', 'all-neutral', 'duplicate-topic', 'unknown-topic', 'two-cards', 'non-json'])(
     'ai-summary v2 %s preserves server evidence and validates interpretation/cache separately', async (scenario) => {
       const summaryCache = createQueryChain();
       const telemetry = createQueryChain({ data: [{ match_id: 'id-contract', player_id: 'player_a', platform: 'kakao', data: { fullResult: createSummaryMatch('id-contract', { deathPhase: 4 }) } }], error: null });
@@ -6475,6 +6495,11 @@ describe("AI cache route stabilization", () => {
         const encoded = prompt.split('### [SERVER_CARD_PLAN_V2]\n')[1]?.split('\n### [END_SERVER_CARD_PLAN_V2]')[0];
         const plan = JSON.parse(encoded || '[]');
         expect(plan).toHaveLength(3);
+        for (const card of plan) {
+          expect(card.evidence.map((row: any) => row.id)).toEqual(card.evidenceIds);
+          expect(card.evidence.every((row: any) => row.status !== 'unavailable')).toBe(true);
+          expect(typeof card.serverComparison).toBe('string');
+        }
         expect(prompt).not.toContain('### [유저 전술적 정체성]');
         expect(prompt).not.toContain('### [SQUAD 모드 분석]');
         const issues = plan.map((card: any) => ({ topicId: card.topicId, evidenceIds: [...card.evidenceIds], kindOpinion: '교전을 마무리하는 강점이 있습니다.', spicyOpinion: '합류 시점을 더 점검하세요.', winner: 'kind', reason: '관측된 기록에 근거합니다.', evaluation: '다음 경기에서 합류를 점검하세요.' }));
@@ -6486,6 +6511,7 @@ describe("AI cache route stabilization", () => {
           issues.find((issue: any) => issue.topicId === 'firepower').spicyOpinion = '교전 참여 빈도를 높여 화력 생산력을 끌어올려야 합니다.';
           providerFinal.actionItems = [{ icon: 'target', title: '교전 점검', desc: '공격 기회를 늘리세요.' }];
         }
+        if (scenario === 'malformed-action') providerFinal.actionItems = [{ target: '목표', title: '다음 경기', desc: '상대 위치를 확인하세요.' }];
         if (scenario === 'shuffled') issues.reverse();
         if (scenario === 'technical-provenance') {
           issues.find((issue: any) => issue.topicId === 'firepower').kindOpinion = '평균 화력 320 (모드·매치 유형·티어 기준 BGMS 표본 평균 [모드 squad · 매치 유형 competitive · 티어 A+]; 해당 지표 n=5: 평균 화력 100). 교전 마무리에 집중하세요.';
@@ -6494,6 +6520,7 @@ describe("AI cache route stabilization", () => {
         if (scenario === 'missing-reference') issues[0].evidenceIds = [];
         if (scenario === 'foreign-mode') issues[0].kindOpinion = '듀오에서 교전을 마무리합니다.';
         if (scenario === 'cross-card-prose') issues.find((issue: any) => issue.topicId !== 'firepower').kindOpinion = '평균 화력은 비교 평균보다 높습니다.';
+        if (scenario === 'all-neutral') for (const issue of issues) issue.kindOpinion = '검증된 경기 지표를 바탕으로 분석합니다.';
         if (scenario === 'neutral-opinion') issues[0].kindOpinion = '검증된 경기 지표를 바탕으로 분석합니다.';
         if (scenario === 'invented-match-count') issues[0].kindOpinion = '최근 100경기에서 안정적인 플레이를 보여주었습니다.';
         if (scenario === 'duplicate-topic') issues[1].topicId = issues[0].topicId;
@@ -6509,11 +6536,20 @@ describe("AI cache route stabilization", () => {
       expect(facts).toHaveLength(3);
       const damage = facts.find((card: any) => card.topicId === 'firepower').evidence[0];
       expect(damage).toMatchObject({ metricId: 'damage_average', userValue: '320', benchmarkValue: '100', status: 'comparable' });
-      const success = ['valid', 'unsafe-advice', 'balanced', 'withheld', 'shuffled', 'technical-provenance'].includes(scenario);
+      const partialSuccess = ['wrong-reference', 'missing-reference', 'foreign-mode', 'cross-card-prose', 'neutral-opinion', 'invented-match-count', 'malformed-action'].includes(scenario);
+      const success = partialSuccess || ['valid', 'unsafe-advice', 'balanced', 'withheld', 'shuffled', 'technical-provenance'].includes(scenario);
       expect(records.find(record => record.type === 'done')?.valid).toBe(success);
       if (success) {
         const final = JSON.parse(records.find(record => record.type === 'final')?.data || '{}');
         expect(final.schemaVersion).toBe(2);
+        expect(final.analysisStatus).toBe(partialSuccess ? 'partial' : 'complete');
+        if (partialSuccess) {
+          expect(records.find(record => record.type === 'done')).toMatchObject({ valid: true, partial: true, retryAfterSeconds: 300 });
+          expect(final.cards.some((card: any) => card.analysisStatus === 'ready')).toBe(true);
+          if (scenario === 'malformed-action') expect(final.actionItems).toEqual([]);
+          else expect(final.cards.some((card: any) => card.analysisStatus === 'unavailable' && card.winner === null)).toBe(true);
+          expect(records.some(record => record.type === 'error')).toBe(false);
+        }
         if (scenario === 'balanced' || scenario === 'withheld') {
           const firepower = final.cards.find((card: any) => card.topicId === 'firepower');
           expect(firepower.winner).toBeNull(); // A favourable damage comparison alone cannot establish mixed strengths/weaknesses.
@@ -6535,8 +6571,14 @@ describe("AI cache route stabilization", () => {
           expect(opinion).toContain('100');
           expect(opinion).toContain('교전 마무리에 집중하세요.');
         }
+        if (partialSuccess) {
+          // 부분 완료는 같은 키의 완성본을 덮어쓰지 않도록 캐시에 저장하지 않는다.
+          expect(summaryCache.upsert).not.toHaveBeenCalled();
+          return;
+        }
         const payload = summaryCache.upsert.mock.calls[0][0];
         expect(JSON.parse(payload.ai_result.providerFinal)).toEqual(providerFinal);
+        expect(payload.ai_result.partialExpiresAt).toBeUndefined();
         // Forged cached server facts must be ignored; reconstruct from current evidence.
         configureSummaryCacheHitForHash(summaryCache, payload.match_ids_hash, { ...payload.ai_result, final: JSON.stringify({ ...final, cards: [] }) });
         mockGenerateContentStream.mockClear();
@@ -6546,19 +6588,38 @@ describe("AI cache route stabilization", () => {
         expect(cacheFinal.cards).toEqual(final.cards);
         expect(mockGenerateContentStream).not.toHaveBeenCalled();
         expect(summaryCache.upsert).toHaveBeenCalledTimes(1);
+        expect(cacheRecords.find(record => record.type === 'done')).toEqual({ type: 'done', valid: true });
       } else {
         expect(summaryCache.upsert).not.toHaveBeenCalled();
-        expect(records.some(record => record.type === 'error')).toBe(true);
-        if (['wrong-reference', 'missing-reference', 'foreign-mode', 'cross-card-prose', 'neutral-opinion', 'invented-match-count'].includes(scenario)) {
-          const partial = JSON.parse(records.find(record => record.type === 'final')?.data || '{}');
-          expect(partial.cards.some((card: any) => card.analysisStatus === 'unavailable' && card.winner === null)).toBe(true);
-          expect(partial.cards.map((card: any) => card.evidence)).toEqual(facts.map((card: any) => card.evidence));
+        expect(records.find(record => record.type === 'error')).toMatchObject({ errorCode: 'PUBG_AI_VALIDATION_FAILED', retryable: true, retryAfterSeconds: 30 });
+        if (scenario === 'all-neutral') {
+          const final = JSON.parse(records.find(record => record.type === 'final')?.data || '{}');
+          expect(final.cards.every((card: any) => card.analysisStatus === 'unavailable' && card.winner === null)).toBe(true);
         } else {
           expect(records.some(record => record.type === 'final')).toBe(false);
         }
       }
     },
   );
+
+  it.each(['quota', 'stream-quota', 'sdk-quota', 'timeout'])('ai-summary v2 separates %s from validation failures and preserves facts', async (failure) => {
+    const summaryCache = createQueryChain();
+    const telemetry = createQueryChain({ data: [{ match_id: 'provider-failure', player_id: 'player_a', platform: 'kakao', data: { fullResult: createSummaryMatch('provider-failure', { deathPhase: 4 }) } }], error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({ player_ai_summary_cache: summaryCache, processed_match_telemetry: telemetry, benchmark_stats_by_tier_v2: createQueryChain() }) });
+    // sdk-quota는 메시지에 429 표기가 없어도 AI SDK APICallError의 statusCode로 판별하는지 확인한다.
+    const providerError = failure === 'sdk-quota'
+      ? new APICallError({ message: 'Resource has been exhausted (e.g. check quota).', url: 'https://generativelanguage.googleapis.com', requestBodyValues: {}, statusCode: 429 })
+      : Object.assign(new Error(failure === 'timeout' ? 'The provider timed out' : '429 RESOURCE_EXHAUSTED'), { status: failure === 'timeout' ? 504 : 429 });
+    if (failure === 'stream-quota') {
+      mockGenerateContentStream.mockResolvedValue({ stream: (async function* () { throw providerError; yield; })() });
+    } else mockGenerateContentStream.mockRejectedValue(providerError);
+    const response = await aiSummaryPOST(createRequest({ matchIds: ['provider-failure'], nickname: 'Player_A', platform: 'kakao', force: true, summaryContractVersion: 2 }));
+    const records = parseSummaryNdjson(await response.text());
+    expect(records.find(record => record.type === 'cards')?.data).toHaveLength(3);
+    expect(records.find(record => record.type === 'done')).toMatchObject({ valid: false, errorCode: failure === 'timeout' ? 'PUBG_AI_ROUTE_TIMEOUT' : 'PUBG_AI_RATE_LIMITED', retryable: true, retryAfterSeconds: failure === 'timeout' ? 30 : 60 });
+    expect(summaryCache.upsert).not.toHaveBeenCalled();
+    expect(mockTrackAiFailure).toHaveBeenCalledWith('user-1', 'summary', expect.anything(), expect.objectContaining({ errorCode: failure === 'timeout' ? 'PUBG_AI_ROUTE_TIMEOUT' : 'PUBG_AI_RATE_LIMITED' }));
+  });
 
   it('ai-summary v2 preserves user-only facts when provider configuration is unavailable', async () => {
     const summaryCache = createQueryChain();

@@ -20,18 +20,18 @@ RLS를 켜고 정책을 두지 않은 `public` 테이블은 anon·authenticated 
 | PUBG 조우·성과 | `pubg_encounter_api_budget`, `pubg_encounter_cache`, `pubg_encounter_profiles`, `pubg_encounter_seasons`, `pubg_match_performance`, `pubg_performance_budget`, `pubg_performance_jobs` |
 | 무기 메타·패치 | `weapon_meta_match_samples`, `weapon_meta_patches`, `weapon_meta_snapshots`, `weapon_patch_apply_log`, `weapon_patch_proposal_changes`, `weapon_patch_proposals` |
 
-## 테이블 권한이 남아 있는 13개
+## 클라이언트 권한 회수 (2026-10-17)
 
-다음 테이블은 정책이 없지만 anon·authenticated에 `SELECT` 등 테이블 권한이 남아 있다. 현재는 RLS가 모든 행을 막으므로 노출되지 않는다. 다만 RLS가 꺼지면 바로 공개되므로 방어선이 하나뿐이다.
+`20261017050000_close_player_data_tables`가 위 목록 전체(RLS 켜짐·정책 없음)의 anon·authenticated 권한을 회수했다. 이전에는 13개 표에 `SELECT` 등 테이블 권한이 남아 RLS 하나만 방어선이었다.
 
-`agent_approvals`, `agent_memories`, `agent_runs`, `agent_steps`, `ai_usage_logs`, `analytics_event_rate_limits`, `analytics_events`, `match_ai_coaching_cache`, `player_ai_summary_cache`, `pubg_api_errors`, `pubg_api_status`, `squad_ai_coaching_cache`, `weapon_meta_match_samples`
+같은 migration이 다음 플레이어 단위 데이터 표도 서버 전용으로 바꿨다. 이 표들은 예전 `SELECT ... using (true)` 정책이 남아 있지만 클라이언트 권한이 없어 공개되지 않는다. 앱은 service role로만 읽는다(`lib/server/serviceRoleSupabase.server.ts`).
 
-2026-10-15 기준 이 테이블들은 `app/api/**`와 `lib/` 서버 모듈에서만 조회하며 브라우저 컴포넌트의 직접 조회는 없다. 권한 회수는 별도 migration과 `verify:migrations` 시나리오로 진행한다.
+`pubg_player_matches`, `pubg_player_cache`, `processed_match_telemetry`, `match_stats_raw`, `global_benchmarks`, `match_master_telemetry`, 뷰 `benchmark_stats_by_tier`, `benchmark_stats_by_tier_v2`
 
 ## 변경 규칙
 
 - 이 목록의 테이블을 브라우저나 사용자 토큰으로 읽어야 하면 정책을 추가하는 migration을 만들고 이 문서에서 제외한다. 정책 없이 클라이언트에서 조회하면 오류 없이 빈 결과가 반환되므로 원인을 찾기 어렵다.
-- 새 서버 전용 테이블은 RLS를 켜고 정책을 만들지 않으며, anon·authenticated 권한을 회수한 뒤 이 목록에 추가한다.
+- 새 서버 전용 테이블은 RLS를 켜고 정책을 만들지 않으며, anon·authenticated 권한을 회수한 뒤 이 목록에 추가한다. 2026-10-17부터 public 스키마의 새 표에는 anon 쓰기 권한이 기본으로 붙지 않지만 `SELECT`는 붙는다.
 - 목록 재확인 쿼리(읽기 전용):
 
 ```sql

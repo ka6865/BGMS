@@ -9,13 +9,11 @@ import path from 'path';
 const realDataPath = path.resolve(__dirname, '../scratch/test-data/revive-gold-match.json');
 const hasRealDataFixture = fs.existsSync(realDataPath);
 
-if (!hasRealDataFixture) {
-  console.warn('⚠️ 테스트 데이터 파일이 없습니다. 실데이터 테스트 suite를 건너뜁니다.');
-}
-
-if (hasRealDataFixture) describe('AnalysisEngine 실데이터(Gold Match) 정밀 검증', () => {
+// 실경기 fixture는 개인 경기 데이터라 저장소에 포함하지 않는다.
+// 파일이 없으면 테스트를 등록하지 않는 대신 skip으로 집계해 미실행 사실이 결과에 드러나게 한다.
+describe.skipIf(!hasRealDataFixture)('AnalysisEngine 실데이터(Gold Match) 정밀 검증 (scratch/test-data/revive-gold-match.json 필요)', () => {
   // 실제 KangHeeSung_ 님의 경기 데이터를 테스트 Fixture로 사용
-  const telemetry = JSON.parse(fs.readFileSync(realDataPath, 'utf-8'));
+  const telemetry = hasRealDataFixture ? JSON.parse(fs.readFileSync(realDataPath, 'utf-8')) : [];
   
   const nickname = "KangHeeSung_";
   const myAccountId = "account.a5fedccd38fb412eaa369658474f326f";

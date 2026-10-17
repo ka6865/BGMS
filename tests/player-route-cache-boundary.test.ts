@@ -12,8 +12,8 @@ const {
   mockFetch: vi.fn(),
 }));
 
-vi.mock("@/utils/supabase/server", () => ({
-  createClient: mockCreateServerClient,
+vi.mock("@/lib/server/serviceRoleSupabase.server", () => ({
+  createServiceRoleSupabase: mockCreateServerClient,
 }));
 
 vi.mock("@/lib/pubg/responseCache", () => ({
@@ -81,7 +81,7 @@ describe("player route non-force cache boundary", () => {
         { match_id: "older", game_mode: "solo-fpp" },
       ], error: null }),
     };
-    mockCreateServerClient.mockResolvedValue({
+    mockCreateServerClient.mockReturnValue({
       from: vi.fn((table: string) => table === "pubg_player_cache" ? playerQuery : telemetryQuery),
     });
 
@@ -127,7 +127,7 @@ describe("player route non-force cache boundary", () => {
       select: vi.fn().mockReturnThis(),
       in: vi.fn().mockResolvedValue({ data: [], error: null }),
     };
-    mockCreateServerClient.mockResolvedValue({
+    mockCreateServerClient.mockReturnValue({
       from: vi.fn((table: string) => table === "pubg_player_cache" ? playerQuery : telemetryQuery),
     });
     mockFetch.mockImplementation(() => {

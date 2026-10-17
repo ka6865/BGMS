@@ -269,6 +269,7 @@ describe("게시글 쓰기 Turnstile 저장 경계", () => {
     expect(mocks.verifyTurnstile).not.toHaveBeenCalled();
     expect(mocks.hash).not.toHaveBeenCalled();
     expect(admin.insert).not.toHaveBeenCalled();
+    expect(admin.rpc).not.toHaveBeenCalled();
     expect(admin.update).not.toHaveBeenCalled();
     expect(mocks.externalFetch).not.toHaveBeenCalled();
   });
@@ -284,6 +285,7 @@ describe("게시글 쓰기 Turnstile 저장 경계", () => {
     expect(mocks.verifyTurnstile).not.toHaveBeenCalled();
     expect(mocks.hash).not.toHaveBeenCalled();
     expect(admin.insert).not.toHaveBeenCalled();
+    expect(admin.rpc).not.toHaveBeenCalled();
   });
 
   it("guest quota 거부는 Siteverify 성공 후 저장 전에 차단한다", async () => {
@@ -301,6 +303,7 @@ describe("게시글 쓰기 Turnstile 저장 경계", () => {
     expect(mocks.verifyTurnstile).toHaveBeenCalledOnce();
     expect(mocks.hash).not.toHaveBeenCalled();
     expect(admin.insert).not.toHaveBeenCalled();
+    expect(admin.rpc).not.toHaveBeenCalled();
   });
 
   it("guest quota RPC 장애는 Siteverify 성공 후 저장 전에 503으로 fail-closed 처리한다", async () => {
@@ -317,6 +320,7 @@ describe("게시글 쓰기 Turnstile 저장 경계", () => {
     expect(response.status).toBe(503);
     expect(mocks.verifyTurnstile).toHaveBeenCalledOnce();
     expect(admin.insert).not.toHaveBeenCalled();
+    expect(admin.rpc).not.toHaveBeenCalled();
   });
 
   it("Turnstile 거부는 quota·bcrypt·저장 전에 400으로 차단한다", async () => {
@@ -334,6 +338,7 @@ describe("게시글 쓰기 Turnstile 저장 경계", () => {
     expect(mocks.consumeQuota).not.toHaveBeenCalled();
     expect(mocks.hash).not.toHaveBeenCalled();
     expect(admin.insert).not.toHaveBeenCalled();
+    expect(admin.rpc).not.toHaveBeenCalled();
   });
 
   it("valid guest_post token만 비회원 원자 RPC 저장을 허용한다", async () => {

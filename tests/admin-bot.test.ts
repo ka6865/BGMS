@@ -6,7 +6,10 @@ import { NextResponse } from "next/server";
 // 1. Host variables safely before standard imports/mocks using vi.hoisted
 const { 
   mockLaunch, 
-  mockNewPage
+  mockNewPage,
+  mockGoto,
+  mockScreenshot,
+  mockClose
 } = vi.hoisted(() => {
   const mockScreenshot = vi.fn().mockResolvedValue(Buffer.from("dummy-png-data"));
   const mockGoto = vi.fn();
@@ -415,6 +418,17 @@ describe("🤖 Admin AI Bot API Route (E2E Logic Flow Verification)", () => {
       body: JSON.stringify({ message: "미라마 지도 캡처해줘" })
     });
 
+    // 캡처 안정화 대기(2500ms)는 요청 여부만 확인하고 즉시 진행한다
+    const realSetTimeout = globalThis.setTimeout;
+    const captureWaits: number[] = [];
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((handler: () => void, ms?: number, ...args: unknown[]) => {
+      if (ms === 2500) {
+        captureWaits.push(ms);
+        return realSetTimeout(handler, 0);
+      }
+      return realSetTimeout(handler, ms, ...args);
+    }) as typeof setTimeout);
+
     const res = await adminBotPOST(req);
     expect(res.status).toBe(200);
 
@@ -435,9 +449,25 @@ describe("🤖 Admin AI Bot API Route (E2E Logic Flow Verification)", () => {
     expect(chunks).toContain("tool_end");
     expect(chunks).toContain("miramar.png");
     
-    // Puppeteer 및 Storage 호출 확인
-    expect(mockLaunch).toHaveBeenCalled();
-    expect(mockNewPage).toHaveBeenCalled();
+    setTimeoutSpy.mockRestore();
+    expect(captureWaits).toEqual([2500]);
+
+    // Puppeteer 캡처 → Storage 업로드 → 브라우저 종료 연결 확인
+    expect(mockLaunch).toHaveBeenCalledOnce();
+    expect(mockNewPage).toHaveBeenCalledOnce();
+    expect(mockGoto).toHaveBeenCalledWith(
+      expect.stringMatching(/\/maps\/miramar\?layer=secret_room&sidebar=false&notice=false$/),
+      { waitUntil: "networkidle2" }
+    );
+    expect(mockScreenshot).toHaveBeenCalledWith({ type: "png" });
+    expect(mockSupabaseAdmin.storage.from).toHaveBeenCalledWith("map-captures");
+    const upload = mockSupabaseAdmin.storage.from.mock.results[0].value.upload;
+    expect(upload).toHaveBeenCalledWith(
+      expect.stringMatching(/^miramar_secret_room_\d+\.png$/),
+      Buffer.from("dummy-png-data"),
+      { contentType: "image/png", upsert: true }
+    );
+    expect(mockClose).toHaveBeenCalledOnce();
   });
 
   it("4. AI가 'tavily_search' 도구를 실행하도록 유도될 시, Tavily 검색 요청이 성공해야 함", async () => {

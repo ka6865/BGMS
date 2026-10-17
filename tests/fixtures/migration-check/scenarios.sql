@@ -237,11 +237,15 @@ begin
     and privilege_type in ('INSERT', 'UPDATE', 'DELETE');
   if write_grants > 0 then raise exception 'FAIL: anon/authenticated 쓰기 권한 % 건 잔존', write_grants; end if;
 
-  if not exists (
+  -- 20261017050000 이후 플레이어 캐시는 서버(service role)만 읽는다.
+  if exists (
     select 1 from information_schema.role_table_grants
     where table_schema = 'public' and table_name = 'pubg_player_cache'
       and grantee = 'anon' and privilege_type = 'SELECT'
-  ) then raise exception 'FAIL: anon 읽기 권한이 사라짐'; end if;
+  ) then raise exception 'FAIL: anon 읽기 권한이 남아 있음'; end if;
+  if not has_table_privilege('service_role', 'public.pubg_player_cache', 'SELECT') then
+    raise exception 'FAIL: service role 읽기 권한이 사라짐';
+  end if;
   raise notice 'PASS: 쓰기 정책·권한 강화 확인';
 end $$;
 

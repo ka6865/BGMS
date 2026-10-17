@@ -44,6 +44,9 @@ create table if not exists public.profiles (
 );
 grant select on table public.profiles to anon, authenticated, service_role;
 grant insert, update on table public.profiles to service_role;
+-- 운영과 같은 profiles 정책(권한 정리 migration이 정책 유무로 남길 권한을 정한다).
+drop policy if exists "Users can update own profile" on public.profiles;
+create policy "Users can update own profile" on public.profiles for update using (auth.uid() = id);
 
 -- Supabase Storage와 알림의 최소 구성. 고객센터 migration은 private bucket과
 -- support_ticket_id를 기존 알림 행에 추가하므로 실제 운영 객체의 핵심 컬럼만 재현한다.
@@ -114,6 +117,9 @@ create table if not exists public.post_likes (
   user_id uuid not null references public.profiles(id) on delete cascade,
   constraint post_likes_post_id_user_id_key unique (post_id, user_id)
 );
+alter table public.posts add column if not exists author text, add column if not exists created_at timestamptz default now(), add column if not exists ip_address text;
+alter table public.comments add column if not exists ip_address text;
+alter table public.profiles add column if not exists avatar_url text;
 grant select on table public.posts, public.comments to anon, authenticated;
 grant select, insert, update, delete on table public.posts, public.comments to service_role;
 grant usage, select on sequence public.posts_id_seq, public.comments_id_seq to service_role;
@@ -136,6 +142,10 @@ create table if not exists public.reports (
 alter table public.reports enable row level security;
 drop policy if exists "Allow public insert reports" on public.reports;
 create policy "Allow public insert reports" on public.reports for insert with check (true);
+-- 운영과 같이 관리자 신고 처리 정책을 둔다(20260616120024).
+drop policy if exists "Allow admin manage reports" on public.reports;
+create policy "Allow admin manage reports" on public.reports for all
+  using (exists (select 1 from public.profiles where profiles.id = auth.uid() and profiles.role = 'admin'));
 grant all on table public.reports to anon, authenticated, service_role;
 -- PUBLIC 상속 권한까지 회수되는지 검증한다.
 grant truncate on table public.reports to public;

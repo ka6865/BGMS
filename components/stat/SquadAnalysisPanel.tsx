@@ -149,6 +149,10 @@ function averageObservedMetrics(values: unknown[]): number | null {
 const CALCULATION_UPGRADE_ERROR_CODE = "PUBG_CALCULATION_UPGRADE_REQUIRED";
 const CALCULATION_UPGRADE_MESSAGE = "새 계산 기준 확인이 필요한 전적입니다";
 const CALCULATION_UPGRADE_DETAIL = "기본 전적은 계속 확인할 수 있습니다. 이 화면에서는 원본 보관 여부나 갱신 진행 상태를 확인할 수 없습니다.";
+const CANONICAL_NOT_READY_ERROR_CODE = "PUBG_AI_SQUAD_CANONICAL_NOT_READY";
+const CANONICAL_NOT_READY_MESSAGE = "팀 분석 데이터 준비 필요";
+// 서버가 안내 문구를 보내지 않은 경우에만 사용한다. 선택 기준은 서버가 정하므로 서버 문구를 우선한다.
+const CANONICAL_NOT_READY_DETAIL = "팀 분석 데이터가 있는 최근 경기가 없습니다. 이 팀과 함께한 최근 경기를 상세 분석하면 AI 코칭을 이용할 수 있습니다.";
 
 function isCalculationUpgradeError(error: unknown): boolean {
   return Boolean(
@@ -198,7 +202,9 @@ export default function SquadAnalysisPanel({
   const [loadingAi, setLoadingAi] = useState<boolean>(false);
   const { isAnalyzing: isGlobalAnalyzing } = useAIStatus();
   const [aiFeedback, setAiFeedback] = useState<AiFeedback | null>(null);
-  const [aiError, setAiError] = useState<{ message: string; retryable: boolean; errorCode?: string | null } | null>(null);
+  const [aiError, setAiError] = useState<{ message: string; retryable: boolean; errorCode?: string | null; detail?: string | null } | null>(null);
+  const aiPreparationPending = aiError?.errorCode === CALCULATION_UPGRADE_ERROR_CODE
+    || aiError?.errorCode === CANONICAL_NOT_READY_ERROR_CODE;
 
   // 2D Map Selected Match State
   const [selectedMapMatchId, setSelectedMapMatchId] = useState<string>("");
@@ -214,7 +220,6 @@ export default function SquadAnalysisPanel({
 
   useEffect(() => {
     setAiFeedback(null);
-    setAiError(null);
     setLoadingAi(false);
     return () => {
       const pending = aiRequest.current;
@@ -223,6 +228,14 @@ export default function SquadAnalysisPanel({
       if (pending) aiManager.stopAnalysis(pending.id);
     };
   }, [nickname, platform, groupKey, coachingStyle, cache, cacheScope]);
+
+  useEffect(() => {
+    setAiError(null);
+  }, [nickname, platform, groupKey, cache, cacheScope]);
+
+  useEffect(() => {
+    setAiError((previous) => previous?.retryable === false ? previous : null);
+  }, [coachingStyle]);
 
   // 1. Fetch detected squad list on mount
   const fetchSquadGroups = useCallback(async () => {
@@ -362,14 +375,26 @@ export default function SquadAnalysisPanel({
       if (aiRequest.current !== pending) return;
       if (!res.ok || !data || data.error) {
         const calculationUpgradePending = data?.errorCode === CALCULATION_UPGRADE_ERROR_CODE;
+        const canonicalNotReady = data?.errorCode === CANONICAL_NOT_READY_ERROR_CODE;
         setAiError({
           message: calculationUpgradePending
             ? CALCULATION_UPGRADE_MESSAGE
-            : res.status === 409
-              ? "코칭에 필요한 경기 지표가 아직 없습니다. 전적 분석이 완료된 뒤 다시 확인해 주세요."
-              : "일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
+            : canonicalNotReady
+              ? CANONICAL_NOT_READY_MESSAGE
+              : res.status === 409
+                ? "코칭에 필요한 경기 지표가 아직 없습니다. 전적 분석이 완료된 뒤 다시 확인해 주세요."
+                : "일시적인 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.",
           errorCode: typeof data?.errorCode === "string" ? data.errorCode : null,
-          retryable: !calculationUpgradePending && data?.retryable !== false && res.status !== 409,
+          detail: canonicalNotReady && typeof data?.error === "string" && data.error.trim() ? data.error : null,
+          retryable: !calculationUpgradePending && !canonicalNotReady && data?.retryable !== false && res.status !== 409,
+        });
+        trackEvent({
+          name: "feature_consumption",
+          params: {
+            feature_name: "squad-synergy",
+            status: "fail",
+            error_type: typeof data?.errorCode === "string" ? data.errorCode : `http_${res.status}`,
+          }
         });
         return;
       }
@@ -1014,10 +1039,12 @@ export default function SquadAnalysisPanel({
             </p>
           )}
           {aiError && (
-            <div role="alert" className={`rounded-lg border p-4 text-center ${aiError.errorCode === CALCULATION_UPGRADE_ERROR_CODE ? "border-sky-500/20 bg-sky-500/5" : "border-red-500/20 bg-red-500/5"}`}>
-              <p className={`text-sm ${aiError.errorCode === CALCULATION_UPGRADE_ERROR_CODE ? "text-sky-200" : "text-red-200"}`}>{aiError.message}</p>
+            <div role={aiError.errorCode === CANONICAL_NOT_READY_ERROR_CODE ? "status" : "alert"} className={`rounded-lg border p-4 text-center ${aiPreparationPending ? "border-sky-500/20 bg-sky-500/5" : "border-red-500/20 bg-red-500/5"}`}>
+              <p className={`text-sm ${aiPreparationPending ? "text-sky-200" : "text-red-200"}`}>{aiError.message}</p>
               {aiError.errorCode === CALCULATION_UPGRADE_ERROR_CODE ? (
                 <p className="mt-2 text-xs text-sky-100/70">{CALCULATION_UPGRADE_DETAIL}</p>
+              ) : aiError.errorCode === CANONICAL_NOT_READY_ERROR_CODE ? (
+                <p className="mt-2 text-xs leading-relaxed break-keep text-sky-100/70">{aiError.detail || CANONICAL_NOT_READY_DETAIL}</p>
               ) : aiError.retryable ? <button
                 type="button"
                 onClick={requestAiCoaching}

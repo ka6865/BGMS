@@ -30,7 +30,7 @@ export default async function BoardPage({
   let query = supabase
     .from("posts")
     .select(
-      "id, title, author, user_id, category, image_url, discord_url, discord_channel_id, is_notice, created_at, views, likes, status, parent_id, ip_address, comments(count), profiles(nickname, role)",
+      "id, title, author, user_id, category, image_url, discord_url, discord_channel_id, is_notice, created_at, views, likes, status, parent_id, ip_address:ip_masked, comments(id), profiles(nickname, role)",
       { count: "exact" }
     );
 
@@ -68,7 +68,8 @@ export default async function BoardPage({
       author: post.profiles?.nickname || post.author || '알 수 없음',
       profiles: post.profiles || null,
       ip_address: post.ip_address ? maskIp(post.ip_address) : null,
-      comment_count: post.comments && post.comments[0] ? post.comments[0].count : 0,
+      // 공개 키는 comments 표 단위 SELECT가 없어 count 집계 대신 id 목록 길이로 센다.
+      comment_count: Array.isArray(post.comments) ? post.comments.length : 0,
     }));
   } else if (error) {
     console.error("Board RSC Fetch Error:", error);

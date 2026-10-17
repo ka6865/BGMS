@@ -20,9 +20,15 @@ describe('recent summary observed inference regressions', () => {
     '개인 전투 상황에서 상대를 제압하는 탁월한 집중력을 보여줍니다.',
     '뛰어난 1:1 교전 능력을 증명하며 전투에서 큰 주도권을 쥐고 있습니다.',
     '높은 화력 지표를 기록한 만큼 교전에서 더 주도적인 각을 만들어내야 합니다.',
+    '평균 화력은 비교 평균보다 높습니다. 꾸준히 높은 피해량을 기록하며 팀의 화력 지원에 충실하고 있습니다.',
+    '평균 화력은 비교 평균보다 높습니다. 꾸준한 화력 지원으로 팀의 교전 효율을 높이는 모습이 인상적입니다.',
+    '평균 화력은 비교 평균보다 높습니다. 뛰어난 딜링 능력을 꾸준히 발휘하고 있습니다.',
+    '꾸준한 딜링 기록이 확인되므로 현재의 교전 참여 방식을 안정적으로 유지하세요.',
+    '교전 상황에서 팀을 위해 꾸준히 피해량을 누적하고 있는 점은 긍정적입니다.',
   ])('withholds an unsupported inference: %s', (text) => {
     expect(hasUnsupportedSummaryInference(text)).toBe(true);
-    expect(sanitizeSummaryInferenceText(text)).toBe(COACHING_JUDGMENT_WITHHELD);
+    const fact = '평균 화력은 비교 평균보다 높습니다.';
+    expect(sanitizeSummaryInferenceText(text)).toBe(text.startsWith(fact) ? fact : COACHING_JUDGMENT_WITHHELD);
   });
   it.each([
     '백업 속도는 비교 평균보다 빠릅니다.',
@@ -38,7 +44,15 @@ describe('recent summary observed inference regressions', () => {
     '다음 경기에서 구출 연막 활용 빈도를 확인해 보세요.',
     '아군 기절 대비 연막 구출률은 비교 평균보다 낮습니다.',
     '집중력을 유지하려면 경기 사이에 휴식을 취해 보세요.',
+    '평균 화력은 비교 평균보다 높습니다. 뛰어난 딜링 성과를 다음 경기에서도 꾸준히 이어가십시오.',
+    '관측된 고립 지수와 대열 유지 상태를 다음 경기에서도 꾸준히 유지하는지 확인하십시오.',
+    '평균 화력만으로 경기별 피해량의 일관성은 알 수 없습니다.',
+    '꾸준한 딜링 기록이 확인된다고 단정할 수 없습니다.',
+    '뛰어난 딜링 능력을 꾸준히 발휘한다고 판단할 수 없습니다.',
+    '꾸준히 높은 피해량을 기록한다고 단정할 수 없습니다.',
+    '교전 상황에서 팀을 위해 꾸준히 피해량을 누적한다고 평가할 수 없습니다.',
   ])('keeps facts, limitations and conditional advice: %s', (text) => {
+    expect(hasUnsupportedSummaryInference(text)).toBe(false);
     expect(sanitizeSummaryInferenceText(text)).toBe(text);
   });
   it('preserves the factual sentence when removing inferred mental ability', () => {

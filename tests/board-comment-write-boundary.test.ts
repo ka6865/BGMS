@@ -270,6 +270,7 @@ describe("댓글 Turnstile 저장 경계", () => {
     expect(mocks.verifyTurnstile).not.toHaveBeenCalled();
     expect(mocks.hash).not.toHaveBeenCalled();
     expect(admin.insertComment).not.toHaveBeenCalled();
+    expect(admin.rpc).not.toHaveBeenCalled();
   });
 
   it("guest comment는 token 없이 quota·Siteverify·bcrypt·insert를 호출하지 않는다", async () => {
@@ -283,6 +284,7 @@ describe("댓글 Turnstile 저장 경계", () => {
     expect(mocks.verifyTurnstile).not.toHaveBeenCalled();
     expect(mocks.hash).not.toHaveBeenCalled();
     expect(admin.insertComment).not.toHaveBeenCalled();
+    expect(admin.rpc).not.toHaveBeenCalled();
   });
 
   it("guest는 guest_comment Siteverify 성공 뒤 IP quota와 bcrypt를 거쳐 insert한다", async () => {
@@ -406,6 +408,7 @@ describe("댓글 Turnstile 저장 경계", () => {
     expect(mocks.verifyTurnstile).toHaveBeenCalledOnce();
     expect(mocks.hash).not.toHaveBeenCalled();
     expect(admin.insertComment).not.toHaveBeenCalled();
+    expect(admin.rpc).not.toHaveBeenCalled();
   });
 
   it("Turnstile 거부 시 외부 오류와 token을 노출하지 않고 저장을 중단한다", async () => {
@@ -425,6 +428,7 @@ describe("댓글 Turnstile 저장 경계", () => {
     expect(payload).not.toContain("raw-secret-token");
     expect(mocks.hash).not.toHaveBeenCalled();
     expect(admin.insertComment).not.toHaveBeenCalled();
+    expect(admin.rpc).not.toHaveBeenCalled();
   });
 
   it("guest 본문 비속어는 bcrypt와 insert 전에 거부한다", async () => {
@@ -439,6 +443,7 @@ describe("댓글 Turnstile 저장 경계", () => {
     expect(response.status).toBe(400);
     expect(mocks.hash).not.toHaveBeenCalled();
     expect(admin.insertComment).not.toHaveBeenCalled();
+    expect(admin.rpc).not.toHaveBeenCalled();
   });
 
   it("cross-post parent는 Siteverify·quota 후 bcrypt·insert·notification 전에 400으로 거부한다", async () => {
@@ -467,6 +472,7 @@ describe("댓글 Turnstile 저장 경계", () => {
     );
     expect(mocks.hash).not.toHaveBeenCalled();
     expect(admin.insertComment).not.toHaveBeenCalled();
+    expect(admin.rpc).not.toHaveBeenCalled();
     expect(admin.insertNotification).not.toHaveBeenCalled();
   });
 
@@ -480,6 +486,7 @@ describe("댓글 Turnstile 저장 경계", () => {
     expect(await response.json()).toEqual({ error: "부모 댓글을 찾을 수 없습니다." });
     expect(mocks.hash).not.toHaveBeenCalled();
     expect(admin.insertComment).not.toHaveBeenCalled();
+    expect(admin.rpc).not.toHaveBeenCalled();
   });
 
   it("parent 조회 오류는 원본 오류를 노출하지 않고 insert 전 503으로 fail-closed 처리한다", async () => {
@@ -496,6 +503,7 @@ describe("댓글 Turnstile 저장 경계", () => {
     expect(payload).not.toContain("raw parent lookup failure");
     expect(mocks.hash).not.toHaveBeenCalled();
     expect(admin.insertComment).not.toHaveBeenCalled();
+    expect(admin.rpc).not.toHaveBeenCalled();
   });
 
   it("회원은 user quota와 서버 profile 닉네임을 사용하고 게시글 작성자 알림을 유지한다", async () => {
@@ -603,6 +611,7 @@ describe("댓글 Turnstile 저장 경계", () => {
 
     expect(response.status).toBe(400);
     expect(admin.insertComment).not.toHaveBeenCalled();
+    expect(admin.rpc).not.toHaveBeenCalled();
   });
 
   it("회원 대댓글의 parent author HTML은 서버에서 실행하지 않고 text로 그대로 저장한다", async () => {

@@ -364,6 +364,7 @@ describe("거부 후 제안 상태 재계산", () => {
       "admin-1"
     );
 
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.proposalStatus).toBe("pending");
     expect(stub.proposalUpdates).toHaveLength(0);
   });
@@ -383,6 +384,7 @@ describe("거부 후 제안 상태 재계산", () => {
       "admin-1"
     );
 
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.proposalStatus).toBe("applied");
     expect(stub.proposalUpdates).toHaveLength(0);
   });
