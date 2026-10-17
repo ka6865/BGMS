@@ -1,4 +1,5 @@
 import { WEAPON_NAMES, IGNORE_WEAPONS } from "./constants";
+import { getBaseTier } from "./benchmarkScore";
 
 /**
  * PUBG 전술 직업군 분류기 (Role Classifier)
@@ -286,9 +287,11 @@ export function classifyRole(stats: any, bench: any, overallTier: string): RoleI
   const weapon = getSignatureWeapon(stats.weaponStatsFinal || {}, stats.weaponMatchCount || {}, mLen);
 
   // [V16.0] 칭호 생성 로직 고도화
-  const tierIndex = overallTier === 'S' ? 0 : overallTier === 'A' ? 1 : 2;
+  // 호출부는 13단계 세부 티어(S+, A- 등)를 넘기므로 칭호는 기본 등급으로 판정한다.
+  const baseTier = getBaseTier(overallTier);
+  const tierIndex = baseTier === 'S' ? 0 : baseTier === 'A' ? 1 : 2;
   const roleTitle = ROLE_TITLES[primaryRole][tierIndex];
-  const prefix = TIER_PREFIX[overallTier] || "잠재된";
+  const prefix = TIER_PREFIX[baseTier] || "잠재된";
 
   let title = "";
   const comboKey = secondaryRole ? `${primaryRole}+${secondaryRole}` : null;

@@ -326,6 +326,14 @@ describe("title", () => {
     expect(classify({ avgDuelWinRate: 50 }, "C").title).toBe("잠재된 역전의 귀재");
   });
 
+  it("maps detailed 13-step tiers to their base tier", () => {
+    for (const tier of ["S+", "S"]) expect(classify({ avgDuelWinRate: 50 }, tier).title).toBe("전설의 심판자");
+    for (const tier of ["A+", "A", "A-"]) expect(classify({ avgDuelWinRate: 50 }, tier).title).toBe("숙련된 결투의 제왕");
+    for (const tier of ["B+", "B", "B-"]) expect(classify({ avgDuelWinRate: 50 }, tier).title).toBe("성장하는 역전의 귀재");
+    for (const tier of ["C+", "C-", "D+", "D-"]) expect(classify({ avgDuelWinRate: 50 }, tier).title).toBe("잠재된 역전의 귀재");
+    expect(classify({ avgDuelWinRate: 50 }, "S+").overallTier).toBe("S+");
+  });
+
   it("uses a combo title for a known primary and secondary pair", () => {
     // 통제자 35 > 처형자 35 * 0.65 이상
     const result = classify({ totalEdgePlay: 5, avgDuelWinRate: 40 }, "A");
