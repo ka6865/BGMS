@@ -1262,9 +1262,30 @@ describe("RecentAISummary callback bridge", () => {
     stream.push({ type: "cards", data: buildV2Cards() });
     await flushStream();
     expect(screen.getByText(/화력 근거를 확인했습니다/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "다시 시도하기" })).toBeDisabled();
+    // 재시도 중에는 이전 시도의 부분 완료 안내와 결론을 남기지 않는다.
+    expect(screen.queryByText(/일부 해석을 보류했습니다/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/확인된 항목만 평가했습니다/)).not.toBeInTheDocument();
     stream.close();
     await flushStream();
+  });
+
+  it("부분 성공 뒤 재시도가 검증에 실패하면 이전 결론을 남기지 않는다", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn().mockResolvedValueOnce(partialResponse(0)).mockResolvedValueOnce(ndjsonResponse([
+      { type: "cards", data: buildV2Cards() },
+      { type: "done", valid: false, errorCode: "PUBG_AI_VALIDATION_FAILED", retryable: true, retryAfterSeconds: 30 },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, baseProps));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await flushStream();
+    expect(screen.getByText(/확인된 항목만 평가했습니다/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "다시 시도하기" }));
+    await flushStream();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText(/확인된 항목만 평가했습니다/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/일부 해석을 보류했습니다/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "30초 후 다시 시도하기" })).toBeDisabled();
   });
 
   it.each(["evidence", "context"])("재시도 카드의 %s가 바뀌면 이전 해석을 재사용하지 않는다", async (changedField) => {

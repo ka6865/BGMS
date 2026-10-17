@@ -6569,8 +6569,14 @@ describe("AI cache route stabilization", () => {
           expect(opinion).toContain('100');
           expect(opinion).toContain('교전 마무리에 집중하세요.');
         }
+        if (partialSuccess) {
+          // 부분 완료는 같은 키의 완성본을 덮어쓰지 않도록 캐시에 저장하지 않는다.
+          expect(summaryCache.upsert).not.toHaveBeenCalled();
+          return;
+        }
         const payload = summaryCache.upsert.mock.calls[0][0];
         expect(JSON.parse(payload.ai_result.providerFinal)).toEqual(providerFinal);
+        expect(payload.ai_result.partialExpiresAt).toBeUndefined();
         // Forged cached server facts must be ignored; reconstruct from current evidence.
         configureSummaryCacheHitForHash(summaryCache, payload.match_ids_hash, { ...payload.ai_result, final: JSON.stringify({ ...final, cards: [] }) });
         mockGenerateContentStream.mockClear();
@@ -6580,21 +6586,7 @@ describe("AI cache route stabilization", () => {
         expect(cacheFinal.cards).toEqual(final.cards);
         expect(mockGenerateContentStream).not.toHaveBeenCalled();
         expect(summaryCache.upsert).toHaveBeenCalledTimes(1);
-        if (partialSuccess) {
-          expect(payload.ai_result.partialExpiresAt).toBeGreaterThan(Date.now());
-          expect(cacheRecords.find(record => record.type === 'done')).toMatchObject({ valid: true, partial: true });
-          for (const partialExpiresAt of [undefined, Date.now() - 1, Date.now() + 600_000]) {
-            configureSummaryCacheHitForHash(summaryCache, payload.match_ids_hash, { ...payload.ai_result, partialExpiresAt });
-            mockGenerateContentStream.mockClear();
-            const expired = await aiSummaryPOST(createRequest({ ...requestBody, force: false }));
-            await expired.text();
-            expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
-          }
-          configureSummaryCacheHitForHash(summaryCache, payload.match_ids_hash, payload.ai_result);
-          mockGenerateContentStream.mockClear();
-          await (await aiSummaryPOST(createRequest(requestBody))).text();
-          expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
-        }
+        expect(cacheRecords.find(record => record.type === 'done')).toEqual({ type: 'done', valid: true });
       } else {
         expect(summaryCache.upsert).not.toHaveBeenCalled();
         expect(records.find(record => record.type === 'error')).toMatchObject({ errorCode: 'PUBG_AI_VALIDATION_FAILED', retryable: true, retryAfterSeconds: 30 });

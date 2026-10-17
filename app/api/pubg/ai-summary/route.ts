@@ -57,7 +57,8 @@ const AI_SUMMARY_FALLBACK_TOTAL_TIMEOUT_MS = 24000;
 const AI_SUMMARY_FALLBACK_FETCH_TIMEOUT_MS = 8000;
 const AI_SUMMARY_FALLBACK_CONCURRENCY = 2;
 const AI_SUMMARY_PROVIDER_ERROR_MESSAGE = "AI summary provider is temporarily unavailable.";
-const AI_SUMMARY_PARTIAL_TTL_MS = 5 * 60 * 1000;
+// 부분 완료는 캐시에 저장하지 않고, 같은 선택으로 다시 생성하기 전 대기 시간만 안내한다.
+const AI_SUMMARY_PARTIAL_RETRY_AFTER_SECONDS = 5 * 60;
 const AI_SUMMARY_RETRY_AFTER_SECONDS = 30;
 const AI_SUMMARY_RATE_LIMIT_RETRY_AFTER_SECONDS = 60;
 
@@ -66,7 +67,7 @@ const AI_SUMMARY_RATE_LIMIT_RETRY_AFTER_SECONDS = 60;
 function isProviderRateLimited(error: unknown): boolean {
   if (APICallError.isInstance(error)) return error.statusCode === 429;
   const record = error as { status?: unknown; message?: unknown } | null;
-  return record?.status === 429 || /\b429\b|RESOURCE_EXHAUSTED/.test(String(record?.message ?? ""));
+  return record?.status === 429 || /RESOURCE_EXHAUSTED/.test(String(record?.message ?? ""));
 }
 
 type ComposedAbortSignal = {
@@ -2117,8 +2118,14 @@ export async function POST(request: Request) {
       })))}\n### [END_SERVER_CARD_PLAN_V2]\n`;
     }
     const unavailableCards = () => serverCards.map((card) => ({ ...card, analysisStatus: "unavailable" as const, analysisReason: "AI 해석을 표시할 수 없습니다.", winner: null }));
-    const factsOnlyResponse = (errorCode = "PUBG_AI_PROVIDER_ERROR", error = AI_SUMMARY_PROVIDER_ERROR_MESSAGE, retryAfterSeconds = AI_SUMMARY_RETRY_AFTER_SECONDS) => {
-      trackAiFailure(authenticatedUserId, "summary", error, { errorCode, durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
+    // tracked는 사용자 응답과 다른 내부 사유를 실패 기록에 남길 때 쓴다.
+    const factsOnlyResponse = (
+      errorCode = "PUBG_AI_PROVIDER_ERROR",
+      error = AI_SUMMARY_PROVIDER_ERROR_MESSAGE,
+      retryAfterSeconds = AI_SUMMARY_RETRY_AFTER_SECONDS,
+      tracked: { error?: string; errorCode?: string } = {},
+    ) => {
+      trackAiFailure(authenticatedUserId, "summary", tracked.error ?? error, { errorCode: tracked.errorCode ?? errorCode, durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
       const records = [
         { type: "visuals", data: precomputedVisuals },
         { type: "cards", data: unavailableCards() },
@@ -2403,12 +2410,8 @@ export async function POST(request: Request) {
             ? cachedData.final
             : JSON.stringify(cachedData.final ?? "");
           const cachedIdResult = useIdCards ? normalizeIdFinal(cachedData.providerFinal) : null;
-          const partialRemainingMs = typeof cachedData.partialExpiresAt === "number"
-            ? cachedData.partialExpiresAt - Date.now() : 0;
-          const partialCacheHit = cachedIdResult?.usable && !cachedIdResult.cacheable
-            && partialRemainingMs > 0 && partialRemainingMs <= AI_SUMMARY_PARTIAL_TTL_MS;
           const canonicalCachedFinal = useIdCards
-            ? cachedIdResult?.cacheable || partialCacheHit ? JSON.stringify(cachedIdResult!.final) : null
+            ? cachedIdResult?.cacheable ? JSON.stringify(cachedIdResult.final) : null
             : typeof cachedFinalCandidate === "string" ? canonicalizeFinalJson(cachedFinalCandidate) : null;
           if (canonicalCachedFinal) {
             trackAiUsage(authenticatedUserId, "gemini-cache", 0, 0, "summary", {
@@ -2425,9 +2428,7 @@ export async function POST(request: Request) {
                 controller.enqueue(encoder.encode(JSON.stringify({ type: "visuals", data: precomputedVisuals }) + "\n"));
                 if (useIdCards) controller.enqueue(encoder.encode(JSON.stringify({ type: "cards", data: serverCards }) + "\n"));
                 controller.enqueue(encoder.encode(JSON.stringify({ type: "final", data: canonicalCachedFinal }) + "\n"));
-                controller.enqueue(encoder.encode(JSON.stringify({ type: "done", valid: true,
-                  ...(partialCacheHit ? { partial: true, retryAfterSeconds: Math.ceil(partialRemainingMs / 1000) } : {}),
-                }) + "\n"));
+                controller.enqueue(encoder.encode(JSON.stringify({ type: "done", valid: true }) + "\n"));
                 controller.close();
               }
             });
@@ -2446,8 +2447,9 @@ export async function POST(request: Request) {
     if (isRouteAborted()) return abortResponse();
     const geminiApiKey = process.env.GOOGLE_GEMINI_API_KEY;
     if (!geminiApiKey) {
+      if (useIdCards) return factsOnlyResponse(undefined, undefined, undefined, { error: "No API Key", errorCode: "configuration" });
       trackAiFailure(authenticatedUserId, "summary", "No API Key", { errorCode: "configuration", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
-      return useIdCards ? factsOnlyResponse() : NextResponse.json({ error: "No API Key" }, { status: 500 });
+      return NextResponse.json({ error: "No API Key" }, { status: 500 });
     }
 
     // 기본 provider는 GOOGLE_GENERATIVE_AI_API_KEY를 읽으므로 이 route의 키를 명시적으로 넘긴다.
@@ -2724,7 +2726,8 @@ export async function POST(request: Request) {
             // 3. Write to DB Cache
             if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
             const persistenceSignal = streamResult ? generationSignal.signal : routeSignal.signal;
-            try {
+            // 부분 완료는 같은 키의 완성본 캐시를 덮어쓰지 않도록 저장하지 않는다.
+            if (!partial) try {
               const savePromise = supabase
                 .from("player_ai_summary_cache")
                 .upsert({
@@ -2736,7 +2739,6 @@ export async function POST(request: Request) {
                       visuals: precomputedVisuals,
                       final: validJsonString,
                       ...(useIdCards ? { schemaVersion: 2, providerFinal: finalResult } : {}),
-                      ...(partial ? { partialExpiresAt: Date.now() + AI_SUMMARY_PARTIAL_TTL_MS } : {}),
                     },
                     updated_at: new Date().toISOString()
                   }, { onConflict: "player_id,platform,match_ids_hash,prompt_version" })
@@ -2759,7 +2761,7 @@ export async function POST(request: Request) {
             // 3. 완료 신호
             if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
             controller.enqueue(encoder.encode(JSON.stringify({ type: "done", valid: true,
-              ...(partial ? { partial: true, retryAfterSeconds: AI_SUMMARY_PARTIAL_TTL_MS / 1000 } : {}),
+              ...(partial ? { partial: true, retryAfterSeconds: AI_SUMMARY_PARTIAL_RETRY_AFTER_SECONDS } : {}),
             }) + "\n"));
           } else {
             validationFailed = useIdCards && Boolean(streamResult);

@@ -664,7 +664,9 @@ export const RecentAISummary = ({
       // A v2 retry may still have server-assembled facts available. Keep the
       // facts visible until the replacement cards arrive (or the request is
       // reset by an identity change), while preserving the v1 reset behavior.
+      // 이전 시도의 결론·행동 제안은 새 결과가 실패하면 카드와 어긋나므로 기록만 남긴다.
       if (summaryContractVersionRef.current !== 2) setDebateData(null);
+      else setDebateData((previous) => previous ? { visuals: previous.visuals } : previous);
       textBufferRef.current = "";
       lineBufferRef.current = "";
     }
