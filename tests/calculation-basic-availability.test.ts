@@ -90,6 +90,28 @@ describe('calculation rollout preserves official basic records', () => {
     expect(data.comparisons.find((metric: any) => metric.key === 'kills')).toMatchObject({v1: 3, v2: 1, comparable: true});
   });
 
+  it('솔로 경기를 섞지 않고 각자 경기가 많은 범위로 티어를 낸다', async () => {
+    const scored = (player: string, mode: string, score: number) => ({ ...row(player, ANALYSIS_CALCULATION_VERSION), game_mode: mode, score, tier: null });
+    rows.push(
+      ...[50, 50, 50].map(score => scored('one', 'squad', score)), scored('one', 'solo', 95), scored('one', 'solo', 95),
+      ...[50, 50, 50, 50, 50].map(score => scored('two', 'squad-fpp', score)),
+    );
+    const { GET } = await import('@/app/api/pubg/battle/route');
+    const data = await (await GET(new Request('http://localhost/api/pubg/battle?nick1=one&nick2=two&platform1=steam&platform2=steam'))).json();
+    expect(data).toMatchObject({ tier1: 'B', tier2: 'B', tierScope1: 'team', tierScope2: 'team', tierMatchCount1: 3, tierMatchCount2: 5, tierScopeMismatch: false });
+  });
+
+  it('한 명은 솔로, 한 명은 팀 위주면 티어 비교를 보류한다', async () => {
+    const scored = (player: string, mode: string, score: number) => ({ ...row(player, ANALYSIS_CALCULATION_VERSION), game_mode: mode, score, tier: null });
+    rows.push(
+      ...[90, 90, 90].map(score => scored('one', 'solo-fpp', score)), scored('one', 'squad', 40),
+      ...[40, 40, 40, 40].map(score => scored('two', 'squad', score)),
+    );
+    const { GET } = await import('@/app/api/pubg/battle/route');
+    const data = await (await GET(new Request('http://localhost/api/pubg/battle?nick1=one&nick2=two&platform1=steam&platform2=steam'))).json();
+    expect(data).toMatchObject({ tier1: null, tier2: null, tierScope1: 'solo', tierScope2: 'team', tierScopeMismatch: true });
+  });
+
   it('keeps observed current tactical zero available for comparison', async () => {
     rows.push(row('one', ANALYSIS_CALCULATION_VERSION), row('two', ANALYSIS_CALCULATION_VERSION));
     const { GET } = await import('@/app/api/pubg/battle/route');

@@ -255,6 +255,20 @@ describe("RecentAISummary callback bridge", () => {
     expect(normalizeRouteOwnedVisuals({ calculationPendingCount: 2.8 })).toMatchObject({
       calculationPendingCount: 2,
     });
+    expect(normalizeRouteOwnedVisuals({ tierScope: "solo", tierMatchCount: 2 })).toMatchObject({ tierScope: "solo", tierMatchCount: 2 });
+    expect(normalizeRouteOwnedVisuals({ tierScope: "duo" })?.tierScope).toBeUndefined();
+  });
+
+  it("잠재 티어는 평균에 쓴 경기 수와 솔로 기준 여부를 표시한다", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { latestMatchCount: 3, bestMatchCount: 3, tierMatchCount: 2, tierScope: "solo", overallTier: "A" } },
+      { type: "final", data: JSON.stringify(aiReady) },
+      { type: "done", valid: true },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, baseProps));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    expect(await screen.findByText("점수 상위 2판 · 솔로 기준 잠재 티어")).toBeInTheDocument();
   });
 
   it("bluezone unavailable marker survives normalization and display without turning into 0 HP", async () => {

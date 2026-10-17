@@ -26,3 +26,24 @@ export function estimateAverageTierFromRows(rows: any[]): string {
 
   return estimateUserTier(avgFallbackScore);
 }
+
+export type TierScope = "solo" | "team";
+
+// 점수 산식은 gameMode에 solo가 들어가면 솔로 배점을 쓴다(AnalysisEngine). 티어 범위도 같은 기준으로 나눈다.
+export function tierScopeOfMode(mode: unknown): TierScope {
+  return String(mode ?? "").toLowerCase().includes("solo") ? "solo" : "team";
+}
+
+// 솔로와 팀은 배점이 달라 평균을 섞지 않는다. 경기 수가 더 많은 범위를 쓰고, 같으면 팀을 쓴다.
+export function dominantTierScope(modes: readonly unknown[]): TierScope | null {
+  if (modes.length === 0) return null;
+  const soloCount = modes.filter((mode) => tierScopeOfMode(mode) === "solo").length;
+  return soloCount > modes.length - soloCount ? "solo" : "team";
+}
+
+export function estimateScopedTierFromRows(rows: any[]): { tier: string | null; scope: TierScope | null; matchCount: number } {
+  const scope = dominantTierScope(rows.map((row) => row?.game_mode));
+  if (!scope) return { tier: null, scope: null, matchCount: 0 };
+  const scopedRows = rows.filter((row) => tierScopeOfMode(row?.game_mode) === scope);
+  return { tier: estimateAverageTierFromRows(scopedRows), scope, matchCount: scopedRows.length };
+}

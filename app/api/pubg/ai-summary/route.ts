@@ -3,6 +3,7 @@ import { APICallError, streamText, Output } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { AI_SUMMARY_CACHE_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
 import { estimateUserTier } from "@/lib/pubg-analysis/benchmarkScore";
+import { dominantTierScope, tierScopeOfMode, type TierScope } from "@/lib/pubg-analysis/tierAveraging";
 import { classifyRole } from "@/lib/pubg-analysis/roleClassifier";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import {
@@ -1851,6 +1852,8 @@ export async function POST(request: Request) {
     let mainBench: ObservedBenchmark | null = null;
     let mainBenchContext: { gameMode: string; matchType: string; tier: string } | null = null;
     let finalTierBreakdown: any = null; // overall best-match breakdown for the tier card
+    let mainTierScope: TierScope | null = null;
+    let mainTierMatchCount = 0;
     const overallGroupScores: any[] = [];
 
     for (const [mode, gMatches] of Object.entries(groups)) {
@@ -1873,7 +1876,7 @@ export async function POST(request: Request) {
       });
 
       const groupScores = combinedScores;
-      overallGroupScores.push(...groupScores);
+      overallGroupScores.push(...groupScores.map((groupScore: any) => ({ ...groupScore, tierScope: tierScopeOfMode(mode) })));
 
       const validScores = groupScores.map((s) => normalizeBenchmarkScore(s.score));
 
@@ -1959,14 +1962,17 @@ export async function POST(request: Request) {
     }
 
     // The UI labels this card as the potential tier of the top five matches.
-    // Average all effective best-five benchmark scores/breakdowns here so a
-    // minority mode cannot disappear from that single potential number. The
-    // dominant mode still supplies `mainBench` for benchmark/role context.
-    if (overallGroupScores.length > 0) {
-      const validOverallCombat = overallGroupScores.map((s) => normalizeBenchmarkScore(s.combat));
-      const validOverallTactical = overallGroupScores.map((s) => normalizeBenchmarkScore(s.tactical));
-      const validOverallSurvival = overallGroupScores.map((s) => normalizeBenchmarkScore(s.survival));
-      const validOverallScores = overallGroupScores.map((s) => normalizeBenchmarkScore(s.score));
+    // Average the best-five benchmark scores/breakdowns across modes that share
+    // a scoring formula. 솔로와 팀은 배점이 달라 경기가 많은 범위만 평균한다.
+    // The dominant mode still supplies `mainBench` for benchmark/role context.
+    mainTierScope = dominantTierScope(overallGroupScores.map((s) => s.tierScope));
+    const scopedGroupScores = overallGroupScores.filter((s) => s.tierScope === mainTierScope);
+    mainTierMatchCount = scopedGroupScores.length;
+    if (scopedGroupScores.length > 0) {
+      const validOverallCombat = scopedGroupScores.map((s) => normalizeBenchmarkScore(s.combat));
+      const validOverallTactical = scopedGroupScores.map((s) => normalizeBenchmarkScore(s.tactical));
+      const validOverallSurvival = scopedGroupScores.map((s) => normalizeBenchmarkScore(s.survival));
+      const validOverallScores = scopedGroupScores.map((s) => normalizeBenchmarkScore(s.score));
       const overallAvgScore = validOverallScores.length > 0
         ? validOverallScores.reduce((a, b) => a + b, 0) / validOverallScores.length
         : 0;
@@ -2220,7 +2226,7 @@ export async function POST(request: Request) {
       calculationPendingCount: calculationPendingIds.size,
       latestMatchTime, latestMatchCount: selectedMatches.length, bestMatchCount: bestMatches.length,
       counterLatency: avgBackupLatency, reactionLatency: avgReactionLatency,
-      reactionTier: reactionTier(avgReactionLatency), backupTier: backupContextForVisuals.tier, overallTier: mainUserTier, roleInfo,
+      reactionTier: reactionTier(avgReactionLatency), backupTier: backupContextForVisuals.tier, overallTier: mainUserTier, tierScope: mainTierScope, tierMatchCount: mainTierMatchCount, roleInfo,
       ...(mainBench && mainBenchContext ? {
         benchmarkScope: {
           gameMode: mainBenchContext.gameMode,

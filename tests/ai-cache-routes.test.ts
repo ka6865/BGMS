@@ -3195,6 +3195,48 @@ describe("AI cache route stabilization", () => {
     expect(summaryCache.upsert).toHaveBeenCalledTimes(1);
   });
 
+  it("ai-summary 잠재 티어는 배점이 다른 솔로 경기를 팀 경기와 섞지 않는다", async () => {
+    mockSummaryGeminiResponse(() => undefined);
+    const specs = [
+      { id: "squad-1", mode: "SQUAD", score: 30 },
+      { id: "squad-2", mode: "SQUAD", score: 30 },
+      { id: "squad-3", mode: "SQUAD-FPP", score: 30 },
+      { id: "solo-1", mode: "SOLO", score: 95 },
+      { id: "solo-2", mode: "SOLO-FPP", score: 95 },
+    ];
+    const telemetry = createQueryChain({
+      data: specs.map((spec, index) => ({
+        match_id: spec.id,
+        player_id: "player_a",
+        platform: "kakao",
+        data: {
+          fullResult: createSummaryMatch(spec.id, {
+            gameMode: spec.mode,
+            createdAt: recentMatchDate(index + 1),
+            benchmark: { score: spec.score, breakdown: { combat: spec.score, tactical: spec.score, survival: spec.score } },
+          }),
+        },
+      })),
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: createQueryChain(),
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({ matchIds: specs.map((spec) => spec.id), nickname: "Player_A", platform: "kakao", force: true }));
+    const visuals = parseSummaryNdjson(await response.text()).find((record) => record.type === "visuals")?.data;
+
+    // 팀 3판(30점)만 평균한다. 솔로 95점 2판을 섞으면 56점(B+)으로 부풀려진다.
+    expect(visuals.tierBreakdown).toEqual({ combat: 30, tactical: 30, survival: 30, total: 30 });
+    expect(visuals.overallTier).toBe("C+");
+    expect(visuals).toMatchObject({ tierScope: "team", tierMatchCount: 3, bestMatchCount: 5 });
+    expect(visuals.roleInfo.overallTier).toBe("C+");
+  });
+
   it("ai-summary mixed-mode 분석은 모드별 상위 표본과 전체 best5 잠재 티어를 분리한다", async () => {
     let capturedPrompt = "";
     mockSummaryGeminiResponse((prompt) => {
@@ -3275,6 +3317,7 @@ describe("AI cache route stabilization", () => {
     // averaged over the same five benchmark payloads.
     expect(visuals.tierBreakdown).toEqual({ combat: 52, tactical: 52, survival: 52, total: 52 });
     expect(visuals.overallTier).toBe("B+");
+    expect(visuals).toMatchObject({ tierScope: "team", tierMatchCount: 5 });
     expect(visuals.roleInfo.overallTier).toBe(visuals.overallTier);
     expect(visuals.roleInfo.signatureWeapon).toBe("M416");
     expect(visuals.roleInfo.signatureWeaponStats.kills).toBe(2);
