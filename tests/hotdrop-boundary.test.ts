@@ -22,7 +22,11 @@ function collectTypeScriptFiles(directory: string): string[] {
 
 it("공개 hotdrop route와 Vercel Cron을 제공하지 않는다", () => {
   expect(existsSync(resolve("app/api/cron/hotdrop/route.ts"))).toBe(false);
-  expect(existsSync(resolve("vercel.json"))).toBe(false);
+  const configPath = resolve("vercel.json");
+  if (existsSync(configPath)) {
+    const config = JSON.parse(readFileSync(configPath, "utf8"));
+    expect(config.crons ?? []).toEqual([]);
+  }
 });
 
 it("GitHub Actions만 hotdrop script를 한 번 실행한다", () => {
