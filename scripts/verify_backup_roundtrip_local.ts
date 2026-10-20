@@ -11,9 +11,9 @@ const FIXTURE_PATH = resolve("tests/fixtures/backup/core-tables-roundtrip.json.g
 const CUTOFF = "20260801000000";
 const profileId = "1d29eea7-3a0b-4d47-bbc4-145f38f2ed93";
 const passwordHash = "$2b$12$roundtripFixtureHashThatMustRemainPrivateAndExact";
-// 로컬 fixture의 7개 테이블만 FK 순서대로 복원한다. 나머지 백업 대상은 비어 있어야 한다.
+// 로컬 fixture의 6개 테이블만 FK 순서대로 복원한다. 나머지 백업 대상은 비어 있어야 한다.
 const LOCAL_RESTORE_ORDER: readonly string[] = [
-  "profiles", "posts", "comments", "pubg_player_matches", "pubg_match_performance",
+  "profiles", "posts", "comments", "pubg_match_performance",
   "board_post_delete_credentials", "board_comment_delete_credentials",
 ];
 
@@ -29,11 +29,6 @@ const fixtureRows: Record<string, Record<string, unknown>[]> = {
   comments: [{ id: 918002, post_id: 918001, user_id: profileId, author: "fixture", content: "kept", password_hash: null }],
   board_post_delete_credentials: [{ post_id: 918001, password_hash: passwordHash }],
   board_comment_delete_credentials: [{ comment_id: 918002, password_hash: passwordHash }],
-  pubg_player_matches: [{
-    player_id: "account.roundtrip", platform: "steam", match_id: "match-roundtrip",
-    played_at: "2026-10-09T12:00:00.000Z", game_mode: "squad", map_name: "Baltic",
-    kills: 4, damage: 523, win_place: 3, created_at: "2026-10-09T12:05:00.000Z",
-  }],
   pubg_match_performance: [{
     platform: "steam", account_id: "account.roundtrip", match_id: "match-roundtrip",
     player_id: "account.roundtrip", calculation_version: 73, result_version: 2,

@@ -105,7 +105,7 @@ function bluezoneRateLimitLog(): string {
   ].join("\n");
 }
 
-function invokeNotification(options: { lookupFails?: boolean; log?: string } = {}) {
+function invokeNotification(options: { lookupFails?: boolean; log?: string; longStepName?: string } = {}) {
   const run = notifyStep?.run ?? "";
   const root = mkdtempSync(join(tmpdir(), "bgms-failure-notify-"));
   const bin = writeFakeCommands(root);
@@ -115,12 +115,12 @@ function invokeNotification(options: { lookupFails?: boolean; log?: string } = {
     id: 111,
     name: "maintenance",
     conclusion: "failure",
-    steps: [{
-      name: "Extract Bluezone Statistics",
+    steps: Array.from({ length: options.longStepName ? 8 : 1 }, (_, index) => ({
+      name: options.longStepName ? `${options.longStepName}${index}` : "Extract Bluezone Statistics",
       conclusion: "failure",
       started_at: runStartedAt,
       completed_at: runCompletedAt,
-    }],
+    })),
   }];
 
   writeFileSync(logPath, options.log ?? failedStepLog());
@@ -290,6 +290,19 @@ describe("일일 유지보수 실패 알림이 실패 단계 런타임만 분류
       expect(payload.content).toContain("원인 미확인");
       expect(payload.content).toContain("데이터 유지보수: ❌ 실패");
       expect(payload.content).not.toContain("private-account");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("가변 구간이 길어도 Discord content 한도(2000자) 안에서 발송한다", () => {
+    const { result, payloadPath, root } = invokeNotification({ longStepName: "X".repeat(200) });
+
+    try {
+      expect(result.status).toBe(0);
+      const payload = JSON.parse(readFileSync(payloadPath, "utf8")) as { content: string };
+      expect(payload.content.length).toBeLessThanOrEqual(2000);
+      expect(payload.content).toContain("BGMS 새벽 자동 작업 실패 알림");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

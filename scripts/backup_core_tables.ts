@@ -11,8 +11,8 @@
  *   comments        4건
  *   pending_markers 2건
  *
- * 분석 캐시(match_stats_raw, processed_match_telemetry 등)는 용량 때문에
- * 대상에서 제외합니다. PUBG의 14일 보존 범위를 넘긴 원본은 다시 받을 수
+ * 분석 캐시(match_stats_raw, processed_match_telemetry 등)와 참가자 전적
+ * (pubg_player_matches)은 용량 때문에 대상에서 제외합니다. PUBG의 14일 보존 범위를 넘긴 원본은 다시 받을 수
  * 없으므로 캐시를 모두 재생성할 수 있다고 가정하지 않습니다. global_benchmarks 는 복구 기준
  * 데이터이므로 별도로 보호합니다.
  *
@@ -47,8 +47,9 @@ export const BACKUP_TABLES = [
   "map_settings",
   "reports",
   "global_benchmarks",
-  // 14일 만료 후 원본에서 복구할 수 없는 기본 전적과 작은 성과 요약.
-  "pubg_player_matches",
+  // 14일 만료 후 원본에서 복구할 수 없는 작은 성과 요약.
+  // pubg_player_matches(150만 행 이상)는 읽는 데 17분 넘게 걸려 statement timeout 으로
+  // 백업 전체가 부분 실패하고 같은 날 정리 작업이 멈췄다. 유료 플랜의 Supabase 일일 백업(7일)이 보호한다.
   "pubg_match_performance",
   // Past-patch samples can outlive recoverable source telemetry. Preserve them.
   "weapon_meta_match_samples",
@@ -61,11 +62,13 @@ export const BACKUP_TABLES = [
 export const PAGE_SIZE = 1_000;
 
 /**
- * 테이블별 기본키. 정렬과 다음 페이지 조건을 기본키 순서와 같게 맞춰야
+ * 테이블별 기본키. 백업 대상이 아닌 대형 테이블(pubg_player_matches)의 읽기 구성도 남겨 둔다.
+ * 다시 대상에 넣을 때 필요하고, 구간 분할·키셋 읽기 테스트의 대형 테이블 기준으로 쓴다.
+ * 정렬과 다음 페이지 조건을 기본키 순서와 같게 맞춰야
  * 기본키 인덱스를 따라 읽는다. 다른 순서로 정렬하면 페이지마다 테이블 전체를
  * 정렬해 큰 테이블에서 statement timeout 이 난다.
  */
-export const TABLE_KEYS: Record<(typeof BACKUP_TABLES)[number], readonly string[]> = {
+export const TABLE_KEYS: Record<string, readonly string[]> = {
   profiles: ["id"],
   map_markers: ["id"],
   pending_markers: ["id"],
@@ -96,13 +99,13 @@ export const REQUEST_TIMEOUT_MS = 30_000;
  * 첫 키 구간으로 나눠 동시에 읽을 테이블과 동시 읽기 수.
  * GitHub 러너(미국)에서 서울 DB 를 읽을 때 페이지 전송이 병목이라 구간을 나눠 함께 읽는다.
  */
-export const PARALLEL_READ_TABLES: Partial<Record<(typeof BACKUP_TABLES)[number], number>> = {
+export const PARALLEL_READ_TABLES: Record<string, number> = {
   pubg_player_matches: 4,
 };
 
 /** 동시 읽기 수. 운영 측정용으로 BACKUP_PARALLEL_READERS(1~8)로 덮어쓸 수 있다. */
 function readersFor(table: string): number {
-  const configured = PARALLEL_READ_TABLES[table as keyof typeof PARALLEL_READ_TABLES];
+  const configured = PARALLEL_READ_TABLES[table];
   if (!configured) return 1;
   const override = Number(process.env.BACKUP_PARALLEL_READERS);
   return Number.isInteger(override) && override >= 1 && override <= 8 ? override : configured;
@@ -155,13 +158,34 @@ type KeysetPage = PageResult & { done: boolean };
 /** 첫 키 기준 구간. after 초과, through 이하. 비교는 모두 DB 가 한다. */
 export type KeyRange = { after?: unknown; through?: unknown };
 
+/**
+ * 페이지 한 번의 일시적 실패(statement timeout, 요청 중단, 네트워크)를 다시 시도하는 대기 시간.
+ * 153만 행 전적은 17분 넘게 읽는데, 페이지 하나가 DB 부하로 8초 제한에 걸렸다고 전체 백업을 버리면
+ * 같은 날 모든 정리 작업이 멈춘다. 읽기는 멱등이므로 같은 페이지를 다시 읽어도 행이 겹치거나 빠지지 않는다.
+ * 테스트가 대기를 없앨 수 있도록 객체로 노출한다.
+ */
+export const readRetry = { delaysMs: [1_000, 3_000, 9_000] as number[] };
+
+/** 다시 시도할 만한 일시적 오류인지. 권한 없음, 테이블 없음 같은 영구 오류는 포함하지 않는다. */
+function isTransientReadError(message: string): boolean {
+  return message === "backup-table-read-failed" || /statement timeout|canceling statement/i.test(message);
+}
+
 async function runQuery(query: ReturnType<ReturnType<TableReader["from"]>["select"]>, limit: number): Promise<PageResult> {
-  try {
-    const result = await query.limit(limit).abortSignal(AbortSignal.timeout(REQUEST_TIMEOUT_MS));
-    if (result.error) return { data: [], error: result.error.message };
-    return { data: (result.data ?? []) as Row[], error: null };
-  } catch {
-    return { data: [], error: "backup-table-read-failed" };
+  let attempt = 0;
+  while (true) {
+    let failure: string;
+    try {
+      const result = await query.limit(limit).abortSignal(AbortSignal.timeout(REQUEST_TIMEOUT_MS));
+      if (!result.error) return { data: (result.data ?? []) as Row[], error: null };
+      failure = result.error.message;
+    } catch {
+      failure = "backup-table-read-failed";
+    }
+    const delay = readRetry.delaysMs[attempt];
+    if (delay === undefined || !isTransientReadError(failure)) return { data: [], error: failure };
+    attempt += 1;
+    await new Promise(resolve => setTimeout(resolve, delay));
   }
 }
 
@@ -428,7 +452,7 @@ export async function restoreBackupRows(
 export async function backupCoreTables(
   supabase: TableReader,
   upload: (key: string, body: string) => Promise<void>,
-  options: { dryRun?: boolean; now?: Date; write?: (message: string) => void; partRows?: number } = {},
+  options: { dryRun?: boolean; now?: Date; write?: (message: string) => void; partRows?: number; tables?: readonly string[] } = {},
 ): Promise<BackupResult> {
   const dryRun = options.dryRun === true;
   const now = options.now ?? new Date();
@@ -441,7 +465,8 @@ export async function backupCoreTables(
   const parts: Record<string, BackupPart[]> = {};
   let totalRows = 0;
 
-  for (const table of BACKUP_TABLES) {
+  // tables 는 일부 테이블만 시험할 때 쓴다. 운영 실행은 항상 BACKUP_TABLES 전체를 읽는다.
+  for (const table of options.tables ?? BACKUP_TABLES) {
     const ranges = await planReadRanges(supabase, table, readersFor(table));
     const buffers: Row[][] = ranges.map(() => []);
     const tableParts: BackupPart[] = [];

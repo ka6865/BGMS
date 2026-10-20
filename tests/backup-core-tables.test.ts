@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { resolve } from "node:path";
@@ -12,6 +12,7 @@ import {
   buildBackupKey,
   buildPartKey,
   planReadRanges,
+  readRetry,
   readTableRows,
   streamTableRows,
   restoreBackupRows,
@@ -61,13 +62,19 @@ function createSupabase(tables: TableData, errors: Record<string, string> = {}) 
 }
 
 describe("핵심 테이블 백업", () => {
+  const originalDelays = readRetry.delaysMs;
+  // 재시도 대기를 없애 실패 경로 테스트가 느려지지 않게 한다.
+  beforeEach(() => { readRetry.delaysMs = [0, 0, 0]; });
+  afterEach(() => { readRetry.delaysMs = originalDelays; });
+
   it("복구 불가능한 사용자 데이터를 대상으로 삼는다", () => {
     // 분석 캐시는 PUBG API 로 재생성할 수 있어 백업 대상이 아니다.
     // 여기에 추가되면 백업 용량이 수백 MB 로 늘어난다.
     expect(BACKUP_TABLES).toContain("map_markers");
     expect(BACKUP_TABLES).toContain("profiles");
     expect(BACKUP_TABLES).toContain("global_benchmarks");
-    expect(BACKUP_TABLES).toContain("pubg_player_matches");
+    // 150만 행 읽기가 timeout 으로 백업 전체를 막아 Supabase 일일 백업에 맡긴다.
+    expect(BACKUP_TABLES).not.toContain("pubg_player_matches");
     expect(BACKUP_TABLES).toContain("pubg_match_performance");
     expect(BACKUP_TABLES).toContain("weapon_meta_match_samples");
     expect(BACKUP_TABLES).toContain("weapon_meta_patches");
@@ -205,9 +212,52 @@ describe("핵심 테이블 백업", () => {
     expect(result.rows).toHaveLength(1000);
   });
 
+  /** 호출 순서대로 결과를 돌려주는 단일 체인. 마지막 결과는 이후 호출에도 반복한다. */
+  function sequencedChain(results: Array<{ data: Row[] | null; error: { message: string } | null }>) {
+    let calls = 0;
+    const chain = {
+      select: () => chain, order: () => chain, eq: () => chain, gt: () => chain,
+      limit: () => chain, abortSignal: () => chain,
+      then: (resolve: (value: unknown) => unknown) => Promise.resolve(results[Math.min(calls++, results.length - 1)]).then(resolve),
+    };
+    return { chain, calls: () => calls };
+  }
+
+  it("페이지 하나가 statement timeout 에 걸려도 다시 읽어 완전하게 백업한다", async () => {
+    const { chain, calls } = sequencedChain([
+      { data: Array.from({ length: 1000 }, (_, id) => ({ id })), error: null },
+      { data: null, error: { message: "canceling statement due to statement timeout" } },
+      { data: null, error: { message: "canceling statement due to statement timeout" } },
+      { data: [{ id: 1000 }], error: null },
+    ]);
+    const result = await readTableRows({ from: () => chain } as never, "profiles");
+    expect(result).toMatchObject({ skipped: false, error: null });
+    expect(result.rows).toHaveLength(1001);
+    expect(calls()).toBe(4);
+  });
+
+  it("일시적 오류가 계속되면 정해진 횟수만 다시 시도하고 부분 백업으로 보고한다", async () => {
+    const { chain, calls } = sequencedChain([
+      { data: Array.from({ length: 1000 }, (_, id) => ({ id })), error: null },
+      { data: null, error: { message: "canceling statement due to statement timeout" } },
+    ]);
+    const result = await readTableRows({ from: () => chain } as never, "profiles");
+    expect(result).toMatchObject({ skipped: false, error: "canceling statement due to statement timeout" });
+    expect(result.rows).toHaveLength(1000);
+    // 첫 페이지 1번 + 실패한 페이지 처음 시도 1번 + 재시도 3번
+    expect(calls()).toBe(5);
+  });
+
+  it("권한이나 스키마 오류 같은 영구 오류는 다시 시도하지 않는다", async () => {
+    const { chain, calls } = sequencedChain([{ data: null, error: { message: "permission denied for table profiles" } }]);
+    const result = await readTableRows({ from: () => chain } as never, "profiles");
+    expect(result).toMatchObject({ skipped: true, error: "permission denied for table profiles" });
+    expect(calls()).toBe(1);
+  });
+
   it("큰 테이블은 part 로 나눠 올리고 manifest 를 마지막에 올린다", async () => {
-    const matches = Array.from({ length: 2_500 }, (_, index) => ({ player_id: "p", platform: "steam", match_id: `m${String(index).padStart(5, "0")}` }));
-    const supabase = createSupabase({ pubg_player_matches: matches, profiles: [{ id: "a" }] });
+    const matches = Array.from({ length: 2_500 }, (_, index) => ({ id: index + 1 }));
+    const supabase = createSupabase({ weapon_meta_match_samples: matches, profiles: [{ id: "a" }] });
     const uploaded: Array<{ key: string; body: string }> = [];
     const now = new Date("2026-10-13T00:00:00.000Z");
 
@@ -216,26 +266,26 @@ describe("핵심 테이블 백업", () => {
 
     const manifestKey = buildBackupKey(now);
     expect(uploaded.map(entry => entry.key)).toEqual([
-      buildPartKey(manifestKey, "pubg_player_matches", 1),
-      buildPartKey(manifestKey, "pubg_player_matches", 2),
-      buildPartKey(manifestKey, "pubg_player_matches", 3),
+      buildPartKey(manifestKey, "weapon_meta_match_samples", 1),
+      buildPartKey(manifestKey, "weapon_meta_match_samples", 2),
+      buildPartKey(manifestKey, "weapon_meta_match_samples", 3),
       manifestKey,
     ]);
     const manifest = JSON.parse(uploaded[3].body);
     expect(manifest).toMatchObject({ formatVersion: 2, complete: true });
-    expect(manifest.data.pubg_player_matches).toBeUndefined();
+    expect(manifest.data.weapon_meta_match_samples).toBeUndefined();
     expect(manifest.data.profiles).toEqual([{ id: "a" }]);
-    expect(manifest.parts.pubg_player_matches.map((part: { rows: number }) => part.rows)).toEqual([1_000, 1_000, 500]);
+    expect(manifest.parts.weapon_meta_match_samples.map((part: { rows: number }) => part.rows)).toEqual([1_000, 1_000, 500]);
     const restored = uploaded.slice(0, 3).flatMap(entry => JSON.parse(entry.body));
     expect(restored).toEqual(matches);
-    expect(result.tables.find(table => table.table === "pubg_player_matches")).toMatchObject({ rowCount: 2_500, parts: 3 });
+    expect(result.tables.find(table => table.table === "weapon_meta_match_samples")).toMatchObject({ rowCount: 2_500, parts: 3 });
     expect(() => assertBackupComplete(result)).not.toThrow();
     for (const entry of uploaded) expect(isDeletableKey(entry.key)).toBe(false);
   });
 
   it("part 업로드가 실패하면 완전 백업으로 보고하지 않는다", async () => {
-    const matches = Array.from({ length: 2_500 }, (_, index) => ({ player_id: "p", platform: "steam", match_id: `m${String(index).padStart(5, "0")}` }));
-    const supabase = createSupabase({ pubg_player_matches: matches, profiles: [{ id: "a" }] });
+    const matches = Array.from({ length: 2_500 }, (_, index) => ({ id: index + 1 }));
+    const supabase = createSupabase({ weapon_meta_match_samples: matches, profiles: [{ id: "a" }] });
     const uploaded: string[] = [];
     let calls = 0;
 
@@ -246,10 +296,10 @@ describe("핵심 테이블 백업", () => {
     }, { write: () => undefined, partRows: 1_000 });
 
     expect(result.complete).toBe(false);
-    expect(result.tables.find(table => table.table === "pubg_player_matches")?.error).toBe("backup-part-upload-failed");
+    expect(result.tables.find(table => table.table === "weapon_meta_match_samples")?.error).toBe("backup-part-upload-failed");
     const manifest = uploaded[uploaded.length - 1];
     expect(manifest.endsWith(".json") && !manifest.includes("/part-")).toBe(true);
-    expect(() => assertBackupComplete(result)).toThrow("backup-core-tables-incomplete: pubg_player_matches");
+    expect(() => assertBackupComplete(result)).toThrow("backup-core-tables-incomplete: weapon_meta_match_samples");
   });
 
   describe("구간 동시 읽기", () => {
@@ -311,12 +361,13 @@ describe("핵심 테이블 백업", () => {
       const now = new Date("2026-10-14T00:00:00.000Z");
       const store = new Map<string, string>();
       const result = await backupCoreTables(createSupabase({ pubg_player_matches: source }),
-        async (key, body) => { store.set(key, body); }, { write: () => undefined, partRows: 1_000, now });
+        async (key, body) => { store.set(key, body); },
+        { write: () => undefined, partRows: 1_000, now, tables: ["pubg_player_matches"] });
 
       expect(result.complete).toBe(true);
       const manifestKey = buildBackupKey(now);
       const manifest = JSON.parse(store.get(manifestKey)!);
-      const restored = await restoreBackupRows(manifestKey, manifest, async key => store.get(key) ?? null);
+      const restored = await restoreBackupRows(manifestKey, manifest, async key => store.get(key) ?? null, ["pubg_player_matches"]);
       const keys = restored.pubg_player_matches.map(row => keyOf(row as Row));
       expect(keys).toHaveLength(source.length);
       expect(new Set(keys).size).toBe(source.length);
@@ -346,7 +397,8 @@ describe("핵심 테이블 백업", () => {
         return chain;
       });
 
-      const result = await backupCoreTables(supabase as never, async () => undefined, { write: () => undefined, partRows: 1_000 });
+      const result = await backupCoreTables(supabase as never, async () => undefined,
+        { write: () => undefined, partRows: 1_000, tables: ["pubg_player_matches"] });
       const matches = result.tables.find(table => table.table === "pubg_player_matches")!;
       expect(result.complete).toBe(false);
       expect(matches.error).toBe("range read failed");
@@ -367,8 +419,8 @@ describe("핵심 테이블 백업", () => {
   describe("분할 백업 복원", () => {
     const now = new Date("2026-10-13T00:00:00.000Z");
     const manifestKey = buildBackupKey(now);
-    const matches = Array.from({ length: 2_500 }, (_, index) => ({ player_id: "p", platform: "steam", match_id: `m${String(index).padStart(5, "0")}` }));
-    const source = { pubg_player_matches: matches, profiles: [{ id: "a" }], posts: [{ id: 1, title: "t" }] };
+    const matches = Array.from({ length: 2_500 }, (_, index) => ({ id: index + 1 }));
+    const source = { weapon_meta_match_samples: matches, profiles: [{ id: "a" }], posts: [{ id: 1, title: "t" }] };
 
     async function storeBackup() {
       const store = new Map<string, string>();
@@ -383,20 +435,20 @@ describe("핵심 테이블 백업", () => {
       const restored = await restoreBackupRows(manifestKey, manifest, async key => store.get(key) ?? null);
 
       expect(Object.keys(restored).sort()).toEqual([...BACKUP_TABLES].sort());
-      expect(restored.pubg_player_matches).toEqual(matches);
+      expect(restored.weapon_meta_match_samples).toEqual(matches);
       expect(restored.profiles).toEqual(source.profiles);
       expect(restored.posts).toEqual(source.posts);
       expect(restored.map_markers).toEqual([]);
 
       const lines: string[] = [];
       const counts = await verifyCoreBackup(manifestKey, async key => store.get(key) ?? null, line => lines.push(line));
-      expect(counts.pubg_player_matches).toBe(2_500);
+      expect(counts.weapon_meta_match_samples).toBe(2_500);
       expect(lines.at(-1)).toContain("복원 검증 통과");
     });
 
     it("part 파일이 없으면 실패한다", async () => {
       const store = await storeBackup();
-      const missing = buildPartKey(manifestKey, "pubg_player_matches", 2);
+      const missing = buildPartKey(manifestKey, "weapon_meta_match_samples", 2);
       store.delete(missing);
       await expect(restoreBackupRows(manifestKey, JSON.parse(store.get(manifestKey)!), async key => store.get(key) ?? null))
         .rejects.toThrow(`backup-restore-part-missing: ${missing}`);
@@ -404,7 +456,7 @@ describe("핵심 테이블 백업", () => {
 
     it("part 행 수가 manifest 와 다르면 실패한다", async () => {
       const store = await storeBackup();
-      const key = buildPartKey(manifestKey, "pubg_player_matches", 3);
+      const key = buildPartKey(manifestKey, "weapon_meta_match_samples", 3);
       store.set(key, JSON.stringify(JSON.parse(store.get(key)!).slice(1)));
       await expect(restoreBackupRows(manifestKey, JSON.parse(store.get(manifestKey)!), async k => store.get(k) ?? null))
         .rejects.toThrow(`backup-restore-part-row-mismatch: ${key}`);
@@ -421,11 +473,11 @@ describe("핵심 테이블 백업", () => {
     it("part 목록이 줄었거나 순서가 바뀌면 실패한다", async () => {
       const store = await storeBackup();
       const dropped = JSON.parse(store.get(manifestKey)!);
-      dropped.parts.pubg_player_matches.pop();
+      dropped.parts.weapon_meta_match_samples.pop();
       await expect(restoreBackupRows(manifestKey, dropped, async key => store.get(key) ?? null))
-        .rejects.toThrow("backup-restore-part-count-mismatch: pubg_player_matches");
+        .rejects.toThrow("backup-restore-part-count-mismatch: weapon_meta_match_samples");
       const swapped = JSON.parse(store.get(manifestKey)!);
-      swapped.parts.pubg_player_matches.reverse();
+      swapped.parts.weapon_meta_match_samples.reverse();
       await expect(restoreBackupRows(manifestKey, swapped, async key => store.get(key) ?? null))
         .rejects.toThrow("backup-restore-part-key-mismatch");
     });
