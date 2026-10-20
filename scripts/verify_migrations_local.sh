@@ -106,6 +106,7 @@ MIGRATIONS=(
   "20261017040000_comments_column_privacy_reapply"
   "20261017050000_close_player_data_tables"
   "20261017060000_revoke_unused_client_write_grants"
+  "20261021010000_retention_candidates_telemetry_driven"
 )
 
 cleanup() {
@@ -247,6 +248,7 @@ wait "$pending_registration_second_pid"
 "${PSQL[@]}" -f tests/fixtures/migration-check/hotdrop-count-atomic.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/admin-profile-save.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/participant_match_retention_scope_checks.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/retention_candidates_telemetry_driven_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/player-match-row-extras-checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retention_legacy_binding_checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/retention_match_type_recovery_checks.sql

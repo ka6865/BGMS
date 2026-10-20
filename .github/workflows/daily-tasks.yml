@@ -656,8 +656,11 @@ jobs:
           if [ -z "$ERROR_LINES" ]; then
             ERROR_LINES="원인 미확인: 실패 잡 로그에서 분류 가능한 예외를 찾지 못했습니다."
           fi
-          ERROR_LINES=$(printf '%s' "$ERROR_LINES" | cut -c1-1000)
-          FAILED_STEPS=$(printf '%s' "$FAILED_STEPS" | cut -c1-700)
+          # Discord content 한도(2000자)를 넘으면 웹훅이 400을 돌려줘 알림 전체가 사라진다.
+          # 고정 본문이 약 1000자라 가변 구간은 합쳐서 1000자 안쪽으로 줄이고, 마지막에 한 번 더 자른다.
+          ERROR_LINES=$(printf '%s' "$ERROR_LINES" | cut -c1-400)
+          FAILED_STEPS=$(printf '%s' "$FAILED_STEPS" | cut -c1-500)
+          LOOKUP_NOTES=$(printf '%s' "$LOOKUP_NOTES" | cut -c1-250)
 
           MESSAGE=$(cat <<EOF
           🚨 **BGMS 새벽 자동 작업 실패 알림**
@@ -700,7 +703,8 @@ jobs:
           EOF
           )
           # jq 로 JSON 을 만들어 개행·특수문자 이스케이프를 보장한다.
-          jq -n --arg content "$MESSAGE" '{content: $content, allowed_mentions: {parse: []}}' \
+          # 글자 수 기준(jq length)으로 1900자에서 자른다. 본문이 어떤 이유로 길어져도 알림은 간다.
+          jq -n --arg content "$MESSAGE" '{content: (if ($content | length) > 1900 then ($content[0:1899] + "…") else $content end), allowed_mentions: {parse: []}}' \
             | curl --connect-timeout 10 --max-time 30 -fsS -X POST "$DISCORD_WEBHOOK_URL" \
                 -H "Content-Type: application/json" \
                 --data @-
