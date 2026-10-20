@@ -6,6 +6,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 위 `AGENTS.md`가 공통 작업 지침(언어, 검증 매트릭스, 운영 안전 규칙)이다. 아래는 Claude Code용 보충 정보이며 `AGENTS.md`와 중복하지 않는다. 로컬에 `.agents/rules/project_rules.md`가 있으면 함께 따른다(주석은 이모티콘 없이 한글, 임시 디버그 출력·죽은 코드 금지).
 
+BGMS 스킬 4개(`bgms-*`)는 `.agents/skills/`가 원본이고 `.claude/skills/`의 심볼릭 링크로 Claude에 등록되어 있어 Skill 도구로 바로 호출할 수 있다(둘 다 Git에서 추적). `gh-address-comments` 링크 등 나머지 스킬은 로컬 전용이다.
+
+`docs-private/`와 `.agents/rules`는 Git 제외라 새 worktree에는 없다. 필요하면 메인 checkout의 것을 참조하거나 복사한다.
+
+## 서브에이전트 위임 정책
+
+- 작업 시작 시 사용 가능한 서브에이전트와 스킬을 확인한다.
+- 독립적으로 분석할 수 있는 작업이 2개 이상이거나 여러 파일에 걸친 복잡한 변경이면 적합한 서브에이전트에게 위임한다.
+- Explore 에이전트는 코드베이스 탐색, Plan 에이전트는 복잡한 설계 검토에 우선 고려한다.
+- Claude와 Codex를 함께 쓰는 팀 작업은 `orchestration` 스킬(Orca)로 위임·감독하며, 이 정책의 위임 기준이 이를 막지 않는다.
+- `pr-review-toolkit` 리뷰 에이전트는 사용자가 PR·변경 리뷰를 요청할 때만 호출하고, 코드 수정 직후 자동으로 호출하지 않는다.
+- 단순 질문이나 작은 파일 수정은 메인 에이전트가 직접 처리한다.
+- 서브에이전트 결과는 메인 에이전트가 검증하고 통합한다.
+- 불필요한 병렬 실행과 중복 탐색은 피한다.
+- 서브에이전트를 호출하지 않았다면 최종 보고에 간단히 이유를 적는다.
+
 ## 명령
 
 ```bash
@@ -14,6 +30,7 @@ npm run build
 npm run verify:core         # eslint + tsc --noEmit (CI 첫 단계)
 npm run test:unit           # Vitest 전체: tests/**/*.test.ts (CI 두 번째 단계)
 npm test                    # Jest: __tests__/ 만 (jsdom), Vitest를 대체하지 않음
+npm run verify:security     # 보안 경계 테스트 묶음(verify:admin의 부분집합, AGENTS.md 매트릭스 외)
 
 # 단일 테스트
 npx vitest run tests/telemetry-contract.test.ts
@@ -24,6 +41,7 @@ npx jest __tests__/backpackUtils.test.ts
 - Vitest는 `environment: 'node'`, `globals: true`, `@` → 저장소 루트 alias(`vitest.config.ts`).
 - 실제 Gemini 호출 테스트는 `npm run test:ai:gemini`(`RUN_REAL_GEMINI=true`)로만 실행된다. 기본 단위 테스트는 외부 호출을 모킹한다.
 - 셸에서 `npm`/`node`가 없거나 Vitest 네이티브 바인딩이 실패하면 `/opt/homebrew/bin` 또는 `/usr/local/bin`의 Node를 사용한다.
+- push 전 검증: 추적되는 `.githooks/pre-push`가 `verify:core`를 실행한다. 새 clone·worktree에서는 `git config core.hooksPath .githooks`로 켜고, 급할 때만 `SKIP_PRE_PUSH=1 git push`로 건너뛴다(CI는 그대로 검증).
 - CI(`.github/workflows/pr-verify.yml`, Node 22): `verify:core` → `test:unit`, 별도 job으로 `verify:migrations`, `npm audit --omit=dev --audit-level=high`.
 
 ## Migration 검증 계약
