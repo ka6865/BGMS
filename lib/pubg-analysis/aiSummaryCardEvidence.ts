@@ -10,7 +10,7 @@ function numberOrNull(value: unknown): number | null {
 function rate(numerator: unknown, denominator: unknown): number | null {
   const n = numberOrNull(numerator);
   const d = numberOrNull(denominator);
-  return n !== null && d !== null && d > 0 ? Math.min(100, Math.round(n / d * 100)) : null;
+  return n !== null && d !== null && d > 0 ? Math.min(100, n / d * 100) : null;
 }
 
 /** Assemble only observed user values and independently sampled benchmark values. */
@@ -19,14 +19,19 @@ export function buildSummaryCardEvidence(stats: Record<string, unknown>, benchma
   const add = (metricId: string, label: string, user: unknown, unit: string, benchmarkKey?: keyof NormalizedBenchmark, numerator?: unknown, denominator?: unknown) => {
     const counts = stats.metricMatchCounts as Record<string, number> | undefined;
     const userMatchCount = counts?.[metricId];
-    const value = numberOrNull(user);
+    const rawValues = stats.rawMetricValues as Record<string, unknown> | undefined;
+    const value = unit === '%' && numerator !== undefined && denominator !== undefined
+      ? rate(numerator, denominator)
+      : numberOrNull(rawValues && Object.hasOwn(rawValues, metricId) ? rawValues[metricId] : user);
     const benchmarkObserved = benchmarkKey !== undefined && hasObservedBenchmarkMetric(benchmark, benchmarkKey);
-    const comparison = benchmarkObserved && benchmark ? numberOrNull(benchmark[benchmarkKey!]) : null;
+    const comparison = benchmarkObserved && benchmark ? numberOrNull(benchmark.rawMetricValues?.[benchmarkKey!] ?? benchmark[benchmarkKey!]) : null;
     const format = (n: number | null) => n === null ? null : `${Number(n.toFixed(unit === '%' ? 1 : 2))}${unit}`;
     const denominatorValue = numberOrNull(denominator);
     const userValue = denominator !== undefined && (denominatorValue === null || denominatorValue <= 0) ? null : format(value);
     entries.push({
       metricId, label, userValue,
+      userNumericValue: userValue === null ? null : value,
+      benchmarkNumericValue: comparison,
       ...(userMatchCount !== undefined ? { userMatchCount } : {}),
       benchmarkLabel: `동일 티어 평균 ${label.replace(/^평균 /, '')}`,
       benchmarkValue: comparison === null ? null : format(comparison),
@@ -39,6 +44,7 @@ export function buildSummaryCardEvidence(stats: Record<string, unknown>, benchma
     const entry = entries[entries.length - 1];
     if (userMatchCount === 0) {
       entry.userValue = null;
+      entry.userNumericValue = null;
       entry.unavailableReason = metricId === 'backup_latency' && numberOrNull(stats.totalTradeKills) === 0
         ? '복수 처치 성공 사례가 없어 시간을 계산할 수 없습니다.'
         : '이 지표를 측정할 수 있는 기록이 없습니다.';

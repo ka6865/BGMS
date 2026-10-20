@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 import { createClient } from "@/utils/supabase/server";
-import { buildAiObservability, getAiErrorLabel, normalizeAiUsageRows, type AiUsageObservationRow, type PubgErrorObservationRow } from "@/lib/admin-agent/ai-observability";
+import { buildAiObservability, getAiErrorLabel, hasAiUsageIssue, isAiUsageFailed, isAiUsageSuccessful, normalizeAiUsageRows, type AiUsageObservationRow, type PubgErrorObservationRow } from "@/lib/admin-agent/ai-observability";
 import { buildMembershipTimeline, normalizeMembershipWindowDays, type MembershipDailyRow } from "@/lib/admin-agent/membership-timeline";
 
 const USERS_PAGE_SIZE = 1000;
@@ -110,11 +110,13 @@ export interface UserActivity7D {
   events: ActivityEventItem[];
   aiRequests: number;
   aiSuccessCount: number;
+  aiPartialCount: number;
+  aiCancelledCount: number;
   aiFailedCount: number;
   aiSuccessRate: number;
   aiCostUsd: number;
   aiErrors: Array<{ code: string; label: string; count: number }>;
-  aiRecentErrors: Array<{ code: string; label: string; message: string; createdAt: string }>;
+  aiRecentErrors: Array<{ status: "partial" | "error"; code: string; label: string; message: string; createdAt: string }>;
 }
 
 function formatEventLabel(eventName: string, pagePath: string | null, params: any): { label: string; details: string } {
@@ -335,23 +337,26 @@ export async function GET(request: Request) {
         events: userActRaw?.events || []
         ,
         aiRequests: userActRaw?.aiRows.length || 0,
-        aiSuccessCount: userActRaw?.aiRows.filter((row) => (row.status || "success") === "success").length || 0,
-        aiFailedCount: userActRaw?.aiRows.filter((row) => (row.status || "success") !== "success").length || 0,
+        aiSuccessCount: userActRaw?.aiRows.filter((row) => isAiUsageSuccessful(row)).length || 0,
+        aiPartialCount: userActRaw?.aiRows.filter((row) => row.status === "partial").length || 0,
+        aiCancelledCount: userActRaw?.aiRows.filter((row) => row.status === "cancelled").length || 0,
+        aiFailedCount: userActRaw?.aiRows.filter(isAiUsageFailed).length || 0,
         aiSuccessRate: userActRaw?.aiRows.length
-          ? Number(((userActRaw.aiRows.filter((row) => (row.status || "success") === "success").length / userActRaw.aiRows.length) * 100).toFixed(1))
+          ? Number(((userActRaw.aiRows.filter((row) => isAiUsageSuccessful(row)).length / userActRaw.aiRows.length) * 100).toFixed(1))
           : 0,
         aiCostUsd: Number((userActRaw?.aiRows.reduce((sum, row) => sum + Number(row.cost_usd || 0), 0) || 0).toFixed(6)),
         aiErrors: Array.from(userActRaw?.aiRows.reduce((map, row) => {
-          if ((row.status || "success") === "success") return map;
+          if (!hasAiUsageIssue(row)) return map;
           const code = row.error_code || "unknown";
           map.set(code, (map.get(code) || 0) + 1);
           return map;
         }, new Map<string, number>()).entries() || []).map(([code, count]) => ({ code, label: getAiErrorLabel(code), count })),
         aiRecentErrors: (userActRaw?.aiRows || [])
-          .filter((row) => (row.status || "success") !== "success")
+          .filter(hasAiUsageIssue)
           .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
           .slice(0, 10)
           .map((row) => ({
+            status: row.status === "partial" ? "partial" : "error",
             code: row.error_code || "unknown",
             label: getAiErrorLabel(row.error_code),
             message: row.error_message || getAiErrorLabel(row.error_code),
@@ -416,6 +421,8 @@ export async function GET(request: Request) {
           events: [],
           aiRequests: 0,
           aiSuccessCount: 0,
+          aiPartialCount: 0,
+          aiCancelledCount: 0,
           aiFailedCount: 0,
           aiSuccessRate: 0,
           aiCostUsd: 0,

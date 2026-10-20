@@ -1,5 +1,6 @@
 export function classifyAiErrorCode(message: string): string {
   const normalized = message.toLowerCase();
+  if (normalized.includes("response schema invalid")) return "schema";
   if (normalized.includes("did not pass validation")) return "validation";
   if (normalized.includes("timeout") || normalized.includes("timed out") || normalized.includes("시간")) return "timeout";
   if (normalized.includes("api key") || normalized.includes("configuration")) return "configuration";

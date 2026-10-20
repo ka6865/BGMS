@@ -117,6 +117,11 @@ const {
   };
 });
 
+vi.mock("next/server", async (importOriginal) => ({
+  ...await importOriginal<typeof import("next/server")>(),
+  after: vi.fn((task: Promise<unknown>) => task),
+}));
+
 vi.mock("ai", async (importOriginal) => ({
   ...(await importOriginal<typeof import("ai")>()),
   streamText: mockStreamText,
@@ -302,7 +307,7 @@ function createValidSummaryFinal(overrides: Record<string, any> = {}): any {
         benchmarkStats: [{ label: "상위권 1:1 승률", value: "61%" }],
       }),
     ],
-    actionItems: [{ icon: "target", title: "검증", desc: "테스트 유지" }],
+    actionItems: [{ icon: "target", title: "교전 점검", desc: "다음 교전 전에 상대 위치를 확인해 보십시오." }],
     ...overrides,
   };
 }
@@ -1521,7 +1526,7 @@ describe("AI cache route stabilization", () => {
       mockStreamText.mockImplementationOnce(() => sdkResult([
         { type: "start-step" },
         { type: "text-delta", text: "{\"signature\":\"잘린" },
-        { type: "finish", finishReason: "length" },
+        { type: "finish", finishReason: "length", totalUsage: { inputTokens: 100, outputTokens: 25 } },
       ]));
 
       const response = await aiSummaryPOST(createRequest({ matchIds: ["sdk-truncated"], nickname: "Player_A", platform: "kakao", force: true }));
@@ -1529,6 +1534,9 @@ describe("AI cache route stabilization", () => {
 
       const failure = mockTrackAiFailure.mock.calls.find(([, type]) => type === "summary")?.[2] as Error | undefined;
       expect(failure?.message).toMatch(/No valid JSON extracted from AI response \(length=\d+, finishReason=length\)/);
+      expect(mockTrackAiUsage).not.toHaveBeenCalled();
+      expect(mockTrackAiFailure).toHaveBeenCalledTimes(1);
+      expect(mockTrackAiFailure.mock.calls[0][3]).toMatchObject({ errorCode: "parse", promptTokens: 100, completionTokens: 25, modelName: expect.any(String) });
     });
 
     it("route의 Gemini 키와 기존 생성 설정을 AI SDK에 그대로 전달한다", async () => {
@@ -1552,7 +1560,7 @@ describe("AI cache route stabilization", () => {
       ]);
     });
 
-    it("provider 사용량이 없으면 0으로 기록하지 않는다", async () => {
+    it("provider 사용량이 없어도 최종 성공을 한 번 기록한다", async () => {
       setupSummary("sdk-no-usage");
       const validFinal = JSON.stringify(createValidSummaryFinal());
       mockStreamText.mockImplementationOnce(() => sdkResult([{ type: "start-step" }, { type: "text-delta", text: validFinal }]));
@@ -1561,7 +1569,8 @@ describe("AI cache route stabilization", () => {
       await response.text();
       await Promise.resolve();
 
-      expect(mockTrackAiUsage).not.toHaveBeenCalled();
+      expect(mockTrackAiUsage).toHaveBeenCalledTimes(1);
+      expect(mockTrackAiUsage).toHaveBeenCalledWith("user-1", expect.any(String), 0, 0, "summary", expect.objectContaining({ status: "success" }));
     });
   });
 
@@ -3529,6 +3538,23 @@ describe("AI cache route stabilization", () => {
     expect(summaryCache.upsert).not.toHaveBeenCalled();
   });
 
+  it("ai-summary는 처리된 매치 조회 중 route deadline이 지나면 실패를 한 번 기록한다", async () => {
+    vi.useFakeTimers();
+    try {
+      const telemetry = createQueryChain();
+      telemetry.limit.mockReturnValue(new Promise(() => undefined));
+      mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({ processed_match_telemetry: telemetry }) });
+      const pending = aiSummaryPOST(createRequest({ matchIds: ["hung-query"], nickname: "Player_A", platform: "kakao" }));
+      await vi.advanceTimersByTimeAsync(50_001);
+      const response = await pending;
+      expect(response.status).toBe(504);
+      expect(mockTrackAiFailure).toHaveBeenCalledTimes(1);
+      expect(mockTrackAiFailure).toHaveBeenCalledWith("user-1", "summary", expect.anything(), expect.objectContaining({ errorCode: "PUBG_AI_ROUTE_TIMEOUT" }));
+      expect(mockTrackAiUsage).not.toHaveBeenCalled();
+      expect(mockStreamText).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
   it("ai-summary는 전체 generation deadline에 도달하면 진행 중인 모델 시도를 중단하고 504를 반환한다", async () => {
     vi.useFakeTimers();
 
@@ -3658,7 +3684,20 @@ describe("AI cache route stabilization", () => {
     }
   });
 
-  it("ai-summary response body를 취소하면 Gemini iterator를 중단하고 캐시를 쓰지 않는다", async () => {
+  it.each([
+    { contract: 1, transport: "body", usageState: "ready" },
+    { contract: 2, transport: "body", usageState: "ready" },
+    { contract: 2, transport: "request", usageState: "ready" },
+    { contract: 2, transport: "body", usageState: "late" },
+    { contract: 2, transport: "body", usageState: "never" },
+    { contract: 2, transport: "body", usageState: "rejected" },
+  ])("ai-summary 취소 $contract/$transport/$usageState는 확정 사용량을 한 번 기록한다", async ({ contract, transport, usageState }) => {
+    if (usageState === "never") vi.useFakeTimers();
+    let resolveUsage!: (value: any) => void;
+    let rejectUsage!: (error: Error) => void;
+    const usage = new Promise((resolve, reject) => { resolveUsage = resolve; rejectUsage = reject; });
+    const usageResult = { usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 20 } };
+    if (usageState === "ready") resolveUsage(usageResult);
     const summaryCache = createQueryChain({ data: null, error: null });
     const telemetry = createQueryChain({
       data: [{ match_id: "cancelled-summary-stream", player_id: "player_a", platform: "kakao", data: { fullResult: createSummaryMatch("cancelled-summary-stream") } }],
@@ -3690,23 +3729,28 @@ describe("AI cache route stabilization", () => {
       requestOptions = options;
       return {
         stream: iterator,
-        response: Promise.resolve({ usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 20 } }),
+        response: usage,
       };
     });
 
-    const response = await aiSummaryPOST(createRequest({
+    const abort = new AbortController();
+    const response = await aiSummaryPOST(new Request(createRequest({
       matchIds: ["cancelled-summary-stream"],
       nickname: "Player_A",
       platform: "kakao",
       force: true,
-    }));
+      summaryContractVersion: contract,
+    }), { signal: abort.signal }));
     const reader = response.body!.getReader();
     const firstChunk = await reader.read();
     expect(new TextDecoder().decode(firstChunk.value)).toContain('"type":"visuals"');
     expect(iterator.next).toHaveBeenCalledTimes(1);
 
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
-    await reader.cancel("component unmounted");
+    if (transport === "body") await reader.cancel("component unmounted");
+    else abort.abort();
+    if (usageState === "late") resolveUsage(usageResult);
+    if (usageState === "rejected") rejectUsage(new Error("provider cancelled"));
     for (let index = 0; index < 100 && iterator.return.mock.calls.length < 1; index += 1) {
       await Promise.resolve();
     }
@@ -3719,6 +3763,15 @@ describe("AI cache route stabilization", () => {
     expect(iterator.return).toHaveBeenCalled();
     expect(summaryCache.upsert).not.toHaveBeenCalled();
     expect(mockTrackAiFailure).not.toHaveBeenCalled();
+    if (usageState === "never") await vi.advanceTimersByTimeAsync(1001);
+    await vi.waitFor(() => expect(mockTrackAiUsage).toHaveBeenCalledTimes(1));
+    const tokensKnown = usageState === "ready" || usageState === "late";
+    expect(mockTrackAiUsage).toHaveBeenCalledWith("user-1", expect.any(String), tokensKnown ? 10 : 0, tokensKnown ? 20 : 0, "summary", expect.objectContaining({ status: "cancelled", errorCode: "cancelled" }));
+    // A usage result arriving after the bounded wait cannot create a second row.
+    if (usageState === "never") resolveUsage(usageResult);
+    for (let index = 0; index < 10; index += 1) await Promise.resolve();
+    expect(mockTrackAiUsage).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
     expect(errorSpy.mock.calls.flat().join(" ")).not.toContain("AI-SUMMARY-STREAM-ERROR");
   });
 
@@ -3778,6 +3831,8 @@ describe("AI cache route stabilization", () => {
 
     expect(signalAbortedImmediately).toBe(true);
     expect(mockTrackAiFailure).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(mockTrackAiUsage).toHaveBeenCalledTimes(1));
+    expect(mockTrackAiUsage).toHaveBeenCalledWith("user-1", expect.any(String), 10, 20, "summary", expect.objectContaining({ status: "cancelled", errorCode: "cancelled" }));
     expect(errorSpy.mock.calls.flat().join(" ")).not.toContain("AI-SUMMARY-STREAM-ERROR");
   });
 
@@ -3825,8 +3880,9 @@ describe("AI cache route stabilization", () => {
 
       expect(response.status).toBe(200);
       expect(records.find((record) => record.type === "done")).toMatchObject({ valid: true });
-      expect(errorSpy).toHaveBeenCalledWith("[AI-SUMMARY] Usage fetch error:", usageRejection);
-      expect(mockTrackAiUsage).not.toHaveBeenCalled();
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(mockTrackAiUsage).toHaveBeenCalledTimes(1);
+      expect(mockTrackAiUsage).toHaveBeenCalledWith("user-1", expect.any(String), 0, 0, "summary", expect.objectContaining({ status: "success" }));
     } finally {
       errorSpy.mockRestore();
     }
@@ -6587,6 +6643,10 @@ describe("AI cache route stabilization", () => {
       const success = partialSuccess || ['valid', 'unsafe-advice', 'balanced', 'withheld', 'shuffled', 'technical-provenance'].includes(scenario);
       expect(records.find(record => record.type === 'done')?.valid).toBe(success);
       if (success) {
+        expect(mockTrackAiFailure).not.toHaveBeenCalled();
+        expect(mockTrackAiUsage).toHaveBeenCalledTimes(1);
+        expect(mockTrackAiUsage.mock.calls[0][5]).toMatchObject({ status: partialSuccess ? 'partial' : 'success' });
+        if (partialSuccess) expect(mockTrackAiUsage.mock.calls[0][5]).toMatchObject({ errorCode: 'validation', errorMessage: expect.any(String) });
         const final = JSON.parse(records.find(record => record.type === 'final')?.data || '{}');
         expect(final.schemaVersion).toBe(2);
         expect(final.analysisStatus).toBe(partialSuccess ? 'partial' : 'complete');
@@ -6614,9 +6674,8 @@ describe("AI cache route stabilization", () => {
         if (scenario === 'technical-provenance') {
           const opinion = final.cards.find((card: any) => card.topicId === 'firepower').kindOpinion;
           expect(opinion).not.toMatch(/BGMS|competitive|n=|모드·매치/);
-          expect(opinion).toContain('320');
-          expect(opinion).toContain('100');
-          expect(opinion).toContain('교전 마무리에 집중하세요.');
+          expect(opinion).toBe('평균 화력은 비교 평균보다 높습니다.');
+          expect(opinion).not.toContain('교전 마무리에 집중하세요.');
         }
         if (partialSuccess) {
           // 부분 완료는 같은 키의 완성본을 덮어쓰지 않도록 캐시에 저장하지 않는다.
@@ -6639,6 +6698,9 @@ describe("AI cache route stabilization", () => {
       } else {
         expect(summaryCache.upsert).not.toHaveBeenCalled();
         expect(records.find(record => record.type === 'error')).toMatchObject({ errorCode: 'PUBG_AI_VALIDATION_FAILED', retryable: true, retryAfterSeconds: 30 });
+        expect(mockTrackAiUsage).not.toHaveBeenCalled();
+        expect(mockTrackAiFailure).toHaveBeenCalledTimes(1);
+        expect(mockTrackAiFailure.mock.calls[0][3]).toMatchObject({ errorCode: scenario === 'non-json' ? 'parse' : scenario === 'all-neutral' ? 'validation' : 'schema' });
         if (scenario === 'all-neutral') {
           const final = JSON.parse(records.find(record => record.type === 'final')?.data || '{}');
           expect(final.cards.every((card: any) => card.analysisStatus === 'unavailable' && card.winner === null)).toBe(true);

@@ -11,6 +11,19 @@ const UNSUPPORTED_INFERENCES = [
   /딜링\s*능력(?:을|를)?\s*꾸준히\s*발휘하고\s*있/u,
   /꾸준한\s*딜링\s*기록이\s*확인되므로/u,
   /꾸준히\s*피해량을\s*누적하고\s*있/u,
+  /꾸준하게\s*적에게\s*유효한\s*피해를\s*누적하며\s*팀에\s*기여하고\s*있/u,
+  /(?:관측된\s*)?교전\s*상황에서\s*꾸준히\s*교전에\s*임한\s*기록이\s*확인되/u,
+  /아군\s*교전\s*상황에서\s*침착하게\s*대응하여\s*성과를\s*만들어냈/u,
+  /연막과\s*피해형\s*투척을\s*목적에\s*맞게\s*나누어\s*사용하고\s*있/u,
+  /관측된\s*피해량\s*분포를\s*바탕으로[^.!?\n]{0,24}다음\s*교전을\s*준비할\s*수\s*있/u,
+  /(?:피해량|화력)[^.!?\n]{0,28}(?:분배|분포)[^.!?\n]{0,24}(?:능력|역량|확인|입증|보여|기록)/u,
+  /(?:관측된\s*)?피해량\s*기록[^.!?\n]{0,28}화력\s*분포/u,
+  /(?:후반까지\s*)?(?:안정적으로\s*)?생존[^.!?\n]{0,36}(?:팀[^.!?\n]{0,8}(?:운영|기여|승리)|교전\s*기여)/u,
+  /안정적으로\s*생존[^.!?\n]{0,30}(?:운영하는\s*모습|운영했|운영하고\s*있)/u,
+  /(?:빠른|뛰어난|우수한|탁월한)\s*반응\s*속도/u,
+  /침착하게\s*(?:대응|반응|대처)하고\s*있/u,
+  /(?:교전|전투)[^.!?\n]{0,28}(?:적극적으로\s*참여|참여한\s*흔적|임한\s*기록)/u,
+  /(?:골고루|고루)\s*(?:사용|활용)(?:되|했|하|한)/u,
   /꾸준한\s*(?:딜링|화력|피해량)\s*(?:능력)?[^.!?\n]{0,16}(?:증명|입증)/u,
   /꾸준한\s*(?:전투|교전)\s*기여도(?:로|를)[^.!?\n]{0,20}(?:보여주었|증명했|입증했)/u,
   /(?:구출\s*연막|연막\s*구출)\s*(?:활용|사용)\s*빈도(?:가|는)?\s*낮/u,
@@ -27,8 +40,10 @@ export function hasUnsupportedSummaryInference(text: string): boolean {
   return UNSUPPORTED_INFERENCES.some(pattern => {
     for (const match of text.matchAll(new RegExp(pattern.source, 'gu'))) {
       const tail = text.slice((match.index ?? 0) + match[0].length);
-      if (/^(?:하)?다고\s*(?:단정|판단|평가)할\s*수\s*없/u.test(tail)
-        || /^(?:[은는이가을를]\s*)?(?:의미|뜻)하지\s*않/u.test(tail)) continue;
+      const continuation = tail.trimStart();
+      if (/^(?:하)?다고\s*(?:단정|판단|평가)할\s*수\s*없/u.test(continuation)
+        || /^(?:[은는이가을를]\s*)?(?:(?:(?:확인|입증)되었다고\s*)?(?:단정|판단|평가)할\s*수\s*없|(?:확인|입증|관측)되지\s*않|(?:의미|뜻)하지\s*않|아니|없|않|못)/u.test(continuation)
+        || /^(?:하는지|했는지|는지|ㄴ지|은지|을지|ㄹ지|여부(?:를)?)[^.!?\n]{0,24}(?:확인|점검|살펴)/u.test(continuation)) continue;
       return true;
     }
     return false;
@@ -54,6 +69,26 @@ const ADVICE_RULES = [
     replacement: '다음 교전이 끝난 뒤 피해를 주기 어려웠던 구간을 돌아보세요. 팀 모드라면 팀원과 같은 적에게 함께 대응할 수 있었는지도 확인하세요.',
     allowsCondition: true,
   },
+  {
+    pattern: /(?:구출|구조)\s*(?:상황에서\s*)?(?:연막\s*)?(?:활용|사용|시도)\s*(?:빈도|횟수)(?:를|을)?[^.!?\n]{0,24}(?:높이|늘리(?:세요|십시오)|늘려|늘려야|높여야)/u,
+    replacement: '다음 아군 기절 상황에서 연막을 사용할 수 있었는지와 사용 시점을 점검하세요.',
+    allowsCondition: true,
+  },
+  {
+    pattern: /연막[^.!?\n]{0,24}구출\s*연계[^.!?\n]{0,24}(?:더\s*)?(?:적극적으로\s*)?시도(?:하(?:세요|십시오|여야)|해야)/u,
+    replacement: '다음 아군 기절 상황에서 연막을 사용할 수 있었는지와 구출 시점을 점검하세요.',
+    allowsCondition: true,
+  },
+  {
+    pattern: /생존\s*시간[^.!?\n]{0,20}교전\s*기여도[^.!?\n]{0,30}(?:높이(?:세요|십시오|도록)|높여야|분발하(?:세요|십시오))/u,
+    replacement: '다음 교전 후 피해를 주기 어려웠던 구간과 팀원과 함께 대응할 수 있었는지 점검하세요.',
+    allowsCondition: true,
+  },
+  {
+    pattern: /(?:교전\s*당\s*)?(?:피해량|피해)(?:을|를)?\s*높이기\s*위한[^.!?\n]{0,30}(?:사격|공격)\s*(?:기회|빈도)[^.!?\n]{0,12}(?:만들|늘리|넓히)(?:어야|세요|십시오)/u,
+    replacement: '다음 교전 후 피해를 주기 어려웠던 구간과 사격 기회가 있었는지 점검하세요.',
+    allowsCondition: true,
+  },
 ] as const;
 
 function unsupportedAdviceRule(sentence: string) {
@@ -63,7 +98,7 @@ function unsupportedAdviceRule(sentence: string) {
       if (isNegatedCoachingDirectiveTail(tail)) continue;
       // A concrete precondition differs from optimizing an aggregate count.
       const before = sentence.slice(0, match.index);
-      if (rule.allowsCondition && /(?:팀원|상대|적|엄폐|퇴로|시야)[^.!?\n]{0,30}(?:확인한\s*뒤|확인되면|확보되면|가능할\s*때|가능하다면)/u.test(before)) continue;
+      if (rule.allowsCondition && /(?:팀원|아군|상대|적|엄폐|퇴로|시야)[^.!?\n]{0,30}(?:확인한\s*뒤|확인되면|확보되면|가능할\s*때|가능하다면)/u.test(before)) continue;
       return true;
     }
     return false;

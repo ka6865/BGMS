@@ -46,6 +46,46 @@ describe("admin AI observability", () => {
     }
   });
 
+  it("사용자 취소는 사용량·요청 수에 포함하고 성공·모델 실패에서 구분한다", () => {
+    const result = summarizeAiUsageRows([
+      { status: "cancelled", error_code: "cancelled", prompt_tokens: 100, completion_tokens: 25, cost_usd: 0.01, created_at: "2026-08-13T11:00:00.000Z" },
+      { status: "success", created_at: "2026-08-13T11:00:00.000Z" },
+    ], 24, NOW);
+    expect(result).toMatchObject({ totalRequests: 2, successRequests: 1, cancelledRequests: 1, failedRequests: 0, partialRequests: 0, successRate: 50, promptTokens: 100, completionTokens: 25, totalCostUsd: 0.01, errorsByReason: [], recentErrors: [] });
+  });
+
+  it("중복 로그 순서와 관계없이 실패·취소·부분 완료 우선순위와 비용을 보존한다", () => {
+    const base = { request_id: "same", user_id: "u", analysis_type: "summary", created_at: "2026-08-13T11:00:00.000Z", cost_usd: 0.01 };
+    for (const statuses of [["success", "cancelled"], ["partial", "cancelled"], ["error", "cancelled"]]) {
+      const rows = statuses.map(status => ({ ...base, status }));
+      for (const ordered of [rows, [...rows].reverse()]) {
+        expect(summarizeAiUsageRows(ordered, 24, NOW)).toMatchObject({
+          totalRequests: 1, successRequests: 0, partialRequests: 0, totalCostUsd: 0.02,
+          failedRequests: statuses.includes("error") ? 1 : 0,
+          cancelledRequests: statuses.includes("error") ? 0 : 1,
+        });
+      }
+    }
+  });
+
+  it("부분 완료는 사용 가능한 응답으로 세고 전체 실패와 별도로 센다", () => {
+    const base = { created_at: "2026-08-13T11:00:00.000Z", analysis_type: "summary" };
+    const result = summarizeAiUsageRows([
+      { ...base, status: "success" },
+      { ...base, status: "partial", error_code: "validation", error_message: "utility:neutral" },
+      { ...base, status: "error", error_code: "schema", error_message: "debate_issues_count" },
+    ], 24, NOW);
+    expect(result).toMatchObject({ totalRequests: 3, successRequests: 2, partialRequests: 1, failedRequests: 1, successRate: 66.7 });
+    expect(result.errorsByReason).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: "schema", count: 1 }),
+      expect.objectContaining({ code: "validation", count: 1 }),
+    ]));
+    expect(result.recentErrors).toEqual(expect.arrayContaining([
+      expect.objectContaining({ status: "partial", errorCode: "validation", message: "utility:neutral" }),
+      expect.objectContaining({ status: "error", errorCode: "schema" }),
+    ]));
+  });
+
   it("요청 ID가 없거나 사용자·분석 종류가 다른 로그는 합치지 않는다", () => {
     const base = { created_at: "2026-08-13T11:00:00.000Z", request_id: "shared", user_id: "u1", analysis_type: "summary" };
     const result = summarizeAiUsageRows([base, { ...base, user_id: "u2" }, { ...base, analysis_type: "squad" }, { ...base, request_id: null }, { ...base, request_id: null }], 24, NOW);

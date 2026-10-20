@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { after, NextResponse } from "next/server";
 import { APICallError, streamText, Output } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { AI_SUMMARY_CACHE_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
@@ -907,6 +907,13 @@ function aggregateMatches(matches: any[]) {
 
   return {
     metricMatchCounts,
+    rawMetricValues: {
+      pressure_index: pressureIndexCount > 0 ? totalPressureIndex / pressureIndexCount : null,
+      reaction_latency: reactionLatencies.length > 0 ? reactionLatencies.reduce((a, b) => a + b, 0) / reactionLatencies.length / 1000 : null,
+      backup_latency: backupLatencies.length > 0 ? backupLatencies.reduce((a, b) => a + b, 0) / backupLatencies.length / 1000 : null,
+      death_phase: deathPhaseCount > 0 ? totalDeathPhase / deathPhaseCount : null,
+      isolation_average: isolationCountFinal > 0 ? totalIsolationIndexFinal / isolationCountFinal : null,
+    },
     mLen, avgDamage, avgKills, avgDamageImpact, avgTeamDamageShare, avgTeamKillShare, avgPlacementPct, topBadges,
     userInitiativeRate, userReversalRate, avgBackupLatency, avgReactionLatency, avgCoverRate, avgDuelWinRate,
     totalDuelWins, totalDuelLosses, totalReversalWins, totalReversalAttempts, avgDeathPhase,
@@ -986,7 +993,9 @@ export async function POST(request: Request) {
     retryable: true,
     retryAfterSeconds: AI_SUMMARY_RETRY_AFTER_SECONDS,
   }, { status: input.status });
-  const abortResponse = () => request.signal.aborted
+  const abortResponse = () => {
+    if (authenticatedUserId && !request.signal.aborted) recordOutcome({ error: "AI summary request timed out", errorCode: "PUBG_AI_ROUTE_TIMEOUT" });
+    return request.signal.aborted
     ? retryableAbortResponse({
       error: "canonical match analysis is not ready",
       errorCode: "PUBG_AI_CANONICAL_NOT_READY",
@@ -997,6 +1006,44 @@ export async function POST(request: Request) {
       errorCode: "PUBG_AI_ROUTE_TIMEOUT",
       status: 504,
     });
+  };
+  let outcomeRecorded = false;
+  let selectedModelName = "";
+  let providerUsage: { inputTokens?: number; outputTokens?: number } = {};
+  let providerUsageTask: Promise<void> | undefined;
+  const recordOutcome = (outcome: { status?: "success" | "partial" | "cancelled"; error?: unknown; errorCode?: string; errorMessage?: string; modelName?: string }) => {
+    if (outcomeRecorded) return;
+    outcomeRecorded = true;
+    const context = {
+      durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform,
+      errorCode: outcome.errorCode, errorMessage: outcome.errorMessage,
+    };
+    try {
+      const task = (async () => {
+        // Cancellation can precede the SDK's usage settlement. Bound the wait;
+        // a provider that never reports usage must not keep after() alive forever.
+        if (outcome.status === "cancelled" && providerUsageTask) {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            await Promise.race([providerUsageTask, new Promise<void>((resolve) => { timer = setTimeout(resolve, 1000); })]);
+          } finally {
+            clearTimeout(timer);
+          }
+        }
+        return outcome.error !== undefined
+          ? trackAiFailure(authenticatedUserId, "summary", outcome.error, {
+            ...context, modelName: selectedModelName,
+            promptTokens: providerUsage.inputTokens, completionTokens: providerUsage.outputTokens,
+          })
+          : trackAiUsage(authenticatedUserId, outcome.modelName || selectedModelName || "unknown",
+            providerUsage.inputTokens ?? 0, providerUsage.outputTokens ?? 0, "summary", { ...context, status: outcome.status ?? "success" });
+      })().catch(error => { console.error("[AI-SUMMARY] Outcome tracking failed:", error); });
+      // Keep the insert alive after the streamed response ends, including failed generations.
+      after(task);
+    } catch (error) {
+      console.error("[AI-SUMMARY] Outcome tracking failed:", error);
+    }
+  };
   let authenticatedUserId: string | undefined;
   let requestedPlatform = "steam";
   try {
@@ -1016,11 +1063,11 @@ export async function POST(request: Request) {
     const cachePlatform = normalizePlatform(platform);
 
     if (!Array.isArray(matchIds) || matchIds.length === 0) {
-      trackAiFailure(authenticatedUserId, "summary", "No matches", { errorCode: "invalid_input", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
+      recordOutcome({ error: "No matches", errorCode: "invalid_input" });
       return NextResponse.json({ error: "No matches" }, { status: 400 });
     }
     if (!nickname) {
-      trackAiFailure(authenticatedUserId, "summary", "Missing nickname", { errorCode: "invalid_input", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
+      recordOutcome({ error: "Missing nickname", errorCode: "invalid_input" });
       return NextResponse.json({ error: "Missing nickname" }, { status: 400 });
     }
     const privateResponse = await blockPrivatePlayer(cachePlatform, nickname, undefined, { lookupUpstream: true });
@@ -1061,19 +1108,7 @@ export async function POST(request: Request) {
       console.warn("[AI-SUMMARY] Processed match lookup failed:", dbErr);
     }
 
-    if (isRouteAborted()) {
-      return request.signal.aborted
-        ? retryableAbortResponse({
-          error: "canonical match analysis is not ready",
-          errorCode: "PUBG_AI_CANONICAL_NOT_READY",
-          status: 409,
-        })
-        : retryableAbortResponse({
-          error: "AI summary request timed out",
-          errorCode: "PUBG_AI_ROUTE_TIMEOUT",
-          status: 504,
-        });
-    }
+    if (isRouteAborted()) return abortResponse();
 
     if (processedDependencyFailure) {
       return summaryDependencyResponse(processedDependencyFailure);
@@ -1448,13 +1483,7 @@ export async function POST(request: Request) {
         status: 409,
       });
     }
-    if (routeDeadlineController.signal.aborted) {
-      return retryableAbortResponse({
-        error: "AI summary request timed out",
-        errorCode: "PUBG_AI_ROUTE_TIMEOUT",
-        status: 504,
-      });
-    }
+    if (routeDeadlineController.signal.aborted) return abortResponse();
 
     if (isRouteAborted()) return abortResponse();
     const allMatches = [...cachedResults, ...newResultsMap.values()];
@@ -2061,7 +2090,7 @@ export async function POST(request: Request) {
     }
     const canonicalEvidence: CanonicalDebateEvidenceMap = canonicalDebateEvidence;
     let serverCards: SummaryCard[] = [];
-    const idCanonicalEvidence: Record<string, { user: { label: string; value: string }; benchmark: { label: string; value: string } }> = {};
+    const idCanonicalEvidence: Record<string, { user: { label: string; value: string; numericValue?: number }; benchmark: { label: string; value: string; numericValue?: number } }> = {};
     if (useIdCards) {
       // Legacy aggregates default missing damage to zero. Evidence must use
       // observed matches only, including a real recorded zero-damage match.
@@ -2074,7 +2103,7 @@ export async function POST(request: Request) {
         totalTeammateKnocks: mainModeStats.totalObservedTeammateKnocks,
         totalTradeKills: mainModeStats.totalObservedTradeKills,
         avgDamage: observedDamage.length > 0
-          ? Math.floor(observedDamage.reduce((sum, damage) => sum + damage, 0) / observedDamage.length)
+          ? observedDamage.reduce((sum, damage) => sum + damage, 0) / observedDamage.length
           : null,
       }, cardBenchmark);
       const rawModes = Array.from(new Set(cardMatches.map(normalizedMatchMode))).sort();
@@ -2100,7 +2129,7 @@ export async function POST(request: Request) {
       } });
       evidence.forEach((row) => {
         if (row.userValue !== null && row.benchmarkValue !== null) {
-          idCanonicalEvidence[row.metricId] = { user: { label: row.label, value: row.userValue }, benchmark: { label: row.benchmarkLabel, value: row.benchmarkValue } };
+          idCanonicalEvidence[row.metricId] = { user: { label: row.label, value: row.userValue, numericValue: row.userNumericValue ?? undefined }, benchmark: { label: row.benchmarkLabel, value: row.benchmarkValue, numericValue: row.benchmarkNumericValue ?? undefined } };
         }
       });
       // Replace only the provider output contract; keep the existing coaching
@@ -2108,7 +2137,9 @@ export async function POST(request: Request) {
       const legacySchemaStart = promptLines.indexOf("반드시 아래 구조의 JSON 객체로만 응답하세요.");
       if (legacySchemaStart >= 0) promptLines.splice(legacySchemaStart);
       for (let i = promptLines.length - 1; i >= 0; i--) {
-        if (/userStats|benchmarkStats/.test(promptLines[i])) promptLines.splice(i, 1);
+        // These legacy instructions infer outcomes/roles absent from the card
+        // evidence or contradict the card-specific measurement contract.
+        if (/userStats|benchmarkStats|\[BACKUP OUTCOME LOGIC\]|\[LOW ISOLATION LOGIC\]|\[TEAM INTENT GUARD\]/.test(promptLines[i])) promptLines.splice(i, 1);
       }
       promptLines.push(
         "[ID CARD CONTRACT V2] SERVER_CARD_PLAN_V2가 카드의 유일한 근거입니다. 지정된 topicId 3개를 정확히 한 번씩 반환하고 해당 카드의 evidenceIds만 중복 없이 한 번씩 참조하세요. 제목, 질문, 지표 라벨과 수치는 서버가 표시하므로 생성하지 마세요.",
@@ -2117,6 +2148,8 @@ export async function POST(request: Request) {
         "카드에 없는 소생 기여, 교전 주도권, 팀원의 화력 분담, 투척물 보유량은 판단하지 마세요. 평균 화력이 높다는 사실만으로 교전을 주도했다거나 팀원의 지원이 부족했다고 추론하지 마세요. 투척 횟수는 사용 기록이며 보유량이 아닙니다. 백업 시간만으로 복구 성공이나 실패를 단정하지 마세요.",
         "[측정 의미] 이 요약의 백업 속도는 아군을 기절시킨 적을 30초 안에 처치한 사례에서 기절부터 처치까지 걸린 평균 시간입니다. 성공한 복수 처치 사례만의 시간이며 이동·첫 대응 시간이나 모든 구조 기회의 시간이 아닙니다. 실제 이동 속도·기동력·합류 경로·집중력·판단력·소통 능력을 측정한 값이 아닙니다. 1:1 승률도 집중력이나 교전 주도권을 입증하지 않습니다. 기록에 없는 능력 평가를 붙이지 말고 비교 결과 자체를 짧게 설명하세요.",
         "[비교 문장] 한 문장에는 지표 하나와 방향 하나만 쓰세요. '복수 성공률은 비교 평균보다 높습니다. 백업 속도는 비교 평균보다 빠릅니다.'처럼 분리하세요. '둘 다 우수합니다/높거나 빠릅니다/평균을 웃돕니다' 같은 복합·모호한 비교를 쓰지 마세요. 두 지표 모두 유리한 방향이면 단순한 연습 제안을 약점 근거로 삼아 draw로 판정하지 마세요.",
+        "[문장 역할] 순한 코치는 확인된 성과 또는 관측 한계만 한 문장으로, 매운 코치는 다음 경기의 구체적인 상황과 확인 행동만 한 문장으로 설명하세요. 비교는 순한 코치에서만 쓰고 매운 코치에서는 반복하지 마세요. 억지 반대 의견이나 약점을 만들지 마세요. reason과 evaluation, 종합 결론은 서버가 전체 카드 근거로 결정합니다. signature와 signatureSub도 관측 기간의 지표를 요약하고 심리·능력·습관을 평가하지 마세요.",
+        "[관측 범위] userNumericValue와 benchmarkNumericValue는 반올림 전 값입니다. 화면 표시 숫자를 다시 비교하지 말고 serverComparison을 따르세요. numerator/denominator가 있으면 관측 건수를 고려하고 userMatchCount가 적은 지표의 한계를 밝히세요. 평균·횟수로 꾸준함, 침착함, 사용 목적의 적절성, 피해량 분포를 관측했다고 말하지 마세요. 작은 수치 차이를 우월한 능력으로 확대하지 마세요.",
         "[서버 비교] serverComparison은 서버가 계산한 비교 결과입니다. 비교가 필요하면 이 문장을 그대로 사용하고 높지만·월등히·유사한 수준 등으로 바꾸지 마세요. AI는 비교 수치나 기준을 새로 만들지 말고 관측 범위 설명과 다음 경기의 조건부 점검을 작성하세요. 두 코치가 같은 비교 결과에 동의해도 됩니다. 비교가 없으면 확인된 사용 기록과 판단 한계만 설명하세요. 고립 지수에 임의의 정상 기준이나 거리 목표를 붙이지 마세요.",
         "[경기별 일관성] 평균·합계만으로 매 경기의 일관성이나 습관을 알 수 없습니다. 꾸준히 높은 피해량을 기록했다거나 꾸준한 딜링 능력을 증명했다고 쓰지 마세요. 관측 기간의 평균을 설명하고 이후 행동은 조건부 점검으로 제안하세요. [작은 표본] context.userMatchCount는 카드에 선택된 경기 수이고 evidence.userMatchCount는 해당 지표의 기록이 확인된 경기 수입니다. 서로 다르면 지표의 실제 확인 경기 수로 설명하세요. 누락 기록과 발생 기회가 없었던 기록을 0% 실패로 해석하지 마세요. 최근 10경기 전체의 일관된 습관·능력으로 확대하지 마세요. 관측된 구출/복수 기회가 적으면 그 한계를 밝히고, 실패 원인이나 연막 타이밍을 단정하지 마세요. 행동 제안은 다음 경기에서 확인할 구체적인 조건부 점검으로 쓰세요.",
         "[행동 제안] 솔로 킬 비중은 처치 기여의 구성이지 혼자 싸워야 할 목표가 아닙니다. 솔로 킬 비중이 낮다고 독립적인 교전을 늘리거나, 화력이 낮다고 교전 참여 빈도를 무조건 높이라고 권하지 마세요. 다음 경기의 구체적인 상황 하나와 확인할 행동을 제안하세요. 예: 교전 전 상대 위치와 빠져나올 경로 확인, 교전 후 피해를 주기 어려웠던 구간 확인. 팀 모드에서는 팀원이 같은 적에게 함께 대응할 수 있는지도 점검하도록 제안할 수 있습니다. 지형·시야·팀원 위치를 실제로 관측했다고 단정하지 마세요. '집중력 유지/더 잘하세요'만으로 행동 제안을 끝내지 마세요.",
@@ -2141,7 +2174,7 @@ export async function POST(request: Request) {
       retryAfterSeconds = AI_SUMMARY_RETRY_AFTER_SECONDS,
       tracked: { error?: string; errorCode?: string } = {},
     ) => {
-      trackAiFailure(authenticatedUserId, "summary", tracked.error ?? error, { errorCode: tracked.errorCode ?? errorCode, durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
+      recordOutcome({ error: tracked.error ?? error, errorCode: tracked.errorCode ?? errorCode });
       const records = [
         { type: "visuals", data: precomputedVisuals },
         { type: "cards", data: unavailableCards() },
@@ -2150,10 +2183,11 @@ export async function POST(request: Request) {
       ];
       return new Response(records.map((record) => JSON.stringify(record)).join("\n") + "\n", { headers: { "Content-Type": "application/x-ndjson", "Cache-Control": "no-cache" } });
     };
-    const normalizeIdFinal = (raw: unknown) => {
+    const normalizeIdFinal = (raw: unknown, onInvalid?: (code: "parse" | "schema", reason: string) => void) => {
       let parsed: unknown;
-      try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { return null; }
+      try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { onInvalid?.("parse", "json_syntax"); return null; }
       return normalizeSummaryCardFinal(parsed, serverCards, {
+        onSchemaError: (reason) => onInvalid?.("schema", reason),
         sanitizeText: (value) => sanitizeUnsupportedAiSummaryBenchmarkLanguage(sanitizeAiCoachingLanguageText(value), idCanonicalEvidence, { allowedMode: mainModeName, observedUserMetricKeys: serverCards.flatMap(card => card.evidence.filter(row => row.userValue !== null).map(row => row.metricId)) }),
         sanitizeCardText: (value, card) => {
           const cardEvidence = Object.fromEntries(card.evidence
@@ -2430,11 +2464,7 @@ export async function POST(request: Request) {
             ? cachedIdResult?.cacheable ? JSON.stringify(cachedIdResult.final) : null
             : typeof cachedFinalCandidate === "string" ? canonicalizeFinalJson(cachedFinalCandidate) : null;
           if (canonicalCachedFinal) {
-            trackAiUsage(authenticatedUserId, "gemini-cache", 0, 0, "summary", {
-              durationMs: Date.now() - startedAt,
-              requestId,
-              platform: requestedPlatform,
-            });
+            recordOutcome({ modelName: "gemini-cache" });
             const encoder = new TextEncoder();
             const stream = new ReadableStream({
               start(controller) {
@@ -2464,7 +2494,7 @@ export async function POST(request: Request) {
     const geminiApiKey = process.env.GOOGLE_GEMINI_API_KEY;
     if (!geminiApiKey) {
       if (useIdCards) return factsOnlyResponse(undefined, undefined, undefined, { error: "No API Key", errorCode: "configuration" });
-      trackAiFailure(authenticatedUserId, "summary", "No API Key", { errorCode: "configuration", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
+      recordOutcome({ error: "No API Key", errorCode: "configuration" });
       return NextResponse.json({ error: "No API Key" }, { status: 500 });
     }
 
@@ -2474,7 +2504,6 @@ export async function POST(request: Request) {
     let streamResult: any = null;
     let fullStreamIterator: AsyncIterator<any> | null = null;
     let prefixText = "";
-    let selectedModelName = "";
     let selectedModelAttemptSignalCleanup: (() => void) | null = null;
 
     const safetySettings = [
@@ -2592,18 +2621,7 @@ export async function POST(request: Request) {
         selectedModelName = modelName;
         preserveModelAttemptSignal = true;
         selectedModelAttemptSignalCleanup = modelAttemptSignal.cleanup;
-        Promise.resolve(aiSdkResult.usage).then((usage: { inputTokens?: number; outputTokens?: number }) => {
-          if (usage.inputTokens === undefined && usage.outputTokens === undefined) return;
-          if (isRouteAborted()) return;
-          trackAiUsage(
-            auth.user?.id,
-            selectedModelName,
-            usage.inputTokens ?? 0,
-            usage.outputTokens ?? 0,
-            "summary",
-            { durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform },
-          );
-        }).catch((err: any) => console.error("[AI-SUMMARY] Usage fetch error:", err));
+        providerUsageTask = Promise.resolve(aiSdkResult.usage).then((usage) => { providerUsage = usage; }).catch(() => undefined);
         break;
       } catch (err: any) {
         const errorMessage = String(err?.message || "");
@@ -2657,6 +2675,8 @@ export async function POST(request: Request) {
         let aiResponseText = "";
         let finishReason: string | null = null;
         let validationFailed = false;
+        let diagnosticCode: string | undefined;
+        let diagnosticReason: string | undefined;
         try {
           if (isRouteAborted() || generationSignal.signal.aborted) throw new Error("AI summary request was aborted");
 
@@ -2700,7 +2720,11 @@ export async function POST(request: Request) {
                 // 응답 도중의 provider 오류는 기존 스트림 오류 경로(error/done record)로 보낸다.
                 if (part?.type === "error") throw part.error ?? new Error("AI summary provider stream failed");
                 if (part?.type === "text-delta" && typeof part.text === "string") aiResponseText += part.text;
-                if (part?.type === "finish" && typeof part.finishReason === "string") finishReason = part.finishReason;
+                if (part?.type === "finish-step" && part.usage) providerUsage = part.usage;
+                if (part?.type === "finish") {
+                  if (typeof part.finishReason === "string") finishReason = part.finishReason;
+                  if (part.totalUsage) providerUsage = part.totalUsage;
+                }
               }
             } finally {
               if (generationSignal.signal.aborted || isRouteAborted()) {
@@ -2720,7 +2744,9 @@ export async function POST(request: Request) {
           // An empty provider stream is an invalid generation. Let the error
           // path emit the neutral provider-error contract and skip persistence.
           const finalResult = aiResponseText;
-          const idResult = useIdCards ? normalizeIdFinal(finalResult) : null;
+          const idResult = useIdCards ? normalizeIdFinal(finalResult, (code, reason) => {
+            if (streamResult) { diagnosticCode = code; diagnosticReason = reason; }
+          }) : null;
           const validJsonString = useIdCards ? idResult ? JSON.stringify(idResult.final) : null : canonicalizeFinalJson(finalResult);
 
           if (validJsonString) {
@@ -2779,16 +2805,23 @@ export async function POST(request: Request) {
             controller.enqueue(encoder.encode(JSON.stringify({ type: "done", valid: true,
               ...(partial ? { partial: true, retryAfterSeconds: AI_SUMMARY_PARTIAL_RETRY_AFTER_SECONDS } : {}),
             }) + "\n"));
+            recordOutcome({ status: partial ? "partial" : "success",
+              ...(partial ? { errorCode: "validation", errorMessage: idResult?.rejectReasons.join(",") } : {}),
+            });
           } else {
             validationFailed = useIdCards && Boolean(streamResult);
-            // 출력 한도에서 잘린 응답인지 구분할 수 있도록 길이와 종료 사유를 함께 남긴다.
-            throw new Error(`No valid JSON extracted from AI response (length=${aiResponseText.length}, finishReason=${finishReason ?? "unknown"})`);
+            if (streamResult && !diagnosticCode) diagnosticCode = "parse";
+            // 원문 없이 문법/구조 오류, 출력 잘림을 구분한다.
+            throw new Error(`${diagnosticCode === "schema" ? `AI response schema invalid: ${diagnosticReason}` : "No valid JSON extracted from AI response"} (length=${aiResponseText.length}, finishReason=${finishReason ?? "unknown"})`);
           }
         } catch (e: any) {
           // Consumer cancellation already closes the Web Stream. It is normal
           // lifecycle cleanup, not an AI failure and not a place to emit a
           // terminal record into the now-closed controller.
-          if (isStreamCancelled()) return;
+          if (isStreamCancelled() || request.signal.aborted) {
+            if (selectedModelName) recordOutcome({ status: "cancelled", errorCode: "cancelled", errorMessage: "Client cancelled AI summary response" });
+            return;
+          }
           try {
             console.error("[AI-SUMMARY-STREAM-ERROR] Critical failure during stream generation:", e?.message || e);
           } catch {
@@ -2807,20 +2840,7 @@ export async function POST(request: Request) {
               : "AI summary request timed out"
             : validationFailed ? "AI 해석의 근거를 확인하지 못했습니다. 잠시 후 다시 시도해 주세요."
               : isRateLimited ? "AI 요청이 잠시 몰렸습니다. 1분 후 다시 시도해 주세요." : AI_SUMMARY_PROVIDER_ERROR_MESSAGE;
-          try {
-            trackAiFailure(authenticatedUserId, "summary", e, {
-              errorCode,
-              durationMs: Date.now() - startedAt,
-              requestId,
-              platform: requestedPlatform,
-            });
-          } catch (trackingError) {
-            try {
-              console.error("[AI-SUMMARY-STREAM-ERROR] Failure tracking failed:", trackingError);
-            } catch {
-              // Tracking/logging failures must not prevent the terminal record.
-            }
-          }
+          recordOutcome({ error: e, errorCode: diagnosticCode || (validationFailed ? "validation" : errorCode) });
 
           const errorRecord = {
             type: "error",
@@ -2885,11 +2905,7 @@ export async function POST(request: Request) {
     const dependencyFailure = classifySummaryDependencyFailure(error);
     if (dependencyFailure) return summaryDependencyResponse(dependencyFailure);
     console.error("[AI-SUMMARY] CRITICAL ERROR:", error.message || error);
-    trackAiFailure(authenticatedUserId, "summary", error, {
-      durationMs: Date.now() - startedAt,
-      requestId,
-      platform: requestedPlatform,
-    });
+    recordOutcome({ error });
     return NextResponse.json({ error: "AI 요약을 만들지 못했습니다. 잠시 후 다시 시도해 주세요." }, { status: 500 });
   } finally {
     if (!streamOwnsRouteDeadline) cleanupRouteDeadline();

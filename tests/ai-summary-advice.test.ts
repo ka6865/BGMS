@@ -38,6 +38,13 @@ describe('recent summary advice grounded in checkable situations', () => {
     '사격 기회를 늘리거나 교전 거리 조절을 검토해야 할 필요는 없습니다.',
     '사격 기회를 늘리거나 교전 거리 조절을 검토해야 한다는 뜻은 아닙니다.',
     '사격 기회를 늘리거나 교전 거리 조절을 검토해야 한다고 단정할 수 없습니다.',
+    '집계 횟수만으로 구출 연막 활용 빈도를 늘려야 한다고 단정할 수 없습니다.',
+    '다음 아군 기절 상황에서 연막을 사용할 수 있었는지 확인한 뒤 구출 연막 활용을 점검하세요.',
+    '교전 당 피해량을 높이기 위해 사격 기회를 늘려야 한다는 뜻은 아닙니다.',
+    '다음 교전 후 피해를 주기 어려웠던 구간을 돌아보고 사격 기회가 있었는지 점검하세요.',
+    '생존 시간이 길어도 교전 기여도를 반드시 높여야 한다는 뜻은 아닙니다.',
+    '다음 경기에서 아군 기절 상황이 발생하면 연막 구출 가능 여부를 점검하세요.',
+    '아군 기절 상황에서 연막을 사용할 수 있었는지 확인한 뒤 구출 연계를 점검하세요.',
   ])('keeps a fact, limitation or actionable conditional suggestion: %s', (text) => {
     expect(hasUnsupportedSummaryAdvice(text)).toBe(false);
     expect(sanitizeSummaryAdviceText(text)).toBe(text);
@@ -58,5 +65,20 @@ describe('recent summary advice grounded in checkable situations', () => {
     expect(hasUnsupportedSummaryAdvice(text)).toBe(true);
     expect(sanitizeSummaryAdviceText(text)).toContain(fact);
     expect(sanitizeSummaryAdviceText(text)).not.toContain('교전 기회를 늘리세요.');
+  });
+
+  it.each([
+    '구출 상황에서 연막 활용 빈도를 높이십시오.',
+    '그러나 구출 연막 시도 횟수를 더 늘려 다양한 교전 상황에 대비해야 합니다.',
+    '교전 당 피해량을 높이기 위한 사격 기회를 더 만들어야 합니다.',
+    '아군 기절 상황에서 연막을 활용한 구출 연계를 더 적극적으로 시도하십시오.',
+    '생존 시간만큼 교전 기여도를 높여 팀의 승리에 더 직접적인 영향을 미치도록 분발하십시오.',
+  ])('replaces unconditional count or damage optimization with a check: %s', (text) => {
+    expect(hasUnsupportedSummaryAdvice(text)).toBe(true);
+    const result = sanitizeSummaryAdviceText(text);
+    expect(result).not.toBe(text);
+    expect(result).toContain('점검');
+    expect(hasUnsupportedSummaryAdvice(result)).toBe(false);
+    expect(sanitizeSummaryAdviceText(result)).toBe(result);
   });
 });
