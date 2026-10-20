@@ -38,6 +38,7 @@ export type AiErrorSummary = {
 };
 
 export type AiRecentError = {
+  status: "partial" | "error";
   id: string;
   createdAt: string;
   analysisType: string;
@@ -70,6 +71,8 @@ export type AiWindowSummary = {
   windowHours: number;
   totalRequests: number;
   successRequests: number;
+  partialRequests: number;
+  cancelledRequests: number;
   failedRequests: number;
   successRate: number;
   uniqueUsers: number;
@@ -103,7 +106,8 @@ const ERROR_LABELS: Record<string, string> = {
   invalid_input: "입력 또는 분석 데이터 부족",
   timeout: "응답 시간 초과",
   rate_limit: "요청 제한 또는 모델 혼잡",
-  parse: "AI 응답 형식 처리 실패",
+  parse: "AI 응답 JSON 문법 오류",
+  schema: "AI 응답 구조 검증 실패",
   validation: "AI 응답 내용 검증 실패",
   storage: "캐시/DB 처리 실패",
   model: "AI 모델 응답 실패",
@@ -115,13 +119,25 @@ export function getAiErrorLabel(code: string | null | undefined): string {
   return ERROR_LABELS[code || "unknown"] || code || ERROR_LABELS.unknown;
 }
 
+export function isAiUsageSuccessful(row: AiUsageObservationRow): boolean {
+  return !row.status || row.status === "success" || row.status === "partial";
+}
+
+export function isAiUsageFailed(row: AiUsageObservationRow): boolean {
+  return row.status !== "cancelled" && !isAiUsageSuccessful(row);
+}
+
+export function hasAiUsageIssue(row: AiUsageObservationRow): boolean {
+  return row.status === "partial" || isAiUsageFailed(row);
+}
+
 // Older streaming routes recorded provider usage as success before final
 // validation, then wrote a second error row. Preserve billing, count one outcome.
 export function normalizeAiUsageRows(rows: AiUsageObservationRow[]): AiUsageObservationRow[] {
   const requests = new Map<string, AiUsageObservationRow>();
   return rows.reduce<AiUsageObservationRow[]>((result, source) => {
     const row = { ...source };
-    if (row.status && row.status !== "success" && (!row.error_code || row.error_code === "unknown")) {
+    if (hasAiUsageIssue(row) && (!row.error_code || row.error_code === "unknown")) {
       row.error_code = classifyAiErrorCode(row.error_message || "");
     }
     if (!row.request_id) {
@@ -140,7 +156,8 @@ export function normalizeAiUsageRows(rows: AiUsageObservationRow[]): AiUsageObse
     current.completion_tokens = Number(current.completion_tokens || 0) + Number(row.completion_tokens || 0);
     const durations = [current.duration_ms, row.duration_ms].filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);
     current.duration_ms = durations.length ? Math.max(...durations) : null;
-    if (row.status && row.status !== "success") {
+    if (isAiUsageFailed(row) || (!isAiUsageFailed(current)
+      && (row.status === "cancelled" || (row.status === "partial" && isAiUsageSuccessful(current))))) {
       current.status = row.status;
       current.error_code = row.error_code;
       current.error_message = row.error_message;
@@ -170,8 +187,9 @@ export function summarizeAiUsageRows(
 ): AiWindowSummary {
   const cutoff = now - windowHours * 60 * 60 * 1000;
   const scoped = normalizeAiUsageRows(rows).filter((row) => Date.parse(row.created_at) >= cutoff && Date.parse(row.created_at) <= now);
-  const success = scoped.filter((row) => (row.status || "success") === "success");
-  const failed = scoped.filter((row) => (row.status || "success") !== "success");
+  const success = scoped.filter((row) => isAiUsageSuccessful(row));
+  const failed = scoped.filter(isAiUsageFailed);
+  const issues = scoped.filter(hasAiUsageIssue);
   const users = new Set(scoped.filter((row) => row.user_id).map((row) => row.user_id as string));
   const byType: Record<string, number> = {};
   const userCounts = new Map<string, number>();
@@ -185,7 +203,7 @@ export function summarizeAiUsageRows(
     const type = row.analysis_type || "unknown";
     byType[type] = (byType[type] || 0) + 1;
   }
-  for (const row of failed) {
+  for (const row of issues) {
     const code = row.error_code || "unknown";
     const current = errors.get(code);
     errors.set(code, {
@@ -196,12 +214,13 @@ export function summarizeAiUsageRows(
     });
   }
 
-  const recentErrors = failed
+  const recentErrors: AiRecentError[] = issues
     .slice()
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
     .slice(0, 20)
     .map((row, index) => ({
       id: row.id || row.request_id || `ai-error-${index}-${row.created_at}`,
+      status: row.status === "partial" ? "partial" : "error",
       createdAt: row.created_at,
       analysisType: row.analysis_type || "unknown",
       errorCode: row.error_code || "unknown",
@@ -218,6 +237,8 @@ export function summarizeAiUsageRows(
     windowHours,
     totalRequests,
     successRequests: success.length,
+    partialRequests: scoped.filter((row) => row.status === "partial").length,
+    cancelledRequests: scoped.filter((row) => row.status === "cancelled").length,
     failedRequests: failed.length,
     successRate: totalRequests ? Number(((success.length / totalRequests) * 100).toFixed(1)) : 0,
     uniqueUsers: users.size,

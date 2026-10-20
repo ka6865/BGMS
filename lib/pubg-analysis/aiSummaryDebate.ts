@@ -11,6 +11,7 @@
 export interface DebateStat {
   label: string;
   value: string;
+  numericValue?: number;
 }
 
 export interface DebateStatPair {
@@ -748,8 +749,8 @@ function validateBenchmarkDirection(
   // average result is still a valid fact for a higher-is-better metric and is
   // exactly the comparison the critical coach needs to explain.
   if (AI_SUMMARY_HIGHER_IS_BETTER[metricKeyValue] === undefined) return false;
-  const userMeasurement = parseMeasurement(canonicalUser.value);
-  const benchmarkMeasurement = parseMeasurement(canonicalBenchmark.value);
+  const userMeasurement = parseStatMeasurement(canonicalUser);
+  const benchmarkMeasurement = parseStatMeasurement(canonicalBenchmark);
   if (!userMeasurement || !benchmarkMeasurement
     || userMeasurement.dimension !== benchmarkMeasurement.dimension) return false;
 
@@ -868,8 +869,8 @@ function normalizeUnquantifiedComparison(
   const parsed = parseUnquantifiedComparison(clause, metric);
   if (!parsed) return null;
 
-  const userMeasurement = parseMeasurement(canonicalUser.value);
-  const benchmarkMeasurement = parseMeasurement(canonicalBenchmark.value);
+  const userMeasurement = parseStatMeasurement(canonicalUser);
+  const benchmarkMeasurement = parseStatMeasurement(canonicalBenchmark);
   if (!userMeasurement || !benchmarkMeasurement || userMeasurement.dimension !== benchmarkMeasurement.dimension) return null;
 
   const epsilon = 1e-9;
@@ -1276,6 +1277,13 @@ function parseMeasurement(value: string): Measurement | null {
   return { dimension, unit, baseValue };
 }
 
+function parseStatMeasurement(stat: DebateStat): Measurement | null {
+  const parsed = parseMeasurement(stat.value);
+  if (!parsed || stat.numericValue === undefined) return parsed;
+  if (!Number.isFinite(stat.numericValue) || stat.numericValue < 0 || (parsed.dimension === "percentage" && stat.numericValue > 100)) return null;
+  return { ...parsed, baseValue: stat.numericValue * (parsed.unit === "s" ? 1000 : 1) };
+}
+
 function unitsCompatible(metricKeyValue: string, userValue: string, benchmarkValue: string): boolean {
   const metric = METRIC_BY_KEY.get(metricKeyValue);
   if (!metric) return false;
@@ -1293,7 +1301,7 @@ function toStat(value: unknown): DebateStat | null {
   const label = typeof record.label === "string" ? record.label.trim() : "";
   const statValue = text(record.value);
   if (!label || !statValue) return null;
-  return { label, value: statValue };
+  return { label, value: statValue, ...(typeof record.numericValue === "number" ? { numericValue: record.numericValue } : {}) };
 }
 
 type DebateStatEntry = {

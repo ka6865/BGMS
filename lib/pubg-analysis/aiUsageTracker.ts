@@ -2,7 +2,7 @@ import { classifyAiErrorCode } from "./aiErrorCode";
 export { classifyAiErrorCode } from "./aiErrorCode";
 import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 
-export type AiUsageStatus = "success" | "error";
+export type AiUsageStatus = "success" | "partial" | "error" | "cancelled";
 
 export type AiUsageContext = {
   status?: AiUsageStatus;
@@ -20,16 +20,16 @@ const supabaseAdmin = createSupabaseAdminClient(
 
 /**
  * Gemini AI 사용량을 기록하고 단가에 맞춰 USD 비용을 산출하여 DB에 저장합니다.
- * 백그라운드 비동기로 수행되어 API 응답을 지연시키지 않습니다.
+ * 호출자가 반환된 Promise를 await하거나 after에 연결해 저장 수명을 보장합니다.
  */
-export function trackAiUsage(
+export async function trackAiUsage(
   userId: string | undefined,
   modelName: string,
   promptTokens: number,
   completionTokens: number,
   analysisType: "analyze" | "summary" | "squad",
   context: AiUsageContext = {},
-): void {
+): Promise<void> {
   try {
     const status = context.status ?? "success";
 
@@ -39,15 +39,14 @@ export function trackAiUsage(
     const outputRate = 0.00000030;
     const costUsd = (promptTokens * inputRate) + (completionTokens * outputRate);
 
-    // 백그라운드 비동기 처리
-    supabaseAdmin
+    const { error } = await supabaseAdmin
       .from("ai_usage_logs")
       .insert({
         user_id: userId || null,
         model_name: modelName || "unknown",
         prompt_tokens: Math.max(0, Math.trunc(promptTokens || 0)),
         completion_tokens: Math.max(0, Math.trunc(completionTokens || 0)),
-        cost_usd: status === "success" ? parseFloat(costUsd.toFixed(6)) : 0,
+        cost_usd: parseFloat(costUsd.toFixed(6)),
         analysis_type: analysisType,
         status,
         error_code: context.errorCode || null,
@@ -55,12 +54,8 @@ export function trackAiUsage(
         duration_ms: normalizeDuration(context.durationMs),
         request_id: context.requestId || null,
         platform: context.platform || null,
-      })
-      .then(({ error }) => {
-        if (error) {
-          console.error("[AI Usage Tracker Error]:", error);
-        }
       });
+    if (error) console.error("[AI Usage Tracker Error]:", error);
   } catch (err) {
     console.error("[AI Usage Tracker Unexpected Error]:", err);
   }
@@ -72,11 +67,15 @@ export function trackAiFailure(
   error: unknown,
   context: Omit<AiUsageContext, "status" | "errorCode" | "errorMessage"> & {
     errorCode?: string | null;
+    modelName?: string;
+    promptTokens?: number;
+    completionTokens?: number;
   } = {},
-): void {
+): Promise<void> {
   const errorMessage = error instanceof Error ? error.message : String(error || "알 수 없는 AI 오류");
-  trackAiUsage(userId, "unknown", 0, 0, analysisType, {
-    ...context,
+  const { modelName, promptTokens, completionTokens, ...usageContext } = context;
+  return trackAiUsage(userId, modelName || "unknown", promptTokens ?? 0, completionTokens ?? 0, analysisType, {
+    ...usageContext,
     status: "error",
     errorCode: context.errorCode || classifyAiErrorCode(errorMessage),
     errorMessage,

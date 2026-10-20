@@ -4,6 +4,7 @@ import { COACHING_JUDGMENT_WITHHELD } from '@/lib/pubg-analysis/aiCoachingQualit
 
 describe('recent summary observed inference regressions', () => {
   it.each([
+    '후반까지 안정적으로 생존하며 경기를 운영하는 모습이 확인됩니다.',
     '빠른 이동 속도에 비해 교전 직후의 복수 성공 과정에서 확실한 마무리를 짓는 집중력이 더 필요합니다.',
     '교전 호흡과 이동 속도가 양호하게 유지되고 있습니다.',
     '꾸준히 높은 피해량을 기록한 점은 훌륭합니다.',
@@ -25,6 +26,17 @@ describe('recent summary observed inference regressions', () => {
     '평균 화력은 비교 평균보다 높습니다. 뛰어난 딜링 능력을 꾸준히 발휘하고 있습니다.',
     '꾸준한 딜링 기록이 확인되므로 현재의 교전 참여 방식을 안정적으로 유지하세요.',
     '교전 상황에서 팀을 위해 꾸준히 피해량을 누적하고 있는 점은 긍정적입니다.',
+    '꾸준하게 적에게 유효한 피해를 누적하며 팀에 기여하고 있습니다.',
+    '관측된 교전 상황에서 꾸준히 교전에 임한 기록이 확인되었습니다.',
+    '아군 교전 상황에서 침착하게 대응하여 성과를 만들어냈습니다.',
+    '연막과 피해형 투척을 목적에 맞게 나누어 사용하고 있습니다.',
+    '관측된 피해량 분포를 바탕으로 다음 교전을 준비할 수 있습니다.',
+    '평균 화력이 높아 뛰어난 피해량 분배 능력이 확인됩니다.',
+    '후반까지 안정적으로 생존하며 팀의 운영에 기여하는 모습이 인상적입니다.',
+    '빠른 반응 속도를 바탕으로 위기 상황에서 침착하게 대응하고 있습니다.',
+    '관측된 피해량 기록을 바탕으로 한 화력 분포입니다.',
+    '압박 지수와 주도권 지표에서 교전에 적극적으로 참여한 흔적이 확인되었습니다.',
+    '총 투척물과 연막 및 피해형 투척이 골고루 사용되었습니다.',
   ])('withholds an unsupported inference: %s', (text) => {
     expect(hasUnsupportedSummaryInference(text)).toBe(true);
     const fact = '평균 화력은 비교 평균보다 높습니다.';
@@ -51,6 +63,16 @@ describe('recent summary observed inference regressions', () => {
     '뛰어난 딜링 능력을 꾸준히 발휘한다고 판단할 수 없습니다.',
     '꾸준히 높은 피해량을 기록한다고 단정할 수 없습니다.',
     '교전 상황에서 팀을 위해 꾸준히 피해량을 누적한다고 평가할 수 없습니다.',
+    '집계 기록만으로 교전 참여의 일관성이나 침착한 대응을 판단할 수 없습니다.',
+    '투척물 사용 횟수만으로 연막과 피해형 투척의 목적을 알 수 없습니다.',
+    '관측된 피해량 분포를 바탕으로 다음 교전을 준비할 수 있다고 단정할 수 없습니다.',
+    '평균 화력만으로 피해량 분배 능력을 판단할 수 없습니다.',
+    '평균 사망 페이즈만으로 팀 운영 기여를 알 수 없습니다.',
+    '빠른 반응 속도가 확인되었다고 단정할 수 없습니다.',
+    '집계 횟수만으로 투척물을 골고루 사용했다고 판단할 수 없습니다.',
+    '교전에 적극적으로 참여한 흔적이 확인되지 않습니다.',
+    '다음 경기에서 교전에 적극적으로 참여하는지 확인하세요.',
+    '관측된 피해량 분포를 바탕으로 다음 교전을 준비할 수 있는지 점검하세요.',
   ])('keeps facts, limitations and conditional advice: %s', (text) => {
     expect(hasUnsupportedSummaryInference(text)).toBe(false);
     expect(sanitizeSummaryInferenceText(text)).toBe(text);
@@ -58,5 +80,18 @@ describe('recent summary observed inference regressions', () => {
   it('preserves the factual sentence when removing inferred mental ability', () => {
     const fact = '1:1 교전 승률은 비교 평균보다 높습니다.';
     expect(sanitizeSummaryInferenceText(`${fact} 탁월한 집중력을 보여줍니다.`)).toBe(fact);
+  });
+
+  it('removes only unsupported aggregate-based claims while retaining adjacent facts', () => {
+    const fact = '평균 피해량은 비교 평균보다 높습니다.';
+    const text = `${fact} 꾸준하게 적에게 유효한 피해를 누적하며 팀에 기여하고 있습니다.`;
+    expect(sanitizeSummaryInferenceText(text)).toBe(fact);
+  });
+
+  it('removes a mixed sentence as a whole so it cannot leave an unfinished clause', () => {
+    const fact = '평균 피해량은 비교 평균보다 높습니다';
+    const text = `${fact}, 뛰어난 피해량 분배 능력이 확인됩니다.`;
+    expect(sanitizeSummaryInferenceText(text)).toBe(COACHING_JUDGMENT_WITHHELD);
+    expect(sanitizeSummaryInferenceText('평균 피해량은 높으며, 뛰어난 피해량 분배 능력이 확인됩니다.')).toBe(COACHING_JUDGMENT_WITHHELD);
   });
 });

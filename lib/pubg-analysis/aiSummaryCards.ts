@@ -31,6 +31,9 @@ export interface SummaryEvidence {
   label: string;
   userValue: string | null;
   benchmarkValue: string | null;
+  /** Unrounded values in the same units as display values; absent on older cards. */
+  userNumericValue?: number | null;
+  benchmarkNumericValue?: number | null;
   benchmarkLabel: string;
   unit: string;
   status: SummaryDataStatus;
@@ -244,6 +247,13 @@ function parseDisplayValue(value: string, expectedUnit: string): number | null {
   return number;
 }
 
+function rawValueMatchesDisplay(raw: number | null, display: string | null, unit: string): boolean {
+  if (raw === null) return display === null;
+  if (display === null) return false;
+  const displayed = parseDisplayValue(display, unit);
+  return displayed !== null && displayed === Number(raw.toFixed(unit === "%" ? 1 : 2));
+}
+
 function normalizeEvidenceInput(
   input: SummaryEvidenceInput,
   contextId: string,
@@ -277,6 +287,10 @@ function normalizeEvidenceInput(
     return null;
   }
 
+  for (const key of ["userNumericValue", "benchmarkNumericValue"] as const) {
+    const raw = input[key];
+    if (raw !== undefined && raw !== null && (typeof raw !== "number" || finiteNonNegativeNumber(raw) === null || (unit === "%" && raw > 100))) return null;
+  }
   const userMatchCount = input.userMatchCount === undefined ? undefined : finiteNonNegativeInteger(input.userMatchCount);
   if (userMatchCount === null) return null;
   const id = `${contextId}:${metricId}`;
@@ -292,6 +306,8 @@ function normalizeEvidenceInput(
     sampleCount,
     ...(userMatchCount !== undefined ? { userMatchCount } : {}),
     ...(input.unavailableReason ? { unavailableReason: String(input.unavailableReason).trim() } : {}),
+    ...(input.userNumericValue !== undefined ? { userNumericValue: input.userNumericValue } : {}),
+    ...(input.benchmarkNumericValue !== undefined ? { benchmarkNumericValue: input.benchmarkNumericValue } : {}),
     ...(numerator !== null ? { numerator } : {}),
     ...(denominator !== null ? { denominator } : {}),
   };
@@ -303,6 +319,8 @@ function normalizeEvidenceInput(
       ...base,
       userValue: null,
       benchmarkValue: null,
+      ...(base.userNumericValue !== undefined ? { userNumericValue: null } : {}),
+      ...(base.benchmarkNumericValue !== undefined ? { benchmarkNumericValue: null } : {}),
       status: "unavailable",
       unavailableReason: base.unavailableReason || DIVISION_BY_ZERO_REASON,
     };
@@ -313,6 +331,8 @@ function normalizeEvidenceInput(
       ...base,
       userValue: null,
       benchmarkValue: null,
+      ...(base.userNumericValue !== undefined ? { userNumericValue: null } : {}),
+      ...(base.benchmarkNumericValue !== undefined ? { benchmarkNumericValue: null } : {}),
       status: "unavailable",
       unavailableReason: base.unavailableReason || MISSING_DATA_REASON,
     };
@@ -322,6 +342,8 @@ function normalizeEvidenceInput(
       ...base,
       userValue: null,
       benchmarkValue: null,
+      ...(base.userNumericValue !== undefined ? { userNumericValue: null } : {}),
+      ...(base.benchmarkNumericValue !== undefined ? { benchmarkNumericValue: null } : {}),
       status: "unavailable",
       unavailableReason: base.unavailableReason || MISSING_DATA_REASON,
     };
@@ -331,6 +353,7 @@ function normalizeEvidenceInput(
     return {
       ...base,
       benchmarkValue: null,
+      ...(base.benchmarkNumericValue !== undefined ? { benchmarkNumericValue: null } : {}),
       status: "unavailable",
       unavailableReason: base.unavailableReason || MISSING_DATA_REASON,
     };
@@ -344,6 +367,7 @@ function normalizeEvidenceInput(
     return {
       ...base,
       benchmarkValue: null,
+      ...(base.benchmarkNumericValue !== undefined ? { benchmarkNumericValue: null } : {}),
       status: "user_only",
     };
   }
@@ -508,6 +532,14 @@ function validateSummaryEvidence(
     || (value.benchmarkValue !== null && !benchmarkValue)
     || !["comparable", "user_only", "unavailable"].includes(String(status))) return null;
   if (id !== `${context.contextId}:${metricId}`) return null;
+  for (const key of ["userNumericValue", "benchmarkNumericValue"] as const) {
+    const raw = value[key];
+    if (raw !== undefined && raw !== null && (typeof raw !== "number" || finiteNonNegativeNumber(raw) === null || (unit === "%" && raw > 100))) return null;
+  }
+  if (value.userNumericValue !== undefined
+    && !rawValueMatchesDisplay(value.userNumericValue as number | null, userValue, unit)) return null;
+  if (value.benchmarkNumericValue !== undefined
+    && !rawValueMatchesDisplay(value.benchmarkNumericValue as number | null, benchmarkValue, unit)) return null;
   const userMatchCount = value.userMatchCount === undefined ? undefined : finiteNonNegativeInteger(value.userMatchCount);
   if (userMatchCount === null || (userMatchCount !== undefined && userMatchCount > context.userMatchCount)
     || (userMatchCount === 0 && userValue !== null)) return null;
@@ -515,6 +547,12 @@ function validateSummaryEvidence(
   const denominator = value.denominator === null || value.denominator === undefined ? null : finiteNumber(value.denominator);
   if ((value.numerator !== null && value.numerator !== undefined && numerator === null)
     || (value.denominator !== null && value.denominator !== undefined && denominator === null)) return null;
+  if (unit === "%" && typeof value.userNumericValue === "number"
+    && (numerator !== null || denominator !== null)
+    && (numerator === null || denominator === null || denominator <= 0
+      || Math.abs(value.userNumericValue - Math.min(100, numerator / denominator * 100)) > 1e-9)) {
+    return null;
+  }
   if (userValue !== null && parseDisplayValue(userValue, metric.unit) === null) return null;
   if (benchmarkValue !== null && parseDisplayValue(benchmarkValue, metric.unit) === null) return null;
   const derivedStatus: SummaryDataStatus = denominator !== null && denominator <= 0
@@ -542,6 +580,8 @@ function validateSummaryEvidence(
     ...(unavailableReason ? { unavailableReason } : {}),
     sampleCount,
     ...(userMatchCount !== undefined ? { userMatchCount } : {}),
+    ...(value.userNumericValue !== undefined ? { userNumericValue: value.userNumericValue as number | null } : {}),
+    ...(value.benchmarkNumericValue !== undefined ? { benchmarkNumericValue: value.benchmarkNumericValue as number | null } : {}),
     ...(numerator !== null ? { numerator } : {}),
     ...(denominator !== null ? { denominator } : {}),
   };
@@ -556,9 +596,9 @@ function hasUnsupportedMixedWinner(winner: SummaryCard["winner"], evidence: read
   return comparisons.length > 0 && comparisons.every((row) => {
     const higherIsBetter = AI_SUMMARY_HIGHER_IS_BETTER[row.metricId];
     if (higherIsBetter === undefined || row.userValue === null || row.benchmarkValue === null) return false;
-    const user = parseDisplayValue(row.userValue, row.unit);
-    const benchmark = parseDisplayValue(row.benchmarkValue, row.unit);
-    return user !== null && benchmark !== null && (higherIsBetter ? user > benchmark : user < benchmark);
+    const user = evidenceNumericValue(row, "user");
+    const benchmark = evidenceNumericValue(row, "benchmark");
+    return user !== null && benchmark !== null && (higherIsBetter ? user - benchmark > 1e-9 : benchmark - user > 1e-9);
   });
 }
 
@@ -718,38 +758,107 @@ export function buildSummaryCards(input: {
   });
 }
 
+function evidenceNumericValue(row: SummaryEvidence, side: "user" | "benchmark"): number | null {
+  const raw = side === "user" ? row.userNumericValue : row.benchmarkNumericValue;
+  if (raw !== undefined) return raw;
+  if (side === "user" && row.unit === "%" && row.numerator != null && row.denominator != null && row.denominator > 0) {
+    return Math.min(100, row.numerator / row.denominator * 100);
+  }
+  const display = side === "user" ? row.userValue : row.benchmarkValue;
+  return display === null ? null : parseDisplayValue(display, row.unit);
+}
+
 export function buildSummaryCardComparisonText(card: SummaryCard): string {
   return card.evidence.flatMap((row) => {
     if (row.status !== "comparable" || row.userValue === null || row.benchmarkValue === null || !row.sampleCount) return [];
-    const user = parseDisplayValue(row.userValue, row.unit);
-    const benchmark = parseDisplayValue(row.benchmarkValue, row.unit);
+    const user = evidenceNumericValue(row, "user");
+    const benchmark = evidenceNumericValue(row, "benchmark");
     if (user === null || benchmark === null) return [];
     const lastCharacter = row.label.charCodeAt(row.label.length - 1);
     const particle = lastCharacter >= 0xac00 && lastCharacter <= 0xd7a3 && (lastCharacter - 0xac00) % 28 === 0 ? "는" : "은";
+    const equal = Math.abs(user - benchmark) <= 1e-9;
     const relation = row.unit === "s" ? user < benchmark ? "빠릅니다" : "느립니다" : user > benchmark ? "높습니다" : "낮습니다";
-    return [`${row.label}${particle} 비교 평균${user === benchmark ? "과 같습니다" : `보다 ${relation}`}.`];
+    return [`${row.label}${particle} 비교 평균${equal ? "과 같습니다" : `보다 ${relation}`}.`];
   }).join(" ");
+}
+
+function observationScope(card: SummaryCard): string {
+  const comparable = card.evidence.filter(row => row.status === "comparable");
+  const rows = comparable.length ? comparable : card.evidence.filter(isObservedEvidence);
+  const counts = new Set(rows.map(row => row.userMatchCount ?? card.context.userMatchCount));
+  const scope = counts.size === 1 ? `${[...counts][0]}경기`
+    : rows.map(row => `${row.label} ${row.userMatchCount ?? card.context.userMatchCount}경기`).join(", ");
+  const rates = rows.filter(row => row.unit === "%" && row.numerator != null && row.denominator != null && row.denominator > 0)
+    .map(row => `${row.label} ${row.denominator}건 중 ${row.numerator}건`);
+  return [scope, ...rates].filter(Boolean).join("; ");
+}
+
+function cardCheck(topicId: SummaryTopicId): string {
+  const checks: Record<SummaryTopicId, string> = {
+    firepower: "다음 교전이 끝난 뒤 피해를 주기 어려웠던 구간과 상대 위치를 확인한 시점을 돌아보세요.",
+    initiative: "다음 교전 전 상대 위치와 빠져나올 경로를 확인하고, 교전 후 첫 대응 시점을 돌아보세요.",
+    duel: "다음 교전이 끝난 뒤 상대 위치를 확인한 시점과 사격을 시작한 시점을 돌아보세요.",
+    trade_backup: "아군이 교전할 때 함께 대응할 수 있는지 확인하고, 교전 후 합류가 어려웠던 구간을 돌아보세요.",
+    utility: "아군이 기절했을 때 구출 접근이 가능했는지, 연막으로 가릴 수 있는 구간이 있었는지 확인하세요.",
+    positioning: "다음 교전 전에 팀원 위치와 함께 대응할 수 있는지 확인하세요.",
+    survival: "다음 경기 종료 후 마지막 교전의 진입 시점과 빠져나올 경로를 돌아보세요.",
+  };
+  return checks[topicId];
+}
+
+function conditionalCheckText(text: string): string {
+  // 관측 결과나 원인 단정을 섞지 않고, 다음 상황에서 확인할 행동만 채택한다.
+  return text.split(/(?<=[.!?。！？])\s+|\n+/u).filter(sentence =>
+    !/비교\s*평균|(?:늦어|느려|낮아|높아|부족해|때문에)|(?:확보|조성|보장)하여/u.test(sentence)
+    && !/(?:즉시|바로|무조건|반드시)[^.!?\n]{0,25}(?:던|투척|사격|진입|돌진|합류|구출)/u.test(sentence)
+    && !/(?:던|투척|사격|진입|돌진|합류|구출)[^.!?\n]{0,20}(?:한\s*뒤|한\s*후|하고\s*나서|하여|해서)/u.test(sentence)
+    && /다음|팀\s*모드라면|(?:교전|경기|진입|사격).{0,12}(?:전|후|때|상황)|(?:아군|팀원).{0,25}(?:때|경우|하면|상황)/u.test(sentence)
+    && /(?:(?:확인|점검)(?:해\s*보(?:세요|십시오)|하세요|하십시오)|(?:돌아|살펴)보(?:세요|십시오))[.!?。！？]?$/u.test(sentence.trim())
+  ).join(" ").trim();
+}
+
+function cardEvaluation(card: SummaryCard): string {
+  return `관측 범위: ${observationScope(card)}. ${card.dataStatus === "comparable"
+    ? "평균·비율만으로 원인이나 경기별 일관성을 판단할 수는 없습니다."
+    : "사용 기록은 확인되지만 같은 조건의 비교 자료가 없어 강점이나 약점을 판단하지 않습니다."}`;
+}
+
+function cardObservation(card: SummaryCard): string {
+  const rows = card.evidence.filter(isObservedEvidence);
+  return rows.map(row => `${row.label}: ${row.userValue}`).join(", ") + ". 비교 자료가 없는 항목은 관측 기록으로만 봅니다.";
+}
+
+function groundedVerdict(cards: SummaryCard[]): string {
+  return cards.map(card => {
+    if (card.analysisStatus !== "ready") return `${card.topic}: 해석을 보류했습니다.`;
+    const comparison = buildSummaryCardComparisonText(card);
+    return `${card.topic}: ${comparison || "같은 조건의 비교 자료가 없어 강점이나 약점을 판단하지 않습니다."} (관측 범위: ${observationScope(card)})`;
+  }).join(" ") + " 평균·비율만으로 원인이나 경기별 일관성을 판단하지 않습니다. 아래 행동 제안은 다음 경기의 점검 과제입니다.";
 }
 
 export function normalizeSummaryCardFinal(input: unknown, cards: readonly SummaryCard[], options: {
   sanitizeText: (value: string) => string;
   sanitizeCardText?: (value: string, card: SummaryCard) => string;
   hasUnsupportedMode: (value: unknown) => boolean;
+  onSchemaError?: (reason: string) => void;
 }): { final: Record<string, unknown> & { schemaVersion: 2; cards: SummaryCard[]; analysisStatus: "complete" | "partial" }; cacheable: boolean; usable: boolean; rejectReasons: string[] } | null {
+  const malformed = (reason: string) => {
+    options?.onSchemaError?.(reason);
+    return null;
+  };
   const serverCards = validateCardCatalog(cards);
   if (!serverCards || !isRecord(input) || !options || typeof options.sanitizeText !== "function" || typeof options.hasUnsupportedMode !== "function") {
-    return null;
+    return malformed("invalid_root_or_catalog");
   }
   const providerSchemaVersion = input.schemaVersion;
-  if (providerSchemaVersion !== undefined && providerSchemaVersion !== AI_SUMMARY_CARD_VERSION) return null;
+  if (providerSchemaVersion !== undefined && providerSchemaVersion !== AI_SUMMARY_CARD_VERSION) return malformed("schema_version");
   const signature = nonEmptyString(input.signature);
   const signatureSub = nonEmptyString(input.signatureSub);
   const finalVerdict = nonEmptyString(input.finalVerdict);
-  if (!signature || !signatureSub || !finalVerdict || !Array.isArray(input.debateIssues) || input.debateIssues.length !== serverCards.length) {
-    return null;
-  }
+  if (!signature || !signatureSub || !finalVerdict) return malformed("top_level_fields");
+  if (!Array.isArray(input.debateIssues) || input.debateIssues.length !== serverCards.length) return malformed("debate_issues_count");
   const actionItems = safeActionItems(input.actionItems, options.sanitizeText, options.hasUnsupportedMode);
-  if (!actionItems) return null;
+  if (!actionItems) return malformed("action_items");
 
   let cacheable = true;
   // 어떤 규칙에서 탈락했는지 운영 로그로 구분할 수 있게 사유 코드를 모은다.
@@ -770,17 +879,17 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
 
   const providerByTopic = new Map<SummaryTopicId, Record<string, unknown>>();
   for (const rawIssue of input.debateIssues) {
-    if (!isRecord(rawIssue)) return null;
+    if (!isRecord(rawIssue)) return malformed("issue_object");
     const topicId = rawIssue.topicId;
-    if (!isSummaryTopicId(topicId)) return null;
-    if (providerByTopic.has(topicId)) return null;
+    if (!isSummaryTopicId(topicId)) return malformed("topic_id");
+    if (providerByTopic.has(topicId)) return malformed("duplicate_topic");
     providerByTopic.set(topicId, rawIssue);
   }
-  if (providerByTopic.size !== serverCards.length || serverCards.some((card) => !providerByTopic.has(card.topicId))) return null;
+  if (providerByTopic.size !== serverCards.length || serverCards.some((card) => !providerByTopic.has(card.topicId))) return malformed("topic_set");
   // `evidenceIds` is part of the provider schema even when a zero-observation
   // card has no references. Missing or non-array references are a malformed
   // final, whereas bad members inside an array are handled per card below.
-  if (Array.from(providerByTopic.values()).some((issue) => !Array.isArray(issue.evidenceIds))) return null;
+  if (Array.from(providerByTopic.values()).some((issue) => !Array.isArray(issue.evidenceIds))) return malformed("evidence_ids");
 
   let globalModeRejected = false;
   try {
@@ -816,6 +925,15 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
 
     const sanitized = [kindOpinion, spicyOpinion, reason, evaluation].map((text) => sanitizeRequiredText(text,
       (value) => options.sanitizeCardText ? options.sanitizeCardText(value, serverCard) : options.sanitizeText(value)));
+    // Aggregate evidence cannot support behavioural claims. Recover only these
+    // removed claims with server facts; arbitrary empty/neutral opinions still fail.
+    [kindOpinion, spicyOpinion, reason, evaluation].forEach((text, index) => {
+      if (hasUnsupportedSummaryInference(text) && isNeutralText(sanitized[index].value) && serverCard.dataStatus !== "unavailable") {
+        sanitized[index] = { value: index === 1 ? cardCheck(serverCard.topicId)
+          : index === 0 ? buildSummaryCardComparisonText(serverCard) || `${serverCard.topic}의 사용 기록을 확인했습니다. ${cardCheck(serverCard.topicId)}`
+            : cardEvaluation(serverCard), changed: true, empty: false };
+      }
+    });
     const proseRejected = sanitized.some((item) => item.empty);
     // A debate needs two substantive opinions. A neutralized opinion must
     // never win (or award a win to the other coach) just because facts exist.
@@ -874,11 +992,17 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
 
     const sanitizedTexts = sanitized.map((item) => item.value);
     const comparison = buildSummaryCardComparisonText(serverCard);
+    sanitizedTexts[0] = comparison || cardObservation(serverCard);
+    sanitizedTexts[1] = conditionalCheckText(sanitizedTexts[1]);
+    // 비교만 반복하거나 추상적인 격려만 남으면 실행 가능한 점검을 제공한다.
+    const hasCheck = Boolean(sanitizedTexts[1]);
+    if (!hasCheck) sanitizedTexts[1] = cardCheck(serverCard.topicId);
     if (comparison) sanitizedTexts[2] = comparison;
+    sanitizedTexts[3] = cardEvaluation(serverCard);
     const unsupportedMixedWinner = hasUnsupportedMixedWinner(providerWinner as SummaryCard["winner"], serverCard.evidence);
     if (unsupportedMixedWinner) {
       sanitizedTexts[2] = "비교 가능한 지표는 모두 평균보다 유리한 방향입니다.";
-      sanitizedTexts[3] = "비교 자료에서 약점이 확인되지 않았습니다. 연습 제안은 다음 경기의 점검 과제로 참고하세요.";
+      sanitizedTexts[3] = cardEvaluation(serverCard);
     }
     const readyCard: SummaryCard = {
       ...serverCard,
@@ -887,27 +1011,24 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       spicyOpinion: sanitizedTexts[1],
       reason: sanitizedTexts[2],
       evaluation: sanitizedTexts[3],
-      winner: serverCard.dataStatus === "comparable" && !unsupportedMixedWinner && ![kindOpinion, spicyOpinion, reason, evaluation].some(text => hasUnsupportedSummaryInference(text) || hasUnsupportedSummaryAdvice(text)) ? providerWinner : null,
+      winner: serverCard.dataStatus === "comparable" && hasCheck && kindOpinion.trim() === sanitizedTexts[0] && spicyOpinion.trim() === sanitizedTexts[1] && !unsupportedMixedWinner && ![kindOpinion, spicyOpinion, reason, evaluation].some(text => hasUnsupportedSummaryInference(text) || hasUnsupportedSummaryAdvice(text)) ? providerWinner : null,
     };
     return readyCard;
   });
 
-  const normalizedActionItems = actionItems.items;
+  const readyCards = normalizedCards.filter(card => card.analysisStatus === "ready");
+  const normalizedActionItems = readyCards.length === 0 ? [] : actionItems.items.flatMap((item) => {
+    const desc = conditionalCheckText(item.desc);
+    if (desc) return [{ ...item, desc }];
+    // Actions have no topic/evidence ID; array order cannot identify their subject.
+    reject("action_items");
+    return [];
+  });
   const finalCards = normalizedCards.map(cloneCard);
-  // Removing any part of a verdict can change its balance, even without a
-  // leftover "다만". Reuse a strength and an improvement when those decisions
-  // exist; do not manufacture a negative verdict when all cards favor kind.
-  if (isNeutralText(safeVerdict) || /^(?:kind|spicy|draw)$/iu.test(safeVerdict) || normalizedVerdict.changed
-    || finalCards.some(card => card.winner === null || card.winner === "draw")) {
-    const ready = finalCards.filter((card) => card.analysisStatus === "ready");
-    const first = ready.find((card) => card.winner === "kind") ?? ready[0];
-    const second = ready.find((card) => card !== first && card.winner === "spicy") ?? ready.find((card) => card !== first);
-    const interpretations = [first, second]
-      .filter((card): card is SummaryCard => Boolean(card))
-      .map((card) => card.winner === "spicy" ? card.spicyOpinion : card.winner === "kind" ? card.kindOpinion : card.evaluation)
-      .filter((text) => !isNeutralText(text));
-    safeVerdict = [...new Set(interpretations)].slice(0, 2).join(" ") || "코치 의견을 확인하지 못했습니다. 아래 경기 기록을 확인해 주세요.";
-  }
+  safeSignature = SAFE_SIGNATURE;
+  safeSignatureSub = "관측된 경기 지표와 다음 경기의 점검 과제입니다.";
+  // Include every card, independent of provider winners and card-local praise.
+  safeVerdict = groundedVerdict(finalCards);
   if (finalCards.every((card) => card.dataStatus === "unavailable")) reject("all_unavailable");
   const usable = finalCards.some((card) => card.analysisStatus === "ready");
   if (!usable && cacheable) reject("all_unavailable");

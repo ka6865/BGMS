@@ -8,7 +8,8 @@ const {
   mockProfileMaybeSingle,
   mockProfileDeleteEq,
   mockProfilesRange,
-  mockSaveProfile
+  mockSaveProfile,
+  mockAiUsageLimit
 } = vi.hoisted(() => {
   const serverProfileChain = {
     select: vi.fn().mockReturnThis(),
@@ -30,6 +31,8 @@ const {
   const mockProfileMaybeSingle = vi.fn().mockResolvedValue({ data: { id: "target-user" }, error: null });
   const mockProfileDeleteEq = vi.fn().mockResolvedValue({ data: null, error: null });
   const mockProfilesRange = vi.fn().mockResolvedValue({ data: [], error: null });
+  const mockAiUsageLimit = vi.fn().mockResolvedValue({ data: [], error: null });
+  const aiUsageChain = { select: vi.fn().mockReturnThis(), gte: vi.fn().mockReturnThis(), order: vi.fn().mockReturnThis(), limit: mockAiUsageLimit };
   const mockSaveProfile = vi.fn().mockResolvedValue({ data: null, error: null });
   const adminProfileSelectChain: any = {
     maybeSingle: mockProfileMaybeSingle,
@@ -52,7 +55,7 @@ const {
         deleteUser: mockDeleteUser
       }
     },
-    from: vi.fn(() => adminProfilesTable)
+    from: vi.fn((table: string) => table === "ai_usage_logs" ? aiUsageChain : adminProfilesTable)
   }));
 
   return {
@@ -63,7 +66,8 @@ const {
     mockProfileMaybeSingle,
     mockProfileDeleteEq,
     mockProfilesRange,
-    mockSaveProfile
+    mockSaveProfile,
+    mockAiUsageLimit
   };
 });
 
@@ -80,6 +84,7 @@ import { DELETE, GET, POST } from "../app/api/admin/users/route";
 describe("admin users API", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAiUsageLimit.mockResolvedValue({ data: [], error: null });
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
     process.env.SUPABASE_SERVICE_ROLE_KEY = "service-role-key";
     mockListUsers.mockResolvedValue({
@@ -91,6 +96,27 @@ describe("admin users API", () => {
     mockProfileDeleteEq.mockResolvedValue({ data: null, error: null });
     mockProfilesRange.mockResolvedValue({ data: [], error: null });
     mockSaveProfile.mockResolvedValue({ data: null, error: null });
+  });
+
+  it("회원 상세에서도 부분 완료 건수와 검증 탈락 사유를 유지한다", async () => {
+    mockAiUsageLimit.mockResolvedValue({ data: [{ user_id: "target-user", status: "partial", error_code: "validation", error_message: "utility:conclusion", created_at: new Date().toISOString() }], error: null });
+    const response = await GET(new Request("http://localhost/api/admin/users"));
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body.users.find((user: { id: string }) => user.id === "target-user").activity7d).toMatchObject({
+      aiRequests: 1, aiSuccessCount: 1, aiPartialCount: 1, aiFailedCount: 0, aiSuccessRate: 100,
+      aiErrors: [{ code: "validation", count: 1 }],
+      aiRecentErrors: [{ status: "partial", code: "validation", message: "utility:conclusion" }],
+    });
+  });
+
+  it("회원 상세의 취소 요청은 비용을 유지하고 실패에서 제외한다", async () => {
+    mockAiUsageLimit.mockResolvedValue({ data: [{ user_id: "target-user", status: "cancelled", error_code: "cancelled", cost_usd: 0.01, created_at: new Date().toISOString() }], error: null });
+    const response = await GET(new Request("http://localhost/api/admin/users"));
+    const body = await response.json();
+    expect(body.users.find((user: { id: string }) => user.id === "target-user").activity7d).toMatchObject({
+      aiRequests: 1, aiSuccessCount: 0, aiPartialCount: 0, aiCancelledCount: 1, aiFailedCount: 0, aiCostUsd: 0.01, aiErrors: [], aiRecentErrors: [],
+    });
   });
 
   it("회원 프로필 저장을 역할과 선택 필드가 보존되는 단일 RPC로 처리한다", async () => {

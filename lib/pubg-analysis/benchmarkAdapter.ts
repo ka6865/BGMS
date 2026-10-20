@@ -130,6 +130,7 @@ export type ObservedBenchmark = Partial<NormalizedBenchmark> & {
   sampleCount: number;
   calculationVersion?: number;
   metricSampleCounts?: Partial<Record<keyof NormalizedBenchmark, number>>;
+  rawMetricValues?: Partial<Record<keyof NormalizedBenchmark, number>>;
 };
 
 /**
@@ -283,6 +284,11 @@ export function adaptObservedBenchmark(raw: any): ObservedBenchmark | null {
     const count = metricSampleCount(raw, key, rawFields, sampleCount);
     if (value === undefined || count === undefined || count < MIN_BENCHMARK_SAMPLE_COUNT) return;
     observed[key] = value as never;
+    const original = finiteNumber(raw[rawFields.find(field => raw[field] != null) ?? rawFields[0]]);
+    if (original !== undefined && original >= 0) {
+      observed.rawMetricValues ??= {};
+      observed.rawMetricValues[key] = key === "avgCounterLatency" || key === "avgTradeLatency" ? original / 1000 : original;
+    }
     metricSampleCounts[key] = count;
   });
   if (Object.keys(metricSampleCounts).length > 0) observed.metricSampleCounts = metricSampleCounts;
