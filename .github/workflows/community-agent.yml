@@ -2,7 +2,7 @@ name: BGMS Community Agent
 
 on:
   schedule:
-    # GitHub Actions schedules can start late, so this is not an exact publication time.
+    # GitHub Actions 예약 실행은 늦게 시작될 수 있어 정확한 발행 시각이 아니다.
     - cron: '0 0 * * *'
   workflow_dispatch:
 
@@ -15,6 +15,7 @@ concurrency:
 
 jobs:
   community:
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -39,7 +40,7 @@ jobs:
           echo "configured=true" >> "$GITHUB_OUTPUT"
       - name: Install dependencies
         if: ${{ steps.config.outputs.configured == 'true' }}
-        run: npm ci
+        run: npm ci --ignore-scripts
       - name: Run community worker
         if: ${{ steps.config.outputs.configured == 'true' && vars.COMMUNITY_AGENT_SCHEDULE_ENABLED == 'true' }}
         run: npx tsx scripts/run_community_agent.ts
@@ -53,5 +54,5 @@ jobs:
           COMMUNITY_AGENT_APP_URL: ${{ vars.APP_URL }}
           COMMUNITY_AGENT_WORKER_SECRET: ${{ secrets.COMMUNITY_AGENT_WORKER_SECRET }}
 
-      # If Actions are disabled or the application is unavailable, no scheduled
-      # retention request can run; use the cleanup-only command manually instead.
+      # Actions 가 꺼져 있거나 앱이 응답하지 않으면 예약된 보존 정리 요청이 실행되지 않는다.
+      # 그때는 cleanup-only 명령을 수동으로 실행한다.

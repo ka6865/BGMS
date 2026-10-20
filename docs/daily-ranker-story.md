@@ -10,7 +10,7 @@ PUBG 공식 안내에 따르면 Season 36부터 AS 지역 Solo Ranked가 제거�
 
 ## 발행과 재시도
 
-GitHub Actions `daily-ranker-story.yml`은 매일 09:37·12:37 KST에 미발행 모드를 순회한다. 이미 발행된 모드는 보존하고, 일반 실패는 다른 모드로 진행한다. 공유 API 429는 이후 호출을 중단한다. 수동 실행은 `day_kst`와 `mode=all|solo|duo|squad`를 지정한다.
+GitHub Actions `daily-ranker-story.yml`은 매일 09:37·12:37 KST에 미발행 모드를 순회한다. 이미 발행된 모드는 보존하고, 일반 실패는 다른 모드로 진행한다. 공유 API 429는 이후 호출을 중단한다. 09:37 KST 첫 시도의 429는 경고로 남기고 12:37 KST 재시도가 이어받으며, 마지막 시도와 수동 실행의 429는 실패로 센다. 수동 실행은 `day_kst`와 `mode=all|solo|duo|squad`를 지정한다.
 
 ```sh
 npx tsx scripts/publish_daily_ranker_story.ts --day=YYYY-MM-DD --mode=duo

@@ -42,7 +42,7 @@ npx jest __tests__/backpackUtils.test.ts
 - 실제 Gemini 호출 테스트는 `npm run test:ai:gemini`(`RUN_REAL_GEMINI=true`)로만 실행된다. 기본 단위 테스트는 외부 호출을 모킹한다.
 - 셸에서 `npm`/`node`가 없거나 Vitest 네이티브 바인딩이 실패하면 `/opt/homebrew/bin` 또는 `/usr/local/bin`의 Node를 사용한다.
 - push 전 검증: 추적되는 `.githooks/pre-push`가 `verify:core`를 실행한다. 새 clone·worktree에서는 `git config core.hooksPath .githooks`로 켜고, 급할 때만 `SKIP_PRE_PUSH=1 git push`로 건너뛴다(CI는 그대로 검증).
-- CI(`.github/workflows/pr-verify.yml`, Node 22): `verify:core` → `test:unit`, 별도 job으로 `verify:migrations`, `npm audit --omit=dev --audit-level=high`.
+- CI(`.github/workflows/pr-verify.yml`, Node 22): `verify:core` → `test:unit` → `npm test -- --runInBand`(Jest), 별도 job으로 `verify:migrations`, `npm audit --omit=dev --audit-level=high`.
 
 ## Migration 검증 계약
 

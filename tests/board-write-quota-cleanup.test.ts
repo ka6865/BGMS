@@ -145,7 +145,7 @@ describe("board write quota cleanup job", () => {
     expect(maintenance.if).toContain("!cancelled()");
     const steps = maintenance.steps;
     const installIndex = steps.findIndex((step) => (
-      isRecord(step) && step.run === "npm ci"
+      isRecord(step) && step.run === "npm ci --ignore-scripts"
     ));
     const externalMaintenanceIndexes = [
       "npx tsx scripts/monitor_storage.ts --label \"BEFORE\"",

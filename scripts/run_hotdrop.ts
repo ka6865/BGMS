@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import {
+  isPubgRateLimitError,
   parseHotdropConfig,
   runHotdropCollection,
   type HotdropJobResult,
@@ -74,6 +75,11 @@ export async function runHotdropScript(
     dependencies.writeInfo(JSON.stringify(result));
     return 0;
   } catch (error) {
+    // 호출 한도는 일시적이고 다음 실행에서 이어서 수집하므로 경고로 남기고 성공 처리한다.
+    if (isPubgRateLimitError(error)) {
+      dependencies.writeInfo("::warning title=PUBG API 한도 보호::Hotdrop 수집이 429를 받아 이번 실행을 건너뜁니다. 다음 실행에서 재시도합니다.");
+      return 0;
+    }
     dependencies.writeError(`Hotdrop 수집 실패: ${formatHotdropError(error, [
       env.PUBG_API_KEY ?? "",
       env.SUPABASE_SERVICE_ROLE_KEY ?? "",

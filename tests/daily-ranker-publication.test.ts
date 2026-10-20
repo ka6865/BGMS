@@ -209,6 +209,16 @@ describe("daily ranker publication", () => {
     expect(rateLimited.mock.calls.some(([url]) => String(url).includes("/leaderboards/") && String(url).endsWith("/squad"))).toBe(false);
   });
 
+  it("마지막 시도가 아니면 PUBG 한도(429)를 경고로 넘기고, 마지막 시도와 다른 실패는 계속 실패로 센다", () => {
+    const rateLimited = [{ state: "failed", dayKst, mode: "squad", error: "upstream_429:/shards/pc-as/leaderboards/squad" }];
+    expect(publicationExitCode(rateLimited)).toBe(1);
+    expect(publicationExitCode(rateLimited, { finalAttempt: true })).toBe(1);
+    expect(publicationExitCode(rateLimited, { finalAttempt: false })).toBe(0);
+    expect(publicationExitCode([...rateLimited, { state: "failed", mode: "duo", error: "upstream_500:/x" }], { finalAttempt: false })).toBe(1);
+    expect(publicationExitCode({ state: "failed", error: "model transport unavailable" }, { finalAttempt: false })).toBe(1);
+    expect(formatPublicationSummary(rateLimited)).toContain("PUBG API 한도(429) · 다음 시도에서 재시도");
+  });
+
   it("keeps match API outages as failures while treating an unavailable match as an ordinary skip", async () => {
     setupWinningMatch("duo", ["winner"]);
     installApi(null, 503);

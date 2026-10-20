@@ -360,9 +360,20 @@ export async function publishDailyRankerStory(options: { day: string; mode?: Dai
   return options.mode ? results[0] : results;
 }
 
-export function publicationExitCode(result: unknown): number {
+function isRateLimitedResult(item: unknown): boolean {
+  const row = record(item);
+  return row?.state === "failed" && typeof row.error === "string" && /(?:upstream_)?429\b/.test(row.error);
+}
+
+/**
+ * 종료 코드를 정한다. 하루에 여러 번 시도하는 발행은 마지막 시도가 아니면(finalAttempt=false)
+ * PUBG API 한도(429)를 실패로 세지 않는다. 다음 시도가 이어서 처리하기 때문이다.
+ */
+export function publicationExitCode(result: unknown, options: { finalAttempt?: boolean } = {}): number {
+  const finalAttempt = options.finalAttempt ?? true;
   const results = Array.isArray(result) ? result : [result];
   return results.some((item) => {
+    if (!finalAttempt && isRateLimitedResult(item)) return false;
     const state = record(item)?.state;
     return !["published", "already_published", "preview", "unsupported", "no_verified_candidate", "no_complete_story"].includes(String(state));
   }) ? 1 : 0;
@@ -389,7 +400,8 @@ export function formatPublicationSummary(result: unknown): string {
       const state = typeof row.state === "string" ? row.state : "unknown";
       const day = typeof row.dayKst === "string" ? row.dayKst : "확인 불가";
       const mode = typeof row.mode === "string" ? row.mode : "확인 불가";
-      return `| ${day} | ${mode} | ${labels[state] ?? "알 수 없는 결과 · 확인 필요"} |`;
+      const label = isRateLimitedResult(row) ? "PUBG API 한도(429) · 다음 시도에서 재시도" : labels[state] ?? "알 수 없는 결과 · 확인 필요";
+      return `| ${day} | ${mode} | ${label} |`;
     }),
     "",
     "후보나 완성된 스토리가 없으면 정상적으로 미발행 처리됩니다. API·AI·DB 처리 실패는 Actions 실패로 표시됩니다.",
@@ -410,7 +422,8 @@ async function main() {
     const { appendFileSync } = await import("node:fs");
     appendFileSync(summaryPath, `${formatPublicationSummary(result)}\n`);
   }
-  process.exitCode = publicationExitCode(result);
+  // 워크플로가 마지막 예약 시도가 아니라고 알려 준 경우에만 429를 경고로 넘긴다.
+  process.exitCode = publicationExitCode(result, { finalAttempt: process.env.DAILY_STORY_FINAL_ATTEMPT !== "false" });
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

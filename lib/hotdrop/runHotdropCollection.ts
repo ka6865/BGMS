@@ -1,10 +1,15 @@
 const PUBG_BASE = "https://api.pubg.com/shards/steam";
 const GRID_DIVISIONS = 256;
 
-class PubgHttpError extends Error {
+export class PubgHttpError extends Error {
   constructor(readonly status: number) {
     super(`PUBG API error ${status}`);
   }
+}
+
+/** 호출 한도 초과(429)만 구분한다. 키 오류(401/403)는 운영자가 고쳐야 하므로 포함하지 않는다. */
+export function isPubgRateLimitError(error: unknown): boolean {
+  return error instanceof PubgHttpError && error.status === 429;
 }
 
 function isPubgAccessBlocked(error: unknown): boolean {

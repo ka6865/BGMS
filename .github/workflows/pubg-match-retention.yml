@@ -34,7 +34,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   collect:
-    # Enable after applying and verifying the discovery migration.
+    # discovery migration 을 적용하고 검증한 뒤 켠다.
     if: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || vars.PUBG_MATCH_RETENTION_ENABLED == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10

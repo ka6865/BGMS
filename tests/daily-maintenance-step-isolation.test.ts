@@ -60,13 +60,13 @@ describe("일일 유지보수: 앞 step 실패가 뒤 step 을 막지 않는다"
   });
 
   it("의존성 설치 step 이 후속 조건 참조용 id 를 갖는다", () => {
-    const install = maintenanceSteps.find((step) => step.run === "npm ci");
+    const install = maintenanceSteps.find((step) => step.run === "npm ci --ignore-scripts");
     expect(install).toBeTruthy();
     expect(install?.id).toBe("install");
   });
 
   it("DB health gate가 install 직후 실행된다", () => {
-    const installIndex = maintenanceSteps.findIndex((step) => step.run === "npm ci");
+    const installIndex = maintenanceSteps.findIndex((step) => step.run === "npm ci --ignore-scripts");
     const gateIndex = maintenanceSteps.findIndex(
       (step) => step.run === "npx tsx scripts/check_database_maintenance_health.ts",
     );
