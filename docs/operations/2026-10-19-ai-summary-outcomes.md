@@ -102,3 +102,4 @@
 - PR #328은 Vercel 배포를 보류한 상태로 `main`에 통합한다. 루트 `vercel.json`의 `git.deploymentEnabled: false`로 이 설정이 포함된 브랜치의 Git 자동 배포를 중단한다.
 - 기존 운영 배포는 유지한다. 이 설정은 CLI·대시보드의 수동 배포까지 차단하는 권한 설정은 아니다.
 - 배포 재개 시 해당 설정을 제거하거나 `true`로 변경한다. 이 변경을 원격에 반영하면 자동 배포가 다시 발생할 수 있으므로 배포할 커밋과 시점을 먼저 확인한다.
+- 통합 전 CI에서 발견된 `follow-redirects 1.16.0`의 보안 취약점(GHSA-q3jh-wrc6-jgq8, GHSA-8r9p-f939-6h3c)은 기존 axios 의존성 범위 안에서 잠금 버전을 `1.16.1`로 갱신했다. `npm audit --omit=dev --audit-level=high`는 취약점 0건으로 통과했다.
