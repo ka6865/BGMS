@@ -8,6 +8,31 @@ const workflowDirectory = join(process.cwd(), ".github/workflows");
 const workflowFiles = readdirSync(workflowDirectory).filter((file) => file.endsWith(".yml"));
 
 describe("GitHub Actions workflow permissions and action pins", () => {
+  it("수동 실행이 가능한 워크플로의 모든 잡은 main 이외 ref 에서 운영 secret 을 쓰지 못한다", () => {
+    const yaml = createRequire(import.meta.url)("js-yaml") as { load(text: string): any };
+    // failure-notify 는 앞선 잡이 실패했을 때만 돌고, board-image-cleanup 은 항상 꺼져 있다.
+    const exempt = new Set(["failure-notify", "board-image-cleanup"]);
+    const unguarded: string[] = [];
+    for (const file of workflowFiles) {
+      const config = yaml.load(readFileSync(join(workflowDirectory, file), "utf8"));
+      const triggers = config.on;
+      if (!triggers || typeof triggers !== "object" || !("workflow_dispatch" in triggers)) continue;
+      for (const [name, job] of Object.entries<any>(config.jobs)) {
+        if (exempt.has(name)) continue;
+        if (!String(job.if ?? "").includes("github.ref == 'refs/heads/main'")) unguarded.push(`${file}:${name}`);
+      }
+    }
+    expect(unguarded).toEqual([]);
+  });
+
+  it("랭커 스토리는 첫 예약 시도의 429만 경고로 넘기고 마지막 시도와 수동 실행은 실패로 센다", () => {
+    const yaml = createRequire(import.meta.url)("js-yaml") as { load(text: string): any };
+    const config = yaml.load(readFileSync(join(workflowDirectory, "daily-ranker-story.yml"), "utf8"));
+    expect((config.on.schedule as Array<{ cron: string }>).map((entry) => entry.cron)).toEqual(["37 0 * * *", "37 3 * * *"]);
+    const step = config.jobs.publish.steps.find((entry: any) => entry.name === "Publish verified yesterday winners by mode");
+    expect(step.env.DAILY_STORY_FINAL_ATTEMPT).toBe("${{ github.event.schedule == '37 0 * * *' && 'false' || 'true' }}");
+  });
+
   it("archive cleanup pipeline failures stop the workflow before subsequent steps", () => {
     const yaml = createRequire(import.meta.url)("js-yaml") as { load(text: string): any };
     const config = yaml.load(readFileSync(join(workflowDirectory, "pubg-archive-retention.yml"), "utf8"));

@@ -1,8 +1,8 @@
 name: PUBG Performance
 on:
   schedule:
-    # Each run processes at most five sequential jobs and the DB enforces a
-    # daily 30-job budget. Hourly runs keep the backlog moving without bursts.
+    # 한 번에 최대 5개 작업을 순서대로 처리하고, DB 가 하루 30개 예산을 강제한다.
+    # 매시간 실행해 한꺼번에 몰리지 않고 밀린 작업을 계속 처리한다.
     - cron: "11 * * * *"
   workflow_dispatch:
 permissions:

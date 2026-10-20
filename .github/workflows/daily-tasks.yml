@@ -38,7 +38,7 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Run Board Image Cleanup
         env:
@@ -48,7 +48,7 @@ jobs:
 
   support-attachment-cleanup:
     needs: board-image-cleanup
-    if: ${{ always() && !cancelled() }}
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -64,7 +64,7 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Run Support Attachment Cleanup
         env:
@@ -78,6 +78,7 @@ jobs:
           npx tsx scripts/cleanup_support_attachments.ts --apply
 
   board-write-quota-cleanup:
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -93,7 +94,7 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Run Board Write Quota Cleanup
         env:
@@ -115,7 +116,7 @@ jobs:
 
   maintenance:
     needs: board-write-quota-cleanup
-    if: ${{ always() && !cancelled() }}
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' }}
     outputs:
       database_health: ${{ steps.database_health.outcome }}
       pubg_rate_limited: ${{ steps.sync_user_matches.outputs.rate_limited }}
@@ -142,7 +143,7 @@ jobs:
 
       - name: Install Dependencies
         id: install
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Check Database Health Before Maintenance
         id: database_health
@@ -397,9 +398,8 @@ jobs:
           PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
         run: npx tsx scripts/sync_user_matches.ts --limit 15
 
-      # User Matches Sync emits only aggregate fields. Keep the operational
-      # summary useful while never copying a linked nickname or identity into
-      # the Actions summary or a downstream job output.
+      # User Matches Sync 는 집계 필드만 출력한다. 운영 요약은 유용하게 유지하되
+      # 연동 닉네임이나 식별자는 Actions 요약이나 다음 잡의 output 으로 복사하지 않는다.
       - name: Report Linked PUBG Sync Summary
         id: linked_sync_summary
         if: ${{ always() && !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.sync_user_matches.outcome != 'skipped' }}
@@ -469,7 +469,7 @@ jobs:
   # 429는 스크립트가 rateLimited 결과를 남기고 정상 종료하므로, 다음 날 unknown 행만 이어서 처리한다.
   match-type-backfill:
     needs: [board-write-quota-cleanup, maintenance]
-    if: ${{ always() && !cancelled() && needs.maintenance.outputs.database_health == 'success' }}
+    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' && needs.maintenance.outputs.database_health == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -483,7 +483,7 @@ jobs:
           node-version: '22'
           cache: 'npm'
       - name: Install Dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
       - name: Backfill Unknown Match Types
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}

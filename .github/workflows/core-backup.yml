@@ -14,6 +14,7 @@ concurrency:
 
 jobs:
   backup:
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -29,7 +30,7 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Backup Core Tables
         id: core_backup

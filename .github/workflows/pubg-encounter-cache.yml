@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   cleanup:
-    if: ${{ vars.PUBG_ENCOUNTER_CACHE_ENABLED == 'true' }}
+    if: ${{ github.ref == 'refs/heads/main' && vars.PUBG_ENCOUNTER_CACHE_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -104,9 +104,9 @@ type MaintenanceWorkflow = {
 
   it("bounds daily jobs and includes support cleanup in failure notifications", () => {
     const content = readFileSync(join(process.cwd(), ".github/workflows/daily-tasks.yml"), "utf-8");
-    expect(content).toContain("support-attachment-cleanup:\n    needs: board-image-cleanup\n    if: ${{ always() && !cancelled() }}\n    runs-on: ubuntu-latest\n    timeout-minutes: 10");
-    expect(content).toContain("board-write-quota-cleanup:\n    runs-on: ubuntu-latest\n    timeout-minutes: 5");
-    expect(content).toContain("maintenance:\n    needs: board-write-quota-cleanup\n    if: ${{ always() && !cancelled() }}");
+    expect(content).toContain("support-attachment-cleanup:\n    needs: board-image-cleanup\n    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' }}\n    runs-on: ubuntu-latest\n    timeout-minutes: 10");
+    expect(content).toContain("board-write-quota-cleanup:\n    if: ${{ github.ref == 'refs/heads/main' }}\n    runs-on: ubuntu-latest\n    timeout-minutes: 5");
+    expect(content).toContain("maintenance:\n    needs: board-write-quota-cleanup\n    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' }}");
     expect(content).toContain("timeout-minutes: 90");
     expect(content).toContain("needs: [support-attachment-cleanup, board-write-quota-cleanup, maintenance, match-type-backfill]");
     expect(content).toContain("--connect-timeout 10 --max-time 60");

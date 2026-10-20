@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { formatHotdropError, runHotdropScript } from "../scripts/run_hotdrop";
+import { PubgHttpError } from "../lib/hotdrop/runHotdropCollection";
 
 describe("runHotdropScript", () => {
   it.each([
@@ -117,5 +118,37 @@ describe("runHotdropScript", () => {
       processedMatches: 2,
       skippedMatches: 0,
     }));
+  });
+
+  const rateLimitEnv = {
+    PUBG_API_KEY: "pubg-key",
+    NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co",
+    SUPABASE_SERVICE_ROLE_KEY: "service-role",
+  };
+
+  it("PUBG 호출 한도(429)는 경고로 남기고 성공 처리해 다음 실행이 이어받는다", async () => {
+    const writeInfo = vi.fn();
+    const writeError = vi.fn();
+    const exitCode = await runHotdropScript(rateLimitEnv, {
+      createSupabase: vi.fn().mockReturnValue({}),
+      runJob: vi.fn().mockRejectedValue(new PubgHttpError(429)),
+      writeInfo,
+      writeError,
+    });
+    expect(exitCode).toBe(0);
+    expect(writeError).not.toHaveBeenCalled();
+    expect(writeInfo).toHaveBeenCalledWith(expect.stringContaining("::warning title=PUBG API 한도 보호::"));
+  });
+
+  it.each([401, 403, 500])("PUBG 키 오류나 서버 오류(%i)는 계속 실패로 센다", async (status) => {
+    const writeError = vi.fn();
+    const exitCode = await runHotdropScript(rateLimitEnv, {
+      createSupabase: vi.fn().mockReturnValue({}),
+      runJob: vi.fn().mockRejectedValue(new PubgHttpError(status)),
+      writeInfo: vi.fn(),
+      writeError,
+    });
+    expect(exitCode).toBe(1);
+    expect(writeError).toHaveBeenCalledWith(`Hotdrop 수집 실패: PUBG API error ${status}`);
   });
 });

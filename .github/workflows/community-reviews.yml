@@ -10,7 +10,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   reviews:
-    if: ${{ vars.COMMUNITY_AGENT_SCHEDULE_ENABLED == 'true' }}
+    if: ${{ github.ref == 'refs/heads/main' && vars.COMMUNITY_AGENT_SCHEDULE_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:

@@ -2,8 +2,9 @@ name: Daily Ranker Story
 
 on:
   schedule:
-    # 09:37 KST. GitHub schedules are UTC and can be delayed.
-    - cron: '37 0,3 * * *'
+    # 09:37 KST(00:37 UTC)와 12:37 KST(03:37 UTC)에 두 번 시도한다. GitHub 예약 실행은 UTC 기준이며 지연될 수 있다.
+    - cron: '37 0 * * *'
+    - cron: '37 3 * * *'
   workflow_dispatch:
     inputs:
       day_kst:
@@ -26,6 +27,7 @@ concurrency:
 
 jobs:
   publish:
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -36,7 +38,7 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - name: Publish verified yesterday winners by mode
         env:
           PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
@@ -45,6 +47,8 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DAY_KST: ${{ inputs.day_kst }}
           DAILY_MODE: ${{ inputs.mode }}
+          # 09:37 KST 첫 시도의 PUBG 429는 12:37 KST 재시도가 이어받으므로 경고로 넘긴다. 마지막 시도와 수동 실행은 실패로 센다.
+          DAILY_STORY_FINAL_ATTEMPT: ${{ github.event.schedule == '37 0 * * *' && 'false' || 'true' }}
         run: |
           mode_arg=()
           if [ -n "$DAILY_MODE" ] && [ "$DAILY_MODE" != "all" ]; then

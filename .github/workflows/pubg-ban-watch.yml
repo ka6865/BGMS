@@ -14,9 +14,8 @@ concurrency:
 
 jobs:
   refresh:
-    # Keep the job dormant until the ban-watch migration and secrets are
-    # enabled in the deployment environment.
-    if: ${{ vars.PUBG_BAN_WATCH_ENABLED == 'true' }}
+    # 배포 환경에 ban-watch migration 과 secret 이 준비되기 전까지 잡을 꺼 둔다.
+    if: ${{ github.ref == 'refs/heads/main' && vars.PUBG_BAN_WATCH_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
