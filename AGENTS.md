@@ -38,7 +38,7 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - 커뮤니티 비서 운영: `docs/community-agent-operations.md`
 - 수집·랭킹·조우·운영 변경: 관련 `docs/operations/` 문서
 
-`.agents/`, `.agents-drafts/`, `docs-private/`는 현재 Git 제외 대상이다. 이 파일들이 없는 작업 폴더에서는 실제 구현, `package.json`, 저장소에 포함된 `docs/`와 테스트를 사용하고 누락된 로컬 지침을 보고한다. `.agents-drafts/`는 초안이며 실사용 스킬을 대체하지 않는다. 공유할 공통 규칙은 이 파일에 유지한다.
+`.agents/skills/bgms-*`와 `.claude/skills/bgms-*` 링크는 Git에서 추적한다. 그 외 `.agents/`(rules 등), `.agents-drafts/`, `docs-private/`는 Git 제외 대상이다. 제외 대상 파일이 없는 작업 폴더에서는 실제 구현, `package.json`, 저장소에 포함된 `docs/`와 테스트를 사용하고 누락된 로컬 지침을 보고한다. `.agents-drafts/`는 초안이며 실사용 스킬을 대체하지 않는다. 공유할 공통 규칙은 이 파일에 유지한다.
 
 ## 검증
 

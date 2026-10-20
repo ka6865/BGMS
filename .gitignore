@@ -56,7 +56,10 @@ generate-tiles.js
 
 # MCP & Agent 관련 (보안 및 로컬 설정)
 .gemini/
-.agents/
+.agents/*
+!.agents/skills/
+.agents/skills/*
+!.agents/skills/bgms-*/
 .cursor/
 mcp_config.json
 skills-lock.json
