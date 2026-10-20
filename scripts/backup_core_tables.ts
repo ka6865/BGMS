@@ -62,13 +62,11 @@ export const BACKUP_TABLES = [
 export const PAGE_SIZE = 1_000;
 
 /**
- * 테이블별 기본키. 백업 대상이 아닌 대형 테이블(pubg_player_matches)의 읽기 구성도 남겨 둔다.
- * 다시 대상에 넣을 때 필요하고, 구간 분할·키셋 읽기 테스트의 대형 테이블 기준으로 쓴다.
- * 정렬과 다음 페이지 조건을 기본키 순서와 같게 맞춰야
+ * 테이블별 기본키. 정렬과 다음 페이지 조건을 기본키 순서와 같게 맞춰야
  * 기본키 인덱스를 따라 읽는다. 다른 순서로 정렬하면 페이지마다 테이블 전체를
  * 정렬해 큰 테이블에서 statement timeout 이 난다.
  */
-export const TABLE_KEYS: Record<string, readonly string[]> = {
+export const TABLE_KEYS: Record<(typeof BACKUP_TABLES)[number], readonly string[]> = {
   profiles: ["id"],
   map_markers: ["id"],
   pending_markers: ["id"],
@@ -78,7 +76,6 @@ export const TABLE_KEYS: Record<string, readonly string[]> = {
   map_settings: ["map_id"],
   reports: ["id"],
   global_benchmarks: ["id"],
-  pubg_player_matches: ["player_id", "platform", "match_id"],
   pubg_match_performance: ["platform", "account_id", "match_id", "calculation_version", "result_version"],
   weapon_meta_match_samples: ["id"],
   weapon_meta_patches: ["version"],
@@ -94,28 +91,6 @@ export const PART_ROWS = 50_000;
 
 /** 한 요청의 최대 대기 시간. */
 export const REQUEST_TIMEOUT_MS = 30_000;
-
-/**
- * 첫 키 구간으로 나눠 동시에 읽을 테이블과 동시 읽기 수.
- * GitHub 러너(미국)에서 서울 DB 를 읽을 때 페이지 전송이 병목이라 구간을 나눠 함께 읽는다.
- */
-export const PARALLEL_READ_TABLES: Record<string, number> = {
-  pubg_player_matches: 4,
-};
-
-/** 동시 읽기 수. 운영 측정용으로 BACKUP_PARALLEL_READERS(1~8)로 덮어쓸 수 있다. */
-function readersFor(table: string): number {
-  const configured = PARALLEL_READ_TABLES[table];
-  if (!configured) return 1;
-  const override = Number(process.env.BACKUP_PARALLEL_READERS);
-  return Number.isInteger(override) && override >= 1 && override <= 8 ? override : configured;
-}
-
-/**
- * 첫 키의 값 종류가 적어(예: platform) 빠른 경로가 매번 정확한 경로로 넘어가는 테이블.
- * 헛된 요청을 줄이려고 처음부터 정확한 경로로 읽는다.
- */
-export const SKIP_FAST_PATH_TABLES: ReadonlySet<string> = new Set(["pubg_match_performance"]);
 
 export type TableBackupResult = {
   table: string;
@@ -155,9 +130,6 @@ function keysFor(table: string): readonly string[] {
  */
 type KeysetPage = PageResult & { done: boolean };
 
-/** 첫 키 기준 구간. after 초과, through 이하. 비교는 모두 DB 가 한다. */
-export type KeyRange = { after?: unknown; through?: unknown };
-
 /**
  * 페이지 한 번의 일시적 실패(statement timeout, 요청 중단, 네트워크)를 다시 시도하는 대기 시간.
  * 153만 행 전적은 17분 넘게 읽는데, 페이지 하나가 DB 부하로 8초 제한에 걸렸다고 전체 백업을 버리면
@@ -192,11 +164,6 @@ async function runQuery(query: ReturnType<ReturnType<TableReader["from"]>["selec
 /**
  * 기본키 순서로 last 다음 행을 limit 개까지 읽는다. done 은 테이블 끝까지 읽었는지 나타낸다.
  *
- * 빠른 경로(복합키): 첫 키 >= 마지막 값 으로 PAGE_SIZE 행을 한 번에 읽고, DB 가 정렬한 결과 안에서
- * 마지막으로 읽은 행의 위치를 찾아 그 뒤만 쓴다. JS 문자열 비교는 DB 정렬 규칙과 다를 수 있어 쓰지 않는다.
- * 대부분의 페이지가 요청 1번으로 끝난다.
- *
- * 정확한 경로: 마지막 행을 찾지 못하면(같은 첫 키 묶음이 PAGE_SIZE 보다 크거나 그 사이 삭제됨)
  * 복합키 (k1, k2, k3) 의 다음 행을 깊은 단계부터 차례로 찾는다.
  *   k1 = v1 and k2 = v2 and k3 > v3  → 같은 묶음의 나머지
  *   k1 = v1 and k2 > v2              → 다음 k2 묶음
@@ -208,35 +175,15 @@ export async function readKeysetPage(
   table: string,
   last: Row | null,
   limit: number,
-  range: KeyRange = {},
 ): Promise<KeysetPage> {
   const keys = keysFor(table);
-  const select = () => {
-    let query = supabase.from(table).select("*");
-    if (range.after !== undefined) query = query.gt(keys[0], range.after);
-    if (range.through !== undefined) query = query.lte(keys[0], range.through);
-    return query;
-  };
   const order = <T extends { order: (column: string) => T }>(query: T): T => keys.reduce((q, key) => q.order(key), query);
-
-  if (last && keys.length > 1 && !SKIP_FAST_PATH_TABLES.has(table)) {
-    const fast = await runQuery(order(select().gte(keys[0], last[keys[0]])), PAGE_SIZE);
-    if (fast.error) return { data: [], error: fast.error, done: false };
-    const index = fast.data.findIndex(row => keys.every(key => row[key] === last[key]));
-    if (index >= 0) {
-      const after = fast.data.slice(index + 1);
-      const reachedEnd = fast.data.length < PAGE_SIZE;
-      if (after.length > 0 || reachedEnd) {
-        return { data: after.slice(0, limit), error: null, done: reachedEnd && after.length <= limit };
-      }
-    }
-  }
 
   const rows: Row[] = [];
   const depths = last ? keys.map((_, index) => keys.length - 1 - index) : [-1];
   for (const depth of depths) {
     if (rows.length >= limit) break;
-    let query = select();
+    let query = supabase.from(table).select("*");
     if (last && depth >= 0) {
       for (const key of keys.slice(0, depth)) query = query.eq(key, last[key]);
       query = query.gt(keys[depth], last[keys[depth]]);
@@ -258,7 +205,7 @@ export async function streamTableRows(
   supabase: TableReader,
   table: string,
   onPage: (rows: Row[]) => Promise<void> | void,
-  options: { maxRows?: number; range?: KeyRange } = {},
+  options: { maxRows?: number } = {},
 ): Promise<{ rowCount: number; skipped: boolean; error: string | null }> {
   const maxRows = options.maxRows ?? MAX_ROWS_PER_TABLE;
   let rowCount = 0;
@@ -268,7 +215,7 @@ export async function streamTableRows(
     const remaining = maxRows - rowCount;
     // 한도에 닿으면 한 행만 더 읽어 한도를 넘는 테이블인지 확인한다.
     const { data, error, done } = await readKeysetPage(
-      supabase, table, last, remaining > 0 ? Math.min(PAGE_SIZE, remaining) : 1, options.range,
+      supabase, table, last, remaining > 0 ? Math.min(PAGE_SIZE, remaining) : 1,
     );
     if (remaining <= 0) {
       if (error) return { rowCount, skipped: false, error };
@@ -285,73 +232,6 @@ export async function streamTableRows(
   }
 
   return { rowCount, skipped: false, error: null };
-}
-
-/**
- * 구간 경계 후보. 숫자 다음 소문자 순서는 C·en_US 등 일반적인 정렬 규칙에서 같으므로,
- * 이 배열 순서대로 고른 경계는 DB 정렬 순서로도 오름차순이다. 구간이 겹치지 않는 근거다.
- */
-const RANGE_PROBES = "0123456789abcdefghijklmnopqrstuvwxyz".split("");
-
-/**
- * 첫 키 값으로 테이블을 readers 개 구간으로 나눈다.
- *
- * 큰 OFFSET 조회는 운영 statement timeout 에 걸리므로 쓰지 않는다. 대신 후보 값마다
- * "첫 키 < 후보" 행 수를 실행 계획 추정(planned)으로 구하고, 전체를 readers 등분하는 지점에
- * 가장 가까운 후보를 경계로 고른다. 경계는 실제 키일 필요가 없다. 구간 비교(after 초과·through 이하)는
- * DB 가 하므로 추정이 틀려도 구간 크기만 달라질 뿐 행이 빠지거나 겹치지 않는다.
- * 경계를 구하지 못하면 구간 하나로 읽는다.
- */
-export async function planReadRanges(
-  supabase: TableReader,
-  table: string,
-  readers: number,
-): Promise<KeyRange[]> {
-  const keys = keysFor(table);
-  if (readers <= 1) return [{}];
-  try {
-    const counted = await supabase.from(table).select(keys[0], { count: "planned", head: true })
-      .abortSignal(AbortSignal.timeout(REQUEST_TIMEOUT_MS));
-    const total = counted.count ?? 0;
-    if (counted.error || total < readers * PAGE_SIZE) return [{}];
-
-    const estimates: Array<{ probe: string; before: number }> = [];
-    for (const probe of RANGE_PROBES) {
-      const before = await supabase.from(table).select(keys[0], { count: "planned", head: true })
-        .lt(keys[0], probe).abortSignal(AbortSignal.timeout(REQUEST_TIMEOUT_MS));
-      if (before.error || typeof before.count !== "number") return [{}];
-      estimates.push({ probe, before: before.count });
-    }
-    // 경계 순서는 후보 배열 순서로만 정한다. 추정 행 수는 어느 후보를 고를지에만 쓴다
-    // (실행 계획 추정이 단조라는 보장이 없어 순서 판단에 쓰면 구간이 겹칠 수 있다).
-    const boundaries: string[] = [];
-    let lastIndex = -1;
-    let lastBefore = 0;
-    for (let index = 1; index < readers; index += 1) {
-      const target = (total * index) / readers;
-      let chosen = -1;
-      for (let candidate = lastIndex + 1; candidate < estimates.length; candidate += 1) {
-        const before = estimates[candidate].before;
-        if (before <= lastBefore || before >= total) continue;
-        if (chosen < 0 || Math.abs(before - target) < Math.abs(estimates[chosen].before - target)) chosen = candidate;
-      }
-      if (chosen < 0) break;
-      boundaries.push(estimates[chosen].probe);
-      lastIndex = chosen;
-      lastBefore = estimates[chosen].before;
-    }
-    if (boundaries.length === 0) return [{}];
-
-    // 경계 값과 같은 키는 아래 구간(이하)에 들어간다.
-    const ranges: KeyRange[] = boundaries.map((through, index) => ({
-      ...(index > 0 ? { after: boundaries[index - 1] } : {}),
-      through,
-    }));
-    ranges.push({ after: boundaries[boundaries.length - 1] });
-    return ranges;
-  } catch {
-    return [{}];
-  }
 }
 
 /** 한 테이블 전체를 메모리로 읽습니다. 작은 테이블과 검증용입니다. */
@@ -452,7 +332,7 @@ export async function restoreBackupRows(
 export async function backupCoreTables(
   supabase: TableReader,
   upload: (key: string, body: string) => Promise<void>,
-  options: { dryRun?: boolean; now?: Date; write?: (message: string) => void; partRows?: number; tables?: readonly string[] } = {},
+  options: { dryRun?: boolean; now?: Date; write?: (message: string) => void; partRows?: number } = {},
 ): Promise<BackupResult> {
   const dryRun = options.dryRun === true;
   const now = options.now ?? new Date();
@@ -465,26 +345,20 @@ export async function backupCoreTables(
   const parts: Record<string, BackupPart[]> = {};
   let totalRows = 0;
 
-  // tables 는 일부 테이블만 시험할 때 쓴다. 운영 실행은 항상 BACKUP_TABLES 전체를 읽는다.
-  for (const table of options.tables ?? BACKUP_TABLES) {
-    const ranges = await planReadRanges(supabase, table, readersFor(table));
-    const buffers: Row[][] = ranges.map(() => []);
+  for (const table of BACKUP_TABLES) {
+    const buffer: Row[] = [];
     const tableParts: BackupPart[] = [];
-    let partCount = 0;
     let uploadError: string | null = null;
 
-    // part 번호는 올리기 직전에 순서대로 정한다. 여러 구간이 동시에 올려도 번호가 겹치지 않는다.
     const flush = async (rows: Row[]) => {
-      const index = (partCount += 1);
-      const partKey = buildPartKey(key, table, index);
+      const partKey = buildPartKey(key, table, tableParts.length + 1);
       await upload(partKey, JSON.stringify(rows));
       tableParts.push({ key: partKey, rows: rows.length });
     };
 
-    const reads = await Promise.all(ranges.map((range, rangeIndex) => streamTableRows(supabase, table, async (page) => {
+    const read = await streamTableRows(supabase, table, async (page) => {
       // dry-run 은 행 수만 세고 행을 보관하지 않는다.
       if (dryRun || uploadError) return;
-      const buffer = buffers[rangeIndex];
       buffer.push(...page);
       if (buffer.length >= partRows) {
         const rows = buffer.splice(0, partRows);
@@ -494,28 +368,23 @@ export async function backupCoreTables(
           uploadError = "backup-part-upload-failed";
         }
       }
-    }, { range })));
+    });
 
-    const rowCount = reads.reduce((sum, read) => sum + read.rowCount, 0);
-    const skipped = reads.every(read => read.skipped);
-    const readError = reads.find(read => read.error)?.error ?? null;
+    const { rowCount, skipped, error: readError } = read;
     const limitError = rowCount > MAX_ROWS_PER_TABLE ? "backup-row-limit-exceeded" : null;
 
-    // 이미 part 로 나눈 테이블은 남은 행도 part 로 올린다. 작은 테이블은 구간 순서대로 이어 manifest 에 담는다.
-    let inline: Row[] = buffers.flat();
+    // 이미 part 로 나눈 테이블은 남은 행도 part 로 올린다. 작은 테이블은 manifest 에 그대로 담는다.
+    let inline: Row[] = buffer;
     if (!dryRun && !uploadError && tableParts.length > 0) {
-      for (const buffer of buffers) {
-        if (buffer.length === 0) continue;
+      if (buffer.length > 0) {
         try {
           await flush(buffer);
         } catch {
           uploadError = "backup-part-upload-failed";
-          break;
         }
       }
       inline = [];
     }
-    tableParts.sort((left, right) => left.key.localeCompare(right.key));
 
     const error = readError ?? limitError ?? uploadError;
     tables.push({
@@ -531,7 +400,6 @@ export async function backupCoreTables(
       totalRows += rowCount;
     }
     write(`${table}: ${skipped ? "건너뜀" : `${rowCount.toLocaleString()}행`}`
-      + `${ranges.length > 1 ? ` (구간 ${ranges.length}개 동시 읽기)` : ""}`
       + `${tableParts.length > 0 ? ` (part ${tableParts.length}개)` : ""}${error ? ` (${error})` : ""}`);
   }
 

@@ -11,10 +11,8 @@ import {
   backupCoreTables,
   buildBackupKey,
   buildPartKey,
-  planReadRanges,
   readRetry,
   readTableRows,
-  streamTableRows,
   restoreBackupRows,
 } from "../scripts/backup_core_tables";
 import { verifyCoreBackup } from "../scripts/verify_core_backup";
@@ -88,7 +86,6 @@ describe("핵심 테이블 백업", () => {
   it("모든 백업 대상에 기본키 순서를 정의한다", () => {
     for (const table of BACKUP_TABLES) expect(TABLE_KEYS[table].length).toBeGreaterThan(0);
     // 운영 기본키와 같은 순서여야 인덱스를 따라 읽는다.
-    expect(TABLE_KEYS.pubg_player_matches).toEqual(["player_id", "platform", "match_id"]);
     expect(TABLE_KEYS.pubg_match_performance)
       .toEqual(["platform", "account_id", "match_id", "calculation_version", "result_version"]);
   });
@@ -103,50 +100,40 @@ describe("핵심 테이블 백업", () => {
     expect(result.skipped).toBe(false);
   });
 
+  const performanceKey = (account: string, match: string) =>
+    ({ platform: "steam", account_id: account, match_id: match, calculation_version: 3, result_version: 73 });
+
   it("복합 기본키 테이블을 OFFSET 없이 기본키 순서로 빠짐없이 한 번씩 읽는다", async () => {
-    // 한 선수의 경기가 페이지 경계에 걸치도록 묶음 크기를 PAGE_SIZE 와 어긋나게 만든다.
+    // 한 계정의 경기가 페이지 경계에 걸치도록 묶음 크기를 PAGE_SIZE 와 어긋나게 만든다.
     const rows: Row[] = [];
-    for (let player = 0; player < 7; player++) {
-      for (const platform of ["kakao", "steam"]) {
+    for (const platform of ["kakao", "steam"]) {
+      for (let account = 0; account < 7; account++) {
         for (let match = 0; match < 333; match++) {
-          rows.push({ player_id: `p${player}`, platform, match_id: `m${String(match).padStart(4, "0")}` });
+          rows.push({ ...performanceKey(`a${account}`, `m${String(match).padStart(4, "0")}`), platform });
         }
       }
     }
     const shuffled = [...rows].reverse();
-    const supabase = createSupabase({ pubg_player_matches: shuffled }) as unknown as { from: ReturnType<typeof vi.fn> };
+    const supabase = createSupabase({ pubg_match_performance: shuffled }) as unknown as { from: ReturnType<typeof vi.fn> };
 
-    const result = await readTableRows(supabase as never, "pubg_player_matches");
+    const result = await readTableRows(supabase as never, "pubg_match_performance");
 
     expect(result.error).toBeNull();
     expect(result.rows).toEqual(rows);
     const chains = supabase.from.mock.results.map(entry => entry.value);
     expect(chains.every(chain => chain.limit.mock.calls.every(([count]: [number]) => count <= PAGE_SIZE))).toBe(true);
     expect(chains.every(chain => chain.range.mock.calls.length === 0)).toBe(true);
-    expect(chains[0].order.mock.calls.map(([column]: [string]) => column)).toEqual(["player_id", "platform", "match_id"]);
+    expect(chains[0].order.mock.calls.map(([column]: [string]) => column))
+      .toEqual(["platform", "account_id", "match_id", "calculation_version", "result_version"]);
   });
 
-  it("복합 기본키 테이블은 대부분의 페이지를 요청 1번으로 읽는다", async () => {
-    const rows: Row[] = [];
-    for (let player = 0; player < 50; player++) {
-      for (let match = 0; match < 97; match++) rows.push({ player_id: `p${String(player).padStart(3, "0")}`, platform: "steam", match_id: `m${String(match).padStart(3, "0")}` });
-    }
-    const supabase = createSupabase({ pubg_player_matches: rows }) as unknown as { from: ReturnType<typeof vi.fn> };
-
-    const result = await readTableRows(supabase as never, "pubg_player_matches");
-
-    expect(result.rows).toEqual(rows);
-    const pages = Math.ceil(rows.length / PAGE_SIZE);
-    // 페이지마다 이미 읽은 묶음 일부를 다시 받으므로 페이지 수가 조금 늘 수 있지만, 단계 조회(페이지당 3번)보다 훨씬 적다.
-    expect(supabase.from.mock.calls.length).toBeLessThanOrEqual(pages * 2);
-  });
-
-  it("한 묶음이 PAGE_SIZE 보다 커도 정확한 단계 조회로 빠짐없이 한 번씩 읽는다", async () => {
-    const big = Array.from({ length: 2_345 }, (_, match) => ({ player_id: "p0", platform: "steam", match_id: `m${String(match).padStart(5, "0")}` }));
-    const rest = Array.from({ length: 10 }, (_, match) => ({ player_id: "p1", platform: "kakao", match_id: `m${match}` }));
-    const result = await readTableRows(createSupabase({ pubg_player_matches: [...rest, ...big] }), "pubg_player_matches");
+  it("한 묶음이 PAGE_SIZE 보다 커도 단계 조회로 빠짐없이 한 번씩 읽는다", async () => {
+    const big = Array.from({ length: 2_345 }, (_, match) => performanceKey("a0", `m${String(match).padStart(5, "0")}`));
+    const rest = Array.from({ length: 10 }, (_, match) => ({ ...performanceKey("a1", `m${match}`), platform: "steam" }));
+    const result = await readTableRows(createSupabase({ pubg_match_performance: [...rest, ...big] }), "pubg_match_performance");
     expect(result.error).toBeNull();
-    expect(result.rows).toEqual([...big, ...rest]);
+    expect(result.rows).toEqual([...big, ...rest].sort((x, y) =>
+      compare(x.account_id, y.account_id) || compare(x.match_id, y.match_id)));
   });
 
   it("한 테이블을 읽지 못해도 나머지를 백업한다", async () => {
@@ -300,120 +287,6 @@ describe("핵심 테이블 백업", () => {
     const manifest = uploaded[uploaded.length - 1];
     expect(manifest.endsWith(".json") && !manifest.includes("/part-")).toBe(true);
     expect(() => assertBackupComplete(result)).toThrow("backup-core-tables-incomplete: weapon_meta_match_samples");
-  });
-
-  describe("구간 동시 읽기", () => {
-    // 첫 글자가 0~z 에 고르게 퍼진 닉네임을 만든다.
-    const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz";
-    const players = (count: number, perPlayer: number) => {
-      const rows: Row[] = [];
-      for (let player = 0; player < count; player++) {
-        const id = `${alphabet[player % alphabet.length]}${String(player).padStart(4, "0")}`;
-        for (let match = 0; match < perPlayer; match++) {
-          rows.push({ player_id: id, platform: "steam", match_id: `m${String(match).padStart(3, "0")}` });
-        }
-      }
-      return rows.sort((a, b) => compare(a.player_id, b.player_id) || compare(a.match_id, b.match_id));
-    };
-    const keyOf = (row: Row) => `${row.player_id}|${row.platform}|${row.match_id}`;
-
-    it("첫 키 값으로 겹치지 않는 오름차순 구간을 만든다", async () => {
-      const ranges = await planReadRanges(createSupabase({ pubg_player_matches: players(200, 50) }), "pubg_player_matches", 4);
-      expect(ranges).toHaveLength(4);
-      expect(ranges[0]).toEqual({ through: ranges[1].after });
-      expect(ranges[3]).toEqual({ after: ranges[2].through });
-      const bounds = ranges.slice(0, 3).map(range => range.through as string);
-      expect([...bounds].sort()).toEqual(bounds);
-      expect(new Set(bounds).size).toBe(3);
-    });
-
-    it("큰 묶음 때문에 경계가 같으면 하나로 줄이고, 작은 테이블은 구간 하나로 읽는다", async () => {
-      const skewed = [...players(1, 9_000), ...players(3, 10).map(row => ({ ...row, player_id: `z${row.player_id}` }))];
-      const ranges = await planReadRanges(createSupabase({ pubg_player_matches: skewed }), "pubg_player_matches", 4);
-      expect(ranges.length).toBeLessThan(4);
-      expect(await planReadRanges(createSupabase({ pubg_player_matches: players(2, 10) }), "pubg_player_matches", 4)).toEqual([{}]);
-    });
-
-    it("경계 계산에 큰 OFFSET 조회를 쓰지 않는다", async () => {
-      const supabase = createSupabase({ pubg_player_matches: players(200, 50) }) as unknown as { from: ReturnType<typeof vi.fn> };
-      await planReadRanges(supabase as never, "pubg_player_matches", 4);
-      const chains = supabase.from.mock.results.map(entry => entry.value);
-      expect(chains.every(chain => chain.range.mock.calls.length === 0)).toBe(true);
-    });
-
-    it("후보 밖의 첫 글자(대문자·한글·기호)가 섞여도 모든 행이 정확히 한 구간에 들어간다", async () => {
-      const odd = ["Zed", "가나다", "_under", "~tilde", "Ärger"].flatMap(id =>
-        Array.from({ length: 30 }, (_, match) => ({ player_id: id, platform: "kakao", match_id: `m${match}` })));
-      const source = [...players(200, 50), ...odd];
-      const supabase = createSupabase({ pubg_player_matches: source });
-      const ranges = await planReadRanges(supabase, "pubg_player_matches", 4);
-      expect(ranges.length).toBeGreaterThan(1);
-      const seen: string[] = [];
-      for (const range of ranges) {
-        await streamTableRows(supabase, "pubg_player_matches", rows => { seen.push(...rows.map(row => keyOf(row))); }, { range });
-      }
-      expect(seen).toHaveLength(source.length);
-      expect(new Set(seen).size).toBe(source.length);
-    });
-
-    it("여러 구간을 동시에 읽어 올린 백업을 목록대로 복원하면 모든 행이 정확히 한 번씩 있다", async () => {
-      const source = players(240, 45);
-      const now = new Date("2026-10-14T00:00:00.000Z");
-      const store = new Map<string, string>();
-      const result = await backupCoreTables(createSupabase({ pubg_player_matches: source }),
-        async (key, body) => { store.set(key, body); },
-        { write: () => undefined, partRows: 1_000, now, tables: ["pubg_player_matches"] });
-
-      expect(result.complete).toBe(true);
-      const manifestKey = buildBackupKey(now);
-      const manifest = JSON.parse(store.get(manifestKey)!);
-      const restored = await restoreBackupRows(manifestKey, manifest, async key => store.get(key) ?? null, ["pubg_player_matches"]);
-      const keys = restored.pubg_player_matches.map(row => keyOf(row as Row));
-      expect(keys).toHaveLength(source.length);
-      expect(new Set(keys).size).toBe(source.length);
-      expect([...keys].sort()).toEqual(source.map(keyOf).sort());
-      expect(manifest.parts.pubg_player_matches.map((part: { key: string }) => part.key))
-        .toEqual(manifest.parts.pubg_player_matches.map((_: unknown, index: number) => buildPartKey(manifestKey, "pubg_player_matches", index + 1)));
-    });
-
-    it("한 구간이라도 읽기에 실패하면 완전 백업으로 보고하지 않는다", async () => {
-      const source = players(240, 45);
-      const ranges = await planReadRanges(createSupabase({ pubg_player_matches: source }), "pubg_player_matches", 4);
-      const failingAfter = ranges[2].after;
-      const supabase = createSupabase({ pubg_player_matches: source }) as unknown as { from: ReturnType<typeof vi.fn> };
-      type FakeChain = { gt: (column: string, value: unknown) => unknown; then: unknown };
-      const original = supabase.from.getMockImplementation() as unknown as (table: string) => FakeChain;
-      supabase.from.mockImplementation((table: string) => {
-        const chain = original(table);
-        const gt = chain.gt;
-        chain.gt = vi.fn((column: string, value: unknown) => {
-          // 세 번째 구간(첫 키 > failingAfter)의 조회만 실패시킨다.
-          if (column === "player_id" && value === failingAfter) {
-            chain.then = (resolve: (value: unknown) => unknown) =>
-              Promise.resolve({ data: null, error: { message: "range read failed" } }).then(resolve);
-          }
-          return gt(column, value);
-        });
-        return chain;
-      });
-
-      const result = await backupCoreTables(supabase as never, async () => undefined,
-        { write: () => undefined, partRows: 1_000, tables: ["pubg_player_matches"] });
-      const matches = result.tables.find(table => table.table === "pubg_player_matches")!;
-      expect(result.complete).toBe(false);
-      expect(matches.error).toBe("range read failed");
-      expect(matches.rowCount).toBeLessThan(source.length);
-      expect(() => assertBackupComplete(result)).toThrow("pubg_player_matches");
-    });
-
-    it("첫 키 종류가 적은 성과 테이블은 빠른 경로를 건너뛴다", async () => {
-      const rows = Array.from({ length: 2_500 }, (_, index) => ({ platform: "steam", account_id: `a${String(index).padStart(5, "0")}`, match_id: "m", calculation_version: 3, result_version: 73 }));
-      const supabase = createSupabase({ pubg_match_performance: rows }) as unknown as { from: ReturnType<typeof vi.fn> };
-      const result = await readTableRows(supabase as never, "pubg_match_performance");
-      expect(result.rows).toEqual(rows);
-      const chains = supabase.from.mock.results.map(entry => entry.value);
-      expect(chains.some(chain => chain.gte.mock.calls.length > 0)).toBe(false);
-    });
   });
 
   describe("분할 백업 복원", () => {
