@@ -39,6 +39,28 @@ const ROW_LIMIT = 101;
 const MAX_OBJECT_BYTES = 32 * 1024 * 1024;
 const FIRST_BATCH_OBJECTS = MAX_RETENTION_BATCH_OBJECTS;
 const MATCH_CONCURRENCY = 3;
+
+/**
+ * 후보 조회가 DB 제한 시간(57014)에 걸렸을 때 다시 시도하는 대기 시간.
+ * 캐시가 식은 뒤 첫 호출은 디스크에서 인덱스·테이블 페이지를 읽느라 8초 제한을 넘기지만, 그 호출이
+ * 읽어 둔 페이지 덕에 바로 다시 시도하면 통과한다(운영 측정: 차가울 때 약 12초, 이어서 약 2초).
+ * 후보 조회는 읽기 전용이라 다시 실행해도 부작용이 없다. 테스트가 대기를 없앨 수 있도록 객체로 노출한다.
+ */
+export const candidateQueryRetry = { delaysMs: [1_000, 2_000] as number[] };
+
+type CandidateQueryResult = { data: unknown; error: { code?: string } | null };
+
+async function queryCandidatesWithRetry(
+  query: { limit(count: number): { abortSignal(signal: AbortSignal): PromiseLike<CandidateQueryResult> } },
+  scanLimit: number,
+): Promise<CandidateQueryResult> {
+  for (let attempt = 0; ; attempt += 1) {
+    const result = await query.limit(scanLimit).abortSignal(AbortSignal.timeout(15_000));
+    const delay = candidateQueryRetry.delaysMs[attempt];
+    if (result.error?.code !== "57014" || delay === undefined) return result;
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+}
 const ACCOUNT_ID = /^account\.[A-Za-z0-9_-]+$/;
 const FORMATS = { manifest: 1, backup: 1 } as const;
 
@@ -558,7 +580,7 @@ async function inspect(options: Args, env: Record<string, string | undefined> = 
   // This is the end of that scope; apply uses the normal empty-page cursor CAS to wrap.
   const cursorPastCutoff = cursor?.played_at && Date.parse(cursor.played_at) >= Date.parse(cutoff);
   const { data: candidateRows, error } = cursorPastCutoff ? { data: [], error: null }
-    : await candidateQuery.limit(options.scanLimit).abortSignal(AbortSignal.timeout(15_000));
+    : await queryCandidatesWithRetry(candidateQuery, options.scanLimit);
   if (error) throw new Error(`retention-candidate-query-failed:${error.code ?? "unknown"}`);
   const legacyListings: Manifest["legacyListings"] = [];
   const matches: PlannedMatch[] = [];
