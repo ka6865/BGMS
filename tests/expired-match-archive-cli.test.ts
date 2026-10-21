@@ -18,6 +18,8 @@ const harness = vi.hoisted(() => ({
   failBinding: false,
   failPreservation: false,
   projectRegistryColumns: false,
+  candidateTimeouts: 0,
+  candidateCalls: 0,
 }));
 const r2 = vi.hoisted(() => ({
   read: vi.fn(),
@@ -114,7 +116,20 @@ vi.mock("@supabase/supabase-js", () => {
   }
   return { createClient: vi.fn(() => ({ from: (table: string) => new Query(table),
     rpc: (name: string, args: any) => {
-      if (name === 'list_retention_archive_candidates') return new Query('pubg_player_matches');
+      if (name === 'list_retention_archive_candidates') {
+        const query = new Query('pubg_player_matches');
+        const run = query.then.bind(query);
+        // 차가운 캐시의 첫 호출들이 DB 제한 시간(57014)에 걸리는 상황을 흉내 낸다.
+        (query as any).then = (resolve: any, reject: any) => {
+          harness.candidateCalls += 1;
+          if (harness.candidateTimeouts > 0) {
+            harness.candidateTimeouts -= 1;
+            return Promise.resolve({ data: null, error: { code: '57014' } }).then(resolve, reject);
+          }
+          return run(resolve, reject);
+        };
+        return query;
+      }
       if (name === 'recover_retention_legacy_map') return { abortSignal: async () => {
         harness.actions.push('legacy-map-recovery');
         if (harness.failBinding) return { data: null, error: { code: '40001' } };
@@ -246,6 +261,8 @@ beforeEach(async () => {
   harness.failBinding = false;
   harness.failPreservation = false;
   harness.projectRegistryColumns = false;
+  harness.candidateTimeouts = 0;
+  harness.candidateCalls = 0;
   harness.objectBody = Buffer.from('{"map":"retained"}');
   r2.read.mockReset();
   r2.deletePersonal.mockReset().mockImplementation(async () => { harness.actions.push("r2-delete"); return { deleted: true }; });
@@ -344,6 +361,29 @@ describe("expired match archive CLI apply protocol", () => {
       '--manifest', manifestPath, '--backup-artifact', backupPath];
     return { ids, maps, read, scope };
   }
+
+  describe('후보 조회가 DB 제한 시간(57014)에 걸리는 경우', () => {
+    beforeEach(async () => {
+      const { candidateQueryRetry } = await import('../scripts/cleanup_expired_match_archives');
+      candidateQueryRetry.delaysMs = [0, 0];
+    });
+
+    it('차가운 첫 호출이 걸려도 다시 시도해 후보를 찾는다', async () => {
+      const h = multipleMatches(1);
+      harness.candidateTimeouts = 2;
+      await cleanup(['--prepare-backup', ...h.scope], env);
+      expect(harness.candidateCalls).toBe(3);
+      const plan = JSON.parse(await readFile(manifestPath, 'utf8'));
+      expect(plan.objects.map((o: any) => o.key)).toEqual([h.maps[0]]);
+    });
+
+    it('세 번 모두 걸리면 지금까지처럼 오류로 중단한다', async () => {
+      const h = multipleMatches(1);
+      harness.candidateTimeouts = 99;
+      await expect(cleanup(['--prepare-backup', ...h.scope], env)).rejects.toThrow('retention-candidate-query-failed:57014');
+      expect(harness.candidateCalls).toBe(3);
+    });
+  });
 
   it('서로 다른 경기 세 개를 겹쳐 검사해도 제한된 첫 경기 이전에 커서를 유지한다', async () => {
     const h = multipleMatches(4, true);
