@@ -41,11 +41,27 @@ export async function preservePerformanceRows(db: SupabaseClient, rows: Retained
   return savedCount;
 }
 
+/**
+ * 원본 조회가 DB 제한 시간(57014)에 걸렸을 때 다시 시도하는 대기 시간.
+ * 캐시가 식은 뒤 첫 호출은 8초 제한을 넘기지만, 그 호출이 읽어 둔 페이지 덕에 바로 다시 시도하면 통과한다.
+ * 조회는 읽기 전용이라 다시 실행해도 부작용이 없다. 테스트가 대기를 없앨 수 있도록 객체로 노출한다.
+ */
+export const sourceReadRetry = { delaysMs: [1_000, 2_000] as number[] };
+
+async function readUnretainedSources(db: SupabaseClient, input: { limit: number; nickname?: string }) {
+  for (let attempt = 0; ; attempt += 1) {
+    const result = await db.rpc('list_unretained_match_performance', {
+      p_limit: input.limit, p_player_id: input.nickname?.toLowerCase().trim() ?? null,
+    }).abortSignal(AbortSignal.timeout(30_000));
+    const delay = sourceReadRetry.delaysMs[attempt];
+    if (result.error?.code !== '57014' || delay === undefined) return result;
+    await new Promise(resolve => setTimeout(resolve, delay));
+  }
+}
+
 export async function preserveMatchPerformance(db: SupabaseClient, input: {apply:boolean;limit:number;nickname?:string}) {
   const result = {mode:input.apply?'apply':'dry-run',scanned:0,prepared:0,saved:0,skipped:0};
-  const {data,error}=await db.rpc('list_unretained_match_performance', {
-    p_limit:input.limit,p_player_id:input.nickname?.toLowerCase().trim() ?? null,
-  }).abortSignal(AbortSignal.timeout(30_000));
+  const {data,error}=await readUnretainedSources(db,input);
   if(error || !Array.isArray(data))throw new Error(`preserve-performance-source-read-failed:${error?.code ?? 'invalid-response'}`);
   const rows=[];
   for(const source of data){
