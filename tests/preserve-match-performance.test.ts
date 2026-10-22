@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { preserveMatchPerformance } from '../scripts/preserve_match_performance';
+import { preserveMatchPerformance, sourceReadRetry } from '../scripts/preserve_match_performance';
 import { buildRetainedPerformanceRow } from '../lib/pubg/retainedPerformance';
 import { ANALYSIS_CALCULATION_VERSION, RESULT_VERSION } from '../lib/pubg-analysis/constants';
 
@@ -96,6 +96,26 @@ describe('bulk retained performance preservation',()=>{
     await expect(preserveMatchPerformance(f.db,{apply:true,limit:1})).rejects.toThrow('preserve-performance-readback-failed');
     expect(f.stored()?.summary.concurrent).toBe(true);
     expect(f.stored()?.source_checksum).toBe('f'.repeat(64));
+  });
+  it('원본 조회가 57014 로 걸려도 다시 시도해 통과하고, 계속 걸리면 지금처럼 중단한다',async()=>{
+    const original=sourceReadRetry.delaysMs;
+    sourceReadRetry.delaysMs=[0,0];
+    try{
+      const f=fixture();
+      const rows=await f.db.rpc().abortSignal();
+      let failures=2;
+      f.db.rpc=vi.fn(()=>({abortSignal:async()=>failures-->0?{data:null,error:{code:'57014'}}:rows}));
+      expect(await preserveMatchPerformance(f.db,{apply:false,limit:1})).toMatchObject({prepared:1});
+      expect(f.db.rpc).toHaveBeenCalledTimes(3);
+
+      f.db.rpc=vi.fn(()=>({abortSignal:async()=>({data:null,error:{code:'57014'}})}));
+      await expect(preserveMatchPerformance(f.db,{apply:false,limit:1})).rejects.toThrow('preserve-performance-source-read-failed:57014');
+      expect(f.db.rpc).toHaveBeenCalledTimes(3);
+
+      f.db.rpc=vi.fn(()=>({abortSignal:async()=>({data:null,error:{code:'42501'}})}));
+      await expect(preserveMatchPerformance(f.db,{apply:false,limit:1})).rejects.toThrow('preserve-performance-source-read-failed:42501');
+      expect(f.db.rpc).toHaveBeenCalledTimes(1);
+    }finally{sourceReadRetry.delaysMs=original;}
   });
   it('dry-run prepares the result without writing any row',async()=>{
     const f=fixture();
