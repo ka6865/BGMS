@@ -39,7 +39,7 @@ Riot 공식 문서(Developer Portal 문서, General Policies, League of Legends 
 | 개인정보처리방침·이용약관 LoL 항목 | 구현 | Riot API 수집 항목·삭제 요청 전까지 본인 기록 보관·7일 원문·단기 캐시·익명 통계·고객센터 삭제 요청 명시 |
 | 광고 | 차단 구현 | `/lol` 경로의 공통 AdSense 스크립트 차단. 관리자 LoL도 기존 광고 제외 유지 |
 | AI 코칭 | 미구현 | "지시"가 아닌 근거 제시·선택지 제공 형태로 설계 |
-| Development Key 24시간 만료 대응 | 부분 | 운영 패널 '키 확인 필요' 표시. 실서비스는 Production 키로만 |
+| Development Key 24시간 만료 대응 | 구현·운영 미확인 | 키 없음·401/403은 공개 화면과 API에 갱신 안내·영문 보조 문구 표시. 캐시된 전적은 유지. 운영 패널 키 확인 필요 표시 유지 |
 
 ## 4. 실서비스 전 해야 할 일 (권장 순서)
 
@@ -116,3 +116,8 @@ Riot 공식 문서(Developer Portal 문서, General Policies, League of Legends 
 ### 검증 필요 항목
 - Riot ID 변경 계정의 옛 경기 원문 이름과 Account-V1 현재 이름 비교(실측). 2026-10-23 01:49 UTC 시도 시 Development 키가 401(24시간 만료 추정)이라 미실시. 키 재발급 후 30명 표본으로 재시도.
 - Production 키 수령 직후: 저장된 계정 몇 개를 Riot ID로 재조회해 PUUID 동일성 확인. 다르면 `lol_accounts`·요약을 Riot ID 기준으로 재매핑(계정당 1회 호출), 익명 집계는 영향 없음.
+
+## 심사 전 안정화 (2026-10-24, 운영 미적용)
+
+만료 정리·공개 IP 공유 제한·Data Dragon 버전 갱신·증강 FK 인덱스의 변경 계약과 운영 적용 순서는
+[안정화 운영 문서](../operations/2026-10-24-lol-review-hardening.md)에 정리한다.

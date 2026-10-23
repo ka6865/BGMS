@@ -12,6 +12,7 @@ export type LolRankedHistory = Record<"RANKED_SOLO_5x5" | "RANKED_FLEX_SR", {
 
 
 export type LolRecentMatch = {
+  dataDragonVersion?: string;
   matchId: string;
   queueId: number;
   gameMode: string;
@@ -86,6 +87,7 @@ export type LolQueueSummary = {
 };
 
 export type LolMatchDetails = {
+  dataDragonVersion?: string;
   matchId: string;
   queueId: number;
   gameMode: string;
@@ -133,6 +135,7 @@ export type LolMatchDetails = {
 };
 
 export type LolSearchResult = {
+  dataDragonVersion?: string;
   account: { gameName: string; tagLine: string };
   profile: { profileIconId: number; summonerLevel: number };
   ranked: Array<{
@@ -157,7 +160,7 @@ export type LolSearchResult = {
 
 export type LolRefreshCooldown = { status: "cooldown"; remainSeconds: number; lastUpdatedAt: string };
 
-export type LolCleanupCounts = { cache_rows: number; match_rows: number; account_rows: number; lease_rows: number };
+export type LolCleanupCounts = { cache_rows: number; match_rows: number; account_rows: number; lease_rows: number; public_rate_limit_rows?: number };
 export type LolCleanupBatch = { deleted: LolCleanupCounts; remaining: LolCleanupCounts };
 export type LolOpsStatus = {
   enabled: boolean;

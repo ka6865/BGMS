@@ -176,7 +176,7 @@ function PlayerRow({
     >
       <span className="relative h-8 w-[30px] @min-[860px]/history:h-9 @min-[860px]/history:w-[34px]">
         <img
-          src={`https://ddragon.leagueoflegends.com/cdn/16.21.1/img/champion/${player.championImageId}.png`}
+          src={`https://ddragon.leagueoflegends.com/cdn/${match.dataDragonVersion}/img/champion/${player.championImageId}.png`}
           alt=""
           width={36}
           height={36}
@@ -189,7 +189,7 @@ function PlayerRow({
           {player.championLevel ?? "—"}
         </small>
       </span>
-      <LolBuildIcons player={player} size={17} />
+      <LolBuildIcons dataDragonVersion={match.dataDragonVersion} player={player} size={17} />
       <div className="min-w-0">
         <button
           type="button"
@@ -236,7 +236,7 @@ function PlayerRow({
           </span>
         </div>
         <div className="min-w-0 justify-self-end">
-          <LolItemSlots player={player} size={16} />
+          <LolItemSlots dataDragonVersion={match.dataDragonVersion} player={player} size={16} />
         </div>
       </div>
     </div>

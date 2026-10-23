@@ -9,10 +9,11 @@ import LolMatchCard from "./LolMatchCard";
 import LolSummary, { LolSidebarStats } from "./LolSummary";
 import LolRankCards from "./LolRankCards";
 import LolLegalNotice from "./LolLegalNotice";
+import { LOL_KEY_RENEWAL_MESSAGE, LOL_KEY_RENEWAL_ENGLISH } from "@/lib/lol/keyNotice";
 
 type QueueFilter = "all" | "solo" | "flex" | "aram";
 
-const DATA_DRAGON_VERSION = "16.21.1";
+
 
 function hideBrokenImage(event: React.SyntheticEvent<HTMLImageElement>) {
   event.currentTarget.hidden = true;
@@ -284,6 +285,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
     () => result ? summarizeRecentMatches(result.matches, ownRiotId) : null,
     [result, ownRiotId],
   );
+  const keyRenewal = result?.matchFailures?.some(failure => ["key_or_permission", "unconfigured"].includes(failure.kind));
   const summary = summaries?.[filter];
   const remainingCooldown = Math.max(Math.ceil((refreshAvailableAt - now) / 1000), 0);
   const lastUpdatedSeconds = result?.lastUpdatedAt
@@ -339,10 +341,12 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
         )}
         {error && (
           <p
-            role="alert"
-            className="mt-5 rounded-lg border border-red-900 bg-red-950/50 p-4 text-sm text-red-200"
+            role={error === LOL_KEY_RENEWAL_MESSAGE ? "status" : "alert"}
+            className={`mt-5 rounded-lg border p-4 text-sm ${error === LOL_KEY_RENEWAL_MESSAGE
+              ? "border-amber-900 bg-zinc-900 text-amber-200" : "border-red-900 bg-red-950/50 text-red-200"}`}
           >
             {error}
+            {error === LOL_KEY_RENEWAL_MESSAGE && <span lang="en" className="mt-1 block text-xs">{LOL_KEY_RENEWAL_ENGLISH}</span>}
           </p>
         )}
 
@@ -350,7 +354,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
           <section aria-label="검색 결과" className="mt-5 space-y-4">
             <div className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
               <img
-                src={`https://ddragon.leagueoflegends.com/cdn/${DATA_DRAGON_VERSION}/img/profileicon/${result.profile.profileIconId}.png`}
+                src={`https://ddragon.leagueoflegends.com/cdn/${result.dataDragonVersion}/img/profileicon/${result.profile.profileIconId}.png`}
                 alt="프로필 아이콘"
                 width={64}
                 height={64}
@@ -421,13 +425,16 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
                     </select>
                   </label>
                 </LolSummary>
-                {result.matchStatus === "partial" && (
+                {keyRenewal && <p role="status" className="rounded-lg border border-amber-900 bg-zinc-900 p-3 text-sm text-amber-200">
+                  {LOL_KEY_RENEWAL_MESSAGE}<span lang="en" className="mt-1 block text-xs">{LOL_KEY_RENEWAL_ENGLISH}</span>
+                </p>}
+                {result.matchStatus === "partial" && !keyRenewal && (
                   <p className="mb-2 rounded-lg border border-amber-900 bg-amber-950/40 p-3 text-xs text-amber-200">
                     일부 경기 정보를 불러오지 못했습니다. 확인된 경기만
                     표시합니다.
                   </p>
                 )}
-                {result.matchStatus === "failed" && (
+                {result.matchStatus === "failed" && !keyRenewal && (
                   <p
                     role="alert"
                     className="rounded-xl border border-red-900 bg-red-950/50 p-4 text-sm text-red-200"
@@ -442,8 +449,10 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
                   </p>
                 )}
                 {moreError && (
-                  <div role="alert" className="rounded-lg border border-red-900 bg-red-950/50 p-3 text-sm text-red-200">
+                  <div role={moreError === LOL_KEY_RENEWAL_MESSAGE ? "status" : "alert"} className={`rounded-lg border p-3 text-sm ${moreError === LOL_KEY_RENEWAL_MESSAGE
+                    ? "border-amber-900 bg-zinc-900 text-amber-200" : "border-red-900 bg-red-950/50 text-red-200"}`}>
                     <p>{moreError}</p>
+                    {moreError === LOL_KEY_RENEWAL_MESSAGE && <p lang="en" className="text-xs">{LOL_KEY_RENEWAL_ENGLISH}</p>}
                     {failedAction && <button type="button" disabled={busyAccount === ownRiotId}
                       onClick={() => void runAccountAction(failedAction.action, failedAction.retryId)}
                       className="mt-2 min-h-10 rounded-lg border border-red-800 px-3 text-xs font-semibold disabled:opacity-50">
@@ -503,7 +512,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
                 )}
               </section>
               <aside data-testid="lol-sidebar-stats" className="min-w-0 space-y-3 lg:col-start-1 lg:row-start-2">
-                <LolSidebarStats summary={summary} onSearch={searchParticipant} />
+                <LolSidebarStats dataDragonVersion={result.dataDragonVersion} summary={summary} onSearch={searchParticipant} />
               </aside>
             </div>
           </section>
