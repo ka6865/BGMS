@@ -44,7 +44,7 @@ begin
     for f in select p.oid,p.oid::regprocedure as signature,p.prosecdef,p.proconfig from pg_proc p
       join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in (
         'upsert_lol_augment_snapshot','record_lol_augment_patch_changes','acquire_lol_augment_ingestion_lease',
-        'finish_lol_augment_ingestion_run','publish_lol_augment_patch','get_lol_augment_catalog'
+        'record_lol_augment_patch_notes','finish_lol_augment_ingestion_run','publish_lol_augment_patch','get_lol_augment_catalog'
       ) loop
       perform pg_temp.check_augment(not has_function_privilege(r,f.oid,'EXECUTE'),r || ' RPC 권한 ' || f.signature);
       perform pg_temp.check_augment(not f.prosecdef and 'search_path=""'=any(f.proconfig),'invoker/search_path ' || f.signature);
@@ -72,7 +72,7 @@ end $$;
 
 set local role service_role;
 do $$
-declare run1 uuid; run2 uuid; expired uuid; source_id uuid; payload jsonb; change jsonb; entry jsonb; result jsonb;
+declare run1 uuid; run2 uuid; run3 uuid; expired uuid; source_id uuid; payload jsonb; change jsonb; entry jsonb; result jsonb;
 begin
   perform pg_temp.check_augment((select not public and file_size_limit=67108864 and allowed_mime_types=array['application/json']
     from storage.buckets where id='lol-augment-snapshots'),'스냅샷 JSON/64MB');
@@ -88,6 +88,18 @@ begin
   perform pg_temp.reject_augment('select public.acquire_lol_augment_ingestion_lease(''16.21'',null,3601)','22023');
   run1 := public.acquire_lol_augment_ingestion_lease('16.21');
   perform pg_temp.check_augment(run1 is not null,'lease 획득');
+  perform pg_temp.reject_augment(format('select public.record_lol_augment_patch_notes(%L,''16.21'',''ko_kr'',null)',run1),'22023');
+  perform pg_temp.reject_augment(format('select public.record_lol_augment_patch_notes(%L,''16.21'',''ko_kr'',%L)',run1,
+    jsonb_build_object('added_names',jsonb_build_array(123),'removed_names','[]'::jsonb)),'22023');
+  perform pg_temp.reject_augment(format('select public.record_lol_augment_patch_notes(%L,''16.21'',''ko_kr'',%L)',run1,
+    jsonb_build_object('added_names',(select jsonb_agg('이름'::text) from generate_series(1,1001)),'removed_names','[]'::jsonb)),'22023');
+  perform public.record_lol_augment_patch_notes(run1,'16.21','ko_kr',jsonb_build_object(
+    'url','https://www.leagueoflegends.com/ko-kr/news/game-updates/league-of-legends-patch-26-21-notes/',
+    'published_at','2026-10-20T18:00:00Z','added_names',jsonb_build_array('비전 원칙'),
+    'removed_names','[]'::jsonb,'parse_status','partial'));
+  perform pg_temp.check_augment((select cardinality(added_names)=1 and parse_status='partial'
+    from public.lol_augment_patch_notes where client_patch='16.21' and locale='ko_kr'),'공식 노트 메타데이터');
+
   perform pg_temp.reject_augment('select public.acquire_lol_augment_ingestion_lease(''16.25'',''00000000-0000-0000-0000-000000000001'')','22023');
   perform pg_temp.check_augment(public.acquire_lol_augment_ingestion_lease('16.21') is null,'lease 경합');
   perform pg_temp.reject_augment(format('select public.finish_lol_augment_ingestion_run(%L,''succeeded'')',run1),'22023');
@@ -104,6 +116,9 @@ begin
     'ddragon_version','16.21.1','cdragon_version','16.21','verified_at','2026-10-23T00:00:00Z'),
     'snapshot_path','16.21/' || repeat('a',64) || '.json','augments',jsonb_build_array(entry));
   perform pg_temp.reject_augment(format('select public.upsert_lol_augment_snapshot(%L,''16.21'',null)',run1),'22023');
+  perform pg_temp.reject_augment(format('select public.upsert_lol_augment_snapshot(%L,''16.21'',%L)',run1,
+    jsonb_set(payload,'{snapshot_path}',to_jsonb('16.21/unknown-' || repeat('a',64) || '.json'))),'22023');
+
   perform pg_temp.reject_augment(format('select public.upsert_lol_augment_snapshot(%L,''16.21'',%L)',run1,
     jsonb_build_object('patch','{}'::jsonb,'augments','[]'::jsonb,'padding',repeat('x',8388609))),'22023');
   perform pg_temp.reject_augment(format('select public.upsert_lol_augment_snapshot(%L,''16.21'',%L)',run1,
@@ -165,10 +180,17 @@ begin
     '{patch,ddragon_version}','"16.22.1"'),'{patch,cdragon_version}','"16.22"'),
     '{snapshot_path}',to_jsonb('16.22/' || repeat('b',64) || '.json'));
   payload := jsonb_set(payload,'{augments,0,rarity}','"prismatic"');
+  payload := jsonb_set(payload,'{snapshot_path}',to_jsonb('16.22/manifest-' || repeat('b',64) || '.json'));
   perform public.upsert_lol_augment_snapshot(run2,'16.22',payload);
   perform pg_temp.check_augment(public.get_lol_augment_catalog()->>'clientPatch'='16.21','수집 중 이전 게시본 유지');
   perform public.finish_lol_augment_ingestion_run(run2,'succeeded');
-  perform public.publish_lol_augment_patch('16.22');
+  perform pg_temp.reject_augment(format('select public.publish_lol_augment_patch(''16.22'',%L)',run1),'55000');
+  run3 := public.acquire_lol_augment_ingestion_lease('16.22');
+  perform pg_temp.reject_augment(format('select public.publish_lol_augment_patch(''16.22'',%L)',run2),'55000');
+  perform public.upsert_lol_augment_snapshot(run3,'16.22',payload);
+  perform public.finish_lol_augment_ingestion_run(run3,'succeeded');
+  perform pg_temp.reject_augment(format('select public.publish_lol_augment_patch(''16.22'',%L)',run2),'55000');
+  perform public.publish_lol_augment_patch('16.22',run3);
   perform pg_temp.check_augment(public.get_lol_augment_catalog()->>'clientPatch'='16.22','게시 전환');
   perform pg_temp.check_augment(public.get_lol_augment_catalog('16.21')#>>'{augments,0,rarity}'='gold','과거 패치 등급 보존');
   perform pg_temp.check_augment(public.get_lol_augment_catalog()#>>'{augments,0,rarity}'='prismatic','현재 패치 등급');

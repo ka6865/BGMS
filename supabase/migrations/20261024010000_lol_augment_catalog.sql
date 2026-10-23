@@ -62,6 +62,18 @@ create table public.lol_augment_data_sources (
   enabled boolean not null default true, blocked_reason text
 );
 
+create table public.lol_augment_patch_notes (
+  client_patch text not null references public.lol_game_patches(client_patch),
+  locale text not null check (locale in ('ko_kr','en_us')),
+  url text not null check (length(url) between 1 and 2048),
+  published_at timestamptz,
+  added_names text[] not null check (cardinality(added_names) <= 1000),
+  removed_names text[] not null check (cardinality(removed_names) <= 1000),
+  parse_status text not null check (parse_status in ('ok','partial','failed')),
+  fetched_at timestamptz not null default clock_timestamp(),
+  primary key (client_patch,locale)
+);
+
 create table public.lol_augment_aliases (
   platform_id integer not null references public.lol_augments(platform_id),
   alias text not null check (length(btrim(alias)) between 1 and 256),
@@ -88,7 +100,7 @@ create table public.lol_augment_ingestion_runs (
   client_patch text not null references public.lol_game_patches(client_patch),
   started_at timestamptz not null default clock_timestamp(), finished_at timestamptz,
   status text not null default 'running' check (status in ('running','succeeded','review','blocked','failed')),
-  snapshot_path text check (snapshot_path ~ '^(15|16)\.[1-9][0-9]?/[0-9a-f]{64}\.json$'),
+  snapshot_path text check (snapshot_path ~ '^(15|16)\.[1-9][0-9]?/((augment-lists|cherry-augments|kiwi-bin|stringtable-ko|stringtable-en|manifest)-)?[0-9a-f]{64}\.json$'),
   snapshot_hash text, counts jsonb not null default '{}'::jsonb check (jsonb_typeof(counts) = 'object'),
   error_code text check (length(error_code) <= 128),
   lease_until timestamptz not null,
@@ -109,7 +121,7 @@ do $$
 declare t text;
 begin
   foreach t in array array['lol_game_patches','lol_augments','lol_augment_patch_states','lol_augment_localizations',
-    'lol_augment_aliases','lol_augment_patch_changes','lol_augment_data_sources','lol_augment_ingestion_runs','lol_augment_publication'] loop
+    'lol_augment_patch_notes','lol_augment_aliases','lol_augment_patch_changes','lol_augment_data_sources','lol_augment_ingestion_runs','lol_augment_publication'] loop
     execute format('alter table public.%I enable row level security',t);
     execute format('revoke all on table public.%I from public, anon, authenticated',t);
     execute format('grant all on table public.%I to service_role',t);
@@ -175,7 +187,7 @@ begin
     cdragon_version=p_payload->'patch'->>'cdragon_version', notes_url_ko=p_payload->'patch'->>'notes_url_ko',
     notes_url_en=p_payload->'patch'->>'notes_url_en', verified_at=(p_payload->'patch'->>'verified_at')::timestamptz
   where client_patch=p_client_patch;
-  if coalesce(p_payload->>'snapshot_path','') !~ ('^' || replace(p_client_patch,'.','\.') || '/[0-9a-f]{64}\.json$') then
+  if coalesce(p_payload->>'snapshot_path','') !~ ('^' || replace(p_client_patch,'.','\.') || '/((augment-lists|cherry-augments|kiwi-bin|stringtable-ko|stringtable-en|manifest)-)?[0-9a-f]{64}\.json$') then
     raise exception 'invalid snapshot path' using errcode='22023';
   end if;
   delete from public.lol_augment_localizations where client_patch=p_client_patch;
@@ -243,6 +255,37 @@ begin
   return jsonb_array_length(p_changes);
 end $$;
 
+create function public.record_lol_augment_patch_notes(p_run_id uuid,p_client_patch text,p_locale text,p_notes jsonb)
+returns void language plpgsql security invoker set search_path = '' as $$
+declare v_run public.lol_augment_ingestion_runs;
+begin
+  if p_notes is null or jsonb_typeof(p_notes) <> 'object' or octet_length(p_notes::text)>1048576
+    or p_locale is null or p_locale not in ('ko_kr','en_us')
+    or jsonb_typeof(p_notes->'added_names') is distinct from 'array'
+    or jsonb_typeof(p_notes->'removed_names') is distinct from 'array' then
+    raise exception 'invalid patch notes' using errcode='22023';
+  end if;
+  if jsonb_array_length(p_notes->'added_names')>1000 or jsonb_array_length(p_notes->'removed_names')>1000 then
+    raise exception 'patch note name limit' using errcode='22023';
+  end if;
+  if exists (select 1 from jsonb_array_elements((p_notes->'added_names') || (p_notes->'removed_names')) x
+    where jsonb_typeof(x)<>'string' or length(btrim(x#>>'{}')) not between 1 and 256) then
+    raise exception 'invalid patch note name' using errcode='22023';
+  end if;
+  perform 1 from public.lol_game_patches where client_patch=p_client_patch for update;
+  select * into v_run from public.lol_augment_ingestion_runs where id=p_run_id and client_patch=p_client_patch for update;
+  if not found or v_run.status<>'running' or v_run.lease_until<=clock_timestamp()
+    or exists(select 1 from public.lol_game_patches where client_patch=p_client_patch and published_at is not null) then
+    raise exception 'ingestion lease lost' using errcode='55000';
+  end if;
+  insert into public.lol_augment_patch_notes(client_patch,locale,url,published_at,added_names,removed_names,parse_status)
+  values(p_client_patch,p_locale,p_notes->>'url',(p_notes->>'published_at')::timestamptz,
+    array(select jsonb_array_elements_text(p_notes->'added_names')),
+    array(select jsonb_array_elements_text(p_notes->'removed_names')),p_notes->>'parse_status')
+  on conflict(client_patch,locale) do update set url=excluded.url,published_at=excluded.published_at,
+    added_names=excluded.added_names,removed_names=excluded.removed_names,parse_status=excluded.parse_status,fetched_at=clock_timestamp();
+end $$;
+
 create function public.finish_lol_augment_ingestion_run(p_run_id uuid,p_status text,p_error_code text default null)
 returns void language plpgsql security invoker set search_path = '' as $$
 declare v_run public.lol_augment_ingestion_runs;
@@ -263,7 +306,7 @@ begin
   where id=p_run_id;
 end $$;
 
-create function public.publish_lol_augment_patch(p_client_patch text)
+create function public.publish_lol_augment_patch(p_client_patch text,p_run_id uuid default null)
 returns void language plpgsql security invoker set search_path = '' as $$
 declare v_run public.lol_augment_ingestion_runs;
 begin
@@ -271,6 +314,9 @@ begin
     and released_at is not null and ddragon_version like p_client_patch || '.%' and cdragon_version=p_client_patch for update;
   if not found then raise exception 'patch mapping not verified' using errcode='55000'; end if;
   select * into v_run from public.lol_augment_ingestion_runs where client_patch=p_client_patch order by started_at desc,id desc limit 1 for update;
+  if p_run_id is not null and v_run.id is distinct from p_run_id then
+    raise exception 'reviewed run changed' using errcode='55000';
+  end if;
   if not found or v_run.status not in ('succeeded','review') or v_run.snapshot_hash is null then
     raise exception 'patch run not publishable' using errcode='55000';
   end if;
@@ -308,11 +354,13 @@ $$;
 
 revoke all on function public.acquire_lol_augment_ingestion_lease(text,uuid,integer),
   public.upsert_lol_augment_snapshot(uuid,text,jsonb), public.record_lol_augment_patch_changes(uuid,text,jsonb),
-  public.finish_lol_augment_ingestion_run(uuid,text,text),public.publish_lol_augment_patch(text),public.get_lol_augment_catalog(text)
+  public.record_lol_augment_patch_notes(uuid,text,text,jsonb),
+  public.finish_lol_augment_ingestion_run(uuid,text,text),public.publish_lol_augment_patch(text,uuid),public.get_lol_augment_catalog(text)
   from public,anon,authenticated;
 grant execute on function public.acquire_lol_augment_ingestion_lease(text,uuid,integer),
   public.upsert_lol_augment_snapshot(uuid,text,jsonb),public.record_lol_augment_patch_changes(uuid,text,jsonb),
-  public.finish_lol_augment_ingestion_run(uuid,text,text),public.publish_lol_augment_patch(text),public.get_lol_augment_catalog(text)
+  public.record_lol_augment_patch_notes(uuid,text,text,jsonb),
+  public.finish_lol_augment_ingestion_run(uuid,text,text),public.publish_lol_augment_patch(text,uuid),public.get_lol_augment_catalog(text)
   to service_role;
 
 insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types) values

@@ -108,11 +108,17 @@ export function upsertLolAugmentSnapshot(runId: string, clientPatch: string, pay
 export function recordLolAugmentPatchChanges(runId: string, clientPatch: string, changes: AugmentChange[]): Promise<number> {
   return rpc("record_lol_augment_patch_changes", { p_run_id: runId, p_client_patch: clientPatch, p_changes: changes });
 }
+export type LolAugmentPatchNotesInput = {
+  url: string; published_at: string | null; added_names: string[]; removed_names: string[]; parse_status: "ok" | "partial" | "failed";
+};
+export function recordLolAugmentPatchNotes(runId: string, clientPatch: string, notes: LolAugmentPatchNotesInput, locale = "ko_kr"): Promise<void> {
+  return rpc("record_lol_augment_patch_notes", { p_run_id: runId, p_client_patch: clientPatch, p_locale: locale, p_notes: notes });
+}
 export function finishLolAugmentIngestionRun(runId: string, status: "succeeded" | "review" | "blocked" | "failed", errorCode: string | null = null): Promise<void> {
   return rpc("finish_lol_augment_ingestion_run", { p_run_id: runId, p_status: status, p_error_code: errorCode });
 }
-export function publishLolAugmentPatch(clientPatch: string): Promise<void> {
-  return rpc("publish_lol_augment_patch", { p_client_patch: clientPatch });
+export function publishLolAugmentPatch(clientPatch: string, runId?: string): Promise<void> {
+  return rpc("publish_lol_augment_patch", { p_client_patch: clientPatch, ...(runId === undefined ? {} : { p_run_id: runId }) });
 }
 export function getLolAugmentCatalog(clientPatch: string | null = null): Promise<AugmentCatalog | null> {
   return rpc("get_lol_augment_catalog", { p_client_patch: clientPatch });
