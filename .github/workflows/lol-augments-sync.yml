@@ -1,0 +1,48 @@
+name: LoL Augments Sync
+on:
+  workflow_dispatch:
+    inputs:
+      patch:
+        description: '클라이언트 패치 (예: 16.21, 비우면 최신)'
+        type: string
+        default: ''
+      dry_run:
+        description: '다운로드·추출·검증만 실행'
+        type: boolean
+        default: true
+  schedule:
+    - cron: '25 4 * * *'
+permissions:
+  contents: read
+concurrency:
+  group: lol-augments-sync
+  cancel-in-progress: false
+jobs:
+  sync:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' || vars.LOL_AUGMENT_SYNC_ENABLED == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Collect Augments
+        env:
+          INGEST_PATCH: ${{ inputs.patch }}
+          INGEST_DRY_RUN: ${{ inputs.dry_run }}
+          LOL_AUGMENT_INGEST_ENABLED: ${{ vars.LOL_AUGMENT_INGEST_ENABLED }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        shell: bash
+        run: |
+          args=()
+          if [[ -n "$INGEST_PATCH" ]]; then args+=(--patch "$INGEST_PATCH"); fi
+          if [[ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' && "$INGEST_DRY_RUN" != 'false' ]]; then args+=(--dry-run); fi
+          npx tsx scripts/lol_augments_ingest.ts "${args[@]}"

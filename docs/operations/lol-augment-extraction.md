@@ -68,12 +68,12 @@ JSON 요약에 풀 수, 내부/비활성 수, 패치 구성 diff, ko/en 토큰 �
 
 ## 저장 계약 (2번 PR)
 
-`20261024010000_lol_augment_catalog.sql`은 9개 테이블과 service_role 전용 RPC 6개를 만든다.
+`20261024010000_lol_augment_catalog.sql`은 10개 테이블과 service_role 전용 RPC 7개를 만든다.
 기존 LoL 전적 테이블과는 연결하지 않는다. 이름은 키가 아니며 `platform_id`와 `client_patch`로 스냅샷을 구분한다.
 기본 키의 모드는 `KIWI`만, 언어는 `ko_kr`·`en_us`만 허용한다. 패치 매핑은 추출기와 같은 15/16 → 25/26 범위다.
 
 - 테이블: `lol_game_patches`, `lol_augments`, `lol_augment_patch_states`, `lol_augment_localizations`, `lol_augment_aliases`,
-  `lol_augment_patch_changes`, `lol_augment_data_sources`, `lol_augment_ingestion_runs`, `lol_augment_publication`.
+  `lol_augment_patch_changes`, `lol_augment_patch_notes`, `lol_augment_data_sources`, `lol_augment_ingestion_runs`, `lol_augment_publication`.
 - 모든 테이블은 RLS를 켜고 PUBLIC·anon·authenticated 권한을 회수한다.
   RPC는 `security invoker`, `search_path=''`이며 기본 PUBLIC EXECUTE를 회수한다.
 - `lol_augment_patch_states`는 패치별 등급·아이콘·내부 여부도 보존한다. 새 패치의 등급이 바뀌어도 과거 도감은 그대로다.
@@ -100,7 +100,7 @@ JSON 요약에 풀 수, 내부/비활성 수, 패치 구성 diff, ko/en 토큰 �
 5. `finish_lol_augment_ingestion_run(p_run_id, p_status, p_error_code default null)`로 종료한다.
    상태는 `succeeded`·`review`·`blocked`·`failed`다. 성공·검토 상태에는 저장된 스냅샷이 필요하며 오류 코드를 함께 기록할 수 없다.
    동일 상태·사유 재호출은 멱등이다. TTL 안에 끝내야 하며, 실패·차단 시 현재 게시본은 그대로 둔다.
-6. 관리자가 승인하면 `publish_lol_augment_patch(p_client_patch)`를 호출한다. 자동 수집 완료만으로 게시하지 않는다.
+6. 관리자가 승인하면 `publish_lol_augment_patch(p_client_patch, p_run_id default null)`를 호출한다. 자동 수집 완료만으로 게시하지 않는다.
    마지막 실행이 성공·검토 상태이고 미해결 `pending` 변경이 없으며, 발행일·Data Dragon 버전·CDragon 버전·검증일이 확인돼야 한다.
    `review`의 승인 판단과 추출기의 차단 사유 확인은 호출하는 관리자 승인 경로의 책임이다. 이 PR은 승인 화면을 만들지 않는다.
    한 번 게시된 패치는 영구 동결한다. 수정 수집은 별도 계약 변경이 필요하다.
@@ -123,7 +123,7 @@ JSON 요약에 풀 수, 내부/비활성 수, 패치 구성 diff, ko/en 토큰 �
 각 증강에는 `mode_name='KIWI'`, `in_pool`, 64자리 소문자 SHA256 `source_hash`가 필요하다.
 `localizations`에는 두 언어가 각각 한 번 있어야 한다. 설명·표시 문구는 비어 있을 수 없고 32768자 이하이며, 이름은 누락을 null로 보존하고 256자 이하로 제한한다.
 최상위 `patch`에는 `display_patch`, `released_at`, `ddragon_version`, `cdragon_version`, `notes_url_ko`, `notes_url_en`, `verified_at`을 넣는다.
-`snapshot_path`는 `{client_patch}/{sha256}.json`이다. 실행의 `snapshot_hash`는 원본 해시와 별도로 RPC 페이로드 정합성을 확인한다.
+`snapshot_path`는 `{client_patch}/{sha256}.json` 또는 허용된 종류 접두사 뒤 SHA256 경로다. 실행의 `snapshot_hash`는 원본 해시와 별도로 RPC 페이로드 정합성을 확인한다.
 
 ## 표시·검증 규칙 변경
 
@@ -173,13 +173,15 @@ Storage 원본 파일은 삭제하지 않는다. 파일 삭제는 별도 검토�
 ```sql
 begin;
 drop function public.get_lol_augment_catalog(text);
-drop function public.publish_lol_augment_patch(text);
+drop function public.publish_lol_augment_patch(text,uuid);
 drop function public.finish_lol_augment_ingestion_run(uuid,text,text);
 drop function public.record_lol_augment_patch_changes(uuid,text,jsonb);
+drop function public.record_lol_augment_patch_notes(uuid,text,text,jsonb);
 drop function public.upsert_lol_augment_snapshot(uuid,text,jsonb);
 drop function public.acquire_lol_augment_ingestion_lease(text,uuid,integer);
 drop table public.lol_augment_publication;
 drop table public.lol_augment_patch_changes;
+drop table public.lol_augment_patch_notes;
 drop table public.lol_augment_aliases;
 drop table public.lol_augment_ingestion_runs;
 drop table public.lol_augment_data_sources;
@@ -223,4 +225,71 @@ bash scripts/verify_lol_persistence_local.sh
 증강 SQL 시나리오는 두 공개 역할의 테이블·RPC 권한 거부, 넓은 Storage 정책과의 교차 차단, 서비스 역할 쓰기,
 JSON·행 수 상한, 입력 오류 전체 롤백, 멱등 저장, lease 경합·만료·소유권, 게시 전환·과거 조회·롤백을 확인한다.
 `verify:migrations`는 실제 동시 lease 요청 2개 중 하나만 획득하는지도 확인한다.
-운영 DB·Storage에는 연결하지 않는다. UI 변경이 없어 브라우저·모바일 검증은 수행하지 않는다.
+운영 DB·Storage에는 연결하지 않는다. 2번 PR의 검증은 UI를 포함하지 않았으며 3번 PR의 화면 검증은 아래 절차를 따른다.
+
+
+## 수집·검토 운영 (3번 PR)
+
+`npx tsx scripts/lol_augments_ingest.ts --patch 16.21 --dry-run`은 Data Dragon 버전과 CommunityDragon 버전 폴더를 확인하고
+고정한 버전의 원본 5종을 다운로드한다. `--patch`를 생략하면 Data Dragon의 최신 16.x를 사용한다.
+`latest/`는 사용하지 않는다. 원본 파일당 64 MiB 상한은 기존 Storage 버킷 상한과 같고, 요청당 60초·최대 3회 지수 백오프·1초 간격을 적용한다.
+고정 User-Agent는 `BGMS-augment-sync/1.0 (+https://bgms.kr)`다. HTTP 403은 `source_forbidden`으로 재시도 없이 종료한다.
+JSON은 데이터로만 파싱하며 HTML 패치 노트는 이름·발행일 대조에만 쓰고 저장하지 않는다.
+
+쓰기에는 `LOL_AUGMENT_INGEST_ENABLED=true`, `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`가 필요하다.
+`--dry-run`은 서비스 역할 클라이언트를 만들지 않으며 DB 조회와 Storage 읽기·쓰기도 하지 않는다.
+따라서 dry-run의 `baseline:none`은 게시본과 비교하지 않았다는 뜻이다. 첫 수집에서도 모든 현재 항목을 신규로 검토한다.
+쓰기 모드는 직전 게시 실행의 manifest에서 전체 Augment·렌더링한 설명을 읽어 diff와 검증의 기준으로 사용한다.
+같은 패치가 이미 게시돼 있으면 변경하지 않고 `already_published`로 건너뛴다.
+
+원본은 `{client_patch}/{kind}-{sha256}.json`, 실행 manifest는 `{client_patch}/{sha256}.json`으로 비공개 버킷에 저장한다.
+종류는 `augment-lists`, `cherry-augments`, `kiwi-bin`, `stringtable-ko`, `stringtable-en`, `manifest`만 허용한다.
+동일 경로가 있으면 업로드하지 않는다. manifest는 원본 경로·추출 결과·설명 렌더링 결과·검증·공식 대조·이전 게시 패치를 보존한다.
+검증 차단은 원본 업로드와 DB 스냅샷 저장 전에 `blocked/validation_blocked`로 종료한다.
+추출·다운로드·Storage·DB 실패는 안전한 오류 코드로 실행을 종료하며 게시 RPC는 수집기에서 호출하지 않는다.
+
+`record_lol_augment_patch_notes(p_run_id, p_client_patch, p_locale, p_notes)`는 유효한 실행 lease 아래에서
+`lol_augment_patch_notes`에 URL·발행일·신규/삭제 이름 배열·파싱 상태·조회 시각을 저장한다.
+`ko_kr`/`en_us`별 패치당 1행, JSON 1 MiB·목록별 1000개·이름 1~256자 제한이며 service_role 전용이다.
+공식 아수라장 절의 신규 `p/strong`·목록, 삭제 목록을 이름으로 대조한다. 내부 항목은 자동 승인하지 않는다.
+이름 일치만 `official=true/approved`, 불일치와 불완전한 파싱은 `pending`이다. 이름으로 연결할 수 없는 노트는 패치 전체 검토 항목 하나에 모은다.
+발행일을 확인하지 못하면 패치 매핑도 미검증으로 남으므로 게시 RPC가 거부한다.
+
+오프라인 예시:
+
+```sh
+npx tsx scripts/lol_augments_ingest.ts --patch 16.21 --dry-run --source-dir /path/to/pinned-sources
+RUN_LOL_DEV_BROWSER=true npx vitest run tests/lol-augments-browser.test.ts
+```
+
+로컬 폴더에는 `{kind}.json` 5개 또는 패치 접두사가 붙은 기존 추출기 파일명을 둔다.
+`patch-notes.html`이 있으면 로컬 공식 대조에 사용한다. 누락되면 네트워크 없이 파싱 실패·검토 대기로 처리한다.
+기존 `latest_*` 원본은 16.21임을 확인한 뒤 별도 폴더에 `{kind}.json` 링크로 고정한다. 수집기가 latest라는 이름을 추측해서 읽지는 않는다.
+같은 폴더에 직전 `{patch}_default_augment-lists.json`·`{patch}_default_cherry-augments.json`이 있으면
+`offlinePoolDiff`에 구성·등급만 비교한다. 전체 이전 원본이 없으므로 설명·수치·enabled 변경 검증 결과로 해석하지 않는다.
+
+관리자 경로는 `/admin/lol/augments`, API는 `/api/admin/lol/augments`다.
+레이아웃·페이지·API에서 기존 LoL 관리자 가드를 사용하고, POST는 같은 출처·2048바이트 상한·`confirm:true`를 검사한다.
+미검토 항목별 승인·제외 뒤 게시 확인을 체크해야 게시 버튼이 활성화된다. 쓰기 API에는 기존 `LOL_PERSISTENCE_ENABLED=true`도 필요하다.
+관리자 API는 검토한 `runId`를 필수로 받고 게시 RPC에 전달한다.
+DB 게시 gate는 패치 행 잠금 안에서 실행 ID 일치·마지막 실행·미해결 pending·패치 매핑을 다시 검사한다.
+같은 패치가 검토 이후 재수집됐으면 게시를 거부한다. 서비스 역할의 기존 한 인자 롤백 호출은 계속 허용한다. DB 실패의 본문·자격 증명은 응답에 넣지 않는다.
+운영 지표는 기존 `db_error`·`db_timeout`을 사용한다.
+
+아이콘은 `/api/lol/augment-icons/{patch}/assets/ux/kiwi/augments/icons/{name}.png`로만 요청한다.
+허용 목록은 `assets/ux/kiwi/augments/icons/*.png`와 `assets/ux/cherry/augments/icons/*.png` 두 디렉터리다.
+실제 16.21 원본 중 kiwi 140개·cherry 108개 아이콘을 사용하므로 메인 승인에 따라 두 경로만 허용한다.
+마법 미사일(id 1133)은 `assets/maps/particles/kiwi/`를 사용해 허용 목록 밖이며 미리보기 이미지를 생략한다.
+패치·경로 허용 목록, PNG MIME·시그니처, 2 MiB 상한을 검사한다.
+`LOL_PUBLIC_ENABLED=true`일 때 공개 1년 immutable 캐시, 그 외 관리자만 접근하며 private 1년 immutable 캐시를 사용한다.
+HTML에 CommunityDragon 직접 아이콘 주소를 넣지 않는다.
+
+`.github/workflows/lol-augments-sync.yml`의 수동 실행은 dry_run 기본 true다.
+일일 schedule은 main에서 저장소 변수 `LOL_AUGMENT_SYNC_ENABLED=true`일 때만 실행한다.
+쓰기 활성화는 별도 변수 `LOL_AUGMENT_INGEST_ENABLED=true`로 제어한다. 두 변수는 기본 비활성이다.
+시크릿 이름은 기존 워크플로와 같은 `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`다.
+
+2026-10-23 로컬 확인: 249개, ko/en 각각 tooltip 85·desc 95·desc_partial 69, 검증 차단·경고 0개.
+저장된 한국어 공식 HTML에서 신규 35·삭제 13개를 추출했다. 오프라인 구성 비교는 일반 신규 35·삭제 14·내부 신규 5개다.
+실제 네트워크 dry-run 1회는 워커 환경의 CommunityDragon 403으로 중단했으며, 실제 다운로드 완주 검증은 메인이 수행한다.
+운영 migration 적용·Storage API 실검증·첫 수집·첫 게시와 실기기 모바일 검증은 이 작업에서 실행하지 않는다.
