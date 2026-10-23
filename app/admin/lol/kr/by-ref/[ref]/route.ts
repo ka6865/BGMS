@@ -1,3 +1,4 @@
+import { LOL_LEGAL_ENGLISH, LOL_LEGAL_KOREAN } from "@/components/lol/LolLegalNotice";
 import { NextResponse } from "next/server";
 import { requireLolDevPageAdmin } from "@/lib/lol/access.server";
 import { lolRiotIdPath } from "@/lib/lol/riotId";
@@ -8,7 +9,7 @@ export const dynamic = "force-dynamic";
 function failure(message: string, status: number) {
   const html = '<!doctype html><html lang="ko"><meta charset="utf-8">'
     + '<meta name="viewport" content="width=device-width,initial-scale=1"><title>LoL 계정 이동</title>'
-    + `<body><p>${message}</p><a href="/admin/lol">검색으로 돌아가기</a></body></html>`;
+    + `<body><p>${message}</p><a href="/admin/lol">검색으로 돌아가기</a><footer><p lang="en">${LOL_LEGAL_ENGLISH}</p><p>${LOL_LEGAL_KOREAN}</p></footer></body></html>`;
   return new NextResponse(html, {
     status, headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex, nofollow" },
   });

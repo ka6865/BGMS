@@ -20,7 +20,8 @@ export default function SidebarFooterWrapper({ children }: { children: React.Rea
   const isAdminToolPage = pathname.startsWith('/admin/');
   const isSupportPage = pathname === '/support' || pathname.startsWith('/support/');
   const isAdminSupportPage = pathname === '/admin/support' || pathname.startsWith('/admin/support/');
-  const isAdFreePage = isAdminToolPage || isSupportPage;
+  const isLolPage = pathname === "/lol" || pathname.startsWith("/lol/");
+  const isAdFreePage = isAdminToolPage || isSupportPage || isLolPage;
 
   return (
     <>

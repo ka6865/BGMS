@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type FormEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { LolSearchResult } from "@/lib/lol/types";
 import { summarizeRecentMatches } from "@/lib/lol/summary";
@@ -8,7 +8,7 @@ import { LOL_RIOT_ID_ERROR, lolRiotIdPath } from "@/lib/lol/riotId";
 import LolMatchCard from "./LolMatchCard";
 import LolSummary, { LolSidebarStats } from "./LolSummary";
 import LolRankCards from "./LolRankCards";
-import LolOpsPanel from "./LolOpsPanel";
+import LolLegalNotice from "./LolLegalNotice";
 
 type QueueFilter = "all" | "solo" | "flex" | "aram";
 
@@ -18,10 +18,14 @@ function hideBrokenImage(event: React.SyntheticEvent<HTMLImageElement>) {
   event.currentTarget.hidden = true;
 }
 
-export default function LolSearchPanel({ initialRiotId, initialError }: {
+export default function LolSearchPanel({ initialRiotId, initialError, publicView = false, adminTools }: {
+  publicView?: boolean;
+  adminTools?: ReactNode;
   initialRiotId?: string;
   initialError?: string;
 } = {}) {
+  const apiBase = publicView ? "/api/lol" : "/api/admin/lol";
+  const pageBase = publicView ? "/lol/kr" : "/admin/lol/kr";
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -71,7 +75,7 @@ export default function LolSearchPanel({ initialRiotId, initialError }: {
     setFailedAction(null);
 
     try {
-      const response = await fetch("/api/admin/lol/search", {
+      const response = await fetch(`${apiBase}/search`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         cache: "no-store",
@@ -106,7 +110,7 @@ export default function LolSearchPanel({ initialRiotId, initialError }: {
         setLoading(false);
       }
     }
-  }, []);
+  }, [apiBase]);
 
   useEffect(() => {
     let active = true;
@@ -125,7 +129,7 @@ export default function LolSearchPanel({ initialRiotId, initialError }: {
   }, [initialRiotId, initialError, search]);
 
   function navigateTo(target: string) {
-    const path = lolRiotIdPath(target);
+    const path = lolRiotIdPath(target, pageBase);
     if (!path) {
       setError(LOL_RIOT_ID_ERROR);
       return;
@@ -149,7 +153,7 @@ export default function LolSearchPanel({ initialRiotId, initialError }: {
 
   function searchParticipant(target: string, ref?: string) {
     if (target === "Riot ID 미제공") return;
-    if (ref) router.push(`/admin/lol/kr/by-ref/${encodeURIComponent(ref)}`, { scroll: false });
+    if (ref) router.push(`${pageBase}/by-ref/${encodeURIComponent(ref)}`, { scroll: false });
     else navigateTo(target);
     mainRef.current?.scrollTo({ top: 0 });
   }
@@ -167,7 +171,7 @@ export default function LolSearchPanel({ initialRiotId, initialError }: {
     setFailedAction(null);
     try {
       const response = await fetch(
-        action === "more" ? "/api/admin/lol/matches/more" : "/api/admin/lol/search",
+        action === "more" ? `${apiBase}/matches/more` : `${apiBase}/search`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -295,12 +299,12 @@ export default function LolSearchPanel({ initialRiotId, initialError }: {
       <div className="mx-auto w-full max-w-7xl pb-8">
         <header className="mb-5">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-400">
-            관리자 전용 · KR
+            {publicView ? "BGMS · KR" : "관리자 전용 · KR"}
           </p>
           <h1 className="mt-1 text-xl font-bold sm:text-2xl">LoL 전적 검색</h1>
         </header>
 
-        <LolOpsPanel />
+        {adminTools}
         <form
           onSubmit={submitSearch}
           className="flex flex-col gap-2 rounded-xl border border-zinc-800 bg-zinc-900 p-3 sm:flex-row"
@@ -506,10 +510,7 @@ export default function LolSearchPanel({ initialRiotId, initialError }: {
           </section>
         )}
 
-        <footer className="mt-6 border-t border-zinc-900 pt-3 text-[11px] leading-relaxed text-zinc-600">
-          BGMS는 Riot Games의 후원을 받지 않으며 Riot Games 또는 관련 자산을
-          제작·운영하는 사람들의 견해를 반영하지 않습니다.
-        </footer>
+        <LolLegalNotice />
       </div>
     </main>
   );
