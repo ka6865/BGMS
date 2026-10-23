@@ -1,7 +1,7 @@
 # LoL 증강 순수 추출·툴팁 계약
 
 설계 근거: [아수라장 콘텐츠 설계 6·11·14절](../plans/2026-10-23-aram-mayhem-content-design.md).
-이 문서는 네트워크·DB·Next 없이 실행하는 1번 PR의 계약을 설명한다.
+이 문서는 순수 추출·표시 규칙과 2번 PR의 저장·게시 계약을 설명한다. 순수 추출 모듈은 네트워크·DB·Next 없이 실행한다.
 
 ## 모듈
 
@@ -17,8 +17,8 @@
 - `tooltip.ts`: `renderTooltip`은 안전한 `{text, style[]}` 배열과 평문, `status`, 미치환 목록·횟수, 미지원 계산 종류를 반환한다. HTML은 반환하지 않는다.
 - `diff.ts`: `diffAugments`는 platformId로 추가·삭제와 이름·설명/툴팁·수치·등급·enabled 변경을 비교한다. 내부 증강은 `internal` 버킷으로 분리한다.
   부분 입력인 `AugmentPoolEntry`끼리 비교할 때는 구성·등급만 비교된다. 문자열이나 수치가 없다는 것을 값이 같다는 근거로 사용하면 안 된다.
-- `validate.ts`: `validateAugments`는 일반 활성 풀의 직전 대비 ±30% 초과, 일반 활성 풀 ko/en 이름 누락 3개 초과, 전체 풀 등급 불일치, 미치환 토큰 비율 5% 초과를 차단한다.
-  렌더링 결과 배열은 검증할 언어·항목 전체를 전달해야 한다. 직전 추출본이 없으면 풀 변동 검증은 생략한다.
+- `validate.ts`: `validateAugments`는 일반 활성 풀의 직전 대비 ±30% 초과, 일반 활성 풀 ko/en 이름 누락 3개 초과, 전체 풀 등급 불일치와 desc 누락을 차단한다.
+  `chooseAugmentDisplay`가 tooltip → desc → desc_partial 표시를 결정한다. 직전 추출본이 없으면 풀 변동 검증은 생략한다.
 
 ## 툴팁 수치 정책
 
@@ -29,7 +29,7 @@
 - `{{문자열키}}`는 8단계까지 확장한다. 순환 참조, 누락, 미지원 계산과 런타임 토큰은 원래 토큰을 남긴다. 계산 참조·중첩도 16단계로 제한한다.
 - 허용한 태그만 고정된 스타일 이름으로 바꾼다. `font`의 6자리 HEX 색은 공통 highlight 스타일로 바꾸며 속성·URL은 보존하지 않는다. 스크립트·스타일 블록은 내용까지 제거한다.
 - 토큰 비율은 중첩 참조와 변수의 **출현 횟수**를 분모로 하고 미해결 출현 횟수를 분자로 한다. `unresolvedTokens` 목록은 중복을 제거하지만 횟수는 제거하지 않는다.
-- `status`: 빈 결과는 failed, 미치환이 없으면 ok, 일부 토큰만 해결되면 partial, 전부 미해결이면 failed다. partial/failed는 공개 화면에서 원문 description으로 대체할 대상이다.
+- `status`: 빈 결과는 failed, 미치환이 없으면 ok, 일부 토큰만 해결되면 partial, 전부 미해결이면 failed다. partial/failed는 렌더링한 desc 또는 미치환 토큰을 교체한 desc_partial로 대체할 대상이다.
 
 ## 원본 확인 명령
 
@@ -58,10 +58,169 @@ JSON 요약에 풀 수, 내부/비활성 수, 패치 구성 diff, ko/en 토큰 �
 
 - 16.21 KIWI 249개, 일반 활성 235개, GoH 내부 5개, Enabled:false 9개.
 - 16.20 풀 223개 → 16.21 풀 249개. 일반 신규 35개, 내부 신규 5개, 삭제 14개(공지 13개 + id 2089). 신규 한국어 이름·등급 35개 일치.
-- ko/en 각각 793개 토큰 중 338개 미치환(42.62%), 각 164개 항목이 partial/failed다. 현재 게시 검증은 차단된다.
+- ko/en 각각 793개 토큰 중 338개 미치환(42.62%), 각 164개 항목이 partial/failed다. 1번 PR의 5% 기준에서는 차단됐으나, 2번 PR은 증강별 표시 규칙으로 대체한다.
 - 확인된 미지원 계산: `StatByCoefficientCalculationPart`, `StatByNamedDataValueCalculationPart`, `AbilityResourceByCoefficientCalculationPart`, `BuffCounterByCoefficientCalculationPart`, `BuffCounterByNamedDataValueCalculationPart`, `ByCharLevelBreakpointsCalculationPart`, `{e9a3c91d}`, `{ee18a47b}`.
 - `f1/f2`, `SpellName` 등 엔진 런타임 토큰, RootSpell 밖의 값, 해시 이름 계산과 일부 계산 형식은 추가 해석이 필요하다. 미확정 값을 0으로 바꾸지 않았다.
 - `tests/fixtures/lol-augments/`는 실제 목록·cherry의 필요한 필드, 대표 kiwi.bin·문자열, 패치 노트 35개 이름을 발췌한 자료다. JSON에 긴 문자열이 있는 대표 fixture는 문자열 연결을 사용하는 TypeScript 데이터로 저장해 한 줄 300자 제한을 지킨다.
 - xxh3_64는 로컬 기준 라이브러리의 UTF-8 및 길이 경계 벡터 539개와 일치했다. 런타임·테스트 의존성은 추가하지 않았다.
 - `npm run verify:core` 통과(기존 ESLint 경고 47개, 추가 파일 경고 없음), `npm run verify:lol` 292개 통과·41개 조건부 제외. 추가 테스트는 25개다.
 - fixture 합계는 195,005바이트이며 전체 파일의 한 줄 길이는 300자 이하다. 이 작업 폴더에는 `.agents/rules/project_rules.md`가 없어 AGENTS.md·현재 구현·package.json·테스트를 기준으로 작업했다.
+
+## 저장 계약 (2번 PR)
+
+`20261024010000_lol_augment_catalog.sql`은 9개 테이블과 service_role 전용 RPC 6개를 만든다.
+기존 LoL 전적 테이블과는 연결하지 않는다. 이름은 키가 아니며 `platform_id`와 `client_patch`로 스냅샷을 구분한다.
+기본 키의 모드는 `KIWI`만, 언어는 `ko_kr`·`en_us`만 허용한다. 패치 매핑은 추출기와 같은 15/16 → 25/26 범위다.
+
+- 테이블: `lol_game_patches`, `lol_augments`, `lol_augment_patch_states`, `lol_augment_localizations`, `lol_augment_aliases`,
+  `lol_augment_patch_changes`, `lol_augment_data_sources`, `lol_augment_ingestion_runs`, `lol_augment_publication`.
+- 모든 테이블은 RLS를 켜고 PUBLIC·anon·authenticated 권한을 회수한다.
+  RPC는 `security invoker`, `search_path=''`이며 기본 PUBLIC EXECUTE를 회수한다.
+- `lol_augment_patch_states`는 패치별 등급·아이콘·내부 여부도 보존한다. 새 패치의 등급이 바뀌어도 과거 도감은 그대로다.
+  전역 출현 상태는 `official_active`, `official_disabled`, `official_removed`, `official_reenabled`, `unlock_required`, `client_absent_unannounced`, `insufficient_data`만 허용한다.
+  챔피언별 상태·제보·외부 주장 테이블은 다음 단계에서 만든다.
+
+수집 호출 순서는 다음과 같다. 서버 래퍼는 `lib/lol/augments/persistence.server.ts`다.
+모든 요청에 10초 타임아웃을 적용하고, 실패 로그에는 RPC명과 `timeout`·`invalid_payload`·`invalid_state`·`db_error`만 기록한다.
+오류 본문·페이로드·자격 증명은 기록하지 않는다.
+
+1. 필요하면 서비스 역할로 `lol_augment_data_sources`에 원본 URL·라이선스·출처를 등록한다.
+   `source_id`는 선택이며, 지정한 출처가 비활성화되거나 `blocked_reason`이 있으면 수집·게시를 거부한다.
+2. `acquire_lol_augment_ingestion_lease(p_client_patch, p_source_id default null, p_ttl_seconds default 600)`가 실행 UUID를 반환한다.
+   TTL은 30~3600초다. 같은 패치의 활성 실행이 있으면 null이고, 만료된 실행은 `failed/lease_expired`로 보존한다.
+   실행 ID가 소유권 토큰이므로 다른 실행이나 만료된 실행은 데이터를 쓸 수 없다. 잠금 대기 이후 DB 시각으로 만료를 검사한다.
+3. `upsert_lol_augment_snapshot(p_run_id, p_client_patch, p_payload)`가 한 트랜잭션으로 전체 추출본을 저장하고 증강 수를 반환한다.
+   JSONB 텍스트 UTF-8 8 MiB, 증강 1~1000개, 각 2개 언어, 각 최대 20개 별칭이다. 원본 stringtable은 RPC에 넣지 않는다.
+   동일 실행·동일 페이로드 재호출은 SHA256으로 판별해 같은 결과를 반환한다. 같은 실행에 다른 페이로드를 보내면 거부한다.
+   새 실행은 해당 미게시 패치의 상태·번역·변경 기록을 교체한다. 일부 행이 잘못되면 교체 전체가 롤백된다.
+4. `record_lol_augment_patch_changes(p_run_id, p_client_patch, p_changes)`에 배열을 전달한다.
+   UTF-8 1 MiB·최대 2000행이며 `(client_patch, platform_id, change_type, source_id)`로 멱등 upsert한다(null도 같은 키로 취급).
+   `change_type`은 `added`·`removed`·`reenabled`·`changed`·`unannounced_absent`, `review_status`는 `pending`·`approved`·`rejected`다.
+   `platform_id`가 null인 패치 전체 공지도 허용한다. `official`, `summary_ko`를 반드시 전달한다.
+5. `finish_lol_augment_ingestion_run(p_run_id, p_status, p_error_code default null)`로 종료한다.
+   상태는 `succeeded`·`review`·`blocked`·`failed`다. 성공·검토 상태에는 저장된 스냅샷이 필요하며 오류 코드를 함께 기록할 수 없다.
+   동일 상태·사유 재호출은 멱등이다. TTL 안에 끝내야 하며, 실패·차단 시 현재 게시본은 그대로 둔다.
+6. 관리자가 승인하면 `publish_lol_augment_patch(p_client_patch)`를 호출한다. 자동 수집 완료만으로 게시하지 않는다.
+   마지막 실행이 성공·검토 상태이고 미해결 `pending` 변경이 없으며, 발행일·Data Dragon 버전·CDragon 버전·검증일이 확인돼야 한다.
+   `review`의 승인 판단과 추출기의 차단 사유 확인은 호출하는 관리자 승인 경로의 책임이다. 이 PR은 승인 화면을 만들지 않는다.
+   한 번 게시된 패치는 영구 동결한다. 수정 수집은 별도 계약 변경이 필요하다.
+7. `get_lol_augment_catalog(p_client_patch default null)`은 현재 게시본 또는 명시한 과거 게시본 DTO를 반환한다.
+   미게시 패치는 null이다. 실행·lease·원본 경로·원문 툴팁은 DTO에 넣지 않고, 승인된 변경과 표시용 텍스트·안전한 토큰만 반환한다.
+   공개 HTTP 경로는 서버에서 서비스 역할로 이 RPC를 호출해야 한다. anon·authenticated에 EXECUTE를 주지 않는다.
+
+페이로드 타입은 `AugmentSnapshot`·`AugmentLocalization`·`AugmentChange`를 따른다. 추출기 필드를 아래처럼 정규화한다.
+
+| 추출 결과 | 저장 페이로드 |
+| --- | --- |
+| `platformId`, `nameId`, `rarity`, `isInternal` | `platform_id`, `name_id`, `rarity`, `is_internal` |
+| `icons.small`, `icons.large` | `icon_small_path`, `icon_large_path` |
+| `enabled`, `quest`, `ability`, `buildTags`, `augmentTags` | `enabled`, `quest`, `ability`, `build_tags`, `augment_tags` |
+| `rootSpell.dataValues` | `data_values` (배열 전체, 0·빈 배열 보존) |
+| `ko`·`en` 원문 | `localizations`의 `locale`, `name`, `description`, `tooltip_raw` |
+| `chooseAugmentDisplay` 결과 | `display_source`, `display_text`, `tooltip_rendered` (선택한 표시 결과의 tokens) |
+| 원본 tooltip 렌더링 상태 | `render_status` |
+
+각 증강에는 `mode_name='KIWI'`, `in_pool`, 64자리 소문자 SHA256 `source_hash`가 필요하다.
+`localizations`에는 두 언어가 각각 한 번 있어야 한다. 설명·표시 문구는 비어 있을 수 없고 32768자 이하이며, 이름은 누락을 null로 보존하고 256자 이하로 제한한다.
+최상위 `patch`에는 `display_patch`, `released_at`, `ddragon_version`, `cdragon_version`, `notes_url_ko`, `notes_url_en`, `verified_at`을 넣는다.
+`snapshot_path`는 `{client_patch}/{sha256}.json`이다. 실행의 `snapshot_hash`는 원본 해시와 별도로 RPC 페이로드 정합성을 확인한다.
+
+## 표시·검증 규칙 변경
+
+패치 전체 미치환 비율 5% 차단은 제거했다. `tooltipTokenStats`는 진단 통계로 유지한다.
+`chooseAugmentDisplay(tooltipResult, descriptionResult)`는 tooltip ok → desc ok → desc_partial 순서로 선택한다.
+부분 설명은 미치환 토큰의 모든 출현을 `(수치 미확인)`으로 바꾸고 `일부 수치는 게임 안에서 확인하세요` 안내를 반환한다.
+원문 HTML을 표시 결과로 쓰지 않는다. 원문과 표시용 토큰을 혼동하지 않는다.
+
+`validateAugments`의 차단 조건은 일반 활성 풀 ±30% 초과·이름 누락 3개 초과, 전체 증강 등급 불일치, ko/en desc 누락이다.
+`descriptions`와 `previousDescriptions`에는 같은 범위의 일반 증강(내부 제외, 비활성 포함)·같은 언어 구성으로 렌더링한 결과를 전달한다.
+직전 대비 desc ok 비율이 10%p 넘게 떨어지면 `warnings:[{code:'review',...}]`만 남기며 `ok`를 false로 바꾸지 않는다.
+렌더링 결과를 생략하면 Augment의 desc·rootSpell로 계산하므로 중첩 문자열이 있는 수집기는 반드시 같은 패치 stringtable로 렌더링한 결과를 전달한다.
+직전 자료가 없으면 비율 하락 검증을 생략한다. CLI는 양쪽 stringtable로 현재 설명을 렌더링하며 언어별 `displays`도 출력한다.
+16.21 실측의 tooltip 미치환 42.62% 자체는 더 이상 게시 차단 사유가 아니다.
+
+## 비공개 Storage 버킷과 운영 확인
+
+| 버킷 | 공개 여부 | MIME | 파일 상한 |
+| --- | --- | --- | --- |
+| `lol-augment-snapshots` | false | `application/json` | 67,108,864바이트 (64 MiB) |
+| `lol-augment-evidence` | false | `image/png`, `image/jpeg`, `image/webp` | 5,242,880바이트 (5 MiB) |
+
+스냅샷 원본 stringtable 약 35 MB를 고려해 64 MiB를 허용한다. 증거 버킷은 이 단계에서는 비어 있으며 업로드·보존 파이프라인은 구현하지 않는다.
+`storage.objects`·`storage.buckets`에 서비스 역할 허용 정책과 anon·authenticated 대상 restrictive 차단 정책을 둔다.
+기존의 넓은 허용 정책이 있어도 두 버킷의 조회·삽입·수정·삭제를 허용하지 않는다. 다른 버킷의 정책은 유지한다.
+서비스 역할은 Storage API에서 RLS를 우회하므로 자격 증명은 서버에서만 사용한다.
+근거: [Supabase Storage 접근 제어](https://supabase.com/docs/guides/storage/security/access-control).
+
+로컬 prerequisites는 Storage의 핵심 테이블·RLS·역할 권한만 재현한다. 검증은 버킷 메타데이터 상한·정책과 SQL 객체 접근을 확인한다.
+실제 Storage API가 MIME·파일 크기를 거부하는지는 이 격리 PG17 검사 범위에 포함되지 않는다.
+**운영 적용 때는 Storage 버킷 생성, public=false, MIME·용량 상한, 기존 정책과 실제 Storage API 거부 동작을 별도로 확인해야 한다.**
+
+## 롤백 SQL
+
+공개 버전 롤백은 이미 게시된 이전 패치를 가리킨다. 실제 이전 게시 패치로 인자를 바꾼다.
+서비스 역할 전용이며 관리자 승인 경로에서 실행한다.
+
+```sql
+begin;
+select public.publish_lol_augment_patch('16.20');
+commit;
+```
+
+스키마 자체를 철회할 때는 먼저 수집·공개 호출을 중단하고 해당 테이블을 백업한다. 아래 SQL은 새로 만든 DB 객체의 데이터를 삭제한다.
+Storage 원본 파일은 삭제하지 않는다. 파일 삭제는 별도 검토·승인 후 Storage API로 수행하고, 빈 버킷인지 확인한 뒤 버킷을 제거한다.
+
+```sql
+begin;
+drop function public.get_lol_augment_catalog(text);
+drop function public.publish_lol_augment_patch(text);
+drop function public.finish_lol_augment_ingestion_run(uuid,text,text);
+drop function public.record_lol_augment_patch_changes(uuid,text,jsonb);
+drop function public.upsert_lol_augment_snapshot(uuid,text,jsonb);
+drop function public.acquire_lol_augment_ingestion_lease(text,uuid,integer);
+drop table public.lol_augment_publication;
+drop table public.lol_augment_patch_changes;
+drop table public.lol_augment_aliases;
+drop table public.lol_augment_ingestion_runs;
+drop table public.lol_augment_data_sources;
+drop table public.lol_augment_localizations;
+drop table public.lol_augment_patch_states;
+drop table public.lol_augments;
+drop table public.lol_game_patches;
+commit;
+```
+
+버킷의 파일을 보호하려고 이 단계에서는 restrictive 정책을 남긴다. 완전 철회 시 Storage API 정리를 끝낸 뒤 다음 SQL을 실행한다.
+
+```sql
+begin;
+delete from storage.buckets b
+where b.id in ('lol-augment-snapshots','lol-augment-evidence')
+  and not exists (select 1 from storage.objects o where o.bucket_id=b.id);
+-- 두 버킷이 모두 제거됐는지 확인한 다음 정책을 제거한다.
+do $$
+begin
+  if exists (select 1 from storage.buckets where id in ('lol-augment-snapshots','lol-augment-evidence')) then
+    raise exception '비어 있지 않은 증강 버킷이 남아 있습니다';
+  end if;
+end $$;
+drop policy lol_augment_objects_service_all on storage.objects;
+drop policy lol_augment_buckets_service_all on storage.buckets;
+drop policy lol_augment_objects_service_only on storage.objects;
+drop policy lol_augment_buckets_service_only on storage.buckets;
+commit;
+```
+
+## 로컬 검증
+
+```sh
+npm run verify:core
+npm run verify:lol
+BGMS_USE_LOCAL_POSTGRES=true npm run verify:migrations
+bash scripts/verify_lol_persistence_local.sh
+```
+
+증강 SQL 시나리오는 두 공개 역할의 테이블·RPC 권한 거부, 넓은 Storage 정책과의 교차 차단, 서비스 역할 쓰기,
+JSON·행 수 상한, 입력 오류 전체 롤백, 멱등 저장, lease 경합·만료·소유권, 게시 전환·과거 조회·롤백을 확인한다.
+`verify:migrations`는 실제 동시 lease 요청 2개 중 하나만 획득하는지도 확인한다.
+운영 DB·Storage에는 연결하지 않는다. UI 변경이 없어 브라우저·모바일 검증은 수행하지 않는다.

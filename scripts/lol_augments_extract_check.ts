@@ -4,7 +4,7 @@ import { extractAugments, extractAugmentPool } from "../lib/lol/augments/extract
 import { diffAugments } from "../lib/lol/augments/diff";
 import { parseStringTable } from "../lib/lol/augments/stringTable";
 import { renderTooltip } from "../lib/lol/augments/tooltip";
-import { tooltipTokenStats, validateAugments } from "../lib/lol/augments/validate";
+import { chooseAugmentDisplay, tooltipTokenStats, validateAugments } from "../lib/lol/augments/validate";
 
 const { values } = parseArgs({ options: {
   "augment-lists": { type: "string" }, "cherry-augments": { type: "string" }, "kiwi-bin": { type: "string" },
@@ -25,12 +25,17 @@ try {
   const augments = extractAugments(source);
   const ko = parseStringTable(source.stringTableKo);
   const en = parseStringTable(source.stringTableEn);
-  const render = (locale: "ko" | "en") => augments.map(augment => ({
+  const render = (locale: "ko" | "en", field: "tooltip" | "description" = "tooltip") => augments.map(augment => ({
     platformId: augment.platformId,
-    ...renderTooltip(augment[locale].tooltip, { ...augment.rootSpell, stringTable: locale === "ko" ? ko : en }),
+    ...renderTooltip(augment[locale][field], { ...augment.rootSpell, stringTable: locale === "ko" ? ko : en }),
   }));
   const renderedKo = render("ko");
   const renderedEn = render("en");
+  const descriptionsKo = render("ko", "description");
+  const descriptionsEn = render("en", "description");
+  const displays = (tooltips: typeof renderedKo, descriptions: typeof renderedKo) => tooltips.map((tooltip, index) => ({
+    platformId: tooltip.platformId, ...chooseAugmentDisplay(tooltip, descriptions[index]),
+  }));
   const failures = (rendered: typeof renderedKo) => rendered.filter(tooltip => tooltip.status !== "ok").map(tooltip => ({
     platformId: tooltip.platformId, status: tooltip.status, unresolvedTokens: tooltip.unresolvedTokens,
     unsupportedCalculations: tooltip.unsupportedCalculations,
@@ -38,7 +43,10 @@ try {
   const previous = values["previous-lists"] || values["previous-cherry"]
     ? extractAugmentPool(load(values["previous-lists"]), load(values["previous-cherry"])) : null;
   const diff = previous ? diffAugments(previous, extractAugmentPool(source.augmentLists, source.cherryAugments)) : null;
-  const validation = validateAugments({ current: augments, tooltips: [...renderedKo, ...renderedEn] });
+  const generalIds = new Set(augments.filter(augment => !augment.isInternal).map(augment => augment.platformId));
+  const validation = validateAugments({ current: augments,
+    descriptions: [...descriptionsKo, ...descriptionsEn].filter(description => generalIds.has(description.platformId)),
+  });
   const summary = {
     poolCount: augments.length,
     publicEnabledCount: augments.filter(augment => !augment.isInternal && augment.enabled).length,
@@ -51,8 +59,8 @@ try {
       changed: diff.changed.map(change => ({ platformId: change.after.platformId, fields: change.fields })),
       internalAdded: diff.internal.added.map(augment => augment.platformId), internalRemoved: diff.internal.removed.map(augment => augment.platformId),
     } : null,
-    ko: { ...tooltipTokenStats(renderedKo), failures: failures(renderedKo) },
-    en: { ...tooltipTokenStats(renderedEn), failures: failures(renderedEn) },
+    ko: { ...tooltipTokenStats(renderedKo), failures: failures(renderedKo), displays: displays(renderedKo, descriptionsKo) },
+    en: { ...tooltipTokenStats(renderedEn), failures: failures(renderedEn), displays: displays(renderedEn, descriptionsEn) },
     unsupportedCalculations: [...new Set([...renderedKo, ...renderedEn].flatMap(tooltip => tooltip.unsupportedCalculations))].sort(),
     validation,
   };

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { extractAugments } from "@/lib/lol/augments/extract";
 import { parseStringTable, stringTableHash } from "@/lib/lol/augments/stringTable";
 import { renderTooltip } from "@/lib/lol/augments/tooltip";
-import { tooltipTokenStats, validateAugments } from "@/lib/lol/augments/validate";
+import { chooseAugmentDisplay, tooltipTokenStats, validateAugments } from "@/lib/lol/augments/validate";
 import sample from "./fixtures/lol-augments/sample-16.21";
 
 describe("안전한 툴팁 치환", () => {
@@ -95,10 +95,35 @@ describe("증강 게시 차단", () => {
     expect(validateAugments({ current: missing, tooltips: [] }).problems[0].code).toBe("missing_names");
     expect(validateAugments({ current: [{ ...base, rarityEvidence: { cherry: "gold", bin: "silver" } }], tooltips: [] }).problems[0].code).toBe("rarity_mismatch");
   });
-  it("토큰 출현 횟수 기준으로 5% 초과를 막는다", () => {
+  it("미치환 비율은 차단하지 않고 통계로 남긴다", () => {
     expect(validateAugments({ current: pool(1), tooltips: [ratio(1, 20)] }).ok).toBe(true);
-    expect(validateAugments({ current: pool(1), tooltips: [ratio(2, 20)] }).problems[0].code).toBe("unresolved_tokens");
+    expect(validateAugments({ current: pool(1), tooltips: [ratio(20, 20)] }).ok).toBe(true);
     expect(tooltipTokenStats([ratio(1, 2), ratio(1, 8)])).toEqual({ tokenCount: 10, unresolvedTokenCount: 2, ratio: 0.2 });
     expect(tooltipTokenStats([]).ratio).toBe(0);
+  });
+});
+
+describe("증강 표시 fallback과 검토 경고", () => {
+  it("tooltip, desc, 부분 설명 순서로 안전한 토큰을 선택한다", () => {
+    const ok = renderTooltip("<b>설명</b>");
+    const partial = renderTooltip("피해 @Unknown@ / @Unknown@");
+    expect(chooseAugmentDisplay(ok, partial)).toMatchObject({ displaySource: "tooltip", text: "설명", notice: null });
+    expect(chooseAugmentDisplay(partial, ok)).toMatchObject({ displaySource: "desc", text: "설명", notice: null });
+    const result = chooseAugmentDisplay(partial, partial);
+    expect(result).toMatchObject({ displaySource: "desc_partial", text: "피해 (수치 미확인) / (수치 미확인)" });
+    expect(result.tokens.map(token => token.text).join("")).toBe(result.text);
+    expect(result.notice).toBe("일부 수치는 게임 안에서 확인하세요");
+  });
+  it("빈 설명은 차단하고 완전 치환율 10%p 초과 하락은 경고만 남긴다", () => {
+    const base = extractAugments(sample).find(augment => augment.platformId === 3118)!;
+    expect(validateAugments({ current: [{ ...base, ko: { ...base.ko, description: " " } }] }))
+      .toMatchObject({ ok: false, problems: [{ code: "empty_description" }] });
+    const previousDescriptions = Array.from({ length: 10 }, () => renderTooltip("설명"));
+    const descriptions = [...previousDescriptions];
+    descriptions[0] = renderTooltip("@Unknown@");
+    expect(validateAugments({ current: [base], descriptions, previousDescriptions }).warnings).toEqual([]);
+    descriptions[1] = renderTooltip("@Unknown@");
+    expect(validateAugments({ current: [base], descriptions, previousDescriptions }))
+      .toMatchObject({ ok: true, problems: [], warnings: [{ code: "review" }] });
   });
 });

@@ -76,6 +76,10 @@ create table if not exists storage.objects (
   metadata jsonb not null default '{}'::jsonb,
   unique (bucket_id, name)
 );
+alter table storage.buckets enable row level security;
+alter table storage.objects enable row level security;
+grant usage on schema storage to anon, authenticated, service_role;
+grant select, insert, update, delete on storage.buckets, storage.objects to anon, authenticated;
 grant all on table storage.objects to service_role;
 grant all on table storage.buckets to service_role;
 grant all on table public.notifications to service_role;
