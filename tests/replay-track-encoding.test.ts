@@ -52,6 +52,18 @@ describe("리플레이 track 인코딩", () => {
     expect(decodeReplayEvents(encoded.encoding, encoded.events, encoded.tracks)).toEqual(events);
   });
 
+  it("차량 인스턴스 ID가 있는 위치와 없는 위치를 각각 그대로 복원한다", () => {
+    const withUniqueId = (relativeTimeMs: number, vehicleUniqueId: string | null) =>
+      ({ ...position(relativeTimeMs, "Rider", 100), vehicleId: "Dacia_A_01_v2_C", vehicleUniqueId });
+    const events = [position(0, "Rider", 50), withUniqueId(10_000, "42"), withUniqueId(20_000, null)];
+    const encoded = encodeReplayEvents(events)!;
+
+    expect(encoded.tracks).toHaveLength(2);
+    expect(encoded.tracks.find((track) => track.vuid)?.vuid).toEqual(["42", null]);
+    const decoded = decodeReplayEvents(encoded.encoding, JSON.parse(JSON.stringify(encoded.events)), encoded.tracks);
+    expect(JSON.stringify(decoded)).toBe(JSON.stringify(events));
+  });
+
   it("time이 없는 이벤트가 있으면 압축하지 않아 기존 형식으로 저장한다", () => {
     const payload = { ...loadReplay("2026-09-22-solo") };
     payload.events = [...payload.events, { type: "marker", relativeTimeMs: 10 }];

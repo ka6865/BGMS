@@ -8,6 +8,7 @@ export const REPLAY_TRACK_ENCODING_VERSION = 1;
 const POSITION_KEYS = new Set([
   "type", "time", "relativeTimeMs", "name", "teamId", "isTeam", "x", "y", "z", "health", "vehicleId",
 ]);
+const POSITION_KEYS_WITH_UNIQUE_ID = new Set([...POSITION_KEYS, "vehicleUniqueId"]);
 
 export type ReplayTrack = {
   name: string;
@@ -19,6 +20,8 @@ export type ReplayTrack = {
   z: number[];
   hp: number[];
   veh: (string | null)[];
+  // 차량 인스턴스 ID. 이 열이 없는 이전 파일의 위치에는 vehicleUniqueId 필드가 없다.
+  vuid?: (string | null)[];
 };
 
 export type EncodedReplayEvents = {
@@ -45,9 +48,10 @@ function isDerivableTime(event: EventRecord, timeBaseMs: number): boolean {
 
 function isTrackablePosition(event: EventRecord, timeBaseMs: number): boolean {
   const keys = Object.keys(event);
+  const allowedKeys = "vehicleUniqueId" in event ? POSITION_KEYS_WITH_UNIQUE_ID : POSITION_KEYS;
   return event.type === "position"
-    && keys.length === POSITION_KEYS.size
-    && keys.every((key) => POSITION_KEYS.has(key))
+    && keys.length === allowedKeys.size
+    && keys.every((key) => allowedKeys.has(key))
     && isDerivableTime(event, timeBaseMs)
     && typeof event.name === "string"
     && isFiniteNumber(event.teamId)
@@ -56,7 +60,8 @@ function isTrackablePosition(event: EventRecord, timeBaseMs: number): boolean {
     && isFiniteNumber(event.y)
     && isFiniteNumber(event.z)
     && isFiniteNumber(event.health)
-    && (typeof event.vehicleId === "string" || event.vehicleId === null);
+    && (typeof event.vehicleId === "string" || event.vehicleId === null)
+    && (!("vehicleUniqueId" in event) || typeof event.vehicleUniqueId === "string" || event.vehicleUniqueId === null);
 }
 
 function findTimeBaseMs(events: readonly EventRecord[]): number | null {
@@ -80,7 +85,8 @@ export function encodeReplayEvents(events: readonly unknown[]): EncodedReplayEve
   const trackIndexByKey = new Map<string, number>();
   const encodedEvents = records.map((event): unknown => {
     if (isTrackablePosition(event, timeBaseMs)) {
-      const key = JSON.stringify([event.name, event.teamId, event.isTeam]);
+      const hasUniqueId = "vehicleUniqueId" in event;
+      const key = JSON.stringify([event.name, event.teamId, event.isTeam, hasUniqueId]);
       let index = trackIndexByKey.get(key);
       if (index === undefined) {
         index = tracks.length;
@@ -88,6 +94,7 @@ export function encodeReplayEvents(events: readonly unknown[]): EncodedReplayEve
         tracks.push({
           name: event.name as string, teamId: event.teamId as number, isTeam: event.isTeam as boolean,
           t: [], x: [], y: [], z: [], hp: [], veh: [],
+          ...(hasUniqueId ? { vuid: [] } : {}),
         });
       }
       const track = tracks[index];
@@ -97,6 +104,7 @@ export function encodeReplayEvents(events: readonly unknown[]): EncodedReplayEve
       track.z.push(event.z as number);
       track.hp.push(event.health as number);
       track.veh.push(event.vehicleId as string | null);
+      track.vuid?.push(event.vehicleUniqueId as string | null);
       return index;
     }
     if (!isDerivableTime(event, timeBaseMs)) return event;
@@ -116,19 +124,22 @@ function parseTrack(value: unknown): ReplayTrack {
   if (!isRecord(value) || typeof value.name !== "string" || !isFiniteNumber(value.teamId) || typeof value.isTeam !== "boolean") {
     throw new Error("유효하지 않은 telemetry track입니다.");
   }
-  const columns = [value.t, value.x, value.y, value.z, value.hp, value.veh];
+  const hasUniqueId = value.vuid !== undefined;
+  const columns = [value.t, value.x, value.y, value.z, value.hp, value.veh, ...(hasUniqueId ? [value.vuid] : [])];
   if (!columns.every(Array.isArray)) throw new Error("유효하지 않은 telemetry track입니다.");
-  const [t, x, y, z, hp, veh] = columns as unknown[][];
+  const [t, x, y, z, hp, veh, vuid] = columns as unknown[][];
   const length = t.length;
   if (!columns.every((column) => (column as unknown[]).length === length)
     || !t.every((item) => Number.isInteger(item))
     || ![x, y, z, hp].every((column) => column.every(isFiniteNumber))
-    || !veh.every((item) => typeof item === "string" || item === null)) {
+    || !veh.every((item) => typeof item === "string" || item === null)
+    || (vuid && !vuid.every((item) => typeof item === "string" || item === null))) {
     throw new Error("유효하지 않은 telemetry track입니다.");
   }
   return {
     name: value.name, teamId: value.teamId, isTeam: value.isTeam,
     t: t as number[], x: x as number[], y: y as number[], z: z as number[], hp: hp as number[], veh: veh as (string | null)[],
+    ...(vuid ? { vuid: vuid as (string | null)[] } : {}),
   };
 }
 
@@ -158,6 +169,7 @@ export function decodeReplayEvents(encoding: unknown, events: unknown, tracks: u
         z: track.z[i],
         health: track.hp[i],
         vehicleId: track.veh[i],
+        ...(track.vuid ? { vehicleUniqueId: track.vuid[i] } : {}),
       };
     }
     if (!isRecord(item)) throw new Error("유효하지 않은 telemetry event입니다.");

@@ -4,6 +4,8 @@ export interface Waypoint {
   y: number;
   z: number;
   vehicleId?: string | null;
+  // 같은 차종 여러 대를 구분하는 차량 인스턴스 ID.
+  vehicleUniqueId?: string | null;
   health?: number;
 }
 

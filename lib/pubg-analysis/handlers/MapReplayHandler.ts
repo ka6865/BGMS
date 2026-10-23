@@ -148,7 +148,10 @@ export class MapReplayHandler extends BaseHandler {
     this.state.lastPosByPlayer.set(char.name, { x: loc?.x ?? 0, y: loc?.y ?? 0 });
 
     // 🎯 차량 동승 유령 버그 해결: LogPlayerPosition 시점에 최상위 vehicle 정보 또는 캐릭터 내의 vehicle 정보를 매치
-    const vehicleId = e.vehicle?.vehicleId || char.vehicle?.vehicleId || null;
+    const vehicle = e.vehicle ?? char.vehicle;
+    const vehicleId = vehicle?.vehicleId || null;
+    // vehicleId는 차종 이름이라 같은 종류의 차량을 구분하지 못한다. 차량 한 대는 vehicleUniqueId로 식별한다.
+    const vehicleUniqueId = vehicle?.vehicleUniqueId != null ? String(vehicle.vehicleUniqueId) : null;
 
     this.state.mapEvents.push({
       type: "position",
@@ -162,6 +165,7 @@ export class MapReplayHandler extends BaseHandler {
       z: (loc?.z ?? 0) / 100,
       health: char.health ?? 100,
       vehicleId: vehicleId,
+      vehicleUniqueId: vehicleUniqueId,
     });
   }
 
@@ -285,6 +289,7 @@ export class MapReplayHandler extends BaseHandler {
         teamId: char.teamId,
         isTeam: this.isTeammate(char),
         vehicle: e.vehicle?.vehicleId,
+        vehicleUniqueId: e.vehicle?.vehicleUniqueId != null ? String(e.vehicle.vehicleUniqueId) : undefined,
         x: this.scaleX(actorLocation(char)?.x ?? 0),
         y: this.scaleY(actorLocation(char)?.y ?? 0),
       });

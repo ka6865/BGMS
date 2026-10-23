@@ -31,7 +31,7 @@ export const PlayerMarkerRenderer = ({ telemetryData }: { telemetryData: any }) 
     const vehicleIdMap: Record<string, number> = {};
 
     for (const player of vehiclePlayers) {
-      const vid = player.vehicleId;
+      const vid = player.vehicleUniqueId || player.vehicleId;
       if (vid && vehicleIdMap[vid] !== undefined) {
         vehicleGroups[vehicleIdMap[vid]].push(player);
       } else {

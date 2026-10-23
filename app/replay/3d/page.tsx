@@ -469,6 +469,7 @@ function Replay3DContent() {
               y: loc.y ?? 0,
               z: loc.z ?? 0,
               vehicleId: ev.vehicleId || null,
+              vehicleUniqueId: ev.vehicleUniqueId || null,
               health: ev.health ?? ev.character?.health ?? 100
             };
           })
@@ -619,6 +620,8 @@ function Replay3DContent() {
   type InterpolatedPlayerState = {
     position: THREE.Vector3;
     vehicleId: string | null;
+    // 탑승자 묶기에 쓰는 키. 차량 인스턴스 ID가 없으면 차종 이름을 쓴다.
+    vehicleKey: string | null;
     health: number;
     healthSampleTimeMs: number | null;
   };
@@ -629,6 +632,7 @@ function Replay3DContent() {
       return {
         position: new THREE.Vector3(0, 0, 0),
         vehicleId: null,
+        vehicleKey: null,
         health: 100,
         healthSampleTimeMs: null,
       };
@@ -637,6 +641,7 @@ function Replay3DContent() {
       return { 
         position: convertTo3D(pts[0].x, pts[0].y, pts[0].z, altitudeScale),
         vehicleId: pts[0].vehicleId || null,
+        vehicleKey: pts[0].vehicleUniqueId || pts[0].vehicleId || null,
         health: pts[0].health ?? 100,
         healthSampleTimeMs: pts[0].t,
       };
@@ -646,6 +651,7 @@ function Replay3DContent() {
       return {
         position: convertTo3D(last.x, last.y, last.z, altitudeScale),
         vehicleId: last.vehicleId || null,
+        vehicleKey: last.vehicleUniqueId || last.vehicleId || null,
         health: last.health ?? 100,
         healthSampleTimeMs: last.t,
       };
@@ -667,6 +673,7 @@ function Replay3DContent() {
         return {
           position: convertTo3D(x, y, z, altitudeScale),
           vehicleId: (ratio >= 0.5 ? p2.vehicleId : p1.vehicleId) || null,
+          vehicleKey: (ratio >= 0.5 ? (p2.vehicleUniqueId || p2.vehicleId) : (p1.vehicleUniqueId || p1.vehicleId)) || null,
           health: healthSample.health ?? 100,
           healthSampleTimeMs: healthSample.t,
         };
@@ -675,6 +682,7 @@ function Replay3DContent() {
     return {
       position: convertTo3D(pts[0].x, pts[0].y, pts[0].z, altitudeScale),
       vehicleId: pts[0].vehicleId || null,
+      vehicleKey: pts[0].vehicleUniqueId || pts[0].vehicleId || null,
       health: pts[0].health ?? 100,
       healthSampleTimeMs: pts[0].t,
     };
@@ -1613,6 +1621,7 @@ function Replay3DContent() {
     const playerStates: Record<string, {
       position: THREE.Vector3;
       vehicleId: string | null;
+      vehicleKey: string | null;
       health: number;
       isDead: boolean;
       deathTimeMs: number | null;
@@ -1648,6 +1657,7 @@ function Replay3DContent() {
       playerStates[player.name] = {
         position: state.position,
         vehicleId: state.vehicleId,
+        vehicleKey: state.vehicleKey,
         health: state.health,
         isDead,
         deathTimeMs,
@@ -1656,7 +1666,7 @@ function Replay3DContent() {
       };
 
       if (isInVehicle && !isDead) {
-        const vId = state.vehicleId!;
+        const vId = state.vehicleKey ?? state.vehicleId!;
         if (!vehicleGroups[vId]) {
           vehicleGroups[vId] = [];
         }
@@ -1867,7 +1877,7 @@ function Replay3DContent() {
 
             // 차량 탑승 상태 처리
             if (isInVehicle) {
-              const vId = state.vehicleId!;
+              const vId = state.vehicleKey ?? state.vehicleId!;
               const groupMembers = vehicleGroups[vId] || [];
               const myIndex = groupMembers.indexOf(player.name);
 
