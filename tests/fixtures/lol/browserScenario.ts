@@ -106,6 +106,20 @@ export const matches = Array.from({ length: 5 }, (_, index) => ({
 }));
 
 export const fixtureResult = {
+  mastery: {
+    status: "ready",
+    champions: [
+      { championId: 103, championName: "아리", championImageId: "Ahri", championLevel: 14, championPoints: 250000,
+        lastPlayTime: 1790000000000, championPointsUntilNextLevel: 100, championSeasonMilestone: 2 },
+      { championId: 86, championName: "가렌", championImageId: "Garen", championLevel: 11, championPoints: 150000,
+        lastPlayTime: 1790000000000, championPointsUntilNextLevel: 200, championSeasonMilestone: 1 },
+    ],
+    recent: { status: "ready", sampleSize: 9, champions: [
+      { championId: 103, championName: "아리", championImageId: "Ahri", games: 3, wins: 3, winRatePct: 100, kda: 6, perfect: false },
+      { championId: 86, championName: "가렌", championImageId: "Garen", games: 3, wins: 0, winRatePct: 0, kda: 1, perfect: false },
+      { championId: 99, championName: "럭스", championImageId: "Lux", games: 3, wins: 2, winRatePct: 200 / 3, kda: 4, perfect: false },
+    ] },
+  },
   dataDragonVersion: "16.21.1",
   account: { gameName: "blue0", tagLine: "KR1" },
   profile: { profileIconId: 123, summonerLevel: 42 },

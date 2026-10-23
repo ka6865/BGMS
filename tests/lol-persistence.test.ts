@@ -92,7 +92,7 @@ describe("LoL persistence repository", () => {
     };
     await expect(getLolRankedHistory("private")).resolves.toEqual(history);
     expect(db.rpc).toHaveBeenCalledWith("get_lol_ranked_history", { p_puuid: "private", p_limit: 30 });
-    expect(lolSearchCacheKey("Name", "Tag", "kr", "asia", "16.21.1")).toMatch(/^search:v9:/);
+    expect(lolSearchCacheKey("Name", "Tag", "kr", "asia", "16.21.1")).toMatch(/^search:v10:/);
   });
 
   it("resolves Riot IDs to the stored account without exposing or requesting PUUID through Riot", async () => {

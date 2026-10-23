@@ -118,6 +118,7 @@ MIGRATIONS=(
   "20261023060000_lol_participant_identity"
   "20261024010000_lol_augment_catalog"
   "20261024020000_lol_review_hardening"
+  "20261024030000_lol_summary_challenges"
 )
 
 cleanup() {
@@ -183,6 +184,9 @@ echo "▶ prerequisite 스키마 구성"
 
 echo "▶ 신규 migration 적용"
 for migration in "${MIGRATIONS[@]}"; do
+  if [ "$migration" = "20261024030000_lol_summary_challenges" ]; then
+    "${PSQL[@]}" -f tests/fixtures/migration-check/lol-challenges-backfill-setup.sql
+  fi
   if [[ "$migration" == "20261023060000_lol_participant_identity" ]]; then
     "${PSQL[@]}" -f tests/fixtures/migration-check/lol-identity-backfill-setup.sql
   fi
@@ -481,6 +485,7 @@ echo "▶ LoL persistence 시나리오 실행"
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-participant-identity-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-augment-catalog-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-review-hardening-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-challenges-scenarios.sql
 # 같은 버킷의 동시 호출은 정확히 한 번만 허용한다.
 "${PSQL[@]}" -c "set role service_role; delete from public.lol_public_rate_limits where bucket_key = 'search:' || repeat('e', 64);"
 lol_limit_pids=()

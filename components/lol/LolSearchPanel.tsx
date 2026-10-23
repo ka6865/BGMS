@@ -8,6 +8,7 @@ import { LOL_RIOT_ID_ERROR, lolRiotIdPath } from "@/lib/lol/riotId";
 import LolMatchCard from "./LolMatchCard";
 import LolSummary, { LolSidebarStats } from "./LolSummary";
 import LolRankCards from "./LolRankCards";
+import LolMasteryCard from "./LolMasteryCard";
 import LolLegalNotice from "./LolLegalNotice";
 import { LOL_KEY_RENEWAL_MESSAGE, LOL_KEY_RENEWAL_ENGLISH } from "@/lib/lol/keyNotice";
 
@@ -512,6 +513,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
                 )}
               </section>
               <aside data-testid="lol-sidebar-stats" className="min-w-0 space-y-3 lg:col-start-1 lg:row-start-2">
+                <LolMasteryCard mastery={result.mastery} />
                 <LolSidebarStats dataDragonVersion={result.dataDragonVersion} summary={summary} onSearch={searchParticipant} />
               </aside>
             </div>

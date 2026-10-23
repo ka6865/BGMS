@@ -85,7 +85,7 @@ export function isLolPersistenceEnabled(): boolean {
 }
 
 export function lolSearchCacheKey(gameName: string, tagLine: string, platform: LolPlatform, route: LolRegionalRoute, version: string): string {
-  return `search:v9:${platform}:${route}:${version}:${encodeURIComponent(gameName.toLocaleLowerCase())}:${encodeURIComponent(tagLine.toLocaleLowerCase())}`;
+  return `search:v10:${platform}:${route}:${version}:${encodeURIComponent(gameName.toLocaleLowerCase())}:${encodeURIComponent(tagLine.toLocaleLowerCase())}`;
 }
 
 export async function getLolAccountByRiotId(gameName: string, tagLine: string): Promise<{ puuid: string; gameName: string; tagLine: string; accountFetchedAt: string } | undefined> {
