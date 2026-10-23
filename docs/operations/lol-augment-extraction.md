@@ -14,7 +14,7 @@
   `rarityEvidence`는 cherry와 bin 등급을 함께 보존한다. bin의 생략/0은 silver, 1은 gold, 2는 prismatic이다.
   `Enabled` 생략은 true, `IsAbilityAugment` 생략은 false다. `QuestData` 존재 여부는 quest로 기록하며 비트마스크 의미는 추정하지 않는다.
   아이콘은 소문자 상대 `assets/...png` 경로이며 `.tex`를 `.png`로 바꾼다. 외부 URL과 상위 경로는 거부한다.
-- `tooltip.ts`: `renderTooltip`은 안전한 `{text, style[], icon?, label?, formula?}` 배열과 평문, `status`, 미치환 목록·횟수, 미지원 계산 종류, `unknownIcons`를 반환한다. HTML은 반환하지 않는다.
+- `tooltip.ts`: `renderTooltip`은 안전한 `{text, style[], icon?, label?, formula?, championDependent?}` 배열과 평문, `status`, 미치환 목록·횟수, 미지원 계산 종류, `unknownIcons`를 반환한다. HTML은 반환하지 않는다.
 - `diff.ts`: `diffAugments`는 platformId로 추가·삭제와 이름·설명/툴팁·수치·등급·enabled 변경을 비교한다. 내부 증강은 `internal` 버킷으로 분리한다.
   부분 입력인 `AugmentPoolEntry`끼리 비교할 때는 구성·등급만 비교된다. 문자열이나 수치가 없다는 것을 값이 같다는 근거로 사용하면 안 된다.
 - `validate.ts`: `validateAugments`는 일반 활성 풀의 직전 대비 ±30% 초과, 일반 활성 풀 ko/en 이름 누락 3개 초과, 전체 풀 등급 불일치와 desc 누락을 차단한다.
@@ -33,6 +33,7 @@
 - `%i:이름%`은 `style`에 `statIcon`을 포함하고 `icon`에 원래 이름을 담는 라벨 토큰이다. `label`은 접근성 이름이고, 원문에 이름이 있으면 `text`는 비워 평문 중복을 막는다. 원문에 이름이 없을 때만 `text`에 라벨을 보존하며 수치 통계에는 포함하지 않는다.
   미지 아이콘은 표시에서 제거하고 `unknownIcons`에 이름만 중복 없이 기록한다. 문장형 식과 레벨 구간은 해당 결과 토큰에 `formula:true`를 남기며 치환 성공으로 센다.
 - `status`: 빈 결과는 failed, 미치환이 없으면 ok, 일부 토큰만 해결되면 partial, 전부 미해결이면 failed다. partial/failed는 렌더링한 desc 또는 미치환 토큰을 교체한 desc_partial로 대체할 대상이다.
+- 스킬 이름, 퀘스트 최초 조건, 원거리·근접 분기, 이름 해시와 기본 재사용 대기시간은 아래 3차 보완의 근거·표시 정책을 따른다.
 
 ## 원본 확인 명령
 
@@ -428,3 +429,125 @@ HTML에 CommunityDragon 직접 아이콘 주소를 넣지 않는다.
 저장된 한국어 공식 HTML에서 신규 35·삭제 13개를 추출했다. 오프라인 구성 비교는 일반 신규 35·삭제 14·내부 신규 5개다.
 실제 네트워크 dry-run 1회는 워커 환경의 CommunityDragon 403으로 중단했으며, 실제 다운로드 완주 검증은 메인이 수행한다.
 운영 migration 적용·Storage API 실검증·첫 수집·첫 게시와 실기기 모바일 검증은 이 작업에서 실행하지 않는다.
+
+## 2026-10-24 스킬·퀘스트·사거리·재사용 대기시간 3차 보완
+
+2차와 동일한 로컬 16.21 `latest_*` 5종을 사용했다. 249개 전수 결과는
+`scratchpad/aram-render-review-v3.json`에 저장했다. 이 파일은 기존 v2의 `id/name/src/text`를 유지하며,
+선택 토큰·안내·원본 desc/tooltip 미치환 목록과 같은 항목의 `en` 결과를 함께 담는다.
+
+| ko/en 각각의 선택 결과 | 2차 | 3차 |
+| --- | ---: | ---: |
+| tooltip | 108 | 141 |
+| desc | 80 | 107 |
+| desc_partial | 61 | 1 |
+
+기존 desc_partial 61개에서 중복을 제거한 토큰 종류별 **증강 수**는 다음과 같다.
+하나의 증강에 여러 원인이 있어 행의 합은 61보다 크다.
+
+| 원인 | 기존 | 해결 | 남음 |
+| --- | ---: | ---: | ---: |
+| SpellName | 40 | 40 | 0 |
+| QuestRequirement | 6 | 6 | 0 |
+| RangeIncrease | 4 | 4 | 0 |
+| Cooldown | 1 | 1 | 0 |
+| 나머지 단발 토큰 18종 | 18 | 17 | 1 |
+
+원본 tooltip 통계는 선택 문장 통계와 구분한다. 한·영 각각 변수·참조 출현 751개 중 151개가 미치환이며,
+`runtime/calculation/stringReference/missingValue = 141/3/4/3`이다.
+`SpellName`은 엔진 문자열 테이블을 거치지 않고 BGMS 표현으로 한 번 치환하므로 기존 793개와 분모가 다르다.
+`fN` 런타임 카운터와 단계 선택 문자열은 여전히 원본 tooltip에 남으며, 선택 문장은 안전한 desc로 대체된다.
+
+### BGMS 표기 및 저장 계약
+
+`@SpellName@`과 `{{SpellName}}`은 챔피언을 특정하지 않는 도감에서 실제 이름을 확정할 수 없다.
+**BGMS 표기**는 `Q 스킬`·`W 스킬`·`E 스킬`·`R 스킬`, 근거가 없으면 `해당 스킬`이다.
+`mSpell.DataValues[].name`의 단일 `QAbilityHaste/WAbilityHaste/EAbilityHaste/RAbilityHaste`가 슬롯 근거다.
+내부 증강은 `AugmentData.AugmentNameId=GoH_PentakillAug_Q/W/E/R`의 명시된 슬롯도 사용한다.
+슬롯이 모호하면 `해당 스킬`을 유지하며, 이름·아이콘·리소스 유형만으로 궁극기 등을 추정하지 않는다.
+원문이 이어서 `스킬`을 적었으면 중복 단어만 제거한다.
+
+대체한 토큰 각각에 `championDependent:true`를 남긴다. 이 선택 필드는 기존 `tooltip_rendered` JSONB 배열에
+`buildIngestion` → `upsert_lol_augment_snapshot` 경로로 보존되므로 스키마 변경은 없다.
+`chooseAugmentDisplay.notice`와 관리자 미리보기는 선택 문장에 해당 메타데이터가 있으면
+`스킬 이름은 챔피언마다 다릅니다`를 증강당 한 번 표시한다. 반복 스킬 이름마다 안내를 붙이지 않는다.
+이전 저장본은 재수집 전까지 기존 표시를 유지한다.
+
+### 퀘스트와 재사용 대기시간 필드 근거
+
+`AugmentData.QuestData.Quest`로 연결된 `ModesQuestData.Milestones[0].{7fec0982}`를
+최초 목표 `QuestRequirement` DataValue로 추가한다. 객체가 직접 포함되거나 경로로 연결된 경우 모두 읽는다.
+후속 누적 목표를 첫 목표에 합치지 않고, 조건이 없거나 유한한 수가 아니면 미치환으로 둔다.
+
+| ID | Quest 경로의 마지막 이름 | 최초 목표 |
+| --- | --- | ---: |
+| 1154 | UrfsChampionQuest | 18 |
+| 2055 | MultishotQuest | 50 |
+| 2100 | SpecializedRecursionQuest | 10 |
+| 2103 | BangBangQuest | 15 |
+| 2108 | SupportMainQuest | 3000 |
+| 2116 | SpecializedEmpowermentQuest | 10 |
+
+기본 대기시간은 `RootSpell.mSpell.cooldownTime`, 없으면 `RootSpell.mSpell.Cooldown.values`를 읽어
+`Cooldown` DataValue로 보존한다. 이미 명시된 `Cooldown` DataValue를 덮어쓰지 않는다.
+배열은 기존 정책대로 0을 포함한 첫 유효값을 쓴다. 없는 필드를 0으로 생성하지 않는다.
+1061 부메랑 투척에는 이 두 필드가 없고 `RootSpell.mSpell.DataValues[name=BaseCooldown].values[0]=7`이 있다.
+`@Cooldown@` 조회에서 직접 값·계산식이 없을 때만 명시된 `BaseCooldown`을 사용하여 `7초마다`로 표시한다.
+
+### 원거리·근접 분기 근거와 문장
+
+`mSpell.mSpellCalculations.<이름>.__type={e9a3c91d}`는 `mFormulaParts`로 근접 값을 계산하고
+`mRangedMultiplier`를 곱해 원거리 값을 계산하는 구조다. `%`·명시 배수·능력치 식을 양쪽에 동일하게 적용한다.
+`RangeIncrease`에 `MeleeRangeIncrease/RangedRangeIncrease` DataValue 쌍이 있으면 명시된 쌍을 우선한다.
+조준경 원거리 배율 `0.667`로 `50.025`를 만들지 않는다.
+
+- 1170: `공격 사거리가 원거리 50 / 근접 75 증가합니다.`
+- 1071: `공격 사거리가 원거리 100 / 근접 150 증가합니다.`
+- 1115: `공격 사거리가 원거리 150 / 근접 250 증가합니다.`
+- 2157 `RangeMeleeSplitTT`: `원거리 15% / 근접 40%`.
+- 1325 `TrueDamagePercSplit`: `원거리 15% / 근접 25%`.
+- 2096 작은 도움에는 명시된 DataValue 쌍이 없다. `150×0.667`과 `75%×0.533`의 원본 계산 결과를
+  `공격 사거리가 원거리 100.05 / 근접 150, 공격 속도가 원거리 39.975% / 근접 75% 증가합니다.`로 보존한다.
+  계산 결과를 임의의 정수 100·40%로 고치지 않았다. 표시 정밀도는 기존 소수점 최대 4자리 정책이다.
+
+### 이름 해시 및 단발 토큰 필드 근거
+
+BIN의 DataValue·계산식 키는 소문자 UTF-8 FNV-1a 32비트 해시로 정규화하여 평문·해시를 함께 조회한다.
+아래 키는 모두 해당 증강 `RootSpell.mSpell.mSpellCalculations`의 직접 키이며 fixture에 원본 객체를 보존했다.
+
+| ID | 토큰 | 원본 키 |
+| --- | --- | --- |
+| 1214 | SpinDamageAmp_Ult | `{90a024ae}` |
+| 1375 | StartingHPIfSecondAugmentTT | `{37029355}` |
+| 2140 | LifeStealTT | `{41353c52}` |
+| 3018 | Calc_Bonus_Crit_Damage / Calc_Bonus_AD / Calc_Percent_AS_To_Convert | `{d130a2db}` / `{cdab7380}` / `{5615d931}` |
+| 3039 | HealthThresholdTooltipPercent | `{77ad423e}` |
+| 3051 | ManaToShieldPercent | `{fbcf6ee7}` |
+| 3053 | InitialHPGain | `{b6bcdeac}` |
+| 3055 | UltimateHaste | `{fb3096a9}` |
+| 3063 | Calc_BonusLethality | `{18255baa}` |
+| 3094 | Calc_AP | `{00cdd620}` |
+| 3129 | TimeLockout | `{3b36cb3d}` |
+| 3163 | MaxButterfly | `{96606d80}` |
+
+3039 계산의 `mDataValue={9d8c75c8}`도 평문 `HealthPercentTrigger`의 해시로 확인해 기존 DataValue 0.5와 연결한다.
+`{f3cbe7b2}.mSpellCalculationKey`는 같은 SpellObject 안의 계산 참조이며 기존 16단계·순환 제한을 적용한다.
+추가로 완전 치환된 1324 tooltip의 퍼센트 능력치 항 2개는 괄호 하나로 묶어 연속 괄호를 방지한다.
+
+남은 선택 문장 미치환은 **2016 도취의 `@Calc_Damage@` 하나**다.
+경로는 `RootSpell.mSpell.mSpellCalculations.Calc_Damage.mFormulaParts[0]`이며,
+`__type={2b25a73a}`, `DataValue=ManaPercentDamagePercent`다.
+계수 0.07과 원거리 배율 0.8은 있으나 해시 계산이 어떤 런타임 값을 곱하는지 원본 객체만으로 확정할 수 없다.
+피해량을 7%나 최대 마나 비례로 추정하지 않고 `(수치 미확인)`을 유지한다.
+
+### 3차 검증
+
+- `npm run verify:core`: 오류 0, 기존 경고 47개.
+- `npm run verify:lol`: 391개 통과, 조건부 46개 제외.
+- `RUN_LOL_DEV_BROWSER=true npx vitest run tests/lol-augments-browser.test.ts`: 5개 통과.
+  375×667·390×844·430×932·1440×1000에서 반복 스킬 토큰의 안내 1회, 넘침 없음, 검토·게시 fixture 흐름을 확인했다.
+- 한·영 각각 249개 선택 문장에서 원시 토큰, `×`, 연속 괄호, 라벨 중복, `NaN`, 소수점 5자리 이상 모두 0건.
+- 신규 `runtime-16.21.ts` fixture는 관련 26개 증강·연결 퀘스트·문자열만 발췌했다.
+  원본·추정값을 섞지 않고 `lol-augments-runtime.test.ts`에서 경로와 표시 결과, 누락·0·다단계·순환·JSON 보존을 확인했다.
+- 운영 DB 쓰기·네트워크 쓰기·개발 서버 재시작·커밋·push·실기기 모바일 검증은 실행하지 않았다.
+  이 작업 폴더에는 `.agents/rules/project_rules.md`가 없어 현재 구현·추적 문서·테스트를 기준으로 검증했다.

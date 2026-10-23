@@ -33,7 +33,8 @@ export function diffAugments<T extends Snapshot>(previous: readonly T[], current
       || old.ko?.tooltip !== entry.ko?.tooltip || old.en?.tooltip !== entry.en?.tooltip) fields.push("description");
     const orderedValues = (augment: T) => augment.rootSpell?.dataValues.slice().sort((a, b) => a.name.localeCompare(b.name));
     if (stable(orderedValues(old)) !== stable(orderedValues(entry))
-      || stable(old.rootSpell?.calculations) !== stable(entry.rootSpell?.calculations)) fields.push("values");
+      || stable(old.rootSpell?.calculations) !== stable(entry.rootSpell?.calculations)
+      || old.rootSpell?.spellSlot !== entry.rootSpell?.spellSlot) fields.push("values");
     if (old.rarity !== entry.rarity) fields.push("rarity");
     if (old.enabled !== entry.enabled) fields.push("enabled");
     if (fields.length) bucket.changed.push({ before: old, after: entry, fields });

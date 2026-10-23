@@ -9,11 +9,13 @@ export type AugmentDisplay = {
 };
 
 export function chooseAugmentDisplay(tooltip: TooltipResult, description: TooltipResult): AugmentDisplay {
+  const notice = (result: TooltipResult) => result.tokens.some(token => token.championDependent)
+    ? "스킬 이름은 챔피언마다 다릅니다" : null;
   if (tooltip.status === "ok" && tooltip.text.trim()) {
-    return { displaySource: "tooltip", text: tooltip.text, tokens: tooltip.tokens, notice: null };
+    return { displaySource: "tooltip", text: tooltip.text, tokens: tooltip.tokens, notice: notice(tooltip) };
   }
   if (description.status === "ok" && description.text.trim()) {
-    return { displaySource: "desc", text: description.text, tokens: description.tokens, notice: null };
+    return { displaySource: "desc", text: description.text, tokens: description.tokens, notice: notice(description) };
   }
   const replace = (text: string) => description.unresolvedTokens.reduce(
     (value, token) => value.split(token).join("(수치 미확인)"), text,
@@ -21,7 +23,7 @@ export function chooseAugmentDisplay(tooltip: TooltipResult, description: Toolti
   return {
     displaySource: "desc_partial", text: replace(description.text),
     tokens: description.tokens.map(token => ({ ...token, text: replace(token.text) })),
-    notice: "일부 수치는 게임 안에서 확인하세요",
+    notice: ["일부 수치는 게임 안에서 확인하세요", notice(description)].filter(Boolean).join("\n"),
   };
 }
 

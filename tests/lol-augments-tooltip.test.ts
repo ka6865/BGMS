@@ -170,13 +170,13 @@ describe("안전한 툴팁 치환", () => {
     expect(result).toMatchObject({ status: "ok", text: "3~6(레벨에 따라) / 70~240(레벨에 따라) / 10~40(레벨에 따라)" });
     expect(result.tokens.filter(token => token.formula)).toHaveLength(3);
   });
-  it("2078 충돌 피해 해시는 시작·끝 DataValue 범위로 해석하고 원거리 배율 해시는 남긴다", () => {
+  it("2078 충돌 범위와 원거리·근접 배율을 각각 보존한다", () => {
     const result = renderTooltip("@Collision@ / @Ranged@", { dataValues: [{ name: "Min", values: [10] }, { name: "Max", values: [40] }], calculations: {
       Collision: { __type: "{ee18a47b}", StartDataValue: "Min", EndDataValue: "Max" },
       Ranged: { __type: "{e9a3c91d}", mFormulaParts: [{ __type: "NumberCalculationPart", mNumber: 10 }],
         mRangedMultiplier: { __type: "NumberCalculationPart", mNumber: 0.5 } },
     } });
-    expect(result).toMatchObject({ text: "10~40 / @Ranged@", unresolvedTokens: ["@Ranged@"], unsupportedCalculations: ["{e9a3c91d}"] });
+    expect(result).toMatchObject({ text: "10~40 / 원거리 5 / 근접 10", unresolvedTokens: [], unsupportedCalculations: [] });
   });
   it("미확인 능력치·공식·자원·경계 형식은 원래 토큰을 보존한다", () => {
     for (const calculation of [
