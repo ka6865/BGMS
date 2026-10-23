@@ -19,6 +19,7 @@ export interface TelemetryEvent {
   vY?: number; 
   vehicle?: string;
   vehicleId?: string; // 🎯 실시간 차량 동기화 보정을 위한 차량 ID 필드 추가
+  vehicleUniqueId?: string;
   attacker?: string;
   victim?: string;
   detail?: string;
@@ -53,6 +54,10 @@ export interface PlayerState {
   assists?: number;
   color?: string;
   vehicleId?: string;
+  // 같은 차종 여러 대를 구분하는 차량 인스턴스 ID. 탑승자 묶기는 이 값을 우선 쓴다.
+  vehicleUniqueId?: string;
+  // 부활한 뒤 첫 위치 기록이 오기 전까지는 사망 지점이 남아 있으므로 그리지 않는다.
+  awaitingPosition?: boolean;
   lastUpdateMs?: number;
   lastDeathMs?: number;
   deathX?: number; 
@@ -358,17 +363,20 @@ export function useTelemetry(
           futurePosRef.current[pname] = null;
 
           // 🎯 차량 동승 유령 버그 해결: LogPlayerPosition 이벤트의 vehicleId 존재 여부에 맞춰 실시간 상태 보정
+          s.awaitingPosition = false;
           if (ev.vehicleId) {
             s.isInVehicle = true;
             s.vehicleId = ev.vehicleId;
+            s.vehicleUniqueId = ev.vehicleUniqueId ?? undefined;
           } else {
             s.isInVehicle = false;
             s.vehicleId = undefined;
+            s.vehicleUniqueId = undefined;
           }
         } else if (ev.type === "ride" && ev.name === rawName) {
-          s.isInVehicle = true; s.vehicleId = ev.vehicle;
+          s.isInVehicle = true; s.vehicleId = ev.vehicle; s.vehicleUniqueId = ev.vehicleUniqueId;
         } else if (ev.type === "leave" && ev.name === rawName) {
-          s.isInVehicle = false; s.vehicleId = undefined;
+          s.isInVehicle = false; s.vehicleId = undefined; s.vehicleUniqueId = undefined;
         } else if (ev.type === "kill" || ev.type === "groggy") {
           if (ev.victim === rawName) {
             if (ev.type === "kill") {
@@ -391,6 +399,7 @@ export function useTelemetry(
             if (isAsst) s.assists = (s.assists || 0) + 1;
           }
         } else if ((ev.type === "revive" || ev.type === "create") && (ev.victim === rawName || ev.name === rawName)) {
+          if (ev.type === "create" && s.isDead) s.awaitingPosition = true;
           s.isGroggy = false; s.isDead = false; if (ev.type === "revive") s.health = 10;
         }
       });

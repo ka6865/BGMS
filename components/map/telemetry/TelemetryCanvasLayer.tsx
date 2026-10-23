@@ -566,7 +566,7 @@ export const TelemetryCanvasLayer = ({
         return player.isEnemy ? 3 : 2;
       };
       Object.values(states).forEach((p: any) => {
-        if (p.isDead || hidden(p.name)) return;
+        if (p.isDead || p.awaitingPosition || hidden(p.name)) return;
         const pos = getInterpolatedPos(p.name, currentTimeMs) || { x: p.x, y: p.y };
         const pt = getPoint(pos.y, pos.x);
         const isMe = p.name === dataRef.current.nickname;
@@ -574,9 +574,11 @@ export const TelemetryCanvasLayer = ({
         const radius = isMe ? 12 : 9;
 
         if (p.isInVehicle && p.vehicleId) {
-          if (handledVehicles.has(p.vehicleId)) return;
-          handledVehicles.add(p.vehicleId);
-          const occupants = Object.values(states).filter((o: any) => !o.isDead && !hidden(o.name) && o.vehicleId === p.vehicleId) as any[];
+          // 같은 차종 여러 대가 한 대로 묶이지 않도록 차량 인스턴스 ID를 우선 쓴다.
+          const vehicleKey = p.vehicleUniqueId || p.vehicleId;
+          if (handledVehicles.has(vehicleKey)) return;
+          handledVehicles.add(vehicleKey);
+          const occupants = Object.values(states).filter((o: any) => !o.isDead && !o.awaitingPosition && !hidden(o.name) && (o.vehicleUniqueId || o.vehicleId) === vehicleKey) as any[];
           
           const isAirplane = p.vehicleId.toLowerCase().includes("aircraft") || p.vehicleId.toLowerCase().includes("c130");
           const vehicleUnknown = occupants.length > 0 && occupants.every(isUnknown);
