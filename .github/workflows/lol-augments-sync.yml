@@ -10,6 +10,10 @@ on:
         description: '다운로드·추출·검증만 실행'
         type: boolean
         default: true
+      force:
+        description: '게시 대기 중인 패치도 다시 수집'
+        type: boolean
+        default: false
   schedule:
     - cron: '25 4 * * *'
 permissions:
@@ -37,6 +41,7 @@ jobs:
         env:
           INGEST_PATCH: ${{ inputs.patch }}
           INGEST_DRY_RUN: ${{ inputs.dry_run }}
+          INGEST_FORCE: ${{ inputs.force }}
           LOL_AUGMENT_INGEST_ENABLED: ${{ vars.LOL_AUGMENT_INGEST_ENABLED }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -45,4 +50,5 @@ jobs:
           args=()
           if [[ -n "$INGEST_PATCH" ]]; then args+=(--patch "$INGEST_PATCH"); fi
           if [[ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' && "$INGEST_DRY_RUN" != 'false' ]]; then args+=(--dry-run); fi
+          if [[ "$GITHUB_EVENT_NAME" == 'workflow_dispatch' && "$INGEST_FORCE" == 'true' ]]; then args+=(--force); fi
           npx tsx scripts/lol_augments_ingest.ts "${args[@]}"

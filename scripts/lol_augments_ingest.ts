@@ -10,8 +10,12 @@ import { extractAugmentPool, type Augment } from "../lib/lol/augments/extract";
 import { diffAugments } from "../lib/lol/augments/diff";
 import type { AugmentSnapshot } from "../lib/lol/augments/persistence.server";
 
-type Options = { patch?: string; dryRun: boolean; sourceDir?: string };
+type Options = { patch?: string; dryRun: boolean; sourceDir?: string; force?: boolean };
 type Manifest = { augments: Augment[]; validation: ReturnType<typeof buildIngestion>["validation"]; descriptions?: ReturnType<typeof buildIngestion>["descriptions"] };
+
+function isDuplicateObject(error: { message?: string; statusCode?: string | number; status?: number }): boolean {
+  return String(error.statusCode ?? error.status ?? "") === "409" || /already exists|duplicate/i.test(error.message ?? "");
+}
 
 export async function runIngestion(options: Options) {
   if (!options.dryRun && process.env.LOL_AUGMENT_INGEST_ENABLED !== "true") throw new Error("ingest_disabled");
@@ -43,6 +47,13 @@ export async function runIngestion(options: Options) {
       const existing = await db.from("lol_game_patches").select("published_at").eq("client_patch", patch).maybeSingle();
       if (existing.error) throw new Error("database_error");
       if (existing.data?.published_at) return { patch, skipped: "already_published" };
+      // 수집은 끝났고 관리자 게시를 기다리는 패치는 원본을 매일 다시 받지 않는다. 다시 수집하려면 --force를 쓴다.
+      if (!options.force) {
+        const collected = await db.from("lol_augment_ingestion_runs").select("id").eq("client_patch", patch)
+          .in("status", ["succeeded", "review"]).limit(1).maybeSingle();
+        if (collected.error) throw new Error("database_error");
+        if (collected.data) return { patch, skipped: "awaiting_review" };
+      }
       runId = await rpc<string | null>("acquire_lol_augment_ingestion_lease", { p_client_patch: patch, p_ttl_seconds: 1800 });
       if (!runId) throw new Error("lease_busy");
     }
@@ -113,12 +124,9 @@ export async function runIngestion(options: Options) {
       }
       const storage = db.storage.from("lol-augment-snapshots");
       for (const [path, body] of [...Object.keys(SOURCE_FILES).map(kind => [paths[kind as SourceKind], raw[kind as SourceKind]]), [snapshotPath, manifest]]) {
-        const existing = await storage.exists(path);
-        if (existing.error) throw new Error("storage_error");
-        if (!existing.data) {
-          const upload = await storage.upload(path, body, { contentType: "application/json", upsert: false });
-          if (upload.error && upload.error.message !== "The resource already exists") throw new Error("storage_error");
-        }
+        // 경로에 내용 해시가 들어가므로 이미 있는 객체는 같은 내용이다. exists()는 없는 객체에 400을 돌려 오류와 구분되지 않아 쓰지 않는다.
+        const upload = await storage.upload(path, body, { contentType: "application/json", upsert: false });
+        if (upload.error && !isDuplicateObject(upload.error)) throw new Error("storage_error");
       }
       const payload: AugmentSnapshot = { patch: { display_patch: toDisplayPatch(patch)!, released_at: notes.published_at,
         ddragon_version: version, cdragon_version: version ? patch : null, notes_url_ko: notes.url, notes_url_en: null,
@@ -140,8 +148,8 @@ export async function runIngestion(options: Options) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   try {
-    const { values } = parseArgs({ options: { patch: { type: "string" }, "dry-run": { type: "boolean", default: false }, "source-dir": { type: "string" } } });
-    const summary = await runIngestion({ patch: values.patch, dryRun: values["dry-run"], sourceDir: values["source-dir"] });
+    const { values } = parseArgs({ options: { patch: { type: "string" }, "dry-run": { type: "boolean", default: false }, "source-dir": { type: "string" }, force: { type: "boolean", default: false } } });
+    const summary = await runIngestion({ patch: values.patch, dryRun: values["dry-run"], sourceDir: values["source-dir"], force: values.force });
     process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
     if ("validation" in summary && !summary.validation.ok) process.exitCode = 2;
   } catch (error) {
