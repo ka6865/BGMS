@@ -30,7 +30,7 @@ export default function TermsPage() {
         서비스 이용약관
       </h1>
       <p style={{ fontSize: "13px", color: "rgba(255,255,255,0.35)", marginBottom: "40px" }}>
-        최종 업데이트: 2026년 6월 22일
+        최종 업데이트: 2026년 10월 23일
       </p>
 
       <Section title="제1조 (목적)">
@@ -45,7 +45,7 @@ export default function TermsPage() {
           <li>
             <strong>&quot;서비스&quot;</strong>란 BGMS가 배틀그라운드(PUBG) 유저를 위해 제공하는
             전술 지도, 전적 검색, AI 코칭 분석, 가방 시뮬레이터, 상자 시뮬레이터, 커뮤니티 게시판
-            등 일체의 서비스를 말합니다.
+            및 LoL 전적 조회 등 일체의 서비스를 말합니다.
           </li>
           <li>
             <strong>&quot;이용자&quot;</strong>란 본 약관에 따라 서비스를 이용하는 모든 사람을 말합니다.
@@ -72,6 +72,7 @@ export default function TermsPage() {
         <ul>
           <li>배틀그라운드 맵별 전술 지도 (마커, 핫드랍, 비밀방 위치 등)</li>
           <li>PUBG 공식 API를 활용한 전적 검색 및 분석</li>
+          <li>Riot Games API를 활용한 한국 서버 LoL 전적 조회 (커스텀 게임 제외)</li>
           <li>AI(Google Gemini 기반) 전술 코칭 및 매치 분석</li>
           <li>텔레메트리 기반 2D/3D 리플레이</li>
           <li>가방 시뮬레이터, 상자 시뮬레이터</li>
@@ -132,6 +133,7 @@ export default function TermsPage() {
           이용자는 서비스 이용 시 광고가 표시됨에 동의합니다.
           광고 콘텐츠는 각 광고 플랫폼의 정책에 따라 제공되며,
           서비스는 광고 내용의 정확성에 대한 책임을 지지 않습니다.
+          LoL 페이지에서는 Riot 승인 전 광고를 게재하지 않습니다.
         </p>
       </Section>
 
@@ -166,6 +168,11 @@ export default function TermsPage() {
         </ul>
       </Section>
 
+      <p className="mb-10 text-sm text-zinc-400">
+        BGMS는 Riot Games의 보증을 받지 않으며 Riot Games 또는 관련 자산을 제작·운영하는 사람들의 견해나 의견을 반영하지 않습니다.
+        Riot Games 및 모든 관련 자산은 Riot Games, Inc.의 상표 또는 등록 상표입니다.
+      </p>
+
       <Section title="제11조 (준거법 및 관할 법원)">
         <p>
           본 약관은 대한민국 법률에 따라 해석됩니다. 서비스 이용으로 발생한
@@ -195,7 +202,7 @@ export default function TermsPage() {
           marginTop: "16px",
         }}
       >
-        부칙: 본 약관은 2026년 6월 22일부터 시행합니다.
+        부칙: 본 약관은 2026년 10월 23일부터 시행합니다.
       </p>
 
       {/* 하단 링크 */}

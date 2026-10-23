@@ -17,7 +17,8 @@ Riot 공식 문서(Developer Portal 문서, General Policies, League of Legends 
 - 불승인 예시: 증강·아레나 아이템 승률 표시, 플레이어가 몰랐던 게임 세션 정보 제공, 플레이어 결정을 지시하는 앱, 사용자 지정(커스텀) 게임 전적을 본인 동의 없이 공개 표시.
 - 게임 무결성: 공식 랭크 대체(MMR·ELO 계산기) 금지, 보이는 정보로 식별 불가능한 플레이어 비익명화 금지, **플레이어의 과거 Riot ID 노출 금지**, 결정 다양성 감소·결정 제거 금지(중요 결정을 강조하고 여러 선택지를 주는 것은 허용).
 - 수익화: 등록 상태가 Approved/Acknowledged일 때만, 무료 등급 필수(광고 가능), 유료 콘텐츠는 변형적이어야 함, 도박·암호화폐 금지.
-- 법적 고지: 플레이어가 쉽게 볼 수 있는 곳에 공식 문구 게시 — "[제품명] isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered trademarks of Riot Games, Inc."
+- 법적 고지: 플레이어가 쉽게 볼 수 있는 곳에 공식 문구 게시 — "[제품명] isn't endorsed by Riot Games and doesn't reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games, and all associated properties are trademarks or registered
+  trademarks of Riot Games, Inc."
 - 데이터: Riot 지원 서비스로 수집, 키는 서버에만·HTTPS. Riot이 전달하는 최종 사용자 개인정보 삭제 요청(GDPR) 처리, 약관 종료 시 보유 게임 정보 전부 삭제.
 
 ## 3. 현재 상태 대조
@@ -32,11 +33,11 @@ Riot 공식 문서(Developer Portal 문서, General Policies, League of Legends 
 | 집계 통계 익명성 | 충족(진행 중) | 벤치마크 집계에 PUUID·Riot ID 미저장 |
 | 삭제 요청 처리 | 충족 | 관리자 계정 데이터 삭제 RPC·UI(fixture 검증) |
 | 과거 Riot ID 노출 금지 | 해석 확인 필요 | 경기 원문의 참가자 Riot ID는 경기 당시 이름이며, 다른 공개 전적 서비스도 옛 경기에 당시 이름을 그대로 표시한다(관찰). 조항은 이름 변경 이력 조회·옛 이름→현재 계정 연결 같은 기능을 겨냥한 것으로 해석한다(추정). 원칙: 이전 닉네임 목록·옛 이름 검색 연결 기능을 만들지 않고, `lol_accounts`는 현재 이름만 유지. 신청서에 명시해 Riot 판단을 받는다 |
-| 법적 고지 공식 문구 | 부분 | 현재 한국어 번역 문구만 있음. 영문 공식 문구(제품명 포함)를 함께 게시 |
-| Riot이 테스트 가능한 동작 사이트 링크 | 미충족 | 현재 관리자 전용·로컬. 검토용 공개(또는 검토자 접근 가능) 경로 필요 |
+| 법적 고지 공식 문구 | 구현 | BGMS 공식 영문 문구와 한국어 번역을 공개·관리자 전적 페이지 하단에 표시 |
+| Riot이 테스트 가능한 동작 사이트 링크 | 경로 구현, 배포 미확인 | `LOL_PUBLIC_ENABLED=true`일 때 `/lol/kr` 공개. 심사 기간 운영 환경 활성화·링크 확인 필요 |
 | 사용자 흐름 설명 자료 | 미충족 | 검색→전적→상세→더 보기→갱신 흐름 캡처·설명 |
-| 개인정보처리방침·이용약관 LoL 항목 | 미충족 | 현재 방침은 PUBG 90일 문구. LoL 보관(영구 기록·7일 원문)·삭제 요청 방법 추가 |
-| 광고 | 보류 | 승인(Approved/Acknowledged) 전 LoL 페이지 광고 금지 |
+| 개인정보처리방침·이용약관 LoL 항목 | 구현 | Riot API 수집 항목·삭제 요청 전까지 본인 기록 보관·7일 원문·단기 캐시·익명 통계·고객센터 삭제 요청 명시 |
+| 광고 | 차단 구현 | `/lol` 경로의 공통 AdSense 스크립트 차단. 관리자 LoL도 기존 광고 제외 유지 |
 | AI 코칭 | 미구현 | "지시"가 아닌 근거 제시·선택지 제공 형태로 설계 |
 | Development Key 24시간 만료 대응 | 부분 | 운영 패널 '키 확인 필요' 표시. 실서비스는 Production 키로만 |
 
@@ -53,8 +54,8 @@ Riot 공식 문서(Developer Portal 문서, General Policies, League of Legends 
 ## 5. 결정이 필요한 사항
 
 1. (해결됨) 과거 Riot ID: 경기 당시 이름 표시 유지 + 이름 이력 기능 금지. Riot 해석은 신청 시 확인. 필요 시 Developer Discord 사전 문의.
-2. 검토용 공개 범위: 공개 라우트를 바로 열지, 검토 기간 한정 플래그로 열지.
-3. 제품명: 신청서·법적 고지에 쓸 이름(예: "BGMS LoL").
+2. (해결됨) 검토용 공개 범위: `LOL_PUBLIC_ENABLED=true`일 때만 심사 기간 한정 공개. 미설정·다른 값은 페이지·API 모두 404.
+3. (해결됨) 제품명: 신청서·법적 고지 모두 "BGMS".
 
 ## 6. 확인하지 못한 것
 
@@ -71,8 +72,10 @@ Riot 공식 문서(Developer Portal 문서, General Policies, League of Legends 
 - **D안 구현됨 (2026-10-23):** 서버 PUUID 보관, 봉인 ref 이동, `known_current` 기본 이름 덮어쓰기와 `match_time` 폴백을 추가했다. 아래 현황·설계안은 구현 전 검토이며 실제 계약은 [참가자 식별자 문서](2026-10-23-lol-participant-identity.md)를 따른다.
 
 ### 근거 구분
-- **Riot 공식(확정):** LoL 게임별 정책에 "Products may not expose a player's historic Riot IDs"가 있다. 이 조항이 Match-V5 경기 데이터에 담긴 당시 Riot ID를 전적 화면에 표시하는 것까지 포함하는지는 공식 문서에 명시되어 있지 않다(미확인). Match-V5 `riotIdGameName`이 경기 시점 값인지 현재 값인지도 공식 문서에서 찾지 못했다(미확인). PUUID가 API 키(Development→Production)에 따라 달라지는지도 공식 문서에서 찾지 못했다(미확인).
-- **다른 공개 전적 서비스 관행(공개 자료로 확인):** 한 서비스는 공식 변경 기록에서 2020-12 닉네임 변경 이력 기능을 추가했다가 2023-09-15 "모든 공개·비공개 프로필에서 이름 변경 이력 표시를 중단"했고, 이력 검색은 대회 운영자용으로 제한·감사 기록을 남긴다. 다른 서비스 도움말은 Riot ID 변경 직후 이전 Riot ID로 검색해 갱신하라고 안내한다. 이름 변경 이력을 전면 공개하는 서비스도 존재하나 Riot 승인 여부는 알 수 없다. 세부 출처는 `docs-private/lol-research/`에 둔다.
+- **Riot 공식(확정):** LoL 게임별 정책에 "Products may not expose a player's historic Riot IDs"가 있다. 이 조항이 Match-V5 경기 데이터에 담긴 당시 Riot ID를 전적 화면에 표시하는 것까지 포함하는지는 공식 문서에 명시되어 있지 않다(미확인). Match-V5 `riotIdGameName`이 경기 시점 값인지 현재 값인지도 공식 문서에서 찾지 못했다(미확인). PUUID가 API 키(Development→Production)에
+  따라 달라지는지도 공식 문서에서 찾지 못했다(미확인).
+- **다른 공개 전적 서비스 관행(공개 자료로 확인):** 한 서비스는 공식 변경 기록에서 2020-12 닉네임 변경 이력 기능을 추가했다가 2023-09-15 "모든 공개·비공개 프로필에서 이름 변경 이력 표시를 중단"했고, 이력 검색은 대회 운영자용으로 제한·감사 기록을 남긴다. 다른 서비스 도움말은 Riot ID 변경 직후 이전 Riot ID로 검색해 갱신하라고 안내한다. 이름 변경 이력을 전면 공개하는 서비스도 존재하나 Riot 승인 여부는 알 수 없다. 세부 출처는
+  `docs-private/lol-research/`에 둔다.
 - **추정:** 조항의 주 대상은 이름 변경 이력 조회·옛 이름→현재 계정 연결 기능일 가능성이 높다. 그러나 Riot 답변 전까지 경기 당시 이름 표시가 허용된다고 단정하지 않는다.
 
 ### 현재 구현 (코드 근거)
@@ -103,7 +106,8 @@ Riot 공식 문서(Developer Portal 문서, General Policies, League of Legends 
 >
 > We are building a League of Legends match history site for the KR region. Match data is fetched via Match-V5 and stored to show players their own and searched players' past games.
 >
-> 1. The LoL policy states "Products may not expose a player's historic Riot IDs." Does this apply to displaying the `riotIdGameName`/`riotIdTagline` values contained in a Match-V5 response on that match's detail view, if a participant later changed their Riot ID? Or is it limited to features such as name-change history lists or linking previous names to a current account?
+> 1. The LoL policy states "Products may not expose a player's historic Riot IDs." Does this apply to displaying the `riotIdGameName`/`riotIdTagline` values contained in a Match-V5 response on that match's detail view, if a participant later changed their Riot ID? Or is it
+  limited to features such as name-change history lists or linking previous names to a current account?
 > 2. Are Match-V5 `riotIdGameName`/`riotIdTagline` the values at the time of the match, or are they updated to the player's current Riot ID?
 > 3. If match-time names are not allowed, is it acceptable to show current Riot IDs only for players whose current ID we have already confirmed via Account-V1, and hide names for other participants?
 > 4. Are PUUIDs consistent between a Development/Personal key and the Production key of the same product, or should stored PUUIDs be re-resolved after approval?

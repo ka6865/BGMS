@@ -24,11 +24,11 @@ export function parseLolRiotIdParam(value: string): string | null {
   return parseLolRiotIdSegment(/%[0-9A-Fa-f]{2}/.test(value) ? value : encodeURIComponent(value));
 }
 
-export function lolRiotIdPath(input: string): string | null {
+export function lolRiotIdPath(input: string, basePath = "/admin/lol/kr"): string | null {
   if (/[\u0000-\u001f\u007f]/.test(input)) return null;
   const separator = input.lastIndexOf("#");
   if (separator < 1) return null;
   const gameName = input.slice(0, separator).trim();
   const tagLine = input.slice(separator + 1).trim();
-  return validRiotId(gameName, tagLine) ? `/admin/lol/kr/${encodeURIComponent(`${gameName}-${tagLine}`)}` : null;
+  return validRiotId(gameName, tagLine) ? `${basePath}/${encodeURIComponent(`${gameName}-${tagLine}`)}` : null;
 }
