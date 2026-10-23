@@ -223,6 +223,12 @@ export function renderTooltip(source: string | null, context: {
         const coefficient = typeof part.mCoefficient === "number" ? range(part.mCoefficient) : null;
         return coefficient && multiplyRange(coefficient, { low: 100, high: 100 }) ? { term: "최대 마나", coefficient } : unsupportedPart();
       }
+      case "{2b25a73a}": {
+        // 이름 없는 해시 타입이며 원본만으로는 마나 종류를 알 수 없다. 도취(2016) 인게임 툴팁 확인(2026-10-24)으로 최대 마나 비례로 확정했다.
+        if (Object.keys(part).some(key => !["__type", "DataValue"].includes(key)) || typeof part.DataValue !== "string") return unsupportedPart();
+        const coefficient = data(part.DataValue);
+        return coefficient && multiplyRange(coefficient, { low: 100, high: 100 }) ? { term: "최대 마나", coefficient } : unsupportedPart();
+      }
       case "BuffCounterByCoefficientCalculationPart":
       case "BuffCounterByNamedDataValueCalculationPart": {
         const coefficient = type === "BuffCounterByNamedDataValueCalculationPart"

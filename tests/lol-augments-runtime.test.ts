@@ -92,8 +92,9 @@ describe("16.21 스킬·퀘스트·분기 원본 근거", () => {
       Threshold: { __type: "NamedDataValueCalculationPart", mDataValue: "{9d8c75c8}" },
     } }).text).toBe("0.5");
     expect(renderTooltip("@Loop@", { calculations: { Loop: { __type: "{f3cbe7b2}", mSpellCalculationKey: "Loop" } } }).unresolvedTokens).toEqual(["@Loop@"]);
-    expect(display(2016).displaySource).toBe("desc_partial");
-    expect(display(2016).text).toContain("(수치 미확인)");
+    // 2016 도취는 인게임 확인(최대 마나 비례)으로 해시 계산 타입을 지원해 desc가 완전 치환된다.
+    expect(display(2016).displaySource).toBe("desc");
+    expect(display(2016).text).toContain("원거리 최대 마나의 5.6% / 근접 최대 마나의 7%");
   });
   it("championDependent를 수집 → tooltip_rendered JSON 저장 계약까지 보존한다", () => {
     const result = buildIngestion("16.21", { "augment-lists": runtime.augmentLists, "cherry-augments": runtime.cherryAugments,

@@ -3,6 +3,12 @@ import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.serv
 import { recordLolOpsMetric } from "@/lib/lol/ops.server";
 import type { AugmentAdminData } from "./admin";
 
+const ICON_PATH = /^assets\/ux\/(kiwi|cherry)\/augments\/icons\/[a-z0-9_-]+\.png$/;
+// 작은 아이콘은 회색 실루엣이라 색이 있는 큰 아이콘을 우선하고, 큰 아이콘 경로가 해시뿐인 증강만 작은 아이콘을 쓴다.
+function preferredIcon(large: string | null, small: string | null): string | null {
+  return large && ICON_PATH.test(large) ? large : small;
+}
+
 export async function getAugmentAdminData(patch?: string): Promise<AugmentAdminData> {
   const db = createServiceRoleSupabase();
   const signal = AbortSignal.timeout(10_000);
@@ -24,7 +30,7 @@ export async function getAugmentAdminData(patch?: string): Promise<AugmentAdminD
       data.runs = [{ id, client_patch, status, counts, error_code, started_at }, ...data.runs.filter(run => run.id !== id)];
     }
     const [states, texts, changes, notes] = await Promise.all([
-      db.from("lol_augment_patch_states").select("platform_id,rarity,icon_small_path").eq("client_patch", selected).order("platform_id").limit(1000).abortSignal(signal),
+      db.from("lol_augment_patch_states").select("platform_id,rarity,icon_small_path,icon_large_path").eq("client_patch", selected).order("platform_id").limit(1000).abortSignal(signal),
       db.from("lol_augment_localizations").select("platform_id,name,display_text,display_source,tooltip_rendered").eq("client_patch", selected).eq("locale", "ko_kr").limit(1000).abortSignal(signal),
       db.from("lol_augment_patch_changes").select("id,platform_id,change_type,official,summary_ko,review_status").eq("client_patch", selected).order("platform_id").limit(2000).abortSignal(signal),
       db.from("lol_augment_patch_notes").select("url,published_at,added_names,removed_names,parse_status").eq("client_patch", selected).abortSignal(signal),
@@ -47,7 +53,7 @@ export async function getAugmentAdminData(patch?: string): Promise<AugmentAdminD
     data.detail = { patch: selected, published: !!patches.data.find(p => p.client_patch === selected)?.published_at,
       runId: selectedRun?.id ?? null, changes: changes.data, notes: notes.data, warnings,
       augments: states.data.map(state => ({ platformId: state.platform_id, name: names.get(state.platform_id)?.name ?? null,
-        rarity: state.rarity, icon: state.icon_small_path, text: names.get(state.platform_id)?.display_text ?? "",
+        rarity: state.rarity, icon: preferredIcon(state.icon_large_path, state.icon_small_path), text: names.get(state.platform_id)?.display_text ?? "",
         tokens: names.get(state.platform_id)?.tooltip_rendered,
         displaySource: names.get(state.platform_id)?.display_source ?? "desc_partial" })) };
     return data;

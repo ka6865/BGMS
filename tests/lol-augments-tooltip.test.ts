@@ -178,6 +178,17 @@ describe("안전한 툴팁 치환", () => {
     } });
     expect(result).toMatchObject({ text: "10~40 / 원거리 5 / 근접 10", unresolvedTokens: [], unsupportedCalculations: [] });
   });
+  it("2016 도취의 해시 계산 타입은 인게임 확인대로 최대 마나 비례·원거리 배율로 표시한다", () => {
+    const result = renderTooltip("적중 시 @Calc_Damage@의 마법 피해", { dataValues: [{ name: "ManaPercentDamagePercent", values: [0.07] }], calculations: {
+      Calc_Damage: { __type: "{e9a3c91d}", mFormulaParts: [{ __type: "{2b25a73a}", DataValue: "ManaPercentDamagePercent" }],
+        mRangedMultiplier: { __type: "NumberCalculationPart", mNumber: 0.8 } },
+    } });
+    expect(result).toMatchObject({ status: "ok", text: "적중 시 원거리 최대 마나의 5.6% / 근접 최대 마나의 7%의 마법 피해", unresolvedTokens: [] });
+    const unknownField = renderTooltip("@X@", { dataValues: [{ name: "V", values: [0.07] }], calculations: {
+      X: { __type: "GameCalculation", mFormulaParts: [{ __type: "{2b25a73a}", DataValue: "V", mUnknown: 1 }] },
+    } });
+    expect(unknownField.status).not.toBe("ok");
+  });
   it("미확인 능력치·공식·자원·경계 형식은 원래 토큰을 보존한다", () => {
     for (const calculation of [
       { __type: "StatByCoefficientCalculationPart", mStat: 999, mCoefficient: 0.1 },
