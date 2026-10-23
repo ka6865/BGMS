@@ -104,9 +104,9 @@ describe("LoL 개발 페이지", () => {
       .toMatchObject({ props: { initialRiotId: "100% Player#KR1" } });
   });
   it("레이아웃 성공 뒤에도 페이지는 회수된 권한을 다시 검사한다", async () => {
-    await expect(LolDevLayout({ children: "protected child" })).resolves.toBe(
-      "protected child",
-    );
+    await expect(LolDevLayout({ children: "protected child" })).resolves.toMatchObject({
+      props: { children: [expect.anything(), expect.objectContaining({ props: expect.objectContaining({ children: "protected child" }) })] },
+    });
     mocks.requireAdmin.mockResolvedValue({
       ok: false,
       error: Response.json({}, { status: 403 }),
@@ -117,7 +117,10 @@ describe("LoL 개발 페이지", () => {
 
   it("레이아웃도 페이지와 별도로 가드를 실행하고 children을 반환한다", async () => {
     const children = "protected child";
-    await expect(LolDevLayout({ children })).resolves.toBe(children);
+    const layout = await LolDevLayout({ children });
+    expect(layout).toMatchObject({ props: { children: [expect.anything(), expect.objectContaining({ props: expect.objectContaining({ children }) })] } });
+    const navigation = (layout as React.ReactElement<{ children: React.ReactElement[] }>).props.children[0];
+    expect(navigation.props).toMatchObject({ "aria-label": "LoL 관리자 메뉴" });
     expect(mocks.requireAdmin).toHaveBeenCalledOnce();
   });
 
