@@ -107,7 +107,15 @@ MIGRATIONS=(
   "20261017050000_close_player_data_tables"
   "20261017060000_revoke_unused_client_write_grants"
   "20261021010000_retention_candidates_telemetry_driven"
+  "20261022114157_lol_persistence_foundation"
   "20261022150000_pubg_player_matches_autovacuum"
+  "20261022200000_lol_remove_daily_budget"
+  "20261023010000_lol_ranked_history"
+  "20261023020000_lol_ranked_daily"
+  "20261023030000_lol_ops_metrics"
+  "20261023040000_lol_player_summaries"
+  "20261023050000_lol_benchmark_aggregates"
+  "20261023060000_lol_participant_identity"
 )
 
 cleanup() {
@@ -173,6 +181,12 @@ echo "▶ prerequisite 스키마 구성"
 
 echo "▶ 신규 migration 적용"
 for migration in "${MIGRATIONS[@]}"; do
+  if [[ "$migration" == "20261023060000_lol_participant_identity" ]]; then
+    "${PSQL[@]}" -f tests/fixtures/migration-check/lol-identity-backfill-setup.sql
+  fi
+  if [ "$migration" = "20261023040000_lol_player_summaries" ]; then
+    "${PSQL[@]}" -f tests/fixtures/migration-check/lol-summary-backfill-setup.sql
+  fi
   if [ "$migration" = "20261010113427_activate_board_delete_credential_privacy" ]; then
     "${PSQL[@]}" -f tests/fixtures/migration-check/board-credential-preparation.sql
   fi
@@ -227,7 +241,11 @@ fi
 pending_vote_second_pid=$!
 wait "$pending_vote_first_pid"
 wait "$pending_vote_second_pid"
-"${PSQL[@]}" -c "set role authenticated; select set_config('request.jwt.claim.sub','99200000-0000-4000-8000-000000000001',false); select set_config('request.jwt.claim.role','authenticated',false); insert into public.pending_markers(map_name,marker_type,x,y,weight,contributor_ids,is_notified) values('Erangel','Garage',6500,6500,1,array['99200000-0000-4000-8000-000000000001']::uuid[],false);" &
+"${PSQL[@]}" -c "set role authenticated;
+  select set_config('request.jwt.claim.sub','99200000-0000-4000-8000-000000000001',false);
+  select set_config('request.jwt.claim.role','authenticated',false);
+  insert into public.pending_markers(map_name,marker_type,x,y,weight,contributor_ids,is_notified)
+  values('Erangel','Garage',6500,6500,1,array['99200000-0000-4000-8000-000000000001']::uuid[],false);" &
 pending_registration_first_pid=$!
 pending_registration_started=false
 for _ in $(seq 1 50); do
@@ -421,7 +439,11 @@ ranking_first_pid=$!
 ranking_second_pid=$!
 wait "$ranking_first_pid"
 wait "$ranking_second_pid"
-"${PSQL[@]}" -c "do \$\$ begin if (select count(*) from public.ranking_cache_test_calls)<>1 then raise exception 'Concurrent refresh aggregated more than once'; end if; end \$\$; delete from public.pubg_response_cache where cache_key like 'rankings:v2:%'; delete from public.ranking_cache_test_calls;"
+"${PSQL[@]}" -c "do \$\$ begin
+  if (select count(*) from public.ranking_cache_test_calls)<>1 then raise exception 'Concurrent refresh aggregated more than once'; end if;
+  end \$\$;
+  delete from public.pubg_response_cache where cache_key like 'rankings:v2:%';
+  delete from public.ranking_cache_test_calls;"
 "${PSQL[@]}" -c "set role service_role; select public.get_pubg_rankings_cached('damage',array['solo'],'all',3,8,1,73)->>'pending';"
 "${PSQL[@]}" -c "select public.refresh_pubg_rankings_cache();"
 "${PSQL[@]}" -c "select public.refresh_pubg_rankings_cache();" &
@@ -444,4 +466,12 @@ if wait "$ranking_privacy_pid"; then
   exit 1
 fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/ranking-cache-concurrency-checks.sql
+echo "▶ LoL persistence 시나리오 실행"
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-persistence-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-ranked-history-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-ranked-daily-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-ops-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-player-summaries-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-benchmark-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-participant-identity-scenarios.sql
 echo "✅ 신규 migration 적용 및 RPC 동작 검증 완료"
