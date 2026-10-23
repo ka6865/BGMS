@@ -76,6 +76,7 @@ const details = {
 };
 
 export const matches = Array.from({ length: 5 }, (_, index) => ({
+  dataDragonVersion: "16.21.1",
   matchId: `FIXTURE_${index + 1}`,
   queueId: [420, 440, 450, 420, 440][index],
   gameMode: index === 2 ? "ARAM" : "CLASSIC",
@@ -105,6 +106,7 @@ export const matches = Array.from({ length: 5 }, (_, index) => ({
 }));
 
 export const fixtureResult = {
+  dataDragonVersion: "16.21.1",
   account: { gameName: "blue0", tagLine: "KR1" },
   profile: { profileIconId: 123, summonerLevel: 42 },
   ranked: [

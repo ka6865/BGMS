@@ -1,8 +1,9 @@
 import "server-only";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHmac, hkdfSync, randomBytes } from "node:crypto";
 import { notFound } from "next/navigation";
 import { NextResponse } from "next/server";
 import { extractClientIp } from "@/lib/board/ipUtils";
+import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import { isSameOriginLolRequest } from "./http.server";
 
 const buckets = new Map<string, { count: number; expiresAt: number }>();
@@ -13,7 +14,7 @@ export function requireLolPublicPage(): void {
   if (process.env.LOL_PUBLIC_ENABLED !== "true") notFound();
 }
 
-export function guardLolPublicRequest(request: Request, kind: keyof typeof limits, sameOrigin = true): NextResponse | null {
+export async function guardLolPublicRequest(request: Request, kind: keyof typeof limits, sameOrigin = true): Promise<NextResponse | null> {
   const fail = (error: string, status: number, retryAfter?: number) => NextResponse.json({ error }, {
     status,
     headers: { "Cache-Control": "private, no-store", "X-Robots-Tag": "noindex, nofollow",
@@ -30,10 +31,35 @@ export function guardLolPublicRequest(request: Request, kind: keyof typeof limit
   }
   const now = Date.now();
   for (const [key, bucket] of buckets) if (bucket.expiresAt <= now) buckets.delete(key);
-  const ip = createHmac("sha256", salt).update(extractClientIp(request)).digest("hex");
+  const secret = process.env.LOL_PARTICIPANT_REF_SECRET?.trim();
+  const hmacKey = secret ? Buffer.from(hkdfSync("sha256", secret, "bgms-lol", "public-rate-limit:v1", 32)) : salt;
+  const ip = createHmac("sha256", hmacKey).update(extractClientIp(request)).digest("hex");
   const key = `${kind}:${ip}`;
+  let reasonCode = "missing_participant_ref_secret";
+  if (secret) {
+    const signal = AbortSignal.timeout(1000);
+    try {
+      const { data, error } = await createServiceRoleSupabase().rpc("consume_lol_public_rate_limit", {
+        p_key: key, p_limit: limits[kind], p_window_seconds: 60,
+      }).abortSignal(signal);
+      if (error) throw error;
+      if (!data || typeof data.allowed !== "boolean" || !Number.isSafeInteger(data.retry_after) || data.retry_after < 0) {
+        throw new Error("invalid_rate_limit_result");
+      }
+      if (!data.allowed) return fail("요청이 많습니다. 잠시 후 다시 시도해 주세요.", 429, Math.max(1, data.retry_after));
+      // DB 장애 직전 요청도 메모리 제한에 반영한다.
+      let recent = buckets.get(key);
+      if (!recent && buckets.size < 10_000) {
+        recent = { count: 0, expiresAt: now + 60_000 };
+        buckets.set(key, recent);
+      }
+      if (recent) recent.count += 1;
+      return null;
+    } catch { reasonCode = signal.aborted ? "db_timeout" : "db_error"; }
+  }
+  console.warn("[lol-public] rate_limit_fallback", { reasonCode });
   let bucket = buckets.get(key);
-  // shortcut: 인스턴스별 메모리 제한이므로 다중 인스턴스 공개 운영 때 공유 저장소로 전환한다.
+  // shortcut: DB 장애 중에는 인스턴스별 제한이며, 장기 장애 시 공개 기능을 닫는다.
   if (!bucket) {
     if (buckets.size >= 10_000) return fail("요청이 많습니다. 잠시 후 다시 시도해 주세요.", 429, 60);
     bucket = { count: 0, expiresAt: now + 60_000 };

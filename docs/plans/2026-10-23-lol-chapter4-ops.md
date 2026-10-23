@@ -269,7 +269,7 @@ PUBG A안과 같은 원칙으로, 검색한 계정의 본인 이력은 남기고
 | 영구 | `lol_accounts`, `lol_ranked_entries`, `lol_ranked_history` | 미접근 90일 자동 삭제 중단; 명시적 삭제 요청은 별도 처리 |
 | 영구 | `lol_player_match_summaries` | 검색된 계정 본인만 저장; `(puuid,match_id)` 유일; 계정 삭제 시 cascade |
 | 단기 | `lol_matches.request_json`, `lol_match_participants` | 기존 7일 TTL; 원문 삭제 시 참가자 cascade |
-| 즉시 | 만료된 `lol_api_cache`, `lol_collection_leases` | 정리 실행 시 만료 행 삭제; 자동 스케줄은 별도 승인 필요 |
+| 즉시 | 만료된 `lol_api_cache`, `lol_collection_leases`, `lol_public_rate_limits` | 배치 정리 시 삭제; 자동 정리는 저장소 변수 `LOL_CLEANUP_ENABLED=true`일 때만 적용 |
 
 요약은 `lol_matches` FK를 두지 않는다. 계정 FK만 두어 원문 만료와 독립적으로 유지한다.
 카드·요약 계산에 필요한 경기 시각·길이·패치·챔피언·포지션·승패·다시하기·KDA·CS·골드·피해량·시야·와드·목표물/포탑 피해를 보존한다.
@@ -407,3 +407,9 @@ get_lol_ops_status()
 - 적용 후: 요약 23행(검색 계정 2개) 백필, RLS 활성, anon 조회·authenticated 삭제 RPC 실행 불가, service_role 가능, teammates에 PUUID 없음. 실제 검색 정상.
 - 후속 최적화 후보: 검색마다 실행되는 요약 upsert가 저장 원문 전체의 참가자 배열을 펼친다. 7일 원문 범위에서는 문제없으나 공개 후 경기 수가 늘면 참가자 인덱스로 대상 경기를 먼저 좁히도록 바꾼다.
 - 계정 삭제 기능은 fixture에서만 검증했고 운영 실계정으로 실행하지 않았다.
+
+## 심사 전 자동 정리 확장 (2026-10-24, 운영 미적용)
+
+`20261024020000_lol_review_hardening.sql`은 기존 preview·배치 RPC에 만료된 공개 요청 카운터와 배치 잠금·메트릭을 추가한다.
+계정·본인 요약·랭크 이력의 보존 계약은 유지한다. 일일 스케줄은 기본 dry-run이다.
+실행 상한, 신설 객체, 적용 순서는 [심사 전 안정화 운영 계약](../operations/2026-10-24-lol-review-hardening.md)을 따른다.

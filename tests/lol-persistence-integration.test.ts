@@ -1,3 +1,4 @@
+vi.mock("@/lib/lol/dataDragon.server", () => ({ getLolDataDragonVersion: async () => "16.21.1" }));
 import { createHmac } from "node:crypto";
 import { afterAll, describe, expect, it, vi } from "vitest";
 import { createClient } from "@supabase/supabase-js";

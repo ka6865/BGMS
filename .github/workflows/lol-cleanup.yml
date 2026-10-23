@@ -1,0 +1,41 @@
+name: LoL 만료 데이터 정리
+
+on:
+  schedule:
+    # KST 04:11. PUBG 일일 작업(03:00)과 보존 배치의 정각 분을 피한다.
+    - cron: '11 19 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lol-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    # 운영 secret을 쓰므로 main에서만 실행한다(수동 실행 포함).
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: 만료 대상 확인 또는 정리
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          LOL_CLEANUP_ENABLED: ${{ vars.LOL_CLEANUP_ENABLED }}
+        run: |
+          if [ "$LOL_CLEANUP_ENABLED" = 'true' ]; then
+            npx tsx scripts/lol_cleanup_expired.ts --apply
+          else
+            npx tsx scripts/lol_cleanup_expired.ts --dry-run
+          fi

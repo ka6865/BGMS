@@ -1,3 +1,4 @@
+import { LOL_KEY_RENEWAL_MESSAGE, LOL_KEY_RENEWAL_ENGLISH } from "@/lib/lol/keyNotice";
 import { LOL_LEGAL_ENGLISH, LOL_LEGAL_KOREAN } from "@/components/lol/LolLegalNotice";
 import { NextResponse } from "next/server";
 import { guardLolPublicRequest } from "@/lib/lol/publicAccess.server";
@@ -16,7 +17,7 @@ function failure(message: string, status: number) {
 }
 
 export async function GET(request: Request, { params }: { params: Promise<{ ref: string }> }) {
-  const denied = guardLolPublicRequest(request, "read", false);
+  const denied = await guardLolPublicRequest(request, "read", false);
   if (denied) return denied;
   try {
     const riotId = await resolveLolParticipantRef((await params).ref);
@@ -24,6 +25,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ ref:
     if (!path) return failure("계정 이름을 확인할 수 없습니다.", 502);
     return NextResponse.redirect(new URL(path, request.url), { status: 307, headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
+    if (error instanceof RiotSearchError && ["key_or_permission", "unconfigured"].includes(error.kind)) {
+      return failure(`${LOL_KEY_RENEWAL_MESSAGE}<br><span lang="en">${LOL_KEY_RENEWAL_ENGLISH}</span>`, 503);
+    }
     if (error instanceof RiotSearchError && error.kind === "invalid_request") return failure("잘못된 참가자 링크입니다. (400)", 400);
     if (error instanceof RiotSearchError && error.kind === "not_found") return failure("계정을 찾을 수 없습니다.", 404);
     return failure("계정 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.", 503);

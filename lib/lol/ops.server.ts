@@ -7,6 +7,7 @@ export const LOL_OPS_METRICS = [
   "riot_success", "riot_429", "riot_5xx", "riot_network", "riot_timeout", "riot_key_error", "riot_4xx",
   "search_cache_hit", "search_cache_miss", "detail_cache_hit", "detail_cache_miss", "raw_reuse", "db_error", "db_timeout",
 ] as const;
+const statusMetrics: readonly string[] = [...LOL_OPS_METRICS, "cleanup_deleted", "cleanup_remaining", "cleanup_duration_ms"];
 export type LolOpsMetric = typeof LOL_OPS_METRICS[number];
 
 export function recordLolOpsMetric(metric: LolOpsMetric) {
@@ -37,7 +38,7 @@ async function opsRpc<T>(name: string, args: Record<string, unknown> = {}): Prom
 }
 
 function counts(value: LolCleanupCounts): LolCleanupCounts {
-  return { cache_rows: value.cache_rows, match_rows: value.match_rows, account_rows: value.account_rows, lease_rows: value.lease_rows };
+  return { ...(value.public_rate_limit_rows !== undefined ? { public_rate_limit_rows: value.public_rate_limit_rows } : {}), cache_rows: value.cache_rows, match_rows: value.match_rows, account_rows: value.account_rows, lease_rows: value.lease_rows };
 }
 
 export async function getLolOpsStatus(): Promise<LolOpsStatus> {
@@ -49,7 +50,7 @@ export async function getLolOpsStatus(): Promise<LolOpsStatus> {
   };
   if (!enabled) return empty;
   const status = await opsRpc<LolOpsStatus>("get_lol_ops_status");
-  const metrics = status.metrics.filter((row) => LOL_OPS_METRICS.includes(row.metric as LolOpsMetric))
+  const metrics = status.metrics.filter((row) => statusMetrics.includes(row.metric))
     .map(({ day, metric, value }) => ({ day, metric, value }));
   return {
     ...empty, today: status.today, todayRiotCalls: status.todayRiotCalls, cooldownActive: status.cooldownActive,

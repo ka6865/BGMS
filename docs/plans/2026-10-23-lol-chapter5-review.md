@@ -25,9 +25,9 @@
 | 더보기·상세·참가자 이동 | 1분 30회 공유 버킷 |
 
 - 초과 시 429, 한국어 안내와 `Retry-After`를 반환한다.
-- 서버 인스턴스별 메모리 고정 윈도이며 만료 버킷을 정리하고 최대 10,000개로 제한한다. 다중 인스턴스 합산 제한은 보장하지 않는다.
-- 기존 IP 추출 유틸을 재사용하며 무작위 서버 salt로 HMAC 처리한 키만 메모리에 보관한다. IP 원문은 로그에 기록하지 않는다.
-- 배포 프록시가 `x-forwarded-for`/`x-real-ip`를 신뢰 가능한 값으로 덮어쓰는지 운영 환경에서 확인한다.
+- `consume_lol_public_rate_limit`의 DB 원자 카운터로 인스턴스 간 제한을 공유한다. DB 오류 때만 최대 10,000개 메모리 버킷으로 대체하며 무제한 허용하지 않는다.
+- `LOL_PARTICIPANT_REF_SECRET`에서 HKDF(SHA-256, salt `bgms-lol`, info `public-rate-limit:v1`)로 파생한 키로 IP를 HMAC 처리한다. 새 환경 변수 없이 해시만 DB에 저장하며 IP 원문은 기록하지 않는다.
+- Vercel의 일반 경로는 `x-forwarded-for`를 덮어쓰므로 기존 `extractClientIp`를 재사용한다. 별도 프록시·Trusted Proxy 구성은 배포 환경에서 재확인한다. [근거와 제한](../operations/2026-10-24-lol-review-hardening.md).
 - API 출처는 `isSameOriginLolRequest`로 검사한다. GET의 Origin 생략은 `Sec-Fetch-Site: same-origin`일 때만 보완한다.
 - 참가자 이동은 일반 문서 navigation을 허용하고 플래그·IP 제한을 적용한다.
 - 갱신 쿨다운 120초·전역 Riot 가드·PUUID 제외 DTO·봉인 ref 계약을 재사용한다.
@@ -43,7 +43,7 @@
 
 - Riot Games API 출처, Riot ID·PUUID·레벨·아이콘·랭크·경기 기록을 명시한다.
 - 검색 계정·본인 경기 요약·랭크는 삭제 요청 전까지, 다른 참가자를 포함한 원문은 7일 TTL, 응답 캐시는 짧은 TTL, 익명 통계는 식별자 없이 보관한다.
-- TTL 만료와 실제 정리 실행을 구분한다. 자동 정리 스케줄을 추가하지 않는다.
+- TTL 만료와 실제 정리 실행을 구분한다. 일일 정리는 기본 dry-run이며 저장소 변수 `LOL_CLEANUP_ENABLED=true`에서만 삭제한다. [실행 계약](../operations/2026-10-24-lol-review-hardening.md).
 - 고객센터 1:1 문의로 삭제 요청을 받고 확인 후 계정 데이터를 삭제한다. 커스텀 게임은 수집·표시하지 않는다.
 - PUBG 관련 문구는 유지하고 이용약관에 LoL 조회와 Riot 비보증 고지를 추가한다.
 

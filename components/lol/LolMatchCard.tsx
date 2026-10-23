@@ -30,9 +30,11 @@ function hideBrokenImage(event: React.SyntheticEvent<HTMLImageElement>) {
 export function LolItemSlots({
   player,
   size = 20,
+  dataDragonVersion,
 }: {
   player?: LolPlayer;
   size?: number;
+  dataDragonVersion?: string;
 }) {
   return (
     <div
@@ -51,7 +53,7 @@ export function LolItemSlots({
           >
             {item?.id ? (
               <img
-                src={`https://ddragon.leagueoflegends.com/cdn/16.21.1/img/item/${item.id}.png`}
+                src={`https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/item/${item.id}.png`}
                 alt={item.name || "아이템"}
                 width={size}
                 height={size}
@@ -71,9 +73,11 @@ export function LolItemSlots({
 export function LolBuildIcons({
   player,
   size = 20,
+  dataDragonVersion,
 }: {
   player?: LolPlayer;
   size?: number;
+  dataDragonVersion?: string;
 }) {
   const icons = [
     player?.spells?.[0],
@@ -90,7 +94,7 @@ export function LolBuildIcons({
         const image = icon?.image;
         const src = image
           ? index < 2
-            ? `https://ddragon.leagueoflegends.com/cdn/16.21.1/img/spell/${image}`
+            ? `https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/spell/${image}`
             : `https://ddragon.leagueoflegends.com/cdn/img/${image}`
           : null;
         return (
@@ -132,6 +136,7 @@ export default function LolMatchCard({
   onToggle,
   onSearch,
 }: Props) {
+  const dataDragonVersion = match.dataDragonVersion;
   const teams = [...(match.details?.teams ?? [])].sort(
     (a, b) => a.teamId - b.teamId,
   );
@@ -154,7 +159,7 @@ export default function LolMatchCard({
         <div className="flex items-center gap-2">
           <span className="relative h-10 w-10 shrink-0">
             <img
-              src={`https://ddragon.leagueoflegends.com/cdn/16.21.1/img/champion/${match.championImageId}.png`}
+              src={`https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/champion/${match.championImageId}.png`}
               alt=""
               width={40}
               height={40}
@@ -167,7 +172,7 @@ export default function LolMatchCard({
               </small>
             )}
           </span>
-          <LolBuildIcons player={ownPlayer} size={16} />
+          <LolBuildIcons dataDragonVersion={dataDragonVersion} player={ownPlayer} size={16} />
         </div>
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -221,7 +226,7 @@ export default function LolMatchCard({
           className="col-span-2 row-start-3 @min-[560px]/match:col-span-1 @min-[560px]/match:col-start-3
             @min-[560px]/match:row-start-1 @min-[900px]/match:col-start-4"
         >
-          <LolItemSlots player={ownPlayer} />
+          <LolItemSlots dataDragonVersion={dataDragonVersion} player={ownPlayer} />
         </div>
         <button
           type="button"

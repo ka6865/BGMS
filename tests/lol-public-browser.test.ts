@@ -6,6 +6,7 @@ import { build, type Plugin } from "esbuild";
 import postcss from "postcss";
 import tailwind from "@tailwindcss/postcss";
 import puppeteer, { type Browser, type Page } from "puppeteer";
+import { LOL_KEY_RENEWAL_MESSAGE, LOL_KEY_RENEWAL_ENGLISH } from "../lib/lol/keyNotice";
 import { fixtureResult } from "./fixtures/lol/browserScenario";
 
 const navigation = `
@@ -26,11 +27,11 @@ const stubs: Plugin = { name: "lol-public-fixture", setup(builder) {
   }));
 } };
 
-describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true")("LoL 공개 페이지 fixture", { timeout: 30_000 }, () => {
+describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 공개 페이지 fixture", { timeout: 30_000 }, () => {
   let server: Server; let browser: Browser; let base: string;
   beforeAll(async () => {
     const shared = { bundle: true, write: false, jsx: "automatic" as const, tsconfig: "tsconfig.json", plugins: [stubs] };
-    const ssr = await build({ ...shared, platform: "node", format: "cjs", define: { "process.env.LOL_PUBLIC_ENABLED": '"true"', "process.env.NODE_ENV": '"production"', "process.env": "{}" },
+    const ssr = await build({ ...shared, platform: "node", format: "cjs", define: { "process.env.RIOT_API_KEY": '"fixture-only-key"', "process.env.LOL_PUBLIC_ENABLED": '"true"', "process.env.NODE_ENV": '"production"', "process.env": "{}" },
       stdin: { loader: "tsx", resolveDir: process.cwd(), contents: `
         import React from 'react'; import { renderToString } from 'react-dom/server';
         import Layout from './app/lol/layout'; import Page from './app/lol/kr/page';
@@ -63,10 +64,15 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true")("LoL 공개 페�
       if (req.url === "/style.css") { res.setHeader("Content-Type", "text/css"); res.end(css.css); return; }
       if (req.url === "/api/lol/search") {
         let body = ""; req.on("data", chunk => { body += chunk; }); req.on("end", () => {
-          const { riotId } = JSON.parse(body);
+          const { riotId, refresh } = JSON.parse(body);
           res.setHeader("Content-Type", "application/json");
           if (riotId.startsWith("오류#")) { res.statusCode = 429; res.end(JSON.stringify({ error: "요청이 많습니다. 잠시 후 다시 시도해 주세요." })); }
-          else res.end(JSON.stringify({ ...fixtureResult, account: { gameName: "홍길동", tagLine: "KR1" } }));
+          else if (riotId.startsWith("만료#") || riotId.startsWith("미설정#") || (refresh && riotId.startsWith("보존#"))) {
+            res.statusCode = 503;
+            res.end(JSON.stringify({ error: LOL_KEY_RENEWAL_MESSAGE, reasonCode: "riot_key_renewal", detail: LOL_KEY_RENEWAL_ENGLISH }));
+          }
+          else res.end(JSON.stringify({ ...fixtureResult, refreshRemainSeconds: riotId.startsWith("보존#") ? 0 : 120,
+            account: { gameName: riotId.split("#")[0], tagLine: riotId.split("#")[1] } }));
         }); return;
       }
       res.setHeader("Content-Type", "text/html");
@@ -107,6 +113,34 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true")("LoL 공개 페�
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(calls).toEqual([`${base}/api/lol/search`]); expect(errors).toEqual([]);
     await page.screenshot({ path: `tmp/lol-public-review/${width}x${height}.png`, fullPage: true }); await page.close();
+  });
+  it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("키 만료·미설정 안내가 %ix%i에서 표시된다", async (width, height) => {
+    for (const name of ["만료#FIX", "미설정#FIX"]) {
+      const page = await open(width, height);
+      await search(page, name);
+      await page.waitForSelector('[role="status"] [lang="en"]');
+      expect(await page.$eval('[role="status"]', element => element.textContent)).toContain(LOL_KEY_RENEWAL_MESSAGE);
+      expect(await page.$eval('[role="status"] [lang="en"]', element => element.textContent)).toBe(LOL_KEY_RENEWAL_ENGLISH);
+      expect(await page.$('[role="alert"]')).toBeNull();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.screenshot({ path: `tmp/lol-public-review/key-${name.split("#")[0]}-${width}x${height}.png`, fullPage: true });
+      await page.close();
+    }
+  });
+  it("갱신 도중 키가 만료되어도 기존 전적과 상세를 보존한다", async () => {
+    const page = await open(390, 844);
+    await search(page, "보존#FIX");
+    await page.waitForSelector('[data-testid="lol-match-card"]');
+    const before = await page.$$eval('[data-testid="lol-match-card"]', cards => cards.map(card => card.textContent));
+    await page.$$eval("button", buttons => (buttons.find(button => button.textContent === "전적 갱신") as HTMLButtonElement).click());
+    await page.waitForSelector('[role="status"] [lang="en"]');
+    expect(await page.$eval('[role="status"]', element => element.textContent)).toContain(LOL_KEY_RENEWAL_MESSAGE);
+    expect(await page.$$eval('[data-testid="lol-match-card"]', cards => cards.map(card => card.textContent))).toEqual(before);
+    await page.click('button[aria-label="경기 상세 보기"]');
+    await page.waitForSelector('[data-testid="lol-player-row"]');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: "tmp/lol-public-review/key-refresh-preserved.png", fullPage: true });
+    await page.close();
   });
   it("모바일 빈 화면·429 안내가 표시된다", async () => {
     const page = await open(390, 844); expect(await page.$('section[aria-label="최근 경기"]')).toBeNull();

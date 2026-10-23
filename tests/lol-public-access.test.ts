@@ -48,6 +48,32 @@ describe("LoL 공개 보안 경계", () => {
     expect(mocks.search).not.toHaveBeenCalled(); expect(mocks.resolve).not.toHaveBeenCalled();
   });
 
+  it("키가 없는 공개 첫 화면에도 갱신 안내와 영문 보조 문구가 표시된다", async () => {
+    vi.stubEnv("RIOT_API_KEY", "");
+    const { default: page } = await import("@/app/lol/kr/page");
+    const html = renderToStaticMarkup(page());
+    expect(html).toContain("Riot API 키를 갱신하는 중입니다.");
+    expect(html).toContain("Riot API key is being renewed");
+    expect(html).toContain('role="status"');
+    expect(html).not.toContain('role="alert"');
+  });
+
+  it.each(["key_or_permission", "unconfigured"])("공개 검색·더보기·상세는 %s를 갱신 안내로 반환한다", async (kind) => {
+    const { RiotSearchError } = await import("@/lib/lol/riotSearch.server");
+    const error = Object.assign(new RiotSearchError(kind as "unconfigured"), { kind });
+    mocks.search.mockRejectedValue(error); mocks.more.mockRejectedValue(error); mocks.detail.mockRejectedValue(error);
+    const search = await import("@/app/api/lol/search/route");
+    const more = await import("@/app/api/lol/matches/more/route");
+    const detail = await import("@/app/api/lol/matches/[matchId]/route");
+    const responses = [await search.POST(request()), await more.POST(request(undefined, undefined, { riotId: "홍길동#FIX", offset: 5 })),
+      await detail.GET(request(), detailContext)];
+    for (const response of responses) {
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "Riot API 키를 갱신하는 중입니다. 잠시 후 다시 시도해 주세요.",
+        reasonCode: "riot_key_renewal", detail: "Riot API key is being renewed" });
+    }
+  });
+
   it("공개 검색은 관리자 인증 없이 기존 DTO와 갱신 계약을 전달한다", async () => {
     const { POST } = await import("@/app/api/lol/search/route");
     const dto = { account: { gameName: "홍길동", tagLine: "KR1" }, matches: [], refreshRemainSeconds: 120 };

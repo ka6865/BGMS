@@ -4,6 +4,10 @@ import { isSameOriginLolRequest } from "./http.server";
 import { LolPersistenceError } from "./persistence.server";
 import { searchLolRiotId, getMoreLolMatches, getLolMatchDetails, RiotSearchError } from "./riotSearch.server";
 
+import { LOL_KEY_RENEWAL_MESSAGE, LOL_KEY_RENEWAL_ENGLISH, LOL_KEY_RENEWAL_CODE } from "./keyNotice";
+
+const keyNotice = { error: LOL_KEY_RENEWAL_MESSAGE, reasonCode: LOL_KEY_RENEWAL_CODE, detail: LOL_KEY_RENEWAL_ENGLISH };
+
 function searchResponse(body: unknown, status = 200, extraHeaders?: HeadersInit) {
   return NextResponse.json(body, {
     status,
@@ -50,12 +54,12 @@ export async function handleLolSearch(request: Request): Promise<NextResponse> {
     switch (error.kind) {
       case "invalid_request": return searchResponse({ error: "Riot ID 형식은 게임 이름#태그입니다." }, 400);
       case "not_found": return searchResponse({ error: "Riot ID를 찾을 수 없습니다. 이름과 태그를 확인해 주세요." }, 404);
-      case "key_or_permission": return searchResponse({ error: "Riot API 키 또는 API 권한을 확인해 주세요." }, 403);
+      case "key_or_permission": return searchResponse(keyNotice, 503);
       case "rate_limited": return searchResponse({ error: "Riot API 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요." }, 429, {
         "Retry-After": String(error.retryAfterSeconds ?? 1),
       });
       case "timeout": return searchResponse({ error: "Riot API 응답 시간이 초과되었습니다." }, 504);
-      case "unconfigured": return searchResponse({ error: "Riot API 키가 설정되지 않았습니다." }, 503);
+      case "unconfigured": return searchResponse(keyNotice, 503);
       case "busy": return searchResponse({ error: "BGMS에서 같은 계정의 데이터 처리가 진행 중입니다. 잠시 후 다시 시도해 주세요." }, 503, { "Retry-After": String(error.retryAfterSeconds ?? 2) });
       case "persistence": return searchResponse({ error: "LoL 저장소를 사용할 수 없습니다." }, 503);
       default: return searchResponse({ error: "Riot API에 일시적인 문제가 있습니다." }, 502);
@@ -99,9 +103,9 @@ export async function handleLolMore(request: Request): Promise<NextResponse> {
       case "not_found": return moreResponse({ error: "먼저 검색한 Riot ID만 경기 목록을 불러올 수 있습니다." }, 404);
       case "rate_limited": return moreResponse({ error: "Riot API 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요." }, 429, { "Retry-After": String(error.retryAfterSeconds ?? 1) });
       case "busy": return moreResponse({ error: "BGMS에서 같은 계정의 데이터 처리가 진행 중입니다. 잠시 후 다시 시도해 주세요." }, 503, { "Retry-After": String(error.retryAfterSeconds ?? 2) });
-      case "unconfigured": return moreResponse({ error: "Riot API 키가 설정되지 않았습니다." }, 503);
+      case "unconfigured": return moreResponse(keyNotice, 503);
       case "timeout": return moreResponse({ error: "Riot API 응답 시간이 초과되었습니다." }, 504);
-      case "key_or_permission": return moreResponse({ error: "Riot API 키 또는 API 권한을 확인해 주세요." }, 403);
+      case "key_or_permission": return moreResponse(keyNotice, 503);
       default: return moreResponse({ error: "경기 목록을 불러오지 못했습니다." }, 502);
     }
   }
@@ -117,6 +121,9 @@ export async function handleLolDetail(_request: Request, { params }: { params: P
   } catch (error) {
     if (error instanceof LolPersistenceError || (error instanceof RiotSearchError && error.kind === "persistence")) {
       return NextResponse.json({ error: "LoL 저장소를 사용할 수 없습니다." }, { status: 503, headers: { "Cache-Control": "private, no-store" } });
+    }
+    if (error instanceof RiotSearchError && ["key_or_permission", "unconfigured"].includes(error.kind)) {
+      return NextResponse.json(keyNotice, { status: 503, headers: { "Cache-Control": "private, no-store" } });
     }
     const status = error instanceof RiotSearchError
       ? error.kind === "invalid_request" ? 400

@@ -1,4 +1,5 @@
 import "server-only";
+import { getLolDataDragonVersion } from "./dataDragon.server";
 import { recordLolOpsMetric, type LolOpsMetric } from "./ops.server";
 import {
   acquireLolCollectionLease,
@@ -102,7 +103,6 @@ const RIOT_HOSTS = {
 } as const;
 const LOL_PLATFORM: LolPlatform = "kr";
 const LOL_REGIONAL_ROUTE: LolRegionalRoute = "asia";
-export const LOL_DATA_DRAGON_VERSION = "16.21.1";
 export const LOL_MATCH_DETAILS_VERSION = "v4";
 const MIN_SUMMARY_GAME_DURATION_SECONDS = 300;
 const STATIC_TTL_MS = 24 * 60 * 60_000;
@@ -121,6 +121,7 @@ type StaticStyle = {
 };
 let staticData:
   | {
+      dataDragonVersion: string;
       expiresAt: number;
       enriched: boolean;
       champions: Record<string, { name: string; key: string }>;
@@ -638,9 +639,11 @@ function summarizeMatch(match: any, puuid: string): LolRecentMatch | null {
   };
 }
 
-async function getStaticData(includeBuild = false) {
+async function getStaticData(includeBuild = false, version?: string) {
+  const dataDragonVersion = version ?? await getLolDataDragonVersion();
   if (
     staticData &&
+    staticData.dataDragonVersion === dataDragonVersion &&
     staticData.expiresAt > Date.now() &&
     (!includeBuild || staticData.enriched)
   )
@@ -648,9 +651,9 @@ async function getStaticData(includeBuild = false) {
   if (staticDataRequest) {
     const pending = staticDataRequest;
     const loaded = await pending;
-    if (!includeBuild || loaded.enriched) return loaded;
+    if (loaded.dataDragonVersion === dataDragonVersion && (!includeBuild || loaded.enriched)) return loaded;
     if (staticDataRequest === pending) staticDataRequest = undefined;
-    return getStaticData(true);
+    return getStaticData(includeBuild, dataDragonVersion);
   }
   const request = (async () => {
     const load = async <T>(
@@ -658,7 +661,7 @@ async function getStaticData(includeBuild = false) {
     ): Promise<Record<string, T>> => {
       try {
         const response = await fetch(
-          `https://ddragon.leagueoflegends.com/cdn/${LOL_DATA_DRAGON_VERSION}/data/ko_KR/${kind}.json`,
+          `https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/data/ko_KR/${kind}.json`,
           {
             cache: "no-store",
             redirect: "error",
@@ -690,7 +693,7 @@ async function getStaticData(includeBuild = false) {
         ? (async () => {
             try {
               const response = await fetch(
-                `https://ddragon.leagueoflegends.com/cdn/${LOL_DATA_DRAGON_VERSION}/data/ko_KR/runesReforged.json`,
+                `https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/data/ko_KR/runesReforged.json`,
                 {
                   cache: "no-store",
                   redirect: "error",
@@ -713,6 +716,7 @@ async function getStaticData(includeBuild = false) {
         : Promise.resolve([] as StaticStyle[]),
     ]);
     return (staticData = {
+      dataDragonVersion,
       expiresAt:
         Object.keys(champions).length ||
         Object.keys(items).length ||
@@ -955,11 +959,12 @@ async function getLolMatchDetailsAndRaw(
 ): Promise<{ details: LolMatchDetails; raw: unknown }> {
   if (!isMatchId(input)) throw new RiotSearchError("invalid_request");
   const persistenceEnabled = isLolPersistenceEnabled();
+  const dataDragonVersion = await getLolDataDragonVersion();
   const cacheKey = lolMatchCacheKey(
     input,
     LOL_PLATFORM,
     LOL_REGIONAL_ROUTE,
-    `${LOL_DATA_DRAGON_VERSION}:${LOL_MATCH_DETAILS_VERSION}`,
+    `${dataDragonVersion}:${LOL_MATCH_DETAILS_VERSION}`,
   );
   let rawCacheChecked = false;
   let cachedRaw: unknown;
@@ -969,14 +974,14 @@ async function getLolMatchDetailsAndRaw(
       cacheKey,
       LOL_PLATFORM,
       LOL_REGIONAL_ROUTE,
-      LOL_DATA_DRAGON_VERSION,
+      dataDragonVersion,
     );
-    if (cached && !includeRaw) return { details: cached, raw: undefined };
+    if (cached && !includeRaw) return { details: { ...cached, dataDragonVersion }, raw: undefined };
     if (cached) {
       cachedRaw = await getLolMatchRequestJson(input, LOL_PLATFORM, LOL_REGIONAL_ROUTE);
       rawCacheChecked = true;
       if (cachedRaw && String((cachedRaw as any)?.metadata?.matchId ?? "") === input
-        && Array.isArray((cachedRaw as any)?.info?.participants)) return { details: cached, raw: cachedRaw };
+        && Array.isArray((cachedRaw as any)?.info?.participants)) return { details: { ...cached, dataDragonVersion }, raw: cachedRaw };
     }
   }
   const lease = persistenceEnabled
@@ -1008,8 +1013,9 @@ async function getLolMatchDetailsAndRaw(
       throw new RiotSearchError("upstream");
     if (Number(info.queueId) === 0 || info.gameType === "CUSTOM_GAME")
       throw new RiotSearchError("restricted_match");
-    const metadata = await getStaticData(true);
+    const metadata = await getStaticData(true, dataDragonVersion);
     const result = {
+      dataDragonVersion,
       matchId: input,
       queueId: Number(info.queueId) || 0,
       gameMode: String(info.gameMode ?? "Unknown"),
@@ -1023,7 +1029,7 @@ async function getLolMatchDetailsAndRaw(
         cachePayload: result,
         platform: LOL_PLATFORM,
         route: LOL_REGIONAL_ROUTE,
-        version: LOL_DATA_DRAGON_VERSION,
+        version: dataDragonVersion,
         raw,
         participants: info.participants,
         teams: info.teams ?? [],
@@ -1058,6 +1064,7 @@ async function enrichMatchRecords(records: Array<{ summary: LolRecentMatch; raw:
   const metadata = await getStaticData(true);
   for (const { summary, raw } of records) {
     const championEntry = Object.entries(metadata.champions).find(([, champion]) => Number(champion.key) === summary.championId);
+    summary.dataDragonVersion = metadata.dataDragonVersion;
     summary.championImageId = championEntry?.[0] ?? summary.championName;
     summary.championNameKo = championEntry?.[1].name ?? summary.championName;
     summary.details = buildMatchDetails(raw, metadata);
@@ -1108,9 +1115,10 @@ async function searchLolRiotIdInternal(
   if (!riotId) throw new RiotSearchError("invalid_request");
   const persistenceEnabled = isLolPersistenceEnabled();
   const lookupKey = `search:v9:${riotId.gameName.toLocaleLowerCase()}#${riotId.tagLine.toLocaleLowerCase()}`;
-  const persistentCacheKey = lolSearchCacheKey(riotId.gameName, riotId.tagLine, LOL_PLATFORM, LOL_REGIONAL_ROUTE, LOL_DATA_DRAGON_VERSION);
+  const dataDragonVersion = await getLolDataDragonVersion();
+  const persistentCacheKey = lolSearchCacheKey(riotId.gameName, riotId.tagLine, LOL_PLATFORM, LOL_REGIONAL_ROUTE, dataDragonVersion);
   const cached = persistenceEnabled
-    ? await getLolApiCache<LolSearchResult>("search", persistentCacheKey, LOL_PLATFORM, LOL_REGIONAL_ROUTE, LOL_DATA_DRAGON_VERSION)
+    ? await getLolApiCache<LolSearchResult>("search", persistentCacheKey, LOL_PLATFORM, LOL_REGIONAL_ROUTE, dataDragonVersion)
     : getCached<LolSearchResult>(lookupKey);
   const storedAccount = options.refresh && persistenceEnabled
     ? await getLolAccountByRiotId(riotId.gameName, riotId.tagLine)
@@ -1122,7 +1130,7 @@ async function searchLolRiotIdInternal(
       : cached.lastUpdatedAt;
     const remainSeconds = refreshRemaining(lastUpdatedAt);
     if (options.refresh && remainSeconds > 0) return { status: "cooldown", remainSeconds, lastUpdatedAt };
-    if (!options.refresh) return { ...cached, refreshRemainSeconds: remainSeconds };
+    if (!options.refresh) return { ...cached, dataDragonVersion, matches: cached.matches.map(match => ({ ...match, dataDragonVersion: match.dataDragonVersion ?? dataDragonVersion })), refreshRemainSeconds: remainSeconds };
   } else if (options.refresh && storedAccount?.accountFetchedAt) {
     const remainSeconds = refreshRemaining(storedAccount.accountFetchedAt);
     if (remainSeconds > 0) return { status: "cooldown", remainSeconds, lastUpdatedAt: storedAccount.accountFetchedAt };
@@ -1166,6 +1174,7 @@ async function searchLolRiotIdInternal(
     const lastUpdatedAt = new Date().toISOString();
     const matches = batch.matches;
     const result: LolSearchResult = {
+      dataDragonVersion,
       account: { gameName: account.gameName, tagLine: account.tagLine },
       profile: { profileIconId: Number(summoner.profileIconId) || 0, summonerLevel: Number(summoner.summonerLevel) || 0 },
       ranked: ranked.filter((entry): entry is RiotQueueEntry & { queueType: "RANKED_SOLO_5x5" | "RANKED_FLEX_SR" } => entry.queueType === "RANKED_SOLO_5x5" || entry.queueType === "RANKED_FLEX_SR")
@@ -1179,7 +1188,7 @@ async function searchLolRiotIdInternal(
     if (lease) {
       await persistLolSearchSnapshot({
         lease, cacheKey: persistentCacheKey, cachePayload: result, platform: LOL_PLATFORM, route: LOL_REGIONAL_ROUTE,
-        version: LOL_DATA_DRAGON_VERSION,
+        version: dataDragonVersion,
         account: { ...account, profileIconId: Number(summoner.profileIconId) || 0, summonerLevel: Number(summoner.summonerLevel) || 0 },
         ranked: result.ranked, matches: batch.records,
       });

@@ -1,3 +1,5 @@
+const dragon = vi.hoisted(() => ({ version: "16.21.1" }));
+vi.mock("@/lib/lol/dataDragon.server", () => ({ getLolDataDragonVersion: async () => dragon.version }));
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const ops = vi.hoisted(() => ({ record: vi.fn() }));
@@ -107,6 +109,7 @@ function postMore(body: unknown, origin = "http://localhost") {
 }
 
 beforeEach(() => {
+  dragon.version = "16.21.1";
   vi.useFakeTimers();
   ops.record.mockClear();
   access.requireLolDevAdmin.mockClear();
@@ -402,6 +405,7 @@ describe("POST /api/admin/lol/search", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const first = searchLolRiotId("Test#KR1");
+    await vi.advanceTimersByTimeAsync(0);
     expect(internalState?.inflight.has("search:v9:test#kr1")).toBe(true);
     await vi.advanceTimersByTimeAsync(30_000);
     await first;
@@ -484,7 +488,7 @@ describe("POST /api/admin/lol/search", () => {
       { params: Promise.resolve({ matchId: "KR_55" }) },
     );
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual(dto);
+    await expect(response.json()).resolves.toEqual({ ...dto, dataDragonVersion: "16.21.1" });
     expect(persistence.cache).toHaveBeenCalledWith(
       "match_details",
       "match:v1:kr:asia:16.21.1:v4:KR_55",
@@ -777,8 +781,8 @@ describe("POST /api/admin/lol/search", () => {
   });
 
   it.each([
-    { upstream: 401, status: 403, metric: "riot_key_error", message: "Riot API 키 또는 API 권한을 확인해 주세요." },
-    { upstream: 403, status: 403, metric: "riot_key_error", message: "Riot API 키 또는 API 권한을 확인해 주세요." },
+    { upstream: 401, status: 503, metric: "riot_key_error", message: "Riot API 키를 갱신하는 중입니다. 잠시 후 다시 시도해 주세요." },
+    { upstream: 403, status: 503, metric: "riot_key_error", message: "Riot API 키를 갱신하는 중입니다. 잠시 후 다시 시도해 주세요." },
     { upstream: 429, status: 429, metric: "riot_429", message: "Riot API 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요." },
     { upstream: 500, status: 502, metric: "riot_5xx", message: "Riot API에 일시적인 문제가 있습니다." },
     { upstream: 503, status: 502, metric: "riot_5xx", message: "Riot API에 일시적인 문제가 있습니다." },
@@ -787,7 +791,8 @@ describe("POST /api/admin/lol/search", () => {
     vi.stubGlobal("fetch", vi.fn(async () => response({}, upstream, { "Retry-After": "30" })));
     const result = await POST(post("Ops#KR1"));
     expect(result.status).toBe(status);
-    expect(await result.json()).toEqual({ error: message });
+    expect(await result.json()).toEqual({ error: message, ...(upstream === 401 || upstream === 403
+      ? { reasonCode: "riot_key_renewal", detail: "Riot API key is being renewed" } : {}) });
     expect(ops.record).toHaveBeenCalledExactlyOnceWith(metric);
     expect(JSON.parse(String(log.mock.calls.at(-1)?.[1]))).toMatchObject({ endpoint: "account", stage: "http", status: upstream });
     if (upstream === 429) expect(result.headers.get("Retry-After")).toBe("30");
@@ -852,13 +857,14 @@ describe("POST /api/admin/lol/search", () => {
         .spyOn(console, "error")
         .mockImplementation(() => {});
       const result = await POST(post("Status#KR1"));
-      expect(result.status).toBe(status);
+      expect(result.status).toBe(status === 403 ? 503 : status);
       if (status === 429) expect(result.headers.get("Retry-After")).toBe("30");
       expect(await result.json()).toEqual({
         error:
           status === 403
-            ? "Riot API 키 또는 API 권한을 확인해 주세요."
+            ? "Riot API 키를 갱신하는 중입니다. 잠시 후 다시 시도해 주세요."
             : "Riot API 요청 한도에 도달했습니다. 잠시 후 다시 시도해 주세요.",
+        ...(status === 403 ? { reasonCode: "riot_key_renewal", detail: "Riot API key is being renewed" } : {}),
       });
       const logged = JSON.stringify(diagnostic.mock.calls);
       const record = JSON.parse(String(diagnostic.mock.calls.at(-1)?.[1]));
@@ -2023,6 +2029,35 @@ describe("POST /api/admin/lol/search", () => {
         cacheKey: "match:v1:kr:asia:16.21.1:v4:KR_98",
       }),
     );
+  });
+
+  it("Data Dragon 버전 변경은 상세 캐시를 새 키로 조회하고 저장 원문으로 재생성한다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.cache.mockImplementation(async (_kind, key) => key.includes("16.21.1")
+      ? { matchId: "KR_987", teams: [], dataDragonVersion: "16.21.1" } : undefined);
+    persistence.matchRequestJson.mockResolvedValue({
+      metadata: { matchId: "KR_987" }, info: { queueId: 420, gameMode: "CLASSIC", participants: [], teams: [] },
+    });
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async input => {
+      calls.push(String(input));
+      return response(String(input).endsWith("runesReforged.json") ? [] : { data: {} });
+    }));
+    const context = { params: Promise.resolve({ matchId: "KR_987" }) };
+    expect(await (await getMatch(new Request("http://localhost"), context)).json()).toMatchObject({ dataDragonVersion: "16.21.1" });
+    dragon.version = "16.22.1";
+    expect(await (await getMatch(new Request("http://localhost"), context)).json()).toMatchObject({ dataDragonVersion: "16.22.1" });
+    expect(persistence.cache).toHaveBeenLastCalledWith("match_details", "match:v1:kr:asia:16.22.1:v4:KR_987", "kr", "asia", "16.22.1");
+    expect(persistence.saveMatch).toHaveBeenCalledWith(expect.objectContaining({
+      cacheKey: "match:v1:kr:asia:16.22.1:v4:KR_987", version: "16.22.1",
+      cachePayload: expect.objectContaining({ dataDragonVersion: "16.22.1" }),
+    }));
+    expect(calls).toHaveLength(4);
+    expect(calls.every(url => url.includes("/cdn/16.22.1/"))).toBe(true);
+    dragon.version = "16.23.1";
+    await getMatch(new Request("http://localhost"), context);
+    expect(calls.slice(4)).toHaveLength(4);
+    expect(calls.slice(4).every(url => url.includes("/cdn/16.23.1/"))).toBe(true);
   });
 
   it("검색용 정적자료 로딩과 상세 로딩이 겹쳐도 상세 메타데이터를 다시 채운다", async () => {

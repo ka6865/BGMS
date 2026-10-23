@@ -117,6 +117,7 @@ MIGRATIONS=(
   "20261023050000_lol_benchmark_aggregates"
   "20261023060000_lol_participant_identity"
   "20261024010000_lol_augment_catalog"
+  "20261024020000_lol_review_hardening"
 )
 
 cleanup() {
@@ -211,6 +212,9 @@ for migration in "${MIGRATIONS[@]}"; do
         -f tests/fixtures/migration-check/suggest-similar-players-migration-role.sql
     done
   else
+    if [ "$migration" = "20261024020000_lol_review_hardening" ]; then
+      "${PSQL[@]}" -f tests/fixtures/migration-check/lol-review-fk-audit.sql
+    fi
     "${PSQL[@]}" -f "supabase/migrations/${migration}.sql"
   fi
   echo "  ✅ ${migration}"
@@ -476,6 +480,25 @@ echo "▶ LoL persistence 시나리오 실행"
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-benchmark-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-participant-identity-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-augment-catalog-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-review-hardening-scenarios.sql
+# 같은 버킷의 동시 호출은 정확히 한 번만 허용한다.
+"${PSQL[@]}" -c "set role service_role; delete from public.lol_public_rate_limits where bucket_key = 'search:' || repeat('e', 64);"
+lol_limit_pids=()
+for _ in $(seq 1 8); do
+  "${PSQL[@]}" -c "set role service_role; do \$\$ begin
+    if (public.consume_lol_public_rate_limit('search:' || repeat('e',64),1,60)->>'allowed')::boolean then
+      perform public.increment_lol_ops_metric('search_cache_miss',1);
+    end if;
+  end \$\$;" &
+  lol_limit_pids+=("$!")
+done
+for lol_limit_pid in "${lol_limit_pids[@]}"; do wait "$lol_limit_pid"; done
+"${PSQL[@]}" -c "do \$\$ begin
+  if (select count from public.lol_public_rate_limits where bucket_key='search:' || repeat('e',64)) <> 2
+    or (select value from public.lol_ops_daily where metric='search_cache_miss' and day=(now() at time zone 'Asia/Seoul')::date) <> 1 then
+    raise exception '공개 제한 동시 호출이 원자적이지 않습니다';
+  end if;
+end \$\$;"
 # 같은 패치의 실제 동시 실행도 활성 lease 하나만 얻어야 한다.
 "${PSQL[@]}" -c "set role service_role; select public.acquire_lol_augment_ingestion_lease('16.24');" &
 augment_first_pid=$!

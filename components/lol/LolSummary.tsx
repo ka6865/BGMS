@@ -61,8 +61,9 @@ export default function LolSummary({ summary, children }: {
   );
 }
 
-export function LolSidebarStats({ summary, onSearch }: {
+export function LolSidebarStats({ summary, onSearch, dataDragonVersion }: {
   summary?: LolQueueSummary;
+  dataDragonVersion?: string;
   onSearch: (riotId: string, ref?: string) => void;
 }) {
   const champions = [...(summary?.champions ?? [])].sort((a, b) => b.games - a.games);
@@ -75,7 +76,7 @@ export function LolSidebarStats({ summary, onSearch }: {
           {champions.map((champion) => (
             <li key={champion.championId} className="flex min-w-0 items-center gap-2">
               <img src={champion.championImageId
-                ? `https://ddragon.leagueoflegends.com/cdn/16.21.1/img/champion/${champion.championImageId}.png`
+                ? `https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/champion/${champion.championImageId}.png`
                 : undefined}
                 alt="" width={32} height={32} className="h-8 w-8 shrink-0 rounded bg-zinc-800"
                 onError={(event) => { event.currentTarget.hidden = true; }} />

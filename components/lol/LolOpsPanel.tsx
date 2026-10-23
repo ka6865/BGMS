@@ -4,18 +4,19 @@ import { useState } from "react";
 import LolCollectionPanel from "./LolCollectionPanel";
 import type { LolCleanupBatch, LolCleanupCounts, LolOpsStatus } from "@/lib/lol/types";
 
-const COUNT_LABELS = { cache_rows: "캐시", match_rows: "경기", lease_rows: "잠금" };
+const COUNT_LABELS = { cache_rows: "캐시", match_rows: "경기", lease_rows: "잠금", public_rate_limit_rows: "공개 요청 제한" };
 const METRIC_LABELS: Record<string, string> = {
   riot_success: "Riot 성공", riot_429: "Riot 429", riot_5xx: "Riot 서버 오류", riot_network: "Riot 네트워크 오류",
   riot_timeout: "Riot 시간 초과", riot_key_error: "Riot 키·권한 오류", riot_4xx: "Riot 기타 요청 오류",
   search_cache_hit: "검색 캐시 적중", search_cache_miss: "검색 캐시 미적중",
   detail_cache_hit: "상세 캐시 적중", detail_cache_miss: "상세 캐시 미적중", raw_reuse: "저장 원문 재사용",
+  cleanup_deleted: "정리 누적 삭제(행)", cleanup_remaining: "정리 후 남은 대상(행)", cleanup_duration_ms: "최근 정리 배치 소요(ms)",
   db_error: "DB 오류", db_timeout: "DB 시간 초과",
 };
 
 function formatCounts(counts: LolCleanupCounts) {
   return (Object.entries(COUNT_LABELS) as Array<[keyof LolCleanupCounts, string]>)
-    .map(([key, label]) => `${label} ${counts[key].toLocaleString()}행`).join(" · ");
+    .map(([key, label]) => `${label} ${(counts[key] ?? 0).toLocaleString()}행`).join(" · ");
 }
 
 export default function LolOpsPanel() {

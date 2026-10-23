@@ -1,3 +1,4 @@
+vi.mock("@/lib/lol/dataDragon.server", () => ({ getLolDataDragonVersion: async () => "16.21.1" }));
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
