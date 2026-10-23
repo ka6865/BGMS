@@ -40,6 +40,19 @@ try {
     platformId: tooltip.platformId, status: tooltip.status, unresolvedTokens: tooltip.unresolvedTokens,
     unsupportedCalculations: tooltip.unsupportedCalculations,
   }));
+  const unresolvedByCause = (rendered: typeof renderedKo) => {
+    const counts = { runtime: 0, calculation: 0, stringReference: 0, missingValue: 0 };
+    for (const tooltip of rendered) {
+      const calculations = new Set(Object.keys(augments.find(augment => augment.platformId === tooltip.platformId)!.rootSpell.calculations).map(key => key.toLowerCase()));
+      for (const token of tooltip.unresolvedTokens) {
+        const key = /^@([^@:*]+)/.exec(token)?.[1].toLowerCase();
+        const cause = token.startsWith("{{") ? "stringReference" : /^@f\d+(?:\.\d+)?@$/i.test(token) ? "runtime"
+          : key && calculations.has(key) ? "calculation" : "missingValue";
+        counts[cause] += tooltip.text.split(token).length - 1;
+      }
+    }
+    return counts;
+  };
   const previous = values["previous-lists"] || values["previous-cherry"]
     ? extractAugmentPool(load(values["previous-lists"]), load(values["previous-cherry"])) : null;
   const diff = previous ? diffAugments(previous, extractAugmentPool(source.augmentLists, source.cherryAugments)) : null;
@@ -59,8 +72,9 @@ try {
       changed: diff.changed.map(change => ({ platformId: change.after.platformId, fields: change.fields })),
       internalAdded: diff.internal.added.map(augment => augment.platformId), internalRemoved: diff.internal.removed.map(augment => augment.platformId),
     } : null,
-    ko: { ...tooltipTokenStats(renderedKo), failures: failures(renderedKo), displays: displays(renderedKo, descriptionsKo) },
-    en: { ...tooltipTokenStats(renderedEn), failures: failures(renderedEn), displays: displays(renderedEn, descriptionsEn) },
+    ko: { ...tooltipTokenStats(renderedKo), unresolvedByCause: unresolvedByCause(renderedKo), failures: failures(renderedKo), displays: displays(renderedKo, descriptionsKo) },
+    en: { ...tooltipTokenStats(renderedEn), unresolvedByCause: unresolvedByCause(renderedEn), failures: failures(renderedEn), displays: displays(renderedEn, descriptionsEn) },
+    unknownIcons: [...new Set([...renderedKo, ...renderedEn, ...descriptionsKo, ...descriptionsEn].flatMap(tooltip => tooltip.unknownIcons))].sort(),
     unsupportedCalculations: [...new Set([...renderedKo, ...renderedEn].flatMap(tooltip => tooltip.unsupportedCalculations))].sort(),
     validation,
   };

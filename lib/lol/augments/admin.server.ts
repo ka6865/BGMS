@@ -25,7 +25,7 @@ export async function getAugmentAdminData(patch?: string): Promise<AugmentAdminD
     }
     const [states, texts, changes, notes] = await Promise.all([
       db.from("lol_augment_patch_states").select("platform_id,rarity,icon_small_path").eq("client_patch", selected).order("platform_id").limit(1000).abortSignal(signal),
-      db.from("lol_augment_localizations").select("platform_id,name,display_text,display_source").eq("client_patch", selected).eq("locale", "ko_kr").limit(1000).abortSignal(signal),
+      db.from("lol_augment_localizations").select("platform_id,name,display_text,display_source,tooltip_rendered").eq("client_patch", selected).eq("locale", "ko_kr").limit(1000).abortSignal(signal),
       db.from("lol_augment_patch_changes").select("id,platform_id,change_type,official,summary_ko,review_status").eq("client_patch", selected).order("platform_id").limit(2000).abortSignal(signal),
       db.from("lol_augment_patch_notes").select("url,published_at,added_names,removed_names,parse_status").eq("client_patch", selected).abortSignal(signal),
     ]);
@@ -48,6 +48,7 @@ export async function getAugmentAdminData(patch?: string): Promise<AugmentAdminD
       runId: selectedRun?.id ?? null, changes: changes.data, notes: notes.data, warnings,
       augments: states.data.map(state => ({ platformId: state.platform_id, name: names.get(state.platform_id)?.name ?? null,
         rarity: state.rarity, icon: state.icon_small_path, text: names.get(state.platform_id)?.display_text ?? "",
+        tokens: names.get(state.platform_id)?.tooltip_rendered,
         displaySource: names.get(state.platform_id)?.display_source ?? "desc_partial" })) };
     return data;
   } catch {

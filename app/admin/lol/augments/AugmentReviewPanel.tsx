@@ -120,7 +120,13 @@ export default function AugmentReviewPanel() {
                 <img alt="" width={40} height={40} loading="lazy" src={`/api/lol/augment-icons/${detail.patch}/${a.icon}`} />}
               <div className="min-w-0"><h3 className="break-words font-medium">{a.name ?? `증강 ${a.platformId}`}</h3><p className="text-xs text-zinc-400">{a.rarity}</p></div>
             </div>
-            <p className="whitespace-pre-wrap break-words text-sm">{a.text}</p>
+            <p className="whitespace-pre-wrap break-words text-sm">{a.tokens?.length ? a.tokens.map((token, index) => token.icon
+              ? <span key={index} className="mx-0.5 inline-flex items-center gap-1 rounded bg-zinc-800 px-0.5 align-middle text-xs text-zinc-300"
+                data-stat-icon={token.icon} role="img" aria-label={token.label ?? token.text}>
+                <svg aria-hidden="true" width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M6 1 11 6 6 11 1 6Z" /></svg>
+                {token.text && <span aria-hidden="true">{token.text}</span>}
+              </span>
+              : <span key={index}>{token.text}</span>) : a.text}</p>
             {a.displaySource === "desc_partial" && <p className="mt-2 text-xs text-amber-300">일부 수치는 게임 안에서 확인하세요</p>}
           </li>)}</ul>
         </section>

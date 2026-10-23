@@ -14,7 +14,7 @@
   `rarityEvidence`는 cherry와 bin 등급을 함께 보존한다. bin의 생략/0은 silver, 1은 gold, 2는 prismatic이다.
   `Enabled` 생략은 true, `IsAbilityAugment` 생략은 false다. `QuestData` 존재 여부는 quest로 기록하며 비트마스크 의미는 추정하지 않는다.
   아이콘은 소문자 상대 `assets/...png` 경로이며 `.tex`를 `.png`로 바꾼다. 외부 URL과 상위 경로는 거부한다.
-- `tooltip.ts`: `renderTooltip`은 안전한 `{text, style[]}` 배열과 평문, `status`, 미치환 목록·횟수, 미지원 계산 종류를 반환한다. HTML은 반환하지 않는다.
+- `tooltip.ts`: `renderTooltip`은 안전한 `{text, style[], icon?, label?, formula?}` 배열과 평문, `status`, 미치환 목록·횟수, 미지원 계산 종류, `unknownIcons`를 반환한다. HTML은 반환하지 않는다.
 - `diff.ts`: `diffAugments`는 platformId로 추가·삭제와 이름·설명/툴팁·수치·등급·enabled 변경을 비교한다. 내부 증강은 `internal` 버킷으로 분리한다.
   부분 입력인 `AugmentPoolEntry`끼리 비교할 때는 구성·등급만 비교된다. 문자열이나 수치가 없다는 것을 값이 같다는 근거로 사용하면 안 된다.
 - `validate.ts`: `validateAugments`는 일반 활성 풀의 직전 대비 ±30% 초과, 일반 활성 풀 ko/en 이름 누락 3개 초과, 전체 풀 등급 불일치와 desc 누락을 차단한다.
@@ -25,10 +25,13 @@
 - `@Var@`, `@Var*100@`, `@Var*-1@`, `@Var:Calc@`를 지원한다. 식을 실행하거나 `eval`하지 않는다.
 - DataValues 배열은 0을 포함한 첫 유효값을 쓴다. 원본에 values가 없으면 빈 배열로 보존하고 치환 시 미확정으로 남긴다.
 - 지원 계산: `GameCalculation`, `NumberCalculationPart`, `NamedDataValueCalculationPart`, `ByCharLevelInterpolationCalculationPart`, `SumOfSubPartsCalculationPart`, `ProductOfSubPartsCalculationPart`, `GameCalculationModified`.
+- 능력치 계수·DataValue, 기본 마나 계수, 버프 중첩 계수·DataValue는 숫자를 추정하지 않고 문장형 식으로 표시한다. 세부 지원 범위와 원본 근거는 아래 2026-10-24 기록을 따른다.
 - 레벨 보간은 최소~최대 범위로 표시한다. 합·곱과 음수 배수도 범위로 계산한다. `mDisplayAsPercent`는 명시 배수가 없을 때 100을 곱하고 `%`를 붙인다. 표시 수치는 소수점 4자리로 반올림한다.
 - `{{문자열키}}`는 8단계까지 확장한다. 순환 참조, 누락, 미지원 계산과 런타임 토큰은 원래 토큰을 남긴다. 계산 참조·중첩도 16단계로 제한한다.
 - 허용한 태그만 고정된 스타일 이름으로 바꾼다. `font`의 6자리 HEX 색은 공통 highlight 스타일로 바꾸며 속성·URL은 보존하지 않는다. 스크립트·스타일 블록은 내용까지 제거한다.
 - 토큰 비율은 중첩 참조와 변수의 **출현 횟수**를 분모로 하고 미해결 출현 횟수를 분자로 한다. `unresolvedTokens` 목록은 중복을 제거하지만 횟수는 제거하지 않는다.
+- `%i:이름%`은 `style`에 `statIcon`을 포함하고 `icon`에 원래 이름을 담는 라벨 토큰이다. `label`은 접근성 이름이고, 원문에 이름이 있으면 `text`는 비워 평문 중복을 막는다. 원문에 이름이 없을 때만 `text`에 라벨을 보존하며 수치 통계에는 포함하지 않는다.
+  미지 아이콘은 표시에서 제거하고 `unknownIcons`에 이름만 중복 없이 기록한다. 문장형 식과 레벨 구간은 해당 결과 토큰에 `formula:true`를 남기며 치환 성공으로 센다.
 - `status`: 빈 결과는 failed, 미치환이 없으면 ok, 일부 토큰만 해결되면 partial, 전부 미해결이면 failed다. partial/failed는 렌더링한 desc 또는 미치환 토큰을 교체한 desc_partial로 대체할 대상이다.
 
 ## 원본 확인 명령
@@ -65,6 +68,138 @@ JSON 요약에 풀 수, 내부/비활성 수, 패치 구성 diff, ko/en 토큰 �
 - xxh3_64는 로컬 기준 라이브러리의 UTF-8 및 길이 경계 벡터 539개와 일치했다. 런타임·테스트 의존성은 추가하지 않았다.
 - `npm run verify:core` 통과(기존 ESLint 경고 47개, 추가 파일 경고 없음), `npm run verify:lol` 292개 통과·41개 조건부 제외. 추가 테스트는 25개다.
 - fixture 합계는 195,005바이트이며 전체 파일의 한 줄 길이는 300자 이하다. 이 작업 폴더에는 `.agents/rules/project_rules.md`가 없어 AGENTS.md·현재 구현·package.json·테스트를 기준으로 작업했다.
+
+## 2026-10-24 아이콘·문장형 계산 보완
+
+같은 로컬 `latest_default_augment-lists.json`, `latest_default_cherry-augments.json`, `latest_kiwi.bin.json`,
+`latest_ko_kr_lol.stringtable.json`, `latest_en_us_lol.stringtable.json`으로 확인 스크립트를 전후 실행했다.
+이 파일들의 풀은 위 16.21 측정과 동일한 249개다. 이후의 다른 `latest` 수집본까지 이 결과를 일반화하지 않는다.
+
+| ko/en 각각의 지표 | 변경 전 | 변경 후 |
+| --- | ---: | ---: |
+| 변수·문자열 참조 출현 수 | 793 | 793 |
+| 미치환 출현 수 | 338 | 260 |
+| 미치환 비율 | 42.62% | 32.79% |
+| tooltip 완전 치환 | 85 | 108 |
+| desc 선택 | 95 | 80 |
+| desc_partial 선택 | 69 | 61 |
+| `@fN@` 런타임 미치환 | 141 | 141 |
+| RootSpell에 계산 정의가 있는 미치환 | 90 | 12 |
+| `{{key}}` 미치환 | 4 | 4 |
+| RootSpell에 값·계산 정의가 없는 미치환 | 103 | 103 |
+
+`unresolvedByCause`의 `runtime`, `calculation`, `stringReference`, `missingValue`가 마지막 네 행이며 합은 미치환 출현 수와 같다.
+`missingValue`에는 엔진이 채우는 `@SpellName@`, RootSpell 밖의 수치 등이 포함된다. 이를 미지원 계산으로 잘못 집계하지 않는다.
+양쪽 언어에서 미지 아이콘은 0개다. 기존 fixture에 전체 원본을 추가하지 않아 fixture 예산은 증가하지 않았다.
+
+### 아이콘 라벨 근거
+
+아래 키는 확보한 한국어 클라이언트 문자열 테이블에서 직접 확인했다. 렌더링 시 현재 언어의 테이블 키를 우선 조회하고,
+테이블 또는 키가 없으면 표의 검증된 한국어 라벨로 대체한다. `item_keyword_onhit`의 태그·자기 아이콘은 제거하고 라벨만 쓴다.
+관측 풀 ko tooltip/desc의 아이콘 이름은 21종이며, `scaleArmor`, `scaleMS`, `scaleSV` 별칭까지 24종을 지원한다.
+공식 표기를 찾지 못해 새로 정한 **BGMS 매핑 아이콘은 없다**.
+
+| 아이콘 | 한국어 라벨 | 공식 문자열 키 |
+| --- | --- | --- |
+| scaleAP | 주문력 | `spell_listtype_cherry_ap` |
+| scaleAD | 공격력 | `spell_listtype_cherry_ad` |
+| scaleCrit | 치명타 확률 | `spell_listtype_cherry_critchance` |
+| scaleCritMult | 치명타 피해량 | `spell_listtype_cherry_critdamage` |
+| scaleAS | 공격 속도 | `spell_listtype_cherry_as` |
+| OnHit | 적중 시 | `item_keyword_onhit` |
+| Augment | 증강 | `aram_hextech_augbuffbar` |
+| scaleHealth | 체력 | `game_resource_health` |
+| goldCoins | 골드 | `options_interface_combattext_gold` |
+| scaleHealShield | 체력 회복 및 보호막 효과 | `spell_listtype_healshieldpower` |
+| scaleMana | 마나 | `game_ability_resource_mp` |
+| scaleAPen | 물리 관통력 | `spell_listtype_cherry_lethality` |
+| scaleMPen | 마법 관통력 | `stats_filter_magic_penetration` |
+| miniAdaptiveForce | 적응형 능력치 | `spell_listtype_adaptiveforce` |
+| scaleLS | 생명력 흡수 | `spell_listtype_lifesteal` |
+| scaleCooldown, cooldown | 재사용 대기시간 | `spell_listtype_cooldown` |
+| StatAnvil | 능력치 모루 | `cherry_augmentdisplaytag_statanvil` |
+| scaleAH | 스킬 가속 | `spell_listtype_abilityhaste` |
+| scaleAR, scaleArmor | 방어력 | `stats_filter_armor` |
+| scaleMR | 마법 저항력 | `stats_filter_magic_resistance` |
+| scaleMS | 이동 속도 | `spell_listtype_movementspeed` |
+| scaleSV | 모든 피해 흡혈 | `spell_listtype_omnivamp` |
+
+### 계산 지원 범위와 남은 원인
+
+- `StatByCoefficientCalculationPart`, `StatByNamedDataValueCalculationPart`: `mStat` 생략/0=주문력,
+  1=방어력, 2=공격력, 4=공격 속도, 6=마법 저항력, 7=이동 속도, 8=치명타 확률, 9=치명타 피해량,
+  11=스킬 가속, 12=최대 체력, 34=체력 회복 및 보호막 효과다. `mStatFormula` 생략/0은 전체, 2는 추가 능력치이며 다른 값은 보존한다.
+  예: `주문력의 30%`, `추가 공격력의 15%`, `최대 체력의 5%`. 상수 곱은 합의 각 항에 분배한다. 능력치끼리 곱하는 비선형 식은 미치환으로 남긴다.
+  원본 1066의 `APRequiredTooltipOnly`/`ADRequiredTooltipOnly`/`BonusHPRequiredTooltipOnly`,
+  1324의 `ConversionRate`, 1386의 `AttackSpeedCoefficient`, 1081의 `MSToASConversion`, 1415의 `AdditionalMisDivision`,
+  2016의 치명타 배율, 1098의 `AbilityHasteToMSConversion`, 2133의 `HSPercent`와 실제 설명을 교차 확인했고 테스트에 대응을 남겼다.
+- `AbilityResourceByCoefficientCalculationPart`: 원본에서 생략된 기본 자원·전체 공식만 `최대 마나의 N%`로 표시한다.
+  다른 자원 또는 공식은 추정하지 않는다.
+- `BuffCounterByCoefficientCalculationPart`, `BuffCounterByNamedDataValueCalculationPart`: 버프 카운터를 추정하지 않고 `중첩당 N`으로 표시한다.
+- `ByCharLevelBreakpointsCalculationPart`: `mLevel1Value`, 생략/고정 `mInitialBonusPerLevel`,
+  오름차순 `mLevel`과 `mAdditionalBonusAtThisLevel`만 지원한다. 레벨 1~18에서 각 경계 직전·직후를 포함한 최소·최대를 계산한다.
+  3121의 레벨 1 값 3, 7/11/15마다 +1은 `3~6(레벨에 따라)`다. 다른 경계 필드나 범위 밖 레벨은 보존한다.
+- `{ee18a47b}`: 2078의 충돌 피해에서 `StartDataValue`/`EndDataValue`가 가리키는 두 DataValue를 끝점 범위로 표시한다.
+  한쪽이라도 없으면 미치환으로 둔다.
+- `{e9a3c91d}`는 미지원으로 유지한다. `mFormulaParts` 외에 `mRangedMultiplier`, 일부 `ResultModifier`가 있어
+  근접/원거리 선택·출력 보정 계약을 확정하지 않았다. 남은 계산 미치환 12회 중 10회다.
+- 3079의 `Calc_Heal`은 근거가 부족한 `mStat` 29/22 때문에 보존한다(`StatByCoefficientCalculationPart`).
+  3150의 `PercentHealthDamage`는 참조하는 해시 DataValue가 RootSpell에 없어 보존한다. 이 두 건이 나머지 계산 미치환이다.
+- 미해결 문자열 참조 4건은 2100 `Augment_ARAM_QQQuest_Tooltip@f6@`, 2102 `Kiwi_PressureCooker_Tooltip@f4@`,
+  2103 `Augment_BangBang_Tooltip@f3@`, 2116 `Augment_SpecializedEmpowerment_Tooltip@f6@`다.
+  단계별 문자열 키를 엔진 런타임 변수로 고르는 구조이므로 해당 변수를 제거하거나 특정 단계를 임의 선택하지 않는다.
+  이 참조 안의 `@fN@`은 별도 출현으로 이중 집계하지 않는다.
+
+`tooltip_rendered`는 기존 JSONB 배열에 선택 필드 `icon`·`label`·`formula`를 추가한다.
+`chooseAugmentDisplay`와 `buildIngestion`은 메타데이터를 그대로 보존하고 `upsert_lol_augment_snapshot`은 배열을 그대로 저장하므로 migration이 필요 없다.
+관리자 조회도 저장된 토큰을 읽으며 `icon` 토큰을 작은 아이콘 배지로 표시하고 `label`을 `aria-label`에 넣는다. 원문에 이름이 없는 토큰만 라벨 텍스트를 함께 표시한다. 토큰이 없던 이전 응답은 `display_text`로 표시한다.
+실제 DB 쓰기 없이 수집 페이로드의 JSON 왕복 보존과 관리자 브라우저 fixture를 검증했다.
+
+검증 결과: `npm run verify:core` 통과(기존 경고 47개, 오류 0개), `npm run verify:lol` 355개 통과·46개 조건부 제외.
+`RUN_LOL_DEV_BROWSER=true npx vitest run tests/lol-augments-browser.test.ts`는 5개 통과했다.
+375×667, 390×844, 430×932, 1440×1000에서 배지·문장형 수치·줄바꿈·기존 텍스트 fallback·확인 절차를 확인했다.
+화면 증거는 로컬 `tmp/lol-augment-review/`에 저장한다. 실제 모바일 기기·운영 DB 연결·기존 저장본 재수집은 실행하지 않았다.
+
+## 2026-10-24 라벨 중복·퍼센트 계산 2차 보완
+
+위와 같은 249개 로컬 원본을 다시 확인했다. 앞 절의 전후 수치는 1차 측정 기록이며, 이 절은 2차 변경의 결과다.
+
+- 아이콘 토큰은 `icon`과 접근성 이름 `label`을 보존한다. 원문에 이름이 있으면 `text`를 비워 평문에 합치지 않는다.
+  `방어구 관통력`은 아이콘 라벨 `물리 관통력`의 동의 표기로 처리한다.
+- 선택된 한국어 문장에는 아이콘 62개가 있고, 원문 이름이 없어 라벨을 표시해야 하는 사례는 0개다.
+  이름 없는 아이콘은 라벨을 표시하는 단위·브라우저 fixture로 별도 검증했다.
+- `@Var*100@%`와 `mDisplayAsPercent`는 `25% (+주문력 100당 4.5%)`처럼 퍼센트 수치와 비례 항을 나눈다.
+  비퍼센트 피해량은 `30~150 + 주문력의 6%` 형태를 유지한다.
+- 퍼센트 단위 능력치(공격 속도·치명타 확률·치명타 피해량·체력 회복 및 보호막 효과)는
+  `추가 치명타 피해량 1%당 1%`처럼 분수로 저장된 능력치의 단위를 표시한다.
+- 2005의 `Calc_Crit_Damage_Per_Shot`은 피해 식과 치명타 피해량을 곱하는 비선형 식이다.
+  상수 분배로 단순화할 수 없어 미치환으로 남기며, 기존 desc 선택은 유지된다.
+
+| ko/en 각각의 지표 | 2차 변경 전 | 2차 변경 후 |
+| --- | ---: | ---: |
+| tooltip / desc / desc_partial 선택 | 108 / 80 / 61 | 108 / 80 / 61 |
+| 변수·문자열 참조 출현 수 | 793 | 793 |
+| 원본 tooltip 미치환 출현 수 | 260 | 261 |
+| 원본 tooltip 미치환 비율 | 32.79% | 32.91% |
+| runtime / calculation / stringReference / missingValue | 141 / 12 / 4 / 103 | 141 / 13 / 4 / 103 |
+
+249개 **선택 문장**의 패턴 출현 수는 아래와 같다. 미치환 통계는 원본 tooltip 기준이므로 선택 문장 패턴과 구분한다.
+
+| 패턴 | 변경 전 | 변경 후 |
+| --- | ---: | ---: |
+| `@` / `%i:` / `{{` | 0 / 0 / 0 | 0 / 0 / 0 |
+| `×` | 9 | 0 |
+| `((` / `))` | 7 / 8 | 0 / 0 |
+| 같은 능력치·아이콘 라벨 연속(공백 허용) | 55회 / 44개 증강 | 0 |
+| `NaN` / `undefined` / `Infinity` | 0 / 0 / 0 | 0 / 0 / 0 |
+| 소수점 5자리 이상 | 0 | 0 |
+
+1048·1310·1311·1334·2009·2132의 로컬 원본 계산 입력과 선택 문장 전체를
+`tests/fixtures/lol-augments/tooltip-formulas-16.21.ts`에 최소 사례로 고정했다.
+`verify:core`는 오류 0개·기존 경고 47개, `verify:lol`은 363개 통과·46개 조건부 제외다.
+관리자 브라우저 fixture는 375×667, 390×844, 430×932, 1440×1000과 빈 상태·오류까지 5개 통과했다.
+기존 개발 서버 재시작, 실기기 확인, 커밋·push·운영 DB 쓰기·기존 저장본 재수집은 실행하지 않았다.
+
 
 ## 저장 계약 (2번 PR)
 

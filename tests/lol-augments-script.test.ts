@@ -27,6 +27,8 @@ describe("증강 원본 확인 CLI", () => {
     expect(summary.internalCount).toBe(5);
     expect(summary.ko.ratio).toBeGreaterThan(0.05);
     expect(summary.ko.failures.length).toBeGreaterThan(0);
+    expect(Object.values(summary.ko.unresolvedByCause).reduce((sum, count) => Number(sum) + Number(count), 0)).toBe(summary.ko.unresolvedTokenCount);
+    expect(summary.unknownIcons).toEqual([]);
     expect(summary.ko.displays).toHaveLength(summary.poolCount);
     expect(summary.ko.displays.some((entry: { displaySource: string }) => entry.displaySource === "desc_partial")).toBe(true);
     expect(summary.ko.displays.every((entry: { text: string }) => !entry.text.includes("@"))).toBe(true);
