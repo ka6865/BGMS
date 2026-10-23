@@ -15,7 +15,7 @@ export type Augment = AugmentPoolEntry & {
   buildTags: number;
   augmentTags: number;
   rarityEvidence: { cherry: Rarity; bin: Rarity | null };
-  rootSpell: { path: string; dataValues: DataValue[]; calculations: Calculations };
+  rootSpell: { path: string; dataValues: DataValue[]; calculations: Calculations; spellSlot?: string };
 };
 
 export function asRecord(value: unknown): Record<string, unknown> {
@@ -116,6 +116,23 @@ export function extractAugments(input: {
       }
       return { name, values: [...values] as number[] };
     });
+    const cooldown = spell.cooldownTime ?? asRecord(spell.Cooldown).values;
+    if (cooldown !== undefined) {
+      if (!Array.isArray(cooldown) || !cooldown.every(value => typeof value === "number" && Number.isFinite(value))) {
+        throw new Error(`cooldownTime 형식이 잘못되었습니다: ${member.platformId}`);
+      }
+      if (!dataValues.some(value => value.name.toLowerCase() === "cooldown")) dataValues.push({ name: "Cooldown", values: [...cooldown] });
+    }
+    const questData = typeof entry.QuestData === "string" ? asRecord(bin[entry.QuestData]) : asRecord(entry.QuestData);
+    const quest = typeof questData.Quest === "string" ? asRecord(bin[questData.Quest]) : asRecord(questData.Quest);
+    // 퀘스트 설명은 최초 달성 조건이며, 이후 단계의 누적 목표를 섞지 않는다.
+    const requirement = Array.isArray(quest.Milestones) ? asRecord(quest.Milestones[0])["{7fec0982}"] : undefined;
+    if (typeof requirement === "number" && Number.isFinite(requirement)
+      && !dataValues.some(value => value.name.toLowerCase() === "questrequirement")) {
+      dataValues.push({ name: "QuestRequirement", values: [requirement] });
+    }
+    const slots = dataValues.flatMap(value => /^([QWER])AbilityHaste$/i.exec(value.name)?.[1].toUpperCase() ?? []);
+    const spellSlot = slots.length === 1 ? slots[0] : /^GoH_PentakillAug_([QWER])$/.exec(member.nameId)?.[1];
     const calculations = spell.mSpellCalculations === undefined ? {} : spell.mSpellCalculations;
     if (!calculations || typeof calculations !== "object" || Array.isArray(calculations)) {
       throw new Error(`Calculations 형식이 잘못되었습니다: ${member.platformId}`);
@@ -129,7 +146,7 @@ export function extractAugments(input: {
       buildTags: typeof entry.mBuildTags === "number" ? entry.mBuildTags : 0,
       augmentTags: typeof entry.mAugmentTags === "number" ? entry.mAugmentTags : 0,
       rarityEvidence: { cherry: member.rarity, bin: binRarity },
-      rootSpell: { path, dataValues, calculations: asRecord(calculations) },
+      rootSpell: { path, dataValues, calculations: asRecord(calculations), ...(spellSlot ? { spellSlot } : {}) },
     };
   });
 }

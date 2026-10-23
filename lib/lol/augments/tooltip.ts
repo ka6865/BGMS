@@ -9,7 +9,7 @@ const STYLE_TAGS = {
   attackspeed: "attackSpeed", scalelevel: "scaleLevel", raritylegendary: "gold", b: "bold", i: "italic",
 } as const;
 export type TooltipStyle = typeof STYLE_TAGS[keyof typeof STYLE_TAGS] | "highlight" | "statIcon";
-export type TooltipToken = { text: string; style: TooltipStyle[]; icon?: string; label?: string; formula?: true };
+export type TooltipToken = { text: string; style: TooltipStyle[]; icon?: string; label?: string; formula?: true; championDependent?: true };
 export type TooltipResult = {
   tokens: TooltipToken[];
   text: string;
@@ -61,10 +61,15 @@ function formatPercent(value: Value): string | null {
     const coefficient = multiplyRange(value.coefficient, { low: value.percentStat ? 0.01 : 100, high: value.percentStat ? 0.01 : 100 });
     return coefficient ? `${value.term} ${value.percentStat ? "1%" : "100"}당 ${format(coefficient)}%` : null;
   }
-  const left = formatPercent(value.left);
-  const right = formatPercent(value.right);
-  if (left === null || right === null) return null;
-  return `${left} (+${right})`;
+  const terms: Value[] = [];
+  const collect = (part: Value) => {
+    if ("operator" in part) { collect(part.left); collect(part.right); }
+    else terms.push(part);
+  };
+  collect(value);
+  const rendered = terms.map(formatPercent);
+  if (rendered.some(term => term === null)) return null;
+  return `${rendered[0]} (+${rendered.slice(1).join(" + ")})`;
 }
 
 function multiplyRange(left: Range, right: Range): Range | null {
@@ -107,19 +112,21 @@ function decodeEntities(text: string): string {
   });
 }
 
-function safeTokens(source: string, formulas: readonly string[], iconLabel: (name: string) => string | null): TooltipToken[] {
+function safeTokens(source: string, formulas: readonly string[], iconLabel: (name: string) => string | null, spellName: string): TooltipToken[] {
   const cleaned = source.replace(/<(script|style|iframe|object)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, "");
   const result: TooltipToken[] = [];
   const stack: { tag: string; style: TooltipStyle }[] = [];
-  const append = (text: string, metadata: { icon?: string; label?: string; formula?: true } = {}) => {
+  const append = (text: string, metadata: Partial<Omit<TooltipToken, "text" | "style">> = {}) => {
     if (!text) return;
     const style = [...new Set(stack.map(item => item.style))];
     if (metadata.icon) style.push("statIcon");
     const previous = result.at(-1);
-    if (previous && !previous.icon && !previous.formula && !metadata.icon && !metadata.formula && previous.style.join() === style.join()) previous.text += text;
+    if (previous && !previous.icon && !previous.formula && !previous.championDependent
+      && !metadata.icon && !metadata.formula && !metadata.championDependent && previous.style.join() === style.join()) previous.text += text;
     else result.push({ text, style, ...metadata });
   };
-  for (const part of cleaned.split(/(<[^>]*>|%i:[^%]*%|\uE000\d+\uE001)/g)) {
+  for (const part of cleaned.split(/(<[^>]*>|%i:[^%]*%|\uE000\d+\uE001|\uE002)/g)) {
+    if (part === "\uE002") { append(spellName, { championDependent: true }); continue; }
     if (part.startsWith("%i:") && part.endsWith("%")) {
       const name = part.slice(3, -1);
       const label = iconLabel(name);
@@ -150,9 +157,17 @@ export function renderTooltip(source: string | null, context: {
   dataValues?: readonly DataValue[];
   calculations?: Calculations;
   stringTable?: StringTable;
+  spellSlot?: string;
 } = {}): TooltipResult {
-  const values = new Map((context.dataValues ?? []).map(value => [value.name.toLowerCase(), value.values]));
-  const calculations = new Map(Object.entries(context.calculations ?? {}).map(([key, value]) => [key.toLowerCase(), value]));
+  // BIN 이름은 소문자 FNV-1a 32비트 해시로 통일해 평문과 해시를 함께 조회한다.
+  const hash = (name: string) => {
+    if (/^\{[0-9a-f]{8}\}$/i.test(name)) return name.toLowerCase();
+    let value = 0x811c9dc5;
+    for (const byte of new TextEncoder().encode(name.toLowerCase())) value = Math.imul(value ^ byte, 0x01000193);
+    return `{${(value >>> 0).toString(16).padStart(8, "0")}}`;
+  };
+  const values = new Map((context.dataValues ?? []).map(value => [hash(value.name), value.values]));
+  const calculations = new Map(Object.entries(context.calculations ?? {}).map(([key, value]) => [hash(key), value]));
   const unsupported = new Set<string>();
   const unresolved = new Set<string>();
   const unknownIcons = new Set<string>();
@@ -168,11 +183,11 @@ export function renderTooltip(source: string | null, context: {
   const missing = (token: string) => { unresolved.add(token); unresolvedTokenCount++; return token; };
   // 등급별 배열은 0을 포함한 첫 유효값을 쓴다. 챔피언 레벨 계산은 끝점 범위를 표시한다.
   const data = (key: string): Range | null => {
-    const value = values.get(key.toLowerCase())?.find(Number.isFinite);
+    const value = values.get(hash(key))?.find(Number.isFinite);
     return value === undefined ? null : range(value);
   };
   const evaluateKey = (key: string, seen: Set<string>): Value | null => {
-    const lower = key.toLowerCase();
+    const lower = hash(key);
     if (seen.has(lower) || seen.size >= 16) return null;
     return evaluate(calculations.get(lower), new Set([...seen, lower]));
   };
@@ -185,6 +200,7 @@ export function renderTooltip(source: string | null, context: {
     switch (type) {
       case "NumberCalculationPart": return typeof part.mNumber === "number" ? range(part.mNumber) : null;
       case "NamedDataValueCalculationPart": return typeof part.mDataValue === "string" ? data(part.mDataValue) : null;
+      case "{f3cbe7b2}": return typeof part.mSpellCalculationKey === "string" ? evaluateKey(part.mSpellCalculationKey, seen) : null;
       case "ByCharLevelInterpolationCalculationPart":
         return typeof part.mStartValue === "number" && typeof part.mEndValue === "number" ? range(part.mStartValue, part.mEndValue) : null;
       case "StatByCoefficientCalculationPart":
@@ -282,12 +298,31 @@ export function renderTooltip(source: string | null, context: {
     tokenCount++;
     const match = /^([^@:*]+?)(?::Calc)?(?:\*(-?(?:\d+(?:\.\d*)?|\.\d+)))?$/i.exec(body);
     if (!match) return missing(token) + suffix;
-    const key = match[1].toLowerCase();
+    const key = hash(match[1]);
     const calc = asRecord(calculations.get(key));
     const forceCalc = /:Calc(?:\*|$)/i.test(body);
-    let value = forceCalc ? evaluateKey(key, new Set()) : data(key) ?? evaluateKey(key, new Set());
     const percent = calc.mDisplayAsPercent === true && match[2] === undefined && (forceCalc || !values.has(key));
     const multiplier = range(match[2] === undefined ? percent ? 100 : 1 : Number(match[2]));
+    if (calc.__type === "{e9a3c91d}" && (forceCalc || !values.has(key))) {
+      const melee = evaluate({ ...calc, __type: "GameCalculation" }, new Set([key]));
+      const rangedMultiplier = evaluate(calc.mRangedMultiplier, new Set([key]));
+      const ranged = melee && rangedMultiplier ? multiply(melee, rangedMultiplier) : null;
+      // 원거리·근접의 명시된 값이 있으면 반올림된 배율보다 우선한다.
+      const explicitMelee = match[1].toLowerCase() === "rangeincrease" ? data("MeleeRangeIncrease") : null;
+      const explicitRanged = match[1].toLowerCase() === "rangeincrease" ? data("RangedRangeIncrease") : null;
+      const first = (explicitRanged && explicitMelee ? explicitRanged : ranged);
+      const second = (explicitRanged && explicitMelee ? explicitMelee : melee);
+      const scaledRanged = first && multiplier ? multiply(first, multiplier) : null;
+      const scaledMelee = second && multiplier ? multiply(second, multiplier) : null;
+      if (!scaledRanged || !scaledMelee) return missing(token) + suffix;
+      const render = percent || suffix ? formatPercent : format;
+      const rangedText = render(scaledRanged), meleeText = render(scaledMelee);
+      if (rangedText === null || meleeText === null) return missing(token) + suffix;
+      formulas.push(`원거리 ${rangedText} / 근접 ${meleeText}`);
+      return `\uE000${formulas.length - 1}\uE001`;
+    }
+    let value = forceCalc ? evaluateKey(key, new Set()) : data(key) ?? evaluateKey(key, new Set())
+      ?? (match[1].toLowerCase() === "cooldown" ? data("BaseCooldown") : null);
     value = value && multiplier ? multiply(value, multiplier) : null;
     if (!value) return missing(token) + suffix;
     const formula = !("low" in value) || value.level === true;
@@ -297,9 +332,11 @@ export function renderTooltip(source: string | null, context: {
     formulas.push(rendered);
     return `\uE000${formulas.length - 1}\uE001`;
   };
-  const expand = (text: string, seen: Set<string>, depth: number): string => text.replace(/[\uE000\uE001]/g, "").replace(
+  const expand = (text: string, seen: Set<string>, depth: number): string => text.replace(/[\uE000-\uE002]/g, "")
+    .replace(/(\{\{SpellName\}\}|@SpellName@)[ \t]*스킬/gi, "$1").replace(
     /\{\{([^{}]+)\}\}|@([^@]+)@(%?)/g,
     (token, reference: string | undefined, variable: string | undefined, suffix: string | undefined) => {
+      if ((reference ?? variable)?.trim().toLowerCase() === "spellname") { tokenCount++; return "\uE002"; }
       if (variable !== undefined) return replaceVariable(suffix ? token.slice(0, -1) : token, variable, suffix ?? "");
       tokenCount++;
       const key = reference!.trim().toLowerCase();
@@ -308,7 +345,9 @@ export function renderTooltip(source: string | null, context: {
       return expand(value, new Set([...seen, key]), depth + 1);
     },
   );
-  const tokens = safeTokens(expand(source ?? "", new Set(), 0), formulas, iconLabel);
+  const inferred = (context.dataValues ?? []).flatMap(value => /^([QWER])AbilityHaste$/i.exec(value.name)?.[1].toUpperCase() ?? []);
+  const slot = /^[QWER]$/.test(context.spellSlot ?? "") ? context.spellSlot : inferred.length === 1 ? inferred[0] : undefined;
+  const tokens = safeTokens(expand(source ?? "", new Set(), 0), formulas, iconLabel, slot ? `${slot} 스킬` : "해당 스킬");
   const text = tokens.map(token => token.text).join("");
   return {
     tokens, text,

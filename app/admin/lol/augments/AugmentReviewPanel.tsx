@@ -128,6 +128,7 @@ export default function AugmentReviewPanel() {
               </span>
               : <span key={index}>{token.text}</span>) : a.text}</p>
             {a.displaySource === "desc_partial" && <p className="mt-2 text-xs text-amber-300">일부 수치는 게임 안에서 확인하세요</p>}
+            {a.tokens?.some(token => token.championDependent) && <p className="mt-2 text-xs text-zinc-400">스킬 이름은 챔피언마다 다릅니다</p>}
           </li>)}</ul>
         </section>
       </>}
