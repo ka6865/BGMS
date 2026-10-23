@@ -3,10 +3,10 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import sample from "./fixtures/lol-augments/sample-16.21";
-const mocks = vi.hoisted(() => ({ rpc: vi.fn(), upload: vi.fn(), exists: vi.fn(), from: vi.fn() }));
+const mocks = vi.hoisted(() => ({ rpc: vi.fn(), upload: vi.fn(), from: vi.fn() }));
 vi.mock("@/lib/server/serviceRoleSupabase.server", () => ({ createServiceRoleSupabase: () => ({
   rpc: (name: string, args: unknown) => ({ abortSignal: () => mocks.rpc(name, args) }), from: mocks.from,
-  storage: { from: () => ({ upload: mocks.upload, exists: mocks.exists }) },
+  storage: { from: () => ({ upload: mocks.upload }) },
 }) }));
 import { runIngestion } from "../scripts/lol_augments_ingest";
 let folder: string;
@@ -18,7 +18,7 @@ beforeEach(async () => {
   for (const [kind, value] of Object.entries(sources)) await writeFile(join(folder, `${kind}.json`), JSON.stringify(value));
   mocks.from.mockImplementation(() => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }));
   mocks.rpc.mockImplementation(async name => ({ data: name === "acquire_lol_augment_ingestion_lease" ? "run-id" : null, error: null }));
-  mocks.exists.mockResolvedValue({ data: false, error: null }); mocks.upload.mockResolvedValue({ error: null });
+  mocks.upload.mockResolvedValue({ error: null });
 });
 afterEach(async () => { vi.unstubAllEnvs(); await rm(folder, { recursive: true, force: true }); });
 describe("수집 저장 안전장치", () => {
@@ -33,10 +33,10 @@ describe("수집 저장 안전장치", () => {
     expect(payload.patch.verified_at).toBeNull();
     expect(payload.augments[0].localizations).toHaveLength(2);
   });
-  it("같은 해시가 있으면 업로드를 생략한다", async () => {
-    mocks.exists.mockResolvedValue({ data: true, error: null });
+  it("같은 해시 경로가 이미 있으면(409 중복) 정상으로 보고 계속 진행한다", async () => {
+    mocks.upload.mockResolvedValue({ error: { statusCode: "409", message: "The resource already exists" } });
     await runIngestion({ patch: "16.21", sourceDir: folder, dryRun: false });
-    expect(mocks.upload).not.toHaveBeenCalled();
+    expect(mocks.rpc).toHaveBeenLastCalledWith("finish_lol_augment_ingestion_run", { p_run_id: "run-id", p_status: "review", p_error_code: null });
   });
   it("Storage 실패 시 안전한 코드로 실행을 종료하고 DB 스냅샷·게시본을 건드리지 않는다", async () => {
     mocks.upload.mockResolvedValue({ error: { message: "private credential body" } });
