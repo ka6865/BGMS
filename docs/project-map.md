@@ -33,6 +33,15 @@
 | [커뮤니티 비서 운영](community-agent-operations.md) | 커뮤니티 검토·승인·운영 흐름 |
 | [사용자 점수 설명](tactical_score_guide.md) | 사용자에게 설명하는 점수 기준 |
 
+설계·후속 구현 방향은 아래 문서에서 찾는다. 현재 구현된 기능과 구분해서 읽는다.
+
+| 문서 | 사용 목적 |
+| --- | --- |
+| [멀티게임·LoL 확장 설계](specs/2026-10-21-multigame-lol-architecture-design.md) | PUBG 기존 URL·구조를 보존하는 멀티게임 목표 설계. 현재 관리자 전용 KR LoL 검색 MVP는 [별도 실행 문서](plans/2026-10-22-lol-private-search-mvp.md)에 기록; DB 영속 저장은 구현됨(`LOL_PERSISTENCE_ENABLED` 선택형), R2·AI·공개 경로는 미구현. 현재 저장·제한·상세 계약은 [영속 저장 기반](plans/2026-10-22-lol-persistence-foundation.md), [운영 적용 준비](plans/2026-10-22-lol-production-persistence.md), [상세 확장](plans/2026-10-22-lol-detail-enrichment.md), [호출 용량 조사](research/2026-10-22-lol-search-capacity.md), [API 제공 정보](research/2026-10-22-lol-api-capabilities.md), [경기 통계 집계](plans/2026-10-23-lol-match-stats.md)를 본다 |
+| [LoL 비공개 검색 MVP](plans/2026-10-22-lol-private-search-mvp.md) | 관리자 전용 Riot ID→프로필/랭크/최근 경기, 두 팀 상세·큐 필터·집계, 호출·캐시 제한과 정책·테스트 경계 |
+| [LoL 경기 상세 구현·검증](plans/2026-10-22-lol-private-match-details.md) | 경기 상세 DTO/API, Data Dragon 한글 메타, UI 및 현재 로컬 검증 결과 |
+| [LoL 관리자 전용 개발 공간 구현 계획](plans/2026-10-21-lol-owner-only-development.md) | 2026-10-22 관리자 권한 전환·검증과 로컬 환경 설정 변경 기록. 2026-10-21 본인 전용 구현·독립 검토는 과거 기록으로 분리. 실제 Next HTTP 검증은 별도 담당, 운영 활성화·배포는 미실행 |
+
 날짜가 붙은 `docs/operations/`·`docs/reviews/` 문서는 해당 시점의 기록이다. 당시 배포 상태를 현재 상태로 단정하지 않는다. 반복해서 쓰는 운영 절차는 관련 구현이 바뀔 때 갱신하고, 적용 여부·확인 일시·검증 범위를 기록한다. 계획 문서는 구현 완료나 배포 완료의 근거로 사용하지 않는다.
 
 `.agents/`, `.agents-drafts/`, `docs-private/`는 Git 제외 대상인 로컬 지침이다. 다른 worktree에 없을 수 있다. 공유 지침은 루트 `AGENTS.md`, 운영 계약은 저장소에 포함된 문서와 구현에 남긴다. 비밀 값·운영 회원 원본·임시 스크린샷을 문서와 커밋에 추가하지 않는다.
