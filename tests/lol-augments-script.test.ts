@@ -18,16 +18,19 @@ describe("증강 원본 확인 CLI", () => {
     writeFileSync(path, JSON.stringify(value));
     return [`--${flag}`, path];
   });
-  it("파일 경로로 추출하고 게시 차단 요약·실패 목록을 출력한다", () => {
+  it("파일 경로로 추출하고 표시 검증 요약·실패 목록을 출력한다", () => {
     const result = spawnSync(process.execPath, ["--import", "tsx", "scripts/lol_augments_extract_check.ts", ...args], { encoding: "utf8" });
-    expect(result.status).toBe(2);
+    expect(result.status).toBe(0);
     expect(result.stderr).toBe("");
     const summary = JSON.parse(result.stdout);
     expect(summary.poolCount).toBe(sample.cherryAugments.length);
     expect(summary.internalCount).toBe(5);
     expect(summary.ko.ratio).toBeGreaterThan(0.05);
     expect(summary.ko.failures.length).toBeGreaterThan(0);
-    expect(summary.validation).toMatchObject({ ok: false, problems: [{ code: "unresolved_tokens" }] });
+    expect(summary.ko.displays).toHaveLength(summary.poolCount);
+    expect(summary.ko.displays.some((entry: { displaySource: string }) => entry.displaySource === "desc_partial")).toBe(true);
+    expect(summary.ko.displays.every((entry: { text: string }) => !entry.text.includes("@"))).toBe(true);
+    expect(summary.validation).toMatchObject({ ok: true, problems: [], warnings: [] });
   });
   it("필수 경로가 없으면 원본을 읽지 않고 실패를 알린다", () => {
     const result = spawnSync(process.execPath, ["--import", "tsx", "scripts/lol_augments_extract_check.ts"], { encoding: "utf8" });

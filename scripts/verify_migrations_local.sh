@@ -116,6 +116,7 @@ MIGRATIONS=(
   "20261023040000_lol_player_summaries"
   "20261023050000_lol_benchmark_aggregates"
   "20261023060000_lol_participant_identity"
+  "20261024010000_lol_augment_catalog"
 )
 
 cleanup() {
@@ -474,4 +475,21 @@ echo "▶ LoL persistence 시나리오 실행"
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-player-summaries-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-benchmark-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-participant-identity-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-augment-catalog-scenarios.sql
+# 같은 패치의 실제 동시 실행도 활성 lease 하나만 얻어야 한다.
+"${PSQL[@]}" -c "set role service_role; select public.acquire_lol_augment_ingestion_lease('16.24');" &
+augment_first_pid=$!
+"${PSQL[@]}" -c "set role service_role; select public.acquire_lol_augment_ingestion_lease('16.24');" &
+augment_second_pid=$!
+wait "$augment_first_pid"
+wait "$augment_second_pid"
+"${PSQL[@]}" -c "do \$\$ begin
+  if (select count(*) from public.lol_augment_ingestion_runs where client_patch='16.24')<>1
+    or (select count(*) from public.lol_augment_ingestion_runs where client_patch='16.24' and status='running')<>1 then
+    raise exception 'Concurrent augment ingestion acquired multiple leases';
+  end if;
+  end \$\$;
+  delete from public.lol_augment_ingestion_runs where client_patch='16.24';
+  delete from public.lol_game_patches where client_patch='16.24';"
+echo "  ✅ 증강 lease 동시 요청 2개 중 1개 획득"
 echo "✅ 신규 migration 적용 및 RPC 동작 검증 완료"
