@@ -5,6 +5,7 @@ import { join } from "node:path";
 import sample from "./fixtures/lol-augments/sample-16.21";
 import { buildIngestion, createSourceDownloader, notesUrl, parsePatchNotes, type SourceKind } from "../lib/lol/augments/ingest";
 import { runIngestion } from "../scripts/lol_augments_ingest";
+import { asRecord } from "../lib/lol/augments/extract";
 
 const sources: Record<SourceKind, unknown> = { "augment-lists": sample.augmentLists, "cherry-augments": sample.cherryAugments,
   "kiwi-bin": sample.kiwiBin, "stringtable-ko": sample.stringTableKo, "stringtable-en": sample.stringTableEn };
@@ -19,6 +20,22 @@ describe("증강 수집·공식 대조", () => {
     expect(result.changes.find(c => c.platform_id === 3051)).toMatchObject({ official: true, review_status: "approved" });
     expect(result.changes.some(c => c.review_status === "pending")).toBe(true);
     expect(result.rows.flatMap(a => a.localizations).every(l => !/<script/i.test(l.display_text))).toBe(true);
+  });
+  it("아이콘·문장형 수치 메타데이터를 tooltip_rendered JSON 페이로드까지 보존한다", () => {
+    const input = structuredClone(sources);
+    const bin = asRecord(input["kiwi-bin"]);
+    const augment = Object.values(bin).map(asRecord).find(entry => entry.AugmentPlatformId === 3118)!;
+    augment.AugmentTooltipTra = "bgms_contract";
+    const spell = asRecord(asRecord(bin[String(augment.RootSpell)]).mSpell);
+    asRecord(spell.mSpellCalculations).BGMSContract = { __type: "StatByCoefficientCalculationPart", mCoefficient: 0.3 };
+    const table = asRecord(input["stringtable-ko"]);
+    asRecord(table.entries).bgms_contract = "%i:scaleAP% @BGMSContract@";
+    const result = buildIngestion("16.21", input, notes);
+    const localization = result.rows.find(row => row.platform_id === 3118)!.localizations.find(row => row.locale === "ko_kr")!;
+    expect(JSON.parse(JSON.stringify(localization))).toMatchObject({ display_source: "tooltip", tooltip_rendered: [
+      { text: "", label: "주문력", style: ["statIcon"], icon: "scaleAP" }, { text: " ", style: [] },
+      { text: "주문력의 30%", style: [], formula: true },
+    ] });
   });
   it("기준 게시본이 없는 첫 수집은 공식 신규만 변경으로 남기고 나머지 풀은 초기 도감으로 둔다", () => {
     const result = buildIngestion("16.21", sources, { ...notes, removed_names: ["도박꾼"], parse_status: "ok" });

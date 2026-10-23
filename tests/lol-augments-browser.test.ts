@@ -19,7 +19,11 @@ function fixture(): AugmentAdminData {
         published_at: "2026-10-20T18:00:00Z", added_names: ["푸른 방어막"], removed_names: [], parse_status: "partial" }],
       changes: [{ id: changeId, platform_id: 3051, change_type: "added", official: false, summary_ko: "푸른 방어막: 신규 · 공식 대조 확인 필요", review_status: "pending" }],
       augments: [{ platformId: 3051, name: "푸른 방어막", rarity: "silver", icon: "assets/ux/kiwi/augments/icons/bluebarrier.png",
-        text: "스킬을 사용하면 보호막을 얻습니다. 모바일에서 긴 한국어 설명이 자연스럽게 줄바꿈되어야 합니다.", displaySource: "desc" },
+        text: "스킬을 사용하면 보호막을 얻습니다. 모바일에서 긴 한국어 설명이 자연스럽게 줄바꿈되어야 합니다.", displaySource: "desc",
+        tokens: [{ text: "보호막 흡수량: ", style: [] }, { text: "", label: "주문력", style: ["statIcon"], icon: "scaleAP" },
+          { text: " 100 + 주문력의 30%", style: ["shield"], formula: true },
+          { text: "증강", label: "증강", style: ["statIcon"], icon: "Augment" },
+          { text: " 모바일에서 긴 한국어 설명이 자연스럽게 줄바꿈되어야 합니다.", style: [] }] },
       { platformId: 3052, name: "아티스트 보호", rarity: "gold", icon: null,
         text: "적에게 (수치 미확인)의 추가 피해를 입힙니다.", displaySource: "desc_partial" }] },
   };
@@ -79,6 +83,11 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("증강 관리자 �
         await page.setViewport(viewport);
         await page.goto(base);
         await page.waitForSelector('[aria-label="증강 목록 미리보기"]');
+        expect(await page.$eval('[data-stat-icon="scaleAP"]', el => el.textContent)).toBe("");
+        expect(await page.$eval('[data-stat-icon="scaleAP"]', el => el.getAttribute("aria-label"))).toBe("주문력");
+        expect(await page.$eval('[data-stat-icon="Augment"]', el => el.textContent)).toBe("증강");
+        expect(await page.$eval('[aria-label="증강 목록 미리보기"]', el => el.textContent)).not.toContain("%i:");
+        expect(await page.$eval('[aria-label="증강 목록 미리보기"]', el => el.textContent)).toContain("100 + 주문력의 30%");
         const publish = await page.$('button::-p-text(게시)');
         expect(await publish!.evaluate(el => (el as HTMLButtonElement).disabled)).toBe(true);
         await page.click('button::-p-text(변경 승인)');
