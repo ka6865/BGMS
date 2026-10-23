@@ -6,6 +6,15 @@ import type { AugmentAdminData } from "@/lib/lol/augments/admin";
 const button = "min-h-11 rounded-lg border border-zinc-700 px-3 py-2 text-sm disabled:opacity-40 hover:bg-zinc-800";
 const labels: Record<string, string> = { added: "신규", removed: "삭제", changed: "변경", reenabled: "재활성화", unannounced_absent: "미공지 제외" };
 
+// 증강 등급(실버·골드·프리즘)별 게임 내 색감에 맞춘 표시
+const RARITY_STYLES: Record<string, { label: string; card: string; ring: string; text: string }> = {
+  silver: { label: "실버", card: "border-l-2 border-l-slate-300/70", ring: "ring-1 ring-slate-300/70", text: "text-slate-300" },
+  gold: { label: "골드", card: "border-l-2 border-l-amber-400", ring: "ring-1 ring-amber-400", text: "text-amber-300" },
+  prismatic: { label: "프리즘", card: "border-l-2 border-l-fuchsia-400", ring: "ring-2 ring-fuchsia-400/80",
+    text: "bg-gradient-to-r from-fuchsia-300 via-sky-300 to-violet-300 bg-clip-text font-medium text-transparent" },
+};
+const RARITY_ORDER = ["silver", "gold", "prismatic"];
+
 export default function AugmentReviewPanel() {
   const [data, setData] = useState<AugmentAdminData | null>(null);
   const [patch, setPatch] = useState("");
@@ -113,12 +122,16 @@ export default function AugmentReviewPanel() {
         </section>
         <section aria-label="증강 목록 미리보기" className="space-y-3">
           <h2 className="font-semibold">증강 미리보기 ({detail.augments.length})</h2>
-          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{detail.augments.map(a => <li key={a.platformId} className="min-w-0 border-b border-white/10 pb-4">
+          <p className="flex flex-wrap gap-3 text-xs">{RARITY_ORDER.map(rarity => <span key={rarity} className={RARITY_STYLES[rarity].text}>
+            {RARITY_STYLES[rarity].label} {detail.augments.filter(a => a.rarity === rarity).length}</span>)}</p>
+          <ul className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{detail.augments.map(a => <li key={a.platformId} data-rarity={a.rarity}
+            className={`min-w-0 border-b border-white/10 pb-4 pl-3 ${RARITY_STYLES[a.rarity]?.card ?? ""}`}>
             <div className="mb-2 flex items-center gap-3">
               {a.icon && /^assets\/ux\/(kiwi|cherry)\/augments\/icons\/[a-z0-9_-]+\.png$/.test(a.icon) &&
                 // 버전 고정 프록시 이미지를 원래 크기로 표시한다.
-                <img alt="" width={40} height={40} loading="lazy" src={`/api/lol/augment-icons/${detail.patch}/${a.icon}`} />}
-              <div className="min-w-0"><h3 className="break-words font-medium">{a.name ?? `증강 ${a.platformId}`}</h3><p className="text-xs text-zinc-400">{a.rarity}</p></div>
+                <img alt="" width={40} height={40} loading="lazy" className={`rounded ${RARITY_STYLES[a.rarity]?.ring ?? ""}`}
+                  src={`/api/lol/augment-icons/${detail.patch}/${a.icon}`} />}
+              <div className="min-w-0"><h3 className="break-words font-medium">{a.name ?? `증강 ${a.platformId}`}</h3><p className={`text-xs ${RARITY_STYLES[a.rarity]?.text ?? "text-zinc-400"}`}>{RARITY_STYLES[a.rarity]?.label ?? a.rarity}</p></div>
             </div>
             <p className="whitespace-pre-wrap break-words text-sm">{a.tokens?.length ? a.tokens.map((token, index) => token.icon
               ? <span key={index} className="mx-0.5 inline-flex items-center gap-1 rounded bg-zinc-800 px-0.5 align-middle text-xs text-zinc-300"
