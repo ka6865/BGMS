@@ -16,11 +16,19 @@ beforeEach(async () => {
   const sources = { "augment-lists": sample.augmentLists, "cherry-augments": sample.cherryAugments,
     "kiwi-bin": sample.kiwiBin, "stringtable-ko": sample.stringTableKo, "stringtable-en": sample.stringTableEn };
   for (const [kind, value] of Object.entries(sources)) await writeFile(join(folder, `${kind}.json`), JSON.stringify(value));
-  mocks.from.mockImplementation(() => ({ select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }) }) }));
+  mocks.from.mockImplementation((table: string) => query(table));
   mocks.rpc.mockImplementation(async name => ({ data: name === "acquire_lol_augment_ingestion_lease" ? "run-id" : null, error: null }));
   mocks.upload.mockResolvedValue({ error: null });
 });
-afterEach(async () => { vi.unstubAllEnvs(); await rm(folder, { recursive: true, force: true }); });
+// 테이블별 조회 결과를 바꿀 수 있는 체인형 쿼리 mock
+const tableRows: Record<string, unknown> = {};
+function query(table: string) {
+  const chain: Record<string, unknown> = {};
+  for (const method of ["select", "eq", "in", "limit", "order"]) chain[method] = () => chain;
+  chain.maybeSingle = async () => ({ data: tableRows[table] ?? null, error: null });
+  return chain;
+}
+afterEach(async () => { for (const key of Object.keys(tableRows)) delete tableRows[key]; vi.unstubAllEnvs(); await rm(folder, { recursive: true, force: true }); });
 describe("수집 저장 안전장치", () => {
   it("원본·manifest를 저장한 뒤 검토 상태로 종료하며 자동 게시는 하지 않는다", async () => {
     const result = await runIngestion({ patch: "16.21", sourceDir: folder, dryRun: false });
@@ -32,6 +40,24 @@ describe("수집 저장 안전장치", () => {
     const payload = mocks.rpc.mock.calls.find(([name]) => name === "upsert_lol_augment_snapshot")![1].p_payload;
     expect(payload.patch.verified_at).toBeNull();
     expect(payload.augments[0].localizations).toHaveLength(2);
+  });
+  it("수집이 끝나 게시를 기다리는 패치는 원본을 다시 받지 않고 끝낸다", async () => {
+    tableRows.lol_augment_ingestion_runs = { id: "previous-run" };
+    const result = await runIngestion({ patch: "16.21", sourceDir: folder, dryRun: false });
+    expect(result).toEqual({ patch: "16.21", skipped: "awaiting_review" });
+    expect(mocks.upload).not.toHaveBeenCalled();
+    expect(mocks.rpc).not.toHaveBeenCalled();
+  });
+  it("--force는 게시 대기 중인 패치도 다시 수집한다", async () => {
+    tableRows.lol_augment_ingestion_runs = { id: "previous-run" };
+    const result = await runIngestion({ patch: "16.21", sourceDir: folder, dryRun: false, force: true });
+    expect(result).toMatchObject({ count: 46 });
+    expect(mocks.upload).toHaveBeenCalled();
+  });
+  it("이미 게시된 패치는 수집 기록을 보기 전에 끝낸다", async () => {
+    tableRows.lol_game_patches = { published_at: "2026-10-24T00:00:00Z" };
+    await expect(runIngestion({ patch: "16.21", sourceDir: folder, dryRun: false, force: true })).resolves.toEqual({ patch: "16.21", skipped: "already_published" });
+    expect(mocks.rpc).not.toHaveBeenCalled();
   });
   it("같은 해시 경로가 이미 있으면(409 중복) 정상으로 보고 계속 진행한다", async () => {
     mocks.upload.mockResolvedValue({ error: { statusCode: "409", message: "The resource already exists" } });
