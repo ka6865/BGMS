@@ -86,8 +86,8 @@ describe("requireLolDevPageAdmin", () => {
 
 describe("LoL 개발 페이지", () => {
   it("Riot ID 동적 페이지는 Promise params를 해제하고 페이지 권한을 다시 확인한다", async () => {
-    const page = await LolRiotIdPage({ params: Promise.resolve({ riotId: "강 희-성-5955" }) });
-    expect(page).toMatchObject({ props: { initialRiotId: "강 희-성#5955" } });
+    const page = await LolRiotIdPage({ params: Promise.resolve({ riotId: "홍 길-동-5955" }) });
+    expect(page).toMatchObject({ props: { initialRiotId: "홍 길-동#5955" } });
     expect(mocks.requireAdmin).toHaveBeenCalledOnce();
     mocks.requireAdmin.mockResolvedValue({ ok: false, error: Response.json({}, { status: 403 }) });
     await expect(LolRiotIdPage({ params: Promise.resolve({ riotId: "홍길동-5955" }) })).rejects.toBe(mocks.notFoundSignal);

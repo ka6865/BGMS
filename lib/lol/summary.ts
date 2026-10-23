@@ -1,6 +1,8 @@
 import type { LolRecentMatch, LolQueueSummary, LolSearchResult } from "./types";
 
 const MIN_SUMMARY_GAME_DURATION_SECONDS = 300;
+// 일반 칼바람 큐만 센다. 아수라장(2400) 등 gameMode가 같은 변형 모드는 통계에 섞지 않는다.
+export const LOL_ARAM_QUEUE_IDS: ReadonlySet<number> = new Set([100, 450]);
 
 function summarizeKda(matches: LolRecentMatch[]) {
   const complete = matches.filter(
@@ -29,7 +31,7 @@ function matchesQueue(
     queue === "all" ||
     (queue === "solo" && match.queueId === 420) ||
     (queue === "flex" && match.queueId === 440) ||
-    (queue === "aram" && (match.queueId === 450 || match.gameMode === "ARAM"))
+    (queue === "aram" && LOL_ARAM_QUEUE_IDS.has(match.queueId))
   );
 }
 

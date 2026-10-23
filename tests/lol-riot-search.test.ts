@@ -1424,7 +1424,7 @@ describe("POST /api/admin/lol/search", () => {
         teamEarlySurrendered: true,
       },
       {
-        queueId: 490,
+        queueId: 100,
         gameDuration: 600,
         win: true,
         kills: 2,
@@ -1480,7 +1480,7 @@ describe("POST /api/admin/lol/search", () => {
           metadata: { matchId: ids[index] },
           info: {
             ...game,
-            gameMode: game.queueId === 490 ? "ARAM" : "CLASSIC",
+            gameMode: game.queueId === 100 ? "ARAM" : "CLASSIC",
             gameEndTimestamp: 1,
             participants,
           },
@@ -1894,9 +1894,9 @@ describe("POST /api/admin/lol/search", () => {
     }
   });
 
-  it("미등록 큐는 전체 표본에만 들어가고 ARAM 모드는 450 외 큐에서도 잡는다", async () => {
+  it("미등록 큐는 전체 표본에만 들어가고 ARAM 요약은 일반 칼바람 큐만 센다", async () => {
     vi.setSystemTime(Date.now() + 72 * 60 * 60_000);
-    const ids = ["KR_121", "KR_122"];
+    const ids = ["KR_121", "KR_122", "KR_123"];
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL | Request) => {
@@ -1913,7 +1913,7 @@ describe("POST /api/admin/lol/search", () => {
         if (url.includes("/ids?")) return response(ids);
         if (url.startsWith("https://ddragon")) return response({ data: {} });
         const index = ids.indexOf(url.split("/").pop()!);
-        const queueId = index === 0 ? 9999 : 400;
+        const queueId = [9999, 450, 2400][index];
         return response({
           metadata: { matchId: ids[index] },
           info: {
@@ -1943,9 +1943,10 @@ describe("POST /api/admin/lol/search", () => {
     await vi.advanceTimersByTimeAsync(30_000);
     const result = await pending;
     expect(result.summaries.all).toMatchObject({
-      sampleSize: 2,
-      validSampleSize: 2,
+      sampleSize: 3,
+      validSampleSize: 3,
     });
+    // 아수라장(2400)은 gameMode가 ARAM이어도 일반 칼바람 요약에 섞이지 않는다.
     expect(result.summaries.aram).toMatchObject({
       sampleSize: 1,
       validSampleSize: 1,
