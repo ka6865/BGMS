@@ -60,7 +60,8 @@ export function formatDuration(seconds: number | null | undefined) {
 export function getQueueLabel(queueId: number, gameMode: string) {
   if (queueId === 420) return "솔로 랭크";
   if (queueId === 440) return "자유 랭크";
-  if (queueId === 450 || gameMode === "ARAM") return "무작위 총력전";
+  if (queueId === 2400) return "무작위 총력전: 아수라장";
+  if (queueId === 450 || queueId === 100 || gameMode === "ARAM") return "무작위 총력전";
   if (gameMode === "CLASSIC") return "일반 게임";
   if (gameMode === "URF") return "U.R.F.";
   if (gameMode === "CHERRY") return "아레나";
