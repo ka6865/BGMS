@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type FormEvent } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { LolSearchResult } from "@/lib/lol/types";
-import { summarizeRecentMatches } from "@/lib/lol/summary";
+import { LOL_ARAM_QUEUE_IDS, summarizeRecentMatches } from "@/lib/lol/summary";
 import { LOL_RIOT_ID_ERROR, lolRiotIdPath } from "@/lib/lol/riotId";
 import LolMatchCard from "./LolMatchCard";
 import LolSummary, { LolSidebarStats } from "./LolSummary";
@@ -274,8 +274,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
     result?.matches.filter((match) => {
       if (filter === "solo") return match.queueId === 420;
       if (filter === "flex") return match.queueId === 440;
-      if (filter === "aram")
-        return match.queueId === 450 || match.gameMode === "ARAM";
+      if (filter === "aram") return LOL_ARAM_QUEUE_IDS.has(match.queueId);
       return true;
     }) ?? [];
   const ownRiotId = result
