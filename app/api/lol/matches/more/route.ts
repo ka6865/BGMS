@@ -6,5 +6,5 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   const denied = await guardLolPublicRequest(request, "read");
   if (denied) return denied;
-  return handleLolMore(request);
+  return handleLolMore(request, true);
 }

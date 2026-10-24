@@ -7,7 +7,7 @@ const POSITIONS = [
   ["BOTTOM", "원딜"], ["UTILITY", "서폿"],
 ] as const;
 
-const QUEUE_LABELS = { all: "전체", solo: "솔로", flex: "자유", aram: "ARAM" };
+const QUEUE_LABELS = { all: "전체", solo: "솔로", flex: "자유", aram: "칼바람" };
 
 export default function LolSummary({ summary, children }: {
   summary?: LolQueueSummary;

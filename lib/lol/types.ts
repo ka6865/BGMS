@@ -14,7 +14,6 @@ export type LolRankedHistory = Record<"RANKED_SOLO_5x5" | "RANKED_FLEX_SR", {
 
 
 export type LolRecentMatch = {
-  challenges?: LolChallenges;
   dataDragonVersion?: string;
   matchId: string;
   queueId: number;

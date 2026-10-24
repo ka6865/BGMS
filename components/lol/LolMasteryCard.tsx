@@ -31,13 +31,13 @@ export default function LolMasteryCard({ mastery }: { mastery?: LolMasteryCompar
         </ul>}
     <h4 className="mt-4 text-xs font-semibold text-zinc-300">최근 성과 좋음</h4>
     {recent?.status === "ready" ? <>
-      <p className="mt-2 text-xs leading-relaxed text-zinc-500">BGMS에 저장된 최근 {recent.sampleSize}경기 기준 · 큐 전체</p>
+      <p className="mt-2 text-xs leading-relaxed text-zinc-500">BGMS에 저장된 최근 {recent.sampleSize}경기 기준 · 솔로·자유·일반·칼바람</p>
       <p className="mt-1 text-xs leading-relaxed text-zinc-500">다시하기·5분 미만 경기 제외. 3판 이상, 승률 60% 이상과 합산 KDA 3 이상(또는 Perfect).</p>
       {good.length ? <ul className="mt-2 divide-y divide-zinc-800">{good.map(champion => <li key={champion.championId} className="min-w-0 py-2">
         <p className="mb-1 break-words text-sm">{champion.championName}</p>
         <RecentPerformance champion={champion} masteryTop={mastery?.status === "ready" ? topIds.has(champion.championId) : undefined} />
       </li>)}</ul> : <p className="mt-2 text-xs text-zinc-500">조건을 충족하는 챔피언이 없습니다.</p>}
-      <p className="mt-2 text-xs leading-relaxed text-zinc-500">최근 부진: 숙련도 상위 중 3판 이상, 승률 40% 미만이며 합산 KDA 2 미만. 떠오르는 챔피언은 숙련도 상위 10개 밖의 최근 성과입니다.</p>
+      <p className="mt-2 text-xs leading-relaxed text-zinc-500">떠오르는 챔피언은 숙련도 상위 10개 밖의 최근 성과입니다.</p>
     </> : <p className="mt-2 text-xs text-zinc-500">저장된 최근 성과를 불러오지 못했습니다.</p>}
   </section>;
 }

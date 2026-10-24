@@ -113,7 +113,7 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
     for (const text of ["운영 상태", "계정 데이터 삭제", "수집 시작", "관리자 전용"]) expect(body).not.toContain(text);
     expect(body).toContain("BGMS isn't endorsed by Riot Games"); expect(body).toContain("상표 또는 등록 상표");
     const masteryText = await page.$eval('[data-testid="lol-mastery"]', element => element.textContent ?? "");
-    for (const text of ["많이 플레이(숙련도 상위)", "250,000", "BGMS에 저장된 최근 9경기 기준", "주력", "최근 부진", "떠오르는 챔피언"])
+    for (const text of ["많이 플레이(숙련도 상위)", "250,000", "BGMS에 저장된 최근 9경기 기준", "주력", "떠오르는 챔피언"])
       expect(masteryText).toContain(text);
     expect(await page.$$eval('script[src*="googlesyndication"], ins.adsbygoogle', nodes => nodes.length)).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

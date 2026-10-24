@@ -20,7 +20,7 @@ export function parseLolMasteries(value: unknown): LolChampionMastery[] {
 export function summarizeLolChampionPerformance(rows: LolPlayerMatchSummary[]): LolChampionPerformance[] {
   const champions = new Map<number, { champion: LolChampionPerformance; kills: number; deaths: number; assists: number; complete: boolean }>();
   for (const row of rows) {
-    if (row.remake !== false || row.win === null || !row.champion_id || row.duration_seconds === null || row.duration_seconds < 300) continue;
+    if (![400, 420, 430, 440, 480, 490, 450, 100].includes(row.queue_id) || row.remake !== false || row.win === null || !row.champion_id || row.duration_seconds === null || row.duration_seconds < 300) continue;
     const current = champions.get(row.champion_id) ?? {
       champion: { championId: row.champion_id, championName: row.champion_name ?? "알 수 없음", championImageId: row.champion_name ?? "",
         games: 0, wins: 0, winRatePct: 0, kda: null, perfect: false },
@@ -48,5 +48,5 @@ export function hasGoodLolRecentPerformance(champion: LolChampionPerformance): b
 export function lolMasteryBadge(champion: LolChampionPerformance, masteryTop: boolean): string | null {
   if (champion.games < 3) return null;
   if (hasGoodLolRecentPerformance(champion)) return masteryTop ? "주력" : "떠오르는 챔피언";
-  return masteryTop && champion.winRatePct < 40 && !champion.perfect && champion.kda !== null && champion.kda < 2 ? "최근 부진" : null;
+  return null;
 }

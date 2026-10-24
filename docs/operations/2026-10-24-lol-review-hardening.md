@@ -21,11 +21,11 @@ LOL_CLEANUP_ENABLED=true npx tsx scripts/lol_cleanup_expired.ts --apply
 인자를 생략하면 preview만 읽는다. `--apply`와 정확한 `LOL_CLEANUP_ENABLED=true`가 함께 있어야 삭제한다.
 
 - 순서: preview → 기존 `acquire_lol_collection_lease` → 정리 배치 반복 → lease 해제 → JSON 요약.
-- lease 키 `ops:expired-cleanup`, 유효 기간 120초. 반복은 80초 경과 또는 10회에서 중단한다.
+- lease 키 `ops:expired-cleanup`, 유효 기간 120초. 반복은 80초 경과 또는 50회에서 중단한다.
 - RPC별 타임아웃 5초, 배치 사이 250ms 대기, 배치당 각 부모 테이블 최대 100행.
 - 배치 자체도 transaction advisory lock `20261024020000`을 얻어 관리자 정리와 겹친 실행을 거절한다.
 - 경기 참가자의 cascade 삭제는 부모 경기 수와 별도이며 전체 자식 행 수 상한을 뜻하지 않는다.
-- 삭제 진전이 없으면 중단한다. `remainingCount`가 0이 아니어도 반복 상한 내 정상 종료할 수 있다.
+- 삭제 진전이 없으면 중단한다. dry-run 또는 `remainingCount > 0`이면 Actions 경고를 출력한다. 적용 후 만료 경기 원문(`remaining.match_rows > 0`)이 남으면 종료 코드 1로 실패한다.
 - 출력은 `preview`, `deleted`, `remaining`, `deletedCount`, `remainingCount`, `batches`, `durationMs`이다.
 
 워크플로 `.github/workflows/lol-cleanup.yml`은 매일 UTC 19:11 / KST 04:11과 수동 실행을 제공한다.
@@ -179,3 +179,26 @@ f7d3193e866fdd2bcd8342ecc1037545860bd6e951a44dab1d17ad582faa8aed
 - `tests/lol-public-browser.test.ts`
 - `tests/lol-public-rate-limit.test.ts`
 - `tests/lol-riot-search.test.ts`
+
+
+## 전체 리뷰 후속 보완
+
+`20261024040000_lol_review_fixes.sql`은 기존 RPC 세 개를 교체한다. 헤더 파서·권한은 유지하고 형식 오류 차단만 다음 UTC 자정에서 10분으로 바꾼다.
+`delete_lol_account_data`는 해당 PUUID의 `collect:`와 알려진 현재·경기 당시 Riot ID의 `search:v10:`, 관련 원문의 `match:` lease만 제거한다.
+다른 계정·운영 정리 lease는 보존한다. 원문·저장 계정에 연결이 없는 이름의 lease는 현재 데이터로 연관성을 판별할 수 없어 제거하지 않는다.
+
+삭제 요청은 비회원도 개인정보 보호책임자 이메일로 Riot ID를 제시할 수 있다. 운영자는 Account-V1 by-riot-id로 PUUID를 확인한 뒤 기존 PUUID 삭제 RPC를 실행한다.
+공개 더보기의 명시적 경기 ID는 서버가 해당 PUUID의 해당 페이지에서 받은 ID에 포함되어야 하며, 공개 상세는 `lol_matches`에 존재하는 KR/asia 경기만 허용한다.
+관리자 조회의 임의 ID 처리 계약은 유지한다. 증강 아이콘 프록시는 공개 플래그와 관계없이 기존 관리자 가드를 거친다.
+
+검색·더보기 lease와 `acquire_lol_collection_lease`의 TTL 상한은 180초다. 저장 RPC의 SQLSTATE `40001`은 처리 시간 초과 재시도 안내, 전역 permit 혼잡은 요청 혼잡 안내로 구분한다.
+커스텀·제한 경기는 실패 카드 대신 숨긴 개수만 표시한다. 숙련도 최근 성과는 솔로·자유·일반·칼바람(100/450)에서 승패가 있는 유효 경기만 집계한다.
+부정적인 숙련도 배지는 제거하고 `challenges`는 서버 저장 요약에만 남기며 클라이언트 DTO에서 제거한다.
+
+
+후속 보완 검증: `verify:core` 오류 0·기존 경고 47, `verify:lol` 446 통과·60 skip, `verify:security` 91 통과,
+워크플로 안전성 10 통과, 로컬 PostgreSQL 지정 migration 98개 및 RPC 시나리오 통과.
+기본 Turbopack 빌드는 worktree 외부 node_modules 심볼릭 링크 때문에 실패했으며 `npm run build -- --webpack`은 전체 빌드에 성공했다.
+공개 브라우저 14개 통과, 관리자 마지막 전체 실행 36/37 통과(운영 패널 375px 타임아웃 1개), 해당 패널 분리 재실행은 4개 뷰포트 모두 통과했다.
+최소 375×667·390×844·430×932·데스크톱을 fixture로 확인했으며 실기기·운영 연결은 검증하지 않았다.
+후속 migration SHA256: `33b63464c101ea5b4ddd16519ec5f492b5ecefed3c721b7d92569c77fab531c5`.

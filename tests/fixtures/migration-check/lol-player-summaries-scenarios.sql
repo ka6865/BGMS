@@ -74,7 +74,7 @@ begin
   values ('summary-owner','kr','RANKED_SOLO_5x5','GOLD','I',1,1,1);
   insert into public.lol_ranked_history(puuid,queue_type,tier,rank,league_points,wins,losses)
   values ('summary-owner','RANKED_SOLO_5x5','GOLD','I',1,1,1);
-  select lease_token into v_token from public.acquire_lol_collection_lease('summary-delete-race',90);
+  select lease_token into v_token from public.acquire_lol_collection_lease('search:v10:owner#sum',90);
   v_deleted := public.delete_lol_account_data('summary-owner');
   if (v_deleted->>'account_rows')::integer <> 1 or (v_deleted->>'history_rows')::integer <> 1
     or (v_deleted->>'ranked_rows')::integer <> 1 or (v_deleted->>'summary_rows')::integer <> 2
@@ -86,7 +86,7 @@ begin
     or exists (select 1 from public.lol_player_match_summaries s, jsonb_array_elements(s.teammates) t where t->>'riotId' in ('Owner#SUM','Past Owner#SUM')) then
     raise exception 'account deletion left personal data: %',v_deleted; end if;
   begin
-    perform public.persist_lol_search_snapshot('summary-delete-race',v_token,'summary-race','{}','kr','asia','16.21.1',v_account,'[]','[]');
+    perform public.persist_lol_search_snapshot('search:v10:owner#sum',v_token,'summary-race','{}','kr','asia','16.21.1',v_account,'[]','[]');
     raise exception 'in-flight collection survived account deletion';
   exception when serialization_failure then null; end;
   if not exists (select 1 from public.lol_player_match_summaries where puuid='summary-later' and match_id='KR_880001') then

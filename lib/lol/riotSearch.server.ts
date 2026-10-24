@@ -5,6 +5,7 @@ import {
   acquireLolCollectionLease,
   aggregateLolMatchBenchmarks,
   hasLolBenchmarkProcessedMatch,
+  hasLolStoredMatch,
   blockLolRiotRequests,
   getLolApiCache,
   getLolAccountByRiotId,
@@ -16,6 +17,7 @@ import {
   isLolPersistenceEnabled,
   LolPermitError,
   LolPersistenceError,
+  LolLeaseExpiredError,
   lolMatchCacheKey,
   lolSearchCacheKey,
   persistLolMatchDetails,
@@ -72,6 +74,7 @@ export class RiotSearchError extends Error {
       | "timeout"
       | "upstream"
       | "unconfigured"
+      | "congested"
       | "busy"
       | "persistence",
     readonly retryAfterSeconds?: number,
@@ -299,7 +302,7 @@ async function requestJson<T>(
             await releaseLolRiotRequest(permitToken);
             permitToken = undefined;
             fail(
-              new RiotSearchError("busy", Math.ceil(waitMs / 1000)),
+              new RiotSearchError("congested", Math.ceil(waitMs / 1000)),
               "queue",
               "shared_guard_wait",
             );
@@ -309,7 +312,7 @@ async function requestJson<T>(
           const started = await startLolRiotRequest(permitToken);
           if (!started.allowed) {
             fail(
-              new RiotSearchError("busy", started.retryAfterSeconds),
+              new RiotSearchError("congested", started.retryAfterSeconds),
               "queue",
               "shared_guard_cooldown",
             );
@@ -479,7 +482,7 @@ async function requestJson<T>(
       } catch (error) {
         if (error instanceof LolPermitError)
           fail(
-            new RiotSearchError(error.kind, error.retryAfterSeconds),
+            new RiotSearchError(error.kind === "busy" ? "congested" : error.kind, error.retryAfterSeconds),
             "queue",
             `shared_${error.kind}`,
           );
@@ -1053,7 +1056,8 @@ async function getLolMatchDetailsAndRaw(
   }
 }
 
-export async function getLolMatchDetails(input: string): Promise<import("./types").LolMatchDetails> {
+export async function getLolMatchDetails(input: string, storedOnly = false): Promise<import("./types").LolMatchDetails> {
+  if (storedOnly && (!isLolPersistenceEnabled() || !await hasLolStoredMatch(input))) throw new RiotSearchError("not_found");
   return lolParticipantDto((await getLolMatchDetailsAndRaw(input)).details);
 }
 
@@ -1096,7 +1100,7 @@ async function loadMatchRecords(puuid: string, matchIds: string[], persistDetail
         records.push({ summary, raw: match });
       }
     } catch (error) {
-      if (error instanceof LolPersistenceError || (error instanceof RiotSearchError && error.kind === "persistence")) throw error;
+      if (error instanceof LolLeaseExpiredError || error instanceof LolPersistenceError || (error instanceof RiotSearchError && error.kind === "persistence")) throw error;
       matchFailures.push({
         matchId,
         kind: error instanceof RiotSearchError ? error.kind : "upstream",
@@ -1139,7 +1143,7 @@ async function withLolRecentPerformance(result: LolSearchResult, puuid?: string)
       const entry = Object.entries(metadata.champions).find(([, value]) => Number(value.key) === champion.championId);
       return { ...champion, championName: entry?.[1].name ?? champion.championName, championImageId: entry?.[0] ?? champion.championImageId };
     });
-    return { ...result, mastery: { ...result.mastery, recent: { status: "ready", sampleSize: rows.length, champions } } };
+    return { ...result, mastery: { ...result.mastery, recent: { status: "ready", sampleSize: champions.reduce((sum, champion) => sum + champion.games, 0), champions } } };
   } catch {
     return { ...result, mastery: { ...result.mastery, recent: { status: "unavailable", sampleSize: 0, champions: [] } } };
   }
@@ -1181,8 +1185,8 @@ async function searchLolRiotIdInternal(
     return shared;
   }
   if (state.accountOps.has(lookupKey)) throw new RiotSearchError("busy", 2);
-  if (!persistenceEnabled && state.activeSearches >= 2) throw new RiotSearchError("busy");
-  const lease = persistenceEnabled ? await acquireLolCollectionLease(lookupKey, 90) : null;
+  if (!persistenceEnabled && state.activeSearches >= 2) throw new RiotSearchError("congested");
+  const lease = persistenceEnabled ? await acquireLolCollectionLease(lookupKey, 180) : null;
   if (persistenceEnabled && !lease) throw new RiotSearchError("busy", 2);
   state.accountOps.add(lookupKey);
   if (!persistenceEnabled) state.activeSearches += 1;
@@ -1251,7 +1255,7 @@ async function searchLolRiotIdInternal(
   }
 }
 
-async function getMoreLolMatchesInternal(input: { riotId: unknown; offset: number; matchIds?: string[] }) {
+async function getMoreLolMatchesInternal(input: { riotId: unknown; offset: number; matchIds?: string[]; validateMatchIds?: boolean }) {
   const riotId = parseRiotId(input.riotId);
   if (!riotId || !Number.isSafeInteger(input.offset) || input.offset < 0
     || (input.matchIds !== undefined && (input.matchIds.length < 1 || input.matchIds.length > 5 || input.matchIds.some((id) => !isMatchId(id))))) {
@@ -1266,11 +1270,11 @@ async function getMoreLolMatchesInternal(input: { riotId: unknown; offset: numbe
   cacheAccount(key, account);
   const lookupKey = `search:v10:${key}`;
   const idKey = input.matchIds?.join(",") ?? "page";
-  const moreKey = `more:${lookupKey}:${input.offset}:${idKey}`;
+  const moreKey = `more:${lookupKey}:${input.offset}:${idKey}${input.validateMatchIds ? ":public" : ""}`;
   const existing = state.inflight.get(moreKey);
   if (existing) return existing;
   if (state.inflight.has(lookupKey) || state.accountOps.has(lookupKey)) throw new RiotSearchError("busy", 2);
-  const lease = isLolPersistenceEnabled() ? await acquireLolCollectionLease(lookupKey, 90) : null;
+  const lease = isLolPersistenceEnabled() ? await acquireLolCollectionLease(lookupKey, 180) : null;
   if (isLolPersistenceEnabled() && !lease) throw new RiotSearchError("busy", 2);
   state.accountOps.add(lookupKey);
   const pageStart = Math.floor(input.offset / 20) * 20;
@@ -1278,9 +1282,10 @@ async function getMoreLolMatchesInternal(input: { riotId: unknown; offset: numbe
     try {
       const retryIds = Array.isArray(input.matchIds) ? input.matchIds : undefined;
       const explicitIds = retryIds !== undefined;
-      const matchIds = explicitIds
+      const matchIds = explicitIds && !input.validateMatchIds
         ? retryIds.slice(0, 20)
         : await requestJson<string[]>("asia", `/lol/match/v5/matches/by-puuid/${encodeURIComponent(account.puuid)}/ids?start=${pageStart}&count=20`, IDENTIFIER_TTL_MS);
+      if (retryIds && input.validateMatchIds && retryIds.some(id => !matchIds.includes(id))) throw new RiotSearchError("invalid_request");
       const localOffset = input.offset - pageStart;
       const selectedIds = explicitIds ? retryIds.slice(0, 5) : matchIds.slice(localOffset, localOffset + 5);
       const batch = await loadMatchRecords(account.puuid, selectedIds, true);
@@ -1406,7 +1411,7 @@ export async function searchLolRiotId(input: unknown, options: { refresh?: boole
   return "status" in result ? result : lolSearchResultDto(result);
 }
 
-export async function getMoreLolMatches(input: { riotId: unknown; offset: number; matchIds?: string[] }) {
+export async function getMoreLolMatches(input: { riotId: unknown; offset: number; matchIds?: string[]; validateMatchIds?: boolean }) {
   return lolParticipantDto(await getMoreLolMatchesInternal(input));
 }
 
@@ -1421,4 +1426,14 @@ export async function resolveLolParticipantRef(ref: string): Promise<string> {
   );
   if (account.puuid !== puuid || !parseRiotId(`${account.gameName}#${account.tagLine}`)) throw new RiotSearchError("upstream");
   return `${account.gameName}#${account.tagLine}`;
+}
+
+export async function resolveLolAccountForDeletion(input: string) {
+  const riotId = parseRiotId(input);
+  if (!riotId) throw new RiotSearchError("invalid_request");
+  const account = await requestJson<{ puuid: string; gameName: string; tagLine: string }>("asia",
+    `/riot/account/v1/accounts/by-riot-id/${encodeURIComponent(riotId.gameName)}/${encodeURIComponent(riotId.tagLine)}`,
+    IDENTIFIER_TTL_MS, true);
+  if (!account.puuid || !account.gameName || !account.tagLine) throw new RiotSearchError("upstream");
+  return account;
 }

@@ -182,7 +182,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
             action === "more"
               ? {
                   riotId: accountId,
-                  offset: result.loadedCount,
+                  offset: publicView && retryId ? Math.max(0, result.matchIds.indexOf(retryId)) : result.loadedCount,
                   ...(retryId ? { matchIds: [retryId] } : nextIds.length ? { matchIds: nextIds } : {}),
                 }
               : { riotId: accountId, refresh: true },
@@ -286,6 +286,8 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
     () => result ? summarizeRecentMatches(result.matches, ownRiotId) : null,
     [result, ownRiotId],
   );
+  const hiddenMatches = result?.matchFailures?.filter(failure => ["invalid_match", "restricted_match"].includes(failure.kind)).length ?? 0;
+  const visibleFailures = result?.matchFailures?.filter(failure => !["invalid_match", "restricted_match"].includes(failure.kind)) ?? [];
   const keyRenewal = result?.matchFailures?.some(failure => ["key_or_permission", "unconfigured"].includes(failure.kind));
   const summary = summaries?.[filter];
   const remainingCooldown = Math.max(Math.ceil((refreshAvailableAt - now) / 1000), 0);
@@ -422,20 +424,20 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
                       <option value="all">전체</option>
                       <option value="solo">솔로</option>
                       <option value="flex">자유</option>
-                      <option value="aram">ARAM</option>
+                      <option value="aram">칼바람</option>
                     </select>
                   </label>
                 </LolSummary>
                 {keyRenewal && <p role="status" className="rounded-lg border border-amber-900 bg-zinc-900 p-3 text-sm text-amber-200">
                   {LOL_KEY_RENEWAL_MESSAGE}<span lang="en" className="mt-1 block text-xs">{LOL_KEY_RENEWAL_ENGLISH}</span>
                 </p>}
-                {result.matchStatus === "partial" && !keyRenewal && (
+                {result.matchStatus === "partial" && visibleFailures.length > 0 && !keyRenewal && (
                   <p className="mb-2 rounded-lg border border-amber-900 bg-amber-950/40 p-3 text-xs text-amber-200">
                     일부 경기 정보를 불러오지 못했습니다. 확인된 경기만
                     표시합니다.
                   </p>
                 )}
-                {result.matchStatus === "failed" && !keyRenewal && (
+                {result.matchStatus === "failed" && visibleFailures.length > 0 && !keyRenewal && (
                   <p
                     role="alert"
                     className="rounded-xl border border-red-900 bg-red-950/50 p-4 text-sm text-red-200"
@@ -461,6 +463,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
                     </button>}
                   </div>
                 )}
+                {hiddenMatches > 0 && <p className="text-xs text-zinc-500">표시하지 않는 경기 {hiddenMatches}개</p>}
                 <div className="space-y-3">
                   {matches.map((match) => (
                     <LolMatchCard
@@ -476,7 +479,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
                       onSearch={searchParticipant}
                     />
                   ))}
-                  {(result.matchFailures ?? []).map((failure) => {
+                  {visibleFailures.map((failure) => {
                     const rateLimited = failure.kind.toLocaleLowerCase().includes("rate") || failure.kind.includes("429");
                     const busy = failure.kind.toLocaleLowerCase().includes("busy");
                     return (

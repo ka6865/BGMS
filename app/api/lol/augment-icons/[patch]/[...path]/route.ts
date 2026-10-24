@@ -2,11 +2,8 @@ import { requireLolDevAdmin } from "@/lib/lol/access.server";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ patch: string; path: string[] }> }) {
   const { patch, path } = await params;
-  const publicEnabled = process.env.LOL_PUBLIC_ENABLED === "true";
-  if (!publicEnabled) {
-    const access = await requireLolDevAdmin();
-    if (!access.ok) return access.error;
-  }
+  const access = await requireLolDevAdmin();
+  if (!access.ok) return access.error;
   const icon = path.join("/");
   if (!/^(15|16)\.[1-9][0-9]?$/.test(patch) || !/^assets\/ux\/(kiwi|cherry)\/augments\/icons\/[a-z0-9_-]+\.png$/.test(icon)) {
     return new Response(null, { status: 404, headers: { "Cache-Control": "private, no-store" } });
@@ -33,6 +30,6 @@ export async function GET(_request: Request, { params }: { params: Promise<{ pat
     const image = Buffer.concat(chunks);
     if (!image.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) throw new Error("invalid_image");
     return new Response(image, { headers: { "Content-Type": "image/png", "X-Content-Type-Options": "nosniff",
-      "Cache-Control": `${publicEnabled ? "public" : "private"}, max-age=31536000, immutable` } });
+      "Cache-Control": "private, max-age=31536000, immutable" } });
   } catch { return new Response(null, { status: 502, headers: { "Cache-Control": "private, no-store" } }); }
 }

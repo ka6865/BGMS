@@ -13,6 +13,10 @@ export class LolPersistenceError extends Error {
   constructor() { super("LoL persistence unavailable"); }
 }
 
+export class LolLeaseExpiredError extends Error {
+  constructor() { super("LoL collection lease expired"); }
+}
+
 export class LolPermitError extends Error {
   constructor(readonly kind: "busy" | "rate_limited", readonly retryAfterSeconds: number) { super(kind); }
 }
@@ -59,6 +63,8 @@ function db() { return createServiceRoleSupabase(); }
 const LOL_DB_TIMEOUT_MS = 10_000;
 
 function persistenceFailure(operation: string, error: unknown, signal: AbortSignal): never {
+  if (["persist_lol_search_snapshot", "persist_lol_match_details"].includes(operation)
+    && error && typeof error === "object" && "code" in error && error.code === "40001") throw new LolLeaseExpiredError();
   const cause = error && typeof error === "object" ? error as { name?: unknown; message?: unknown } : undefined;
   const timedOut = signal.aborted || cause?.name === "TimeoutError" || cause?.name === "AbortError"
     || (typeof cause?.message === "string" && /AbortError|TimeoutError|timed?\s*out/i.test(cause.message));
@@ -175,7 +181,7 @@ export async function recordLolRiotRateHeaders(host: LolRiotHost, headers: Heade
     p_method_limit: headers.get("X-Method-Rate-Limit"),
     p_method_count: headers.get("X-Method-Rate-Limit-Count"),
   });
-  if (!accepted) throw new LolPersistenceError();
+  if (!accepted) throw new LolPermitError("rate_limited", 600);
 }
 
 export async function persistLolSearchSnapshot(input: SearchSnapshot): Promise<void> {
@@ -227,4 +233,14 @@ export async function hasLolBenchmarkProcessedMatch(matchId: string): Promise<bo
     if (error) throw error;
     return data !== null;
   } catch (error) { return persistenceFailure("get_lol_benchmark_processed_match", error, signal); }
+}
+
+export async function hasLolStoredMatch(matchId: string): Promise<boolean> {
+  const signal = AbortSignal.timeout(LOL_DB_TIMEOUT_MS);
+  try {
+    const { data, error } = await db().from("lol_matches").select("match_id")
+      .eq("match_id", matchId).eq("platform_id", "kr").eq("regional_route", "asia").abortSignal(signal).maybeSingle();
+    if (error) throw error;
+    return data !== null;
+  } catch (error) { return persistenceFailure("has_lol_stored_match", error, signal); }
 }

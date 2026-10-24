@@ -2,6 +2,7 @@ import "server-only";
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes } from "node:crypto";
 import { getLolAccountNamesByPuuids, isLolPersistenceEnabled } from "./persistence.server";
 import { summarizeRecentMatches } from "./summary";
+import type { LolChallenges } from "./challenges";
 import type { LolMatchDetails, LolRecentMatch, LolSearchResult, LolParticipantIdentity } from "./types";
 
 export type ServerLolMatchDetails = Omit<LolMatchDetails, "teams"> & {
@@ -10,6 +11,7 @@ export type ServerLolMatchDetails = Omit<LolMatchDetails, "teams"> & {
   }>;
 };
 export type ServerLolRecentMatch = Omit<LolRecentMatch, "details" | "teammates"> & {
+  challenges?: LolChallenges;
   details?: Pick<ServerLolMatchDetails, "teams">;
   teammates?: Array<LolParticipantIdentity & { puuid?: string; riotId: string; win: boolean | null }>;
 };
@@ -52,7 +54,7 @@ export function openLolParticipantRef(ref: string): string | null {
 }
 
 type ParticipantDto<T> = T extends Array<infer Item> ? ParticipantDto<Item>[]
-  : T extends object ? { [Key in keyof T as Key extends "puuid" ? never : Key]: ParticipantDto<T[Key]> }
+  : T extends object ? { [Key in keyof T as Key extends "puuid" | "challenges" ? never : Key]: ParticipantDto<T[Key]> }
     & (T extends { riotId: string } ? LolParticipantIdentity : unknown) : T;
 
 export async function lolParticipantDto<T>(input: T): Promise<ParticipantDto<T>> {
@@ -81,7 +83,7 @@ export async function lolParticipantDto<T>(input: T): Promise<ParticipantDto<T>>
     if (!value || typeof value !== "object") return value;
     if (Array.isArray(value)) return value.map(convert);
     const row = value as Record<string, unknown>;
-    const result = Object.fromEntries(Object.entries(row).filter(([key]) => key !== "puuid").map(([key, item]) => [key, convert(item)]));
+    const result = Object.fromEntries(Object.entries(row).filter(([key]) => key !== "puuid" && key !== "challenges").map(([key, item]) => [key, convert(item)]));
     if (typeof row.riotId === "string" && typeof row.puuid === "string") {
       result.riotId = names.get(row.puuid) ?? row.riotId;
       const identity = identities.get(row.puuid);
