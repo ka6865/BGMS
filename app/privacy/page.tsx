@@ -143,7 +143,7 @@ export default function PrivacyPage() {
         <p>
           LoL 계정 데이터 삭제는 로그인 없이 개인정보 보호책임자 이메일 <a href="mailto:ka6865@gmail.com">ka6865@gmail.com</a>로 요청할 수 있습니다.
           Riot ID(게임 이름#태그)를 제시하면 운영자가 Account-V1으로 PUUID를 확인한 뒤 처리합니다.
-          로그인한 이용자는 <Link href="/support">고객센터 1:1 문의</Link>도 이용할 수 있습니다.
+          로그인한 이용자는 <Link href="/support">고객센터</Link>에서도 요청할 수 있습니다.
           요청을 확인한 뒤 계정 정보·본인 경기 요약·랭크 기록과 관련 원문·캐시를 삭제합니다.
           개인 식별자 없이 보관하는 익명 통계는 계정 삭제와 별도로 유지됩니다.
         </p>
