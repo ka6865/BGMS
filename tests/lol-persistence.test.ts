@@ -14,6 +14,8 @@ import { POST as moreMatches } from "@/app/api/admin/lol/matches/more/route";
 
 import {
   acquireLolCollectionLease,
+  persistLolSearchSnapshot,
+  LolLeaseExpiredError,
   getLolApiCache,
   getLolAccountByRiotId,
   getLolRankedHistory,
@@ -249,7 +251,7 @@ describe("LoL persistence repository", () => {
     (db.rpc as any).result = { data: false, error: null };
     await expect(
       recordLolRiotRateHeaders("asia", new Headers()),
-    ).rejects.toMatchObject({ kind: "persistence" });
+    ).rejects.toMatchObject({ kind: "rate_limited", retryAfterSeconds: 600 });
   });
 
   it("returns a retryable busy result when the atomic permit is unavailable", async () => {
@@ -273,4 +275,13 @@ describe("LoL persistence repository", () => {
       retryAfterSeconds: 1,
     });
   });
+});
+
+
+it("저장 RPC의 stale lease만 저장소 장애 대신 처리 시간 초과로 분류한다", async () => {
+  db.rpc.mockImplementation(() => ({ abortSignal: async () => ({ data: null, error: { code: "40001", message: "fixture stale lease" } }) }));
+  await expect(persistLolSearchSnapshot({ lease: { key: "search:v10:fixture#fix", token: "fixture" }, cacheKey: "fixture",
+    cachePayload: {}, platform: "kr", route: "asia", version: "16.21.1", matches: [], ranked: [],
+    account: { puuid: "fixture-owner", gameName: "Fixture", tagLine: "FIX", profileIconId: 1, summonerLevel: 30 },
+  })).rejects.toBeInstanceOf(LolLeaseExpiredError);
 });

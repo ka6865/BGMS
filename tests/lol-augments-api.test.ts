@@ -84,8 +84,8 @@ describe("증강 관리자 경계", () => {
   });
 });
 describe("증강 아이콘 프록시", () => {
-  it("공개 플래그가 꺼지면 관리자 권한을 검사한다", async () => {
-    vi.stubEnv("LOL_PUBLIC_ENABLED", "false"); mocks.access.mockResolvedValue({ ok: false, error: new Response(null, { status: 404 }) });
+  it.each(["false", "true"])("공개 플래그 %s에서도 관리자 권한을 검사한다", async flag => {
+    vi.stubEnv("LOL_PUBLIC_ENABLED", flag); mocks.access.mockResolvedValue({ ok: false, error: new Response(null, { status: 404 }) });
     const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
     expect((await iconRequest()).status).toBe(404); expect(fetcher).not.toHaveBeenCalled();
   });
@@ -102,7 +102,7 @@ describe("증강 아이콘 프록시", () => {
     const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]);
     const fetcher = vi.fn<typeof fetch>(async () => new Response(png, { headers: { "Content-Type": "image/png" } })); vi.stubGlobal("fetch", fetcher);
     vi.stubEnv("LOL_PUBLIC_ENABLED", "true");
-    expect((await iconRequest()).headers.get("Cache-Control")).toBe("public, max-age=31536000, immutable");
+    expect((await iconRequest()).headers.get("Cache-Control")).toBe("private, max-age=31536000, immutable");
     expect(fetcher.mock.calls[0][0]).toBe("https://raw.communitydragon.org/16.21/game/assets/ux/kiwi/augments/icons/test.png");
     expect((await iconRequest("16.21", "assets/ux/cherry/augments/icons/test.png")).status).toBe(200);
     vi.stubEnv("LOL_PUBLIC_ENABLED", "false");

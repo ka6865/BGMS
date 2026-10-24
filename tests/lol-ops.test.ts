@@ -8,7 +8,8 @@ vi.mock("@/lib/lol/access.server", () => ({ requireLolDevAdmin: mocks.admin }));
 vi.mock("@/lib/lol/persistence.server", () => ({
   getLolAccountByRiotId: mocks.lookup, deleteLolAccountData: mocks.deleteAccount,
 }));
-vi.mock("@/lib/lol/riotSearch.server", () => ({ clearLolPersonalCaches: mocks.clearCaches }));
+vi.mock("@/lib/lol/riotSearch.server", () => ({ clearLolPersonalCaches: mocks.clearCaches,
+  resolveLolAccountForDeletion: mocks.lookup, RiotSearchError: class extends Error {} }));
 
 import { GET, POST } from "@/app/api/admin/lol/operations/route";
 import { getLolOpsStatus, recordLolOpsMetric, type LolOpsMetric } from "@/lib/lol/ops.server";
@@ -127,11 +128,11 @@ describe("LoL 관리자 운영 API", () => {
 });
 
 describe("LoL 계정 삭제 API", () => {
-  it("대상 확인은 저장 계정만 조회하고 식별자를 응답에 노출하지 않는다", async () => {
+  it("대상 확인은 Account-V1을 조회하고 식별자를 응답에 노출하지 않는다", async () => {
     mocks.lookup.mockResolvedValue({ puuid: "private-puuid", gameName: "Owner", tagLine: "SUM" });
     const result = await POST(post({ action: "account-preview", riotId: "Owner#SUM" }));
     expect(await result.json()).toEqual({ riotId: "Owner#SUM" });
-    expect(mocks.lookup).toHaveBeenCalledWith("Owner", "SUM");
+    expect(mocks.lookup).toHaveBeenCalledWith("Owner#SUM");
     expect(mocks.deleteAccount).not.toHaveBeenCalled();
   });
   it.each([undefined, false, "true"])("명시적인 삭제 확인 %s 없이는 조회·삭제하지 않는다", async (confirm) => {

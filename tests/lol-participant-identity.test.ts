@@ -61,7 +61,7 @@ describe("LoL 참가자 식별자", () => {
   });
 
   it("현재 이름 모드는 일괄 조회하고 원본 캐시를 바꾸지 않으며 DTO 어디에도 puuid를 남기지 않는다", async () => {
-    const input = { puuid: "owner-private", matches: [match("Old#KR1"), match("Unknown#KR1", "unknown")],
+    const input = { puuid: "owner-private", challenges: { soloKills: 2 }, matches: [match("Old#KR1"), match("Unknown#KR1", "unknown")],
       teams: [{ participants: [{ puuid: "peer", riotId: "Old#KR1" }] }] };
     const before = JSON.stringify(input);
     const dto = await lolParticipantDto(input);
@@ -70,6 +70,7 @@ describe("LoL 참가자 식별자", () => {
     expect(dto.matches[1].teammates![0].riotId).toBe("Unknown#KR1");
     expect(dto.teams[0].participants[0].riotId).toBe("Current#KR1");
     expect(JSON.stringify(dto)).not.toContain('"puuid"');
+    expect(JSON.stringify(dto)).not.toContain('"challenges"');
     expect(JSON.stringify(dto)).not.toContain("owner-private");
     expect(JSON.stringify(input)).toBe(before);
   });
@@ -113,6 +114,7 @@ describe("LoL 참가자 식별자", () => {
     expect(dto.summaries.all.teammates).toHaveLength(1);
     expect(dto.summaries.all.teammates[0]).toMatchObject({ riotId: "Current#KR1", games: 2 });
     expect(JSON.stringify(dto)).not.toContain('"puuid"');
+    expect(JSON.stringify(dto)).not.toContain('"challenges"');
   });
 
   it("ref 이동은 24시간 이내 계정 이름을 사용하고 위조 ref는 DB 조회 전에 거부한다", async () => {

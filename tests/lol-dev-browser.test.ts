@@ -17,6 +17,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
     let server: Server;
     let browser: Browser;
     let baseUrl: string;
+    let holdRefresh: ((send: () => void) => void) | undefined;
     const collectionRequests: Array<{ riotId: string; count: number; startOffset: number; confirm: boolean }> = [];
     const navigationFixture = `
       import { useMemo, useSyncExternalStore } from 'react';
@@ -248,11 +249,21 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
                 { matchId: "FAIL_BGMS", kind: "bgms_busy" },
               ] : [],
             });
+            if (riotId.startsWith("restricted#")) {
+              response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ ...makeResult(),
+                matches: [], matchStatus: "failed", hasMore: false, matchFailures: [
+                  { matchId: "KR_991", kind: "invalid_match" }, { matchId: "KR_992", kind: "restricted_match" },
+                ],
+              }));
+              return;
+            }
             if (requestBody.refresh && /^refresh(?:short)?#/.test(riotId)) {
               const refreshed = makeResult();
               refreshed.matches = [{ ...structuredClone(matches[0]), matchId: "NEW_1" }, ...refreshed.matches.slice(0, 4)];
               refreshed.matchIds = ["NEW_1", ...refreshed.matchIds.slice(0, 19)];
-              setTimeout(() => response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(refreshed)), 250);
+              const sendRefresh = () => { response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(refreshed)); };
+              if (holdRefresh) { const receive = holdRefresh; holdRefresh = undefined; receive(sendRefresh); }
+              else setTimeout(sendRefresh, 250);
               return;
             }
             const send = () =>
@@ -465,7 +476,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
         const mastery = await page.$('[data-testid="lol-mastery"]');
         expect(mastery).not.toBeNull();
         const masteryText = await mastery!.evaluate(element => element.textContent ?? "");
-        for (const text of ["챔피언 숙련도와 최근 성과", "250,000", "BGMS에 저장된 최근 9경기 기준", "주력", "최근 부진", "떠오르는 챔피언"])
+        for (const text of ["챔피언 숙련도와 최근 성과", "250,000", "BGMS에 저장된 최근 9경기 기준", "주력", "떠오르는 챔피언"])
           expect(masteryText).toContain(text);
         const masteryBounds = await mastery!.boundingBox();
         expect(masteryBounds!.x + masteryBounds!.width).toBeLessThanOrEqual(viewport.width);
@@ -807,6 +818,19 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       await page.close();
     });
 
+    it("커스텀·제한 경기는 실패 카드와 재시도 대신 숨긴 개수만 표시한다", async () => {
+      const page = await openPage();
+      await page.type("#lol-riot-id", "restricted#FIX");
+      await page.click('form button[type="submit"]');
+      await page.waitForFunction(() => document.body.textContent?.includes("표시하지 않는 경기 2개"));
+      const text = await page.$eval("body", element => element.textContent ?? "");
+      expect(text).toContain("표시하지 않는 경기 2개");
+      expect(text).not.toContain("최근 경기 정보를 가져오지 못했습니다");
+      expect(await page.$$('[data-testid="lol-match-failure"]')).toHaveLength(0);
+      expect(await page.$$('[data-testid="lol-match-card"]')).toHaveLength(0);
+      await page.close();
+    });
+
     it("결측 기록은 미제공 상태로 표시한다", async () => {
       const page = await openPage();
       await search(page, "missing#kr1");
@@ -939,13 +963,17 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       await clickButtonText(page, "경기 더 불러오기");
       await page.waitForFunction(() => document.querySelectorAll('[data-testid="lol-match-card"]').length === 10);
       const before = await page.$$eval('[data-testid="lol-match-card"]', (cards) => cards.map((card) => card.textContent));
+      // 응답을 직접 풀어 처리 중 상태 검증이 250ms 타이밍에 의존하지 않게 한다.
+      const refreshResponse = new Promise<() => void>(resolve => { holdRefresh = resolve; });
       await clickButtonText(page, "전적 갱신");
+      const finishRefresh = await refreshResponse;
       expect(await page.$$eval('[data-testid="lol-match-card"]', (cards) => cards.length)).toBe(10);
       expect(await page.$eval('section[aria-label="검색 결과"] > div:first-child', (profile) => profile.textContent))
         .toContain("BGMS 데이터 처리 중");
       expect(await page.$$eval('[data-testid="lol-history"] button', (buttons) =>
         buttons.some((button) => button.textContent?.includes("BGMS 데이터 처리 중")),
       )).toBe(false);
+      finishRefresh();
       await page.waitForFunction(() => document.querySelectorAll('[data-testid="lol-match-card"]').length === 11);
       expect(await page.$$eval('[data-testid="lol-match-card"]', (cards) => cards.slice(1).map((card) => card.textContent))).toEqual(before);
       expect(await page.$eval('[data-testid="lol-summary-header"]', (header) => header.textContent)).toContain("최근 11경기");

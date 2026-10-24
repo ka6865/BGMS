@@ -6,6 +6,7 @@ import { readFileSync } from "node:fs";
 const mocks = vi.hoisted(() => ({ search: vi.fn(), more: vi.fn(), detail: vi.fn(), resolve: vi.fn(), pathname: "/lol/kr" }));
 vi.mock("server-only", () => ({}));
 vi.mock("next/navigation", () => ({
+  redirect: (path: string) => { throw new Error(`redirect:${path}`); },
   notFound: () => { throw new Error("NEXT_HTTP_ERROR_FALLBACK;404"); },
   usePathname: () => mocks.pathname,
   useSearchParams: () => new URLSearchParams(),
@@ -17,7 +18,7 @@ vi.mock("@/lib/lol/riotSearch.server", () => ({
   searchLolRiotId: mocks.search, getMoreLolMatches: mocks.more, getLolMatchDetails: mocks.detail,
   resolveLolParticipantRef: mocks.resolve, RiotSearchError: class extends Error {},
 }));
-vi.mock("@/lib/lol/persistence.server", () => ({ LolPersistenceError: class extends Error {} }));
+vi.mock("@/lib/lol/persistence.server", () => ({ LolPersistenceError: class extends Error {}, LolLeaseExpiredError: class extends Error {} }));
 
 beforeEach(() => { vi.resetAllMocks(); vi.resetModules(); vi.stubEnv("LOL_PUBLIC_ENABLED", "true"); mocks.pathname = "/lol/kr"; });
 afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers(); });
@@ -160,4 +161,22 @@ describe("LoL 공개 보안 경계", () => {
     const html = renderToStaticMarkup(createElement(Wrapper, null, "전적"));
     expect(html).toContain("adsbygoogle-main-js");
   });
+});
+
+
+it("공개 루트는 KR 검색으로 이동하고 꺼진 플래그에서는 404를 유지한다", async () => {
+  const { default: page } = await import("@/app/lol/page");
+  expect(() => page()).toThrow("redirect:/lol/kr");
+  vi.stubEnv("LOL_PUBLIC_ENABLED", "false");
+  expect(() => page()).toThrow("404");
+});
+
+it("공개 오류 화면과 404 화면에도 Riot 법적 고지가 있다", async () => {
+  const { default: NotFound } = await import("@/app/lol/not-found");
+  const { default: ErrorPage } = await import("@/app/lol/error");
+  for (const element of [createElement(NotFound), createElement(ErrorPage, { error: new Error("fixture"), retry: vi.fn() })]) {
+    const html = renderToStaticMarkup(element);
+    expect(html).toContain("Riot Games, and all associated properties");
+    expect(html).toContain("상표 또는 등록 상표");
+  }
 });

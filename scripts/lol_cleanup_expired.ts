@@ -24,12 +24,12 @@ export async function runLolCleanup(rpc: Rpc, args = process.argv.slice(2), enab
     const leaseStartedAt = Date.now();
     try {
       // 120초 lease보다 먼저 멈추며 배치당 각 부모 테이블 최대 100행을 지운다.
-      while (batches < 10 && Date.now() - leaseStartedAt < 80_000 && total(remaining) > 0) {
+      while (batches < 50 && Date.now() - leaseStartedAt < 80_000 && total(remaining) > 0) {
         const batch = await rpc<LolCleanupBatch>("cleanup_lol_expired_batch", { p_limit: 100 });
         for (const key of Object.keys(deleted) as Array<keyof LolCleanupCounts>) deleted[key] = (deleted[key] ?? 0) + (batch.deleted[key] ?? 0);
         remaining = batch.remaining;
         batches += 1;
-        if (total(batch.deleted) === 0 || total(remaining) === 0 || batches === 10) break;
+        if (total(batch.deleted) === 0 || total(remaining) === 0 || batches === 50) break;
         await sleep(250);
       }
     } finally {
@@ -47,7 +47,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       if (error) throw new Error(`정리 RPC 실패: ${name}`);
       return data as T;
     };
-    console.log(JSON.stringify(await runLolCleanup(rpc), null, 2));
+    const result = await runLolCleanup(rpc);
+    console.log(JSON.stringify(result, null, 2));
+    if (result.dryRun) console.error("::warning::LoL 정리가 dry-run이므로 만료 데이터가 삭제되지 않았습니다.");
+    if (result.remainingCount > 0) console.error(`::warning::LoL 만료 데이터 ${result.remainingCount}개가 남아 있습니다.`);
+    if (!result.dryRun && result.remaining.match_rows > 0) process.exitCode = 1;
   } catch {
     console.error("[lol-cleanup] 실행 실패: 설정, 쓰기 플래그 또는 정리 RPC를 확인해 주세요.");
     process.exitCode = 1;

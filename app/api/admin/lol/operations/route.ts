@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { requireLolDevAdmin } from "@/lib/lol/access.server";
 import { isSameOriginLolRequest } from "@/lib/lol/http.server";
 import { cleanupLolExpiredBatch, getLolOpsStatus, previewLolExpiredData } from "@/lib/lol/ops.server";
-import { deleteLolAccountData, getLolAccountByRiotId } from "@/lib/lol/persistence.server";
-import { clearLolPersonalCaches } from "@/lib/lol/riotSearch.server";
+import { deleteLolAccountData } from "@/lib/lol/persistence.server";
+import { clearLolPersonalCaches, resolveLolAccountForDeletion, RiotSearchError } from "@/lib/lol/riotSearch.server";
 
 export const dynamic = "force-dynamic";
 
@@ -41,13 +41,16 @@ export async function POST(request: Request) {
     }
     if (body.action === "account-delete" && body.confirm !== true) return response({ error: "계정 삭제 확인이 필요합니다." }, 400);
     try {
-      const account = await getLolAccountByRiotId(parts[0].trim(), parts[1].trim());
-      if (!account) return response({ error: "저장된 계정을 찾을 수 없습니다." }, 404);
+      const account = await resolveLolAccountForDeletion(`${parts[0].trim()}#${parts[1].trim()}`);
+      if (!account) return response({ error: "Riot 계정을 찾을 수 없습니다." }, 404);
       if (body.action === "account-preview") return response({ riotId: `${account.gameName}#${account.tagLine}` });
       const deleted = await deleteLolAccountData(account.puuid);
       clearLolPersonalCaches();
       return response(deleted);
-    } catch { return response({ error: "계정 데이터 삭제 요청을 처리하지 못했습니다." }, 503); }
+    } catch (error) {
+      if (error instanceof RiotSearchError && error.kind === "not_found") return response({ error: "Riot 계정을 찾을 수 없습니다." }, 404);
+      return response({ error: "계정 데이터 삭제 요청을 처리하지 못했습니다." }, 503);
+    }
   }
   if (body.action !== "preview" && body.action !== "cleanup") return response({ error: "정리 작업을 확인해 주세요." }, 400);
   if (body.action === "cleanup" && body.confirm !== true) return response({ error: "정리 실행 확인이 필요합니다." }, 400);

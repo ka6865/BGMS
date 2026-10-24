@@ -18,12 +18,31 @@ describe("LoL 자동 정리", () => {
     const address = server.address();
     try {
       if (!address || typeof address === "string") throw new Error("로컬 포트 생성 실패");
-      const { stdout } = await promisify(execFile)(process.execPath, ["--import", "tsx", "scripts/lol_cleanup_expired.ts", "--dry-run"], {
+      const { stdout, stderr } = await promisify(execFile)(process.execPath, ["--import", "tsx", "scripts/lol_cleanup_expired.ts", "--dry-run"], {
         env: { ...process.env, NEXT_PUBLIC_SUPABASE_URL: `http://127.0.0.1:${address.port}`,
           SUPABASE_SERVICE_ROLE_KEY: "fixture-local-key", LOL_CLEANUP_ENABLED: "true" }, timeout: 10_000,
       });
+      expect(stderr).toContain("::warning::");
       expect(JSON.parse(stdout)).toMatchObject({ dryRun: true, deletedCount: 0, remainingCount: 2, batches: 0 });
       expect(calls).toEqual(["POST /rest/v1/rpc/preview_lol_expired_data"]);
+    } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+  });
+  it("적용 후 만료 원문이 남으면 CLI는 경고와 종료 코드 1을 반환한다", async () => {
+    const remaining = { ...empty, match_rows: 1 };
+    const server = createServer((request, response) => {
+      response.setHeader("Content-Type", "application/json");
+      response.end(JSON.stringify(request.url?.endsWith("preview_lol_expired_data") ? remaining
+        : request.url?.endsWith("acquire_lol_collection_lease") ? [{ lease_token: "fixture-token" }]
+          : request.url?.endsWith("cleanup_lol_expired_batch") ? { deleted: empty, remaining } : true));
+    });
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const address = server.address();
+      if (!address || typeof address === "string") throw new Error("fixture 포트 생성 실패");
+      await expect(promisify(execFile)(process.execPath, ["--import", "tsx", "scripts/lol_cleanup_expired.ts", "--apply"], {
+        env: { ...process.env, NEXT_PUBLIC_SUPABASE_URL: `http://127.0.0.1:${address.port}`,
+          SUPABASE_SERVICE_ROLE_KEY: "fixture-local-key", LOL_CLEANUP_ENABLED: "true" }, timeout: 10_000,
+      })).rejects.toMatchObject({ code: 1, stderr: expect.stringContaining("::warning::LoL 만료 데이터 1개") });
     } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
   });
   it("기본 실행과 명시적 dry-run은 미리보기만 읽는다", async () => {
@@ -53,14 +72,14 @@ describe("LoL 자동 정리", () => {
     await expect(runLolCleanup(rpc, ["--apply"], true)).rejects.toThrow("batch_failed");
     expect(rpc).toHaveBeenLastCalledWith("release_lol_collection_lease", { p_key: "ops:expired-cleanup", p_token: "fixture" });
   });
-  it("대기 후 최대 10배치에서 멈추며 남은 대상을 보고한다", async () => {
+  it("대기 후 최대 50배치에서 멈추며 남은 대상을 보고한다", async () => {
     vi.useFakeTimers();
     const rpc = vi.fn().mockImplementation(async (name) => name === "preview_lol_expired_data" ? pending
       : name === "acquire_lol_collection_lease" ? [{ lease_token: "fixture" }]
       : name === "cleanup_lol_expired_batch" ? { deleted: pending, remaining: pending } : true);
     const result = runLolCleanup(rpc, ["--apply"], true);
     await vi.runAllTimersAsync();
-    expect(await result).toMatchObject({ batches: 10, deletedCount: 20, remainingCount: 2 });
-    expect(rpc.mock.calls.filter(([name]) => name === "cleanup_lol_expired_batch")).toHaveLength(10);
-  });
+    expect(await result).toMatchObject({ batches: 50, deletedCount: 100, remainingCount: 2 });
+    expect(rpc.mock.calls.filter(([name]) => name === "cleanup_lol_expired_batch")).toHaveLength(50);
+  }, 20_000);
 });

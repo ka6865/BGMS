@@ -15,7 +15,7 @@ function definition(source: string) {
   return source.slice(start, source.indexOf("$$;", start) + 3);
 }
 const row = (values: Partial<LolPlayerMatchSummary> = {}) => ({
-  champion_id: 103, champion_name: "Ahri", duration_seconds: 1800, remake: false, win: true, kills: 5, deaths: 2, assists: 7, ...values,
+  queue_id: 420, champion_id: 103, champion_name: "Ahri", duration_seconds: 1800, remake: false, win: true, kills: 5, deaths: 2, assists: 7, ...values,
 } as LolPlayerMatchSummary);
 const mastery = { championId: 103, championLevel: 14, championPoints: 250000, lastPlayTime: 1790000000000 };
 
@@ -59,12 +59,19 @@ describe("숙련도와 최근 성과", () => {
     expect(result[0]).toMatchObject({ games: 2, wins: 1, winRatePct: 50, kda: 14 / 6, perfect: false });
     expect(lolMasteryBadge(result[0], true)).toBeNull();
   });
+  it("아레나·아수라장과 알 수 없는 큐는 승패·KDA 집계에서 제외한다", () => {
+    const queues = [400, 420, 430, 440, 480, 490, 450, 100];
+    const result = summarizeLolChampionPerformance([
+      ...queues.map(queue_id => row({ queue_id })), row({ queue_id: 1700 }), row({ queue_id: 2400 }), row({ queue_id: 9999 }),
+    ]);
+    expect(result[0]).toMatchObject({ games: queues.length, wins: queues.length });
+  });
   it("3판 이상에서만 독립된 승률·KDA 조건으로 배지를 붙인다", () => {
     const good = summarizeLolChampionPerformance([row(), row(), row()])[0];
     expect(lolMasteryBadge(good, true)).toBe("주력");
     expect(lolMasteryBadge(good, false)).toBe("떠오르는 챔피언");
     expect(lolMasteryBadge({ ...good, games: 2 }, true)).toBeNull();
-    expect(lolMasteryBadge({ ...good, winRatePct: 30, kda: 1 }, true)).toBe("최근 부진");
+    expect(lolMasteryBadge({ ...good, winRatePct: 30, kda: 1 }, true)).toBeNull();
     expect(lolMasteryBadge({ ...good, winRatePct: 50 }, true)).toBeNull();
   });
   it("무사망과 누락은 구분하고 표본 없는 챔피언을 배지로 평가하지 않는다", () => {

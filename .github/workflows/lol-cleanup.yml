@@ -37,5 +37,6 @@ jobs:
           if [ "$LOL_CLEANUP_ENABLED" = 'true' ]; then
             npx tsx scripts/lol_cleanup_expired.ts --apply
           else
+            echo "::warning::LOL_CLEANUP_ENABLED가 꺼져 있어 정리는 dry-run으로 실행됩니다."
             npx tsx scripts/lol_cleanup_expired.ts --dry-run
           fi
