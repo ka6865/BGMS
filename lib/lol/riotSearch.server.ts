@@ -11,6 +11,7 @@ import {
   getLolAccountNamesByPuuids,
   emptyLolRankedHistory,
   getLolRankedHistory,
+  getLolPlayerMatchSummaries,
   getLolMatchRequestJson,
   isLolPersistenceEnabled,
   LolPermitError,
@@ -28,9 +29,11 @@ import {
   type LolRegionalRoute,
 } from "@/lib/lol/persistence.server";
 import { summarizeRecentMatches } from "@/lib/lol/summary";
+import { pickLolChallenges } from "./challenges";
+import { parseLolMasteries, summarizeLolChampionPerformance } from "./mastery";
 import { lolParticipantDto, lolSearchResultDto, openLolParticipantRef } from "./participantIdentity.server";
 import type { ServerLolRecentMatch as LolRecentMatch, ServerLolMatchDetails as LolMatchDetails, ServerLolSearchResult as LolSearchResult } from "./participantIdentity.server";
-import type { LolMatchFailure, LolRefreshCooldown } from "@/lib/lol/types";
+import type { LolMatchFailure, LolRefreshCooldown, LolMasteryComparison } from "@/lib/lol/types";
 export type { LolRecentMatch, LolQueueSummary, LolMatchDetails, LolSearchResult, LolMatchFailure, LolRefreshCooldown } from "@/lib/lol/types";
 
 type RiotQueueEntry = {
@@ -42,7 +45,7 @@ type RiotQueueEntry = {
   losses: number;
 };
 
-type RiotEndpoint = "account" | "summoner" | "league" | "match_ids" | "match";
+type RiotEndpoint = "account" | "summoner" | "league" | "mastery" | "match_ids" | "match";
 type RiotFailureStage =
   | "configuration"
   | "queue"
@@ -159,6 +162,7 @@ function getRiotEndpoint(path: string): RiotEndpoint {
     return "account";
   if (path.startsWith("/lol/summoner/v4/")) return "summoner";
   if (path.startsWith("/lol/league/v4/")) return "league";
+  if (path.startsWith("/lol/champion-mastery/v4/")) return "mastery";
   if (path.includes("/matches/by-puuid/")) return "match_ids";
   return "match";
 }
@@ -601,6 +605,7 @@ function summarizeMatch(match: any, puuid: string): LolRecentMatch | null {
       : null;
   return {
     matchId: String(match.metadata?.matchId ?? ""),
+    challenges: pickLolChallenges(participant.challenges),
     queueId: Number(info.queueId) || 0,
     gameMode: String(info.gameMode ?? "Unknown"),
     gameEndTimestamp: Number(info.gameEndTimestamp ?? info.gameCreation) || 0,
@@ -1107,6 +1112,39 @@ async function loadMatchRecords(puuid: string, matchIds: string[], persistDetail
   return { matches, records, matchFailures, loadedCount };
 }
 
+async function loadLolMastery(puuid: string, refresh: boolean): Promise<LolMasteryComparison> {
+  const recent: LolMasteryComparison["recent"] = { status: "unavailable", sampleSize: 0, champions: [] };
+  try {
+    const raw = await requestJson<unknown>("kr",
+      `/lol/champion-mastery/v4/champion-masteries/by-puuid/${puuid}/top?count=10`, IDENTIFIER_TTL_MS, refresh);
+    const champions = parseLolMasteries(raw);
+    const metadata = await getStaticData();
+    return { status: "ready", recent, champions: champions.map(champion => {
+      const entry = Object.entries(metadata.champions).find(([, value]) => Number(value.key) === champion.championId);
+      return { ...champion, championName: entry?.[1].name ?? "알 수 없음", championImageId: entry?.[0] ?? "" };
+    }) };
+  } catch {
+    return { status: "failed", recent, champions: [] };
+  }
+}
+
+async function withLolRecentPerformance(result: LolSearchResult, puuid?: string): Promise<LolSearchResult> {
+  if (!result.mastery || !isLolPersistenceEnabled()) return result;
+  try {
+    const accountPuuid = puuid ?? (await getLolAccountByRiotId(result.account.gameName, result.account.tagLine))?.puuid;
+    if (!accountPuuid) return result;
+    const rows = await getLolPlayerMatchSummaries(accountPuuid, 100);
+    const metadata = await getStaticData();
+    const champions = summarizeLolChampionPerformance(rows).map(champion => {
+      const entry = Object.entries(metadata.champions).find(([, value]) => Number(value.key) === champion.championId);
+      return { ...champion, championName: entry?.[1].name ?? champion.championName, championImageId: entry?.[0] ?? champion.championImageId };
+    });
+    return { ...result, mastery: { ...result.mastery, recent: { status: "ready", sampleSize: rows.length, champions } } };
+  } catch {
+    return { ...result, mastery: { ...result.mastery, recent: { status: "unavailable", sampleSize: 0, champions: [] } } };
+  }
+}
+
 async function searchLolRiotIdInternal(
   input: unknown,
   options: { refresh?: boolean } = {},
@@ -1114,7 +1152,7 @@ async function searchLolRiotIdInternal(
   const riotId = parseRiotId(input);
   if (!riotId) throw new RiotSearchError("invalid_request");
   const persistenceEnabled = isLolPersistenceEnabled();
-  const lookupKey = `search:v9:${riotId.gameName.toLocaleLowerCase()}#${riotId.tagLine.toLocaleLowerCase()}`;
+  const lookupKey = `search:v10:${riotId.gameName.toLocaleLowerCase()}#${riotId.tagLine.toLocaleLowerCase()}`;
   const dataDragonVersion = await getLolDataDragonVersion();
   const persistentCacheKey = lolSearchCacheKey(riotId.gameName, riotId.tagLine, LOL_PLATFORM, LOL_REGIONAL_ROUTE, dataDragonVersion);
   const cached = persistenceEnabled
@@ -1130,7 +1168,8 @@ async function searchLolRiotIdInternal(
       : cached.lastUpdatedAt;
     const remainSeconds = refreshRemaining(lastUpdatedAt);
     if (options.refresh && remainSeconds > 0) return { status: "cooldown", remainSeconds, lastUpdatedAt };
-    if (!options.refresh) return { ...cached, dataDragonVersion, matches: cached.matches.map(match => ({ ...match, dataDragonVersion: match.dataDragonVersion ?? dataDragonVersion })), refreshRemainSeconds: remainSeconds };
+    if (!options.refresh) return withLolRecentPerformance({ ...cached, dataDragonVersion,
+      matches: cached.matches.map(match => ({ ...match, dataDragonVersion: match.dataDragonVersion ?? dataDragonVersion })), refreshRemainSeconds: remainSeconds });
   } else if (options.refresh && storedAccount?.accountFetchedAt) {
     const remainSeconds = refreshRemaining(storedAccount.accountFetchedAt);
     if (remainSeconds > 0) return { status: "cooldown", remainSeconds, lastUpdatedAt: storedAccount.accountFetchedAt };
@@ -1171,9 +1210,12 @@ async function searchLolRiotIdInternal(
     ]);
     const pageIds = matchIds.slice(0, 20);
     const batch = await loadMatchRecords(puuid, pageIds);
+    // 숙련도 429가 현재 검색의 경기 조회를 막지 않도록 필수 조회 뒤에 요청한다.
+    const mastery = await loadLolMastery(encodedPuuid, options.refresh === true);
     const lastUpdatedAt = new Date().toISOString();
     const matches = batch.matches;
     const result: LolSearchResult = {
+      mastery,
       dataDragonVersion,
       account: { gameName: account.gameName, tagLine: account.tagLine },
       profile: { profileIconId: Number(summoner.profileIconId) || 0, summonerLevel: Number(summoner.summonerLevel) || 0 },
@@ -1195,7 +1237,7 @@ async function searchLolRiotIdInternal(
       saved = true;
       result.rankedHistory = await getLolRankedHistory(puuid);
     } else setCached(lookupKey, result, LOL_REFRESH_COOLDOWN_MS);
-    return result;
+    return withLolRecentPerformance(result, puuid);
   })();
   state.inflight.set(lookupKey, search);
   try { return await search; }
@@ -1222,7 +1264,7 @@ async function getMoreLolMatchesInternal(input: { riotId: unknown; offset: numbe
     : isLolPersistenceEnabled() ? await getLolAccountByRiotId(riotId.gameName, riotId.tagLine) : undefined;
   if (!account?.puuid) throw new RiotSearchError("not_found");
   cacheAccount(key, account);
-  const lookupKey = `search:v9:${key}`;
+  const lookupKey = `search:v10:${key}`;
   const idKey = input.matchIds?.join(",") ?? "page";
   const moreKey = `more:${lookupKey}:${input.offset}:${idKey}`;
   const existing = state.inflight.get(moreKey);
@@ -1277,7 +1319,7 @@ export async function collectLolMatches(input: { riotId: string; count: number; 
   };
   const onFetch = () => { result.fetched += 1; };
   const key = `${riotId.gameName.toLocaleLowerCase()}#${riotId.tagLine.toLocaleLowerCase()}`;
-  const lookupKey = `search:v9:${key}`;
+  const lookupKey = `search:v10:${key}`;
   if (state.accountOps.has(lookupKey)) throw new RiotSearchError("busy", 2);
   const lease = await acquireLolCollectionLease(lookupKey, 120);
   if (!lease) throw new RiotSearchError("busy", 2);

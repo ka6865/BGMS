@@ -1,3 +1,5 @@
+import type { LolChallenges } from "./challenges";
+
 export type LolParticipantIdentity = { playerKey?: string; ref?: string };
 
 export type LolRankedPoint = { recordedAt: string; tier: string; rank: string; lp: number };
@@ -12,6 +14,7 @@ export type LolRankedHistory = Record<"RANKED_SOLO_5x5" | "RANKED_FLEX_SR", {
 
 
 export type LolRecentMatch = {
+  challenges?: LolChallenges;
   dataDragonVersion?: string;
   matchId: string;
   queueId: number;
@@ -135,6 +138,7 @@ export type LolMatchDetails = {
 };
 
 export type LolSearchResult = {
+  mastery?: LolMasteryComparison;
   dataDragonVersion?: string;
   account: { gameName: string; tagLine: string };
   profile: { profileIconId: number; summonerLevel: number };
@@ -177,6 +181,7 @@ export type LolOpsStatus = {
 
 
 export type LolPlayerMatchSummary = {
+  challenges: LolChallenges;
   puuid: string; match_id: string; platform_id: string; queue_id: number; game_mode: string | null;
   played_at: string; duration_seconds: number | null; game_version: string | null;
   champion_id: number | null; champion_name: string | null; team_id: number | null; team_position: string | null;
@@ -187,6 +192,19 @@ export type LolPlayerMatchSummary = {
   items: Array<number | null>; summoner_spells: Array<number | null>;
   perks: { keystone: number | null; primaryStyle: number | null; subStyle: number | null };
   teammates: Array<{ puuid?: string; riotId: string; win: boolean | null }>; created_at: string;
+};
+export type LolChampionMastery = {
+  championId: number; championLevel: number; championPoints: number; lastPlayTime: number;
+  championPointsUntilNextLevel: number | null; championSeasonMilestone: number | null;
+};
+export type LolChampionPerformance = {
+  championId: number; championName: string; championImageId: string; games: number; wins: number;
+  winRatePct: number; kda: number | null; perfect: boolean;
+};
+export type LolMasteryComparison = {
+  status: "ready" | "failed";
+  champions: Array<LolChampionMastery & { championName: string; championImageId: string }>;
+  recent: { status: "ready" | "unavailable"; sampleSize: number; champions: LolChampionPerformance[] };
 };
 export type LolAccountDeletion = {
   account_rows: number; ranked_rows: number; history_rows: number; summary_rows: number;

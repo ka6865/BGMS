@@ -72,6 +72,9 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
             res.end(JSON.stringify({ error: LOL_KEY_RENEWAL_MESSAGE, reasonCode: "riot_key_renewal", detail: LOL_KEY_RENEWAL_ENGLISH }));
           }
           else res.end(JSON.stringify({ ...fixtureResult, refreshRemainSeconds: riotId.startsWith("보존#") ? 0 : 120,
+            mastery: riotId.startsWith("숙련도실패#") ? { ...fixtureResult.mastery, status: "failed", champions: [] }
+              : riotId.startsWith("숙련도없음#") ? { ...fixtureResult.mastery, champions: [], recent: { status: "ready", sampleSize: 0, champions: [] } }
+                : fixtureResult.mastery,
             account: { gameName: riotId.split("#")[0], tagLine: riotId.split("#")[1] } }));
         }); return;
       }
@@ -109,6 +112,9 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
     const body = await page.$eval("body", element => element.textContent ?? "");
     for (const text of ["운영 상태", "계정 데이터 삭제", "수집 시작", "관리자 전용"]) expect(body).not.toContain(text);
     expect(body).toContain("BGMS isn't endorsed by Riot Games"); expect(body).toContain("상표 또는 등록 상표");
+    const masteryText = await page.$eval('[data-testid="lol-mastery"]', element => element.textContent ?? "");
+    for (const text of ["많이 플레이(숙련도 상위)", "250,000", "BGMS에 저장된 최근 9경기 기준", "주력", "최근 부진", "떠오르는 챔피언"])
+      expect(masteryText).toContain(text);
     expect(await page.$$eval('script[src*="googlesyndication"], ins.adsbygoogle', nodes => nodes.length)).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(calls).toEqual([`${base}/api/lol/search`]); expect(errors).toEqual([]);
@@ -124,6 +130,17 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
       expect(await page.$('[role="alert"]')).toBeNull();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.screenshot({ path: `tmp/lol-public-review/key-${name.split("#")[0]}-${width}x${height}.png`, fullPage: true });
+      await page.close();
+    }
+  });
+  it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("숙련도 빈 상태와 실패 안내가 %ix%i에서 검색을 보존한다", async (width, height) => {
+    for (const [name, message] of [["숙련도실패#FIX", "숙련도 정보를 불러오지 못했습니다"], ["숙련도없음#FIX", "숙련도 기록이 없습니다"]]) {
+      const page = await open(width, height); await search(page, name);
+      await page.waitForSelector('[data-testid="lol-mastery"]');
+      const text = await page.$eval('[data-testid="lol-mastery"]', element => element.textContent ?? "");
+      expect(text).toContain(message);
+      expect(await page.$('section[aria-label="최근 경기"] article')).not.toBeNull();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.close();
     }
   });

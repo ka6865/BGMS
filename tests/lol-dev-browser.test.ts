@@ -230,6 +230,9 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
             }
             const makeResult = () => structuredClone({
               ...fixtureResult,
+              mastery: riotId.startsWith("masteryfail#") ? { ...fixtureResult.mastery, status: "failed", champions: [] }
+                : riotId.startsWith("masteryempty#") ? { ...fixtureResult.mastery, champions: [], recent: { status: "ready", sampleSize: 0, champions: [] } }
+                  : fixtureResult.mastery,
               ranked: riotId.startsWith("unrank#")
                 ? fixtureResult.ranked.filter((rank) => rank.queueType === "RANKED_SOLO_5x5")
                 : fixtureResult.ranked,
@@ -459,6 +462,13 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
           }
         });
         await search(page);
+        const mastery = await page.$('[data-testid="lol-mastery"]');
+        expect(mastery).not.toBeNull();
+        const masteryText = await mastery!.evaluate(element => element.textContent ?? "");
+        for (const text of ["챔피언 숙련도와 최근 성과", "250,000", "BGMS에 저장된 최근 9경기 기준", "주력", "최근 부진", "떠오르는 챔피언"])
+          expect(masteryText).toContain(text);
+        const masteryBounds = await mastery!.boundingBox();
+        expect(masteryBounds!.x + masteryBounds!.width).toBeLessThanOrEqual(viewport.width);
         await page.screenshot({ path: `tmp/lol-detail-alignment/layout-${viewport.width}x${viewport.height}.png`, fullPage: true });
         const columns = await page.evaluate(() => {
           const bounds = (selector: string) => {
@@ -537,7 +547,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
             (element) => element.textContent,
           ),
         ).toContain("탑");
-        const resultText = await page.$eval('section[aria-label="검색 결과"]', (section) => section.textContent);
+        const resultText = await page.$eval('[data-testid="lol-summary-header"]', (section) => section.textContent);
         expect(resultText).not.toContain("경기 기준");
         expect(await page.$eval('[data-testid="lol-summary-metrics"]', (metrics) => metrics.textContent))
           .toContain("8.75:1");
@@ -667,9 +677,23 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
           path: `tmp/lol-detail-alignment/${viewport.width}x${viewport.height}.png`,
           fullPage: true,
         });
+        await mastery!.screenshot({ path: `tmp/lol-detail-alignment/mastery-${viewport.width}x${viewport.height}.png` });
         await page.close();
       },
       30_000,
+    );
+
+    it.each([{ width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }, { width: 1440, height: 900 }])(
+      "숙련도 빈 상태·실패 안내가 $width 폭에서 전적을 보존한다", async viewport => {
+        for (const [name, message] of [["masteryfail#FIX", "숙련도 정보를 불러오지 못했습니다"], ["masteryempty#FIX", "숙련도 기록이 없습니다"]]) {
+          const page = await openPage(viewport); await search(page, name);
+          const text = await page.$eval('[data-testid="lol-mastery"]', element => element.textContent ?? "");
+          expect(text).toContain(message);
+          expect(await page.$('section[aria-label="최근 경기"] article')).not.toBeNull();
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+          await page.close();
+        }
+      },
     );
 
     it("Riot ID URL은 새로고침·뒤로·앞으로 이동에서 대상과 큐를 복원한다", async () => {

@@ -15,6 +15,7 @@ const persistence = vi.hoisted(() => ({
   acquire: vi.fn(),
   saveSearch: vi.fn(),
   history: vi.fn(),
+  summaries: vi.fn(),
   saveMatch: vi.fn(),
   reserve: vi.fn(),
   start: vi.fn(),
@@ -39,6 +40,7 @@ vi.mock("@/lib/lol/persistence.server", async (importOriginal) => {
     acquireLolCollectionLease: persistence.acquire,
     persistLolSearchSnapshot: persistence.saveSearch,
     getLolRankedHistory: persistence.history,
+    getLolPlayerMatchSummaries: persistence.summaries,
     persistLolMatchDetails: persistence.saveMatch,
     reserveLolRiotRequest: persistence.reserve,
     startLolRiotRequest: persistence.start,
@@ -123,6 +125,7 @@ beforeEach(() => {
   persistence.acquire.mockResolvedValue({ key: "lease", token: "lease-token" });
   persistence.saveSearch.mockResolvedValue(undefined);
   persistence.history.mockResolvedValue(emptyLolRankedHistory());
+  persistence.summaries.mockResolvedValue([]);
   persistence.saveMatch.mockResolvedValue(undefined);
   persistence.reserve.mockResolvedValue({
     token: "request-token",
@@ -156,9 +159,9 @@ afterEach(() => {
 });
 
 describe("POST /api/admin/lol/search", () => {
-  it("search DTO 키는 v8로 구분한다", () => {
+  it("search DTO 키는 v10로 구분한다", () => {
     expect(lolSearchCacheKey("Name", "KR1", "kr", "asia", "16.21.1")).toContain(
-      "search:v9:",
+      "search:v10:",
     );
   });
 
@@ -353,7 +356,7 @@ describe("POST /api/admin/lol/search", () => {
     const riotCalls = calls.filter((call) =>
       call.url.includes("api.riotgames.com"),
     );
-    expect(riotCalls).toHaveLength(7);
+    expect(riotCalls).toHaveLength(8);
     expect(riotCalls.find((call) => call.url.includes("/ids?"))?.url).toContain("count=20");
     expect(
       riotCalls.filter((call) => /\/matches\/KR_\d+$/.test(call.url)),
@@ -406,10 +409,10 @@ describe("POST /api/admin/lol/search", () => {
     vi.stubGlobal("fetch", fetchMock);
     const first = searchLolRiotId("Test#KR1");
     await vi.advanceTimersByTimeAsync(0);
-    expect(internalState?.inflight.has("search:v9:test#kr1")).toBe(true);
+    expect(internalState?.inflight.has("search:v10:test#kr1")).toBe(true);
     await vi.advanceTimersByTimeAsync(30_000);
     await first;
-    expect(internalState?.cache.has("search:v9:test#kr1")).toBe(true);
+    expect(internalState?.cache.has("search:v10:test#kr1")).toBe(true);
     expect((await searchLolRiotId("Test#KR1")).rankedHistory).toEqual(emptyLolRankedHistory());
     expect(persistence.history).not.toHaveBeenCalled();
     const count = fetchMock.mock.calls.length;
@@ -569,20 +572,20 @@ describe("POST /api/admin/lol/search", () => {
     });
     expect(
       calls.filter((url) => url.includes("api.riotgames.com")),
-    ).toHaveLength(4);
+    ).toHaveLength(5);
     expect(result.rankedHistory).toEqual(history);
     expect(persistence.history).toHaveBeenCalledWith("fixture-puuid");
     expect(persistence.saveSearch.mock.invocationCallOrder[0]).toBeLessThan(persistence.history.mock.invocationCallOrder[0]);
     expect(JSON.stringify(result)).not.toContain("puuid");
-    expect(persistence.reserve).toHaveBeenCalledTimes(4);
-    expect(persistence.recordHeaders).toHaveBeenCalledTimes(4);
+    expect(persistence.reserve).toHaveBeenCalledTimes(5);
+    expect(persistence.recordHeaders).toHaveBeenCalledTimes(5);
     expect(persistence.saveSearch).toHaveBeenCalledWith(
       expect.objectContaining({
-        cacheKey: expect.stringContaining("search:v9:kr:asia:16.21.1"),
+        cacheKey: expect.stringContaining("search:v10:kr:asia:16.21.1"),
         account: expect.objectContaining({ puuid: "fixture-puuid" }),
         ranked: [],
         matches: [],
-        cachePayload: result,
+        cachePayload: { ...result, mastery: expect.objectContaining({ status: result.mastery?.status }) },
       }),
     );
   });
@@ -645,7 +648,7 @@ describe("POST /api/admin/lol/search", () => {
     ]);
     expect(
       urls.filter((url) => url.includes("api.riotgames.com")),
-    ).toHaveLength(4);
+    ).toHaveLength(5);
     expect(urls.some((url) => url.endsWith("/KR_8801"))).toBe(false);
     expect(persistence.matchRequestJson).toHaveBeenCalledWith(
       "KR_8801",
@@ -777,7 +780,7 @@ describe("POST /api/admin/lol/search", () => {
     expect(urls.filter((url) => url.endsWith("/KR_1"))).toHaveLength(1);
     expect(
       urls.filter((url) => url.includes("api.riotgames.com")),
-    ).toHaveLength(9);
+    ).toHaveLength(11);
   });
 
   it.each([
@@ -1715,7 +1718,7 @@ describe("POST /api/admin/lol/search", () => {
     expect(JSON.stringify(result)).not.toContain("puuid");
     expect(
       calls.filter((url) => url.includes("api.riotgames.com")),
-    ).toHaveLength(9);
+    ).toHaveLength(10);
   });
 
   it.each([100, undefined])(
@@ -1768,7 +1771,7 @@ describe("POST /api/admin/lol/search", () => {
         { riotId: "Unknown#KR1", games: 2, wins: 0, losses: 0, winRatePct: null },
       ] : []);
       expect(JSON.stringify(body)).not.toMatch(/puuid|self-secret|peer-secret|enemy-secret/);
-      expect(urls.filter((url) => url.includes("api.riotgames.com"))).toHaveLength(6);
+      expect(urls.filter((url) => url.includes("api.riotgames.com"))).toHaveLength(7);
     },
   );
 
@@ -2328,7 +2331,7 @@ describe("POST /api/admin/lol/search", () => {
     }));
     const input = { riotId: "Test#KR1", offset: 4, matchIds: ["KR_9"] };
     const first = getMoreLolMatches(input);
-    const key = "more:search:v9:test#kr1:4:KR_9";
+    const key = "more:search:v10:test#kr1:4:KR_9";
     for (let index = 0; index < 20 && !internalState?.inflight.has(key); index += 1) await Promise.resolve();
     expect(internalState?.inflight.has(key)).toBe(true);
     const second = getMoreLolMatches(input);
@@ -2478,5 +2481,73 @@ describe("PUUID 참가자 이동의 Riot 요청 경로", () => {
     await vi.advanceTimersByTimeAsync(10_000);
     await rejection;
     expect(JSON.stringify(log.mock.calls)).not.toContain("private-peer");
+  });
+});
+
+describe("숙련도 검색과 영구 요약 연결", () => {
+  function upstream(masteryStatus = 200, malformed = false) {
+    return vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("ddragon")) return response({ data: { Ahri: { key: "103", name: "아리" } } });
+      if (url.includes("accounts/by-riot-id")) return response({ puuid: "mastery-fixture-secret", gameName: "Fixture", tagLine: "FIX" });
+      if (url.includes("summoner/v4")) return response({ profileIconId: 1, summonerLevel: 30 });
+      if (url.includes("league/v4")) return response([]);
+      if (url.includes("/ids?")) return response(["KR_7788"]);
+      if (url.includes("champion-mastery/v4")) return response(malformed ? {} : [{
+        puuid: "mastery-fixture-secret", championId: 103, championLevel: 14, championPoints: 250000, lastPlayTime: 1790000000000,
+        championPointsUntilNextLevel: 100, championSeasonMilestone: 2, nextSeasonMilestone: { reward: "private" },
+      }], masteryStatus, masteryStatus === 429 ? { "Retry-After": "60" } : undefined);
+      if (url.endsWith("/KR_7788")) return response({ metadata: { matchId: "KR_7788" }, info: {
+        queueId: 420, gameMode: "CLASSIC", gameDuration: 1800, gameEndTimestamp: 1790000000000,
+        participants: [{ puuid: "mastery-fixture-secret", championId: 103, championName: "Ahri", win: true,
+          kills: 5, deaths: 2, assists: 7, teamId: 100, challenges: { soloKills: 2, kda: "invalid", unknownPatchKey: 88 } }],
+      } });
+      throw new Error("unexpected fixture endpoint");
+    });
+  }
+
+  it("숙련도 1회만 추가하고 캐시 적중에도 영구 요약을 다시 읽으며 식별자를 노출하지 않는다", async () => {
+    dragon.version = "16.22.77";
+    persistence.enabled.mockReturnValue(true);
+    persistence.account.mockResolvedValue({ puuid: "mastery-fixture-secret", gameName: "Fixture", tagLine: "FIX" });
+    const stored = { champion_id: 103, champion_name: "Ahri", duration_seconds: 1800, remake: false, win: true, kills: 5, deaths: 2, assists: 7 };
+    persistence.summaries.mockResolvedValue([stored, stored, stored]);
+    const fetchMock = upstream(); vi.stubGlobal("fetch", fetchMock);
+    const first = searchLolRiotId("Fixture#FIX"); await vi.advanceTimersByTimeAsync(30_000);
+    const result = await first;
+    expect(result.mastery).toMatchObject({ status: "ready", recent: { status: "ready", sampleSize: 3,
+      champions: [{ games: 3, winRatePct: 100, kda: 6 }] } });
+    expect(result.matches[0].challenges).toEqual({ soloKills: 2 });
+    expect(persistence.summaries).toHaveBeenCalledWith("mastery-fixture-secret", 100);
+    expect(persistence.saveSearch.mock.invocationCallOrder[0]).toBeLessThan(persistence.summaries.mock.invocationCallOrder[0]);
+    expect(JSON.stringify(result)).not.toMatch(/puuid|mastery-fixture-secret|nextSeasonMilestone/);
+    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+    expect(urls.filter(url => url.includes("champion-mastery"))).toEqual([
+      "https://kr.api.riotgames.com/lol/champion-mastery/v4/champion-masteries/by-puuid/mastery-fixture-secret/top?count=10",
+    ]);
+    expect(persistence.reserve).toHaveBeenCalledTimes(6);
+    persistence.cache.mockResolvedValue(result);
+    persistence.summaries.mockResolvedValue([stored, stored, stored, stored]);
+    expect((await searchLolRiotId("Fixture#FIX")).mastery?.recent.sampleSize).toBe(4);
+    expect(fetchMock).toHaveBeenCalledTimes(urls.length);
+  });
+
+  it.each([[503, false], [404, false], [429, false], [200, true]])("숙련도 %i 오류나 잘못된 응답(%s)은 기존 경기 검색을 보존한다", async (status, malformed) => {
+    const fetchMock = upstream(status, malformed); vi.stubGlobal("fetch", fetchMock);
+    const pending = searchLolRiotId("Fixture#FIX"); await vi.advanceTimersByTimeAsync(30_000);
+    const result = await pending;
+    expect(result.matchStatus).toBe("ready"); expect(result.matches).toHaveLength(1);
+    expect(result.mastery?.status).toBe("failed");
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("champion-mastery"))).toHaveLength(1);
+  });
+
+  it("영구 요약 조회 실패는 숙련도와 검색을 보존한다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.summaries.mockRejectedValue(new LolPersistenceError());
+    vi.stubGlobal("fetch", upstream());
+    const pending = searchLolRiotId("Fixture#FIX"); await vi.advanceTimersByTimeAsync(30_000);
+    const result = await pending;
+    expect(result.matchStatus).toBe("ready");
+    expect(result.mastery).toMatchObject({ status: "ready", recent: { status: "unavailable" } });
   });
 });
