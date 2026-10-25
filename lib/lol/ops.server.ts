@@ -49,11 +49,14 @@ export async function getLolOpsStatus(): Promise<LolOpsStatus> {
     metrics: [], rateLimits: [], tables: [], pending: { cache_rows: 0, match_rows: 0, account_rows: 0, lease_rows: 0 },
   };
   if (!enabled) return empty;
-  const status = await opsRpc<LolOpsStatus>("get_lol_ops_status");
+  const [snapshot, status] = await Promise.all([
+    opsRpc<string | null>("get_lol_ladder_last_snapshot").catch(() => undefined), opsRpc<LolOpsStatus>("get_lol_ops_status"),
+  ]);
+  const latestSnapshot = typeof snapshot === "string" && Number.isFinite(Date.parse(snapshot)) ? snapshot : snapshot === null ? null : undefined;
   const metrics = status.metrics.filter((row) => statusMetrics.includes(row.metric))
     .map(({ day, metric, value }) => ({ day, metric, value }));
   return {
-    ...empty, today: status.today, todayRiotCalls: status.todayRiotCalls, cooldownActive: status.cooldownActive,
+    ...empty, lastLadderSnapshotAt: latestSnapshot, today: status.today, todayRiotCalls: status.todayRiotCalls, cooldownActive: status.cooldownActive,
     keyNeedsAttention: empty.keyNeedsAttention || metrics.some((row) => row.day === status.today && row.metric === "riot_key_error" && row.value > 0),
     metrics, rateLimits: status.rateLimits.map(({ host, budgetDay, usedCount, blockedUntil }) => ({ host, budgetDay, usedCount, blockedUntil })),
     benchmarks: status.benchmarks ? { processed: status.benchmarks.processed, skipped: status.benchmarks.skipped } : undefined,

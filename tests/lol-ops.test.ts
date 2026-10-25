@@ -76,6 +76,12 @@ describe("LoL 관리자 운영 API", () => {
     expect(JSON.stringify(body)).not.toMatch(/private-puuid|fixture-private-key|private-member/);
     expect(mocks.rpc).toHaveBeenCalledWith("get_lol_ops_status", {});
   });
+  it("마지막 랭크 컷 스냅샷은 30일 조회 범위와 무관하게 운영 패널에 전달한다", async () => {
+    mocks.rpc.mockImplementation(name => ({ abortSignal: async () => ({
+      data: name === "get_lol_ladder_last_snapshot" ? "2026-08-01T20:19:00Z" : status, error: null,
+    }) }));
+    expect(await getLolOpsStatus()).toMatchObject({ lastLadderSnapshotAt: "2026-08-01T20:19:00Z" });
+  });
   it("영속 저장 비활성화는 DB에 접근하지 않고 표시한다", async () => {
     vi.stubEnv("LOL_PERSISTENCE_ENABLED", "false");
     vi.stubEnv("RIOT_API_KEY", "");

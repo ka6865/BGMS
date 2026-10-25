@@ -47,7 +47,7 @@ type RiotQueueEntry = {
   losses: number;
 };
 
-type RiotEndpoint = "account" | "summoner" | "league" | "mastery" | "match_ids" | "match";
+type RiotEndpoint = "account" | "summoner" | "league" | "mastery" | "match_ids" | "match" | "status";
 type RiotFailureStage =
   | "configuration"
   | "queue"
@@ -165,6 +165,7 @@ function getRiotEndpoint(path: string): RiotEndpoint {
     return "account";
   if (path.startsWith("/lol/summoner/v4/")) return "summoner";
   if (path.startsWith("/lol/league/v4/")) return "league";
+  if (path === "/lol/status/v4/platform-data") return "status";
   if (path.startsWith("/lol/champion-mastery/v4/")) return "mastery";
   if (path.includes("/matches/by-puuid/")) return "match_ids";
   return "match";
@@ -249,13 +250,16 @@ function cacheAccount(key: string, account: { puuid: string; gameName: string; t
   state.accounts.set(key, { account, expiresAt: Date.now() + 24 * 60 * 60_000 });
 }
 
-async function requestJson<T>(
+export async function requestJson<T>(
   host: keyof typeof RIOT_HOSTS,
   path: string,
   ttlMs: number,
   bypassCache = false,
   onFetch?: () => void,
 ): Promise<T> {
+  // 마스터 전체 명단은 일반 응답 한도를 넘으므로 지정한 집계 경로만 별도 상한을 둔다.
+  const maxResponseBytes = /^\/lol\/league\/v4\/(challenger|grandmaster|master)leagues\/by-queue\/(RANKED_SOLO_5x5|RANKED_FLEX_SR)$/.test(path)
+    ? 32 * 1024 * 1024 : MAX_RESPONSE_BYTES;
   const persistenceEnabled = isLolPersistenceEnabled();
   const endpoint = getRiotEndpoint(path);
   const cacheKey = `${host}:${path}`;
@@ -432,7 +436,7 @@ async function requestJson<T>(
         }
 
         const contentLength = Number(response.headers.get("Content-Length"));
-        if (contentLength > MAX_RESPONSE_BYTES) {
+        if (contentLength > maxResponseBytes) {
           await discardResponseBody(response);
           fail(
             new RiotSearchError("upstream"),
@@ -456,7 +460,7 @@ async function requestJson<T>(
           );
           return;
         }
-        if (bytes.byteLength > MAX_RESPONSE_BYTES) {
+        if (bytes.byteLength > maxResponseBytes) {
           fail(
             new RiotSearchError("upstream"),
             "body",
@@ -477,7 +481,7 @@ async function requestJson<T>(
           );
           return;
         }
-        if (!persistenceEnabled) setCached(cacheKey, data, ttlMs);
+        if (!persistenceEnabled && ttlMs > 0) setCached(cacheKey, data, ttlMs);
         resolve(data);
       } catch (error) {
         if (error instanceof LolPermitError)

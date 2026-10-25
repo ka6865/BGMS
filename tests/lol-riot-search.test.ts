@@ -63,7 +63,7 @@ import {
   LolPersistenceError,
   LolLeaseExpiredError,
 } from "@/lib/lol/persistence.server";
-import { getLolMatchDetails, getMoreLolMatches, searchLolRiotId, resolveLolParticipantRef, resolveLolAccountForDeletion } from "@/lib/lol/riotSearch.server";
+import { requestJson, getLolMatchDetails, getMoreLolMatches, searchLolRiotId, resolveLolParticipantRef, resolveLolAccountForDeletion } from "@/lib/lol/riotSearch.server";
 import { sealLolParticipantRef } from "@/lib/lol/participantIdentity.server";
 import { summarizeRecentMatches } from "@/lib/lol/summary";
 
@@ -2604,5 +2604,30 @@ describe("심사 전 공개 조회와 삭제 경계", () => {
     expect(result.status).toBe(503);
     expect(await result.json()).toEqual({ error: "처리 시간이 초과되었습니다. 다시 시도해 주세요." });
     expect(persistence.acquire).toHaveBeenCalledWith("search:v10:fixture#fix", 180);
+  });
+});
+
+
+describe("집계용 Riot 전송 경계", () => {
+  it("마스터 전체 명단만 1MB를 초과할 수 있고 공유 호출 가드를 통과한다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    const payload = { padding: "x".repeat(1024 * 1024) };
+    const fetcher = vi.fn(async () => response(payload));
+    vi.stubGlobal("fetch", fetcher);
+    await expect(requestJson("kr", "/lol/league/v4/masterleagues/by-queue/RANKED_SOLO_5x5", 0, true)).resolves.toEqual(payload);
+    expect(persistence.reserve).toHaveBeenCalledWith("kr");
+    expect(persistence.start).toHaveBeenCalledOnce();
+    expect(internalState?.cache.size).toBe(0);
+    await expect(requestJson("kr", "/lol/status/v4/platform-data", 0, true)).rejects.toMatchObject({ kind: "upstream" });
+  });
+  it("허용 경로도 32MB를 넘는 본문은 읽기 전에 거절한다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    vi.stubGlobal("fetch", vi.fn(async () => response({}, 200, { "Content-Length": String(32 * 1024 * 1024 + 1) })));
+    await expect(requestJson("kr", "/lol/league/v4/masterleagues/by-queue/RANKED_FLEX_SR", 0, true)).rejects.toMatchObject({ kind: "upstream" });
+  });
+  it("영속 저장이 꺼져 있어도 TTL 0인 원본 명단은 메모리에 저장하지 않는다", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => response({ entries: [{ puuid: "private-ladder-player" }] })));
+    await requestJson("kr", "/lol/league/v4/challengerleagues/by-queue/RANKED_SOLO_5x5", 0, true);
+    expect(internalState?.cache.size).toBe(0);
   });
 });
