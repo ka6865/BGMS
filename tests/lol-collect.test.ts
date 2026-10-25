@@ -103,7 +103,7 @@ describe("LoL 제한 수집", () => {
     expect(mocks.reserve).toHaveBeenCalledTimes(105);
     expect(mocks.start).toHaveBeenCalledTimes(105);
     expect(mocks.releaseRequest).toHaveBeenCalledTimes(105);
-    expect(mocks.acquire).toHaveBeenCalledWith("search:v10:owner#fix", 120);
+    expect(mocks.acquire).toHaveBeenCalledWith("search:v11:owner#fix", 120);
     expect(mocks.acquire).toHaveBeenCalledWith("collect:private-owner", 120);
   });
   it("저장 원문과 캐시된 경기 ID를 재사용하면 Riot 호출이 0이다", async () => {

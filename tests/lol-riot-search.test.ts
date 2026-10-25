@@ -17,6 +17,8 @@ const persistence = vi.hoisted(() => ({
   saveSearch: vi.fn(),
   history: vi.fn(),
   summaries: vi.fn(),
+  catalogRead: vi.fn(),
+  catalogWrite: vi.fn(),
   saveMatch: vi.fn(),
   reserve: vi.fn(),
   start: vi.fn(),
@@ -43,6 +45,8 @@ vi.mock("@/lib/lol/persistence.server", async (importOriginal) => {
     persistLolSearchSnapshot: persistence.saveSearch,
     getLolRankedHistory: persistence.history,
     getLolPlayerMatchSummaries: persistence.summaries,
+    getLolChallengeCatalogCache: persistence.catalogRead,
+    putLolChallengeCatalogCache: persistence.catalogWrite,
     persistLolMatchDetails: persistence.saveMatch,
     reserveLolRiotRequest: persistence.reserve,
     startLolRiotRequest: persistence.start,
@@ -66,6 +70,8 @@ import {
 import { requestJson, getLolMatchDetails, getMoreLolMatches, searchLolRiotId, resolveLolParticipantRef, resolveLolAccountForDeletion } from "@/lib/lol/riotSearch.server";
 import { sealLolParticipantRef } from "@/lib/lol/participantIdentity.server";
 import { summarizeRecentMatches } from "@/lib/lol/summary";
+import { buildLolChallengeProfile, parseLolChallengeCatalog } from "@/lib/lol/challengeProfile";
+import { challengeConfigFixture, challengePercentilesFixture, challengePlayerFixture } from "./fixtures/lol/challengeProfile";
 
 const STATE_KEY = Symbol.for("bgms.lol.riot-search-state");
 const internalState = (
@@ -130,6 +136,8 @@ beforeEach(() => {
   persistence.saveSearch.mockResolvedValue(undefined);
   persistence.history.mockResolvedValue(emptyLolRankedHistory());
   persistence.summaries.mockResolvedValue([]);
+  persistence.catalogRead.mockResolvedValue(undefined);
+  persistence.catalogWrite.mockResolvedValue(undefined);
   persistence.saveMatch.mockResolvedValue(undefined);
   persistence.reserve.mockResolvedValue({
     token: "request-token",
@@ -163,9 +171,9 @@ afterEach(() => {
 });
 
 describe("POST /api/admin/lol/search", () => {
-  it("search DTO 키는 v10로 구분한다", () => {
+  it("search DTO 키는 v11로 구분한다", () => {
     expect(lolSearchCacheKey("Name", "KR1", "kr", "asia", "16.21.1")).toContain(
-      "search:v10:",
+      "search:v11:",
     );
   });
 
@@ -360,7 +368,7 @@ describe("POST /api/admin/lol/search", () => {
     const riotCalls = calls.filter((call) =>
       call.url.includes("api.riotgames.com"),
     );
-    expect(riotCalls).toHaveLength(8);
+    expect(riotCalls).toHaveLength(9);
     expect(riotCalls.find((call) => call.url.includes("/ids?"))?.url).toContain("count=20");
     expect(
       riotCalls.filter((call) => /\/matches\/KR_\d+$/.test(call.url)),
@@ -413,10 +421,10 @@ describe("POST /api/admin/lol/search", () => {
     vi.stubGlobal("fetch", fetchMock);
     const first = searchLolRiotId("Test#KR1");
     await vi.advanceTimersByTimeAsync(0);
-    expect(internalState?.inflight.has("search:v10:test#kr1")).toBe(true);
+    expect(internalState?.inflight.has("search:v11:test#kr1")).toBe(true);
     await vi.advanceTimersByTimeAsync(30_000);
     await first;
-    expect(internalState?.cache.has("search:v10:test#kr1")).toBe(true);
+    expect(internalState?.cache.has("search:v11:test#kr1")).toBe(true);
     expect((await searchLolRiotId("Test#KR1")).rankedHistory).toEqual(emptyLolRankedHistory());
     expect(persistence.history).not.toHaveBeenCalled();
     const count = fetchMock.mock.calls.length;
@@ -576,16 +584,16 @@ describe("POST /api/admin/lol/search", () => {
     });
     expect(
       calls.filter((url) => url.includes("api.riotgames.com")),
-    ).toHaveLength(5);
+    ).toHaveLength(6);
     expect(result.rankedHistory).toEqual(history);
     expect(persistence.history).toHaveBeenCalledWith("fixture-puuid");
     expect(persistence.saveSearch.mock.invocationCallOrder[0]).toBeLessThan(persistence.history.mock.invocationCallOrder[0]);
     expect(JSON.stringify(result)).not.toContain("puuid");
-    expect(persistence.reserve).toHaveBeenCalledTimes(5);
-    expect(persistence.recordHeaders).toHaveBeenCalledTimes(5);
+    expect(persistence.reserve).toHaveBeenCalledTimes(6);
+    expect(persistence.recordHeaders).toHaveBeenCalledTimes(6);
     expect(persistence.saveSearch).toHaveBeenCalledWith(
       expect.objectContaining({
-        cacheKey: expect.stringContaining("search:v10:kr:asia:16.21.1"),
+        cacheKey: expect.stringContaining("search:v11:kr:asia:16.21.1"),
         account: expect.objectContaining({ puuid: "fixture-puuid" }),
         ranked: [],
         matches: [],
@@ -652,7 +660,7 @@ describe("POST /api/admin/lol/search", () => {
     ]);
     expect(
       urls.filter((url) => url.includes("api.riotgames.com")),
-    ).toHaveLength(5);
+    ).toHaveLength(6);
     expect(urls.some((url) => url.endsWith("/KR_8801"))).toBe(false);
     expect(persistence.matchRequestJson).toHaveBeenCalledWith(
       "KR_8801",
@@ -784,7 +792,7 @@ describe("POST /api/admin/lol/search", () => {
     expect(urls.filter((url) => url.endsWith("/KR_1"))).toHaveLength(1);
     expect(
       urls.filter((url) => url.includes("api.riotgames.com")),
-    ).toHaveLength(11);
+    ).toHaveLength(13);
   });
 
   it.each([
@@ -1722,7 +1730,7 @@ describe("POST /api/admin/lol/search", () => {
     expect(JSON.stringify(result)).not.toContain("puuid");
     expect(
       calls.filter((url) => url.includes("api.riotgames.com")),
-    ).toHaveLength(10);
+    ).toHaveLength(11);
   });
 
   it.each([100, undefined])(
@@ -1775,7 +1783,7 @@ describe("POST /api/admin/lol/search", () => {
         { riotId: "Unknown#KR1", games: 2, wins: 0, losses: 0, winRatePct: null },
       ] : []);
       expect(JSON.stringify(body)).not.toMatch(/puuid|self-secret|peer-secret|enemy-secret/);
-      expect(urls.filter((url) => url.includes("api.riotgames.com"))).toHaveLength(7);
+      expect(urls.filter((url) => url.includes("api.riotgames.com"))).toHaveLength(8);
     },
   );
 
@@ -2335,7 +2343,7 @@ describe("POST /api/admin/lol/search", () => {
     }));
     const input = { riotId: "Test#KR1", offset: 4, matchIds: ["KR_9"] };
     const first = getMoreLolMatches(input);
-    const key = "more:search:v10:test#kr1:4:KR_9";
+    const key = "more:search:v11:test#kr1:4:KR_9";
     for (let index = 0; index < 20 && !internalState?.inflight.has(key); index += 1) await Promise.resolve();
     expect(internalState?.inflight.has(key)).toBe(true);
     const second = getMoreLolMatches(input);
@@ -2510,6 +2518,30 @@ describe("숙련도 검색과 영구 요약 연결", () => {
     });
   }
 
+  it("검색 상세는 본인 사실 지표만 전달하고 참가자 challenges 원문을 노출하지 않는다", async () => {
+    const base = upstream();
+    vi.stubGlobal("fetch", async (input: string | URL | Request) => {
+      const result = await base(input);
+      if (!String(input).endsWith("/KR_7788")) return result;
+      const raw = await result.json();
+      Object.assign(raw.info.participants[0], { teamPosition: "MIDDLE", visionScore: 30,
+        challenges: { teamDamagePercentage: 0.3, maxCsAdvantageOnLaneOpponent: 34, laneMinionsFirst10Minutes: 80, unknownPatchKey: 88 } });
+      raw.info.participants.push({ puuid: "opponent-secret", teamId: 200, teamPosition: "MIDDLE", visionScore: 20,
+        challenges: { teamDamagePercentage: 0.8, laneMinionsFirst10Minutes: 60, unknownPatchKey: 99 } });
+      return response(raw);
+    });
+    const pending = searchLolRiotId("Fixture#FIX"); await vi.advanceTimersByTimeAsync(30_000);
+    const result = await pending;
+    expect(result.matches[0].insights?.laning).toEqual(expect.arrayContaining([
+      expect.objectContaining({ label: "최대 CS 우위", value: "34" }), expect.objectContaining({ label: "시야 점수 격차", value: "+10" }),
+    ]));
+    expect(result.matches[0].insights?.contribution[0]).toMatchObject({ label: "팀 내 피해 비중", value: "30%" });
+    expect(result.matches[0].insights?.laning.find(item => item.label === "10분 라인 CS")?.description).toContain("상대는 60개");
+    expect(result.matches[0].details?.teams.flatMap(team => team.participants).some(player => "insights" in player)).toBe(false);
+    expect(JSON.stringify(result)).not.toMatch(/unknownPatchKey|opponent-secret|teamDamagePercentage|"challenges"/);
+    expect(Buffer.byteLength(JSON.stringify(result))).toBeLessThan(256 * 1024);
+  });
+
   it("숙련도 1회만 추가하고 캐시 적중에도 영구 요약을 다시 읽으며 식별자를 노출하지 않는다", async () => {
     dragon.version = "16.22.77";
     persistence.enabled.mockReturnValue(true);
@@ -2530,7 +2562,7 @@ describe("숙련도 검색과 영구 요약 연결", () => {
     expect(urls.filter(url => url.includes("champion-mastery"))).toEqual([
       "https://kr.api.riotgames.com/lol/champion-mastery/v4/champion-masteries/by-puuid/mastery-fixture-secret/top?count=10",
     ]);
-    expect(persistence.reserve).toHaveBeenCalledTimes(6);
+    expect(persistence.reserve).toHaveBeenCalledTimes(7);
     persistence.cache.mockResolvedValue(result);
     persistence.summaries.mockResolvedValue([stored, stored, stored, stored]);
     expect((await searchLolRiotId("Fixture#FIX")).mastery?.recent.sampleSize).toBe(4);
@@ -2603,7 +2635,95 @@ describe("심사 전 공개 조회와 삭제 경계", () => {
     const result = await POST(post("Fixture#FIX"));
     expect(result.status).toBe(503);
     expect(await result.json()).toEqual({ error: "처리 시간이 초과되었습니다. 다시 시도해 주세요." });
-    expect(persistence.acquire).toHaveBeenCalledWith("search:v10:fixture#fix", 180);
+    expect(persistence.acquire).toHaveBeenCalledWith("search:v11:fixture#fix", 180);
+  });
+});
+
+
+describe("Challenges-V1 검색·일일 캐시·실패 격리", () => {
+  function upstream(playerStatus = 200, configStatus = 200, oversizedPlayer = false) {
+    return vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("ddragon")) return response({ data: { Ahri: { key: "103", name: "아리" } } });
+      if (url.includes("accounts/by-riot-id")) return response({ puuid: "challenge-fixture-secret", gameName: "Fixture", tagLine: "FIX" });
+      if (url.includes("summoner/v4")) return response({ profileIconId: 1, summonerLevel: 30 });
+      if (url.includes("league/v4") || url.includes("/ids?") || url.includes("champion-mastery")) return response([]);
+      if (url.includes("/player-data/")) return oversizedPlayer ? new Response("x".repeat(1024 * 1024 + 1)) : response(challengePlayerFixture, playerStatus);
+      if (url.endsWith("/challenges/config")) return response(challengeConfigFixture, configStatus);
+      if (url.endsWith("/challenges/percentiles")) return response(challengePercentilesFixture);
+      throw new Error("unexpected fixture endpoint");
+    });
+  }
+  it("검색당 player-data 1회·설정과 분포 각 1회이며 캐시와 갱신에서도 일일 데이터를 재사용한다", async () => {
+    const fetchMock = upstream(); vi.stubGlobal("fetch", fetchMock);
+    const pending = searchLolRiotId("Fixture#FIX"); await vi.advanceTimersByTimeAsync(30_000);
+    const result = await pending;
+    expect(result.challengeProfile?.rarest[0]).toMatchObject({ name: "가상의 수호자", percentile: 0.003 });
+    expect(JSON.stringify(result)).not.toMatch(/challenge-fixture-secret|fixture-title-id|preferences/);
+    const before = fetchMock.mock.calls.length;
+    await searchLolRiotId("Fixture#FIX"); expect(fetchMock).toHaveBeenCalledTimes(before);
+    await vi.advanceTimersByTimeAsync(120_001);
+    const refresh = searchLolRiotId("Fixture#FIX", { refresh: true }); await vi.advanceTimersByTimeAsync(30_000); await refresh;
+    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+    expect(urls.filter(url => url.includes("/player-data/"))).toHaveLength(2);
+    expect(urls.filter(url => url.endsWith("/challenges/config"))).toHaveLength(1);
+    expect(urls.filter(url => url.endsWith("/challenges/percentiles"))).toHaveLength(1);
+    expect(ops.record).toHaveBeenCalledWith("riot_success");
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60_000 + 1);
+    const nextDay = searchLolRiotId("Fixture#FIX"); await vi.advanceTimersByTimeAsync(30_000); await nextDay;
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/challenges/config"))).toHaveLength(2);
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/challenges/percentiles"))).toHaveLength(2);
+  });
+  it("공유 DB 캐시 적중은 설정·분포 Riot 호출 없이 player-data만 추가한다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    const catalog = parseLolChallengeCatalog(challengeConfigFixture, challengePercentilesFixture);
+    persistence.catalogRead.mockResolvedValue(catalog);
+    const fetchMock = upstream(); vi.stubGlobal("fetch", fetchMock);
+    const pending = searchLolRiotId("Fixture#FIX"); await vi.advanceTimersByTimeAsync(30_000);
+    expect((await pending).challengeProfile).toEqual(buildLolChallengeProfile(challengePlayerFixture, catalog));
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("/lol/challenges/"))).toHaveLength(1);
+    expect(persistence.catalogWrite).not.toHaveBeenCalled();
+  });
+  it("공유 캐시 miss는 전용 lease로 저장하고 기존 가드·메트릭을 통과한다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.acquire.mockImplementation(async (key: string) => ({ key, token: "fixture-token" }));
+    const fetchMock = upstream(); vi.stubGlobal("fetch", fetchMock);
+    const pending = searchLolRiotId("Fixture#FIX"); await vi.advanceTimersByTimeAsync(30_000);
+    expect((await pending).challengeProfile?.rarest).toHaveLength(3);
+    expect(persistence.catalogWrite).toHaveBeenCalledWith(parseLolChallengeCatalog(challengeConfigFixture, challengePercentilesFixture),
+      { key: "challenge-catalog:kr:ko_KR:v1", token: "fixture-token" });
+    expect(persistence.reserve).toHaveBeenCalledTimes(8);
+    expect(persistence.recordHeaders).toHaveBeenCalledTimes(8);
+    expect(persistence.releaseLease).toHaveBeenCalledWith({ key: "challenge-catalog:kr:ko_KR:v1", token: "fixture-token" });
+  });
+  it.each([403, 429, 500])("player-data %i 실패가 검색 결과를 지우지 않는다", async status => {
+    vi.stubGlobal("fetch", upstream(status));
+    const pending = searchLolRiotId("Fixture#FIX"); await vi.advanceTimersByTimeAsync(30_000);
+    expect(await pending).toMatchObject({ matchStatus: "empty", challengeProfile: { status: "failed" } });
+  });
+  it("config 오류와 DB 오류는 총점·카테고리를 보존하고 분포만 숨긴다", async () => {
+    const fetchMock = upstream(200, 500); vi.stubGlobal("fetch", fetchMock);
+    const pending = searchLolRiotId("Fixture#FIX"); await vi.advanceTimersByTimeAsync(30_000);
+    expect((await pending).challengeProfile).toMatchObject({ status: "ready", total: { current: 1234 }, rarest: [], distributionStatus: "unavailable" });
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/challenges/percentiles"))).toHaveLength(0);
+    persistence.enabled.mockReturnValue(true); persistence.catalogRead.mockRejectedValue(new LolPersistenceError());
+    const retry = searchLolRiotId("Another#FIX"); await vi.advanceTimersByTimeAsync(30_000);
+    expect((await retry).challengeProfile?.total?.current).toBe(1234);
+  });
+  it("Content-Length 없는 과대 응답도 본문을 취소하고 도전과제에만 실패를 표시한다", async () => {
+    vi.stubGlobal("fetch", upstream(200, 200, true));
+    const log = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const pending = searchLolRiotId("Fixture#FIX"); await vi.advanceTimersByTimeAsync(30_000);
+    expect(await pending).toMatchObject({ matchStatus: "empty", challengeProfile: { status: "failed" } });
+    expect(log.mock.calls.some(([, detail]) => String(detail).includes('"reasonCode":"response_too_large"'))).toBe(true);
+  });
+  it("일일 캐시를 다른 검색이 갱신 중이면 추가 호출 없이 총점을 표시한다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.acquire.mockImplementation(async (key: string) => key.startsWith("challenge-catalog:") ? null : { key, token: "fixture-token" });
+    const fetchMock = upstream(); vi.stubGlobal("fetch", fetchMock);
+    const pending = searchLolRiotId("Fixture#FIX"); await vi.advanceTimersByTimeAsync(30_000);
+    expect((await pending).challengeProfile).toMatchObject({ status: "ready", total: { current: 1234 }, rarest: [] });
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/challenges/config"))).toHaveLength(0);
   });
 });
 

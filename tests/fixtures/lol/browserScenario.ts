@@ -1,3 +1,11 @@
+import { buildLolMatchInsights, summarizeLolRecentTrends } from "../../../lib/lol/insights";
+import { buildLolChallengeProfile, parseLolChallengeCatalog } from "../../../lib/lol/challengeProfile";
+import { challengeConfigFixture, challengePercentilesFixture, challengePlayerFixture } from "./challengeProfile";
+import { challengeFixture } from "./challenges";
+import type { LolPlayerMatchSummary } from "../../../lib/lol/types";
+
+const insights = buildLolMatchInsights({ challenges: challengeFixture, position: "MIDDLE", queueId: 420,
+  duration: 1500, visionScore: 25, opponentVisionScore: 18 });
 const objectives = [
   "tower",
   "dragon",
@@ -76,6 +84,7 @@ const details = {
 };
 
 export const matches = Array.from({ length: 5 }, (_, index) => ({
+  insights,
   dataDragonVersion: "16.21.1",
   matchId: `FIXTURE_${index + 1}`,
   queueId: [420, 440, 450, 420, 440][index],
@@ -106,6 +115,9 @@ export const matches = Array.from({ length: 5 }, (_, index) => ({
 }));
 
 export const fixtureResult = {
+  challengeProfile: buildLolChallengeProfile(challengePlayerFixture, parseLolChallengeCatalog(challengeConfigFixture, challengePercentilesFixture)),
+  recentTrends: summarizeLolRecentTrends(Array.from({ length: 9 }, () => ({ queue_id: 420, duration_seconds: 1500,
+    win: true, remake: false, team_position: "MIDDLE", vision_score: 25, challenges: challengeFixture } as LolPlayerMatchSummary))),
   mastery: {
     status: "ready",
     champions: [

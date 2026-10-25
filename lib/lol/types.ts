@@ -1,4 +1,6 @@
 import type { LolChallenges } from "./challenges";
+import type { LolMatchInsights, LolRecentTrends } from "./insights";
+import type { LolChallengeProfile } from "./challengeProfile";
 
 export type LolParticipantIdentity = { playerKey?: string; ref?: string };
 
@@ -14,6 +16,7 @@ export type LolRankedHistory = Record<"RANKED_SOLO_5x5" | "RANKED_FLEX_SR", {
 
 
 export type LolRecentMatch = {
+  insights?: LolMatchInsights;
   dataDragonVersion?: string;
   matchId: string;
   queueId: number;
@@ -137,6 +140,8 @@ export type LolMatchDetails = {
 };
 
 export type LolSearchResult = {
+  challengeProfile?: LolChallengeProfile;
+  recentTrends?: LolRecentTrends;
   mastery?: LolMasteryComparison;
   dataDragonVersion?: string;
   account: { gameName: string; tagLine: string };

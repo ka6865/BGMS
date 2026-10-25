@@ -120,6 +120,7 @@ MIGRATIONS=(
   "20261024020000_lol_review_hardening"
   "20261024030000_lol_summary_challenges"
   "20261024040000_lol_review_fixes"
+  "20261025010000_lol_challenge_catalog"
   "20261025200000_lol_ladder_status"
 )
 
@@ -488,6 +489,7 @@ echo "▶ LoL persistence 시나리오 실행"
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-augment-catalog-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-review-hardening-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-challenges-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-challenge-catalog-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-review-fixes-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-ladder-status-scenarios.sql
 # 같은 버킷의 동시 호출은 정확히 한 번만 허용한다.
