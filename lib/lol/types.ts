@@ -171,6 +171,7 @@ export type LolRefreshCooldown = { status: "cooldown"; remainSeconds: number; la
 export type LolCleanupCounts = { cache_rows: number; match_rows: number; account_rows: number; lease_rows: number; public_rate_limit_rows?: number };
 export type LolCleanupBatch = { deleted: LolCleanupCounts; remaining: LolCleanupCounts };
 export type LolOpsStatus = {
+  lastLadderSnapshotAt?: string | null;
   enabled: boolean;
   today: string;
   todayRiotCalls: number;

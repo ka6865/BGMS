@@ -51,7 +51,7 @@ type RiotQueueEntry = {
   losses: number;
 };
 
-type RiotEndpoint = "account" | "summoner" | "league" | "mastery" | "challenges" | "match_ids" | "match";
+type RiotEndpoint = "account" | "summoner" | "league" | "mastery" | "challenges" | "match_ids" | "match" | "status";
 type RiotFailureStage =
   | "configuration"
   | "queue"
@@ -169,6 +169,7 @@ function getRiotEndpoint(path: string): RiotEndpoint {
     return "account";
   if (path.startsWith("/lol/summoner/v4/")) return "summoner";
   if (path.startsWith("/lol/league/v4/")) return "league";
+  if (path === "/lol/status/v4/platform-data") return "status";
   if (path.startsWith("/lol/champion-mastery/v4/")) return "mastery";
   if (path.startsWith("/lol/challenges/v1/")) return "challenges";
   if (path.includes("/matches/by-puuid/")) return "match_ids";
@@ -277,14 +278,17 @@ async function readLolChallengeBody(response: Response, maxBytes: number): Promi
   return bytes.buffer;
 }
 
-async function requestJson<T>(
+export async function requestJson<T>(
   host: keyof typeof RIOT_HOSTS,
   path: string,
   ttlMs: number,
   bypassCache = false,
   onFetch?: () => void,
-  maxResponseBytes = MAX_RESPONSE_BYTES,
+  responseLimitBytes = MAX_RESPONSE_BYTES,
 ): Promise<T> {
+  // 마스터 전체 명단은 일반 응답 한도를 넘으므로 지정한 집계 경로만 별도 상한을 둔다.
+  const maxResponseBytes = /^\/lol\/league\/v4\/(challenger|grandmaster|master)leagues\/by-queue\/(RANKED_SOLO_5x5|RANKED_FLEX_SR)$/.test(path)
+    ? 32 * 1024 * 1024 : responseLimitBytes;
   const persistenceEnabled = isLolPersistenceEnabled();
   const endpoint = getRiotEndpoint(path);
   const cacheKey = `${host}:${path}`;
@@ -510,7 +514,7 @@ async function requestJson<T>(
           );
           return;
         }
-        if (!persistenceEnabled) setCached(cacheKey, data, ttlMs);
+        if (!persistenceEnabled && ttlMs > 0) setCached(cacheKey, data, ttlMs);
         resolve(data);
       } catch (error) {
         if (error instanceof LolPermitError)

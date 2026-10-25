@@ -1,3 +1,5 @@
+import { Suspense } from "react";
+import LolStatusBanner from "@/components/lol/LolStatusBanner";
 import type { Metadata } from "next";
 import { requireLolPublicPage } from "@/lib/lol/publicAccess.server";
 
@@ -10,5 +12,8 @@ export const metadata: Metadata = {
 
 export default function LolPublicLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   requireLolPublicPage();
-  return children;
+  return <div className="flex h-full min-h-0 flex-col bg-zinc-950">
+    <Suspense fallback={null}><LolStatusBanner /></Suspense>
+    <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+  </div>;
 }

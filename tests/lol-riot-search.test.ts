@@ -67,7 +67,7 @@ import {
   LolPersistenceError,
   LolLeaseExpiredError,
 } from "@/lib/lol/persistence.server";
-import { getLolMatchDetails, getMoreLolMatches, searchLolRiotId, resolveLolParticipantRef, resolveLolAccountForDeletion } from "@/lib/lol/riotSearch.server";
+import { requestJson, getLolMatchDetails, getMoreLolMatches, searchLolRiotId, resolveLolParticipantRef, resolveLolAccountForDeletion } from "@/lib/lol/riotSearch.server";
 import { sealLolParticipantRef } from "@/lib/lol/participantIdentity.server";
 import { summarizeRecentMatches } from "@/lib/lol/summary";
 import { buildLolChallengeProfile, parseLolChallengeCatalog } from "@/lib/lol/challengeProfile";
@@ -2724,5 +2724,30 @@ describe("Challenges-V1 검색·일일 캐시·실패 격리", () => {
     const pending = searchLolRiotId("Fixture#FIX"); await vi.advanceTimersByTimeAsync(30_000);
     expect((await pending).challengeProfile).toMatchObject({ status: "ready", total: { current: 1234 }, rarest: [] });
     expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/challenges/config"))).toHaveLength(0);
+  });
+});
+
+
+describe("집계용 Riot 전송 경계", () => {
+  it("마스터 전체 명단만 1MB를 초과할 수 있고 공유 호출 가드를 통과한다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    const payload = { padding: "x".repeat(1024 * 1024) };
+    const fetcher = vi.fn(async () => response(payload));
+    vi.stubGlobal("fetch", fetcher);
+    await expect(requestJson("kr", "/lol/league/v4/masterleagues/by-queue/RANKED_SOLO_5x5", 0, true)).resolves.toEqual(payload);
+    expect(persistence.reserve).toHaveBeenCalledWith("kr");
+    expect(persistence.start).toHaveBeenCalledOnce();
+    expect(internalState?.cache.size).toBe(0);
+    await expect(requestJson("kr", "/lol/status/v4/platform-data", 0, true)).rejects.toMatchObject({ kind: "upstream" });
+  });
+  it("허용 경로도 32MB를 넘는 본문은 읽기 전에 거절한다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    vi.stubGlobal("fetch", vi.fn(async () => response({}, 200, { "Content-Length": String(32 * 1024 * 1024 + 1) })));
+    await expect(requestJson("kr", "/lol/league/v4/masterleagues/by-queue/RANKED_FLEX_SR", 0, true)).rejects.toMatchObject({ kind: "upstream" });
+  });
+  it("영속 저장이 꺼져 있어도 TTL 0인 원본 명단은 메모리에 저장하지 않는다", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => response({ entries: [{ puuid: "private-ladder-player" }] })));
+    await requestJson("kr", "/lol/league/v4/challengerleagues/by-queue/RANKED_SOLO_5x5", 0, true);
+    expect(internalState?.cache.size).toBe(0);
   });
 });

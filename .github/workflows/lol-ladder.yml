@@ -1,0 +1,38 @@
+name: LoL 랭크 컷 기록
+on:
+  schedule:
+    # KST 05:19. 기존 LoL·PUBG 예약 분과 겹치지 않는다.
+    - cron: '19 20 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: lol-ladder
+  cancel-in-progress: false
+jobs:
+  snapshot:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: 하루 6회 랭크 집계
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          RIOT_API_KEY: ${{ secrets.RIOT_API_KEY }}
+          LOL_PERSISTENCE_ENABLED: 'true'
+          LOL_LADDER_ENABLED: ${{ vars.LOL_LADDER_ENABLED }}
+        run: |
+          if [ "$LOL_LADDER_ENABLED" = 'true' ]; then
+            npx tsx scripts/lol_ladder_snapshot.ts --apply
+          else
+            npx tsx scripts/lol_ladder_snapshot.ts --dry-run
+          fi

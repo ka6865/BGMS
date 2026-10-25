@@ -18,7 +18,7 @@ const navigation = `
   export const notFound = () => { throw new Error('404'); };
 `;
 const stubs: Plugin = { name: "lol-public-fixture", setup(builder) {
-  builder.onResolve({ filter: /^(next\/navigation|next\/script|server-only|@\/lib\/lol\/publicAccess\.server|@\/components\/common\/Footer)$/ }, args => ({ path: args.path, namespace: "fixture" }));
+  builder.onResolve({ filter: /^(next\/navigation|next\/script|server-only|@\/components\/lol\/LolStatusBanner|@\/lib\/lol\/publicAccess\.server|@\/components\/common\/Footer)$/ }, args => ({ path: args.path, namespace: "fixture" }));
   builder.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ loader: "js", resolveDir: process.cwd(), contents:
     args.path === "@/lib/lol/publicAccess.server" ? "export const requireLolPublicPage = () => {};"
       : args.path === "next/navigation" ? navigation : args.path === "next/script"
@@ -46,13 +46,13 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
       define: { "process.env.NODE_ENV": '"production"', "process.env": "{}" },
       stdin: { loader: "tsx", resolveDir: process.cwd(), contents: `
         import React from 'react'; import { hydrateRoot } from 'react-dom/client'; import { usePathname } from 'next/navigation';
-        import Panel from './components/lol/LolSearchPanel'; import Wrapper from './components/layout/SidebarFooterWrapper';
+        import Layout from './app/lol/layout'; import Panel from './components/lol/LolSearchPanel'; import Wrapper from './components/layout/SidebarFooterWrapper';
         import { parseLolRiotIdParam } from './lib/lol/riotId';
         function App() {
           React.useEffect(() => { document.documentElement.dataset.lolFixtureHydrated = "true"; }, []);
           const path = usePathname();
           const id = path === '/lol/kr' ? undefined : parseLolRiotIdParam(path.slice('/lol/kr/'.length));
-          return <Wrapper><Panel publicView initialRiotId={id ?? undefined} /></Wrapper>;
+          return <Wrapper><Layout><Panel publicView initialRiotId={id ?? undefined} /></Layout></Wrapper>;
         }
         hydrateRoot(document.getElementById('root'), <App />);
       ` },

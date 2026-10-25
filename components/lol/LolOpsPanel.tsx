@@ -90,6 +90,9 @@ export default function LolOpsPanel() {
         {deleteResult && <p role="status">{deleteResult}</p>}
         {error && <p role="alert" className="text-red-300">{error}</p>}
         {status && <>
+          <p>마지막 랭크 컷 스냅샷: {status.lastLadderSnapshotAt
+            ? new Date(status.lastLadderSnapshotAt).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" }) + " KST"
+            : status.lastLadderSnapshotAt === null ? "기록 시작일 이후 표시" : "확인 불가"}</p>
           {!status.enabled && <p>영속 저장이 비활성화되어 있습니다.</p>}
           <p className={status.keyNeedsAttention ? "text-amber-300" : ""}>{status.keyNeedsAttention ? "키 확인 필요" : "오늘 키 오류 감지 없음"}</p>
           {status.benchmarks && <p>벤치마크 처리 {status.benchmarks.processed}경기 · 제외 {status.benchmarks.skipped}경기</p>}
