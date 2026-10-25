@@ -90,6 +90,8 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
                   exports.usePathname=()=>'/admin/lol'; exports.useSearchParams=()=>new URLSearchParams();`,
                 loader: "js",
               }));
+              builder.onResolve({ filter: /^@\/components\/lol\/LolStatusBanner$/ }, () => ({ path: "banner", namespace: "fixture-banner" }));
+              builder.onLoad({ filter: /.*/, namespace: "fixture-banner" }, () => ({ contents: "export default () => null;", loader: "js" }));
               builder.onResolve(
                 { filter: /^@\/lib\/lol\/access\.server$/ },
                 () => ({ path: "guard", namespace: "fixture" }),
@@ -189,6 +191,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
             });
           } else response.end(JSON.stringify({
             enabled: true, today: "2026-10-23", todayRiotCalls: 15, cooldownActive: true, keyNeedsAttention: true,
+            lastLadderSnapshotAt: "2026-10-23T20:19:00Z",
             metrics: [{ day: "2026-10-23", metric: "riot_key_error", value: 1 }],
             rateLimits: [{ host: "global", budgetDay: "2026-10-23", usedCount: 17, blockedUntil: null }],
             tables: [{ table: "lol_player_match_summaries", rows: 1000, totalBytes: 819200 }], pending: counts,
@@ -1061,12 +1064,15 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       await page.$$eval("summary", (items) => (items.find((item) => item.textContent === "운영 상태") as HTMLElement).click());
       await page.waitForFunction(() => document.querySelector('[aria-label="LoL 운영 상태"]')?.textContent?.includes("키 확인 필요"));
       expect(await page.$eval(panel, (element) => element.textContent)).toContain("429 쿨다운 중");
+      expect(await page.$eval(panel, (element) => element.textContent)).toContain("마지막 랭크 컷 스냅샷:");
       await clickButtonText(page, "정리 미리보기");
       await page.waitForSelector(`${panel} input[type="checkbox"]`);
       expect(await page.$$eval(`${panel} button`, (buttons) =>
         (buttons.find((button) => button.textContent === "정리 실행(배치 1회)") as HTMLButtonElement).disabled,
       )).toBe(true);
       await page.click(`${panel} input[type="checkbox"]`);
+      await page.waitForFunction(() => [...document.querySelectorAll<HTMLButtonElement>('[aria-label="LoL 운영 상태"] button')]
+        .some(button => button.textContent === "정리 실행(배치 1회)" && !button.disabled));
       await clickButtonText(page, "정리 실행(배치 1회)");
       await page.waitForFunction(() => document.querySelector('[aria-label="LoL 운영 상태"] [role="status"]')?.textContent?.includes("삭제:"));
       expect(await page.$eval(panel, (element) => element.textContent)).toContain("계정·랭크 이력·본인 경기 요약은 보관");
