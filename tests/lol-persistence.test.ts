@@ -17,6 +17,8 @@ import {
   persistLolSearchSnapshot,
   LolLeaseExpiredError,
   getLolApiCache,
+  getLolChallengeCatalogCache,
+  putLolChallengeCatalogCache,
   getLolAccountByRiotId,
   getLolRankedHistory,
   getLolPlayerMatchSummaries,
@@ -51,6 +53,18 @@ describe("LoL persistence repository", () => {
     await expect(getLolPlayerMatchSummaries("owner", 10, "2026-10-23T00:00:00Z")).resolves.toEqual(rows);
     expect(db.rpc).toHaveBeenCalledWith("get_lol_player_match_summaries", {
       p_puuid: "owner", p_limit: 10, p_before: "2026-10-23T00:00:00Z",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("도전과제 캐시는 서비스 RPC와 lease만 사용하고 Riot에 접근하지 않는다", async () => {
+    (db.rpc as any).result = { data: [], error: null };
+    const fetch = vi.spyOn(globalThis, "fetch");
+    await expect(getLolChallengeCatalogCache()).resolves.toEqual([]);
+    await putLolChallengeCatalogCache([], { key: "challenge-catalog:kr:ko_KR:v1", token: "fixture-token" });
+    expect(db.rpc).toHaveBeenCalledWith("get_lol_challenge_catalog_cache", {});
+    expect(db.rpc).toHaveBeenCalledWith("put_lol_challenge_catalog_cache", {
+      p_payload: [], p_lease_key: "challenge-catalog:kr:ko_KR:v1", p_token: "fixture-token",
     });
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -94,7 +108,7 @@ describe("LoL persistence repository", () => {
     };
     await expect(getLolRankedHistory("private")).resolves.toEqual(history);
     expect(db.rpc).toHaveBeenCalledWith("get_lol_ranked_history", { p_puuid: "private", p_limit: 30 });
-    expect(lolSearchCacheKey("Name", "Tag", "kr", "asia", "16.21.1")).toMatch(/^search:v10:/);
+    expect(lolSearchCacheKey("Name", "Tag", "kr", "asia", "16.21.1")).toMatch(/^search:v11:/);
   });
 
   it("resolves Riot IDs to the stored account without exposing or requesting PUUID through Riot", async () => {
@@ -280,7 +294,7 @@ describe("LoL persistence repository", () => {
 
 it("저장 RPC의 stale lease만 저장소 장애 대신 처리 시간 초과로 분류한다", async () => {
   db.rpc.mockImplementation(() => ({ abortSignal: async () => ({ data: null, error: { code: "40001", message: "fixture stale lease" } }) }));
-  await expect(persistLolSearchSnapshot({ lease: { key: "search:v10:fixture#fix", token: "fixture" }, cacheKey: "fixture",
+  await expect(persistLolSearchSnapshot({ lease: { key: "search:v11:fixture#fix", token: "fixture" }, cacheKey: "fixture",
     cachePayload: {}, platform: "kr", route: "asia", version: "16.21.1", matches: [], ranked: [],
     account: { puuid: "fixture-owner", gameName: "Fixture", tagLine: "FIX", profileIconId: 1, summonerLevel: 30 },
   })).rejects.toBeInstanceOf(LolLeaseExpiredError);

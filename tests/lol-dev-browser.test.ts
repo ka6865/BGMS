@@ -231,6 +231,10 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
             }
             const makeResult = () => structuredClone({
               ...fixtureResult,
+              challengeProfile: riotId.startsWith("challengefail#") ? { ...fixtureResult.challengeProfile, status: "failed" }
+                : riotId.startsWith("challengeempty#") ? { ...fixtureResult.challengeProfile, rarest: [], distributionStatus: "unavailable" }
+                  : fixtureResult.challengeProfile,
+              recentTrends: riotId.startsWith("challengeempty#") ? undefined : fixtureResult.recentTrends,
               mastery: riotId.startsWith("masteryfail#") ? { ...fixtureResult.mastery, status: "failed", champions: [] }
                 : riotId.startsWith("masteryempty#") ? { ...fixtureResult.mastery, champions: [], recent: { status: "ready", sampleSize: 0, champions: [] } }
                   : fixtureResult.mastery,
@@ -473,6 +477,9 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
           }
         });
         await search(page);
+        expect(await page.$eval('[data-testid="lol-challenge-profile"]', element => element.textContent)).toContain("상위 0.3%");
+        expect(await page.$eval('[data-testid="lol-challenge-profile"]', element => element.textContent)).toContain("칭호 매핑 미확인");
+        expect(await page.$eval('[data-testid="lol-recent-trends"]', element => element.textContent)).toContain("최근 9경기");
         const mastery = await page.$('[data-testid="lol-mastery"]');
         expect(mastery).not.toBeNull();
         const masteryText = await mastery!.evaluate(element => element.textContent ?? "");
@@ -614,6 +621,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
         await card!.screenshot({ path: `tmp/lol-detail-alignment/card-${viewport.width}x${viewport.height}.png` });
 
         await openFirstDetail(page);
+        expect(await page.$eval('[data-testid="lol-match-insights"]', element => element.textContent)).toContain("시야 점수 격차");
         const teamLabels = await page.$$eval(
           '[aria-label$="참가자 상세"]',
           (sections) =>
@@ -689,6 +697,8 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
           fullPage: true,
         });
         await mastery!.screenshot({ path: `tmp/lol-detail-alignment/mastery-${viewport.width}x${viewport.height}.png` });
+        const challengeCard = await page.$('[data-testid="lol-challenge-profile"]');
+        await challengeCard!.screenshot({ path: `tmp/lol-detail-alignment/challenges-${viewport.width}x${viewport.height}.png` });
         await page.close();
       },
       30_000,
@@ -700,6 +710,20 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
           const page = await openPage(viewport); await search(page, name);
           const text = await page.$eval('[data-testid="lol-mastery"]', element => element.textContent ?? "");
           expect(text).toContain(message);
+          expect(await page.$('section[aria-label="최근 경기"] article')).not.toBeNull();
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+          await page.close();
+        }
+      },
+    );
+
+    it.each([{ width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }, { width: 1440, height: 900 }])(
+      "도전과제 실패·분포 누락과 표본 부족이 $width 폭에서 전적을 보존한다", async viewport => {
+        for (const [name, message] of [["challengefail#FIX", "도전과제 정보를 불러오지 못했습니다"], ["challengeempty#FIX", "분포 정보를 확인할 수 없습니다"]]) {
+          const page = await openPage(viewport); await search(page, name);
+          const text = await page.$eval('[data-testid="lol-challenge-profile"]', element => element.textContent ?? "");
+          expect(text).toContain(message);
+          if (name.startsWith("challengeempty")) expect(await page.$('[data-testid="lol-recent-trends"]')).toBeNull();
           expect(await page.$('section[aria-label="최근 경기"] article')).not.toBeNull();
           expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
           await page.close();

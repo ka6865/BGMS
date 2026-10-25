@@ -72,6 +72,10 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
             res.end(JSON.stringify({ error: LOL_KEY_RENEWAL_MESSAGE, reasonCode: "riot_key_renewal", detail: LOL_KEY_RENEWAL_ENGLISH }));
           }
           else res.end(JSON.stringify({ ...fixtureResult, refreshRemainSeconds: riotId.startsWith("보존#") ? 0 : 120,
+            challengeProfile: riotId.startsWith("도전과제실패#") ? { ...fixtureResult.challengeProfile, status: "failed" }
+              : riotId.startsWith("도전과제없음#") ? { ...fixtureResult.challengeProfile, rarest: [], distributionStatus: "unavailable" }
+                : fixtureResult.challengeProfile,
+            recentTrends: riotId.startsWith("도전과제없음#") ? undefined : fixtureResult.recentTrends,
             mastery: riotId.startsWith("숙련도실패#") ? { ...fixtureResult.mastery, status: "failed", champions: [] }
               : riotId.startsWith("숙련도없음#") ? { ...fixtureResult.mastery, champions: [], recent: { status: "ready", sampleSize: 0, champions: [] } }
                 : fixtureResult.mastery,
@@ -109,6 +113,10 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
     expect(page.url()).toBe(`${base}/lol/kr/${encodeURIComponent("홍길동-KR1")}`);
     await page.click('button[aria-label="경기 상세 보기"]');
     await page.waitForSelector('[data-testid="lol-player-row"]');
+    expect(await page.$eval('[data-testid="lol-match-insights"]', element => element.textContent)).toContain("시야 점수");
+    expect(await page.$eval('[data-testid="lol-recent-trends"]', element => element.textContent)).toContain("최근 9경기");
+    const challengeText = await page.$eval('[data-testid="lol-challenge-profile"]', element => element.textContent ?? "");
+    expect(challengeText).toContain("상위 0.3%"); expect(challengeText).not.toContain("칭호 매핑");
     const body = await page.$eval("body", element => element.textContent ?? "");
     for (const text of ["운영 상태", "계정 데이터 삭제", "수집 시작", "관리자 전용"]) expect(body).not.toContain(text);
     expect(body).toContain("BGMS isn't endorsed by Riot Games"); expect(body).toContain("상표 또는 등록 상표");
@@ -118,7 +126,9 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
     expect(await page.$$eval('script[src*="googlesyndication"], ins.adsbygoogle', nodes => nodes.length)).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(calls).toEqual([`${base}/api/lol/search`]); expect(errors).toEqual([]);
-    await page.screenshot({ path: `tmp/lol-public-review/${width}x${height}.png`, fullPage: true }); await page.close();
+    await page.screenshot({ path: `tmp/lol-public-review/${width}x${height}.png`, fullPage: true });
+    const challengeCard = await page.$('[data-testid="lol-challenge-profile"]');
+    await challengeCard!.screenshot({ path: `tmp/lol-public-review/challenges-${width}x${height}.png` }); await page.close();
   });
   it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("키 만료·미설정 안내가 %ix%i에서 표시된다", async (width, height) => {
     for (const name of ["만료#FIX", "미설정#FIX"]) {
@@ -144,6 +154,19 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
       await page.close();
     }
   });
+  it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("도전과제 실패·분포 누락과 표본 부족이 %ix%i에서 전적을 보존한다", async (width, height) => {
+    for (const [name, message] of [["도전과제실패#FIX", "도전과제 정보를 불러오지 못했습니다"], ["도전과제없음#FIX", "분포 정보를 확인할 수 없습니다"]]) {
+      const page = await open(width, height); await search(page, name);
+      await page.waitForSelector('[data-testid="lol-challenge-profile"]');
+      const text = await page.$eval('[data-testid="lol-challenge-profile"]', element => element.textContent ?? "");
+      expect(text).toContain(message);
+      if (name.startsWith("도전과제없음")) expect(await page.$('[data-testid="lol-recent-trends"]')).toBeNull();
+      expect(await page.$('section[aria-label="최근 경기"] article')).not.toBeNull();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      await page.close();
+    }
+  });
+
   it("갱신 도중 키가 만료되어도 기존 전적과 상세를 보존한다", async () => {
     const page = await open(390, 844);
     await search(page, "보존#FIX");

@@ -8,6 +8,8 @@ import {
   hasLolStoredMatch,
   blockLolRiotRequests,
   getLolApiCache,
+  getLolChallengeCatalogCache,
+  putLolChallengeCatalogCache,
   getLolAccountByRiotId,
   getLolAccountNamesByPuuids,
   emptyLolRankedHistory,
@@ -32,6 +34,8 @@ import {
 } from "@/lib/lol/persistence.server";
 import { summarizeRecentMatches } from "@/lib/lol/summary";
 import { pickLolChallenges } from "./challenges";
+import { buildLolMatchInsights, summarizeLolRecentTrends } from "./insights";
+import { buildLolChallengeProfile, parseLolChallengeCatalog, type LolChallengeCatalog, type LolChallengeProfile } from "./challengeProfile";
 import { parseLolMasteries, summarizeLolChampionPerformance } from "./mastery";
 import { lolParticipantDto, lolSearchResultDto, openLolParticipantRef } from "./participantIdentity.server";
 import type { ServerLolRecentMatch as LolRecentMatch, ServerLolMatchDetails as LolMatchDetails, ServerLolSearchResult as LolSearchResult } from "./participantIdentity.server";
@@ -47,7 +51,7 @@ type RiotQueueEntry = {
   losses: number;
 };
 
-type RiotEndpoint = "account" | "summoner" | "league" | "mastery" | "match_ids" | "match";
+type RiotEndpoint = "account" | "summoner" | "league" | "mastery" | "challenges" | "match_ids" | "match";
 type RiotFailureStage =
   | "configuration"
   | "queue"
@@ -166,6 +170,7 @@ function getRiotEndpoint(path: string): RiotEndpoint {
   if (path.startsWith("/lol/summoner/v4/")) return "summoner";
   if (path.startsWith("/lol/league/v4/")) return "league";
   if (path.startsWith("/lol/champion-mastery/v4/")) return "mastery";
+  if (path.startsWith("/lol/challenges/v1/")) return "challenges";
   if (path.includes("/matches/by-puuid/")) return "match_ids";
   return "match";
 }
@@ -230,9 +235,9 @@ function getCached<T>(key: string): T | undefined {
   return entry.value as T;
 }
 
-function setCached(key: string, value: unknown, ttlMs: number) {
+function setCached(key: string, value: unknown, ttlMs: number, maxBytes = CACHE_MAX_VALUE_BYTES) {
   const serialized = JSON.stringify(value);
-  if (Buffer.byteLength(serialized) > CACHE_MAX_VALUE_BYTES) return;
+  if (Buffer.byteLength(serialized) > maxBytes) return;
   if (state.cache.size >= CACHE_MAX_ENTRIES) {
     const oldest = state.cache.keys().next().value;
     if (oldest) state.cache.delete(oldest);
@@ -249,12 +254,36 @@ function cacheAccount(key: string, account: { puuid: string; gameName: string; t
   state.accounts.set(key, { account, expiresAt: Date.now() + 24 * 60 * 60_000 });
 }
 
+async function readLolChallengeBody(response: Response, maxBytes: number): Promise<ArrayBuffer> {
+  if (!response.body) return response.arrayBuffer();
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.byteLength;
+      if (size > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new RangeError("challenge response too large");
+      }
+      chunks.push(value);
+    }
+  } finally { reader.releaseLock(); }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+  return bytes.buffer;
+}
+
 async function requestJson<T>(
   host: keyof typeof RIOT_HOSTS,
   path: string,
   ttlMs: number,
   bypassCache = false,
   onFetch?: () => void,
+  maxResponseBytes = MAX_RESPONSE_BYTES,
 ): Promise<T> {
   const persistenceEnabled = isLolPersistenceEnabled();
   const endpoint = getRiotEndpoint(path);
@@ -432,7 +461,7 @@ async function requestJson<T>(
         }
 
         const contentLength = Number(response.headers.get("Content-Length"));
-        if (contentLength > MAX_RESPONSE_BYTES) {
+        if (contentLength > maxResponseBytes) {
           await discardResponseBody(response);
           fail(
             new RiotSearchError("upstream"),
@@ -444,8 +473,12 @@ async function requestJson<T>(
         }
         let bytes: ArrayBuffer;
         try {
-          bytes = await response.arrayBuffer();
+          bytes = endpoint === "challenges" ? await readLolChallengeBody(response, maxResponseBytes) : await response.arrayBuffer();
         } catch (error) {
+          if (error instanceof RangeError) {
+            fail(new RiotSearchError("upstream"), "body", "response_too_large", response.status);
+            return;
+          }
           const timeout = signal.aborted || (error instanceof Error && error.name === "TimeoutError");
           requestMetric = timeout ? "riot_timeout" : "riot_network";
           fail(
@@ -456,7 +489,7 @@ async function requestJson<T>(
           );
           return;
         }
-        if (bytes.byteLength > MAX_RESPONSE_BYTES) {
+        if (bytes.byteLength > maxResponseBytes) {
           fail(
             new RiotSearchError("upstream"),
             "body",
@@ -609,6 +642,7 @@ function summarizeMatch(match: any, puuid: string): LolRecentMatch | null {
   return {
     matchId: String(match.metadata?.matchId ?? ""),
     challenges: pickLolChallenges(participant.challenges),
+    insights: participantInsights(participant, info),
     queueId: Number(info.queueId) || 0,
     gameMode: String(info.gameMode ?? "Unknown"),
     gameEndTimestamp: Number(info.gameEndTimestamp ?? info.gameCreation) || 0,
@@ -764,6 +798,16 @@ function optionalPositiveInteger(value: unknown): number | null {
   return typeof value === "number" && Number.isInteger(value) && value > 0
     ? value
     : null;
+}
+
+function participantInsights(participant: any, info: any) {
+  const opponents = info.participants.filter((other: any) => other.teamId !== participant.teamId
+    && typeof participant.teamPosition === "string" && other.teamPosition === participant.teamPosition);
+  return buildLolMatchInsights({ challenges: participant.challenges, position: participant.teamPosition,
+    queueId: Number(info.queueId), duration: optionalNonNegativeNumber(info.gameDuration),
+    remake: participant.gameEndedInEarlySurrender === true, visionScore: participant.visionScore,
+    opponentChallenges: opponents.length === 1 ? opponents[0].challenges : undefined,
+    opponentVisionScore: opponents.length === 1 ? opponents[0].visionScore : undefined });
 }
 
 function buildMatchDetails(
@@ -1143,9 +1187,54 @@ async function withLolRecentPerformance(result: LolSearchResult, puuid?: string)
       const entry = Object.entries(metadata.champions).find(([, value]) => Number(value.key) === champion.championId);
       return { ...champion, championName: entry?.[1].name ?? champion.championName, championImageId: entry?.[0] ?? champion.championImageId };
     });
-    return { ...result, mastery: { ...result.mastery, recent: { status: "ready", sampleSize: champions.reduce((sum, champion) => sum + champion.games, 0), champions } } };
+    return { ...result, recentTrends: summarizeLolRecentTrends(rows), mastery: { ...result.mastery,
+      recent: { status: "ready", sampleSize: champions.reduce((sum, champion) => sum + champion.games, 0), champions } } };
   } catch {
-    return { ...result, mastery: { ...result.mastery, recent: { status: "unavailable", sampleSize: 0, champions: [] } } };
+    return { ...result, recentTrends: undefined, mastery: { ...result.mastery, recent: { status: "unavailable", sampleSize: 0, champions: [] } } };
+  }
+}
+
+async function loadLolChallengeCatalog(): Promise<LolChallengeCatalog | undefined> {
+  const key = "challenge-catalog:kr:ko_KR:v1";
+  const persistent = isLolPersistenceEnabled();
+  const cached = persistent ? await getLolChallengeCatalogCache() : getCached<LolChallengeCatalog>(key);
+  if (cached) return cached;
+  if (getCached<boolean>(`${key}:failed`)) return undefined;
+  const inflight = state.inflight.get(key);
+  if (inflight) return inflight as Promise<LolChallengeCatalog | undefined>;
+  const request = (async () => {
+    const lease = persistent ? await acquireLolCollectionLease(key, 60) : null;
+    if (persistent && !lease) return undefined;
+    try {
+      if (persistent) {
+        const rechecked = await getLolChallengeCatalogCache();
+        if (rechecked) return rechecked;
+      }
+      const config = await requestJson<unknown>("kr", "/lol/challenges/v1/challenges/config", STATIC_TTL_MS, false, undefined, 8 * MAX_RESPONSE_BYTES);
+      const percentiles = await requestJson<unknown>("kr", "/lol/challenges/v1/challenges/percentiles", STATIC_TTL_MS, false, undefined, 8 * MAX_RESPONSE_BYTES);
+      const catalog = parseLolChallengeCatalog(config, percentiles);
+      if (Buffer.byteLength(JSON.stringify(catalog)) > MAX_RESPONSE_BYTES) throw new Error("challenge catalog too large");
+      if (lease) await putLolChallengeCatalogCache(catalog, lease);
+      else setCached(key, catalog, STATIC_TTL_MS, MAX_RESPONSE_BYTES);
+      return catalog;
+    } catch {
+      setCached(`${key}:failed`, true, IDENTIFIER_TTL_MS);
+      return undefined;
+    } finally {
+      if (lease) try { await releaseLolCollectionLease(lease); } catch { /* 만료된 lease는 자동 복구한다. */ }
+    }
+  })();
+  state.inflight.set(key, request);
+  try { return await request; } finally { state.inflight.delete(key); }
+}
+
+async function loadLolChallengeProfile(puuid: string, refresh: boolean): Promise<LolChallengeProfile> {
+  try {
+    const player = await requestJson<unknown>("kr", `/lol/challenges/v1/player-data/${puuid}`, IDENTIFIER_TTL_MS, refresh);
+    const profile = buildLolChallengeProfile(player);
+    try { return buildLolChallengeProfile(player, await loadLolChallengeCatalog()); } catch { return profile; }
+  } catch {
+    return { status: "failed", titleMappingUnverified: false, total: null, categories: [], rarest: [], distributionStatus: "unavailable" };
   }
 }
 
@@ -1156,7 +1245,7 @@ async function searchLolRiotIdInternal(
   const riotId = parseRiotId(input);
   if (!riotId) throw new RiotSearchError("invalid_request");
   const persistenceEnabled = isLolPersistenceEnabled();
-  const lookupKey = `search:v10:${riotId.gameName.toLocaleLowerCase()}#${riotId.tagLine.toLocaleLowerCase()}`;
+  const lookupKey = `search:v11:${riotId.gameName.toLocaleLowerCase()}#${riotId.tagLine.toLocaleLowerCase()}`;
   const dataDragonVersion = await getLolDataDragonVersion();
   const persistentCacheKey = lolSearchCacheKey(riotId.gameName, riotId.tagLine, LOL_PLATFORM, LOL_REGIONAL_ROUTE, dataDragonVersion);
   const cached = persistenceEnabled
@@ -1216,9 +1305,11 @@ async function searchLolRiotIdInternal(
     const batch = await loadMatchRecords(puuid, pageIds);
     // 숙련도 429가 현재 검색의 경기 조회를 막지 않도록 필수 조회 뒤에 요청한다.
     const mastery = await loadLolMastery(encodedPuuid, options.refresh === true);
+    const challengeProfile = await loadLolChallengeProfile(encodedPuuid, options.refresh === true);
     const lastUpdatedAt = new Date().toISOString();
     const matches = batch.matches;
     const result: LolSearchResult = {
+      challengeProfile,
       mastery,
       dataDragonVersion,
       account: { gameName: account.gameName, tagLine: account.tagLine },
@@ -1268,7 +1359,7 @@ async function getMoreLolMatchesInternal(input: { riotId: unknown; offset: numbe
     : isLolPersistenceEnabled() ? await getLolAccountByRiotId(riotId.gameName, riotId.tagLine) : undefined;
   if (!account?.puuid) throw new RiotSearchError("not_found");
   cacheAccount(key, account);
-  const lookupKey = `search:v10:${key}`;
+  const lookupKey = `search:v11:${key}`;
   const idKey = input.matchIds?.join(",") ?? "page";
   const moreKey = `more:${lookupKey}:${input.offset}:${idKey}${input.validateMatchIds ? ":public" : ""}`;
   const existing = state.inflight.get(moreKey);
@@ -1324,7 +1415,7 @@ export async function collectLolMatches(input: { riotId: string; count: number; 
   };
   const onFetch = () => { result.fetched += 1; };
   const key = `${riotId.gameName.toLocaleLowerCase()}#${riotId.tagLine.toLocaleLowerCase()}`;
-  const lookupKey = `search:v10:${key}`;
+  const lookupKey = `search:v11:${key}`;
   if (state.accountOps.has(lookupKey)) throw new RiotSearchError("busy", 2);
   const lease = await acquireLolCollectionLease(lookupKey, 120);
   if (!lease) throw new RiotSearchError("busy", 2);

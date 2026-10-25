@@ -2,6 +2,7 @@ import "server-only";
 import { recordLolOpsMetric } from "./ops.server";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import type { LolRankedPoint, LolRankedHistory, LolPlayerMatchSummary, LolAccountDeletion } from "@/lib/lol/types";
+import type { LolChallengeCatalog } from "./challengeProfile";
 export type { LolRankedPoint, LolRankedDailyPoint, LolRankedHistory } from "@/lib/lol/types";
 
 export type LolRiotHost = "asia" | "kr";
@@ -91,7 +92,15 @@ export function isLolPersistenceEnabled(): boolean {
 }
 
 export function lolSearchCacheKey(gameName: string, tagLine: string, platform: LolPlatform, route: LolRegionalRoute, version: string): string {
-  return `search:v10:${platform}:${route}:${version}:${encodeURIComponent(gameName.toLocaleLowerCase())}:${encodeURIComponent(tagLine.toLocaleLowerCase())}`;
+  return `search:v11:${platform}:${route}:${version}:${encodeURIComponent(gameName.toLocaleLowerCase())}:${encodeURIComponent(tagLine.toLocaleLowerCase())}`;
+}
+
+export async function getLolChallengeCatalogCache(): Promise<LolChallengeCatalog | undefined> {
+  return (await rpc<LolChallengeCatalog | null>("get_lol_challenge_catalog_cache", {})) ?? undefined;
+}
+
+export async function putLolChallengeCatalogCache(payload: LolChallengeCatalog, lease: Lease): Promise<void> {
+  await rpc("put_lol_challenge_catalog_cache", { p_payload: payload, p_lease_key: lease.key, p_token: lease.token });
 }
 
 export async function getLolAccountByRiotId(gameName: string, tagLine: string): Promise<{ puuid: string; gameName: string; tagLine: string; accountFetchedAt: string } | undefined> {

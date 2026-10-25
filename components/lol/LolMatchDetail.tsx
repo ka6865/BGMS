@@ -4,6 +4,7 @@ import type {
 } from "@/lib/lol/riotSearch.server";
 import { formatKdaRatio, formatMetric, formatPercent } from "./lolFormat";
 import { LolBuildIcons, LolItemSlots } from "./LolMatchCard";
+import { LolMatchInsightSection } from "./LolInsightCards";
 
 type Team = LolMatchDetails["teams"][number];
 type Player = Team["participants"][number];
@@ -268,6 +269,7 @@ export default function LolMatchDetail({
     >
       {expanded && (
         <div className="grid min-w-0 gap-3">
+          <LolMatchInsightSection insights={match.insights} />
           <TeamComparison teams={teams} />
           {teams.map((team) => {
             const side =
