@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { isSameOriginLolRequest } from "./http.server";
 import { LolPersistenceError, LolLeaseExpiredError } from "./persistence.server";
 import { searchLolRiotId, getMoreLolMatches, getLolMatchDetails, getLolMatchBuild, RiotSearchError } from "./riotSearch.server";
+import { LOL_MATCH_PAGE_SIZE } from "./limits";
 
 import { LOL_KEY_RENEWAL_MESSAGE, LOL_KEY_RENEWAL_ENGLISH, LOL_KEY_RENEWAL_CODE } from "./keyNotice";
 
@@ -91,7 +92,7 @@ export async function handleLolMore(request: Request, publicView = false): Promi
   if (!body || typeof body !== "object" || Array.isArray(body)) return moreResponse({ error: "요청 내용을 확인해 주세요." }, 400);
   const { riotId, offset, matchIds } = body as { riotId?: unknown; offset?: unknown; matchIds?: unknown };
   if (typeof riotId !== "string" || !Number.isSafeInteger(offset) || (offset as number) < 0
-    || (matchIds !== undefined && (!Array.isArray(matchIds) || matchIds.length < 1 || matchIds.length > 5 || matchIds.some((id) => typeof id !== "string" || !/^KR_\d{1,20}$/.test(id))))) {
+    || (matchIds !== undefined && (!Array.isArray(matchIds) || matchIds.length < 1 || matchIds.length > LOL_MATCH_PAGE_SIZE || matchIds.some((id) => typeof id !== "string" || !/^KR_\d{1,20}$/.test(id))))) {
     return moreResponse({ error: "Riot ID 또는 경기 목록 위치를 확인해 주세요." }, 400);
   }
   try {

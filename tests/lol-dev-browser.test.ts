@@ -9,6 +9,7 @@ import tailwind from "@tailwindcss/postcss";
 import puppeteer, { type Browser, type Page } from "puppeteer";
 
 import { fixtureResult, matches } from "./fixtures/lol/browserScenario";
+import { LOL_MATCH_PAGE_SIZE } from "../lib/lol/limits";
 
 describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
   "LoL 검색 반응형 브라우저 확인 — 가상 fixture",
@@ -359,6 +360,12 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
           request.on("data", (chunk) => { body += chunk; });
           request.on("end", () => {
             const { riotId, offset, matchIds: retryIds } = JSON.parse(body) as { riotId: string; offset: number; matchIds?: string[] };
+            // 실제 경로와 같은 경기 ID 개수 한도를 적용해, 화면과 서버 계약이 어긋나면 이 테스트가 잡게 한다.
+            if (retryIds !== undefined && (retryIds.length < 1 || retryIds.length > LOL_MATCH_PAGE_SIZE)) {
+              response.writeHead(400, { "Content-Type": "application/json" })
+                .end(JSON.stringify({ error: "Riot ID 또는 경기 목록 위치를 확인해 주세요." }));
+              return;
+            }
             if (riotId.startsWith("storage#") && !failedMoreAccounts.has(riotId)) {
               failedMoreAccounts.add(riotId);
               response.writeHead(503, { "Content-Type": "application/json" })
