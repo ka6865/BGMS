@@ -184,7 +184,7 @@ f7d3193e866fdd2bcd8342ecc1037545860bd6e951a44dab1d17ad582faa8aed
 ## 전체 리뷰 후속 보완
 
 `20261024040000_lol_review_fixes.sql`은 기존 RPC 세 개를 교체한다. 헤더 파서·권한은 유지하고 형식 오류 차단만 다음 UTC 자정에서 10분으로 바꾼다.
-`delete_lol_account_data`는 해당 PUUID의 `collect:`와 알려진 현재·경기 당시 Riot ID의 `search:v10:`, 관련 원문의 `match:` lease만 제거한다.
+`delete_lol_account_data`는 해당 PUUID의 `collect:`와 알려진 현재·경기 당시 Riot ID의 검색 lease(`search:v<숫자>:` 전 버전, 2026-10-26 `20261026010000_lol_delete_search_lease_any_version`부터), 관련 원문의 `match:` lease만 제거한다. 그 전에는 `search:v10:`만 지워서 검색 캐시를 v11로 올린 뒤의 검색 lease가 남았다.
 다른 계정·운영 정리 lease는 보존한다. 원문·저장 계정에 연결이 없는 이름의 lease는 현재 데이터로 연관성을 판별할 수 없어 제거하지 않는다.
 
 삭제 요청은 비회원도 개인정보 보호책임자 이메일로 Riot ID를 제시할 수 있다. 운영자는 Account-V1 by-riot-id로 PUUID를 확인한 뒤 기존 PUUID 삭제 RPC를 실행한다.
