@@ -661,11 +661,28 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
 
         await openFirstDetail(page);
         expect(await page.$eval('[data-testid="lol-match-insights"]', element => element.textContent)).toContain("시야 점수");
-        // 좁은 상세 표에서도 피해량 막대 라벨이 잘리지 않고 보인다.
-        expect(await page.$eval('[data-testid="lol-player-row"]', (row) =>
-          [...row.querySelectorAll<HTMLElement>('[aria-label^="챔피언 피해"] span, [aria-label^="받은 피해"] span')]
-            .filter((span) => span.getBoundingClientRect().width > 0 && span.scrollWidth <= span.clientWidth + 1)
-            .map((span) => span.textContent).join(" "))).toMatch(viewport.width >= 1440 ? /가한 피해 .*받은 피해 / : /가한 .*받은 /);
+        // 좁은 상세 표에서도 피해량 막대 라벨이 잘리지 않고 보이고, 넓은 표는 열 제목 행으로 설명한다.
+        if (viewport.width >= 1440) {
+          const header = await page.$eval('[data-testid="lol-player-table-header"]', (row) => ({
+            display: getComputedStyle(row).display, text: row.textContent ?? "",
+          }));
+          expect(header.display).toBe("grid");
+          for (const label of ["BGMS 점수", "KDA", "피해량", "와드", "CS", "아이템"]) expect(header.text).toContain(label);
+          // 머리글과 모든 행의 열 시작 위치가 같아 이름 길이와 관계없이 열이 맞는다.
+          const starts = await page.$eval('[role="table"][aria-label$="참가자 상세"]', (table) =>
+            [...table.querySelectorAll('[role="row"]')].map((row) =>
+              [...row.querySelectorAll(':scope > [role="columnheader"], :scope > [role="cell"], :scope > div > [role="cell"]')]
+                .filter((cell) => getComputedStyle(cell).display !== "none")
+                .map((cell) => Math.round(cell.getBoundingClientRect().right))));
+          const [headerEdges, ...rowEdges] = starts;
+          expect(headerEdges.slice(-6)).toHaveLength(6);
+          for (const edges of rowEdges) expect(edges.slice(-6)).toEqual(headerEdges.slice(-6));
+        } else {
+          expect(await page.$eval('[data-testid="lol-player-row"]', (row) =>
+            [...row.querySelectorAll<HTMLElement>('[aria-label^="챔피언 피해"] span, [aria-label^="받은 피해"] span')]
+              .filter((span) => span.getBoundingClientRect().width > 0 && span.scrollWidth <= span.clientWidth + 1)
+              .map((span) => span.textContent).join(" "))).toMatch(/가한 .*받은 /);
+        }
         const teamLabels = await page.$$eval(
           '[aria-label$="참가자 상세"]',
           (sections) =>
