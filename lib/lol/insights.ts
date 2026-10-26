@@ -6,13 +6,20 @@ export type LolInsight = {
   label: string; value: string; description: string; sampleSize?: number;
   kind?: "flag" | "compare" | "lead" | "share" | "count"; achieved?: boolean; ratio?: number; mine?: number; theirs?: number; amount?: number;
 };
-export type LolMatchInsights = { laning: LolInsight[]; contribution: LolInsight[] };
+export type LolMatchInsights = { laning: LolInsight[]; contribution: LolInsight[]; opponentLabel?: string };
 export type LolRecentTrends = { sampleSize: number; metrics: LolInsight[] };
 
 const LANES = ["TOP", "MIDDLE", "BOTTOM"];
 const number = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
 const count = (value: unknown): value is number => number(value) && value >= 0;
 const ratio = (value: unknown): value is number => count(value) && value <= 1;
+// 정글 비교 지표는 경기 원문에서만 읽고 저장용 challenges 화이트리스트(SQL과 공유)는 늘리지 않는다.
+const JUNGLE_KEYS = ["enemyJungleMonsterKills", "scuttleCrabKills", "killsOnLanersEarlyJungleAsJungler", "buffsStolen"] as const;
+function pickJungle(value: unknown): Partial<Record<typeof JUNGLE_KEYS[number], number>> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const source = value as Record<string, unknown>;
+  return Object.fromEntries(JUNGLE_KEYS.flatMap(key => count(source[key]) ? [[key, source[key]]] : []));
+}
 const fmt = (value: number) => value.toLocaleString("ko-KR", { maximumFractionDigits: 1 });
 
 export function buildLolMatchInsights(input: {
@@ -24,7 +31,8 @@ export function buildLolMatchInsights(input: {
   const c = pickLolChallenges(input.challenges);
   const opponent = pickLolChallenges(input.opponentChallenges);
   const classic = [400, 420, 430, 440, 490].includes(input.queueId);
-  if (classic && LANES.includes(input.position)) {
+  const jungle = input.position === "JUNGLE";
+  if (classic && (LANES.includes(input.position) || jungle)) {
     for (const [key, label] of [["laningPhaseGoldExpAdvantage", "라인전 골드·경험치"],
       ["earlyLaningPhaseGoldExpAdvantage", "초반 골드·경험치"]] as const) {
       if (c[key] === 0 || c[key] === 1) laning.push({ label, value: c[key] === 1 ? "우위 달성" : "우위 미달성", kind: "flag", achieved: c[key] === 1,
@@ -32,20 +40,34 @@ export function buildLolMatchInsights(input: {
     }
     if (count(c.maxCsAdvantageOnLaneOpponent)) laning.push({ label: "최대 CS 우위", value: fmt(c.maxCsAdvantageOnLaneOpponent),
       kind: "lead", amount: c.maxCsAdvantageOnLaneOpponent,
-      description: `맞라이너보다 CS를 최대 ${fmt(c.maxCsAdvantageOnLaneOpponent)}개 앞선 기록입니다.` });
+      description: `${jungle ? "상대 정글러" : "맞라이너"}보다 CS를 최대 ${fmt(c.maxCsAdvantageOnLaneOpponent)}개 앞선 기록입니다.` });
     if (count(c.maxLevelLeadLaneOpponent)) laning.push({ label: "최대 레벨 우위", value: fmt(c.maxLevelLeadLaneOpponent),
       kind: "lead", amount: c.maxLevelLeadLaneOpponent,
-      description: `맞라이너 대비 최대 레벨 우위는 ${fmt(c.maxLevelLeadLaneOpponent)}입니다.` });
-    if (input.duration >= 600 && count(c.laneMinionsFirst10Minutes)) laning.push({ label: "10분 라인 CS", value: fmt(c.laneMinionsFirst10Minutes),
+      description: `${jungle ? "상대 정글러" : "맞라이너"} 대비 최대 레벨 우위는 ${fmt(c.maxLevelLeadLaneOpponent)}입니다.` });
+    if (!jungle && input.duration >= 600 && count(c.laneMinionsFirst10Minutes)) laning.push({ label: "10분 라인 CS", value: fmt(c.laneMinionsFirst10Minutes),
       kind: "compare", mine: c.laneMinionsFirst10Minutes, theirs: count(opponent.laneMinionsFirst10Minutes) ? opponent.laneMinionsFirst10Minutes : undefined,
       description: `첫 10분 동안 라인 미니언 ${fmt(c.laneMinionsFirst10Minutes)}개를 처치했습니다.`
         + (count(opponent.laneMinionsFirst10Minutes) ? ` 같은 포지션 상대는 ${fmt(opponent.laneMinionsFirst10Minutes)}개를 기록했습니다.` : "") });
   }
-  if (classic && input.position === "JUNGLE" && input.duration >= 600 && count(c.jungleCsBefore10Minutes)) {
-    laning.push({ label: "10분 정글 CS", value: fmt(c.jungleCsBefore10Minutes), kind: "compare", mine: c.jungleCsBefore10Minutes,
-      description: `첫 10분 동안 정글 CS ${fmt(c.jungleCsBefore10Minutes)}를 기록했습니다.` });
+  if (classic && jungle) {
+    const mine = pickJungle(input.challenges); const theirs = pickJungle(input.opponentChallenges);
+    const theirCs = count(opponent.jungleCsBefore10Minutes) ? opponent.jungleCsBefore10Minutes : undefined;
+    if (input.duration >= 600 && count(c.jungleCsBefore10Minutes)) laning.push({ label: "10분 정글 CS", value: fmt(c.jungleCsBefore10Minutes),
+      kind: "compare", mine: c.jungleCsBefore10Minutes, theirs: theirCs,
+      description: `첫 10분 동안 정글 CS ${fmt(c.jungleCsBefore10Minutes)}를 기록했습니다.`
+        + (theirCs !== undefined ? ` 상대 정글러는 ${fmt(theirCs)}를 기록했습니다.` : "") });
+    for (const [key, label, text] of [["enemyJungleMonsterKills", "상대 정글 몬스터", "상대 정글 몬스터 처치"],
+      ["scuttleCrabKills", "바위게", "바위게 처치"], ["killsOnLanersEarlyJungleAsJungler", "초반 갱킹 처치", "초반 정글러로서 라이너 처치"]] as const) {
+      const value = mine[key]; const other = theirs[key];
+      if (value !== undefined) laning.push({ label, value: fmt(value), kind: "compare", mine: value, theirs: other,
+        description: `${text} ${fmt(value)}회` + (other !== undefined ? `, 상대 정글러는 ${fmt(other)}회입니다.` : "입니다.") });
+    }
+    if (mine.buffsStolen !== undefined) contribution.push({ label: "버프 스틸", value: fmt(mine.buffsStolen), kind: "count",
+      amount: mine.buffsStolen, description: `상대 버프를 가져간 횟수는 ${fmt(mine.buffsStolen)}입니다.` });
+    if (count(c.epicMonsterSteals)) contribution.push({ label: "오브젝트 스틸", value: fmt(c.epicMonsterSteals), kind: "count",
+      amount: c.epicMonsterSteals, description: `에픽 몬스터를 스틸한 횟수는 ${fmt(c.epicMonsterSteals)}입니다.` });
   }
-  if (classic && (LANES.includes(input.position) || input.position === "UTILITY")
+  if (classic && (LANES.includes(input.position) || jungle || input.position === "UTILITY")
     && count(input.visionScore) && count(input.opponentVisionScore)) {
     const difference = input.visionScore - input.opponentVisionScore;
     laning.push({ label: "시야 점수 격차", value: `${difference > 0 ? "+" : ""}${fmt(difference)}`,
@@ -66,7 +88,7 @@ export function buildLolMatchInsights(input: {
     if (count(c[key]) && (!classic ? !["dragonTakedowns", "baronTakedowns", "riftHeraldTakedowns", "turretPlatesTaken"].includes(key) : true))
       contribution.push({ label, value: fmt(c[key]), kind: "count", amount: c[key], description: `${text}는 ${fmt(c[key])}입니다.` });
   }
-  return { laning, contribution };
+  return jungle ? { laning, contribution, opponentLabel: "상대 정글러" } : { laning, contribution };
 }
 
 export function summarizeLolRecentTrends(rows: LolPlayerMatchSummary[]): LolRecentTrends | undefined {

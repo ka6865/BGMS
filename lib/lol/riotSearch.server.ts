@@ -1128,12 +1128,15 @@ async function enrichMatchRecords(records: Array<{ summary: LolRecentMatch; raw:
   }
 }
 
+// 전적 목록은 Riot 경기 ID 한 페이지(20개) 단위로 불러온다.
+const LOL_MATCH_PAGE_SIZE = 20;
+
 async function loadMatchRecords(puuid: string, matchIds: string[], persistDetails = false) {
   const matches: LolRecentMatch[] = [];
   const records: Array<{ summary: LolRecentMatch; raw: unknown }> = [];
   const matchFailures: LolMatchFailure[] = [];
   let loadedCount = 0;
-  for (const matchId of matchIds.slice(0, 5)) {
+  for (const matchId of matchIds.slice(0, LOL_MATCH_PAGE_SIZE)) {
     try {
       const stored = isLolPersistenceEnabled()
         ? persistDetails
@@ -1382,7 +1385,7 @@ async function getMoreLolMatchesInternal(input: { riotId: unknown; offset: numbe
         : await requestJson<string[]>("asia", `/lol/match/v5/matches/by-puuid/${encodeURIComponent(account.puuid)}/ids?start=${pageStart}&count=20`, IDENTIFIER_TTL_MS);
       if (retryIds && input.validateMatchIds && retryIds.some(id => !matchIds.includes(id))) throw new RiotSearchError("invalid_request");
       const localOffset = input.offset - pageStart;
-      const selectedIds = explicitIds ? retryIds.slice(0, 5) : matchIds.slice(localOffset, localOffset + 5);
+      const selectedIds = explicitIds ? retryIds.slice(0, 5) : matchIds.slice(localOffset, localOffset + LOL_MATCH_PAGE_SIZE);
       const batch = await loadMatchRecords(account.puuid, selectedIds, true);
       return {
         matches: batch.matches, matchIds,

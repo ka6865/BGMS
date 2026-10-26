@@ -6,14 +6,22 @@ export type LolChallengeProfile = {
   status: "ready" | "failed"; titleMappingUnverified: boolean;
   total: LolChallengePoints | null;
   categories: Array<LolChallengePoints & { name: string }>;
-  rarest: Array<{ id: number; name: string; description: string; level: string; percentile: number; threshold: number | null }>;
+  rarest: LolChallengeItem[];
+  // 이전 캐시에는 없을 수 있어 선택 필드로 둔다. 검색 캐시 크기를 줄이려고 설명과 기준값은 뺀다.
+  achieved?: LolChallengeListItem[];
   distributionStatus: "ready" | "unavailable";
+};
+export type LolChallengeListItem = Omit<LolChallengeItem, "description" | "threshold">;
+export type LolChallengeItem = {
+  id: number; name: string; description: string; level: string; percentile: number; threshold: number | null;
+  position?: number; playersInLevel?: number;
 };
 
 export const LOL_CHALLENGE_LEVELS: Record<string, string> = {
   NONE: "미등급", IRON: "아이언", BRONZE: "브론즈", SILVER: "실버", GOLD: "골드", PLATINUM: "플래티넘",
   DIAMOND: "다이아몬드", MASTER: "마스터", GRANDMASTER: "그랜드마스터", CHALLENGER: "챌린저",
 };
+const LEVEL_ORDER = Object.keys(LOL_CHALLENGE_LEVELS);
 const CATEGORIES: Record<string, string> = {
   IMAGINATION: "창의성", EXPERTISE: "전문성", TEAMWORK: "협동과 전략", VETERANCY: "수집과 경험", COLLECTION: "수집", LEGACY: "유산",
 };
@@ -55,16 +63,27 @@ export function buildLolChallengeProfile(value: unknown, catalog?: LolChallengeC
   if (!Array.isArray(row.challenges) || row.challenges.length > 2000 || !points(row.totalPoints)) throw new Error("invalid challenge player");
   const byId = new Map(catalog?.map(challenge => [challenge.id, challenge]));
   const seen = new Set<number>();
-  const rarest = row.challenges.flatMap(value => {
+  const achieved = row.challenges.flatMap((value): LolChallengeItem[] => {
     const challenge = object(value); const id = challenge.challengeId;
-    if (typeof id !== "number" || seen.has(id) || typeof challenge.level !== "string" || challenge.level === "NONE") return [];
+    // 0은 총점, 1~5는 분류 점수라 아래 분류 목록과 겹치지 않게 제외한다.
+    if (typeof id !== "number" || id <= 5 || seen.has(id) || typeof challenge.level !== "string" || challenge.level === "NONE") return [];
     seen.add(id);
-    const config = byId.get(id); const percentile = config?.percentiles[challenge.level];
+    const config = byId.get(id);
+    // 본인 비율이 있으면 우선 쓰고, 없으면 등급별 공식 분포로 대신한다.
+    const percentile = ratio(challenge.percentile) ? challenge.percentile : config?.percentiles[challenge.level];
     if (!config || !ratio(percentile)) return [];
+    const position = challenge.position; const playersInLevel = challenge.playersInLevel;
+    const ranked = Number.isSafeInteger(position) && (position as number) >= 1
+      && Number.isSafeInteger(playersInLevel) && (playersInLevel as number) >= (position as number);
     return [{ id, name: config.name, description: config.description, level: challenge.level, percentile,
-      threshold: config.thresholds[challenge.level] ?? null }];
-  }).sort((a, b) => a.percentile - b.percentile || a.id - b.id).slice(0, 3);
-  return { status: "ready", titleMappingUnverified: !!object(row.preferences).title, total: points(row.totalPoints),
+      threshold: config.thresholds[challenge.level] ?? null,
+      ...ranked ? { position: position as number, playersInLevel: playersInLevel as number } : {} }];
+  }).sort((a, b) => a.percentile - b.percentile || LEVEL_ORDER.indexOf(b.level) - LEVEL_ORDER.indexOf(a.level)
+    || (a.position ?? Infinity) - (b.position ?? Infinity) || a.id - b.id).slice(0, 500);
+  const rarest = achieved.slice(0, 3);
+  const list = achieved.map((item): LolChallengeListItem => ({ id: item.id, name: item.name, level: item.level, percentile: item.percentile,
+    ...item.position !== undefined ? { position: item.position, playersInLevel: item.playersInLevel } : {} }));
+  return { status: "ready", titleMappingUnverified: !!object(row.preferences).title, total: points(row.totalPoints), achieved: list,
     categories: Object.entries(CATEGORIES).flatMap(([key, name]) => {
       const item = points(object(row.categoryPoints)[key]); return item ? [{ name, ...item }] : [];
     }), rarest, distributionStatus: catalog && catalog.some(item => Object.keys(item.percentiles).length) ? "ready" : "unavailable" };

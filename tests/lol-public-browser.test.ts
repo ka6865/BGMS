@@ -125,7 +125,8 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
       expect(masteryText).toContain(text);
     expect(await page.$$eval('script[src*="googlesyndication"], ins.adsbygoogle', nodes => nodes.length)).toBe(0);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    expect(calls).toEqual([`${base}/api/lol/search`]); expect(errors).toEqual([]);
+    // 상세를 펼치며 목록 끝까지 스크롤되면 공개 추가 조회가 이어질 수 있다.
+    expect(calls.filter(url => url !== `${base}/api/lol/matches/more`)).toEqual([`${base}/api/lol/search`]); expect(errors).toEqual([]);
     await page.screenshot({ path: `tmp/lol-public-review/${width}x${height}.png`, fullPage: true });
     const challengeCard = await page.$('[data-testid="lol-challenge-profile"]');
     await challengeCard!.screenshot({ path: `tmp/lol-public-review/challenges-${width}x${height}.png` }); await page.close();
