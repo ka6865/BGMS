@@ -248,7 +248,7 @@ function PlayerRow({
       title={`골드 ${formatMetric(player.goldEarned)} · 오브젝트 피해 ${formatMetric(player.damageDealtToObjectives)} · 포탑 피해 ${formatMetric(player.damageDealtToTurrets)}`}
     >
       <span role="cell" className="relative h-8 w-[30px] @min-[860px]/history:h-9 @min-[860px]/history:w-[34px]">
-        <img
+        <img loading="lazy" decoding="async"
           src={`https://ddragon.leagueoflegends.com/cdn/${match.dataDragonVersion}/img/champion/${player.championImageId}.png`}
           alt=""
           width={36}

@@ -77,7 +77,7 @@ function PlayerBars({
             title={`${player.riotId} · ${player.championNameKo}: ${formatMetric(value)}`}
             className="flex min-w-0 items-center gap-1"
           >
-            <img
+            <img loading="lazy" decoding="async"
               src={imageUrl(player)}
               alt=""
               width={18}
