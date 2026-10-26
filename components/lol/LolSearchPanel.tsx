@@ -519,7 +519,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
               <aside data-testid="lol-sidebar-stats" className="min-w-0 space-y-3 lg:col-start-1 lg:row-start-2">
                 <LolRecentTrendsCard trends={result.recentTrends} />
                 <LolChallengesCard profile={result.challengeProfile} admin={!publicView} />
-                <LolMasteryCard mastery={result.mastery} />
+                <LolMasteryCard mastery={result.mastery} dataDragonVersion={result.dataDragonVersion} />
                 <LolSidebarStats dataDragonVersion={result.dataDragonVersion} summary={summary} onSearch={searchParticipant} />
               </aside>
             </div>
