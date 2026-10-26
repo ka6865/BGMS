@@ -652,6 +652,10 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
         expect(cardLayout.metrics.map((metric) => metric.text?.trim())).toEqual([
           "관여 40%", "CS 180 (7.2/분)", "골드/분 480",
         ]);
+        // 경기별 LP 증감은 결과(승리·패배) 옆에 붙고, 값이 없는 판은 결과만 보인다.
+        expect(await page.$$eval('[data-testid="lol-match-card"]', (cards) =>
+          cards.map((card) => card.querySelector('[data-testid="lol-lp-change"]')?.textContent ?? null)))
+          .toEqual(["+20 LP", "강등", null, null, null]);
         for (const metric of cardLayout.metrics)
           expect(metric.height).toBeLessThanOrEqual(metric.lineHeight + 1);
         expect(cardLayout.slots).toEqual(Array(7).fill(true));

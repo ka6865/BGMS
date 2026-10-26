@@ -3,6 +3,7 @@ import { recordLolOpsMetric } from "./ops.server";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import type { LolRankedPoint, LolRankedHistory, LolPlayerMatchSummary, LolAccountDeletion } from "@/lib/lol/types";
 import type { LolChallengeCatalog } from "./challengeProfile";
+import type { LolRankedObservation } from "./lpChange";
 export type { LolRankedPoint, LolRankedDailyPoint, LolRankedHistory } from "@/lib/lol/types";
 
 export type LolRiotHost = "asia" | "kr";
@@ -242,6 +243,23 @@ export async function hasLolBenchmarkProcessedMatch(matchId: string): Promise<bo
     if (error) throw error;
     return data !== null;
   } catch (error) { return persistenceFailure("get_lol_benchmark_processed_match", error, signal); }
+}
+
+// 경기별 LP 증감 계산용 원본 랭크 관측. 화면 그래프용 RPC는 하루 마지막 값만 주므로 테이블을 직접 읽는다.
+export async function getLolRankedObservations(puuid: string, since: string, limit = 300): Promise<LolRankedObservation[]> {
+  const signal = AbortSignal.timeout(LOL_DB_TIMEOUT_MS);
+  try {
+    const { data, error } = await db().from("lol_ranked_history")
+      .select("queue_type,tier,rank,league_points,wins,losses,recorded_at")
+      .eq("puuid", puuid).gte("recorded_at", since)
+      .order("recorded_at", { ascending: true }).order("id", { ascending: true })
+      .limit(limit).abortSignal(signal);
+    if (error) throw error;
+    return (data ?? []).map((row: any) => ({
+      queueType: row.queue_type, tier: row.tier, rank: row.rank, lp: row.league_points,
+      wins: row.wins, losses: row.losses, recordedAt: row.recorded_at,
+    }));
+  } catch (error) { return persistenceFailure("get_lol_ranked_observations", error, signal); }
 }
 
 export async function hasLolStoredMatch(matchId: string): Promise<boolean> {

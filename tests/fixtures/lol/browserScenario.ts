@@ -111,6 +111,8 @@ export const matches = Array.from({ length: 5 }, (_, index) => ({
   goldPerMinute: 480,
   teamPosition: "MIDDLE",
   remake: false,
+  // 경기별 LP 증감 표시 확인용: 첫 판 승리 +20, 둘째 판 패배 강등.
+  ...(index === 0 ? { lpChange: { kind: "lp" as const, value: 20 } } : index === 1 ? { lpChange: { kind: "demotion" as const } } : {}),
   details,
 }));
 

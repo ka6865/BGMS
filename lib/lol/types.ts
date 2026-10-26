@@ -1,6 +1,7 @@
 import type { LolChallenges } from "./challenges";
 import type { LolMatchInsights, LolRecentTrends } from "./insights";
 import type { LolChallengeProfile } from "./challengeProfile";
+import type { LolLpChange } from "./lpChange";
 import type { LolParticipantScore } from "./matchScore";
 
 export type LolParticipantIdentity = { playerKey?: string; ref?: string };
@@ -50,6 +51,8 @@ export type LolRecentMatch = {
   teammates?: Array<LolParticipantIdentity & { riotId: string; win: boolean | null }>;
   // 한 번에 연속 처치한 최대 수(2=더블킬 … 5=펜타킬). 이전 캐시에는 없다.
   largestMultiKill?: number;
+  // BGMS 랭크 관측 두 개 사이 이 판만 있었을 때의 LP 변화(lib/lol/lpChange.ts). 근거가 없으면 없다.
+  lpChange?: LolLpChange;
   remake: boolean;
 };
 
