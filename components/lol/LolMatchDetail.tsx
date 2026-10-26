@@ -7,6 +7,7 @@ import { formatKdaRatio, formatMetric, formatPercent } from "./lolFormat";
 import { LolBuildIcons, LolItemSlots } from "./LolMatchCard";
 import { LolMatchInsightSection } from "./LolInsightCards";
 import LolTeamAnalysis from "./LolTeamAnalysis";
+import LolMatchBuildPanel from "./LolMatchBuild";
 
 type Team = LolMatchDetails["teams"][number];
 type Player = Team["participants"][number];
@@ -16,11 +17,14 @@ type Props = {
   isOwn: (riotId: string) => boolean;
   onSearch: (riotId: string, ref?: string) => void;
   expanded: boolean;
+  // 빌드 탭이 타임라인을 요청할 API 기준 경로. 없으면 빌드 탭을 숨긴다.
+  apiBase?: string;
 };
 
 const TABS = [
   ["overview", "종합"],
   ["team", "팀 분석"],
+  ["build", "빌드"],
   ["insights", "라인전·기여"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
@@ -267,6 +271,7 @@ export default function LolMatchDetail({
   isOwn,
   onSearch,
   expanded,
+  apiBase,
 }: Props) {
   const [tab, setTab] = useState<Tab>("overview");
   const tabId = `lol-detail-${match.matchId}`;
@@ -274,7 +279,7 @@ export default function LolMatchDetail({
     !!match.insights &&
     (match.insights.laning.length > 0 ||
       match.insights.contribution.length > 0);
-  const tabs = TABS.filter(([key]) => key !== "insights" || hasInsights);
+  const tabs = TABS.filter(([key]) => (key !== "insights" || hasInsights) && (key !== "build" || !!apiBase));
   const players = teams.flatMap((team) => team.participants);
   const maxDealt = Math.max(
     0,
@@ -324,6 +329,23 @@ export default function LolMatchDetail({
               hidden={tab !== "insights"}
             >
               <LolMatchInsightSection insights={match.insights} />
+            </div>
+          )}
+          {apiBase && (
+            <div
+              role="tabpanel"
+              id={`${tabId}-build`}
+              aria-labelledby={`${tabId}-build-tab`}
+              hidden={tab !== "build"}
+            >
+              <LolMatchBuildPanel
+                matchId={match.matchId}
+                apiBase={apiBase}
+                teams={teams}
+                isOwn={isOwn}
+                dataDragonVersion={match.dataDragonVersion}
+                active={tab === "build"}
+              />
             </div>
           )}
           <div

@@ -18,6 +18,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
     let browser: Browser;
     let baseUrl: string;
     let holdRefresh: ((send: () => void) => void) | undefined;
+    let buildRequests = 0;
     const collectionRequests: Array<{ riotId: string; count: number; startOffset: number; confirm: boolean }> = [];
     const navigationFixture = `
       import { useMemo, useSyncExternalStore } from 'react';
@@ -339,6 +340,17 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
                 .end(JSON.stringify(legacy));
             } else send();
           });
+          return;
+        }
+        if (/^\/api\/admin\/lol\/matches\/[^/]+\/build$/.test(request.url ?? "")) {
+          buildRequests += 1;
+          response.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({
+            matchId: "FIXTURE_1",
+            players: matches[0].details!.teams.flatMap((team) => team.participants.map((player) => ({
+              teamId: team.teamId, championId: player.championId,
+              items: [{ minute: 0, items: [1055, 2003] }, { minute: 9, items: [3031] }], skills: [1, 3, 1, 2, 1, 4],
+            }))),
+          }));
           return;
         }
         if (request.url === "/api/admin/lol/matches/more" && request.method === "POST") {
@@ -974,6 +986,25 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       expect(moreBody).toEqual({ riotId: "BLUE0#kr1", offset: 5, matchIds: Array.from({ length: 15 }, (_, index) => `FIXTURE_${index + 6}`) });
       expect(await page.$eval('[data-testid="lol-summary-header"]', (summary) => summary.textContent))
         .toContain("최근 20경기 중 유효 20경기");
+      await page.close();
+    });
+
+    it("빌드 탭은 처음 열 때만 타임라인 빌드를 요청하고 아이템·스킬 순서를 보여 준다", async () => {
+      const page = await openPage();
+      buildRequests = 0;
+      await search(page);
+      await openFirstDetail(page);
+      expect(buildRequests).toBe(0);
+      const selectTab = (label: string) => page.$eval('section[aria-label="최근 경기"] article', (card, text) =>
+        ([...card.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent === text) as HTMLElement).click(), label);
+      await selectTab("빌드");
+      await page.waitForSelector('[aria-label="아이템 빌드"]');
+      const text = await page.$eval('[data-testid="lol-match-build"]', (section) => section.textContent ?? "");
+      expect(text).toContain("9분"); expect(text).toContain("Q›E");
+      await selectTab("종합");
+      await selectTab("빌드");
+      expect(buildRequests).toBe(1);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       await page.close();
     });
 

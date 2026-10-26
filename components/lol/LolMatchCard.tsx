@@ -21,6 +21,7 @@ type Props = {
   expanded: boolean;
   onToggle: () => void;
   onSearch: (riotId: string, ref?: string) => void;
+  apiBase?: string;
 };
 
 function hideBrokenImage(event: React.SyntheticEvent<HTMLImageElement>) {
@@ -150,6 +151,7 @@ export default function LolMatchCard({
   expanded,
   onToggle,
   onSearch,
+  apiBase,
 }: Props) {
   const dataDragonVersion = match.dataDragonVersion;
   const teams = [...(match.details?.teams ?? [])].sort(
@@ -307,6 +309,7 @@ export default function LolMatchCard({
           isOwn={isOwn}
           onSearch={onSearch}
           expanded={expanded}
+          apiBase={apiBase}
         />
       </div>
     </article>

@@ -35,6 +35,7 @@ import {
 import { summarizeRecentMatches } from "@/lib/lol/summary";
 import { pickLolChallenges } from "./challenges";
 import { buildLolMatchInsights, summarizeLolRecentTrends } from "./insights";
+import { parseLolMatchBuild, type LolMatchBuild } from "./matchBuild";
 import { buildLolChallengeProfile, parseLolChallengeCatalog, type LolChallengeCatalog, type LolChallengeProfile } from "./challengeProfile";
 import { parseLolMasteries, summarizeLolChampionPerformance } from "./mastery";
 import { lolParticipantDto, lolSearchResultDto, openLolParticipantRef } from "./participantIdentity.server";
@@ -1104,6 +1105,29 @@ async function getLolMatchDetailsAndRaw(
       }
     }
   }
+}
+
+// 타임라인은 상세 탭에서 빌드를 열 때만 1회 요청하고, 가공한 빌드만 잠시 메모리에 둔다.
+const LOL_BUILD_TTL_MS = 30 * 60_000;
+const LOL_TIMELINE_MAX_BYTES = 8 * 1024 * 1024;
+
+export async function getLolMatchBuild(input: string, storedOnly = false): Promise<LolMatchBuild> {
+  if (!isMatchId(input)) throw new RiotSearchError("invalid_request");
+  if (storedOnly && (!isLolPersistenceEnabled() || !await hasLolStoredMatch(input))) throw new RiotSearchError("not_found");
+  const cacheKey = `build:v1:${input}`;
+  const cached = getCached<LolMatchBuild>(cacheKey);
+  if (cached) return cached;
+  const { raw } = await getLolMatchDetailsAndRaw(input, true);
+  const timeline = await requestJson<unknown>("asia", `/lol/match/v5/matches/${encodeURIComponent(input)}/timeline`,
+    MATCH_TTL_MS, false, undefined, LOL_TIMELINE_MAX_BYTES);
+  let build: LolMatchBuild;
+  try {
+    build = parseLolMatchBuild(timeline, raw, input);
+  } catch {
+    throw new RiotSearchError("upstream");
+  }
+  setCached(cacheKey, build, LOL_BUILD_TTL_MS);
+  return build;
 }
 
 export async function getLolMatchDetails(input: string, storedOnly = false): Promise<import("./types").LolMatchDetails> {

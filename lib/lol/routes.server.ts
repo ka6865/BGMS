@@ -2,7 +2,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { isSameOriginLolRequest } from "./http.server";
 import { LolPersistenceError, LolLeaseExpiredError } from "./persistence.server";
-import { searchLolRiotId, getMoreLolMatches, getLolMatchDetails, RiotSearchError } from "./riotSearch.server";
+import { searchLolRiotId, getMoreLolMatches, getLolMatchDetails, getLolMatchBuild, RiotSearchError } from "./riotSearch.server";
 
 import { LOL_KEY_RENEWAL_MESSAGE, LOL_KEY_RENEWAL_ENGLISH, LOL_KEY_RENEWAL_CODE } from "./keyNotice";
 
@@ -115,13 +115,18 @@ export async function handleLolMore(request: Request, publicView = false): Promi
   }
 }
 
-export async function handleLolDetail(_request: Request, { params }: { params: Promise<{ matchId: string }> }, publicView = false): Promise<NextResponse> {
+export async function handleLolBuild(request: Request, context: { params: Promise<{ matchId: string }> }, publicView = false): Promise<NextResponse> {
+  return handleLolDetail(request, context, publicView, getLolMatchBuild);
+}
+
+export async function handleLolDetail(_request: Request, { params }: { params: Promise<{ matchId: string }> }, publicView = false,
+  load: (matchId: string, storedOnly: boolean) => Promise<unknown> = getLolMatchDetails): Promise<NextResponse> {
   const { matchId } = await params;
   if (matchId.length > 24 || !/^KR_\d{1,20}$/.test(matchId)) {
     return NextResponse.json({ error: "경기 ID 형식이 올바르지 않습니다." }, { status: 400, headers: { "Cache-Control": "private, no-store" } });
   }
   try {
-    return NextResponse.json(await getLolMatchDetails(matchId, publicView), { headers: { "Cache-Control": "private, no-store" } });
+    return NextResponse.json(await load(matchId, publicView), { headers: { "Cache-Control": "private, no-store" } });
   } catch (error) {
     if (error instanceof LolLeaseExpiredError) return searchResponse({ error: "처리 시간이 초과되었습니다. 다시 시도해 주세요." }, 503);
     if (error instanceof LolPersistenceError || (error instanceof RiotSearchError && error.kind === "persistence")) {
