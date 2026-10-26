@@ -1,7 +1,11 @@
 import { pickLolChallenges } from "./challenges";
 import type { LolPlayerMatchSummary } from "./types";
 
-export type LolInsight = { label: string; value: string; description: string; sampleSize?: number };
+// kind와 수치 필드는 화면 시각화용이며, 값이 없으면 문자열 value로 표시한다.
+export type LolInsight = {
+  label: string; value: string; description: string; sampleSize?: number;
+  kind?: "flag" | "compare" | "lead" | "share" | "count"; achieved?: boolean; ratio?: number; mine?: number; theirs?: number; amount?: number;
+};
 export type LolMatchInsights = { laning: LolInsight[]; contribution: LolInsight[] };
 export type LolRecentTrends = { sampleSize: number; metrics: LolInsight[] };
 
@@ -23,31 +27,35 @@ export function buildLolMatchInsights(input: {
   if (classic && LANES.includes(input.position)) {
     for (const [key, label] of [["laningPhaseGoldExpAdvantage", "라인전 골드·경험치"],
       ["earlyLaningPhaseGoldExpAdvantage", "초반 골드·경험치"]] as const) {
-      if (c[key] === 0 || c[key] === 1) laning.push({ label, value: c[key] === 1 ? "우위 달성" : "우위 미달성",
+      if (c[key] === 0 || c[key] === 1) laning.push({ label, value: c[key] === 1 ? "우위 달성" : "우위 미달성", kind: "flag", achieved: c[key] === 1,
         description: `Riot의 ${label} 우위 조건을 ${c[key] === 1 ? "달성했습니다" : "달성하지 않았습니다"}.` });
     }
     if (count(c.maxCsAdvantageOnLaneOpponent)) laning.push({ label: "최대 CS 우위", value: fmt(c.maxCsAdvantageOnLaneOpponent),
+      kind: "lead", amount: c.maxCsAdvantageOnLaneOpponent,
       description: `맞라이너보다 CS를 최대 ${fmt(c.maxCsAdvantageOnLaneOpponent)}개 앞선 기록입니다.` });
     if (count(c.maxLevelLeadLaneOpponent)) laning.push({ label: "최대 레벨 우위", value: fmt(c.maxLevelLeadLaneOpponent),
+      kind: "lead", amount: c.maxLevelLeadLaneOpponent,
       description: `맞라이너 대비 최대 레벨 우위는 ${fmt(c.maxLevelLeadLaneOpponent)}입니다.` });
     if (input.duration >= 600 && count(c.laneMinionsFirst10Minutes)) laning.push({ label: "10분 라인 CS", value: fmt(c.laneMinionsFirst10Minutes),
+      kind: "compare", mine: c.laneMinionsFirst10Minutes, theirs: count(opponent.laneMinionsFirst10Minutes) ? opponent.laneMinionsFirst10Minutes : undefined,
       description: `첫 10분 동안 라인 미니언 ${fmt(c.laneMinionsFirst10Minutes)}개를 처치했습니다.`
         + (count(opponent.laneMinionsFirst10Minutes) ? ` 같은 포지션 상대는 ${fmt(opponent.laneMinionsFirst10Minutes)}개를 기록했습니다.` : "") });
   }
   if (classic && input.position === "JUNGLE" && input.duration >= 600 && count(c.jungleCsBefore10Minutes)) {
-    laning.push({ label: "10분 정글 CS", value: fmt(c.jungleCsBefore10Minutes),
+    laning.push({ label: "10분 정글 CS", value: fmt(c.jungleCsBefore10Minutes), kind: "compare", mine: c.jungleCsBefore10Minutes,
       description: `첫 10분 동안 정글 CS ${fmt(c.jungleCsBefore10Minutes)}를 기록했습니다.` });
   }
   if (classic && (LANES.includes(input.position) || input.position === "UTILITY")
     && count(input.visionScore) && count(input.opponentVisionScore)) {
     const difference = input.visionScore - input.opponentVisionScore;
     laning.push({ label: "시야 점수 격차", value: `${difference > 0 ? "+" : ""}${fmt(difference)}`,
+      kind: "compare", mine: input.visionScore, theirs: input.opponentVisionScore,
       description: difference === 0 ? "같은 포지션 상대와 시야 점수가 같습니다."
         : `같은 포지션 상대보다 시야 점수가 ${fmt(Math.abs(difference))}점 ${difference > 0 ? "높습니다" : "낮습니다"}.` });
   }
   for (const [key, label, subject] of [["teamDamagePercentage", "팀 내 피해 비중", "팀의 챔피언 대상 피해"],
     ["damageTakenOnTeamPercentage", "받은 피해 비중", "팀이 받은 피해"], ["killParticipation", "킬 관여율", "팀 처치"]] as const) {
-    if (ratio(c[key])) contribution.push({ label, value: `${fmt(c[key] * 100)}%`,
+    if (ratio(c[key])) contribution.push({ label, value: `${fmt(c[key] * 100)}%`, kind: "share", ratio: c[key],
       description: `${subject} 중 ${fmt(c[key] * 100)}%${key === "killParticipation" ? "에 관여했습니다" : "를 기록했습니다"}.` });
   }
   for (const [key, label, text] of [["dragonTakedowns", "드래곤", "드래곤 처치에 관여한 횟수"],
@@ -56,7 +64,7 @@ export function buildLolMatchInsights(input: {
     ["tookLargeDamageSurvived", "피해 후 생존", "큰 피해를 받고 생존한 횟수"],
     ["effectiveHealAndShielding", "치유·보호막", "유효 치유·보호막 합계"]] as const) {
     if (count(c[key]) && (!classic ? !["dragonTakedowns", "baronTakedowns", "riftHeraldTakedowns", "turretPlatesTaken"].includes(key) : true))
-      contribution.push({ label, value: fmt(c[key]), description: `${text}는 ${fmt(c[key])}입니다.` });
+      contribution.push({ label, value: fmt(c[key]), kind: "count", amount: c[key], description: `${text}는 ${fmt(c[key])}입니다.` });
   }
   return { laning, contribution };
 }
