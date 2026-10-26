@@ -174,9 +174,9 @@ function LolPeers({ summary, onSearch, dataDragonVersion }: {
                       onClick={() => onSearch(player.riotId, player.ref)}
                       className="flex w-full min-w-0 items-center gap-2 text-left hover:text-amber-300"
                     >
-                      {player.championImageId && dataDragonVersion ? (
+                      {player.profileIconId !== undefined && dataDragonVersion ? (
                         <img
-                          src={`https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/champion/${player.championImageId}.png`}
+                          src={`https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/profileicon/${player.profileIconId}.png`}
                           alt=""
                           width={28}
                           height={28}

@@ -113,7 +113,7 @@ const RIOT_HOSTS = {
 } as const;
 const LOL_PLATFORM: LolPlatform = "kr";
 const LOL_REGIONAL_ROUTE: LolRegionalRoute = "asia";
-export const LOL_MATCH_DETAILS_VERSION = "v4";
+export const LOL_MATCH_DETAILS_VERSION = "v5";
 const MIN_SUMMARY_GAME_DURATION_SECONDS = 300;
 const STATIC_TTL_MS = 24 * 60 * 60_000;
 type StaticRune = { id: number; name: string; icon: string };
@@ -876,6 +876,8 @@ function buildMatchDetails(
       championNameKo:
         champion?.name ?? String(participant.championName ?? "알 수 없음"),
       win: Boolean(participant.win),
+      ...(optionalNonNegativeNumber(participant.profileIcon) !== null
+        ? { profileIconId: optionalNonNegativeNumber(participant.profileIcon)! } : {}),
       championLevel: optionalPositiveInteger(participant.champLevel),
       spells: [participant.summoner1Id, participant.summoner2Id].map((id) => {
         const spellId = optionalNonNegativeNumber(id);

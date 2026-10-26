@@ -36,7 +36,7 @@ function matchesQueue(
 }
 
 type PeerRow = LolQueueSummary["teammates"][number];
-type PeerInput = { riotId: string; playerKey?: string; ref?: string; win: boolean | null; championImageId?: string };
+type PeerInput = { riotId: string; playerKey?: string; ref?: string; win: boolean | null; profileIconId?: number };
 
 function addPeers(rows: Map<string, PeerRow>, peers: PeerInput[], match: LolRecentMatch) {
   const seen = new Set<string>();
@@ -53,10 +53,10 @@ function addPeers(rows: Map<string, PeerRow>, peers: PeerInput[], match: LolRece
       losses: 0,
       winRatePct: null,
     };
-    // 목록 아이콘은 가장 최근 경기에서 그 소환사가 쓴 챔피언으로 보여 준다.
-    const championImageId = participant.championImageId ?? match.details?.teams
-      .flatMap((team) => team.participants).find((player) => player.riotId === participant.riotId)?.championImageId;
-    if (!row.championImageId && championImageId) row.championImageId = championImageId;
+    // 소환사 아이콘은 가장 최근 경기의 상세 참가자 값을 쓴다.
+    const profileIconId = participant.profileIconId ?? match.details?.teams
+      .flatMap((team) => team.participants).find((player) => player.riotId === participant.riotId)?.profileIconId;
+    if (row.profileIconId === undefined && profileIconId !== undefined) row.profileIconId = profileIconId;
     row.games += 1;
     if (typeof participant.win === "boolean") {
       if (participant.win) row.wins += 1;

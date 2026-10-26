@@ -74,7 +74,7 @@ export type LolQueueSummary = {
   positions: Record<LolRecentMatch["teamPosition"], number>;
   teammates: Array<LolParticipantIdentity & {
     riotId: string;
-    championImageId?: string;
+    profileIconId?: number;
     games: number;
     wins: number;
     losses: number;
@@ -111,6 +111,8 @@ export type LolMatchDetails = {
     >;
     participants: Array<LolParticipantIdentity & {
       riotId: string;
+      // 소환사 아이콘. 상세 형식 v5 이전 캐시에는 없다.
+      profileIconId?: number;
       championId: number;
       championImageId: string;
       championName: string;
