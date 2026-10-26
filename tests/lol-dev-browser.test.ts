@@ -769,7 +769,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
     it("함께 플레이 이름도 URL로 이동하고 잘못된 주소는 API 호출 없이 오류를 표시한다", async () => {
       const page = await openPage();
       await search(page, "blue0#KR1");
-      await page.click('[aria-label="함께 플레이한 소환사"] button');
+      await page.click('[aria-label="함께 플레이한 소환사"] [data-testid="lol-peer"] button');
       await page.waitForFunction(() => document.querySelector("h2")?.textContent === "blue1#KR1");
       expect(page.url()).toBe(`${baseUrl}/admin/lol/kr/blue1-KR1`);
       let searches = 0;
@@ -786,7 +786,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       await search(page, "identity#KR1");
       if (entry === "detail") await openFirstDetail(page);
       const selector = entry === "card" ? '[data-testid="lol-match-player"]'
-        : entry === "detail" ? '[data-testid="lol-player-row"] button' : '[aria-label="함께 플레이한 소환사"] button';
+        : entry === "detail" ? '[data-testid="lol-player-row"] button' : '[aria-label="함께 플레이한 소환사"] [data-testid="lol-peer"] button';
       await page.$$eval(selector, (buttons) => {
         const button = buttons.find((item) => item.textContent?.trim() === "blue1#KR1");
         if (!button) throw new Error("참가자 버튼을 찾을 수 없습니다");

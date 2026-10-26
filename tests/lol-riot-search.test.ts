@@ -1601,7 +1601,7 @@ describe("POST /api/admin/lol/search", () => {
     ).toHaveLength(5);
   });
 
-  it("포지션과 함께 플레이한 소환사는 같은 팀의 유효 경기만 PUUID로 집계해 최대 5명만 반환한다", async () => {
+  it("포지션과 함께 플레이한 소환사는 같은 팀의 유효 경기만 PUUID로 집계해 최대 10명까지 반환한다", async () => {
     vi.setSystemTime(Date.now() + 72 * 60 * 60_000);
     const ids = ["KR_131", "KR_132", "KR_133", "KR_134", "KR_135"];
     const calls: string[] = [];
@@ -1700,8 +1700,8 @@ describe("POST /api/admin/lol/search", () => {
       UTILITY: 0,
       미분류: 1,
     });
-    expect(summary.teammates).toHaveLength(5);
-    expect(summary.teammates.map((player) => player.riotId)).toEqual([
+    expect(summary.teammates).toHaveLength(7);
+    expect(summary.teammates.slice(0, 5).map((player) => player.riotId)).toEqual([
       "mate-5#KR1",
       "rate#KR1",
       "mate-0#KR1",
@@ -1723,10 +1723,11 @@ describe("POST /api/admin/lol/search", () => {
       summary.teammates.some(
         (player) =>
           player.riotId.startsWith("enemy-") ||
-          player.riotId.startsWith("single-") ||
-          player.riotId.startsWith("mate-4"),
+          player.riotId.startsWith("single-"),
       ),
     ).toBe(false);
+    // 상대 팀은 같은 팀 목록과 섞이지 않는다.
+    expect(summary.opponents?.every((player) => player.riotId.startsWith("enemy-"))).toBe(true);
     expect(JSON.stringify(result)).not.toContain("puuid");
     expect(
       calls.filter((url) => url.includes("api.riotgames.com")),

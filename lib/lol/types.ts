@@ -74,11 +74,14 @@ export type LolQueueSummary = {
   positions: Record<LolRecentMatch["teamPosition"], number>;
   teammates: Array<LolParticipantIdentity & {
     riotId: string;
+    championImageId?: string;
     games: number;
     wins: number;
     losses: number;
     winRatePct: number | null;
   }>;
+  // 이전 캐시 요약에는 없을 수 있다.
+  opponents?: LolQueueSummary["teammates"];
   champions: Array<{
     championId: number;
     championImageId: string;
