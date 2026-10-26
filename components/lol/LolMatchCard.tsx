@@ -307,10 +307,11 @@ export default function LolMatchCard({
             )}
           </div>
 
+          {/* 좁은 카드(모바일)에서는 10명 목록을 숨겨 카드 높이를 줄인다. 참가자는 상세 종합 탭에서 볼 수 있다. */}
           <div
             data-testid="lol-match-player-groups"
-            className="grid min-w-0 grid-cols-2 gap-x-3 text-[11px] leading-[18px]
-              @min-[560px]/match:col-span-3 @min-[900px]/match:col-span-1 @min-[900px]/match:col-start-5 @min-[900px]/match:row-span-2 @min-[900px]/match:row-start-1 @min-[900px]/match:self-center"
+            className="hidden min-w-0 grid-cols-2 gap-x-3 text-[11px] leading-[18px]
+              @min-[560px]/match:col-span-3 @min-[560px]/match:grid @min-[900px]/match:col-span-1 @min-[900px]/match:col-start-5 @min-[900px]/match:row-span-2 @min-[900px]/match:row-start-1 @min-[900px]/match:self-center"
           >
             {teams.map((team) => (
               <div

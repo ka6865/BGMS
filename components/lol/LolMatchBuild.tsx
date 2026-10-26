@@ -75,30 +75,44 @@ function PlayerBuild({ build, version }: { build: LolPlayerBuild; version?: stri
           )}
         </div>
         {build.skills.length ? (
-          <div className="overflow-x-auto">
-            <table className="border-separate border-spacing-0.5 text-[10px] tabular-nums">
-              <tbody>
-                {SKILLS.map((label, row) => (
-                  <tr key={label}>
-                    <th scope="row" className="w-5 pr-1 text-left font-semibold text-zinc-400">{label}</th>
-                    {build.skills.map((slot, level) => (
-                      <td
-                        key={level}
-                        className={`h-5 w-5 min-w-5 rounded-sm text-center ${slot === row + 1
-                          ? row === 3 ? "bg-amber-500 font-bold text-zinc-950" : "bg-sky-500 font-bold text-zinc-950"
-                          : "bg-zinc-800/70 text-transparent"}`}
-                      >
-                        {slot === row + 1 ? level + 1 : ""}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            {/* 좁은 화면에서는 18레벨을 9칸씩 두 줄로 나눠 가로 스크롤 없이 보여 준다. */}
+            <div className="grid gap-2 sm:hidden">
+              {[0, 9].filter((start) => start < build.skills.length).map((start) => (
+                <SkillTable key={start} skills={build.skills.slice(start, start + 9)} offset={start} />
+              ))}
+            </div>
+            <div className="hidden overflow-x-auto sm:block">
+              <SkillTable skills={build.skills} offset={0} />
+            </div>
+          </>
         ) : <p className="text-xs text-zinc-500">스킬 기록이 없습니다.</p>}
       </section>
     </div>
+  );
+}
+
+function SkillTable({ skills, offset }: { skills: number[]; offset: number }) {
+  return (
+    <table className="border-separate border-spacing-0.5 text-[10px] tabular-nums">
+      <tbody>
+        {SKILLS.map((label, row) => (
+          <tr key={label}>
+            <th scope="row" className="w-5 pr-1 text-left font-semibold text-zinc-400">{label}</th>
+            {skills.map((slot, index) => (
+              <td
+                key={index}
+                className={`h-6 w-6 min-w-6 rounded-sm text-center ${slot === row + 1
+                  ? row === 3 ? "bg-amber-500 font-bold text-zinc-950" : "bg-sky-500 font-bold text-zinc-950"
+                  : "bg-zinc-800/70 text-transparent"}`}
+              >
+                {slot === row + 1 ? offset + index + 1 : ""}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -141,6 +155,8 @@ export default function LolMatchBuildPanel({ matchId, apiBase, teams, isOwn, dat
   }, [active, apiBase, matchId, attempt]);
 
   const build = state.status === "ready" ? findPlayerBuild(state.build, teams, selected) : undefined;
+  const [selectedTeamId, selectedSlot] = selected.split(":").map(Number);
+  const selectedPlayer = teams.find((team) => team.teamId === selectedTeamId)?.participants[selectedSlot];
 
   return (
     <section data-testid="lol-match-build" aria-label="빌드" className="grid min-w-0 gap-4">
@@ -158,15 +174,15 @@ export default function LolMatchBuildPanel({ matchId, apiBase, teams, isOwn, dat
                   aria-label={`${player.riotId} · ${player.championNameKo}`}
                   title={`${player.riotId} · ${player.championNameKo}`}
                   onClick={() => setSelected(key)}
-                  className={`rounded-md p-0.5 ${selected === key ? team.teamId === 100 ? "ring-2 ring-blue-400" : "ring-2 ring-red-400" : "opacity-60 hover:opacity-100"}`}
+                  className={`grid h-11 w-11 place-items-center rounded-md ${selected === key ? team.teamId === 100 ? "ring-2 ring-blue-400" : "ring-2 ring-red-400" : "opacity-60 hover:opacity-100"}`}
                 >
                   <img
                     src={`https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/champion/${player.championImageId}.png`}
                     alt=""
-                    width={28}
-                    height={28}
+                    width={34}
+                    height={34}
                     onError={(event) => { event.currentTarget.style.visibility = "hidden"; }}
-                    className="h-7 w-7 rounded bg-zinc-800"
+                    className="h-[34px] w-[34px] rounded bg-zinc-800"
                   />
                 </button>
               );
@@ -174,6 +190,11 @@ export default function LolMatchBuildPanel({ matchId, apiBase, teams, isOwn, dat
           </div>
         ))}
       </div>
+      {selectedPlayer && (
+        <p data-testid="lol-match-build-selected" className="min-w-0 truncate text-xs text-zinc-300">
+          <b className="text-zinc-100">{selectedPlayer.riotId.split("#")[0]}</b> · {selectedPlayer.championNameKo}
+        </p>
+      )}
       {state.status === "ready" ? build
         ? <PlayerBuild build={build} version={dataDragonVersion} />
         : <p className="text-xs text-zinc-500">선택한 소환사의 빌드 기록이 없습니다.</p>

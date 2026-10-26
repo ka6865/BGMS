@@ -128,6 +128,12 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
     // 상세를 펼치며 목록 끝까지 스크롤되면 공개 추가 조회가 이어질 수 있다.
     expect(calls.filter(url => url !== `${base}/api/lol/matches/more`)).toEqual([`${base}/api/lol/search`]); expect(errors).toEqual([]);
     await page.screenshot({ path: `tmp/lol-public-review/${width}x${height}.png`, fullPage: true });
+    // lg 미만은 통계가 별도 탭이라 탭을 바꾼 뒤 카드를 캡처한다.
+    if (width < 1024) {
+      expect(await page.$eval('[data-testid="lol-sidebar-stats"]', element => getComputedStyle(element).display)).toBe("none");
+      await page.click("#lol-view-stats-tab");
+      await page.waitForFunction(() => getComputedStyle(document.querySelector('[data-testid="lol-sidebar-stats"]')!).display !== "none");
+    }
     const challengeCard = await page.$('[data-testid="lol-challenge-profile"]');
     await challengeCard!.screenshot({ path: `tmp/lol-public-review/challenges-${width}x${height}.png` }); await page.close();
   });
