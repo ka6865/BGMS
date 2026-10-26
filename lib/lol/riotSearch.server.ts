@@ -36,6 +36,7 @@ import { summarizeRecentMatches } from "@/lib/lol/summary";
 import { pickLolChallenges } from "./challenges";
 import { buildLolMatchInsights, summarizeLolRecentTrends } from "./insights";
 import { parseLolMatchBuild, type LolMatchBuild } from "./matchBuild";
+import { scoreLolMatch } from "./matchScore";
 import { buildLolChallengeProfile, parseLolChallengeCatalog, type LolChallengeCatalog, type LolChallengeProfile } from "./challengeProfile";
 import { parseLolMasteries, summarizeLolChampionPerformance } from "./mastery";
 import { lolParticipantDto, lolSearchResultDto, openLolParticipantRef } from "./participantIdentity.server";
@@ -114,7 +115,7 @@ const RIOT_HOSTS = {
 } as const;
 const LOL_PLATFORM: LolPlatform = "kr";
 const LOL_REGIONAL_ROUTE: LolRegionalRoute = "asia";
-export const LOL_MATCH_DETAILS_VERSION = "v5";
+export const LOL_MATCH_DETAILS_VERSION = "v6";
 const MIN_SUMMARY_GAME_DURATION_SECONDS = 300;
 const STATIC_TTL_MS = 24 * 60 * 60_000;
 type StaticRune = { id: number; name: string; icon: string };
@@ -840,7 +841,8 @@ function buildMatchDetails(
           image: rune.icon,
         });
   }
-  const participants = info.participants.map((participant: any) => {
+  const scores = scoreLolMatch(info);
+  const participants = info.participants.map((participant: any, participantIndex: number) => {
     const championEntry = Object.entries(metadata.champions).find(
       ([, champion]) => Number(champion.key) === Number(participant.championId),
     );
@@ -879,6 +881,7 @@ function buildMatchDetails(
       championNameKo:
         champion?.name ?? String(participant.championName ?? "알 수 없음"),
       win: Boolean(participant.win),
+      ...(scores[participantIndex] ? { score: scores[participantIndex]! } : {}),
       ...(optionalNonNegativeNumber(participant.profileIcon) !== null
         ? { profileIconId: optionalNonNegativeNumber(participant.profileIcon)! } : {}),
       championLevel: optionalPositiveInteger(participant.champLevel),

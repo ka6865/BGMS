@@ -1,6 +1,7 @@
 import type { LolChallenges } from "./challenges";
 import type { LolMatchInsights, LolRecentTrends } from "./insights";
 import type { LolChallengeProfile } from "./challengeProfile";
+import type { LolParticipantScore } from "./matchScore";
 
 export type LolParticipantIdentity = { playerKey?: string; ref?: string };
 
@@ -115,6 +116,8 @@ export type LolMatchDetails = {
       riotId: string;
       // 소환사 아이콘. 상세 형식 v5 이전 캐시에는 없다.
       profileIconId?: number;
+      // BGMS 경기 기여도(시험판). 협곡·칼바람 5분 이상 정상 종료 경기에만 있다.
+      score?: LolParticipantScore;
       championId: number;
       championImageId: string;
       championName: string;

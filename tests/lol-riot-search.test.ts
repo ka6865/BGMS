@@ -506,7 +506,7 @@ describe("POST /api/admin/lol/search", () => {
     await expect(response.json()).resolves.toEqual({ ...dto, dataDragonVersion: "16.21.1" });
     expect(persistence.cache).toHaveBeenCalledWith(
       "match_details",
-      "match:v1:kr:asia:16.21.1:v5:KR_55",
+      "match:v1:kr:asia:16.21.1:v6:KR_55",
       "kr",
       "asia",
       "16.21.1",
@@ -2028,7 +2028,7 @@ describe("POST /api/admin/lol/search", () => {
     });
     expect(persistence.cache).toHaveBeenCalledWith(
       "match_details",
-      "match:v1:kr:asia:16.21.1:v5:KR_98",
+      "match:v1:kr:asia:16.21.1:v6:KR_98",
       "kr",
       "asia",
       "16.21.1",
@@ -2042,7 +2042,7 @@ describe("POST /api/admin/lol/search", () => {
     expect(persistence.saveMatch).toHaveBeenCalledWith(
       expect.objectContaining({
         version: "16.21.1",
-        cacheKey: "match:v1:kr:asia:16.21.1:v5:KR_98",
+        cacheKey: "match:v1:kr:asia:16.21.1:v6:KR_98",
       }),
     );
   });
@@ -2063,9 +2063,9 @@ describe("POST /api/admin/lol/search", () => {
     expect(await (await getMatch(new Request("http://localhost"), context)).json()).toMatchObject({ dataDragonVersion: "16.21.1" });
     dragon.version = "16.22.1";
     expect(await (await getMatch(new Request("http://localhost"), context)).json()).toMatchObject({ dataDragonVersion: "16.22.1" });
-    expect(persistence.cache).toHaveBeenLastCalledWith("match_details", "match:v1:kr:asia:16.22.1:v5:KR_987", "kr", "asia", "16.22.1");
+    expect(persistence.cache).toHaveBeenLastCalledWith("match_details", "match:v1:kr:asia:16.22.1:v6:KR_987", "kr", "asia", "16.22.1");
     expect(persistence.saveMatch).toHaveBeenCalledWith(expect.objectContaining({
-      cacheKey: "match:v1:kr:asia:16.22.1:v5:KR_987", version: "16.22.1",
+      cacheKey: "match:v1:kr:asia:16.22.1:v6:KR_987", version: "16.22.1",
       cachePayload: expect.objectContaining({ dataDragonVersion: "16.22.1" }),
     }));
     expect(calls).toHaveLength(4);

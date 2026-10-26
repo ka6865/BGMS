@@ -4,7 +4,7 @@ import type {
   LolRecentMatch,
 } from "@/lib/lol/riotSearch.server";
 import { formatKdaRatio, formatMetric, formatPercent } from "./lolFormat";
-import { LolBuildIcons, LolItemSlots } from "./LolMatchCard";
+import { LolBuildIcons, LolItemSlots, LolScoreBadge } from "./LolMatchCard";
 import { LolMatchInsightSection } from "./LolInsightCards";
 import LolTeamAnalysis from "./LolTeamAnalysis";
 import LolMatchBuildPanel from "./LolMatchBuild";
@@ -217,8 +217,9 @@ function PlayerRow({
         >
           {player.riotId}
         </button>
-        <span className="block truncate text-[10px] text-zinc-500">
-          {player.championNameKo}
+        <span className="flex min-w-0 items-center gap-1 text-[10px] text-zinc-500">
+          <span className="truncate">{player.championNameKo}</span>
+          <LolScoreBadge player={player} />
         </span>
       </div>
       <div className="text-center text-[9px] tabular-nums @min-[860px]/history:text-[10px]">

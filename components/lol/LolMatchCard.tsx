@@ -148,6 +148,25 @@ function MultiKillBadge({ count }: { count?: number }) {
   );
 }
 
+const ordinal = (rank: number) => `${rank}${rank === 1 ? "st" : rank === 2 ? "nd" : rank === 3 ? "rd" : "th"}`;
+
+export function LolScoreBadge({ player }: { player?: LolPlayer }) {
+  const score = player?.score;
+  if (!score) return null;
+  const style = score.award === "MVP" ? "bg-amber-400/25 text-amber-200 ring-amber-300/60"
+    : score.award === "ACE" ? "bg-violet-500/25 text-violet-200 ring-violet-400/50" : "bg-zinc-700/60 text-zinc-200 ring-zinc-500/40";
+  return (
+    <span
+      data-testid="lol-score-badge"
+      title={`BGMS 점수(시험판) ${score.score.toFixed(1)} · 경기 내 ${score.rank}위`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 ${style}`}
+    >
+      <span className="tabular-nums">{score.score.toFixed(1)}</span>
+      <span>{score.award ?? ordinal(score.rank)}</span>
+    </span>
+  );
+}
+
 function ChampionThumb({ player, dataDragonVersion }: { player: LolPlayer; dataDragonVersion?: string }) {
   return (
     <img
@@ -238,7 +257,10 @@ export default function LolMatchCard({
                   {match.kills ?? "—"} / <span className="text-red-400">{match.deaths ?? "—"}</span> / {match.assists ?? "—"}
                 </p>
                 <p className="text-[11px] text-zinc-400">{ratio} 평점</p>
-                <MultiKillBadge count={match.largestMultiKill} />
+                <div className="mt-0.5 flex flex-wrap gap-1">
+                  <LolScoreBadge player={ownPlayer} />
+                  <MultiKillBadge count={match.largestMultiKill} />
+                </div>
               </div>
             </div>
           </div>
@@ -251,7 +273,10 @@ export default function LolMatchCard({
               {match.kills ?? "—"} / <span className="text-red-400">{match.deaths ?? "—"}</span> / {match.assists ?? "—"}
             </p>
             <p className="text-xs text-zinc-400">{ratio} 평점</p>
-            <div className="mt-1"><MultiKillBadge count={match.largestMultiKill} /></div>
+            <div className="mt-1 flex flex-wrap justify-center gap-1">
+              <LolScoreBadge player={ownPlayer} />
+              <MultiKillBadge count={match.largestMultiKill} />
+            </div>
           </div>
 
           <div
@@ -269,6 +294,17 @@ export default function LolMatchCard({
             <span data-testid="lol-match-metric" className="block whitespace-nowrap">
               골드/분 {formatMetric(match.goldPerMinute)}
             </span>
+            {ownPlayer?.score && (
+              <span
+                data-testid="lol-match-score-line"
+                title="BGMS 자체 지표(시험판): 인분은 우리 팀 평균 대비 기여, 팀운은 나를 뺀 팀원과 상대 팀의 골드·피해·KDA 비교"
+                className="block whitespace-nowrap text-zinc-400"
+              >
+                인분 <b className="text-zinc-100">{ownPlayer.score.inbun.toFixed(2)}</b> · 팀운{" "}
+                <b className={ownPlayer.score.teamLuck === "최고" || ownPlayer.score.teamLuck === "좋음" ? "text-sky-300"
+                  : ownPlayer.score.teamLuck === "보통" ? "text-zinc-100" : "text-rose-300"}>{ownPlayer.score.teamLuck}</b>
+              </span>
+            )}
           </div>
 
           <div
