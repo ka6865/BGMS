@@ -122,6 +122,7 @@ MIGRATIONS=(
   "20261024040000_lol_review_fixes"
   "20261025010000_lol_challenge_catalog"
   "20261025200000_lol_ladder_status"
+  "20261026010000_lol_delete_search_lease_any_version"
 )
 
 cleanup() {

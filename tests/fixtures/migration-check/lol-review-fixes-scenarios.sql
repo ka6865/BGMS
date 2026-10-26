@@ -16,12 +16,18 @@ begin
   perform * from public.acquire_lol_collection_lease('collect:identity-backfill-own',180);
   perform * from public.acquire_lol_collection_lease('search:v10:' ||
     (select lower(game_name || '#' || tag_line) from public.lol_accounts where puuid='identity-backfill-own'),180);
+  perform * from public.acquire_lol_collection_lease('search:v11:' ||
+    (select lower(game_name || '#' || tag_line) from public.lol_accounts where puuid='identity-backfill-own'),180);
+  -- 이름 뒤에 다른 문자가 붙은 검색 lease는 다른 계정이므로 남아야 한다.
+  perform * from public.acquire_lol_collection_lease('search:v11:' ||
+    (select lower(game_name || '#' || tag_line) from public.lol_accounts where puuid='identity-backfill-own') || 'x',180);
   perform * from public.acquire_lol_collection_lease('match:KR_889998',180);
   perform * from public.acquire_lol_collection_lease('collect:unrelated-fixture',180);
   perform * from public.acquire_lol_collection_lease('ops:expired-cleanup',120);
   v_result := public.delete_lol_account_data('identity-backfill-own');
-  if (v_result->>'lease_rows')::integer <> 3 then raise exception '대상 lease를 모두 지우지 않음'; end if;
-  if (select count(*) from public.lol_collection_leases where lease_key in ('collect:unrelated-fixture','ops:expired-cleanup')) <> 2 then
+  if (v_result->>'lease_rows')::integer <> 4 then raise exception '대상 lease를 모두 지우지 않음'; end if;
+  if (select count(*) from public.lol_collection_leases where lease_key in ('collect:unrelated-fixture','ops:expired-cleanup')
+    or lease_key like 'search:v11:%x') <> 3 then
     raise exception '무관한 계정 또는 정리 lease를 삭제함';
   end if;
   -- 저장 계정이 없는 동료도 PUUID 수집 lease만 삭제한다.
