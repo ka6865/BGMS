@@ -32,10 +32,13 @@ export function LolItemSlots({
   player,
   size = 20,
   dataDragonVersion,
+  slotClassName,
 }: {
   player?: LolPlayer;
   size?: number;
   dataDragonVersion?: string;
+  // 지정하면 고정 size 대신 이 클래스로 칸 크기를 정한다(반응형 표에서 사용).
+  slotClassName?: string;
 }) {
   return (
     <div
@@ -49,8 +52,8 @@ export function LolItemSlots({
             key={index}
             data-testid="lol-player-item-slot"
             title={item?.name || "아이템 미제공"}
-            className="grid place-items-center rounded bg-zinc-800 text-[8px] text-zinc-500"
-            style={{ width: size, height: size }}
+            className={`grid place-items-center rounded bg-zinc-800 text-[8px] text-zinc-500 ${slotClassName ?? ""}`}
+            style={slotClassName ? undefined : { width: size, height: size }}
           >
             {item?.id ? (
               <img
@@ -59,7 +62,7 @@ export function LolItemSlots({
                 width={size}
                 height={size}
                 onError={hideBrokenImage}
-                className="rounded"
+                className={slotClassName ? "h-full w-full rounded" : "rounded"}
               />
             ) : (
               "—"
@@ -148,7 +151,8 @@ function MultiKillBadge({ count }: { count?: number }) {
   );
 }
 
-const ordinal = (rank: number) => `${rank}${rank === 1 ? "st" : rank === 2 ? "nd" : rank === 3 ? "rd" : "th"}`;
+export const lolScoreRankLabel = (rank: number) => `${rank}${rank === 1 ? "st" : rank === 2 ? "nd" : rank === 3 ? "rd" : "th"}`;
+const ordinal = lolScoreRankLabel;
 
 export function LolScoreBadge({ player }: { player?: LolPlayer }) {
   const score = player?.score;
