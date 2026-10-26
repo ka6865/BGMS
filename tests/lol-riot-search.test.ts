@@ -384,7 +384,7 @@ describe("POST /api/admin/lol/search", () => {
     ).toBe(true);
   });
 
-  it("첫 검색은 20개 경기 ID를 받고 상세는 최대 5개만 처리한다", async () => {
+  it("첫 검색은 20개 경기 ID를 받고 상세도 한 페이지 20개를 처리한다", async () => {
     const ids = Array.from({ length: 20 }, (_, index) => `KR_${index + 1}`);
     const calls: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
@@ -398,14 +398,14 @@ describe("POST /api/admin/lol/search", () => {
       throw new Error(`Unexpected request: ${url}`);
     }));
     const pending = searchLolRiotId("Test#KR1");
-    await vi.advanceTimersByTimeAsync(30_000);
+    await vi.advanceTimersByTimeAsync(120_000);
     const result = await pending;
     expect(result.matchIds).toHaveLength(20);
-    expect(result.loadedCount).toBe(5);
+    expect(result.loadedCount).toBe(20);
     expect(result.hasMore).toBe(true);
-    expect(result.matchFailures).toHaveLength(5);
+    expect(result.matchFailures).toHaveLength(20);
     expect(calls.find((url) => url.includes("/ids?"))).toContain("count=20");
-    expect(calls.filter((url) => /\/matches\/KR_/.test(url))).toHaveLength(5);
+    expect(calls.filter((url) => /\/matches\/KR_/.test(url))).toHaveLength(20);
   });
 
   it("검색 캐시는 같은 Riot ID의 반복 호출을 합친다", async () => {
@@ -2272,7 +2272,7 @@ describe("POST /api/admin/lol/search", () => {
     });
   });
 
-  it("더보기는 20개 ID 페이지에서 최대 5개만 처리하고 저장 원문을 재사용한다", async () => {
+  it("더보기는 20개 ID 페이지를 한 번에 처리하고 저장 원문을 재사용한다", async () => {
     persistence.enabled.mockReturnValue(true);
     persistence.account.mockResolvedValue({ puuid: "private-puuid", gameName: "Test", tagLine: "KR1", accountFetchedAt: new Date().toISOString() });
     persistence.cache.mockResolvedValue(undefined);
@@ -2295,15 +2295,15 @@ describe("POST /api/admin/lol/search", () => {
     expect(result.status).toBe(200);
     const body = await result.json();
     expect(body.matchIds).toHaveLength(20);
-    expect(body.matches).toHaveLength(5);
-    expect(body.loadedCount).toBe(25);
+    expect(body.matches).toHaveLength(20);
+    expect(body.loadedCount).toBe(40);
     expect(body.hasMore).toBe(true);
     expect(JSON.stringify(body)).not.toContain("private-puuid");
     expect(urls.filter((url) => url.includes("api.riotgames.com"))).toEqual([
       "https://asia.api.riotgames.com/lol/match/v5/matches/by-puuid/private-puuid/ids?start=20&count=20",
     ]);
     expect(persistence.account).toHaveBeenCalledWith("Test", "KR1");
-    expect(persistence.matchRequestJson).toHaveBeenCalledTimes(5);
+    expect(persistence.matchRequestJson).toHaveBeenCalledTimes(20);
   });
 
   it("더보기 재시도는 전달한 경기 ID를 그대로 처리하고 다음 offset을 보존한다", async () => {

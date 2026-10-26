@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type {
   LolMatchDetails,
   LolRecentMatch,
@@ -5,6 +6,7 @@ import type {
 import { formatKdaRatio, formatMetric, formatPercent } from "./lolFormat";
 import { LolBuildIcons, LolItemSlots } from "./LolMatchCard";
 import { LolMatchInsightSection } from "./LolInsightCards";
+import LolTeamAnalysis from "./LolTeamAnalysis";
 
 type Team = LolMatchDetails["teams"][number];
 type Player = Team["participants"][number];
@@ -15,6 +17,13 @@ type Props = {
   onSearch: (riotId: string, ref?: string) => void;
   expanded: boolean;
 };
+
+const TABS = [
+  ["overview", "종합"],
+  ["team", "팀 분석"],
+  ["insights", "라인전·기여"],
+] as const;
+type Tab = (typeof TABS)[number][0];
 
 const OBJECTIVES = [
   ["tower", "타워"],
@@ -190,7 +199,11 @@ function PlayerRow({
           {player.championLevel ?? "—"}
         </small>
       </span>
-      <LolBuildIcons dataDragonVersion={match.dataDragonVersion} player={player} size={17} />
+      <LolBuildIcons
+        dataDragonVersion={match.dataDragonVersion}
+        player={player}
+        size={17}
+      />
       <div className="min-w-0">
         <button
           type="button"
@@ -237,7 +250,11 @@ function PlayerRow({
           </span>
         </div>
         <div className="min-w-0 justify-self-end">
-          <LolItemSlots dataDragonVersion={match.dataDragonVersion} player={player} size={16} />
+          <LolItemSlots
+            dataDragonVersion={match.dataDragonVersion}
+            player={player}
+            size={16}
+          />
         </div>
       </div>
     </div>
@@ -251,6 +268,13 @@ export default function LolMatchDetail({
   onSearch,
   expanded,
 }: Props) {
+  const [tab, setTab] = useState<Tab>("overview");
+  const tabId = `lol-detail-${match.matchId}`;
+  const hasInsights =
+    !!match.insights &&
+    (match.insights.laning.length > 0 ||
+      match.insights.contribution.length > 0);
+  const tabs = TABS.filter(([key]) => key !== "insights" || hasInsights);
   const players = teams.flatMap((team) => team.participants);
   const maxDealt = Math.max(
     0,
@@ -268,49 +292,101 @@ export default function LolMatchDetail({
       className="mt-3 border-t border-zinc-800 pt-3"
     >
       {expanded && (
-        <div className="grid min-w-0 gap-3">
-          <LolMatchInsightSection insights={match.insights} />
-          <TeamComparison teams={teams} />
-          {teams.map((team) => {
-            const side =
-              team.teamId === 100
-                ? "블루팀"
-                : team.teamId === 200
-                  ? "레드팀"
-                  : `팀 ${team.teamId}`;
-            return (
-              <section
-                key={team.teamId}
-                aria-label={`${side} · ${team.win ? "승리" : "패배"}`}
-                className={`min-w-0 rounded-lg border p-2 ${team.win ? "border-blue-800 bg-blue-950/45" : "border-red-800 bg-red-950/45"}`}
+        <>
+          <div
+            role="tablist"
+            aria-label="경기 상세 탭"
+            style={{
+              gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))`,
+            }}
+            className="mb-3 grid gap-1 rounded-lg bg-zinc-950/60 p-1"
+          >
+            {tabs.map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                id={`${tabId}-${key}-tab`}
+                aria-selected={tab === key}
+                aria-controls={`${tabId}-${key}`}
+                onClick={() => setTab(key)}
+                className={`rounded-md px-2 py-1.5 text-xs font-semibold transition ${tab === key ? "bg-zinc-700 text-white" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"}`}
               >
-                <div className="mb-2 grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-start gap-2 text-xs font-bold sm:grid-cols-[auto_1fr]">
-                  <span>
-                    {side} · {team.win ? "승리" : "패배"}
-                  </span>
-                  <TeamObjectives team={team} />
-                </div>
-                <div
-                  role="table"
-                  aria-label={`${side} 참가자 상세`}
-                  className="min-w-0"
+                {label}
+              </button>
+            ))}
+          </div>
+          {hasInsights && (
+            <div
+              role="tabpanel"
+              id={`${tabId}-insights`}
+              aria-labelledby={`${tabId}-insights-tab`}
+              hidden={tab !== "insights"}
+            >
+              <LolMatchInsightSection insights={match.insights} />
+            </div>
+          )}
+          <div
+            role="tabpanel"
+            id={`${tabId}-team`}
+            aria-labelledby={`${tabId}-team-tab`}
+            hidden={tab !== "team"}
+          >
+            <LolTeamAnalysis
+              teams={teams}
+              dataDragonVersion={match.dataDragonVersion}
+              isOwn={isOwn}
+            />
+          </div>
+          <div
+            role="tabpanel"
+            id={`${tabId}-overview`}
+            aria-labelledby={`${tabId}-overview-tab`}
+            hidden={tab !== "overview"}
+            className="grid min-w-0 gap-3"
+          >
+            <TeamComparison teams={teams} />
+            {teams.map((team) => {
+              const side =
+                team.teamId === 100
+                  ? "블루팀"
+                  : team.teamId === 200
+                    ? "레드팀"
+                    : `팀 ${team.teamId}`;
+              return (
+                <section
+                  key={team.teamId}
+                  aria-label={`${side} · ${team.win ? "승리" : "패배"}`}
+                  className={`min-w-0 rounded-lg border p-2 ${team.win ? "border-blue-800 bg-blue-950/45" : "border-red-800 bg-red-950/45"}`}
                 >
-                  {team.participants.map((player, index) => (
-                    <PlayerRow
-                      key={`${player.riotId}-${index}`}
-                      match={match}
-                      player={player}
-                      isOwn={isOwn(player.riotId)}
-                      maxDealt={maxDealt}
-                      maxTaken={maxTaken}
-                      onSearch={onSearch}
-                    />
-                  ))}
-                </div>
-              </section>
-            );
-          })}
-        </div>
+                  <div className="mb-2 grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-start gap-2 text-xs font-bold sm:grid-cols-[auto_1fr]">
+                    <span>
+                      {side} · {team.win ? "승리" : "패배"}
+                    </span>
+                    <TeamObjectives team={team} />
+                  </div>
+                  <div
+                    role="table"
+                    aria-label={`${side} 참가자 상세`}
+                    className="min-w-0"
+                  >
+                    {team.participants.map((player, index) => (
+                      <PlayerRow
+                        key={`${player.riotId}-${index}`}
+                        match={match}
+                        player={player}
+                        isOwn={isOwn(player.riotId)}
+                        maxDealt={maxDealt}
+                        maxTaken={maxTaken}
+                        onSearch={onSearch}
+                      />
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );

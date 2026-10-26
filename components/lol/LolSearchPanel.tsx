@@ -17,6 +17,26 @@ type QueueFilter = "all" | "solo" | "flex" | "aram";
 
 
 
+const LOADED_KEY = "bgms:lol-loaded:";
+const MAX_RESTORE = 100;
+
+function readLoadedCount(riotId: string) {
+  try {
+    const value = Number(sessionStorage.getItem(LOADED_KEY + riotId.toLocaleLowerCase()));
+    return Number.isSafeInteger(value) && value > 0 ? Math.min(value, MAX_RESTORE) : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function saveLoadedCount(riotId: string, count: number) {
+  try {
+    sessionStorage.setItem(LOADED_KEY + riotId.toLocaleLowerCase(), String(count));
+  } catch {
+    // 저장소를 쓸 수 없는 환경에서는 기억하지 않는다.
+  }
+}
+
 function hideBrokenImage(event: React.SyntheticEvent<HTMLImageElement>) {
   event.currentTarget.hidden = true;
 }
@@ -44,9 +64,14 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
   const [refreshAvailableAt, setRefreshAvailableAt] = useState(0);
   const [now, setNow] = useState(0);
   const [moreError, setMoreError] = useState<string | null>(null);
-  const [failedAction, setFailedAction] = useState<{ action: "more" | "refresh"; retryId?: string } | null>(null);
+  const [failedAction, setFailedAction] = useState<{ action: "more" | "refresh"; retryId?: string; busySeconds?: number } | null>(null);
   // 갱신으로 ID가 늘어나도 원래 페이지의 추가 조회 가능성을 유지한다.
   const [hasNextPage, setHasNextPage] = useState(false);
+  // 같은 탭에서 이미 불러왔던 경기 수까지는 새로고침·뒤로가기 뒤에도 자동으로 다시 채운다.
+  const [restoreTarget, setRestoreTarget] = useState(0);
+  const loadMore = useRef<() => void>(() => {});
+  const lastAutoOffset = useRef(-1);
+  const autoRetries = useRef(0);
   const requestId = useRef(0);
   const activeSearch = useRef<string | null>(null);
   const busyAction = useRef<string | null>(null);
@@ -96,6 +121,8 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
         const updatedAt = Date.now();
         setResult(payload as LolSearchResult);
         setHasNextPage(payload.matchIds?.length === 20);
+        lastAutoOffset.current = -1;
+        setRestoreTarget(readLoadedCount(`${payload.account?.gameName}#${payload.account?.tagLine}`));
         setRefreshAvailableAt(updatedAt + (payload.refreshRemainSeconds ?? 0) * 1000);
         setNow(updatedAt);
       }
@@ -166,7 +193,9 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
     const accountId = `${result.account.gameName}#${result.account.tagLine}`;
     if (busyAccount === accountId || (action === "refresh" && remainingCooldown > 0)) return;
     const request = requestId.current;
-    const nextIds = result.matchIds?.slice(result.loadedCount, result.loadedCount + 5) ?? [];
+    // 개별 재시도로 이미 받은 경기는 다음 20경기 요청에서 뺀다.
+    const loadedIds = new Set(result.matches.map((match) => match.matchId));
+    const nextIds = result.matchIds?.slice(result.loadedCount).filter((id) => !loadedIds.has(id)).slice(0, 20) ?? [];
     busyAction.current = accountId;
     setBusyAccount(accountId);
     setBusyActionKind(action);
@@ -194,9 +223,9 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
       if (!response.ok) {
         const seconds = Number(response.headers.get("Retry-After"));
         const message = payload?.error ?? "요청에 실패했습니다.";
-        throw new Error(response.status === 429 && seconds > 0
+        throw Object.assign(new Error(response.status === 429 && seconds > 0
           ? `${message} 잠시 후 다시 시도 (${Math.ceil(seconds)}초)`
-          : message);
+          : message), { busySeconds: response.status === 503 && seconds > 0 ? seconds : undefined });
       }
       if (request !== requestId.current || busyAction.current !== accountId) return;
       if (action === "refresh" && payload.status === "cooldown") {
@@ -262,7 +291,8 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
     } catch (cause) {
       if (request === requestId.current) {
         setMoreError(cause instanceof Error ? cause.message : "경기 정보를 불러오지 못했습니다.");
-        setFailedAction({ action, retryId });
+        const busySeconds = (cause as { busySeconds?: number } | null)?.busySeconds;
+        setFailedAction({ action, retryId, ...(busySeconds ? { busySeconds } : {}) });
       }
     } finally {
       if (busyAction.current === accountId) {
@@ -295,6 +325,34 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
   const lastUpdatedSeconds = result?.lastUpdatedAt
     ? Math.max(0, Math.floor((now - Date.parse(result.lastUpdatedAt)) / 1000))
     : null;
+
+  useEffect(() => {
+    loadMore.current = () => { void runAccountAction("more"); };
+  });
+  useEffect(() => {
+    if (result && result.loadedCount > 0) saveLoadedCount(ownRiotId, result.loadedCount);
+  }, [result, ownRiotId]);
+  const loadedCount = result?.loadedCount ?? 0;
+  const autoLoad = !!result?.hasMore && !busyAccount && !failedAction && !moreError && loadedCount < restoreTarget;
+  useEffect(() => {
+    // 새로고침 직전 요청이 서버에서 아직 처리 중이면 busy가 오므로, 안내된 시간 뒤 최대 5번만 자동으로 다시 시도한다.
+    const seconds = failedAction?.action === "more" && !failedAction.retryId ? failedAction.busySeconds : undefined;
+    if (!seconds || autoRetries.current >= 5) return;
+    const timer = window.setTimeout(() => {
+      autoRetries.current += 1;
+      lastAutoOffset.current = -1;
+      setMoreError(null);
+      setFailedAction(null);
+    }, Math.min(seconds, 30) * 1000);
+    return () => window.clearTimeout(timer);
+  }, [failedAction]);
+  useEffect(() => {
+    // 같은 위치에서 진행이 없으면 다시 요청하지 않아 요청이 반복되지 않게 한다.
+    if (!autoLoad || lastAutoOffset.current === loadedCount) return;
+    if (lastAutoOffset.current >= 0 && loadedCount > lastAutoOffset.current) autoRetries.current = 0;
+    lastAutoOffset.current = loadedCount;
+    loadMore.current();
+  }, [autoLoad, loadedCount]);
 
   return (
     <main

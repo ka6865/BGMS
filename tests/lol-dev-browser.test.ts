@@ -580,7 +580,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
               ? list.querySelectorAll('[data-testid="lol-match-player"]').length
               : 0,
           ),
-        ).toBe(viewport.width < 1440 ? 0 : 10);
+        ).toBe(10);
 
         const cardLayout = await page.$eval('[data-testid="lol-match-card"]', (card) => {
           const bounds = card.getBoundingClientRect();
@@ -588,7 +588,6 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
           const slots = [...card.querySelectorAll('[data-testid="lol-match-items"] [data-testid="lol-player-item-slot"]')];
           const parts = [
             card.querySelector('[data-testid="lol-match-metrics"]'),
-            card.querySelector('[data-testid="lol-match-items"]'),
             card.querySelector('[data-testid="lol-match-player-groups"]'),
           ];
           return {
@@ -694,7 +693,9 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
         expect(bounds.document).toBeLessThanOrEqual(bounds.viewport);
         expect(bounds.panel).toBeLessThanOrEqual(bounds.client);
         expect(errors).toEqual([]);
-        expect(apiCalls).toEqual([`${baseUrl}/api/admin/lol/search`]);
+        // 상세를 펼치며 목록 끝까지 스크롤되면 추가 조회가 이어질 수 있다.
+        expect(apiCalls.filter((url) => url !== `${baseUrl}/api/admin/lol/matches/more`))
+          .toEqual([`${baseUrl}/api/admin/lol/search`]);
         await page.screenshot({
           path: `tmp/lol-detail-alignment/${viewport.width}x${viewport.height}.png`,
           fullPage: true,
@@ -968,14 +969,29 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       expect(Number(cooldown?.match(/\d+/)?.[0])).toBeGreaterThan(0);
       expect(Number(cooldown?.match(/\d+/)?.[0])).toBeLessThanOrEqual(120);
       await clickButtonText(page, "경기 더 불러오기");
-      await page.waitForFunction(() => document.querySelectorAll('[data-testid="lol-match-card"]').length === 10);
-      expect(moreBody).toEqual({ riotId: "BLUE0#kr1", offset: 5,
-        matchIds: ["FIXTURE_6", "FIXTURE_7", "FIXTURE_8", "FIXTURE_9", "FIXTURE_10"],
-      });
-      expect(await page.$eval('[data-testid="lol-summary-metrics"]', (metrics) => metrics.textContent))
-        .toContain("17.50:1");
+      await page.waitForFunction(() => document.querySelectorAll('[data-testid="lol-match-card"]').length === 20);
+      // 더보기는 한 번에 남은 ID를 최대 20개까지 요청한다.
+      expect(moreBody).toEqual({ riotId: "BLUE0#kr1", offset: 5, matchIds: Array.from({ length: 15 }, (_, index) => `FIXTURE_${index + 6}`) });
       expect(await page.$eval('[data-testid="lol-summary-header"]', (summary) => summary.textContent))
-        .toContain("최근 10경기 중 유효 10경기");
+        .toContain("최근 20경기 중 유효 20경기");
+      await page.close();
+    });
+
+    it("더보기로 늘린 경기 수는 새로고침 후에도 같은 수까지 다시 채운다", async () => {
+      const page = await openPage();
+      let moreCalls = 0;
+      page.on("request", (request) => {
+        if (request.url() === `${baseUrl}/api/admin/lol/matches/more`) moreCalls += 1;
+      });
+      await search(page);
+      expect(await page.$$eval('[data-testid="lol-match-card"]', (cards) => cards.length)).toBe(5);
+      await clickButtonText(page, "경기 더 불러오기");
+      await page.waitForFunction(() => document.querySelectorAll('[data-testid="lol-match-card"]').length === 20);
+      expect(await page.evaluate(() => sessionStorage.getItem("bgms:lol-loaded:blue0#kr1"))).toBe("20");
+      moreCalls = 0;
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.waitForFunction(() => document.querySelectorAll('[data-testid="lol-match-card"]').length === 20);
+      expect(moreCalls).toBe(1);
       await page.close();
     });
 
@@ -988,27 +1004,26 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       });
       await search(page, "refresh#kr1");
       await clickButtonText(page, "경기 더 불러오기");
-      await page.waitForFunction(() => document.querySelectorAll('[data-testid="lol-match-card"]').length === 10);
+      await page.waitForFunction(() => document.querySelectorAll('[data-testid="lol-match-card"]').length === 20);
       const before = await page.$$eval('[data-testid="lol-match-card"]', (cards) => cards.map((card) => card.textContent));
       // 응답을 직접 풀어 처리 중 상태 검증이 250ms 타이밍에 의존하지 않게 한다.
       const refreshResponse = new Promise<() => void>(resolve => { holdRefresh = resolve; });
       await clickButtonText(page, "전적 갱신");
       const finishRefresh = await refreshResponse;
-      expect(await page.$$eval('[data-testid="lol-match-card"]', (cards) => cards.length)).toBe(10);
+      expect(await page.$$eval('[data-testid="lol-match-card"]', (cards) => cards.length)).toBe(20);
       expect(await page.$eval('section[aria-label="검색 결과"] > div:first-child', (profile) => profile.textContent))
         .toContain("BGMS 데이터 처리 중");
       expect(await page.$$eval('[data-testid="lol-history"] button', (buttons) =>
         buttons.some((button) => button.textContent?.includes("BGMS 데이터 처리 중")),
       )).toBe(false);
       finishRefresh();
-      await page.waitForFunction(() => document.querySelectorAll('[data-testid="lol-match-card"]').length === 11);
+      await page.waitForFunction(() => document.querySelectorAll('[data-testid="lol-match-card"]').length === 21);
       expect(await page.$$eval('[data-testid="lol-match-card"]', (cards) => cards.slice(1).map((card) => card.textContent))).toEqual(before);
-      expect(await page.$eval('[data-testid="lol-summary-header"]', (header) => header.textContent)).toContain("최근 11경기");
+      expect(await page.$eval('[data-testid="lol-summary-header"]', (header) => header.textContent)).toContain("최근 21경기");
+      // 첫 페이지 ID를 모두 불러온 뒤에는 다음 Riot 페이지를 offset으로 요청한다.
       await clickButtonText(page, "경기 더 불러오기");
-      await page.waitForFunction(() => document.querySelectorAll('[data-testid="lol-match-card"]').length === 16);
-      expect(requests[1]).toMatchObject({ offset: 11,
-        matchIds: ["FIXTURE_11", "FIXTURE_12", "FIXTURE_13", "FIXTURE_14", "FIXTURE_15"],
-      });
+      await page.waitForFunction(() => document.querySelectorAll('[data-testid="lol-match-card"]').length === 26);
+      expect(requests[1]).toEqual({ riotId: "refresh#kr1", offset: 21 });
       await page.close();
     });
 
@@ -1037,7 +1052,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       expect(await page.$eval('[role="alert"]', (alert) => alert.textContent)).toContain("LoL 저장소를 사용할 수 없습니다.");
       expect(await page.$$eval('[data-testid="lol-match-card"]', (cards) => cards.length)).toBe(5);
       await clickButtonText(page, "잠시 후 다시 시도");
-      await page.waitForFunction(() => document.querySelectorAll('[data-testid="lol-match-card"]').length === 10);
+      await page.waitForFunction(() => document.querySelectorAll('[data-testid="lol-match-card"]').length === 20);
       expect(requests).toHaveLength(2);
       expect(requests[0]).toEqual(requests[1]);
       expect(await page.$('[role="alert"]')).toBeNull();
@@ -1060,10 +1075,8 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       expect(retryBody).toEqual({ riotId: "retry#kr1", offset: 5, matchIds: ["FAIL_RIOT"] });
       expect(await page.$$eval('[data-testid="lol-match-card"]', (cards) => cards.length)).toBe(6);
       await clickButtonText(page, "경기 더 불러오기");
-      await page.waitForFunction(() => document.querySelectorAll('[data-testid="lol-match-card"]').length === 11);
-      expect(retryBody).toEqual({ riotId: "retry#kr1", offset: 5,
-        matchIds: ["FIXTURE_6", "FIXTURE_7", "FIXTURE_8", "FIXTURE_9", "FIXTURE_10"],
-      });
+      await page.waitForFunction(() => document.querySelectorAll('[data-testid="lol-match-card"]').length === 21);
+      expect(retryBody).toEqual({ riotId: "retry#kr1", offset: 5, matchIds: Array.from({ length: 15 }, (_, index) => `FIXTURE_${index + 6}`) });
       await page.close();
     });
 
