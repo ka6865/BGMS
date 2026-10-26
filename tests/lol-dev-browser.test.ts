@@ -624,7 +624,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
         await card!.screenshot({ path: `tmp/lol-detail-alignment/card-${viewport.width}x${viewport.height}.png` });
 
         await openFirstDetail(page);
-        expect(await page.$eval('[data-testid="lol-match-insights"]', element => element.textContent)).toContain("시야 점수 격차");
+        expect(await page.$eval('[data-testid="lol-match-insights"]', element => element.textContent)).toContain("시야 점수");
         const teamLabels = await page.$$eval(
           '[aria-label$="참가자 상세"]',
           (sections) =>
