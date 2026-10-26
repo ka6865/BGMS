@@ -130,6 +130,24 @@ export function LolBuildIcons({
   );
 }
 
+const MULTI_KILLS: Record<number, { label: string; style: string }> = {
+  2: { label: "더블킬", style: "bg-sky-500/20 text-sky-200 ring-sky-400/40" },
+  3: { label: "트리플킬", style: "bg-violet-500/25 text-violet-200 ring-violet-400/50" },
+  4: { label: "쿼드라킬", style: "bg-rose-500/25 text-rose-200 ring-rose-400/50" },
+  5: { label: "펜타킬", style: "bg-amber-400/25 text-amber-200 ring-amber-300/60" },
+};
+
+function MultiKillBadge({ count }: { count?: number }) {
+  // 펜타킬 뒤 추가 처치도 펜타킬로 묶어 표시한다.
+  const badge = count && count >= 2 ? MULTI_KILLS[Math.min(count, 5)] : undefined;
+  if (!badge) return null;
+  return (
+    <span data-testid="lol-multikill" className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ring-1 ${badge.style}`}>
+      {badge.label}
+    </span>
+  );
+}
+
 function ChampionThumb({ player, dataDragonVersion }: { player: LolPlayer; dataDragonVersion?: string }) {
   return (
     <img
@@ -220,6 +238,7 @@ export default function LolMatchCard({
                   {match.kills ?? "—"} / <span className="text-red-400">{match.deaths ?? "—"}</span> / {match.assists ?? "—"}
                 </p>
                 <p className="text-[11px] text-zinc-400">{ratio} 평점</p>
+                <MultiKillBadge count={match.largestMultiKill} />
               </div>
             </div>
           </div>
@@ -232,6 +251,7 @@ export default function LolMatchCard({
               {match.kills ?? "—"} / <span className="text-red-400">{match.deaths ?? "—"}</span> / {match.assists ?? "—"}
             </p>
             <p className="text-xs text-zinc-400">{ratio} 평점</p>
+            <div className="mt-1"><MultiKillBadge count={match.largestMultiKill} /></div>
           </div>
 
           <div

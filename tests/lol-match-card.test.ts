@@ -5,7 +5,7 @@ import { matches } from "./fixtures/lol/browserScenario";
 import type { LolRecentMatch } from "@/lib/lol/riotSearch.server";
 import { summarizeRecentMatches } from "@/lib/lol/summary";
 
-const render = (match: (typeof matches)[number]) => renderToStaticMarkup(createElement(LolMatchCard, {
+const render = (match: (typeof matches)[number] | LolRecentMatch) => renderToStaticMarkup(createElement(LolMatchCard, {
   match: match as LolRecentMatch, ownRiotId: "홍길동#KR1", expanded: false, onToggle: () => {}, onSearch: () => {},
 }));
 
@@ -14,6 +14,11 @@ describe("전적 카드 결과 표시", () => {
     const html = render({ ...matches[0], win: false, remake: true });
     expect(html).toContain("다시하기");
     expect(html).not.toMatch(/>(승리|패배)</);
+  });
+  it("더블킬 이상만 가장 높은 연속 처치를 배지로 표시한다", () => {
+    expect(render({ ...matches[0], largestMultiKill: 1 } as LolRecentMatch)).not.toContain("lol-multikill");
+    expect(render({ ...matches[0], largestMultiKill: 3 } as LolRecentMatch)).toContain("트리플킬");
+    expect(render({ ...matches[0], largestMultiKill: 6 } as LolRecentMatch)).toContain("펜타킬");
   });
   it("일반 경기는 승리·패배를 표시한다", () => {
     expect(render({ ...matches[0], win: true, remake: false })).toContain(">승리<");

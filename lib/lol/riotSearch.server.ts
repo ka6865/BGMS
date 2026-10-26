@@ -679,6 +679,8 @@ function summarizeMatch(match: any, puuid: string): LolRecentMatch | null {
       ? participant.teamPosition
       : "미분류",
     teammates,
+    ...(optionalNonNegativeNumber(participant.largestMultiKill) !== null
+      ? { largestMultiKill: optionalNonNegativeNumber(participant.largestMultiKill)! } : {}),
     remake:
       participant.gameEndedInEarlySurrender === true ||
       team.some((item: any) => item.teamEarlySurrendered === true) ||

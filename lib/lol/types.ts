@@ -47,6 +47,8 @@ export type LolRecentMatch = {
     "matchId" | "queueId" | "gameMode" | "gameDuration"
   >;
   teammates?: Array<LolParticipantIdentity & { riotId: string; win: boolean | null }>;
+  // 한 번에 연속 처치한 최대 수(2=더블킬 … 5=펜타킬). 이전 캐시에는 없다.
+  largestMultiKill?: number;
   remake: boolean;
 };
 
