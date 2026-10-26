@@ -12,6 +12,7 @@ import LolMasteryCard from "./LolMasteryCard";
 import { LolChallengesCard, LolRecentTrendsCard } from "./LolInsightCards";
 import LolLegalNotice from "./LolLegalNotice";
 import { LOL_KEY_RENEWAL_MESSAGE, LOL_KEY_RENEWAL_ENGLISH } from "@/lib/lol/keyNotice";
+import { nextPendingMatchIds } from "@/lib/lol/limits";
 
 type QueueFilter = "all" | "solo" | "flex" | "aram";
 
@@ -196,9 +197,9 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
     const accountId = `${result.account.gameName}#${result.account.tagLine}`;
     if (busyAccount === accountId || (action === "refresh" && remainingCooldown > 0)) return;
     const request = requestId.current;
-    // 개별 재시도로 이미 받은 경기는 다음 20경기 요청에서 뺀다.
+    // 개별 재시도로 이미 받은 경기는 빼고, 현재 페이지 끝까지의 남은 경기만 보낸다.
     const loadedIds = new Set(result.matches.map((match) => match.matchId));
-    const nextIds = result.matchIds?.slice(result.loadedCount).filter((id) => !loadedIds.has(id)).slice(0, 20) ?? [];
+    const nextIds = nextPendingMatchIds(result.matchIds, result.loadedCount, loadedIds);
     busyAction.current = accountId;
     setBusyAccount(accountId);
     setBusyActionKind(action);

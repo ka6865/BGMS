@@ -36,6 +36,7 @@ import { summarizeRecentMatches } from "@/lib/lol/summary";
 import { pickLolChallenges } from "./challenges";
 import { buildLolMatchInsights, summarizeLolRecentTrends } from "./insights";
 import { parseLolMatchBuild, type LolMatchBuild } from "./matchBuild";
+import { LOL_MATCH_PAGE_SIZE } from "./limits";
 import { LOL_SCORE_VERSION, scoreLolMatch } from "./matchScore";
 import { buildLolChallengeProfile, parseLolChallengeCatalog, type LolChallengeCatalog, type LolChallengeProfile } from "./challengeProfile";
 import { parseLolMasteries, summarizeLolChampionPerformance } from "./mastery";
@@ -1160,8 +1161,6 @@ async function enrichMatchRecords(records: Array<{ summary: LolRecentMatch; raw:
   }
 }
 
-// 전적 목록은 Riot 경기 ID 한 페이지(20개) 단위로 불러온다.
-const LOL_MATCH_PAGE_SIZE = 20;
 
 async function loadMatchRecords(puuid: string, matchIds: string[], persistDetails = false) {
   const matches: LolRecentMatch[] = [];
@@ -1388,7 +1387,7 @@ async function searchLolRiotIdInternal(
 async function getMoreLolMatchesInternal(input: { riotId: unknown; offset: number; matchIds?: string[]; validateMatchIds?: boolean }) {
   const riotId = parseRiotId(input.riotId);
   if (!riotId || !Number.isSafeInteger(input.offset) || input.offset < 0
-    || (input.matchIds !== undefined && (input.matchIds.length < 1 || input.matchIds.length > 5 || input.matchIds.some((id) => !isMatchId(id))))) {
+    || (input.matchIds !== undefined && (input.matchIds.length < 1 || input.matchIds.length > LOL_MATCH_PAGE_SIZE || input.matchIds.some((id) => !isMatchId(id))))) {
     throw new RiotSearchError("invalid_request");
   }
   const key = `${riotId.gameName.toLocaleLowerCase()}#${riotId.tagLine.toLocaleLowerCase()}`;
@@ -1417,7 +1416,8 @@ async function getMoreLolMatchesInternal(input: { riotId: unknown; offset: numbe
         : await requestJson<string[]>("asia", `/lol/match/v5/matches/by-puuid/${encodeURIComponent(account.puuid)}/ids?start=${pageStart}&count=20`, IDENTIFIER_TTL_MS);
       if (retryIds && input.validateMatchIds && retryIds.some(id => !matchIds.includes(id))) throw new RiotSearchError("invalid_request");
       const localOffset = input.offset - pageStart;
-      const selectedIds = explicitIds ? retryIds.slice(0, 5) : matchIds.slice(localOffset, localOffset + LOL_MATCH_PAGE_SIZE);
+      // 화면은 처리하지 못한 남은 ID를 한 페이지(20개)까지 묶어 보내므로 모두 처리한다. 다시 시도는 1개다.
+      const selectedIds = explicitIds ? retryIds.slice(0, LOL_MATCH_PAGE_SIZE) : matchIds.slice(localOffset, localOffset + LOL_MATCH_PAGE_SIZE);
       const batch = await loadMatchRecords(account.puuid, selectedIds, true);
       return {
         matches: batch.matches, matchIds,

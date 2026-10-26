@@ -2330,6 +2330,61 @@ describe("POST /api/admin/lol/search", () => {
     expect(vi.mocked(fetch)).not.toHaveBeenCalledWith(expect.stringContaining("/ids?"), expect.anything());
   });
 
+  // 첫 페이지가 429 등으로 일부만 처리되면 화면은 남은 ID를 한 페이지(최대 20개)까지 묶어 보낸다.
+  const storedMatchRaw = (matchId: string) => ({
+    metadata: { matchId, dataVersion: "2" },
+    info: { queueId: 420, gameMode: "CLASSIC", gameDuration: 1800, gameEndTimestamp: 1_700_000_000_000,
+      teams: [{ teamId: 100, win: true }],
+      participants: [{ puuid: "private-puuid", teamId: 100, championId: 103, championName: "Ahri", win: true, kills: 2, deaths: 1, assists: 3, totalMinionsKilled: 100, neutralMinionsKilled: 10 }] },
+  });
+
+  it("더보기는 남은 경기 ID를 한 페이지(20개)까지 받아 모두 처리하고 21개부터 거절한다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.account.mockResolvedValue({ puuid: "private-puuid", gameName: "Test", tagLine: "KR1", accountFetchedAt: new Date().toISOString() });
+    persistence.cache.mockResolvedValue(undefined);
+    persistence.matchRequestJson.mockImplementation(async (matchId: string) => storedMatchRaw(matchId));
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.startsWith("https://ddragon")) return response({ data: {} });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const ids = Array.from({ length: 15 }, (_, index) => `KR_${100 + index}`);
+    const result = await moreMatches(postMore({ riotId: "Test#KR1", offset: 5, matchIds: ids }));
+    expect(result.status).toBe(200);
+    const body = await result.json();
+    expect(body.matches.map((match: { matchId: string }) => match.matchId)).toEqual(ids);
+    expect(body.loadedCount).toBe(20);
+    expect(persistence.matchRequestJson).toHaveBeenCalledTimes(15);
+
+    const full = Array.from({ length: 20 }, (_, index) => `KR_${200 + index}`);
+    expect((await moreMatches(postMore({ riotId: "Test#KR1", offset: 0, matchIds: full }))).status).toBe(200);
+    const tooMany = Array.from({ length: 21 }, (_, index) => `KR_${300 + index}`);
+    expect((await moreMatches(postMore({ riotId: "Test#KR1", offset: 0, matchIds: tooMany }))).status).toBe(400);
+    await expect(getMoreLolMatches({ riotId: "Test#KR1", offset: 0, matchIds: tooMany }))
+      .rejects.toMatchObject({ kind: "invalid_request" });
+  });
+
+  it("공개 더보기는 계정 목록 안의 남은 ID 20개를 한 번의 ID 조회로 검증하고 처리한다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.account.mockResolvedValue({ puuid: "private-puuid", gameName: "Test", tagLine: "KR1", accountFetchedAt: new Date().toISOString() });
+    persistence.cache.mockResolvedValue(undefined);
+    persistence.matchRequestJson.mockImplementation(async (matchId: string) => storedMatchRaw(matchId));
+    const page = Array.from({ length: 20 }, (_, index) => `KR_${400 + index}`);
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.startsWith("https://ddragon")) return response({ data: {} });
+      if (url.includes("/ids?start=0&count=20")) return response(page);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const pending = getMoreLolMatches({ riotId: "Test#KR1", offset: 0, matchIds: page, validateMatchIds: true });
+    await vi.advanceTimersByTimeAsync(5_000);
+    const result = await pending as { matches: unknown[]; loadedCount: number };
+    expect(result.matches).toHaveLength(20);
+    expect(result.loadedCount).toBe(20);
+    expect(fetcher.mock.calls.filter(([url]) => String(url).includes("/ids?"))).toHaveLength(1);
+  });
+
   it("같은 more 요청은 계정 단위 lease 안에서 합친다", async () => {
     persistence.enabled.mockReturnValue(true);
     persistence.cache.mockResolvedValue(undefined);
