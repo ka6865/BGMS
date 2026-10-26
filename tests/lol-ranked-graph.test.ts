@@ -21,7 +21,7 @@ describe("최근 30일 티어 그래프", () => {
     expect(html.match(/<circle /g)).toHaveLength(1);
     expect(html).not.toContain("<polyline");
     expect(html).toContain("기록이 쌓이면 추이가 표시됩니다(기록 시작 2026-10-23)");
-    expect(html).toContain("2026-10-23 · PLATINUM IV · 10 LP");
+    expect(html).toContain("2026-10-23 · 플래티넘 4 · 10 LP");
   });
   it("빈 날짜는 선만 연결하고 이전 시작점은 구분하며 기간 밖 기록은 버린다", () => {
     const html = render([point("2026-09-01", { isBaseline: true }), point("2026-09-02"), point("2026-10-23")]);

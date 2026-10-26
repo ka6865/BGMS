@@ -427,9 +427,10 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
                 className="h-14 w-14 rounded-xl sm:h-16 sm:w-16"
               />
               <div className="min-w-0">
-                <h2 className="break-all text-lg font-bold">
-                  {result.account.gameName}
-                  <span className="text-zinc-500">
+                <h2 className="text-lg font-bold">
+                  {/* 긴 이름은 어디서든 줄바꿈하되, 태그는 이름과 떨어진 # 없이 한 덩어리로 둔다. */}
+                  <span className="[overflow-wrap:anywhere]">{result.account.gameName}</span>
+                  <span className="whitespace-nowrap text-zinc-500">
                     #{result.account.tagLine}
                   </span>
                 </h2>

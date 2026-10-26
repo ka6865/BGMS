@@ -67,3 +67,18 @@ export function getQueueLabel(queueId: number, gameMode: string) {
   if (gameMode === "CHERRY") return "아레나";
   return `큐 ${queueId}`;
 }
+
+export const LOL_TIER_NAMES: Record<string, string> = {
+  IRON: "아이언", BRONZE: "브론즈", SILVER: "실버", GOLD: "골드", PLATINUM: "플래티넘",
+  EMERALD: "에메랄드", DIAMOND: "다이아몬드", MASTER: "마스터", GRANDMASTER: "그랜드마스터", CHALLENGER: "챌린저",
+};
+const LOL_DIVISION_NUMBERS: Record<string, string> = { I: "1", II: "2", III: "3", IV: "4" };
+const LOL_APEX_TIERS = new Set(["MASTER", "GRANDMASTER", "CHALLENGER"]);
+
+// Riot 티어·디비전(PLATINUM, IV)을 화면 표기(플래티넘 4)로 바꾼다. 마스터 이상은 디비전이 없으므로 생략한다.
+export function formatLolTier(tier?: string | null, rank?: string | null): string {
+  if (!tier) return "랭크 없음";
+  const name = LOL_TIER_NAMES[tier] ?? tier;
+  if (LOL_APEX_TIERS.has(tier) || !rank) return name;
+  return `${name} ${LOL_DIVISION_NUMBERS[rank] ?? rank}`;
+}

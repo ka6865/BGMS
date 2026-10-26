@@ -26,6 +26,12 @@ export default function LolSummary({ summary, children }: {
         </div>
         {children}
       </div>
+      {/* 유효 경기가 없으면 "미제공"을 반복하지 않고 안내 한 줄만 보여 준다. */}
+      {!summary?.validSampleSize ? (
+        <p data-testid="lol-summary-empty" className="text-xs text-zinc-500">
+          {summary?.sampleSize ? "다시하기·5분 미만 경기만 있어 요약할 경기가 없습니다." : "요약할 경기가 없습니다."}
+        </p>
+      ) : (
       <div data-testid="lol-summary-metrics" className="grid grid-cols-2 items-center gap-3 @min-[560px]/history:grid-cols-[auto_1.3fr_1fr_.8fr]">
         <div className="flex items-center gap-3">
           <svg viewBox="0 0 40 40" className="h-14 w-14 shrink-0" role="img" aria-label={`승률 ${formatPercent(winRate)}`}>
@@ -57,6 +63,7 @@ export default function LolSummary({ summary, children }: {
           <p className="mt-1 text-sm font-bold">{formatPercent(summary?.averageKillParticipationPct)}</p>
         </div>
       </div>
+      )}
     </header>
   );
 }

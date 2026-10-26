@@ -1,8 +1,8 @@
 import type { LolRankedHistory, LolRankedPoint } from "@/lib/lol/types";
-import { formatKstDate } from "./lolFormat";
+import { formatKstDate, formatLolTier, LOL_TIER_NAMES } from "./lolFormat";
 
 const TIERS = ["IRON", "BRONZE", "SILVER", "GOLD", "PLATINUM", "EMERALD", "DIAMOND"];
-const LABELS = ["아이언", "브론즈", "실버", "골드", "플래티넘", "에메랄드", "다이아몬드"];
+const LABELS = TIERS.map((tier) => LOL_TIER_NAMES[tier]);
 const DIVISIONS = ["IV", "III", "II", "I"];
 const DAY = 86_400_000;
 
@@ -56,7 +56,7 @@ export default function LolRankedGraph({ history, label, today = formatKstDate(n
             key={point.recordedAt} cx={x(point.date)} cy={y(rankedPosition(point))} r={point.isBaseline ? 3 : 3.5}
             fill={point.isBaseline ? "#18181b" : "currentColor"} stroke="currentColor"
           >
-            <title>{`${point.date} · ${point.tier} ${point.rank} · ${point.lp} LP${point.isBaseline ? " · 30일 이전 시작점" : ""}`}</title>
+            <title>{`${point.date} · ${formatLolTier(point.tier, point.rank)} · ${point.lp} LP${point.isBaseline ? " · 30일 이전 시작점" : ""}`}</title>
           </circle>)}
         </svg>
       ) : <p className="mt-2 text-xs text-zinc-500">최근 30일 기록 없음</p>}
