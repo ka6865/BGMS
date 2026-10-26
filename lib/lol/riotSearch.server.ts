@@ -36,7 +36,7 @@ import { summarizeRecentMatches } from "@/lib/lol/summary";
 import { pickLolChallenges } from "./challenges";
 import { buildLolMatchInsights, summarizeLolRecentTrends } from "./insights";
 import { parseLolMatchBuild, type LolMatchBuild } from "./matchBuild";
-import { scoreLolMatch } from "./matchScore";
+import { LOL_SCORE_VERSION, scoreLolMatch } from "./matchScore";
 import { buildLolChallengeProfile, parseLolChallengeCatalog, type LolChallengeCatalog, type LolChallengeProfile } from "./challengeProfile";
 import { parseLolMasteries, summarizeLolChampionPerformance } from "./mastery";
 import { lolParticipantDto, lolSearchResultDto, openLolParticipantRef } from "./participantIdentity.server";
@@ -1024,11 +1024,12 @@ async function getLolMatchDetailsAndRaw(
   if (!isMatchId(input)) throw new RiotSearchError("invalid_request");
   const persistenceEnabled = isLolPersistenceEnabled();
   const dataDragonVersion = await getLolDataDragonVersion();
+  // 점수 산식 버전도 키에 넣어, 가중치만 바꿔도 이전 점수가 담긴 상세 캐시를 다시 쓰지 않게 한다.
   const cacheKey = lolMatchCacheKey(
     input,
     LOL_PLATFORM,
     LOL_REGIONAL_ROUTE,
-    `${dataDragonVersion}:${LOL_MATCH_DETAILS_VERSION}`,
+    `${dataDragonVersion}:${LOL_MATCH_DETAILS_VERSION}:${LOL_SCORE_VERSION}`,
   );
   let rawCacheChecked = false;
   let cachedRaw: unknown;

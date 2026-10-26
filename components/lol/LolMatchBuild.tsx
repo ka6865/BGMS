@@ -6,6 +6,17 @@ type Team = LolMatchDetails["teams"][number];
 type Player = Team["participants"][number];
 
 const SKILLS = ["Q", "W", "E", "R"] as const;
+const BUILD_ERROR = "빌드를 불러오지 못했습니다.";
+
+// 선택 키는 `팀ID:팀 안 순서`다. 빌드와 상세는 같은 경기 원문 순서로 만들어지므로 순서로 맞추고, 챔피언으로 한 번 더 확인한다.
+function findPlayerBuild(build: LolMatchBuild, teams: Team[], selected: string): LolPlayerBuild | undefined {
+  const [teamId, slot] = selected.split(":").map(Number);
+  const player = teams.find((team) => team.teamId === teamId)?.participants[slot];
+  if (!player) return undefined;
+  const candidate = build.players.filter((entry) => entry.teamId === teamId)[slot];
+  return candidate?.championId === player.championId ? candidate
+    : build.players.find((entry) => entry.teamId === teamId && entry.championId === player.championId);
+}
 
 // 스킬을 먼저 5레벨(궁극기는 3레벨)까지 올린 순서로 선마 순서를 만든다.
 function skillPriority(skills: number[]): string[] {
@@ -99,9 +110,10 @@ export default function LolMatchBuildPanel({ matchId, apiBase, teams, isOwn, dat
   dataDragonVersion?: string;
   active: boolean;
 }) {
-  const own = teams.flatMap((team) => team.participants.map((player) => ({ team, player })))
+  // 같은 챔피언을 여럿 고르는 모드가 있어 챔피언 대신 팀 안 순서로 소환사를 고른다.
+  const own = teams.flatMap((team) => team.participants.map((player, slot) => ({ team, player, slot })))
     .find(({ player }) => isOwn(player.riotId));
-  const [selected, setSelected] = useState(own ? `${own.team.teamId}:${own.player.championId}` : "");
+  const [selected, setSelected] = useState(own ? `${own.team.teamId}:${own.slot}` : teams[0] ? `${teams[0].teamId}:0` : "");
   const [state, setState] = useState<{ status: "loading" | "error"; message?: string } | { status: "ready"; build: LolMatchBuild }>({ status: "loading" });
 
   const [attempt, setAttempt] = useState(0);
@@ -117,25 +129,26 @@ export default function LolMatchBuildPanel({ matchId, apiBase, teams, isOwn, dat
     requested.current = attempt;
     void fetch(`${apiBase}/matches/${encodeURIComponent(matchId)}/build`, { cache: "no-store" })
       .then(async (response) => {
-        const payload = await response.json();
-        if (!response.ok) throw new Error(typeof payload?.error === "string" ? payload.error : "빌드를 불러오지 못했습니다.");
+        // 프록시 오류처럼 JSON이 아닌 응답은 파싱 오류 문구 대신 기본 안내를 보여 준다.
+        const payload = await response.json().catch(() => null);
+        if (!response.ok) throw new Error(typeof payload?.error === "string" ? payload.error : BUILD_ERROR);
+        if (!Array.isArray(payload?.players)) throw new Error(BUILD_ERROR);
         if (mounted.current) setState({ status: "ready", build: payload as LolMatchBuild });
       })
       .catch((error: unknown) => {
-        if (mounted.current) setState({ status: "error", message: error instanceof Error ? error.message : "빌드를 불러오지 못했습니다." });
+        if (mounted.current) setState({ status: "error", message: error instanceof Error ? error.message : BUILD_ERROR });
       });
   }, [active, apiBase, matchId, attempt]);
 
-  const build = state.status === "ready"
-    ? state.build.players.find((player) => `${player.teamId}:${player.championId}` === selected) : undefined;
+  const build = state.status === "ready" ? findPlayerBuild(state.build, teams, selected) : undefined;
 
   return (
     <section data-testid="lol-match-build" aria-label="빌드" className="grid min-w-0 gap-4">
       <div role="radiogroup" aria-label="빌드를 볼 소환사" className="flex flex-wrap gap-x-4 gap-y-2">
         {teams.map((team) => (
           <div key={team.teamId} className="flex gap-1">
-            {team.participants.map((player: Player) => {
-              const key = `${team.teamId}:${player.championId}`;
+            {team.participants.map((player: Player, slot: number) => {
+              const key = `${team.teamId}:${slot}`;
               return (
                 <button
                   key={key}

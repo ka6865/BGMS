@@ -7,6 +7,7 @@
 - 솔로·자유·일반(400·420·430·440·490)과 칼바람(100·450)만 계산한다.
 - 다시하기, 5분 미만, 참가자가 10명이 아닌 경기는 점수를 내지 않는다.
 - 추가 Riot 호출 없이 Match-V5 경기 원문(`info.participants`)만 쓴다. 계산은 `lib/lol/matchScore.ts`의 `scoreLolMatch`이고, 결과는 경기 상세 참가자의 `score`에 담긴다(상세 DTO v6).
+- 경기 상세 캐시 키는 `match:v1:kr:asia:{Data Dragon 버전}:{LOL_MATCH_DETAILS_VERSION}:{LOL_SCORE_VERSION}:{matchId}`다(현재 `v6:s1`). 검색 결과 저장본에도 점수가 들어가지만 보관 시간이 2분이라 별도 버전을 두지 않는다.
 
 ## 계산
 
@@ -24,4 +25,4 @@
 
 - 기대 몫과 가중치는 한 계정 주변 표본으로 정한 초기값이다. 운영 키로 여러 티어 표본을 모은 뒤 승패 데이터로 다시 맞춘다.
 - 같은 경기 안 비교라 경기 간 절대 비교(예: 상위 몇 %)에는 쓰지 않는다.
-- 가중치나 기대 몫을 바꾸면 `LOL_SCORE_VERSION`과 상세 DTO 버전(`LOL_MATCH_DETAILS_VERSION`)을 함께 올린다.
+- 가중치나 기대 몫을 바꾸면 `LOL_SCORE_VERSION`을 올린다. 이 값이 상세 캐시 키에 들어가므로 이전 점수가 담긴 캐시는 다시 쓰지 않는다. 상세 DTO 구조가 바뀔 때만 `LOL_MATCH_DETAILS_VERSION`을 올린다.
