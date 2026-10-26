@@ -15,16 +15,18 @@ export default function LolSummary({ summary, children }: {
 }) {
   const winRate = summary?.winRatePct;
   const percentage = winRate == null ? 0 : Math.max(0, Math.min(100, winRate));
+  const kdaText = summary?.perfect ? "Perfect" : summary?.averageKda == null ? "미제공" : `${summary.averageKda.toFixed(2)}:1`;
   return (
     <header data-testid="lol-summary-header" className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 tabular-nums">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div>
+      {/* 제목과 큐 필터를 한 줄에 두고 집계 기준은 그 아래에 둬 모바일에서 줄 수를 줄인다. */}
+      <div className="mb-3">
+        <div className="flex items-center justify-between gap-2">
           <h2 className="text-sm font-semibold">최근 경기</h2>
-          <p className="mt-1 text-[11px] text-zinc-500">
-            최근 {summary?.sampleSize ?? 0}경기 중 유효 {summary?.validSampleSize ?? 0}경기 · 제외 {summary?.excludedCount ?? 0}경기 · {QUEUE_LABELS[summary?.queue ?? "all"]}
-          </p>
+          {children}
         </div>
-        {children}
+        <p className="mt-1 text-[11px] text-zinc-500">
+          최근 {summary?.sampleSize ?? 0}경기 중 유효 {summary?.validSampleSize ?? 0}경기 · 제외 {summary?.excludedCount ?? 0}경기 · {QUEUE_LABELS[summary?.queue ?? "all"]}
+        </p>
       </div>
       {/* 유효 경기가 없으면 "미제공"을 반복하지 않고 안내 한 줄만 보여 준다. */}
       {!summary?.validSampleSize ? (
@@ -32,9 +34,9 @@ export default function LolSummary({ summary, children }: {
           {summary?.sampleSize ? "다시하기·5분 미만 경기만 있어 요약할 경기가 없습니다." : "요약할 경기가 없습니다."}
         </p>
       ) : (
-      <div data-testid="lol-summary-metrics" className="grid grid-cols-2 items-center gap-3 @min-[560px]/history:grid-cols-[auto_1.3fr_1fr_.8fr]">
+      <div data-testid="lol-summary-metrics" className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 @min-[560px]/history:grid-cols-[auto_1.3fr_1fr_.8fr]">
         <div className="flex items-center gap-3">
-          <svg viewBox="0 0 40 40" className="h-14 w-14 shrink-0" role="img" aria-label={`승률 ${formatPercent(winRate)}`}>
+          <svg viewBox="0 0 40 40" className="h-12 w-12 shrink-0 @min-[560px]/history:h-14 @min-[560px]/history:w-14" role="img" aria-label={`승률 ${formatPercent(winRate)}`}>
             <circle cx="20" cy="20" r="16" fill="none" stroke="currentColor" strokeWidth="4" className="text-red-400/30" />
             <circle cx="20" cy="20" r="16" fill="none" stroke="currentColor" strokeWidth="4"
               pathLength="100" strokeDasharray={`${percentage} 100`} transform="rotate(-90 20 20)" className="text-blue-400" />
@@ -46,19 +48,21 @@ export default function LolSummary({ summary, children }: {
             <span className="whitespace-nowrap text-red-300">{formatMetric(summary?.losses)}패</span>
           </p>
         </div>
-        <div>
+        <div className="min-w-0">
           <h3 className="text-[11px] text-zinc-500">평균 K/D/A</h3>
           <p className="mt-1 text-sm font-bold">
             {formatMetric(summary?.averageKills, 1)} / {formatMetric(summary?.averageDeaths, 1)} / {formatMetric(summary?.averageAssists, 1)}
           </p>
-        </div>
-        <div>
-          <h3 className="text-[11px] text-zinc-500">KDA 비율</h3>
-          <p className="mt-1 text-sm font-bold">
-            {summary?.perfect ? "Perfect" : summary?.averageKda == null ? "미제공" : `${summary.averageKda.toFixed(2)}:1`}
+          {/* 좁은 화면은 KDA 비율과 관여율을 K/D/A 아래 한 줄로 합쳐 수치를 한 줄에 둔다. */}
+          <p className="mt-0.5 text-[11px] text-zinc-400 @min-[560px]/history:hidden">
+            KDA <b className="text-zinc-100">{kdaText}</b> · 관여 <b className="text-zinc-100">{formatPercent(summary?.averageKillParticipationPct)}</b>
           </p>
         </div>
-        <div>
+        <div className="hidden @min-[560px]/history:block">
+          <h3 className="text-[11px] text-zinc-500">KDA 비율</h3>
+          <p className="mt-1 text-sm font-bold">{kdaText}</p>
+        </div>
+        <div className="hidden @min-[560px]/history:block">
           <h3 className="text-[11px] text-zinc-500">평균 관여율</h3>
           <p className="mt-1 text-sm font-bold">{formatPercent(summary?.averageKillParticipationPct)}</p>
         </div>
@@ -82,7 +86,7 @@ export function LolSidebarStats({ summary, onSearch, dataDragonVersion }: {
         <ul aria-label="챔피언별 최근 통계" className="mt-3 space-y-3">
           {champions.map((champion) => (
             <li key={champion.championId} className="flex min-w-0 items-center gap-2">
-              <img src={champion.championImageId
+              <img loading="lazy" decoding="async" src={champion.championImageId
                 ? `https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/champion/${champion.championImageId}.png`
                 : undefined}
                 alt="" width={32} height={32} className="h-8 w-8 shrink-0 rounded bg-zinc-800"
@@ -182,7 +186,7 @@ function LolPeers({ summary, onSearch, dataDragonVersion }: {
                       className="flex w-full min-w-0 items-center gap-2 text-left hover:text-amber-300"
                     >
                       {player.profileIconId !== undefined && dataDragonVersion ? (
-                        <img
+                        <img loading="lazy" decoding="async"
                           src={`https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/profileicon/${player.profileIconId}.png`}
                           alt=""
                           width={28}

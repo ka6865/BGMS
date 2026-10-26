@@ -491,8 +491,8 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
                 className="@container/history min-w-0 space-y-3 lg:col-start-2 lg:row-span-2 lg:row-start-1"
               >
                 <LolSummary summary={summary}>
-                  <label className="flex items-center gap-2 text-xs text-zinc-400">
-                    큐 필터
+                  <label className="flex shrink-0 items-center gap-2 text-xs text-zinc-400">
+                    <span className="hidden sm:inline">큐 필터</span>
                     <select
                       aria-label="큐 필터"
                       value={filter}

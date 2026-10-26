@@ -32,7 +32,7 @@ function skillPriority(skills: number[]): string[] {
 
 function ItemIcon({ id, version }: { id: number; version?: string }) {
   return (
-    <img
+    <img loading="lazy" decoding="async"
       src={`https://ddragon.leagueoflegends.com/cdn/${version}/img/item/${id}.png`}
       alt=""
       width={28}
@@ -176,7 +176,7 @@ export default function LolMatchBuildPanel({ matchId, apiBase, teams, isOwn, dat
                   onClick={() => setSelected(key)}
                   className={`grid h-11 w-11 place-items-center rounded-md ${selected === key ? team.teamId === 100 ? "ring-2 ring-blue-400" : "ring-2 ring-red-400" : "opacity-60 hover:opacity-100"}`}
                 >
-                  <img
+                  <img loading="lazy" decoding="async"
                     src={`https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/champion/${player.championImageId}.png`}
                     alt=""
                     width={34}

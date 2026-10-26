@@ -1,5 +1,9 @@
+import { useState } from "react";
 import type { LolChampionPerformance, LolMasteryComparison } from "@/lib/lol/types";
 import { hasGoodLolRecentPerformance, lolMasteryBadge } from "@/lib/lol/mastery";
+
+// 숙련도 상위 10개를 모두 펼치면 모바일에서 카드가 길어지므로 처음에는 5개만 보여 준다.
+const MASTERY_PREVIEW = 5;
 
 function winRateClass(value: number) {
   if (value >= 60) return "text-sky-300";
@@ -15,7 +19,7 @@ function kdaClass(champion: LolChampionPerformance) {
 
 function ChampionIcon({ imageId, version, level }: { imageId: string; version?: string; level?: number }) {
   return <div className="relative h-10 w-10 shrink-0">
-    <img src={imageId && version ? `https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${imageId}.png` : undefined}
+    <img loading="lazy" decoding="async" src={imageId && version ? `https://ddragon.leagueoflegends.com/cdn/${version}/img/champion/${imageId}.png` : undefined}
       alt="" width={40} height={40} className="h-10 w-10 rounded-lg bg-zinc-800"
       onError={(event) => { event.currentTarget.style.visibility = "hidden"; }} />
     {level !== undefined && <span className="absolute -bottom-1 -right-1 rounded-md border border-zinc-900 bg-violet-600 px-1 text-[10px] font-bold leading-4 text-white tabular-nums">
@@ -43,11 +47,15 @@ function RecentStats({ champion }: { champion?: LolChampionPerformance }) {
 }
 
 export default function LolMasteryCard({ mastery, dataDragonVersion }: { mastery?: LolMasteryComparison; dataDragonVersion?: string }) {
+  const [showAll, setShowAll] = useState(false);
   const recent = mastery?.recent;
   const ready = recent?.status === "ready";
   const topIds = new Set(mastery?.champions.map(champion => champion.championId));
   const rising = ready && mastery?.status === "ready"
     ? recent.champions.filter(champion => hasGoodLolRecentPerformance(champion) && !topIds.has(champion.championId)) : [];
+  const champions = mastery?.champions ?? [];
+  const visibleChampions = showAll ? champions : champions.slice(0, MASTERY_PREVIEW);
+  const hiddenCount = champions.length - MASTERY_PREVIEW;
   return <section aria-label="챔피언 숙련도와 최근 성과" data-testid="lol-mastery" className="min-w-0 rounded-xl border border-zinc-800 bg-zinc-900 p-4">
     <div className="flex items-baseline justify-between gap-2">
       <h3 className="text-sm font-semibold">챔피언 숙련도와 최근 성과</h3>
@@ -56,8 +64,8 @@ export default function LolMasteryCard({ mastery, dataDragonVersion }: { mastery
     <h4 className="mt-3 text-[11px] font-semibold text-zinc-500">많이 플레이(숙련도 상위)</h4>
     {!mastery || mastery.status === "failed" ? <p role="status" className="mt-2 text-xs text-zinc-400">숙련도 정보를 불러오지 못했습니다</p>
       : mastery.champions.length === 0 ? <p className="mt-2 text-xs text-zinc-500">숙련도 기록이 없습니다.</p>
-        : <ul className="mt-1 divide-y divide-zinc-800/70">
-          {mastery.champions.map(champion => {
+        : <><ul className="mt-1 divide-y divide-zinc-800/70">
+          {visibleChampions.map(champion => {
             const performance = ready ? recent.champions.find(row => row.championId === champion.championId) : undefined;
             const badge = performance ? lolMasteryBadge(performance, true) : null;
             return <li key={champion.championId} className="flex min-w-0 items-center gap-3 py-2.5">
@@ -74,7 +82,15 @@ export default function LolMasteryCard({ mastery, dataDragonVersion }: { mastery
               {ready && <RecentStats champion={performance} />}
             </li>;
           })}
-        </ul>}
+        </ul>
+        {hiddenCount > 0 && <button
+          type="button"
+          aria-expanded={showAll}
+          onClick={() => setShowAll(value => !value)}
+          className="mt-1 min-h-11 w-full rounded-lg border border-zinc-800 text-xs font-semibold text-zinc-300 hover:text-white"
+        >
+          {showAll ? "접기" : `숙련도 상위 ${hiddenCount}개 더 보기`}
+        </button>}</>}
     {ready ? rising.length > 0 && <>
       <h4 className="mt-3 text-[11px] font-semibold text-zinc-500">숙련도 상위 밖 최근 성과 좋음</h4>
       <ul className="mt-1 divide-y divide-zinc-800/70">{rising.map(champion => <li key={champion.championId} className="flex min-w-0 items-center gap-3 py-2.5">
