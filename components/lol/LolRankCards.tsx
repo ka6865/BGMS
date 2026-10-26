@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { LolSearchResult } from "@/lib/lol/riotSearch.server";
 import LolTierEmblem from "./LolTierEmblem";
 import LolRankedGraph from "./LolRankedGraph";
-import { formatPercent } from "./lolFormat";
+import { formatLolTier, formatPercent } from "./lolFormat";
 
 const QUEUES = [
   ["RANKED_SOLO_5x5", "솔로 랭크"],
@@ -55,7 +55,7 @@ export default function LolRankCards({ ranked, rankedHistory }: {
             <div id={graphId} className={`${graphOpen ? "" : "hidden"} lg:block`}>
               <p className="mt-2 text-xs text-zinc-400 lg:mt-3">
                 최고 티어(BGMS 기록): {history?.highest
-                  ? `${history.highest.tier} ${history.highest.rank} · ${history.highest.lp} LP`
+                  ? `${formatLolTier(history.highest.tier, history.highest.rank)} · ${history.highest.lp} LP`
                   : "기록 없음"}
               </p>
               <LolRankedGraph history={history} label={label} />

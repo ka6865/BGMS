@@ -576,11 +576,11 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
         const rankText = await page.$eval('[data-testid="lol-ranks"]', (section) => section.textContent);
         expect(rankText).toContain("이번 시즌 18게임 · 솔로 랭크 한정");
         expect(rankText).toContain("이번 시즌 18게임 · 자유 랭크 한정");
-        expect(rankText).toContain("최고 티어(BGMS 기록): PLATINUM IV · 20 LP");
+        expect(rankText).toContain("최고 티어(BGMS 기록): 플래티넘 4 · 20 LP");
         expect(rankText).toContain("기록 시작 2026-10-22");
         expect(await page.$$eval('[data-testid="lol-tier-badge"]', (badges) =>
           badges.map((badge) => badge.textContent?.trim()),
-        )).toEqual(["PLATINUM IV", "GOLD II"]);
+        )).toEqual(["플래티넘 4", "골드 2"]);
         expect(await page.$$eval('[aria-label="솔로 랭크 최근 30일 티어 그래프"]', (charts) => charts.length)).toBe(1);
         expect(await page.$$eval('[aria-label="자유 랭크 최근 30일 티어 그래프"]', (charts) => charts.length)).toBe(1);
         const graphLabelsFit = await page.$$eval('[data-testid="lol-ranked-graph"] svg', (charts) => charts.every((chart) => {
@@ -988,11 +988,11 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       await page.close();
     });
 
-    it("랭크 기록이 없는 큐도 Unranked 카드로 유지한다", async () => {
+    it("랭크 기록이 없는 큐도 랭크 없음 카드로 유지한다", async () => {
       const page = await openPage();
       await search(page, "unrank#kr1");
       const ranks = await page.$eval('[data-testid="lol-ranks"]', (section) => section.textContent);
-      expect(ranks).toMatch(/솔로 랭크[\s\S]*PLATINUM IV[\s\S]*자유 랭크[\s\S]*Unranked/);
+      expect(ranks).toMatch(/솔로 랭크[\s\S]*플래티넘 4[\s\S]*자유 랭크[\s\S]*랭크 없음/);
       expect(await page.$$eval('[data-testid="lol-ranks"] > div', (cards) => cards.length)).toBe(2);
       await page.close();
     });
