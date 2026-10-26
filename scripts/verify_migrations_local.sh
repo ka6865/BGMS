@@ -124,6 +124,7 @@ MIGRATIONS=(
   "20261025200000_lol_ladder_status"
   "20261026010000_lol_delete_search_lease_any_version"
   "20261026020000_lol_search_cache_payload_1mb"
+  "20261027000000_analysis_calculation_v4"
 )
 
 cleanup() {
@@ -432,6 +433,7 @@ fi
 
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v3-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v4-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/support-center-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/public-column-privacy-checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/client-grant-hardening-checks.sql

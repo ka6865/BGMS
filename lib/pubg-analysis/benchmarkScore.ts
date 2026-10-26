@@ -28,6 +28,16 @@ export interface MatchTierInput {
   smokeRescues?: number;
 }
 
+/**
+ * 계산 4 기회 없음 대체값. 2026-10-17 운영 표본(계산 2·3, 팀 12,927건·솔로 295건)의 관측 평균이다.
+ * 같은 경기의 점수가 시간에 따라 바뀌지 않도록 고정 상수로 두고 계산 버전에 묶는다
+ * (docs/specs/2026-10-17-tactical-score-v4.md 3절). 솔로는 팀 항목을 쓰지 않는다.
+ */
+export const CALCULATION_4_OPPORTUNITY_DEFAULTS = {
+  team: { reviveRate: 14.5, tradeRate: 8.1, smokeRate: 5.7, suppRate: 9.7, reversalRate: 13.2, counterLatencyScore: 3.3 },
+  solo: { reviveRate: 14.5, tradeRate: 8.1, smokeRate: 5.7, suppRate: 9.7, reversalRate: 33.0, counterLatencyScore: 3.8 },
+} as const;
+
 function finiteOr(value: unknown, fallback: number): number {
   const numeric = typeof value === "number" ? value : Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
@@ -70,7 +80,7 @@ export interface BenchmarkResult {
   contributionTypes: Array<"FIREPOWER" | "FINISHER" | "RECOVERY" | "CLUTCH" | "SUPPORT" | "SURVIVAL_CONTROL">;
 }
 
-function getImpactGrade(score: number): BenchmarkResult["impactGrade"] {
+export function getImpactGrade(score: number): BenchmarkResult["impactGrade"] {
   if (score >= 130) return "LEGEND";
   if (score >= 110) return "HARD_CARRY";
   if (score >= 95) return "CARRY";
@@ -257,7 +267,6 @@ function getImpactAnalysis(input: MatchTierInput, isSolo: boolean, score: number
 export function calcBenchmarkScoreDetails(input: MatchTierInput, isSolo: boolean): BenchmarkResult["breakdown"] {
   const survivalTime = finiteOr(input.survivalTime, 0);
   const myDeathCount = nonNegativeOr(input.myDeathCount);
-  const deathPhase = nonNegativeOr(input.deathPhase);
   const rankPct = finiteOr(input.rankPct, 1);
   const pressureIndex = finiteOr(input.pressureIndex, 0);
   const teamWipes = nonNegativeOr(input.teamWipes);
@@ -266,23 +275,18 @@ export function calcBenchmarkScoreDetails(input: MatchTierInput, isSolo: boolean
 
   if (survivalTime < 300) return { combat: 0, tactical: 0, survival: 0 };
 
-  // 조기 탈락 조건 판단 (10분 미만 생존 혹은 3페이즈 이하 사망)
-  const isEarlyDeath = survivalTime < 600 || (myDeathCount > 0 && deathPhase <= 3);
-
-  // 상황별 폴백 값 분기 대입
+  // 계산 4: 기회가 없어 측정되지 않은 항목(-1)은 모드별 관측 평균으로 채운다.
+  // 계산 2·3은 정상 탈락 100%, 조기 탈락 30%를 넣어 기회 없음이 실패보다 높게 평가됐다.
+  const opportunity = CALCULATION_4_OPPORTUNITY_DEFAULTS[isSolo ? "solo" : "team"];
   const safeInitiative = normalizeRate(input.initiativeRate, 45);
-  // [V68.0] 기회 없음(-1)인 경우, 조기 광탈은 30%만 인정하되 정상 탈락은 무결점 우대로 100% 만점 처리.
-  const safeRevive = normalizeRate(input.reviveRate, isEarlyDeath ? 30 : 100);
-  const safeTrade = normalizeRate(input.tradeRate, isEarlyDeath ? 30 : 100);
-  const safeSmoke = normalizeRate(input.smokeRate, isEarlyDeath ? 30 : 100);
-  const safeSuppRate = normalizeRate(input.suppRate, isEarlyDeath ? 30 : 100);
-  const safeReversal = normalizeRate(
-    input.reversalRate,
-    isEarlyDeath ? 10 : myDeathCount === 0 && survivalTime >= 1200 ? 100 : 50,
-  );
+  const safeRevive = normalizeRate(input.reviveRate, opportunity.reviveRate);
+  const safeTrade = normalizeRate(input.tradeRate, opportunity.tradeRate);
+  const safeSmoke = normalizeRate(input.smokeRate, opportunity.smokeRate);
+  const safeSuppRate = normalizeRate(input.suppRate, opportunity.suppRate);
+  const safeReversal = normalizeRate(input.reversalRate, opportunity.reversalRate);
 
   const counterLatencyMs = finiteOr(input.counterLatencyMs, -1);
-  const latencyScoreBase = counterLatencyMs < 0 ? 5 :
+  const latencyScoreBase = counterLatencyMs < 0 ? opportunity.counterLatencyScore :
     Math.max(0, Math.min(10, ((3000 - counterLatencyMs) / 2000) * 10));
 
   let combatScore = 0;
@@ -344,6 +348,24 @@ export function calcBenchmarkScoreDetails(input: MatchTierInput, isSolo: boolean
   };
 }
 
+/** 경기 점수(0~100)를 13단계 티어로 바꾼다. 300초 미만 경기(점수 0, 티어 없음)는 호출 전에 거른다. */
+export function tierFromBenchmarkScore(totalScore: number): string {
+  if (totalScore >= 90) return 'S+';
+  if (totalScore >= 82) return 'S';
+  if (totalScore >= 75) return 'A+';
+  if (totalScore >= 68) return 'A';
+  if (totalScore >= 60) return 'A-';
+  if (totalScore >= 52) return 'B+';
+  if (totalScore >= 44) return 'B';
+  if (totalScore >= 36) return 'B-';
+  if (totalScore >= 28) return 'C+';
+  if (totalScore >= 20) return 'C';
+  if (totalScore >= 12) return 'C-';
+  if (totalScore >= 6) return 'D+';
+  if (totalScore >= 3) return 'D';
+  return 'D-';
+}
+
 /**
  * 세분화된 13단계 티어 판정 (S ~ D-)
  */
@@ -365,20 +387,7 @@ export function getBenchmarkTier(input: MatchTierInput, isSolo: boolean): Benchm
   const totalScore = normalizeScore(breakdown.combat + breakdown.tactical + breakdown.survival);
   const impact = getImpactAnalysis(input, isSolo, totalScore);
 
-  let tier = 'D-';
-  if (totalScore >= 90) tier = 'S+';
-  else if (totalScore >= 82) tier = 'S';
-  else if (totalScore >= 75) tier = 'A+';
-  else if (totalScore >= 68) tier = 'A';
-  else if (totalScore >= 60) tier = 'A-';
-  else if (totalScore >= 52) tier = 'B+';
-  else if (totalScore >= 44) tier = 'B';
-  else if (totalScore >= 36) tier = 'B-';
-  else if (totalScore >= 28) tier = 'C+';
-  else if (totalScore >= 20) tier = 'C';
-  else if (totalScore >= 12) tier = 'C-';
-  else if (totalScore >= 6) tier = 'D+';
-  else if (totalScore >= 3) tier = 'D';
+  const tier = tierFromBenchmarkScore(totalScore);
 
   return {
     tier,

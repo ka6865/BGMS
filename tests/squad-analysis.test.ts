@@ -41,8 +41,8 @@ function configureRows(rows: unknown[]) {
   for (const method of ["select", "eq", "order", "limit", "in"]) processed[method] = vi.fn().mockReturnValue(processed);
   processed.then = (resolve: any, reject: any) => Promise.resolve({ data: rows, error: null }).then(resolve, reject);
   const teamBenchmark: any = {};
-  for (const method of ["select", "eq"]) teamBenchmark[method] = vi.fn().mockReturnValue(teamBenchmark);
-  teamBenchmark.maybeSingle = vi.fn().mockResolvedValue({ data: null, error: null });
+  for (const method of ["select", "eq", "in"]) teamBenchmark[method] = vi.fn().mockReturnValue(teamBenchmark);
+  teamBenchmark.then = (resolve: any, reject: any) => Promise.resolve({ data: [], error: null }).then(resolve, reject);
   mockCreateClient.mockReturnValue({
     from: vi.fn((table: string) => {
       if (table === "processed_match_telemetry") return processed;

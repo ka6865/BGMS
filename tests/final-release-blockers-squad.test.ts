@@ -12,8 +12,9 @@ function queryChain(result:any){
 function configureSquadClient(processed:any,teamBenchmarkRow:any=null){
   const benchmarkChains:any[]=[];
   // 팀 관측 집계(pubg_team_benchmarks)만 허용하고 개인 benchmark 조회는 계속 막는다.
-  const teamChain:any={};for(const method of ["select","eq"])teamChain[method]=vi.fn().mockReturnValue(teamChain);
-  teamChain.maybeSingle=vi.fn().mockResolvedValue({data:teamBenchmarkRow,error:null});
+  // 계산 버전별 집계 행을 in()으로 한 번에 읽고 합산한다.
+  const teamChain:any={};for(const method of ["select","eq","in"])teamChain[method]=vi.fn().mockReturnValue(teamChain);
+  teamChain.then=(resolve:any,reject:any)=>Promise.resolve({data:teamBenchmarkRow?[teamBenchmarkRow]:[],error:null}).then(resolve,reject);
   const from=vi.fn((table:string)=>{if(table==='processed_match_telemetry')return processed;if(table==='pubg_team_benchmarks')return teamChain;benchmarkChains.push(table);throw new Error('Personal benchmark must not be queried for a squad');});
   mockCreateClient.mockReturnValue({from});return {from,benchmarkChains,teamChain};
 }
@@ -212,14 +213,16 @@ describe("strict squad analysis population and scope",()=>{
     const a:any=await getSquadAnalysisData('Player_A','steam','Teammate_B');
     expect(a.benchmarkStats).toMatchObject({scope:'team_population',teamMode:'squad',sampleCount:833,avgReviveRate:36.3,avgTradeLatency:12300,tier:null});
     expect(teamChain.eq.mock.calls).toEqual(expect.arrayContaining([['team_mode','squad'],['observation_version',1]]));
+    expect(teamChain.in.mock.calls).toEqual([['calculation_version',[2,3,4]]]);
   });
-  it('withholds the team benchmark when selected matches mix calculation versions',async()=>{
+  it('combines the team benchmark across supported calculation versions when selected matches mix them',async()=>{
+    // 팀 관측값(기절·소생·트레이드·연막)은 계산 2·3·4에서 산식이 같아 섞여도 비교한다.
     const rows=[canonicalRow(1,{squadObservation:observation()}),canonicalRow(2,{squadObservation:observation(),calculationVersion:2})];
     const {teamChain}=configureSquadClient(queryChain({data:rows,error:null}),{sample_team_matches:833,knocks:3801,revives:1379,trade_kills:679,trade_latency_total_ms:8327256,smoke_sample_team_matches:833,smoke_knocks:3801,smoke_rescues:120});
     const {getSquadAnalysisData}=await import('@/lib/pubg-analysis/squadAnalysis');
     const a:any=await getSquadAnalysisData('Player_A','steam','Teammate_B');
-    expect(teamChain.maybeSingle).not.toHaveBeenCalled();
-    expect(a.benchmarkStats.avgReviveRate).toBeNull();
+    expect(teamChain.in).toHaveBeenCalledTimes(1);
+    expect(a.benchmarkStats).toMatchObject({sampleCount:833,avgReviveRate:36.3});
   });
   it('still fails when the canonical processed-record query fails' ,async()=>{
     configureSquadClient(queryChain({data:null,error:{message:'database unavailable'}}));
