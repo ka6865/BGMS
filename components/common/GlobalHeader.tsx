@@ -174,7 +174,8 @@ export default function GlobalHeader() {
   };
 
   // 3D 리플레이 등 전체 화면 전술 페이지에서는 상단 헤더를 숨겨 전체 뷰포트 영역을 확보
-  if (pathname.startsWith('/replay/')) {
+  // 공개 LoL 경로(/lol)는 자체 헤더(LolHeader)를 쓴다.
+  if (pathname.startsWith('/replay/') || pathname === '/lol' || pathname.startsWith('/lol/')) {
     return null;
   }
 

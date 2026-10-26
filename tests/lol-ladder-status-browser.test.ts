@@ -77,6 +77,11 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 컷·상태 공
     for (const route of ["ladder", "status", "ladder?empty", "ladder?error", "status?empty", "status?error"]) {
       const response = await page.goto(`${base}/lol/kr/${route}`, { waitUntil: "networkidle0" }); expect(response?.status()).toBe(200);
       expect(await page.$eval("main h1", element => element.textContent)).toContain(route.startsWith("ladder") ? "랭크 컷" : "서버 상태");
+      // 공개 LoL 경로는 사이트 공통 헤더 대신 LoL 헤더를 쓰고, 현재 페이지 메뉴를 표시한다.
+      expect(await page.$eval('[data-testid="lol-header"] [aria-current="page"]', element => element.textContent))
+        .toBe(route.startsWith("ladder") ? "랭크 컷" : "서버 상태");
+      expect(await page.$$eval('[data-testid="lol-header"] nav a', links => links.map(link => link.getAttribute("href"))))
+        .toEqual(["/lol/kr", "/lol/kr/ladder", "/lol/kr/status"]);
       // 공지 배너는 한 줄로 접혀 있고, 같은 공지를 본문에 보여 주는 상태 페이지에서는 숨긴다.
       if (route.startsWith("status")) expect(await page.$('aside[aria-label="LoL 서버 상태 알림"]')).toBeNull();
       else {
