@@ -35,7 +35,8 @@ export default function SidebarFooterWrapper({ children }: { children: React.Rea
         {children}
       </main>
       {/* 지도, 리플레이, 어드민 도구 페이지가 아닐 때만 하단 글로벌 푸터를 노출하여 스크롤 트랩 방지 */}
-      {!isMapPage && !isReplayPage && !isAdminToolPage && <Footer />}
+      {/* 공개 LoL 경로는 LoL 전용 푸터(LolFooter)를 쓴다. */}
+      {!isMapPage && !isReplayPage && !isAdminToolPage && !isLolPage && <Footer />}
       {!isAdFreePage && shouldLoadExternalAdScripts(process.env.NODE_ENV) && (
         <Script
           id="adsbygoogle-main-js"
