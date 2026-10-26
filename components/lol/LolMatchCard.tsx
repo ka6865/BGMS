@@ -3,6 +3,7 @@ import type {
   LolMatchDetails,
   LolRecentMatch,
 } from "@/lib/lol/riotSearch.server";
+import type { LolLpChange } from "@/lib/lol/lpChange";
 import LolMatchDetail from "./LolMatchDetail";
 import {
   formatAbsoluteTime,
@@ -171,6 +172,24 @@ export function LolScoreBadge({ player }: { player?: LolPlayer }) {
   );
 }
 
+// BGMS가 전적 갱신 사이에 기록한 랭크 변화. 근거가 있는 판에만 오며, 없으면 승리·패배만 보인다.
+function LpChangeBadge({ change }: { change?: LolLpChange }) {
+  if (!change) return null;
+  const text = change.kind === "promotion" ? "승급" : change.kind === "demotion" ? "강등"
+    : `${change.value > 0 ? "+" : ""}${change.value} LP`;
+  const style = change.kind === "promotion" || (change.kind === "lp" && change.value > 0) ? "text-sky-300"
+    : change.kind === "demotion" || (change.kind === "lp" && change.value < 0) ? "text-rose-300" : "text-zinc-300";
+  return (
+    <span
+      data-testid="lol-lp-change"
+      title="BGMS가 전적 갱신 사이에 이 판만 있었을 때 기록한 랭크 변화입니다. Riot 공식 경기별 값은 아닙니다."
+      className={`ml-1.5 whitespace-nowrap font-bold tabular-nums ${style}`}
+    >
+      {text}
+    </span>
+  );
+}
+
 function ChampionThumb({ player, dataDragonVersion }: { player: LolPlayer; dataDragonVersion?: string }) {
   return (
     <img loading="lazy" decoding="async"
@@ -231,7 +250,10 @@ export default function LolMatchCard({
               {formatRelativeTime(match.gameEndTimestamp)}
             </time>
             <span aria-hidden="true" className="hidden @min-[560px]/match:my-1.5 @min-[560px]/match:block @min-[560px]/match:h-px @min-[560px]/match:w-10 @min-[560px]/match:bg-white/15" />
-            <b className={`text-xs ${tone.label} @min-[560px]/match:block @min-[560px]/match:text-zinc-200`}>{tone.text}</b>
+            <b className={`text-xs ${tone.label} @min-[560px]/match:block @min-[560px]/match:text-zinc-200`}>
+              {tone.text}
+              <LpChangeBadge change={match.remake ? undefined : match.lpChange} />
+            </b>
             <span className="text-[11px] text-zinc-400 @min-[560px]/match:block">
               {formatDuration(match.gameDuration)}
             </span>
