@@ -783,12 +783,27 @@ function aggregateMatches(matches: any[]) {
     );
     totalFatalDelay = addObservedTotal(totalFatalDelay, m.zoneStrategy?.fatalDelayCount);
 
-    // [V30.1] 신규 지표 합산 (탈것/자기장운 제외)
-    if (Array.isArray(m.weaponMatchCount)) {
-      m.weaponMatchCount.forEach((w: string) => {
-        weaponMatchCount[w] = (weaponMatchCount[w] || 0) + 1;
+    // 무기별 사용 경기 수. 저장된 weaponMatchCount는 위치 로그에 무기 필드가 없어 비어 있으므로
+    // 이 경기에서 피해·기절·처치를 낸 무기를 weaponStatsFinal과 같은 이름 키로 센다.
+    const matchWeapons = new Set<string>();
+    if (m.weaponStats && typeof m.weaponStats === "object") {
+      Object.keys(m.weaponStats).forEach((wId) => matchWeapons.add(normalizeWeaponName(wId)));
+    }
+    if (Array.isArray(m.timeline)) {
+      m.timeline.forEach((event: any) => {
+        if (event.type === 'KILL' || event.type === 'KNOCK' || event.type === 'DOWNED' || event.type === 'TEAM_KNOCK') {
+          matchWeapons.add(normalizeWeaponName(event.weapon || 'Unknown'));
+        }
       });
     }
+    if (Array.isArray(m.weaponMatchCount)) {
+      m.weaponMatchCount.forEach((w: unknown) => {
+        if (typeof w === "string" && w) matchWeapons.add(normalizeWeaponName(w));
+      });
+    }
+    matchWeapons.forEach((w) => {
+      weaponMatchCount[w] = (weaponMatchCount[w] || 0) + 1;
+    });
 
     // [V58.4] 차량 교전 지표 누적 합산 (m.stats 또는 m 직계 필드에서 안전하게 추출)
     const lK = coerceFiniteNumber(m.stats?.leadShotKills ?? m.leadShotKills);
