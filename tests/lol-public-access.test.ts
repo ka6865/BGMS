@@ -3,7 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 
-const mocks = vi.hoisted(() => ({ search: vi.fn(), more: vi.fn(), detail: vi.fn(), resolve: vi.fn(), pathname: "/lol/kr" }));
+const mocks = vi.hoisted(() => ({ search: vi.fn(), more: vi.fn(), detail: vi.fn(), build: vi.fn(), resolve: vi.fn(), pathname: "/lol/kr" }));
 vi.mock("server-only", () => ({}));
 vi.mock("next/navigation", () => ({
   redirect: (path: string) => { throw new Error(`redirect:${path}`); },
@@ -15,7 +15,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("next/script", () => ({ default: (props: Record<string, unknown>) => createElement("script", props) }));
 vi.mock("@/components/common/Footer", () => ({ default: () => null }));
 vi.mock("@/lib/lol/riotSearch.server", () => ({
-  searchLolRiotId: mocks.search, getMoreLolMatches: mocks.more, getLolMatchDetails: mocks.detail,
+  searchLolRiotId: mocks.search, getMoreLolMatches: mocks.more, getLolMatchDetails: mocks.detail, getLolMatchBuild: mocks.build,
   resolveLolParticipantRef: mocks.resolve, RiotSearchError: class extends Error {},
 }));
 vi.mock("@/lib/lol/persistence.server", () => ({ LolPersistenceError: class extends Error {}, LolLeaseExpiredError: class extends Error {} }));
@@ -41,10 +41,13 @@ describe("LoL 공개 보안 경계", () => {
     const search = await import("@/app/api/lol/search/route");
     const more = await import("@/app/api/lol/matches/more/route");
     const detail = await import("@/app/api/lol/matches/[matchId]/route");
+    const build = await import("@/app/api/lol/matches/[matchId]/build/route");
     const ref = await import("@/app/lol/kr/by-ref/[ref]/route");
     expect((await search.POST(request())).status).toBe(404);
     expect((await more.POST(request())).status).toBe(404);
     expect((await detail.GET(request(), detailContext)).status).toBe(404);
+    expect((await build.GET(request(), detailContext)).status).toBe(404);
+    expect(mocks.build).not.toHaveBeenCalled();
     expect((await ref.GET(request(), { params: Promise.resolve({ ref: "sealed" }) })).status).toBe(404);
     expect(mocks.search).not.toHaveBeenCalled(); expect(mocks.resolve).not.toHaveBeenCalled();
   });
@@ -62,12 +65,13 @@ describe("LoL 공개 보안 경계", () => {
   it.each(["key_or_permission", "unconfigured"])("공개 검색·더보기·상세는 %s를 갱신 안내로 반환한다", async (kind) => {
     const { RiotSearchError } = await import("@/lib/lol/riotSearch.server");
     const error = Object.assign(new RiotSearchError(kind as "unconfigured"), { kind });
-    mocks.search.mockRejectedValue(error); mocks.more.mockRejectedValue(error); mocks.detail.mockRejectedValue(error);
+    mocks.search.mockRejectedValue(error); mocks.more.mockRejectedValue(error); mocks.detail.mockRejectedValue(error); mocks.build.mockRejectedValue(error);
     const search = await import("@/app/api/lol/search/route");
     const more = await import("@/app/api/lol/matches/more/route");
     const detail = await import("@/app/api/lol/matches/[matchId]/route");
+    const build = await import("@/app/api/lol/matches/[matchId]/build/route");
     const responses = [await search.POST(request()), await more.POST(request(undefined, undefined, { riotId: "홍길동#FIX", offset: 5 })),
-      await detail.GET(request(), detailContext)];
+      await detail.GET(request(), detailContext), await build.GET(request(), detailContext)];
     for (const response of responses) {
       expect(response.status).toBe(503);
       expect(await response.json()).toEqual({ error: "Riot API 키를 갱신하는 중입니다. 잠시 후 다시 시도해 주세요.",

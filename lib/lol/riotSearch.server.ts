@@ -35,6 +35,8 @@ import {
 import { summarizeRecentMatches } from "@/lib/lol/summary";
 import { pickLolChallenges } from "./challenges";
 import { buildLolMatchInsights, summarizeLolRecentTrends } from "./insights";
+import { parseLolMatchBuild, type LolMatchBuild } from "./matchBuild";
+import { LOL_SCORE_VERSION, scoreLolMatch } from "./matchScore";
 import { buildLolChallengeProfile, parseLolChallengeCatalog, type LolChallengeCatalog, type LolChallengeProfile } from "./challengeProfile";
 import { parseLolMasteries, summarizeLolChampionPerformance } from "./mastery";
 import { lolParticipantDto, lolSearchResultDto, openLolParticipantRef } from "./participantIdentity.server";
@@ -113,7 +115,7 @@ const RIOT_HOSTS = {
 } as const;
 const LOL_PLATFORM: LolPlatform = "kr";
 const LOL_REGIONAL_ROUTE: LolRegionalRoute = "asia";
-export const LOL_MATCH_DETAILS_VERSION = "v4";
+export const LOL_MATCH_DETAILS_VERSION = "v6";
 const MIN_SUMMARY_GAME_DURATION_SECONDS = 300;
 const STATIC_TTL_MS = 24 * 60 * 60_000;
 type StaticRune = { id: number; name: string; icon: string };
@@ -678,6 +680,8 @@ function summarizeMatch(match: any, puuid: string): LolRecentMatch | null {
       ? participant.teamPosition
       : "미분류",
     teammates,
+    ...(optionalNonNegativeNumber(participant.largestMultiKill) !== null
+      ? { largestMultiKill: optionalNonNegativeNumber(participant.largestMultiKill)! } : {}),
     remake:
       participant.gameEndedInEarlySurrender === true ||
       team.some((item: any) => item.teamEarlySurrendered === true) ||
@@ -837,7 +841,8 @@ function buildMatchDetails(
           image: rune.icon,
         });
   }
-  const participants = info.participants.map((participant: any) => {
+  const scores = scoreLolMatch(info);
+  const participants = info.participants.map((participant: any, participantIndex: number) => {
     const championEntry = Object.entries(metadata.champions).find(
       ([, champion]) => Number(champion.key) === Number(participant.championId),
     );
@@ -876,6 +881,9 @@ function buildMatchDetails(
       championNameKo:
         champion?.name ?? String(participant.championName ?? "알 수 없음"),
       win: Boolean(participant.win),
+      ...(scores[participantIndex] ? { score: scores[participantIndex]! } : {}),
+      ...(optionalNonNegativeNumber(participant.profileIcon) !== null
+        ? { profileIconId: optionalNonNegativeNumber(participant.profileIcon)! } : {}),
       championLevel: optionalPositiveInteger(participant.champLevel),
       spells: [participant.summoner1Id, participant.summoner2Id].map((id) => {
         const spellId = optionalNonNegativeNumber(id);
@@ -1016,11 +1024,12 @@ async function getLolMatchDetailsAndRaw(
   if (!isMatchId(input)) throw new RiotSearchError("invalid_request");
   const persistenceEnabled = isLolPersistenceEnabled();
   const dataDragonVersion = await getLolDataDragonVersion();
+  // 점수 산식 버전도 키에 넣어, 가중치만 바꿔도 이전 점수가 담긴 상세 캐시를 다시 쓰지 않게 한다.
   const cacheKey = lolMatchCacheKey(
     input,
     LOL_PLATFORM,
     LOL_REGIONAL_ROUTE,
-    `${dataDragonVersion}:${LOL_MATCH_DETAILS_VERSION}`,
+    `${dataDragonVersion}:${LOL_MATCH_DETAILS_VERSION}:${LOL_SCORE_VERSION}`,
   );
   let rawCacheChecked = false;
   let cachedRaw: unknown;
@@ -1102,6 +1111,29 @@ async function getLolMatchDetailsAndRaw(
       }
     }
   }
+}
+
+// 타임라인은 상세 탭에서 빌드를 열 때만 1회 요청하고, 가공한 빌드만 잠시 메모리에 둔다.
+const LOL_BUILD_TTL_MS = 30 * 60_000;
+const LOL_TIMELINE_MAX_BYTES = 8 * 1024 * 1024;
+
+export async function getLolMatchBuild(input: string, storedOnly = false): Promise<LolMatchBuild> {
+  if (!isMatchId(input)) throw new RiotSearchError("invalid_request");
+  if (storedOnly && (!isLolPersistenceEnabled() || !await hasLolStoredMatch(input))) throw new RiotSearchError("not_found");
+  const cacheKey = `build:v1:${input}`;
+  const cached = getCached<LolMatchBuild>(cacheKey);
+  if (cached) return cached;
+  const { raw } = await getLolMatchDetailsAndRaw(input, true);
+  const timeline = await requestJson<unknown>("asia", `/lol/match/v5/matches/${encodeURIComponent(input)}/timeline`,
+    MATCH_TTL_MS, false, undefined, LOL_TIMELINE_MAX_BYTES);
+  let build: LolMatchBuild;
+  try {
+    build = parseLolMatchBuild(timeline, raw, input);
+  } catch {
+    throw new RiotSearchError("upstream");
+  }
+  setCached(cacheKey, build, LOL_BUILD_TTL_MS);
+  return build;
 }
 
 export async function getLolMatchDetails(input: string, storedOnly = false): Promise<import("./types").LolMatchDetails> {

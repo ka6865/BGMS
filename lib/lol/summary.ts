@@ -35,6 +35,52 @@ function matchesQueue(
   );
 }
 
+type PeerRow = LolQueueSummary["teammates"][number];
+type PeerInput = { riotId: string; playerKey?: string; ref?: string; win: boolean | null; profileIconId?: number };
+
+function addPeers(rows: Map<string, PeerRow>, peers: PeerInput[], match: LolRecentMatch) {
+  const seen = new Set<string>();
+  for (const participant of peers) {
+    const key = participant.playerKey ?? participant.riotId;
+    if (!key.trim() || seen.has(key)) continue;
+    seen.add(key);
+    const row = rows.get(key) ?? {
+      riotId: participant.riotId,
+      ...(participant.playerKey ? { playerKey: participant.playerKey } : {}),
+      ...(participant.ref ? { ref: participant.ref } : {}),
+      games: 0,
+      wins: 0,
+      losses: 0,
+      winRatePct: null,
+    };
+    // 소환사 아이콘은 가장 최근 경기의 상세 참가자 값을 쓴다.
+    const profileIconId = participant.profileIconId ?? match.details?.teams
+      .flatMap((team) => team.participants).find((player) => player.riotId === participant.riotId)?.profileIconId;
+    if (row.profileIconId === undefined && profileIconId !== undefined) row.profileIconId = profileIconId;
+    row.games += 1;
+    if (typeof participant.win === "boolean") {
+      if (participant.win) row.wins += 1;
+      else row.losses += 1;
+    }
+    rows.set(key, row);
+  }
+}
+
+// 2경기 이상 함께한 소환사만 경기 수 순으로 최대 10명 보여 준다.
+function rankPeers(rows: Map<string, PeerRow>): PeerRow[] {
+  return [...rows.values()]
+    .filter((row) => row.games >= 2)
+    .map((row) => ({
+      ...row,
+      winRatePct: row.wins + row.losses ? (row.wins / (row.wins + row.losses)) * 100 : null,
+    }))
+    .sort((a, b) =>
+      b.games - a.games ||
+      (b.winRatePct ?? -1) - (a.winRatePct ?? -1) ||
+      a.riotId.localeCompare(b.riotId, "ko"))
+    .slice(0, 10);
+}
+
 export function summarizeRecentMatches(
   matches: LolRecentMatch[],
   ownRiotId: string,
@@ -67,36 +113,20 @@ export function summarizeRecentMatches(
           valid.filter((match) => match.teamPosition === position).length,
         ]),
       ) as LolQueueSummary["positions"];
-      const teammates = new Map<
-        string,
-        { riotId: string; playerKey?: string; ref?: string; games: number; wins: number; losses: number }
-      >();
+      const teammates = new Map<string, PeerRow>();
+      const opponents = new Map<string, PeerRow>();
       for (const match of valid) {
         const team = match.details?.teams.find((entry) =>
           entry.participants.some((participant) => participant.riotId === ownRiotId),
         );
         const peers = match.teammates ?? team?.participants
           .filter((participant) => participant.riotId !== ownRiotId && participant.riotId !== "Riot ID 미제공") ?? [];
-        const seen = new Set<string>();
-        for (const participant of peers) {
-          const key = participant.playerKey ?? participant.riotId;
-          if (!key.trim() || seen.has(key)) continue;
-          seen.add(key);
-          const row = teammates.get(key) ?? {
-            riotId: participant.riotId,
-            ...(participant.playerKey ? { playerKey: participant.playerKey } : {}),
-            ...(participant.ref ? { ref: participant.ref } : {}),
-            games: 0,
-            wins: 0,
-            losses: 0,
-          };
-          row.games += 1;
-          if (typeof participant.win === "boolean") {
-            if (participant.win) row.wins += 1;
-            else row.losses += 1;
-          }
-          teammates.set(key, row);
-        }
+        addPeers(teammates, peers.map((participant) => ({ ...participant, win: participant.win })), match);
+        // 상대 팀은 상세 참가자에서만 알 수 있고, 승패는 본인 기준으로 센다.
+        if (team) addPeers(opponents, match.details!.teams.filter((entry) => entry !== team)
+          .flatMap((entry) => entry.participants)
+          .filter((participant) => participant.riotId !== "Riot ID 미제공")
+          .map((participant) => ({ ...participant, win: match.win })), match);
       }
       return [
         queue,
@@ -124,22 +154,8 @@ export function summarizeRecentMatches(
           perfect: kda.perfect,
           perfectCount: kda.perfectCount,
           positions,
-          teammates: [...teammates.values()]
-            .filter((teammate) => teammate.games >= 2)
-            .map((teammate) => ({
-              ...teammate,
-              winRatePct:
-                teammate.wins + teammate.losses
-                  ? (teammate.wins / (teammate.wins + teammate.losses)) * 100
-                  : null,
-            }))
-            .sort(
-              (a, b) =>
-                b.games - a.games ||
-                (b.winRatePct ?? -1) - (a.winRatePct ?? -1) ||
-                a.riotId.localeCompare(b.riotId, "ko"),
-            )
-            .slice(0, 5),
+          teammates: rankPeers(teammates),
+          opponents: rankPeers(opponents),
           champions: [...champions.entries()].map(([championId, games]) => {
             const championKda = summarizeKda(games);
             const wins = games.filter((match) => match.win).length;

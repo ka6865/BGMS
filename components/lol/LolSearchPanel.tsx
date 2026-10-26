@@ -527,6 +527,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
                   {matches.map((match) => (
                     <LolMatchCard
                       key={match.matchId}
+                      apiBase={apiBase}
                       match={match}
                       ownRiotId={ownRiotId}
                       expanded={openMatchId === match.matchId}

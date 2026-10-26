@@ -506,7 +506,7 @@ describe("POST /api/admin/lol/search", () => {
     await expect(response.json()).resolves.toEqual({ ...dto, dataDragonVersion: "16.21.1" });
     expect(persistence.cache).toHaveBeenCalledWith(
       "match_details",
-      "match:v1:kr:asia:16.21.1:v4:KR_55",
+      "match:v1:kr:asia:16.21.1:v6:s1:KR_55",
       "kr",
       "asia",
       "16.21.1",
@@ -1601,7 +1601,7 @@ describe("POST /api/admin/lol/search", () => {
     ).toHaveLength(5);
   });
 
-  it("포지션과 함께 플레이한 소환사는 같은 팀의 유효 경기만 PUUID로 집계해 최대 5명만 반환한다", async () => {
+  it("포지션과 함께 플레이한 소환사는 같은 팀의 유효 경기만 PUUID로 집계해 최대 10명까지 반환한다", async () => {
     vi.setSystemTime(Date.now() + 72 * 60 * 60_000);
     const ids = ["KR_131", "KR_132", "KR_133", "KR_134", "KR_135"];
     const calls: string[] = [];
@@ -1700,8 +1700,8 @@ describe("POST /api/admin/lol/search", () => {
       UTILITY: 0,
       미분류: 1,
     });
-    expect(summary.teammates).toHaveLength(5);
-    expect(summary.teammates.map((player) => player.riotId)).toEqual([
+    expect(summary.teammates).toHaveLength(7);
+    expect(summary.teammates.slice(0, 5).map((player) => player.riotId)).toEqual([
       "mate-5#KR1",
       "rate#KR1",
       "mate-0#KR1",
@@ -1723,10 +1723,11 @@ describe("POST /api/admin/lol/search", () => {
       summary.teammates.some(
         (player) =>
           player.riotId.startsWith("enemy-") ||
-          player.riotId.startsWith("single-") ||
-          player.riotId.startsWith("mate-4"),
+          player.riotId.startsWith("single-"),
       ),
     ).toBe(false);
+    // 상대 팀은 같은 팀 목록과 섞이지 않는다.
+    expect(summary.opponents?.every((player) => player.riotId.startsWith("enemy-"))).toBe(true);
     expect(JSON.stringify(result)).not.toContain("puuid");
     expect(
       calls.filter((url) => url.includes("api.riotgames.com")),
@@ -1979,7 +1980,7 @@ describe("POST /api/admin/lol/search", () => {
     });
   });
 
-  it("상세 DTO v2 캐시는 재사용하지 않고 저장 원문만으로 v4를 만든다", async () => {
+  it("상세 DTO 이전 버전 캐시는 재사용하지 않고 저장 원문만으로 현재 버전을 만든다", async () => {
     persistence.enabled.mockReturnValue(true);
     persistence.cache.mockResolvedValue(undefined);
     persistence.matchRequestJson.mockResolvedValue({
@@ -2027,7 +2028,7 @@ describe("POST /api/admin/lol/search", () => {
     });
     expect(persistence.cache).toHaveBeenCalledWith(
       "match_details",
-      "match:v1:kr:asia:16.21.1:v4:KR_98",
+      "match:v1:kr:asia:16.21.1:v6:s1:KR_98",
       "kr",
       "asia",
       "16.21.1",
@@ -2041,7 +2042,7 @@ describe("POST /api/admin/lol/search", () => {
     expect(persistence.saveMatch).toHaveBeenCalledWith(
       expect.objectContaining({
         version: "16.21.1",
-        cacheKey: "match:v1:kr:asia:16.21.1:v4:KR_98",
+        cacheKey: "match:v1:kr:asia:16.21.1:v6:s1:KR_98",
       }),
     );
   });
@@ -2062,9 +2063,9 @@ describe("POST /api/admin/lol/search", () => {
     expect(await (await getMatch(new Request("http://localhost"), context)).json()).toMatchObject({ dataDragonVersion: "16.21.1" });
     dragon.version = "16.22.1";
     expect(await (await getMatch(new Request("http://localhost"), context)).json()).toMatchObject({ dataDragonVersion: "16.22.1" });
-    expect(persistence.cache).toHaveBeenLastCalledWith("match_details", "match:v1:kr:asia:16.22.1:v4:KR_987", "kr", "asia", "16.22.1");
+    expect(persistence.cache).toHaveBeenLastCalledWith("match_details", "match:v1:kr:asia:16.22.1:v6:s1:KR_987", "kr", "asia", "16.22.1");
     expect(persistence.saveMatch).toHaveBeenCalledWith(expect.objectContaining({
-      cacheKey: "match:v1:kr:asia:16.22.1:v4:KR_987", version: "16.22.1",
+      cacheKey: "match:v1:kr:asia:16.22.1:v6:s1:KR_987", version: "16.22.1",
       cachePayload: expect.objectContaining({ dataDragonVersion: "16.22.1" }),
     }));
     expect(calls).toHaveLength(4);

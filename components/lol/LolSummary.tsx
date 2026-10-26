@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { LolQueueSummary } from "@/lib/lol/riotSearch.server";
 import { formatMetric, formatPercent } from "./lolFormat";
 
@@ -113,23 +113,96 @@ export function LolSidebarStats({ summary, onSearch, dataDragonVersion }: {
         </div>
         {!!summary?.positions?.미분류 && <p className="mt-2 text-[10px] text-zinc-500">미분류 {summary.positions.미분류}경기</p>}
       </section>
-      <section aria-label="함께 플레이한 소환사" className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 tabular-nums">
-        <h3 className="text-xs font-semibold text-zinc-400">함께 플레이한 소환사</h3>
-        {summary?.teammates?.length ? (
-          <ul className="mt-3 space-y-3 text-xs">
-            {summary.teammates.map((player) => (
-              <li key={player.playerKey ?? player.riotId} className="flex min-w-0 items-center justify-between gap-2">
-                <button type="button" onClick={() => onSearch(player.riotId, player.ref)} className="min-w-0 truncate text-left hover:text-amber-300">
-                  {player.riotId}
-                </button>
-                <span className="shrink-0 text-right text-[10px] text-zinc-400">
-                  {player.games}경기 · {formatPercent(player.winRatePct)}<br />{player.wins}승 {player.losses}패
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : <p className="mt-3 text-xs text-zinc-500">{summary?.teammates ? "2경기 이상 함께한 소환사 없음" : "함께한 소환사 미제공"}</p>}
-      </section>
+      <LolPeers summary={summary} dataDragonVersion={dataDragonVersion} onSearch={onSearch} />
     </>
+  );
+}
+
+function winRateClass(value: number | null) {
+  if (value === null) return "text-zinc-500";
+  if (value >= 60) return "text-sky-300";
+  if (value < 50) return "text-rose-300";
+  return "text-zinc-200";
+}
+
+function LolPeers({ summary, onSearch, dataDragonVersion }: {
+  summary?: LolQueueSummary;
+  dataDragonVersion?: string;
+  onSearch: (riotId: string, ref?: string) => void;
+}) {
+  const [side, setSide] = useState<"teammates" | "opponents">("teammates");
+  const rows = side === "teammates" ? summary?.teammates : summary?.opponents;
+  return (
+    <section aria-label="함께 플레이한 소환사" className="overflow-hidden rounded-xl border border-zinc-800 bg-zinc-900 tabular-nums">
+      <h3 className="px-4 pt-4 text-center text-xs font-semibold text-zinc-300">
+        함께 플레이한 소환사 <span className="text-zinc-500">(최근 {summary?.validSampleSize ?? 0}게임)</span>
+      </h3>
+      <div role="tablist" aria-label="소환사 구분" className="grid grid-cols-2 gap-2 px-4 py-3">
+        {([["teammates", "우리 팀"], ["opponents", "상대 팀"]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={side === key}
+            onClick={() => setSide(key)}
+            className={`min-h-9 rounded-lg border text-xs font-semibold transition ${side === key
+              ? "border-emerald-400/70 bg-emerald-400/10 text-emerald-300"
+              : "border-zinc-700 text-zinc-400 hover:text-zinc-200"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {rows?.length ? (
+        <table className="w-full table-fixed text-xs">
+          <thead className="border-y border-zinc-800 text-[10px] text-zinc-500">
+            <tr>
+              <th scope="col" className="py-2 pl-4 text-left font-medium">소환사 정보</th>
+              <th scope="col" className="w-11 font-medium">게임 수</th>
+              <th scope="col" className="w-12 font-medium">승패</th>
+              <th scope="col" className="w-12 pr-4 text-right font-medium">승률</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-800/70">
+            {rows.map((player) => {
+              const [gameName, tagLine] = player.riotId.split("#");
+              return (
+                <tr key={player.playerKey ?? player.riotId} data-testid="lol-peer">
+                  <td className="py-2 pl-4">
+                    <button
+                      type="button"
+                      onClick={() => onSearch(player.riotId, player.ref)}
+                      className="flex w-full min-w-0 items-center gap-2 text-left hover:text-amber-300"
+                    >
+                      {player.profileIconId !== undefined && dataDragonVersion ? (
+                        <img
+                          src={`https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/profileicon/${player.profileIconId}.png`}
+                          alt=""
+                          width={28}
+                          height={28}
+                          onError={(event) => { event.currentTarget.style.visibility = "hidden"; }}
+                          className="h-7 w-7 shrink-0 rounded-md bg-zinc-800"
+                        />
+                      ) : <span aria-hidden="true" className="h-7 w-7 shrink-0 rounded-md bg-zinc-800" />}
+                      <span className="min-w-0 truncate font-semibold">
+                        {gameName}
+                        {tagLine !== undefined && <span className="ml-1 font-normal text-zinc-500">#{tagLine}</span>}
+                      </span>
+                    </button>
+                  </td>
+                  <td className="text-center text-zinc-300">{player.games}</td>
+                  <td className="text-center text-zinc-300">{player.wins}-{player.losses}</td>
+                  <td className={`pr-4 text-right font-semibold ${winRateClass(player.winRatePct)}`}>{formatPercent(player.winRatePct)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      ) : (
+        <p className="border-t border-zinc-800 px-4 py-4 text-xs text-zinc-500">
+          {rows ? `2경기 이상 함께한 ${side === "teammates" ? "팀원" : "상대"} 없음` : side === "opponents" ? "상대 팀 정보 미제공" : "함께한 소환사 미제공"}
+        </p>
+      )}
+    </section>
   );
 }

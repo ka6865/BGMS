@@ -1,6 +1,7 @@
 import type { LolChallenges } from "./challenges";
 import type { LolMatchInsights, LolRecentTrends } from "./insights";
 import type { LolChallengeProfile } from "./challengeProfile";
+import type { LolParticipantScore } from "./matchScore";
 
 export type LolParticipantIdentity = { playerKey?: string; ref?: string };
 
@@ -47,6 +48,8 @@ export type LolRecentMatch = {
     "matchId" | "queueId" | "gameMode" | "gameDuration"
   >;
   teammates?: Array<LolParticipantIdentity & { riotId: string; win: boolean | null }>;
+  // 한 번에 연속 처치한 최대 수(2=더블킬 … 5=펜타킬). 이전 캐시에는 없다.
+  largestMultiKill?: number;
   remake: boolean;
 };
 
@@ -74,11 +77,14 @@ export type LolQueueSummary = {
   positions: Record<LolRecentMatch["teamPosition"], number>;
   teammates: Array<LolParticipantIdentity & {
     riotId: string;
+    profileIconId?: number;
     games: number;
     wins: number;
     losses: number;
     winRatePct: number | null;
   }>;
+  // 이전 캐시 요약에는 없을 수 있다.
+  opponents?: LolQueueSummary["teammates"];
   champions: Array<{
     championId: number;
     championImageId: string;
@@ -108,6 +114,10 @@ export type LolMatchDetails = {
     >;
     participants: Array<LolParticipantIdentity & {
       riotId: string;
+      // 소환사 아이콘. 상세 형식 v5 이전 캐시에는 없다.
+      profileIconId?: number;
+      // BGMS 경기 기여도(시험판). 협곡·칼바람 5분 이상 정상 종료 경기에만 있다.
+      score?: LolParticipantScore;
       championId: number;
       championImageId: string;
       championName: string;
