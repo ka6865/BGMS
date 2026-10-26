@@ -90,6 +90,11 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 컷·상태 공
         const rect = element.getBoundingClientRect(); return rect.left >= 0 && rect.right <= innerWidth + 1;
       }))).toBe(true);
       if (route === "ladder") expect(await page.$$("svg circle")).toHaveLength(180);
+      // 티어별 그래프는 자기 범위에 맞춰 그려 하루 1 LP씩 오른 30일 변화가 눈에 보일 만큼 펼쳐진다.
+      if (route === "ladder") expect(await page.$$eval('svg[aria-label^="최근 30일 "][aria-label$="최저 LP 기록"]', charts => charts.map(chart => {
+        const ys = [...chart.querySelectorAll("circle")].map(circle => Number(circle.getAttribute("cy")));
+        return Math.max(...ys) - Math.min(...ys);
+      }).every(spread => spread >= 30))).toBe(true);
       if (route === "ladder?empty") expect(await page.$eval("main", element => element.textContent)).toContain("기록 시작일 이후 표시");
       if (route === "status?error") expect(await page.$eval("main", element => element.textContent)).toContain("현재 서버 상태를 확인할 수 없습니다");
       if (!route.includes("?")) await page.screenshot({ path: `tmp/lol-ladder-status-review/${route}-${width}.png`, fullPage: true });
