@@ -7,22 +7,22 @@ export default function LolTierEmblem({ tier, rank }: { tier?: string; rank?: st
   const label = tier ? `${tier} ${rank ?? ""}`.trim() : "Unranked";
   if (!tier || failedTier === tier) {
     return (
-      <span data-testid="lol-tier-badge" className="rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm font-bold">
+      <span data-testid="lol-tier-badge" className="min-w-0 truncate rounded-lg border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm font-bold">
         {label}
       </span>
     );
   }
   return (
-    <span className="flex min-w-0 items-center gap-3">
+    <span className="flex min-w-0 items-center gap-2 lg:gap-3">
       <img
         src={`/lol/ranked-emblems/${tier.toLowerCase()}.webp`}
         alt=""
         width={64}
         height={64}
         onError={() => setFailedTier(tier)}
-        className="h-16 w-16 shrink-0 object-contain"
+        className="h-10 w-10 shrink-0 object-contain lg:h-16 lg:w-16"
       />
-      <span data-testid="lol-tier-label" className="truncate text-base font-bold">{label}</span>
+      <span data-testid="lol-tier-label" className="truncate text-sm font-bold lg:text-base">{label}</span>
     </span>
   );
 }

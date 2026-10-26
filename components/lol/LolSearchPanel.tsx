@@ -59,6 +59,8 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
   const [error, setError] = useState<string | null>(initialError ?? null);
   const [loading, setLoading] = useState(false);
   const [openMatchId, setOpenMatchId] = useState<string | null>(null);
+  // 모바일·태블릿(lg 미만)에서 경기 목록과 통계를 나눠 보여 준다. 넓은 화면은 두 열에 함께 보인다.
+  const [mobileView, setMobileView] = useState<"matches" | "stats">("matches");
   const [busyAccount, setBusyAccount] = useState<string | null>(null);
   const [busyActionKind, setBusyActionKind] = useState<"more" | "refresh" | null>(null);
   const [refreshAvailableAt, setRefreshAvailableAt] = useState(0);
@@ -99,6 +101,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
     setError(null);
     setResult(null);
     setOpenMatchId(null);
+    setMobileView("matches");
     setMoreError(null);
     setFailedAction(null);
 
@@ -370,7 +373,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
         {adminTools}
         <form
           onSubmit={submitSearch}
-          className="flex flex-col gap-2 rounded-xl border border-zinc-800 bg-zinc-900 p-3 sm:flex-row"
+          className="flex gap-2 rounded-xl border border-zinc-800 bg-zinc-900 p-2 sm:p-3"
         >
           <label className="sr-only" htmlFor="lol-riot-id">
             Riot ID
@@ -387,7 +390,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
           <button
             type="submit"
             disabled={!riotId.trim()}
-            className="min-h-11 rounded-lg bg-amber-400 px-5 text-sm font-bold text-zinc-950 disabled:opacity-50"
+            className="min-h-11 shrink-0 rounded-lg bg-amber-400 px-4 text-sm font-bold text-zinc-950 disabled:opacity-50 sm:px-5"
           >
             {loading ? "검색 중…" : "검색"}
           </button>
@@ -457,10 +460,29 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
               </div>
             </div>
 
+            <div role="tablist" aria-label="검색 결과 보기" className="grid grid-cols-2 gap-1 rounded-xl border border-zinc-800 bg-zinc-900 p-1 lg:hidden">
+              {([["matches", "전적"], ["stats", "통계·함께한 소환사"]] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  id={`lol-view-${key}-tab`}
+                  aria-selected={mobileView === key}
+                  aria-controls={key === "matches" ? "lol-view-matches" : "lol-view-stats"}
+                  onClick={() => setMobileView(key)}
+                  className={`min-h-11 rounded-lg text-sm font-semibold transition ${mobileView === key
+                    ? "bg-zinc-700 text-white" : "text-zinc-400 hover:text-zinc-200"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
             <div
               data-testid="lol-results-grid"
               className="grid min-w-0 gap-4 lg:grid-cols-[320px_minmax(0,1fr)] lg:grid-rows-[auto_1fr] lg:items-start"
             >
+              <div id="lol-view-matches" className={`${mobileView === "matches" ? "contents" : "hidden"} lg:contents`}>
               <LolRankCards ranked={result.ranked} rankedHistory={result.rankedHistory} />
               <section
                 aria-label="최근 경기"
@@ -575,7 +597,12 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
                   </button>
                 )}
               </section>
-              <aside data-testid="lol-sidebar-stats" className="min-w-0 space-y-3 lg:col-start-1 lg:row-start-2">
+              </div>
+              <aside
+                id="lol-view-stats"
+                data-testid="lol-sidebar-stats"
+                className={`min-w-0 space-y-3 lg:col-start-1 lg:row-start-2 ${mobileView === "stats" ? "" : "hidden lg:block"}`}
+              >
                 <LolRecentTrendsCard trends={result.recentTrends} />
                 <LolChallengesCard profile={result.challengeProfile} admin={!publicView} />
                 <LolMasteryCard mastery={result.mastery} dataDragonVersion={result.dataDragonVersion} />

@@ -8,9 +8,10 @@ import tailwind from "@tailwindcss/postcss";
 import puppeteer, { type Browser } from "puppeteer";
 
 const stubs: Plugin = { name: "ladder-status-fixture", setup(builder) {
-  builder.onResolve({ filter: /^(server-only|next\/link|@\/lib\/lol\/(publicAccess|status|ladder)\.server)$/ }, args => ({ path: args.path, namespace: "fixture" }));
+  builder.onResolve({ filter: /^(server-only|next\/link|next\/navigation|@\/lib\/lol\/(publicAccess|status|ladder)\.server)$/ }, args => ({ path: args.path, namespace: "fixture" }));
   builder.onLoad({ filter: /.*/, namespace: "fixture" }, args => ({ loader: "tsx", resolveDir: process.cwd(), contents:
     args.path === "next/link" ? "export default ({ children, ...props }) => <a {...props}>{children}</a>;"
+      : args.path === "next/navigation" ? "export const usePathname = () => globalThis.__lolFixturePath ?? null;"
       : args.path.includes("publicAccess") ? "export const requireLolPublicPage = () => {};"
         : args.path.includes("status.server") ? `export const getLolPlatformStatus = async () => ({ available: true, stale: false, fetchedAt: new Date().toISOString(), items: [
           { id: 1, kind: 'maintenance', title: '한국 서버 정기 점검 안내와 게임 접속 지연 현상에 관한 상세 공지', message: '한국어 공지 내용입니다.' },
@@ -39,6 +40,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 컷·상태 공
         import LadderView from './components/lol/LolLadderView'; import StatusView from './components/lol/LolStatusView';
         export async function render(path) {
           const empty = path.includes('empty'); const error = path.includes('error');
+          globalThis.__lolFixturePath = path.split('?')[0];
           const today = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Seoul' }).format(new Date());
           const element = path.includes('ladder') ? empty || error ? <LadderView rows={[]} today={today} error={error} /> : await LadderPage()
             : empty || error ? <StatusView status={{ available: !error, stale: error, items: [], fetchedAt: null }} /> : await StatusPage();
@@ -75,7 +77,13 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")("LoL 컷·상태 공
     for (const route of ["ladder", "status", "ladder?empty", "ladder?error", "status?empty", "status?error"]) {
       const response = await page.goto(`${base}/lol/kr/${route}`, { waitUntil: "networkidle0" }); expect(response?.status()).toBe(200);
       expect(await page.$eval("main h1", element => element.textContent)).toContain(route.startsWith("ladder") ? "랭크 컷" : "서버 상태");
-      expect(await page.$eval('aside[aria-label="LoL 서버 상태 알림"]', element => element.textContent)).toContain("게임 접속 장애");
+      // 공지 배너는 한 줄로 접혀 있고, 같은 공지를 본문에 보여 주는 상태 페이지에서는 숨긴다.
+      if (route.startsWith("status")) expect(await page.$('aside[aria-label="LoL 서버 상태 알림"]')).toBeNull();
+      else {
+        expect(await page.$eval('aside[aria-label="LoL 서버 상태 알림"]', element => element.textContent)).toContain("게임 접속 장애");
+        expect(await page.$eval('aside[aria-label="LoL 서버 상태 알림"] details', element => (element as HTMLDetailsElement).open)).toBe(false);
+        expect(await page.$eval('aside[aria-label="LoL 서버 상태 알림"]', element => element.getBoundingClientRect().height)).toBeLessThanOrEqual(46);
+      }
       expect(await page.$eval('footer[aria-label="Riot Games 법적 고지"]', element => element.textContent)).toContain("Riot Games, and all associated properties");
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
       expect(await page.$$eval("main, article, aside, svg", elements => elements.every(element => {

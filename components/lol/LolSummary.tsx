@@ -20,7 +20,7 @@ export default function LolSummary({ summary, children }: {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold">최근 경기</h2>
-          <p className="mt-1 text-[10px] text-zinc-500">
+          <p className="mt-1 text-[11px] text-zinc-500">
             최근 {summary?.sampleSize ?? 0}경기 중 유효 {summary?.validSampleSize ?? 0}경기 · 제외 {summary?.excludedCount ?? 0}경기 · {QUEUE_LABELS[summary?.queue ?? "all"]}
           </p>
         </div>
@@ -41,19 +41,19 @@ export default function LolSummary({ summary, children }: {
           </p>
         </div>
         <div>
-          <h3 className="text-[10px] text-zinc-500">평균 K/D/A</h3>
+          <h3 className="text-[11px] text-zinc-500">평균 K/D/A</h3>
           <p className="mt-1 text-sm font-bold">
             {formatMetric(summary?.averageKills, 1)} / {formatMetric(summary?.averageDeaths, 1)} / {formatMetric(summary?.averageAssists, 1)}
           </p>
         </div>
         <div>
-          <h3 className="text-[10px] text-zinc-500">KDA 비율</h3>
+          <h3 className="text-[11px] text-zinc-500">KDA 비율</h3>
           <p className="mt-1 text-sm font-bold">
             {summary?.perfect ? "Perfect" : summary?.averageKda == null ? "미제공" : `${summary.averageKda.toFixed(2)}:1`}
           </p>
         </div>
         <div>
-          <h3 className="text-[10px] text-zinc-500">평균 관여율</h3>
+          <h3 className="text-[11px] text-zinc-500">평균 관여율</h3>
           <p className="mt-1 text-sm font-bold">{formatPercent(summary?.averageKillParticipationPct)}</p>
         </div>
       </div>
@@ -69,7 +69,7 @@ export function LolSidebarStats({ summary, onSearch, dataDragonVersion }: {
   const champions = [...(summary?.champions ?? [])].sort((a, b) => b.games - a.games);
   return (
     <>
-      <p className="text-[10px] text-zinc-500">최근 {summary?.sampleSize ?? 0}경기 · {QUEUE_LABELS[summary?.queue ?? "all"]}</p>
+      <p className="text-[11px] text-zinc-500">최근 {summary?.sampleSize ?? 0}경기 · {QUEUE_LABELS[summary?.queue ?? "all"]}</p>
       <section aria-label="최근 챔피언" className="rounded-xl border border-zinc-800 bg-zinc-900 p-4 tabular-nums">
         <h3 className="text-xs font-semibold text-zinc-400">최근 표본 챔피언</h3>
         <ul aria-label="챔피언별 최근 통계" className="mt-3 space-y-3">
@@ -80,11 +80,11 @@ export function LolSidebarStats({ summary, onSearch, dataDragonVersion }: {
                 : undefined}
                 alt="" width={32} height={32} className="h-8 w-8 shrink-0 rounded bg-zinc-800"
                 onError={(event) => { event.currentTarget.hidden = true; }} />
-              <div className="min-w-0 flex-1 text-[10px]">
+              <div className="min-w-0 flex-1 text-[11px]">
                 <b className="block truncate text-xs">{champion.championName}</b>
                 <span className="text-zinc-400">{champion.games}전 {champion.wins}승 {champion.games - champion.wins}패</span>
               </div>
-              <div className="shrink-0 text-right text-[10px]">
+              <div className="shrink-0 text-right text-[11px]">
                 <b>{formatPercent(champion.winRatePct)}</b>
                 <p className="mt-0.5 text-zinc-400">
                   KDA {champion.perfect ? "Perfect" : champion.averageKda == null ? "미제공" : `${champion.averageKda.toFixed(2)}:1`}
@@ -102,7 +102,7 @@ export function LolSidebarStats({ summary, onSearch, dataDragonVersion }: {
             const count = summary?.positions?.[key];
             const height = summary?.validSampleSize ? ((count ?? 0) / summary.validSampleSize) * 100 : 0;
             return (
-              <div key={key} className="text-center text-[10px] text-zinc-400">
+              <div key={key} className="text-center text-[11px] text-zinc-400">
                 <div className="mb-2 flex h-12 items-end overflow-hidden rounded bg-zinc-800">
                   <div className="w-full rounded bg-amber-400" style={{ height: `${height}%` }} />
                 </div>
@@ -111,7 +111,7 @@ export function LolSidebarStats({ summary, onSearch, dataDragonVersion }: {
             );
           })}
         </div>
-        {!!summary?.positions?.미분류 && <p className="mt-2 text-[10px] text-zinc-500">미분류 {summary.positions.미분류}경기</p>}
+        {!!summary?.positions?.미분류 && <p className="mt-2 text-[11px] text-zinc-500">미분류 {summary.positions.미분류}경기</p>}
       </section>
       <LolPeers summary={summary} dataDragonVersion={dataDragonVersion} onSearch={onSearch} />
     </>
@@ -145,7 +145,7 @@ function LolPeers({ summary, onSearch, dataDragonVersion }: {
             role="tab"
             aria-selected={side === key}
             onClick={() => setSide(key)}
-            className={`min-h-9 rounded-lg border text-xs font-semibold transition ${side === key
+            className={`min-h-11 rounded-lg border text-xs font-semibold transition ${side === key
               ? "border-emerald-400/70 bg-emerald-400/10 text-emerald-300"
               : "border-zinc-700 text-zinc-400 hover:text-zinc-200"}`}
           >
@@ -155,7 +155,7 @@ function LolPeers({ summary, onSearch, dataDragonVersion }: {
       </div>
       {rows?.length ? (
         <table className="w-full table-fixed text-xs">
-          <thead className="border-y border-zinc-800 text-[10px] text-zinc-500">
+          <thead className="border-y border-zinc-800 text-[11px] text-zinc-500">
             <tr>
               <th scope="col" className="py-2 pl-4 text-left font-medium">소환사 정보</th>
               <th scope="col" className="w-11 font-medium">게임 수</th>

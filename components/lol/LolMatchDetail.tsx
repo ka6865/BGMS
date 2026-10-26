@@ -121,25 +121,31 @@ function DamageBars({
   maxTaken: number;
 }) {
   return (
-    <div className="grid min-w-0 grid-cols-2 gap-1 @min-[860px]/history:grid-cols-1 @min-[860px]/history:gap-1.5">
+    <div className="grid min-w-0 grid-cols-1 gap-1 @min-[860px]/history:gap-1.5">
       <DamageBar
         label="가한 피해"
+        shortLabel="가한"
         value={player.damageToChampions}
         max={maxDealt}
+        barClass="bg-amber-400"
       />
-      <DamageBar label="받은 피해" value={player.damageTaken} max={maxTaken} />
+      <DamageBar label="받은 피해" shortLabel="받은" value={player.damageTaken} max={maxTaken} barClass="bg-zinc-400" />
     </div>
   );
 }
 
 function DamageBar({
   label,
+  shortLabel,
   value,
   max,
+  barClass,
 }: {
   label: string;
+  shortLabel: string;
   value: number | null;
   max: number;
+  barClass: string;
 }) {
   const width =
     value === null || max <= 0 ? 0 : Math.min(100, (value / max) * 100);
@@ -147,15 +153,17 @@ function DamageBar({
     <div
       aria-label={`${label === "가한 피해" ? "챔피언 피해" : label} ${formatMetric(value)}`}
       title={`${label}: ${formatMetric(value)}`}
-      className="min-w-0 text-[9px] leading-tight text-zinc-400"
+      className="min-w-0 text-[10px] leading-tight text-zinc-400"
     >
       <div className="flex justify-between gap-1">
-        <span className="truncate">{label}</span>
+        {/* 좁은 상세 표에서는 짧은 이름을 써서 라벨이 잘리지 않게 한다. */}
+        <span className="shrink-0 @min-[860px]/history:hidden">{shortLabel}</span>
+        <span className="hidden truncate @min-[860px]/history:inline">{label}</span>
         <span className="shrink-0 tabular-nums">{formatMetric(value)}</span>
       </div>
-      <div className="mt-1 h-1 rounded bg-zinc-800">
+      <div className="mt-0.5 h-1 rounded bg-zinc-800">
         <div
-          className="h-1 rounded bg-amber-400"
+          className={`h-1 rounded ${barClass}`}
           style={{ width: `${width}%` }}
         />
       </div>
@@ -199,7 +207,7 @@ function PlayerRow({
           }}
           className="h-full w-full rounded"
         />
-        <small className="absolute -bottom-1 -right-1 rounded bg-black px-1 text-[8px]">
+        <small className="absolute -bottom-1 -right-1 rounded bg-black px-1 text-[9px]">
           {player.championLevel ?? "—"}
         </small>
       </span>
@@ -213,7 +221,7 @@ function PlayerRow({
           type="button"
           onClick={() => onSearch(player.riotId, player.ref)}
           disabled={player.riotId === "Riot ID 미제공"}
-          className={`block max-w-full truncate text-left text-[10px] disabled:cursor-default ${isOwn ? "font-bold text-amber-300" : "text-zinc-300 hover:text-white"}`}
+          className={`block min-h-6 max-w-full truncate text-left text-[11px] disabled:cursor-default ${isOwn ? "font-bold text-amber-300" : "text-zinc-300 hover:text-white"}`}
         >
           {player.riotId}
         </button>
@@ -222,7 +230,7 @@ function PlayerRow({
           <LolScoreBadge player={player} />
         </span>
       </div>
-      <div className="text-center text-[9px] tabular-nums @min-[860px]/history:text-[10px]">
+      <div className="text-center text-[10px] tabular-nums">
         <b>
           {player.kills ?? "—"}/{player.deaths ?? "—"}/{player.assists ?? "—"}
         </b>
@@ -232,18 +240,21 @@ function PlayerRow({
         </span>
       </div>
 
-      <div className="col-span-4 grid min-w-0 grid-cols-[minmax(0,1fr)_68px_32px_124px] items-center gap-1 @min-[860px]/history:col-span-1 @min-[860px]/history:contents">
+      <div className="col-span-4 grid min-w-0 grid-cols-[minmax(0,1fr)_72px_34px_124px] items-center gap-1 @min-[860px]/history:col-span-1 @min-[860px]/history:contents">
         <DamageBars player={player} maxDealt={maxDealt} maxTaken={maxTaken} />
-        <div className="text-center text-[8px] leading-tight text-zinc-300 @min-[860px]/history:text-[9px]">
+        <div
+          title={`제어와드 ${formatMetric(player.detectorWardsPlaced)} · 와드 설치 ${formatMetric(player.wardsPlaced)} · 제거 ${formatMetric(player.wardsKilled)}`}
+          className="text-center text-[10px] leading-tight text-zinc-300"
+        >
           <span className="block">
             제어와드 {formatMetric(player.detectorWardsPlaced)}
           </span>
-          <span>
-            설치 {formatMetric(player.wardsPlaced)} / 제거{" "}
+          <span className="whitespace-nowrap">
+            설치 {formatMetric(player.wardsPlaced)}·제거{" "}
             {formatMetric(player.wardsKilled)}
           </span>
         </div>
-        <div className="text-center text-[9px] @min-[860px]/history:text-[10px]">
+        <div className="text-center text-[10px]">
           {formatMetric(player.cs)}
           <span className="block text-zinc-500">
             {match.gameDuration && match.gameDuration >= 300
@@ -316,7 +327,7 @@ export default function LolMatchDetail({
                 aria-selected={tab === key}
                 aria-controls={`${tabId}-${key}`}
                 onClick={() => setTab(key)}
-                className={`rounded-md px-2 py-1.5 text-xs font-semibold transition ${tab === key ? "bg-zinc-700 text-white" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"}`}
+                className={`min-h-10 rounded-md px-2 text-xs font-semibold transition ${tab === key ? "bg-zinc-700 text-white" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"}`}
               >
                 {label}
               </button>

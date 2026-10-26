@@ -442,6 +442,17 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       }, text);
     }
 
+    // lg 미만에서는 전적과 통계를 탭으로 나눠 보여 주므로, 보이는 탭이 있을 때만 바꾼다.
+    async function showView(page: Page, view: "matches" | "stats") {
+      await page.$eval(`#lol-view-${view}-tab`, (tab) => {
+        if (getComputedStyle(tab.parentElement!).display !== "none") (tab as HTMLButtonElement).click();
+      });
+      await page.waitForFunction((id) => {
+        const panel = document.getElementById(id);
+        return !!panel && getComputedStyle(panel).display !== "none";
+      }, {}, `lol-view-${view}`);
+    }
+
     async function openFirstDetail(page: Page) {
       const button =
         'section[aria-label="최근 경기"] [data-testid="lol-match-card"] button[aria-controls]';
@@ -495,6 +506,13 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
         expect(await page.$eval('[data-testid="lol-challenge-profile"]', element => element.textContent)).toContain("상위 0.3%");
         expect(await page.$eval('[data-testid="lol-challenge-profile"]', element => element.textContent)).toContain("칭호 매핑 미확인");
         expect(await page.$eval('[data-testid="lol-recent-trends"]', element => element.textContent)).toContain("최근 9경기");
+        const mobile = viewport.width < 1024;
+        if (mobile) {
+          // 전적 탭이 기본이며 통계는 숨겨져 첫 경기 카드가 빨리 보인다.
+          expect(await page.$eval('[data-testid="lol-sidebar-stats"]', (aside) => getComputedStyle(aside).display)).toBe("none");
+          await showView(page, "stats");
+          expect(await page.$eval('[data-testid="lol-history"]', (section) => section.getBoundingClientRect().height)).toBe(0);
+        }
         const mastery = await page.$('[data-testid="lol-mastery"]');
         expect(mastery).not.toBeNull();
         const masteryText = await mastery!.evaluate(element => element.textContent ?? "");
@@ -503,6 +521,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
         const masteryBounds = await mastery!.boundingBox();
         expect(masteryBounds!.x + masteryBounds!.width).toBeLessThanOrEqual(viewport.width);
         await page.screenshot({ path: `tmp/lol-detail-alignment/layout-${viewport.width}x${viewport.height}.png`, fullPage: true });
+        if (mobile) await showView(page, "matches");
         const columns = await page.evaluate(() => {
           const bounds = (selector: string) => {
             const rect = document.querySelector(selector)!.getBoundingClientRect();
@@ -533,7 +552,13 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
           expect(Math.max(...metricCenters) - Math.min(...metricCenters)).toBeLessThanOrEqual(1);
         } else {
           expect(columns.ranks.bottom).toBeLessThanOrEqual(columns.history.y);
-          expect(columns.history.bottom).toBeLessThanOrEqual(columns.stats.y);
+          expect(columns.stats.bottom - columns.stats.y).toBe(0);
+          // 모바일 랭크 카드는 두 큐를 나란히 두고, 그래프는 접어 둔다.
+          expect(await page.$$eval('[data-testid="lol-ranked-graph"]', (graphs) =>
+            graphs.every((graph) => graph.getBoundingClientRect().height === 0))).toBe(true);
+          const rankCards = await page.$$eval('[data-testid="lol-ranks"] > div', (cards) =>
+            cards.map((card) => card.getBoundingClientRect().y));
+          expect(rankCards[0]).toBe(rankCards[1]);
         }
 
         expect(await page.$eval("h1", (element) => element.textContent)).toBe(
@@ -592,7 +617,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
               ? list.querySelectorAll('[data-testid="lol-match-player"]').length
               : 0,
           ),
-        ).toBe(10);
+        ).toBe(mobile ? 0 : 10);
 
         const cardLayout = await page.$eval('[data-testid="lol-match-card"]', (card) => {
           const bounds = card.getBoundingClientRect();
@@ -636,6 +661,11 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
 
         await openFirstDetail(page);
         expect(await page.$eval('[data-testid="lol-match-insights"]', element => element.textContent)).toContain("시야 점수");
+        // 좁은 상세 표에서도 피해량 막대 라벨이 잘리지 않고 보인다.
+        expect(await page.$eval('[data-testid="lol-player-row"]', (row) =>
+          [...row.querySelectorAll<HTMLElement>('[aria-label^="챔피언 피해"] span, [aria-label^="받은 피해"] span')]
+            .filter((span) => span.getBoundingClientRect().width > 0 && span.scrollWidth <= span.clientWidth + 1)
+            .map((span) => span.textContent).join(" "))).toMatch(viewport.width >= 1440 ? /가한 피해 .*받은 피해 / : /가한 .*받은 /);
         const teamLabels = await page.$$eval(
           '[aria-label$="참가자 상세"]',
           (sections) =>
@@ -712,6 +742,7 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
           path: `tmp/lol-detail-alignment/${viewport.width}x${viewport.height}.png`,
           fullPage: true,
         });
+        if (mobile) await showView(page, "stats");
         await mastery!.screenshot({ path: `tmp/lol-detail-alignment/mastery-${viewport.width}x${viewport.height}.png` });
         const challengeCard = await page.$('[data-testid="lol-challenge-profile"]');
         await challengeCard!.screenshot({ path: `tmp/lol-detail-alignment/challenges-${viewport.width}x${viewport.height}.png` });
@@ -781,9 +812,12 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
     it("함께 플레이 이름도 URL로 이동하고 잘못된 주소는 API 호출 없이 오류를 표시한다", async () => {
       const page = await openPage();
       await search(page, "blue0#KR1");
+      await showView(page, "stats");
       await page.click('[aria-label="함께 플레이한 소환사"] [data-testid="lol-peer"] button');
       await page.waitForFunction(() => document.querySelector("h2")?.textContent === "blue1#KR1");
       expect(page.url()).toBe(`${baseUrl}/admin/lol/kr/blue1-KR1`);
+      // 다른 소환사로 이동하면 모바일 보기는 전적 탭으로 돌아간다.
+      expect(await page.$eval("#lol-view-matches-tab", (tab) => tab.getAttribute("aria-selected"))).toBe("true");
       let searches = 0;
       page.on("request", (request) => { if (request.url().includes("/api/admin/lol/search")) searches += 1; });
       await page.goto(`${baseUrl}/admin/lol/kr/invalid`, { waitUntil: "domcontentloaded" });
@@ -1001,6 +1035,10 @@ describe.skipIf(process.env.RUN_LOL_DEV_BROWSER !== "true")(
       await page.waitForSelector('[aria-label="아이템 빌드"]');
       const text = await page.$eval('[data-testid="lol-match-build"]', (section) => section.textContent ?? "");
       expect(text).toContain("9분"); expect(text).toContain("Q›E");
+      // 선택한 소환사 이름을 보여 주고, 선택 버튼은 44px 터치 영역을 가진다.
+      expect(await page.$eval('[data-testid="lol-match-build-selected"]', (element) => element.textContent)).toContain("blue0");
+      expect(await page.$$eval('[data-testid="lol-match-build"] [role="radio"]', (buttons) =>
+        buttons.every((button) => button.getBoundingClientRect().height >= 44 && button.getBoundingClientRect().width >= 44))).toBe(true);
       await selectTab("종합");
       await selectTab("빌드");
       expect(buildRequests).toBe(1);
