@@ -614,7 +614,8 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
           </section>
         )}
 
-        <LolLegalNotice />
+        {/* 공개 화면은 LoL 레이아웃의 LolFooter가 Riot 법적 고지를 보여 준다. */}
+        {!publicView && <LolLegalNotice />}
       </div>
     </main>
   );

@@ -138,23 +138,28 @@ describe("LoL 공개 보안 경계", () => {
     expect(result.headers.get("cache-control")).toBe("private, no-store");
   });
 
-  it("공개 패널은 운영 모듈을 import하지 않고 공통 영문·한국어 고지를 표시한다", async () => {
+  it("공개 패널은 운영 모듈을 import하지 않고, Riot 고지는 LoL 푸터에 맡기며 관리자 패널만 본문 고지를 표시한다", async () => {
     const { default: Panel } = await import("@/components/lol/LolSearchPanel");
     const html = renderToStaticMarkup(createElement<{ publicView?: boolean }>(Panel, { publicView: true }));
-    expect(html).toContain("Riot Games, and all associated properties");
-    expect(html).toContain("상표 또는 등록 상표");
+    // 공개 화면은 app/lol/layout.tsx의 LolFooter가 고지를 보여 주므로 패널에서 겹쳐 넣지 않는다.
+    expect(html).not.toContain("Riot Games, and all associated properties");
+    const adminHtml = renderToStaticMarkup(createElement<{ publicView?: boolean }>(Panel, {}));
+    expect(adminHtml).toContain("Riot Games, and all associated properties");
+    expect(adminHtml).toContain("상표 또는 등록 상표");
     for (const text of ["계정 데이터 삭제", "운영 상태", "수집 시작", "관리자 전용"]) expect(html).not.toContain(text);
     const source = readFileSync("components/lol/LolSearchPanel.tsx", "utf8");
     expect(source).not.toMatch(/import.*Lol(?:Ops|Collection)Panel/);
     expect((await import("@/app/lol/layout")).metadata.robots).toEqual({ index: false, follow: false });
   });
 
-  it.each(["/lol", "/lol/kr", "/lol/kr/홍길동-KR1"])("프로덕션 %s 레이아웃에서 광고 스크립트·슬롯을 렌더링하지 않는다", async (path) => {
+  it.each(["/lol", "/lol/kr", "/lol/kr/홍길동-KR1"])("프로덕션 %s 레이아웃에서 광고 스크립트·슬롯과 사이트 공통 푸터를 렌더링하지 않는다", async (path) => {
     mocks.pathname = path;
     vi.stubEnv("NODE_ENV", "production");
     const { default: Wrapper } = await import("@/components/layout/SidebarFooterWrapper");
     const html = renderToStaticMarkup(createElement(Wrapper, null, "LoL"));
     expect(html).toContain('data-ad-free="true"');
+    // 공개 LoL 경로는 PUBG 고지가 있는 공통 푸터 대신 LoL 레이아웃의 LolFooter를 쓴다.
+    expect(html).not.toContain("KRAFTON");
     expect(html).not.toContain("adsbygoogle"); expect(html).not.toContain("googlesyndication");
   });
 
@@ -175,12 +180,19 @@ it("공개 루트는 KR 검색으로 이동하고 꺼진 플래그에서는 404�
   expect(() => page()).toThrow("404");
 });
 
-it("공개 오류 화면과 404 화면에도 Riot 법적 고지가 있다", async () => {
+it("공개 LoL 푸터에 Riot 법적 고지가 있고, 레이아웃 안의 오류·404 화면은 고지를 겹쳐 넣지 않는다", async () => {
+  const { default: LolFooter } = await import("@/components/lol/LolFooter");
+  const footer = renderToStaticMarkup(createElement(LolFooter));
+  expect(footer).toContain("Riot Games, and all associated properties");
+  expect(footer).toContain("상표 또는 등록 상표");
+  for (const href of ["/privacy", "/terms", "/support"]) expect(footer).toContain(`href="${href}"`);
+  // 오류·404 화면은 app/lol/layout.tsx 안에서 그려져 LolFooter가 고지를 보여 준다.
   const { default: NotFound } = await import("@/app/lol/not-found");
   const { default: ErrorPage } = await import("@/app/lol/error");
   for (const element of [createElement(NotFound), createElement(ErrorPage, { error: new Error("fixture"), retry: vi.fn() })]) {
-    const html = renderToStaticMarkup(element);
-    expect(html).toContain("Riot Games, and all associated properties");
-    expect(html).toContain("상표 또는 등록 상표");
+    expect(renderToStaticMarkup(element)).not.toContain("Riot Games, and all associated properties");
   }
+  // /lol 아래 없는 주소도 LoL 레이아웃 안의 404로 보낸다.
+  const { default: UnknownPage } = await import("@/app/lol/[...rest]/page");
+  expect(() => UnknownPage()).toThrow("404");
 });
