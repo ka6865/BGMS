@@ -132,7 +132,7 @@ function LevelGem({ level, small = false }: { level: string; small?: boolean }) 
 function ChallengeIcon({ id, level, small = false }: { id: number; level: string; small?: boolean }) {
   return <span className={`relative shrink-0 ${small ? "h-8 w-8" : "h-11 w-11"}`}>
     <LevelGem level={level} small={small} />
-    <img src={`https://ddragon.leagueoflegends.com/cdn/img/challenges-images/${id}-${level}.png`} alt="" width={44} height={44} loading="lazy"
+    <img decoding="async" src={`https://ddragon.leagueoflegends.com/cdn/img/challenges-images/${id}-${level}.png`} alt="" width={44} height={44} loading="lazy"
       onError={(event) => { event.currentTarget.style.visibility = "hidden"; }}
       className="absolute inset-0 h-full w-full rounded-lg bg-zinc-800 object-contain p-0.5" />
   </span>;

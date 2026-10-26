@@ -56,7 +56,7 @@ export function LolItemSlots({
             style={slotClassName ? undefined : { width: size, height: size }}
           >
             {item?.id ? (
-              <img
+              <img loading="lazy" decoding="async"
                 src={`https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/item/${item.id}.png`}
                 alt={item.name || "아이템"}
                 width={size}
@@ -115,7 +115,7 @@ export function LolBuildIcons({
             style={{ width: size, height: size }}
           >
             {src ? (
-              <img
+              <img loading="lazy" decoding="async"
                 src={src}
                 alt=""
                 width={size}
@@ -173,7 +173,7 @@ export function LolScoreBadge({ player }: { player?: LolPlayer }) {
 
 function ChampionThumb({ player, dataDragonVersion }: { player: LolPlayer; dataDragonVersion?: string }) {
   return (
-    <img
+    <img loading="lazy" decoding="async"
       src={`https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/champion/${player.championImageId}.png`}
       alt=""
       width={18}
@@ -240,7 +240,7 @@ export default function LolMatchCard({
           <div className="flex min-w-0 items-center gap-3 @min-[560px]/match:col-start-2 @min-[560px]/match:row-start-1">
             <div className="flex items-center gap-1.5">
               <span className="relative h-12 w-12 shrink-0">
-                <img
+                <img loading="lazy" decoding="async"
                   src={`https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/champion/${match.championImageId}.png`}
                   alt={match.championNameKo}
                   title={match.championNameKo}
