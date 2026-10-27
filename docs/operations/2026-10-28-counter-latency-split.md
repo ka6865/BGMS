@@ -33,6 +33,7 @@
 - 텔레메트리 복구 경로(`finalize_telemetry_cache_recovery`)는 새 열을 쓰지 않아 그 경로로 저장된 행은 NULL(비교 제외)이다.
 - 격리 검증: `npm run verify:migrations`의 `counter-latency-split-scenarios.sql`.
 - 운영 적용: 파일 하나만 적용한다(`docs/operations/2026-10-10-remaining-review-fixes.md`). 코드는 열이 없으면 비교를 생략하므로 배포와 적용 순서는 상관없다. 적용 뒤 계산 5 행의 채움 건수를 읽기 전용으로 확인한다.
+- **운영 적용 실적(2026-10-27 19:27:46 UTC)**: 임시 workdir에 원격 이력 191개 placeholder와 대상 파일만 두고 `supabase db push --linked --workdir`로 적용했다(dry-run으로 대상이 이 파일 하나인지 먼저 확인). 적용 뒤 확인: 원격 마지막 이력 `20261028120000`, 계산 5 행 24건 백필(적용 직전 예상 23건 + 그사이 새 분석 1건), view 318행 유지, RPC 열 목록 2곳 반영, `anon` RPC 실행 권한 없음, view `security_invoker`·공개 읽기 권한 유지. 새 열은 앱 배포 전까지 새 분석에서 채워지지 않는다.
 - 되돌리기: view는 `DROP VIEW` 후 이전 정의로 다시 만들고 권한을 다시 준다. RPC는 이전 본문으로 다시 정의한다. 새 열은 남겨도 기존 경로에 영향이 없다.
 
 ## AI 코칭 근거 보강
