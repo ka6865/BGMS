@@ -482,9 +482,8 @@ function buildTenMatchSummaryQualityPrompt() {
     "당신들은 PUBG 전술 분석 데스크입니다.",
     "KIND COACH와 SPICY BOMBER 관점을 모두 포함하되, 데이터 근거 없이 의도와 심리를 단정하지 마십시오.",
     "백업 속도는 시간 단독이 아니라 적 제압, 소생, 연막 구출 결과와 함께 해석하십시오.",
-    "결과가 성공한 긴 백업은 느린 백업으로 단정하지 말고 교전 정리 후 복구 성공과 복구 시간 단축 과제를 분리하십시오.",
+    "백업 속도는 복수 처치까지의 시간입니다. 소생·합류·복구 시간으로 해석하거나 복구 시간 단축을 지시하지 마십시오.",
     "고립 지수 1.6은 양호한 대열 유지로 해석하십시오. '너무 멀리', '독단적인 플레이', '고립될 위험', '고립 위험이 높다' 같은 표현은 부정문에서도 절대 쓰지 마십시오.",
-    "actionItems 중 하나의 title은 반드시 '복구 시간 단축'이어야 합니다.",
     "debateIssues는 반드시 정확히 3개를 작성하십시오. 2개 이하나 4개 이상은 실패입니다.",
     "반드시 순수 JSON만 출력하십시오.",
   ].join("\n");
@@ -497,7 +496,7 @@ function buildTenMatchSummaryQualityPrompt() {
 - 팀 내 딜량 비중: 58%
 - 아군 기절: 4회, 내가 만든 복수: 4회, 내가 한 소생: 3회, 적 팀 전멸 기여: 2회
 - 평균 백업 속도: 21.80s
-- 백업 결과 해석: 21.80s로 시간만 보면 느리지만, 적 제압 4회/전멸 기여 2회와 소생 3회가 함께 있으므로 느린 백업이라고 단정하지 말 것. 교전 정리 후 복구 성공으로 평가하되, 다음에는 복구 시간을 줄이는 보완점만 제시할 것
+- 백업 결과 해석: 21.80s로 시간만 보면 느리지만, 적 제압 4회/전멸 기여 2회와 소생 3회가 함께 있으므로 느린 백업이라고 단정하지 말 것. 백업 속도는 복수 처치까지의 시간이며 소생·합류·복구 시간은 측정하지 않으므로 복구 성공이나 복구 시간 단축을 단정하지 말 것
 - 총 투척 24회, 피해형 투척 15회, 피해 적중 5회, 연막 9회
 - 내 연막 구출 성공: 2회
 - 고립 지수: 1.6, 팀원 평균 거리: 21m
@@ -534,7 +533,7 @@ describeRealGemini("실제 Gemini 10경기 요약 코칭 품질", () => {
     const joinedFinal = JSON.stringify(parsed);
     const qualitySignals = recordCase("summary-ten-match-successful-long-backup", rawText, finalText, parsed, {
       expectedDebateIssueCount: 3,
-      expectedBackupDirection: "교전 정리 후 복구 성공 + 복구 시간 단축",
+      expectedBackupDirection: "느린 백업 단정 금지 + 복구 시간 지시 없음",
       metricContext: {
         backup: {
           label: "교전 정리 후 복구 성공",
@@ -561,7 +560,7 @@ describeRealGemini("실제 Gemini 10경기 요약 코칭 품질", () => {
     expect(hasBlockingAiCoachingQualityIssue(qualitySignals)).toBe(false);
     expect(parsed.debateIssues).toHaveLength(3);
     expect(parsed.actionItems.length).toBeGreaterThan(0);
-    expect(joinedFinal).toMatch(/복구 시간 단축|교전 정리 후 복구 성공|성공 복구|복구 성공/);
+    expect(joinedFinal).not.toMatch(/(?:소생|복구|합류|지원).*시간.*(?:단축|줄여)/);
     expect(joinedFinal).not.toMatch(/느린 백업|방관|성공이라기엔|팀원을 방패|팀원을 들러리|팀원을 방치|undefined|NaN|\d{4,}ms/);
     expect(joinedFinal).not.toMatch(/너무 멀리|독단적인 플레이|고립될 위험|고립 위험이 높/);
   }, 60000);

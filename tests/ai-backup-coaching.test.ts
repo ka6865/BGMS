@@ -31,7 +31,8 @@ describe("AI backup coaching context", () => {
     expect(context.shouldAvoidSlowBackupBlame).toBe(true);
     expect(context.tier).toBe("B");
     expect(context.promptLine).toContain("느린 백업이라고 단정하지 말 것");
-    expect(context.promptLine).toContain("교전 정리 후 복구 성공");
+    expect(context.promptLine).toContain("소생·합류·복구 시간은 측정하지 않으므로");
+    expect(context.promptLine).not.toContain("복구 시간을 줄이는");
   });
 
   it("성공 결과가 없는 22초 백업은 지연 위험으로 평가한다", () => {
