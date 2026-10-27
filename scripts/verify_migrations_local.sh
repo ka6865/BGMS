@@ -124,6 +124,7 @@ MIGRATIONS=(
   "20261025200000_lol_ladder_status"
   "20261026010000_lol_delete_search_lease_any_version"
   "20261026020000_lol_search_cache_payload_1mb"
+  "20261026030000_lol_champion_bans"
   "20261027000000_analysis_calculation_v4"
   "20261028000000_analysis_calculation_v5"
 )
@@ -499,6 +500,7 @@ echo "▶ LoL persistence 시나리오 실행"
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-review-fixes-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-search-cache-cap-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-ladder-status-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-champion-bans-scenarios.sql
 # 같은 버킷의 동시 호출은 정확히 한 번만 허용한다.
 "${PSQL[@]}" -c "set role service_role; delete from public.lol_public_rate_limits where bucket_key = 'search:' || repeat('e', 64);"
 lol_limit_pids=()
