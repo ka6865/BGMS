@@ -400,7 +400,7 @@ describe("useStatsPageController", () => {
       if (url.startsWith("/api/pubg/matches-summary")) {
         return Promise.resolve(jsonResponse(summaryReady));
       }
-      return Promise.resolve(jsonResponse({ ...playerReady, recentMatches: [] }));
+      return Promise.resolve(jsonResponse({ ...playerReady, recentMatches: ["old-profile-match"] }));
     });
 
     const { result } = renderHook(() => useStatsPageController({
@@ -415,6 +415,7 @@ describe("useStatsPageController", () => {
       expect(result.current.historyTotalCount).toBe(41);
     });
     expect(result.current.matchIds).toContain("history-1");
+    expect(result.current.recentMatchIds).toEqual(["history-1"]);
     expect(result.current.matchSummaries["history-1"]?.isSummary).toBe(true);
 
     await act(async () => {
@@ -425,15 +426,40 @@ describe("useStatsPageController", () => {
     expect(result.current.matchIds).toContain("history-2");
     expect(result.current.matchSummaries["history-2"]?.isSummary).toBe(true);
     expect(historyCalls).toBe(2);
+    expect(result.current.recentMatchIds).toEqual(["history-1"]);
 
     act(() => result.current.setMatchFilter("ranked"));
     await waitFor(() => {
       expect(historyCalls).toBe(3);
       expect(result.current.historyPage).toBe(1);
     });
+    expect(result.current.recentMatchIds).toEqual(["history-1"]);
     expect(historyRequests[2].searchParams.get("filter")).toBe("ranked");
     expect(historyRequests[2].searchParams.get("page")).toBe("1");
     expect(playerRequests(fetchMock)).toHaveLength(1);
+  });
+
+  it("waits for the latest unfiltered history even if a filter is selected during loading", async () => {
+    const record = {player_id:"fixtureplayer",platform:"steam",match_id:"latest-history",played_at:"2026-10-26T00:00:00Z",game_mode:"duo",map_name:"Tiger_Main",kills:0,damage:106,win_place:26,match_type:"competitive"};
+    const pendingHistory = deferredResponse({matches:[record],page:1,totalCount:1,totalPages:1});
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?:RequestInit) => {
+      const url=String(input);
+      if(url.startsWith("/api/pubg/player/matches")) {
+        if(new URL(url,"http://localhost").searchParams.get("filter")==="all") return pendingHistory.fetch(input,init);
+        return Promise.resolve(jsonResponse({matches:[],page:1,totalCount:0,totalPages:0}));
+      }
+      if(url.startsWith("/api/pubg/matches-summary")) return Promise.resolve(jsonResponse(summaryReady));
+      return Promise.resolve(jsonResponse({...playerReady,recentMatches:["stale-profile-match"]}));
+    });
+    const {result}=renderHook(()=>useStatsPageController({initialNickname:"FixturePlayer",initialPlatform:"steam"}));
+    await waitFor(()=>expect(result.current.result).not.toBeNull());
+    expect(result.current.recentMatchIds).toBeNull();
+    act(()=>result.current.setMatchFilter("ranked"));
+    expect(pendingHistory.signal?.aborted).toBe(false);
+    await act(async()=>pendingHistory.resolve());
+    await waitFor(()=>expect(result.current.historyStatus).toBe("ready"));
+    expect(result.current.recentMatchIds).toEqual(["latest-history"]);
+    expect(result.current.recentMatchIds).not.toContain("stale-profile-match");
   });
 
   it("404 추천과 반환 platform을 별도 상태로 보존한다", async () => {

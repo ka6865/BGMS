@@ -1,3 +1,4 @@
+import { isEarlyElimination } from "@/lib/pubg-analysis/benchmarkScore";
 import { buildBackupCoachingContext, type BackupCoachingContext } from "@/lib/pubg-analysis/backupCoaching";
 import { hasComparableBenchmarkMetric, type NormalizedBenchmark, type ObservedBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
 import { firstReplyLatencyMs } from "@/lib/pubg-analysis/firstReply";
@@ -73,6 +74,10 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     const value = benchmarkMetric(key);
     return value === null ? "측정 불가" : `${value}${suffix}`;
   };
+  const earlyElimination = isEarlyElimination({
+    survivalTime: finiteNonNegative(stats?.timeSurvived), deathPhase: finiteNonNegative(matchData.deathPhase),
+    myDeathCount: typeof stats?.deathType === "string" ? (stats.deathType === "alive" ? 0 : 1) : null,
+  });
   const leadKills = stats?.leadShotKills ?? matchData.leadShotKills ?? 0;
   const leadKnocks = stats?.leadShotKnocks ?? matchData.leadShotKnocks ?? 0;
   const ridingKills = stats?.ridingShotKills ?? matchData.ridingShotKills ?? 0;
@@ -171,10 +176,11 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
 - 유틸리티 해석: ${utilityInterpretation}
 - 교전 압박: 압박 지수 ${formatNumber(combatPressure.pressureIndex)} (Elite Avg: ${formatBenchmarkNumber("avgPressureIndex")}) / 투척물 딜량 ${formatNumber(combatPressure.utilityDamage ?? combatPressure.utilityStats?.totalDamage)}
 - 운영 패턴: 사망 페이즈 ${(() => {
-  // 첫 자기장 전에 죽으면 엔진이 경기 종료 시점 페이즈를 기록한다. 생존 시간과 맞지 않는 값은 쓰지 않는다.
+  // 구버전 저장 행은 첫 자기장 전 사망을 경기 종료 시점 페이즈로 기록할 수 있다. 생존 시간과 맞지 않는 값은 쓰지 않는다.
   const phase = finiteNonNegative(matchData.deathPhase), survived = finiteNonNegative(stats?.timeSurvived);
   return phase !== null && phase >= 3 && survived !== null && survived < 360 ? "측정 불가(생존 시간과 맞지 않음)" : formatNumber(matchData.deathPhase);
 })()} (Elite Avg: ${formatBenchmarkNumber("avgDeathPhase", " 페이즈")})
+- 조기 탈락 분류: ${earlyElimination === null ? "측정 불가" : earlyElimination ? "해당" : "해당 없음"} (10분 미만 생존 또는 실제 사망 시 3페이즈 이하)
 - 팀 전멸 기여: ${formatCount(tradeStats.enemyTeamWipes)}회
 `.trim();
 
@@ -216,9 +222,9 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     "- [표본과 비교] 투척 1~2회나 대응 사격 관측이 적을 때는 전반적인 능력을 단정하지 마십시오. 평균만으로 상위 백분위를 주장하지 말고, 선제 공격 성공률을 첫 발 명중률로 해석하지 마십시오.",
     "- [적은 표본] 1:1 교전·선제 시도·피해형 투척이 3회 미만인 지표는 횟수만 말하고, 능력이 부족하다거나 높이라는 평가·지시(actionItems 포함)의 근거로 쓰지 마십시오.",
     "- [비교 없는 평가 금지] Elite Avg가 측정 불가인 지표(예: 대응 사격 속도)는 빠르다/느리다/미흡하다로 평가하지 말고 관측값만 말하십시오.",
-    "- [기여 인정] 처치·어시스트·기절·소생·적 팀 전멸 기여 중 하나라도 1회 이상이면 '아무 기여도 없다', '아무것도 남기지 못했다'처럼 쓰지 마십시오. 조기 탈락은 생존 시간과 사망 페이즈 사실로만 말하십시오.",
+    "- [기여 인정] 처치·어시스트·기절·소생·적 팀 전멸 기여 중 하나라도 1회 이상이면 '아무 기여도 없다', '아무것도 남기지 못했다'처럼 쓰지 마십시오. 피해량이나 1:1 교전 승리가 있으면 화력·교전 성과가 전무하다고 쓰지 마십시오. 조기 탈락은 서버의 조기 탈락 분류를 따르고, 생존 시간과 사망 페이즈 사실로만 말하십시오.",
     "- [인성 표현 금지] 무책임, 무능, 민폐, 한심, 이기적 같은 태도·인성 평가와 집중력·판단력·멘탈처럼 측정하지 않은 능력은 쓰지 마십시오.",
-    "- [진입 추정 금지] 진입 시점이나 무리한 진입 여부는 측정하지 않았습니다. '무리한 진입'을 원인이나 행동 제안으로 쓰지 마십시오.",
+    "- [진입 추정 금지] 진입 시점이나 무리한 진입 여부는 측정하지 않았습니다. '무리한 진입'을 원인이나 행동 제안으로 쓰지 마십시오. 화력 비중으로 '전선 돌파자', '대치선돌파수' 같은 돌파·돌입·진입 칭호를 만들지 마십시오.",
     "- [피드백 구성] briefFeedback 3개는 서로 다른 주제(화력·교전·팀플레이 또는 생존)를 다루고, 각 문장에 관측 수치와 그 수치가 이번 경기에서 뜻하는 바를 함께 쓰십시오. 같은 수치를 반복하지 마십시오.",
     "- [마지막 한마디] finalVerdict는 이번 경기 기록에서 가장 중요한 사실 하나와 다음 경기 과제 하나를 한두 문장으로 쓰십시오. 분석 원칙이나 코치 자신의 태도를 말하지 마십시오.",
     "- [행동 제안] actionItems는 이번 경기에서 표본이 충분한 지표 가운데 가장 아쉬운 1~2개만 골라, 다음 경기에서 확인하거나 시도할 구체 행동으로 쓰십시오. 근거가 없으면 1개만 쓰십시오.",

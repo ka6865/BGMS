@@ -936,7 +936,7 @@ describe("summary card presentation guards", () => {
     ], context: { contextId: "ctx-neutral", gameMode: "squad", matchType: "official", tier: "B", userMatchCount: 3, benchmarkSampleCount: 40, filterVersion: 8, populationVersion: 1 } });
     const neutral = "검증된 경기 지표를 바탕으로 분석합니다.";
     const raw = {
-      signature: "흐름을 읽는 전술가", signatureSub: neutral, finalVerdict: neutral, actionItems: [{ icon: "target", title: "교전 점검", desc: "다음 교전 전 상대 위치를 확인해 보세요." }],
+      signature: "대치선돌파수", signatureSub: neutral, finalVerdict: neutral, actionItems: [{ icon: "target", title: "교전 점검", desc: "다음 교전 전 상대 위치를 확인해 보세요." }],
       debateIssues: cards.map(card => ({ topicId: card.topicId, evidenceIds: card.evidenceIds, kindOpinion: neutral, spicyOpinion: neutral, reason: neutral, evaluation: neutral, winner: null })),
     };
     const result = normalizeSummaryCardFinal(raw, cards, { sanitizeText: value => value, hasUnsupportedMode: () => false })!;

@@ -1,3 +1,4 @@
+import { isEarlyElimination } from "./benchmarkScore";
 import { hasComparableBenchmarkMetric, type NormalizedBenchmark } from './benchmarkAdapter';
 import { COUNTER_LATENCY_PENALTY_MS } from './constants';
 import { firstReplyLatencyMs } from './firstReply';
@@ -23,7 +24,12 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
   const contributionParts = ([
     [stats.kills, '처치'], [stats.assists, '어시스트'], [stats.DBNOs, '기절'], [trade.revCount, '소생'], [trade.enemyTeamWipes, '적 팀 전멸 기여'],
   ] as Array<[unknown, string]>).flatMap(([count, label]) => (finite(count) ?? 0) > 0 ? [`${label} ${count}회`] : []);
+  const damage = finite(stats.processedDamageDealt) ?? finite(stats.damageDealt);
+  if (damage !== null && damage > 0) contributionParts.push(`${finite(stats.processedDamageDealt) === null ? '피해' : '유효 피해'} ${display(damage)}`);
+  const duelWins = finite(match?.duelStats?.wins);
+  if (duelWins !== null && duelWins > 0) contributionParts.push(`1:1 교전 승리 ${duelWins}회`);
   const contributionFacts = contributionParts.length ? `이번 경기에서 ${contributionParts.join(', ')}를 기록했습니다.` : null;
+  const earlyElimination = isEarlyElimination({ survivalTime: finite(stats.timeSurvived), deathPhase: finite(match?.deathPhase), myDeathCount: typeof stats.deathType === 'string' ? (stats.deathType === 'alive' ? 0 : 1) : null });
   const negativeJudgment = /부족|미흡|저조|아쉽|아쉬|약점|한계|무너|형편없|느리|느린|개선이 필요|보완이 필요|개선의 여지|높여야|끌어올려야|채워야/u;
   const negatedJudgment = /(?:부족|아쉬)(?:함|움)?(?:이|은|도)?\s*없|부족하지\s*않|아쉽지\s*않|느리지\s*않/u;
   const metricBenchmarks: Array<[RegExp, keyof NormalizedBenchmark]> = [
@@ -36,6 +42,9 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
     // Rewrite only matched sentences; untouched values keep their original line breaks.
     const sentences = value.split(/(?<=[.!?。！？])\s+|\n+/u);
     const rewritten: Array<string | null> = sentences.map(sentence => {
+      if (['signatureSub', 'briefFeedback', 'finalVerdict'].includes(key) && earlyElimination === false && /조기\s*(?:탈락|사망)(?:했|하였|입니다|했습니다|으로|의|하여|해)/u.test(sentence)) {
+        return `생존 시간은 ${stats.timeSurvived}초입니다. 조기 탈락 기준에 해당하지 않습니다.`;
+      }
       // 측정하지 않은 능력(집중력)은 꾸밈말이면 빼고, 주장 자체면 문장을 뺀다.
       // 교전 결과로 집중력을 증명했다는 주장은 아래에서 실제 교전 수로 바꾼다.
       if (/집중력/u.test(sentence) && !/(?:높은|뛰어난|우수한|탁월한)\s*집중력(?:을|이)?\s*(?:보여|입증|증명)/u.test(sentence)
@@ -47,7 +56,7 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
       if (/무책임|무능|민폐|한심|성의\s*없|게으른|이기적/u.test(sentence)) {
         return key === 'signature' ? '경기 기록 점검' : null;
       }
-      if (contributionFacts && /(?:아무런|어떠한|아무)\s*(?:유효(?:한)?\s*)?(?:자산|기여|성과|도움|것)|기여(?:를|도)?\s*(?:남기지|하지)\s*못|기여가\s*(?:없|전무)|무의미한|남긴\s*것이\s*없/u.test(sentence)) {
+      if (contributionFacts && /(?:아무런|어떠한|아무)\s*(?:유효(?:한)?\s*)?(?:자산|기여|성과|도움|것)|기여(?:를|도)?\s*(?:남기지|하지)\s*못|기여가\s*(?:없|전무)|(?:화력|교전\s*성과|기여|성과)(?:는|가|이|도)?\s*(?:전무|없)|무의미한|남긴\s*것이\s*없/u.test(sentence)) {
         return key === 'signature' ? '경기 기록 점검' : contributionFacts;
       }
       if (isolation !== null && isolation < 2 && /고립/u.test(sentence) && /결여|부족|위험|문제|미흡|불리|겹쳐|탓|약점/u.test(sentence)) {
@@ -152,8 +161,9 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
     if (isolation !== null && isolation < 2 && /고립형|고독한|고립(?:이|도|\s*위험)?.{0,8}(?:심|높)|대열\s*이탈/u.test(value)) {
       return key === 'signature' ? '대열 유지형 플레이어' : `평균 고립 지수는 ${display(isolation)}입니다. 실제 교전 위치와 함께 확인해 보세요.`;
     }
+    if (key === 'signature') value = value.replace(/(?:침착한|냉철한)\s*/gu, '').trim() || '경기 기록 점검';
     // 진입 위치·순서는 측정하지 않으므로 칭호에도 쓰지 않는다.
-    if (key === 'signature' && /최전선|전방에서|선두에서|앞장서|돌격|선봉|돌진/u.test(value)) return '화력 기여형 플레이어';
+    if (key === 'signature' && /최전선|전방에서|선두에서|앞장서|돌격|선봉|돌진|전선|돌파|돌입|진입/u.test(value)) return '화력 기여형 플레이어';
     if (/숨어\s*다니|후방|아군\s*곁을\s*맴돌|몸을\s*사리/u.test(value)) {
       if (key === 'signature') return '화력 기여형 플레이어';
       return '관측 기록만으로 교전 의도나 대기 위치를 단정할 수 없습니다. 다음 교전에서는 아군과 함께 대응할 기회를 확인해 보세요.';

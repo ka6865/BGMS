@@ -78,6 +78,7 @@ export interface StatsPageController {
   summaryStatus: "idle" | "loading" | "ready" | "error";
   collectionProgress?: { loaded: number; total: number };
   matchIds: readonly string[];
+  recentMatchIds: readonly string[] | null;
   historyStatus: StatsHistoryStatus;
   historyPage: number;
   historyTotalPages: number;
@@ -263,6 +264,7 @@ export function useStatsPageController(
   const [matchModeMeta, setMatchModeMeta] = useState<Record<string, StatsMatchModeMeta>>({});
   const [summaryStatus, setSummaryStatus] = useState<StatsPageController["summaryStatus"]>("idle");
   const [collectionProgress, setCollectionProgress] = useState<StatsPageController["collectionProgress"]>();
+  const [recentMatchIds, setRecentMatchIds] = useState<readonly string[] | null>(null);
   const [historyMatches, setHistoryMatches] = useState<PlayerMatchRecord[]>([]);
   const [historyStatus, setHistoryStatus] = useState<StatsHistoryStatus>("idle");
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -392,6 +394,7 @@ export function useStatsPageController(
     historyPageRef.current = 1;
     historySummaryIdsRef.current.clear();
     setHistoryMatches([]);
+    setRecentMatchIds(null);
     setHistoryStatus("idle");
     setHistoryLoaded(false);
     setHistoryPageState(1);
@@ -695,12 +698,13 @@ export function useStatsPageController(
     setHistoryStatus("loading");
     const stale = () => controller.signal.aborted || requestId !== historyRequestIdRef.current;
 
+    const requestedFilter = options.filter ?? matchFilterRef.current;
     try {
       const params = new URLSearchParams({
         nickname: player.nickname,
         platform: player.platform,
         page: String(Math.max(1, Math.floor(page))),
-        filter: options.filter ?? matchFilterRef.current,
+        filter: requestedFilter,
       });
       const response = await fetch(`/api/pubg/player/matches?${params.toString()}`, {
         cache: "no-store",
@@ -739,6 +743,10 @@ export function useStatsPageController(
       setHistoryMatches(incoming);
       setHistoryLoaded(true);
       const resolvedPage = data.page && data.page > 0 ? data.page : page;
+      // AI 입력은 전체 전적 첫 페이지에 고정하고 페이지·필터 이동에서는 유지한다.
+      if (resolvedPage === 1 && requestedFilter === "all") {
+        setRecentMatchIds(normalizeRecentMatchIds(incoming.length ? incoming.map(record => record.match_id) : player.recentMatches));
+      }
       historyPageRef.current = resolvedPage;
       setHistoryPageState(resolvedPage);
       setHistoryTotalPages(Math.max(0, data.totalPages ?? 0));
@@ -748,6 +756,7 @@ export function useStatsPageController(
       return incoming;
     } catch (caught) {
       if (stale()) return null;
+      if (page === 1 && requestedFilter === "all") setRecentMatchIds(normalizeRecentMatchIds(player.recentMatches));
       setHistoryStatus("error");
       setHistoryResponseVersion((version) => version + 1);
       return null;
@@ -859,8 +868,8 @@ export function useStatsPageController(
     matchFilterRef.current = value;
     setMatchFilterState(value);
     const player = resultRef.current;
-    if (player) void loadHistoryPage(player, 1, { filter: value });
-  }, [loadHistoryPage]);
+    if (player && recentMatchIds !== null) void loadHistoryPage(player, 1, { filter: value });
+  }, [loadHistoryPage, recentMatchIds]);
 
   const retryHistory = useCallback(async () => {
     const player = resultRef.current;
@@ -875,12 +884,17 @@ export function useStatsPageController(
     const loadedIds = new Set<string>();
     setCollectionProgress({ loaded: 0, total: collectionIds.size });
     // Publish each response independently so basic records never wait for analysis.
-    const history = loadHistoryPage(player, 1);
+    const history = loadHistoryPage(player, 1, { filter: "all" });
     let historyRequestId = historyRequestIdRef.current;
     const summary = loadSummaries(player, pending.slice(0, RECENT_MATCH_LIMIT));
     let summaryRequestId = summaryRequestIdRef.current;
     let [records, batch] = await Promise.all([history, summary]);
     const stale = () => resultRef.current !== player || summaryRequestId !== summaryRequestIdRef.current;
+    if (!stale() && historyRequestId === historyRequestIdRef.current && matchFilterRef.current !== "all") {
+      const filtered = loadHistoryPage(player, 1);
+      historyRequestId = historyRequestIdRef.current;
+      records = await filtered;
+    }
     for (const record of records ?? []) if (collectionIds.has(record.match_id)) loadedIds.add(record.match_id);
     if (!stale()) setCollectionProgress({ loaded: loadedIds.size, total: collectionIds.size });
     const missingIds = new Set<string>();
@@ -1111,6 +1125,7 @@ export function useStatsPageController(
     summaryStatus,
     collectionProgress,
     matchIds,
+    recentMatchIds,
     historyStatus,
     historyPage,
     historyTotalPages,

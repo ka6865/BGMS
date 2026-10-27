@@ -80,6 +80,30 @@ async function clickText(page: Page, text: string) {
     if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
+  it.each([{ width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }, { width: 1440, height: 900 }])("expired and pending data errors fit at $width", async (viewport) => {
+    for (const errorCode of ["PUBG_MATCH_DETAIL_EXPIRED", "PUBG_AI_CANONICAL_NOT_READY"]) {
+      const page = await browser.newPage();
+      await page.setViewport(viewport);
+      const errors: string[] = [];
+      page.on("pageerror", error => errors.push(String(error)));
+      await page.setRequestInterception(true);
+      page.on("request", async request => {
+        if (!request.url().endsWith("/api/pubg/ai-summary")) return void await request.continue();
+        await request.respond({status:errorCode === "PUBG_MATCH_DETAIL_EXPIRED" ? 410 : 409,contentType:"application/json",body:JSON.stringify({errorCode,error:"data unavailable"})});
+      });
+      try {
+        await page.goto(baseUrl, {waitUntil:"networkidle0"});
+        await clickText(page, "최근 최대 10경기 AI 끝장 토론 시작");
+        const title = errorCode === "PUBG_MATCH_DETAIL_EXPIRED" ? "분석할 경기의 상세 제공 기간이 지났습니다." : "최근 경기의 분석 데이터가 아직 준비되지 않았습니다.";
+        await page.waitForFunction(text => document.body.innerText.includes(text), {}, title);
+        expect(await page.evaluate(() => document.body.innerText)).not.toContain("서버가 바쁘거나 네트워크가 불안정");
+        expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+        expect(errors).toEqual([]);
+        if (process.env.SUMMARY_BROWSER_SCREENSHOT_DIR) await page.screenshot({path:join(process.env.SUMMARY_BROWSER_SCREENSHOT_DIR,`data-error-${errorCode}-${viewport.width}.png`)});
+      } finally {await page.close();}
+    }
+  }, 30_000);
+
   it.each([{ width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }, { width: 1440, height: 900 }])("partial success, cooldown, facts, identity and overflow at $width", async (viewport) => {
     const page = await browser.newPage();
     const ledger = createStatsRequestLedger();

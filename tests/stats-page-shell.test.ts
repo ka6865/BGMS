@@ -64,7 +64,7 @@ vi.mock("@/components/stat/matches/MatchFeed", () => ({
     ),
 }));
 vi.mock("@/components/stat/RecentAISummary", () => ({
-  RecentAISummary: () => createElement("div", { "data-testid": "full-ai" }, "AI analysis"),
+  RecentAISummary: ({ matchIds }: { matchIds: readonly string[] }) => createElement("div", { "data-testid": "full-ai" }, matchIds.join(",")),
 }));
 vi.mock("@/components/stat/SquadAnalysisPanel", () => ({ default: () => createElement("div", null, "squad-panel") }));
 
@@ -92,6 +92,7 @@ function controller(overrides: Partial<StatsPageController> = {}): StatsPageCont
     matchModeMeta: {},
     summaryStatus: "idle",
     matchIds: [],
+    recentMatchIds: ["match-fixture-1"],
     historyStatus: "idle",
     historyPage: 1,
     historyTotalPages: 0,
@@ -283,6 +284,7 @@ describe("StatsPageShell state and ownership matrix", () => {
     expect(precedes(grid, guide)).toBe(true);
     expect(screen.getAllByTestId("full-ai")).toHaveLength(1);
 
+    expect(fullAi).toHaveTextContent("match-fixture-1");
     expect(screen.getByTestId("summary-panel")).toHaveTextContent("recent-match-fixture-1");
     mocks.controller = controller({ status: "ready", result: readyResult(), summaryStatus: "ready", historyPage: 2, matchIds: ["older-match"] });
     view.rerender(createElement(StatsPageShell));
@@ -291,8 +293,19 @@ describe("StatsPageShell state and ownership matrix", () => {
     expect(screen.queryByRole("button", { name: "최근 10경기 AI 분석으로 이동" })).not.toBeInTheDocument();
   });
 
+  it("keeps stale profile IDs out of AI and waits for history before mounting it", async () => {
+    mocks.controller=controller({status:"ready",result:readyResult(["stale-profile"]),recentMatchIds:null,historyStatus:"loading"});
+    const view=render(createElement(StatsPageShell));
+    expect(screen.queryByTestId("full-ai")).not.toBeInTheDocument();
+    expect(screen.getByText("AI 분석에 사용할 최근 경기를 확인하고 있습니다.")).toBeInTheDocument();
+    mocks.controller=controller({status:"ready",result:readyResult(["stale-profile"]),recentMatchIds:["latest-history"],historyStatus:"ready"});
+    view.rerender(createElement(StatsPageShell));
+    expect(await screen.findByTestId("full-ai")).toHaveTextContent("latest-history");
+    expect(screen.getByTestId("full-ai")).not.toHaveTextContent("stale-profile");
+  });
+
   it("zero recent match에서는 full AI를 mount하지 않고 빈 상태만 표시한다", () => {
-    mocks.controller = controller({ status: "ready", result: readyResult([]), summaryStatus: "ready" });
+    mocks.controller = controller({ status: "ready", result: readyResult([]), recentMatchIds: [], summaryStatus: "ready" });
     render(createElement(StatsPageShell));
     const region = screen.getByRole("region", { name: "AI 분석" });
     expect(region).toHaveAttribute("tabindex", "-1");

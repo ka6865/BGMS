@@ -1223,14 +1223,16 @@ export const RecentAISummary = ({
 
   if (error && !summaryCards) {
     const calculationUpgradePending = error.errorCode === CALCULATION_UPGRADE_ERROR_CODE;
+    const expired = error.errorCode === "PUBG_MATCH_DETAIL_EXPIRED";
+    const canonicalPending = error.errorCode === "PUBG_AI_CANONICAL_NOT_READY";
     return (
       <div className="p-6 bg-white/5 border border-white/10 rounded-2xl text-center">
         <BgmsIcon name="info" size={28} className="mx-auto mb-3 text-indigo-300" />
         <p className="text-gray-300 text-sm mb-1">
-          {calculationUpgradePending ? CALCULATION_UPGRADE_MESSAGE : error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "AI 해석을 확인할 수 없습니다." : "AI 분석이 잠깐 막혔어요."}
+          {expired ? "분석할 경기의 상세 제공 기간이 지났습니다." : canonicalPending ? "최근 경기의 분석 데이터가 아직 준비되지 않았습니다." : calculationUpgradePending ? CALCULATION_UPGRADE_MESSAGE : error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "AI 해석을 확인할 수 없습니다." : "AI 분석이 잠깐 막혔어요."}
         </p>
         <p className="text-gray-500 text-xs mb-4">
-          {calculationUpgradePending ? CALCULATION_UPGRADE_DETAIL : error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "분석 근거를 확인하지 못했습니다. 잠시 후 다시 시도할 수 있어요." : "서버가 바쁘거나 네트워크가 불안정할 때 가끔 생겨요."}
+          {expired ? "상단의 전적 갱신을 눌러 최근 경기 목록을 확인해 주세요." : canonicalPending ? "최근 경기의 상세 분석을 확인한 뒤 다시 시도해 주세요." : calculationUpgradePending ? CALCULATION_UPGRADE_DETAIL : error.errorCode === "PUBG_AI_VALIDATION_FAILED" ? "분석 근거를 확인하지 못했습니다. 잠시 후 다시 시도할 수 있어요." : "서버가 바쁘거나 네트워크가 불안정할 때 가끔 생겨요."}
         </p>
         {!calculationUpgradePending && (
           <button

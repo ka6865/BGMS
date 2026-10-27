@@ -181,6 +181,17 @@ function readyV2Cards(): SummaryCard[] {
 }
 
 describe("RecentAISummary callback bridge", () => {
+  it.each([
+    [410, "PUBG_MATCH_DETAIL_EXPIRED", "분석할 경기의 상세 제공 기간이 지났습니다.", "전적 갱신"],
+    [409, "PUBG_AI_CANONICAL_NOT_READY", "최근 경기의 분석 데이터가 아직 준비되지 않았습니다.", "상세 분석"],
+  ])('shows a data-specific error for %s/%s', async (status, errorCode, title, detail) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({errorCode,error:"data unavailable"}), {status,headers:{"Content-Type":"application/json"}})));
+    render(createElement(RecentAISummary, baseProps));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    expect(await screen.findByText(title)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(detail))).toBeInTheDocument();
+    expect(screen.queryByText("서버가 바쁘거나 네트워크가 불안정할 때 가끔 생겨요.")).not.toBeInTheDocument();
+  });
   it("MiaeQ_Q utility observations show the population and separate attempts from successes", async () => {
     const cards = buildSummaryCards({
       topics: ["화력", "유틸리티 활용", "포지셔닝"],

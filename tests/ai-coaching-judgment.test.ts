@@ -269,3 +269,31 @@ describe('real gemini audit findings (2026-10-28)', () => {
     expect(result.briefFeedback[0]).toBe('유효 딜량 596을 기록했습니다.');
   });
 });
+
+describe('coaching follow-up evidence guards', () => {
+  it.each(['전선 돌파자', '대치선돌파수', '진입 전문가', '돌입 선두'])('rejects an unmeasured entry title: %s', signature => {
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({ signature }), {}));
+    expect(result.signature).toBe('화력 기여형 플레이어');
+  });
+  it.each([{stats:{processedDamageDealt:62},duelStats:{wins:1}}, {stats:{DBNOs:1}}, {duelStats:{wins:1}}])('recognizes damage, duel wins or knocks despite zero kills', match => {
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({finalVerdict:'화력과 교전 성과는 전무했습니다.'}), match));
+    expect(result.finalVerdict).not.toContain('전무');
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(result), match))).toEqual(result);
+  });
+  it('keeps a factual zero-kill statement when damage exists', () => {
+    const input = {briefFeedback:['처치 기록은 없습니다. 유효 피해는 62입니다.']};
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), {stats:{kills:0,processedDamageDealt:62}}))).toEqual(input);
+  });
+});
+
+it('corrects cached early-elimination claims while preserving a non-early limitation', () => {
+  const match = {stats:{timeSurvived:900,deathType:'byplayer'},deathPhase:4};
+  const corrected = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({briefFeedback:['조기 탈락했습니다.'],finalVerdict:'조기 탈락 기준에 해당하지 않습니다.'}), match));
+  expect(corrected.briefFeedback[0]).toBe('생존 시간은 900초입니다. 조기 탈락 기준에 해당하지 않습니다.');
+  expect(corrected.finalVerdict).toBe('조기 탈락 기준에 해당하지 않습니다.');
+});
+
+it('removes an unmeasured composure adjective while preserving observed firepower', () => {
+  const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({signature:'침착한 화력 지원가'}), {stats:{processedDamageDealt:106}}));
+  expect(result.signature).toBe('화력 지원가');
+});
