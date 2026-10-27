@@ -153,7 +153,7 @@ async function clickText(page: Page, text: string) {
         signatureWeapon: "Mk14 EBR", signatureWeaponStats: { kills: 12, dbnos: 9 }, scores: { executor: 97.5 },
       };
       const lines = [
-        { type: "visuals", data: { overallTier: "A", roleInfo } },
+        { type: "visuals", data: { overallTier: "A", roleInfo, reactionLatency:"측정 불가", reactionTier:"측정 불가" } },
         { type: "cards", data: cards },
         { type: "final", data: JSON.stringify({ schemaVersion: 2, analysisStatus: "partial", cards: finalCards, retryAfterSeconds: 300, signature: null, actionItems: null, finalVerdict: "확인된 항목만 평가했습니다." }) },
         { type: "done", valid: true, partial: true, retryAfterSeconds: 300 },
@@ -170,6 +170,8 @@ async function clickText(page: Page, text: string) {
       const text = await page.evaluate(() => document.body.innerText);
       expect(text).toContain("1:1 승률 상위 3% · 역전 승률 상위 12%");
       expect(text).toContain("Mk14 EBR 주력");
+      await page.click('[aria-label="첫 반격 측정 불가 사유"]');
+      await page.waitForFunction(() => document.body.innerText.includes("측정 불가는 느린 반응이나 실력 부족을 뜻하지 않습니다."));
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
       if (process.env.SUMMARY_BROWSER_SCREENSHOT_DIR) {
         await page.$eval('[aria-label="칭호 근거"]', (element) => element.scrollIntoView({ block: "center" }));

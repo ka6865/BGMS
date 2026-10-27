@@ -61,7 +61,7 @@ export function buildSummaryCardEvidence(stats: Record<string, unknown>, benchma
   add('duel_win_rate', '1:1 교전 승률', stats.avgDuelWinRate, '%', 'avgDuelWinRate', stats.totalDuelWins, duelCount);
   add('pressure_index', '평균 압박 지수', stats.avgPressureIndex, '', 'avgPressureIndex');
   // 3초 패널티 경기는 반응 시간이 아니므로 실측 평균과 실패율을 따로 비교한다.
-  add('reaction_latency', '대응 사격 속도', stats.avgMeasuredReactionLatency, 's', 'avgFirstReplyLatency');
+  add('reaction_latency', '첫 반격 명중 간격', stats.avgMeasuredReactionLatency, 's', 'avgFirstReplyLatency');
   add('counter_failure_rate', '3초 내 대응 실패율', stats.counterFailureRate, '%', 'avgCounterFailureRate', stats.counterFailureMatches, stats.counterObservedMatches);
   add('backup_latency', '백업 속도', stats.avgBackupLatency, 's', 'avgTradeLatency');
   add('trade_success_rate', '복수 성공률', rate(stats.totalTradeKills, stats.totalTeammateKnocks), '%', 'avgTradeRate', stats.totalTradeKills, stats.totalTeammateKnocks);

@@ -587,7 +587,8 @@ export class AnalysisEngine {
         reversalRate,
         duelWinRate,
         firstReplyWithin3sCount: this.state.firstReplyWithin3sCount,
-        firstReplyLatencySumMs: this.state.firstReplyLatencySumMs
+        firstReplyLatencySumMs: this.state.firstReplyLatencySumMs,
+        firstReplyEvidence: this.combatHandler.firstReplyEvidence.result()
       },
       combatPressure: {
         pressureScore: this.state.myActionTimestamps.length > 0

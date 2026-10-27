@@ -1,7 +1,6 @@
 import { buildBackupCoachingContext, type BackupCoachingContext } from "@/lib/pubg-analysis/backupCoaching";
 import { hasComparableBenchmarkMetric, type NormalizedBenchmark, type ObservedBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
-import { firstReplyLatencyMs } from "@/lib/pubg-analysis/firstReply";
-import { COUNTER_LATENCY_PENALTY_MS } from "@/lib/pubg-analysis/constants";
+import { firstReplyLatencyMs, readFirstReplyEvidence, firstReplyFailureRate } from "@/lib/pubg-analysis/firstReply";
 
 interface MatchAiPromptInput {
   matchData: any;
@@ -157,10 +156,11 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
 - 선제 공격 성공률: ${formatPercent(matchData.initiative_rate)} (선제 시도 ${formatCount(matchData.initiativeSampleCount)}회, Elite Avg: ${formatBenchmarkPercent("avgInitiativeRate")})
 - 대응 사격 속도(첫 반격): ${(() => {
   const firstReply = firstReplyLatencyMs(matchData);
-  const ambushed = (finiteNonNegative(matchData.duelStats?.reversalAttempts) ?? 0) > 0;
-  if (firstReply !== null) return `${(firstReply / 1000).toFixed(2)}s (기습당한 교전 ${matchData.duelStats.firstReplyWithin3sCount}회의 첫 피격→첫 반격 평균, Elite Avg: ${formatBenchmarkNumber("avgFirstReplyLatency", "s")})`;
-  if (ambushed && finiteNonNegative(tradeStats.reactionLatencyMs) === COUNTER_LATENCY_PENALTY_MS) return `3초 안에 첫 반격 없음(기습 ${matchData.duelStats.reversalAttempts}회, 실제 시간 측정 불가) (Elite 3초 내 대응 실패율: ${formatBenchmarkPercent("avgCounterFailureRate")})`;
-  return ambushed ? "측정 불가(첫 반격 기록 없음)" : "기습당한 교전 없음";
+  const evidence = readFirstReplyEvidence(matchData);
+  if (firstReply !== null) return `${(firstReply / 1000).toFixed(2)}s (피격 전 사격을 구분한 교전 ${evidence!.within3sCount}회의 첫 피격→첫 반격 명중 간격 평균, Elite Avg: ${formatBenchmarkNumber("avgFirstReplyLatency", "s")})`;
+  if (!evidence) return "측정 불가(피격 전 사격 검증 기록 없음)";
+  if (firstReplyFailureRate(matchData) === 100) return `3초 안에 첫 반격 없음(적격 교전 ${evidence.eligibleCount}회, 실제 시간 측정 불가) (Elite 3초 내 대응 실패율: ${formatBenchmarkPercent("avgCounterFailureRate")})`;
+  return `측정 불가(이미 사격 중 ${evidence.alreadyFiringCount}회 제외, 사격 근거 부족 ${evidence.unknownCount}회)`;
 })()}
 - 백업(Trade) 속도: ${backupLatencyText} (Elite Avg: ${formatBenchmarkNumber("avgTradeLatency", "s")})
 - 백업 결과 해석: 복수 처치까지의 시간이며, 소생·합류·복구에 걸린 시간은 측정하지 않음
@@ -213,6 +213,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     "  * 피해형 투척당 평균 데미지는 피해량만 설명하며, 적 위치 파악 능력이나 정확한 의도를 입증하지 않습니다.",
     "  * 투척물 딜량이 0이면 정확도만으로 교전 보조 능력을 단정하지 마십시오.",
     "- [백업 해석 규칙] 백업 속도는 아군 기절 후 복수 처치까지의 시간입니다. 이를 소생·합류·복구에 걸린 시간으로 해석하거나 복구 시간 단축을 지시하지 마십시오. 전멸 기여와 소생 횟수만으로 같은 사건의 복구 성공을 단정하지 마십시오.",
+    "- [첫 반격 해석] 이미 사격 중이던 교전과 발사 근거가 부족한 교전은 반응 시간·실패율 평가에서 제외합니다. 첫 반격 명중 간격은 인지·반사신경을 직접 측정한 값이 아닙니다. 측정 불가 값을 0초나 느린 반응으로 바꾸지 마십시오.",
     "- [표본과 비교] 투척 1~2회나 대응 사격 관측이 적을 때는 전반적인 능력을 단정하지 마십시오. 평균만으로 상위 백분위를 주장하지 말고, 선제 공격 성공률을 첫 발 명중률로 해석하지 마십시오.",
     "- [적은 표본] 1:1 교전·선제 시도·피해형 투척이 3회 미만인 지표는 횟수만 말하고, 능력이 부족하다거나 높이라는 평가·지시(actionItems 포함)의 근거로 쓰지 마십시오.",
     "- [비교 없는 평가 금지] Elite Avg가 측정 불가인 지표(예: 대응 사격 속도)는 빠르다/느리다/미흡하다로 평가하지 말고 관측값만 말하십시오.",

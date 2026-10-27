@@ -142,7 +142,7 @@ describe('match coaching evidence from telemetry audit', () => {
 
   it('does not infer a percentile from a benchmark mean', () => {
     const input = { briefFeedback: ['대응 사격 속도 0.17초로 상위 수준의 반응 속도를 증명했습니다.'] };
-    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), { tradeStats: { reactionLatencyMs: 167 }, duelStats: { firstReplyWithin3sCount: 1, firstReplyLatencySumMs: 167 }, eliteBenchmark: { avgCounterLatency: 0.9, sampleCount: 30, metricSampleCounts: { avgCounterLatency: 22 } } }));
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), { tradeStats: { reactionLatencyMs: 167 }, duelStats: { firstReplyWithin3sCount: 1, firstReplyLatencySumMs: 167, firstReplyEvidence:{version:1,eligibleCount:1,alreadyFiringCount:0,unknownCount:0,within3sCount:1,latencySumMs:167,noReplyCount:0} }, eliteBenchmark: { avgCounterLatency: 0.9, sampleCount: 30, metricSampleCounts: { avgCounterLatency: 22 } } }));
     expect(result.briefFeedback[0]).toContain('0.17초');
     expect(result.briefFeedback[0]).not.toMatch(/상위|증명/);
   });
@@ -162,7 +162,7 @@ describe('additional telemetry findings', () => {
   it('does not present the 3 second failure penalty as a measured reaction time', () => {
     const input = { briefFeedback: ['대응 사격 속도가 3.00초로 비교 대상 평균인 0.57초보다 크게 느려 교전 반응 속도 개선이 시급합니다.'] };
     const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), { tradeStats: { reactionLatencyMs: 3000 }, duelStats: { reversalAttempts: 3 } }));
-    expect(result.briefFeedback[0]).toBe('기습당한 교전 3회에서 3초 안에 첫 반격을 하지 못했습니다.');
+    expect(result.briefFeedback[0]).toContain('반응 속도 평가는 보류');
     expect(result.briefFeedback[0]).not.toContain('0.57초');
   });
 
@@ -265,7 +265,7 @@ describe('real gemini audit findings (2026-10-28)', () => {
   });
 
   it('drops only the uncomparable sentence and keeps neighbouring facts', () => {
-    const result = run({ briefFeedback: ['유효 딜량 596을 기록했습니다. 대응 사격 속도는 동일 티어 평균보다 느립니다.'] }, { duelStats: { firstReplyWithin3sCount: 1, firstReplyLatencySumMs: 540 } });
+    const result = run({ briefFeedback: ['유효 딜량 596을 기록했습니다. 대응 사격 속도는 동일 티어 평균보다 느립니다.'] }, { duelStats: { firstReplyWithin3sCount: 1, firstReplyLatencySumMs: 540, firstReplyEvidence:{version:1,eligibleCount:1,alreadyFiringCount:0,unknownCount:0,within3sCount:1,latencySumMs:540,noReplyCount:0} } });
     expect(result.briefFeedback[0]).toBe('유효 딜량 596을 기록했습니다.');
   });
 });

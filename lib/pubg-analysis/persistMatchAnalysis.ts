@@ -1,4 +1,4 @@
-import { firstReplyLatencyMs } from "./firstReply";
+import { firstReplyLatencyMs, rawFirstReplyLatencyMs, firstReplyFailureRate } from "./firstReply";
 import { upsertPlayerMatches } from "../pubg/playerMatches";
 import { buildOfficialParticipantMatchRecords } from "../pubg/playerMatchesIngest";
 import { getPrivatePlayersList } from "../pubg/privatePlayers";
@@ -556,7 +556,9 @@ export function buildBenchmarkRow(
     game_mode: eligibility.mode,
     map_name: nullableText(finalResult.mapName),
     counter_latency_ms: nullableNonNegativeInteger(finalResult.tradeStats?.counterLatencyMs),
-    first_reply_latency_ms: nullableNonNegativeInteger(firstReplyLatencyMs(finalResult)),
+    first_reply_latency_ms: nullableNonNegativeInteger(rawFirstReplyLatencyMs(finalResult)),
+    eligible_first_reply_latency_ms: nullableNonNegativeInteger(firstReplyLatencyMs(finalResult)),
+    eligible_counter_failure_rate: firstReplyFailureRate(finalResult),
     initiative_rate: nullableNonNegativePercent(finalResult.initiative_rate),
     revive_rate: nullableRatioPercent(finalResult.tradeStats?.revCount, teammateKnocks),
     is_crossfire: observedCrossfire(finalResult.isolationData),

@@ -1,6 +1,5 @@
 import { hasComparableBenchmarkMetric, type NormalizedBenchmark } from './benchmarkAdapter';
-import { COUNTER_LATENCY_PENALTY_MS } from './constants';
-import { firstReplyLatencyMs } from './firstReply';
+import { firstReplyLatencyMs, readFirstReplyEvidence, firstReplyFailureRate } from './firstReply';
 import { requiresRescueOpportunityEvidence, isNegatedCoachingDirectiveTail } from './aiCoachingQuality';
 
 const finite = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
@@ -36,6 +35,11 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
     // Rewrite only matched sentences; untouched values keep their original line breaks.
     const sentences = value.split(/(?<=[.!?。！？])\s+|\n+/u);
     const rewritten: Array<string | null> = sentences.map(sentence => {
+      if (['signature', 'signatureSub', 'briefFeedback', 'finalVerdict'].includes(key) && /(?:대응|반응)\s*(?:사격)?\s*(?:속도|시간)|반사신경/u.test(sentence) && firstReply === null && !/측정.{0,8}불가|평가.{0,8}보류|판단.{0,8}없/u.test(sentence)) {
+        const evidence = readFirstReplyEvidence(match);
+        return firstReplyFailureRate(match) === 100 ? `적격 교전 ${evidence!.eligibleCount}회에서 3초 안에 첫 반격이 관측되지 않았습니다. 반응 시간은 측정 불가입니다.`
+          : '피격 전 사격을 구분할 근거가 부족하거나 이미 사격 중이던 교전이라 반응 속도 평가는 보류합니다.';
+      }
       // 측정하지 않은 능력(집중력)은 꾸밈말이면 빼고, 주장 자체면 문장을 뺀다.
       // 교전 결과로 집중력을 증명했다는 주장은 아래에서 실제 교전 수로 바꾼다.
       if (/집중력/u.test(sentence) && !/(?:높은|뛰어난|우수한|탁월한)\s*집중력(?:을|이)?\s*(?:보여|입증|증명)/u.test(sentence)
@@ -72,11 +76,6 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
       }
       if (['signatureSub', 'briefFeedback', 'finalVerdict'].includes(key) && /최전선|전방에서|선두에서|앞장서/u.test(sentence)) {
         return '관측 기록만으로 전방 위치나 교전 의도를 단정할 수 없습니다.';
-      }
-      if (finite(match?.tradeStats?.reactionLatencyMs) === COUNTER_LATENCY_PENALTY_MS && (finite(match?.duelStats?.reversalAttempts) ?? 0) > 0
-        && /(?:대응|반응)\s*(?:사격)?\s*속도/u.test(sentence) && /3(?:\.0+)?\s*(?:초|s)/u.test(sentence)
-        && !/미관측|관측되지|패널티|측정.{0,8}불가/u.test(sentence)) {
-        return `기습당한 교전 ${finite(match?.duelStats?.reversalAttempts)}회에서 3초 안에 첫 반격을 하지 못했습니다.`;
       }
       if (!/(?:소생|부활)\s*(?:소요\s*)?시간/u.test(sentence) && /(?:복구|합류|지원|구출)[^.!?\n]{0,35}(?:소요되는\s*)?시간[^.!?\n]{0,30}(?:줄여|단축|개선|보완)/u.test(sentence)
         && !isNegatedCoachingDirectiveTail(sentence.slice(sentence.search(/줄여|단축|개선|보완/u) + 2))) {

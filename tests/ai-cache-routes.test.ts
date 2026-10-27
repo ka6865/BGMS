@@ -5915,8 +5915,8 @@ describe("AI cache route stabilization", () => {
     });
     const tradeStats = { teammateKnocks: 0, tradeKills: 0, suppCount: 0, revCount: 0, smokeCount: 0, smokeRescues: 0, tradeLatencyMs: null };
     const player = { player_id: "kangheesung_", stats: { name: "KangHeeSung_", kills: 1, damageDealt: 200, processedDamageDealt: 200, winPlace: 5, timeSurvived: 1200 } };
-    const measured = createSummaryMatch("match-react", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 90 }, duelStats: { reversalAttempts: 2, firstReplyWithin3sCount: 2, firstReplyLatencySumMs: 1200 } });
-    const penalty = createSummaryMatch("match-penalty", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 3000 } });
+    const measured = createSummaryMatch("match-react", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 90 }, duelStats: { reversalAttempts: 2, firstReplyWithin3sCount: 2, firstReplyLatencySumMs: 1200, firstReplyEvidence:{version:1,eligibleCount:2,alreadyFiringCount:0,unknownCount:0,within3sCount:2,latencySumMs:1200,noReplyCount:0} } });
+    const penalty = createSummaryMatch("match-penalty", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 3000 }, duelStats:{firstReplyEvidence:{version:1,eligibleCount:1,alreadyFiringCount:0,unknownCount:0,within3sCount:0,latencySumMs:0,noReplyCount:1}} });
     const telemetry = createQueryChain({
       data: [measured, penalty].map((fullResult) => ({ match_id: fullResult.matchId, player_id: "kangheesung_", platform: "kakao", data: { fullResult } })),
       error: null,
@@ -5933,6 +5933,69 @@ describe("AI cache route stabilization", () => {
     expect(await response.text()).toContain("\"type\":\"done\"");
     expect(capturedPrompt).toContain("0.60s");
     expect(capturedPrompt).toContain("1/2경기");
+    expect(capturedPrompt).not.toContain("1.55s");
+    expect(capturedPrompt).not.toContain("0.09s");
+  });
+
+  it("ai-summary는 비교 view와 같은 player-match 가중치로 평균을 낸다", async () => {
+    let capturedPrompt = "";
+    mockSummaryGeminiResponse((prompt) => {
+      capturedPrompt = prompt;
+    });
+    const tradeStats = { teammateKnocks: 0, tradeKills: 0, suppCount: 0, revCount: 0, smokeCount: 0, smokeRescues: 0, tradeLatencyMs: null };
+    const player = { player_id: "kangheesung_", stats: { name: "KangHeeSung_", kills: 1, damageDealt: 200, processedDamageDealt: 200, winPlace: 5, timeSurvived: 1200 } };
+    const measured = createSummaryMatch("match-react", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 90 }, duelStats: { reversalAttempts: 2, firstReplyWithin3sCount: 2, firstReplyLatencySumMs: 1200, firstReplyEvidence:{version:1,eligibleCount:2,alreadyFiringCount:0,unknownCount:0,within3sCount:2,latencySumMs:1200,noReplyCount:0} } });
+    const penalty = createSummaryMatch("match-penalty", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 3000 }, duelStats:{firstReplyEvidence:{version:1,eligibleCount:1,alreadyFiringCount:0,unknownCount:0,within3sCount:1,latencySumMs:1600,noReplyCount:0}} });
+    const telemetry = createQueryChain({
+      data: [measured, penalty].map((fullResult) => ({ match_id: fullResult.matchId, player_id: "kangheesung_", platform: "kakao", data: { fullResult } })),
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: createQueryChain(),
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({ matchIds: ["match-react", "match-penalty"], nickname: "KangHeeSung_", platform: "kakao", force: true }));
+    expect(await response.text()).toContain("\"type\":\"done\"");
+    expect(capturedPrompt).toContain("1.10s");
+    expect(capturedPrompt).toContain("0/2경기");
+    expect(capturedPrompt).not.toContain("1.55s");
+    expect(capturedPrompt).not.toContain("0.09s");
+  });
+
+  it("ai-summary는 연사 중 교전을 시간·실패 분모에서 제외한다", async () => {
+    let capturedPrompt = "";
+    mockSummaryGeminiResponse((prompt) => {
+      capturedPrompt = prompt;
+    });
+    const tradeStats = { teammateKnocks: 0, tradeKills: 0, suppCount: 0, revCount: 0, smokeCount: 0, smokeRescues: 0, tradeLatencyMs: null };
+    const player = { player_id: "kangheesung_", stats: { name: "KangHeeSung_", kills: 1, damageDealt: 200, processedDamageDealt: 200, winPlace: 5, timeSurvived: 1200 } };
+    const measured = createSummaryMatch("match-react", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 3 }, duelStats: { reversalAttempts: 1, firstReplyWithin3sCount: 1, firstReplyLatencySumMs: 3, firstReplyEvidence:{version:1,eligibleCount:0,alreadyFiringCount:1,unknownCount:0,within3sCount:0,latencySumMs:0,noReplyCount:0} } });
+    const penalty = createSummaryMatch("match-penalty", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 3000 }, duelStats:{firstReplyEvidence:{version:1,eligibleCount:1,alreadyFiringCount:0,unknownCount:0,within3sCount:0,latencySumMs:0,noReplyCount:1}} });
+    const telemetry = createQueryChain({
+      data: [measured, penalty].map((fullResult) => ({ match_id: fullResult.matchId, player_id: "kangheesung_", platform: "kakao", data: { fullResult } })),
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: createQueryChain(),
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({ matchIds: ["match-react", "match-penalty"], nickname: "KangHeeSung_", platform: "kakao", force: true }));
+    const text = await response.text();
+    expect(text).toContain("\"type\":\"done\"");
+    const visuals = text.split("\n").filter(Boolean).map(line=>JSON.parse(line)).find(line=>line.type==="visuals")?.data;
+    expect(visuals).toMatchObject({reactionLatency:"측정 불가",reactionTier:"측정 불가"});
+    expect(visuals.roleInfo.evidence.join(" ")).not.toMatch(/반응|반격/);
+    expect(capturedPrompt).toContain("대응 사격 속도(Reaction): 측정 불가");
+    expect(capturedPrompt).toContain("1/1경기");
+    expect(capturedPrompt).not.toContain("0.00s");
     expect(capturedPrompt).not.toContain("1.55s");
     expect(capturedPrompt).not.toContain("0.09s");
   });
