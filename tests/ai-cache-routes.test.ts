@@ -3337,6 +3337,49 @@ describe("AI cache route stabilization", () => {
     expect(visuals.roleInfo.signatureWeaponStats.kills).toBe(2);
   });
 
+  it("ai-summary는 저장된 사용 무기 목록이 비어 있어도 경기별 교전 무기로 주력 무기 배지를 판정한다", async () => {
+    mockSummaryGeminiResponse();
+    const ids = ["w-1", "w-2", "w-3", "w-4", "w-5"];
+    const telemetry = createQueryChain({
+      data: ids.map((id, index) => ({
+        match_id: id,
+        player_id: "player_a",
+        platform: "kakao",
+        data: {
+          fullResult: createSummaryMatch(id, {
+            gameMode: "SQUAD",
+            createdAt: recentMatchDate(index + 1),
+            benchmark: { score: 50, breakdown: { combat: 50, tactical: 50, survival: 50 } },
+            // 운영 데이터처럼 위치 로그 기반 사용 무기 목록은 비어 있다.
+            weaponMatchCount: [],
+            weaponStats: { WeapM416_C: { damage: 150 } },
+            timeline: [
+              { type: "KILL", weapon: "WeapM416_C" },
+              ...(index < 2 ? [{ type: "KNOCK", weapon: "WeapAK47_C" }] : []),
+            ],
+          }),
+        },
+      })),
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: createQueryChain(),
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({ matchIds: ids, nickname: "Player_A", platform: "kakao", force: true }));
+    const visuals = parseSummaryNdjson(await response.text()).find((record) => record.type === "visuals")?.data;
+
+    expect(response.status).toBe(200);
+    expect(visuals.roleInfo.signatureWeapon).toBe("M416");
+    // 5경기 모두 M416으로 처치했으므로 사용 일관성은 20%(1/5)가 아니라 100%다.
+    expect(visuals.roleInfo.signatureWeaponStats).toMatchObject({ kills: 5, consistency: 100, isReliable: true });
+    expect(visuals.roleInfo.badges).toContain("M416 주력");
+  });
+
   it("ai-summary는 공백·대소문자와 ranked alias를 경쟁전으로 판정한다", async () => {
     let capturedPrompt = "";
     mockSummaryGeminiResponse((prompt) => {
