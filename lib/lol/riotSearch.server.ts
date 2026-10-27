@@ -796,6 +796,23 @@ function isMatchId(input: string): boolean {
   return input.length <= 24 && /^KR_\d{1,20}$/.test(input);
 }
 
+// 챔피언 상세 화면이 아이템·주문·룬 이름과 이미지를 표시할 때 쓴다.
+export async function getLolBuildCatalog() {
+  const data = await getStaticData(true);
+  const runes: Record<string, { name: string; icon: string }> = {};
+  for (const style of data.styles) {
+    runes[style.id] = { name: style.name, icon: style.icon };
+    for (const slot of style.slots ?? []) for (const rune of slot.runes ?? []) runes[rune.id] = { name: rune.name, icon: rune.icon };
+  }
+  return {
+    version: data.dataDragonVersion,
+    items: Object.fromEntries(Object.entries(data.items).map(([id, item]) => [id, item.name])) as Record<string, string>,
+    spells: Object.fromEntries(Object.values(data.spells).map(spell => [String(spell.key), { name: spell.name, image: spell.image.full }])) as Record<string, { name: string; image: string }>,
+    runes,
+  };
+}
+export type LolBuildCatalog = Awaited<ReturnType<typeof getLolBuildCatalog>>;
+
 function optionalNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }

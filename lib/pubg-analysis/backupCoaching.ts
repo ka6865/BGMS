@@ -70,7 +70,7 @@ export function buildBackupCoachingContext(input: BackupCoachingInput): BackupCo
       label: "교전 정리 후 복구 성공",
       tier: seconds < 24 ? "B" : "C",
       shouldAvoidSlowBackupBlame: true,
-      promptLine: `${input.avgBackupLatency}로 시간만 보면 느리지만, 적 제압 ${tradeKills}회/전멸 기여 ${teamWipes}회와 소생 ${revives}회/연막 구출 ${smokeRescues}회가 함께 있으므로 느린 백업이라고 단정하지 말 것. 교전 정리 후 복구 성공으로 평가하되, 다음에는 복구 시간을 줄이는 보완점만 제시할 것`,
+      promptLine: `${input.avgBackupLatency}로 시간만 보면 느리지만, 적 제압 ${tradeKills}회/전멸 기여 ${teamWipes}회와 소생 ${revives}회/연막 구출 ${smokeRescues}회가 함께 있으므로 느린 백업이라고 단정하지 말 것. 백업 속도는 복수 처치까지의 시간이며 소생·합류·복구 시간은 측정하지 않으므로 복구 성공이나 복구 시간 단축을 단정하지 말 것`,
     };
   }
 
