@@ -1,6 +1,6 @@
 # 전술 안정도 계산 4 설계
 
-상태: 설계 검토 중(구현 전). 근거 데이터는 2026-10-17 운영 DB 읽기 전용 조회 결과다.
+상태: 구현(2026-10-27, 운영 적용 전). 근거 데이터는 2026-10-17 운영 DB 읽기 전용 조회 결과다.
 
 ## 1. 목적
 
@@ -71,30 +71,40 @@
 
 ## 5. 버전 공존 계약
 
-계산 3 도입(`docs/operations/2026-10-10-calculation-coexistence-*.md`)과 같이 기존 결과를 보존하고 새로 분석하는 경기만 계산 4로 저장한다. 전체 재계산·재라벨·삭제는 하지 않는다.
+계산 3 도입(`docs/operations/2026-10-10-calculation-coexistence-*.md`)과 같이 기존 결과를 보존하고, 새로 분석하는 경기는 계산 4로 저장한다. 이에 더해 2026-10-27 결정으로 **플레이어별 최근 경기(기본 10경기)는 저장 데이터로 계산 4 점수를 다시 계산**한다(5.1절). 원본 관측값 재라벨·삭제는 하지 않는다.
 
 계산 3과 다른 점: 계산 2·3은 기본 점수 산식이 같아 자유롭게 합쳤지만, 계산 4는 기본 점수가 다르다. 읽는 곳마다 합칠지 정한다.
 
 | 읽는 곳 | 계산 4 방침 | 이유 |
 | --- | --- | --- |
 | 비교 표본 `benchmark_stats_by_tier_v2` | 2·3·4를 합친다 | 집계 대상은 원본 지표이고 점수는 티어 칸 배정에만 쓰인다. 바뀌는 경기는 약 13%이고 대부분 한 칸 이내다. 분리하면 수 주간 비교 표본이 빈다. |
-| 랭킹(주간·지난주) | 2·3·4를 합친다(2026-10-17 결정) | 전환 주에는 기존 점수가 약간 유리하지만 표본을 유지한다. 다음 주부터는 새 분석이 모두 계산 4라 차이가 사라진다. |
+| 팀 비교 기준 `pubg_team_benchmarks` | 2·3·4 집계 행을 합산한다 | 팀 관측값(기절·소생·트레이드·연막)은 버전과 무관하고 한 경기는 한 버전에만 속한다. 계산 3까지는 선택 경기가 한 버전일 때만 썼다. |
+| 랭킹(주간·지난주) | 2·3·4를 합친다(2026-10-17 결정). 같은 경기는 높은 버전 점수를 쓴다 | 전환 주에는 기존 점수가 약간 유리하지만 표본을 유지한다. 최근 경기를 재계산하므로 차이는 더 작다. |
 | 전적 비교(`battle`) | 2·3·4를 합친다 | 최근 경기 단위 비교이고 8절의 모드 분리와 함께 바뀐다. |
-| 개인 전적·과거 점수 표시 | 저장된 값 그대로 | 재계산하지 않는다. |
+| 개인 전적·과거 점수 표시 | 재계산한 최근 경기는 계산 4, 그 밖은 저장된 값 그대로 | 5.1절 |
 | 단일 경기 AI 캐시 | 경기의 실제 계산 버전 | 계산 3과 동일 |
-| 최근 요약·스쿼드 캐시 | 선택 경기의 실제 버전을 해시에 포함 | 계산 3과 동일 |
-| 자동 성과 계산 작업 | 기존 2·3 결과가 있으면 4로 재계산하지 않는다 | 계산 3과 동일, 대량 재계산 방지 |
+| 최근 요약·스쿼드 캐시 | 선택 경기의 실제 버전을 해시에 포함 | 계산 3과 동일. 스쿼드 캐시 버전 문자열(`AI_SQUAD_CACHE_VERSION`)은 계산 버전을 포함해 배포 시 새로 만들어진다 |
+| 자동 성과 계산 작업 | 기존 2·3 결과가 있으면 4로 재계산하지 않는다 | 계산 3과 동일, 대량 재계산 방지(`seed_pubg_performance_jobs`의 guard를 "2 이상 현재 미만"으로 일반화) |
+
+### 5.1 저장 데이터 기반 재계산(2026-10-27 결정)
+
+전환기에 계산 3·4 경기가 섞여 상위 5경기 선택과 잠재 티어가 예전 점수 쪽으로 치우치는 문제를 없애려고, 최근 경기를 한 번에 계산 4로 올린다.
+
+- 근거: 계산 3→4는 기회 없음 대체값만 바꾼다. 기회 여부는 저장 필드로 판정할 수 있다(팀원 기절 `tradeStats.teammateKnocks`, 지원사격 `tradeStats.suppRate`, 역전 `duelStats.reversalRate`, 반격 `tradeStats.counterLatencyMs`). 그래서 텔레메트리 없이 저장된 영역별 점수에 대체값 차이만 더한다(`lib/pubg-analysis/calculation4StoredUpgrade.ts`).
+- 정확도: 저장 점수는 영역별로 소수 첫째 자리에서 반올림돼 있어 엔진 재실행과 경기당 최대 0.15점 차이가 날 수 있다(무작위 3,000건 회귀 테스트). 전술 점수가 이미 0(고립 감점)이고 차이가 양수인 경기는 복원할 수 없어 올리지 않는다.
+- 쓰기: `upgrade_analysis_calculation_stored_v4` RPC(서비스 롤 전용). 읽은 시점의 계산 버전과 점수가 그대로일 때만 `fullResult.benchmark`의 점수·티어·영역 점수·임팩트 점수와 `global_benchmarks`의 점수 컬럼을 함께 바꾸고 버전을 4로 올린다. 원본 관측값과 임팩트 보정·사유는 바꾸지 않는다.
+- 실행: `scripts/upgrade_calculation_v4_from_stored.ts`. 기본은 읽기 전용 계획 생성이고, `--apply`는 검토한 계획 파일(해시 검증)과 체크포인트로 한 경기씩 쓴다. PUBG API·텔레메트리·Gemini를 호출하지 않는다.
+- 미리보기(2026-10-27 운영 읽기 전용, 플레이어 2,764명의 최근 10경기 14,003건): 계산 2·3 경기 10,947건, 그중 점수가 있는 9,161건의 31%(2,807건)가 평균 4.3점(최대 15.2점) 내려가고 오르는 경기는 없다. 계산 2·3 경기 3경기 이상인 1,692명 중 278명(16%)의 상위 5경기 잠재 티어가 한 단계 이상 내려간다. 버전 정보가 없는 3,056건은 지금도 판정에 쓰이지 않아 대상이 아니다.
+- 남는 것: 재계산 대상이 아닌 오래된 경기와 `pubg_match_performance` 보존 행은 계산 2·3 점수 그대로다. 랭킹은 같은 경기에서 높은 버전을 쓰므로 섞이지 않는다.
+- 비용: 점수가 바뀐 경기의 AI 요약·스쿼드 캐시는 다음 조회 때 다시 만들어진다(조회 시점 Gemini 호출).
 
 ## 6. 구현 범위
 
-- `lib/pubg-analysis/benchmarkScore.ts`: 대체값 상수와 분기 정리(계산 4 전용 상수를 이름 붙여 정의).
-- `lib/pubg-analysis/constants.ts`: `ANALYSIS_CALCULATION_VERSION = 4`, `SUPPORTED_ANALYSIS_CALCULATION_VERSIONS = [2, 3, 4]`. AI 캐시 버전 문자열에 계산 버전이 들어가는 곳 확인.
-- DB 함수 migration(새 파일로 추가, 기존 migration은 수정하지 않음):
-  - `upgrade_analysis_calculation` 등 `calculationVersion NOT IN ('2','3')` 검사 2곳(`20261010000000_analysis_calculation_v3.sql`).
-  - 저장 함수의 `calculation_version` CASE 식(같은 파일 113~114행 계열).
-  - 랭킹 함수의 `p_calculation=3 and calculation_version=2` 포함 조건(`20261010001000`, `20261014190000`): 5절 결정에 따라 수정.
-  - `scripts/verify_migrations_local.sh`의 `MIGRATIONS` 배열과 prerequisites·시나리오 SQL 갱신.
-- 버전 목록을 직접 쓰는 TS reader(`benchmarkLookup.ts`, `performanceCache.ts`, `retainedPerformance.ts`, `cacheIdentity.ts`, `squadAnalysis.ts` 등) 확인.
+- `lib/pubg-analysis/benchmarkScore.ts`: 계산 4 대체값 상수 `CALCULATION_4_OPPORTUNITY_DEFAULTS`와 분기 정리. 조기 탈락 분기는 대체값에서 없앴다(임팩트의 조기 사망 감경은 유지).
+- `lib/pubg-analysis/constants.ts`: `ANALYSIS_CALCULATION_VERSION = 4`, `SUPPORTED_ANALYSIS_CALCULATION_VERSIONS = [2, 3, 4]`.
+- `lib/pubg-analysis/calculation4StoredUpgrade.ts`, `scripts/upgrade_calculation_v4_from_stored.ts`: 5.1절 재계산.
+- `lib/pubg-analysis/squadAnalysis.ts`, `teamBenchmark.ts`: 팀 비교 기준 버전 합산.
+- migration `20261027000000_analysis_calculation_v4.sql`: 업그레이드 RPC 2종의 버전 목록, 저장 데이터 재계산 RPC, 복구 provenance CASE, 랭킹 함수의 2·3·4 포함 조건, 성과 작업 등록 guard. 검증 시나리오 `tests/fixtures/migration-check/calculation-v4-scenarios.sql`.
 - 문서: `docs-private/tier_score_rules.md`(개발용), `docs/tactical_score_guide.md`(사용자용) 대체값 설명.
 - 테스트: 대체값 회귀(기회 없음 ≤ 실패 + 소폭), 버전 공존(2·3 조회, 4 저장, 미지원 버전 거부), migration 시나리오.
 
@@ -114,10 +124,13 @@
 
 1. migration을 파일 하나씩 적용하고 함수 정의·권한·기존 계산 2·3 점수 불변을 확인한다(`docs/operations/2026-10-10-remaining-review-fixes.md` 절차).
 2. 서비스 코드 배포 후, 분석 기록이 없던 경기 1건을 조회해 계산 4 저장을 확인한다.
-3. 1주일 뒤 같은 순위대 비교(2.2절)를 다시 조회해 기회 없음이 실패 수준으로 내려왔는지 확인한다.
+3. 저장 데이터 재계산(5.1절): 핵심 테이블 백업 → `scripts/upgrade_calculation_v4_from_stored.ts --plan`으로 계획 생성·검토 → `--apply --max-writes 10`으로 일부 적용 후 화면·랭킹 확인 → 나머지 적용. 운영 쓰기이므로 적용 직전에 별도 승인을 받는다.
+4. 1주일 뒤 같은 순위대 비교(2.2절)를 다시 조회해 기회 없음이 실패 수준으로 내려왔는지 확인한다.
 
 ## 10. 결정
 
 1. 랭킹은 전환 주에도 계산 2·3·4를 합친다(2026-10-17).
 2. 모드 분리(8절)는 계산 4보다 먼저 별도 PR로 낸다(2026-10-17).
 3. 반격 속도 대체값(기습을 한 번도 당하지 않아 측정 불가)을 모드별 평균(팀 3.3, 솔로 3.8)으로 바꾸는 것을 계산 4에 포함한다(2026-10-17). 기습 후 반격하지 못한 경우는 기존대로 0점이다.
+4. 플레이어별 최근 10경기는 저장 데이터로 계산 4로 재계산한다(2026-10-27, 5.1절). 팀 전멸 귀속과 구조 사건 중복 제거는 텔레메트리 재분석이 필요해 계산 5로 미룬다.
+5. 팀 비교 기준은 계산 2·3·4 집계를 합산한다(2026-10-27).

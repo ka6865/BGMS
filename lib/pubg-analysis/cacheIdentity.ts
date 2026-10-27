@@ -109,7 +109,7 @@ export function getValidFullResultForMatch(
   return expected.requireCurrentCalculation || expected.requireSupportedCalculation ? sanitizeCalculationBenchmark(fullResult) : fullResult;
 }
 
-/** 계산 2·3의 비교 지표 산식은 같다. 미확인 버전은 비교 근거에서 제외한다. */
+/** 계산 2·3·4의 비교 지표 산식은 같다. 미확인 버전은 비교 근거에서 제외한다. */
 export function sanitizeCalculationBenchmark<T extends PlainRecord>(result: T): T {
   if (!isRecord(result.eliteBenchmark)
       || (hasSupportedCalculation(result) && isSupportedAnalysisCalculationVersion(result.eliteBenchmark.calculationVersion))) return result;

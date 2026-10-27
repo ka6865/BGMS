@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { AnalysisEngine } from '../lib/pubg-analysis/AnalysisEngine';
-import { calcBenchmarkScore, getBenchmarkTier, getBaseTier, getNextTierInfo } from '../lib/pubg-analysis/benchmarkScore';
+import { calcBenchmarkScore, calcBenchmarkScoreDetails, getBenchmarkTier, getBaseTier, getNextTierInfo } from '../lib/pubg-analysis/benchmarkScore';
 import { adaptObservedBenchmark } from '../lib/pubg-analysis/benchmarkAdapter';
 import { buildMatchAiCoachingPrompt } from '../lib/pubg-analysis/matchAiCoachingPrompt';
 import fs from 'fs';
@@ -552,9 +552,11 @@ describe('티어 산정 및 조기 탈락 폴백 엔진 검증', () => {
 
     const result = getBenchmarkTier(miramarCarryInput, false);
 
-    expect(result.tier).toBe("S");
-    expect(result.score).toBeGreaterThanOrEqual(82);
-    expect(result.score).toBeLessThan(90);
+    // 계산 4: 기습·역전 기회가 없던 우승 판은 반격 5→3.3점, 역전 100%→13.2%로 대체돼 S에서 A+로 내려간다.
+    // 측정된 화력·생존 점수와 임팩트(하드캐리 이상)는 그대로다.
+    expect(result.tier).toBe("A+");
+    expect(result.score).toBeGreaterThanOrEqual(75);
+    expect(result.score).toBeLessThan(82);
     expect(result.impactScore).toBeGreaterThanOrEqual(110);
     expect(["HARD_CARRY", "LEGEND"]).toContain(result.impactGrade);
     expect(result.impactReasons).toEqual(expect.arrayContaining([
@@ -797,7 +799,7 @@ describe('티어 산정 및 조기 탈락 폴백 엔진 검증', () => {
     expect(getBaseTier('B-')).toBe('B');
   });
 
-  it('조기 탈락자(10분 미만 또는 3페이즈 이하 사망)는 폴백 혜택이 낮게 적용되어야 함', () => {
+  it('계산 4는 기회 없음 대체값을 탈락 시점과 무관하게 같은 평균으로 채운다', () => {
     // 생존시간 500초(10분 미만), 사망페이즈 2 (조기 탈락)
     // 폴백이 필요한 음수(-1) 전달
     const earlyDeathInput = {
@@ -845,9 +847,12 @@ describe('티어 산정 및 조기 탈락 폴백 엔진 검증', () => {
     const earlyScore = calcBenchmarkScore(earlyDeathInput, false);
     const normalScore = calcBenchmarkScore(normalDeathInput, false);
 
-    // 정상 탈락자가 높은 폴백율(70~80%)을 적용받으므로 점수가 훨씬 높아야 함
-    // (물론 생존시간과 데스페이즈 자체 점수 차이도 있지만, 폴백 차이[Smoke 30->70, Revive 30->80, Trade 30->80 등]로 인해 점수 격차가 매우 큼)
-    expect(normalScore).toBeGreaterThan(earlyScore + 10); // 최소 10점 이상의 폴백 점수 차이가 나야 함
+    // 계산 2·3은 정상 탈락에 대체값 100%, 조기 탈락에 30%를 넣어 기회 없음만으로 10점 넘게 벌어졌다.
+    // 계산 4는 두 경우 모두 관측 평균이라 전술 점수가 같고, 차이는 실제 생존 점수에서만 난다.
+    expect(calcBenchmarkScoreDetails(normalDeathInput, false).tactical)
+      .toBe(calcBenchmarkScoreDetails(earlyDeathInput, false).tactical);
+    expect(normalScore).toBeGreaterThan(earlyScore);
+    expect(normalScore - earlyScore).toBeLessThan(10);
   });
 
   it('getNextTierInfo 함수가 S+ 등급일 때 null을 반환해야 함', () => {

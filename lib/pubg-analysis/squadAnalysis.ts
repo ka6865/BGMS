@@ -1,6 +1,6 @@
 import { buildCalculationPendingMatch } from "./calculationAvailability";
 import { aggregateSquadObservations, SQUAD_OBSERVATION_VERSION } from './squadObservations';
-import { toTeamBenchmarkStats, type TeamBenchmarkRow } from "./teamBenchmark";
+import { sumTeamBenchmarkRows, toTeamBenchmarkStats, type TeamBenchmarkRow } from "./teamBenchmark";
 import { aggregateSquadFocusFire } from "./squadFocusFire";
 import { createServiceRoleSupabase } from "@/lib/server/serviceRoleSupabase.server";
 import {
@@ -16,7 +16,7 @@ import {
   selectRecentMatches,
   type RecentMatchCandidate,
 } from "@/lib/pubg-analysis/recentMatchSelection";
-import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
+import { isSupportedAnalysisCalculationVersion, RESULT_VERSION, SUPPORTED_ANALYSIS_CALCULATION_VERSIONS } from "@/lib/pubg-analysis/constants";
 import { getMatchDetailRetention } from "@/lib/pubg-analysis/matchRetention";
 // Invalid/legacy rows are filtered after hydration. Fetch a bounded window
 // larger than the ten rows we ultimately expose so stale, custom, or
@@ -245,20 +245,22 @@ export async function getSquadAnalysisData(nickname: string, platform: string = 
   const analysisMatches = bestGroupMatches.get(normalizedGroupKey) || [];
   const matchCount = analysisMatches.length;
 
-  // 비교 기준은 선택 경기와 같은 계산 버전 하나일 때만 쓴다. 조회 실패는 비교 보류로 처리한다.
+  // 팀 관측 비교 기준은 지원하는 계산 버전(2·3·4)의 집계를 합쳐 쓴다. 팀 관측값의 산식은 버전과 무관하다.
+  // 선택 경기에 지원하지 않는 계산 버전이 섞이거나 조회가 실패하면 비교를 보류한다.
   const calculationVersions = new Set(analysisMatches.map(match => match.data?.fullResult?.calculationVersion));
   let teamBenchmark = null;
-  if (calculationVersions.size === 1) {
-    const [calculationVersion] = calculationVersions;
-    const { data: benchmarkRow, error: benchmarkError } = await supabase
+  if (calculationVersions.size > 0 && [...calculationVersions].every(isSupportedAnalysisCalculationVersion)) {
+    const { data: benchmarkRows, error: benchmarkError } = await supabase
       .from("pubg_team_benchmarks")
       .select("sample_team_matches, knocks, revives, trade_kills, trade_latency_total_ms, smoke_sample_team_matches, smoke_knocks, smoke_rescues")
       .eq("team_mode", selectedGroup.teamMode)
-      .eq("calculation_version", calculationVersion)
-      .eq("observation_version", SQUAD_OBSERVATION_VERSION)
-      .maybeSingle();
+      .in("calculation_version", [...SUPPORTED_ANALYSIS_CALCULATION_VERSIONS])
+      .eq("observation_version", SQUAD_OBSERVATION_VERSION);
     if (benchmarkError) console.warn("[SQUAD-TEAM-BENCHMARK]", benchmarkError.message);
-    else teamBenchmark = toTeamBenchmarkStats(benchmarkRow as TeamBenchmarkRow | null, selectedGroup.teamMode);
+    else teamBenchmark = toTeamBenchmarkStats(
+      sumTeamBenchmarkRows(Array.isArray(benchmarkRows) ? benchmarkRows as TeamBenchmarkRow[] : []),
+      selectedGroup.teamMode,
+    );
   }
   const squadObservation = aggregateSquadObservations(analysisMatches.map(squadObservationInput));
 

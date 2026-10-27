@@ -229,7 +229,8 @@ describe("PUBG benchmark and tier stabilization", () => {
       matchType: "official",
       tier: "A",
     })).resolves.toBeNull();
-    expect(query.limit).toHaveBeenCalledTimes(2);
+    // 지원 계산 버전(2·3·4)마다 같은 티어 계열을 한 번씩 조회한다.
+    expect(query.limit).toHaveBeenCalledTimes(3);
   });
 
   it("canonical tier family rejects malformed prefixes instead of coercing them to a base tier", () => {
