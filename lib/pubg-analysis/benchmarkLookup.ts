@@ -1,4 +1,4 @@
-import { SUPPORTED_ANALYSIS_CALCULATION_VERSIONS, isSupportedAnalysisCalculationVersion } from "./constants";
+import { ANALYSIS_CALCULATION_VERSION, SUPPORTED_ANALYSIS_CALCULATION_VERSIONS, isSupportedAnalysisCalculationVersion } from "./constants";
 import { getBaseTier } from "./benchmarkScore";
 
 /**
@@ -270,6 +270,66 @@ export function aggregateTierBenchmarkRows(rows: any[], targetTier: string | nul
   return aggregated;
 }
 
+/**
+ * 계산 5에서 의미가 바뀐 비교 지표. 이 지표는 계산 5 행끼리만 평균을 낸다(2026-10-27 결정 4a).
+ * - 팀 전멸: 내 기여(서 있는 적 피해·기절·처치/확킬/기절 유발)가 있는 전멸만 센다
+ * - 소생·연막·트레이드(지연 포함): 자가 소생 제외, 처치·소생 중복 제거, 구조 사건 단위 연막
+ * - 반격 지연·선제·역전·교전 승률·압박: 팀원·자해 피해와 기절한 적 피격을 교전에서 뺀다
+ * - 단독 킬 비중: 팀원·자해 처치와 중복 처치를 킬 기여에서 뺀다
+ * 나머지(딜량·킬·생존 시간·고립·최소 거리·사망 단계)는 API 결과나 위치 기반이라 2~5를 함께 쓴다.
+ */
+export const CALCULATION_5_REDEFINED_METRICS: ReadonlySet<(typeof AVERAGE_FIELDS)[number]> = new Set([
+  "avg_team_wipes",
+  "avg_revive_rate",
+  "avg_smoke_rate",
+  "avg_trade_rate",
+  "avg_trade_latency_ms",
+  "avg_counter_latency_ms",
+  "avg_initiative_rate",
+  "avg_reversal_rate",
+  "avg_duel_win_rate",
+  "avg_pressure_index",
+  "avg_solo_kill_rate",
+]);
+
+/**
+ * 한 티어·모드 칸의 계산 5 표본이 이 수 이상이면 모든 지표를 계산 5로만 비교한다(날짜가 아니라 칸별 표본 기준).
+ * 지표 노출 최소값(MIN_BENCHMARK_SAMPLE_COUNT=5)보다 충분히 크게 잡아, 소수 경기로 기준이 흔들리지 않게 한다.
+ */
+export const CALCULATION_5_FULL_SWITCH_MIN_MATCHES = 300;
+
+function deleteMetric(target: any, field: (typeof AVERAGE_FIELDS)[number]): void {
+  delete target[field];
+  removeMetricCountFields(target, field);
+}
+
+/**
+ * 지원 계산 버전 행을 합친다. 의미가 바뀐 지표는 현재 계산 행만 쓰고, 현재 계산 표본이 충분하면 전부 현재 계산만 쓴다.
+ * 의미가 바뀐 지표의 표본 수는 현재 계산 행 기준으로 다시 붙여, 표본이 5 미만이면 adaptObservedBenchmark가 그 지표만 뺀다.
+ */
+export function combineCalculationBenchmarkRows(rows: any[], targetTier: string | null): any | null {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const currentRows = rows.filter((row) => row?.calculation_version === ANALYSIS_CALCULATION_VERSION);
+  const current = currentRows.length > 0 ? aggregateTierBenchmarkRows(currentRows, targetTier) : null;
+  if (current && getMatchCount(current) >= CALCULATION_5_FULL_SWITCH_MIN_MATCHES) {
+    return { ...current, calculation_version: ANALYSIS_CALCULATION_VERSION };
+  }
+  if (currentRows.length === rows.length) return current;
+  const combined = aggregateTierBenchmarkRows(rows, targetTier);
+  if (!combined) return null;
+  CALCULATION_5_REDEFINED_METRICS.forEach((field) => {
+    deleteMetric(combined, field);
+    if (!current || current[field] === undefined) return;
+    combined[field] = current[field];
+    // 현재 계산 집계에 지표별 표본 수가 없으면 노출 근거도 없다. 전체 표본 수로 대신하지 않는다.
+    const count = getMetricSampleCount(current, field);
+    if (count === null) return;
+    combined[`${field}_count`] = count;
+    combined.metric_sample_counts = { ...(combined.metric_sample_counts || {}), [NORMALIZED_METRIC_KEYS[field]]: count };
+  });
+  return { ...combined, calculation_version: Math.max(...rows.map((row) => Number(row?.calculation_version) || 0)) };
+}
+
 export async function fetchTierBenchmarkStats(
   supabase: any,
   options: {
@@ -299,8 +359,9 @@ export async function fetchTierBenchmarkStats(
     if (exact?.tier === exactTier && exact.calculation_version === calculation
       && isTrustedBenchmarkAggregate(exact)) exactRows.push(exact);
   }
-  // 두 버전의 기본 지표는 동일하며 표본 수로 합친다. 저장된 점수는 바꾸지 않는다.
-  const exact = exactRows.length === 1 ? exactRows[0] : aggregateTierBenchmarkRows(exactRows, exactTier);
+  // 버전별 행을 표본 수로 합친다. 계산 5에서 의미가 바뀐 지표는 계산 5끼리만 쓴다. 저장된 점수는 바꾸지 않는다.
+  const exact = exactRows.length === 1 && exactRows[0].calculation_version === ANALYSIS_CALCULATION_VERSION
+    ? exactRows[0] : combineCalculationBenchmarkRows(exactRows, exactTier);
   if (exact && getMatchCount(exact) >= MIN_BENCHMARK_SAMPLE_COUNT) return { ...exact, tier: exactTier };
 
   const family = new Set(getBenchmarkTierFamily(exactTier));
@@ -317,6 +378,6 @@ export async function fetchTierBenchmarkStats(
       row?.calculation_version === calculation && family.has(row.tier) && isTrustedBenchmarkAggregate(row)
     )));
   }
-  const aggregated = aggregateTierBenchmarkRows(trustedGrouped, exactTier);
+  const aggregated = combineCalculationBenchmarkRows(trustedGrouped, exactTier);
   return aggregated && getMatchCount(aggregated) >= MIN_BENCHMARK_SAMPLE_COUNT ? aggregated : null;
 }

@@ -1,21 +1,33 @@
-import { AnalysisState } from "../types";
+import { AnalysisState, WipeContributionKind } from "../types";
 import { normalizeName, calcDist3D, scaleCoordinate } from "../utils";
 import { WEAPON_NAMES, IGNORE_WEAPONS, IGNORE_WEAPON_PATTERNS, TACTICAL_THRESHOLDS } from "../constants";
 import { BaseHandler } from "./BaseHandler";
+import {
+  closeEpisodeForVictim,
+  currentLife,
+  markMyStanding,
+  openRescueEpisode,
+  rememberIdentity,
+  resolveRevive,
+} from "./rescueEpisodes";
 
 const actorLocation = (actor: any) => actor?.location ?? actor?.loc;
 
 export class CombatHandler extends BaseHandler {
   private readonly revengeWindows = new Map<string, number>();
+  /** 처치 귀속(killer·finisher)을 이미 반영한 victim 생명 키. */
   private readonly creditedKills = new Set<string>();
+  /** 사망 상태 전이를 이미 반영한 victim 생명 키. */
+  private readonly deadLives = new Set<string>();
+  /** 재투입 요청(Recall)만 들어오고 아직 복귀 완료가 없는 사람 키. */
+  private readonly pendingRecalls = new Set<string>();
   private readonly observedKnocks = new Set<string>();
-  private readonly actorIdsByName = new Map<string, string>();
-  private readonly actorNamesById = new Map<string, string>();
+  private get actorIdsByName() { return this.state.actorIdsByName; }
+  private get actorNamesById() { return this.state.actorNamesById; }
   private rememberActor(actor: any) {
     const name = normalizeName(actor?.name || "");
     if (!name || !actor?.accountId) return;
-    this.actorIdsByName.set(name, actor.accountId);
-    this.actorNamesById.set(actor.accountId, name);
+    rememberIdentity(this.state, actor);
     const pending = this.revengeWindows.get(name);
     if (pending !== undefined) {
       this.revengeWindows.set(actor.accountId, pending);
@@ -27,6 +39,29 @@ export class CombatHandler extends BaseHandler {
   }
   private actorKey(actor: any): string {
     return actor?.accountId || this.actorIdsByName.get(normalizeName(actor?.name || "")) || normalizeName(actor?.name || "");
+  }
+  private lifeKey(actor: any): string {
+    const key = this.actorKey(actor);
+    return key ? `${key}:${currentLife(this.state, key)}` : "";
+  }
+  private rosterOf(actor: any): string | undefined {
+    if (!actor) return undefined;
+    return (actor.accountId && this.state.teamMapping.get(actor.accountId))
+      || this.state.teamMapping.get(this.actorName(actor))
+      || undefined;
+  }
+  /** 같은 사람이거나 같은 팀(내 팀 또는 같은 roster)인 두 actor. 교전 통계에서 제외한다. */
+  private isSameSideOrSelf(a: any, b: any): boolean {
+    if (!a || !b) return false;
+    const ka = this.actorKey(a);
+    const kb = this.actorKey(b);
+    if (ka && kb && ka === kb) return true;
+    if (this.isTeammate(a) && this.isTeammate(b)) return true;
+    const ra = this.rosterOf(a);
+    return Boolean(ra && ra === this.rosterOf(b));
+  }
+  private statusOf(name: string, accountId?: string) {
+    return this.state.playerAliveStatus.get(name) ?? (accountId ? this.state.playerAliveStatus.get(accountId) : undefined);
   }
 
   constructor(state: AnalysisState) {
@@ -141,20 +176,25 @@ export class CombatHandler extends BaseHandler {
 
   public handleEvent(e: any, ts: number, _elapsed: number) {
     for (const actor of [e.attacker, e.victim, e.killer, e.finisher, e.dBNOMaker, e.maker, e.character, e.reviver]) this.rememberActor(actor);
-    if (["LogPlayerRevive", "LogPlayerCreate", "LogPlayerRecall", "LogPlayerRecallShip", "LogPlayerRedeploy", "LogPlayerRedeployBRStart", "LogPlayerRedeployBrStart"].includes(e._T)) {
+    // 컴백 BR 시작 이벤트는 대소문자 표기가 섞여 들어올 수 있어 하나의 표기로 맞춘다.
+    const eventType = typeof e._T === "string" && e._T.toLowerCase() === "logplayerredeploybrstart"
+      ? "LogPlayerRedeployBRStart"
+      : e._T;
+    if (["LogPlayerRevive", "LogPlayerCreate", "LogPlayerRecall", "LogPlayerRecallShip", "LogPlayerRedeploy", "LogPlayerRedeployBRStart"].includes(eventType)) {
       const actors = [e.victim || e.character,
         ...(Array.isArray(e.recalledPlayers) ? e.recalledPlayers.map((entry: any) => entry?.character ?? entry) : []),
         ...(Array.isArray(e.characters) ? e.characters.map((entry: any) => entry?.character ?? entry) : [])];
       for (const actor of actors) {
         this.rememberActor(actor);
         const key = this.actorKey(actor);
-        this.creditedKills.delete(key);
+        // [계산 5] 처치 중복 제거는 생명 번호 키로 하므로 여기서 지우지 않는다.
+        // 재투입 완료 때만 생명 번호가 올라가 새 처치가 다시 인정된다.
         this.revengeWindows.delete(key);
         this.state.myVictimDamage.delete(this.actorName(actor));
         for (const knock of this.observedKnocks) if (knock.startsWith(`${key}:`)) this.observedKnocks.delete(knock);
       }
     }
-    switch (e._T) {
+    switch (eventType) {
       case "LogPlayerTakeDamage":
         this.handleDamage(e, ts);
         break;
@@ -172,14 +212,85 @@ export class CombatHandler extends BaseHandler {
       case "LogPlayerRecall":
       case "LogPlayerRecallShip":
       case "LogPlayerRedeploy":
-      case "LogPlayerRedeployBRStart": 
-      case "LogPlayerRedeployBrStart": 
+      case "LogPlayerRedeployBRStart":
       case "LogPlayerCreate": // [V26.1] 태이고 복귀전 등 암시적 부활 대응
         this.handleRecall(e, ts);
         break;
       case "LogMatchEnd":
         this.handleMatchEnd(e);
         break;
+    }
+  }
+
+  /**
+   * [계산 5] lite 모드에서 내 팀 전멸 30초 뒤에도 적 사망 상태 전이와 전멸 판정은 끝까지 처리한다.
+   * 타임라인·무기·교전 기록은 남기지 않는다.
+   */
+  public handleLifeStateEvent(e: any, ts: number) {
+    for (const actor of [e.victim, e.killer, e.finisher, e.dBNOMaker]) this.rememberActor(actor);
+    if (e._T === "LogPlayerKill" || e._T === "LogPlayerKillV2") this.handleKill(e, ts, true);
+  }
+
+  private ensureWipeRound(rosterId: string) {
+    let round = this.state.wipeRounds.get(rosterId);
+    if (!round) {
+      round = { kinds: new Set(), lastMyContributionMs: null, wipedAtMs: null };
+      this.state.wipeRounds.set(rosterId, round);
+    }
+    return round;
+  }
+
+  /** 적 roster 구성원에 대한 내 기여를 현재 전멸 회차에 기록한다. */
+  private recordWipeContribution(victim: any, kind: WipeContributionKind, ts: number) {
+    if (!victim || this.isMe(victim) || this.isTeammate(victim)) return;
+    const rosterId = this.rosterOf(victim);
+    if (!rosterId || rosterId === this.state.myRosterId) return;
+    const round = this.ensureWipeRound(rosterId);
+    round.kinds.add(kind);
+    const relativeMs = ts - this.state.matchStartTime;
+    round.lastMyContributionMs = round.lastMyContributionMs === null ? relativeMs : Math.max(round.lastMyContributionMs, relativeMs);
+    this.evaluateWipe(rosterId);
+  }
+
+  /** 전원 사망한 회차에 내 기여가 있으면 경기당 roster 1회만 전멸로 인정한다. */
+  private evaluateWipe(rosterId: string) {
+    if (this.state.wipedTeamsByUserParticipation.has(rosterId)) return;
+    const round = this.state.wipeRounds.get(rosterId);
+    if (!round || round.wipedAtMs === null || round.lastMyContributionMs === null || round.kinds.size === 0) return;
+    this.state.wipedTeamsByUserParticipation.add(rosterId);
+    const order: WipeContributionKind[] = ["damage", "knock", "kill", "finisher", "dbnoMaker"];
+    this.state.wipeEvidence.push({
+      rosterSize: this.state.rosterSizes.get(rosterId) ?? 0,
+      wipedAtMs: round.wipedAtMs,
+      lastMyContributionMs: round.lastMyContributionMs,
+      kinds: order.filter(kind => round.kinds.has(kind)),
+      botMembers: this.state.rosterBotCounts.get(rosterId) ?? 0,
+    });
+  }
+
+  /** 사망 뒤 재투입 완료: 생명 번호를 올리고 생존 상태와 roster 생존 명단을 함께 복구한다. */
+  private restoreLife(actor: any) {
+    const name = this.actorName(actor);
+    const key = this.actorKey(actor);
+    if (!key) return;
+    this.state.actorLives.set(key, currentLife(this.state, key) + 1);
+    this.pendingRecalls.delete(key);
+    closeEpisodeForVictim(this.state, key, "closed");
+    if (name) this.state.playerAliveStatus.set(name, true);
+    if (actor?.accountId) this.state.playerAliveStatus.set(actor.accountId, true);
+    if (this.isMe(actor)) {
+      this.state.playerAliveStatus.set(this.state.lowerNickname, true);
+      this.state.playerAliveStatus.set(this.state.myAccountId, true);
+      this.state.myDeathTime = null;
+      markMyStanding(this.state);
+    }
+    const rosterId = this.rosterOf(actor);
+    if (!rosterId) return;
+    const members = this.state.teamAliveMembers.get(rosterId);
+    if (members && name) members.add(name);
+    // 전원 사망 뒤 복귀만 새 전멸 회차다. 회차 도중 일부 복귀는 기존 기여를 유지한다.
+    if (this.state.wipedRostersAwaitingReturn.delete(rosterId)) {
+      this.state.wipeRounds.delete(rosterId);
     }
   }
 
@@ -216,7 +327,8 @@ export class CombatHandler extends BaseHandler {
       }
     }
 
-    if (attackerName && victimName) {
+    // [계산 5] 같은 팀·자해 피해는 교전 세션(선제·역전·반격 지연)에서 제외한다.
+    if (attackerName && victimName && !this.isSameSideOrSelf(e.attacker, e.victim)) {
       this.processDuelData(e, ts, e.attacker, e.victim);
     }
 
@@ -266,6 +378,8 @@ export class CombatHandler extends BaseHandler {
         if (isMeAttacker && Number.isFinite(damage) && damage > 0 && victimStatus !== "groggy" && victimStatus !== false) {
           const currentMyDmg = this.state.myVictimDamage.get(victimName) || 0;
           this.state.myVictimDamage.set(victimName, currentMyDmg + damage);
+          // [계산 5] 서 있는 적에게 준 유한한 양의 피해만 전멸 기여로 본다(기절 대상 피해 제외).
+          this.recordWipeContribution(e.victim, "damage", ts);
         }
 
         const wId = e.damageCauserName || (e.damageCauser && e.damageCauser.itemId) || e.weaponId || "Unknown";
@@ -292,6 +406,17 @@ export class CombatHandler extends BaseHandler {
               else if (elapsedSec < 900) this.state.goldenTimeDamage.mid1 += damage;
               else if (elapsedSec < 1500) this.state.goldenTimeDamage.mid2 += damage;
               else this.state.goldenTimeDamage.late += damage;
+
+              // [계산 5 기록] 서 있는 적 대상 유효 무기 피해만의 거리 지표(기존 maxHitDist·distanceDamage는 그대로 둔다).
+              const uprightDist = calcDist3D(actorLocation(e.attacker), actorLocation(e.victim));
+              if (Number.isFinite(damage) && damage > 0 && Number.isFinite(uprightDist) && uprightDist !== 999) {
+                const uprightM = Math.round(uprightDist / 100);
+                this.state.combatPressure.maxHitDistanceUpright = Math.max(this.state.combatPressure.maxHitDistanceUpright, uprightM);
+                const bucket = this.state.itemUseStats.distanceDamageUpright;
+                if (uprightM < 50) bucket.short += damage;
+                else if (uprightM < 200) bucket.mid += damage;
+                else bucket.long += damage;
+              }
             } else {
               const squadWMap = this.state.squadWeaponStats;
               let pStats = squadWMap.get(attackerName);
@@ -411,6 +536,10 @@ export class CombatHandler extends BaseHandler {
 
     if (isMeMaker) {
       this.state.myActionTimestamps.push(ts);
+    }
+    // [계산 5] 팀원·자기 자신을 기절시킨 것은 duel 결과·차량 교전·KNOCK 타임라인에서 제외한다.
+    if (isMeMaker && !this.isSameSideOrSelf(attacker, e.victim)) {
+      this.recordWipeContribution(e.victim, "knock", ts);
       this.updateDuelOutcome(attacker, e.victim);
       const killerLoc = actorLocation(attacker);
       const victimLoc = actorLocation(e.victim);
@@ -449,7 +578,7 @@ export class CombatHandler extends BaseHandler {
 
     if (isMeVictim) {
       this.state.myDownedIntervals.push({ start: ts, end: null });
-      this.updateDuelOutcome(attacker, e.victim);
+      if (!this.isSameSideOrSelf(attacker, e.victim)) this.updateDuelOutcome(attacker, e.victim);
       this.state.timeline.push({
         ts: ts - this.state.matchStartTime,
         type: 'DOWNED',
@@ -462,6 +591,11 @@ export class CombatHandler extends BaseHandler {
         attackerX: scaleCoordinate(this.state.playerLocations.get(makerName)?.x || actorLocation(attacker)?.x || 0, this.state.mapSize),
         attackerY: scaleCoordinate(this.state.playerLocations.get(makerName)?.y || actorLocation(attacker)?.y || 0, this.state.mapSize)
       });
+    }
+
+    if (isTeammateVictim) {
+      // [계산 5] 구조 사건(victim + 생명 번호 + 기절 사건). UtilityHandler와 같은 키를 쓴다.
+      openRescueEpisode(this.state, e.victim, e.dBNOId, ts, isMeVictim);
     }
 
     if (isTeammateVictim && !isMeVictim) {
@@ -495,17 +629,44 @@ export class CombatHandler extends BaseHandler {
     }
   }
 
-  private handleKill(e: any, ts: number) {
+  private handleKill(e: any, ts: number, lifeStateOnly: boolean = false) {
     const victimName = this.actorName(e.victim);
     const isMeKiller = this.isMe(e.killer);
     const isMeFinisher = this.isMe(e.finisher);
+    const isMeDbnoMaker = this.isMe(e.dBNOMaker);
     const isMeVictim = this.isMe(e.victim);
     const isTeammateKiller = this.isTeammate(e.killer);
     const isTeammateVictim = this.isTeammate(e.victim);
+    // isTeammate는 나를 포함하므로 팀원·자해 처치는 모두 여기서 걸러진다.
+    const isEnemyVictim = Boolean(e.victim) && !isTeammateVictim && !isMeVictim;
 
     const killerName = normalizeName(typeof e.killer === 'string' ? e.killer : e.killer?.name || "");
     const finisherName = normalizeName(typeof e.finisher === 'string' ? e.finisher : e.finisher?.name || "");
     const dBNOMakerName = normalizeName(typeof e.dBNOMaker === 'string' ? e.dBNOMaker : e.dBNOMaker?.name || "");
+
+    const victimKey = this.actorKey(e.victim);
+    // [계산 5] 같은 사망 이벤트가 두 번 와도 victim + 생명 번호 기준으로 한 번만 센다.
+    const killKey = this.lifeKey(e.victim);
+    const firstDeath = Boolean(killKey) && !this.deadLives.has(killKey);
+    // An actor-less legacy event must not consume the later attributed KillV2.
+    const hasAttribution = Boolean(this.actorKey(e.killer) || this.actorKey(e.finisher));
+    const firstKill = Boolean(killKey) && hasAttribution && !this.creditedKills.has(killKey);
+
+    // 1. 전멸 기여(처치·확킬·기절 유발). 사망 상태 전이보다 먼저 기록해 마지막 처치도 그 회차에 들어가게 한다.
+    if (isEnemyVictim) {
+      if (isMeKiller) this.recordWipeContribution(e.victim, "kill", ts);
+      if (isMeFinisher) this.recordWipeContribution(e.victim, "finisher", ts);
+      if (isMeDbnoMaker) this.recordWipeContribution(e.victim, "dbnoMaker", ts);
+    }
+
+    // 2. 사망 상태 전이(생명당 1회)
+    if (firstDeath) {
+      this.deadLives.add(killKey);
+      this.applyDeathTransition(e, victimName, ts);
+    }
+    this.checkTeamParticipationWipe(e.victim, killerName);
+
+    if (lifeStateOnly) return;
 
     const getWeaponId = (ev: any) => {
       let id = ev.weaponId || ev.damageCauserName || (ev.damageCauser && ev.damageCauser.itemId);
@@ -523,10 +684,6 @@ export class CombatHandler extends BaseHandler {
     const wId = getWeaponId(e);
     const attackerObj = e.killer || e.attacker || e.finisher;
 
-    const victimKey = this.actorKey(e.victim);
-    const killKey = victimKey;
-    // An actor-less legacy event must not consume the later attributed KillV2.
-    const firstKill = victimKey && this.actorKey(e.killer) && !this.creditedKills.has(killKey);
     if (firstKill) {
       this.creditedKills.add(killKey);
       const knockTs = this.revengeWindows.get(victimKey);
@@ -547,150 +704,139 @@ export class CombatHandler extends BaseHandler {
     }
     if (firstKill) this.state.myVictimDamage.delete(victimName);
 
-    if (isMeKiller || isTeammateKiller) {
-      if (wId && wId !== "Unknown" && !isTeammateVictim) {
-        const cleanWId = wId.replace(/Item_Weapon_|Weap|_Projectile|_C/g, "");
-        if (!this.isIgnoredWeapon(wId, cleanWId, e.damageTypeCategory)) {
-          if (isMeKiller) {
-            const wStat = this.state.weaponStats.get(cleanWId) || { kills: 0, dbnos: 0, damage: 0, hits: 0 };
-            wStat.kills++;
-            this.updateHitDetails(wStat, e.damageReason || (e.killerDamageInfo && e.killerDamageInfo.damageReason), 0, false, false, true);
-            this.state.weaponStats.set(cleanWId, wStat);
-          } else {
-            const squadWMap = this.state.squadWeaponStats;
-            let pStats = squadWMap.get(killerName);
-            if (!pStats) {
-              pStats = new Map();
-              squadWMap.set(killerName, pStats);
+    // 이하 처치 귀속(무기 처치·타임라인·킬 기여)은 생명당 한 번만 반영한다.
+    if (firstKill) {
+      if (isMeKiller || isTeammateKiller) {
+        if (wId && wId !== "Unknown" && !isTeammateVictim) {
+          const cleanWId = wId.replace(/Item_Weapon_|Weap|_Projectile|_C/g, "");
+          if (!this.isIgnoredWeapon(wId, cleanWId, e.damageTypeCategory)) {
+            if (isMeKiller) {
+              const wStat = this.state.weaponStats.get(cleanWId) || { kills: 0, dbnos: 0, damage: 0, hits: 0 };
+              wStat.kills++;
+              this.updateHitDetails(wStat, e.damageReason || (e.killerDamageInfo && e.killerDamageInfo.damageReason), 0, false, false, true);
+              this.state.weaponStats.set(cleanWId, wStat);
+            } else {
+              const squadWMap = this.state.squadWeaponStats;
+              let pStats = squadWMap.get(killerName);
+              if (!pStats) {
+                pStats = new Map();
+                squadWMap.set(killerName, pStats);
+              }
+              const wStat = pStats.get(cleanWId) || { weapon: cleanWId, kills: 0, dbnos: 0, damage: 0, hits: 0, shots: 0 };
+              wStat.kills++;
+              this.updateHitDetails(wStat, e.damageReason || (e.killerDamageInfo && e.killerDamageInfo.damageReason), 0, false, false, true);
+              pStats.set(cleanWId, wStat);
             }
-            const wStat = pStats.get(cleanWId) || { weapon: cleanWId, kills: 0, dbnos: 0, damage: 0, hits: 0, shots: 0 };
-            wStat.kills++;
-            this.updateHitDetails(wStat, e.damageReason || (e.killerDamageInfo && e.killerDamageInfo.damageReason), 0, false, false, true);
-            pStats.set(cleanWId, wStat);
           }
         }
       }
-    }
 
-    if (isMeKiller) {
-      this.state.myActionTimestamps.push(ts);
-      this.updateDuelOutcome(e.killer, e.victim);
-      const killerLoc = actorLocation(attackerObj);
-      const victimLoc = actorLocation(e.victim);
-      const dist = Math.round(calcDist3D(killerLoc, victimLoc) / 100);
+      if (isMeKiller) {
+        this.state.myActionTimestamps.push(ts);
+        // [계산 5] 팀원·자해 처치는 duel 결과·차량 교전·KILL 타임라인·킬 기여에서 제외한다.
+        if (isEnemyVictim) {
+          this.updateDuelOutcome(e.killer, e.victim);
+          const killerLoc = actorLocation(attackerObj);
+          const victimLoc = actorLocation(e.victim);
+          const dist = Math.round(calcDist3D(killerLoc, victimLoc) / 100);
 
-      // [V59.0] 차량 탑승 킬 감지 (로드킬 제외)
-      const dmgCat = (e.damageTypeCategory || "").toLowerCase();
-      const isRoadkill = dmgCat.includes("vehicle");
-      if (!isRoadkill) {
-        if (e.victim?.isInVehicle === true) {
-          this.state.leadShotKills++;
-        }
-        if (attackerObj?.isInVehicle === true) {
-          this.state.ridingShotKills++;
-        }
-      } else {
-        // [V60.0] 차량 충돌 킬(로드킬) 누계
-        this.state.roadKills++;
-      }
+          // [V59.0] 차량 탑승 킬 감지 (로드킬 제외)
+          const dmgCat = (e.damageTypeCategory || "").toLowerCase();
+          const isRoadkill = dmgCat.includes("vehicle");
+          if (!isRoadkill) {
+            if (e.victim?.isInVehicle === true) {
+              this.state.leadShotKills++;
+            }
+            if (attackerObj?.isInVehicle === true) {
+              this.state.ridingShotKills++;
+            }
+          } else {
+            // [V60.0] 차량 충돌 킬(로드킬) 누계
+            this.state.roadKills++;
+          }
 
-      this.state.timeline.push({
-        ts: ts - this.state.matchStartTime,
-        type: 'KILL',
-        weapon: WEAPON_NAMES[wId] || wId.replace(/Item_Weapon_|Weap|Vehicle_|BP_|_Projectile|_C/g, ""),
-        victim: e.victim?.name || victimName,
-        distance: dist !== 10 ? dist : undefined,
-        isHeadshot: e.damageReason === "HeadShot" || e.killer?.damageReason === "HeadShot",
-        isMe: true,
-        x: scaleCoordinate(this.state.playerLocations.get(this.state.lowerNickname)?.x || killerLoc?.x || 0, this.state.mapSize),
-        y: scaleCoordinate(this.state.playerLocations.get(this.state.lowerNickname)?.y || killerLoc?.y || 0, this.state.mapSize),
-        playerName: this.state.canonicalNickname,
-        victimX: scaleCoordinate(this.state.playerLocations.get(victimName)?.x || victimLoc?.x || 0, this.state.mapSize),
-        victimY: scaleCoordinate(this.state.playerLocations.get(victimName)?.y || victimLoc?.y || 0, this.state.mapSize)
-      });
+          this.state.timeline.push({
+            ts: ts - this.state.matchStartTime,
+            type: 'KILL',
+            weapon: WEAPON_NAMES[wId] || wId.replace(/Item_Weapon_|Weap|Vehicle_|BP_|_Projectile|_C/g, ""),
+            victim: e.victim?.name || victimName,
+            distance: dist !== 10 ? dist : undefined,
+            isHeadshot: e.damageReason === "HeadShot" || e.killer?.damageReason === "HeadShot",
+            isMe: true,
+            x: scaleCoordinate(this.state.playerLocations.get(this.state.lowerNickname)?.x || killerLoc?.x || 0, this.state.mapSize),
+            y: scaleCoordinate(this.state.playerLocations.get(this.state.lowerNickname)?.y || killerLoc?.y || 0, this.state.mapSize),
+            playerName: this.state.canonicalNickname,
+            victimX: scaleCoordinate(this.state.playerLocations.get(victimName)?.x || victimLoc?.x || 0, this.state.mapSize),
+            victimY: scaleCoordinate(this.state.playerLocations.get(victimName)?.y || victimLoc?.y || 0, this.state.mapSize)
+          });
 
-      if (victimName && !this.state.teamNames.has(victimName)) {
-        const hitInfo = this.state.teamsUserHit.get(victimName);
-        const isAssist =
-          hitInfo !== undefined &&
-          hitInfo.totalDamage >= TACTICAL_THRESHOLDS.ASSIST_DAMAGE_THRESHOLD &&
-          (ts - hitInfo.lastHitTime) <= TACTICAL_THRESHOLDS.ASSIST_TIME_LIMIT_MS;
-        if (isAssist) this.state.killContribution.assist++;
-        else {
-          // [유지 결정] 타 적 스쿼드가 기절시킨 적을 내가 가로채서 확킬한 경우(cleanup)도 현재는 게임 내 솔로 킬 수와 일치를 위해 solo++로 유지함.
-          // 향후 순수 1:1 교전 실력을 더 엄격히 구분하고자 할 경우, dBNOMaker!==나 && dBNOMaker!=="" 조건을 대조하여 cleanup++로 세분화 가능.
-          this.state.killContribution.solo++;
-        }
-      }
-    } else if (isMeFinisher) {
-      this.state.timeline.push({
-        ts: ts - this.state.matchStartTime,
-        type: 'FINISH',
-        weapon: WEAPON_NAMES[wId] || wId.replace(/Item_Weapon_|Weap|Vehicle_|BP_|_Projectile|_C/g, ""),
-        victim: e.victim?.name || victimName,
-        attacker: e.killer?.name || e.finisher?.name || killerName || dBNOMakerName || "Unknown",
-        isMe: true,
-        x: scaleCoordinate(actorLocation(attackerObj)?.x ?? (this.state.playerLocations.get(this.state.lowerNickname)?.x || 0), this.state.mapSize),
-        y: scaleCoordinate(actorLocation(attackerObj)?.y ?? (this.state.playerLocations.get(this.state.lowerNickname)?.y || 0), this.state.mapSize),
-        playerName: this.state.canonicalNickname
-      });
-    } else if (isTeammateKiller) {
-      this.state.timeline.push({
-        ts: ts - this.state.matchStartTime,
-        type: 'TEAM_KILL',
-        attacker: e.killer?.name || killerName,
-        victim: e.victim?.name || victimName,
-        weapon: WEAPON_NAMES[wId] || wId.replace(/Item_Weapon_|Weap|Vehicle_|BP_|_Projectile|_C/g, ""),
-        isMe: false,
-        x: scaleCoordinate(this.state.playerLocations.get(killerName)?.x || actorLocation(attackerObj)?.x || 0, this.state.mapSize),
-        y: scaleCoordinate(this.state.playerLocations.get(killerName)?.y || actorLocation(attackerObj)?.y || 0, this.state.mapSize),
-        playerName: e.killer?.name || killerName || "Teammate",
-        victimX: scaleCoordinate(this.state.playerLocations.get(victimName)?.x || actorLocation(e.victim)?.x || 0, this.state.mapSize),
-        victimY: scaleCoordinate(this.state.playerLocations.get(victimName)?.y || actorLocation(e.victim)?.y || 0, this.state.mapSize)
-      });
-    }
-
-    if (victimName) {
-      this.state.playerAliveStatus.set(victimName, false);
-
-      const vRosterId = this.state.teamMapping.get(victimName);
-      if (vRosterId && vRosterId !== this.state.myRosterId) {
-        const members = this.state.teamAliveMembers.get(vRosterId);
-        if (members) {
-          members.delete(victimName);
-          if (members.size === 0 && (this.state.teamsRosterHit.has(vRosterId) || killerName === this.state.lowerNickname)) {
-            this.state.wipedTeamsByUserParticipation.add(vRosterId);
+          if (victimName && !this.state.teamNames.has(victimName)) {
+            const hitInfo = this.state.teamsUserHit.get(victimName);
+            const isAssist =
+              hitInfo !== undefined &&
+              hitInfo.totalDamage >= TACTICAL_THRESHOLDS.ASSIST_DAMAGE_THRESHOLD &&
+              (ts - hitInfo.lastHitTime) <= TACTICAL_THRESHOLDS.ASSIST_TIME_LIMIT_MS;
+            if (isAssist) this.state.killContribution.assist++;
+            else {
+              // [유지 결정] 타 적 스쿼드가 기절시킨 적을 내가 가로채서 확킬한 경우(cleanup)도 현재는 게임 내 솔로 킬 수와 일치를 위해 solo++로 유지함.
+              // 향후 순수 1:1 교전 실력을 더 엄격히 구분하고자 할 경우, dBNOMaker!==나 && dBNOMaker!=="" 조건을 대조하여 cleanup++로 세분화 가능.
+              this.state.killContribution.solo++;
+            }
           }
         }
-      }
-    }
-
-    if (isTeammateVictim) {
-      this.state.playerAliveStatus.set(victimName, false);
-      if (!isMeVictim) {
+      } else if (isMeFinisher) {
+        if (isEnemyVictim) {
+          this.state.timeline.push({
+            ts: ts - this.state.matchStartTime,
+            type: 'FINISH',
+            weapon: WEAPON_NAMES[wId] || wId.replace(/Item_Weapon_|Weap|Vehicle_|BP_|_Projectile|_C/g, ""),
+            victim: e.victim?.name || victimName,
+            attacker: e.killer?.name || e.finisher?.name || killerName || dBNOMakerName || "Unknown",
+            isMe: true,
+            x: scaleCoordinate(actorLocation(attackerObj)?.x ?? (this.state.playerLocations.get(this.state.lowerNickname)?.x || 0), this.state.mapSize),
+            y: scaleCoordinate(actorLocation(attackerObj)?.y ?? (this.state.playerLocations.get(this.state.lowerNickname)?.y || 0), this.state.mapSize),
+            playerName: this.state.canonicalNickname
+          });
+        }
+      } else if (isTeammateKiller) {
         this.state.timeline.push({
           ts: ts - this.state.matchStartTime,
-          type: 'TEAM_DIED',
-          attacker: e.killer?.name || e.finisher?.name || killerName || finisherName || "Unknown",
+          type: 'TEAM_KILL',
+          attacker: e.killer?.name || killerName,
           victim: e.victim?.name || victimName,
           weapon: WEAPON_NAMES[wId] || wId.replace(/Item_Weapon_|Weap|Vehicle_|BP_|_Projectile|_C/g, ""),
           isMe: false,
-          x: scaleCoordinate(this.state.playerLocations.get(victimName)?.x || actorLocation(e.victim)?.x || 0, this.state.mapSize),
-          y: scaleCoordinate(this.state.playerLocations.get(victimName)?.y || actorLocation(e.victim)?.y || 0, this.state.mapSize),
-          playerName: e.victim?.name || victimName,
-          attackerX: scaleCoordinate(this.state.playerLocations.get(killerName)?.x || actorLocation(e.killer)?.x || 0, this.state.mapSize),
-          attackerY: scaleCoordinate(this.state.playerLocations.get(killerName)?.y || actorLocation(e.killer)?.y || 0, this.state.mapSize)
+          x: scaleCoordinate(this.state.playerLocations.get(killerName)?.x || actorLocation(attackerObj)?.x || 0, this.state.mapSize),
+          y: scaleCoordinate(this.state.playerLocations.get(killerName)?.y || actorLocation(attackerObj)?.y || 0, this.state.mapSize),
+          playerName: e.killer?.name || killerName || "Teammate",
+          victimX: scaleCoordinate(this.state.playerLocations.get(victimName)?.x || actorLocation(e.victim)?.x || 0, this.state.mapSize),
+          victimY: scaleCoordinate(this.state.playerLocations.get(victimName)?.y || actorLocation(e.victim)?.y || 0, this.state.mapSize)
         });
       }
     }
 
+    // 사망 타임라인은 사망 상태 전이와 같이 생명당 한 번만 남긴다.
+    if (!firstDeath) return;
+
+    if (isTeammateVictim && !isMeVictim) {
+      this.state.timeline.push({
+        ts: ts - this.state.matchStartTime,
+        type: 'TEAM_DIED',
+        attacker: e.killer?.name || e.finisher?.name || killerName || finisherName || "Unknown",
+        victim: e.victim?.name || victimName,
+        weapon: WEAPON_NAMES[wId] || wId.replace(/Item_Weapon_|Weap|Vehicle_|BP_|_Projectile|_C/g, ""),
+        isMe: false,
+        x: scaleCoordinate(this.state.playerLocations.get(victimName)?.x || actorLocation(e.victim)?.x || 0, this.state.mapSize),
+        y: scaleCoordinate(this.state.playerLocations.get(victimName)?.y || actorLocation(e.victim)?.y || 0, this.state.mapSize),
+        playerName: e.victim?.name || victimName,
+        attackerX: scaleCoordinate(this.state.playerLocations.get(killerName)?.x || actorLocation(e.killer)?.x || 0, this.state.mapSize),
+        attackerY: scaleCoordinate(this.state.playerLocations.get(killerName)?.y || actorLocation(e.killer)?.y || 0, this.state.mapSize)
+      });
+    }
+
     if (isMeVictim) {
-      this.state.myDeathTime = ts;
-      // [BUG-FIX] 사망 순간의 페이즈를 즉시 스냅샷으로 저장 (이후 currentPhase 덮어쓰기 방지)
-      this.state.deathPhaseSnapshot = this.state.currentPhase;
-      this.state.playerAliveStatus.set(this.state.lowerNickname, false);
-      this.state.playerAliveStatus.set(this.state.myAccountId, false);
-      this.updateDuelOutcome(e.killer || e.finisher || e.dBNOMaker, e.victim);
+      const deathCause = e.killer || e.finisher || e.dBNOMaker;
+      if (!this.isSameSideOrSelf(deathCause, e.victim)) this.updateDuelOutcome(deathCause, e.victim);
       const killerLoc = actorLocation(attackerObj);
       const myLoc = this.state.playerLocations.get(this.state.lowerNickname);
       if (killerLoc && myLoc) this.state.deathDistance = Math.round(calcDist3D(killerLoc, myLoc) / 100);
@@ -709,15 +855,63 @@ export class CombatHandler extends BaseHandler {
     }
   }
 
+  /** 사망 상태 전이: 생존 상태·roster 생존 명단·구조 사건·내 사망 기록을 한 번만 갱신한다. */
+  private applyDeathTransition(e: any, victimName: string, ts: number) {
+    const victimKey = this.actorKey(e.victim);
+    if (victimKey) closeEpisodeForVictim(this.state, victimKey, "died");
+    if (!victimName) return;
+    this.state.playerAliveStatus.set(victimName, false);
+    if (e.victim?.accountId) this.state.playerAliveStatus.set(e.victim.accountId, false);
+
+    if (this.isMe(e.victim)) {
+      this.state.myDeathTime = ts;
+      // [BUG-FIX] 사망 순간의 페이즈를 즉시 스냅샷으로 저장 (이후 currentPhase 덮어쓰기 방지)
+      this.state.deathPhaseSnapshot = this.state.currentPhase;
+      this.state.playerAliveStatus.set(this.state.lowerNickname, false);
+      this.state.playerAliveStatus.set(this.state.myAccountId, false);
+      // [계산 5 기록] 내 (마지막) 사망 순간 사망하지 않은 팀원 수(기절 포함)
+      let aliveTeammates = 0;
+      for (const name of this.state.teamNames) {
+        if (name === this.state.lowerNickname) continue;
+        if (this.statusOf(name, this.actorIdsByName.get(name)) !== false) aliveTeammates++;
+      }
+      this.state.aliveTeammatesAtMyDeath = aliveTeammates;
+    }
+
+    const rosterId = this.rosterOf(e.victim);
+    if (!rosterId || rosterId === this.state.myRosterId) return;
+    const members = this.state.teamAliveMembers.get(rosterId);
+    if (!members) return;
+    members.delete(victimName);
+    // 기절은 명단에서 빼지 않는다. 확인된 구성원이 모두 사망하면 그 회차의 전멸 후보다.
+    if (members.size === 0) {
+      this.state.wipedRostersAwaitingReturn.add(rosterId);
+      const round = this.ensureWipeRound(rosterId);
+      if (round.wipedAtMs === null) round.wipedAtMs = ts - this.state.matchStartTime;
+      this.evaluateWipe(rosterId);
+    }
+  }
+
+  /** [계산 5 기록] 기존 규칙(팀원 타격 roster 또는 내 마지막 처치)의 전멸 수. 점수에는 쓰지 않는다. */
+  private checkTeamParticipationWipe(victim: any, killerName: string) {
+    const rosterId = this.rosterOf(victim);
+    if (!rosterId || rosterId === this.state.myRosterId) return;
+    const members = this.state.teamAliveMembers.get(rosterId);
+    if (!members || members.size !== 0) return;
+    if (this.state.teamsRosterHit.has(rosterId) || killerName === this.state.lowerNickname) {
+      this.state.teamParticipationWipes.add(rosterId);
+    }
+  }
+
   private handleRevive(e: any, ts: number) {
-    this.state.myVictimDamage.delete(normalizeName(e.victim?.name || ""));
+    const victimName = this.actorName(e.victim);
+    this.state.myVictimDamage.delete(victimName);
     const isMeReviver = this.isMe(e.reviver);
     const isTeammateReviver = this.isTeammate(e.reviver);
     const isMeVictim = this.isMe(e.victim);
     const isTeammateVictim = this.isTeammate(e.victim);
-    const victimName = normalizeName(e.victim?.name || "");
 
-    const isPreviouslyDead = this.state.playerAliveStatus.get(victimName) === false;
+    const isPreviouslyDead = this.statusOf(victimName, e.victim?.accountId) === false;
 
     const revType = (e.reviveType || "").toLowerCase();
     const isBr = revType === "br" || revType === "redeploy";
@@ -727,32 +921,47 @@ export class CombatHandler extends BaseHandler {
       this.handleRecall(e, ts, isBr);
       return;
     }
+
+    // [계산 5] reviver와 victim이 같은 사람이면 자가 소생이다.
+    const reviverKey = this.actorKey(e.reviver);
+    const isSelfRevive = Boolean(e.reviver) && Boolean(reviverKey) && reviverKey === this.actorKey(e.victim);
+    // 같은 기절 사건의 소생이 두 번 오면 상태 전이와 집계를 한 번만 한다.
+    const { first } = resolveRevive(this.state, e, ts, { isMeReviver, isSelfRevive });
+    if (!first) return;
+
     this.state.playerAliveStatus.set(victimName, true);
+    if (e.victim?.accountId) this.state.playerAliveStatus.set(e.victim.accountId, true);
+    if (isMeVictim) {
+      this.state.playerAliveStatus.set(this.state.lowerNickname, true);
+      markMyStanding(this.state);
+    }
 
     if (isTeammateReviver || isTeammateVictim) {
       this.state.totalReviveEvents.push(ts);
-      
-      const isSelfRevive = isMeReviver && isMeVictim;
+
       const reviverLoc = actorLocation(e.reviver);
 
       if (isMeReviver) {
-        this.state.myReviveCount++;
+        // [계산 5] 내 자가 소생은 팀 소생(revCount)이 아니라 selfReviveCount로 기록한다.
+        if (isMeVictim) this.state.selfReviveCount++;
+        else this.state.myReviveCount++;
         this.state.myActionTimestamps.push(ts);
-        this.state.timeline.push({ 
-          ts: ts - this.state.matchStartTime, 
-          type: 'REVIVE', 
+        this.state.timeline.push({
+          ts: ts - this.state.matchStartTime,
+          type: 'REVIVE',
           attacker: e.reviver?.name || this.state.canonicalNickname,
           victim: e.victim?.name || victimName,
           isMe: true,
-          isSelfRevive,
+          isSelfRevive: isMeVictim,
           x: scaleCoordinate(reviverLoc?.x ?? (this.state.playerLocations.get(this.state.lowerNickname)?.x || 0), this.state.mapSize),
           y: scaleCoordinate(reviverLoc?.y ?? (this.state.playerLocations.get(this.state.lowerNickname)?.y || 0), this.state.mapSize)
         });
       } else {
-        this.state.timeline.push({ 
-          ts: ts - this.state.matchStartTime, 
-          type: isMeVictim ? 'REVIVE' : 'TEAM_REVIVE', 
-          attacker: e.reviver?.name || "동료", 
+        if (isSelfRevive && isTeammateVictim) this.state.teammateSelfReviveCount++;
+        this.state.timeline.push({
+          ts: ts - this.state.matchStartTime,
+          type: isMeVictim ? 'REVIVE' : 'TEAM_REVIVE',
+          attacker: e.reviver?.name || "동료",
           victim: e.victim?.name || victimName,
           isMe: isMeVictim,
           isRecall: false,
@@ -786,38 +995,56 @@ export class CombatHandler extends BaseHandler {
       victims.push(e.victim || e.character || e.recallingPlayer || e.recalledPlayer);
     }
 
-    const eventType = e._T || "";
-    const isRedeploy = forceBr || 
-                      eventType.toLowerCase().includes("redeploy") || 
+    const eventType = (e._T || "").toLowerCase();
+    // [계산 5] Recall/RecallShip은 재투입 요청(대기)일 뿐이다. 생존 복구는 완료 이벤트에서만 한다.
+    const isRequest = eventType === "logplayerrecall" || eventType === "logplayerrecallship";
+    const isCreate = eventType === "logplayercreate";
+    const isRedeploy = forceBr ||
+                      eventType.includes("redeploy") ||
                       (e.reviveType || "").toLowerCase() === "br";
 
     victims.forEach(v => {
       if (!v) return;
-      const vName = normalizeName(v.name || "");
+      const vName = this.actorName(v);
+      const vKey = this.actorKey(v);
       const isTeammateVictim = this.isTeammate(v);
       const isMeVictim = this.isMe(v);
+      const isTeamRelated = isTeammateRecaller || isTeammateVictim || isMeVictim || isMeRecaller;
+      const isPreviouslyDead = this.statusOf(vName, v.accountId) === false;
 
-      if (isTeammateRecaller || isTeammateVictim || isMeVictim || isMeRecaller) {
-        const isPreviouslyDead = this.state.playerAliveStatus.get(vName) === false;
-        if (isPreviouslyDead) {
-          // [V26.1] UI 표시를 위해 원본 이름(v.name) 보존하여 기록
-          const displayName = v.name || vName; 
-          this.state.timeline.push({
-            ts: ts - this.state.matchStartTime,
-            type: isRedeploy ? 'REDEPLOY' : (isMeVictim ? 'RECALL' : 'TEAM_RECALL'),
-            attacker: recaller?.name || "시스템", // 원본 이름 보존
-            victim: displayName,
-            isMe: isMeVictim || isMeRecaller,
-            isRecall: !isRedeploy,
-            x: scaleCoordinate(actorLocation(v)?.x ?? (this.state.playerLocations.get(vName)?.x || 0), this.state.mapSize),
-            y: scaleCoordinate(actorLocation(v)?.y ?? (this.state.playerLocations.get(vName)?.y || 0), this.state.mapSize)
-          });
+      const pushTimeline = () => {
+        // [V26.1] UI 표시를 위해 원본 이름(v.name) 보존하여 기록
+        const displayName = v.name || vName;
+        this.state.timeline.push({
+          ts: ts - this.state.matchStartTime,
+          type: isRedeploy ? 'REDEPLOY' : (isMeVictim ? 'RECALL' : 'TEAM_RECALL'),
+          attacker: recaller?.name || "시스템", // 원본 이름 보존
+          victim: displayName,
+          isMe: isMeVictim || isMeRecaller,
+          isRecall: !isRedeploy,
+          x: scaleCoordinate(actorLocation(v)?.x ?? (this.state.playerLocations.get(vName)?.x || 0), this.state.mapSize),
+          y: scaleCoordinate(actorLocation(v)?.y ?? (this.state.playerLocations.get(vName)?.y || 0), this.state.mapSize)
+        });
+      };
+
+      if (isRequest) {
+        // 요청 시점 타임라인은 기존처럼 남기되, 생존 상태는 바꾸지 않는다.
+        if (isPreviouslyDead && vKey && !this.pendingRecalls.has(vKey)) {
+          this.pendingRecalls.add(vKey);
+          if (isTeamRelated) pushTimeline();
         }
-        this.state.playerAliveStatus.set(vName, true);
-        if (isMeVictim) {
-          this.state.myDeathTime = null;
-        }
+        return;
       }
+
+      if (!isPreviouslyDead) {
+        // 이미 살아 있는 상태의 Create는 새 생명이 아니다.
+        if (!isCreate && isTeamRelated && vName) this.state.playerAliveStatus.set(vName, true);
+        return;
+      }
+
+      // 완료 이벤트: 요청 시점에 이미 타임라인을 남겼으면 중복 기록하지 않는다.
+      if (isTeamRelated && !(vKey && this.pendingRecalls.has(vKey))) pushTimeline();
+      this.restoreLife(v);
     });
   }
 
@@ -836,6 +1063,9 @@ export class CombatHandler extends BaseHandler {
 
     const attackerName = normalizeName(attacker?.name || "");
     const victimName = normalizeName(victim?.name || "");
+    // [계산 5] 이미 기절·사망한 대상에 대한 피격은 새 교전 세션을 시작하지 않는다.
+    const victimStatus = this.statusOf(victimName || this.actorName(victim), victim?.accountId);
+    const isVictimDown = victimStatus === "groggy" || victimStatus === false;
 
     [attacker, victim].forEach(char => {
       if (!char) return;
@@ -845,6 +1075,7 @@ export class CombatHandler extends BaseHandler {
         const myName = isMe ? this.state.myAccountId : (char.accountId || normalizeName(char.name));
         let pData = this.state.playerCombatData.get(myName);
         if (!pData) {
+          if (isVictimDown) return;
           pData = { total: 0, success: 0, duelWins: 0, duelLosses: 0, reversalWins: 0, reversalAttempts: 0, sessions: new Map() };
           this.state.playerCombatData.set(myName, pData);
         }
@@ -855,9 +1086,12 @@ export class CombatHandler extends BaseHandler {
         const isExpired = session && ts - lastActivity > 180000;
 
         if (!session || isExpired) {
+          if (isVictimDown) return;
           session = {
             lastHitByEnemy: char === victim ? ts : 0,
             lastHitByUser: char === attacker ? ts : 0,
+            firstHitByEnemy: char === victim ? ts : 0,
+            firstReplyRecorded: false,
             userStarted: char === attacker,
             alreadySucceeded: false,
             outcome: null
@@ -873,6 +1107,15 @@ export class CombatHandler extends BaseHandler {
               if (latency >= 0 && latency < 3000) {
                 this.state.reactLatSum += latency;
                 this.state.reactCount++;
+              }
+            }
+            // [계산 5 기록] 적 선타 세션마다 첫 반격 1회만 본다(첫 피격 → 첫 반격).
+            if (isMe && !session.userStarted && !session.firstReplyRecorded && session.firstHitByEnemy > 0) {
+              session.firstReplyRecorded = true;
+              const firstLatency = ts - session.firstHitByEnemy;
+              if (firstLatency >= 0 && firstLatency < 3000) {
+                this.state.firstReplyWithin3sCount++;
+                this.state.firstReplyLatencySumMs += firstLatency;
               }
             }
           } else {

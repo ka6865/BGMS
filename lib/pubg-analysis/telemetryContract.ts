@@ -47,6 +47,17 @@ export const TELEMETRY_EVENT_ALLOWLIST = [
 
 const ALLOWLIST = new Set<string>(TELEMETRY_EVENT_ALLOWLIST);
 
+const REDEPLOY_BR_START = "LogPlayerRedeployBRStart";
+
+/**
+ * 핸들러가 받는 컴백 BR 시작 이벤트의 대소문자 별칭(`LogPlayerRedeployBrStart` 등)을
+ * 허용 목록의 공식 표기로 맞춘다. 별칭 때문에 재투입 완료 이벤트가 수집에서 빠지지 않게 한다.
+ * 그 밖의 이벤트 이름은 그대로 둔다.
+ */
+export function canonicalTelemetryEventType(type: string): string {
+  return type.toLowerCase() === REDEPLOY_BR_START.toLowerCase() ? REDEPLOY_BR_START : type;
+}
+
 type PlainRecord = Record<string, unknown>;
 
 const ACTOR_KEYS = [
@@ -313,11 +324,11 @@ function copyItemPackage(source: PlainRecord, result: PlainRecord): void {
 
 /** Project one official event into the shared, bounded consumer contract. */
 export function projectTelemetryEvent(event: unknown): TelemetryEventRecord | null {
-  if (!isRecord(event) || typeof event._T !== "string" || !ALLOWLIST.has(event._T)) {
-    return null;
-  }
+  if (!isRecord(event) || typeof event._T !== "string") return null;
+  const eventType = canonicalTelemetryEventType(event._T);
+  if (!ALLOWLIST.has(eventType)) return null;
 
-  const result: TelemetryEventRecord = { _T: event._T };
+  const result: TelemetryEventRecord = { _T: eventType };
   if (hasValue(event, "_D")) result._D = cloneValue(event._D);
 
   ["common", "Common"].forEach((key) => {
@@ -359,7 +370,7 @@ export function projectTelemetryEvent(event: unknown): TelemetryEventRecord | nu
   projectOfficialAccountArray(event, "teamKillers_AccountId", "teamKillerAccountIds", result);
   copyRecalledPlayers(event, result);
   copyItemPackage(event, result);
-  copyCharacters(event, event._T, result);
+  copyCharacters(event, eventType, result);
 
   // Existing match-end consumers use these two bounded, event-specific fields.
   if (event._T === "LogMatchEnd" && hasValue(event, "allWeaponStats")) {

@@ -213,10 +213,10 @@ describe("strict squad analysis population and scope",()=>{
     const a:any=await getSquadAnalysisData('Player_A','steam','Teammate_B');
     expect(a.benchmarkStats).toMatchObject({scope:'team_population',teamMode:'squad',sampleCount:833,avgReviveRate:36.3,avgTradeLatency:12300,tier:null});
     expect(teamChain.eq.mock.calls).toEqual(expect.arrayContaining([['team_mode','squad'],['observation_version',1]]));
-    expect(teamChain.in.mock.calls).toEqual([['calculation_version',[2,3,4]]]);
+    expect(teamChain.in.mock.calls).toEqual([['calculation_version',[2,3,4,5]]]);
   });
   it('combines the team benchmark across supported calculation versions when selected matches mix them',async()=>{
-    // 팀 관측값(기절·소생·트레이드·연막)은 계산 2·3·4에서 산식이 같아 섞여도 비교한다.
+    // 팀 관측값(기절·소생·트레이드·연막)은 계산 2~5에서 산식이 같아 섞여도 비교한다.
     const rows=[canonicalRow(1,{squadObservation:observation()}),canonicalRow(2,{squadObservation:observation(),calculationVersion:2})];
     const {teamChain}=configureSquadClient(queryChain({data:rows,error:null}),{sample_team_matches:833,knocks:3801,revives:1379,trade_kills:679,trade_latency_total_ms:8327256,smoke_sample_team_matches:833,smoke_knocks:3801,smoke_rescues:120});
     const {getSquadAnalysisData}=await import('@/lib/pubg-analysis/squadAnalysis');

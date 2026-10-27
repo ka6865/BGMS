@@ -1,12 +1,11 @@
 import { BaseHandler } from './BaseHandler';
-import { normalizeName, calcDist3D, scaleCoordinate } from '../utils';
+import { normalizeName, scaleCoordinate } from '../utils';
 import { WEAPON_NAMES } from '../constants';
+import { attachMySmoke, closeEpisodeForVictim, identityKey, openRescueEpisode, rememberIdentity, resolveRevive } from './rescueEpisodes';
 
 export class UtilityHandler extends BaseHandler {
   private readonly actorNamesById = new Map<string, string>();
   private processedThrowIds = new Set<string>();
-  private underCoverKnocks = new Set<string>(); // victim + knock timestamp; simultaneous knocks remain distinct
-  private victimToKnockTs = new Map<string, number>(); // 피해자 이름 -> 기절 시점 매핑
 
   private attackKey(event: any): string | null {
     for (const value of [event.attackId, event.attack_id, event.projectileId]) {
@@ -33,7 +32,9 @@ export class UtilityHandler extends BaseHandler {
   handleEvent(e: any, ts: number): void {
     for (const actor of [e.attacker, e.victim, e.character, e.killer, e.finisher, e.dBNOMaker]) {
       if (actor?.accountId && actor?.name) this.actorNamesById.set(actor.accountId, normalizeName(actor.name));
+      rememberIdentity(this.state, actor);
     }
+    rememberIdentity(this.state, e.reviver);
     switch (e._T) {
       case "LogPlayerTakeDamage":
         this.handleUtilityDamage(e);
@@ -57,7 +58,7 @@ export class UtilityHandler extends BaseHandler {
         this.handleWeaponFire(e, ts);
         break;
       case "LogPlayerRevive":
-        this.handleRevive(e);
+        this.handleRevive(e, ts);
         break;
       case "LogPlayerKill":
       case "LogPlayerKillV2":
@@ -204,33 +205,24 @@ export class UtilityHandler extends BaseHandler {
   private markSmokeAttempt(actor: any, ts: number) {
     const myLoc = actor?.location ?? actor?.loc ?? this.state.playerLocations.get(this.state.lowerNickname);
     if (!myLoc) return;
-    for (const [victim, knockTs] of this.victimToKnockTs) {
-      const key = `${victim}:${knockTs}`;
-      if (ts < knockTs || ts - knockTs >= 20000 || this.underCoverKnocks.has(key)) continue;
-      const victimLoc = this.state.playerLocations.get(victim);
-      const distanceM = victimLoc ? calcDist3D(myLoc, victimLoc) / 100 : NaN;
-      if (!Number.isFinite(distanceM) || distanceM >= 100) continue;
-      this.state.totalSmokeCount++;
-      this.underCoverKnocks.add(key);
-      break;
-    }
+    // [계산 5] 조건을 만족하는 열린 팀원 기절 사건 전부에 연막 후보를 붙인다(첫 사건만 보던 break 제거).
+    // smokeCount는 기존처럼 새 사건에 붙은 투척 1회당 1이다.
+    if (attachMySmoke(this.state, myLoc, ts)) this.state.totalSmokeCount++;
   }
 
-  private handleRevive(e: any) {
-    const victim = normalizeName(e.victim?.name || "");
-    const knockTs = this.victimToKnockTs.get(victim);
-    if (knockTs !== undefined && this.underCoverKnocks.delete(`${victim}:${knockTs}`)) {
-      this.state.totalSmokeRescues++;
-    }
-    // Every revive closes the episode, even if no smoke was used.
-    this.victimToKnockTs.delete(victim);
+  private handleRevive(e: any, ts: number) {
+    // 재투입(블루칩·BR) 성격의 소생은 CombatHandler가 생명 복구로 처리한다.
+    const revType = (e.reviveType || "").toLowerCase();
+    if (["br", "redeploy", "recall", "bluechip"].includes(revType)) return;
+    const reviverKey = identityKey(this.state, e.reviver);
+    const isSelfRevive = Boolean(e.reviver) && Boolean(reviverKey) && reviverKey === identityKey(this.state, e.victim);
+    // 같은 사건을 CombatHandler가 먼저 닫았으면 여기서는 아무것도 다시 세지 않는다.
+    resolveRevive(this.state, e, ts, { isMeReviver: this.isMe(e.reviver), isSelfRevive });
   }
 
   private handleKill(e: any) {
-    const victim = normalizeName(e.victim?.name || "");
-    const knockTs = this.victimToKnockTs.get(victim);
-    if (knockTs !== undefined) this.underCoverKnocks.delete(`${victim}:${knockTs}`);
-    this.victimToKnockTs.delete(victim);
+    const victimId = identityKey(this.state, e.victim);
+    if (victimId) closeEpisodeForVictim(this.state, victimId, "died");
   }
 
   private handleThrowable(e: any, ts: number) {
@@ -286,10 +278,8 @@ export class UtilityHandler extends BaseHandler {
   }
 
   private handleDown(e: any, ts: number) {
-    const victimName = normalizeName(e.victim?.name || "");
-
     if (this.isTeammate(e.victim)) {
-      this.victimToKnockTs.set(victimName, ts);
+      openRescueEpisode(this.state, e.victim, e.dBNOId, ts, this.isMe(e.victim));
     }
   }
 }

@@ -12,9 +12,10 @@
  *   파일 수준의 캐시 무효화를 수행합니다. (R2 파일명 기반, ISR 무관)
  */
 
-export const ANALYSIS_CALCULATION_VERSION = 4; // 기회 없음 대체값을 만점 대신 모드별 관측 평균으로 채운다.
-// 계산 2→3은 캐리 보정만, 3→4는 기회 없음 대체값만 바꾼다. 비교 지표(원본 관측값)는 같아 함께 조회한다.
-export const SUPPORTED_ANALYSIS_CALCULATION_VERSIONS = [2, 3, ANALYSIS_CALCULATION_VERSION] as const;
+export const ANALYSIS_CALCULATION_VERSION = 5; // 팀 전멸·소생·교전을 내 기여 기준으로 귀속하고 재투입·중복 이벤트를 바로잡는다.
+// 계산 2→3은 캐리 보정만, 3→4는 기회 없음 대체값만 바꾼다(비교 지표 원본 관측값은 같다).
+// 4→5는 일부 비교 지표의 의미가 바뀐다. 해당 지표는 계산 5끼리만 비교한다(benchmarkLookup.ts CALCULATION_5_REDEFINED_METRICS).
+export const SUPPORTED_ANALYSIS_CALCULATION_VERSIONS = [2, 3, 4, ANALYSIS_CALCULATION_VERSION] as const;
 export function isSupportedAnalysisCalculationVersion(value: unknown): value is number {
   return SUPPORTED_ANALYSIS_CALCULATION_VERSIONS.some(version => value === version);
 }

@@ -14,8 +14,8 @@ BEGIN
   next_benchmark := old_benchmark||'{"calculation_version":4,"damage":300}';
   BEGIN
     PERFORM public.upgrade_analysis_calculation('calc-v4-paired','steam','player_a',old_data,old_benchmark,
-      jsonb_set(next_result,'{calculationVersion}','5'),jsonb_set(next_benchmark,'{calculation_version}','5'));
-    RAISE EXCEPTION 'FAIL: unsupported calculation 5 accepted';
+      jsonb_set(next_result,'{calculationVersion}','6'),jsonb_set(next_benchmark,'{calculation_version}','6'));
+    RAISE EXCEPTION 'FAIL: unsupported calculation 6 accepted';
   EXCEPTION WHEN SQLSTATE '22023' THEN NULL; END;
   IF NOT public.upgrade_analysis_calculation('calc-v4-paired','steam','player_a',old_data,old_benchmark,next_result,next_benchmark)
   THEN RAISE EXCEPTION 'FAIL: paired 3 to 4 rejected'; END IF;
@@ -142,7 +142,8 @@ END $$;
 -- 4. 텔레메트리 복구 provenance에 계산 4가 포함됐다.
 DO $$
 BEGIN
-  IF position($p$IN ('2'::jsonb,'3'::jsonb,'4'::jsonb) AND v_benchmark.calculation_version::text$p$ IN (
+  -- 계산 5 migration이 목록 끝에 5를 더하므로 2·3·4 앞부분만 확인한다.
+  IF position($p$IN ('2'::jsonb,'3'::jsonb,'4'::jsonb$p$ IN (
     SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
     WHERE n.nspname='public' AND p.proname='finalize_telemetry_cache_recovery')) = 0
   THEN RAISE EXCEPTION 'FAIL: recovery provenance missing calculation 4'; END IF;

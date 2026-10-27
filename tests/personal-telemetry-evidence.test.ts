@@ -124,6 +124,8 @@ it('attributes a later KillV2 and resets support evidence for a recalled victim'
   combat.handleEvent({_T:'LogPlayerKillV2',killer:actor('mate'),victim:{accountId:'account.enemy'}},1001,1001);
   expect(state.totalSuppCount).toBe(1);expect(state.supportTeammateKills).toBe(1);
   combat.handleEvent({_T:'LogPlayerRecall',recalledPlayers:[actor('enemy')]},2000,2000);
+  // 계산 5: Recall은 요청일 뿐 생존 복구가 아니다. 재투입 완료(Redeploy)가 와야 새 생명의 처치로 다시 센다.
+  combat.handleEvent({_T:'LogPlayerRedeploy',character:actor('enemy')},2500,2500);
   combat.handleEvent({_T:'LogPlayerKillV2',killer:actor('mate'),victim:actor('enemy')},3000,3000);
   expect(state.supportTeammateKills).toBe(2);expect(state.totalSuppCount).toBe(1);
 });
