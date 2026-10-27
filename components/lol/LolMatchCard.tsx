@@ -3,6 +3,7 @@ import type {
   LolMatchDetails,
   LolRecentMatch,
 } from "@/lib/lol/riotSearch.server";
+import type { LolLpChange } from "@/lib/lol/lpChange";
 import LolMatchDetail from "./LolMatchDetail";
 import {
   formatAbsoluteTime,
@@ -32,10 +33,13 @@ export function LolItemSlots({
   player,
   size = 20,
   dataDragonVersion,
+  slotClassName,
 }: {
   player?: LolPlayer;
   size?: number;
   dataDragonVersion?: string;
+  // 지정하면 고정 size 대신 이 클래스로 칸 크기를 정한다(반응형 표에서 사용).
+  slotClassName?: string;
 }) {
   return (
     <div
@@ -49,17 +53,17 @@ export function LolItemSlots({
             key={index}
             data-testid="lol-player-item-slot"
             title={item?.name || "아이템 미제공"}
-            className="grid place-items-center rounded bg-zinc-800 text-[8px] text-zinc-500"
-            style={{ width: size, height: size }}
+            className={`grid place-items-center rounded bg-zinc-800 text-[8px] text-zinc-500 ${slotClassName ?? ""}`}
+            style={slotClassName ? undefined : { width: size, height: size }}
           >
             {item?.id ? (
-              <img
+              <img loading="lazy" decoding="async"
                 src={`https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/item/${item.id}.png`}
                 alt={item.name || "아이템"}
                 width={size}
                 height={size}
                 onError={hideBrokenImage}
-                className="rounded"
+                className={slotClassName ? "h-full w-full rounded" : "rounded"}
               />
             ) : (
               "—"
@@ -112,7 +116,7 @@ export function LolBuildIcons({
             style={{ width: size, height: size }}
           >
             {src ? (
-              <img
+              <img loading="lazy" decoding="async"
                 src={src}
                 alt=""
                 width={size}
@@ -148,7 +152,8 @@ function MultiKillBadge({ count }: { count?: number }) {
   );
 }
 
-const ordinal = (rank: number) => `${rank}${rank === 1 ? "st" : rank === 2 ? "nd" : rank === 3 ? "rd" : "th"}`;
+export const lolScoreRankLabel = (rank: number) => `${rank}${rank === 1 ? "st" : rank === 2 ? "nd" : rank === 3 ? "rd" : "th"}`;
+const ordinal = lolScoreRankLabel;
 
 export function LolScoreBadge({ player }: { player?: LolPlayer }) {
   const score = player?.score;
@@ -167,9 +172,27 @@ export function LolScoreBadge({ player }: { player?: LolPlayer }) {
   );
 }
 
+// BGMS가 전적 갱신 사이에 기록한 랭크 변화. 근거가 있는 판에만 오며, 없으면 승리·패배만 보인다.
+function LpChangeBadge({ change }: { change?: LolLpChange }) {
+  if (!change) return null;
+  const text = change.kind === "promotion" ? "승급" : change.kind === "demotion" ? "강등"
+    : `${change.value > 0 ? "+" : ""}${change.value} LP`;
+  const style = change.kind === "promotion" || (change.kind === "lp" && change.value > 0) ? "text-sky-300"
+    : change.kind === "demotion" || (change.kind === "lp" && change.value < 0) ? "text-rose-300" : "text-zinc-300";
+  return (
+    <span
+      data-testid="lol-lp-change"
+      title="BGMS가 전적 갱신 사이에 이 판만 있었을 때 기록한 랭크 변화입니다. Riot 공식 경기별 값은 아닙니다."
+      className={`ml-1.5 whitespace-nowrap font-bold tabular-nums ${style}`}
+    >
+      {text}
+    </span>
+  );
+}
+
 function ChampionThumb({ player, dataDragonVersion }: { player: LolPlayer; dataDragonVersion?: string }) {
   return (
-    <img
+    <img loading="lazy" decoding="async"
       src={`https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/champion/${player.championImageId}.png`}
       alt=""
       width={18}
@@ -227,7 +250,10 @@ export default function LolMatchCard({
               {formatRelativeTime(match.gameEndTimestamp)}
             </time>
             <span aria-hidden="true" className="hidden @min-[560px]/match:my-1.5 @min-[560px]/match:block @min-[560px]/match:h-px @min-[560px]/match:w-10 @min-[560px]/match:bg-white/15" />
-            <b className={`text-xs ${tone.label} @min-[560px]/match:block @min-[560px]/match:text-zinc-200`}>{tone.text}</b>
+            <b className={`text-xs ${tone.label} @min-[560px]/match:block @min-[560px]/match:text-zinc-200`}>
+              {tone.text}
+              <LpChangeBadge change={match.remake ? undefined : match.lpChange} />
+            </b>
             <span className="text-[11px] text-zinc-400 @min-[560px]/match:block">
               {formatDuration(match.gameDuration)}
             </span>
@@ -236,7 +262,7 @@ export default function LolMatchCard({
           <div className="flex min-w-0 items-center gap-3 @min-[560px]/match:col-start-2 @min-[560px]/match:row-start-1">
             <div className="flex items-center gap-1.5">
               <span className="relative h-12 w-12 shrink-0">
-                <img
+                <img loading="lazy" decoding="async"
                   src={`https://ddragon.leagueoflegends.com/cdn/${dataDragonVersion}/img/champion/${match.championImageId}.png`}
                   alt={match.championNameKo}
                   title={match.championNameKo}

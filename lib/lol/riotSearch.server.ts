@@ -15,6 +15,7 @@ import {
   emptyLolRankedHistory,
   getLolRankedHistory,
   getLolPlayerMatchSummaries,
+  getLolRankedObservations,
   getLolMatchRequestJson,
   isLolPersistenceEnabled,
   LolPermitError,
@@ -36,6 +37,8 @@ import { summarizeRecentMatches } from "@/lib/lol/summary";
 import { pickLolChallenges } from "./challenges";
 import { buildLolMatchInsights, summarizeLolRecentTrends } from "./insights";
 import { parseLolMatchBuild, type LolMatchBuild } from "./matchBuild";
+import { LOL_MATCH_PAGE_SIZE } from "./limits";
+import { attributeLolLpChanges } from "./lpChange";
 import { LOL_SCORE_VERSION, scoreLolMatch } from "./matchScore";
 import { buildLolChallengeProfile, parseLolChallengeCatalog, type LolChallengeCatalog, type LolChallengeProfile } from "./challengeProfile";
 import { parseLolMasteries, summarizeLolChampionPerformance } from "./mastery";
@@ -1160,8 +1163,6 @@ async function enrichMatchRecords(records: Array<{ summary: LolRecentMatch; raw:
   }
 }
 
-// 전적 목록은 Riot 경기 ID 한 페이지(20개) 단위로 불러온다.
-const LOL_MATCH_PAGE_SIZE = 20;
 
 async function loadMatchRecords(puuid: string, matchIds: string[], persistDetails = false) {
   const matches: LolRecentMatch[] = [];
@@ -1213,6 +1214,32 @@ async function loadLolMastery(puuid: string, refresh: boolean): Promise<LolMaste
   } catch {
     return { status: "failed", recent, champions: [] };
   }
+}
+
+// 화면에 실을 경기에 BGMS 랭크 관측 기준 판별 LP 변화를 붙인다. 부가 정보라 조회가 실패해도 경기 목록은 그대로 둔다.
+async function withLolLpChanges<T extends LolRecentMatch>(matches: T[], puuid: string | undefined): Promise<T[]> {
+  if (!puuid || !matches.length || !isLolPersistenceEnabled()) return matches;
+  const ranked = matches.filter((match) => match.queueId === 420 || match.queueId === 440);
+  if (!ranked.length) return matches;
+  try {
+    // 가장 오래된 랭크 경기보다 하루 앞선 관측부터 읽어 그 판의 직전 관측을 포함한다.
+    const since = new Date(Math.min(...ranked.map((match) => match.gameEndTimestamp)) - 24 * 60 * 60_000).toISOString();
+    const changes = attributeLolLpChanges(await getLolRankedObservations(puuid, since), ranked);
+    return changes.size ? matches.map((match) => changes.has(match.matchId) ? { ...match, lpChange: changes.get(match.matchId) } : match) : matches;
+  } catch {
+    return matches;
+  }
+}
+
+// DB에 저장된 기록으로 만드는 부가 정보(최근 성과, 판별 LP)를 붙인다. 계정 PUUID는 한 번만 찾는다.
+async function withLolStoredExtras(result: LolSearchResult, puuid?: string): Promise<LolSearchResult> {
+  if (!isLolPersistenceEnabled()) return result;
+  let accountPuuid = puuid;
+  if (!accountPuuid) {
+    try { accountPuuid = (await getLolAccountByRiotId(result.account.gameName, result.account.tagLine))?.puuid; } catch { /* 부가 정보만 생략한다 */ }
+  }
+  const withPerformance = await withLolRecentPerformance(result, accountPuuid);
+  return { ...withPerformance, matches: await withLolLpChanges(withPerformance.matches, accountPuuid) };
 }
 
 async function withLolRecentPerformance(result: LolSearchResult, puuid?: string): Promise<LolSearchResult> {
@@ -1300,7 +1327,7 @@ async function searchLolRiotIdInternal(
       : cached.lastUpdatedAt;
     const remainSeconds = refreshRemaining(lastUpdatedAt);
     if (options.refresh && remainSeconds > 0) return { status: "cooldown", remainSeconds, lastUpdatedAt };
-    if (!options.refresh) return withLolRecentPerformance({ ...cached, dataDragonVersion,
+    if (!options.refresh) return withLolStoredExtras({ ...cached, dataDragonVersion,
       matches: cached.matches.map(match => ({ ...match, dataDragonVersion: match.dataDragonVersion ?? dataDragonVersion })), refreshRemainSeconds: remainSeconds });
   } else if (options.refresh && storedAccount?.accountFetchedAt) {
     const remainSeconds = refreshRemaining(storedAccount.accountFetchedAt);
@@ -1371,7 +1398,7 @@ async function searchLolRiotIdInternal(
       saved = true;
       result.rankedHistory = await getLolRankedHistory(puuid);
     } else setCached(lookupKey, result, LOL_REFRESH_COOLDOWN_MS);
-    return withLolRecentPerformance(result, puuid);
+    return withLolStoredExtras(result, puuid);
   })();
   state.inflight.set(lookupKey, search);
   try { return await search; }
@@ -1388,7 +1415,7 @@ async function searchLolRiotIdInternal(
 async function getMoreLolMatchesInternal(input: { riotId: unknown; offset: number; matchIds?: string[]; validateMatchIds?: boolean }) {
   const riotId = parseRiotId(input.riotId);
   if (!riotId || !Number.isSafeInteger(input.offset) || input.offset < 0
-    || (input.matchIds !== undefined && (input.matchIds.length < 1 || input.matchIds.length > 5 || input.matchIds.some((id) => !isMatchId(id))))) {
+    || (input.matchIds !== undefined && (input.matchIds.length < 1 || input.matchIds.length > LOL_MATCH_PAGE_SIZE || input.matchIds.some((id) => !isMatchId(id))))) {
     throw new RiotSearchError("invalid_request");
   }
   const key = `${riotId.gameName.toLocaleLowerCase()}#${riotId.tagLine.toLocaleLowerCase()}`;
@@ -1417,10 +1444,11 @@ async function getMoreLolMatchesInternal(input: { riotId: unknown; offset: numbe
         : await requestJson<string[]>("asia", `/lol/match/v5/matches/by-puuid/${encodeURIComponent(account.puuid)}/ids?start=${pageStart}&count=20`, IDENTIFIER_TTL_MS);
       if (retryIds && input.validateMatchIds && retryIds.some(id => !matchIds.includes(id))) throw new RiotSearchError("invalid_request");
       const localOffset = input.offset - pageStart;
-      const selectedIds = explicitIds ? retryIds.slice(0, 5) : matchIds.slice(localOffset, localOffset + LOL_MATCH_PAGE_SIZE);
+      // 화면은 처리하지 못한 남은 ID를 한 페이지(20개)까지 묶어 보내므로 모두 처리한다. 다시 시도는 1개다.
+      const selectedIds = explicitIds ? retryIds.slice(0, LOL_MATCH_PAGE_SIZE) : matchIds.slice(localOffset, localOffset + LOL_MATCH_PAGE_SIZE);
       const batch = await loadMatchRecords(account.puuid, selectedIds, true);
       return {
-        matches: batch.matches, matchIds,
+        matches: await withLolLpChanges(batch.matches, account.puuid), matchIds,
         loadedCount: input.offset + batch.loadedCount,
         hasMore: explicitIds || pageStart + matchIds.length > input.offset + batch.loadedCount || matchIds.length === 20,
         matchFailures: batch.matchFailures,

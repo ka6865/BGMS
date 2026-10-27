@@ -2183,7 +2183,8 @@ describe("AI cache route stabilization", () => {
     expect(secondResponse.status).toBe(200);
     expect(mockGenerateContentStream).toHaveBeenCalledTimes(2);
     expect(summaryCache.upsert).toHaveBeenCalledTimes(2);
-    expect(tierBenchmarks.maybeSingle).toHaveBeenCalledTimes(4);
+    // 요청마다 지원 계산 버전(2·3·4) 수만큼 비교 표본을 조회한다.
+    expect(tierBenchmarks.maybeSingle).toHaveBeenCalledTimes(6);
   });
 
   it("ai-summary cache hit은 Gemini API 키가 없어도 NDJSON을 반환한다", async () => {

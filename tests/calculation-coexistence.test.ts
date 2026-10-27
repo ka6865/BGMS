@@ -4,7 +4,7 @@ import { getValidFullResultForMatch, hasCurrentCalculation, hasSupportedCalculat
 import { fetchTierBenchmarkStats } from '../lib/pubg-analysis/benchmarkLookup';
 
 describe('기존 계산 보존과 신규 계산 공존', () => {
-  it.each([2, 3])('계산 %s를 그대로 조회하며 신규 writer 기준은 3이다', calculationVersion => {
+  it.each([2, 3, 4])('계산 %s를 그대로 조회하며 신규 writer 기준은 4이다', calculationVersion => {
     const fullResult = { matchId: 'match', player_id: 'player', platform: 'steam', v: 73,
       calculationVersion, populationEvidenceVersion: 1, stats: { name: 'Player' },
       benchmark: { score: 77, impactScore: calculationVersion === 2 ? 88 : 84 } };
@@ -13,11 +13,11 @@ describe('기존 계산 보존과 신규 계산 공존', () => {
     expect(getValidFullResultForMatch(row, { matchId: 'match', playerId: 'player', platform: 'steam',
       minResultVersion: 73, requireSupportedCalculation: true, requirePopulationEvidence: true })).toEqual(fullResult);
     expect(row).toEqual(snapshot);
-    expect(hasCurrentCalculation(fullResult)).toBe(calculationVersion === 3);
-    expect(ANALYSIS_CALCULATION_VERSION).toBe(3);
+    expect(hasCurrentCalculation(fullResult)).toBe(calculationVersion === 4);
+    expect(ANALYSIS_CALCULATION_VERSION).toBe(4);
   });
 
-  it.each([undefined, null, 1, 4, '2', '3'])('미지원 계산 %s는 조회 근거로 허용하지 않는다', calculationVersion => {
+  it.each([undefined, null, 1, 5, '2', '3', '4'])('미지원 계산 %s는 조회 근거로 허용하지 않는다', calculationVersion => {
     expect(hasSupportedCalculation({ calculationVersion })).toBe(false);
   });
 

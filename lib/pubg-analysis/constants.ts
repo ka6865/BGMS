@@ -12,9 +12,9 @@
  *   파일 수준의 캐시 무효화를 수행합니다. (R2 파일명 기반, ISR 무관)
  */
 
-export const ANALYSIS_CALCULATION_VERSION = 3; // 미측정 고립을 승리 기여 근거로 사용하지 않는다.
-// 계산 2→3은 캐리 보정만 변경하므로 기본 점수와 비교 지표는 함께 조회한다.
-export const SUPPORTED_ANALYSIS_CALCULATION_VERSIONS = [2, ANALYSIS_CALCULATION_VERSION] as const;
+export const ANALYSIS_CALCULATION_VERSION = 4; // 기회 없음 대체값을 만점 대신 모드별 관측 평균으로 채운다.
+// 계산 2→3은 캐리 보정만, 3→4는 기회 없음 대체값만 바꾼다. 비교 지표(원본 관측값)는 같아 함께 조회한다.
+export const SUPPORTED_ANALYSIS_CALCULATION_VERSIONS = [2, 3, ANALYSIS_CALCULATION_VERSION] as const;
 export function isSupportedAnalysisCalculationVersion(value: unknown): value is number {
   return SUPPORTED_ANALYSIS_CALCULATION_VERSIONS.some(version => value === version);
 }

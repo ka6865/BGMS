@@ -4,7 +4,7 @@ import type {
   LolRecentMatch,
 } from "@/lib/lol/riotSearch.server";
 import { formatKdaRatio, formatMetric, formatPercent } from "./lolFormat";
-import { LolBuildIcons, LolItemSlots, LolScoreBadge } from "./LolMatchCard";
+import { LolBuildIcons, LolItemSlots, LolScoreBadge, lolScoreRankLabel } from "./LolMatchCard";
 import { LolMatchInsightSection } from "./LolInsightCards";
 import LolTeamAnalysis from "./LolTeamAnalysis";
 import LolMatchBuildPanel from "./LolMatchBuild";
@@ -120,8 +120,9 @@ function DamageBars({
   maxDealt: number;
   maxTaken: number;
 }) {
+  // 모바일은 라벨을 붙여 위아래로, 넓은 표(860px 이상)는 열 제목이 설명하므로 숫자와 막대만 나란히 둔다.
   return (
-    <div className="grid min-w-0 grid-cols-1 gap-1 @min-[860px]/history:gap-1.5">
+    <div role="cell" className="grid min-w-0 grid-cols-1 gap-1 @min-[860px]/history:grid-cols-2 @min-[860px]/history:gap-3">
       <DamageBar
         label="가한 피해"
         shortLabel="가한"
@@ -153,20 +154,68 @@ function DamageBar({
     <div
       aria-label={`${label === "가한 피해" ? "챔피언 피해" : label} ${formatMetric(value)}`}
       title={`${label}: ${formatMetric(value)}`}
-      className="min-w-0 text-[10px] leading-tight text-zinc-400"
+      className="min-w-0 text-[10px] leading-tight text-zinc-400 @min-[860px]/history:text-xs @min-[860px]/history:text-zinc-300"
     >
-      <div className="flex justify-between gap-1">
-        {/* 좁은 상세 표에서는 짧은 이름을 써서 라벨이 잘리지 않게 한다. */}
+      <div className="flex justify-between gap-1 @min-[860px]/history:justify-center">
         <span className="shrink-0 @min-[860px]/history:hidden">{shortLabel}</span>
-        <span className="hidden truncate @min-[860px]/history:inline">{label}</span>
         <span className="shrink-0 tabular-nums">{formatMetric(value)}</span>
       </div>
-      <div className="mt-0.5 h-1 rounded bg-zinc-800">
+      <div className="mt-0.5 h-1 rounded bg-zinc-800 @min-[860px]/history:mt-1 @min-[860px]/history:h-1.5">
         <div
-          className={`h-1 rounded ${barClass}`}
+          className={`h-full rounded ${barClass}`}
           style={{ width: `${width}%` }}
         />
       </div>
+    </div>
+  );
+}
+
+// 넓은 표(860px 이상)의 열 너비. 머리글과 모든 행이 같은 값을 써서 열 위치가 이름 길이에 따라 흔들리지 않는다.
+const TABLE_COLUMNS = "@min-[860px]/history:grid-cols-[34px_38px_minmax(110px,1fr)_88px_96px_minmax(150px,1.1fr)_60px_60px_166px]";
+
+function kdaRatioClass(kills: number | null, deaths: number | null, assists: number | null) {
+  if (kills === null || deaths === null || assists === null) return "text-zinc-300";
+  const ratio = deaths === 0 ? Infinity : (kills + assists) / deaths;
+  return ratio >= 5 ? "text-amber-400" : ratio >= 3 ? "text-sky-400" : "text-zinc-200";
+}
+
+function ScoreCell({ player }: { player: Player }) {
+  const score = player.score;
+  return (
+    <div role="cell" className="hidden items-center justify-center gap-1.5 @min-[860px]/history:flex">
+      {score ? (
+        <>
+          <b className="text-sm italic tabular-nums text-zinc-100">{score.score.toFixed(1)}</b>
+          <span
+            title={`BGMS 점수(시험판) · 경기 내 ${score.rank}위`}
+            className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${score.award === "MVP" ? "bg-amber-500/80 text-zinc-950"
+              : score.award === "ACE" ? "bg-violet-500/80 text-white" : "bg-zinc-700 text-zinc-200"}`}
+          >
+            {score.award ?? lolScoreRankLabel(score.rank)}
+          </span>
+        </>
+      ) : <span className="text-xs text-zinc-500">—</span>}
+    </div>
+  );
+}
+
+function PlayerTableHeader({ side, win }: { side: string; win: boolean }) {
+  const cell = "text-center";
+  return (
+    <div
+      role="row"
+      data-testid="lol-player-table-header"
+      className={`hidden min-w-0 items-center gap-2 border-b border-white/10 pb-1.5 text-[11px] text-zinc-400 @min-[860px]/history:grid ${TABLE_COLUMNS}`}
+    >
+      <span role="columnheader" className="col-span-3 text-left">
+        <b className={win ? "text-sky-300" : "text-rose-300"}>{win ? "승리" : "패배"}</b> ({side})
+      </span>
+      <span role="columnheader" className={cell}>BGMS 점수</span>
+      <span role="columnheader" className={cell}>KDA</span>
+      <span role="columnheader" className={cell} title="왼쪽 챔피언에게 가한 피해, 오른쪽 받은 피해">피해량</span>
+      <span role="columnheader" className={cell} title="위 제어와드 구매, 아래 와드 설치 / 제거">와드</span>
+      <span role="columnheader" className={cell}>CS</span>
+      <span role="columnheader" className={cell}>아이템</span>
     </div>
   );
 }
@@ -186,18 +235,20 @@ function PlayerRow({
   maxTaken: number;
   onSearch: (riotId: string, ref?: string) => void;
 }) {
+  const csPerMinute = match.gameDuration && match.gameDuration >= 300
+    ? player.cs === null ? "미제공" : (player.cs / (match.gameDuration / 60)).toFixed(1)
+    : "—";
   return (
     <div
       role="row"
       data-testid="lol-player-row"
       data-player-id={player.riotId}
-      className={`grid min-w-0 grid-cols-[30px_36px_minmax(0,1fr)_68px] items-center gap-1 border-t border-white/10 py-1.5 first:border-0
-        @min-[860px]/history:grid-cols-[34px_38px_minmax(95px,.8fr)_68px_minmax(140px,1.6fr)_75px_45px_154px]
-        @min-[860px]/history:gap-2 ${isOwn ? "bg-amber-400/10" : ""}`}
+      className={`grid min-w-0 grid-cols-[30px_36px_minmax(0,1fr)_68px] items-center gap-1 py-1.5
+        ${TABLE_COLUMNS} @min-[860px]/history:gap-2 @min-[860px]/history:py-2 ${isOwn ? "bg-amber-400/10" : ""}`}
       title={`골드 ${formatMetric(player.goldEarned)} · 오브젝트 피해 ${formatMetric(player.damageDealtToObjectives)} · 포탑 피해 ${formatMetric(player.damageDealtToTurrets)}`}
     >
-      <span className="relative h-8 w-[30px] @min-[860px]/history:h-9 @min-[860px]/history:w-[34px]">
-        <img
+      <span role="cell" className="relative h-8 w-[30px] @min-[860px]/history:h-9 @min-[860px]/history:w-[34px]">
+        <img loading="lazy" decoding="async"
           src={`https://ddragon.leagueoflegends.com/cdn/${match.dataDragonVersion}/img/champion/${player.championImageId}.png`}
           alt=""
           width={36}
@@ -211,65 +262,70 @@ function PlayerRow({
           {player.championLevel ?? "—"}
         </small>
       </span>
-      <LolBuildIcons
-        dataDragonVersion={match.dataDragonVersion}
-        player={player}
-        size={17}
-      />
-      <div className="min-w-0">
+      <div role="cell">
+        <LolBuildIcons
+          dataDragonVersion={match.dataDragonVersion}
+          player={player}
+          size={17}
+        />
+      </div>
+      <div role="cell" className="min-w-0">
         <button
           type="button"
           onClick={() => onSearch(player.riotId, player.ref)}
           disabled={player.riotId === "Riot ID 미제공"}
-          className={`block min-h-6 max-w-full truncate text-left text-[11px] disabled:cursor-default ${isOwn ? "font-bold text-amber-300" : "text-zinc-300 hover:text-white"}`}
+          className={`block min-h-6 max-w-full truncate text-left text-[11px] disabled:cursor-default @min-[860px]/history:text-[13px] ${isOwn ? "font-bold text-amber-300" : "text-zinc-200 hover:text-white"}`}
         >
           {player.riotId}
         </button>
-        <span className="flex min-w-0 items-center gap-1 text-[10px] text-zinc-500">
+        <span className="flex min-w-0 items-center gap-1 text-[10px] text-zinc-500 @min-[860px]/history:text-[11px]">
           <span className="truncate">{player.championNameKo}</span>
-          <LolScoreBadge player={player} />
+          {/* 넓은 표에서는 점수를 별도 열에 둔다. */}
+          <span className="@min-[860px]/history:hidden"><LolScoreBadge player={player} /></span>
         </span>
       </div>
-      <div className="text-center text-[10px] tabular-nums">
-        <b>
-          {player.kills ?? "—"}/{player.deaths ?? "—"}/{player.assists ?? "—"}
-        </b>
-        <span className="block text-zinc-500">
+      <ScoreCell player={player} />
+      <div role="cell" className="text-center text-[10px] tabular-nums @min-[860px]/history:text-xs">
+        <span className="block @min-[860px]/history:text-zinc-300">
+          <b className="@min-[860px]/history:font-normal">{player.kills ?? "—"}/{player.deaths ?? "—"}/{player.assists ?? "—"}</b>
+          <span className="hidden text-zinc-400 @min-[860px]/history:inline"> ({formatPercent(player.killParticipationPct)})</span>
+        </span>
+        <span className="block text-zinc-500 @min-[860px]/history:hidden">
           ({formatPercent(player.killParticipationPct)}){" "}
           {formatKdaRatio(player.kills, player.deaths, player.assists)}
         </span>
+        <b className={`hidden @min-[860px]/history:block ${kdaRatioClass(player.kills, player.deaths, player.assists)}`}>
+          {formatKdaRatio(player.kills, player.deaths, player.assists)}
+        </b>
       </div>
 
       <div className="col-span-4 grid min-w-0 grid-cols-[minmax(0,1fr)_72px_34px_124px] items-center gap-1 @min-[860px]/history:col-span-1 @min-[860px]/history:contents">
         <DamageBars player={player} maxDealt={maxDealt} maxTaken={maxTaken} />
         <div
+          role="cell"
           title={`제어와드 ${formatMetric(player.detectorWardsPlaced)} · 와드 설치 ${formatMetric(player.wardsPlaced)} · 제거 ${formatMetric(player.wardsKilled)}`}
-          className="text-center text-[10px] leading-tight text-zinc-300"
+          className="text-center text-[10px] leading-tight text-zinc-300 @min-[860px]/history:text-xs"
         >
           <span className="block">
-            제어와드 {formatMetric(player.detectorWardsPlaced)}
+            <span className="@min-[860px]/history:hidden">제어와드 </span>{formatMetric(player.detectorWardsPlaced)}
           </span>
-          <span className="whitespace-nowrap">
-            설치 {formatMetric(player.wardsPlaced)}·제거{" "}
+          <span className="whitespace-nowrap @min-[860px]/history:text-zinc-400">
+            <span className="@min-[860px]/history:hidden">설치 </span>{formatMetric(player.wardsPlaced)}
+            <span className="@min-[860px]/history:hidden">·제거 </span><span className="hidden @min-[860px]/history:inline"> / </span>
             {formatMetric(player.wardsKilled)}
           </span>
         </div>
-        <div className="text-center text-[10px]">
+        <div role="cell" className="text-center text-[10px] @min-[860px]/history:text-xs">
           {formatMetric(player.cs)}
-          <span className="block text-zinc-500">
-            {match.gameDuration && match.gameDuration >= 300
-              ? player.cs === null
-                ? "미제공"
-                : (player.cs / (match.gameDuration / 60)).toFixed(1)
-              : "—"}
-            /분
+          <span className="block text-zinc-500 @min-[860px]/history:text-zinc-400">
+            <span className="hidden @min-[860px]/history:inline">분당 </span>{csPerMinute}<span className="@min-[860px]/history:hidden">/분</span>
           </span>
         </div>
-        <div className="min-w-0 justify-self-end">
+        <div role="cell" className="min-w-0 justify-self-end @min-[860px]/history:justify-self-center">
           <LolItemSlots
             dataDragonVersion={match.dataDragonVersion}
             player={player}
-            size={16}
+            slotClassName="h-4 w-4 @min-[860px]/history:h-[22px] @min-[860px]/history:w-[22px]"
           />
         </div>
       </div>
@@ -394,7 +450,8 @@ export default function LolMatchDetail({
                   className={`min-w-0 rounded-lg border p-2 ${team.win ? "border-blue-800 bg-blue-950/45" : "border-red-800 bg-red-950/45"}`}
                 >
                   <div className="mb-2 grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] items-start gap-2 text-xs font-bold sm:grid-cols-[auto_1fr]">
-                    <span>
+                    {/* 넓은 표는 머리글 행에 승패와 팀을 보여 주므로 여기서는 좁은 화면에서만 표시한다. */}
+                    <span className="@min-[860px]/history:invisible">
                       {side} · {team.win ? "승리" : "패배"}
                     </span>
                     <TeamObjectives team={team} />
@@ -404,17 +461,20 @@ export default function LolMatchDetail({
                     aria-label={`${side} 참가자 상세`}
                     className="min-w-0"
                   >
-                    {team.participants.map((player, index) => (
-                      <PlayerRow
-                        key={`${player.riotId}-${index}`}
-                        match={match}
-                        player={player}
-                        isOwn={isOwn(player.riotId)}
-                        maxDealt={maxDealt}
-                        maxTaken={maxTaken}
-                        onSearch={onSearch}
-                      />
-                    ))}
+                    <PlayerTableHeader side={side} win={team.win} />
+                    <div role="rowgroup" className="divide-y divide-white/10">
+                      {team.participants.map((player, index) => (
+                        <PlayerRow
+                          key={`${player.riotId}-${index}`}
+                          match={match}
+                          player={player}
+                          isOwn={isOwn(player.riotId)}
+                          maxDealt={maxDealt}
+                          maxTaken={maxTaken}
+                          onSearch={onSearch}
+                        />
+                      ))}
+                    </div>
                   </div>
                 </section>
               );

@@ -134,7 +134,6 @@ describe("combat score", () => {
   });
 
   it.each([
-    [-1, 5],
     [500, 10],
     [1000, 10],
     [2000, 5],
@@ -146,8 +145,14 @@ describe("combat score", () => {
     expect(solo({ counterLatencyMs }).combat).toBe(5 + points);
   });
 
+  it("uses the mode average counter score when no ambush was measured (calculation 4)", () => {
+    // 계산 2·3은 5점. 계산 4는 팀 3.3점, 솔로 3.8점(관측 평균).
+    expect(squad({ counterLatencyMs: -1 }).combat).toBe(8.3);
+    expect(solo({ counterLatencyMs: -1 }).combat).toBe(8.8);
+  });
+
   it("treats a non-finite counter latency as unmeasured", () => {
-    expect(squad({ counterLatencyMs: Number.NaN }).combat).toBe(10);
+    expect(squad({ counterLatencyMs: Number.NaN }).combat).toBe(8.3);
   });
 });
 
@@ -171,12 +176,13 @@ describe("tactical score", () => {
     expect(solo({ reversalRate }).tactical).toBe(points);
   });
 
-  it("falls back reversal to 10% for early deaths, 50% for normal exits and 100% for clean long survival", () => {
-    expect(squad({ reversalRate: -1, survivalTime: 599 }).tactical).toBe(0.5);
-    expect(squad({ reversalRate: -1, survivalTime: 1199 }).tactical).toBe(2.5);
-    expect(squad({ reversalRate: -1, survivalTime: 1200 }).tactical).toBe(5);
-    expect(squad({ reversalRate: -1, survivalTime: 1500, myDeathCount: 1, deathPhase: 6 }).tactical).toBe(2.5);
-    expect(solo({ reversalRate: -1, survivalTime: 1200 }).tactical).toBe(5);
+  it("falls back reversal to the mode average when there was no reversal opportunity (calculation 4)", () => {
+    // 계산 2·3은 조기 10%, 정상 50%, 무사망 20분 이상 100%. 계산 4는 생존과 무관하게 팀 13.2%, 솔로 33.0%.
+    for (const survivalTime of [599, 1199, 1200]) {
+      expect(squad({ reversalRate: -1, survivalTime }).tactical).toBe(0.7);
+      expect(solo({ reversalRate: -1, survivalTime }).tactical).toBe(1.7);
+    }
+    expect(squad({ reversalRate: -1, survivalTime: 1500, myDeathCount: 1, deathPhase: 6 }).tactical).toBe(0.7);
   });
 
   it("scores squad utility from smoke rescue rate and suppression count", () => {
@@ -199,7 +205,8 @@ describe("tactical score", () => {
   });
 
   it("treats a non-finite rate as no opportunity", () => {
-    expect(squad({ reviveRate: Number.NaN, survivalTime: 900 }).tactical).toBe(3);
+    // 기회 없음 → 계산 4 평균 소생률 14.5% → 0.435점
+    expect(squad({ reviveRate: Number.NaN, survivalTime: 900 }).tactical).toBe(0.4);
     expect(squad({ initiativeRate: Number.NaN }).combat).toBe(5 + 7.5);
   });
 
@@ -207,15 +214,19 @@ describe("tactical score", () => {
     expect(squad({ reviveRate: 200 }).tactical).toBe(3);
   });
 
-  it("falls back missing team opportunities to 100% for normal exits and 30% for early deaths", () => {
+  it("falls back missing team opportunities to the observed average regardless of exit time (calculation 4)", () => {
     const normal = { reviveRate: -1, tradeRate: -1, suppRate: -1, smokeRate: -1, survivalTime: 900 };
-    // 스쿼드 기본 역전 0점: 소생 3 + 트레이드 2 + 지원 2 + 연막 5
-    expect(squad(normal).tactical).toBe(12);
-    // 조기 탈락: 각 30% → 0.9 + 0.6 + 0.6 + 1.5
-    expect(squad({ ...normal, survivalTime: 599 }).tactical).toBe(3.6);
-    expect(squad({ ...normal, survivalTime: 600 }).tactical).toBe(12);
-    expect(squad({ ...normal, myDeathCount: 1, deathPhase: 3 }).tactical).toBe(3.6);
-    expect(squad({ ...normal, myDeathCount: 1, deathPhase: 4 }).tactical).toBe(12);
+    // 소생 14.5%×3 + 트레이드 8.1%×2 + 지원 9.7%×2 + 연막 5.7%×5 = 0.435 + 0.162 + 0.194 + 0.285
+    expect(squad(normal).tactical).toBe(1.1);
+    expect(squad({ ...normal, survivalTime: 599 }).tactical).toBe(1.1);
+    expect(squad({ ...normal, myDeathCount: 1, deathPhase: 3 }).tactical).toBe(1.1);
+  });
+
+  it("never scores a missing opportunity above a measured failure plus the average", () => {
+    const noOpportunity = squad({ reviveRate: -1, tradeRate: -1, suppRate: -1, smokeRate: -1, reversalRate: -1, counterLatencyMs: -1 });
+    const averageObserved = squad({ reviveRate: 14.5, tradeRate: 8.1, suppRate: 9.7, smokeRate: 5.7, reversalRate: 13.2, counterLatencyMs: 2340 });
+    expect(noOpportunity.tactical).toBe(averageObserved.tactical);
+    expect(noOpportunity.combat).toBe(averageObserved.combat);
   });
 
   it("does not apply squad-only utility and team points to solo", () => {

@@ -1,5 +1,3 @@
-import Link from "next/link";
-import LolLegalNotice from "./LolLegalNotice";
 import { LOL_LADDER_QUEUES, LOL_LADDER_TIERS, type LolLadderDaily, type LolLadderTier } from "@/lib/lol/ladder";
 
 const tierNames: Record<LolLadderTier, string> = { CHALLENGER: "챌린저", GRANDMASTER: "그랜드마스터", MASTER: "마스터" };
@@ -70,9 +68,6 @@ export default function LolLadderView({ rows, today, error = false }: { rows: Lo
   return <main className="mx-auto w-full max-w-4xl space-y-6 px-4 py-6 text-zinc-100">
     <header><h1 className="text-xl font-bold">한국 서버 랭크 컷 기록</h1>
       <p className="mt-2 text-sm text-zinc-400">{today} KST · 하루 한 번 확인한 티어별 최저 LP입니다. 승급 예측이나 실시간 승급 기준이 아닙니다.</p>
-      <nav aria-label="LoL 공개 메뉴" className="mt-2 flex flex-wrap gap-4 text-sm text-sky-300">
-        <Link href="/lol/kr" className="inline-flex min-h-11 items-center">전적 검색</Link><Link href="/lol/kr/status" className="inline-flex min-h-11 items-center">서버 상태</Link>
-      </nav>
     </header>
     {error && <p role="status" className="text-sm text-amber-300">기록을 불러오지 못했습니다. 잠시 후 다시 확인해 주세요.</p>}
     {!rows.length && !error && <p className="text-sm text-zinc-400">기록 시작일 이후 표시됩니다.</p>}
@@ -98,6 +93,5 @@ export default function LolLadderView({ rows, today, error = false }: { rows: Lo
         </li>)}</ul>
       </details>
     </section>)}
-    <LolLegalNotice />
   </main>;
 }
