@@ -27,7 +27,7 @@ export const RESULT_VERSION = 73.0; // [V73.0] PUBG AI 분석 정확도 감사 �
 export const TELEMETRY_VERSION = 63.0; // [V63.0] 리플레이 위치·탑승 이벤트에 차량 인스턴스 ID(vehicleUniqueId) 추가
 export const AI_CACHE_VERSION = "2026-10-28.first-reply-evidence-v5"; // 첫 반격 사격 근거 v1, 구 반응 평가 캐시 재사용 차단
 export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-scope-calc${ANALYSIS_CALCULATION_VERSION}-v6`; // 팀 관측 비교 기준(전체 팀 평균)을 프롬프트에 넣었다
-export const AI_SUMMARY_CACHE_VERSION = "2026-10-28.first-reply-evidence-v23"; // 사격 근거가 검증된 명중 간격·실패율과 역할 반응 항목 보류
+export const AI_SUMMARY_CACHE_VERSION = "2026-10-28.first-reply-evidence-v24"; // 사격 근거 분리와 복합 선봉 역할의 필수 지표 누락 보류
 // Evidence marker for canonical rows written after the human BR population
 // boundary. This is deliberately independent of RESULT/telemetry/cache
 // versions so old v73/R2 rows can fail closed without a broad cache bump.

@@ -298,7 +298,9 @@ export function classifyRole(stats: any, _bench: any, overallTier: string): Role
   const scores = { fieldCommander: null } as RoleScore;
   for (const [role, definition] of Object.entries(ROLE_DEFINITIONS) as Array<[Exclude<RoleKey, "fieldCommander">, RoleDefinition]>) {
     const observed = definition.metrics.map((key) => metricPercentiles[key]).filter((value): value is number => value !== null);
-    const enough = observed.length >= Math.ceil(definition.metrics.length / 2);
+    // 선봉 복합 분포는 선제 성공률과 반격 시간이 함께 있을 때만 쓴다.
+    const required = role === "pointMan" ? definition.metrics.length : Math.ceil(definition.metrics.length / 2);
+    const enough = observed.length >= required;
     // 지표 백분위의 평균을 다시 역할 점수 분포의 백분위로 바꾼다.
     scores[role] = (definition.teamOnly && isSoloMode) || !enough
       ? null

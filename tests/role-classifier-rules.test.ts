@@ -117,10 +117,18 @@ describe("role selection", () => {
     expect(classify(STRONG_EXECUTOR, "S+").overallTier).toBe("S+");
   });
 
+  it("does not apply the composite point-man distribution to initiative alone", () => {
+    const result=classify({...STRONG_POINT_MAN,avgReactionLatency:"측정 불가"});
+    expect(result.scores.pointMan).toBeNull();
+    expect(result.primaryRole).not.toBe("pointMan");
+    expect(result.evidence.join(" ")).not.toMatch(/반격/);
+  });
+
   it("treats a faster reaction as better", () => {
-    expect(classify({ ...STRONG_POINT_MAN, userInitiativeRate: null, totalInitiativeAttempts: 0 }).scores.pointMan).toBe(97.5);
+    expect(classify(STRONG_POINT_MAN).scores.pointMan).toBe(97.5);
+    expect(classify({ ...STRONG_POINT_MAN, userInitiativeRate: null, totalInitiativeAttempts: 0 }).scores.pointMan).toBeNull();
     // 지표 백분위 5는 선봉대 역할 점수 분포의 5백분위(12.13)보다 낮다.
-    expect(classify({ avgReactionLatency: "3.00s" }).scores.pointMan).toBe(2.5);
+    expect(classify({ userInitiativeRate: 0, totalInitiativeAttempts: 10, avgReactionLatency: "3.00s" }).scores.pointMan).toBe(2.5);
   });
 
   it("uses a combo title only when both roles are strong, regardless of order", () => {
