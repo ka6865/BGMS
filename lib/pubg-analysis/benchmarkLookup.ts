@@ -72,6 +72,8 @@ const AVERAGE_FIELDS = [
   "avg_isolation_index",
   "avg_min_dist",
   "avg_counter_latency_ms",
+  "avg_first_reply_latency_ms",
+  "avg_counter_failure_rate",
   "avg_trade_latency_ms",
   "avg_solo_kill_rate",
   "avg_death_phase"
@@ -85,6 +87,7 @@ const RATE_FIELDS = new Set<(typeof AVERAGE_FIELDS)[number]>([
   "avg_smoke_rate",
   "avg_reversal_rate",
   "avg_solo_kill_rate",
+  "avg_counter_failure_rate",
 ]);
 
 const NORMALIZED_METRIC_KEYS: Record<(typeof AVERAGE_FIELDS)[number], string> = {
@@ -102,6 +105,8 @@ const NORMALIZED_METRIC_KEYS: Record<(typeof AVERAGE_FIELDS)[number], string> = 
   avg_isolation_index: "avgIsolationIndex",
   avg_min_dist: "avgMinDist",
   avg_counter_latency_ms: "avgCounterLatency",
+  avg_first_reply_latency_ms: "avgFirstReplyLatency",
+  avg_counter_failure_rate: "avgCounterFailureRate",
   avg_trade_latency_ms: "avgTradeLatency",
   avg_solo_kill_rate: "avgSoloKillRate",
   avg_death_phase: "avgDeathPhase",
@@ -285,6 +290,8 @@ export const CALCULATION_5_REDEFINED_METRICS: ReadonlySet<(typeof AVERAGE_FIELDS
   "avg_trade_rate",
   "avg_trade_latency_ms",
   "avg_counter_latency_ms",
+  "avg_first_reply_latency_ms",
+  "avg_counter_failure_rate",
   "avg_initiative_rate",
   "avg_reversal_rate",
   "avg_duel_win_rate",

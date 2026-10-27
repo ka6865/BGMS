@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it } from "vitest";
 import { GoogleGenerativeAI, HarmBlockThreshold, HarmCategory, SchemaType } from "@google/generative-ai";
 import { buildMatchAiCoachingPrompt } from "../lib/pubg-analysis/matchAiCoachingPrompt";
 import { sanitizeBackupCoachingText } from "../lib/pubg-analysis/backupCoaching";
+import { applyMatchAiEvidencePolicy } from "../lib/pubg-analysis/matchAiEvidence";
 import { buildSquadAiCoachingPrompt } from "../lib/pubg-analysis/squadAiCoachingPrompt";
 import {
   collectAiCoachingQualitySignals,
@@ -66,6 +67,19 @@ async function callGeminiJson(prompt: string, systemInstruction?: string, respon
 
   const result = await model.generateContent(prompt);
   return result.response.text();
+}
+
+async function callGeminiMatchStream(prompt: string) {
+  const genAI = new GoogleGenerativeAI(getApiKey());
+  const model = genAI.getGenerativeModel({
+    model: process.env.GEMINI_COACHING_TEST_MODEL || "gemini-3.1-flash-lite",
+    safetySettings: [
+      { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+      { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
+    ],
+  });
+  const result = await model.generateContentStream(prompt);
+  return (await result.response).text();
 }
 
 function recordCase(name: string, rawText: string, finalText: string, parsed: any, extra: Record<string, unknown> = {}) {
@@ -151,7 +165,7 @@ function createSuccessfulLongBackupMatch() {
     mapName: "Erangel_Main",
     gameMode: "squad",
     stats: {
-      name: "KangHeeSung_",
+      name: "SyntheticPlayer",
       kills: 6,
       assists: 1,
       DBNOs: 4,
@@ -230,7 +244,7 @@ function createFailedLongBackupSmokeOnlyMatch() {
     mapName: "Erangel_Main",
     gameMode: "squad",
     stats: {
-      name: "KangHeeSung_",
+      name: "SyntheticPlayer",
       kills: 1,
       assists: 0,
       DBNOs: 1,
@@ -307,8 +321,8 @@ describeRealGemini("실제 Gemini 단판 코칭 품질", () => {
       matchData,
       coachingStyle: "spicy",
     });
-    const rawText = await callGeminiJson(fullPrompt);
-    const finalText = sanitizeBackupCoachingText(rawText, backupContext);
+    const rawText = await callGeminiMatchStream(fullPrompt);
+    const finalText = applyMatchAiEvidencePolicy(sanitizeBackupCoachingText(rawText, backupContext), matchData);
     const parsed = extractJson(finalText);
     const joinedFinal = JSON.stringify(parsed);
     const qualitySignals = recordCase("single-spicy-successful-long-backup", rawText, finalText, parsed, {
@@ -319,8 +333,7 @@ describeRealGemini("실제 Gemini 단판 코칭 품질", () => {
     expect(hasBlockingAiCoachingQualityIssue(qualitySignals)).toBe(false);
     expect(rawText).not.toMatch(/느린 백업|느린 방관|방관|성공이라기엔|팀원을 방패|팀원을 들러리|팀원을 방치/);
     expect(rawText).not.toMatch(/(백업|소생|복구).{0,20}치명적|치명적.{0,20}(백업|소생|복구)/);
-    expect(joinedFinal).toContain("복구 시간 단축");
-    expect(joinedFinal).toMatch(/성공 복구|성공적인 복구|복구 성공|교전 정리 후 복구 성공/);
+    expect(joinedFinal).not.toMatch(/(?:소생|복구|합류|지원).*시간.*(?:단축|줄여)/);
     expect(joinedFinal).not.toMatch(/느린 백업|느린 방관|방관|성공이라기엔|팀원을 방패|팀원을 들러리|팀원을 방치/);
     expect(joinedFinal).not.toMatch(/(백업|소생|복구).{0,20}치명적|치명적.{0,20}(백업|소생|복구)/);
     expect(parsed.briefFeedback).toHaveLength(3);
@@ -333,8 +346,8 @@ describeRealGemini("실제 Gemini 단판 코칭 품질", () => {
       matchData,
       coachingStyle: "mild",
     });
-    const rawText = await callGeminiJson(fullPrompt);
-    const finalText = sanitizeBackupCoachingText(rawText, backupContext);
+    const rawText = await callGeminiMatchStream(fullPrompt);
+    const finalText = applyMatchAiEvidencePolicy(sanitizeBackupCoachingText(rawText, backupContext), matchData);
     const parsed = extractJson(finalText);
     const joinedFinal = JSON.stringify(parsed);
     const qualitySignals = recordCase("single-mild-successful-long-backup", rawText, finalText, parsed, {
@@ -345,7 +358,6 @@ describeRealGemini("실제 Gemini 단판 코칭 품질", () => {
     expect(hasBlockingAiCoachingQualityIssue(qualitySignals)).toBe(false);
     expect(parsed.coach).toBe("다정한 코치");
     expect(parsed.briefFeedback).toHaveLength(3);
-    expect(joinedFinal).toMatch(/복구|소생|백업/);
     expect(joinedFinal).not.toMatch(/느린 백업|방관|성공이라기엔|팀원을 방패|팀원을 들러리|팀원을 방치/);
   }, 60000);
 
@@ -355,8 +367,8 @@ describeRealGemini("실제 Gemini 단판 코칭 품질", () => {
       matchData,
       coachingStyle: "spicy",
     });
-    const rawText = await callGeminiJson(fullPrompt);
-    const finalText = sanitizeBackupCoachingText(rawText, backupContext);
+    const rawText = await callGeminiMatchStream(fullPrompt);
+    const finalText = applyMatchAiEvidencePolicy(sanitizeBackupCoachingText(rawText, backupContext), matchData);
     const parsed = extractJson(finalText);
     const joinedFinal = JSON.stringify(parsed);
     const qualitySignals = recordCase("single-spicy-failed-long-backup-smoke-only", rawText, finalText, parsed, {
@@ -413,6 +425,26 @@ function createSquadInput(coachingStyle: "mild" | "spicy") {
   };
 }
 
+describeRealGemini("실제 Gemini 단판 근거 경계", () => {
+  it.each(["mild", "spicy"] as const)("%s: 대응 실패 패널티와 적은 투척 표본을 과장하지 않는다", async (coachingStyle) => {
+    const matchData = createSuccessfulLongBackupMatch();
+    matchData.stats.name = "SyntheticPlayer";
+    matchData.tradeStats.reactionLatencyMs = 3000;
+    matchData.tradeStats.tradeLatencyMs = null as any;
+    matchData.duelStats = { ...matchData.duelStats, reversalAttempts: 3 } as any;
+    matchData.combatPressure.utilityStats = { ...matchData.combatPressure.utilityStats, throwCount: 3, lethalThrowCount: 1, hitCount: 0, totalDamage: 0, accuracy: 0 };
+    const { fullPrompt, backupContext } = buildMatchAiCoachingPrompt({ matchData, coachingStyle });
+    const rawText = await callGeminiMatchStream(fullPrompt);
+    const finalText = applyMatchAiEvidencePolicy(sanitizeBackupCoachingText(rawText, backupContext), matchData);
+    const parsed = extractJson(finalText);
+    const qualitySignals = recordCase(`single-${coachingStyle}-reaction-penalty-small-sample`, rawText, finalText, parsed, { metricContext: createMatchMetricContext(matchData, backupContext) });
+    expect(hasBlockingAiCoachingQualityIssue(qualitySignals)).toBe(false);
+    expect(JSON.stringify(parsed)).not.toMatch(/대응 사격 속도(?:가|는)? 3\.00초/);
+    expect(JSON.stringify(parsed)).not.toMatch(/(?:복구|소생|합류|지원).*시간.*(?:단축|줄여)/);
+    expect(parsed.briefFeedback).toHaveLength(3);
+  }, 60000);
+});
+
 describeRealGemini("실제 Gemini 스쿼드 코칭 품질", () => {
   it.each(["mild", "spicy"] as const)("스쿼드 %s 분석은 등급과 팀원별 피드백을 보존한다", async (coachingStyle) => {
     const input = createSquadInput(coachingStyle);
@@ -450,9 +482,8 @@ function buildTenMatchSummaryQualityPrompt() {
     "당신들은 PUBG 전술 분석 데스크입니다.",
     "KIND COACH와 SPICY BOMBER 관점을 모두 포함하되, 데이터 근거 없이 의도와 심리를 단정하지 마십시오.",
     "백업 속도는 시간 단독이 아니라 적 제압, 소생, 연막 구출 결과와 함께 해석하십시오.",
-    "결과가 성공한 긴 백업은 느린 백업으로 단정하지 말고 교전 정리 후 복구 성공과 복구 시간 단축 과제를 분리하십시오.",
+    "백업 속도는 복수 처치까지의 시간입니다. 소생·합류·복구 시간으로 해석하거나 복구 시간 단축을 지시하지 마십시오.",
     "고립 지수 1.6은 양호한 대열 유지로 해석하십시오. '너무 멀리', '독단적인 플레이', '고립될 위험', '고립 위험이 높다' 같은 표현은 부정문에서도 절대 쓰지 마십시오.",
-    "actionItems 중 하나의 title은 반드시 '복구 시간 단축'이어야 합니다.",
     "debateIssues는 반드시 정확히 3개를 작성하십시오. 2개 이하나 4개 이상은 실패입니다.",
     "반드시 순수 JSON만 출력하십시오.",
   ].join("\n");
@@ -465,7 +496,7 @@ function buildTenMatchSummaryQualityPrompt() {
 - 팀 내 딜량 비중: 58%
 - 아군 기절: 4회, 내가 만든 복수: 4회, 내가 한 소생: 3회, 적 팀 전멸 기여: 2회
 - 평균 백업 속도: 21.80s
-- 백업 결과 해석: 21.80s로 시간만 보면 느리지만, 적 제압 4회/전멸 기여 2회와 소생 3회가 함께 있으므로 느린 백업이라고 단정하지 말 것. 교전 정리 후 복구 성공으로 평가하되, 다음에는 복구 시간을 줄이는 보완점만 제시할 것
+- 백업 결과 해석: 21.80s로 시간만 보면 느리지만, 적 제압 4회/전멸 기여 2회와 소생 3회가 함께 있으므로 느린 백업이라고 단정하지 말 것. 백업 속도는 복수 처치까지의 시간이며 소생·합류·복구 시간은 측정하지 않으므로 복구 성공이나 복구 시간 단축을 단정하지 말 것
 - 총 투척 24회, 피해형 투척 15회, 피해 적중 5회, 연막 9회
 - 내 연막 구출 성공: 2회
 - 고립 지수: 1.6, 팀원 평균 거리: 21m
@@ -502,7 +533,7 @@ describeRealGemini("실제 Gemini 10경기 요약 코칭 품질", () => {
     const joinedFinal = JSON.stringify(parsed);
     const qualitySignals = recordCase("summary-ten-match-successful-long-backup", rawText, finalText, parsed, {
       expectedDebateIssueCount: 3,
-      expectedBackupDirection: "교전 정리 후 복구 성공 + 복구 시간 단축",
+      expectedBackupDirection: "느린 백업 단정 금지 + 복구 시간 지시 없음",
       metricContext: {
         backup: {
           label: "교전 정리 후 복구 성공",
@@ -529,7 +560,7 @@ describeRealGemini("실제 Gemini 10경기 요약 코칭 품질", () => {
     expect(hasBlockingAiCoachingQualityIssue(qualitySignals)).toBe(false);
     expect(parsed.debateIssues).toHaveLength(3);
     expect(parsed.actionItems.length).toBeGreaterThan(0);
-    expect(joinedFinal).toMatch(/복구 시간 단축|교전 정리 후 복구 성공|성공 복구|복구 성공/);
+    expect(joinedFinal).not.toMatch(/(?:소생|복구|합류|지원).*시간.*(?:단축|줄여)/);
     expect(joinedFinal).not.toMatch(/느린 백업|방관|성공이라기엔|팀원을 방패|팀원을 들러리|팀원을 방치|undefined|NaN|\d{4,}ms/);
     expect(joinedFinal).not.toMatch(/너무 멀리|독단적인 플레이|고립될 위험|고립 위험이 높/);
   }, 60000);

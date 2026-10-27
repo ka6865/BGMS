@@ -31,7 +31,8 @@ describe("AI backup coaching context", () => {
     expect(context.shouldAvoidSlowBackupBlame).toBe(true);
     expect(context.tier).toBe("B");
     expect(context.promptLine).toContain("느린 백업이라고 단정하지 말 것");
-    expect(context.promptLine).toContain("교전 정리 후 복구 성공");
+    expect(context.promptLine).toContain("소생·합류·복구 시간은 측정하지 않으므로");
+    expect(context.promptLine).not.toContain("복구 시간을 줄이는");
   });
 
   it("성공 결과가 없는 22초 백업은 지연 위험으로 평가한다", () => {
@@ -342,4 +343,16 @@ describe("AI coaching prompt utility metrics", () => {
     expect(sanitized.memberFeedbacks[0].fault).toBe(COACHING_JUDGMENT_WITHHELD);
     expect(hasBlockingAiCoachingQualityIssue(collectAiCoachingQualitySignals(text))).toBe(false);
   });
+});
+
+it('프롬프트에서 대응 실패 패널티와 복구 시간을 실측값과 구분한다', () => {
+  const { fullPrompt, playerReportSummary } = buildMatchAiCoachingPrompt({ matchData: {
+    mapName: 'Erangel', gameMode: 'squad',
+    stats: { winPlace: 1, kills: 1, assists: 0, DBNOs: 1, damageDealt: 428, processedDamageDealt: 351, timeSurvived: 500 },
+    tradeStats: { reactionLatencyMs: 3000, tradeLatencyMs: 6000 }, duelStats: { reversalAttempts: 1 },
+  } });
+  expect(playerReportSummary).toContain('3초 안에 첫 반격 없음(기습 1회, 실제 시간 측정 불가)');
+  expect(playerReportSummary).toContain('소생·합류·복구에 걸린 시간은 측정하지 않음');
+  expect(fullPrompt).toContain('팀 내 딜량 비중은 PUBG 공식 피해량');
+  expect(fullPrompt).not.toContain("제목은 '복구 시간 단축'으로만 작성");
 });

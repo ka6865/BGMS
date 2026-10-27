@@ -11,7 +11,7 @@ import { SquadObservationCollector } from './squadObservations';
 import { SquadFocusFireCollector } from './squadFocusFire';
 import { normalizeName } from './utils';
 import { AnalysisResult, AnalysisState } from './types';
-import { MAP_NAMES, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, ANALYSIS_CALCULATION_VERSION } from './constants';
+import { MAP_NAMES, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, ANALYSIS_CALCULATION_VERSION, COUNTER_LATENCY_PENALTY_MS } from './constants';
 import { CombatHandler } from './handlers/CombatHandler';
 import { ZoneHandler } from './handlers/ZoneHandler';
 import { UtilityHandler } from './handlers/UtilityHandler';
@@ -425,7 +425,7 @@ export class AnalysisEngine {
     if (this.state.reactCount > 0) {
       avgReactLat = this.state.reactLatSum / this.state.reactCount;
     } else if (pData.reversalAttempts > 0) {
-      avgReactLat = 3000;
+      avgReactLat = COUNTER_LATENCY_PENALTY_MS;
     }
 
     const rescueSummary = summarizeRescueEpisodes(this.state);
@@ -447,9 +447,13 @@ export class AnalysisEngine {
     const supportShare = this.state.supportTeammateKills > 0
       ? this.state.totalSuppCount * 100 / this.state.supportTeammateKills : null;
     const hasUtilityDamageObservation = this.state.itemUseStats.throwCount > 0 || this.state.combatPressure.utilityHits > 0;
-    const deathPhase = this.state.deathPhaseSnapshot > 0
+    // 경기 끝에 죽어 있으면 사망 순간 페이즈를 쓴다. 첫 자기장 전 사망은 0이며, 경기 종료 시점 페이즈로 대신하지 않는다.
+    // 재투입 뒤 살아남은 경우(myDeathTime 초기화)는 기존 규칙을 유지한다.
+    const deathPhase = this.state.myDeathTime !== null
       ? this.state.deathPhaseSnapshot
-      : this.state.currentPhase > 0 ? this.state.currentPhase : null;
+      : this.state.deathPhaseSnapshot > 0
+        ? this.state.deathPhaseSnapshot
+        : this.state.currentPhase > 0 ? this.state.currentPhase : null;
 
     // weaponStats 맵에 최종 저장된 순수 유효 대인 딜량의 총합을 계산하여 총 딜량 정합성을 일치화함
     let processedDamageDealt = 0;
