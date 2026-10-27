@@ -921,6 +921,36 @@ describeBrowser("stats browser smoke", () => {
     }
   }, 30_000);
 
+  it.each([
+    { width: 375, height: 667 }, { width: 390, height: 844 },
+    { width: 430, height: 932 }, { width: 1440, height: 900 },
+  ])("teammate names survive both response orders at $width x $height", async (viewport) => {
+    for (const scenarioName of ["teammates-history-first", "teammates-summary-first"] as const) {
+      await withStatsBrowserPage({
+        browser, baseUrl, scenarioName, clock, viewport,
+        run: async ({ page, dispatcher }) => {
+          const log = attachRuntimeLog(page);
+          await goToPlayer(page, dispatcher, baseUrl, "steam", "FixturePlayer");
+          await waitForSummarySuccess(dispatcher, "FixturePlayer", "steam");
+          await dispatcher.waitForTerminal({ selector: { pathname: "/api/pubg/player/matches", successful: true }, count: 1 });
+          // 두 응답이 모두 React 상태에 반영된 뒤 표시 여부를 확인한다.
+          await dispatcher.withFatal(page.waitForFunction(() => !document.querySelector('[aria-label="최근 매치"] [role="status"]')));
+          const selector = viewport.width < 768 ? '[data-testid="match-row-teammates-inline"]' : '[data-testid="match-row-teammates"]';
+          await dispatcher.withFatal(page.waitForSelector(selector, { visible: true }));
+          expect(await page.$eval(selector, node => node.textContent)).toContain("TeammateA");
+          expect(await page.$eval(selector, node => node.textContent)).toContain("TeammateB");
+          expect(await page.$eval(selector, node => node.textContent)).toContain("TeammateC");
+          expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+          expect(dispatcher.ledger.count({ pathname: "/api/pubg/match" })).toBe(0);
+          expect(log.pageErrors).toEqual([]);
+          await page.$eval('[data-compact-match-id="match-fixture-1"]', node => node.scrollIntoView({ block: "center", behavior: "instant" }));
+          await page.screenshot({ path: screenshotPath(scenarioName, viewport) });
+          await recordScenarioEvidence(scenarioName, viewport, dispatcher, log);
+        },
+      });
+    }
+  }, 90_000);
+
   it("dev-server readiness gate captures landing screenshot and clean document boundary", async () => {
     await withStatsBrowserPage({
       browser,

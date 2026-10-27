@@ -628,6 +628,54 @@ describe("useStatsPageController", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it.each([
+    [true, "pubg_match_performance"], [false, "pubg_match_performance"],
+    [true, "processed_match_telemetry"], [false, "processed_match_telemetry"],
+  ] as const)("성과 요약을 합쳐도 팀원과 분석값을 유지한다 (목록 먼저: %s, 요약: %s)", async (historyFirst, summarySource) => {
+    const teammates = ["TeammateA", "TeammateB", "TeammateC"];
+    const benchmark = { score: 88, tier: "A", breakdown: { combat: 30, tactical: 30, survival: 28 } };
+    const record = { match_id: "match-fixture-1", player_id: "fixtureplayer", platform: "steam", played_at: "2026-08-10T00:00:00Z", game_mode: "squad", match_type: "official", map_name: "Tiger_Main", kills: 4, damage: 420, win_place: 3, teammate_names: teammates };
+    const retained = { ...summaryFixture, benchmark, summarySource: "pubg_match_performance", stats: { ...(summaryFixture.stats as object), assists: 7 } };
+    const history = deferredResponse({ matches: [record], performanceSummaries: { [record.match_id]: retained }, page: 1, totalPages: 1 });
+    const summary = deferredResponse({ summaries: { [record.match_id]: { ...summaryFixture, benchmark, summarySource, teammateNames: teammates } }, missingMatchIds: [] });
+    fetchMock.mockImplementation((input, init) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player?")) return Promise.resolve(jsonResponse({ ...playerReady, recentMatches: [record.match_id] }));
+      return url === "/api/pubg/matches-summary" ? summary.fetch(input, init) : history.fetch(input, init);
+    });
+    const { result } = renderHook(() => useStatsPageController({ initialNickname: "FixturePlayer", initialPlatform: "steam" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    await act(async () => (historyFirst ? history : summary).resolve());
+    await waitFor(() => expect(result.current.matchSummaries[record.match_id]).toBeDefined());
+    await act(async () => (historyFirst ? summary : history).resolve());
+    await waitFor(() => expect(result.current.summaryStatus).toBe("ready"));
+    const match = result.current.matchSummaries[record.match_id];
+    expect(match.teammateNames).toEqual(teammates);
+    expect(match.benchmark).toEqual(benchmark);
+    expect(match.stats.assists).toBe(!historyFirst && summarySource === "pubg_match_performance" ? 7 : 1);
+    expect(match.summarySource).toBe(summarySource);
+  });
+
+  it("목록을 다시 읽으면 현재 응답에서 제외된 팀원 이름을 복원하지 않는다", async () => {
+    const record = { match_id: "match-fixture-1", player_id: "fixtureplayer", platform: "steam", played_at: "2026-08-10T00:00:00Z", game_mode: "duo", match_type: "official", map_name: "Tiger_Main", kills: 4, damage: 420, win_place: 3 };
+    let historyCalls = 0;
+    fetchMock.mockImplementation((input) => {
+      if (String(input).startsWith("/api/pubg/player?")) return Promise.resolve(jsonResponse({ ...playerReady, recentMatches: [] }));
+      historyCalls += 1;
+      return Promise.resolve(jsonResponse({
+        matches: [{ ...record, ...(historyCalls === 1 ? { teammate_names: ["VisibleTeammate"] } : {}) }],
+        performanceSummaries: { [record.match_id]: { ...summaryFixture, summarySource: "pubg_match_performance", teammateNames: ["OldTeammate"] } },
+        page: 1, totalPages: 1,
+      }));
+    });
+    const { result } = renderHook(() => useStatsPageController({ initialNickname: "FixturePlayer", initialPlatform: "steam" }));
+    await waitFor(() => expect(result.current.historyStatus).toBe("ready"));
+    expect(result.current.matchSummaries[record.match_id].teammateNames).toEqual(["VisibleTeammate"]);
+    await act(async () => { await result.current.retryHistory(); });
+    expect(result.current.matchSummaries[record.match_id].teammateNames).toBeUndefined();
+    expect(historyCalls).toBe(2);
+  });
+
   it.each([true, false])("요약에 모드 정보가 없어도 기본 전적의 모드와 맵을 유지한다 (목록 먼저: %s)", async (historyFirst) => {
     const history = deferredResponse({ matches: [{ match_id: "match-fixture-1", player_id: "fixtureplayer", platform: "steam", played_at: "2026-08-10T00:00:00Z", game_mode: "duo", match_type: "competitive", map_name: "Tiger_Main", kills: 4, damage: 420, win_place: 3 }], page: 1, totalPages: 1 });
     const summary = deferredResponse({ summaries: { "match-fixture-1": { ...summaryReadyFixture.summaries["match-fixture-1"], gameMode: undefined, matchType: undefined, mapName: undefined, mapId: undefined } }, missingMatchIds: [] });

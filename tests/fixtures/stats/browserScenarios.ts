@@ -73,6 +73,8 @@ export type StatsBrowserScenarioName =
   | "expired"
   | "autocomplete-abort"
   | "season-refresh"
+  | "teammates-history-first"
+  | "teammates-summary-first"
   | "route-race";
 
 export interface StatsScenarioState {
@@ -91,6 +93,7 @@ const SQUAD_QUERY_KEYS = new Set(["nickname", "platform", "groupKey"]);
 const DEFAULT_MATCH_ID = "match-fixture-1";
 const EXPIRED_MATCH_IDS = ["match-age-13", "match-age-15", "match-age-91"] as const;
 const MANY_MATCH_IDS = Array.from({ length: 16 }, (_, index) => `match-many-${index + 1}`);
+const TEAMMATE_NAMES = ["TeammateA", "TeammateB", "TeammateC"];
 
 const squadReady = squadReadyJson as SquadReadyFixture;
 
@@ -338,6 +341,7 @@ export function createStatsBrowserScenario(input: {
   const reservations = new Map<number, string>();
   let rateLimitUntil = 0;
   const supportedIdentities = new Set<string>();
+  const teammateScenario = input.name === "teammates-history-first" || input.name === "teammates-summary-first";
 
   const reserve = (request: StatsApiRequest, key: string): number => {
     const attempt = increment(counters, key);
@@ -454,7 +458,7 @@ export function createStatsBrowserScenario(input: {
     const key = `summary:${nickname}:${platform}:${matchIds.join(",")}`;
     const attempt = reserve(request, key);
     if (input.name === "summary-retry" && attempt === 1) return errorResponse(500, "fixture summary retry");
-    const summaries = Object.fromEntries(matchIds.map((matchId, index) => [
+    const summaries: Record<string, Record<string, unknown>> = Object.fromEntries(matchIds.map((matchId, index) => [
       matchId,
       cloneSummaryForRequest({
         matchId,
@@ -463,7 +467,15 @@ export function createStatsBrowserScenario(input: {
         playedAt: input.name === "expired" ? input.clock.daysAgo([13, 15, 91][index] as 13 | 15 | 91) : undefined,
       }),
     ]));
-    return jsonResponse(200, { summaries, missingMatchIds: [] });
+    if (teammateScenario) {
+      for (const summary of Object.values(summaries)) {
+        summary.summarySource = "pubg_match_performance";
+        summary.teammateNames = TEAMMATE_NAMES;
+      }
+    }
+    return jsonResponse(200, { summaries, missingMatchIds: [] }, {
+      delayMs: input.name === "teammates-history-first" ? 300 : undefined,
+    });
   };
 
   const resolveDetail = (request: StatsApiRequest): MockHttpResponse => {
@@ -531,6 +543,17 @@ export function createStatsBrowserScenario(input: {
         if (!supportedIdentities.has(identityKey(nickname, platform))) throw new Error("History identity was not resolved");
         const page = Number(request.query.page ?? 1);
         if (!Number.isSafeInteger(page) || page < 1) throw new Error("Invalid history page");
+        if (teammateScenario) {
+          const summary = cloneSummaryForRequest({ matchId: DEFAULT_MATCH_ID, nickname, clock: input.clock });
+          const stats = summary.stats as Record<string, unknown>;
+          return jsonResponse(200, {
+            matches: [{ match_id: DEFAULT_MATCH_ID, player_id: nickname.toLowerCase(), platform,
+              played_at: input.clock.readyIso, game_mode: summary.gameMode, match_type: "official", map_name: summary.mapName,
+              kills: stats.kills, damage: stats.damageDealt, win_place: stats.winPlace, teammate_names: TEAMMATE_NAMES }],
+            performanceSummaries: { [DEFAULT_MATCH_ID]: { ...summary, summarySource: "pubg_match_performance" } },
+            page, pageSize: 20, totalPages: 1, totalCount: 1,
+          }, { delayMs: input.name === "teammates-summary-first" ? 300 : undefined });
+        }
         return jsonResponse(200, {matches: [], page, pageSize: 20, totalPages: 0, totalCount: 0,
           performances: {}, performanceStates: {}, historyIngest: null});
       }

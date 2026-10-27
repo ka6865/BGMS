@@ -729,7 +729,9 @@ export function useStatsPageController(
       if (data.performanceSummaries) {
         const retained = normalizeSummaryMap(Object.fromEntries(incoming
           .filter(row => hasObservedPlayerMatchValues(row) && data.performanceSummaries?.[row.match_id])
-          .map(row => [row.match_id, data.performanceSummaries![row.match_id]])));
+          .map(row => [row.match_id, { ...data.performanceSummaries![row.match_id],
+            // 현재 목록에서 비공개를 거른 이름만 쓰고 이전 이름은 복원하지 않는다.
+            teammateNames: row.teammate_names }])));
         setMatchSummaries(previous => ({ ...previous, ...Object.fromEntries(Object.entries(retained)
           .filter(([id]) => previous[id]?.summarySource !== "processed_match_telemetry")) }));
       }
