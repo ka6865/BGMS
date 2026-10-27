@@ -22,10 +22,12 @@ import { MAP_SIZES } from './constants';
 import { hasObservedBenchmarkMetric, type ObservedBenchmark } from './benchmarkAdapter';
 import { isBotParticipant } from './botShare';
 import { MatchReportCollector } from './matchReport';
+import { summarizeRescueEpisodes } from './handlers/rescueEpisodes';
 
 export class AnalysisEngine {
   private state: AnalysisState;
   private handlers: any[];
+  private combatHandler: CombatHandler;
 
   constructor(
     nickname: string,
@@ -98,7 +100,7 @@ export class AnalysisEngine {
       dbnoMap: new Map(),
       totalPressureSum: 0,
       pressureSampleCount: 0,
-      combatPressure: { totalHits: 0, uniqueVictims: new Set(), maxHitDistance: 0, utilityDamage: 0, utilityHits: 0, isClutched: false },
+      combatPressure: { totalHits: 0, uniqueVictims: new Set(), maxHitDistance: 0, maxHitDistanceUpright: 0, utilityDamage: 0, utilityHits: 0, isClutched: false },
       myDownedIntervals: [],
       whiteZone: { x: 0, y: 0, radius: 0 },
       blueZone: { x: 0, y: 0, radius: 0 },
@@ -118,7 +120,8 @@ export class AnalysisEngine {
         heals: 0, boosts: 0, throwCount: 0, lethalThrowCount: 0,
         focusFireCount: 0,
         crossfireExposureCount: 0,
-        distanceDamage: { short: 0, mid: 0, long: 0 }
+        distanceDamage: { short: 0, mid: 0, long: 0 },
+        distanceDamageUpright: { short: 0, mid: 0, long: 0 }
       },
       phaseTimeline: [],
       myDeathTime: null,
@@ -151,12 +154,33 @@ export class AnalysisEngine {
       ridingShotKnocks: 0,
       roadKills: 0,
       roadKnocks: 0,
-      squadWeaponStats: new Map()
+      squadWeaponStats: new Map(),
+
+      // [계산 5] 생명 번호·구조 사건·전멸 기여 장부
+      actorIdsByName: new Map(),
+      actorNamesById: new Map(),
+      actorLives: new Map(),
+      rescueEpisodes: new Map(),
+      latestRescueEpisodeByVictim: new Map(),
+      reviveFallbackKeys: new Set(),
+      selfReviveCount: 0,
+      teammateSelfReviveCount: 0,
+      rosterSizes: new Map(),
+      rosterBotCounts: new Map(),
+      wipeRounds: new Map(),
+      wipedRostersAwaitingReturn: new Set(),
+      teamParticipationWipes: new Set(),
+      wipeEvidence: [],
+      myRosterSize: null,
+      aliveTeammatesAtMyDeath: null,
+      firstReplyWithin3sCount: 0,
+      firstReplyLatencySumMs: 0
     };
 
     // 핸들러 주입
+    this.combatHandler = new CombatHandler(this.state);
     this.handlers = [
-      new CombatHandler(this.state),
+      this.combatHandler,
       new ZoneHandler(this.state),
       new UtilityHandler(this.state),
       new PositionHandler(this.state),
@@ -248,6 +272,11 @@ export class AnalysisEngine {
         // 도메인 핸들러에게 위임
         this.handlers.forEach(h => h.handleEvent(e, ts, elapsed));
       } else {
+        // [계산 5] 적 사망 상태 전이와 전멸 판정은 lite 모드에서도 끝까지 처리한다(타임라인·교전 기록 제외).
+        // 재투입 완료 이벤트는 위 isRecallEvent 경로에서 이미 전부 처리된다.
+        if (e._T === "LogPlayerKill" || e._T === "LogPlayerKillV2") {
+          this.combatHandler.handleLifeStateEvent(e, ts);
+        }
         // 사망 이후라도 상태 업데이트는 필요할 수 있으므로 최소한의 핸들링만 수행 (타임라인 제외)
         // [BUG-FIX] 페이즈 업데이트는 하되, deathPhaseSnapshot은 절대 덮어쓰지 않음
         if (e._T === "LogPhaseStart" || e._T === "LogPhaseChange") {
@@ -271,6 +300,8 @@ export class AnalysisEngine {
       const teamMates = new Set<string>();
       const teamAccountIds = new Set<string>();
       let isMyTeam = false;
+      let rosterSize = 0;
+      let botMembers = 0;
 
       const pRefs = r.relationships?.participants?.data;
       if (pRefs && Array.isArray(pRefs)) {
@@ -278,6 +309,15 @@ export class AnalysisEngine {
           const fullPart = participants.find(part => part.id === pRef.id);
           const name = normalizeName(fullPart?.attributes?.stats?.name || "");
           const accountId = fullPart?.attributes?.stats?.playerId || fullPart?.attributes?.accountId;
+          if (fullPart) {
+            rosterSize++;
+            if (isBotParticipant(fullPart)) botMembers++;
+          }
+          // [계산 5] accountId만 있는 이벤트도 같은 사람으로 보도록 이름·ID를 공유 장부에 넣는다.
+          if (name && accountId) {
+            this.state.actorIdsByName.set(name, accountId);
+            this.state.actorNamesById.set(accountId, name);
+          }
 
           if (name) {
             this.state.teamMapping.set(name, r.id);
@@ -293,9 +333,12 @@ export class AnalysisEngine {
       }
 
       this.state.teamAliveMembers.set(r.id, teamMates);
+      this.state.rosterSizes.set(r.id, rosterSize);
+      this.state.rosterBotCounts.set(r.id, botMembers);
 
       if (isMyTeam) {
         this.state.myRosterId = r.id;
+        this.state.myRosterSize = rosterSize;
         this.state.teamNames = teamMates;
         this.state.teamAccountIds = teamAccountIds;
       }
@@ -384,6 +427,10 @@ export class AnalysisEngine {
     } else if (pData.reversalAttempts > 0) {
       avgReactLat = 3000;
     }
+
+    const rescueSummary = summarizeRescueEpisodes(this.state);
+    // [계산 5] 내 연막 후보 없이 완료한 소생 = 내 소생 - (같은 사건에 내 연막도 붙은 내 소생)
+    const safeRevivesWithoutSmoke = Math.max(0, this.state.myReviveCount - rescueSummary.reviveWithOwnSmokeCount);
 
     const avgTradeLat = this.state.tradeLatencies.length > 0 ? this.state.tradeLatencies.reduce((a, b) => a + b, 0) / this.state.tradeLatencies.length : null;
     const duelWinRate = (pData.duelWins + pData.duelLosses) > 0 ? (pData.duelWins / (pData.duelWins + pData.duelLosses)) * 100 : null;
@@ -512,7 +559,18 @@ export class AnalysisEngine {
         enemyTeamWipes: this.state.wipedTeamsByUserParticipation.size,
         tradeRate: this.state.totalTeammateKnocks > 0 ? (Math.min(this.state.totalTeammateKnocks, this.state.totalTradeKills) / this.state.totalTeammateKnocks) * 100 : null,
         suppRate: supportShare,
-        teammateKills: this.state.supportTeammateKills
+        teammateKills: this.state.supportTeammateKills,
+        teamParticipationWipes: this.state.teamParticipationWipes.size,
+        wipeEvidence: this.state.wipeEvidence.map(entry => ({ ...entry, kinds: [...entry.kinds] })),
+        rescueOpportunityCount: rescueSummary.rescueOpportunityCount,
+        rescueCount: rescueSummary.rescueCount,
+        reviveWithOwnSmokeCount: rescueSummary.reviveWithOwnSmokeCount,
+        selfReviveCount: this.state.selfReviveCount,
+        teammateSelfReviveCount: this.state.teammateSelfReviveCount
+      },
+      teamContext: {
+        myRosterSize: this.state.myRosterSize,
+        aliveTeammatesAtMyDeath: this.state.aliveTeammatesAtMyDeath
       },
       initiative_rate: initiativeRate,
       initiativeSampleCount: pData.total,
@@ -523,7 +581,9 @@ export class AnalysisEngine {
         reversals: pData.reversalWins,
         reversalAttempts: pData.reversalAttempts,
         reversalRate,
-        duelWinRate
+        duelWinRate,
+        firstReplyWithin3sCount: this.state.firstReplyWithin3sCount,
+        firstReplyLatencySumMs: this.state.firstReplyLatencySumMs
       },
       combatPressure: {
         pressureScore: this.state.myActionTimestamps.length > 0
@@ -547,6 +607,7 @@ export class AnalysisEngine {
         utilityHits: this.state.combatPressure.utilityHits,
         totalHits: this.state.combatPressure.totalHits,
         maxHitDist: this.state.combatPressure.maxHitDistance,
+        maxHitDistUpright: this.state.combatPressure.maxHitDistanceUpright,
         uniqueVictims: Array.from(this.state.combatPressure.uniqueVictims)
       },
       eliteBenchmark: observedEliteBenchmark,
@@ -597,7 +658,7 @@ export class AnalysisEngine {
         kills: myStats.kills ?? 0,
         damageDealt: processedDamageDealt,
         teamDamageShare: teamDamageShare ?? -1,
-        safeRevivesWithoutSmoke: Math.max(0, this.state.myReviveCount - this.state.totalSmokeRescues),
+        safeRevivesWithoutSmoke,
         teamMode: (this.state.gameMode || "").includes("solo")
           ? "solo"
           : (this.state.gameMode || "").includes("duo") ? "duo" : "squad",

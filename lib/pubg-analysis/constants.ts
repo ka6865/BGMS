@@ -12,12 +12,15 @@
  *   파일 수준의 캐시 무효화를 수행합니다. (R2 파일명 기반, ISR 무관)
  */
 
-export const ANALYSIS_CALCULATION_VERSION = 4; // 기회 없음 대체값을 만점 대신 모드별 관측 평균으로 채운다.
-// 계산 2→3은 캐리 보정만, 3→4는 기회 없음 대체값만 바꾼다. 비교 지표(원본 관측값)는 같아 함께 조회한다.
-export const SUPPORTED_ANALYSIS_CALCULATION_VERSIONS = [2, 3, ANALYSIS_CALCULATION_VERSION] as const;
+export const ANALYSIS_CALCULATION_VERSION = 5; // 팀 전멸·소생·교전을 내 기여 기준으로 귀속하고 재투입·중복 이벤트를 바로잡는다.
+// 계산 2→3은 캐리 보정만, 3→4는 기회 없음 대체값만 바꾼다(비교 지표 원본 관측값은 같다).
+// 4→5는 일부 비교 지표의 의미가 바뀐다. 해당 지표는 계산 5끼리만 비교한다(benchmarkLookup.ts CALCULATION_5_REDEFINED_METRICS).
+export const SUPPORTED_ANALYSIS_CALCULATION_VERSIONS = [2, 3, 4, ANALYSIS_CALCULATION_VERSION] as const;
 export function isSupportedAnalysisCalculationVersion(value: unknown): value is number {
   return SUPPORTED_ANALYSIS_CALCULATION_VERSIONS.some(version => value === version);
 }
+// [계산 5] 적 팀 전멸은 마지막 구성원 사망 전 이 시간 안에 내 기여가 있을 때만 인정한다(2026-10-27 결정).
+export const WIPE_CONTRIBUTION_WINDOW_MS = 90_000;
 export const RESULT_VERSION = 73.0; // [V73.0] PUBG AI 분석 정확도 감사 기준 결과 버전
 export const TELEMETRY_VERSION = 63.0; // [V63.0] 리플레이 위치·탑승 이벤트에 차량 인스턴스 ID(vehicleUniqueId) 추가
 export const AI_CACHE_VERSION = "2026-09-07.coaching-judgment-v4"; // Preserve population identity; reject prose from the former blame-replacement policy

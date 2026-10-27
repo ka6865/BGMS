@@ -39,7 +39,8 @@ const perPlayer = Number(values["per-player"] ?? 10);
 const maxWrites = Number(values["max-writes"] ?? 50);
 if (!Number.isInteger(perPlayer) || perPlayer < 1 || perPlayer > 50) throw new Error("--per-player must be 1..50");
 if (!Number.isInteger(maxWrites) || maxWrites < 1 || maxWrites > 20_000) throw new Error("--max-writes must be 1..20000");
-if (ANALYSIS_CALCULATION_VERSION !== 4) throw new Error("calculation_v4_required");
+// 계산 5 배포 뒤에도 계산 2·3 행을 계산 4로 올릴 수 있다(계산 4는 지원 버전이고, 계산 5 행은 RPC가 거부한다).
+if (ANALYSIS_CALCULATION_VERSION < 4) throw new Error("calculation_v4_required");
 
 dotenv.config({ path: ".env.local", quiet: true });
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -149,7 +150,7 @@ if (!values.apply) {
 const plan = JSON.parse(await readFile(planPath, "utf8")) as Plan;
 const { hash, ...body } = plan;
 if (plan.kind !== "calculation-v4-stored-upgrade" || planHash(body) !== hash) throw new Error("calculation_v4_plan_hash_mismatch");
-if (plan.project !== project || plan.calculationVersion !== ANALYSIS_CALCULATION_VERSION) throw new Error("calculation_v4_plan_project_or_version_mismatch");
+if (plan.project !== project || plan.calculationVersion !== 4) throw new Error("calculation_v4_plan_project_or_version_mismatch");
 let checkpoint: { hash: string; applied: string[]; rejected: string[] } = { hash, applied: [], rejected: [] };
 try {
   checkpoint = JSON.parse(await readFile(checkpointPath, "utf8"));

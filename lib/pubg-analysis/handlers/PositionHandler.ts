@@ -101,8 +101,12 @@ export class PositionHandler extends BaseHandler {
   private handlePlayerCreate(e: any) {
     const pName = normalizeName(e.character?.name || "");
     if (pName) {
-      this.state.playerAliveStatus.set(pName, true);
-      if (e.character?.accountId) this.state.playerAliveStatus.set(e.character.accountId, true);
+      // [계산 5] 기절 상태의 Create는 새 생명이 아니므로 기절 상태를 덮어쓰지 않는다.
+      // 사망 뒤 Create(재투입 완료)의 생명 번호·roster 복구는 CombatHandler가 먼저 처리한다.
+      if (this.state.playerAliveStatus.get(pName) !== "groggy") {
+        this.state.playerAliveStatus.set(pName, true);
+        if (e.character?.accountId) this.state.playerAliveStatus.set(e.character.accountId, true);
+      }
       this.updateParticipantLocations(e);
     }
   }
