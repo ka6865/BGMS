@@ -5902,8 +5902,8 @@ describe("AI cache route stabilization", () => {
     // Assert only after the route has returned. Assertions thrown from the
     // model callback are otherwise swallowed by the route's model fallback.
     expect(capturedPrompt).toContain("22.00s");
-    expect(capturedPrompt).toContain("교전 정리 후 복구 성공");
     expect(capturedPrompt).toContain("느린 백업이라고 단정하지 말 것");
+    expect(capturedPrompt).not.toContain("복구 시간을 줄이는");
     expect(capturedPrompt).toContain("적 제압 2회/전멸 기여 1회와 소생 1회");
     expect(mockGenerateContentStream).toHaveBeenCalled();
   });

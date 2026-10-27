@@ -153,9 +153,9 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
 - 1:1 교전 승률: ${formatPercent(matchData.duelStats?.duelWinRate)} (Elite Avg: ${formatBenchmarkPercent("avgDuelWinRate")})
 - 복수(Trade) 성공률: ${formatPercent(tradeStats.tradeRate)} (Elite Avg: ${formatBenchmarkPercent("avgTradeRate")})
 - 선제 공격 성공률: ${formatPercent(matchData.initiative_rate)} (Elite Avg: ${formatBenchmarkPercent("avgInitiativeRate")})
-- 대응 사격 속도(반응): ${(() => { const latency = finiteNonNegative(tradeStats.reactionLatencyMs); return latency === null ? "데이터 부족" : `${(latency / 1000).toFixed(2)}s`; })()} (Elite Avg: ${formatBenchmarkNumber("avgCounterLatency", "s")})
+- 대응 사격 속도(반응): ${(() => { const latency = finiteNonNegative(tradeStats.reactionLatencyMs); return latency === null ? "데이터 부족" : latency === 3000 && (finiteNonNegative(matchData.duelStats?.reversalAttempts) ?? 0) > 0 ? "3초 내 대응 피해 미관측(3초 패널티, 실제 시간 측정 불가)" : `${(latency / 1000).toFixed(2)}s`; })()} (Elite Avg: ${formatBenchmarkNumber("avgCounterLatency", "s")})
 - 백업(Trade) 속도: ${backupLatencyText} (Elite Avg: ${formatBenchmarkNumber("avgTradeLatency", "s")})
-- 백업 결과 해석: ${backupContext.promptLine}
+- 백업 결과 해석: 복수 처치까지의 시간이며, 소생·합류·복구에 걸린 시간은 측정하지 않음
 - 전술 지원: 아군 처치 지원 ${formatCount(tradeStats.suppCount)}회 / 아군 처치 ${formatCount(tradeStats.teammateKills)}회 중 지원 비율 ${formatPercent(tradeStats.suppRate)} (비교 자료 없음)
 - 위기 관리: 내가 한 소생률 ${formatPercent(personalReviveRate)} (아군 기절 ${formatCount(tradeStats.teammateKnocks)}회 중 내 소생 ${formatCount(tradeStats.revCount)}회, Elite Avg: ${formatBenchmarkPercent("avgReviveRate")}) / 내 연막 구출률 ${formatPercent(smokeOpportunityRate)} (아군 기절 대비 성공, Elite Avg: ${formatBenchmarkPercent("avgSmokeRate")}) / 구출 연막 시도 성공률 ${formatPercent(smokeAttemptSuccessRate)} (시도 ${formatCount(tradeStats.smokeCount)}회, 성공 ${formatCount(tradeStats.smokeRescues)}회)
 - 공간 전술: 고립 지수 ${isolationData?.isolationIndex ?? "데이터 부족"} (Elite Avg: ${formatBenchmarkNumber("avgIsolationIndex")}) / 아군 평균 거리: ${formatNumber(isolationData?.minDist, "m")} / 고도차 ${formatNumber(isolationData?.heightDiff, "m")} / 십자포화 노출: ${isCrossfireText}
@@ -185,6 +185,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     "- 배지가 없다는 이유로 실속 없음/훈장 사냥꾼/기여 부족을 단정하지 마십시오. 배지는 특정 조건의 보상일 뿐 전체 성과의 평가 기준이 아닙니다.",
     "- 후방/전방/진입 위치는 측정되지 않았습니다. 칭호에도 사용하지 마십시오.",
     "- [배지 우선순위] 유저가 획득한 배지가 있다면 이를 signature(칭호) 결정의 핵심 근거로 사용하십시오.",
+    "- [피해 기준] 유효 딜량은 무기별 집계로 투척물·차량 폭발 등 제외 항목이 있을 수 있습니다. 팀 내 딜량 비중은 PUBG 공식 피해량으로 계산하므로 두 값의 기준이 다를 수 있습니다. 공식 피해량과 유효 딜량을 같은 수치로 단정하지 마십시오.",
     "- [팀 영향력] 딜량 비중은 실제 화력 분담 비율만 설명하십시오. 비중만으로 교전 주도, 소극적 플레이, 후방 대기, 숨기, 동료 의존을 단정하지 마십시오.",
     "- [팀 영향력 해석 보호 규칙] 높은 딜량 비중은 '화력 기여'로만 설명하십시오. 비중은 진입/선제 공격의 증거가 아닙니다. 아군 소생 실패, 복구 실패, 팀원 사망 방치 데이터가 없으면 의도, 인성, 팀원 이용 여부를 단정하는 표현을 금지합니다.",
     "- [매치 임팩트 해석 규칙] 매치 임팩트가 '하드캐리' 또는 '레전드'이면 해당 판은 단일 경기 하이라이트 성과로 인정하십시오. 낮은 세부 항목을 지적하더라도 '판 전체가 나쁘다'거나 '방관했다'고 단정하지 말고, 강한 성과와 보완점을 분리해 말하십시오.",
@@ -199,8 +200,8 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     "  * 피해형 투척 적중률이 30% 이상이면 '폭파 전문가', 킬까지 있다면 '투척물 마스터' 칭호를 고려하십시오.",
     "  * 피해형 투척당 평균 데미지는 피해량만 설명하며, 적 위치 파악 능력이나 정확한 의도를 입증하지 않습니다.",
     "  * 투척물 딜량이 0이면 정확도만으로 교전 보조 능력을 단정하지 마십시오.",
-    "- [백업 해석 규칙] 백업 속도는 시간 단독으로 평가하지 말고, 적 제압/팀 전멸 기여/소생/연막 구출 결과를 함께 판단하십시오. 결과가 성공한 긴 백업은 '느린 백업'으로 단정하지 말고 '교전 정리 후 복구 성공'과 '복구 시간 단축 과제'를 분리해 말하십시오.",
-    "- [백업 성공 보호 규칙] 분석 데이터의 '백업 결과 해석'에 '느린 백업이라고 단정하지 말 것'이 포함되면 briefFeedback/finalVerdict/actionItems 어디에서도 '방관', '치명적', '느린 백업', '성공이라기엔 느림'으로 비난하지 마십시오. 이 경우 백업 액션 아이템 제목은 '복구 시간 단축'으로만 작성하고, 설명은 '성공 복구였지만 다음에는 시간을 줄이자'는 방향으로 작성하십시오.",
+    "- [백업 해석 규칙] 백업 속도는 아군 기절 후 복수 처치까지의 시간입니다. 이를 소생·합류·복구에 걸린 시간으로 해석하거나 복구 시간 단축을 지시하지 마십시오. 전멸 기여와 소생 횟수만으로 같은 사건의 복구 성공을 단정하지 마십시오.",
+    "- [표본과 비교] 투척 1~2회나 대응 사격 관측이 적을 때는 전반적인 능력을 단정하지 마십시오. 평균만으로 상위 백분위를 주장하지 말고, 선제 공격 성공률을 첫 발 명중률로 해석하지 마십시오.",
     "- **핵심 규칙**: 불필요한 미사여구와 항목 나열을 절대 금지합니다. 칭호와 그에 대한 전술적 이유를 설명한 뒤, 하단에 정확히 3개의 핵심 피드백 문장만 제공하십시오.",
     "",
     "반드시 아래 구조의 JSON 객체로만 응답하세요. 백틱(```) 없이 순수 JSON만 출력하십시오.",
