@@ -166,7 +166,8 @@ export interface RescueEpisode {
 }
 
 export interface WipeRound {
-  kinds: Set<WipeContributionKind>;
+  /** 기여 종류별 마지막 기여 시각(경기 시작 기준 ms). */
+  kinds: Map<WipeContributionKind, number>;
   lastMyContributionMs: number | null;
   wipedAtMs: number | null;
 }

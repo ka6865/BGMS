@@ -19,6 +19,8 @@ export const SUPPORTED_ANALYSIS_CALCULATION_VERSIONS = [2, 3, 4, ANALYSIS_CALCUL
 export function isSupportedAnalysisCalculationVersion(value: unknown): value is number {
   return SUPPORTED_ANALYSIS_CALCULATION_VERSIONS.some(version => value === version);
 }
+// [계산 5] 적 팀 전멸은 마지막 구성원 사망 전 이 시간 안에 내 기여가 있을 때만 인정한다(2026-10-27 결정).
+export const WIPE_CONTRIBUTION_WINDOW_MS = 90_000;
 export const RESULT_VERSION = 73.0; // [V73.0] PUBG AI 분석 정확도 감사 기준 결과 버전
 export const TELEMETRY_VERSION = 63.0; // [V63.0] 리플레이 위치·탑승 이벤트에 차량 인스턴스 ID(vehicleUniqueId) 추가
 export const AI_CACHE_VERSION = "2026-09-07.coaching-judgment-v4"; // Preserve population identity; reject prose from the former blame-replacement policy

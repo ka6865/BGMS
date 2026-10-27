@@ -111,6 +111,24 @@ describe("계산 5 E1 · 팀 전멸 개인 기여", () => {
     ]);
   });
 
+  it("마지막 구성원 사망 전 90초 안의 기여만 전멸로 인정한다", () => {
+    // 경계값: 정확히 90초 전 기여는 인정, 90초를 넘긴 기여는 불인정
+    const edge = run([damage(10_000, "Me", "E1", 50), kill(20_000, "O1", "E1"), kill(100_000, "O1", "E2")]);
+    expect(edge.result.tradeStats.enemyTeamWipes).toBe(1);
+    const stale = run([damage(10_000, "Me", "E1", 50), kill(20_000, "O1", "E1"), kill(100_001, "O1", "E2")]);
+    expect(stale.result.tradeStats.enemyTeamWipes).toBe(0);
+    expect(stale.result.tradeStats.wipeEvidence).toEqual([]);
+  });
+
+  it("창 안의 기여 종류만 근거로 남긴다", () => {
+    const { result } = run([
+      knock(5_000, "Me", "E1"), revive(30_000, "E2", "E1"),
+      damage(150_000, "Me", "E2", 40), kill(160_000, "O1", "E1"), kill(170_000, "O1", "E2"),
+    ]);
+    expect(result.tradeStats.enemyTeamWipes).toBe(1);
+    expect(result.tradeStats.wipeEvidence?.[0]).toMatchObject({ lastMyContributionMs: 150_000, kinds: ["damage"] });
+  });
+
   it("3. 다른 팀이 기절시킨 적에게 피해만 주면 0, 내가 확킬하면 1", () => {
     const damageOnly = run([
       kill(5_000, "O1", "E2"),

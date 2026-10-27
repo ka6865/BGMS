@@ -1,6 +1,6 @@
 import { AnalysisState, WipeContributionKind } from "../types";
 import { normalizeName, calcDist3D, scaleCoordinate } from "../utils";
-import { WEAPON_NAMES, IGNORE_WEAPONS, IGNORE_WEAPON_PATTERNS, TACTICAL_THRESHOLDS } from "../constants";
+import { WEAPON_NAMES, IGNORE_WEAPONS, IGNORE_WEAPON_PATTERNS, TACTICAL_THRESHOLDS, WIPE_CONTRIBUTION_WINDOW_MS } from "../constants";
 import { BaseHandler } from "./BaseHandler";
 import {
   closeEpisodeForVictim,
@@ -234,7 +234,7 @@ export class CombatHandler extends BaseHandler {
   private ensureWipeRound(rosterId: string) {
     let round = this.state.wipeRounds.get(rosterId);
     if (!round) {
-      round = { kinds: new Set(), lastMyContributionMs: null, wipedAtMs: null };
+      round = { kinds: new Map(), lastMyContributionMs: null, wipedAtMs: null };
       this.state.wipeRounds.set(rosterId, round);
     }
     return round;
@@ -246,8 +246,8 @@ export class CombatHandler extends BaseHandler {
     const rosterId = this.rosterOf(victim);
     if (!rosterId || rosterId === this.state.myRosterId) return;
     const round = this.ensureWipeRound(rosterId);
-    round.kinds.add(kind);
     const relativeMs = ts - this.state.matchStartTime;
+    round.kinds.set(kind, Math.max(round.kinds.get(kind) ?? relativeMs, relativeMs));
     round.lastMyContributionMs = round.lastMyContributionMs === null ? relativeMs : Math.max(round.lastMyContributionMs, relativeMs);
     this.evaluateWipe(rosterId);
   }
@@ -257,13 +257,16 @@ export class CombatHandler extends BaseHandler {
     if (this.state.wipedTeamsByUserParticipation.has(rosterId)) return;
     const round = this.state.wipeRounds.get(rosterId);
     if (!round || round.wipedAtMs === null || round.lastMyContributionMs === null || round.kinds.size === 0) return;
+    // 마지막 구성원 사망 전 90초 안의 기여만 인정한다. 오래전 피해·기절은 전멸 기여로 보지 않는다.
+    const windowStart = round.wipedAtMs - WIPE_CONTRIBUTION_WINDOW_MS;
+    if (round.lastMyContributionMs < windowStart) return;
     this.state.wipedTeamsByUserParticipation.add(rosterId);
     const order: WipeContributionKind[] = ["damage", "knock", "kill", "finisher", "dbnoMaker"];
     this.state.wipeEvidence.push({
       rosterSize: this.state.rosterSizes.get(rosterId) ?? 0,
       wipedAtMs: round.wipedAtMs,
       lastMyContributionMs: round.lastMyContributionMs,
-      kinds: order.filter(kind => round.kinds.has(kind)),
+      kinds: order.filter(kind => (round.kinds.get(kind) ?? -Infinity) >= windowStart),
       botMembers: this.state.rosterBotCounts.get(rosterId) ?? 0,
     });
   }
