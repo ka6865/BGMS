@@ -47,7 +47,9 @@ export function buildSummaryCardEvidence(stats: Record<string, unknown>, benchma
       entry.userNumericValue = null;
       entry.unavailableReason = metricId === 'backup_latency' && numberOrNull(stats.totalTradeKills) === 0
         ? '복수 처치 성공 사례가 없어 시간을 계산할 수 없습니다.'
-        : '이 지표를 측정할 수 있는 기록이 없습니다.';
+        : metricId === 'reaction_latency' && (numberOrNull(stats.counterObservedMatches) ?? 0) > 0
+          ? '3초 안에 반격한 경기가 없어 시간을 계산할 수 없습니다.'
+          : '이 지표를 측정할 수 있는 기록이 없습니다.';
     } else if (entry.userValue === null && userMatchCount !== undefined && typeof stats.mLen === 'number' && userMatchCount < stats.mLen) {
       entry.unavailableReason = `선택된 ${stats.mLen}경기 중 ${userMatchCount}경기만 기록이 확인되어 전체 합계·비율을 표시하지 않습니다.`;
     }
@@ -57,7 +59,9 @@ export function buildSummaryCardEvidence(stats: Record<string, unknown>, benchma
   const duelCount = numberOrNull(stats.totalDuelWins) !== null && numberOrNull(stats.totalDuelLosses) !== null ? Number(stats.totalDuelWins) + Number(stats.totalDuelLosses) : null;
   add('duel_win_rate', '1:1 교전 승률', stats.avgDuelWinRate, '%', 'avgDuelWinRate', stats.totalDuelWins, duelCount);
   add('pressure_index', '평균 압박 지수', stats.avgPressureIndex, '', 'avgPressureIndex');
-  add('reaction_latency', '대응 사격 속도', stats.avgReactionLatency, 's', 'avgCounterLatency');
+  // 3초 패널티 경기는 반응 시간이 아니므로 실측 평균과 실패율을 따로 비교한다.
+  add('reaction_latency', '대응 사격 속도', stats.avgMeasuredReactionLatency, 's', 'avgMeasuredCounterLatency');
+  add('counter_failure_rate', '3초 내 대응 실패율', stats.counterFailureRate, '%', 'avgCounterFailureRate', stats.counterFailureMatches, stats.counterObservedMatches);
   add('backup_latency', '백업 속도', stats.avgBackupLatency, 's', 'avgTradeLatency');
   add('trade_success_rate', '복수 성공률', rate(stats.totalTradeKills, stats.totalTeammateKnocks), '%', 'avgTradeRate', stats.totalTradeKills, stats.totalTeammateKnocks);
   add('smoke_opportunity_rate', '아군 기절 대비 연막 구출률', rate(stats.totalSmokeRescues, stats.totalTeammateKnocks), '%', 'avgSmokeRate', stats.totalSmokeRescues, stats.totalTeammateKnocks);

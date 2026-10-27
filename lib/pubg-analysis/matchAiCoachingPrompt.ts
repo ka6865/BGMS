@@ -1,5 +1,6 @@
 import { buildBackupCoachingContext, type BackupCoachingContext } from "@/lib/pubg-analysis/backupCoaching";
 import { hasObservedBenchmarkMetric, type NormalizedBenchmark, type ObservedBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
+import { COUNTER_LATENCY_PENALTY_MS } from "@/lib/pubg-analysis/constants";
 
 interface MatchAiPromptInput {
   matchData: any;
@@ -153,7 +154,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
 - 1:1 교전 승률: ${formatPercent(matchData.duelStats?.duelWinRate)} (Elite Avg: ${formatBenchmarkPercent("avgDuelWinRate")})
 - 복수(Trade) 성공률: ${formatPercent(tradeStats.tradeRate)} (Elite Avg: ${formatBenchmarkPercent("avgTradeRate")})
 - 선제 공격 성공률: ${formatPercent(matchData.initiative_rate)} (Elite Avg: ${formatBenchmarkPercent("avgInitiativeRate")})
-- 대응 사격 속도(반응): ${(() => { const latency = finiteNonNegative(tradeStats.reactionLatencyMs); return latency === null ? "데이터 부족" : latency === 3000 && (finiteNonNegative(matchData.duelStats?.reversalAttempts) ?? 0) > 0 ? "3초 내 대응 피해 미관측(3초 패널티, 실제 시간 측정 불가)" : `${(latency / 1000).toFixed(2)}s`; })()} (Elite Avg: ${formatBenchmarkNumber("avgCounterLatency", "s")})
+- 대응 사격 속도(반응): ${(() => { const latency = finiteNonNegative(tradeStats.reactionLatencyMs); return latency === null ? "데이터 부족" : latency === COUNTER_LATENCY_PENALTY_MS && (finiteNonNegative(matchData.duelStats?.reversalAttempts) ?? 0) > 0 ? `3초 내 대응 피해 미관측(3초 패널티, 실제 시간 측정 불가) (Elite 3초 내 대응 실패율: ${formatBenchmarkPercent("avgCounterFailureRate")})` : `${(latency / 1000).toFixed(2)}s (Elite Avg, 3초 안에 반격한 경기 기준: ${formatBenchmarkNumber("avgMeasuredCounterLatency", "s")})`; })()}
 - 백업(Trade) 속도: ${backupLatencyText} (Elite Avg: ${formatBenchmarkNumber("avgTradeLatency", "s")})
 - 백업 결과 해석: 복수 처치까지의 시간이며, 소생·합류·복구에 걸린 시간은 측정하지 않음
 - 전술 지원: 아군 처치 지원 ${formatCount(tradeStats.suppCount)}회 / 아군 처치 ${formatCount(tradeStats.teammateKills)}회 중 지원 비율 ${formatPercent(tradeStats.suppRate)} (비교 자료 없음)

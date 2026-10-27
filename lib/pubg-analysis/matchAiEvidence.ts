@@ -1,4 +1,5 @@
 import { hasObservedBenchmarkMetric, type NormalizedBenchmark } from './benchmarkAdapter';
+import { COUNTER_LATENCY_PENALTY_MS } from './constants';
 import { requiresRescueOpportunityEvidence, isNegatedCoachingDirectiveTail } from './aiCoachingQuality';
 
 const finite = (value: unknown): number | null => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
@@ -16,7 +17,7 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
   const throwFacts = `총 투척 ${total === null ? '측정 불가' : `${total}회`}, 피해형 투척 ${lethal === null ? '측정 불가' : `${lethal}회`}, 피해 적중 ${hits === null ? '측정 불가' : `${hits}회`}입니다. 피해형 투척 적중률은 ${accuracy === null ? '측정 불가' : `${accuracy}%`}입니다.`;
   const comparison = /(?:상위권|동일\s*티어|비교\s*평균|엘리트)[^.!?。！？]{0,40}(?:비해|보다|기준|수준|평균|부족|낮|높|느|뒤처)/u;
   const metricBenchmarks: Array<[RegExp, keyof NormalizedBenchmark]> = [
-    [/(?:대응|반응)\s*(?:사격)?\s*속도/u, 'avgCounterLatency'],
+    [/(?:대응|반응)\s*(?:사격)?\s*속도/u, 'avgMeasuredCounterLatency'],
     [/백업\s*속도/u, 'avgTradeLatency'], [/고립/u, 'avgIsolationIndex'],
     [/(?:피해량|딜량|화력)/u, 'avgDamage'], [/복수/u, 'avgTradeRate'],
   ];
@@ -28,7 +29,7 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
       if (['signatureSub', 'briefFeedback', 'finalVerdict'].includes(key) && /최전선|전방에서/u.test(sentence)) {
         return '관측 기록만으로 전방 위치나 교전 의도를 단정할 수 없습니다.';
       }
-      if (finite(match?.tradeStats?.reactionLatencyMs) === 3000 && (finite(match?.duelStats?.reversalAttempts) ?? 0) > 0
+      if (finite(match?.tradeStats?.reactionLatencyMs) === COUNTER_LATENCY_PENALTY_MS && (finite(match?.duelStats?.reversalAttempts) ?? 0) > 0
         && /(?:대응|반응)\s*(?:사격)?\s*속도/u.test(sentence) && /3(?:\.0+)?\s*(?:초|s)/u.test(sentence)
         && !/미관측|관측되지|패널티|측정.{0,8}불가/u.test(sentence)) {
         return '3초 내 대응 피해가 관측되지 않아 3초 패널티가 적용되었습니다. 실제 반응 시간은 측정되지 않았습니다.';

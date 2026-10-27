@@ -5908,6 +5908,34 @@ describe("AI cache route stabilization", () => {
     expect(mockGenerateContentStream).toHaveBeenCalled();
   });
 
+  it("ai-summary는 3초 대응 실패 패널티를 실측 반응 시간 평균에서 분리한다", async () => {
+    let capturedPrompt = "";
+    mockSummaryGeminiResponse((prompt) => {
+      capturedPrompt = prompt;
+    });
+    const tradeStats = { teammateKnocks: 0, tradeKills: 0, suppCount: 0, revCount: 0, smokeCount: 0, smokeRescues: 0, tradeLatencyMs: null };
+    const player = { player_id: "kangheesung_", stats: { name: "KangHeeSung_", kills: 1, damageDealt: 200, processedDamageDealt: 200, winPlace: 5, timeSurvived: 1200 } };
+    const measured = createSummaryMatch("match-react", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 600 } });
+    const penalty = createSummaryMatch("match-penalty", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 3000 } });
+    const telemetry = createQueryChain({
+      data: [measured, penalty].map((fullResult) => ({ match_id: fullResult.matchId, player_id: "kangheesung_", platform: "kakao", data: { fullResult } })),
+      error: null,
+    });
+    const supabase = createSupabaseMock({
+      player_ai_summary_cache: createQueryChain(),
+      processed_match_telemetry: telemetry,
+      global_benchmarks: createQueryChain({ data: [], error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: null, error: null }),
+    });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
+
+    const response = await aiSummaryPOST(createRequest({ matchIds: ["match-react", "match-penalty"], nickname: "KangHeeSung_", platform: "kakao", force: true }));
+    expect(await response.text()).toContain("\"type\":\"done\"");
+    expect(capturedPrompt).toContain("0.60s");
+    expect(capturedPrompt).toContain("1/2경기");
+    expect(capturedPrompt).not.toContain("1.80s");
+  });
+
   it("ai-summary는 피해형 투척 수를 연막 포함 총 투척 수와 분리해 프롬프트에 전달한다", async () => {
     let capturedPrompt = "";
     mockSummaryGeminiResponse((prompt) => {

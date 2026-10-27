@@ -21,11 +21,13 @@ export function isSupportedAnalysisCalculationVersion(value: unknown): value is 
 }
 // [계산 5] 적 팀 전멸은 마지막 구성원 사망 전 이 시간 안에 내 기여가 있을 때만 인정한다(2026-10-27 결정).
 export const WIPE_CONTRIBUTION_WINDOW_MS = 90_000;
+// 3초 안에 대응 피해가 없고 기습만 당한 경기의 반격 지연 패널티. 실측 반응 시간은 항상 이보다 작다.
+export const COUNTER_LATENCY_PENALTY_MS = 3000;
 export const RESULT_VERSION = 73.0; // [V73.0] PUBG AI 분석 정확도 감사 기준 결과 버전
 export const TELEMETRY_VERSION = 63.0; // [V63.0] 리플레이 위치·탑승 이벤트에 차량 인스턴스 ID(vehicleUniqueId) 추가
 export const AI_CACHE_VERSION = "2026-09-07.coaching-judgment-v4"; // Preserve population identity; reject prose from the former blame-replacement policy
 export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-scope-calc${ANALYSIS_CALCULATION_VERSION}-v6`; // 팀 관측 비교 기준(전체 팀 평균)을 프롬프트에 넣었다
-export const AI_SUMMARY_CACHE_VERSION = "2026-10-19.card-grounded-quality-v21"; // 서버 비교문과 카드별 검증·부분 완료 계약
+export const AI_SUMMARY_CACHE_VERSION = "2026-10-28.counter-latency-split-v22"; // 반격 지연을 실측 평균과 3초 내 대응 실패율로 나눠 비교한다
 // Evidence marker for canonical rows written after the human BR population
 // boundary. This is deliberately independent of RESULT/telemetry/cache
 // versions so old v73/R2 rows can fail closed without a broad cache bump.

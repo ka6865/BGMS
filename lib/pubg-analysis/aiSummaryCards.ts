@@ -84,7 +84,7 @@ export const SUMMARY_TOPIC_DEFINITIONS: Readonly<Record<SummaryTopicId, {
   defaultQuestion: string;
 }>> = {
   firepower: { topic: "화력", metricIds: ["damage_average"], defaultQuestion: "화력에 대한 두 코치의 평가는?" },
-  initiative: { topic: "교전 주도권", metricIds: ["initiative_rate", "pressure_index", "reaction_latency"], defaultQuestion: "교전 주도권에 대한 두 코치의 평가는?" },
+  initiative: { topic: "교전 주도권", metricIds: ["initiative_rate", "pressure_index", "reaction_latency", "counter_failure_rate"], defaultQuestion: "교전 주도권에 대한 두 코치의 평가는?" },
   duel: { topic: "1:1 결정력", metricIds: ["duel_win_rate", "solo_kill_share"], defaultQuestion: "1:1 결정력에 대한 두 코치의 평가는?" },
   trade_backup: { topic: "복수 성공률 및 백업", metricIds: ["trade_success_rate", "backup_latency"], defaultQuestion: "복수 성공률 및 백업에 대한 두 코치의 평가는?" },
   utility: { topic: "유틸리티 활용", metricIds: ["utility_throws", "utility_smokes", "utility_lethal_throws", "smoke_rescue_attempts", "smoke_opportunity_rate"], defaultQuestion: "유틸리티 활용에 대한 두 코치의 평가는?" },
@@ -107,6 +107,7 @@ const METRIC_DEFINITIONS: Readonly<Record<string, MetricDefinition>> = {
   initiative_rate: { topicId: "initiative", unit: "%" },
   pressure_index: { topicId: "initiative", unit: "" },
   reaction_latency: { topicId: "initiative", unit: "s" },
+  counter_failure_rate: { topicId: "initiative", unit: "%" },
   duel_win_rate: { topicId: "duel", unit: "%" },
   solo_kill_share: { topicId: "duel", unit: "%" },
   trade_success_rate: { topicId: "trade_backup", unit: "%" },

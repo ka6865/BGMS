@@ -89,6 +89,8 @@ export interface RawTierBenchmark {
   avg_isolation_index?: number | null;
   avg_min_dist?: number | null;
   avg_counter_latency_ms?: number | null;
+  avg_measured_counter_latency_ms?: number | null;
+  avg_counter_failure_rate?: number | null;
   avg_trade_latency_ms?: number | null;
   avg_solo_kill_rate?: number | null;
   avg_death_phase?: number | null;
@@ -118,6 +120,9 @@ export interface NormalizedBenchmark {
   avgTradeLatency: number;
   avgSoloKillRate: number;
   avgDeathPhase: number;
+  // 반격 지연을 3초 패널티와 실측으로 나눈 값. 관측 비교 기준에만 있고 기본값을 두지 않는다.
+  avgMeasuredCounterLatency?: number;
+  avgCounterFailureRate?: number;
 }
 
 /**
@@ -255,6 +260,7 @@ export function adaptObservedBenchmark(raw: any): ObservedBenchmark | null {
   const observed: ObservedBenchmark = { sampleCount, ...(typeof raw.calculation_version === "number" ? { calculationVersion: raw.calculation_version } : {}) };
   const counterLatencyMs = observedNonNegative(raw.avg_counter_latency_ms ?? raw.avg_counter_latency, 2);
   const tradeLatencyMs = observedNonNegative(raw.avg_trade_latency_ms ?? raw.avg_trade_latency, 2);
+  const measuredCounterLatencyMs = observedNonNegative(raw.avg_measured_counter_latency_ms, 2);
   const values: Array<{
     key: keyof NormalizedBenchmark;
     value: number | undefined;
@@ -274,6 +280,8 @@ export function adaptObservedBenchmark(raw: any): ObservedBenchmark | null {
     { key: "avgIsolationIndex", value: observedNonNegative(raw.avg_isolation_index, 2), rawFields: ["avg_isolation_index"] },
     { key: "avgMinDist", value: observedNonNegative(raw.avg_min_dist, 0), rawFields: ["avg_min_dist"] },
     { key: "avgCounterLatency", value: counterLatencyMs === undefined ? undefined : Number((counterLatencyMs / 1000).toFixed(2)), rawFields: ["avg_counter_latency_ms", "avg_counter_latency"] },
+    { key: "avgMeasuredCounterLatency", value: measuredCounterLatencyMs === undefined ? undefined : Number((measuredCounterLatencyMs / 1000).toFixed(2)), rawFields: ["avg_measured_counter_latency_ms"] },
+    { key: "avgCounterFailureRate", value: observedRate(raw.avg_counter_failure_rate), rawFields: ["avg_counter_failure_rate"] },
     { key: "avgTradeLatency", value: tradeLatencyMs === undefined ? undefined : Number((tradeLatencyMs / 1000).toFixed(2)), rawFields: ["avg_trade_latency_ms", "avg_trade_latency"] },
     { key: "avgSoloKillRate", value: observedRate(raw.avg_solo_kill_rate), rawFields: ["avg_solo_kill_rate"] },
     { key: "avgDeathPhase", value: observedNonNegative(raw.avg_death_phase, 1), rawFields: ["avg_death_phase"] },
@@ -287,7 +295,7 @@ export function adaptObservedBenchmark(raw: any): ObservedBenchmark | null {
     const original = finiteNumber(raw[rawFields.find(field => raw[field] != null) ?? rawFields[0]]);
     if (original !== undefined && original >= 0) {
       observed.rawMetricValues ??= {};
-      observed.rawMetricValues[key] = key === "avgCounterLatency" || key === "avgTradeLatency" ? original / 1000 : original;
+      observed.rawMetricValues[key] = key === "avgCounterLatency" || key === "avgMeasuredCounterLatency" || key === "avgTradeLatency" ? original / 1000 : original;
     }
     metricSampleCounts[key] = count;
   });

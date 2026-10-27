@@ -1,7 +1,7 @@
 import { after, NextResponse } from "next/server";
 import { APICallError, streamText, Output } from "ai";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import { AI_SUMMARY_CACHE_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
+import { AI_SUMMARY_CACHE_VERSION, COUNTER_LATENCY_PENALTY_MS, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
 import { estimateUserTier } from "@/lib/pubg-analysis/benchmarkScore";
 import { dominantTierScope, tierScopeOfMode, type TierScope } from "@/lib/pubg-analysis/tierAveraging";
 import { classifyRole } from "@/lib/pubg-analysis/roleClassifier";
@@ -551,7 +551,8 @@ function aggregateMatches(matches: any[]) {
   let totalRoadKills = 0, totalRoadKnocks = 0;
   let vehicleCombatMatchCount = 0;
 
-  const backupLatencies: number[] = [], reactionLatencies: number[] = [];
+  const backupLatencies: number[] = [], reactionLatencies: number[] = [], measuredReactionLatencies: number[] = [];
+  let counterFailureMatches = 0;
   const goldenTimeFinal = { early: 0, mid1: 0, mid2: 0, late: 0 };
   const killContribFinal = { solo: 0, cleanup: 0, assist: 0 }; // assist = 내 킬 중 팀원이 먼저 딜을 넣었던 킬 (KDA 어시스트와 무관)
   const weaponStatsFinal: Record<string, any> = {};
@@ -603,7 +604,12 @@ function aggregateMatches(matches: any[]) {
       const tradeLatencyMs = readObservedNonNegative(m.tradeStats.tradeLatencyMs);
       const reactionLatencyMs = readObservedNonNegative(m.tradeStats.reactionLatencyMs);
       if (tradeLatencyMs !== null) backupLatencies.push(tradeLatencyMs);
-      if (reactionLatencyMs !== null && reactionLatencyMs > 0) reactionLatencies.push(reactionLatencyMs);
+      if (reactionLatencyMs !== null && reactionLatencyMs > 0) {
+        reactionLatencies.push(reactionLatencyMs);
+        // 3초 안에 대응하지 못한 경기는 엔진이 패널티 값을 넣는다. 실측 반응 시간과 분리해 센다.
+        if (reactionLatencyMs >= COUNTER_LATENCY_PENALTY_MS) counterFailureMatches++;
+        else measuredReactionLatencies.push(reactionLatencyMs);
+      }
     }
 
     totalRescueSmokes += coerceNonNegativeNumber(m.tradeStats?.smokeCount);
@@ -847,6 +853,11 @@ function aggregateMatches(matches: any[]) {
   const userReversalRate = totalReversalAttempts > 0 ? Math.max(0, Math.min(100, Math.round((totalReversalWins / totalReversalAttempts) * 100))) : null;
   const avgBackupLatency = backupLatencies.length > 0 ? (backupLatencies.reduce((a, b) => a + b, 0) / backupLatencies.length / 1000).toFixed(2) + "s" : "측정 불가";
   const avgReactionLatency = reactionLatencies.length > 0 ? (reactionLatencies.reduce((a, b) => a + b, 0) / reactionLatencies.length / 1000).toFixed(2) + "s" : "측정 불가";
+  // 역할 분류와 시각화는 패널티 포함 평균(avgReactionLatency)으로 보정되어 있다. AI 근거는 아래 두 값을 쓴다.
+  const measuredReactionLatencySec = measuredReactionLatencies.length > 0 ? measuredReactionLatencies.reduce((a, b) => a + b, 0) / measuredReactionLatencies.length / 1000 : null;
+  const avgMeasuredReactionLatency = measuredReactionLatencySec === null ? "측정 불가" : measuredReactionLatencySec.toFixed(2) + "s";
+  const counterObservedMatches = reactionLatencies.length;
+  const counterFailureRate = counterObservedMatches > 0 ? Math.round((counterFailureMatches / counterObservedMatches) * 100) : null;
   const avgCoverRate = totalCoverAttempts > 0
     ? Math.max(0, Math.min(100, Math.round((totalCoverSuccess / totalCoverAttempts) * 100)))
     : null;
@@ -908,7 +919,8 @@ function aggregateMatches(matches: any[]) {
   Object.assign(metricMatchCounts, {
     damage_average: observedCount(inputMatches.map((m) => firstObservedNonNegative(m.stats?.processedDamageDealt, m.stats?.damageDealt))),
     pressure_index: pressureIndexCount,
-    reaction_latency: reactionLatencies.length,
+    reaction_latency: measuredReactionLatencies.length,
+    counter_failure_rate: counterObservedMatches,
     backup_latency: backupLatencies.length,
     trade_success_rate: inputMatches.filter((m) => [m.tradeStats?.tradeKills, m.tradeStats?.teammateKnocks].every((value) => readObservedNonNegative(value) !== null)).length,
     smoke_opportunity_rate: inputMatches.filter((m) => [m.tradeStats?.smokeRescues, m.tradeStats?.teammateKnocks].every((value) => readObservedNonNegative(value) !== null)).length,
@@ -924,13 +936,13 @@ function aggregateMatches(matches: any[]) {
     metricMatchCounts,
     rawMetricValues: {
       pressure_index: pressureIndexCount > 0 ? totalPressureIndex / pressureIndexCount : null,
-      reaction_latency: reactionLatencies.length > 0 ? reactionLatencies.reduce((a, b) => a + b, 0) / reactionLatencies.length / 1000 : null,
+      reaction_latency: measuredReactionLatencySec,
       backup_latency: backupLatencies.length > 0 ? backupLatencies.reduce((a, b) => a + b, 0) / backupLatencies.length / 1000 : null,
       death_phase: deathPhaseCount > 0 ? totalDeathPhase / deathPhaseCount : null,
       isolation_average: isolationCountFinal > 0 ? totalIsolationIndexFinal / isolationCountFinal : null,
     },
     mLen, avgDamage, avgKills, avgDamageImpact, avgTeamDamageShare, avgTeamKillShare, avgPlacementPct, topBadges,
-    userInitiativeRate, userReversalRate, avgBackupLatency, avgReactionLatency, avgCoverRate, avgDuelWinRate,
+    userInitiativeRate, userReversalRate, avgBackupLatency, avgReactionLatency, avgMeasuredReactionLatency, counterFailureMatches, counterObservedMatches, counterFailureRate, avgCoverRate, avgDuelWinRate,
     totalDuelWins, totalDuelLosses, totalReversalWins, totalReversalAttempts, avgDeathPhase,
     avgPressureIndex, totalLethalThrows, totalUtilityThrows, avgUtilityEfficiency, avgMinDistStr, avgHeightDiffStr,
     avgIsolationStr, avgCombatIsolationStr, avgDeathIsolationStr, goldenTimeAvg, soloKillRate, latestMatchTime, killContribFinal,
@@ -1858,7 +1870,7 @@ export async function POST(request: Request) {
         totalTeamWipes: summaryStats.totalTeamWipes,
         totalTeammateKnocks: summaryStats.totalTeammateKnocks,
       }).promptLine}\n`;
-      userPrompt += `- 대응 사격 속도(Reaction): ${summaryStats.avgReactionLatency} (피격 시 반격 시간)\n`;
+      userPrompt += `- 대응 사격 속도(Reaction): ${summaryStats.avgMeasuredReactionLatency} (3초 안에 반격한 경기의 피격 후 반격 시간), 3초 내 대응 실패: ${summaryStats.counterObservedMatches > 0 ? `${summaryStats.counterFailureMatches}/${summaryStats.counterObservedMatches}경기` : "측정 불가"}\n`;
       userPrompt += `- 유틸리티 활용: 총 투척 ${formatObservedCount(summaryStats.totalUtilityThrows)} (내 연막 ${summaryStats.totalSmokes}회 사용)\n`;
       userPrompt += `- 개인 전술 구출: 내 구출 연막 성공률 ${smokeRescueRate} (구출 연막 시도 ${summaryStats.totalSmokeCount}회, 성공 ${summaryStats.totalSmokeRescues}회), 아군 기절 대비 연막 구출률 ${smokeOpportunityRate}\n`;
     }
@@ -1991,9 +2003,12 @@ export async function POST(request: Request) {
         userPrompt += `- [개인 팀플레이 기여] 아군 기절 ${gStats.totalTeammateKnocks}회 → 내가 한 소생: ${gStats.totalRevCount}회, 내가 만든 복수(Trade): ${gStats.totalTradeKills}회 (복수 성공률: ${tradeRate}${bench?.avgTradeRate !== undefined ? ` vs ${metricBenchmarkProvenance("avgTradeRate")}: 복수 성공률 ${bench.avgTradeRate}%` : ""})\n`;
         userPrompt += `- [개인 전술 기여] 아군 처치 지원 비율: ${suppRate}, 미끼: ${gStats.totalBaitCount}회, 내 연막 구출 시도/성공: ${gStats.totalSmokeCount}/${gStats.totalSmokeRescues}회, 내 연막 구출 성공률: ${smokeRescueSuccessRate}, 아군 기절 대비 연막 구출률: ${smokeRescueOpportunityRate}${bench?.avgSmokeRate !== undefined ? ` (${metricBenchmarkProvenance("avgSmokeRate")}: 기회 대비 평균 연막 구출률 ${bench.avgSmokeRate}%)` : ""}, 내 총 연막 사용: ${gStats.totalSmokes}회\n`;
       }
-      const reactionStr = gStats.avgReactionLatency === "측정 불가"
+      const counterFailureStr = gStats.counterObservedMatches > 0
+        ? `3초 내 대응 실패 ${gStats.counterFailureMatches}/${gStats.counterObservedMatches}경기(${gStats.counterFailureRate}%)${bench?.avgCounterFailureRate !== undefined ? ` (${metricBenchmarkProvenance("avgCounterFailureRate")}: 3초 내 대응 실패율 ${bench.avgCounterFailureRate}%)` : ""}`
+        : "";
+      const reactionStr = gStats.counterObservedMatches === 0
         ? "측정 불가 (선제 공격 중심 플레이로 피격 후 반격 샘플 없음 — 이 항목을 언급하거나 추론하지 말 것)"
-        : `${gStats.avgReactionLatency}${bench?.avgCounterLatency !== undefined ? ` (${metricBenchmarkProvenance("avgCounterLatency")}: 대응 사격 속도 ${bench.avgCounterLatency}s)` : ""}`;
+        : `${gStats.avgMeasuredReactionLatency === "측정 불가" ? "3초 안에 반격한 경기 없음(반격 시간 측정 불가)" : `${gStats.avgMeasuredReactionLatency}(3초 안에 반격한 경기 기준)${bench?.avgMeasuredCounterLatency !== undefined ? ` (${metricBenchmarkProvenance("avgMeasuredCounterLatency")}: 대응 사격 속도 ${bench.avgMeasuredCounterLatency}s)` : ""}`}, ${counterFailureStr}`;
       const backupStr = gStats.avgBackupLatency === "측정 불가"
         ? "측정 불가 (아군 기절 후 복수 교전 샘플 없음 — 이 항목을 언급하거나 추론하지 말 것)"
         : `${gStats.avgBackupLatency}${bench?.avgTradeLatency !== undefined ? ` (${metricBenchmarkProvenance("avgTradeLatency")}: 백업 속도 ${bench.avgTradeLatency}s)` : ""}`;
@@ -2091,8 +2106,8 @@ export async function POST(request: Request) {
     if (mainSmokeOpportunityRate !== null) {
       addCanonicalEvidence("smoke_opportunity_rate", "아군 기절 대비 연막 구출률", `${mainSmokeOpportunityRate}%`, "동일 티어 기회 대비 평균 연막 구출률", mainBench?.avgSmokeRate === undefined ? undefined : `${mainBench.avgSmokeRate}%`);
     }
-    if (mainModeStats.avgReactionLatency !== "측정 불가") {
-      addCanonicalEvidence("reaction_latency", "대응 사격 속도", mainModeStats.avgReactionLatency, "동일 티어 평균 대응 사격 속도", mainBench?.avgCounterLatency === undefined ? undefined : `${mainBench.avgCounterLatency}s`);
+    if (mainModeStats.avgMeasuredReactionLatency !== "측정 불가") {
+      addCanonicalEvidence("reaction_latency", "대응 사격 속도", mainModeStats.avgMeasuredReactionLatency, "동일 티어 평균 대응 사격 속도", mainBench?.avgMeasuredCounterLatency === undefined ? undefined : `${mainBench.avgMeasuredCounterLatency}s`);
     }
     if (mainModeStats.avgBackupLatency !== "측정 불가") {
       addCanonicalEvidence("backup_latency", "백업 속도", mainModeStats.avgBackupLatency, "동일 티어 평균 백업 속도", mainBench?.avgTradeLatency === undefined ? undefined : `${mainBench.avgTradeLatency}s`);
