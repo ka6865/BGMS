@@ -394,3 +394,17 @@ describe("계산 5 기록 필드", () => {
     expect(result.teamContext).toEqual({ myRosterSize: 3, aliveTeammatesAtMyDeath: null });
   });
 });
+
+describe("사망 페이즈", () => {
+  const phase = (t: number, value: number) => ({ t, _T: "LogPhaseChange", phase: value });
+
+  it("첫 자기장 전에 죽으면 경기 종료 시점 페이즈가 아니라 0을 기록한다", () => {
+    const { result } = run([kill(60_000, "E1", "Me"), phase(300_000, 1), phase(1_500_000, 9)]);
+    expect(result.deathPhase).toBe(0);
+  });
+
+  it("자기장 중에 죽으면 사망 순간 페이즈를, 살아남으면 마지막 페이즈를 기록한다", () => {
+    expect(run([phase(100_000, 1), phase(400_000, 3), kill(500_000, "E1", "Me"), phase(900_000, 6)]).result.deathPhase).toBe(3);
+    expect(run([phase(100_000, 1), phase(400_000, 5)]).result.deathPhase).toBe(5);
+  });
+});
