@@ -93,18 +93,20 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: text => text, hasUnsupportedMode: () => false,
     });
     expect(complete).toMatchObject({ cacheable: true, usable: true, final: { analysisStatus: "complete" } });
-    expect(complete?.final.cards[0].reason).toBe(buildSummaryCardComparisonText(cards[0]));
+    // reason은 서버가 수치와 차이를 함께 쓴다.
+    expect(complete?.final.cards[0].reason).toBe("평균 화력: 0, 비교 평균 0과 같습니다.");
 
     const issues = cards.map(card => providerIssue(card));
     issues[0].kindOpinion = "검증된 경기 지표를 바탕으로 분석합니다.";
-    const partial = normalizeSummaryCardFinal(providerFinal(cards, { analysisStatus: "complete", debateIssues: issues }), cards, {
+    const neutral = normalizeSummaryCardFinal(providerFinal(cards, { analysisStatus: "complete", debateIssues: issues }), cards, {
       sanitizeText: text => text,
       hasUnsupportedMode: () => false,
     });
-    expect(partial).toMatchObject({ cacheable: false, usable: true, final: { analysisStatus: "partial" } });
-    expect(partial?.final.cards[0]).toMatchObject({ analysisStatus: "unavailable", winner: null });
-    expect(partial?.final.cards[0].reason).not.toBe(buildSummaryCardComparisonText(cards[0]));
-    expect(partial?.final.cards[1].analysisStatus).toBe("ready");
+    // 중립 의견은 카드를 숨기지 않고 서버 비교로 대신하며, 승자를 만들지 않는다.
+    expect(neutral).toMatchObject({ cacheable: true, usable: true, final: { analysisStatus: "complete" } });
+    expect(neutral?.final.cards[0]).toMatchObject({ analysisStatus: "ready", winner: null, reason: "평균 화력: 0, 비교 평균 0과 같습니다." });
+    expect(neutral?.final.cards[0].kindOpinion.startsWith(buildSummaryCardComparisonText(cards[0]))).toBe(true);
+    expect(neutral?.final.cards[1].analysisStatus).toBe("ready");
   });
 
   it.each([
@@ -139,7 +141,8 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: text => text, hasUnsupportedMode: () => false,
     });
     expect(result).toMatchObject({ cacheable: true, usable: true, final: { analysisStatus: "complete" } });
-    expect(result?.final.cards[2]).toMatchObject({ analysisStatus: "ready", kindOpinion: "평균 고립 지수: 2.5. 비교 자료가 없는 항목은 관측 기록으로만 봅니다.", spicyOpinion: issues[2].spicyOpinion, winner: null });
+    // 수치가 든 모델 의견 대신 관측 한계만 쓰고, 수치는 reason에 둔다.
+    expect(result?.final.cards[2]).toMatchObject({ analysisStatus: "ready", kindOpinion: "비교 자료가 없어 관측 기록만 확인했습니다.", spicyOpinion: issues[2].spicyOpinion, reason: "평균 고립 지수: 2.5, 비교 자료 없음.", winner: null });
     expect(parseSummaryCards(result?.final)).not.toBeNull();
   });
 
@@ -159,7 +162,9 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: text => text, hasUnsupportedMode: () => false,
     });
     expect(result).toMatchObject({ usable: true, cacheable: true, final: { analysisStatus: "complete" } });
-    expect(result?.final.cards[2]).toMatchObject({ kindOpinion: "평균 고립 지수: 2.5. 비교 자료가 없는 항목은 관측 기록으로만 봅니다.", analysisStatus: "ready", winner: null });
+    expect(result?.final.cards[2]).toMatchObject({ analysisStatus: "ready", reason: "평균 고립 지수: 2.5, 비교 자료 없음.", winner: null });
+    // 숫자·비교 표현이 없는 판단 보류 문장은 그대로 쓰고, 그 밖에는 관측 한계 문장으로 바꾼다.
+    expect([kindOpinion, "비교 자료가 없어 관측 기록만 확인했습니다."]).toContain(result?.final.cards[2].kindOpinion);
     expect(parseSummaryCards(result?.final)).not.toBeNull();
   });
 
@@ -179,11 +184,10 @@ describe("ai summary v2 card catalog", () => {
     expect(result?.rejectReasons).toContain("positioning:conclusion");
   });
 
-  it.each(["card", "action"])("neutralizes titles in a partial result caused by %s rejection", rejection => {
+  it("neutralizes titles in a partial result caused by card rejection", () => {
     const cards = buildFixture();
     const provider = providerFinal(cards, { signature: "안정적인 대열의 전략가", signatureSub: "안정적인 대열을 유지합니다." });
-    if (rejection === "card") (provider.debateIssues as Array<Record<string, unknown>>)[2].kindOpinion = "고립 지수가 낮아 대열을 안정적으로 유지하고 있습니다.";
-    else (provider.actionItems as Array<Record<string, unknown>>)[0].desc = "AI 해석을 표시할 수 없습니다.";
+    (provider.debateIssues as Array<Record<string, unknown>>)[2].kindOpinion = "고립 지수가 낮아 대열을 안정적으로 유지하고 있습니다.";
     const result = normalizeSummaryCardFinal(provider, cards, {
       sanitizeText: text => text, hasUnsupportedMode: () => false,
     });
@@ -191,6 +195,20 @@ describe("ai summary v2 card catalog", () => {
       analysisStatus: "partial", signature: "AI 전술 분석", signatureSub: "검증된 경기 지표를 바탕으로 분석합니다.",
     } });
     expect(JSON.stringify(result?.final)).not.toContain("안정적인 대열");
+  });
+
+  it("drops only a neutralized action item and fills actions from the weakest metric when none remain", () => {
+    const cards = buildSummaryCards({ topics: ["화력", "유틸리티 활용", "포지셔닝"], context, evidence: [
+      evidence({ metricId: "damage_average", label: "평균 화력", unit: "", userValue: "200", benchmarkValue: "300", sampleCount: 40 }),
+      evidence({ metricId: "utility_throws", label: "총 투척 횟수", unit: "회", userValue: "4회" }),
+      evidence({ metricId: "isolation_average", label: "평균 고립 지수", unit: "", userValue: "2.5" }),
+    ] });
+    const provider = providerFinal(cards, { actionItems: [{ icon: "🎯", title: "다음 목표", desc: "AI 해석을 표시할 수 없습니다." }] });
+    const result = normalizeSummaryCardFinal(provider, cards, { sanitizeText: text => text, hasUnsupportedMode: () => false });
+    expect(result).toMatchObject({ cacheable: true, final: { analysisStatus: "complete" } });
+    expect(result?.rejectReasons).not.toContain("action_items");
+    expect(result?.final.actionItems).toEqual([{ icon: "target", title: "평균 화력 점검", desc: "다음 교전이 끝난 뒤 피해를 주기 어려웠던 거리와 상대 위치를 돌아보세요." }]);
+    expect(result?.final.cards[0]).toMatchObject({ winner: "spicy", reason: "평균 화력: 200, 비교 평균 300보다 약 33% 낮습니다." });
   });
 
   it("preserves usable cards while omitting an invented action target and withholding unavailable references", () => {
@@ -207,7 +225,8 @@ describe("ai summary v2 card catalog", () => {
       hasUnsupportedMode: () => false,
     });
     expect(result).toMatchObject({ cacheable: false, usable: true, final: { analysisStatus: "partial", actionItems: [safeAction] } });
-    expect(result?.rejectReasons).toEqual(expect.arrayContaining(["action_items", "utility:evidence"]));
+    // 잘못된 행동 제안은 항목만 빠지고, 카드 근거 위반만 거절 사유로 남는다.
+    expect(result?.rejectReasons).toEqual(["utility:evidence"]);
     expect(result?.final.cards[1]).toMatchObject({ analysisStatus: "unavailable", evidence: cards[1].evidence });
     expect(result?.final.cards[0].analysisStatus).toBe("ready");
     expect(JSON.stringify(result?.final)).not.toContain("2.0");
@@ -236,8 +255,10 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: text => text, hasUnsupportedMode: () => false,
     });
     expect(result?.cacheable).toBe(true);
-    expect(result?.final.cards[0]).toMatchObject({ kindOpinion: buildSummaryCardComparisonText(cards[0]), winner: null });
-    expect(parseSummaryCards(result?.final.cards)?.[0]).toMatchObject({ kindOpinion: buildSummaryCardComparisonText(cards[0]), winner: null });
+    // 숫자·비교가 없는 한계 문장은 서버 비교 뒤에 덧붙고 캐시 검증도 통과한다.
+    const expectedKind = `${buildSummaryCardComparisonText(cards[0])} ${kindOpinion}`;
+    expect(result?.final.cards[0]).toMatchObject({ kindOpinion: expectedKind, winner: null });
+    expect(parseSummaryCards(result?.final.cards)?.[0]).toMatchObject({ kindOpinion: expectedKind, winner: null });
   });
 
   it.each([null, 'kind'])('rebuilds a stale victory verdict for an explicitly or newly withheld card (%s)', winner => {
@@ -248,7 +269,7 @@ describe("ai summary v2 card catalog", () => {
     expect(result?.cacheable).toBe(true);
     expect(result?.final.cards[0].winner).toBeNull();
     expect(result?.final.finalVerdict).not.toContain('착한맛 승');
-    expect(result?.final.finalVerdict).toContain('평균 화력은 비교 평균과 같습니다.');
+    expect(result?.final.finalVerdict).toContain('비교: 평균 화력: 0, 비교 평균 0과 같습니다.');
     const replay = normalizeSummaryCardFinal(providerFinal(cards, { debateIssues: issues, finalVerdict: '화력은 착한맛 승입니다.' }), cards, { sanitizeText: text => text, hasUnsupportedMode: () => false });
     expect(replay?.final).toEqual(result?.final);
   });
@@ -267,17 +288,23 @@ describe("ai summary v2 card catalog", () => {
     expect(parseSummaryCards(buildFixture())).not.toBeNull(); // old cards remain readable without inventing coverage
   });
 
-  it.each(["draw", null])("preserves a supported %s conclusion through fresh, cached and legacy cards", (winner) => {
-    const cards = buildFixture();
+  it.each(["draw", null])("ignores a provider %s conclusion and keeps the server conclusion through fresh, cached and legacy cards", (winner) => {
+    const cards = buildSummaryCards({ topics: ["교전 주도권", "화력", "포지셔닝"], context, evidence: [
+      evidence({ metricId: "initiative_rate", label: "주도권 성공률", unit: "%", userValue: "60%", benchmarkValue: "50%", sampleCount: 40 }),
+      evidence({ metricId: "pressure_index", label: "평균 압박 지수", unit: "", userValue: "2", benchmarkValue: "3", sampleCount: 40 }),
+      evidence({ metricId: "damage_average", label: "평균 화력", unit: "", userValue: "0", benchmarkValue: "0", sampleCount: 40 }),
+      evidence({ metricId: "isolation_average", label: "평균 고립 지수", unit: "", userValue: "1.0" }),
+    ] });
     const issues = cards.map((card) => providerIssue(card, { winner }));
     const result = normalizeSummaryCardFinal(providerFinal(cards, { debateIssues: issues }), cards, {
       sanitizeText: (text) => text, hasUnsupportedMode: () => false,
     });
     expect(result?.cacheable).toBe(true);
-    expect(result?.final.cards[0]).toMatchObject({ analysisStatus: "ready", winner });
+    // 유리·불리 지표가 섞인 카드는 draw, 같은 값만 있는 카드는 null이다.
+    expect(result?.final.cards[0]).toMatchObject({ analysisStatus: "ready", winner: "draw" });
     expect(result?.final.cards[1].winner).toBeNull();
-    expect(parseSummaryCards(result?.final)?.[0].winner).toBe(winner);
-    expect((result?.final.debateIssues as Array<{ winner: unknown }>)[0].winner).toBe(winner);
+    expect(parseSummaryCards(result?.final)?.[0].winner).toBe("draw");
+    expect((result?.final.debateIssues as Array<{ winner: unknown }>)[0].winner).toBe("draw");
     expect((result?.final.debateIssues as Array<{ winner: unknown }>)[1].winner).toBeNull();
   });
 
@@ -288,7 +315,7 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: (text) => text === "검증된 판정" ? "검증된 경기 지표를 바탕으로 분석합니다." : text,
       hasUnsupportedMode: () => false,
     });
-    expect(result?.final.finalVerdict).toContain("평균 화력은 비교 평균과 같습니다.");
+    expect(result?.final.finalVerdict).toContain("비교: 평균 화력: 0, 비교 평균 0과 같습니다.");
     expect(result?.final.finalVerdict).not.toContain("승리");
   });
 
@@ -356,10 +383,11 @@ describe("ai summary v2 card catalog", () => {
   });
 
   it.each([
-    { trade: "33%", average: "17%", latency: "5s", latencyAverage: "15s", expected: null },
+    // 승자는 모델 선택이 아니라 비교 방향으로 정한다: 모두 유리 kind, 섞이면 draw, 같은 값만 있으면 null.
+    { trade: "33%", average: "17%", latency: "5s", latencyAverage: "15s", expected: "kind" },
     { trade: "10%", average: "17%", latency: "5s", latencyAverage: "15s", expected: "draw" },
     { trade: "33%", average: "17%", latency: "20s", latencyAverage: "15s", expected: "draw" },
-    { trade: "17%", average: "17%", latency: "15s", latencyAverage: "15s", expected: "draw" },
+    { trade: "17%", average: "17%", latency: "15s", latencyAverage: "15s", expected: null },
   ])("checks a mixed conclusion against outcome and latency directions: %j", ({ trade, average, latency, latencyAverage, expected }) => {
     const cards = buildSummaryCards({ topics: ["복수 성공률 및 백업", "화력", "포지셔닝"], context, evidence: [
       evidence({ metricId: "trade_success_rate", label: "복수 성공률", unit: "%", userValue: trade, benchmarkValue: average, sampleCount: 12 }),
@@ -374,8 +402,8 @@ describe("ai summary v2 card catalog", () => {
     expect(result?.final.cards[0]).toMatchObject({ winner: expected, analysisStatus: "ready", evidence: cards[0].evidence });
     expect(result?.final.cards[0].spicyOpinion).toBe("다음 경기에서 교전 연계를 점검하세요.");
     expect(parseSummaryCards(result?.final)).not.toBeNull();
-    if (expected === null) {
-      expect(result?.final.finalVerdict).not.toContain("조율이 필요");
+    expect(result?.final.finalVerdict).not.toContain("조율이 필요");
+    if (expected === "kind") {
       const forged = JSON.parse(JSON.stringify(result?.final));
       forged.cards[0].winner = "draw";
       expect(parseSummaryCards(forged)).toBeNull();
@@ -408,8 +436,10 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: sanitizeAiCoachingLanguageText,
       hasUnsupportedMode: () => false,
     });
-    expect(result?.cacheable).toBe(false);
-    expect(result?.final.cards[1]).toMatchObject({ analysisStatus: "unavailable", winner: null, evidence: cards[1].evidence });
+    // 비난 문장은 지워지고, 매운맛 자리는 서버 점검으로 채워 카드를 숨기지 않는다.
+    expect(result?.cacheable).toBe(true);
+    expect(result?.final.cards[1]).toMatchObject({ analysisStatus: "ready", winner: null, evidence: cards[1].evidence, spicyOpinion: "아군이 기절했을 때 구출 접근이 가능했는지, 연막으로 가릴 수 있는 구간이 있었는지 확인하세요." });
+    expect(JSON.stringify(result?.final)).not.toContain("국 끓여");
     expect(result?.final.cards[0].analysisStatus).toBe("ready");
     expect(result?.final.cards[2].analysisStatus).toBe("ready");
     expect(parseSummaryCards(result?.final)).not.toBeNull();
@@ -440,8 +470,10 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: (text) => text === "removed comparison" ? "검증된 경기 지표를 바탕으로 분석합니다." : text,
       hasUnsupportedMode: () => false,
     });
-    expect(result?.cacheable).toBe(false);
-    expect(result?.final.cards[0]).toMatchObject({ winner: null, analysisStatus: "unavailable", evidence: cards[0].evidence });
+    // 중립 의견은 서버 비교·점검으로 대신하고, 모델이 고른 승자는 쓰지 않는다(같은 값이라 승자 없음).
+    expect(result?.cacheable).toBe(true);
+    expect(result?.final.cards[0]).toMatchObject({ winner: null, analysisStatus: "ready", evidence: cards[0].evidence, reason: "평균 화력: 0, 비교 평균 0과 같습니다." });
+    expect(result?.final.cards[0].kindOpinion.startsWith(buildSummaryCardComparisonText(cards[0]))).toBe(true);
     expect(parseSummaryCards(result?.final)).not.toBeNull();
     const forged = JSON.parse(JSON.stringify(result?.final));
     forged.cards[0] = { ...cards[0], analysisStatus: "ready", kindOpinion: "유효한 의견", spicyOpinion: "유효한 의견", reason: "근거", evaluation: "평가", winner: coach };
@@ -456,8 +488,9 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: (text) => text === source ? "다만 구출을 보완하세요." : text,
       hasUnsupportedMode: () => false,
     });
-    expect(result?.final.finalVerdict).toContain("평균 화력은 비교 평균과 같습니다.");
-    expect(result?.final.finalVerdict).toContain("포지셔닝");
+    expect(result?.final.finalVerdict).toContain("비교: 평균 화력: 0, 비교 평균 0과 같습니다.");
+    // 비교 자료가 없는 카드(포지셔닝)는 종합 평가에서 강점·약점으로 판단하지 않는다.
+    expect(result?.final.finalVerdict).not.toContain("포지셔닝");
     expect(result?.final.finalVerdict).not.toContain("다만");
   });
 
@@ -558,7 +591,8 @@ describe("ai summary v2 card catalog", () => {
     expect(result?.cacheable).toBe(true);
     expect(result?.final.schemaVersion).toBe(2);
     expect(result?.final.cards.map((card) => card.topicId)).toEqual(["firepower", "utility", "positioning"]);
-    expect(result?.final.cards[0]).toMatchObject({ analysisStatus: "ready", winner: "kind", dataStatus: "comparable" });
+    // 평균 화력이 비교 평균과 같아 모델이 kind를 골라도 승자를 정하지 않는다.
+    expect(result?.final.cards[0]).toMatchObject({ analysisStatus: "ready", winner: null, dataStatus: "comparable" });
     expect(result?.final.cards[1]).toMatchObject({ analysisStatus: "ready", winner: null, dataStatus: "user_only" });
     expect(result?.final.cards[1].evidence).toEqual(cards[1].evidence);
     expect(result?.final.debateIssues).toEqual(expect.arrayContaining([
@@ -581,7 +615,8 @@ describe("ai summary v2 card catalog", () => {
       hasUnsupportedMode: (value) => typeof value === "string" && /(?:solo|foreign)/i.test(value),
     });
     expect(result?.cacheable).toBe(true);
-    expect(result?.final.cards[0]).toMatchObject({ analysisStatus: "ready", winner: "kind" });
+    // 솔로 킬 비중이 비교 평균과 같아 승자를 정하지 않는다.
+    expect(result?.final.cards[0]).toMatchObject({ analysisStatus: "ready", winner: null });
   });
 
   it("normalizes repeated valid provider references without admitting foreign references", () => {
@@ -681,10 +716,10 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: () => "검증된 경기 지표를 바탕으로 분석합니다.",
       hasUnsupportedMode: () => false,
     });
-    expect(neutralResult?.cacheable).toBe(false);
-    expect(neutralResult?.usable).toBe(false);
-    expect(neutralResult?.final.analysisStatus).toBe("partial");
-    expect(neutralResult?.final.cards[0]).toMatchObject({ analysisStatus: "unavailable", winner: null });
+    // 모든 의견이 중립으로 지워져도 서버 근거와 점검으로 카드를 채운다. 승자는 만들지 않는다.
+    expect(neutralResult?.usable).toBe(true);
+    expect(neutralResult?.final.cards[0]).toMatchObject({ analysisStatus: "ready", winner: null, reason: "평균 화력: 0, 비교 평균 0과 같습니다." });
+    expect(neutralResult?.final.cards[0].kindOpinion.startsWith(buildSummaryCardComparisonText(cards[0]))).toBe(true);
   });
 
   it("rejects two neutral coach opinions even when reason and evaluation contain text", () => {
@@ -699,8 +734,10 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: (value) => value,
       hasUnsupportedMode: () => false,
     });
-    expect(result?.cacheable).toBe(false);
-    expect(result?.final.cards[0]).toMatchObject({ analysisStatus: "unavailable", winner: null });
+    // 두 의견이 모두 중립이면 모델 문장 대신 서버 비교·근거·평가를 쓴다.
+    expect(result?.final.cards[0]).toMatchObject({ analysisStatus: "ready", winner: null, reason: "평균 화력: 0, 비교 평균 0과 같습니다." });
+    expect(result?.final.cards[0].spicyOpinion).not.toBe("AI 해석을 표시할 수 없습니다.");
+    expect(JSON.stringify(result?.final.cards[0])).not.toContain("서버가 확인한 근거 설명");
     expect(result?.final.cards[0].evidence).toEqual(cards[0].evidence);
   });
 
@@ -787,7 +824,10 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: (value) => value,
       hasUnsupportedMode: () => false,
     });
-    expect(neutralActionResult?.cacheable).toBe(false);
+    // 중립 행동 제안은 항목만 빠진다. 불리한 비교 지표가 없어 서버 제안도 없다.
+    expect(neutralActionResult?.cacheable).toBe(true);
+    expect(neutralActionResult?.final.actionItems).toEqual([]);
+    expect(neutralActionResult?.rejectReasons).not.toContain("action_items");
 
     const rawForeignAction = providerFinal(cards);
     (rawForeignAction.actionItems as Array<Record<string, unknown>>)[0].title = "foreign-mode 목표";
@@ -810,8 +850,10 @@ describe("ai summary v2 card catalog", () => {
         sanitizeText: text => text === "다음 경기 후 근거를 확인하세요." ? sanitized : text,
         hasUnsupportedMode: text => typeof text === "string" && text.includes("foreign-mode"),
       });
-      expect(result).toMatchObject({ cacheable: false, usable: true, final: { analysisStatus: "partial", actionItems: [] } });
-      expect(result?.rejectReasons).toContain("action_items");
+      // 지워지거나 다른 모드가 섞인 행동 제안은 항목만 빼고 결과는 완료로 둔다.
+      expect(result).toMatchObject({ cacheable: true, usable: true, final: { analysisStatus: "complete", actionItems: [] } });
+      expect(result?.rejectReasons).not.toContain("action_items");
+      expect(JSON.stringify(result?.final)).not.toContain("foreign-mode");
       expect(result?.final.cards.every(card => card.analysisStatus === "ready")).toBe(true);
     }
   });
@@ -832,8 +874,8 @@ describe("ai summary v2 card catalog", () => {
       const result = normalizeSummaryCardFinal(providerFinal(cards, { actionItems: [invalidAction, safeAction] }), cards, {
         sanitizeText: text => text, hasUnsupportedMode: () => false,
       });
-      expect(result).toMatchObject({ cacheable: false, usable: true, final: { analysisStatus: "partial", actionItems: [safeAction] } });
-      expect(result?.rejectReasons).toContain("action_items");
+      expect(result).toMatchObject({ cacheable: true, usable: true, final: { analysisStatus: "complete", actionItems: [safeAction] } });
+      expect(result?.rejectReasons).not.toContain("action_items");
       expect(result?.final.cards.every(card => card.analysisStatus === "ready")).toBe(true);
     }
   });
@@ -851,9 +893,10 @@ describe("ai summary v2 card catalog", () => {
       sanitizeText: text => text, hasUnsupportedMode: () => false,
     });
     expect(result).toMatchObject({ usable: true, cacheable: true, final: { analysisStatus: "complete" } });
-    expect(result?.final.finalVerdict).toContain("평균 화력은 비교 평균보다 높습니다.");
-    expect(result?.final.finalVerdict).toContain("압박 지수는 비교 평균보다 낮습니다.");
-    expect(result?.final.finalVerdict).toContain("1:1 교전 승률은 비교 평균보다 높습니다.");
+    // 모델의 승패 문구가 아니라 비교 방향별 수치로 다시 쓴다.
+    expect(result?.final.finalVerdict).toContain("강점: 평균 화력: 337, 비교 평균 296보다 약 14% 높습니다; 1:1 교전 승률: 60%, 비교 평균 50%보다 10.0%p 높습니다.");
+    expect(result?.final.finalVerdict).toContain("보완: 압박 지수: 3.03, 비교 평균 3.14보다 약 4% 낮습니다.");
+    expect(result?.final.finalVerdict).not.toMatch(/^(kind|spicy|draw)$/);
   });
 
   it("parses assembled cards only when IDs, context, statuses, and display numbers agree", () => {
@@ -883,5 +926,24 @@ describe("ai summary v2 card catalog", () => {
     neutralReadyProse.cards[0].reason = "근거 설명";
     neutralReadyProse.cards[0].evaluation = "평가";
     expect(parseSummaryCards(neutralReadyProse)).toBeNull();
+  });
+});
+
+describe("summary card presentation guards", () => {
+  it("never appends neutral boilerplate to a server comparison and does not cache an all-neutral response", () => {
+    const cards = buildSummaryCards({ topics: ["화력", "유틸리티 활용", "포지셔닝"], evidence: [
+      { metricId: "damage_average", label: "평균 화력", userValue: "300", benchmarkValue: "200", benchmarkLabel: "동일 티어 평균 화력", unit: "", sampleCount: 40, userMatchCount: 3 },
+    ], context: { contextId: "ctx-neutral", gameMode: "squad", matchType: "official", tier: "B", userMatchCount: 3, benchmarkSampleCount: 40, filterVersion: 8, populationVersion: 1 } });
+    const neutral = "검증된 경기 지표를 바탕으로 분석합니다.";
+    const raw = {
+      signature: "흐름을 읽는 전술가", signatureSub: neutral, finalVerdict: neutral, actionItems: [{ icon: "target", title: "교전 점검", desc: "다음 교전 전 상대 위치를 확인해 보세요." }],
+      debateIssues: cards.map(card => ({ topicId: card.topicId, evidenceIds: card.evidenceIds, kindOpinion: neutral, spicyOpinion: neutral, reason: neutral, evaluation: neutral, winner: null })),
+    };
+    const result = normalizeSummaryCardFinal(raw, cards, { sanitizeText: value => value, hasUnsupportedMode: () => false })!;
+    const firepower = result.final.cards.find(card => card.topicId === "firepower")!;
+    expect(firepower.kindOpinion).toBe("평균 화력은 비교 평균보다 높습니다.");
+    expect(result.cacheable).toBe(false);
+    expect(result.rejectReasons).toContain("all_neutral");
+    expect(result.final.signature).toBe("AI 전술 분석");
   });
 });

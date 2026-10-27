@@ -373,6 +373,6 @@ describe("anonymous PUBG AI accuracy audit", () => {
     expect(RESULT_VERSION).toBe(73.0);
     expect(TELEMETRY_VERSION).toBe(63.0);
     expect(AI_CACHE_VERSION).toBe("2026-09-07.coaching-judgment-v4");
-    expect(AI_SUMMARY_CACHE_VERSION).toBe("2026-10-19.card-grounded-quality-v21");
+    expect(AI_SUMMARY_CACHE_VERSION).toBe("2026-10-28.counter-latency-split-v22");
   });
 });

@@ -343,6 +343,7 @@ describe("persistMatchAnalysis", () => {
       game_mode: "squad-fpp",
       map_name: "Baltic_Main",
       counter_latency_ms: 1235,
+      first_reply_latency_ms: null,
       initiative_rate: 68,
       revive_rate: 50,
       is_crossfire: true,

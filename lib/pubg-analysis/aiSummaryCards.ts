@@ -84,7 +84,7 @@ export const SUMMARY_TOPIC_DEFINITIONS: Readonly<Record<SummaryTopicId, {
   defaultQuestion: string;
 }>> = {
   firepower: { topic: "화력", metricIds: ["damage_average"], defaultQuestion: "화력에 대한 두 코치의 평가는?" },
-  initiative: { topic: "교전 주도권", metricIds: ["initiative_rate", "pressure_index", "reaction_latency"], defaultQuestion: "교전 주도권에 대한 두 코치의 평가는?" },
+  initiative: { topic: "교전 주도권", metricIds: ["initiative_rate", "pressure_index", "reaction_latency", "counter_failure_rate"], defaultQuestion: "교전 주도권에 대한 두 코치의 평가는?" },
   duel: { topic: "1:1 결정력", metricIds: ["duel_win_rate", "solo_kill_share"], defaultQuestion: "1:1 결정력에 대한 두 코치의 평가는?" },
   trade_backup: { topic: "복수 성공률 및 백업", metricIds: ["trade_success_rate", "backup_latency"], defaultQuestion: "복수 성공률 및 백업에 대한 두 코치의 평가는?" },
   utility: { topic: "유틸리티 활용", metricIds: ["utility_throws", "utility_smokes", "utility_lethal_throws", "smoke_rescue_attempts", "smoke_opportunity_rate"], defaultQuestion: "유틸리티 활용에 대한 두 코치의 평가는?" },
@@ -107,6 +107,7 @@ const METRIC_DEFINITIONS: Readonly<Record<string, MetricDefinition>> = {
   initiative_rate: { topicId: "initiative", unit: "%" },
   pressure_index: { topicId: "initiative", unit: "" },
   reaction_latency: { topicId: "initiative", unit: "s" },
+  counter_failure_rate: { topicId: "initiative", unit: "%" },
   duel_win_rate: { topicId: "duel", unit: "%" },
   solo_kill_share: { topicId: "duel", unit: "%" },
   trade_success_rate: { topicId: "trade_backup", unit: "%" },
@@ -806,6 +807,75 @@ function cardCheck(topicId: SummaryTopicId): string {
   return checks[topicId];
 }
 
+// 비교 가능한 지표 중 비교 평균보다 불리한 방향이면 true, 유리하면 false, 판단할 수 없으면 null.
+function isUnfavorable(row: SummaryEvidence): boolean | null {
+  const higherIsBetter = AI_SUMMARY_HIGHER_IS_BETTER[row.metricId];
+  if (row.status !== "comparable" || higherIsBetter === undefined) return null;
+  const user = evidenceNumericValue(row, "user");
+  const benchmark = evidenceNumericValue(row, "benchmark");
+  if (user === null || benchmark === null || Math.abs(user - benchmark) <= 1e-9) return null;
+  return higherIsBetter ? user < benchmark : user > benchmark;
+}
+
+/** 수치와 차이를 함께 쓴 서버 근거 문장. 비교 자료가 없는 관측값은 관측값만 쓴다. */
+export function buildSummaryCardFactText(card: SummaryCard): string {
+  return card.evidence.flatMap((row) => {
+    if (row.userValue === null) return [];
+    const counts = row.unit === "%" && row.numerator != null && row.denominator != null && row.denominator > 0 ? `(${row.denominator}건 중 ${row.numerator}건)` : "";
+    if (row.status !== "comparable" || row.benchmarkValue === null) return [`${row.label}: ${row.userValue}${counts}, 비교 자료 없음.`];
+    const user = evidenceNumericValue(row, "user");
+    const benchmark = evidenceNumericValue(row, "benchmark");
+    if (user === null || benchmark === null) return [];
+    if (Math.abs(user - benchmark) <= 1e-9) return [`${row.label}: ${row.userValue}${counts}, 비교 평균 ${row.benchmarkValue}과 같습니다.`];
+    const relation = row.unit === "s" ? user < benchmark ? "빠릅니다" : "느립니다" : user > benchmark ? "높습니다" : "낮습니다";
+    const gap = row.unit === "%" ? `${Math.abs(user - benchmark).toFixed(1)}%p`
+      : benchmark > 0 ? `약 ${Math.round(Math.abs(user - benchmark) / benchmark * 100)}%` : "";
+    return [`${row.label}: ${row.userValue}${counts}, 비교 평균 ${row.benchmarkValue}보다 ${gap ? `${gap} ` : ""}${relation}.`];
+  }).join(" ");
+}
+
+// 가장 불리한 비교 지표에 맞춘 다음 경기 점검. 지표가 없으면 주제별 점검을 쓴다.
+const METRIC_CHECKS: Readonly<Record<string, string>> = {
+  damage_average: "다음 교전이 끝난 뒤 피해를 주기 어려웠던 거리와 상대 위치를 돌아보세요.",
+  initiative_rate: "다음 교전 전에는 먼저 사격할 수 있는 각도와 상대 위치를 확인해 보세요.",
+  pressure_index: "다음 교전에서는 피해를 준 뒤 같은 상대를 계속 압박할 수 있었는지 돌아보세요.",
+  reaction_latency: "다음 경기에서 기습당했을 때 첫 반격까지 걸린 구간을 돌아보세요.",
+  counter_failure_rate: "다음 경기에서 기습당한 직후 3초 안에 반격하거나 엄폐할 수 있었는지 확인해 보세요.",
+  duel_win_rate: "다음 1:1 교전이 끝난 뒤 먼저 피해를 준 쪽과 엄폐 위치를 돌아보세요.",
+  trade_success_rate: "아군이 기절했을 때 기절시킨 적을 견제할 수 있는 위치였는지 확인해 보세요.",
+  backup_latency: "아군이 기절한 뒤 복수 처치까지 걸린 구간을 다음 경기 후 돌아보세요.",
+  smoke_opportunity_rate: "아군이 기절했을 때 연막으로 가릴 수 있는 구간이 있었는지 확인해 보세요.",
+  isolation_average: "다음 교전 전에 팀원과 함께 대응할 수 있는 거리인지 확인해 보세요.",
+  death_phase: "다음 경기 종료 후 마지막 교전의 위치와 자기장 단계를 돌아보세요.",
+};
+
+function weakestMetric(card: SummaryCard): SummaryEvidence | null {
+  const weak = card.evidence.filter(row => isUnfavorable(row) === true && METRIC_CHECKS[row.metricId]);
+  if (!weak.length) return null;
+  const gap = (row: SummaryEvidence) => {
+    const user = evidenceNumericValue(row, "user") ?? 0, benchmark = evidenceNumericValue(row, "benchmark") ?? 0;
+    return row.unit === "%" ? Math.abs(user - benchmark) : benchmark > 0 ? Math.abs(user - benchmark) / benchmark * 100 : 0;
+  };
+  return weak.reduce((a, b) => gap(b) > gap(a) ? b : a);
+}
+
+function metricCheck(card: SummaryCard): string {
+  const weak = weakestMetric(card);
+  return weak ? METRIC_CHECKS[weak.metricId] : cardCheck(card.topicId);
+}
+
+function serverWinner(card: SummaryCard): SummaryCard["winner"] {
+  const directions = card.evidence.map(isUnfavorable).filter((value): value is boolean => value !== null);
+  if (!directions.length) return null;
+  if (directions.every(value => !value)) return "kind";
+  if (directions.every(value => value)) return "spicy";
+  return "draw";
+}
+
+const STRONG_PRAISE = /우수|훌륭|뛰어|탁월|안정적|확보|돋보|압도|완벽|잘\s/u;
+// 칭호는 숫자·인성·진입 위치·측정하지 않은 능력(흐름 읽기, 판단, 지휘 등)을 담을 수 없다.
+const UNSUPPORTED_SIGNATURE = /\d|무책임|무능|민폐|한심|이기적|집중력|판단력|멘탈|습관|성향|돌격|선봉|돌진|최전선|흐름|읽는|판단|지휘|리더|두뇌|전략가|감각|냉철|침착/u;
+
 function conditionalCheckText(text: string): string {
   // 관측 결과나 원인 단정을 섞지 않고, 다음 상황에서 확인할 행동만 채택한다.
   return text.split(/(?<=[.!?。！？])\s+|\n+/u).filter(sentence =>
@@ -823,17 +893,22 @@ function cardEvaluation(card: SummaryCard): string {
     : "사용 기록은 확인되지만 같은 조건의 비교 자료가 없어 강점이나 약점을 판단하지 않습니다."}`;
 }
 
-function cardObservation(card: SummaryCard): string {
-  const rows = card.evidence.filter(isObservedEvidence);
-  return rows.map(row => `${row.label}: ${row.userValue}`).join(", ") + ". 비교 자료가 없는 항목은 관측 기록으로만 봅니다.";
-}
-
 function groundedVerdict(cards: SummaryCard[]): string {
-  return cards.map(card => {
-    if (card.analysisStatus !== "ready") return `${card.topic}: 해석을 보류했습니다.`;
-    const comparison = buildSummaryCardComparisonText(card);
-    return `${card.topic}: ${comparison || "같은 조건의 비교 자료가 없어 강점이나 약점을 판단하지 않습니다."} (관측 범위: ${observationScope(card)})`;
-  }).join(" ") + " 평균·비율만으로 원인이나 경기별 일관성을 판단하지 않습니다. 아래 행동 제안은 다음 경기의 점검 과제입니다.";
+  // 강점과 보완점을 수치와 함께 나눠 쓴다. 비교 자료가 없는 지표는 판단하지 않는다.
+  const ready = cards.filter(card => card.analysisStatus === "ready");
+  const describe = (direction: boolean | null) => ready.flatMap(card => card.evidence
+    .filter(row => row.status === "comparable" && isUnfavorable(row) === direction)
+    .map(row => buildSummaryCardFactText({ ...card, evidence: [row] }).replace(/\.$/u, "")));
+  const strengths = describe(false), weaknesses = describe(true), neutral = describe(null);
+  const withheld = cards.filter(card => card.analysisStatus !== "ready").map(card => card.topic);
+  return [
+    strengths.length ? `강점: ${strengths.join("; ")}.` : "",
+    weaknesses.length ? `보완: ${weaknesses.join("; ")}.` : "",
+    neutral.length ? `비교: ${neutral.join("; ")}.` : "",
+    !strengths.length && !weaknesses.length && !neutral.length ? "같은 조건의 비교 자료가 충분하지 않아 강점이나 약점을 판단하지 않습니다." : "",
+    withheld.length ? `${withheld.join(", ")}: 해석을 보류했습니다.` : "",
+    "평균·비율만으로 원인이나 경기별 일관성을 판단하지 않습니다. 아래 행동 제안은 다음 경기의 점검 과제입니다.",
+  ].filter(Boolean).join(" ");
 }
 
 export function normalizeSummaryCardFinal(input: unknown, cards: readonly SummaryCard[], options: {
@@ -867,7 +942,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     cacheable = false;
     if (!rejectReasons.includes(code)) rejectReasons.push(code);
   };
-  if (actionItems.rejected) reject("action_items");
+  // 형식이 틀린 행동 제안은 해당 항목만 버린다. 남은 제안이 없으면 서버가 지표별 점검으로 채운다.
   const normalizedSignature = sanitizeRequiredText(signature, options.sanitizeText);
   const normalizedSignatureSub = sanitizeRequiredText(signatureSub, options.sanitizeText);
   const normalizedVerdict = sanitizeRequiredText(finalVerdict, options.sanitizeText);
@@ -909,6 +984,7 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     safeVerdict = SAFE_VERDICT;
   }
 
+  let neutralCards = 0;
   const normalizedCards = serverCards.map((serverCard) => {
     const issue = providerByTopic.get(serverCard.topicId);
     if (!issue) return serverCard;
@@ -935,10 +1011,6 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       }
     });
     const proseRejected = sanitized.some((item) => item.empty);
-    // A debate needs two substantive opinions. A neutralized opinion must
-    // never win (or award a win to the other coach) just because facts exist.
-    const opinionNeutral = serverCard.dataStatus !== "unavailable"
-      && (isNeutralText(sanitized[0].value) || isNeutralText(sanitized[1].value));
     let issueHasForeignMode = false;
     try {
       // Inspect prose only. Topic/metric IDs are structured server
@@ -977,10 +1049,11 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
 
     const unsupportedConclusion = [kindOpinion, spicyOpinion, reason, evaluation]
       .some((text) => hasUnsupportedCardConclusion(text, serverCard));
-    const rejected = issueHasForeignMode || !referencesValid || proseRejected || opinionNeutral || unsupportedConclusion;
+    // 중립 의견은 서버 근거와 지표별 점검으로 대신하므로 카드를 숨기지 않는다.
+    const rejected = issueHasForeignMode || !referencesValid || proseRejected || unsupportedConclusion;
     if (rejected) {
-      reject(`${serverCard.topicId}:${issueHasForeignMode ? "mode" : !referencesValid ? "evidence" : proseRejected ? "prose" : opinionNeutral ? "neutral" : "conclusion"}`);
-      return unavailableCard(serverCard, issueHasForeignMode ? "허용되지 않은 게임 모드가 포함되어 AI 해석을 보류했습니다." : unsupportedConclusion ? "경기 범위나 투척 기록으로 확인되지 않는 해석이 있어 판정을 보류했습니다." : opinionNeutral ? "두 코치의 의견을 모두 확인할 수 없어 승리 판정을 보류했습니다." : UNAVAILABLE_REASON);
+      reject(`${serverCard.topicId}:${issueHasForeignMode ? "mode" : !referencesValid ? "evidence" : proseRejected ? "prose" : "conclusion"}`);
+      return unavailableCard(serverCard, issueHasForeignMode ? "허용되지 않은 게임 모드가 포함되어 AI 해석을 보류했습니다." : unsupportedConclusion ? "경기 범위나 투척 기록으로 확인되지 않는 해석이 있어 판정을 보류했습니다." : UNAVAILABLE_REASON);
     }
     if (serverCard.dataStatus === "unavailable") {
       // Missing observations are an expected server state. Preserve the
@@ -992,18 +1065,22 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
 
     const sanitizedTexts = sanitized.map((item) => item.value);
     const comparison = buildSummaryCardComparisonText(serverCard);
-    sanitizedTexts[0] = comparison || cardObservation(serverCard);
+    // 비교 방향과 수치는 서버가 쓴다. 모델의 칭찬은 숫자·비교 없이, 불리한 지표가 없는 카드에서만 덧붙인다.
+    const providerKind = sanitizedTexts[0].trim();
+    const hasUnfavorable = serverCard.evidence.some(row => isUnfavorable(row) === true);
+    if (isNeutralText(sanitized[0].value) && isNeutralText(sanitized[1].value)) neutralCards += 1;
+    const kindUsable = providerKind && !isNeutralText(providerKind) && !sanitized[0].changed && !/\d|평균|비교/u.test(providerKind)
+      && !(hasUnfavorable && STRONG_PRAISE.test(providerKind))
+      && !hasUnsupportedSummaryInference(kindOpinion) && !hasUnsupportedSummaryAdvice(kindOpinion);
+    // 비교가 없으면 수치는 reason에 두고, 의견에는 관측 한계만 쓴다(같은 수치 반복 방지).
+    sanitizedTexts[0] = comparison
+      ? [comparison, kindUsable ? providerKind : ""].filter(Boolean).join(" ")
+      : kindUsable ? providerKind : "비교 자료가 없어 관측 기록만 확인했습니다.";
     sanitizedTexts[1] = conditionalCheckText(sanitizedTexts[1]);
-    // 비교만 반복하거나 추상적인 격려만 남으면 실행 가능한 점검을 제공한다.
-    const hasCheck = Boolean(sanitizedTexts[1]);
-    if (!hasCheck) sanitizedTexts[1] = cardCheck(serverCard.topicId);
-    if (comparison) sanitizedTexts[2] = comparison;
+    // 모델 점검 문장이 형식을 지키지 않으면 가장 불리한 지표에 맞춘 점검을 제공한다.
+    if (!sanitizedTexts[1]) sanitizedTexts[1] = metricCheck(serverCard);
+    sanitizedTexts[2] = buildSummaryCardFactText(serverCard) || comparison || sanitizedTexts[2];
     sanitizedTexts[3] = cardEvaluation(serverCard);
-    const unsupportedMixedWinner = hasUnsupportedMixedWinner(providerWinner as SummaryCard["winner"], serverCard.evidence);
-    if (unsupportedMixedWinner) {
-      sanitizedTexts[2] = "비교 가능한 지표는 모두 평균보다 유리한 방향입니다.";
-      sanitizedTexts[3] = cardEvaluation(serverCard);
-    }
     const readyCard: SummaryCard = {
       ...serverCard,
       analysisStatus: "ready",
@@ -1011,21 +1088,29 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
       spicyOpinion: sanitizedTexts[1],
       reason: sanitizedTexts[2],
       evaluation: sanitizedTexts[3],
-      winner: serverCard.dataStatus === "comparable" && hasCheck && kindOpinion.trim() === sanitizedTexts[0] && spicyOpinion.trim() === sanitizedTexts[1] && !unsupportedMixedWinner && ![kindOpinion, spicyOpinion, reason, evaluation].some(text => hasUnsupportedSummaryInference(text) || hasUnsupportedSummaryAdvice(text)) ? providerWinner : null,
+      // 승패는 모델 선택이 아니라 비교 지표의 방향으로 정한다.
+      winner: serverCard.dataStatus === "comparable" ? serverWinner(serverCard) : null,
     };
     return readyCard;
   });
 
   const readyCards = normalizedCards.filter(card => card.analysisStatus === "ready");
-  const normalizedActionItems = readyCards.length === 0 ? [] : actionItems.items.flatMap((item) => {
+  // 모든 카드에서 두 의견이 중립이면 서버 문장만 남은 결과라 성공으로 캐시하지 않는다.
+  if (readyCards.length > 0 && neutralCards >= readyCards.length) reject("all_neutral");
+  const providerActionItems = readyCards.length === 0 ? [] : actionItems.items.flatMap((item) => {
     const desc = conditionalCheckText(item.desc);
-    if (desc) return [{ ...item, desc }];
-    // Actions have no topic/evidence ID; array order cannot identify their subject.
-    reject("action_items");
-    return [];
+    return desc && !/\d/u.test(item.title) ? [{ ...item, desc }] : [];
   });
+  const serverActionItems = readyCards
+    .map(card => weakestMetric(card))
+    .filter((row): row is SummaryEvidence => row !== null)
+    .map(row => ({ icon: "target", title: `${row.label} 점검`, desc: METRIC_CHECKS[row.metricId] }));
+  const normalizedActionItems = (providerActionItems.length ? providerActionItems : serverActionItems).slice(0, 3);
   const finalCards = normalizedCards.map(cloneCard);
-  safeSignature = SAFE_SIGNATURE;
+  // 칭호는 숫자·인성·측정하지 않은 능력 없이 짧을 때만 모델 표현을 쓴다.
+  const providerSignature = normalizedSignature.value.trim();
+  safeSignature = !globalModeRejected && !normalizedSignature.changed && providerSignature.length > 0 && providerSignature.length <= 16
+    && !UNSUPPORTED_SIGNATURE.test(providerSignature) && !hasUnsupportedSummaryInference(providerSignature) ? providerSignature : SAFE_SIGNATURE;
   safeSignatureSub = "관측된 경기 지표와 다음 경기의 점검 과제입니다.";
   // Include every card, independent of provider winners and card-local praise.
   safeVerdict = groundedVerdict(finalCards);
