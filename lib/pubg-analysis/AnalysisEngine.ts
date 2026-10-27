@@ -11,7 +11,7 @@ import { SquadObservationCollector } from './squadObservations';
 import { SquadFocusFireCollector } from './squadFocusFire';
 import { normalizeName } from './utils';
 import { AnalysisResult, AnalysisState } from './types';
-import { MAP_NAMES, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, ANALYSIS_CALCULATION_VERSION } from './constants';
+import { MAP_NAMES, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, ANALYSIS_CALCULATION_VERSION, COUNTER_LATENCY_PENALTY_MS } from './constants';
 import { CombatHandler } from './handlers/CombatHandler';
 import { ZoneHandler } from './handlers/ZoneHandler';
 import { UtilityHandler } from './handlers/UtilityHandler';
@@ -425,7 +425,7 @@ export class AnalysisEngine {
     if (this.state.reactCount > 0) {
       avgReactLat = this.state.reactLatSum / this.state.reactCount;
     } else if (pData.reversalAttempts > 0) {
-      avgReactLat = 3000;
+      avgReactLat = COUNTER_LATENCY_PENALTY_MS;
     }
 
     const rescueSummary = summarizeRescueEpisodes(this.state);

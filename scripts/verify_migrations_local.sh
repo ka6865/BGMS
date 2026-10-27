@@ -127,6 +127,7 @@ MIGRATIONS=(
   "20261026030000_lol_champion_bans"
   "20261027000000_analysis_calculation_v4"
   "20261028000000_analysis_calculation_v5"
+  "20261028120000_benchmark_counter_latency_split"
 )
 
 cleanup() {
@@ -437,6 +438,7 @@ fi
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v3-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v4-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/calculation-v5-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/counter-latency-split-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/support-center-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/public-column-privacy-checks.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/client-grant-hardening-checks.sql

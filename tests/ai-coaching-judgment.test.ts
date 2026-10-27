@@ -142,7 +142,7 @@ describe('match coaching evidence from telemetry audit', () => {
 
   it('does not infer a percentile from a benchmark mean', () => {
     const input = { briefFeedback: ['대응 사격 속도 0.17초로 상위 수준의 반응 속도를 증명했습니다.'] };
-    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), { tradeStats: { reactionLatencyMs: 167 }, eliteBenchmark: { avgCounterLatency: 0.9, sampleCount: 30, metricSampleCounts: { avgCounterLatency: 22 } } }));
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), { tradeStats: { reactionLatencyMs: 167 }, duelStats: { firstReplyWithin3sCount: 1, firstReplyLatencySumMs: 167 }, eliteBenchmark: { avgCounterLatency: 0.9, sampleCount: 30, metricSampleCounts: { avgCounterLatency: 22 } } }));
     expect(result.briefFeedback[0]).toContain('0.17초');
     expect(result.briefFeedback[0]).not.toMatch(/상위|증명/);
   });
@@ -162,8 +162,7 @@ describe('additional telemetry findings', () => {
   it('does not present the 3 second failure penalty as a measured reaction time', () => {
     const input = { briefFeedback: ['대응 사격 속도가 3.00초로 비교 대상 평균인 0.57초보다 크게 느려 교전 반응 속도 개선이 시급합니다.'] };
     const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), { tradeStats: { reactionLatencyMs: 3000 }, duelStats: { reversalAttempts: 3 } }));
-    expect(result.briefFeedback[0]).toContain('3초 내');
-    expect(result.briefFeedback[0]).toContain('측정');
+    expect(result.briefFeedback[0]).toBe('기습당한 교전 3회에서 3초 안에 첫 반격을 하지 못했습니다.');
     expect(result.briefFeedback[0]).not.toContain('0.57초');
   });
 
@@ -226,4 +225,47 @@ it('does not treat a negated shortfall as low-sample throw criticism', () => {
   const input = { finalVerdict: '피해형 투척 2회 중 1회 적중으로 투척 활용은 부족함이 없었습니다.' };
   const match = { combatPressure: { utilityStats: { lethalThrowCount: 2, hitCount: 1 } } };
   expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), match))).toEqual(input);
+});
+
+describe('real gemini audit findings (2026-10-28)', () => {
+  const earlyDeath = {
+    stats: { kills: 1, assists: 3, DBNOs: 1 }, tradeStats: { revCount: 1, enemyTeamWipes: 1 },
+    isolationData: { isolationIndex: 0.89 }, duelStats: { totalDuels: 1, wins: 0 }, initiativeSampleCount: 1,
+    combatPressure: { utilityStats: { throwCount: 2, lethalThrowCount: 2, hitCount: 0 } },
+  };
+  const run = (input: unknown, match: unknown = earlyDeath) => JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), match));
+
+  it('replaces a no-contribution verdict and character judgment with observed contributions', () => {
+    const result = run({ signatureSub: '배지가 존재하지 않으며, 너무 이른 시점에 사망하여 전술적 기여를 남기지 못했습니다.', finalVerdict: '이른 사망으로 인해 팀에 아무런 유효 자산도 남기지 못한 무책임한 초반 탈락입니다.' });
+    expect(result.signatureSub).toContain('처치 1회, 어시스트 3회, 기절 1회, 소생 1회, 적 팀 전멸 기여 1회');
+    expect(result.finalVerdict).not.toMatch(/무책임|아무런/);
+  });
+
+  it('does not treat a low isolation index as a weakness', () => {
+    const result = run({ briefFeedback: ['팀 내 딜량 비중은 35%입니다. 고립 지수 0.89와 겹쳐 조기 교전에서의 생존 방안이 결여되어 있습니다.'] });
+    expect(result.briefFeedback[0]).toBe('팀 내 딜량 비중은 35%입니다. 고립 지수 0.9로 아군과 가까운 대열을 유지했습니다.');
+  });
+
+  it('withholds ability judgments and directives from one duel, one initiative and two throws', () => {
+    const result = run({
+      briefFeedback: ['유효 딜량 596입니다. 1:1 교전 승률 0%와 선제 공격 성공률 0%로 초기 교전 압박 능력이 부족합니다.'],
+      actionItems: [{ title: '피해형 투척물 명중률 개선', desc: '피해형 투척물 총 2회 투척 중 적중 0회를 기록했으므로 투척물 궤적과 타이밍을 점검하십시오.' }],
+    });
+    expect(result.briefFeedback[0]).toContain('유효 딜량 596입니다.');
+    expect(result.briefFeedback[0]).toContain('표본이 적습니다');
+    expect(result.briefFeedback[0]).not.toContain('부족합니다');
+    expect(result.actionItems[0].title).toBe('투척 결과 확인');
+    expect(result.actionItems[0].desc).toContain('명중률을 판단하기 어렵습니다');
+  });
+
+  it('removes an unmeasured entry diagnosis and an unmeasured concentration claim', () => {
+    const result = run({ actionItems: [{ desc: '페이즈 1 교전에서 무리한 진입을 자제하고 엄폐물 확보를 최우선으로 두십시오.' }], finalVerdict: '멋진 집중력으로 1위를 달성하신 점 진심으로 축하드립니다.' });
+    expect(result.actionItems[0].desc).toBe('다음 교전 전에는 엄폐물과 아군 위치를 먼저 확인해 보세요.');
+    expect(result.finalVerdict).toBe('1위를 달성하신 점 진심으로 축하드립니다.');
+  });
+
+  it('drops only the uncomparable sentence and keeps neighbouring facts', () => {
+    const result = run({ briefFeedback: ['유효 딜량 596을 기록했습니다. 대응 사격 속도는 동일 티어 평균보다 느립니다.'] }, { duelStats: { firstReplyWithin3sCount: 1, firstReplyLatencySumMs: 540 } });
+    expect(result.briefFeedback[0]).toBe('유효 딜량 596을 기록했습니다.');
+  });
 });

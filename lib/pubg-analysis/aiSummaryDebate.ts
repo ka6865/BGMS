@@ -91,6 +91,11 @@ const METRIC_DEFINITIONS: Array<{
     "상위권 평균 대응 사격 속도", "동일 티어 평균 대응 사격 속도",
     "상위권 반응 속도", "동일 티어 반응 속도", "상위권 평균 반응 속도", "동일 티어 평균 반응 속도",
   ] },
+  { key: "counter_failure_rate", dimension: "percentage", aliases: [
+    "3초 내 대응 실패율", "대응 실패율", "평균 3초 내 대응 실패율",
+    "상위권 3초 내 대응 실패율", "동일 티어 3초 내 대응 실패율",
+    "상위권 평균 3초 내 대응 실패율", "동일 티어 평균 3초 내 대응 실패율",
+  ] },
   { key: "smoke_opportunity_rate", dimension: "percentage", aliases: [
     "아군 기절 대비 연막 구출률", "아군 기절 대비 연막 구출 성공률",
     "아군 기절 대비 평균 연막 구출률", "아군 기절 대비 평균 연막 구출 성공률",
@@ -222,6 +227,7 @@ export const AI_SUMMARY_HIGHER_IS_BETTER: Readonly<Record<string, boolean>> = {
   death_phase: true,
   backup_latency: false,
   reaction_latency: false,
+  counter_failure_rate: false,
 };
 
 function directionPredicate(value: string): DirectionPredicate {

@@ -351,7 +351,7 @@ it('프롬프트에서 대응 실패 패널티와 복구 시간을 실측값과 
     stats: { winPlace: 1, kills: 1, assists: 0, DBNOs: 1, damageDealt: 428, processedDamageDealt: 351, timeSurvived: 500 },
     tradeStats: { reactionLatencyMs: 3000, tradeLatencyMs: 6000 }, duelStats: { reversalAttempts: 1 },
   } });
-  expect(playerReportSummary).toContain('3초 내 대응 피해 미관측(3초 패널티, 실제 시간 측정 불가)');
+  expect(playerReportSummary).toContain('3초 안에 첫 반격 없음(기습 1회, 실제 시간 측정 불가)');
   expect(playerReportSummary).toContain('소생·합류·복구에 걸린 시간은 측정하지 않음');
   expect(fullPrompt).toContain('팀 내 딜량 비중은 PUBG 공식 피해량');
   expect(fullPrompt).not.toContain("제목은 '복구 시간 단축'으로만 작성");

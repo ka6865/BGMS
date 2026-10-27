@@ -1,5 +1,7 @@
 import { buildBackupCoachingContext, type BackupCoachingContext } from "@/lib/pubg-analysis/backupCoaching";
-import { hasObservedBenchmarkMetric, type NormalizedBenchmark, type ObservedBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
+import { hasComparableBenchmarkMetric, type NormalizedBenchmark, type ObservedBenchmark } from "@/lib/pubg-analysis/benchmarkAdapter";
+import { firstReplyLatencyMs } from "@/lib/pubg-analysis/firstReply";
+import { COUNTER_LATENCY_PENALTY_MS } from "@/lib/pubg-analysis/constants";
 
 interface MatchAiPromptInput {
   matchData: any;
@@ -34,7 +36,7 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     ? eliteBenchmark
     : null;
   const benchmarkMetric = (key: keyof NormalizedBenchmark): number | null => (
-    hasObservedBenchmarkMetric(observedEliteBenchmark, key)
+    hasComparableBenchmarkMetric(observedEliteBenchmark, key)
       ? Number((observedEliteBenchmark as Record<string, unknown>)[key])
       : null
   );
@@ -150,10 +152,16 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
 - 임팩트 근거: ${impactReasons}
 
 [전술 지표 (유저 vs DB 티어 평균)]
-- 1:1 교전 승률: ${formatPercent(matchData.duelStats?.duelWinRate)} (Elite Avg: ${formatBenchmarkPercent("avgDuelWinRate")})
+- 1:1 교전 승률: ${formatPercent(matchData.duelStats?.duelWinRate)} (교전 ${formatCount(matchData.duelStats?.totalDuels)}회, Elite Avg: ${formatBenchmarkPercent("avgDuelWinRate")})
 - 복수(Trade) 성공률: ${formatPercent(tradeStats.tradeRate)} (Elite Avg: ${formatBenchmarkPercent("avgTradeRate")})
-- 선제 공격 성공률: ${formatPercent(matchData.initiative_rate)} (Elite Avg: ${formatBenchmarkPercent("avgInitiativeRate")})
-- 대응 사격 속도(반응): ${(() => { const latency = finiteNonNegative(tradeStats.reactionLatencyMs); return latency === null ? "데이터 부족" : latency === 3000 && (finiteNonNegative(matchData.duelStats?.reversalAttempts) ?? 0) > 0 ? "3초 내 대응 피해 미관측(3초 패널티, 실제 시간 측정 불가)" : `${(latency / 1000).toFixed(2)}s`; })()} (Elite Avg: ${formatBenchmarkNumber("avgCounterLatency", "s")})
+- 선제 공격 성공률: ${formatPercent(matchData.initiative_rate)} (선제 시도 ${formatCount(matchData.initiativeSampleCount)}회, Elite Avg: ${formatBenchmarkPercent("avgInitiativeRate")})
+- 대응 사격 속도(첫 반격): ${(() => {
+  const firstReply = firstReplyLatencyMs(matchData);
+  const ambushed = (finiteNonNegative(matchData.duelStats?.reversalAttempts) ?? 0) > 0;
+  if (firstReply !== null) return `${(firstReply / 1000).toFixed(2)}s (기습당한 교전 ${matchData.duelStats.firstReplyWithin3sCount}회의 첫 피격→첫 반격 평균, Elite Avg: ${formatBenchmarkNumber("avgFirstReplyLatency", "s")})`;
+  if (ambushed && finiteNonNegative(tradeStats.reactionLatencyMs) === COUNTER_LATENCY_PENALTY_MS) return `3초 안에 첫 반격 없음(기습 ${matchData.duelStats.reversalAttempts}회, 실제 시간 측정 불가) (Elite 3초 내 대응 실패율: ${formatBenchmarkPercent("avgCounterFailureRate")})`;
+  return ambushed ? "측정 불가(첫 반격 기록 없음)" : "기습당한 교전 없음";
+})()}
 - 백업(Trade) 속도: ${backupLatencyText} (Elite Avg: ${formatBenchmarkNumber("avgTradeLatency", "s")})
 - 백업 결과 해석: 복수 처치까지의 시간이며, 소생·합류·복구에 걸린 시간은 측정하지 않음
 - 전술 지원: 아군 처치 지원 ${formatCount(tradeStats.suppCount)}회 / 아군 처치 ${formatCount(tradeStats.teammateKills)}회 중 지원 비율 ${formatPercent(tradeStats.suppRate)} (비교 자료 없음)
@@ -162,7 +170,11 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
 - 유틸리티 정밀: 총 투척 ${formatCount(totalThrows)}회 / 피해형 투척 ${formatCount(lethalThrows)}회 / 피해 적중 ${formatCount(utilityHits)}회 / 피해형 투척 적중률 ${formatPercent(utilityAccuracy)} / 피해형 투척당 평균 딜 ${formatNumber(avgDamagePerLethalThrow)}
 - 유틸리티 해석: ${utilityInterpretation}
 - 교전 압박: 압박 지수 ${formatNumber(combatPressure.pressureIndex)} (Elite Avg: ${formatBenchmarkNumber("avgPressureIndex")}) / 투척물 딜량 ${formatNumber(combatPressure.utilityDamage ?? combatPressure.utilityStats?.totalDamage)}
-- 운영 패턴: 사망 페이즈 ${formatNumber(matchData.deathPhase)} (Elite Avg: ${formatBenchmarkNumber("avgDeathPhase", " 페이즈")})
+- 운영 패턴: 사망 페이즈 ${(() => {
+  // 첫 자기장 전에 죽으면 엔진이 경기 종료 시점 페이즈를 기록한다. 생존 시간과 맞지 않는 값은 쓰지 않는다.
+  const phase = finiteNonNegative(matchData.deathPhase), survived = finiteNonNegative(stats?.timeSurvived);
+  return phase !== null && phase >= 3 && survived !== null && survived < 360 ? "측정 불가(생존 시간과 맞지 않음)" : formatNumber(matchData.deathPhase);
+})()} (Elite Avg: ${formatBenchmarkNumber("avgDeathPhase", " 페이즈")})
 - 팀 전멸 기여: ${formatCount(tradeStats.enemyTeamWipes)}회
 `.trim();
 
@@ -202,6 +214,14 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     "  * 투척물 딜량이 0이면 정확도만으로 교전 보조 능력을 단정하지 마십시오.",
     "- [백업 해석 규칙] 백업 속도는 아군 기절 후 복수 처치까지의 시간입니다. 이를 소생·합류·복구에 걸린 시간으로 해석하거나 복구 시간 단축을 지시하지 마십시오. 전멸 기여와 소생 횟수만으로 같은 사건의 복구 성공을 단정하지 마십시오.",
     "- [표본과 비교] 투척 1~2회나 대응 사격 관측이 적을 때는 전반적인 능력을 단정하지 마십시오. 평균만으로 상위 백분위를 주장하지 말고, 선제 공격 성공률을 첫 발 명중률로 해석하지 마십시오.",
+    "- [적은 표본] 1:1 교전·선제 시도·피해형 투척이 3회 미만인 지표는 횟수만 말하고, 능력이 부족하다거나 높이라는 평가·지시(actionItems 포함)의 근거로 쓰지 마십시오.",
+    "- [비교 없는 평가 금지] Elite Avg가 측정 불가인 지표(예: 대응 사격 속도)는 빠르다/느리다/미흡하다로 평가하지 말고 관측값만 말하십시오.",
+    "- [기여 인정] 처치·어시스트·기절·소생·적 팀 전멸 기여 중 하나라도 1회 이상이면 '아무 기여도 없다', '아무것도 남기지 못했다'처럼 쓰지 마십시오. 조기 탈락은 생존 시간과 사망 페이즈 사실로만 말하십시오.",
+    "- [인성 표현 금지] 무책임, 무능, 민폐, 한심, 이기적 같은 태도·인성 평가와 집중력·판단력·멘탈처럼 측정하지 않은 능력은 쓰지 마십시오.",
+    "- [진입 추정 금지] 진입 시점이나 무리한 진입 여부는 측정하지 않았습니다. '무리한 진입'을 원인이나 행동 제안으로 쓰지 마십시오.",
+    "- [피드백 구성] briefFeedback 3개는 서로 다른 주제(화력·교전·팀플레이 또는 생존)를 다루고, 각 문장에 관측 수치와 그 수치가 이번 경기에서 뜻하는 바를 함께 쓰십시오. 같은 수치를 반복하지 마십시오.",
+    "- [마지막 한마디] finalVerdict는 이번 경기 기록에서 가장 중요한 사실 하나와 다음 경기 과제 하나를 한두 문장으로 쓰십시오. 분석 원칙이나 코치 자신의 태도를 말하지 마십시오.",
+    "- [행동 제안] actionItems는 이번 경기에서 표본이 충분한 지표 가운데 가장 아쉬운 1~2개만 골라, 다음 경기에서 확인하거나 시도할 구체 행동으로 쓰십시오. 근거가 없으면 1개만 쓰십시오.",
     "- **핵심 규칙**: 불필요한 미사여구와 항목 나열을 절대 금지합니다. 칭호와 그에 대한 전술적 이유를 설명한 뒤, 하단에 정확히 3개의 핵심 피드백 문장만 제공하십시오.",
     "",
     "반드시 아래 구조의 JSON 객체로만 응답하세요. 백틱(```) 없이 순수 JSON만 출력하십시오.",
