@@ -4,7 +4,7 @@
 
 - 공개 `/lol/kr/champions`: 포지션별 승률·픽률·밴률·판수 표, 티어 필터(모든 티어, 에메랄드+, 다이아몬드+, 마스터+, 티어별).
 - 공개 `/lol/kr/champions/{영문 ID 소문자}`: 포지션 요약(승률·픽률·밴률·KDA·분당 CS·분당 피해량·15분 골드 차이), 룬, 소환사 주문, 시작 아이템, 코어 빌드, 스킬 순서, 신발, 많이 가는 아이템, 라인 상대.
-- 수집기 `scripts/lol_collect_champion_stats.ts`와 migration `20261027010000_lol_champion_stats.sql`.
+- 수집기 `scripts/lol_collect_champion_stats.ts`와 migration `20261028130000_lol_champion_stats.sql`.
 - 표본은 BGMS가 모은 솔로 랭크(420) 경기다. 화면에 경기 수를 같이 표시하고 20판 미만은 승률 대신 "표본 부족"으로 둔다.
 
 ## 저장 계약

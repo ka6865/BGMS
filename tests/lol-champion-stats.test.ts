@@ -234,7 +234,7 @@ describe("챔피언 통계 수집기", () => {
 });
 
 describe("챔피언 통계 migration", () => {
-  const sql = readFileSync("supabase/migrations/20261027010000_lol_champion_stats.sql", "utf8");
+  const sql = readFileSync("supabase/migrations/20261028130000_lol_champion_stats.sql", "utf8");
   it("익명 집계·서비스 전용 권한을 유지한다", () => {
     expect(sql).not.toMatch(/puuid|riot_id|game_name|request_json/);
     expect(sql).not.toContain("security definer");

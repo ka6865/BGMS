@@ -125,10 +125,10 @@ MIGRATIONS=(
   "20261026010000_lol_delete_search_lease_any_version"
   "20261026020000_lol_search_cache_payload_1mb"
   "20261026030000_lol_champion_bans"
-  "20261027010000_lol_champion_stats"
   "20261027000000_analysis_calculation_v4"
   "20261028000000_analysis_calculation_v5"
   "20261028120000_benchmark_counter_latency_split"
+  "20261028130000_lol_champion_stats"
 )
 
 cleanup() {
