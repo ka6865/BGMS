@@ -6,7 +6,7 @@ import { buildSummaryCards, buildSummaryCardComparisonText, normalizeSummaryCard
 
 const context = { contextId: 'quality', gameMode: 'squad', matchType: 'official', tier: 'B+', userMatchCount: 5, benchmarkSampleCount: 20, filterVersion: 8, populationVersion: 1 };
 function fixture() {
-  const benchmark = adaptObservedBenchmark({ match_count: 20, avg_damage: 373.456, avg_damage_count: 20, avg_smoke_rate: 5.78, avg_smoke_rate_count: 20, avg_trade_rate: 8.4, avg_trade_rate_count: 20, avg_trade_latency_ms: 11211.123, avg_trade_latency_ms_count: 20 });
+  const benchmark = adaptObservedBenchmark({ match_count: 40, avg_damage: 373.456, avg_damage_count: 40, avg_smoke_rate: 5.78, avg_smoke_rate_count: 40, avg_trade_rate: 8.4, avg_trade_rate_count: 40, avg_trade_latency_ms: 11211.123, avg_trade_latency_ms_count: 40 });
   const evidence = buildSummaryCardEvidence({ avgDamage: 412.123, totalSmokeRescues: 1, totalTeammateKnocks: 18, totalTradeKills: 3, avgBackupLatency: 23.25, metricMatchCounts: { damage_average: 5, smoke_opportunity_rate: 5, trade_success_rate: 5, backup_latency: 2 } }, benchmark);
   return buildSummaryCards({ topics: ['화력', '유틸리티 활용', '복수 성공률 및 백업'], evidence, context });
 }
@@ -32,8 +32,9 @@ describe('summary quality: precision and grounded conclusions', () => {
     expect(result.final.finalVerdict).toContain('백업 속도');
     expect(result.final.finalVerdict).not.toContain('약점이 확인되지 않았습니다');
     expect(result.final.cards[2].evaluation).not.toContain('약점이 확인되지 않았습니다');
-    expect(result.final.finalVerdict).toContain('2경기');
+    // 종합 평가는 비교 방향별 수치를 쓰고, 관측 경기 수는 카드 평가에 둔다.
     expect(result.final.finalVerdict).toContain('18건 중 1건');
+    expect(result.final.cards[2].evaluation).toContain('2경기');
   });
 
   it('removes unsupported prose while preserving a usable factual card', () => {
@@ -54,9 +55,9 @@ describe('summary quality: precision and grounded conclusions', () => {
     const card = normalizeSummaryCardFinal(raw, cards, options)!.final.cards[1];
     expect(card.analysisStatus).toBe('ready');
     expect(card.kindOpinion).not.toContain('고루');
-    expect(card.spicyOpinion).toContain('아군이 기절했을 때');
-    expect(card.spicyOpinion).toContain('확인하세요');
-    expect(card.winner).toBeNull();
+    // 비교만 반복한 매운맛은 가장 불리한 지표(연막 구출률)에 맞춘 점검으로 바꾸고, 승자는 비교 방향으로 정한다.
+    expect(card.spicyOpinion).toBe('아군이 기절했을 때 연막으로 가릴 수 있는 구간이 있었는지 확인해 보세요.');
+    expect(card.winner).toBe('spicy');
   });
 
   it('keeps a situational check without inferred causes or unconditional rescue directives', () => {
@@ -65,9 +66,11 @@ describe('summary quality: precision and grounded conclusions', () => {
     raw.actionItems[0].desc = '아군이 기절하는 즉시 연막을 투척하여 안전한 구출 환경을 조성하십시오.';
     const result = normalizeSummaryCardFinal(raw, cards, options)!;
     expect(result.final.cards[0].spicyOpinion).toBe('다음 교전 전에 상대 위치를 확인하세요.');
-    expect(result.final.actionItems).toEqual([]);
-    expect(result.rejectReasons).toContain('action_items');
-    expect(result.cacheable).toBe(false);
+    // 무조건 투척 지시는 항목만 빠지고, 가장 불리한 지표에 맞춘 서버 점검으로 채운다.
+    expect(JSON.stringify(result.final.actionItems)).not.toContain('즉시');
+    expect((result.final.actionItems as Array<{ title: string }>).map(item => item.title)).toEqual(['아군 기절 대비 연막 구출률 점검', '백업 속도 점검']);
+    expect(result.rejectReasons).not.toContain('action_items');
+    expect(result.cacheable).toBe(true);
   });
 
   it.each(['확인해 보세요', '확인해 보십시오', '점검해 보십시오'])('preserves a utility action ending in %s regardless of card order', (ending) => {
@@ -87,9 +90,9 @@ describe('summary quality: precision and grounded conclusions', () => {
     raw.actionItems = [{ icon: 'target', title: '연막 구출', desc: '아군이 기절하면 무조건 연막을 던지세요.' }, valid];
     const result = normalizeSummaryCardFinal(raw, cards, options)!;
     expect(result.final.actionItems).toEqual([valid]);
-    expect(result.cacheable).toBe(false);
+    expect(result.cacheable).toBe(true);
     expect(result.usable).toBe(true);
-    expect(result.rejectReasons).toContain('action_items');
+    expect(result.rejectReasons).not.toContain('action_items');
   });
 
   it('owns factual prose and titles even when an unseen provider paraphrase passes the language guards', () => {
@@ -98,8 +101,9 @@ describe('summary quality: precision and grounded conclusions', () => {
     raw.signatureSub = '교전의 흐름을 읽으려는 시도가 돋보입니다.';
     raw.debateIssues[0].kindOpinion = '팀의 화력을 뒷받침하는 모습이 인상적입니다.';
     const result = normalizeSummaryCardFinal(raw, cards, options)!;
-    expect(result.final.cards[0].kindOpinion).toBe(buildSummaryCardComparisonText(cards[0]));
-    expect(result.final.cards[0].winner).toBeNull();
+    // 비교 문장은 서버가 먼저 쓰고, 숫자·비교가 없는 모델 칭찬만 뒤에 붙는다. 승자는 비교 방향(화력 우위)으로 정한다.
+    expect(result.final.cards[0].kindOpinion).toBe(`${buildSummaryCardComparisonText(cards[0])} 팀의 화력을 뒷받침하는 모습이 인상적입니다.`);
+    expect(result.final.cards[0].winner).toBe('kind');
     expect(result.final.signature).toBe('AI 전술 분석');
     expect(result.final.signatureSub).not.toContain('시도');
   });

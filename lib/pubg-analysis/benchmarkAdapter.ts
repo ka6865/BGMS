@@ -89,7 +89,7 @@ export interface RawTierBenchmark {
   avg_isolation_index?: number | null;
   avg_min_dist?: number | null;
   avg_counter_latency_ms?: number | null;
-  avg_measured_counter_latency_ms?: number | null;
+  avg_first_reply_latency_ms?: number | null;
   avg_counter_failure_rate?: number | null;
   avg_trade_latency_ms?: number | null;
   avg_solo_kill_rate?: number | null;
@@ -121,7 +121,7 @@ export interface NormalizedBenchmark {
   avgSoloKillRate: number;
   avgDeathPhase: number;
   // 반격 지연을 3초 패널티와 실측으로 나눈 값. 관측 비교 기준에만 있고 기본값을 두지 않는다.
-  avgMeasuredCounterLatency?: number;
+  avgFirstReplyLatency?: number;
   avgCounterFailureRate?: number;
 }
 
@@ -157,6 +157,18 @@ export function hasObservedBenchmarkMetric(
     && value >= 0
     && Number.isInteger(count)
     && (count as number) >= MIN_BENCHMARK_SAMPLE_COUNT;
+}
+
+/**
+ * 사용자에게 비교 평균으로 보여 줄 최소 지표 표본 수. 노출 최소값(5)으로는 평균이 크게 흔들려
+ * AI 해석과 요약 비교에는 이 값을 쓴다.
+ */
+export const MIN_COMPARISON_SAMPLE_COUNT = 30;
+
+export function hasComparableBenchmarkMetric(benchmark: unknown, key: keyof NormalizedBenchmark): boolean {
+  if (!hasObservedBenchmarkMetric(benchmark, key)) return false;
+  const count = Number(((benchmark as Record<string, any>).metricSampleCounts as Record<string, unknown>)[key]);
+  return count >= MIN_COMPARISON_SAMPLE_COUNT;
 }
 
 /**
@@ -260,7 +272,7 @@ export function adaptObservedBenchmark(raw: any): ObservedBenchmark | null {
   const observed: ObservedBenchmark = { sampleCount, ...(typeof raw.calculation_version === "number" ? { calculationVersion: raw.calculation_version } : {}) };
   const counterLatencyMs = observedNonNegative(raw.avg_counter_latency_ms ?? raw.avg_counter_latency, 2);
   const tradeLatencyMs = observedNonNegative(raw.avg_trade_latency_ms ?? raw.avg_trade_latency, 2);
-  const measuredCounterLatencyMs = observedNonNegative(raw.avg_measured_counter_latency_ms, 2);
+  const measuredCounterLatencyMs = observedNonNegative(raw.avg_first_reply_latency_ms, 2);
   const values: Array<{
     key: keyof NormalizedBenchmark;
     value: number | undefined;
@@ -280,7 +292,7 @@ export function adaptObservedBenchmark(raw: any): ObservedBenchmark | null {
     { key: "avgIsolationIndex", value: observedNonNegative(raw.avg_isolation_index, 2), rawFields: ["avg_isolation_index"] },
     { key: "avgMinDist", value: observedNonNegative(raw.avg_min_dist, 0), rawFields: ["avg_min_dist"] },
     { key: "avgCounterLatency", value: counterLatencyMs === undefined ? undefined : Number((counterLatencyMs / 1000).toFixed(2)), rawFields: ["avg_counter_latency_ms", "avg_counter_latency"] },
-    { key: "avgMeasuredCounterLatency", value: measuredCounterLatencyMs === undefined ? undefined : Number((measuredCounterLatencyMs / 1000).toFixed(2)), rawFields: ["avg_measured_counter_latency_ms"] },
+    { key: "avgFirstReplyLatency", value: measuredCounterLatencyMs === undefined ? undefined : Number((measuredCounterLatencyMs / 1000).toFixed(2)), rawFields: ["avg_first_reply_latency_ms"] },
     { key: "avgCounterFailureRate", value: observedRate(raw.avg_counter_failure_rate), rawFields: ["avg_counter_failure_rate"] },
     { key: "avgTradeLatency", value: tradeLatencyMs === undefined ? undefined : Number((tradeLatencyMs / 1000).toFixed(2)), rawFields: ["avg_trade_latency_ms", "avg_trade_latency"] },
     { key: "avgSoloKillRate", value: observedRate(raw.avg_solo_kill_rate), rawFields: ["avg_solo_kill_rate"] },
@@ -295,7 +307,7 @@ export function adaptObservedBenchmark(raw: any): ObservedBenchmark | null {
     const original = finiteNumber(raw[rawFields.find(field => raw[field] != null) ?? rawFields[0]]);
     if (original !== undefined && original >= 0) {
       observed.rawMetricValues ??= {};
-      observed.rawMetricValues[key] = key === "avgCounterLatency" || key === "avgMeasuredCounterLatency" || key === "avgTradeLatency" ? original / 1000 : original;
+      observed.rawMetricValues[key] = key === "avgCounterLatency" || key === "avgFirstReplyLatency" || key === "avgTradeLatency" ? original / 1000 : original;
     }
     metricSampleCounts[key] = count;
   });

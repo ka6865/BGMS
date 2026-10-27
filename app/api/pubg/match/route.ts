@@ -1019,7 +1019,7 @@ const STALE_BENCHMARK_METRICS = [
   "avgIsolationIndex",
   "avgMinDist",
   "avgCounterLatency",
-  "avgMeasuredCounterLatency",
+  "avgFirstReplyLatency",
   "avgCounterFailureRate",
   "avgTradeLatency",
   "avgSoloKillRate",

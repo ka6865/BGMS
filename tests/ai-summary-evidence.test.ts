@@ -50,8 +50,12 @@ describe('server summary card evidence', () => {
     expect(rows.find(row => row.metricId === 'trade_success_rate')?.userValue).toBeNull();
   });
   it('preserves valid benchmark zero and formats rates without floating point tails', () => {
-    const rows = buildSummaryCardEvidence(stats, { sampleCount: 10, avgDamage: 0, avgInitiativeRate: 61.2647058823529, metricSampleCounts: { avgDamage: 5, avgInitiativeRate: 5 } });
+    const rows = buildSummaryCardEvidence(stats, { sampleCount: 40, avgDamage: 0, avgInitiativeRate: 61.2647058823529, metricSampleCounts: { avgDamage: 30, avgInitiativeRate: 30 } });
     expect(rows.find(row => row.metricId === 'damage_average')?.benchmarkValue).toBe('0');
-    expect(rows.find(row => row.metricId === 'initiative_rate')).toMatchObject({ benchmarkValue: '61.3%', sampleCount: 5 });
+    expect(rows.find(row => row.metricId === 'initiative_rate')).toMatchObject({ benchmarkValue: '61.3%', sampleCount: 30 });
+  });
+  it('keeps a benchmark under the comparison sample threshold user-only with a reason', () => {
+    const rows = buildSummaryCardEvidence(stats, { sampleCount: 40, avgDamage: 300, metricSampleCounts: { avgDamage: 29 } });
+    expect(rows.find(row => row.metricId === 'damage_average')).toMatchObject({ benchmarkValue: null, sampleCount: null, unavailableReason: '비교 표본이 30경기 미만이라 비교하지 않습니다.' });
   });
 });

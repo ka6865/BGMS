@@ -5915,7 +5915,7 @@ describe("AI cache route stabilization", () => {
     });
     const tradeStats = { teammateKnocks: 0, tradeKills: 0, suppCount: 0, revCount: 0, smokeCount: 0, smokeRescues: 0, tradeLatencyMs: null };
     const player = { player_id: "kangheesung_", stats: { name: "KangHeeSung_", kills: 1, damageDealt: 200, processedDamageDealt: 200, winPlace: 5, timeSurvived: 1200 } };
-    const measured = createSummaryMatch("match-react", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 600 } });
+    const measured = createSummaryMatch("match-react", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 90 }, duelStats: { reversalAttempts: 2, firstReplyWithin3sCount: 2, firstReplyLatencySumMs: 1200 } });
     const penalty = createSummaryMatch("match-penalty", { ...player, tradeStats: { ...tradeStats, reactionLatencyMs: 3000 } });
     const telemetry = createQueryChain({
       data: [measured, penalty].map((fullResult) => ({ match_id: fullResult.matchId, player_id: "kangheesung_", platform: "kakao", data: { fullResult } })),
@@ -5933,7 +5933,8 @@ describe("AI cache route stabilization", () => {
     expect(await response.text()).toContain("\"type\":\"done\"");
     expect(capturedPrompt).toContain("0.60s");
     expect(capturedPrompt).toContain("1/2경기");
-    expect(capturedPrompt).not.toContain("1.80s");
+    expect(capturedPrompt).not.toContain("1.55s");
+    expect(capturedPrompt).not.toContain("0.09s");
   });
 
   it("ai-summary는 피해형 투척 수를 연막 포함 총 투척 수와 분리해 프롬프트에 전달한다", async () => {
@@ -6663,7 +6664,7 @@ describe("AI cache route stabilization", () => {
     'ai-summary v2 %s preserves server evidence and validates interpretation/cache separately', async (scenario) => {
       const summaryCache = createQueryChain();
       const telemetry = createQueryChain({ data: [{ match_id: 'id-contract', player_id: 'player_a', platform: 'kakao', data: { fullResult: createSummaryMatch('id-contract', { deathPhase: 4 }) } }], error: null });
-      const tier = createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 5, avg_trade_rate: 20, avg_trade_rate_count: 5, avg_duel_win_rate: 10, avg_duel_win_rate_count: 5, avg_solo_kill_rate: 40, avg_solo_kill_rate_count: 5 }, error: null });
+      const tier = createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 30, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 30, avg_trade_rate: 20, avg_trade_rate_count: 30, avg_duel_win_rate: 10, avg_duel_win_rate_count: 30, avg_solo_kill_rate: 40, avg_solo_kill_rate_count: 30 }, error: null });
       mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({ player_ai_summary_cache: summaryCache, processed_match_telemetry: telemetry, benchmark_stats_by_tier_v2: tier }) });
       let providerFinal: any;
       mockGenerateContentStream.mockImplementation(async (prompt: string) => {
@@ -6711,8 +6712,9 @@ describe("AI cache route stabilization", () => {
       expect(facts).toHaveLength(3);
       const damage = facts.find((card: any) => card.topicId === 'firepower').evidence[0];
       expect(damage).toMatchObject({ metricId: 'damage_average', userValue: '320', benchmarkValue: '100', status: 'comparable' });
-      const partialSuccess = ['wrong-reference', 'missing-reference', 'foreign-mode', 'cross-card-prose', 'neutral-opinion', 'invented-match-count', 'malformed-action'].includes(scenario);
-      const success = partialSuccess || ['valid', 'unsafe-advice', 'balanced', 'withheld', 'shuffled', 'technical-provenance'].includes(scenario);
+      // 중립 의견과 잘못된 행동 제안은 서버 근거·점검으로 대신하므로 완료로 끝난다.
+      const partialSuccess = ['wrong-reference', 'missing-reference', 'foreign-mode', 'invented-match-count'].includes(scenario);
+      const success = partialSuccess || ['valid', 'unsafe-advice', 'balanced', 'withheld', 'shuffled', 'technical-provenance', 'neutral-opinion', 'malformed-action', 'all-neutral', 'cross-card-prose'].includes(scenario);
       expect(records.find(record => record.type === 'done')?.valid).toBe(success);
       if (success) {
         expect(mockTrackAiFailure).not.toHaveBeenCalled();
@@ -6725,23 +6727,33 @@ describe("AI cache route stabilization", () => {
         if (partialSuccess) {
           expect(records.find(record => record.type === 'done')).toMatchObject({ valid: true, partial: true, retryAfterSeconds: 300 });
           expect(final.cards.some((card: any) => card.analysisStatus === 'ready')).toBe(true);
-          if (scenario === 'malformed-action') expect(final.actionItems).toEqual([]);
-          else expect(final.cards.some((card: any) => card.analysisStatus === 'unavailable' && card.winner === null)).toBe(true);
+          expect(final.cards.some((card: any) => card.analysisStatus === 'unavailable' && card.winner === null)).toBe(true);
           expect(records.some(record => record.type === 'error')).toBe(false);
         }
         if (scenario === 'balanced' || scenario === 'withheld') {
           const firepower = final.cards.find((card: any) => card.topicId === 'firepower');
-          expect(firepower.winner).toBeNull(); // A favourable damage comparison alone cannot establish mixed strengths/weaknesses.
+          expect(firepower.winner).toBe('kind'); // 승자는 모델의 draw/null이 아니라 비교 방향(화력 우위)으로 정한다.
           expect(final.debateIssues.find((issue: any) => issue.topic === firepower.topic).winner).toBe(firepower.winner);
         }
         expect(final.cards.map((card: any) => card.topicId)).toEqual(facts.map((card: any) => card.topicId));
         expect(final.cards.map((card: any) => card.evidence)).toEqual(facts.map((card: any) => card.evidence));
         if (scenario === 'unsafe-advice') {
           const card = final.cards.find((card: any) => card.topicId === 'firepower');
-          expect(card.winner).toBeNull();
+          expect(card.winner).toBe('kind');
           expect(card.spicyOpinion).toContain('다음 교전이 끝난 뒤');
           expect(final.actionItems[0].desc).not.toContain('공격 기회를 늘리세요');
           expect(final.actionItems[0].desc).toContain('확인');
+        }
+        if (scenario === 'malformed-action') expect(JSON.stringify(final.actionItems)).not.toContain('"target":"목표"');
+        if (scenario === 'cross-card-prose') {
+          // 다른 카드의 화력 비교 문장은 지워지고, 그 카드는 자기 근거로만 채운다.
+          for (const card of final.cards.filter((card: any) => card.topicId !== 'firepower')) expect(card.kindOpinion).not.toContain('평균 화력');
+        }
+        if (scenario === 'neutral-opinion' || scenario === 'all-neutral') {
+          // 중립 의견 자리는 서버 비교로 채우고 카드를 숨기지 않는다.
+          const firepower = final.cards.find((card: any) => card.topicId === 'firepower');
+          expect(firepower).toMatchObject({ analysisStatus: 'ready', winner: 'kind' });
+          expect(firepower.kindOpinion.startsWith('평균 화력은 비교 평균보다 높습니다.')).toBe(true);
         }
         if (scenario === 'technical-provenance') {
           const opinion = final.cards.find((card: any) => card.topicId === 'firepower').kindOpinion;
@@ -6841,7 +6853,7 @@ describe("AI cache route stabilization", () => {
     mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({
       player_ai_summary_cache: summaryCache,
       processed_match_telemetry: createQueryChain({ data: rows, error: null }),
-      benchmark_stats_by_tier_v2: createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 5 }, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 30, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 30 }, error: null }),
     }) });
     const previous = process.env.GOOGLE_GEMINI_API_KEY;
     delete process.env.GOOGLE_GEMINI_API_KEY;
@@ -6858,12 +6870,12 @@ describe("AI cache route stabilization", () => {
     }
   });
 
-  it('ai-summary v2 does not compare a mixed FPP/TPP population against one narrower benchmark', async () => {
+  it('ai-summary v2 narrows a mixed FPP/TPP population to the benchmark context instead of dropping the comparison', async () => {
     const rows = ['squad', 'squad-fpp'].map((gameMode, index) => ({ match_id: `scope-${index}`, player_id: 'player_a', platform: 'kakao', data: { fullResult: createSummaryMatch(`scope-${index}`, { gameMode, deathPhase: 4 }) } }));
     mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({
       player_ai_summary_cache: createQueryChain(),
       processed_match_telemetry: createQueryChain({ data: rows, error: null }),
-      benchmark_stats_by_tier_v2: createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 5, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 5 }, error: null }),
+      benchmark_stats_by_tier_v2: createQueryChain({ data: { game_mode: 'squad', match_type: 'competitive', tier: 'A+', match_count: 30, filter_version: 8, population_evidence_version: POPULATION_EVIDENCE_VERSION, calculation_version: ANALYSIS_CALCULATION_VERSION, avg_damage: 100, avg_damage_count: 30 }, error: null }),
     }) });
     const previous = process.env.GOOGLE_GEMINI_API_KEY;
     delete process.env.GOOGLE_GEMINI_API_KEY;
@@ -6871,10 +6883,10 @@ describe("AI cache route stabilization", () => {
       const response = await aiSummaryPOST(createRequest({ matchIds: rows.map(row => row.match_id), nickname: 'Player_A', platform: 'kakao', force: true, summaryContractVersion: 2 }));
       const cards = parseSummaryNdjson(await response.text()).find(record => record.type === 'cards')?.data;
       expect(cards).toHaveLength(3);
-      expect(cards[0].context).toMatchObject({ gameMode: 'squad/squad-fpp', userMatchCount: 2, tier: null, benchmarkSampleCount: null });
-      expect(cards.every((card: any) => card.dataStatus !== 'comparable')).toBe(true);
-      expect(cards.flatMap((card: any) => card.evidence).every((evidence: any) => evidence.benchmarkValue === null)).toBe(true);
-      expect(cards.some((card: any) => card.dataStatus === 'user_only')).toBe(true);
+      // 카드는 비교 기준과 같은 모드 경기만 쓰므로 두 모드를 섞어 비교하지 않는다.
+      expect(cards.every((card: any) => card.context.userMatchCount === 1 && !card.context.gameMode.includes('/'))).toBe(true);
+      expect(cards[0].context).toMatchObject({ gameMode: 'squad', matchType: 'competitive', tier: 'A+', userMatchCount: 1, benchmarkSampleCount: 30 });
+      expect(cards.find((card: any) => card.topicId === 'firepower').evidence[0]).toMatchObject({ status: 'comparable', benchmarkValue: '100' });
     } finally {
       if (previous === undefined) delete process.env.GOOGLE_GEMINI_API_KEY;
       else process.env.GOOGLE_GEMINI_API_KEY = previous;

@@ -27,7 +27,7 @@ export const RESULT_VERSION = 73.0; // [V73.0] PUBG AI 분석 정확도 감사 �
 export const TELEMETRY_VERSION = 63.0; // [V63.0] 리플레이 위치·탑승 이벤트에 차량 인스턴스 ID(vehicleUniqueId) 추가
 export const AI_CACHE_VERSION = "2026-09-07.coaching-judgment-v4"; // Preserve population identity; reject prose from the former blame-replacement policy
 export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-scope-calc${ANALYSIS_CALCULATION_VERSION}-v6`; // 팀 관측 비교 기준(전체 팀 평균)을 프롬프트에 넣었다
-export const AI_SUMMARY_CACHE_VERSION = "2026-10-28.counter-latency-split-v22"; // 반격 지연을 실측 평균과 3초 내 대응 실패율로 나눠 비교한다
+export const AI_SUMMARY_CACHE_VERSION = "2026-10-28.counter-latency-split-v22"; // 첫 반격 시간·3초 내 대응 실패율 분리, 수치 근거·서버 승패·같은 조건 카드 경기
 // Evidence marker for canonical rows written after the human BR population
 // boundary. This is deliberately independent of RESULT/telemetry/cache
 // versions so old v73/R2 rows can fail closed without a broad cache bump.
