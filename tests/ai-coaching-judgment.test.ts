@@ -122,3 +122,108 @@ describe('coaching judgment regression corpus', () => {
     expect(sanitizeAiCoachingLanguageText(raw)).toBe(withheld);
   });
 });
+
+describe('match coaching evidence from telemetry audit', () => {
+  it('does not turn an unmeasured recovery interval into a timed recommendation', () => {
+    const input = { actionItems: [{ title: '복구 시간 단축', desc: '성공적인 교전 정리 이후 합류 및 지원까지 소요되는 시간을 단축하는 연습을 진행하십시오.' }] };
+    const match = { tradeStats: { tradeLatencyMs: null } };
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), match));
+    expect(result.actionItems[0].title).toBe('아군 상태 확인');
+    expect(result.actionItems[0].desc).not.toMatch(/시간.*단축|성공적인 교전 정리/);
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(result), match))).toEqual(result);
+  });
+
+  it('does not equate first attack outcomes with first-shot accuracy', () => {
+    const input = { actionItems: [{ desc: '교전 시 첫 타격의 명중률을 높여 선제 공격 성공률을 끌어올리십시오.' }] };
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), { initiative_rate: 50, initiativeSampleCount: 6 }));
+    expect(result.actionItems[0].desc).not.toContain('명중률');
+    expect(result.actionItems[0].desc).toContain('선제');
+  });
+
+  it('does not infer a percentile from a benchmark mean', () => {
+    const input = { briefFeedback: ['대응 사격 속도 0.17초로 상위 수준의 반응 속도를 증명했습니다.'] };
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), { tradeStats: { reactionLatencyMs: 167 }, eliteBenchmark: { avgCounterLatency: 0.9, sampleCount: 30, metricSampleCounts: { avgCounterLatency: 22 } } }));
+    expect(result.briefFeedback[0]).toContain('0.17초');
+    expect(result.briefFeedback[0]).not.toMatch(/상위|증명/);
+  });
+
+  it('reports a single missed throw without judging overall utility', () => {
+    const input = { briefFeedback: ['고립 지수 1.33입니다. 피해형 투척 1회 중 피해 적중 0회로 유틸리티 활용도가 저조했습니다.'], finalVerdict: '생존과 유틸리티가 무너진 경기였습니다.' };
+    const match = { combatPressure: { utilityStats: { throwCount: 3, lethalThrowCount: 1, hitCount: 0 } } };
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), match));
+    expect(result.briefFeedback[0]).toContain('고립 지수 1.33입니다.');
+    expect(result.briefFeedback[0]).not.toContain('저조');
+    expect(result.finalVerdict).not.toContain('유틸리티가 무너진');
+    expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(result), match))).toEqual(result);
+  });
+});
+
+describe('additional telemetry findings', () => {
+  it('does not present the 3 second failure penalty as a measured reaction time', () => {
+    const input = { briefFeedback: ['대응 사격 속도가 3.00초로 비교 대상 평균인 0.57초보다 크게 느려 교전 반응 속도 개선이 시급합니다.'] };
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), { tradeStats: { reactionLatencyMs: 3000 }, duelStats: { reversalAttempts: 3 } }));
+    expect(result.briefFeedback[0]).toContain('3초 내');
+    expect(result.briefFeedback[0]).toContain('측정');
+    expect(result.briefFeedback[0]).not.toContain('0.57초');
+  });
+
+  it('removes an unsupported rescue duration even when a revive was recorded', () => {
+    const input = { actionItems: [{ title: '복구 시간 단축', desc: '성공적인 소생 및 연막 구출 과정에서 소요되는 시간을 단축하여 전투 공백을 최소화하십시오.' }] };
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), { tradeStats: { revCount: 2, tradeLatencyMs: 6000 } }));
+    expect(result.actionItems[0].desc).not.toContain('시간을 단축');
+  });
+});
+
+it('keeps measured facts while withholding ability judgments from two throws', () => {
+  const input = { briefFeedback: ['선제 공격 성공률 75%를 기록했으나 피해형 투척 2회 중 피해 적중은 0회로 유틸리티 활용에서의 정밀도 보완이 필요합니다.'] };
+  const match = { combatPressure: { utilityStats: { throwCount: 4, lethalThrowCount: 2, hitCount: 0 } } };
+  const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), match));
+  expect(result.briefFeedback[0]).toContain('선제 공격 성공률 75%를 기록했습니다.');
+  expect(result.briefFeedback[0]).toContain('표본이 적어');
+  expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(result), match))).toEqual(result);
+});
+
+it('preserves a factual non-observation and conditional response practice', () => {
+  const input = { actionItems: [{ desc: '대응 피해가 3초 내 미관측되었으므로 교전 시 피격 즉시 반격하는 반응 속도 훈련에 집중하십시오.' }] };
+  expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), { tradeStats: { reactionLatencyMs: 3000 }, duelStats: { reversalAttempts: 3 } }))).toEqual(input);
+});
+
+it('does not infer overall throw support ability from one attempt', () => {
+  const input = { finalVerdict: '화력은 완벽했으나, 투척물을 활용한 교전 보조 능력은 여전히 개선의 여지가 있습니다.' };
+  const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), { combatPressure: { utilityStats: { lethalThrowCount: 1, hitCount: 0 } } }));
+  expect(result.finalVerdict).toContain('표본이 적어');
+  expect(result.finalVerdict).not.toContain('개선의 여지');
+});
+
+it('withholds an unsupported frontline claim from a real streamed response', () => {
+  const input = { signatureSub: '획득하신 슬레이어 배지와 뛰어난 화력 기여도를 바탕으로 최전선에서 팀을 이끄신 점을 칭호로 담았습니다.' };
+  const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), {}));
+  expect(result.signatureSub).not.toContain('최전선');
+  expect(result.signatureSub).toContain('단정할 수 없습니다');
+});
+
+it('qualifies low-sample criticism phrased as 아쉽다 or 높여야 한다', () => {
+  const input = { briefFeedback: ['피해형 투척 1회 중 피해 적중 0회로 유틸리티 활용은 아쉽습니다.'], finalVerdict: '강력한 화력으로 승리를 이끌었으나 투척물 정밀도를 높여야 합니다.' };
+  const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), { combatPressure: { utilityStats: { lethalThrowCount: 1, hitCount: 0 } } }));
+  expect(result.briefFeedback[0]).toContain('표본이 적어');
+  expect(result.finalVerdict).toContain('표본이 적어');
+});
+
+it('keeps line breaks in values that no evidence rule rewrites', () => {
+  const input = { briefFeedback: ['첫 줄입니다\n둘째 줄입니다'] };
+  expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), {}))).toEqual(input);
+});
+
+it('withholds only the frontline sentence and keeps adjacent facts', () => {
+  const input = { briefFeedback: ['킬 6회, 딜량 820으로 팀 화력을 책임졌습니다. 최전선에서 팀을 이끌었습니다.'], signature: '최전선 돌격대장' };
+  const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), {}));
+  expect(result.briefFeedback[0]).toContain('킬 6회, 딜량 820');
+  expect(result.briefFeedback[0]).not.toContain('최전선');
+  expect(result.signature).toBe('화력 기여형 플레이어');
+});
+
+it('does not treat a negated shortfall as low-sample throw criticism', () => {
+  const input = { finalVerdict: '피해형 투척 2회 중 1회 적중으로 투척 활용은 부족함이 없었습니다.' };
+  const match = { combatPressure: { utilityStats: { lethalThrowCount: 2, hitCount: 1 } } };
+  expect(JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify(input), match))).toEqual(input);
+});

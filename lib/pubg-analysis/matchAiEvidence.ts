@@ -21,6 +21,39 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
     [/(?:피해량|딜량|화력)/u, 'avgDamage'], [/복수/u, 'avgTradeRate'],
   ];
   const clean = (value: string, key: string): string => {
+    if (key === 'title' && /(?:복구|합류|지원)\s*(?:소요\s*)?시간\s*(?:단축|개선)/u.test(value)) return '아군 상태 확인';
+    // Rewrite only matched sentences; untouched values keep their original line breaks.
+    const sentences = value.split(/(?<=[.!?。！？])\s+|\n+/u);
+    const rewritten = sentences.map(sentence => {
+      if (['signatureSub', 'briefFeedback', 'finalVerdict'].includes(key) && /최전선|전방에서/u.test(sentence)) {
+        return '관측 기록만으로 전방 위치나 교전 의도를 단정할 수 없습니다.';
+      }
+      if (finite(match?.tradeStats?.reactionLatencyMs) === 3000 && (finite(match?.duelStats?.reversalAttempts) ?? 0) > 0
+        && /(?:대응|반응)\s*(?:사격)?\s*속도/u.test(sentence) && /3(?:\.0+)?\s*(?:초|s)/u.test(sentence)
+        && !/미관측|관측되지|패널티|측정.{0,8}불가/u.test(sentence)) {
+        return '3초 내 대응 피해가 관측되지 않아 3초 패널티가 적용되었습니다. 실제 반응 시간은 측정되지 않았습니다.';
+      }
+      if (!/(?:소생|부활)\s*(?:소요\s*)?시간/u.test(sentence) && /(?:복구|합류|지원|구출)[^.!?\n]{0,35}(?:소요되는\s*)?시간[^.!?\n]{0,30}(?:줄여|단축)/u.test(sentence)
+        && !isNegatedCoachingDirectiveTail(sentence.slice(sentence.search(/줄여|단축/u) + 2))) {
+        return '다음 교전에서는 아군의 상태를 확인하고 지원 가능한 상황인지 점검하세요.';
+      }
+      if (/선제[^.!?\n]{0,30}성공률/u.test(sentence) && /(?:첫|최초)[^.!?\n]{0,15}(?:명중률|정확도)/u.test(sentence)) {
+        return '다음 교전에서는 선제 공격 이후 교전 결과를 확인해 보세요.';
+      }
+      if (/(?:대응|반응)\s*(?:사격)?\s*속도/u.test(sentence) && /상위\s*(?:권|수준|\d+\s*%)/u.test(sentence)) {
+        const latency = finite(match?.tradeStats?.reactionLatencyMs);
+        return latency === null ? '비교 자료가 없어 상대 평가는 보류합니다.'
+          : `관측된 대응 사격 속도는 ${(latency / 1000).toFixed(2)}초입니다. 백분위는 확인할 수 없습니다.`;
+      }
+      if (['signatureSub', 'briefFeedback', 'finalVerdict'].includes(key) && lethal !== null && lethal > 0 && lethal < 3
+        && /유틸리티|투척/u.test(sentence) && /저조|무너|부족|형편없|아쉬|아쉽|보완이 필요|개선이 필요|개선의 여지|끌어올려야|높여야|채워야/u.test(sentence)
+        && !/(?:부족|아쉬)(?:함|움)?(?:이|은|도)?\s*없|부족하지\s*않|아쉽지\s*않/u.test(sentence)) {
+        const prefix = sentence.match(/^(.+?했)으나[,，]?\s/u)?.[1];
+        return `${prefix ? `${prefix}습니다. ` : ''}피해형 투척은 ${lethal}회로 표본이 적어 전반적인 활용 능력 평가는 보류합니다.`;
+      }
+      return sentence;
+    });
+    if (rewritten.some((sentence, index) => sentence !== sentences[index])) value = rewritten.join(' ');
     // Duel outcomes do not measure concentration. Keep adjacent factual prose
     // and use canonical counts instead of retaining the provider's inference.
     const concentrationClaim = /(?:높은|뛰어난|우수한|탁월한)\s*집중력(?:을|이)?\s*(?:보여|입증|증명)/u;
@@ -57,6 +90,7 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
     if (isolation !== null && isolation < 2 && /고립형|고독한|고립(?:이|도|\s*위험)?.{0,8}(?:심|높)|대열\s*이탈/u.test(value)) {
       return key === 'signature' ? '대열 유지형 플레이어' : `평균 고립 지수는 ${display(isolation)}입니다. 실제 교전 위치와 함께 확인해 보세요.`;
     }
+    if (key === 'signature' && /최전선|전방에서/u.test(value)) return '화력 기여형 플레이어';
     if (/숨어\s*다니|후방|아군\s*곁을\s*맴돌|몸을\s*사리/u.test(value)) {
       if (key === 'signature') return '화력 기여형 플레이어';
       return '관측 기록만으로 교전 의도나 대기 위치를 단정할 수 없습니다. 다음 교전에서는 아군과 함께 대응할 기회를 확인해 보세요.';
