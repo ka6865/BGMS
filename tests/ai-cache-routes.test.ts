@@ -13,6 +13,12 @@ import {
 import { AI_CACHE_RETENTION_DAYS, AI_CACHE_TABLES, cleanupExpiredCache } from "../scripts/cleanup_ai_cache";
 import crypto from "node:crypto";
 
+const roleReferenceState = vi.hoisted(() => ({ version: 1 }));
+vi.mock('../lib/pubg-analysis/roleReference', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/pubg-analysis/roleReference')>();
+  return { ...actual, get ROLE_REFERENCE_VERSION() { return roleReferenceState.version; } };
+});
+
 const {
   mockWithAuthGuard,
   mockTrackAiUsage,
@@ -425,6 +431,7 @@ function mockSquadGeminiJson(json: any) {
 
 describe("AI cache route stabilization", () => {
   beforeEach(() => {
+    roleReferenceState.version = 1;
     vi.clearAllMocks();
     process.env.GOOGLE_GEMINI_API_KEY = "test-gemini-key";
     mockWithAuthGuard.mockResolvedValue({
@@ -1759,6 +1766,32 @@ describe("AI cache route stabilization", () => {
     const legacyHash = crypto.createHash("sha256").update(`${AI_SUMMARY_CACHE_VERSION}\n${selectionKey}\n${bestSelectionKey}`).digest("hex");
     expect(upsertPayload.match_ids_hash).toMatch(/^[a-f0-9]{64}$/);
     expect(upsertPayload.match_ids_hash).not.toBe(legacyHash);
+  });
+
+  it("ai-summary reference-only changes invalidate lookup/save identity without changing metric inputs", async () => {
+    mockSummaryGeminiResponse();
+    const summaryCache = createQueryChain();
+    const telemetry = createQueryChain({ data: [{match_id:'reference-match',player_id:'player_a',platform:'kakao',
+      data:{fullResult:createSummaryMatch('reference-match',{createdAt:recentMatchDate(1)})}}], error:null });
+    const supabase=createSupabaseMock({player_ai_summary_cache:summaryCache,processed_match_telemetry:telemetry,
+      global_benchmarks:createQueryChain({data:[],error:null}),benchmark_stats_by_tier_v2:createQueryChain()});
+    mockWithAuthGuard.mockResolvedValue({user:{id:'user-1'},supabaseAdmin:supabase});
+    const request=()=>createRequest({matchIds:['reference-match'],nickname:'Player_A',platform:'kakao'});
+    await (await aiSummaryPOST(request())).text();
+    const firstHash=summaryCache.upsert.mock.calls[0]?.[0]?.match_ids_hash;
+    expect(firstHash).toMatch(/^[a-f0-9]{64}$/);
+    configureSummaryCacheHitForHash(summaryCache,firstHash);
+    await (await aiSummaryPOST(request())).text();
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(1);
+    roleReferenceState.version=2;
+    await (await aiSummaryPOST(request())).text();
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(2);
+    const secondHash=summaryCache.upsert.mock.calls[1]?.[0]?.match_ids_hash;
+    expect(secondHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(secondHash).not.toBe(firstHash);
+    configureSummaryCacheHitForHash(summaryCache,secondHash);
+    await (await aiSummaryPOST(request())).text();
+    expect(mockGenerateContentStream).toHaveBeenCalledTimes(2);
   });
 
   it("ai-summary cache hash는 latest10 ID가 같아도 best5 normalized score가 바뀌면 달라진다", async () => {

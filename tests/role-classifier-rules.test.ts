@@ -124,6 +124,17 @@ describe("role selection", () => {
     expect(result.evidence.join(" ")).not.toMatch(/반격/);
   });
 
+  it("describes observed initiative and reply without claiming first fire", () => {
+    const result=classify(STRONG_POINT_MAN);
+    expect(result.description).toContain('선제 타격');
+    expect(result.description).not.toMatch(/먼저 쏘|반사신경/);
+    const withheld=classify({...STRONG_EXECUTOR,...STRONG_POINT_MAN,avgReactionLatency:'측정 불가'});
+    expect(withheld.scores.pointMan).toBeNull();
+    expect(withheld.primaryRole).not.toBe('pointMan');
+    expect(withheld.secondaryRole).not.toBe('pointMan');
+    expect(withheld.title).not.toMatch(/선봉/);
+  });
+
   it("treats a faster reaction as better", () => {
     expect(classify(STRONG_POINT_MAN).scores.pointMan).toBe(97.5);
     expect(classify({ ...STRONG_POINT_MAN, userInitiativeRate: null, totalInitiativeAttempts: 0 }).scores.pointMan).toBeNull();

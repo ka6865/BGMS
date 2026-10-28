@@ -5,6 +5,7 @@ import { AI_SUMMARY_CACHE_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VER
 import { estimateUserTier } from "@/lib/pubg-analysis/benchmarkScore";
 import { dominantTierScope, tierScopeOfMode, type TierScope } from "@/lib/pubg-analysis/tierAveraging";
 import { classifyRole } from "@/lib/pubg-analysis/roleClassifier";
+import { ROLE_REFERENCE_VERSION } from "@/lib/pubg-analysis/roleReference";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import {
   adaptObservedBenchmark,
@@ -408,7 +409,7 @@ function buildSummaryCacheHash(input: {
   return crypto
     .createHash("sha256")
     .update(AI_SUMMARY_CACHE_VERSION)
-    .update("\n")
+    .update(`\nrole-reference:${ROLE_REFERENCE_VERSION}\n`)
     .update(serializedInput)
     .digest("hex");
 }
