@@ -46,4 +46,4 @@ Files: `docs/operations/2026-10-28-coaching-reference-calibration.md`와 비식�
 
 - [x] 후보별 유효 표본과 칭호 이동, holdout·민감도 결과를 보고한다. 부족하면 부족하다고 명시하며 활성화하지 않는다.
 - [x] verify:core·verify:analysis·test:unit 실행. 제품 UI 변경이 없으면 모바일 재검증을 생략한 근거를 보고한다.
-- [ ] 독립 코드 검토 후 필요한 수정·검증을 완료한다. #378 기반 별도 PR로 올리고 운영에는 반영하지 않는다.
+- [x] 독립 코드 검토 후 필요한 수정·검증을 완료한다. #378 기반 별도 PR로 올리고 운영에는 반영하지 않는다.
