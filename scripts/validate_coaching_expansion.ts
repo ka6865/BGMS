@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { calibrationPartition, calibrationAccountKey, buildCalibrationProfile, fitReferenceCandidate, buildBenchmarkCoverage, buildReplyPrecision, bootstrapReferenceStability, CALIBRATION_SEED, type CalibrationProfile } from '../lib/pubg-analysis/referenceCalibration';
+import { calibrationMatchWindow, calibrationPartition, calibrationAccountKey, buildCalibrationProfile, fitReferenceCandidate, buildBenchmarkCoverage, buildReplyPrecision, bootstrapReferenceStability, CALIBRATION_SEED, type CalibrationProfile } from '../lib/pubg-analysis/referenceCalibration';
 import { classifyRole, calculateRoleRawScores } from '../lib/pubg-analysis/roleClassifier';
 import type { CalibrationSubject } from './calibrate_coaching_reference';
 
@@ -10,6 +10,11 @@ export function evaluateCoachingExpansion(development:CalibrationSubject[], conf
   const all=[...development,...confirmation];
   if(new Set(all.map(s=>s.account)).size!==all.length)throw new Error('overlapping calibration accounts');
   if(confirmation.some(s=>s.target))throw new Error('named targets cannot confirm calibration');
+  const developmentGameIds=new Set(development.flatMap(s=>s.matches.map(m=>m.match_id)));
+  const requested={development:development.reduce((n,s)=>n+s.matches.length,0),confirmation:confirmation.reduce((n,s)=>n+s.matches.length,0)};
+  development=development.map(s=>({...s,matches:calibrationMatchWindow(s.matches,s.queriedAt)}));
+  confirmation=confirmation.map(s=>({...s,matches:calibrationMatchWindow(s.matches,s.queriedAt)}));
+  const excludedExpiredRequests={development:requested.development-development.reduce((n,s)=>n+s.matches.length,0),confirmation:requested.confirmation-confirmation.reduce((n,s)=>n+s.matches.length,0)};
   function profilesFor(subjects:CalibrationSubject[]){
     const profiles:CalibrationProfile[]=[],rejections:Record<string,number>={};
     for(const s of subjects){const r=buildCalibrationProfile({accountKey:s.account,target:s.target,expectedMatchIds:s.matches.map(m=>m.match_id),matches:s.results},seed);
@@ -19,7 +24,6 @@ export function evaluateCoachingExpansion(development:CalibrationSubject[], conf
   const dev=profilesFor(development),final=profilesFor(confirmation),candidate=fitReferenceCandidate(dev.profiles,seed);
   const matchesFor=(subjects:CalibrationSubject[])=>subjects.filter(s=>!s.target).flatMap(s=>{const expected=new Set(s.matches.map(m=>m.match_id));return s.results.filter(m=>expected.has(m.matchId)).map(m=>({...m,accountKey:s.account}));});
   const developmentMatches=matchesFor(development),allConfirmationMatches=matchesFor(confirmation);
-  const developmentGameIds=new Set(development.flatMap(s=>s.matches.map(m=>m.match_id)));
   const confirmationMatches=allConfirmationMatches.filter(m=>!developmentGameIds.has(m.matchId));
   const disjointProfiles=final.profiles.filter(p=>p.selectedMatchIds.every(id=>!developmentGameIds.has(id)));
   const finalCohorts=candidate.cohorts.map(c=>{
@@ -38,7 +42,7 @@ export function evaluateCoachingExpansion(development:CalibrationSubject[], conf
     return {cohort:c.cohort,accounts:held.length,roleObservations,roleValidation,titles,stability,
       stableRoleCandidates:Object.keys(c.reference.roles).filter(role=>roleValidation[role]?.eligible)};
   });
-  return {schemaVersion:1,seed,activationAllowed:false,
+  return {schemaVersion:1,seed,activationAllowed:false,excludedExpiredRequests,
     development:{accounts:development.length,playerMatches:developmentMatches.length,completeProfiles:dev.profiles.length,rejections:dev.rejections,
       benchmarkCoverage:buildBenchmarkCoverage(developmentMatches),replyPrecision:buildReplyPrecision(developmentMatches,seed),
       trainingReplyPrecision:buildReplyPrecision(matchesFor(development.filter(s=>calibrationPartition(s.account,seed)==='train')),seed),

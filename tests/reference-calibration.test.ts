@@ -78,6 +78,8 @@ describe('offline coaching reference calibration',()=>{
     await runCalibration(['--pool',join(dir,'pool.json'),'--output',dir,'--offline']);
     expect(JSON.parse(readFileSync(join(dir,'report.json'),'utf8'))).toMatchObject({activationAllowed:false,sourceMissing:1,errorCounts:{offline_canonical_missing:1}});
     expect(download).not.toHaveBeenCalled();
+    writeFileSync(join(dir,'pool.json'),JSON.stringify({rows:[row],since:'2026-10-01',queriedAt:'2026-10-29'}));
+    await expect(runCalibration(['--pool',join(dir,'pool.json'),'--output',dir,'--offline'])).rejects.toThrow('frozen_pool_changed_use_new_output');
     download.mockRestore();
     expect(fetch).not.toHaveBeenCalled();
   }finally{vi.unstubAllGlobals();rmSync(dir,{recursive:true,force:true});}
@@ -142,7 +144,7 @@ it('excludes stale canonical rows outside the current frozen match window',async
  try{
   const id='00000000-0000-4000-8000-000000000001',stale='00000000-0000-4000-8000-000000000002',account='account.fixture';
   const row={match_id:id,player_id:'fixture',account_id:account,platform:'steam',played_at:'2026-10-27T00:00:00Z',game_mode:'squad',match_type:'official'};
-  fs.writeFileSync(path.join(dir,'pool.json'),JSON.stringify({rows:[row]}));fs.writeFileSync(path.join(dir,'private-registry.json'),'[]');
+  fs.writeFileSync(path.join(dir,'pool.json'),JSON.stringify({rows:[row],queriedAt:'2026-10-28T00:00:00Z'}));fs.writeFileSync(path.join(dir,'private-registry.json'),'[]');
   fs.writeFileSync(path.join(dir,`history-${calibrationAccountKey(account)}.json`),JSON.stringify([row]));
   fs.writeFileSync(path.join(dir,`canonical-${calibrationAccountKey(account)}.json.gz`),zlib.gzipSync(JSON.stringify([id,stale].map(match_id=>({match_id,data:match(match_id,50,{stats:{playerId:account},initiative_rate:80})})))));
   const{runCalibration}=await import('../scripts/calibrate_coaching_reference');await runCalibration(['--pool',path.join(dir,'pool.json'),'--output',dir,'--offline']);

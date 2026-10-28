@@ -40,7 +40,8 @@ export async function acquireCoachingSources(args:string[]) {
       try{
         const result=await fetchOfficialCalibrationSource(id,'steam');
         if(result.source){
-          fs.writeFileSync(path.join(out,'sources',id+'.json.gz'),gzipSync(JSON.stringify(result.source)),{mode:0o600});
+          const file=path.join(out,'sources',id+'.json.gz');
+          fs.writeFileSync(file+'.tmp',gzipSync(JSON.stringify(result.source)),{mode:0o600});fs.renameSync(file+'.tmp',file);
           available++;bytes+=result.bytes;
         }else unavailable++;
         state[id]={status:result.status,attempts,httpStatus:result.httpStatus,stage:result.stage,bytes:result.bytes,

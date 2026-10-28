@@ -1,3 +1,4 @@
+import { getMatchDetailRetention } from './matchRetention';
 import { createHash } from 'node:crypto';
 import { ANALYSIS_CALCULATION_VERSION, RESULT_VERSION, POPULATION_EVIDENCE_VERSION } from './constants';
 import { selectRecentMatches, selectBestMatches } from './recentMatchSelection';
@@ -26,6 +27,15 @@ const hash = (value: string) => createHash('sha256').update(value).digest();
 export const calibrationAccountKey = (id: string) => hash(id).toString('hex').slice(0, 16);
 export function calibrationPartition(accountKey: string, seed: string, target = false): CalibrationProfile['partition'] {
   return target ? 'target' : hash(`${seed}|${accountKey}`).readUInt32BE(0) % 100 < 80 ? 'train' : 'holdout';
+}
+
+export function calibrationMatchWindow<T extends {played_at:string}>(rows:T[], queriedAt:string):T[] {
+  const asOf=Date.parse(queriedAt);if(!Number.isFinite(asOf))throw new Error('invalid_calibration_snapshot_time');
+  return rows.filter(row=>{
+    const status=getMatchDetailRetention(row.played_at,asOf).status;
+    if(status==='unknown')throw new Error('invalid_calibration_match_time');
+    return status==='available';
+  });
 }
 
 export function buildCalibrationProfile(input: CalibrationInput, seed: string): { profile?: CalibrationProfile; reason?: string } {

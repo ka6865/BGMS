@@ -13,12 +13,12 @@ import {isAiSummaryEligibleMatch} from '../lib/pubg-analysis/matchEligibility';
 import {getValidFullResultForMatch} from '../lib/pubg-analysis/cacheIdentity';
 import {isCanonicalMatchId} from '../lib/pubg-analysis/telemetryIdentity';
 import {RESULT_VERSION,ANALYSIS_CALCULATION_VERSION} from '../lib/pubg-analysis/constants';
-import {CALIBRATION_SEED,calibrationAccountKey,calibrationPartition,buildCalibrationProfile,fitReferenceCandidate,buildBenchmarkCoverage,type CalibrationProfile} from '../lib/pubg-analysis/referenceCalibration';
+import {CALIBRATION_SEED,calibrationMatchWindow,calibrationAccountKey,calibrationPartition,buildCalibrationProfile,fitReferenceCandidate,buildBenchmarkCoverage,type CalibrationProfile} from '../lib/pubg-analysis/referenceCalibration';
 
 const {gzipSync,gunzipSync}=zlib;
 const modes=['solo','solo-fpp','duo','duo-fpp','squad','squad-fpp'];
 type MatchRow={match_id:string;player_id:string;account_id:string;platform:string;played_at:string;game_mode:string;match_type:string};
-export type CalibrationSubject={account:string;name:string;target?:string;matches:MatchRow[];results:any[];historyError?:string};
+export type CalibrationSubject={account:string;name:string;target?:string;queriedAt:string;matches:MatchRow[];results:any[];historyError?:string};
 const digest=(text:string)=>createHash('sha256').update(text).digest('hex');
 const write=(file:string,value:unknown)=>fs.writeFileSync(file,JSON.stringify(value,null,2)+'\n',{mode:0o600});
 
@@ -65,8 +65,13 @@ export async function runCalibration(args:string[]) {
   const db=offline?null:createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.SUPABASE_SERVICE_ROLE_KEY!,{auth:{persistSession:false,autoRefreshToken:false}});
   const sourcePool=fs.readFileSync(options['--pool'],'utf8');
   const pool=JSON.parse(sourcePool) as {rows:MatchRow[];queriedAt:string;since:string};
+  if(!Number.isFinite(Date.parse(pool.queriedAt)))throw new Error('invalid_calibration_snapshot_time');
   if(!Array.isArray(pool.rows)||pool.rows.length>20000)throw new Error('invalid bounded pool');
   const out=path.resolve(options['--output']);fs.mkdirSync(out,{recursive:true,mode:0o700});
+  const frameFile=path.join(out,'pool-sha256'),priorReport=path.join(out,'report.json');
+  const previousFrame=fs.existsSync(frameFile)?fs.readFileSync(frameFile,'utf8').trim():fs.existsSync(priorReport)?JSON.parse(fs.readFileSync(priorReport,'utf8')).poolChecksum:undefined;
+  if(previousFrame&&previousFrame!==digest(sourcePool))throw new Error('frozen_pool_changed_use_new_output');
+  fs.writeFileSync(frameFile,digest(sourcePool)+'\n',{mode:0o600});
   for(const dir of ['sources','analyses'])fs.mkdirSync(path.join(out,dir),{recursive:true,mode:0o700});
   const registryFile=path.join(out,'private-registry.json');
   const privatePlayers:Awaited<ReturnType<typeof getPrivatePlayersList>>=offline?JSON.parse(fs.readFileSync(registryFile,'utf8')):await getPrivatePlayersList(db!);
@@ -85,26 +90,26 @@ export async function runCalibration(args:string[]) {
   const targetIds=new Set(targets.map(([id])=>id));
   const candidates=[...groups].filter(([id,rows])=>!targetIds.has(id)&&rows.some(r=>['squad','squad-fpp'].includes(r.game_mode)))
     .sort(([a],[b])=>digest(CALIBRATION_SEED+a).localeCompare(digest(CALIBRATION_SEED+b))).slice(0,400);
-  const subjects:CalibrationSubject[]=[...targets,...candidates].map(([account,rows])=>({account,name:rows[0].player_id,
+  const subjects:CalibrationSubject[]=[...targets,...candidates].map(([account,rows])=>({account,name:rows[0].player_id,queriedAt:pool.queriedAt,
     target:targetNames.get(rows.find(r=>targetNames.has(r.player_id.toLowerCase()))?.player_id.toLowerCase()??''),matches:[],results:[]}));
   const errorCounts:Record<string,number>={};const error=(reason:string)=>{errorCounts[reason]=(errorCounts[reason]??0)+1;};
   for(let i=0;i<subjects.length;i++){
     const s=subjects[i];
     const file=path.join(out,`history-${calibrationAccountKey(s.account)}.json`);
-    if(fs.existsSync(file)){s.matches=JSON.parse(fs.readFileSync(file,'utf8'));continue;}
+    if(fs.existsSync(file)){s.matches=calibrationMatchWindow(JSON.parse(fs.readFileSync(file,'utf8')),pool.queriedAt);continue;}
     if(offline){s.historyError='offline_history_missing';error(s.historyError);continue;}
     const {data,error:e}=await db!.from('pubg_player_matches').select('match_id,player_id,account_id,platform,played_at,game_mode,match_type')
       .eq('platform','steam').eq('account_id',s.account).in('game_mode',modes).in('match_type',['official','competitive'])
       .lte('played_at',pool.rows[0].played_at).order('played_at',{ascending:false}).order('match_id',{ascending:true}).limit(10);
     if(e){s.historyError=e.code;error('history_query_'+e.code);continue;}
-    s.matches=data??[];write(file,s.matches);
+    s.matches=calibrationMatchWindow(data??[],pool.queriedAt);write(file,s.matches);
     if(i%50===0)console.log(JSON.stringify({stage:'history',done:i,total:subjects.length}));
   }
   const jobs=new Map<string,Array<{subject:CalibrationSubject;row:MatchRow}>>();
   for(const subject of subjects)for(const row of subject.matches){
     if(!jobs.has(row.match_id))jobs.set(row.match_id,[]);jobs.get(row.match_id)!.push({subject,row});
   }
-  write(path.join(out,'subjects-private.json'),subjects.map(s=>({account:s.account,name:s.name,target:s.target,matches:s.matches,historyError:s.historyError})));
+  write(path.join(out,'subjects-private.json'),subjects.map(s=>({account:s.account,name:s.name,target:s.target,queriedAt:s.queriedAt,matches:s.matches,historyError:s.historyError})));
   const entries=[...jobs];let cursor=0,done=0,downloaded=0,localSources=0,sourceMissing=0,sourceInvalid=0,recomputed=0,decodedBytes=0;
   async function worker(){
     while(cursor<entries.length){
