@@ -92,7 +92,10 @@ interface DebateData {
       signatureWeapon: string;
       signatureWeaponStats?: { kills: number; dbnos: number; consistency?: number; isReliable?: boolean };
       weakness?: string | null;
-      scores: Record<string, number>;
+      scores: Record<string, number | null>;
+      status?: "confirmed" | "balanced" | "pending" | "insufficient";
+      reason?: string;
+      observedRoleCount?: number;
     };
 
     initiativeSuccess?: string;
@@ -279,10 +282,13 @@ export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | 
   if (roleInfo && typeof roleInfo === "object" && !Array.isArray(roleInfo)) {
     const roleSource = roleInfo as Record<string, unknown>;
     const role: Record<string, unknown> = {};
-    ["primaryRole", "title", "roleLabel", "description", "signatureWeapon", "weakness"].forEach((key) => {
+    ["primaryRole", "title", "roleLabel", "description", "signatureWeapon", "weakness", "reason"].forEach((key) => {
       const text = safeVisualText(roleSource[key]);
       if (text !== null) role[key] = text;
     });
+    if (["confirmed", "balanced", "pending", "insufficient"].includes(String(roleSource.status))) role.status = roleSource.status;
+    const observedRoleCount = finiteVisualNumber(roleSource.observedRoleCount, 0, 13);
+    if (observedRoleCount !== null) role.observedRoleCount = Math.floor(observedRoleCount);
     // 칭호 근거와 배지는 서버가 만든 짧은 문구 목록이다. 문자열만 최대 4개까지 받는다.
     (["evidence", "badges"] as const).forEach((key) => {
       const list = roleSource[key];
@@ -309,8 +315,9 @@ export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | 
     }
     const scores = roleSource.scores;
     if (scores && typeof scores === "object" && !Array.isArray(scores)) {
-      const normalizedScores: Record<string, number> = {};
+      const normalizedScores: Record<string, number | null> = {};
       Object.entries(scores as Record<string, unknown>).forEach(([key, score]) => {
+        if (score === null) { normalizedScores[key] = null; return; }
         const number = finiteVisualNumber(score, 0, 100);
         if (number !== null) normalizedScores[key] = number;
       });
@@ -1527,6 +1534,9 @@ export const RecentAISummary = ({
                 <p className="text-xs md:text-sm text-indigo-300/80 font-bold leading-relaxed max-w-md break-words">
                   {partialSummary ? "확인된 항목을 먼저 표시합니다." : debateData?.visuals?.roleInfo?.description || "데이터를 분석하여 당신의 플레이 스타일을 정의했습니다."}
                 </p>
+                {debateData?.visuals?.roleInfo?.reason && !partialSummary && (
+                  <p className="text-xs leading-relaxed text-white/60">{debateData.visuals.roleInfo.reason}</p>
+                )}
                 {calculationPendingCount > 0 && (
                   <p role="status" className="text-xs font-semibold leading-relaxed text-sky-200/80">
                     새 계산 기준 확인이 필요한 {calculationPendingCount}경기는 분석에서 제외했습니다.
@@ -1649,7 +1659,8 @@ export const RecentAISummary = ({
         {debateData?.visuals?.tierBreakdown && (
           <SpiderChart
             nickname={nickname}
-            bestMatchCount={debateData.visuals.bestMatchCount}
+            bestMatchCount={debateData.visuals.tierMatchCount}
+            tierScope={debateData.visuals.tierScope}
             data={{
               combat: debateData.visuals.tierBreakdown.combat,
               tactical: debateData.visuals.tierBreakdown.tactical,
@@ -1882,6 +1893,9 @@ export const RecentAISummary = ({
                   <Target size={14} className="text-indigo-400" />
                   <span className="text-xs font-black text-indigo-300 uppercase tracking-wider">{debateData.visuals.roleInfo.roleLabel}</span>
                 </div>
+                {debateData.visuals.roleInfo.reason && (
+                  <p className="text-xs leading-relaxed text-white/60">{debateData.visuals.roleInfo.reason}</p>
+                )}
                 {(debateData.visuals.roleInfo.evidence?.length ?? 0) > 0 && (
                   <p className="text-xs font-bold text-indigo-200/80 break-keep" aria-label="칭호 근거">
                     {debateData.visuals.roleInfo.evidence!.join(" · ")}

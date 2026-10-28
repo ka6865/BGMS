@@ -123,6 +123,53 @@ function sumCompleteObservations(values: unknown[]): number | null {
   return (observed as number[]).reduce((total, value) => total + value, 0);
 }
 
+// 새 칭호 후보는 같은 버전의 완전한 경기 창에서만 개인 관측을 비교한다.
+function aggregateRoleEvidence(matches: any[]) {
+  if (!matches.length) return null;
+  const nonNegative = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
+  const rows = matches.map((match) => match?.roleEvidence);
+  const counts = ["validWeaponHits", "distanceHitCount", "focusFireCount", "rescueCount", "rescueOpportunityCount", "positionSampleCount", "edgePlayCount"];
+  if (rows.some((row) => !row || row.version !== 1
+    || counts.some((key) => !nonNegative(row[key]) || !Number.isInteger(row[key]))
+    || row.rescueCount > row.rescueOpportunityCount || row.edgePlayCount > row.positionSampleCount
+    || row.distanceHitCount > row.validWeaponHits
+    || ["short", "mid", "long"].some((key) => !nonNegative(row.distanceDamage?.[key]))
+    || (row.maxHitDist !== null && !nonNegative(row.maxHitDist))
+    || (row.pressureIndex !== null && !nonNegative(row.pressureIndex))
+    || (row.distanceHitCount === 0 ? row.maxHitDist !== null : row.maxHitDist === null)
+    || (row.validWeaponHits === 0 ? row.pressureIndex !== null : row.pressureIndex === null))) return null;
+  const sum = (key: string) => rows.reduce((total, row) => total + row[key], 0);
+  const pressures = rows.map((row) => row.pressureIndex).filter(nonNegative);
+  const distances = rows.map((row) => row.maxHitDist).filter(nonNegative);
+  const golden = matches.map((match) => match?.goldenTimeDamage);
+  const goldenComplete = golden.every((row) => row && ["early", "mid1", "mid2", "late"].every((key) => nonNegative(row[key])));
+  const observed = (read: (match: any) => unknown) => matches.filter((match) => nonNegative(read(match))).length;
+  const metricMatchCounts = {
+    initiative: matches.filter((match) => nonNegative(match.initiativeSampleCount) && (match.initiativeSampleCount === 0 || (nonNegative(match.initiative_rate) && match.initiative_rate <= 100))).length,
+    duelWin: matches.filter((match) => nonNegative(match.duelStats?.wins) && nonNegative(match.duelStats?.losses)).length,
+    reversal: observed((match) => match.duelStats?.reversalAttempts),
+    tradeRate: matches.filter((match) => nonNegative(match.tradeStats?.tradeKills) && nonNegative(match.tradeStats?.teammateKnocks)).length,
+    placement: matches.filter((match) => nonNegative(match.stats?.winPlace) && match.stats.winPlace >= 1 && nonNegative(match.totalTeams) && match.totalTeams > 1).length,
+    baitPerMatch: observed((match) => match.tradeStats?.baitCount),
+    supportPerMatch: observed((match) => match.tradeStats?.suppCount),
+    teamDamageShare: observed((match) => match.teamImpact?.teamDamageShare),
+    assistShare: matches.filter((match) => ["solo", "cleanup", "assist"].every((key) => nonNegative(match.killContribution?.[key]))).length,
+  };
+  return {
+    version: 1 as const, matchCount: matches.length,
+    teamMatchCount: matches.filter(match => nonNegative(match.teamContext?.myRosterSize) && match.teamContext.myRosterSize > 1).length,
+    validWeaponHits: sum("validWeaponHits"), distanceHitCount: sum("distanceHitCount"),
+    distanceDamage: {short: rows.reduce((total, row) => total + row.distanceDamage.short, 0),
+      mid: rows.reduce((total, row) => total + row.distanceDamage.mid, 0), long: rows.reduce((total, row) => total + row.distanceDamage.long, 0)},
+    maxHitDist: distances.length ? Math.max(...distances) : null,
+    pressureIndex: pressures.length ? pressures.reduce((a, b) => a + b, 0) / pressures.length : null,
+    focusFireCount: sum("focusFireCount"), rescueCount: sum("rescueCount"), rescueOpportunityCount: sum("rescueOpportunityCount"),
+    positionSampleCount: sum("positionSampleCount"), edgePlayCount: sum("edgePlayCount"), metricMatchCounts,
+    goldenTimeDamage: goldenComplete ? {early: golden.reduce((total, row) => total + row.early, 0),
+      mid1: golden.reduce((total, row) => total + row.mid1, 0), mid2: golden.reduce((total, row) => total + row.mid2, 0), late: golden.reduce((total, row) => total + row.late, 0)} : null,
+  };
+}
+
 export function aggregateMatches(matches: any[]) {
   const inputMatches = Array.isArray(matches) ? matches : [];
   let totalKills = 0, totalDamage = 0, totalDamageImpact = 0, totalTeamDamageShare = 0, totalTeamKillShare = 0;
@@ -551,6 +598,7 @@ export function aggregateMatches(matches: any[]) {
 
   return {
     metricMatchCounts,
+    roleEvidence: aggregateRoleEvidence(inputMatches),
     rawMetricValues: {
       pressure_index: pressureIndexCount > 0 ? totalPressureIndex / pressureIndexCount : null,
       reaction_latency: measuredReactionLatencySec,

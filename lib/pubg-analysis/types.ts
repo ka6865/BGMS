@@ -190,6 +190,19 @@ export interface DuelStats {
 
 export interface AnalysisResult {
   calculationVersion?: number;
+  roleEvidence?: {
+    version: 1;
+    validWeaponHits: number;
+    distanceHitCount: number;
+    distanceDamage: { short: number; mid: number; long: number };
+    maxHitDist: number | null;
+    pressureIndex: number | null;
+    focusFireCount: number;
+    rescueCount: number;
+    rescueOpportunityCount: number;
+    positionSampleCount: number;
+    edgePlayCount: number;
+  };
   /** Same-target gun participation; never substitutes for calibrated cover scores. */
   squadFocusFire?: SquadFocusFireObservation;
   squadObservation?: SquadObservation;
@@ -331,6 +344,14 @@ export interface AnalysisState {
   totalReviveEvents: any[];
   teammateKnockEvents: number[];
   myActionTimestamps: number[];
+  roleEvidenceValidWeaponHits: number;
+  roleEvidenceDistanceHitCount: number;
+  roleEvidenceDistanceDamage: { short: number; mid: number; long: number };
+  roleEvidenceMaxHitDist: number | null;
+  roleEvidenceFocusFireCount: number;
+  roleEvidenceDamageEvents: Set<string>;
+  roleEvidenceFocusHitsByVictim: Map<string, Array<{ attacker: string; ts: number; counted: boolean }>>;
+  positionSampleCount: number;
 
   // 지표용 누적 변수
   totalIsolationSum: number;

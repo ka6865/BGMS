@@ -186,6 +186,48 @@ async function clickText(page: Page, text: string) {
       await page.close();
     }
   }, 30_000);
+  it.each([{width:375,height:667},{width:390,height:844},{width:430,height:932},{width:1440,height:900}])("mode-aware score triangle and pending evidence at $width", async (viewport) => {
+    const page=await browser.newPage();
+    const errors:string[]=[];
+    page.on("pageerror", error=>errors.push(String(error)));
+    await page.setViewport(viewport);
+    await page.setRequestInterception(true);
+    let scope:"solo"|"team"|undefined="team";
+    page.on("request", async request=>{
+      if(!request.url().endsWith("/api/pubg/ai-summary")){await request.continue();return;}
+      const tierBreakdown=scope==="solo"?{combat:40,tactical:12,survival:28,total:80}:{combat:32,tactical:28,survival:20,total:80};
+      const lines=[
+        {type:"visuals",data:{overallTier:"A",tierScope:scope,tierMatchCount:3,bestMatchCount:5,tierBreakdown,
+          roleInfo:{primaryRole:"pending",secondaryRole:null,status:"pending",title:"칭호 미확정",roleLabel:"칭호 미확정",description:"비교 가능한 기록을 확인하고 있습니다.",reason:"핵심 행동 근거가 부족합니다.",signatureWeapon:"M416",scores:{executor:null}}}},
+        {type:"cards",data:cards},
+        {type:"final",data:JSON.stringify({schemaVersion:2,analysisStatus:"partial",cards:finalCards,retryAfterSeconds:300,signature:null,actionItems:null,finalVerdict:"확인된 기록입니다."})},
+        {type:"done",valid:true,partial:true,retryAfterSeconds:300},
+      ];
+      await request.respond({status:200,contentType:"application/x-ndjson",body:lines.map(row=>JSON.stringify(row)).join("\n")});
+    });
+    try{
+      for(const current of ["team","solo",undefined] as const){
+        scope=current;
+        await page.goto(baseUrl,{waitUntil:"networkidle0"});
+        await clickText(page,"최근 최대 10경기 AI 끝장 토론 시작");
+        await page.waitForFunction(text=>document.body.innerText.includes(text),{},message);
+        await clickText(page,"상세 분석 리포트 펼치기");
+        await page.waitForSelector('[aria-label="FixturePlayer 3영역 점수 분포"]',{visible:true});
+        const svg=await page.$('[aria-label="FixturePlayer 3영역 점수 분포"]');
+        if(current) expect(await svg!.$("path")).not.toBeNull();
+        else expect(await svg!.$("path")).toBeNull();
+        const text=await page.evaluate(()=>document.body.innerText);
+        expect(text).toContain("핵심 행동 근거가 부족합니다.");
+        expect(text).toContain("3경기 기준 · 3영역 점수 분포");
+        expect(text).not.toContain("균형잡힌 전술가");
+        expect(text).toContain(current==="solo"?"40/50":current==="team"?"32/40":"배점 정보가 없어 원점수만 표시합니다.");
+        expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+        if(process.env.SUMMARY_BROWSER_SCREENSHOT_DIR)await page.screenshot({path:join(process.env.SUMMARY_BROWSER_SCREENSHOT_DIR,`score-triangle-${current??"unknown"}-${viewport.width}.png`),fullPage:true});
+      }
+      expect(errors).toEqual([]);
+    }finally{await page.close();}
+  },30_000);
+
   it.each([{width:375,height:667},{width:390,height:844},{width:430,height:932},{width:1440,height:900}])('qualified single-match reply states at $width', async (viewport) => {
     const page=await browser.newPage();
     const errors:string[]=[];

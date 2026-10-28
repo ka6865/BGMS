@@ -65,6 +65,7 @@ export const ROLE_SCORE_QUANTILES: Record<RoleScoreKey, readonly number[]> = {
 
 /** 후보의 누락/잘못된 분포를 운영 기본값으로 채우지 않는다. */
 export type RoleReference = {
+  evidenceVersion?: 1;
   metrics: Partial<Record<RoleMetricKey, readonly number[]>>;
   roles: Partial<Record<RoleScoreKey, readonly number[]>>;
 };

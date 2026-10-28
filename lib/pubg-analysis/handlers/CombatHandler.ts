@@ -1,6 +1,7 @@
 import { FirstReplyEvidenceCollector } from "../firstReply";
 import { AnalysisState, WipeContributionKind } from "../types";
 import { normalizeName, calcDist3D, scaleCoordinate } from "../utils";
+import { normalizeTelemetryLocation } from "../telemetryContract";
 import { WEAPON_NAMES, IGNORE_WEAPONS, IGNORE_WEAPON_PATTERNS, TACTICAL_THRESHOLDS, WIPE_CONTRIBUTION_WINDOW_MS } from "../constants";
 import { BaseHandler } from "./BaseHandler";
 import {
@@ -64,6 +65,30 @@ export class CombatHandler extends BaseHandler {
   }
   private statusOf(name: string, accountId?: string) {
     return this.state.playerAliveStatus.get(name) ?? (accountId ? this.state.playerAliveStatus.get(accountId) : undefined);
+  }
+
+  private recordRoleFocusFire(attackerKey: string, victimName: string, ts: number, isMeAttacker: boolean) {
+    const hits = (this.state.roleEvidenceFocusHitsByVictim.get(victimName) || []).filter(hit => ts - hit.ts < 1000);
+    const meKey = `me:${this.state.myAccountId}`;
+    const currentKey = isMeAttacker ? meKey : `actor:${attackerKey}`;
+    let counted = false;
+    if (isMeAttacker) {
+      const hasTeammateHit = hits.some(hit => hit.attacker !== meKey);
+      if (hasTeammateHit) {
+        counted = true;
+        this.state.roleEvidenceFocusFireCount++;
+        hits.forEach(hit => { if (hit.attacker !== meKey) hit.counted = true; });
+      }
+    } else {
+      for (const hit of hits) {
+        if (hit.attacker === meKey && !hit.counted) {
+          hit.counted = true;
+          this.state.roleEvidenceFocusFireCount++;
+        }
+      }
+    }
+    hits.push({ attacker: currentKey, ts, counted });
+    this.state.roleEvidenceFocusHitsByVictim.set(victimName, hits);
   }
 
   constructor(state: AnalysisState) {
@@ -398,6 +423,43 @@ export class CombatHandler extends BaseHandler {
           const isVictimGroggy = victimStatus === "groggy" || victimStatus === false;
 
           if (!isVictimGroggy) {
+            if (Number.isFinite(damage) && damage > 0) {
+              const attackerLoc = normalizeTelemetryLocation(actorLocation(e.attacker));
+              const victimLoc = normalizeTelemetryLocation(actorLocation(e.victim));
+              let attackId: string | null = null;
+              if (typeof e.attackId === "number" && Number.isFinite(e.attackId) && e.attackId >= 0) attackId = String(e.attackId);
+              else if (typeof e.attackId === "string" && e.attackId.trim() && e.attackId.trim() !== "-1") attackId = e.attackId.trim();
+              const eventKey = JSON.stringify([
+                ts,
+                this.actorKey(e.attacker),
+                this.actorKey(e.victim),
+                wId,
+                e.damageTypeCategory || "",
+                damage,
+                attackId,
+                typeof e.damageReason === "string" ? e.damageReason.trim() || null : null,
+                attackerLoc,
+                victimLoc,
+              ]);
+              if (!this.state.roleEvidenceDamageEvents.has(eventKey)) {
+                this.state.roleEvidenceDamageEvents.add(eventKey);
+                if (isMeAttacker) {
+                  this.state.roleEvidenceValidWeaponHits++;
+                  // 좌표가 없을 때의 999 반환값과 실제 측정 거리 999cm를 구분한다.
+                  const distance = attackerLoc && victimLoc ? calcDist3D(attackerLoc, victimLoc) : NaN;
+                  if (Number.isFinite(distance)) {
+                    const meters = Math.round(distance / 100);
+                    this.state.roleEvidenceDistanceHitCount++;
+                    this.state.roleEvidenceMaxHitDist = Math.max(this.state.roleEvidenceMaxHitDist ?? 0, meters);
+                    const bucket = this.state.roleEvidenceDistanceDamage;
+                    if (meters < 50) bucket.short += damage;
+                    else if (meters < 200) bucket.mid += damage;
+                    else bucket.long += damage;
+                  }
+                }
+                this.recordRoleFocusFire(this.actorKey(e.attacker) || attackerName, victimName, ts, isMeAttacker);
+              }
+            }
             if (isMeAttacker) {
               const wStat = this.state.weaponStats.get(cleanWId) || { kills: 0, dbnos: 0, damage: 0, hits: 0 };
               wStat.damage += damage;

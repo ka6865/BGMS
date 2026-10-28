@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AnalysisEngine } from "@/lib/pubg-analysis/AnalysisEngine";
+import { aggregateMatches } from "@/lib/pubg-analysis/summaryAggregate";
 import { projectTelemetryEvent, filterTelemetryEvents } from "@/lib/pubg-analysis/telemetryContract";
 
 // 계산 5 엔진 사양(tmp/calc5/spec.md)의 테스트 1~16을 손으로 만든 이벤트로 고정한다.
@@ -369,6 +370,175 @@ describe("계산 5 E7 · lite 모드와 전멸", () => {
     expect(lite.result.tradeStats.enemyTeamWipes).toBe(1);
     // 타임라인 기록 제한은 그대로 유지한다.
     expect(lite.result.timeline.every(event => event.ts <= 50_000)).toBe(true);
+  });
+});
+
+describe("계산 5 역할 근거", () => {
+  it("미관측 값은 0과 구분하고 기존 구제 장부의 성공·기회를 재사용한다", () => {
+    const unobserved = run([]).result;
+    expect(unobserved.benchmark).toEqual({
+      tier: "C",
+      score: 27.5,
+      breakdown: { combat: 25.8, tactical: 1.7, survival: 0 },
+      impactScore: 27.5,
+      impactGrade: "NORMAL",
+      impactBonus: 0,
+      impactReasons: ["조기 사망 리스크 감경"],
+      contributionTypes: [],
+    });
+    expect(unobserved.combatPressure).toMatchObject({ pressureIndex: null, totalHits: 0, maxHitDist: 0, maxHitDistUpright: 0 });
+    expect(unobserved.itemUseStats.distanceDamage).toEqual({ short: 0, mid: 0, long: 0 });
+    expect(unobserved.zoneStrategy).toEqual({ edgePlayCount: 0, fatalDelayCount: 0 });
+    expect(unobserved.roleEvidence).toEqual({
+      version: 1,
+      validWeaponHits: 0,
+      distanceHitCount: 0,
+      distanceDamage: { short: 0, mid: 0, long: 0 },
+      maxHitDist: null,
+      pressureIndex: null,
+      focusFireCount: 0,
+      rescueCount: 0,
+      rescueOpportunityCount: 0,
+      positionSampleCount: 0,
+      edgePlayCount: 0,
+    });
+
+    const rescued = run([
+      knock(10_000, "E1", "TB", 11),
+      smoke(11_000, 7),
+      revive(12_000, "Me", "TB"),
+      revive(12_000, "Me", "TB"),
+    ]).result;
+    expect(rescued.roleEvidence).toMatchObject({
+      rescueCount: rescued.tradeStats.rescueCount,
+      rescueOpportunityCount: rescued.tradeStats.rescueOpportunityCount,
+    });
+    expect(rescued.roleEvidence!.rescueCount).toBe(1);
+    expect(rescued.roleEvidence!.rescueOpportunityCount).toBe(1);
+  });
+
+  it("협공은 본인 참여만 타격 단위로 세고 피해0·기절대상·무기 제외는 유효 hit가 아니다", () => {
+    const teammateOnly = run([
+      damage(10_000, "TB", "E1"),
+      damage(10_500, "TC", "E1"),
+    ]).result;
+    expect(teammateOnly.roleEvidence!.focusFireCount).toBe(0);
+
+    const firstPersonalHit = damage(10_500, "Me", "E1");
+    const bothOrders = run([
+      damage(10_000, "TB", "E1"),
+      firstPersonalHit,
+      firstPersonalHit,
+      damage(11_000, "Me", "E1"),
+      damage(11_500, "TB", "E1"),
+    ]).result;
+    expect(bothOrders.roleEvidence!.focusFireCount).toBe(2);
+    expect(bothOrders.roleEvidence!.validWeaponHits).toBe(2);
+    expect(bothOrders.itemUseStats.focusFireCount).toBe(3);
+
+    const invalid = run([
+      damage(10_000, "Me", "E1", 0),
+      knock(11_000, "O1", "E2"),
+      damage(12_000, "Me", "E2", 20),
+      damage(13_000, "Me", "E1", 20, { damageCauserName: "WeapSmokeBomb_C" }),
+    ]).result;
+    expect(invalid.roleEvidence!.validWeaponHits).toBe(0);
+    expect(invalid.roleEvidence!.distanceHitCount).toBe(0);
+    expect(invalid.roleEvidence!.maxHitDist).toBeNull();
+    expect(invalid.roleEvidence!.pressureIndex).toBeNull();
+    expect(invalid.combatPressure).toMatchObject({ totalHits: 3, pressureIndex: 0.6 });
+    expect(invalid.itemUseStats.distanceDamage).toEqual({ short: 40, mid: 0, long: 0 });
+  });
+
+  it("유효 피해는 거리가 없어도 hit로 세며 거리 표본과 자기장 위치 표본은 분리한다", () => {
+    const noDistance = run([{
+      ...damage(10_000, "Me", "E1", 25),
+      attacker: { ...actor("Me"), location: undefined },
+      victim: { ...actor("E1"), location: undefined },
+    }]).result;
+    expect(noDistance.roleEvidence).toMatchObject({
+      validWeaponHits: 1,
+      distanceHitCount: 0,
+      distanceDamage: { short: 0, mid: 0, long: 0 },
+      maxHitDist: null,
+      pressureIndex: 0.2,
+    });
+
+    const measured = run([
+      { t: 1_000, _T: "LogGameStatePeriodic", gameState: { safetyZonePosition: { x: 50_000, y: 100_000 }, safetyZoneRadius: 50_000 } },
+      { t: 121_000, _T: "LogPlayerPosition", character: actor("Me") },
+      { t: 126_000, _T: "LogPlayerPosition", character: actor("Me") },
+      { ...damage(130_000, "Me", "E1", 25), victim: actor("E1", { x: POS.Me.x + 30_000, y: POS.Me.y }) },
+    ]).result;
+    expect(measured.roleEvidence).toMatchObject({
+      validWeaponHits: 1,
+      distanceHitCount: 1,
+      distanceDamage: { short: 0, mid: 0, long: 25 },
+      maxHitDist: 300,
+      positionSampleCount: 2,
+      edgePlayCount: 2,
+    });
+  });
+
+  it.each([["short", 20], ["mid", 100], ["long", 300]] as const)("중복 피해의 %s 거리 근거는 한 번, legacy upright는 두 번 합산한다", (bucket, meters) => {
+    const hit = damage(10_000, "Me", "E1", 30, {
+      attackId: 7,
+      victim: actor("E1", { x: POS.Me.x + meters * 100, y: POS.Me.y }),
+    });
+    const { result } = run([hit, { ...hit }]);
+    const uniqueDamage = { short: 0, mid: 0, long: 0 };
+    uniqueDamage[bucket] = 30;
+    const expected = {
+      validWeaponHits: 1, distanceHitCount: 1, distanceDamage: uniqueDamage, maxHitDist: meters,
+    };
+    expect(result.roleEvidence).toMatchObject(expected);
+    expect(aggregateMatches([result]).roleEvidence).toMatchObject(expected);
+    expect(result.itemUseStats.distanceDamageUpright).toEqual({ ...uniqueDamage, [bucket]: 60 });
+    expect(result.combatPressure.maxHitDistUpright).toBe(meters);
+  });
+
+  it.each([
+    { name: "attackId", extra: { attackId: 8 } },
+    { name: "문자열 attackId", extra: { attackId: "shot-8" } },
+    { name: "damageReason", extra: { damageReason: "HeadShot" } },
+    { name: "공격자 좌표", extra: { attacker: actor("Me", { x: POS.Me.x + 1, y: POS.Me.y }) } },
+    { name: "피해자 좌표", extra: { victim: actor("E1", { x: POS.E1.x + 1, y: POS.E1.y }) } },
+  ])("같은 시각이라도 유효한 $name 구분자가 다른 타격은 합치지 않는다", ({ extra }) => {
+    const first = damage(10_000, "Me", "E1", 30, { attackId: 7 });
+    const { result } = run([first, { ...first, ...extra }]);
+    expect(result.roleEvidence).toMatchObject({
+      validWeaponHits: 2, distanceHitCount: 2, distanceDamage: { short: 60, mid: 0, long: 0 },
+    });
+  });
+
+  it.each([
+    { name: "좌표 없음(sentinel 999)", location: undefined },
+    { name: "x 누락", location: { y: POS.E1.y, z: 0 } },
+    { name: "NaN", location: { x: NaN, y: POS.E1.y, z: 0 } },
+    { name: "Infinity", location: { x: Infinity, y: POS.E1.y, z: 0 } },
+  ])("$name은 유효 hit만 기록하고 거리 관측을 만들지 않는다", ({ location }) => {
+    const { result } = run([damage(10_000, "Me", "E1", 30, { victim: { ...actor("E1"), location } })]);
+    expect(result.roleEvidence).toMatchObject({
+      validWeaponHits: 1, distanceHitCount: 0, distanceDamage: { short: 0, mid: 0, long: 0 }, maxHitDist: null,
+    });
+  });
+
+  it.each([NaN, Infinity, -1, "-1", " "])("무효 attackId %s와 빈 damageReason은 서로 다른 타격의 근거가 아니다", attackId => {
+    const hit = damage(10_000, "Me", "E1", 30, { attackId, damageReason: " " });
+    const { result } = run([hit, { ...hit, attackId: Infinity, damageReason: undefined }]);
+    expect(result.roleEvidence).toMatchObject({
+      validWeaponHits: 1, distanceHitCount: 1, distanceDamage: { short: 30, mid: 0, long: 0 },
+    });
+  });
+
+  it.each([0, 999])("유효 좌표로 측정한 %icm는 missing sentinel과 구분한다", centimeters => {
+    const { result } = run([damage(10_000, "Me", "E1", 30, {
+      victim: actor("E1", { x: POS.Me.x + centimeters, y: POS.Me.y }),
+    })]);
+    expect(result.roleEvidence).toMatchObject({
+      validWeaponHits: 1, distanceHitCount: 1, distanceDamage: { short: 30, mid: 0, long: 0 },
+      maxHitDist: Math.round(centimeters / 100),
+    });
   });
 });
 

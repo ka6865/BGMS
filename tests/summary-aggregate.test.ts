@@ -19,3 +19,35 @@ describe('shared summary aggregation',()=>{
   expect(aggregateMatches([]).userInitiativeRate).toBeNull();
  });
 });
+
+
+describe("versioned personal role evidence", () => {
+  const role = { version: 1, validWeaponHits: 8, distanceHitCount: 8,
+    distanceDamage: {short: 150, mid: 100, long: 50}, maxHitDist: 210,
+    pressureIndex: 1.6, focusFireCount: 2, rescueCount: 1, rescueOpportunityCount: 1,
+    positionSampleCount: 10, edgePlayCount: 4 };
+  it("aggregates deduplicated rescue episodes and exact damage without changing legacy totals", () => {
+    const match={roleEvidence:role,tradeStats:{revCount:1,smokeRescues:1,teammateKnocks:1},goldenTimeDamage:{early:149,mid1:149,mid2:0,late:0}};
+    const result=aggregateMatches([match,match,match]);
+    expect(result.roleEvidence).toMatchObject({version:1,matchCount:3,rescueCount:3,rescueOpportunityCount:3,
+      distanceDamage:{short:450,mid:300,long:150},maxHitDist:210,focusFireCount:6,
+      goldenTimeDamage:{early:447,mid1:447,mid2:0,late:0}});
+    expect(result.totalRevCount+result.totalSmokeRescues).toBe(6);
+  });
+  it("rejects a mixed legacy window and invalid numerators instead of treating missing evidence as zero", () => {
+    expect(aggregateMatches([{roleEvidence:role},{}]).roleEvidence).toBeNull();
+    expect(aggregateMatches([{roleEvidence:{...role,rescueCount:2}}]).roleEvidence).toBeNull();
+    expect(aggregateMatches([{roleEvidence:{...role,validWeaponHits:NaN}}]).roleEvidence).toBeNull();
+  });
+  it("does not dilute observed metric denominators with missing matches", () => {
+    const result=aggregateMatches([{roleEvidence:role,duelStats:{wins:3,losses:1,reversalAttempts:2,reversals:1}}, {roleEvidence:role}]);
+    expect(result.roleEvidence?.metricMatchCounts.duelWin).toBe(1);
+    expect(result.roleEvidence?.metricMatchCounts.reversal).toBe(1);
+  });
+  it("keeps observed zero and missing pressure/maximum distance separate", () => {
+    const zero={...role,validWeaponHits:0,distanceHitCount:0,maxHitDist:null,pressureIndex:null,
+      distanceDamage:{short:0,mid:0,long:0},focusFireCount:0,rescueCount:0,rescueOpportunityCount:0,positionSampleCount:0,edgePlayCount:0};
+    expect(aggregateMatches([{roleEvidence:zero}]).roleEvidence).toMatchObject({maxHitDist:null,pressureIndex:null,focusFireCount:0,goldenTimeDamage:null});
+    expect(aggregateMatches([{roleEvidence:{...role,maxHitDist:0}}]).roleEvidence?.maxHitDist).toBe(0);
+  });
+});
