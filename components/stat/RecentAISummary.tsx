@@ -2063,7 +2063,7 @@ export const RecentAISummary = ({
         {debateData?.visuals && <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
 
           <div className="relative group p-6 bg-indigo-500/10 border border-indigo-500/20 rounded-[28px] text-center transition-all hover:bg-indigo-500/15">
-            <div className="text-[10px] text-indigo-400 font-black uppercase mb-1 tracking-widest">선제 타격 효율</div>
+            <div className="text-[10px] text-indigo-400 font-black uppercase mb-1 tracking-widest">선제 타격 성공률</div>
             <div className="text-3xl font-black text-white mb-1">
               {debateData?.visuals?.initiativeSuccess || "0%"}
             </div>
@@ -2072,7 +2072,7 @@ export const RecentAISummary = ({
                 (성공 {debateData.visuals.tactical.counts.initiative.success} / 시도 {debateData.visuals.tactical.counts.initiative.attempts})
               </div>
             )}
-            <div className="text-[9px] text-gray-400 font-medium">먼저 쐈을 때 킬 성공 비율</div>
+            <div className="text-[9px] text-gray-400 font-medium">먼저 피해를 준 교전의 승리·마무리 지원 비율</div>
           </div>
 
           <div className="relative group p-6 bg-emerald-500/10 border border-emerald-500/20 rounded-[28px] text-center transition-all hover:bg-emerald-500/15">
@@ -2088,13 +2088,13 @@ export const RecentAISummary = ({
           </div>
 
           <div className="relative group p-6 bg-orange-500/10 border border-orange-500/20 rounded-[28px] text-center transition-all hover:bg-orange-500/15">
-            <div className="text-[10px] text-orange-400 font-black uppercase mb-1 tracking-widest">첫 반격 명중 간격</div>
+            <div className="text-[10px] text-orange-400 font-black uppercase mb-1 tracking-widest">반격 소요 시간</div>
             <div className="text-3xl font-black text-white mb-1 flex items-center justify-center gap-2">
               {debateData?.visuals?.reactionLatency || "측정 불가"}
               {debateData?.visuals?.reactionLatency === "측정 불가" && (
                 <div className="relative" ref={activeStatTooltip === 'reaction' ? statTooltipRef : null}>
                   <button
-                    aria-label="첫 반격 측정 불가 사유"
+                    aria-label="반격 소요 시간 측정 불가 사유"
                     onMouseEnter={() => !isMobile && setActiveStatTooltip('reaction')}
                     onMouseLeave={() => !isMobile && setActiveStatTooltip(null)}
                     onClick={() => isMobile && setActiveStatTooltip(activeStatTooltip === 'reaction' ? null : 'reaction')}
@@ -2111,7 +2111,7 @@ export const RecentAISummary = ({
                         {isMobile && <button onClick={() => setActiveStatTooltip(null)} className="text-white/40"><X size={14} /></button>}
                       </div>
                       <div className="text-[11px] text-orange-200/70 font-medium leading-relaxed text-left">
-                        피격 전부터 사격 중이었거나 발사 기록이 부족한 교전은 제외합니다. 확인된 교전에서도 3초 안에 첫 반격 명중이 없으면 시간을 계산하지 않습니다. <span className="text-orange-400 font-bold">측정 불가는 느린 반응이나 실력 부족을 뜻하지 않습니다.</span>
+                        상대에게 피해를 받은 뒤 해당 상대에게 처음 피해를 주기까지의 시간입니다. 피격 전 연속 발사가 관측됐거나 발사 기록이 불확실한 교전은 제외합니다. 조준·탄속 등의 영향도 포함되며 반사신경을 직접 측정한 값은 아닙니다. 확인된 교전에서도 3초 안에 첫 반격 명중이 없으면 시간을 계산하지 않습니다. <span className="text-orange-400 font-bold">측정 불가는 느린 반응이나 실력 부족을 뜻하지 않습니다.</span>
                       </div>
                       {!isMobile && <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-[#111] border-r border-b border-orange-500/20 rotate-45" />}
                     </div>
@@ -2119,7 +2119,7 @@ export const RecentAISummary = ({
                 </div>
               )}
             </div>
-            <div className="text-[9px] text-gray-400 font-medium">피격 전 사격을 구분한 첫 반격 명중 시간</div>
+            <div className="text-[9px] text-gray-400 font-medium">첫 피격부터 해당 상대에게 처음 피해를 줄 때까지</div>
           </div>
 
           <div className="relative p-6 bg-cyan-500/10 border border-cyan-500/20 rounded-[28px] text-center transition-all hover:bg-cyan-500/15">

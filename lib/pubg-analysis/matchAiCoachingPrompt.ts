@@ -153,11 +153,11 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
 [전술 지표 (유저 vs DB 티어 평균)]
 - 1:1 교전 승률: ${formatPercent(matchData.duelStats?.duelWinRate)} (교전 ${formatCount(matchData.duelStats?.totalDuels)}회, Elite Avg: ${formatBenchmarkPercent("avgDuelWinRate")})
 - 복수(Trade) 성공률: ${formatPercent(tradeStats.tradeRate)} (Elite Avg: ${formatBenchmarkPercent("avgTradeRate")})
-- 선제 공격 성공률: ${formatPercent(matchData.initiative_rate)} (선제 시도 ${formatCount(matchData.initiativeSampleCount)}회, Elite Avg: ${formatBenchmarkPercent("avgInitiativeRate")})
-- 대응 사격 속도(첫 반격): ${(() => {
+- 선제 타격 성공률: ${formatPercent(matchData.initiative_rate)} (선제 시도 ${formatCount(matchData.initiativeSampleCount)}회, Elite Avg: ${formatBenchmarkPercent("avgInitiativeRate")})
+- 반격 소요 시간: ${(() => {
   const firstReply = firstReplyLatencyMs(matchData);
   const evidence = readFirstReplyEvidence(matchData);
-  if (firstReply !== null) return `${(firstReply / 1000).toFixed(2)}s (피격 전 사격을 구분한 교전 ${evidence!.within3sCount}회의 첫 피격→첫 반격 명중 간격 평균, Elite Avg: ${formatBenchmarkNumber("avgFirstReplyLatency", "s")})`;
+  if (firstReply !== null) return `${(firstReply / 1000).toFixed(2)}s (피격 전 사격을 구분한 교전 ${evidence!.within3sCount}회의 첫 피격부터 해당 상대에게 첫 명중까지의 평균, Elite Avg: ${formatBenchmarkNumber("avgFirstReplyLatency", "s")})`;
   if (!evidence) return "측정 불가(피격 전 사격 검증 기록 없음)";
   if (firstReplyFailureRate(matchData) === 100) return `3초 안에 첫 반격 없음(적격 교전 ${evidence.eligibleCount}회, 실제 시간 측정 불가) (Elite 3초 내 대응 실패율: ${formatBenchmarkPercent("avgCounterFailureRate")})`;
   return `측정 불가(이미 사격 중 ${evidence.alreadyFiringCount}회 제외, 사격 근거 부족 ${evidence.unknownCount}회)`;
@@ -213,10 +213,10 @@ export function buildMatchAiCoachingPrompt({ matchData, coachingStyle = "spicy" 
     "  * 피해형 투척당 평균 데미지는 피해량만 설명하며, 적 위치 파악 능력이나 정확한 의도를 입증하지 않습니다.",
     "  * 투척물 딜량이 0이면 정확도만으로 교전 보조 능력을 단정하지 마십시오.",
     "- [백업 해석 규칙] 백업 속도는 아군 기절 후 복수 처치까지의 시간입니다. 이를 소생·합류·복구에 걸린 시간으로 해석하거나 복구 시간 단축을 지시하지 마십시오. 전멸 기여와 소생 횟수만으로 같은 사건의 복구 성공을 단정하지 마십시오.",
-    "- [첫 반격 해석] 이미 사격 중이던 교전과 발사 근거가 부족한 교전은 반응 시간·실패율 평가에서 제외합니다. 첫 반격 명중 간격은 인지·반사신경을 직접 측정한 값이 아닙니다. 측정 불가 값을 0초나 느린 반응으로 바꾸지 마십시오.",
-    "- [표본과 비교] 투척 1~2회나 대응 사격 관측이 적을 때는 전반적인 능력을 단정하지 마십시오. 평균만으로 상위 백분위를 주장하지 말고, 선제 공격 성공률을 첫 발 명중률로 해석하지 마십시오.",
+    "- [첫 반격 해석] 이미 사격 중이던 교전과 발사 근거가 부족한 교전은 반응 시간·실패율 평가에서 제외합니다. 반격 소요 시간은 인지·반사신경을 직접 측정한 값이 아닙니다. 측정 불가 값을 0초나 느린 반응으로 바꾸지 마십시오.",
+    "- [표본과 비교] 투척 1~2회나 대응 사격 관측이 적을 때는 전반적인 능력을 단정하지 마십시오. 평균만으로 상위 백분위를 주장하지 말고, 선제 타격 성공률을 첫 발 명중률로 해석하지 마십시오.",
     "- [적은 표본] 1:1 교전·선제 시도·피해형 투척이 3회 미만인 지표는 횟수만 말하고, 능력이 부족하다거나 높이라는 평가·지시(actionItems 포함)의 근거로 쓰지 마십시오.",
-    "- [비교 없는 평가 금지] Elite Avg가 측정 불가인 지표(예: 대응 사격 속도)는 빠르다/느리다/미흡하다로 평가하지 말고 관측값만 말하십시오.",
+    "- [비교 없는 평가 금지] Elite Avg가 측정 불가인 지표(예: 반격 소요 시간)는 빠르다/느리다/미흡하다로 평가하지 말고 관측값만 말하십시오.",
     "- [기여 인정] 처치·어시스트·기절·소생·적 팀 전멸 기여 중 하나라도 1회 이상이면 '아무 기여도 없다', '아무것도 남기지 못했다'처럼 쓰지 마십시오. 조기 탈락은 생존 시간과 사망 페이즈 사실로만 말하십시오.",
     "- [인성 표현 금지] 무책임, 무능, 민폐, 한심, 이기적 같은 태도·인성 평가와 집중력·판단력·멘탈처럼 측정하지 않은 능력은 쓰지 마십시오.",
     "- [진입 추정 금지] 진입 시점이나 무리한 진입 여부는 측정하지 않았습니다. '무리한 진입'을 원인이나 행동 제안으로 쓰지 마십시오.",

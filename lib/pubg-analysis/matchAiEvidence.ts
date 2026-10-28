@@ -26,7 +26,7 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
   const negativeJudgment = /부족|미흡|저조|아쉽|아쉬|약점|한계|무너|형편없|느리|느린|개선이 필요|보완이 필요|개선의 여지|높여야|끌어올려야|채워야/u;
   const negatedJudgment = /(?:부족|아쉬)(?:함|움)?(?:이|은|도)?\s*없|부족하지\s*않|아쉽지\s*않|느리지\s*않/u;
   const metricBenchmarks: Array<[RegExp, keyof NormalizedBenchmark]> = [
-    [/(?:대응|반응)\s*(?:사격)?\s*속도/u, 'avgFirstReplyLatency'],
+    [/(?:(?:대응|반응)\s*(?:사격)?\s*속도|반격\s*소요\s*시간)/u, 'avgFirstReplyLatency'],
     [/백업\s*속도/u, 'avgTradeLatency'], [/고립/u, 'avgIsolationIndex'],
     [/(?:피해량|딜량|화력)/u, 'avgDamage'], [/복수/u, 'avgTradeRate'],
   ];
@@ -35,7 +35,7 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
     // Rewrite only matched sentences; untouched values keep their original line breaks.
     const sentences = value.split(/(?<=[.!?。！？])\s+|\n+/u);
     const rewritten: Array<string | null> = sentences.map(sentence => {
-      if (['signature', 'signatureSub', 'briefFeedback', 'finalVerdict'].includes(key) && /(?:대응|반응)\s*(?:사격)?\s*(?:속도|시간)|반사신경/u.test(sentence) && firstReply === null && !/측정.{0,8}불가|평가.{0,8}보류|판단.{0,8}없/u.test(sentence)) {
+      if (['signature', 'signatureSub', 'briefFeedback', 'finalVerdict'].includes(key) && /(?:대응|반응)\s*(?:사격)?\s*(?:속도|시간)|반격\s*소요\s*시간|반사신경/u.test(sentence) && firstReply === null && !/측정.{0,8}불가|평가.{0,8}보류|판단.{0,8}없/u.test(sentence)) {
         const evidence = readFirstReplyEvidence(match);
         return firstReplyFailureRate(match) === 100 ? `적격 교전 ${evidence!.eligibleCount}회에서 3초 안에 첫 반격이 관측되지 않았습니다. 반응 시간은 측정 불가입니다.`
           : '피격 전 사격을 구분할 근거가 부족하거나 이미 사격 중이던 교전이라 반응 속도 평가는 보류합니다.';
@@ -66,10 +66,10 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
       if (initiativeSamples !== null && initiativeSamples < 3 && /선제/u.test(sentence) && negativeJudgment.test(sentence) && !negatedJudgment.test(sentence)) {
         return key === 'desc' || key === 'title' ? null : `선제 시도는 ${initiativeSamples}회라 주도권을 평가하기에는 표본이 적습니다.`;
       }
-      if (/(?:대응|반응)\s*(?:사격)?\s*속도/u.test(sentence) && negativeJudgment.test(sentence) && !negatedJudgment.test(sentence)
+      if (/(?:(?:대응|반응)\s*(?:사격)?\s*속도|반격\s*소요\s*시간)/u.test(sentence) && negativeJudgment.test(sentence) && !negatedJudgment.test(sentence)
         && !hasComparableBenchmarkMetric(match?.eliteBenchmark, 'avgFirstReplyLatency')
         && !/3초\s*(?:안|내)/u.test(sentence)) {
-        return firstReply === null ? null : `기습당한 교전에서 첫 반격까지 평균 ${(firstReply / 1000).toFixed(2)}초가 걸렸습니다. 비교 자료가 없어 빠르기 평가는 보류합니다.`;
+        return firstReply === null ? null : `기습당한 교전에서 반격 소요 시간은 평균 ${(firstReply / 1000).toFixed(2)}초입니다. 비교 자료가 없어 빠르기 평가는 보류합니다.`;
       }
       if ((key === 'desc' || key === 'title') && lethal !== null && lethal > 0 && lethal < 3 && /투척/u.test(sentence) && /명중|적중|정밀|정확/u.test(sentence)) {
         return key === 'title' ? '투척 결과 확인' : `피해형 투척은 ${lethal}회라 명중률을 판단하기 어렵습니다. 다음 경기에서는 투척 후 피해가 들어갔는지 확인해 보세요.`;
@@ -82,11 +82,11 @@ export function applyMatchAiEvidencePolicy(text: string, match: any): string {
         return '다음 교전에서는 아군의 상태를 확인하고 지원 가능한 상황인지 점검하세요.';
       }
       if (/선제[^.!?\n]{0,30}성공률/u.test(sentence) && /(?:첫|최초)[^.!?\n]{0,15}(?:명중률|정확도)/u.test(sentence)) {
-        return '다음 교전에서는 선제 공격 이후 교전 결과를 확인해 보세요.';
+        return '다음 교전에서는 선제 타격 이후 교전 결과를 확인해 보세요.';
       }
-      if (/(?:대응|반응)\s*(?:사격)?\s*속도/u.test(sentence) && /상위\s*(?:권|수준|\d+\s*%)/u.test(sentence)) {
+      if (/(?:(?:대응|반응)\s*(?:사격)?\s*속도|반격\s*소요\s*시간)/u.test(sentence) && /상위\s*(?:권|수준|\d+\s*%)/u.test(sentence)) {
         return firstReply === null ? null
-          : `기습당한 교전에서 첫 반격까지 평균 ${(firstReply / 1000).toFixed(2)}초가 걸렸습니다. 백분위는 확인할 수 없습니다.`;
+          : `기습당한 교전에서 반격 소요 시간은 평균 ${(firstReply / 1000).toFixed(2)}초입니다. 백분위는 확인할 수 없습니다.`;
       }
       // 비교 자료가 없는 지표의 상대 평가 문장만 뺀다. 같은 값의 다른 사실 문장은 남긴다.
       if (comparison.test(sentence)) {

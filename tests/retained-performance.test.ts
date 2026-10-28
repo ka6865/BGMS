@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { buildRetainedPerformanceRow, persistRetainedPerformance, readRetainedPerformance } from '../lib/pubg/retainedPerformance';
+import { firstReplyLatencyMs } from '../lib/pubg-analysis/firstReply';
 import { ANALYSIS_CALCULATION_VERSION, RESULT_VERSION } from '../lib/pubg-analysis/constants';
 const identity = {matchId:'retained-match',platform:'steam',playerId:'target'};
 function result() {
@@ -31,6 +32,22 @@ describe('retained match performance',()=>{
     expect(row.summary).not.toHaveProperty('mapData');
     expect(row.summary).not.toHaveProperty('timeline');
     expect(Buffer.byteLength(JSON.stringify(row.summary))).toBeLessThan(5000);
+  });
+  it('preserves only validated reply counters, without copying event or account data',()=>{
+    const full=result();
+    const firstReplyEvidence={version:1,eligibleCount:1,alreadyFiringCount:2,unknownCount:1,within3sCount:1,latencySumMs:903,noReplyCount:0};
+    const row=buildRetainedPerformanceRow({...full,duelStats:{...full.duelStats,firstReplyEvidence:{...firstReplyEvidence,target:'account.secret',events:[{attackId:123}]}}},identity)!;
+    expect((row.summary.duelStats as any).firstReplyEvidence).toEqual(firstReplyEvidence);
+    expect(firstReplyLatencyMs(row.summary)).toBe(903);
+    expect(JSON.stringify(row.summary)).not.toMatch(/account.secret|attackId/);
+    expect(row.benchmark).toEqual(full.benchmark);
+  });
+  it('does not manufacture reply evidence from legacy or malformed counters',()=>{
+    const full=result();
+    const legacy=buildRetainedPerformanceRow({...full,tradeStats:{reactionLatencyMs:3}},identity)!;
+    expect(firstReplyLatencyMs(legacy.summary)).toBeNull();
+    const bad=buildRetainedPerformanceRow({...full,duelStats:{...full.duelStats,firstReplyEvidence:{version:1,eligibleCount:0,within3sCount:1,latencySumMs:3}}},identity)!;
+    expect((bad.summary.duelStats as any).firstReplyEvidence).toBeUndefined();
   });
   it('rejects copied identity and malformed official basic values',()=>{
     expect(buildRetainedPerformanceRow({...result(),matchId:'copied'},identity)).toBeNull();

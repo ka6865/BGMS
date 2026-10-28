@@ -56,12 +56,12 @@ export function buildSummaryCardEvidence(stats: Record<string, unknown>, benchma
     }
   };
   add('damage_average', '평균 화력', stats.avgDamage, '', 'avgDamage');
-  add('initiative_rate', '주도권 성공률', stats.userInitiativeRate, '%', 'avgInitiativeRate', stats.totalInitiativeSuccess, stats.totalInitiativeAttempts);
+  add('initiative_rate', '선제 타격 성공률', stats.userInitiativeRate, '%', 'avgInitiativeRate', stats.totalInitiativeSuccess, stats.totalInitiativeAttempts);
   const duelCount = numberOrNull(stats.totalDuelWins) !== null && numberOrNull(stats.totalDuelLosses) !== null ? Number(stats.totalDuelWins) + Number(stats.totalDuelLosses) : null;
   add('duel_win_rate', '1:1 교전 승률', stats.avgDuelWinRate, '%', 'avgDuelWinRate', stats.totalDuelWins, duelCount);
   add('pressure_index', '평균 압박 지수', stats.avgPressureIndex, '', 'avgPressureIndex');
   // 3초 패널티 경기는 반응 시간이 아니므로 실측 평균과 실패율을 따로 비교한다.
-  add('reaction_latency', '첫 반격 명중 간격', stats.avgMeasuredReactionLatency, 's', 'avgFirstReplyLatency');
+  add('reaction_latency', '반격 소요 시간', stats.avgMeasuredReactionLatency, 's', 'avgFirstReplyLatency');
   add('counter_failure_rate', '3초 내 대응 실패율', stats.counterFailureRate, '%', 'avgCounterFailureRate', stats.counterFailureMatches, stats.counterObservedMatches);
   add('backup_latency', '백업 속도', stats.avgBackupLatency, 's', 'avgTradeLatency');
   add('trade_success_rate', '복수 성공률', rate(stats.totalTradeKills, stats.totalTeammateKnocks), '%', 'avgTradeRate', stats.totalTradeKills, stats.totalTeammateKnocks);

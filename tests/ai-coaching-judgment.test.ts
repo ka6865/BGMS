@@ -7,6 +7,11 @@ import { applySquadEvidencePolicy } from '../lib/pubg-analysis/squadAiEvidence';
 const withheld = '해당 평가는 행동 근거가 부족해 보류합니다.';
 
 describe('coaching judgment regression corpus', () => {
+  it('blocks unsupported judgments using the new reply-duration label', () => {
+    const result = JSON.parse(applyMatchAiEvidencePolicy(JSON.stringify({signatureSub:'반격 소요 시간이 빨라 뛰어난 반사신경을 보여줍니다.'}), {}));
+    expect(result.signatureSub).not.toContain('빨라');
+    expect(result.signatureSub).toMatch(/측정 불가|평가.*보류/);
+  });
   it.each([
     '소생 소요 시간을 줄여야 한다는 뜻은 아닙니다.',
     '소생 소요 시간을 단축할 필요는 없습니다.',

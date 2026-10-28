@@ -5993,7 +5993,7 @@ describe("AI cache route stabilization", () => {
     const visuals = text.split("\n").filter(Boolean).map(line=>JSON.parse(line)).find(line=>line.type==="visuals")?.data;
     expect(visuals).toMatchObject({reactionLatency:"측정 불가",reactionTier:"측정 불가"});
     expect(visuals.roleInfo.evidence.join(" ")).not.toMatch(/반응|반격/);
-    expect(capturedPrompt).toContain("대응 사격 속도(Reaction): 측정 불가");
+    expect(capturedPrompt).toContain("반격 소요 시간: 측정 불가");
     expect(capturedPrompt).toContain("1/1경기");
     expect(capturedPrompt).not.toContain("0.00s");
     expect(capturedPrompt).not.toContain("1.55s");

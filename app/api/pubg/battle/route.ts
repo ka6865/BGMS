@@ -22,7 +22,7 @@ const METRICS = [
   { key: "duel_win_rate",   label: "1:1 교전 승률",   icon: "⚔️", unit: "%",  higherIsBetter: true },
   { key: "initiative_rate", label: "선제 타격 성공률",   icon: "🚀", unit: "%",  higherIsBetter: true },
   { key: "reversal_rate",   label: "역전 성공률",     icon: "🔄", unit: "%",  higherIsBetter: true },
-  { key: "counter_latency_ms", label: "반응 속도",    icon: "⚡", unit: "s",  higherIsBetter: false },
+  { key: "counter_latency_ms", label: "반격 소요 시간",    icon: "⚡", unit: "s",  higherIsBetter: false },
   { key: "revive_rate",     label: "부활 성공률",     icon: "💚", unit: "%",  higherIsBetter: true },
   { key: "trade_rate",      label: "복수 성공률",     icon: "🔄", unit: "%",  higherIsBetter: true },
   { key: "solo_kill_rate",  label: "솔로 킬 비중",    icon: "🔥", unit: "%",  higherIsBetter: true },
@@ -33,7 +33,7 @@ type MetricKey = typeof METRICS[number]["key"];
 
 function calcAvg(data: any[], key: MetricKey): number | null {
   const vals = data
-    .map((d) => d[key])
+    .map((d) => d[key === "counter_latency_ms" ? "eligible_first_reply_latency_ms" : key])
     .filter((v) => v !== null && v !== undefined && v !== -1 && !isNaN(Number(v)));
   if (vals.length === 0) return null;
   const avg = vals.reduce((a, b) => a + Number(b), 0) / vals.length;
@@ -156,7 +156,7 @@ export async function GET(request: Request) {
   }
 
   const SELECT_COLS = [
-    "calculation_version", "damage", "kills", "initiative_rate", "reversal_rate", "counter_latency_ms", "revive_rate", "trade_rate",
+    "calculation_version", "damage", "kills", "initiative_rate", "reversal_rate", "eligible_first_reply_latency_ms", "revive_rate", "trade_rate",
     "duel_win_rate", "solo_kill_rate", "death_phase", "tier", "score", "game_mode", "created_at", "platform",
   ].join(", ");
 
