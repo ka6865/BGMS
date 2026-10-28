@@ -1,6 +1,7 @@
 import { describe,expect,it,vi } from 'vitest';
-import { evaluateCoachingExpansion } from '../scripts/validate_coaching_expansion';
+import { evaluateCoachingExpansion,evaluateBenchmarkSupplement } from '../scripts/validate_coaching_expansion';
 const subject=(account:string,target?:string)=>({account,name:account,target,queriedAt:'2026-10-28T00:00:00Z',matches:[],results:[]});
+const benchmarkSubject=(account:string,id:string,latency:number)=>({...subject(account),matches:[{match_id:id,player_id:account,account_id:account,platform:'steam',played_at:'2026-10-27T00:00:00Z',game_mode:'squad',match_type:'official'}],results:[{matchId:id,gameMode:'squad',matchType:'official',v:73,calculationVersion:5,populationEvidenceVersion:1,benchmark:{score:50,tier:'B'},stats:{playerId:account},duelStats:{firstReplyEvidence:{version:1,eligibleCount:1,alreadyFiringCount:0,unknownCount:0,within3sCount:1,latencySumMs:latency,noReplyCount:0}}}]});
 describe('isolated confirmation of coaching references',()=>{
  it('never fits confirmation accounts or named targets into the candidate',()=>{
   const dev=[subject('a','KangHeeSung_')],held=[subject('b')];
@@ -44,4 +45,34 @@ it('uses the app retention window at the frozen collection time before requiring
  expect(report.development).toMatchObject({completeProfiles:1,playerMatches:3});expect(report.excludedExpiredRequests).toEqual({development:1,confirmation:0});
  vi.useFakeTimers();vi.setSystemTime(new Date('2035-01-01T00:00:00Z'));
  try{expect(evaluateCoachingExpansion([s])).toEqual(report);}finally{vi.useRealTimers();}
+});
+
+describe('benchmark-only confirmation supplement',()=>{
+ it('combines qualified seconds without fitting roles or replacing the first confirmation',async()=>{
+  const calibration=await import('../lib/pubg-analysis/referenceCalibration'),fit=vi.spyOn(calibration,'fitReferenceCandidate');
+  const first=benchmarkSubject('first','1',1000),added=benchmarkSubject('added','2',500),snapshot=JSON.stringify(first);
+  added.results.push({...added.results[0],matchId:'stale'});
+  try{const report=evaluateBenchmarkSupplement([], [first], [added]);
+   expect(report).toMatchObject({activationAllowed:false,confirmationPlayerMatches:1,supplementPlayerMatches:1});
+   expect(report.supplementReplyPrecision[0]).toMatchObject({mean:.5,count:1,accounts:1});
+   expect(report.combinedReplyPrecision[0]).toMatchObject({mean:.75,count:2,accounts:2});
+   expect(fit).not.toHaveBeenCalled();expect(JSON.stringify(first)).toBe(snapshot);
+  }finally{fit.mockRestore();}
+ });
+ it('rejects prior accounts, prior games, shared supplement games and named targets',()=>{
+  const first=benchmarkSubject('first','1',1000),added=benchmarkSubject('added','2',500);
+  expect(()=>evaluateBenchmarkSupplement([], [first], [benchmarkSubject('first','2',500)])).toThrow(/overlapping/);
+  expect(()=>evaluateBenchmarkSupplement([], [first], [benchmarkSubject('added','1',500)])).toThrow(/prior game/);
+  expect(()=>evaluateBenchmarkSupplement([], [], [added,benchmarkSubject('other','2',500)])).toThrow(/one account per game/);
+  expect(()=>evaluateBenchmarkSupplement([], [], [{...added,target:'KangHeeSung_'}])).toThrow(/named targets/);
+  expect(()=>evaluateBenchmarkSupplement([], [], [{...added,results:[...added.results,...added.results]}])).toThrow(/duplicate benchmark result/);
+ });
+ it('retains frozen age filtering and rejects wrong result identities or versions',()=>{
+  const old=benchmarkSubject('old','old',500);old.matches[0].played_at='2026-10-01T00:00:00Z';
+  expect(evaluateBenchmarkSupplement([], [], [old])).toMatchObject({supplementPlayerMatches:0,excludedExpiredRequests:{confirmation:0,supplement:1},supplementReplyPrecision:[]});
+  const wrong=benchmarkSubject('new','new',500);wrong.results[0].stats.playerId='other';
+  expect(()=>evaluateBenchmarkSupplement([], [], [wrong])).toThrow(/result identity/);
+  const stale=benchmarkSubject('new','new',500);stale.results[0].calculationVersion=4;
+  expect(()=>evaluateBenchmarkSupplement([], [], [stale])).toThrow(/result identity/);
+ });
 });
