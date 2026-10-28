@@ -1,6 +1,6 @@
 # 전적 지표·칭호 1차 수정 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 선제 타격 성공률·반격 소요 시간의 표현과 관측 근거를 맞추고 칭호 기준 버전을 캐시에 연결한다.
 
@@ -32,9 +32,9 @@
 
 ### 실행 전 경로 대조
 
-- [ ] 설계의 호출 경로 표를 읽고 raw 점수·적격 관측·백업 시간을 구분한다. 필드명 전체 검색만으로 경로별 실행 검증까지 완료했다고 기록하지 않는다.
-- [ ] `calculation4StoredUpgrade`, `benchmarkRecoveryPlanner`/`benchmarkRecoverySnapshot`, match route recovery, `legacyTeamRetentionRecovery`를 끝까지 대조해 신규 관측의 손실·위조·덮어쓰기 여부를 확인한다. 영향이 있으면 기존 복구 잠금/CAS 계약을 유지한 최소 수정과 해당 도메인 테스트를 작업에 포함한다. 재분석된 유효 관측이 없는 과거 행은 null이어야 한다.
-- [ ] 복구·계산 승급 검증은 `tests/benchmark-recovery-planner.test.ts`, `tests/benchmark-recovery-canary.test.ts`, `tests/calculation-upgrade-write-lock.test.ts`, `tests/retained-performance.test.ts`를 연결한다. 이 사전 검증이 끝나기 전에는 전체 실사용 로직 파악·검증 완료라고 보고하지 않는다.
+- [x] 설계의 호출 경로 표를 읽고 raw 점수·적격 관측·백업 시간을 구분한다. 필드명 전체 검색만으로 경로별 실행 검증까지 완료했다고 기록하지 않는다.
+- [x] `calculation4StoredUpgrade`, `benchmarkRecoveryPlanner`/`benchmarkRecoverySnapshot`, match route recovery, `legacyTeamRetentionRecovery`를 끝까지 대조해 신규 관측의 손실·위조·덮어쓰기 여부를 확인한다. 영향이 있으면 기존 복구 잠금/CAS 계약을 유지한 최소 수정과 해당 도메인 테스트를 작업에 포함한다. 재분석된 유효 관측이 없는 과거 행은 null이어야 한다.
+- [x] 복구·계산 승급 검증은 `tests/benchmark-recovery-planner.test.ts`, `tests/benchmark-recovery-canary.test.ts`, `tests/calculation-upgrade-write-lock.test.ts`, `tests/retained-performance.test.ts`를 연결한다. 이 사전 검증이 끝나기 전에는 전체 실사용 로직 파악·검증 완료라고 보고하지 않는다.
 
 ### Task 1: 화면·AI의 지표 정의와 관측 reader 일치
 
@@ -52,12 +52,12 @@
 - Produces: 기존 metric ID `initiative_rate` / `reaction_latency`와 내부 API 필드명을 유지한 표시·prompt 계약. 새 공통 label registry는 만들지 않는다.
 - Battle: existing public comparison key `counter_latency_ms` stays; its numeric source becomes `eligible_first_reply_latency_ms`, converted ms→s once.
 
-- [ ] **Step 1: Add failing behavior tests.** Raw-only 3ms plus no evidence renders 측정 불가; valid evidence(sum=903,count=1) renders 0.90초; noReply-only renders 측정 불가; 0ms with valid evidence stays measured. Existing score output must be unchanged. Retained/missing payload tests verify evidence is validated, never inferred from raw.
-- [ ] **Step 2: Add label/reader regressions.** New initiative/reply labels pair with the matching current and legacy label aliases; backup latency stays separate. Battle with raw=3 and eligible=null is noncomparable, raw=3 and eligible=903 uses 0.90s. Existing zero fixture must carry valid eligible zero rather than receive a raw fallback.
-- [ ] **Step 3: Run these tests and confirm failures are the intended old behavior.** `npx vitest run tests/match-performance-evidence.test.ts tests/ai-summary-debate.test.ts tests/ai-summary-evidence.test.ts tests/calculation-basic-availability.test.ts tests/stats-page-shell.test.ts`.
-- [ ] **Step 4: Implement the minimum reader/type/copy changes.** Use the shared helper in the single-match component, preserve/validate evidence at the retained boundary, and read the new existing benchmark column for Battle. Match route already spreads duelStats; do not introduce a second calculation. Correct summary's “no reply samples → initiative-focused play” inference. 반격 표시에서만 유효한 0ms를 지원하고 다른 시간의 기존 미관측 판정은 유지한다. raw 점수 설명·아군 백업 용어를 일괄 치환하지 않는다.
-- [ ] **Step 5: Run the Task 1 tests plus `tests/ai-cache-routes.test.ts` and `tests/ai-coaching-judgment.test.ts`.** Include `tests/retained-performance.test.ts`; all run tests pass. Update user guide to explain qualified display versus unchanged raw scoring.
-- [ ] **Step 6: Commit only Task 1 files.** Suggested message: `fix: 전적 지표 명칭과 적격 반격 관측 표시 통일`.
+- [x] **Step 1: Add failing behavior tests.** Raw-only 3ms plus no evidence renders 측정 불가; valid evidence(sum=903,count=1) renders 0.90초; noReply-only renders 측정 불가; 0ms with valid evidence stays measured. Existing score output must be unchanged. Retained/missing payload tests verify evidence is validated, never inferred from raw.
+- [x] **Step 2: Add label/reader regressions.** New initiative/reply labels pair with the matching current and legacy label aliases; backup latency stays separate. Battle with raw=3 and eligible=null is noncomparable, raw=3 and eligible=903 uses 0.90s. Existing zero fixture must carry valid eligible zero rather than receive a raw fallback.
+- [x] **Step 3: Run these tests and confirm failures are the intended old behavior.** `npx vitest run tests/match-performance-evidence.test.ts tests/ai-summary-debate.test.ts tests/ai-summary-evidence.test.ts tests/calculation-basic-availability.test.ts tests/stats-page-shell.test.ts`.
+- [x] **Step 4: Implement the minimum reader/type/copy changes.** Use the shared helper in the single-match component, preserve/validate evidence at the retained boundary, and read the new existing benchmark column for Battle. Match route already spreads duelStats; do not introduce a second calculation. Correct summary's “no reply samples → initiative-focused play” inference. 반격 표시에서만 유효한 0ms를 지원하고 다른 시간의 기존 미관측 판정은 유지한다. raw 점수 설명·아군 백업 용어를 일괄 치환하지 않는다.
+- [x] **Step 5: Run the Task 1 tests plus `tests/ai-cache-routes.test.ts` and `tests/ai-coaching-judgment.test.ts`.** Include `tests/retained-performance.test.ts`; all run tests pass. Update user guide to explain qualified display versus unchanged raw scoring.
+- [x] **Step 6: Commit only Task 1 files.** Suggested message: `fix: 전적 지표 명칭과 적격 반격 관측 표시 통일`.
 
 ### Task 2: 칭호 근거 보호와 기준 버전 캐시 연결
 
@@ -70,12 +70,12 @@
 - Consumes: `classifyRole(stats: any, _bench: any, overallTier: string): RoleInfo`; `ROLE_REFERENCE_VERSION: number`.
 - Produces: same RoleInfo/API shape; `buildSummaryCacheHash` includes role reference version as an explicit hash part; same cache-table identity columns and lookup/write paths.
 
-- [ ] **Step 1: Add failing cache tests.** With identical match selection, prompts, visuals and mocked classifier output, reference version 1→2 changes the persisted `match_ids_hash`; same version/inputs yields the same hash and hits cache; legacy hash misses. Assert version participates in both lookup and save through the existing route mock harness.
-- [ ] **Step 2: Extend role regressions.** initiative-only and reaction-only pointMan remain null; no primary/secondary/combo pointMan when current summary withholds reaction; normal two-observation classifier cases remain supported. Assert the displayed metric labels and descriptions do not claim first firing or reflexes.
-- [ ] **Step 3: Run `npx vitest run tests/role-classifier-rules.test.ts tests/ai-cache-routes.test.ts tests/audit-pubg-ai-accuracy.test.ts` and verify intended failures.**
-- [ ] **Step 4: Implement explicit reference-version hashing and accurate copy.** Keep reference version 1 and all quantiles/thresholds intact. Wording proposal: pointMan title “교전의 선봉”, description “선제 타격 교전의 성공률과 피격 후 반격 기록이 두드러집니다.”; dropPredator description “경기 초반에 넣는 피해 비중이 높습니다.”; grenadier+brawler combo “폭발의 난투꾼”. These names are implementer proposals, not user-approved copy.
-- [ ] **Step 5: Set AI_CACHE_VERSION suffix v6 and AI_SUMMARY_CACHE_VERSION suffix v25 with the implementation date.** Preserve the current derived squad-version structure; update tests pinning versions. Do not change calculation, RESULT, telemetry or population versions.
-- [ ] **Step 6: Run Task 2 tests; commit.** Suggested message: `fix: 칭호 근거 설명과 기준 버전 캐시 연결`.
+- [x] **Step 1: Add failing cache tests.** With identical match selection, prompts, visuals and mocked classifier output, reference version 1→2 changes the persisted `match_ids_hash`; same version/inputs yields the same hash and hits cache; legacy hash misses. Assert version participates in both lookup and save through the existing route mock harness.
+- [x] **Step 2: Extend role regressions.** initiative-only and reaction-only pointMan remain null; no primary/secondary/combo pointMan when current summary withholds reaction; normal two-observation classifier cases remain supported. Assert the displayed metric labels and descriptions do not claim first firing or reflexes.
+- [x] **Step 3: Run `npx vitest run tests/role-classifier-rules.test.ts tests/ai-cache-routes.test.ts tests/audit-pubg-ai-accuracy.test.ts` and verify intended failures.**
+- [x] **Step 4: Implement explicit reference-version hashing and accurate copy.** Keep reference version 1 and all quantiles/thresholds intact. Wording proposal: pointMan title “교전의 선봉”, description “선제 타격 교전의 성공률과 피격 후 반격 기록이 두드러집니다.”; dropPredator description “경기 초반에 넣는 피해 비중이 높습니다.”; grenadier+brawler combo “폭발의 난투꾼”. These names are implementer proposals, not user-approved copy.
+- [x] **Step 5: Set AI_CACHE_VERSION suffix v6 and AI_SUMMARY_CACHE_VERSION suffix v25 with the implementation date.** Preserve the current derived squad-version structure; update tests pinning versions. Do not change calculation, RESULT, telemetry or population versions.
+- [x] **Step 6: Run Task 2 tests; commit.** Suggested message: `fix: 칭호 근거 설명과 기준 버전 캐시 연결`.
 
 ### Task 3: 통합·모바일 검증과 PR 검토 준비
 

@@ -921,6 +921,30 @@ describeBrowser("stats browser smoke", () => {
     }
   }, 30_000);
 
+  it.each([{width:375,height:667},{width:390,height:844},{width:430,height:932},{width:1440,height:900}])('phase1 glossary definitions at $width x $height', async (viewport) => {
+    await withStatsBrowserPage({browser,baseUrl,scenarioName:'ready',clock,viewport,
+      run:async ({page,dispatcher})=>{
+        const log=attachRuntimeLog(page);
+        await goToPlayer(page,dispatcher,baseUrl,'steam','FixturePlayer');
+        await waitForSummarySuccess(dispatcher,'FixturePlayer','steam');
+        await page.evaluate(()=>{
+          const button=[...document.querySelectorAll('button')].find(node=>node.textContent?.includes('BGMS AI 전술 분석 가이드'));
+          if(!button) throw new Error('Glossary button missing');
+          button.click();
+        });
+        await dispatcher.withFatal(page.waitForFunction(()=>document.body.innerText.includes('반사신경을 직접 측정한 값은 아닙니다.')));
+        const text=await page.evaluate(()=>document.body.innerText);
+        expect(text).toContain('반격 소요 시간');
+        expect(text).toContain('선제 타격 성공률');
+        expect(text).toContain('전체 교전에서 먼저 발사한 비율은 아닙니다.');
+        expect(text).not.toContain('순수 피지컬');
+        expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+        expect(log.pageErrors).toEqual([]);
+        await page.screenshot({path:screenshotPath('phase1-glossary',viewport),fullPage:true});
+        await recordScenarioEvidence('phase1-glossary',viewport,dispatcher,log);
+      }});
+  },90_000);
+
   it.each([
     { width: 375, height: 667 }, { width: 390, height: 844 },
     { width: 430, height: 932 }, { width: 1440, height: 900 },

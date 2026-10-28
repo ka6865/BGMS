@@ -64,14 +64,14 @@ describe('single match counter comparison', () => {
 
   it('reports the first reply time against the first reply benchmark, not the penalty average', () => {
     const { playerReportSummary } = buildMatchAiCoachingPrompt({ matchData: { ...base, tradeStats: { reactionLatencyMs: 90 }, duelStats: { reversalAttempts: 2, firstReplyWithin3sCount: 2, firstReplyLatencySumMs: 900, firstReplyEvidence:{version:1,eligibleCount:2,alreadyFiringCount:0,unknownCount:0,within3sCount:2,latencySumMs:900,noReplyCount:0} } } });
-    expect(playerReportSummary).toContain('0.45s (피격 전 사격을 구분한 교전 2회의 첫 피격→첫 반격 명중 간격 평균, Elite Avg: 0.6s)');
+    expect(playerReportSummary).toContain('0.45s (피격 전 사격을 구분한 교전 2회의 첫 피격부터 해당 상대에게 첫 명중까지의 평균, Elite Avg: 0.6s)');
     expect(playerReportSummary).not.toContain('0.09s');
     expect(playerReportSummary).not.toContain('2.1s');
   });
 
   it('does not show the within-fight hit interval as a reaction time for older results', () => {
     const { playerReportSummary } = buildMatchAiCoachingPrompt({ matchData: { ...base, tradeStats: { reactionLatencyMs: 90 }, duelStats: { reversalAttempts: 1 } } });
-    expect(playerReportSummary).toContain('대응 사격 속도(첫 반격): 측정 불가(피격 전 사격 검증 기록 없음)');
+    expect(playerReportSummary).toContain('반격 소요 시간: 측정 불가(피격 전 사격 검증 기록 없음)');
   });
 
   it('compares a penalty match with the benchmark failure rate', () => {

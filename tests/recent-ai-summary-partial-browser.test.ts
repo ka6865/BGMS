@@ -50,8 +50,12 @@ async function clickText(page: Page, text: string) {
     const bundle = await build({
       stdin: { contents: `import React from 'react';import {createRoot} from 'react-dom/client';
         import {RecentAISummary} from './components/stat/RecentAISummary';
+        import {MatchPerformancePanel} from './components/stat/matches/MatchPerformancePanel';
         const root=createRoot(document.getElementById('root'));let nickname='FixturePlayer';
-        const render=()=>root.render(<RecentAISummary nickname={nickname} platform="steam" matchIds={['match-1','match-2']} isMobile={innerWidth<768}/>);
+        const state=new URLSearchParams(location.search).get('panel');
+        const firstReplyEvidence=state==='raw'?undefined:{version:1,eligibleCount:1,alreadyFiringCount:0,unknownCount:0,within3sCount:state==='noReply'?0:1,latencySumMs:state==='noReply'?0:903,noReplyCount:state==='noReply'?1:0};
+        const matchData={stats:{timeSurvived:1200,winPlace:5,deathType:'alive'},gameMode:'squad',totalTeams:25,tradeStats:{reactionLatencyMs:3},duelStats:{firstReplyEvidence},benchmark:{score:80,tier:'A',breakdown:{combat:30,tactical:30,survival:20}}};
+        const render=()=>root.render(state?<MatchPerformancePanel matchData={matchData} isMobile={innerWidth<768} showTierDetails={true} onToggleTierDetails={()=>{}}/>:<RecentAISummary nickname={nickname} platform="steam" matchIds={['match-1','match-2']} isMobile={innerWidth<768}/>);
         window.resetSummary=()=>{nickname='OtherPlayer';render()};
         const realNow=Date.now;let offset=0;Date.now=()=>realNow()+offset;
         window.advanceSummaryTime=(seconds)=>{offset+=seconds*1000};render();`, resolveDir: process.cwd(), loader: "tsx" },
@@ -170,7 +174,7 @@ async function clickText(page: Page, text: string) {
       const text = await page.evaluate(() => document.body.innerText);
       expect(text).toContain("1:1 승률 상위 3% · 역전 승률 상위 12%");
       expect(text).toContain("Mk14 EBR 주력");
-      await page.click('[aria-label="첫 반격 측정 불가 사유"]');
+      await page.click('[aria-label="반격 소요 시간 측정 불가 사유"]');
       await page.waitForFunction(() => document.body.innerText.includes("측정 불가는 느린 반응이나 실력 부족을 뜻하지 않습니다."));
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
       if (process.env.SUMMARY_BROWSER_SCREENSHOT_DIR) {
@@ -182,4 +186,25 @@ async function clickText(page: Page, text: string) {
       await page.close();
     }
   }, 30_000);
+  it.each([{width:375,height:667},{width:390,height:844},{width:430,height:932},{width:1440,height:900}])('qualified single-match reply states at $width', async (viewport) => {
+    const page=await browser.newPage();
+    const errors:string[]=[];
+    page.on('pageerror',error=>errors.push(String(error)));
+    await page.setViewport(viewport);
+    try {
+      for (const state of ['raw','valid','noReply']) {
+        await page.goto(`${baseUrl}?panel=${state}`,{waitUntil:'networkidle0'});
+        await page.waitForFunction(()=>document.body.innerText.includes('반격 소요 시간'));
+        const text=await page.evaluate(()=>document.body.innerText);
+        expect(text).toContain(state==='valid'?'0.90초':'측정 불가');
+        expect(text).not.toContain('0.00초');
+        expect(text).not.toContain('선제공격률');
+        expect(text).toContain('선제 타격 성공률');
+        expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+        if(process.env.SUMMARY_BROWSER_SCREENSHOT_DIR) await page.screenshot({path:join(process.env.SUMMARY_BROWSER_SCREENSHOT_DIR,`reply-${state}-${viewport.width}.png`),fullPage:true});
+      }
+      expect(errors).toEqual([]);
+    } finally {await page.close();}
+  },30_000);
+
 });
