@@ -1,5 +1,5 @@
 import { WEAPON_NAMES, IGNORE_WEAPONS } from "./constants";
-import { referencePercentile, roleScorePercentile, type RoleMetricKey } from "./roleReference";
+import { referencePercentile, roleScorePercentile, type RoleMetricKey, type RoleReference } from "./roleReference";
 
 /**
  * PUBG 전술 직업군 분류기 (Role Classifier)
@@ -270,9 +270,10 @@ export function extractRoleMetrics(stats: any): Record<RoleMetricKey, number | n
   };
 }
 
-function metricPercentile(key: RoleMetricKey, value: number | null): number | null {
+function metricPercentile(key: RoleMetricKey, value: number | null, reference?: RoleReference): number | null {
   if (value === null) return null;
-  const percentile = referencePercentile(key, value);
+  const percentile = referencePercentile(key, value, reference);
+  if (percentile === null) return null;
   return LOWER_IS_BETTER.has(key) ? 100 - percentile : percentile;
 }
 
@@ -288,23 +289,35 @@ function comboTitle(first: RoleKey, second: RoleKey): string | null {
 /**
  * 역할 판정. bench는 기존 호출 계약을 위해 받지만 쓰지 않는다(기준은 roleReference).
  */
-export function classifyRole(stats: any, _bench: any, overallTier: string): RoleInfo {
+export function calculateRoleRawScores(stats: any, reference?: RoleReference) {
   const isSoloMode = String(stats?.modeDistribution?.main ?? "").includes("solo");
   const metrics = extractRoleMetrics(stats);
   const metricPercentiles = Object.fromEntries(
-    (Object.keys(metrics) as RoleMetricKey[]).map((key) => [key, metricPercentile(key, metrics[key])]),
+    (Object.keys(metrics) as RoleMetricKey[]).map((key) => [key, metricPercentile(key, metrics[key], reference)]),
   ) as Record<RoleMetricKey, number | null>;
 
-  const scores = { fieldCommander: null } as RoleScore;
+  const rawScores = {} as Record<Exclude<RoleKey, "fieldCommander">, number | null>;
   for (const [role, definition] of Object.entries(ROLE_DEFINITIONS) as Array<[Exclude<RoleKey, "fieldCommander">, RoleDefinition]>) {
     const observed = definition.metrics.map((key) => metricPercentiles[key]).filter((value): value is number => value !== null);
     // 선봉 복합 분포는 선제 성공률과 반격 시간이 함께 있을 때만 쓴다.
     const required = role === "pointMan" ? definition.metrics.length : Math.ceil(definition.metrics.length / 2);
     const enough = observed.length >= required;
     // 지표 백분위의 평균을 다시 역할 점수 분포의 백분위로 바꾼다.
-    scores[role] = (definition.teamOnly && isSoloMode) || !enough
+    rawScores[role] = (definition.teamOnly && isSoloMode) || !enough
       ? null
-      : Number(roleScorePercentile(role, observed.reduce((sum, value) => sum + value, 0) / observed.length).toFixed(1));
+      : observed.reduce((sum, value) => sum + value, 0) / observed.length;
+  }
+
+  return { metricPercentiles, rawScores };
+}
+
+export function classifyRole(stats: any, _bench: any, overallTier: string, reference?: RoleReference): RoleInfo {
+  const isSoloMode = String(stats?.modeDistribution?.main ?? "").includes("solo");
+  const { metricPercentiles, rawScores } = calculateRoleRawScores(stats, reference);
+  const scores = { fieldCommander: null } as RoleScore;
+  for (const [role, raw] of Object.entries(rawScores) as Array<[Exclude<RoleKey, "fieldCommander">, number | null]>) {
+    const score = raw === null ? null : roleScorePercentile(role, raw, reference);
+    scores[role] = score === null ? null : Number(score.toFixed(1));
   }
 
   const ranked = (Object.entries(scores) as Array<[RoleKey, number | null]>)
