@@ -89,11 +89,11 @@
 - Consumes: current summary NDJSON and comparison response contracts unchanged by Tasks 1–2.
 - Produces: test evidence, screenshots as local artifacts, a coherent #378 description and remaining 2차 work list.
 
-- [ ] **Step 1: Update existing browser assertions.** New labels, missing-observation tooltip, valid/unknown/no-reply states, legacy labels absent from active cards. Keep existing retry/partial-success assertions.
-- [ ] **Step 2: Run `RUN_SUMMARY_PARTIAL_BROWSER=true npx vitest run tests/recent-ai-summary-partial-browser.test.ts`.** Confirm actual runs at 375x667, 390x844, 430x932, 1440x900; no overflow, readable tooltip, no console errors.
-- [ ] **Step 3: Use the existing stats fixture harness for changed single-match panel and glossary.** `RUN_STATS_BROWSER_SMOKE=true npx vitest run tests/stats-browser-smoke.test.ts`; provide STATS_BASE_URL for a verified existing server. Do not delete a dev lock or start a conflicting server. Add viewport coverage to existing cases if any required size is missing.
-- [ ] **Step 4: Run `npm run verify:core`, `npm run verify:analysis`, `npm run test:unit`.** No errors or failed tests; report skips and pre-existing warnings. Reuse migration checks from #378 if schema is unchanged; do not claim they were newly rerun.
-- [ ] **Step 5: Update docs and review the complete diff.** Explain new names, raw/qualified distinction, temporary pointMan withholding, cache/reference versions, the existing migration prerequisite, and no new population calibration. Independent review after implementation.
+- [x] **Step 1: Update existing browser assertions.** New labels, missing-observation tooltip, valid/unknown/no-reply states, legacy labels absent from active cards. Keep existing retry/partial-success assertions.
+- [x] **Step 2: Run `RUN_SUMMARY_PARTIAL_BROWSER=true npx vitest run tests/recent-ai-summary-partial-browser.test.ts`.** Confirm actual runs at 375x667, 390x844, 430x932, 1440x900; no overflow, readable tooltip, no console errors.
+- [x] **Step 3: Use the existing stats fixture harness for changed single-match panel and glossary.** `RUN_STATS_BROWSER_SMOKE=true npx vitest run tests/stats-browser-smoke.test.ts`; provide STATS_BASE_URL for a verified existing server. Do not delete a dev lock or start a conflicting server. Add viewport coverage to existing cases if any required size is missing.
+- [x] **Step 4: Run `npm run verify:core`, `npm run verify:analysis`, `npm run test:unit`.** No errors or failed tests; report skips and pre-existing warnings. Reuse migration checks from #378 if schema is unchanged; do not claim they were newly rerun.
+- [x] **Step 5: Update docs and review the complete diff.** Explain new names, raw/qualified distinction, temporary pointMan withholding, cache/reference versions, the existing migration prerequisite, and no new population calibration. Independent review after implementation.
 - [ ] **Step 6: Commit docs/browser changes, push and update PR #378 title/body around final behavior.** Recheck #377/#378 status and overlapping files before integration; do not automatically merge, deploy or apply the migration. Report CI results or pending status accurately.
 
 ## 자체 검토
@@ -101,4 +101,3 @@
 - 목적·관측·칭호·캐시·모바일·운영 조건을 위 3개 작업에 연결했다.
 - 새 발사 지표·분포 학습·스키마 추가·의존성 추가는 포함하지 않는다.
 - 1차에서 기존 분포의 오래된 기준까지 해결하지는 않는다. pointMan 보류를 유지하고 2차로 넘긴다.
-
