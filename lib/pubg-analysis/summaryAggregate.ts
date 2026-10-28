@@ -155,7 +155,7 @@ export function aggregateMatches(matches: any[]) {
   let minDistCountFinal = 0, heightDiffCountFinal = 0, teammateCountFinal = 0;
   let rankedCount = 0, normalCount = 0;
   const weaponMatchCount: Record<string, number> = {};
-  
+
   // [V58.4] 차량 고정밀 교전 지표 집계용 변수
   let totalLeadShotKills = 0, totalLeadShotKnocks = 0, totalRidingShotKills = 0, totalRidingShotKnocks = 0;
   let totalRoadKills = 0, totalRoadKnocks = 0;

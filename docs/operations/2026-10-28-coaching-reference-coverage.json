@@ -254,6 +254,6 @@
   ],
   "activationAllowed": false,
   "limitations": ["capped BGMS stored/search frame","source-retention bias","complete-window exclusion bias","coverage guards do not prove role accuracy","no production writes or activation"],
-  "pipelineCodeSha256": "462af10889a878f5013f34eea569ce9c98270c1454d983d953f20fa9ef4144fe",
+  "pipelineCodeSha256": "4b8be29a0ee53d6b578af0073dcbd30abf811e971235e24095b73d686c4b0483",
   "collection": {"recomputed":1357,"canonicalUsed":0,"localSources":126,"downloaded":1062,"sourceMissing":2087,"sourceInvalid":0,"decodedBytes":13534873348}
 }
