@@ -95,6 +95,37 @@ export function buildBenchmarkCoverage(matches: any[]) {
   }));
 }
 
+/** 개인-경기 평균의 계정 cluster bootstrap. 같은 계정의 여러 경기는 함께 재표집한다. */
+export function buildReplyPrecision(matches: any[], seed: string) {
+  const groups=new Map<string,{scope:string;values:Map<string,number[]>;matches:Set<string>}>();
+  const seen=new Set<string>();
+  for(const m of matches){
+    const value=firstReplyLatencyMs(m),identity=`${m.accountKey}|${m.matchId}`;
+    if(value===null||seen.has(identity))continue;
+    const cells=buildBenchmarkCoverage([m]);if(!cells.length)continue;seen.add(identity);
+    for(const cell of cells){
+      if(!groups.has(cell.cohort))groups.set(cell.cohort,{scope:cell.scope,values:new Map(),matches:new Set()});
+      const group=groups.get(cell.cohort)!;group.matches.add(m.matchId);
+      if(!group.values.has(m.accountKey))group.values.set(m.accountKey,[]);
+      group.values.get(m.accountKey)!.push(value/1000);
+    }
+  }
+  return [...groups].sort(([a],[b])=>a.localeCompare(b)).map(([cohort,group])=>{
+    const accounts=[...group.values.values()].map(values=>({n:values.length,sum:values.reduce((s,v)=>s+v,0)}));
+    const count=accounts.reduce((s,a)=>s+a.n,0),mean=accounts.reduce((s,a)=>s+a.sum,0)/count;
+    let state=hash(`${seed}|${cohort}`).readUInt32BE(0)||1;
+    const means=Array.from({length:1000},()=>{
+      let n=0,sum=0;for(let i=0;i<accounts.length;i++){
+        state^=state<<13;state^=state>>>17;state^=state<<5;
+        const a=accounts[Math.floor((state>>>0)/4294967296*accounts.length)];n+=a.n;sum+=a.sum;
+      }return sum/n;
+    }).sort((a,b)=>a-b);
+    const lower95=quantile(means,.025),upper95=quantile(means,.975),halfWidth=(upper95-lower95)/2;
+    return {cohort,scope:group.scope,count,accounts:accounts.length,uniqueMatches:group.matches.size,mean,lower95,upper95,halfWidth,
+      precisionEligible:count>=MIN_COMPARISON_SAMPLE_COUNT&&accounts.length>=20&&halfWidth<=.15};
+  });
+}
+
 function referenceFor(train: CalibrationProfile[], holdout: CalibrationProfile[]) {
   const reference: RoleReference = {metrics:{},roles:{}};
   const trainingQuantiles: RoleReference = {metrics:{},roles:{}};
@@ -127,13 +158,13 @@ function referenceFor(train: CalibrationProfile[], holdout: CalibrationProfile[]
   return {reference,trainingQuantiles,coverage,roleCoverage};
 }
 
-function bootstrap(train: CalibrationProfile[], held: CalibrationProfile[], reference: RoleReference, seed:string) {
+export function bootstrapReferenceStability(train: CalibrationProfile[], held: CalibrationProfile[], reference: RoleReference, seed:string) {
   if (!Object.keys(reference.metrics).length || !held.length) return {runs:0,titleAgreement:null,metricIntervals:{}};
   let state=hash(seed).readUInt32BE(0)||1;
   const random=()=>{state^=state<<13;state^=state>>>17;state^=state<<5;return (state>>>0)/4294967296;};
   const intervals:Record<string,number[][]>={};
   const expected=held.map(p=>classifyRole(p.stats,null,p.tier,reference).title);
-  let same=0, comparisons=0;
+  let same=0, comparisons=0;const accountSame=held.map(()=>0);
   for(let run=0;run<BOOTSTRAP_RUNS;run++){
     const sample=Array.from({length:train.length},()=>train[Math.floor(random()*train.length)]);
     const ref:RoleReference={metrics:{},roles:{}};
@@ -146,9 +177,10 @@ function bootstrap(train: CalibrationProfile[], held: CalibrationProfile[], refe
     for(const role of Object.keys(reference.roles) as RoleScoreKey[]){
       const qs=quantiles(raw.map(m=>m[role]).filter((v):v is number=>v!==null));if(qs)ref.roles[role]=qs;
     }
-    held.forEach((p,i)=>{comparisons++;if(classifyRole(p.stats,null,p.tier,ref).title===expected[i])same++;});
+    held.forEach((p,i)=>{comparisons++;if(classifyRole(p.stats,null,p.tier,ref).title===expected[i]){same++;accountSame[i]++;}});
   }
   return {runs:BOOTSTRAP_RUNS,titleAgreement:comparisons?same/comparisons:null,
+    accountAgreement:held.map((p,i)=>({account:calibrationAccountKey(p.accountKey),agreement:accountSame[i]/BOOTSTRAP_RUNS})),
     metricIntervals:Object.fromEntries(Object.entries(intervals).map(([key,rows])=>[key,{
       lower95:ROLE_REFERENCE_PERCENTILES.map((_,i)=>quantile(rows.map(r=>r[i]).sort((a,b)=>a-b),.025)),
       upper95:ROLE_REFERENCE_PERCENTILES.map((_,i)=>quantile(rows.map(r=>r[i]).sort((a,b)=>a-b),.975)),
@@ -160,7 +192,7 @@ export function fitReferenceCandidate(profiles: CalibrationProfile[], seed:strin
   const cohorts=[...new Set(profiles.map(p=>p.cohort))].sort().map(cohort=>{
     const group=profiles.filter(p=>p.cohort===cohort),train=group.filter(p=>p.partition==='train'),held=group.filter(p=>p.partition==='holdout');
     const fit=referenceFor(train,held);
-    const stability=bootstrap(train,held,fit.reference,`${seed}|${cohort}`);
+    const stability=bootstrapReferenceStability(train,held,fit.reference,`${seed}|${cohort}`);
     const distribution:Record<string,Record<string,number>>={before:{},candidate:{}};
     const movements=group.filter(p=>p.partition!=='train').map(p=>{
       const before=classifyRole({...p.stats,avgReactionLatency:'측정 불가'},null,p.tier);

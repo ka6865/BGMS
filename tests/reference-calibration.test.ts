@@ -115,3 +115,38 @@ describe('offline coaching reference calibration',()=>{
  });
 
 });
+
+describe('independent calibration precision',()=>{
+ it('bootstraps reply time by account and keeps exact tiers separate from families',async()=>{
+  const {buildReplyPrecision}=await import('../lib/pubg-analysis/referenceCalibration');
+  const rows=Array.from({length:40},(_,i)=>({...match(String(i),50,{stats:{playerId:'a'+i},benchmark:{score:50,tier:i%2?'A+':'A-'}}),accountKey:'a'+i,
+   duelStats:{firstReplyEvidence:{version:1,eligibleCount:1,alreadyFiringCount:0,unknownCount:0,within3sCount:1,latencySumMs:1000,noReplyCount:0}}}));
+  const precision=buildReplyPrecision(rows,'fixed');
+  const family=precision.find((r:any)=>r.cohort.endsWith('family:A'));
+  expect(family).toMatchObject({count:40,accounts:40,mean:1,lower95:1,upper95:1,halfWidth:0,precisionEligible:true});
+  expect(precision.filter((r:any)=>r.scope==='exact').every((r:any)=>r.precisionEligible===false)).toBe(true);
+  expect(buildReplyPrecision(rows,'fixed')).toEqual(precision);
+ });
+ it('does not turn raw-only reply observations or one heavily repeated account into independent evidence',async()=>{
+  const {buildReplyPrecision}=await import('../lib/pubg-analysis/referenceCalibration');
+  expect(buildReplyPrecision([{...match('1'),accountKey:'a',tradeStats:{firstReplyLatencyMs:1}}],'fixed')).toEqual([]);
+  const rows=Array.from({length:30},(_,i)=>({...match(String(i)),accountKey:'a',duelStats:{firstReplyEvidence:{version:1,eligibleCount:1,alreadyFiringCount:0,unknownCount:0,within3sCount:1,latencySumMs:0,noReplyCount:0}}}));
+  expect(buildReplyPrecision(rows,'fixed')[0]).toMatchObject({count:30,accounts:1,mean:0,precisionEligible:false});
+ });
+});
+
+it('excludes stale canonical rows outside the current frozen match window',async()=>{
+ const fs=await import('node:fs'),os=await import('node:os'),path=await import('node:path'),zlib=await import('node:zlib');
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'bgms-canonical-window-'));
+ const identity=await import('../lib/pubg-analysis/cacheIdentity');const validate=vi.spyOn(identity,'getValidFullResultForMatch').mockImplementation((row:any)=>row.data);
+ try{
+  const id='00000000-0000-4000-8000-000000000001',stale='00000000-0000-4000-8000-000000000002',account='account.fixture';
+  const row={match_id:id,player_id:'fixture',account_id:account,platform:'steam',played_at:'2026-10-27T00:00:00Z',game_mode:'squad',match_type:'official'};
+  fs.writeFileSync(path.join(dir,'pool.json'),JSON.stringify({rows:[row]}));fs.writeFileSync(path.join(dir,'private-registry.json'),'[]');
+  fs.writeFileSync(path.join(dir,`history-${calibrationAccountKey(account)}.json`),JSON.stringify([row]));
+  fs.writeFileSync(path.join(dir,`canonical-${calibrationAccountKey(account)}.json.gz`),zlib.gzipSync(JSON.stringify([id,stale].map(match_id=>({match_id,data:match(match_id,50,{stats:{playerId:account},initiative_rate:80})})))));
+  const{runCalibration}=await import('../scripts/calibrate_coaching_reference');await runCalibration(['--pool',path.join(dir,'pool.json'),'--output',dir,'--offline']);
+  const report=JSON.parse(fs.readFileSync(path.join(dir,'report.json'),'utf8'));
+  expect(report.canonicalUsed).toBe(1);expect(report.analysedPlayerMatches).toBe(1);expect(validate).toHaveBeenCalledTimes(1);
+ }finally{validate.mockRestore();fs.rmSync(dir,{recursive:true,force:true});}
+});

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {gzipSync,gunzipSync} from 'node:zlib';
+import * as zlib from 'node:zlib';
 import {createHash} from 'node:crypto';
 import dotenv from 'dotenv';
 import {createClient} from '@supabase/supabase-js';
@@ -11,14 +11,47 @@ import {downloadFromR2} from '../lib/pubg-analysis/r2Service';
 import {buildSharedTelemetrySourceKey,parseSharedTelemetrySource} from '../lib/pubg-analysis/sharedTelemetrySourceContract';
 import {isAiSummaryEligibleMatch} from '../lib/pubg-analysis/matchEligibility';
 import {getValidFullResultForMatch} from '../lib/pubg-analysis/cacheIdentity';
+import {isCanonicalMatchId} from '../lib/pubg-analysis/telemetryIdentity';
 import {RESULT_VERSION,ANALYSIS_CALCULATION_VERSION} from '../lib/pubg-analysis/constants';
 import {CALIBRATION_SEED,calibrationAccountKey,calibrationPartition,buildCalibrationProfile,fitReferenceCandidate,buildBenchmarkCoverage,type CalibrationProfile} from '../lib/pubg-analysis/referenceCalibration';
 
+const {gzipSync,gunzipSync}=zlib;
 const modes=['solo','solo-fpp','duo','duo-fpp','squad','squad-fpp'];
 type MatchRow={match_id:string;player_id:string;account_id:string;platform:string;played_at:string;game_mode:string;match_type:string};
-type Subject={account:string;name:string;target?:string;matches:MatchRow[];results:any[];historyError?:string};
+export type CalibrationSubject={account:string;name:string;target?:string;matches:MatchRow[];results:any[];historyError?:string};
 const digest=(text:string)=>createHash('sha256').update(text).digest('hex');
 const write=(file:string,value:unknown)=>fs.writeFileSync(file,JSON.stringify(value,null,2)+'\n',{mode:0o600});
+
+export function readLocalCalibrationSource(directory:string, id:string):string|null {
+  if(!isCanonicalMatchId(id))throw new Error('invalid_match_id');
+  for(const extension of ['.json.gz','.json.zst','.json']){
+    const file=path.join(directory,id+extension);if(!fs.existsSync(file))continue;
+    const bytes=fs.readFileSync(file);
+    if(extension==='.json.gz')return gunzipSync(bytes).toString('utf8');
+    if(extension==='.json.zst'){
+      const decompress=Reflect.get(zlib,'zstdDecompressSync');
+      if(typeof decompress!=='function')throw new Error('zstd_not_supported_by_runtime');
+      return decompress(bytes).toString('utf8');
+    }
+    return bytes.toString('utf8');
+  }
+  return null;
+}
+
+export function calculateCalibrationResult(source: NonNullable<ReturnType<typeof parseSharedTelemetrySource>>, account:string, playerName:string) {
+  const id=source.matchId;
+  const participants=source.matchData.included.filter((x:any)=>x.type==='participant');
+  const rosters=source.matchData.included.filter((x:any)=>x.type==='roster');
+  const me=participants.find((p:any)=>p.attributes.stats.playerId===account);
+  const roster=me&&rosters.find((r:any)=>r.relationships.participants.data.some((p:any)=>p.id===me.id));
+  if(!me||!roster)throw new Error('source_account_missing');
+  const members=participants.filter((p:any)=>roster.relationships.participants.data.some((x:any)=>x.id===p.id));
+  const engine=new AnalysisEngine(me.attributes.stats.name,account,new Set<string>(members.map((p:any)=>p.attributes.stats.name.toLowerCase())),new Set<string>(members.map((p:any)=>p.attributes.stats.playerId)),new Set(),new Set(),roster.id,'lite');
+  const result=engine.run(structuredClone(source.events),{id,...source.matchData.data.attributes},rosters,participants,me.attributes.stats,members.map((p:any)=>p.attributes.stats),{});
+  if(Reflect.get(result.stats,'playerId')!==account||result.matchId!==id)throw new Error('analysis_identity_mismatch');
+  const compact={...result,platform:'steam',player_id:playerName,timeline:result.timeline?.filter((e:any)=>['KILL','KNOCK','DOWNED','TEAM_KNOCK'].includes(e.type)).map((e:any)=>({type:e.type,weapon:e.weapon})),tacticalTimeline:[],mapData:undefined,matchReport:undefined};
+  return compact;
+}
 
 export async function runCalibration(args:string[]) {
   const options:Record<string,string>={};let offline=false;
@@ -52,7 +85,7 @@ export async function runCalibration(args:string[]) {
   const targetIds=new Set(targets.map(([id])=>id));
   const candidates=[...groups].filter(([id,rows])=>!targetIds.has(id)&&rows.some(r=>['squad','squad-fpp'].includes(r.game_mode)))
     .sort(([a],[b])=>digest(CALIBRATION_SEED+a).localeCompare(digest(CALIBRATION_SEED+b))).slice(0,400);
-  const subjects:Subject[]=[...targets,...candidates].map(([account,rows])=>({account,name:rows[0].player_id,
+  const subjects:CalibrationSubject[]=[...targets,...candidates].map(([account,rows])=>({account,name:rows[0].player_id,
     target:targetNames.get(rows.find(r=>targetNames.has(r.player_id.toLowerCase()))?.player_id.toLowerCase()??''),matches:[],results:[]}));
   const errorCounts:Record<string,number>={};const error=(reason:string)=>{errorCounts[reason]=(errorCounts[reason]??0)+1;};
   for(let i=0;i<subjects.length;i++){
@@ -67,7 +100,7 @@ export async function runCalibration(args:string[]) {
     s.matches=data??[];write(file,s.matches);
     if(i%50===0)console.log(JSON.stringify({stage:'history',done:i,total:subjects.length}));
   }
-  const jobs=new Map<string,Array<{subject:Subject;row:MatchRow}>>();
+  const jobs=new Map<string,Array<{subject:CalibrationSubject;row:MatchRow}>>();
   for(const subject of subjects)for(const row of subject.matches){
     if(!jobs.has(row.match_id))jobs.set(row.match_id,[]);jobs.get(row.match_id)!.push({subject,row});
   }
@@ -79,9 +112,8 @@ export async function runCalibration(args:string[]) {
       try{
         let text:string|null=null;
         const own=path.join(out,'sources',id+'.json.gz');
-        const reuse=options['--reuse-source-dir']?path.join(options['--reuse-source-dir'],id+'.json'):'';
-        if(fs.existsSync(own)){text=gunzipSync(fs.readFileSync(own)).toString('utf8');localSources++;}
-        else if(reuse&&fs.existsSync(reuse)){text=fs.readFileSync(reuse,'utf8');localSources++;}
+        text=readLocalCalibrationSource(path.join(out,'sources'),id)??(options['--reuse-source-dir']?readLocalCalibrationSource(options['--reuse-source-dir'],id):null);
+        if(text)localSources++;
         else if(!offline){
           text=await downloadFromR2(buildSharedTelemetrySourceKey(id,'steam'));
           if(text){downloaded++;decodedBytes+=Buffer.byteLength(text);fs.writeFileSync(own,gzipSync(text),{mode:0o600});}
@@ -90,26 +122,17 @@ export async function runCalibration(args:string[]) {
         const source=parseSharedTelemetrySource(JSON.parse(text),id,'steam');
         if(!source){sourceInvalid++;error('invalid_source_contract');continue;}
         if(!isAiSummaryEligibleMatch(source.matchData.data.attributes)){error('source_population_excluded');continue;}
-        const participants=source.matchData.included.filter((x:any)=>x.type==='participant');
-        const rosters=source.matchData.included.filter((x:any)=>x.type==='roster');
         for(const {subject,row} of owners){
           const analysisFile=path.join(out,'analyses',`${id}.${calibrationAccountKey(subject.account)}.json.gz`);
           if(fs.existsSync(analysisFile)){
             const cached=JSON.parse(gunzipSync(fs.readFileSync(analysisFile)).toString('utf8'));
             if(cached.checksum===source.checksum&&cached.account===subject.account&&cached.result?.calculationVersion===ANALYSIS_CALCULATION_VERSION&&cached.result?.v===RESULT_VERSION&&cached.result?.stats?.playerId===subject.account&&cached.result?.matchId===id){subject.results.push(cached.result);continue;}
           }
-          const me=participants.find((p:any)=>p.attributes.stats.playerId===subject.account);
-          const roster=me&&rosters.find((r:any)=>r.relationships.participants.data.some((p:any)=>p.id===me.id));
-          if(!me||!roster){error('source_account_missing');continue;}
-          const members=participants.filter((p:any)=>roster.relationships.participants.data.some((x:any)=>x.id===p.id));
-          const engine=new AnalysisEngine(me.attributes.stats.name,subject.account,new Set<string>(members.map((p:any)=>p.attributes.stats.name.toLowerCase())),new Set<string>(members.map((p:any)=>p.attributes.stats.playerId)),new Set(),new Set(),roster.id,'lite');
-          const result=engine.run(structuredClone(source.events),{id,...source.matchData.data.attributes},rosters,participants,me.attributes.stats,members.map((p:any)=>p.attributes.stats),{});
-          if(Reflect.get(result.stats,'playerId')!==subject.account||result.matchId!==row.match_id)throw new Error('analysis_identity_mismatch');
-          const compact={...result,platform:'steam',player_id:row.player_id,timeline:result.timeline?.filter((e:any)=>['KILL','KNOCK','DOWNED','TEAM_KNOCK'].includes(e.type)).map((e:any)=>({type:e.type,weapon:e.weapon})),tacticalTimeline:[],mapData:undefined};
+          const compact=calculateCalibrationResult(source,subject.account,row.player_id);
           subject.results.push(compact);recomputed++;
           fs.writeFileSync(analysisFile,gzipSync(JSON.stringify({checksum:source.checksum,account:subject.account,result:compact})),{mode:0o600});
         }
-      }catch(e){error(e instanceof Error&&e.message==='analysis_identity_mismatch'?e.message:'source_or_analysis_error');}
+      }catch(e){error(e instanceof Error&&['analysis_identity_mismatch','source_account_missing'].includes(e.message)?e.message:'source_or_analysis_error');}
       finally{done++;if(done%25===0)console.log(JSON.stringify({stage:'analysis',done,total:entries.length,recomputed,localSources,downloaded,sourceMissing,sourceInvalid,decodedMB:Math.round(decodedBytes/1e6)}));}
     }
   }
@@ -129,7 +152,9 @@ export async function runCalibration(args:string[]) {
       if(e){error('canonical_query_'+e.code);continue;}rows=data??[];
       fs.writeFileSync(cachedFile,gzipSync(JSON.stringify(rows)),{mode:0o600});
     }
+    const missingIds=new Set(missing.map(r=>r.match_id));
     for(const row of rows){
+      if(!missingIds.has(row.match_id))continue;
       const result=getValidFullResultForMatch(row,{matchId:row.match_id,playerId:s.name,platform:'steam',minResultVersion:RESULT_VERSION,
         requireCurrentCalculation:true,requireExactResultVersion:true,requirePopulationEvidence:true});
       if(result&&(result.stats as any)?.playerId===s.account&&!known.has(row.match_id)){
