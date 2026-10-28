@@ -94,7 +94,7 @@
 - [x] **Step 3: Use the existing stats fixture harness for changed single-match panel and glossary.** `RUN_STATS_BROWSER_SMOKE=true npx vitest run tests/stats-browser-smoke.test.ts`; provide STATS_BASE_URL for a verified existing server. Do not delete a dev lock or start a conflicting server. Add viewport coverage to existing cases if any required size is missing.
 - [x] **Step 4: Run `npm run verify:core`, `npm run verify:analysis`, `npm run test:unit`.** No errors or failed tests; report skips and pre-existing warnings. Reuse migration checks from #378 if schema is unchanged; do not claim they were newly rerun.
 - [x] **Step 5: Update docs and review the complete diff.** Explain new names, raw/qualified distinction, temporary pointMan withholding, cache/reference versions, the existing migration prerequisite, and no new population calibration. Independent review after implementation.
-- [ ] **Step 6: Commit docs/browser changes, push and update PR #378 title/body around final behavior.** Recheck #377/#378 status and overlapping files before integration; do not automatically merge, deploy or apply the migration. Report CI results or pending status accurately.
+- [x] **Step 6: Commit docs/browser changes, push and update PR #378 title/body around final behavior.** Recheck #377/#378 status and overlapping files before integration; do not automatically merge, deploy or apply the migration. Report CI results or pending status accurately.
 
 ## 자체 검토
 
