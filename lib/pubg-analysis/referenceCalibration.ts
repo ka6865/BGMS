@@ -6,6 +6,7 @@ import { extractRoleMetrics, calculateRoleRawScores, classifyRole } from './role
 import { ROLE_REFERENCE_PERCENTILES, ROLE_REFERENCE_QUANTILES, type RoleMetricKey, type RoleReference, type RoleScoreKey } from './roleReference';
 import { firstReplyLatencyMs, firstReplyFailureRate } from './firstReply';
 import { isAiSummaryEligibleMatch } from './matchEligibility';
+import { isCanonicalBenchmarkTier, getBenchmarkTierFamily } from './benchmarkLookup';
 import { MIN_COMPARISON_SAMPLE_COUNT } from './benchmarkAdapter';
 
 export const CALIBRATION_SEED = 'bgms-coaching-reference-2026-10-28';
@@ -41,13 +42,13 @@ export function buildCalibrationProfile(input: CalibrationInput, seed: string): 
   const cohorts = new Set(best.map(m => `steam|${String(m.gameMode).trim().toLowerCase()}|${isCompetitiveMatch(m) ? 'competitive' : 'official'}`));
   if (cohorts.size !== 1) return { reason: 'mixed_cohort' };
   const cohort = [...cohorts][0];
-  if (!/^steam\|squad(?:-fpp)?\|(?:official|competitive)$/.test(cohort)) return { reason: 'outside_squad_scope' };
+  if (!/^steam\|(?:duo|squad)(?:-fpp)?\|(?:official|competitive)$/.test(cohort)) return { reason: 'outside_squad_scope' };
   const stats = aggregateMatches(best);
   return { profile: {
     accountKey: input.accountKey, ...(input.target ? { target: input.target } : {}), cohort,
     partition: calibrationPartition(input.accountKey, seed, Boolean(input.target)),
     selectedMatchIds: best.map(m => m.matchId), tier: best[0].benchmark.tier ?? 'B',
-    stats: { ...stats, avgReactionLatency: stats.avgMeasuredReactionLatency, modeDistribution: { main: 'squad' } },
+    stats: { ...stats, avgReactionLatency: stats.avgMeasuredReactionLatency, modeDistribution: { main: cohort.split('|')[1].includes('duo') ? 'duo' : 'squad' } },
   } };
 }
 
@@ -64,20 +65,24 @@ export function buildBenchmarkCoverage(matches: any[]) {
   const buckets = new Map<string, Array<{ account: string; values: Record<string, number | null> }>>();
   const seen = new Set<string>();
   for (const m of matches) {
-    if (!current(m) || m.isValidBenchmark === false || m.stats?.playerId !== m.accountKey) continue;
+    if (!current(m) || m.isValidBenchmark === false || m.stats?.playerId !== m.accountKey || !isCanonicalBenchmarkTier(m.benchmark.tier)) continue;
     const identity = `${m.accountKey}|${m.matchId}`;
     if (seen.has(identity)) continue;
     seen.add(identity);
     const mode = String(m.gameMode).trim().toLowerCase();
-    if (!['squad','squad-fpp'].includes(mode)) continue;
+    if (!['duo','duo-fpp','squad','squad-fpp'].includes(mode)) continue;
     const key = `steam|${mode}|${isCompetitiveMatch(m) ? 'competitive' : 'official'}|${m.benchmark.tier}`;
     const reply = firstReplyLatencyMs(m);
     const values = { avgInitiativeRate: finite(m.initiative_rate) && m.initiative_rate <= 100 ? m.initiative_rate : null,
       avgFirstReplyLatency: reply === null ? null : reply / 1000, avgCounterFailureRate: firstReplyFailureRate(m) };
-    if (!buckets.has(key)) buckets.set(key,[]);
-    buckets.get(key)!.push({account:m.accountKey,values});
+    const family=getBenchmarkTierFamily(m.benchmark.tier);
+    const familyKey=key.slice(0,key.lastIndexOf('|')+1)+'family:'+m.benchmark.tier.replace(/[+-]$/,'');
+    for(const bucketKey of [key,...(family.length?[familyKey]:[])]){
+      if(!buckets.has(bucketKey))buckets.set(bucketKey,[]);
+      buckets.get(bucketKey)!.push({account:m.accountKey,values});
+    }
   }
-  return [...buckets].sort(([a],[b])=>a.localeCompare(b)).map(([cohort, rows])=>({cohort, playerMatches:rows.length,
+  return [...buckets].sort(([a],[b])=>a.localeCompare(b)).map(([cohort, rows])=>({cohort, scope:cohort.includes('|family:')?'tier_family':'exact', playerMatches:rows.length,
     accounts:new Set(rows.map(r=>r.account)).size,
     metrics:Object.fromEntries(['avgInitiativeRate','avgFirstReplyLatency','avgCounterFailureRate'].map(metric=>{
       const observed=rows.filter(r=>r.values[metric]!==null);

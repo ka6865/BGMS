@@ -1,0 +1,3267 @@
+{
+  "schemaVersion": 1,
+  "calculationVersion": 5,
+  "resultVersion": 73,
+  "selection": "recent-valid-10-v1/best5",
+  "seed": "bgms-coaching-reference-2026-10-28",
+  "minTrainAccounts": 50,
+  "minHoldoutAccounts": 20,
+  "activationAllowed": false,
+  "population": "BGMS stored/search sample; not all PUBG players",
+  "cohorts": [
+    {
+      "cohort": "steam|duo|competitive",
+      "trainAccounts": 1,
+      "holdoutAccounts": 0,
+      "targetAccounts": 2,
+      "status": "insufficient_samples",
+      "reference": {
+        "metrics": {},
+        "roles": {}
+      },
+      "trainingQuantiles": {
+        "metrics": {
+          "initiative": [
+            76,
+            76,
+            76,
+            76,
+            76,
+            76,
+            76,
+            76,
+            76,
+            76,
+            76
+          ],
+          "reactionSec": [
+            0.54,
+            0.54,
+            0.54,
+            0.54,
+            0.54,
+            0.54,
+            0.54,
+            0.54,
+            0.54,
+            0.54,
+            0.54
+          ],
+          "duelWin": [
+            77,
+            77,
+            77,
+            77,
+            77,
+            77,
+            77,
+            77,
+            77,
+            77,
+            77
+          ],
+          "reversal": [
+            9,
+            9,
+            9,
+            9,
+            9,
+            9,
+            9,
+            9,
+            9,
+            9,
+            9
+          ],
+          "longShare": [
+            0.76337161,
+            0.76337161,
+            0.76337161,
+            0.76337161,
+            0.76337161,
+            0.76337161,
+            0.76337161,
+            0.76337161,
+            0.76337161,
+            0.76337161,
+            0.76337161
+          ],
+          "shortShare": [
+            55.7567547,
+            55.7567547,
+            55.7567547,
+            55.7567547,
+            55.7567547,
+            55.7567547,
+            55.7567547,
+            55.7567547,
+            55.7567547,
+            55.7567547,
+            55.7567547
+          ],
+          "maxHitDist": [
+            330,
+            330,
+            330,
+            330,
+            330,
+            330,
+            330,
+            330,
+            330,
+            330,
+            330
+          ],
+          "rescueRate": [
+            44.44444444,
+            44.44444444,
+            44.44444444,
+            44.44444444,
+            44.44444444,
+            44.44444444,
+            44.44444444,
+            44.44444444,
+            44.44444444,
+            44.44444444,
+            44.44444444
+          ],
+          "tradeRate": [
+            11.11111111,
+            11.11111111,
+            11.11111111,
+            11.11111111,
+            11.11111111,
+            11.11111111,
+            11.11111111,
+            11.11111111,
+            11.11111111,
+            11.11111111,
+            11.11111111
+          ],
+          "tradeSec": [
+            2.81,
+            2.81,
+            2.81,
+            2.81,
+            2.81,
+            2.81,
+            2.81,
+            2.81,
+            2.81,
+            2.81,
+            2.81
+          ],
+          "pressure": [
+            4.18,
+            4.18,
+            4.18,
+            4.18,
+            4.18,
+            4.18,
+            4.18,
+            4.18,
+            4.18,
+            4.18,
+            4.18
+          ],
+          "placement": [
+            62.4,
+            62.4,
+            62.4,
+            62.4,
+            62.4,
+            62.4,
+            62.4,
+            62.4,
+            62.4,
+            62.4,
+            62.4
+          ],
+          "edgePerMatch": [
+            12.4,
+            12.4,
+            12.4,
+            12.4,
+            12.4,
+            12.4,
+            12.4,
+            12.4,
+            12.4,
+            12.4,
+            12.4
+          ],
+          "earlyShare": [
+            9.83606557,
+            9.83606557,
+            9.83606557,
+            9.83606557,
+            9.83606557,
+            9.83606557,
+            9.83606557,
+            9.83606557,
+            9.83606557,
+            9.83606557,
+            9.83606557
+          ],
+          "baitPerMatch": [
+            1.2,
+            1.2,
+            1.2,
+            1.2,
+            1.2,
+            1.2,
+            1.2,
+            1.2,
+            1.2,
+            1.2,
+            1.2
+          ],
+          "supportPerMatch": [
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2,
+            0.2
+          ],
+          "utilityHitsPerMatch": [
+            1.2,
+            1.2,
+            1.2,
+            1.2,
+            1.2,
+            1.2,
+            1.2,
+            1.2,
+            1.2,
+            1.2,
+            1.2
+          ],
+          "lethalPerMatch": [
+            1.8,
+            1.8,
+            1.8,
+            1.8,
+            1.8,
+            1.8,
+            1.8,
+            1.8,
+            1.8,
+            1.8,
+            1.8
+          ],
+          "teamDamageShare": [
+            80.6,
+            80.6,
+            80.6,
+            80.6,
+            80.6,
+            80.6,
+            80.6,
+            80.6,
+            80.6,
+            80.6,
+            80.6
+          ],
+          "focusFirePerMatch": [
+            1.8,
+            1.8,
+            1.8,
+            1.8,
+            1.8,
+            1.8,
+            1.8,
+            1.8,
+            1.8,
+            1.8,
+            1.8
+          ],
+          "assistShare": [
+            16.66666667,
+            16.66666667,
+            16.66666667,
+            16.66666667,
+            16.66666667,
+            16.66666667,
+            16.66666667,
+            16.66666667,
+            16.66666667,
+            16.66666667,
+            16.66666667
+          ]
+        },
+        "roles": {
+          "pointMan": [
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50
+          ],
+          "phantomOverwatch": [
+            73.75,
+            73.75,
+            73.75,
+            73.75,
+            73.75,
+            73.75,
+            73.75,
+            73.75,
+            73.75,
+            73.75,
+            73.75
+          ],
+          "executor": [
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50
+          ],
+          "shield": [
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5
+          ],
+          "avenger": [
+            73.75,
+            73.75,
+            73.75,
+            73.75,
+            73.75,
+            73.75,
+            73.75,
+            73.75,
+            73.75,
+            73.75,
+            73.75
+          ],
+          "zoneController": [
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50
+          ],
+          "dropPredator": [
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5
+          ],
+          "decoy": [
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50
+          ],
+          "grenadier": [
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50
+          ],
+          "brawler": [
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5,
+            97.5
+          ],
+          "mainGun": [
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50
+          ],
+          "crossfire": [
+            26.25,
+            26.25,
+            26.25,
+            26.25,
+            26.25,
+            26.25,
+            26.25,
+            26.25,
+            26.25,
+            26.25,
+            26.25
+          ]
+        }
+      },
+      "coverage": {
+        "initiative": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "reactionSec": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "duelWin": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "reversal": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "longShare": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "shortShare": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "maxHitDist": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "rescueRate": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "tradeRate": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "tradeSec": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "pressure": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "placement": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "edgePerMatch": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "earlyShare": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "baitPerMatch": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "supportPerMatch": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "utilityHitsPerMatch": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "lethalPerMatch": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "teamDamageShare": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "focusFirePerMatch": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "assistShare": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        }
+      },
+      "roleCoverage": {
+        "pointMan": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "phantomOverwatch": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "executor": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "shield": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "avenger": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "zoneController": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "dropPredator": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "decoy": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "grenadier": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "brawler": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "mainGun": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "crossfire": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        }
+      },
+      "stability": {
+        "runs": 0,
+        "titleAgreement": null,
+        "metricIntervals": {}
+      },
+      "distribution": {
+        "before": {},
+        "candidate": {}
+      },
+      "movements": [
+        {
+          "target": "KangHeeSung_",
+          "partition": "target",
+          "matches": 5,
+          "before": "화력의 중심",
+          "candidate": "전술 분석 중",
+          "beforeRole": "mainGun",
+          "candidateRole": "insufficient",
+          "qualifiedReply": "1.61s",
+          "initiative": 50
+        },
+        {
+          "target": "MiaeQ_Q",
+          "partition": "target",
+          "matches": 5,
+          "before": "난전의 지배자",
+          "candidate": "전술 분석 중",
+          "beforeRole": "brawler",
+          "candidateRole": "insufficient",
+          "qualifiedReply": "측정 불가",
+          "initiative": 88
+        }
+      ]
+    },
+    {
+      "cohort": "steam|duo|official",
+      "trainAccounts": 0,
+      "holdoutAccounts": 1,
+      "targetAccounts": 0,
+      "status": "insufficient_samples",
+      "reference": {
+        "metrics": {},
+        "roles": {}
+      },
+      "trainingQuantiles": {
+        "metrics": {},
+        "roles": {}
+      },
+      "coverage": {
+        "initiative": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "reactionSec": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "duelWin": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "reversal": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "longShare": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "shortShare": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "maxHitDist": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "rescueRate": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "tradeRate": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "tradeSec": {
+          "train": 0,
+          "holdout": 0,
+          "eligible": false
+        },
+        "pressure": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "placement": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "edgePerMatch": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "earlyShare": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "baitPerMatch": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "supportPerMatch": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "utilityHitsPerMatch": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "lethalPerMatch": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "teamDamageShare": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "focusFirePerMatch": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        },
+        "assistShare": {
+          "train": 0,
+          "holdout": 1,
+          "eligible": false
+        }
+      },
+      "roleCoverage": {},
+      "stability": {
+        "runs": 0,
+        "titleAgreement": null,
+        "metricIntervals": {}
+      },
+      "distribution": {
+        "before": {
+          "mainGun": 1
+        },
+        "candidate": {
+          "insufficient": 1
+        }
+      },
+      "movements": []
+    },
+    {
+      "cohort": "steam|squad-fpp|competitive",
+      "trainAccounts": 8,
+      "holdoutAccounts": 3,
+      "targetAccounts": 0,
+      "status": "insufficient_samples",
+      "reference": {
+        "metrics": {},
+        "roles": {}
+      },
+      "trainingQuantiles": {
+        "metrics": {
+          "initiative": [
+            73,
+            76,
+            80.2,
+            80.8,
+            81.4,
+            82,
+            84.4,
+            86.8,
+            89.2,
+            90.8,
+            91.4
+          ],
+          "reactionSec": [
+            0.2225,
+            0.225,
+            0.23,
+            0.35,
+            0.47,
+            0.505,
+            0.54,
+            0.8,
+            1.06,
+            1.91,
+            2.335
+          ],
+          "duelWin": [
+            50,
+            64,
+            77.6,
+            80.2,
+            81.6,
+            83,
+            84.2,
+            84.9,
+            85.6,
+            87.2,
+            88.6
+          ],
+          "reversal": [
+            3.85,
+            7.7,
+            12.2,
+            14.1,
+            14.8,
+            22,
+            33.2,
+            47.9,
+            50,
+            58.4,
+            68.2
+          ],
+          "longShare": [
+            1.82415842,
+            3.64831683,
+            6.52382142,
+            7.8537015,
+            10.20948263,
+            13.07821427,
+            14.06047427,
+            14.77473514,
+            14.95299776,
+            18.24392875,
+            20.66756134
+          ],
+          "shortShare": [
+            34.36322752,
+            35.22296088,
+            36.84965019,
+            38.29078471,
+            44.21485655,
+            52.38039705,
+            65.81994384,
+            75.77940292,
+            78.7786866,
+            81.67054963,
+            83.08962599
+          ],
+          "maxHitDist": [
+            194.65,
+            208.3,
+            230.8,
+            247.6,
+            251.8,
+            277,
+            314.6,
+            362.2,
+            376.2,
+            390.6,
+            401.8
+          ],
+          "rescueRate": [
+            0,
+            0,
+            6.66666667,
+            16.66666667,
+            16.66666667,
+            23.71794872,
+            31.28205128,
+            33.07692308,
+            43.33333333,
+            51.36363636,
+            52.95454545
+          ],
+          "tradeRate": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2.5,
+            11.25,
+            14.23076923,
+            16.22377622,
+            17.2027972
+          ],
+          "tradeSec": [
+            11.049,
+            11.138,
+            11.316,
+            11.494,
+            11.672,
+            11.85,
+            14.288,
+            16.726,
+            19.164,
+            21.602,
+            22.821
+          ],
+          "pressure": [
+            4.5675,
+            4.935,
+            5.29,
+            5.388,
+            5.654,
+            5.815,
+            5.942,
+            6.089,
+            6.224,
+            6.552,
+            6.846
+          ],
+          "placement": [
+            79.48,
+            80.46,
+            82.14,
+            83.8,
+            86.6,
+            92.6,
+            98.24,
+            99.78,
+            100,
+            100,
+            100
+          ],
+          "edgePerMatch": [
+            2.14,
+            3.68,
+            5.53333333,
+            6.5,
+            7.66666667,
+            8.16666667,
+            8.94666667,
+            11.09333333,
+            12.36,
+            13,
+            13
+          ],
+          "earlyShare": [
+            0,
+            0,
+            3.51973684,
+            14.07894737,
+            18.44156347,
+            19.70588235,
+            20.33771008,
+            22.28581322,
+            26.86646715,
+            36.40286397,
+            42.40999809
+          ],
+          "baitPerMatch": [
+            0.33333333,
+            0.33333333,
+            0.36,
+            0.42666667,
+            0.61333333,
+            0.66666667,
+            0.73333333,
+            0.96666667,
+            1,
+            1.1,
+            1.21666667
+          ],
+          "supportPerMatch": [
+            0,
+            0,
+            0.26666667,
+            0.66666667,
+            0.66666667,
+            0.66666667,
+            0.73333333,
+            0.96666667,
+            1,
+            1.12,
+            1.26
+          ],
+          "utilityHitsPerMatch": [
+            0,
+            0,
+            0,
+            0,
+            0.13333333,
+            0.33333333,
+            0.33333333,
+            0.34666667,
+            0.38666667,
+            0.48,
+            0.54
+          ],
+          "lethalPerMatch": [
+            0.9,
+            1.13333333,
+            1.52,
+            1.82,
+            1.96,
+            2,
+            2.08,
+            2.36,
+            2.76,
+            3,
+            3
+          ],
+          "teamDamageShare": [
+            8.445,
+            13.59,
+            21.48,
+            27.57,
+            33.66,
+            38.1,
+            41.24,
+            42.78,
+            45.4,
+            48.71,
+            50.705
+          ],
+          "focusFirePerMatch": [
+            1.35,
+            1.7,
+            2.08,
+            2.21333333,
+            2.30666667,
+            2.5,
+            2.8,
+            3.26666667,
+            4.33333333,
+            7.46,
+            10.33
+          ],
+          "assistShare": [
+            7.5625,
+            8.875,
+            12.15384615,
+            16.19909502,
+            21.90045249,
+            24.26470588,
+            25.33333333,
+            26.5,
+            27.33333333,
+            37.44444444,
+            48.72222222
+          ]
+        },
+        "roles": {
+          "pointMan": [
+            26.5625,
+            35.20833333,
+            52.5,
+            55.50595238,
+            58.51190476,
+            60.92261905,
+            63.33333333,
+            64.16666667,
+            65,
+            66.875,
+            67.8125
+          ],
+          "phantomOverwatch": [
+            6.945,
+            11.39,
+            20.90691422,
+            31.46110379,
+            45.41783153,
+            51.38745113,
+            56.02888071,
+            65.33694343,
+            67.63572812,
+            77.04723836,
+            87.27361918
+          ],
+          "executor": [
+            16.63995098,
+            17.41451735,
+            19.40261438,
+            24.29511278,
+            44.63868003,
+            53.87139724,
+            58.11904762,
+            61.01488095,
+            77.82142857,
+            89.125,
+            89.5625
+          ],
+          "shield": [
+            5,
+            5,
+            15,
+            30,
+            30,
+            44.66101695,
+            61.50762712,
+            69.15720339,
+            81.08113208,
+            91.06132076,
+            94.28066038
+          ],
+          "avenger": [
+            25,
+            25,
+            25,
+            25,
+            25,
+            25,
+            27.66935484,
+            37.01209677,
+            56.07555179,
+            76.77631579,
+            87.1381579
+          ],
+          "zoneController": [
+            24.02749316,
+            26.66609745,
+            32.87308689,
+            39.72524887,
+            46.26443224,
+            55.6396144,
+            64.32660339,
+            68.45711071,
+            69.19665105,
+            69.39306843,
+            69.50596926
+          ],
+          "dropPredator": [
+            5,
+            5,
+            11.61358999,
+            31.45435997,
+            42.84077,
+            50.00000005,
+            57.29731888,
+            66.04998103,
+            77.71332982,
+            87.96066765,
+            92.73033382
+          ],
+          "decoy": [
+            22.62500027,
+            25.24999996,
+            27.49999969,
+            29.24999978,
+            41.50000044,
+            50.00000029,
+            56.34999994,
+            61.07499986,
+            62.94999992,
+            68.62499997,
+            74.31249999
+          ],
+          "grenadier": [
+            6.90517242,
+            11.31034484,
+            22.05172415,
+            34.75,
+            50.5,
+            55.00000062,
+            55.07619145,
+            55.34285713,
+            68.65238164,
+            79.52500087,
+            81.88750044
+          ],
+          "brawler": [
+            6.86406897,
+            11.22813795,
+            19.79969564,
+            28.05809281,
+            38.48653512,
+            50,
+            61.39770149,
+            71.88836588,
+            80.56495604,
+            89.07429166,
+            93.28714583
+          ],
+          "mainGun": [
+            7.08127376,
+            11.66254753,
+            20.7821836,
+            30.10617761,
+            40.84942085,
+            51.25882252,
+            61.04691982,
+            69.6155978,
+            79.23617998,
+            88.6336858,
+            93.0668429
+          ],
+          "crossfire": [
+            15.15025369,
+            22.33496485,
+            28.70708434,
+            29.86377354,
+            35.71574388,
+            40.76118329,
+            50.72092456,
+            73.7729514,
+            81.26393923,
+            85.53468406,
+            87.25223214
+          ]
+        }
+      },
+      "coverage": {
+        "initiative": {
+          "train": 7,
+          "holdout": 3,
+          "eligible": false
+        },
+        "reactionSec": {
+          "train": 6,
+          "holdout": 1,
+          "eligible": false
+        },
+        "duelWin": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "reversal": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "longShare": {
+          "train": 7,
+          "holdout": 3,
+          "eligible": false
+        },
+        "shortShare": {
+          "train": 7,
+          "holdout": 3,
+          "eligible": false
+        },
+        "maxHitDist": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "rescueRate": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "tradeRate": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "tradeSec": {
+          "train": 3,
+          "holdout": 2,
+          "eligible": false
+        },
+        "pressure": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "placement": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "edgePerMatch": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "earlyShare": {
+          "train": 7,
+          "holdout": 3,
+          "eligible": false
+        },
+        "baitPerMatch": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "supportPerMatch": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "utilityHitsPerMatch": {
+          "train": 7,
+          "holdout": 2,
+          "eligible": false
+        },
+        "lethalPerMatch": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "teamDamageShare": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "focusFirePerMatch": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "assistShare": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        }
+      },
+      "roleCoverage": {
+        "pointMan": {
+          "train": 6,
+          "holdout": 1,
+          "eligible": false
+        },
+        "phantomOverwatch": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "executor": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "shield": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "avenger": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "zoneController": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "dropPredator": {
+          "train": 7,
+          "holdout": 3,
+          "eligible": false
+        },
+        "decoy": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "grenadier": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "brawler": {
+          "train": 7,
+          "holdout": 3,
+          "eligible": false
+        },
+        "mainGun": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        },
+        "crossfire": {
+          "train": 8,
+          "holdout": 3,
+          "eligible": false
+        }
+      },
+      "stability": {
+        "runs": 0,
+        "titleAgreement": null,
+        "metricIntervals": {}
+      },
+      "distribution": {
+        "before": {
+          "avenger": 1,
+          "shield": 1,
+          "phantomOverwatch": 1
+        },
+        "candidate": {
+          "insufficient": 3
+        }
+      },
+      "movements": []
+    },
+    {
+      "cohort": "steam|squad-fpp|official",
+      "trainAccounts": 2,
+      "holdoutAccounts": 0,
+      "targetAccounts": 0,
+      "status": "insufficient_samples",
+      "reference": {
+        "metrics": {},
+        "roles": {}
+      },
+      "trainingQuantiles": {
+        "metrics": {
+          "initiative": [
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100
+          ],
+          "duelWin": [
+            67,
+            67,
+            67,
+            67,
+            67,
+            67,
+            67,
+            67,
+            67,
+            67,
+            67
+          ],
+          "reversal": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "longShare": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "shortShare": [
+            41.535206,
+            41.535206,
+            41.535206,
+            41.535206,
+            41.535206,
+            41.535206,
+            41.535206,
+            41.535206,
+            41.535206,
+            41.535206,
+            41.535206
+          ],
+          "maxHitDist": [
+            4.65,
+            9.3,
+            18.6,
+            27.9,
+            37.2,
+            46.5,
+            55.8,
+            65.1,
+            74.4,
+            83.7,
+            88.35
+          ],
+          "rescueRate": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "tradeRate": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "pressure": [
+            0.17,
+            0.34,
+            0.68,
+            1.02,
+            1.36,
+            1.7,
+            2.04,
+            2.38,
+            2.72,
+            3.06,
+            3.23
+          ],
+          "placement": [
+            46.09,
+            47.28,
+            49.66,
+            52.04,
+            54.42,
+            56.8,
+            59.18,
+            61.56,
+            63.94,
+            66.32,
+            67.51
+          ],
+          "edgePerMatch": [
+            0.73666667,
+            0.87333333,
+            1.14666667,
+            1.42,
+            1.69333333,
+            1.96666667,
+            2.24,
+            2.51333333,
+            2.78666667,
+            3.06,
+            3.19666667
+          ],
+          "earlyShare": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "baitPerMatch": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "supportPerMatch": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "utilityHitsPerMatch": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "lethalPerMatch": [
+            0.01,
+            0.02,
+            0.04,
+            0.06,
+            0.08,
+            0.1,
+            0.12,
+            0.14,
+            0.16,
+            0.18,
+            0.19
+          ],
+          "teamDamageShare": [
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100,
+            100
+          ],
+          "focusFirePerMatch": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "assistShare": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "roles": {
+          "phantomOverwatch": [
+            6.0625,
+            9.625,
+            16.75,
+            23.875,
+            31,
+            38.125,
+            45.25,
+            52.375,
+            59.5,
+            66.625,
+            70.1875
+          ],
+          "executor": [
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50
+          ],
+          "shield": [
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50
+          ],
+          "avenger": [
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50
+          ],
+          "zoneController": [
+            7.25,
+            12,
+            21.5,
+            31,
+            40.5,
+            50,
+            59.5,
+            69,
+            78.5,
+            88,
+            92.75
+          ],
+          "dropPredator": [
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50
+          ],
+          "decoy": [
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50
+          ],
+          "grenadier": [
+            28.625,
+            31,
+            35.75,
+            40.5,
+            45.25,
+            50,
+            54.75,
+            59.5,
+            64.25,
+            69,
+            71.375
+          ],
+          "brawler": [
+            2.5,
+            2.5,
+            2.5,
+            2.5,
+            2.5,
+            2.5,
+            2.5,
+            2.5,
+            2.5,
+            2.5,
+            2.5
+          ],
+          "mainGun": [
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50
+          ],
+          "crossfire": [
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50
+          ]
+        }
+      },
+      "coverage": {
+        "initiative": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "reactionSec": {
+          "train": 0,
+          "holdout": 0,
+          "eligible": false
+        },
+        "duelWin": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "reversal": {
+          "train": 2,
+          "holdout": 0,
+          "eligible": false
+        },
+        "longShare": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "shortShare": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "maxHitDist": {
+          "train": 2,
+          "holdout": 0,
+          "eligible": false
+        },
+        "rescueRate": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "tradeRate": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "tradeSec": {
+          "train": 0,
+          "holdout": 0,
+          "eligible": false
+        },
+        "pressure": {
+          "train": 2,
+          "holdout": 0,
+          "eligible": false
+        },
+        "placement": {
+          "train": 2,
+          "holdout": 0,
+          "eligible": false
+        },
+        "edgePerMatch": {
+          "train": 2,
+          "holdout": 0,
+          "eligible": false
+        },
+        "earlyShare": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "baitPerMatch": {
+          "train": 2,
+          "holdout": 0,
+          "eligible": false
+        },
+        "supportPerMatch": {
+          "train": 2,
+          "holdout": 0,
+          "eligible": false
+        },
+        "utilityHitsPerMatch": {
+          "train": 2,
+          "holdout": 0,
+          "eligible": false
+        },
+        "lethalPerMatch": {
+          "train": 2,
+          "holdout": 0,
+          "eligible": false
+        },
+        "teamDamageShare": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "focusFirePerMatch": {
+          "train": 2,
+          "holdout": 0,
+          "eligible": false
+        },
+        "assistShare": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        }
+      },
+      "roleCoverage": {
+        "pointMan": {
+          "train": 0,
+          "holdout": 0,
+          "eligible": false
+        },
+        "phantomOverwatch": {
+          "train": 2,
+          "holdout": 0,
+          "eligible": false
+        },
+        "executor": {
+          "train": 2,
+          "holdout": 0,
+          "eligible": false
+        },
+        "shield": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "avenger": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "zoneController": {
+          "train": 2,
+          "holdout": 0,
+          "eligible": false
+        },
+        "dropPredator": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "decoy": {
+          "train": 2,
+          "holdout": 0,
+          "eligible": false
+        },
+        "grenadier": {
+          "train": 2,
+          "holdout": 0,
+          "eligible": false
+        },
+        "brawler": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "mainGun": {
+          "train": 1,
+          "holdout": 0,
+          "eligible": false
+        },
+        "crossfire": {
+          "train": 2,
+          "holdout": 0,
+          "eligible": false
+        }
+      },
+      "stability": {
+        "runs": 0,
+        "titleAgreement": null,
+        "metricIntervals": {}
+      },
+      "distribution": {
+        "before": {},
+        "candidate": {}
+      },
+      "movements": []
+    },
+    {
+      "cohort": "steam|squad|competitive",
+      "trainAccounts": 4,
+      "holdoutAccounts": 3,
+      "targetAccounts": 0,
+      "status": "insufficient_samples",
+      "reference": {
+        "metrics": {},
+        "roles": {}
+      },
+      "trainingQuantiles": {
+        "metrics": {
+          "initiative": [
+            71.75,
+            72.5,
+            74,
+            75.5,
+            78,
+            81,
+            84,
+            86.4,
+            87.6,
+            88.8,
+            89.4
+          ],
+          "reactionSec": [
+            0.2635,
+            0.287,
+            0.334,
+            0.381,
+            0.428,
+            0.475,
+            0.522,
+            0.569,
+            0.616,
+            0.663,
+            0.6865
+          ],
+          "duelWin": [
+            53.45,
+            56.9,
+            63.8,
+            70.7,
+            74.8,
+            77.5,
+            80.2,
+            83.4,
+            87.6,
+            91.8,
+            93.9
+          ],
+          "reversal": [
+            1.5,
+            3,
+            6,
+            9,
+            15,
+            22.5,
+            30,
+            35.8,
+            38.2,
+            40.6,
+            41.8
+          ],
+          "longShare": [
+            7.33030986,
+            7.39586529,
+            7.52697616,
+            7.65808703,
+            9.78595575,
+            12.91220339,
+            16.03845104,
+            21.34571937,
+            31.01502909,
+            40.68433881,
+            45.51899367
+          ],
+          "shortShare": [
+            34.17332971,
+            34.67691224,
+            35.6840773,
+            36.69124237,
+            38.27948797,
+            40.15827383,
+            42.0370597,
+            45.09100365,
+            50.4952638,
+            55.89952394,
+            58.60165401
+          ],
+          "maxHitDist": [
+            375.85,
+            390.7,
+            420.4,
+            450.1,
+            466.4,
+            476,
+            485.6,
+            500.8,
+            527.2,
+            553.6,
+            566.8
+          ],
+          "rescueRate": [
+            8.84803922,
+            9.3627451,
+            10.39215686,
+            11.42156863,
+            13.41176471,
+            15.88235294,
+            18.35294118,
+            22,
+            28,
+            34,
+            37
+          ],
+          "tradeRate": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "pressure": [
+            2.8535,
+            3.347,
+            4.334,
+            5.321,
+            5.66,
+            5.675,
+            5.69,
+            5.775,
+            6,
+            6.225,
+            6.3375
+          ],
+          "placement": [
+            67.775,
+            72.05,
+            80.6,
+            89.15,
+            92.16,
+            92.4,
+            92.64,
+            93.3,
+            94.8,
+            96.3,
+            97.05
+          ],
+          "edgePerMatch": [
+            3.25666667,
+            3.84666667,
+            5.02666667,
+            6.20666667,
+            6.81333333,
+            7.13333333,
+            7.45333333,
+            8.36,
+            10.44,
+            12.52,
+            13.56
+          ],
+          "earlyShare": [
+            4.88651042,
+            5.27430619,
+            6.04989772,
+            6.82548926,
+            8.09777137,
+            9.61839877,
+            11.13902618,
+            14.1346831,
+            20.08039906,
+            26.02611502,
+            28.998973
+          ],
+          "baitPerMatch": [
+            0.43,
+            0.46,
+            0.52,
+            0.58,
+            0.68,
+            0.8,
+            0.92,
+            1.03333333,
+            1.13333333,
+            1.23333333,
+            1.28333333
+          ],
+          "supportPerMatch": [
+            0.15,
+            0.3,
+            0.6,
+            0.9,
+            1.06666667,
+            1.16666667,
+            1.26666667,
+            1.38,
+            1.52,
+            1.66,
+            1.73
+          ],
+          "utilityHitsPerMatch": [
+            0.11,
+            0.22,
+            0.44,
+            0.66,
+            0.88,
+            1.1,
+            1.32,
+            1.54,
+            1.76,
+            1.98,
+            2.09
+          ],
+          "lethalPerMatch": [
+            1.01,
+            1.42,
+            2.24,
+            3.06,
+            3.6,
+            4,
+            4.4,
+            4.82,
+            5.28,
+            5.74,
+            5.97
+          ],
+          "teamDamageShare": [
+            24.465,
+            25.23,
+            26.76,
+            28.29,
+            29.28,
+            30,
+            30.72,
+            31.45,
+            32.2,
+            32.95,
+            33.325
+          ],
+          "focusFirePerMatch": [
+            7,
+            8,
+            10,
+            12,
+            12.89333333,
+            13.23333333,
+            13.57333333,
+            13.85333333,
+            14.01333333,
+            14.17333333,
+            14.25333333
+          ],
+          "assistShare": [
+            2.64705882,
+            5.29411765,
+            10.58823529,
+            15.88235294,
+            20.36764706,
+            24.44852941,
+            28.52941176,
+            31.99596774,
+            34.23387097,
+            36.47177419,
+            37.59072581
+          ]
+        },
+        "roles": {
+          "pointMan": [
+            51.64583333,
+            53.29166667,
+            56.58333333,
+            59.875,
+            63.16666667,
+            66.45833333,
+            69.75,
+            73.04166667,
+            76.33333333,
+            79.625,
+            81.27083333
+          ],
+          "phantomOverwatch": [
+            9.62504659,
+            16.75009318,
+            31.00018635,
+            45.25027953,
+            52.77078715,
+            56.92650201,
+            61.08221686,
+            65.5529504,
+            70.65372132,
+            75.75449224,
+            78.3048777
+          ],
+          "executor": [
+            17.37906504,
+            17.67479675,
+            18.26626016,
+            18.85772358,
+            28.6684714,
+            43.08886144,
+            57.50925147,
+            70.16056034,
+            79.2737069,
+            88.38685345,
+            92.94342672
+          ],
+          "shield": [
+            6.88362069,
+            11.26724138,
+            20.03448275,
+            28.80172413,
+            38.28253614,
+            48.12013347,
+            57.9577308,
+            67.81451612,
+            77.70967742,
+            87.60483871,
+            92.55241935
+          ],
+          "avenger": [
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50,
+            50
+          ],
+          "zoneController": [
+            18.73891375,
+            23.64998866,
+            33.47213848,
+            43.29428831,
+            50.46433121,
+            56.30832065,
+            62.15231008,
+            66.85271219,
+            69.26593964,
+            71.67916709,
+            72.88578082
+          ],
+          "dropPredator": [
+            6.92980328,
+            11.35960657,
+            20.21921313,
+            29.0788197,
+            38.30243173,
+            47.70804649,
+            57.11366125,
+            66.79566398,
+            77.03044265,
+            87.26522133,
+            92.38261066
+          ],
+          "decoy": [
+            11.8375,
+            21.175,
+            39.85,
+            58.525,
+            65.09411766,
+            65.61029414,
+            66.12647062,
+            66.49852944,
+            66.58235294,
+            66.66617644,
+            66.70808819
+          ],
+          "grenadier": [
+            7.38425926,
+            12.26851852,
+            22.03703704,
+            31.80555556,
+            41.31922399,
+            50.70546737,
+            60.09171076,
+            69.46428571,
+            78.80952381,
+            88.1547619,
+            92.82738095
+          ],
+          "brawler": [
+            6.94206843,
+            11.38413685,
+            20.2682737,
+            29.15241056,
+            38.51129807,
+            48.10756092,
+            57.70382376,
+            67.44119909,
+            77.4607994,
+            87.4803997,
+            92.49019985
+          ],
+          "mainGun": [
+            7.39772727,
+            12.29545455,
+            22.09090909,
+            31.88636364,
+            41.43628061,
+            50.86342881,
+            60.290577,
+            69.66780822,
+            78.94520548,
+            88.22260274,
+            92.86130137
+          ],
+          "crossfire": [
+            7.47978346,
+            12.45956692,
+            22.41913385,
+            32.37870077,
+            45.09365526,
+            59.18630352,
+            73.27895179,
+            82.68640748,
+            82.72347802,
+            82.76054857,
+            82.77908384
+          ]
+        }
+      },
+      "coverage": {
+        "initiative": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "reactionSec": {
+          "train": 2,
+          "holdout": 2,
+          "eligible": false
+        },
+        "duelWin": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "reversal": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "longShare": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "shortShare": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "maxHitDist": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "rescueRate": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "tradeRate": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "tradeSec": {
+          "train": 0,
+          "holdout": 3,
+          "eligible": false
+        },
+        "pressure": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "placement": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "edgePerMatch": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "earlyShare": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "baitPerMatch": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "supportPerMatch": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "utilityHitsPerMatch": {
+          "train": 2,
+          "holdout": 2,
+          "eligible": false
+        },
+        "lethalPerMatch": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "teamDamageShare": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "focusFirePerMatch": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "assistShare": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        }
+      },
+      "roleCoverage": {
+        "pointMan": {
+          "train": 2,
+          "holdout": 2,
+          "eligible": false
+        },
+        "phantomOverwatch": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "executor": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "shield": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "avenger": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "zoneController": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "dropPredator": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "decoy": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "grenadier": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "brawler": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "mainGun": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        },
+        "crossfire": {
+          "train": 4,
+          "holdout": 3,
+          "eligible": false
+        }
+      },
+      "stability": {
+        "runs": 0,
+        "titleAgreement": null,
+        "metricIntervals": {}
+      },
+      "distribution": {
+        "before": {
+          "balanced": 1,
+          "fieldCommander": 1,
+          "avenger": 1
+        },
+        "candidate": {
+          "insufficient": 3
+        }
+      },
+      "movements": []
+    },
+    {
+      "cohort": "steam|squad|official",
+      "trainAccounts": 21,
+      "holdoutAccounts": 9,
+      "targetAccounts": 0,
+      "status": "insufficient_samples",
+      "reference": {
+        "metrics": {},
+        "roles": {}
+      },
+      "trainingQuantiles": {
+        "metrics": {
+          "initiative": [
+            71,
+            72,
+            74,
+            74,
+            76,
+            78,
+            80,
+            81,
+            82,
+            85,
+            88
+          ],
+          "reactionSec": [
+            0.085,
+            0.1,
+            0.32,
+            0.52,
+            0.69,
+            0.78,
+            0.87,
+            1.07,
+            1.13,
+            1.18,
+            1.255
+          ],
+          "duelWin": [
+            43,
+            47,
+            65,
+            74,
+            75,
+            78,
+            80,
+            82,
+            85,
+            86,
+            88
+          ],
+          "reversal": [
+            0,
+            0,
+            9,
+            13,
+            14,
+            17,
+            18,
+            21,
+            28,
+            31,
+            40
+          ],
+          "longShare": [
+            0,
+            0,
+            0,
+            2.36010266,
+            3.73038259,
+            5.09729941,
+            6.65543939,
+            9.08944234,
+            13.1252319,
+            19.32820211,
+            22.02465522
+          ],
+          "shortShare": [
+            31.56379186,
+            33.7407461,
+            37.40450268,
+            39.53808376,
+            47.48721393,
+            55.66177321,
+            59.03059306,
+            61.24297559,
+            71.43211939,
+            83.23145841,
+            87.04032452
+          ],
+          "maxHitDist": [
+            89,
+            89,
+            171,
+            210,
+            235,
+            250,
+            294,
+            309,
+            377,
+            406,
+            459
+          ],
+          "rescueRate": [
+            0,
+            7.14285714,
+            10.52631579,
+            13.33333333,
+            15.38461538,
+            18.18181818,
+            20,
+            25,
+            27.27272727,
+            29.16666667,
+            41.17647059
+          ],
+          "tradeRate": [
+            0,
+            0,
+            0,
+            5.26315789,
+            6.66666667,
+            7.14285714,
+            9.09090909,
+            11.11111111,
+            13.33333333,
+            14.28571429,
+            14.28571429
+          ],
+          "tradeSec": [
+            2.838,
+            3.502,
+            4.162,
+            4.962,
+            7.236,
+            7.93,
+            11.91,
+            15.044,
+            15.516,
+            16.172,
+            17.627
+          ],
+          "pressure": [
+            1.67,
+            2.32,
+            3.13,
+            3.83,
+            4.04,
+            4.09,
+            4.68,
+            5.45,
+            5.87,
+            6.34,
+            6.7
+          ],
+          "placement": [
+            63.6,
+            67.6,
+            71.7,
+            76.6,
+            79.9,
+            84.4,
+            86.1,
+            89.1,
+            93.8,
+            99.2,
+            99.3
+          ],
+          "edgePerMatch": [
+            3,
+            3.4,
+            4.4,
+            8.8,
+            9,
+            10,
+            10.8,
+            17,
+            19,
+            24.6,
+            26.2
+          ],
+          "earlyShare": [
+            0.80645161,
+            3.52526439,
+            6.02409639,
+            9.01803607,
+            17.98561151,
+            29.01960784,
+            30.05181347,
+            30.82191781,
+            32.51670379,
+            54.90909091,
+            68.62745098
+          ],
+          "baitPerMatch": [
+            0.2,
+            0.2,
+            0.2,
+            0.4,
+            0.6,
+            0.8,
+            0.8,
+            1,
+            1.4,
+            1.4,
+            1.4
+          ],
+          "supportPerMatch": [
+            0,
+            0,
+            0.2,
+            0.2,
+            0.33333333,
+            0.6,
+            0.6,
+            0.8,
+            1,
+            1,
+            1.2
+          ],
+          "utilityHitsPerMatch": [
+            0.15,
+            0.2,
+            0.4,
+            0.4,
+            0.4,
+            0.5,
+            0.8,
+            0.8,
+            0.8,
+            1.3,
+            1.65
+          ],
+          "lethalPerMatch": [
+            1,
+            1,
+            1.6,
+            1.8,
+            2.33333333,
+            2.6,
+            2.8,
+            3,
+            3.6,
+            4,
+            4.2
+          ],
+          "teamDamageShare": [
+            10.6,
+            18.8,
+            21.6,
+            31,
+            32,
+            36,
+            40.2,
+            44.6,
+            46,
+            56.2,
+            61.4
+          ],
+          "focusFirePerMatch": [
+            0.4,
+            1,
+            1,
+            1.2,
+            2.2,
+            2.8,
+            4,
+            4.6,
+            4.8,
+            5.6,
+            5.6
+          ],
+          "assistShare": [
+            0,
+            11.11111111,
+            14.28571429,
+            23.07692308,
+            29.41176471,
+            33.33333333,
+            35.71428571,
+            38.0952381,
+            41.66666667,
+            50,
+            60
+          ]
+        },
+        "roles": {
+          "pointMan": [
+            26.875,
+            27.5,
+            32.5,
+            40,
+            42.5,
+            50,
+            50,
+            52.5,
+            53.75,
+            60,
+            60
+          ],
+          "phantomOverwatch": [
+            7.5,
+            7.5,
+            15,
+            31.60041656,
+            45.11363636,
+            48.33333332,
+            55.9407522,
+            69.9183427,
+            71.35855957,
+            92.5,
+            92.88793103
+          ],
+          "executor": [
+            10.69444444,
+            12.5,
+            18.88888889,
+            40,
+            40,
+            51.25,
+            58.33333333,
+            65,
+            78.33333333,
+            85.17857143,
+            88.75
+          ],
+          "shield": [
+            2.5,
+            10.00000001,
+            20,
+            30.00000002,
+            40.00000002,
+            50.00000001,
+            60,
+            70,
+            80.00000001,
+            89.99999998,
+            95
+          ],
+          "avenger": [
+            10,
+            10,
+            10,
+            26.54661019,
+            35.54878049,
+            51.54661019,
+            56.53266332,
+            60.87926136,
+            69.99999998,
+            75.14511871,
+            78.43299712
+          ],
+          "zoneController": [
+            7.66460905,
+            20.83333333,
+            32.67676768,
+            34.16666667,
+            38.84353741,
+            57.46296296,
+            60.96045198,
+            62.09803922,
+            72.5,
+            80,
+            81.84894368
+          ],
+          "dropPredator": [
+            5.00000001,
+            10.00000002,
+            19.99999998,
+            30,
+            40,
+            50.00000003,
+            60.00000002,
+            69.99999998,
+            79.99999998,
+            90,
+            97.5
+          ],
+          "decoy": [
+            7.5,
+            13.75,
+            30,
+            37.5,
+            41.66666673,
+            47.5,
+            57.5,
+            68.75,
+            72.5,
+            80,
+            83.75
+          ],
+          "grenadier": [
+            7.5,
+            11.25,
+            20,
+            30,
+            40.00000013,
+            55,
+            60,
+            70,
+            75.71428571,
+            90,
+            97.5
+          ],
+          "brawler": [
+            2.5,
+            10.00000001,
+            20.00000001,
+            29.99999999,
+            40.00000001,
+            50,
+            59.99999999,
+            69.99999999,
+            80,
+            90,
+            97.5
+          ],
+          "mainGun": [
+            2.5,
+            10,
+            20,
+            30,
+            40,
+            50,
+            60,
+            70,
+            80,
+            90,
+            97.5
+          ],
+          "crossfire": [
+            16.47727272,
+            17.76785714,
+            24.99999999,
+            40,
+            40.75,
+            46.46780303,
+            55,
+            68.75000001,
+            78.75,
+            83.01282051,
+            88.75
+          ]
+        }
+      },
+      "coverage": {
+        "initiative": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "reactionSec": {
+          "train": 11,
+          "holdout": 4,
+          "eligible": false
+        },
+        "duelWin": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "reversal": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "longShare": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "shortShare": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "maxHitDist": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "rescueRate": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "tradeRate": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "tradeSec": {
+          "train": 15,
+          "holdout": 9,
+          "eligible": false
+        },
+        "pressure": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "placement": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "edgePerMatch": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "earlyShare": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "baitPerMatch": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "supportPerMatch": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "utilityHitsPerMatch": {
+          "train": 16,
+          "holdout": 8,
+          "eligible": false
+        },
+        "lethalPerMatch": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "teamDamageShare": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "focusFirePerMatch": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "assistShare": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        }
+      },
+      "roleCoverage": {
+        "pointMan": {
+          "train": 11,
+          "holdout": 4,
+          "eligible": false
+        },
+        "phantomOverwatch": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "executor": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "shield": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "avenger": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "zoneController": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "dropPredator": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "decoy": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "grenadier": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "brawler": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "mainGun": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        },
+        "crossfire": {
+          "train": 21,
+          "holdout": 9,
+          "eligible": false
+        }
+      },
+      "stability": {
+        "runs": 0,
+        "titleAgreement": null,
+        "metricIntervals": {}
+      },
+      "distribution": {
+        "before": {
+          "avenger": 3,
+          "dropPredator": 3,
+          "grenadier": 1,
+          "zoneController": 1,
+          "crossfire": 1
+        },
+        "candidate": {
+          "insufficient": 9
+        }
+      },
+      "movements": []
+    }
+  ],
+  "pipelineCodeSha256": "462af10889a878f5013f34eea569ce9c98270c1454d983d953f20fa9ef4144fe"
+}

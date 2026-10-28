@@ -1,5 +1,5 @@
 import {describe,expect,it,vi}from'vitest';
-import {buildCalibrationProfile,calibrationPartition,fitReferenceCandidate,buildBenchmarkCoverage,quantiles}from'../lib/pubg-analysis/referenceCalibration';
+import {buildCalibrationProfile,calibrationAccountKey,calibrationPartition,fitReferenceCandidate,buildBenchmarkCoverage,quantiles}from'../lib/pubg-analysis/referenceCalibration';
 const match=(id:string,score=50,extra:Record<string,unknown>={})=>({matchId:id,createdAt:'2026-10-27T12:00:00Z',gameMode:'squad',matchType:'official',v:73,calculationVersion:5,populationEvidenceVersion:1,benchmark:{score,tier:'B'},stats:{damageDealt:100,playerId:"a"},...extra});
 describe('offline coaching reference calibration',()=>{
  it('rejects unknown-score holes rather than replacing missing latest matches',()=>{
@@ -68,11 +68,17 @@ describe('offline coaching reference calibration',()=>{
   const dir=mkdtempSync(join(tmpdir(),'bgms-calibration-'));
   const fetch=vi.fn(()=>{throw new Error('network forbidden')});vi.stubGlobal('fetch',fetch);
   try{
-    writeFileSync(join(dir,'pool.json'),JSON.stringify({rows:[],since:'2026-10-01',queriedAt:'2026-10-28'}));
+    const row={match_id:'00000000-0000-4000-8000-000000000001',player_id:'fixture',account_id:'account.fixture',platform:'steam',played_at:'2026-10-27T00:00:00Z',game_mode:'squad',match_type:'official'};
+    writeFileSync(join(dir,'pool.json'),JSON.stringify({rows:[row],since:'2026-10-01',queriedAt:'2026-10-28'}));
+    writeFileSync(join(dir,`history-${calibrationAccountKey(row.account_id)}.json`),JSON.stringify([row]));
     writeFileSync(join(dir,'private-registry.json'),'[]');
+    const r2=await import('../lib/pubg-analysis/r2Service');
+    const download=vi.spyOn(r2,'downloadFromR2').mockRejectedValue(new Error('network forbidden'));
     const {runCalibration}=await import('../scripts/calibrate_coaching_reference');
     await runCalibration(['--pool',join(dir,'pool.json'),'--output',dir,'--offline']);
-    expect(JSON.parse(readFileSync(join(dir,'report.json'),'utf8')).activationAllowed).toBe(false);
+    expect(JSON.parse(readFileSync(join(dir,'report.json'),'utf8'))).toMatchObject({activationAllowed:false,sourceMissing:1,errorCounts:{offline_canonical_missing:1}});
+    expect(download).not.toHaveBeenCalled();
+    download.mockRestore();
     expect(fetch).not.toHaveBeenCalled();
   }finally{vi.unstubAllGlobals();rmSync(dir,{recursive:true,force:true});}
  });
@@ -90,6 +96,22 @@ describe('offline coaching reference calibration',()=>{
   const copied=match('3',50,{stats:{damageDealt:100,playerId:'other'},initiative_rate:90});
   expect(buildCalibrationProfile({accountKey:'a',expectedMatchIds:['1','2','3'],matches:[match('1'),match('2'),copied]},'seed').reason).toBe('incomplete_window');
   expect(buildBenchmarkCoverage([{...copied,accountKey:'a'}])).toEqual([]);
+ });
+
+ it('evaluates named duo accounts in a separate cohort instead of dropping them from squad sampling',()=>{
+  const ms=['1','2','3'].map(id=>match(id,50,{gameMode:'duo',matchType:'competitive',initiative_rate:50}));
+  const r=buildCalibrationProfile({accountKey:'a',target:'KangHeeSung_',expectedMatchIds:['1','2','3'],matches:ms},'seed');
+  expect(r.profile).toMatchObject({cohort:'steam|duo|competitive',partition:'target',stats:{modeDistribution:{main:'duo'}}});
+  expect(buildBenchmarkCoverage(ms.map(m=>({...m,accountKey:'a'})))[0].cohort).toBe('steam|duo|competitive|B');
+ });
+
+ it('permits only same-mode/type tier-family fallback with independent metric counts',()=>{
+  const ms=Array.from({length:30},(_,i)=>({...match(String(i),50,{benchmark:{score:50,tier:i<15?'B+':'B-'},initiative_rate:50}),accountKey:'a'}));
+  const rows=buildBenchmarkCoverage(ms);
+  expect(rows.find(r=>r.cohort==='steam|squad|official|B+')?.metrics.avgInitiativeRate.comparisonEligible).toBe(false);
+  expect(rows.find(r=>r.cohort==='steam|squad|official|family:B')).toMatchObject({scope:'tier_family',metrics:{avgInitiativeRate:{count:30,comparisonEligible:true}}});
+  const split=buildBenchmarkCoverage(ms.map((m,i)=>i<15?m:{...m,gameMode:'squad-fpp'}));
+  expect(split.filter(r=>r.scope==='tier_family').every(r=>r.metrics.avgInitiativeRate.comparisonEligible===false)).toBe(true);
  });
 
 });

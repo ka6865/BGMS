@@ -146,13 +146,15 @@ export async function runCalibration(args:string[]) {
   }
   const matches=subjects.flatMap(s=>s.results.map(m=>({...m,accountKey:s.account})));
   const trainingMatches=subjects.filter(s=>calibrationPartition(s.account,CALIBRATION_SEED,Boolean(s.target))==='train').flatMap(s=>s.results.map(m=>({...m,accountKey:s.account})));
+  const holdoutMatches=subjects.filter(s=>calibrationPartition(s.account,CALIBRATION_SEED,Boolean(s.target))==='holdout').flatMap(s=>s.results.map(m=>({...m,accountKey:s.account})));
+  write(path.join(out,'inputs-private.json'),subjects);
   const candidate=fitReferenceCandidate(profiles,CALIBRATION_SEED);
   const report={schemaVersion:1,offline,generatedAt:new Date().toISOString(),poolChecksum:digest(sourcePool),seed:CALIBRATION_SEED,
     frame:{rows:pool.rows.length,capped:pool.rows.length===20000,accounts:groups.size,squadCandidates:[...groups.values()].filter(rs=>rs.some(r=>['squad','squad-fpp'].includes(r.game_mode))).length,privateExcluded},
     selectedAccounts:subjects.length,requestedPlayerMatches:subjects.reduce((n,s)=>n+s.matches.length,0),uniqueMatches:jobs.size,
     analysedPlayerMatches:matches.length,recomputed,canonicalUsed,localSources,downloaded,sourceMissing,sourceInvalid,decodedBytes,
     completeProfiles:profiles.length,rejectionCounts,errorCounts,targets:targetsReport,
-    benchmarkCoverage:buildBenchmarkCoverage(matches),benchmarkCandidate:buildBenchmarkCoverage(trainingMatches),candidate,
+    benchmarkCoverage:buildBenchmarkCoverage(matches),benchmarkCandidate:buildBenchmarkCoverage(trainingMatches),benchmarkHoldout:buildBenchmarkCoverage(holdoutMatches),candidate,
     targetMovements:candidate.cohorts.flatMap(c=>c.movements.filter(m=>m.partition==='target')),
     activationAllowed:false,limitations:['capped BGMS stored/search frame','source-retention bias','complete-window exclusion bias','coverage guards do not prove role accuracy','no production writes or activation'],
   };
