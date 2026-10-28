@@ -218,3 +218,53 @@ it('withholds a balanced candidate when one match removes its comparable evidenc
  expect(result.primaryRole).toBe('balanced');expect(result.agreement).toBe(.5);
  expect(result.decision).toMatchObject({primaryRole:'pending',status:'pending'});
 });
+
+describe('v2 changed-window evidence',()=>{
+ const levels=[5,10,20,30,40,50,60,70,80,90,95];
+ const reference={evidenceVersion:2 as const,metrics:{teamDamageShare:levels,shortShare:levels},roles:{mainGun:levels,brawler:levels}};
+ const ms:any[]=Array.from({length:10},(_,i)=>match(String(i),i*10,{roleEvidence:{version:1,validWeaponHits:6,distanceHitCount:6,
+  distanceDamage:{short:300,mid:0,long:0},maxHitDist:20,pressureIndex:1.2,focusFireCount:0,rescueCount:0,rescueOpportunityCount:0,positionSampleCount:0,edgePlayCount:0},
+  teamContext:{myRosterSize:2},teamImpact:{teamDamageShare:100}}));
+ it('uses only variants that actually change the selected five',()=>{
+  const result=roleWindowStability(ms,reference);
+  expect(result.runs).toBe(5);
+  expect(result.variants.every(row=>!['0','1','2','3','4'].includes(row.excludedMatchId ?? ''))).toBe(true);
+  expect(result.decision.status).toBe('confirmed');
+ });
+ it('keeps comparisons in the same raw mode and match type',()=>{
+  const mixed=ms.map((row,i)=>i<5?{...row,gameMode:'squad-fpp'}:row);
+  const result=roleWindowStability(mixed,reference);
+  expect(result.variants.every(row=>row.selectedMatchIds.every(id=>Number(id)>=5))).toBe(true);
+  expect(result.selectedMatchIds).toEqual(['9','8','7','6','5']);
+ });
+ it('does not confirm a title with fewer than three changed variants',()=>{
+  const result=roleWindowStability(ms.slice(8),reference);
+  expect(result.decision.status).toBe('insufficient');
+  const minimal=roleWindowStability(ms.slice(7),reference);
+  expect(minimal.decision.status).toBe('pending');
+  expect(minimal.decision.presentation).toBe('observed');
+ });
+ it('builds a separately versioned candidate and refuses mixed envelopes',()=>{
+  const input={accountKey:'a',expectedMatchIds:ms.map(row=>row.matchId),matches:ms};
+  const profile=buildCalibrationProfile(input,'seed',{evidenceVersion:2}).profile!;
+  expect(profile.stats.roleEvidence.version).toBe(2);
+  const fit=fitReferenceCandidate([profile],'seed',{evidenceVersion:2});
+  expect(fit.cohorts[0].reference.evidenceVersion).toBe(2);
+  expect(()=>fitReferenceCandidate([profile,{...profile,accountKey:'b',stats:{roleEvidence:{version:1}}}],'seed',{evidenceVersion:2})).toThrow('mixed_role_evidence');
+ });
+ it('keeps action-free profiles out of calibration rather than fitting fabricated strengths',()=>{
+  const empty=ms.map(row=>({...row,teamImpact:{teamDamageShare:0},roleEvidence:{...row.roleEvidence,validWeaponHits:0,distanceHitCount:0,
+    distanceDamage:{short:0,mid:0,long:0},maxHitDist:null,pressureIndex:null}}));
+  expect(buildCalibrationProfile({accountKey:'a',expectedMatchIds:empty.map(row=>row.matchId),matches:empty},'seed',{evidenceVersion:2}).reason).toBe('no_role_opportunities');
+ });
+ it('explains two strong roles whose order changes without issuing a compound title',()=>{
+  const short=[0,0,0,0,95,95,95,70,70,95], team=[0,0,0,0,95,70,70,95,95,95];
+  const matches=ms.map((row,i)=>({...row,teamImpact:{teamDamageShare:team[i]},roleEvidence:{...row.roleEvidence,
+    distanceDamage:{short:3*short[i],mid:300-3*short[i],long:0}}}));
+  const result=roleWindowStability(matches,reference);
+  expect(result.agreement).toBe(.6);
+  expect(result.decision).toMatchObject({primaryRole:'pending',status:'pending',presentation:'combined',secondaryRole:null});
+  expect(result.decision.observedRoles).toEqual(['brawler','mainGun']);
+  expect(result.decision.title).toContain('복합');
+ });
+});

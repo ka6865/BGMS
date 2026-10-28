@@ -170,7 +170,67 @@ function aggregateRoleEvidence(matches: any[]) {
   };
 }
 
-export function aggregateMatches(matches: any[]) {
+export interface TeamRoleEvidence {
+  matchCount: number;
+  rescueCount: number;
+  rescueOpportunityCount: number;
+  teamDamageShare: number | null;
+  teamDamageShareMatches: number;
+  tradeKills: number;
+  teammateKnocks: number;
+  tradeRateMatches: number;
+  tradeLatencySec: number | null;
+  tradeLatencyMatches: number;
+  baitPerMatch: number | null;
+  supportPerMatch: number | null;
+  supportMatches: number;
+  focusFirePerMatch: number | null;
+  assistShare: number | null;
+  crossfireMatches: number;
+}
+
+function aggregateTeamRoleEvidence(matches: any[]): TeamRoleEvidence {
+  const nonNegative = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
+  const teamRows = matches.map((match) => ({match, role: match?.roleEvidence}))
+    .filter(({match}) => nonNegative(match?.teamContext?.myRosterSize) && match.teamContext.myRosterSize > 1);
+  const shares = teamRows.map(({match}) => match?.teamImpact?.teamDamageShare)
+    .filter((value): value is number => nonNegative(value) && value <= 100);
+  const tradeRows = teamRows.map(({match}) => match).filter((match) =>
+    nonNegative(match?.tradeStats?.tradeKills) && nonNegative(match?.tradeStats?.teammateKnocks));
+  const latencyRows = tradeRows.filter((match) => match.tradeStats.tradeKills > 0 && nonNegative(match.tradeStats.tradeLatencyMs));
+  const supportRows = teamRows.map(({match}) => match).filter((match) =>
+    nonNegative(match?.tradeStats?.baitCount) && nonNegative(match?.tradeStats?.suppCount));
+  const focusRows = teamRows.filter(({role, match}) => nonNegative(role?.focusFireCount)
+    && nonNegative(match?.killContribution?.solo) && nonNegative(match?.killContribution?.cleanup) && nonNegative(match?.killContribution?.assist));
+  const contribution = focusRows.reduce((sum, {match}) => {
+    sum.solo += match.killContribution.solo;
+    sum.cleanup += match.killContribution.cleanup;
+    sum.assist += match.killContribution.assist;
+    sum.focus += match.roleEvidence.focusFireCount;
+    return sum;
+  }, {solo: 0, cleanup: 0, assist: 0, focus: 0});
+  return {
+    matchCount: teamRows.length,
+    rescueCount: teamRows.reduce((sum, {role}) => sum + role.rescueCount, 0),
+    rescueOpportunityCount: teamRows.reduce((sum, {role}) => sum + role.rescueOpportunityCount, 0),
+    teamDamageShare: shares.length ? shares.reduce((sum, value) => sum + value, 0) / shares.length : null,
+    teamDamageShareMatches: shares.length,
+    tradeKills: tradeRows.reduce((sum, match) => sum + match.tradeStats.tradeKills, 0),
+    teammateKnocks: tradeRows.reduce((sum, match) => sum + match.tradeStats.teammateKnocks, 0),
+    tradeRateMatches: tradeRows.length,
+    tradeLatencySec: latencyRows.length ? latencyRows.reduce((sum, match) => sum + match.tradeStats.tradeLatencyMs, 0) / latencyRows.length / 1000 : null,
+    tradeLatencyMatches: latencyRows.length,
+    baitPerMatch: supportRows.length ? supportRows.reduce((sum, match) => sum + match.tradeStats.baitCount, 0) / supportRows.length : null,
+    supportPerMatch: supportRows.length ? supportRows.reduce((sum, match) => sum + match.tradeStats.suppCount, 0) / supportRows.length : null,
+    supportMatches: supportRows.length,
+    focusFirePerMatch: focusRows.length ? contribution.focus / focusRows.length : null,
+    assistShare: contribution.solo + contribution.cleanup + contribution.assist >= 3
+      ? contribution.assist / (contribution.solo + contribution.cleanup + contribution.assist) * 100 : null,
+    crossfireMatches: focusRows.length,
+  };
+}
+
+export function aggregateMatches(matches: any[], options?: { roleEvidenceVersion?: 2 }) {
   const inputMatches = Array.isArray(matches) ? matches : [];
   let totalKills = 0, totalDamage = 0, totalDamageImpact = 0, totalTeamDamageShare = 0, totalTeamKillShare = 0;
   let damageImpactCount = 0, teamDamageShareCount = 0, teamKillShareCount = 0;
@@ -596,9 +656,13 @@ export function aggregateMatches(matches: any[]) {
     death_phase: deathPhaseCount,
   });
 
+  const roleEvidenceV1 = aggregateRoleEvidence(inputMatches);
+  const roleEvidence = options?.roleEvidenceVersion === 2 && roleEvidenceV1
+    ? {...roleEvidenceV1, version: 2 as const, team: aggregateTeamRoleEvidence(inputMatches)}
+    : roleEvidenceV1;
   return {
     metricMatchCounts,
-    roleEvidence: aggregateRoleEvidence(inputMatches),
+    roleEvidence,
     rawMetricValues: {
       pressure_index: pressureIndexCount > 0 ? totalPressureIndex / pressureIndexCount : null,
       reaction_latency: measuredReactionLatencySec,

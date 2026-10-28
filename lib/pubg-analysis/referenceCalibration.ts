@@ -3,8 +3,8 @@ import { createHash } from 'node:crypto';
 import { ANALYSIS_CALCULATION_VERSION, RESULT_VERSION, POPULATION_EVIDENCE_VERSION } from './constants';
 import { selectRecentMatches, selectBestMatches } from './recentMatchSelection';
 import { aggregateMatches, isCompetitiveMatch } from './summaryAggregate';
-import { extractRoleMetrics, calculateRoleRawScores, classifyRole } from './roleClassifier';
-import { ROLE_REFERENCE_PERCENTILES, ROLE_REFERENCE_QUANTILES, type RoleMetricKey, type RoleReference, type RoleScoreKey } from './roleReference';
+import { extractRoleMetrics, calculateRoleRawScores, classifyRole, withObservedRole } from './roleClassifier';
+import { ROLE_REFERENCE_PERCENTILES, ROLE_REFERENCE_QUANTILES, roleScorePercentile, type RoleMetricKey, type RoleReference, type RoleScoreKey } from './roleReference';
 import { firstReplyLatencyMs, firstReplyFailureRate } from './firstReply';
 import { isAiSummaryEligibleMatch } from './matchEligibility';
 import { isCanonicalBenchmarkTier, getBenchmarkTierFamily } from './benchmarkLookup';
@@ -38,24 +38,33 @@ export function calibrationMatchWindow<T extends {played_at:string}>(rows:T[], q
   });
 }
 
-export function buildCalibrationProfile(input: CalibrationInput, seed: string, options: {evidenceVersion?: 1} = {}): { profile?: CalibrationProfile; reason?: string } {
+const matchCohort = (m: any) => `steam|${String(m?.gameMode ?? '').trim().toLowerCase()}|${isCompetitiveMatch(m) ? 'competitive' : 'official'}`;
+
+export function calibrationResults(input: CalibrationInput): any[] {
+  const wanted = new Set(input.expectedMatchIds);
+  return input.matches.filter(m => wanted.has(m?.matchId) && current(m) && m.stats?.playerId === input.accountKey);
+}
+
+export function buildCalibrationProfile(input: CalibrationInput, seed: string, options: {evidenceVersion?: 1 | 2} = {}): { profile?: CalibrationProfile; reason?: string } {
   const expected = [...new Set(input.expectedMatchIds)];
-  const wanted = new Set(expected);
-  const known = input.matches.filter(m => wanted.has(m?.matchId) && current(m) && m.stats?.playerId === input.accountKey);
+  const known = calibrationResults(input);
   if (!expected.length || expected.length > 10 || expected.some(id => !known.some(m => m.matchId === id))) return { reason: 'incomplete_window' };
   const latest = selectRecentMatches(known.map((m, sourceIndex) => ({
     id: m.matchId, createdAt: m.createdAt, gameMode: m.gameMode, matchType: m.matchType,
     mapName: m.mapName ?? null, sourceIndex, value: m,
   }))).selected;
-  const best = selectBestMatches(latest).map(m => m.value);
+  const selectedCohort = matchCohort(selectBestMatches(latest)[0]?.value);
+  const candidates = options.evidenceVersion === 2 ? latest.filter(row => matchCohort(row.value) === selectedCohort) : latest;
+  const best = selectBestMatches(candidates).map(m => m.value);
   if (best.length < 3) return { reason: 'fewer_than_three_matches' };
-  const cohorts = new Set(best.map(m => `steam|${String(m.gameMode).trim().toLowerCase()}|${isCompetitiveMatch(m) ? 'competitive' : 'official'}`));
+  const cohorts = new Set(best.map(matchCohort));
   if (cohorts.size !== 1) return { reason: 'mixed_cohort' };
   const cohort = [...cohorts][0];
   if (!/^steam\|(?:duo|squad)(?:-fpp)?\|(?:official|competitive)$/.test(cohort)) return { reason: 'outside_squad_scope' };
-  const stats = aggregateMatches(best);
-  if (options.evidenceVersion === 1 && stats.roleEvidence === null) return {reason: 'incomplete_role_evidence'};
+  const stats = aggregateMatches(best, options.evidenceVersion === 2 ? {roleEvidenceVersion:2} : undefined);
+  if (options.evidenceVersion !== undefined && stats.roleEvidence === null) return {reason: 'incomplete_role_evidence'};
   if (options.evidenceVersion === 1 && stats.roleEvidence!.validWeaponHits < 6) return {reason: 'insufficient_role_hits'};
+  if (options.evidenceVersion === 2 && classifyRole({...stats,modeDistribution:{main:best[0].gameMode}},null,'B',{evidenceVersion:2,metrics:{},roles:{}}).status === 'insufficient') return {reason:'no_role_opportunities'};
   return { profile: {
     accountKey: input.accountKey, ...(input.target ? { target: input.target } : {}), cohort,
     partition: calibrationPartition(input.accountKey, seed, Boolean(input.target)),
@@ -138,8 +147,8 @@ export function buildReplyPrecision(matches: any[], seed: string) {
   });
 }
 
-function referenceFor(train: CalibrationProfile[], holdout: CalibrationProfile[], evidenceVersion?: 1) {
-  const marker = evidenceVersion ? {evidenceVersion} : {};
+function referenceFor(train: CalibrationProfile[], holdout: CalibrationProfile[], evidenceVersion?: 1 | 2) {
+  const marker = evidenceVersion ? {evidenceVersion, ...(evidenceVersion === 2 ? {cohort:(train[0] ?? holdout[0])?.cohort} : {})} : {};
   const reference: RoleReference = {...marker,metrics:{},roles:{}};
   const trainingQuantiles: RoleReference = {...marker,metrics:{},roles:{}};
   const coverage: Record<string,{train:number;holdout:number;eligible:boolean}> = {};
@@ -180,7 +189,7 @@ export function bootstrapReferenceStability(train: CalibrationProfile[], held: C
   let same=0, comparisons=0;const accountSame=held.map(()=>0);
   for(let run=0;run<BOOTSTRAP_RUNS;run++){
     const sample=Array.from({length:train.length},()=>train[Math.floor(random()*train.length)]);
-    const ref:RoleReference={...(reference.evidenceVersion ? {evidenceVersion:reference.evidenceVersion} : {}),metrics:{},roles:{}};
+    const ref:RoleReference={...reference,metrics:{},roles:{}};
     const metrics=sample.map(p=>extractRoleMetrics(p.stats,reference.evidenceVersion));
     for(const key of Object.keys(reference.metrics) as RoleMetricKey[]){
       const qs=quantiles(metrics.map(m=>m[key]).filter((v):v is number=>v!==null));
@@ -200,10 +209,10 @@ export function bootstrapReferenceStability(train: CalibrationProfile[], held: C
     }]))};
 }
 
-export function fitReferenceCandidate(profiles: CalibrationProfile[], seed:string, options: {evidenceVersion?: 1} = {}) {
+export function fitReferenceCandidate(profiles: CalibrationProfile[], seed:string, options: {evidenceVersion?: 1 | 2} = {}) {
   if(new Set(profiles.map(p=>p.accountKey)).size!==profiles.length)throw new Error('duplicate account profiles');
   const evidenceVersions = new Set(profiles.map(p => p.stats?.roleEvidence?.version ?? 0));
-  if (options.evidenceVersion === 1 && (evidenceVersions.size > 1 || [...evidenceVersions].some(version => version !== 1))) throw new Error('mixed_role_evidence');
+  if (options.evidenceVersion !== undefined && (evidenceVersions.size > 1 || [...evidenceVersions].some(version => version !== options.evidenceVersion))) throw new Error('mixed_role_evidence');
   const cohorts=[...new Set(profiles.map(p=>p.cohort))].sort().map(cohort=>{
     const group=profiles.filter(p=>p.cohort===cohort),train=group.filter(p=>p.partition==='train'),held=group.filter(p=>p.partition==='holdout');
     const fit=referenceFor(train,held,options.evidenceVersion);
@@ -231,13 +240,17 @@ export function fitReferenceCandidate(profiles: CalibrationProfile[], seed:strin
 
 /** 기준 분포 재표집과 구분하여 최근 경기 한 건 교체에 대한 판정 민감도를 측정한다. */
 export function roleWindowStability(matches: any[], reference: RoleReference) {
-  const latest = selectRecentMatches(matches.map((value, sourceIndex) => ({
+  let latest = selectRecentMatches(matches.map((value, sourceIndex) => ({
     id: value.matchId, createdAt: value.createdAt, gameMode: value.gameMode,
     matchType: value.matchType, mapName: value.mapName ?? null, sourceIndex, value,
   }))).selected;
+  if (reference.evidenceVersion === 2) {
+    const cohort = reference.cohort ?? matchCohort(selectBestMatches(latest)[0]?.value);
+    latest = latest.filter(row => matchCohort(row.value) === cohort);
+  }
   const classify = (candidates: typeof latest) => {
     const best = selectBestMatches(candidates).map(row => row.value);
-    const stats = aggregateMatches(best);
+    const stats = aggregateMatches(best, reference.evidenceVersion === 2 ? {roleEvidenceVersion:2} : undefined);
     const modes = new Set(best.map(row => String(row.gameMode)));
     const types = new Set(best.map(row => isCompetitiveMatch(row) ? "competitive" : "official"));
     const comparable = modes.size === 1 && types.size === 1;
@@ -253,20 +266,42 @@ export function roleWindowStability(matches: any[], reference: RoleReference) {
     const row = classify(latest.filter((_, current) => current !== index));
     return {excludedMatchId: excluded.id, selectedMatchIds: row.selectedMatchIds,
       primaryRole: row.primaryRole, secondaryRole: row.secondaryRole, title: row.title};
-  });
+  }).filter(row => reference.evidenceVersion !== 2 || row.selectedMatchIds.slice().sort().join("|") !== baseline.selectedMatchIds.slice().sort().join("|"));
   const agreement = variants.length ? variants.filter(row => row.primaryRole === baseline.primaryRole).length / variants.length : null;
   const secondaryAgreement = variants.length ? variants.filter(row => row.secondaryRole === baseline.secondaryRole).length / variants.length : null;
-  let decision = reference.evidenceVersion === 1 && (baselineRole.status === "confirmed" || baselineRole.status === "balanced") && agreement !== null && agreement < .8
+  const unstable = agreement === null || agreement < .8 || (reference.evidenceVersion === 2 && variants.length < 3);
+  let decision = reference.evidenceVersion !== undefined && (baselineRole.status === "confirmed" || baselineRole.status === "balanced") && unstable
     ? {...baselineRole, primaryRole: "pending" as const, secondaryRole: null, status: "pending" as const,
-      title: "역할 판정 보류", roleLabel: "칭호 미확정", reason: "선정 경기에 따라 대표 역할이 달라져 확정을 보류했습니다."}
+      title: "역할 판정 보류", roleLabel: "칭호 미확정", reason: reference.evidenceVersion === 2 && variants.length < 3
+        ? "선정 구성이 달라지는 비교가 3회 미만이어서 확정을 보류했습니다."
+        : reference.evidenceVersion === 2 && variants.some(row => row.primaryRole === "insufficient")
+          ? "경기 구성을 바꿔 비교할 때 필수 기록이 부족한 경우가 있어 확정을 보류했습니다."
+          : "선정 경기에 따라 대표 역할이 달라져 확정을 보류했습니다."}
     : baselineRole;
-  if (reference.evidenceVersion === 1 && decision.status === "confirmed" && baselineRole.secondaryRole !== null
+  if (reference.evidenceVersion !== undefined && decision.status === "confirmed" && baselineRole.secondaryRole !== null
     && secondaryAgreement !== null && secondaryAgreement < .8) {
     const key = baselineRole.primaryRole as RoleScoreKey;
     const primaryOnly = classifyRole(baselineStats, null, baselineTier, {...reference, roles: {[key]: reference.roles[key]}});
     if (primaryOnly.primaryRole === baselineRole.primaryRole) decision = {...decision, secondaryRole: null,
       title: primaryOnly.title, roleLabel: primaryOnly.roleLabel,
       reason: "대표 역할은 유지되지만 보조 역할은 경기 구성에 따라 달라져 확정을 보류했습니다."};
+  }
+  if (reference.evidenceVersion === 2 && decision.status === "pending") {
+    decision = withObservedRole(baselineStats, {...decision, evidence: [], weakness: null});
+    const precise = Object.entries(calculateRoleRawScores(baselineStats, reference).rawScores)
+      .map(([key, raw]) => [key as RoleScoreKey, raw === null ? null : roleScorePercentile(key as RoleScoreKey, raw, reference)] as const)
+      .filter((entry): entry is readonly [RoleScoreKey, number] => entry[1] !== null)
+      .sort((a,b) => b[1] - a[1]);
+    const pair = precise.slice(0,2);
+    const pairAgreement = pair.length === 2 && pair.every(([,score]) => score >= 85) && variants.length >= 3
+      ? variants.filter(row => pair.some(([key]) => key === row.primaryRole)).length / variants.length : 0;
+    if (pairAgreement >= .8) {
+      const names: Record<RoleScoreKey,string> = {pointMan:"선제 교전",phantomOverwatch:"원거리 교전",executor:"상대별 교전",shield:"아군 구조",avenger:"복수 처치",
+        zoneController:"외곽 운영",dropPredator:"초반 교전",decoy:"대응 지원",grenadier:"피해형 투척",brawler:"근거리 교전",mainGun:"팀 피해 기여",crossfire:"협공 타격"};
+      const title = `${pair.map(([key]) => names[key]).join(" · ")} 복합 성향`;
+      decision = {...decision, presentation:"combined", observedRoles:pair.map(([key]) => key), title, roleLabel:"관측된 플레이 성향",
+        description:`선정 ${baseline.selectedMatchIds.length}경기에서 두 역할의 근거가 함께 관측됐으며, 경기 구성이 달라질 때 대표 순서가 바뀝니다. ${decision.presentation === "observed" ? decision.description : "대표 칭호는 미확정입니다."}`};
+    }
   }
   return {...baseline, decision, runs: variants.length, agreement, secondaryAgreement,
     titleAgreement: variants.length ? variants.filter(row => row.title === baseline.title).length / variants.length : null, variants};

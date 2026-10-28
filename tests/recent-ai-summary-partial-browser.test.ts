@@ -186,6 +186,41 @@ async function clickText(page: Page, text: string) {
       await page.close();
     }
   }, 30_000);
+  it.each([{width:375,height:667},{width:390,height:844},{width:430,height:932},{width:1440,height:900}])("observed role presentation and raw evidence fit at $width", async viewport => {
+    const page = await browser.newPage();
+    await page.setViewport(viewport);
+    await page.setRequestInterception(true);
+    page.on("request", async request => {
+      if (!request.url().endsWith("/api/pubg/ai-summary")) { await request.continue(); return; }
+      const presentation = new URL(page.url()).searchParams.get("presentation") ?? "observed";
+      const roleInfo = { primaryRole:"pending", secondaryRole:null, status:"pending", presentation,
+        title:"긴 복합 성향 제목이 기존 화면에서 줄바꿈되는지 확인", roleLabel:"미확정", description:"선정 5경기의 거리 확인 피해 805 중 50m 미만 68.7%, 50m 이상 200m 미만 28.2%, 200m 이상 3.1%입니다.",
+        reason:"대표 칭호는 아직 확정되지 않았습니다.", evidence:["근거리 피해 68.7%", "선정 5경기 기준"],
+        observedRoles:["pointMan", "executor"], signatureWeapon:"M416", scores:{} };
+      await request.respond({status:200,contentType:"application/x-ndjson",body:[
+        {type:"visuals",data:{roleInfo}},{type:"cards",data:cards},
+        {type:"final",data:JSON.stringify({schemaVersion:2,analysisStatus:"partial",cards:finalCards,retryAfterSeconds:300,signature:null,actionItems:null,finalVerdict:"확인된 항목만 평가했습니다."})},
+        {type:"done",valid:true,partial:true,retryAfterSeconds:300},
+      ].map(row=>JSON.stringify(row)).join("\n")});
+    });
+    try {
+      for (const presentation of ["observed", "combined", "insufficient"]) {
+        await page.goto(`${baseUrl}?presentation=${presentation}`,{waitUntil:"networkidle0"});
+        await clickText(page,"최근 최대 10경기 AI 끝장 토론 시작");
+        await page.waitForFunction(text=>document.body.innerText.includes(text),{},message);
+        await clickText(page,"상세 분석 리포트 펼치기");
+        const expected = presentation === "insufficient" ? "근거 수집 중" : "대표 칭호 미확정";
+        await page.waitForFunction(text=>document.body.innerText.includes(text),{},expected);
+        await page.waitForFunction(()=>document.body.innerText.includes("근거리 피해 68.7% · 선정 5경기 기준"));
+        const text=await page.evaluate(()=>document.body.innerText);
+        expect(text).toContain("근거리 피해 68.7% · 선정 5경기 기준");
+        if (presentation !== "insufficient") expect(text).toContain("긴 복합 성향 제목이 기존 화면에서 줄바꿈되는지 확인");
+        expect(text).toContain("대표 칭호는 아직 확정되지 않았습니다.");
+        expect(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth)).toBe(false);
+      }
+    } finally { await page.close(); }
+  },30000);
+
   it.each([{width:375,height:667},{width:390,height:844},{width:430,height:932},{width:1440,height:900}])("mode-aware score triangle and pending evidence at $width", async (viewport) => {
     const page=await browser.newPage();
     const errors:string[]=[];

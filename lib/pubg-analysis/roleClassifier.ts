@@ -1,3 +1,4 @@
+import type { TeamRoleEvidence } from "./summaryAggregate";
 import { WEAPON_NAMES, IGNORE_WEAPONS } from "./constants";
 import { referencePercentile, roleScorePercentile, ROLE_SCORE_QUANTILES, type RoleMetricKey, type RoleReference } from "./roleReference";
 
@@ -35,6 +36,8 @@ export interface RoleInfo {
   status?: "confirmed" | "balanced" | "pending" | "insufficient";
   reason?: string;
   observedRoleCount?: number;
+  presentation?: "role" | "observed" | "combined" | "insufficient";
+  observedRoles?: RoleKey[];
 }
 
 interface RoleDefinition {
@@ -258,6 +261,45 @@ function validRoleEvidenceV1(value: any, mLen: number): value is RoleEvidenceV1 
   return COMPLETE_METRIC_COUNTS.every((key) => count(value.metricMatchCounts?.[key]) && value.metricMatchCounts[key] <= mLen);
 }
 
+type RoleEvidenceV2 = Omit<RoleEvidenceV1, "version"> & {version: 2; team: TeamRoleEvidence};
+
+function validRoleEvidenceV2(value: any, mLen: number): value is RoleEvidenceV2 {
+  if (value?.version !== 2 || !validRoleEvidenceV1({...value, version: 1}, mLen)) return false;
+  const team = value.team;
+  const nonNegative = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0;
+  const count = (v: unknown): v is number => nonNegative(v) && Number.isInteger(v);
+  if (!team || !count(team.matchCount) || team.matchCount > mLen) return false;
+  if (!["teamDamageShareMatches", "tradeRateMatches", "tradeLatencyMatches", "supportMatches", "crossfireMatches"]
+    .every(key => count(team[key]) && team[key] <= team.matchCount)) return false;
+  if (!["rescueCount", "rescueOpportunityCount", "tradeKills", "teammateKnocks"].every(key => count(team[key]))
+    || team.rescueCount > team.rescueOpportunityCount || team.tradeLatencyMatches > team.tradeRateMatches) return false;
+  return ["teamDamageShare", "tradeLatencySec", "baitPerMatch", "supportPerMatch", "focusFirePerMatch", "assistShare"]
+    .every(key => team[key] === null || nonNegative(team[key]))
+    && (team.teamDamageShare === null || team.teamDamageShare <= 100)
+    && (team.assistShare === null || team.assistShare <= 100);
+}
+
+function extractEvidenceV2Metrics(stats: any, evidence: RoleEvidenceV2): Record<RoleMetricKey, number | null> {
+  const metrics = extractEvidenceV1Metrics(stats, {...evidence, version: 1});
+  const team = evidence.team;
+  const complete = (count: number) => team.matchCount > 0 && count === team.matchCount;
+  const throws = finiteOrNull(stats.totalLethalThrows);
+  const hits = finiteOrNull(stats.totalUtilityHits);
+  const eligibleThrows = throws !== null && throws >= 3 && hits !== null && hits >= 1;
+  return {...metrics,
+    rescueRate: team.matchCount > 0 && team.rescueOpportunityCount >= 3 ? ratio(team.rescueCount, team.rescueOpportunityCount) : null,
+    teamDamageShare: complete(team.teamDamageShareMatches) ? team.teamDamageShare : null,
+    tradeRate: complete(team.tradeRateMatches) && team.teammateKnocks >= 3 ? ratio(team.tradeKills, team.teammateKnocks) : null,
+    tradeSec: complete(team.tradeRateMatches) && team.tradeLatencyMatches > 0 ? team.tradeLatencySec : null,
+    baitPerMatch: complete(team.supportMatches) ? team.baitPerMatch : null,
+    supportPerMatch: complete(team.supportMatches) ? team.supportPerMatch : null,
+    focusFirePerMatch: complete(team.crossfireMatches) ? team.focusFirePerMatch : null,
+    assistShare: complete(team.crossfireMatches) ? team.assistShare : null,
+    utilityHitsPerMatch: eligibleThrows ? hits! / stats.mLen : null,
+    lethalPerMatch: eligibleThrows ? throws! / stats.mLen : null,
+  };
+}
+
 function extractEvidenceV1Metrics(stats: any, evidence: RoleEvidenceV1): Record<RoleMetricKey, number | null> {
   const mLen = stats.mLen;
   const complete = (key: typeof COMPLETE_METRIC_COUNTS[number]) => evidence.metricMatchCounts[key] === mLen;
@@ -299,14 +341,14 @@ function extractEvidenceV1Metrics(stats: any, evidence: RoleEvidenceV1): Record<
   };
 }
 
-export function extractRoleMetrics(stats: any, evidenceVersion?: 1): Record<RoleMetricKey, number | null> {
+export function extractRoleMetrics(stats: any, evidenceVersion?: 1 | 2): Record<RoleMetricKey, number | null> {
   const evidenceMatchCount = finiteOrNull(stats?.mLen);
   const evidence = stats?.roleEvidence;
-  if (evidenceVersion === 1) {
-    if (!Number.isInteger(evidenceMatchCount) || evidenceMatchCount! < 1 || !validRoleEvidenceV1(evidence, evidenceMatchCount!)) {
+  if (evidenceVersion === 1 || evidenceVersion === 2) {
+    if (!Number.isInteger(evidenceMatchCount) || evidenceMatchCount! < 1 || !(evidenceVersion === 2 ? validRoleEvidenceV2(evidence, evidenceMatchCount!) : validRoleEvidenceV1(evidence, evidenceMatchCount!))) {
       return Object.fromEntries(Object.keys(METRIC_LABELS).map((key) => [key, null])) as Record<RoleMetricKey, number | null>;
     }
-    return extractEvidenceV1Metrics(stats, evidence);
+    return evidenceVersion === 2 ? extractEvidenceV2Metrics(stats, evidence) : extractEvidenceV1Metrics(stats, evidence);
   }
   const mLen = Math.max(1, finiteOrNull(stats?.mLen) ?? 1);
   const perMatch = (value: unknown) => {
@@ -375,7 +417,7 @@ function comboTitle(first: RoleKey, second: RoleKey): string | null {
  */
 export function calculateRoleRawScores(stats: any, reference?: RoleReference) {
   const isSoloMode = String(stats?.modeDistribution?.main ?? "").includes("solo");
-  const metrics = extractRoleMetrics(stats, reference?.evidenceVersion === 1 ? 1 : undefined);
+  const metrics = extractRoleMetrics(stats, reference?.evidenceVersion);
   const metricPercentiles = Object.fromEntries(
     (Object.keys(metrics) as RoleMetricKey[]).map((key) => [key, metricPercentile(key, metrics[key], reference)]),
   ) as Record<RoleMetricKey, number | null>;
@@ -384,7 +426,7 @@ export function calculateRoleRawScores(stats: any, reference?: RoleReference) {
   for (const [role, definition] of Object.entries(ROLE_DEFINITIONS) as Array<[Exclude<RoleKey, "fieldCommander">, RoleDefinition]>) {
     const observed = definition.metrics.map((key) => metricPercentiles[key]).filter((value): value is number => value !== null);
     // 선봉 복합 분포는 선제 성공률과 반격 시간이 함께 있을 때만 쓴다.
-    const required = reference?.evidenceVersion === 1 || role === "pointMan" ? definition.metrics.length : Math.ceil(definition.metrics.length / 2);
+    const required = reference?.evidenceVersion !== undefined || role === "pointMan" ? definition.metrics.length : Math.ceil(definition.metrics.length / 2);
     const enough = observed.length >= required;
     // 지표 백분위의 평균을 다시 역할 점수 분포의 백분위로 바꾼다.
     rawScores[role] = (definition.teamOnly && (isSoloMode || (reference?.evidenceVersion === 1 && stats?.roleEvidence?.teamMatchCount !== stats?.mLen))) || !enough
@@ -395,11 +437,19 @@ export function calculateRoleRawScores(stats: any, reference?: RoleReference) {
   return { metricPercentiles, rawScores };
 }
 
-function classifyEvidenceV1(stats: any, overallTier: string, reference: RoleReference): RoleInfo {
+function classifyEvidenceCandidate(stats: any, overallTier: string, reference: RoleReference): RoleInfo {
   const isSoloMode = String(stats?.modeDistribution?.main ?? "").includes("solo");
   const evidence = stats?.roleEvidence;
   const mLen = finiteOrNull(stats?.mLen);
-  const baseValid = Number.isInteger(mLen) && mLen! >= 3 && validRoleEvidenceV1(evidence, mLen!) && evidence.validWeaponHits >= 6;
+  const v2 = reference.evidenceVersion === 2;
+  const valid = v2 ? validRoleEvidenceV2(evidence, mLen ?? 0) : validRoleEvidenceV1(evidence, mLen ?? 0);
+  const metrics = extractRoleMetrics(stats, reference.evidenceVersion);
+  const hasAction = valid && ((evidence.validWeaponHits > 0)
+    || (metrics.rescueRate !== null) || (metrics.lethalPerMatch !== null)
+    || (metrics.duelWin !== null) || (metrics.initiative !== null)
+    || (metrics.teamDamageShare !== null && metrics.teamDamageShare > 0)
+    || (metrics.supportPerMatch !== null && metrics.supportPerMatch > 0));
+  const baseValid = Number.isInteger(mLen) && mLen! >= 3 && valid && (v2 ? hasAction : evidence.validWeaponHits >= 6);
   const { metricPercentiles, rawScores } = calculateRoleRawScores(stats, reference);
   const scores = { fieldCommander: null } as RoleScore;
   const preciseScores = {} as Record<Exclude<RoleKey, "fieldCommander">, number | null>;
@@ -426,7 +476,7 @@ function classifyEvidenceV1(stats: any, overallTier: string, reference: RoleRefe
   let secondaryRole: RoleKey | null = null;
   if (!baseValid) {
     primaryRole = "insufficient"; status = "insufficient";
-    reason = !validRoleEvidenceV1(evidence, mLen ?? 0)
+    reason = !valid
       ? "새 기준으로 확인된 경기 기록이 필요합니다."
       : "칭호를 판정할 만큼 교전 기록이 쌓이지 않았습니다.";
   } else if (ranked.length === 0) {
@@ -444,7 +494,8 @@ function classifyEvidenceV1(stats: any, overallTier: string, reference: RoleRefe
     status = balanced ? "balanced" : "pending";
     reason = balanced
       ? "관측된 여러 역할에서 점수가 고르게 나타납니다."
-      : "비교 범위 또는 역할 점수 분포가 균형형 기준을 충족하지 않아 보류했습니다.";
+      : v2 ? "관측 가능한 역할은 있으나 특화 역할 또는 균형형 확정 기준을 충족하지 않았습니다."
+        : "비교 범위 또는 역할 점수 분포가 균형형 기준을 충족하지 않아 보류했습니다.";
   }
 
   const candidateNames: Partial<Record<Exclude<RoleKey, "fieldCommander">, {label: string; title: string}>> = {
@@ -499,16 +550,50 @@ function classifyEvidenceV1(stats: any, overallTier: string, reference: RoleRefe
   if (vehicleCombatSum >= 3 && (finiteOrNull(stats?.vehicleCombatMatchCount) ?? 0) >= 2) badges.push("차량 교전");
   if (weapon.isSpecial && weapon.stats.isReliable) badges.push(weapon.name);
   else if (weapon.stats.isReliable) badges.push(`${weapon.name} 주력`);
-  return {
+  const result: RoleInfo = {
     primaryRole, secondaryRole, overallTier, title: combo ?? display.title, roleLabel,
     description: roleDescription, evidence: evidenceText, badges, signatureWeapon: weapon.name,
     signatureWeaponStats: { kills: weapon.stats.kills, dbnos: weapon.stats.dbnos, consistency: weapon.stats.consistency, isReliable: weapon.stats.isReliable },
     weakness, scores, status, reason, observedRoleCount: ranked.length,
   };
+  return v2 ? withObservedRole(stats, {...result, presentation: status === "insufficient" ? "insufficient" : "role"}) : result;
+}
+
+/** 미확정 칭호를 비교 순위가 아닌 실제 관측 사실로 설명한다. */
+export function withObservedRole(stats: any, role: RoleInfo): RoleInfo {
+  if (role.status !== "pending" || !validRoleEvidenceV2(stats?.roleEvidence, stats?.mLen) || stats.mLen < 3) return role;
+  const evidence = stats.roleEvidence as RoleEvidenceV2;
+  const distance = evidence.distanceDamage;
+  const total = distance.short + distance.mid + distance.long;
+  let title: string;
+  let fact: string;
+  let observedRoles: RoleKey[] = [];
+  if (total >= MIN_DISTANCE_DAMAGE && evidence.distanceHitCount > 0) {
+    const shares = [distance.short, distance.mid, distance.long].map(value => 100 * value / total);
+    const dominant = shares.findIndex(value => value > 50);
+    title = dominant < 0 ? "여러 거리 교전 관측" : ["근거리 교전 중심", "중거리 교전 중심", "원거리 교전 중심"][dominant];
+    fact = `선정 ${stats.mLen}경기의 거리 확인 피해 ${total.toFixed(0)} 중 50m 미만 ${shares[0].toFixed(1)}%, 50m 이상 200m 미만 ${shares[1].toFixed(1)}%, 200m 이상 ${shares[2].toFixed(1)}%입니다.`;
+    observedRoles = dominant === 0 ? ["brawler"] : dominant === 2 ? ["phantomOverwatch"] : [];
+  } else if (evidence.team.matchCount > 0 && evidence.team.rescueOpportunityCount >= 3) {
+    title = "아군 구조 기록 관측";
+    fact = `선정 ${stats.mLen}경기 중 팀원과 함께한 ${evidence.team.matchCount}경기에서 구조 기회 ${evidence.team.rescueOpportunityCount}회 중 ${evidence.team.rescueCount}회 구조했습니다.`;
+    observedRoles = ["shield"];
+  } else if (evidence.metricMatchCounts.duelWin === stats.mLen && (finiteOrNull(stats.totalDuelWins) ?? 0) + (finiteOrNull(stats.totalDuelLosses) ?? 0) >= 3) {
+    title = "상대별 교전 기록";
+    fact = `선정 ${stats.mLen}경기의 상대별 교전에서 승리 ${stats.totalDuelWins}회, 패배 ${stats.totalDuelLosses}회가 관측됐습니다.`;
+  } else if (evidence.team.matchCount > 0 && (evidence.team.supportPerMatch ?? 0) > 0) {
+    title = "처치 지원 기록 관측";
+    fact = `선정 ${stats.mLen}경기 중 팀원과 함께한 ${evidence.team.matchCount}경기의 유효 ${evidence.team.supportMatches}경기에서 경기당 처치 지원 ${evidence.team.supportPerMatch!.toFixed(1)}회가 관측됐습니다.`;
+  } else if ((finiteOrNull(stats.totalLethalThrows) ?? 0) > 0) {
+    title = "피해형 투척 사용 관측";
+    fact = `선정 ${stats.mLen}경기에서 피해형 투척 ${stats.totalLethalThrows}회가 관측됐습니다.`;
+  } else return {...role, evidence: [], weakness: null};
+  return {...role, presentation: "observed", observedRoles, title, roleLabel: "관측된 플레이 성향",
+    description: fact, evidence: [fact], weakness: null};
 }
 
 export function classifyRole(stats: any, _bench: any, overallTier: string, reference?: RoleReference): RoleInfo {
-  if (reference && Object.hasOwn(reference, "evidenceVersion") && reference.evidenceVersion !== undefined && reference.evidenceVersion !== 1) {
+  if (reference && Object.hasOwn(reference, "evidenceVersion") && reference.evidenceVersion !== undefined && reference.evidenceVersion !== 1 && reference.evidenceVersion !== 2) {
     const scores = Object.fromEntries(Object.keys(ROLE_SCORE_QUANTILES).map((role) => [role, null])) as RoleScore;
     scores.fieldCommander = null;
     return { primaryRole: "insufficient", secondaryRole: null, overallTier, title: INSUFFICIENT.title, roleLabel: INSUFFICIENT.label,
@@ -516,7 +601,7 @@ export function classifyRole(stats: any, _bench: any, overallTier: string, refer
       signatureWeaponStats: { kills: 0, dbnos: 0, consistency: 0, isReliable: false }, weakness: null, scores,
       status: "insufficient", reason: "지원하지 않는 근거 버전입니다.", observedRoleCount: 0 };
   }
-  if (reference?.evidenceVersion === 1) return classifyEvidenceV1(stats, overallTier, reference);
+  if (reference?.evidenceVersion === 1 || reference?.evidenceVersion === 2) return classifyEvidenceCandidate(stats, overallTier, reference);
   const isSoloMode = String(stats?.modeDistribution?.main ?? "").includes("solo");
   const { metricPercentiles, rawScores } = calculateRoleRawScores(stats, reference);
   const scores = { fieldCommander: null } as RoleScore;

@@ -12,6 +12,7 @@ import {
 } from "../lib/pubg-analysis/recentMatchSelection";
 import { AI_CACHE_RETENTION_DAYS, AI_CACHE_TABLES, cleanupExpiredCache } from "../scripts/cleanup_ai_cache";
 import crypto from "node:crypto";
+import * as roles from "../lib/pubg-analysis/roleClassifier";
 
 const roleReferenceState = vi.hoisted(() => ({ version: 1 }));
 vi.mock('../lib/pubg-analysis/roleReference', async (importOriginal) => {
@@ -1471,6 +1472,21 @@ describe("AI cache route stabilization", () => {
       mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: supabase });
       return summaryCache;
     }
+
+    it("미확정 관측을 부여된 칭호나 완성형으로 AI에 전달하지 않는다", async () => {
+      setupSummary("observed-prompt");
+      const role=roles.classifyRole({},null,"B");
+      const spy=vi.spyOn(roles,"classifyRole").mockReturnValue({...role,primaryRole:"pending",status:"pending",presentation:"observed",title:"근거리 교전 중심"});
+      try {
+        mockSummaryGeminiResponse();
+        const response=await aiSummaryPOST(createRequest({matchIds:["observed-prompt"],nickname:"Player_A",platform:"kakao",force:true}));
+        await response.text();
+        const prompt=mockStreamText.mock.calls[0]?.[0]?.prompt;
+        expect(prompt).toContain("관측된 성향 (대표 칭호 미확정): 근거리 교전 중심");
+        expect(prompt).not.toContain("부여된 칭호: 근거리 교전 중심");
+        expect(prompt).not.toContain("식별된 약점 없음 (완성형)");
+      } finally {spy.mockRestore();}
+    });
 
     function sdkResult(parts: unknown[], usage: { inputTokens?: number; outputTokens?: number } = {}) {
       return {

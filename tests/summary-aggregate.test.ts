@@ -51,3 +51,64 @@ describe("versioned personal role evidence", () => {
     expect(aggregateMatches([{roleEvidence:{...role,maxHitDist:0}}]).roleEvidence?.maxHitDist).toBe(0);
   });
 });
+
+describe("version 2 team role evidence", () => {
+  const personal = { version: 1, validWeaponHits: 1, distanceHitCount: 1,
+    distanceDamage: {short: 1, mid: 0, long: 0}, maxHitDist: 10, pressureIndex: 1,
+    focusFireCount: 1, rescueCount: 1, rescueOpportunityCount: 1,
+    positionSampleCount: 1, edgePlayCount: 0 };
+  const teamMatch = (teamImpact: unknown, tradeStats: unknown, killContribution: unknown, role = personal) => ({
+    roleEvidence: role, teamContext: {myRosterSize: 4}, teamImpact, tradeStats, killContribution,
+  });
+  const observed = () => teamMatch(
+    {teamDamageShare: 40}, {tradeKills: 1, teammateKnocks: 2, tradeLatencyMs: 2000, baitCount: 2, suppCount: 1},
+    {solo: 1, cleanup: 1, assist: 1}, {...personal, focusFireCount: 2},
+  );
+  const teamEvidence = (matches: any[]) => {
+    const evidence = aggregateMatches(matches, {roleEvidenceVersion:2}).roleEvidence;
+    if (!evidence || evidence.version !== 2) throw new Error("expected version 2 role evidence");
+    return evidence.team;
+  };
+  it("preserves default v1 and only adds v2 on explicit request", () => {
+    const matches = [observed()];
+    const legacy = aggregateMatches(matches);
+    expect(legacy.roleEvidence).toMatchObject({version:1, matchCount:1, rescueCount:1});
+    expect(legacy.roleEvidence).not.toHaveProperty("team");
+    expect(aggregateMatches(matches, {roleEvidenceVersion:2}).roleEvidence).toMatchObject({
+      version:2, matchCount:1, rescueCount:1,
+      team: {matchCount:1, rescueCount:1, rescueOpportunityCount:1, teamDamageShare:40,
+        teamDamageShareMatches:1, tradeKills:1, teammateKnocks:2, tradeRateMatches:1,
+        tradeLatencySec:2, tradeLatencyMatches:1, baitPerMatch:2, supportPerMatch:1,
+        supportMatches:1, focusFirePerMatch:2, crossfireMatches:1},
+    });
+    expect(teamEvidence(matches).assistShare).toBeCloseTo(100/3);
+  });
+  it("uses team-only denominators, does not dilute a team match with a roster-one match", () => {
+    const solo = {...observed(), teamContext:{myRosterSize:1}};
+    const result = teamEvidence([observed(), solo]);
+    expect(result).toMatchObject({matchCount:1, teamDamageShare:40, teamDamageShareMatches:1});
+  });
+  it("keeps independent missing denominators and observed zero distinct", () => {
+    const partial = teamMatch({teamDamageShare:0}, {tradeKills:0, teammateKnocks:null, tradeLatencyMs:null, baitCount:0, suppCount:null},
+      {solo:0, cleanup:0, assist:0}, {...personal, focusFireCount:0});
+    const result = teamEvidence([observed(), partial]);
+    expect(result).toMatchObject({teamDamageShare:20,teamDamageShareMatches:2,tradeKills:1,teammateKnocks:2,tradeRateMatches:1,
+      tradeLatencySec:2,tradeLatencyMatches:1,baitPerMatch:2,supportPerMatch:1,supportMatches:1,
+      focusFirePerMatch:1,crossfireMatches:2});
+    expect(result?.assistShare).toBeCloseTo(100/3);
+    const zeroMatch = teamMatch({teamDamageShare:0}, {tradeKills:0, teammateKnocks:0, tradeLatencyMs:null, baitCount:0, suppCount:0},
+      {solo:0, cleanup:0, assist:0}, {...personal, focusFireCount:0});
+    const zero = teamEvidence([zeroMatch]);
+    expect(zero).toMatchObject({teamDamageShare:0,baitPerMatch:0,focusFirePerMatch:0,assistShare:null,crossfireMatches:1});
+  });
+  it("takes rescue totals once from validated personal evidence and withholds invalid metric rows", () => {
+    const malformed = observed();
+    malformed.teamImpact = {teamDamageShare:101};
+    malformed.tradeStats = {tradeKills:null, teammateKnocks:1, tradeLatencyMs:0, baitCount:2, suppCount:-1};
+    malformed.killContribution = {solo:1, cleanup:1, assist:5};
+    const result = teamEvidence([observed(), malformed]);
+    expect(result).toMatchObject({rescueCount:2,rescueOpportunityCount:2,teamDamageShare:40,teamDamageShareMatches:1,
+      tradeKills:1,teammateKnocks:2,tradeRateMatches:1,tradeLatencySec:2,tradeLatencyMatches:1,
+      baitPerMatch:2,supportPerMatch:1,supportMatches:1,focusFirePerMatch:2,crossfireMatches:2});
+  });
+});
