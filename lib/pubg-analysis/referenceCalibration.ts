@@ -314,7 +314,11 @@ export function roleWindowStability(matches: any[], reference: RoleReference) {
     const pair = precise.slice(0,2);
     const pairAgreement = pair.length === 2 && pair.every(([,score]) => score >= 85) && variants.length >= 3
       ? variants.filter(row => pair.some(([key]) => key === row.primaryRole)).length / variants.length : 0;
-    if (pairAgreement >= .8) {
+    // "대표 순서가 바뀝니다"는 두 구체 역할 사이의 실제 순위 변경이 있을 때만 쓴다.
+    // 지휘관↔역할 변경만으로는 복합 성향으로 설명하지 않고 관측 설명을 유지한다.
+    const pairRankFlip = variants.some(row => row.disagreement === "rank_flip"
+      && pair.some(([key]) => key === baseline.primaryRole) && pair.some(([key]) => key === row.primaryRole));
+    if (pairAgreement >= .8 && pairRankFlip) {
       const names: Record<RoleScoreKey,string> = {pointMan:"선제 교전",phantomOverwatch:"원거리 교전",executor:"상대별 교전",shield:"아군 구조",avenger:"복수 처치",
         zoneController:"외곽 운영",dropPredator:"초반 교전",decoy:"대응 지원",grenadier:"피해형 투척",brawler:"근거리 교전",mainGun:"팀 피해 기여",crossfire:"협공 타격"};
       const title = `${pair.map(([key]) => names[key]).join(" · ")} 복합 성향`;

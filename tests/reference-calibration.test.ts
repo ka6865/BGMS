@@ -268,6 +268,23 @@ describe('v2 changed-window evidence',()=>{
   expect(result.variants.every(row=>row.primaryRole==='brawler')).toBe(true);
   expect(result.disagreements).toMatchObject({rank_flip:0,gained_confirmation:5,lost_confirmation:0,state_change:0});
  });
+ it('does not describe a commander-to-role change as a two-role order change',()=>{
+  const at=(value:number,percentile:number)=>levels.map(l=>Number((l*value/percentile).toFixed(6)));
+  // 강한 두 역할(근거리·원거리)은 모든 경기에서 같고, 약한 네 역할은 6번째 경기가 들어오면 75 아래로 내려가 지휘관이 깨진다.
+  const matches=ms.map((row,i)=>{const good=i>=5;return {...row,totalTeams:20,teamImpact:{teamDamageShare:good?50:0},
+    goldenTimeDamage:good?{early:100,mid1:0,mid2:0,late:0}:{early:0,mid1:100,mid2:0,late:0},killContribution:{solo:0,cleanup:0,assist:1},
+    roleEvidence:{...row.roleEvidence,distanceDamage:{short:270,mid:0,long:30},maxHitDist:300,focusFireCount:good?4:0,rescueCount:good?1:0,rescueOpportunityCount:1}};});
+  const commanderReference={evidenceVersion:2 as const,
+    metrics:{shortShare:at(90,92),longShare:at(10,92),maxHitDist:at(300,92),teamDamageShare:at(50,80),earlyShare:at(100,80),rescueRate:at(100,80),focusFirePerMatch:at(4,80),assistShare:at(100,80)},
+    roles:{brawler:levels,phantomOverwatch:levels,mainGun:levels,dropPredator:levels,shield:levels,crossfire:levels}};
+  const result=roleWindowStability(matches,commanderReference);
+  expect(result.primaryRole).toBe('fieldCommander');
+  expect(result.variants.map(row=>row.primaryRole)).toEqual(Array(5).fill('brawler'));
+  expect(result.disagreements).toMatchObject({rank_flip:0,commander_change:5});
+  expect(result.decision).toMatchObject({status:'pending',primaryRole:'pending',presentation:'observed'});
+  expect(result.decision.title).not.toContain('복합');
+  expect(result.decision.description).not.toContain('대표 순서가 바뀝니다');
+ });
  it('explains two strong roles whose order changes without issuing a compound title',()=>{
   const short=[0,0,0,0,95,95,95,70,70,95], team=[0,0,0,0,95,70,70,95,95,95];
   const matches=ms.map((row,i)=>({...row,teamImpact:{teamDamageShare:team[i]},roleEvidence:{...row.roleEvidence,
