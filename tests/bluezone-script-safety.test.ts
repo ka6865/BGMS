@@ -91,16 +91,35 @@ describe("bluezone maintenance safety", () => {
     expect(mocks.upload).not.toHaveBeenCalled();
   });
 
-  it("keeps the entire existing dataset when another game succeeded before an upstream failure", async () => {
-    mocks.download.mockResolvedValue({ data: new Blob([JSON.stringify([{ matchId: "old", mapName: "Baltic_Main", phases: [{ phase: 1, x: 1, y: 1, radius: 1 }] }])]), error: null });
+  it("saves the games that succeeded and still reports an upstream failure", async () => {
+    const existing = { matchId: "old", mapName: "Baltic_Main", phases: [{ phase: 1, x: 3000, y: 3000, radius: 4000 }] };
+    mocks.download.mockResolvedValue({ data: new Blob([JSON.stringify([existing])]), error: null });
     mocks.from.mockImplementation(name => table(name === "processed_match_telemetry"
       ? ["success", "failure"].map(match_id => ({ match_id, platform: "steam", mapName: "에란겔" })) : null));
     mocks.archive.mockResolvedValueOnce({ source: "shared", events: [{ _T: "LogGameStatePeriodic", gameState: { safetyZoneRadius: 400000, safetyZonePosition: { x: 300000, y: 300000 } } }] });
     vi.mocked(fetch).mockResolvedValue(new Response("", { status: 503 }));
+    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
     const { extractSimulatorData } = await import("../scripts/extract_bluezone");
     await expect(extractSimulatorData()).rejects.toThrow("bluezone-partial-fetch-failure");
-    expect(mocks.upload).not.toHaveBeenCalled();
-    expect(mocks.write).not.toHaveBeenCalled();
+    expect(mocks.upload).toHaveBeenCalledTimes(1);
+    const uploaded = JSON.parse(String(mocks.upload.mock.calls[0]?.[1]));
+    expect(uploaded.map((match: { matchId: string }) => match.matchId)).toEqual(["old", "success"]);
+    expect(mocks.write).toHaveBeenCalledTimes(1);
+    expect(log.mock.calls.flat().join("\n")).toContain("::warning title=자기장 수집 일부 실패::");
+    log.mockRestore();
+  });
+
+  it("saves the games extracted before a PUBG rate limit and stops calling the API", async () => {
+    mocks.from.mockImplementation(name => table(name === "processed_match_telemetry"
+      ? ["success", "limited", "later"].map(match_id => ({ match_id, platform: "steam", mapName: "에란겔" })) : null));
+    mocks.archive.mockResolvedValueOnce({ source: "shared", events: [{ _T: "LogGameStatePeriodic", gameState: { safetyZoneRadius: 400000, safetyZonePosition: { x: 300000, y: 300000 } } }] });
+    vi.mocked(fetch).mockResolvedValue(new Response("", { status: 429 }));
+    const { extractSimulatorData } = await import("../scripts/extract_bluezone");
+    await expect(extractSimulatorData()).rejects.toThrow("bluezone-pubg-rate-limited");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(mocks.upload).toHaveBeenCalledTimes(1);
+    const uploaded = JSON.parse(String(mocks.upload.mock.calls[0]?.[1]));
+    expect(uploaded.map((match: { matchId: string }) => match.matchId)).toEqual(["success"]);
   });
 
   it("stops immediately when the telemetry asset returns a rate limit", async () => {

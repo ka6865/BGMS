@@ -39,7 +39,7 @@ const HEALTH_GATED_COMMANDS = [
   "npx tsx scripts/cleanup_ai_cache.ts",
   "npx tsx scripts/cleanup_analytics_events.ts",
   "npx tsx scripts/cleanup_match_stats_raw.ts --apply",
-  "npx tsx scripts/audit_processed_telemetry_identity.ts --recent-days 2 --max-rows 1000 --target-limit 50",
+  "npx tsx scripts/audit_processed_telemetry_identity.ts --recent-days 2 --max-rows 1000 --page-size 100 --target-limit 50",
   "npx tsx scripts/scrape_elite.ts",
   "npx tsx scripts/extract_bluezone.ts",
   "npx tsx scripts/sync_patch_notes.ts",
@@ -47,8 +47,9 @@ const HEALTH_GATED_COMMANDS = [
   "npx tsx scripts/cleanup_pubg_cache.ts",
   "npx tsx scripts/run_hotdrop.ts",
 ];
+// 읽기 전용 감사는 continue-on-error 로 두고, 실패는 일일 보고와 ::warning 으로 드러낸다.
 const DATA_STEP_COMMANDS = HEALTH_GATED_COMMANDS.filter(
-  (command) => command !== "npx tsx scripts/audit_processed_telemetry_identity.ts --recent-days 2 --max-rows 1000 --target-limit 50",
+  (command) => !command.startsWith("npx tsx scripts/audit_processed_telemetry_identity.ts"),
 );
 
 describe("일일 유지보수: 앞 step 실패가 뒤 step 을 막지 않는다", () => {

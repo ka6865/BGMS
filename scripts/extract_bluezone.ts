@@ -114,6 +114,7 @@ export async function extractSimulatorData(options: BluezoneOptions = {}) {
   let processedCount = 0;
   let attemptedCount = 0;
   let failedCount = 0;
+  let rateLimited = false;
   const sources = { shared: 0, legacy: 0, inline: 0, upstream: 0, notFound: 0 };
   const deadline = Date.now() + 5 * 60_000;
 
@@ -176,7 +177,11 @@ export async function extractSimulatorData(options: BluezoneOptions = {}) {
           sources.upstream++;
         }
       } catch (error) {
-        if (error instanceof Error && error.message === "bluezone-pubg-rate-limited") throw error;
+        if (error instanceof Error && error.message === "bluezone-pubg-rate-limited") {
+          // 같은 키를 쓰는 뒤 단계의 한도를 지키도록 즉시 멈추되, 이미 추출한 매치는 아래에서 저장한다.
+          rateLimited = true;
+          break;
+        }
         failedCount++;
         console.warn("[Bluezone] 매치 원본 조회 실패 · 기존 데이터는 유지합니다.", { errorCode: safeBluezoneErrorCode(error) });
       }
@@ -269,7 +274,8 @@ export async function extractSimulatorData(options: BluezoneOptions = {}) {
   }
 
   const changed = processedCount > 0 || cleanedMatches.length !== allMatches.length;
-  if (failedCount > 0) throw new Error("bluezone-partial-fetch-failure");
+  // 일부 매치 조회가 실패해도 성공한 추출분은 기존 데이터에 더해 저장한다.
+  // 실패한 매치는 저장 파일에 없으므로 다음 실행에서 다시 시도된다.
   if (!options.dryRun && changed) {
     const { error: uploadError } = await supabase.storage.from("app-data").upload("bluezone_data_v2.json", JSON.stringify(finalMatches), {
       contentType: "application/json",
@@ -283,8 +289,16 @@ export async function extractSimulatorData(options: BluezoneOptions = {}) {
     fs.writeFileSync(outputPath, JSON.stringify(finalMatches, null, 2));
   }
   console.log(`자기장 추출: 시도 ${attemptedCount} · 처리 ${processedCount} · 조회 실패 ${failedCount} (최종 데이터: ${finalMatches.length}건)`);
-  const summary = { dryRun: Boolean(options.dryRun), attemptedCount, processedCount, failedCount, finalCount: finalMatches.length, changed, sources };
+  const summary = { dryRun: Boolean(options.dryRun), attemptedCount, processedCount, failedCount, rateLimited, finalCount: finalMatches.length, changed, sources };
   console.log(JSON.stringify(summary));
+  if (rateLimited) {
+    console.log(`::warning title=자기장 수집 한도 보호::PUBG API 429로 수집을 멈췄습니다. 처리한 ${processedCount}건은 저장했습니다.`);
+    throw new Error("bluezone-pubg-rate-limited");
+  }
+  if (failedCount > 0) {
+    console.log(`::warning title=자기장 수집 일부 실패::매치 원본 조회 ${failedCount}건이 실패했습니다. 처리한 ${processedCount}건은 저장했습니다.`);
+    throw new Error("bluezone-partial-fetch-failure");
+  }
   return summary;
 }
 

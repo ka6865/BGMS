@@ -140,9 +140,9 @@ describe("board write quota cleanup job", () => {
     const maintenance = parsed.jobs.maintenance;
     expect(isRecord(maintenance)).toBe(true);
     if (!isRecord(maintenance) || !Array.isArray(maintenance.steps)) return;
-    expect(maintenance.needs).toBe("board-write-quota-cleanup");
-    expect(maintenance.if).toContain("always()");
-    expect(maintenance.if).toContain("!cancelled()");
+    // quota cleanup 과 maintenance 는 서로 다른 테이블을 다루므로 기다리지 않고 병렬로 실행한다.
+    expect(maintenance.needs).toBeUndefined();
+    expect(maintenance.if).toBe("${{ github.ref == 'refs/heads/main' }}");
     const steps = maintenance.steps;
     const installIndex = steps.findIndex((step) => (
       isRecord(step) && step.run === "npm ci --ignore-scripts"

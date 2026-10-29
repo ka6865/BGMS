@@ -71,9 +71,10 @@ describe("pubg_player_cache 보존 정책", () => {
       compactionResult(2_000, 0),
     ]);
 
-    await cleanupInactivePlayerCache(client);
+    const result = await cleanupInactivePlayerCache(client);
 
     expect(rpc).toHaveBeenCalledTimes(4);
+    expect(result).toEqual({ batches: 4, deletedCount: 17_000, remainingCount: 0 });
   });
 
   it("한 번 실행의 삭제 규모에 상한을 둔다", async () => {

@@ -9,7 +9,24 @@ export type DailyStorageReportInput = {
   scraper: { succeeded: number; skipped: number; failed: number } | null;
   maintenanceStatus: string;
   runUrl: string;
+  stepWarnings?: string[];
 };
+
+/**
+ * continue-on-error 단계의 실패는 워크플로 결과에 드러나지 않으므로 일일 보고에 따로 적는다.
+ * 값은 GitHub Actions의 steps.<id>.outcome 과 스크립트 출력값을 그대로 받는다.
+ */
+export function buildDailyReportStepWarnings(env: Record<string, string | undefined>): string[] {
+  const warnings: string[] = [];
+  if (env.DATA_QUALITY_AUDIT_OUTCOME === "failure") {
+    warnings.push("분석 데이터 품질 감사 실패 · 조회 시간 초과 여부를 로그에서 확인하세요.");
+  }
+  const mismatchCount = Number(env.DATA_QUALITY_MISMATCH_COUNT);
+  if (Number.isInteger(mismatchCount) && mismatchCount > 0) {
+    warnings.push(`분석 데이터 식별자 불일치 ${mismatchCount.toLocaleString()}건 · Admin Agent 승인 큐를 확인하세요.`);
+  }
+  return warnings;
+}
 
 export function requireCompleteDailyReportR2Usage(usage: {
   configured: boolean;
@@ -48,6 +65,7 @@ export function buildDailyStorageReport(input: DailyStorageReportInput): string 
     `R2: ${formatMegabytes(input.r2Bytes)} / ${formatGigabytes(input.r2LimitBytes)} (${percent(input.r2Bytes, input.r2LimitBytes)})`,
     `보존 매치: 분석 ${input.processedTelemetryRows.toLocaleString()} · 원본 ${input.masterTelemetryRows.toLocaleString()} · 벤치마커 ${input.benchmarkRows.toLocaleString()}`,
     `수집 단계 요약(현재까지): ${scraper}`,
+    ...(input.stepWarnings ?? []).map(warning => `주의: ${warning}`),
     "표시된 용량·건수는 보고 생성 시점 기준이며, 뒤이어 실행되는 전적 수집·정리 결과는 아직 포함되지 않았습니다.",
     `로그: ${input.runUrl}`,
     "AI 토큰 사용 없음 · 매치 티어/분석 DB 장기 보관",
