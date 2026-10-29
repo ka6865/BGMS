@@ -1274,7 +1274,7 @@ async function enrichMatchRecords(records: Array<{ summary: LolRecentMatch; raw:
 
 // 경기 상세는 최대 MATCH_LOAD_CONCURRENCY개씩 동시에 받는다. 결과는 ID 순서대로 모으고,
 // 429를 만난 위치 뒤의 결과는 버려 다음 페이지 위치(loadedCount)가 연속되게 한다.
-const MATCH_LOAD_CONCURRENCY = 5;
+const MATCH_LOAD_CONCURRENCY = boundedEnvInteger("LOL_MATCH_LOAD_CONCURRENCY", 5, 1, 20);
 async function loadMatchRecords(puuid: string, matchIds: string[], persistDetails = false) {
   const matches: LolRecentMatch[] = [];
   const records: Array<{ summary: LolRecentMatch; raw: unknown }> = [];
