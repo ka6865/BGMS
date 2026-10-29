@@ -503,7 +503,8 @@ describe("RecentAISummary callback bridge", () => {
     await waitFor(() => expect(spiderChartProps.current).not.toBeNull());
     expect(spiderChartProps.current).toMatchObject({ data: { combat: 15, tactical: 0, survival: null }, bestMatchCount: 3, tierScope: "team" });
     fireEvent.mouseEnter(screen.getByRole("button", { name: /잠재 티어 산정 방법 보기/ }).parentElement!);
-    expect(await screen.findByText("측정 불가")).toBeInTheDocument();
+    // 다른 카드도 "측정 불가"를 쓸 수 있으므로 티어 설명의 해당 행만 확인한다.
+    await screen.findByText("생존 점수");
     expect(screen.getByText("생존 점수").nextElementSibling?.textContent).toBe("측정 불가");
     expect(screen.getByText("전술 점수").nextElementSibling?.textContent).toBe("0");
     expect(document.body.textContent).not.toMatch(/NaN|Infinity|undefined/);
