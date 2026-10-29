@@ -5,6 +5,9 @@ import { TACTICAL_THRESHOLDS } from "./constants";
 /** 비교 근거가 없을 때 쓰는 기본 주제. 사용자 본인 텔레메트리만으로 다룰 수 있다. */
 export const DEFAULT_SUMMARY_TOPICS = ["화력", "교전 주도권", "포지셔닝"] as const;
 
+/** 사망 페이즈 범위(0~9). 차이를 다른 비교 지표와 같은 0~1 척도로 맞출 때 쓴다. */
+const MAX_DEATH_PHASE = 9;
+
 type TopicIssue = { topic: string; gap: number };
 
 const isObservedMetric = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value);
@@ -76,6 +79,12 @@ export function selectSummaryDebateTopics(
   const userIsolation = readObservedNumber(stats.rawMetricValues?.isolation_average) ?? readObservedNumber(stats.avgIsolationStr);
   if (comparable("avgIsolationIndex") && userIsolation !== null) {
     comparisonIssues.push({ topic: "포지셔닝", gap: Math.abs(userIsolation - b.avgIsolationIndex) / TACTICAL_THRESHOLDS.ISOLATION_MAX_RATIO });
+  }
+
+  // 사망 페이즈는 계산 2~5를 합친 비교 평균이 있다(benchmarkLookup). 페이즈 범위(0~9)로 나눠 같은 척도로 맞춘다.
+  const userDeathPhase = readObservedNumber(stats.rawMetricValues?.death_phase) ?? readObservedNumber(stats.avgDeathPhase);
+  if (comparable("avgDeathPhase") && userDeathPhase !== null) {
+    comparisonIssues.push({ topic: "생존 운영", gap: Math.abs(userDeathPhase - b.avgDeathPhase) / MAX_DEATH_PHASE });
   }
 
   const byGap = (a: TopicIssue, c: TopicIssue) => c.gap - a.gap;

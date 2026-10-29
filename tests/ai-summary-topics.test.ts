@@ -44,3 +44,24 @@ describe("summary debate topic selection", () => {
     expect(topics[0]).toBe("포지셔닝");
   });
 });
+
+describe("survival as a comparison topic", () => {
+  // 2026-10-29 운영 값: 듀오 경쟁전 B 사망 페이즈 평균 4.77(104경기), A- 6.35(94경기).
+  const withDeathPhase = { ...duoBBench, avgDeathPhase: 4.77, metricSampleCounts: { ...duoBBench.metricSampleCounts, avgDeathPhase: 104 } };
+
+  it("chooses survival over a user-only utility topic when death phase is comparable", () => {
+    const topics = selectSummaryDebateTopics({ ...miaeqStats, avgDeathPhase: 4.3, rawMetricValues: { ...miaeqStats.rawMetricValues, death_phase: 4.33 } }, withDeathPhase, { userTradeRate: 25 });
+    expect(topics).toEqual(["포지셔닝", "화력", "생존 운영"]);
+    expect(topics).not.toContain("유틸리티 활용");
+  });
+
+  it("ranks a large death phase gap ahead of a small damage gap", () => {
+    const topics = selectSummaryDebateTopics({ ...miaeqStats, avgDeathPhase: 8, rawMetricValues: { ...miaeqStats.rawMetricValues, death_phase: 8 } }, withDeathPhase, { userTradeRate: 25 });
+    expect(topics).toEqual(["생존 운영", "포지셔닝", "화력"]);
+  });
+
+  it("keeps survival as a fill topic when death phase is under the comparison sample", () => {
+    const bench = { ...withDeathPhase, metricSampleCounts: { ...withDeathPhase.metricSampleCounts, avgDeathPhase: 29 } };
+    expect(selectSummaryDebateTopics({ ...miaeqStats, avgDeathPhase: 4.3 }, bench, { userTradeRate: 25 })).toEqual(["포지셔닝", "화력", "유틸리티 활용"]);
+  });
+});
