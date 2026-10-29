@@ -15,6 +15,10 @@ const persistence = vi.hoisted(() => ({
   matchRequestJson: vi.fn(),
   acquire: vi.fn(),
   saveSearch: vi.fn(),
+  snapshot: vi.fn(),
+  saveSnapshot: vi.fn(),
+  cancelRequest: vi.fn(),
+  forgetName: vi.fn(),
   history: vi.fn(),
   observations: vi.fn(),
   summaries: vi.fn(),
@@ -37,13 +41,17 @@ vi.mock("@/lib/lol/persistence.server", async (importOriginal) => {
   return {
     ...actual,
     isLolPersistenceEnabled: persistence.enabled,
-    hasLolStoredMatch: persistence.storedMatch,
+    hasLolKnownMatch: persistence.storedMatch,
     getLolApiCache: persistence.cache,
     getLolAccountByRiotId: persistence.account,
     getLolAccountNamesByPuuids: persistence.names,
     getLolMatchRequestJson: persistence.matchRequestJson,
     acquireLolCollectionLease: persistence.acquire,
     persistLolSearchSnapshot: persistence.saveSearch,
+    getLolSearchSnapshot: persistence.snapshot,
+    putLolSearchSnapshot: persistence.saveSnapshot,
+    cancelLolRiotRequest: persistence.cancelRequest,
+    deleteLolSearchCacheForName: persistence.forgetName,
     getLolRankedHistory: persistence.history,
     getLolRankedObservations: persistence.observations,
     getLolPlayerMatchSummaries: persistence.summaries,
@@ -54,6 +62,8 @@ vi.mock("@/lib/lol/persistence.server", async (importOriginal) => {
     startLolRiotRequest: persistence.start,
     releaseLolRiotRequest: persistence.releaseRequest,
     recordLolRiotRateHeaders: persistence.recordHeaders,
+    // 실제 함수는 헤더 기록과 해제를 한 RPC로 처리한다. 기존 단정을 유지하려고 두 mock을 차례로 부른다.
+    finishLolRiotRequest: async (token: string, host: string, headers: Headers) => { await persistence.recordHeaders(host, headers); await persistence.releaseRequest(token); },
     blockLolRiotRequests: persistence.block,
     releaseLolCollectionLease: persistence.releaseLease,
   };
@@ -136,6 +146,10 @@ beforeEach(() => {
   persistence.matchRequestJson.mockResolvedValue(undefined);
   persistence.acquire.mockResolvedValue({ key: "lease", token: "lease-token" });
   persistence.saveSearch.mockResolvedValue(undefined);
+  persistence.snapshot.mockResolvedValue(undefined);
+  persistence.saveSnapshot.mockResolvedValue(true);
+  persistence.cancelRequest.mockResolvedValue(undefined);
+  persistence.forgetName.mockResolvedValue(undefined);
   persistence.history.mockResolvedValue(emptyLolRankedHistory());
   persistence.observations.mockResolvedValue([]);
   persistence.summaries.mockResolvedValue([]);
@@ -489,6 +503,53 @@ describe("POST /api/admin/lol/search", () => {
     expect(persistence.acquire).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["10분 넘게 지난 결과는 autoRefresh를 붙인다", 11 * 60_000, true],
+    ["10분 안의 결과는 사용자가 직접 갱신한다", 5 * 60_000, false],
+  ])("2분 캐시가 끝나면 마지막 검색 결과를 Riot 호출 없이 먼저 돌려준다: %s", async (_label, ageMs, autoRefresh) => {
+    const lastUpdatedAt = new Date(Date.now() - ageMs).toISOString();
+    const snapshot = {
+      account: { gameName: "Test", tagLine: "KR1" }, profile: { profileIconId: 1, summonerLevel: 2 },
+      ranked: [], rankedHistory: emptyLolRankedHistory(), matches: [], matchIds: [], loadedCount: 0, hasMore: false,
+      matchFailures: [], lastUpdatedAt, refreshRemainSeconds: 120, summaries: summarizeRecentMatches([], "Test#KR1"),
+      matchStatus: "empty" as const,
+    };
+    persistence.enabled.mockReturnValue(true);
+    persistence.snapshot.mockResolvedValue(snapshot);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await searchLolRiotId("Test#KR1");
+    expect(result).toMatchObject({ account: snapshot.account, lastUpdatedAt, refreshRemainSeconds: 0, dataDragonVersion: "16.21.1" });
+    expect(result.autoRefresh === true).toBe(autoRefresh);
+    expect(persistence.cache).toHaveBeenCalledWith("search", expect.any(String), "kr", "asia", "16.21.1");
+    expect(persistence.snapshot).toHaveBeenCalledWith("search-snapshot:v11:kr:asia:16.21.1:test:kr1", "kr", "asia", "16.21.1",
+      { gameName: "Test", tagLine: "KR1" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(persistence.acquire).not.toHaveBeenCalled();
+  });
+
+  it("2분 검색 캐시가 있으면 마지막 검색 결과를 읽지 않는다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.cache.mockResolvedValue({
+      account: { gameName: "Test", tagLine: "KR1" }, profile: { profileIconId: 1, summonerLevel: 2 },
+      ranked: [], matches: [], matchIds: [], loadedCount: 0, hasMore: false, matchFailures: [],
+      lastUpdatedAt: new Date().toISOString(), refreshRemainSeconds: 120, summaries: summarizeRecentMatches([], "Test#KR1"), matchStatus: "empty",
+    });
+    vi.stubGlobal("fetch", vi.fn());
+    const result = await searchLolRiotId("Test#KR1");
+    expect(result.autoRefresh).toBeUndefined();
+    expect(persistence.snapshot).not.toHaveBeenCalled();
+  });
+
+  it("마지막 검색 결과 조회 DB 오류는 503으로 닫고 Riot을 호출하지 않는다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.snapshot.mockRejectedValue(new LolPersistenceError());
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await POST(post("Test#KR1"))).status).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("프로세스 메모리에 의존하지 않고 영속 경기 상세 cache hit을 반환한다", async () => {
     const dto = {
       matchId: "KR_55",
@@ -550,6 +611,88 @@ describe("POST /api/admin/lol/search", () => {
     expect(result.headers.get("Retry-After")).toBe("5");
     expect(await result.json()).toEqual({ error: "요청이 많아 잠시 후 다시 시도해 주세요." });
     expect(fetchMock).not.toHaveBeenCalled();
+    // 기다리지 않을 예약은 허가 해제가 아니라 취소로 예약 기록까지 지운다.
+    expect(persistence.cancelRequest).toHaveBeenCalledWith("request-token");
+    expect(persistence.releaseRequest).not.toHaveBeenCalled();
+  });
+
+  it("키가 없으면 공유 예약 전에 닫아 한도를 쓰지 않는다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    vi.stubEnv("RIOT_API_KEY", "");
+    vi.stubGlobal("fetch", vi.fn());
+    expect((await POST(post("NoKey#KR1"))).status).toBe(503);
+    expect(persistence.reserve).not.toHaveBeenCalled();
+  });
+
+  it("헤더 기록이 실패해도 429 공유 차단을 걸고 허가를 다시 해제한다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.recordHeaders.mockRejectedValue(new LolPersistenceError());
+    vi.stubGlobal("fetch", vi.fn(async () => response({}, 429, { "Retry-After": "7" })));
+    expect((await POST(post("FinishFail#KR1"))).status).toBe(503);
+    expect(persistence.block).toHaveBeenCalledWith("asia", 7);
+    expect(persistence.releaseRequest).toHaveBeenCalledWith("request-token");
+  });
+
+  it("계정 조회가 404면 그 이름의 검색 결과를 지우고, 경기 404는 지우지 않는다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    vi.stubGlobal("fetch", vi.fn(async () => response({}, 404)));
+    expect((await POST(post("Gone#KR1"))).status).toBe(404);
+    expect(persistence.forgetName).toHaveBeenCalledWith("Gone", "KR1", "kr", "asia");
+    persistence.forgetName.mockClear();
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("accounts/by-riot-id")) return response({ puuid: "p404", gameName: "Here", tagLine: "KR1" });
+      if (url.includes("summoner/v4")) return response({ profileIconId: 1, summonerLevel: 1 });
+      if (url.includes("league/v4")) return response([]);
+      if (url.includes("/ids?")) return response(["KR_404"]);
+      if (url.includes("/matches/KR_404")) return response({}, 404);
+      return response({ data: {} });
+    }));
+    const result = await searchLolRiotId("Here#KR1");
+    expect(result.matchStatus).toBe("failed");
+    expect(persistence.forgetName).not.toHaveBeenCalled();
+    // 경기를 다 받지 못한 결과는 마지막 정상 보관본을 바꾸지 않는다.
+    expect(persistence.saveSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("화면에서 숨기는 커스텀 경기만 빠진 결과는 보관본을 바꾼다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    const raw = (matchId: string, queueId: number) => ({
+      metadata: { matchId, dataVersion: "2" },
+      info: { queueId, gameMode: "CLASSIC", gameType: queueId === 0 ? "CUSTOM_GAME" : "MATCHED_GAME", gameDuration: 1800,
+        gameEndTimestamp: 1_700_000_000_000, teams: [{ teamId: 100, win: true }],
+        participants: [{ puuid: "custom-puuid", teamId: 100, championId: 103, championName: "Ahri", win: true, kills: 2, deaths: 1, assists: 3, totalMinionsKilled: 100, neutralMinionsKilled: 10 }] },
+    });
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("accounts/by-riot-id")) return response({ puuid: "custom-puuid", gameName: "Custom", tagLine: "KR1" });
+      if (url.includes("summoner/v4")) return response({ profileIconId: 1, summonerLevel: 1 });
+      if (url.includes("league/v4")) return response([]);
+      if (url.includes("/ids?")) return response(["KR_701", "KR_700"]);
+      if (url.includes("/matches/KR_701")) return response(raw("KR_701", 420));
+      if (url.includes("/matches/KR_700")) return response(raw("KR_700", 0));
+      return response({ data: {} });
+    }));
+    const result = await searchLolRiotId("Custom#KR1");
+    expect(result.matchStatus).toBe("partial");
+    expect(result.matchFailures).toEqual([{ matchId: "KR_700", kind: "invalid_match" }]);
+    expect(persistence.saveSnapshot).toHaveBeenCalledOnce();
+  });
+
+  it("저장 계정의 이름이 바뀐 것을 확인하면 옛 이름의 검색 결과를 지운다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.names.mockResolvedValue([{ puuid: "renamed-puuid", game_name: "OldName", tag_line: "KR1", account_fetched_at: "2026-10-20T00:00:00Z" }]);
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("accounts/by-riot-id")) return response({ puuid: "renamed-puuid", gameName: "NewName", tagLine: "KR1" });
+      if (url.includes("summoner/v4")) return response({ profileIconId: 1, summonerLevel: 1 });
+      if (url.includes("league/v4")) return response([]);
+      if (url.includes("/ids?")) return response([]);
+      return response({ data: {} });
+    }));
+    await searchLolRiotId("NewName#KR1");
+    expect(persistence.forgetName).toHaveBeenCalledWith("OldName", "KR1", "kr", "asia");
+    expect(persistence.forgetName.mock.invocationCallOrder[0]).toBeLessThan(persistence.saveSearch.mock.invocationCallOrder[0]);
   });
 
   it("영속 cache miss는 중앙 permit을 통해 조회하고 DTO와 전적을 함께 저장한다", async () => {
@@ -603,6 +746,30 @@ describe("POST /api/admin/lol/search", () => {
         cachePayload: { ...result, mastery: expect.objectContaining({ status: result.mastery?.status }) },
       }),
     );
+    // 2분 캐시가 끝난 뒤 먼저 보여 줄 마지막 검색 결과도 랭크 이력까지 담아 저장한다.
+    expect(persistence.saveSnapshot).toHaveBeenCalledWith({
+      key: "search-snapshot:v11:kr:asia:16.21.1:saved:kr1", platform: "kr", route: "asia", version: "16.21.1",
+      puuid: "fixture-puuid", payload: expect.objectContaining({ rankedHistory: history, lastUpdatedAt: result.lastUpdatedAt }),
+    });
+    expect(persistence.history.mock.invocationCallOrder[0]).toBeLessThan(persistence.saveSnapshot.mock.invocationCallOrder[0]);
+  });
+
+  it("마지막 검색 결과 저장이 실패해도 검색 응답은 그대로 돌려준다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.saveSnapshot.mockRejectedValue(new LolPersistenceError());
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("accounts/by-riot-id")) return response({ puuid: "fixture-puuid", gameName: "Saved", tagLine: "KR1" });
+      if (url.includes("summoner/v4")) return response({ profileIconId: 12, summonerLevel: 42 });
+      if (url.includes("league/v4")) return response([]);
+      if (url.includes("/ids?")) return response([]);
+      return response({ data: {} });
+    }));
+    const result = await POST(post("Saved#KR1"));
+    expect(result.status).toBe(200);
+    expect(warn).toHaveBeenCalledWith("[lol-search] snapshot_save_failed", expect.stringContaining("persistence_unavailable"));
+    warn.mockRestore();
   });
 
   it("검색 cache 만료 뒤 최신 Riot ID·랭크·경기목록은 조회하고 저장된 경기 원문은 재사용한다", async () => {
@@ -682,6 +849,45 @@ describe("POST /api/admin/lol/search", () => {
     );
   });
 
+  it("공유 가드를 쓰면 경기 상세를 동시에 받고, 순서를 지키며, 429 뒤 결과는 버린다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.cache.mockResolvedValue(undefined);
+    persistence.matchRequestJson.mockResolvedValue(undefined);
+    persistence.reserve.mockResolvedValue({ token: "request-token", permitAt: Date.now(), started: true });
+    const ids = Array.from({ length: 12 }, (_, index) => `KR_${9000 + index}`);
+    let inFlight = 0;
+    let peak = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("accounts/by-riot-id")) return response({ puuid: "fixture-puuid", gameName: "Saved", tagLine: "KR1" });
+        if (url.includes("summoner/v4")) return response({ profileIconId: 12, summonerLevel: 42 });
+        if (url.includes("league/v4")) return response([]);
+        if (url.includes("/ids?")) return response(ids);
+        const id = url.match(/\/matches\/(KR_\d+)$/)?.[1];
+        if (!id) return response({ data: {} });
+        inFlight += 1;
+        peak = Math.max(peak, inFlight);
+        // 앞 경기일수록 늦게 끝나게 해 완료 순서와 결과 순서가 달라지게 한다. 이 파일은 가짜 타이머를 쓰므로 마이크로태스크로 지연한다.
+        for (let tick = 0; tick < 60 - ids.indexOf(id) * 4; tick += 1) await Promise.resolve();
+        inFlight -= 1;
+        if (id === "KR_9006") return new Response("{}", { status: 429, headers: { "Retry-After": "3" } });
+        return response({ metadata: { matchId: id, dataVersion: "2" }, info: { queueId: 420, gameMode: "CLASSIC", gameDuration: 1800,
+          gameEndTimestamp: 1_700_001_800_000, participants: [{ puuid: "fixture-puuid", participantId: 1, teamId: 100, championId: 103,
+            championName: "Ahri", win: true, kills: 5, deaths: 2, assists: 9, totalMinionsKilled: 150, neutralMinionsKilled: 10 }] } });
+      }),
+    );
+    const result = await searchLolRiotId("Saved#KR1");
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(5);
+    expect(result.matches.map(match => match.matchId)).toEqual(ids.slice(0, 6));
+    expect(result.loadedCount).toBe(7);
+    expect(result.matchFailures).toEqual([{ matchId: "KR_9006", kind: "rate_limited", retryAfterSeconds: 3 }]);
+    // 예약 즉시 시작 허가를 받았으므로 시작 확인 RPC를 보내지 않는다.
+    expect(persistence.start).not.toHaveBeenCalled();
+  });
+
   it("검색 중 immutable 경기 원문의 DB 오류는 partial 결과로 삼키지 않고 503으로 전달한다", async () => {
     persistence.enabled.mockReturnValue(true);
     persistence.cache.mockResolvedValue(undefined);
@@ -711,7 +917,9 @@ describe("POST /api/admin/lol/search", () => {
     expect(await result.json()).toEqual({
       error: "LoL 저장소를 사용할 수 없습니다.",
     });
-    expect(riotCalls).toHaveLength(4);
+    // 숙련도·도전과제는 경기 상세와 동시에 요청하므로 함께 나갈 수 있다. 경기 상세는 DB 오류로 요청하지 않는다.
+    expect(riotCalls.filter(url => !/champion-mastery|challenges/.test(url))).toHaveLength(4);
+    expect(riotCalls.some(url => url.includes("/matches/KR_8801"))).toBe(false);
     expect(persistence.saveSearch).not.toHaveBeenCalled();
   });
 
@@ -2508,6 +2716,7 @@ describe("POST /api/admin/lol/search", () => {
     for (const endpoint of ["accounts/by-riot-id", "summoner/v4", "league/v4", "/ids?"]) {
       expect(calls.filter((url) => url.includes(endpoint))).toHaveLength(2);
     }
+    expect(persistence.snapshot).not.toHaveBeenCalled();
   });
 
   it("search DTO summaries는 순수 summary 함수 결과를 그대로 담는다", async () => {
@@ -2566,7 +2775,7 @@ describe("PUUID 참가자 이동의 Riot 요청 경로", () => {
       await expect(pending).resolves.toBe("Current#KR1");
       expect(fetch).toHaveBeenCalledTimes(1);
       expect(fetch).toHaveBeenCalledWith("https://asia.api.riotgames.com/riot/account/v1/accounts/by-puuid/peer", expect.anything());
-      expect(persistence.reserve).toHaveBeenCalledWith("asia");
+      expect(persistence.reserve).toHaveBeenCalledWith("asia", 4000);
       expect(persistence.start).toHaveBeenCalledTimes(1);
       expect(ops.record).toHaveBeenCalledWith("riot_success");
       expect(persistence.saveSearch).not.toHaveBeenCalled();
@@ -2749,6 +2958,28 @@ describe("심사 전 공개 조회와 삭제 경계", () => {
     expect(persistence.cache).not.toHaveBeenCalled();
   });
 
+  it("공개 상세는 원문이 정리된 요약 경기를 Riot에서 다시 받아 저장한다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.storedMatch.mockResolvedValue(true);
+    persistence.cache.mockResolvedValue(undefined);
+    persistence.matchRequestJson.mockResolvedValue(undefined);
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/lol/match/v5/matches/KR_998")) return response({
+        metadata: { matchId: "KR_998", dataVersion: "2" },
+        info: { queueId: 420, gameMode: "CLASSIC", gameDuration: 1800, gameEndTimestamp: 1_700_000_000_000,
+          teams: [{ teamId: 100, win: true }],
+          participants: [{ puuid: "fixture-owner", teamId: 100, championId: 103, championName: "Ahri", win: true, kills: 2, deaths: 1, assists: 3, totalMinionsKilled: 100, neutralMinionsKilled: 10 }] },
+      });
+      return response({ data: {} });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    await expect(getLolMatchDetails("KR_998", true)).resolves.toMatchObject({ matchId: "KR_998" });
+    expect(persistence.storedMatch).toHaveBeenCalledExactlyOnceWith("KR_998");
+    expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("/lol/match/v5/matches/KR_998"), expect.anything());
+    expect(persistence.saveMatch).toHaveBeenCalledOnce();
+  });
+
   it("Account-V1 삭제 확인은 저장 계정 없이 현재 Riot ID의 PUUID를 조회한다", async () => {
     persistence.enabled.mockReturnValue(true);
     vi.stubGlobal("fetch", vi.fn(async () => response({ puuid: "unsearched-fixture", gameName: "Renamed", tagLine: "FIX" })));
@@ -2870,7 +3101,7 @@ describe("집계용 Riot 전송 경계", () => {
     const fetcher = vi.fn(async () => response(payload));
     vi.stubGlobal("fetch", fetcher);
     await expect(requestJson("kr", "/lol/league/v4/masterleagues/by-queue/RANKED_SOLO_5x5", 0, true)).resolves.toEqual(payload);
-    expect(persistence.reserve).toHaveBeenCalledWith("kr");
+    expect(persistence.reserve).toHaveBeenCalledWith("kr", 4000);
     expect(persistence.start).toHaveBeenCalledOnce();
     expect(internalState?.cache.size).toBe(0);
     await expect(requestJson("kr", "/lol/status/v4/platform-data", 0, true)).rejects.toMatchObject({ kind: "upstream" });

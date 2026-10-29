@@ -82,7 +82,7 @@ wait "$lock_holder_pid"
 "${psql_db[@]}" -qAt -c "select count(*) from public.lol_matches where match_id='KR_7003'" >"$tmp_dir/expired-lock-match-count"
 [[ "$(cat "$tmp_dir/expired-lock-match-count")" == "0" ]] || { echo "Expired lease wrote a match." >&2; exit 1; }
 
-"${psql_db[@]}" -q -c "update public.lol_rate_limit_state set next_permit_at=now(),min_interval_ms=1500,last_started_at=null,blocked_until='-infinity',budget_day=(timezone('UTC',now()))::date,used_count=0 where host in ('global','asia','kr')"
+"${psql_db[@]}" -q -c "update public.lol_rate_limit_state set next_permit_at=now(),min_interval_ms=1500,last_started_at=null,blocked_until='-infinity',budget_day=(timezone('UTC',now()))::date,used_count=0,max_concurrency=2 where host in ('global','asia','kr'); delete from public.lol_collection_leases where lease_type='request'"
 pids=()
 for attempt in 1 2 3 4 5 6 7 8; do
   "$pg_bin/psql" -X -At -h "$tmp_dir/socket" -p 54321 -U postgres -d lol_verification \

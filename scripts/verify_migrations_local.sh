@@ -130,6 +130,10 @@ MIGRATIONS=(
   "20261028120000_benchmark_counter_latency_split"
   "20261028130000_lol_champion_stats"
   "20261028140000_first_reply_evidence"
+  "20261029010000_lol_riot_window_guard"
+  "20261029020000_lol_search_snapshot"
+  "20261029030000_lol_guard_snapshot_fixes"
+  "20261030010000_lol_summary_match_index"
 )
 
 cleanup() {
@@ -504,6 +508,21 @@ echo "▶ LoL persistence 시나리오 실행"
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-challenge-catalog-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-review-fixes-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-search-cache-cap-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-search-snapshot-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-guard-snapshot-fixes-scenarios.sql
+# 계정 삭제가 진행 중일 때 들어온 보관본 저장은 삭제 커밋을 기다린 뒤 거절되어야 한다.
+"${PSQL[@]}" -q -c "insert into public.lol_accounts (puuid,game_name,tag_line,platform_id,regional_route) values ('race-puuid','Race','KR1','kr','asia');"
+"${PSQL[@]}" -q -c "begin; set local role service_role; select public.delete_lol_account_data('race-puuid'); select pg_sleep(1.5); commit;" >/dev/null &
+lol_delete_pid=$!
+sleep 0.5
+lol_race_saved="$("${PSQL[@]}" -qAt -c "set role service_role; select public.put_lol_search_snapshot('search-snapshot:v11:kr:asia:16.21.1:race:kr1','kr','asia','16.21.1','race-puuid','{\"lastUpdatedAt\":\"2026-10-29T00:00:00Z\"}'::jsonb);")"
+wait "$lol_delete_pid"
+lol_race_rows="$("${PSQL[@]}" -qAt -c "select count(*) from public.lol_api_cache where cache_key='search-snapshot:v11:kr:asia:16.21.1:race:kr1'")"
+if [ "$lol_race_saved" != "f" ] || [ "$lol_race_rows" != "0" ]; then
+  echo "❌ 계정 삭제 중 저장된 LoL 보관본이 남았습니다 (saved=$lol_race_saved rows=$lol_race_rows)"
+  exit 1
+fi
+echo "  ✅ 계정 삭제와 동시에 들어온 LoL 보관본 저장을 거절"
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-ladder-status-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-champion-bans-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-champion-stats-scenarios.sql
