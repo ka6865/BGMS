@@ -4,11 +4,11 @@ begin
   if not (select relrowsecurity from pg_catalog.pg_class where oid='public.lol_accounts'::regclass) then raise exception 'RLS is disabled'; end if;
   if has_table_privilege('anon','public.lol_accounts','select') or has_table_privilege('authenticated','public.lol_matches','select') then raise exception 'public table grant found'; end if;
   if not has_table_privilege('service_role','public.lol_accounts','select') then raise exception 'service role table grant missing'; end if;
-  if has_function_privilege('anon','public.reserve_lol_riot_request(text)','execute')
+  if has_function_privilege('anon','public.reserve_lol_riot_request(text,text)','execute')
     or has_function_privilege('authenticated','public.persist_lol_search_snapshot(text,uuid,text,jsonb,text,text,text,jsonb,jsonb,jsonb)','execute')
     or has_function_privilege('anon','public.get_lol_match_request_json(text,text,text)','execute') then
     raise exception 'public function grant found'; end if;
-  if not has_function_privilege('service_role','public.reserve_lol_riot_request(text)','execute') then raise exception 'service role RPC grant missing'; end if;
+  if not has_function_privilege('service_role','public.reserve_lol_riot_request(text,text)','execute') then raise exception 'service role RPC grant missing'; end if;
   for v_function in select prosecdef from pg_catalog.pg_proc where pronamespace='public'::regnamespace and proname like '%lol_%' loop
     if v_function.prosecdef then raise exception 'SECURITY DEFINER LoL function found'; end if;
   end loop;
@@ -205,20 +205,35 @@ begin
   if v_cleanup.cache_rows<1 or exists(select 1 from public.lol_api_cache where cache_key='expired-fixture') then raise exception 'expired cache cleanup failed'; end if;
 end $$;
 
-update public.lol_rate_limit_state set next_permit_at=now(),min_interval_ms=1500,last_started_at=null,blocked_until='-infinity',budget_day=(timezone('UTC',now()))::date,used_count=0 where host in ('global','asia','kr');
+update public.lol_rate_limit_state set next_permit_at=now(),min_interval_ms=1500,last_started_at=null,blocked_until='-infinity',budget_day=(timezone('UTC',now()))::date,used_count=0,max_concurrency=8 where host in ('global','asia','kr');
+delete from public.lol_riot_request_log;
+delete from public.lol_collection_leases where lease_type='request';
 select public.record_lol_riot_rate_headers('asia','1:120','0:120','20:1','0:1');
-do $$ begin
-  if (select min_interval_ms from public.lol_rate_limit_state where host='global')<>150000 then raise exception 'low observed window not enforced'; end if;
+-- Riot이 알려 준 낮은 앱 한도(2분 1회)는 이동 구간으로 지킨다.
+do $$
+declare v_first record; v_second record;
+begin
+  select * into v_first from public.reserve_lol_riot_request('asia');
+  select * into v_second from public.reserve_lol_riot_request('asia');
+  if not v_first.started or v_second.started or v_second.permit_at < now() + interval '100 seconds' then
+    raise exception 'low observed window not enforced'; end if;
 end $$;
-update public.lol_rate_limit_state set next_permit_at=now(),min_interval_ms=1500,last_started_at=null,blocked_until='-infinity' where host in ('global','asia','kr');
+update public.lol_rate_limit_state set blocked_until='-infinity',app_rate_limit=null where host in ('global','asia','kr');
+delete from public.lol_riot_request_log;
+delete from public.lol_collection_leases where lease_type='request';
 select public.record_lol_riot_rate_headers('asia','100:120','80:120','20:1','0:1');
 do $$
-declare v_granted boolean; v_reason text;
+declare v_granted boolean; v_reason text; v_before timestamptz;
 begin
-  if (select blocked_until from public.lol_rate_limit_state where host='global')<=now() then raise exception '80 percent count was not cooled down'; end if;
-  if public.block_lol_riot_requests('asia',1)<(select blocked_until from public.lol_rate_limit_state where host='global') then raise exception 'Retry-After cooldown moved backwards'; end if;
+  if (select blocked_until from public.lol_rate_limit_state where host='asia')>now() then raise exception '80 percent count must not block'; end if;
+  perform public.record_lol_riot_rate_headers('asia','100:120','100:120','20:1','0:1');
+  if (select blocked_until from public.lol_rate_limit_state where host='asia')<=now()
+    or (select blocked_until from public.lol_rate_limit_state where host='kr')>now() then raise exception 'exhausted window did not block only its host'; end if;
+  v_before := (select blocked_until from public.lol_rate_limit_state where host='asia');
+  perform public.block_lol_riot_requests('asia',1);
+  if (select blocked_until from public.lol_rate_limit_state where host='asia') < v_before then raise exception 'Retry-After cooldown moved backwards'; end if;
   select granted,reason into v_granted,v_reason from public.reserve_lol_riot_request('kr');
-  if v_granted or v_reason<>'cooldown' then raise exception 'global cooldown was not shared across Riot hosts'; end if;
+  if v_granted or v_reason<>'cooldown' then raise exception '429 cooldown was not shared across Riot hosts'; end if;
 end $$;
 update public.lol_rate_limit_state set blocked_until='-infinity',used_count=40,budget_day=(timezone('UTC',now()))::date where host in ('global','asia','kr');
 do $$
