@@ -82,6 +82,12 @@ function hasCompleteCachedStats(cacheData: any, reqSeason: string | null): boole
   return availability?.ranked?.status === "ready" && availability?.normal?.status === "ready";
 }
 
+/** 경기 분석 저장이 만든 닉네임 매핑 행은 시즌 전적을 한 번도 저장하지 않았다.
+ * 이 route의 저장은 항상 season_stats_data와 last_season_id를 함께 쓰므로 둘 다 없으면 미검색 플레이어로 본다. */
+function hasSavedPlayerStats(cacheData: any): boolean {
+  return isRecord(cacheData.season_stats_data) || isValidSeasonId(cacheData.last_season_id);
+}
+
 function cachedSyncStatus(cacheData: any, reqSeason: string | null): "cached" | "partial" {
   return hasCompleteCachedStats(cacheData, reqSeason) ? "cached" : "partial";
 }
@@ -270,6 +276,7 @@ export async function GET(request: Request) {
     targetNickname = cacheData.nickname;
     const cachedStatsComplete = hasCompleteCachedStats(cacheData, reqSeason);
     const shouldRefreshCachedPlayer = forceRefresh
+      || !hasSavedPlayerStats(cacheData)
       || (autoRefresh && (!cachedStatsComplete || isAutoRefreshDue(cacheData.updated_at)));
     if (!shouldRefreshCachedPlayer) {
       const responseBody = await buildCachedPlayerResponse(supabase, cacheData, reqSeason);

@@ -478,13 +478,15 @@ async function persistPlayerCache(
       platform: input.platform,
       nickname: participant.attributes.stats.name,
       lower_nickname: normalizeName(participant.attributes.stats.name),
-      updated_at: new Date().toISOString(),
+      // 전적 동기화 시각이 아니므로 비워 둔다. 컬럼 기본값(now())이 들어가면 저장된 전적으로 보인다.
+      updated_at: null,
     }))
     .filter((row): row is typeof row & { id: string } => Boolean(row.id));
 
   if (rows.length === 0) return;
+  // 닉네임-계정 매핑이 없을 때만 넣는다. 기존 행의 updated_at과 전적 필드는 전적 조회 route만 바꾼다.
   const succeeded = await runPersistenceTask("pubg_player_cache", result, () => (
-    supabase.from("pubg_player_cache").upsert(rows, { onConflict: "id" })
+    supabase.from("pubg_player_cache").upsert(rows, { onConflict: "id", ignoreDuplicates: true })
   ));
   if (succeeded) result.succeeded.push("pubg_player_cache");
 }

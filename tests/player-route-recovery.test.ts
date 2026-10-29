@@ -629,6 +629,53 @@ describe("player route recovery contract", () => {
     expect(adminInsert).toHaveBeenCalledWith(expect.objectContaining({ updated_at: null }), { onConflict: "id", ignoreDuplicates: true });
   });
 
+  it("경기 분석이 만든 닉네임 매핑 행은 저장된 전적으로 보지 않고 일반 검색에서 PUBG를 조회한다", async () => {
+    const { adminUpsert } = configureSupabase({
+      id: "account.fixture1",
+      nickname: "Fixture_Player",
+      lower_nickname: "fixture_player",
+      platform: "steam",
+      updated_at: null,
+      search_count: 0,
+      season_stats_data: null,
+      seasons_list: null,
+      last_season_id: null,
+      recent_match_ids: null,
+    });
+    installFetch({ player: [jsonResponse(playerPayload())], seasons: [jsonResponse(seasonsPayload())],
+      season: [jsonResponse(normalPayload())], ranked: [jsonResponse(rankedPayload())], mastery: [jsonResponse({}, 404)] });
+    const { GET } = await loadRoute();
+
+    const response = await GET(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalled();
+    expect(mockClaimForceRefresh).not.toHaveBeenCalled();
+    expect(body).toMatchObject({ seasonId: "pc-2026-01", syncStatus: "saved" });
+    expect(adminUpsert).toHaveBeenCalledWith(expect.objectContaining({
+      last_season_id: "pc-2026-01", updated_at: body.updatedAt,
+    }), { onConflict: "id" });
+  });
+
+  it("시즌 없는 강제 갱신은 캐시의 지난 시즌 대신 현재 시즌을 다시 고른다", async () => {
+    const cacheRow = staleCacheRow();
+    cacheRow.last_season_id = "pc-2025-99";
+    cacheRow.season_stats_data = { "pc-2025-99": cacheRow.season_stats_data["pc-2026-01"] };
+    configureSupabase(cacheRow);
+    const calls = installFetch({ player: [jsonResponse(playerPayload())], seasons: [jsonResponse(seasonsPayload())],
+      season: [jsonResponse(normalPayload())], ranked: [jsonResponse(rankedPayload())], mastery: [jsonResponse({}, 404)] });
+    const { GET } = await loadRoute();
+
+    const response = await GET(request("http://localhost/api/pubg/player?nickname=Fixture_Player&platform=steam&refresh=true"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.seasonId).toBe("pc-2026-01");
+    expect(calls.some((call) => call.url.includes("/seasons/pc-2026-01"))).toBe(true);
+    expect(calls.some((call) => call.url.includes("/seasons/pc-2025-99"))).toBe(false);
+  });
+
   it("returns 503 for a repeated malformed player payload instead of misclassifying it as not found", async () => {
     const { adminUpsert } = configureSupabase();
     installFetch({
