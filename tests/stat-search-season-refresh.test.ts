@@ -317,6 +317,41 @@ describe("StatSearch season/refresh controller binding", () => {
     expect(screen.queryByText("전적을 새로고침하는 중")).not.toBeInTheDocument();
   });
 
+  it("드롭다운으로 고른 시즌은 전적 갱신 요청에도 유지한다", async () => {
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player/matches")) return Promise.resolve(historyPageResponse());
+      if (url.startsWith("/api/pubg/matches-summary")) return Promise.resolve(jsonResponse(summaryReady));
+      const season = new URL(url, "https://bgms.kr").searchParams.get("season");
+      return Promise.resolve(jsonResponse({
+        ...playerReadyFixture,
+        seasonId: season ?? playerReadyFixture.seasonId,
+        updatedAt: "2026-08-08T00:00:00.000Z",
+      }));
+    });
+    render(createElement(StatSearch, {
+      initialPlatform: "steam",
+      initialNickname: "FixturePlayer",
+    }));
+    await screen.findByText("FixturePlayer");
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-10T00:00:00.000Z"));
+
+    fireEvent.change(screen.getByRole("combobox", { name: "시즌 선택" }), {
+      target: { value: "division.bro.official.pc-2026-07" },
+    });
+    await flushAsyncSearch();
+    await act(async () => vi.advanceTimersByTimeAsync(3_000));
+    fireEvent.click(screen.getByRole("button", { name: "전적 갱신" }));
+    await flushAsyncSearch();
+
+    const refreshParams = stablePlayerParams(playerRequests().at(-1)!);
+    expect(Object.fromEntries(refreshParams)).toMatchObject({
+      season: "division.bro.official.pc-2026-07",
+      refresh: "true",
+    });
+  });
+
   it("실패한 force refresh retry는 cooldown 이후 refresh=true URL을 정확히 재사용한다", async () => {
     let playerAttempt = 0;
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
@@ -364,9 +399,10 @@ describe("StatSearch season/refresh controller binding", () => {
     expect(Object.fromEntries(retriedParams)).toMatchObject({
       nickname: "FixturePlayer",
       platform: "steam",
-      season: "division.bro.official.pc-2026-08",
       refresh: "true",
     });
+    // 응답으로 정해진 화면 시즌은 갱신에 붙이지 않아 서버가 현재 시즌을 다시 고른다.
+    expect(retriedParams.has("season")).toBe(false);
     expect(screen.queryByText("refresh exact fail")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "FixturePlayer" })).toBeInTheDocument();
     expect(screen.queryByText("전적을 새로고침하는 중")).not.toBeInTheDocument();
