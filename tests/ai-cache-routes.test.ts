@@ -18,6 +18,20 @@ vi.mock('../lib/pubg-analysis/roleReference', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/pubg-analysis/roleReference')>();
   return { ...actual, get ROLE_REFERENCE_VERSION() { return roleReferenceState.version; } };
 });
+// 기본은 실제 분류기를 그대로 쓴다. 테스트에서만 화면 설명(verdict)이나 제목을 바꿔 hash 계약을 확인한다.
+const roleClassifierState = vi.hoisted(() => ({ verdictDetail: null as string | null, title: null as string | null }));
+vi.mock('../lib/pubg-analysis/roleClassifier', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/pubg-analysis/roleClassifier')>();
+  return {
+    ...actual,
+    classifyRole: (...args: Parameters<typeof actual.classifyRole>) => {
+      const result = actual.classifyRole(...args);
+      if (roleClassifierState.verdictDetail !== null) result.verdict = { ...result.verdict, detail: roleClassifierState.verdictDetail };
+      if (roleClassifierState.title !== null) result.title = roleClassifierState.title;
+      return result;
+    },
+  };
+});
 
 const {
   mockWithAuthGuard,
@@ -432,6 +446,8 @@ function mockSquadGeminiJson(json: any) {
 describe("AI cache route stabilization", () => {
   beforeEach(() => {
     roleReferenceState.version = 1;
+    roleClassifierState.verdictDetail = null;
+    roleClassifierState.title = null;
     vi.clearAllMocks();
     process.env.GOOGLE_GEMINI_API_KEY = "test-gemini-key";
     mockWithAuthGuard.mockResolvedValue({
@@ -1792,6 +1808,72 @@ describe("AI cache route stabilization", () => {
     configureSummaryCacheHitForHash(summaryCache,secondHash);
     await (await aiSummaryPOST(request())).text();
     expect(mockGenerateContentStream).toHaveBeenCalledTimes(2);
+  });
+
+  it("ai-summary 칭호 판정 설명(verdict)은 응답에 포함하되 요약 캐시 hash를 바꾸지 않는다", async () => {
+    // 경기 시각이 hash 입력이므로 세 번의 요청에 같은 시각을 쓴다.
+    const createdAt = recentMatchDate(1);
+    const run = async () => {
+      mockSummaryGeminiResponse();
+      const summaryCache = createQueryChain();
+      const telemetry = createQueryChain({ data: [{ match_id: 'verdict-match', player_id: 'player_a', platform: 'kakao',
+        data: { fullResult: createSummaryMatch('verdict-match', { createdAt, initiative_rate: 60, initiativeSampleCount: 4 }) } }], error: null });
+      mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({
+        player_ai_summary_cache: summaryCache, processed_match_telemetry: telemetry,
+        global_benchmarks: createQueryChain({ data: [], error: null }), benchmark_stats_by_tier_v2: createQueryChain() }) });
+      const records = parseSummaryNdjson(await (await aiSummaryPOST(createRequest({ matchIds: ['verdict-match'], nickname: 'Player_A', platform: 'kakao' }))).text());
+      const lookupHash = summaryCache.eq.mock.calls.filter(([column]: [string]) => column === 'match_ids_hash').at(-1)?.[1];
+      return { lookupHash, saveHash: summaryCache.upsert.mock.calls[0]?.[0]?.match_ids_hash, visuals: records.find((record) => record.type === 'visuals')?.data };
+    };
+    const base = await run();
+    expect(base.lookupHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(base.saveHash).toBe(base.lookupHash);
+    expect(base.visuals.roleInfo.verdict).toMatchObject({ matchCount: 1, totalRoles: 12 });
+    expect(['confirmed', 'below_threshold', 'insufficient']).toContain(base.visuals.roleInfo.verdict.kind);
+    // 반응 분포 보류 지표는 기록 부족이 아니라 비교 기준 준비 중으로 센다.
+    expect(base.visuals.roleInfo.verdict.unjudged.referencePending).toBe(1);
+
+    roleClassifierState.verdictDetail = '설명 문구만 바뀐 경우';
+    const detailOnly = await run();
+    expect(detailOnly.visuals.roleInfo.verdict.detail).toBe('설명 문구만 바뀐 경우');
+    expect(detailOnly.lookupHash).toBe(base.lookupHash);
+    expect(detailOnly.saveHash).toBe(base.saveHash);
+
+    // verdict 외의 칭호 결과는 계속 hash 입력이다.
+    roleClassifierState.verdictDetail = null;
+    roleClassifierState.title = '다른 칭호';
+    const titleChanged = await run();
+    expect(titleChanged.lookupHash).not.toBe(base.lookupHash);
+  });
+
+  it("ai-summary legacy prompt는 확정 칭호를 그대로 두고 대표 칭호가 없을 때만 화면과 같은 판정 설명을 쓴다", async () => {
+    const promptFor = async (overrides: Record<string, any>) => {
+      let prompt = '';
+      mockSummaryGeminiResponse((value) => { prompt = value; });
+      const telemetry = createQueryChain({ data: [{ match_id: 'legacy-role', player_id: 'player_a', platform: 'kakao',
+        data: { fullResult: createSummaryMatch('legacy-role', { createdAt: recentMatchDate(1), ...overrides }) } }], error: null });
+      mockWithAuthGuard.mockResolvedValue({ user: { id: 'user-1' }, supabaseAdmin: createSupabaseMock({
+        player_ai_summary_cache: createQueryChain(), processed_match_telemetry: telemetry,
+        global_benchmarks: createQueryChain({ data: [], error: null }), benchmark_stats_by_tier_v2: createQueryChain() }) });
+      const records = parseSummaryNdjson(await (await aiSummaryPOST(createRequest({ matchIds: ['legacy-role'], nickname: 'Player_A', platform: 'kakao', force: true }))).text());
+      return { prompt, roleInfo: records.find((record) => record.type === 'visuals')?.data?.roleInfo };
+    };
+    // 거리별 피해와 초반 피해를 중간 수준으로 낮추면 어느 역할도 칭호 기준에 들지 않는다.
+    const pending = await promptFor({
+      itemUseStats: { distanceDamage: { short: 150, mid: 150, long: 30 } },
+      goldenTimeDamage: { early: 40, mid1: 120, mid2: 120, late: 50 },
+      combatPressure: { pressureIndex: 2.4, maxHitDist: 300, utilityStats: { throwCount: 1, hitCount: 0, totalDamage: 0, killCount: 0 } },
+    });
+    expect(pending.roleInfo.primaryRole).toBe('balanced');
+    expect(pending.prompt).toContain(`- 부여된 칭호: 없음 (${pending.roleInfo.verdict.headline})`);
+    expect(pending.prompt).toContain(pending.roleInfo.verdict.detail);
+    expect(pending.prompt).not.toContain('균형형 전술가');
+    expect(pending.prompt).not.toContain('여러 상황을 고르게 경험');
+
+    // 기본 fixture는 원거리 피해 비중이 높아 저격 유령 칭호가 확정된다.
+    const confirmed = await promptFor({});
+    expect(confirmed.roleInfo.verdict.kind).toBe('confirmed');
+    expect(confirmed.prompt).toContain(`- 부여된 칭호: ${confirmed.roleInfo.title}\n- 전술 직업군: ${confirmed.roleInfo.roleLabel}\n- 특징 요약: ${confirmed.roleInfo.description}\n`);
   });
 
   it("ai-summary cache hash는 latest10 ID가 같아도 best5 normalized score가 바뀌면 달라진다", async () => {

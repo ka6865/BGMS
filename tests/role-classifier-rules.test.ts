@@ -273,3 +273,112 @@ describe("signature weapon", () => {
   });
 });
 
+
+describe("role verdict explanation", () => {
+  // 초반 피해 비중(earlyShare) 하나로 정해지는 핫드랍 약탈자 점수를 원하는 원점수로 맞춘다.
+  const earlyShareForRoleScore = (target: number) => {
+    let low = 0;
+    let high = 100;
+    for (let step = 0; step < 80; step++) {
+      const mid = (low + high) / 2;
+      if (roleScorePercentile("dropPredator", referencePercentile("earlyShare", mid)) < target) low = mid;
+      else high = mid;
+    }
+    return (low + high) / 2;
+  };
+  const withEarlyShare = (share: number) => ({ goldenTimeAvg: { early: share * 10, mid1: 1000 - share * 10, mid2: 0, late: 0 } });
+
+  it("judges the 85 threshold before rounding and does not show the boundary as 85", () => {
+    const below = classify(withEarlyShare(earlyShareForRoleScore(84.96)));
+    // 표시용 점수는 기존처럼 소수 첫째 자리(85.0)지만 원점수 84.96은 칭호 기준에 못 미친다.
+    expect(below.scores.dropPredator).toBe(85);
+    expect(below.primaryRole).toBe("balanced");
+    expect(below.verdict.kind).toBe("below_threshold");
+    expect(below.verdict.topRole).toMatchObject({ role: "dropPredator" });
+    expect(below.verdict.detail).toContain("핫드랍 약탈자 84.96");
+    expect(below.verdict.detail).not.toMatch(/85\.0\b/);
+
+    const above = classify(withEarlyShare(earlyShareForRoleScore(85.01)));
+    expect(above).toMatchObject({ primaryRole: "dropPredator", title: "핫존의 포식자" });
+    expect(above.verdict).toMatchObject({ kind: "confirmed", headline: "", detail: "", note: "", observations: [] });
+  });
+
+  it("reproduces the 84.96 brawler boundary that main rounded up to a title", () => {
+    // Codex 재현 입력: 근거리 피해 비중 73.0557...%는 근접 난전가 원점수 84.96이다.
+    const result = classify({ mLen: 5, modeDistribution: { main: "solo" }, totalDistanceDamage: { short: 730.5577416, mid: 269.4422584, long: 0 } });
+    expect(result.scores.brawler).toBe(85);
+    expect(result.primaryRole).toBe("balanced");
+    expect(result.title).not.toBe("난전의 지배자");
+    expect(result.verdict.detail).toContain("근접 난전가 84.96");
+    // 같은 화면의 관측 성향도 반올림으로 칭호 기준(상위 15%)처럼 보이지 않는다.
+    expect(result.verdict.observations).toEqual(["근거리 피해 비중 상위 16%"]);
+  });
+
+  it("keeps confirmed titles and their text unchanged", () => {
+    const result = classify(STRONG_EXECUTOR);
+    expect(result).toMatchObject({ primaryRole: "executor", title: "결투의 제왕", roleLabel: "처형자 (Executor)" });
+    expect(result.verdict.kind).toBe("confirmed");
+    expect(result.verdict.topRole).toEqual({ role: "executor", score: 97.5 });
+  });
+
+  it("explains missing records separately from roles that were judged below the threshold", () => {
+    const none = classify({ mLen: 3 });
+    expect(none.primaryRole).toBe("insufficient");
+    expect(none.verdict).toMatchObject({ kind: "insufficient", judgedRoles: 0, totalRoles: 12, topRole: null, headline: "판정할 기록 부족" });
+    expect(none.verdict.detail).toBe("점수 상위 3판에서 칭호를 판정할 만큼 기록이 쌓인 역할이 없습니다.");
+    expect(none.verdict.note).toBe("판정에 필요한 기록이 부족하거나 없는 역할 12개는 판정하지 않았습니다.");
+    expect(none.verdict.detail).not.toMatch(/기준 85|못 미쳤/);
+
+    const median = classify(MEDIAN_EXECUTOR);
+    expect(median.primaryRole).toBe("balanced");
+    expect(median.verdict).toMatchObject({ kind: "below_threshold", judgedRoles: 1, headline: "뚜렷한 대표 역할 없음" });
+    expect(median.verdict.label).toBe("칭호 기준 미달 · 판정 역할 1/12");
+    expect(median.verdict.detail).toContain("처형자 51.4");
+    expect(median.verdict.detail).toBe("점수 상위 1판에서 판정한 역할 1개도 칭호 기준 85점(상위 15%)에 못 미쳤습니다(최고: 처형자 51.4).");
+    expect(median.verdict.note).toBe("판정에 필요한 기록이 부족하거나 없는 역할 11개는 판정하지 않았습니다.");
+    // 기존 균형형 설명의 "여러 상황을 고르게 경험" 같은 근거 없는 문구를 쓰지 않는다.
+    expect(`${median.verdict.detail} ${median.verdict.note}`).not.toMatch(/고르게/);
+  });
+
+  it("separates roles waiting for a comparison reference from roles with too few records", () => {
+    const pending = classifyRole({ ...BASE, ...STRONG_POINT_MAN, ...MEDIAN_EXECUTOR }, {}, "B", { pendingReferenceMetrics: ["reactionSec"] });
+    expect(pending.scores.pointMan).toBeNull();
+    expect(pending.primaryRole).toBe("balanced");
+    expect(pending.verdict.unjudged).toEqual({ notEnoughRecords: 10, referencePending: 1, soloExcluded: 0 });
+    expect(pending.verdict.note).toContain("비교 기준이 아직 준비되지 않은 역할 1개");
+    // 선제 타격 기록도 부족하면 비교 기준 준비 중 하나만 원인인 것처럼 세지 않는다.
+    const bothMissing = classifyRole({ ...BASE, ...MEDIAN_EXECUTOR }, {}, "B", { pendingReferenceMetrics: ["reactionSec"] });
+    expect(bothMissing.verdict.unjudged).toEqual({ notEnoughRecords: 11, referencePending: 0, soloExcluded: 0 });
+    // 옵션이 없으면 기존처럼 측정 불가 반응값은 기록 부족으로 센다.
+    expect(classify({ ...STRONG_POINT_MAN, ...MEDIAN_EXECUTOR, avgReactionLatency: "측정 불가" }).verdict.unjudged.referencePending).toBe(0);
+  });
+
+  it("counts solo-excluded team roles and does not use team metrics as solo observations", () => {
+    const solo = classify({ ...MEDIAN_EXECUTOR, avgTeamDamageShare: 80, modeDistribution: { main: "solo" } });
+    expect(solo.verdict.unjudged.soloExcluded).toBe(5);
+    expect(solo.verdict.note).toContain("솔로 경기 위주라 제외한 팀 역할 5개");
+    expect(solo.verdict.observations.join(" ")).not.toMatch(/팀 내 피해/);
+  });
+
+  it("treats an observed zero as a judged record and a missing value as unjudged", () => {
+    const zero = classify({ avgTeamDamageShare: 0 });
+    expect(zero.scores.mainGun).not.toBeNull();
+    expect(zero.verdict).toMatchObject({ kind: "below_threshold", judgedRoles: 1 });
+    const missing = classify({ avgTeamDamageShare: null });
+    expect(missing.scores.mainGun).toBeNull();
+    expect(missing.verdict.kind).toBe("insufficient");
+  });
+
+  it("does not name one role when several roles tie for the top score", () => {
+    const tied = classify({ avgTeamDamageShare: 0, avgPressureIndex: 0, avgPlacementPct: 0, totalEdgePlay: 0 });
+    expect(tied.scores.mainGun).toBe(tied.scores.zoneController);
+    expect(tied.verdict.detail).toMatch(/최고: 2개 역할 동점 /);
+  });
+
+  it("shows only top-25% records as observed tendencies without turning them into a title", () => {
+    const result = classify({ ...MEDIAN_EXECUTOR, userInitiativeRate: 75, totalInitiativeAttempts: 10, avgPlacementPct: 50.3 });
+    expect(result.primaryRole).toBe("balanced");
+    expect(result.verdict.observations).toEqual(["선제 타격 성공률 상위 3%"]);
+    expect(result.title).toBe("균형형 전술가");
+  });
+});

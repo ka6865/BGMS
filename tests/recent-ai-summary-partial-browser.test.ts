@@ -252,6 +252,115 @@ async function clickText(page: Page, text: string) {
       await page.close();
     }
   }, 30_000);
+  it.each([{ width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }, { width: 1440, height: 900 }])("role verdict states fit and clear on search switch at $width", async (viewport) => {
+    const below = {
+      primaryRole: "balanced", secondaryRole: null, title: "균형형 전술가", roleLabel: "균형형",
+      description: "특정 역할이 다른 플레이어보다 두드러지지 않습니다. 여러 상황을 고르게 경험하고 있습니다.",
+      evidence: [], badges: [], signatureWeapon: "M416", signatureWeaponStats: { kills: 3, dbnos: 2 }, scores: { brawler: 85 },
+      verdict: { kind: "below_threshold", matchCount: 5, judgedRoles: 8, totalRoles: 12, headline: "뚜렷한 대표 역할 없음", label: "칭호 기준 미달 · 판정 역할 8/12",
+        detail: "점수 상위 5판에서 판정한 역할 8개 모두 칭호 기준 85점(상위 15%)에 못 미쳤습니다(최고: 근접 난전가 84.96).",
+        note: "판정에 필요한 기록이 부족하거나 없는 역할 3개, 비교 기준이 아직 준비되지 않은 역할 1개는 판정하지 않았습니다.",
+        observations: ["근거리 피해 비중 상위 16%", "협공 처치 비중 상위 8%"] },
+    };
+    const insufficient = {
+      primaryRole: "insufficient", secondaryRole: null, title: "전술 분석 중", roleLabel: "근거 수집 중",
+      description: "역할을 판정할 만큼 교전·팀 기록이 쌓이지 않았습니다.", evidence: [], badges: [], signatureWeapon: "주먹", scores: {},
+      verdict: { kind: "insufficient", matchCount: 1, judgedRoles: 0, totalRoles: 12, headline: "판정할 기록 부족", label: "근거 수집 중 · 판정 역할 0/12",
+        detail: "점수 상위 1판에서 칭호를 판정할 만큼 기록이 쌓인 역할이 없습니다.",
+        note: "판정에 필요한 기록이 부족하거나 없는 역할 12개는 판정하지 않았습니다.", observations: [] },
+    };
+    // 판정 상태가 없는 옛 응답은 기존 문구를 그대로 보여 준다.
+    const legacy = { ...below, verdict: undefined };
+    for (const [name, roleInfo] of [["below", below], ["insufficient", insufficient], ["legacy", legacy]] as const) {
+      const page = await browser.newPage();
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(String(error)));
+      await page.setViewport(viewport);
+      await page.setRequestInterception(true);
+      let requests = 0;
+      page.on("request", async (request) => {
+        if (!request.url().endsWith("/api/pubg/ai-summary")) {
+          await request.continue();
+          return;
+        }
+        requests += 1;
+        const lines = [
+          { type: "visuals", data: { overallTier: "B", latestMatchCount: 10, bestMatchCount: roleInfo.verdict?.matchCount ?? 5, roleInfo } },
+          { type: "cards", data: cards },
+          { type: "final", data: JSON.stringify({ schemaVersion: 2, analysisStatus: "partial", cards: finalCards, retryAfterSeconds: 300, signature: null, actionItems: null, finalVerdict: "확인된 항목만 평가했습니다." }) },
+          { type: "done", valid: true, partial: true, retryAfterSeconds: 300 },
+        ];
+        await request.respond({ status: 200, contentType: "application/x-ndjson", body: lines.map((line) => JSON.stringify(line)).join("\n") });
+      });
+      try {
+        await page.goto(baseUrl, { waitUntil: "networkidle0" });
+        await clickText(page, "최근 최대 10경기 AI 끝장 토론 시작");
+        await clickText(page, "최근 최대 10경기 AI 끝장 토론 시작").catch(() => undefined);
+        await page.waitForFunction((text) => document.body.innerText.includes(text), {}, message);
+        expect(requests).toBe(1);
+        await clickText(page, "상세 분석 리포트 펼치기");
+        await page.waitForSelector('[data-testid="role-title"]', { visible: true });
+        const read = (testId: string) => page.$eval(`[data-testid="${testId}"]`, (element) => element.textContent?.trim() ?? "").catch(() => null);
+        expect(await read("role-scope")).toBe(`칭호 판정: 최근 유효 10판 중 점수 상위 ${roleInfo.verdict?.matchCount ?? 5}판`);
+        if (name === "legacy") {
+          expect(await read("role-title")).toBe("균형형 전술가");
+          expect(await read("role-label")).toBe("균형형");
+          expect(await read("role-description")).toBe(legacy.description);
+          expect(await read("role-note")).toBeNull();
+          expect(await read("role-observations")).toBeNull();
+        } else {
+          const verdict = roleInfo.verdict!;
+          expect(await read("role-title")).toBe(verdict.headline);
+          expect(await read("role-label")).toBe(verdict.label);
+          expect(await read("role-description")).toBe(verdict.detail);
+          expect(await read("role-note")).toBe(verdict.note);
+          expect(await read("role-observations")).toBe(verdict.observations.length > 0 ? `관측 성향(칭호 아님): ${verdict.observations.join(" · ")}` : null);
+          const text = await page.evaluate(() => document.body.innerText);
+          expect(text).not.toContain("균형형 전술가");
+          expect(text).not.toContain("여러 상황을 고르게 경험");
+          expect(text).not.toMatch(/85\.0|총기 교전|반사신경/);
+        }
+        const layout = await page.evaluate(() => {
+          const lines = (testId: string) => {
+            const element = document.querySelector(`[data-testid="${testId}"]`) as HTMLElement | null;
+            if (!element) return 0;
+            const lineHeight = Number.parseFloat(getComputedStyle(element).lineHeight) || 1;
+            return Math.round(element.getBoundingClientRect().height / lineHeight);
+          };
+          const overflowing = ["role-title", "role-label", "role-description", "role-note", "role-observations"].filter((testId) => {
+            const element = document.querySelector(`[data-testid="${testId}"]`);
+            if (!element) return false;
+            const rect = element.getBoundingClientRect();
+            return rect.left < 0 || rect.right > innerWidth + 0.5;
+          });
+          return { scrollOverflow: document.documentElement.scrollWidth > innerWidth, overflowing, descriptionLines: lines("role-description"), noteLines: lines("role-note") };
+        });
+        console.log(JSON.stringify({ kind: "role-verdict-layout", name, viewport, ...layout }));
+        expect(layout.scrollOverflow).toBe(false);
+        expect(layout.overflowing).toEqual([]);
+        if (process.env.SUMMARY_BROWSER_SCREENSHOT_DIR) {
+          await page.$eval('[data-testid="role-title"]', (element) => element.scrollIntoView({ block: "center" }));
+          // 카드 fade-in이 끝난 최종 화면을 찍는다.
+          await page.waitForFunction(() => {
+            const card = document.querySelector('[data-testid="role-title"]')?.closest(".animate-in");
+            return !card || getComputedStyle(card).opacity === "1";
+          }, { timeout: 5_000 });
+          await page.screenshot({ path: join(process.env.SUMMARY_BROWSER_SCREENSHOT_DIR, `role-verdict-${name}-${viewport.width}.png`) });
+        }
+        // 검색 대상이 바뀌면 이전 판정 설명이 남지 않고 새 요청도 자동으로 보내지 않는다.
+        await page.evaluate(() => (window as unknown as { resetSummary(): void }).resetSummary());
+        await page.waitForFunction(() => document.body.innerText.includes("최근 최대 10경기 AI 끝장 토론 시작"));
+        expect(await page.$('[data-testid="role-title"]')).toBeNull();
+        const afterSwitch = await page.evaluate(() => document.body.innerText);
+        expect(afterSwitch).not.toContain(roleInfo.verdict?.headline ?? "균형형 전술가");
+        expect(requests).toBe(1);
+        expect(errors).toEqual([]);
+      } finally {
+        await page.close();
+      }
+    }
+  }, 60_000);
+
   it.each([{width:375,height:667},{width:390,height:844},{width:430,height:932},{width:1440,height:900}])('qualified single-match reply states at $width', async (viewport) => {
     const page=await browser.newPage();
     const errors:string[]=[];
