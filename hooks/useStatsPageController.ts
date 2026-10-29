@@ -78,7 +78,11 @@ export interface StatsPageController {
   summaryStatus: "idle" | "loading" | "ready" | "error";
   collectionProgress?: { loaded: number; total: number };
   matchIds: readonly string[];
+  /** 가장 최근에 확인한 전체 전적 첫 페이지 ID. 최근 경기 요약 패널이 사용한다. */
   recentMatchIds: readonly string[] | null;
+  /** AI 분석 입력. 처음 확인한 목록으로 정하고 이후에는 applyRecentMatchIdsToAi로만 바꾼다. */
+  aiMatchIds: readonly string[] | null;
+  applyRecentMatchIdsToAi: () => void;
   historyStatus: StatsHistoryStatus;
   historyPage: number;
   historyTotalPages: number;
@@ -265,6 +269,12 @@ export function useStatsPageController(
   const [summaryStatus, setSummaryStatus] = useState<StatsPageController["summaryStatus"]>("idle");
   const [collectionProgress, setCollectionProgress] = useState<StatsPageController["collectionProgress"]>();
   const [recentMatchIds, setRecentMatchIds] = useState<readonly string[] | null>(null);
+  const [aiMatchIds, setAiMatchIds] = useState<readonly string[] | null>(null);
+  const recentMatchIdsRef = useRef<readonly string[] | null>(null);
+  const recentConfirmRequestRef = useRef<AbortController | null>(null);
+  // 최근 목록 게시와 새 경기 저장의 순서. 저장이 마지막 게시보다 늦으면 수집 후 다시 확인한다.
+  const recentSequenceRef = useRef(0);
+  const recentPublishedSequenceRef = useRef(0);
   const [historyMatches, setHistoryMatches] = useState<PlayerMatchRecord[]>([]);
   const [historyStatus, setHistoryStatus] = useState<StatsHistoryStatus>("idle");
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -394,7 +404,11 @@ export function useStatsPageController(
     historyPageRef.current = 1;
     historySummaryIdsRef.current.clear();
     setHistoryMatches([]);
+    recentConfirmRequestRef.current?.abort();
+    recentConfirmRequestRef.current = null;
+    recentMatchIdsRef.current = null;
     setRecentMatchIds(null);
+    setAiMatchIds(null);
     setHistoryStatus("idle");
     setHistoryLoaded(false);
     setHistoryPageState(1);
@@ -681,6 +695,15 @@ export function useStatsPageController(
     });
   }, []);
 
+  // 최근 경기 ID를 갱신한다. AI 입력은 처음 한 번만 정하고, 이후 변경은 사용자가 반영할 때까지 보류한다.
+  const publishRecentMatchIds = useCallback((ids: readonly string[]) => {
+    recentMatchIdsRef.current = ids;
+    recentPublishedSequenceRef.current = ++recentSequenceRef.current;
+    setRecentMatchIds(ids);
+    // 분석할 경기가 아직 없던 경우에는 새 목록을 바로 AI 입력으로 쓴다.
+    setAiMatchIds((current) => current && current.length > 0 ? current : ids);
+  }, []);
+
   const loadHistoryPage = useCallback(async (
     player: PlayerStatsResponse,
     page: number,
@@ -745,7 +768,7 @@ export function useStatsPageController(
       const resolvedPage = data.page && data.page > 0 ? data.page : page;
       // AI 입력은 전체 전적 첫 페이지에 고정하고 페이지·필터 이동에서는 유지한다.
       if (resolvedPage === 1 && requestedFilter === "all") {
-        setRecentMatchIds(normalizeRecentMatchIds(incoming.length ? incoming.map(record => record.match_id) : player.recentMatches));
+        publishRecentMatchIds(normalizeRecentMatchIds(incoming.length ? incoming.map(record => record.match_id) : player.recentMatches));
       }
       historyPageRef.current = resolvedPage;
       setHistoryPageState(resolvedPage);
@@ -756,14 +779,14 @@ export function useStatsPageController(
       return incoming;
     } catch (caught) {
       if (stale()) return null;
-      if (page === 1 && requestedFilter === "all") setRecentMatchIds(normalizeRecentMatchIds(player.recentMatches));
+      if (page === 1 && requestedFilter === "all" && recentMatchIdsRef.current === null) publishRecentMatchIds(normalizeRecentMatchIds(player.recentMatches));
       setHistoryStatus("error");
       setHistoryResponseVersion((version) => version + 1);
       return null;
     } finally {
       if (historyRequestRef.current === controller) historyRequestRef.current = null;
     }
-  }, [applyHistoryRecords, cancelHistoryPolling]);
+  }, [applyHistoryRecords, cancelHistoryPolling, publishRecentMatchIds]);
 
   const loadSummaries = useCallback((
     player: PlayerStatsResponse,
@@ -877,6 +900,33 @@ export function useStatsPageController(
     await loadHistoryPage(player, historyPage);
   }, [historyPage, historyStatus, loadHistoryPage]);
 
+  // 수집이 끝난 뒤 필터·페이지와 무관하게 전체 전적 첫 페이지 ID를 다시 확인한다.
+  // 화면의 전적 목록 요청을 중단하거나 덮어쓰지 않으며, 실패하면 기존 목록을 유지한다.
+  const confirmRecentMatchIds = useCallback(async (player: PlayerStatsResponse) => {
+    recentConfirmRequestRef.current?.abort();
+    const controller = new AbortController();
+    recentConfirmRequestRef.current = controller;
+    try {
+      const params = new URLSearchParams({ nickname: player.nickname, platform: player.platform, page: "1", filter: "all" });
+      const response = await fetch(`/api/pubg/player/matches?${params.toString()}`, {
+        cache: "no-store",
+        signal: withRequestTimeout(controller.signal),
+      });
+      const data = await response.json() as { matches?: PlayerMatchRecord[] };
+      if (!response.ok || controller.signal.aborted || resultRef.current !== player) return;
+      const incoming = Array.isArray(data.matches) ? normalizeHistoryRecords(data.matches) : [];
+      if (incoming.length) publishRecentMatchIds(normalizeRecentMatchIds(incoming.map(record => record.match_id)));
+    } catch {
+      // 확인 실패는 기존 목록을 유지한다.
+    } finally {
+      if (recentConfirmRequestRef.current === controller) recentConfirmRequestRef.current = null;
+    }
+  }, [publishRecentMatchIds]);
+
+  const applyRecentMatchIdsToAi = useCallback(() => {
+    if (recentMatchIdsRef.current) setAiMatchIds(recentMatchIdsRef.current);
+  }, []);
+
   const loadRecentRecords = useCallback(async (player: PlayerStatsResponse) => {
     clearPartial("summary_missing", "summary-batch");
     let pending = normalizeDiscoveredMatchIds(player.collectionMatchIds ?? player.recentMatches);
@@ -898,7 +948,9 @@ export function useStatsPageController(
     for (const record of records ?? []) if (collectionIds.has(record.match_id)) loadedIds.add(record.match_id);
     if (!stale()) setCollectionProgress({ loaded: loadedIds.size, total: collectionIds.size });
     const missingIds = new Set<string>();
+    let ingestedSequence = 0;
     while (batch && !stale()) {
+      if (batch.ingestedMatchIds.some((id) => !recentMatchIdsRef.current?.includes(id))) ingestedSequence = ++recentSequenceRef.current;
       for (const id of batch.summaryIds) {
         missingIds.delete(id);
         if (collectionIds.has(id) && !batch.missingMatchIds.includes(id)) loadedIds.add(id);
@@ -926,12 +978,14 @@ export function useStatsPageController(
     if (!records && !stale() && historyRequestId === historyRequestIdRef.current) {
       await loadHistoryPage(player, historyPageRef.current);
     }
+    // 마지막 전체 첫 페이지 게시 뒤에 새 경기를 저장했으면, 필터·페이지와 무관하게 다시 확인한다.
+    if (!stale() && ingestedSequence > recentPublishedSequenceRef.current) void confirmRecentMatchIds(player);
     if (batch && !stale()) {
       if (!batch.collectionStopped) setSummaryStatus("ready");
       if ([...missingIds].some((id) => !historySummaryIdsRef.current.has(id))) reportPartial("summary_missing", "summary-batch");
       else clearPartial("summary_missing", "summary-batch");
     }
-  }, [clearPartial, loadHistoryPage, loadSummaries, reportPartial]);
+  }, [clearPartial, confirmRecentMatchIds, loadHistoryPage, loadSummaries, reportPartial]);
 
   const retrySummaries = useCallback(async () => {
     const player = resultRef.current;
@@ -1126,6 +1180,8 @@ export function useStatsPageController(
     collectionProgress,
     matchIds,
     recentMatchIds,
+    aiMatchIds,
+    applyRecentMatchIdsToAi,
     historyStatus,
     historyPage,
     historyTotalPages,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ShieldAlert, Clock, TrendingUp, TrendingDown, Minus, Flame, Skull, Target, HelpCircle, Zap, Brain, X, ChevronDown, ChevronUp } from "lucide-react";
 import { getNextTierInfo } from "@/lib/pubg-analysis/benchmarkScore";
 
@@ -511,6 +511,9 @@ export interface RecentAISummaryProps {
   platform: string;
   isMobile?: boolean;
   onSummaryChange?(summary: AiSummarySnapshot | null): void;
+  /** 수집 완료 후 확인된 새 최근 경기 수. 분석 전이면 바로 반영하고, 분석 중·결과가 있으면 안내만 한다. */
+  pendingMatchCount?: number;
+  onApplyPendingMatches?(): void;
 }
 
 interface SummaryRequestOwner {
@@ -555,6 +558,8 @@ export const RecentAISummary = ({
   platform,
   isMobile,
   onSummaryChange,
+  pendingMatchCount = 0,
+  onApplyPendingMatches,
 }: RecentAISummaryProps) => {
   const [debateData, setDebateData] = useState<DebateData | null>(null);
   const [summaryCards, setSummaryCards] = useState<SummaryCard[] | null>(null);
@@ -1206,8 +1211,28 @@ export const RecentAISummary = ({
     onSummaryChangeRef.current?.(snapshot);
   }, [identity, summaryTier, summaryVerdict, summaryLatestCount, summaryBestCount, summaryAnalysisCount, summaryScope]);
 
+  const summaryIdle = !debateData && !summaryCards && !loading && !error;
+  useEffect(() => {
+    // 아직 분석을 시작하지 않았으면 확인된 최신 경기 목록으로 바로 바꾼다.
+    if (pendingMatchCount > 0 && summaryIdle && !isLoadingRef.current) onApplyPendingMatches?.();
+  }, [pendingMatchCount, summaryIdle, onApplyPendingMatches]);
+
   // Hide the previous selection during the render before its reset effect.
   if (renderIdentity !== identity) return null;
+
+  // 분석 중이거나 결과가 있으면 자동으로 지우지 않고, 사용자가 반영할 때만 새 경기 목록으로 바꾼다.
+  const pendingNotice = pendingMatchCount > 0 && !summaryIdle && onApplyPendingMatches ? (
+    <div role="status" className="flex flex-col gap-3 rounded-2xl border border-sky-400/20 bg-sky-500/5 p-4 text-sm text-sky-100/90 sm:flex-row sm:items-center sm:justify-between">
+      <p className="break-words">새로 저장된 최근 경기 {pendingMatchCount}개가 있습니다. 현재 분석은 이전 경기 목록 기준입니다.</p>
+      <button type="button" onClick={onApplyPendingMatches}
+        className="shrink-0 rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-xs font-bold text-sky-100 hover:bg-sky-500/20">
+        최신 경기로 다시 분석하기
+      </button>
+    </div>
+  ) : null;
+  const withPendingNotice = (content: ReactNode) => pendingNotice
+    ? <div className="flex w-full flex-col gap-3">{pendingNotice}{content}</div>
+    : content;
 
   const retryDisabled = retryAfterSeconds > 0 || loading || isGlobalAnalyzing;
   const retryLabel = retryAfterSeconds > 0 ? `${retryAfterSeconds}초 후 다시 시도하기` : "다시 시도하기";
@@ -1225,7 +1250,7 @@ export const RecentAISummary = ({
     const calculationUpgradePending = error.errorCode === CALCULATION_UPGRADE_ERROR_CODE;
     const expired = error.errorCode === "PUBG_MATCH_DETAIL_EXPIRED";
     const canonicalPending = error.errorCode === "PUBG_AI_CANONICAL_NOT_READY";
-    return (
+    return withPendingNotice(
       <div className="p-6 bg-white/5 border border-white/10 rounded-2xl text-center">
         <BgmsIcon name="info" size={28} className="mx-auto mb-3 text-indigo-300" />
         <p className="text-gray-300 text-sm mb-1">
@@ -1296,7 +1321,7 @@ export const RecentAISummary = ({
 
   // [V46.5] 로딩 중이지만 이미 데이터가 있는 경우(갱신 중)에는 전체 화면 스피너를 보여주지 않음 (Partial Loading)
   if (loading && !debateData && !summaryCards) {
-    return (
+    return withPendingNotice(
       <div className="p-12 bg-white/5 rounded-3xl border border-white/10 text-center">
         <div className="w-12 h-12 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mx-auto mb-6" />
         <p className="text-gray-400 animate-pulse text-sm">AI 분석 엔진이 최근 유효 {latestMatchRangeLabel} 전체와 점수 상위 {bestMatchRangeLabel}를 확인 중입니다...</p>
@@ -1473,6 +1498,7 @@ export const RecentAISummary = ({
 
   return (
     <div className="w-full flex flex-col gap-6">
+      {pendingNotice}
       {partialSummary && !error && (
         <div role="status" className="p-5 bg-white/5 border border-white/10 rounded-2xl text-center">
           <p className="text-gray-300 text-sm mb-4">{PARTIAL_SUMMARY_MESSAGE}</p>

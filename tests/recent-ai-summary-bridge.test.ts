@@ -482,6 +482,33 @@ describe("RecentAISummary callback bridge", () => {
     expect(spiderChartProps.current?.data).not.toHaveProperty("teamwork");
   });
 
+  it("분석 전에는 새로 확인된 최근 경기를 바로 반영하고, 결과가 있으면 지우지 않고 안내만 한다", async () => {
+    const idleApply = vi.fn();
+    const idle = render(createElement(RecentAISummary, { ...baseProps, pendingMatchCount: 1, onApplyPendingMatches: idleApply }));
+    await waitFor(() => expect(idleApply).toHaveBeenCalledTimes(1));
+    idle.unmount();
+
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "A" } },
+      { type: "final", data: JSON.stringify(aiReady) },
+      { type: "done", valid: true },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    const apply = vi.fn();
+    const onSummaryChange = vi.fn();
+    const view = render(createElement(RecentAISummary, { ...baseProps, onSummaryChange, onApplyPendingMatches: apply }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await waitFor(() => expect(onSummaryChange).toHaveBeenLastCalledWith(expect.objectContaining({ verdict: "fixture verdict" })));
+
+    view.rerender(createElement(RecentAISummary, { ...baseProps, onSummaryChange, pendingMatchCount: 2, onApplyPendingMatches: apply }));
+    expect(await screen.findByText("새로 저장된 최근 경기 2개가 있습니다. 현재 분석은 이전 경기 목록 기준입니다.")).toBeInTheDocument();
+    expect(apply).not.toHaveBeenCalled();
+    expect(onSummaryChange).not.toHaveBeenLastCalledWith(null);
+    fireEvent.click(screen.getByRole("button", { name: "최신 경기로 다시 분석하기" }));
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("malformed route-owned visuals는 UI에 NaN/Infinity/임의 필드를 전달하지 않는다", async () => {
     const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
       {

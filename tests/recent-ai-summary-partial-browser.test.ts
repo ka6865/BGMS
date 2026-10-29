@@ -50,9 +50,10 @@ async function clickText(page: Page, text: string) {
     const bundle = await build({
       stdin: { contents: `import React from 'react';import {createRoot} from 'react-dom/client';
         import {RecentAISummary} from './components/stat/RecentAISummary';
-        const root=createRoot(document.getElementById('root'));let nickname='FixturePlayer';
-        const render=()=>root.render(<RecentAISummary nickname={nickname} platform="steam" matchIds={['match-1','match-2']} isMobile={innerWidth<768}/>);
+        const root=createRoot(document.getElementById('root'));let nickname='FixturePlayer';let pending=0;window.pendingApplied=0;
+        const render=()=>root.render(<RecentAISummary nickname={nickname} platform="steam" matchIds={['match-1','match-2']} isMobile={innerWidth<768} pendingMatchCount={pending} onApplyPendingMatches={()=>{window.pendingApplied++}}/>);
         window.resetSummary=()=>{nickname='OtherPlayer';render()};
+        window.setPendingMatches=(count)=>{pending=count;render()};
         const realNow=Date.now;let offset=0;Date.now=()=>realNow()+offset;
         window.advanceSummaryTime=(seconds)=>{offset+=seconds*1000};render();`, resolveDir: process.cwd(), loader: "tsx" },
       bundle: true, write: false, platform: "browser", jsx: "automatic", tsconfig: "tsconfig.json",
@@ -154,6 +155,47 @@ async function clickText(page: Page, text: string) {
       expect(await page.evaluate(() => document.body.innerText)).not.toContain("확인된 화력 해석입니다.");
       expect(errors).toEqual([]);
       ledger.assertNoUnexpected();
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
+
+  it.each([{ width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }, { width: 1440, height: 900 }])("new recent match notice keeps the shown result and fits at $width", async (viewport) => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(String(error)));
+    await page.setViewport(viewport);
+    await page.setRequestInterception(true);
+    let requests = 0;
+    page.on("request", async (request) => {
+      if (!request.url().endsWith("/api/pubg/ai-summary")) {
+        await request.continue();
+        return;
+      }
+      requests += 1;
+      const lines = [
+        { type: "visuals", data: { overallTier: "A" } },
+        { type: "cards", data: cards },
+        { type: "final", data: JSON.stringify({ schemaVersion: 2, analysisStatus: "partial", cards: finalCards, retryAfterSeconds: 300, signature: null, actionItems: null, finalVerdict: "확인된 항목만 평가했습니다." }) },
+        { type: "done", valid: true, partial: true, retryAfterSeconds: 300 },
+      ];
+      await request.respond({ status: 200, contentType: "application/x-ndjson", body: lines.map((line) => JSON.stringify(line)).join("\n") });
+    });
+    try {
+      await page.goto(baseUrl, { waitUntil: "networkidle0" });
+      await clickText(page, "최근 최대 10경기 AI 끝장 토론 시작");
+      await page.waitForFunction((text) => document.body.innerText.includes(text), {}, message);
+      await page.evaluate(() => (window as unknown as { setPendingMatches(count: number): void }).setPendingMatches(3));
+      const notice = "새로 저장된 최근 경기 3개가 있습니다. 현재 분석은 이전 경기 목록 기준입니다.";
+      await page.waitForFunction((text) => document.body.innerText.includes(text), {}, notice);
+      expect(await page.evaluate(() => document.body.innerText)).toContain(message);
+      expect(await page.evaluate(() => (window as unknown as { pendingApplied: number }).pendingApplied)).toBe(0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+      if (process.env.SUMMARY_BROWSER_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.SUMMARY_BROWSER_SCREENSHOT_DIR, `pending-notice-${viewport.width}.png`) });
+      await clickText(page, "최신 경기로 다시 분석하기");
+      expect(await page.evaluate(() => (window as unknown as { pendingApplied: number }).pendingApplied)).toBe(1);
+      expect(requests).toBe(1);
+      expect(errors).toEqual([]);
     } finally {
       await page.close();
     }

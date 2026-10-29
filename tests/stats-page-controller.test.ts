@@ -757,7 +757,8 @@ describe("useStatsPageController", () => {
     if (movePage) await act(async () => { await result.current.setHistoryPage(2); });
     await act(async () => summary.resolve());
     await waitFor(() => expect(result.current.summaryStatus).toBe("ready"));
-    expect(historyCalls).toBe(2);
+    // 다른 페이지로 이동하면 배치 재조회를 하지 않으므로, 수집 후 AI 입력 확인 조회만 별도로 한 번 한다.
+    await waitFor(() => expect(historyCalls).toBe(movePage ? 3 : 2));
     expect(result.current.historyPage).toBe(movePage ? 2 : 1);
     expect(result.current.historyTotalPages).toBe(3);
     expect(result.current.matchIds).toContain(movePage ? "page-two" : "match-fixture-1");
@@ -908,6 +909,165 @@ describe("useStatsPageController", () => {
       await act(async () => { await result.current.search({ nickname: "FixturePlayer" }); });
       expect(result.current.result?.nickname).toBe("FixturePlayer");
     } finally { timeout.mockRestore(); }
+  });
+
+  it("수집 완료 뒤 필터와 무관하게 전체 첫 페이지를 다시 확인하고 AI 입력은 반영 전까지 유지한다", async () => {
+    const rec = (match_id: string, game_mode = "squad") => ({ player_id: "fixtureplayer", platform: "steam", match_id, played_at: "2026-10-26T00:00:00Z", game_mode, map_name: "Tiger_Main", kills: 0, damage: 100, win_place: 5, match_type: "official" });
+    const saved = ["old1"];
+    const historyRequests: URL[] = [];
+    let historySignals: Array<AbortSignal | undefined> = [];
+    const summary = deferredResponse({ summaries: { new1: { ...summaryFixture, matchId: "new1" } }, missingMatchIds: [], ingestedMatchIds: ["new1"], nextMatchIds: [] });
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player/matches")) {
+        const requestUrl = new URL(url, "http://localhost");
+        historyRequests.push(requestUrl);
+        historySignals.push(init?.signal as AbortSignal | undefined);
+        const filter = requestUrl.searchParams.get("filter");
+        const matches = filter === "ranked" ? [rec("ranked-only")] : saved.map((id) => rec(id));
+        return Promise.resolve(jsonResponse({ matches, page: 1, totalCount: matches.length, totalPages: 1 }));
+      }
+      if (url === "/api/pubg/matches-summary") return summary.fetch(input, init).then((response) => { saved.unshift("new1"); return response; });
+      return Promise.resolve(jsonResponse({ ...playerReady, recentMatches: ["new1", "old1"], collectionMatchIds: ["new1", "old1"] }));
+    });
+    const { result } = renderHook(() => useStatsPageController({ initialNickname: "FixturePlayer", initialPlatform: "steam" }));
+    await waitFor(() => expect(result.current.aiMatchIds).toEqual(["old1"]));
+    act(() => result.current.setMatchFilter("ranked"));
+    await waitFor(() => expect(result.current.matchIds).toEqual(["ranked-only"]));
+    historySignals = [];
+    await act(async () => summary.resolve());
+    await waitFor(() => expect(result.current.summaryStatus).toBe("ready"));
+    await waitFor(() => expect(result.current.recentMatchIds).toEqual(["new1", "old1"]));
+
+    const confirm = historyRequests.at(-1)!;
+    expect(confirm.searchParams.get("filter")).toBe("all");
+    expect(confirm.searchParams.get("page")).toBe("1");
+    expect(historySignals.every((signal) => !signal?.aborted)).toBe(true);
+    // 화면 목록과 필터는 그대로 두고, 진행 중일 수 있는 AI 입력은 사용자가 반영할 때까지 유지한다.
+    expect(result.current.matchFilter).toBe("ranked");
+    expect(result.current.matchIds).toEqual(["ranked-only"]);
+    expect(result.current.aiMatchIds).toEqual(["old1"]);
+
+    act(() => result.current.applyRecentMatchIdsToAi());
+    expect(result.current.aiMatchIds).toEqual(["new1", "old1"]);
+  });
+
+  it("전체 필터 재조회가 수집 중 목록을 바꿔도 AI 입력은 처음 목록을 유지한다", async () => {
+    const rec = (match_id: string) => ({ player_id: "fixtureplayer", platform: "steam", match_id, played_at: "2026-10-26T00:00:00Z", game_mode: "squad", map_name: "Tiger_Main", kills: 0, damage: 100, win_place: 5, match_type: "official" });
+    const saved = ["old1"];
+    let historyCalls = 0;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player/matches")) {
+        historyCalls += 1;
+        return Promise.resolve(jsonResponse({ matches: saved.map(rec), page: 1, totalCount: saved.length, totalPages: 1 }));
+      }
+      if (url === "/api/pubg/matches-summary") {
+        saved.unshift("new1");
+        return Promise.resolve(jsonResponse({ summaries: { new1: { ...summaryFixture, matchId: "new1" } }, missingMatchIds: [], ingestedMatchIds: ["new1"], nextMatchIds: [] }));
+      }
+      return Promise.resolve(jsonResponse({ ...playerReady, recentMatches: ["new1", "old1"] }));
+    });
+    const { result } = renderHook(() => useStatsPageController({ initialNickname: "FixturePlayer", initialPlatform: "steam" }));
+    await waitFor(() => expect(result.current.summaryStatus).toBe("ready"));
+    await waitFor(() => expect(result.current.recentMatchIds).toEqual(["new1", "old1"]));
+    expect(result.current.aiMatchIds).toEqual(["old1"]);
+    // 같은 배치의 전체 목록 재조회로 반영됐으므로 별도 확인 조회를 추가하지 않는다.
+    expect(historyCalls).toBe(2);
+  });
+
+  it.each([
+    ["confirm failure", 503],
+    ["empty confirm", 200],
+  ] as const)("수집 후 확인이 실패하거나 비어 있으면 기존 목록을 유지한다 (%s)", async (_label, confirmStatus) => {
+    const rec = (match_id: string) => ({ player_id: "fixtureplayer", platform: "steam", match_id, played_at: "2026-10-26T00:00:00Z", game_mode: "squad", map_name: "Tiger_Main", kills: 0, damage: 100, win_place: 5, match_type: "official" });
+    let historyCalls = 0;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player/matches")) {
+        historyCalls += 1;
+        const filter = new URL(url, "http://localhost").searchParams.get("filter");
+        if (historyCalls > 2 && filter === "all") return Promise.resolve(jsonResponse(confirmStatus === 200 ? { matches: [], page: 1, totalPages: 0 } : { error: "down" }, confirmStatus));
+        return Promise.resolve(jsonResponse({ matches: filter === "ranked" ? [] : [rec("old1")], page: 1, totalCount: 1, totalPages: 1 }));
+      }
+      if (url === "/api/pubg/matches-summary") return Promise.resolve(jsonResponse({ summaries: { new1: { ...summaryFixture, matchId: "new1" } }, missingMatchIds: [], ingestedMatchIds: ["new1"], nextMatchIds: [], collectionStopped: false }));
+      return Promise.resolve(jsonResponse({ ...playerReady, recentMatches: ["new1", "old1"] }));
+    });
+    const { result } = renderHook(() => useStatsPageController({ initialNickname: "FixturePlayer", initialPlatform: "steam" }));
+    await waitFor(() => expect(result.current.aiMatchIds).toEqual(["old1"]));
+    act(() => result.current.setMatchFilter("ranked"));
+    await waitFor(() => expect(result.current.summaryStatus).toBe("ready"));
+    await waitFor(() => expect(historyCalls).toBeGreaterThanOrEqual(3));
+    await act(async () => { await Promise.resolve(); });
+    expect(result.current.recentMatchIds).toEqual(["old1"]);
+    expect(result.current.aiMatchIds).toEqual(["old1"]);
+  });
+
+  it("수집 중단 응답도 저장한 새 경기가 있으면 수집 후 확인을 한다", async () => {
+    const rec = (match_id: string) => ({ player_id: "fixtureplayer", platform: "steam", match_id, played_at: "2026-10-26T00:00:00Z", game_mode: "squad", map_name: "Tiger_Main", kills: 0, damage: 100, win_place: 5, match_type: "official" });
+    const saved = ["old1"];
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/pubg/player/matches")) {
+        const filter = new URL(url, "http://localhost").searchParams.get("filter");
+        const matches = filter === "ranked" ? [] : saved.map(rec);
+        return Promise.resolve(jsonResponse({ matches, page: 1, totalCount: matches.length, totalPages: 1 }));
+      }
+      if (url === "/api/pubg/matches-summary") {
+        saved.unshift("new1");
+        return Promise.resolve(jsonResponse({ summaries: { new1: { ...summaryFixture, matchId: "new1" } }, missingMatchIds: ["new2"], ingestedMatchIds: ["new1"], nextMatchIds: [], collectionStopped: true }));
+      }
+      return Promise.resolve(jsonResponse({ ...playerReady, recentMatches: ["new2", "new1", "old1"] }));
+    });
+    const { result } = renderHook(() => useStatsPageController({ initialNickname: "FixturePlayer", initialPlatform: "steam" }));
+    await waitFor(() => expect(result.current.aiMatchIds).toEqual(["old1"]));
+    act(() => result.current.setMatchFilter("ranked"));
+    await waitFor(() => expect(result.current.recentMatchIds).toEqual(["new1", "old1"]));
+    // 저장되지 않은 new2는 확정 목록에 넣지 않는다.
+    expect(result.current.recentMatchIds).not.toContain("new2");
+    expect(result.current.aiMatchIds).toEqual(["old1"]);
+  });
+
+  it("계정을 바꾸면 이전 계정의 수집 후 확인 응답을 무시한다", async () => {
+    const rec = (match_id: string) => ({ player_id: "fixtureplayer", platform: "steam", match_id, played_at: "2026-10-26T00:00:00Z", game_mode: "squad", map_name: "Tiger_Main", kills: 0, damage: 100, win_place: 5, match_type: "official" });
+    let confirmA: ReturnType<typeof deferredResponse> | null = null;
+    const summaryA = deferredResponse({ summaries: {}, missingMatchIds: [], ingestedMatchIds: ["a-new"], nextMatchIds: [] });
+    let historyCallsA = 0;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const requestUrl = new URL(url, "http://localhost");
+      const nickname = requestUrl.searchParams.get("nickname") ?? "";
+      if (url.startsWith("/api/pubg/player/matches")) {
+        if (nickname === "A") {
+          historyCallsA += 1;
+          const filter = requestUrl.searchParams.get("filter");
+          if (historyCallsA > 2 && filter === "all") {
+            confirmA = deferredResponse({ matches: [rec("a-new"), rec("a-old")], page: 1, totalCount: 2, totalPages: 1 });
+            return confirmA.fetch(input, init);
+          }
+          return Promise.resolve(jsonResponse({ matches: filter === "ranked" ? [] : [rec("a-old")], page: 1, totalCount: 1, totalPages: 1 }));
+        }
+        return Promise.resolve(jsonResponse({ matches: [rec("b-1")], page: 1, totalCount: 1, totalPages: 1 }));
+      }
+      if (url === "/api/pubg/matches-summary") {
+        const ids = JSON.parse(String(init?.body)).matchIds as string[];
+        if (ids.includes("a-new")) return summaryA.fetch(input, init);
+        return Promise.resolve(jsonResponse({ summaries: {}, missingMatchIds: [], ingestedMatchIds: [], nextMatchIds: [] }));
+      }
+      return Promise.resolve(jsonResponse({ ...playerReady, nickname, recentMatches: nickname === "A" ? ["a-new", "a-old"] : ["b-1"] }));
+    });
+    const hook = renderHook(({ nickname }) => useStatsPageController({ initialNickname: nickname, initialPlatform: "steam" }), { initialProps: { nickname: "A" } });
+    await waitFor(() => expect(hook.result.current.aiMatchIds).toEqual(["a-old"]));
+    act(() => hook.result.current.setMatchFilter("ranked"));
+    await waitFor(() => expect(hook.result.current.historyStatus).toBe("ready"));
+    await act(async () => summaryA.resolve());
+    await waitFor(() => expect(confirmA).not.toBeNull());
+    hook.rerender({ nickname: "B" });
+    await waitFor(() => expect(hook.result.current.aiMatchIds).toEqual(["b-1"]));
+    expect(confirmA!.signal?.aborted).toBe(true);
+    await act(async () => confirmA!.resolve());
+    expect(hook.result.current.recentMatchIds).toEqual(["b-1"]);
+    expect(hook.result.current.aiMatchIds).toEqual(["b-1"]);
   });
 
   it("요약 캐시가 있어도 기본 전적이 없는 후속 경기 수집을 계속한다", async () => {
