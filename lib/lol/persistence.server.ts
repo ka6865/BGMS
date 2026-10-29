@@ -157,16 +157,21 @@ export async function releaseLolCollectionLease(lease: Lease): Promise<void> {
   await rpc<boolean>("release_lol_collection_lease", { p_key: lease.key, p_token: lease.token });
 }
 
-export async function reserveLolRiotRequest(host: LolRiotHost): Promise<{ token: string; permitAt: number }> {
-  const rows = await rpc<Array<{ granted: boolean; lease_token: string | null; permit_at: string | null; retry_after_seconds: number; reason: string }>>(
-    "reserve_lol_riot_request", { p_host: host },
+// 백그라운드 수집기는 LOL_RIOT_PRIORITY=background로 실행해 사용자 검색보다 적은 몫만 쓴다.
+export function lolRiotPriority(): "interactive" | "background" {
+  return process.env.LOL_RIOT_PRIORITY === "background" ? "background" : "interactive";
+}
+
+export async function reserveLolRiotRequest(host: LolRiotHost): Promise<{ token: string; permitAt: number; started: boolean }> {
+  const rows = await rpc<Array<{ granted: boolean; lease_token: string | null; permit_at: string | null; retry_after_seconds: number; reason: string; started?: boolean | null }>>(
+    "reserve_lol_riot_request", { p_host: host, p_priority: lolRiotPriority() },
   );
   const result = rows?.[0];
   if (!result) throw new LolPersistenceError();
   if (!result.granted || !result.lease_token || !result.permit_at) {
     throw new LolPermitError(result.reason === "cooldown" || result.reason === "daily_budget" ? "rate_limited" : "busy", result.retry_after_seconds);
   }
-  return { token: result.lease_token, permitAt: Date.parse(result.permit_at) };
+  return { token: result.lease_token, permitAt: Date.parse(result.permit_at), started: result.started === true };
 }
 
 export async function startLolRiotRequest(token: string): Promise<{ allowed: boolean; retryAfterSeconds: number }> {
@@ -185,6 +190,19 @@ export async function blockLolRiotRequests(host: LolRiotHost, retryAfterSeconds:
 
 export async function recordLolRiotRateHeaders(host: LolRiotHost, headers: Headers): Promise<void> {
   const accepted = await rpc<boolean>("record_lol_riot_rate_headers", {
+    p_host: host,
+    p_app_limit: headers.get("X-App-Rate-Limit"),
+    p_app_count: headers.get("X-App-Rate-Limit-Count"),
+    p_method_limit: headers.get("X-Method-Rate-Limit"),
+    p_method_count: headers.get("X-Method-Rate-Limit-Count"),
+  });
+  if (!accepted) throw new LolPermitError("rate_limited", 600);
+}
+
+// 응답 헤더 기록과 허가 해제를 한 번의 DB 왕복으로 처리한다.
+export async function finishLolRiotRequest(token: string, host: LolRiotHost, headers: Headers): Promise<void> {
+  const accepted = await rpc<boolean>("finish_lol_riot_request", {
+    p_token: token,
     p_host: host,
     p_app_limit: headers.get("X-App-Rate-Limit"),
     p_app_count: headers.get("X-App-Rate-Limit-Count"),

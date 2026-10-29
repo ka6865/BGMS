@@ -25,7 +25,7 @@ import {
   lolSearchCacheKey,
   persistLolMatchDetails,
   persistLolSearchSnapshot,
-  recordLolRiotRateHeaders,
+  finishLolRiotRequest,
   releaseLolCollectionLease,
   releaseLolRiotRequest,
   reserveLolRiotRequest,
@@ -103,6 +103,8 @@ type RiotState = {
   activeSearches: number;
   accounts: Map<string, { account: { puuid: string; gameName: string; tagLine: string }; expiresAt: number }>;
   accountOps: Set<string>;
+  parallel: number;
+  waiters: Array<() => void>;
 };
 
 const STATE_KEY = Symbol.for("bgms.lol.riot-search-state");
@@ -159,9 +161,13 @@ const state: RiotState = (() => {
     activeSearches: 0,
     accounts: new Map(),
     accountOps: new Set(),
+    parallel: 0,
+    waiters: [],
   });
   shared.accounts ??= new Map();
   shared.accountOps ??= new Set();
+  shared.parallel ??= 0;
+  shared.waiters ??= [];
   return shared;
 })();
 
@@ -283,6 +289,28 @@ async function readLolChallengeBody(response: Response, maxBytes: number): Promi
   return bytes.buffer;
 }
 
+// 공유 DB 제한을 쓰면 호출 한도는 DB가 지킨다. 프로세스 안에서는 동시에 RIOT_PARALLEL_REQUESTS개까지 보낸다.
+// DB 없이 실행하면 기존처럼 한 줄로 세워 메모리 간격을 지킨다.
+const RIOT_PARALLEL_REQUESTS = 6;
+function scheduleRiotTask(parallel: boolean, task: () => Promise<void>): Promise<void> {
+  if (!parallel) {
+    const run = state.queue.then(task);
+    state.queue = run.then(() => undefined, () => undefined);
+    return run;
+  }
+  // 끝난 자리를 기다리던 작업에 그대로 넘겨 동시 실행 수가 한도를 넘지 않게 한다.
+  const run = () => task().finally(() => {
+    const next = state.waiters.shift();
+    if (next) next();
+    else state.parallel -= 1;
+  });
+  if (state.parallel < RIOT_PARALLEL_REQUESTS) {
+    state.parallel += 1;
+    return run();
+  }
+  return new Promise<void>(resolve => state.waiters.push(resolve)).then(run);
+}
+
 export async function requestJson<T>(
   host: keyof typeof RIOT_HOSTS,
   path: string,
@@ -328,13 +356,15 @@ export async function requestJson<T>(
         new RiotSearchError(error.kind, error.retryAfterSeconds, diagnostic),
       );
     };
-    const run = state.queue.then(async () => {
+    const run = scheduleRiotTask(persistenceEnabled, async () => {
       let permitToken: string | undefined;
+      let permitStarted = false;
       let requestMetric: LolOpsMetric | undefined;
       try {
       if (persistenceEnabled) {
           const permit = await reserveLolRiotRequest(host);
           permitToken = permit.token;
+          permitStarted = permit.started;
           const waitMs = permit.permitAt - Date.now();
           if (waitMs > 4_000) {
             await releaseLolRiotRequest(permitToken);
@@ -347,7 +377,8 @@ export async function requestJson<T>(
             return;
           }
           if (waitMs > 0) await sleep(waitMs);
-          const started = await startLolRiotRequest(permitToken);
+          // 예약 즉시 시작 허가를 받은 요청은 시작 확인 왕복을 생략한다.
+          const started = permitStarted && waitMs <= 0 ? { allowed: true, retryAfterSeconds: 0 } : await startLolRiotRequest(permitToken);
           if (!started.allowed) {
             fail(
               new RiotSearchError("congested", started.retryAfterSeconds),
@@ -418,8 +449,11 @@ export async function requestJson<T>(
 
         requestMetric = response.ok ? "riot_success" : response.status === 429 ? "riot_429"
           : response.status === 401 || response.status === 403 ? "riot_key_error" : response.status >= 500 ? "riot_5xx" : "riot_4xx";
-        if (persistenceEnabled)
-          await recordLolRiotRateHeaders(host, response.headers);
+        if (persistenceEnabled && permitToken) {
+          const token = permitToken;
+          permitToken = undefined;
+          await finishLolRiotRequest(token, host, response.headers);
+        }
         if (response.status === 429) {
           const rawRetryAfter = Number(response.headers.get("Retry-After"));
           const seconds =
@@ -553,10 +587,6 @@ export async function requestJson<T>(
     });
     void run.catch(() =>
       fail(new RiotSearchError("upstream"), "queue", "queue_execution_failed"),
-    );
-    state.queue = run.then(
-      () => undefined,
-      () => undefined,
     );
   });
 
@@ -1181,37 +1211,62 @@ async function enrichMatchRecords(records: Array<{ summary: LolRecentMatch; raw:
 }
 
 
+// 경기 상세는 최대 MATCH_LOAD_CONCURRENCY개씩 동시에 받는다. 결과는 ID 순서대로 모으고,
+// 429를 만난 위치 뒤의 결과는 버려 다음 페이지 위치(loadedCount)가 연속되게 한다.
+const MATCH_LOAD_CONCURRENCY = 5;
 async function loadMatchRecords(puuid: string, matchIds: string[], persistDetails = false) {
   const matches: LolRecentMatch[] = [];
   const records: Array<{ summary: LolRecentMatch; raw: unknown }> = [];
   const matchFailures: LolMatchFailure[] = [];
   let loadedCount = 0;
-  for (const matchId of matchIds.slice(0, LOL_MATCH_PAGE_SIZE)) {
-    try {
-      const stored = isLolPersistenceEnabled()
-        ? persistDetails
-          ? await getLolMatchDetailsAndRaw(matchId, true)
-          : { raw: await getLolMatchRequestJson(matchId, LOL_PLATFORM, LOL_REGIONAL_ROUTE) }
-        : undefined;
-      const match = stored?.raw ?? await requestJson<any>("asia", `/lol/match/v5/matches/${encodeURIComponent(matchId)}`, MATCH_TTL_MS);
-      const summary = summarizeMatch(match, puuid);
-      if (!summary) matchFailures.push({ matchId, kind: "invalid_match" });
-      else {
-        matches.push(summary);
-        records.push({ summary, raw: match });
+  const ids = matchIds.slice(0, LOL_MATCH_PAGE_SIZE);
+  type Loaded = { ok: true; summary: LolRecentMatch | null; raw: unknown } | { ok: false; failure: LolMatchFailure; rateLimited: boolean };
+  const results: Array<Loaded | undefined> = new Array(ids.length);
+  let next = 0;
+  let stopped = false;
+  let fatal: unknown;
+  const worker = async () => {
+    while (!stopped && fatal === undefined && next < ids.length) {
+      const index = next++;
+      const matchId = ids[index];
+      try {
+        const stored = isLolPersistenceEnabled()
+          ? persistDetails
+            ? await getLolMatchDetailsAndRaw(matchId, true)
+            : { raw: await getLolMatchRequestJson(matchId, LOL_PLATFORM, LOL_REGIONAL_ROUTE) }
+          : undefined;
+        const match = stored?.raw ?? await requestJson<any>("asia", `/lol/match/v5/matches/${encodeURIComponent(matchId)}`, MATCH_TTL_MS);
+        results[index] = { ok: true, summary: summarizeMatch(match, puuid), raw: match };
+      } catch (error) {
+        if (error instanceof LolLeaseExpiredError || error instanceof LolPersistenceError || (error instanceof RiotSearchError && error.kind === "persistence")) {
+          fatal = error;
+          return;
+        }
+        const rateLimited = error instanceof RiotSearchError && error.kind === "rate_limited";
+        results[index] = { ok: false, rateLimited, failure: {
+          matchId,
+          kind: error instanceof RiotSearchError ? error.kind : "upstream",
+          ...(error instanceof RiotSearchError && error.retryAfterSeconds ? { retryAfterSeconds: error.retryAfterSeconds } : {}),
+        } };
+        if (rateLimited) stopped = true;
       }
-    } catch (error) {
-      if (error instanceof LolLeaseExpiredError || error instanceof LolPersistenceError || (error instanceof RiotSearchError && error.kind === "persistence")) throw error;
-      matchFailures.push({
-        matchId,
-        kind: error instanceof RiotSearchError ? error.kind : "upstream",
-        ...(error instanceof RiotSearchError && error.retryAfterSeconds ? { retryAfterSeconds: error.retryAfterSeconds } : {}),
-      });
-      loadedCount += 1;
-      if (error instanceof RiotSearchError && error.kind === "rate_limited") break;
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(MATCH_LOAD_CONCURRENCY, ids.length) }, worker));
+  if (fatal !== undefined) throw fatal;
+  for (const [index, result] of results.entries()) {
+    if (!result) break;
+    loadedCount += 1;
+    if (!result.ok) {
+      matchFailures.push(result.failure);
+      if (result.rateLimited) break;
       continue;
     }
-    loadedCount += 1;
+    if (!result.summary) matchFailures.push({ matchId: ids[index], kind: "invalid_match" });
+    else {
+      matches.push(result.summary);
+      records.push({ summary: result.summary, raw: result.raw });
+    }
   }
   await enrichMatchRecords(records);
   return { matches, records, matchFailures, loadedCount };
@@ -1385,10 +1440,12 @@ async function searchLolRiotIdInternal(
       requestJson<string[]>("asia", `/lol/match/v5/matches/by-puuid/${encodedPuuid}/ids?start=0&count=20`, IDENTIFIER_TTL_MS, options.refresh === true),
     ]);
     const pageIds = matchIds.slice(0, 20);
-    const batch = await loadMatchRecords(puuid, pageIds);
-    // 숙련도 429가 현재 검색의 경기 조회를 막지 않도록 필수 조회 뒤에 요청한다.
-    const mastery = await loadLolMastery(encodedPuuid, options.refresh === true);
-    const challengeProfile = await loadLolChallengeProfile(encodedPuuid, options.refresh === true);
+    // 숙련도·도전과제는 실패해도 빈 값으로 대체하므로 경기 상세와 함께 받는다.
+    const [batch, mastery, challengeProfile] = await Promise.all([
+      loadMatchRecords(puuid, pageIds),
+      loadLolMastery(encodedPuuid, options.refresh === true),
+      loadLolChallengeProfile(encodedPuuid, options.refresh === true),
+    ]);
     const lastUpdatedAt = new Date().toISOString();
     const matches = batch.matches;
     const result: LolSearchResult = {
