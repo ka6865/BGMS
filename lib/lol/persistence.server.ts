@@ -113,8 +113,10 @@ export async function getLolAccountByRiotId(gameName: string, tagLine: string): 
       .ilike("game_name", escapePattern(gameName)).ilike("tag_line", escapePattern(tagLine))
       .limit(10).abortSignal(signal);
     if (error) throw error;
-    const row = data?.find((account: any) => account.game_name.toLocaleLowerCase() === gameName.toLocaleLowerCase()
+    const rows = (data ?? []).filter((account: any) => account.game_name.toLocaleLowerCase() === gameName.toLocaleLowerCase()
       && account.tag_line.toLocaleLowerCase() === tagLine.toLocaleLowerCase());
+    // 같은 Riot ID 행이 여럿이면 어느 계정인지 알 수 없으므로 다른 사람 기록을 섞지 않도록 찾지 못한 것으로 본다.
+    const row = rows.length === 1 ? rows[0] : undefined;
     return row ? { puuid: row.puuid, gameName: row.game_name, tagLine: row.tag_line, accountFetchedAt: row.account_fetched_at } : undefined;
   } catch (error) {
     return persistenceFailure("get_lol_account_by_riot_id", error, signal);
