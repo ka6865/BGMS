@@ -315,12 +315,17 @@ export async function getLolRankedObservations(puuid: string, since: string, lim
   } catch (error) { return persistenceFailure("get_lol_ranked_observations", error, signal); }
 }
 
-export async function hasLolStoredMatch(matchId: string): Promise<boolean> {
+// 공개 상세를 열 수 있는 경기인지 확인한다. 원문(7일)이 정리돼도 저장된 경기 요약에 있으면 허용해 Riot에서 다시 받는다.
+export async function hasLolKnownMatch(matchId: string): Promise<boolean> {
   const signal = AbortSignal.timeout(LOL_DB_TIMEOUT_MS);
   try {
-    const { data, error } = await db().from("lol_matches").select("match_id")
+    const { data: raw, error: rawError } = await db().from("lol_matches").select("match_id")
       .eq("match_id", matchId).eq("platform_id", "kr").eq("regional_route", "asia").abortSignal(signal).maybeSingle();
-    if (error) throw error;
-    return data !== null;
-  } catch (error) { return persistenceFailure("has_lol_stored_match", error, signal); }
+    if (rawError) throw rawError;
+    if (raw) return true;
+    const { data: summaries, error: summaryError } = await db().from("lol_player_match_summaries").select("match_id")
+      .eq("match_id", matchId).eq("platform_id", "kr").limit(1).abortSignal(signal);
+    if (summaryError) throw summaryError;
+    return (summaries?.length ?? 0) > 0;
+  } catch (error) { return persistenceFailure("has_lol_known_match", error, signal); }
 }

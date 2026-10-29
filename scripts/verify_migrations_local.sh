@@ -133,6 +133,7 @@ MIGRATIONS=(
   "20261029010000_lol_riot_window_guard"
   "20261029020000_lol_search_snapshot"
   "20261029030000_lol_guard_snapshot_fixes"
+  "20261030010000_lol_summary_match_index"
 )
 
 cleanup() {
