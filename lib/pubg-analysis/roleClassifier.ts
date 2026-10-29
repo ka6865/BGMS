@@ -101,6 +101,11 @@ const ROLE_DEFINITIONS: Record<Exclude<RoleKey, "fieldCommander">, RoleDefinitio
   },
 };
 
+/** 감사용: 역할 판정에 필요한 지표 목록(판정 규칙과 같은 정의). */
+export function roleRequiredMetrics(role: Exclude<RoleKey, "fieldCommander">): RoleMetricKey[] {
+  return [...ROLE_DEFINITIONS[role].metrics];
+}
+
 const FIELD_COMMANDER = {
   label: "전장의 지휘관 (Field Commander)", title: "육각형 플레이어",
   description: "여러 역할에서 고르게 상위권입니다. 한 가지에 치우치지 않고 상황에 맞게 움직입니다.",

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import { aggregateMatches, roleCohortOf } from '../lib/pubg-analysis/summaryAggregate';
 import { selectRecentMatches, selectBestMatches } from '../lib/pubg-analysis/recentMatchSelection';
-import { calculateRoleRawScores, classifyRole, type RoleInfo } from '../lib/pubg-analysis/roleClassifier';
+import { calculateRoleRawScores, classifyRole, extractRoleMetrics, roleRequiredMetrics, type RoleInfo, type RoleKey } from '../lib/pubg-analysis/roleClassifier';
 import { referencePercentile, roleScorePercentile, type RoleScoreKey, type RoleReference } from '../lib/pubg-analysis/roleReference';
 import { buildCalibrationProfile, calibrationMatchWindow, calibrationResults, fitReferenceCandidate, roleWindowStability, quantiles, CALIBRATION_SEED, type CalibrationProfile } from '../lib/pubg-analysis/referenceCalibration';
 
@@ -63,24 +63,30 @@ function middleCandidate(profiles:CalibrationProfile[], subjects:Map<string,Subj
   return result;
 }
 
-const topRoles=(stats:any,reference:RoleReference)=>Object.entries(calculateRoleRawScores(stats,reference).rawScores)
+// 판정 사유는 반올림 전 점수로 정하고, 보고서에 내보낼 때만 반올림한다.
+export const preciseRoles=(stats:any,reference:RoleReference)=>Object.entries(calculateRoleRawScores(stats,reference).rawScores)
   .map(([key,value])=>[key,value===null?null:roleScorePercentile(key as RoleScoreKey,value,reference)] as const)
-  .filter((row):row is readonly [string,number]=>row[1]!==null).sort((a,b)=>b[1]-a[1]).map(([role,score])=>({role,score:Number(score.toFixed(1))}));
+  .filter((row):row is readonly [string,number]=>row[1]!==null).sort((a,b)=>b[1]-a[1]).map(([role,score])=>({role,score}));
+const topRoles=(stats:any,reference:RoleReference)=>preciseRoles(stats,reference).map(({role,score})=>({role,score:Number(score.toFixed(1))}));
 
 /** 역할별 근거·판정·경기 창 불일치 집계. 판정 규칙을 바꾸지 않고 기존 결과만 센다. */
-function roleSummary(profiles:CalibrationProfile[], windows:Map<string,ReturnType<typeof roleWindowStability>>, cohorts:Array<{cohort:string;reference:RoleReference;roleCoverage:Record<string,{train:number;holdout:number;eligible:boolean}>}>) {
+export function roleSummary(profiles:CalibrationProfile[], windows:Map<string,ReturnType<typeof roleWindowStability>>, cohorts:Array<{cohort:string;reference:RoleReference;roleCoverage:Record<string,{train:number;holdout:number;eligible:boolean}>}>) {
   const rows:Record<string,any>={};
   for(const c of cohorts){
     const group=profiles.filter(p=>p.cohort===c.cohort);
     for(const [role,coverage] of Object.entries(c.roleCoverage)){
       const row:any={cohort:c.cohort,role,referenceEligible:coverage.eligible,train:coverage.train,holdout:coverage.holdout,
-        observableProfiles:0,missingRequiredEvidence:0,confirmedPrimary:0,confirmedSecondary:0,
+        // scored: 역할 점수 산출, noReferenceCdf: 근거는 있으나 기준 역할 CDF 없음, missingRequiredEvidence: 역할 필수 근거 미관측
+        scored:0,noReferenceCdf:0,missingRequiredEvidence:0,confirmedPrimary:0,confirmedSecondary:0,
         pendingTop:{unstable:0,belowThreshold:0,fewChangedVariants:0,cohort:0},observedOrCombinedTop:0,
         disagreements:{rank_flip:0,lost_confirmation:0,gained_confirmation:0,state_change:0,insufficient:0,commander_change:0}};
       for(const p of group){
-        const window=windows.get(p.accountKey)!,decision=window.decision,top=topRoles(p.stats,c.reference);
-        const observable=top.some(t=>t.role===role);
-        if(observable)row.observableProfiles++;else row.missingRequiredEvidence++;
+        const window=windows.get(p.accountKey)!,decision=window.decision,top=preciseRoles(p.stats,c.reference);
+        const metrics=extractRoleMetrics(p.stats,c.reference.evidenceVersion);
+        const evidencePresent=roleRequiredMetrics(role as Exclude<RoleKey,'fieldCommander'>).every(key=>metrics[key]!==null);
+        if(!evidencePresent)row.missingRequiredEvidence++;
+        else if(top.some(t=>t.role===role))row.scored++;
+        else row.noReferenceCdf++;
         if(decision.status==='confirmed'&&decision.primaryRole===role)row.confirmedPrimary++;
         if(decision.status==='confirmed'&&decision.secondaryRole===role)row.confirmedSecondary++;
         if(top[0]?.role!==role)continue;

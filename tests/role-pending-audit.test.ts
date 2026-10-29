@@ -24,3 +24,25 @@ it('uses the validated account and retention window for fitting, decisions and v
   expect(contaminated).toEqual(clean);
   expect(contaminated.policies[1].targets[0].description).toContain('선정 3경기');
 });
+
+it('separates missing role evidence from a missing reference CDF and keeps the exact 85 boundary',async()=>{
+  const {roleSummary,preciseRoles}=await import('../scripts/audit_role_pending');
+  const {aggregateMatches}=await import('../lib/pubg-analysis/summaryAggregate');
+  const levels=[5,10,20,30,40,50,60,70,80,90,95];
+  const evidence={version:1,validWeaponHits:6,distanceHitCount:6,distanceDamage:{short:254.88,mid:45.12,long:0},maxHitDist:20,pressureIndex:1.2,focusFireCount:0,rescueCount:0,rescueOpportunityCount:0,positionSampleCount:0,edgePlayCount:0};
+  const row=(id:string,roleEvidence:any)=>({matchId:id,createdAt:'2026-10-28T12:00:00Z',gameMode:'squad',matchType:'official',platform:'steam',v:73,calculationVersion:5,populationEvidenceVersion:1,
+    benchmark:{score:50,tier:'B'},stats:{playerId:'a'},teamContext:{myRosterSize:1},roleEvidence});
+  const stats=(roleEvidence:any)=>({...aggregateMatches(['1','2','3'].map(id=>row(id,roleEvidence)),{roleEvidenceVersion:2}),mLen:3,modeDistribution:{main:'squad'}});
+  const withDistance=stats(evidence),withoutDistance=stats({...evidence,distanceHitCount:0,maxHitDist:null,distanceDamage:{short:0,mid:0,long:0}});
+  const cohort='steam|squad|official';
+  const reference={evidenceVersion:2 as const,cohort,metrics:{shortShare:levels},roles:{brawler:levels}};
+  // 84.96은 반올림하면 85.0이지만 판정과 사유 분류는 반올림 전 값으로 한다.
+  expect(preciseRoles(withDistance,reference)[0].score).toBeCloseTo(84.96,2);
+  const profile=(key:string,s:any)=>({accountKey:key,cohort,partition:'train' as const,selectedMatchIds:['1','2','3'],tier:'B',stats:s});
+  const pendingWindow={decision:{status:'pending',primaryRole:'pending'},runs:5,disagreements:{rank_flip:0,lost_confirmation:0,gained_confirmation:0,state_change:0,insufficient:0,commander_change:0}} as any;
+  const windows=new Map([['scored',pendingWindow],['missing',pendingWindow]]);
+  const summary=(roles:any)=>roleSummary([profile('scored',withDistance),profile('missing',withoutDistance)],windows,
+    [{cohort,reference:{...reference,roles},roleCoverage:{brawler:{train:2,holdout:0,eligible:false}}}])[0];
+  expect(summary({brawler:levels})).toMatchObject({scored:1,noReferenceCdf:0,missingRequiredEvidence:1,pendingTop:{belowThreshold:1,unstable:0}});
+  expect(summary({})).toMatchObject({scored:0,noReferenceCdf:1,missingRequiredEvidence:1});
+});

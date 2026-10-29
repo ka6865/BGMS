@@ -1,5 +1,11 @@
 # 칭호 미확정 설명과 신규 역할 후보 검증
 
+> **현재 기준(2026-10-29 최종, `#380` 최신 commit):**
+> - 개발 재생(gun-only 313계정·2,902전적, 공통 308명) EV2: 확정 94, 균형형 1, 복합 34, 관측 179.
+> - 독립 확인은 학습 미사용 5계정 중 완전 프로필 4개로 모든 역할이 표본 부족이다.
+> - 아래 앞부분 표의 121→90·37/180 등은 각 시점 기록이며, 마지막 두 절이 최신이다.
+
+
 상태: PR #380의 개발 후보. bgms.kr 배포·main 병합·운영 DB/R2 쓰기·키 변경·캐시 삭제는 하지 않았다. 기존 계산5·점수·기본 CDF1·요약 API의 기본 분류는 유지한다. 새 정책은 `reference.evidenceVersion:2`와 `aggregateMatches(...,{roleEvidenceVersion:2})`를 명시한 경로에서만 사용한다. 개별 엔진 관측은 version1 그대로다.
 
 ## 결과의 의미
@@ -156,7 +162,18 @@ train/holdout은 계정 hash로만 나누며 같은 경기를 공유하는 계�
 
 benchmark·점수·원점수는 이 단계에서 바뀌지 않는다(엔진 변경 없음, 감사 결과가 새 진단 필드 외에는 동일). cohort 조건은 이 개발 표본(steam, 같은 cohort로 선정)에서는 판정을 바꾸지 않았다. 효과는 기준과 다른 범위가 들어올 때의 방어다.
 
-역할별 집계(`roleSummary`)는 JSON에 있다. 항목은 기준 CDF 적격 여부, 학습·holdout 수, 점수 산출 가능 프로필, 필수 근거 누락, 확정 대표·보조, 대표 후보였지만 보류된 이유(불안정·85 미만·변형 부족·cohort), 해당 역할이 대표 후보였던 프로필의 불일치 사유다. 선봉·복수자·투척 전문가는 세 cohort 모두에서 기준 CDF 표본(학습 50·holdout 20)이 부족해 판정하지 않는다. 지정 계정 두 명은 학습에서 제외한 대상 partition이다.
+역할별 집계(`roleSummary`)는 JSON에 있다. 판정 규칙은 바꾸지 않고 기존 결과만 센다. 사유 분류는 반올림 전 점수로 하며, 정확히 85 미만인 경우만 `belowThreshold`로 센다.
+
+| 필드 | 뜻 |
+| --- | --- |
+| `scored` | 역할 점수를 산출한 프로필 |
+| `noReferenceCdf` | 필수 근거는 있으나 기준 역할 CDF가 없는 프로필 |
+| `missingRequiredEvidence` | 역할 정의의 필수 지표가 관측되지 않은 프로필 |
+| `confirmedPrimary`·`confirmedSecondary` | 확정 대표·보조 |
+| `pendingTop` | 대표 후보였지만 보류된 이유(`unstable`·`belowThreshold`·`fewChangedVariants`·`cohort`) |
+| `disagreements` | 해당 역할이 대표 후보였던 프로필의 경기 창 불일치 사유 |
+
+선봉·복수자·투척 전문가는 세 cohort 모두에서 근거가 있는 프로필이 있지만 기준 CDF 표본(학습 50·holdout 20)이 부족해 `noReferenceCdf`로 남는다. 지정 계정 두 명은 학습에서 제외한 대상 partition이다.
 
 ### cohort guard 보완 (리뷰 반영)
 
