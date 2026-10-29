@@ -39,15 +39,19 @@
   "windowDisagreements": [
     {
       "evidenceVersion": 1,
-      "rank_flip": 287,
-      "threshold_drop": 129,
+      "rank_flip": 194,
+      "lost_confirmation": 124,
+      "gained_confirmation": 93,
+      "state_change": 5,
       "insufficient": 64,
       "commander_change": 16
     },
     {
       "evidenceVersion": 2,
-      "rank_flip": 338,
-      "threshold_drop": 120,
+      "rank_flip": 244,
+      "lost_confirmation": 115,
+      "gained_confirmation": 94,
+      "state_change": 5,
       "insufficient": 60,
       "commander_change": 6,
       "combinedProfiles": 35,
@@ -1811,7 +1815,9 @@
           "changedOrLegacyRuns": 10,
           "disagreements": {
             "rank_flip": 2,
-            "threshold_drop": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
             "insufficient": 0,
             "commander_change": 0
           },
@@ -1831,8 +1837,10 @@
           "primaryAgreement": 0.9,
           "changedOrLegacyRuns": 10,
           "disagreements": {
-            "rank_flip": 1,
-            "threshold_drop": 0,
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 1,
+            "state_change": 0,
             "insufficient": 0,
             "commander_change": 0
           },
@@ -3512,7 +3520,9 @@
           "changedOrLegacyRuns": 5,
           "disagreements": {
             "rank_flip": 2,
-            "threshold_drop": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 0,
+            "state_change": 0,
             "insufficient": 0,
             "commander_change": 0
           },
@@ -3534,8 +3544,10 @@
           "primaryAgreement": 0.8,
           "changedOrLegacyRuns": 5,
           "disagreements": {
-            "rank_flip": 1,
-            "threshold_drop": 0,
+            "rank_flip": 0,
+            "lost_confirmation": 0,
+            "gained_confirmation": 1,
+            "state_change": 0,
             "insufficient": 0,
             "commander_change": 0
           },

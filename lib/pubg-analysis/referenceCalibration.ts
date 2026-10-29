@@ -238,12 +238,17 @@ export function fitReferenceCandidate(profiles: CalibrationProfile[], seed:strin
 }
 
 
-type WindowDisagreement = "rank_flip" | "threshold_drop" | "insufficient" | "commander_change";
+type WindowDisagreement = "rank_flip" | "lost_confirmation" | "gained_confirmation" | "state_change" | "insufficient" | "commander_change";
+const UNCONFIRMED = new Set(["balanced", "pending"]);
+/** 감사 라벨. rank_flip은 서로 다른 구체 역할 사이의 변경에만 쓴다. */
 function windowDisagreement(baseline: string, variant: string): WindowDisagreement | null {
   if (baseline === variant) return null;
-  if (variant === "insufficient") return "insufficient";
+  if (baseline === "insufficient" || variant === "insufficient") return "insufficient";
   if (baseline === "fieldCommander" || variant === "fieldCommander") return "commander_change";
-  if (variant === "balanced" || variant === "pending") return "threshold_drop";
+  const baselineUnconfirmed = UNCONFIRMED.has(baseline), variantUnconfirmed = UNCONFIRMED.has(variant);
+  if (baselineUnconfirmed && variantUnconfirmed) return "state_change"; // 균형형↔보류: 확정 기준 미달은 그대로
+  if (variantUnconfirmed) return "lost_confirmation"; // 구체 역할 → 균형형·보류
+  if (baselineUnconfirmed) return "gained_confirmation"; // 균형형·보류 → 구체 역할 확정
   return "rank_flip";
 }
 
@@ -277,8 +282,9 @@ export function roleWindowStability(matches: any[], reference: RoleReference) {
       primaryRole: row.primaryRole, secondaryRole: row.secondaryRole, title: row.title,
       disagreement: windowDisagreement(baseline.primaryRole, row.primaryRole)};
   }).filter(row => reference.evidenceVersion !== 2 || row.selectedMatchIds.slice().sort().join("|") !== baseline.selectedMatchIds.slice().sort().join("|"));
-  // 감사용: 대표 불일치를 순위 변경·85 미만 이탈·필수 기록 부족·지휘관 변경으로 나눈다. 판정 규칙은 바꾸지 않는다.
-  const disagreements = {rank_flip: 0, threshold_drop: 0, insufficient: 0, commander_change: 0};
+  // 감사용: 대표 불일치를 구체 역할 간 변경·확정 상실·확정 획득·미확정 상태 변경·필수 기록 부족·지휘관 변경으로 나눈다.
+  // 판정 규칙과 문턱은 바꾸지 않는다.
+  const disagreements: Record<WindowDisagreement, number> = {rank_flip: 0, lost_confirmation: 0, gained_confirmation: 0, state_change: 0, insufficient: 0, commander_change: 0};
   for (const row of variants) if (row.disagreement) disagreements[row.disagreement]++;
   const agreement = variants.length ? variants.filter(row => row.primaryRole === baseline.primaryRole).length / variants.length : null;
   const secondaryAgreement = variants.length ? variants.filter(row => row.secondaryRole === baseline.secondaryRole).length / variants.length : null;

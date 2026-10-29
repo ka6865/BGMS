@@ -107,7 +107,18 @@ RUN_SUMMARY_PARTIAL_BROWSER=true npm run test:unit -- tests/recent-ai-summary-pa
 - 중거리 후보: 안정 후보 4/3/3명, 기존 미확정에서 추가 포착 3/2/3명(총 8명), 기존 확정 대체 1명. 정식 칭호는 추가하지 않았다.
 - 지정 계정: KangHeeSung_은 근거리 66.7%·중거리 30.0%·원거리 3.3%(거리 확인 피해 757, 이전 805)로 `근거리 교전 중심`이 유지됐다. MiaeQ_Q는 총기 피해만으로도 같은 수치(855, 87.0%/0%/13.0%)였다.
 
-`roleWindowStability`는 대표 불일치를 `rank_flip`(다른 역할로 바뀜), `threshold_drop`(85 아래로 내려가 균형형·보류), `insufficient`(필수 기록 부족), `commander_change`(지휘관이 끼는 변경)로 나눠 `disagreements`로 남긴다. 판정 규칙과 문구는 바꾸지 않았다. EV2 보류 프로필의 변형 불일치 합계는 rank_flip 338, threshold_drop 120, insufficient 60, commander_change 6이다. 복합 성향 35명 중 34명은 실제 순위 변경이 1회 이상 있었고, 1명은 지휘관 변경만으로 복합 조건을 만족했다. 이 1명은 "대표 순서가 바뀝니다" 문구와 맞지 않으므로 제품에 연결하기 전에 지휘관 예외 처리가 필요하다. 복합 칭호는 제품에 추가하지 않는다.
+`roleWindowStability`는 대표 불일치를 감사용 라벨로 나눠 `disagreements`로 남긴다. 판정 규칙·문턱·문구는 바꾸지 않았다.
+
+| 라벨 | 뜻 |
+| --- | --- |
+| `rank_flip` | 서로 다른 구체 역할 사이의 변경 |
+| `lost_confirmation` | 구체 역할에서 균형형·보류로 |
+| `gained_confirmation` | 균형형·보류에서 구체 역할 확정으로 |
+| `state_change` | 균형형↔보류(확정 기준 미달은 그대로) |
+| `insufficient` | 필수 기록 부족 |
+| `commander_change` | 지휘관이 끼는 변경 |
+
+처음 구현은 보류→구체 역할 확정도 `rank_flip`으로 셌다. 참조 역할이 brawler 하나뿐인 fixture에서도 rank_flip 5건이 나와 이를 고쳤고 정식 테스트로 고정했다. 같은 gun-only 재생 스냅샷으로 감사만 다시 계산했다(원본 재분석 없음). 분류·분포·후보 수와 입력 SHA256은 같고 disagreement 필드만 달라졌다. EV2 보류 프로필 합계는 rank_flip 244, lost_confirmation 115, gained_confirmation 94, state_change 5, insufficient 60, commander_change 6이다. 이전 표기의 rank_flip 338 중 94건은 확정 획득을 잘못 센 값이었다. 복합 성향 35명 중 34명은 실제 구체 역할 간 변경이 1회 이상 있었고, 1명은 지휘관 변경만으로 복합 조건을 만족했다. 이 1명은 "대표 순서가 바뀝니다" 문구와 맞지 않으므로 제품에 연결하기 전에 지휘관 예외 처리가 필요하다. 복합 칭호는 제품에 추가하지 않는다.
 
 train/holdout은 계정 hash로만 나누며 같은 경기를 공유하는 계정을 분리하지 않는다. 위 holdout 수치는 개발 자료의 한계를 가진다. 기본 API는 여전히 기존 분류를 쓰고 이 후보를 활성화하지 않았다. 같은 계산5로 이미 저장된 운영 결과의 `roleEvidence` 보유율은 조회하지 않았다. 이 보정 전 정의로 저장된 `roleEvidence.version:1`은 구분되지 않으므로, 근거 수집을 배포한 뒤에는 저장 시점을 기준으로 coverage를 읽기 전용으로 먼저 확인해야 한다.
 

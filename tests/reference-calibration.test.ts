@@ -217,6 +217,7 @@ it('withholds a balanced candidate when one match removes its comparable evidenc
  const result=roleWindowStability(ms,{evidenceVersion:1,metrics:{teamDamageShare:levels,shortShare:levels,longShare:levels,maxHitDist:levels.map(v=>v*5),earlyShare:levels},roles:{mainGun:levels,brawler:levels,phantomOverwatch:levels,dropPredator:levels}});
  expect(result.primaryRole).toBe('balanced');expect(result.agreement).toBe(.5);
  expect(result.disagreements.rank_flip).toBe(0);
+ expect(result.disagreements.lost_confirmation+result.disagreements.gained_confirmation).toBe(0);
  expect(result.decision).toMatchObject({primaryRole:'pending',status:'pending'});
 });
 
@@ -259,6 +260,14 @@ describe('v2 changed-window evidence',()=>{
     distanceDamage:{short:0,mid:0,long:0},maxHitDist:null,pressureIndex:null}}));
   expect(buildCalibrationProfile({accountKey:'a',expectedMatchIds:empty.map(row=>row.matchId),matches:empty},'seed',{evidenceVersion:2}).reason).toBe('no_role_opportunities');
  });
+ it('does not call a single-role reference becoming confirmed a rank flip',()=>{
+  const single={evidenceVersion:2 as const,metrics:{shortShare:levels},roles:{brawler:levels}};
+  const matches=ms.map((row,i)=>({...row,roleEvidence:{...row.roleEvidence,distanceDamage:i<5?{short:300,mid:0,long:0}:{short:252,mid:48,long:0}}}));
+  const result=roleWindowStability(matches,single);
+  expect(result.primaryRole).toBe('pending');
+  expect(result.variants.every(row=>row.primaryRole==='brawler')).toBe(true);
+  expect(result.disagreements).toMatchObject({rank_flip:0,gained_confirmation:5,lost_confirmation:0,state_change:0});
+ });
  it('explains two strong roles whose order changes without issuing a compound title',()=>{
   const short=[0,0,0,0,95,95,95,70,70,95], team=[0,0,0,0,95,70,70,95,95,95];
   const matches=ms.map((row,i)=>({...row,teamImpact:{teamDamageShare:team[i]},roleEvidence:{...row.roleEvidence,
@@ -270,7 +279,7 @@ describe('v2 changed-window evidence',()=>{
   expect(result.decision.title).toContain('복합');
   // 복합 성향이면 실제 순위 변경이 1회 이상 있고, 나머지 불일치 사유도 따로 남긴다.
   expect(result.disagreements.rank_flip).toBeGreaterThan(0);
-  expect(result.disagreements.rank_flip+result.disagreements.threshold_drop+result.disagreements.insufficient+result.disagreements.commander_change)
+  expect(Object.values(result.disagreements).reduce((sum,value)=>sum+value,0))
     .toBe(result.variants.filter(row=>row.primaryRole!==result.primaryRole).length);
  });
 });
