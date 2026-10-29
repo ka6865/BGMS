@@ -131,14 +131,10 @@ export function normalizeBenchmarkScore(value: unknown): number {
  * 숫자와 숫자 문자열은 normalizeBenchmarkScore와 같은 0~100 범위로 맞춘다.
  */
 export function normalizeObservedBenchmarkScore(value: unknown): number | null {
-  if (value === null || value === undefined) return null;
-  if (typeof value === "string" && value.trim() === "") return null;
-  let score: number;
-  try {
-    score = Number(value);
-  } catch {
-    return null;
-  }
+  // boolean·배열·객체는 Number()로 0/1이 되지만 관측 점수가 아니다.
+  const score = typeof value === "number" ? value
+    : typeof value === "string" && value.trim() !== "" ? Number(value)
+      : Number.NaN;
   return Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : null;
 }
 

@@ -244,12 +244,17 @@ export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | 
   const tierBreakdown = source.tierBreakdown;
   if (tierBreakdown && typeof tierBreakdown === "object" && !Array.isArray(tierBreakdown)) {
     const tierSource = tierBreakdown as Record<string, unknown>;
-    const combat = finiteVisualNumber(tierSource.combat, 0, 100);
-    const tactical = finiteVisualNumber(tierSource.tactical, 0, 100);
-    const survival = finiteVisualNumber(tierSource.survival, 0, 100);
-    const total = finiteVisualNumber(tierSource.total, 0, 100);
-    // 축 하나가 측정 불가여도 총점과 나머지 축은 보존한다. 누락 축을 0으로 바꾸지 않는다.
-    if (total !== null && [combat, tactical, survival].some((axis) => axis !== null)) {
+    // 축은 숫자와 숫자 문자열만 받는다. boolean·배열 등은 0/1로 바꾸지 않고 측정 불가로 둔다.
+    const axis = (value: unknown) => typeof value === "number" || typeof value === "string" ? finiteVisualNumber(value, 0, 100) : null;
+    const combat = axis(tierSource.combat);
+    const tactical = axis(tierSource.tactical);
+    const survival = axis(tierSource.survival);
+    // 서버 총점은 0~100으로 정규화돼 있다. 범위를 벗어난 총점은 잘못된 값으로 보고 breakdown을 버린다.
+    const rawTotal = typeof tierSource.total === "number" || typeof tierSource.total === "string"
+      ? finiteVisualNumber(tierSource.total, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY) : null;
+    const total = rawTotal !== null && rawTotal >= 0 && rawTotal <= 100 ? rawTotal : null;
+    // 총점이 유효하면 축이 모두 측정 불가여도 총점을 보존한다. 누락 축을 0으로 바꾸지 않는다.
+    if (total !== null) {
       normalized.tierBreakdown = { combat, tactical, survival, total };
     }
   }

@@ -32,6 +32,17 @@ describe("server-owned stat components", () => {
     expect(screen.queryByText(/PUBG 공식 평점|BGMS 자체 산정/)).not.toBeInTheDocument();
   });
 
+  it("SpiderChart shows every axis as unobserved without a polygon when all three are missing", () => {
+    const { container } = render(createElement(SpiderChart, {
+      nickname: "AllMissingPlayer",
+      tierScope: "team",
+      bestMatchCount: 3,
+      data: { combat: null, tactical: null, survival: null },
+    }));
+    expect(screen.getAllByText("측정 불가")).toHaveLength(3);
+    expect(container.querySelector('path[stroke="#6366f1"]')).not.toBeInTheDocument();
+  });
+
   it("SpiderChart leaves the complete polygon out when scope or an axis is missing", () => {
     render(createElement(SpiderChart, {
       nickname: "MissingPlayer",
