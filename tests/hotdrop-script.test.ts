@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { formatHotdropError, runHotdropScript } from "../scripts/run_hotdrop";
+import { formatHotdropError, parseHotdropStartCooldownMs, runHotdropScript } from "../scripts/run_hotdrop";
 import { PubgHttpError } from "../lib/hotdrop/runHotdropCollection";
 
 describe("runHotdropScript", () => {
@@ -138,6 +138,49 @@ describe("runHotdropScript", () => {
     expect(exitCode).toBe(0);
     expect(writeError).not.toHaveBeenCalled();
     expect(writeInfo).toHaveBeenCalledWith(expect.stringContaining("::warning title=PUBG API 한도 보호::"));
+  });
+
+  it("429로 건너뛴 사실을 Actions 단계 요약에 남긴다", async () => {
+    const appendSummary = vi.fn();
+    const exitCode = await runHotdropScript(rateLimitEnv, {
+      createSupabase: vi.fn().mockReturnValue({}),
+      runJob: vi.fn().mockRejectedValue(new PubgHttpError(429)),
+      writeInfo: vi.fn(),
+      writeError: vi.fn(),
+      appendSummary,
+    });
+    expect(exitCode).toBe(0);
+    expect(appendSummary).toHaveBeenCalledTimes(1);
+    expect(appendSummary.mock.calls[0]?.[0]).toContain("skipped (PUBG API 429)");
+  });
+
+  it("직전 단계의 분당 한도를 피하도록 첫 PUBG 호출 전에 쉬고 같은 sleep을 작업에 넘긴다", async () => {
+    const events: string[] = [];
+    const sleep = vi.fn(async (milliseconds: number) => {
+      events.push(`sleep:${milliseconds}`);
+    });
+    const runJob = vi.fn(async (_apiKey: string, _config: unknown, dependencies: { sleep: unknown }) => {
+      events.push("runJob");
+      expect(dependencies.sleep).toBe(sleep);
+      return { season: "s", source: "samples" as const, totalLandings: 0, processedMatches: 0, skippedMatches: 0 };
+    });
+    const exitCode = await runHotdropScript({ ...rateLimitEnv, HOTDROP_START_COOLDOWN_MS: "60000" }, {
+      createSupabase: vi.fn().mockReturnValue({}),
+      runJob,
+      writeInfo: vi.fn(),
+      writeError: vi.fn(),
+      sleep,
+    });
+    expect(exitCode).toBe(0);
+    expect(events).toEqual(["sleep:60000", "runJob"]);
+  });
+
+  it("쉬는 시간 설정은 비어 있으면 0이고 범위를 벗어나면 거부한다", () => {
+    expect(parseHotdropStartCooldownMs({})).toBe(0);
+    expect(parseHotdropStartCooldownMs({ HOTDROP_START_COOLDOWN_MS: " 60000 " })).toBe(60_000);
+    expect(() => parseHotdropStartCooldownMs({ HOTDROP_START_COOLDOWN_MS: "-1" })).toThrow();
+    expect(() => parseHotdropStartCooldownMs({ HOTDROP_START_COOLDOWN_MS: "120001" })).toThrow();
+    expect(() => parseHotdropStartCooldownMs({ HOTDROP_START_COOLDOWN_MS: "1.5" })).toThrow();
   });
 
   it.each([401, 403, 500])("PUBG 키 오류나 서버 오류(%i)는 계속 실패로 센다", async (status) => {

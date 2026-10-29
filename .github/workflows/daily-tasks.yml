@@ -2,8 +2,11 @@ name: Daily BGMS Maintenance
 
 on:
   schedule:
-    # 매일 한국 시간 새벽 3시 (UTC 18:00) 실행
-    - cron: '0 18 * * *'
+    # 매일 한국 시간 새벽 2시 41분(UTC 17:41) 실행.
+    # 정각 예약은 GitHub 큐 지연이 커서 2026-10 실제 시작이 KST 05:20~07:30까지 밀렸다.
+    # 다른 워크플로의 일일 예약(UTC 19:11, 19:43, 20:19, 00:00 등)과 겹치지 않고,
+    # PUBG 키를 쓰는 단계(시작 후 약 6~26분)가 매시 :11, :37 정기 작업을 피하는 분으로 둔다.
+    - cron: '41 17 * * *'
   workflow_dispatch: # 수동 실행 버튼 추가
 
 permissions:
@@ -46,9 +49,10 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/cleanup_board_images.ts
 
+  # 작은 정리 잡은 서로, 그리고 maintenance 와 다른 테이블만 다루므로 병렬로 실행한다.
+  # 핵심 백업 대상(profiles, posts 등)을 지우지 않으므로 백업 뒤로 미룰 필요도 없다.
   support-attachment-cleanup:
-    needs: board-image-cleanup
-    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' }}
+    if: ${{ github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -115,8 +119,7 @@ jobs:
         run: npx tsx scripts/cleanup_pubg_api_errors.ts
 
   maintenance:
-    needs: board-write-quota-cleanup
-    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' }}
+    if: ${{ github.ref == 'refs/heads/main' }}
     outputs:
       database_health: ${{ steps.database_health.outcome }}
       pubg_rate_limited: ${{ steps.sync_user_matches.outputs.rate_limited }}
@@ -229,17 +232,13 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/preserve_match_performance.ts --apply --limit 1000
 
-      - name: Run Storage Cleanup
+      # 매치 분석·텔레메트리는 장기 보관하므로 이 단계는 pubg_player_cache 자동완성 후보만 줄인다.
+      # R2 와 텔레메트리 보존 설정은 쓰지 않으므로 넘기지 않는다(최소 권한).
+      - name: Compact Inactive PUBG Player Cache
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' && steps.core_backup_verify.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-          CLEANUP_TARGET_VERSION: ${{ secrets.CLEANUP_TARGET_VERSION }}
-          CLEANUP_RETENTION_DAYS: '14'
-          CLOUDFLARE_R2_ENDPOINT: ${{ secrets.CLOUDFLARE_R2_ENDPOINT }}
-          CLOUDFLARE_R2_ACCESS_KEY_ID: ${{ secrets.CLOUDFLARE_R2_ACCESS_KEY_ID }}
-          CLOUDFLARE_R2_SECRET_ACCESS_KEY: ${{ secrets.CLOUDFLARE_R2_SECRET_ACCESS_KEY }}
-          CLOUDFLARE_R2_BUCKET_NAME: ${{ secrets.CLOUDFLARE_R2_BUCKET_NAME }}
         run: npx tsx scripts/cleanup_telemetry.ts
 
       - name: Run AI Cache Cleanup
@@ -267,13 +266,16 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: npx tsx scripts/cleanup_match_stats_raw.ts --apply
 
+      # 읽기 전용 감사라 뒤 단계를 막지 않도록 continue-on-error 로 둔다.
+      # 실패는 스크립트의 ::warning 과 아래 일일 보고(DATA_QUALITY_AUDIT_OUTCOME)로 드러낸다.
       - name: Audit PUBG Analysis Data Quality
+        id: data_quality_audit
         continue-on-error: true
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: npx tsx scripts/audit_processed_telemetry_identity.ts --recent-days 2 --max-rows 1000 --target-limit 50
+        run: npx tsx scripts/audit_processed_telemetry_identity.ts --recent-days 2 --max-rows 1000 --page-size 100 --target-limit 50
 
       - name: Run Smart Scraper
         id: smart_scraper
@@ -383,6 +385,8 @@ jobs:
           SCRAPER_SUCCEEDED: ${{ steps.smart_scraper.outputs.succeeded }}
           SCRAPER_SKIPPED: ${{ steps.smart_scraper.outputs.skipped }}
           SCRAPER_FAILED: ${{ steps.smart_scraper.outputs.failed }}
+          DATA_QUALITY_AUDIT_OUTCOME: ${{ steps.data_quality_audit.outcome }}
+          DATA_QUALITY_MISMATCH_COUNT: ${{ steps.data_quality_audit.outputs.mismatch_count }}
           MAINTENANCE_STATUS: 현재까지 진행 (전적 동기화·백필 전)
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: npx tsx scripts/send_daily_storage_report.ts
@@ -456,12 +460,15 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.sync_user_matches.outputs.rate_limited == 'true' }}
         run: echo "::warning title=PUBG API 한도 보호::User Matches Sync에서 429가 발생해 Hotdrop Collection을 건너뜁니다. 다음 실행에서 재시도합니다."
 
+      # User Matches Sync 직후 같은 키로 바로 호출해 10-16, 10-18, 10-22 에 429 가 났다.
+      # 분당 한도 창이 지나도록 첫 호출 전 60초 쉰다. 429 로 건너뛰면 단계 요약에 남긴다.
       - name: Run Hotdrop Collection
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.sync_user_matches.outcome == 'success' && steps.sync_user_matches.outputs.rate_limited != 'true' }}
         env:
           PUBG_API_KEY: ${{ secrets.PUBG_API_KEY }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          HOTDROP_START_COOLDOWN_MS: '60000'
         run: npx tsx scripts/run_hotdrop.ts
 
   # 기존 수집이 끝난 뒤 별도 실행한다. 유지보수의 Hotdrop/스크래퍼 등

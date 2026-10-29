@@ -41,7 +41,7 @@ it("GitHub Actions만 hotdrop script를 한 번 실행한다", () => {
   if (!isRecord(triggers) || !isRecord(jobs)) return;
   const schedule = triggers.schedule;
   const maintenance = jobs.maintenance;
-  expect(schedule).toEqual([{ cron: "0 18 * * *" }]);
+  expect(schedule).toEqual([{ cron: "41 17 * * *" }]);
   expect(triggers).toHaveProperty("workflow_dispatch");
   expect(isRecord(maintenance)).toBe(true);
   if (!isRecord(maintenance)) return;
@@ -58,6 +58,7 @@ it("GitHub Actions만 hotdrop script를 한 번 실행한다", () => {
     PUBG_API_KEY: "${{ secrets.PUBG_API_KEY }}",
     NEXT_PUBLIC_SUPABASE_URL: "${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}",
     SUPABASE_SERVICE_ROLE_KEY: "${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}",
+    HOTDROP_START_COOLDOWN_MS: "60000",
   });
   expect(workflow).toContain("id: sync_user_matches");
   expect(workflow).toContain("pubg_rate_limited: ${{ steps.sync_user_matches.outputs.rate_limited }}");
