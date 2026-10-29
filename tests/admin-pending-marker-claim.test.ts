@@ -13,10 +13,14 @@ describe("관리자 제보 처리 claim", () => {
   });
 
   it("관리자 API가 Bearer와 쿠키를 모두 지원하는 인증 가드를 사용한다", () => {
+    // requireAdmin 은 withAuthGuard(Bearer + 쿠키) 위에서 관리자 역할을 확인한다.
+    const guardSource = readFileSync(resolve("lib/server/adminGuard.ts"), "utf8");
+    expect(guardSource).toContain("withAuthGuard");
     for (const routePath of ["app/api/admin/approve/route.ts", "app/api/admin/reject/route.ts"]) {
       const source = readFileSync(resolve(routePath), "utf8");
-      expect(source).toContain("withAuthGuard");
+      expect(source).toContain("requireAdmin");
       expect(source).toContain("process_pending_marker_admin_action");
+      expect(source).toContain("recordAdminAudit");
     }
   });
 });

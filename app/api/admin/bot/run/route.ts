@@ -14,6 +14,14 @@ import { GEMINI_MODELS_TO_TRY } from "@/lib/pubg-analysis/constants";
 
 const modelsToTry = GEMINI_MODELS_TO_TRY;
 const AI_RESPONSE_TIMEOUT_MS = 40_000;
+// 모델이 도구 호출을 끝없이 반복하지 않도록 왕복 횟수와 전체 실행 시간을 제한한다.
+const MAX_TOOL_ROUNDS = 6;
+// 클라이언트(AdminAgentChat)는 45초에 연결을 끊으므로 서버 쪽 전체 예산도 그 근처로 둔다.
+const TOTAL_RUN_BUDGET_MS = 55_000;
+// 남은 예산이 이보다 적으면 다음 모델 호출을 시작하지 않는다.
+const MIN_MODEL_CALL_BUDGET_MS = 3_000;
+// 등록되지 않은 도구 이름은 가장 보수적인 등급으로 기록한다(agent_steps.safety_level CHECK 허용값).
+const UNKNOWN_TOOL_SAFETY_LEVEL = "dangerous" as const;
 
 const defaultAgentInstruction = [
   "You are BGMS Admin Operations Agent for a PUBG map and stats service.",
@@ -48,7 +56,7 @@ const defaultAgentInstruction = [
   "When the user asks how to start using the agent, asks for a launch checklist, daily routine, onboarding, or practical usage guide, use the launch kit tool before answering.",
   "When the user asks whether the agent is final-version ready, whether the upgrade goal is complete, or what evidence and remaining work prove readiness, use the final readiness tool before answering.",
   "For content operations, generate drafts from live site data first. Publishing a post must always go through approval.",
-  "When updating a board post via update_board_post, you MUST preserve all existing image tags (<img>) present in the original content. Do not drop or delete them from the new HTML content unless you are explicitly asked to remove the images. Removing them will cause the system to clean up and delete the image files from storage upon approval.",
+  "When updating a board post via update_board_post, you MUST preserve all existing image tags (<img>) present in the original content. Do not drop or delete them from the new HTML content unless you are explicitly asked to remove the images. Approval only saves a private revision draft; it does not delete image files from storage, but dropped tags will disappear from the post once the draft is published.",
   "When an approval is created, clearly explain what is pending and why an admin must approve it."
 ].join("\n");
 
@@ -84,6 +92,8 @@ export async function POST(request: Request) {
       async start(controller) {
         let finalSummary = "";
         let streamErrored = false;
+        const startedAt = Date.now();
+        const remainingBudgetMs = () => TOTAL_RUN_BUDGET_MS - (Date.now() - startedAt);
         try {
           const genAI = new GoogleGenerativeAI(apiKey);
           let chat: any = null;
@@ -120,14 +130,25 @@ export async function POST(request: Request) {
 
           let response = result.response;
           let functionCalls = response.functionCalls ? response.functionCalls() : undefined;
+          let toolRounds = 0;
+          let cutoffReason: string | null = null;
 
           while (functionCalls && functionCalls.length > 0) {
+            if (toolRounds >= MAX_TOOL_ROUNDS) {
+              cutoffReason = `도구 호출이 ${MAX_TOOL_ROUNDS}회 왕복을 넘어 자동으로 중단했습니다.`;
+              break;
+            }
+            if (remainingBudgetMs() < MIN_MODEL_CALL_BUDGET_MS) {
+              cutoffReason = `전체 실행 시간 ${Math.round(TOTAL_RUN_BUDGET_MS / 1000)}초 예산을 넘어 자동으로 중단했습니다.`;
+              break;
+            }
+            toolRounds += 1;
             const functionResponses = [];
 
             for (const call of functionCalls) {
               const tool = adminAgentTools[call.name];
               const args = (call.args || {}) as Record<string, unknown>;
-              const safetyLevel = tool?.safetyLevel || "read";
+              const safetyLevel = tool?.safetyLevel || UNKNOWN_TOOL_SAFETY_LEVEL;
               const stepId = await createAgentStep(supabase, {
                 runId,
                 toolName: call.name,
@@ -176,7 +197,18 @@ export async function POST(request: Request) {
               });
             }
 
-            const nextResult = await withTimeout<any>(chat.sendMessage(functionResponses), AI_RESPONSE_TIMEOUT_MS, "도구 결과 반영 응답 시간이 초과되었습니다.");
+            const remainingMs = remainingBudgetMs();
+            if (remainingMs < MIN_MODEL_CALL_BUDGET_MS) {
+              cutoffReason = `전체 실행 시간 ${Math.round(TOTAL_RUN_BUDGET_MS / 1000)}초 예산을 넘어 도구 결과 정리 전에 중단했습니다.`;
+              functionCalls = undefined;
+              break;
+            }
+
+            const nextResult = await withTimeout<any>(
+              chat.sendMessage(functionResponses),
+              Math.min(AI_RESPONSE_TIMEOUT_MS, remainingMs),
+              "도구 결과 반영 응답 시간이 초과되었습니다."
+            );
             response = nextResult.response;
             functionCalls = response.functionCalls ? response.functionCalls() : undefined;
 
@@ -187,6 +219,23 @@ export async function POST(request: Request) {
                 enqueue(controller, encoder, { type: "chunk", data: text });
               }
             }
+          }
+
+          if (cutoffReason) {
+            const cutoffMessage = `\n\n[자동 중단] ${cutoffReason} 지금까지 실행한 도구 결과만 반영되었습니다. 질문 범위를 좁혀 다시 요청해 주세요.`;
+            finalSummary += cutoffMessage;
+            enqueue(controller, encoder, { type: "chunk", data: cutoffMessage });
+            enqueue(controller, encoder, { type: "run_cutoff", reason: cutoffReason, toolRounds });
+            // agent_runs.status CHECK 는 running/completed/failed 만 허용하므로
+            // 정상 완료와 구분되도록 failed 로 닫고 error 에 중단 사유를 남긴다.
+            await completeAgentRun(supabase, runId, {
+              status: "failed",
+              summary: finalSummary,
+              error: `run_cutoff: ${cutoffReason}`
+            });
+            enqueue(controller, encoder, { type: "run_summary", runId, cutoff: true });
+            enqueue(controller, encoder, { type: "done" });
+            return;
           }
 
           const text = response.text();
@@ -216,7 +265,8 @@ export async function POST(request: Request) {
       }
     });
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("[BOT-RUN] Request failed:", error?.message || error);
+    return NextResponse.json({ error: "관리자 에이전트 실행을 시작하지 못했습니다." }, { status: 500 });
   }
 }
 

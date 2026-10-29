@@ -20,6 +20,21 @@ export type VercelDeploymentHealth = {
 };
 
 const FAILURE_STATES = new Set(["ERROR", "CANCELED"]);
+// Vercel API 가 응답하지 않아도 운영 화면 전체가 멈추지 않도록 제한한다.
+const VERCEL_FETCH_TIMEOUT_MS = 8_000;
+
+/** 배포 상태를 조회하지 못했을 때 쓰는 기본값입니다. */
+export function unavailableDeploymentHealth(error: string): VercelDeploymentHealth {
+  return {
+    provider: "vercel",
+    configured: Boolean(process.env.VERCEL_TOKEN && process.env.VERCEL_PROJECT_ID),
+    severity: "warn",
+    latest: null,
+    recentFailures: [],
+    message: "Vercel 배포 상태 조회 중 오류가 발생했습니다.",
+    error
+  };
+}
 const IN_PROGRESS_STATES = new Set(["BUILDING", "QUEUED", "INITIALIZING"]);
 
 export async function fetchVercelDeploymentHealth(limit = 5): Promise<VercelDeploymentHealth> {
@@ -43,7 +58,8 @@ export async function fetchVercelDeploymentHealth(limit = 5): Promise<VercelDepl
       limit: String(Math.min(Math.max(limit, 1), 10))
     });
     const response = await fetch(`https://api.vercel.com/v6/deployments?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${token}` }
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(VERCEL_FETCH_TIMEOUT_MS)
     });
 
     if (!response.ok) {
@@ -92,7 +108,9 @@ export async function fetchVercelDeploymentHealth(limit = 5): Promise<VercelDepl
       severity: "warn",
       latest: null,
       recentFailures: [],
-      message: "Vercel 배포 상태 조회 중 오류가 발생했습니다.",
+      message: error?.name === "TimeoutError"
+        ? "Vercel 배포 상태 조회가 제한 시간 안에 끝나지 않았습니다."
+        : "Vercel 배포 상태 조회 중 오류가 발생했습니다.",
       error: error.message || String(error)
     };
   }

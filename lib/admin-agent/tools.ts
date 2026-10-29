@@ -660,6 +660,29 @@ function failed(error: unknown): AgentToolResult {
   return { status: "failed", result: `Error: ${message}` };
 }
 
+// 외부 API(Vercel, Tavily) 호출이 응답 없이 매달려 도구 루프 전체를 막지 않도록 제한한다.
+const EXTERNAL_FETCH_TIMEOUT_MS = 8_000;
+// 지도 캡처 페이지 이동 제한 시간
+const SCREENSHOT_NAVIGATION_TIMEOUT_MS = 20_000;
+const MAP_CAPTURE_BUCKET = "map-captures";
+
+/**
+ * 승인 요청 행을 만들지 못했을 때의 도구 결과입니다.
+ * createApprovalRequest 가 null 을 반환하면 승인 대기열에 아무것도 없으므로
+ * "등록되었습니다"라고 안내하지 않고 실패로 보고한다.
+ */
+export function approvalCreationFailed(label: string): AgentToolResult {
+  return {
+    status: "failed",
+    result: JSON.stringify({
+      approvalRequired: false,
+      approvalCreated: false,
+      approvalId: null,
+      message: `${label} 승인 요청을 승인 대기열에 등록하지 못했습니다. 아무 작업도 실행되지 않았으며, 잠시 후 다시 시도하거나 서버 로그를 확인해 주세요.`
+    })
+  };
+}
+
 export async function runDbStatQuery(statType: string, supabase: any): Promise<string> {
   if (statType === "map_preference") {
     const { data, error } = await supabase
@@ -1258,6 +1281,7 @@ function buildTrafficRecommendations(summary: Awaited<ReturnType<typeof buildTra
   if (summary.status === "unavailable") return ["analytics_events 마이그레이션 적용과 서버 환경변수를 확인하세요."];
   if (summary.status === "empty") return ["배포 후 실제 페이지 이동과 기능 사용 이벤트가 쌓이는지 /admin/bot 운영판에서 다시 확인하세요."];
   const recommendations = [];
+  if (summary.truncated) recommendations.push("조회 상한에 걸린 부분 집계입니다. 기간을 줄여 다시 확인하고 수치를 최소값으로 해석하세요.");
   if (summary.current.statsSearches > 0) recommendations.push("전적 검색 유입이 있으니 PUBG API quota와 검색 캐시 상태를 같이 확인하세요.");
   if (summary.current.aiFeatureUses > 0) recommendations.push("AI 기능 사용이 있으니 ai_usage_logs 비용 집계와 함께 보면 좋습니다.");
   if (summary.current.topPages[0]) recommendations.push(`인기 페이지 ${summary.current.topPages[0].label} 기준으로 콘텐츠/공지 위치를 조정할 수 있습니다.`);
@@ -2737,6 +2761,7 @@ async function requestBoardPostApproval(args: any, context: AdminAgentContext): 
     actionType: "create_board_post",
     payload: { title: args.title, content: args.content }
   });
+  if (!approvalId) return approvalCreationFailed("게시글 초안 작성");
   return {
     status: "approval_required",
     approvalId: approvalId || undefined,
@@ -2777,6 +2802,7 @@ async function requestUpdateBoardPostApproval(args: any, context: AdminAgentCont
       beforeContent
     }
   });
+  if (!approvalId) return approvalCreationFailed("게시글 수정 초안 저장");
   return {
     status: "approval_required",
     approvalId: approvalId || undefined,
@@ -2972,6 +2998,7 @@ async function requestDataQualityRepair(args: any, context: AdminAgentContext): 
       source: "admin-bot"
     }
   });
+  if (!approvalId) return approvalCreationFailed("전적 분석 identity mismatch 정리");
 
   return {
     status: "approval_required",
@@ -2989,21 +3016,22 @@ async function requestDataQualityRepair(args: any, context: AdminAgentContext): 
   };
 }
 
-async function takeMapScreenshot(mapName: string, layer: string, supabase: any): Promise<string> {
+async function takeMapScreenshot(mapName: string, layer: string, supabase: any): Promise<AgentToolResult> {
+  // 버킷은 운영자가 미리 만든다. 도구가 공개 버킷을 임의로 만들지 않는다.
+  const { data: bucket, error: bucketError } = await supabase.storage.getBucket(MAP_CAPTURE_BUCKET);
+  if (bucketError || !bucket) {
+    if (bucketError) console.warn("[SCREENSHOT] Bucket lookup failed:", bucketError.message || bucketError);
+    return {
+      status: "failed",
+      result: JSON.stringify({
+        success: false,
+        message: `지도 캡처를 저장할 스토리지 버킷 "${MAP_CAPTURE_BUCKET}"이 없거나 조회할 수 없습니다. 관리자가 Supabase Storage에서 버킷을 먼저 준비해야 합니다. 도구는 버킷을 자동으로 만들지 않습니다.`
+      })
+    };
+  }
+
   let browser = null;
   try {
-    try {
-      const { data: buckets } = await supabase.storage.listBuckets();
-      if (!buckets?.some((bucket: any) => bucket.name === "map-captures")) {
-        await supabase.storage.createBucket("map-captures", {
-          public: true,
-          fileSizeLimit: 5242880
-        });
-      }
-    } catch (bucketErr) {
-      console.warn("[SCREENSHOT] Bucket lookup/create failed:", bucketErr);
-    }
-
     browser = await puppeteer.launch({
       headless: true,
       args: ["--no-sandbox", "--disable-setuid-sandbox"]
@@ -3013,15 +3041,15 @@ async function takeMapScreenshot(mapName: string, layer: string, supabase: any):
     await page.setViewport({ width: 1200, height: 800 });
 
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    const mapUrl = `${baseUrl}/maps/${mapName.toLowerCase()}?layer=${layer}&sidebar=false&notice=false`;
+    const mapUrl = `${baseUrl}/maps/${encodeURIComponent(String(mapName).toLowerCase())}?layer=${encodeURIComponent(String(layer))}&sidebar=false&notice=false`;
 
-    await page.goto(mapUrl, { waitUntil: "networkidle2" });
+    await page.goto(mapUrl, { waitUntil: "networkidle2", timeout: SCREENSHOT_NAVIGATION_TIMEOUT_MS });
     await new Promise((resolve) => setTimeout(resolve, 2500));
 
     const screenshotBuffer = await page.screenshot({ type: "png" });
-    const filename = `${mapName.toLowerCase()}_${layer}_${Date.now()}.png`;
+    const filename = `${String(mapName).toLowerCase()}_${layer}_${Date.now()}.png`.replace(/[^a-z0-9_.-]/gi, "_");
     const { error: uploadError } = await supabase.storage
-      .from("map-captures")
+      .from(MAP_CAPTURE_BUCKET)
       .upload(filename, screenshotBuffer, {
         contentType: "image/png",
         upsert: true
@@ -3030,14 +3058,14 @@ async function takeMapScreenshot(mapName: string, layer: string, supabase: any):
     if (uploadError) throw uploadError;
 
     const { data: urlData } = supabase.storage
-      .from("map-captures")
+      .from(MAP_CAPTURE_BUCKET)
       .getPublicUrl(filename);
 
-    return JSON.stringify({
+    return ok(JSON.stringify({
       success: true,
       message: `${mapName} 지도의 ${layer} 레이어 화면을 캡처했습니다.`,
       imageUrl: urlData?.publicUrl || ""
-    });
+    }));
   } finally {
     if (browser) await browser.close();
   }
@@ -3055,7 +3083,8 @@ async function runTavilySearch(query: string): Promise<string> {
       query,
       max_results: 5,
       include_answer: true
-    })
+    }),
+    signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS)
   });
   if (!res.ok) throw new Error(`Tavily API 에러: ${await res.text()}`);
   const data = await res.json();
@@ -3076,8 +3105,10 @@ async function runGetVercelDeployments(limit = 5): Promise<string> {
     return "Vercel API 연동에 필요한 VERCEL_TOKEN 또는 VERCEL_PROJECT_ID 환경변수가 설정되지 않았습니다.";
   }
 
-  const res = await fetch(`https://api.vercel.com/v6/deployments?projectId=${projectId}&limit=${limit}`, {
-    headers: { Authorization: `Bearer ${token}` }
+  const safeLimit = Math.min(Math.max(Math.floor(Number(limit) || 5), 1), 20);
+  const res = await fetch(`https://api.vercel.com/v6/deployments?projectId=${encodeURIComponent(projectId)}&limit=${safeLimit}`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS)
   });
   if (!res.ok) throw new Error(`Vercel API 오류: ${await res.text()}`);
   const data = await res.json();
@@ -3098,8 +3129,9 @@ async function runGetVercelBuildLogs(deploymentId: string): Promise<string> {
   const token = process.env.VERCEL_TOKEN;
   if (!token) return "Vercel API 연동에 필요한 VERCEL_TOKEN 환경변수가 설정되지 않았습니다.";
 
-  const res = await fetch(`https://api.vercel.com/v2/deployments/${deploymentId}/events?direction=backward&limit=100`, {
-    headers: { Authorization: `Bearer ${token}` }
+  const res = await fetch(`https://api.vercel.com/v2/deployments/${encodeURIComponent(String(deploymentId))}/events?direction=backward&limit=100`, {
+    headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(EXTERNAL_FETCH_TIMEOUT_MS)
   });
   if (!res.ok) throw new Error(`Vercel API 오류: ${await res.text()}`);
   const events = await res.json();
@@ -3155,6 +3187,7 @@ async function requestAgentMemory(args: any, context: AdminAgentContext): Promis
       }
     }
   });
+  if (!approvalId) return approvalCreationFailed("운영 기억 저장");
   return {
     status: "approval_required",
     approvalId: approvalId || undefined,
@@ -3198,6 +3231,7 @@ async function requestOperationsReport(args: any, context: AdminAgentContext): P
       }
     }
   });
+  if (!approvalId) return approvalCreationFailed("운영 리포트 저장");
 
   return {
     status: "approval_required",
@@ -3250,6 +3284,7 @@ async function requestContentPost(args: any, context: AdminAgentContext): Promis
       draft
     }
   });
+  if (!approvalId) return approvalCreationFailed("콘텐츠 초안 저장");
 
   return {
     status: "approval_required",
@@ -3593,7 +3628,7 @@ export const adminAgentTools: Record<string, AdminAgentTool> = {
     safetyLevel: "write",
     run: async (args, context) => {
       try {
-        return ok(await takeMapScreenshot(args.mapName, args.layer, context.supabase));
+        return await takeMapScreenshot(args.mapName, args.layer, context.supabase);
       } catch (error) {
         return failed(error);
       }

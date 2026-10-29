@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { buildAgentHandoffPacket } from "@/lib/admin-agent/handoff";
-import { createApprovalRequest, verifyAdminRole } from "@/lib/admin-agent/logging";
+import { approvalCreationFailedResponse, createApprovalRequest, verifyAdminRole } from "@/lib/admin-agent/logging";
 import { withAuthGuard } from "@/utils/supabase/guard";
 
 export async function GET(request: Request) {
@@ -62,6 +62,8 @@ export async function POST(request: Request) {
       }
     }
   });
+
+  if (!approvalId) return approvalCreationFailedResponse("운영 인수인계 리포트 저장", { packet });
 
   return NextResponse.json({
     success: true,

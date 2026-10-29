@@ -151,3 +151,19 @@ export async function createApprovalRequest(
     return null;
   }
 }
+
+/**
+ * createApprovalRequest 가 null 을 반환했을 때 route 가 돌려줄 응답입니다.
+ * 승인 대기열에 행이 없으므로 success/approvalId 를 내려주지 않는다.
+ */
+export function approvalCreationFailedResponse(label: string, extra: Record<string, unknown> = {}) {
+  return NextResponse.json(
+    {
+      ...extra,
+      success: false,
+      approvalId: null,
+      error: `${label} 승인 요청을 승인 대기열에 등록하지 못했습니다. 잠시 후 다시 시도해 주세요.`
+    },
+    { status: 500 }
+  );
+}

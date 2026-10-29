@@ -114,8 +114,13 @@ export function buildApprovalExecutionGate(
     }
   }
 
-  if ((impact?.checklist || []).some((item) => item.status === "warning")) {
+  const warningItems = (impact?.checklist || []).filter((item) => item.status === "warning");
+  if (warningItems.length) {
     reasons.push("impact checklist에 warning 항목이 있습니다.");
+    // 고위험 작업은 impact 계산 오류나 유효 대상 0건 같은 warning 을 재확인으로 넘기지 않고 차단한다.
+    if (HIGH_RISK_GATE_ACTIONS.has(actionType)) {
+      requiredBeforeApproval.push("impact checklist의 warning 항목(계산 오류, 유효 대상 0건 등)을 해소한 뒤 impact를 다시 계산하세요.");
+    }
   }
 
   if (reasons.length && requiredBeforeApproval.length) {

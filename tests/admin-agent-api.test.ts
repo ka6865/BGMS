@@ -2135,6 +2135,39 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     }));
   });
 
+  it("POST /memories는 승인 요청 행을 만들지 못하면 대기열 등록 성공으로 보고하지 않는다", async () => {
+    tables.agent_approvals = chain({ insertSingle: { data: null, error: { message: "insert denied" } } });
+    mockAdminAuth();
+
+    const response = await memoriesPOST(new Request("http://localhost/api/admin/agent/memories", {
+      method: "POST",
+      body: JSON.stringify({ category: "policy", title: "정책", body: "본문" })
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(body.success).toBe(false);
+    expect(body.approvalId).toBeNull();
+    expect(body.error).toContain("등록하지 못했습니다");
+    expect(JSON.stringify(body)).not.toContain("insert denied");
+  });
+
+  it("GET /command-center는 소스 하나가 예외를 던져도 나머지로 응답하고 실패 소스를 표시한다", async () => {
+    tables.ai_usage_logs = chain({});
+    tables.ai_usage_logs.select.mockImplementation(() => {
+      throw new Error("ai usage network down");
+    });
+    mockAdminAuth();
+
+    const response = await commandCenterGET(new Request("http://localhost/api/admin/agent/command-center"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.aiUsage).toEqual(expect.objectContaining({ totalRequests: 0, totalCostUsd: 0 }));
+    expect(body.degradedSources).toEqual(expect.arrayContaining([expect.objectContaining({ source: "aiUsage" })]));
+    expect(JSON.stringify(body)).not.toContain("ai usage network down");
+  });
+
   it("POST /memories는 직접 저장하지 않고 승인 요청을 생성한다", async () => {
     mockAdminAuth();
 
@@ -2847,7 +2880,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
         expect.objectContaining({
           id: "monitor-snapshot",
           risk: "safe",
-          whereToCheck: expect.stringContaining("/admin/bot")
+          whereToCheck: expect.stringContaining("/admin/dashboard?section=status")
         }),
         expect.objectContaining({
           id: "approval-impact",
@@ -3632,7 +3665,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     expect(payload.content).toContain("지금 할 일:");
     expect(payload.content).toContain("**승인 차단**: 1건");
     expect(payload.content).toContain("다음 조치");
-    expect(payload.content).toContain("확인 위치: `/admin/bot`");
+    expect(payload.content).toContain("확인 위치: `/admin/dashboard?section=status`");
   });
 
   it("Discord monitor 전송이 HTTP 오류이면 sent=false로 기록하고 응답 본문은 저장하지 않는다", async () => {
@@ -3829,6 +3862,18 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
       },
       updateResult: { data: null, error: null }
     });
+    // 재검증 시 현재도 identity mismatch 인 row 가 있어야 impact warning 없이 confirmedImpact 단계까지 간다.
+    tables.processed_match_telemetry = chain({
+      maybeSingle: {
+        data: {
+          match_id: "match-1",
+          platform: "steam",
+          player_id: "player-a",
+          data: { fullResult: { stats: { name: "player-b" }, player_id: "player-b", platform: "steam" } }
+        },
+        error: null
+      }
+    });
     mockAdminAuth();
 
     const response = await approvalApprovePOST(
@@ -3840,6 +3885,39 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     expect(response.status).toBe(400);
     expect(body.error).toContain("confirmedImpact");
     expect(body.impact.risk).toBe("high");
+    expect(tables.agent_approvals.update).not.toHaveBeenCalled();
+  });
+
+  it("POST /approvals/:id/approve는 고위험 작업의 impact warning(유효 대상 0건)을 review가 아닌 block으로 막는다", async () => {
+    tables.agent_approvals = chain({
+      count: 1,
+      singleResult: {
+        data: {
+          id: "approval-zero-valid",
+          status: "pending",
+          action_type: "repair_processed_telemetry_identity",
+          payload: { targets: [{ match_id: "match-1", platform: "steam", player_id: "player-a" }] }
+        },
+        error: null
+      },
+      updateResult: { data: null, error: null }
+    });
+    // 재검증 결과 대상 row 가 이미 없다(유효 대상 0건 warning)
+    tables.processed_match_telemetry = chain({ maybeSingle: { data: null, error: null } });
+    mockAdminAuth();
+
+    const response = await approvalApprovePOST(
+      new Request("http://localhost/api/admin/agent/approvals/approval-zero-valid/approve", {
+        method: "POST",
+        body: JSON.stringify({ confirmedImpact: true })
+      }),
+      { params: Promise.resolve({ id: "approval-zero-valid" }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.executionGate.status).toBe("block");
+    expect(body.executionGate.requiredBeforeApproval.join(" ")).toContain("warning");
     expect(tables.agent_approvals.update).not.toHaveBeenCalled();
   });
 

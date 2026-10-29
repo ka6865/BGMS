@@ -1,18 +1,26 @@
 import { NextResponse } from "next/server";
-import { withAuthGuard } from "@/utils/supabase/guard";
+import { requireAdmin } from "@/lib/server/adminGuard";
+import { recordAdminAudit } from "@/lib/server/adminAudit";
 
 export async function POST(request: Request) {
   try {
-    const auth = await withAuthGuard();
-    if (auth.error) return auth.error;
+    const auth = await requireAdmin();
+    if (!auth.ok) return auth.error;
     const { id } = await request.json();
     if (typeof id !== "string") return NextResponse.json({ error: "마커 ID가 누락되었습니다." }, { status: 400 });
-    const { data: profile } = await auth.supabaseAdmin.from("profiles").select("nickname, role").eq("id", auth.user.id).single();
-    if (profile?.role !== "admin") return NextResponse.json({ error: "관리자 권한이 없습니다." }, { status: 403 });
+    const profile = { nickname: auth.nickname };
     const { data, error } = await auth.supabaseAdmin.rpc("process_pending_marker_admin_action", { p_marker_id: id, p_action: "approve" });
     if (error) throw error;
     const result = data?.[0];
     if (!result) return NextResponse.json({ error: "이미 처리되었거나 존재하지 않는 제보입니다." }, { status: 404 });
+    await recordAdminAudit(auth.supabaseAdmin, {
+      actorId: auth.user.id,
+      action: "markers.approve",
+      targetType: "pending_marker",
+      targetId: id,
+      phase: "succeeded",
+      detail: { mapName: result.map_name ?? null, markerType: result.marker_type ?? null, newMarkerId: result.new_marker_id ?? null }
+    });
     const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
     if (webhookUrl) {
       await fetch(webhookUrl, {
@@ -60,6 +68,7 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ success: true, newId: result.new_marker_id });
   } catch (error: unknown) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "승인 처리에 실패했습니다." }, { status: 500 });
+    console.error("[ADMIN-MARKER] approve failed:", error instanceof Error ? error.message : error);
+    return NextResponse.json({ error: "승인 처리에 실패했습니다." }, { status: 500 });
   }
 }

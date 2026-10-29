@@ -67,6 +67,24 @@ describe("admin agent user metrics", () => {
     expect(renderUserMetricsSummaryText(summary)).not.toContain("수집 세션 0개");
   });
 
+  it("내부(is_internal=true) 이벤트는 운영 지표에서 빼고 제외 건수를 따로 보고한다", async () => {
+    const now = new Date().toISOString();
+    const summary = await buildUserMetricsSummary(createSupabaseMock({
+      authUsers: [], profiles: [],
+      analyticsRows: [
+        { event_name: "page_view", session_id: "prod-session", user_id: null, page_path: "/", params: {}, created_at: now, is_internal: false },
+        { event_name: "page_view", session_id: "legacy-session", user_id: null, page_path: "/", params: {}, created_at: now, is_internal: null },
+        { event_name: "page_view", session_id: "local-session", user_id: null, page_path: "/", params: {}, created_at: now, is_internal: true },
+        { event_name: "stats_searched", session_id: "local-session", user_id: null, page_path: "/stats", params: { nickname: "LocalOnly", platform: "steam" }, created_at: now, is_internal: true }
+      ]
+    }));
+    const text = renderUserMetricsSummaryText(summary);
+
+    expect(summary.activity).toMatchObject({ analyticsEvents: 2, analyticsSessions: 2, internalEventsExcluded: 2 });
+    expect(summary.topSearchedTargets).toEqual([]);
+    expect(text).toContain("내부(로컬/개발) 이벤트 2건은 운영 지표에서 제외했습니다.");
+  });
+
   it("전적 검색 대상 닉네임과 로그인 활동 회원을 분리한다", async () => {
     const supabase = createSupabaseMock({
       authUsers: [

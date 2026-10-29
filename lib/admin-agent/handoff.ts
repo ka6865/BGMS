@@ -97,7 +97,7 @@ export function buildHandoffMarkdown(packet: Omit<AgentHandoffPacket, "markdown"
     "## Recommended Follow-up",
     ...buildFollowUp(packet),
     "",
-    "확인 위치: `/admin/bot`"
+    "확인 위치: `/admin/dashboard`"
   ].join("\n");
 }
 

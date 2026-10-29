@@ -1,15 +1,18 @@
 import { NextResponse } from "next/server";
 import { parse } from "node-html-parser";
-import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import { createClient } from "@/utils/supabase/server";
+import { requireAdmin } from "@/lib/server/adminGuard";
+import { parseManualPatchSource } from "@/lib/server/patchNoteSource";
 import { identifyCategory } from "@/lib/patch-notes/categorize";
 import { sanitizeBoardHtml } from "@/lib/board/sanitizeHtml";
 import { triggerWeaponPatchProposal } from "@/lib/patch-notes/weaponProposalTrigger";
 import { GEMINI_MODELS_TO_TRY } from "@/lib/pubg-analysis/constants";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+// 원문 fetch + Gemini 요약(모델 fallback 포함)이 한 요청에서 이어지므로 60초까지 허용한다.
+export const maxDuration = 60;
+
+// 외부 페이지 응답 대기 상한
+const SOURCE_FETCH_TIMEOUT_MS = 15_000;
 
 // URL 정제 헬퍼 (트래커 제거 및 필수 파라미터만 유지)
 function cleanUrl(url: string) {
@@ -123,7 +126,7 @@ ${textToProcess}`;
 // 1. 글로벌 공식 패치노트 파싱
 async function fetchOfficialPatchNote(supabaseAdmin: any, manualUrl?: string) {
   const targetUrl = manualUrl ? cleanUrl(manualUrl) : "https://pubg.com/ko/news?category=patch_notes";
-  const response = await fetch(targetUrl, { cache: 'no-store', headers: { "User-Agent": "Mozilla/5.0" }});
+  const response = await fetch(targetUrl, { cache: 'no-store', headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(SOURCE_FETCH_TIMEOUT_MS) });
   if (!response.ok) throw new Error("공식 홈페이지 접속 실패");
   const html = await response.text();
   let title = "";
@@ -191,7 +194,7 @@ async function fetchOfficialPatchNote(supabaseAdmin: any, manualUrl?: string) {
 // 2. 카카오 무점검 패치 파싱
 async function fetchKakaoPatchNote(supabaseAdmin: any, manualUrl: string) {
   const targetUrl = cleanUrl(manualUrl);
-  const response = await fetch(targetUrl, { cache: 'no-store', headers: { "User-Agent": "Mozilla/5.0" }});
+  const response = await fetch(targetUrl, { cache: 'no-store', headers: { "User-Agent": "Mozilla/5.0" }, signal: AbortSignal.timeout(SOURCE_FETCH_TIMEOUT_MS) });
   if (!response.ok) throw new Error(`카카오 페이지 접속 실패 (${response.status})`);
 
   const rawHtml = await response.text();
@@ -254,24 +257,25 @@ async function fetchKakaoPatchNote(supabaseAdmin: any, manualUrl: string) {
 
 export async function POST(request: Request) {
   try {
-    const supabaseServer = await createClient();
-    const { data: { user } } = await supabaseServer.auth.getUser();
-    if (!user) return NextResponse.json({ error: "🔒 로그인이 필요합니다." }, { status: 401 });
+    // requireAdmin: 로그인하지 않은 요청은 401, 관리자 역할이 아니면 403
+    const admin = await requireAdmin();
+    if (!admin.ok) return admin.error;
+    const { supabaseAdmin } = admin;
 
-    const { data: profile } = await supabaseServer.from("profiles").select("role").eq("id", user.id).single();
-    if (profile?.role !== "admin") return NextResponse.json({ error: "⛔ 관리자 권한이 없습니다." }, { status: 403 });
-
-    const { url } = await request.json();
-    const manualUrl = url?.trim();
-    const supabaseAdmin = createSupabaseAdminClient(supabaseUrl, supabaseServiceKey);
+    const body = await request.json().catch(() => ({}));
+    const rawUrl = typeof body?.url === "string" ? body.url.trim() : "";
     const results: any[] = [];
 
-    if (manualUrl) {
-      if (manualUrl.includes("pubg.com")) {
-        const res = await fetchOfficialPatchNote(supabaseAdmin, manualUrl);
+    if (rawUrl) {
+      const source = parseManualPatchSource(rawUrl);
+      if (!source) {
+        return NextResponse.json({ error: "https 로 시작하는 pubg.com 패치노트 주소(또는 카카오 배그 공지 주소)만 입력할 수 있습니다." }, { status: 400 });
+      }
+      if (source.kind === "official") {
+        const res = await fetchOfficialPatchNote(supabaseAdmin, source.url);
         if (res) results.push(res);
-      } else if (manualUrl.includes("daum.net") || manualUrl.includes("kakao.com")) {
-        const res = await fetchKakaoPatchNote(supabaseAdmin, manualUrl);
+      } else {
+        const res = await fetchKakaoPatchNote(supabaseAdmin, source.url);
         if (res) results.push(res);
       }
     } else {
@@ -354,7 +358,8 @@ export async function POST(request: Request) {
       weaponProposals,
     });
   } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("[PATCH-NOTES-SYNC] failed:", err?.message || err);
+    return NextResponse.json({ error: "패치노트 동기화에 실패했습니다. 잠시 후 다시 시도해 주세요." }, { status: 500 });
   }
 }
 

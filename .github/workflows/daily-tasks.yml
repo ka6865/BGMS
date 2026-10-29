@@ -346,7 +346,7 @@ jobs:
             echo "APP_URL or agent cron secret is missing; skipping agent monitor snapshot."
             exit 0
           fi
-          RESPONSE=$(curl --connect-timeout 10 --max-time 60 -fsS "$APP_URL/api/admin/agent/monitor" \
+          RESPONSE=$(curl --connect-timeout 10 --max-time 60 -fsS -X POST "$APP_URL/api/admin/agent/monitor" \
             -H "Authorization: Bearer $SECRET")
           printf '%s' "$RESPONSE" | jq -e '
             .notification as $notification

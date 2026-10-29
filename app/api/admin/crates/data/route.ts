@@ -1,30 +1,7 @@
 import { NextResponse } from "next/server";
-import { createClient as createSupabaseAdminClient } from "@supabase/supabase-js";
-import { createClient } from "@/utils/supabase/server";
+import { requireAdmin } from "@/lib/server/adminGuard";
 import { revalidateTag } from "next/cache";
 import { resolveCrateAssetFields } from "@/lib/crates/assetMapping";
-
-// 관리자 권한 검증 및 Supabase Admin 클라이언트 반환
-async function verifyAdmin() {
-  const supabaseServer = await createClient();
-  const { data: { user } } = await supabaseServer.auth.getUser();
-  if (!user) return null;
-
-  const { data: profile } = await supabaseServer
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  
-  if (profile?.role === "admin") {
-    const supabaseAdmin = createSupabaseAdminClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
-    return { user, supabaseAdmin };
-  }
-  return null;
-}
 
 function buildAssetPayload(row: any) {
   const assetFields = resolveCrateAssetFields(row);
@@ -132,10 +109,8 @@ async function upsertCrateAssets(supabaseAdmin: any, rows: any[]) {
 
 // 1. GET: 은신처 상점 목록 및 세부 정보 로드
 export async function GET(request: Request) {
-  const adminContext = await verifyAdmin();
-  if (!adminContext) {
-    return NextResponse.json({ error: "🔒 관리자 권한이 없습니다." }, { status: 403 });
-  }
+  const adminContext = await requireAdmin();
+  if (!adminContext.ok) return adminContext.error;
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
@@ -193,16 +168,15 @@ export async function GET(request: Request) {
     return NextResponse.json(templates || []);
 
   } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("Crates load error:", error?.message || error);
+    return NextResponse.json({ error: "상자 데이터를 불러오지 못했습니다." }, { status: 500 });
   }
 }
 
 // 2. POST: 은신처 상자 및 하위 아이템 일괄 Upsert
 export async function POST(request: Request) {
-  const adminContext = await verifyAdmin();
-  if (!adminContext) {
-    return NextResponse.json({ error: "🔒 관리자 권한이 없습니다." }, { status: 403 });
-  }
+  const adminContext = await requireAdmin();
+  if (!adminContext.ok) return adminContext.error;
 
   try {
     const body = await request.json();
@@ -284,16 +258,14 @@ export async function POST(request: Request) {
 
   } catch (error: any) {
     console.error("Crates save error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "상자 데이터를 저장하지 못했습니다." }, { status: 500 });
   }
 }
 
 // 3. DELETE: 은신처 상자 삭제 (ON DELETE CASCADE로 하위 데이터는 자동 제거됨)
 export async function DELETE(request: Request) {
-  const adminContext = await verifyAdmin();
-  if (!adminContext) {
-    return NextResponse.json({ error: "🔒 관리자 권한이 없습니다." }, { status: 403 });
-  }
+  const adminContext = await requireAdmin();
+  if (!adminContext.ok) return adminContext.error;
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
@@ -317,6 +289,6 @@ export async function DELETE(request: Request) {
 
   } catch (error: any) {
     console.error("Crates delete error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: "상자를 삭제하지 못했습니다." }, { status: 500 });
   }
 }

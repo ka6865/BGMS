@@ -22,6 +22,7 @@ type AnalyticsUserRow = {
   page_path: string | null;
   params: Record<string, unknown> | null;
   created_at: string;
+  is_internal?: boolean | null;
 };
 
 export type UserMetricsSummary = {
@@ -46,6 +47,8 @@ export type UserMetricsSummary = {
     analyticsMemberSessions: number;
     analyticsLoggedInUsers: number;
     analyticsEvents: number;
+    /** 운영 지표에서 제외한 내부(is_internal=true) 이벤트 수. 조회된 행 기준이다. */
+    internalEventsExcluded: number;
   };
   topActiveUsers: Array<{
     userId: string;
@@ -75,7 +78,9 @@ export async function buildUserMetricsSummary(supabase: any, windowHours = 24): 
     ]);
     const authUsers = authResult.rows;
     const profiles = profileResult.rows;
-    const analyticsRows = analyticsResult.rows;
+    // is_internal 은 NOT NULL DEFAULT false(20260611133705). true 인 행만 내부 이벤트로 보고 제외한다.
+    const internalEventsExcluded = analyticsResult.rows.filter((row) => row.is_internal === true).length;
+    const analyticsRows = analyticsResult.rows.filter((row) => row.is_internal !== true);
     const partialSources = [
       authResult.partial ? "Auth 유저" : null,
       profileResult.partial ? "profiles" : null,
@@ -140,7 +145,8 @@ export async function buildUserMetricsSummary(supabase: any, windowHours = 24): 
       orphanProfiles: authResult.partial || profileResult.partial ? 0 : orphanProfiles,
       analyticsLoggedInUsers: analyticsUserIds.size,
       analyticsEvents: nonAdminAnalyticsRows.length,
-      profileActiveUsers: activeProfileIds.size
+      profileActiveUsers: activeProfileIds.size,
+      internalEventsExcluded
     });
     if (partialSources.length) notes.unshift(`부분 집계: ${partialSources.join(", ")} 전체 조회를 확인하지 못했습니다. 반환된 데이터만 집계했으므로 전체 수치와 다를 수 있습니다.`);
     if (profileResult.partial) notes.push("역할을 확인하지 못한 회원 이벤트와 로그인 기록은 관리자 활동이 섞이지 않도록 제외했습니다.");
@@ -166,7 +172,8 @@ export async function buildUserMetricsSummary(supabase: any, windowHours = 24): 
         analyticsGuestSessions: guestSessions,
         analyticsMemberSessions: memberSessions,
         analyticsLoggedInUsers: analyticsUserIds.size,
-        analyticsEvents: nonAdminAnalyticsRows.length
+        analyticsEvents: nonAdminAnalyticsRows.length,
+        internalEventsExcluded
       },
       topActiveUsers,
       topSearchedTargets,
@@ -194,7 +201,8 @@ export async function buildUserMetricsSummary(supabase: any, windowHours = 24): 
         analyticsGuestSessions: 0,
         analyticsMemberSessions: 0,
         analyticsLoggedInUsers: 0,
-        analyticsEvents: 0
+        analyticsEvents: 0,
+        internalEventsExcluded: 0
       },
       topActiveUsers: [],
       topSearchedTargets: [],
@@ -228,6 +236,9 @@ export function renderUserMetricsSummaryText(summary: UserMetricsSummary) {
     `관리자 제외 실제 회원 프로필은 ${summary.accounts.nonAdminProfiles}개이고, 관리자 프로필은 ${summary.accounts.adminProfiles}개입니다. profiles 원본 행은 ${summary.accounts.profiles}개입니다.`,
     `최근 ${summary.windowHours}시간 활동 기준: 로그인 기록 ${summary.activity.authSignedInUsers}명, profile last_active ${summary.activity.profileActiveUsers}명, 수집 세션 ${summary.activity.analyticsSessions}개입니다.`,
     `현재 수집된 analytics 이벤트 기준 세션은 회원 ${summary.activity.analyticsMemberSessions}개, 비회원 ${summary.activity.analyticsGuestSessions}개이며, user_id가 붙은 로그인 회원 이벤트는 ${summary.activity.analyticsLoggedInUsers}명 기준입니다.`,
+    summary.activity.internalEventsExcluded > 0
+      ? `내부(로컬/개발) 이벤트 ${summary.activity.internalEventsExcluded}건은 운영 지표에서 제외했습니다.`
+      : null,
     `최근 활동 회원: ${topUsers}`,
     `많이 조회된 전적 대상: ${topTargets}. 이 값은 조회 대상 닉네임이며 해당 회원의 로그인 활동으로 해석하지 않습니다.`,
     summary.notes.length > 0 ? `주의: ${summary.notes.join(" / ")}` : null
@@ -264,7 +275,7 @@ async function fetchProfiles(supabase: any): Promise<{ rows: UserProfileRow[]; p
 async function fetchAnalyticsRows(supabase: any, since: string): Promise<{ rows: AnalyticsUserRow[]; partial: boolean }> {
   const { data, error, count } = await supabase
     .from("analytics_events")
-    .select("event_name, session_id, user_id, page_path, params, created_at", { count: "exact" })
+    .select("event_name, session_id, user_id, page_path, params, created_at, is_internal", { count: "exact" })
     .gte("created_at", since)
     .order("created_at", { ascending: false })
     .limit(10000);
@@ -279,8 +290,10 @@ function buildUserMetricNotes(input: {
   analyticsLoggedInUsers: number;
   analyticsEvents: number;
   profileActiveUsers: number;
+  internalEventsExcluded: number;
 }) {
   const notes = [];
+  if (input.internalEventsExcluded > 0) notes.push(`내부(is_internal) 이벤트 ${input.internalEventsExcluded}건 제외`);
   if (input.missingProfiles > 0) notes.push(`Auth 유저 중 profiles 누락 ${input.missingProfiles}명`);
   if (input.orphanProfiles > 0) notes.push(`Auth에 없는 profiles ${input.orphanProfiles}개`);
   if (input.analyticsEvents > 0 && input.analyticsLoggedInUsers === 0) {

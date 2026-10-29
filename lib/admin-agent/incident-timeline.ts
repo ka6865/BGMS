@@ -116,7 +116,7 @@ export function buildIncidentTimelineMarkdown(timeline: Omit<IncidentTimeline, "
     "## Recommended Follow-up",
     ...(timeline.recommendations.length ? timeline.recommendations.map((item) => `- ${item}`) : ["- No follow-up required."]),
     "",
-    "확인 위치: `/admin/bot` 운영 커맨드센터, 승인 패널, 최근 실행 기록"
+    "확인 위치: `/admin/dashboard` 운영 상태, 승인 대기, 최근 실행 기록"
   ];
 
   return lines.join("\n");

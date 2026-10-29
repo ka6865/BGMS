@@ -1,32 +1,12 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@/utils/supabase/server";
+import { requireAdmin } from "@/lib/server/adminGuard";
 import { uploadToR2 } from "@/lib/pubg-analysis/r2Service";
 import { normalizeCrateItemName } from "@/lib/crates/assetMapping";
 
-// 관리자 권한 검증 및 세션 체크
-async function verifyAdmin() {
-  const supabaseServer = await createClient();
-  const { data: { user } } = await supabaseServer.auth.getUser();
-  if (!user) return null;
-
-  const { data: profile } = await supabaseServer
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  
-  if (profile?.role === "admin") {
-    return { user };
-  }
-  return null;
-}
-
 export async function POST(request: Request) {
   try {
-    const adminContext = await verifyAdmin();
-    if (!adminContext) {
-      return NextResponse.json({ error: "🔒 관리자 권한이 없습니다." }, { status: 403 });
-    }
+    const adminContext = await requireAdmin();
+    if (!adminContext.ok) return adminContext.error;
 
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
@@ -74,6 +54,6 @@ export async function POST(request: Request) {
 
   } catch (error: any) {
     console.error("Crate image upload error:", error);
-    return NextResponse.json({ error: error.message || "R2 업로드 통신 실패" }, { status: 500 });
+    return NextResponse.json({ error: "R2 업로드 통신 실패" }, { status: 500 });
   }
 }

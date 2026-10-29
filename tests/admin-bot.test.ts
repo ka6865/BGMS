@@ -268,6 +268,7 @@ describe("🤖 Admin AI Bot API Route (E2E Logic Flow Verification)", () => {
       }),
       storage: {
         listBuckets: mockStorageList,
+        getBucket: vi.fn().mockResolvedValue({ data: { id: "map-captures", name: "map-captures" }, error: null }),
         from: vi.fn(() => ({
           upload: mockStorageUpload,
           getPublicUrl: mockStorageGetUrl
@@ -457,7 +458,7 @@ describe("🤖 Admin AI Bot API Route (E2E Logic Flow Verification)", () => {
     expect(mockNewPage).toHaveBeenCalledOnce();
     expect(mockGoto).toHaveBeenCalledWith(
       expect.stringMatching(/\/maps\/miramar\?layer=secret_room&sidebar=false&notice=false$/),
-      { waitUntil: "networkidle2" }
+      { waitUntil: "networkidle2", timeout: 20000 }
     );
     expect(mockScreenshot).toHaveBeenCalledWith({ type: "png" });
     expect(mockSupabaseAdmin.storage.from).toHaveBeenCalledWith("map-captures");
@@ -533,5 +534,94 @@ describe("🤖 Admin AI Bot API Route (E2E Logic Flow Verification)", () => {
     expect(chunks).toContain("tool_end");
     expect(chunks).toContain("M416");
     expect(mockFetch).toHaveBeenCalled();
+  });
+
+  it("5. 도구 호출 왕복이 상한을 넘으면 중단 안내를 보내고 run 을 중단 상태로 닫으며, 미등록 도구는 dangerous 로 기록한다", async () => {
+    (withAuthGuard as any).mockResolvedValue({
+      user: { id: "admin-id" },
+      supabaseAdmin: mockSupabaseAdmin
+    });
+
+    // 모델이 매번 존재하지 않는 도구를 다시 호출한다
+    mockSendMessage.mockResolvedValue({
+      response: {
+        text: () => "",
+        functionCalls: () => [{ name: "ghost_tool", args: {} }]
+      }
+    });
+
+    const res = await adminBotPOST(new Request("http://localhost:3000/api/admin/bot/run", {
+      method: "POST",
+      body: JSON.stringify({ message: "계속 도구를 불러줘" })
+    }));
+    expect(res.status).toBe(200);
+
+    const reader = res.body?.getReader();
+    const decoder = new TextDecoder();
+    let chunks = "";
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks += decoder.decode(value);
+      }
+    }
+    mockSendMessage.mockReset();
+
+    const events = chunks.trim().split("\n").map((line) => JSON.parse(line));
+    const toolStarts = events.filter((event) => event.type === "tool_start");
+    expect(toolStarts).toHaveLength(6);
+    expect(toolStarts.every((event) => event.safetyLevel === "dangerous")).toBe(true);
+    expect(events.some((event) => event.type === "run_cutoff")).toBe(true);
+    expect(events.find((event) => event.type === "chunk")?.data).toContain("[자동 중단]");
+    expect(events.at(-1)?.type).toBe("done");
+
+    const stepInserts = agentInsertChain.insert.mock.calls.map(([row]: any[]) => row).filter((row: any) => row.tool_name === "ghost_tool");
+    expect(stepInserts.length).toBeGreaterThan(0);
+    expect(stepInserts.every((row: any) => row.safety_level === "dangerous")).toBe(true);
+    expect(agentRunChain.update).toHaveBeenCalledWith(expect.objectContaining({
+      status: "failed",
+      error: expect.stringContaining("run_cutoff")
+    }));
+  });
+
+  it("6. map-captures 버킷이 없으면 버킷을 만들지 않고 실패로 보고한다", async () => {
+    (withAuthGuard as any).mockResolvedValue({
+      user: { id: "admin-id" },
+      supabaseAdmin: mockSupabaseAdmin
+    });
+    mockSupabaseAdmin.storage.getBucket = vi.fn().mockResolvedValue({ data: null, error: { message: "Bucket not found" } });
+    mockSupabaseAdmin.storage.createBucket = vi.fn();
+
+    mockSendMessage.mockResolvedValueOnce({
+      response: {
+        text: () => "",
+        functionCalls: () => [{ name: "take_map_screenshot", args: { mapName: "miramar", layer: "secret_room" } }]
+      }
+    });
+    mockSendMessage.mockResolvedValueOnce({
+      response: { text: () => "버킷이 없어 캡처하지 못했습니다.", functionCalls: () => undefined }
+    });
+
+    const res = await adminBotPOST(new Request("http://localhost:3000/api/admin/bot/run", {
+      method: "POST",
+      body: JSON.stringify({ message: "미라마 지도 캡처해줘" })
+    }));
+    const reader = res.body?.getReader();
+    const decoder = new TextDecoder();
+    let chunks = "";
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks += decoder.decode(value);
+      }
+    }
+
+    const toolEnd = chunks.trim().split("\n").map((line) => JSON.parse(line)).find((event) => event.type === "tool_end");
+    expect(toolEnd.status).toBe("failed");
+    expect(toolEnd.result).toContain("map-captures");
+    expect(mockSupabaseAdmin.storage.createBucket).not.toHaveBeenCalled();
+    expect(mockLaunch).not.toHaveBeenCalled();
   });
 });
