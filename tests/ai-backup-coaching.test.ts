@@ -93,6 +93,11 @@ describe("AI backup coaching context", () => {
 });
 
 describe("AI coaching prompt utility metrics", () => {
+  it("가장 가까운 아군 거리의 관측 평균을 아군 전체 평균으로 표시하지 않는다", () => {
+    const { playerReportSummary } = buildMatchAiCoachingPrompt({ matchData: { stats: {}, isolationData: { minDist: 42 } } });
+    expect(playerReportSummary).toContain("가장 가까운 아군까지의 평균 거리: 42m");
+    expect(playerReportSummary).not.toContain("아군 평균 거리:");
+  });
   it("단일 경기 프롬프트는 연막을 제외하고 피해형 투척 적중률을 재계산한다", () => {
     const { playerReportSummary } = buildMatchAiCoachingPrompt({
       coachingStyle: "spicy",

@@ -69,6 +69,15 @@ function providerFinal(cards: SummaryCard[], overrides: Record<string, unknown> 
 }
 
 describe("ai summary v2 card catalog", () => {
+  it("표시값이 같으면 숨겨진 미세 차이를 일방적 우위로 보지 않는다", () => {
+    const cards = buildFixture();
+    Object.assign(cards[0].evidence[0], { userValue: "100", benchmarkValue: "100", userNumericValue: 100.004, benchmarkNumericValue: 100.001 });
+    const provider = providerFinal(cards);
+    (provider.debateIssues as Array<Record<string, unknown>>)[0] = providerIssue(cards[0], { winner: "draw" });
+    const result = normalizeSummaryCardFinal(provider, cards, { sanitizeText: text => text, hasUnsupportedMode: () => false });
+    expect(result?.final.cards[0].reason).not.toContain("모두 평균보다 유리");
+    expect(result?.final.cards[0].reason).toContain("표시 기준으로 비교 평균과 같습니다");
+  });
   it("builds deterministic comparisons from observed comparable facts without inferred thresholds", () => {
     const cards = buildSummaryCards({
       topics: ["화력", "교전 주도권", "유틸리티 활용"], context,

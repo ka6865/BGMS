@@ -213,11 +213,11 @@ describe("사망 유형", () => {
     expect(afterMany).toEqual(alone);
   });
 
-  it("자기장 피해로 죽으면 자기장, 기절 뒤 출혈이면 출혈사", () => {
+  it("자기장 피해로 죽으면 자기장, 기절 뒤 출혈이면 기절 후 사망", () => {
     expect(run([kill(500, null, ME, "Damage_BlueZone")]).death).toMatchObject({ type: "zone", killer: null });
     const bled = run([damage(100, ME, A1, 150), groggy(101, A1, ME), kill(131, null, ME, "Damage_Groggy")]);
     expect(bled.death).toMatchObject({ type: "bledOut", knockedAtMs: 101_000 });
-    expect(describeDeath(bled.death!)).toBe("출혈사 · 30초 기절 후");
+    expect(describeDeath(bled.death!)).toBe("기절 후 사망 · 30초 경과");
   });
 
   it("부활해서 끝까지 살았으면 사망 기록을 지운다", () => {

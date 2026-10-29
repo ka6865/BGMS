@@ -13,7 +13,7 @@ import { FIGHT_LEAD_IN_MS } from "@/lib/replay/replayEngagements";
 
 export const DEATH_TYPE_LABELS: Record<MatchDeathType, string> = {
   zone: "자기장",
-  bledOut: "출혈사",
+  bledOut: "기절 후 사망",
   thirdParty: "써드파티",
   rotating: "이동 중 잡힘",
   ambushed: "기습 당함",
@@ -95,7 +95,7 @@ export function describeDeath(death: MatchDeath): string {
       if (death.nearestTeammateM !== null) parts.push(`가장 가까운 팀원 ${death.nearestTeammateM}m`);
       break;
     case "bledOut":
-      if (death.knockedAtMs !== null) parts.push(`${Math.round((death.timeMs - death.knockedAtMs) / 1000)}초 기절 후`);
+      if (death.knockedAtMs !== null) parts.push(`${Math.round((death.timeMs - death.knockedAtMs) / 1000)}초 경과`);
       break;
     default:
       break;

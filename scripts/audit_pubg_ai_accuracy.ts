@@ -6,7 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { AnalysisEngine } from "../lib/pubg-analysis/AnalysisEngine";
 import {
-  AI_CACHE_VERSION,
+  AI_MATCH_PROMPT_VERSION,
   RESULT_VERSION,
   TELEMETRY_VERSION,
 } from "../lib/pubg-analysis/constants";
@@ -1505,7 +1505,7 @@ function buildReport(
     versions: {
       result: RESULT_VERSION,
       telemetry: TELEMETRY_VERSION,
-      aiCache: AI_CACHE_VERSION,
+      aiCache: AI_MATCH_PROMPT_VERSION,
     },
     singleMatchMetrics: compareNumericMaps(legacySingleMetrics, nextSingleMetrics),
     recentSelection: {

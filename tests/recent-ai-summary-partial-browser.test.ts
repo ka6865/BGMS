@@ -205,6 +205,36 @@ async function clickText(page: Page, text: string) {
     }
   }, 30_000);
 
+  it.each([{ width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }, { width: 1440, height: 900 }])("initial cache request and explicit regeneration at $width", async (viewport) => {
+    const page = await browser.newPage();
+    const forces: boolean[] = [];
+    await page.setViewport(viewport);
+    await page.setRequestInterception(true);
+    page.on("request", async (request) => {
+      if (!request.url().endsWith("/api/pubg/ai-summary")) return void await request.continue();
+      forces.push(JSON.parse(request.postData() ?? "{}").force);
+      const lines = [
+        { type: "visuals", data: { overallTier: "A" } },
+        { type: "cards", data: cards },
+        { type: "final", data: JSON.stringify({ schemaVersion: 2, analysisStatus: "complete", cards: finalCards, signature: null, actionItems: [], finalVerdict: "확인된 기록입니다." }) },
+        { type: "done", valid: true },
+      ];
+      await request.respond({ status: 200, contentType: "application/x-ndjson", body: lines.map((line) => JSON.stringify(line)).join("\n") });
+    });
+    try {
+      await page.goto(baseUrl, { waitUntil: "networkidle0" });
+      await clickText(page, "최근 최대 10경기 AI 끝장 토론 시작");
+      await page.waitForFunction(() => [...document.querySelectorAll("button")].some(button => button.textContent?.includes("AI 다시 분석")));
+      expect(forces).toEqual([false]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+      await clickText(page, "AI 다시 분석");
+      await page.waitForFunction(() => document.body.innerText.includes("확인된 기록입니다."));
+      expect(forces).toEqual([false, true]);
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
+
   it.each([{ width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }, { width: 1440, height: 900 }])("role identity evidence and badges fit at $width", async (viewport) => {
     const page = await browser.newPage();
     const errors: string[] = [];

@@ -454,6 +454,20 @@ describe("RecentAISummary callback bridge", () => {
     }
   });
 
+  it("무기 기록이 없으면 무기 이름 대신 미관측 상태를 표시한다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "A", roleInfo: { title: "전술 분석", signatureWeapon: "무기 기록 없음", signatureWeaponStats: { kills: 0, dbnos: 0 }, scores: {} } } },
+      { type: "final", data: JSON.stringify(aiReady) },
+      { type: "done", valid: true },
+    ])));
+    render(createElement(RecentAISummary, baseProps));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await screen.findAllByText("전술 분석");
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+    expect(screen.getByText("무기 기록 없음")).toBeInTheDocument();
+    expect(screen.queryByText("기절 횟수 (DBNO)")).not.toBeInTheDocument();
+  });
+
   it("잠재 티어는 평균에 쓴 경기 수와 솔로 기준 여부를 표시한다", async () => {
     const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
       { type: "visuals", data: { latestMatchCount: 3, bestMatchCount: 3, tierMatchCount: 2, tierScope: "solo", overallTier: "A" } },
@@ -1402,10 +1416,13 @@ describe("RecentAISummary callback bridge", () => {
         matchIds: baseProps.matchIds,
         nickname: baseProps.nickname,
         platform: baseProps.platform,
-        force: true,
+        force: false,
         summaryContractVersion: 2,
       }),
     });
+    fireEvent.click(screen.getByRole("button", { name: "AI 다시 분석" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).force).toBe(true);
 
     fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
     const kindScoreLabel = screen.getAllByText("착한맛 승").find((element) => element.className.includes("text-green-400/60"));

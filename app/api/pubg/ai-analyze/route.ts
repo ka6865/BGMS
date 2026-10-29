@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
-import { AI_CACHE_VERSION, isSupportedAnalysisCalculationVersion, GEMINI_MODELS_TO_TRY, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
+import { AI_MATCH_PROMPT_VERSION, isSupportedAnalysisCalculationVersion, GEMINI_MODELS_TO_TRY, RESULT_VERSION } from "@/lib/pubg-analysis/constants";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import { getValidFullResultForMatch, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
@@ -120,11 +120,6 @@ export async function POST(request: Request) {
       }, { status: 400 });
     }
 
-    const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
-    if (!apiKey) {
-      trackAiFailure(authenticatedUserId, "analyze", "No API Key", { errorCode: "configuration", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
-      return NextResponse.json({ error: "No API Key" }, { status: 500 });
-    }
     if (!matchData || typeof nickname !== "string" || !nickname.trim()) {
       trackAiFailure(authenticatedUserId, "analyze", "Missing data", { errorCode: "invalid_input", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
       return NextResponse.json({ error: "Missing data" }, { status: 400 });
@@ -213,7 +208,7 @@ export async function POST(request: Request) {
       }, { status: 409 });
     }
 
-    const cachePromptVersion = `${AI_CACHE_VERSION}.calc${canonicalFullResult.calculationVersion}`;
+    const cachePromptVersion = `${AI_MATCH_PROMPT_VERSION}.calc${canonicalFullResult.calculationVersion}`;
 
     // Cache compatibility is checked only after the current marked canonical
     // telemetry row has been proven.  This prevents a pre-marker cache entry
@@ -253,6 +248,12 @@ export async function POST(request: Request) {
       console.warn("[AI-ANALYZE] Cache lookup failed:", dbErr);
     }
     if (isRouteAborted()) throw new DOMException("The operation was aborted.", "AbortError");
+
+    const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
+    if (!apiKey) {
+      trackAiFailure(authenticatedUserId, "analyze", "No API Key", { errorCode: "configuration", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
+      return NextResponse.json({ error: "No API Key" }, { status: 500 });
+    }
 
     const { fullPrompt, backupContext } = buildMatchAiCoachingPrompt({
       matchData: canonicalFullResult,
@@ -381,7 +382,7 @@ export async function POST(request: Request) {
                   auth.user?.id,
                   selectedModelName,
                   res.usageMetadata.promptTokenCount,
-                  res.usageMetadata.candidatesTokenCount,
+                  (res.usageMetadata.candidatesTokenCount || 0) + (res.usageMetadata.thoughtsTokenCount || 0),
                   "analyze",
                   { durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform },
                 );
@@ -397,7 +398,7 @@ export async function POST(request: Request) {
                 auth.user?.id,
                 selectedModelName,
                 nonStreamRes.response.usageMetadata.promptTokenCount,
-                nonStreamRes.response.usageMetadata.candidatesTokenCount,
+                (nonStreamRes.response.usageMetadata.candidatesTokenCount || 0) + (nonStreamRes.response.usageMetadata.thoughtsTokenCount || 0),
                 "analyze",
                 { durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform },
               );

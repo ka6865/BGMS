@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { insert } = vi.hoisted(() => ({ insert: vi.fn() }));
 vi.mock("@supabase/supabase-js", () => ({
@@ -48,5 +48,24 @@ describe("AI usage persistence", () => {
       await expect(trackAiUsage("u1", "test-model", 0, 0, "summary")).resolves.toBeUndefined();
       expect(spy).toHaveBeenCalled();
     } finally { spy.mockRestore(); }
+  });
+});
+
+describe("모델별 AI 비용 추정", () => {
+  beforeEach(() => { insert.mockReset().mockResolvedValue({ error: null }); });
+  afterEach(() => { vi.useRealTimers(); });
+  it.each([
+    ["gemini-3.5-flash-lite", 2.8], ["gemini-3.1-flash-lite", 1.75],
+    ["gemini-3.5-flash", 4.5], ["gemini-3.6-flash", 4.5],
+  ])("2026년에는 %s에 표준 유료 단가를 적용한다", async (model, expected) => {
+    vi.useFakeTimers({ now: Date.UTC(2026, 9, 30) });
+    await trackAiUsage("u1", model, 1_000_000, 1_000_000, "summary");
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ cost_usd: expected }));
+  });
+
+  it("gemini-3.6-flash 할인가는 2027-01-01부터 정가로 바뀐다", async () => {
+    vi.useFakeTimers({ now: Date.UTC(2027, 0, 1) });
+    await trackAiUsage("u1", "gemini-3.6-flash", 1_000_000, 1_000_000, "summary");
+    expect(insert).toHaveBeenCalledWith(expect.objectContaining({ cost_usd: 9 }));
   });
 });

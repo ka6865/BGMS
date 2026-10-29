@@ -205,11 +205,11 @@ describe("signature weapon", () => {
   const weaponOf = (weaponStatsFinal: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
     classify({ weaponStatsFinal, ...extra });
 
-  it("falls back to fists without weapon stats and to tactician when every weapon is ignored", () => {
-    expect(weaponOf({}).signatureWeapon).toBe("주먹");
+  it("reports no weapon record when stats are missing or every weapon is ignored", () => {
+    expect(weaponOf({}).signatureWeapon).toBe("무기 기록 없음");
     expect(weaponOf({}).signatureWeaponStats).toEqual({ kills: 0, dbnos: 0, consistency: 0, isReliable: false });
     const ignored = weaponOf({ WeapSmokeBomb_C: { kills: 5 }, None: { kills: 9 } });
-    expect(ignored.signatureWeapon).toBe("전술가");
+    expect(ignored.signatureWeapon).toBe("무기 기록 없음");
     expect(ignored.signatureWeaponStats).toEqual({ kills: 0, dbnos: 0, consistency: 0, isReliable: false });
     // 대체 이름은 배지로 쓰지 않는다
     expect(ignored.badges).toEqual([]);
