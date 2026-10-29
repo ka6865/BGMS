@@ -476,7 +476,7 @@ describe("matches-summary raw timestamp fallback", () => {
     expect(await response.json()).toMatchObject({missingMatchIds: ['missing-match'], nextMatchIds: [], ingestedMatchIds: []});
   });
 
-  it("attempts at most five missing matches and continues past failures without re-fetching stored matches", async () => {
+  it("attempts every missing recent match in one request without re-fetching stored matches", async () => {
     vi.stubEnv("PUBG_API_KEY", "test-key");
     const ids = Array.from({ length: 20 }, (_, index) => `new-${index}`);
     database.rows.pubg_player_matches = [{
@@ -485,10 +485,10 @@ describe("matches-summary raw timestamp fallback", () => {
     }];
     const req = request(ids);
     const body = await (await POST(req)).json();
-    expect(ingestMatch).toHaveBeenCalledTimes(5);
-    expect(ingestMatch.mock.calls.map((call) => call[1])).toEqual(ids.slice(1, 6));
+    expect(ingestMatch).toHaveBeenCalledTimes(19);
+    expect(ingestMatch.mock.calls.map((call) => call[1])).toEqual(ids.slice(1));
     expect(ingestMatch.mock.calls[0][5].signal).toBe(req.signal);
-    expect(body.nextMatchIds).toEqual(ids.slice(6));
+    expect(body.nextMatchIds).toEqual([]);
     expect(body.collectionStopped).toBe(false);
     expect(body.missingMatchIds).toEqual(ids.slice(1));
     expect(body.summaries[ids[0]]).toBeDefined();
@@ -501,7 +501,7 @@ describe("matches-summary raw timestamp fallback", () => {
     ingestMatch.mockResolvedValueOnce({ status, httpStatus, record: null });
     const ids = Array.from({ length: 20 }, (_, index) => `new-${index}`);
     const body = await (await POST(request(ids))).json();
-    expect(ingestMatch).toHaveBeenCalledTimes(5);
+    expect(ingestMatch).toHaveBeenCalledTimes(20);
     expect(body.nextMatchIds).toEqual([]);
     expect(body.collectionStopped).toBe(true);
     expect(body.missingMatchIds).toEqual(ids);
