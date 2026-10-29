@@ -33,11 +33,18 @@ export async function trackAiUsage(
   try {
     const status = context.status ?? "success";
 
-    // Gemini API 단가 기준 (100만 토큰당 입력 $0.075, 출력 $0.30)
-    // 1토큰당 단가 = 입력 0.000000075달러, 출력 0.00000030달러
-    const inputRate = 0.000000075;
-    const outputRate = 0.00000030;
-    const costUsd = (promptTokens * inputRate) + (completionTokens * outputRate);
+    // Gemini 표준 유료 단가(100만 토큰당 USD, 2026-10-12 갱신 요금표)에 따른 추정값이다. 무료 사용량·할인·실제 청구액은 반영하지 않는다.
+    // gemini-3.6-flash는 2026-12-31까지 할인가이며, 지원 종료된 gemini-3.5-flash 요청은 3.6-flash로 자동 연결되므로 같은 단가를 쓴다.
+    const flash36: [number, number] = Date.now() < Date.UTC(2027, 0, 1) ? [0.75, 3.75] : [1.50, 7.50];
+    const rates: Record<string, [number, number]> = {
+      "gemini-3.5-flash-lite": [0.30, 2.50],
+      "gemini-3.1-flash-lite": [0.25, 1.50],
+      "gemini-3.5-flash": flash36,
+      "gemini-3.6-flash": flash36,
+    };
+    // shortcut: 미등록 모델은 기존 단가로 추정한다. 모델을 추가하면 단가표도 갱신한다.
+    const [inputRate, outputRate] = rates[modelName] ?? [0.075, 0.30];
+    const costUsd = (promptTokens * inputRate + completionTokens * outputRate) / 1_000_000;
 
     const { error } = await supabaseAdmin
       .from("ai_usage_logs")

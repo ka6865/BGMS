@@ -597,6 +597,7 @@ function hasUnsupportedMixedWinner(winner: SummaryCard["winner"], evidence: read
   return comparisons.length > 0 && comparisons.every((row) => {
     const higherIsBetter = AI_SUMMARY_HIGHER_IS_BETTER[row.metricId];
     if (higherIsBetter === undefined || row.userValue === null || row.benchmarkValue === null) return false;
+    if (isDisplayedEqual(row)) return false;
     const user = evidenceNumericValue(row, "user");
     const benchmark = evidenceNumericValue(row, "benchmark");
     return user !== null && benchmark !== null && (higherIsBetter ? user - benchmark > 1e-9 : benchmark - user > 1e-9);
@@ -777,6 +778,9 @@ export function buildSummaryCardComparisonText(card: SummaryCard): string {
     if (user === null || benchmark === null) return [];
     const lastCharacter = row.label.charCodeAt(row.label.length - 1);
     const particle = lastCharacter >= 0xac00 && lastCharacter <= 0xd7a3 && (lastCharacter - 0xac00) % 28 === 0 ? "는" : "은";
+    if (isDisplayedEqual(row) && Math.abs(user - benchmark) > 1e-9) {
+      return [`${row.label}${particle} 표시 기준으로 비교 평균과 같습니다.`];
+    }
     const equal = Math.abs(user - benchmark) <= 1e-9;
     const relation = row.unit === "s" ? user < benchmark ? "빠릅니다" : "느립니다" : user > benchmark ? "높습니다" : "낮습니다";
     return [`${row.label}${particle} 비교 평균${equal ? "과 같습니다" : `보다 ${relation}`}.`];
@@ -813,8 +817,15 @@ function isUnfavorable(row: SummaryEvidence): boolean | null {
   if (row.status !== "comparable" || higherIsBetter === undefined) return null;
   const user = evidenceNumericValue(row, "user");
   const benchmark = evidenceNumericValue(row, "benchmark");
-  if (user === null || benchmark === null || Math.abs(user - benchmark) <= 1e-9) return null;
+  if (user === null || benchmark === null || Math.abs(user - benchmark) <= 1e-9 || isDisplayedEqual(row)) return null;
   return higherIsBetter ? user < benchmark : user > benchmark;
+}
+
+/** 사용자 값과 비교 평균이 화면 표시 기준으로 같은지. 표시값을 해석할 수 없으면 false. */
+function isDisplayedEqual(row: SummaryEvidence): boolean {
+  if (row.userValue === null || row.benchmarkValue === null) return false;
+  const displayedUser = parseDisplayValue(row.userValue, row.unit);
+  return displayedUser !== null && displayedUser === parseDisplayValue(row.benchmarkValue, row.unit);
 }
 
 /** 수치와 차이를 함께 쓴 서버 근거 문장. 비교 자료가 없는 관측값은 관측값만 쓴다. */
@@ -827,6 +838,8 @@ export function buildSummaryCardFactText(card: SummaryCard): string {
     const benchmark = evidenceNumericValue(row, "benchmark");
     if (user === null || benchmark === null) return [];
     if (Math.abs(user - benchmark) <= 1e-9) return [`${row.label}: ${row.userValue}${counts}, 비교 평균 ${row.benchmarkValue}과 같습니다.`];
+    // 화면에 같은 값으로 보이면 내부 정밀도의 작은 차이로 높고 낮음을 말하지 않는다.
+    if (isDisplayedEqual(row)) return [`${row.label}: ${row.userValue}${counts}, 표시 기준으로 비교 평균과 같습니다.`];
     const relation = row.unit === "s" ? user < benchmark ? "빠릅니다" : "느립니다" : user > benchmark ? "높습니다" : "낮습니다";
     const gap = row.unit === "%" ? `${Math.abs(user - benchmark).toFixed(1)}%p`
       : benchmark > 0 ? `약 ${Math.round(Math.abs(user - benchmark) / benchmark * 100)}%` : "";

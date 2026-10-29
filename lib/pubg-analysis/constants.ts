@@ -26,8 +26,10 @@ export const COUNTER_LATENCY_PENALTY_MS = 3000;
 export const RESULT_VERSION = 73.0; // [V73.0] PUBG AI 분석 정확도 감사 기준 결과 버전
 export const TELEMETRY_VERSION = 63.0; // [V63.0] 리플레이 위치·탑승 이벤트에 차량 인스턴스 ID(vehicleUniqueId) 추가
 export const AI_CACHE_VERSION = "2026-10-28.first-reply-evidence-v6"; // 적격 반격 소요 시간의 표현·근거 정책
+// 단일 경기 코칭만의 프롬프트 버전. 가장 가까운 아군 거리 표기를 바꿨으므로 단일 경기 캐시만 새로 만든다(스쿼드는 유지).
+export const AI_MATCH_PROMPT_VERSION = `${AI_CACHE_VERSION}.nearest-teammate-v1`;
 export const AI_SQUAD_CACHE_VERSION = `${AI_CACHE_VERSION}.squad-scope-calc${ANALYSIS_CALCULATION_VERSION}-v6`; // 팀 관측 비교 기준(전체 팀 평균)을 프롬프트에 넣었다
-export const AI_SUMMARY_CACHE_VERSION = "2026-10-28.first-reply-evidence-v25"; // 지표 표현 통일·칭호 기준 버전 hash 연결
+export const AI_SUMMARY_CACHE_VERSION = "2026-10-30.weapon-attribution-v26"; // 내 처치·기절 무기만 집계, 표시 정밀도·행동 제안 계약
 // Evidence marker for canonical rows written after the human BR population
 // boundary. This is deliberately independent of RESULT/telemetry/cache
 // versions so old v73/R2 rows can fail closed without a broad cache bump.

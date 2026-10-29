@@ -1369,7 +1369,7 @@ export const RecentAISummary = ({
 
     return (
       <button
-        onClick={() => handleFetchSummary(true)}
+        onClick={() => handleFetchSummary()}
         disabled={isGlobalAnalyzing || loading}
         className={`w-full p-8 rounded-3xl font-bold flex flex-col items-center gap-4 transition-all active:scale-[0.98] ${(isGlobalAnalyzing || loading)
           ? "bg-white/5 border border-white/10 text-gray-500 cursor-not-allowed grayscale"
@@ -1662,6 +1662,12 @@ export const RecentAISummary = ({
               </p>
             </div>
 
+            {!partialSummary && !loading && !error && debateData?.analysisStatus === "complete" && (
+              <button onClick={() => handleFetchSummary(true)} disabled={isGlobalAnalyzing}
+                className="rounded-xl border border-white/10 px-4 py-3 text-sm font-bold text-gray-300 hover:bg-white/10 disabled:opacity-50">
+                AI 다시 분석
+              </button>
+            )}
             <button
               onClick={() => setIsExpanded(!isExpanded)}
               className={`group relative flex items-center justify-center gap-3 px-8 py-4 rounded-2xl font-black text-sm transition-all active:scale-95 whitespace-nowrap overflow-hidden ${isExpanded
@@ -2044,7 +2050,7 @@ export const RecentAISummary = ({
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/10">
+                  {debateData.visuals.roleInfo.signatureWeapon !== "무기 기록 없음" && <div className="grid grid-cols-2 gap-4 pt-4 border-t border-white/10">
                     <div className="flex flex-col">
                       <span className="text-[18px] font-black text-white">{debateData.visuals.roleInfo.signatureWeaponStats?.kills || 0}</span>
                       <span className="text-[9px] text-gray-400 font-black uppercase tracking-tighter">킬 수 (Kills)</span>
@@ -2053,7 +2059,7 @@ export const RecentAISummary = ({
                       <span className="text-[18px] font-black text-indigo-400">{debateData.visuals.roleInfo.signatureWeaponStats?.dbnos || 0}</span>
                       <span className="text-[9px] text-gray-400 font-black uppercase tracking-tighter">기절 횟수 (DBNO)</span>
                     </div>
-                  </div>
+                  </div>}
                 </div>
               </div>
             </div>

@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   AI_CACHE_VERSION,
+  AI_MATCH_PROMPT_VERSION,
   AI_SUMMARY_CACHE_VERSION,
   RESULT_VERSION,
   TELEMETRY_VERSION,
@@ -70,7 +71,7 @@ describe("anonymous PUBG AI accuracy audit", () => {
     expect(report.versions).toEqual({
       result: RESULT_VERSION,
       telemetry: TELEMETRY_VERSION,
-      aiCache: AI_CACHE_VERSION,
+      aiCache: AI_MATCH_PROMPT_VERSION,
     });
   });
 
@@ -373,6 +374,6 @@ describe("anonymous PUBG AI accuracy audit", () => {
     expect(RESULT_VERSION).toBe(73.0);
     expect(TELEMETRY_VERSION).toBe(63.0);
     expect(AI_CACHE_VERSION).toBe("2026-10-28.first-reply-evidence-v6");
-    expect(AI_SUMMARY_CACHE_VERSION).toBe("2026-10-28.first-reply-evidence-v25");
+    expect(AI_SUMMARY_CACHE_VERSION).toBe("2026-10-30.weapon-attribution-v26");
   });
 });

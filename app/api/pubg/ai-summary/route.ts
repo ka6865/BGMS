@@ -576,7 +576,7 @@ function aggregateMatches(matches: any[]) {
     // 타임라인에서 킬/기절 정보 추출하여 보정
     if (Array.isArray(m.timeline)) {
       m.timeline.forEach((event: any) => {
-        if (event.type === 'KILL' || event.type === 'KNOCK' || event.type === 'DOWNED' || event.type === 'TEAM_KNOCK') {
+        if (event.type === 'KILL' || event.type === 'KNOCK') {
           const weaponName = normalizeWeaponName(event.weapon || 'Unknown');
           if (!weaponStatsFinal[weaponName]) weaponStatsFinal[weaponName] = { kills: 0, dbnos: 0, damage: 0 };
           if (event.type === 'KILL') weaponStatsFinal[weaponName].kills++;
@@ -808,7 +808,7 @@ function aggregateMatches(matches: any[]) {
     }
     if (Array.isArray(m.timeline)) {
       m.timeline.forEach((event: any) => {
-        if (event.type === 'KILL' || event.type === 'KNOCK' || event.type === 'DOWNED' || event.type === 'TEAM_KNOCK') {
+        if (event.type === 'KILL' || event.type === 'KNOCK') {
           matchWeapons.add(normalizeWeaponName(event.weapon || 'Unknown'));
         }
       });
@@ -2198,7 +2198,7 @@ export async function POST(request: Request) {
         "[관측 범위] userNumericValue와 benchmarkNumericValue는 반올림 전 값입니다. 화면 표시 숫자를 다시 비교하지 말고 serverComparison을 따르세요. numerator/denominator가 있으면 관측 건수를 고려하고 userMatchCount가 적은 지표의 한계를 밝히세요. 평균·횟수로 꾸준함, 침착함, 사용 목적의 적절성, 피해량 분포를 관측했다고 말하지 마세요. 작은 수치 차이를 우월한 능력으로 확대하지 마세요.",
         "[서버 비교] serverComparison은 서버가 계산한 비교 결과입니다. 비교가 필요하면 이 문장을 그대로 사용하고 높지만·월등히·유사한 수준 등으로 바꾸지 마세요. AI는 비교 수치나 기준을 새로 만들지 말고 관측 범위 설명과 다음 경기의 조건부 점검을 작성하세요. 두 코치가 같은 비교 결과에 동의해도 됩니다. 비교가 없으면 확인된 사용 기록과 판단 한계만 설명하세요. 고립 지수에 임의의 정상 기준이나 거리 목표를 붙이지 마세요.",
         "[경기별 일관성] 평균·합계만으로 매 경기의 일관성이나 습관을 알 수 없습니다. 꾸준히 높은 피해량을 기록했다거나 꾸준한 딜링 능력을 증명했다고 쓰지 마세요. 관측 기간의 평균을 설명하고 이후 행동은 조건부 점검으로 제안하세요. [작은 표본] context.userMatchCount는 카드에 선택된 경기 수이고 evidence.userMatchCount는 해당 지표의 기록이 확인된 경기 수입니다. 서로 다르면 지표의 실제 확인 경기 수로 설명하세요. 누락 기록과 발생 기회가 없었던 기록을 0% 실패로 해석하지 마세요. 최근 10경기 전체의 일관된 습관·능력으로 확대하지 마세요. 관측된 구출/복수 기회가 적으면 그 한계를 밝히고, 실패 원인이나 연막 타이밍을 단정하지 마세요. 행동 제안은 다음 경기에서 확인할 구체적인 조건부 점검으로 쓰세요.",
-        "[행동 제안] 솔로 킬 비중은 처치 기여의 구성이지 혼자 싸워야 할 목표가 아닙니다. 솔로 킬 비중이 낮다고 독립적인 교전을 늘리거나, 화력이 낮다고 교전 참여 빈도를 무조건 높이라고 권하지 마세요. 다음 경기의 구체적인 상황 하나와 확인할 행동을 제안하세요. 예: 교전 전 상대 위치와 빠져나올 경로 확인, 교전 후 피해를 주기 어려웠던 구간 확인. 팀 모드에서는 팀원이 같은 적에게 함께 대응할 수 있는지도 점검하도록 제안할 수 있습니다. 지형·시야·팀원 위치를 실제로 관측했다고 단정하지 마세요. '집중력 유지/더 잘하세요'만으로 행동 제안을 끝내지 마세요.",
+        "[행동 제안] 솔로 킬 비중은 처치 기여의 구성이지 혼자 싸워야 할 목표가 아닙니다. 솔로 킬 비중이 낮다고 독립적인 교전을 늘리거나, 화력이 낮다고 교전 참여 빈도를 무조건 높이라고 권하지 마세요. actionItems의 desc는 다음 경기의 상황과 확인할 행동을 한 문장으로 쓰고 '확인해 보세요' 또는 '점검해 보세요'로 끝내세요. 예: '다음 교전 전에 상대 위치와 빠져나올 경로를 확인해 보세요.' 팀 모드에서는 팀원이 같은 적에게 함께 대응할 수 있는지도 점검하도록 제안할 수 있습니다. 지형·시야·팀원 위치를 실제로 관측했다고 단정하지 마세요. '집중력 유지/더 잘하세요'만으로 행동 제안을 끝내지 마세요.",
         "finalVerdict는 각 카드의 evaluation과 결론을 존중해 아래 카드에서 확인된 강점과 다음 행동을 함께 정리하세요. draw 또는 null인 카드를 한쪽 코치의 승리나 확정된 약점으로 바꾸지 마세요. 약점을 반드시 만들 필요는 없습니다. 비교가 가능한 의견은 '지표는 비교 평균보다 높습니다/낮습니다/빠릅니다/느립니다'처럼 완결된 문장으로 쓴 뒤 실천 행동을 별도 문장으로 제안하세요.",
         '반드시 JSON 객체만 반환하세요: {"signature":"칭호","signatureSub":"이유","finalVerdict":"종합 평가","debateIssues":[{"topicId":"지정된 ID","evidenceIds":["지정된 근거 ID"],"kindOpinion":"의견","spicyOpinion":"의견","winner":"kind","reason":"근거 설명","evaluation":"평가"}],"actionItems":[{"icon":"target","title":"목표","desc":"실천 방법"}]}',
       );

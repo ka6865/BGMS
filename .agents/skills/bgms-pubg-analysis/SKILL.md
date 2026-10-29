@@ -37,7 +37,7 @@ description: Use when working on BGMS match analysis, telemetry and replay cache
 
 AI 캐시 요청에서는 위 파일을 먼저 확인하고 실제 호출부가 필요할 때 범위를 넓힌다.
 
-`prompt_version`은 route별 실제 구성과 함께 확인한다. 단일 경기 코칭은 `AI_CACHE_VERSION`에 canonical 분석 행의 `calculationVersion`(상수가 아님)을 결합하고, 최근 요약과 스쿼드는 각각 `AI_SUMMARY_CACHE_VERSION`, `AI_SQUAD_CACHE_VERSION`을 사용한다. 엔진 결과·텔레메트리·계산·AI 프롬프트·모집단 근거 버전을 하나의 버전으로 취급하지 않는다.
+`prompt_version`은 route별 실제 구성과 함께 확인한다. 단일 경기 코칭은 `AI_MATCH_PROMPT_VERSION`(`AI_CACHE_VERSION`에 단일 경기 프롬프트 접미사를 붙인 값)에 canonical 분석 행의 `calculationVersion`(상수가 아님)을 결합하고, 최근 요약과 스쿼드는 각각 `AI_SUMMARY_CACHE_VERSION`, `AI_SQUAD_CACHE_VERSION`을 사용한다. 엔진 결과·텔레메트리·계산·AI 프롬프트·모집단 근거 버전을 하나의 버전으로 취급하지 않는다.
 
 기존 AI 캐시가 있어도 현재 canonical 분석과 모집단 근거 검증을 우회하지 않게 확인한다. `force`의 캐시 우회 범위도 각 route에서 확인한다.
 

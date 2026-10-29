@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildSummaryCardEvidence } from "@/lib/pubg-analysis/aiSummaryCardEvidence";
-import { buildSummaryCards, parseSummaryCards, type SummaryEvidenceInput } from "@/lib/pubg-analysis/aiSummaryCards";
+import { buildSummaryCardComparisonText, buildSummaryCards, parseSummaryCards, type SummaryEvidenceInput } from "@/lib/pubg-analysis/aiSummaryCards";
 
 const context = {
   contextId: "precision-guard",
@@ -45,6 +45,13 @@ function rowFor(input: ReturnType<typeof cards>, metricId: string) {
 }
 
 describe("summary evidence raw precision contract", () => {
+  it("표시값이 같으면 내부 정밀도 차이를 화면에 높고 낮음으로 표현하지 않는다", () => {
+    const value = cards();
+    const row = rowFor(value, "damage_average");
+    Object.assign(row, { userValue: "100", benchmarkValue: "100", userNumericValue: 100.004, benchmarkNumericValue: 100.001 });
+    expect(parseSummaryCards(value)).not.toBeNull();
+    expect(buildSummaryCardComparisonText(value[0])).toBe("평균 화력은 표시 기준으로 비교 평균과 같습니다.");
+  });
   it("accepts builder-rounded displays backed by precise raw values and rate counts", () => {
     const value = cards();
     expect(rowFor(value, "smoke_opportunity_rate")).toMatchObject({ userValue: "5.6%", benchmarkValue: "5.8%" });

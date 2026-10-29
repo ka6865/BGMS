@@ -3,7 +3,7 @@ import { APICallError } from "ai";
 import { POST as aiAnalyzePOST } from "../app/api/pubg/ai-analyze/route";
 import { POST as aiSummaryPOST } from "../app/api/pubg/ai-summary/route";
 import { POST as aiSquadPOST } from "../app/api/pubg/ai-squad/route";
-import { ANALYSIS_CALCULATION_VERSION, AI_SQUAD_CACHE_VERSION, AI_CACHE_VERSION, AI_SUMMARY_CACHE_VERSION, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
+import { ANALYSIS_CALCULATION_VERSION, AI_SQUAD_CACHE_VERSION, AI_MATCH_PROMPT_VERSION, AI_SUMMARY_CACHE_VERSION, POPULATION_EVIDENCE_VERSION, RESULT_VERSION } from "../lib/pubg-analysis/constants";
 import { fetchTierBenchmarkStats } from "../lib/pubg-analysis/benchmarkLookup";
 import {
   buildBestMatchSelectionKey,
@@ -670,7 +670,7 @@ describe("AI cache route stabilization", () => {
     expect(matchCache.eq).toHaveBeenCalledWith("platform", "kakao");
     expect(matchCache.eq).toHaveBeenCalledWith("player_id", "player_a");
     expect(matchCache.eq).toHaveBeenCalledWith("coaching_style", "spicy");
-    expect(matchCache.eq).toHaveBeenCalledWith("prompt_version", `${AI_CACHE_VERSION}.calc${calculationVersion}`);
+    expect(matchCache.eq).toHaveBeenCalledWith("prompt_version", `${AI_MATCH_PROMPT_VERSION}.calc${calculationVersion}`);
     expect(telemetry.select).toHaveBeenCalledWith("match_id,player_id,platform,data");
     expect(mockGenerateContentStream).not.toHaveBeenCalled();
   });
@@ -728,7 +728,7 @@ describe("AI cache route stabilization", () => {
     const response=await aiAnalyzePOST(createRequest({nickname:"Player_A",platform:"kakao",coachingStyle:"spicy",matchData:{matchId:"match-calc"}}));
     expect(response.status).toBe(200);
     await response.text();
-    expect(matchCache.eq).toHaveBeenCalledWith("prompt_version", `${AI_CACHE_VERSION}.calc${ANALYSIS_CALCULATION_VERSION}`);
+    expect(matchCache.eq).toHaveBeenCalledWith("prompt_version", `${AI_MATCH_PROMPT_VERSION}.calc${ANALYSIS_CALCULATION_VERSION}`);
   });
 
   it("ai-analyze는 캐시된 단일 경기 코칭의 과한 표현을 순화해서 반환한다", async () => {
@@ -7168,5 +7168,83 @@ describe("AI cache cleanup", () => {
 
     infoSpy.mockRestore();
     errorSpy.mockRestore();
+  });
+});
+
+describe("audit: weapon attribution from actual summary route", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.GOOGLE_GEMINI_API_KEY = "test-gemini-key";
+  });
+  it("enemy knock weapons must not become the player's signature weapon", async () => {
+    mockSummaryGeminiResponse();
+    const full = createSummaryMatch("audit-weapon", {
+      createdAt: recentMatchDate(1),
+      weaponStats: { WeapM416_C: { damage: 100 } },
+      timeline: [
+        { type: "KNOCK", weapon: "WeapM416_C", isMe: true },
+        { type: "DOWNED", weapon: "WeapAKM_C", isMe: true },
+        { type: "TEAM_KNOCK", weapon: "WeapAKM_C", isMe: false },
+      ],
+    });
+    const telemetry = createQueryChain({ data: [{ match_id: "audit-weapon", player_id: "player_a", platform: "kakao", data: { fullResult: full } }], error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({
+      processed_match_telemetry: telemetry,
+      player_ai_summary_cache: createQueryChain(),
+      global_benchmarks: createQueryChain({data: [], error: null}),
+      benchmark_stats_by_tier_v2: createQueryChain({data: null, error: null}),
+    }) });
+    const response = await aiSummaryPOST(createRequest({ matchIds: ["audit-weapon"], nickname: "Player_A", platform: "kakao", force: true }));
+    const visuals = parseSummaryNdjson(await response.text()).find(record => record.type === "visuals")?.data;
+    expect(response.status).toBe(200);
+    expect(visuals.roleInfo.signatureWeapon).toBe("M416");
+    expect(visuals.roleInfo.signatureWeaponStats.dbnos).toBe(1);
+  });
+});
+
+
+describe("AI 캐시와 제공자 키 장애", () => {
+  beforeEach(() => { vi.clearAllMocks(); vi.stubEnv("GOOGLE_GEMINI_API_KEY", ""); });
+  afterEach(() => { vi.unstubAllEnvs(); });
+
+  it("검증된 단일 경기 캐시는 AI 키 없이 제공한다", async () => {
+    const cache = createQueryChain({ data: { ai_result: { text: "cached-player-a-analysis" } }, error: null });
+    const telemetry = createQueryChain({ data: createCanonicalAnalyzeRow("cache-no-key"), error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({ processed_match_telemetry: telemetry, match_ai_coaching_cache: cache }) });
+    const response = await aiAnalyzePOST(createRequest({ nickname: "Player_A", platform: "kakao", matchData: { matchId: "cache-no-key" } }));
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("cached-player-a-analysis");
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+  });
+
+  it("검증된 스쿼드 캐시는 AI 키 없이 제공한다", async () => {
+    mockGetSquadAnalysisData.mockResolvedValue(canonicalSquadAnalysis);
+    const cache = createQueryChain({ data: { ai_result: { coaching: "확인된 팀 기록" } }, error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({ squad_ai_coaching_cache: cache }) });
+    const response = await aiSquadPOST(createRequest({ nickname: "Player_A", platform: "kakao", groupKey: "alpha,beta" }));
+    expect(response.status).toBe(200);
+    expect(cache.maybeSingle).toHaveBeenCalled();
+    expect(mockGenerateContent).not.toHaveBeenCalled();
+  });
+
+  it("유효한 캐시가 없으면 AI 키가 필요하다", async () => {
+    const telemetry = createQueryChain({ data: createCanonicalAnalyzeRow("miss-no-key"), error: null });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({ processed_match_telemetry: telemetry, match_ai_coaching_cache: createQueryChain() }) });
+    const response = await aiAnalyzePOST(createRequest({ nickname: "Player_A", platform: "kakao", matchData: { matchId: "miss-no-key" } }));
+    expect(response.status).toBe(500);
+    expect(mockGenerateContentStream).not.toHaveBeenCalled();
+  });
+});
+
+describe("스쿼드 생성 토큰 추정", () => {
+  beforeEach(() => { vi.clearAllMocks(); vi.stubEnv("GOOGLE_GEMINI_API_KEY", "test-key"); });
+  afterEach(() => { vi.unstubAllEnvs(); });
+  it("후보 답변과 thinking 토큰을 함께 기록한다", async () => {
+    mockGetSquadAnalysisData.mockResolvedValue(canonicalSquadAnalysis);
+    mockGenerateContent.mockResolvedValue({ response: { text: () => JSON.stringify({ summary: "확인된 기록" }), usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 20, thoughtsTokenCount: 30 } } });
+    mockWithAuthGuard.mockResolvedValue({ user: { id: "user-1" }, supabaseAdmin: createSupabaseMock({ squad_ai_coaching_cache: createQueryChain() }) });
+    const response = await aiSquadPOST(createRequest({ groupKey: "alpha,beta", nickname: "Player_A", platform: "kakao" }));
+    expect(response.status).toBe(200);
+    expect(mockTrackAiUsage).toHaveBeenCalledWith("user-1", expect.any(String), 10, 50, "squad", expect.any(Object));
   });
 });

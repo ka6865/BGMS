@@ -191,7 +191,7 @@ const TEAM_ONLY_METRICS = new Set<RoleMetricKey>(
  * 시그니처 무기 및 상세 스탯 추출
  */
 function getSignatureWeapon(weaponStats: Record<string, any>, matchCountStats: Record<string, number> = {}, totalMatches: number = 1) {
-  if (!weaponStats || Object.keys(weaponStats).length === 0) return { name: "주먹", stats: { kills: 0, dbnos: 0, consistency: 0, isReliable: false }, isSpecial: false };
+  if (!weaponStats || Object.keys(weaponStats).length === 0) return { name: "무기 기록 없음", stats: { kills: 0, dbnos: 0, consistency: 0, isReliable: false }, isSpecial: false };
 
   const sorted = Object.entries(weaponStats)
     .filter(([id]) => !IGNORE_WEAPONS.includes(id) && id !== "None")
@@ -201,7 +201,7 @@ function getSignatureWeapon(weaponStats: Record<string, any>, matchCountStats: R
       return scoreB - scoreA;
     });
 
-  if (sorted.length === 0) return { name: "전술가", stats: { kills: 0, dbnos: 0, consistency: 0, isReliable: false }, isSpecial: false };
+  if (sorted.length === 0) return { name: "무기 기록 없음", stats: { kills: 0, dbnos: 0, consistency: 0, isReliable: false }, isSpecial: false };
   
   const [bestId, stats] = sorted[0];
   const score = (stats.kills || 0) * 2 + (stats.dbnos || 0);

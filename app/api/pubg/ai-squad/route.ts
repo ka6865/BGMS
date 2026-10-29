@@ -137,12 +137,6 @@ export async function POST(request: Request) {
     const playerId = normalizeName(nickname);
     const cachePlatform = normalizePlatform(platform);
 
-    const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
-    if (!apiKey) {
-      trackAiFailure(authenticatedUserId, "squad", "Missing Gemini API Key Configuration", { errorCode: "configuration", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
-      return NextResponse.json({ error: "Missing Gemini API Key Configuration" }, { status: 500 });
-    }
-
     if (typeof groupKey !== "string" || !groupKey.trim() || !nickname || !playerId) {
       trackAiFailure(authenticatedUserId, "squad", "Missing required squad parameters", { errorCode: "invalid_input", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
       return NextResponse.json({ error: "Missing required squad parameters" }, { status: 400 });
@@ -230,6 +224,12 @@ export async function POST(request: Request) {
     }
 
     if (request.signal.aborted) throw new SquadRequestAbortedError();
+
+    const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
+    if (!apiKey) {
+      trackAiFailure(authenticatedUserId, "squad", "Missing Gemini API Key Configuration", { errorCode: "configuration", durationMs: Date.now() - startedAt, requestId, platform: requestedPlatform });
+      return NextResponse.json({ error: "Missing Gemini API Key Configuration" }, { status: 500 });
+    }
 
     const { prompt, systemInstruction } = buildSquadAiCoachingPrompt({
       groupKey,
@@ -405,7 +405,7 @@ export async function POST(request: Request) {
     if (selectedModelName && usageMetadata) {
       try {
         const promptTokens = usageMetadata.promptTokenCount || 0;
-        const completionTokens = usageMetadata.candidatesTokenCount || 0;
+        const completionTokens = (usageMetadata.candidatesTokenCount || 0) + (usageMetadata.thoughtsTokenCount || 0);
 
         trackAiUsage(
           auth.user.id,
