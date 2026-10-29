@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import dotenv from "dotenv";
+import { appendFileSync } from "node:fs";
 import path from "node:path";
 import {
   auditProcessedTelemetryIdentity,
@@ -44,13 +45,17 @@ async function main() {
   const audit = await auditProcessedTelemetryIdentity(supabase, {
     recentDays: getNumberArg("--recent-days"),
     maxRows: getNumberArg("--max-rows"),
-    pageSize: getNumberArg("--page-size") || 1000,
+    pageSize: getNumberArg("--page-size") || 100,
     sampleLimit: getNumberArg("--sample-limit") || 10,
     targetLimit: getNumberArg("--target-limit") || 1000
   });
 
   if (json) {
     console.info(JSON.stringify(audit, null, 2));
+  }
+  writeStepOutputs({ status: "success", mismatch_count: String(audit.mismatchCount) });
+  if (audit.mismatchCount > 0) {
+    console.info(`::warning title=분석 데이터 식별자 불일치::processed_match_telemetry 최근 행에서 식별자 불일치 ${audit.mismatchCount}건을 찾았습니다. Admin Agent 데이터 품질 승인 큐를 확인하세요.`);
   }
 
   console.info("\n================ PROCESSED TELEMETRY IDENTITY AUDIT ================");
@@ -83,7 +88,18 @@ async function main() {
   console.info("====================================================================\n");
 }
 
+/** GitHub Actions에서만 다음 단계(일일 보고)가 읽을 결과를 남긴다. */
+function writeStepOutputs(outputs: Record<string, string>) {
+  const outputPath = process.env.GITHUB_OUTPUT;
+  if (!outputPath) return;
+  appendFileSync(outputPath, Object.entries(outputs).map(([key, value]) => `${key}=${value}\n`).join(""));
+}
+
 main().catch(error => {
   console.error("[processed telemetry identity audit] 실패:", error);
+  // 일일 작업은 이 단계를 continue-on-error로 두므로 경고 주석과 출력값으로 실패를 드러낸다.
+  const code = typeof error?.code === "string" ? ` (${error.code})` : "";
+  console.info(`::warning title=분석 데이터 품질 감사 실패::processed_match_telemetry 식별자 감사가 실패했습니다${code}. 로그를 확인하세요.`);
+  writeStepOutputs({ status: "failure" });
   process.exit(1);
 });
