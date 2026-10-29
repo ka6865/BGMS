@@ -16,6 +16,7 @@ import { BENCHMARK_FILTER_VERSION, fetchTierBenchmarkStats } from "@/lib/pubg-an
 import { hasSupportedCalculation, getValidFullResultForMatch, isFullResultForPlayerPlatform, normalizePlatform } from "@/lib/pubg-analysis/cacheIdentity";
 import { firstReplyLatencyMs, firstReplyFailureRate } from "@/lib/pubg-analysis/firstReply";
 import { buildBackupCoachingContext } from "@/lib/pubg-analysis/backupCoaching";
+import { selectSummaryDebateTopics } from "@/lib/pubg-analysis/aiSummaryTopics";
 import { withAuthGuard } from "@/utils/supabase/guard";
 import { trackAiFailure, trackAiUsage } from "@/lib/pubg-analysis/aiUsageTracker";
 import { sanitizeAiCoachingLanguageText } from "@/lib/pubg-analysis/aiCoachingQuality";
@@ -1761,80 +1762,9 @@ export async function POST(request: Request) {
     }
 
     function selectDebateTopics(stats: any, bench: any): string[] {
-      if (!stats) return ["화력", "교전 주도권", "포지셔닝"];
-
-      const isObservedMetric = (value: unknown): value is number => (
-        typeof value === "number" && Number.isFinite(value)
-      );
-
-      // These topics are always eligible because they are derived from the
-      // user's own telemetry. They also ensure the prompt still has exactly
-      // three focus areas when no comparison metric is observed.
-      const userOnlyIssues = [
-        { topic: "유틸리티 활용", gap: stats.totalUtilityThrows === null ? 0.05 : stats.totalUtilityThrows < 5 ? 0.4 : 0.1 },
-        { topic: "포지셔닝", gap: parseFloat(stats.avgIsolationStr) > 3.5 ? 0.35 : 0.05 },
-        { topic: "생존 운영", gap: typeof stats.avgDeathPhase === "number" && stats.avgDeathPhase > 7 ? 0.2 : 0.05 },
-      ];
-
-      if (!bench) {
-        return userOnlyIssues.map(({ topic }) => topic);
-      }
-
-      const userTradeRate = calculateBoundedRate(stats.totalTradeKills, stats.totalTeammateKnocks);
-      const tradeRateGap = isObservedMetric(bench.avgTradeRate) && userTradeRate !== null
-        ? Math.abs(userTradeRate - bench.avgTradeRate) / 100
-        : null;
-
-      const userBackupLatency = parseFloat(String(stats.avgBackupLatency ?? ""));
-      const backupContext = buildBackupCoachingContext({
-        avgBackupLatency: stats.avgBackupLatency,
-        totalTradeKills: stats.totalTradeKills,
-        totalRevCount: stats.totalRevCount,
-        totalSmokeRescues: stats.totalSmokeRescues,
-        totalTeamWipes: stats.totalTeamWipes,
-        totalTeammateKnocks: stats.totalTeammateKnocks,
-        benchmarkTradeLatency: bench.avgTradeLatency,
+      return selectSummaryDebateTopics(stats, bench, {
+        userTradeRate: stats ? calculateBoundedRate(stats.totalTradeKills, stats.totalTeammateKnocks) : null,
       });
-      const backupLatencyGap = isNaN(userBackupLatency) || backupContext.shouldAvoidSlowBackupBlame
-        ? null
-        : isObservedMetric(bench.avgTradeLatency)
-          ? Math.min(1.0, Math.abs(userBackupLatency - bench.avgTradeLatency) / 20)
-          : null;
-
-      const comparisonIssues: Array<{ topic: string; gap: number }> = [];
-      if (isObservedMetric(bench.avgDamage)) {
-        comparisonIssues.push({
-          topic: "화력",
-          gap: Math.abs(stats.avgDamage - bench.avgDamage) / Math.max(bench.avgDamage, 1),
-        });
-      }
-      if (isObservedMetric(bench.avgInitiativeRate)) {
-        if (isObservedMetric(stats.userInitiativeRate)) {
-          comparisonIssues.push({
-            topic: "교전 주도권",
-            gap: Math.abs(stats.userInitiativeRate - bench.avgInitiativeRate) / 100,
-          });
-        }
-      }
-      if (isObservedMetric(bench.avgDuelWinRate)) {
-        if (isObservedMetric(stats.avgDuelWinRate)) {
-          comparisonIssues.push({
-            topic: "1:1 결정력",
-            gap: Math.abs(stats.avgDuelWinRate - bench.avgDuelWinRate) / 100,
-          });
-        }
-      }
-      const tradeAndBackupGaps = [tradeRateGap, backupLatencyGap]
-        .filter((gap): gap is number => gap !== null);
-      if (tradeAndBackupGaps.length > 0) {
-        comparisonIssues.push({
-          topic: "복수 성공률 및 백업",
-          gap: Math.max(...tradeAndBackupGaps),
-        });
-      }
-
-      const issues = [...comparisonIssues, ...userOnlyIssues];
-      return issues.sort((a, b) => b.gap - a.gap).slice(0, 3).map(i => i.topic);
     }
 
     let userPrompt = `- 분석 대상: 최근 유효 ${masteryStats.mLen}경기 (랭크 매치: ${masteryStats.rankedCount}판 포함)\n`;
