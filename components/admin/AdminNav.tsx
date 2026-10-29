@@ -56,7 +56,7 @@ export default function AdminNav({ showLol = false }: { showLol?: boolean }) {
       data-testid="admin-nav"
       className="shrink-0 border-b border-zinc-800 bg-zinc-950 text-zinc-300"
     >
-      <ul className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-2 py-1 [scrollbar-width:none] sm:px-4 [&::-webkit-scrollbar]:hidden">
+      <ul className="mx-auto flex max-w-7xl gap-1 overflow-x-auto px-2 py-0.5 [scrollbar-width:none] sm:px-4 sm:py-1 [&::-webkit-scrollbar]:hidden">
         {items.map((item) => {
           const active = isAdminNavItemActive(pathname, item.href);
           return (

@@ -45,6 +45,8 @@ interface AdminAgentChatProps {
   onOpenDashboard?: () => void;
   onOpenApprovals?: (approvalId?: string) => void;
   onApprovalCreated?: (approvalId?: string) => void;
+  /** 페이지 모드 헤더 왼쪽에 뒤로가기·제목 대신 넣을 요소(예: 화면 탭). 세로 공간을 아끼기 위해 쓴다. */
+  headerLeading?: React.ReactNode;
   className?: string;
 }
 
@@ -58,6 +60,7 @@ export default function AdminAgentChat({
   onOpenDashboard,
   onOpenApprovals,
   onApprovalCreated,
+  headerLeading,
   className = ""
 }: AdminAgentChatProps) {
   const isSheet = mode === "sheet";
@@ -336,7 +339,7 @@ export default function AdminAgentChat({
 
   return (
     <div className={`${isSheet ? "flex h-full min-h-0 w-full flex-col overflow-hidden bg-zinc-950 text-zinc-50" : "flex h-full min-h-0 w-full flex-col overflow-hidden bg-zinc-950 font-sans text-zinc-50 antialiased"} ${className}`}>
-      <header className={`${isSheet ? "z-10 shrink-0 border-b border-zinc-800 bg-zinc-950 px-4 py-3" : "sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-zinc-800 bg-zinc-900/90 p-3 backdrop-blur-md sm:p-4"}`}>
+      <header className={`${isSheet ? "z-10 shrink-0 border-b border-zinc-800 bg-zinc-950 px-4 py-3" : "sticky top-0 z-10 flex items-center justify-between gap-1 border-b border-zinc-800 bg-zinc-900/90 px-2 py-1 backdrop-blur-md sm:gap-2 sm:p-3"}`}>
         {isSheet ? (
           <div className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
@@ -372,6 +375,12 @@ export default function AdminAgentChat({
           </div>
         ) : (
           <>
+            {headerLeading ? (
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <h1 className="sr-only">{settings.botName}</h1>
+                {headerLeading}
+              </div>
+            ) : (
             <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
               <button
                 type="button"
@@ -390,6 +399,7 @@ export default function AdminAgentChat({
                 <p className="truncate text-[11px] text-zinc-400 sm:text-xs">말로 요청하고, 실행 관리는 대시보드에서 합니다.</p>
               </div>
             </div>
+            )}
 
             <div className="flex shrink-0 items-center gap-1">
               <button

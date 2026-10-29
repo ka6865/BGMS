@@ -559,6 +559,30 @@ describe.skipIf(!enabled)("관리자 대시보드 격리 브라우저 검증", (
       const botFits = await layoutOverflow();
       expect(botFits).not.toBeNull();
       expect(botFits!).toBeLessThanOrEqual(1);
+      // 화면 탭은 채팅 헤더 안에 들어가 별도 줄을 차지하지 않고, 헤더 버튼과 함께 화면 폭 안에 보인다.
+      const botHeader = await page.evaluate(() => {
+        const tabs = document.querySelector<HTMLElement>('nav[aria-label="관리 비서 화면"]');
+        const header = tabs?.closest("header");
+        const visible = (element: Element | null) => {
+          if (!element) return false;
+          const rect = element.getBoundingClientRect();
+          return rect.width > 0 && rect.left >= 0 && rect.right <= innerWidth + 1;
+        };
+        const messageInput = document.querySelector('input[aria-label="AI 비서에게 보낼 메시지"]');
+        return {
+          tabsInHeader: Boolean(header),
+          headerHeight: header?.getBoundingClientRect().height ?? 0,
+          tabButtonsVisible: Array.from(tabs?.querySelectorAll("button") || []).every(visible),
+          actionButtonsVisible: ["대화 리셋", "봇 설정"].every((label) => visible(document.querySelector(`button[aria-label="${label}"]`))),
+          inputVisible: messageInput ? messageInput.getBoundingClientRect().bottom <= innerHeight + 1 : false,
+        };
+      });
+      expect(botHeader.tabsInHeader).toBe(true);
+      expect(botHeader.tabButtonsVisible).toBe(true);
+      expect(botHeader.actionButtonsVisible).toBe(true);
+      expect(botHeader.inputVisible).toBe(true);
+      // 휴대폰에서는 사이트 헤더 + 관리자 메뉴 + 탭을 품은 채팅 헤더 한 줄만 위에 쌓인다.
+      if (viewport.width < 640) expect(botHeader.headerHeight).toBeLessThanOrEqual(56);
       await page.screenshot({ path: shot("bot-chat", viewport) });
       expect(errors).toEqual([]);
     } finally {
