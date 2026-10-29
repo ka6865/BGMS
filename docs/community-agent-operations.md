@@ -2,15 +2,29 @@
 
 현재는 글·답글 모두 운영자의 항목별 승인이 필요하다. `publishing_enabled=true`는 허용하지 않는다. 아래 날짜별 검증 기록의 과거 설정값과 현재 운영 정책을 구분한다.
 
-2026-09-09 관리자 상태 조회 오류를 복구하면서 연결된 Supabase에 `community_agent_persistence` migration을 적용했다. 원격 migration version은 `20260909061622`, 적용 SQL 원본은 `20260909061622_community_agent_persistence.sql`이다. 정책·출처·최근 실행 조회가 정상이며 수집과 자동 게시는 모두 꺼져 있다. 운영 앱 배포, GitHub Actions 활성화, 비서 계정 생성, 실제 자료 수집·게시는 아직 실행하지 않았다. 서버만 게시를 담당하며 외부 디시인사이드·네이버 카페·YouTube에는 글이나 댓글을 작성하지 않는다.
+(과거 기록) 2026-09-09 관리자 상태 조회 오류를 복구하면서 연결된 Supabase에 `community_agent_persistence` migration을 적용했다. 원격 migration version은 `20260909061622`, 적용 SQL 원본은 `20260909061622_community_agent_persistence.sql`이다. 정책·출처·최근 실행 조회가 정상이며 수집과 자동 게시는 모두 꺼져 있다. 운영 앱 배포, GitHub Actions 활성화, 비서 계정 생성, 실제 자료 수집·게시는 아직 실행하지 않았다. 서버만 게시를 담당하며 외부 디시인사이드·네이버 카페·YouTube에는 글이나 댓글을 작성하지 않는다.
 
 ## 설정 위치
 
 | 위치 | 설정 |
 | --- | --- |
 | 서버 | 기존 Supabase/Gemini 환경, `COMMUNITY_AGENT_WORKER_SECRET`, 선택적 `COMMUNITY_AGENT_MODEL`, `NAVER_SEARCH_CLIENT_ID`, `NAVER_SEARCH_CLIENT_SECRET`, `YOUTUBE_DATA_API_KEY` |
-| GitHub Actions | secret `COMMUNITY_AGENT_WORKER_SECRET`; vars `APP_URL`, `COMMUNITY_AGENT_SCHEDULE_ENABLED`(기본 `false`) |
+| GitHub Actions | secret `COMMUNITY_AGENT_WORKER_SECRET`, 실패 알림용 secret `DISCORD_WEBHOOK_URL`; vars `APP_URL`, `COMMUNITY_AGENT_SCHEDULE_ENABLED`(기본 `false`) |
 | DB 초기값 | `enabled=false`, `publishing_enabled=false`, YouTube 출처 선택 해제. 수집 활성화 후에도 항목별 승인 필요 |
+
+`COMMUNITY_AGENT_SCHEDULE_ENABLED`는 GitHub workflow만 읽는 변수다. 서버 코드는 이 값을 읽지 않으므로 수동 실행이나 다른 호출 경로를 막지 못한다. 서버 쪽 정지는 `/admin/bot` 커뮤니티 탭에서 정책을 `enabled=false`로 저장하는 것이다. 이 정책이 꺼져 있으면 DB RPC가 새 실행 시작과 단계 진행을 `community_agent_disabled`로 거부한다(API 응답 409 `execution_conflict`). 보존 정리는 정책과 관계없이 실행된다.
+
+### worker 권한 범위
+
+`COMMUNITY_AGENT_WORKER_SECRET`으로 인증한 worker와 관리자 세션의 권한은 API별로 다르다.
+
+| API | worker | 관리자만 |
+| --- | --- | --- |
+| `POST /api/admin/agent/community/reviews` | `process`(답글 초안 1개 생성·대기 검토 알림 1개 전송) | `approve`, `reject`, 검토 목록 GET |
+| `POST /api/admin/agent/community/run` | `start`(`dryRun:false`만), `step`, `publish`(항상 `approval_required` 반환), 실행 상태 GET | `retry`, `start`의 `dryRun:true`(worker 요청은 403 `worker_scope_forbidden`) |
+| `POST /api/admin/agent/community/cleanup` | 보존 정리 | |
+
+`start`는 새 실행을 만들기 전에 보존 정리를 먼저 수행한다. 따라서 정책이 꺼져 있어도 정리는 끝나고 시작만 409로 거부된다. worker는 게시 승인·거절과 검토 알림 결정 권한이 없다.
 
 네이버 카페 검색은 Naver API HUB의 `https://naverapihub.apigw.ntruss.com/search/v1/cafearticle?format=json` 엔드포인트를 사용한다. 서버 환경 변수 이름은 기존 `NAVER_SEARCH_CLIENT_ID`, `NAVER_SEARCH_CLIENT_SECRET`를 유지하되 요청 헤더에는 각각 `X-NCP-APIGW-API-KEY-ID`, `X-NCP-APIGW-API-KEY`를 사용한다. 키 값은 URL이나 로그에 기록하지 않는다.
 
@@ -18,7 +32,7 @@
 
 ## 최초 적용과 활성화
 
-1. `npm run verify:community`, `bash scripts/verify_community_agent_migration.sh`, `npm run verify:admin`, `npm run verify:core`, `git diff --check` 결과를 저장한다. migration은 커뮤니티 비서 전용 네 테이블과 service-role 전용 RPC를 추가한다. 기존 이용자 게시글·댓글을 삭제하지 않는다.
+1. `npm run verify:community`, `bash scripts/verify_community_agent_migration.sh`, `npm run verify:admin`, `npm run verify:core`, `git diff --check` 결과를 저장한다. 최초 migration `20260909061622_community_agent_persistence.sql`은 커뮤니티 비서 전용 네 테이블(`community_agent_policy`, `community_agent_sources`, `community_agent_evidence`, `community_agent_runs`)과 service-role 전용 RPC를 추가한다. 이후 `20260909111045_community_content_reviews.sql`이 검토 큐 `community_content_reviews`를 추가해 커뮤니티 테이블은 모두 다섯 개다. 기존 이용자 게시글·댓글을 삭제하지 않는다.
 2. 운영 적용 전 migration 상태와 `write_board_post_with_images`의 존재 및 현재 서명을 확인한다. 운영 DB 변경과 배포에 대한 기존 승인이 없다면 적용 SQL, 영향, 검증 결과를 제시하고 최종 승인을 받는다.
 3. 배포 환경의 함수 실행시간, Gemini 모델 지원과 무료 한도, 각 수집 제공자의 접근·보관 조건을 확인한다. 확인하지 못한 출처는 `needs_setup` 또는 `blocked`로 둔다.
 4. `/admin/bot`의 커뮤니티 운영 탭에서 계정 준비를 실행한다. 준비 결과에는 비서 일반 계정 UUID와 출처별 설정 성공 여부만 기록하고 자격 증명은 기록하지 않는다.
@@ -26,7 +40,7 @@
 6. 검증된 초안을 관리자 검토 큐에 저장하고 글·답글마다 승인 또는 거절한다. 승인 RPC는 정책, 대상 원문, 만료, 계정과 한도를 다시 검사한다. 수집 설정이나 worker 실행만으로 공개 게시하지 않는다.
 7. 기존 Codex 초안 자동화가 활성 상태인지 조회한다. 중복이면 초안 작성·운영 점검 역할을 정리하고 예약 worker는 수집과 검토 알림만 담당하도록 한다.
 8. 첫 승인 후 실제 공개 상태, `BGMS AI` 작성자 표시, 모바일 본문, 근거 링크를 확인한다. 동일 승인을 반복해도 게시글·답글 수가 늘어나지 않는지 확인한다.
-9. 장애 시 `일시 중지`로 `enabled=false`를 저장하고 workflow 변수 `COMMUNITY_AGENT_SCHEDULE_ENABLED=false`로 정지한다. 이후 `수집 재개`는 초안 수집만 재개하며 실제 게시는 계속 항목별 승인을 요구한다. 이미 발행된 글과 검토 기록은 보존한다. 잘못된 글은 운영자가 구체적인 내용을 확인한 뒤 수정·숨김 처리한다.
+9. 장애 시 `일시 중지`로 `enabled=false`를 저장해 서버 쪽 실행을 멈추고, workflow 변수 `COMMUNITY_AGENT_SCHEDULE_ENABLED=false`로 예약 수집과 검토 큐 실행을 멈춘다. 변수가 `true`인 채로 정책만 끄면 매일 실행의 시작 요청이 409로 실패해 실패 알림이 반복된다. 변수를 `false`로 두면 매일 실행은 cleanup-only로 바뀌어 보존 정리는 계속된다. 이후 `수집 재개`는 초안 수집만 재개하며 실제 게시는 계속 항목별 승인을 요구한다. 이미 발행된 글과 검토 기록은 보존한다. 잘못된 글은 운영자가 구체적인 내용을 확인한 뒤 수정·숨김 처리한다.
 
 
 ## 근거와 영구 인용
@@ -49,7 +63,15 @@ YouTube 채널 ID와 uploads playlist cache는 성공할 때마다 갱신한다.
 
 ## 정지 중 cleanup
 
-자동 게시 변수가 꺼져 있어도 GitHub Actions와 서버가 동작하면 매일 cleanup-only 경로가 발췌문, 초안, 실행 metadata, YouTube 원시 metadata를 정리한다. GitHub Actions 자체가 꺼졌거나 서버가 응답하지 않으면 cleanup도 실행되지 않으므로 관리자가 인증된 cleanup-only 작업을 수동으로 실행하고 결과를 확인한다. cleanup-only 경로는 수집, 모델 호출, 게시를 수행하지 않는다.
+`COMMUNITY_AGENT_SCHEDULE_ENABLED`가 `true`가 아니어도 GitHub Actions와 서버가 동작하면 매일 cleanup-only 경로가 발췌문, 초안, 실행 metadata, YouTube 원시 metadata를 정리한다. GitHub Actions 자체가 꺼졌거나 서버가 응답하지 않으면 cleanup도 실행되지 않으므로 관리자가 인증된 cleanup-only 작업을 수동으로 실행하고 결과를 확인한다. cleanup-only 경로는 수집, 모델 호출, 게시를 수행하지 않는다.
+
+`vars.APP_URL` 또는 `secrets.COMMUNITY_AGENT_WORKER_SECRET`이 비어 있으면 `community-agent.yml`의 설정 확인 단계가 `::error::`를 남기고 실패한다(2026-10-30 변경). 이전에는 이 경우 성공으로 끝나 YouTube 원시 metadata 30일 삭제를 포함한 정리가 멈춰도 알 수 없었다. 예약이 켜진 `community-reviews.yml`도 같은 설정 확인 단계로 실패한다. 커뮤니티 비서를 쓰지 않더라도 보존 정리를 위해 두 설정을 유지한다.
+
+## 실패 알림
+
+`community-agent.yml`과 `community-reviews.yml`은 `daily-tasks.yml`과 같은 방식의 `failure-notify` 잡을 둔다. 예약·수동 실행 모두 본 작업 잡이 실패하거나 시간 초과되면 운영 웹훅 secret `DISCORD_WEBHOOK_URL`로 알림을 보낸다. 알림에는 실행 방식, 잡 결과, 실행 로그 링크와 확인 순서만 담고 설정 값이나 응답 본문은 담지 않는다. 멘션은 끈다. 웹훅 secret은 알림 잡에만 전달하고 worker 단계에는 넘기지 않는다. secret이 없으면 알림을 건너뛰고 로그에만 남긴다.
+
+main 이외 ref에서는 본 작업 잡이 건너뛰어지므로 알림도 없다. `community-reviews.yml`은 예약이 꺼져 있으면 잡 자체가 건너뛰어진다. 15분 주기이므로 원인이 남아 있으면 실행마다 알림이 반복된다.
 
 ## 운영 비용과 한도
 
@@ -76,12 +98,14 @@ YouTube 채널 ID와 uploads playlist cache는 성공할 때마다 갱신한다.
 
 검증: 커뮤니티 101 tests, 수정 파일 ESLint, TypeScript, PostgreSQL 17의 이력 보존/권한/재시도 멱등성/초안 승격/실제 게시 writer/동시 재시도/동시 발행/중지 경합 검사 통과. 모의 로그인·API와 실제 페이지/레이아웃/CSS로 375×667, 390×844, 430×932, 1280×720에서 스크롤, 출처 토글, 관리자 재실행 → 6단계 완료(게시 호출 없음)를 확인했다.
 
+> 과거 기록: 이 절의 자동 게시 승격과 하루 1건 자동 발행은 같은 날 아래 사람 승인 전환으로 폐기됐다. 현재 발행은 항목별 관리자 승인으로만 일어난다.
+
 ## 2026-09-09: 게시글·답글 사람 승인으로 전환 (현재 동작)
 
 초기 자동 게시 구현은 폐기했다. 현재는 `publishing_enabled=true`를 DB에서 거부하며 `publish_community_post`도 `approval_required`를 반환한다. 기존 예약 worker는 검증 완료 후 멈춘다. 모든 게시글은 `BGMS AI` 계정으로 `posts.status=draft`와 `community_content_reviews.status=pending`에 저장되고, 답글은 비공개 검토 큐에만 저장된다. 사용자의 항목별 승인만 실제 게시/댓글 작성을 허용한다.
 
 - 로컬 migration: `20260909111045_community_content_reviews.sql`, 알림 결과 보완 `20260909111823_community_review_notification_outcomes.sql`.
-- 검토 API: `/api/admin/agent/community/reviews`. GET은 관리자만 전체 초안/대상 댓글 확인. POST `approve`/`reject`는 관리자 세션에서만 처리. worker는 `process`만 허용하며 승인할 수 없다.
+- 검토 API: `/api/admin/agent/community/reviews`. GET은 관리자만 전체 초안/대상 댓글 확인. POST `approve`/`reject`는 관리자 세션에서만 처리. worker는 `process`만 허용하며 승인할 수 없다. run·cleanup API의 worker 범위는 위 `worker 권한 범위` 표를 따른다.
 - 승인 시 정책→검토→게시글/댓글 순서로 잠그고 원본 snapshot, bot 계정, 공개 상태, 만료, 카테고리, 하루 게시 한도를 재검사한다. 동일 승인/거절을 반복해도 공개 글/댓글은 한 번만 작성된다. 거절은 감사 기록과 비공개 초안을 보존한다.
 - 답글 대상: 최근 7일 내 봇 소유 공개 글에 달린 비봇 댓글. 댓글별 한 번, 한국 날짜 기준 생성 시도 하루 최대 5개, 호출당 Gemini 최대 1회. 근거는 해당 글/부모 댓글/대상 댓글과 조회한 공식 원문이며 모델 명령과 분리한다. 근거 부족·잘못된 응답은 미게시 실패 기록으로 남긴다. 이미 처리한 댓글의 재생성 기능은 없다.
 - 검토 기한 7일. 일시 중지는 승인 발행도 막는다. 글 발행 하루 최대 1건. 승인 시 실제 본문과 대상 댓글이 달라졌으면 `target_changed`; 내용을 다시 확인해야 한다.
@@ -104,9 +128,9 @@ Discord 안에서 직접 승인·거절하려면 서버에 다음을 등록한�
 
 ### 예약 실행과 배포
 
-`.github/workflows/community-agent.yml`: 매일 한국 오전 9시 게시글 수집/초안 생성.
-`.github/workflows/community-reviews.yml`: 15분마다 답글 초안 최대 1개/알림 1개 처리.
-두 실행기 모두 `COMMUNITY_AGENT_SCHEDULE_ENABLED=true`, 운영 `APP_URL`, 양쪽이 같은 `COMMUNITY_AGENT_WORKER_SECRET` 설정이 필요하다. 코드만 추가했다고 실행기가 활성화된 것은 아니다. 배포 후 관리자 검토 링크/로그인 이동과 실제 Discord 버튼을 검증한 다음 예약을 활성화한다.
+`.github/workflows/community-agent.yml`: 매일 한국 오전 9시 게시글 수집/초안 생성. 변수가 `true`가 아니면 보존 정리만 실행한다.
+`.github/workflows/community-reviews.yml`: 15분마다 답글 초안 최대 1개/알림 1개 처리. 변수가 `true`일 때만 실행한다.
+수집·답글 처리에는 `COMMUNITY_AGENT_SCHEDULE_ENABLED=true`가 필요하다. 두 실행기 모두 운영 `APP_URL`과 서버·Actions 양쪽에 같은 `COMMUNITY_AGENT_WORKER_SECRET`이 필요하며, 비어 있으면 실패한다(위 `정지 중 cleanup`과 `실패 알림` 참고). 코드만 추가했다고 실행기가 활성화된 것은 아니다. 배포 후 관리자 검토 링크/로그인 이동과 실제 Discord 버튼을 검증한 다음 예약을 활성화한다.
 
 현재 작업에서는 기존 검증 완료 실행을 168번 비공개 draft와 검토 ID `58bcea61-128f-4caf-b9d5-74dca867cbc5`로 연결했다. 공개 발행/실제 답글 작성은 하지 않았다. 운영 사이트 배포, 개발 서버에는 원본 작업 폴더의 봇 설정을 아직 복사하지 않았다. 기존 BGMS 앱(1490545661702307840)과 소유자 kangheesung_를 API로 확인했으나, 운영 알림 채널 접근은 403이고 Interactions Endpoint는 미등록이다. 봇 초대/채널 권한, 검토 앱 전용 public key와 endpoint 연결, 예약 활성화 및 실제 알림 발송은 운영 연결이 남아 있다.
 

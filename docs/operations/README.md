@@ -21,7 +21,7 @@
 | [2026-10-08-discovery-expiry-audit.md](2026-10-08-discovery-expiry-audit.md) | 수집 불가 전적의 만료 사유 코드(`discovery_window_elapsed` 등) |
 | [2026-10-09-participant-history-collection.md](2026-10-09-participant-history-collection.md) | 같은 경기 참가자 기본 전적 저장과 `retention_scope` 의미. 2026-10-16부터 참가자 저장 중단, 대상 플레이어만 저장 |
 | [2026-10-10-calculation-coexistence-results.md](2026-10-10-calculation-coexistence-results.md) | 계산 2 보존·신규 계산 3 저장의 공존 계약과 운영 검증 |
-| [2026-10-10-remaining-review-fixes.md](2026-10-10-remaining-review-fixes.md) | 운영 migration을 파일 하나씩 적용하는 절차("준비 migration 적용 실적") |
+| [2026-10-10-remaining-review-fixes.md](2026-10-10-remaining-review-fixes.md) | 운영 migration을 파일 하나씩 적용하는 절차("준비 migration 적용 실적"). `관리자의 매치 캐시 삭제` 행은 2026-10-30 기능 제거로 현재 동작이 아님 |
 | [2026-10-14-telemetry-lease-sqlstate.md](2026-10-14-telemetry-lease-sqlstate.md) | RPC에서 SQLSTATE `40001`을 던지지 않는 규칙(PostgREST 14 재시도) |
 | [2026-10-14-audit-fixes.md](2026-10-14-audit-fixes.md) | 2026-10-14 점검 후속 조치. 남은 확인 항목이 있어 진행 중 |
 | [2026-10-15-discord-command-improvements.md](2026-10-15-discord-command-improvements.md) | Discord 전적 명령의 응답·공개 범위 계약 |
@@ -29,6 +29,7 @@
 | [2026-10-16-squad-auto-detail.md](2026-10-16-squad-auto-detail.md) | 스쿼드 분석 최근 팀 경기 자동 상세 분석, 만료 경기 제외, 성과 작업 처리량·순서 |
 | [2026-10-17-public-column-privacy.md](2026-10-17-public-column-privacy.md) | 공개 키로 읽히는 게시판 IP·프로필 비공개 칸 축소, 단계별 배포 순서 |
 | [2026-10-17-client-grant-hardening.md](2026-10-17-client-grant-hardening.md) | 플레이어 데이터 표 서버 전용화, 클라이언트 쓰기 권한 정리, 배포 순서 |
+| [2026-10-30-admin-renewal.md](2026-10-30-admin-renewal.md) | 캐시·벤치마크 일괄 삭제 4종 제거, 관리자 권한·감사 기록·승인 gate 강화, 공통 관리자 메뉴와 위험 버튼 확인, 커뮤니티 workflow 실패 알림, `admin_audit_events` 적용 절차 |
 
 ## 작업 기록
 

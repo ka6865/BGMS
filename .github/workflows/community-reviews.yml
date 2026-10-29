@@ -14,6 +14,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
+      # 예약이 켜져 있는데 설정이 빠지면 검토 큐 처리가 멈춘다. 값은 출력하지 않는다.
+      - name: Check community worker configuration
+        env:
+          APP_URL: ${{ vars.APP_URL }}
+          COMMUNITY_AGENT_WORKER_SECRET: ${{ secrets.COMMUNITY_AGENT_WORKER_SECRET }}
+        run: |
+          missing=""
+          if [ -z "$APP_URL" ]; then missing="${missing} vars.APP_URL"; fi
+          if [ -z "$COMMUNITY_AGENT_WORKER_SECRET" ]; then missing="${missing} secrets.COMMUNITY_AGENT_WORKER_SECRET"; fi
+          if [ -n "$missing" ]; then
+            echo "::error title=커뮤니티 비서 설정 없음::다음 설정이 비어 있어 답글 초안·검토 알림을 처리할 수 없습니다:${missing}"
+            exit 1
+          fi
+          echo "Community worker configuration is present."
       - name: Generate one reply draft and deliver pending review notification
         env:
           APP_URL: ${{ vars.APP_URL }}
@@ -33,3 +47,62 @@ jobs:
           if (!['drafted', 'deferred', 'no_work'].includes(data.result?.code)) throw new Error(`Review processing failed: ${data.result?.code ?? 'missing result'}`);
           if (data.notification?.code==='notification_failed') throw new Error('Discord review notification failed; draft retained');
           JS
+
+  # daily-tasks.yml 의 failure-notify 와 같은 방식으로 실패를 운영 Discord 에 알린다.
+  # 예약·수동 실행 모두 reviews 잡이 실패하거나 시간 초과되면 실행된다.
+  # 예약이 꺼져 있거나 main 이외 ref 이면 reviews 잡이 건너뛰어지므로 알림도 없다.
+  # 15분 주기라 원인이 남아 있으면 실행마다 알림이 반복된다.
+  failure-notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    needs: [reviews]
+    if: ${{ failure() }}
+    steps:
+      - name: Notify Discord On Failure
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          REVIEWS_RESULT: ${{ needs.reviews.result }}
+          TRIGGER: ${{ github.event_name }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK_URL" ]; then
+            echo "DISCORD_WEBHOOK_URL is missing; skipping failure notification."
+            exit 0
+          fi
+
+          status_label() {
+            case "$1" in
+              success) echo "✅ 정상" ;;
+              failure|timed_out) echo "❌ 실패" ;;
+              cancelled) echo "⏹ 취소" ;;
+              skipped) echo "⏭ 조건에 따라 실행하지 않음" ;;
+              *) echo "❔ ${1:-확인 불가}" ;;
+            esac
+          }
+
+          case "$TRIGGER" in
+            schedule) trigger_label="예약 실행" ;;
+            workflow_dispatch) trigger_label="수동 실행" ;;
+            *) trigger_label="확인 불가" ;;
+          esac
+
+          MESSAGE=$(cat <<EOF
+          🚨 **BGMS 커뮤니티 검토 큐 실패 알림**
+          실행 방식: ${trigger_label}
+
+          **작업별 상태**
+          - 답글 초안·검토 알림 처리: $(status_label "$REVIEWS_RESULT")
+
+          **운영자가 지금 할 일**
+          1. 아래 실행 링크에서 실패 단계의 로그를 확인합니다.
+          2. 설정 확인 단계가 실패했다면 저장소의 vars.APP_URL 과 secrets.COMMUNITY_AGENT_WORKER_SECRET 을 확인합니다.
+          3. 검토 알림 실패라면 초안은 유지되며 다음 실행에서 다시 보냅니다. 원인이 남아 있으면 15분마다 이 알림이 반복됩니다.
+
+          실행 로그: ${RUN_URL}
+          EOF
+          )
+          # jq 로 JSON 을 만들어 개행·특수문자 이스케이프를 보장하고 멘션은 끈다.
+          jq -n --arg content "$MESSAGE" '{content: (if ($content | length) > 1900 then ($content[0:1899] + "…") else $content end), allowed_mentions: {parse: []}}' \
+            | curl --connect-timeout 10 --max-time 30 -fsS -X POST "$DISCORD_WEBHOOK_URL" \
+                -H "Content-Type: application/json" \
+                --data @-
