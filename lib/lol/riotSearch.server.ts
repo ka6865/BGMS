@@ -1224,6 +1224,9 @@ function refreshRemaining(lastUpdatedAt: string): number {
   return Number.isFinite(elapsed) ? Math.max(0, Math.ceil((LOL_REFRESH_COOLDOWN_MS - elapsed) / 1000)) : 0;
 }
 
+// 화면이 숨기는 경기 실패 종류. 다시 받아도 결과가 같은 의도적 제외다(components/lol/LolSearchPanel.tsx와 같은 기준).
+const LOL_HIDDEN_MATCH_FAILURES: ReadonlySet<string> = new Set(["invalid_match", "restricted_match"]);
+
 // 저장된 검색 결과가 이보다 오래되면 화면이 표시 뒤 한 번 갱신한다. 그보다 최근이면 사용자가 직접 갱신한다.
 const LOL_AUTO_REFRESH_AFTER_MS = 10 * 60_000;
 
@@ -1555,8 +1558,9 @@ async function searchLolRiotIdInternal(
       });
       saved = true;
       result.rankedHistory = await getLolRankedHistory(puuid);
-      // 마지막 정상 결과를 지키기 위해, 경기를 모두 받은 결과(또는 진짜 빈 목록)만 보관본을 바꾼다.
-      if (result.matchStatus === "ready" || result.matchStatus === "empty")
+      // 마지막 정상 결과를 지키기 위해, 일시 실패(429·시간 초과 등) 없이 받은 결과만 보관본을 바꾼다.
+      // 커스텀·제한 경기처럼 화면에서 일부러 숨기는 실패는 다시 받아도 같으므로 저장을 막지 않는다.
+      if (!result.matchFailures.some((failure) => !LOL_HIDDEN_MATCH_FAILURES.has(failure.kind)))
         await saveLolSearchSnapshot(riotId, puuid, dataDragonVersion, result);
     } else setCached(lookupKey, result, LOL_REFRESH_COOLDOWN_MS);
     return withLolStoredExtras(result, puuid);

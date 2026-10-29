@@ -655,6 +655,30 @@ describe("POST /api/admin/lol/search", () => {
     expect(persistence.saveSnapshot).not.toHaveBeenCalled();
   });
 
+  it("화면에서 숨기는 커스텀 경기만 빠진 결과는 보관본을 바꾼다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    const raw = (matchId: string, queueId: number) => ({
+      metadata: { matchId, dataVersion: "2" },
+      info: { queueId, gameMode: "CLASSIC", gameType: queueId === 0 ? "CUSTOM_GAME" : "MATCHED_GAME", gameDuration: 1800,
+        gameEndTimestamp: 1_700_000_000_000, teams: [{ teamId: 100, win: true }],
+        participants: [{ puuid: "custom-puuid", teamId: 100, championId: 103, championName: "Ahri", win: true, kills: 2, deaths: 1, assists: 3, totalMinionsKilled: 100, neutralMinionsKilled: 10 }] },
+    });
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("accounts/by-riot-id")) return response({ puuid: "custom-puuid", gameName: "Custom", tagLine: "KR1" });
+      if (url.includes("summoner/v4")) return response({ profileIconId: 1, summonerLevel: 1 });
+      if (url.includes("league/v4")) return response([]);
+      if (url.includes("/ids?")) return response(["KR_701", "KR_700"]);
+      if (url.includes("/matches/KR_701")) return response(raw("KR_701", 420));
+      if (url.includes("/matches/KR_700")) return response(raw("KR_700", 0));
+      return response({ data: {} });
+    }));
+    const result = await searchLolRiotId("Custom#KR1");
+    expect(result.matchStatus).toBe("partial");
+    expect(result.matchFailures).toEqual([{ matchId: "KR_700", kind: "invalid_match" }]);
+    expect(persistence.saveSnapshot).toHaveBeenCalledOnce();
+  });
+
   it("저장 계정의 이름이 바뀐 것을 확인하면 옛 이름의 검색 결과를 지운다", async () => {
     persistence.enabled.mockReturnValue(true);
     persistence.names.mockResolvedValue([{ puuid: "renamed-puuid", game_name: "OldName", tag_line: "KR1", account_fetched_at: "2026-10-20T00:00:00Z" }]);
