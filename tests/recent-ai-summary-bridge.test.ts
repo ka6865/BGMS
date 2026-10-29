@@ -2,7 +2,7 @@
 
 import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { createElement, useLayoutEffect, useRef } from "react";
+import { createElement, useLayoutEffect, useRef, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import aiReady from "./fixtures/stats/ai-ready.json";
 
@@ -482,7 +482,7 @@ describe("RecentAISummary callback bridge", () => {
     expect(spiderChartProps.current?.data).not.toHaveProperty("teamwork");
   });
 
-  it("분석 전에는 새로 확인된 최근 경기를 바로 반영하고, 결과가 있으면 지우지 않고 안내만 한다", async () => {
+  it("분석 전에는 새로 확인된 최근 경기를 바로 반영하고, 결과가 있으면 안내 후 사용자가 반영할 때만 새 목록으로 바꾼다", async () => {
     const idleApply = vi.fn();
     const idle = render(createElement(RecentAISummary, { ...baseProps, pendingMatchCount: 1, onApplyPendingMatches: idleApply }));
     await waitFor(() => expect(idleApply).toHaveBeenCalledTimes(1));
@@ -494,19 +494,37 @@ describe("RecentAISummary callback bridge", () => {
       { type: "done", valid: true },
     ]));
     vi.stubGlobal("fetch", fetchMock);
-    const apply = vi.fn();
     const onSummaryChange = vi.fn();
-    const view = render(createElement(RecentAISummary, { ...baseProps, onSummaryChange, onApplyPendingMatches: apply }));
+    // 실제 부모처럼 AI 입력과 최근 목록을 state로 들고, 반영하면 AI 입력을 바꾼다.
+    let addRecentMatch: (() => void) | null = null;
+    function Parent() {
+      const [aiIds, setAiIds] = useState<readonly string[]>(["match-1", "match-2"]);
+      const [recentIds, setRecentIds] = useState<readonly string[]>(["match-1", "match-2"]);
+      addRecentMatch = () => setRecentIds(["match-0", "match-1", "match-2"]);
+      return createElement(RecentAISummary, { ...baseProps, matchIds: aiIds, onSummaryChange,
+        pendingMatchCount: recentIds.filter((id) => !aiIds.includes(id)).length,
+        onApplyPendingMatches: () => setAiIds(recentIds) });
+    }
+    render(createElement(Parent));
     fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
     await waitFor(() => expect(onSummaryChange).toHaveBeenLastCalledWith(expect.objectContaining({ verdict: "fixture verdict" })));
 
-    view.rerender(createElement(RecentAISummary, { ...baseProps, onSummaryChange, pendingMatchCount: 2, onApplyPendingMatches: apply }));
-    expect(await screen.findByText("새로 저장된 최근 경기 2개가 있습니다. 현재 분석은 이전 경기 목록 기준입니다.")).toBeInTheDocument();
-    expect(apply).not.toHaveBeenCalled();
+    act(() => addRecentMatch!());
+    const notice = "새로 저장된 최근 경기 1개가 있습니다. 현재 분석은 이전 경기 목록 기준이며, 반영하면 현재 결과를 닫고 다시 분석할 수 있습니다.";
+    expect(await screen.findByText(notice)).toBeInTheDocument();
     expect(onSummaryChange).not.toHaveBeenLastCalledWith(null);
-    fireEvent.click(screen.getByRole("button", { name: "최신 경기로 다시 분석하기" }));
-    expect(apply).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "최신 경기 반영하기" }));
+    // 새 목록으로 바뀌면 이전 결과와 안내를 닫고 시작 버튼으로 돌아간다. 자동으로 다시 요청하지 않는다.
+    expect(await screen.findByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ })).toBeInTheDocument();
+    expect(screen.queryByText(notice)).not.toBeInTheDocument();
+    expect(onSummaryChange).toHaveBeenLastCalledWith(null);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body)).matchIds).toEqual(["match-1", "match-2"]);
+
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body)).matchIds).toEqual(["match-0", "match-1", "match-2"]);
   });
 
   it("malformed route-owned visuals는 UI에 NaN/Infinity/임의 필드를 전달하지 않는다", async () => {

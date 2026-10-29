@@ -1223,10 +1223,10 @@ export const RecentAISummary = ({
   // 분석 중이거나 결과가 있으면 자동으로 지우지 않고, 사용자가 반영할 때만 새 경기 목록으로 바꾼다.
   const pendingNotice = pendingMatchCount > 0 && !summaryIdle && onApplyPendingMatches ? (
     <div role="status" className="flex flex-col gap-3 rounded-2xl border border-sky-400/20 bg-sky-500/5 p-4 text-sm text-sky-100/90 sm:flex-row sm:items-center sm:justify-between">
-      <p className="break-words">새로 저장된 최근 경기 {pendingMatchCount}개가 있습니다. 현재 분석은 이전 경기 목록 기준입니다.</p>
+      <p className="break-words">새로 저장된 최근 경기 {pendingMatchCount}개가 있습니다. 현재 분석은 이전 경기 목록 기준이며, 반영하면 현재 결과를 닫고 다시 분석할 수 있습니다.</p>
       <button type="button" onClick={onApplyPendingMatches}
         className="shrink-0 rounded-xl border border-sky-400/30 bg-sky-500/10 px-4 py-2 text-xs font-bold text-sky-100 hover:bg-sky-500/20">
-        최신 경기로 다시 분석하기
+        최신 경기 반영하기
       </button>
     </div>
   ) : null;

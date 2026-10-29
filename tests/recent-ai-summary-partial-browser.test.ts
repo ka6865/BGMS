@@ -186,13 +186,13 @@ async function clickText(page: Page, text: string) {
       await clickText(page, "최근 최대 10경기 AI 끝장 토론 시작");
       await page.waitForFunction((text) => document.body.innerText.includes(text), {}, message);
       await page.evaluate(() => (window as unknown as { setPendingMatches(count: number): void }).setPendingMatches(3));
-      const notice = "새로 저장된 최근 경기 3개가 있습니다. 현재 분석은 이전 경기 목록 기준입니다.";
+      const notice = "새로 저장된 최근 경기 3개가 있습니다. 현재 분석은 이전 경기 목록 기준이며, 반영하면 현재 결과를 닫고 다시 분석할 수 있습니다.";
       await page.waitForFunction((text) => document.body.innerText.includes(text), {}, notice);
       expect(await page.evaluate(() => document.body.innerText)).toContain(message);
       expect(await page.evaluate(() => (window as unknown as { pendingApplied: number }).pendingApplied)).toBe(0);
       expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
       if (process.env.SUMMARY_BROWSER_SCREENSHOT_DIR) await page.screenshot({ path: join(process.env.SUMMARY_BROWSER_SCREENSHOT_DIR, `pending-notice-${viewport.width}.png`) });
-      await clickText(page, "최신 경기로 다시 분석하기");
+      await clickText(page, "최신 경기 반영하기");
       expect(await page.evaluate(() => (window as unknown as { pendingApplied: number }).pendingApplied)).toBe(1);
       expect(requests).toBe(1);
       expect(errors).toEqual([]);
