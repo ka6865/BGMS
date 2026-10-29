@@ -44,6 +44,13 @@ interface ActionItem {
   desc: string;
 }
 
+// 서버가 계산한 확정 칭호의 횟수형 근거량. thin이면 칭호를 관측 성향으로 설명한다.
+interface RoleEvidenceAmountView {
+  strength: "normal" | "thin" | "partial";
+  lines: string[];
+  note: string;
+}
+
 // 서버가 계산한 칭호 판정 상태. 확정 칭호가 아닐 때만 제목·설명을 이 문구로 바꾼다.
 interface RoleVerdictView {
   kind: "confirmed" | "below_threshold" | "insufficient";
@@ -104,6 +111,7 @@ interface DebateData {
       weakness?: string | null;
       scores: Record<string, number>;
       verdict?: RoleVerdictView;
+      evidenceAmount?: RoleEvidenceAmountView;
     };
 
     initiativeSuccess?: string;
@@ -189,6 +197,21 @@ function safeVisualText(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const text = value.trim();
   return text && !/(?:NaN|Infinity|undefined)/iu.test(text) ? text : null;
+}
+
+// 근거량은 서버 값만 받는다. 형식이 다르면 버려서 기존 칭호 표시를 유지한다(클라이언트가 근거량을 추정하지 않는다).
+export function normalizeRoleEvidenceAmount(value: unknown): RoleEvidenceAmountView | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  const strength = source.strength;
+  if (strength !== "normal" && strength !== "thin" && strength !== "partial") return null;
+  const lines = Array.isArray(source.lines)
+    ? source.lines.map((item) => safeVisualText(item)).filter((item): item is string => item !== null).slice(0, 3)
+    : [];
+  const note = safeVisualText(source.note) ?? "";
+  // 근거가 얇다는 설명은 사유 문장이 있어야만 쓴다.
+  if (strength !== "normal" && !note) return null;
+  return { strength, lines, note };
 }
 
 // 서버가 보낸 판정 상태만 받는다. 비확정 상태는 제목·라벨·설명이 모두 있어야 쓰고,
@@ -354,6 +377,8 @@ export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | 
       role.scores = normalizedScores;
     }
     const verdict = normalizeRoleVerdict(roleSource.verdict);
+    const evidenceAmount = normalizeRoleEvidenceAmount(roleSource.evidenceAmount);
+    if (evidenceAmount) role.evidenceAmount = evidenceAmount;
     if (verdict) role.verdict = verdict;
     if (Object.keys(role).length > 0) normalized.roleInfo = role;
   }
@@ -683,9 +708,13 @@ export const RecentAISummary = ({
     && ((roleVerdict.kind === "below_threshold" && roleInfoView?.primaryRole === "balanced")
       || (roleVerdict.kind === "insufficient" && roleInfoView?.primaryRole === "insufficient"))
     ? roleVerdict : null;
+  // 근거량은 확정 칭호일 때만 쓴다(미확정 설명과 겹치지 않게 한다).
+  const roleEvidenceAmount = !pendingRoleVerdict && roleInfoView?.primaryRole
+    && !["balanced", "insufficient"].includes(roleInfoView.primaryRole) ? roleInfoView.evidenceAmount ?? null : null;
+  const thinRoleEvidence = roleEvidenceAmount?.strength === "thin" ? roleEvidenceAmount : null;
   const roleTitleText = pendingRoleVerdict?.headline ?? roleInfoView?.title;
-  const roleLabelText = pendingRoleVerdict?.label ?? roleInfoView?.roleLabel;
-  const roleDescriptionText = pendingRoleVerdict?.detail ?? roleInfoView?.description;
+  const roleLabelText = pendingRoleVerdict?.label ?? (thinRoleEvidence ? `근거 적음 · ${roleInfoView?.roleLabel ?? ""}` : roleInfoView?.roleLabel);
+  const roleDescriptionText = pendingRoleVerdict?.detail ?? thinRoleEvidence?.note ?? roleInfoView?.description;
 
   useEffect(() => {
     onSummaryChangeRef.current = onSummaryChange;
@@ -1951,7 +1980,7 @@ export const RecentAISummary = ({
               {/* 중간: 직업군 설명 */}
               <div className="flex-1 text-center md:text-left space-y-3">
                 <div className="space-y-1">
-                  <span className="text-[12px] text-indigo-400 font-black uppercase tracking-[0.3em]">전술적 정체성</span>
+                  <span className="text-[12px] text-indigo-400 font-black uppercase tracking-[0.3em]" data-testid="role-kicker">{thinRoleEvidence ? "관측 성향" : "전술적 정체성"}</span>
                   <h2 className="text-3xl md:text-4xl font-black text-white tracking-tight leading-none italic" data-testid="role-title">
                     {roleTitleText}
                   </h2>
@@ -1969,6 +1998,14 @@ export const RecentAISummary = ({
                   <p className="text-xs font-bold text-indigo-200/80 break-keep" aria-label="칭호 근거">
                     {debateData.visuals.roleInfo.evidence!.join(" · ")}
                   </p>
+                )}
+                {roleEvidenceAmount && roleEvidenceAmount.lines.length > 0 && (
+                  <p className="text-[11px] font-bold text-gray-400 break-keep" data-testid="role-evidence-amount">
+                    근거량: {roleEvidenceAmount.lines.join(" · ")}
+                  </p>
+                )}
+                {roleEvidenceAmount?.strength === "partial" && (
+                  <p className="text-[11px] font-bold text-gray-500 break-keep" data-testid="role-evidence-note">{roleEvidenceAmount.note}</p>
                 )}
                 {(pendingRoleVerdict?.observations.length ?? 0) > 0 && (
                   <p className="text-xs font-bold text-sky-200/80 break-keep" data-testid="role-observations">

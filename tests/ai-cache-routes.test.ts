@@ -19,7 +19,7 @@ vi.mock('../lib/pubg-analysis/roleReference', async (importOriginal) => {
   return { ...actual, get ROLE_REFERENCE_VERSION() { return roleReferenceState.version; } };
 });
 // 기본은 실제 분류기를 그대로 쓴다. 테스트에서만 화면 설명(verdict)이나 제목을 바꿔 hash 계약을 확인한다.
-const roleClassifierState = vi.hoisted(() => ({ verdictDetail: null as string | null, title: null as string | null }));
+const roleClassifierState = vi.hoisted(() => ({ verdictDetail: null as string | null, title: null as string | null, evidenceNote: null as string | null }));
 vi.mock('../lib/pubg-analysis/roleClassifier', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/pubg-analysis/roleClassifier')>();
   return {
@@ -28,6 +28,7 @@ vi.mock('../lib/pubg-analysis/roleClassifier', async (importOriginal) => {
       const result = actual.classifyRole(...args);
       if (roleClassifierState.verdictDetail !== null) result.verdict = { ...result.verdict, detail: roleClassifierState.verdictDetail };
       if (roleClassifierState.title !== null) result.title = roleClassifierState.title;
+      if (roleClassifierState.evidenceNote !== null) result.evidenceAmount = { strength: 'partial', lines: ['1:1 교전 3승 / 4회'], note: roleClassifierState.evidenceNote };
       return result;
     },
   };
@@ -448,6 +449,7 @@ describe("AI cache route stabilization", () => {
     roleReferenceState.version = 1;
     roleClassifierState.verdictDetail = null;
     roleClassifierState.title = null;
+    roleClassifierState.evidenceNote = null;
     vi.clearAllMocks();
     process.env.GOOGLE_GEMINI_API_KEY = "test-gemini-key";
     mockWithAuthGuard.mockResolvedValue({
@@ -1839,6 +1841,14 @@ describe("AI cache route stabilization", () => {
     expect(detailOnly.lookupHash).toBe(base.lookupHash);
     expect(detailOnly.saveHash).toBe(base.saveHash);
 
+    // 근거량(evidenceAmount)도 화면 설명이라 hash에 넣지 않는다. legacy prompt에 들어가는 thin만 예외다(다음 테스트).
+    roleClassifierState.verdictDetail = null;
+    roleClassifierState.evidenceNote = '근거량 문구만 바뀐 경우';
+    const evidenceOnly = await run();
+    expect(evidenceOnly.visuals.roleInfo.evidenceAmount.note).toBe('근거량 문구만 바뀐 경우');
+    expect(evidenceOnly.lookupHash).toBe(base.lookupHash);
+    roleClassifierState.evidenceNote = null;
+
     // verdict 외의 칭호 결과는 계속 hash 입력이다.
     roleClassifierState.verdictDetail = null;
     roleClassifierState.title = '다른 칭호';
@@ -1870,8 +1880,20 @@ describe("AI cache route stabilization", () => {
     expect(pending.prompt).not.toContain('균형형 전술가');
     expect(pending.prompt).not.toContain('여러 상황을 고르게 경험');
 
+    // 아군 기절 3회 중 복수 처치 1회뿐인 복수자 칭호는 근거 적음과 관측 성향 설명을 함께 넣는다.
+    const thin = await promptFor({
+      tradeStats: { teammateKnocks: 3, tradeKills: 1, suppCount: 0, revCount: 0, smokeCount: 0, smokeRescues: 0, reactionLatencyMs: 600, tradeLatencyMs: 2000 },
+      itemUseStats: { distanceDamage: { short: 150, mid: 150, long: 30 } },
+      goldenTimeDamage: { early: 40, mid1: 120, mid2: 120, late: 50 },
+      combatPressure: { pressureIndex: 2.4, maxHitDist: 300, utilityStats: { throwCount: 1, hitCount: 0, totalDamage: 0, killCount: 0 } },
+    });
+    expect(thin.roleInfo.primaryRole).toBe('avenger');
+    expect(thin.roleInfo.evidenceAmount).toMatchObject({ strength: 'thin', lines: ['복수 처치 1회 / 아군 기절 3회 · 1경기에서 확인'] });
+    expect(thin.prompt).toContain(`- 부여된 칭호: ${thin.roleInfo.title} (근거 적음: 복수 처치 1회 / 아군 기절 3회 · 1경기에서 확인. 관측 성향으로만 설명)`);
+
     // 기본 fixture는 원거리 피해 비중이 높아 저격 유령 칭호가 확정된다.
     const confirmed = await promptFor({});
+    expect(confirmed.roleInfo.evidenceAmount.strength).not.toBe('thin');
     expect(confirmed.roleInfo.verdict.kind).toBe('confirmed');
     expect(confirmed.prompt).toContain(`- 부여된 칭호: ${confirmed.roleInfo.title}\n- 전술 직업군: ${confirmed.roleInfo.roleLabel}\n- 특징 요약: ${confirmed.roleInfo.description}\n`);
   });
