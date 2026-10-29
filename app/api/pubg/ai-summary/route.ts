@@ -4,7 +4,7 @@ import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { AI_SUMMARY_CACHE_VERSION, GEMINI_MODELS_TO_TRY, POPULATION_EVIDENCE_VERSION, RESULT_VERSION, WEAPON_NAMES } from "@/lib/pubg-analysis/constants";
 import { estimateUserTier } from "@/lib/pubg-analysis/benchmarkScore";
 import { dominantTierScope, tierScopeOfMode, type TierScope } from "@/lib/pubg-analysis/tierAveraging";
-import { classifyRole } from "@/lib/pubg-analysis/roleClassifier";
+import { classifyRole, countRoleEvidenceMatches } from "@/lib/pubg-analysis/roleClassifier";
 import { ROLE_REFERENCE_VERSION } from "@/lib/pubg-analysis/roleReference";
 import { normalizeName } from "@/lib/pubg-analysis/utils";
 import {
@@ -2250,16 +2250,23 @@ export async function POST(request: Request) {
     // evidence from the role score itself.
     // 역할의 반응 분포는 구 지표 기준이다. 신규 사격 근거 분포가 준비되기 전에는 이 항목을 보류한다.
     const roleStatsWithDistribution = { ...summaryStats, avgReactionLatency: "측정 불가", modeDistribution: { main: mainModeName } };
-    const roleInfo = classifyRole(roleStatsWithDistribution, mainBench, mainUserTier, { pendingReferenceMetrics: ["reactionSec"] });
+    const roleInfo = classifyRole(roleStatsWithDistribution, mainBench, mainUserTier, {
+      pendingReferenceMetrics: ["reactionSec"],
+      // 칭호 판정과 같은 점수 상위 경기에서 횟수형 근거가 있었던 경기 수와 기록 완전성
+      evidenceMatches: countRoleEvidenceMatches(bestMatches),
+    });
     if (!useIdCards) {
       // 확정 칭호는 기존 문구 그대로 둔다(같은 입력의 hash 유지). 기준 미달·기록 부족이면 화면과 같은 판정 설명을 넣어
       // AI가 "균형형"을 성향 확정처럼 쓰지 않게 한다. 이 경우만 legacy 경로 hash가 바뀐다.
       const pendingVerdict = roleInfo.verdict.kind === "confirmed" ? null : roleInfo.verdict;
-      const identityTitle = pendingVerdict ? `없음 (${pendingVerdict.headline})` : roleInfo.title;
+      // 근거가 한 번뿐인 확정 칭호는 AI가 성향 확정처럼 쓰지 않게 근거량을 함께 적는다. 이 경우만 legacy hash가 바뀐다.
+      const thinEvidence = !pendingVerdict && roleInfo.evidenceAmount?.strength === "thin" ? roleInfo.evidenceAmount : null;
+      const identityTitle = pendingVerdict ? `없음 (${pendingVerdict.headline})`
+        : thinEvidence ? `${roleInfo.title} (근거 적음: ${thinEvidence.lines.join(", ")}. 관측 성향으로만 설명)` : roleInfo.title;
       const identityLabel = pendingVerdict ? pendingVerdict.label : roleInfo.roleLabel;
       const identitySummary = pendingVerdict
         ? [pendingVerdict.detail, pendingVerdict.note, pendingVerdict.observations.length > 0 ? `관측 성향(칭호 아님): ${pendingVerdict.observations.join(", ")}` : ""].filter(Boolean).join(" ")
-        : roleInfo.description;
+        : thinEvidence ? `${thinEvidence.note} 이 성향을 확정된 특징이나 실력으로 단정하지 마십시오.` : roleInfo.description;
       userPrompt += `\n### [유저 전술적 정체성]\n- 부여된 칭호: ${identityTitle}\n- 전술 직업군: ${identityLabel}\n- 특징 요약: ${identitySummary}\n- 주요 취약점: ${roleInfo.weakness || "식별된 약점 없음 (완성형)"}\n- 시그니처 무기: ${roleInfo.signatureWeapon} (${roleInfo.signatureWeaponStats?.kills}킬, ${roleInfo.signatureWeaponStats?.dbnos}기절, 사용 일관성: ${roleInfo.signatureWeaponStats?.consistency}%)\n`;
       userPrompt += `\n[INSTRUCTION] 'finalVerdict' 필드에 위 '주요 취약점'에 대한 분석과 전체 토론 내용을 결합하여, 유저에게 깊은 인상을 남길 수 있는 최종 판결문을 작성하십시오.`;
     }
@@ -2387,9 +2394,9 @@ export async function POST(request: Request) {
       delete ri.vehicleMastery;
     }
 
-    // roleInfo.verdict는 같은 입력에서 계산하는 화면 설명이며 AI 입력에 들어가지 않는다.
+    // roleInfo.verdict·evidenceAmount는 같은 입력에서 계산하는 화면 설명이며 v2 AI 입력에 들어가지 않는다.
     // 설명 문구만 바뀐 경우 기존 요약 캐시를 다시 생성하지 않도록 hash에서는 제외한다.
-    const roleInfoForHash = Object.fromEntries(Object.entries(precomputedVisuals.roleInfo).filter(([key]) => key !== "verdict"));
+    const roleInfoForHash = Object.fromEntries(Object.entries(precomputedVisuals.roleInfo).filter(([key]) => key !== "verdict" && key !== "evidenceAmount"));
     const matchIdsHash = buildSummaryCacheHash({
       selectionKey,
       bestSelectionKey,
