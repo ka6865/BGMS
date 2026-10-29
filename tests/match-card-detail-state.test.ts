@@ -844,6 +844,9 @@ describe("MatchCard isolated detail state", () => {
     await waitFor(() => expect(screen.getByText(/trailing buffer verdict/)).toBeInTheDocument());
     expect(fetchMock.mock.calls.filter(([input]) => String(input) === "/api/pubg/ai-analyze")).toHaveLength(1);
     expect(aiSuccessEvents()).toHaveLength(1);
+    // 단일 경기 별명은 이번 경기 기준이며 최근 요약 칭호와 다를 수 있다고 함께 알린다.
+    expect(screen.getByText("전술 fixture")).toBeInTheDocument();
+    expect(screen.getByTestId("match-signature-scope")).toHaveTextContent("이번 한 경기 기록으로 붙인 별명입니다. 최근 경기 요약의 칭호와 다를 수 있습니다.");
   });
 
   it("same match A→B AI owner는 composite identity이며 late A finally가 B lock을 해제하지 않는다", async () => {

@@ -34,6 +34,18 @@ export interface RoleInfo {
   scores: RoleScore;
   // 화면 설명용 판정 상태. 칭호·점수 판정을 바꾸지 않고, 요약 캐시 hash에도 넣지 않는다.
   verdict: RoleVerdict;
+  // 확정 대표 역할의 횟수형 근거량(화면 설명용). 칭호·점수를 바꾸지 않고 hash에도 넣지 않는다.
+  evidenceAmount: RoleEvidenceAmount | null;
+}
+
+export interface RoleEvidenceAmount {
+  // thin: 대표 역할의 관측 지표가 모두 횟수형(파생 지표 제외)이고, 판정 경기 기록이 모두 있으며, 각 사건이 1회 이하
+  // partial: 여러 지표로 정의된 역할에서 일부 지표만 관측돼 판정
+  strength: "normal" | "thin" | "partial";
+  // 예: "복수 처치 1회 / 아군 기절 3회 · 1경기에서 확인"
+  lines: string[];
+  // thin·partial일 때 덧붙이는 한 문장. normal이면 빈 문자열
+  note: string;
 }
 
 export interface RoleVerdict {
@@ -57,6 +69,8 @@ export interface RoleVerdict {
 export interface ClassifyRoleOptions {
   // 값이 있어도 비교 분포가 준비되지 않아 판정에 쓰지 않는 지표
   pendingReferenceMetrics?: readonly RoleMetricKey[];
+  // 판정 경기 중 횟수형 지표의 사건이 있었던 경기 수와 기록 완전성(countRoleEvidenceMatches 결과)
+  evidenceMatches?: Partial<Record<RoleMetricKey, RoleEvidenceMatchCount>>;
 }
 
 interface RoleDefinition {
@@ -404,6 +418,9 @@ export function classifyRole(stats: any, _bench: any, overallTier: string, optio
   else if (weapon.stats.isReliable) badges.push(`${weapon.name} 주력`);
 
   const verdict = buildVerdict({ primaryRole, ranked, unjudged, metricPercentiles, isSoloMode, matchCount: mLen });
+  const evidenceAmount = primaryRole in ROLE_DEFINITIONS
+    ? buildEvidenceAmount(primaryRole as Exclude<RoleKey, "fieldCommander">, secondaryRole as Exclude<RoleKey, "fieldCommander"> | null, stats, metricPercentiles, options.evidenceMatches ?? {})
+    : null;
 
   return {
     primaryRole,
@@ -424,7 +441,133 @@ export function classifyRole(stats: any, _bench: any, overallTier: string, optio
     weakness,
     scores,
     verdict,
+    evidenceAmount,
   };
+}
+
+// 횟수형 지표의 사건 수(분자)와 기회 수(분모). 값은 aggregate 합계를 그대로 쓴다.
+const COUNT_EVIDENCE: Partial<Record<RoleMetricKey, (stats: any) => { events: number; opportunities: number; text: string }>> = {
+  tradeRate: (s) => {
+    const events = count(s?.totalTradeKills); const opportunities = count(s?.totalTeammateKnocks);
+    return { events, opportunities, text: `복수 처치 ${events}회 / 아군 기절 ${opportunities}회` };
+  },
+  rescueRate: (s) => {
+    const events = count(s?.totalRevCount) + count(s?.totalSmokeRescues); const opportunities = count(s?.totalTeammateKnocks);
+    return { events, opportunities, text: `소생·연막 구출 ${events}회 / 아군 기절 ${opportunities}회` };
+  },
+  duelWin: (s) => {
+    const events = count(s?.totalDuelWins); const opportunities = events + count(s?.totalDuelLosses);
+    return { events, opportunities, text: `1:1 교전 ${events}승 / ${opportunities}회` };
+  },
+  reversal: (s) => {
+    const events = count(s?.totalReversalWins); const opportunities = count(s?.totalReversalAttempts);
+    return { events, opportunities, text: `역전 ${events}회 / 시도 ${opportunities}회` };
+  },
+  initiative: (s) => {
+    const events = count(s?.totalInitiativeSuccess); const opportunities = count(s?.totalInitiativeAttempts);
+    return { events, opportunities, text: `선제 타격 성공 ${events}회 / ${opportunities}회` };
+  },
+  assistShare: (s) => {
+    const contrib = s?.killContribFinal ?? {};
+    const events = count(contrib.assist); const opportunities = events + count(contrib.solo) + count(contrib.cleanup);
+    return { events, opportunities, text: `협공 처치 ${events}회 / 처치 ${opportunities}회` };
+  },
+};
+// 같은 사건(복수 처치)에서 나온 파생 지표. 사건 수가 아니므로 근거량 판단에서 빼고, 단독이면 근거 적음으로 보지 않는다.
+const DERIVED_FROM_EVENTS = new Set<RoleMetricKey>(["tradeSec"]);
+
+function count(value: unknown): number {
+  return Math.max(0, Math.round(finiteOrNull(value) ?? 0));
+}
+
+export interface RoleEvidenceMatchCount {
+  // 판정 경기 중 사건이 있었던 경기 수
+  matches: number;
+  // 판정 경기 모두에 해당 필드 기록이 있었는지. false면 합계의 0이 실제 0인지 누락인지 단정하지 않는다.
+  complete: boolean;
+}
+
+function roleEvidenceLines(
+  role: Exclude<RoleKey, "fieldCommander">,
+  stats: any,
+  metricPercentiles: Record<RoleMetricKey, number | null>,
+  evidenceMatches: Partial<Record<RoleMetricKey, RoleEvidenceMatchCount>>,
+) {
+  const definition = ROLE_DEFINITIONS[role];
+  const observed = definition.metrics.filter((key) => metricPercentiles[key] !== null);
+  const counted = observed.filter((key) => !DERIVED_FROM_EVENTS.has(key))
+    .map((key) => ({ key, evidence: COUNT_EVIDENCE[key]?.(stats) ?? null, record: evidenceMatches[key] }));
+  const lines = counted.filter(({ evidence }) => evidence !== null).map(({ evidence, record }) => {
+    if (!record) return evidence!.text;
+    return record.complete ? `${evidence!.text} · ${record.matches}경기에서 확인` : `${evidence!.text} · 일부 경기 기록 없음`;
+  });
+  if (observed.includes("tradeSec") && !observed.includes("tradeRate") && evidenceMatches.tradeSec) {
+    lines.push(`복수 처치 시간 ${evidenceMatches.tradeSec.matches}경기에서 관측`);
+  }
+  // 관측 지표가 모두 횟수형(파생 지표 제외)이고, 모든 경기 기록이 확인되며, 사건이 각각 1회 이하일 때만 근거 적음이다.
+  const thin = counted.length > 0 && counted.every(({ evidence, record }) => evidence !== null && record?.complete === true && evidence.events <= 1);
+  const missing = definition.metrics.filter((key) => metricPercentiles[key] === null);
+  return { definition, observed, lines, thin, missing };
+}
+
+function buildEvidenceAmount(
+  primary: Exclude<RoleKey, "fieldCommander">,
+  secondary: Exclude<RoleKey, "fieldCommander"> | null,
+  stats: any,
+  metricPercentiles: Record<RoleMetricKey, number | null>,
+  evidenceMatches: Partial<Record<RoleMetricKey, RoleEvidenceMatchCount>>,
+): RoleEvidenceAmount {
+  const main = roleEvidenceLines(primary, stats, metricPercentiles, evidenceMatches);
+  const lines = [...main.lines];
+  // 보조 역할 근거가 한 번뿐이면 보조 칭호에도 같은 사실을 붙인다. 판정은 바꾸지 않는다.
+  if (secondary) {
+    const sub = roleEvidenceLines(secondary, stats, metricPercentiles, evidenceMatches);
+    const shared = sub.lines.filter((line) => !lines.includes(line));
+    if (sub.thin && shared.length > 0) lines.push(`보조 ${shortRoleLabel(secondary)}: ${shared.join(", ")} (근거 적음)`);
+  }
+  if (main.thin) {
+    return { strength: "thin", lines, note: "판정에 쓰인 행동 기록이 지표마다 1회 이하라 관측 성향으로 봅니다. 경기가 쌓이면 바뀔 수 있습니다." };
+  }
+  if (main.definition.metrics.length > 1 && main.missing.length > 0) {
+    return {
+      strength: "partial",
+      lines,
+      note: `${main.missing.map((key) => METRIC_LABELS[key]).join("·")} 기록 없이 ${main.observed.map((key) => METRIC_LABELS[key]).join("·")}만으로 판정했습니다.`,
+    };
+  }
+  return { strength: "normal", lines, note: "" };
+}
+
+/**
+ * 판정 경기마다 횟수형 지표의 사건이 있었는지 세어 classifyRole의 evidenceMatches로 넘긴다.
+ * aggregate와 같은 필드를 읽는다. 필드가 없는 경기가 하나라도 있으면 complete=false로 표시한다.
+ */
+export function countRoleEvidenceMatches(matches: any[]): Partial<Record<RoleMetricKey, RoleEvidenceMatchCount>> {
+  const keys: RoleMetricKey[] = ["tradeRate", "tradeSec", "rescueRate", "duelWin", "reversal", "initiative", "assistShare"];
+  const result = Object.fromEntries(keys.map((key) => [key, { matches: 0, complete: true }])) as Record<RoleMetricKey, RoleEvidenceMatchCount>;
+  // aggregate reader처럼 0 이상의 유한한 숫자만 관측된 기록으로 본다(-1 같은 누락 표시는 기록 없음).
+  const has = (...values: unknown[]) => values.every((value) => { const number = finiteOrNull(value); return number !== null && number >= 0; });
+  const mark = (key: RoleMetricKey, recorded: boolean, hit: boolean) => {
+    if (!recorded) result[key].complete = false;
+    else if (hit) result[key].matches++;
+  };
+  for (const match of matches ?? []) {
+    const trade = match?.tradeStats ?? {};
+    const duel = match?.duelStats ?? {};
+    const contrib = match?.killContribution ?? {};
+    mark("tradeRate", has(trade.tradeKills, trade.teammateKnocks), count(trade.tradeKills) > 0);
+    // 지연 시간은 복수가 없으면 기록되지 않으므로 누락으로 보지 않고 관측된 경기만 센다.
+    mark("tradeSec", true, has(trade.tradeLatencyMs));
+    mark("rescueRate", has(trade.revCount, trade.smokeRescues, trade.teammateKnocks), count(trade.revCount) + count(trade.smokeRescues) > 0);
+    mark("duelWin", has(duel.wins, duel.losses), count(duel.wins) > 0);
+    // aggregate는 시도 수가 없으면 역전 승수로 분모를 보정한다. 그 경우 분모가 관측값이 아니므로 기록 불완전으로 둔다.
+    mark("reversal", has(duel.reversals, duel.reversalAttempts), count(duel.reversals) > 0);
+    const sample = finiteOrNull(match?.initiativeSampleCount);
+    const rate = finiteOrNull(match?.initiative_rate);
+    mark("initiative", has(sample) && (sample === 0 || has(rate)), has(sample, rate) && Math.round((rate! / 100) * sample!) > 0);
+    mark("assistShare", has(contrib.solo, contrib.cleanup, contrib.assist), count(contrib.assist) > 0);
+  }
+  return result;
 }
 
 const TOTAL_ROLES = Object.keys(ROLE_DEFINITIONS).length;

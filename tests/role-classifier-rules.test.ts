@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyRole, extractRoleMetrics } from "@/lib/pubg-analysis/roleClassifier";
+import { classifyRole, countRoleEvidenceMatches, extractRoleMetrics } from "@/lib/pubg-analysis/roleClassifier";
 import { referencePercentile, roleScorePercentile } from "@/lib/pubg-analysis/roleReference";
 
 // ai-summary route의 aggregateMatches 결과 형식을 따른다(측정 불가 값은 "측정 불가" 문자열 또는 null).
@@ -380,5 +380,93 @@ describe("role verdict explanation", () => {
     expect(result.primaryRole).toBe("balanced");
     expect(result.verdict.observations).toEqual(["선제 타격 성공률 상위 3%"]);
     expect(result.title).toBe("균형형 전술가");
+  });
+});
+
+describe("role evidence amount", () => {
+  // 복수자: 아군 기절 3회 중 복수 처치 1회(33%)는 참조 분포 상위 3%다.
+  const THIN_AVENGER = { totalTeammateKnocks: 3, totalTradeKills: 1, avgBackupLatency: "7.50s" };
+  const complete = (matches: number) => ({ matches, complete: true });
+
+  it("marks a confirmed title as thin only when every counted metric is a single fully recorded event", () => {
+    const result = classifyRole({ ...BASE, mLen: 3, ...THIN_AVENGER }, {}, "B", { evidenceMatches: { tradeRate: complete(1), tradeSec: complete(1) } });
+    expect(result).toMatchObject({ primaryRole: "avenger", title: "복수의 추적자" });
+    expect(result.verdict.kind).toBe("confirmed");
+    expect(result.evidenceAmount).toEqual({
+      strength: "thin",
+      lines: ["복수 처치 1회 / 아군 기절 3회 · 1경기에서 확인"],
+      note: "판정에 쓰인 행동 기록이 지표마다 1회 이하라 관측 성향으로 봅니다. 경기가 쌓이면 바뀔 수 있습니다.",
+    });
+  });
+
+  it("does not call a total of one event thin when some selected matches have no record", () => {
+    const result = classifyRole({ ...BASE, mLen: 3, ...THIN_AVENGER }, {}, "B", { evidenceMatches: { tradeRate: { matches: 1, complete: false }, tradeSec: complete(1) } });
+    expect(result.primaryRole).toBe("avenger");
+    expect(result.evidenceAmount).toEqual({ strength: "normal", lines: ["복수 처치 1회 / 아군 기절 3회 · 일부 경기 기록 없음"], note: "" });
+  });
+
+  it("does not treat an observed trade delay alone as a single-event title", () => {
+    const result = classifyRole({ ...BASE, mLen: 2, totalTeammateKnocks: 2, totalTradeKills: 2, avgBackupLatency: "2.00s" }, {}, "B",
+      { evidenceMatches: { tradeRate: complete(2), tradeSec: complete(1) } });
+    // 아군 기절 2회라 복수 처치율은 판정하지 않고, 복수 처치 시간만으로 복수자가 된다.
+    expect(result.primaryRole).toBe("avenger");
+    expect(result.evidenceAmount).toEqual({ strength: "partial", lines: ["복수 처치 시간 1경기에서 관측"], note: "복수 처치율 기록 없이 복수 속도만으로 판정했습니다." });
+  });
+
+  it("keeps repeated events as normal and shows the count with contributing matches", () => {
+    const result = classifyRole({ ...BASE, mLen: 5, totalTeammateKnocks: 7, totalTradeKills: 2, avgBackupLatency: "7.50s" }, {}, "B",
+      { evidenceMatches: { tradeRate: complete(2), tradeSec: complete(2) } });
+    expect(result.primaryRole).toBe("avenger");
+    expect(result.evidenceAmount).toEqual({ strength: "normal", lines: ["복수 처치 2회 / 아군 기절 7회 · 2경기에서 확인"], note: "" });
+  });
+
+  it("does not judge continuous metrics by event counts", () => {
+    const result = classify({ avgTeamDamageShare: 80 });
+    expect(result.primaryRole).toBe("mainGun");
+    expect(result.evidenceAmount).toEqual({ strength: "normal", lines: [], note: "" });
+  });
+
+  it("states when a two-metric role was judged from one observed metric without demoting it", () => {
+    const result = classify({ avgDuelWinRate: 95, totalDuelWins: 19, totalDuelLosses: 1 });
+    expect(result).toMatchObject({ primaryRole: "executor", title: "결투의 제왕" });
+    expect(result.evidenceAmount).toMatchObject({ strength: "partial", lines: ["1:1 교전 19승 / 20회"] });
+    expect(result.evidenceAmount!.note).toBe("역전 승률 기록 없이 1:1 승률만으로 판정했습니다.");
+  });
+
+  it("adds a fact line when the secondary role rests on a single event", () => {
+    const result = classifyRole({ ...BASE, mLen: 3, ...THIN_AVENGER, ...STRONG_EXECUTOR }, {}, "B",
+      { evidenceMatches: { tradeRate: complete(1), tradeSec: complete(1), duelWin: complete(3), reversal: complete(2) } });
+    expect(result.primaryRole).toBe("executor");
+    expect(result.secondaryRole).toBe("avenger");
+    expect(result.evidenceAmount!.strength).toBe("normal");
+    expect(result.evidenceAmount!.lines).toContain("보조 복수자: 복수 처치 1회 / 아군 기절 3회 · 1경기에서 확인 (근거 적음)");
+  });
+
+  it("has no evidence amount for unconfirmed results", () => {
+    expect(classify().evidenceAmount).toBeNull();
+    expect(classify(MEDIAN_EXECUTOR).evidenceAmount).toBeNull();
+  });
+
+  it("does not change titles, scores or verdicts when evidence counts are given", () => {
+    const stats = { ...BASE, mLen: 3, ...THIN_AVENGER, ...STRONG_EXECUTOR };
+    const without = classifyRole(stats, {}, "B");
+    const withCounts = classifyRole(stats, {}, "B", { evidenceMatches: { tradeRate: complete(1), tradeSec: complete(1), duelWin: complete(3), reversal: complete(2) } });
+    expect({ ...withCounts, evidenceAmount: null }).toEqual({ ...without, evidenceAmount: null });
+  });
+
+  it("counts contributing matches and flags missing fields instead of counting them as zero", () => {
+    expect(countRoleEvidenceMatches([
+      { tradeStats: { tradeKills: 1, teammateKnocks: 3, tradeLatencyMs: 7500, revCount: 0, smokeRescues: 1 }, duelStats: { wins: 2, losses: 1, reversals: 0, reversalAttempts: 1 }, initiative_rate: 50, initiativeSampleCount: 2, killContribution: { solo: 1, cleanup: 0, assist: 1 } },
+      { tradeStats: { tradeKills: 0, teammateKnocks: 2, tradeLatencyMs: null, revCount: 0, smokeRescues: 0 }, duelStats: { wins: 0, losses: 2, reversals: 1, reversalAttempts: 1 }, initiative_rate: 0, initiativeSampleCount: 3, killContribution: { solo: 0, cleanup: 0, assist: 0 } },
+    ])).toEqual({
+      tradeRate: complete(1), tradeSec: complete(1), rescueRate: complete(1), duelWin: complete(1),
+      reversal: complete(1), initiative: complete(1), assistShare: complete(1),
+    });
+    const missing = countRoleEvidenceMatches([{ tradeStats: { tradeKills: 1, teammateKnocks: 3 } }, {}]);
+    expect(missing.tradeRate).toEqual({ matches: 1, complete: false });
+    expect(missing.duelWin).toEqual({ matches: 0, complete: false });
+    // 역전 시도 수가 없거나 음수 누락 표시면 분모가 관측값이 아니므로 기록 불완전이다.
+    expect(countRoleEvidenceMatches([{ duelStats: { wins: 1, losses: 0, reversals: 2 } }]).reversal).toEqual({ matches: 0, complete: false });
+    expect(countRoleEvidenceMatches([{ tradeStats: { tradeKills: -1, teammateKnocks: 3 } }]).tradeRate).toEqual({ matches: 0, complete: false });
   });
 });
