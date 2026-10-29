@@ -16,7 +16,7 @@ const preload = `
     const rpc = url.pathname.split('/').at(-1);
     if (rpc === 'reserve_lol_riot_request') return Response.json([{ granted: true, lease_token: 'fixture-token', permit_at: new Date().toISOString() }]);
     if (rpc === 'start_lol_riot_request') return Response.json([{ allowed: true, retry_after_seconds: 0 }]);
-    if (!['record_lol_riot_rate_headers','release_lol_riot_request','increment_lol_ops_metric','save_lol_ladder_daily'].includes(rpc)) {
+    if (!['finish_lol_riot_request','increment_lol_ops_metric','save_lol_ladder_daily'].includes(rpc)) {
       throw new Error('unexpected fixture RPC');
     }
     return Response.json(true);
@@ -39,6 +39,8 @@ describe("랭크 컷 CLI 실제 진입점 — 외부 연결 없는 전송 fixtur
     expect(calls.filter(call => call.host === "kr.api.riotgames.com")).toHaveLength(6);
     expect(calls.filter(call => call.path.endsWith("reserve_lol_riot_request"))).toHaveLength(6);
     expect(calls.filter(call => call.path.endsWith("start_lol_riot_request"))).toHaveLength(6);
+    // 응답 헤더 기록과 허가 해제는 한 번의 RPC로 처리한다.
+    expect(calls.filter(call => call.path.endsWith("finish_lol_riot_request"))).toHaveLength(6);
     const writes = calls.filter(call => call.path.endsWith("save_lol_ladder_daily"));
     expect(writes).toHaveLength(mode === "--apply" ? 1 : 0);
     expect(JSON.stringify(writes)).not.toContain("private-fixture-puuid");
