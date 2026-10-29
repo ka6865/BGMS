@@ -38,6 +38,8 @@ export interface RoleInfo {
   observedRoleCount?: number;
   presentation?: "role" | "observed" | "combined" | "insufficient";
   observedRoles?: RoleKey[];
+  /** EV2 후보 기준 분포와 선정 경기의 cohort 대조 결과. 진단용이며 match가 아니면 확정하지 않는다. */
+  cohortCheck?: "match" | "reference_missing" | "evidence_missing" | "mixed" | "identity" | "mismatch";
 }
 
 interface RoleDefinition {
@@ -261,7 +263,7 @@ function validRoleEvidenceV1(value: any, mLen: number): value is RoleEvidenceV1 
   return COMPLETE_METRIC_COUNTS.every((key) => count(value.metricMatchCounts?.[key]) && value.metricMatchCounts[key] <= mLen);
 }
 
-type RoleEvidenceV2 = Omit<RoleEvidenceV1, "version"> & {version: 2; team: TeamRoleEvidence};
+type RoleEvidenceV2 = Omit<RoleEvidenceV1, "version"> & {version: 2; team: TeamRoleEvidence; cohort?: string | null; cohortIssue?: "missing" | "mixed" | "identity" | null};
 
 function validRoleEvidenceV2(value: any, mLen: number): value is RoleEvidenceV2 {
   if (value?.version !== 2 || !validRoleEvidenceV1({...value, version: 1}, mLen)) return false;
@@ -450,6 +452,13 @@ function classifyEvidenceCandidate(stats: any, overallTier: string, reference: R
     || (metrics.teamDamageShare !== null && metrics.teamDamageShare > 0)
     || (metrics.supportPerMatch !== null && metrics.supportPerMatch > 0));
   const baseValid = Number.isInteger(mLen) && mLen! >= 3 && valid && (v2 ? hasAction : evidence.validWeaponHits >= 6);
+  // EV2 후보는 기준 분포의 cohort와 같은 선정 경기에서 다시 계산한 cohort가 일치할 때만 확정한다.
+  const cohortCheck: RoleInfo["cohortCheck"] | null = !v2 || !valid ? null
+    : typeof reference.cohort !== "string" || !reference.cohort ? "reference_missing"
+      : evidence.cohortIssue === "mixed" ? "mixed"
+        : evidence.cohortIssue === "identity" ? "identity"
+          : typeof evidence.cohort !== "string" ? "evidence_missing"
+            : evidence.cohort === reference.cohort ? "match" : "mismatch";
   const { metricPercentiles, rawScores } = calculateRoleRawScores(stats, reference);
   const scores = { fieldCommander: null } as RoleScore;
   const preciseScores = {} as Record<Exclude<RoleKey, "fieldCommander">, number | null>;
@@ -479,6 +488,13 @@ function classifyEvidenceCandidate(stats: any, overallTier: string, reference: R
     reason = !valid
       ? "새 기준으로 확인된 경기 기록이 필요합니다."
       : "칭호를 판정할 만큼 교전 기록이 쌓이지 않았습니다.";
+  } else if (cohortCheck !== null && cohortCheck !== "match") {
+    primaryRole = "pending"; status = "pending";
+    reason = cohortCheck === "mismatch" ? "선정 경기의 플랫폼·모드·일반/경쟁 범위가 비교 기준과 달라 칭호 확정을 보류했습니다."
+      : cohortCheck === "reference_missing" ? "비교 기준의 경기 범위가 지정되지 않아 칭호 확정을 보류했습니다."
+        : cohortCheck === "mixed" ? "선정 경기에 서로 다른 플랫폼·모드·일반/경쟁 범위가 섞여 칭호 확정을 보류했습니다."
+          : cohortCheck === "identity" ? "선정 경기의 계정 또는 경기 식별이 일치하지 않아 칭호 확정을 보류했습니다."
+            : "선정 경기의 플랫폼·모드·일반/경쟁 기록이 없어 칭호 확정을 보류했습니다.";
   } else if (ranked.length === 0) {
     primaryRole = "pending"; status = "pending";
     reason = "같은 조건의 비교 자료가 충분하지 않아 칭호 확정을 보류했습니다.";
@@ -555,7 +571,12 @@ function classifyEvidenceCandidate(stats: any, overallTier: string, reference: R
     description: roleDescription, evidence: evidenceText, badges, signatureWeapon: weapon.name,
     signatureWeaponStats: { kills: weapon.stats.kills, dbnos: weapon.stats.dbnos, consistency: weapon.stats.consistency, isReliable: weapon.stats.isReliable },
     weakness, scores, status, reason, observedRoleCount: ranked.length,
+    ...(cohortCheck ? { cohortCheck } : {}),
   };
+  if (v2 && cohortCheck !== null && cohortCheck !== "match" && status === "pending") {
+    // 비교 범위 검증 실패는 관측 성향 설명과 구분해 그대로 보류로 남긴다.
+    return {...result, evidence: [], weakness: null, presentation: "role"};
+  }
   return v2 ? withObservedRole(stats, {...result, presentation: status === "insufficient" ? "insufficient" : "role"}) : result;
 }
 

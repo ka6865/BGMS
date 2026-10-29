@@ -64,40 +64,40 @@ const classify = (overrides: Record<string, unknown> = {}, tier = "B") => classi
 const TEAM_EVIDENCE = {matchCount:3,rescueCount:3,rescueOpportunityCount:3,teamDamageShare:40,teamDamageShareMatches:3,
   tradeKills:0,teammateKnocks:3,tradeRateMatches:3,tradeLatencySec:null,tradeLatencyMatches:0,
   baitPerMatch:0,supportPerMatch:0,supportMatches:3,focusFirePerMatch:0,assistShare:null,crossfireMatches:3};
-const V2_REFERENCE = {...CANDIDATE_REFERENCE,evidenceVersion:2 as const};
+const V2_REFERENCE = {...CANDIDATE_REFERENCE,evidenceVersion:2 as const,cohort:'steam|squad|official'};
 
 describe("role-specific candidate opportunities", () => {
   it("judges rescue evidence without requiring gun hits, while preserving v1", () => {
-    const roleEvidence={...ROLE_EVIDENCE,version:2,validWeaponHits:0,distanceHitCount:0,maxHitDist:null,pressureIndex:null,
+    const roleEvidence={...ROLE_EVIDENCE,version:2,cohort:'steam|squad|official',cohortIssue:null,validWeaponHits:0,distanceHitCount:0,maxHitDist:null,pressureIndex:null,
       distanceDamage:{short:0,mid:0,long:0},team:TEAM_EVIDENCE};
     const stats={...BASE,mLen:3,roleEvidence};
     expect(classifyRole(stats,null,"B",V2_REFERENCE)).toMatchObject({primaryRole:"shield",status:"confirmed",presentation:"role"});
     expect(classifyRole(stats,null,"B",CANDIDATE_REFERENCE).status).toBe("insufficient");
   });
   it("uses actual observed team games and withholds only the incomplete team metric", () => {
-    const stats={...BASE,mLen:3,roleEvidence:{...ROLE_EVIDENCE,version:2,team:{...TEAM_EVIDENCE,matchCount:2,teamDamageShareMatches:2,
+    const stats={...BASE,mLen:3,roleEvidence:{...ROLE_EVIDENCE,version:2,cohort:'steam|squad|official',cohortIssue:null,team:{...TEAM_EVIDENCE,matchCount:2,teamDamageShareMatches:2,
       tradeRateMatches:1,supportMatches:2,crossfireMatches:2}}};
     expect(extractRoleMetrics(stats,2)).toMatchObject({rescueRate:100,teamDamageShare:40,tradeRate:null});
     expect(extractRoleMetrics({...stats,roleEvidence:{...stats.roleEvidence,team:{...stats.roleEvidence.team,matchCount:0}}},2).teamDamageShare).toBeNull();
   });
   it("explains observed distance facts without issuing a title below 85", () => {
-    const result=classifyRole({...BASE,mLen:3,roleEvidence:{...ROLE_EVIDENCE,version:2,distanceDamage:{short:210,mid:60,long:30},team:TEAM_EVIDENCE}},null,"B",{evidenceVersion:2,metrics:{},roles:{}});
+    const result=classifyRole({...BASE,mLen:3,roleEvidence:{...ROLE_EVIDENCE,version:2,cohort:'steam|squad|official',cohortIssue:null,distanceDamage:{short:210,mid:60,long:30},team:TEAM_EVIDENCE}},null,"B",{evidenceVersion:2,cohort:'steam|squad|official',metrics:{},roles:{}});
     expect(result).toMatchObject({status:"pending",primaryRole:"pending",presentation:"observed",title:"근거리 교전 중심"});
     expect(result.description).toContain("70.0%");
     expect(result.description).toContain("3경기");
     expect(result.reason).toContain("비교 자료");
   });
   it("requires linked lethal throw opportunities and rejects malformed v2 evidence", () => {
-    const stats={...BASE,mLen:3,totalLethalThrows:2,totalUtilityHits:1,roleEvidence:{...ROLE_EVIDENCE,version:2,team:TEAM_EVIDENCE}};
+    const stats={...BASE,mLen:3,totalLethalThrows:2,totalUtilityHits:1,roleEvidence:{...ROLE_EVIDENCE,version:2,cohort:'steam|squad|official',cohortIssue:null,team:TEAM_EVIDENCE}};
     expect(extractRoleMetrics(stats,2).utilityHitsPerMatch).toBeNull();
     expect(extractRoleMetrics({...stats,totalLethalThrows:3},2).utilityHitsPerMatch).toBeCloseTo(1/3);
     expect(classifyRole({...stats,roleEvidence:{...stats.roleEvidence,team:{...TEAM_EVIDENCE,rescueCount:4}}},null,"B",V2_REFERENCE).status).toBe("insufficient");
     expect(classifyRole({...stats,mLen:2},null,"B",V2_REFERENCE).status).toBe("insufficient");
   });
   it("reports observed losses without inventing a distance specialty", () => {
-    const roleEvidence={...ROLE_EVIDENCE,version:2,validWeaponHits:0,distanceHitCount:0,maxHitDist:null,pressureIndex:null,
+    const roleEvidence={...ROLE_EVIDENCE,version:2,cohort:'steam|squad|official',cohortIssue:null,validWeaponHits:0,distanceHitCount:0,maxHitDist:null,pressureIndex:null,
       distanceDamage:{short:0,mid:0,long:0},team:{...TEAM_EVIDENCE,matchCount:0,teamDamageShareMatches:0,tradeRateMatches:0,supportMatches:0,crossfireMatches:0,tradeLatencyMatches:0}};
-    const result=classifyRole({...BASE,mLen:3,totalDuelWins:0,totalDuelLosses:3,avgDuelWinRate:0,roleEvidence},null,"B",{evidenceVersion:2,metrics:{},roles:{}});
+    const result=classifyRole({...BASE,mLen:3,totalDuelWins:0,totalDuelLosses:3,avgDuelWinRate:0,roleEvidence},null,"B",{evidenceVersion:2,cohort:'steam|squad|official',metrics:{},roles:{}});
     expect(result).toMatchObject({status:"pending",presentation:"observed",title:"상대별 교전 기록",observedRoles:[]});
     expect(result.description).toContain("승리 0회, 패배 3회");
   });

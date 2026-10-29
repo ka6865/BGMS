@@ -11,7 +11,7 @@ describe('local role evidence audit',()=>{
    const {runRoleEvidenceAudit}=await import('../scripts/audit_role_evidence');
    const id='00000000-0000-4000-8000-000000000001';
    const matches=Array.from({length:3},(_,i)=>({...{match_id:id.slice(0,-1)+(i+1),played_at:'2026-10-27',game_mode:'squad',match_type:'official'}}));
-   const results=matches.map(row=>({matchId:row.match_id,createdAt:'2026-10-27',gameMode:'squad',matchType:'official',v:73,calculationVersion:5,populationEvidenceVersion:1,benchmark:{score:50,tier:'B'},stats:{playerId:'account.fixture'}}));
+   const results=matches.map(row=>({matchId:row.match_id,createdAt:'2026-10-27',gameMode:'squad',matchType:'official',platform:'steam',v:73,calculationVersion:5,populationEvidenceVersion:1,benchmark:{score:50,tier:'B'},stats:{playerId:'account.fixture'}}));
    const input=join(root,'input.json'),output=join(root,'result.json');
    writeFileSync(input,JSON.stringify([{account:'account.fixture',name:'Fixture',queriedAt:'2026-10-28',matches,results}]));
    await runRoleEvidenceAudit(['--input',input,'--source-dir',root,'--output',output]);

@@ -2,7 +2,7 @@ import { getMatchDetailRetention } from './matchRetention';
 import { createHash } from 'node:crypto';
 import { ANALYSIS_CALCULATION_VERSION, RESULT_VERSION, POPULATION_EVIDENCE_VERSION } from './constants';
 import { selectRecentMatches, selectBestMatches } from './recentMatchSelection';
-import { aggregateMatches, isCompetitiveMatch } from './summaryAggregate';
+import { aggregateMatches, isCompetitiveMatch, roleCohortOf } from './summaryAggregate';
 import { extractRoleMetrics, calculateRoleRawScores, classifyRole, withObservedRole } from './roleClassifier';
 import { ROLE_REFERENCE_PERCENTILES, ROLE_REFERENCE_QUANTILES, roleScorePercentile, type RoleMetricKey, type RoleReference, type RoleScoreKey } from './roleReference';
 import { firstReplyLatencyMs, firstReplyFailureRate } from './firstReply';
@@ -38,7 +38,8 @@ export function calibrationMatchWindow<T extends {played_at:string}>(rows:T[], q
   });
 }
 
-const matchCohort = (m: any) => `steam|${String(m?.gameMode ?? '').trim().toLowerCase()}|${isCompetitiveMatch(m) ? 'competitive' : 'official'}`;
+// 칭호 후보와 같은 cohort 규칙을 쓴다. 기록되지 않은 platform·mode·matchType은 unknown으로 남겨 통과시키지 않는다.
+const matchCohort = (m: any) => roleCohortOf(m) ?? 'unknown';
 
 export function calibrationResults(input: CalibrationInput): any[] {
   const wanted = new Set(input.expectedMatchIds);
@@ -60,7 +61,7 @@ export function buildCalibrationProfile(input: CalibrationInput, seed: string, o
   const cohorts = new Set(best.map(matchCohort));
   if (cohorts.size !== 1) return { reason: 'mixed_cohort' };
   const cohort = [...cohorts][0];
-  if (!/^steam\|(?:duo|squad)(?:-fpp)?\|(?:official|competitive)$/.test(cohort)) return { reason: 'outside_squad_scope' };
+  if (!/^(?:steam|kakao)\|(?:duo|squad)(?:-fpp)?\|(?:official|competitive)$/.test(cohort)) return { reason: cohort === 'unknown' ? 'unknown_cohort' : 'outside_squad_scope' };
   const stats = aggregateMatches(best, options.evidenceVersion === 2 ? {roleEvidenceVersion:2} : undefined);
   if (options.evidenceVersion !== undefined && stats.roleEvidence === null) return {reason: 'incomplete_role_evidence'};
   if (options.evidenceVersion === 1 && stats.roleEvidence!.validWeaponHits < 6) return {reason: 'insufficient_role_hits'};
@@ -147,8 +148,9 @@ export function buildReplyPrecision(matches: any[], seed: string) {
   });
 }
 
-function referenceFor(train: CalibrationProfile[], holdout: CalibrationProfile[], evidenceVersion?: 1 | 2) {
-  const marker = evidenceVersion ? {evidenceVersion, ...(evidenceVersion === 2 ? {cohort:(train[0] ?? holdout[0])?.cohort} : {})} : {};
+function referenceFor(train: CalibrationProfile[], holdout: CalibrationProfile[], evidenceVersion?: 1 | 2, cohort?: string) {
+  // EV2 기준 분포는 적합한 profile 묶음의 cohort를 marker로 가진다. 판정 시 선정 경기에서 다시 계산한 cohort와 대조한다.
+  const marker = evidenceVersion ? {evidenceVersion, ...(evidenceVersion === 2 && cohort ? {cohort} : {})} : {};
   const reference: RoleReference = {...marker,metrics:{},roles:{}};
   const trainingQuantiles: RoleReference = {...marker,metrics:{},roles:{}};
   const coverage: Record<string,{train:number;holdout:number;eligible:boolean}> = {};
@@ -215,7 +217,7 @@ export function fitReferenceCandidate(profiles: CalibrationProfile[], seed:strin
   if (options.evidenceVersion !== undefined && (evidenceVersions.size > 1 || [...evidenceVersions].some(version => version !== options.evidenceVersion))) throw new Error('mixed_role_evidence');
   const cohorts=[...new Set(profiles.map(p=>p.cohort))].sort().map(cohort=>{
     const group=profiles.filter(p=>p.cohort===cohort),train=group.filter(p=>p.partition==='train'),held=group.filter(p=>p.partition==='holdout');
-    const fit=referenceFor(train,held,options.evidenceVersion);
+    const fit=referenceFor(train,held,options.evidenceVersion,cohort);
     const stability=bootstrapReferenceStability(train,held,fit.reference,`${seed}|${cohort}`);
     const distribution:Record<string,Record<string,number>>={before:{},candidate:{}};
     const movements=group.filter(p=>p.partition!=='train').map(p=>{
@@ -305,7 +307,8 @@ export function roleWindowStability(matches: any[], reference: RoleReference) {
       title: primaryOnly.title, roleLabel: primaryOnly.roleLabel,
       reason: "대표 역할은 유지되지만 보조 역할은 경기 구성에 따라 달라져 확정을 보류했습니다."};
   }
-  if (reference.evidenceVersion === 2 && decision.status === "pending") {
+  // 비교 범위(cohort) 검증 실패는 관측 성향·복합 설명으로 바꾸지 않는다.
+  if (reference.evidenceVersion === 2 && decision.status === "pending" && (decision.cohortCheck === undefined || decision.cohortCheck === "match")) {
     decision = withObservedRole(baselineStats, {...decision, evidence: [], weakness: null});
     const precise = Object.entries(calculateRoleRawScores(baselineStats, reference).rawScores)
       .map(([key, raw]) => [key as RoleScoreKey, raw === null ? null : roleScorePercentile(key as RoleScoreKey, raw, reference)] as const)

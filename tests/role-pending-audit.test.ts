@@ -14,7 +14,7 @@ it('audits offline without IO on import, and refuses ambiguous snapshots',()=>{
 it('uses the validated account and retention window for fitting, decisions and variants',()=>{
   const roleEvidence={version:1,validWeaponHits:6,distanceHitCount:6,distanceDamage:{short:100,mid:0,long:0},maxHitDist:20,pressureIndex:1,
     focusFireCount:0,rescueCount:0,rescueOpportunityCount:0,positionSampleCount:0,edgePlayCount:0};
-  const match=(id:string,foreign=false)=>({v:73,calculationVersion:foreign?4:5,populationEvidenceVersion:1,matchId:id,createdAt:'2026-10-28T12:00:00Z',gameMode:'squad',matchType:'official',
+  const match=(id:string,foreign=false)=>({v:73,calculationVersion:foreign?4:5,populationEvidenceVersion:1,matchId:id,createdAt:'2026-10-28T12:00:00Z',gameMode:'squad',matchType:'official',platform:'steam',
     benchmark:{score:foreign?99:20,tier:'B'},stats:{playerId:foreign?'other':'a',winPlace:2},totalTeams:20,teamContext:{myRosterSize:1},
     roleEvidence:{...roleEvidence,distanceDamage:{short:foreign?10000:100,mid:0,long:0}}});
   const good=Array.from({length:3},(_,i)=>match(`good${i}`));

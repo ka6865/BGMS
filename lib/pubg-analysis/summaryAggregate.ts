@@ -170,6 +170,31 @@ function aggregateRoleEvidence(matches: any[]) {
   };
 }
 
+/**
+ * 칭호 후보 기준 분포의 모집단 키: platform|raw gameMode|official/competitive.
+ * 값이 기록되지 않은 경기는 null이다. 누락을 steam·official 같은 기본값으로 채우지 않는다.
+ */
+export function roleCohortOf(match: any): string | null {
+  const platform = typeof match?.platform === "string" ? match.platform.trim().toLowerCase() : "";
+  const mode = typeof match?.gameMode === "string" ? match.gameMode.trim().toLowerCase() : "";
+  const rawType = String(match?.matchType ?? match?.match_type ?? "").trim().toLowerCase();
+  if (!["steam", "kakao"].includes(platform) || !mode || !rawType) return null;
+  return `${platform}|${mode}|${isCompetitiveMatch(match) ? "competitive" : "official"}`;
+}
+
+export type RoleCohortIssue = "missing" | "mixed" | "identity";
+
+/** 같은 선정 경기에서 cohort를 다시 계산한다. 한 계정·중복 없는 경기·같은 cohort일 때만 값이 있다. */
+function aggregateRoleCohort(matches: any[]): { cohort: string | null; cohortIssue: RoleCohortIssue | null } {
+  const ids = matches.map((match) => match?.matchId);
+  const players = new Set(matches.map((match) => match?.stats?.playerId ?? match?.player_id).filter((value) => typeof value === "string" && value));
+  if (ids.some((id) => typeof id !== "string" || !id) || new Set(ids).size !== ids.length || players.size > 1) return { cohort: null, cohortIssue: "identity" };
+  const cohorts = matches.map(roleCohortOf);
+  if (cohorts.some((cohort) => cohort === null)) return { cohort: null, cohortIssue: "missing" };
+  if (new Set(cohorts).size !== 1) return { cohort: null, cohortIssue: "mixed" };
+  return { cohort: cohorts[0], cohortIssue: null };
+}
+
 export interface TeamRoleEvidence {
   matchCount: number;
   rescueCount: number;
@@ -658,7 +683,7 @@ export function aggregateMatches(matches: any[], options?: { roleEvidenceVersion
 
   const roleEvidenceV1 = aggregateRoleEvidence(inputMatches);
   const roleEvidence = options?.roleEvidenceVersion === 2 && roleEvidenceV1
-    ? {...roleEvidenceV1, version: 2 as const, team: aggregateTeamRoleEvidence(inputMatches)}
+    ? {...roleEvidenceV1, version: 2 as const, team: aggregateTeamRoleEvidence(inputMatches), ...aggregateRoleCohort(inputMatches)}
     : roleEvidenceV1;
   return {
     metricMatchCounts,
