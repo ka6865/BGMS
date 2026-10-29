@@ -1017,3 +1017,80 @@ describe("isolation benchmark comparison", () => {
     expect(actionItems.some((item) => item.desc.includes("팀원과 함께 대응할 수 있는 거리인지"))).toBe(false);
   });
 });
+
+describe("summary prose grounded in card evidence", () => {
+  // 2026-10-29 MiaeQ_Q 요약: 화력은 평균보다 높고, 고립 지수는 방향 없는 비교, 유틸리티는 사용 기록만 있다.
+  const miaeqCards = () => buildSummaryCards({
+    topics: ["포지셔닝", "화력", "유틸리티 활용"],
+    context,
+    evidence: [
+      evidence({ metricId: "isolation_average", label: "평균 고립 지수", unit: "", userValue: "0.27", benchmarkValue: "1.02", sampleCount: 101 }),
+      evidence({ metricId: "damage_average", label: "평균 화력", unit: "", userValue: "231.33", benchmarkValue: "220.10", sampleCount: 104 }),
+      evidence({ metricId: "utility_throws", label: "총 투척 횟수", unit: "회", userValue: "20회" }),
+    ],
+  });
+  const normalizeWith = (cards: SummaryCard[], overrides: Record<string, unknown> = {}, issueOverrides: Partial<Record<string, Record<string, unknown>>> = {}) =>
+    normalizeSummaryCardFinal(providerFinal(cards, {
+      debateIssues: cards.map((card) => providerIssue(card, { winner: null, ...(issueOverrides[card.topicId] ?? {}) })),
+      ...overrides,
+    }), cards, { sanitizeText: (value) => value, hasUnsupportedMode: () => false });
+
+  it.each([
+    "다음 교전에서는 명중률과 탄약 관리를 철저히 점검해 보세요.",
+    "다음 교전 전에 에임과 반동 제어를 점검해 보세요.",
+    "다음 경기에서 헤드샷 비율을 확인해 보세요.",
+  ])("replaces a spicy check about an unmeasured shooting metric with the server check: %s", (spicyOpinion) => {
+    const cards = miaeqCards();
+    const result = normalizeWith(cards, {}, { firepower: { spicyOpinion } });
+    const firepower = result?.final.cards.find((card) => card.topicId === "firepower");
+    expect(firepower?.analysisStatus).toBe("ready");
+    expect(firepower?.spicyOpinion).not.toMatch(/명중률|탄약|에임|반동|헤드샷/u);
+    expect(JSON.stringify(result?.final)).not.toMatch(/명중률|탄약|에임|반동|헤드샷/u);
+  });
+
+  it("drops an action item about an unmeasured shooting metric", () => {
+    const cards = miaeqCards();
+    const result = normalizeWith(cards, { actionItems: [
+      { icon: "target", title: "사격 점검", desc: "다음 교전에서 탄약 관리를 점검해 보세요." },
+      { icon: "target", title: "유틸리티 활용 점검", desc: "다음 교전 상황에서 투척물 사용 타이밍을 점검해 보세요." },
+    ] });
+    const actionItems = (result?.final.actionItems ?? []) as Array<{ title: string; desc: string }>;
+    expect(actionItems.map((item) => item.title)).toEqual(["유틸리티 활용 점검"]);
+  });
+
+  it("drops action items that only target a card without a weakness", () => {
+    const cards = miaeqCards();
+    const result = normalizeWith(cards, { actionItems: [
+      { icon: "target", title: "포지셔닝 점검", desc: "다음 경기 전 아군과의 위치를 확인해 보세요." },
+      { icon: "target", title: "화력 점검", desc: "다음 교전이 끝난 뒤 화력을 보탤 수 있었는지 확인해 보세요." },
+      { icon: "target", title: "유틸리티 활용 점검", desc: "다음 교전 상황에서 투척물 사용 타이밍을 점검해 보세요." },
+    ] });
+    const actionItems = (result?.final.actionItems ?? []) as Array<{ title: string }>;
+    expect(actionItems.map((item) => item.title)).toEqual(["유틸리티 활용 점검"]);
+  });
+
+  it("keeps an action item for a card whose comparison is unfavourable", () => {
+    const cards = buildSummaryCards({
+      topics: ["화력", "포지셔닝", "유틸리티 활용"],
+      context,
+      evidence: [
+        evidence({ metricId: "damage_average", label: "평균 화력", unit: "", userValue: "435.67", benchmarkValue: "599.39", sampleCount: 94 }),
+        evidence({ metricId: "isolation_average", label: "평균 고립 지수", unit: "", userValue: "0.28", benchmarkValue: "1.10", sampleCount: 93 }),
+        evidence({ metricId: "utility_throws", label: "총 투척 횟수", unit: "회", userValue: "23회" }),
+      ],
+    });
+    const result = normalizeWith(cards, { actionItems: [
+      { icon: "target", title: "화력 보완", desc: "다음 교전 전에 아군과 교전각을 맞추는 방식을 점검해 보세요." },
+    ] });
+    const actionItems = (result?.final.actionItems ?? []) as Array<{ title: string }>;
+    expect(actionItems.map((item) => item.title)).toEqual(["화력 보완"]);
+  });
+
+  it("keeps an action item that names no card topic", () => {
+    const cards = miaeqCards();
+    const result = normalizeWith(cards, { actionItems: [
+      { icon: "target", title: "다음 경기 점검", desc: "다음 경기 종료 후 마지막 교전 상황을 돌아보세요." },
+    ] });
+    expect(((result?.final.actionItems ?? []) as unknown[]).length).toBe(1);
+  });
+});

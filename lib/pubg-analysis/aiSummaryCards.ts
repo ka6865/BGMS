@@ -898,6 +898,29 @@ function metricCheck(card: SummaryCard): string {
   return weak ? METRIC_CHECKS[weak.metricId] : cardCheck(card.topicId);
 }
 
+// 행동 제안 문장이 다루는 카드 주제. 상대 위치·경로처럼 여러 주제에 흔한 말은 넣지 않는다.
+const ACTION_TOPIC_PATTERNS: Readonly<Record<SummaryTopicId, RegExp>> = {
+  firepower: /화력|딜량|피해량|교전각|사격각/u,
+  initiative: /선제|주도권|먼저\s*사격/u,
+  duel: /1\s*[:：]\s*1|일대일|교전\s*승률/u,
+  trade_backup: /복수|백업|합류/u,
+  utility: /투척|연막|수류탄|유틸/u,
+  positioning: /(?:아군|팀원)(?:과|와)?(?:의)?\s*(?:위치|거리)|대열|고립|포지션|이동\s*경로/u,
+  survival: /생존|자기장|사망\s*페이즈/u,
+};
+
+function actionItemTopics(text: string): SummaryTopicId[] {
+  return (Object.keys(ACTION_TOPIC_PATTERNS) as SummaryTopicId[]).filter((topicId) => ACTION_TOPIC_PATTERNS[topicId].test(text));
+}
+
+// 행동 제안을 둘 근거가 있는 주제인지. 비교 카드는 평균보다 불리한 지표가 있을 때만, 사용 기록 카드는 점검 대상이다.
+// 이번 요약에 없는 주제는 판단하지 않고 유지한다.
+function isActionableTopic(readyCards: readonly SummaryCard[], topicId: SummaryTopicId): boolean {
+  const card = readyCards.find((candidate) => candidate.topicId === topicId);
+  if (!card) return true;
+  return card.dataStatus !== "comparable" || card.evidence.some((row) => isUnfavorable(row) === true);
+}
+
 function serverWinner(card: SummaryCard): SummaryCard["winner"] {
   const directions = card.evidence.map(isUnfavorable).filter((value): value is boolean => value !== null);
   if (!directions.length) return null;
@@ -1133,7 +1156,12 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
   if (readyCards.length > 0 && neutralCards >= readyCards.length) reject("all_neutral");
   const providerActionItems = readyCards.length === 0 ? [] : actionItems.items.flatMap((item) => {
     const desc = conditionalCheckText(item.desc);
-    return desc && !/\d/u.test(item.title) ? [{ ...item, desc }] : [];
+    if (!desc || /\d/u.test(item.title)) return [];
+    // 비교 결과 보완점이 없는 카드(모두 평균 이상이거나 방향이 없는 지표뿐)만 다루는 제안은
+    // 양호한 지표를 약점처럼 보이게 하므로 뺀다. 다른 카드 주제도 함께 다루면 유지한다.
+    const topics = actionItemTopics(`${item.title} ${desc}`);
+    if (topics.length > 0 && topics.every((topicId) => !isActionableTopic(readyCards, topicId))) return [];
+    return [{ ...item, desc }];
   });
   const serverActionItems = readyCards
     .map(card => weakestMetric(card))
