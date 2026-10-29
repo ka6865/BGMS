@@ -63,3 +63,11 @@ KangHeeSung_는 피격 66ms 전에도 사격했고, 해당 반격 명중의 발�
 - migration은 기존 20261028140000_first_reply_evidence가 선행돼야 한다. 이번 1차는 새 migration·운영 재적재·배포·전체 CDF 재학습을 포함하지 않는다.
 
 - 독립 전체 변경 검토: Critical/Important 없음. 중복 조사·필드 수 오기 두 건을 수정했고 문서 EOF 공백을 정리했다. 공통 검증 오류 0/기존 경고 49개. 운영 migration은 이번에 재실행하지 않았다.
+
+## 배포 노트 (2026-10-29 보완)
+
+- **순서:** `20261028140000_first_reply_evidence` migration을 먼저 적용하고 앱을 배포한다. 앱은 `global_benchmarks` upsert에 `eligible_first_reply_latency_ms`·`eligible_counter_failure_rate`를 포함하므로, 열이 없는 DB에 앱을 먼저 배포하면 benchmark 행 저장이 실패한다. 읽기는 view의 `select("*")`라 migration만 먼저 적용해도 기존 앱과 호환된다. 이 순서는 운영 결함이 아니라 배포 조건이다.
+- **유지되는 값:** 점수의 반격 지연, 기존 `counter_latency_ms`·`first_reply_latency_ms` 열, 계산 5·결과 73은 그대로다.
+- **사용자에게 보이는 변화:** `firstReplyEvidence`가 없는 이전 저장 결과는 반격 소요 시간과 3초 내 대응 실패가 측정 불가로 표시된다. 새로 생성하는 요약에서는 반격 분포가 준비될 때까지 선봉 판정을 보류해 선봉·선봉 조합 칭호를 부여하지 않는다. 이미 저장된 화면을 지우는 처리는 아니다.
+- **캐시 비용:** `AI_SUMMARY_CACHE_VERSION` v25와 `AI_CACHE_VERSION` v6 때문에, 배포 후 사용자가 요약·단판 분석을 다시 요청할 때 기존 캐시를 찾지 못하고 Gemini를 새로 호출한다. 배포만으로 일괄 재생성하지는 않는다. #377에서 옮겨 온 요약 system prompt 문장(전선·돌파·돌입·진입 칭호 금지)도 이 변경과 함께 반영해 요약 캐시 miss가 한 번만 생기게 했다.
+- **#377 통합:** #377과 이 PR은 `app/api/pubg/ai-summary/route.ts`, `lib/pubg-analysis/matchAiCoachingPrompt.ts`, `lib/pubg-analysis/matchAiEvidence.ts`가 충돌한다. 양쪽 보호 규칙을 모두 보존한 통합 결과와 검증은 통합 검증용 Draft PR에 둔다.
