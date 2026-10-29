@@ -5,7 +5,8 @@ describe("scraper request diagnostics", () => {
   it("keeps unsupported boards and unavailable/in-progress matches separate from outages", () => {
     expect(scraperRequestRequiresAttention({ stage: "leaderboard", status: 404, code: "Not Found" })).toBe(false);
     expect(scraperRequestRequiresAttention({ stage: "match", status: 409, code: "in progress" })).toBe(false);
-    expect(scraperRequestRequiresAttention({ stage: "player", status: 404, code: "Not Found" })).toBe(true);
+    expect(scraperRequestRequiresAttention({ stage: "player", status: 404, code: "Not Found" })).toBe(false);
+    expect(scraperRequestRequiresAttention({ stage: "player", status: 429, code: "Too Many Requests" })).toBe(true);
     for (const status of [401, 403, 429, 500, 503, null]) {
       expect(scraperRequestRequiresAttention({ stage: "match", status, code: "failure" })).toBe(true);
     }

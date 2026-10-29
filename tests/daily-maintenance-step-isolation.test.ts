@@ -41,6 +41,7 @@ const HEALTH_GATED_COMMANDS = [
   "npx tsx scripts/cleanup_match_stats_raw.ts --apply",
   "npx tsx scripts/audit_processed_telemetry_identity.ts --recent-days 2 --max-rows 1000 --target-limit 50",
   "npx tsx scripts/scrape_elite.ts",
+  "npx tsx scripts/cleanup_benchmark_cohort.ts --apply",
   "npx tsx scripts/extract_bluezone.ts",
   "npx tsx scripts/sync_patch_notes.ts",
   'npx tsx scripts/monitor_storage.ts --label "AFTER"',

@@ -1487,6 +1487,8 @@ describe("PUBG match persistence behavior", () => {
       mockSupabase,
       expect.objectContaining({ source: "scraper" }),
     );
+    // 벤치마크 수집은 전적 화면용 장기 경기 성과를 남기지 않는다.
+    expect(mockPersistRetainedPerformance).not.toHaveBeenCalled();
   });
 });
 
@@ -3692,7 +3694,7 @@ describe("elite scraper caller contract", () => {
     expect(scraperStep).toContain("ADMIN_REVALIDATE_TOKEN: ${{ secrets.ADMIN_REVALIDATE_TOKEN }}");
   });
 
-  it("query token을 사용하지 않고 주 매치와 sample을 scraper Bearer로 호출한다", () => {
+  it("query token을 사용하지 않고 벤치마커 경기를 scraper Bearer로 호출한다", () => {
     const source = readFileSync(SCRAPER_PATH, "utf8");
 
     expect(source).not.toContain("secret=");
@@ -3700,13 +3702,13 @@ describe("elite scraper caller contract", () => {
     expect(source).toContain("ADMIN_REVALIDATE_TOKEN");
     expect(source).toMatch(/PUBG_SCRAPER_INTERNAL_TOKEN\?\.trim\(\)/);
     expect(source).toMatch(/ADMIN_REVALIDATE_TOKEN\?\.trim\(\)/);
-    expect(source.match(/source=scraper/g)).toHaveLength(2);
+    // 명단 밖 참가자 샘플링은 정리 대상에서 빠지므로 호출 경로가 하나여야 한다.
+    expect(source.match(/source=scraper/g)).toHaveLength(1);
     expect(source).toMatch(/Authorization:\s*`Bearer \$\{PUBG_SCRAPER_INTERNAL_TOKEN\}`/);
     expect(source).toMatch(/X-BGMS-Admin-Token/);
     expect(source).toContain("describeScraperRequestFailure");
     expect(source).toContain("스크래퍼 요청 실패");
     expect(source).toContain("스크래퍼 실행 요약");
-    expect(source).toContain("throw error;");
     expect(source).not.toMatch(/console\.(?:log|error)\([^\n]*(?:nickname|matchId|sampleName|apiErr\.response|error\.message)/);
   });
 

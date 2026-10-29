@@ -1,4 +1,4 @@
-export type ScraperRequestStage = "season" | "leaderboard" | "player" | "match" | "sample";
+export type ScraperRequestStage = "season" | "leaderboard" | "player" | "match";
 
 export type ScraperRequestFailure = {
   stage: ScraperRequestStage;
@@ -7,8 +7,9 @@ export type ScraperRequestFailure = {
 };
 
 export function scraperRequestRequiresAttention(failure: ScraperRequestFailure): boolean {
-  if (failure.stage === "leaderboard" && failure.status === 404) return false;
-  if (["match", "sample"].includes(failure.stage) && [404, 409].includes(failure.status ?? 0)) return false;
+  // 지원하지 않는 리더보드 모드와 조회되지 않는 계정 묶음은 장애가 아니다.
+  if ((failure.stage === "leaderboard" || failure.stage === "player") && failure.status === 404) return false;
+  if (failure.stage === "match" && [404, 409].includes(failure.status ?? 0)) return false;
   return true;
 }
 

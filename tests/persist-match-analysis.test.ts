@@ -152,6 +152,22 @@ describe("persistMatchAnalysis", () => {
     vi.unstubAllEnvs();
   });
 
+  it("벤치마크 수집(scraper)은 플레이어 캐시·경기 기록 없이 통계 표본만 저장한다", async () => {
+    const result = await persistMatchAnalysis(supabase, { ...input, source: "scraper" });
+    expect(upserts.get("pubg_player_cache")).not.toHaveBeenCalled();
+    expect(upserts.get("pubg_player_matches")).not.toHaveBeenCalled();
+    expect(participantRpc).not.toHaveBeenCalled();
+    expect(settingsRead).not.toHaveBeenCalled();
+    expect(result.succeeded).toEqual(expect.arrayContaining(["match_stats_raw", "global_benchmarks"]));
+    expect(result.succeeded).not.toContain("pubg_player_cache");
+    expect(result.succeeded).not.toContain("pubg_player_matches");
+    expect(upserts.get("global_benchmarks")).toHaveBeenCalledWith(
+      expect.objectContaining({ source: "scraper", player_id: "playerone" }),
+      expect.anything(),
+    );
+    expect(result.failures).toEqual([]);
+  });
+
   it('omits unobserved counters from the conflict update after individual analysis', async () => {
     await persistMatchAnalysis(supabase, input);
     const rows = upserts.get('pubg_player_matches')!.mock.calls[0][0] as Array<Record<string, unknown>>;
