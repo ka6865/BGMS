@@ -2255,13 +2255,16 @@ async function reanalyzeAndSave(
       if (source === "user" && isMatchDetailExpired(matchAttr.createdAt)) {
         throw new MatchDetailExpiredError(matchAttr.createdAt);
       }
-      try {
-        const retained = await persistRetainedPerformance(supabase, persistenceInput.finalResult, {
-          matchId, platform, playerId: lowerNickname,
-        });
-        if (!retained) console.warn("[MATCH] 장기 경기 성과 저장을 건너뛰었습니다.");
-      } catch {
-        console.error("[MATCH] 장기 경기 성과 저장 중 예외 발생");
+      // 장기 경기 성과는 전적 화면용 개인 기록이라 벤치마크 수집(scraper)에서는 저장하지 않는다.
+      if (source === "user") {
+        try {
+          const retained = await persistRetainedPerformance(supabase, persistenceInput.finalResult, {
+            matchId, platform, playerId: lowerNickname,
+          });
+          if (!retained) console.warn("[MATCH] 장기 경기 성과 저장을 건너뛰었습니다.");
+        } catch {
+          console.error("[MATCH] 장기 경기 성과 저장 중 예외 발생");
+        }
       }
     }
   }

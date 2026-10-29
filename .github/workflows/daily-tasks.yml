@@ -287,10 +287,19 @@ jobs:
           APP_URL: ${{ secrets.APP_URL }}
           PUBG_SCRAPER_INTERNAL_TOKEN: ${{ secrets.PUBG_SCRAPER_INTERNAL_TOKEN }}
           ADMIN_REVALIDATE_TOKEN: ${{ secrets.ADMIN_REVALIDATE_TOKEN }}
-          ELITE_PLAYER_LIMIT: 5 # 인원 절반 축소
-          ELITE_MATCH_LIMIT: 3  # 매치 수 축소
-          ENABLE_SAMPLING: false # 샘플링 비활성화로 부하 최소화
+          ELITE_PLAYER_LIMIT: 10        # 모드별 리더보드에서 명단에 올릴 상위 인원
+          ELITE_COHORT_DAILY_LIMIT: 30  # 명단에서 하루에 경기를 수집할 인원
+          ELITE_MATCH_LIMIT: 3          # 인원당 최근 경기 수
         run: npx tsx scripts/scrape_elite.ts
+
+      # 명단 제외 후 90일이 지난 벤치마커의 식별 정보 정리 (20261030020000 migration 적용 후 동작)
+      - name: Cleanup Retired Benchmark Cohort
+        # global_benchmarks·pubg_match_performance·weapon_meta_match_samples를 바꾸므로 백업 확인 뒤에만 실행한다.
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' && steps.core_backup_verify.outcome == 'success' }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: npx tsx scripts/cleanup_benchmark_cohort.ts --apply
 
       - name: Extract Bluezone Statistics
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}

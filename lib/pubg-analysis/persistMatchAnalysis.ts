@@ -741,11 +741,15 @@ export async function persistMatchAnalysis(
   input: PersistMatchAnalysisInput,
 ): Promise<PersistMatchAnalysisResult> {
   const result: PersistMatchAnalysisResult = { succeeded: [], failures: [] };
+  // 벤치마크 수집(scraper)은 검색되지 않은 제3자의 표본이다. 검색·랭킹·전적 화면이 읽는
+  // 플레이어 캐시와 경기 기록에는 남기지 않고 통계 표본만 저장한다. 수집 건너뛰기 판정과
+  // 팀 벤치마크·계산 버전 갱신은 processed_match_telemetry와 global_benchmarks만 읽는다.
+  const storesPlayerHistory = input.source !== "scraper";
 
   await Promise.all([
     persistRawStats(supabase, input, result),
-    persistPlayerCache(supabase, input, result),
-    persistPlayerMatches(supabase, input, result),
+    storesPlayerHistory ? persistPlayerCache(supabase, input, result) : undefined,
+    storesPlayerHistory ? persistPlayerMatches(supabase, input, result) : undefined,
     persistBenchmark(supabase, input, result),
     persistWeaponMetaMatchSamples(supabase, input, result),
   ]);
