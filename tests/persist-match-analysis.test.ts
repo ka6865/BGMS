@@ -271,7 +271,7 @@ describe("persistMatchAnalysis", () => {
         nickname: "PlayerOne",
         lower_nickname: "playerone",
       })],
-      { onConflict: "id" },
+      { onConflict: "id", ignoreDuplicates: true },
     );
     expect(result.failures).toEqual([]);
   });
@@ -606,6 +606,20 @@ describe("persistMatchAnalysis", () => {
     expect(upserts.get("pubg_player_cache")).not.toHaveBeenCalled();
   });
 
+  it("player cache 매핑은 기존 행의 갱신 시각과 전적을 덮지 않고 새 행도 동기화 전으로 둔다", async () => {
+    await persistMatchAnalysis(supabase, input);
+
+    const [rows, options] = upserts.get("pubg_player_cache")!.mock.calls[0];
+    expect(options).toEqual({ onConflict: "id", ignoreDuplicates: true });
+    expect(rows).toEqual([{
+      id: "account.target",
+      platform: "steam",
+      nickname: "PlayerOne",
+      lower_nickname: "playerone",
+      updated_at: null,
+    }]);
+  });
+
   it("player cache에는 실제 분석 대상자 한 명만 한 번 저장한다", async () => {
     await persistMatchAnalysis(supabase, {
       ...input,
@@ -622,7 +636,7 @@ describe("persistMatchAnalysis", () => {
         nickname: "PlayerOne",
         lower_nickname: "playerone",
       })],
-      { onConflict: "id" },
+      { onConflict: "id", ignoreDuplicates: true },
     );
   });
 

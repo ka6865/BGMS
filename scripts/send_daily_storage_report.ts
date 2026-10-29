@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { getR2BucketUsage } from "../lib/pubg-analysis/r2Service";
 import { getSupabaseDatabaseLimitBytes, R2_FREE_STORAGE_LIMIT_BYTES } from "../lib/admin-agent/storage-limits";
-import { buildDailyStorageReport, requireCompleteDailyReportR2Usage } from "../lib/admin-agent/dailyStorageReport";
+import { buildDailyReportStepWarnings, buildDailyStorageReport, requireCompleteDailyReportR2Usage } from "../lib/admin-agent/dailyStorageReport";
 
 export async function deliverDailyStorageReport(webhookUrl: string, message: string) {
   let deliveryUrl: URL;
@@ -80,6 +80,7 @@ async function main() {
     },
     maintenanceStatus: process.env.MAINTENANCE_STATUS || "unknown",
     runUrl: process.env.RUN_URL || "(실행 URL 없음)",
+    stepWarnings: buildDailyReportStepWarnings(process.env),
   });
 
   const receipt = await deliverDailyStorageReport(webhookUrl, message);

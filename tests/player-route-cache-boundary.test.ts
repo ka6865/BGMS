@@ -24,6 +24,9 @@ vi.mock("@/lib/pubg/responseCache", () => ({
   claimForceRefresh: vi.fn(),
   readPubgCache: mockReadPubgCache,
   writePubgCache: mockWritePubgCache,
+  // 시즌 목록 공유 캐시는 비어 있는 것으로 두어 /seasons 조회 경로를 그대로 검증한다.
+  readPubgSeasonsCache: vi.fn().mockResolvedValue(null),
+  writePubgSeasonsCache: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/lib/pubg-analysis/pubgApiTracker", () => ({

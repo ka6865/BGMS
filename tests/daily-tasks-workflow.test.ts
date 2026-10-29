@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "path";
 import { tmpdir } from "node:os";
 
@@ -104,9 +104,9 @@ type MaintenanceWorkflow = {
 
   it("bounds daily jobs and includes support cleanup in failure notifications", () => {
     const content = readFileSync(join(process.cwd(), ".github/workflows/daily-tasks.yml"), "utf-8");
-    expect(content).toContain("support-attachment-cleanup:\n    needs: board-image-cleanup\n    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' }}\n    runs-on: ubuntu-latest\n    timeout-minutes: 10");
+    expect(content).toContain("support-attachment-cleanup:\n    if: ${{ github.ref == 'refs/heads/main' }}\n    runs-on: ubuntu-latest\n    timeout-minutes: 10");
     expect(content).toContain("board-write-quota-cleanup:\n    if: ${{ github.ref == 'refs/heads/main' }}\n    runs-on: ubuntu-latest\n    timeout-minutes: 5");
-    expect(content).toContain("maintenance:\n    needs: board-write-quota-cleanup\n    if: ${{ always() && !cancelled() && github.ref == 'refs/heads/main' }}");
+    expect(content).toContain("maintenance:\n    if: ${{ github.ref == 'refs/heads/main' }}");
     expect(content).toContain("timeout-minutes: 90");
     expect(content).toContain("needs: [support-attachment-cleanup, board-write-quota-cleanup, maintenance, match-type-backfill]");
     expect(content).toContain("--connect-timeout 10 --max-time 60");
@@ -122,7 +122,7 @@ type MaintenanceWorkflow = {
     const content = readFileSync(join(process.cwd(), ".github/workflows/daily-tasks.yml"), "utf-8");
     expect(content).toContain("- name: Backup Core Tables\n        id: core_backup");
     for (const name of [
-      "Run Storage Cleanup",
+      "Compact Inactive PUBG Player Cache",
       "Run AI Cache Cleanup",
       "Run Analytics Events Cleanup",
       "Run Match Stats Raw Compaction",
@@ -139,6 +139,89 @@ type MaintenanceWorkflow = {
     const scraperStep = content.slice(scraperStart, scraperNext);
     expect(scraperStep).toContain("steps.database_health.outcome == 'success'");
     expect(scraperStep).not.toContain("core_backup");
+  });
+
+  it("schedules off the hour without sharing a slot with other scheduled workflows", () => {
+    const workflowDir = join(process.cwd(), ".github/workflows");
+    const daily = loadYaml(readFileSync(join(workflowDir, "daily-tasks.yml"), "utf-8")) as {
+      on: { schedule: { cron: string }[] };
+    };
+    const [{ cron }] = daily.on.schedule;
+    const [minute, hour] = cron.split(" ");
+    expect(minute).not.toBe("0");
+    expect(Number(minute)).toBeGreaterThan(0);
+    // KST 새벽(UTC 15~20시)에 시작한다.
+    expect(Number(hour)).toBeGreaterThanOrEqual(15);
+    expect(Number(hour)).toBeLessThanOrEqual(20);
+
+    const otherCrons = readdirSync(workflowDir)
+      .filter((file) => file.endsWith(".yml") && file !== "daily-tasks.yml")
+      .flatMap((file) => [...readFileSync(join(workflowDir, file), "utf-8").matchAll(/cron:\s*['"]([^'"]+)['"]/g)]
+        .map((match) => match[1]));
+    for (const other of otherCrons) {
+      const [otherMinute, otherHour] = other.split(" ");
+      const sameMinute = otherMinute.startsWith("*/")
+        ? Number(minute) % Number(otherMinute.slice(2)) === 0
+        : otherMinute === "*" || otherMinute.split(",").includes(minute);
+      const sameHour = otherHour === "*"
+        || (otherHour.startsWith("*/") ? Number(hour) % Number(otherHour.slice(2)) === 0 : otherHour.split(",").includes(hour));
+      expect(sameMinute && sameHour, other).toBe(false);
+    }
+  });
+
+  it("runs the small cleanup jobs in parallel while keeping PUBG key and backup order inside maintenance", () => {
+    const workflow = loadYaml(readFileSync(join(process.cwd(), ".github/workflows/daily-tasks.yml"), "utf-8")) as {
+      jobs: Record<string, { needs?: unknown; steps?: { name?: string }[] }>;
+    };
+    expect(workflow.jobs["support-attachment-cleanup"].needs).toBeUndefined();
+    expect(workflow.jobs["board-write-quota-cleanup"].needs).toBeUndefined();
+    expect(workflow.jobs.maintenance.needs).toBeUndefined();
+
+    const names = (workflow.jobs.maintenance.steps ?? []).map((step) => step.name);
+    const order = [
+      "Backup Core Tables",
+      "Verify Core Backup Restore",
+      "Compact Inactive PUBG Player Cache",
+      "Run Smart Scraper",
+      "Extract Bluezone Statistics",
+      "Run User Matches Sync",
+      "Run Hotdrop Collection",
+    ].map((name) => names.indexOf(name));
+    expect(order.every((index) => index >= 0)).toBe(true);
+    expect([...order].sort((left, right) => left - right)).toEqual(order);
+  });
+
+  it("gives the player cache compaction only the database credentials it uses", () => {
+    const content = readFileSync(join(process.cwd(), ".github/workflows/daily-tasks.yml"), "utf-8");
+    const workflow = loadYaml(content) as {
+      jobs: { maintenance: { steps: { name?: string; run?: string; env?: Record<string, string> }[] } };
+    };
+    const step = workflow.jobs.maintenance.steps.find((candidate) => candidate.run === "npx tsx scripts/cleanup_telemetry.ts");
+    expect(step?.name).toBe("Compact Inactive PUBG Player Cache");
+    expect(step?.env).toEqual({
+      NEXT_PUBLIC_SUPABASE_URL: "${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}",
+      SUPABASE_SERVICE_ROLE_KEY: "${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}",
+    });
+    // 숫자 secret 은 로그의 같은 숫자를 *** 로 가린다. 쓰지 않는 값은 다시 참조하지 않는다.
+    expect(content).not.toContain("CLEANUP_TARGET_VERSION");
+    expect(content).not.toContain("CLEANUP_RETENTION_DAYS");
+  });
+
+  it("surfaces a failed data quality audit in the daily report instead of passing silently", () => {
+    const workflow = loadYaml(readFileSync(join(process.cwd(), ".github/workflows/daily-tasks.yml"), "utf-8")) as {
+      jobs: { maintenance: { steps: { id?: string; name?: string; run?: string; env?: Record<string, string>; "continue-on-error"?: boolean }[] } };
+    };
+    const steps = workflow.jobs.maintenance.steps;
+    const auditIndex = steps.findIndex((step) => step.id === "data_quality_audit");
+    const reportIndex = steps.findIndex((step) => step.name === "Send Daily DB and R2 Report");
+    expect(auditIndex).toBeGreaterThanOrEqual(0);
+    expect(auditIndex).toBeLessThan(reportIndex);
+    expect(steps[auditIndex]["continue-on-error"]).toBe(true);
+    expect(steps[auditIndex].run).toContain("--page-size 100");
+    expect(steps[reportIndex].env).toMatchObject({
+      DATA_QUALITY_AUDIT_OUTCOME: "${{ steps.data_quality_audit.outcome }}",
+      DATA_QUALITY_MISMATCH_COUNT: "${{ steps.data_quality_audit.outputs.mismatch_count }}",
+    });
   });
 
   it("fails the monitor step only when a configured Discord alert was not delivered", () => {

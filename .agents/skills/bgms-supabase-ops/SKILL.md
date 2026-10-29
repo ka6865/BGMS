@@ -67,7 +67,7 @@ npm run verify:admin
 npm run verify:core
 ```
 
-스키마/RPC 변경은 `verify:migrations`와 해당 도메인의 DB 검증을 추가한다. 백업·복구 경로 변경은 `verify:baseline`, telemetry 정리·R2 관제 변경은 관련 `tests/cleanup-telemetry-retention.test.ts`, `tests/telemetry-cleanup.test.ts`, `tests/storage-health-sizes.test.ts`, `tests/admin-storage-compact.test.ts`를 우선 확인한다. 환경 전제 미충족 시 운영 DB로 대체하지 않고 미실행 사유를 보고한다.
+스키마/RPC 변경은 `verify:migrations`와 해당 도메인의 DB 검증을 추가한다. 백업·복구 경로 변경은 `verify:baseline`, telemetry 정리·R2 관제 변경은 관련 `tests/player-cache-retention.test.ts`, `tests/telemetry-cleanup.test.ts`, `tests/storage-health-sizes.test.ts`, `tests/admin-storage-compact.test.ts`를 우선 확인한다. 환경 전제 미충족 시 운영 DB로 대체하지 않고 미실행 사유를 보고한다.
 
 ## 보고 기준
 

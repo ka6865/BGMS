@@ -5,6 +5,8 @@ const {
   mockCreateSupabaseAdminClient,
   mockReadPubgCache,
   mockWritePubgCache,
+  mockReadSeasonsCache,
+  mockWriteSeasonsCache,
   mockClaimForceRefresh,
   mockReportPubgApiError,
   mockIsPlayerPrivate,
@@ -17,6 +19,8 @@ const {
   mockCreateSupabaseAdminClient: vi.fn(),
   mockReadPubgCache: vi.fn(),
   mockWritePubgCache: vi.fn(),
+  mockReadSeasonsCache: vi.fn(),
+  mockWriteSeasonsCache: vi.fn(),
   mockClaimForceRefresh: vi.fn(),
   mockReportPubgApiError: vi.fn(),
   mockIsPlayerPrivate: vi.fn(),
@@ -49,6 +53,9 @@ vi.mock("@/lib/pubg/responseCache", () => ({
   claimForceRefresh: mockClaimForceRefresh,
   readPubgCache: mockReadPubgCache,
   writePubgCache: mockWritePubgCache,
+  // 시즌 목록 공유 캐시는 비어 있는 것으로 두어 /seasons 조회 경로를 그대로 검증한다.
+  readPubgSeasonsCache: mockReadSeasonsCache,
+  writePubgSeasonsCache: mockWriteSeasonsCache,
 }));
 
 vi.mock("@/lib/pubg-analysis/pubgApiTracker", () => ({
@@ -304,6 +311,8 @@ describe("player route recovery contract", () => {
     mockRecordBanObservation.mockResolvedValue({ code: "recorded" });
     mockReadPubgCache.mockResolvedValue(null);
     mockWritePubgCache.mockResolvedValue(undefined);
+    mockReadSeasonsCache.mockResolvedValue(null);
+    mockWriteSeasonsCache.mockResolvedValue(undefined);
     mockClaimForceRefresh.mockResolvedValue(true);
     mockReportPubgApiError.mockResolvedValue(undefined);
     mockIsPlayerPrivate.mockResolvedValue(false);
@@ -347,6 +356,43 @@ describe("player route recovery contract", () => {
     expect(response.status).toBe(200);
     expect(body).toMatchObject({ banType: "Unknown", banStatus: "unknown", banCheckedAt: expect.any(String) });
     expect(mockRecordBanObservation).toHaveBeenCalledWith(expect.objectContaining({ accountId: "account.fixture1", banType: "Unknown" }));
+  });
+
+  it("시즌 목록은 플랫폼별 공유 캐시를 먼저 쓰고, 받아 온 목록은 공유 캐시에 저장한다", async () => {
+    configureSupabase();
+    mockReadSeasonsCache.mockResolvedValue(seasonsPayload().data);
+    const cachedCalls = installFetch({ player: [jsonResponse(playerPayload())],
+      season: [jsonResponse(normalPayload())], ranked: [jsonResponse(rankedPayload())], mastery: [jsonResponse({}, 404)] });
+    const { GET } = await loadRoute();
+    const cached = await GET(request());
+    expect(cached.status).toBe(200);
+    expect((await cached.json()).syncStatus).toBe("saved");
+    expect(cachedCalls.some((call) => call.url.endsWith("/seasons"))).toBe(false);
+    expect(mockReadSeasonsCache).toHaveBeenCalledWith("steam");
+    expect(mockWriteSeasonsCache).not.toHaveBeenCalled();
+
+    mockReadSeasonsCache.mockResolvedValue(null);
+    configureSupabase();
+    installFetch({ player: [jsonResponse(playerPayload())], seasons: [jsonResponse(seasonsPayload())],
+      season: [jsonResponse(normalPayload())], ranked: [jsonResponse(rankedPayload())], mastery: [jsonResponse({}, 404)] });
+    expect((await (await loadRoute()).GET(request())).status).toBe(200);
+    expect(mockWriteSeasonsCache).toHaveBeenCalledWith("steam", expect.arrayContaining([expect.objectContaining({ id: "pc-2026-01" })]));
+  });
+
+  it("강제 갱신이 상류 오류로 실패하면 남은 갱신 잠금(60초)에 맞춰 다시 시도 시간을 알린다", async () => {
+    configureSupabase(staleCacheRow());
+    installFetch({ player: [jsonResponse({}, 503), jsonResponse({}, 503)] });
+    const { GET } = await loadRoute();
+    const response = await GET(request("http://localhost/api/pubg/player?nickname=Fixture_Player&platform=steam&refresh=true"));
+    expect(response.status).toBe(503);
+    expect(response.headers.get("Retry-After")).toBe("60");
+    expect((await response.json()).retryAfterSeconds).toBe(60);
+    // 갱신이 아닌 첫 검색 실패는 잠금이 없으므로 기존 30초를 유지한다.
+    configureSupabase();
+    installFetch({ player: [jsonResponse({}, 503), jsonResponse({}, 503)] });
+    const plain = await (await loadRoute()).GET(request());
+    expect(plain.headers.get("Retry-After")).toBe("30");
+    expect((await plain.json()).retryAfterSeconds).toBeUndefined();
   });
 
   it.each([false, true])('preserves 99 IDs before partial season failure (discovery fails=%s)', async (failDiscovery) => {
@@ -627,6 +673,53 @@ describe("player route recovery contract", () => {
     expect(body.syncStatus).toBe("partial");
     expect(body.updatedAt).toBeUndefined();
     expect(adminInsert).toHaveBeenCalledWith(expect.objectContaining({ updated_at: null }), { onConflict: "id", ignoreDuplicates: true });
+  });
+
+  it("경기 분석이 만든 닉네임 매핑 행은 저장된 전적으로 보지 않고 일반 검색에서 PUBG를 조회한다", async () => {
+    const { adminUpsert } = configureSupabase({
+      id: "account.fixture1",
+      nickname: "Fixture_Player",
+      lower_nickname: "fixture_player",
+      platform: "steam",
+      updated_at: null,
+      search_count: 0,
+      season_stats_data: null,
+      seasons_list: null,
+      last_season_id: null,
+      recent_match_ids: null,
+    });
+    installFetch({ player: [jsonResponse(playerPayload())], seasons: [jsonResponse(seasonsPayload())],
+      season: [jsonResponse(normalPayload())], ranked: [jsonResponse(rankedPayload())], mastery: [jsonResponse({}, 404)] });
+    const { GET } = await loadRoute();
+
+    const response = await GET(request());
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(mockFetch).toHaveBeenCalled();
+    expect(mockClaimForceRefresh).not.toHaveBeenCalled();
+    expect(body).toMatchObject({ seasonId: "pc-2026-01", syncStatus: "saved" });
+    expect(adminUpsert).toHaveBeenCalledWith(expect.objectContaining({
+      last_season_id: "pc-2026-01", updated_at: body.updatedAt,
+    }), { onConflict: "id" });
+  });
+
+  it("시즌 없는 강제 갱신은 캐시의 지난 시즌 대신 현재 시즌을 다시 고른다", async () => {
+    const cacheRow = staleCacheRow();
+    cacheRow.last_season_id = "pc-2025-99";
+    cacheRow.season_stats_data = { "pc-2025-99": cacheRow.season_stats_data["pc-2026-01"] };
+    configureSupabase(cacheRow);
+    const calls = installFetch({ player: [jsonResponse(playerPayload())], seasons: [jsonResponse(seasonsPayload())],
+      season: [jsonResponse(normalPayload())], ranked: [jsonResponse(rankedPayload())], mastery: [jsonResponse({}, 404)] });
+    const { GET } = await loadRoute();
+
+    const response = await GET(request("http://localhost/api/pubg/player?nickname=Fixture_Player&platform=steam&refresh=true"));
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.seasonId).toBe("pc-2026-01");
+    expect(calls.some((call) => call.url.includes("/seasons/pc-2026-01"))).toBe(true);
+    expect(calls.some((call) => call.url.includes("/seasons/pc-2025-99"))).toBe(false);
   });
 
   it("returns 503 for a repeated malformed player payload instead of misclassifying it as not found", async () => {
