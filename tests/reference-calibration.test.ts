@@ -298,6 +298,11 @@ describe('v2 changed-window evidence',()=>{
   ['mixed modes', (row:any,i:number)=>i%2?{...row,gameMode:'duo'}:row, 'mixed'],
   ['another account', (row:any,i:number)=>i===0?{...row,stats:{...row.stats,playerId:'other'}}:row, 'identity'],
   ['duplicate match', (row:any,i:number,all:any[])=>i===1?{...row,matchId:all[0].matchId}:row, 'identity'],
+  ['all account ids missing', (row:any)=>({...row,stats:{...row.stats,playerId:undefined}}), 'identity'],
+  ['one account id missing', (row:any,i:number)=>i===2?{...row,stats:{...row.stats,playerId:undefined}}:row, 'identity'],
+  ['unknown match type', (row:any)=>({...row,matchType:'unknown'}), 'evidence_missing'],
+  ['custom match type', (row:any)=>({...row,matchType:'custom'}), 'evidence_missing'],
+  ['unknown raw mode', (row:any)=>({...row,gameMode:'conquest-squad'}), 'evidence_missing'],
  ] as const)('checks the cohort of the selected matches themselves (%s)',(_label,change,expected)=>{
   const selected=ms.slice(5).map((row,i,all)=>change(row,i,all));
   const stats={...aggregateMatches(selected,{roleEvidenceVersion:2}),modeDistribution:{main:'squad'}};

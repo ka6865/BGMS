@@ -9,6 +9,20 @@ describe('isolated confirmation of coaching references',()=>{
   expect(after.candidate).toEqual(before.candidate);expect(after.activationAllowed).toBe(false);
   expect(after.confirmation.accounts).toBe(1);expect(after.confirmation.rejections).toEqual({incomplete_window:1});
  });
+ it('runs the EV2 candidate with cohort checks only when explicitly requested',()=>{
+  const evidence={version:1,validWeaponHits:6,distanceHitCount:6,distanceDamage:{short:300,mid:0,long:0},maxHitDist:20,pressureIndex:1.2,focusFireCount:0,rescueCount:0,rescueOpportunityCount:0,positionSampleCount:0,edgePlayCount:0};
+  const roleSubject=(account:string,prefix:string)=>({...subject(account),matches:Array.from({length:5},(_,i)=>({match_id:`${prefix}${i}`,played_at:'2026-10-27T00:00:00Z'})),
+    results:Array.from({length:5},(_,i)=>({matchId:`${prefix}${i}`,createdAt:'2026-10-27T00:00:00Z',gameMode:'squad',matchType:'official',platform:'steam',v:73,calculationVersion:5,populationEvidenceVersion:1,
+      benchmark:{score:50+i,tier:'B'},stats:{playerId:account,damageDealt:100},teamContext:{myRosterSize:2},teamImpact:{teamDamageShare:50},roleEvidence:evidence}))});
+  const dev=[roleSubject('dev-a','d')] as any[],held=[roleSubject('held-b','h')] as any[];
+  const ev2=evaluateCoachingExpansion(dev,held,'seed',{evidenceVersion:2});
+  expect(ev2.candidate.cohorts[0].reference).toMatchObject({evidenceVersion:2,cohort:'steam|squad|official'});
+  expect(ev2.confirmation.cohorts[0].windowChecks).toHaveLength(1);
+  expect(ev2.confirmation.cohorts[0].windowChecks![0].cohortCheck).toBe('match');
+  const legacy=evaluateCoachingExpansion(dev,held,'seed');
+  expect(legacy.candidate.cohorts[0].reference).not.toHaveProperty('evidenceVersion');
+  expect(legacy.confirmation.cohorts[0]).not.toHaveProperty('windowChecks');
+ });
  it('rejects overlap and a target disguised as independent confirmation',()=>{
   expect(()=>evaluateCoachingExpansion([subject('a')],[subject('a')])).toThrow(/overlapping/);
   expect(()=>evaluateCoachingExpansion([],[subject('a','MiaeQ_Q')])).toThrow(/named targets/);

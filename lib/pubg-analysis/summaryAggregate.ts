@@ -1,4 +1,5 @@
 import { WEAPON_NAMES } from "./constants";
+import { evaluateMatchEligibility } from "./matchEligibility";
 import { firstReplyLatencyMs, firstReplyFailureRate } from "./firstReply";
 
 function normalizeWeaponName(weaponId: string): string {
@@ -176,10 +177,12 @@ function aggregateRoleEvidence(matches: any[]) {
  */
 export function roleCohortOf(match: any): string | null {
   const platform = typeof match?.platform === "string" ? match.platform.trim().toLowerCase() : "";
-  const mode = typeof match?.gameMode === "string" ? match.gameMode.trim().toLowerCase() : "";
-  const rawType = String(match?.matchType ?? match?.match_type ?? "").trim().toLowerCase();
-  if (!["steam", "kakao"].includes(platform) || !mode || !rawType) return null;
-  return `${platform}|${mode}|${isCompetitiveMatch(match) ? "competitive" : "official"}`;
+  if (!["steam", "kakao"].includes(platform)) return null;
+  // mode·matchType은 AI 요약 모집단 계약(일반 배틀로얄, official/competitive)을 그대로 따른다.
+  // 미확인·사용자 지정·이벤트 유형은 cohort가 없다.
+  const eligibility = evaluateMatchEligibility(match, "ai-summary");
+  if (!eligibility.eligible || !eligibility.mode || !eligibility.matchType) return null;
+  return `${platform}|${eligibility.mode}|${eligibility.matchType}`;
 }
 
 export type RoleCohortIssue = "missing" | "mixed" | "identity";
@@ -187,8 +190,10 @@ export type RoleCohortIssue = "missing" | "mixed" | "identity";
 /** 같은 선정 경기에서 cohort를 다시 계산한다. 한 계정·중복 없는 경기·같은 cohort일 때만 값이 있다. */
 function aggregateRoleCohort(matches: any[]): { cohort: string | null; cohortIssue: RoleCohortIssue | null } {
   const ids = matches.map((match) => match?.matchId);
-  const players = new Set(matches.map((match) => match?.stats?.playerId ?? match?.player_id).filter((value) => typeof value === "string" && value));
-  if (ids.some((id) => typeof id !== "string" || !id) || new Set(ids).size !== ids.length || players.size > 1) return { cohort: null, cohortIssue: "identity" };
+  // 계정 식별은 모든 경기에 있어야 하고 같아야 한다. 누락을 한 계정의 증거로 보지 않는다.
+  const players = matches.map((match) => match?.stats?.playerId ?? match?.player_id);
+  if (!matches.length || ids.some((id) => typeof id !== "string" || !id) || new Set(ids).size !== ids.length
+    || players.some((player) => typeof player !== "string" || !player) || new Set(players).size !== 1) return { cohort: null, cohortIssue: "identity" };
   const cohorts = matches.map(roleCohortOf);
   if (cohorts.some((cohort) => cohort === null)) return { cohort: null, cohortIssue: "missing" };
   if (new Set(cohorts).size !== 1) return { cohort: null, cohortIssue: "mixed" };
