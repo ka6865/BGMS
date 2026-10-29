@@ -29,6 +29,8 @@ import {
   persistLolMatchDetails,
   persistLolSearchSnapshot,
   finishLolRiotRequest,
+  cancelLolRiotRequest,
+  deleteLolSearchCacheForName,
   releaseLolCollectionLease,
   releaseLolRiotRequest,
   reserveLolRiotRequest,
@@ -294,7 +296,20 @@ async function readLolChallengeBody(response: Response, maxBytes: number): Promi
 
 // 공유 DB 제한을 쓰면 호출 한도는 DB가 지킨다. 프로세스 안에서는 동시에 RIOT_PARALLEL_REQUESTS개까지 보낸다.
 // DB 없이 실행하면 기존처럼 한 줄로 세워 메모리 간격을 지킨다.
-const RIOT_PARALLEL_REQUESTS = 6;
+// 프로덕션 키 등 한도가 큰 키에서는 LOL_RIOT_PARALLEL_REQUESTS로 늘릴 수 있다(1~32).
+const RIOT_PARALLEL_REQUESTS = boundedEnvInteger("LOL_RIOT_PARALLEL_REQUESTS", 6, 1, 32);
+// 공유 예약을 이보다 오래 기다려야 하면 보내지 않고 congested로 돌려준다.
+const RIOT_MAX_PERMIT_WAIT_MS = 4_000;
+
+function boundedEnvInteger(name: string, fallback: number, min: number, max: number): number {
+  const value = Number(process.env[name]);
+  return Number.isInteger(value) && value >= min && value <= max ? value : fallback;
+}
+
+function riotRetryAfterSeconds(headers: Headers): number {
+  const raw = Number(headers.get("Retry-After"));
+  return Number.isFinite(raw) && raw > 0 ? Math.min(604800, Math.ceil(raw)) : 1;
+}
 function scheduleRiotTask(parallel: boolean, task: () => Promise<void>): Promise<void> {
   if (!parallel) {
     const run = state.queue.then(task);
@@ -364,14 +379,27 @@ export async function requestJson<T>(
       let permitStarted = false;
       let requestMetric: LolOpsMetric | undefined;
       try {
+      // 키가 없으면 예약하지 않는다. 보내지 않을 요청이 공유 한도를 차지하지 않게 하기 위해서다.
+      const key = process.env.RIOT_API_KEY?.trim();
+      if (!key) {
+        fail(
+          new RiotSearchError("unconfigured"),
+          "configuration",
+          "missing_api_key",
+        );
+        return;
+      }
       if (persistenceEnabled) {
-          const permit = await reserveLolRiotRequest(host);
+          // 4초보다 오래 기다려야 하는 예약은 DB가 기록 없이 거절한다(reason=window → congested).
+          const permit = await reserveLolRiotRequest(host, RIOT_MAX_PERMIT_WAIT_MS);
           permitToken = permit.token;
           permitStarted = permit.started;
           const waitMs = permit.permitAt - Date.now();
-          if (waitMs > 4_000) {
-            await releaseLolRiotRequest(permitToken);
+          if (waitMs > RIOT_MAX_PERMIT_WAIT_MS) {
+            // 시계 차이로 DB가 허가했더라도 기다리지 않으면 보내지 않으므로 예약 기록까지 지운다.
+            const token = permitToken;
             permitToken = undefined;
+            await cancelLolRiotRequest(token);
             fail(
               new RiotSearchError("congested", Math.ceil(waitMs / 1000)),
               "queue",
@@ -418,16 +446,6 @@ export async function requestJson<T>(
           state.nextRequestAt = Date.now() + MIN_REQUEST_INTERVAL_MS;
         }
 
-        const key = process.env.RIOT_API_KEY?.trim();
-        if (!key) {
-          fail(
-            new RiotSearchError("unconfigured"),
-            "configuration",
-            "missing_api_key",
-          );
-          return;
-        }
-
         let response: Response;
         const signal = AbortSignal.timeout(8_000);
         try {
@@ -452,17 +470,22 @@ export async function requestJson<T>(
 
         requestMetric = response.ok ? "riot_success" : response.status === 429 ? "riot_429"
           : response.status === 401 || response.status === 403 ? "riot_key_error" : response.status >= 500 ? "riot_5xx" : "riot_4xx";
+        const retryAfterSeconds = response.status === 429 ? riotRetryAfterSeconds(response.headers) : 0;
         if (persistenceEnabled && permitToken) {
-          const token = permitToken;
-          permitToken = undefined;
-          await finishLolRiotRequest(token, host, response.headers);
+          try {
+            await finishLolRiotRequest(permitToken, host, response.headers);
+            permitToken = undefined;
+          } catch (error) {
+            // 헤더 기록이 실패해도 Riot이 알려 준 429 차단은 먼저 건다. 허가는 finally가 다시 해제한다.
+            if (response.status === 429) {
+              try { await blockLolRiotRequests(host, retryAfterSeconds); } catch { /* 차단 저장 실패는 아래 오류로 닫는다 */ }
+            }
+            await discardResponseBody(response);
+            throw error;
+          }
         }
         if (response.status === 429) {
-          const rawRetryAfter = Number(response.headers.get("Retry-After"));
-          const seconds =
-            Number.isFinite(rawRetryAfter) && rawRetryAfter > 0
-              ? Math.min(604800, Math.ceil(rawRetryAfter))
-              : 1;
+          const seconds = retryAfterSeconds;
           if (persistenceEnabled) await blockLolRiotRequests(host, seconds);
           else
             state.blockedUntil = Math.max(
@@ -1223,6 +1246,19 @@ async function saveLolSearchSnapshot(
   }
 }
 
+// 이 Riot ID로 저장한 2분 캐시와 보관본을 지운다. 실패하면 검색 오류로 닫는다(옛 결과를 계속 보여 주지 않기 위해).
+async function forgetLolSearchCacheForName(riotId: { gameName: string; tagLine: string }) {
+  await deleteLolSearchCacheForName(riotId.gameName, riotId.tagLine, LOL_PLATFORM, LOL_REGIONAL_ROUTE);
+}
+
+async function forgetRenamedLolAccount(puuid: string, account: { gameName: string; tagLine: string }) {
+  const [stored] = await getLolAccountNamesByPuuids([puuid]);
+  if (!stored) return;
+  const same = stored.game_name.toLocaleLowerCase() === account.gameName.toLocaleLowerCase()
+    && stored.tag_line.toLocaleLowerCase() === account.tagLine.toLocaleLowerCase();
+  if (!same) await forgetLolSearchCacheForName({ gameName: stored.game_name, tagLine: stored.tag_line });
+}
+
 async function enrichMatchRecords(records: Array<{ summary: LolRecentMatch; raw: unknown }>) {
   if (!records.length) return;
   const metadata = await getStaticData(true);
@@ -1433,7 +1469,7 @@ async function searchLolRiotIdInternal(
     // 오래된 결과에는 autoRefresh를 붙여 화면이 표시 뒤 갱신을 요청하게 한다.
     const snapshot = await getLolSearchSnapshot<LolSearchResult>(
       lolSearchSnapshotKey(riotId.gameName, riotId.tagLine, LOL_PLATFORM, LOL_REGIONAL_ROUTE, dataDragonVersion),
-      LOL_PLATFORM, LOL_REGIONAL_ROUTE, dataDragonVersion,
+      LOL_PLATFORM, LOL_REGIONAL_ROUTE, dataDragonVersion, riotId,
     );
     if (snapshot) {
       const remainSeconds = refreshRemaining(snapshot.lastUpdatedAt);
@@ -1465,11 +1501,21 @@ async function searchLolRiotIdInternal(
     }
     const name = encodeURIComponent(riotId.gameName);
     const tag = encodeURIComponent(riotId.tagLine);
-    const account = await requestJson<{ puuid: string; gameName: string; tagLine: string }>(
-      "asia", `/riot/account/v1/accounts/by-riot-id/${name}/${tag}`, IDENTIFIER_TTL_MS, options.refresh === true,
-    );
+    let account: { puuid: string; gameName: string; tagLine: string };
+    try {
+      account = await requestJson<{ puuid: string; gameName: string; tagLine: string }>(
+        "asia", `/riot/account/v1/accounts/by-riot-id/${name}/${tag}`, IDENTIFIER_TTL_MS, options.refresh === true,
+      );
+    } catch (error) {
+      // Riot이 이 Riot ID의 계정이 없다고 하면, 이 이름으로 저장한 검색 결과를 더 보여 주지 않는다.
+      if (persistenceEnabled && error instanceof RiotSearchError && error.kind === "not_found" && error.diagnostic?.endpoint === "account")
+        await forgetLolSearchCacheForName(riotId);
+      throw error;
+    }
     const puuid = account.puuid;
     if (!puuid) throw new RiotSearchError("upstream");
+    // 저장 계정의 이름이 바뀌었으면 옛 이름으로 남은 검색 결과를 지운다(저장 전에 옛 이름을 읽는다).
+    if (persistenceEnabled) await forgetRenamedLolAccount(puuid, account);
     cacheAccount(`${account.gameName.toLocaleLowerCase()}#${account.tagLine.toLocaleLowerCase()}`, account);
     const encodedPuuid = encodeURIComponent(puuid);
     const [summoner, ranked, matchIds] = await Promise.all([
@@ -1509,7 +1555,9 @@ async function searchLolRiotIdInternal(
       });
       saved = true;
       result.rankedHistory = await getLolRankedHistory(puuid);
-      await saveLolSearchSnapshot(riotId, puuid, dataDragonVersion, result);
+      // 마지막 정상 결과를 지키기 위해, 경기를 모두 받은 결과(또는 진짜 빈 목록)만 보관본을 바꾼다.
+      if (result.matchStatus === "ready" || result.matchStatus === "empty")
+        await saveLolSearchSnapshot(riotId, puuid, dataDragonVersion, result);
     } else setCached(lookupKey, result, LOL_REFRESH_COOLDOWN_MS);
     return withLolStoredExtras(result, puuid);
   })();

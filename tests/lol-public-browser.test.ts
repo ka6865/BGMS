@@ -71,10 +71,15 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
             res.statusCode = 503;
             res.end(JSON.stringify({ error: LOL_KEY_RENEWAL_MESSAGE, reasonCode: "riot_key_renewal", detail: LOL_KEY_RENEWAL_ENGLISH }));
           }
-          else res.end(JSON.stringify({ ...fixtureResult, refreshRemainSeconds: riotId.startsWith("보존#") || (riotId.startsWith("저장#") && !refresh) ? 0 : 120,
+          else res.end(JSON.stringify({ ...fixtureResult, refreshRemainSeconds: riotId.startsWith("보존#") || ((riotId.startsWith("저장#") || riotId.startsWith("교체#")) && !refresh) ? 0 : 120,
             // 저장#: 30분 전 저장 전적을 먼저 보내고(autoRefresh) 갱신 요청에는 방금 갱신한 결과를 보낸다.
-            ...(riotId.startsWith("저장#") ? refresh ? { lastUpdatedAt: new Date().toISOString() }
+            ...(riotId.startsWith("저장#") || riotId.startsWith("교체#") ? refresh ? { lastUpdatedAt: new Date().toISOString() }
               : { lastUpdatedAt: new Date(Date.now() - 30 * 60_000).toISOString(), autoRefresh: true } : {}),
+            // 교체#: 저장 뒤 20판 넘게 진행해 갱신 목록이 저장 목록과 하나도 겹치지 않는 경우다.
+            ...(riotId.startsWith("교체#") && refresh ? {
+              matches: fixtureResult.matches.map((match, index) => ({ ...match, matchId: `NEW_${index + 1}` })),
+              matchIds: Array.from({ length: 20 }, (_, index) => `NEW_${index + 1}`),
+            } : {}),
             challengeProfile: riotId.startsWith("도전과제실패#") ? { ...fixtureResult.challengeProfile, status: "failed" }
               : riotId.startsWith("도전과제없음#") ? { ...fixtureResult.challengeProfile, rarest: [], distributionStatus: "unavailable" }
                 : fixtureResult.challengeProfile,
@@ -207,6 +212,17 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
     expect(errors).toEqual([]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: `tmp/lol-public-review/snapshot-refresh-${width}x${height}.png`, fullPage: true });
+    await page.close();
+  });
+  it("갱신 목록이 저장 목록과 겹치지 않으면 합치지 않고 새 목록으로 바꾼다", async () => {
+    const page = await open(390, 844);
+    await search(page, "교체#FIX");
+    await page.waitForSelector('[data-testid="lol-match-card"]');
+    await page.waitForFunction(() => /최근 갱신 \d+초 전/.test(document.body.textContent ?? ""));
+    await new Promise(resolve => setTimeout(resolve, 300));
+    // 합쳤다면 저장 목록과 새 목록 카드가 함께 남는다. 바꾼 경우 새 목록 수만 남는다.
+    expect((await page.$$('[data-testid="lol-match-card"]')).length).toBe(fixtureResult.matches.length);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.close();
   });
   it("모바일 빈 화면·429 안내가 표시된다", async () => {

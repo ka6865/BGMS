@@ -230,6 +230,12 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
       );
       const payload = await response.json();
       if (!response.ok) {
+        // 갱신에서 Riot이 이 Riot ID의 계정이 없다고 하면 저장된 전적을 이 이름의 프로필로 계속 보여 주지 않는다.
+        if (action === "refresh" && response.status === 404 && request === requestId.current) {
+          setResult(null);
+          setError(typeof payload?.error === "string" ? payload.error : "Riot ID를 찾을 수 없습니다.");
+          return;
+        }
         const seconds = Number(response.headers.get("Retry-After"));
         const message = payload?.error ?? "요청에 실패했습니다.";
         throw Object.assign(new Error(response.status === 429 && seconds > 0
@@ -250,6 +256,9 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
         setHasNextPage((current) => current || refreshed.matchIds.length === 20);
         setResult((current) => {
           if (!current) return refreshed;
+          // 저장된 목록과 새 목록이 하나도 겹치지 않으면(그사이 20판 넘게 진행) 이어 붙일 수 없다.
+          // 합치면 중간 경기가 빠지고 다음 페이지 위치가 틀어지므로 새 결과로 바꾼다. 이어 불러오기는 restoreTarget이 다시 채운다.
+          if (current.matchIds.length && !refreshed.matchIds.some((id) => current.matchIds.includes(id))) return refreshed;
           const existing = new Set(current.matches.map((match) => match.matchId));
           const matches = [...refreshed.matches.filter((match) => !existing.has(match.matchId)), ...current.matches];
           const matchIds = [...new Set([...refreshed.matchIds, ...current.matchIds])];

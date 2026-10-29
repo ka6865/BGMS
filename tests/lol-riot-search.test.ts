@@ -17,6 +17,8 @@ const persistence = vi.hoisted(() => ({
   saveSearch: vi.fn(),
   snapshot: vi.fn(),
   saveSnapshot: vi.fn(),
+  cancelRequest: vi.fn(),
+  forgetName: vi.fn(),
   history: vi.fn(),
   observations: vi.fn(),
   summaries: vi.fn(),
@@ -48,6 +50,8 @@ vi.mock("@/lib/lol/persistence.server", async (importOriginal) => {
     persistLolSearchSnapshot: persistence.saveSearch,
     getLolSearchSnapshot: persistence.snapshot,
     putLolSearchSnapshot: persistence.saveSnapshot,
+    cancelLolRiotRequest: persistence.cancelRequest,
+    deleteLolSearchCacheForName: persistence.forgetName,
     getLolRankedHistory: persistence.history,
     getLolRankedObservations: persistence.observations,
     getLolPlayerMatchSummaries: persistence.summaries,
@@ -144,6 +148,8 @@ beforeEach(() => {
   persistence.saveSearch.mockResolvedValue(undefined);
   persistence.snapshot.mockResolvedValue(undefined);
   persistence.saveSnapshot.mockResolvedValue(true);
+  persistence.cancelRequest.mockResolvedValue(undefined);
+  persistence.forgetName.mockResolvedValue(undefined);
   persistence.history.mockResolvedValue(emptyLolRankedHistory());
   persistence.observations.mockResolvedValue([]);
   persistence.summaries.mockResolvedValue([]);
@@ -516,7 +522,8 @@ describe("POST /api/admin/lol/search", () => {
     expect(result).toMatchObject({ account: snapshot.account, lastUpdatedAt, refreshRemainSeconds: 0, dataDragonVersion: "16.21.1" });
     expect(result.autoRefresh === true).toBe(autoRefresh);
     expect(persistence.cache).toHaveBeenCalledWith("search", expect.any(String), "kr", "asia", "16.21.1");
-    expect(persistence.snapshot).toHaveBeenCalledWith("search-snapshot:v11:kr:asia:16.21.1:test:kr1", "kr", "asia", "16.21.1");
+    expect(persistence.snapshot).toHaveBeenCalledWith("search-snapshot:v11:kr:asia:16.21.1:test:kr1", "kr", "asia", "16.21.1",
+      { gameName: "Test", tagLine: "KR1" });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(persistence.acquire).not.toHaveBeenCalled();
   });
@@ -604,6 +611,64 @@ describe("POST /api/admin/lol/search", () => {
     expect(result.headers.get("Retry-After")).toBe("5");
     expect(await result.json()).toEqual({ error: "요청이 많아 잠시 후 다시 시도해 주세요." });
     expect(fetchMock).not.toHaveBeenCalled();
+    // 기다리지 않을 예약은 허가 해제가 아니라 취소로 예약 기록까지 지운다.
+    expect(persistence.cancelRequest).toHaveBeenCalledWith("request-token");
+    expect(persistence.releaseRequest).not.toHaveBeenCalled();
+  });
+
+  it("키가 없으면 공유 예약 전에 닫아 한도를 쓰지 않는다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    vi.stubEnv("RIOT_API_KEY", "");
+    vi.stubGlobal("fetch", vi.fn());
+    expect((await POST(post("NoKey#KR1"))).status).toBe(503);
+    expect(persistence.reserve).not.toHaveBeenCalled();
+  });
+
+  it("헤더 기록이 실패해도 429 공유 차단을 걸고 허가를 다시 해제한다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.recordHeaders.mockRejectedValue(new LolPersistenceError());
+    vi.stubGlobal("fetch", vi.fn(async () => response({}, 429, { "Retry-After": "7" })));
+    expect((await POST(post("FinishFail#KR1"))).status).toBe(503);
+    expect(persistence.block).toHaveBeenCalledWith("asia", 7);
+    expect(persistence.releaseRequest).toHaveBeenCalledWith("request-token");
+  });
+
+  it("계정 조회가 404면 그 이름의 검색 결과를 지우고, 경기 404는 지우지 않는다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    vi.stubGlobal("fetch", vi.fn(async () => response({}, 404)));
+    expect((await POST(post("Gone#KR1"))).status).toBe(404);
+    expect(persistence.forgetName).toHaveBeenCalledWith("Gone", "KR1", "kr", "asia");
+    persistence.forgetName.mockClear();
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("accounts/by-riot-id")) return response({ puuid: "p404", gameName: "Here", tagLine: "KR1" });
+      if (url.includes("summoner/v4")) return response({ profileIconId: 1, summonerLevel: 1 });
+      if (url.includes("league/v4")) return response([]);
+      if (url.includes("/ids?")) return response(["KR_404"]);
+      if (url.includes("/matches/KR_404")) return response({}, 404);
+      return response({ data: {} });
+    }));
+    const result = await searchLolRiotId("Here#KR1");
+    expect(result.matchStatus).toBe("failed");
+    expect(persistence.forgetName).not.toHaveBeenCalled();
+    // 경기를 다 받지 못한 결과는 마지막 정상 보관본을 바꾸지 않는다.
+    expect(persistence.saveSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("저장 계정의 이름이 바뀐 것을 확인하면 옛 이름의 검색 결과를 지운다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.names.mockResolvedValue([{ puuid: "renamed-puuid", game_name: "OldName", tag_line: "KR1", account_fetched_at: "2026-10-20T00:00:00Z" }]);
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("accounts/by-riot-id")) return response({ puuid: "renamed-puuid", gameName: "NewName", tagLine: "KR1" });
+      if (url.includes("summoner/v4")) return response({ profileIconId: 1, summonerLevel: 1 });
+      if (url.includes("league/v4")) return response([]);
+      if (url.includes("/ids?")) return response([]);
+      return response({ data: {} });
+    }));
+    await searchLolRiotId("NewName#KR1");
+    expect(persistence.forgetName).toHaveBeenCalledWith("OldName", "KR1", "kr", "asia");
+    expect(persistence.forgetName.mock.invocationCallOrder[0]).toBeLessThan(persistence.saveSearch.mock.invocationCallOrder[0]);
   });
 
   it("영속 cache miss는 중앙 permit을 통해 조회하고 DTO와 전적을 함께 저장한다", async () => {
@@ -2686,7 +2751,7 @@ describe("PUUID 참가자 이동의 Riot 요청 경로", () => {
       await expect(pending).resolves.toBe("Current#KR1");
       expect(fetch).toHaveBeenCalledTimes(1);
       expect(fetch).toHaveBeenCalledWith("https://asia.api.riotgames.com/riot/account/v1/accounts/by-puuid/peer", expect.anything());
-      expect(persistence.reserve).toHaveBeenCalledWith("asia");
+      expect(persistence.reserve).toHaveBeenCalledWith("asia", 4000);
       expect(persistence.start).toHaveBeenCalledTimes(1);
       expect(ops.record).toHaveBeenCalledWith("riot_success");
       expect(persistence.saveSearch).not.toHaveBeenCalled();
@@ -2944,7 +3009,7 @@ describe("집계용 Riot 전송 경계", () => {
     const fetcher = vi.fn(async () => response(payload));
     vi.stubGlobal("fetch", fetcher);
     await expect(requestJson("kr", "/lol/league/v4/masterleagues/by-queue/RANKED_SOLO_5x5", 0, true)).resolves.toEqual(payload);
-    expect(persistence.reserve).toHaveBeenCalledWith("kr");
+    expect(persistence.reserve).toHaveBeenCalledWith("kr", 4000);
     expect(persistence.start).toHaveBeenCalledOnce();
     expect(internalState?.cache.size).toBe(0);
     await expect(requestJson("kr", "/lol/status/v4/platform-data", 0, true)).rejects.toMatchObject({ kind: "upstream" });
