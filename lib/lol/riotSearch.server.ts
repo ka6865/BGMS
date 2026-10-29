@@ -5,7 +5,7 @@ import {
   acquireLolCollectionLease,
   aggregateLolMatchBenchmarks,
   hasLolBenchmarkProcessedMatch,
-  hasLolStoredMatch,
+  hasLolKnownMatch,
   blockLolRiotRequests,
   getLolApiCache,
   getLolChallengeCatalogCache,
@@ -1139,7 +1139,7 @@ const LOL_TIMELINE_MAX_BYTES = 8 * 1024 * 1024;
 
 export async function getLolMatchBuild(input: string, storedOnly = false): Promise<LolMatchBuild> {
   if (!isMatchId(input)) throw new RiotSearchError("invalid_request");
-  if (storedOnly && (!isLolPersistenceEnabled() || !await hasLolStoredMatch(input))) throw new RiotSearchError("not_found");
+  if (storedOnly && (!isLolPersistenceEnabled() || !await hasLolKnownMatch(input))) throw new RiotSearchError("not_found");
   const cacheKey = `build:v1:${input}`;
   const cached = getCached<LolMatchBuild>(cacheKey);
   if (cached) return cached;
@@ -1157,7 +1157,7 @@ export async function getLolMatchBuild(input: string, storedOnly = false): Promi
 }
 
 export async function getLolMatchDetails(input: string, storedOnly = false): Promise<import("./types").LolMatchDetails> {
-  if (storedOnly && (!isLolPersistenceEnabled() || !await hasLolStoredMatch(input))) throw new RiotSearchError("not_found");
+  if (storedOnly && (!isLolPersistenceEnabled() || !await hasLolKnownMatch(input))) throw new RiotSearchError("not_found");
   return lolParticipantDto((await getLolMatchDetailsAndRaw(input)).details);
 }
 

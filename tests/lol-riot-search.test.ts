@@ -37,7 +37,7 @@ vi.mock("@/lib/lol/persistence.server", async (importOriginal) => {
   return {
     ...actual,
     isLolPersistenceEnabled: persistence.enabled,
-    hasLolStoredMatch: persistence.storedMatch,
+    hasLolKnownMatch: persistence.storedMatch,
     getLolApiCache: persistence.cache,
     getLolAccountByRiotId: persistence.account,
     getLolAccountNamesByPuuids: persistence.names,
@@ -2701,6 +2701,28 @@ describe("심사 전 공개 조회와 삭제 경계", () => {
     expect(persistence.storedMatch).toHaveBeenCalledExactlyOnceWith("KR_999");
     expect(fetcher).not.toHaveBeenCalled();
     expect(persistence.cache).not.toHaveBeenCalled();
+  });
+
+  it("공개 상세는 원문이 정리된 요약 경기를 Riot에서 다시 받아 저장한다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.storedMatch.mockResolvedValue(true);
+    persistence.cache.mockResolvedValue(undefined);
+    persistence.matchRequestJson.mockResolvedValue(undefined);
+    const fetcher = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("/lol/match/v5/matches/KR_998")) return response({
+        metadata: { matchId: "KR_998", dataVersion: "2" },
+        info: { queueId: 420, gameMode: "CLASSIC", gameDuration: 1800, gameEndTimestamp: 1_700_000_000_000,
+          teams: [{ teamId: 100, win: true }],
+          participants: [{ puuid: "fixture-owner", teamId: 100, championId: 103, championName: "Ahri", win: true, kills: 2, deaths: 1, assists: 3, totalMinionsKilled: 100, neutralMinionsKilled: 10 }] },
+      });
+      return response({ data: {} });
+    });
+    vi.stubGlobal("fetch", fetcher);
+    await expect(getLolMatchDetails("KR_998", true)).resolves.toMatchObject({ matchId: "KR_998" });
+    expect(persistence.storedMatch).toHaveBeenCalledExactlyOnceWith("KR_998");
+    expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("/lol/match/v5/matches/KR_998"), expect.anything());
+    expect(persistence.saveMatch).toHaveBeenCalledOnce();
   });
 
   it("Account-V1 삭제 확인은 저장 계정 없이 현재 Riot ID의 PUUID를 조회한다", async () => {
