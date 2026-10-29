@@ -135,6 +135,16 @@ describe("role selection", () => {
     expect(withheld.title).not.toMatch(/선봉/);
   });
 
+  it("never falls back to legacy distributions for missing or invalid candidate quantiles", () => {
+    for(const reference of [{metrics:{},roles:{}},{metrics:{initiative:[1,2]},roles:{}}]){
+      const result=classifyRole({...BASE,...STRONG_POINT_MAN},null,'A',reference);
+      expect(result.primaryRole).toBe('insufficient');
+      expect(Object.values(result.scores).every(value=>value===null)).toBe(true);
+      expect(result.evidence).toEqual([]);
+      expect(result.weakness).toBeNull();
+    }
+  });
+
   it("treats a faster reaction as better", () => {
     expect(classify(STRONG_POINT_MAN).scores.pointMan).toBe(97.5);
     expect(classify({ ...STRONG_POINT_MAN, userInitiativeRate: null, totalInitiativeAttempts: 0 }).scores.pointMan).toBeNull();

@@ -63,12 +63,25 @@ export const ROLE_SCORE_QUANTILES: Record<RoleScoreKey, readonly number[]> = {
   crossfire: [4.71, 13.03, 24.56, 34.02, 42.46, 50.32, 57.3, 64.56, 73.06, 82.88, 88.68],
 };
 
-export function referencePercentile(key: RoleMetricKey, value: number): number {
-  return percentileFromQuantiles(ROLE_REFERENCE_QUANTILES[key], value);
+/** 후보의 누락/잘못된 분포를 운영 기본값으로 채우지 않는다. */
+export type RoleReference = {
+  metrics: Partial<Record<RoleMetricKey, readonly number[]>>;
+  roles: Partial<Record<RoleScoreKey, readonly number[]>>;
+};
+
+function validQuantiles(values: readonly number[] | undefined): values is readonly number[] {
+  return Array.isArray(values) && values.length === ROLE_REFERENCE_PERCENTILES.length
+    && values.every((value,index)=>Number.isFinite(value) && (index===0 || value>=values[index-1]));
 }
 
-export function roleScorePercentile(role: RoleScoreKey, rawScore: number): number {
-  return percentileFromQuantiles(ROLE_SCORE_QUANTILES[role], rawScore);
+export function referencePercentile(key: RoleMetricKey, value: number, reference?: RoleReference): number | null {
+  const quantiles=reference ? reference.metrics[key] : ROLE_REFERENCE_QUANTILES[key];
+  return validQuantiles(quantiles) && Number.isFinite(value) ? percentileFromQuantiles(quantiles,value) : null;
+}
+
+export function roleScorePercentile(role: RoleScoreKey, rawScore: number, reference?: RoleReference): number | null {
+  const quantiles=reference ? reference.roles[role] : ROLE_SCORE_QUANTILES[role];
+  return validQuantiles(quantiles) && Number.isFinite(rawScore) ? percentileFromQuantiles(quantiles,rawScore) : null;
 }
 
 /**
