@@ -96,6 +96,28 @@ export function lolSearchCacheKey(gameName: string, tagLine: string, platform: L
   return `search:v11:${platform}:${route}:${version}:${encodeURIComponent(gameName.toLocaleLowerCase())}:${encodeURIComponent(tagLine.toLocaleLowerCase())}`;
 }
 
+// 마지막 성공 검색 결과(7일 보관) 키. 검색 DTO 버전이 바뀌면 함께 바뀌도록 검색 키에서 만든다.
+export function lolSearchSnapshotKey(gameName: string, tagLine: string, platform: LolPlatform, route: LolRegionalRoute, version: string): string {
+  return lolSearchCacheKey(gameName, tagLine, platform, route, version).replace(/^search:/, "search-snapshot:");
+}
+
+// 2분 검색 캐시와 달리 캐시 적중 지표는 세지 않는다. 지표 이름은 DB 허용 목록이 정한다.
+export async function getLolSearchSnapshot<T>(key: string, platform: LolPlatform, route: LolRegionalRoute, version: string): Promise<T | undefined> {
+  const cached = await rpc<T | null>("get_lol_api_cache", {
+    p_key: key, p_kind: "search_snapshot", p_platform: platform, p_route: route, p_version: version,
+  });
+  return cached ?? undefined;
+}
+
+export async function putLolSearchSnapshot(input: {
+  key: string; platform: LolPlatform; route: LolRegionalRoute; version: string; puuid: string; payload: unknown;
+}): Promise<boolean> {
+  return rpc<boolean>("put_lol_search_snapshot", {
+    p_cache_key: input.key, p_platform: input.platform, p_route: input.route, p_version: input.version,
+    p_puuid: input.puuid, p_payload: input.payload,
+  });
+}
+
 export async function getLolChallengeCatalogCache(): Promise<LolChallengeCatalog | undefined> {
   return (await rpc<LolChallengeCatalog | null>("get_lol_challenge_catalog_cache", {})) ?? undefined;
 }

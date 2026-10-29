@@ -23,6 +23,9 @@ import {
   LolLeaseExpiredError,
   lolMatchCacheKey,
   lolSearchCacheKey,
+  lolSearchSnapshotKey,
+  getLolSearchSnapshot,
+  putLolSearchSnapshot,
   persistLolMatchDetails,
   persistLolSearchSnapshot,
   finishLolRiotRequest,
@@ -1198,6 +1201,28 @@ function refreshRemaining(lastUpdatedAt: string): number {
   return Number.isFinite(elapsed) ? Math.max(0, Math.ceil((LOL_REFRESH_COOLDOWN_MS - elapsed) / 1000)) : 0;
 }
 
+// 저장된 검색 결과가 이보다 오래되면 화면이 표시 뒤 한 번 갱신한다. 그보다 최근이면 사용자가 직접 갱신한다.
+const LOL_AUTO_REFRESH_AFTER_MS = 10 * 60_000;
+
+function withCurrentDataDragon(result: LolSearchResult, dataDragonVersion: string): LolSearchResult {
+  return { ...result, dataDragonVersion,
+    matches: result.matches.map(match => ({ ...match, dataDragonVersion: match.dataDragonVersion ?? dataDragonVersion })) };
+}
+
+// 마지막 검색 결과 보관은 부가 기능이라 실패해도 검색 응답은 그대로 돌려준다.
+async function saveLolSearchSnapshot(
+  riotId: { gameName: string; tagLine: string }, puuid: string, dataDragonVersion: string, result: LolSearchResult,
+) {
+  try {
+    await putLolSearchSnapshot({
+      key: lolSearchSnapshotKey(riotId.gameName, riotId.tagLine, LOL_PLATFORM, LOL_REGIONAL_ROUTE, dataDragonVersion),
+      platform: LOL_PLATFORM, route: LOL_REGIONAL_ROUTE, version: dataDragonVersion, puuid, payload: result,
+    });
+  } catch {
+    console.warn("[lol-search] snapshot_save_failed", JSON.stringify({ reasonCode: "persistence_unavailable" }));
+  }
+}
+
 async function enrichMatchRecords(records: Array<{ summary: LolRecentMatch; raw: unknown }>) {
   if (!records.length) return;
   const metadata = await getStaticData(true);
@@ -1399,11 +1424,24 @@ async function searchLolRiotIdInternal(
       : cached.lastUpdatedAt;
     const remainSeconds = refreshRemaining(lastUpdatedAt);
     if (options.refresh && remainSeconds > 0) return { status: "cooldown", remainSeconds, lastUpdatedAt };
-    if (!options.refresh) return withLolStoredExtras({ ...cached, dataDragonVersion,
-      matches: cached.matches.map(match => ({ ...match, dataDragonVersion: match.dataDragonVersion ?? dataDragonVersion })), refreshRemainSeconds: remainSeconds });
+    if (!options.refresh) return withLolStoredExtras({ ...withCurrentDataDragon(cached, dataDragonVersion), refreshRemainSeconds: remainSeconds });
   } else if (options.refresh && storedAccount?.accountFetchedAt) {
     const remainSeconds = refreshRemaining(storedAccount.accountFetchedAt);
     if (remainSeconds > 0) return { status: "cooldown", remainSeconds, lastUpdatedAt: storedAccount.accountFetchedAt };
+  } else if (!options.refresh && persistenceEnabled) {
+    // 2분 캐시가 끝난 계정은 Riot을 기다리지 않고 마지막 검색 결과를 먼저 돌려준다.
+    // 오래된 결과에는 autoRefresh를 붙여 화면이 표시 뒤 갱신을 요청하게 한다.
+    const snapshot = await getLolSearchSnapshot<LolSearchResult>(
+      lolSearchSnapshotKey(riotId.gameName, riotId.tagLine, LOL_PLATFORM, LOL_REGIONAL_ROUTE, dataDragonVersion),
+      LOL_PLATFORM, LOL_REGIONAL_ROUTE, dataDragonVersion,
+    );
+    if (snapshot) {
+      const remainSeconds = refreshRemaining(snapshot.lastUpdatedAt);
+      const ageMs = Date.now() - Date.parse(snapshot.lastUpdatedAt);
+      const autoRefresh = remainSeconds === 0 && !(ageMs < LOL_AUTO_REFRESH_AFTER_MS);
+      return withLolStoredExtras({ ...withCurrentDataDragon(snapshot, dataDragonVersion), refreshRemainSeconds: remainSeconds,
+        ...(autoRefresh ? { autoRefresh: true } : {}) });
+    }
   }
   const existing = state.inflight.get(lookupKey);
   if (existing) {
@@ -1471,6 +1509,7 @@ async function searchLolRiotIdInternal(
       });
       saved = true;
       result.rankedHistory = await getLolRankedHistory(puuid);
+      await saveLolSearchSnapshot(riotId, puuid, dataDragonVersion, result);
     } else setCached(lookupKey, result, LOL_REFRESH_COOLDOWN_MS);
     return withLolStoredExtras(result, puuid);
   })();

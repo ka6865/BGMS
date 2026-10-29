@@ -70,9 +70,12 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
   const [failedAction, setFailedAction] = useState<{ action: "more" | "refresh"; retryId?: string; busySeconds?: number } | null>(null);
   // 갱신으로 ID가 늘어나도 원래 페이지의 추가 조회 가능성을 유지한다.
   const [hasNextPage, setHasNextPage] = useState(false);
+  // 서버가 오래된 저장 전적을 먼저 보냈을 때, 표시 뒤 한 번 갱신할 계정이다.
+  const [autoRefreshFor, setAutoRefreshFor] = useState<string | null>(null);
   // 같은 탭에서 이미 불러왔던 경기 수까지는 새로고침·뒤로가기 뒤에도 자동으로 다시 채운다.
   const [restoreTarget, setRestoreTarget] = useState(0);
   const loadMore = useRef<() => void>(() => {});
+  const autoRefresh = useRef<() => void>(() => {});
   const lastAutoOffset = useRef(-1);
   const autoRetries = useRef(0);
   const requestId = useRef(0);
@@ -105,6 +108,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
     setMobileView("matches");
     setMoreError(null);
     setFailedAction(null);
+    setAutoRefreshFor(null);
 
     try {
       const response = await fetch(`${apiBase}/search`, {
@@ -129,6 +133,7 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
         setRestoreTarget(readLoadedCount(`${payload.account?.gameName}#${payload.account?.tagLine}`));
         setRefreshAvailableAt(updatedAt + (payload.refreshRemainSeconds ?? 0) * 1000);
         setNow(updatedAt);
+        setAutoRefreshFor(payload.autoRefresh === true ? `${payload.account?.gameName}#${payload.account?.tagLine}` : null);
       }
     } catch (cause) {
       if (currentRequest === requestId.current) {
@@ -332,12 +337,19 @@ export default function LolSearchPanel({ initialRiotId, initialError, publicView
 
   useEffect(() => {
     loadMore.current = () => { void runAccountAction("more"); };
+    autoRefresh.current = () => { void runAccountAction("refresh"); };
   });
+  useEffect(() => {
+    // 저장 전적을 먼저 보여 준 뒤 한 번만 갱신한다. 이어 불러오기보다 먼저 시작해 최신 목록 기준으로 이어 간다.
+    if (!autoRefreshFor || autoRefreshFor !== ownRiotId || busyAccount || remainingCooldown > 0) return;
+    setAutoRefreshFor(null);
+    autoRefresh.current();
+  }, [autoRefreshFor, ownRiotId, busyAccount, remainingCooldown]);
   useEffect(() => {
     if (result && result.loadedCount > 0) saveLoadedCount(ownRiotId, result.loadedCount);
   }, [result, ownRiotId]);
   const loadedCount = result?.loadedCount ?? 0;
-  const autoLoad = !!result?.hasMore && !busyAccount && !failedAction && !moreError && loadedCount < restoreTarget;
+  const autoLoad = !!result?.hasMore && !busyAccount && !failedAction && !moreError && !autoRefreshFor && loadedCount < restoreTarget;
   useEffect(() => {
     // 새로고침 직전 요청이 서버에서 아직 처리 중이면 busy가 오므로, 안내된 시간 뒤 최대 5번만 자동으로 다시 시도한다.
     const seconds = failedAction?.action === "more" && !failedAction.retryId ? failedAction.busySeconds : undefined;

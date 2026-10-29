@@ -71,7 +71,10 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
             res.statusCode = 503;
             res.end(JSON.stringify({ error: LOL_KEY_RENEWAL_MESSAGE, reasonCode: "riot_key_renewal", detail: LOL_KEY_RENEWAL_ENGLISH }));
           }
-          else res.end(JSON.stringify({ ...fixtureResult, refreshRemainSeconds: riotId.startsWith("보존#") ? 0 : 120,
+          else res.end(JSON.stringify({ ...fixtureResult, refreshRemainSeconds: riotId.startsWith("보존#") || (riotId.startsWith("저장#") && !refresh) ? 0 : 120,
+            // 저장#: 30분 전 저장 전적을 먼저 보내고(autoRefresh) 갱신 요청에는 방금 갱신한 결과를 보낸다.
+            ...(riotId.startsWith("저장#") ? refresh ? { lastUpdatedAt: new Date().toISOString() }
+              : { lastUpdatedAt: new Date(Date.now() - 30 * 60_000).toISOString(), autoRefresh: true } : {}),
             challengeProfile: riotId.startsWith("도전과제실패#") ? { ...fixtureResult.challengeProfile, status: "failed" }
               : riotId.startsWith("도전과제없음#") ? { ...fixtureResult.challengeProfile, rarest: [], distributionStatus: "unavailable" }
                 : fixtureResult.challengeProfile,
@@ -187,6 +190,23 @@ describe.skipIf(process.env.RUN_LOL_PUBLIC_BROWSER !== "true" && process.env.RUN
     await page.waitForSelector('[data-testid="lol-player-row"]');
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: "tmp/lol-public-review/key-refresh-preserved.png", fullPage: true });
+    await page.close();
+  });
+  it.each([[375, 667], [390, 844], [430, 932], [1440, 900]])("오래된 저장 전적은 먼저 보여 준 뒤 %ix%i에서 한 번만 자동 갱신한다", async (width, height) => {
+    const page = await open(width, height); const bodies: string[] = []; const errors: string[] = [];
+    page.on("request", req => { if (req.url().endsWith("/api/lol/search")) bodies.push(req.postData() ?? ""); });
+    page.on("pageerror", error => errors.push(String(error)));
+    await search(page, "저장#FIX");
+    await page.waitForSelector('[data-testid="lol-match-card"]');
+    // 저장 전적 표시 뒤 갱신이 끝나면 최근 갱신 시각이 초 단위로 바뀐다.
+    await page.waitForFunction(() => /최근 갱신 \d+초 전/.test(document.body.textContent ?? ""));
+    await new Promise(resolve => setTimeout(resolve, 300));
+    expect(bodies.map(body => JSON.parse(body).refresh === true)).toEqual([false, true]);
+    expect(await page.$$('[data-testid="lol-match-card"]')).not.toHaveLength(0);
+    expect(await page.$('[role="alert"]')).toBeNull();
+    expect(errors).toEqual([]);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `tmp/lol-public-review/snapshot-refresh-${width}x${height}.png`, fullPage: true });
     await page.close();
   });
   it("모바일 빈 화면·429 안내가 표시된다", async () => {

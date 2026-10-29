@@ -131,6 +131,7 @@ MIGRATIONS=(
   "20261028130000_lol_champion_stats"
   "20261028140000_first_reply_evidence"
   "20261029010000_lol_riot_window_guard"
+  "20261029020000_lol_search_snapshot"
 )
 
 cleanup() {
@@ -505,6 +506,7 @@ echo "▶ LoL persistence 시나리오 실행"
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-challenge-catalog-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-review-fixes-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-search-cache-cap-scenarios.sql
+"${PSQL[@]}" -f tests/fixtures/migration-check/lol-search-snapshot-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-ladder-status-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-champion-bans-scenarios.sql
 "${PSQL[@]}" -f tests/fixtures/migration-check/lol-champion-stats-scenarios.sql

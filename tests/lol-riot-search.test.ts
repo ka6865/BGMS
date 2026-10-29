@@ -15,6 +15,8 @@ const persistence = vi.hoisted(() => ({
   matchRequestJson: vi.fn(),
   acquire: vi.fn(),
   saveSearch: vi.fn(),
+  snapshot: vi.fn(),
+  saveSnapshot: vi.fn(),
   history: vi.fn(),
   observations: vi.fn(),
   summaries: vi.fn(),
@@ -44,6 +46,8 @@ vi.mock("@/lib/lol/persistence.server", async (importOriginal) => {
     getLolMatchRequestJson: persistence.matchRequestJson,
     acquireLolCollectionLease: persistence.acquire,
     persistLolSearchSnapshot: persistence.saveSearch,
+    getLolSearchSnapshot: persistence.snapshot,
+    putLolSearchSnapshot: persistence.saveSnapshot,
     getLolRankedHistory: persistence.history,
     getLolRankedObservations: persistence.observations,
     getLolPlayerMatchSummaries: persistence.summaries,
@@ -138,6 +142,8 @@ beforeEach(() => {
   persistence.matchRequestJson.mockResolvedValue(undefined);
   persistence.acquire.mockResolvedValue({ key: "lease", token: "lease-token" });
   persistence.saveSearch.mockResolvedValue(undefined);
+  persistence.snapshot.mockResolvedValue(undefined);
+  persistence.saveSnapshot.mockResolvedValue(true);
   persistence.history.mockResolvedValue(emptyLolRankedHistory());
   persistence.observations.mockResolvedValue([]);
   persistence.summaries.mockResolvedValue([]);
@@ -491,6 +497,52 @@ describe("POST /api/admin/lol/search", () => {
     expect(persistence.acquire).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["10분 넘게 지난 결과는 autoRefresh를 붙인다", 11 * 60_000, true],
+    ["10분 안의 결과는 사용자가 직접 갱신한다", 5 * 60_000, false],
+  ])("2분 캐시가 끝나면 마지막 검색 결과를 Riot 호출 없이 먼저 돌려준다: %s", async (_label, ageMs, autoRefresh) => {
+    const lastUpdatedAt = new Date(Date.now() - ageMs).toISOString();
+    const snapshot = {
+      account: { gameName: "Test", tagLine: "KR1" }, profile: { profileIconId: 1, summonerLevel: 2 },
+      ranked: [], rankedHistory: emptyLolRankedHistory(), matches: [], matchIds: [], loadedCount: 0, hasMore: false,
+      matchFailures: [], lastUpdatedAt, refreshRemainSeconds: 120, summaries: summarizeRecentMatches([], "Test#KR1"),
+      matchStatus: "empty" as const,
+    };
+    persistence.enabled.mockReturnValue(true);
+    persistence.snapshot.mockResolvedValue(snapshot);
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await searchLolRiotId("Test#KR1");
+    expect(result).toMatchObject({ account: snapshot.account, lastUpdatedAt, refreshRemainSeconds: 0, dataDragonVersion: "16.21.1" });
+    expect(result.autoRefresh === true).toBe(autoRefresh);
+    expect(persistence.cache).toHaveBeenCalledWith("search", expect.any(String), "kr", "asia", "16.21.1");
+    expect(persistence.snapshot).toHaveBeenCalledWith("search-snapshot:v11:kr:asia:16.21.1:test:kr1", "kr", "asia", "16.21.1");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(persistence.acquire).not.toHaveBeenCalled();
+  });
+
+  it("2분 검색 캐시가 있으면 마지막 검색 결과를 읽지 않는다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.cache.mockResolvedValue({
+      account: { gameName: "Test", tagLine: "KR1" }, profile: { profileIconId: 1, summonerLevel: 2 },
+      ranked: [], matches: [], matchIds: [], loadedCount: 0, hasMore: false, matchFailures: [],
+      lastUpdatedAt: new Date().toISOString(), refreshRemainSeconds: 120, summaries: summarizeRecentMatches([], "Test#KR1"), matchStatus: "empty",
+    });
+    vi.stubGlobal("fetch", vi.fn());
+    const result = await searchLolRiotId("Test#KR1");
+    expect(result.autoRefresh).toBeUndefined();
+    expect(persistence.snapshot).not.toHaveBeenCalled();
+  });
+
+  it("마지막 검색 결과 조회 DB 오류는 503으로 닫고 Riot을 호출하지 않는다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.snapshot.mockRejectedValue(new LolPersistenceError());
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    expect((await POST(post("Test#KR1"))).status).toBe(503);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("프로세스 메모리에 의존하지 않고 영속 경기 상세 cache hit을 반환한다", async () => {
     const dto = {
       matchId: "KR_55",
@@ -605,6 +657,30 @@ describe("POST /api/admin/lol/search", () => {
         cachePayload: { ...result, mastery: expect.objectContaining({ status: result.mastery?.status }) },
       }),
     );
+    // 2분 캐시가 끝난 뒤 먼저 보여 줄 마지막 검색 결과도 랭크 이력까지 담아 저장한다.
+    expect(persistence.saveSnapshot).toHaveBeenCalledWith({
+      key: "search-snapshot:v11:kr:asia:16.21.1:saved:kr1", platform: "kr", route: "asia", version: "16.21.1",
+      puuid: "fixture-puuid", payload: expect.objectContaining({ rankedHistory: history, lastUpdatedAt: result.lastUpdatedAt }),
+    });
+    expect(persistence.history.mock.invocationCallOrder[0]).toBeLessThan(persistence.saveSnapshot.mock.invocationCallOrder[0]);
+  });
+
+  it("마지막 검색 결과 저장이 실패해도 검색 응답은 그대로 돌려준다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.saveSnapshot.mockRejectedValue(new LolPersistenceError());
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.includes("accounts/by-riot-id")) return response({ puuid: "fixture-puuid", gameName: "Saved", tagLine: "KR1" });
+      if (url.includes("summoner/v4")) return response({ profileIconId: 12, summonerLevel: 42 });
+      if (url.includes("league/v4")) return response([]);
+      if (url.includes("/ids?")) return response([]);
+      return response({ data: {} });
+    }));
+    const result = await POST(post("Saved#KR1"));
+    expect(result.status).toBe(200);
+    expect(warn).toHaveBeenCalledWith("[lol-search] snapshot_save_failed", expect.stringContaining("persistence_unavailable"));
+    warn.mockRestore();
   });
 
   it("검색 cache 만료 뒤 최신 Riot ID·랭크·경기목록은 조회하고 저장된 경기 원문은 재사용한다", async () => {
@@ -2551,6 +2627,7 @@ describe("POST /api/admin/lol/search", () => {
     for (const endpoint of ["accounts/by-riot-id", "summoner/v4", "league/v4", "/ids?"]) {
       expect(calls.filter((url) => url.includes(endpoint))).toHaveLength(2);
     }
+    expect(persistence.snapshot).not.toHaveBeenCalled();
   });
 
   it("search DTO summaries는 순수 summary 함수 결과를 그대로 담는다", async () => {
