@@ -61,6 +61,14 @@ export class AnalysisEngine {
       teamAliveMembers: new Map(),
       myAttackEvents: new Set(),
       myDamageEvents: [],
+      roleEvidenceValidWeaponHits: 0,
+      roleEvidenceDistanceHitCount: 0,
+      roleEvidenceDistanceDamage: { short: 0, mid: 0, long: 0 },
+      roleEvidenceMaxHitDist: null,
+      roleEvidenceFocusFireCount: 0,
+      roleEvidenceDamageEvents: new Set(),
+      roleEvidenceFocusHitsByVictim: new Map(),
+      positionSampleCount: 0,
       totalReviveEvents: [],
       teammateKnockEvents: [],
       myActionTimestamps: [],
@@ -440,6 +448,9 @@ export class AnalysisEngine {
     const pressureIndex = this.state.myActionTimestamps.length > 0
       ? Number((this.state.combatPressure.totalHits / Math.max(5, (this.state.myActionTimestamps.length / 10))).toFixed(2))
       : null;
+    const rolePressureIndex = this.state.roleEvidenceValidWeaponHits > 0
+      ? Number((this.state.roleEvidenceValidWeaponHits / Math.max(5, (this.state.myActionTimestamps.length / 10))).toFixed(2))
+      : null;
     const hasLethalThrowSamples = this.state.itemUseStats.lethalThrowCount > 0;
     const utilityEvidence = this.state.utilityThrowEvidence;
     const utilityHitCount = utilityEvidence.missing ? null : utilityEvidence.hits.size;
@@ -499,6 +510,19 @@ export class AnalysisEngine {
         kills: myStats.kills ?? 0,
         winPlace: myStats.winPlace ?? 100,
         timeSurvived: myStats.timeSurvived ?? 0
+      },
+      roleEvidence: {
+        version: 1,
+        validWeaponHits: this.state.roleEvidenceValidWeaponHits,
+        distanceHitCount: this.state.roleEvidenceDistanceHitCount,
+        distanceDamage: this.state.roleEvidenceDistanceDamage,
+        maxHitDist: this.state.roleEvidenceMaxHitDist,
+        pressureIndex: rolePressureIndex,
+        focusFireCount: this.state.roleEvidenceFocusFireCount,
+        rescueCount: rescueSummary.rescueCount,
+        rescueOpportunityCount: rescueSummary.rescueOpportunityCount,
+        positionSampleCount: this.state.positionSampleCount,
+        edgePlayCount: this.state.zoneStrategy.edgePlayCount,
       },
       team: teamStats,
       deathPhase,

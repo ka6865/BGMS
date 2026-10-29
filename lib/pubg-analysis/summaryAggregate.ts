@@ -1,4 +1,5 @@
 import { WEAPON_NAMES } from "./constants";
+import { evaluateMatchEligibility } from "./matchEligibility";
 import { firstReplyLatencyMs, firstReplyFailureRate } from "./firstReply";
 
 function normalizeWeaponName(weaponId: string): string {
@@ -123,7 +124,143 @@ function sumCompleteObservations(values: unknown[]): number | null {
   return (observed as number[]).reduce((total, value) => total + value, 0);
 }
 
-export function aggregateMatches(matches: any[]) {
+// 새 칭호 후보는 같은 버전의 완전한 경기 창에서만 개인 관측을 비교한다.
+function aggregateRoleEvidence(matches: any[]) {
+  if (!matches.length) return null;
+  const nonNegative = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
+  const rows = matches.map((match) => match?.roleEvidence);
+  const counts = ["validWeaponHits", "distanceHitCount", "focusFireCount", "rescueCount", "rescueOpportunityCount", "positionSampleCount", "edgePlayCount"];
+  if (rows.some((row) => !row || row.version !== 1
+    || counts.some((key) => !nonNegative(row[key]) || !Number.isInteger(row[key]))
+    || row.rescueCount > row.rescueOpportunityCount || row.edgePlayCount > row.positionSampleCount
+    || row.distanceHitCount > row.validWeaponHits
+    || ["short", "mid", "long"].some((key) => !nonNegative(row.distanceDamage?.[key]))
+    || (row.maxHitDist !== null && !nonNegative(row.maxHitDist))
+    || (row.pressureIndex !== null && !nonNegative(row.pressureIndex))
+    || (row.distanceHitCount === 0 ? row.maxHitDist !== null : row.maxHitDist === null)
+    || (row.validWeaponHits === 0 ? row.pressureIndex !== null : row.pressureIndex === null))) return null;
+  const sum = (key: string) => rows.reduce((total, row) => total + row[key], 0);
+  const pressures = rows.map((row) => row.pressureIndex).filter(nonNegative);
+  const distances = rows.map((row) => row.maxHitDist).filter(nonNegative);
+  const golden = matches.map((match) => match?.goldenTimeDamage);
+  const goldenComplete = golden.every((row) => row && ["early", "mid1", "mid2", "late"].every((key) => nonNegative(row[key])));
+  const observed = (read: (match: any) => unknown) => matches.filter((match) => nonNegative(read(match))).length;
+  const metricMatchCounts = {
+    initiative: matches.filter((match) => nonNegative(match.initiativeSampleCount) && (match.initiativeSampleCount === 0 || (nonNegative(match.initiative_rate) && match.initiative_rate <= 100))).length,
+    duelWin: matches.filter((match) => nonNegative(match.duelStats?.wins) && nonNegative(match.duelStats?.losses)).length,
+    reversal: observed((match) => match.duelStats?.reversalAttempts),
+    tradeRate: matches.filter((match) => nonNegative(match.tradeStats?.tradeKills) && nonNegative(match.tradeStats?.teammateKnocks)).length,
+    placement: matches.filter((match) => nonNegative(match.stats?.winPlace) && match.stats.winPlace >= 1 && nonNegative(match.totalTeams) && match.totalTeams > 1).length,
+    baitPerMatch: observed((match) => match.tradeStats?.baitCount),
+    supportPerMatch: observed((match) => match.tradeStats?.suppCount),
+    teamDamageShare: observed((match) => match.teamImpact?.teamDamageShare),
+    assistShare: matches.filter((match) => ["solo", "cleanup", "assist"].every((key) => nonNegative(match.killContribution?.[key]))).length,
+  };
+  return {
+    version: 1 as const, matchCount: matches.length,
+    teamMatchCount: matches.filter(match => nonNegative(match.teamContext?.myRosterSize) && match.teamContext.myRosterSize > 1).length,
+    validWeaponHits: sum("validWeaponHits"), distanceHitCount: sum("distanceHitCount"),
+    distanceDamage: {short: rows.reduce((total, row) => total + row.distanceDamage.short, 0),
+      mid: rows.reduce((total, row) => total + row.distanceDamage.mid, 0), long: rows.reduce((total, row) => total + row.distanceDamage.long, 0)},
+    maxHitDist: distances.length ? Math.max(...distances) : null,
+    pressureIndex: pressures.length ? pressures.reduce((a, b) => a + b, 0) / pressures.length : null,
+    focusFireCount: sum("focusFireCount"), rescueCount: sum("rescueCount"), rescueOpportunityCount: sum("rescueOpportunityCount"),
+    positionSampleCount: sum("positionSampleCount"), edgePlayCount: sum("edgePlayCount"), metricMatchCounts,
+    goldenTimeDamage: goldenComplete ? {early: golden.reduce((total, row) => total + row.early, 0),
+      mid1: golden.reduce((total, row) => total + row.mid1, 0), mid2: golden.reduce((total, row) => total + row.mid2, 0), late: golden.reduce((total, row) => total + row.late, 0)} : null,
+  };
+}
+
+/**
+ * 칭호 후보 기준 분포의 모집단 키: platform|raw gameMode|official/competitive.
+ * 값이 기록되지 않은 경기는 null이다. 누락을 steam·official 같은 기본값으로 채우지 않는다.
+ */
+export function roleCohortOf(match: any): string | null {
+  const platform = typeof match?.platform === "string" ? match.platform.trim().toLowerCase() : "";
+  if (!["steam", "kakao"].includes(platform)) return null;
+  // mode·matchType은 AI 요약 모집단 계약(일반 배틀로얄, official/competitive)을 그대로 따른다.
+  // 미확인·사용자 지정·이벤트 유형은 cohort가 없다.
+  const eligibility = evaluateMatchEligibility(match, "ai-summary");
+  if (!eligibility.eligible || !eligibility.mode || !eligibility.matchType) return null;
+  return `${platform}|${eligibility.mode}|${eligibility.matchType}`;
+}
+
+export type RoleCohortIssue = "missing" | "mixed" | "identity";
+
+/** 같은 선정 경기에서 cohort를 다시 계산한다. 한 계정·중복 없는 경기·같은 cohort일 때만 값이 있다. */
+function aggregateRoleCohort(matches: any[]): { cohort: string | null; cohortIssue: RoleCohortIssue | null } {
+  const ids = matches.map((match) => match?.matchId);
+  // 계정 식별은 모든 경기에 있어야 하고 같아야 한다. 누락을 한 계정의 증거로 보지 않는다.
+  const players = matches.map((match) => match?.stats?.playerId ?? match?.player_id);
+  if (!matches.length || ids.some((id) => typeof id !== "string" || !id) || new Set(ids).size !== ids.length
+    || players.some((player) => typeof player !== "string" || !player) || new Set(players).size !== 1) return { cohort: null, cohortIssue: "identity" };
+  const cohorts = matches.map(roleCohortOf);
+  if (cohorts.some((cohort) => cohort === null)) return { cohort: null, cohortIssue: "missing" };
+  if (new Set(cohorts).size !== 1) return { cohort: null, cohortIssue: "mixed" };
+  return { cohort: cohorts[0], cohortIssue: null };
+}
+
+export interface TeamRoleEvidence {
+  matchCount: number;
+  rescueCount: number;
+  rescueOpportunityCount: number;
+  teamDamageShare: number | null;
+  teamDamageShareMatches: number;
+  tradeKills: number;
+  teammateKnocks: number;
+  tradeRateMatches: number;
+  tradeLatencySec: number | null;
+  tradeLatencyMatches: number;
+  baitPerMatch: number | null;
+  supportPerMatch: number | null;
+  supportMatches: number;
+  focusFirePerMatch: number | null;
+  assistShare: number | null;
+  crossfireMatches: number;
+}
+
+function aggregateTeamRoleEvidence(matches: any[]): TeamRoleEvidence {
+  const nonNegative = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
+  const teamRows = matches.map((match) => ({match, role: match?.roleEvidence}))
+    .filter(({match}) => nonNegative(match?.teamContext?.myRosterSize) && match.teamContext.myRosterSize > 1);
+  const shares = teamRows.map(({match}) => match?.teamImpact?.teamDamageShare)
+    .filter((value): value is number => nonNegative(value) && value <= 100);
+  const tradeRows = teamRows.map(({match}) => match).filter((match) =>
+    nonNegative(match?.tradeStats?.tradeKills) && nonNegative(match?.tradeStats?.teammateKnocks));
+  const latencyRows = tradeRows.filter((match) => match.tradeStats.tradeKills > 0 && nonNegative(match.tradeStats.tradeLatencyMs));
+  const supportRows = teamRows.map(({match}) => match).filter((match) =>
+    nonNegative(match?.tradeStats?.baitCount) && nonNegative(match?.tradeStats?.suppCount));
+  const focusRows = teamRows.filter(({role, match}) => nonNegative(role?.focusFireCount)
+    && nonNegative(match?.killContribution?.solo) && nonNegative(match?.killContribution?.cleanup) && nonNegative(match?.killContribution?.assist));
+  const contribution = focusRows.reduce((sum, {match}) => {
+    sum.solo += match.killContribution.solo;
+    sum.cleanup += match.killContribution.cleanup;
+    sum.assist += match.killContribution.assist;
+    sum.focus += match.roleEvidence.focusFireCount;
+    return sum;
+  }, {solo: 0, cleanup: 0, assist: 0, focus: 0});
+  return {
+    matchCount: teamRows.length,
+    rescueCount: teamRows.reduce((sum, {role}) => sum + role.rescueCount, 0),
+    rescueOpportunityCount: teamRows.reduce((sum, {role}) => sum + role.rescueOpportunityCount, 0),
+    teamDamageShare: shares.length ? shares.reduce((sum, value) => sum + value, 0) / shares.length : null,
+    teamDamageShareMatches: shares.length,
+    tradeKills: tradeRows.reduce((sum, match) => sum + match.tradeStats.tradeKills, 0),
+    teammateKnocks: tradeRows.reduce((sum, match) => sum + match.tradeStats.teammateKnocks, 0),
+    tradeRateMatches: tradeRows.length,
+    tradeLatencySec: latencyRows.length ? latencyRows.reduce((sum, match) => sum + match.tradeStats.tradeLatencyMs, 0) / latencyRows.length / 1000 : null,
+    tradeLatencyMatches: latencyRows.length,
+    baitPerMatch: supportRows.length ? supportRows.reduce((sum, match) => sum + match.tradeStats.baitCount, 0) / supportRows.length : null,
+    supportPerMatch: supportRows.length ? supportRows.reduce((sum, match) => sum + match.tradeStats.suppCount, 0) / supportRows.length : null,
+    supportMatches: supportRows.length,
+    focusFirePerMatch: focusRows.length ? contribution.focus / focusRows.length : null,
+    assistShare: contribution.solo + contribution.cleanup + contribution.assist >= 3
+      ? contribution.assist / (contribution.solo + contribution.cleanup + contribution.assist) * 100 : null,
+    crossfireMatches: focusRows.length,
+  };
+}
+
+export function aggregateMatches(matches: any[], options?: { roleEvidenceVersion?: 2 }) {
   const inputMatches = Array.isArray(matches) ? matches : [];
   let totalKills = 0, totalDamage = 0, totalDamageImpact = 0, totalTeamDamageShare = 0, totalTeamKillShare = 0;
   let damageImpactCount = 0, teamDamageShareCount = 0, teamKillShareCount = 0;
@@ -549,8 +686,13 @@ export function aggregateMatches(matches: any[]) {
     death_phase: deathPhaseCount,
   });
 
+  const roleEvidenceV1 = aggregateRoleEvidence(inputMatches);
+  const roleEvidence = options?.roleEvidenceVersion === 2 && roleEvidenceV1
+    ? {...roleEvidenceV1, version: 2 as const, team: aggregateTeamRoleEvidence(inputMatches), ...aggregateRoleCohort(inputMatches)}
+    : roleEvidenceV1;
   return {
     metricMatchCounts,
+    roleEvidence,
     rawMetricValues: {
       pressure_index: pressureIndexCount > 0 ? totalPressureIndex / pressureIndexCount : null,
       reaction_latency: measuredReactionLatencySec,

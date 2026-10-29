@@ -1,13 +1,27 @@
 import { describe,expect,it,vi } from 'vitest';
 import { evaluateCoachingExpansion,evaluateBenchmarkSupplement } from '../scripts/validate_coaching_expansion';
 const subject=(account:string,target?:string)=>({account,name:account,target,queriedAt:'2026-10-28T00:00:00Z',matches:[],results:[]});
-const benchmarkSubject=(account:string,id:string,latency:number)=>({...subject(account),matches:[{match_id:id,player_id:account,account_id:account,platform:'steam',played_at:'2026-10-27T00:00:00Z',game_mode:'squad',match_type:'official'}],results:[{matchId:id,gameMode:'squad',matchType:'official',v:73,calculationVersion:5,populationEvidenceVersion:1,benchmark:{score:50,tier:'B'},stats:{playerId:account},duelStats:{firstReplyEvidence:{version:1,eligibleCount:1,alreadyFiringCount:0,unknownCount:0,within3sCount:1,latencySumMs:latency,noReplyCount:0}}}]});
+const benchmarkSubject=(account:string,id:string,latency:number)=>({...subject(account),matches:[{match_id:id,player_id:account,account_id:account,platform:'steam',played_at:'2026-10-27T00:00:00Z',game_mode:'squad',match_type:'official'}],results:[{matchId:id,gameMode:'squad',matchType:'official',platform:'steam',v:73,calculationVersion:5,populationEvidenceVersion:1,benchmark:{score:50,tier:'B'},stats:{playerId:account},duelStats:{firstReplyEvidence:{version:1,eligibleCount:1,alreadyFiringCount:0,unknownCount:0,within3sCount:1,latencySumMs:latency,noReplyCount:0}}}]});
 describe('isolated confirmation of coaching references',()=>{
  it('never fits confirmation accounts or named targets into the candidate',()=>{
   const dev=[subject('a','KangHeeSung_')],held=[subject('b')];
   const before=evaluateCoachingExpansion(dev),after=evaluateCoachingExpansion(dev,held);
   expect(after.candidate).toEqual(before.candidate);expect(after.activationAllowed).toBe(false);
   expect(after.confirmation.accounts).toBe(1);expect(after.confirmation.rejections).toEqual({incomplete_window:1});
+ });
+ it('runs the EV2 candidate with cohort checks only when explicitly requested',()=>{
+  const evidence={version:1,validWeaponHits:6,distanceHitCount:6,distanceDamage:{short:300,mid:0,long:0},maxHitDist:20,pressureIndex:1.2,focusFireCount:0,rescueCount:0,rescueOpportunityCount:0,positionSampleCount:0,edgePlayCount:0};
+  const roleSubject=(account:string,prefix:string)=>({...subject(account),matches:Array.from({length:5},(_,i)=>({match_id:`${prefix}${i}`,played_at:'2026-10-27T00:00:00Z'})),
+    results:Array.from({length:5},(_,i)=>({matchId:`${prefix}${i}`,createdAt:'2026-10-27T00:00:00Z',gameMode:'squad',matchType:'official',platform:'steam',v:73,calculationVersion:5,populationEvidenceVersion:1,
+      benchmark:{score:50+i,tier:'B'},stats:{playerId:account,damageDealt:100},teamContext:{myRosterSize:2},teamImpact:{teamDamageShare:50},roleEvidence:evidence}))});
+  const dev=[roleSubject('dev-a','d')] as any[],held=[roleSubject('held-b','h')] as any[];
+  const ev2=evaluateCoachingExpansion(dev,held,'seed',{evidenceVersion:2});
+  expect(ev2.candidate.cohorts[0].reference).toMatchObject({evidenceVersion:2,cohort:'steam|squad|official'});
+  expect(ev2.confirmation.cohorts[0].windowChecks).toHaveLength(1);
+  expect(ev2.confirmation.cohorts[0].windowChecks![0].cohortCheck).toBe('match');
+  const legacy=evaluateCoachingExpansion(dev,held,'seed');
+  expect(legacy.candidate.cohorts[0].reference).not.toHaveProperty('evidenceVersion');
+  expect(legacy.confirmation.cohorts[0]).not.toHaveProperty('windowChecks');
  });
  it('rejects overlap and a target disguised as independent confirmation',()=>{
   expect(()=>evaluateCoachingExpansion([subject('a')],[subject('a')])).toThrow(/overlapping/);
@@ -30,7 +44,7 @@ it('withholds a role whose observed accounts are unstable despite a high overall
 
 it('excludes shared games from independent confirmation and ignores results outside the requested window',()=>{
  const build=(account:string,ids:string[])=>({account,name:account,queriedAt:'2026-10-28T00:00:00Z',matches:ids.map(match_id=>({match_id,player_id:account,account_id:account,platform:'steam',played_at:'2026-10-27T00:00:00Z',game_mode:'squad',match_type:'official'})),
-  results:ids.map(matchId=>({matchId,createdAt:'2026-10-27T00:00:00Z',gameMode:'squad',matchType:'official',v:73,calculationVersion:5,populationEvidenceVersion:1,benchmark:{score:50,tier:'B'},stats:{playerId:account},initiative_rate:80}))});
+  results:ids.map(matchId=>({matchId,createdAt:'2026-10-27T00:00:00Z',gameMode:'squad',matchType:'official',platform:'steam',v:73,calculationVersion:5,populationEvidenceVersion:1,benchmark:{score:50,tier:'B'},stats:{playerId:account},initiative_rate:80}))});
  const dev=build('dev',['1','2','3']),held=build('held',['1','4','5']);held.results.push({...held.results[0],matchId:'stale'});
  const report=evaluateCoachingExpansion([dev],[held]);
  expect(report.confirmation).toMatchObject({completeProfiles:1,playerMatches:3,gameDisjointProfiles:0,gameDisjointPlayerMatches:2,overlapExcludedProfiles:1,overlapExcludedPlayerMatches:1});
@@ -40,7 +54,7 @@ it('excludes shared games from independent confirmation and ignores results outs
 it('uses the app retention window at the frozen collection time before requiring scores or benchmarking',()=>{
  const account='retention-fixture',ids=['fresh1','fresh2','fresh3'];
  const s={account,name:account,queriedAt:'2026-10-28T00:00:00Z',matches:[...ids,'expired'].map(match_id=>({match_id,player_id:account,account_id:account,platform:'steam',played_at:match_id==='expired'?'2026-10-12T00:00:00Z':'2026-10-27T00:00:00Z',game_mode:'squad',match_type:'official'})),
-  results:ids.map(matchId=>({matchId,createdAt:'2026-10-27T00:00:00Z',gameMode:'squad',matchType:'official',v:73,calculationVersion:5,populationEvidenceVersion:1,benchmark:{score:50,tier:'B'},stats:{playerId:account},initiative_rate:80}))};
+  results:ids.map(matchId=>({matchId,createdAt:'2026-10-27T00:00:00Z',gameMode:'squad',matchType:'official',platform:'steam',v:73,calculationVersion:5,populationEvidenceVersion:1,benchmark:{score:50,tier:'B'},stats:{playerId:account},initiative_rate:80}))};
  const report=evaluateCoachingExpansion([s]);
  expect(report.development).toMatchObject({completeProfiles:1,playerMatches:3});expect(report.excludedExpiredRequests).toEqual({development:1,confirmation:0});
  vi.useFakeTimers();vi.setSystemTime(new Date('2035-01-01T00:00:00Z'));

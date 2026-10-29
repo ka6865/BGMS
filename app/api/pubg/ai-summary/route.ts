@@ -1651,7 +1651,9 @@ export async function POST(request: Request) {
     const roleStatsWithDistribution = { ...summaryStats, avgReactionLatency: "측정 불가", modeDistribution: { main: mainModeName } };
     const roleInfo = classifyRole(roleStatsWithDistribution, mainBench, mainUserTier);
     if (!useIdCards) {
-      userPrompt += `\n### [유저 전술적 정체성]\n- 부여된 칭호: ${roleInfo.title}\n- 전술 직업군: ${roleInfo.roleLabel}\n- 특징 요약: ${roleInfo.description}\n- 주요 취약점: ${roleInfo.weakness || "식별된 약점 없음 (완성형)"}\n- 시그니처 무기: ${roleInfo.signatureWeapon} (${roleInfo.signatureWeaponStats?.kills}킬, ${roleInfo.signatureWeaponStats?.dbnos}기절, 사용 일관성: ${roleInfo.signatureWeaponStats?.consistency}%)\n`;
+      const presentation = roleInfo.presentation;
+      const pendingObservation = presentation === "observed" || presentation === "combined";
+      userPrompt += `\n### [유저 전술적 정체성]\n- ${pendingObservation ? "관측된 성향 (대표 칭호 미확정)" : "부여된 칭호"}: ${roleInfo.title}\n- ${pendingObservation ? "관측된 성향" : "전술 직업군"}: ${roleInfo.roleLabel}\n- 특징 요약: ${roleInfo.description}\n- 주요 취약점: ${roleInfo.weakness || (pendingObservation ? "대표 칭호 미확정이며 관측되지 않은 능력은 평가하지 않음" : "식별된 약점 없음 (완성형)")}\n- 시그니처 무기: ${roleInfo.signatureWeapon} (${roleInfo.signatureWeaponStats?.kills}킬, ${roleInfo.signatureWeaponStats?.dbnos}기절, 사용 일관성: ${roleInfo.signatureWeaponStats?.consistency}%)\n`;
       userPrompt += `\n[INSTRUCTION] 'finalVerdict' 필드에 위 '주요 취약점'에 대한 분석과 전체 토론 내용을 결합하여, 유저에게 깊은 인상을 남길 수 있는 최종 판결문을 작성하십시오.`;
     }
 

@@ -95,6 +95,7 @@ export class ZoneHandler extends BaseHandler {
         Math.pow(charY - this.state.blueZone.y, 2)
       );
       const distToEdge = Math.abs(distToCenter - this.state.blueZone.radius);
+      if (Number.isFinite(distToEdge)) this.state.positionSampleCount++;
       if (distToEdge < 50) {
         this.state.zoneStrategy.edgePlayCount++;
       } else if (distToEdge < 150) {

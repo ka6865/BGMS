@@ -19,6 +19,7 @@ import { InlineIconLabel } from "@/components/common/InlineIconLabel";
 import { matchDebateStatPairs, normalizeAiSummaryFinalJson, type DebateStat } from "@/lib/pubg-analysis/aiSummaryDebate";
 import { parseSummaryCards, type SummaryCard, type SummaryEvidence } from "@/lib/pubg-analysis/aiSummaryCards";
 import { formatBenchmarkDisplayLabel } from "@/lib/pubg-analysis/benchmarkAdapter";
+import type { RoleKey } from "@/lib/pubg-analysis/roleClassifier";
 
 function getAiTierIconName(tier?: string | null): BgmsIconName {
   if (tier === "S") return "award";
@@ -92,7 +93,12 @@ interface DebateData {
       signatureWeapon: string;
       signatureWeaponStats?: { kills: number; dbnos: number; consistency?: number; isReliable?: boolean };
       weakness?: string | null;
-      scores: Record<string, number>;
+      scores: Record<string, number | null>;
+      status?: "confirmed" | "balanced" | "pending" | "insufficient";
+      reason?: string;
+      observedRoleCount?: number;
+      presentation?: "role" | "observed" | "combined" | "insufficient";
+      observedRoles?: RoleKey[];
     };
 
     initiativeSuccess?: string;
@@ -279,10 +285,16 @@ export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | 
   if (roleInfo && typeof roleInfo === "object" && !Array.isArray(roleInfo)) {
     const roleSource = roleInfo as Record<string, unknown>;
     const role: Record<string, unknown> = {};
-    ["primaryRole", "title", "roleLabel", "description", "signatureWeapon", "weakness"].forEach((key) => {
+    ["primaryRole", "title", "roleLabel", "description", "signatureWeapon", "weakness", "reason"].forEach((key) => {
       const text = safeVisualText(roleSource[key]);
       if (text !== null) role[key] = text;
     });
+    if (["confirmed", "balanced", "pending", "insufficient"].includes(String(roleSource.status))) role.status = roleSource.status;
+    if (["role", "observed", "combined", "insufficient"].includes(String(roleSource.presentation))) role.presentation = roleSource.presentation;
+    const validRoles: RoleKey[] = ["pointMan", "phantomOverwatch", "executor", "shield", "avenger", "zoneController", "dropPredator", "decoy", "grenadier", "brawler", "mainGun", "crossfire", "fieldCommander"];
+    if (Array.isArray(roleSource.observedRoles)) role.observedRoles = [...new Set(roleSource.observedRoles.filter((item): item is RoleKey => typeof item === "string" && validRoles.includes(item as RoleKey)))].slice(0, 2);
+    const observedRoleCount = finiteVisualNumber(roleSource.observedRoleCount, 0, 13);
+    if (observedRoleCount !== null) role.observedRoleCount = Math.floor(observedRoleCount);
     // 칭호 근거와 배지는 서버가 만든 짧은 문구 목록이다. 문자열만 최대 4개까지 받는다.
     (["evidence", "badges"] as const).forEach((key) => {
       const list = roleSource[key];
@@ -309,8 +321,9 @@ export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | 
     }
     const scores = roleSource.scores;
     if (scores && typeof scores === "object" && !Array.isArray(scores)) {
-      const normalizedScores: Record<string, number> = {};
+      const normalizedScores: Record<string, number | null> = {};
       Object.entries(scores as Record<string, unknown>).forEach(([key, score]) => {
+        if (score === null) { normalizedScores[key] = null; return; }
         const number = finiteVisualNumber(score, 0, 100);
         if (number !== null) normalizedScores[key] = number;
       });
@@ -1302,6 +1315,8 @@ export const RecentAISummary = ({
     );
   }
 
+  const observedRoleInfo = debateData?.visuals?.roleInfo?.presentation === "observed" || debateData?.visuals?.roleInfo?.presentation === "combined"
+    ? debateData.visuals.roleInfo : null;
   const parseRate = (s: string | undefined) => {
     if (!s) return 0;
     const n = parseInt(s);
@@ -1508,11 +1523,11 @@ export const RecentAISummary = ({
         <div className={`${isMobile ? "bg-[#161616]/95 backdrop-blur-none" : "bg-black/40 backdrop-blur-xl"} rounded-[30px] p-6 md:p-8 flex flex-col gap-6`}>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
             {/* Left: Role & Title */}
-            <div className="flex items-start gap-5">
+            <div className="flex min-w-0 items-start gap-5">
               <div className="w-16 h-16 md:w-20 md:h-20 bg-gradient-to-tr from-indigo-500/20 to-purple-500/20 rounded-2xl flex items-center justify-center border border-white/10 shadow-inner group">
                 <Brain size={isMobile ? 32 : 40} className="text-indigo-400 group-hover:scale-110 transition-transform" />
               </div>
-              <div className="flex flex-col gap-1.5">
+              <div className="flex min-w-0 flex-col gap-1.5">
                 <div className="flex items-center gap-2">
                   <span className="px-2 py-0.5 bg-indigo-500/20 border border-indigo-500/30 rounded text-[10px] text-indigo-300 font-black tracking-widest uppercase">
                     최근 유효 {latestMatchRangeLabel} 중 점수 상위 {bestMatchRangeLabel} 잠재력
@@ -1522,11 +1537,17 @@ export const RecentAISummary = ({
                   )}
                 </div>
                 <h3 className="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-white/60 tracking-tight">
-                  {partialSummary ? "확인된 경기 분석" : debateData?.visuals?.roleInfo?.title || "전술 분석 결과"}
+                  {debateData?.visuals?.roleInfo?.presentation === "observed" || debateData?.visuals?.roleInfo?.presentation === "combined" ? debateData.visuals.roleInfo.title || "관측된 플레이 성향" : debateData?.visuals?.roleInfo?.presentation === "insufficient" ? "근거 수집 중" : partialSummary ? "확인된 경기 분석" : debateData?.visuals?.roleInfo?.title || "전술 분석 결과"}
                 </h3>
                 <p className="text-xs md:text-sm text-indigo-300/80 font-bold leading-relaxed max-w-md break-words">
-                  {partialSummary ? "확인된 항목을 먼저 표시합니다." : debateData?.visuals?.roleInfo?.description || "데이터를 분석하여 당신의 플레이 스타일을 정의했습니다."}
+                  {observedRoleInfo?.description || (partialSummary ? "확인된 항목을 먼저 표시합니다." : debateData?.visuals?.roleInfo?.description || "데이터를 분석하여 당신의 플레이 스타일을 정의했습니다.")}
                 </p>
+                {(debateData?.visuals?.roleInfo?.presentation === "observed" || debateData?.visuals?.roleInfo?.presentation === "combined") && (
+                  <p className="text-xs text-indigo-300">관측된 플레이 성향 · 대표 칭호 미확정</p>
+                )}
+                {debateData?.visuals?.roleInfo?.reason && (!partialSummary || observedRoleInfo) && (
+                  <p className="text-xs leading-relaxed text-white/60">{debateData.visuals.roleInfo.reason}</p>
+                )}
                 {calculationPendingCount > 0 && (
                   <p role="status" className="text-xs font-semibold leading-relaxed text-sky-200/80">
                     새 계산 기준 확인이 필요한 {calculationPendingCount}경기는 분석에서 제외했습니다.
@@ -1649,7 +1670,8 @@ export const RecentAISummary = ({
         {debateData?.visuals?.tierBreakdown && (
           <SpiderChart
             nickname={nickname}
-            bestMatchCount={debateData.visuals.bestMatchCount}
+            bestMatchCount={debateData.visuals.tierMatchCount}
+            tierScope={debateData.visuals.tierScope}
             data={{
               combat: debateData.visuals.tierBreakdown.combat,
               tactical: debateData.visuals.tierBreakdown.tactical,
@@ -1874,14 +1896,17 @@ export const RecentAISummary = ({
               <div className="flex-1 text-center md:text-left space-y-3">
                 <div className="space-y-1">
                   <span className="text-[12px] text-indigo-400 font-black uppercase tracking-[0.3em]">전술적 정체성</span>
-                  <h2 className="text-3xl md:text-4xl font-black text-white tracking-tight leading-none italic">
-                    {debateData.visuals.roleInfo.title}
+                  <h2 className="break-words text-3xl md:text-4xl font-black text-white tracking-tight leading-tight italic">
+                    {debateData.visuals.roleInfo.presentation === "observed" || debateData.visuals.roleInfo.presentation === "combined" ? debateData.visuals.roleInfo.title || "관측된 플레이 성향" : debateData.visuals.roleInfo.presentation === "insufficient" ? "근거 수집 중" : debateData.visuals.roleInfo.title}
                   </h2>
                 </div>
                 <div className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-500/20 rounded-lg border border-indigo-500/30">
                   <Target size={14} className="text-indigo-400" />
-                  <span className="text-xs font-black text-indigo-300 uppercase tracking-wider">{debateData.visuals.roleInfo.roleLabel}</span>
+                  <span className="text-xs font-black text-indigo-300 uppercase tracking-wider">{debateData.visuals.roleInfo.presentation === "observed" || debateData.visuals.roleInfo.presentation === "combined" ? "대표 칭호 미확정" : debateData.visuals.roleInfo.presentation === "insufficient" ? "근거 수집 중" : debateData.visuals.roleInfo.roleLabel}</span>
                 </div>
+                {debateData.visuals.roleInfo.reason && (
+                  <p className="text-xs leading-relaxed text-white/60">{debateData.visuals.roleInfo.reason}</p>
+                )}
                 {(debateData.visuals.roleInfo.evidence?.length ?? 0) > 0 && (
                   <p className="text-xs font-bold text-indigo-200/80 break-keep" aria-label="칭호 근거">
                     {debateData.visuals.roleInfo.evidence!.join(" · ")}

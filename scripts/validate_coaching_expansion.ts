@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { calibrationMatchWindow, calibrationPartition, calibrationAccountKey, buildCalibrationProfile, fitReferenceCandidate, buildBenchmarkCoverage, buildReplyPrecision, bootstrapReferenceStability, CALIBRATION_SEED, type CalibrationProfile } from '../lib/pubg-analysis/referenceCalibration';
+import { calibrationMatchWindow, calibrationPartition, calibrationAccountKey, buildCalibrationProfile, fitReferenceCandidate, buildBenchmarkCoverage, buildReplyPrecision, bootstrapReferenceStability, roleWindowStability, calibrationResults, CALIBRATION_SEED, type CalibrationProfile } from '../lib/pubg-analysis/referenceCalibration';
 import { classifyRole, calculateRoleRawScores } from '../lib/pubg-analysis/roleClassifier';
 import type { CalibrationSubject } from './calibrate_coaching_reference';
 import { RESULT_VERSION,ANALYSIS_CALCULATION_VERSION,POPULATION_EVIDENCE_VERSION } from '../lib/pubg-analysis/constants';
@@ -40,7 +40,8 @@ export function evaluateBenchmarkSupplement(development:CalibrationSubject[], co
     combinedReplyPrecision:buildReplyPrecision([...firstMatches,...addedMatches],`${seed}|final`)};
 }
 
-export function evaluateCoachingExpansion(development:CalibrationSubject[], confirmation:CalibrationSubject[]=[], seed=CALIBRATION_SEED) {
+/** evidenceVersion을 지정하지 않으면 기존 legacy 검증과 같다. 2를 지정하면 EV2 후보와 cohort 조건으로 같은 분리 검증을 한다. */
+export function evaluateCoachingExpansion(development:CalibrationSubject[], confirmation:CalibrationSubject[]=[], seed=CALIBRATION_SEED, options:{evidenceVersion?:2}={}) {
   const all=[...development,...confirmation];
   if(new Set(all.map(s=>s.account)).size!==all.length)throw new Error('overlapping calibration accounts');
   if(confirmation.some(s=>s.target))throw new Error('named targets cannot confirm calibration');
@@ -51,11 +52,11 @@ export function evaluateCoachingExpansion(development:CalibrationSubject[], conf
   const excludedExpiredRequests={development:requested.development-development.reduce((n,s)=>n+s.matches.length,0),confirmation:requested.confirmation-confirmation.reduce((n,s)=>n+s.matches.length,0)};
   function profilesFor(subjects:CalibrationSubject[]){
     const profiles:CalibrationProfile[]=[],rejections:Record<string,number>={};
-    for(const s of subjects){const r=buildCalibrationProfile({accountKey:s.account,target:s.target,expectedMatchIds:s.matches.map(m=>m.match_id),matches:s.results},seed);
+    for(const s of subjects){const r=buildCalibrationProfile({accountKey:s.account,target:s.target,expectedMatchIds:s.matches.map(m=>m.match_id),matches:s.results},seed,options);
       if(r.profile)profiles.push(r.profile);else rejections[r.reason??'unknown']=(rejections[r.reason??'unknown']??0)+1;}
     return {profiles,rejections};
   }
-  const dev=profilesFor(development),final=profilesFor(confirmation),candidate=fitReferenceCandidate(dev.profiles,seed);
+  const dev=profilesFor(development),final=profilesFor(confirmation),candidate=fitReferenceCandidate(dev.profiles,seed,options);
   const matchesFor=(subjects:CalibrationSubject[])=>subjects.filter(s=>!s.target).flatMap(s=>{const expected=new Set(s.matches.map(m=>m.match_id));return s.results.filter(m=>expected.has(m.matchId)).map(m=>({...m,accountKey:s.account}));});
   const developmentMatches=matchesFor(development),allConfirmationMatches=matchesFor(confirmation);
   const confirmationMatches=allConfirmationMatches.filter(m=>!developmentGameIds.has(m.matchId));
@@ -73,8 +74,16 @@ export function evaluateCoachingExpansion(development:CalibrationSubject[], conf
       const agreements=accounts.map(a=>accountAgreement.get(a)??0),titleAgreement=Number((agreements.reduce((s,v)=>s+v,0)/accounts.length).toFixed(8));
       return [role,{accounts:accounts.length,titleAgreement,stableAccounts:agreements.filter(v=>v>=.8).length,eligible:accounts.length>=20&&titleAgreement>=.8}];
     }));
+    // EV2에서는 같은 고정 기준으로 확인 계정의 경기 창 교체 안정성도 따로 센다(기준 재적합 없음).
+    const windowChecks=options.evidenceVersion===2?held.map(p=>{
+      const subject=confirmation.find(s=>s.account===p.accountKey)!;
+      const results=calibrationResults({accountKey:subject.account,expectedMatchIds:subject.matches.map(m=>m.match_id),matches:subject.results});
+      const w=roleWindowStability(results,c.reference);
+      return {account:calibrationAccountKey(p.accountKey),status:w.decision.status,primaryRole:w.decision.primaryRole,presentation:w.decision.presentation??null,
+        cohortCheck:w.decision.cohortCheck??null,changedVariants:w.runs,agreement:w.agreement,disagreements:w.disagreements};
+    }):undefined;
     return {cohort:c.cohort,accounts:held.length,roleObservations,roleValidation,titles,stability,
-      stableRoleCandidates:Object.keys(c.reference.roles).filter(role=>roleValidation[role]?.eligible)};
+      stableRoleCandidates:Object.keys(c.reference.roles).filter(role=>roleValidation[role]?.eligible),...(windowChecks?{windowChecks}:{})};
   });
   return {schemaVersion:1,seed,activationAllowed:false,excludedExpiredRequests,
     development:{accounts:development.length,playerMatches:developmentMatches.length,completeProfiles:dev.profiles.length,rejections:dev.rejections,
@@ -86,11 +95,13 @@ export function evaluateCoachingExpansion(development:CalibrationSubject[], conf
       benchmarkCoverage:buildBenchmarkCoverage(confirmationMatches),replyPrecision:buildReplyPrecision(confirmationMatches,`${seed}|final`),cohorts:finalCohorts},candidate};
 }
 if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){
-  const {values}=parseArgs({options:{development:{type:'string'},confirmation:{type:'string'},'benchmark-supplement':{type:'string'},output:{type:'string'}}});
+  const {values}=parseArgs({options:{development:{type:'string'},confirmation:{type:'string'},'benchmark-supplement':{type:'string'},output:{type:'string'},'evidence-version':{type:'string'}}});
+  if(values['evidence-version']!==undefined&&values['evidence-version']!=='2')throw new Error('--evidence-version supports only 2');
+  const evidenceOptions=values['evidence-version']==='2'?{evidenceVersion:2 as const}:{};
   if(!values.development||!values.output)throw new Error('--development and --output required');
   if(values['benchmark-supplement']&&!values.confirmation)throw new Error('--confirmation required for benchmark supplement');
   const development=JSON.parse(fs.readFileSync(values.development,'utf8')),confirmation=values.confirmation?JSON.parse(fs.readFileSync(values.confirmation,'utf8')):[];
-  const report={...evaluateCoachingExpansion(development,confirmation),...(values['benchmark-supplement']?{benchmarkSupplement:evaluateBenchmarkSupplement(development,confirmation,JSON.parse(fs.readFileSync(values['benchmark-supplement'],'utf8')))}:{})};
+  const report={...evaluateCoachingExpansion(development,confirmation,CALIBRATION_SEED,evidenceOptions),...(values['benchmark-supplement']?{benchmarkSupplement:evaluateBenchmarkSupplement(development,confirmation,JSON.parse(fs.readFileSync(values['benchmark-supplement'],'utf8')))}:{})};
   fs.writeFileSync(values.output,JSON.stringify(report,null,2)+'\n',{mode:0o600});
   console.log(JSON.stringify({development:report.development.completeProfiles,confirmation:report.confirmation.completeProfiles,activationAllowed:false}));
 }

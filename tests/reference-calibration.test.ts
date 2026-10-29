@@ -1,6 +1,8 @@
 import {describe,expect,it,vi}from'vitest';
-import {buildCalibrationProfile,calibrationAccountKey,calibrationPartition,fitReferenceCandidate,buildBenchmarkCoverage,quantiles}from'../lib/pubg-analysis/referenceCalibration';
-const match=(id:string,score=50,extra:Record<string,unknown>={})=>({matchId:id,createdAt:'2026-10-27T12:00:00Z',gameMode:'squad',matchType:'official',v:73,calculationVersion:5,populationEvidenceVersion:1,benchmark:{score,tier:'B'},stats:{damageDealt:100,playerId:"a"},...extra});
+import {aggregateMatches} from '../lib/pubg-analysis/summaryAggregate';
+import {classifyRole} from '../lib/pubg-analysis/roleClassifier';
+import {buildCalibrationProfile,calibrationAccountKey,calibrationPartition,fitReferenceCandidate,buildBenchmarkCoverage,quantiles,roleWindowStability}from'../lib/pubg-analysis/referenceCalibration';
+const match=(id:string,score=50,extra:Record<string,unknown>={})=>({matchId:id,createdAt:'2026-10-27T12:00:00Z',gameMode:'squad',matchType:'official',platform:'steam',v:73,calculationVersion:5,populationEvidenceVersion:1,benchmark:{score,tier:'B'},stats:{damageDealt:100,playerId:"a"},...extra});
 describe('offline coaching reference calibration',()=>{
  it('rejects unknown-score holes rather than replacing missing latest matches',()=>{
   const r=buildCalibrationProfile({accountKey:'a',expectedMatchIds:['1','2','3'],matches:[match('1'),match('2')]},'seed');
@@ -151,4 +153,199 @@ it('excludes stale canonical rows outside the current frozen match window',async
   const report=JSON.parse(fs.readFileSync(path.join(dir,'report.json'),'utf8'));
   expect(report.canonicalUsed).toBe(1);expect(report.analysedPlayerMatches).toBe(1);expect(validate).toHaveBeenCalledTimes(1);
  }finally{validate.mockRestore();fs.rmSync(dir,{recursive:true,force:true});}
+});
+
+
+describe("personal evidence calibration", () => {
+  it("requires the requested evidence version in every selected match", () => {
+    const ms=[match("1"),match("2"),match("3")];
+    expect(buildCalibrationProfile({accountKey:"a",expectedMatchIds:ms.map(m=>m.matchId),matches:ms},"seed",{evidenceVersion:1}).reason).toBe("incomplete_role_evidence");
+  });
+  it("rejects mixed evidence definitions before fitting", () => {
+    const stats={mLen:3,modeDistribution:{main:"squad"}};
+    const profile=(accountKey:string,roleEvidence?:unknown)=>({accountKey,cohort:"steam|squad|official",partition:"train" as const,selectedMatchIds:["1","2","3"],tier:"B",stats:{...stats,roleEvidence}});
+    expect(()=>fitReferenceCandidate([profile("new",{version:1,matchCount:3}),profile("old")],"seed",{evidenceVersion:1})).toThrow("mixed_role_evidence");
+  });
+});
+
+
+it("reselects best five after excluding each latest match for role stability", () => {
+  const ms=Array.from({length:10},(_,i)=>match(String(i),i*10));
+  const result=roleWindowStability(ms,{metrics:{},roles:{}});
+  expect(result.runs).toBe(10);
+  expect(result.selectedMatchIds).toEqual(["9","8","7","6","5"]);
+  expect(result.variants.find(row=>row.excludedMatchId==="9")?.selectedMatchIds).toEqual(["8","7","6","5","4"]);
+  expect(result.agreement).toBe(1);
+  expect(result.secondaryAgreement).toBe(1);
+  expect(result.titleAgreement).toBe(1);
+});
+
+
+it("does not switch the legacy calibration definition when observation fields are appended", () => {
+  const base={accountKey:"only-target",target:"Fixture",cohort:"steam|squad|official",partition:"target" as const,selectedMatchIds:["1","2","3"],tier:"B",stats:{mLen:3,roleEvidence:{version:1}}};
+  expect(fitReferenceCandidate([base],"seed").cohorts[0].reference).not.toHaveProperty("evidenceVersion");
+  expect(fitReferenceCandidate([base],"seed",{evidenceVersion:1}).cohorts[0].reference.evidenceVersion).toBe(1);
+});
+
+it('withholds a candidate primary role that changes when one recent match is replaced',()=>{
+ const evidence={version:1,validWeaponHits:6,distanceHitCount:6,distanceDamage:{short:300,mid:0,long:0},maxHitDist:20,pressureIndex:1.2,focusFireCount:0,rescueCount:0,rescueOpportunityCount:0,positionSampleCount:0,edgePlayCount:0};
+ const shares=[0,0,0,0,0,30,100,100,100,100];
+ const ms=shares.map((share,i)=>match(String(i),i*10,{roleEvidence:evidence,teamContext:{myRosterSize:2},teamImpact:{teamDamageShare:share}}));
+ const levels=[5,10,20,30,40,50,60,70,80,90,95];
+ const result=roleWindowStability(ms,{evidenceVersion:1,metrics:{teamDamageShare:levels},roles:{mainGun:levels}});
+ expect(result.primaryRole).toBe('mainGun');
+ expect(result.agreement).toBe(.5);
+ expect(result.decision).toMatchObject({primaryRole:'pending',status:'pending',title:'역할 판정 보류'});
+ expect(result.decision.reason).toContain('경기');
+});
+
+it('keeps a stable primary and withholds an unstable secondary instead of a compound title',()=>{
+ const shares=[0,0,0,0,0,30,100,100,100,100];
+ const ms=shares.map((share,i)=>match(String(i),i*10,{roleEvidence:{version:1,validWeaponHits:6,distanceHitCount:6,distanceDamage:{short:share*3,mid:300-share*3,long:0},maxHitDist:20,pressureIndex:1.2,focusFireCount:0,rescueCount:0,rescueOpportunityCount:0,positionSampleCount:0,edgePlayCount:0},teamContext:{myRosterSize:2},teamImpact:{teamDamageShare:100}}));
+ const levels=[5,10,20,30,40,50,60,70,80,90,95];
+ const result=roleWindowStability(ms,{evidenceVersion:1,metrics:{teamDamageShare:levels,shortShare:levels},roles:{mainGun:levels,brawler:levels}});
+ expect(result.primaryRole).toBe('mainGun');expect(result.secondaryRole).toBe('brawler');
+ expect(result.agreement).toBe(1);expect(result.secondaryAgreement).toBe(.5);
+ expect(result.decision).toMatchObject({primaryRole:'mainGun',secondaryRole:null,status:'confirmed',title:'화력의 중심'});
+ expect(result.decision.reason).toContain('보조');
+});
+
+it('withholds a balanced candidate when one match removes its comparable evidence',()=>{
+ const levels=[5,10,20,30,40,50,60,70,80,90,95];
+ const ms=Array.from({length:10},(_,i)=>{
+  const active=i>=5;
+  return match(String(i),i*10,{roleEvidence:{version:1,validWeaponHits:active?6:0,distanceHitCount:active?6:0,distanceDamage:{short:active?30:0,mid:0,long:active?30:0},maxHitDist:active?250:null,pressureIndex:active?1.2:null,focusFireCount:0,rescueCount:0,rescueOpportunityCount:0,positionSampleCount:0,edgePlayCount:0},teamContext:{myRosterSize:2},teamImpact:{teamDamageShare:50},goldenTimeDamage:{early:active?30:0,mid1:active?30:0,mid2:0,late:0}});
+ });
+ const result=roleWindowStability(ms,{evidenceVersion:1,metrics:{teamDamageShare:levels,shortShare:levels,longShare:levels,maxHitDist:levels.map(v=>v*5),earlyShare:levels},roles:{mainGun:levels,brawler:levels,phantomOverwatch:levels,dropPredator:levels}});
+ expect(result.primaryRole).toBe('balanced');expect(result.agreement).toBe(.5);
+ expect(result.disagreements.rank_flip).toBe(0);
+ expect(result.disagreements.lost_confirmation+result.disagreements.gained_confirmation).toBe(0);
+ expect(result.decision).toMatchObject({primaryRole:'pending',status:'pending'});
+});
+
+describe('v2 changed-window evidence',()=>{
+ const levels=[5,10,20,30,40,50,60,70,80,90,95];
+ const reference={evidenceVersion:2 as const,cohort:'steam|squad|official',metrics:{teamDamageShare:levels,shortShare:levels},roles:{mainGun:levels,brawler:levels}};
+ const ms:any[]=Array.from({length:10},(_,i)=>match(String(i),i*10,{roleEvidence:{version:1,validWeaponHits:6,distanceHitCount:6,
+  distanceDamage:{short:300,mid:0,long:0},maxHitDist:20,pressureIndex:1.2,focusFireCount:0,rescueCount:0,rescueOpportunityCount:0,positionSampleCount:0,edgePlayCount:0},
+  teamContext:{myRosterSize:2},teamImpact:{teamDamageShare:100}}));
+ it('uses only variants that actually change the selected five',()=>{
+  const result=roleWindowStability(ms,reference);
+  expect(result.runs).toBe(5);
+  expect(result.variants.every(row=>!['0','1','2','3','4'].includes(row.excludedMatchId ?? ''))).toBe(true);
+  expect(result.decision.status).toBe('confirmed');
+ });
+ it('keeps comparisons in the same raw mode and match type',()=>{
+  const mixed=ms.map((row,i)=>i<5?{...row,gameMode:'squad-fpp'}:row);
+  const result=roleWindowStability(mixed,reference);
+  expect(result.variants.every(row=>row.selectedMatchIds.every(id=>Number(id)>=5))).toBe(true);
+  expect(result.selectedMatchIds).toEqual(['9','8','7','6','5']);
+ });
+ it('does not confirm a title with fewer than three changed variants',()=>{
+  const result=roleWindowStability(ms.slice(8),reference);
+  expect(result.decision.status).toBe('insufficient');
+  const minimal=roleWindowStability(ms.slice(7),reference);
+  expect(minimal.decision.status).toBe('pending');
+  expect(minimal.disagreements.insufficient).toBe(minimal.variants.filter(row=>row.primaryRole==='insufficient').length);
+  expect(minimal.decision.presentation).toBe('observed');
+ });
+ it('builds a separately versioned candidate and refuses mixed envelopes',()=>{
+  const input={accountKey:'a',expectedMatchIds:ms.map(row=>row.matchId),matches:ms};
+  const profile=buildCalibrationProfile(input,'seed',{evidenceVersion:2}).profile!;
+  expect(profile.stats.roleEvidence.version).toBe(2);
+  const fit=fitReferenceCandidate([profile],'seed',{evidenceVersion:2});
+  expect(fit.cohorts[0].reference.evidenceVersion).toBe(2);
+  expect(()=>fitReferenceCandidate([profile,{...profile,accountKey:'b',stats:{roleEvidence:{version:1}}}],'seed',{evidenceVersion:2})).toThrow('mixed_role_evidence');
+ });
+ it('keeps action-free profiles out of calibration rather than fitting fabricated strengths',()=>{
+  const empty=ms.map(row=>({...row,teamImpact:{teamDamageShare:0},roleEvidence:{...row.roleEvidence,validWeaponHits:0,distanceHitCount:0,
+    distanceDamage:{short:0,mid:0,long:0},maxHitDist:null,pressureIndex:null}}));
+  expect(buildCalibrationProfile({accountKey:'a',expectedMatchIds:empty.map(row=>row.matchId),matches:empty},'seed',{evidenceVersion:2}).reason).toBe('no_role_opportunities');
+ });
+ it('does not call a single-role reference becoming confirmed a rank flip',()=>{
+  const single={evidenceVersion:2 as const,cohort:'steam|squad|official',metrics:{shortShare:levels},roles:{brawler:levels}};
+  const matches=ms.map((row,i)=>({...row,roleEvidence:{...row.roleEvidence,distanceDamage:i<5?{short:300,mid:0,long:0}:{short:252,mid:48,long:0}}}));
+  const result=roleWindowStability(matches,single);
+  expect(result.primaryRole).toBe('pending');
+  expect(result.variants.every(row=>row.primaryRole==='brawler')).toBe(true);
+  expect(result.disagreements).toMatchObject({rank_flip:0,gained_confirmation:5,lost_confirmation:0,state_change:0});
+ });
+ it('does not describe a commander-to-role change as a two-role order change',()=>{
+  const at=(value:number,percentile:number)=>levels.map(l=>Number((l*value/percentile).toFixed(6)));
+  // 강한 두 역할(근거리·원거리)은 모든 경기에서 같고, 약한 네 역할은 6번째 경기가 들어오면 75 아래로 내려가 지휘관이 깨진다.
+  const matches=ms.map((row,i)=>{const good=i>=5;return {...row,totalTeams:20,teamImpact:{teamDamageShare:good?50:0},
+    goldenTimeDamage:good?{early:100,mid1:0,mid2:0,late:0}:{early:0,mid1:100,mid2:0,late:0},killContribution:{solo:0,cleanup:0,assist:1},
+    roleEvidence:{...row.roleEvidence,distanceDamage:{short:270,mid:0,long:30},maxHitDist:300,focusFireCount:good?4:0,rescueCount:good?1:0,rescueOpportunityCount:1}};});
+  const commanderReference={evidenceVersion:2 as const,cohort:'steam|squad|official',
+    metrics:{shortShare:at(90,92),longShare:at(10,92),maxHitDist:at(300,92),teamDamageShare:at(50,80),earlyShare:at(100,80),rescueRate:at(100,80),focusFirePerMatch:at(4,80),assistShare:at(100,80)},
+    roles:{brawler:levels,phantomOverwatch:levels,mainGun:levels,dropPredator:levels,shield:levels,crossfire:levels}};
+  const result=roleWindowStability(matches,commanderReference);
+  expect(result.primaryRole).toBe('fieldCommander');
+  expect(result.variants.map(row=>row.primaryRole)).toEqual(Array(5).fill('brawler'));
+  expect(result.disagreements).toMatchObject({rank_flip:0,commander_change:5});
+  expect(result.decision).toMatchObject({status:'pending',primaryRole:'pending',presentation:'observed'});
+  expect(result.decision.title).not.toContain('복합');
+  expect(result.decision.description).not.toContain('대표 순서가 바뀝니다');
+ });
+ it.each([
+  ['same cohort', (row:any)=>row, 'match'],
+  ['duo vs squad', (row:any)=>({...row,gameMode:'duo'}), 'mismatch'],
+  ['FPP vs TPP', (row:any)=>({...row,gameMode:'squad-fpp'}), 'mismatch'],
+  ['competitive vs official', (row:any)=>({...row,matchType:'competitive'}), 'mismatch'],
+  ['kakao vs steam', (row:any)=>({...row,platform:'kakao'}), 'mismatch'],
+  ['missing platform', (row:any)=>({...row,platform:undefined}), 'evidence_missing'],
+  ['missing match type', (row:any)=>({...row,matchType:undefined}), 'evidence_missing'],
+  ['mixed modes', (row:any,i:number)=>i%2?{...row,gameMode:'duo'}:row, 'mixed'],
+  ['another account', (row:any,i:number)=>i===0?{...row,stats:{...row.stats,playerId:'other'}}:row, 'identity'],
+  ['duplicate match', (row:any,i:number,all:any[])=>i===1?{...row,matchId:all[0].matchId}:row, 'identity'],
+  ['all account ids missing', (row:any)=>({...row,stats:{...row.stats,playerId:undefined}}), 'identity'],
+  ['one account id missing', (row:any,i:number)=>i===2?{...row,stats:{...row.stats,playerId:undefined}}:row, 'identity'],
+  ['unknown match type', (row:any)=>({...row,matchType:'unknown'}), 'evidence_missing'],
+  ['custom match type', (row:any)=>({...row,matchType:'custom'}), 'evidence_missing'],
+  ['unknown raw mode', (row:any)=>({...row,gameMode:'conquest-squad'}), 'evidence_missing'],
+ ] as const)('checks the cohort of the selected matches themselves (%s)',(_label,change,expected)=>{
+  const selected=ms.slice(5).map((row,i,all)=>change(row,i,all));
+  const stats={...aggregateMatches(selected,{roleEvidenceVersion:2}),modeDistribution:{main:'squad'}};
+  const role=classifyRole(stats,null,'B',reference);
+  expect(role.cohortCheck).toBe(expected);
+  if(expected==='match')expect(role.status).toBe('confirmed');
+  else {
+   expect(role).toMatchObject({status:'pending',primaryRole:'pending',presentation:'role'});
+   expect(role.reason).not.toContain('비교 자료가 충분하지');
+  }
+ });
+ it('does not let a reference cohort marker substitute for the selected matches',()=>{
+  const stats={...aggregateMatches(ms.slice(5).map(row=>({...row,gameMode:'duo'})),{roleEvidenceVersion:2}),modeDistribution:{main:'squad'}};
+  // 입력 stats에 기준 cohort를 써 넣어도 선정 경기에서 다시 계산한 값이 우선이어야 한다.
+  expect(classifyRole({...stats,cohort:reference.cohort},null,'B',reference).cohortCheck).toBe('mismatch');
+  expect(classifyRole(stats,null,'B',{...reference,cohort:undefined}).cohortCheck).toBe('reference_missing');
+  expect(classifyRole(stats,null,'B',{...reference,cohort:undefined}).status).toBe('pending');
+ });
+ it('keeps the calibration → fit → window → classify path decidable for a correct cohort',()=>{
+  const profile=buildCalibrationProfile({accountKey:'a',expectedMatchIds:ms.map(row=>row.matchId),matches:ms},'seed',{evidenceVersion:2}).profile!;
+  expect(profile.cohort).toBe('steam|squad|official');
+  const fit=fitReferenceCandidate([profile],'seed',{evidenceVersion:2});
+  expect(fit.cohorts[0].reference.cohort).toBe('steam|squad|official');
+  const window=roleWindowStability(ms,{...fit.cohorts[0].reference,metrics:reference.metrics,roles:reference.roles});
+  expect(window.decision.cohortCheck).toBe('match');
+  expect(window.decision.status).toBe('confirmed');
+  const kakao=ms.map(row=>({...row,platform:'kakao'}));
+  expect(buildCalibrationProfile({accountKey:'a',expectedMatchIds:kakao.map(row=>row.matchId),matches:kakao},'seed',{evidenceVersion:2}).profile?.cohort).toBe('kakao|squad|official');
+  const unknown=ms.map(row=>({...row,platform:undefined}));
+  expect(buildCalibrationProfile({accountKey:'a',expectedMatchIds:unknown.map(row=>row.matchId),matches:unknown},'seed',{evidenceVersion:2}).reason).toBe('unknown_cohort');
+ });
+ it('explains two strong roles whose order changes without issuing a compound title',()=>{
+  const short=[0,0,0,0,95,95,95,70,70,95], team=[0,0,0,0,95,70,70,95,95,95];
+  const matches=ms.map((row,i)=>({...row,teamImpact:{teamDamageShare:team[i]},roleEvidence:{...row.roleEvidence,
+    distanceDamage:{short:3*short[i],mid:300-3*short[i],long:0}}}));
+  const result=roleWindowStability(matches,reference);
+  expect(result.agreement).toBe(.6);
+  expect(result.decision).toMatchObject({primaryRole:'pending',status:'pending',presentation:'combined',secondaryRole:null});
+  expect(result.decision.observedRoles).toEqual(['brawler','mainGun']);
+  expect(result.decision.title).toContain('복합');
+  // 복합 성향이면 실제 순위 변경이 1회 이상 있고, 나머지 불일치 사유도 따로 남긴다.
+  expect(result.disagreements.rank_flip).toBeGreaterThan(0);
+  expect(Object.values(result.disagreements).reduce((sum,value)=>sum+value,0))
+    .toBe(result.variants.filter(row=>row.primaryRole!==result.primaryRole).length);
+ });
 });

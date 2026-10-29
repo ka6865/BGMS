@@ -444,13 +444,28 @@ describe("RecentAISummary callback bridge", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("preserves pending role reasons and unknown role scores", () => {
+    const result=normalizeRouteOwnedVisuals({roleInfo:{primaryRole:"pending",status:"pending",reason:"비교 근거 확인 중",observedRoleCount:2,scores:{shield:null,executor:84.96}}});
+    expect(result?.roleInfo).toMatchObject({status:"pending",reason:"비교 근거 확인 중",observedRoleCount:2,scores:{shield:null,executor:84.96}});
+  });
+
+  it("accepts only known presentation values and at most two unique RoleKeys", () => {
+    const roleInfo = (normalizeRouteOwnedVisuals({ roleInfo: {
+      presentation: "combined", observedRoles: ["executor", "executor", "shield", "not-a-role"],
+      evidence: ["관측 피해 68.7%", "선정 5경기 기준"],
+    } })?.roleInfo);
+    expect(roleInfo).toMatchObject({ presentation: "combined", observedRoles: ["executor", "shield"], evidence: ["관측 피해 68.7%", "선정 5경기 기준"] });
+    expect(normalizeRouteOwnedVisuals({ roleInfo: { presentation: "invented", observedRoles: "executor" } })?.roleInfo).toBeUndefined();
+  });
+
   it("tierBreakdown이 있으면 SpiderChart에 서버 소유 3축을 그대로 전달하고 휴리스틱 축을 만들지 않는다", async () => {
     const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
       {
         type: "visuals",
         data: {
           bestMatchCount: 4,
-          tierBreakdown: { combat: 80, tactical: 70, survival: 60, total: 70 },
+          tierBreakdown: { combat: 32, tactical: 21, survival: 20, total: 73 },
+          tierScope: "team", tierMatchCount: 3,
         },
       },
       { type: "final", data: JSON.stringify(aiReady) },
@@ -463,8 +478,8 @@ describe("RecentAISummary callback bridge", () => {
 
     await waitFor(() => expect(spiderChartProps.current).not.toBeNull());
     expect(spiderChartProps.current).toMatchObject({
-      data: { combat: 80, tactical: 70, survival: 60 },
-      bestMatchCount: 4,
+      data: { combat: 32, tactical: 21, survival: 20 },
+      bestMatchCount: 3, tierScope: "team",
     });
     expect(spiderChartProps.current?.data).not.toHaveProperty("growth");
     expect(spiderChartProps.current?.data).not.toHaveProperty("vision");
