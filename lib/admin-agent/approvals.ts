@@ -38,7 +38,7 @@ export type ApprovalGateSummary = {
   error?: string;
 };
 
-const HIGH_RISK_ACTIONS = new Set(["flush_old_cache", "flush_player_cache", "flush_match_cache", "reset_benchmarks", "repair_processed_telemetry_identity"]);
+const HIGH_RISK_ACTIONS = new Set(["repair_processed_telemetry_identity"]);
 const MEDIUM_RISK_ACTIONS = new Set(["create_board_post", "update_board_post", "save_agent_memory"]);
 
 export async function fetchApprovalQueueSummary(supabase: any, limit = 50): Promise<ApprovalQueueSummary> {

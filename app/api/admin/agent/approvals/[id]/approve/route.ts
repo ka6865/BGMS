@@ -11,7 +11,7 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
-const HIGH_RISK_APPROVAL_ACTIONS = new Set(["flush_old_cache", "flush_player_cache", "flush_match_cache", "reset_benchmarks", "repair_processed_telemetry_identity"]);
+const HIGH_RISK_APPROVAL_ACTIONS = new Set(["repair_processed_telemetry_identity"]);
 
 export async function POST(request: Request, context: RouteContext) {
   const auth = await withAuthGuard();
@@ -164,62 +164,6 @@ async function executeApprovedAction(actionType: string, payload: any, supabase:
 
   if (actionType === "update_board_post") {
     return executeBoardPostUpdate(payload, supabase);
-  }
-
-  if (actionType === "flush_old_cache") {
-    const olderThanDays = Number(payload.olderThanDays || 14);
-    const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString();
-    const { count, error } = await supabase
-      .from("processed_match_telemetry")
-      .delete({ count: "exact" })
-      .lt("updated_at", cutoff);
-    if (error) throw error;
-    return JSON.stringify({
-      success: true,
-      message: `${olderThanDays}일 이상 지난 분석 데이터 캐시 ${count || 0}개가 삭제되었습니다.`,
-      olderThanDays,
-      cutoff
-    });
-  }
-
-  if (actionType === "flush_player_cache") {
-    if (!payload.nickname) throw new Error("플레이어 닉네임이 필요합니다.");
-    const { count, error } = await supabase
-      .from("processed_match_telemetry")
-      .delete({ count: "exact" })
-      .eq("player_id", String(payload.nickname).toLowerCase().trim());
-    if (error) throw error;
-    return JSON.stringify({ success: true, message: `${payload.nickname}님의 분석 데이터 캐시 ${count || 0}개가 삭제되었습니다.` });
-  }
-
-  if (actionType === "flush_match_cache") {
-    if (!payload.matchId) throw new Error("매치 ID가 필요합니다.");
-    let query = supabase
-      .from("processed_match_telemetry")
-      .delete({ count: "exact" })
-      .eq("match_id", payload.matchId);
-    if (payload.nickname) query = query.eq("player_id", String(payload.nickname).toLowerCase().trim());
-    const { count, error } = await query;
-    if (error) throw error;
-
-    const { error: storageError } = await supabase.storage
-      .from("telemetry")
-      .remove([`${payload.matchId}.json`]);
-
-    return JSON.stringify({
-      success: true,
-      message: `매치 ${payload.matchId}의 분석 결과 ${count || 0}개 삭제가 완료되었습니다.`,
-      storageCleared: !storageError
-    });
-  }
-
-  if (actionType === "reset_benchmarks") {
-    const { count, error } = await supabase
-      .from("global_benchmarks")
-      .delete({ count: "exact" })
-      .neq("id", -1);
-    if (error) throw error;
-    return JSON.stringify({ success: true, message: `벤치마크 데이터 ${count || 0}개가 초기화되었습니다.` });
   }
 
   if (actionType === "repair_processed_telemetry_identity") {

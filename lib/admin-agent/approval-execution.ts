@@ -34,10 +34,6 @@ export function buildApprovalPostExecution(input: ApprovalPostExecutionInput) {
 
 function getActionTitle(actionType: string) {
   if (actionType === "create_board_post") return "게시글 초안 작성";
-  if (actionType === "flush_old_cache") return "오래된 캐시 삭제";
-  if (actionType === "flush_player_cache") return "플레이어 캐시 삭제";
-  if (actionType === "flush_match_cache") return "매치 캐시 삭제";
-  if (actionType === "reset_benchmarks") return "벤치마크 초기화";
   if (actionType === "repair_processed_telemetry_identity") return "전적 분석 identity mismatch 정리";
   if (actionType === "update_board_post") return "게시글 수정 초안";
   if (actionType === "save_agent_report") return "운영 리포트 저장";
@@ -57,17 +53,6 @@ function buildMetrics(actionType: string, payload: Record<string, any>, executio
   if (actionType === "update_board_post") {
     if (payload.postId) metrics.push({ label: "Post ID", value: String(payload.postId) });
     if (execution?.removedImages) metrics.push({ label: "Removed images", value: String(execution.removedImages) });
-  }
-  if (actionType === "flush_old_cache") {
-    metrics.push({ label: "Older than", value: `${Number(payload.olderThanDays || 14)}일` });
-  }
-  if (actionType === "flush_player_cache" && payload.nickname) {
-    metrics.push({ label: "Player", value: String(payload.nickname) });
-  }
-  if (actionType === "flush_match_cache") {
-    if (payload.matchId) metrics.push({ label: "Match", value: String(payload.matchId) });
-    if (payload.nickname) metrics.push({ label: "Player", value: String(payload.nickname) });
-    if (typeof execution?.storageCleared === "boolean") metrics.push({ label: "Storage cleared", value: execution.storageCleared ? "yes" : "check required" });
   }
   if (actionType === "repair_processed_telemetry_identity") {
     metrics.push({ label: "Requested targets", value: Number(payload.targets?.length || 0).toLocaleString("ko-KR") });
@@ -95,18 +80,6 @@ function buildFollowUp(actionType: string, payload: Record<string, any>, executi
       "원본에 반영하려면 수정 초안 확인 후 별도로 발행하세요."
     ];
   }
-  if (actionType === "flush_old_cache" || actionType === "flush_player_cache" || actionType === "flush_match_cache") {
-    return [
-      "수동 점검을 실행해 processed telemetry row 수와 cache 상태를 다시 확인하세요.",
-      "동일 증상이 반복되면 사고 타임라인 리포트로 원인과 승인 이력을 묶어 저장하세요."
-    ];
-  }
-  if (actionType === "reset_benchmarks") {
-    return [
-      "다음 통계 분석 요청에서 benchmark 재생성 여부를 확인하세요.",
-      "랭킹/통계 페이지가 정상 응답하는지 배포 후 한 번 점검하세요."
-    ];
-  }
   if (actionType === "repair_processed_telemetry_identity") {
     return [
       "수동 점검 또는 다음 Agent monitor에서 identity mismatch 수가 줄었는지 확인하세요.",
@@ -130,9 +103,7 @@ function buildFollowUp(actionType: string, payload: Record<string, any>, executi
 function getRelatedResource(actionType: string, payload: Record<string, any>, execution: any) {
   if (actionType === "create_board_post" && execution?.postId) return `/board/${execution.postId}`;
   if (actionType === "update_board_post" && (execution?.postId || payload.postId)) return `/board/${execution?.postId || payload.postId}`;
-  if (actionType === "flush_match_cache" && payload.matchId) return `match:${payload.matchId}`;
   if (actionType === "repair_processed_telemetry_identity") return "processed_match_telemetry";
-  if (actionType === "flush_player_cache" && payload.nickname) return `player:${payload.nickname}`;
   if ((actionType === "save_agent_report" || actionType === "save_agent_memory") && execution?.memoryId) return `memory:${execution.memoryId}`;
   return null;
 }

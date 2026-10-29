@@ -54,7 +54,7 @@ interface MascotQuickAction {
   icon: typeof MessageSquare;
 }
 
-const HIGH_RISK_ACTIONS = new Set(["flush_old_cache", "flush_player_cache", "flush_match_cache", "reset_benchmarks"]);
+const HIGH_RISK_ACTIONS = new Set(["repair_processed_telemetry_identity"]);
 const MEMORY_CATEGORIES = ["all", "incident", "policy", "report", "content", "operations"];
 const MASCOT_MENU_ID = "admin-agent-mascot-menu";
 const MASCOT_QUICK_ACTIONS: MascotQuickAction[] = [
@@ -1808,10 +1808,12 @@ function getApprovalActionLabel(approval: AgentApproval) {
     save_agent_report: "운영 일지 저장",
     create_board_post: "게시글 초안 작성",
     update_board_post: "게시글 수정 초안",
-    flush_old_cache: "오래된 캐시 정리",
-    flush_player_cache: "플레이어 캐시 정리",
-    flush_match_cache: "매치 캐시 정리",
-    reset_benchmarks: "벤치마크 초기화"
+    repair_processed_telemetry_identity: "전적 분석 identity 정리",
+    // 제거된 캐시 삭제 기능의 과거 기록을 읽을 수 있게 이름만 남긴다.
+    flush_old_cache: "오래된 캐시 정리(제거된 기능)",
+    flush_player_cache: "플레이어 캐시 정리(제거된 기능)",
+    flush_match_cache: "매치 캐시 정리(제거된 기능)",
+    reset_benchmarks: "벤치마크 초기화(제거된 기능)"
   };
   return map[approval.action_type] || translateSignal(approval.action_type);
 }
@@ -1825,10 +1827,6 @@ function getApprovalOutcomeText(approval: AgentApproval) {
   if (approval.action_type === "update_board_post") return "수락하면 비공개 수정 초안이 저장됩니다. 원본에 반영하려면 초안을 확인한 뒤 별도로 발행해야 합니다.";
   if (approval.action_type === "save_agent_memory") return "수락하면 AI 비서가 참고하는 비공개 운영 기준이 저장됩니다.";
   if (approval.action_type === "save_agent_report") return "수락하면 오늘 운영 상태가 비공개 운영 일지로 저장됩니다.";
-  if (approval.action_type === "flush_old_cache") return "수락하면 오래된 분석 캐시가 삭제됩니다.";
-  if (approval.action_type === "flush_player_cache") return "수락하면 특정 플레이어의 분석 캐시가 삭제됩니다.";
-  if (approval.action_type === "flush_match_cache") return "수락하면 특정 매치 분석 캐시와 저장 파일이 정리됩니다.";
-  if (approval.action_type === "reset_benchmarks") return "수락하면 벤치마크 데이터가 초기화됩니다.";
   return approval.impact?.summary || "수락하면 요청된 관리자 작업이 실행됩니다.";
 }
 

@@ -61,7 +61,7 @@ export function buildAgentAutomationContracts(input?: {
       cadence: "승인 목록 조회 및 승인 직전",
       owner: "agent",
       risk: "approval_required",
-      whatRuns: "게시글 발행, 캐시 삭제, benchmark reset의 예상 영향 범위를 계산합니다.",
+      whatRuns: "게시글 발행, 운영 기록 저장, identity 정리의 예상 영향 범위를 계산합니다.",
       guardrail: "위험 작업은 승인 전 impact를 다시 계산하고 confirmedImpact가 없으면 실행하지 않습니다.",
       whereToCheck: "/admin/bot · Approval Panel",
       prompt: "승인 대기 작업을 impact 기준으로 검토해줘"

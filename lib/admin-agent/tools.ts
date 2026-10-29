@@ -474,25 +474,6 @@ const updateBoardPostDecl: FunctionDeclaration = {
   }
 };
 
-const requestCacheCleanupDecl: FunctionDeclaration = {
-  name: "request_cache_cleanup",
-  description: "캐시 삭제 작업을 승인 대기 요청으로 등록합니다. 실제 삭제는 관리자 승인 후 별도 실행됩니다. 단순 R2 파일 수/용량만 보고 flush_old_cache를 제안하지 말고, 명확한 장애 원인이나 사용자의 직접 요청이 있을 때만 사용합니다.",
-  parameters: {
-    type: SchemaType.OBJECT,
-    properties: {
-      cleanupType: {
-        type: SchemaType.STRING,
-        description: "삭제 유형: 'flush_old_cache', 'flush_player_cache', 'flush_match_cache', 'reset_benchmarks'"
-      },
-      nickname: { type: SchemaType.STRING, description: "플레이어 캐시 삭제 대상 닉네임" },
-      matchId: { type: SchemaType.STRING, description: "매치 캐시 삭제 대상 matchId" },
-      olderThanDays: { type: SchemaType.NUMBER, description: "flush_old_cache 대상 기준 일수. 기본 14일." },
-      reason: { type: SchemaType.STRING, description: "관리자가 승인할 수 있도록 남기는 삭제 사유" }
-    },
-    required: ["cleanupType", "reason"]
-  }
-};
-
 const inspectDataQualityDecl: FunctionDeclaration = {
   name: "inspect_data_quality",
   description: "전적 분석 캐시의 데이터 품질을 점검합니다. processed_match_telemetry identity mismatch를 dry-run으로 검사하며 삭제하지 않습니다.",
@@ -2936,34 +2917,6 @@ export async function executeBoardPostUpdate(payload: any, supabase: any): Promi
   });
 }
 
-async function requestCacheCleanup(args: any, context: AdminAgentContext): Promise<AgentToolResult> {
-  const approvalId = await createApprovalRequest(context.supabase, {
-    runId: context.runId,
-    stepId: context.stepId,
-    requestedBy: context.userId,
-    toolName: "request_cache_cleanup",
-    actionType: args.cleanupType,
-    payload: {
-      cleanupType: args.cleanupType,
-      nickname: args.nickname || null,
-      matchId: args.matchId || null,
-      olderThanDays: Number(args.olderThanDays || 14),
-      reason: args.reason
-    }
-  });
-  return {
-    status: "approval_required",
-    approvalId: approvalId || undefined,
-    result: JSON.stringify({
-      approvalRequired: true,
-      approvalId,
-      message: "캐시 삭제 작업은 승인 대기열에 등록되었습니다.",
-      cleanupType: args.cleanupType,
-      reason: args.reason
-    })
-  };
-}
-
 async function inspectDataQuality(args: any, supabase: any): Promise<string> {
   const audit = await auditProcessedTelemetryIdentity(supabase, {
     recentDays: Number(args.recentDays || 2),
@@ -3629,11 +3582,6 @@ export const adminAgentTools: Record<string, AdminAgentTool> = {
     declaration: updateBoardPostDecl,
     safetyLevel: "dangerous",
     run: requestUpdateBoardPostApproval
-  },
-  request_cache_cleanup: {
-    declaration: requestCacheCleanupDecl,
-    safetyLevel: "dangerous",
-    run: requestCacheCleanup
   },
   request_data_quality_repair: {
     declaration: requestDataQualityRepairDecl,

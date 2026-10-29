@@ -2180,10 +2180,10 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     tables.agent_approvals = chain({
       data: [{
         id: "approval-cache",
-        tool_name: "request_cache_cleanup",
-        action_type: "flush_old_cache",
+        tool_name: "request_data_quality_repair",
+        action_type: "repair_processed_telemetry_identity",
         status: "pending",
-        payload: { olderThanDays: 14 },
+        payload: { targets: [] },
         created_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
       }],
       error: null
@@ -2203,10 +2203,10 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     expect(body.approvals[0].queue.isStale).toBe(true);
     expect(body.approvals[0].impact.risk).toBe("high");
     expect(body.approvals[0].impact.preview).toEqual(expect.objectContaining({
-      headline: "오래된 분석 캐시 삭제 미리보기",
+      headline: "전적 분석 identity mismatch 정리 미리보기",
       items: expect.arrayContaining([
         expect.objectContaining({ label: "대상", value: "processed_match_telemetry" }),
-        expect.objectContaining({ label: "예상 row", value: "0개" })
+        expect.objectContaining({ label: "현재 삭제 가능", value: "0개" })
       ])
     }));
     expect(body.approvals[0].impact.checklist).toEqual(expect.arrayContaining([
@@ -2220,10 +2220,10 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     tables.agent_approvals = chain({
       data: [{
         id: "approval-cache",
-        tool_name: "request_cache_cleanup",
-        action_type: "flush_old_cache",
+        tool_name: "request_data_quality_repair",
+        action_type: "repair_processed_telemetry_identity",
         status: "pending",
-        payload: { olderThanDays: 14 },
+        payload: { targets: [] },
         created_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
       }],
       error: null
@@ -2277,8 +2277,8 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     tables.agent_approvals = chain({
       data: [{
         id: "approval-missing-match",
-        tool_name: "request_cache_cleanup",
-        action_type: "flush_match_cache",
+        tool_name: "request_data_quality_repair",
+        action_type: "repair_processed_telemetry_identity",
         status: "pending",
         payload: {},
         created_at: new Date().toISOString()
@@ -2295,7 +2295,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
       status: "block",
       label: "승인 차단",
       reasons: expect.arrayContaining([
-        expect.stringContaining("matchId")
+        expect.stringContaining("targets")
       ])
     }));
   });
@@ -2578,16 +2578,14 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     tables.agent_approvals = chain({
       data: [{
         id: "approval-cache",
-        tool_name: "request_cache_cleanup",
-        action_type: "flush_old_cache",
+        tool_name: "request_data_quality_repair",
+        action_type: "repair_processed_telemetry_identity",
         status: "pending",
-        payload: { olderThanDays: 14 },
+        payload: { targets: [] },
         created_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
       }],
       error: null
     });
-    tables.processed_match_telemetry = chain({ count: 12 });
-
     const result = await adminAgentTools.inspect_approval_queue.run(
       { status: "pending", limit: 5 },
       { supabase: mockSupabaseAdmin, userId: "admin-id" }
@@ -2602,17 +2600,17 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     }));
     expect(parsed.approvals[0]).toEqual(expect.objectContaining({
       id: "approval-cache",
-      actionType: "flush_old_cache",
+      actionType: "repair_processed_telemetry_identity",
       impact: expect.objectContaining({
         risk: "high",
-        estimatedRows: 12,
+        estimatedRows: 0,
         preview: expect.objectContaining({
-          headline: "오래된 분석 캐시 삭제 미리보기",
+          headline: "전적 분석 identity mismatch 정리 미리보기",
           items: expect.arrayContaining([
-            expect.objectContaining({ label: "예상 row", value: "12개" })
+            expect.objectContaining({ label: "현재 삭제 가능", value: "0개" })
           ])
         }),
-        executionGate: expect.objectContaining({ status: "review" })
+        executionGate: expect.objectContaining({ status: "block" })
       })
     }));
     expect(parsed.recommendations.join(" ")).toContain("고위험");
@@ -2663,7 +2661,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
     tables.agent_approvals = chain({
       data: [{
         id: "approval-cache",
-        action_type: "flush_match_cache",
+        action_type: "repair_processed_telemetry_identity",
         status: "pending",
         payload: {},
         created_at: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString()
@@ -2754,7 +2752,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
       blockCount: 1,
       reviewCount: 0
     }));
-    expect(body.approvalGateSummary.items[0].gate.reasons.join(" ")).toContain("matchId");
+    expect(body.approvalGateSummary.items[0].gate.reasons.join(" ")).toContain("targets");
     expect(body.toolCatalog.counts.dangerous).toBeGreaterThan(0);
     expect(body.contentPerformance.totalPosts).toBe(1);
     expect(body.contentPerformance.topPost.title).toBe("맵 트렌드");
@@ -3824,8 +3822,8 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
         data: {
           id: "approval-danger",
           status: "pending",
-          action_type: "flush_old_cache",
-          payload: { olderThanDays: 14 }
+          action_type: "repair_processed_telemetry_identity",
+          payload: { targets: [{ match_id: "match-1", platform: "steam", player_id: "player-a" }] }
         },
         error: null
       },
@@ -3852,7 +3850,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
         data: {
           id: "approval-blocked",
           status: "pending",
-          action_type: "flush_match_cache",
+          action_type: "repair_processed_telemetry_identity",
           payload: {}
         },
         error: null
@@ -3872,7 +3870,7 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
 
     expect(response.status).toBe(400);
     expect(body.executionGate).toEqual(expect.objectContaining({ status: "block" }));
-    expect(body.executionGate.reasons.join(" ")).toContain("matchId");
+    expect(body.executionGate.reasons.join(" ")).toContain("targets");
     expect(tables.agent_approvals.update).not.toHaveBeenCalled();
   });
 
@@ -3948,7 +3946,8 @@ describe("🧠 Admin Agent Memory/Briefing APIs", () => {
 
   it("승인 전 impact 조회 실패는 다른 요청의 상태를 덮어쓰지 않는다", async () => {
     const state = mockApprovalState();
-    state.row.action_type = "flush_old_cache";
+    state.row.action_type = "repair_processed_telemetry_identity";
+    state.row.payload = { targets: [{ match_id: "match-1", platform: "steam", player_id: "player-a" }] };
     tables.processed_match_telemetry = chain({});
     tables.processed_match_telemetry.select.mockImplementationOnce(() => {
       throw new Error("impact 조회 실패");

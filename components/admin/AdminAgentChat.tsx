@@ -632,7 +632,6 @@ function getToolLabel(toolName: string) {
     inspect_final_readiness: "최종 점검",
     inspect_user_activity: "유저 활동",
     inspect_user_metrics: "유저 지표",
-    request_cache_cleanup: "캐시 정리",
     search_agent_memories: "기억 검색",
     request_agent_memory: "기억 저장",
     generate_operations_briefing: "브리핑 생성",
