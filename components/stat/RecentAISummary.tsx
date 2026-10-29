@@ -44,6 +44,16 @@ interface ActionItem {
   desc: string;
 }
 
+// 서버가 계산한 칭호 판정 상태. 확정 칭호가 아닐 때만 제목·설명을 이 문구로 바꾼다.
+interface RoleVerdictView {
+  kind: "confirmed" | "below_threshold" | "insufficient";
+  headline: string;
+  label: string;
+  detail: string;
+  note: string;
+  observations: string[];
+}
+
 interface BenchmarkScope {
   gameMode?: string;
   matchType?: string;
@@ -93,6 +103,7 @@ interface DebateData {
       signatureWeaponStats?: { kills: number; dbnos: number; consistency?: number; isReliable?: boolean };
       weakness?: string | null;
       scores: Record<string, number>;
+      verdict?: RoleVerdictView;
     };
 
     initiativeSuccess?: string;
@@ -178,6 +189,26 @@ function safeVisualText(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const text = value.trim();
   return text && !/(?:NaN|Infinity|undefined)/iu.test(text) ? text : null;
+}
+
+// 서버가 보낸 판정 상태만 받는다. 비확정 상태는 제목·라벨·설명이 모두 있어야 쓰고,
+// 없거나 형식이 다르면 버려서 기존 칭호 문구를 그대로 보여 준다(클라이언트가 진단을 추정하지 않는다).
+export function normalizeRoleVerdict(value: unknown): RoleVerdictView | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const source = value as Record<string, unknown>;
+  const kind = source.kind;
+  if (kind === "confirmed") return { kind, headline: "", label: "", detail: "", note: "", observations: [] };
+  if (kind !== "below_threshold" && kind !== "insufficient") return null;
+  const headline = safeVisualText(source.headline);
+  const label = safeVisualText(source.label);
+  const detail = safeVisualText(source.detail);
+  if (!headline || !label || !detail) return null;
+  const observations = kind === "below_threshold" && Array.isArray(source.observations)
+    ? source.observations.map((item) => safeVisualText(item)).filter((item): item is string => item !== null).slice(0, 2)
+    : [];
+  // 판정하지 않은 역할 안내는 선택 문구다.
+  const note = safeVisualText(source.note) ?? "";
+  return { kind, headline, label, detail, note, observations };
 }
 
 export function safeVisualRate(value: unknown): string | null {
@@ -322,6 +353,8 @@ export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | 
       });
       role.scores = normalizedScores;
     }
+    const verdict = normalizeRoleVerdict(roleSource.verdict);
+    if (verdict) role.verdict = verdict;
     if (Object.keys(role).length > 0) normalized.roleInfo = role;
   }
 
@@ -643,6 +676,16 @@ export const RecentAISummary = ({
   // 잠재 티어는 배점이 같은 범위(솔로 또는 팀)의 경기만 평균한다. 솔로 기준이면 함께 밝힌다.
   const tierMatchCount = debateData?.visuals?.tierMatchCount;
   const potentialTierRangeLabel = `${tierMatchCount === undefined ? bestMatchRangeLabel : `${tierMatchCount}판`}${debateData?.visuals?.tierScope === "solo" ? " · 솔로 기준" : ""}`;
+  // 서버 판정 상태가 대표 역할과 맞을 때만 비확정 설명으로 바꾼다. 옛 응답은 기존 칭호 문구를 유지한다.
+  const roleInfoView = debateData?.visuals?.roleInfo;
+  const roleVerdict = roleInfoView?.verdict;
+  const pendingRoleVerdict = roleVerdict
+    && ((roleVerdict.kind === "below_threshold" && roleInfoView?.primaryRole === "balanced")
+      || (roleVerdict.kind === "insufficient" && roleInfoView?.primaryRole === "insufficient"))
+    ? roleVerdict : null;
+  const roleTitleText = pendingRoleVerdict?.headline ?? roleInfoView?.title;
+  const roleLabelText = pendingRoleVerdict?.label ?? roleInfoView?.roleLabel;
+  const roleDescriptionText = pendingRoleVerdict?.detail ?? roleInfoView?.description;
 
   useEffect(() => {
     onSummaryChangeRef.current = onSummaryChange;
@@ -1556,10 +1599,10 @@ export const RecentAISummary = ({
                   )}
                 </div>
                 <h3 className="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-white to-white/60 tracking-tight">
-                  {partialSummary ? "확인된 경기 분석" : debateData?.visuals?.roleInfo?.title || "전술 분석 결과"}
+                  {partialSummary ? "확인된 경기 분석" : roleTitleText || "전술 분석 결과"}
                 </h3>
                 <p className="text-xs md:text-sm text-indigo-300/80 font-bold leading-relaxed max-w-md break-words">
-                  {partialSummary ? "확인된 항목을 먼저 표시합니다." : debateData?.visuals?.roleInfo?.description || "데이터를 분석하여 당신의 플레이 스타일을 정의했습니다."}
+                  {partialSummary ? "확인된 항목을 먼저 표시합니다." : roleDescriptionText || "데이터를 분석하여 당신의 플레이 스타일을 정의했습니다."}
                 </p>
                 {calculationPendingCount > 0 && (
                   <p role="status" className="text-xs font-semibold leading-relaxed text-sky-200/80">
@@ -1909,17 +1952,27 @@ export const RecentAISummary = ({
               <div className="flex-1 text-center md:text-left space-y-3">
                 <div className="space-y-1">
                   <span className="text-[12px] text-indigo-400 font-black uppercase tracking-[0.3em]">전술적 정체성</span>
-                  <h2 className="text-3xl md:text-4xl font-black text-white tracking-tight leading-none italic">
-                    {debateData.visuals.roleInfo.title}
+                  <h2 className="text-3xl md:text-4xl font-black text-white tracking-tight leading-none italic" data-testid="role-title">
+                    {roleTitleText}
                   </h2>
                 </div>
                 <div className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-500/20 rounded-lg border border-indigo-500/30">
                   <Target size={14} className="text-indigo-400" />
-                  <span className="text-xs font-black text-indigo-300 uppercase tracking-wider">{debateData.visuals.roleInfo.roleLabel}</span>
+                  <span className="text-xs font-black text-indigo-300 uppercase tracking-wider" data-testid="role-label">{roleLabelText}</span>
                 </div>
+                {debateData.visuals.latestMatchCount !== undefined && debateData.visuals.bestMatchCount !== undefined && (
+                  <p className="text-[11px] font-bold text-gray-400 break-keep" data-testid="role-scope">
+                    칭호 판정: 최근 유효 {latestMatchRangeLabel} 중 점수 상위 {bestMatchRangeLabel}
+                  </p>
+                )}
                 {(debateData.visuals.roleInfo.evidence?.length ?? 0) > 0 && (
                   <p className="text-xs font-bold text-indigo-200/80 break-keep" aria-label="칭호 근거">
                     {debateData.visuals.roleInfo.evidence!.join(" · ")}
+                  </p>
+                )}
+                {(pendingRoleVerdict?.observations.length ?? 0) > 0 && (
+                  <p className="text-xs font-bold text-sky-200/80 break-keep" data-testid="role-observations">
+                    관측 성향(칭호 아님): {pendingRoleVerdict!.observations.join(" · ")}
                   </p>
                 )}
                 {(debateData.visuals.roleInfo.badges?.length ?? 0) > 0 && (
@@ -1929,9 +1982,14 @@ export const RecentAISummary = ({
                     ))}
                   </div>
                 )}
-                <p className="text-[13px] text-gray-400 font-bold leading-relaxed max-w-xl">
-                  {debateData.visuals.roleInfo.description}
+                <p className="text-[13px] text-gray-400 font-bold leading-relaxed max-w-xl break-keep" data-testid="role-description">
+                  {roleDescriptionText}
                 </p>
+                {pendingRoleVerdict?.note && (
+                  <p className="text-xs text-gray-500 font-semibold leading-relaxed max-w-xl break-keep" data-testid="role-note">
+                    {pendingRoleVerdict.note}
+                  </p>
+                )}
               </div>
 
               {/* 오른쪽: 무기 스탯 카드 (유저가 원한 '총 보여주기') */}

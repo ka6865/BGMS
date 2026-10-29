@@ -32,6 +32,31 @@ export interface RoleInfo {
   };
   weakness: string | null;
   scores: RoleScore;
+  // 화면 설명용 판정 상태. 칭호·점수 판정을 바꾸지 않고, 요약 캐시 hash에도 넣지 않는다.
+  verdict: RoleVerdict;
+}
+
+export interface RoleVerdict {
+  kind: "confirmed" | "below_threshold" | "insufficient";
+  // 칭호 판정에 쓴 점수 상위 경기 수
+  matchCount: number;
+  judgedRoles: number;
+  totalRoles: number;
+  unjudged: { notEnoughRecords: number; referencePending: number; soloExcluded: number };
+  topRole: { role: Exclude<RoleKey, "fieldCommander">; score: number } | null;
+  headline: string;
+  label: string;
+  // 한 문장 요약(요약 헤더용)
+  detail: string;
+  // 판정하지 않은 역할과 이유(상세 카드용). 없으면 빈 문자열
+  note: string;
+  // 다른 플레이어 상위 25% 안에 든 기록. 칭호가 아닌 관측 성향이다.
+  observations: string[];
+}
+
+export interface ClassifyRoleOptions {
+  // 값이 있어도 비교 분포가 준비되지 않아 판정에 쓰지 않는 지표
+  pendingReferenceMetrics?: readonly RoleMetricKey[];
 }
 
 interface RoleDefinition {
@@ -143,6 +168,9 @@ const COMMANDER_MIN_ROLES = 6;
 const COMMANDER_MAX_TOP = 95;
 const WEAKNESS_MAX_PERCENTILE = 20;
 const MIN_DISTANCE_DAMAGE = 300;
+const TEAM_ONLY_METRICS = new Set<RoleMetricKey>(
+  Object.values(ROLE_DEFINITIONS).filter((definition) => definition.teamOnly).flatMap((definition) => definition.metrics),
+);
 
 
 /**
@@ -288,31 +316,45 @@ function comboTitle(first: RoleKey, second: RoleKey): string | null {
 /**
  * 역할 판정. bench는 기존 호출 계약을 위해 받지만 쓰지 않는다(기준은 roleReference).
  */
-export function classifyRole(stats: any, _bench: any, overallTier: string): RoleInfo {
+export function classifyRole(stats: any, _bench: any, overallTier: string, options: ClassifyRoleOptions = {}): RoleInfo {
   const isSoloMode = String(stats?.modeDistribution?.main ?? "").includes("solo");
+  const pendingReference = new Set<RoleMetricKey>(options.pendingReferenceMetrics ?? []);
   const metrics = extractRoleMetrics(stats);
   const metricPercentiles = Object.fromEntries(
-    (Object.keys(metrics) as RoleMetricKey[]).map((key) => [key, metricPercentile(key, metrics[key])]),
+    (Object.keys(metrics) as RoleMetricKey[]).map((key) => [key, pendingReference.has(key) ? null : metricPercentile(key, metrics[key])]),
   ) as Record<RoleMetricKey, number | null>;
 
+  // 판정은 반올림 전 점수로 한다. scores에는 기존처럼 소수 첫째 자리까지 담는다.
+  const rawScores = {} as Record<Exclude<RoleKey, "fieldCommander">, number | null>;
+  const unjudged = { notEnoughRecords: 0, referencePending: 0, soloExcluded: 0 };
   const scores = { fieldCommander: null } as RoleScore;
   for (const [role, definition] of Object.entries(ROLE_DEFINITIONS) as Array<[Exclude<RoleKey, "fieldCommander">, RoleDefinition]>) {
     const observed = definition.metrics.map((key) => metricPercentiles[key]).filter((value): value is number => value !== null);
     // 선봉 복합 분포는 선제 성공률과 반격 시간이 함께 있을 때만 쓴다.
     const required = role === "pointMan" ? definition.metrics.length : Math.ceil(definition.metrics.length / 2);
     const enough = observed.length >= required;
+    const soloExcluded = Boolean(definition.teamOnly && isSoloMode);
     // 지표 백분위의 평균을 다시 역할 점수 분포의 백분위로 바꾼다.
-    scores[role] = (definition.teamOnly && isSoloMode) || !enough
+    rawScores[role] = soloExcluded || !enough
       ? null
-      : Number(roleScorePercentile(role, observed.reduce((sum, value) => sum + value, 0) / observed.length).toFixed(1));
+      : roleScorePercentile(role, observed.reduce((sum, value) => sum + value, 0) / observed.length);
+    scores[role] = rawScores[role] === null ? null : Number(rawScores[role]!.toFixed(1));
+    if (soloExcluded) unjudged.soloExcluded++;
+    else if (!enough) {
+      // 비교 기준이 준비되지 않은 지표만 빠져서 판정하지 못한 경우와, 다른 기록도 부족한 경우를 나눈다.
+      const pendingCount = definition.metrics.filter((key) => pendingReference.has(key)).length;
+      if (pendingCount > 0 && observed.length + pendingCount >= required) unjudged.referencePending++;
+      else unjudged.notEnoughRecords++;
+    }
   }
 
-  const ranked = (Object.entries(scores) as Array<[RoleKey, number | null]>)
-    .filter((entry): entry is [RoleKey, number] => entry[1] !== null)
+  const ranked = (Object.entries(rawScores) as Array<[Exclude<RoleKey, "fieldCommander">, number | null]>)
+    .filter((entry): entry is [Exclude<RoleKey, "fieldCommander">, number] => entry[1] !== null)
     .sort((a, b) => b[1] - a[1]);
   const strongRoles = ranked.filter(([, value]) => value >= COMMANDER_ROLE_PERCENTILE);
   if (strongRoles.length >= COMMANDER_MIN_ROLES && ranked[0][1] < COMMANDER_MAX_TOP) {
-    scores.fieldCommander = Number((strongRoles.slice(0, COMMANDER_MIN_ROLES).reduce((sum, [, value]) => sum + value, 0) / COMMANDER_MIN_ROLES).toFixed(1));
+    // 지휘관 판정은 원점수로 하고, 표시 점수는 기존처럼 표시용 역할 점수의 평균이다.
+    scores.fieldCommander = Number((strongRoles.slice(0, COMMANDER_MIN_ROLES).reduce((sum, [role]) => sum + scores[role]!, 0) / COMMANDER_MIN_ROLES).toFixed(1));
   }
 
   let primaryRole: RoleInfo["primaryRole"];
@@ -345,9 +387,8 @@ export function classifyRole(stats: any, _bench: any, overallTier: string): Role
     .map((key) => `${METRIC_LABELS[key]} ${formatTopShare(metricPercentiles[key]!)}`);
 
   // 약점: 판정 가능한 지표 중 하위 20% 이하인 가장 낮은 것. 솔로에서는 팀 지표를 보지 않는다.
-  const teamOnlyMetrics = new Set(Object.values(ROLE_DEFINITIONS).filter((definition) => definition.teamOnly).flatMap((definition) => definition.metrics));
   const weakest = (Object.entries(metricPercentiles) as Array<[RoleMetricKey, number | null]>)
-    .filter((entry): entry is [RoleMetricKey, number] => entry[1] !== null && !(isSoloMode && teamOnlyMetrics.has(entry[0])))
+    .filter((entry): entry is [RoleMetricKey, number] => entry[1] !== null && !(isSoloMode && TEAM_ONLY_METRICS.has(entry[0])))
     .sort((a, b) => a[1] - b[1])[0];
   const weakness = weakest && weakest[1] <= WEAKNESS_MAX_PERCENTILE
     ? `${METRIC_LABELS[weakest[0]]}이(가) 다른 플레이어 대비 하위 ${Math.max(1, Math.round(weakest[1]))}%입니다.`
@@ -361,6 +402,8 @@ export function classifyRole(stats: any, _bench: any, overallTier: string): Role
   if (vehicleCombatSum >= 3 && (finiteOrNull(stats?.vehicleCombatMatchCount) ?? 0) >= 2) badges.push("차량 교전");
   if (weapon.isSpecial && weapon.stats.isReliable) badges.push(weapon.name);
   else if (weapon.stats.isReliable) badges.push(`${weapon.name} 주력`);
+
+  const verdict = buildVerdict({ primaryRole, ranked, unjudged, metricPercentiles, isSoloMode, matchCount: mLen });
 
   return {
     primaryRole,
@@ -380,5 +423,89 @@ export function classifyRole(stats: any, _bench: any, overallTier: string): Role
     },
     weakness,
     scores,
+    verdict,
+  };
+}
+
+const TOTAL_ROLES = Object.keys(ROLE_DEFINITIONS).length;
+const shortRoleLabel = (role: Exclude<RoleKey, "fieldCommander">) => ROLE_DEFINITIONS[role].label.split(" (")[0];
+
+// 기준 바로 아래 점수가 반올림으로 기준 값처럼 보이지 않게 한다(84.96은 85.0이 아니라 84.96).
+function formatRoleScore(raw: number, threshold: number): string {
+  const rounded = Number(raw.toFixed(1));
+  if (raw < threshold && rounded >= threshold) return (Math.floor(raw * 100) / 100).toFixed(2);
+  return rounded.toFixed(1);
+}
+
+function unjudgedSentence(unjudged: RoleVerdict["unjudged"], isSoloMode: boolean): string {
+  const parts: string[] = [];
+  if (unjudged.notEnoughRecords > 0) parts.push(`판정에 필요한 기록이 부족하거나 없는 역할 ${unjudged.notEnoughRecords}개`);
+  if (unjudged.referencePending > 0) parts.push(`비교 기준이 아직 준비되지 않은 역할 ${unjudged.referencePending}개`);
+  if (unjudged.soloExcluded > 0 && isSoloMode) parts.push(`솔로 경기 위주라 제외한 팀 역할 ${unjudged.soloExcluded}개`);
+  return parts.length > 0 ? `${parts.join(", ")}는 판정하지 않았습니다.` : "";
+}
+
+function buildVerdict(input: {
+  primaryRole: RoleInfo["primaryRole"];
+  ranked: Array<[Exclude<RoleKey, "fieldCommander">, number]>;
+  unjudged: RoleVerdict["unjudged"];
+  metricPercentiles: Record<RoleMetricKey, number | null>;
+  isSoloMode: boolean;
+  matchCount: number;
+}): RoleVerdict {
+  const { primaryRole, ranked, unjudged, metricPercentiles, isSoloMode, matchCount } = input;
+  const scope = `점수 상위 ${matchCount}판`;
+  const base = { matchCount, judgedRoles: ranked.length, totalRoles: TOTAL_ROLES, unjudged };
+  const unjudgedText = unjudgedSentence(unjudged, isSoloMode);
+
+  if (primaryRole !== "balanced" && primaryRole !== "insufficient") {
+    const top = ranked[0];
+    return {
+      ...base,
+      kind: "confirmed",
+      topRole: top ? { role: top[0], score: Number(top[1].toFixed(2)) } : null,
+      headline: "",
+      label: "",
+      detail: "",
+      note: "",
+      observations: [],
+    };
+  }
+
+  if (primaryRole === "insufficient") {
+    return {
+      ...base,
+      kind: "insufficient",
+      topRole: null,
+      headline: "판정할 기록 부족",
+      label: `근거 수집 중 · 판정 역할 0/${TOTAL_ROLES}`,
+      detail: `${scope}에서 칭호를 판정할 만큼 기록이 쌓인 역할이 없습니다.`,
+      note: unjudgedText,
+      observations: [],
+    };
+  }
+
+  const [topRole, topScore] = ranked[0];
+  const tiedTop = ranked.filter(([, value]) => value === topScore).length;
+  const topText = tiedTop > 1
+    ? `${tiedTop}개 역할 동점 ${formatRoleScore(topScore, PRIMARY_MIN_PERCENTILE)}`
+    : `${shortRoleLabel(topRole)} ${formatRoleScore(topScore, PRIMARY_MIN_PERCENTILE)}`;
+  // 관측 성향: 판정에 쓴 지표 중 다른 플레이어 상위 25% 안에 든 기록. 칭호 판정과 별개다.
+  const observations = (Object.entries(metricPercentiles) as Array<[RoleMetricKey, number | null]>)
+    .filter((entry): entry is [RoleMetricKey, number] => entry[1] !== null && entry[1] >= COMMANDER_ROLE_PERCENTILE
+      && !(isSoloMode && TEAM_ONLY_METRICS.has(entry[0])))
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 2)
+    // 칭호 기준(상위 15%)과 헷갈리지 않게 올림해 실제보다 높게 표시하지 않는다(84.97은 상위 16%).
+    .map(([key, value]) => `${METRIC_LABELS[key]} 상위 ${Math.max(1, Math.ceil(100 - value))}%`);
+  return {
+    ...base,
+    kind: "below_threshold",
+    topRole: { role: topRole, score: Number(topScore.toFixed(2)) },
+    headline: "뚜렷한 대표 역할 없음",
+    label: `칭호 기준 미달 · 판정 역할 ${ranked.length}/${TOTAL_ROLES}`,
+    detail: `${scope}에서 ${ranked.length === 1 ? "판정한 역할 1개도" : `판정한 역할 ${ranked.length}개 모두`} 칭호 기준 ${PRIMARY_MIN_PERCENTILE}점(상위 15%)에 못 미쳤습니다(최고: ${topText}).`,
+    note: unjudgedText,
+    observations,
   };
 }

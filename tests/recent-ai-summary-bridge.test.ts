@@ -290,6 +290,97 @@ describe("RecentAISummary callback bridge", () => {
     expect(screen.getByLabelText("칭호 근거")).toHaveTextContent("1:1 승률 상위 3% · 역전 승률 상위 5%");
     expect(screen.getByText("차량 교전")).toBeInTheDocument();
     expect(screen.getByText("M416 주력")).toBeInTheDocument();
+    // 경기 수를 받지 못한 옛 응답은 범위를 추정해 표시하지 않는다.
+    expect(screen.queryByTestId("role-scope")).toBeNull();
+  });
+
+  it("확정 칭호도 판정에 쓴 경기 범위를 보여 주고 칭호 문구는 바꾸지 않는다", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "A", latestMatchCount: 10, bestMatchCount: 5, roleInfo: {
+        primaryRole: "mainGun", secondaryRole: null, title: "화력의 중심", roleLabel: "팀의 주포 (Main Gun)",
+        description: "팀 전체 피해 중 큰 몫을 직접 넣습니다.", evidence: ["팀 내 피해 비중 상위 10%"], badges: [],
+        signatureWeapon: "M416", scores: { mainGun: 89.5 },
+        verdict: { kind: "confirmed", headline: "", label: "", detail: "", note: "", observations: [] },
+      } } },
+      { type: "final", data: JSON.stringify(aiReady) },
+      { type: "done", valid: true },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, baseProps));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await screen.findAllByText("화력의 중심");
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+    expect(screen.getByTestId("role-title")).toHaveTextContent("화력의 중심");
+    expect(screen.getByTestId("role-label")).toHaveTextContent("팀의 주포 (Main Gun)");
+    expect(screen.getByTestId("role-description")).toHaveTextContent("팀 전체 피해 중 큰 몫을 직접 넣습니다.");
+    expect(screen.getByTestId("role-scope")).toHaveTextContent("칭호 판정: 최근 유효 10판 중 점수 상위 5판");
+    expect(screen.queryByTestId("role-note")).toBeNull();
+    expect(screen.queryByTestId("role-observations")).toBeNull();
+  });
+
+  it("칭호 판정 상태는 형식이 맞는 서버 값만 받는다", () => {
+    const below = { kind: "below_threshold", headline: "뚜렷한 대표 역할 없음", label: "칭호 기준 미달 · 판정 역할 6/12", detail: "점수 상위 1판에서 판정한 역할 6개 중", observations: ["미끼 플레이 상위 20%", 3, "a", "b"] };
+    expect(normalizeRouteOwnedVisuals({ roleInfo: { title: "균형형 전술가", verdict: below } })?.roleInfo)
+      .toEqual({ title: "균형형 전술가", verdict: { ...below, note: "", observations: ["미끼 플레이 상위 20%", "a"] } });
+    // 필수 문구가 없거나 모르는 상태면 버린다(기존 칭호 문구를 유지한다).
+    expect((normalizeRouteOwnedVisuals({ roleInfo: { title: "균형형 전술가", verdict: { ...below, detail: "" } } })?.roleInfo as any)?.verdict).toBeUndefined();
+    expect((normalizeRouteOwnedVisuals({ roleInfo: { title: "균형형 전술가", verdict: { ...below, kind: "unknown" } } })?.roleInfo as any)?.verdict).toBeUndefined();
+    expect((normalizeRouteOwnedVisuals({ roleInfo: { title: "균형형 전술가", verdict: { kind: "insufficient", headline: "판정할 기록 부족", label: "근거 수집 중", detail: "점수 상위 3판", observations: ["x"] } } })?.roleInfo as any)?.verdict)
+      .toEqual({ kind: "insufficient", headline: "판정할 기록 부족", label: "근거 수집 중", detail: "점수 상위 3판", note: "", observations: [] });
+  });
+
+  it.each([
+    ["기준 미달", { primaryRole: "balanced", title: "균형형 전술가", roleLabel: "균형형", description: "특정 역할이 다른 플레이어보다 두드러지지 않습니다. 여러 상황을 고르게 경험하고 있습니다." },
+      { kind: "below_threshold", headline: "뚜렷한 대표 역할 없음", label: "칭호 기준 미달 · 판정 역할 6/12", detail: "점수 상위 1판에서 판정한 역할 6개 모두 칭호 기준 85점(상위 15%)에 못 미쳤습니다(최고: 미끼 전술가 43.9).", note: "판정에 필요한 기록이 부족하거나 없는 역할 5개, 비교 기준이 아직 준비되지 않은 역할 1개는 판정하지 않았습니다.", observations: ["미끼 플레이 상위 20%"] }],
+    ["기록 부족", { primaryRole: "insufficient", title: "전술 분석 중", roleLabel: "근거 수집 중", description: "역할을 판정할 만큼 교전·팀 기록이 쌓이지 않았습니다." },
+      { kind: "insufficient", headline: "판정할 기록 부족", label: "근거 수집 중 · 판정 역할 0/12", detail: "점수 상위 1판에서 칭호를 판정할 만큼 기록이 쌓인 역할이 없습니다.", note: "", observations: [] }],
+  ])("%s 상태는 서버 판정 설명으로 제목·라벨·설명을 바꾸고 관측 성향을 칭호와 구분한다", async (_name, role, verdict) => {
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "B", latestMatchCount: 1, bestMatchCount: 1, roleInfo: { ...role, secondaryRole: null, evidence: [], badges: [], signatureWeapon: "M416", scores: {}, verdict } } },
+      { type: "final", data: JSON.stringify(aiReady) },
+      { type: "done", valid: true },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, baseProps));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await screen.findAllByText(verdict.headline);
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+    expect(screen.getByTestId("role-title")).toHaveTextContent(verdict.headline);
+    expect(screen.getByTestId("role-label")).toHaveTextContent(verdict.label);
+    // 단판 요약도 칭호 판정에 쓴 실제 경기 수를 그대로 보여 준다.
+    expect(screen.getByTestId("role-scope")).toHaveTextContent("칭호 판정: 최근 유효 1판 중 점수 상위 1판");
+    expect(screen.getByTestId("role-description")).toHaveTextContent(verdict.detail);
+    if (verdict.note) expect(screen.getByTestId("role-note")).toHaveTextContent(verdict.note);
+    else expect(screen.queryByTestId("role-note")).toBeNull();
+    expect(document.body.textContent).not.toContain(role.title);
+    expect(document.body.textContent).not.toContain("여러 상황을 고르게 경험");
+    if (verdict.observations.length > 0) expect(screen.getByTestId("role-observations")).toHaveTextContent("관측 성향(칭호 아님): 미끼 플레이 상위 20%");
+    else expect(screen.queryByTestId("role-observations")).toBeNull();
+  });
+
+  it("판정 상태가 없는 옛 응답이나 대표 역할과 맞지 않는 상태는 기존 칭호 문구를 그대로 쓴다", async () => {
+    const legacyRole = { primaryRole: "balanced", secondaryRole: null, title: "균형형 전술가", roleLabel: "균형형", description: "특정 역할이 다른 플레이어보다 두드러지지 않습니다.", evidence: [], badges: [], signatureWeapon: "M416", scores: {} };
+    for (const roleInfo of [
+      legacyRole,
+      // 확정 칭호에 비확정 상태가 붙어 와도 칭호를 덮지 않는다.
+      { ...legacyRole, primaryRole: "executor", title: "결투의 제왕", roleLabel: "처형자 (Executor)", description: "1:1 교전을 끝까지 이겨 냅니다.",
+        verdict: { kind: "below_threshold", headline: "뚜렷한 대표 역할 없음", label: "칭호 기준 미달", detail: "잘못 붙은 설명", observations: ["x"] } },
+    ]) {
+      cleanup();
+      const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+        { type: "visuals", data: { overallTier: "B", roleInfo } },
+        { type: "final", data: JSON.stringify(aiReady) },
+        { type: "done", valid: true },
+      ]));
+      vi.stubGlobal("fetch", fetchMock);
+      render(createElement(RecentAISummary, baseProps));
+      fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+      await screen.findAllByText(roleInfo.title);
+      fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+      expect(screen.getByTestId("role-label")).toHaveTextContent(roleInfo.roleLabel);
+      expect(screen.getByTestId("role-description")).toHaveTextContent(roleInfo.description);
+      expect(document.body.textContent).not.toMatch(/뚜렷한 대표 역할 없음|잘못 붙은 설명|관측 성향/);
+    }
   });
 
   it("잠재 티어는 평균에 쓴 경기 수와 솔로 기준 여부를 표시한다", async () => {
