@@ -15,6 +15,8 @@ vi.mock("@/lib/lol/persistence.server", async (original) => ({
   hasLolBenchmarkProcessedMatch: mocks.processed,
   aggregateLolMatchBenchmarks: mocks.aggregate, reserveLolRiotRequest: mocks.reserve, startLolRiotRequest: mocks.start,
   releaseLolRiotRequest: mocks.releaseRequest, recordLolRiotRateHeaders: mocks.recordHeaders, blockLolRiotRequests: mocks.block,
+  // 실제 함수는 헤더 기록과 해제를 한 RPC로 처리한다. 기존 단정을 유지하려고 두 mock을 차례로 부른다.
+  finishLolRiotRequest: async (token: string, host: string, headers: Headers) => { await mocks.recordHeaders(host, headers); await mocks.releaseRequest(token); },
 }));
 import { POST } from "@/app/api/admin/lol/collect/route";
 import { collectLolMatches } from "@/lib/lol/riotSearch.server";
@@ -148,6 +150,26 @@ describe("LoL 제한 수집", () => {
     mocks.aggregate.mockImplementation(async (id) => ({ aggregated: false, skipped: id === "KR_2" }));
     const result = await collectLolMatches(request);
     expect(result).toMatchObject({ processed: 3, nextOffset: 3, hasMore: false, aggregated: 1, skipped: 1, failed: 1, fetched: 4 });
+  });
+  it("커스텀 게임은 원문·참가자를 저장하거나 집계하지 않고 skipped로 센다", async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes("/ids?")) return Response.json(["KR_1", "KR_2", "KR_3", "KR_4"]);
+      const id = url.split("/").at(-1)!;
+      const match = raw(id);
+      if (id === "KR_1") match.info.queueId = 0;
+      if (id === "KR_2") Object.assign(match.info, { gameType: "CUSTOM_GAME" });
+      return Response.json(match);
+    });
+    // 이전 수집이 남긴 커스텀 원문도 재사용·집계하지 않는다.
+    stored.set("KR_3", { ...raw("KR_3"), info: { ...raw("KR_3").info, queueId: 0 } });
+    mocks.aggregate.mockResolvedValue({ aggregated: true, skipped: false });
+    const result = await collectLolMatches(request);
+    expect(result).toMatchObject({ processed: 4, nextOffset: 4, skipped: 3, aggregated: 1, reused: 0, failed: 0 });
+    expect(mocks.persist).toHaveBeenCalledOnce();
+    expect(mocks.persist.mock.calls[0][0].raw.metadata.matchId).toBe("KR_4");
+    expect(mocks.aggregate.mock.calls.map(([id]) => id)).toEqual(["KR_4"]);
+    expect(mocks.release).toHaveBeenCalledWith({ key: "match:KR_1", token: "token" });
+    expect(mocks.release).toHaveBeenCalledWith({ key: "match:KR_2", token: "token" });
   });
   it("DB 계정이 없으면 계정 API로 확인하고 식별자를 응답에 남기지 않는다", async () => {
     mocks.lookup.mockResolvedValue(undefined);

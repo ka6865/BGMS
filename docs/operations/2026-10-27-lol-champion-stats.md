@@ -43,7 +43,7 @@ LOL_COLLECT_ENABLED=true nohup npx tsx scripts/lol_collect_champion_stats.ts --a
 
 - 출발 계정: 아이언~다이아 I~IV는 `League-V4 entries` 페이지, 마스터 이상은 리그 명단. 한 바퀴(40칸)에 티어마다 4번씩 돈다.
 - 진행 위치(구간별 페이지·순번)는 `lol_stat_collector_state`에 저장한다. 계정 식별자는 저장하지 않으므로 페이지는 다시 받는다.
-- Riot 호출은 기존 공유 호출 제한(`lol_rate_limit_state`)을 거친다. 운영 검색과 같은 제한을 쓰므로 수집 속도를 올리기 전 운영 검색의 혼잡 응답(503 `congested`)과 `lol_ops_daily`의 `riot_429`를 확인한다.
+- Riot 호출은 공유 호출 제한(`lol_rate_limit_state`)을 거치며 `LOL_RIOT_PRIORITY=background`로 예약해 이동 구간 한도의 50%까지만 쓴다([전환 기록](2026-10-29-lol-riot-window-guard.md)). 운영 검색과 같은 제한을 쓰므로 수집 속도를 올리기 전 운영 검색의 혼잡 응답(503 `congested`)과 `lol_ops_daily`의 `riot_429`를 확인한다.
 - 429·혼잡은 기다렸다가 같은 요청을 다시 보낸다. 401·403(키 만료)은 즉시 멈추고 종료 코드 2를 반환한다. 키를 바꾸고 다시 실행하면 저장된 위치부터 이어간다.
 - 동시 실행은 `ops:lol-stat-collector` lease로 막는다. Ctrl+C 한 번은 현재 경기까지 저장하고 멈춘다.
 

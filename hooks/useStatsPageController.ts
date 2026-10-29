@@ -289,6 +289,8 @@ export function useStatsPageController(
   const platformRef = useRef(platform);
   const nicknameRef = useRef(nickname);
   const seasonIdRef = useRef(seasonId);
+  // 사용자가 시즌을 직접 고른 플레이어·시즌. 응답으로 정해진 화면 시즌은 여기에 넣지 않는다.
+  const explicitSeasonRef = useRef<string | null>(null);
   const resultRef = useRef<PlayerStatsResponse | null>(null);
   const refreshAvailableAtRef = useRef<number | undefined>(undefined);
   const playerRequestRef = useRef<{ id: number; controller: AbortController } | null>(null);
@@ -426,13 +428,19 @@ export function useStatsPageController(
     request: StatsSearchRequest = {},
     preserveRouteTab = false,
   ): Promise<PlayerStatsResponse | null> => {
+    const requestedNickname = (request.nickname ?? nicknameRef.current).trim();
+    const requestedPlatform = request.platform ?? platformRef.current;
+    const requestedSeason = normalizeSeason(request.seasonId ?? seasonIdRef.current);
+    const forceRefresh = request.forceRefresh ?? false;
+    if (!requestedNickname) return Promise.resolve(null);
+    const requestedIdentity = playerIdentity(requestedPlatform, requestedNickname, requestedSeason);
+    // 갱신은 직접 고른 시즌만 유지한다. 캐시·빈 시즌 건너뛰기로 정해진 시즌은 서버가 현재 시즌을 다시 고르게 한다.
     const resolved: Required<StatsSearchRequest> = {
-      nickname: (request.nickname ?? nicknameRef.current).trim(),
-      platform: request.platform ?? platformRef.current,
-      seasonId: normalizeSeason(request.seasonId ?? seasonIdRef.current),
-      forceRefresh: request.forceRefresh ?? false,
+      nickname: requestedNickname,
+      platform: requestedPlatform,
+      seasonId: !forceRefresh || explicitSeasonRef.current === requestedIdentity ? requestedSeason : "",
+      forceRefresh,
     };
-    if (!resolved.nickname) return Promise.resolve(null);
 
     const key = requestIdentity(resolved);
     if (inFlightPromiseRef.current?.key === key) {
@@ -475,6 +483,11 @@ export function useStatsPageController(
       && Date.now() < refreshAvailableAtRef.current
     ) {
       return Promise.resolve(null);
+    }
+
+    // 일반 조회의 시즌 지정은 드롭다운 선택(또는 그 재시도)이다. 시즌 없는 조회는 직접 선택을 해제한다.
+    if (!resolved.forceRefresh) {
+      explicitSeasonRef.current = resolved.seasonId ? identity : null;
     }
 
     playerRequestRef.current?.controller.abort();
