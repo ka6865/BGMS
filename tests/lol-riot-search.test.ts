@@ -2876,6 +2876,34 @@ describe("숙련도 검색과 영구 요약 연결", () => {
     expect(fetchMock.mock.calls.filter(([url]) => String(url).includes("champion-mastery"))).toHaveLength(1);
   });
 
+  it("캐시 적중의 최근 성과·LP는 검색에서 확인한 PUUID를 쓰고, 이름으로 계정을 확정하지 못하면 생략한다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.account.mockResolvedValue({ puuid: "mastery-fixture-secret", gameName: "Fixture", tagLine: "FIX" });
+    const stored = { queue_id: 420, champion_id: 103, champion_name: "Ahri", duration_seconds: 1800, remake: false, win: true, kills: 5, deaths: 2, assists: 7 };
+    persistence.summaries.mockResolvedValue([stored, stored]);
+    vi.stubGlobal("fetch", upstream());
+    const first = searchLolRiotId("Fixture#FIX"); await vi.advanceTimersByTimeAsync(30_000);
+    const result = await first;
+    persistence.cache.mockResolvedValue(result);
+    persistence.account.mockClear(); persistence.summaries.mockClear(); persistence.observations.mockClear();
+    // 같은 이름의 다른 사람 행이 DB에서 잡혀도 검색 단계 PUUID가 우선한다.
+    persistence.account.mockResolvedValue({ puuid: "other-person", gameName: "Fixture", tagLine: "FIX" });
+    await searchLolRiotId("Fixture#FIX");
+    expect(persistence.summaries.mock.calls.map(([puuid]) => puuid)).toEqual(["mastery-fixture-secret"]);
+    expect(persistence.account).not.toHaveBeenCalled();
+
+    // 다른 인스턴스처럼 검색 단계 계정이 없고 이름 행이 중복이면 DB 조회는 undefined이며 부가 정보를 붙이지 않는다.
+    internalState!.accounts.clear();
+    persistence.account.mockResolvedValue(undefined);
+    persistence.summaries.mockClear(); persistence.observations.mockClear();
+    const cachedHit = await searchLolRiotId("Fixture#FIX");
+    expect(persistence.account).toHaveBeenCalledOnce();
+    expect(persistence.summaries).not.toHaveBeenCalled();
+    expect(persistence.observations).not.toHaveBeenCalled();
+    expect(cachedHit.mastery?.recent).toEqual({ status: "unavailable", sampleSize: 0, champions: [] });
+    expect(cachedHit.recentTrends).toBeUndefined();
+  });
+
   it("영구 요약 조회 실패는 숙련도와 검색을 보존한다", async () => {
     persistence.enabled.mockReturnValue(true);
     persistence.summaries.mockRejectedValue(new LolPersistenceError());
@@ -2901,6 +2929,24 @@ describe("심사 전 공개 조회와 삭제 경계", () => {
     expect(persistence.matchRequestJson).not.toHaveBeenCalled();
     expect(persistence.saveMatch).not.toHaveBeenCalled();
     expect(persistence.releaseLease).toHaveBeenCalledOnce();
+  });
+
+  it("더보기는 검색 단계 PUUID를 우선하고, 없으면서 이름 행 중복으로 계정을 확정하지 못하면 Riot 호출 없이 not_found로 닫는다", async () => {
+    persistence.enabled.mockReturnValue(true);
+    persistence.account.mockResolvedValue(undefined);
+    const fetcher = vi.fn<typeof fetch>(async () => response([]));
+    vi.stubGlobal("fetch", fetcher);
+    await expect(getMoreLolMatches({ riotId: "Fixture#FIX", offset: 20 })).rejects.toMatchObject({ kind: "not_found" });
+    expect(persistence.account).toHaveBeenCalledWith("Fixture", "FIX");
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(persistence.acquire).not.toHaveBeenCalled();
+
+    internalState!.accounts.set("fixture#fix", { account: { puuid: "searched-owner", gameName: "Fixture", tagLine: "FIX" }, expiresAt: Date.now() + 60_000 });
+    persistence.account.mockClear();
+    persistence.account.mockResolvedValue({ puuid: "other-person", gameName: "Fixture", tagLine: "FIX" });
+    await getMoreLolMatches({ riotId: "Fixture#FIX", offset: 20 });
+    expect(persistence.account).not.toHaveBeenCalled();
+    expect(String(fetcher.mock.calls[0][0])).toContain("/by-puuid/searched-owner/ids?start=20&count=20");
   });
 
   it("공개 상세는 저장된 경기만 허용하고 미저장 경기는 Riot 호출 없이 거부한다", async () => {

@@ -123,6 +123,23 @@ describe("LoL persistence repository", () => {
     expect(db.from).toHaveBeenCalledWith("lol_accounts");
   });
 
+  it("같은 Riot ID 행이 여럿이면 다른 사람 기록을 섞지 않도록 계정을 찾지 못한 것으로 본다", async () => {
+    let rows: Array<Record<string, string>> = [];
+    const query: any = {
+      eq: () => query,
+      ilike: () => query,
+      limit: () => query,
+      abortSignal: () => Promise.resolve({ data: rows, error: null }),
+    };
+    db.from.mockReturnValue({ select: () => query });
+    const row = (puuid: string, gameName: string, tagLine: string) => ({ puuid, game_name: gameName, tag_line: tagLine, account_fetched_at: "2026-10-23T00:00:00Z" });
+    rows = [row("first-owner", "Name", "Tag"), row("second-owner", "NAME", "tag")];
+    await expect(getLolAccountByRiotId("name", "TAG")).resolves.toBeUndefined();
+    // ilike가 넓게 잡은 다른 이름 행은 중복으로 세지 않는다.
+    rows = [row("only-owner", "Name", "Tag"), row("other", "Name2", "Tag")];
+    await expect(getLolAccountByRiotId("name", "tag")).resolves.toMatchObject({ puuid: "only-owner" });
+  });
+
   it("reads only unexpired DTO cache through the region and version scoped RPC", async () => {
     const dto = { matches: [], matchStatus: "empty" };
     (db.rpc as any).result = { data: dto, error: null };

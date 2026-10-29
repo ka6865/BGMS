@@ -663,18 +663,17 @@ function sumComplete(values: Array<number | null>): number | null {
     : null;
 }
 
+// 커스텀 게임은 개인정보처리방침에 따라 수집·저장·표시하지 않는다. 검색·상세·관리자 수집이 같은 기준을 쓴다.
+function isCustomMatch(info: any): boolean {
+  return Number(info?.queueId) === 0 || info?.gameType === "CUSTOM_GAME";
+}
+
 function summarizeMatch(match: any, puuid: string): LolRecentMatch | null {
   const info = match?.info;
   const participant = info?.participants?.find(
     (item: any) => item?.puuid === puuid,
   );
-  if (
-    !info ||
-    !participant ||
-    Number(info.queueId) === 0 ||
-    info.gameType === "CUSTOM_GAME"
-  )
-    return null;
+  if (!info || !participant || isCustomMatch(info)) return null;
   const number = (value: unknown) => optionalNonNegativeNumber(value);
   const duration = number(info.gameDuration);
   const kills = number(participant.kills);
@@ -1152,8 +1151,7 @@ async function getLolMatchDetailsAndRaw(
       !Array.isArray(info?.participants)
     )
       throw new RiotSearchError("upstream");
-    if (Number(info.queueId) === 0 || info.gameType === "CUSTOM_GAME")
-      throw new RiotSearchError("restricted_match");
+    if (isCustomMatch(info)) throw new RiotSearchError("restricted_match");
     const metadata = await getStaticData(true, dataDragonVersion);
     const result = {
       dataDragonVersion,
@@ -1367,7 +1365,8 @@ async function withLolLpChanges<T extends LolRecentMatch>(matches: T[], puuid: s
   }
 }
 
-// DB에 저장된 기록으로 만드는 부가 정보(최근 성과, 판별 LP)를 붙인다. 계정 PUUID는 한 번만 찾는다.
+// DB에 저장된 기록으로 만드는 부가 정보(최근 성과, 판별 LP)를 붙인다. 계정 PUUID는 한 번만 찾고,
+// 이름 행이 여럿이라 계정을 확정하지 못하면 다른 사람 기록을 붙이지 않도록 부가 정보를 생략한다.
 async function withLolStoredExtras(result: LolSearchResult, puuid?: string): Promise<LolSearchResult> {
   if (!isLolPersistenceEnabled()) return result;
   let accountPuuid = puuid;
@@ -1378,12 +1377,13 @@ async function withLolStoredExtras(result: LolSearchResult, puuid?: string): Pro
   return { ...withPerformance, matches: await withLolLpChanges(withPerformance.matches, accountPuuid) };
 }
 
-async function withLolRecentPerformance(result: LolSearchResult, puuid?: string): Promise<LolSearchResult> {
+async function withLolRecentPerformance(result: LolSearchResult, puuid: string | undefined): Promise<LolSearchResult> {
   if (!result.mastery || !isLolPersistenceEnabled()) return result;
+  const unavailable = { ...result, recentTrends: undefined, mastery: { ...result.mastery, recent: { status: "unavailable" as const, sampleSize: 0, champions: [] } } };
+  // 계정을 확정하지 못하면 캐시에 남은 이전 값도 쓰지 않는다.
+  if (!puuid) return unavailable;
   try {
-    const accountPuuid = puuid ?? (await getLolAccountByRiotId(result.account.gameName, result.account.tagLine))?.puuid;
-    if (!accountPuuid) return result;
-    const rows = await getLolPlayerMatchSummaries(accountPuuid, 100);
+    const rows = await getLolPlayerMatchSummaries(puuid, 100);
     const metadata = await getStaticData();
     const champions = summarizeLolChampionPerformance(rows).map(champion => {
       const entry = Object.entries(metadata.champions).find(([, value]) => Number(value.key) === champion.championId);
@@ -1392,7 +1392,7 @@ async function withLolRecentPerformance(result: LolSearchResult, puuid?: string)
     return { ...result, recentTrends: summarizeLolRecentTrends(rows), mastery: { ...result.mastery,
       recent: { status: "ready", sampleSize: champions.reduce((sum, champion) => sum + champion.games, 0), champions } } };
   } catch {
-    return { ...result, recentTrends: undefined, mastery: { ...result.mastery, recent: { status: "unavailable", sampleSize: 0, champions: [] } } };
+    return unavailable;
   }
 }
 
@@ -1463,7 +1463,12 @@ async function searchLolRiotIdInternal(
       : cached.lastUpdatedAt;
     const remainSeconds = refreshRemaining(lastUpdatedAt);
     if (options.refresh && remainSeconds > 0) return { status: "cooldown", remainSeconds, lastUpdatedAt };
-    if (!options.refresh) return withLolStoredExtras({ ...withCurrentDataDragon(cached, dataDragonVersion), refreshRemainSeconds: remainSeconds });
+    if (!options.refresh) {
+      // 이 인스턴스가 검색 단계에서 Riot으로 확인한 PUUID가 있으면 이름 기반 DB 조회보다 먼저 쓴다.
+      const known = state.accounts.get(`${riotId.gameName.toLocaleLowerCase()}#${riotId.tagLine.toLocaleLowerCase()}`);
+      return withLolStoredExtras({ ...withCurrentDataDragon(cached, dataDragonVersion), refreshRemainSeconds: remainSeconds },
+        known && known.expiresAt > Date.now() ? known.account.puuid : undefined);
+    }
   } else if (options.refresh && storedAccount?.accountFetchedAt) {
     const remainSeconds = refreshRemaining(storedAccount.accountFetchedAt);
     if (remainSeconds > 0) return { status: "cooldown", remainSeconds, lastUpdatedAt: storedAccount.accountFetchedAt };
@@ -1680,8 +1685,10 @@ export async function collectLolMatches(input: { riotId: string; count: number; 
       try {
         const stored = await getLolMatchRequestJson(matchId, LOL_PLATFORM, LOL_REGIONAL_ROUTE, true);
         let previouslyProcessed = false;
+        let custom = false;
         if (stored) {
-          result.reused += 1;
+          custom = isCustomMatch((stored as any)?.info);
+          if (!custom) result.reused += 1;
         } else {
           const matchLease = await acquireLolCollectionLease(`match:${matchId}`, 45);
           if (!matchLease) throw new RiotSearchError("busy", 2);
@@ -1690,20 +1697,27 @@ export async function collectLolMatches(input: { riotId: string; count: number; 
             previouslyProcessed = await hasLolBenchmarkProcessedMatch(matchId);
             const raw = await requestJson<any>("asia", `/lol/match/v5/matches/${encodeURIComponent(matchId)}`, MATCH_TTL_MS, false, onFetch);
             if (raw?.metadata?.matchId !== matchId || !Array.isArray(raw?.info?.participants)) throw new RiotSearchError("upstream");
-            await persistLolMatchDetails({
-              lease: matchLease, cacheKey: `benchmark-raw:${matchId}`, cachePayload: {},
-              platform: LOL_PLATFORM, route: LOL_REGIONAL_ROUTE, version: "benchmark-raw-v1",
-              raw, participants: raw.info.participants, teams: raw.info.teams ?? [],
-            });
-            saved = true;
+            custom = isCustomMatch(raw.info);
+            if (!custom) {
+              await persistLolMatchDetails({
+                lease: matchLease, cacheKey: `benchmark-raw:${matchId}`, cachePayload: {},
+                platform: LOL_PLATFORM, route: LOL_REGIONAL_ROUTE, version: "benchmark-raw-v1",
+                raw, participants: raw.info.participants, teams: raw.info.teams ?? [],
+              });
+              saved = true;
+            }
           } finally {
             if (!saved) await releaseLolCollectionLease(matchLease);
           }
         }
-        const benchmark = await aggregateLolMatchBenchmarks(matchId);
-        // 원문이 삭제된 뒤 재수집한 경기는 기존 익명 집계의 신규 표본으로 세지 않는다.
-        if (benchmark.skipped) result.skipped += 1;
-        else if ((!stored && !previouslyProcessed) || benchmark.aggregated) result.aggregated += 1;
+        // 커스텀 게임은 원문·참가자를 저장하지 않고 집계에도 넣지 않는다.
+        if (custom) result.skipped += 1;
+        else {
+          const benchmark = await aggregateLolMatchBenchmarks(matchId);
+          // 원문이 삭제된 뒤 재수집한 경기는 기존 익명 집계의 신규 표본으로 세지 않는다.
+          if (benchmark.skipped) result.skipped += 1;
+          else if ((!stored && !previouslyProcessed) || benchmark.aggregated) result.aggregated += 1;
+        }
       } catch (error) {
         if (error instanceof LolPersistenceError) throw error;
         if (error instanceof RiotSearchError && ["rate_limited", "busy", "key_or_permission", "unconfigured"].includes(error.kind)) throw error;
