@@ -24,6 +24,8 @@ import {
 import {
   buildPlayerRefreshLockKey,
   claimForceRefresh,
+  readPubgSeasonsCache,
+  writePubgSeasonsCache,
 } from "@/lib/pubg/responseCache";
 
 export const maxDuration = 30;
@@ -232,8 +234,11 @@ export async function GET(request: Request) {
 
   // Reads below use the saved player row so default and explicit-season
   // requests cannot reuse a pre-refresh response from another instance.
+  // 갱신 잠금(60초)을 잡은 요청은 실패해도 잠금이 남으므로, 재시도 안내도 그 시간에 맞춘다.
+  let refreshLockClaimed = false;
   if (forceRefresh) {
     const claimed = await claimForceRefresh(buildPlayerRefreshLockKey(platform, nickname));
+    refreshLockClaimed = claimed;
     if (!claimed) {
       return NextResponse.json(
         { error: "강제 갱신은 같은 전적에 대해 1분에 한 번만 요청할 수 있습니다." },
@@ -279,6 +284,7 @@ export async function GET(request: Request) {
     }
     if (autoRefresh) {
       const claimed = await claimForceRefresh(buildPlayerRefreshLockKey(platform, nickname));
+      refreshLockClaimed = claimed;
       if (!claimed) {
         const responseBody = await buildCachedPlayerResponse(supabase, cacheData, reqSeason);
         return NextResponse.json(await withCachedBanObservation({
@@ -377,7 +383,12 @@ export async function GET(request: Request) {
     const cachedSeasons: PubgSeason[] = isSeasonList(previous?.seasons_list) ? previous.seasons_list : [];
     let availableSeasons = cachedSeasons;
     let seasonsReady = false;
-    try {
+    // 시즌 목록은 플랫폼별 1시간 공유 캐시를 먼저 쓴다. 캐시 장애는 PUBG 조회로 대신한다.
+    const sharedSeasons = await readPubgSeasonsCache<unknown>(platform).catch(() => null);
+    if (isSeasonList(sharedSeasons) && sharedSeasons.length > 0) {
+      availableSeasons = sharedSeasons;
+      seasonsReady = true;
+    } else try {
       const seasonData = await api.read(`https://api.pubg.com/shards/${platform}/seasons`, {
         stage: "seasons", validate: isSeasonsPayload,
       });
@@ -386,6 +397,7 @@ export async function GET(request: Request) {
         .sort((left, right) => right.id.localeCompare(left.id));
       seasonsReady = availableSeasons.length > 0;
       if (!seasonsReady) recordFailure(new Error("No supported season"));
+      else await writePubgSeasonsCache(platform, availableSeasons).catch(() => undefined);
     } catch (error) {
       recordFailure(error);
     }
@@ -594,13 +606,16 @@ export async function GET(request: Request) {
     await safeLogFailure(error, true);
     const failure = error instanceof PlayerApiError ? error : null;
     const rateLimited = failure?.upstreamStatus === 429;
-    const retryAfter = rateLimited ? failure.retryAfterSeconds ?? 60 : 30;
+    const retryAfter = Math.max(rateLimited ? failure.retryAfterSeconds ?? 60 : 30,
+      refreshLockClaimed ? PLAYER_REFRESH_LOCK_RETRY_SECONDS : 0);
     return NextResponse.json({
       error: rateLimited
         ? "PUBG API 호출 한도가 일시적으로 초과되었습니다. 잠시 후 다시 시도해 주세요."
         : "전적 정보를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.",
       code: request.signal.aborted ? "PLAYER_REQUEST_ABORTED" : rateLimited ? "PLAYER_RATE_LIMITED" : "PLAYER_UPSTREAM_UNAVAILABLE",
       retryable: !request.signal.aborted, requestId,
+      // 화면은 이 값으로 갱신 버튼 대기 시간을 맞춘다(잠금이 남은 동안 다시 눌러 429를 받지 않게).
+      ...(refreshLockClaimed ? { retryAfterSeconds: retryAfter } : {}),
     }, { status: rateLimited ? 429 : 503, headers: { "Cache-Control": "no-store", "Retry-After": String(retryAfter) } });
   } finally {
     api.dispose();

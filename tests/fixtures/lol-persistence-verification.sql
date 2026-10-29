@@ -4,11 +4,11 @@ begin
   if not (select relrowsecurity from pg_catalog.pg_class where oid='public.lol_accounts'::regclass) then raise exception 'RLS is disabled'; end if;
   if has_table_privilege('anon','public.lol_accounts','select') or has_table_privilege('authenticated','public.lol_matches','select') then raise exception 'public table grant found'; end if;
   if not has_table_privilege('service_role','public.lol_accounts','select') then raise exception 'service role table grant missing'; end if;
-  if has_function_privilege('anon','public.reserve_lol_riot_request(text,text)','execute')
+  if has_function_privilege('anon','public.reserve_lol_riot_request(text,text,integer)','execute')
     or has_function_privilege('authenticated','public.persist_lol_search_snapshot(text,uuid,text,jsonb,text,text,text,jsonb,jsonb,jsonb)','execute')
     or has_function_privilege('anon','public.get_lol_match_request_json(text,text,text)','execute') then
     raise exception 'public function grant found'; end if;
-  if not has_function_privilege('service_role','public.reserve_lol_riot_request(text,text)','execute') then raise exception 'service role RPC grant missing'; end if;
+  if not has_function_privilege('service_role','public.reserve_lol_riot_request(text,text,integer)','execute') then raise exception 'service role RPC grant missing'; end if;
   for v_function in select prosecdef from pg_catalog.pg_proc where pronamespace='public'::regnamespace and proname like '%lol_%' loop
     if v_function.prosecdef then raise exception 'SECURITY DEFINER LoL function found'; end if;
   end loop;
