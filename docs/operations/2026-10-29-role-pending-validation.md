@@ -83,3 +83,32 @@ RUN_SUMMARY_PARTIAL_BROWSER=true npm run test:unit -- tests/recent-ai-summary-pa
 ```
 
 개인 ID·경기 원본·재생 스냅샷은 Git에 넣지 않는다. 입력 SHA256은 결과 JSON에 보존한다. 지속 보관본과 복원 명령은 원래 작업 폴더의 `docs-private/coaching-role-evidence-2026-10-29`에 둔다. 하위 워크트리에는 `docs-private/`와 보조 rules가 없어 추적된 문서·실제 코드·테스트를 기준으로 구현했으며, 부모의 관련 로컬 규칙도 확인했다.
+
+## 총기 피해 범위 보정과 불일치 사유 감사 (2026-10-29 후속)
+
+리뷰에서 개인 적중·거리 근거(`roleEvidence.validWeaponHits`, `distanceDamage`, `maxHitDist`, `pressureIndex`)가 총기가 아닌 피해도 세는 문제를 확인했다. 합성 이벤트 probe에서 화염병 5틱은 적중 5회로, 수류탄·차량·근접 피해는 각 1회로 들어갔다. `CombatHandler`의 이 근거는 이제 `damageTypeCategory === "Damage_Gun"`일 때만 센다. 기존 `weaponStats`, `itemUseStats.distanceDamage`, `combatPressure`, benchmark·점수 입력은 바꾸지 않았다. 협공 근거(`focusFireCount`)는 이 문서와 코드 계약에 총기 한정이 없어 이번 범위에서 바꾸지 않았다.
+
+같은 313계정·2,902전적을 Git 밖 로컬 원본으로 다시 분석했다. 네트워크·DB·외부 AI는 호출하지 않았다.
+
+- 원본 누락0, benchmark 전체 객체 차이0, 점수 차이0. 처리 시각(`processedAt`) 외에 달라진 필드는 `roleEvidence`뿐이다.
+- `roleEvidence`가 바뀐 경기는 704건(24.3%)이다. 총기 외 적중 1,833회와 거리 확인 피해 57,051이 빠졌고, 최대 명중 거리는 141경기에서 바뀌었다. 협공 수는 0건 바뀌었다.
+- 같은 정책으로 다시 실행한 공통 308명 결과(앞 표의 이전 값 → 보정 후):
+
+| 공통 308명 | EV1 | EV2 |
+| --- | ---: | ---: |
+| 확정 칭호 | 121 → 123 | 90 → 94 |
+| 균형형 | 0 → 1 | 1 → 1 |
+| 대표 미확정 + 복합 성향 설명 | — | 37 → 35 |
+| 대표 미확정 + 실제 관측 설명 | — | 180 → 178 |
+| 관측 설명 없는 보류 | 187 → 184 | 0 → 0 |
+
+- 전환: 확정 유지 88, 확정→복합 13, 확정→단일 관측 22, 보류→확정 6, 보류→균형형 1, 보류→복합 22, 보류→단일 관측 155, 균형형→단일 관측 1.
+- 참고 분포 재표집 제목 일치(EV2): 듀오 경쟁 76.0%, 스쿼드 경쟁 85.9%, 스쿼드 일반 76.6%. 개발 holdout이며 독립 검증이 아니다.
+- 중거리 후보: 안정 후보 4/3/3명, 기존 미확정에서 추가 포착 3/2/3명(총 8명), 기존 확정 대체 1명. 정식 칭호는 추가하지 않았다.
+- 지정 계정: KangHeeSung_은 근거리 66.7%·중거리 30.0%·원거리 3.3%(거리 확인 피해 757, 이전 805)로 `근거리 교전 중심`이 유지됐다. MiaeQ_Q는 총기 피해만으로도 같은 수치(855, 87.0%/0%/13.0%)였다.
+
+`roleWindowStability`는 대표 불일치를 `rank_flip`(다른 역할로 바뀜), `threshold_drop`(85 아래로 내려가 균형형·보류), `insufficient`(필수 기록 부족), `commander_change`(지휘관이 끼는 변경)로 나눠 `disagreements`로 남긴다. 판정 규칙과 문구는 바꾸지 않았다. EV2 보류 프로필의 변형 불일치 합계는 rank_flip 338, threshold_drop 120, insufficient 60, commander_change 6이다. 복합 성향 35명 중 34명은 실제 순위 변경이 1회 이상 있었고, 1명은 지휘관 변경만으로 복합 조건을 만족했다. 이 1명은 "대표 순서가 바뀝니다" 문구와 맞지 않으므로 제품에 연결하기 전에 지휘관 예외 처리가 필요하다. 복합 칭호는 제품에 추가하지 않는다.
+
+train/holdout은 계정 hash로만 나누며 같은 경기를 공유하는 계정을 분리하지 않는다. 위 holdout 수치는 개발 자료의 한계를 가진다. 기본 API는 여전히 기존 분류를 쓰고 이 후보를 활성화하지 않았다. 같은 계산5로 이미 저장된 운영 결과의 `roleEvidence` 보유율은 조회하지 않았다. 이 보정 전 정의로 저장된 `roleEvidence.version:1`은 구분되지 않으므로, 근거 수집을 배포한 뒤에는 저장 시점을 기준으로 coverage를 읽기 전용으로 먼저 확인해야 한다.
+
+재현: `/tmp/bgms-r1/replay-damage-gun.ts`(로컬 원본 재분석, 익명 집계) → `node --import tsx scripts/audit_role_pending.ts --input /tmp/bgms-role-pending-gun-only-private.json.gz --output <새 경로>`. 보정 후 집계는 [JSON](2026-10-29-role-pending-validation.json)으로 교체했다.

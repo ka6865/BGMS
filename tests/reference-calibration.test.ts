@@ -216,6 +216,7 @@ it('withholds a balanced candidate when one match removes its comparable evidenc
  });
  const result=roleWindowStability(ms,{evidenceVersion:1,metrics:{teamDamageShare:levels,shortShare:levels,longShare:levels,maxHitDist:levels.map(v=>v*5),earlyShare:levels},roles:{mainGun:levels,brawler:levels,phantomOverwatch:levels,dropPredator:levels}});
  expect(result.primaryRole).toBe('balanced');expect(result.agreement).toBe(.5);
+ expect(result.disagreements.rank_flip).toBe(0);
  expect(result.decision).toMatchObject({primaryRole:'pending',status:'pending'});
 });
 
@@ -242,6 +243,7 @@ describe('v2 changed-window evidence',()=>{
   expect(result.decision.status).toBe('insufficient');
   const minimal=roleWindowStability(ms.slice(7),reference);
   expect(minimal.decision.status).toBe('pending');
+  expect(minimal.disagreements.insufficient).toBe(minimal.variants.filter(row=>row.primaryRole==='insufficient').length);
   expect(minimal.decision.presentation).toBe('observed');
  });
  it('builds a separately versioned candidate and refuses mixed envelopes',()=>{
@@ -266,5 +268,9 @@ describe('v2 changed-window evidence',()=>{
   expect(result.decision).toMatchObject({primaryRole:'pending',status:'pending',presentation:'combined',secondaryRole:null});
   expect(result.decision.observedRoles).toEqual(['brawler','mainGun']);
   expect(result.decision.title).toContain('복합');
+  // 복합 성향이면 실제 순위 변경이 1회 이상 있고, 나머지 불일치 사유도 따로 남긴다.
+  expect(result.disagreements.rank_flip).toBeGreaterThan(0);
+  expect(result.disagreements.rank_flip+result.disagreements.threshold_drop+result.disagreements.insufficient+result.disagreements.commander_change)
+    .toBe(result.variants.filter(row=>row.primaryRole!==result.primaryRole).length);
  });
 });

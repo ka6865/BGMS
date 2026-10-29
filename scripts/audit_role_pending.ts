@@ -86,6 +86,12 @@ export function auditRolePending(input:unknown, seed=CALIBRATION_SEED) {
     rules:{primaryPercentile:85,changedBest5Stability:.8,minimumChangedVariants:3,minTrainAccounts:50,minHoldoutAccounts:20,
       newTitle:'50m<=distance<200m; own damage >50%; separately fitted metric and role CDF; must beat existing roles in baseline and >=80% changed windows; not added to commander count'},
     paired:builds.map((b,i)=>({evidenceVersion:b.evidenceVersion,counts:counts(paired.map(p=>decisions[i].get(p.accountKey)!))})),
+    windowDisagreements:builds.map(b=>({evidenceVersion:b.evidenceVersion,...b.profiles.reduce((sum,p)=>{
+      const w=roleWindowStability(byAccount.get(p.accountKey)!.results,b.fit.cohorts.find(c=>c.cohort===p.cohort)!.reference);
+      if(w.decision.status!=='pending')return sum;
+      for(const [key,value] of Object.entries(w.disagreements))sum[key]=(sum[key]??0)+value;
+      if(w.decision.presentation==='combined'){sum.combinedProfiles=(sum.combinedProfiles??0)+1;if(w.disagreements.rank_flip===0)sum.combinedWithoutRankFlip=(sum.combinedWithoutRankFlip??0)+1;}
+      return sum;},{} as Record<string,number>)})),
     transitions:paired.reduce((sum,p)=>{const before=decisions[0].get(p.accountKey)!,after=decisions[1].get(p.accountKey)!;
       const key=`${before.status}->${after.status}/${after.presentation??'role'}`;sum[key]=(sum[key]??0)+1;return sum;},{} as Record<string,number>),
     policies:builds.map((b,i)=>({evidenceVersion:b.evidenceVersion,profiles:b.profiles.length,counts:counts([...decisions[i].values()]),
@@ -95,7 +101,7 @@ export function auditRolePending(input:unknown, seed=CALIBRATION_SEED) {
       targets:b.profiles.filter(p=>p.target).map(p=>{const window=roleWindowStability(byAccount.get(p.accountKey)!.results,b.fit.cohorts.find(c=>c.cohort===p.cohort)!.reference);const role=window.decision;
         return {target:p.target,selectedMatches:p.selectedMatchIds.length,title:role.title,status:role.status,presentation:role.presentation??null,
           primaryRole:role.primaryRole,secondaryRole:role.secondaryRole,reason:role.reason,description:role.description,evidence:role.evidence,
-          primaryAgreement:window.agreement,changedOrLegacyRuns:window.runs,midShare:midShare(p.stats)};})})),
+          primaryAgreement:window.agreement,changedOrLegacyRuns:window.runs,disagreements:window.disagreements,midShare:midShare(p.stats)};})})),
   };
 }
 

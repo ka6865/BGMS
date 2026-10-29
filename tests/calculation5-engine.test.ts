@@ -450,6 +450,30 @@ describe("계산 5 역할 근거", () => {
     expect(invalid.itemUseStats.distanceDamage).toEqual({ short: 40, mid: 0, long: 0 });
   });
 
+  it("개인 적중·거리 근거는 총기 피해만 세고 화염병·수류탄·차량·근접 피해는 legacy 집계에만 남긴다", () => {
+    const gun = run([damage(10_000, "Me", "E1", 30)]).result;
+    expect(gun.roleEvidence).toMatchObject({ validWeaponHits: 1, distanceHitCount: 1, distanceDamage: { short: 30, mid: 0, long: 0 }, maxHitDist: 20 });
+
+    const nonGun = (causer: string, category: string, ticks: number[], amount: number) => run(ticks.map((t) => damage(t, "Me", "E1", amount, { damageCauserName: causer, damageTypeCategory: category }))).result;
+    const cases = [
+      nonGun("ProjMolotov_DamageField_Direct_C", "Damage_Molotov", [10_000, 10_500, 11_000, 11_500, 12_000], 6),
+      nonGun("ProjGrenade_C", "Damage_Explosion_Grenade", [10_000], 70),
+      nonGun("Uaz_A_01_C", "Damage_VehicleHit", [10_000], 40),
+      nonGun("WeapPan_C", "Damage_Melee", [10_000], 40),
+    ];
+    for (const result of cases) {
+      expect(result.roleEvidence).toMatchObject({ validWeaponHits: 0, distanceHitCount: 0, distanceDamage: { short: 0, mid: 0, long: 0 }, maxHitDist: null, pressureIndex: null });
+      // 기존 무기·거리·압박 집계와 점수 입력은 그대로 남는다.
+      expect(result.combatPressure.totalHits).toBeGreaterThan(0);
+      expect(result.itemUseStats.distanceDamage.short).toBeGreaterThan(0);
+    }
+    const mixed = run([
+      damage(10_000, "Me", "E1", 30),
+      damage(10_500, "Me", "E1", 6, { damageCauserName: "ProjMolotov_DamageField_Direct_C", damageTypeCategory: "Damage_Molotov" }),
+    ]).result;
+    expect(mixed.roleEvidence).toMatchObject({ validWeaponHits: 1, distanceDamage: { short: 30, mid: 0, long: 0 } });
+  });
+
   it("유효 피해는 거리가 없어도 hit로 세며 거리 표본과 자기장 위치 표본은 분리한다", () => {
     const noDistance = run([{
       ...damage(10_000, "Me", "E1", 25),

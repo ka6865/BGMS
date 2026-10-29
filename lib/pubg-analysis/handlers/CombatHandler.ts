@@ -443,7 +443,9 @@ export class CombatHandler extends BaseHandler {
               ]);
               if (!this.state.roleEvidenceDamageEvents.has(eventKey)) {
                 this.state.roleEvidenceDamageEvents.add(eventKey);
-                if (isMeAttacker) {
+                // 개인 적중·거리·압박 근거는 총기 피해만 센다. 화염병 틱·수류탄·차량·근접 피해는
+                // 기존 weaponStats·점수 집계에는 그대로 남지만 거리 성향 근거로 쓰지 않는다.
+                if (isMeAttacker && e.damageTypeCategory === "Damage_Gun") {
                   this.state.roleEvidenceValidWeaponHits++;
                   // 좌표가 없을 때의 999 반환값과 실제 측정 거리 999cm를 구분한다.
                   const distance = attackerLoc && victimLoc ? calcDist3D(attackerLoc, victimLoc) : NaN;

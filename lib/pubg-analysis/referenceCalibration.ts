@@ -238,6 +238,15 @@ export function fitReferenceCandidate(profiles: CalibrationProfile[], seed:strin
 }
 
 
+type WindowDisagreement = "rank_flip" | "threshold_drop" | "insufficient" | "commander_change";
+function windowDisagreement(baseline: string, variant: string): WindowDisagreement | null {
+  if (baseline === variant) return null;
+  if (variant === "insufficient") return "insufficient";
+  if (baseline === "fieldCommander" || variant === "fieldCommander") return "commander_change";
+  if (variant === "balanced" || variant === "pending") return "threshold_drop";
+  return "rank_flip";
+}
+
 /** 기준 분포 재표집과 구분하여 최근 경기 한 건 교체에 대한 판정 민감도를 측정한다. */
 export function roleWindowStability(matches: any[], reference: RoleReference) {
   let latest = selectRecentMatches(matches.map((value, sourceIndex) => ({
@@ -265,8 +274,12 @@ export function roleWindowStability(matches: any[], reference: RoleReference) {
   const variants = latest.map((excluded, index) => {
     const row = classify(latest.filter((_, current) => current !== index));
     return {excludedMatchId: excluded.id, selectedMatchIds: row.selectedMatchIds,
-      primaryRole: row.primaryRole, secondaryRole: row.secondaryRole, title: row.title};
+      primaryRole: row.primaryRole, secondaryRole: row.secondaryRole, title: row.title,
+      disagreement: windowDisagreement(baseline.primaryRole, row.primaryRole)};
   }).filter(row => reference.evidenceVersion !== 2 || row.selectedMatchIds.slice().sort().join("|") !== baseline.selectedMatchIds.slice().sort().join("|"));
+  // 감사용: 대표 불일치를 순위 변경·85 미만 이탈·필수 기록 부족·지휘관 변경으로 나눈다. 판정 규칙은 바꾸지 않는다.
+  const disagreements = {rank_flip: 0, threshold_drop: 0, insufficient: 0, commander_change: 0};
+  for (const row of variants) if (row.disagreement) disagreements[row.disagreement]++;
   const agreement = variants.length ? variants.filter(row => row.primaryRole === baseline.primaryRole).length / variants.length : null;
   const secondaryAgreement = variants.length ? variants.filter(row => row.secondaryRole === baseline.secondaryRole).length / variants.length : null;
   const unstable = agreement === null || agreement < .8 || (reference.evidenceVersion === 2 && variants.length < 3);
@@ -303,6 +316,6 @@ export function roleWindowStability(matches: any[], reference: RoleReference) {
         description:`선정 ${baseline.selectedMatchIds.length}경기에서 두 역할의 근거가 함께 관측됐으며, 경기 구성이 달라질 때 대표 순서가 바뀝니다. ${decision.presentation === "observed" ? decision.description : "대표 칭호는 미확정입니다."}`};
     }
   }
-  return {...baseline, decision, runs: variants.length, agreement, secondaryAgreement,
+  return {...baseline, decision, runs: variants.length, agreement, secondaryAgreement, disagreements,
     titleAgreement: variants.length ? variants.filter(row => row.title === baseline.title).length / variants.length : null, variants};
 }
