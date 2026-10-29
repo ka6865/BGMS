@@ -362,10 +362,10 @@ export default function AdminAgentChat({
                   </span>
                 )}
               </button>
-              <button type="button" onClick={handleReset} className="rounded-full p-2 text-zinc-500 active:bg-zinc-900 active:text-zinc-100" title="대화 리셋">
+              <button type="button" onClick={handleReset} aria-label="대화 리셋" className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-500 active:bg-zinc-900 active:text-zinc-100" title="대화 리셋">
                 <RotateCcw className="h-4 w-4" />
               </button>
-              <button type="button" onClick={onClose} className="rounded-full p-2 text-zinc-400 active:bg-zinc-900 active:text-zinc-100" title="닫기">
+              <button type="button" onClick={onClose} aria-label="AI 비서 닫기" className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-400 active:bg-zinc-900 active:text-zinc-100" title="닫기">
                 <X className="h-4 w-4" />
               </button>
             </div>
@@ -374,9 +374,11 @@ export default function AdminAgentChat({
           <>
             <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
               <button
+                type="button"
                 onClick={onBack}
-                className="rounded-full p-1.5 text-zinc-400 transition-colors active:bg-zinc-800 active:text-zinc-100"
-                title="운영 대시보드"
+                aria-label="운영 대시보드로 돌아가기"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-zinc-400 transition-colors active:bg-zinc-800 active:text-zinc-100"
+                title="운영 대시보드로 돌아가기"
               >
                 <ArrowLeft className="h-5 w-5" />
               </button>
@@ -391,8 +393,10 @@ export default function AdminAgentChat({
 
             <div className="flex shrink-0 items-center gap-1">
               <button
+                type="button"
                 onClick={onOpenDashboard}
-                className="relative flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-xs font-semibold text-amber-300 transition-colors active:border-amber-400 sm:px-3"
+                aria-label={pendingApprovalCount > 0 ? `운영 대시보드 열기, 승인 대기 ${pendingApprovalCount}건` : "운영 대시보드 열기"}
+                className="relative flex min-h-11 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-xs font-semibold text-amber-300 transition-colors active:border-amber-400 sm:px-3"
                 title="운영 대시보드"
               >
                 <Activity className="h-4 w-4" />
@@ -404,15 +408,20 @@ export default function AdminAgentChat({
                 )}
               </button>
               <button
+                type="button"
                 onClick={handleReset}
-                className="rounded-full p-2 text-zinc-400 transition-colors active:bg-zinc-800 active:text-zinc-100"
+                aria-label="대화 리셋"
+                className="flex h-11 w-11 items-center justify-center rounded-full text-zinc-400 transition-colors active:bg-zinc-800 active:text-zinc-100"
                 title="대화 리셋"
               >
                 <RotateCcw className="h-4 w-4" />
               </button>
               <button
+                type="button"
                 onClick={() => setShowSettings(!showSettings)}
-                className={`rounded-full p-2 transition-colors ${showSettings ? "bg-amber-500/10 text-amber-500" : "text-zinc-400 active:bg-zinc-800"}`}
+                aria-label="봇 설정"
+                aria-expanded={showSettings}
+                className={`flex h-11 w-11 items-center justify-center rounded-full transition-colors ${showSettings ? "bg-amber-500/10 text-amber-500" : "text-zinc-400 active:bg-zinc-800"}`}
                 title="봇 설정"
               >
                 <Settings className="h-4 w-4" />
@@ -424,8 +433,9 @@ export default function AdminAgentChat({
 
       {!isSheet && showSettings && (
         <div className="border-b border-zinc-800 bg-zinc-900/90 p-4">
-          <h2 className="mb-2 text-xs font-semibold text-amber-500">에이전트 페르소나 지침</h2>
+          <label htmlFor="admin-agent-system-prompt" className="mb-2 block text-xs font-semibold text-amber-500">에이전트 페르소나 지침</label>
           <textarea
+            id="admin-agent-system-prompt"
             value={settings.systemPrompt}
             onChange={(event) => setSettings({ ...settings, systemPrompt: event.target.value })}
             className="w-full rounded-lg border border-zinc-800 bg-zinc-950 p-2.5 text-xs text-zinc-300 focus:border-amber-500 focus:outline-none"
@@ -522,13 +532,15 @@ export default function AdminAgentChat({
             value={inputValue}
             onChange={(event) => setInputValue(event.target.value)}
             placeholder="운영 점검이나 승인 요청을 말로 시켜주세요..."
+            aria-label="AI 비서에게 보낼 메시지"
             disabled={isLoading}
             className="min-w-0 flex-1 rounded-full border border-zinc-800 bg-zinc-950 px-4 py-2.5 text-xs text-zinc-200 placeholder:text-zinc-500 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 disabled:opacity-50"
           />
           <button
             type="submit"
             disabled={!inputValue.trim() || isLoading}
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-500 text-zinc-950 transition-transform active:scale-95 disabled:bg-zinc-800 disabled:text-zinc-600"
+            aria-label={isLoading ? "응답을 기다리는 중" : "메시지 보내기"}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-amber-500 text-zinc-950 transition-transform active:scale-95 disabled:bg-zinc-800 disabled:text-zinc-600"
           >
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </button>

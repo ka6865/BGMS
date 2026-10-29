@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { X, User, LogOut, Sword, Package, Trophy, Box, Bot, MessageSquare } from 'lucide-react';
+import { X, User, LogOut, Sword, Package, Trophy, Box, LayoutDashboard, MessageSquare } from 'lucide-react';
 import { useAuth } from '../AuthProvider';
 import { supabase } from '@/lib/supabase';
 import { Drawer } from 'vaul';
@@ -203,17 +203,18 @@ export default function GlobalMobileMenu({ isOpen, setIsOpen, activeMapId, isAdm
                   <div className="flex flex-col gap-4">
                     <h3 className="text-red-500 text-[11px] font-black uppercase tracking-widest ml-1">Admin Console</h3>
                     <div className="grid grid-cols-2 gap-2">
-                      <button 
-                        onClick={() => { router.push('/admin/game-data'); setIsOpen(false); }}
+                      {/* 관리자 화면은 운영 대시보드를 입구로 두고, 나머지는 관리자 공통 메뉴에서 이동한다. */}
+                      <button
+                        onClick={() => { router.push('/admin/dashboard'); setIsOpen(false); }}
                         className="bg-[#1a1a1a] p-3.5 rounded-2xl border border-red-900/30 flex flex-col gap-2.5 items-center text-center active:bg-[#222] transition-colors"
                       >
-                        <div className="p-2 bg-green-500/10 rounded-xl">
-                          <Box size={20} className="text-green-500" />
+                        <div className="p-2 bg-amber-500/10 rounded-xl">
+                          <LayoutDashboard size={20} className="text-amber-500" />
                         </div>
-                        <span className="text-white font-bold text-xs">데이터 관리</span>
+                        <span className="text-white font-bold text-xs">운영 대시보드</span>
                       </button>
 
-                      <button 
+                      <button
                         onClick={() => { router.push('/map-editor'); setIsOpen(false); }}
                         className="bg-[#1a1a1a] p-3.5 rounded-2xl border border-red-900/30 flex flex-col gap-2.5 items-center text-center active:bg-[#222] transition-colors"
                       >
@@ -221,26 +222,6 @@ export default function GlobalMobileMenu({ isOpen, setIsOpen, activeMapId, isAdm
                           <Sword size={20} className="text-amber-500" />
                         </div>
                         <span className="text-white font-bold text-xs">맵 에디터</span>
-                      </button>
-
-                      <button 
-                        onClick={() => { router.push('/admin/map-settings'); setIsOpen(false); }}
-                        className="bg-[#1a1a1a] p-3.5 rounded-2xl border border-red-900/30 flex flex-col gap-2.5 items-center text-center active:bg-[#222] transition-colors"
-                      >
-                        <div className="p-2 bg-blue-500/10 rounded-xl">
-                          <Trophy size={20} className="text-blue-500" />
-                        </div>
-                        <span className="text-white font-bold text-xs">맵 설정</span>
-                      </button>
-
-                      <button 
-                        onClick={() => { router.push('/admin/bot'); setIsOpen(false); }}
-                        className="bg-[#1a1a1a] p-3.5 rounded-2xl border border-red-900/30 flex flex-col gap-2.5 items-center text-center active:bg-[#222] transition-colors"
-                      >
-                        <div className="p-2 bg-amber-500/10 rounded-xl">
-                          <Bot size={20} className="text-amber-500" />
-                        </div>
-                        <span className="text-white font-bold text-xs">AI 비서</span>
                       </button>
 
                       <button

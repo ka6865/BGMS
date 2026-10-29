@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import getApiUrl from "../../lib/api-config";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { toast } from "sonner";
@@ -23,6 +24,7 @@ export default function GameDataEditor() {
   // 3단계 모달화 상태
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const [isSyncConfirmOpen, setIsSyncConfirmOpen] = useState(false);
   const [syncTargetUrl, setSyncTargetUrl] = useState<string | null>(null);
@@ -571,9 +573,10 @@ export default function GameDataEditor() {
   };
 
   const executeDelete = async () => {
-    if (!deleteTargetId) return;
+    // 삭제 요청이 끝나기 전 다시 누르면 같은 대상에 두 번 요청하지 않는다.
+    if (!deleteTargetId || isDeleting) return;
     const id = deleteTargetId;
-    setIsDeleteConfirmOpen(false);
+    setIsDeleting(true);
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -626,6 +629,8 @@ export default function GameDataEditor() {
     } catch (err: any) {
       toast.error("삭제 중 오류 발생: " + err.message);
     } finally {
+      setIsDeleting(false);
+      setIsDeleteConfirmOpen(false);
       setDeleteTargetId(null);
     }
   };
@@ -738,18 +743,26 @@ export default function GameDataEditor() {
     }
   };
 
-  if (!isAuthorized) return null;
+  if (!isAuthorized) {
+    return (
+      <div role="status" className="flex h-full min-h-[50vh] items-center justify-center gap-2 text-sm font-bold text-[#F2A900]">
+        <span aria-hidden="true" className="h-5 w-5 animate-spin rounded-full border-2 border-[#F2A900] border-t-transparent" />
+        관리자 권한을 확인하는 중입니다...
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col h-screen text-gray-200">
-      <header className="flex flex-col md:flex-row items-center justify-between min-h-[60px] py-3 md:py-0 px-6 bg-[#1a1a1a] border-b border-[#333] gap-3 md:gap-0">
+    <div data-testid="game-data-editor" className="flex h-full min-h-0 flex-col text-gray-200">
+      <header className="flex shrink-0 flex-col md:flex-row items-center justify-between min-h-[60px] py-3 md:py-0 px-3 sm:px-6 bg-[#1a1a1a] border-b border-[#333] gap-3 md:gap-0">
         <div className="flex flex-col md:flex-row items-center gap-3 md:gap-6 w-full md:w-auto">
           <div className="text-xl font-black text-[#F2A900] italic self-start md:self-auto">배그<span className="text-white"> 데이터 관리자</span></div>
           {isMobile ? (
             <select
               value={activeCategory}
               onChange={(e) => setActiveCategory(e.target.value as ItemCategory)}
-              className="w-full bg-[#252525] text-white border border-[#444] rounded px-3 py-2 text-xs font-bold focus:outline-none focus:border-[#F2A900]"
+              aria-label="편집할 데이터 분류"
+              className="min-h-11 w-full bg-[#252525] text-white border border-[#444] rounded px-3 py-2 text-xs font-bold focus:outline-none focus:border-[#F2A900]"
             >
               {[
                 { id: "weapons", label: "무기" },
@@ -810,13 +823,13 @@ export default function GameDataEditor() {
               {selectedItem ? "← 리스트 보기" : "← 대시보드"}
             </button>
           )}
-          <button onClick={() => router.push("/")} className="text-sm font-bold text-gray-400 hover:text-white transition-colors ml-auto md:ml-0">
-            나가기
-          </button>
+          <Link href="/admin/dashboard" className="ml-auto flex min-h-11 items-center text-sm font-bold text-gray-400 transition-colors hover:text-white md:ml-0">
+            운영 대시보드로
+          </Link>
         </div>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         <aside className={`w-full md:w-[300px] bg-[#141414] border-r border-[#333] flex-col ${shouldShowAside ? 'flex' : 'hidden'}`}>
           {isMobile && activeCategory === "users" && showUserListOnMobile && (
             <div className="px-4 pt-4">
@@ -1126,8 +1139,15 @@ export default function GameDataEditor() {
                             const maxCost = Math.max(...dashboardData.aiUsage.map((x: any) => x.cost), 0.001);
                             const percent = Math.min((u.cost / maxCost) * 100, 100);
                             return (
-                              <div key={idx} className="flex-1 flex flex-col items-center group relative h-full justify-end">
-                                <div className="absolute bottom-full mb-1 bg-black text-[9px] text-white p-1.5 rounded border border-[#333] hidden group-hover:block whitespace-nowrap z-10">
+                              <div
+                                key={idx}
+                                tabIndex={0}
+                                role="img"
+                                aria-label={`${u.date} 비용 $${u.cost.toFixed(4)}, 토큰 ${u.promptTokens + u.completionTokens}`}
+                                title={`${u.date} · $${u.cost.toFixed(4)} · ${u.promptTokens + u.completionTokens}T`}
+                                className="flex-1 flex flex-col items-center group relative h-full justify-end outline-none focus-visible:ring-1 focus-visible:ring-emerald-400"
+                              >
+                                <div className="absolute bottom-full mb-1 bg-black text-xs text-white p-1.5 rounded border border-[#333] hidden group-hover:block group-focus:block whitespace-nowrap z-10">
                                   {u.date}<br/>
                                   비용: ${u.cost.toFixed(4)}<br/>
                                   토큰: {u.promptTokens + u.completionTokens}T
@@ -1710,7 +1730,7 @@ export default function GameDataEditor() {
                                       />
                                       <button
                                         type="button"
-                                        className="px-3 py-1.5 bg-[#252525] border border-[#333] hover:bg-[#333] rounded text-[10px] font-bold"
+                                        className="px-3 py-1.5 bg-[#252525] border border-[#333] hover:bg-[#333] rounded text-xs font-bold"
                                       >
                                         업로드
                                       </button>
@@ -1804,7 +1824,7 @@ export default function GameDataEditor() {
                                       />
                                       <button
                                         type="button"
-                                        className="px-3 py-1.5 bg-[#252525] border border-[#333] hover:bg-[#333] rounded text-[10px] font-bold"
+                                        className="px-3 py-1.5 bg-[#252525] border border-[#333] hover:bg-[#333] rounded text-xs font-bold"
                                       >
                                         업로드
                                       </button>
@@ -1923,7 +1943,7 @@ export default function GameDataEditor() {
                                       />
                                       <button
                                         type="button"
-                                        className="px-3 py-1.5 bg-[#252525] border border-[#333] hover:bg-[#333] rounded text-[10px] font-bold"
+                                        className="px-3 py-1.5 bg-[#252525] border border-[#333] hover:bg-[#333] rounded text-xs font-bold"
                                       >
                                         업로드
                                       </button>
@@ -2156,12 +2176,14 @@ export default function GameDataEditor() {
       <ConfirmModal
         isOpen={isDeleteConfirmOpen}
         onCancel={() => {
+          if (isDeleting) return;
           setIsDeleteConfirmOpen(false);
           setDeleteTargetId(null);
         }}
         onConfirm={executeDelete}
         title="항목 삭제 확인"
         type="danger"
+        isPending={isDeleting}
         description={
           activeCategory === "users"
             ? (selectedItem as any)?.is_orphan_profile

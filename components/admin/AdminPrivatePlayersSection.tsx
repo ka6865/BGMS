@@ -124,8 +124,9 @@ export function AdminPrivatePlayersSection() {
       {/* 1. 비공개 유저 추가 폼 */}
       <form onSubmit={handleAddPlayer} className="flex flex-col sm:flex-row gap-3 items-end sm:items-center">
         <div className="w-full sm:w-36">
-          <label className="block text-[11px] font-bold text-white/40 mb-1">플랫폼</label>
+          <label htmlFor="admin-private-player-platform" className="block text-[11px] font-bold text-white/40 mb-1">플랫폼</label>
           <select
+            id="admin-private-player-platform"
             value={newPlatform}
             onChange={(e) => setNewPlatform(e.target.value)}
             className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2 text-xs font-bold text-white focus:border-amber-500 focus:outline-none"
@@ -137,8 +138,9 @@ export function AdminPrivatePlayersSection() {
         </div>
 
         <div className="flex-1 w-full">
-          <label className="block text-[11px] font-bold text-white/40 mb-1">PUBG 닉네임</label>
+          <label htmlFor="admin-private-player-nickname" className="block text-[11px] font-bold text-white/40 mb-1">PUBG 닉네임</label>
           <input
+            id="admin-private-player-nickname"
             type="text"
             placeholder="비공개 처리할 닉네임 입력 (예: eunbbuing)"
             value={newNickname}
@@ -195,7 +197,8 @@ export function AdminPrivatePlayersSection() {
                 <button
                   type="button"
                   onClick={() => setDeleteTarget(p)}
-                  className="p-2 rounded-lg text-white/40 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                  aria-label={`${p.nickname} 비공개 해제(목록에서 삭제)`}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white/40 hover:text-red-400 hover:bg-red-500/10 transition-colors"
                   title="공개 전환(삭제)"
                 >
                   <Trash2 size={14} />
