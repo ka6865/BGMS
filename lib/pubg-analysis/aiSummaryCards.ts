@@ -921,6 +921,21 @@ function isActionableTopic(readyCards: readonly SummaryCard[], topicId: SummaryT
   return card.dataStatus !== "comparable" || card.evidence.some((row) => isUnfavorable(row) === true);
 }
 
+// 약점을 전제한 제안 표현. 보완점이 없는 카드에는 쓰지 않는다.
+const WEAKNESS_PREMISE = /보완|개선|부족|약점|향상|강화|끌어올|높(?:이(?:세요|기|고|려|도록|는|십시오)|일|여야|여\s)|늘(?:리|릴|려)|줄(?:이|일|여)|더\s*(?:적극|많이|빠르|자주)/u;
+const MAINTENANCE_CHECK = "다음 경기에서도 같은 기록이 이어지는지 확인해 보세요.";
+
+// 비교 평균보다 유리한 지표 중 차이가 가장 큰 지표(비율은 %p, 그 밖은 상대 차이).
+function strongestMetric(cards: readonly SummaryCard[]): SummaryEvidence | null {
+  const strong = cards.flatMap(card => card.evidence.filter(row => isUnfavorable(row) === false));
+  if (!strong.length) return null;
+  const gap = (row: SummaryEvidence) => {
+    const user = evidenceNumericValue(row, "user") ?? 0, benchmark = evidenceNumericValue(row, "benchmark") ?? 0;
+    return row.unit === "%" ? Math.abs(user - benchmark) : benchmark > 0 ? Math.abs(user - benchmark) / benchmark * 100 : 0;
+  };
+  return strong.reduce((a, b) => gap(b) > gap(a) ? b : a);
+}
+
 function serverWinner(card: SummaryCard): SummaryCard["winner"] {
   const directions = card.evidence.map(isUnfavorable).filter((value): value is boolean => value !== null);
   if (!directions.length) return null;
@@ -1158,15 +1173,20 @@ export function normalizeSummaryCardFinal(input: unknown, cards: readonly Summar
     const desc = conditionalCheckText(item.desc);
     if (!desc || /\d/u.test(item.title)) return [];
     // 비교 결과 보완점이 없는 카드(모두 평균 이상이거나 방향이 없는 지표뿐)만 다루는 제안은
-    // 양호한 지표를 약점처럼 보이게 하므로 뺀다. 다른 카드 주제도 함께 다루면 유지한다.
-    const topics = actionItemTopics(`${item.title} ${desc}`);
-    if (topics.length > 0 && topics.every((topicId) => !isActionableTopic(readyCards, topicId))) return [];
+    // 약점을 전제한 표현(보완·높이기·줄이기 등)일 때만 뺀다. "유지되는지 확인"처럼 점검만 하는
+    // 제안은 남긴다. 다른 카드 주제도 함께 다루면 그대로 유지한다.
+    const text = `${item.title} ${desc}`;
+    const topics = actionItemTopics(text);
+    if (topics.length > 0 && topics.every((topicId) => !isActionableTopic(readyCards, topicId)) && WEAKNESS_PREMISE.test(text)) return [];
     return [{ ...item, desc }];
   });
   const serverActionItems = readyCards
     .map(card => weakestMetric(card))
     .filter((row): row is SummaryEvidence => row !== null)
     .map(row => ({ icon: "target", title: `${row.label} 점검`, desc: METRIC_CHECKS[row.metricId] }));
+  // 보완점도 남은 모델 제안도 없으면 가장 앞선 강점 지표의 유지 확인을 하나 둔다.
+  const strongest = serverActionItems.length === 0 ? strongestMetric(readyCards) : null;
+  if (strongest) serverActionItems.push({ icon: "target", title: `${strongest.label} 유지 확인`, desc: MAINTENANCE_CHECK });
   const normalizedActionItems = (providerActionItems.length ? providerActionItems : serverActionItems).slice(0, 3);
   const finalCards = normalizedCards.map(cloneCard);
   // 칭호는 숫자·인성·측정하지 않은 능력 없이 짧을 때만 모델 표현을 쓴다.

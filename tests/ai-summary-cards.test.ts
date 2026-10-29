@@ -1058,15 +1058,26 @@ describe("summary prose grounded in card evidence", () => {
     expect(actionItems.map((item) => item.title)).toEqual(["유틸리티 활용 점검"]);
   });
 
-  it("drops action items that only target a card without a weakness", () => {
+  it("keeps neutral checks on a card without a weakness but drops weakness-premised ones", () => {
     const cards = miaeqCards();
     const result = normalizeWith(cards, { actionItems: [
-      { icon: "target", title: "포지셔닝 점검", desc: "다음 경기 전 아군과의 위치를 확인해 보세요." },
-      { icon: "target", title: "화력 점검", desc: "다음 교전이 끝난 뒤 화력을 보탤 수 있었는지 확인해 보세요." },
+      // 2026-10-29 23:30 MiaeQ_Q 실제 모델 제안(보완점 없는 카드의 점검)
+      { icon: "target", title: "거리 유지 점검", desc: "다음 경기에서 아군과의 거리가 적절하게 유지되는지 확인해 보세요." },
+      { icon: "target", title: "화력 보완", desc: "다음 교전에서 화력을 높일 방법을 점검해 보세요." },
       { icon: "target", title: "유틸리티 활용 점검", desc: "다음 교전 상황에서 투척물 사용 타이밍을 점검해 보세요." },
     ] });
     const actionItems = (result?.final.actionItems ?? []) as Array<{ title: string }>;
-    expect(actionItems.map((item) => item.title)).toEqual(["유틸리티 활용 점검"]);
+    expect(actionItems.map((item) => item.title)).toEqual(["거리 유지 점검", "유틸리티 활용 점검"]);
+  });
+
+  it("adds a maintenance check for the strongest metric when every provider action was dropped", () => {
+    const cards = miaeqCards();
+    const result = normalizeWith(cards, { actionItems: [
+      { icon: "target", title: "화력 보완", desc: "다음 교전에서 화력을 높일 방법을 점검해 보세요." },
+    ] });
+    expect(result?.final.actionItems).toEqual([
+      { icon: "target", title: "평균 화력 유지 확인", desc: "다음 경기에서도 같은 기록이 이어지는지 확인해 보세요." },
+    ]);
   });
 
   it("keeps an action item for a card whose comparison is unfavourable", () => {
