@@ -292,7 +292,8 @@ jobs:
 
       # 명단 제외 후 90일이 지난 벤치마커의 식별 정보 정리 (20261030020000 migration 적용 후 동작)
       - name: Cleanup Retired Benchmark Cohort
-        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' }}
+        # global_benchmarks·pubg_match_performance·weapon_meta_match_samples를 바꾸므로 백업 확인 뒤에만 실행한다.
+        if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.database_health.outcome == 'success' && steps.core_backup.outcome == 'success' && steps.core_backup_verify.outcome == 'success' }}
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
