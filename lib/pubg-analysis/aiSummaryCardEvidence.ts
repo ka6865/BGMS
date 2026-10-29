@@ -75,7 +75,9 @@ export function buildSummaryCardEvidence(stats: Record<string, unknown>, benchma
   add('utility_smokes', '연막 사용', stats.totalObservedSmokes, '회');
   add('utility_lethal_throws', '피해형 투척', stats.totalLethalThrows, '회');
   add('smoke_rescue_attempts', '구출 연막 시도', stats.totalObservedRescueSmokes, '회');
-  add('isolation_average', '평균 고립 지수', stats.avgIsolationStr, '');
+  // 비교 수치만 보여 준다. 2.0 미만은 평균보다 높아도 양호한 대열로 해석하므로
+  // AI_SUMMARY_HIGHER_IS_BETTER에 방향을 두지 않아 서버가 유리·불리를 판정하지 않는다.
+  add('isolation_average', '평균 고립 지수', stats.avgIsolationStr, '', 'avgIsolationIndex');
   add('death_phase', '평균 사망 페이즈', stats.avgDeathPhase, '', 'avgDeathPhase');
   return entries;
 }

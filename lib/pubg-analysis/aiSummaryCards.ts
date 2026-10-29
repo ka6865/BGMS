@@ -610,10 +610,31 @@ function isNeutralText(value: string): boolean {
   return !remaining.trim();
 }
 
+// 고립 지수는 유리·불리 방향을 정하지 않으므로 서버 문장 검사(validateBenchmarkDirection)가
+// 다루지 않는다. 비교 평균보다 "높다/낮다"고 쓴 문장만 실제 수치와 맞는지 확인한다.
+function hasContradictedIsolationClaim(text: string, row: SummaryEvidence): boolean {
+  const user = evidenceNumericValue(row, "user");
+  const benchmark = evidenceNumericValue(row, "benchmark");
+  if (user === null || benchmark === null) return false;
+  const equal = Math.abs(user - benchmark) <= 1e-9 || isDisplayedEqual(row);
+  for (const sentence of text.split(/(?<=[.!?。！？])\s+|\n+/u)) {
+    if (!/고립\s*지수/u.test(sentence) || !/(?:비교\s*평균|평균보다|평균\s*대비|동일\s*티어)/u.test(sentence)) continue;
+    const claimsHigher = /(?:높(?:습니다|다|아|고|게|은)|상회|초과)/u.test(sentence);
+    const claimsLower = /(?:낮(?:습니다|다|아|고|게|은)|하회|미만)/u.test(sentence);
+    if (claimsHigher === claimsLower) continue;
+    if (equal || (claimsHigher ? user <= benchmark : user >= benchmark)) return true;
+  }
+  return false;
+}
+
 function hasUnsupportedCardConclusion(text: string, card: Pick<SummaryCard, "topicId" | "context" | "evidence">): boolean {
   // A card's match population is server-owned, just like its metric values.
   const populations = Array.from(text.matchAll(/최근\s*(\d+)\s*(?:개\s*)?(?:판|경기)/gu));
   if (populations.some((match) => Number(match[1]) !== card.context.userMatchCount)) return true;
+  if (card.topicId === "positioning") {
+    const comparable = card.evidence.find((row) => row.metricId === "isolation_average" && row.status === "comparable");
+    if (comparable && hasContradictedIsolationClaim(text, comparable)) return true;
+  }
   if (card.topicId === "positioning"
     && !card.evidence.some((row) => row.metricId === "isolation_average" && row.status === "comparable")) {
     for (const sentence of text.split(/(?<=[.!?。！？])\s+|\n+/u)) {

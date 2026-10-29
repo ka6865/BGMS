@@ -956,3 +956,64 @@ describe("summary card presentation guards", () => {
     expect(result.final.signature).toBe("AI 전술 분석");
   });
 });
+
+describe("isolation benchmark comparison", () => {
+  const isolationCards = (userValue: string, benchmarkValue: string) => buildSummaryCards({
+    topics: ["화력", "유틸리티 활용", "포지셔닝"],
+    context,
+    evidence: [
+      evidence({ metricId: "damage_average", label: "평균 화력", unit: "", userValue: "300", benchmarkValue: "300", sampleCount: 93 }),
+      evidence({ metricId: "utility_throws", label: "총 투척 횟수", unit: "회", userValue: "4회" }),
+      evidence({ metricId: "isolation_average", label: "평균 고립 지수", unit: "", userValue, benchmarkValue, sampleCount: 93 }),
+    ],
+  }).filter((card) => card.topicId === "positioning");
+  const allCards = (userValue: string, benchmarkValue: string) => buildSummaryCards({
+    topics: ["화력", "유틸리티 활용", "포지셔닝"],
+    context,
+    evidence: [
+      evidence({ metricId: "damage_average", label: "평균 화력", unit: "", userValue: "300", benchmarkValue: "300", sampleCount: 93 }),
+      evidence({ metricId: "utility_throws", label: "총 투척 횟수", unit: "회", userValue: "4회" }),
+      evidence({ metricId: "isolation_average", label: "평균 고립 지수", unit: "", userValue, benchmarkValue, sampleCount: 93 }),
+    ],
+  });
+  const normalize = (userValue: string, benchmarkValue: string, kindOpinion?: string) => {
+    const cards = allCards(userValue, benchmarkValue);
+    const issues = cards.map((card) => providerIssue(card, card.topicId === "positioning"
+      ? { kindOpinion: kindOpinion ?? buildSummaryCardComparisonText(card), winner: null }
+      : {}));
+    const result = normalizeSummaryCardFinal(providerFinal(cards, { debateIssues: issues }), cards,
+      { sanitizeText: (value) => value, hasUnsupportedMode: () => false });
+    return { result, positioning: result?.final.cards.find((card) => card.topicId === "positioning") };
+  };
+
+  it("marks a positioning card comparable and states the server relation", () => {
+    const cards = isolationCards("0.28", "1.09");
+    expect(cards[0]).toMatchObject({ dataStatus: "comparable", evidenceIds: ["ctx-v2:isolation_average"] });
+    expect(buildSummaryCardComparisonText(cards[0])).toBe("평균 고립 지수는 비교 평균보다 낮습니다.");
+    const { positioning } = normalize("0.28", "1.09");
+    expect(positioning?.reason).toContain("평균 고립 지수: 0.28, 비교 평균 1.09보다 약 74% 낮습니다.");
+    expect(positioning?.reason).not.toContain("비교 자료 없음");
+  });
+
+  it("accepts the copied server comparison", () => {
+    const { positioning } = normalize("0.28", "1.09");
+    expect(positioning?.analysisStatus).toBe("ready");
+  });
+
+  it.each([
+    ["0.28", "1.09", "평균 고립 지수는 비교 평균보다 높습니다."],
+    ["1.50", "1.09", "평균 고립 지수가 동일 티어 평균보다 낮아 대열이 안정적입니다."],
+    ["1.09", "1.09", "평균 고립 지수는 비교 평균보다 높습니다."],
+  ])("holds a contradicted isolation claim (user %s vs %s): %s", (userValue, benchmarkValue, text) => {
+    const { result, positioning } = normalize(userValue, benchmarkValue, text);
+    expect(result?.cacheable).toBe(false);
+    expect(positioning).toMatchObject({ analysisStatus: "unavailable", winner: null });
+  });
+
+  it("does not assign a favourable or unfavourable direction to isolation", () => {
+    const { result, positioning } = normalize("1.50", "1.09");
+    expect(positioning?.winner).toBeNull();
+    const actionItems = (result?.final.actionItems ?? []) as Array<{ desc: string }>;
+    expect(actionItems.some((item) => item.desc.includes("팀원과 함께 대응할 수 있는 거리인지"))).toBe(false);
+  });
+});
