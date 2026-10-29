@@ -87,3 +87,13 @@ describe('single match counter comparison', () => {
     expect(result.briefFeedback[0]).toBe('피격 전 사격을 구분할 근거가 부족하거나 이미 사격 중이던 교전이라 반응 속도 평가는 보류합니다.');
   });
 });
+
+describe('early elimination prompt contract', () => {
+  it.each([
+    [581, 6, 'byplayer', '해당'], [600, 3, 'byplayer', '해당'],
+    [600, 4, 'byplayer', '해당 없음'], [1200, 0, 'alive', '해당 없음'],
+  ])('uses the score boundary for %s seconds, phase %s, %s', (timeSurvived, deathPhase, deathType, expected) => {
+    const result = buildMatchAiCoachingPrompt({matchData:{stats:{timeSurvived,deathType},deathPhase}});
+    expect(result.playerReportSummary).toContain(`조기 탈락 분류: ${expected}`);
+  });
+});

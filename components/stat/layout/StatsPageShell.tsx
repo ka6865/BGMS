@@ -87,6 +87,9 @@ export function StatsPageShell({
     summaryStatus,
     collectionProgress,
     matchIds,
+    recentMatchIds,
+    aiMatchIds,
+    applyRecentMatchIdsToAi,
     historyStatus,
     historyPage,
     historyTotalPages,
@@ -375,12 +378,16 @@ export function StatsPageShell({
             <div className="flex flex-col gap-2 md:gap-4">
 
               <div role="region" aria-label="AI 분석" tabIndex={-1}>
-                {result.recentMatches.length > 0 ? (
+                {aiMatchIds === null ? (
+                  <p role="status" className="p-5 text-center text-sm text-white/50">AI 분석에 사용할 최근 경기를 확인하고 있습니다.</p>
+                ) : aiMatchIds.length > 0 ? (
                   <RecentAISummary
-                    matchIds={result.recentMatches}
+                    matchIds={aiMatchIds}
                     nickname={result.nickname}
                     platform={result.platform}
                     isMobile={isMobile}
+                    pendingMatchCount={(recentMatchIds ?? []).filter((id) => !aiMatchIds.includes(id)).length}
+                    onApplyPendingMatches={applyRecentMatchIdsToAi}
                   />
                 ) : (
                   <p
@@ -396,7 +403,7 @@ export function StatsPageShell({
               <div className="stats-result-grid">
                 <aside className="stats-overview-rail">
                   <StatSummaryPanel
-                    matchIds={result.recentMatches}
+                    matchIds={recentMatchIds ?? []}
                     summaries={matchSummaries}
                     matchModeMeta={matchModeMeta}
                     summaryStatus={summaryStatus}

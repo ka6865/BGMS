@@ -121,7 +121,7 @@ describe("StatSearch recent summary identity ownership", () => {
     expect(screen.queryByText("PlayerA verdict")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "AI 요약 접기" })).not.toBeInTheDocument();
     screen.getByRole("region", { name: "AI 분석" });
-    expect(screen.getByRole("status", { name: "AI 분석할 최근 매치 없음" })).toHaveTextContent(
+    expect(await screen.findByRole("status", { name: "AI 분석할 최근 매치 없음" })).toHaveTextContent(
       "최근 매치 기록이 없어 AI 분석을 시작할 수 없습니다.",
     );
 

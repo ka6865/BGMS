@@ -243,7 +243,7 @@ function getImpactAnalysis(input: MatchTierInput, isSolo: boolean, score: number
   }
 
   let riskPenalty = 0;
-  if (input.survivalTime < 600 || (input.myDeathCount > 0 && input.deathPhase <= 3)) {
+  if (isEarlyElimination(input)) {
     riskPenalty += 8;
     reasons.push("조기 사망 리스크 감경");
   }
@@ -456,4 +456,12 @@ export function getNextTierInfo(currentScore: number) {
     tier: nextTier.tier,
     needed: Number((nextTier.min - currentScore).toFixed(1))
   };
+}
+
+/** 점수와 코칭에서 함께 쓰는 조기 탈락 기준. 누락된 관측값은 판정을 보류한다. */
+export function isEarlyElimination(input: { survivalTime: number | null; deathPhase: number | null; myDeathCount: number | null }): boolean | null {
+  if (input.survivalTime !== null && input.survivalTime < 600) return true;
+  if (input.myDeathCount !== null && input.myDeathCount > 0 && input.deathPhase !== null && input.deathPhase <= 3) return true;
+  if (input.survivalTime === null || input.myDeathCount === null || (input.myDeathCount > 0 && input.deathPhase === null)) return null;
+  return false;
 }

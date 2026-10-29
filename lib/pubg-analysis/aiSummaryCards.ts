@@ -874,7 +874,7 @@ function serverWinner(card: SummaryCard): SummaryCard["winner"] {
 
 const STRONG_PRAISE = /우수|훌륭|뛰어|탁월|안정적|확보|돋보|압도|완벽|잘\s/u;
 // 칭호는 숫자·인성·진입 위치·측정하지 않은 능력(흐름 읽기, 판단, 지휘 등)을 담을 수 없다.
-const UNSUPPORTED_SIGNATURE = /\d|무책임|무능|민폐|한심|이기적|집중력|판단력|멘탈|습관|성향|돌격|선봉|돌진|최전선|흐름|읽는|판단|지휘|리더|두뇌|전략가|감각|냉철|침착/u;
+const UNSUPPORTED_SIGNATURE = /\d|무책임|무능|민폐|한심|이기적|집중력|판단력|멘탈|습관|성향|돌격|선봉|돌진|최전선|전선|돌파|돌입|진입|흐름|읽는|판단|지휘|리더|두뇌|전략가|감각|냉철|침착/u;
 
 function conditionalCheckText(text: string): string {
   // 관측 결과나 원인 단정을 섞지 않고, 다음 상황에서 확인할 행동만 채택한다.

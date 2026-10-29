@@ -181,6 +181,17 @@ function readyV2Cards(): SummaryCard[] {
 }
 
 describe("RecentAISummary callback bridge", () => {
+  it.each([
+    [410, "PUBG_MATCH_DETAIL_EXPIRED", "분석할 경기의 상세 제공 기간이 지났습니다.", "전적 갱신"],
+    [409, "PUBG_AI_CANONICAL_NOT_READY", "최근 경기의 분석 데이터가 아직 준비되지 않았습니다.", "상세 분석"],
+  ])('shows a data-specific error for %s/%s', async (status, errorCode, title, detail) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({errorCode,error:"data unavailable"}), {status,headers:{"Content-Type":"application/json"}})));
+    render(createElement(RecentAISummary, baseProps));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    expect(await screen.findByText(title)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(detail))).toBeInTheDocument();
+    expect(screen.queryByText("서버가 바쁘거나 네트워크가 불안정할 때 가끔 생겨요.")).not.toBeInTheDocument();
+  });
   it("MiaeQ_Q utility observations show the population and separate attempts from successes", async () => {
     const cards = buildSummaryCards({
       topics: ["화력", "유틸리티 활용", "포지셔닝"],
@@ -469,6 +480,33 @@ describe("RecentAISummary callback bridge", () => {
     expect(spiderChartProps.current?.data).not.toHaveProperty("growth");
     expect(spiderChartProps.current?.data).not.toHaveProperty("vision");
     expect(spiderChartProps.current?.data).not.toHaveProperty("teamwork");
+  });
+
+  it("분석 전에는 새로 확인된 최근 경기를 바로 반영하고, 결과가 있으면 지우지 않고 안내만 한다", async () => {
+    const idleApply = vi.fn();
+    const idle = render(createElement(RecentAISummary, { ...baseProps, pendingMatchCount: 1, onApplyPendingMatches: idleApply }));
+    await waitFor(() => expect(idleApply).toHaveBeenCalledTimes(1));
+    idle.unmount();
+
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "A" } },
+      { type: "final", data: JSON.stringify(aiReady) },
+      { type: "done", valid: true },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    const apply = vi.fn();
+    const onSummaryChange = vi.fn();
+    const view = render(createElement(RecentAISummary, { ...baseProps, onSummaryChange, onApplyPendingMatches: apply }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await waitFor(() => expect(onSummaryChange).toHaveBeenLastCalledWith(expect.objectContaining({ verdict: "fixture verdict" })));
+
+    view.rerender(createElement(RecentAISummary, { ...baseProps, onSummaryChange, pendingMatchCount: 2, onApplyPendingMatches: apply }));
+    expect(await screen.findByText("새로 저장된 최근 경기 2개가 있습니다. 현재 분석은 이전 경기 목록 기준입니다.")).toBeInTheDocument();
+    expect(apply).not.toHaveBeenCalled();
+    expect(onSummaryChange).not.toHaveBeenLastCalledWith(null);
+    fireEvent.click(screen.getByRole("button", { name: "최신 경기로 다시 분석하기" }));
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("malformed route-owned visuals는 UI에 NaN/Infinity/임의 필드를 전달하지 않는다", async () => {
