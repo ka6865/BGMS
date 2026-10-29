@@ -316,6 +316,77 @@ describe("RecentAISummary callback bridge", () => {
     expect(screen.getByTestId("role-scope")).toHaveTextContent("칭호 판정: 최근 유효 10판 중 점수 상위 5판");
     expect(screen.queryByTestId("role-note")).toBeNull();
     expect(screen.queryByTestId("role-observations")).toBeNull();
+    // 연속형 지표 칭호는 근거량 줄을 따로 만들지 않는다.
+    expect(screen.queryByTestId("role-evidence-amount")).toBeNull();
+  });
+
+  it("근거량은 형식이 맞는 서버 값만 받는다", () => {
+    const thin = { strength: "thin", lines: ["복수 처치 1회 / 아군 기절 3회 · 1경기에서 확인", 7], note: "판정에 쓰인 행동 기록이 지표마다 1회 이하라 관측 성향으로 봅니다." };
+    expect((normalizeRouteOwnedVisuals({ roleInfo: { title: "복수의 추적자", evidenceAmount: thin } })?.roleInfo as any)?.evidenceAmount)
+      .toEqual({ ...thin, lines: ["복수 처치 1회 / 아군 기절 3회 · 1경기에서 확인"] });
+    // 사유 문장이 없는 thin·partial이나 모르는 상태는 버린다.
+    expect((normalizeRouteOwnedVisuals({ roleInfo: { title: "복수의 추적자", evidenceAmount: { ...thin, note: "" } } })?.roleInfo as any)?.evidenceAmount).toBeUndefined();
+    expect((normalizeRouteOwnedVisuals({ roleInfo: { title: "복수의 추적자", evidenceAmount: { ...thin, strength: "weak" } } })?.roleInfo as any)?.evidenceAmount).toBeUndefined();
+  });
+
+  it.each([
+    ["근거 적음", { strength: "thin", lines: ["복수 처치 1회 / 아군 기절 3회 · 1경기에서 확인"], note: "판정에 쓰인 행동 기록이 지표마다 1회 이하라 관측 성향으로 봅니다. 경기가 쌓이면 바뀔 수 있습니다." }],
+    ["일부 지표", { strength: "partial", lines: ["1:1 교전 26승 / 28회 · 3경기에서 확인"], note: "역전 승률 기록 없이 1:1 승률만으로 판정했습니다." }],
+    ["반복 관측", { strength: "normal", lines: ["복수 처치 2회 / 아군 기절 11회 · 2경기에서 확인"], note: "" }],
+  ])("%s 근거량은 칭호를 바꾸지 않고 사실과 한정 표현만 붙인다", async (_name, evidenceAmount) => {
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      { type: "visuals", data: { overallTier: "B", latestMatchCount: 3, bestMatchCount: 3, roleInfo: {
+        primaryRole: "avenger", secondaryRole: null, title: "복수의 추적자", roleLabel: "복수자 (Avenger)",
+        description: "아군을 기절시킨 적을 빠르게 찾아 처치합니다.", evidence: ["복수 처치율 상위 3%"], badges: [],
+        signatureWeapon: "M416", scores: { avenger: 97.5 },
+        verdict: { kind: "confirmed", headline: "", label: "", detail: "", note: "", observations: [] }, evidenceAmount,
+      } } },
+      { type: "final", data: JSON.stringify(aiReady) },
+      { type: "done", valid: true },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+    render(createElement(RecentAISummary, baseProps));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+    await screen.findAllByText("복수의 추적자");
+    fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+    expect(screen.getByTestId("role-title")).toHaveTextContent("복수의 추적자");
+    expect(screen.getByTestId("role-evidence-amount")).toHaveTextContent(`근거량: ${evidenceAmount.lines.join(" · ")}`);
+    if (evidenceAmount.strength === "thin") {
+      expect(screen.getByTestId("role-kicker")).toHaveTextContent("관측 성향");
+      expect(screen.getByTestId("role-label")).toHaveTextContent("근거 적음 · 복수자 (Avenger)");
+      expect(screen.getByTestId("role-description")).toHaveTextContent(evidenceAmount.note);
+      expect(document.body.textContent).not.toContain("아군을 기절시킨 적을 빠르게 찾아 처치합니다.");
+    } else {
+      expect(screen.getByTestId("role-kicker")).toHaveTextContent("전술적 정체성");
+      expect(screen.getByTestId("role-label")).toHaveTextContent("복수자 (Avenger)");
+      expect(screen.getByTestId("role-description")).toHaveTextContent("아군을 기절시킨 적을 빠르게 찾아 처치합니다.");
+    }
+    if (evidenceAmount.strength === "partial") expect(screen.getByTestId("role-evidence-note")).toHaveTextContent(evidenceAmount.note);
+    else expect(screen.queryByTestId("role-evidence-note")).toBeNull();
+  });
+
+  it("근거량이 없는 옛 응답이나 미확정 칭호에는 근거량 표시를 만들지 않는다", async () => {
+    const thin = { strength: "thin", lines: ["복수 처치 1회 / 아군 기절 3회 · 1경기에서 확인"], note: "판정에 쓰인 행동 기록이 지표마다 1회 이하라 관측 성향으로 봅니다." };
+    const base = { secondaryRole: null, evidence: [], badges: [], signatureWeapon: "M416", scores: {} };
+    for (const roleInfo of [
+      { ...base, primaryRole: "avenger", title: "복수의 추적자", roleLabel: "복수자 (Avenger)", description: "아군을 기절시킨 적을 빠르게 찾아 처치합니다." },
+      { ...base, primaryRole: "balanced", title: "균형형 전술가", roleLabel: "균형형", description: "fixture", evidenceAmount: thin },
+    ]) {
+      cleanup();
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ndjsonResponse([
+        { type: "visuals", data: { overallTier: "B", roleInfo } },
+        { type: "final", data: JSON.stringify(aiReady) },
+        { type: "done", valid: true },
+      ])));
+      render(createElement(RecentAISummary, baseProps));
+      fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+      await screen.findAllByText(roleInfo.title);
+      fireEvent.click(screen.getByRole("button", { name: "상세 분석 리포트 펼치기" }));
+      expect(screen.getByTestId("role-label")).toHaveTextContent(roleInfo.roleLabel);
+      expect(screen.getByTestId("role-kicker")).toHaveTextContent("전술적 정체성");
+      expect(screen.queryByTestId("role-evidence-amount")).toBeNull();
+      expect(document.body.textContent).not.toMatch(/근거 적음|관측 성향으로 봅니다/);
+    }
   });
 
   it("칭호 판정 상태는 형식이 맞는 서버 값만 받는다", () => {

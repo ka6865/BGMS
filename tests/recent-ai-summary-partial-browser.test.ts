@@ -252,6 +252,78 @@ async function clickText(page: Page, text: string) {
       await page.close();
     }
   }, 30_000);
+  it.each([{ width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }, { width: 1440, height: 900 }])("role evidence amount states fit at $width", async (viewport) => {
+    const base = {
+      primaryRole: "avenger", secondaryRole: "zoneController", title: "복수의 추적자", roleLabel: "복수자 (Avenger) · 보조: 전장 통제자",
+      description: "아군을 기절시킨 적을 빠르게 찾아 처치합니다.", evidence: ["복수 처치율 상위 3%", "복수 속도 상위 3%"], badges: [],
+      signatureWeapon: "M416", signatureWeaponStats: { kills: 3, dbnos: 2 }, scores: { avenger: 97.5 },
+      verdict: { kind: "confirmed", matchCount: 3, judgedRoles: 11, totalRoles: 12, headline: "", label: "", detail: "", note: "", observations: [] },
+    };
+    const cases = [
+      ["thin", { ...base, evidenceAmount: { strength: "thin", lines: ["복수 처치 1회 / 아군 기절 3회 · 1경기에서 확인"], note: "판정에 쓰인 행동 기록이 지표마다 1회 이하라 관측 성향으로 봅니다. 경기가 쌓이면 바뀔 수 있습니다." } }],
+      ["partial", { ...base, primaryRole: "executor", title: "결투의 제왕", roleLabel: "처형자 (Executor) · 보조: 복수자", description: "1:1 교전을 끝까지 이겨 내고, 불리한 교전도 뒤집습니다.",
+        evidenceAmount: { strength: "partial", lines: ["1:1 교전 26승 / 28회 · 3경기에서 확인", "보조 복수자: 복수 처치 1회 / 아군 기절 3회 · 1경기에서 확인 (근거 적음)"], note: "역전 승률 기록 없이 1:1 승률만으로 판정했습니다." } }],
+    ] as const;
+    for (const [name, roleInfo] of cases) {
+      const page = await browser.newPage();
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(String(error)));
+      await page.setViewport(viewport);
+      await page.setRequestInterception(true);
+      page.on("request", async (request) => {
+        if (!request.url().endsWith("/api/pubg/ai-summary")) return void await request.continue();
+        const lines = [
+          { type: "visuals", data: { overallTier: "B", latestMatchCount: 3, bestMatchCount: 3, roleInfo } },
+          { type: "cards", data: cards },
+          { type: "final", data: JSON.stringify({ schemaVersion: 2, analysisStatus: "partial", cards: finalCards, retryAfterSeconds: 300, signature: null, actionItems: null, finalVerdict: "확인된 항목만 평가했습니다." }) },
+          { type: "done", valid: true, partial: true, retryAfterSeconds: 300 },
+        ];
+        await request.respond({ status: 200, contentType: "application/x-ndjson", body: lines.map((line) => JSON.stringify(line)).join("\n") });
+      });
+      try {
+        await page.goto(baseUrl, { waitUntil: "networkidle0" });
+        await clickText(page, "최근 최대 10경기 AI 끝장 토론 시작");
+        await page.waitForFunction((text) => document.body.innerText.includes(text), {}, message);
+        await clickText(page, "상세 분석 리포트 펼치기");
+        await page.waitForSelector('[data-testid="role-evidence-amount"]', { visible: true });
+        const read = (testId: string) => page.$eval(`[data-testid="${testId}"]`, (element) => element.textContent?.trim() ?? "").catch(() => null);
+        expect(await read("role-title")).toBe(roleInfo.title);
+        expect(await read("role-evidence-amount")).toBe(`근거량: ${roleInfo.evidenceAmount.lines.join(" · ")}`);
+        if (name === "thin") {
+          expect(await read("role-kicker")).toBe("관측 성향");
+          expect(await read("role-label")).toBe(`근거 적음 · ${roleInfo.roleLabel}`);
+          expect(await read("role-description")).toBe(roleInfo.evidenceAmount.note);
+        } else {
+          expect(await read("role-kicker")).toBe("전술적 정체성");
+          expect(await read("role-evidence-note")).toBe(roleInfo.evidenceAmount.note);
+        }
+        const layout = await page.evaluate(() => ({
+          scrollOverflow: document.documentElement.scrollWidth > innerWidth,
+          overflowing: ["role-title", "role-label", "role-evidence-amount", "role-evidence-note", "role-description", "role-scope"].filter((testId) => {
+            const element = document.querySelector(`[data-testid="${testId}"]`);
+            if (!element) return false;
+            const rect = element.getBoundingClientRect();
+            return rect.left < 0 || rect.right > innerWidth + 0.5;
+          }),
+        }));
+        console.log(JSON.stringify({ kind: "role-evidence-layout", name, viewport, ...layout }));
+        expect(layout.scrollOverflow).toBe(false);
+        expect(layout.overflowing).toEqual([]);
+        if (process.env.SUMMARY_BROWSER_SCREENSHOT_DIR) {
+          await page.$eval('[data-testid="role-title"]', (element) => element.scrollIntoView({ block: "center" }));
+          await page.waitForFunction(() => {
+            const card = document.querySelector('[data-testid="role-title"]')?.closest(".animate-in");
+            return !card || getComputedStyle(card).opacity === "1";
+          }, { timeout: 5_000 });
+          await page.screenshot({ path: join(process.env.SUMMARY_BROWSER_SCREENSHOT_DIR, `role-evidence-${name}-${viewport.width}.png`) });
+        }
+        expect(errors).toEqual([]);
+      } finally {
+        await page.close();
+      }
+    }
+  }, 60_000);
+
   it.each([{ width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }, { width: 1440, height: 900 }])("role verdict states fit and clear on search switch at $width", async (viewport) => {
     const below = {
       primaryRole: "balanced", secondaryRole: null, title: "균형형 전술가", roleLabel: "균형형",

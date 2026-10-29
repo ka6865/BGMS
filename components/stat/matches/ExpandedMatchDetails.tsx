@@ -1610,6 +1610,11 @@ export const ExpandedMatchDetails = ({
                               </div>
                               <h3 className="text-3xl font-black text-white mb-2 leading-tight">{data.signature}</h3>
                               <p className="text-gray-400 text-sm font-medium">{data.signatureSub}</p>
+                              {data.signature && (
+                                <p className="mt-2 text-[11px] font-bold text-gray-500 break-keep" data-testid="match-signature-scope">
+                                  이번 한 경기 기록으로 붙인 별명입니다. 최근 경기 요약의 칭호와 다를 수 있습니다.
+                                </p>
+                              )}
                             </div>
                           </div>
 
