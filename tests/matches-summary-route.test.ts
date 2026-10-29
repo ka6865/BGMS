@@ -1,12 +1,13 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RESULT_VERSION } from "@/lib/pubg-analysis/constants";
-import { isPlayerPrivate } from "@/lib/pubg/privatePlayers";
+import { getPrivatePlayersList, isPlayerPrivate } from "@/lib/pubg/privatePlayers";
 import { buildBasicMatchSummary } from "@/lib/pubg-analysis/matchSummary";
 
 vi.mock("@/lib/pubg/privatePlayers", () => ({
   isPlayerPrivate: vi.fn().mockResolvedValue(false),
   getCachedPlayerAccountId: vi.fn(async () => database.accountId),
+  getPrivatePlayersList: vi.fn(async () => []),
 }));
 vi.mock("@/lib/pubg/privatePlayerIdentity", () => ({
   resolvePrivatePlayerAccountId: vi.fn().mockResolvedValue(null),
@@ -94,6 +95,7 @@ function basicRow(matchId: string) {
 describe("matches-summary raw timestamp fallback", () => {
   beforeEach(() => {
     vi.mocked(isPlayerPrivate).mockReset().mockResolvedValue(false);
+    vi.mocked(getPrivatePlayersList).mockClear();
     database.rows = {
       processed_match_telemetry: [],
       pubg_player_matches: [],
@@ -488,6 +490,9 @@ describe("matches-summary raw timestamp fallback", () => {
     expect(ingestMatch).toHaveBeenCalledTimes(19);
     expect(ingestMatch.mock.calls.map((call) => call[1])).toEqual(ids.slice(1));
     expect(ingestMatch.mock.calls[0][5].signal).toBe(req.signal);
+    // 비공개 목록은 요청당 한 번 읽어 모든 경기 수집에 같이 넘긴다.
+    expect(getPrivatePlayersList).toHaveBeenCalledTimes(1);
+    expect(ingestMatch.mock.calls.every((call) => Array.isArray(call[5].privatePlayers))).toBe(true);
     expect(body.nextMatchIds).toEqual([]);
     expect(body.collectionStopped).toBe(false);
     expect(body.missingMatchIds).toEqual(ids.slice(1));

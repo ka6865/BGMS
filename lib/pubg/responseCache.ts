@@ -125,6 +125,19 @@ export async function writePubgCache(
   }
 }
 
+// 시즌 목록은 플레이어와 무관하게 플랫폼별로 같으므로 짧게 공유한다. /seasons도 PUBG 분당 호출 한도를 쓴다.
+// 플레이어 전적 응답 캐시(player:*)와는 키를 나눠, 전적 조회가 오래된 플레이어 응답을 읽지 않게 한다.
+export const SEASONS_CACHE_TTL_SECONDS = 60 * 60;
+const seasonsCacheKey = (platform: string) => `seasons:v1:${platform.trim().toLowerCase()}`;
+
+export async function readPubgSeasonsCache<T = unknown>(platform: string): Promise<T | null> {
+  return readPubgCache<T>(seasonsCacheKey(platform));
+}
+
+export async function writePubgSeasonsCache(platform: string, seasons: unknown): Promise<void> {
+  await writePubgCache(seasonsCacheKey(platform), seasons, SEASONS_CACHE_TTL_SECONDS);
+}
+
 /**
  * 강제 갱신 권한을 클레임합니다.
  * DB 를 사용할 수 없으면 인스턴스 로컬 쿨다운으로 대체합니다(성능 저하 모드).

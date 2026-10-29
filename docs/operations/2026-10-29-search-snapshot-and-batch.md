@@ -48,6 +48,13 @@ migration `20261029030000_lol_guard_snapshot_fixes.sql`(리뷰 반영, 아래 "�
 - `/api/pubg/matches-summary`가 요청 한 번에 새로 받는 경기 수를 5개에서 `RECENT_MATCH_LIMIT`(20)로 늘렸다. 화면은 최근 20개를 보내므로 처음 검색한 플레이어도 요청 1번으로 끝난다.
 - `/matches`는 PUBG 호출 한도에 포함되지 않는다. 429·401·403 또는 전부 실패 시 `collectionStopped`로 멈추는 규칙은 그대로다. 입력이 최대 20개라 `nextMatchIds`는 지금 항상 빈 배열이고, 실패한 경기는 `missingMatchIds`로 남아 사용자의 다시 시도 대상이 된다.
 - [2026-09-13 감사 기록](2026-09-13-ranking-refresh-audit.md)의 "최대 5건"은 당시 상태다.
+- (2026-10-30) 같은 요청의 20개 경기 수집은 비공개 목록을 한 번만 읽어 넘긴다(`BasicMatchIngestOptions.privatePlayers`). 읽기에 실패하면 경기마다 다시 읽어 기존처럼 실패로 닫는다. DB 저장 동시 실행 수는 측정 전이라 20 그대로다.
+
+## PUBG: 시즌 목록 공유와 갱신 재시도 안내 (2026-10-30)
+
+- `/api/pubg/player`는 `/seasons` 결과를 플랫폼별 1시간 공유 캐시(`pubg_response_cache`, 키 `seasons:v1:{platform}`, `readPubgSeasonsCache`/`writePubgSeasonsCache`)로 재사용한다. 갱신·처음 검색마다 나가던 분당 10회 한도 호출이 1시간에 1번으로 준다. 캐시 장애는 PUBG 조회로 대신한다. 플레이어 응답 캐시(`player:*`)는 계속 쓰지 않는다.
+- 강제 갱신(또는 자동 갱신)이 60초 잠금을 잡은 뒤 상류 오류로 실패하면 `Retry-After`와 본문 `retryAfterSeconds`를 60초 이상으로 돌려준다. 화면은 이 값으로 갱신 버튼을 막아, 안내(30초)대로 다시 눌렀다가 "1분에 한 번" 429를 받던 문제를 없앤다. 잠금은 그대로 유지한다(실패한 호출도 한도를 썼을 수 있어서).
+- 웹의 오래된 프로필 자동 갱신은 켜지 않았다(공유 호출 예산과 같은 계정 동시 조회 합류가 먼저 필요).
 
 ## 리뷰 반영 (2026-10-30)
 

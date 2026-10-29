@@ -13,6 +13,7 @@ import { normalizeMatchId } from "@/lib/pubg-analysis/recentMatchSelection";
 import { normalizeRecentMatchIds, RECENT_MATCH_LIMIT } from "@/lib/pubg/recentMatches";
 import { blockPrivatePlayer } from "@/lib/pubg/privatePlayerGuard";
 import { resolveCachedPlayerAccountId } from "@/lib/pubg/privatePlayerCache";
+import { getPrivatePlayersList } from "@/lib/pubg/privatePlayers";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -212,16 +213,19 @@ export async function POST(request: NextRequest) {
     }
 
     // 최근 경기 한 화면(최대 20개)을 한 번에 병렬로 받는다. /matches는 PUBG 호출 한도에 포함되지 않는다.
-    // 처리하지 못한 ID는 nextMatchIds로 돌려 실패한 경기가 뒤 경기를 막지 않게 한다.
+    // 입력이 최대 20개라 nextMatchIds는 지금 항상 빈 배열이다. 실패한 경기는 missingMatchIds로 남아 사용자가 다시 시도한다.
     const uningestedIds = matchIds.filter((id: string) => !storedIds.has(id));
     let nextMatchIds: string[] = [];
     let collectionStopped = false;
     if (body.collect !== false && uningestedIds.length > 0) {
       const apiKey = (process.env.PUBG_API_KEY || "").split(" ")[0];
       if (apiKey) {
+        // 비공개 목록은 요청당 한 번만 읽는다. 읽기에 실패하면 경기마다 다시 읽어 기존처럼 실패로 닫는다.
+        const privatePlayers = await getPrivatePlayersList(supabase).catch(() => undefined);
         const outcomes = await Promise.all(
           uningestedIds.slice(0, MATCH_COLLECTION_BATCH).map((id: string) =>
-            fetchAndIngestBasicMatchSummaryOutcome(supabase, id, playerId, platform, apiKey, { signal: request.signal, ...(accountId ? { expectedAccountId: accountId } : {}) })
+            fetchAndIngestBasicMatchSummaryOutcome(supabase, id, playerId, platform, apiKey, { signal: request.signal,
+              ...(accountId ? { expectedAccountId: accountId } : {}), ...(privatePlayers ? { privatePlayers } : {}) })
           )
         );
 
