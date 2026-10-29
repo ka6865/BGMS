@@ -15,6 +15,8 @@ vi.mock("@/lib/lol/persistence.server", async (original) => ({
   hasLolBenchmarkProcessedMatch: mocks.processed,
   aggregateLolMatchBenchmarks: mocks.aggregate, reserveLolRiotRequest: mocks.reserve, startLolRiotRequest: mocks.start,
   releaseLolRiotRequest: mocks.releaseRequest, recordLolRiotRateHeaders: mocks.recordHeaders, blockLolRiotRequests: mocks.block,
+  // 실제 함수는 헤더 기록과 해제를 한 RPC로 처리한다. 기존 단정을 유지하려고 두 mock을 차례로 부른다.
+  finishLolRiotRequest: async (token: string, host: string, headers: Headers) => { await mocks.recordHeaders(host, headers); await mocks.releaseRequest(token); },
 }));
 import { POST } from "@/app/api/admin/lol/collect/route";
 import { collectLolMatches } from "@/lib/lol/riotSearch.server";

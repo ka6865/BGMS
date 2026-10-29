@@ -201,6 +201,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       }
     `), import.meta.url);
     if (process.env.LOL_PERSISTENCE_ENABLED !== "true") throw new Error("공유 호출 제한(LOL_PERSISTENCE_ENABLED=true)이 필요합니다.");
+    // 사용자 검색보다 적은 몫(이동 구간 한도의 50%)만 쓰도록 백그라운드 우선순위로 예약한다.
+    process.env.LOL_RIOT_PRIORITY ??= "background";
     const { requestJson, RiotSearchError } = await import("../lib/lol/riotSearch.server");
     const { getLolDataDragonVersion } = await import("../lib/lol/dataDragon.server");
     const { classifyLolItems } = await import("../lib/lol/championStats");

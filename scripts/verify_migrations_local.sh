@@ -130,6 +130,7 @@ MIGRATIONS=(
   "20261028120000_benchmark_counter_latency_split"
   "20261028130000_lol_champion_stats"
   "20261028140000_first_reply_evidence"
+  "20261029010000_lol_riot_window_guard"
 )
 
 cleanup() {
