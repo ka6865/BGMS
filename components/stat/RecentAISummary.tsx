@@ -65,9 +65,9 @@ interface DebateData {
     //  API 응답 실제 구조에 맞게 정리: latency 객체는 미사용, counterLatency만 실제 사용됨
     counterLatency?: string;
     tierBreakdown?: {
-      combat: number;
-      tactical: number;
-      survival: number;
+      combat: number | null;
+      tactical: number | null;
+      survival: number | null;
       total: number;
     };
     latestMatchTime?: string;
@@ -248,7 +248,8 @@ export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | 
     const tactical = finiteVisualNumber(tierSource.tactical, 0, 100);
     const survival = finiteVisualNumber(tierSource.survival, 0, 100);
     const total = finiteVisualNumber(tierSource.total, 0, 100);
-    if (combat !== null && tactical !== null && survival !== null && total !== null) {
+    // 축 하나가 측정 불가여도 총점과 나머지 축은 보존한다. 누락 축을 0으로 바꾸지 않는다.
+    if (total !== null && [combat, tactical, survival].some((axis) => axis !== null)) {
       normalized.tierBreakdown = { combat, tactical, survival, total };
     }
   }
@@ -1649,7 +1650,8 @@ export const RecentAISummary = ({
         {debateData?.visuals?.tierBreakdown && (
           <SpiderChart
             nickname={nickname}
-            bestMatchCount={debateData.visuals.bestMatchCount}
+            bestMatchCount={debateData.visuals.tierMatchCount}
+            tierScope={debateData.visuals.tierScope}
             data={{
               combat: debateData.visuals.tierBreakdown.combat,
               tactical: debateData.visuals.tierBreakdown.tactical,
@@ -1818,15 +1820,15 @@ export const RecentAISummary = ({
                           <div className="space-y-2.5">
                             <div className="flex justify-between items-center">
                               <span className="text-[11px] text-gray-400 font-bold">교전 점수</span>
-                              <span className="text-[12px] text-indigo-400 font-black">{debateData.visuals.tierBreakdown.combat}</span>
+                              <span className="text-[12px] text-indigo-400 font-black">{debateData.visuals.tierBreakdown.combat ?? "측정 불가"}</span>
                             </div>
                             <div className="flex justify-between items-center">
                               <span className="text-[11px] text-gray-400 font-bold">전술 점수</span>
-                              <span className="text-[12px] text-emerald-400 font-black">{debateData.visuals.tierBreakdown.tactical}</span>
+                              <span className="text-[12px] text-emerald-400 font-black">{debateData.visuals.tierBreakdown.tactical ?? "측정 불가"}</span>
                             </div>
                             <div className="flex justify-between items-center">
                               <span className="text-[11px] text-gray-400 font-bold">생존 점수</span>
-                              <span className="text-[12px] text-yellow-400 font-black">{debateData.visuals.tierBreakdown.survival}</span>
+                              <span className="text-[12px] text-yellow-400 font-black">{debateData.visuals.tierBreakdown.survival ?? "측정 불가"}</span>
                             </div>
                             <div className="pt-2 mt-2 border-t border-white/10 flex justify-between items-center">
                               <span className="text-[11px] text-white font-black uppercase">잠재 점수</span>

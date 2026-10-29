@@ -450,7 +450,8 @@ describe("RecentAISummary callback bridge", () => {
         type: "visuals",
         data: {
           bestMatchCount: 4,
-          tierBreakdown: { combat: 80, tactical: 70, survival: 60, total: 70 },
+          tierBreakdown: { combat: 32, tactical: 21, survival: 20, total: 73 },
+          tierScope: "team", tierMatchCount: 3,
         },
       },
       { type: "final", data: JSON.stringify(aiReady) },
@@ -463,12 +464,43 @@ describe("RecentAISummary callback bridge", () => {
 
     await waitFor(() => expect(spiderChartProps.current).not.toBeNull());
     expect(spiderChartProps.current).toMatchObject({
-      data: { combat: 80, tactical: 70, survival: 60 },
-      bestMatchCount: 4,
+      data: { combat: 32, tactical: 21, survival: 20 },
+      bestMatchCount: 3, tierScope: "team",
     });
     expect(spiderChartProps.current?.data).not.toHaveProperty("growth");
     expect(spiderChartProps.current?.data).not.toHaveProperty("vision");
     expect(spiderChartProps.current?.data).not.toHaveProperty("teamwork");
+  });
+
+  it("측정 불가 축은 0으로 바꾸지 않고 총점·나머지 축과 함께 SpiderChart와 티어 설명에 전달한다", async () => {
+    expect(normalizeRouteOwnedVisuals({ tierBreakdown: { combat: 0, tactical: null, survival: "12.5", total: 30 } })?.tierBreakdown)
+      .toEqual({ combat: 0, tactical: null, survival: 12.5, total: 30 });
+    expect(normalizeRouteOwnedVisuals({ tierBreakdown: { combat: null, tactical: undefined, survival: "", total: 30 } })?.tierBreakdown).toBeUndefined();
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      {
+        type: "visuals",
+        data: {
+          overallTier: "C+",
+          tierBreakdown: { combat: 15, tactical: 0, survival: null, total: 30 },
+          tierScope: "team", tierMatchCount: 3,
+          roleInfo: { primaryRole: "balanced", secondaryRole: null, title: "균형형 전술가", roleLabel: "균형형", description: "fixture", signatureWeapon: "M416", scores: {} },
+        },
+      },
+      { type: "final", data: JSON.stringify(aiReady) },
+      { type: "done", valid: true },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(createElement(RecentAISummary, { ...baseProps, onSummaryChange: vi.fn() }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+
+    await waitFor(() => expect(spiderChartProps.current).not.toBeNull());
+    expect(spiderChartProps.current).toMatchObject({ data: { combat: 15, tactical: 0, survival: null }, bestMatchCount: 3, tierScope: "team" });
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /잠재 티어 산정 방법 보기/ }).parentElement!);
+    expect(await screen.findByText("측정 불가")).toBeInTheDocument();
+    expect(screen.getByText("생존 점수").nextElementSibling?.textContent).toBe("측정 불가");
+    expect(screen.getByText("전술 점수").nextElementSibling?.textContent).toBe("0");
+    expect(document.body.textContent).not.toMatch(/NaN|Infinity|undefined/);
   });
 
   it("malformed route-owned visuals는 UI에 NaN/Infinity/임의 필드를 전달하지 않는다", async () => {

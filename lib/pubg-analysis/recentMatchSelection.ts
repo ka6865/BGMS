@@ -126,6 +126,22 @@ export function normalizeBenchmarkScore(value: unknown): number {
   return Math.max(0, Math.min(100, score));
 }
 
+/**
+ * 표시용 점수 축. 누락·빈 문자열·비유한 값은 0이 아니라 null(측정 불가)이다.
+ * 숫자와 숫자 문자열은 normalizeBenchmarkScore와 같은 0~100 범위로 맞춘다.
+ */
+export function normalizeObservedBenchmarkScore(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && value.trim() === "") return null;
+  let score: number;
+  try {
+    score = Number(value);
+  } catch {
+    return null;
+  }
+  return Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : null;
+}
+
 function benchmarkScoreForCandidate(candidate: RecentMatchCandidate<unknown>): number {
   if (!candidate.value || typeof candidate.value !== "object") return 0;
   const benchmark = (candidate.value as { benchmark?: unknown }).benchmark;
