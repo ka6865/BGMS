@@ -461,7 +461,8 @@ describe("RecentAISummary callback bridge", () => {
         type: "visuals",
         data: {
           bestMatchCount: 4,
-          tierBreakdown: { combat: 80, tactical: 70, survival: 60, total: 70 },
+          tierBreakdown: { combat: 32, tactical: 21, survival: 20, total: 73 },
+          tierScope: "team", tierMatchCount: 3,
         },
       },
       { type: "final", data: JSON.stringify(aiReady) },
@@ -474,8 +475,8 @@ describe("RecentAISummary callback bridge", () => {
 
     await waitFor(() => expect(spiderChartProps.current).not.toBeNull());
     expect(spiderChartProps.current).toMatchObject({
-      data: { combat: 80, tactical: 70, survival: 60 },
-      bestMatchCount: 4,
+      data: { combat: 32, tactical: 21, survival: 20 },
+      bestMatchCount: 3, tierScope: "team",
     });
     expect(spiderChartProps.current?.data).not.toHaveProperty("growth");
     expect(spiderChartProps.current?.data).not.toHaveProperty("vision");
@@ -525,6 +526,71 @@ describe("RecentAISummary callback bridge", () => {
     fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body)).matchIds).toEqual(["match-0", "match-1", "match-2"]);
+  });
+
+  it("측정 불가 축은 0으로 바꾸지 않고 총점·나머지 축과 함께 SpiderChart와 티어 설명에 전달한다", async () => {
+    expect(normalizeRouteOwnedVisuals({ tierBreakdown: { combat: 0, tactical: null, survival: "12.5", total: 30 } })?.tierBreakdown)
+      .toEqual({ combat: 0, tactical: null, survival: 12.5, total: 30 });
+    // 모든 축이 측정 불가여도 유효한 총점은 보존한다. 총점 자체가 없거나 범위를 벗어나면 버린다.
+    expect(normalizeRouteOwnedVisuals({ tierBreakdown: { combat: null, tactical: undefined, survival: "", total: 50 } })?.tierBreakdown)
+      .toEqual({ combat: null, tactical: null, survival: null, total: 50 });
+    expect(normalizeRouteOwnedVisuals({ tierBreakdown: { combat: false, tactical: true, survival: [42], total: "0" } })?.tierBreakdown)
+      .toEqual({ combat: null, tactical: null, survival: null, total: 0 });
+    expect(normalizeRouteOwnedVisuals({ tierBreakdown: { combat: 0, tactical: "0", survival: 1, total: null } })?.tierBreakdown).toBeUndefined();
+    expect(normalizeRouteOwnedVisuals({ tierBreakdown: { combat: 0, tactical: 0, survival: 0, total: 101 } })?.tierBreakdown).toBeUndefined();
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      {
+        type: "visuals",
+        data: {
+          overallTier: "C+",
+          tierBreakdown: { combat: 15, tactical: 0, survival: null, total: 30 },
+          tierScope: "team", tierMatchCount: 3,
+          roleInfo: { primaryRole: "balanced", secondaryRole: null, title: "균형형 전술가", roleLabel: "균형형", description: "fixture", signatureWeapon: "M416", scores: {} },
+        },
+      },
+      { type: "final", data: JSON.stringify(aiReady) },
+      { type: "done", valid: true },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(createElement(RecentAISummary, { ...baseProps, onSummaryChange: vi.fn() }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+
+    await waitFor(() => expect(spiderChartProps.current).not.toBeNull());
+    expect(spiderChartProps.current).toMatchObject({ data: { combat: 15, tactical: 0, survival: null }, bestMatchCount: 3, tierScope: "team" });
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /잠재 티어 산정 방법 보기/ }).parentElement!);
+    // 다른 카드도 "측정 불가"를 쓸 수 있으므로 티어 설명의 해당 행만 확인한다.
+    await screen.findByText("생존 점수");
+    expect(screen.getByText("생존 점수").nextElementSibling?.textContent).toBe("측정 불가");
+    expect(screen.getByText("전술 점수").nextElementSibling?.textContent).toBe("0");
+    expect(document.body.textContent).not.toMatch(/NaN|Infinity|undefined/);
+  });
+
+  it("세 축이 모두 측정 불가여도 유효 총점 50은 그대로 표시하고 완성 도형은 그리지 않는다", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(ndjsonResponse([
+      {
+        type: "visuals",
+        data: {
+          overallTier: "B+",
+          tierBreakdown: { combat: null, tactical: null, survival: null, total: 50 },
+          tierScope: "team", tierMatchCount: 3,
+          roleInfo: { primaryRole: "balanced", secondaryRole: null, title: "균형형 전술가", roleLabel: "균형형", description: "fixture", signatureWeapon: "M416", scores: {} },
+        },
+      },
+      { type: "final", data: JSON.stringify(aiReady) },
+      { type: "done", valid: true },
+    ]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(createElement(RecentAISummary, { ...baseProps, onSummaryChange: vi.fn() }));
+    fireEvent.click(screen.getByRole("button", { name: /최근 최대 10경기 AI 끝장 토론 시작/ }));
+
+    await waitFor(() => expect(spiderChartProps.current).not.toBeNull());
+    expect(spiderChartProps.current).toMatchObject({ data: { combat: null, tactical: null, survival: null }, bestMatchCount: 3, tierScope: "team" });
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /잠재 티어 산정 방법 보기/ }).parentElement!);
+    await screen.findByText("교전 점수");
+    for (const label of ["교전 점수", "전술 점수", "생존 점수"]) expect(screen.getByText(label).nextElementSibling?.textContent).toBe("측정 불가");
+    expect(screen.getByText("잠재 점수").nextElementSibling?.textContent).toBe("50");
   });
 
   it("malformed route-owned visuals는 UI에 NaN/Infinity/임의 필드를 전달하지 않는다", async () => {

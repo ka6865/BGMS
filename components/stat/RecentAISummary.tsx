@@ -65,9 +65,9 @@ interface DebateData {
     //  API 응답 실제 구조에 맞게 정리: latency 객체는 미사용, counterLatency만 실제 사용됨
     counterLatency?: string;
     tierBreakdown?: {
-      combat: number;
-      tactical: number;
-      survival: number;
+      combat: number | null;
+      tactical: number | null;
+      survival: number | null;
       total: number;
     };
     latestMatchTime?: string;
@@ -244,11 +244,17 @@ export function normalizeRouteOwnedVisuals(value: unknown): RouteOwnedVisuals | 
   const tierBreakdown = source.tierBreakdown;
   if (tierBreakdown && typeof tierBreakdown === "object" && !Array.isArray(tierBreakdown)) {
     const tierSource = tierBreakdown as Record<string, unknown>;
-    const combat = finiteVisualNumber(tierSource.combat, 0, 100);
-    const tactical = finiteVisualNumber(tierSource.tactical, 0, 100);
-    const survival = finiteVisualNumber(tierSource.survival, 0, 100);
-    const total = finiteVisualNumber(tierSource.total, 0, 100);
-    if (combat !== null && tactical !== null && survival !== null && total !== null) {
+    // 축은 숫자와 숫자 문자열만 받는다. boolean·배열 등은 0/1로 바꾸지 않고 측정 불가로 둔다.
+    const axis = (value: unknown) => typeof value === "number" || typeof value === "string" ? finiteVisualNumber(value, 0, 100) : null;
+    const combat = axis(tierSource.combat);
+    const tactical = axis(tierSource.tactical);
+    const survival = axis(tierSource.survival);
+    // 서버 총점은 0~100으로 정규화돼 있다. 범위를 벗어난 총점은 잘못된 값으로 보고 breakdown을 버린다.
+    const rawTotal = typeof tierSource.total === "number" || typeof tierSource.total === "string"
+      ? finiteVisualNumber(tierSource.total, Number.NEGATIVE_INFINITY, Number.POSITIVE_INFINITY) : null;
+    const total = rawTotal !== null && rawTotal >= 0 && rawTotal <= 100 ? rawTotal : null;
+    // 총점이 유효하면 축이 모두 측정 불가여도 총점을 보존한다. 누락 축을 0으로 바꾸지 않는다.
+    if (total !== null) {
       normalized.tierBreakdown = { combat, tactical, survival, total };
     }
   }
@@ -1677,7 +1683,8 @@ export const RecentAISummary = ({
         {debateData?.visuals?.tierBreakdown && (
           <SpiderChart
             nickname={nickname}
-            bestMatchCount={debateData.visuals.bestMatchCount}
+            bestMatchCount={debateData.visuals.tierMatchCount}
+            tierScope={debateData.visuals.tierScope}
             data={{
               combat: debateData.visuals.tierBreakdown.combat,
               tactical: debateData.visuals.tierBreakdown.tactical,
@@ -1846,15 +1853,15 @@ export const RecentAISummary = ({
                           <div className="space-y-2.5">
                             <div className="flex justify-between items-center">
                               <span className="text-[11px] text-gray-400 font-bold">교전 점수</span>
-                              <span className="text-[12px] text-indigo-400 font-black">{debateData.visuals.tierBreakdown.combat}</span>
+                              <span className="text-[12px] text-indigo-400 font-black">{debateData.visuals.tierBreakdown.combat ?? "측정 불가"}</span>
                             </div>
                             <div className="flex justify-between items-center">
                               <span className="text-[11px] text-gray-400 font-bold">전술 점수</span>
-                              <span className="text-[12px] text-emerald-400 font-black">{debateData.visuals.tierBreakdown.tactical}</span>
+                              <span className="text-[12px] text-emerald-400 font-black">{debateData.visuals.tierBreakdown.tactical ?? "측정 불가"}</span>
                             </div>
                             <div className="flex justify-between items-center">
                               <span className="text-[11px] text-gray-400 font-bold">생존 점수</span>
-                              <span className="text-[12px] text-yellow-400 font-black">{debateData.visuals.tierBreakdown.survival}</span>
+                              <span className="text-[12px] text-yellow-400 font-black">{debateData.visuals.tierBreakdown.survival ?? "측정 불가"}</span>
                             </div>
                             <div className="pt-2 mt-2 border-t border-white/10 flex justify-between items-center">
                               <span className="text-[11px] text-white font-black uppercase">잠재 점수</span>

@@ -9,36 +9,120 @@ import { IsolationRadar } from "../components/stat/IsolationRadar";
 import { SpiderChart } from "../components/stat/SpiderChart";
 
 describe("server-owned stat components", () => {
-  it("SpiderChart renders only the exact server-owned combat/tactical/survival axes", () => {
+  it("SpiderChart shows team scores against their actual caps and describes achievement, not a title", () => {
     render(createElement(SpiderChart, {
       nickname: "FixturePlayer",
       bestMatchCount: 4,
-      data: { combat: 80, tactical: 70, survival: 60 },
+      tierScope: "team",
+      data: { combat: 32, tactical: 28, survival: 20 },
     }));
 
     expect(screen.getByText("전투")).toBeInTheDocument();
     expect(screen.getByText("전술")).toBeInTheDocument();
     expect(screen.getByText("생존")).toBeInTheDocument();
-    expect(screen.getAllByText("80").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("70").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("60").length).toBeGreaterThan(0);
+    expect(screen.getByText("32/40")).toBeInTheDocument();
+    expect(screen.getByText("28/35")).toBeInTheDocument();
+    expect(screen.getByText("20/25")).toBeInTheDocument();
     expect(screen.queryByText("시야")).not.toBeInTheDocument();
     expect(screen.queryByText("협력")).not.toBeInTheDocument();
     expect(screen.queryByText("성장")).not.toBeInTheDocument();
-    expect(screen.queryByText("75")).not.toBeInTheDocument();
-    expect(screen.getByText("점수 상위 4판 전술 플레이스타일")).toBeInTheDocument();
+    expect(screen.getByText("4경기 기준 · 3영역 점수 분포")).toBeInTheDocument();
+    expect(screen.getByText("각 영역 배점 대비 달성률이며 백분위가 아닙니다.")).toBeInTheDocument();
+    expect(screen.queryByText(/공격적 돌격병|지능형 생존가|균형잡힌 전술가/)).not.toBeInTheDocument();
     expect(screen.queryByText(/PUBG 공식 평점|BGMS 자체 산정/)).not.toBeInTheDocument();
   });
 
-  it("SpiderChart finite-normalizes malformed server-owned axes", () => {
-    render(createElement(SpiderChart, {
-      nickname: "MalformedPlayer",
-      data: { combat: Number.NaN, tactical: Number.POSITIVE_INFINITY, survival: "bad" },
-    } as any));
+  it("SpiderChart shows every axis as unobserved without a polygon when all three are missing", () => {
+    const { container } = render(createElement(SpiderChart, {
+      nickname: "AllMissingPlayer",
+      tierScope: "team",
+      bestMatchCount: 3,
+      data: { combat: null, tactical: null, survival: null },
+    }));
+    expect(screen.getAllByText("측정 불가")).toHaveLength(3);
+    expect(container.querySelector('path[stroke="#6366f1"]')).not.toBeInTheDocument();
+  });
 
-    expect(document.body.textContent).not.toMatch(/NaN|Infinity|undefined/);
-    expect(screen.getAllByText("0").length).toBeGreaterThanOrEqual(3);
-    expect(document.querySelector("path")?.getAttribute("d")).not.toMatch(/NaN|Infinity|undefined/);
+  it("SpiderChart leaves the complete polygon out when scope or an axis is missing", () => {
+    render(createElement(SpiderChart, {
+      nickname: "MissingPlayer",
+      tierScope: "team",
+      data: { combat: 32, tactical: null, survival: 0 },
+    }));
+
+    expect(screen.getByText("32/40")).toBeInTheDocument();
+    expect(screen.getByText("측정 불가")).toBeInTheDocument();
+    expect(screen.getByText("0/25")).toBeInTheDocument();
+    expect(document.querySelector('path[stroke="#6366f1"]')).not.toBeInTheDocument();
+
+    render(createElement(SpiderChart, {
+      nickname: "LegacyPlayer",
+      data: { combat: 32, tactical: 28, survival: 20 },
+    }));
+    expect(screen.getByText("32점")).toBeInTheDocument();
+    expect(document.querySelector('path[stroke="#6366f1"]')).not.toBeInTheDocument();
+  });
+
+  it.each([undefined, "", Number.NaN])("SpiderChart treats %s as unobserved instead of zero", (tactical) => {
+    const { container } = render(createElement(SpiderChart, {
+      nickname: "UnobservedPlayer",
+      tierScope: "solo",
+      data: { combat: 0, tactical, survival: 10 } as any,
+    }));
+
+    expect(screen.getByText("0/50")).toBeInTheDocument();
+    expect(screen.getByText("측정 불가")).toBeInTheDocument();
+    expect(container.querySelector('path[stroke="#6366f1"]')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { tierScope: "team" as const, data: { combat: 40, tactical: 35, survival: 25 } },
+    { tierScope: "solo" as const, data: { combat: 50, tactical: 15, survival: 35 } },
+  ])("SpiderChart maps each $tierScope axis maximum to the chart edge", ({ tierScope, data }) => {
+    const { container } = render(createElement(SpiderChart, { nickname: "MaxPlayer", tierScope, data }));
+    const path = container.querySelector('path[stroke="#6366f1"]')!;
+    const coordinates = path.getAttribute("d")!.match(/-?\d+(?:\.\d+)?/g)!.map(Number);
+
+    expect(coordinates).toHaveLength(6);
+    for (let index = 0; index < 6; index += 2) {
+      expect(Math.hypot(coordinates[index] - 170, coordinates[index + 1] - 170)).toBeCloseTo(102);
+    }
+    for (const cap of Object.values(data)) expect(screen.getByText(`${cap}/${cap}`)).toBeInTheDocument();
+  });
+
+  it("SpiderChart gives team 32/40 and solo 40/50 the same 80% radius and caps only the plotted value", () => {
+    const readCombatRadius = (tierScope: "solo" | "team", combat: number) => {
+      const { container, unmount } = render(createElement(SpiderChart, {
+        nickname: "RatioPlayer",
+        tierScope,
+        data: { combat, tactical: 0, survival: 0 },
+      }));
+      const y = Number(container.querySelector('path[stroke="#6366f1"]')!.getAttribute("d")!.match(/^M\s+[-\d.]+\s+([-\d.]+)/)?.[1]);
+      unmount();
+      return 170 - y;
+    };
+
+    expect(readCombatRadius("team", 32)).toBeCloseTo(readCombatRadius("solo", 40));
+    render(createElement(SpiderChart, {
+      nickname: "OverCapPlayer",
+      tierScope: "team",
+      data: { combat: 45.5, tactical: 0, survival: 0 },
+    }));
+    expect(screen.getByText("45.5/40")).toBeInTheDocument();
+    const y = Number(document.querySelector('path[stroke="#6366f1"]')!.getAttribute("d")!.match(/^M\s+[-\d.]+\s+([-\d.]+)/)?.[1]);
+    expect(170 - y).toBeCloseTo(102);
+  });
+
+  it("SpiderChart keeps an observed zero at the center", () => {
+    const { container } = render(createElement(SpiderChart, {
+      nickname: "ZeroPlayer",
+      tierScope: "team",
+      data: { combat: 0, tactical: 0, survival: 0 },
+    }));
+    const path = container.querySelector('path[stroke="#6366f1"]')!;
+
+    expect(screen.getAllByText("0/40").length).toBeGreaterThan(0);
+    expect(path.getAttribute("d")).toBe("M 170 170 L 170 170 L 170 170 Z");
   });
 
   it("IsolationRadar matches the 200m / 2 normalization and labels minDist as average nearest ally distance", () => {

@@ -273,4 +273,47 @@ async function clickText(page: Page, text: string) {
     } finally {await page.close();}
   },30_000);
 
+  it.each([{ width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }, { width: 1440, height: 900 }])("score chart keeps unobserved axes out of the polygon at $width", async (viewport) => {
+    const page = await browser.newPage();
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(String(error)));
+    await page.setViewport(viewport);
+    await page.setRequestInterception(true);
+    page.on("request", async (request) => {
+      if (!request.url().endsWith("/api/pubg/ai-summary")) {
+        await request.continue();
+        return;
+      }
+      const roleInfo = { primaryRole: "balanced", secondaryRole: null, title: "균형형 전술가", roleLabel: "균형형", description: "fixture", signatureWeapon: "M416", scores: {} };
+      const lines = [
+        { type: "visuals", data: { overallTier: "C+", roleInfo, tierScope: "team", tierMatchCount: 3,
+          tierBreakdown: { combat: 15, tactical: 0, survival: null, total: 30 } } },
+        { type: "cards", data: cards },
+        { type: "final", data: JSON.stringify({ schemaVersion: 2, analysisStatus: "partial", cards: finalCards, retryAfterSeconds: 300, signature: null, actionItems: null, finalVerdict: "확인된 항목만 평가했습니다." }) },
+        { type: "done", valid: true, partial: true, retryAfterSeconds: 300 },
+      ];
+      await request.respond({ status: 200, contentType: "application/x-ndjson", body: lines.map((line) => JSON.stringify(line)).join("\n") });
+    });
+    try {
+      await page.goto(baseUrl, { waitUntil: "networkidle0" });
+      await clickText(page, "최근 최대 10경기 AI 끝장 토론 시작");
+      await page.waitForFunction((text) => document.body.innerText.includes(text), {}, message);
+      await clickText(page, "상세 분석 리포트 펼치기");
+      await page.waitForSelector('svg[aria-label$="3영역 점수 분포"]', { visible: true });
+      const chartText = await page.$eval('svg[aria-label$="3영역 점수 분포"]', (svg) => svg.textContent ?? "");
+      expect(chartText).toContain("15/40");
+      expect(chartText).toContain("0/35");
+      expect(chartText).toContain("측정 불가");
+      expect(await page.$('svg[aria-label$="3영역 점수 분포"] path[stroke="#6366f1"]')).toBeNull();
+      expect(await page.evaluate(() => document.body.innerText)).toContain("3경기 기준 · 3영역 점수 분포");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+      if (process.env.SUMMARY_BROWSER_SCREENSHOT_DIR) {
+        await page.$eval('svg[aria-label$="3영역 점수 분포"]', (element) => element.scrollIntoView({ block: "center" }));
+        await page.screenshot({ path: join(process.env.SUMMARY_BROWSER_SCREENSHOT_DIR, `score-chart-${viewport.width}.png`) });
+      }
+      expect(errors).toEqual([]);
+    } finally {
+      await page.close();
+    }
+  }, 30_000);
 });

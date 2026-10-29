@@ -4,6 +4,7 @@ import {
   buildMatchSelectionKey,
   normalizeMatchId,
   normalizeBenchmarkScore,
+  normalizeObservedBenchmarkScore,
   selectBestMatches,
   selectRecentMatches,
   type RecentMatchCandidate,
@@ -273,6 +274,14 @@ describe("recent match selection", () => {
     [100, 100],
   ])("clamps persisted benchmark score %s to the 0..100 contract", (input, expected) => {
     expect(normalizeBenchmarkScore(input)).toBe(expected);
+  });
+
+  it("표시용 점수 축은 숫자와 숫자 문자열만 받고 나머지는 측정 불가로 둔다", () => {
+    expect([0, "0", "12.5", 101, -3].map(normalizeObservedBenchmarkScore)).toEqual([0, 0, 12.5, 100, 0]);
+    expect([null, undefined, "", " ", "bad", Number.NaN, Infinity, false, true, [], [42], {}].map(normalizeObservedBenchmarkScore))
+      .toEqual(Array(12).fill(null));
+    // 총점·선정용 기존 정규화는 바꾸지 않는다.
+    expect([false, true, [], [42]].map(normalizeBenchmarkScore)).toEqual([0, 1, 0, 42]);
   });
 
   it("best5 cache key는 순서와 normalized score를 identity에 포함한다", () => {

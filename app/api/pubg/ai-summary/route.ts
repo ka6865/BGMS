@@ -35,6 +35,7 @@ import {
   buildMatchSelectionKey,
   normalizeMatchId,
   normalizeBenchmarkScore,
+  normalizeObservedBenchmarkScore,
   RECENT_MATCH_SELECTION_VERSION,
   selectBestMatches,
   selectRecentMatches,
@@ -1938,14 +1939,15 @@ export async function POST(request: Request) {
       // `bestMatches` already contains the canonical telemetry payloads used
       // by selectBestMatches. Keep score and breakdowns on that same source so
       // the score-aware cache key and potential tier cannot diverge from the
-      // values shown here. Numeric strings are accepted; zero is meaningful;
-      // nullish/non-finite values normalize to the selector's explicit zero.
+      // values shown here. Numeric strings are accepted; zero is meaningful.
+      // The total score keeps the selector's explicit zero, while a missing
+      // or non-finite display axis stays null so it is not shown as 0.
       const combinedScores = gMatches.map((matchData: any) => {
         const breakdown = matchData?.benchmark?.breakdown;
         return {
-          combat: normalizeBenchmarkScore(breakdown?.combat),
-          tactical: normalizeBenchmarkScore(breakdown?.tactical),
-          survival: normalizeBenchmarkScore(breakdown?.survival),
+          combat: normalizeObservedBenchmarkScore(breakdown?.combat),
+          tactical: normalizeObservedBenchmarkScore(breakdown?.tactical),
+          survival: normalizeObservedBenchmarkScore(breakdown?.survival),
           score: normalizeBenchmarkScore(matchData?.benchmark?.score),
         };
       });
@@ -2047,18 +2049,19 @@ export async function POST(request: Request) {
     const scopedGroupScores = overallGroupScores.filter((s) => s.tierScope === mainTierScope);
     mainTierMatchCount = scopedGroupScores.length;
     if (scopedGroupScores.length > 0) {
-      const validOverallCombat = scopedGroupScores.map((s) => normalizeBenchmarkScore(s.combat));
-      const validOverallTactical = scopedGroupScores.map((s) => normalizeBenchmarkScore(s.tactical));
-      const validOverallSurvival = scopedGroupScores.map((s) => normalizeBenchmarkScore(s.survival));
+      // 한 경기라도 축 기록이 없으면 그 축은 평균하지 않고 측정 불가(null)로 둔다.
+      const averageAxis = (values: Array<number | null>) => values.some((value) => value === null)
+        ? null
+        : Number(((values as number[]).reduce((a, b) => a + b, 0) / values.length).toFixed(1));
       const validOverallScores = scopedGroupScores.map((s) => normalizeBenchmarkScore(s.score));
       const overallAvgScore = validOverallScores.length > 0
         ? validOverallScores.reduce((a, b) => a + b, 0) / validOverallScores.length
         : 0;
 
       finalTierBreakdown = {
-        combat: Number((validOverallCombat.reduce((a, b) => a + b, 0) / validOverallCombat.length).toFixed(1)),
-        tactical: Number((validOverallTactical.reduce((a, b) => a + b, 0) / validOverallTactical.length).toFixed(1)),
-        survival: Number((validOverallSurvival.reduce((a, b) => a + b, 0) / validOverallSurvival.length).toFixed(1)),
+        combat: averageAxis(scopedGroupScores.map((s) => s.combat)),
+        tactical: averageAxis(scopedGroupScores.map((s) => s.tactical)),
+        survival: averageAxis(scopedGroupScores.map((s) => s.survival)),
         total: Number(overallAvgScore.toFixed(1)),
       };
       mainUserTier = estimateUserTier(overallAvgScore);
